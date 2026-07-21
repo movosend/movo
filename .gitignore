@@ -1,0 +1,27 @@
+# Node.js (movo-mobile, movo-admin, gateway, services/*, shared/)
+node_modules/
+dist/
+build/
+.next/
+.expo/
+*.log
+
+# Python (movo-svc-pricing-logistics)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Entornos y secretos
+.env
+.env.local
+*.env.local
+
+# Infra
+.terraform/
+*.tfstate
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
