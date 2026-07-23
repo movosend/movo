@@ -236,7 +236,12 @@ jobs:
           host: api.movosend.app
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: GHCR_USER,GHCR_PAT
           script: |
+            echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             cd ~/movo
             docker compose pull
             docker compose up -d --remove-orphans
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
