@@ -211,6 +211,19 @@ jobs:
             | jq -r 'to_entries[] | "\(.key)=\(.value)"' > .env
           echo "IMAGE_TAG=${{ env.IMAGE_TAG }}" >> .env
 
+      # Docker crea los directorios de los bind mounts (ver docker-compose.yml)
+      # como root si no existen todavía, lo que rompe el scp/tar de los pasos
+      # siguientes (corren como el usuario ssh, no root).
+      - name: Asegurar permisos de ~/movo en la EC2 de dev
+        uses: appleboy/ssh-action@v1
+        with:
+          host: api-dev.movosend.app
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            mkdir -p ~/movo
+            sudo chown -R "$(whoami)":"$(whoami)" ~/movo
+
       - name: Copiar docker-compose.yml a la EC2 de dev
         uses: appleboy/scp-action@v0.1.7
         with:
