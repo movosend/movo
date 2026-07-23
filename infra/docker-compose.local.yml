@@ -1,0 +1,66 @@
+# Uso local para levantar todo el stack antes de un push, buildeando las
+# imágenes desde el código fuente en vez de pullearlas de ghcr.io (ahí
+# todavía no existen hasta el primer push a develop/main).
+#
+# Uso (todos los servicios, incluido el proxy nginx):
+#   ./infra/local-certs.sh                      # una sola vez, genera cert self-signed
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+#
+# Para levantar solo los servicios de app (sin proxy, hablando directo a
+# cada puerto publicado):
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml \
+#     --profile local up --build movo-svc-users movo-svc-shipments \
+#     movo-svc-payments movo-svc-admin movo-svc-pricing-logistics gateway \
+#     postgres redis
+
+services:
+  proxy:
+    ports:
+      - "8443:443"
+      - "8080:80"
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro
+      # Cert self-signed generado por local-certs.sh, para no depender de
+      # Certbot/Let's Encrypt (que necesita un dominio real) en local.
+      - ./.local-certs:/etc/letsencrypt:ro
+      - ./.local-certs/webroot:/var/www/certbot:ro
+
+  gateway:
+    build:
+      context: ../gateway
+    image: gateway:local
+
+  movo-svc-users:
+    build:
+      context: ../services/movo-svc-users
+    image: movo-svc-users:local
+    ports:
+      - "3001:3000"
+
+  movo-svc-shipments:
+    build:
+      context: ../services/movo-svc-shipments
+    image: movo-svc-shipments:local
+    ports:
+      - "3002:3000"
+
+  movo-svc-payments:
+    build:
+      context: ../services/movo-svc-payments
+    image: movo-svc-payments:local
+    ports:
+      - "3003:3000"
+
+  movo-svc-admin:
+    build:
+      context: ../services/movo-svc-admin
+    image: movo-svc-admin:local
+    ports:
+      - "3004:3000"
+
+  movo-svc-pricing-logistics:
+    build:
+      context: ../services/movo-svc-pricing-logistics
+    image: movo-svc-pricing-logistics:local
+    ports:
+      - "3005:8000"

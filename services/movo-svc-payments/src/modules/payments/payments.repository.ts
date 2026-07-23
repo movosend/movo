@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 
-export function createPaymentsRepository(db: Pool) {
+export function createPaymentsRepository(_db: Pool) {
   return {
     // queries acá
   };

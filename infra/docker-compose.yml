@@ -1,0 +1,126 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: movo
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - movo-net
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    networks:
+      - movo-net
+
+  # No hay ALB (ver movo-infra/modules/networking): el tráfico entra
+  # directo a la EC2 vía Elastic IP + Cloudflare en modo DNS-only. Este
+  # servicio es el que efectivamente termina TLS y reenvía a gateway:3000,
+  # así que el puerto de gateway ya no necesita estar expuesto al host.
+  proxy:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - API_DOMAIN=${API_DOMAIN}
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro
+      # Certificados de Certbot, que corre en el host (no en un contenedor)
+      # según movo-infra/modules/compute/templates/user_data.sh.tpl.
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
+    depends_on:
+      - gateway
+    networks:
+      - movo-net
+
+  gateway:
+    image: ghcr.io/movosend/gateway:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - movo-net
+
+  movo-svc-users:
+    image: ghcr.io/movosend/movo-svc-users:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - movo-net
+
+  movo-svc-shipments:
+    image: ghcr.io/movosend/movo-svc-shipments:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - movo-net
+
+  movo-svc-payments:
+    image: ghcr.io/movosend/movo-svc-payments:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - MERCADOPAGO_ACCESS_TOKEN=${MERCADOPAGO_ACCESS_TOKEN}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - movo-net
+
+  movo-svc-admin:
+    image: ghcr.io/movosend/movo-svc-admin:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - movo-net
+
+  movo-svc-pricing-logistics:
+    image: ghcr.io/movosend/movo-svc-pricing-logistics:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+    depends_on:
+      - postgres
+    networks:
+      - movo-net
+
+networks:
+  movo-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
