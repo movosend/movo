@@ -221,6 +221,16 @@ jobs:
           target: "~/movo"
           strip_components: 1
 
+      - name: Copiar templates de nginx a la EC2 de prod
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: api.movosend.app
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "infra/nginx"
+          target: "~/movo"
+          strip_components: 1
+
       - name: Copiar .env a la EC2 de prod
         uses: appleboy/scp-action@v0.1.7
         with:
