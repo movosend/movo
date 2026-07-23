@@ -57,12 +57,19 @@ echo "==> Instalando dependencias runtime"
 npm install fastify @fastify/env @fastify/jwt @fastify/swagger @fastify/swagger-ui pg ioredis
 
 echo "==> Instalando dependencias de desarrollo"
-npm install -D typescript @types/node @types/pg tsx vitest
+# typescript pineado en 6.x: typescript-eslint todavía no soporta TS 7 (ver
+# https://github.com/typescript-eslint/typescript-eslint/issues/10940), y
+# --legacy-peer-deps porque el peerDependency de typescript-eslint todavía
+# no contempla el rango 6.x tampoco.
+npm install -D typescript@^6.0.3 @types/node @types/pg tsx vitest eslint typescript-eslint --legacy-peer-deps
 
 echo "==> Generando tsconfig.json"
 # Se escribe a mano en vez de usar `tsc --init` con flags: --init no acepta
 # include/exclude por CLI, y sin esos campos tsc incluye por default TODOS
 # los .ts del proyecto (test/ incluido), lo cual choca contra rootDir=src.
+# Sin moduleResolution explícito: con module=commonjs, tsc infiere la
+# resolución correcta solo; fijarlo a "node" rompe en TS 7 (alias node10
+# removido) y a "node16" exige module=Node16 también.
 cat > tsconfig.json << 'EOF'
 {
   "compilerOptions": {
@@ -75,12 +82,28 @@ cat > tsconfig.json << 'EOF'
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "moduleResolution": "node"
+    "resolveJsonModule": true
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "test"]
 }
+EOF
+
+echo "==> Generando eslint.config.js"
+cat > eslint.config.js << 'EOF'
+const tseslint = require("typescript-eslint");
+
+module.exports = tseslint.config(
+  {
+    ignores: ["dist/**", "node_modules/**"],
+  },
+  ...tseslint.configs.recommended,
+  {
+    rules: {
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
+    },
+  },
+);
 EOF
 
 # --- src/config/env.ts ---
@@ -153,7 +176,7 @@ EOF
 # --- src/plugins/auth.ts ---
 cat > src/plugins/auth.ts << 'EOF'
 import fp from "fastify-plugin";
-import { FastifyInstance } from "fastify";
+import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import jwt from "@fastify/jwt";
 
 export default fp(async (app: FastifyInstance) => {
@@ -161,13 +184,16 @@ export default fp(async (app: FastifyInstance) => {
     secret: process.env.JWT_SECRET as string,
   });
 
-  app.decorate("authenticate", async (request: any, reply: any) => {
-    try {
-      await request.jwtVerify();
-    } catch (err) {
-      reply.code(401).send({ error: "unauthorized" });
-    }
-  });
+  app.decorate(
+    "authenticate",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        await request.jwtVerify();
+      } catch {
+        reply.code(401).send({ error: "unauthorized" });
+      }
+    },
+  );
 });
 EOF
 
@@ -242,7 +268,7 @@ EOF
   cat > "${MODULE_DIR}/${MODULE_NAME}.repository.ts" << EOF
 import { Pool } from "pg";
 
-export function create${MODULE_NAME_CAP}Repository(db: Pool) {
+export function create${MODULE_NAME_CAP}Repository(_db: Pool) {
   return {
     // queries acá
   };
@@ -278,17 +304,30 @@ EOF
 
 # --- Dockerfile ---
 cat > Dockerfile << 'EOF'
-FROM node:20-alpine
-
+# --- Stage 1: build ---
+# Acá SÍ necesitamos las devDependencies (typescript, tsx, etc.) para compilar.
+FROM node:20-alpine AS builder
 WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# --- Stage 2: runtime ---
+# Acá solo van las dependencias de producción y el resultado ya compilado.
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
 
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-COPY . .
-RUN npm run build
+COPY --from=builder /app/dist ./dist
 
 EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:3000/health || exit 1
 
 CMD ["node", "dist/index.js"]
 EOF
@@ -302,12 +341,21 @@ dist/
 EOF
 
 # --- test de ejemplo ---
+# JWT_SECRET se fija en beforeAll, antes de buildApp(): el plugin de
+# @fastify/jwt valida sus opciones al registrarse y explota si el secret
+# es undefined.
 cat > test/health.test.ts << 'EOF'
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
 
 describe("GET /health", () => {
-  const app = buildApp();
+  let app: FastifyInstance;
+
+  beforeAll(() => {
+    process.env.JWT_SECRET = "test-secret";
+    app = buildApp();
+  });
 
   afterAll(async () => {
     await app.close();
@@ -330,7 +378,8 @@ pkg.scripts = {
   dev: 'tsx watch src/index.ts',
   build: 'tsc',
   start: 'node dist/index.js',
-  test: 'vitest run'
+  test: 'vitest run',
+  lint: 'eslint src'
 };
 fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
 "

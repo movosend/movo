@@ -1,0 +1,242 @@
+name: CI Dev
+
+on:
+  push:
+    branches:
+      - develop
+
+env:
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.12"
+  REGISTRY: ghcr.io
+  IMAGE_TAG: dev
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      gateway: ${{ steps.filter.outputs.gateway }}
+      svc-users: ${{ steps.filter.outputs.svc-users }}
+      svc-shipments: ${{ steps.filter.outputs.svc-shipments }}
+      svc-payments: ${{ steps.filter.outputs.svc-payments }}
+      svc-admin: ${{ steps.filter.outputs.svc-admin }}
+      svc-pricing-logistics: ${{ steps.filter.outputs.svc-pricing-logistics }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            gateway:
+              - 'gateway/**'
+              - 'shared/**'
+            svc-users:
+              - 'services/movo-svc-users/**'
+              - 'shared/**'
+            svc-shipments:
+              - 'services/movo-svc-shipments/**'
+              - 'shared/**'
+            svc-payments:
+              - 'services/movo-svc-payments/**'
+              - 'shared/**'
+            svc-admin:
+              - 'services/movo-svc-admin/**'
+              - 'shared/**'
+            svc-pricing-logistics:
+              - 'services/movo-svc-pricing-logistics/**'
+
+  node-services:
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.gateway == 'true' ||
+      needs.detect-changes.outputs.svc-users == 'true' ||
+      needs.detect-changes.outputs.svc-shipments == 'true' ||
+      needs.detect-changes.outputs.svc-payments == 'true' ||
+      needs.detect-changes.outputs.svc-admin == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - {
+              name: gateway,
+              path: gateway,
+              changed: "${{ needs.detect-changes.outputs.gateway }}",
+            }
+          - {
+              name: movo-svc-users,
+              path: services/movo-svc-users,
+              changed: "${{ needs.detect-changes.outputs.svc-users }}",
+            }
+          - {
+              name: movo-svc-shipments,
+              path: services/movo-svc-shipments,
+              changed: "${{ needs.detect-changes.outputs.svc-shipments }}",
+            }
+          - {
+              name: movo-svc-payments,
+              path: services/movo-svc-payments,
+              changed: "${{ needs.detect-changes.outputs.svc-payments }}",
+            }
+          - {
+              name: movo-svc-admin,
+              path: services/movo-svc-admin,
+              changed: "${{ needs.detect-changes.outputs.svc-admin }}",
+            }
+    steps:
+      - uses: actions/checkout@v4
+        if: matrix.service.changed == 'true'
+
+      - uses: actions/setup-node@v4
+        if: matrix.service.changed == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: ${{ matrix.service.path }}/package-lock.json
+
+      - name: Instalar dependencias
+        if: matrix.service.changed == 'true'
+        working-directory: ${{ matrix.service.path }}
+        run: npm ci
+
+      - name: Lint (ESLint)
+        if: matrix.service.changed == 'true'
+        working-directory: ${{ matrix.service.path }}
+        run: npm run lint
+
+      - name: Type-check (tsc --noEmit)
+        if: matrix.service.changed == 'true'
+        working-directory: ${{ matrix.service.path }}
+        run: npx tsc --noEmit
+
+      - name: Tests
+        if: matrix.service.changed == 'true'
+        working-directory: ${{ matrix.service.path }}
+        run: npm test
+
+      - name: Login a GHCR
+        if: matrix.service.changed == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build y push
+        if: matrix.service.changed == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service.path }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/movosend/${{ matrix.service.name }}:${{ env.IMAGE_TAG }}
+            ${{ env.REGISTRY }}/movosend/${{ matrix.service.name }}:${{ github.sha }}
+
+  python-service:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.svc-pricing-logistics == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/movo-svc-pricing-logistics
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint (Ruff)
+        run: ruff check .
+
+      - name: Type-check (mypy)
+        run: mypy .
+
+      - name: Tests
+        run: pytest
+
+      - name: Login a GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build y push
+        uses: docker/build-push-action@v6
+        with:
+          context: services/movo-svc-pricing-logistics
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/movosend/movo-svc-pricing-logistics:${{ env.IMAGE_TAG }}
+            ${{ env.REGISTRY }}/movosend/movo-svc-pricing-logistics:${{ github.sha }}
+
+  deploy-dev:
+    needs: [detect-changes, node-services, python-service]
+    if: |
+      always() &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    environment: development
+    env:
+      AWS_REGION: sa-east-1
+      SECRETS_MANAGER_ID: movo/dev/app-secrets
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Genera el .env que docker-compose.yml necesita a partir del secret
+      # de Secrets Manager (fuente de verdad de los secretos de la app) +
+      # IMAGE_TAG, que no es un secreto sino que lo fija este workflow.
+      - name: Generar .env desde Secrets Manager
+        run: |
+          aws secretsmanager get-secret-value \
+            --secret-id "${{ env.SECRETS_MANAGER_ID }}" \
+            --query SecretString --output text \
+            | jq -r 'to_entries[] | "\(.key)=\(.value)"' > .env
+          echo "IMAGE_TAG=${{ env.IMAGE_TAG }}" >> .env
+
+      - name: Copiar docker-compose.yml a la EC2 de dev
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: api-dev.movosend.app
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "infra/docker-compose.yml"
+          target: "~/movo"
+          strip_components: 1
+
+      - name: Copiar .env a la EC2 de dev
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: api-dev.movosend.app
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: ".env"
+          target: "~/movo"
+
+      - name: Pull de imágenes nuevas y restart de contenedores
+        uses: appleboy/ssh-action@v1
+        with:
+          host: api-dev.movosend.app
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/movo
+            docker compose pull
+            docker compose up -d --remove-orphans

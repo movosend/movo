@@ -1,8 +1,14 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
 
 describe("GET /health", () => {
-  const app = buildApp();
+  let app: FastifyInstance;
+
+  beforeAll(() => {
+    process.env.JWT_SECRET = "test-secret";
+    app = buildApp();
+  });
 
   afterAll(async () => {
     await app.close();

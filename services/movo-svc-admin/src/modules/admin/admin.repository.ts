@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 
-export function createAdminRepository(db: Pool) {
+export function createAdminRepository(_db: Pool) {
   return {
     // queries acá
   };

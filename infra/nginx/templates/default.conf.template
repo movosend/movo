@@ -1,0 +1,74 @@
+# Template procesado por el entrypoint oficial de nginx (envsubst) al
+# arrancar el contenedor. ${API_DOMAIN} sale de la env var del mismo
+# nombre (ver docker-compose.yml) y difiere entre dev y prod.
+
+# Rate limit básico a nivel nginx, como segunda capa además del rate
+# limit que ya hace el gateway (@fastify/rate-limit). 10 req/s por IP con
+# ráfagas cortas alcanza para tráfico normal de la app y frena barridos
+# obvios antes de que lleguen al gateway.
+limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+
+server {
+    listen 80;
+    server_name ${API_DOMAIN};
+    server_tokens off;
+
+    # Requerido por la validación HTTP-01 de Certbot (corre en el host,
+    # no en este contenedor). Certbot deja los challenges en
+    # /var/www/certbot en el host, montado acá abajo.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${API_DOMAIN};
+    server_tokens off;
+
+    # Certificados emitidos por Certbot en el host (apt install certbot,
+    # ver modules/compute/templates/user_data.sh.tpl en movo-infra) y
+    # montados read-only en este contenedor.
+    ssl_certificate     /etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${API_DOMAIN}/privkey.pem;
+
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_prefer_server_ciphers off;
+    ssl_session_timeout 1d;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_tickets off;
+
+    # Tamaño máximo de body, para no dejar pasar uploads gigantes (evidencia
+    # de entregas, fotos de KYC, etc.). Subir si algún endpoint lo necesita.
+    client_max_body_size 20m;
+
+    # HSTS es responsabilidad de esta capa (la que termina TLS). El resto de
+    # los headers de seguridad de la response (X-Frame-Options, nosniff,
+    # etc.) los pone @fastify/helmet en el gateway — no los repetimos acá
+    # para no mandar el mismo header duplicado con valores distintos, que
+    # los navegadores pueden resolver de forma inconsistente.
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+
+    location / {
+        limit_req zone=api burst=20 nodelay;
+
+        proxy_pass         http://gateway:3000;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+
+        # El gateway es el único que decide si una ruta requiere auth; acá
+        # no reenviamos el header Authorization salvo que venga del cliente,
+        # así que no hace falta tocar nada extra.
+        proxy_read_timeout 30s;
+        proxy_connect_timeout 5s;
+    }
+}
