@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - develop
+  # Permite forzar el build y push de todas las imágenes :dev sin
+  # depender del detector de cambios, para destrabar deploys cuando el
+  # filtro de paths no detectó cambios reales (p. ej. develop y main
+  # apuntando al mismo commit tras un merge).
+  workflow_dispatch:
 
 env:
   NODE_VERSION: "20"
@@ -30,6 +35,12 @@ jobs:
       - uses: dorny/paths-filter@v3
         id: filter
         with:
+          # Sin esto, dorny/paths-filter compara contra la rama por defecto
+          # (main) en vez de contra el commit anterior del push, porque
+          # develop no es la default branch del repo. Si develop y main
+          # apuntan al mismo commit (p. ej. justo después de un merge de
+          # main a develop), ese diff da 0 archivos y se saltea el build.
+          base: ${{ github.event.before }}
           filters: |
             gateway:
               - 'gateway/**'
@@ -52,6 +63,7 @@ jobs:
   node-services:
     needs: detect-changes
     if: |
+      github.event_name == 'workflow_dispatch' ||
       needs.detect-changes.outputs.gateway == 'true' ||
       needs.detect-changes.outputs.svc-users == 'true' ||
       needs.detect-changes.outputs.svc-shipments == 'true' ||
@@ -65,27 +77,27 @@ jobs:
           - {
               name: gateway,
               path: gateway,
-              changed: "${{ needs.detect-changes.outputs.gateway }}",
+              changed: "${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.gateway == 'true' }}",
             }
           - {
               name: movo-svc-users,
               path: services/movo-svc-users,
-              changed: "${{ needs.detect-changes.outputs.svc-users }}",
+              changed: "${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.svc-users == 'true' }}",
             }
           - {
               name: movo-svc-shipments,
               path: services/movo-svc-shipments,
-              changed: "${{ needs.detect-changes.outputs.svc-shipments }}",
+              changed: "${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.svc-shipments == 'true' }}",
             }
           - {
               name: movo-svc-payments,
               path: services/movo-svc-payments,
-              changed: "${{ needs.detect-changes.outputs.svc-payments }}",
+              changed: "${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.svc-payments == 'true' }}",
             }
           - {
               name: movo-svc-admin,
               path: services/movo-svc-admin,
-              changed: "${{ needs.detect-changes.outputs.svc-admin }}",
+              changed: "${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.svc-admin == 'true' }}",
             }
     steps:
       - uses: actions/checkout@v4
@@ -138,7 +150,9 @@ jobs:
 
   python-service:
     needs: detect-changes
-    if: needs.detect-changes.outputs.svc-pricing-logistics == 'true'
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      needs.detect-changes.outputs.svc-pricing-logistics == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
