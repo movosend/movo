@@ -2,17 +2,28 @@ import { Button } from "@/components/ui/button"
 
 export default function Page() {
   return (
-    <div className="flex min-h-svh p-6">
-      <div className="flex max-w-md min-w-0 flex-col gap-4 text-sm leading-loose">
-        <div>
-          <h1 className="font-medium">Project ready!</h1>
-          <p>You may now add components and start building.</p>
-          <p>We&apos;ve already added the button component for you.</p>
-          <Button className="mt-2">Button</Button>
-        </div>
-        <div className="font-mono text-xs text-muted-foreground">
-          (Press <kbd>d</kbd> to toggle dark mode)
-        </div>
+    <div
+      className="flex min-h-svh items-center justify-center p-6"
+      style={{
+        backgroundColor: "#C6F24A",
+        backgroundImage:
+          "radial-gradient(rgba(0,0,0,0.15) 1px, transparent 1px)",
+        backgroundSize: "16px 16px",
+      }}
+    >
+      <div className="flex max-w-md flex-col items-center gap-4 text-center">
+        <span className="text-2xl font-semibold text-black">
+          admin.movosend.app
+        </span>
+        <h1 className="text-xl font-medium text-black">
+          Panel de administración en construcción
+        </h1>
+        <p className="text-sm text-black/70">
+          Todavía no hay nada para ver aquí.
+        </p>
+        <Button className="mt-2 bg-black text-white hover:bg-black/80">
+          <a href="https://movosend.app">Ir a la página inicial</a>
+        </Button>
       </div>
     </div>
   )

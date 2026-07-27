@@ -77,61 +77,61 @@ jobs:
           - {
               name: gateway,
               path: gateway,
-              changed: "${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.gateway == 'true' }}",
+              changed: "${{ needs.detect-changes.outputs.gateway }}",
             }
           - {
               name: movo-svc-users,
               path: services/movo-svc-users,
-              changed: "${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.svc-users == 'true' }}",
+              changed: "${{ needs.detect-changes.outputs.svc-users }}",
             }
           - {
               name: movo-svc-shipments,
               path: services/movo-svc-shipments,
-              changed: "${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.svc-shipments == 'true' }}",
+              changed: "${{ needs.detect-changes.outputs.svc-shipments }}",
             }
           - {
               name: movo-svc-payments,
               path: services/movo-svc-payments,
-              changed: "${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.svc-payments == 'true' }}",
+              changed: "${{ needs.detect-changes.outputs.svc-payments }}",
             }
           - {
               name: movo-svc-admin,
               path: services/movo-svc-admin,
-              changed: "${{ github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.svc-admin == 'true' }}",
+              changed: "${{ needs.detect-changes.outputs.svc-admin }}",
             }
     steps:
       - uses: actions/checkout@v4
-        if: matrix.service.changed == 'true'
+        if: github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true'
 
       - uses: actions/setup-node@v4
-        if: matrix.service.changed == 'true'
+        if: github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
           cache-dependency-path: ${{ matrix.service.path }}/package-lock.json
 
       - name: Instalar dependencias
-        if: matrix.service.changed == 'true'
+        if: github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true'
         working-directory: ${{ matrix.service.path }}
         run: npm ci
 
       - name: Lint (ESLint)
-        if: matrix.service.changed == 'true'
+        if: github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true'
         working-directory: ${{ matrix.service.path }}
         run: npm run lint
 
       - name: Type-check (tsc --noEmit)
-        if: matrix.service.changed == 'true'
+        if: github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true'
         working-directory: ${{ matrix.service.path }}
         run: npx tsc --noEmit
 
       - name: Tests
-        if: matrix.service.changed == 'true'
+        if: github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true'
         working-directory: ${{ matrix.service.path }}
         run: npm test
 
       - name: Login a GHCR
-        if: matrix.service.changed == 'true'
+        if: github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -139,7 +139,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build y push
-        if: matrix.service.changed == 'true'
+        if: github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.service.path }}
