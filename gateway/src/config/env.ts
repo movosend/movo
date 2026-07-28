@@ -1,10 +1,12 @@
 export interface EnvConfig {
   PORT: number;
   JWT_SECRET: string;
+  REDIS_URL: string;
   USERS_SERVICE_URL: string;
   SHIPMENTS_SERVICE_URL: string;
   PAYMENTS_SERVICE_URL: string;
   ADMIN_SERVICE_URL: string;
+  PRICING_LOGISTICS_SERVICE_URL?: string;
   RATE_LIMIT_MAX: number;
 }
 
@@ -20,6 +22,7 @@ export function loadEnv(): EnvConfig {
   return {
     PORT: Number(process.env.PORT) || 3000,
     JWT_SECRET: required("JWT_SECRET"),
+    REDIS_URL: required("REDIS_URL"),
     USERS_SERVICE_URL:
       process.env.USERS_SERVICE_URL ?? "http://movo-svc-users:3000",
     SHIPMENTS_SERVICE_URL:
