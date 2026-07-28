@@ -78,8 +78,9 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 
 Con eso arriba:
 
-- `https://localhost/health` → nginx → gateway (cert self-signed, el navegador/curl se va a quejar, es esperado: `curl -k`).
-- `https://localhost/users/...`, `/shipments/...`, `/payments/...`, `/admin/...` → gateway → microservicio correspondiente. Todos menos `/users` requieren `Authorization: Bearer <jwt>` (el gateway devuelve 401 si falta).
+- `https://localhost/health` → nginx → gateway (cert self-signed, el navegador/curl se va a quejar, es esperado: `curl -k`). Sin versionar a propósito: es el endpoint que consultan el healthcheck de Docker y el load balancer.
+- `https://localhost/api/v1/...` → gateway → microservicio correspondiente, según el mapa declarativo de `gateway/src/config/routes-map.ts`. Todo bajo `/api/v1` requiere `Authorization: Bearer <jwt>` **excepto** los endpoints explícitamente públicos: `POST /api/v1/auth/register`, `/login`, `/refresh`, `/verify-phone` y el webhook de Didit.me. El gateway devuelve 401 si falta el token en cualquier otra ruta.
+- Este sprint (MOVO-68) el gateway solo proxea `movo-svc-users` (`/api/v1/auth/...`, `/api/v1/users/...`) y `movo-svc-shipments` (`/api/v1/shipments/...`): son los únicos servicios con lógica viva. `movo-svc-payments` y `movo-svc-admin` todavía no están conectados al gateway.
 - Cada servicio también queda publicado directo en su puerto para debuggear sin pasar por el gateway: `movo-svc-users` en `:3001`, `movo-svc-shipments` en `:3002`, `movo-svc-payments` en `:3003`, `movo-svc-admin` en `:3004`, `movo-svc-pricing-logistics` en `:3005`.
 
 Para bajar todo: `docker compose -f docker-compose.yml -f docker-compose.local.yml down` (agregar `-v` si además querés borrar el volumen de Postgres y arrancar de cero).
