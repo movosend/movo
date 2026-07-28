@@ -9,6 +9,7 @@ export type ApiErrorCode =
   | "AUTH_FORBIDDEN"
   | "VALIDATION_FAILED"
   | "NOT_FOUND"
+  | "RATE_LIMIT_EXCEEDED"
   | "INTERNAL_ERROR";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
