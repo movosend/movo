@@ -124,21 +124,7 @@ Para `gateway`: mismo flujo que un servicio Node (`cp .env.example .env`, `npm i
 
 ### 4. Verificar antes de pushear (lo que corre CI)
 
-Por servicio Node (`gateway`, `services/movo-svc-*` salvo pricing-logistics):
-
-```bash
-npm run lint
-npx tsc --noEmit
-npm test
-```
-
-Para `movo-svc-pricing-logistics`:
-
-```bash
-ruff check .
-mypy .
-pytest
-```
+Ver la sección [Testing](#testing) más abajo para el detalle completo de cómo correr los tests en local y qué se espera antes de pushear.
 
 Y si querés confirmar que el `docker-compose.yml` real (el que se copia a la EC2) funciona de punta a punta, correlo local como en el paso 2 — es exactamente lo que corre `deploy-dev`/`deploy-prod`, solo que ahí pullea de GHCR en vez de buildear.
 
@@ -152,6 +138,61 @@ Cada servicio tiene su propio `.env.example` en su raíz (copiar a `.env`, nunca
 - **Commits**: [Conventional Commits](https://www.conventionalcommits.org/). Ej: `feat(payments): agregar flujo auth & capture`.
 - **PRs**: se mergean a `develop` con squash merge. Todo PR mergeado a `develop` se despliega automáticamente a staging; `develop` → `main` despliega a producción.
 - **Backlog**: gestionado en Linear, vinculado a branches y commits vía el ID de issue (`MOVO-xxx`).
+
+## Testing
+
+El detalle completo (niveles de testing, framework por paquete, umbrales de cobertura acordados y quién revisa los resultados) vive en [`docs/plan-de-testing.md`](docs/plan-de-testing.md). Esta sección es la guía práctica de "qué corro antes de pushear".
+
+### Correr los tests de un solo paquete
+
+Por servicio Node (`gateway`, `services/movo-svc-users`, `services/movo-svc-shipments`, `services/movo-svc-payments`, `services/movo-svc-admin`):
+
+```bash
+cd <paquete>
+npm run lint
+npx tsc --noEmit
+npm test
+```
+
+`movo-svc-users` tiene un test de integración real contra Postgres (`test/users.count.integration.test.ts`); para que pase necesitás Postgres corriendo y con las migraciones aplicadas (ver abajo). Es el patrón a copiar si agregás un test de integración nuevo en otro servicio.
+
+Para `movo-svc-pricing-logistics` (Python):
+
+```bash
+cd services/movo-svc-pricing-logistics
+ruff check .
+mypy .
+pytest
+```
+
+Para `movo-mobile` (Jest + `jest-expo` + React Native Testing Library) y `movo-admin` (Vitest + Testing Library):
+
+```bash
+cd movo-mobile   # o movo-admin
+npm test
+```
+
+Nota: `@testing-library/react-native@14` (usado en `movo-mobile`) cambió `render()` a una API asíncrona — si copiás el patrón de test para una pantalla nueva, hace falta `await render(...)`.
+
+### Correr todo el monorepo de una
+
+```bash
+docker compose -f infra/docker-compose.yml -f infra/docker-compose.local.yml up -d postgres redis
+DATABASE_URL=postgresql://movo:movo@localhost:5432/movo ./scripts/run-migrations.sh services/movo-svc-users
+./scripts/test-all.sh
+```
+
+`scripts/test-all.sh` recorre todos los paquetes Node y Python del monorepo (`npm ci && npm test` / `pip install ... && pytest` en cada uno). Necesita Postgres y Redis levantados (y las migraciones ya aplicadas) para que los tests de integración de `movo-svc-users` pasen — si no, va a fallar en ese paquete y listo. Ajustá `DATABASE_URL` a las credenciales que tengas configuradas en local.
+
+Requiere el cliente `psql` instalado si vas a correr `scripts/run-migrations.sh` a mano.
+
+### Qué se espera de cada dev antes de pushear
+
+- Si tocaste un paquete Node, corré lint + type check + `npm test` en ese paquete (no hace falta correr `test-all.sh` completo salvo que hayas tocado `shared/`, que afecta a varios).
+- Si agregás lógica nueva en `src/services/` o `src/repositories/` de `movo-svc-users`, o en `main.py` de `movo-svc-pricing-logistics`, sumale tests: son los dos paquetes con umbral de cobertura exigido (55% de líneas). El resto de los paquetes reportan cobertura pero todavía no tienen umbral estricto (son scaffolds sin lógica de dominio real).
+- Si el test que estás escribiendo pega contra la base, no mockees Postgres: usá `fastify.inject()` contra el endpoint real y aislá los datos truncando la tabla (o con rollback de transacción) en `beforeEach`, siguiendo el patrón de `movo-svc-users`.
+- CI (`pr-checks.yml`) corre exactamente estos mismos comandos por paquete, con detección de cambios por path — un PR que solo toca `movo-admin` no dispara los jobs de los servicios Node. El check `tests-summary` es el que bloquea el merge a `develop`/`main`; tiene que estar en verde además de la review humana.
+- La primera vez que trabajás en un paquete Node o en `movo-mobile`/`movo-admin`, corré `npm install` ahí para bajar las devDependencies de testing (`@vitest/coverage-v8`, `jest-expo`, `@testing-library/react-native`, `react-test-renderer`, `@testing-library/react`, etc.).
 
 ## Documentación
 
