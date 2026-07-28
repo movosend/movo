@@ -4,17 +4,8 @@ import {
   verifyAccessToken,
   ApiError,
   type AccessTokenClaims,
-  UserRole,
+  type UserRole,
 } from "@movo/shared";
-import { EnvConfig } from "../config/env";
-
-declare global {
-  namespace Express {
-    interface Request {
-      user?: AccessTokenClaims;
-    }
-  }
-}
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -32,48 +23,43 @@ declare module "fastify" {
   }
 }
 
-export default fp(async (app: FastifyInstance, opts: { env: EnvConfig }) => {
-  app.decorate(
-    "authenticate",
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      const authHeader = request.headers.authorization;
-      if (!authHeader?.startsWith("Bearer ")) {
-        throw new ApiError(
-          401,
-          "AUTH_TOKEN_INVALID",
-          "Missing or invalid authorization header"
-        );
-      }
-
-      const token = authHeader.slice(7);
-      const result = verifyAccessToken(token);
-
-      if (result.status === "invalid") {
-        if (result.reason === "expired") {
-          throw new ApiError(401, "AUTH_TOKEN_EXPIRED", "Token has expired");
-        }
-        throw new ApiError(
-          401,
-          "AUTH_TOKEN_INVALID",
-          "Invalid or malformed token"
-        );
-      }
-
-      request.user = result.claims;
+export default fp(async (app: FastifyInstance) => {
+  app.decorate("authenticate", async (request: FastifyRequest) => {
+    const authHeader = request.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      throw new ApiError(
+        401,
+        "AUTH_TOKEN_INVALID",
+        "Missing or invalid authorization header"
+      );
     }
-  );
+
+    const token = authHeader.slice(7);
+    const result = verifyAccessToken(token);
+
+    if (result.status === "invalid") {
+      if (result.reason === "expired") {
+        throw new ApiError(401, "AUTH_TOKEN_EXPIRED", "Token has expired");
+      }
+      throw new ApiError(
+        401,
+        "AUTH_TOKEN_INVALID",
+        "Invalid or malformed token"
+      );
+    }
+
+    request.user = result.claims;
+  });
 
   app.decorate("authorize", (roles: string[]) => {
-    return async (request: FastifyRequest, reply: FastifyReply) => {
+    return async (request: FastifyRequest) => {
       if (!request.user) {
-        throw new ApiError(
-          403,
-          "AUTH_FORBIDDEN",
-          "User not authenticated"
-        );
+        throw new ApiError(403, "AUTH_FORBIDDEN", "User not authenticated");
       }
 
-      const hasRole = roles.some((role) => request.user!.roles.includes(role as any));
+      const hasRole = roles.some((role) =>
+        request.user!.roles.includes(role as UserRole)
+      );
       if (!hasRole) {
         throw new ApiError(
           403,

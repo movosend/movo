@@ -3,14 +3,6 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ApiError } from "@movo/shared";
 import { randomUUID } from "node:crypto";
 
-declare global {
-  namespace Express {
-    interface Request {
-      requestId: string;
-    }
-  }
-}
-
 declare module "fastify" {
   interface FastifyRequest {
     requestId: string;
