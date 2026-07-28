@@ -7,17 +7,29 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-NODE_PACKAGES=(
+WORKSPACE_PACKAGES=(
+  "shared/movo-shared"
   "gateway"
   "services/movo-svc-users"
   "services/movo-svc-shipments"
   "services/movo-svc-payments"
   "services/movo-svc-admin"
+)
+
+STANDALONE_NODE_PACKAGES=(
   "movo-mobile"
   "movo-admin"
 )
 
-for pkg in "${NODE_PACKAGES[@]}"; do
+echo "== workspace (npm ci en la raíz) =="
+npm ci
+
+for pkg in "${WORKSPACE_PACKAGES[@]}"; do
+  echo "== $pkg =="
+  (cd "$pkg" && npm test)
+done
+
+for pkg in "${STANDALONE_NODE_PACKAGES[@]}"; do
   echo "== $pkg =="
   (cd "$pkg" && npm ci && npm test)
 done
