@@ -134,11 +134,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: ${{ matrix.service.path }}/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Instalar dependencias
         if: matrix.service.changed == 'true'
-        working-directory: ${{ matrix.service.path }}
         run: npm ci
 
       - name: Lint

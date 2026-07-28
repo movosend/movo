@@ -1,11 +1,24 @@
+# Build de un paquete del workspace de npm (ver MOVO-67): el contexto es
+# la raíz del repo, no esta carpeta, porque @movo/shared se resuelve como
+# symlink de npm workspaces a shared/movo-shared y necesita estar en el
+# mismo contexto de build. Se buildea con:
+#   docker build -f services/movo-svc-payments/Dockerfile .
+
 # --- Stage 1: build ---
 # Acá SÍ necesitamos las devDependencies (typescript, tsx, etc.) para compilar.
 FROM node:20-alpine AS builder
 WORKDIR /app
-COPY package*.json ./
+
+COPY package.json package-lock.json ./
+COPY shared/movo-shared/package.json shared/movo-shared/package.json
+COPY services/movo-svc-payments/package.json services/movo-svc-payments/package.json
 RUN npm ci
-COPY . .
-RUN npm run build
+
+COPY shared/movo-shared shared/movo-shared
+COPY services/movo-svc-payments services/movo-svc-payments
+
+RUN npm run build --workspace=shared/movo-shared
+RUN npm run build --workspace=services/movo-svc-payments
 
 # --- Stage 2: runtime ---
 # Acá solo van las dependencias de producción y el resultado ya compilado.
@@ -13,10 +26,15 @@ FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY package*.json ./
+COPY package.json package-lock.json ./
+COPY shared/movo-shared/package.json shared/movo-shared/package.json
+COPY services/movo-svc-payments/package.json services/movo-svc-payments/package.json
 RUN npm ci --omit=dev
 
-COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/shared/movo-shared/dist ./shared/movo-shared/dist
+COPY --from=builder /app/services/movo-svc-payments/dist ./services/movo-svc-payments/dist
+
+WORKDIR /app/services/movo-svc-payments
 
 EXPOSE 3000
 
