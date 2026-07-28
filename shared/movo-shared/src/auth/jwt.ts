@@ -52,8 +52,8 @@ export type VerifyAccessTokenResult =
  * el resultado es una unión discriminada.
  */
 export function verifyAccessToken(token: string): VerifyAccessTokenResult {
-  const { secret, issuer } = getJwtConfig();
   try {
+    const { secret, issuer } = getJwtConfig();
     const claims = jwt.verify(token, secret, { issuer }) as AccessTokenClaims;
     return { status: "valid", claims };
   } catch (err) {
