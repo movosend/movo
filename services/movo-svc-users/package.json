@@ -11,7 +11,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "migrate": "../../scripts/run-migrations.sh .",
+    "migrate:down": "psql $DATABASE_URL -f migrations/20260728160000_create_users_schema.down.sql"
   },
   "keywords": [],
   "author": "",
