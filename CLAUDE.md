@@ -7,6 +7,11 @@ repositorio. Se carga automáticamente al abrir Claude Code acá. El objetivo es
 cualquier integrante, en cualquier sesión, tenga de entrada el mismo entendimiento del
 proyecto sin tener que re-explicarlo cada vez.
 
+Antes de dar por cerrada una US, usar la skill `.claude/skills/cerrar-us/` — decile a
+Claude algo como "cerremos esta US" o "revisá si cumplimos todo del ticket" y la
+dispara. Compara la implementación contra el ticket de Linear ítem por ítem, corre
+tests, chequea si falta un ADR, y actualiza este mismo archivo.
+
 **Es un documento vivo.** Reglas de mantenimiento:
 
 - Al terminar una US/PR que agregue una decisión de diseño, un servicio nuevo, o cambie
