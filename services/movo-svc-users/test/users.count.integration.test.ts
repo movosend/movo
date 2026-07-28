@@ -5,9 +5,10 @@ import { buildApp } from "../src/app";
 describe("GET /users/count", () => {
   let app: FastifyInstance;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
     app = buildApp();
+    await app.ready();
   });
 
   afterAll(async () => {
