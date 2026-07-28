@@ -11,6 +11,7 @@ export type ApiErrorCode =
   | "NOT_FOUND"
   | "INTERNAL_ERROR";
 
+/** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {
   error: {
     code: ApiErrorCode;
@@ -30,6 +31,7 @@ export class ApiError extends Error {
     this.name = "ApiError";
   }
 
+  /** Serializa al formato único de error de la API. */
   toJSON(): SerializedApiError {
     return {
       error: {

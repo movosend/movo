@@ -7,6 +7,7 @@ import { KycStatus, UserRole } from "../types/user";
 /** TTL del access token, per ADR-004. */
 const ACCESS_TOKEN_TTL = "60m";
 
+/** Datos de entrada para emitir un access token; `iat`/`exp`/`iss` los completa `signAccessToken`. */
 export interface AccessTokenPayload {
   sub: string;
   roles: UserRole[];
@@ -41,6 +42,7 @@ export function signRefreshToken(): RefreshTokenResult {
   };
 }
 
+/** Resultado de `verifyAccessToken` — unión discriminada por `status`, nunca una excepción. */
 export type VerifyAccessTokenResult =
   | { status: "valid"; claims: AccessTokenClaims }
   | { status: "invalid"; reason: "expired" | "invalid_signature" | "malformed" };
