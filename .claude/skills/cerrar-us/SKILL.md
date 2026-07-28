@@ -25,8 +25,13 @@ sentado que el resto también quedó bien.
 ## Paso 1 — Traer el ticket completo
 
 Buscá el ticket en Linear (`get_issue` con `includeRelations: true`) por su ID
-(`MOVO-XXX`). Si el usuario no lo dio, preguntale o inferilo del nombre de la branch
-(`<tipo>/MOVO-<id>-<descripcion>`) o del último commit.
+(`MOVO-XXX`). Si el usuario no dio el ID en el pedido, **preguntáselo primero** — no
+sigas de largo asumiendo cuál es. Si el nombre de la branch o el último commit ya
+traen un `MOVO-XXX` claro, podés proponerlo ("¿es MOVO-72, el de la branch actual?")
+para que lo confirme en vez de tener que escribirlo de cero, pero la confirmación
+sigue siendo del usuario: nunca uses un ID inferido sin que lo valide, porque todo el
+resto del checklist se arma sobre ese ticket — si es el equivocado, la tabla de
+verificación completa queda mal desde el paso 1.
 
 Prestá atención a:
 - **`blockedBy`**: si el ticket que bloquea a este no está en estado terminado, avisá
