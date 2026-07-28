@@ -1,7 +1,10 @@
 import { Pool } from "pg";
 
-export function createUsersRepository(_db: Pool) {
+export function createUsersRepository(db: Pool) {
   return {
-    // queries acá
+    async count(): Promise<number> {
+      const result = await db.query<{ count: string }>("SELECT COUNT(*)::int AS count FROM users.users");
+      return Number(result.rows[0]?.count ?? 0);
+    },
   };
 }

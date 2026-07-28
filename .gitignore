@@ -11,6 +11,10 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Entornos y secretos
 .env

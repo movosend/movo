@@ -70,6 +70,37 @@ jobs:
       needs.detect-changes.outputs.svc-payments == 'true' ||
       needs.detect-changes.outputs.svc-admin == 'true'
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: movo
+          POSTGRES_PASSWORD: movo_ci_pw
+          POSTGRES_DB: movo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U movo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://movo:movo_ci_pw@localhost:5432/movo
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci_test_secret_do_not_use_in_prod
+      PORT: 3000
+
     strategy:
       fail-fast: false
       matrix:
@@ -108,11 +139,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
-          cache-dependency-path: ${{ matrix.service.path }}/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Instalar dependencias
         if: github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true'
-        working-directory: ${{ matrix.service.path }}
         run: npm ci
 
       - name: Lint (ESLint)
@@ -124,6 +154,14 @@ jobs:
         if: github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true'
         working-directory: ${{ matrix.service.path }}
         run: npx tsc --noEmit
+
+      - name: Run migrations
+        if: |
+          (github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true') &&
+          matrix.service.name != 'gateway'
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          ./scripts/run-migrations.sh ${{ matrix.service.path }}
 
       - name: Tests
         if: github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true'
@@ -142,7 +180,8 @@ jobs:
         if: github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true'
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.service.path }}
+          context: .
+          file: ${{ matrix.service.path }}/Dockerfile
           push: true
           tags: |
             ${{ env.REGISTRY }}/movosend/${{ matrix.service.name }}:${{ env.IMAGE_TAG }}

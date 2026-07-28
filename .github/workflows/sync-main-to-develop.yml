@@ -1,0 +1,62 @@
+name: Sync main to develop
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sincronizar main -> develop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          PENDING=$(git rev-list --count origin/develop..origin/main)
+          if [ "$PENDING" -eq 0 ]; then
+            echo "develop ya tiene todos los commits de main, nada que sincronizar."
+            exit 0
+          fi
+
+          BRANCH="sync/main-to-develop-${{ github.run_number }}"
+          git checkout -b "$BRANCH" origin/develop
+
+          if git merge origin/main --no-edit; then
+            git push origin "$BRANCH"
+
+            BODY=$(printf 'PR automatico para trasladar a develop los commits que entraron a main.\n\n## Commits\n%s\n' "$(git log --oneline origin/develop..origin/main)")
+
+            gh pr create \
+              --repo "$REPO" \
+              --base develop \
+              --head "$BRANCH" \
+              --title "chore: sincronizar hotfixes de main a develop (auto)" \
+              --body "$BODY"
+          else
+            git merge --abort
+            git push origin "$BRANCH"
+
+            BODY=$(printf 'PR automatico con CONFLICTOS al intentar traer a develop los commits que entraron a main.\n\nEsta rama arranca en develop, no tiene el merge aplicado: resolve el conflicto manualmente (merge de main sobre esta rama) y pushealo aca antes de aprobar.\n\n## Commits pendientes en main\n%s\n' "$(git log --oneline origin/develop..origin/main)")
+
+            gh pr create \
+              --repo "$REPO" \
+              --base develop \
+              --head "$BRANCH" \
+              --title "chore: sincronizar hotfixes de main a develop (auto, CON CONFLICTOS)" \
+              --body "$BODY"
+          fi

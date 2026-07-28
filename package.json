@@ -1,0 +1,12 @@
+{
+  "name": "movo",
+  "private": true,
+  "workspaces": [
+    "shared/movo-shared",
+    "services/movo-svc-admin",
+    "services/movo-svc-payments",
+    "services/movo-svc-shipments",
+    "services/movo-svc-users",
+    "gateway"
+  ]
+}

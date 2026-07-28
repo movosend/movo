@@ -14,6 +14,14 @@
 #     postgres redis
 
 services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
   proxy:
     ports:
       - "8443:443"
@@ -25,35 +33,43 @@ services:
       - ./.local-certs:/etc/letsencrypt:ro
       - ./.local-certs/webroot:/var/www/certbot:ro
 
+  # Contexto de build = raíz del repo (no la carpeta del servicio): desde
+  # que @movo/shared se consume vía npm workspaces (MOVO-67), el build de
+  # cada servicio necesita ver shared/movo-shared en el mismo contexto.
   gateway:
     build:
-      context: ../gateway
+      context: ..
+      dockerfile: gateway/Dockerfile
     image: gateway:local
 
   movo-svc-users:
     build:
-      context: ../services/movo-svc-users
+      context: ..
+      dockerfile: services/movo-svc-users/Dockerfile
     image: movo-svc-users:local
     ports:
       - "3001:3000"
 
   movo-svc-shipments:
     build:
-      context: ../services/movo-svc-shipments
+      context: ..
+      dockerfile: services/movo-svc-shipments/Dockerfile
     image: movo-svc-shipments:local
     ports:
       - "3002:3000"
 
   movo-svc-payments:
     build:
-      context: ../services/movo-svc-payments
+      context: ..
+      dockerfile: services/movo-svc-payments/Dockerfile
     image: movo-svc-payments:local
     ports:
       - "3003:3000"
 
   movo-svc-admin:
     build:
-      context: ../services/movo-svc-admin
+      context: ..
+      dockerfile: services/movo-svc-admin/Dockerfile
     image: movo-svc-admin:local
     ports:
       - "3004:3000"

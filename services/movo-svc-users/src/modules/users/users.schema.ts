@@ -1,3 +1,9 @@
 export const usersSchemas = {
-  // Definir schemas de request/response acá (usados también para el Swagger generado)
+  usersCountResponse: {
+    type: "object",
+    properties: {
+      count: { type: "integer" },
+    },
+    required: ["count"],
+  },
 };

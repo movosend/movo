@@ -20,6 +20,8 @@ jobs:
       svc-payments: ${{ steps.filter.outputs.svc-payments }}
       svc-admin: ${{ steps.filter.outputs.svc-admin }}
       svc-pricing-logistics: ${{ steps.filter.outputs.svc-pricing-logistics }}
+      mobile: ${{ steps.filter.outputs.mobile }}
+      admin-web: ${{ steps.filter.outputs.admin-web }}
 
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +47,10 @@ jobs:
               - 'shared/**'
             svc-pricing-logistics:
               - 'services/movo-svc-pricing-logistics/**'
+            mobile:
+              - 'movo-mobile/**'
+            admin-web:
+              - 'movo-admin/**'
 
   node-services:
     needs: detect-changes
@@ -57,6 +63,36 @@ jobs:
       needs.detect-changes.outputs.svc-admin == 'true'
 
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: movo
+          POSTGRES_PASSWORD: movo_ci_pw
+          POSTGRES_DB: movo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U movo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://movo:movo_ci_pw@localhost:5432/movo
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci_test_secret_do_not_use_in_prod
+      PORT: 3000
 
     strategy:
       fail-fast: false
@@ -98,11 +134,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: ${{ matrix.service.path }}/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Instalar dependencias
         if: matrix.service.changed == 'true'
-        working-directory: ${{ matrix.service.path }}
         run: npm ci
 
       - name: Lint
@@ -115,9 +150,67 @@ jobs:
         working-directory: ${{ matrix.service.path }}
         run: npx tsc --noEmit
 
+      - name: Run migrations
+        if: matrix.service.changed == 'true' && matrix.service.name != 'gateway'
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          ./scripts/run-migrations.sh ${{ matrix.service.path }}
+
       - name: Tests
         if: matrix.service.changed == 'true'
         working-directory: ${{ matrix.service.path }}
+        run: npm test
+
+  mobile:
+    needs: detect-changes
+
+    if: needs.detect-changes.outputs.mobile == 'true'
+
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: movo-mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: movo-mobile/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Tests
+        run: npm test
+
+  admin-web:
+    needs: detect-changes
+
+    if: needs.detect-changes.outputs.admin-web == 'true'
+
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: movo-admin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: movo-admin/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Tests
         run: npm test
 
   python-service:
@@ -150,3 +243,22 @@ jobs:
 
       - name: Tests
         run: pytest
+
+  tests-summary:
+    if: always()
+    needs: [node-services, python-service, mobile, admin-web]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar que todos los jobs de test pasaron
+        run: |
+          for result in \
+            "${{ needs.node-services.result }}" \
+            "${{ needs.python-service.result }}" \
+            "${{ needs.mobile.result }}" \
+            "${{ needs.admin-web.result }}"; do
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "Un job de tests falló: $result"
+              exit 1
+            fi
+          done
+          echo "Todos los jobs de tests pasaron (o no aplicaban)."
