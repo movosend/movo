@@ -4,6 +4,7 @@ import swaggerUi from "@fastify/swagger-ui";
 import dbPlugin from "./plugins/db";
 import redisPlugin from "./plugins/redis";
 import authPlugin from "./plugins/auth";
+import usersRoutes from "./modules/users/users.routes";
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({ logger: true });
@@ -24,8 +25,7 @@ export function buildApp(): FastifyInstance {
 
   app.get("/health", async () => ({ status: "ok" }));
 
-  // Registrar rutas de módulos acá, ej:
-  // app.register(usersRoutes, { prefix: "/users" });
+  app.register(usersRoutes, { prefix: "/users" });
 
   return app;
 }
