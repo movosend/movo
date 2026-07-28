@@ -1,0 +1,37 @@
+name: Auto Assign Reviewers
+
+on:
+  pull_request:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  assign-reviewers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+
+      - name: Assign configured reviewers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          # Read reviewers from config file
+          if [ -f ".github/reviewers.yml" ]; then
+            # Extract usernames from YAML
+            REVIEWERS=$(grep -oP '^\s*-\s*\K\S+' .github/reviewers.yml | tr '\n' ' ')
+
+            # Remove PR author from reviewers list
+            FILTERED_REVIEWERS=$(echo $REVIEWERS | tr ' ' '\n' | grep -v "^$PR_AUTHOR$" | tr '\n' ' ')
+
+            if [ -n "$FILTERED_REVIEWERS" ]; then
+              echo "Assigning reviewers: $FILTERED_REVIEWERS"
+              gh pr edit $PR_NUMBER --add-reviewer $FILTERED_REVIEWERS || true
+            fi
+          fi
