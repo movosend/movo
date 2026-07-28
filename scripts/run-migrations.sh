@@ -21,6 +21,19 @@ if [ ${#files[@]} -eq 0 ]; then
 fi
 
 for file in $(printf '%s\n' "${files[@]}" | sort); do
+  if [[ "$file" == *.down.sql ]]; then
+    continue
+  fi
   echo "Aplicando migración: $file"
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$file"
+  if command -v psql &> /dev/null; then
+    psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$file"
+  else
+    CONTAINER_NAME="$(docker ps --filter "name=postgres" --format "{{.Names}}" | head -n 1)"
+    if [ -n "$CONTAINER_NAME" ]; then
+      docker exec -i "$CONTAINER_NAME" psql -U "${POSTGRES_USER:-movo}" -d "${POSTGRES_DB:-movo}" -v ON_ERROR_STOP=1 < "$file"
+    else
+      echo "Error: psql no está instalado y no hay un contenedor de Postgres en ejecución."
+      exit 1
+    fi
+  fi
 done
