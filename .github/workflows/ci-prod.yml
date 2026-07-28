@@ -96,11 +96,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
-          cache-dependency-path: ${{ matrix.service.path }}/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Instalar dependencias
         if: matrix.service.changed == 'true'
-        working-directory: ${{ matrix.service.path }}
         run: npm ci
 
       - name: Lint (ESLint)
@@ -130,7 +129,8 @@ jobs:
         if: matrix.service.changed == 'true'
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.service.path }}
+          context: .
+          file: ${{ matrix.service.path }}/Dockerfile
           push: true
           tags: |
             ${{ env.REGISTRY }}/movosend/${{ matrix.service.name }}:${{ env.IMAGE_TAG }}
