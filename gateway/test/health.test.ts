@@ -7,6 +7,7 @@ describe("GET /health", () => {
 
   beforeAll(() => {
     process.env.JWT_SECRET = "test-secret";
+    process.env.REDIS_URL = "redis://localhost:6379";
     app = buildApp();
   });
 
