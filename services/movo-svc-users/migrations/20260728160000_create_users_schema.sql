@@ -54,7 +54,6 @@ CREATE TABLE IF NOT EXISTS users.user_roles (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx ON users.users (LOWER(email));
-CREATE INDEX IF NOT EXISTS users_phone_idx ON users.users (phone);
 CREATE INDEX IF NOT EXISTS user_roles_user_id_idx ON users.user_roles (user_id);
 
 CREATE OR REPLACE FUNCTION users.update_updated_at_column()
