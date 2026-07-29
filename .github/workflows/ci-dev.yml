@@ -145,6 +145,10 @@ jobs:
         if: github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true'
         run: npm ci
 
+      - name: Build shared package
+        if: github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true'
+        run: npm run build -w @movo/shared
+
       - name: Lint (ESLint)
         if: github.event_name == 'workflow_dispatch' || matrix.service.changed == 'true'
         working-directory: ${{ matrix.service.path }}
