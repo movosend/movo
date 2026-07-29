@@ -1,30 +1,72 @@
 import fp from "fastify-plugin";
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import jwt from "@fastify/jwt";
-import { EnvConfig } from "../config/env";
-
-export default fp(async (app: FastifyInstance, opts: { env: EnvConfig }) => {
-  app.register(jwt, {
-    secret: opts.env.JWT_SECRET,
-  });
-
-  app.decorate(
-    "authenticate",
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        await request.jwtVerify();
-      } catch {
-        reply.code(401).send({ error: "unauthorized" });
-      }
-    },
-  );
-});
+import {
+  verifyAccessToken,
+  ApiError,
+  type AccessTokenClaims,
+  type UserRole,
+} from "@movo/shared";
 
 declare module "fastify" {
+  interface FastifyRequest {
+    user?: AccessTokenClaims;
+  }
+
   interface FastifyInstance {
     authenticate: (
       request: FastifyRequest,
       reply: FastifyReply,
     ) => Promise<void>;
+    authorize: (
+      roles: UserRole[],
+    ) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
+
+export default fp(async (app: FastifyInstance) => {
+  app.decorate("authenticate", async (request: FastifyRequest) => {
+    const authHeader = request.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      throw new ApiError(
+        401,
+        "AUTH_TOKEN_INVALID",
+        "Missing or invalid authorization header"
+      );
+    }
+
+    const token = authHeader.slice(7);
+    const result = verifyAccessToken(token);
+
+    if (result.status === "invalid") {
+      if (result.reason === "expired") {
+        throw new ApiError(401, "AUTH_TOKEN_EXPIRED", "Token has expired");
+      }
+      throw new ApiError(
+        401,
+        "AUTH_TOKEN_INVALID",
+        "Invalid or malformed token"
+      );
+    }
+
+    request.user = result.claims;
+  });
+
+  app.decorate("authorize", (roles: UserRole[]) => {
+    return async (request: FastifyRequest) => {
+      if (!request.user) {
+        throw new ApiError(403, "AUTH_FORBIDDEN", "User not authenticated");
+      }
+
+      const hasRole = roles.some((role) =>
+        request.user!.roles.includes(role)
+      );
+      if (!hasRole) {
+        throw new ApiError(
+          403,
+          "AUTH_FORBIDDEN",
+          `Required role: ${roles.join(" or ")}`
+        );
+      }
+    };
+  });
+});

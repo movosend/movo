@@ -140,6 +140,11 @@ jobs:
         if: matrix.service.changed == 'true'
         run: npm ci
 
+      - name: Build @movo/shared
+        if: matrix.service.changed == 'true'
+        working-directory: shared/movo-shared
+        run: npm run build
+
       - name: Lint
         if: matrix.service.changed == 'true'
         working-directory: ${{ matrix.service.path }}
