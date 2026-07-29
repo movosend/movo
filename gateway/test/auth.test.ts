@@ -88,7 +88,6 @@ describe("Gateway Auth Middleware", () => {
 
   describe("Rutas protegidas (token expirado)", () => {
     it("GET /shipments/* con token expirado devuelve 401 AUTH_TOKEN_EXPIRED", async () => {
-      const crypto = await import("node:crypto");
       const jwt = await import("jsonwebtoken");
 
       const expiredToken = jwt.sign(
