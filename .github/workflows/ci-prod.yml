@@ -133,6 +133,10 @@ jobs:
         if: matrix.service.changed == 'true'
         run: npm ci
 
+      - name: Build shared package
+        if: matrix.service.changed == 'true'
+        run: npm run build -w @movo/shared
+
       - name: Lint (ESLint)
         if: matrix.service.changed == 'true'
         working-directory: ${{ matrix.service.path }}
