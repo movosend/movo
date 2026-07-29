@@ -22,9 +22,14 @@ describe("Gateway Auth Middleware", () => {
       res.end(JSON.stringify({ ok: true }));
     });
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
       stub.listen(0, "localhost", () => {
-        stubPort = (stub.address() as any).port;
+        const address = stub.address();
+        if (!address || typeof address === "string") {
+          reject(new Error("Stub server did not return a TCP address"));
+          return;
+        }
+        stubPort = address.port;
         resolve();
       });
     });
