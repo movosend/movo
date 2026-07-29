@@ -1,9 +1,10 @@
 import fp from "fastify-plugin";
 import { FastifyInstance } from "fastify";
 import Redis from "ioredis";
+import { EnvConfig } from "../config/env";
 
-export default fp(async (app: FastifyInstance) => {
-  const redis = new Redis(process.env.REDIS_URL as string);
+export default fp(async (app: FastifyInstance, opts: { env: EnvConfig }) => {
+  const redis = new Redis(opts.env.REDIS_URL);
 
   app.decorate("redis", redis);
 

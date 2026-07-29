@@ -6,7 +6,7 @@ import { EnvConfig } from "../config/env";
 
 export default fp(
   async (app: FastifyInstance, opts: { env: EnvConfig }) => {
-    await app.register(redisPlugin);
+    await app.register(redisPlugin, { env: opts.env });
 
     // global: false a propósito: el límite se aplica explícitamente por ruta
     // desde routes/index.ts (general para la mayoría de los endpoints,
