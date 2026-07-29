@@ -12,11 +12,11 @@ export interface RedisHealthResult {
 }
 
 export default fp<RedisPluginOptions>(async (app: FastifyInstance, opts: RedisPluginOptions) => {
-  const redisUrl =
-    opts.redisUrl ||
-    (app as unknown as { config?: { REDIS_URL?: string } }).config?.REDIS_URL ||
-    process.env.REDIS_URL ||
-    "redis://localhost:6379";
+  const redisUrl = opts.redisUrl || app.config?.REDIS_URL || process.env.REDIS_URL;
+
+  if (!redisUrl) {
+    throw new Error("REDIS_URL configuration is missing for redisPlugin");
+  }
 
   const redis = new Redis(redisUrl, {
     retryStrategy(times) {
@@ -30,6 +30,21 @@ export default fp<RedisPluginOptions>(async (app: FastifyInstance, opts: RedisPl
   redis.on("error", (err) => {
     app.log.warn({ err: err.message }, "Redis client connection error");
   });
+
+  if (redis.status === "connecting") {
+    await new Promise<void>((resolve) => {
+      const onReady = () => {
+        redis.removeListener("error", onError);
+        resolve();
+      };
+      const onError = () => {
+        redis.removeListener("ready", onReady);
+        resolve();
+      };
+      redis.once("ready", onReady);
+      redis.once("error", onError);
+    });
+  }
 
   const checkRedisHealth = async (): Promise<RedisHealthResult> => {
     try {
@@ -60,13 +75,18 @@ export default fp<RedisPluginOptions>(async (app: FastifyInstance, opts: RedisPl
   app.decorate("checkRedisHealth", checkRedisHealth);
 
   app.addHook("onClose", async () => {
-    try {
-      if (redis.status === "ready" || redis.status === "connecting") {
-        await redis.quit();
-      } else {
+    if (redis.status === "ready") {
+      try {
+        await Promise.race([
+          redis.quit(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("Redis quit timeout")), 1000)
+          ),
+        ]);
+      } catch {
         redis.disconnect();
       }
-    } catch {
+    } else {
       redis.disconnect();
     }
   });
