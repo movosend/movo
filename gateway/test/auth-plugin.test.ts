@@ -31,14 +31,14 @@ describe("auth plugin - decorador authorize", () => {
     // Ruta de prueba que usa authorize() sola, sin pasar antes por authenticate,
     // para ejercitar la rama defensiva "usuario no autenticado" del decorador.
     app.get("/only-authorize", {
-      preHandler: app.authorize(["admin"]),
+      preHandler: app.authorize([UserRole.ADMIN]),
       handler: async () => ({ ok: true }),
     });
 
     // Ruta de prueba que encadena authenticate + authorize, tal como hace
     // routes/index.ts para los prefijos con allowedRoles.
     app.get("/needs-admin", {
-      preHandler: [app.authenticate, app.authorize(["admin"])],
+      preHandler: [app.authenticate, app.authorize([UserRole.ADMIN])],
       handler: async () => ({ ok: true }),
     });
 

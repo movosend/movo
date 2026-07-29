@@ -18,7 +18,7 @@ declare module "fastify" {
       reply: FastifyReply,
     ) => Promise<void>;
     authorize: (
-      roles: string[],
+      roles: UserRole[],
     ) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
@@ -51,14 +51,14 @@ export default fp(async (app: FastifyInstance) => {
     request.user = result.claims;
   });
 
-  app.decorate("authorize", (roles: string[]) => {
+  app.decorate("authorize", (roles: UserRole[]) => {
     return async (request: FastifyRequest) => {
       if (!request.user) {
         throw new ApiError(403, "AUTH_FORBIDDEN", "User not authenticated");
       }
 
       const hasRole = roles.some((role) =>
-        request.user!.roles.includes(role as UserRole)
+        request.user!.roles.includes(role)
       );
       if (!hasRole) {
         throw new ApiError(

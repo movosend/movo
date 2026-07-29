@@ -16,13 +16,15 @@
  * - Nunca reordenes líneas existentes.
  */
 
+import type { UserRole } from "@movo/shared";
+
 /** Prefijo global bajo el que se expone todo el ruteo a microservicios (AC1). */
 export const API_PREFIX = "/api/v1";
 
 export interface ServiceRoute {
   prefix: string;
   upstream: string;
-  allowedRoles?: string[];
+  allowedRoles?: UserRole[];
 }
 
 export interface PublicRoute {
