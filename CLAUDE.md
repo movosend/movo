@@ -241,3 +241,16 @@ Decisiones clave:
 
 Pendiente / fuera de alcance de MOVO-68: proxy hacia `svc-payments`/`svc-admin`, rate
 limit estricto en más endpoints de auth (si el equipo lo decide).
+
+### MOVO-84 — Schema y migraciones de PostgreSQL (`services/movo-svc-users`)
+
+Implementado: schema `users` en PostgreSQL, tablas `users.users` y `users.user_roles`, tipos enum `kyc_status_enum` y `user_role_enum`, índices únicos (`LOWER(email)` y `phone`) y trigger `update_users_updated_at` para actualización automática de `updated_at`. Incluye script de rollback (`down.sql`) y runner `scripts/run-migrations.sh` mejorado para omitir archivos `.down.sql` y soportar ejecuciones vía contenedor Docker.
+
+### MOVO-86 — Plugin de conexión Redis (`services/movo-svc-users`)
+
+Implementado: plugin de Fastify `src/plugins/redis.ts` que valida configuración requerida vía `@fastify/env` (*fail-fast*), expone cliente `ioredis` con reconexión de backoff exponencial (`fastify.redis`), método `fastify.checkRedisHealth()` con resguardo de timeout (2000ms), y cierre seguro (*graceful shutdown*) con límite de 1000ms en el hook `onClose` evitando bloqueos de procesos en deploy/SIGTERM.
+
+### MOVO-88 — Session Repository para Refresh Tokens en Redis (`services/movo-svc-users`)
+
+Implementado: repositorio de sesiones `src/repositories/session-repository.ts` conforme a ADR-004. Formato de claves `refresh:{userId}:{tokenId}` con TTL por defecto de 7 días (`604800s`). Expone `saveRefreshToken`, `findRefreshToken`, `revokeRefreshToken` y `revokeAllForUser` (con borrado asíncrono no bloqueante vía `SCAN` y `unlink`, escapando metacaracteres `\` `*` `?` `[` `]` para prevenir inyección glob y validando la ausencia de dos puntos en los IDs).
+
