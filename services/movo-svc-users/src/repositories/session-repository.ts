@@ -15,6 +15,12 @@ export interface SessionRepository {
 }
 
 export function createSessionRepository(redis: Redis): SessionRepository {
+  const validateIds = (userId: string, tokenId: string): void => {
+    if (userId.includes(":") || tokenId.includes(":")) {
+      throw new Error("userId and tokenId cannot contain colons");
+    }
+  };
+
   const buildKey = (userId: string, tokenId: string): string => `refresh:${userId}:${tokenId}`;
 
   return {
@@ -27,6 +33,7 @@ export function createSessionRepository(redis: Redis): SessionRepository {
       if (!userId || !tokenId) {
         throw new Error("userId and tokenId are required to save refresh token");
       }
+      validateIds(userId, tokenId);
 
       const key = buildKey(userId, tokenId);
       const val = typeof payload === "object" ? JSON.stringify(payload) : payload;
@@ -39,6 +46,9 @@ export function createSessionRepository(redis: Redis): SessionRepository {
       if (!userId || !tokenId) {
         return null;
       }
+      if (userId.includes(":") || tokenId.includes(":")) {
+        return null;
+      }
       const key = buildKey(userId, tokenId);
       return await redis.get(key);
     },
@@ -47,8 +57,11 @@ export function createSessionRepository(redis: Redis): SessionRepository {
       if (!userId || !tokenId) {
         return false;
       }
+      if (userId.includes(":") || tokenId.includes(":")) {
+        return false;
+      }
       const key = buildKey(userId, tokenId);
-      const count = await redis.unlink ? await redis.unlink(key) : await redis.del(key);
+      const count = await redis.unlink(key);
       return count > 0;
     },
 
@@ -56,9 +69,12 @@ export function createSessionRepository(redis: Redis): SessionRepository {
       if (!userId) {
         return 0;
       }
+      if (userId.includes(":")) {
+        throw new Error("userId cannot contain colons");
+      }
 
-      // Escape special glob pattern characters in userId (*, ?, [, ]) to prevent glob injection
-      const sanitizedUserId = userId.replace(/[*?\[\]]/g, "\\$&");
+      // Escape special glob pattern characters in userId (\, *, ?, [, ]) to prevent glob injection
+      const sanitizedUserId = userId.replace(/[\*?\[\]\\]/g, "\\$&");
       const pattern = `refresh:${sanitizedUserId}:*`;
 
       let cursor = "0";

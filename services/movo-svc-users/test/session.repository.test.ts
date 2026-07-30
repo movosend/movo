@@ -113,15 +113,31 @@ describe("Session Repository (Redis)", () => {
     await expect(sessionRepo.saveRefreshToken("usr-1", "")).rejects.toThrow("userId and tokenId are required");
   });
 
-  it("escapa caracteres especiales glob en userId al revocar todas las sesiones", async () => {
+  it("rechaza userId o tokenId que contengan dos puntos (:) para evitar colisiones de keys", async () => {
+    await expect(sessionRepo.saveRefreshToken("user:id", "tok1")).rejects.toThrow("userId and tokenId cannot contain colons");
+    await expect(sessionRepo.saveRefreshToken("user1", "tok:en")).rejects.toThrow("userId and tokenId cannot contain colons");
+    await expect(sessionRepo.revokeAllForUser("user:id")).rejects.toThrow("userId cannot contain colons");
+  });
+
+  it("escapa caracteres especiales glob en userId (incluyendo backslash + metacarácter)", async () => {
     const userStar = "usr*wildcard";
+    const userBackslashStar = "usr\\*wildcard";
     const userNormal = "usr123";
 
     await sessionRepo.saveRefreshToken(userStar, "tok-s1");
+    await sessionRepo.saveRefreshToken(userBackslashStar, "tok-bs1");
     await sessionRepo.saveRefreshToken(userNormal, "tok-n1");
 
-    const count = await sessionRepo.revokeAllForUser(userStar);
-    expect(count).toBe(1);
+    // Revocar para userBackslashStar sólo debe revocar userBackslashStar
+    const countBackslash = await sessionRepo.revokeAllForUser(userBackslashStar);
+    expect(countBackslash).toBe(1);
+    expect(await sessionRepo.findRefreshToken(userBackslashStar, "tok-bs1")).toBeNull();
+    expect(await sessionRepo.findRefreshToken(userStar, "tok-s1")).toBe("true");
+    expect(await sessionRepo.findRefreshToken(userNormal, "tok-n1")).toBe("true");
+
+    // Revocar para userStar sólo debe revocar userStar
+    const countStar = await sessionRepo.revokeAllForUser(userStar);
+    expect(countStar).toBe(1);
     expect(await sessionRepo.findRefreshToken(userStar, "tok-s1")).toBeNull();
     expect(await sessionRepo.findRefreshToken(userNormal, "tok-n1")).toBe("true");
   });
