@@ -15,3 +15,9 @@ export const envSchema = {
     JWT_SECRET: { type: "string" },
   },
 };
+
+declare module "fastify" {
+  interface FastifyInstance {
+    config: EnvConfig;
+  }
+}

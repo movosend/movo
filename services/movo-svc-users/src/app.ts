@@ -1,6 +1,8 @@
 import Fastify, { FastifyInstance } from "fastify";
+import fastifyEnv from "@fastify/env";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
+import { envSchema } from "./config/env";
 import dbPlugin from "./plugins/db";
 import redisPlugin from "./plugins/redis";
 import authPlugin from "./plugins/auth";
@@ -8,6 +10,12 @@ import usersRoutes from "./modules/users/users.routes";
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({ logger: true });
+
+  app.register(fastifyEnv, {
+    schema: envSchema,
+    dotenv: true,
+    data: process.env,
+  });
 
   app.register(swagger, {
     openapi: {
