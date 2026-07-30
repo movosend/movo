@@ -306,6 +306,15 @@ jobs:
             cd ~/movo
             docker compose pull
             docker compose up -d --remove-orphans
+            # nginx resuelve el hostname "gateway" (y el resto de los
+            # servicios) una sola vez al arrancar el worker y no vuelve a
+            # hacerlo. up -d recrea los contenedores de la app con IPs
+            # nuevas en la red de Docker, pero no toca `proxy` (su imagen
+            # no cambió), así que se queda con la IP vieja cacheada y
+            # termina reenviando tráfico a lo que sea que Docker le haya
+            # asignado esa IP después. Reiniciarlo fuerza una resolución
+            # DNS nueva.
+            docker compose restart proxy
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_PAT: ${{ secrets.GHCR_PAT }}
