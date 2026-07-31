@@ -1,14 +1,6 @@
 import { Pool, PoolClient } from "pg";
 import { KycStatus } from "@movo/shared";
-import {
-  User,
-  UserRow,
-  CreateUserInput,
-  UserConflictError,
-  mapRowToUser,
-  roleToDb,
-  kycStatusToDb,
-} from "../models/user";
+import { User, UserRow, CreateUserInput, UserConflictError, mapRowToUser } from "../models/user";
 
 export interface UserRepository {
   count(): Promise<number>;
@@ -27,7 +19,7 @@ const PHONE_CONFLICT_CONSTRAINTS = new Set(["users_phone_key"]);
 
 // `ur.role::text` es necesario: `pg` no conoce el OID de un enum custom de
 // Postgres y por eso no puede parsear `array_agg(ur.role)` como array JS
-// (lo devuelve como el string literal "{emisor,transportista}"). Castear a
+// (lo devuelve como el string literal "{sender,carrier}"). Castear a
 // `text` antes de agregarlo hace que sea un `text[]` real, que `pg` sí sabe
 // parsear a un array de JS.
 const SELECT_USER_WITH_ROLES = `
@@ -95,16 +87,13 @@ export function createUserRepository(db: Pool): UserRepository {
         for (const role of input.roles) {
           await client.query(
             `INSERT INTO users.user_roles (user_id, role) VALUES ($1, $2)`,
-            [userRow.id, roleToDb(role)]
+            [userRow.id, role]
           );
         }
 
         await client.query("COMMIT");
 
-        return mapRowToUser(
-          userRow,
-          input.roles.map(roleToDb)
-        );
+        return mapRowToUser(userRow, input.roles);
       } catch (error) {
         await client.query("ROLLBACK");
 
@@ -126,7 +115,7 @@ export function createUserRepository(db: Pool): UserRepository {
     async updateKycStatusIdentity(id: string, status: KycStatus): Promise<User | null> {
       const result = await db.query<UserRow>(
         `UPDATE users.users SET kyc_status_identity = $1 WHERE id = $2 RETURNING *`,
-        [kycStatusToDb(status), id]
+        [status, id]
       );
       const userRow = result.rows[0];
       if (!userRow) {
@@ -139,7 +128,7 @@ export function createUserRepository(db: Pool): UserRepository {
     async updateKycStatusLicense(id: string, status: KycStatus): Promise<User | null> {
       const result = await db.query<UserRow>(
         `UPDATE users.users SET kyc_status_license = $1 WHERE id = $2 RETURNING *`,
-        [kycStatusToDb(status), id]
+        [status, id]
       );
       const userRow = result.rows[0];
       if (!userRow) {
