@@ -23,6 +23,15 @@ export default fp<DbPluginOptions>(async (app: FastifyInstance, opts: DbPluginOp
     max: 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 5_000,
+    // Si Postgres cuelga en vez de responder o rechazar, un Promise.race
+    // manual en el caller no libera el cliente: pool.query sigue viva y se
+    // queda con un slot del pool para siempre (con max: 10, pocos healthchecks
+    // colgados agotan el pool). statement_timeout hace que el propio Postgres
+    // cancele la query server-side; query_timeout hace que pg-pool trate el
+    // timeout como error de cliente y lo destruya/evicte (_release -> _remove
+    // -> client.end()) en vez de devolverlo al pool. Revisado en MOVO-85.
+    statement_timeout: 5_000,
+    query_timeout: 5_000,
   });
 
   pool.on("error", (err) => {
@@ -31,12 +40,7 @@ export default fp<DbPluginOptions>(async (app: FastifyInstance, opts: DbPluginOp
 
   const checkDbHealth = async (): Promise<DbHealthResult> => {
     try {
-      await Promise.race([
-        pool.query("SELECT 1"),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Postgres health check timeout")), 2000)
-        ),
-      ]);
+      await pool.query("SELECT 1");
       return { status: "ok" };
     } catch (error) {
       return {
