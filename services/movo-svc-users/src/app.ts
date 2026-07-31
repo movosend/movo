@@ -8,6 +8,7 @@ import redisPlugin from "./plugins/redis";
 import authPlugin from "./plugins/auth";
 import errorHandlerPlugin from "./plugins/error-handler";
 import usersRoutes from "./modules/users/users.routes";
+import authRoutes from "./modules/auth/auth.routes";
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({ logger: true });
@@ -36,6 +37,7 @@ export function buildApp(): FastifyInstance {
   app.get("/health", async () => ({ status: "ok" }));
 
   app.register(usersRoutes, { prefix: "/users" });
+  app.register(authRoutes, { prefix: "/auth" });
 
   return app;
 }
