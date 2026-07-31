@@ -311,4 +311,19 @@ alinea la DB a `@movo/shared` (que no se toca, sigue siendo la fuente de verdad)
 Ticket nuevo en vez de reabrir MOVO-84 (ya Done), para dejar trazado en la memoria del
 TFG por qué se tocó un schema ya cerrado.
 
-_(completar detalle de archivos/decisiones cuando se termine de implementar)_
+Implementado: migración `20260731200000_align_user_enums_with_shared.sql` (+
+`.down.sql`) con `ALTER TYPE ... RENAME VALUE` — `users.user_role_enum` pasa de
+`emisor/transportista/admin` a `sender/carrier/admin`; `users.kyc_status_enum` de
+mayúscula a minúscula (`not_started/pending/approved/rejected/expired`); `DEFAULT` de
+columna re-especificado explícitamente por claridad (aunque el rename ya los actualiza
+solo, al estar resueltos por OID y no por texto).
+
+Se borró por completo la capa de mapeo de MOVO-87 en `models/user.ts`
+(`roleToDb`/`roleFromDb`/`kycStatusToDb`/`kycStatusFromDb` y sus diccionarios):
+`mapRowToUser` ahora hace un cast directo (`row.kyc_status_identity as KycStatus`, sin
+guarda de runtime — la columna es un enum de Postgres, físicamente no puede tener un
+valor fuera del enum, así que validar de nuevo en la aplicación sería validar algo que
+no puede pasar). `user-repository.ts` pasa `UserRole`/`KycStatus` directo como
+parámetro de query, sin traducción.
+
+Pendiente: el ticket de Linear queda abierto (no se pasa a Done) a pedido del usuario.
