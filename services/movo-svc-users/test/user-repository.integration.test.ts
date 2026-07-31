@@ -44,7 +44,7 @@ describe("user-repository (Postgres)", () => {
       expect(user.kycStatusIdentity).toBe(KycStatus.NOT_STARTED);
 
       const rolesInDb = await app.db.query("SELECT role FROM users.user_roles WHERE user_id = $1", [user.id]);
-      expect(rolesInDb.rows.map((r) => r.role).sort()).toEqual(["emisor", "transportista"]);
+      expect(rolesInDb.rows.map((r) => r.role).sort()).toEqual(["carrier", "sender"]);
     });
 
     it("rechaza un email duplicado con UserConflictError", async () => {
