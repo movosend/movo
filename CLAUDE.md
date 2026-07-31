@@ -261,6 +261,14 @@ Decisiones clave:
 - Límites de pool explícitos (`max: 10`, `idleTimeoutMillis`, `connectionTimeoutMillis`)
   agregados más allá de lo pedido por el AC, para no depender de los defaults de `pg` en
   una EC2 sin autoscaling (ADR-006).
+- `checkDbHealth()` NO usa `Promise.race` con timeout manual: si Postgres cuelga en vez
+  de responder, esa técnica no cancela la query real — `pool.query` sigue viva y retiene
+  el cliente para siempre (con `max: 10`, pocos healthchecks colgados agotan el pool y
+  tumban el servicio para requests reales). Se corrigió vía `statement_timeout` +
+  `query_timeout` en la config del `Pool` (línea de `new Pool({...})`): Postgres cancela
+  la query server-side y `pg-pool` trata el timeout como error de cliente, evictando y
+  destruyendo el cliente colgado (`_release` → `_remove` → `client.end()`) en vez de
+  devolverlo al pool. Corregido a partir de comment de review en MOVO-85.
 
 Pendiente / fuera de alcance: el endpoint `GET /health` en sí (MOVO-89) y el
 `user-repository` completo sobre este plugin (MOVO-87) — ambos consumen `fastify.db` /
