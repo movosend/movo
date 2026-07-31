@@ -6,6 +6,7 @@ import { envSchema } from "./config/env";
 import dbPlugin from "./plugins/db";
 import redisPlugin from "./plugins/redis";
 import authPlugin from "./plugins/auth";
+import errorHandlerPlugin from "./plugins/error-handler";
 import usersRoutes from "./modules/users/users.routes";
 
 export function buildApp(): FastifyInstance {
@@ -27,6 +28,7 @@ export function buildApp(): FastifyInstance {
   });
   app.register(swaggerUi, { routePrefix: "/docs" });
 
+  app.register(errorHandlerPlugin);
   app.register(dbPlugin);
   app.register(redisPlugin);
   app.register(authPlugin);
