@@ -241,3 +241,58 @@ Decisiones clave:
 
 Pendiente / fuera de alcance de MOVO-68: proxy hacia `svc-payments`/`svc-admin`, rate
 limit estricto en más endpoints de auth (si el equipo lo decide).
+
+### MOVO-70 — Endpoint de registro de usuario (`svc-users`)
+
+Implementado `POST /auth/register` (ya público en el gateway desde MOVO-68, sin
+cambios ahí): `src/modules/auth/{auth.routes,auth.service,auth.repository,auth.schema}.ts`,
+más `src/plugins/error-handler.ts` (portado del gateway, primer uso de `ApiError` en
+`svc-users`) registrado en `app.ts`.
+
+Decisiones clave:
+- **Inconsistencia detectada entre MOVO-66/87 (schema de DB) y MOVO-67 (`@movo/shared`),
+  pendiente de unificar por el equipo**: el enum `users.user_role_enum` de la migración
+  usa valores en español (`'emisor'`, `'transportista'`, `'admin'`), mientras que
+  `UserRole` en `@movo/shared` usa inglés (`sender`, `carrier`, `admin`) — no son
+  intercambiables. Tampoco existe columna `account_status` (solo `is_banned` +
+  `banned_until`) ni `phone_verified_at` (es `phone_verified boolean`), y hay dos
+  columnas de KYC (`kyc_status_identity`/`kyc_status_license`, en MAYÚSCULAS) en vez de
+  una sola `kyc_status` (minúscula en `@movo/shared`). Para esta US se resolvió sin
+  tocar la migración ya aceptada: los roles por defecto (AC8) se insertan como los
+  literales de DB `'emisor'`/`'transportista'` directamente (ver comentario en
+  `auth.repository.ts`), y el `kycStatus` de la respuesta usa `KycStatus.NOT_STARTED`
+  de `@movo/shared` porque se sabe que ese es el default de `kyc_status_identity` al
+  crear — no hay lectura/mapeo dinámico todavía. Quien tome MOVO-87 (repositorio
+  completo) va a necesitar esta misma capa de mapeo para `findById`/`updateKycStatus`.
+- MOVO-87 (user-repository) y MOVO-85 (plugin `fastify.db` con `search_path`/
+  healthcheck/reconexión) seguían sin arrancar/completarse al tomar esta US — se
+  construyó únicamente lo mínimo que MOVO-70 necesita (`auth.repository.ts` con
+  `createUser`, usando nombres de tabla calificados `users.users`/`users.user_roles` en
+  vez de depender de `search_path`) para no bloquearse. Falta coordinar con quien
+  cierre MOVO-87 para no duplicar/pisar trabajo.
+- `fullName` se separa en `first_name`/`last_name` (la migración no tiene un campo
+  único) partiendo por el primer espacio; el schema exige al menos dos palabras.
+- Teléfono normalizado a E.164 argentino (`+549` + 10 dígitos) sin importar si el
+  usuario mandó `+54`, `9`, ambos o ninguno — normalización en
+  `auth.service.ts#normalizePhoneToE164Ar`.
+- AC3/AC4 (409 en duplicado) se resuelven confiando en los índices únicos de la
+  migración (`users_email_lower_idx`, `users_phone_key`) y traduciendo la violación de
+  Postgres (código `23505`) al código de error correspondiente, en vez de un `SELECT`
+  previo — evita una ventana de carrera entre el chequeo y el `INSERT`.
+- Hash de contraseña con **`@node-rs/argon2`** (Argon2id), no `argon2` (paquete nativo
+  vía `node-gyp`): falló al instalar en Windows sin Visual Studio Build Tools.
+  `@node-rs/argon2` trae binarios prebuilt (napi-rs) por plataforma, sin compilación
+  local — más portable para un equipo con máquinas dev distintas.
+- Se agregaron dos códigos nuevos al contrato `ApiErrorCode` de `@movo/shared`:
+  `USER_EMAIL_ALREADY_EXISTS`, `USER_PHONE_ALREADY_EXISTS` (409).
+- El error-handler de `svc-users` también normaliza errores de validación de schema
+  (AJV) al formato único (`VALIDATION_FAILED`, 400) — antes no existía ningún
+  `setErrorHandler` en este servicio.
+
+Pendiente / fuera de alcance de MOVO-70: no se pudo correr la suite de tests
+localmente en esta sesión (sin Postgres/Redis/Docker disponibles en el entorno, y
+además Node local 20.12.2 es incompatible con vitest 4.x/rolldown que requiere
+≥20.19) — sí se corrió `tsc --noEmit` y `eslint` sin errores. Falta correr
+`npm test` contra Postgres/Redis reales (local con Docker o en CI) antes de mergear.
+Unificar los enums de roles/KYC/estado de cuenta entre `@movo/shared` y el schema de
+DB queda como decisión de equipo, no resuelta acá.
