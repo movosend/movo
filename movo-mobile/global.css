@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Tokens semánticos de superficie/texto — Manual de Marca Movo.
+ * Modo claro es el default; `.dark:root` los sobreescribe cuando
+ * nativewind activa la variante `dark` (sigue Appearance del SO,
+ * o `colorScheme.set()` si se implementa un toggle manual).
+ */
+:root {
+  --color-bg: #ffffff;
+  --color-bg-sub: #f8f8fa;
+  --color-bg-mute: #f1f1f3;
+  --color-fg-1: #0a0a0b;
+  --color-fg-2: #3a3a40;
+  --color-fg-3: #5a5a62;
+  --color-border: rgba(10, 10, 11, 0.08);
+  --color-border-strong: rgba(10, 10, 11, 0.18);
+}
+
+.dark:root {
+  --color-bg: #0a0a0b;
+  --color-bg-sub: #111113;
+  --color-bg-mute: #1a1a1d;
+  --color-fg-1: #ffffff;
+  --color-fg-2: #b4b4bc;
+  --color-fg-3: #8a8a93;
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-border-strong: rgba(255, 255, 255, 0.18);
+}
