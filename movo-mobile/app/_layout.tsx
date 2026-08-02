@@ -1,4 +1,4 @@
-import './global.css';
+import '../global.css';
 
 import {
   Inter_400Regular,
@@ -16,13 +16,12 @@ import { useColorScheme } from 'nativewind';
 import { useCallback, useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
+import { Stack } from 'expo-router';
 import { View } from 'react-native';
-
-import DevTokensScreen from './components/dev/DevTokensScreen';
 
 SplashScreen.preventAutoHideAsync();
 
-export default function App() {
+export default function RootLayout() {
   const { colorScheme } = useColorScheme();
   const [interLoaded] = useInterFonts({
     Inter_400Regular,
@@ -53,9 +52,12 @@ export default function App() {
     return null;
   }
 
+  // TODO(MOVO-73+): cuando exista el módulo de sesión persistida en el
+  // mobile, envolver el Stack con la lógica de redirect (si hay sesión
+  // válida, saltar directo a la app; si no, quedarse en "/").
   return (
     <View onLayout={onLayout} className="flex-1 bg-bg">
-      <DevTokensScreen />
+      <Stack screenOptions={{ headerShown: false }} />
       <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
     </View>
   );

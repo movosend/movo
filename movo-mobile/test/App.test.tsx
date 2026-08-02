@@ -1,9 +1,11 @@
 import { render } from "@testing-library/react-native";
-import App from "../App";
+import WelcomeScreen from "../app/index";
 
-describe("App", () => {
-  it("renderiza la pantalla de dev tokens", async () => {
-    const { getByText } = await render(<App />);
-    expect(getByText("Preview de tokens")).toBeTruthy();
+describe("WelcomeScreen", () => {
+  it("muestra el hero y los dos caminos de entrada", async () => {
+    const { getByText, getByTestId } = await render(<WelcomeScreen />);
+    expect(getByText(/La red logística pensada/)).toBeTruthy();
+    expect(getByTestId("welcome-go-register")).toBeTruthy();
+    expect(getByTestId("welcome-go-login")).toBeTruthy();
   });
 });

@@ -3,11 +3,13 @@
     "name": "movo-mobile",
     "slug": "movo-mobile",
     "version": "1.0.0",
+    "scheme": "movo",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.movo-mobile"
     },
     "android": {
       "adaptiveIcon": {
@@ -25,7 +27,11 @@
     "plugins": [
       "@didit-protocol/sdk-react-native",
       "expo-font",
-      "expo-splash-screen"
-    ]
+      "expo-splash-screen",
+      "expo-router"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
   }
 }
