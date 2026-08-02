@@ -704,3 +704,35 @@ Pendiente / fuera de alcance de este hotfix: aumentar el tamaño de disco de la 
 vuelve a quedar justo — el prune y la rotación de logs resuelven la acumulación, no un
 piso de espacio muy chico de por sí.
 
+### MOVO-73 (parcial) — Pantalla de bienvenida y navegación base en `movo-mobile`
+
+Implementado: `expo-router` como base de navegación file-based (`app/_layout.tsx`
+reemplaza a `App.tsx`/`index.ts`, que se eliminaron; `main` en `package.json` apunta a
+`expo-router/entry`). Pantalla de bienvenida en `app/index.tsx` — ruta inicial (`/`) de
+la app, deriva a `/register` ("Soy nuevo") o `/login` ("Ya tengo cuenta") vía `Link` de
+expo-router. Íconos con `lucide-react-native` (sobre `react-native-svg`) en vez de SVG
+inline, para consistencia con los próximos pasos de registro/OTP de este mismo ticket.
+`DevTokensScreen` se mantiene como ruta de desarrollo en `app/dev-tokens.tsx`.
+
+Decisiones clave:
+- `app/register.tsx` y `app/login.tsx` son **placeholders mínimos** (título + volver) —
+  el objetivo era destrabar la navegación end-to-end; el contenido real de esas
+  pantallas es trabajo de las próximas US de este ticket.
+- No hay gating por sesión iniciada: no existe todavía módulo de storage de
+  token/sesión en el mobile (el backend de auth ya existe, ver MOVO-68), así que `/`
+  siempre muestra bienvenida. Punto de extensión marcado con `// TODO` en
+  `app/_layout.tsx` para cuando se agregue el redirect condicional.
+- `jest.config.js` necesitó dos ajustes para soportar expo-router + lucide-react-native
+  en tests: sumar `standard-navigation`, `expo-modules-core` y `lucide-react-native` al
+  `transformIgnorePatterns`, y agregar un `transform` explícito para `.mjs` (el preset
+  `jest-expo` sólo transforma `.[jt]sx?` por defecto, y `lucide-react-native` resuelve a
+  un build ESM `.mjs` vía el campo `"react-native"` de su `package.json`).
+- El degradé de texto (`titanium-gradient`) del diseño original no se replicó (RN no
+  soporta `background-clip: text` sin sumar `@react-native-masked-view/masked-view`) —
+  se resolvió con un color sólido (`text-ink-700`) como fallback aceptado.
+- El patrón de puntos decorativo (halftone) de fondo del diseño no se implementó en este
+  alcance — se priorizó fidelidad de layout y jerarquía tipográfica sobre el efecto
+  decorativo.
+
+Pendiente / fuera de alcance: contenido real de `/register` y `/login`, verificación de
+OTP, storage de sesión y redirect condicional en `/`.
