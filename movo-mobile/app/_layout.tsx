@@ -18,6 +18,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { Stack } from 'expo-router';
 import { View } from 'react-native';
+import { RegistrationProvider } from '../src/hooks/use-registration';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -52,13 +53,17 @@ export default function RootLayout() {
     return null;
   }
 
-  // TODO(MOVO-73+): cuando exista el módulo de sesión persistida en el
-  // mobile, envolver el Stack con la lógica de redirect (si hay sesión
-  // válida, saltar directo a la app; si no, quedarse en "/").
+  // TODO(MOVO-76): cuando exista el módulo de sesión autenticada (tokens),
+  // envolver el Stack con la lógica de redirect (si hay sesión válida,
+  // saltar directo a la app; si no, quedarse en "/"). El `RegistrationProvider`
+  // de acá abajo es distinto: solo cubre el estado del onboarding
+  // pre-login (MOVO-73), no la sesión autenticada.
   return (
-    <View onLayout={onLayout} className="flex-1 bg-bg">
-      <Stack screenOptions={{ headerShown: false }} />
-      <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
-    </View>
+    <RegistrationProvider>
+      <View onLayout={onLayout} className="flex-1 bg-bg">
+        <Stack screenOptions={{ headerShown: false }} />
+        <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+      </View>
+    </RegistrationProvider>
   );
 }
