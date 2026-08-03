@@ -47,6 +47,7 @@ module.exports = {
 
         // ── Acentos vivos (no se tocan) ──
         lime: {
+          200: '#EEFCBF',
           400: '#D6F771',
           500: '#C6F24A',
           600: '#9FC72E',
