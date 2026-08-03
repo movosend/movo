@@ -11,7 +11,7 @@ export default function WelcomeScreen() {
       <View className="flex-1 justify-center px-6 pt-8">
         <Image
           source={require("../assets/movo_logo_full.png")}
-          className="mb-5 h-9 aspect-[7369/2693]"
+          className="mb-5 h-11 aspect-[7369/2693]"
           resizeMode="contain"
           accessibilityLabel="Movo"
         />

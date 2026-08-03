@@ -12,7 +12,7 @@ import Svg, {
 const DOT_SIZE = 16;
 const DOT_RADIUS = 1.3;
 const DOT_COLOR = '#C6F24A'; // lime-500
-const DOT_OPACITY = 0.55;
+const DOT_OPACITY = 0.85;
 
 type DotPatternProps = {
   /** Alto del patrón, en proporción al alto de pantalla (0-1). */
