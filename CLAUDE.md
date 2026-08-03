@@ -261,6 +261,14 @@ Decisiones clave:
 - Límites de pool explícitos (`max: 10`, `idleTimeoutMillis`, `connectionTimeoutMillis`)
   agregados más allá de lo pedido por el AC, para no depender de los defaults de `pg` en
   una EC2 sin autoscaling (ADR-006).
+- `checkDbHealth()` NO usa `Promise.race` con timeout manual: si Postgres cuelga en vez
+  de responder, esa técnica no cancela la query real — `pool.query` sigue viva y retiene
+  el cliente para siempre (con `max: 10`, pocos healthchecks colgados agotan el pool y
+  tumban el servicio para requests reales). Se corrigió vía `statement_timeout` +
+  `query_timeout` en la config del `Pool` (línea de `new Pool({...})`): Postgres cancela
+  la query server-side y `pg-pool` trata el timeout como error de cliente, evictando y
+  destruyendo el cliente colgado (`_release` → `_remove` → `client.end()`) en vez de
+  devolverlo al pool. Corregido a partir de comment de review en MOVO-85.
 
 Pendiente / fuera de alcance: el endpoint `GET /health` en sí (MOVO-89) y el
 `user-repository` completo sobre este plugin (MOVO-87) — ambos consumen `fastify.db` /
@@ -299,6 +307,26 @@ Decisiones clave:
   equipo decidió después alinear los enums de la DB a `@movo/shared` en vez de mantener
   el mapeo — ver **MOVO-91** más abajo, que reemplaza esa capa.
 
+Correcciones a partir del review del PR #28 (MOVO-87):
+- **`InvalidEnumValueError`** (`models/user.ts`): `roleFromDb`/`kycStatusFromDb` tiraban
+  `Error` genérico, indistinguible de un fallo de conexión para el que lo atrapa. Un
+  valor de enum sin equivalente en `@movo/shared` es drift de schema (integridad), no
+  algo transitorio que convenga reintentar. `kycStatusFromDb` ahora recibe el nombre de
+  columna porque el mismo enum respalda `kyc_status_identity` y `kyc_status_license`.
+  `roleToDb` queda con `Error` genérico a propósito: ese caso es bug de código.
+- **`PublicUser` + `toPublicUser()`** (`models/user.ts`): `User` es interno e incluye
+  `passwordHash`; el DTO público lo excluye vía `Omit`. `toPublicUser` se construye
+  campo por campo y no con spread, para que agregar una propiedad a `User` rompa en
+  compilación y obligue a decidir si es pública, en vez de filtrarla por defecto.
+- **`create()` relee la fila persistida** antes del `COMMIT` (mismo `client`, ve sus
+  propias escrituras) en vez de derivar los roles de `input.roles`. Las columnas del
+  usuario ya venían de `RETURNING *`; el hueco eran solo los roles.
+- **Integración con MOVO-91 (hecha)**: 91 elimina las funciones donde vivía
+  `InvalidEnumValueError`, así que el conflicto podía "resolverse" tomando la versión de
+  91 y hacer desaparecer el fix sin que fallara ningún test (los casts no validan nada).
+  Se conservó la validación, portada a `parseUserRole`/`parseKycStatus` — ver MOVO-91
+  más abajo.
+
 Pendiente / fuera de alcance: reputación, verificación real de licencia (MOVO-25,
 MOVO-15), endpoints de registro/login/KYC (MOVO-70 y siguientes).
 
@@ -320,10 +348,19 @@ solo, al estar resueltos por OID y no por texto).
 
 Se borró por completo la capa de mapeo de MOVO-87 en `models/user.ts`
 (`roleToDb`/`roleFromDb`/`kycStatusToDb`/`kycStatusFromDb` y sus diccionarios):
-`mapRowToUser` ahora hace un cast directo (`row.kyc_status_identity as KycStatus`, sin
-guarda de runtime — la columna es un enum de Postgres, físicamente no puede tener un
-valor fuera del enum, así que validar de nuevo en la aplicación sería validar algo que
-no puede pasar). `user-repository.ts` pasa `UserRole`/`KycStatus` directo como
-parámetro de query, sin traducción.
+ya no hay traducción, el literal de DB y el valor de dominio son el mismo string.
+`user-repository.ts` pasa `UserRole`/`KycStatus` directo como parámetro de query.
+
+**Corrección al integrar con develop (PR #29):** la versión original de MOVO-91
+reemplazaba la capa de mapeo por casts sin validar (`row.kyc_status_identity as
+KycStatus`), con el argumento de que la columna es un enum de Postgres y físicamente no
+puede tener un valor fuera del enum. El argumento es cierto pero cubre el riesgo
+equivocado: lo que puede entrar es un valor que **sí** está en el enum de Postgres pero
+**no** en `@movo/shared` (un `ALTER TYPE ... ADD VALUE` que no actualice el dominio).
+Esa desalineación no es hipotética — es exactamente la que motivó este ticket. Y los
+roles gobiernan autorización (ADR-004), así que un valor inválido entrando en silencio
+llega a los claims del JWT. Se conserva entonces la validación que MOVO-87 sumó por
+review, portada a la forma alineada: `parseUserRole`/`parseKycStatus` chequean contra
+`Object.values(...)` y tiran `InvalidEnumValueError` antes de castear.
 
 Pendiente: el ticket de Linear queda abierto (no se pasa a Done) a pedido del usuario.

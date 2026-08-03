@@ -47,6 +47,16 @@ describe("user-repository (Postgres)", () => {
       expect(rolesInDb.rows.map((r) => r.role).sort()).toEqual(["carrier", "sender"]);
     });
 
+    it("devuelve el estado persistido y no los roles derivados del input", async () => {
+      const created = await repo.create(baseInput);
+      const reloaded = await repo.findById(created.id);
+
+      // Si create() armara la respuesta desde el input en vez de releer la
+      // fila, esto empezaría a divergir ante cualquier trigger/default nuevo.
+      expect(created).toEqual(reloaded);
+      expect([...created.roles].sort()).toEqual([...(reloaded?.roles ?? [])].sort());
+    });
+
     it("rechaza un email duplicado con UserConflictError", async () => {
       await repo.create(baseInput);
 
