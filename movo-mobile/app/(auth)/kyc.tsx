@@ -6,6 +6,7 @@ import { ActivityIndicator, Image, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PrimaryButton } from '../../components/auth/primary-button';
 import { useRegistration } from '../../src/hooks/use-registration';
+import { useThemeColors } from '../../src/hooks/use-theme-colors';
 
 /**
  * Usa el SDK nativo de Didit (`startVerification`) en vez de un WebView: ya
@@ -105,6 +106,7 @@ function kycStatusToResultKind(status: KycStatus): ResultKind | null {
 }
 
 export default function KycScreen() {
+  const colors = useThemeColors();
   const registration = useRegistration();
   const { kycStatus, loading, errorBanner, createKycSession, refreshKycStatus } = registration;
   const [phase, setPhase] = useState<'intro' | 'connecting' | 'result'>('intro');
@@ -170,9 +172,9 @@ export default function KycScreen() {
 
   if (phase === 'connecting') {
     return (
-      <SafeAreaView className="flex-1 items-center justify-center bg-paper px-8">
-        <ActivityIndicator size="large" color="#0A0A0B" />
-        <Text className="mb-2 mt-6 text-center font-sans-semibold text-h3 text-ink-950">
+      <SafeAreaView className="flex-1 items-center justify-center bg-bg px-8">
+        <ActivityIndicator size="large" color={colors.fg1} />
+        <Text className="mb-2 mt-6 text-center font-sans-semibold text-h3 text-fg">
           Conectando con Didit…
         </Text>
         <Text className="text-center font-sans text-[13px] text-fg-2">
@@ -186,16 +188,16 @@ export default function KycScreen() {
     const copy = RESULT_COPY[resultKind];
     const canRetry = RETRYABLE.includes(resultKind);
     return (
-      <SafeAreaView className="flex-1 bg-paper px-8 pt-16">
+      <SafeAreaView className="flex-1 bg-bg px-8 pt-16">
         <View className="flex-1 items-center">
           <View
             className={`mb-5 h-14 w-14 items-center justify-center rounded-[14px] ${
-              resultKind === 'approved' ? 'bg-lime-500' : 'bg-ink-100'
+              resultKind === 'approved' ? 'bg-lime-500' : 'bg-bg-mute'
             }`}
           >
             <Text className="text-[22px]">{resultKind === 'approved' ? '✓' : resultKind === 'declined' ? '✕' : '…'}</Text>
           </View>
-          <Text testID="kyc-result-title" className="mb-2 text-center font-sans-semibold text-h2 text-ink-950">
+          <Text testID="kyc-result-title" className="mb-2 text-center font-sans-semibold text-h2 text-fg">
             {copy.title}
           </Text>
           <Text className="text-center font-sans text-body text-fg-2">{copy.body}</Text>
@@ -216,7 +218,7 @@ export default function KycScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-paper" edges={['top', 'bottom']}>
+    <SafeAreaView className="flex-1 bg-bg" edges={['top', 'bottom']}>
       <View className="flex-1 px-6 pt-8">
         <Text className="mb-2.5 font-sans-semibold text-[11px] uppercase tracking-[0.6px] text-fg-3">
           Verificación de identidad
@@ -226,10 +228,10 @@ export default function KycScreen() {
           className="mb-4 h-9 w-[100px]"
           resizeMode="contain"
         />
-        <Text className="mb-2.5 font-sans-semibold text-title text-ink-950">Confirmemos que sos vos</Text>
+        <Text className="mb-2.5 font-sans-semibold text-title text-fg">Confirmemos que sos vos</Text>
         <Text className="mb-4.5 font-sans text-body text-fg-2">
           Para que puedas enviar y llevar paquetes con confianza, necesitamos verificar tu identidad. Lo
-          hacemos junto con <Text className="font-sans-semibold text-ink-950">Didit</Text>, nuestro socio de
+          hacemos junto con <Text className="font-sans-semibold text-fg">Didit</Text>, nuestro socio de
           verificación. No te va a tomar más de 2 minutos.
         </Text>
 
@@ -265,10 +267,10 @@ export default function KycScreen() {
 function IntroStep({ number, text }: { number: number; text: string }) {
   return (
     <View className="flex-row items-start gap-3">
-      <View className="h-6.5 w-6.5 items-center justify-center rounded-full bg-ink-100">
-        <Text className="font-sans-semibold text-[12px] text-ink-950">{number}</Text>
+      <View className="h-6.5 w-6.5 items-center justify-center rounded-full bg-bg-mute">
+        <Text className="font-sans-semibold text-[12px] text-fg">{number}</Text>
       </View>
-      <Text className="flex-1 pt-0.5 font-sans text-[13px] text-ink-950">{text}</Text>
+      <Text className="flex-1 pt-0.5 font-sans text-[13px] text-fg">{text}</Text>
     </View>
   );
 }

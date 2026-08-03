@@ -1,23 +1,35 @@
 import { Link } from "expo-router";
 import { ArrowRight } from "lucide-react-native";
+import { useColorScheme } from "nativewind";
 import { Image, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { DotPattern } from "../components/ui/dot-pattern";
 
 export default function WelcomeScreen() {
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const logoSource = isDark
+    ? require("../assets/movo_logo_full_dark.png")
+    : require("../assets/movo_logo_full.png");
+  // Los dos PNG no comparten exactamente el mismo aspect ratio (7369x2693 el
+  // claro, 7375x2583 el oscuro) — se fija por variante para que ninguno se
+  // vea estirado.
+  const logoAspectRatio = isDark ? 7375 / 2583 : 7369 / 2693;
+
   return (
-    <SafeAreaView className="flex-1 bg-paper" edges={["top", "bottom"]}>
+    <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
       <DotPattern />
       <View className="flex-1 justify-center px-6 pt-8">
         <Image
-          source={require("../assets/movo_logo_full.png")}
-          className="mb-5 h-11 aspect-[7369/2693]"
+          source={logoSource}
+          className="mb-5 h-11"
+          style={{ aspectRatio: logoAspectRatio }}
           resizeMode="contain"
           accessibilityLabel="Movo"
         />
-        <Text className="mb-4 font-sans-semibold text-[28px] leading-[34px] tracking-[-0.3px] text-ink-950">
+        <Text className="mb-4 font-sans-semibold text-[28px] leading-[34px] tracking-[-0.3px] text-fg">
           La red logística pensada{" "}
-          <Text className="font-sans-semibold text-[28px] leading-[34px] tracking-[-0.3px] text-ink-700">
+          <Text className="font-sans-semibold text-[28px] leading-[34px] tracking-[-0.3px] text-fg-2">
             para personas
           </Text>
           .
@@ -45,7 +57,7 @@ export default function WelcomeScreen() {
             className="w-full items-center justify-center rounded-lg border border-border-strong py-4"
             testID="welcome-go-login"
           >
-            <Text className="font-sans-semibold text-body text-ink-950">
+            <Text className="font-sans-semibold text-body text-fg">
               Ya tengo cuenta
             </Text>
           </Pressable>

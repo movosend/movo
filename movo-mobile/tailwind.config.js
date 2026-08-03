@@ -2,6 +2,12 @@
 module.exports = {
   content: ['./app/**/*.{js,jsx,ts,tsx}', './components/**/*.{js,jsx,ts,tsx}'],
   presets: [require('nativewind/preset')],
+  // "class" (no "media"): es el único modo en el que NativeWind reconoce el
+  // patrón `.dark:root { ... }` de global.css como bloque de variables CSS
+  // dark. NativeWind sigue igual el `Appearance` del sistema automáticamente
+  // por default — "class" no implica toggle manual, solo habilita que las
+  // variables CSS con esa sintaxis funcionen. Ver CLAUDE.md, MOVO-73 (extra).
+  darkMode: 'class',
   theme: {
     extend: {
       fontFamily: {

@@ -29,6 +29,7 @@ import { WizardHeader } from "../../components/auth/wizard-header";
 import { PasswordStrengthMeter } from "../../components/ui/password-strength-meter";
 import { SelectField } from "../../components/ui/select-field";
 import { TextField } from "../../components/ui/text-field";
+import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import {
   type FieldName,
   formatDni,
@@ -74,6 +75,7 @@ const STEP_LABELS = [
 type Step = 0 | 1 | 2 | 3 | 4 | 5;
 
 export default function RegisterScreen() {
+  const colors = useThemeColors();
   const registration = useRegistration();
   const { fields, touched, setField, touch, touchAll, errorBanner, loading } =
     registration;
@@ -226,7 +228,7 @@ export default function RegisterScreen() {
     touched[name] ? getFieldError(name, fields) : "";
 
   return (
-    <SafeAreaView className="flex-1 bg-paper" edges={["top", "bottom"]}>
+    <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
       <WizardHeader
         progress={(step + 1) / 6}
         stepLabel={STEP_LABELS[step]}
@@ -247,7 +249,7 @@ export default function RegisterScreen() {
         {step === 0 && (
           <View>
             <StepIcon icon={UserRound} />
-            <Text className="mb-1.5 font-sans-semibold text-title text-ink-950">
+            <Text className="mb-1.5 font-sans-semibold text-title text-fg">
               Creá tu cuenta
             </Text>
             <Text className="mb-5 font-sans text-body text-fg-2">
@@ -346,7 +348,7 @@ export default function RegisterScreen() {
               leftElement={
                 <View className="flex-row items-center gap-1.5">
                   <Text className="text-[16px]">🇦🇷</Text>
-                  <Text className="font-sans text-body text-ink-950">+54</Text>
+                  <Text className="font-sans text-body text-fg">+54</Text>
                 </View>
               }
             />
@@ -356,7 +358,7 @@ export default function RegisterScreen() {
         {step === 1 && (
           <View>
             <StepIcon icon={IdCard} />
-            <Text className="mb-1.5 font-sans-semibold text-title text-ink-950">
+            <Text className="mb-1.5 font-sans-semibold text-title text-fg">
               Tu DNI
             </Text>
             <Text className="mb-5 font-sans text-body text-fg-2">
@@ -382,7 +384,7 @@ export default function RegisterScreen() {
         {step === 2 && (
           <View>
             <StepIcon icon={Home} />
-            <Text className="mb-1.5 font-sans-semibold text-title text-ink-950">
+            <Text className="mb-1.5 font-sans-semibold text-title text-fg">
               Dirección de tu casa
             </Text>
             <Text className="mb-5 font-sans text-body text-fg-2">
@@ -501,12 +503,12 @@ export default function RegisterScreen() {
         {step === 3 && (
           <View>
             <StepIcon icon={MessageSquare} />
-            <Text className="mb-1.5 font-sans-semibold text-title text-ink-950">
+            <Text className="mb-1.5 font-sans-semibold text-title text-fg">
               Verificá tu teléfono
             </Text>
             <Text className="mb-5 font-sans text-body text-fg-2">
               Te enviamos un código de 6 dígitos por SMS al{" "}
-              <Text className="font-sans-semibold text-ink-950">+54 {fields.phone}</Text>.
+              <Text className="font-sans-semibold text-fg">+54 {fields.phone}</Text>.
             </Text>
 
             <Text className="mb-1.5 font-sans-medium text-[12px] text-fg-2">
@@ -527,7 +529,7 @@ export default function RegisterScreen() {
                   autoComplete={index === 0 ? "sms-otp" : "off"}
                   textContentType="oneTimeCode"
                   returnKeyType="done"
-                  className="h-14 flex-1 rounded-lg border border-border-strong text-center font-sans-semibold text-[22px] text-ink-950"
+                  className="h-14 flex-1 rounded-lg border border-border-strong text-center font-sans-semibold text-[22px] text-fg"
                 />
               ))}
             </View>
@@ -542,7 +544,7 @@ export default function RegisterScreen() {
                 <Text
                   testID="register-otp-resend"
                   onPress={handleResendOtp}
-                  className="font-sans-semibold text-[13px] text-ink-950 underline"
+                  className="font-sans-semibold text-[13px] text-fg underline"
                 >
                   Reenviar código
                 </Text>
@@ -558,7 +560,7 @@ export default function RegisterScreen() {
         {step === 4 && (
           <View>
             <StepIcon icon={Lock} />
-            <Text className="mb-1.5 font-sans-semibold text-title text-ink-950">
+            <Text className="mb-1.5 font-sans-semibold text-title text-fg">
               Creá tu contraseña
             </Text>
             <Text className="mb-5 font-sans text-body text-fg-2">
@@ -586,9 +588,9 @@ export default function RegisterScreen() {
                   className="h-7 w-7 items-center justify-center"
                 >
                   {showPassword ? (
-                    <EyeOff size={18} color="#5A5A62" strokeWidth={1.8} />
+                    <EyeOff size={18} color={colors.fg2} strokeWidth={1.8} />
                   ) : (
-                    <Eye size={18} color="#5A5A62" strokeWidth={1.8} />
+                    <Eye size={18} color={colors.fg2} strokeWidth={1.8} />
                   )}
                 </Pressable>
               }
@@ -618,7 +620,7 @@ export default function RegisterScreen() {
         {step === 5 && (
           <View>
             <StepIcon icon={ClipboardCheck} />
-            <Text className="mb-1.5 font-sans-semibold text-title text-ink-950">
+            <Text className="mb-1.5 font-sans-semibold text-title text-fg">
               Revisá y confirmá
             </Text>
             <Text className="mb-5 font-sans text-body text-fg-2">
@@ -666,7 +668,7 @@ export default function RegisterScreen() {
               <Text
                 testID="register-terms-link"
                 onPress={() => Linking.openURL("https://movosend.app/tyc")}
-                className="text-ink-950 underline"
+                className="text-fg underline"
               >
                 Términos
               </Text>{" "}
@@ -674,7 +676,7 @@ export default function RegisterScreen() {
               <Text
                 testID="register-privacy-link"
                 onPress={() => Linking.openURL("https://movosend.app/privacy")}
-                className="text-ink-950 underline"
+                className="text-fg underline"
               >
                 Política de Privacidad
               </Text>
@@ -717,6 +719,8 @@ function ReviewRow({
   onEdit: () => void;
   last?: boolean;
 }) {
+  const colors = useThemeColors();
+
   return (
     <View
       className={`flex-row items-center justify-between gap-2.5 px-4 py-3.5 ${
@@ -725,7 +729,7 @@ function ReviewRow({
     >
       <View className="flex-1">
         <Text className="mb-0.5 font-sans text-[11px] text-fg-3">{label}</Text>
-        <Text className="font-sans-medium text-[14px] text-ink-950">
+        <Text className="font-sans-medium text-[14px] text-fg">
           {value || "—"}
           {badge ? (
             <Text className="font-sans-semibold text-[14px] text-success-500"> · {badge}</Text>
@@ -738,7 +742,7 @@ function ReviewRow({
         hitSlop={8}
         className="h-7 w-7 items-center justify-center"
       >
-        <Pencil size={16} color="#5A5A62" strokeWidth={1.8} />
+        <Pencil size={16} color={colors.fg2} strokeWidth={1.8} />
       </Pressable>
     </View>
   );

@@ -828,3 +828,42 @@ de crear la cuenta, no después.
   `userId` + `kycStatus` del backend, sin estado local — como la cuenta se sigue creando
   recién al final del wizard (igual que antes), la reanudación no se ve afectada por este
   cambio.
+
+### MOVO-73 (extra) — Dark mode automático en `movo-mobile`
+
+La infraestructura ya existía (variables CSS en `global.css`, tokens `bg`/`bg-sub`/
+`bg-mute`/`fg`/`fg-2`/`fg-3`/`border`/`border-strong` en `tailwind.config.js`) pero las
+pantallas de bienvenida/registro/OTP/KYC usaban colores fijos de la escala `ink-*`/
+`bg-paper`, que no cambian con el tema. Se reemplazaron por los tokens semánticos en
+`app/index.tsx`, `app/(auth)/{login,register,kyc}.tsx` y los componentes
+`wizard-header`, `text-field`, `password-strength-meter`, `select-field`,
+`primary-button`.
+
+- **`tailwind.config.js` necesitó `darkMode: "class"` explícito** — sin esa línea
+  (default `"media"`), NativeWind/`react-native-css-interop` **no reconoce** el patrón
+  `.dark:root { ... }` de `global.css` como bloque de variables dark (ver
+  `normalize-selectors.js` del paquete: ese matching solo corre si
+  `options.darkMode?.type === "class"`); con `"media"` las variables `--color-*` nunca
+  cambiaban y toda la app se veía en claro sin importar el tema del teléfono. `"class"`
+  **no** implica toggle manual: NativeWind sigue automáticamente el `Appearance` del
+  sistema por default en ambos modos (ver `colorScheme` en
+  `appearance-observables.js` — solo deja de auto-seguir si algo llama
+  `colorScheme.set()` explícitamente, cosa que esta app no hace). Es justo lo que pidió
+  el equipo ("que siga la variante configurada en el teléfono"), sin toggle manual en
+  ningún flujo de usuario.
+- **Colores que reciben una prop `color` en JS (íconos de `lucide-react-native`,
+  `placeholderTextColor`, `ActivityIndicator`) no pueden resolver variables CSS** —
+  NativeWind solo interviene sobre `className`. Se agregó
+  `src/hooks/use-theme-colors.ts` (`useThemeColors()`, hex de `fg`/`fg-2`/`fg-3` según
+  `useColorScheme()` de NativeWind) para esos casos puntuales. Si se agrega un color
+  nuevo a `global.css`, sumarlo también acá.
+- **Qué se dejó fijo a propósito** (no se tokenizó): los acentos vivos (`lime-*`,
+  `route-500`) y las escalas semánticas (`danger`/`warning`/`success`/`info`) no tienen
+  variante dark en `global.css` todavía — los banners de error (`bg-danger-100` +
+  `text-ink-950`) y el botón primario `variant="dark"` (`bg-ink-950`/`text-paper`, CTA
+  de marca) quedan iguales en ambos temas. Si el equipo quiere que esos banners también
+  se adapten, hace falta definir pasos dark para esas escalas primero.
+- `components/dev/DevTokensScreen.tsx` (ruta `/dev-tokens`) tiene un toggle manual
+  (`colorScheme.set(...)`) sin tocar — con `darkMode: "class"` ya activo, ese botón
+  ahora funciona (antes de este cambio tiraba excepción, porque `colorScheme.set()`
+  solo está permitido con `darkMode: "class"`).

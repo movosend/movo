@@ -2,6 +2,7 @@ import { ChevronDown, Check } from 'lucide-react-native';
 import { useState } from 'react';
 import { FlatList, Modal, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useThemeColors } from '../../src/hooks/use-theme-colors';
 
 interface SelectFieldProps {
   label: string;
@@ -25,6 +26,7 @@ export function SelectField({
   containerClassName,
 }: SelectFieldProps) {
   const [open, setOpen] = useState(false);
+  const colors = useThemeColors();
 
   return (
     <View className={containerClassName ?? 'mb-3.5 gap-1.5'}>
@@ -35,12 +37,12 @@ export function SelectField({
         className="w-full flex-row items-center justify-between rounded-md border border-border-strong px-3.5 py-3"
       >
         <Text
-          className={`font-sans text-body ${value ? 'text-ink-950' : 'text-fg-2'}`}
+          className={`font-sans text-body ${value ? 'text-fg' : 'text-fg-2'}`}
           numberOfLines={1}
         >
           {value || placeholder}
         </Text>
-        <ChevronDown size={18} color="#8A8A93" strokeWidth={2} />
+        <ChevronDown size={18} color={colors.fg3} strokeWidth={2} />
       </Pressable>
       {error ? (
         <Text testID={testID ? `${testID}-error` : undefined} className="font-sans text-[12px] text-danger-500">
@@ -50,10 +52,10 @@ export function SelectField({
 
       <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
         <Pressable className="flex-1 justify-end bg-black/40" onPress={() => setOpen(false)}>
-          <Pressable className="max-h-[70%] rounded-t-2xl bg-paper" onPress={(e) => e.stopPropagation()}>
+          <Pressable className="max-h-[70%] rounded-t-2xl bg-bg" onPress={(e) => e.stopPropagation()}>
             <SafeAreaView edges={['bottom']}>
               <View className="items-center border-b border-border-strong px-5 py-3.5">
-                <Text className="font-sans-medium text-[14px] text-ink-950">{label}</Text>
+                <Text className="font-sans-medium text-[14px] text-fg">{label}</Text>
               </View>
               <FlatList
                 data={options}
@@ -67,8 +69,8 @@ export function SelectField({
                     }}
                     className="flex-row items-center justify-between px-5 py-3.5"
                   >
-                    <Text className="font-sans text-body text-ink-950">{item}</Text>
-                    {item === value ? <Check size={18} color="#0A0A0B" strokeWidth={2} /> : null}
+                    <Text className="font-sans text-body text-fg">{item}</Text>
+                    {item === value ? <Check size={18} color={colors.fg1} strokeWidth={2} /> : null}
                   </Pressable>
                 )}
               />

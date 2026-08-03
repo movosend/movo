@@ -1,5 +1,6 @@
 import { forwardRef, type ReactNode } from 'react';
 import { Text, TextInput, View, type TextInputProps } from 'react-native';
+import { useThemeColors } from '../../src/hooks/use-theme-colors';
 
 interface TextFieldProps extends TextInputProps {
   label: string;
@@ -14,6 +15,8 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
   { label, error, testID, containerClassName, rightElement, leftElement, ...inputProps },
   ref,
 ) {
+  const colors = useThemeColors();
+
   return (
     <View className={containerClassName ?? 'mb-3.5 gap-1.5'}>
       <Text className="font-sans-medium text-[12px] text-fg-2">{label}</Text>
@@ -21,8 +24,8 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(function TextFiel
         <TextInput
           ref={ref}
           testID={testID}
-          placeholderTextColor="#8A8A93"
-          className={`w-full rounded-md border border-border-strong py-3 font-sans text-[15px] text-ink-950 ${
+          placeholderTextColor={colors.fg3}
+          className={`w-full rounded-md border border-border-strong py-3 font-sans text-[15px] text-fg ${
             rightElement ? 'pr-11' : 'pr-3.5'
           } ${leftElement ? 'pl-[78px]' : 'pl-3.5'}`}
           textAlignVertical="center"

@@ -36,7 +36,7 @@ export function PasswordStrengthMeter({ password, testID }: PasswordStrengthMete
         {criteria.map((c, i) => (
           <View
             key={c.key}
-            className={`h-1 flex-1 rounded-full ${i < metCount ? level.barClass : 'bg-ink-200'}`}
+            className={`h-1 flex-1 rounded-full ${i < metCount ? level.barClass : 'bg-bg-mute'}`}
           />
         ))}
       </View>
@@ -51,9 +51,9 @@ export function PasswordStrengthMeter({ password, testID }: PasswordStrengthMete
                 <Check size={10} color="#FFFFFF" strokeWidth={3} />
               </View>
             ) : (
-              <View className="h-3.5 w-3.5 rounded-full border border-ink-300" />
+              <View className="h-3.5 w-3.5 rounded-full border border-border-strong" />
             )}
-            <Text className={`font-sans text-[12px] ${c.met ? 'text-ink-950' : 'text-fg-2'}`}>{c.label}</Text>
+            <Text className={`font-sans text-[12px] ${c.met ? 'text-fg' : 'text-fg-2'}`}>{c.label}</Text>
           </View>
         ))}
       </View>
