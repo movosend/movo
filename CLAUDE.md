@@ -307,6 +307,27 @@ Decisiones clave:
   equipo decidió después alinear los enums de la DB a `@movo/shared` en vez de mantener
   el mapeo — ver **MOVO-91** más abajo, que reemplaza esa capa.
 
+Correcciones a partir del review del PR #28 (MOVO-87):
+- **`InvalidEnumValueError`** (`models/user.ts`): `roleFromDb`/`kycStatusFromDb` tiraban
+  `Error` genérico, indistinguible de un fallo de conexión para el que lo atrapa. Un
+  valor de enum sin equivalente en `@movo/shared` es drift de schema (integridad), no
+  algo transitorio que convenga reintentar. `kycStatusFromDb` ahora recibe el nombre de
+  columna porque el mismo enum respalda `kyc_status_identity` y `kyc_status_license`.
+  `roleToDb` queda con `Error` genérico a propósito: ese caso es bug de código.
+- **`PublicUser` + `toPublicUser()`** (`models/user.ts`): `User` es interno e incluye
+  `passwordHash`; el DTO público lo excluye vía `Omit`. `toPublicUser` se construye
+  campo por campo y no con spread, para que agregar una propiedad a `User` rompa en
+  compilación y obligue a decidir si es pública, en vez de filtrarla por defecto.
+- **`create()` relee la fila persistida** antes del `COMMIT` (mismo `client`, ve sus
+  propias escrituras) en vez de derivar los roles de `input.roles`. Las columnas del
+  usuario ya venían de `RETURNING *`; el hueco eran solo los roles.
+- ⚠️ **Al rebasear MOVO-91 sobre esto**: el commit que elimina la capa de mapeo borra
+  las mismas funciones donde vive `InvalidEnumValueError`. Resolver el conflicto tomando
+  "la versión de 91" hace desaparecer el fix **sin que falle ningún test** (los casts de
+  91 no validan nada). Hay que reponerlo como `parseUserRole`/`parseKycStatus` que
+  validen contra `Object.values(...)` antes del cast en `mapRowToUser`, y actualizar los
+  literales de los tests de `toPublicUser` a los valores alineados (`sender`, `pending`).
+
 Pendiente / fuera de alcance: reputación, verificación real de licencia (MOVO-25,
 MOVO-15), endpoints de registro/login/KYC (MOVO-70 y siguientes).
 
