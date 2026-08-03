@@ -99,12 +99,20 @@ export function createUserRepository(db: Pool): UserRepository {
           );
         }
 
+        // Relee la fila ya persistida en vez de devolver los roles derivados
+        // del input: así lo que sale refleja el estado definitivo de la DB
+        // (defaults, triggers, normalizaciones) y no lo que se pidió insertar.
+        // Va con el mismo `client` y dentro de la transacción, que ve sus
+        // propias escrituras aún sin COMMIT.
+        const finalResult = await client.query<UserRowWithRoles>(
+          `${SELECT_USER_WITH_ROLES} WHERE u.id = $1 GROUP BY u.id`,
+          [userRow.id]
+        );
+
         await client.query("COMMIT");
 
-        return mapRowToUser(
-          userRow,
-          input.roles.map(roleToDb)
-        );
+        // Garantizado: la fila se acaba de insertar en esta misma transacción.
+        return toUserOrNull(finalResult.rows[0])!;
       } catch (error) {
         await client.query("ROLLBACK");
 
