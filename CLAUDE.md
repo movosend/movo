@@ -273,3 +273,71 @@ Decisiones clave:
 Pendiente / fuera de alcance: el endpoint `GET /health` en sí (MOVO-89) y el
 `user-repository` completo sobre este plugin (MOVO-87) — ambos consumen `fastify.db` /
 `checkDbHealth()` sin necesitar cambios de este plugin.
+
+### MOVO-87 — `user-repository`: capa de acceso a datos de usuarios
+
+Implementado en `src/repositories/user-repository.ts` + `src/models/user.ts`:
+`findByEmail`/`findByPhone`/`findById` (case-insensitive en email), `create` (usuario +
+roles en una transacción), `updateKycStatusIdentity`/`updateKycStatusLicense`. Se
+consolidó ahí también el `count()` que vivía en el scaffold viejo de
+`modules/users/users.repository.ts` (borrado).
+
+Decisiones clave:
+- `updateKycStatus(id, status)` del AC se implementó como **dos** métodos
+  (`updateKycStatusIdentity`/`updateKycStatusLicense`) en vez de uno, porque la tabla
+  tiene dos columnas KYC — el de identidad es el que gobierna autorización general
+  (ADR-004), el de licencia es solo persistencia (no lógica de MOVO-15). Detalle en
+  comentario de MOVO-87 en Linear.
+- `create()` excede la firma literal del AC (`create(userData)`): también acepta
+  `roles` e inserta en `users.users` + `users.user_roles` en una sola transacción,
+  coordinado con MOVO-70 (Alena tenía un repo local propio para no bloquearse, ver
+  comentarios en MOVO-87).
+- El array de roles agregado con `array_agg(ur.role::text)` necesita el cast a `text`:
+  `pg` no conoce el OID de un enum custom de Postgres y sin el cast devuelve el array
+  como el string literal crudo (`"{...}"`), no un array de JS.
+- `vitest.config.ts` del servicio: se agregó `fileParallelism: false` (los tests de
+  integración pegan contra el mismo Postgres real con `TRUNCATE` en `beforeEach` — sin
+  esto, archivos de test corriendo en paralelo se pisan datos entre sí) y se amplió el
+  `include` de coverage a `src/repositories/**`/`src/models/**` (antes solo medía
+  `src/modules/**`, dejando afuera `session-repository.ts` de MOVO-88 y todo este
+  ticket).
+- **Mismatch de enums (rol/KYC) entre `@movo/shared` y la DB, resuelto y luego
+  revertido**: MOVO-87 lo resolvió originalmente con una capa de mapeo explícita
+  (`roleToDb`/`roleFromDb`/`kycStatusToDb`/`kycStatusFromDb` en `models/user.ts`). El
+  equipo decidió después alinear los enums de la DB a `@movo/shared` en vez de mantener
+  el mapeo — ver **MOVO-91** más abajo, que reemplaza esa capa.
+
+Correcciones a partir del review del PR #28 (MOVO-87):
+- **`InvalidEnumValueError`** (`models/user.ts`): `roleFromDb`/`kycStatusFromDb` tiraban
+  `Error` genérico, indistinguible de un fallo de conexión para el que lo atrapa. Un
+  valor de enum sin equivalente en `@movo/shared` es drift de schema (integridad), no
+  algo transitorio que convenga reintentar. `kycStatusFromDb` ahora recibe el nombre de
+  columna porque el mismo enum respalda `kyc_status_identity` y `kyc_status_license`.
+  `roleToDb` queda con `Error` genérico a propósito: ese caso es bug de código.
+- **`PublicUser` + `toPublicUser()`** (`models/user.ts`): `User` es interno e incluye
+  `passwordHash`; el DTO público lo excluye vía `Omit`. `toPublicUser` se construye
+  campo por campo y no con spread, para que agregar una propiedad a `User` rompa en
+  compilación y obligue a decidir si es pública, en vez de filtrarla por defecto.
+- **`create()` relee la fila persistida** antes del `COMMIT` (mismo `client`, ve sus
+  propias escrituras) en vez de derivar los roles de `input.roles`. Las columnas del
+  usuario ya venían de `RETURNING *`; el hueco eran solo los roles.
+- ⚠️ **Al rebasear MOVO-91 sobre esto**: el commit que elimina la capa de mapeo borra
+  las mismas funciones donde vive `InvalidEnumValueError`. Resolver el conflicto tomando
+  "la versión de 91" hace desaparecer el fix **sin que falle ningún test** (los casts de
+  91 no validan nada). Hay que reponerlo como `parseUserRole`/`parseKycStatus` que
+  validen contra `Object.values(...)` antes del cast en `mapRowToUser`, y actualizar los
+  literales de los tests de `toPublicUser` a los valores alineados (`sender`, `pending`).
+
+Pendiente / fuera de alcance: reputación, verificación real de licencia (MOVO-25,
+MOVO-15), endpoints de registro/login/KYC (MOVO-70 y siguientes).
+
+### MOVO-91 — Alinear enums de `users.users` con `@movo/shared`
+
+Revierte la capa de mapeo de MOVO-87: en vez de traducir entre el enum de Postgres
+(español/mayúscula) y `@movo/shared` (inglés/minúscula) en cada lectura/escritura, se
+alinea la DB a `@movo/shared` (que no se toca, sigue siendo la fuente de verdad) vía
+`ALTER TYPE ... RENAME VALUE` (preserva filas existentes, no requiere migrar datos).
+Ticket nuevo en vez de reabrir MOVO-84 (ya Done), para dejar trazado en la memoria del
+TFG por qué se tocó un schema ya cerrado.
+
+_(completar detalle de archivos/decisiones cuando se termine de implementar)_

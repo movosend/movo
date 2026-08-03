@@ -1,8 +1,8 @@
 import { Pool } from "pg";
-import { createUsersRepository } from "./users.repository";
+import { createUserRepository } from "../../repositories/user-repository";
 
 export function createUsersService(db: Pool) {
-  const repository = createUsersRepository(db);
+  const repository = createUserRepository(db);
 
   return {
     async getUsersCount(): Promise<number> {
