@@ -6,6 +6,7 @@ import {
   kycStatusToDb,
   kycStatusFromDb,
   mapRowToUser,
+  toPublicUser,
   InvalidEnumValueError,
   UserRow,
 } from "../src/models/user";
@@ -94,5 +95,59 @@ describe("mapRowToUser", () => {
     expect(user.kycStatusIdentity).toBe(KycStatus.PENDING);
     expect(user.kycStatusLicense).toBe(KycStatus.NOT_STARTED);
     expect(user.roles).toEqual([UserRole.SENDER, UserRole.CARRIER]);
+  });
+});
+
+describe("toPublicUser", () => {
+  const row: UserRow = {
+    id: "usr-uuid-1",
+    email: "dev@movo.test",
+    phone: "+5493510000000",
+    first_name: "Tomas",
+    last_name: "Olmos",
+    password_hash: "hashed",
+    dni: "12345678",
+    phone_verified: false,
+    photo_url: null,
+    kyc_status_identity: "PENDING",
+    last_kyc_verification_identity_id: null,
+    kyc_status_license: "NOT_STARTED",
+    last_kyc_verification_license_id: null,
+    is_banned: false,
+    banned_until: null,
+    created_at: new Date("2026-07-28T00:00:00Z"),
+    updated_at: new Date("2026-07-28T00:00:00Z"),
+  };
+
+  it("no expone passwordHash", () => {
+    const publicUser = toPublicUser(mapRowToUser(row, ["emisor"]));
+
+    expect("passwordHash" in publicUser).toBe(false);
+    expect(JSON.stringify(publicUser)).not.toContain("hashed");
+  });
+
+  it("conserva el resto de los campos del usuario", () => {
+    const user = mapRowToUser(row, ["emisor"]);
+    const publicUser = toPublicUser(user);
+
+    expect(publicUser).toEqual({
+      id: user.id,
+      email: user.email,
+      phone: user.phone,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      dni: user.dni,
+      phoneVerified: user.phoneVerified,
+      photoUrl: user.photoUrl,
+      kycStatusIdentity: user.kycStatusIdentity,
+      lastKycVerificationIdentityId: user.lastKycVerificationIdentityId,
+      kycStatusLicense: user.kycStatusLicense,
+      lastKycVerificationLicenseId: user.lastKycVerificationLicenseId,
+      isBanned: user.isBanned,
+      bannedUntil: user.bannedUntil,
+      roles: user.roles,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    });
   });
 });

@@ -4,6 +4,9 @@ import { UserRole, KycStatus } from "@movo/shared";
  * Modelo de dominio de un usuario. Siempre en términos de `@movo/shared`
  * (nunca los literales de DB en español/mayúscula) — la traducción vive
  * en `user-repository.ts` (ver MOVO-87 / comentario en MOVO-67).
+ *
+ * **Uso interno solamente**: incluye `passwordHash`. NUNCA devolver este objeto
+ * tal cual en una respuesta HTTP — usar `toPublicUser()` y devolver `PublicUser`.
  */
 export interface User {
   id: string;
@@ -24,6 +27,41 @@ export interface User {
   roles: UserRole[];
   createdAt: Date;
   updatedAt: Date;
+}
+
+/**
+ * Proyección de `User` apta para salir por HTTP: es `User` sin `passwordHash`.
+ * Definida con `Omit` a propósito — si mañana se agrega un campo sensible nuevo
+ * a `User`, aparece acá automáticamente y hay que excluirlo explícitamente.
+ */
+export type PublicUser = Omit<User, "passwordHash">;
+
+/**
+ * Único puente permitido de `User` (interno) a lo que se serializa al cliente.
+ * `toPublicUser` se construye campo por campo y no con spread: si se agrega una
+ * propiedad a `User`, TypeScript rompe acá y obliga a decidir explícitamente si
+ * es pública o no, en vez de filtrarla por defecto.
+ */
+export function toPublicUser(user: User): PublicUser {
+  return {
+    id: user.id,
+    email: user.email,
+    phone: user.phone,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    dni: user.dni,
+    phoneVerified: user.phoneVerified,
+    photoUrl: user.photoUrl,
+    kycStatusIdentity: user.kycStatusIdentity,
+    lastKycVerificationIdentityId: user.lastKycVerificationIdentityId,
+    kycStatusLicense: user.kycStatusLicense,
+    lastKycVerificationLicenseId: user.lastKycVerificationLicenseId,
+    isBanned: user.isBanned,
+    bannedUntil: user.bannedUntil,
+    roles: user.roles,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  };
 }
 
 export interface CreateUserInput {
