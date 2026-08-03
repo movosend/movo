@@ -735,4 +735,96 @@ Decisiones clave:
   decorativo.
 
 Pendiente / fuera de alcance: contenido real de `/register` y `/login`, verificación de
-OTP, storage de sesión y redirect condicional en `/`.
+OTP, storage de sesión y redirect condicional en `/`. (Continuado abajo.)
+
+### MOVO-73 (continuación) — Registro, OTP y KYC embebido en `movo-mobile`
+
+Implementado: pantallas reales de registro (`app/(auth)/register.tsx`, wizard de 5 pasos:
+datos básicos, DNI, dirección, contraseña, revisión), verificación de OTP
+(`app/(auth)/verify-phone.tsx`, 6 casillas con autofoco/avance automático y reenvío con
+cooldown de 60s) y KYC embebido (`app/(auth)/kyc.tsx`, vía SDK nativo de Didit). Base de
+conexión con el API: `src/api/http-client.ts` (fetch wrapper, sin lógica de auth — eso es
+de MOVO-76), `src/api/auth-client.ts` (funciones tipadas de register/verify-phone/kyc),
+`src/lib/secure-store.ts` (wrapper sobre `expo-secure-store`, genérico, sin lógica de
+tokens todavía), `src/lib/env.ts` (`EXPO_PUBLIC_API_URL`). Estado del wizard en
+`src/hooks/use-registration.ts` (Context + hook, sin librería nueva de state management).
+
+Decisiones clave:
+- **Rutas movidas a `app/(auth)/`**: `register.tsx` y `login.tsx` (este último con su
+  contenido real pendiente de MOVO-76) se movieron desde `app/` a `app/(auth)/`, sumando
+  `verify-phone.tsx` y `kyc.tsx` — la estructura de navegación completa del onboarding
+  queda definida desde ahora, tal como pide la guía del ticket.
+- **Backend de MOVO-70/MOVO-72 no existe en este checkout** — el contrato de
+  `POST /auth/register` (extendido con `dni`/`address`, no estaban en el AC original),
+  `POST /auth/verify-phone`, `POST /auth/resend-otp`, `POST /kyc/session` y
+  `GET /kyc/status` se dejó como comentario en Linear (MOVO-70, MOVO-72, MOVO-73) para
+  coordinar con el equipo antes de que se implemente el backend real. El mobile ya está
+  armado contra ese contrato.
+- **`@movo/shared` ahora es consumible desde `movo-mobile`**: se agregó `movo-mobile` al
+  `workspaces` del `package.json` raíz (antes tenía su propio `package-lock.json`,
+  eliminado) y se ajustó `movo-mobile/metro.config.js` (`watchFolders` +
+  `resolver.nodeModulesPaths`) para resolución de monorepo. **Importante**: el mobile
+  importa por **subpath** (`@movo/shared/dist/types/user`,
+  `@movo/shared/dist/errors/api-error`), nunca desde el barrel raíz `@movo/shared` — ese
+  barrel re-exporta `auth/jwt.ts`, que depende de `jsonwebtoken`/`node:crypto` y rompe el
+  bundle de Metro/Hermes en React Native. Si se agrega un módulo nuevo a
+  `shared/movo-shared/src` pensado también para mobile, mantenerlo sin dependencias de
+  Node o el mobile tiene que seguir importando por subpath específico.
+- **KYC vía SDK nativo de Didit, no WebView**: `@didit-protocol/sdk-react-native` ya
+  estaba instalado y linkeado (dependencia + config plugin en `app.json`, Pods de iOS ya
+  generados) pero no se usaba en ningún componente — se integró en `kyc.tsx`
+  (`startVerification(sessionToken)`). El import del SDK es **diferido**
+  (`require()` recién dentro del handler del botón, nunca `import` estático): el módulo
+  `NativeSdkReactNative.ts` interno del SDK llama a `TurboModuleRegistry.getEnforcing(...)`
+  en el scope del módulo, que tira una excepción apenas se evalúa si no hay development
+  build — como pasa siempre en Expo Go. Con `import` estático, como expo-router evalúa
+  todas las rutas al arrancar, esto tumbaba la app entera (no solo esta pantalla) al
+  abrirla en Expo Go. Con el `require` diferido, el resto de la app funciona en Expo Go;
+  solo tocar "Empezar verificación con Didit" requiere un development build.
+- El pedido de permiso de cámara lo maneja el SDK internamente — no hay código propio de
+  permisos. Se agregaron los usage-description strings a `app.json` →
+  `expo.ios.infoPlist` (`NSCameraUsageDescription`, etc.) porque el config plugin del SDK
+  solo configura Gradle/Podfile, no esas keys.
+- **Flujo reanudable (AC7)**: se persiste únicamente el `userId` del registro en curso en
+  `expo-secure-store` — el paso en el que quedó el usuario se deriva siempre consultando
+  al backend (`kycStatus`), nunca de estado local, tal como pide la guía del ticket.
+- El orden de pasos difiere del mockup de Claude Design: el mockup verifica el OTP antes
+  de pedir la contraseña; acá el registro se manda completo (con contraseña incluida) en
+  una sola llamada a `POST /auth/register` porque así lo define el AC de MOVO-70, y la
+  verificación de teléfono queda como paso posterior separado.
+- `EXPO_PUBLIC_API_URL` resuelve el ambiente: local vía `.env.local` (gitignored,
+  `.env.example` documentado), dev `https://api-dev.movosend.app` y prod
+  `https://api.movosend.app` vía `eas.json` (perfiles `development`/`preview`/`production`).
+  `eas init` (requiere cuenta EAS del equipo) queda pendiente — sin eso, los perfiles de
+  build no están activados de verdad todavía.
+
+Pendiente / fuera de alcance: backend real de MOVO-70/MOVO-72 (mobile ya integrado contra
+el contrato propuesto), `eas init`, development build real y prueba en dispositivo físico
+(DoD del ticket — Expo Go no soporta el SDK de Didit), storage de sesión autenticada y
+redirect condicional en `/` (MOVO-76).
+
+### MOVO-73 (corrección) — OTP embebido en el wizard, no como pantalla separada
+
+**Supera la decisión de "orden de pasos difiere del mockup" de la entrada anterior.** El
+paso de OTP se movió de una ruta separada post-alta (`app/(auth)/verify-phone.tsx`, ya
+**eliminada**, junto con su test) a un paso embebido dentro de `app/(auth)/register.tsx`,
+en el mismo orden que el mockup: datos básicos → DNI → dirección → **OTP** → contraseña →
+revisión (wizard de 6 pasos, antes 5). La verificación de teléfono ahora ocurre **antes**
+de crear la cuenta, no después.
+
+- Esto partió el contrato de backend en dos llamadas nuevas sin cuenta todavía
+  (`POST /auth/send-otp`, `POST /auth/verify-otp`) en vez de la única `POST /auth/verify-phone`
+  post-alta que tenía el contrato anterior. `POST /auth/register` ahora requiere un
+  `phoneVerificationToken` en el body (emitido por `verify-otp`). Contrato propuesto
+  documentado en el comentario de MOVO-70 en Linear (el endpoint es de `svc-users`/auth,
+  no de MOVO-72/KYC pese a que estaba mencionado ahí en la entrada anterior).
+- `src/hooks/use-registration.tsx`: `verifyPhone(code)`/`resendOtp()` atados a `userId` se
+  reemplazaron por `sendOtp()` / `verifyPhoneOtp(code)` / `resendOtp()` atados a un `otpId`
+  (no hay `userId` todavía en este punto del flujo).
+- El paso de revisión del wizard muestra "Teléfono · Verificado" (verde) porque en ese
+  punto el teléfono siempre está verificado — antes no se podía mostrar ese estado ahí.
+- El resto de la US no cambia: KYC sigue siendo el paso post-alta (`router.replace('/kyc')`
+  al terminar `submitRegistration`), y el flujo reanudable (AC7) sigue basado solo en
+  `userId` + `kycStatus` del backend, sin estado local — como la cuenta se sigue creando
+  recién al final del wizard (igual que antes), la reanudación no se ve afectada por este
+  cambio.
