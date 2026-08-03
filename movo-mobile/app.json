@@ -1,13 +1,13 @@
 {
   "expo": {
-    "name": "movo-mobile",
+    "name": "Movo",
     "slug": "movo-mobile",
     "version": "1.0.0",
     "scheme": "movo",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "icon": "./assets/ios-icon.icon",
       "supportsTablet": true,
       "bundleIdentifier": "com.anonymous.movo-mobile",
       "infoPlist": {
