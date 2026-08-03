@@ -88,9 +88,28 @@ const KYC_STATUS_FROM_DB: Record<string, KycStatus> = {
   EXPIRED: KycStatus.EXPIRED,
 };
 
+/**
+ * Un valor leído de una columna enum de la DB no tiene equivalente en
+ * `@movo/shared`. Es un problema de integridad/drift de schema (alguien agregó
+ * un valor al enum de Postgres sin agregarlo al dominio), no un fallo
+ * transitorio: se distingue por tipo para que el caller pueda loguearlo y
+ * alertar en vez de reintentar como si fuera un error de conexión.
+ */
+export class InvalidEnumValueError extends Error {
+  constructor(
+    public readonly column: string,
+    public readonly value: string,
+  ) {
+    super(`Valor inesperado '${value}' en la columna '${column}': no existe en @movo/shared`);
+    this.name = "InvalidEnumValueError";
+  }
+}
+
 export function roleToDb(role: UserRole): string {
   const value = ROLE_TO_DB[role];
   if (!value) {
+    // A diferencia de InvalidEnumValueError, esto es un bug de código (un
+    // UserRole nuevo sin entrada en la tabla), no datos corruptos en la DB.
     throw new Error(`Rol de usuario sin mapeo a DB: ${role}`);
   }
   return value;
@@ -99,7 +118,7 @@ export function roleToDb(role: UserRole): string {
 export function roleFromDb(value: string): UserRole {
   const role = ROLE_FROM_DB[value];
   if (!role) {
-    throw new Error(`Valor de rol de DB sin mapeo a UserRole: ${value}`);
+    throw new InvalidEnumValueError("user_roles.role", value);
   }
   return role;
 }
@@ -112,10 +131,15 @@ export function kycStatusToDb(status: KycStatus): string {
   return value;
 }
 
-export function kycStatusFromDb(value: string): KycStatus {
+/**
+ * `column` se pide explícito porque el mismo enum respalda dos columnas
+ * (`kyc_status_identity` y `kyc_status_license`): sin eso, el error no dice
+ * cuál de las dos trajo el valor raro.
+ */
+export function kycStatusFromDb(value: string, column: string): KycStatus {
   const status = KYC_STATUS_FROM_DB[value];
   if (!status) {
-    throw new Error(`Valor de kyc_status de DB sin mapeo a KycStatus: ${value}`);
+    throw new InvalidEnumValueError(column, value);
   }
   return status;
 }
@@ -131,9 +155,9 @@ export function mapRowToUser(row: UserRow, roles: string[]): User {
     dni: row.dni,
     phoneVerified: row.phone_verified,
     photoUrl: row.photo_url,
-    kycStatusIdentity: kycStatusFromDb(row.kyc_status_identity),
+    kycStatusIdentity: kycStatusFromDb(row.kyc_status_identity, "kyc_status_identity"),
     lastKycVerificationIdentityId: row.last_kyc_verification_identity_id,
-    kycStatusLicense: kycStatusFromDb(row.kyc_status_license),
+    kycStatusLicense: kycStatusFromDb(row.kyc_status_license, "kyc_status_license"),
     lastKycVerificationLicenseId: row.last_kyc_verification_license_id,
     isBanned: row.is_banned,
     bannedUntil: row.banned_until,
