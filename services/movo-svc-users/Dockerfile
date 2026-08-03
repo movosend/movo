@@ -38,7 +38,12 @@ WORKDIR /app/services/movo-svc-users
 
 EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+# timeout=10s y no 5s: el pool de Postgres corta las queries a los 5s
+# (statement_timeout/query_timeout, MOVO-85). Si Postgres acepta conexiones pero
+# no responde, el check tarda esos 5s — con el timeout en 5s Docker mataba el
+# wget justo en el límite y nunca llegabas a ver el body que dice cuál de las dos
+# dependencias cayó. Si está caído de verdad (rechaza la conexión) falla al toque.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD wget -qO- http://127.0.0.1:3000/health || exit 1
 
 CMD ["node", "dist/index.js"]
