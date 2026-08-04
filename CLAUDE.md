@@ -242,6 +242,69 @@ Decisiones clave:
 Pendiente / fuera de alcance de MOVO-68: proxy hacia `svc-payments`/`svc-admin`, rate
 limit estricto en más endpoints de auth (si el equipo lo decide).
 
+### MOVO-70 — Endpoint de registro de usuario (`svc-users`)
+
+Implementado `POST /auth/register` (ya público en el gateway desde MOVO-68, sin
+cambios ahí): `src/modules/auth/{auth.routes,auth.service,auth.schema}.ts`, más
+`src/plugins/error-handler.ts` (portado del gateway, primer uso de `ApiError` en
+`svc-users`) registrado en `app.ts`.
+
+Decisiones clave:
+- **Actualizado al integrar develop (MOVO-85/87/91 mergeados)**: la primera versión de
+  esta US traía un `auth.repository.ts` propio (con `createUser` ad-hoc e inserción de
+  roles por defecto como literales `'emisor'`/`'transportista'` de la DB), construido
+  porque MOVO-87 (user-repository completo) y MOVO-85 (plugin `fastify.db` con
+  `search_path`/healthcheck) no habían arrancado todavía. Al mergear develop ese archivo
+  se borró: `auth.service.ts` ahora usa `createUserRepository()` de
+  `src/repositories/user-repository.ts` (MOVO-87), pasando
+  `roles: [UserRole.SENDER, UserRole.CARRIER]` (`DEFAULT_USER_ROLES` en
+  `auth.service.ts`) en vez de literales de DB — el mapeo rol/KYC lo resuelve la capa de
+  `models/user.ts` (`roleToDb`/`kycStatusFromDb`). El `kycStatus` de la respuesta ahora
+  sale de `user.kycStatusIdentity` (leído de la fila recién persistida), no de un
+  `KycStatus.NOT_STARTED` hardcodeado. El error de duplicado que se atrapa es
+  `UserConflictError` (de `models/user.ts`), no el `DuplicateUserError` propio que existía
+  antes — mismo shape (`field: "email" | "phone"`). Ver **MOVO-91** más abajo: cuando esa
+  US alinee los enums de la DB a `@movo/shared`, esta capa de mapeo desaparece pero el
+  código de `auth.service.ts` no debería necesitar cambios (ya consume tipos de dominio,
+  no literales de DB).
+- `fullName` se separa en `first_name`/`last_name` (la migración no tiene un campo
+  único) partiendo por el primer espacio; el schema exige al menos dos palabras.
+- Teléfono normalizado a E.164 argentino (`+549` + 10 dígitos) sin importar si el
+  usuario mandó `+54`, `9`, ambos o ninguno — normalización en
+  `auth.service.ts#normalizePhoneToE164Ar`.
+- AC3/AC4 (409 en duplicado) se resuelven confiando en los índices únicos de la
+  migración (`users_email_lower_idx`, `users_phone_key`) y traduciendo la violación de
+  Postgres (código `23505`) al código de error correspondiente, en vez de un `SELECT`
+  previo — evita una ventana de carrera entre el chequeo y el `INSERT`.
+- Hash de contraseña con **`@node-rs/argon2`** (Argon2id), no `argon2` (paquete nativo
+  vía `node-gyp`): falló al instalar en Windows sin Visual Studio Build Tools.
+  `@node-rs/argon2` trae binarios prebuilt (napi-rs) por plataforma, sin compilación
+  local — más portable para un equipo con máquinas dev distintas.
+- Se agregaron dos códigos nuevos al contrato `ApiErrorCode` de `@movo/shared`:
+  `USER_EMAIL_ALREADY_EXISTS`, `USER_PHONE_ALREADY_EXISTS` (409).
+- El error-handler de `svc-users` también normaliza errores de validación de schema
+  (AJV) al formato único (`VALIDATION_FAILED`, 400) — antes no existía ningún
+  `setErrorHandler` en este servicio.
+- **Decisión de scope (04/08, coordinada con el equipo vía comentario en Linear)**: en
+  los comentarios del ticket se propuso extender el contrato con `dni`/`address` y mover
+  la verificación de teléfono por OTP a *antes* de la creación de la cuenta (`register`
+  exigiendo un `phoneVerificationToken`). Ninguna de las dos entra en esta US:
+  - `dni`/`address` quedan afuera del payload de `POST /auth/register` — si hacen falta,
+    van en una US de perfil aparte, todavía sin definir.
+  - El flujo OTP-antes-del-registro es contrato de **MOVO-71** ("Verificación de
+    teléfono por OTP"), que sigue en Todo con el AC original (OTP *después* de crear la
+    cuenta). MOVO-70 no implementa `phoneVerificationToken` hasta que MOVO-71 se
+    actualice al nuevo orden — evita que este endpoint quede bloqueado por un ticket que
+    ni siquiera arrancó.
+  - La normalización de `account_status`/KYC (parte de lo que pedía el AC7 original) es
+    alcance de **MOVO-92** ("Chore actualización de la Entidad User"), en curso en
+    paralelo (Pedro Yorlano) — no de MOVO-70.
+
+Pendiente / fuera de alcance de MOVO-70: suite de tests corrida completa tras el merge
+con develop, contra Postgres/Redis reales — **59/59 tests pasan**, cobertura 94%
+statements / 84.21% branches / 100% funciones (umbral configurado: 55%). `tsc --noEmit`,
+`eslint` y `npm run build` sin errores.
+
 ### MOVO-85 — Plugin de conexión PostgreSQL en movo-svc-users (`fastify.db`)
 
 Implementado en `src/plugins/db.ts`: pool de `pg` decorado como `fastify.db`,

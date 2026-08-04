@@ -6,8 +6,10 @@ import { envSchema } from "./config/env";
 import dbPlugin from "./plugins/db";
 import redisPlugin from "./plugins/redis";
 import authPlugin from "./plugins/auth";
+import errorHandlerPlugin from "./plugins/error-handler";
 import healthRoutes from "./modules/health/health.routes";
 import usersRoutes from "./modules/users/users.routes";
+import authRoutes from "./modules/auth/auth.routes";
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({ logger: true });
@@ -28,6 +30,7 @@ export function buildApp(): FastifyInstance {
   });
   app.register(swaggerUi, { routePrefix: "/docs" });
 
+  app.register(errorHandlerPlugin);
   app.register(dbPlugin);
   app.register(redisPlugin);
   app.register(authPlugin);
@@ -37,6 +40,7 @@ export function buildApp(): FastifyInstance {
   app.register(healthRoutes);
 
   app.register(usersRoutes, { prefix: "/users" });
+  app.register(authRoutes, { prefix: "/auth" });
 
   return app;
 }
