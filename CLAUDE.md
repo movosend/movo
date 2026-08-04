@@ -693,7 +693,14 @@ borrar volúmenes no referenciados por ningún contenedor en el momento del prun
 vive `movo_postgres-data`), y no hace falta para liberar el espacio que ocupan las
 imágenes.
 
+De paso, se agregó rotación de logs (`x-logging` en `infra/docker-compose.yml`,
+`json-file` con `max-size: 10m` / `max-file: 3`, aplicado a los 9 servicios) —
+preventivo: al revisar el incidente, los logs no resultaron ser la causa (contenedores
+recién recreados, tamaños insignificantes), pero el driver `json-file` no tiene tope
+por default y es el mismo tipo de problema (disco chico, ADR-006) que ya nos mordió una
+vez con las imágenes.
+
 Pendiente / fuera de alcance de este hotfix: aumentar el tamaño de disco de la EC2 si
-vuelve a quedar justo — el prune resuelve la acumulación, no un piso de espacio muy
-chico de por sí.
+vuelve a quedar justo — el prune y la rotación de logs resuelven la acumulación, no un
+piso de espacio muy chico de por sí.
 
