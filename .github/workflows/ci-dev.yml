@@ -429,6 +429,15 @@ jobs:
             # asignado esa IP después. Reiniciarlo fuerza una resolución
             # DNS nueva.
             docker compose restart proxy
+            # Cada deploy deja la imagen anterior de cada servicio como
+            # dangling (el tag ":dev" se mueve a la nueva) -- sin este paso
+            # se acumulan sin límite y terminan llenando el disco de la EC2
+            # (pasó en prod: "no space left on device" a mitad de un pull,
+            # dejó contenedores sin poder recrearse). Corre después de que
+            # los contenedores nuevos ya están arriba, así solo borra
+            # imágenes que ya nadie usa. Sin --volumes: nunca toca volúmenes
+            # (ahí vive la data de Postgres).
+            docker image prune -af
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_PAT: ${{ secrets.GHCR_PAT }}

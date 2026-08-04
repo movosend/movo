@@ -1,9 +1,21 @@
 version: "3.9"
 
+# Sin este límite, el driver json-file (default de Docker) escribe logs sin
+# tope -- en una EC2 con disco chico (ADR-006) es una de las formas más
+# fáciles de repetir el "no space left on device" que ya nos pasó por
+# imágenes viejas sin limpiar. 10MB x 3 archivos = 30MB máximo por
+# contenedor, más que suficiente para diagnosticar un incidente reciente.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:16
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: movo
       POSTGRES_USER: ${POSTGRES_USER}
@@ -16,6 +28,7 @@ services:
   redis:
     image: redis:7
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - movo-net
 
@@ -26,6 +39,7 @@ services:
   proxy:
     image: nginx:1.27-alpine
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"
@@ -45,6 +59,7 @@ services:
   gateway:
     image: ghcr.io/movosend/gateway:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
@@ -58,6 +73,7 @@ services:
   movo-svc-users:
     image: ghcr.io/movosend/movo-svc-users:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
@@ -71,6 +87,7 @@ services:
   movo-svc-shipments:
     image: ghcr.io/movosend/movo-svc-shipments:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
@@ -84,6 +101,7 @@ services:
   movo-svc-payments:
     image: ghcr.io/movosend/movo-svc-payments:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
@@ -98,6 +116,7 @@ services:
   movo-svc-admin:
     image: ghcr.io/movosend/movo-svc-admin:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
@@ -111,6 +130,7 @@ services:
   movo-svc-pricing-logistics:
     image: ghcr.io/movosend/movo-svc-pricing-logistics:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - DATABASE_URL=${DATABASE_URL}
     depends_on:
