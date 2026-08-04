@@ -642,9 +642,28 @@ literal (`syntax error near unexpected token`), silencioso hasta ahora porque el
 único valor que se leía de ahí (`POSTGRES_USER`) tenía default `movo` que
 coincidía por casualidad.
 
-Pendiente: confirmado — `workflow_dispatch` de `ci-dev.yml` corrió entero contra la
-EC2 de dev (deploy + migraciones + baseline de Prisma) antes de promover `develop` a
-`main`. Falta repetir el baseline manual de Prisma (`prisma migrate resolve
---applied` para las 2 migraciones históricas) contra `api.movosend.app` la primera
-vez que `ci-prod.yml` corra este step — va a fallar con el mismo P3005 hasta hacerlo,
-por la misma razón: prod tampoco tiene `_prisma_migrations` todavía.
+Confirmado en dev: `workflow_dispatch` de `ci-dev.yml` corrió entero contra la EC2
+(deploy + migraciones + baseline de Prisma) antes de promover `develop` a `main`.
+
+### Fix — Password con `@` rompía el split de user/password en DATABASE_URL
+
+Al promover a `main`, el primer deploy a **prod** no llegó ni al P3005 (baseline):
+`prisma migrate deploy` tiraba `P1001: Can't reach database server at
+'eGs-W.9}9H:5432'` — un host que no existe, con pinta de fragmento de la password.
+Causa: la password de prod (a diferencia de la de dev) tiene un `@` adentro. El
+regex del fix anterior, `([^@]+)@`, corta en el **primer** `@` que encuentra —
+aunque esté adentro de la password — y deja el resto de la password pegado al host
+real en el grupo "rest", que se vuelca sin encodear al `DATABASE_URL` final.
+`pg` nunca tuvo este problema: su parser corta en el **último** `@`.
+
+Fix: el grupo de la password pasa a ser `(.+)` (codicioso, sí puede contener `@`)
+seguido de `@([^@]+)$` para el host — el motor de regex hace backtrack del
+codicioso hasta el último `@` posible, que es el separador real. Verificado en
+local con una password sintética que incluye `@` en el medio: separa host/puerto
+correctos y decodea exacto a la password original.
+
+Pendiente: falta el baseline manual de Prisma (`prisma migrate resolve --applied`
+para las 2 migraciones históricas) contra `api.movosend.app` — el P1001 pasó antes
+de llegar a esa validación, así que sigue sin hacerse. Primera corrida de
+`ci-prod.yml` después de este fix va a fallar con P3005 (mismo motivo que en dev)
+hasta correr el baseline.
