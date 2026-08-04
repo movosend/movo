@@ -241,3 +241,39 @@ Decisiones clave:
 
 Pendiente / fuera de alcance de MOVO-68: proxy hacia `svc-payments`/`svc-admin`, rate
 limit estricto en más endpoints de auth (si el equipo lo decide).
+
+### Hotfix — Migraciones de DB automáticas en deploy (`ci-dev.yml` / `ci-prod.yml`)
+
+Los deploys a dev/prod nunca corrían los `.sql` de `services/*/migrations/` contra la
+base real de la EC2 — `scripts/run-migrations.sh` solo se usaba en el job de tests,
+contra el Postgres efímero del CI. Se agregaron dos steps nuevos a `deploy-dev` y
+`deploy-prod` (antes del step que pushea las imágenes nuevas, para que ningún
+contenedor arranque contra un schema desactualizado): copian el script + las carpetas
+`migrations/` de cada servicio a la EC2, y por SSH levantan Postgres, esperan a que
+esté listo (`pg_isready` vía `docker exec`) y corren las migraciones de `svc-users`,
+`svc-shipments`, `svc-payments` y `svc-admin` en ese orden.
+
+Decisiones clave:
+- Como Postgres no expone puerto público en la EC2 (ADR-010), la migración se aplica
+  vía `docker exec` dentro del propio contenedor — mismo fallback que ya tenía
+  `run-migrations.sh` para cuando no hay `psql` en el host, ahora es el camino
+  principal en producción/dev, no un fallback incidental.
+- **`scripts/run-migrations.sh` ahora lleva registro de lo aplicado** en una tabla
+  `public.schema_migrations` (compartida entre servicios, una sola instancia de
+  Postgres — ADR-003), con `(service, filename)` como clave. Antes, el script
+  reaplicaba todos los `.sql` de la carpeta en cada corrida — funcionaba de pura
+  suerte porque la única migración real hasta ahora está escrita con guards
+  `IF NOT EXISTS`. Corriendo automáticamente en cada deploy contra una base
+  persistente, eso ya no alcanza: una migración futura no-idempotente (un
+  `ALTER TABLE ADD COLUMN` con backfill, un `INSERT`) rompería el segundo deploy.
+  Cada migración se aplica junto con su `INSERT` al ledger en la misma transacción
+  (`BEGIN`/`COMMIT`), así una falla a mitad de camino no la deja marcada como
+  aplicada sin estarlo.
+- Verificado localmente contra Postgres real: primera corrida aplica y registra,
+  segunda corrida saltea todo sin tocar la DB.
+
+Pendiente / fuera de alcance: `movo-svc-users` va a pasar a usar `prisma migrate
+deploy` en vez de este script (ver rama de adopción de Prisma, MOVO-93/ADR-011) — el
+step de deploy de este hotfix va a necesitar el mismo split por servicio que ya tiene
+el job de tests una vez que esa rama llegue a `main`. `svc-pricing-logistics`
+(Python) no está incluido, no usa este mecanismo de migraciones.
