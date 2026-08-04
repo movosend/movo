@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PrimaryButton } from '../../components/auth/primary-button';
+import { ErrorBanner } from '../../components/ui/error-banner';
 import { useRegistration } from '../../src/hooks/use-registration';
 import { useThemeColors } from '../../src/hooks/use-theme-colors';
 
@@ -235,11 +236,7 @@ export default function KycScreen() {
           verificación. No te va a tomar más de 2 minutos.
         </Text>
 
-        {errorBanner ? (
-          <View className="mb-4 rounded-[10px] border border-danger-300 bg-danger-100 px-3.5 py-3">
-            <Text className="font-sans text-[13px] text-ink-950">{errorBanner}</Text>
-          </View>
-        ) : null}
+        <ErrorBanner testID="kyc-error-banner" message={errorBanner} />
 
         <View className="gap-3.5">
           <IntroStep number={1} text="Te pedimos unas fotos de tu Documento Nacional de Identidad" />

@@ -26,6 +26,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../../components/auth/primary-button";
 import { WizardHeader } from "../../components/auth/wizard-header";
+import { ErrorBanner } from "../../components/ui/error-banner";
 import { PasswordStrengthMeter } from "../../components/ui/password-strength-meter";
 import { SelectField } from "../../components/ui/select-field";
 import { TextField } from "../../components/ui/text-field";
@@ -77,7 +78,7 @@ type Step = 0 | 1 | 2 | 3 | 4 | 5;
 export default function RegisterScreen() {
   const colors = useThemeColors();
   const registration = useRegistration();
-  const { fields, touched, setField, touch, touchAll, errorBanner, loading } =
+  const { fields, touched, setField, touch, touchAll, errorBanner, clearErrorBanner, loading } =
     registration;
   const [step, setStep] = useState<Step>(0);
   const [showPassword, setShowPassword] = useState(false);
@@ -133,12 +134,19 @@ export default function RegisterScreen() {
     }, 80);
   }
 
+  // Todo cambio de paso pasa por acá: un error de un paso anterior no debe
+  // seguir mostrándose una vez que el usuario avanzó o volvió a otro paso.
+  function goToStep(next: Step) {
+    clearErrorBanner();
+    setStep(next);
+  }
+
   function goBack() {
     if (step === 0) {
       router.back();
       return;
     }
-    setStep((s) => (s - 1) as Step);
+    goToStep((step - 1) as Step);
   }
 
   function onOtpDigitChange(index: number, value: string) {
@@ -184,6 +192,7 @@ export default function RegisterScreen() {
   async function handleResendOtp() {
     if (otpSecondsLeft > 0 || loading) return;
     const result = await registration.resendOtp();
+    if (!result.ok) return;
     setOtpDigits(Array(OTP_LENGTH).fill(""));
     setOtpSecondsLeft(result.cooldownSeconds);
     otpInputRefs.current[0]?.focus();
@@ -193,11 +202,11 @@ export default function RegisterScreen() {
     if (step === 0) {
       touchAll(["firstName", "lastName", "email", "phone"]);
       if (!isStepValid(0, fields)) return;
-      setStep(1);
+      goToStep(1);
     } else if (step === 1) {
       touchAll(["dni"]);
       if (!isStepValid(1, fields)) return;
-      setStep(2);
+      goToStep(2);
     } else if (step === 2) {
       touchAll(["street", "number", "city", "province", "zip"]);
       if (!isStepValid(2, fields)) return;
@@ -205,17 +214,17 @@ export default function RegisterScreen() {
       if (!result.ok) return;
       setOtpDigits(Array(OTP_LENGTH).fill(""));
       setOtpSecondsLeft(result.cooldownSeconds);
-      setStep(3);
+      goToStep(3);
     } else if (step === 3) {
       const code = otpDigits.join("");
       if (code.length < OTP_LENGTH) return;
       const result = await registration.verifyPhoneOtp(code);
       if (!result.ok) return;
-      setStep(4);
+      goToStep(4);
     } else if (step === 4) {
       touchAll(["password", "passwordConfirm"]);
       if (!isStepValid(3, fields)) return;
-      setStep(5);
+      goToStep(5);
     } else {
       const result = await registration.submitRegistration();
       if (result.ok) {
@@ -246,6 +255,8 @@ export default function RegisterScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
       >
+        <ErrorBanner testID="register-error-banner" message={errorBanner} />
+
         {step === 0 && (
           <View>
             <StepIcon icon={UserRound} />
@@ -256,14 +267,6 @@ export default function RegisterScreen() {
               Es rápido. Después vas a verificar tu identidad para poder enviar
               y llevar paquetes.
             </Text>
-
-            {errorBanner ? (
-              <View className="mb-4 rounded-[10px] border border-danger-300 bg-danger-100 px-3.5 py-3">
-                <Text className="font-sans text-[13px] text-ink-950">
-                  {errorBanner}
-                </Text>
-              </View>
-            ) : null}
 
             <View className="flex-row gap-2.5">
               <TextField
@@ -533,11 +536,6 @@ export default function RegisterScreen() {
                 />
               ))}
             </View>
-            {errorBanner ? (
-              <Text testID="register-otp-error" className="mt-1.5 font-sans text-[12px] text-danger-500">
-                {errorBanner}
-              </Text>
-            ) : null}
 
             <View className="mt-5 flex-row items-center justify-between">
               {otpSecondsLeft <= 0 ? (
@@ -630,23 +628,23 @@ export default function RegisterScreen() {
               <ReviewRow
                 label="Nombre"
                 value={`${fields.firstName} ${fields.lastName}`.trim()}
-                onEdit={() => setStep(0)}
+                onEdit={() => goToStep(0)}
               />
               <ReviewRow
                 label="Email"
                 value={fields.email}
-                onEdit={() => setStep(0)}
+                onEdit={() => goToStep(0)}
               />
               <ReviewRow
                 label="Teléfono"
                 value={`+54 ${fields.phone}`}
                 badge={registration.phoneVerifiedAt ? "Verificado" : undefined}
-                onEdit={() => setStep(0)}
+                onEdit={() => goToStep(0)}
               />
               <ReviewRow
                 label="DNI"
                 value={fields.dni}
-                onEdit={() => setStep(1)}
+                onEdit={() => goToStep(1)}
               />
               <ReviewRow
                 label="Dirección"
@@ -659,7 +657,7 @@ export default function RegisterScreen() {
                 ]
                   .filter(Boolean)
                   .join(", ")}
-                onEdit={() => setStep(2)}
+                onEdit={() => goToStep(2)}
                 last
               />
             </View>

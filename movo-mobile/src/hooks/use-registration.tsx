@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { authClient } from "../api/auth-client";
+import { friendlyErrorMessage } from "../lib/error-messages";
 import { SECURE_STORE_KEYS, secureStore } from "../lib/secure-store";
 
 export const PROVINCES = [
@@ -304,10 +305,8 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       } else if (err instanceof ApiError && err.code === "USER_PHONE_ALREADY_EXISTS") {
         setTouched((prev) => ({ ...prev, phone: true }));
         setErrorBanner("Este teléfono ya está registrado. Iniciá sesión o probá con otro.");
-      } else if (err instanceof ApiError) {
-        setErrorBanner(err.message);
       } else {
-        setErrorBanner("No pudimos crear tu cuenta. Intentá de nuevo.");
+        setErrorBanner(friendlyErrorMessage(err, "No pudimos crear tu cuenta. Intentá de nuevo."));
       }
       return { ok: false };
     } finally {
@@ -323,9 +322,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       setOtpId(response.otpId);
       return { ok: true, cooldownSeconds: response.cooldownSeconds };
     } catch (err) {
-      setErrorBanner(
-        err instanceof ApiError ? err.message : "No pudimos enviar el código. Intentá de nuevo.",
-      );
+      setErrorBanner(friendlyErrorMessage(err, "No pudimos enviar el código. Intentá de nuevo."));
       return { ok: false, cooldownSeconds: 60 };
     } finally {
       setLoading(false);
@@ -343,9 +340,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
         setPhoneVerifiedAt(response.phoneVerifiedAt);
         return { ok: true };
       } catch (err) {
-        setErrorBanner(
-          err instanceof ApiError ? err.message : "No pudimos verificar el código. Intentá de nuevo.",
-        );
+        setErrorBanner(friendlyErrorMessage(err, "No pudimos verificar el código. Intentá de nuevo."));
         return { ok: false };
       } finally {
         setLoading(false);
@@ -356,11 +351,13 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
 
   const resendOtp = useCallback(async (): Promise<{ ok: boolean; cooldownSeconds: number }> => {
     if (!otpId) return { ok: false, cooldownSeconds: 60 };
+    setErrorBanner(null);
     try {
       const response = await authClient.resendOtp(otpId);
       return { ok: true, cooldownSeconds: response.cooldownSeconds };
-    } catch {
-      return { ok: false, cooldownSeconds: 60 };
+    } catch (err) {
+      setErrorBanner(friendlyErrorMessage(err, "No pudimos reenviar el código. Intentá de nuevo."));
+      return { ok: false, cooldownSeconds: 0 };
     }
   }, [otpId]);
 
@@ -372,9 +369,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       const response = await authClient.createKycSession(userId);
       return { ok: true, sessionToken: response.sessionToken };
     } catch (err) {
-      setErrorBanner(
-        err instanceof ApiError ? err.message : "No pudimos iniciar la verificación. Intentá de nuevo.",
-      );
+      setErrorBanner(friendlyErrorMessage(err, "No pudimos iniciar la verificación. Intentá de nuevo."));
       return { ok: false };
     } finally {
       setLoading(false);

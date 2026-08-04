@@ -867,3 +867,44 @@ pantallas de bienvenida/registro/OTP/KYC usaban colores fijos de la escala `ink-
   (`colorScheme.set(...)`) sin tocar — con `darkMode: "class"` ya activo, ese botón
   ahora funciona (antes de este cambio tiraba excepción, porque `colorScheme.set()`
   solo está permitido con `darkMode: "class"`).
+
+### MOVO-73 (fix) — Errores inline consistentes y visibles en el paso correcto
+
+El wizard de registro (`app/(auth)/register.tsx`) tenía un único `errorBanner` (string)
+en `useRegistration()` sin asociar a ningún paso, pero solo se renderizaba dentro de los
+bloques JSX de los pasos 0 y 3 — un error de `sendOtp` (disparado al salir del paso 2) o
+de `submitRegistration` (paso 5) quedaba seteado en el estado pero invisible hasta que el
+usuario volvía manualmente al paso 0, dando la sensación de falla silenciosa. Además había
+tres estilos visuales distintos para "texto de error" (campo, banner, y un texto de OTP
+que reusaba el estilo de campo para un error que semánticamente era de API).
+
+- **`components/ui/error-banner.tsx`**: banner compartido único (`border-danger-300` +
+  `bg-danger-100` + `text-ink-950`) para errores de API/red a nivel de paso — reemplaza
+  los dos bloques duplicados (`register.tsx`, `kyc.tsx`) y el texto mal estilado del paso
+  de OTP. Los errores de validación de campo (`TextField`/`SelectField`, prop `error`)
+  siguen siendo el único estilo separado — ya eran consistentes entre sí, no se tocaron.
+- En `register.tsx`, el `ErrorBanner` se movió a **un solo render, arriba de todos los
+  bloques de paso** (antes de `{step === 0 && ...}`) en vez de duplicado adentro de cada
+  paso — así queda visible sin importar en qué paso ocurrió el error, porque `goNext`
+  siempre deja al usuario en el paso donde falló la llamada (nunca avanza en un
+  `!result.ok`).
+- Se agregó `goToStep()` (envuelve `setStep` + `clearErrorBanner()`) para todo cambio de
+  paso — antes `clearErrorBanner` estaba expuesto en el hook pero nunca se llamaba desde
+  ningún lado, así que un error viejo podía seguir mostrándose después de que el usuario
+  avanzara.
+- **`src/lib/error-messages.ts`** (`friendlyErrorMessage(err, fallback)`): antes,
+  cualquier `ApiError` sin manejo especial mostraba `err.message` **tal cual lo mandó el
+  backend** (texto técnico, a veces en inglés) — ahora hay un mapa único
+  `ApiErrorCode → mensaje en español` reutilizable en toda la app (no solo
+  registro/KYC), con fallback específico por acción si el código no está mapeado. El caso
+  `statusCode === 0` (fallo de red, sin conexión) es la excepción: usa tal cual el mensaje
+  ya armado por `http-client.ts` ("No se pudo conectar…"), porque ya es preciso y está en
+  español.
+- **`resendOtp` fallaba en silencio**: no seteaba `errorBanner` y devolvía
+  `{ ok: false, cooldownSeconds: 60 }`, pero `register.tsx` no chequeaba `result.ok` — o
+  sea que un reenvío de OTP fallido se comportaba visualmente como exitoso (limpiaba las
+  casillas y arrancaba el cooldown de 60s igual). Se corrigió `resendOtp` para setear
+  `errorBanner` y devolver `cooldownSeconds: 0` en la falla, y `handleResendOtp` ahora
+  chequea `result.ok` antes de tocar el estado del OTP.
+- `refreshKycStatus` (polling de estado en background) sigue silencioso a propósito — no
+  es una acción disparada por el usuario, cae fuera de los casos de arriba.
