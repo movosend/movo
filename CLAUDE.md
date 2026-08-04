@@ -675,3 +675,25 @@ Normalización y alineación completa de la entidad `User` en todo el repositori
 - **Prisma & DB**: Migración `20260804210000_update_user_entity_movo_92.sql` + actualización de `schema.prisma`. Se removieron los campos obsoletos de KYC (`last_kyc_verification_identity_id` y `last_kyc_verification_license_id`) y el booleano `is_banned`. Se agregaron la columna `status` (`account_status_enum` default `'active'`) y `birthdate` (`DATE` nullable).
 - **Dominio & Repositorio**: `models/user.ts` (interfaces `User`, `PublicUser`, `UserRow`, `CreateUserInput`, validador `parseAccountStatus`), `repositories/user-repository.ts` y suite de tests en `test/` refactorizados y 100% en verde.
 
+### Hotfix — `docker image prune` automático en deploy (dev/prod)
+
+Incidente en prod (04/08): el deploy de una PR mergeada a `main` falló a mitad de
+camino — "no space left on device" al pullear imágenes nuevas. El disco de la EC2
+(6.8GB) se había llenado de imágenes `<none>` acumuladas de deploys anteriores: cada
+deploy mueve el tag (`:dev`/`:prod`) a la imagen nueva y deja la vieja como dangling,
+y ningún paso del workflow las borraba nunca. `movo-svc-users` y `proxy` quedaron sin
+poder recrearse, prod quedó con `svc-users` corriendo en una imagen vieja/sin tag
+(código desalineado del schema recién migrado) hasta la recuperación manual.
+
+Fix en `ci-dev.yml`/`ci-prod.yml`: al final del step "Pull de imágenes nuevas y restart
+de contenedores", después de `docker compose up -d`/`restart proxy` (con los
+contenedores nuevos ya arriba, así solo se borra lo que nadie usa), se agrega
+`docker image prune -af`. Deliberadamente **sin** `--volumes` — ese flag sí puede
+borrar volúmenes no referenciados por ningún contenedor en el momento del prune (ahí
+vive `movo_postgres-data`), y no hace falta para liberar el espacio que ocupan las
+imágenes.
+
+Pendiente / fuera de alcance de este hotfix: aumentar el tamaño de disco de la EC2 si
+vuelve a quedar justo — el prune resuelve la acumulación, no un piso de espacio muy
+chico de por sí.
+
