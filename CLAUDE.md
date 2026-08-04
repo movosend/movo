@@ -524,9 +524,32 @@ Implementado:
   `movo-svc-users`, `run-migrations.sh` sin cambios para los demás.
 - `package.json`: `postinstall: prisma generate` (se regenera el cliente en cada
   `npm ci`/`install`, no se commitea `src/generated/prisma/` — gitignored). `prisma`
-  como devDependency, `@prisma/client`/`@prisma/adapter-pg` como dependency.
+  como **dependency, no devDependency**: la CLI viaja en la imagen de producción a
+  propósito (ver Dockerfile abajo).
+- **Dockerfile**: el stage de runtime copia también `prisma.config.ts` y `prisma/`
+  (schema + migraciones), y ya no usa `--omit=dev` para excluir `prisma` (ahora es
+  dependency). Motivo: Postgres no expone puerto público en la EC2 (ADR-010), así que
+  no hay forma de correr `prisma migrate deploy` desde afuera del contenedor — el
+  deploy tiene que invocarlo *dentro* de la imagen ya pulleada, con
+  `docker compose run --rm movo-svc-users npx prisma migrate deploy`, sin instalar
+  nada nuevo en la EC2 ni depender de red hacia el registry de npm desde prod. Los dos
+  `npm ci` del Dockerfile siguen con `--ignore-scripts`: en ninguno de los dos stages
+  está copiado `prisma/schema.prisma` en el momento en que corre `npm ci` (se copia
+  package.json solo, para cachear la capa de deps aparte del código fuente); el
+  builder corre `prisma generate` explícito ya con el código fuente copiado, el
+  runtime no lo necesita (usa el cliente ya compilado en `dist/`).
+- Verificado con la imagen ya buildeada (no en una imagen de desarrollo): `docker run
+  ... npx prisma migrate deploy` aplica las 2 migraciones contra Postgres real, una
+  segunda corrida es no-op, y la app sigue arrancando y sirviendo `/health` normal.
 
-Pendiente / fuera de alcance de MOVO-93: cómo correr `prisma migrate deploy` contra la
-EC2 real de dev/prod — Postgres no expone puerto público ahí (ADR-010), el mismo
-problema que quedó abierto para automatizar `run-migrations.sh` en el deploy. Se resuelve
-en una US aparte. `svc-shipments`/`svc-payments`/`svc-admin` quedan fuera de este alcance.
+Pendiente / fuera de alcance de MOVO-93: el hotfix que automatiza migraciones en el
+deploy (`ci-dev.yml`/`ci-prod.yml`, rama `hotfix/run-db-migrations-on-deploy` contra
+`main`) todavía no sabe de Prisma — se armó cuando `main` no tenía esta rama mergeada,
+así que su loop llama a `run-migrations.sh` para los 4 servicios por igual. Cuando esta
+rama llegue a `main` (vía `develop`), hay que cambiar el caso de `movo-svc-users` en
+ese loop para que use `docker compose run --rm movo-svc-users npx prisma migrate
+deploy` en vez de `run-migrations.sh services/movo-svc-users` — si no, el script va a
+encontrar que `services/movo-svc-users/migrations/` ya no existe (se borró en esta
+rama) y va a saltear la migración en silencio, sin avisar. `svc-shipments`/
+`svc-payments`/`svc-admin` quedan fuera de este alcance, siguen con
+`run-migrations.sh` sin cambios.
