@@ -572,3 +572,10 @@ Decisión clave: antes del `prisma migrate deploy` se agrega
 una imagen que ya existe localmente con el mismo tag (`policy: missing`), y en este
 punto del workflow el pull general recién pasa en el step siguiente. Sin este pull
 explícito, el deploy migraría con el schema de la imagen vieja.
+
+Segundo hallazgo relacionado: `scripts/run-migrations.sh` en `develop` también era
+la versión **sin ledger** (`develop` nunca recibió el hotfix
+`run-db-migrations-on-deploy`, que fue directo a `main`) — el mismo script que el
+CLAUDE.md documentaba como corregido, en `develop` seguía reaplicando todas las
+migraciones `.sql` en cada corrida. Se reemplazó por la versión de `main` con la
+tabla `public.schema_migrations` y `BEGIN`/`COMMIT` por archivo.
