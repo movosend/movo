@@ -325,6 +325,15 @@ jobs:
             until docker exec "$(docker ps --filter name=postgres --format '{{.Names}}' | head -n1)" pg_isready -U "${POSTGRES_USER:-movo}" > /dev/null 2>&1; do
               sleep 2
             done
+            # TODO(MOVO-93): movo-svc-users pasa a usar Prisma (rama
+            # feature/movo-93-adoptar-prisma-en-svc-users, ADR-011). Cuando esa rama
+            # llegue a main, reemplazar la línea de abajo por:
+            #   docker compose run --rm movo-svc-users npx prisma migrate deploy
+            # (la imagen ya trae la CLI de prisma + schema/migraciones, ver Dockerfile
+            # de movo-svc-users) y sacar "services/movo-svc-users" de este for. Si no
+            # se cambia, run-migrations.sh va a encontrar que
+            # services/movo-svc-users/migrations/ ya no existe (se borra en esa rama)
+            # y va a saltear la migración en silencio.
             for svc in services/movo-svc-users services/movo-svc-shipments services/movo-svc-payments services/movo-svc-admin; do
               ./scripts/run-migrations.sh "$svc"
             done
