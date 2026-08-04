@@ -299,6 +299,11 @@ jobs:
             tmp="$(mktemp)"
             grep -v '^DATABASE_URL=' .env > "$tmp"
             echo "DATABASE_URL=${new_url}" >> "$tmp"
+            # mktemp crea el archivo con permisos 600 -- el mv pisa los 644
+            # que tenía .env, y el contenedor de appleboy/scp-action no puede
+            # leerlo para armar el tar ("tar: can't open '.env': Permission
+            # denied").
+            chmod 644 "$tmp"
             mv "$tmp" .env
           fi
 
