@@ -285,11 +285,25 @@ Decisiones clave:
 - El error-handler de `svc-users` también normaliza errores de validación de schema
   (AJV) al formato único (`VALIDATION_FAILED`, 400) — antes no existía ningún
   `setErrorHandler` en este servicio.
+- **Decisión de scope (04/08, coordinada con el equipo vía comentario en Linear)**: en
+  los comentarios del ticket se propuso extender el contrato con `dni`/`address` y mover
+  la verificación de teléfono por OTP a *antes* de la creación de la cuenta (`register`
+  exigiendo un `phoneVerificationToken`). Ninguna de las dos entra en esta US:
+  - `dni`/`address` quedan afuera del payload de `POST /auth/register` — si hacen falta,
+    van en una US de perfil aparte, todavía sin definir.
+  - El flujo OTP-antes-del-registro es contrato de **MOVO-71** ("Verificación de
+    teléfono por OTP"), que sigue en Todo con el AC original (OTP *después* de crear la
+    cuenta). MOVO-70 no implementa `phoneVerificationToken` hasta que MOVO-71 se
+    actualice al nuevo orden — evita que este endpoint quede bloqueado por un ticket que
+    ni siquiera arrancó.
+  - La normalización de `account_status`/KYC (parte de lo que pedía el AC7 original) es
+    alcance de **MOVO-92** ("Chore actualización de la Entidad User"), en curso en
+    paralelo (Pedro Yorlano) — no de MOVO-70.
 
-Pendiente / fuera de alcance de MOVO-70: correr `npm test` de `svc-users` completo tras
-el merge con develop (25/25 tests pasaban en la versión pre-merge con
-`auth.repository.ts` propio; falta reconfirmar con el `user-repository` de MOVO-87) antes
-de abrir el PR.
+Pendiente / fuera de alcance de MOVO-70: suite de tests corrida completa tras el merge
+con develop, contra Postgres/Redis reales — **59/59 tests pasan**, cobertura 94%
+statements / 84.21% branches / 100% funciones (umbral configurado: 55%). `tsc --noEmit`,
+`eslint` y `npm run build` sin errores.
 
 ### MOVO-85 — Plugin de conexión PostgreSQL en movo-svc-users (`fastify.db`)
 
