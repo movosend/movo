@@ -32,15 +32,12 @@ export enum KycStatus {
 }
 
 /**
- * Estado de la cuenta de un usuario.
+ * Estado de la cuenta de un usuario (MOVO-92).
  *
- * Provisorio: el DER no define un enum de estado de cuenta — solo
- * `is_banned: boolean` + `banned_until: timestamp` en `User`. Se propone
- * este mapeo como punto de partida, pendiente de confirmación por el
- * equipo — ver comentario en MOVO-67 en Linear.
+ * `status` de la entidad User: active | banned | deleted.
  */
 export enum AccountStatus {
   ACTIVE = "active",
-  BANNED_TEMPORARY = "banned_temporary",
-  BANNED_PERMANENT = "banned_permanent",
+  BANNED = "banned",
+  DELETED = "deleted",
 }
