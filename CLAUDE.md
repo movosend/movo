@@ -364,3 +364,36 @@ review, portada a la forma alineada: `parseUserRole`/`parseKycStatus` chequean c
 `Object.values(...)` y tiran `InvalidEnumValueError` antes de castear.
 
 Pendiente: el ticket de Linear queda abierto (no se pasa a Done) a pedido del usuario.
+_(completar detalle de archivos/decisiones cuando se termine de implementar)_
+
+### MOVO-89 — `GET /health` con estado de PostgreSQL y Redis
+
+Implementado en `src/modules/health/` (`health.routes.ts` + `health.schema.ts`),
+registrado desde `app.ts` en reemplazo del stub que devolvía `{ status: "ok" }` fijo.
+Compone `checkDbHealth()` (MOVO-85) y `checkRedisHealth()` (MOVO-86) — es el único
+sub-issue de MOVO-66 que integra ambos plugins.
+
+Decisiones clave:
+- **Códigos de status**: 200 ambas OK, **503** si falla una, **502** si fallan las dos.
+  El AC 3 original decía "503 si alguna falla"; se ajustó a pedido del equipo (ticket
+  actualizado en Linear). Para el `HEALTHCHECK` de Docker es indistinto —cualquier
+  no-2xx cuenta como fallo—, la distinción es para diagnóstico humano.
+- **El body nunca lleva el detalle del error.** `checkDbHealth`/`checkRedisHealth`
+  devuelven el mensaje crudo de `pg`/`ioredis`, que puede incluir usuario, host o puerto
+  de la conexión, y `/health` se sirve sin autenticación. El handler lo loguea con
+  `app.log.error` y publica sólo `status`. El schema de respuesta es la segunda barrera:
+  Fastify serializa únicamente lo declarado, así que un descuido futuro tampoco filtra.
+  Viene del review de MOVO-85, donde se difirió explícitamente a esta issue.
+- Los dos checks corren con `Promise.all`: la latencia es la del más lento y no la suma
+  (AC 2). Ninguna de las dos funciones rechaza, así que `Promise.all` no corta antes.
+- **`Dockerfile`: `HEALTHCHECK --timeout` de 5s a 10s.** El pool corta las queries a los
+  5s (`statement_timeout`/`query_timeout`, MOVO-85), así que con Postgres "vivo pero
+  mudo" el check tardaba exactamente el límite y Docker mataba el `wget` antes de que se
+  entregara el 503 — nunca se veía el body que dice cuál dependencia cayó. Con Postgres
+  caído de verdad (conexión rechazada) falla al instante y esto no aplica.
+- Vocabulario del body (`status` + `checks`, valores `ok`/`error`) elegido para que lo
+  copien el resto de los servicios: reusa el mismo shape que ya devuelven los dos
+  plugins, sin traducir.
+
+Pendiente / fuera de alcance: el gateway no rutea el `/health` de los servicios (se
+consulta desde dentro de la red Docker), su propio `/health` sigue siendo un stub.
