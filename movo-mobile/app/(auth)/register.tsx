@@ -64,14 +64,7 @@ const OTP_LENGTH = 6;
 const STEP0_FIELD_ORDER: FieldName[] = ["firstName", "lastName", "email", "phone"];
 const STEP2_FIELD_ORDER: FieldName[] = ["street", "number", "floor", "city", "zip"];
 
-const STEP_LABELS = [
-  "Paso 1 de 6",
-  "Paso 2 de 6",
-  "Paso 3 de 6",
-  "Paso 4 de 6",
-  "Paso 5 de 6",
-  "Paso 6 de 6",
-];
+const STEP_LABELS = ["Paso 1", "Paso 2", "Paso 3", "Paso 4", "Paso 5", "Paso 6"];
 
 type Step = 0 | 1 | 2 | 3 | 4 | 5;
 
