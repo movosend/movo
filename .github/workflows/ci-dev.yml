@@ -287,8 +287,14 @@ jobs:
           # etc. sin encodear. Se reescribe DATABASE_URL con user/password
           # percent-encodeados; pg también soporta la forma encodeada, así que es
           # seguro para el resto de los servicios.
+          # (.+) codicioso antes del @ final -- no [^@]+ -- porque la password
+          # puede contener '@' (como en prod): [^@]+ corta en el PRIMER @ que
+          # encuentra, aunque esté adentro de la password, y deja un pedazo de
+          # la password mezclado con el host real ("Error: P1013"/host
+          # inválido). El regex greedy hace backtrack hasta el ÚLTIMO @, que
+          # es el separador real -- mismo criterio que usa el parser de `pg`.
           db_url="$(grep '^DATABASE_URL=' .env | cut -d= -f2-)"
-          if [[ "$db_url" =~ ^(postgres(ql)?://)([^:@/]+):([^@]+)@(.+)$ ]]; then
+          if [[ "$db_url" =~ ^(postgres(ql)?://)([^:@/]+):(.+)@([^@]+)$ ]]; then
             scheme="${BASH_REMATCH[1]}"
             user="${BASH_REMATCH[3]}"
             pass="${BASH_REMATCH[4]}"
