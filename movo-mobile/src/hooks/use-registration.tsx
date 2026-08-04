@@ -101,6 +101,18 @@ export function formatPhone(v: string): string {
   return parts.filter(Boolean).join(" ");
 }
 
+/**
+ * El backend espera el teléfono en E.164 (`+549` + 10 dígitos) — el `9` es el
+ * prefijo de celular argentino, requerido para que la SMS gateway que emite
+ * el OTP (`send-otp`) entregue el mensaje. El campo del formulario solo pide
+ * y muestra el número local de 10 dígitos (ver `formatPhone`); esta función
+ * arma el valor real que viaja en el body de cada request (`send-otp`,
+ * `register`, `login`), nunca al revés.
+ */
+export function toE164Phone(localPhone: string): string {
+  return `+549${localPhone.replace(/\D/g, "")}`;
+}
+
 export function isPasswordValid(v: string): boolean {
   return v.length >= 8 && /[A-Za-z]/.test(v) && /\d/.test(v);
 }
@@ -281,7 +293,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       const response = await authClient.register({
         fullName: `${fields.firstName.trim()} ${fields.lastName.trim()}`.trim(),
         email: fields.email.trim().toLowerCase(),
-        phone: fields.phone,
+        phone: toE164Phone(fields.phone),
         password: fields.password,
         dni: fields.dni,
         address: {
@@ -318,7 +330,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setErrorBanner(null);
     try {
-      const response = await authClient.sendOtp(fields.phone);
+      const response = await authClient.sendOtp(toE164Phone(fields.phone));
       setOtpId(response.otpId);
       return { ok: true, cooldownSeconds: response.cooldownSeconds };
     } catch (err) {

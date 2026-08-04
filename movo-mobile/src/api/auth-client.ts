@@ -72,9 +72,27 @@ export interface KycStatusResponse {
   kycStatus: KycStatus;
 }
 
+export interface LoginRequest {
+  phone: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  userId: string;
+  /** Persistencia de sesión (guardar en `secure-store`, adjuntar a `http-client`) es alcance de MOVO-76. */
+  accessToken: string;
+  refreshToken: string;
+  kycStatus: KycStatus;
+}
+
 export const authClient = {
   register(payload: RegisterRequest): Promise<RegisterResponse> {
     return httpClient.post<RegisterResponse>("/auth/register", payload);
+  },
+
+  /** Contrato propuesto para MOVO-76 (login), no implementado en `movo-svc-users` todavía. */
+  login(payload: LoginRequest): Promise<LoginResponse> {
+    return httpClient.post<LoginResponse>("/auth/login", payload);
   },
 
   sendOtp(phone: string): Promise<SendOtpResponse> {

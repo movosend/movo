@@ -186,7 +186,7 @@ describe("RegistrationProvider", () => {
       sendResult = await getCtx().sendOtp();
     });
     expect(sendResult).toEqual({ ok: true, cooldownSeconds: 60 });
-    expect(authClient.sendOtp).toHaveBeenCalledWith(BASE_FIELDS.phone);
+    expect(authClient.sendOtp).toHaveBeenCalledWith("+5493512345678");
 
     const verifyResult = await getCtx().verifyPhoneOtp("123456");
     expect(verifyResult).toEqual({ ok: true });

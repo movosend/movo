@@ -14,6 +14,7 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   AUTH_FORBIDDEN: "No tenés permiso para hacer esto.",
   AUTH_OTP_INVALID: "El código ingresado no es correcto. Revisalo e intentá de nuevo.",
   AUTH_OTP_EXPIRED: "El código venció. Pedí uno nuevo.",
+  ACCOUNT_SUSPENDED: "Tu cuenta está suspendida. Contactá a soporte para más información.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",
   RATE_LIMIT_EXCEEDED: "Hiciste demasiados intentos. Esperá un momento y volvé a intentar.",
