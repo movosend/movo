@@ -1,3 +1,4 @@
+import { Link } from 'expo-router';
 import { colorScheme, useColorScheme } from 'nativewind';
 import { ScrollView, Text, View } from 'react-native';
 
@@ -121,7 +122,7 @@ function ColorSwatch({ item }: { item: Swatch }) {
           {item.label}
         </Text>
       </View>
-      <Text className="font-mono text-caption text-fg-3">{item.hex}</Text>
+      <Text className="font-sans text-caption text-fg-3">{item.hex}</Text>
     </View>
   );
 }
@@ -132,9 +133,9 @@ export default function DevTokensScreen() {
 
   return (
     <View className="flex-1 bg-bg">
-      <View className="flex-row items-center justify-between border-b border-border px-6 pb-4 pt-16">
+      <View className="flex-row items-center justify-between border-b border-border px-6 pb-4 pt-24">
         <View className="gap-0.5">
-          <Text className="font-mono-medium text-caption uppercase tracking-widest text-fg-3">
+          <Text className="font-sans-medium text-caption uppercase tracking-widest text-fg-3">
             Movo · Design tokens
           </Text>
           <Text className="font-sans-semibold text-title text-fg">
@@ -160,7 +161,7 @@ export default function DevTokensScreen() {
             {TYPE_SCALE.map((item) => (
               <View key={item.token} className="flex-row items-baseline gap-4">
                 <View className="w-16">
-                  <Text className="font-mono text-caption text-fg-3">
+                  <Text className="font-sans text-caption text-fg-3">
                     {item.px}
                   </Text>
                 </View>
@@ -199,7 +200,7 @@ export default function DevTokensScreen() {
           <SectionTitle>Semánticos</SectionTitle>
           {SEMANTIC_SCALES.map((scale) => (
             <View key={scale.name} className="gap-2">
-              <Text className="font-mono text-caption uppercase tracking-wide text-fg-3">
+              <Text className="font-sans text-caption uppercase tracking-wide text-fg-3">
                 {scale.name}
               </Text>
               <View className="flex-row flex-wrap gap-3">
@@ -224,7 +225,7 @@ export default function DevTokensScreen() {
                     className={`h-14 w-20 items-center justify-center rounded-md bg-bg-sub ${token.className}`}
                     style={{ borderWidth: 2 }}
                   >
-                    <Text className="font-mono text-caption text-fg-3">
+                    <Text className="font-sans text-caption text-fg-3">
                       {token.label}
                     </Text>
                   </View>
@@ -243,7 +244,7 @@ export default function DevTokensScreen() {
                     </Text>
                   </View>
                 )}
-                <Text className="font-mono text-caption text-fg-3">
+                <Text className="font-sans text-caption text-fg-3">
                   {token.label}
                 </Text>
               </View>
@@ -255,7 +256,7 @@ export default function DevTokensScreen() {
           <SectionTitle>Familias tipográficas</SectionTitle>
           <View className="gap-4 rounded-xl border border-border bg-bg-sub p-5">
             <View className="gap-1">
-              <Text className="font-mono text-caption text-fg-3">
+              <Text className="font-sans text-caption text-fg-3">
                 Inter · font-sans / font-sans-medium / font-sans-semibold
               </Text>
               <Text className="font-sans text-h2 text-fg">
@@ -285,6 +286,10 @@ export default function DevTokensScreen() {
             </View>
           </View>
         </View>
+
+        <Link href="/dev-connection" className="font-sans text-small text-fg-3 underline" testID="dev-tokens-go-connection">
+          Ver conexión al backend →
+        </Link>
       </ScrollView>
     </View>
   );

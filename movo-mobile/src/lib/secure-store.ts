@@ -23,4 +23,6 @@ export const secureStore = {
 export const SECURE_STORE_KEYS = {
   /** `userId` del registro en curso — usado para reanudar el onboarding, no para auth. */
   pendingRegistrationUserId: "movo.pendingRegistrationUserId",
+  /** Override de `EXPO_PUBLIC_API_URL` seteado desde la vista dev — ver `src/lib/api-override.ts`. */
+  apiBaseUrlOverride: "movo.dev.apiBaseUrlOverride",
 } as const;

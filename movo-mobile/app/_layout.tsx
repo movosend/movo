@@ -13,12 +13,13 @@ import {
   useFonts as useJetBrainsMonoFonts,
 } from '@expo-google-fonts/jetbrains-mono';
 import { useColorScheme } from 'nativewind';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { Stack } from 'expo-router';
 import { View } from 'react-native';
 import { RegistrationProvider } from '../src/hooks/use-registration';
+import { loadApiOverride } from '../src/lib/api-override';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -34,22 +35,30 @@ export default function RootLayout() {
     JetBrainsMono_500Medium,
     JetBrainsMono_600SemiBold,
   });
+  // Solo relevante en dev (ver getApiBaseUrl en src/lib/env.ts) pero se carga
+  // siempre para no bifurcar el flujo de boot entre dev/prod.
+  const [apiOverrideLoaded, setApiOverrideLoaded] = useState(false);
 
   const fontsLoaded = interLoaded && jetBrainsMonoLoaded;
+  const appReady = fontsLoaded && apiOverrideLoaded;
 
   useEffect(() => {
-    if (fontsLoaded) {
+    loadApiOverride().finally(() => setApiOverrideLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    if (appReady) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded]);
+  }, [appReady]);
 
   const onLayout = useCallback(() => {
-    if (fontsLoaded) {
+    if (appReady) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded]);
+  }, [appReady]);
 
-  if (!fontsLoaded) {
+  if (!appReady) {
     return null;
   }
 
