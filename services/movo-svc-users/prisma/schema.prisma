@@ -40,28 +40,36 @@ enum KycStatus {
   @@schema("users")
 }
 
+enum AccountStatus {
+  active
+  banned
+  deleted
+
+  @@map("account_status_enum")
+  @@schema("users")
+}
+
 model User {
-  id                             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email                          String    @unique(map: "users_email_key")
-  phone                          String    @unique(map: "users_phone_key")
-  firstName                      String    @map("first_name")
-  lastName                       String    @map("last_name")
-  passwordHash                   String    @map("password_hash")
-  dni                            String?
-  phoneVerified                  Boolean   @default(false) @map("phone_verified")
-  photoUrl                       String?   @map("photo_url")
-  kycStatusIdentity              KycStatus @default(not_started) @map("kyc_status_identity")
-  lastKycVerificationIdentityId  String?   @map("last_kyc_verification_identity_id") @db.Uuid
-  kycStatusLicense               KycStatus @default(not_started) @map("kyc_status_license")
-  lastKycVerificationLicenseId   String?   @map("last_kyc_verification_license_id") @db.Uuid
-  isBanned                       Boolean   @default(false) @map("is_banned")
-  bannedUntil                    DateTime? @map("banned_until") @db.Timestamptz
-  createdAt                      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email             String        @unique(map: "users_email_key")
+  phone             String        @unique(map: "users_phone_key")
+  firstName         String        @map("first_name")
+  lastName          String        @map("last_name")
+  passwordHash      String        @map("password_hash")
+  dni               String?
+  phoneVerified     Boolean       @default(false) @map("phone_verified")
+  photoUrl          String?       @map("photo_url")
+  kycStatusIdentity KycStatus     @default(not_started) @map("kyc_status_identity")
+  kycStatusLicense  KycStatus     @default(not_started) @map("kyc_status_license")
+  status            AccountStatus @default(active) @map("status")
+  bannedUntil       DateTime?     @map("banned_until") @db.Timestamptz
+  birthdate         DateTime?     @db.Date
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz
   // El trigger users.update_updated_at_column() de la migración original ya mantiene
   // esta columna al día en cada UPDATE -- @updatedAt hace que Prisma también la
   // pise en cada write, de forma redundante pero consistente con el trigger.
-  updatedAt                      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
-  roles                          UserRoleGrant[]
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+  roles             UserRoleGrant[]
 
   // users_email_lower_idx (índice único funcional sobre LOWER(email)) no tiene
   // equivalente declarable en schema.prisma (Prisma no modela expression indexes).

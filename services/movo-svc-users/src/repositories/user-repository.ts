@@ -5,7 +5,7 @@ import {
   UserRole as PrismaUserRole,
   KycStatus as PrismaKycStatus,
 } from "../generated/prisma/client";
-import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus } from "../models/user";
+import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus, parseAccountStatus } from "../models/user";
 
 export interface UserRepository {
   count(): Promise<number>;
@@ -37,11 +37,10 @@ function toDomainUser(row: UserWithRoles): User {
     phoneVerified: row.phoneVerified,
     photoUrl: row.photoUrl,
     kycStatusIdentity: parseKycStatus(row.kycStatusIdentity, "kyc_status_identity"),
-    lastKycVerificationIdentityId: row.lastKycVerificationIdentityId,
     kycStatusLicense: parseKycStatus(row.kycStatusLicense, "kyc_status_license"),
-    lastKycVerificationLicenseId: row.lastKycVerificationLicenseId,
-    isBanned: row.isBanned,
+    status: parseAccountStatus(row.status),
     bannedUntil: row.bannedUntil,
+    birthdate: row.birthdate,
     roles: row.roles.map((r) => parseUserRole(r.role)),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -112,6 +111,7 @@ export function createUserRepository(db: PrismaClient): UserRepository {
             lastName: input.lastName,
             passwordHash: input.passwordHash,
             dni: input.dni ?? null,
+            birthdate: input.birthdate ?? null,
             roles: {
               create: input.roles.map((role) => ({ role: role as unknown as PrismaUserRole })),
             },

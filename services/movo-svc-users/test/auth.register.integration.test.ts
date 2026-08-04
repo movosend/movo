@@ -43,9 +43,8 @@ describe("POST /auth/register", () => {
       phone: "+5493511234567",
       firstName: "Juan",
       lastName: "Perez",
-      // MOVO-91 alineó este enum a los valores (minúscula) de @movo/shared.
       kycStatusIdentity: "not_started",
-      isBanned: false,
+      status: "active",
       phoneVerified: false,
     });
     expect(userRow?.passwordHash).not.toBe(validPayload.password);

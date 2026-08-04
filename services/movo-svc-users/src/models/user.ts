@@ -1,9 +1,8 @@
-import { UserRole, KycStatus } from "@movo/shared";
+import { UserRole, KycStatus, AccountStatus } from "@movo/shared";
 
 /**
  * Modelo de dominio de un usuario. Los enums de `users.users` están alineados
- * 1:1 con `UserRole`/`KycStatus` de `@movo/shared` (MOVO-91) — el literal de
- * DB y el valor de dominio son el mismo string, no hace falta traducir.
+ * 1:1 con `UserRole`/`KycStatus`/`AccountStatus` de `@movo/shared` (MOVO-91, MOVO-92).
  *
  * **Uso interno solamente**: incluye `passwordHash`. NUNCA devolver este objeto
  * tal cual en una respuesta HTTP — usar `toPublicUser()` y devolver `PublicUser`.
@@ -19,11 +18,10 @@ export interface User {
   phoneVerified: boolean;
   photoUrl: string | null;
   kycStatusIdentity: KycStatus;
-  lastKycVerificationIdentityId: string | null;
   kycStatusLicense: KycStatus;
-  lastKycVerificationLicenseId: string | null;
-  isBanned: boolean;
+  status: AccountStatus;
   bannedUntil: Date | null;
+  birthdate: Date | null;
   roles: UserRole[];
   createdAt: Date;
   updatedAt: Date;
@@ -53,11 +51,10 @@ export function toPublicUser(user: User): PublicUser {
     phoneVerified: user.phoneVerified,
     photoUrl: user.photoUrl,
     kycStatusIdentity: user.kycStatusIdentity,
-    lastKycVerificationIdentityId: user.lastKycVerificationIdentityId,
     kycStatusLicense: user.kycStatusLicense,
-    lastKycVerificationLicenseId: user.lastKycVerificationLicenseId,
-    isBanned: user.isBanned,
+    status: user.status,
     bannedUntil: user.bannedUntil,
+    birthdate: user.birthdate,
     roles: user.roles,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
@@ -71,6 +68,7 @@ export interface CreateUserInput {
   lastName: string;
   passwordHash: string;
   dni?: string;
+  birthdate?: Date | null;
   roles: UserRole[];
 }
 
@@ -86,11 +84,10 @@ export interface UserRow {
   phone_verified: boolean;
   photo_url: string | null;
   kyc_status_identity: string;
-  last_kyc_verification_identity_id: string | null;
   kyc_status_license: string;
-  last_kyc_verification_license_id: string | null;
-  is_banned: boolean;
+  status: string;
   banned_until: Date | null;
+  birthdate: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -112,15 +109,9 @@ export class InvalidEnumValueError extends Error {
   }
 }
 
-// MOVO-91 alineó los enums de Postgres con `@movo/shared`, así que acá no se
-// traduce nada: el literal de DB ya es el valor de dominio. Pero se valida
-// antes de castear, porque Postgres garantiza que la columna esté dentro de
-// *su* enum, no que ese enum siga alineado con `@movo/shared`. Un
-// `ALTER TYPE ... ADD VALUE` que no actualice el dominio deja pasar un valor
-// que TypeScript cree válido y no lo es — y los roles gobiernan autorización
-// (ADR-004). Esa desalineación ya ocurrió una vez: es lo que motivó MOVO-91.
 const USER_ROLE_VALUES: ReadonlySet<string> = new Set(Object.values(UserRole));
 const KYC_STATUS_VALUES: ReadonlySet<string> = new Set(Object.values(KycStatus));
+const ACCOUNT_STATUS_VALUES: ReadonlySet<string> = new Set(Object.values(AccountStatus));
 
 export function parseUserRole(value: string): UserRole {
   if (!USER_ROLE_VALUES.has(value)) {
@@ -141,6 +132,13 @@ export function parseKycStatus(value: string, column: string): KycStatus {
   return value as KycStatus;
 }
 
+export function parseAccountStatus(value: string): AccountStatus {
+  if (!ACCOUNT_STATUS_VALUES.has(value)) {
+    throw new InvalidEnumValueError("status", value);
+  }
+  return value as AccountStatus;
+}
+
 export function mapRowToUser(row: UserRow, roles: string[]): User {
   return {
     id: row.id,
@@ -153,11 +151,10 @@ export function mapRowToUser(row: UserRow, roles: string[]): User {
     phoneVerified: row.phone_verified,
     photoUrl: row.photo_url,
     kycStatusIdentity: parseKycStatus(row.kyc_status_identity, "kyc_status_identity"),
-    lastKycVerificationIdentityId: row.last_kyc_verification_identity_id,
     kycStatusLicense: parseKycStatus(row.kyc_status_license, "kyc_status_license"),
-    lastKycVerificationLicenseId: row.last_kyc_verification_license_id,
-    isBanned: row.is_banned,
+    status: parseAccountStatus(row.status),
     bannedUntil: row.banned_until,
+    birthdate: row.birthdate,
     roles: roles.map(parseUserRole),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
