@@ -1,6 +1,7 @@
 import fp from "fastify-plugin";
 import { FastifyInstance } from "fastify";
-import { Pool } from "pg";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient } from "../generated/prisma/client";
 
 export interface DbPluginOptions {
   connectionString?: string;
@@ -14,33 +15,24 @@ export interface DbHealthResult {
 export default fp<DbPluginOptions>(async (app: FastifyInstance, opts: DbPluginOptions) => {
   const connectionString = opts.connectionString || app.config?.DATABASE_URL || process.env.DATABASE_URL;
 
-  const pool = new Pool({
+  // El adapter de Prisma envuelve un pool de `pg` — mismos timeouts que tenía el
+  // Pool a mano (MOVO-85): statement_timeout/query_timeout para que Postgres (o
+  // pg-pool) corte una query colgada en vez de agotar el pool con clientes idle
+  // esperando para siempre.
+  const adapter = new PrismaPg({
     connectionString,
-    // Fija el search_path como parámetro de arranque de la conexión (no una
-    // query aparte tras conectar): Postgres lo aplica de forma atómica en el
-    // handshake, evitando la carrera con la primera query real del pool.
-    options: "-c search_path=users,public",
     max: 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 5_000,
-    // Si Postgres cuelga en vez de responder o rechazar, un Promise.race
-    // manual en el caller no libera el cliente: pool.query sigue viva y se
-    // queda con un slot del pool para siempre (con max: 10, pocos healthchecks
-    // colgados agotan el pool). statement_timeout hace que el propio Postgres
-    // cancele la query server-side; query_timeout hace que pg-pool trate el
-    // timeout como error de cliente y lo destruya/evicte (_release -> _remove
-    // -> client.end()) en vez de devolverlo al pool. Revisado en MOVO-85.
     statement_timeout: 5_000,
     query_timeout: 5_000,
   });
 
-  pool.on("error", (err) => {
-    app.log.error({ err }, "Error inesperado en cliente idle del pool de Postgres");
-  });
+  const prisma = new PrismaClient({ adapter });
 
   const checkDbHealth = async (): Promise<DbHealthResult> => {
     try {
-      await pool.query("SELECT 1");
+      await prisma.$queryRaw`SELECT 1`;
       return { status: "ok" };
     } catch (error) {
       return {
@@ -50,17 +42,17 @@ export default fp<DbPluginOptions>(async (app: FastifyInstance, opts: DbPluginOp
     }
   };
 
-  app.decorate("db", pool);
+  app.decorate("db", prisma);
   app.decorate("checkDbHealth", checkDbHealth);
 
   app.addHook("onClose", async () => {
-    await pool.end();
+    await prisma.$disconnect();
   });
 });
 
 declare module "fastify" {
   interface FastifyInstance {
-    db: Pool;
+    db: PrismaClient;
     checkDbHealth: () => Promise<DbHealthResult>;
   }
 }

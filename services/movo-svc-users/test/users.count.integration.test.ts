@@ -19,7 +19,7 @@ describe("GET /users/count", () => {
   beforeEach(async () => {
     // Aísla cada test: sin esto, el orden de ejecución hace que los tests fallen
     // de forma intermitente cuando comparten filas insertadas por otros tests.
-    await app.db.query("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
   });
 
   it("devuelve 0 cuando no hay usuarios", async () => {
@@ -29,10 +29,15 @@ describe("GET /users/count", () => {
   });
 
   it("devuelve la cantidad real de usuarios en la base", async () => {
-    await app.db.query(
-      "INSERT INTO users.users (email, phone, first_name, last_name, password_hash) VALUES ($1, $2, $3, $4, $5)",
-      ["dev@movo.test", "+5493510000000", "Tomas", "Olmos", "hashed_password"]
-    );
+    await app.db.user.create({
+      data: {
+        email: "dev@movo.test",
+        phone: "+5493510000000",
+        firstName: "Tomas",
+        lastName: "Olmos",
+        passwordHash: "hashed_password",
+      },
+    });
 
     const response = await app.inject({ method: "GET", url: "/users/count" });
     expect(response.statusCode).toBe(200);
