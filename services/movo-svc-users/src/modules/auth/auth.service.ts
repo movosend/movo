@@ -1,7 +1,11 @@
 import { Pool } from "pg";
 import { hash } from "@node-rs/argon2";
-import { ApiError, KycStatus } from "@movo/shared";
-import { createAuthRepository, DuplicateUserError } from "./auth.repository";
+import { ApiError, KycStatus, UserRole } from "@movo/shared";
+import { createUserRepository } from "../../repositories/user-repository";
+import { UserConflictError } from "../../models/user";
+
+/** Roles por defecto al registrarse (AC8): todo usuario puede operar como emisor y transportista. */
+const DEFAULT_USER_ROLES: UserRole[] = [UserRole.SENDER, UserRole.CARRIER];
 
 // @node-rs/argon2 exporta `Algorithm` como `const enum`, incompatible con
 // `isolatedModules` (tsconfig del servicio) — se usa el valor numérico de
@@ -52,7 +56,7 @@ export function normalizePhoneToE164Ar(rawPhone: string): string {
 }
 
 export function createAuthService(db: Pool) {
-  const repository = createAuthRepository(db);
+  const repository = createUserRepository(db);
 
   return {
     async register(input: RegisterUserInput): Promise<RegisterUserResult> {
@@ -65,10 +69,17 @@ export function createAuthService(db: Pool) {
       const passwordHash = await hash(input.password, { algorithm: ARGON2ID });
 
       try {
-        const user = await repository.createUser({ email, phone, firstName, lastName, passwordHash });
-        return { userId: user.id, kycStatus: user.kycStatus };
+        const user = await repository.create({
+          email,
+          phone,
+          firstName,
+          lastName,
+          passwordHash,
+          roles: DEFAULT_USER_ROLES,
+        });
+        return { userId: user.id, kycStatus: user.kycStatusIdentity };
       } catch (err) {
-        if (err instanceof DuplicateUserError) {
+        if (err instanceof UserConflictError) {
           if (err.field === "email") {
             throw new ApiError(409, "USER_EMAIL_ALREADY_EXISTS", "Ya existe una cuenta registrada con este email.");
           }

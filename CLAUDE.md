@@ -245,31 +245,28 @@ limit estricto en más endpoints de auth (si el equipo lo decide).
 ### MOVO-70 — Endpoint de registro de usuario (`svc-users`)
 
 Implementado `POST /auth/register` (ya público en el gateway desde MOVO-68, sin
-cambios ahí): `src/modules/auth/{auth.routes,auth.service,auth.repository,auth.schema}.ts`,
-más `src/plugins/error-handler.ts` (portado del gateway, primer uso de `ApiError` en
+cambios ahí): `src/modules/auth/{auth.routes,auth.service,auth.schema}.ts`, más
+`src/plugins/error-handler.ts` (portado del gateway, primer uso de `ApiError` en
 `svc-users`) registrado en `app.ts`.
 
 Decisiones clave:
-- **Inconsistencia detectada entre MOVO-66/87 (schema de DB) y MOVO-67 (`@movo/shared`),
-  pendiente de unificar por el equipo**: el enum `users.user_role_enum` de la migración
-  usa valores en español (`'emisor'`, `'transportista'`, `'admin'`), mientras que
-  `UserRole` en `@movo/shared` usa inglés (`sender`, `carrier`, `admin`) — no son
-  intercambiables. Tampoco existe columna `account_status` (solo `is_banned` +
-  `banned_until`) ni `phone_verified_at` (es `phone_verified boolean`), y hay dos
-  columnas de KYC (`kyc_status_identity`/`kyc_status_license`, en MAYÚSCULAS) en vez de
-  una sola `kyc_status` (minúscula en `@movo/shared`). Para esta US se resolvió sin
-  tocar la migración ya aceptada: los roles por defecto (AC8) se insertan como los
-  literales de DB `'emisor'`/`'transportista'` directamente (ver comentario en
-  `auth.repository.ts`), y el `kycStatus` de la respuesta usa `KycStatus.NOT_STARTED`
-  de `@movo/shared` porque se sabe que ese es el default de `kyc_status_identity` al
-  crear — no hay lectura/mapeo dinámico todavía. Quien tome MOVO-87 (repositorio
-  completo) va a necesitar esta misma capa de mapeo para `findById`/`updateKycStatus`.
-- MOVO-87 (user-repository) y MOVO-85 (plugin `fastify.db` con `search_path`/
-  healthcheck/reconexión) seguían sin arrancar/completarse al tomar esta US — se
-  construyó únicamente lo mínimo que MOVO-70 necesita (`auth.repository.ts` con
-  `createUser`, usando nombres de tabla calificados `users.users`/`users.user_roles` en
-  vez de depender de `search_path`) para no bloquearse. Falta coordinar con quien
-  cierre MOVO-87 para no duplicar/pisar trabajo.
+- **Actualizado al integrar develop (MOVO-85/87/91 mergeados)**: la primera versión de
+  esta US traía un `auth.repository.ts` propio (con `createUser` ad-hoc e inserción de
+  roles por defecto como literales `'emisor'`/`'transportista'` de la DB), construido
+  porque MOVO-87 (user-repository completo) y MOVO-85 (plugin `fastify.db` con
+  `search_path`/healthcheck) no habían arrancado todavía. Al mergear develop ese archivo
+  se borró: `auth.service.ts` ahora usa `createUserRepository()` de
+  `src/repositories/user-repository.ts` (MOVO-87), pasando
+  `roles: [UserRole.SENDER, UserRole.CARRIER]` (`DEFAULT_USER_ROLES` en
+  `auth.service.ts`) en vez de literales de DB — el mapeo rol/KYC lo resuelve la capa de
+  `models/user.ts` (`roleToDb`/`kycStatusFromDb`). El `kycStatus` de la respuesta ahora
+  sale de `user.kycStatusIdentity` (leído de la fila recién persistida), no de un
+  `KycStatus.NOT_STARTED` hardcodeado. El error de duplicado que se atrapa es
+  `UserConflictError` (de `models/user.ts`), no el `DuplicateUserError` propio que existía
+  antes — mismo shape (`field: "email" | "phone"`). Ver **MOVO-91** más abajo: cuando esa
+  US alinee los enums de la DB a `@movo/shared`, esta capa de mapeo desaparece pero el
+  código de `auth.service.ts` no debería necesitar cambios (ya consume tipos de dominio,
+  no literales de DB).
 - `fullName` se separa en `first_name`/`last_name` (la migración no tiene un campo
   único) partiendo por el primer espacio; el schema exige al menos dos palabras.
 - Teléfono normalizado a E.164 argentino (`+549` + 10 dígitos) sin importar si el
@@ -289,10 +286,107 @@ Decisiones clave:
   (AJV) al formato único (`VALIDATION_FAILED`, 400) — antes no existía ningún
   `setErrorHandler` en este servicio.
 
-Pendiente / fuera de alcance de MOVO-70: no se pudo correr la suite de tests
-localmente en esta sesión (sin Postgres/Redis/Docker disponibles en el entorno, y
-además Node local 20.12.2 es incompatible con vitest 4.x/rolldown que requiere
-≥20.19) — sí se corrió `tsc --noEmit` y `eslint` sin errores. Falta correr
-`npm test` contra Postgres/Redis reales (local con Docker o en CI) antes de mergear.
-Unificar los enums de roles/KYC/estado de cuenta entre `@movo/shared` y el schema de
-DB queda como decisión de equipo, no resuelta acá.
+Pendiente / fuera de alcance de MOVO-70: correr `npm test` de `svc-users` completo tras
+el merge con develop (25/25 tests pasaban en la versión pre-merge con
+`auth.repository.ts` propio; falta reconfirmar con el `user-repository` de MOVO-87) antes
+de abrir el PR.
+
+### MOVO-85 — Plugin de conexión PostgreSQL en movo-svc-users (`fastify.db`)
+
+Implementado en `src/plugins/db.ts`: pool de `pg` decorado como `fastify.db`,
+`search_path` fijado al schema `users`, manejo de errores de pool sin tumbar el
+proceso, y `checkDbHealth()` para el futuro `GET /health` (MOVO-89).
+
+Decisiones clave:
+- `search_path` se fija vía el parámetro de conexión `options: "-c search_path=users,public"`
+  (aplicado por Postgres en el handshake), no con un `client.query("SET search_path...")`
+  en el evento `connect` del pool — esa alternativa generaba una carrera real entre esa
+  query y la primera query del caller sobre el mismo cliente (warning de deprecación de
+  `pg` por queries superpuestas). La vía por connection param es atómica y no la tiene.
+- `pool.on("error", ...)` solo loguea — `pg.Pool` reconecta solo en el próximo uso, no
+  hace falta lógica de retry manual.
+- `checkDbHealth()` replica el shape de `checkRedisHealth()` (MOVO-86) a propósito, para
+  que MOVO-89 pueda componer ambos con `Promise.all` sin adaptar nada.
+- Límites de pool explícitos (`max: 10`, `idleTimeoutMillis`, `connectionTimeoutMillis`)
+  agregados más allá de lo pedido por el AC, para no depender de los defaults de `pg` en
+  una EC2 sin autoscaling (ADR-006).
+- `checkDbHealth()` NO usa `Promise.race` con timeout manual: si Postgres cuelga en vez
+  de responder, esa técnica no cancela la query real — `pool.query` sigue viva y retiene
+  el cliente para siempre (con `max: 10`, pocos healthchecks colgados agotan el pool y
+  tumban el servicio para requests reales). Se corrigió vía `statement_timeout` +
+  `query_timeout` en la config del `Pool` (línea de `new Pool({...})`): Postgres cancela
+  la query server-side y `pg-pool` trata el timeout como error de cliente, evictando y
+  destruyendo el cliente colgado (`_release` → `_remove` → `client.end()`) en vez de
+  devolverlo al pool. Corregido a partir de comment de review en MOVO-85.
+
+Pendiente / fuera de alcance: el endpoint `GET /health` en sí (MOVO-89) y el
+`user-repository` completo sobre este plugin (MOVO-87) — ambos consumen `fastify.db` /
+`checkDbHealth()` sin necesitar cambios de este plugin.
+
+### MOVO-87 — `user-repository`: capa de acceso a datos de usuarios
+
+Implementado en `src/repositories/user-repository.ts` + `src/models/user.ts`:
+`findByEmail`/`findByPhone`/`findById` (case-insensitive en email), `create` (usuario +
+roles en una transacción), `updateKycStatusIdentity`/`updateKycStatusLicense`. Se
+consolidó ahí también el `count()` que vivía en el scaffold viejo de
+`modules/users/users.repository.ts` (borrado).
+
+Decisiones clave:
+- `updateKycStatus(id, status)` del AC se implementó como **dos** métodos
+  (`updateKycStatusIdentity`/`updateKycStatusLicense`) en vez de uno, porque la tabla
+  tiene dos columnas KYC — el de identidad es el que gobierna autorización general
+  (ADR-004), el de licencia es solo persistencia (no lógica de MOVO-15). Detalle en
+  comentario de MOVO-87 en Linear.
+- `create()` excede la firma literal del AC (`create(userData)`): también acepta
+  `roles` e inserta en `users.users` + `users.user_roles` en una sola transacción,
+  coordinado con MOVO-70 (Alena tenía un repo local propio para no bloquearse, ver
+  comentarios en MOVO-87).
+- El array de roles agregado con `array_agg(ur.role::text)` necesita el cast a `text`:
+  `pg` no conoce el OID de un enum custom de Postgres y sin el cast devuelve el array
+  como el string literal crudo (`"{...}"`), no un array de JS.
+- `vitest.config.ts` del servicio: se agregó `fileParallelism: false` (los tests de
+  integración pegan contra el mismo Postgres real con `TRUNCATE` en `beforeEach` — sin
+  esto, archivos de test corriendo en paralelo se pisan datos entre sí) y se amplió el
+  `include` de coverage a `src/repositories/**`/`src/models/**` (antes solo medía
+  `src/modules/**`, dejando afuera `session-repository.ts` de MOVO-88 y todo este
+  ticket).
+- **Mismatch de enums (rol/KYC) entre `@movo/shared` y la DB, resuelto y luego
+  revertido**: MOVO-87 lo resolvió originalmente con una capa de mapeo explícita
+  (`roleToDb`/`roleFromDb`/`kycStatusToDb`/`kycStatusFromDb` en `models/user.ts`). El
+  equipo decidió después alinear los enums de la DB a `@movo/shared` en vez de mantener
+  el mapeo — ver **MOVO-91** más abajo, que reemplaza esa capa.
+
+Correcciones a partir del review del PR #28 (MOVO-87):
+- **`InvalidEnumValueError`** (`models/user.ts`): `roleFromDb`/`kycStatusFromDb` tiraban
+  `Error` genérico, indistinguible de un fallo de conexión para el que lo atrapa. Un
+  valor de enum sin equivalente en `@movo/shared` es drift de schema (integridad), no
+  algo transitorio que convenga reintentar. `kycStatusFromDb` ahora recibe el nombre de
+  columna porque el mismo enum respalda `kyc_status_identity` y `kyc_status_license`.
+  `roleToDb` queda con `Error` genérico a propósito: ese caso es bug de código.
+- **`PublicUser` + `toPublicUser()`** (`models/user.ts`): `User` es interno e incluye
+  `passwordHash`; el DTO público lo excluye vía `Omit`. `toPublicUser` se construye
+  campo por campo y no con spread, para que agregar una propiedad a `User` rompa en
+  compilación y obligue a decidir si es pública, en vez de filtrarla por defecto.
+- **`create()` relee la fila persistida** antes del `COMMIT` (mismo `client`, ve sus
+  propias escrituras) en vez de derivar los roles de `input.roles`. Las columnas del
+  usuario ya venían de `RETURNING *`; el hueco eran solo los roles.
+- ⚠️ **Al rebasear MOVO-91 sobre esto**: el commit que elimina la capa de mapeo borra
+  las mismas funciones donde vive `InvalidEnumValueError`. Resolver el conflicto tomando
+  "la versión de 91" hace desaparecer el fix **sin que falle ningún test** (los casts de
+  91 no validan nada). Hay que reponerlo como `parseUserRole`/`parseKycStatus` que
+  validen contra `Object.values(...)` antes del cast en `mapRowToUser`, y actualizar los
+  literales de los tests de `toPublicUser` a los valores alineados (`sender`, `pending`).
+
+Pendiente / fuera de alcance: reputación, verificación real de licencia (MOVO-25,
+MOVO-15), endpoints de registro/login/KYC (MOVO-70 y siguientes).
+
+### MOVO-91 — Alinear enums de `users.users` con `@movo/shared`
+
+Revierte la capa de mapeo de MOVO-87: en vez de traducir entre el enum de Postgres
+(español/mayúscula) y `@movo/shared` (inglés/minúscula) en cada lectura/escritura, se
+alinea la DB a `@movo/shared` (que no se toca, sigue siendo la fuente de verdad) vía
+`ALTER TYPE ... RENAME VALUE` (preserva filas existentes, no requiere migrar datos).
+Ticket nuevo en vez de reabrir MOVO-84 (ya Done), para dejar trazado en la memoria del
+TFG por qué se tocó un schema ya cerrado.
+
+_(completar detalle de archivos/decisiones cuando se termine de implementar)_
