@@ -321,6 +321,53 @@ jobs:
           source: ".env"
           target: "~/movo"
 
+      - name: Copiar script y migraciones a la EC2 de dev
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: api-dev.movosend.app
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "scripts/run-migrations.sh,services/movo-svc-shipments/migrations,services/movo-svc-payments/migrations,services/movo-svc-admin/migrations"
+          target: "~/movo"
+
+      # Postgres no expone puerto público en la EC2 (ADR-010): se migra via
+      # docker exec dentro del propio contenedor, igual que hace
+      # scripts/run-migrations.sh cuando no encuentra psql en el host. Corre
+      # antes de levantar las imágenes nuevas de la app para que ningún
+      # contenedor arranque contra un schema desactualizado. El ledger
+      # schema_migrations evita reaplicar lo que ya corrió en un deploy
+      # anterior. movo-svc-users usa Prisma Migrate (ADR-011): la imagen ya
+      # trae la CLI + prisma/migrations (ver Dockerfile), por eso no entra en
+      # el for de run-migrations.sh -- se migra aparte con `prisma migrate
+      # deploy`, pero primero hay que traer la imagen nueva (docker compose
+      # pull), porque `docker compose run` no repushea una imagen ya presente
+      # localmente con el mismo tag.
+      - name: Aplicar migraciones de base de datos en dev
+        uses: appleboy/ssh-action@v1
+        with:
+          host: api-dev.movosend.app
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: GHCR_USER,GHCR_PAT
+          script: |
+            echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            cd ~/movo
+            set -a; source .env; set +a
+            chmod +x scripts/run-migrations.sh
+            docker compose up -d postgres
+            echo "Esperando a que Postgres esté listo..."
+            until docker exec "$(docker ps --filter name=postgres --format '{{.Names}}' | head -n1)" pg_isready -U "${POSTGRES_USER:-movo}" > /dev/null 2>&1; do
+              sleep 2
+            done
+            for svc in services/movo-svc-shipments services/movo-svc-payments services/movo-svc-admin; do
+              ./scripts/run-migrations.sh "$svc"
+            done
+            docker compose pull movo-svc-users
+            docker compose run --rm -T movo-svc-users npx prisma migrate deploy
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+
       - name: Pull de imágenes nuevas y restart de contenedores
         uses: appleboy/ssh-action@v1
         with:

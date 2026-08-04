@@ -542,14 +542,33 @@ Implementado:
   ... npx prisma migrate deploy` aplica las 2 migraciones contra Postgres real, una
   segunda corrida es no-op, y la app sigue arrancando y sirviendo `/health` normal.
 
-Pendiente / fuera de alcance de MOVO-93: el hotfix que automatiza migraciones en el
-deploy (`ci-dev.yml`/`ci-prod.yml`, rama `hotfix/run-db-migrations-on-deploy` contra
-`main`) todavía no sabe de Prisma — se armó cuando `main` no tenía esta rama mergeada,
-así que su loop llama a `run-migrations.sh` para los 4 servicios por igual. Cuando esta
-rama llegue a `main` (vía `develop`), hay que cambiar el caso de `movo-svc-users` en
-ese loop para que use `docker compose run --rm movo-svc-users npx prisma migrate
-deploy` en vez de `run-migrations.sh services/movo-svc-users` — si no, el script va a
-encontrar que `services/movo-svc-users/migrations/` ya no existe (se borró en esta
-rama) y va a saltear la migración en silencio, sin avisar. `svc-shipments`/
-`svc-payments`/`svc-admin` quedan fuera de este alcance, siguen con
-`run-migrations.sh` sin cambios.
+Pendiente / fuera de alcance de MOVO-93 (ver corrección más abajo): el commit
+`992fd60` de esta rama ("ci: correr prisma migrate deploy para movo-svc-users en los
+workflows") agregó el step de migraciones Prisma dentro del job de tests
+(`node-services`, contra el Postgres efímero del CI) pero de paso **borró por
+completo** el bloque `Aplicar migraciones de base de datos en dev/prod` de
+`deploy-dev`/`deploy-prod` — el que agregó el hotfix
+`hotfix/run-db-migrations-on-deploy` contra `main` y corre migraciones reales contra
+la EC2 por SSH. No fue un ajuste del loop, fue una eliminación del step entero: esta
+rama se creó antes de que ese hotfix llegara a `main`, así que en el `develop` de
+origen ese bloque todavía no existía como para "ajustarlo" — el TODO que dejó el
+hotfix avisando este punto de integración quedó, sin querer, resuelto de la forma
+más rota posible (ningún servicio migra contra la EC2 real en deploy, ni con
+Prisma ni con SQL).
+
+### Fix — Reponer migraciones de deploy tras la integración con MOVO-93
+
+Detectado antes de promover `develop` a `main` (habría sido una regresión
+silenciosa: CI en verde, deploy en verde, pero ningún contenedor con schema al
+día). Repuesto en `ci-dev.yml`/`ci-prod.yml` el step `Aplicar migraciones de base de
+datos en dev/prod` que había desaparecido, con el mismo mecanismo SSH/`docker exec`
+de siempre para `svc-shipments`/`svc-payments`/`svc-admin`, y `movo-svc-users`
+separado con `docker compose run --rm -T movo-svc-users npx prisma migrate deploy`
+(la imagen ya trae la CLI de Prisma + `prisma/migrations`, ver comentario en el
+Dockerfile del servicio) tal como indicaba el TODO original.
+
+Decisión clave: antes del `prisma migrate deploy` se agrega
+`docker compose pull movo-svc-users` explícito — `docker compose run` no repullea
+una imagen que ya existe localmente con el mismo tag (`policy: missing`), y en este
+punto del workflow el pull general recién pasa en el step siguiente. Sin este pull
+explícito, el deploy migraría con el schema de la imagen vieja.
