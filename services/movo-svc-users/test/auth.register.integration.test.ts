@@ -26,7 +26,7 @@ describe("POST /auth/register", () => {
   beforeEach(async () => {
     // Aísla cada test: sin esto, el orden de ejecución hace que los tests fallen
     // de forma intermitente cuando comparten filas insertadas por otros tests.
-    await app.db.query("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
   });
 
   it("da de alta un usuario exitosamente, persiste roles por defecto y no devuelve tokens ni password", async () => {
@@ -37,24 +37,27 @@ describe("POST /auth/register", () => {
     expect(body).toEqual({ userId: expect.any(String), kycStatus: "not_started" });
     expect(response.body).not.toContain(validPayload.password);
 
-    const userRow = await app.db.query(
-      `SELECT email, phone, first_name, last_name, password_hash, kyc_status_identity, is_banned, phone_verified
-       FROM users.users WHERE id = $1`,
-      [body.userId]
-    );
-    expect(userRow.rows[0]).toMatchObject({
+    const userRow = await app.db.user.findUnique({ where: { id: body.userId } });
+    expect(userRow).toMatchObject({
       email: "juan.perez@example.com",
       phone: "+5493511234567",
-      first_name: "Juan",
-      last_name: "Perez",
-      kyc_status_identity: "NOT_STARTED",
-      is_banned: false,
-      phone_verified: false,
+      firstName: "Juan",
+      lastName: "Perez",
+      // MOVO-91 alineó este enum a los valores (minúscula) de @movo/shared.
+      kycStatusIdentity: "not_started",
+      isBanned: false,
+      phoneVerified: false,
     });
-    expect(userRow.rows[0].password_hash).not.toBe(validPayload.password);
+    expect(userRow?.passwordHash).not.toBe(validPayload.password);
 
-    const roles = await app.db.query("SELECT role FROM users.user_roles WHERE user_id = $1 ORDER BY role", [body.userId]);
-    expect(roles.rows.map((r: { role: string }) => r.role)).toEqual(["emisor", "transportista"]);
+    const roles = await app.db.userRoleGrant.findMany({
+      where: { userId: body.userId },
+      orderBy: { role: "asc" },
+    });
+    // MOVO-91: roles pasan a los literales de @movo/shared (UserRole.SENDER/CARRIER).
+    // El ORDER BY de un enum de Postgres sigue el orden ordinal de declaración del
+    // tipo ('sender','carrier','admin'), no el alfabético.
+    expect(roles.map((r) => r.role)).toEqual(["sender", "carrier"]);
   });
 
   it("normaliza el email a minúsculas antes de persistir y de comparar (AC5)", async () => {
@@ -137,7 +140,7 @@ describe("POST /auth/register", () => {
     const variants = ["3511234567", "93511234567", "+543511234567", "+5493511234567"];
 
     for (const [index, phone] of variants.entries()) {
-      await app.db.query("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
+      await app.db.$executeRawUnsafe("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
       const response = await app.inject({
         method: "POST",
         url: "/auth/register",
@@ -146,8 +149,8 @@ describe("POST /auth/register", () => {
 
       expect(response.statusCode).toBe(201);
       const { userId } = JSON.parse(response.body) as { userId: string };
-      const row = await app.db.query("SELECT phone FROM users.users WHERE id = $1", [userId]);
-      expect(row.rows[0].phone).toBe("+5493511234567");
+      const row = await app.db.user.findUnique({ where: { id: userId } });
+      expect(row?.phone).toBe("+5493511234567");
     }
   });
 

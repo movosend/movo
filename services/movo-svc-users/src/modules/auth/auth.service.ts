@@ -1,5 +1,5 @@
-import { Pool } from "pg";
 import { hash } from "@node-rs/argon2";
+import { PrismaClient } from "../../generated/prisma/client";
 import { ApiError, KycStatus, UserRole } from "@movo/shared";
 import { createUserRepository } from "../../repositories/user-repository";
 import { UserConflictError } from "../../models/user";
@@ -55,7 +55,7 @@ export function normalizePhoneToE164Ar(rawPhone: string): string {
   return `+549${digits}`;
 }
 
-export function createAuthService(db: Pool) {
+export function createAuthService(db: PrismaClient) {
   const repository = createUserRepository(db);
 
   return {

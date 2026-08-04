@@ -97,6 +97,7 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 | 008 | Google Maps Distance Matrix API para la matriz de costos del VRPTW | Costo por llamada (N²) y dependencia de red en el camino crítico |
 | 009 | Terraform (AWS + Cloudflare) reemplaza aprovisionamiento manual | Curva de aprendizaje de HCL/state management |
 | 010 | Gateway: servicios internos confían en `x-user-*` sin revalidar (se apoya en que solo el gateway expone puerto público) | Si un atacante llega a la red interna, el modelo de confianza cae — perimetral, no zero-trust |
+| 011 | Prisma como ORM estándar para todos los servicios Node de MOVO (primera implementación en `movo-svc-users`, los demás lo adoptan al tener dominio real) | Curva de aprendizaje del equipo; requiere driver adapter (`@prisma/adapter-pg`, Prisma 7) y baselinear las 2 migraciones SQL ya aplicadas como histórico |
 
 ## Convenciones de código
 
@@ -460,3 +461,95 @@ Decisiones clave:
 
 Pendiente / fuera de alcance: el gateway no rutea el `/health` de los servicios (se
 consulta desde dentro de la red Docker), su propio `/health` sigue siendo un stub.
+
+### MOVO-93 — Adoptar Prisma como ORM en `movo-svc-users`
+
+ADR-011: Prisma pasa a ser el ORM estándar para **todos** los servicios Node de
+MOVO, no una decisión puntual de este servicio. `movo-svc-users` es la primera
+implementación porque es el único con dominio real hoy — `svc-shipments`/
+`svc-payments`/`svc-admin` siguen siendo placeholders (`SELECT 1`, sin schema real) y
+por eso siguen con `run-migrations.sh` por ahora; adoptan Prisma desde el arranque
+cuando empiecen a modelar su dominio, en vez de escribir SQL a mano y migrar después.
+
+Implementado:
+- `prisma/schema.prisma`: modela a mano (no `db pull`) las 2 migraciones SQL ya
+  aplicadas — `datasource` con `schemas = ["users"]` (multi-schema, GA desde 5.15, sin
+  `previewFeatures`), modelos `User`/`UserRoleGrant` con `@map`/`@@map` a las columnas y
+  tablas snake_case existentes, enums `UserRole`/`KycStatus` mapeados a
+  `user_role_enum`/`kyc_status_enum`. `generator client` usa `moduleFormat = "cjs"` — el
+  resto del servicio sigue siendo CommonJS, no se fuerza la conversión a ESM que Prisma 7
+  trae por default.
+- **Prisma 7 requiere driver adapter para providers SQL** (`@prisma/adapter-pg`, sobre
+  `pg`) — `new PrismaClient()` sin adapter no compila. `src/plugins/db.ts` instancia
+  `PrismaPg` con los mismos timeouts que tenía el `Pool` de MOVO-85
+  (`statement_timeout`/`query_timeout`/`connectionTimeoutMillis`) y decora `app.db` con
+  el `PrismaClient` resultante. Se cae el `search_path=users,public` que fijaba MOVO-85:
+  con `schemas = ["users"]`, Prisma genera SQL con el schema ya calificado
+  (`"users"."users"`), no depende de search_path.
+- Las 2 migraciones SQL existentes (`20260728160000_create_users_schema`,
+  `20260731200000_align_user_enums_with_shared` de MOVO-91) se copiaron tal cual a
+  `prisma/migrations/<mismo-nombre>/migration.sql` y se marcaron como aplicadas con
+  `prisma migrate resolve --applied` — no se re-ejecutan, Prisma solo las trata como
+  historial. Migraciones nuevas de acá en adelante se crean con
+  `prisma migrate dev`/`migrate deploy` (`npm run migrate`/`migrate:dev`), no a mano.
+- `user-repository.ts` reescrito con `PrismaClient`: `create()` pasa a un nested write
+  (`user.create({ data: { ..., roles: { create: [...] } } })`), atómico por diseño de
+  Prisma, reemplaza el `BEGIN`/`COMMIT` manual. `findByEmail` usa el filtro
+  `mode: "insensitive"` de Prisma en vez de `LOWER(email) = LOWER($1)` a mano — el índice
+  funcional `users_email_lower_idx` de la migración original sigue en la DB pero no tiene
+  representación en `schema.prisma` (Prisma no modela expression indexes).
+- **Hallazgo empírico, no documentado así en la guía de Prisma**: con el driver adapter
+  de Prisma 7, un conflicto de unicidad (`P2002`) no expone los campos en
+  `error.meta.target` como en versiones anteriores — vienen anidados en
+  `error.meta.driverAdapterError.cause.constraint.fields`. Verificado corriendo un script
+  ad-hoc contra Postgres real antes de confiar en la forma del error (Prisma 7.9.1). Está
+  documentado como comentario en `user-repository.ts#uniqueConstraintFields` por si una
+  futura versión de Prisma cambia el shape.
+- `update()` de Prisma tira `P2025` si el id no existe, en vez de devolver 0 filas como el
+  `UPDATE ... RETURNING *` original — `updateKycStatusIdentity`/`updateKycStatusLicense`
+  atrapan `P2025` y devuelven `null`, preservando el contrato previo.
+- Tests de integración migrados de `app.db.query(...)` (API de `pg`) a la API tipada de
+  Prisma o `$queryRaw`/`$executeRawUnsafe` cuando hace falta SQL crudo:
+  `user-repository.integration.test.ts`, `auth.register.integration.test.ts`,
+  `db.plugin.test.ts`, `users.count.integration.test.ts`. El test de `db.plugin.test.ts`
+  que verificaba `search_path` se reemplazó por uno que prueba que una query contra el
+  schema `users` resuelve bien sin depender de él (ver arriba).
+- **Bug preexistente en `develop` encontrado de paso, no introducido por esta US**:
+  `auth.register.integration.test.ts` (MOVO-70) todavía esperaba los literales de enum
+  pre-MOVO-91 (`"NOT_STARTED"`, `"emisor"/"transportista"`) — el último push a `develop`
+  (merge de MOVO-91) quedó en CI rojo por esto. Se corrigió en el mismo commit al migrar
+  ese test a Prisma.
+- CI: `pr-checks.yml`/`ci-dev.yml`/`ci-prod.yml` — el step "Run migrations" se separó en
+  dos, condicionados por `matrix.service.name`: `npx prisma migrate deploy` para
+  `movo-svc-users`, `run-migrations.sh` sin cambios para los demás.
+- `package.json`: `postinstall: prisma generate` (se regenera el cliente en cada
+  `npm ci`/`install`, no se commitea `src/generated/prisma/` — gitignored). `prisma`
+  como **dependency, no devDependency**: la CLI viaja en la imagen de producción a
+  propósito (ver Dockerfile abajo).
+- **Dockerfile**: el stage de runtime copia también `prisma.config.ts` y `prisma/`
+  (schema + migraciones), y ya no usa `--omit=dev` para excluir `prisma` (ahora es
+  dependency). Motivo: Postgres no expone puerto público en la EC2 (ADR-010), así que
+  no hay forma de correr `prisma migrate deploy` desde afuera del contenedor — el
+  deploy tiene que invocarlo *dentro* de la imagen ya pulleada, con
+  `docker compose run --rm movo-svc-users npx prisma migrate deploy`, sin instalar
+  nada nuevo en la EC2 ni depender de red hacia el registry de npm desde prod. Los dos
+  `npm ci` del Dockerfile siguen con `--ignore-scripts`: en ninguno de los dos stages
+  está copiado `prisma/schema.prisma` en el momento en que corre `npm ci` (se copia
+  package.json solo, para cachear la capa de deps aparte del código fuente); el
+  builder corre `prisma generate` explícito ya con el código fuente copiado, el
+  runtime no lo necesita (usa el cliente ya compilado en `dist/`).
+- Verificado con la imagen ya buildeada (no en una imagen de desarrollo): `docker run
+  ... npx prisma migrate deploy` aplica las 2 migraciones contra Postgres real, una
+  segunda corrida es no-op, y la app sigue arrancando y sirviendo `/health` normal.
+
+Pendiente / fuera de alcance de MOVO-93: el hotfix que automatiza migraciones en el
+deploy (`ci-dev.yml`/`ci-prod.yml`, rama `hotfix/run-db-migrations-on-deploy` contra
+`main`) todavía no sabe de Prisma — se armó cuando `main` no tenía esta rama mergeada,
+así que su loop llama a `run-migrations.sh` para los 4 servicios por igual. Cuando esta
+rama llegue a `main` (vía `develop`), hay que cambiar el caso de `movo-svc-users` en
+ese loop para que use `docker compose run --rm movo-svc-users npx prisma migrate
+deploy` en vez de `run-migrations.sh services/movo-svc-users` — si no, el script va a
+encontrar que `services/movo-svc-users/migrations/` ya no existe (se borró en esta
+rama) y va a saltear la migración en silencio, sin avisar. `svc-shipments`/
+`svc-payments`/`svc-admin` quedan fuera de este alcance, siguen con
+`run-migrations.sh` sin cambios.

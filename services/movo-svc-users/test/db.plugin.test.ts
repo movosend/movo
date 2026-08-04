@@ -19,9 +19,10 @@ describe("Db Plugin (movo-svc-users)", () => {
       await app.close();
     });
 
-    it("decora la instancia de Fastify con el pool y método checkDbHealth", () => {
+    it("decora la instancia de Fastify con el PrismaClient y método checkDbHealth", () => {
       expect(app.db).toBeDefined();
-      expect(typeof app.db.query).toBe("function");
+      expect(typeof app.db.$queryRaw).toBe("function");
+      expect(typeof app.db.user.findMany).toBe("function");
       expect(typeof app.checkDbHealth).toBe("function");
     });
 
@@ -30,9 +31,12 @@ describe("Db Plugin (movo-svc-users)", () => {
       expect(health).toEqual({ status: "ok" });
     });
 
-    it("fija el search_path al schema users en cada conexión", async () => {
-      const result = await app.db.query("SHOW search_path");
-      expect(result.rows[0].search_path).toContain("users");
+    it("resuelve queries contra el schema users sin depender de search_path (multi-schema de Prisma)", async () => {
+      // A diferencia del Pool de `pg` (que fijaba `search_path=users,public` como
+      // opción de conexión), Prisma con `schemas = ["users"]` genera SQL con el
+      // schema calificado (`"users"."users"`) en cada query -- no depende del
+      // search_path de la sesión. Que esto no tire error ya prueba que resuelve bien.
+      await expect(app.db.user.count()).resolves.toEqual(expect.any(Number));
     });
   });
 

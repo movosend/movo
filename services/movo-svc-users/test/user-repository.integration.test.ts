@@ -31,7 +31,7 @@ describe("user-repository (Postgres)", () => {
   });
 
   beforeEach(async () => {
-    await app.db.query("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
   });
 
   describe("create", () => {
@@ -43,8 +43,8 @@ describe("user-repository (Postgres)", () => {
       expect(user.roles.sort()).toEqual([UserRole.CARRIER, UserRole.SENDER].sort());
       expect(user.kycStatusIdentity).toBe(KycStatus.NOT_STARTED);
 
-      const rolesInDb = await app.db.query("SELECT role FROM users.user_roles WHERE user_id = $1", [user.id]);
-      expect(rolesInDb.rows.map((r) => r.role).sort()).toEqual(["carrier", "sender"]);
+      const rolesInDb = await app.db.userRoleGrant.findMany({ where: { userId: user.id } });
+      expect(rolesInDb.map((r) => r.role).sort()).toEqual(["carrier", "sender"]);
     });
 
     it("devuelve el estado persistido y no los roles derivados del input", async () => {
@@ -78,8 +78,8 @@ describe("user-repository (Postgres)", () => {
         repo.create({ ...baseInput, roles: ["not-a-role" as UserRole] })
       ).rejects.toThrow();
 
-      const count = await app.db.query("SELECT COUNT(*)::int AS count FROM users.users");
-      expect(count.rows[0].count).toBe(0);
+      const count = await app.db.user.count();
+      expect(count).toBe(0);
     });
   });
 

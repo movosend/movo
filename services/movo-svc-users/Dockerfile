@@ -12,12 +12,21 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY shared/movo-shared/package.json shared/movo-shared/package.json
 COPY services/movo-svc-users/package.json services/movo-svc-users/package.json
-RUN npm ci
+# --ignore-scripts: el postinstall (`prisma generate`) necesita prisma/schema.prisma,
+# que todavía no existe en esta capa (solo se copiaron los package.json, para que la
+# capa de deps quede cacheada aparte del código fuente). Se corre explícito más abajo,
+# ya con el código fuente copiado.
+RUN npm ci --ignore-scripts
 
 COPY shared/movo-shared shared/movo-shared
 COPY services/movo-svc-users services/movo-svc-users
 
 RUN npm run build --workspace=shared/movo-shared
+
+WORKDIR /app/services/movo-svc-users
+RUN npx prisma generate
+
+WORKDIR /app
 RUN npm run build --workspace=services/movo-svc-users
 
 # --- Stage 2: runtime ---
@@ -29,10 +38,18 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 COPY shared/movo-shared/package.json shared/movo-shared/package.json
 COPY services/movo-svc-users/package.json services/movo-svc-users/package.json
-RUN npm ci --omit=dev
+# --ignore-scripts: mismo motivo que en el stage de build -- acá tampoco está
+# prisma/schema.prisma en este punto. `prisma` es dependency (no devDependency)
+# a propósito: la CLI viaja en la imagen de producción para poder correr
+# `docker compose run --rm movo-svc-users npx prisma migrate deploy` contra la
+# EC2 real en el deploy (Postgres no expone puerto público, ADR-010 -- no hay
+# forma de correr `prisma migrate deploy` desde afuera del contenedor).
+RUN npm ci --omit=dev --ignore-scripts
 
 COPY --from=builder /app/shared/movo-shared/dist ./shared/movo-shared/dist
 COPY --from=builder /app/services/movo-svc-users/dist ./services/movo-svc-users/dist
+COPY services/movo-svc-users/prisma.config.ts services/movo-svc-users/prisma.config.ts
+COPY services/movo-svc-users/prisma services/movo-svc-users/prisma
 
 WORKDIR /app/services/movo-svc-users
 
