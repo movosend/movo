@@ -462,6 +462,42 @@ Decisiones clave:
 Pendiente / fuera de alcance: el gateway no rutea el `/health` de los servicios (se
 consulta desde dentro de la red Docker), su propio `/health` sigue siendo un stub.
 
+### Hotfix — Migraciones de DB automáticas en deploy (`ci-dev.yml` / `ci-prod.yml`)
+
+Los deploys a dev/prod nunca corrían los `.sql` de `services/*/migrations/` contra la
+base real de la EC2 — `scripts/run-migrations.sh` solo se usaba en el job de tests,
+contra el Postgres efímero del CI. Se agregaron dos steps nuevos a `deploy-dev` y
+`deploy-prod` (antes del step que pushea las imágenes nuevas, para que ningún
+contenedor arranque contra un schema desactualizado): copian el script + las carpetas
+`migrations/` de cada servicio a la EC2, y por SSH levantan Postgres, esperan a que
+esté listo (`pg_isready` vía `docker exec`) y corren las migraciones de `svc-users`,
+`svc-shipments`, `svc-payments` y `svc-admin` en ese orden.
+
+Decisiones clave:
+- Como Postgres no expone puerto público en la EC2 (ADR-010), la migración se aplica
+  vía `docker exec` dentro del propio contenedor — mismo fallback que ya tenía
+  `run-migrations.sh` para cuando no hay `psql` en el host, ahora es el camino
+  principal en producción/dev, no un fallback incidental.
+- **`scripts/run-migrations.sh` ahora lleva registro de lo aplicado** en una tabla
+  `public.schema_migrations` (compartida entre servicios, una sola instancia de
+  Postgres — ADR-003), con `(service, filename)` como clave. Antes, el script
+  reaplicaba todos los `.sql` de la carpeta en cada corrida — funcionaba de pura
+  suerte porque la única migración real hasta ahora está escrita con guards
+  `IF NOT EXISTS`. Corriendo automáticamente en cada deploy contra una base
+  persistente, eso ya no alcanza: una migración futura no-idempotente (un
+  `ALTER TABLE ADD COLUMN` con backfill, un `INSERT`) rompería el segundo deploy.
+  Cada migración se aplica junto con su `INSERT` al ledger en la misma transacción
+  (`BEGIN`/`COMMIT`), así una falla a mitad de camino no la deja marcada como
+  aplicada sin estarlo.
+- Verificado localmente contra Postgres real: primera corrida aplica y registra,
+  segunda corrida saltea todo sin tocar la DB.
+
+Este hotfix se armó y mergeó directo a `main` (rama `hotfix/run-db-migrations-on-deploy`)
+mientras `develop` tenía en curso la adopción de Prisma (MOVO-93, más abajo) — de ahí
+que el step haya tenido que rehacerse desde cero en `develop` al promoverlo (ver
+**Fix — Reponer migraciones de deploy** más abajo, que documenta esa reconstrucción y
+dos bugs nuevos que aparecieron recién al correr contra la EC2 real).
+
 ### MOVO-93 — Adoptar Prisma como ORM en `movo-svc-users`
 
 ADR-011: Prisma pasa a ser el ORM estándar para **todos** los servicios Node de
@@ -606,5 +642,9 @@ literal (`syntax error near unexpected token`), silencioso hasta ahora porque el
 único valor que se leía de ahí (`POSTGRES_USER`) tenía default `movo` que
 coincidía por casualidad.
 
-Pendiente: correr el `workflow_dispatch` de `ci-dev.yml` para confirmar el deploy
-completo antes de promover `develop` a `main`.
+Pendiente: confirmado — `workflow_dispatch` de `ci-dev.yml` corrió entero contra la
+EC2 de dev (deploy + migraciones + baseline de Prisma) antes de promover `develop` a
+`main`. Falta repetir el baseline manual de Prisma (`prisma migrate resolve
+--applied` para las 2 migraciones históricas) contra `api.movosend.app` la primera
+vez que `ci-prod.yml` corra este step — va a fallar con el mismo P3005 hasta hacerlo,
+por la misma razón: prod tampoco tiene `_prisma_migrations` todavía.
