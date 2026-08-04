@@ -147,8 +147,19 @@ jobs:
         working-directory: ${{ matrix.service.path }}
         run: npx tsc --noEmit
 
-      - name: Run migrations
-        if: matrix.service.changed == 'true' && matrix.service.name != 'gateway'
+      # movo-svc-users usa Prisma Migrate (prisma migrate deploy, con tracking
+      # propio en _prisma_migrations) -- los demás servicios siguen con el
+      # runner de SQL a mano hasta que tengan dominio real (ver ADR-011).
+      - name: Run migrations (Prisma)
+        if: matrix.service.changed == 'true' && matrix.service.name == 'movo-svc-users'
+        working-directory: ${{ matrix.service.path }}
+        run: npx prisma migrate deploy
+
+      - name: Run migrations (SQL)
+        if: |
+          matrix.service.changed == 'true' &&
+          matrix.service.name != 'gateway' &&
+          matrix.service.name != 'movo-svc-users'
         run: |
           sudo apt-get update && sudo apt-get install -y postgresql-client
           ./scripts/run-migrations.sh ${{ matrix.service.path }}
@@ -252,6 +263,34 @@ jobs:
             | jq -r 'to_entries[] | "\(.key)=\(.value)"' > .env
           echo "IMAGE_TAG=${{ env.IMAGE_TAG }}" >> .env
 
+          # La password de DATABASE_URL sale de Secrets Manager sin percent-encodear.
+          # node-postgres (pg, usado por svc-shipments/payments/admin) tolera
+          # caracteres reservados de RFC 3986 sin escapar en el connection string,
+          # pero el parser de Prisma (movo-svc-users, `prisma migrate deploy`) no --
+          # falla con "P1013: invalid port number" si la password trae '/', '#', '%',
+          # etc. sin encodear. Se reescribe DATABASE_URL con user/password
+          # percent-encodeados; pg también soporta la forma encodeada, así que es
+          # seguro para el resto de los servicios.
+          db_url="$(grep '^DATABASE_URL=' .env | cut -d= -f2-)"
+          if [[ "$db_url" =~ ^(postgres(ql)?://)([^:@/]+):([^@]+)@(.+)$ ]]; then
+            scheme="${BASH_REMATCH[1]}"
+            user="${BASH_REMATCH[3]}"
+            pass="${BASH_REMATCH[4]}"
+            rest="${BASH_REMATCH[5]}"
+            enc_user="$(python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=''))" "$user")"
+            enc_pass="$(python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=''))" "$pass")"
+            new_url="${scheme}${enc_user}:${enc_pass}@${rest}"
+            tmp="$(mktemp)"
+            grep -v '^DATABASE_URL=' .env > "$tmp"
+            echo "DATABASE_URL=${new_url}" >> "$tmp"
+            # mktemp crea el archivo con permisos 600 -- el mv pisa los 644
+            # que tenía .env, y el contenedor de appleboy/scp-action no puede
+            # leerlo para armar el tar ("tar: can't open '.env': Permission
+            # denied").
+            chmod 644 "$tmp"
+            mv "$tmp" .env
+          fi
+
       # Docker crea los directorios de los bind mounts (ver docker-compose.yml)
       # como root si no existen todavía, lo que rompe el scp/tar de los pasos
       # siguientes (corren como el usuario ssh, no root).
@@ -300,43 +339,52 @@ jobs:
           host: api.movosend.app
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: "scripts/run-migrations.sh,services/movo-svc-users/migrations,services/movo-svc-shipments/migrations,services/movo-svc-payments/migrations,services/movo-svc-admin/migrations"
+          source: "scripts/run-migrations.sh,services/movo-svc-shipments/migrations,services/movo-svc-payments/migrations,services/movo-svc-admin/migrations"
           target: "~/movo"
 
-      # Postgres no expone puerto público en la EC2 (ADR-010): se migra
-      # via docker exec dentro del propio contenedor, igual que hace
-      # scripts/run-migrations.sh cuando no encuentra psql en el host.
-      # Corre antes de levantar las imágenes nuevas de la app para que
-      # ningún contenedor arranque contra un schema desactualizado. El
-      # ledger schema_migrations evita reaplicar lo que ya corrió en un
-      # deploy anterior.
+      # Postgres no expone puerto público en la EC2 (ADR-010): se migra via
+      # docker exec dentro del propio contenedor, igual que hace
+      # scripts/run-migrations.sh cuando no encuentra psql en el host. Corre
+      # antes de levantar las imágenes nuevas de la app para que ningún
+      # contenedor arranque contra un schema desactualizado. El ledger
+      # schema_migrations evita reaplicar lo que ya corrió en un deploy
+      # anterior. movo-svc-users usa Prisma Migrate (ADR-011): la imagen ya
+      # trae la CLI + prisma/migrations (ver Dockerfile), por eso no entra en
+      # el for de run-migrations.sh -- se migra aparte con `prisma migrate
+      # deploy`, pero primero hay que traer la imagen nueva (docker compose
+      # pull), porque `docker compose run` no repushea una imagen ya presente
+      # localmente con el mismo tag.
       - name: Aplicar migraciones de base de datos en prod
         uses: appleboy/ssh-action@v1
         with:
           host: api.movosend.app
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: GHCR_USER,GHCR_PAT
           script: |
+            echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             cd ~/movo
-            set -a; source .env; set +a
+            set -a
+            while IFS='=' read -r key value; do
+              [ -z "$key" ] && continue
+              case "$key" in \#*) continue ;; esac
+              export "$key=$value"
+            done < .env
+            set +a
             chmod +x scripts/run-migrations.sh
             docker compose up -d postgres
             echo "Esperando a que Postgres esté listo..."
             until docker exec "$(docker ps --filter name=postgres --format '{{.Names}}' | head -n1)" pg_isready -U "${POSTGRES_USER:-movo}" > /dev/null 2>&1; do
               sleep 2
             done
-            # TODO(MOVO-93): movo-svc-users pasa a usar Prisma (rama
-            # feature/movo-93-adoptar-prisma-en-svc-users, ADR-011). Cuando esa rama
-            # llegue a main, reemplazar la línea de abajo por:
-            #   docker compose run --rm movo-svc-users npx prisma migrate deploy
-            # (la imagen ya trae la CLI de prisma + schema/migraciones, ver Dockerfile
-            # de movo-svc-users) y sacar "services/movo-svc-users" de este for. Si no
-            # se cambia, run-migrations.sh va a encontrar que
-            # services/movo-svc-users/migrations/ ya no existe (se borra en esa rama)
-            # y va a saltear la migración en silencio.
-            for svc in services/movo-svc-users services/movo-svc-shipments services/movo-svc-payments services/movo-svc-admin; do
+            for svc in services/movo-svc-shipments services/movo-svc-payments services/movo-svc-admin; do
               ./scripts/run-migrations.sh "$svc"
             done
+            docker compose pull movo-svc-users
+            docker compose run --rm -T movo-svc-users npx prisma migrate deploy
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
 
       - name: Pull de imágenes nuevas y restart de contenedores
         uses: appleboy/ssh-action@v1
