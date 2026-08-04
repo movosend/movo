@@ -39,14 +39,17 @@ COPY package.json package-lock.json ./
 COPY shared/movo-shared/package.json shared/movo-shared/package.json
 COPY services/movo-svc-users/package.json services/movo-svc-users/package.json
 # --ignore-scripts: mismo motivo que en el stage de build -- acá tampoco está
-# prisma/schema.prisma, y de todas formas no hace falta: el cliente generado ya
-# viene compilado en dist/ (copiado del builder más abajo). Sin este flag,
-# `prisma` (devDependency, omitida por --omit=dev) no estaría ni instalada para
-# que el postinstall pueda correr.
+# prisma/schema.prisma en este punto. `prisma` es dependency (no devDependency)
+# a propósito: la CLI viaja en la imagen de producción para poder correr
+# `docker compose run --rm movo-svc-users npx prisma migrate deploy` contra la
+# EC2 real en el deploy (Postgres no expone puerto público, ADR-010 -- no hay
+# forma de correr `prisma migrate deploy` desde afuera del contenedor).
 RUN npm ci --omit=dev --ignore-scripts
 
 COPY --from=builder /app/shared/movo-shared/dist ./shared/movo-shared/dist
 COPY --from=builder /app/services/movo-svc-users/dist ./services/movo-svc-users/dist
+COPY services/movo-svc-users/prisma.config.ts services/movo-svc-users/prisma.config.ts
+COPY services/movo-svc-users/prisma services/movo-svc-users/prisma
 
 WORKDIR /app/services/movo-svc-users
 
