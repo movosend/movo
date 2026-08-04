@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { UserRole, KycStatus } from "@movo/shared";
+import { UserRole, KycStatus, AccountStatus } from "@movo/shared";
 import {
   mapRowToUser,
   toPublicUser,
   parseUserRole,
   parseKycStatus,
+  parseAccountStatus,
   InvalidEnumValueError,
   UserRow,
 } from "../src/models/user";
@@ -20,11 +21,10 @@ const baseRow: UserRow = {
   phone_verified: false,
   photo_url: null,
   kyc_status_identity: "pending",
-  last_kyc_verification_identity_id: null,
   kyc_status_license: "not_started",
-  last_kyc_verification_license_id: null,
-  is_banned: false,
+  status: "active",
   banned_until: null,
+  birthdate: null,
   created_at: new Date("2026-07-28T00:00:00Z"),
   updated_at: new Date("2026-07-28T00:00:00Z"),
 };
@@ -38,9 +38,6 @@ describe("parseUserRole", () => {
     expect(parseUserRole(dbValue)).toBe(role);
   });
 
-  // Postgres garantiza que la columna esté dentro de su propio enum, pero no
-  // que ese enum siga alineado con @movo/shared: un ALTER TYPE ... ADD VALUE
-  // sin actualizar el dominio entra por acá.
   it("lanza InvalidEnumValueError ante un rol que no existe en @movo/shared", () => {
     expect(() => parseUserRole("moderator")).toThrow(InvalidEnumValueError);
   });
@@ -89,14 +86,30 @@ describe("parseKycStatus", () => {
   });
 });
 
+describe("parseAccountStatus", () => {
+  it.each([
+    ["active", AccountStatus.ACTIVE],
+    ["banned", AccountStatus.BANNED],
+    ["deleted", AccountStatus.DELETED],
+  ])("acepta el literal alineado '%s'", (dbValue, status) => {
+    expect(parseAccountStatus(dbValue)).toBe(status);
+  });
+
+  it("rechaza valores fuera del enum", () => {
+    expect(() => parseAccountStatus("unknown_status")).toThrow(InvalidEnumValueError);
+  });
+});
+
 describe("mapRowToUser", () => {
-  it("arma el User de dominio a partir de una fila cruda + roles de DB (MOVO-91: mismo literal en DB y dominio)", () => {
+  it("arma el User de dominio a partir de una fila cruda + roles de DB (MOVO-91/MOVO-92)", () => {
     const user = mapRowToUser(baseRow, ["sender", "carrier"]);
 
     expect(user.id).toBe("usr-uuid-1");
     expect(user.firstName).toBe("Tomas");
     expect(user.kycStatusIdentity).toBe(KycStatus.PENDING);
     expect(user.kycStatusLicense).toBe(KycStatus.NOT_STARTED);
+    expect(user.status).toBe(AccountStatus.ACTIVE);
+    expect(user.birthdate).toBeNull();
     expect(user.roles).toEqual([UserRole.SENDER, UserRole.CARRIER]);
   });
 
@@ -129,11 +142,10 @@ describe("toPublicUser", () => {
       phoneVerified: user.phoneVerified,
       photoUrl: user.photoUrl,
       kycStatusIdentity: user.kycStatusIdentity,
-      lastKycVerificationIdentityId: user.lastKycVerificationIdentityId,
       kycStatusLicense: user.kycStatusLicense,
-      lastKycVerificationLicenseId: user.lastKycVerificationLicenseId,
-      isBanned: user.isBanned,
+      status: user.status,
       bannedUntil: user.bannedUntil,
+      birthdate: user.birthdate,
       roles: user.roles,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,

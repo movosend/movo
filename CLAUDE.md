@@ -667,3 +667,11 @@ para las 2 migraciones históricas) contra `api.movosend.app` — el P1001 pasó
 de llegar a esa validación, así que sigue sin hacerse. Primera corrida de
 `ci-prod.yml` después de este fix va a fallar con P3005 (mismo motivo que en dev)
 hasta correr el baseline.
+
+### MOVO-92 — Chore actualización de la Entidad User
+
+Normalización y alineación completa de la entidad `User` en todo el repositorio según las definiciones del equipo (DER / MOVO-92):
+- **`@movo/shared`**: `AccountStatus` actualizado a `active`, `banned`, `deleted`.
+- **Prisma & DB**: Migración `20260804210000_update_user_entity_movo_92.sql` + actualización de `schema.prisma`. Se removieron los campos obsoletos de KYC (`last_kyc_verification_identity_id` y `last_kyc_verification_license_id`) y el booleano `is_banned`. Se agregaron la columna `status` (`account_status_enum` default `'active'`) y `birthdate` (`DATE` nullable).
+- **Dominio & Repositorio**: `models/user.ts` (interfaces `User`, `PublicUser`, `UserRow`, `CreateUserInput`, validador `parseAccountStatus`), `repositories/user-repository.ts` y suite de tests en `test/` refactorizados y 100% en verde.
+
