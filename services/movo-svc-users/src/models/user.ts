@@ -1,9 +1,9 @@
 import { UserRole, KycStatus } from "@movo/shared";
 
 /**
- * Modelo de dominio de un usuario. Siempre en términos de `@movo/shared`
- * (nunca los literales de DB en español/mayúscula) — la traducción vive
- * en `user-repository.ts` (ver MOVO-87 / comentario en MOVO-67).
+ * Modelo de dominio de un usuario. Los enums de `users.users` están alineados
+ * 1:1 con `UserRole`/`KycStatus` de `@movo/shared` (MOVO-91) — el literal de
+ * DB y el valor de dominio son el mismo string, no hace falta traducir.
  *
  * **Uso interno solamente**: incluye `passwordHash`. NUNCA devolver este objeto
  * tal cual en una respuesta HTTP — usar `toPublicUser()` y devolver `PublicUser`.
@@ -95,43 +95,12 @@ export interface UserRow {
   updated_at: Date;
 }
 
-// Mapeo explícito (no toUpperCase()/toLowerCase() implícito): si el texto del
-// enum de DB cambia algún día, esto rompe en tiempo de compilación/test en
-// vez de silenciosamente desalinearse.
-const ROLE_TO_DB: Record<UserRole, string> = {
-  [UserRole.SENDER]: "emisor",
-  [UserRole.CARRIER]: "transportista",
-  [UserRole.ADMIN]: "admin",
-};
-
-const ROLE_FROM_DB: Record<string, UserRole> = {
-  emisor: UserRole.SENDER,
-  transportista: UserRole.CARRIER,
-  admin: UserRole.ADMIN,
-};
-
-const KYC_STATUS_TO_DB: Record<KycStatus, string> = {
-  [KycStatus.NOT_STARTED]: "NOT_STARTED",
-  [KycStatus.PENDING]: "PENDING",
-  [KycStatus.APPROVED]: "APPROVED",
-  [KycStatus.REJECTED]: "REJECTED",
-  [KycStatus.EXPIRED]: "EXPIRED",
-};
-
-const KYC_STATUS_FROM_DB: Record<string, KycStatus> = {
-  NOT_STARTED: KycStatus.NOT_STARTED,
-  PENDING: KycStatus.PENDING,
-  APPROVED: KycStatus.APPROVED,
-  REJECTED: KycStatus.REJECTED,
-  EXPIRED: KycStatus.EXPIRED,
-};
-
 /**
  * Un valor leído de una columna enum de la DB no tiene equivalente en
- * `@movo/shared`. Es un problema de integridad/drift de schema (alguien agregó
- * un valor al enum de Postgres sin agregarlo al dominio), no un fallo
- * transitorio: se distingue por tipo para que el caller pueda loguearlo y
- * alertar en vez de reintentar como si fuera un error de conexión.
+ * `@movo/shared`. Es drift de schema (alguien agregó un valor al enum de
+ * Postgres sin agregarlo al dominio), no un fallo transitorio: se distingue por
+ * tipo para que el caller pueda loguearlo y alertar en vez de reintentar como
+ * si fuera un error de conexión.
  */
 export class InvalidEnumValueError extends Error {
   constructor(
@@ -143,30 +112,21 @@ export class InvalidEnumValueError extends Error {
   }
 }
 
-export function roleToDb(role: UserRole): string {
-  const value = ROLE_TO_DB[role];
-  if (!value) {
-    // A diferencia de InvalidEnumValueError, esto es un bug de código (un
-    // UserRole nuevo sin entrada en la tabla), no datos corruptos en la DB.
-    throw new Error(`Rol de usuario sin mapeo a DB: ${role}`);
-  }
-  return value;
-}
+// MOVO-91 alineó los enums de Postgres con `@movo/shared`, así que acá no se
+// traduce nada: el literal de DB ya es el valor de dominio. Pero se valida
+// antes de castear, porque Postgres garantiza que la columna esté dentro de
+// *su* enum, no que ese enum siga alineado con `@movo/shared`. Un
+// `ALTER TYPE ... ADD VALUE` que no actualice el dominio deja pasar un valor
+// que TypeScript cree válido y no lo es — y los roles gobiernan autorización
+// (ADR-004). Esa desalineación ya ocurrió una vez: es lo que motivó MOVO-91.
+const USER_ROLE_VALUES: ReadonlySet<string> = new Set(Object.values(UserRole));
+const KYC_STATUS_VALUES: ReadonlySet<string> = new Set(Object.values(KycStatus));
 
-export function roleFromDb(value: string): UserRole {
-  const role = ROLE_FROM_DB[value];
-  if (!role) {
+export function parseUserRole(value: string): UserRole {
+  if (!USER_ROLE_VALUES.has(value)) {
     throw new InvalidEnumValueError("user_roles.role", value);
   }
-  return role;
-}
-
-export function kycStatusToDb(status: KycStatus): string {
-  const value = KYC_STATUS_TO_DB[status];
-  if (!value) {
-    throw new Error(`KycStatus sin mapeo a DB: ${status}`);
-  }
-  return value;
+  return value as UserRole;
 }
 
 /**
@@ -174,12 +134,11 @@ export function kycStatusToDb(status: KycStatus): string {
  * (`kyc_status_identity` y `kyc_status_license`): sin eso, el error no dice
  * cuál de las dos trajo el valor raro.
  */
-export function kycStatusFromDb(value: string, column: string): KycStatus {
-  const status = KYC_STATUS_FROM_DB[value];
-  if (!status) {
+export function parseKycStatus(value: string, column: string): KycStatus {
+  if (!KYC_STATUS_VALUES.has(value)) {
     throw new InvalidEnumValueError(column, value);
   }
-  return status;
+  return value as KycStatus;
 }
 
 export function mapRowToUser(row: UserRow, roles: string[]): User {
@@ -193,13 +152,13 @@ export function mapRowToUser(row: UserRow, roles: string[]): User {
     dni: row.dni,
     phoneVerified: row.phone_verified,
     photoUrl: row.photo_url,
-    kycStatusIdentity: kycStatusFromDb(row.kyc_status_identity, "kyc_status_identity"),
+    kycStatusIdentity: parseKycStatus(row.kyc_status_identity, "kyc_status_identity"),
     lastKycVerificationIdentityId: row.last_kyc_verification_identity_id,
-    kycStatusLicense: kycStatusFromDb(row.kyc_status_license, "kyc_status_license"),
+    kycStatusLicense: parseKycStatus(row.kyc_status_license, "kyc_status_license"),
     lastKycVerificationLicenseId: row.last_kyc_verification_license_id,
     isBanned: row.is_banned,
     bannedUntil: row.banned_until,
-    roles: roles.map(roleFromDb),
+    roles: roles.map(parseUserRole),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

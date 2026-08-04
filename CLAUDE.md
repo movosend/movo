@@ -384,12 +384,11 @@ Correcciones a partir del review del PR #28 (MOVO-87):
 - **`create()` relee la fila persistida** antes del `COMMIT` (mismo `client`, ve sus
   propias escrituras) en vez de derivar los roles de `input.roles`. Las columnas del
   usuario ya venían de `RETURNING *`; el hueco eran solo los roles.
-- ⚠️ **Al rebasear MOVO-91 sobre esto**: el commit que elimina la capa de mapeo borra
-  las mismas funciones donde vive `InvalidEnumValueError`. Resolver el conflicto tomando
-  "la versión de 91" hace desaparecer el fix **sin que falle ningún test** (los casts de
-  91 no validan nada). Hay que reponerlo como `parseUserRole`/`parseKycStatus` que
-  validen contra `Object.values(...)` antes del cast en `mapRowToUser`, y actualizar los
-  literales de los tests de `toPublicUser` a los valores alineados (`sender`, `pending`).
+- **Integración con MOVO-91 (hecha)**: 91 elimina las funciones donde vivía
+  `InvalidEnumValueError`, así que el conflicto podía "resolverse" tomando la versión de
+  91 y hacer desaparecer el fix sin que fallara ningún test (los casts no validan nada).
+  Se conservó la validación, portada a `parseUserRole`/`parseKycStatus` — ver MOVO-91
+  más abajo.
 
 Pendiente / fuera de alcance: reputación, verificación real de licencia (MOVO-25,
 MOVO-15), endpoints de registro/login/KYC (MOVO-70 y siguientes).
@@ -403,6 +402,31 @@ alinea la DB a `@movo/shared` (que no se toca, sigue siendo la fuente de verdad)
 Ticket nuevo en vez de reabrir MOVO-84 (ya Done), para dejar trazado en la memoria del
 TFG por qué se tocó un schema ya cerrado.
 
+Implementado: migración `20260731200000_align_user_enums_with_shared.sql` (+
+`.down.sql`) con `ALTER TYPE ... RENAME VALUE` — `users.user_role_enum` pasa de
+`emisor/transportista/admin` a `sender/carrier/admin`; `users.kyc_status_enum` de
+mayúscula a minúscula (`not_started/pending/approved/rejected/expired`); `DEFAULT` de
+columna re-especificado explícitamente por claridad (aunque el rename ya los actualiza
+solo, al estar resueltos por OID y no por texto).
+
+Se borró por completo la capa de mapeo de MOVO-87 en `models/user.ts`
+(`roleToDb`/`roleFromDb`/`kycStatusToDb`/`kycStatusFromDb` y sus diccionarios):
+ya no hay traducción, el literal de DB y el valor de dominio son el mismo string.
+`user-repository.ts` pasa `UserRole`/`KycStatus` directo como parámetro de query.
+
+**Corrección al integrar con develop (PR #29):** la versión original de MOVO-91
+reemplazaba la capa de mapeo por casts sin validar (`row.kyc_status_identity as
+KycStatus`), con el argumento de que la columna es un enum de Postgres y físicamente no
+puede tener un valor fuera del enum. El argumento es cierto pero cubre el riesgo
+equivocado: lo que puede entrar es un valor que **sí** está en el enum de Postgres pero
+**no** en `@movo/shared` (un `ALTER TYPE ... ADD VALUE` que no actualice el dominio).
+Esa desalineación no es hipotética — es exactamente la que motivó este ticket. Y los
+roles gobiernan autorización (ADR-004), así que un valor inválido entrando en silencio
+llega a los claims del JWT. Se conserva entonces la validación que MOVO-87 sumó por
+review, portada a la forma alineada: `parseUserRole`/`parseKycStatus` chequean contra
+`Object.values(...)` y tiran `InvalidEnumValueError` antes de castear.
+
+Pendiente: el ticket de Linear queda abierto (no se pasa a Done) a pedido del usuario.
 _(completar detalle de archivos/decisiones cuando se termine de implementar)_
 
 ### MOVO-89 — `GET /health` con estado de PostgreSQL y Redis
