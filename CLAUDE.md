@@ -579,3 +579,32 @@ la versión **sin ledger** (`develop` nunca recibió el hotfix
 CLAUDE.md documentaba como corregido, en `develop` seguía reaplicando todas las
 migraciones `.sql` en cada corrida. Se reemplazó por la versión de `main` con la
 tabla `public.schema_migrations` y `BEGIN`/`COMMIT` por archivo.
+
+### Fix — Percent-encoding de DATABASE_URL para Prisma
+
+El primer deploy a dev con el step repuesto (arriba) rompió igual:
+`prisma migrate deploy` tiraba `P1013: invalid port number in database URL`. Causa:
+la password de Postgres en Secrets Manager sale sin percent-encodear, y trae
+caracteres reservados de RFC 3986 (`/`, `#`, `%`, `{`, `}`, etc. — password generada
+aleatoriamente). `node-postgres` (`pg`, usado por `svc-shipments`/`payments`/`admin`
+y por el resto de la app antes de MOVO-93) parsea ese connection string con un regex
+propio tolerante; el parser de Prisma no, y rompe apenas encuentra un `/` o similar
+donde no lo espera.
+
+Fix en el step "Generar .env desde Secrets Manager" de `ci-dev.yml`/`ci-prod.yml`:
+después de volcar el secret a `.env`, se re-escribe la línea `DATABASE_URL=` con
+user/password percent-encodeados (`urllib.parse.quote` vía `python3 -c`, invocado
+desde bash con regex `[[ =~ ]]`/`BASH_REMATCH` para no depender de parsing YAML/JSON
+adicional). Percent-encodeado es válido también para `pg` (lo decodea), así que no
+rompe a los otros servicios.
+
+De paso, se reemplazó el `set -a; source .env; set +a` de esas mismas migraciones
+(pre-existente desde el hotfix original, también en `main`) por un loop
+`while IFS='=' read` que exporta cada variable sin que bash intente parsear el
+`.env` como script — la password con caracteres especiales rompía el `source`
+literal (`syntax error near unexpected token`), silencioso hasta ahora porque el
+único valor que se leía de ahí (`POSTGRES_USER`) tenía default `movo` que
+coincidía por casualidad.
+
+Pendiente: correr el `workflow_dispatch` de `ci-dev.yml` para confirmar el deploy
+completo antes de promover `develop` a `main`.

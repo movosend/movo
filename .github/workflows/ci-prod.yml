@@ -263,6 +263,29 @@ jobs:
             | jq -r 'to_entries[] | "\(.key)=\(.value)"' > .env
           echo "IMAGE_TAG=${{ env.IMAGE_TAG }}" >> .env
 
+          # La password de DATABASE_URL sale de Secrets Manager sin percent-encodear.
+          # node-postgres (pg, usado por svc-shipments/payments/admin) tolera
+          # caracteres reservados de RFC 3986 sin escapar en el connection string,
+          # pero el parser de Prisma (movo-svc-users, `prisma migrate deploy`) no --
+          # falla con "P1013: invalid port number" si la password trae '/', '#', '%',
+          # etc. sin encodear. Se reescribe DATABASE_URL con user/password
+          # percent-encodeados; pg también soporta la forma encodeada, así que es
+          # seguro para el resto de los servicios.
+          db_url="$(grep '^DATABASE_URL=' .env | cut -d= -f2-)"
+          if [[ "$db_url" =~ ^(postgres(ql)?://)([^:@/]+):([^@]+)@(.+)$ ]]; then
+            scheme="${BASH_REMATCH[1]}"
+            user="${BASH_REMATCH[3]}"
+            pass="${BASH_REMATCH[4]}"
+            rest="${BASH_REMATCH[5]}"
+            enc_user="$(python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=''))" "$user")"
+            enc_pass="$(python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=''))" "$pass")"
+            new_url="${scheme}${enc_user}:${enc_pass}@${rest}"
+            tmp="$(mktemp)"
+            grep -v '^DATABASE_URL=' .env > "$tmp"
+            echo "DATABASE_URL=${new_url}" >> "$tmp"
+            mv "$tmp" .env
+          fi
+
       # Docker crea los directorios de los bind mounts (ver docker-compose.yml)
       # como root si no existen todavía, lo que rompe el scp/tar de los pasos
       # siguientes (corren como el usuario ssh, no root).
@@ -336,7 +359,13 @@ jobs:
           script: |
             echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             cd ~/movo
-            set -a; source .env; set +a
+            set -a
+            while IFS='=' read -r key value; do
+              [ -z "$key" ] && continue
+              case "$key" in \#*) continue ;; esac
+              export "$key=$value"
+            done < .env
+            set +a
             chmod +x scripts/run-migrations.sh
             docker compose up -d postgres
             echo "Esperando a que Postgres esté listo..."
