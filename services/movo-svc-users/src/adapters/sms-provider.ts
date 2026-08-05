@@ -1,5 +1,6 @@
 import { createConsoleSmsProvider } from "./console-sms-provider";
 import { createTwilioSmsProvider } from "./twilio-sms-provider";
+import { createTelegramSmsProvider } from "./telegram-sms-provider";
 
 /** AC8: interfaz detrás de la que vive el envío de SMS, para poder testear el flujo de
  * OTP sin red y para poder cambiar de proveedor sin tocar `otp-service.ts`. */
@@ -22,11 +23,13 @@ export function buildOtpMessage(code: string): string {
 }
 
 export interface SmsProviderConfig {
-  SMS_PROVIDER: "console" | "twilio";
+  SMS_PROVIDER: "console" | "twilio" | "telegram";
   TWILIO_ACCOUNT_SID?: string;
   TWILIO_API_KEY_SID?: string;
   TWILIO_API_KEY_SECRET?: string;
   TWILIO_FROM_NUMBER?: string;
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
 }
 
 /**
@@ -57,6 +60,15 @@ export function createSmsProvider(config: SmsProviderConfig): SmsProvider {
       apiKeySid: config.TWILIO_API_KEY_SID,
       apiKeySecret: config.TWILIO_API_KEY_SECRET,
       fromNumber: config.TWILIO_FROM_NUMBER,
+    });
+  }
+  if (config.SMS_PROVIDER === "telegram") {
+    if (!config.TELEGRAM_BOT_TOKEN || !config.TELEGRAM_CHAT_ID) {
+      throw new Error("SMS_PROVIDER=telegram requiere TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID");
+    }
+    return createTelegramSmsProvider({
+      botToken: config.TELEGRAM_BOT_TOKEN,
+      chatId: config.TELEGRAM_CHAT_ID,
     });
   }
   return createConsoleSmsProvider();

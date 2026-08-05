@@ -804,6 +804,23 @@ credenciales de Twilio en AWS Secrets Manager (`movo/dev/app-secrets` y
 código ya está listo para tomarlas (ver bullet de `docker-compose.yml` arriba), la
 carga real es una acción del equipo con acceso a AWS.
 
+**Agregado tras el merge con `develop` (login MOVO-74, conflicto en `auth.routes.ts`
+resuelto combinando ambos lados sin cambiar comportamiento de ninguno)**: se sumó un
+tercer `SmsProvider`, `TelegramSmsProvider` (`src/adapters/telegram-sms-provider.ts`),
+exclusivo del entorno `develop` (`SMS_PROVIDER=telegram`) — manda el OTP a un grupo de
+Telegram vía el HTTP API del bot (`fetch` nativo de Node 20, sin dependencia nueva), en
+vez de depender de mirar la consola de EC2 en `api-dev.movosend.app`. El texto del
+mensaje identifica teléfono y código (no reusa `buildOtpMessage`, pensado para el
+usuario final: acá el destinatario es el grupo de devs). En `prod` se sigue usando
+`twilio`. Mismo mecanismo de secrets que Twilio: `TELEGRAM_BOT_TOKEN`/
+`TELEGRAM_CHAT_ID` nuevas en `config/env.ts`/`.env.example`/`docker-compose.yml`,
+`createSmsProvider` falla rápido al arrancar si faltan con `SMS_PROVIDER=telegram`.
+Test: `test/adapters/telegram-sms-provider.test.ts` (mockea `fetch`, mismo criterio que
+`twilio-sms-provider.test.ts`). Pendiente, fuera de este cambio de código: crear el bot
+con BotFather, agregarlo al grupo de devs, y cargar `SMS_PROVIDER=telegram` +
+`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` en `movo/dev/app-secrets` — tarea manual del
+equipo con acceso a AWS, igual que el pendiente de credenciales de Twilio de arriba.
+
 ### MOVO-74 — Endpoint de login (`POST /auth/login`)
 
 Implementado endpoint de autenticación con credenciales (`phone` + `password`) en `src/modules/auth/` (`auth.routes.ts`, `auth.schema.ts`, `auth.service.ts`), expuesto como `POST /api/v1/auth/login` por el gateway.
