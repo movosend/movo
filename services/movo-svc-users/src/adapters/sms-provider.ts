@@ -7,6 +7,20 @@ export interface SmsProvider {
   send(toE164: string, code: string): Promise<void>;
 }
 
+/**
+ * AC2: el texto del SMS recuerda explícitamente no compartir el código y que nadie de
+ * Movo lo va a pedir — mitiga que alguien reenvíe el código a un tercero que se hace
+ * pasar por soporte (vector de ingeniería social típico contra OTP). Centralizado acá
+ * para que las dos implementaciones (consola y Twilio) manden exactamente el mismo
+ * texto, y se pueda testear una sola vez.
+ */
+export function buildOtpMessage(code: string): string {
+  return (
+    `Tu código de verificación de Movo es ${code}. Vence en 10 minutos. ` +
+    `No lo compartas con nadie: ningún empleado de Movo te lo va a solicitar.`
+  );
+}
+
 export interface SmsProviderConfig {
   SMS_PROVIDER: "console" | "twilio";
   TWILIO_ACCOUNT_SID?: string;

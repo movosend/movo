@@ -72,4 +72,20 @@ describe("Twilio SMS Provider (adapter concreto, AC8)", () => {
 
     expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ to: "+15005550001" }));
   });
+
+  it("el body del SMS recuerda no compartir el código y que nadie de Movo lo va a pedir (AC2)", async () => {
+    const provider = createTwilioSmsProvider({
+      accountSid: "AC_test",
+      apiKeySid: "SK_test",
+      apiKeySecret: "secret_test",
+      fromNumber: "+15005550006",
+    });
+
+    await provider.send("+5493511234567", "482913");
+
+    const body = createMock.mock.calls[0][0].body as string;
+    expect(body).toContain("482913");
+    expect(body.toLowerCase()).toContain("no lo compartas");
+    expect(body.toLowerCase()).toMatch(/nadie|ningún empleado/);
+  });
 });

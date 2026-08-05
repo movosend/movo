@@ -1,5 +1,5 @@
 import twilio from "twilio";
-import { SmsProvider } from "./sms-provider";
+import { SmsProvider, buildOtpMessage } from "./sms-provider";
 
 export interface TwilioSmsProviderConfig {
   accountSid: string;
@@ -45,7 +45,7 @@ export function createTwilioSmsProvider(config: TwilioSmsProviderConfig): SmsPro
       await client.messages.create({
         to: toTwilioRecipient(toE164),
         from: config.fromNumber,
-        body: `Tu código de verificación de Movo es ${code}. Vence en 10 minutos.`,
+        body: buildOtpMessage(code),
       });
     },
   };
