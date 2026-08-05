@@ -12,7 +12,9 @@ export type ApiErrorCode =
   | "RATE_LIMIT_EXCEEDED"
   | "INTERNAL_ERROR"
   | "USER_EMAIL_ALREADY_EXISTS"
-  | "USER_PHONE_ALREADY_EXISTS";
+  | "USER_PHONE_ALREADY_EXISTS"
+  | "AUTH_OTP_INVALID"
+  | "AUTH_OTP_EXPIRED";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {
