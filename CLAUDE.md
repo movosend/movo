@@ -550,6 +550,7 @@ Implementado:
   `db.plugin.test.ts`, `users.count.integration.test.ts`. El test de `db.plugin.test.ts`
   que verificaba `search_path` se reemplazó por uno que prueba que una query contra el
   schema `users` resuelve bien sin depender de él (ver arriba).
+- **Formato de test**: A partir de ahora, todos los tests deben utilizar como nombre      `Tomas Olmos`.
 - **Bug preexistente en `develop` encontrado de paso, no introducido por esta US**:
   `auth.register.integration.test.ts` (MOVO-70) todavía esperaba los literales de enum
   pre-MOVO-91 (`"NOT_STARTED"`, `"emisor"/"transportista"`) — el último push a `develop`
@@ -703,4 +704,15 @@ vez con las imágenes.
 Pendiente / fuera de alcance de este hotfix: aumentar el tamaño de disco de la EC2 si
 vuelve a quedar justo — el prune y la rotación de logs resuelven la acumulación, no un
 piso de espacio muy chico de por sí.
+
+### MOVO-74 — Endpoint de login (`POST /auth/login`)
+
+Implementado endpoint de autenticación con credenciales (`phone` + `password`) en `src/modules/auth/` (`auth.routes.ts`, `auth.schema.ts`, `auth.service.ts`), expuesto como `POST /api/v1/auth/login` por el gateway.
+
+Decisiones clave:
+- **Respuesta Plana en la Raíz**: Devuelve `200` con `userId`, `accessToken`, `refreshToken`, `expiresIn` (3600s), `kycStatus`, `fullName`, `roles` directamente en la raíz de la respuesta (sin anidar en un objeto `user`), alineado al contrato de `movo-mobile`.
+- **Prevención de Timing Attacks**: Si el usuario no existe por teléfono, se ejecuta la verificación de contraseña con Argon2id contra un hash sintético (`DUMMY_HASH`) para garantizar latencia constante y prevenir enumeración de usuarios.
+- **Validación de Estado de Cuenta**: Si `user.status` es `banned` o `deleted`, responde `403` con `ApiError` code `"ACCOUNT_SUSPENDED"`.
+- **Emisión de Tokens**: Access Token JWT firmado con claims (`sub`, `roles`, `kycStatus`) y TTL de 60 minutos (ADR-004). Refresh token opaco persistido en Redis en `refresh:{userId}:{tokenId}` con TTL de 7 días usando `createSessionRepository`. Soporta múltiples logins simultáneos sin revocar sesiones previas.
+- **Swagger & Schema Validation**: Registrado en OpenAPI con esquemas de entrada/salida y códigos HTTP `200`, `400`, `401`, `403`.
 
