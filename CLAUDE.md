@@ -551,7 +551,6 @@ Implementado:
   `db.plugin.test.ts`, `users.count.integration.test.ts`. El test de `db.plugin.test.ts`
   que verificaba `search_path` se reemplazó por uno que prueba que una query contra el
   schema `users` resuelve bien sin depender de él (ver arriba).
-- **Formato de test**: A partir de ahora, todos los tests deben utilizar como nombre      `Tomas Olmos`.
 - **Bug preexistente en `develop` encontrado de paso, no introducido por esta US**:
   `auth.register.integration.test.ts` (MOVO-70) todavía esperaba los literales de enum
   pre-MOVO-91 (`"NOT_STARTED"`, `"emisor"/"transportista"`) — el último push a `develop`
