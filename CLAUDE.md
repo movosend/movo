@@ -90,7 +90,7 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 | 001 | Microservicios (no monolito ni serverless) | Comunicación síncrona REST introduce acoplamiento temporal; mitigado con `x-request-id` en logs |
 | 002 | Node.js+Fastify para I/O; Python+FastAPI solo para `pricing-logistics` | Dos stacks a mantener |
 | 003 | PostgreSQL único compartido (esquema por servicio) + Redis para sesiones/estado rápido | Punto único de fallo, mitigado con esquemas separados y snapshots |
-| 004 | JWT corto (60min) + refresh token opaco en Redis (7 días), roles como array (`AccessTokenClaims.roles: UserRole[]`) | Token robado sigue válido hasta expirar (máx 60min) |
+| 004 | JWT corto (60min) + refresh token opaco en Redis (7 días — TTL extendido a 90 días por ADR-013), roles como array (`AccessTokenClaims.roles: UserRole[]`) | Token robado sigue válido hasta expirar (máx 60min) |
 | 005 | REST + `/api/v1/` + Socket.io para tracking; Swagger autogenerado | Over-fetching mitigado con query params de proyección |
 | 006 | EC2 + Docker Compose (no K8s/PaaS/ECS); frontends Next.js en Vercel | Sin auto-scaling; sin alta disponibilidad (aceptado para el alcance del TFG) |
 | 007 | AWS S3 con presigned URLs para imágenes de envíos (nunca BLOBs en Postgres ni filesystem local) | Cliente implementa flujo de 2 pasos (pedir URL, hacer PUT) |
@@ -99,6 +99,7 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 | 010 | Gateway: servicios internos confían en `x-user-*` sin revalidar (se apoya en que solo el gateway expone puerto público) | Si un atacante llega a la red interna, el modelo de confianza cae — perimetral, no zero-trust |
 | 011 | Prisma como ORM estándar para todos los servicios Node de MOVO (primera implementación en `movo-svc-users`, los demás lo adoptan al tener dominio real) | Curva de aprendizaje del equipo; requiere driver adapter (`@prisma/adapter-pg`, Prisma 7) y baselinear las 2 migraciones SQL ya aplicadas como histórico |
 | 012 | Twilio como proveedor de SMS para OTP (MOVO-71), detrás de una interfaz `SmsProvider`; implementación de consola es el default de dev/test/CI, Twilio real queda reservado para la demo final | Sin envío real de SMS fuera de la demo — limitación aceptada para no incurrir en costos de una API externa de pago (riesgo R10 del plan de proyecto); el adapter (riesgo R11) permite activar Twilio de verdad solo cambiando `SMS_PROVIDER` |
+| 013 | Refresh token con TTL extendido de 7 a 90 días (MOVO-75), reemplazando el valor original de ADR-004 — prioridad del equipo: minimizar cuánto tienen que volver a loguearse los usuarios en una app que no maneja datos bancarios | Ventana de exposición mayor si un refresh token es robado; mitigado por la rotación de un solo uso + detección de reuso que introduce la misma US (reusar un refresh ya canjeado revoca todas las sesiones del usuario) |
 
 ## Convenciones de código
 
@@ -831,4 +832,67 @@ Decisiones clave:
 - **Validación de Estado de Cuenta**: Si `user.status` es `banned` o `deleted`, responde `403` con `ApiError` code `"ACCOUNT_SUSPENDED"`.
 - **Emisión de Tokens**: Access Token JWT firmado con claims (`sub`, `roles`, `kycStatus`) y TTL de 60 minutos (ADR-004). Refresh token opaco persistido en Redis en `refresh:{userId}:{tokenId}` con TTL de 7 días usando `createSessionRepository`. Soporta múltiples logins simultáneos sin revocar sesiones previas.
 - **Swagger & Schema Validation**: Registrado en OpenAPI con esquemas de entrada/salida y códigos HTTP `200`, `400`, `401`, `403`.
+
+### MOVO-75 — Refresh token con rotación y logout/logout-all (`svc-users`)
+
+Implementado en `src/modules/auth/` (`auth.routes.ts`, `auth.schema.ts`, `auth.service.ts`):
+`POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all`. `/auth/refresh` ya
+estaba declarada pública en `gateway/src/config/routes-map.ts` desde MOVO-68 (quedó
+como placeholder a propósito para esta US); `/auth/logout`/`/auth/logout-all` no están
+en `getPublicRoutes()` así que quedan protegidas por defecto sin tocar el gateway.
+
+Decisiones clave:
+- **Gap encontrado en MOVO-74, corregido acá**: `login()` guardaba el refresh token en
+  texto plano en Redis y el cliente solo recibía el secreto opaco
+  (`signRefreshToken().token`), nunca el `tokenId` — sin eso no había forma de ubicar
+  la key `refresh:{userId}:{tokenId}` a partir de lo único que tenía el cliente,
+  bloqueando directamente `/auth/refresh` y `/auth/logout`. Se corrigió sin cambiar el
+  `SessionRepository` (ya aceptaba `Record<string, unknown>` como payload): el
+  `refreshToken` que ve el cliente pasa a ser un token opaco compuesto
+  `"{userId}.{tokenId}.{secret}"` (ninguno de los tres contiene un punto, el split es
+  seguro), y en Redis se guarda `{ hash: sha256(secret), used: boolean }` en vez del
+  secreto plano. SHA-256 y no Argon2id: `secret` ya son 256 bits de aleatoriedad
+  criptográfica, no una contraseña de usuario. `login()` se adaptó al mismo formato
+  (helper compartido `issueSession()` en `auth.service.ts`, usado también por
+  `refresh()`) sin cambiar su contrato externo.
+- **Rotación de un solo uso + detección de reuso (AC2/AC3)**: al refrescar, la sesión
+  usada se marca `used: true` sobre la misma key (no se borra — queda como tombstone
+  con el mismo TTL) y se emite un `tokenId` nuevo. Si llega un refresh cuya key ya
+  tiene `used: true`, se interpreta como señal de robo: `revokeAllForUser()` sobre
+  todas las sesiones del usuario y `401 AUTH_REFRESH_INVALID`. Limitación aceptada
+  (alcance TFG): no hay lock atómico entre el chequeo de `used` y el marcado — una
+  carrera de dos refresh concurrentes con el mismo token válido podría no detectarse.
+- **AC5** (roles/kycStatus/account_status actuales al refrescar): `refresh()` relee el
+  usuario con `userRepository.findById` (ya existía, sin cambios) antes de emitir el
+  par nuevo — no deriva nada del access token viejo.
+- **AC6**: cuenta suspendida (`banned`/`deleted`) en el momento del refresh revoca
+  todas las sesiones y devuelve `403 ACCOUNT_SUSPENDED`, mismo código que usa login
+  para el mismo caso.
+- **`POST /auth/logout` recibe el refresh token en el body**, no solo el `x-user-id`
+  del gateway — los claims del access token (`AccessTokenClaims`) no incluyen
+  `tokenId`, así que no hay forma de saber cuál sesión puntual cerrar sin que el
+  cliente diga cuál. Si el `userId` embebido en el token no coincide con el
+  `x-user-id` inyectado por el gateway (ADR-010), o el token es inválido/inexistente,
+  no se lanza error — responde `204` igual, por diseño (AC9: idempotente, y evita que
+  un token ajeno filtre información sobre si existía o no).
+- **`AUTH_REFRESH_INVALID`** agregado a `ApiErrorCode` en `@movo/shared` (solo se
+  agregó, ningún código existente se renombró).
+- **ADR-013**: TTL del refresh token extendido de 7 a 90 días (`DEFAULT_REFRESH_TOKEN_TTL_SECONDS`
+  en `session-repository.ts`), a pedido del equipo (comentario sin resolver de Pedro en
+  MOVO-74) y alineado a la prioridad explícita de minimizar cuánto tienen que volver a
+  loguearse los usuarios — la app no maneja datos bancarios. El riesgo de una ventana de
+  exposición más larga si el token es robado es lo que mitiga la rotación de un solo uso
+  + detección de reuso de esta misma US. Fila agregada a la tabla de ADRs arriba; el
+  desarrollo completo (contexto/alternativas) queda pendiente de pegar en el Drive,
+  igual que ADR-012.
+- Tests de integración nuevos: `test/auth.refresh.integration.test.ts` (rotación, reuso,
+  malformado/inexistente, AC5, AC6), `test/auth.logout.integration.test.ts` (logout de
+  una sesión sin afectar otras, idempotencia, no revocar sesión ajena, logout-all). Test
+  de TTL en `test/auth.login.integration.test.ts` actualizado a 90 días.
+
+Pendiente / fuera de alcance de MOVO-75: no se agregó rate limiting específico en el
+gateway para `/auth/refresh`/`/auth/logout` (quedan bajo el límite general, 200/min) —
+no lo pedía el AC; el mobile (MOVO-76) todavía no llama a `/auth/refresh`
+automáticamente antes de que expire el access token, así que el beneficio práctico del
+TTL más largo depende de esa US.
 
