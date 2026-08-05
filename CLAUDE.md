@@ -728,8 +728,14 @@ Decisiones clave:
   de vencido el cooldown (pero antes del TTL de 10 min) dejaba códigos válidos
   simultáneos, cada uno con su propio presupuesto de 5 intentos.
 - **`resend-otp` siempre genera un código nuevo** bajo el mismo `otpId`: como el código
-  se guarda hasheado (nunca en claro, AC2), reenviar el original es imposible — el texto
+  se guarda hasheado (nunca en claro, AC3), reenviar el original es imposible — el texto
   plano no existe en ningún lado después del envío inicial.
+- **AC2 se agregó al ticket después de la primera pasada de implementación** (el mensaje
+  de SMS tiene que recordar no compartir el código y que nadie de Movo lo va a pedir —
+  mitiga ingeniería social contra OTP). Detectado al cerrar la US comparando contra el
+  ticket de nuevo. `buildOtpMessage(code)` centralizado en `adapters/sms-provider.ts`,
+  usado tanto por `TwilioSmsProvider` como por el log de `ConsoleSmsProvider` (para que
+  en dev se vea el texto real), con test dedicado al contenido del mensaje.
 - **`send-otp` nunca devuelve 429**, a propósito: dentro del cooldown de un OTP activo
   devuelve el mismo `otpId` sin mandar SMS de nuevo (evita el bypass obvio de llamar
   `send-otp` en loop en vez de `resend-otp`, que sí devuelve 429).
@@ -773,8 +779,8 @@ Decisiones clave:
   `buildApp({ smsProvider })` para poder leer el código generado, ya que nunca sale por
   HTTP — verificado también a mano contra el server real con `SMS_PROVIDER=console`),
   `test/adapters/twilio-sms-provider.test.ts` (única excepción a "nunca mockeado": Twilio
-  es una API de pago, se mockea el SDK). 102/102 tests del servicio en verde, cobertura
-  91.95% statements / 82.99% branches (umbral: 55%).
+  es una API de pago, se mockea el SDK). 105/105 tests del servicio en verde, cobertura
+  92.04% statements / 82.66% branches (umbral: 55%).
 - **Bug preexistente encontrado de paso, no introducido por esta US ni corregido acá**:
   `src/plugins/auth.ts` (scaffold viejo de `@fastify/jwt`, sin uso real todavía) lee
   `process.env.JWT_SECRET` directo, pero `env-schema` (detrás de `@fastify/env`) con
@@ -789,6 +795,11 @@ Pendiente / fuera de alcance de MOVO-71: `POST /auth/register` (MOVO-70) todaví
 consume `phoneVerificationToken` ni persiste `phoneVerified=true` — la función
 `consumePhoneVerificationToken` queda lista para que esa US la use. AC7 ("no se puede
 avanzar a KYC sin teléfono verificado") queda satisfecho por construcción del nuevo
-orden, no por un chequeo explícito de esta US. Falta pegar el ADR-012 completo (contexto/
-alternativas) en el Drive — solo se agregó el resumen de una línea acá.
+orden, no por un chequeo explícito de esta US. Dos pendientes que no son código: falta
+pegar el ADR-012 completo (contexto/alternativas) en el Drive — solo se agregó el
+resumen de una línea acá, sin permiso de escritura sobre el Doc; y falta cargar las 4
+credenciales de Twilio en AWS Secrets Manager (`movo/dev/app-secrets` y
+`movo/prod/app-secrets`) para que `SMS_PROVIDER=twilio` funcione fuera de local — el
+código ya está listo para tomarlas (ver bullet de `docker-compose.yml` arriba), la
+carga real es una acción del equipo con acceso a AWS.
 
