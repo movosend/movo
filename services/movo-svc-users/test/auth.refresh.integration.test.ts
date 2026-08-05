@@ -134,6 +134,51 @@ describe("POST /auth/refresh", () => {
     expect(JSON.parse(inexistente.body).error.code).toBe("AUTH_REFRESH_INVALID");
   });
 
+  it("devuelve 401 AUTH_REFRESH_INVALID si el secreto no coincide con el hash guardado (token adulterado)", async () => {
+    const { userId, refreshToken } = await registerAndLogin();
+    const [tokenUserId, tokenId] = refreshToken.split(".");
+
+    const tampered = await app.inject({
+      method: "POST",
+      url: "/auth/refresh",
+      payload: { refreshToken: `${tokenUserId}.${tokenId}.secreto-inventado` },
+    });
+
+    expect(tampered.statusCode).toBe(401);
+    expect(JSON.parse(tampered.body).error.code).toBe("AUTH_REFRESH_INVALID");
+
+    // La sesión original sigue intacta: un secreto adulterado no cuenta como
+    // "uso" válido, así que no dispara la marca de un solo uso ni la revocación.
+    const stillValid = await app.inject({
+      method: "POST",
+      url: "/auth/refresh",
+      payload: { refreshToken },
+    });
+    expect(stillValid.statusCode).toBe(200);
+
+    const redisKeys = await app.redis.keys(`refresh:${userId}:*`);
+    expect(redisKeys.length).toBe(2);
+  });
+
+  it("devuelve 401 AUTH_REFRESH_INVALID y revoca la sesión si el usuario ya no existe", async () => {
+    const { userId, refreshToken } = await registerAndLogin();
+
+    // onDelete: Cascade en UserRoleGrant se encarga de los roles.
+    await app.db.user.delete({ where: { id: userId } });
+
+    const refreshRes = await app.inject({
+      method: "POST",
+      url: "/auth/refresh",
+      payload: { refreshToken },
+    });
+
+    expect(refreshRes.statusCode).toBe(401);
+    expect(JSON.parse(refreshRes.body).error.code).toBe("AUTH_REFRESH_INVALID");
+
+    const redisKeys = await app.redis.keys(`refresh:${userId}:*`);
+    expect(redisKeys.length).toBe(0);
+  });
+
   it("refleja roles/kycStatus actuales del usuario en el token nuevo (AC5)", async () => {
     const { userId, refreshToken } = await registerAndLogin();
 
