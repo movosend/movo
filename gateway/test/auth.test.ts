@@ -10,14 +10,19 @@ describe("Gateway Auth Middleware", () => {
   let stub: Server;
   let stubPort: number;
   let capturedHeaders: Record<string, string> = {};
+  let capturedPath = "";
 
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
     process.env.REDIS_URL = "redis://localhost:6379";
 
-    // Levantar stub HTTP que captura headers
+    // Levantar stub HTTP que captura headers y el path efectivamente reenviado —
+    // esto último es lo que faltaba para detectar el bug real de rewritePrefix
+    // (el stub respondía 200 a cualquier path, así que un 404 upstream por path
+    // mal reescrito quedaba enmascarado; ver test "preserva el prefijo del path").
     stub = createServer((req, res) => {
       capturedHeaders = req.headers as Record<string, string>;
+      capturedPath = req.url ?? "";
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
     });
@@ -200,14 +205,76 @@ describe("Gateway Auth Middleware", () => {
       expect(response.statusCode).toBe(200);
     });
 
-    it("POST /auth/verify-phone sin token devuelve 200 (público)", async () => {
+    it("POST /auth/send-otp sin token devuelve 200 (público)", async () => {
       const response = await app.inject({
         method: "POST",
-        url: "/api/v1/auth/verify-phone",
-        payload: { phone: "+541234567890", code: "123456" },
+        url: "/api/v1/auth/send-otp",
+        payload: { phone: "+541234567890" },
       });
 
       expect(response.statusCode).toBe(200);
+    });
+
+    it("POST /auth/verify-otp sin token devuelve 200 (público)", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/verify-otp",
+        payload: { otpId: "otp-uuid", code: "123456" },
+      });
+
+      expect(response.statusCode).toBe(200);
+    });
+
+    it("POST /auth/resend-otp sin token devuelve 200 (público)", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/resend-otp",
+        payload: { otpId: "otp-uuid" },
+      });
+
+      expect(response.statusCode).toBe(200);
+    });
+  });
+
+  describe("Preservación del path al reenviar al upstream (regresión)", () => {
+    // El stub responde 200 a cualquier path, así que estos tests fallarían en
+    // silencio si solo miráramos el statusCode — hay que comparar `capturedPath`
+    // contra el path real que espera cada servicio (ver bug de `rewritePrefix`
+    // documentado en routes/index.ts y en CLAUDE.md).
+    it("GET /api/v1/shipments/123 reenvía /shipments/123 al upstream, no /123", async () => {
+      const token = signAccessToken({
+        sub: "user-path-test",
+        roles: [UserRole.SENDER],
+        kycStatus: KycStatus.APPROVED,
+      });
+
+      await app.inject({
+        method: "GET",
+        url: "/api/v1/shipments/123",
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(capturedPath).toBe("/shipments/123");
+    });
+
+    it("POST /api/v1/auth/register reenvía /auth/register al upstream, no /register", async () => {
+      await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/register",
+        payload: { email: "path-test@movo.com", password: "test" },
+      });
+
+      expect(capturedPath).toBe("/auth/register");
+    });
+
+    it("POST /api/v1/auth/send-otp reenvía /auth/send-otp al upstream, no /send-otp", async () => {
+      await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/send-otp",
+        payload: { phone: "+541234567890" },
+      });
+
+      expect(capturedPath).toBe("/auth/send-otp");
     });
   });
 

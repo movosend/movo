@@ -102,7 +102,12 @@ export function getPublicRoutes(): PublicRoute[] {
       rateLimit: { max: 5, timeWindow: "15 minutes" },
     },
     { method: "POST", path: "/auth/refresh" },
-    { method: "POST", path: "/auth/verify-phone" },
+    // MOVO-71: reemplaza el placeholder de "/auth/verify-phone" (contrato viejo,
+    // OTP post-registro) — el vigente es OTP antes de crear la cuenta, sin token
+    // todavía, así que las tres rutas son públicas.
+    { method: "POST", path: "/auth/send-otp" },
+    { method: "POST", path: "/auth/verify-otp" },
+    { method: "POST", path: "/auth/resend-otp" },
 
     // webhooks
     { method: "POST", path: "/webhooks/didit" },

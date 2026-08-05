@@ -48,9 +48,12 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
     stub.close();
   });
 
-  it("reescribe el path upstream sin el API_PREFIX ni el prefijo del servicio", async () => {
-    // rewritePrefix: "/" en routes/index.ts implica que el upstream recibe
-    // solo lo que sigue al prefijo del servicio, sin /api/v1 ni /auth.
+  it("reescribe el path upstream sin el API_PREFIX, pero preserva el prefijo del servicio", async () => {
+    // rewritePrefix: route.prefix en routes/index.ts (MOVO-71, corrige un bug real:
+    // con rewritePrefix: "/" el upstream recibía solo "/register", pero
+    // movo-svc-users registra sus rutas en "/auth/register" — TODO endpoint de auth
+    // devolvía 404 al pasar por el gateway real hasta este fix). El upstream recibe
+    // el mismo path que expone el gateway bajo /api/v1, sin el /api/v1 en sí.
     const response = await app.inject({
       method: "POST",
       url: "/api/v1/auth/register",
@@ -58,7 +61,7 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(capturedUrl).toBe("/register");
+    expect(capturedUrl).toBe("/auth/register");
   });
 
   it("un path que sólo comparte prefijo con una ruta pública no la matchea (exige auth)", async () => {
@@ -84,7 +87,7 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(capturedUrl).toBe("/register?ref=campaign");
+    expect(capturedUrl).toBe("/auth/register?ref=campaign");
   });
 
   it("una ruta protegida sin token en un prefijo distinto también exige auth (no público por defecto)", async () => {
