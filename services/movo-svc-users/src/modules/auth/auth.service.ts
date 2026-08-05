@@ -1,7 +1,16 @@
-import { hash } from "@node-rs/argon2";
+import { hash, verify } from "@node-rs/argon2";
+import Redis from "ioredis";
 import { PrismaClient } from "../../generated/prisma/client";
-import { ApiError, KycStatus, UserRole } from "@movo/shared";
+import {
+  ApiError,
+  KycStatus,
+  UserRole,
+  AccountStatus,
+  signAccessToken,
+  signRefreshToken,
+} from "@movo/shared";
 import { createUserRepository } from "../../repositories/user-repository";
+import { createSessionRepository } from "../../repositories/session-repository";
 import { UserConflictError } from "../../models/user";
 
 /** Roles por defecto al registrarse (AC8): todo usuario puede operar como emisor y transportista. */
@@ -11,6 +20,10 @@ const DEFAULT_USER_ROLES: UserRole[] = [UserRole.SENDER, UserRole.CARRIER];
 // `isolatedModules` (tsconfig del servicio) — se usa el valor numérico de
 // `Algorithm.Argon2id` directamente en vez de importar el enum.
 const ARGON2ID = 2;
+
+// Hash sintético constante para ejecutar verificación Argon2id cuando el usuario
+// no existe, evitando ataques de tiempo (timing attacks / enumeración de usuarios).
+const DUMMY_HASH = "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$RkJWb2lMNzJ2ZzBvV0RzTE4xQ3pndw";
 
 export interface RegisterUserInput {
   fullName: string;
@@ -22,6 +35,21 @@ export interface RegisterUserInput {
 export interface RegisterUserResult {
   userId: string;
   kycStatus: KycStatus;
+}
+
+export interface LoginUserInput {
+  phone: string;
+  password: string;
+}
+
+export interface LoginUserResult {
+  userId: string;
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  kycStatus: KycStatus;
+  fullName: string;
+  roles: UserRole[];
 }
 
 /**
@@ -55,8 +83,9 @@ export function normalizePhoneToE164Ar(rawPhone: string): string {
   return `+549${digits}`;
 }
 
-export function createAuthService(db: PrismaClient) {
+export function createAuthService(db: PrismaClient, redis: Redis) {
   const repository = createUserRepository(db);
+  const sessionRepository = createSessionRepository(redis);
 
   return {
     async register(input: RegisterUserInput): Promise<RegisterUserResult> {
@@ -87,6 +116,49 @@ export function createAuthService(db: PrismaClient) {
         }
         throw err;
       }
+    },
+
+    async login(input: LoginUserInput): Promise<LoginUserResult> {
+      const phone = normalizePhoneToE164Ar(input.phone);
+      const user = await repository.findByPhone(phone);
+
+      if (!user) {
+        // Prevenir timing attack: ejecutar verificación Argon2id contra dummy hash
+        try {
+          await verify(DUMMY_HASH, input.password);
+        } catch {
+          // ignora error de formato si dummy hash fuera rechazado
+        }
+        throw new ApiError(401, "AUTH_INVALID_CREDENTIALS", "Credenciales inválidas.");
+      }
+
+      const isValidPassword = await verify(user.passwordHash, input.password);
+      if (!isValidPassword) {
+        throw new ApiError(401, "AUTH_INVALID_CREDENTIALS", "Credenciales inválidas.");
+      }
+
+      if (user.status === AccountStatus.BANNED || user.status === AccountStatus.DELETED) {
+        throw new ApiError(403, "ACCOUNT_SUSPENDED", "La cuenta se encuentra suspendida o inhabilitada.");
+      }
+
+      const accessToken = signAccessToken({
+        sub: user.id,
+        roles: user.roles,
+        kycStatus: user.kycStatusIdentity,
+      });
+
+      const { token: refreshToken, tokenId } = signRefreshToken();
+      await sessionRepository.saveRefreshToken(user.id, tokenId, refreshToken);
+
+      return {
+        userId: user.id,
+        accessToken,
+        refreshToken,
+        expiresIn: 3600,
+        kycStatus: user.kycStatusIdentity,
+        fullName: `${user.firstName} ${user.lastName}`,
+        roles: user.roles,
+      };
     },
   };
 }

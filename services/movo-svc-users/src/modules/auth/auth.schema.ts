@@ -37,6 +37,49 @@ export const authSchemas = {
       },
     },
   },
+  loginBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["phone", "password"],
+    properties: {
+      phone: {
+        type: "string",
+        // Formato argentino: +54 opcional, 9 opcional (móvil), 10 dígitos.
+        pattern: "^(\\+?54)?9?\\d{10}$",
+      },
+      password: {
+        type: "string",
+        minLength: 1,
+      },
+    },
+  },
+  loginResponse: {
+    type: "object",
+    required: [
+      "userId",
+      "accessToken",
+      "refreshToken",
+      "expiresIn",
+      "kycStatus",
+      "fullName",
+      "roles",
+    ],
+    properties: {
+      userId: { type: "string", format: "uuid" },
+      accessToken: { type: "string" },
+      refreshToken: { type: "string" },
+      expiresIn: { type: "integer" },
+      kycStatus: {
+        type: "string",
+        enum: ["not_started", "pending", "approved", "rejected", "expired"],
+      },
+      fullName: { type: "string" },
+      roles: {
+        type: "array",
+        items: { type: "string" },
+      },
+    },
+  },
   errorResponse: {
     type: "object",
     required: ["error"],
