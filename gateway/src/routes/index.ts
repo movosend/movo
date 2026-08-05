@@ -41,7 +41,19 @@ export default async function routesPlugin(
     await app.register(httpProxy, {
       upstream: route.upstream,
       prefix: route.prefix,
-      rewritePrefix: "/",
+      // Sin rewrite: el path que expone cada microservicio (ej. `/auth/register`
+      // en movo-svc-users) es el mismo que expone el gateway bajo `/api/v1`, ya que
+      // cada servicio también se publica directo en su puerto para debug local (ver
+      // README) y genera su propio Swagger documentando esos paths. `rewritePrefix:
+      // "/"` (como estaba antes) le sacaba el prefijo del módulo (`/auth`, `/users`)
+      // al reenviar — el upstream nunca lo esperó así, así que TODO endpoint de
+      // movo-svc-users devolvía 404 al pasar por acá (nadie lo detectó porque el
+      // test suite del gateway pega contra un stub que responde 200 a cualquier
+      // path, y el de movo-svc-users llama las rutas directo con `app.inject()`,
+      // sin gateway de por medio). `rewritePrefix: route.prefix` es un no-op
+      // intencional: matchea `prefix` y lo vuelve a poner igual, el path llega
+      // intacto al upstream.
+      rewritePrefix: route.prefix,
       preHandler: async (request, reply) => {
         // request.url incluye el prefijo /api/v1 con el que se registró este
         // plugin; getPublicRoutes() declara los paths sin ese prefijo (son

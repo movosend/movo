@@ -96,4 +96,56 @@ export const authSchemas = {
       requestId: { type: "string" },
     },
   },
+  sendOtpBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["phone"],
+    properties: {
+      // Mismo patrón que registerBody.phone (AC2 de MOVO-70): +54 opcional, 9 opcional, 10 dígitos.
+      phone: {
+        type: "string",
+        pattern: "^(\\+?54)?9?\\d{10}$",
+      },
+    },
+  },
+  sendOtpResponse: {
+    type: "object",
+    required: ["otpId", "cooldownSeconds"],
+    properties: {
+      otpId: { type: "string", format: "uuid" },
+      cooldownSeconds: { type: "integer", minimum: 0 },
+    },
+  },
+  verifyOtpBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["otpId", "code"],
+    properties: {
+      otpId: { type: "string", format: "uuid" },
+      code: { type: "string", pattern: "^\\d{6}$" },
+    },
+  },
+  verifyOtpResponse: {
+    type: "object",
+    required: ["phoneVerificationToken"],
+    properties: {
+      phoneVerificationToken: { type: "string" },
+    },
+  },
+  resendOtpBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["otpId"],
+    properties: {
+      otpId: { type: "string", format: "uuid" },
+    },
+  },
+  resendOtpResponse: {
+    type: "object",
+    required: ["resentAt", "cooldownSeconds"],
+    properties: {
+      resentAt: { type: "string", format: "date-time" },
+      cooldownSeconds: { type: "integer", minimum: 0 },
+    },
+  },
 };

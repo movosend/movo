@@ -98,6 +98,7 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 | 009 | Terraform (AWS + Cloudflare) reemplaza aprovisionamiento manual | Curva de aprendizaje de HCL/state management |
 | 010 | Gateway: servicios internos confían en `x-user-*` sin revalidar (se apoya en que solo el gateway expone puerto público) | Si un atacante llega a la red interna, el modelo de confianza cae — perimetral, no zero-trust |
 | 011 | Prisma como ORM estándar para todos los servicios Node de MOVO (primera implementación en `movo-svc-users`, los demás lo adoptan al tener dominio real) | Curva de aprendizaje del equipo; requiere driver adapter (`@prisma/adapter-pg`, Prisma 7) y baselinear las 2 migraciones SQL ya aplicadas como histórico |
+| 012 | Twilio como proveedor de SMS para OTP (MOVO-71), detrás de una interfaz `SmsProvider`; implementación de consola es el default de dev/test/CI, Twilio real queda reservado para la demo final | Sin envío real de SMS fuera de la demo — limitación aceptada para no incurrir en costos de una API externa de pago (riesgo R10 del plan de proyecto); el adapter (riesgo R11) permite activar Twilio de verdad solo cambiando `SMS_PROVIDER` |
 
 ## Convenciones de código
 
@@ -704,6 +705,121 @@ vez con las imágenes.
 Pendiente / fuera de alcance de este hotfix: aumentar el tamaño de disco de la EC2 si
 vuelve a quedar justo — el prune y la rotación de logs resuelven la acumulación, no un
 piso de espacio muy chico de por sí.
+
+### MOVO-71 — Verificación de teléfono por OTP (`svc-users`)
+
+**Cambio de contrato respecto al AC original, ya resuelto y reflejado en Linear (ver
+nota de MOVO-70 más arriba, ahora desactualizada en ese punto)**: el OTP se verifica
+**antes** de crear la cuenta, no después. `POST /api/v1/auth/register` (MOVO-70, todavía
+sin implementar ese lado) va a requerir un `phoneVerificationToken` emitido acá.
+
+Implementado: `src/repositories/otp-repository.ts` (Redis, motor genérico — no sabe que
+`target` es un teléfono, a propósito, para poder reusarlo en el reset de contraseña de
+MOVO-64 sin reescribir esta capa), `src/services/otp-service.ts` (genera/verifica/reenvía,
+hashea con `@node-rs/argon2` igual que las contraseñas), `src/adapters/{sms-provider,
+console-sms-provider,twilio-sms-provider}.ts` (AC8), `src/modules/auth/
+phone-verification.service.ts` (capa específica de teléfono: normaliza, orquesta
+`otp-service`, emite/consume el `phoneVerificationToken`), 3 rutas nuevas en
+`auth.routes.ts`/`auth.schema.ts` (`send-otp`, `verify-otp`, `resend-otp`).
+
+Decisiones clave:
+- **Invariante: un solo OTP activo por target.** `otp-repository.create()` invalida
+  cualquier OTP previo del mismo `target` (índice secundario `otp:target:{target}` →
+  `otpId`) antes de crear uno nuevo — sin esto, llamar `send-otp` repetidas veces después
+  de vencido el cooldown (pero antes del TTL de 10 min) dejaba códigos válidos
+  simultáneos, cada uno con su propio presupuesto de 5 intentos.
+- **`resend-otp` siempre genera un código nuevo** bajo el mismo `otpId`: como el código
+  se guarda hasheado (nunca en claro, AC3), reenviar el original es imposible — el texto
+  plano no existe en ningún lado después del envío inicial.
+- **AC2 se agregó al ticket después de la primera pasada de implementación** (el mensaje
+  de SMS tiene que recordar no compartir el código y que nadie de Movo lo va a pedir —
+  mitiga ingeniería social contra OTP). Detectado al cerrar la US comparando contra el
+  ticket de nuevo. `buildOtpMessage(code)` centralizado en `adapters/sms-provider.ts`,
+  usado tanto por `TwilioSmsProvider` como por el log de `ConsoleSmsProvider` (para que
+  en dev se vea el texto real), con test dedicado al contenido del mensaje.
+- **`send-otp` nunca devuelve 429**, a propósito: dentro del cooldown de un OTP activo
+  devuelve el mismo `otpId` sin mandar SMS de nuevo (evita el bypass obvio de llamar
+  `send-otp` en loop en vez de `resend-otp`, que sí devuelve 429).
+- **Status codes exactos del AC vigente** (no los que parecían más "estándar" a priori):
+  `AUTH_OTP_INVALID` → 401, `AUTH_OTP_EXPIRED` → 422 — ambos con el mismo `message`
+  genérico, la distinción vive en `code`/`statusCode`, no en el texto.
+- `incrementAttempts` usa un script Lua (`EXISTS` + `HINCRBY`) para que el incremento sea
+  atómico: sin esto, un TTL que vence justo entre el `findById` del caller y el
+  incremento crea una key "fantasma" de un solo campo, sin TTL.
+- `phoneVerificationToken`: JWT firmado con `jsonwebtoken` (no `@fastify/jwt`, para que
+  `phone-verification.service.ts` sea un servicio puro sin depender de la instancia de
+  Fastify — así lo puede importar MOVO-70 sin acoplarse a rutas), claims `sub` (teléfono
+  E.164), `purpose: "phone_verification"`, `jti`, TTL 15 min. **AC6 pone la invalidación
+  de un solo uso dentro del scope de esta US** (no solo emitir el token):
+  `consumePhoneVerificationToken(token, phone)` valida firma/propósito/expiración/
+  teléfono y marca el `jti` como usado en Redis (`SET ... NX`, atómico) — construida acá
+  para que MOVO-70 no tenga que reabrir esta capa, aunque el único caller real (el
+  `register()` que la va a invocar) todavía no existe.
+- Gateway (`gateway/src/config/routes-map.ts`): reemplazadas las tres rutas nuevas por el
+  placeholder muerto `POST /auth/verify-phone` (contrato viejo que ya no existe) en
+  `getPublicRoutes()` — sin esto, las tres rutas quedan protegidas por defecto (MOVO-68) y
+  nadie sin cuenta puede llamarlas, rompiendo el flujo completo. No estaba en el file-list
+  original del ticket, pero es una consecuencia necesaria.
+- `SMS_PROVIDER` (`console`|`twilio`, default `console`) + credenciales de Twilio nuevas
+  en `config/env.ts`/`.env.example` — ver ADR-012. **Auth vía API Key, no Auth Token**
+  (recomendación explícita de Twilio: el Auth Token da acceso total a la cuenta y no es
+  revocable sin regenerar todo; una API Key se limita en permisos y se revoca sola). El
+  SDK espera `twilio(apiKeySid, apiKeySecret, { accountSid })` — el Account SID sigue
+  siendo obligatorio (identifica la cuenta) pero ya no es la credencial: son
+  `TWILIO_ACCOUNT_SID` + `TWILIO_API_KEY_SID` + `TWILIO_API_KEY_SECRET` +
+  `TWILIO_FROM_NUMBER`, las 4 requeridas si `SMS_PROVIDER=twilio`. También agregadas al
+  `environment:` de `movo-svc-users` en `infra/docker-compose.yml` (antes solo tenía
+  `DATABASE_URL`/`REDIS_URL`/`JWT_SECRET` — sin este paso, cargarlas en Secrets Manager
+  no alcanza: el compose no reenvía todo `.env`, enumera variable por variable). Ojo con
+  `SMS_PROVIDER=${SMS_PROVIDER:-console}` en ese archivo (no `${SMS_PROVIDER-console}`):
+  si la variable está ausente en Secrets Manager, Compose la sustituye por vacío, y una
+  env var *presente pero vacía* no matchea el enum de `envSchema` (AJV solo aplica su
+  default cuando la variable está ausente) — sin el `:-` el servicio no arranca.
+- Tests: `test/otp-repository.test.ts` (Redis puro), `test/auth.otp.integration.test.ts`
+  (Fastify + Postgres/Redis reales, con un `SmsProvider` capturador inyectado vía
+  `buildApp({ smsProvider })` para poder leer el código generado, ya que nunca sale por
+  HTTP — verificado también a mano contra el server real con `SMS_PROVIDER=console`),
+  `test/adapters/twilio-sms-provider.test.ts` (única excepción a "nunca mockeado": Twilio
+  es una API de pago, se mockea el SDK). 105/105 tests del servicio en verde, cobertura
+  92.04% statements / 82.66% branches (umbral: 55%).
+- **Bug preexistente encontrado de paso, no introducido por esta US ni corregido acá**:
+  `src/plugins/auth.ts` (scaffold viejo de `@fastify/jwt`, sin uso real todavía) lee
+  `process.env.JWT_SECRET` directo, pero `env-schema` (detrás de `@fastify/env`) con
+  `dotenv: true` nunca escribe en `process.env` — solo arma `app.config`. `npm run dev`
+  se cae al boot con "missing secret" salvo que `JWT_SECRET` ya esté exportado en la
+  shell (los tests no lo sufren porque lo setean a mano en `beforeAll`). Fuera de alcance
+  arreglarlo acá — es el mismo plugin que la nota de MOVO-68/CLAUDE.md ya marca para
+  migrar a `signAccessToken`/`verifyAccessToken` de `@movo/shared` cuando se implemente
+  login.
+
+Pendiente / fuera de alcance de MOVO-71: `POST /auth/register` (MOVO-70) todavía no
+consume `phoneVerificationToken` ni persiste `phoneVerified=true` — la función
+`consumePhoneVerificationToken` queda lista para que esa US la use. AC7 ("no se puede
+avanzar a KYC sin teléfono verificado") queda satisfecho por construcción del nuevo
+orden, no por un chequeo explícito de esta US. Dos pendientes que no son código: falta
+pegar el ADR-012 completo (contexto/alternativas) en el Drive — solo se agregó el
+resumen de una línea acá, sin permiso de escritura sobre el Doc; y falta cargar las 4
+credenciales de Twilio en AWS Secrets Manager (`movo/dev/app-secrets` y
+`movo/prod/app-secrets`) para que `SMS_PROVIDER=twilio` funcione fuera de local — el
+código ya está listo para tomarlas (ver bullet de `docker-compose.yml` arriba), la
+carga real es una acción del equipo con acceso a AWS.
+
+**Agregado tras el merge con `develop` (login MOVO-74, conflicto en `auth.routes.ts`
+resuelto combinando ambos lados sin cambiar comportamiento de ninguno)**: se sumó un
+tercer `SmsProvider`, `TelegramSmsProvider` (`src/adapters/telegram-sms-provider.ts`),
+exclusivo del entorno `develop` (`SMS_PROVIDER=telegram`) — manda el OTP a un grupo de
+Telegram vía el HTTP API del bot (`fetch` nativo de Node 20, sin dependencia nueva), en
+vez de depender de mirar la consola de EC2 en `api-dev.movosend.app`. El texto del
+mensaje identifica teléfono y código (no reusa `buildOtpMessage`, pensado para el
+usuario final: acá el destinatario es el grupo de devs). En `prod` se sigue usando
+`twilio`. Mismo mecanismo de secrets que Twilio: `TELEGRAM_BOT_TOKEN`/
+`TELEGRAM_CHAT_ID` nuevas en `config/env.ts`/`.env.example`/`docker-compose.yml`,
+`createSmsProvider` falla rápido al arrancar si faltan con `SMS_PROVIDER=telegram`.
+Test: `test/adapters/telegram-sms-provider.test.ts` (mockea `fetch`, mismo criterio que
+`twilio-sms-provider.test.ts`). Pendiente, fuera de este cambio de código: crear el bot
+con BotFather, agregarlo al grupo de devs, y cargar `SMS_PROVIDER=telegram` +
+`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` en `movo/dev/app-secrets` — tarea manual del
+equipo con acceso a AWS, igual que el pendiente de credenciales de Twilio de arriba.
 
 ### MOVO-74 — Endpoint de login (`POST /auth/login`)
 
