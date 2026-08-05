@@ -1,0 +1,222 @@
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { FastifyInstance } from "fastify";
+import { verifyAccessToken, KycStatus, UserRole } from "@movo/shared";
+import { buildApp } from "../src/app";
+
+describe("POST /auth/login", () => {
+  let app: FastifyInstance;
+
+  const validRegisterPayload = {
+    fullName: "Tomas Olmos",
+    email: "tomasolmos04@example.com",
+    phone: "3511234567",
+    password: "Password1",
+  };
+
+  beforeAll(async () => {
+    process.env.JWT_SECRET = "test-secret";
+    process.env.DATABASE_URL =
+      process.env.DATABASE_URL || "postgresql://movo:movo_local_pw@localhost:5432/movo";
+    process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+    app = buildApp();
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(async () => {
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
+    // Clean keys matching refresh:* pattern from Redis
+    const keys = await app.redis.keys("refresh:*");
+    if (keys.length > 0) {
+      await app.redis.del(...keys);
+    }
+  });
+
+  it("autentica correctamente con credenciales válidas y devuelve la respuesta plana esperada + guarda refresh token en Redis con TTL de 7 días", async () => {
+    // 1. Registrar usuario
+    const regRes = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: validRegisterPayload,
+    });
+    expect(regRes.statusCode).toBe(201);
+    const { userId } = JSON.parse(regRes.body) as { userId: string };
+
+    // 2. Login
+    const loginRes = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: {
+        phone: validRegisterPayload.phone,
+        password: validRegisterPayload.password,
+      },
+    });
+
+    expect(loginRes.statusCode).toBe(200);
+    const body = JSON.parse(loginRes.body) as {
+      userId: string;
+      accessToken: string;
+      refreshToken: string;
+      expiresIn: number;
+      kycStatus: string;
+      fullName: string;
+      roles: string[];
+    };
+
+    expect(body.userId).toBe(userId);
+    expect(body.accessToken).toBeTruthy();
+    expect(body.refreshToken).toBeTruthy();
+    expect(body.expiresIn).toBe(3600);
+    expect(body.kycStatus).toBe("not_started");
+    expect(body.fullName).toBe("Tomas Olmos");
+    expect(body.roles.sort()).toEqual(["carrier", "sender"].sort());
+
+    // 3. Verificar Access Token JWT
+    const verifyResult = verifyAccessToken(body.accessToken);
+    expect(verifyResult.status).toBe("valid");
+    if (verifyResult.status === "valid") {
+      expect(verifyResult.claims.sub).toBe(userId);
+      expect(verifyResult.claims.kycStatus).toBe(KycStatus.NOT_STARTED);
+      expect(verifyResult.claims.roles.sort()).toEqual([UserRole.CARRIER, UserRole.SENDER].sort());
+    }
+
+    // 4. Verificar que el refresh token está guardado en Redis bajo `refresh:{userId}:*` con TTL de 7 días
+    const redisKeys = await app.redis.keys(`refresh:${userId}:*`);
+    expect(redisKeys.length).toBe(1);
+    const ttl = await app.redis.ttl(redisKeys[0]!);
+    expect(ttl).toBeGreaterThan(600000); // Cerca de 604800 segundos (7 días)
+    expect(ttl).toBeLessThanOrEqual(604800);
+  });
+
+  it("devuelve 401 AUTH_INVALID_CREDENTIALS cuando la contraseña es incorrecta", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: validRegisterPayload,
+    });
+
+    const loginRes = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: {
+        phone: validRegisterPayload.phone,
+        password: "WrongPassword123",
+      },
+    });
+
+    expect(loginRes.statusCode).toBe(401);
+    const body = JSON.parse(loginRes.body);
+    expect(body.error.code).toBe("AUTH_INVALID_CREDENTIALS");
+    expect(body.error.message).toBe("Credenciales inválidas.");
+  });
+
+  it("devuelve 401 AUTH_INVALID_CREDENTIALS cuando el teléfono no existe", async () => {
+    const loginRes = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: {
+        phone: "3519999999",
+        password: "Password1",
+      },
+    });
+
+    expect(loginRes.statusCode).toBe(401);
+    const body = JSON.parse(loginRes.body);
+    expect(body.error.code).toBe("AUTH_INVALID_CREDENTIALS");
+    expect(body.error.message).toBe("Credenciales inválidas.");
+  });
+
+  it("devuelve 403 ACCOUNT_SUSPENDED si la cuenta está suspendida (status: banned)", async () => {
+    const regRes = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: validRegisterPayload,
+    });
+    const { userId } = JSON.parse(regRes.body) as { userId: string };
+
+    // Cambiar status a banned
+    await app.db.user.update({
+      where: { id: userId },
+      data: { status: "banned" },
+    });
+
+    const loginRes = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: {
+        phone: validRegisterPayload.phone,
+        password: validRegisterPayload.password,
+      },
+    });
+
+    expect(loginRes.statusCode).toBe(403);
+    const body = JSON.parse(loginRes.body);
+    expect(body.error.code).toBe("ACCOUNT_SUSPENDED");
+    expect(body.error.message).toBe("La cuenta se encuentra suspendida o inhabilitada.");
+  });
+
+  it("permite login exitoso cuando el usuario tiene KYC pendiente", async () => {
+    const regRes = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: validRegisterPayload,
+    });
+    const { userId } = JSON.parse(regRes.body) as { userId: string };
+
+    // Actualizar kycStatusIdentity a pending
+    await app.db.user.update({
+      where: { id: userId },
+      data: { kycStatusIdentity: "pending" },
+    });
+
+    const loginRes = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: {
+        phone: validRegisterPayload.phone,
+        password: validRegisterPayload.password,
+      },
+    });
+
+    expect(loginRes.statusCode).toBe(200);
+    const body = JSON.parse(loginRes.body) as { kycStatus: string };
+    expect(body.kycStatus).toBe("pending");
+  });
+
+  it("permite múltiples logins simultáneos generando distintos tokenIds en Redis sin revocar las sesiones previas", async () => {
+    const regRes = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: validRegisterPayload,
+    });
+    const { userId } = JSON.parse(regRes.body) as { userId: string };
+
+    // Login 1
+    const loginRes1 = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { phone: validRegisterPayload.phone, password: validRegisterPayload.password },
+    });
+    expect(loginRes1.statusCode).toBe(200);
+
+    // Login 2
+    const loginRes2 = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { phone: validRegisterPayload.phone, password: validRegisterPayload.password },
+    });
+    expect(loginRes2.statusCode).toBe(200);
+
+    const body1 = JSON.parse(loginRes1.body);
+    const body2 = JSON.parse(loginRes2.body);
+
+    expect(body1.refreshToken).not.toBe(body2.refreshToken);
+
+    // Ambos refresh tokens existen en Redis
+    const redisKeys = await app.redis.keys(`refresh:${userId}:*`);
+    expect(redisKeys.length).toBe(2);
+  });
+});
