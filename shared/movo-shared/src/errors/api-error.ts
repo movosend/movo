@@ -15,7 +15,8 @@ export type ApiErrorCode =
   | "USER_EMAIL_ALREADY_EXISTS"
   | "USER_PHONE_ALREADY_EXISTS"
   | "AUTH_OTP_INVALID"
-  | "AUTH_OTP_EXPIRED";
+  | "AUTH_OTP_EXPIRED"
+  | "AUTH_REFRESH_INVALID";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {
