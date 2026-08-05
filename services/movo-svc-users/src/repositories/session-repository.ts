@@ -1,6 +1,6 @@
 import Redis from "ioredis";
 
-export const DEFAULT_REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days (604800s) as per ADR-004
+export const DEFAULT_REFRESH_TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60; // 90 days (7776000s), ADR-013
 
 export interface SessionRepository {
   saveRefreshToken(

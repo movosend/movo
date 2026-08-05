@@ -140,7 +140,7 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
         summary: "Autenticación de usuario",
         description:
           "Autentica con teléfono y contraseña. Emite JWT access token (60min TTL) y " +
-          "refresh token opaco persistido en Redis (7 días TTL).",
+          "refresh token opaco persistido en Redis (90 días TTL, ADR-013).",
         tags: ["auth"],
         body: authSchemas.loginBody,
         response: {
