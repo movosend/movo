@@ -10,6 +10,11 @@ export interface EnvConfig {
   TWILIO_FROM_NUMBER?: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
+  DIDIT_MODE: "mock" | "live";
+  DIDIT_BASE_URL?: string;
+  DIDIT_API_KEY?: string;
+  DIDIT_WORKFLOW_ID_IDENTITY?: string;
+  DIDIT_WEBHOOK_SECRET?: string;
 }
 
 export const envSchema = {
@@ -32,6 +37,15 @@ export const envSchema = {
     TWILIO_FROM_NUMBER: { type: "string" },
     TELEGRAM_BOT_TOKEN: { type: "string" },
     TELEGRAM_CHAT_ID: { type: "string" },
+    // MOVO-72: default "mock" (mismo criterio que SMS_PROVIDER=console) — no depender
+    // de credenciales de sandbox de Didit.me para levantar el servicio en dev/test/CI.
+    // La obligatoriedad de las otras 4 vars cuando DIDIT_MODE=live la valida
+    // createDiditClient al arrancar, no este schema.
+    DIDIT_MODE: { type: "string", enum: ["mock", "live"], default: "mock" },
+    DIDIT_BASE_URL: { type: "string" },
+    DIDIT_API_KEY: { type: "string" },
+    DIDIT_WORKFLOW_ID_IDENTITY: { type: "string" },
+    DIDIT_WEBHOOK_SECRET: { type: "string" },
   },
 };
 
