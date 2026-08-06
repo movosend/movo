@@ -4,6 +4,12 @@ Flujo completo de verificación KYC de identidad: creación de sesión y resoluc
 asincrónica vía webhook. Sirve como contrato visual de diseño (Paso 0 del plan de
 MOVO-72) — se ajusta si algo cambia durante la implementación.
 
+**Actualizado en la revisión de PR #51 (tmvergara)**: `POST /kyc/session` y
+`GET /kyc/status` pasaron de públicas (`userId` explícito) a protegidas — desde que
+`POST /auth/register` emite tokens de sesión (mismo cambio), el `userId` se deriva del
+JWT (header `x-user-id` que inyecta el gateway, ADR-010), no de un parámetro que
+cualquiera podía adivinar. MOVO-94 queda resuelto por este cambio, no solo mitigado.
+
 ## Creación de sesión (`POST /kyc/session`)
 
 ```mermaid
@@ -14,9 +20,9 @@ sequenceDiagram
     participant DB as Postgres (users schema)
     participant Didit as Didit.me
 
-    Mobile->>GW: POST /api/v1/kyc/session { userId }
-    Note over GW: Ruta pública (sin JWT) — MOVO-94 hace<br/>seguimiento de esta decisión
-    GW->>SU: POST /kyc/session { userId }
+    Mobile->>GW: POST /api/v1/kyc/session<br/>Authorization: Bearer accessToken
+    GW->>GW: authenticate (JWT) + inyecta x-user-id
+    GW->>SU: POST /kyc/session (x-user-id: userId)
 
     SU->>DB: findById(userId)
     DB-->>SU: user { phoneVerified, kycStatusIdentity }
@@ -92,8 +98,9 @@ sequenceDiagram
     end
 
     loop polling
-        Mobile->>GW: GET /api/v1/kyc/status?userId=...
-        GW->>SU: GET /kyc/status?userId=...
+        Mobile->>GW: GET /api/v1/kyc/status<br/>Authorization: Bearer accessToken
+        GW->>GW: authenticate (JWT) + inyecta x-user-id
+        GW->>SU: GET /kyc/status (x-user-id: userId)
         SU->>DB: findById(userId) — lee kyc_status_identity (caché)
         DB-->>SU: user
         SU-->>GW: 200 { status, manualReviewReason? }

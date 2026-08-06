@@ -878,12 +878,48 @@ Decisiones clave:
   wirear `register()` (`auth.schema.ts`/`auth.service.ts`/`auth.routes.ts`) — el
   `phoneVerificationToken` ahora es requerido en el body y se consume (single-use)
   antes de crear la cuenta.
-- **`POST /kyc/session` y `GET /kyc/status` son rutas públicas** (sin JWT, `userId`
-  explícito en vez de derivarlo de un token) — en el punto del onboarding donde mobile
-  las llama (justo después de `register`, antes de `login`) todavía no hay access token.
-  Decisión coordinada con mobile (comentarios de MOVO-72 en Linear). Riesgo aceptado
-  documentado, con seguimiento en **MOVO-94** (ticket nuevo, para no perder la decisión
-  en un comentario).
+- **`POST /kyc/session` y `GET /kyc/status` eran rutas públicas en la primera versión**
+  (sin JWT, `userId` explícito en vez de derivarlo de un token) — en el punto del
+  onboarding donde mobile las llama (justo después de `register`, antes de `login`)
+  todavía no había access token. Revertido en la revisión de PR #51 (tmvergara, ver
+  bullet siguiente): con `register()` emitiendo tokens, el diseño original del AC1
+  ("crea una sesión [...] para el usuario autenticado") vuelve a ser posible sin el
+  desvío. **MOVO-94 queda resuelto por este cambio, no solo mitigado** — no hace falta
+  el ticket de seguimiento que se había abierto para la decisión anterior.
+- **`register()` emite tokens de sesión, igual que `login()` (revisión de PR #51,
+  tmvergara)**: `RegisterUserResult` pasa a ser el mismo shape que `LoginUserResult`
+  (`accessToken`/`refreshToken`/`expiresIn`/`kycStatus`/`fullName`/`roles`) —
+  `auth.service.ts#register()` firma el access token y persiste el refresh token en
+  Redis (`sessionRepository.saveRefreshToken`) antes de devolver la respuesta 201.
+  Motivo: el estándar de industria en onboarding con KYC (Stripe Identity, Persona, la
+  mayoría de neobancos) es que el registro autentica; el AC1 original de MOVO-72 ya lo
+  asumía. Como consecuencia directa, `/kyc/session` y `/kyc/status` (gateway,
+  `routes-map.ts`) dejan de estar en `getPublicRoutes()` — son rutas protegidas como
+  cualquier otra, sin rate limit estricto (quedan bajo el general 200/min). El `userId`
+  se deriva del header `x-user-id` que el gateway inyecta tras validar el JWT (ADR-010,
+  `kyc.routes.ts#requireUserIdFromHeader`), no de un parámetro del body/querystring —
+  `KycSessionBody`/`KycStatusQuerystring` (`kyc.schema.ts`) se eliminaron. Un
+  `x-user-id` ausente o mal formado (llamada directa al servicio sin pasar por el
+  gateway) responde `401 AUTH_TOKEN_INVALID`.
+  **Pendiente, fuera de este cambio**: coordinar con MOVO-73 (movo-mobile, in progress)
+  — `use-registration.ts` tiene que persistir los tokens que devuelve el `register`
+  nuevo antes de navegar a la pantalla de KYC, y las llamadas a `/kyc/session`/
+  `/kyc/status` necesitan adjuntar `Authorization` a mano (el interceptor genérico
+  sigue siendo alcance de MOVO-76, que no existe todavía). El caso borde de token
+  vencido a mitad del onboarding (AC7 de MOVO-73, "flujo reanudable") queda sin
+  resolver en este cambio — a decidir si es limitación aceptada o si MOVO-73 necesita
+  un refresh manual mínimo.
+- **Bug encontrado en la misma revisión: el `phoneVerificationToken` se perdía en un
+  reintento de registro tras un conflicto de datos.** `register()` consume el token
+  (single-use) *antes* de llamar a `repository.create()`; si `create()` fallaba por
+  `UserConflictError` (409, típicamente un typo en el email), el token ya había quedado
+  marcado como usado en Redis — el usuario tenía que rehacer todo el flujo de OTP para
+  reintentar, aunque su teléfono siguiera verificado. Corregido agregando
+  `releasePhoneVerificationToken(jti)` a `PhoneVerificationService`
+  (`phone-verification.service.ts`) — borra la key `phone-verification-used:{jti}` de
+  Redis — y llamándolo en el `catch` de `UserConflictError` dentro de
+  `auth.service.ts#register()`, antes de relanzar el 409. `consumePhoneVerificationToken`
+  ahora devuelve también el `jti` (antes solo `{ phone }`) para poder liberarlo.
 - **Bug de rate-limit del gateway encontrado y corregido de paso**: al agregar el rate
   limit estricto de `/kyc/session` (mismo `{max:5, timeWindow:"15 minutes"}` que
   `/auth/login`), los tests mostraron que ambos limiters compartían el mismo contador en
@@ -981,8 +1017,30 @@ credenciales reales del usuario — no solo con `DIDIT_MODE=mock`):
 
 Pendiente / fuera de alcance de MOVO-72: mapeo de `Expired`/`Abandoned`/`Kyc Expired`
 (no hay forma de generar esos escenarios desde "Probar Webhook" de la consola;
-requeriría dejar vencer una sesión real o abandonarla a mitad de camino). Seguimiento
-de la decisión de rutas públicas sin JWT: **MOVO-94**. Panel de admin para casos en
-`manual_review` (AC10 solo deja el dato consultable, `findManualReviewCases()`):
-MOVO-32, sprint posterior.
+requeriría dejar vencer una sesión real o abandonarla a mitad de camino). Panel de
+admin para casos en `manual_review` (AC10 solo deja el dato consultable,
+`findManualReviewCases()`): MOVO-32, sprint posterior. La decisión de rutas públicas
+sin JWT (que tenía seguimiento en MOVO-94) quedó resuelta en la revisión de PR #51 —
+ver bullets de arriba ("`register()` emite tokens de sesión").
+
+**Cambios aplicados tras la revisión de PR #51 (tmvergara, 2026-08-06)**: además de los
+tres bullets de arriba (rutas de KYC protegidas, `register()` emite tokens, fix del
+`phoneVerificationToken` perdido en reintento), se actualizaron los tests existentes al
+nuevo contrato: `auth.register.integration.test.ts` (shape de respuesta + caso nuevo de
+liberación de token), `auth.login.integration.test.ts` (conteo de refresh tokens en
+Redis, ahora +1 por cada `register()` de fixture), `kyc.session.integration.test.ts` /
+`kyc.status.integration.test.ts` (header `x-user-id` en vez de body/querystring, casos
+nuevos de 401 sin header / header inválido), `gateway/test/routes-prefix.test.ts`
+(`/kyc/session` y `/kyc/status` exigen `Authorization: Bearer`). `docs/kyc/
+sequence-diagram.md` y el `README.md` raíz (sección de rutas públicas) actualizados
+para no contradecir el diseño nuevo. 173/173 tests en `svc-users` (subieron de 169),
+32/32 en gateway (subieron de 30) — suite completa contra Postgres/Redis reales, más un
+smoke test manual de punta a punta a través del gateway real (`register` → token →
+`POST /kyc/session` con `Authorization` → `GET /kyc/status`) para confirmar la
+inyección de `x-user-id`, no solo `app.inject()` sin gateway de por medio.
+
+Sigue pendiente, sin cambios de código en esta revisión: coordinación con MOVO-73
+(movo-mobile) descrita arriba, y actualizar Linear (MOVO-70 tiene un AC vigente que
+dice explícitamente "sin tokens de sesión" — contradicho por este cambio; MOVO-94 pasa
+a estar resuelto, no en Backlog).
 
