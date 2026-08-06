@@ -82,9 +82,10 @@ export function getServiceRoutes(env: {
     //   upstream: env.PRICING_LOGISTICS_SERVICE_URL!,
     // },
 
-    // webhooks service
+    // kyc (MOVO-72): reemplaza el placeholder "/webhooks" de MOVO-68 — el path real
+    // del webhook de Didit.me quedó definido bajo /kyc/webhook (AC4), no /webhooks/didit.
     {
-      prefix: "/webhooks",
+      prefix: "/kyc",
       upstream: env.USERS_SERVICE_URL,
     },
   ];
@@ -109,8 +110,22 @@ export function getPublicRoutes(): PublicRoute[] {
     { method: "POST", path: "/auth/verify-otp" },
     { method: "POST", path: "/auth/resend-otp" },
 
-    // webhooks
-    { method: "POST", path: "/webhooks/didit" },
+    // kyc (MOVO-72): en el punto del onboarding donde mobile llama a estas dos rutas
+    // (justo después de /auth/register) todavía no hay JWT — register no emite
+    // tokens, login es un paso separado. Decisión coordinada con mobile (comentarios
+    // de MOVO-72 en Linear); riesgo aceptado (userId adivinable en teoría) con
+    // seguimiento en MOVO-94, no resuelto acá.
+    {
+      method: "POST",
+      path: "/kyc/session",
+      // Sin JWT de por medio, este endpoint es más superficie de abuso que el resto
+      // — mismo criterio de rate limit estricto que /auth/login.
+      rateLimit: { max: 5, timeWindow: "15 minutes" },
+    },
+    { method: "GET", path: "/kyc/status" },
+    // Webhook de Didit.me (AC4/AC5): no lleva JWT ni puede — Didit no tiene uno. Se
+    // protege con verificación de firma (X-Signature-V2) del lado de svc-users, no acá.
+    { method: "POST", path: "/kyc/webhook" },
   ];
 }
 

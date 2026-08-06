@@ -98,4 +98,48 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
 
     expect(response.statusCode).toBe(401);
   });
+
+  describe("Rutas de /kyc (MOVO-72)", () => {
+    it("POST /kyc/session es público (sin token) y llega al upstream con el prefijo /kyc preservado", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/kyc/session",
+        payload: { userId: "11111111-1111-1111-1111-111111111111" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedUrl).toBe("/kyc/session");
+    });
+
+    it("GET /kyc/status es público (sin token)", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/kyc/status?userId=11111111-1111-1111-1111-111111111111",
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedUrl).toBe("/kyc/status?userId=11111111-1111-1111-1111-111111111111");
+    });
+
+    it("POST /kyc/webhook es público (sin token) — Didit no puede mandar un JWT", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/kyc/webhook",
+        payload: { status: "Approved", session_id: "sess_1" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedUrl).toBe("/kyc/webhook");
+    });
+
+    it("el viejo placeholder /webhooks/didit de MOVO-68 ya no existe (404, no matchea ningún prefijo de servicio)", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/webhooks/didit",
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(404);
+    });
+  });
 });
