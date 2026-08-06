@@ -110,19 +110,15 @@ export function getPublicRoutes(): PublicRoute[] {
     { method: "POST", path: "/auth/verify-otp" },
     { method: "POST", path: "/auth/resend-otp" },
 
-    // kyc (MOVO-72): en el punto del onboarding donde mobile llama a estas dos rutas
-    // (justo después de /auth/register) todavía no hay JWT — register no emite
-    // tokens, login es un paso separado. Decisión coordinada con mobile (comentarios
-    // de MOVO-72 en Linear); riesgo aceptado (userId adivinable en teoría) con
-    // seguimiento en MOVO-94, no resuelto acá.
-    {
-      method: "POST",
-      path: "/kyc/session",
-      // Sin JWT de por medio, este endpoint es más superficie de abuso que el resto
-      // — mismo criterio de rate limit estricto que /auth/login.
-      rateLimit: { max: 5, timeWindow: "15 minutes" },
-    },
-    { method: "GET", path: "/kyc/status" },
+    // kyc (MOVO-72): /kyc/session y /kyc/status pasaron a ser rutas PROTEGIDAS
+    // (revisión de PR #51, tmvergara) — ahora que POST /auth/register emite tokens de
+    // sesión igual que login, el diseño original de MOVO-72 (rutas públicas + userId
+    // explícito, porque register no tenía tokens) ya no hace falta. El userId se
+    // deriva del JWT (header x-user-id inyectado más abajo), no de un parámetro
+    // adivinable — MOVO-94 queda resuelto por este cambio, no solo mitigado. Rate
+    // limit estricto tampoco hace falta más: quedan bajo el general (200/min), como
+    // cualquier otra ruta protegida.
+    //
     // Webhook de Didit.me (AC4/AC5): no lleva JWT ni puede — Didit no tiene uno. Se
     // protege con verificación de firma (X-Signature-V2) del lado de svc-users, no acá.
     { method: "POST", path: "/kyc/webhook" },

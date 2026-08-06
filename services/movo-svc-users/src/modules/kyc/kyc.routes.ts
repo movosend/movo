@@ -10,12 +10,23 @@ export interface KycRoutesOptions extends FastifyPluginOptions {
   diditClient?: DiditClient;
 }
 
-interface KycSessionBody {
-  userId: string;
-}
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-interface KycStatusQuerystring {
-  userId: string;
+/**
+ * El `userId` sale del header `x-user-id`, inyectado por el gateway después de
+ * validar el JWT (ADR-010) — revisión de PR #51 (tmvergara), reemplaza el `userId`
+ * explícito en body/querystring de la primera versión (rutas sin JWT, seguimiento en
+ * MOVO-94). Un valor ausente o mal formado acá significa que la request no pasó por
+ * el gateway como se esperaba (o alguien está pegándole directo al servicio) — no es
+ * el caso de "usuario no encontrado" (eso lo resuelve el service con 404).
+ */
+function requireUserIdFromHeader(request: FastifyRequest): string {
+  const raw = request.headers["x-user-id"];
+  const userId = Array.isArray(raw) ? raw[0] : raw;
+  if (!userId || !UUID_PATTERN.test(userId)) {
+    throw new ApiError(401, "AUTH_TOKEN_INVALID", "Falta autenticación válida para esta operación.");
+  }
+  return userId;
 }
 
 declare module "fastify" {
@@ -52,52 +63,56 @@ export default async function kycRoutes(app: FastifyInstance, opts: KycRoutesOpt
     }
   });
 
-  app.post<{ Body: KycSessionBody }>(
+  app.post(
     "/session",
     {
       schema: {
         summary: "Crear sesión de verificación KYC",
         description:
-          "Crea una sesión de verificación en Didit.me para el usuario indicado y devuelve " +
+          "Crea una sesión de verificación en Didit.me para el usuario autenticado y devuelve " +
           "el sessionToken que el cliente móvil pasa al SDK nativo de Didit (AC1). Solo " +
           "permitido si el teléfono está verificado y el kyc_status actual lo permite (AC2). " +
-          "Sin JWT: en este punto del onboarding el usuario todavía no tiene token — ver " +
-          "MOVO-94 para el seguimiento de esta decisión.",
+          "Ruta protegida: requiere Authorization Bearer, el userId se deriva del token " +
+          "(revisión de PR #51, reemplaza el diseño sin JWT original — ver MOVO-94).",
         tags: ["kyc"],
-        body: kycSchemas.kycSessionBody,
         response: {
           201: kycSchemas.kycSessionResponse,
           400: kycSchemas.errorResponse,
+          401: kycSchemas.errorResponse,
           404: kycSchemas.errorResponse,
           409: kycSchemas.errorResponse,
           502: kycSchemas.errorResponse,
         },
       },
     },
-    async (request: FastifyRequest<{ Body: KycSessionBody }>, reply: FastifyReply) => {
-      const result = await service.createSession(request.body.userId);
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const userId = requireUserIdFromHeader(request);
+      const result = await service.createSession(userId);
       reply.code(201);
       return result;
     }
   );
 
-  app.get<{ Querystring: KycStatusQuerystring }>(
+  app.get(
     "/status",
     {
       schema: {
         summary: "Consultar estado de KYC",
-        description: "Permite al cliente móvil hacer polling del estado mientras la verificación está en curso (AC8).",
+        description:
+          "Permite al cliente móvil hacer polling del estado mientras la verificación está " +
+          "en curso (AC8). Ruta protegida: requiere Authorization Bearer, el userId se " +
+          "deriva del token (revisión de PR #51 — ver MOVO-94).",
         tags: ["kyc"],
-        querystring: kycSchemas.kycStatusQuerystring,
         response: {
           200: kycSchemas.kycStatusResponse,
-          400: kycSchemas.errorResponse,
+          401: kycSchemas.errorResponse,
           404: kycSchemas.errorResponse,
         },
       },
     },
-    async (request: FastifyRequest<{ Querystring: KycStatusQuerystring }>) => {
-      return service.getStatus(request.query.userId);
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      return service.getStatus(userId);
     }
   );
 

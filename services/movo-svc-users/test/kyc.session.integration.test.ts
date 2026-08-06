@@ -54,7 +54,11 @@ describe("POST /kyc/session (MOVO-72)", () => {
   });
 
   /** Registra un usuario real (teléfono verificado vía MOVO-71/72) para tener un
-   * fixture con `phoneVerified: true` y `kycStatusIdentity: not_started`. */
+   * fixture con `phoneVerified: true` y `kycStatusIdentity: not_started`. Devuelve el
+   * userId para armar el header `x-user-id` que ahora exige /kyc/session (MOVO-72,
+   * revisión de PR #51) — mismo header que inyecta el gateway tras validar el JWT
+   * (ADR-010); acá se pone a mano porque el test le pega directo a svc-users, sin
+   * pasar por el gateway. */
   async function registerVerifiedUser(): Promise<string> {
     const phone = `351${Math.floor(1000000 + Math.random() * 8999999)}`;
     const send = await app.inject({ method: "POST", url: "/auth/send-otp", payload: { phone } });
@@ -82,7 +86,11 @@ describe("POST /kyc/session (MOVO-72)", () => {
   it("crea la sesión (201), inserta la fila en kyc_verification y actualiza el caché de users a pending (AC1/AC3)", async () => {
     const userId = await registerVerifiedUser();
 
-    const response = await app.inject({ method: "POST", url: "/kyc/session", payload: { userId } });
+    const response = await app.inject({
+      method: "POST",
+      url: "/kyc/session",
+      headers: { "x-user-id": userId },
+    });
 
     expect(response.statusCode).toBe(201);
     const body = JSON.parse(response.body) as { sessionId: string; sessionToken: string };
@@ -115,7 +123,11 @@ describe("POST /kyc/session (MOVO-72)", () => {
       },
     });
 
-    const response = await app.inject({ method: "POST", url: "/kyc/session", payload: { userId: user.id } });
+    const response = await app.inject({
+      method: "POST",
+      url: "/kyc/session",
+      headers: { "x-user-id": user.id },
+    });
 
     expect(response.statusCode).toBe(409);
     expect(JSON.parse(response.body).error.code).toBe("KYC_SESSION_NOT_ALLOWED");
@@ -125,7 +137,11 @@ describe("POST /kyc/session (MOVO-72)", () => {
     const userId = await registerVerifiedUser();
     await app.db.user.update({ where: { id: userId }, data: { kycStatusIdentity: "approved" } });
 
-    const response = await app.inject({ method: "POST", url: "/kyc/session", payload: { userId } });
+    const response = await app.inject({
+      method: "POST",
+      url: "/kyc/session",
+      headers: { "x-user-id": userId },
+    });
 
     expect(response.statusCode).toBe(409);
     expect(JSON.parse(response.body).error.code).toBe("KYC_SESSION_NOT_ALLOWED");
@@ -135,7 +151,11 @@ describe("POST /kyc/session (MOVO-72)", () => {
     const userId = await registerVerifiedUser();
     await app.db.user.update({ where: { id: userId }, data: { kycStatusIdentity: "pending" } });
 
-    const response = await app.inject({ method: "POST", url: "/kyc/session", payload: { userId } });
+    const response = await app.inject({
+      method: "POST",
+      url: "/kyc/session",
+      headers: { "x-user-id": userId },
+    });
 
     expect(response.statusCode).toBe(409);
     expect(JSON.parse(response.body).error.code).toBe("KYC_SESSION_NOT_ALLOWED");
@@ -145,22 +165,41 @@ describe("POST /kyc/session (MOVO-72)", () => {
     const userId = await registerVerifiedUser();
     await app.db.user.update({ where: { id: userId }, data: { kycStatusIdentity: status } });
 
-    const response = await app.inject({ method: "POST", url: "/kyc/session", payload: { userId } });
+    const response = await app.inject({
+      method: "POST",
+      url: "/kyc/session",
+      headers: { "x-user-id": userId },
+    });
 
     expect(response.statusCode).toBe(201);
   });
 
   it("devuelve 404 NOT_FOUND si el usuario no existe", async () => {
-    const response = await app.inject({ method: "POST", url: "/kyc/session", payload: { userId: randomUUID() } });
+    const response = await app.inject({
+      method: "POST",
+      url: "/kyc/session",
+      headers: { "x-user-id": randomUUID() },
+    });
 
     expect(response.statusCode).toBe(404);
     expect(JSON.parse(response.body).error.code).toBe("NOT_FOUND");
   });
 
-  it("rechaza un userId con formato inválido (no uuid) con 400 VALIDATION_FAILED", async () => {
-    const response = await app.inject({ method: "POST", url: "/kyc/session", payload: { userId: "no-es-un-uuid" } });
+  it("rechaza con 401 AUTH_TOKEN_INVALID si falta el header x-user-id (ruta protegida sin identidad inyectada)", async () => {
+    const response = await app.inject({ method: "POST", url: "/kyc/session" });
 
-    expect(response.statusCode).toBe(400);
-    expect(JSON.parse(response.body).error.code).toBe("VALIDATION_FAILED");
+    expect(response.statusCode).toBe(401);
+    expect(JSON.parse(response.body).error.code).toBe("AUTH_TOKEN_INVALID");
+  });
+
+  it("rechaza con 401 AUTH_TOKEN_INVALID si x-user-id no es un uuid válido", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/kyc/session",
+      headers: { "x-user-id": "no-es-un-uuid" },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(JSON.parse(response.body).error.code).toBe("AUTH_TOKEN_INVALID");
   });
 });

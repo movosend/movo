@@ -40,7 +40,7 @@ describe("GET /kyc/status (MOVO-72, AC8)", () => {
   it("devuelve not_started para un usuario recién creado, sin manualReviewReason", async () => {
     const userId = await createUser("not_started");
 
-    const response = await app.inject({ method: "GET", url: `/kyc/status?userId=${userId}` });
+    const response = await app.inject({ method: "GET", url: "/kyc/status", headers: { "x-user-id": userId } });
 
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.body)).toEqual({ status: "not_started", manualReviewReason: null });
@@ -49,7 +49,7 @@ describe("GET /kyc/status (MOVO-72, AC8)", () => {
   it("devuelve pending mientras la sesión está en curso", async () => {
     const userId = await createUser("pending");
 
-    const response = await app.inject({ method: "GET", url: `/kyc/status?userId=${userId}` });
+    const response = await app.inject({ method: "GET", url: "/kyc/status", headers: { "x-user-id": userId } });
 
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.body).status).toBe("pending");
@@ -58,7 +58,7 @@ describe("GET /kyc/status (MOVO-72, AC8)", () => {
   it("devuelve approved luego de resuelto el webhook", async () => {
     const userId = await createUser("approved");
 
-    const response = await app.inject({ method: "GET", url: `/kyc/status?userId=${userId}` });
+    const response = await app.inject({ method: "GET", url: "/kyc/status", headers: { "x-user-id": userId } });
 
     expect(JSON.parse(response.body).status).toBe("approved");
   });
@@ -82,7 +82,7 @@ describe("GET /kyc/status (MOVO-72, AC8)", () => {
       },
     });
 
-    const response = await app.inject({ method: "GET", url: `/kyc/status?userId=${userId}` });
+    const response = await app.inject({ method: "GET", url: "/kyc/status", headers: { "x-user-id": userId } });
 
     expect(JSON.parse(response.body)).toEqual({
       status: "manual_review",
@@ -110,7 +110,7 @@ describe("GET /kyc/status (MOVO-72, AC8)", () => {
       },
     });
 
-    const response = await app.inject({ method: "GET", url: `/kyc/status?userId=${userId}` });
+    const response = await app.inject({ method: "GET", url: "/kyc/status", headers: { "x-user-id": userId } });
 
     expect(JSON.parse(response.body).manualReviewReason).toBe("Document expired; Face match score too low");
   });
@@ -129,22 +129,37 @@ describe("GET /kyc/status (MOVO-72, AC8)", () => {
       },
     });
 
-    const response = await app.inject({ method: "GET", url: `/kyc/status?userId=${userId}` });
+    const response = await app.inject({ method: "GET", url: "/kyc/status", headers: { "x-user-id": userId } });
 
     expect(JSON.parse(response.body)).toEqual({ status: "manual_review", manualReviewReason: null });
   });
 
   it("devuelve 404 NOT_FOUND si el usuario no existe", async () => {
-    const response = await app.inject({ method: "GET", url: `/kyc/status?userId=${randomUUID()}` });
+    const response = await app.inject({
+      method: "GET",
+      url: "/kyc/status",
+      headers: { "x-user-id": randomUUID() },
+    });
 
     expect(response.statusCode).toBe(404);
     expect(JSON.parse(response.body).error.code).toBe("NOT_FOUND");
   });
 
-  it("rechaza un userId con formato inválido (no uuid) con 400 VALIDATION_FAILED", async () => {
-    const response = await app.inject({ method: "GET", url: "/kyc/status?userId=no-es-un-uuid" });
+  it("rechaza con 401 AUTH_TOKEN_INVALID si falta el header x-user-id (ruta protegida sin identidad inyectada)", async () => {
+    const response = await app.inject({ method: "GET", url: "/kyc/status" });
 
-    expect(response.statusCode).toBe(400);
-    expect(JSON.parse(response.body).error.code).toBe("VALIDATION_FAILED");
+    expect(response.statusCode).toBe(401);
+    expect(JSON.parse(response.body).error.code).toBe("AUTH_TOKEN_INVALID");
+  });
+
+  it("rechaza con 401 AUTH_TOKEN_INVALID si x-user-id no es un uuid válido", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/kyc/status",
+      headers: { "x-user-id": "no-es-un-uuid" },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(JSON.parse(response.body).error.code).toBe("AUTH_TOKEN_INVALID");
   });
 });

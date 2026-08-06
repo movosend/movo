@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, Server } from "node:http";
 import { FastifyInstance } from "fastify";
+import { signAccessToken, UserRole, KycStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 
 // Cubre el comentario de PR sobre routes/index.ts: la duda era si Fastify
@@ -13,6 +14,7 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
   let stub: Server;
   let stubPort: number;
   let capturedUrl = "";
+  let capturedHeaders: Record<string, string | string[] | undefined> = {};
 
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
@@ -20,6 +22,7 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
 
     stub = createServer((req, res) => {
       capturedUrl = req.url ?? "";
+      capturedHeaders = req.headers;
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
     });
@@ -99,26 +102,55 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
     expect(response.statusCode).toBe(401);
   });
 
-  describe("Rutas de /kyc (MOVO-72)", () => {
-    it("POST /kyc/session es público (sin token) y llega al upstream con el prefijo /kyc preservado", async () => {
+  describe("Rutas de /kyc (MOVO-72, protegidas desde la revisión de PR #51)", () => {
+    function issueToken(): string {
+      return signAccessToken({
+        sub: "11111111-1111-1111-1111-111111111111",
+        roles: [UserRole.SENDER, UserRole.CARRIER],
+        kycStatus: KycStatus.NOT_STARTED,
+      });
+    }
+
+    it("POST /kyc/session exige token (401 sin Authorization)", async () => {
       const response = await app.inject({
         method: "POST",
         url: "/api/v1/kyc/session",
-        payload: { userId: "11111111-1111-1111-1111-111111111111" },
+      });
+
+      expect(response.statusCode).toBe(401);
+    });
+
+    it("POST /kyc/session con token válido llega al upstream con el prefijo /kyc preservado y x-user-id inyectado", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/kyc/session",
+        headers: { authorization: `Bearer ${issueToken()}` },
       });
 
       expect(response.statusCode).toBe(200);
       expect(capturedUrl).toBe("/kyc/session");
+      expect(capturedHeaders["x-user-id"]).toBe("11111111-1111-1111-1111-111111111111");
     });
 
-    it("GET /kyc/status es público (sin token)", async () => {
+    it("GET /kyc/status exige token (401 sin Authorization)", async () => {
       const response = await app.inject({
         method: "GET",
-        url: "/api/v1/kyc/status?userId=11111111-1111-1111-1111-111111111111",
+        url: "/api/v1/kyc/status",
+      });
+
+      expect(response.statusCode).toBe(401);
+    });
+
+    it("GET /kyc/status con token válido llega al upstream con x-user-id inyectado", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/kyc/status",
+        headers: { authorization: `Bearer ${issueToken()}` },
       });
 
       expect(response.statusCode).toBe(200);
-      expect(capturedUrl).toBe("/kyc/status?userId=11111111-1111-1111-1111-111111111111");
+      expect(capturedUrl).toBe("/kyc/status");
+      expect(capturedHeaders["x-user-id"]).toBe("11111111-1111-1111-1111-111111111111");
     });
 
     it("POST /kyc/webhook es público (sin token) — Didit no puede mandar un JWT", async () => {
