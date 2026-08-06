@@ -35,8 +35,22 @@ enum KycStatus {
   approved
   rejected
   expired
+  // MOVO-72: mapea "In Review" de Didit.me. Agregado al final -- nunca se renombra un
+  // valor existente (mismo criterio que ApiErrorCode en @movo/shared).
+  manual_review
 
   @@map("kyc_status_enum")
+  @@schema("users")
+}
+
+// MOVO-72: distingue las dos verificaciones que ya modela el DER sobre la misma tabla
+// (kyc_status_identity / kyc_status_license en User) -- esta US solo escribe filas
+// `identity`; `license` queda listo para cuando exista esa integración (MOVO-15/25).
+enum VerificationType {
+  identity
+  license
+
+  @@map("verification_type_enum")
   @@schema("users")
 }
 
@@ -70,6 +84,7 @@ model User {
   // pise en cada write, de forma redundante pero consistente con el trigger.
   updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz
   roles             UserRoleGrant[]
+  kycVerifications  KycVerification[]
 
   // users_email_lower_idx (índice único funcional sobre LOWER(email)) no tiene
   // equivalente declarable en schema.prisma (Prisma no modela expression indexes).
@@ -88,5 +103,30 @@ model UserRoleGrant {
 
   @@id([userId, role])
   @@map("user_roles")
+  @@schema("users")
+}
+
+// MOVO-72: tabla `KYC_VERIFICATION` del DER ("tiene intentos de", 1 a N desde User).
+// User.kycStatusIdentity/kycStatusLicense siguen siendo el caché de lectura rápida
+// (nota del propio DER); esta tabla es el historial de intentos, un registro por
+// sesión de verificación creada.
+model KycVerification {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String            @map("user_id") @db.Uuid
+  verificationType  VerificationType  @map("verification_type")
+  provider          String
+  // `session_id` de Didit -- único: un intento por sesión, y es la clave con la que el
+  // webhook (AC7) encuentra a qué intento corresponde un evento entrante.
+  externalSessionId String            @unique(map: "kyc_verification_external_session_id_key") @map("external_session_id")
+  status            KycStatus
+  requestedAt       DateTime          @default(now()) @map("requested_at") @db.Timestamptz
+  resolvedAt        DateTime?         @map("resolved_at") @db.Timestamptz
+  // Payload del webhook de Didit REDACTADO (whitelist de campos seguros -- nunca imagen
+  // de documento ni dato biométrico, AC9). Ver kyc.service.ts#buildRedactedRawDecision.
+  rawDecision       Json?             @map("raw_decision")
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "kyc_verification_user_id_idx")
+  @@map("kyc_verification")
   @@schema("users")
 }
