@@ -60,12 +60,6 @@ export interface LogoutInput {
   refreshToken: string;
 }
 
-/** Registro persistido en Redis bajo `refresh:{userId}:{tokenId}` (MOVO-75). */
-interface RefreshTokenRecord {
-  hash: string;
-  used: boolean;
-}
-
 /**
  * El `refreshToken` que recibe el cliente es un token opaco *compuesto*, no el
  * secreto crudo que emite `signRefreshToken()`: `"{userId}.{tokenId}.{secret}"`.
@@ -223,26 +217,20 @@ export function createAuthService(db: PrismaClient, redis: Redis) {
       }
       const { userId, tokenId, secret } = parsed;
 
-      const stored = await sessionRepository.findRefreshToken(userId, tokenId);
-      if (!stored) {
-        throw new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
-      }
+      // Lee + chequea `used` + marca `used: true` en una sola operación atómica
+      // (script Lua) — evita la carrera de dos refresh concurrentes con el mismo
+      // token pasando el chequeo antes de que cualquiera escriba `used: true`.
+      const result = await sessionRepository.consumeRefreshToken(userId, tokenId, hashRefreshSecret(secret));
 
-      const record = JSON.parse(stored) as RefreshTokenRecord;
-      if (record.hash !== hashRefreshSecret(secret)) {
-        throw new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
-      }
-
-      if (record.used) {
+      if (result === "already-used") {
         // Reuso de un refresh ya rotado: señal de robo (AC3) — se revocan todas
         // las sesiones del usuario, no solo la de este token.
         await sessionRepository.revokeAllForUser(userId);
         throw new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
       }
-
-      // Un solo uso (AC2): antes de emitir el par nuevo, esta sesión queda marcada
-      // como usada — cualquier reintento con el mismo token cae en la rama de arriba.
-      await sessionRepository.saveRefreshToken(userId, tokenId, { hash: record.hash, used: true });
+      if (result === "not-found" || result === "hash-mismatch") {
+        throw new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
+      }
 
       const user = await repository.findById(userId);
       if (!user || user.status === AccountStatus.BANNED || user.status === AccountStatus.DELETED) {

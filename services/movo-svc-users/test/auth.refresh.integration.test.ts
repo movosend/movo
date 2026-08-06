@@ -116,6 +116,21 @@ describe("POST /auth/refresh", () => {
     expect(redisKeys.length).toBe(0);
   });
 
+  it("con dos refresh concurrentes del mismo token, solo uno rota y el otro dispara la detección de reuso (AC3, race condition)", async () => {
+    const { refreshToken } = await registerAndLogin();
+
+    const [firstRes, secondRes] = await Promise.all([
+      app.inject({ method: "POST", url: "/auth/refresh", payload: { refreshToken } }),
+      app.inject({ method: "POST", url: "/auth/refresh", payload: { refreshToken } }),
+    ]);
+
+    const statusCodes = [firstRes.statusCode, secondRes.statusCode].sort();
+    // Exactamente una de las dos requests concurrentes gana la rotación (200) y la
+    // otra cae en la rama de reuso (401) — nunca las dos con 200, que era la carrera
+    // que reportaba el comentario y que cierra consumeRefreshToken() por script Lua.
+    expect(statusCodes).toEqual([200, 401]);
+  });
+
   it("devuelve 401 AUTH_REFRESH_INVALID con un refresh token inexistente o malformado (AC4)", async () => {
     const malformed = await app.inject({
       method: "POST",
