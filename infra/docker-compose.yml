@@ -92,6 +92,13 @@ services:
       # evita depender de la consola de EC2 para ver el OTP en dev.
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      # MOVO-72: mismo criterio de `:-mock` que SMS_PROVIDER arriba — una var presente
+      # pero vacía no matchea el enum de envSchema y tira el servicio abajo al boot.
+      - DIDIT_MODE=${DIDIT_MODE:-mock}
+      - DIDIT_BASE_URL=${DIDIT_BASE_URL}
+      - DIDIT_API_KEY=${DIDIT_API_KEY}
+      - DIDIT_WORKFLOW_ID_IDENTITY=${DIDIT_WORKFLOW_ID_IDENTITY}
+      - DIDIT_WEBHOOK_SECRET=${DIDIT_WEBHOOK_SECRET}
     depends_on:
       - postgres
       - redis
