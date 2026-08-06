@@ -15,7 +15,10 @@ export type ApiErrorCode =
   | "USER_EMAIL_ALREADY_EXISTS"
   | "USER_PHONE_ALREADY_EXISTS"
   | "AUTH_OTP_INVALID"
-  | "AUTH_OTP_EXPIRED";
+  | "AUTH_OTP_EXPIRED"
+  | "KYC_SESSION_NOT_ALLOWED"
+  | "KYC_WEBHOOK_INVALID_SIGNATURE"
+  | "KYC_PROVIDER_ERROR";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {
