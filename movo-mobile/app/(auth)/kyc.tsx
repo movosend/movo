@@ -1,6 +1,7 @@
 import { KycStatus } from '@movo/shared/dist/types/user';
 import type { VerificationErrorType, VerificationResult } from '@didit-protocol/sdk-react-native';
 import { router } from 'expo-router';
+import { useColorScheme } from 'nativewind';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -108,6 +109,8 @@ function kycStatusToResultKind(status: KycStatus): ResultKind | null {
 
 export default function KycScreen() {
   const colors = useThemeColors();
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === 'dark';
   const registration = useRegistration();
   const { kycStatus, loading, errorBanner, createKycSession, refreshKycStatus } = registration;
   const [phase, setPhase] = useState<'intro' | 'connecting' | 'result'>('intro');
@@ -218,33 +221,75 @@ export default function KycScreen() {
     );
   }
 
+  // Tamaño en píxeles calculado a mano (no `style.aspectRatio`): con solo la
+  // altura fijada por className y el ancho dejado a `aspectRatio`, `Image`
+  // no resolvía el ancho en el dev client y caía a su tamaño intrínseco
+  // (7369x2693 el PNG de Movo) — se veía como una mancha blanca gigante
+  // ocupando casi toda la pantalla (un fragmento de la "o" del wordmark,
+  // zoomeado). Fijar `width`/`height` numéricos evita depender de que Yoga
+  // resuelva `aspectRatio` en `Image` para este build.
+  const MOVO_LOGO_HEIGHT = 36;
+  const DIDIT_LOGO_HEIGHT = 32;
+  const movoLogoSource = isDark
+    ? require('../../assets/movo_logo_full_dark.png')
+    : require('../../assets/movo_logo_full.png');
+  // Los dos PNG de Movo no comparten exactamente el mismo aspect ratio (7369x2693
+  // el claro, 7375x2583 el oscuro) — se calcula por variante para que ninguno se
+  // vea estirado.
+  const movoLogoAspectRatio = isDark ? 7375 / 2583 : 7369 / 2693;
+  const movoLogoWidth = MOVO_LOGO_HEIGHT * movoLogoAspectRatio;
+  const diditLogoSource = isDark
+    ? require('../../assets/didit_logo_full_dark.png')
+    : require('../../assets/didit_logo_full.png');
+  // Rasterizados a mano con `rsvg-convert` a partir del SVG original de
+  // Didit (isotipo + wordmark, 1964x680 los dos, mismo aspect ratio) — el
+  // SVG original tenía un `<image>` (isotipo, anillo degradé) recortado por
+  // `clip-path="url(#markClip)"` que `react-native-svg` no aplicaba bien
+  // (el clip no se respetaba y el raster se veía sin recortar). `rsvg-convert`
+  // sí es un renderer SVG conforme al spec, así que el recorte se resuelve
+  // bien ahí; el resultado ya viene aplanado a PNG con canal alfa, sin
+  // depender del soporte de clip-path en runtime.
+  const diditLogoAspectRatio = 1964 / 680;
+  const diditLogoWidth = DIDIT_LOGO_HEIGHT * diditLogoAspectRatio;
+
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={['top', 'bottom']}>
-      <View className="flex-1 px-6 pt-8">
-        <Text className="mb-2.5 font-sans-semibold text-[11px] uppercase tracking-[0.6px] text-fg-3">
+      <View className="flex-1 px-6 pt-14">
+        <View className="mb-8 flex-row items-center gap-3">
+          <Image
+            source={movoLogoSource}
+            style={{ height: MOVO_LOGO_HEIGHT, width: movoLogoWidth }}
+            resizeMode="contain"
+            accessibilityLabel="Movo"
+          />
+          <Text className="font-sans-semibold text-[16px] text-fg-3">+</Text>
+          <Image
+            source={diditLogoSource}
+            style={{ height: DIDIT_LOGO_HEIGHT, width: diditLogoWidth }}
+            resizeMode="contain"
+            accessibilityLabel="Didit"
+          />
+        </View>
+
+        <ErrorBanner testID="kyc-error-banner" message={errorBanner} />
+
+        <Text className="mb-3 font-sans-semibold text-[11px] uppercase tracking-[0.6px] text-fg-3">
           Verificación de identidad
         </Text>
-        <Image
-          source={require('../../assets/movo_logo_full.png')}
-          className="mb-4 h-9 w-[100px]"
-          resizeMode="contain"
-        />
-        <Text className="mb-2.5 font-sans-semibold text-title text-fg">Confirmemos que sos vos</Text>
-        <Text className="mb-4.5 font-sans text-body text-fg-2">
+        <Text className="mb-3 font-sans-semibold text-title text-fg">Confirmemos que sos vos</Text>
+        <Text className="mb-6 font-sans text-body text-fg-2">
           Para que puedas enviar y llevar paquetes con confianza, necesitamos verificar tu identidad. Lo
           hacemos junto con <Text className="font-sans-semibold text-fg">Didit</Text>, nuestro socio de
           verificación. No te va a tomar más de 2 minutos.
         </Text>
 
-        <ErrorBanner testID="kyc-error-banner" message={errorBanner} />
-
-        <View className="gap-3.5">
+        <View className="gap-4">
           <IntroStep number={1} text="Te pedimos unas fotos de tu Documento Nacional de Identidad" />
           <IntroStep number={2} text="Capturamos una selfie de tu rostro para asegurarnos de que efectivamente sos vos" />
           <IntroStep number={3} text="Validamos tu identidad con un sistema seguro y privado" />
         </View>
 
-        <Text className="mt-5 font-sans text-[12px] text-fg-3">
+        <Text className="mt-6 font-sans text-[12px] text-fg-3">
           Tus datos están protegidos y solo se usan para verificar tu identidad. Movo no almacena imágenes de
           tu DNI ni tu rostro.
         </Text>
@@ -263,11 +308,11 @@ export default function KycScreen() {
 
 function IntroStep({ number, text }: { number: number; text: string }) {
   return (
-    <View className="flex-row items-start gap-3">
-      <View className="h-6.5 w-6.5 items-center justify-center rounded-full bg-bg-mute">
-        <Text className="font-sans-semibold text-[12px] text-fg">{number}</Text>
+    <View className="flex-row items-center gap-3.5">
+      <View className="h-8 w-8 items-center justify-center rounded-full bg-lime-500">
+        <Text className="font-sans-semibold text-[13px] text-ink-950">{number}</Text>
       </View>
-      <Text className="flex-1 pt-0.5 font-sans text-[13px] text-fg">{text}</Text>
+      <Text className="flex-1 font-sans text-[13px] leading-5 text-fg">{text}</Text>
     </View>
   );
 }

@@ -12,9 +12,18 @@ export default function WelcomeScreen() {
     ? require("../assets/movo_logo_full_dark.png")
     : require("../assets/movo_logo_full.png");
   // Los dos PNG no comparten exactamente el mismo aspect ratio (7369x2693 el
-  // claro, 7375x2583 el oscuro) — se fija por variante para que ninguno se
-  // vea estirado.
+  // claro, 7375x2583 el oscuro) — se calcula por variante para que ninguno
+  // se vea estirado.
+  //
+  // Ancho en píxeles calculado a mano (no `style.aspectRatio`): con solo la
+  // altura fijada por className y el ancho dejado a `aspectRatio`, `Image`
+  // no resolvía el ancho en el dev client y caía a su tamaño intrínseco
+  // (7369x2693) — se veía como una mancha blanca gigante ocupando casi toda
+  // la pantalla. Fijar `width`/`height` numéricos evita depender de que
+  // Yoga resuelva `aspectRatio` en `Image` para este build (ver kyc.tsx).
+  const LOGO_HEIGHT = 44;
   const logoAspectRatio = isDark ? 7375 / 2583 : 7369 / 2693;
+  const logoWidth = LOGO_HEIGHT * logoAspectRatio;
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
@@ -22,8 +31,8 @@ export default function WelcomeScreen() {
       <View className="flex-1 justify-center px-6 pt-8">
         <Image
           source={logoSource}
-          className="mb-5 h-11"
-          style={{ aspectRatio: logoAspectRatio }}
+          className="mb-5"
+          style={{ height: LOGO_HEIGHT, width: logoWidth }}
           resizeMode="contain"
           accessibilityLabel="Movo"
         />
