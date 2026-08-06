@@ -564,6 +564,7 @@ export default function RegisterScreen() {
               secureTextEntry={!showPassword}
               autoComplete="new-password"
               textContentType="newPassword"
+              passwordRules="minlength: 8; required: lower; required: digit;"
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="next"
@@ -597,6 +598,7 @@ export default function RegisterScreen() {
               secureTextEntry={!showPassword}
               autoComplete="new-password"
               textContentType="newPassword"
+              passwordRules="minlength: 8; required: lower; required: digit;"
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="done"
