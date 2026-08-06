@@ -88,12 +88,28 @@ describe("POST /auth/register", () => {
     return `+549${digits}`;
   }
 
-  it("da de alta un usuario exitosamente, persiste roles por defecto, phoneVerified=true, y no devuelve tokens ni password", async () => {
+  it("da de alta un usuario exitosamente, persiste roles por defecto, phoneVerified=true, y emite tokens de sesión (revisión de PR #51: register() autentica igual que login())", async () => {
     const response = await register();
 
     expect(response.statusCode).toBe(201);
-    const body = JSON.parse(response.body) as { userId: string; kycStatus: string };
-    expect(body).toEqual({ userId: expect.any(String), kycStatus: "not_started" });
+    const body = JSON.parse(response.body) as {
+      userId: string;
+      accessToken: string;
+      refreshToken: string;
+      expiresIn: number;
+      kycStatus: string;
+      fullName: string;
+      roles: string[];
+    };
+    expect(body).toEqual({
+      userId: expect.any(String),
+      accessToken: expect.any(String),
+      refreshToken: expect.any(String),
+      expiresIn: 3600,
+      kycStatus: "not_started",
+      fullName: "Juan Perez",
+      roles: ["sender", "carrier"],
+    });
     expect(response.body).not.toContain(basePayload.password);
 
     const userRow = await app.db.user.findUnique({ where: { id: body.userId } });
@@ -188,6 +204,34 @@ describe("POST /auth/register", () => {
 
     expect(response.statusCode).toBe(409);
     expect(JSON.parse(response.body).error.code).toBe("USER_EMAIL_ALREADY_EXISTS");
+  });
+
+  it("libera el phoneVerificationToken si el registro falla por conflicto, para que el reintento con el dato corregido no tenga que rehacer el OTP (revisión de PR #51, tmvergara)", async () => {
+    // Repro exacto del comentario de review: registrar con un email que ya existe
+    // consume el token igual (el conflicto se descubre después), pero como el
+    // registro no prosperó, el token tiene que seguir sirviendo para el reintento.
+    // Teléfono distinto al de basePayload en los dos intentos siguientes, para que el
+    // único conflicto real sea el email (si no, el segundo intento chocaría también
+    // por teléfono, y el test no probaría lo que dice probar).
+    await register({ email: "ya-existe@example.com" });
+
+    const phoneVerificationToken = await getPhoneVerificationToken("3511234568", "+5493511234568");
+
+    const conflicting = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: { ...basePayload, email: "ya-existe@example.com", phone: "3511234568", phoneVerificationToken },
+    });
+    expect(conflicting.statusCode).toBe(409);
+    expect(JSON.parse(conflicting.body).error.code).toBe("USER_EMAIL_ALREADY_EXISTS");
+
+    // Mismo token, email corregido: no debería pedir un OTP nuevo.
+    const retry = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: { ...basePayload, email: "corregido@example.com", phone: "3511234568", phoneVerificationToken },
+    });
+    expect(retry.statusCode).toBe(201);
   });
 
   it("rechaza un teléfono ya registrado con 409 USER_PHONE_ALREADY_EXISTS, incluso escrito en otro formato", async () => {

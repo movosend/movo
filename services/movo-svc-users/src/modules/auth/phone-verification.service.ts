@@ -31,9 +31,19 @@ export interface PhoneVerificationService {
    * Consumida por MOVO-70 durante el registro (no por esta US): valida firma,
    * propósito, expiración y que el teléfono coincida, y marca el token como usado
    * (single-use — AC6). Cualquier falla mapea al mismo `401 AUTH_OTP_INVALID`, sin
-   * distinguir el motivo ("reutilizarlo devuelve AUTH_OTP_INVALID").
+   * distinguir el motivo ("reutilizarlo devuelve AUTH_OTP_INVALID"). Devuelve el `jti`
+   * para que el caller pueda "devolver" el uso vía `releasePhoneVerificationToken` si
+   * el registro termina fallando por otra causa (conflicto de email/teléfono).
    */
-  consumePhoneVerificationToken(token: string, phone: string): Promise<{ phone: string }>;
+  consumePhoneVerificationToken(token: string, phone: string): Promise<{ phone: string; jti: string }>;
+  /**
+   * Revierte el consumo de `consumePhoneVerificationToken` (borra la key
+   * `phone-verification-used:{jti}` de Redis) — usada cuando el registro consumió el
+   * token pero después falló por un conflicto de email/teléfono (ver PR #51, revisión
+   * de tmvergara): sin esto, un typo en el email obligaba a rehacer todo el flujo de
+   * OTP para reintentar el registro, aunque el teléfono siguiera verificado.
+   */
+  releasePhoneVerificationToken(jti: string): Promise<void>;
 }
 
 export function createPhoneVerificationService(
@@ -103,7 +113,11 @@ export function createPhoneVerificationService(
         throw new ApiError(401, "AUTH_OTP_INVALID", TOKEN_INVALID_MESSAGE);
       }
 
-      return { phone: normalizedPhone };
+      return { phone: normalizedPhone, jti: decoded.jti };
+    },
+
+    async releasePhoneVerificationToken(jti: string) {
+      await redis.del(`phone-verification-used:${jti}`);
     },
   };
 }

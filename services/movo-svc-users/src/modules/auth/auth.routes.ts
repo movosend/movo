@@ -41,8 +41,9 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
         description:
           "Crea un usuario con roles emisor y transportista por defecto. Exige un " +
           "phoneVerificationToken vigente (POST /auth/verify-otp) — se consume acá y " +
-          "el usuario queda persistido con el teléfono ya verificado. No emite tokens " +
-          "de sesión: el login es un paso separado (POST /auth/login).",
+          "el usuario queda persistido con el teléfono ya verificado. Emite tokens de " +
+          "sesión (mismo shape que POST /auth/login): el registro autentica, no hace " +
+          "falta un login separado a continuación.",
         tags: ["auth"],
         body: authSchemas.registerBody,
         response: {

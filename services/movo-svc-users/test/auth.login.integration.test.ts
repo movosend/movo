@@ -118,8 +118,9 @@ describe("POST /auth/login", () => {
     }
 
     // 4. Verificar que el refresh token está guardado en Redis bajo `refresh:{userId}:*` con TTL de 7 días
+    // 2 keys: una del register() (revisión de PR #51: también emite tokens de sesión) + una del login().
     const redisKeys = await app.redis.keys(`refresh:${userId}:*`);
-    expect(redisKeys.length).toBe(1);
+    expect(redisKeys.length).toBe(2);
     const ttl = await app.redis.ttl(redisKeys[0]!);
     expect(ttl).toBeGreaterThan(600000); // Cerca de 604800 segundos (7 días)
     expect(ttl).toBeLessThanOrEqual(604800);
@@ -233,8 +234,10 @@ describe("POST /auth/login", () => {
 
     expect(body1.refreshToken).not.toBe(body2.refreshToken);
 
-    // Ambos refresh tokens existen en Redis
+    // Los 2 refresh tokens de los logins existen en Redis, sin pisar la sesión que ya
+    // había creado registerFixtureUser() (revisión de PR #51: register() también
+    // emite tokens) — 3 en total, ninguna revocada.
     const redisKeys = await app.redis.keys(`refresh:${userId}:*`);
-    expect(redisKeys.length).toBe(2);
+    expect(redisKeys.length).toBe(3);
   });
 });

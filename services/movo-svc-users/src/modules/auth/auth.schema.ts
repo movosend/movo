@@ -30,14 +30,32 @@ export const authSchemas = {
       phoneVerificationToken: { type: "string" },
     },
   },
+  // Mismo shape que loginResponse (revisión de PR #51, tmvergara): register() pasa a
+  // autenticar igual que login(), el registro deja de ser un paso sin sesión.
   registerResponse: {
     type: "object",
-    required: ["userId", "kycStatus"],
+    required: [
+      "userId",
+      "accessToken",
+      "refreshToken",
+      "expiresIn",
+      "kycStatus",
+      "fullName",
+      "roles",
+    ],
     properties: {
       userId: { type: "string", format: "uuid" },
+      accessToken: { type: "string" },
+      refreshToken: { type: "string" },
+      expiresIn: { type: "integer" },
       kycStatus: {
         type: "string",
         enum: ["not_started", "pending", "approved", "rejected", "expired", "manual_review"],
+      },
+      fullName: { type: "string" },
+      roles: {
+        type: "array",
+        items: { type: "string" },
       },
     },
   },
