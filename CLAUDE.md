@@ -831,3 +831,158 @@ Decisiones clave:
 - **Emisión de Tokens**: Access Token JWT firmado con claims (`sub`, `roles`, `kycStatus`) y TTL de 60 minutos (ADR-004). Refresh token opaco persistido en Redis en `refresh:{userId}:{tokenId}` con TTL de 7 días usando `createSessionRepository`. Soporta múltiples logins simultáneos sin revocar sesiones previas.
 - **Swagger & Schema Validation**: Registrado en OpenAPI con esquemas de entrada/salida y códigos HTTP `200`, `400`, `401`, `403`.
 
+### MOVO-72 — Integración con Didit.me: sesión KYC, webhook y máquina de estados (`svc-users`)
+
+Implementado `src/modules/kyc/` (`kyc.routes.ts`/`kyc.schema.ts`/`kyc.service.ts`, sigue
+la convención real de módulos del servicio, no el `src/routes/` suelto que sugería el
+ticket), `src/adapters/didit-client.ts` (+ `http-didit-client.ts`/`mock-didit-client.ts`/
+`didit-signature.ts`), `src/repositories/kyc-verification-repository.ts` +
+`src/models/kyc-verification.ts`. Tres rutas nuevas, públicas en el gateway (sin JWT —
+ver más abajo): `POST /kyc/session`, `GET /kyc/status`, `POST /kyc/webhook`.
+
+Decisiones clave:
+- **Modelo de datos alineado al DER, no inventado**: el usuario compartió el DER vigente
+  del dominio (`Movo_DER_1.0.md`) durante la planificación — ya modelaba una tabla
+  `KYC_VERIFICATION` (singular: `users.kyc_verification`) con `verification_type` enum
+  (`identity`/`license`, minúscula post-MOVO-91 — el DER la dibuja en mayúscula, es solo
+  estilo del diagrama), `provider`, `external_session_id` (único), `status`
+  (reusa `KycStatus` de `@movo/shared`, no duplica vocabulario), `requested_at`,
+  `resolved_at`, `raw_decision`. `User.kycStatusIdentity` sigue siendo el caché de
+  lectura rápida que el propio DER documenta ("se necesita acceder a esto cada vez que
+  se revisa si un usuario es válido"); toda escritura a `kyc_verification` actualiza ese
+  caché en la misma `db.$transaction`. Detalle completo del esquema documentado también
+  como comentario en MOVO-72 (Linear), con el compromiso de actualizarlo si algo cambia
+  durante la implementación.
+- **`KycStatus` de `@movo/shared` no tenía `manual_review`** (mapea "In Review" de
+  Didit) — agregado al final del enum (aditivo, mismo criterio que `ApiErrorCode`).
+  Migración `20260805235652_add_kyc_verification_movo_72` — generada con
+  `prisma migrate dev` pero **editada a mano** después: la primera corrida coló cambios
+  de drift no relacionados (VARCHAR→TEXT, `ON UPDATE CASCADE`, un índice recreado) entre
+  `schema.prisma` y el SQL original de MOVO-93 — se recortó el `.sql` a solo lo de KYC y
+  se verificó con `prisma migrate reset` que la migración recortada aplica limpia sola.
+- **Sin tabla de auditoría aparte**: AC11 pide "tabla de auditoría **o** log
+  estructurado" (no ambas) — se cubre con logging estructurado (pino, ya activo,
+  `Fastify({ logger: true })`) en cada transición, más la propia `kyc_verification`
+  como historial persistente. Evita una segunda tabla (`kyc_events`) que se había
+  diseñado en una iteración anterior del plan y se descartó al confirmar con el usuario
+  que alcanzaba con lo mínimo.
+- **Idempotencia del webhook (AC7) sin tabla ni constraint aparte**: `resolveByExternalSessionId`
+  hace un `updateMany` condicionado a `status: fromStatus` (Prisma) — atómico a nivel DB.
+  Si `count === 0` (webhook duplicado, o `session_id` desconocido/fuera de orden), no-op
+  y 200 igual (Didit reintenta si no recibe 2xx).
+- **Gap real encontrado y cerrado dentro de esta US**: `POST /auth/register` (MOVO-70)
+  nunca consumía el `phoneVerificationToken` que emite `verify-otp` (MOVO-71) —
+  `phone_verified` no se seteaba en ningún lado del código. El AC2 de MOVO-72 ("solo
+  crear sesión si el teléfono está verificado") era imposible de cumplir de punta a
+  punta sin esto. Confirmado con el usuario: se extendió el scope de MOVO-72 para
+  wirear `register()` (`auth.schema.ts`/`auth.service.ts`/`auth.routes.ts`) — el
+  `phoneVerificationToken` ahora es requerido en el body y se consume (single-use)
+  antes de crear la cuenta.
+- **`POST /kyc/session` y `GET /kyc/status` son rutas públicas** (sin JWT, `userId`
+  explícito en vez de derivarlo de un token) — en el punto del onboarding donde mobile
+  las llama (justo después de `register`, antes de `login`) todavía no hay access token.
+  Decisión coordinada con mobile (comentarios de MOVO-72 en Linear). Riesgo aceptado
+  documentado, con seguimiento en **MOVO-94** (ticket nuevo, para no perder la decisión
+  en un comentario).
+- **Bug de rate-limit del gateway encontrado y corregido de paso**: al agregar el rate
+  limit estricto de `/kyc/session` (mismo `{max:5, timeWindow:"15 minutes"}` que
+  `/auth/login`), los tests mostraron que ambos limiters compartían el mismo contador en
+  Redis. Causa: `@fastify/rate-limit` en modo decorator (`app.rateLimit(opts)`, la forma
+  en que `gateway/src/routes/index.ts` arma el limiter general y cada uno estricto)
+  siempre arma el namespace del store con `routeInfo: {}` fijo — la clave real en Redis
+  terminaba siendo `fastify-rate-limit-undefinedundefined-<ip>` para **todos** los
+  limiters creados así, sin importar su ruta o config (confirmado con
+  `redis-cli keys`). Preexistente desde MOVO-68, agravado recién ahora al haber una
+  segunda ruta con rate limit estricto. Corregido agregando un `keyGenerator` explícito
+  por limiter (`` `${method} ${path}:${ip}` ``) en `routes/index.ts` — es la única forma
+  de distinguirlos con esta API (`routeInfo` no es configurable desde afuera de la
+  librería).
+- **Raw body para verificar la firma del webhook (AC5)**: `addContentTypeParser`
+  scopeado dentro de `kycRoutes` (Fastify lo encapsula por plugin, no se filtra a
+  `/auth/*` ni `/users/*` — verificado con `test/kyc.raw-body-isolation.test.ts`).
+  HMAC-SHA256 sobre JSON canónico (claves ordenadas recursivamente), comparación
+  timing-safe, ventana anti-replay de 300s sobre `X-Timestamp`.
+- **Mapeo de estados de Didit → `KycStatus`**: solo los 3 estados terminales
+  (`Approved`/`Declined`/`In Review`) disparan transición; los intermedios
+  (`Not Started`/`In Progress`/`Awaiting User`/`Resubmitted`) se ignoran. `Expired`/
+  `Abandoned`/`Kyc Expired` quedan **sin mapear a propósito** — todavía sin confirmar
+  contra el sandbox real (los otros 3 sí, ver "Validado contra el sandbox real" abajo).
+- **Shape real del payload del webhook confirmado contra el sandbox** (vía "Probar
+  Webhook" de la consola, los 3 escenarios terminales): `status`/`session_id`/
+  `vendor_data`/`workflow_id`/`webhook_type` viven en el nivel superior — coincide con
+  lo que el código esperaba. `decision` es un objeto de ~20KB con el detalle completo de
+  cada feature (OCR, NFC, AML, liveness, cuestionario, IP) — trae imágenes de
+  documento, domicilio, fecha de nacimiento y otros datos que AC9 prohíbe persistir;
+  `buildRedactedRawDecision` nunca lo copia tal cual, confirmado con un test que verifica
+  que ningún campo sensible del fixture sobrevive a la redacción.
+- **El motivo de revisión manual no vive donde se había asumido originalmente**:
+  `decision.reviews` queda vacío incluso en el payload real de ejemplo de `In Review`
+  (se completa recién cuando un humano termina una revisión manual en el back-office de
+  Didit, después de este webhook). El motivo real está disperso en
+  `decision.<feature>[].warnings[]` — confirmado con el payload real de `Declined`
+  (`decision.id_verifications[0].warnings[0]` trae `{feature, risk:
+  "DOCUMENT_EXPIRED", short_description: "Document expired", ...}`).
+  `extractDecisionWarnings()` (`kyc.service.ts`) recorre genéricamente todas las arrays
+  de `decision` (no las lista a mano — Didit puede agregar features nuevas) y extrae
+  solo `feature`/`risk`/`short_description` de cada `warnings[]` — nunca
+  `long_description` (más texto libre, menos revisado) ni ningún otro campo del item
+  que las contiene. Puede devolver `[]` legítimamente (el ejemplo real de `In Review` no
+  trae ningún warning individual) — no todo caso en `manual_review` va a tener un motivo
+  estructurado, y eso está bien.
+- Modo `DIDIT_MODE=mock` (default, mismo criterio que `SMS_PROVIDER=console`): sesiones
+  sintéticas sin red, no depende de credenciales de sandbox para levantar el servicio en
+  dev/test/CI. `DIDIT_MODE=live` exige `DIDIT_API_KEY`/`DIDIT_WORKFLOW_ID_IDENTITY`/
+  `DIDIT_WEBHOOK_SECRET` (`createDiditClient` falla rápido al arrancar si faltan).
+- Diagramas de secuencia y de estados (Mermaid) en `docs/kyc/` — versionados junto al
+  código (mismo criterio que `docs/plan-de-testing.md`) en vez de Drive, para que sirvan
+  de guía de diseño y se actualicen en el mismo PR si el flujo cambia.
+- Gateway (`routes-map.ts`): prefix `/kyc` nuevo; se remueve por completo el placeholder
+  `/webhooks/didit` de MOVO-68 (dead code, reemplazado por `/kyc/webhook` — AC4 del
+  ticket pide ese path explícitamente).
+
+Tests: 169/169 en `svc-users` (subieron de 167 al agregar cobertura de
+`extractDecisionWarnings` con el shape real), 30/30 en `gateway`. Suite completa
+(`svc-users` + `gateway` + `shared`) verificada contra Postgres/Redis reales.
+
+**Validado contra el sandbox real de Didit.me** (Paso 7 del plan, hecho en vivo con
+credenciales reales del usuario — no solo con `DIDIT_MODE=mock`):
+- `POST /kyc/session` real: `createSession` contra `POST /v3/session/` con
+  `DIDIT_API_KEY`/`DIDIT_WORKFLOW_ID_IDENTITY` reales devolvió 201 con
+  `session_id`/`session_token` reales, persistidos correctamente en `kyc_verification`.
+- Túnel local: `ngrok` no estaba instalado; `npx localtunnel` funcionó para la primera
+  prueba pero **el servicio gratuito `loca.lt` resultó no confiable** (el túnel murió
+  solo, y una segunda instancia ni siquiera conectó — confirmado que no era problema de
+  red local, `google.com` respondía normal). Se cambió a `cloudflared tunnel --url`
+  (Cloudflare Quick Tunnels, `brew install cloudflared`, sin cuenta/login) — mucho más
+  estable (<1s de respuesta consistente). Recomendado sobre `localtunnel` para este
+  flujo de ahora en más.
+- **Firma real de Didit validada end-to-end**: "Probar Webhook" de la consola (con la
+  firma real que calcula Didit, no una simulada por nosotros) llegó a
+  `POST /kyc/webhook` a través del túnel y `verifyDiditSignature` la aceptó — confirma
+  que la canonicalización JSON (claves ordenadas recursivamente) coincide exactamente
+  con la de Didit. Era el mayor riesgo técnico del ticket y ya no es una incógnita.
+- El primer intento devolvió `401`/timeout porque el shape del payload y el
+  `session_id` de prueba de Didit no coinciden con una sesión real nuestra — comportamiento
+  esperado y correcto (AC7: sesión desconocida se ignora, responde 200 igual).
+- **Ciclo completo de punta a punta con una sesión propia real** (no simulada por
+  "Probar Webhook"): se creó una sesión real vía `POST /kyc/session`, se completó el
+  flujo de verificación real en `https://verify.didit.me/session/<token>` (modo
+  sandbox — simulado, no valida documentos de verdad) con resultado `Declined`, y
+  Didit mandó el webhook real correspondiente. Resultado: `kyc_verification.status =
+  rejected` con `resolvedAt` seteado, `vendor_data` coincidiendo exactamente con el
+  `userId`, y `extractDecisionWarnings()` extrayendo 4 warnings reales
+  (`DATA_REVIEW_MINOR_FIELD_MISMATCH`, `DATA_REVIEW_CRITICAL_FIELD_MISMATCH`,
+  `DATA_REVIEW_FIELDS_EDITED_BY_USER`, `DOCUMENT_NOT_SUPPORTED_FOR_APPLICATION`) sin
+  ningún dato sensible mezclado. `GET /kyc/status` reflejó `rejected` correctamente
+  (`manualReviewReason: null` es el comportamiento esperado para `rejected` — ese campo
+  solo se expone para `manual_review` por diseño; el detalle sigue disponible en
+  `raw_decision` para debugging/futuro panel de admin). Esta es la confirmación más
+  fuerte posible de que el flujo funciona real de punta a punta, no solo contra mocks.
+
+Pendiente / fuera de alcance de MOVO-72: mapeo de `Expired`/`Abandoned`/`Kyc Expired`
+(no hay forma de generar esos escenarios desde "Probar Webhook" de la consola;
+requeriría dejar vencer una sesión real o abandonarla a mitad de camino). Seguimiento
+de la decisión de rutas públicas sin JWT: **MOVO-94**. Panel de admin para casos en
+`manual_review` (AC10 solo deja el dato consultable, `findManualReviewCases()`):
+MOVO-32, sprint posterior.
+
