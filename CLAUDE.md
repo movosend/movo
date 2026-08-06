@@ -1039,8 +1039,16 @@ smoke test manual de punta a punta a través del gateway real (`register` → to
 `POST /kyc/session` con `Authorization` → `GET /kyc/status`) para confirmar la
 inyección de `x-user-id`, no solo `app.inject()` sin gateway de por medio.
 
-Sigue pendiente, sin cambios de código en esta revisión: coordinación con MOVO-73
-(movo-mobile) descrita arriba, y actualizar Linear (MOVO-70 tiene un AC vigente que
-dice explícitamente "sin tokens de sesión" — contradicho por este cambio; MOVO-94 pasa
-a estar resuelto, no en Backlog).
+**Housekeeping de Linear (hecho, sin cambios de código adicionales)**: creado
+**MOVO-95** (`[svc-users] register() emite tokens de sesión — AC10/AC3 de MOVO-70
+desactualizados`), referencia AC10 (contradicho) y AC3 (también contradicho: el fix
+de liberar el token en conflicto va en contra de "se consume sea cual sea el
+resultado del registro", tal como está escrito hoy) más un gap de DoD encontrado al
+auditar MOVO-70 contra la implementación (falta test de integración de
+`phoneVerificationToken` vencido contra el endpoint real, hoy solo cubierto a nivel
+de servicio). **MOVO-94** pasado a `Done` con nota de resolución. **MOVO-73**:
+comentario agregado con los tres puntos de coordinación (persistir tokens en
+`use-registration.ts`, `Authorization` manual en las dos llamadas de KYC, caso borde
+de token vencido durante el resume) — sin tocar el AC de la US directamente, es
+ticket de otra persona (Tomás, in progress).
 
