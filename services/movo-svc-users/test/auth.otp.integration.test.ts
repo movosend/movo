@@ -292,7 +292,7 @@ describe("OTP endpoints (send-otp / verify-otp / resend-otp)", () => {
     });
   });
 
-  describe("consumePhoneVerificationToken (usado por MOVO-70, testeado directo — no hay endpoint HTTP en esta US)", () => {
+  describe("consumePhoneVerificationToken (casos borde probados directo contra el servicio; el camino feliz vía HTTP se cubre en auth.register.integration.test.ts, MOVO-72)", () => {
     it("consume un token válido una vez; el segundo consumo del mismo token es inválido", async () => {
       const { otpId, code } = await sendAndCapture("3512220030", "+5493512220030");
       const verify = await app.inject({ method: "POST", url: "/auth/verify-otp", payload: { otpId, code } });

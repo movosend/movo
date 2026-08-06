@@ -12,6 +12,7 @@ import {
 import { createUserRepository } from "../../repositories/user-repository";
 import { createSessionRepository } from "../../repositories/session-repository";
 import { UserConflictError } from "../../models/user";
+import type { PhoneVerificationService } from "./phone-verification.service";
 
 /** Roles por defecto al registrarse (AC8): todo usuario puede operar como emisor y transportista. */
 const DEFAULT_USER_ROLES: UserRole[] = [UserRole.SENDER, UserRole.CARRIER];
@@ -30,6 +31,10 @@ export interface RegisterUserInput {
   email: string;
   phone: string;
   password: string;
+  // MOVO-72: emitido por POST /auth/verify-otp (MOVO-71), single-use — se consume acá
+  // antes de crear la cuenta para setear phoneVerified=true (AC2 de MOVO-72 depende de
+  // este flag, que hasta esta US nunca se seteaba).
+  phoneVerificationToken: string;
 }
 
 export interface RegisterUserResult {
@@ -83,7 +88,11 @@ export function normalizePhoneToE164Ar(rawPhone: string): string {
   return `+549${digits}`;
 }
 
-export function createAuthService(db: PrismaClient, redis: Redis) {
+export function createAuthService(
+  db: PrismaClient,
+  redis: Redis,
+  phoneVerificationService: Pick<PhoneVerificationService, "consumePhoneVerificationToken">
+) {
   const repository = createUserRepository(db);
   const sessionRepository = createSessionRepository(redis);
 
@@ -92,6 +101,12 @@ export function createAuthService(db: PrismaClient, redis: Redis) {
       const email = input.email.trim().toLowerCase();
       const phone = normalizePhoneToE164Ar(input.phone);
       const { firstName, lastName } = splitFullName(input.fullName);
+
+      // Valida y consume el token ANTES de crear el usuario (single-use, AC6 de
+      // MOVO-71): si el token es inválido/expirado/ya usado, tira ApiError(401,
+      // "AUTH_OTP_INVALID", ...) y no llega a tocar la DB de usuarios.
+      await phoneVerificationService.consumePhoneVerificationToken(input.phoneVerificationToken, phone);
+
       // Argon2id (AC6): resistente tanto a ataques de canal lateral (side-channel,
       // cubierto por Argon2i) como a fuerza bruta con hardware (GPU/ASIC, cubierto
       // por Argon2d) — recomendación OWASP para hash de contraseñas.
@@ -104,6 +119,7 @@ export function createAuthService(db: PrismaClient, redis: Redis) {
           firstName,
           lastName,
           passwordHash,
+          phoneVerified: true,
           roles: DEFAULT_USER_ROLES,
         });
         return { userId: user.id, kycStatus: user.kycStatusIdentity };

@@ -2,7 +2,7 @@ export const authSchemas = {
   registerBody: {
     type: "object",
     additionalProperties: false,
-    required: ["fullName", "email", "phone", "password"],
+    required: ["fullName", "email", "phone", "password", "phoneVerificationToken"],
     properties: {
       fullName: {
         type: "string",
@@ -24,6 +24,10 @@ export const authSchemas = {
         minLength: 8,
         pattern: "^(?=.*[A-Za-z])(?=.*\\d).{8,}$",
       },
+      // MOVO-72: emitido por POST /auth/verify-otp (MOVO-71). Se consume acá (single-use)
+      // para setear phoneVerified=true — sin esto, AC2 de MOVO-72 (KYC exige teléfono
+      // verificado) es imposible de cumplir de punta a punta.
+      phoneVerificationToken: { type: "string" },
     },
   },
   registerResponse: {
@@ -33,7 +37,7 @@ export const authSchemas = {
       userId: { type: "string", format: "uuid" },
       kycStatus: {
         type: "string",
-        enum: ["not_started", "pending", "approved", "rejected", "expired"],
+        enum: ["not_started", "pending", "approved", "rejected", "expired", "manual_review"],
       },
     },
   },
@@ -71,7 +75,7 @@ export const authSchemas = {
       expiresIn: { type: "integer" },
       kycStatus: {
         type: "string",
-        enum: ["not_started", "pending", "approved", "rejected", "expired"],
+        enum: ["not_started", "pending", "approved", "rejected", "expired", "manual_review"],
       },
       fullName: { type: "string" },
       roles: {

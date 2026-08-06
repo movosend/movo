@@ -70,6 +70,9 @@ export interface CreateUserInput {
   dni?: string;
   birthdate?: Date | null;
   roles: UserRole[];
+  // MOVO-72: register() ahora exige phoneVerificationToken (MOVO-71) y lo consume antes
+  // de crear la cuenta — el usuario se persiste ya con el teléfono verificado.
+  phoneVerified: boolean;
 }
 
 /** Fila cruda de `users.users`, tal como la devuelve `pg` (snake_case). */

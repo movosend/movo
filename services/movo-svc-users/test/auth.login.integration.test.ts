@@ -2,9 +2,21 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import { verifyAccessToken, KycStatus, UserRole } from "@movo/shared";
 import { buildApp } from "../src/app";
+import { SmsProvider } from "../src/adapters/sms-provider";
+
+function createCaptorSmsProvider() {
+  const sentCodes = new Map<string, string>();
+  const provider: SmsProvider = {
+    async send(toE164: string, code: string): Promise<void> {
+      sentCodes.set(toE164, code);
+    },
+  };
+  return { provider, sentCodes };
+}
 
 describe("POST /auth/login", () => {
   let app: FastifyInstance;
+  let captor: ReturnType<typeof createCaptorSmsProvider>;
 
   const validRegisterPayload = {
     fullName: "Tomas Olmos",
@@ -18,7 +30,8 @@ describe("POST /auth/login", () => {
     process.env.DATABASE_URL =
       process.env.DATABASE_URL || "postgresql://movo:movo_local_pw@localhost:5432/movo";
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
-    app = buildApp();
+    captor = createCaptorSmsProvider();
+    app = buildApp({ smsProvider: captor.provider });
     await app.ready();
   });
 
@@ -28,20 +41,41 @@ describe("POST /auth/login", () => {
 
   beforeEach(async () => {
     await app.db.$executeRawUnsafe("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
-    // Clean keys matching refresh:* pattern from Redis
+    // Clean keys matching refresh:*/otp:* pattern from Redis
     const keys = await app.redis.keys("refresh:*");
     if (keys.length > 0) {
       await app.redis.del(...keys);
     }
+    let cursor = "0";
+    do {
+      const [nextCursor, otpKeys] = await app.redis.scan(cursor, "MATCH", "otp:*", "COUNT", 100);
+      cursor = nextCursor;
+      if (otpKeys.length > 0) {
+        await app.redis.del(...otpKeys);
+      }
+    } while (cursor !== "0");
   });
+
+  /** MOVO-72: /auth/register exige un phoneVerificationToken real (MOVO-71). */
+  async function registerFixtureUser(payload: typeof validRegisterPayload = validRegisterPayload) {
+    const send = await app.inject({ method: "POST", url: "/auth/send-otp", payload: { phone: payload.phone } });
+    const { otpId } = JSON.parse(send.body) as { otpId: string };
+    const code = [...captor.sentCodes.values()].pop();
+    if (!code) {
+      throw new Error("No se capturó ningún código OTP");
+    }
+    const verify = await app.inject({ method: "POST", url: "/auth/verify-otp", payload: { otpId, code } });
+    const { phoneVerificationToken } = JSON.parse(verify.body) as { phoneVerificationToken: string };
+    return app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: { ...payload, phoneVerificationToken },
+    });
+  }
 
   it("autentica correctamente con credenciales válidas y devuelve la respuesta plana esperada + guarda refresh token en Redis con TTL de 7 días", async () => {
     // 1. Registrar usuario
-    const regRes = await app.inject({
-      method: "POST",
-      url: "/auth/register",
-      payload: validRegisterPayload,
-    });
+    const regRes = await registerFixtureUser();
     expect(regRes.statusCode).toBe(201);
     const { userId } = JSON.parse(regRes.body) as { userId: string };
 
@@ -92,11 +126,7 @@ describe("POST /auth/login", () => {
   });
 
   it("devuelve 401 AUTH_INVALID_CREDENTIALS cuando la contraseña es incorrecta", async () => {
-    await app.inject({
-      method: "POST",
-      url: "/auth/register",
-      payload: validRegisterPayload,
-    });
+    await registerFixtureUser();
 
     const loginRes = await app.inject({
       method: "POST",
@@ -130,11 +160,7 @@ describe("POST /auth/login", () => {
   });
 
   it("devuelve 403 ACCOUNT_SUSPENDED si la cuenta está suspendida (status: banned)", async () => {
-    const regRes = await app.inject({
-      method: "POST",
-      url: "/auth/register",
-      payload: validRegisterPayload,
-    });
+    const regRes = await registerFixtureUser();
     const { userId } = JSON.parse(regRes.body) as { userId: string };
 
     // Cambiar status a banned
@@ -159,11 +185,7 @@ describe("POST /auth/login", () => {
   });
 
   it("permite login exitoso cuando el usuario tiene KYC pendiente", async () => {
-    const regRes = await app.inject({
-      method: "POST",
-      url: "/auth/register",
-      payload: validRegisterPayload,
-    });
+    const regRes = await registerFixtureUser();
     const { userId } = JSON.parse(regRes.body) as { userId: string };
 
     // Actualizar kycStatusIdentity a pending
@@ -187,11 +209,7 @@ describe("POST /auth/login", () => {
   });
 
   it("permite múltiples logins simultáneos generando distintos tokenIds en Redis sin revocar las sesiones previas", async () => {
-    const regRes = await app.inject({
-      method: "POST",
-      url: "/auth/register",
-      payload: validRegisterPayload,
-    });
+    const regRes = await registerFixtureUser();
     const { userId } = JSON.parse(regRes.body) as { userId: string };
 
     // Login 1
