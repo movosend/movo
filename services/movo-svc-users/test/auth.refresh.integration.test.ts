@@ -2,9 +2,21 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import { verifyAccessToken } from "@movo/shared";
 import { buildApp } from "../src/app";
+import { SmsProvider } from "../src/adapters/sms-provider";
+
+function createCaptorSmsProvider() {
+  const sentCodes = new Map<string, string>();
+  const provider: SmsProvider = {
+    async send(toE164: string, code: string): Promise<void> {
+      sentCodes.set(toE164, code);
+    },
+  };
+  return { provider, sentCodes };
+}
 
 describe("POST /auth/refresh", () => {
   let app: FastifyInstance;
+  let captor: ReturnType<typeof createCaptorSmsProvider>;
 
   const validRegisterPayload = {
     fullName: "Tomas Olmos",
@@ -18,7 +30,8 @@ describe("POST /auth/refresh", () => {
     process.env.DATABASE_URL =
       process.env.DATABASE_URL || "postgresql://movo:movo_local_pw@localhost:5432/movo";
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
-    app = buildApp();
+    captor = createCaptorSmsProvider();
+    app = buildApp({ smsProvider: captor.provider });
     await app.ready();
   });
 
@@ -32,10 +45,36 @@ describe("POST /auth/refresh", () => {
     if (keys.length > 0) {
       await app.redis.del(...keys);
     }
+    let cursor = "0";
+    do {
+      const [nextCursor, otpKeys] = await app.redis.scan(cursor, "MATCH", "otp:*", "COUNT", 100);
+      cursor = nextCursor;
+      if (otpKeys.length > 0) {
+        await app.redis.del(...otpKeys);
+      }
+    } while (cursor !== "0");
   });
 
+  /** MOVO-72: /auth/register exige un phoneVerificationToken real (MOVO-71). */
   async function registerAndLogin() {
-    await app.inject({ method: "POST", url: "/auth/register", payload: validRegisterPayload });
+    const send = await app.inject({
+      method: "POST",
+      url: "/auth/send-otp",
+      payload: { phone: validRegisterPayload.phone },
+    });
+    const { otpId } = JSON.parse(send.body) as { otpId: string };
+    const code = [...captor.sentCodes.values()].pop();
+    if (!code) {
+      throw new Error("No se capturó ningún código OTP");
+    }
+    const verify = await app.inject({ method: "POST", url: "/auth/verify-otp", payload: { otpId, code } });
+    const { phoneVerificationToken } = JSON.parse(verify.body) as { phoneVerificationToken: string };
+
+    await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: { ...validRegisterPayload, phoneVerificationToken },
+    });
     const loginRes = await app.inject({
       method: "POST",
       url: "/auth/login",
@@ -77,9 +116,9 @@ describe("POST /auth/refresh", () => {
 
     // La rotación no borra la key vieja (queda como tombstone `used:true` para
     // poder detectar un reuso posterior) — genera una key nueva con tokenId
-    // distinto, así que ahora hay 2 keys para este usuario.
+    // distinto. Baseline de 2 (register() + login(), MOVO-72) + 1 de la rotación = 3.
     const redisKeys = await app.redis.keys(`refresh:${userId}:*`);
-    expect(redisKeys.length).toBe(2);
+    expect(redisKeys.length).toBe(3);
   });
 
   it("devuelve 401 AUTH_REFRESH_INVALID y revoca todas las sesiones si el refresh token ya fue usado (AC3)", async () => {
@@ -171,8 +210,9 @@ describe("POST /auth/refresh", () => {
     });
     expect(stillValid.statusCode).toBe(200);
 
+    // Baseline de 2 (register() + login(), MOVO-72) + 1 de la rotación exitosa = 3.
     const redisKeys = await app.redis.keys(`refresh:${userId}:*`);
-    expect(redisKeys.length).toBe(2);
+    expect(redisKeys.length).toBe(3);
   });
 
   it("devuelve 401 AUTH_REFRESH_INVALID y revoca la sesión si el usuario ya no existe", async () => {

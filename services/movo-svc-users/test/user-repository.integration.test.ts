@@ -16,6 +16,7 @@ describe("user-repository (Postgres)", () => {
     lastName: "Olmos",
     passwordHash: "hashed_password",
     roles: [UserRole.SENDER, UserRole.CARRIER],
+    phoneVerified: false,
   };
 
   beforeAll(async () => {

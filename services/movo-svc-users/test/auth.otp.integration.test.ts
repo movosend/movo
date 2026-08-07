@@ -292,7 +292,7 @@ describe("OTP endpoints (send-otp / verify-otp / resend-otp)", () => {
     });
   });
 
-  describe("consumePhoneVerificationToken (usado por MOVO-70, testeado directo — no hay endpoint HTTP en esta US)", () => {
+  describe("consumePhoneVerificationToken (casos borde probados directo contra el servicio; el camino feliz vía HTTP se cubre en auth.register.integration.test.ts, MOVO-72)", () => {
     it("consume un token válido una vez; el segundo consumo del mismo token es inválido", async () => {
       const { otpId, code } = await sendAndCapture("3512220030", "+5493512220030");
       const verify = await app.inject({ method: "POST", url: "/auth/verify-otp", payload: { otpId, code } });
@@ -354,6 +354,27 @@ describe("OTP endpoints (send-otp / verify-otp / resend-otp)", () => {
       await expect(
         service.consumePhoneVerificationToken(expired, "3512220032")
       ).rejects.toMatchObject({ statusCode: 401, code: "AUTH_OTP_INVALID" });
+    });
+
+    it("releasePhoneVerificationToken permite volver a consumir un token ya consumido (revisión de PR #51, tmvergara)", async () => {
+      const { otpId, code } = await sendAndCapture("3512220033", "+5493512220033");
+      const verify = await app.inject({ method: "POST", url: "/auth/verify-otp", payload: { otpId, code } });
+      const { phoneVerificationToken } = JSON.parse(verify.body) as { phoneVerificationToken: string };
+
+      const { createOtpRepository } = await import("../src/repositories/otp-repository");
+      const { createOtpService } = await import("../src/services/otp-service");
+      const { createPhoneVerificationService } = await import("../src/modules/auth/phone-verification.service");
+      const service = createPhoneVerificationService(
+        createOtpService(createOtpRepository(app.redis), captor.provider),
+        app.redis,
+        "test-secret"
+      );
+
+      const { jti } = await service.consumePhoneVerificationToken(phoneVerificationToken, "3512220033");
+      await service.releasePhoneVerificationToken(jti);
+
+      const secondConsume = await service.consumePhoneVerificationToken(phoneVerificationToken, "3512220033");
+      expect(secondConsume.phone).toBe("+5493512220033");
     });
   });
 });

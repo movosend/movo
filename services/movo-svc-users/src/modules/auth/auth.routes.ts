@@ -31,12 +31,12 @@ interface RefreshBody {
 }
 
 export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesOptions) {
-  const service = createAuthService(app.db, app.redis);
-
   const smsProvider = opts.smsProvider ?? createSmsProvider(app.config);
   const otpRepository = createOtpRepository(app.redis);
   const otpService = createOtpService(otpRepository, smsProvider);
   const phoneVerificationService = createPhoneVerificationService(otpService, app.redis, app.config.JWT_SECRET);
+
+  const service = createAuthService(app.db, app.redis, phoneVerificationService);
 
   app.post<{ Body: RegisterUserInput }>(
     "/register",
@@ -44,13 +44,17 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
       schema: {
         summary: "Registro de usuario",
         description:
-          "Crea un usuario con roles emisor y transportista por defecto. No emite tokens: " +
-          "el usuario todavía no verificó el teléfono ni completó el KYC.",
+          "Crea un usuario con roles emisor y transportista por defecto. Exige un " +
+          "phoneVerificationToken vigente (POST /auth/verify-otp) — se consume acá y " +
+          "el usuario queda persistido con el teléfono ya verificado. Emite tokens de " +
+          "sesión (mismo shape que POST /auth/login): el registro autentica, no hace " +
+          "falta un login separado a continuación.",
         tags: ["auth"],
         body: authSchemas.registerBody,
         response: {
           201: authSchemas.registerResponse,
           400: authSchemas.errorResponse,
+          401: authSchemas.errorResponse,
           409: authSchemas.errorResponse,
         },
       },

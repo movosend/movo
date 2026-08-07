@@ -22,17 +22,32 @@ export default async function routesPlugin(
   // marca un flag interno la primera vez que corre en un request y no
   // vuelve a chequear — si intentáramos aplicar ambos (general + estricto)
   // al mismo request, el segundo chequeo se ignoraría en silencio.
+  // MOVO-72: bug encontrado al agregar el segundo rate limit estricto (/kyc/session,
+  // misma config {max:5, timeWindow:"15 minutes"} que /auth/login) — `@fastify/rate-limit`
+  // en modo decorator (`app.rateLimit(opts)`, la forma en que se usa acá) siempre arma
+  // el namespace del store con `routeInfo: {}` fijo (ver `createLimiterArgs` en la
+  // librería), así que la clave real en Redis termina siendo
+  // `fastify-rate-limit-undefinedundefined-<ip>` para TODOS los limiters creados así,
+  // sin importar su `max`/`timeWindow` — general, login y kyc-session compartían un
+  // solo contador por IP (confirmado con `redis-cli keys`). Un `keyGenerator` explícito
+  // por limiter es la única forma de distinguirlos con esta API (routeInfo no es
+  // configurable desde afuera de la librería).
   const generalLimiter = app.rateLimit({
     max: opts.env.RATE_LIMIT_MAX,
     timeWindow: "1 minute",
+    keyGenerator: (request) => `general:${request.ip}`,
   });
 
   const strictRateLimiters = new Map<string, ReturnType<typeof app.rateLimit>>();
   for (const publicRoute of getPublicRoutes()) {
     if (publicRoute.rateLimit) {
+      const routeKey = `${publicRoute.method} ${publicRoute.path}`;
       strictRateLimiters.set(
-        `${publicRoute.method} ${publicRoute.path}`,
-        app.rateLimit(publicRoute.rateLimit)
+        routeKey,
+        app.rateLimit({
+          ...publicRoute.rateLimit,
+          keyGenerator: (request) => `${routeKey}:${request.ip}`,
+        })
       );
     }
   }

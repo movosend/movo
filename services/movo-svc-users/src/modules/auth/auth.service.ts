@@ -13,6 +13,7 @@ import {
 import { createUserRepository } from "../../repositories/user-repository";
 import { createSessionRepository } from "../../repositories/session-repository";
 import { User, UserConflictError } from "../../models/user";
+import type { PhoneVerificationService } from "./phone-verification.service";
 
 /** Roles por defecto al registrarse (AC8): todo usuario puede operar como emisor y transportista. */
 const DEFAULT_USER_ROLES: UserRole[] = [UserRole.SENDER, UserRole.CARRIER];
@@ -31,11 +32,10 @@ export interface RegisterUserInput {
   email: string;
   phone: string;
   password: string;
-}
-
-export interface RegisterUserResult {
-  userId: string;
-  kycStatus: KycStatus;
+  // MOVO-72: emitido por POST /auth/verify-otp (MOVO-71), single-use — se consume acá
+  // antes de crear la cuenta para setear phoneVerified=true (AC2 de MOVO-72 depende de
+  // este flag, que hasta esta US nunca se seteaba).
+  phoneVerificationToken: string;
 }
 
 export interface LoginUserInput {
@@ -52,6 +52,13 @@ export interface LoginUserResult {
   fullName: string;
   roles: UserRole[];
 }
+
+// register() emite el mismo shape que login() (revisión de PR #51, tmvergara): el
+// estándar de industria en onboarding con KYC es que el registro autentica — el AC1
+// original de MOVO-72 ("crea una sesión [...] para el usuario autenticado") asumía
+// esto, y las rutas públicas de /kyc/session y /kyc/status eran un desvío forzado por
+// no tenerlo. Con esto, ese desvío deja de ser necesario.
+export type RegisterUserResult = LoginUserResult;
 
 /** Misma forma que `LoginUserResult`: refrescar emite un par de tokens nuevo igual que un login. */
 export type RefreshTokenResult = LoginUserResult;
@@ -124,7 +131,14 @@ export function normalizePhoneToE164Ar(rawPhone: string): string {
   return `+549${digits}`;
 }
 
-export function createAuthService(db: PrismaClient, redis: Redis) {
+export function createAuthService(
+  db: PrismaClient,
+  redis: Redis,
+  phoneVerificationService: Pick<
+    PhoneVerificationService,
+    "consumePhoneVerificationToken" | "releasePhoneVerificationToken"
+  >
+) {
   const repository = createUserRepository(db);
   const sessionRepository = createSessionRepository(redis);
 
@@ -158,23 +172,39 @@ export function createAuthService(db: PrismaClient, redis: Redis) {
       const email = input.email.trim().toLowerCase();
       const phone = normalizePhoneToE164Ar(input.phone);
       const { firstName, lastName } = splitFullName(input.fullName);
+
+      // Valida y consume el token ANTES de crear el usuario (single-use, AC6 de
+      // MOVO-71): si el token es inválido/expirado/ya usado, tira ApiError(401,
+      // "AUTH_OTP_INVALID", ...) y no llega a tocar la DB de usuarios.
+      const { jti } = await phoneVerificationService.consumePhoneVerificationToken(
+        input.phoneVerificationToken,
+        phone
+      );
+
       // Argon2id (AC6): resistente tanto a ataques de canal lateral (side-channel,
       // cubierto por Argon2i) como a fuerza bruta con hardware (GPU/ASIC, cubierto
       // por Argon2d) — recomendación OWASP para hash de contraseñas.
       const passwordHash = await hash(input.password, { algorithm: ARGON2ID });
 
+      let user;
       try {
-        const user = await repository.create({
+        user = await repository.create({
           email,
           phone,
           firstName,
           lastName,
           passwordHash,
+          phoneVerified: true,
           roles: DEFAULT_USER_ROLES,
         });
-        return { userId: user.id, kycStatus: user.kycStatusIdentity };
       } catch (err) {
         if (err instanceof UserConflictError) {
+          // El token ya se consumió arriba; si el registro no prospera por un
+          // conflicto de datos (no por el token en sí), se libera para que un
+          // reintento con el email/teléfono corregido no tenga que rehacer el OTP
+          // (revisión de PR #51, tmvergara — repro: typo en el email obligaba a
+          // pedir un código nuevo aunque el teléfono siguiera verificado).
+          await phoneVerificationService.releasePhoneVerificationToken(jti);
           if (err.field === "email") {
             throw new ApiError(409, "USER_EMAIL_ALREADY_EXISTS", "Ya existe una cuenta registrada con este email.");
           }
@@ -182,6 +212,8 @@ export function createAuthService(db: PrismaClient, redis: Redis) {
         }
         throw err;
       }
+
+      return issueSession(user);
     },
 
     async login(input: LoginUserInput): Promise<LoginUserResult> {

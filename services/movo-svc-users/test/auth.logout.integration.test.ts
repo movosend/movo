@@ -1,9 +1,21 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
+import { SmsProvider } from "../src/adapters/sms-provider";
+
+function createCaptorSmsProvider() {
+  const sentCodes = new Map<string, string>();
+  const provider: SmsProvider = {
+    async send(toE164: string, code: string): Promise<void> {
+      sentCodes.set(toE164, code);
+    },
+  };
+  return { provider, sentCodes };
+}
 
 describe("POST /auth/logout y POST /auth/logout-all", () => {
   let app: FastifyInstance;
+  let captor: ReturnType<typeof createCaptorSmsProvider>;
 
   const validRegisterPayload = {
     fullName: "Tomas Olmos",
@@ -17,7 +29,8 @@ describe("POST /auth/logout y POST /auth/logout-all", () => {
     process.env.DATABASE_URL =
       process.env.DATABASE_URL || "postgresql://movo:movo_local_pw@localhost:5432/movo";
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
-    app = buildApp();
+    captor = createCaptorSmsProvider();
+    app = buildApp({ smsProvider: captor.provider });
     await app.ready();
   });
 
@@ -31,10 +44,36 @@ describe("POST /auth/logout y POST /auth/logout-all", () => {
     if (keys.length > 0) {
       await app.redis.del(...keys);
     }
+    let cursor = "0";
+    do {
+      const [nextCursor, otpKeys] = await app.redis.scan(cursor, "MATCH", "otp:*", "COUNT", 100);
+      cursor = nextCursor;
+      if (otpKeys.length > 0) {
+        await app.redis.del(...otpKeys);
+      }
+    } while (cursor !== "0");
   });
 
+  /** MOVO-72: /auth/register exige un phoneVerificationToken real (MOVO-71). */
   async function registerAndLogin() {
-    await app.inject({ method: "POST", url: "/auth/register", payload: validRegisterPayload });
+    const send = await app.inject({
+      method: "POST",
+      url: "/auth/send-otp",
+      payload: { phone: validRegisterPayload.phone },
+    });
+    const { otpId } = JSON.parse(send.body) as { otpId: string };
+    const code = [...captor.sentCodes.values()].pop();
+    if (!code) {
+      throw new Error("No se capturó ningún código OTP");
+    }
+    const verify = await app.inject({ method: "POST", url: "/auth/verify-otp", payload: { otpId, code } });
+    const { phoneVerificationToken } = JSON.parse(verify.body) as { phoneVerificationToken: string };
+
+    await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: { ...validRegisterPayload, phoneVerificationToken },
+    });
     const loginRes = await app.inject({
       method: "POST",
       url: "/auth/login",
@@ -56,8 +95,10 @@ describe("POST /auth/logout y POST /auth/logout-all", () => {
 
       expect(logoutRes.statusCode).toBe(204);
 
+      // Baseline de 2 (register() + login(), MOVO-72): logout solo revoca la sesión
+      // de login(), la de register() sigue en pie.
       const redisKeys = await app.redis.keys(`refresh:${userId}:*`);
-      expect(redisKeys.length).toBe(0);
+      expect(redisKeys.length).toBe(1);
 
       const refreshAfterLogout = await app.inject({
         method: "POST",
@@ -83,8 +124,10 @@ describe("POST /auth/logout y POST /auth/logout-all", () => {
         payload: { refreshToken: refreshToken1 },
       });
 
+      // Baseline de 3 (register() + login() de registerAndLogin() + este segundo
+      // login(), MOVO-72): revocar refreshToken1 deja 2.
       const redisKeys = await app.redis.keys(`refresh:${userId}:*`);
-      expect(redisKeys.length).toBe(1);
+      expect(redisKeys.length).toBe(2);
 
       const refreshRes = await app.inject({
         method: "POST",
@@ -126,8 +169,10 @@ describe("POST /auth/logout y POST /auth/logout-all", () => {
       });
       expect(logoutRes.statusCode).toBe(204);
 
+      // Baseline de 2 (register() + login(), MOVO-72): logout con un x-user-id ajeno
+      // es un no-op, ninguna sesión se toca.
       const redisKeys = await app.redis.keys(`refresh:${userId}:*`);
-      expect(redisKeys.length).toBe(1);
+      expect(redisKeys.length).toBe(2);
     });
   });
 
@@ -140,8 +185,9 @@ describe("POST /auth/logout y POST /auth/logout-all", () => {
         payload: { phone: validRegisterPayload.phone, password: validRegisterPayload.password },
       });
 
+      // Baseline de 3 (register() + login() de registerAndLogin() + este segundo login(), MOVO-72).
       const redisKeysBefore = await app.redis.keys(`refresh:${userId}:*`);
-      expect(redisKeysBefore.length).toBe(2);
+      expect(redisKeysBefore.length).toBe(3);
 
       const logoutAllRes = await app.inject({
         method: "POST",

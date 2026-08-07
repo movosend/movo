@@ -10,12 +10,17 @@ import errorHandlerPlugin from "./plugins/error-handler";
 import healthRoutes from "./modules/health/health.routes";
 import usersRoutes from "./modules/users/users.routes";
 import authRoutes, { AuthRoutesOptions } from "./modules/auth/auth.routes";
+import kycRoutes, { KycRoutesOptions } from "./modules/kyc/kyc.routes";
 import { SmsProvider } from "./adapters/sms-provider";
+import { DiditClient } from "./adapters/didit-client";
 
 export interface BuildAppOptions {
   /** Override solo para tests de integración — permite capturar el código de OTP
    * generado, ya que nunca sale por HTTP (DoD de MOVO-71). */
   smsProvider?: SmsProvider;
+  /** Override solo para tests de integración — evita depender de red/credenciales
+   * reales de Didit.me (MOVO-72), mismo criterio que `smsProvider`. */
+  diditClient?: DiditClient;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -56,6 +61,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.smsProvider ? { smsProvider: opts.smsProvider } : {}),
   };
   app.register(authRoutes, authRouteOpts);
+
+  const kycRouteOpts: KycRoutesOptions = {
+    prefix: "/kyc",
+    ...(opts.diditClient ? { diditClient: opts.diditClient } : {}),
+  };
+  app.register(kycRoutes, kycRouteOpts);
 
   return app;
 }
