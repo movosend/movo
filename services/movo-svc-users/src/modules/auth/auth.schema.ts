@@ -102,6 +102,50 @@ export const authSchemas = {
       },
     },
   },
+  refreshBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["refreshToken"],
+    properties: {
+      refreshToken: { type: "string" },
+    },
+  },
+  // Misma forma que loginResponse: refrescar emite un par de tokens nuevo.
+  refreshResponse: {
+    type: "object",
+    required: [
+      "userId",
+      "accessToken",
+      "refreshToken",
+      "expiresIn",
+      "kycStatus",
+      "fullName",
+      "roles",
+    ],
+    properties: {
+      userId: { type: "string", format: "uuid" },
+      accessToken: { type: "string" },
+      refreshToken: { type: "string" },
+      expiresIn: { type: "integer" },
+      kycStatus: {
+        type: "string",
+        enum: ["not_started", "pending", "approved", "rejected", "expired"],
+      },
+      fullName: { type: "string" },
+      roles: {
+        type: "array",
+        items: { type: "string" },
+      },
+    },
+  },
+  logoutBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["refreshToken"],
+    properties: {
+      refreshToken: { type: "string" },
+    },
+  },
   errorResponse: {
     type: "object",
     required: ["error"],

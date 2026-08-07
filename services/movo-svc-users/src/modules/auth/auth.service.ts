@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { hash, verify } from "@node-rs/argon2";
 import Redis from "ioredis";
 import { PrismaClient } from "../../generated/prisma/client";
@@ -11,7 +12,7 @@ import {
 } from "@movo/shared";
 import { createUserRepository } from "../../repositories/user-repository";
 import { createSessionRepository } from "../../repositories/session-repository";
-import { UserConflictError } from "../../models/user";
+import { User, UserConflictError } from "../../models/user";
 import type { PhoneVerificationService } from "./phone-verification.service";
 
 /** Roles por defecto al registrarse (AC8): todo usuario puede operar como emisor y transportista. */
@@ -59,6 +60,46 @@ export interface LoginUserResult {
 // no tenerlo. Con esto, ese desvío deja de ser necesario.
 export type RegisterUserResult = LoginUserResult;
 
+/** Misma forma que `LoginUserResult`: refrescar emite un par de tokens nuevo igual que un login. */
+export type RefreshTokenResult = LoginUserResult;
+
+export interface LogoutInput {
+  refreshToken: string;
+}
+
+/**
+ * El `refreshToken` que recibe el cliente es un token opaco *compuesto*, no el
+ * secreto crudo que emite `signRefreshToken()`: `"{userId}.{tokenId}.{secret}"`.
+ * Sin el `userId`/`tokenId` embebidos no hay forma de ubicar la key
+ * `refresh:{userId}:{tokenId}` en Redis a partir de lo único que tiene el
+ * cliente — ninguno de los tres componentes puede contener un punto (UUID o
+ * base64url), así que el split es seguro.
+ */
+function buildRefreshToken(userId: string, tokenId: string, secret: string): string {
+  return `${userId}.${tokenId}.${secret}`;
+}
+
+function parseRefreshToken(refreshToken: string): { userId: string; tokenId: string; secret: string } | null {
+  const parts = refreshToken.split(".");
+  if (parts.length !== 3) {
+    return null;
+  }
+  const [userId, tokenId, secret] = parts;
+  if (!userId || !tokenId || !secret) {
+    return null;
+  }
+  return { userId, tokenId, secret };
+}
+
+/**
+ * SHA-256 (no Argon2id): `secret` ya son 256 bits de aleatoriedad criptográfica
+ * generados por `signRefreshToken()`, no una contraseña de usuario — alcanza con
+ * una comparación honesta, no hace falta un hash lento.
+ */
+function hashRefreshSecret(secret: string): string {
+  return createHash("sha256").update(secret).digest("hex");
+}
+
 /**
  * Separa `fullName` en nombre/apellido para las columnas `first_name`/
  * `last_name` de la migración de MOVO-66 (que no tiene un único campo
@@ -100,6 +141,31 @@ export function createAuthService(
 ) {
   const repository = createUserRepository(db);
   const sessionRepository = createSessionRepository(redis);
+
+  /** Emite un par access/refresh token nuevo para `user` y persiste la sesión — usado por login() y refresh(). */
+  async function issueSession(user: User): Promise<LoginUserResult> {
+    const accessToken = signAccessToken({
+      sub: user.id,
+      roles: user.roles,
+      kycStatus: user.kycStatusIdentity,
+    });
+
+    const { token: secret, tokenId } = signRefreshToken();
+    await sessionRepository.saveRefreshToken(user.id, tokenId, {
+      hash: hashRefreshSecret(secret),
+      used: false,
+    });
+
+    return {
+      userId: user.id,
+      accessToken,
+      refreshToken: buildRefreshToken(user.id, tokenId, secret),
+      expiresIn: 3600,
+      kycStatus: user.kycStatusIdentity,
+      fullName: `${user.firstName} ${user.lastName}`,
+      roles: user.roles,
+    };
+  }
 
   return {
     async register(input: RegisterUserInput): Promise<RegisterUserResult> {
@@ -147,23 +213,7 @@ export function createAuthService(
         throw err;
       }
 
-      const accessToken = signAccessToken({
-        sub: user.id,
-        roles: user.roles,
-        kycStatus: user.kycStatusIdentity,
-      });
-      const { token: refreshToken, tokenId } = signRefreshToken();
-      await sessionRepository.saveRefreshToken(user.id, tokenId, refreshToken);
-
-      return {
-        userId: user.id,
-        accessToken,
-        refreshToken,
-        expiresIn: 3600,
-        kycStatus: user.kycStatusIdentity,
-        fullName: `${user.firstName} ${user.lastName}`,
-        roles: user.roles,
-      };
+      return issueSession(user);
     },
 
     async login(input: LoginUserInput): Promise<LoginUserResult> {
@@ -189,24 +239,56 @@ export function createAuthService(
         throw new ApiError(403, "ACCOUNT_SUSPENDED", "La cuenta se encuentra suspendida o inhabilitada.");
       }
 
-      const accessToken = signAccessToken({
-        sub: user.id,
-        roles: user.roles,
-        kycStatus: user.kycStatusIdentity,
-      });
+      return issueSession(user);
+    },
 
-      const { token: refreshToken, tokenId } = signRefreshToken();
-      await sessionRepository.saveRefreshToken(user.id, tokenId, refreshToken);
+    async refresh(refreshToken: string): Promise<RefreshTokenResult> {
+      const parsed = parseRefreshToken(refreshToken);
+      if (!parsed) {
+        throw new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
+      }
+      const { userId, tokenId, secret } = parsed;
 
-      return {
-        userId: user.id,
-        accessToken,
-        refreshToken,
-        expiresIn: 3600,
-        kycStatus: user.kycStatusIdentity,
-        fullName: `${user.firstName} ${user.lastName}`,
-        roles: user.roles,
-      };
+      // Lee + chequea `used` + marca `used: true` en una sola operación atómica
+      // (script Lua) — evita la carrera de dos refresh concurrentes con el mismo
+      // token pasando el chequeo antes de que cualquiera escriba `used: true`.
+      const result = await sessionRepository.consumeRefreshToken(userId, tokenId, hashRefreshSecret(secret));
+
+      if (result === "already-used") {
+        // Reuso de un refresh ya rotado: señal de robo (AC3) — se revocan todas
+        // las sesiones del usuario, no solo la de este token.
+        await sessionRepository.revokeAllForUser(userId);
+        throw new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
+      }
+      if (result === "not-found" || result === "hash-mismatch") {
+        throw new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
+      }
+
+      const user = await repository.findById(userId);
+      if (!user || user.status === AccountStatus.BANNED || user.status === AccountStatus.DELETED) {
+        await sessionRepository.revokeAllForUser(userId);
+        if (!user) {
+          throw new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
+        }
+        throw new ApiError(403, "ACCOUNT_SUSPENDED", "La cuenta se encuentra suspendida o inhabilitada.");
+      }
+
+      // AC5: roles/kycStatus releídos de la fila actual, no del token viejo.
+      return issueSession(user);
+    },
+
+    async logout(input: LogoutInput, requestUserId: string): Promise<void> {
+      const parsed = parseRefreshToken(input.refreshToken);
+      // Idempotente por diseño (AC9): token inválido, ya revocado, o de otro
+      // usuario no distingue error — siempre es un no-op silencioso.
+      if (!parsed || parsed.userId !== requestUserId) {
+        return;
+      }
+      await sessionRepository.revokeRefreshToken(parsed.userId, parsed.tokenId);
+    },
+
+    async logoutAll(userId: string): Promise<void> {
+      await sessionRepository.revokeAllForUser(userId);
     },
   };
 }
