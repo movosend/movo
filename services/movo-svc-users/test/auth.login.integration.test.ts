@@ -35,7 +35,7 @@ describe("POST /auth/login", () => {
     }
   });
 
-  it("autentica correctamente con credenciales válidas y devuelve la respuesta plana esperada + guarda refresh token en Redis con TTL de 7 días", async () => {
+  it("autentica correctamente con credenciales válidas y devuelve la respuesta plana esperada + guarda refresh token en Redis con TTL de 90 días", async () => {
     // 1. Registrar usuario
     const regRes = await app.inject({
       method: "POST",
@@ -83,12 +83,12 @@ describe("POST /auth/login", () => {
       expect(verifyResult.claims.roles.sort()).toEqual([UserRole.CARRIER, UserRole.SENDER].sort());
     }
 
-    // 4. Verificar que el refresh token está guardado en Redis bajo `refresh:{userId}:*` con TTL de 7 días
+    // 4. Verificar que el refresh token está guardado en Redis bajo `refresh:{userId}:*` con TTL de 90 días
     const redisKeys = await app.redis.keys(`refresh:${userId}:*`);
     expect(redisKeys.length).toBe(1);
     const ttl = await app.redis.ttl(redisKeys[0]!);
-    expect(ttl).toBeGreaterThan(600000); // Cerca de 604800 segundos (7 días)
-    expect(ttl).toBeLessThanOrEqual(604800);
+    expect(ttl).toBeGreaterThan(7000000); // Cerca de 7776000 segundos (90 días)
+    expect(ttl).toBeLessThanOrEqual(7776000);
   });
 
   it("devuelve 401 AUTH_INVALID_CREDENTIALS cuando la contraseña es incorrecta", async () => {

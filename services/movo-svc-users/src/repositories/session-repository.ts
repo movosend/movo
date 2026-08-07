@@ -1,6 +1,8 @@
 import Redis from "ioredis";
 
-export const DEFAULT_REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days (604800s) as per ADR-004
+export const DEFAULT_REFRESH_TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60; // 90 days (7776000s), ADR-013
+
+export type ConsumeRefreshTokenResult = "ok" | "already-used" | "hash-mismatch" | "not-found";
 
 export interface SessionRepository {
   saveRefreshToken(
@@ -10,9 +12,41 @@ export interface SessionRepository {
     ttlSeconds?: number
   ): Promise<void>;
   findRefreshToken(userId: string, tokenId: string): Promise<string | null>;
+  /**
+   * Lee el registro `{ hash, used }` de `refresh:{userId}:{tokenId}` y, si
+   * `expectedHash` matchea y todavía no fue usado, lo marca `used: true` —
+   * todo en una sola operación Redis (script Lua, mismo patrón que
+   * `otp-repository.ts#incrementAttempts`). Sin esto, un `findRefreshToken` +
+   * chequeo de `used` + `saveRefreshToken` separados dejan una carrera: dos
+   * refresh concurrentes con el mismo token válido pueden pasar el chequeo
+   * `used === false` antes de que cualquiera escriba `used: true`, y ninguno
+   * dispara la detección de reuso del AC3.
+   */
+  consumeRefreshToken(userId: string, tokenId: string, expectedHash: string): Promise<ConsumeRefreshTokenResult>;
   revokeRefreshToken(userId: string, tokenId: string): Promise<boolean>;
   revokeAllForUser(userId: string): Promise<number>;
 }
+
+// GET + cjson.decode + chequeo de `used` + SET atómico: sin esto, leer y escribir por
+// llamadas Redis separadas deja una ventana entre el chequeo `used === false` y la
+// escritura donde dos refresh concurrentes con el mismo token pueden pasar los dos.
+// KEEPTTL preserva el TTL de 90 días (ADR-013) — un SET sin esa opción lo resetearía.
+const CONSUME_REFRESH_TOKEN_SCRIPT = `
+local val = redis.call("GET", KEYS[1])
+if not val then
+  return "not-found"
+end
+local record = cjson.decode(val)
+if record.hash ~= ARGV[1] then
+  return "hash-mismatch"
+end
+if record.used then
+  return "already-used"
+end
+record.used = true
+redis.call("SET", KEYS[1], cjson.encode(record), "KEEPTTL")
+return "ok"
+`;
 
 export function createSessionRepository(redis: Redis): SessionRepository {
   const validateIds = (userId: string, tokenId: string): void => {
@@ -51,6 +85,21 @@ export function createSessionRepository(redis: Redis): SessionRepository {
       }
       const key = buildKey(userId, tokenId);
       return await redis.get(key);
+    },
+
+    async consumeRefreshToken(
+      userId: string,
+      tokenId: string,
+      expectedHash: string
+    ): Promise<ConsumeRefreshTokenResult> {
+      if (!userId || !tokenId) {
+        return "not-found";
+      }
+      validateIds(userId, tokenId);
+
+      const key = buildKey(userId, tokenId);
+      const result = await redis.eval(CONSUME_REFRESH_TOKEN_SCRIPT, 1, key, expectedHash);
+      return result as ConsumeRefreshTokenResult;
     },
 
     async revokeRefreshToken(userId: string, tokenId: string): Promise<boolean> {
