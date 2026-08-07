@@ -16,11 +16,13 @@ describe("user-repository (Postgres)", () => {
     lastName: "Olmos",
     passwordHash: "hashed_password",
     roles: [UserRole.SENDER, UserRole.CARRIER],
+    phoneVerified: false,
   };
 
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
     process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo_local_pw@localhost:5432/movo";
+    process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
     app = buildApp();
     await app.ready();
     repo = createUserRepository(app.db);

@@ -1,6 +1,5 @@
 import { KycStatus } from "@movo/shared";
 import {
-  PrismaClient,
   Prisma,
   UserRole as PrismaUserRole,
   KycStatus as PrismaKycStatus,
@@ -73,7 +72,12 @@ function uniqueConstraintFields(error: Prisma.PrismaClientKnownRequestError): st
   return Array.isArray(fields) ? fields.filter((f): f is string => typeof f === "string") : [];
 }
 
-export function createUserRepository(db: PrismaClient): UserRepository {
+// `Prisma.TransactionClient` (no `PrismaClient`) a propósito: un `PrismaClient` normal
+// lo satisface igual (superset estructural), pero esto permite además pasarle el
+// cliente transaccional que entrega `db.$transaction(async (tx) => ...)` -- MOVO-72 lo
+// necesita para que la escritura en `kyc_verification` y el update del caché en `users`
+// (ambos vía repositorios separados) participen de la misma transacción.
+export function createUserRepository(db: Prisma.TransactionClient): UserRepository {
   return {
     async count(): Promise<number> {
       return db.user.count();
@@ -112,6 +116,7 @@ export function createUserRepository(db: PrismaClient): UserRepository {
             passwordHash: input.passwordHash,
             dni: input.dni ?? null,
             birthdate: input.birthdate ?? null,
+            phoneVerified: input.phoneVerified,
             roles: {
               create: input.roles.map((role) => ({ role: role as unknown as PrismaUserRole })),
             },

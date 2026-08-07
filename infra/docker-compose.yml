@@ -78,6 +78,27 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}
+      # MOVO-71: `:-console` (no solo `-console`) es a propósito — si SMS_PROVIDER no
+      # está en Secrets Manager, ${SMS_PROVIDER} se sustituye por vacío y el contenedor
+      # arranca con la env var *presente pero vacía*, que no matchea el enum de
+      # envSchema (AJV solo aplica su default cuando la variable está ausente, no
+      # cuando está vacía) y tira el servicio abajo al boot. `:-` cubre "unset o vacío".
+      - SMS_PROVIDER=${SMS_PROVIDER:-console}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_API_KEY_SID=${TWILIO_API_KEY_SID}
+      - TWILIO_API_KEY_SECRET=${TWILIO_API_KEY_SECRET}
+      - TWILIO_FROM_NUMBER=${TWILIO_FROM_NUMBER}
+      # MOVO-71: TelegramSmsProvider, exclusivo de develop (SMS_PROVIDER=telegram) —
+      # evita depender de la consola de EC2 para ver el OTP en dev.
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      # MOVO-72: mismo criterio de `:-mock` que SMS_PROVIDER arriba — una var presente
+      # pero vacía no matchea el enum de envSchema y tira el servicio abajo al boot.
+      - DIDIT_MODE=${DIDIT_MODE:-mock}
+      - DIDIT_BASE_URL=${DIDIT_BASE_URL}
+      - DIDIT_API_KEY=${DIDIT_API_KEY}
+      - DIDIT_WORKFLOW_ID_IDENTITY=${DIDIT_WORKFLOW_ID_IDENTITY}
+      - DIDIT_WEBHOOK_SECRET=${DIDIT_WEBHOOK_SECRET}
     depends_on:
       - postgres
       - redis

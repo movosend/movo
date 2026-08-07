@@ -22,17 +22,32 @@ export default async function routesPlugin(
   // marca un flag interno la primera vez que corre en un request y no
   // vuelve a chequear — si intentáramos aplicar ambos (general + estricto)
   // al mismo request, el segundo chequeo se ignoraría en silencio.
+  // MOVO-72: bug encontrado al agregar el segundo rate limit estricto (/kyc/session,
+  // misma config {max:5, timeWindow:"15 minutes"} que /auth/login) — `@fastify/rate-limit`
+  // en modo decorator (`app.rateLimit(opts)`, la forma en que se usa acá) siempre arma
+  // el namespace del store con `routeInfo: {}` fijo (ver `createLimiterArgs` en la
+  // librería), así que la clave real en Redis termina siendo
+  // `fastify-rate-limit-undefinedundefined-<ip>` para TODOS los limiters creados así,
+  // sin importar su `max`/`timeWindow` — general, login y kyc-session compartían un
+  // solo contador por IP (confirmado con `redis-cli keys`). Un `keyGenerator` explícito
+  // por limiter es la única forma de distinguirlos con esta API (routeInfo no es
+  // configurable desde afuera de la librería).
   const generalLimiter = app.rateLimit({
     max: opts.env.RATE_LIMIT_MAX,
     timeWindow: "1 minute",
+    keyGenerator: (request) => `general:${request.ip}`,
   });
 
   const strictRateLimiters = new Map<string, ReturnType<typeof app.rateLimit>>();
   for (const publicRoute of getPublicRoutes()) {
     if (publicRoute.rateLimit) {
+      const routeKey = `${publicRoute.method} ${publicRoute.path}`;
       strictRateLimiters.set(
-        `${publicRoute.method} ${publicRoute.path}`,
-        app.rateLimit(publicRoute.rateLimit)
+        routeKey,
+        app.rateLimit({
+          ...publicRoute.rateLimit,
+          keyGenerator: (request) => `${routeKey}:${request.ip}`,
+        })
       );
     }
   }
@@ -41,7 +56,19 @@ export default async function routesPlugin(
     await app.register(httpProxy, {
       upstream: route.upstream,
       prefix: route.prefix,
-      rewritePrefix: "/",
+      // Sin rewrite: el path que expone cada microservicio (ej. `/auth/register`
+      // en movo-svc-users) es el mismo que expone el gateway bajo `/api/v1`, ya que
+      // cada servicio también se publica directo en su puerto para debug local (ver
+      // README) y genera su propio Swagger documentando esos paths. `rewritePrefix:
+      // "/"` (como estaba antes) le sacaba el prefijo del módulo (`/auth`, `/users`)
+      // al reenviar — el upstream nunca lo esperó así, así que TODO endpoint de
+      // movo-svc-users devolvía 404 al pasar por acá (nadie lo detectó porque el
+      // test suite del gateway pega contra un stub que responde 200 a cualquier
+      // path, y el de movo-svc-users llama las rutas directo con `app.inject()`,
+      // sin gateway de por medio). `rewritePrefix: route.prefix` es un no-op
+      // intencional: matchea `prefix` y lo vuelve a poner igual, el path llega
+      // intacto al upstream.
+      rewritePrefix: route.prefix,
       preHandler: async (request, reply) => {
         // request.url incluye el prefijo /api/v1 con el que se registró este
         // plugin; getPublicRoutes() declara los paths sin ese prefijo (son

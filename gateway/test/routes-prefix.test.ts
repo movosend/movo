@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, Server } from "node:http";
 import { FastifyInstance } from "fastify";
+import { signAccessToken, UserRole, KycStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 
 // Cubre el comentario de PR sobre routes/index.ts: la duda era si Fastify
@@ -13,6 +14,7 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
   let stub: Server;
   let stubPort: number;
   let capturedUrl = "";
+  let capturedHeaders: Record<string, string | string[] | undefined> = {};
 
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
@@ -20,6 +22,7 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
 
     stub = createServer((req, res) => {
       capturedUrl = req.url ?? "";
+      capturedHeaders = req.headers;
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
     });
@@ -48,9 +51,12 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
     stub.close();
   });
 
-  it("reescribe el path upstream sin el API_PREFIX ni el prefijo del servicio", async () => {
-    // rewritePrefix: "/" en routes/index.ts implica que el upstream recibe
-    // solo lo que sigue al prefijo del servicio, sin /api/v1 ni /auth.
+  it("reescribe el path upstream sin el API_PREFIX, pero preserva el prefijo del servicio", async () => {
+    // rewritePrefix: route.prefix en routes/index.ts (MOVO-71, corrige un bug real:
+    // con rewritePrefix: "/" el upstream recibía solo "/register", pero
+    // movo-svc-users registra sus rutas en "/auth/register" — TODO endpoint de auth
+    // devolvía 404 al pasar por el gateway real hasta este fix). El upstream recibe
+    // el mismo path que expone el gateway bajo /api/v1, sin el /api/v1 en sí.
     const response = await app.inject({
       method: "POST",
       url: "/api/v1/auth/register",
@@ -58,7 +64,7 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(capturedUrl).toBe("/register");
+    expect(capturedUrl).toBe("/auth/register");
   });
 
   it("un path que sólo comparte prefijo con una ruta pública no la matchea (exige auth)", async () => {
@@ -84,7 +90,7 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(capturedUrl).toBe("/register?ref=campaign");
+    expect(capturedUrl).toBe("/auth/register?ref=campaign");
   });
 
   it("una ruta protegida sin token en un prefijo distinto también exige auth (no público por defecto)", async () => {
@@ -94,5 +100,78 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
     });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  describe("Rutas de /kyc (MOVO-72, protegidas desde la revisión de PR #51)", () => {
+    function issueToken(): string {
+      return signAccessToken({
+        sub: "11111111-1111-1111-1111-111111111111",
+        roles: [UserRole.SENDER, UserRole.CARRIER],
+        kycStatus: KycStatus.NOT_STARTED,
+      });
+    }
+
+    it("POST /kyc/session exige token (401 sin Authorization)", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/kyc/session",
+      });
+
+      expect(response.statusCode).toBe(401);
+    });
+
+    it("POST /kyc/session con token válido llega al upstream con el prefijo /kyc preservado y x-user-id inyectado", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/kyc/session",
+        headers: { authorization: `Bearer ${issueToken()}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedUrl).toBe("/kyc/session");
+      expect(capturedHeaders["x-user-id"]).toBe("11111111-1111-1111-1111-111111111111");
+    });
+
+    it("GET /kyc/status exige token (401 sin Authorization)", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/kyc/status",
+      });
+
+      expect(response.statusCode).toBe(401);
+    });
+
+    it("GET /kyc/status con token válido llega al upstream con x-user-id inyectado", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/kyc/status",
+        headers: { authorization: `Bearer ${issueToken()}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedUrl).toBe("/kyc/status");
+      expect(capturedHeaders["x-user-id"]).toBe("11111111-1111-1111-1111-111111111111");
+    });
+
+    it("POST /kyc/webhook es público (sin token) — Didit no puede mandar un JWT", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/kyc/webhook",
+        payload: { status: "Approved", session_id: "sess_1" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedUrl).toBe("/kyc/webhook");
+    });
+
+    it("el viejo placeholder /webhooks/didit de MOVO-68 ya no existe (404, no matchea ningún prefijo de servicio)", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/webhooks/didit",
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(404);
+    });
   });
 });
