@@ -7,12 +7,21 @@ import {
 import { KycVerification, VerificationType, parseVerificationType } from "../models/kyc-verification";
 import { parseKycStatus } from "../models/user";
 
-export interface CreateKycVerificationInput {
+export interface UpsertPendingSessionInput {
   userId: string;
   verificationType: VerificationType;
   provider: string;
   externalSessionId: string;
-  status: KycStatus;
+}
+
+export interface ExpirePendingInput {
+  userId: string;
+  verificationType: VerificationType;
+  /** Sesión a preservar del barrido. Didit hace dedupe implícito por `vendor_data`
+   * (ver `didit-client.ts`): puede devolver la MISMA sesión que ya teníamos abierta, y
+   * en ese caso expirar "todo lo pending del usuario" mataría el intento que estamos
+   * por revivir. */
+  exceptExternalSessionId?: string;
 }
 
 export interface ResolveKycVerificationInput {
@@ -26,7 +35,15 @@ export interface ResolveKycVerificationInput {
 }
 
 export interface KycVerificationRepository {
-  create(input: CreateKycVerificationInput): Promise<KycVerification>;
+  /** Crea el intento, o revive uno ya existente con el mismo `externalSessionId`
+   * dejándolo de nuevo en `pending`. Es un upsert y no un insert porque Didit puede
+   * devolver una sesión que ya conocíamos (ver `ExpirePendingInput.exceptExternalSessionId`):
+   * con un insert plano eso rompería contra la constraint única de la columna. */
+  upsertPendingSession(input: UpsertPendingSessionInput): Promise<KycVerification>;
+  /** Marca como `expired` los intentos `pending` del usuario — el intento anterior se
+   * da por abandonado cuando se pide una sesión nueva (ver `kyc.service.ts#createSession`).
+   * Devuelve cuántas filas se descartaron. */
+  expirePendingByUserId(input: ExpirePendingInput): Promise<number>;
   resolveByExternalSessionId(input: ResolveKycVerificationInput): Promise<KycVerification | null>;
   findByExternalSessionId(externalSessionId: string): Promise<KycVerification | null>;
   /** Último intento de un usuario para un tipo de verificación dado — usado por
@@ -62,17 +79,43 @@ function toDomainKycVerification(row: KycVerificationRow): KycVerification {
 // `db.$transaction` que actualiza el caché de `users`).
 export function createKycVerificationRepository(db: Prisma.TransactionClient): KycVerificationRepository {
   return {
-    async create(input: CreateKycVerificationInput): Promise<KycVerification> {
-      const row = await db.kycVerification.create({
-        data: {
+    async upsertPendingSession(input: UpsertPendingSessionInput): Promise<KycVerification> {
+      const row = await db.kycVerification.upsert({
+        where: { externalSessionId: input.externalSessionId },
+        create: {
           userId: input.userId,
           verificationType: input.verificationType as PrismaVerificationType,
           provider: input.provider,
           externalSessionId: input.externalSessionId,
-          status: input.status as PrismaKycStatus,
+          status: KycStatus.PENDING as PrismaKycStatus,
+        },
+        // Revivir un intento ya conocido lo devuelve al estado de "recién pedido": se
+        // limpian `resolvedAt`/`rawDecision` para no arrastrar la decisión de un ciclo
+        // anterior, y `requestedAt` se refresca para que `findLatestByUserId` siga
+        // devolviendo el intento realmente más reciente.
+        update: {
+          status: KycStatus.PENDING as PrismaKycStatus,
+          requestedAt: new Date(),
+          resolvedAt: null,
+          rawDecision: Prisma.DbNull,
         },
       });
       return toDomainKycVerification(row);
+    },
+
+    async expirePendingByUserId(input: ExpirePendingInput): Promise<number> {
+      const result = await db.kycVerification.updateMany({
+        where: {
+          userId: input.userId,
+          verificationType: input.verificationType as PrismaVerificationType,
+          status: KycStatus.PENDING as PrismaKycStatus,
+          ...(input.exceptExternalSessionId
+            ? { externalSessionId: { not: input.exceptExternalSessionId } }
+            : {}),
+        },
+        data: { status: KycStatus.EXPIRED as PrismaKycStatus, resolvedAt: new Date() },
+      });
+      return result.count;
     },
 
     async resolveByExternalSessionId(input: ResolveKycVerificationInput): Promise<KycVerification | null> {

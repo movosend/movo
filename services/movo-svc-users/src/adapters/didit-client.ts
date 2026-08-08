@@ -44,12 +44,19 @@ export type DiditRawStatus =
 
 /**
  * Mapea el vocabulario de Didit al de `@movo/shared` — el resto del servicio nunca ve
- * un `DiditRawStatus`. Solo los 3 estados terminales del AC6 disparan una transición;
- * el resto son intermedios (no terminales) y se ignoran (`null`).
+ * un `DiditRawStatus`. Los estados intermedios (`Not Started`/`In Progress`/
+ * `Awaiting User`/`Resubmitted`) no disparan transición y se ignoran (`null`).
  *
- * `Expired`/`Abandoned`/`Kyc Expired` quedan sin mapear a propósito: el spike MOVO-48
- * no llegó a confirmar contra el sandbox real qué comportamiento esperar de estos —
- * se definen en el Paso 7 del plan de MOVO-72 en vez de asumir ahora.
+ * `Expired`/`Abandoned`/`Kyc Expired` mapean a `KycStatus.EXPIRED`: son las tres formas
+ * en que Didit da por muerta una sesión que nadie completó. Es una transición terminal
+ * pero NO definitiva — `EXPIRED` está en `ALLOWED_SESSION_SOURCE_STATUSES`
+ * (`kyc.service.ts`), así que el usuario puede pedir una sesión nueva. Mapearlos a un
+ * estado sin salida sería peor que ignorarlos.
+ *
+ * Siguen sin validarse contra el sandbox real (el mismo hueco que dejó abierto el Paso 7
+ * del plan de MOVO-72: no hay forma de generar estos escenarios desde "Probar Webhook" de
+ * la consola de Didit). El riesgo de mapearlos mal es bajo: el peor caso es que un
+ * usuario tenga que reintentar el KYC.
  */
 export function mapDiditStatusToKycStatus(raw: string): KycStatus | null {
   switch (raw as DiditRawStatus) {
@@ -59,6 +66,10 @@ export function mapDiditStatusToKycStatus(raw: string): KycStatus | null {
       return KycStatus.REJECTED;
     case "In Review":
       return KycStatus.MANUAL_REVIEW;
+    case "Expired":
+    case "Abandoned":
+    case "Kyc Expired":
+      return KycStatus.EXPIRED;
     default:
       return null;
   }

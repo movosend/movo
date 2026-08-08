@@ -16,12 +16,23 @@ function createCaptorSmsProvider() {
 }
 
 /** DiditClient determinístico para tests — no genera sessionId al azar, así los
- * asserts sobre kyc_verification.externalSessionId son estables. */
-function createFakeDiditClient(): DiditClient {
-  return {
+ * asserts sobre kyc_verification.externalSessionId son estables.
+ *
+ * `pinnedSessionId` permite simular el dedupe implícito de Didit por `vendor_data`
+ * (ver `didit-client.ts`): con el mismo usuario y una sesión sin terminar, Didit puede
+ * devolver la sesión que ya existía en vez de crear una nueva. */
+function createFakeDiditClient() {
+  let pinnedSessionId: string | null = null;
+  const client: DiditClient = {
     async createSession() {
-      const sessionId = `sess-${randomUUID()}`;
+      const sessionId = pinnedSessionId ?? `sess-${randomUUID()}`;
       return { sessionId, sessionToken: `token-${sessionId}`, url: `https://didit.test/${sessionId}` };
+    },
+  };
+  return {
+    client,
+    pinSessionId(sessionId: string | null) {
+      pinnedSessionId = sessionId;
     },
   };
 }
@@ -29,13 +40,15 @@ function createFakeDiditClient(): DiditClient {
 describe("POST /kyc/session (MOVO-72)", () => {
   let app: FastifyInstance;
   let captor: ReturnType<typeof createCaptorSmsProvider>;
+  let didit: ReturnType<typeof createFakeDiditClient>;
 
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
     process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo_local_pw@localhost:5432/movo";
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
     captor = createCaptorSmsProvider();
-    app = buildApp({ smsProvider: captor.provider, diditClient: createFakeDiditClient() });
+    didit = createFakeDiditClient();
+    app = buildApp({ smsProvider: captor.provider, diditClient: didit.client });
     await app.ready();
   });
 
@@ -44,6 +57,7 @@ describe("POST /kyc/session (MOVO-72)", () => {
   });
 
   beforeEach(async () => {
+    didit.pinSessionId(null);
     await app.db.$executeRawUnsafe("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
     let cursor = "0";
     do {
@@ -77,6 +91,16 @@ describe("POST /kyc/session (MOVO-72)", () => {
         phone,
         password: "Password1",
         phoneVerificationToken,
+        dni: "30123456",
+        address: {
+          street: "Av. Colón",
+          number: "1234",
+          city: "Córdoba",
+          province: "Córdoba",
+          zip: "5000",
+          lat: -31.4201,
+          long: -64.1888,
+        },
       },
     });
     const { userId } = JSON.parse(register.body) as { userId: string };
@@ -147,32 +171,74 @@ describe("POST /kyc/session (MOVO-72)", () => {
     expect(JSON.parse(response.body).error.code).toBe("KYC_SESSION_NOT_ALLOWED");
   });
 
-  it("rechaza con 409 KYC_SESSION_NOT_ALLOWED si ya hay una sesión pending (no reintenta ni devuelve la existente)", async () => {
+  // Revierte la política original de MOVO-72 (409 desde `pending`): un intento que
+  // quedó `pending` porque el SDK del cliente nunca llegó a Didit no se resuelve solo
+  // por webhook, así que rechazar el reintento dejaba al usuario sin salida. Ver el
+  // comentario de ALLOWED_SESSION_SOURCE_STATUSES en kyc.service.ts.
+  it("permite reintentar desde pending: descarta el intento anterior como expired y abre uno nuevo", async () => {
     const userId = await registerVerifiedUser();
-    await app.db.user.update({ where: { id: userId }, data: { kycStatusIdentity: "pending" } });
+    const first = await app.inject({ method: "POST", url: "/kyc/session", headers: { "x-user-id": userId } });
+    const firstSessionId = (JSON.parse(first.body) as { sessionId: string }).sessionId;
 
-    const response = await app.inject({
-      method: "POST",
-      url: "/kyc/session",
-      headers: { "x-user-id": userId },
+    const second = await app.inject({ method: "POST", url: "/kyc/session", headers: { "x-user-id": userId } });
+
+    expect(second.statusCode).toBe(201);
+    const secondSessionId = (JSON.parse(second.body) as { sessionId: string }).sessionId;
+    expect(secondSessionId).not.toBe(firstSessionId);
+
+    const abandoned = await app.db.kycVerification.findUnique({
+      where: { externalSessionId: firstSessionId },
     });
+    expect(abandoned?.status).toBe("expired");
+    expect(abandoned?.resolvedAt).toBeInstanceOf(Date);
 
-    expect(response.statusCode).toBe(409);
-    expect(JSON.parse(response.body).error.code).toBe("KYC_SESSION_NOT_ALLOWED");
+    const current = await app.db.kycVerification.findUnique({
+      where: { externalSessionId: secondSessionId },
+    });
+    expect(current?.status).toBe("pending");
+    expect(current?.resolvedAt).toBeNull();
+
+    // El caché de `users` sigue en pending: hay exactamente un intento vivo.
+    const user = await app.db.user.findUnique({ where: { id: userId } });
+    expect(user?.kycStatusIdentity).toBe("pending");
+    const stillPending = await app.db.kycVerification.findMany({ where: { userId, status: "pending" } });
+    expect(stillPending).toHaveLength(1);
   });
 
-  it.each(["rejected", "manual_review"])("permite crear sesión (201) si el kyc_status es %s (AC2)", async (status) => {
+  // Didit hace dedupe implícito por `vendor_data` (spike MOVO-48): con una sesión sin
+  // terminar puede devolver la MISMA que ya teníamos. Un insert plano rompería contra la
+  // constraint única de external_session_id -- por eso el repositorio hace upsert.
+  it("revive el intento sin romper la unicidad si Didit devuelve la misma sesión que ya existía", async () => {
     const userId = await registerVerifiedUser();
-    await app.db.user.update({ where: { id: userId }, data: { kycStatusIdentity: status } });
+    const first = await app.inject({ method: "POST", url: "/kyc/session", headers: { "x-user-id": userId } });
+    const sessionId = (JSON.parse(first.body) as { sessionId: string }).sessionId;
 
-    const response = await app.inject({
-      method: "POST",
-      url: "/kyc/session",
-      headers: { "x-user-id": userId },
-    });
+    didit.pinSessionId(sessionId);
+    const second = await app.inject({ method: "POST", url: "/kyc/session", headers: { "x-user-id": userId } });
 
-    expect(response.statusCode).toBe(201);
+    expect(second.statusCode).toBe(201);
+    expect((JSON.parse(second.body) as { sessionId: string }).sessionId).toBe(sessionId);
+
+    const verifications = await app.db.kycVerification.findMany({ where: { userId } });
+    expect(verifications).toHaveLength(1);
+    expect(verifications[0]).toMatchObject({ externalSessionId: sessionId, status: "pending", resolvedAt: null });
   });
+
+  it.each(["rejected", "manual_review", "expired", "pending"])(
+    "permite crear sesión (201) si el kyc_status es %s (AC2)",
+    async (status) => {
+      const userId = await registerVerifiedUser();
+      await app.db.user.update({ where: { id: userId }, data: { kycStatusIdentity: status } });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/kyc/session",
+        headers: { "x-user-id": userId },
+      });
+
+      expect(response.statusCode).toBe(201);
+    }
+  );
 
   it("devuelve 404 NOT_FOUND si el usuario no existe", async () => {
     const response = await app.inject({

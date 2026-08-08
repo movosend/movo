@@ -6,12 +6,29 @@ import { createKycVerificationRepository } from "../../repositories/kyc-verifica
 import { DiditClient, mapDiditStatusToKycStatus } from "../../adapters/didit-client";
 import { verifyDiditSignature } from "../../adapters/didit-signature";
 
-/** Estados desde los que se puede pedir una sesión nueva (AC2). `pending` queda afuera
- * a propósito — un intento en curso no se reintenta ni devuelve, se rechaza (409). */
+/**
+ * Estados desde los que se puede pedir una sesión nueva (AC2) — todos menos `approved`
+ * (una identidad ya verificada no se vuelve a verificar).
+ *
+ * `pending` está incluido a propósito, revirtiendo la política original de MOVO-72 ("un
+ * intento en curso no se reintenta ni devuelve, se rechaza (409)"). Esa regla asumía que
+ * un intento `pending` siempre termina resolviéndose por webhook, y no es cierto:
+ * `createSession` marca `pending` ANTES de que el cliente llegue a la UI de Didit, así
+ * que si el SDK falla ahí (sin conexión, sin development build, app cerrada a mitad)
+ * Didit no tiene nada que reportar y el webhook nunca llega. El usuario quedaba trabado
+ * en `pending` para siempre, sin ninguna forma de reintentar.
+ *
+ * A cambio, `createSession` marca el intento anterior como `expired` antes de abrir el
+ * nuevo (ver abajo). Trade-off aceptado: si el usuario completó la verificación hace
+ * segundos y el webhook viene en camino, ese resultado se descarta y tiene que rehacer
+ * el KYC. Se prioriza no dejar a nadie sin salida.
+ */
 const ALLOWED_SESSION_SOURCE_STATUSES: ReadonlySet<KycStatus> = new Set([
   KycStatus.NOT_STARTED,
   KycStatus.REJECTED,
   KycStatus.MANUAL_REVIEW,
+  KycStatus.PENDING,
+  KycStatus.EXPIRED,
 ]);
 
 export interface CreateKycSessionResult {
@@ -145,23 +162,40 @@ export function createKycService(
 
       const session = await diditClient.createSession({ vendorData: userId });
 
-      // Ambas escrituras (el intento nuevo + el caché en `users`) en una sola
-      // transacción -- evita que queden desincronizadas si algo falla a mitad de camino.
-      await db.$transaction(async (tx) => {
+      // Las tres escrituras (descartar intentos viejos + el intento nuevo + el caché en
+      // `users`) en una sola transacción -- evita que queden desincronizadas si algo
+      // falla a mitad de camino.
+      const supersededCount = await db.$transaction(async (tx) => {
         const txKycVerificationRepository = createKycVerificationRepository(tx);
         const txUserRepository = createUserRepository(tx);
-        await txKycVerificationRepository.create({
+
+        // Cualquier intento `pending` previo se da por abandonado. Además de destrabar
+        // al usuario, esto apoya la idempotencia del webhook sin código extra: como
+        // `resolveByExternalSessionId` solo aplica una transición si la fila sigue en
+        // `pending`, un webhook tardío de la sesión descartada deja de matchear y se
+        // ignora solo -- en particular, ya no puede pisar el caché de `users` con el
+        // resultado de una sesión que este usuario abandonó.
+        const superseded = await txKycVerificationRepository.expirePendingByUserId({
+          userId,
+          verificationType: "identity",
+          exceptExternalSessionId: session.sessionId,
+        });
+
+        await txKycVerificationRepository.upsertPendingSession({
           userId,
           verificationType: "identity",
           provider: "didit",
           externalSessionId: session.sessionId,
-          status: KycStatus.PENDING,
         });
         await txUserRepository.updateKycStatusIdentity(userId, KycStatus.PENDING);
+        return superseded;
       });
 
       // AC11: registro estructurado del evento (pino, ya activo en Fastify::app.log).
-      logger.info({ userId, sessionId: session.sessionId, event: "kyc_session_created" }, "KYC session created");
+      logger.info(
+        { userId, sessionId: session.sessionId, supersededCount, event: "kyc_session_created" },
+        "KYC session created"
+      );
 
       return { sessionId: session.sessionId, sessionToken: session.sessionToken };
     },

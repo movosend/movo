@@ -194,6 +194,56 @@ describe("POST /kyc/webhook (MOVO-72, AC4-AC7)", () => {
     expect(verification?.status).toBe("pending");
   });
 
+  it.each([["Expired"], ["Abandoned"], ["Kyc Expired"]])(
+    "%s de Didit transiciona a expired, dejando al usuario habilitado a reintentar",
+    async (diditStatus) => {
+      const { userId, externalSessionId } = await createPendingVerification();
+
+      const response = await postWebhook({ status: diditStatus, session_id: externalSessionId });
+
+      expect(response.statusCode).toBe(200);
+      const verification = await app.db.kycVerification.findUnique({ where: { externalSessionId } });
+      expect(verification?.status).toBe("expired");
+      expect(verification?.resolvedAt).not.toBeNull();
+      const user = await app.db.user.findUnique({ where: { id: userId } });
+      expect(user?.kycStatusIdentity).toBe("expired");
+    }
+  );
+
+  // El supersede de `createSession` (kyc.service.ts) deja el intento viejo en `expired`,
+  // así que el gate `fromStatus: pending` de resolveByExternalSessionId lo descarta solo.
+  // Sin esto, un webhook tardío de una sesión que el usuario abandonó pisaba el caché de
+  // `users` con un resultado que ya no corresponde al intento vivo.
+  it("un webhook tardío de una sesión ya descartada (expired) no pisa el estado del intento nuevo", async () => {
+    const { userId, externalSessionId: abandonedSessionId } = await createPendingVerification();
+    // Simula lo que hace createSession al reintentar: el intento viejo pasa a expired y
+    // se abre uno nuevo, que es el que gobierna el caché de `users`.
+    await app.db.kycVerification.update({
+      where: { externalSessionId: abandonedSessionId },
+      data: { status: "expired", resolvedAt: new Date() },
+    });
+    const currentSessionId = `sess-${randomUUID()}`;
+    await app.db.kycVerification.create({
+      data: {
+        userId,
+        verificationType: "identity",
+        provider: "didit",
+        externalSessionId: currentSessionId,
+        status: "pending",
+      },
+    });
+
+    const response = await postWebhook({ status: "Approved", session_id: abandonedSessionId });
+
+    expect(response.statusCode).toBe(200);
+    const abandoned = await app.db.kycVerification.findUnique({ where: { externalSessionId: abandonedSessionId } });
+    expect(abandoned?.status).toBe("expired");
+    const current = await app.db.kycVerification.findUnique({ where: { externalSessionId: currentSessionId } });
+    expect(current?.status).toBe("pending");
+    const user = await app.db.user.findUnique({ where: { id: userId } });
+    expect(user?.kycStatusIdentity).toBe("pending");
+  });
+
   it("un session_id desconocido no revienta y responde 200 (Didit no debe reintentar un evento que nunca se va a poder procesar)", async () => {
     const response = await postWebhook({ status: "Approved", session_id: `sess-${randomUUID()}` });
 
