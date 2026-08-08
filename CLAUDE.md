@@ -100,6 +100,7 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 | 011 | Prisma como ORM estándar para todos los servicios Node de MOVO (primera implementación en `movo-svc-users`, los demás lo adoptan al tener dominio real) | Curva de aprendizaje del equipo; requiere driver adapter (`@prisma/adapter-pg`, Prisma 7) y baselinear las 2 migraciones SQL ya aplicadas como histórico |
 | 012 | Twilio como proveedor de SMS para OTP (MOVO-71), detrás de una interfaz `SmsProvider`; implementación de consola es el default de dev/test/CI, Twilio real queda reservado para la demo final | Sin envío real de SMS fuera de la demo — limitación aceptada para no incurrir en costos de una API externa de pago (riesgo R10 del plan de proyecto); el adapter (riesgo R11) permite activar Twilio de verdad solo cambiando `SMS_PROVIDER` |
 | 013 | Refresh token con TTL extendido de 7 a 90 días (MOVO-75), reemplazando el valor original de ADR-004 — prioridad del equipo: minimizar cuánto tienen que volver a loguearse los usuarios en una app que no maneja datos bancarios | Ventana de exposición mayor si un refresh token es robado; mitigado por la rotación de un solo uso + detección de reuso que introduce la misma US (reusar un refresh ya canjeado revoca todas las sesiones del usuario) |
+| 014 | Google Maps como proveedor de geocoding para el paso de mapa del wizard de registro (MOVO-73), detrás de una interfaz `GeocodingProvider`; mock determinístico es el default de dev/test/CI, Google real vía `GEOCODING_PROVIDER=google` — primera implementación real de un servicio de Google Maps en el proyecto pese a que ADR-008 ya lo había decidido para `movo-svc-pricing-logistics` (todavía un esqueleto) | Dos API keys de Google distintas a provisionar (Geocoding API server-side, restringida por IP; Maps SDK client-side del mobile, restringida por bundle id/SHA) — ninguna cargada todavía, mismo estado pendiente que las credenciales de Twilio/Didit |
 
 ## Convenciones de código
 
@@ -1007,6 +1008,9 @@ Decisiones clave:
   (`Not Started`/`In Progress`/`Awaiting User`/`Resubmitted`) se ignoran. `Expired`/
   `Abandoned`/`Kyc Expired` quedan **sin mapear a propósito** — todavía sin confirmar
   contra el sandbox real (los otros 3 sí, ver "Validado contra el sandbox real" abajo).
+  **Superado**: los tres mapean a `KycStatus.EXPIRED` desde el fix de retry de KYC — ver
+  "MOVO-73 (fix) — Reanudación del onboarding y retry de KYC atascado en `pending`" al
+  final de este archivo.
 - **Shape real del payload del webhook confirmado contra el sandbox** (vía "Probar
   Webhook" de la consola, los 3 escenarios terminales): `status`/`session_id`/
   `vendor_data`/`workflow_id`/`webhook_type` viven en el nivel superior — coincide con
@@ -1079,9 +1083,12 @@ credenciales reales del usuario — no solo con `DIDIT_MODE=mock`):
   `raw_decision` para debugging/futuro panel de admin). Esta es la confirmación más
   fuerte posible de que el flujo funciona real de punta a punta, no solo contra mocks.
 
-Pendiente / fuera de alcance de MOVO-72: mapeo de `Expired`/`Abandoned`/`Kyc Expired`
+Pendiente / fuera de alcance de MOVO-72: ~~mapeo de `Expired`/`Abandoned`/`Kyc Expired`
 (no hay forma de generar esos escenarios desde "Probar Webhook" de la consola;
-requeriría dejar vencer una sesión real o abandonarla a mitad de camino). Panel de
+requeriría dejar vencer una sesión real o abandonarla a mitad de camino)~~ — **resuelto**
+en el fix de retry de KYC (última entrada de este archivo): los tres mapean a
+`KycStatus.EXPIRED`, que es reintentable. Sigue sin validarse contra el sandbox real, por
+el motivo tachado arriba. Panel de
 admin para casos en `manual_review` (AC10 solo deja el dato consultable,
 `findManualReviewCases()`): MOVO-32, sprint posterior. La decisión de rutas públicas
 sin JWT (que tenía seguimiento en MOVO-94) quedó resuelta en la revisión de PR #51 —
@@ -1321,3 +1328,233 @@ que reusaba el estilo de campo para un error que semánticamente era de API).
   chequea `result.ok` antes de tocar el estado del OTP.
 - `refreshKycStatus` (polling de estado en background) sigue silencioso a propósito — no
   es una acción disparada por el usuario, cae fuera de los casos de arriba.
+
+### MOVO-73 (alineación) — Contrato de auth de PR #51 (MOVO-72/95) + `users.address` (DER) + paso de mapa
+
+PR #51 (MOVO-72) cambió el contrato después de que esta US ya había implementado el
+mobile contra el contrato viejo: `POST /auth/register` pasó a emitir tokens de sesión
+(mismo shape que `login`) y `POST /kyc/session`/`GET /kyc/status` dejaron de ser
+públicas (ver MOVO-95/MOVO-94 más arriba). Esto rompía tres cosas del mobile: el
+registro nunca persistía los tokens nuevos, las dos llamadas de KYC iban a devolver
+401 (sin `Authorization`), y el estado de KYC nunca se leía (`GET /kyc/status` devuelve
+`status`, no `kycStatus`). De paso, se encontró y resolvió un gap preexistente: el
+wizard mandaba `dni`/`address` pero `registerBody` nunca los había aceptado
+(`additionalProperties: false`) — toda request de registro real habría sido rechazada
+con 400.
+
+**Backend (`services/movo-svc-users`)**:
+- **Tabla `users.address` implementada** (patrón libreta de direcciones del DER,
+  `docs/movo_der.dbml`, diseñada pero nunca creada hasta ahora): modelo `Address` en
+  `prisma/schema.prisma` + migración `20260807213247_add_user_address_movo_73`. Solo
+  se crea la primera dirección al registrarse (`label: null`, `is_default: true`,
+  `country: "AR"` hardcodeados server-side, no viajan en el request) — el resto del
+  CRUD de libreta de direcciones (agregar/editar/marcar otra como default) queda fuera
+  de alcance, sin ticket propio todavía. `lat`/`long` son `NOT NULL` (tal cual el DER,
+  a diferencia del primer borrador de este plan que los iba a dejar nullable) —
+  poblados por el paso de mapa/geocoding nuevo del wizard, no por el usuario a mano.
+  **No se agregó constraint unique a `dni`**: el DER lo deja como pregunta abierta
+  ("candidato natural a unique, no decidido") y se mantiene así.
+- `auth.schema.ts#registerBody`: `dni` (string, patrón `^\d{7,8}$`) y `address`
+  (`street`/`number`/`floor?`/`city`/`province`/`zip`/`lat`/`long`) ahora requeridos.
+  `user-repository.ts#create()` extiende el nested write de Prisma (mismo patrón que
+  ya usaba para `roles`, MOVO-93) para crear la fila de `Address` en la misma
+  transacción atómica que el alta del usuario.
+- **Paso de mapa (geocoding), nuevo de punta a punta** — ni la librería de mapa ni
+  ninguna API key de Google Maps existían en el proyecto todavía (ni siquiera para el
+  caso ya decidido en ADR-008, Distance Matrix de `movo-svc-pricing-logistics`, que
+  sigue siendo solo un esqueleto sin implementar):
+  - `GeocodingProvider` (mismo patrón que `SmsProvider`/`DiditClient`): interfaz +
+    `MockGeocodingProvider` (determinístico, hash de la dirección, sin red — default
+    dev/test/CI) + `GoogleGeocodingProvider` (real, sobre la Geocoding API de Google).
+    `GEOCODING_PROVIDER` (`mock`|`google`, default `mock`) + `GOOGLE_MAPS_API_KEY`
+    nuevos en `config/env.ts`/`.env.example`.
+  - `POST /api/v1/geocode` (nuevo módulo `src/modules/geocode/`) — **público**, se
+    llama durante el wizard antes de que exista cuenta o token (mismo momento que
+    `send-otp`/`verify-otp`). Proxea la Geocoding API server-side a propósito: esa key
+    es distinta de la key de renderizado de mapa del mobile (esta es secreta,
+    restringida por IP; la del mobile restringe por bundle id/SHA fingerprint, no es
+    sensible de la misma forma). Gateway: nuevo prefix `/geocode` en
+    `getServiceRoutes()` + entrada en `getPublicRoutes()` con rate limit propio
+    (`{max: 20, timeWindow: "15 minutes"}`) para no quedar abierto como proxy gratis
+    de la API de Google.
+  - Candidato a **ADR-014** (primera vez que se usa una API de Google Maps en el
+    proyecto pese a que ADR-008 ya la había decidido para otro caso) — falta pegar el
+    desarrollo completo en Drive, mismo estado pendiente que ADR-012/013.
+  - Dos códigos nuevos en `ApiErrorCode` de `@movo/shared`: `GEOCODING_PROVIDER_ERROR`,
+    `GEOCODING_ADDRESS_NOT_FOUND`.
+
+**Mobile (`movo-mobile`)**:
+- `src/api/auth-client.ts`: `RegisterResponse`/`LoginResponse` alineados al shape real
+  (`accessToken`/`refreshToken`/`expiresIn`/`fullName`/`roles`); `KycStatusResponse`
+  corregido a `{status, manualReviewReason}` (el campo es `status`, no `kycStatus`);
+  `createKycSession`/`getKycStatus` pasan a recibir un `accessToken` (no `userId`) y
+  adjuntan `Authorization: Bearer` a mano — **no** es el interceptor genérico de
+  MOVO-76 (`http-client.ts` solo gana un `headers` opcional por request, nada lo
+  adjunta automáticamente); nuevo `geocodeAddress()` contra `POST /geocode`.
+- `src/lib/secure-store.ts`: nuevas keys `pendingRegistrationAccessToken`/
+  `pendingRegistrationRefreshToken` — `submitRegistration()` persiste ahí los tokens
+  que devuelve `register()`, sin los cuales no hay forma de armar el header
+  `Authorization` que ahora exigen `/kyc/session`/`/kyc/status`.
+- **Limitación aceptada de este sprint (decisión explícita con el usuario, no un
+  descuido)**: el access token dura 60min y MOVO-76 (refresh automático) todavía no
+  existe. Si el usuario cierra la app en medio del onboarding y vuelve después de que
+  expiró, el efecto de resume (AC7) trata el 401 de `getKycStatus` igual que "no hay
+  registro pendiente" — limpia el storage y arranca el wizard desde cero, sin
+  intentar refrescar. Pendiente explícito en MOVO-76: evaluar si hace falta un
+  refresh manual mínimo antes de esa US completa, o si esto queda como limitación
+  permanente del producto.
+- **Wizard de registro: nuevo paso de mapa** (`app/(auth)/register.tsx`), insertado
+  entre dirección y OTP — 6 pasos pasan a ser 7 (`Step` `0-6`, `STEP_LABELS`,
+  denominador de progreso `/7`). Al salir del paso de dirección se llama
+  `geocodeAddress()` (centra el pin inicial); el usuario arrastra un `Marker` de
+  `react-native-maps` (nueva dependencia, instalada vía `expo install` — primera vez
+  que se usa un mapa en el mobile) para ajustar la ubicación exacta antes de
+  confirmar; `lat`/`long` viajan en el `address` de `submitRegistration()`.
+  **`app.json` → `app.config.js`** (corrección post-review, ver más abajo): plugin
+  `react-native-maps`, `ios.config.googleMapsApiKey`/`android.config.googleMaps.apiKey`
+  leídos de `GOOGLE_MAPS_IOS_API_KEY`/`GOOGLE_MAPS_ANDROID_API_KEY` (`process.env`, sin
+  prefijo `EXPO_PUBLIC_` — solo se consumen en build/prebuild time, no en el bundle
+  JS), y `NSLocationWhenInUseUsageDescription` nuevo en `infoPlist`.
+- `use-registration.tsx`: estado nuevo `latitude`/`longitude`/`accessToken`/
+  `manualReviewReason`; `submitRegistration()` bloquea con error si no hay
+  lat/long confirmados; `createKycSession`/`refreshKycStatus` migrados a usar
+  `accessToken` en vez de `userId`.
+
+**DNI vía Didit — investigado, no implementado**: se evaluó si el step manual de DNI
+del wizard se podía eliminar extrayendo `document_number` del resultado de Didit. Hoy
+el backend no lo extrae ni lo persiste en ningún lado (`buildRedactedRawDecision`, el
+whitelist de redacción de AC9 de MOVO-72, lo descartaría aunque viniera), y no hay
+confirmación contra el sandbox real de que el webhook de sesión lo incluya (a
+diferencia del endpoint standalone `/v3/id-verification/`, que sí lo documenta).
+Decisión: se mantiene el step manual tal cual está. Seguimiento en **MOVO-96**
+(ticket de investigación nuevo, sin implementación).
+
+Tests: 192/192 en `svc-users` (subieron de 173 — nuevos casos de `users.address`,
+`POST /geocode`, y fixtures de registro actualizados con `dni`/`address` en los 6
+archivos que llaman `/auth/register`), 32/32 en gateway (sin cambios de contenido,
+solo la nueva ruta pública no rompió nada existente), 26/26 en `movo-mobile` (Jest).
+`tsc --noEmit`/`eslint`/`npm run build` sin errores en los tres paquetes tocados.
+
+### MOVO-73 (corrección) — Keys de Google Maps: `app.json` en git y ownership entre servicios
+
+Dos problemas detectados en revisión sobre la entrada anterior, ambos corregidos en el
+mismo cambio:
+
+- **`app.json` se trackea en git** (solo `.env*.local` está en `.gitignore`) — pegar
+  ahí una API key, aunque sea de bajo riesgo (restringida por bundle id/SHA
+  fingerprint, no por IP), la deja commiteada para siempre en el historial. Se
+  reemplazó `app.json` por **`app.config.js`**, que Expo evalúa en Node en
+  build/prebuild time y sí puede leer `process.env` — mismo mecanismo que ya usaba
+  `EXPO_PUBLIC_API_URL` (Expo CLI carga `.env.local` automáticamente antes de evaluar
+  el config, no solo antes de bundlear). `GOOGLE_MAPS_IOS_API_KEY`/
+  `GOOGLE_MAPS_ANDROID_API_KEY` nuevas en `.env.example`, sin prefijo `EXPO_PUBLIC_` a
+  propósito (se consumen una sola vez en build time para generar
+  `Info.plist`/`AndroidManifest.xml`, no hace falta que viajen embebidas en el bundle
+  JS). **En builds de EAS tampoco van al bloque `env` de `eas.json`** (ese archivo
+  también se trackea) — se cargan como EAS Environment Variables (`eas env:create`),
+  fuera del repo.
+- **Cómo generarlas**: documentado en el comentario de `.env.example` — proyecto de
+  Google Cloud Console, habilitar "Maps SDK for Android"/"Maps SDK for iOS", crear dos
+  API keys separadas (una por plataforma, para poder restringir cada una por su propio
+  bundle id / SHA-1 del keystore de firma).
+- **Ownership de la key de Geocoding del backend (`GOOGLE_MAPS_API_KEY`,
+  `services/movo-svc-users`), decisión con el equipo**: quedaba mal ubicada
+  conceptualmente en `svc-users` — geocoding no es un concern de identidad, y
+  `svc-shipments`/`svc-pricing-logistics` (Distance Matrix, ADR-008, hoy sin
+  implementar) casi seguro la van a necesitar también. Se decidió **una sola API key
+  de Google Cloud, compartida** (mismo proyecto GCP, Geocoding API + Distance Matrix
+  API habilitadas, restringida por IP a las EC2 de Movo) — se carga una vez en AWS
+  Secrets Manager y cada servicio que la necesite la lee de su propio env bajo el
+  mismo nombre de variable (`GOOGLE_MAPS_API_KEY`), mismo criterio que ya usa el
+  proyecto para inyectar variable por variable en `docker-compose.yml` (no todo el
+  secret de una vez). Trade-off aceptado: los servicios que la compartan comparten
+  también la cuota/rate-limit de esa key — si eso se vuelve un problema real, se
+  separan keys por servicio más adelante, no ahora que solo `svc-users` la usa.
+  Candidato a ampliar en **ADR-014** cuando `svc-shipments`/`pricing-logistics` la
+  adopten de verdad.
+
+Verificado: `npx expo config --type public` resuelve `app.config.js` correctamente
+(carga `.env.local`, plugins y campos nativos intactos) — no se corrió un build real
+de EAS (`eas init` sigue pendiente, ver notas de MOVO-73 más arriba).
+
+### MOVO-73 (fix) — Reanudación del onboarding y retry de KYC atascado en `pending`
+
+Tres bugs encadenados encontrados probando el flujo real fuera del camino feliz (el SDK
+de Didit falla por falta de conexión en local, que es el caso más común en dev). Los tres
+dejaban al usuario en un punto sin salida.
+
+**1. El wizard se rehacía entero al volver al inicio.** `RegistrationProvider` vive en
+`app/_layout.tsx`, así que el estado (`userId`/`accessToken`/`kycStatus`) sobrevivía a
+volver a `/`, y el resume por `secureStore` + `getKycStatus` ya existía (AC7) — pero
+**nadie consumía `hasPendingRegistration` para navegar**, y el `step` del wizard es estado
+local de `RegisterScreen`, que se remonta en `0`. Se agregó el redirect en `app/index.tsx`.
+
+**2. Un `phoneVerificationToken` ya consumido saltaba el paso de OTP.** Como el contexto
+no se limpiaba tras un registro exitoso, `goNext` (paso de mapa) veía el token todavía
+presente, saltaba el OTP, y el `register()` siguiente fallaba con `AUTH_OTP_INVALID` — un
+mensaje que habla de "el código ingresado" cuando nunca se pidió ningún código. Corregido
+limpiando `otpId`/`phoneVerificationToken`/`verifiedPhone` en `submitRegistration()`
+apenas responde el backend.
+
+**3. `pending` era un pozo sin fondo (el bug de fondo).** Dos causas superpuestas:
+- `kyc.tsx#kycStatusToResultKind` mapeaba `KycStatus.PENDING` a la pantalla de
+  `manual_review` ("en revisión"), que no es reintentable, y `KycStatus.MANUAL_REVIEW` no
+  estaba mapeado (caía a `null`). `pending` no es "en revisión humana": `createSession` lo
+  setea apenas se pide la sesión, **antes** de que el cliente llegue a la UI de Didit.
+- `ALLOWED_SESSION_SOURCE_STATUSES` (`kyc.service.ts`) rechazaba con 409 cualquier sesión
+  nueva desde `pending`. La regla asumía que un intento `pending` siempre se resuelve por
+  webhook — falso cuando el SDK nunca llegó a Didit: no hay nada que reportar, el webhook
+  no llega nunca, y el usuario queda trabado para siempre.
+
+Decisiones clave del arreglo de (3):
+
+- **Se revierte la política "un intento en curso no se reintenta ni devuelve, se rechaza
+  (409)"** de MOVO-72. `ALLOWED_SESSION_SOURCE_STATUSES` pasa a ser todo menos `approved`
+  (suma `pending` y `expired`). A cambio, `createSession` marca los intentos `pending`
+  previos del usuario como `expired` dentro de la misma `db.$transaction`, antes de abrir
+  el nuevo (`expirePendingByUserId`). **Trade-off aceptado, decidido con el equipo**: si el
+  usuario completó la verificación hace segundos y el webhook viene en camino, ese
+  resultado se descarta y tiene que rehacer el KYC. Se evaluó una ventana de gracia por
+  antigüedad del intento y se descartó — deja al usuario esperando, que es exactamente la
+  fricción que motivó el ticket.
+- **El supersede a `expired` cierra de paso un bug latente preexistente**: como
+  `resolveByExternalSessionId` solo aplica una transición si la fila sigue en `pending`, un
+  webhook tardío de una sesión abandonada ya no matchea y se ignora solo — antes podía
+  resolver esa fila **y pisar `users.kyc_status_identity`** con el resultado de un intento
+  que el usuario había abandonado, aunque hubiera una sesión más nueva en curso. No hizo
+  falta código extra: el gate de idempotencia de AC7 hace el trabajo.
+- **`create()` del repositorio pasa a ser `upsertPendingSession()`** (upsert por
+  `externalSessionId`, revive la fila dejándola en `pending` y limpiando
+  `resolvedAt`/`rawDecision`). No es cosmético: el spike MOVO-48 documenta que Didit hace
+  dedupe implícito por `vendor_data` y puede **devolver la misma sesión** ante un
+  reintento — con el insert plano anterior eso reventaba contra la constraint única de la
+  columna. `expirePendingByUserId` recibe un `exceptExternalSessionId` por el mismo
+  motivo (no matar el intento que estamos por revivir).
+- **`Expired`/`Abandoned`/`Kyc Expired` ahora mapean a `KycStatus.EXPIRED`**
+  (`didit-client.ts`), resolviendo el pendiente que MOVO-72 había dejado abierto. `expired`
+  **tiene que estar** en `ALLOWED_SESSION_SOURCE_STATUSES`: mapearlos a un estado sin
+  salida habría creado un segundo pozo en vez de resolver el primero. Sigue sin validarse
+  contra el sandbox real (no hay forma de generar esos escenarios desde "Probar Webhook");
+  el peor caso de un mapeo equivocado es que un usuario tenga que reintentar.
+- **Mobile**: `in_progress` (el `pending` real) pasa a `RETRYABLE` con "Reintentar
+  verificación" como acción primaria y "Ya la completé — actualizar estado"
+  (`refreshKycStatus`) como link secundario — el caso donde el resultado *sí* puede estar
+  en camino existe, pero es el menos común. `KYC_SESSION_NOT_ALLOWED` sumado a
+  `error-messages.ts`: tras el cambio el único caso que lo dispara es una identidad ya
+  verificada, así que el mensaje lo dice en vez de un "intentá de nuevo" engañoso.
+- **El auto-redirect de `app/index.tsx` se limita a `NOT_STARTED`**, no a
+  `hasPendingRegistration` en general: con cualquier otro estado, redirigir siempre
+  convierte el botón "Ir al inicio" de `kyc.tsx` en un loop sin salida (vuelve al inicio,
+  el inicio lo manda de vuelta). Para esos casos la bienvenida muestra una CTA explícita
+  "Continuar verificación" en lugar de "Soy nuevo".
+
+Tests: 199/199 en `svc-users` (subieron de 192), 30/30 en `movo-mobile`. Se reemplazó el
+test que fijaba el 409 desde `pending` por uno de supersede, y se sumaron: dedupe de Didit
+(misma sesión devuelta), webhook tardío de sesión descartada que no pisa el intento nuevo,
+y los tres estados de abandono. Verificado además contra el `svc-users` real corriendo en
+Docker, reproduciendo el estado exacto del bug (usuario en `pending` con sesión huérfana):
+`POST /kyc/session` devuelve 201, la sesión vieja queda `expired` con `resolved_at`, la
+nueva `pending`, y queda un solo intento vivo.
+
+Pendiente / fuera de alcance: limpieza automática de filas `pending` viejas por antigüedad
+(cron/TTL) — con el supersede en `createSession` no hace falta para destrabar al usuario.
