@@ -26,7 +26,8 @@ module.exports = {
     ios: {
       icon: "./assets/ios-icon.icon",
       supportsTablet: true,
-      bundleIdentifier: "com.anonymous.movo-mobile",
+      bundleIdentifier:
+        process.env.IOS_BUNDLE_ID ?? `com.movosend.movomobile.${process.env.USER ?? "dev"}`,
       infoPlist: {
         NSCameraUsageDescription:
           "Movo necesita la cámara para escanear tu documento y tomar una selfie durante la verificación de identidad con Didit.",
