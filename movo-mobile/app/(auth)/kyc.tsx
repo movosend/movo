@@ -1,6 +1,18 @@
 import { KycStatus } from '@movo/shared/dist/types/user';
 import type { VerificationErrorType, VerificationResult } from '@didit-protocol/sdk-react-native';
 import { router } from 'expo-router';
+import {
+  CameraOff,
+  Check,
+  Clock,
+  Hourglass,
+  ShieldAlert,
+  TimerOff,
+  TriangleAlert,
+  WifiOff,
+  X,
+  type LucideIcon,
+} from 'lucide-react-native';
 import { useColorScheme } from 'nativewind';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Text, View } from 'react-native';
@@ -85,6 +97,50 @@ const RESULT_COPY: Record<ResultKind, { title: string; body: string }> = {
     title: 'Verificación interrumpida',
     body: 'Algo salió mal. Podés retomarla cuando quieras.',
   },
+};
+
+/**
+ * Ícono + paleta del badge de cada resultado. Antes esto era un glifo de texto
+ * (`✓`/`✕`/`…`): el `…` aparecía tal cual en *todos* los estados que no eran
+ * aprobado/rechazado (revisión, sesión vencida, sin conexión, etc.), que es
+ * justo el caso más frecuente, y encima se renderizaba mal (el glifo no queda
+ * centrado ópticamente en el cuadro y depende de la fuente del sistema).
+ *
+ * Los tonos `danger`/`warning` usan los rellenos claros de la escala semántica
+ * en ambos temas, igual que `ErrorBanner` — esas escalas todavía no tienen paso
+ * dark en `global.css` (ver nota de dark mode en CLAUDE.md). El tono `neutral`
+ * sí es temático: `bg-mute` + `fg-2` vía `useThemeColors()`.
+ */
+const RESULT_BADGE: Record<
+  ResultKind,
+  { Icon: LucideIcon; tone: 'success' | 'danger' | 'warning' | 'neutral' }
+> = {
+  approved: { Icon: Check, tone: 'success' },
+  declined: { Icon: X, tone: 'danger' },
+  manual_review: { Icon: Hourglass, tone: 'warning' },
+  in_progress: { Icon: Clock, tone: 'warning' },
+  sessionExpired: { Icon: TimerOff, tone: 'warning' },
+  networkError: { Icon: WifiOff, tone: 'neutral' },
+  cameraAccessDenied: { Icon: CameraOff, tone: 'neutral' },
+  notInitialized: { Icon: TriangleAlert, tone: 'neutral' },
+  apiError: { Icon: TriangleAlert, tone: 'neutral' },
+  retryBlocked: { Icon: ShieldAlert, tone: 'danger' },
+  unknown: { Icon: TriangleAlert, tone: 'neutral' },
+};
+
+const BADGE_TONE_CLASS: Record<'success' | 'danger' | 'warning' | 'neutral', string> = {
+  success: 'bg-lime-500',
+  danger: 'bg-danger-100',
+  warning: 'bg-warning-100',
+  neutral: 'bg-bg-mute',
+};
+
+// Hex y no className: `lucide-react-native` recibe el color por prop `color`,
+// que NativeWind no intercepta (mismo motivo que `use-theme-colors.ts`).
+const BADGE_ICON_COLOR: Record<'success' | 'danger' | 'warning', string> = {
+  success: '#0A0A0B', // ink-950, sobre el relleno lime
+  danger: '#C22F35', // danger-600
+  warning: '#A97714', // warning-700
 };
 
 const RETRYABLE: ResultKind[] = [
@@ -216,6 +272,8 @@ export default function KycScreen() {
 
   if (phase === 'result' && resultKind) {
     const copy = RESULT_COPY[resultKind];
+    const badge = RESULT_BADGE[resultKind];
+    const BadgeIcon = badge.Icon;
     const canRetry = RETRYABLE.includes(resultKind);
     // Solo en 'in_progress' tiene sentido consultar el backend en vez de reintentar: es
     // el único caso donde el resultado *podría* estar por llegar (el usuario completó la
@@ -226,11 +284,16 @@ export default function KycScreen() {
       <SafeAreaView className="flex-1 bg-bg px-8 pt-16">
         <View className="flex-1 items-center">
           <View
+            testID="kyc-result-badge"
             className={`mb-5 h-14 w-14 items-center justify-center rounded-[14px] ${
-              resultKind === 'approved' ? 'bg-lime-500' : 'bg-bg-mute'
+              BADGE_TONE_CLASS[badge.tone]
             }`}
           >
-            <Text className="text-[22px]">{resultKind === 'approved' ? '✓' : resultKind === 'declined' ? '✕' : '…'}</Text>
+            <BadgeIcon
+              size={26}
+              strokeWidth={2.25}
+              color={badge.tone === 'neutral' ? colors.fg2 : BADGE_ICON_COLOR[badge.tone]}
+            />
           </View>
           <Text testID="kyc-result-title" className="mb-2 text-center font-sans-semibold text-h2 text-fg">
             {copy.title}
