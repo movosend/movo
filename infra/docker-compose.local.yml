@@ -41,6 +41,8 @@ services:
       context: ..
       dockerfile: gateway/Dockerfile
     image: gateway:local
+    ports:
+      - "3000:3000"
 
   movo-svc-users:
     build:
