@@ -1,0 +1,490 @@
+// =====================================================================
+// MOVO - Modelo de datos completo (conversión desde Miro a DBML)
+// PostgreSQL única instancia, schemas separados por servicio (ADR-003)
+//
+// Patrón de referencias: cada entidad tiene un único dueño (su schema).
+// Los demás schemas que la necesitan NO usan FK real, sólo guardan el
+// id en una tabla "stub" tipo *_ref (una sola columna: id uuid).
+// Estas tablas stub están documentadas acá para poder dibujar la
+// relación visual en dbdiagram.io, pero no representan una FK real
+// a nivel de base de datos.
+// =====================================================================
+
+Project movo_der {
+  database_type: 'PostgreSQL'
+  Note: '''
+    4 schemas: admin, users, shipments, payments.
+    Las tablas *_ref son referencias livianas (solo id), no FKs reales,
+    según ADR-003. El dueño real de cada entidad es su schema de origen:
+    - user_ref       -> users.user
+    - shipment_ref   -> shipments.shipment
+    - dispute_ref    -> admin.dispute
+    - payment_method_ref -> users.payment_method
+  '''
+}
+
+// =====================================================================
+// ENUMS
+// =====================================================================
+
+enum dispute_status_enum {
+  PENDING
+  CHECKING
+  RESOLVED_PENDING_PAYMENT
+  RESOLVED
+}
+
+enum suspension_type_enum {
+  TEMPORAL
+  PERMANENT
+}
+
+// OJO: en el diagrama original dice "APROVED" (typo). Lo mantengo tal
+// cual está dibujado para no introducir un cambio no acordado; hay que
+// decidir si se corrige a APPROVED antes de llevarlo a producción.
+enum kyc_status_enum {
+  NOT_STARTED
+  PENDING
+  EXPIRED
+  MANUAL_REVIEW
+  APROVED
+  REJECTED
+}
+
+enum user_status_enum {
+  ACTIVE
+  BANNED
+  DELETED
+}
+
+enum user_role_enum {
+  EMISOR
+  TRANSPORTISTA
+  ADMIN
+}
+
+enum kyc_verification_type_enum {
+  IDENTITY
+  LICENSE
+}
+
+enum drivers_license_status_enum {
+  PENDING
+  VERIFIED
+  EXPIRED
+}
+
+// En el original decía "OBJETO FRAGIL" con espacio, no es un
+// identificador válido -> lo normalicé a OBJETO_FRAGIL.
+enum package_type_enum {
+  DOCUMENTO
+  ESTANDAR
+  OBJETO_FRAGIL
+}
+
+enum transaction_payment_method_enum {
+  TARJETA
+  EFECTIVO
+}
+
+enum transaction_status_enum {
+  HOLD_PENDING
+  HOLD_ACTIVE
+  CAPTURED
+  CANCELLED
+  FAILED
+  REFUNDED_TOTAL
+  REFUNDED_PARCIAL
+}
+
+enum refund_type_enum {
+  TOTAL
+  PARCIAL
+}
+
+enum refund_status_enum {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum split_recipient_type_enum {
+  MOVO
+  DRIVER
+}
+
+// =====================================================================
+// SCHEMA: admin
+// =====================================================================
+
+Table admin.dispute {
+  id uuid [pk]
+  shipment_id uuid [ref: > admin.shipment_ref.id, note: 'referencia liviana a shipments.shipment']
+  opened_by_id uuid [ref: > admin.user_ref.id]
+  reason varchar
+  description text
+  status dispute_status_enum
+  resolution_type varchar
+  resolution_reasoning text
+  internal_notes text
+  resolved_by_id uuid [ref: > admin.user_ref.id]
+  opened_at timestamp
+  resolved_at timestamp
+
+  Note: 'Nota original en el Miro: "revisar enums de estados"'
+}
+
+Table admin.dispute_evidence {
+  id uuid [pk]
+  dispute_id uuid [ref: > admin.dispute.id]
+  photo_url varchar
+  uploaded_at timestamp
+}
+
+Table admin.account_suspension {
+  id uuid [pk]
+  user_id uuid [ref: > admin.user_ref.id]
+  admin_id uuid [ref: > admin.user_ref.id]
+  reason text
+  suspension_type suspension_type_enum
+  duration_days int
+  // OJO: acá "status" está tipado como string plano, mientras que en
+  // Dispute.status es un enum. Mismo concepto (estado), modelado
+  // distinto en dos tablas del mismo schema.
+  status varchar
+  lifted_by_id uuid [ref: > admin.user_ref.id]
+  created_at timestamp
+  lifted_at timestamp
+}
+
+// --- stubs de referencia liviana (admin) ---
+Table admin.shipment_ref {
+  id uuid [pk, note: 'espeja shipments.shipment.id, sin FK real (ADR-003)']
+}
+
+Table admin.user_ref {
+  id uuid [pk, note: 'espeja users.user.id, sin FK real (ADR-003)']
+}
+
+// =====================================================================
+// SCHEMA: users
+// =====================================================================
+
+Table users.user {
+  id uuid [pk]
+  email varchar [unique]
+  phone varchar [unique]
+  dni varchar [note: 'no está marcado como UK en el diagrama original; candidato natural a unique']
+  phone_verified boolean
+  kyc_status_identity kyc_status_enum
+  kyc_status_license kyc_status_enum
+  password_hash varchar
+  first_name varchar
+  last_name varchar
+  photo_url varchar
+  rating_overall decimal
+  status user_status_enum
+  banned_until timestamp
+  // No estaba dibujado como fila en la tabla del Miro, pero la nota
+  // amarilla adjunta lo describe explícitamente. Lo agrego acá;
+  // confirmar antes de dar por cerrado el modelo.
+  last_kyc_verification_id uuid [ref: > users.kyc_verification.id, note: 'guarda el intento de verificación más reciente (puede haber fallidos previos)']
+  created_at timestamp
+  updated_at timestamp
+  birthdate date
+
+  Note: '''
+    kyc_status_identity / kyc_status_license se duplican acá (además de
+    vivir en KYC_VERIFICATION) para poder resolver rápido si un usuario
+    es válido, sin tener que consultar el historial completo de intentos.
+
+    Nota del Miro sobre baneos: "is_banned se usa para un baneo
+    permanente, mientras que banned_until permite gestionar baneos
+    temporales rápidamente". PERO no hay ninguna columna is_banned
+    dibujada en esta tabla, sólo existe "status" (enum, con valor
+    BANNED) y "banned_until". Parece un resto de una versión anterior
+    del modelo — conviene aclarar cuál es la fuente de verdad real
+    antes de implementar.
+
+    Nota del Miro: "Los estados de didit no coinciden con los que
+    están en nuestro estudio inicial" (aplica a kyc_status_identity,
+    kyc_status_license y KYC_VERIFICATION.status).
+  '''
+}
+
+Table users.user_roles {
+  user_id uuid [ref: > users.user.id]
+  role user_role_enum
+  granted_at timestamp
+
+  indexes {
+    (user_id, role) [pk]
+  }
+}
+
+Table users.rating {
+  id uuid [pk]
+  shipment_id uuid [ref: > users.shipment_ref.id, note: 'referencia liviana a shipments.shipment']
+  rater_id uuid [ref: > users.user.id]
+  rated_id uuid [ref: > users.user.id]
+  role_context varchar
+  score int
+  comment text
+  created_at timestamp
+}
+
+Table users.kyc_verification {
+  id uuid [pk]
+  user_id uuid [ref: > users.user.id]
+  verification_type kyc_verification_type_enum
+  // Siempre va a ser "didit" hoy, pero se guarda como campo abierto
+  // por si se suma otro proveedor más adelante (más escalable).
+  provider varchar
+  external_session_id varchar
+  status varchar [note: 'enum sin valores definidos en el DER original (pendiente)']
+  requested_at timestamp
+  resolved_at timestamp
+  raw_decision text [note: 'payload completo devuelto por didit justificando la decisión. Evaluar sumar un campo aparte con resumen parseado para auditoría rápida']
+}
+
+Table users.drivers_license {
+  id uuid [pk]
+  user_id uuid [ref: > users.user.id]
+  kyc_verification_id uuid [ref: > users.kyc_verification.id]
+  expiration_date date
+  status drivers_license_status_enum
+  created_at timestamp
+}
+
+Table users.address {
+  id uuid [pk]
+  user_id uuid [ref: > users.user.id]
+  label varchar [null]
+  is_default boolean
+  street varchar
+  street_number varchar
+  floor_apartment varchar [null]
+  city varchar
+  province varchar
+  postal_code varchar
+  country varchar
+  lat decimal
+  long decimal
+  created_at timestamp
+  updated_at timestamp
+}
+
+Table users.payment_method {
+  id uuid [pk]
+  user_id uuid [ref: > users.user.id]
+  mp_card_token varchar
+  card_brand varchar
+  last4 varchar
+  exp_month smallint
+  exp_year smallint
+  is_default boolean
+  created_at timestamp
+}
+
+// --- stub de referencia liviana (users) ---
+Table users.shipment_ref {
+  id uuid [pk, note: 'espeja shipments.shipment.id, sin FK real (ADR-003)']
+}
+
+// =====================================================================
+// SCHEMA: shipments
+// =====================================================================
+
+Table shipments.shipment {
+  id uuid [pk]
+  sender_id uuid [ref: > shipments.user_ref.id]
+  receiver_id uuid [ref: > shipments.user_ref.id]
+  carrier_id uuid [ref: > shipments.user_ref.id]
+  package_type package_type_enum
+  weight_kg decimal
+  description varchar
+  length decimal
+  width decimal
+  height decimal
+  urgent boolean
+  pickup_lat decimal
+  pickup_lng decimal
+  pickup_address varchar
+  delivery_lat decimal
+  delivery_lng decimal
+  delivery_address varchar
+  pickup_date_start date [note: 'junto con pickup_date_end permite definir un rango de fechas o una fecha exacta (start = end)']
+  pickup_date_end date
+  suggested_price decimal
+  agreed_price decimal
+  payment_method varchar [note: 'tipado como enum en el Miro pero sin valores definidos']
+  // OJO: acá "status" es string plano, mientras que en Dispute.status
+  // (schema admin) el mismo concepto se modeló como enum.
+  status varchar
+  created_at timestamp
+  last_status_changed_at timestamp
+  delivered_at timestamp
+
+  Note: 'La oferta (Offer) vive dentro de este schema. El módulo de pricing-logistics es stateless y sólo calcula, no persiste nada acá.'
+}
+
+Table shipments.tracking_position {
+  id uuid [pk]
+  shipment_id uuid [ref: > shipments.shipment.id]
+  lat decimal
+  lng decimal
+  recorded_at timestamp
+
+  Note: 'La posición en tiempo real del conductor vive en Redis; esta tabla persiste el dato cada N tiempo definido (no es la fuente en vivo).'
+}
+
+Table shipments.package_photo {
+  id uuid [pk]
+  shipment_id uuid [ref: > shipments.shipment.id]
+  moment varchar [note: 'enum sin valores definidos en el DER original (pendiente)']
+  photo_url varchar
+  uploaded_by_id uuid
+  uploaded_at timestamp
+}
+
+Table shipments.custody_transfer_event {
+  id uuid [pk]
+  shipment_id uuid [ref: > shipments.shipment.id]
+  event_type varchar [note: 'enum sin valores definidos en el DER original (pendiente)']
+  ceding_user_id uuid
+  receiving_user_id uuid
+  nonce_hash varchar
+  signature varchar
+  previous_event_hash varchar
+  ceding_gps_lat decimal
+  ceding_gps_lng decimal
+  receiving_gps_lat decimal
+  receiving_gps_lng decimal
+  distance_meters decimal
+  result varchar [note: 'enum sin valores definidos en el DER original (pendiente)']
+  created_at timestamp
+
+  Note: 'Log append-only con hashing encadenado (previous_event_hash referencia al evento anterior).'
+}
+
+Table shipments.offer {
+  id uuid [pk]
+  shipment_id uuid [ref: > shipments.shipment.id]
+  carrier_id uuid [ref: > shipments.user_ref.id]
+  price_offered decimal
+  offered_date date
+  status varchar [note: 'enum sin valores definidos en el DER original (pendiente)']
+  created_at timestamp
+  responded_at timestamp
+}
+
+Table shipments.shipment_status_history {
+  id uuid [pk]
+  shipment_id uuid [ref: > shipments.shipment.id]
+  from_status varchar [note: 'enum sin valores definidos en el DER original (pendiente)']
+  to_status varchar [note: 'enum sin valores definidos en el DER original (pendiente)']
+  changed_by_id uuid [null, note: 'ref externa, nullable (según el Miro)']
+  changed_at timestamp
+}
+
+// --- stub de referencia liviana (shipments) ---
+Table shipments.user_ref {
+  id uuid [pk, note: 'espeja users.user.id, sin FK real (ADR-003)']
+}
+
+// =====================================================================
+// SCHEMA: payments
+// =====================================================================
+
+Table payments.payment_transaction {
+  id uuid [pk]
+  shipment_id uuid [ref: > payments.shipment_ref.id]
+  payer_id uuid [ref: > payments.user_ref.id]
+  carrier_id uuid [ref: > payments.user_ref.id]
+  payment_method_id uuid [ref: > payments.payment_method_ref.id]
+  amount_total decimal
+  commission_rate decimal
+  currency varchar
+  payment_method transaction_payment_method_enum
+  status transaction_status_enum
+  mp_payment_id varchar
+  hold_expires_at timestamp
+  captured_at timestamp
+  cancelled_at timestamp
+  created_at timestamp
+  last_status_changed_at timestamp
+}
+
+Table payments.refund {
+  id uuid [pk]
+  transaction_id uuid [ref: > payments.payment_transaction.id]
+  dispute_id uuid [ref: > payments.dispute_ref.id]
+  refund_type refund_type_enum
+  amount decimal
+  reason text
+  requested_by_id uuid [ref: > payments.user_ref.id]
+  mp_refund_id varchar
+  status refund_status_enum
+  created_at timestamp
+  completed_at timestamp
+}
+
+Table payments.split_payout {
+  id uuid [pk]
+  transaction_id uuid [ref: > payments.payment_transaction.id]
+  recipient_type split_recipient_type_enum
+  recipient_user_id uuid [null, ref: > payments.user_ref.id, note: 'nullable para Movo (cuando el destinatario es la plataforma, no un driver)']
+  amount decimal
+  mp_transfer_id varchar
+  status varchar [note: 'enum sin valores definidos en el DER original (pendiente)']
+  retry_count int
+  created_at timestamp
+  completed_at timestamp
+}
+
+Table payments.transaction_status_history {
+  id uuid [pk]
+  transaction_id uuid [ref: > payments.payment_transaction.id]
+  from_status varchar [note: 'enum sin valores definidos en el DER original (probablemente el mismo dominio que payment_transaction.status)']
+  to_status varchar [note: 'ídem anterior']
+  changed_at timestamp
+}
+
+Table payments.mercadopago_webhook_event {
+  id uuid [pk]
+  mp_event_id varchar [unique]
+  event_type varchar
+  transaction_id uuid [ref: > payments.payment_transaction.id]
+  payload text
+  processed boolean
+  received_at timestamp
+  processed_at timestamp
+}
+
+Table payments.mercadopago_connect_account {
+  id uuid [pk]
+  carrier_id uuid [ref: > payments.user_ref.id]
+  mp_user_id varchar
+  mp_access_token_ref varchar
+  mp_refresh_token_ref varchar
+  status varchar [note: 'enum sin valores definidos en el DER original (pendiente)']
+  connected_at timestamp
+  updated_at timestamp
+}
+
+// --- stubs de referencia liviana (payments) ---
+Table payments.shipment_ref {
+  id uuid [pk, note: 'espeja shipments.shipment.id, sin FK real (ADR-003)']
+}
+
+Table payments.user_ref {
+  id uuid [pk, note: 'espeja users.user.id, sin FK real (ADR-003)']
+}
+
+Table payments.payment_method_ref {
+  id uuid [pk, note: 'espeja users.payment_method.id, sin FK real (ADR-003)']
+}
+
+Table payments.dispute_ref {
+  id uuid [pk, note: 'espeja admin.dispute.id, sin FK real (ADR-003)']
+}

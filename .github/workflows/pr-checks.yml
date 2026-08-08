@@ -184,23 +184,28 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: movo-mobile
-
     steps:
       - uses: actions/checkout@v4
 
+      # movo-mobile es un workspace npm del monorepo: no tiene package-lock
+      # propio y sus deps se instalan (hoisteadas) desde la raíz.
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: movo-mobile/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Instalar dependencias
         run: npm ci
 
+      # Los tests importan @movo/shared por subpath de dist/ (ver
+      # movo-mobile/src/api/http-client.ts) -- sin este build no resuelven.
+      - name: Build @movo/shared
+        working-directory: shared/movo-shared
+        run: npm run build
+
       - name: Tests
+        working-directory: movo-mobile
         run: npm test
 
   admin-web:

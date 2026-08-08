@@ -70,4 +70,49 @@ describe("HTTP Didit Client (adapter concreto, MOVO-72)", () => {
       code: "KYC_PROVIDER_ERROR",
     });
   });
+
+  it("getSessionDecision() pega a {baseUrl}/v3/session/{id}/decision/ y devuelve el status crudo + el cuerpo completo", async () => {
+    const decisionBody = {
+      session_id: "sess_123",
+      status: "Approved",
+      id_verifications: [{ warnings: [{ feature: "ID_VERIFICATION", risk: "X", short_description: "y" }] }],
+    };
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => decisionBody });
+
+    const client = createHttpDiditClient({ baseUrl: "https://verification.didit.me", apiKey: "k", workflowId: "w" });
+    const result = await client.getSessionDecision("sess_123");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://verification.didit.me/v3/session/sess_123/decision/");
+    expect(init.method).toBe("GET");
+    expect(init.headers["x-api-key"]).toBe("k");
+    expect(result).toEqual({ sessionId: "sess_123", rawStatus: "Approved", decision: decisionBody });
+  });
+
+  it("getSessionDecision() devuelve null si Didit no conoce la sesión (404), sin tirar", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 404, json: async () => ({}) });
+
+    const client = createHttpDiditClient({ baseUrl: "https://verification.didit.me", apiKey: "k", workflowId: "w" });
+
+    await expect(client.getSessionDecision("sess_desconocida")).resolves.toBeNull();
+  });
+
+  it("getSessionDecision() devuelve null si la respuesta no trae status, en vez de inventar una transicion", async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ session_id: "sess_123" }) });
+
+    const client = createHttpDiditClient({ baseUrl: "https://verification.didit.me", apiKey: "k", workflowId: "w" });
+
+    await expect(client.getSessionDecision("sess_123")).resolves.toBeNull();
+  });
+
+  it("getSessionDecision() mapea un fallo de red a ApiError 502 KYC_PROVIDER_ERROR (el servicio decide que hacer)", async () => {
+    fetchMock.mockRejectedValue(new Error("network error"));
+
+    const client = createHttpDiditClient({ baseUrl: "https://verification.didit.me", apiKey: "k", workflowId: "w" });
+
+    await expect(client.getSessionDecision("sess_123")).rejects.toMatchObject({
+      statusCode: 502,
+      code: "KYC_PROVIDER_ERROR",
+    });
+  });
 });

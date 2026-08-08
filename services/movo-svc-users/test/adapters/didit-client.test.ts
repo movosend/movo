@@ -39,10 +39,12 @@ describe("mapDiditStatusToKycStatus (MOVO-72)", () => {
     expect(mapDiditStatusToKycStatus("Resubmitted")).toBeNull();
   });
 
-  it("devuelve null para estados sin mapeo confirmado todavía (Expired/Abandoned/Kyc Expired, ver Paso 7 del plan)", () => {
-    expect(mapDiditStatusToKycStatus("Expired")).toBeNull();
-    expect(mapDiditStatusToKycStatus("Abandoned")).toBeNull();
-    expect(mapDiditStatusToKycStatus("Kyc Expired")).toBeNull();
+  // `expired` es terminal pero no definitivo: está en ALLOWED_SESSION_SOURCE_STATUSES
+  // (kyc.service.ts), así que el usuario puede pedir una sesión nueva desde ahí.
+  it("mapea las 3 formas en que Didit da por muerta una sesión a expired", () => {
+    expect(mapDiditStatusToKycStatus("Expired")).toBe(KycStatus.EXPIRED);
+    expect(mapDiditStatusToKycStatus("Abandoned")).toBe(KycStatus.EXPIRED);
+    expect(mapDiditStatusToKycStatus("Kyc Expired")).toBe(KycStatus.EXPIRED);
   });
 
   it("devuelve null para un string desconocido/no documentado", () => {

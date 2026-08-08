@@ -7,6 +7,11 @@
     "services/movo-svc-payments",
     "services/movo-svc-shipments",
     "services/movo-svc-users",
-    "gateway"
-  ]
+    "gateway",
+    "movo-mobile"
+  ],
+  "overrides": {
+    "react": "19.2.3",
+    "react-test-renderer": "19.2.3"
+  }
 }

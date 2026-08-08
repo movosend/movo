@@ -15,6 +15,8 @@ export interface EnvConfig {
   DIDIT_API_KEY?: string;
   DIDIT_WORKFLOW_ID_IDENTITY?: string;
   DIDIT_WEBHOOK_SECRET?: string;
+  GEOCODING_PROVIDER: "mock" | "google";
+  GOOGLE_MAPS_API_KEY?: string;
 }
 
 export const envSchema = {
@@ -46,6 +48,12 @@ export const envSchema = {
     DIDIT_API_KEY: { type: "string" },
     DIDIT_WORKFLOW_ID_IDENTITY: { type: "string" },
     DIDIT_WEBHOOK_SECRET: { type: "string" },
+    // MOVO-73: default "mock" (mismo criterio que DIDIT_MODE=mock) — el paso de mapa
+    // del wizard de registro no depende de una API key de Google para levantar el
+    // servicio en dev/test/CI. La obligatoriedad de GOOGLE_MAPS_API_KEY con
+    // GEOCODING_PROVIDER=google la valida createGeocodingProvider al arrancar.
+    GEOCODING_PROVIDER: { type: "string", enum: ["mock", "google"], default: "mock" },
+    GOOGLE_MAPS_API_KEY: { type: "string" },
   },
 };
 

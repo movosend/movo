@@ -17,11 +17,35 @@ export interface CreateDiditSessionInput {
   callbackUrl?: string;
 }
 
+/** Decisión actual de una sesión ya creada, consultada bajo demanda. */
+export interface DiditSessionDecision {
+  sessionId: string;
+  /** Vocabulario crudo de Didit (`DiditRawStatus`) — mapear con
+   * `mapDiditStatusToKycStatus` antes de usarlo en el resto del servicio. */
+  rawStatus: string;
+  /** Cuerpo completo de la respuesta. Mismo criterio que `decision` en el webhook: no
+   * se tipa en detalle porque trae PII que AC9 prohíbe persistir — solo debe pasar por
+   * `extractDecisionWarnings`, nunca copiarse tal cual. */
+  decision: unknown;
+}
+
 /** Interfaz detrás de la que vive la integración con Didit.me (MOVO-72), mismo
  * criterio que `SmsProvider` (MOVO-71): permite testear `kyc.service.ts` sin red y
  * cambiar de implementación (real/mock) sin tocar el resto del servicio. */
 export interface DiditClient {
   createSession(input: CreateDiditSessionInput): Promise<DiditSession>;
+  /**
+   * Consulta la decisión actual de una sesión ya creada. Es la contraparte *pull* del
+   * webhook (que es *push*): se usa para reconciliar un intento `pending` antes de
+   * descartarlo como abandonado, cerrando la ventana en la que el usuario terminó la
+   * verificación pero el webhook todavía no llegó (ver
+   * `kyc.service.ts#reconcilePendingAttempt`).
+   *
+   * Devuelve `null` si Didit no conoce la sesión (404) — ese intento se puede descartar
+   * sin perder nada. Cualquier otro fallo (red, 5xx, credenciales) tira `ApiError`: la
+   * política de qué hacer con un proveedor caído es del servicio, no del adapter.
+   */
+  getSessionDecision(sessionId: string): Promise<DiditSessionDecision | null>;
 }
 
 /**
@@ -44,12 +68,19 @@ export type DiditRawStatus =
 
 /**
  * Mapea el vocabulario de Didit al de `@movo/shared` — el resto del servicio nunca ve
- * un `DiditRawStatus`. Solo los 3 estados terminales del AC6 disparan una transición;
- * el resto son intermedios (no terminales) y se ignoran (`null`).
+ * un `DiditRawStatus`. Los estados intermedios (`Not Started`/`In Progress`/
+ * `Awaiting User`/`Resubmitted`) no disparan transición y se ignoran (`null`).
  *
- * `Expired`/`Abandoned`/`Kyc Expired` quedan sin mapear a propósito: el spike MOVO-48
- * no llegó a confirmar contra el sandbox real qué comportamiento esperar de estos —
- * se definen en el Paso 7 del plan de MOVO-72 en vez de asumir ahora.
+ * `Expired`/`Abandoned`/`Kyc Expired` mapean a `KycStatus.EXPIRED`: son las tres formas
+ * en que Didit da por muerta una sesión que nadie completó. Es una transición terminal
+ * pero NO definitiva — `EXPIRED` está en `ALLOWED_SESSION_SOURCE_STATUSES`
+ * (`kyc.service.ts`), así que el usuario puede pedir una sesión nueva. Mapearlos a un
+ * estado sin salida sería peor que ignorarlos.
+ *
+ * Siguen sin validarse contra el sandbox real (el mismo hueco que dejó abierto el Paso 7
+ * del plan de MOVO-72: no hay forma de generar estos escenarios desde "Probar Webhook" de
+ * la consola de Didit). El riesgo de mapearlos mal es bajo: el peor caso es que un
+ * usuario tenga que reintentar el KYC.
  */
 export function mapDiditStatusToKycStatus(raw: string): KycStatus | null {
   switch (raw as DiditRawStatus) {
@@ -59,6 +90,10 @@ export function mapDiditStatusToKycStatus(raw: string): KycStatus | null {
       return KycStatus.REJECTED;
     case "In Review":
       return KycStatus.MANUAL_REVIEW;
+    case "Expired":
+    case "Abandoned":
+    case "Kyc Expired":
+      return KycStatus.EXPIRED;
     default:
       return null;
   }

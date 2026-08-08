@@ -2,7 +2,7 @@ export const authSchemas = {
   registerBody: {
     type: "object",
     additionalProperties: false,
-    required: ["fullName", "email", "phone", "password", "phoneVerificationToken"],
+    required: ["fullName", "email", "phone", "password", "phoneVerificationToken", "dni", "address"],
     properties: {
       fullName: {
         type: "string",
@@ -28,6 +28,30 @@ export const authSchemas = {
       // para setear phoneVerified=true — sin esto, AC2 de MOVO-72 (KYC exige teléfono
       // verificado) es imposible de cumplir de punta a punta.
       phoneVerificationToken: { type: "string" },
+      // MOVO-73: DNI argentino, 7 u 8 dígitos. La columna `users.dni` ya existía
+      // (nullable, sin unique -- el DER la deja como "candidato natural a unique, no
+      // decidido") desde antes de esta US; acá se suma al contrato de registro porque
+      // el wizard del mobile ya lo pedía y el schema nunca lo había aceptado.
+      dni: { type: "string", pattern: "^\\d{7,8}$" },
+      // MOVO-73: tabla `users.address` del DER (docs/movo_der.dbml), implementada
+      // recién en esta US -- se crea la primera dirección del usuario (label/is_default/
+      // country se hardcodean server-side, no viajan acá) en la misma transacción que
+      // el alta de la cuenta. `lat`/`long` vienen del paso de mapa/geocoding del wizard.
+      address: {
+        type: "object",
+        additionalProperties: false,
+        required: ["street", "number", "city", "province", "zip", "lat", "long"],
+        properties: {
+          street: { type: "string" },
+          number: { type: "string" },
+          floor: { type: "string" },
+          city: { type: "string" },
+          province: { type: "string" },
+          zip: { type: "string" },
+          lat: { type: "number" },
+          long: { type: "number" },
+        },
+      },
     },
   },
   // Mismo shape que loginResponse (revisión de PR #51, tmvergara): register() pasa a

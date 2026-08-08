@@ -17,6 +17,15 @@ describe("user-repository (Postgres)", () => {
     passwordHash: "hashed_password",
     roles: [UserRole.SENDER, UserRole.CARRIER],
     phoneVerified: false,
+    address: {
+      street: "Av. Colón",
+      number: "1234",
+      city: "Córdoba",
+      province: "Córdoba",
+      zip: "5000",
+      lat: -31.4201,
+      long: -64.1888,
+    },
   };
 
   beforeAll(async () => {

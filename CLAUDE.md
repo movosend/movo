@@ -100,6 +100,7 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 | 011 | Prisma como ORM estándar para todos los servicios Node de MOVO (primera implementación en `movo-svc-users`, los demás lo adoptan al tener dominio real) | Curva de aprendizaje del equipo; requiere driver adapter (`@prisma/adapter-pg`, Prisma 7) y baselinear las 2 migraciones SQL ya aplicadas como histórico |
 | 012 | Twilio como proveedor de SMS para OTP (MOVO-71), detrás de una interfaz `SmsProvider`; implementación de consola es el default de dev/test/CI, Twilio real queda reservado para la demo final | Sin envío real de SMS fuera de la demo — limitación aceptada para no incurrir en costos de una API externa de pago (riesgo R10 del plan de proyecto); el adapter (riesgo R11) permite activar Twilio de verdad solo cambiando `SMS_PROVIDER` |
 | 013 | Refresh token con TTL extendido de 7 a 90 días (MOVO-75), reemplazando el valor original de ADR-004 — prioridad del equipo: minimizar cuánto tienen que volver a loguearse los usuarios en una app que no maneja datos bancarios | Ventana de exposición mayor si un refresh token es robado; mitigado por la rotación de un solo uso + detección de reuso que introduce la misma US (reusar un refresh ya canjeado revoca todas las sesiones del usuario) |
+| 014 | Google Maps como proveedor de geocoding para el paso de mapa del wizard de registro (MOVO-73), detrás de una interfaz `GeocodingProvider`; mock determinístico es el default de dev/test/CI, Google real vía `GEOCODING_PROVIDER=google` — primera implementación real de un servicio de Google Maps en el proyecto pese a que ADR-008 ya lo había decidido para `movo-svc-pricing-logistics` (todavía un esqueleto) | Dos API keys de Google distintas a provisionar (Geocoding API server-side, restringida por IP; Maps SDK client-side del mobile, restringida por bundle id/SHA) — ninguna cargada todavía, mismo estado pendiente que las credenciales de Twilio/Didit |
 
 ## Convenciones de código
 
@@ -1007,6 +1008,9 @@ Decisiones clave:
   (`Not Started`/`In Progress`/`Awaiting User`/`Resubmitted`) se ignoran. `Expired`/
   `Abandoned`/`Kyc Expired` quedan **sin mapear a propósito** — todavía sin confirmar
   contra el sandbox real (los otros 3 sí, ver "Validado contra el sandbox real" abajo).
+  **Superado**: los tres mapean a `KycStatus.EXPIRED` desde el fix de retry de KYC — ver
+  "MOVO-73 (fix) — Reanudación del onboarding y retry de KYC atascado en `pending`" al
+  final de este archivo.
 - **Shape real del payload del webhook confirmado contra el sandbox** (vía "Probar
   Webhook" de la consola, los 3 escenarios terminales): `status`/`session_id`/
   `vendor_data`/`workflow_id`/`webhook_type` viven en el nivel superior — coincide con
@@ -1079,9 +1083,12 @@ credenciales reales del usuario — no solo con `DIDIT_MODE=mock`):
   `raw_decision` para debugging/futuro panel de admin). Esta es la confirmación más
   fuerte posible de que el flujo funciona real de punta a punta, no solo contra mocks.
 
-Pendiente / fuera de alcance de MOVO-72: mapeo de `Expired`/`Abandoned`/`Kyc Expired`
+Pendiente / fuera de alcance de MOVO-72: ~~mapeo de `Expired`/`Abandoned`/`Kyc Expired`
 (no hay forma de generar esos escenarios desde "Probar Webhook" de la consola;
-requeriría dejar vencer una sesión real o abandonarla a mitad de camino). Panel de
+requeriría dejar vencer una sesión real o abandonarla a mitad de camino)~~ — **resuelto**
+en el fix de retry de KYC (última entrada de este archivo): los tres mapean a
+`KycStatus.EXPIRED`, que es reintentable. Sigue sin validarse contra el sandbox real, por
+el motivo tachado arriba. Panel de
 admin para casos en `manual_review` (AC10 solo deja el dato consultable,
 `findManualReviewCases()`): MOVO-32, sprint posterior. La decisión de rutas públicas
 sin JWT (que tenía seguimiento en MOVO-94) quedó resuelta en la revisión de PR #51 —
@@ -1116,3 +1123,512 @@ comentario agregado con los tres puntos de coordinación (persistir tokens en
 de token vencido durante el resume) — sin tocar el AC de la US directamente, es
 ticket de otra persona (Tomás, in progress).
 
+
+### MOVO-73 (parcial) — Pantalla de bienvenida y navegación base en `movo-mobile`
+
+Implementado: `expo-router` como base de navegación file-based (`app/_layout.tsx`
+reemplaza a `App.tsx`/`index.ts`, que se eliminaron; `main` en `package.json` apunta a
+`expo-router/entry`). Pantalla de bienvenida en `app/index.tsx` — ruta inicial (`/`) de
+la app, deriva a `/register` ("Soy nuevo") o `/login` ("Ya tengo cuenta") vía `Link` de
+expo-router. Íconos con `lucide-react-native` (sobre `react-native-svg`) en vez de SVG
+inline, para consistencia con los próximos pasos de registro/OTP de este mismo ticket.
+`DevTokensScreen` se mantiene como ruta de desarrollo en `app/dev-tokens.tsx`.
+
+Decisiones clave:
+- `app/register.tsx` y `app/login.tsx` son **placeholders mínimos** (título + volver) —
+  el objetivo era destrabar la navegación end-to-end; el contenido real de esas
+  pantallas es trabajo de las próximas US de este ticket.
+- No hay gating por sesión iniciada: no existe todavía módulo de storage de
+  token/sesión en el mobile (el backend de auth ya existe, ver MOVO-68), así que `/`
+  siempre muestra bienvenida. Punto de extensión marcado con `// TODO` en
+  `app/_layout.tsx` para cuando se agregue el redirect condicional.
+- `jest.config.js` necesitó dos ajustes para soportar expo-router + lucide-react-native
+  en tests: sumar `standard-navigation`, `expo-modules-core` y `lucide-react-native` al
+  `transformIgnorePatterns`, y agregar un `transform` explícito para `.mjs` (el preset
+  `jest-expo` sólo transforma `.[jt]sx?` por defecto, y `lucide-react-native` resuelve a
+  un build ESM `.mjs` vía el campo `"react-native"` de su `package.json`).
+- El degradé de texto (`titanium-gradient`) del diseño original no se replicó (RN no
+  soporta `background-clip: text` sin sumar `@react-native-masked-view/masked-view`) —
+  se resolvió con un color sólido (`text-ink-700`) como fallback aceptado.
+- El patrón de puntos decorativo (halftone) de fondo del diseño no se implementó en este
+  alcance — se priorizó fidelidad de layout y jerarquía tipográfica sobre el efecto
+  decorativo.
+
+Pendiente / fuera de alcance: contenido real de `/register` y `/login`, verificación de
+OTP, storage de sesión y redirect condicional en `/`. (Continuado abajo.)
+
+### MOVO-73 (continuación) — Registro, OTP y KYC embebido en `movo-mobile`
+
+Implementado: pantallas reales de registro (`app/(auth)/register.tsx`, wizard de 5 pasos:
+datos básicos, DNI, dirección, contraseña, revisión), verificación de OTP
+(`app/(auth)/verify-phone.tsx`, 6 casillas con autofoco/avance automático y reenvío con
+cooldown de 60s) y KYC embebido (`app/(auth)/kyc.tsx`, vía SDK nativo de Didit). Base de
+conexión con el API: `src/api/http-client.ts` (fetch wrapper, sin lógica de auth — eso es
+de MOVO-76), `src/api/auth-client.ts` (funciones tipadas de register/verify-phone/kyc),
+`src/lib/secure-store.ts` (wrapper sobre `expo-secure-store`, genérico, sin lógica de
+tokens todavía), `src/lib/env.ts` (`EXPO_PUBLIC_API_URL`). Estado del wizard en
+`src/hooks/use-registration.ts` (Context + hook, sin librería nueva de state management).
+
+Decisiones clave:
+- **Rutas movidas a `app/(auth)/`**: `register.tsx` y `login.tsx` (este último con su
+  contenido real pendiente de MOVO-76) se movieron desde `app/` a `app/(auth)/`, sumando
+  `verify-phone.tsx` y `kyc.tsx` — la estructura de navegación completa del onboarding
+  queda definida desde ahora, tal como pide la guía del ticket.
+- **Backend de MOVO-70/MOVO-72 no existe en este checkout** — el contrato de
+  `POST /auth/register` (extendido con `dni`/`address`, no estaban en el AC original),
+  `POST /auth/verify-phone`, `POST /auth/resend-otp`, `POST /kyc/session` y
+  `GET /kyc/status` se dejó como comentario en Linear (MOVO-70, MOVO-72, MOVO-73) para
+  coordinar con el equipo antes de que se implemente el backend real. El mobile ya está
+  armado contra ese contrato.
+- **`@movo/shared` ahora es consumible desde `movo-mobile`**: se agregó `movo-mobile` al
+  `workspaces` del `package.json` raíz (antes tenía su propio `package-lock.json`,
+  eliminado) y se ajustó `movo-mobile/metro.config.js` (`watchFolders` +
+  `resolver.nodeModulesPaths`) para resolución de monorepo. **Importante**: el mobile
+  importa por **subpath** (`@movo/shared/dist/types/user`,
+  `@movo/shared/dist/errors/api-error`), nunca desde el barrel raíz `@movo/shared` — ese
+  barrel re-exporta `auth/jwt.ts`, que depende de `jsonwebtoken`/`node:crypto` y rompe el
+  bundle de Metro/Hermes en React Native. Si se agrega un módulo nuevo a
+  `shared/movo-shared/src` pensado también para mobile, mantenerlo sin dependencias de
+  Node o el mobile tiene que seguir importando por subpath específico.
+- **KYC vía SDK nativo de Didit, no WebView**: `@didit-protocol/sdk-react-native` ya
+  estaba instalado y linkeado (dependencia + config plugin en `app.json`, Pods de iOS ya
+  generados) pero no se usaba en ningún componente — se integró en `kyc.tsx`
+  (`startVerification(sessionToken)`). El import del SDK es **diferido**
+  (`require()` recién dentro del handler del botón, nunca `import` estático): el módulo
+  `NativeSdkReactNative.ts` interno del SDK llama a `TurboModuleRegistry.getEnforcing(...)`
+  en el scope del módulo, que tira una excepción apenas se evalúa si no hay development
+  build — como pasa siempre en Expo Go. Con `import` estático, como expo-router evalúa
+  todas las rutas al arrancar, esto tumbaba la app entera (no solo esta pantalla) al
+  abrirla en Expo Go. Con el `require` diferido, el resto de la app funciona en Expo Go;
+  solo tocar "Empezar verificación con Didit" requiere un development build.
+- El pedido de permiso de cámara lo maneja el SDK internamente — no hay código propio de
+  permisos. Se agregaron los usage-description strings a `app.json` →
+  `expo.ios.infoPlist` (`NSCameraUsageDescription`, etc.) porque el config plugin del SDK
+  solo configura Gradle/Podfile, no esas keys.
+- **Flujo reanudable (AC7)**: se persiste únicamente el `userId` del registro en curso en
+  `expo-secure-store` — el paso en el que quedó el usuario se deriva siempre consultando
+  al backend (`kycStatus`), nunca de estado local, tal como pide la guía del ticket.
+- El orden de pasos difiere del mockup de Claude Design: el mockup verifica el OTP antes
+  de pedir la contraseña; acá el registro se manda completo (con contraseña incluida) en
+  una sola llamada a `POST /auth/register` porque así lo define el AC de MOVO-70, y la
+  verificación de teléfono queda como paso posterior separado.
+- `EXPO_PUBLIC_API_URL` resuelve el ambiente: local vía `.env.local` (gitignored,
+  `.env.example` documentado), dev `https://api-dev.movosend.app` y prod
+  `https://api.movosend.app` vía `eas.json` (perfiles `development`/`preview`/`production`).
+  `eas init` (requiere cuenta EAS del equipo) queda pendiente — sin eso, los perfiles de
+  build no están activados de verdad todavía.
+
+Pendiente / fuera de alcance: backend real de MOVO-70/MOVO-72 (mobile ya integrado contra
+el contrato propuesto), `eas init`, development build real y prueba en dispositivo físico
+(DoD del ticket — Expo Go no soporta el SDK de Didit), storage de sesión autenticada y
+redirect condicional en `/` (MOVO-76).
+
+### MOVO-73 (corrección) — OTP embebido en el wizard, no como pantalla separada
+
+**Supera la decisión de "orden de pasos difiere del mockup" de la entrada anterior.** El
+paso de OTP se movió de una ruta separada post-alta (`app/(auth)/verify-phone.tsx`, ya
+**eliminada**, junto con su test) a un paso embebido dentro de `app/(auth)/register.tsx`,
+en el mismo orden que el mockup: datos básicos → DNI → dirección → **OTP** → contraseña →
+revisión (wizard de 6 pasos, antes 5). La verificación de teléfono ahora ocurre **antes**
+de crear la cuenta, no después.
+
+- Esto partió el contrato de backend en dos llamadas nuevas sin cuenta todavía
+  (`POST /auth/send-otp`, `POST /auth/verify-otp`) en vez de la única `POST /auth/verify-phone`
+  post-alta que tenía el contrato anterior. `POST /auth/register` ahora requiere un
+  `phoneVerificationToken` en el body (emitido por `verify-otp`). Contrato propuesto
+  documentado en el comentario de MOVO-70 en Linear (el endpoint es de `svc-users`/auth,
+  no de MOVO-72/KYC pese a que estaba mencionado ahí en la entrada anterior).
+- `src/hooks/use-registration.tsx`: `verifyPhone(code)`/`resendOtp()` atados a `userId` se
+  reemplazaron por `sendOtp()` / `verifyPhoneOtp(code)` / `resendOtp()` atados a un `otpId`
+  (no hay `userId` todavía en este punto del flujo).
+- El paso de revisión del wizard muestra "Teléfono · Verificado" (verde) porque en ese
+  punto el teléfono siempre está verificado — antes no se podía mostrar ese estado ahí.
+- El resto de la US no cambia: KYC sigue siendo el paso post-alta (`router.replace('/kyc')`
+  al terminar `submitRegistration`), y el flujo reanudable (AC7) sigue basado solo en
+  `userId` + `kycStatus` del backend, sin estado local — como la cuenta se sigue creando
+  recién al final del wizard (igual que antes), la reanudación no se ve afectada por este
+  cambio.
+
+### MOVO-73 (extra) — Dark mode automático en `movo-mobile`
+
+La infraestructura ya existía (variables CSS en `global.css`, tokens `bg`/`bg-sub`/
+`bg-mute`/`fg`/`fg-2`/`fg-3`/`border`/`border-strong` en `tailwind.config.js`) pero las
+pantallas de bienvenida/registro/OTP/KYC usaban colores fijos de la escala `ink-*`/
+`bg-paper`, que no cambian con el tema. Se reemplazaron por los tokens semánticos en
+`app/index.tsx`, `app/(auth)/{login,register,kyc}.tsx` y los componentes
+`wizard-header`, `text-field`, `password-strength-meter`, `select-field`,
+`primary-button`.
+
+- **`tailwind.config.js` necesitó `darkMode: "class"` explícito** — sin esa línea
+  (default `"media"`), NativeWind/`react-native-css-interop` **no reconoce** el patrón
+  `.dark:root { ... }` de `global.css` como bloque de variables dark (ver
+  `normalize-selectors.js` del paquete: ese matching solo corre si
+  `options.darkMode?.type === "class"`); con `"media"` las variables `--color-*` nunca
+  cambiaban y toda la app se veía en claro sin importar el tema del teléfono. `"class"`
+  **no** implica toggle manual: NativeWind sigue automáticamente el `Appearance` del
+  sistema por default en ambos modos (ver `colorScheme` en
+  `appearance-observables.js` — solo deja de auto-seguir si algo llama
+  `colorScheme.set()` explícitamente, cosa que esta app no hace). Es justo lo que pidió
+  el equipo ("que siga la variante configurada en el teléfono"), sin toggle manual en
+  ningún flujo de usuario.
+- **Colores que reciben una prop `color` en JS (íconos de `lucide-react-native`,
+  `placeholderTextColor`, `ActivityIndicator`) no pueden resolver variables CSS** —
+  NativeWind solo interviene sobre `className`. Se agregó
+  `src/hooks/use-theme-colors.ts` (`useThemeColors()`, hex de `fg`/`fg-2`/`fg-3` según
+  `useColorScheme()` de NativeWind) para esos casos puntuales. Si se agrega un color
+  nuevo a `global.css`, sumarlo también acá.
+- **Qué se dejó fijo a propósito** (no se tokenizó): los acentos vivos (`lime-*`,
+  `route-500`) y las escalas semánticas (`danger`/`warning`/`success`/`info`) no tienen
+  variante dark en `global.css` todavía — los banners de error (`bg-danger-100` +
+  `text-ink-950`) y el botón primario `variant="dark"` (`bg-ink-950`/`text-paper`, CTA
+  de marca) quedan iguales en ambos temas. Si el equipo quiere que esos banners también
+  se adapten, hace falta definir pasos dark para esas escalas primero.
+- `components/dev/DevTokensScreen.tsx` (ruta `/dev-tokens`) tiene un toggle manual
+  (`colorScheme.set(...)`) sin tocar — con `darkMode: "class"` ya activo, ese botón
+  ahora funciona (antes de este cambio tiraba excepción, porque `colorScheme.set()`
+  solo está permitido con `darkMode: "class"`).
+
+### MOVO-73 (fix) — Errores inline consistentes y visibles en el paso correcto
+
+El wizard de registro (`app/(auth)/register.tsx`) tenía un único `errorBanner` (string)
+en `useRegistration()` sin asociar a ningún paso, pero solo se renderizaba dentro de los
+bloques JSX de los pasos 0 y 3 — un error de `sendOtp` (disparado al salir del paso 2) o
+de `submitRegistration` (paso 5) quedaba seteado en el estado pero invisible hasta que el
+usuario volvía manualmente al paso 0, dando la sensación de falla silenciosa. Además había
+tres estilos visuales distintos para "texto de error" (campo, banner, y un texto de OTP
+que reusaba el estilo de campo para un error que semánticamente era de API).
+
+- **`components/ui/error-banner.tsx`**: banner compartido único (`border-danger-300` +
+  `bg-danger-100` + `text-ink-950`) para errores de API/red a nivel de paso — reemplaza
+  los dos bloques duplicados (`register.tsx`, `kyc.tsx`) y el texto mal estilado del paso
+  de OTP. Los errores de validación de campo (`TextField`/`SelectField`, prop `error`)
+  siguen siendo el único estilo separado — ya eran consistentes entre sí, no se tocaron.
+- En `register.tsx`, el `ErrorBanner` se movió a **un solo render, arriba de todos los
+  bloques de paso** (antes de `{step === 0 && ...}`) en vez de duplicado adentro de cada
+  paso — así queda visible sin importar en qué paso ocurrió el error, porque `goNext`
+  siempre deja al usuario en el paso donde falló la llamada (nunca avanza en un
+  `!result.ok`).
+- Se agregó `goToStep()` (envuelve `setStep` + `clearErrorBanner()`) para todo cambio de
+  paso — antes `clearErrorBanner` estaba expuesto en el hook pero nunca se llamaba desde
+  ningún lado, así que un error viejo podía seguir mostrándose después de que el usuario
+  avanzara.
+- **`src/lib/error-messages.ts`** (`friendlyErrorMessage(err, fallback)`): antes,
+  cualquier `ApiError` sin manejo especial mostraba `err.message` **tal cual lo mandó el
+  backend** (texto técnico, a veces en inglés) — ahora hay un mapa único
+  `ApiErrorCode → mensaje en español` reutilizable en toda la app (no solo
+  registro/KYC), con fallback específico por acción si el código no está mapeado. El caso
+  `statusCode === 0` (fallo de red, sin conexión) es la excepción: usa tal cual el mensaje
+  ya armado por `http-client.ts` ("No se pudo conectar…"), porque ya es preciso y está en
+  español.
+- **`resendOtp` fallaba en silencio**: no seteaba `errorBanner` y devolvía
+  `{ ok: false, cooldownSeconds: 60 }`, pero `register.tsx` no chequeaba `result.ok` — o
+  sea que un reenvío de OTP fallido se comportaba visualmente como exitoso (limpiaba las
+  casillas y arrancaba el cooldown de 60s igual). Se corrigió `resendOtp` para setear
+  `errorBanner` y devolver `cooldownSeconds: 0` en la falla, y `handleResendOtp` ahora
+  chequea `result.ok` antes de tocar el estado del OTP.
+- `refreshKycStatus` (polling de estado en background) sigue silencioso a propósito — no
+  es una acción disparada por el usuario, cae fuera de los casos de arriba.
+
+### MOVO-73 (alineación) — Contrato de auth de PR #51 (MOVO-72/95) + `users.address` (DER) + paso de mapa
+
+PR #51 (MOVO-72) cambió el contrato después de que esta US ya había implementado el
+mobile contra el contrato viejo: `POST /auth/register` pasó a emitir tokens de sesión
+(mismo shape que `login`) y `POST /kyc/session`/`GET /kyc/status` dejaron de ser
+públicas (ver MOVO-95/MOVO-94 más arriba). Esto rompía tres cosas del mobile: el
+registro nunca persistía los tokens nuevos, las dos llamadas de KYC iban a devolver
+401 (sin `Authorization`), y el estado de KYC nunca se leía (`GET /kyc/status` devuelve
+`status`, no `kycStatus`). De paso, se encontró y resolvió un gap preexistente: el
+wizard mandaba `dni`/`address` pero `registerBody` nunca los había aceptado
+(`additionalProperties: false`) — toda request de registro real habría sido rechazada
+con 400.
+
+**Backend (`services/movo-svc-users`)**:
+- **Tabla `users.address` implementada** (patrón libreta de direcciones del DER,
+  `docs/movo_der.dbml`, diseñada pero nunca creada hasta ahora): modelo `Address` en
+  `prisma/schema.prisma` + migración `20260807213247_add_user_address_movo_73`. Solo
+  se crea la primera dirección al registrarse (`label: null`, `is_default: true`,
+  `country: "AR"` hardcodeados server-side, no viajan en el request) — el resto del
+  CRUD de libreta de direcciones (agregar/editar/marcar otra como default) queda fuera
+  de alcance, sin ticket propio todavía. `lat`/`long` son `NOT NULL` (tal cual el DER,
+  a diferencia del primer borrador de este plan que los iba a dejar nullable) —
+  poblados por el paso de mapa/geocoding nuevo del wizard, no por el usuario a mano.
+  **No se agregó constraint unique a `dni`**: el DER lo deja como pregunta abierta
+  ("candidato natural a unique, no decidido") y se mantiene así.
+- `auth.schema.ts#registerBody`: `dni` (string, patrón `^\d{7,8}$`) y `address`
+  (`street`/`number`/`floor?`/`city`/`province`/`zip`/`lat`/`long`) ahora requeridos.
+  `user-repository.ts#create()` extiende el nested write de Prisma (mismo patrón que
+  ya usaba para `roles`, MOVO-93) para crear la fila de `Address` en la misma
+  transacción atómica que el alta del usuario.
+- **Paso de mapa (geocoding), nuevo de punta a punta** — ni la librería de mapa ni
+  ninguna API key de Google Maps existían en el proyecto todavía (ni siquiera para el
+  caso ya decidido en ADR-008, Distance Matrix de `movo-svc-pricing-logistics`, que
+  sigue siendo solo un esqueleto sin implementar):
+  - `GeocodingProvider` (mismo patrón que `SmsProvider`/`DiditClient`): interfaz +
+    `MockGeocodingProvider` (determinístico, hash de la dirección, sin red — default
+    dev/test/CI) + `GoogleGeocodingProvider` (real, sobre la Geocoding API de Google).
+    `GEOCODING_PROVIDER` (`mock`|`google`, default `mock`) + `GOOGLE_MAPS_API_KEY`
+    nuevos en `config/env.ts`/`.env.example`.
+  - `POST /api/v1/geocode` (nuevo módulo `src/modules/geocode/`) — **público**, se
+    llama durante el wizard antes de que exista cuenta o token (mismo momento que
+    `send-otp`/`verify-otp`). Proxea la Geocoding API server-side a propósito: esa key
+    es distinta de la key de renderizado de mapa del mobile (esta es secreta,
+    restringida por IP; la del mobile restringe por bundle id/SHA fingerprint, no es
+    sensible de la misma forma). Gateway: nuevo prefix `/geocode` en
+    `getServiceRoutes()` + entrada en `getPublicRoutes()` con rate limit propio
+    (`{max: 20, timeWindow: "15 minutes"}`) para no quedar abierto como proxy gratis
+    de la API de Google.
+  - Candidato a **ADR-014** (primera vez que se usa una API de Google Maps en el
+    proyecto pese a que ADR-008 ya la había decidido para otro caso) — falta pegar el
+    desarrollo completo en Drive, mismo estado pendiente que ADR-012/013.
+  - Dos códigos nuevos en `ApiErrorCode` de `@movo/shared`: `GEOCODING_PROVIDER_ERROR`,
+    `GEOCODING_ADDRESS_NOT_FOUND`.
+
+**Mobile (`movo-mobile`)**:
+- `src/api/auth-client.ts`: `RegisterResponse`/`LoginResponse` alineados al shape real
+  (`accessToken`/`refreshToken`/`expiresIn`/`fullName`/`roles`); `KycStatusResponse`
+  corregido a `{status, manualReviewReason}` (el campo es `status`, no `kycStatus`);
+  `createKycSession`/`getKycStatus` pasan a recibir un `accessToken` (no `userId`) y
+  adjuntan `Authorization: Bearer` a mano — **no** es el interceptor genérico de
+  MOVO-76 (`http-client.ts` solo gana un `headers` opcional por request, nada lo
+  adjunta automáticamente); nuevo `geocodeAddress()` contra `POST /geocode`.
+- `src/lib/secure-store.ts`: nuevas keys `pendingRegistrationAccessToken`/
+  `pendingRegistrationRefreshToken` — `submitRegistration()` persiste ahí los tokens
+  que devuelve `register()`, sin los cuales no hay forma de armar el header
+  `Authorization` que ahora exigen `/kyc/session`/`/kyc/status`.
+- **Limitación aceptada de este sprint (decisión explícita con el usuario, no un
+  descuido)**: el access token dura 60min y MOVO-76 (refresh automático) todavía no
+  existe. Si el usuario cierra la app en medio del onboarding y vuelve después de que
+  expiró, el efecto de resume (AC7) trata el 401 de `getKycStatus` igual que "no hay
+  registro pendiente" — limpia el storage y arranca el wizard desde cero, sin
+  intentar refrescar. Pendiente explícito en MOVO-76: evaluar si hace falta un
+  refresh manual mínimo antes de esa US completa, o si esto queda como limitación
+  permanente del producto.
+- **Wizard de registro: nuevo paso de mapa** (`app/(auth)/register.tsx`), insertado
+  entre dirección y OTP — 6 pasos pasan a ser 7 (`Step` `0-6`, `STEP_LABELS`,
+  denominador de progreso `/7`). Al salir del paso de dirección se llama
+  `geocodeAddress()` (centra el pin inicial); el usuario arrastra un `Marker` de
+  `react-native-maps` (nueva dependencia, instalada vía `expo install` — primera vez
+  que se usa un mapa en el mobile) para ajustar la ubicación exacta antes de
+  confirmar; `lat`/`long` viajan en el `address` de `submitRegistration()`.
+  **`app.json` → `app.config.js`** (corrección post-review, ver más abajo): plugin
+  `react-native-maps`, `ios.config.googleMapsApiKey`/`android.config.googleMaps.apiKey`
+  leídos de `GOOGLE_MAPS_IOS_API_KEY`/`GOOGLE_MAPS_ANDROID_API_KEY` (`process.env`, sin
+  prefijo `EXPO_PUBLIC_` — solo se consumen en build/prebuild time, no en el bundle
+  JS), y `NSLocationWhenInUseUsageDescription` nuevo en `infoPlist`.
+- `use-registration.tsx`: estado nuevo `latitude`/`longitude`/`accessToken`/
+  `manualReviewReason`; `submitRegistration()` bloquea con error si no hay
+  lat/long confirmados; `createKycSession`/`refreshKycStatus` migrados a usar
+  `accessToken` en vez de `userId`.
+
+**DNI vía Didit — investigado, no implementado**: se evaluó si el step manual de DNI
+del wizard se podía eliminar extrayendo `document_number` del resultado de Didit. Hoy
+el backend no lo extrae ni lo persiste en ningún lado (`buildRedactedRawDecision`, el
+whitelist de redacción de AC9 de MOVO-72, lo descartaría aunque viniera), y no hay
+confirmación contra el sandbox real de que el webhook de sesión lo incluya (a
+diferencia del endpoint standalone `/v3/id-verification/`, que sí lo documenta).
+Decisión: se mantiene el step manual tal cual está. Seguimiento en **MOVO-96**
+(ticket de investigación nuevo, sin implementación).
+
+Tests: 192/192 en `svc-users` (subieron de 173 — nuevos casos de `users.address`,
+`POST /geocode`, y fixtures de registro actualizados con `dni`/`address` en los 6
+archivos que llaman `/auth/register`), 32/32 en gateway (sin cambios de contenido,
+solo la nueva ruta pública no rompió nada existente), 26/26 en `movo-mobile` (Jest).
+`tsc --noEmit`/`eslint`/`npm run build` sin errores en los tres paquetes tocados.
+
+### MOVO-73 (corrección) — Keys de Google Maps: `app.json` en git y ownership entre servicios
+
+Dos problemas detectados en revisión sobre la entrada anterior, ambos corregidos en el
+mismo cambio:
+
+- **`app.json` se trackea en git** (solo `.env*.local` está en `.gitignore`) — pegar
+  ahí una API key, aunque sea de bajo riesgo (restringida por bundle id/SHA
+  fingerprint, no por IP), la deja commiteada para siempre en el historial. Se
+  reemplazó `app.json` por **`app.config.js`**, que Expo evalúa en Node en
+  build/prebuild time y sí puede leer `process.env` — mismo mecanismo que ya usaba
+  `EXPO_PUBLIC_API_URL` (Expo CLI carga `.env.local` automáticamente antes de evaluar
+  el config, no solo antes de bundlear). `GOOGLE_MAPS_IOS_API_KEY`/
+  `GOOGLE_MAPS_ANDROID_API_KEY` nuevas en `.env.example`, sin prefijo `EXPO_PUBLIC_` a
+  propósito (se consumen una sola vez en build time para generar
+  `Info.plist`/`AndroidManifest.xml`, no hace falta que viajen embebidas en el bundle
+  JS). **En builds de EAS tampoco van al bloque `env` de `eas.json`** (ese archivo
+  también se trackea) — se cargan como EAS Environment Variables (`eas env:create`),
+  fuera del repo.
+- **Cómo generarlas**: documentado en el comentario de `.env.example` — proyecto de
+  Google Cloud Console, habilitar "Maps SDK for Android"/"Maps SDK for iOS", crear dos
+  API keys separadas (una por plataforma, para poder restringir cada una por su propio
+  bundle id / SHA-1 del keystore de firma).
+- **Ownership de la key de Geocoding del backend (`GOOGLE_MAPS_API_KEY`,
+  `services/movo-svc-users`), decisión con el equipo**: quedaba mal ubicada
+  conceptualmente en `svc-users` — geocoding no es un concern de identidad, y
+  `svc-shipments`/`svc-pricing-logistics` (Distance Matrix, ADR-008, hoy sin
+  implementar) casi seguro la van a necesitar también. Se decidió **una sola API key
+  de Google Cloud, compartida** (mismo proyecto GCP, Geocoding API + Distance Matrix
+  API habilitadas, restringida por IP a las EC2 de Movo) — se carga una vez en AWS
+  Secrets Manager y cada servicio que la necesite la lee de su propio env bajo el
+  mismo nombre de variable (`GOOGLE_MAPS_API_KEY`), mismo criterio que ya usa el
+  proyecto para inyectar variable por variable en `docker-compose.yml` (no todo el
+  secret de una vez). Trade-off aceptado: los servicios que la compartan comparten
+  también la cuota/rate-limit de esa key — si eso se vuelve un problema real, se
+  separan keys por servicio más adelante, no ahora que solo `svc-users` la usa.
+  Candidato a ampliar en **ADR-014** cuando `svc-shipments`/`pricing-logistics` la
+  adopten de verdad.
+
+Verificado: `npx expo config --type public` resuelve `app.config.js` correctamente
+(carga `.env.local`, plugins y campos nativos intactos) — no se corrió un build real
+de EAS (`eas init` sigue pendiente, ver notas de MOVO-73 más arriba).
+
+### MOVO-73 (fix) — Reanudación del onboarding y retry de KYC atascado en `pending`
+
+Tres bugs encadenados encontrados probando el flujo real fuera del camino feliz (el SDK
+de Didit falla por falta de conexión en local, que es el caso más común en dev). Los tres
+dejaban al usuario en un punto sin salida.
+
+**1. El wizard se rehacía entero al volver al inicio.** `RegistrationProvider` vive en
+`app/_layout.tsx`, así que el estado (`userId`/`accessToken`/`kycStatus`) sobrevivía a
+volver a `/`, y el resume por `secureStore` + `getKycStatus` ya existía (AC7) — pero
+**nadie consumía `hasPendingRegistration` para navegar**, y el `step` del wizard es estado
+local de `RegisterScreen`, que se remonta en `0`. Se agregó el redirect en `app/index.tsx`.
+
+**2. Un `phoneVerificationToken` ya consumido saltaba el paso de OTP.** Como el contexto
+no se limpiaba tras un registro exitoso, `goNext` (paso de mapa) veía el token todavía
+presente, saltaba el OTP, y el `register()` siguiente fallaba con `AUTH_OTP_INVALID` — un
+mensaje que habla de "el código ingresado" cuando nunca se pidió ningún código. Corregido
+limpiando `otpId`/`phoneVerificationToken`/`verifiedPhone` en `submitRegistration()`
+apenas responde el backend.
+
+**3. `pending` era un pozo sin fondo (el bug de fondo).** Dos causas superpuestas:
+- `kyc.tsx#kycStatusToResultKind` mapeaba `KycStatus.PENDING` a la pantalla de
+  `manual_review` ("en revisión"), que no es reintentable, y `KycStatus.MANUAL_REVIEW` no
+  estaba mapeado (caía a `null`). `pending` no es "en revisión humana": `createSession` lo
+  setea apenas se pide la sesión, **antes** de que el cliente llegue a la UI de Didit.
+- `ALLOWED_SESSION_SOURCE_STATUSES` (`kyc.service.ts`) rechazaba con 409 cualquier sesión
+  nueva desde `pending`. La regla asumía que un intento `pending` siempre se resuelve por
+  webhook — falso cuando el SDK nunca llegó a Didit: no hay nada que reportar, el webhook
+  no llega nunca, y el usuario queda trabado para siempre.
+
+Decisiones clave del arreglo de (3):
+
+- **Se revierte la política "un intento en curso no se reintenta ni devuelve, se rechaza
+  (409)"** de MOVO-72. `ALLOWED_SESSION_SOURCE_STATUSES` pasa a ser todo menos `approved`
+  (suma `pending` y `expired`). A cambio, `createSession` marca los intentos `pending`
+  previos del usuario como `expired` dentro de la misma `db.$transaction`, antes de abrir
+  el nuevo (`expirePendingByUserId`). **Trade-off aceptado, decidido con el equipo**: si el
+  usuario completó la verificación hace segundos y el webhook viene en camino, ese
+  resultado se descarta y tiene que rehacer el KYC. Se evaluó una ventana de gracia por
+  antigüedad del intento y se descartó — deja al usuario esperando, que es exactamente la
+  fricción que motivó el ticket.
+- **El supersede a `expired` cierra de paso un bug latente preexistente**: como
+  `resolveByExternalSessionId` solo aplica una transición si la fila sigue en `pending`, un
+  webhook tardío de una sesión abandonada ya no matchea y se ignora solo — antes podía
+  resolver esa fila **y pisar `users.kyc_status_identity`** con el resultado de un intento
+  que el usuario había abandonado, aunque hubiera una sesión más nueva en curso. No hizo
+  falta código extra: el gate de idempotencia de AC7 hace el trabajo.
+- **`create()` del repositorio pasa a ser `upsertPendingSession()`** (upsert por
+  `externalSessionId`, revive la fila dejándola en `pending` y limpiando
+  `resolvedAt`/`rawDecision`). No es cosmético: el spike MOVO-48 documenta que Didit hace
+  dedupe implícito por `vendor_data` y puede **devolver la misma sesión** ante un
+  reintento — con el insert plano anterior eso reventaba contra la constraint única de la
+  columna. `expirePendingByUserId` recibe un `exceptExternalSessionId` por el mismo
+  motivo (no matar el intento que estamos por revivir).
+- **`Expired`/`Abandoned`/`Kyc Expired` ahora mapean a `KycStatus.EXPIRED`**
+  (`didit-client.ts`), resolviendo el pendiente que MOVO-72 había dejado abierto. `expired`
+  **tiene que estar** en `ALLOWED_SESSION_SOURCE_STATUSES`: mapearlos a un estado sin
+  salida habría creado un segundo pozo en vez de resolver el primero. Sigue sin validarse
+  contra el sandbox real (no hay forma de generar esos escenarios desde "Probar Webhook");
+  el peor caso de un mapeo equivocado es que un usuario tenga que reintentar.
+- **Mobile**: `in_progress` (el `pending` real) pasa a `RETRYABLE` con "Reintentar
+  verificación" como acción primaria y "Ya la completé — actualizar estado"
+  (`refreshKycStatus`) como link secundario — el caso donde el resultado *sí* puede estar
+  en camino existe, pero es el menos común. `KYC_SESSION_NOT_ALLOWED` sumado a
+  `error-messages.ts`: tras el cambio el único caso que lo dispara es una identidad ya
+  verificada, así que el mensaje lo dice en vez de un "intentá de nuevo" engañoso.
+- **El auto-redirect de `app/index.tsx` se limita a `NOT_STARTED`**, no a
+  `hasPendingRegistration` en general: con cualquier otro estado, redirigir siempre
+  convierte el botón "Ir al inicio" de `kyc.tsx` en un loop sin salida (vuelve al inicio,
+  el inicio lo manda de vuelta). Para esos casos la bienvenida muestra una CTA explícita
+  "Continuar verificación" en lugar de "Soy nuevo".
+
+Tests: 199/199 en `svc-users` (subieron de 192), 30/30 en `movo-mobile`. Se reemplazó el
+test que fijaba el 409 desde `pending` por uno de supersede, y se sumaron: dedupe de Didit
+(misma sesión devuelta), webhook tardío de sesión descartada que no pisa el intento nuevo,
+y los tres estados de abandono. Verificado además contra el `svc-users` real corriendo en
+Docker, reproduciendo el estado exacto del bug (usuario en `pending` con sesión huérfana):
+`POST /kyc/session` devuelve 201, la sesión vieja queda `expired` con `resolved_at`, la
+nueva `pending`, y queda un solo intento vivo.
+
+Pendiente / fuera de alcance: limpieza automática de filas `pending` viejas por antigüedad
+(cron/TTL) — con el supersede en `createSession` no hace falta para destrabar al usuario.
+
+### MOVO-73 (revisión PR #52) — Reconciliación con Didit antes de descartar un intento `pending`
+
+Dos hallazgos de la revisión de JcBordino4 sobre la entrada anterior. **El primero supera
+el trade-off que esa entrada daba por aceptado** ("si el usuario completó la verificación
+hace segundos y el webhook viene en camino, ese resultado se descarta").
+
+**1. La decisión real de Didit se perdía en silencio al reintentar.** `createSession`
+descarta los intentos `pending` previos como `expired`, y `resolveByExternalSessionId`
+solo transiciona si la fila sigue en `pending` — así que un webhook que llegaba después
+del descarte dejaba de matchear y se ignoraba. Un `approved` recién emitido se perdía y el
+usuario tenía que rehacer el KYC de cero. No era un caso remoto: la UI ofrece "Reintentar
+verificación" **justo** en ese estado, así que la ventana estaba expuesta como acción
+primaria.
+
+- **`DiditClient.getSessionDecision(sessionId)`** nuevo (`GET /v3/session/{id}/decision/`,
+  la contraparte *pull* del webhook): `http-didit-client.ts` lo implementa —404 devuelve
+  `null` en vez de tirar, y un cuerpo sin `status` también, para no inventar una
+  transición a partir de algo que no entendemos—; `mock-didit-client.ts` devuelve `null`
+  siempre (una sesión sintética nunca llegó a Didit, así que dev/CI se comportan igual que
+  antes). Los fallos reales (red, 5xx, credenciales) siguen tirando `ApiError` 502: la
+  política de qué hacer con el proveedor caído es del servicio, no del adapter.
+- **`kyc.service.ts#reconcilePendingAttempt`**: antes de evaluar
+  `ALLOWED_SESSION_SOURCE_STATUSES`, si el usuario está en `pending` se le pregunta a
+  Didit por la decisión de esa sesión; si ya es terminal, se aplica y el estado efectivo
+  resultante es el que decide si se puede abrir una sesión nueva. Un `approved`
+  reconciliado ahora responde 409 "ya está verificado" en vez de perder el resultado; un
+  `rejected`/`manual_review` queda persistido con su `raw_decision` real y **igual** deja
+  reintentar en la misma llamada.
+- **`applyTerminalDecision` es ahora el único camino de escritura de una decisión**, lo use
+  el webhook (*push*) o la reconciliación (*pull*) — el handler del webhook se refactorizó
+  para llamarlo. Así las dos rutas comparten el mismo gate de idempotencia de AC7 y no
+  pueden divergir. Si el webhook gana la carrera, la reconciliación ve `null` y relee el
+  usuario en vez de seguir con un estado viejo.
+- **Redacción de AC9 también en la vía pull** (`buildRedactedPulledDecision`): el endpoint
+  de decisión trae el detalle por feature en el nivel superior (no anidado bajo `decision`
+  como el webhook) y sin `vendor_data` — misma whitelist explícita, con un test que
+  verifica que la PII del cuerpo crudo no sobrevive.
+- **Ante Didit caído se sigue de largo con el descarte**, no se bloquea el reintento:
+  falla hacia la fricción (rehacer el KYC) y nunca hacia dejar a alguien sin salida, que
+  es el pozo que este flujo vino a resolver. Queda logueado como
+  `event: "kyc_reconcile_failed"`.
+
+**2. El switch sobre `result.session.status` en `kyc.tsx` no tenía rama `default`.** A
+nivel de tipos es exhaustivo (`VerificationStatus` son 3 valores), así que TS no lo
+marcaba; el agujero es en runtime, porque el valor viene del módulo nativo, donde el
+bridge lo declara `status?: string`, y la API de Didit maneja 10 estados crudos
+(`DiditRawStatus`). Sin `default`, `resultKind` quedaba en `null` y la pantalla caía a la
+intro — invitando a empezar una verificación que en realidad ya se había hecho. Se agregó
+`default: setResultKind('unknown')` y, como segunda barrera, el bloque de render pasa de
+`phase === 'result' && resultKind` a `phase === 'result'` con `resultKind ?? 'unknown'`,
+que cubre cualquier camino futuro que setee la fase sin setear el resultado.
+
+**3. `register()` quemaba el `phoneVerificationToken` ante cualquier falla que no fuera
+un conflicto de datos.** El token es single-use y se consume ANTES de crear el usuario,
+pero el `catch` solo lo liberaba (`releasePhoneVerificationToken`, agregado en PR #51)
+para `UserConflictError` — un error de DB, o de la escritura nueva de `address`, dejaba
+el token gastado y el reintento fallaba con `401 AUTH_OTP_INVALID`, obligando a rehacer
+todo el paso de OTP por algo ajeno al teléfono. Ahora se libera ante cualquier causa de
+falla de `create()`: es seguro porque ese `create()` es un nested write de Prisma,
+atómico (usuario + roles + dirección), así que si tiró no quedó ninguna cuenta a medias.
+La liberación va con `catch` propio para no enmascarar el error original si Redis no
+responde. Test nuevo `test/auth.register-token-release.test.ts` — unitario y no de
+integración a propósito, porque la causa de falla que importa es justamente la que no se
+puede provocar contra una DB sana.
+
+Tests: 210/210 en `svc-users` (subieron de 199: 4 de integración sobre la reconciliación —
+decisión aprobada preservada, rechazada aplicada + reintento, proveedor caído, estado no
+terminal—, 4 del adapter HTTP y 3 de la liberación del token), 31/31 en `movo-mobile`. `tsc --noEmit` y `eslint` sin
+errores en ambos.
+
+Pendiente / fuera de alcance: `getSessionDecision` no está validado contra el sandbox real
+todavía (el endpoint sí está documentado en el skill de Didit versionado en el repo, pero
+la corrida end-to-end de MOVO-72 solo ejercitó `createSession` y el webhook).

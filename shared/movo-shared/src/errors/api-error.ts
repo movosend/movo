@@ -19,7 +19,9 @@ export type ApiErrorCode =
   | "KYC_SESSION_NOT_ALLOWED"
   | "KYC_WEBHOOK_INVALID_SIGNATURE"
   | "KYC_PROVIDER_ERROR"
-  | "AUTH_REFRESH_INVALID";
+  | "AUTH_REFRESH_INVALID"
+  | "GEOCODING_PROVIDER_ERROR"
+  | "GEOCODING_ADDRESS_NOT_FOUND";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

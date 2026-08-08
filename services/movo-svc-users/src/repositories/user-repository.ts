@@ -120,6 +120,26 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
             roles: {
               create: input.roles.map((role) => ({ role: role as unknown as PrismaUserRole })),
             },
+            // MOVO-73: primera dirección del usuario, misma transacción atómica que el
+            // alta de la cuenta y los roles (nested write de Prisma). `label`/`country`
+            // no vienen del caller -- se hardcodean acá: la app es solo Argentina hoy
+            // (mismo criterio que el regex de teléfono) y esta es siempre la dirección
+            // por defecto porque es la única que existe en este punto.
+            addresses: {
+              create: {
+                label: null,
+                isDefault: true,
+                street: input.address.street,
+                streetNumber: input.address.number,
+                floorApartment: input.address.floor ?? null,
+                city: input.address.city,
+                province: input.address.province,
+                postalCode: input.address.zip,
+                country: "AR",
+                lat: input.address.lat,
+                long: input.address.long,
+              },
+            },
           },
           include: { roles: true },
         });
