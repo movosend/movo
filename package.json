@@ -13,12 +13,5 @@
   "overrides": {
     "react": "19.2.3",
     "react-test-renderer": "19.2.3"
-  },
-  "version": "1.0.0",
-  "scripts": {},
-  "dependencies": {
-    "expo": "~57.0.7",
-    "react": "19.2.3",
-    "react-native": "0.86.0"
   }
 }
