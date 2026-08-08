@@ -1,20 +1,13 @@
-import type { KycStatus } from "@movo/shared/dist/types/user";
+import type { KycStatus, UserRole } from "@movo/shared/dist/types/user";
 import { httpClient } from "./http-client";
 
 /**
- * Contrato propuesto para MOVO-70/MOVO-72 (dejado como comentario en Linear
- * en esos tickets + en MOVO-73). Los endpoints todavía no existen en
- * `movo-svc-users` — este cliente ya queda implementado contra el contrato
- * acordado, listo para funcionar apenas el backend los publique.
- *
- * La verificación de teléfono ahora ocurre ANTES de crear la cuenta (dentro
- * del wizard de registro, para calzar con el mockup) — ya no depende de un
- * `userId`. Son dos llamadas nuevas (`send-otp`/`verify-otp`, sin cuenta
- * todavía) en vez de la única `verify-phone` post-alta que tenía el contrato
- * anterior; el `phoneVerificationToken` que devuelve `verify-otp` viaja en el
- * body de `register` para probar que ese teléfono fue verificado. Cambio de
- * contrato documentado en los comentarios de MOVO-70/MOVO-72/MOVO-73 en
- * Linear — coordinar con el equipo de backend antes de implementarlo.
+ * Contrato de `movo-svc-users` (MOVO-70/71/72/73). `POST /auth/register` pasó a
+ * emitir tokens de sesión (mismo shape que `login`) — PR #51 de MOVO-72 — así que el
+ * registro ya autentica, no hace falta un login separado antes de KYC. Como
+ * consecuencia, `POST /kyc/session` y `GET /kyc/status` dejaron de ser públicas: ahora
+ * exigen `Authorization: Bearer <accessToken>` (el gateway saca el userId del JWT, ya
+ * no de un parámetro explícito) — ver `createKycSession`/`getKycStatus` abajo.
  */
 
 export interface RegisterAddress {
@@ -24,6 +17,9 @@ export interface RegisterAddress {
   city: string;
   province: string;
   zip: string;
+  /** Confirmados por el paso de mapa/geocoding del wizard (MOVO-73) — ver `geocodeAddress`. */
+  lat: number;
+  long: number;
 }
 
 export interface RegisterRequest {
@@ -37,9 +33,15 @@ export interface RegisterRequest {
   phoneVerificationToken: string;
 }
 
+/** Mismo shape que `LoginResponse` — register() autentica igual que login() (PR #51). */
 export interface RegisterResponse {
   userId: string;
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
   kycStatus: KycStatus;
+  fullName: string;
+  roles: UserRole[];
 }
 
 export interface SendOtpResponse {
@@ -68,8 +70,10 @@ export interface CreateKycSessionResponse {
   sessionToken: string;
 }
 
+/** El backend devuelve `status`, no `kycStatus` (kyc.schema.ts#kycStatusResponse). */
 export interface KycStatusResponse {
-  kycStatus: KycStatus;
+  status: KycStatus;
+  manualReviewReason: string | null;
 }
 
 export interface LoginRequest {
@@ -82,7 +86,29 @@ export interface LoginResponse {
   /** Persistencia de sesión (guardar en `secure-store`, adjuntar a `http-client`) es alcance de MOVO-76. */
   accessToken: string;
   refreshToken: string;
+  expiresIn: number;
   kycStatus: KycStatus;
+  fullName: string;
+  roles: UserRole[];
+}
+
+export interface GeocodeAddressInput {
+  street: string;
+  number: string;
+  floor?: string;
+  city: string;
+  province: string;
+  zip: string;
+}
+
+export interface GeocodeAddressResponse {
+  lat: number;
+  long: number;
+  formattedAddress: string;
+}
+
+function authHeader(accessToken: string): Record<string, string> {
+  return { Authorization: `Bearer ${accessToken}` };
 }
 
 export const authClient = {
@@ -107,11 +133,19 @@ export const authClient = {
     return httpClient.post<ResendOtpResponse>("/auth/resend-otp", { otpId });
   },
 
-  createKycSession(userId: string): Promise<CreateKycSessionResponse> {
-    return httpClient.post<CreateKycSessionResponse>("/kyc/session", { userId });
+  /** Paso de mapa del wizard (MOVO-73): centra el pin inicial a partir de la
+   * dirección cargada a mano. Público — se llama antes de que exista cuenta o token. */
+  geocodeAddress(payload: GeocodeAddressInput): Promise<GeocodeAddressResponse> {
+    return httpClient.post<GeocodeAddressResponse>("/geocode", payload);
   },
 
-  getKycStatus(userId: string): Promise<KycStatusResponse> {
-    return httpClient.get<KycStatusResponse>("/kyc/status", { userId });
+  /** Protegida desde PR #51 (MOVO-72) — el `userId` se deriva del `accessToken`, no
+   * viaja como parámetro. */
+  createKycSession(accessToken: string): Promise<CreateKycSessionResponse> {
+    return httpClient.post<CreateKycSessionResponse>("/kyc/session", undefined, authHeader(accessToken));
+  },
+
+  getKycStatus(accessToken: string): Promise<KycStatusResponse> {
+    return httpClient.get<KycStatusResponse>("/kyc/status", undefined, authHeader(accessToken));
   },
 };

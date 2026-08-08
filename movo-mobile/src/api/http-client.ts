@@ -20,6 +20,11 @@ interface RequestOptions {
   method?: HttpMethod;
   body?: unknown;
   query?: Record<string, string | number | boolean | undefined>;
+  /** Headers explícitos por request — p.ej. `Authorization` adjuntado a mano por
+   * `authClient.createKycSession`/`getKycStatus` (MOVO-73). Esto NO es el interceptor
+   * genérico de MOVO-76: nada acá adjunta el header automáticamente ni maneja
+   * 401/refresh, cada caller decide si lo manda. */
+  headers?: Record<string, string>;
 }
 
 function buildUrl(path: string, query?: RequestOptions["query"]): string {
@@ -44,13 +49,13 @@ async function parseErrorBody(response: Response): Promise<ApiError> {
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, query } = options;
+  const { method = "GET", body, query, headers } = options;
 
   let response: Response;
   try {
     response = await fetch(buildUrl(path, query), {
       method,
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: { "Content-Type": "application/json", Accept: "application/json", ...headers },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
@@ -69,7 +74,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 }
 
 export const httpClient = {
-  get: <T>(path: string, query?: RequestOptions["query"]) => request<T>(path, { method: "GET", query }),
-  post: <T>(path: string, body?: unknown) => request<T>(path, { method: "POST", body }),
-  patch: <T>(path: string, body?: unknown) => request<T>(path, { method: "PATCH", body }),
+  get: <T>(path: string, query?: RequestOptions["query"], headers?: RequestOptions["headers"]) =>
+    request<T>(path, { method: "GET", query, headers }),
+  post: <T>(path: string, body?: unknown, headers?: RequestOptions["headers"]) =>
+    request<T>(path, { method: "POST", body, headers }),
+  patch: <T>(path: string, body?: unknown, headers?: RequestOptions["headers"]) =>
+    request<T>(path, { method: "PATCH", body, headers }),
 };
