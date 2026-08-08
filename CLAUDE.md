@@ -1558,3 +1558,64 @@ nueva `pending`, y queda un solo intento vivo.
 
 Pendiente / fuera de alcance: limpieza automática de filas `pending` viejas por antigüedad
 (cron/TTL) — con el supersede en `createSession` no hace falta para destrabar al usuario.
+
+### MOVO-73 (revisión PR #52) — Reconciliación con Didit antes de descartar un intento `pending`
+
+Dos hallazgos de la revisión de JcBordino4 sobre la entrada anterior. **El primero supera
+el trade-off que esa entrada daba por aceptado** ("si el usuario completó la verificación
+hace segundos y el webhook viene en camino, ese resultado se descarta").
+
+**1. La decisión real de Didit se perdía en silencio al reintentar.** `createSession`
+descarta los intentos `pending` previos como `expired`, y `resolveByExternalSessionId`
+solo transiciona si la fila sigue en `pending` — así que un webhook que llegaba después
+del descarte dejaba de matchear y se ignoraba. Un `approved` recién emitido se perdía y el
+usuario tenía que rehacer el KYC de cero. No era un caso remoto: la UI ofrece "Reintentar
+verificación" **justo** en ese estado, así que la ventana estaba expuesta como acción
+primaria.
+
+- **`DiditClient.getSessionDecision(sessionId)`** nuevo (`GET /v3/session/{id}/decision/`,
+  la contraparte *pull* del webhook): `http-didit-client.ts` lo implementa —404 devuelve
+  `null` en vez de tirar, y un cuerpo sin `status` también, para no inventar una
+  transición a partir de algo que no entendemos—; `mock-didit-client.ts` devuelve `null`
+  siempre (una sesión sintética nunca llegó a Didit, así que dev/CI se comportan igual que
+  antes). Los fallos reales (red, 5xx, credenciales) siguen tirando `ApiError` 502: la
+  política de qué hacer con el proveedor caído es del servicio, no del adapter.
+- **`kyc.service.ts#reconcilePendingAttempt`**: antes de evaluar
+  `ALLOWED_SESSION_SOURCE_STATUSES`, si el usuario está en `pending` se le pregunta a
+  Didit por la decisión de esa sesión; si ya es terminal, se aplica y el estado efectivo
+  resultante es el que decide si se puede abrir una sesión nueva. Un `approved`
+  reconciliado ahora responde 409 "ya está verificado" en vez de perder el resultado; un
+  `rejected`/`manual_review` queda persistido con su `raw_decision` real y **igual** deja
+  reintentar en la misma llamada.
+- **`applyTerminalDecision` es ahora el único camino de escritura de una decisión**, lo use
+  el webhook (*push*) o la reconciliación (*pull*) — el handler del webhook se refactorizó
+  para llamarlo. Así las dos rutas comparten el mismo gate de idempotencia de AC7 y no
+  pueden divergir. Si el webhook gana la carrera, la reconciliación ve `null` y relee el
+  usuario en vez de seguir con un estado viejo.
+- **Redacción de AC9 también en la vía pull** (`buildRedactedPulledDecision`): el endpoint
+  de decisión trae el detalle por feature en el nivel superior (no anidado bajo `decision`
+  como el webhook) y sin `vendor_data` — misma whitelist explícita, con un test que
+  verifica que la PII del cuerpo crudo no sobrevive.
+- **Ante Didit caído se sigue de largo con el descarte**, no se bloquea el reintento:
+  falla hacia la fricción (rehacer el KYC) y nunca hacia dejar a alguien sin salida, que
+  es el pozo que este flujo vino a resolver. Queda logueado como
+  `event: "kyc_reconcile_failed"`.
+
+**2. El switch sobre `result.session.status` en `kyc.tsx` no tenía rama `default`.** A
+nivel de tipos es exhaustivo (`VerificationStatus` son 3 valores), así que TS no lo
+marcaba; el agujero es en runtime, porque el valor viene del módulo nativo, donde el
+bridge lo declara `status?: string`, y la API de Didit maneja 10 estados crudos
+(`DiditRawStatus`). Sin `default`, `resultKind` quedaba en `null` y la pantalla caía a la
+intro — invitando a empezar una verificación que en realidad ya se había hecho. Se agregó
+`default: setResultKind('unknown')` y, como segunda barrera, el bloque de render pasa de
+`phase === 'result' && resultKind` a `phase === 'result'` con `resultKind ?? 'unknown'`,
+que cubre cualquier camino futuro que setee la fase sin setear el resultado.
+
+Tests: 207/207 en `svc-users` (subieron de 199: 4 de integración sobre la reconciliación —
+decisión aprobada preservada, rechazada aplicada + reintento, proveedor caído, estado no
+terminal— y 4 del adapter HTTP), 31/31 en `movo-mobile`. `tsc --noEmit` y `eslint` sin
+errores en ambos.
+
+Pendiente / fuera de alcance: `getSessionDecision` no está validado contra el sandbox real
+todavía (el endpoint sí está documentado en el skill de Didit versionado en el repo, pero
+la corrida end-to-end de MOVO-72 solo ejercitó `createSession` y el webhook).
