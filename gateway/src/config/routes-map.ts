@@ -88,6 +88,14 @@ export function getServiceRoutes(env: {
       prefix: "/kyc",
       upstream: env.USERS_SERVICE_URL,
     },
+
+    // geocode (MOVO-73): paso de mapa del wizard de registro, proxea la Geocoding API
+    // de Google server-side. Público (ver publicRoutes) — se llama antes de que exista
+    // cuenta o token.
+    {
+      prefix: "/geocode",
+      upstream: env.USERS_SERVICE_URL,
+    },
   ];
 }
 
@@ -122,6 +130,11 @@ export function getPublicRoutes(): PublicRoute[] {
     // Webhook de Didit.me (AC4/AC5): no lleva JWT ni puede — Didit no tiene uno. Se
     // protege con verificación de firma (X-Signature-V2) del lado de svc-users, no acá.
     { method: "POST", path: "/kyc/webhook" },
+
+    // geocode (MOVO-73): se llama durante el wizard de registro, antes de que exista
+    // cuenta o token — mismo momento del onboarding que send-otp/verify-otp. Rate limit
+    // propio para no quedar abierto como proxy gratuito de la API de Google.
+    { method: "POST", path: "/geocode", rateLimit: { max: 20, timeWindow: "15 minutes" } },
   ];
 }
 
