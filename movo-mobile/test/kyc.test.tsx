@@ -96,6 +96,25 @@ describe("KycScreen", () => {
     expect(mockStartVerification).toHaveBeenCalledWith("tok_2", expect.anything());
   });
 
+  // Revisión de PR #52: el switch sobre result.session.status no tenía rama default.
+  // A nivel de tipos es exhaustivo (VerificationStatus son 3 valores), pero el valor
+  // llega del módulo nativo, donde el bridge lo declara `status?: string`.
+  it("un status que el SDK no debería devolver cae en 'interrumpida' y no en la intro", async () => {
+    mockCreateKycSession.mockResolvedValue({ ok: true, sessionToken: "tok_3" });
+    mockStartVerification.mockResolvedValue({
+      type: "completed",
+      session: { sessionId: "s3", status: "In Review" },
+    });
+
+    const { getByTestId, findByTestId, queryByTestId } = await render(<KycScreen />);
+    await fireEvent.press(getByTestId("kyc-begin-verification"));
+
+    const title = await findByTestId("kyc-result-title");
+    expect(title.props.children).toMatch(/interrumpida/i);
+    expect(queryByTestId("kyc-begin-verification")).toBeNull();
+    expect(within(getByTestId("kyc-primary-action")).getByText(/reintentar/i)).toBeTruthy();
+  });
+
   it("PENDING ofrece además consultar el estado, por si el resultado sí está en camino", async () => {
     mockKycStatus = KycStatus.PENDING;
     const { findByTestId } = await render(<KycScreen />);

@@ -230,6 +230,15 @@ export default function KycScreen() {
         case 'Pending':
           setResultKind('manual_review');
           break;
+        // A nivel de tipos el switch ya es exhaustivo (VerificationStatus tiene esos 3
+        // valores), pero el valor llega del módulo nativo, donde el bridge lo declara
+        // `status?: string` — sin garantía real. Y la API de Didit maneja 10 estados
+        // crudos (ver DiditRawStatus en svc-users/src/adapters/didit-client.ts): si el
+        // nativo alguna vez emite uno de esos en vez del mapeado, sin este default la
+        // pantalla se quedaba sin resultKind y no mostraba nada.
+        default:
+          setResultKind('unknown');
+          break;
       }
       setPhase('result');
       void refreshKycStatus();
@@ -270,16 +279,22 @@ export default function KycScreen() {
     );
   }
 
-  if (phase === 'result' && resultKind) {
-    const copy = RESULT_COPY[resultKind];
-    const badge = RESULT_BADGE[resultKind];
+  if (phase === 'result') {
+    // Red de seguridad: `phase === 'result'` sin `resultKind` caía a la intro, que le
+    // dice al usuario que arranque la verificación cuando en realidad ya la hizo y no
+    // sabemos cómo terminó. 'unknown' al menos lo dice y ofrece reintentar. Cubre
+    // cualquier camino futuro que setee la fase sin setear el resultado, no solo el
+    // switch de `beginVerification`.
+    const kind = resultKind ?? 'unknown';
+    const copy = RESULT_COPY[kind];
+    const badge = RESULT_BADGE[kind];
     const BadgeIcon = badge.Icon;
-    const canRetry = RETRYABLE.includes(resultKind);
+    const canRetry = RETRYABLE.includes(kind);
     // Solo en 'in_progress' tiene sentido consultar el backend en vez de reintentar: es
     // el único caso donde el resultado *podría* estar por llegar (el usuario completó la
     // verificación y el webhook viene en camino). Queda como acción secundaria porque el
     // caso mucho más común es el contrario — la sesión nunca llegó a Didit.
-    const canRefresh = resultKind === 'in_progress';
+    const canRefresh = kind === 'in_progress';
     return (
       <SafeAreaView className="flex-1 bg-bg px-8 pt-16">
         <View className="flex-1 items-center">
