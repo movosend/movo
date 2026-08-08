@@ -2,18 +2,58 @@ import { KycStatus } from "@movo/shared/dist/types/user";
 import { Link, router } from "expo-router";
 import { ArrowRight } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { ActivityIndicator, Image, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { DotPattern } from "../components/ui/dot-pattern";
 import { useRegistration } from "../src/hooks/use-registration";
 import { useThemeColors } from "../src/hooks/use-theme-colors";
+import { useAuthStore } from "../src/store/auth-store";
 
 export default function WelcomeScreen() {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
   const colors = useThemeColors();
-  const { resumeChecked, hasPendingRegistration, kycStatus } = useRegistration();
+  const registration = useRegistration();
+  const { resumeChecked, hasPendingRegistration, kycStatus } = registration;
+
+  // MOVO-76 AC7: `restoreSession()` (app/_layout.tsx) deja el *estado* en
+  // "authenticated" correctamente, pero por sí solo nunca navega a nadie — sin este
+  // efecto, un usuario que reabre la app con una sesión válida se quedaba viendo esta
+  // misma pantalla de bienvenida como si nunca se hubiera registrado. Mismo criterio de
+  // ramificación por kycStatus que ya usa `login.tsx#handleLogin`: aprobado → directo a
+  // `/home`; cualquier otro estado → hidrata el contexto de registro (para que `/kyc`
+  // pueda leer `kycStatus` y ofrecer reintentar/revisar) y manda ahí, nunca a `/home`
+  // con un aviso — eso es lo que muestra ese mismo estado dentro de `(app)/home.tsx`
+  // para el caso de un usuario que llega aprobado y luego su KYC vence, no el de recién
+  // entrar. `authRedirectedRef` evita relanzar el efecto ante cada re-render mientras la
+  // navegación está en curso (`hydrateFromLogin` es async).
+  const authStatus = useAuthStore((s) => s.status);
+  const authUser = useAuthStore((s) => s.user);
+  const authAccessToken = useAuthStore((s) => s.accessToken);
+  const authRefreshToken = useAuthStore((s) => s.refreshToken);
+  const isAuthenticatedSession = authStatus === "authenticated" && authUser !== null;
+  const authRedirectedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isAuthenticatedSession || !authUser || authRedirectedRef.current) return;
+    authRedirectedRef.current = true;
+
+    if (authUser.kycStatus === KycStatus.APPROVED) {
+      router.replace("/home");
+      return;
+    }
+
+    void (async () => {
+      await registration.hydrateFromLogin({
+        userId: authUser.userId,
+        accessToken: authAccessToken ?? "",
+        refreshToken: authRefreshToken ?? "",
+        kycStatus: authUser.kycStatus,
+      });
+      router.replace("/kyc");
+    })();
+  }, [isAuthenticatedSession, authUser, authAccessToken, authRefreshToken, registration]);
 
   // AC7 (MOVO-73): si ya hay una cuenta creada que **nunca llegó a intentar** el KYC
   // (`RegistrationProvider` vive en `app/_layout.tsx`, por fuera de esta pantalla, así
@@ -36,7 +76,7 @@ export default function WelcomeScreen() {
     }
   }, [resumeChecked, shouldAutoRedirect]);
 
-  if (!resumeChecked || shouldAutoRedirect) {
+  if (!resumeChecked || shouldAutoRedirect || isAuthenticatedSession) {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-bg">
         <ActivityIndicator size="large" color={colors.fg1} />
