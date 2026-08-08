@@ -1611,9 +1611,22 @@ intro — invitando a empezar una verificación que en realidad ya se había hec
 `phase === 'result' && resultKind` a `phase === 'result'` con `resultKind ?? 'unknown'`,
 que cubre cualquier camino futuro que setee la fase sin setear el resultado.
 
-Tests: 207/207 en `svc-users` (subieron de 199: 4 de integración sobre la reconciliación —
+**3. `register()` quemaba el `phoneVerificationToken` ante cualquier falla que no fuera
+un conflicto de datos.** El token es single-use y se consume ANTES de crear el usuario,
+pero el `catch` solo lo liberaba (`releasePhoneVerificationToken`, agregado en PR #51)
+para `UserConflictError` — un error de DB, o de la escritura nueva de `address`, dejaba
+el token gastado y el reintento fallaba con `401 AUTH_OTP_INVALID`, obligando a rehacer
+todo el paso de OTP por algo ajeno al teléfono. Ahora se libera ante cualquier causa de
+falla de `create()`: es seguro porque ese `create()` es un nested write de Prisma,
+atómico (usuario + roles + dirección), así que si tiró no quedó ninguna cuenta a medias.
+La liberación va con `catch` propio para no enmascarar el error original si Redis no
+responde. Test nuevo `test/auth.register-token-release.test.ts` — unitario y no de
+integración a propósito, porque la causa de falla que importa es justamente la que no se
+puede provocar contra una DB sana.
+
+Tests: 210/210 en `svc-users` (subieron de 199: 4 de integración sobre la reconciliación —
 decisión aprobada preservada, rechazada aplicada + reintento, proveedor caído, estado no
-terminal— y 4 del adapter HTTP), 31/31 en `movo-mobile`. `tsc --noEmit` y `eslint` sin
+terminal—, 4 del adapter HTTP y 3 de la liberación del token), 31/31 en `movo-mobile`. `tsc --noEmit` y `eslint` sin
 errores en ambos.
 
 Pendiente / fuera de alcance: `getSessionDecision` no está validado contra el sandbox real
