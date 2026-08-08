@@ -29,10 +29,21 @@ jest.mock("../src/api/auth-client", () => ({
     sendOtp: jest.fn(),
     verifyOtp: jest.fn(),
     resendOtp: jest.fn(),
+    geocodeAddress: jest.fn(),
     createKycSession: jest.fn(),
     getKycStatus: jest.fn(),
   },
 }));
+
+const BASE_REGISTER_RESPONSE = {
+  userId: "usr_1",
+  accessToken: "access_1",
+  refreshToken: "refresh_1",
+  expiresIn: 3600,
+  kycStatus: "not_started",
+  fullName: "Julia Pérez",
+  roles: ["sender", "carrier"],
+};
 
 const BASE_FIELDS: RegistrationFields = {
   firstName: "Julia",
@@ -132,7 +143,7 @@ describe("RegistrationProvider", () => {
   afterEach(() => jest.clearAllMocks());
 
   it("guarda el userId y kycStatus al registrar con éxito", async () => {
-    (authClient.register as jest.Mock).mockResolvedValue({ userId: "usr_1", kycStatus: "not_started" });
+    (authClient.register as jest.Mock).mockResolvedValue(BASE_REGISTER_RESPONSE);
 
     const { getCtx } = await renderRegistration();
     await waitFor(() => expect(getCtx().resumeChecked).toBe(true));
@@ -140,6 +151,8 @@ describe("RegistrationProvider", () => {
     Object.entries(BASE_FIELDS).forEach(([name, value]) =>
       getCtx().setField(name as keyof RegistrationFields, value),
     );
+    getCtx().confirmLocation(-31.4201, -64.1888);
+    await waitFor(() => expect(getCtx().latitude).toBe(-31.4201));
 
     let response: { ok: boolean } | undefined;
     await waitFor(async () => {
@@ -150,6 +163,16 @@ describe("RegistrationProvider", () => {
     await waitFor(() => expect(getCtx().userId).toBe("usr_1"));
   });
 
+  it("no registra sin haber confirmado la ubicación en el mapa", async () => {
+    const { getCtx } = await renderRegistration();
+    await waitFor(() => expect(getCtx().resumeChecked).toBe(true));
+
+    const response = await getCtx().submitRegistration();
+
+    expect(response).toEqual({ ok: false });
+    expect(authClient.register).not.toHaveBeenCalled();
+  });
+
   it("mapea el error 409 de email duplicado al campo email, sin alert genérico", async () => {
     (authClient.register as jest.Mock).mockRejectedValue(
       new ApiError(409, "USER_EMAIL_ALREADY_EXISTS", "Este email ya está registrado."),
@@ -157,6 +180,8 @@ describe("RegistrationProvider", () => {
 
     const { getCtx } = await renderRegistration();
     await waitFor(() => expect(getCtx().resumeChecked).toBe(true));
+    getCtx().confirmLocation(-31.4201, -64.1888);
+    await waitFor(() => expect(getCtx().latitude).toBe(-31.4201));
 
     let response: { ok: boolean } | undefined;
     response = await getCtx().submitRegistration();
@@ -172,13 +197,15 @@ describe("RegistrationProvider", () => {
       phoneVerificationToken: "tok_abc",
       phoneVerifiedAt: "2026-01-01T00:00:00.000Z",
     });
-    (authClient.register as jest.Mock).mockResolvedValue({ userId: "usr_1", kycStatus: "not_started" });
+    (authClient.register as jest.Mock).mockResolvedValue(BASE_REGISTER_RESPONSE);
 
     const { getCtx } = await renderRegistration();
     await waitFor(() => expect(getCtx().resumeChecked).toBe(true));
     Object.entries(BASE_FIELDS).forEach(([name, value]) =>
       getCtx().setField(name as keyof RegistrationFields, value),
     );
+    getCtx().confirmLocation(-31.4201, -64.1888);
+    await waitFor(() => expect(getCtx().latitude).toBe(-31.4201));
     await waitFor(() => expect(getCtx().fields.phone).toBe(BASE_FIELDS.phone));
 
     let sendResult: { ok: boolean; cooldownSeconds: number } | undefined;
@@ -197,6 +224,35 @@ describe("RegistrationProvider", () => {
     expect(authClient.register).toHaveBeenCalledWith(
       expect.objectContaining({ phoneVerificationToken: "tok_abc" }),
     );
+
+    // El token es de un solo uso y ya lo consumió el `register()` de arriba — si
+    // quedara en el contexto, un wizard remontado (welcome -> register de nuevo sin
+    // haber limpiado el estado) lo tomaría como "todavía válido", saltaría el paso de
+    // OTP y el próximo `register()` fallaría con AUTH_OTP_INVALID.
+    await waitFor(() => expect(getCtx().phoneVerificationToken).toBeNull());
+  });
+
+  it("geocodifica la dirección y expone lat/long para el paso de mapa", async () => {
+    (authClient.geocodeAddress as jest.Mock).mockResolvedValue({
+      lat: -31.42,
+      long: -64.18,
+      formattedAddress: "Av. Corrientes 1234, CABA",
+    });
+
+    const { getCtx } = await renderRegistration();
+    await waitFor(() => expect(getCtx().resumeChecked).toBe(true));
+    Object.entries(BASE_FIELDS).forEach(([name, value]) =>
+      getCtx().setField(name as keyof RegistrationFields, value),
+    );
+
+    let result: { ok: boolean } | undefined;
+    await waitFor(async () => {
+      result = await getCtx().geocodeAddress();
+    });
+
+    expect(result).toEqual({ ok: true });
+    await waitFor(() => expect(getCtx().latitude).toBe(-31.42));
+    expect(getCtx().longitude).toBe(-64.18);
   });
 
   it("verifyPhoneOtp no hace nada sin un OTP enviado antes", async () => {

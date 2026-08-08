@@ -206,7 +206,16 @@ interface RegistrationContextValue {
 
   userId: string | null;
   kycStatus: KycStatus | null;
+  manualReviewReason: string | null;
   phoneVerifiedAt: string | null;
+  /** No-null si el teléfono actual del formulario ya está verificado — permite
+   * saltear el paso de OTP en `goNext`/`goBack` sin volver a pedir un código. */
+  phoneVerificationToken: string | null;
+
+  /** Pin del paso de mapa (MOVO-73) — null hasta que `geocodeAddress` lo centra por
+   * primera vez o el usuario lo arrastra vía `confirmLocation`. */
+  latitude: number | null;
+  longitude: number | null;
 
   loading: boolean;
   errorBanner: string | null;
@@ -220,6 +229,11 @@ interface RegistrationContextValue {
   sendOtp: () => Promise<{ ok: boolean; cooldownSeconds: number }>;
   verifyPhoneOtp: (code: string) => Promise<{ ok: boolean }>;
   resendOtp: () => Promise<{ ok: boolean; cooldownSeconds: number }>;
+  /** Geocodifica la dirección cargada en `fields` para centrar el pin inicial del
+   * paso de mapa. */
+  geocodeAddress: () => Promise<{ ok: boolean }>;
+  /** Guarda el lat/long final que el usuario confirmó (después de arrastrar el pin). */
+  confirmLocation: (lat: number, long: number) => void;
   submitRegistration: () => Promise<{ ok: boolean }>;
   createKycSession: () => Promise<{ ok: boolean; sessionToken?: string }>;
   refreshKycStatus: () => Promise<void>;
@@ -233,32 +247,60 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
   const [touched, setTouched] = useState<Partial<Record<FieldName, boolean>>>({});
   const [userId, setUserId] = useState<string | null>(null);
   const [kycStatus, setKycStatus] = useState<KycStatus | null>(null);
+  const [manualReviewReason, setManualReviewReason] = useState<string | null>(null);
   const [otpId, setOtpId] = useState<string | null>(null);
   const [phoneVerificationToken, setPhoneVerificationToken] = useState<string | null>(null);
   const [phoneVerifiedAt, setPhoneVerifiedAt] = useState<string | null>(null);
+  // Número (E.164) sobre el que se emitió `phoneVerificationToken` — permite saber si
+  // la verificación sigue siendo válida para el teléfono actual del formulario, o si
+  // quedó obsoleta porque el usuario volvió atrás y lo cambió.
+  const [verifiedPhone, setVerifiedPhone] = useState<string | null>(null);
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+  // Tokens de sesión que emite `register()` (PR #51 de MOVO-72) — necesarios para el
+  // header `Authorization` de /kyc/session y /kyc/status, protegidas desde ese mismo
+  // cambio. `refreshToken` no se usa todavía (MOVO-76), se guarda por si acaso.
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [resumeChecked, setResumeChecked] = useState(false);
 
-  // AC7: el flujo es reanudable. Solo persistimos el `userId` — el paso en
-  // el que está el usuario se deriva siempre del backend, nunca de estado
-  // local (guía explícita del ticket).
+  // AC7: el flujo es reanudable. Persistimos `userId` + los tokens de sesión que
+  // emite `register()` — sin el accessToken no hay forma de llamar a /kyc/status
+  // (protegida desde PR #51 de MOVO-72). El paso en el que está el usuario se sigue
+  // derivando siempre del backend (`kycStatus`), nunca de estado local.
+  //
+  // Limitación aceptada de este sprint (documentada en MOVO-73, pendiente explícito
+  // en MOVO-76): el access token dura 60min y no hay refresh automático todavía. Si
+  // el usuario reabre la app después de que expiró, `getKycStatus` devuelve 401 y acá
+  // se trata igual que "no hay registro pendiente" — se limpia el storage y arranca
+  // el wizard desde cero, en vez de intentar refrescar.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const storedUserId = await secureStore.getItem(SECURE_STORE_KEYS.pendingRegistrationUserId);
-      if (!storedUserId) {
+      const [storedUserId, storedAccessToken] = await Promise.all([
+        secureStore.getItem(SECURE_STORE_KEYS.pendingRegistrationUserId),
+        secureStore.getItem(SECURE_STORE_KEYS.pendingRegistrationAccessToken),
+      ]);
+      if (!storedUserId || !storedAccessToken) {
         if (!cancelled) setResumeChecked(true);
         return;
       }
       try {
-        const status = await authClient.getKycStatus(storedUserId);
+        const status = await authClient.getKycStatus(storedAccessToken);
         if (cancelled) return;
         setUserId(storedUserId);
-        setKycStatus(status.kycStatus);
+        setAccessToken(storedAccessToken);
+        setKycStatus(status.status);
+        setManualReviewReason(status.manualReviewReason);
       } catch {
-        // El userId guardado ya no es válido (ej: cuenta eliminada) — se limpia.
-        await secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationUserId);
+        // El userId/token guardado ya no es válido (cuenta eliminada, o access token
+        // vencido sin refresh disponible todavía) — se limpia y se arranca de cero.
+        await Promise.all([
+          secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationUserId),
+          secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationAccessToken),
+          secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationRefreshToken),
+        ]);
       } finally {
         if (!cancelled) setResumeChecked(true);
       }
@@ -271,6 +313,19 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
   const setField = useCallback((name: FieldName, value: string) => {
     setFields((prev) => ({ ...prev, [name]: value }));
   }, []);
+
+  // Si el usuario vuelve al paso 0 y cambia el teléfono después de haberlo verificado,
+  // la verificación anterior deja de ser válida para el número nuevo — se invalida acá
+  // en vez de en `setField` (que no tiene por qué conocer el estado de verificación)
+  // para que el próximo paso de mapa vuelva a pedir un OTP en vez de saltearlo.
+  useEffect(() => {
+    if (verifiedPhone && toE164Phone(fields.phone) !== verifiedPhone) {
+      setOtpId(null);
+      setPhoneVerificationToken(null);
+      setPhoneVerifiedAt(null);
+      setVerifiedPhone(null);
+    }
+  }, [fields.phone, verifiedPhone]);
 
   const touch = useCallback((name: FieldName) => {
     setTouched((prev) => ({ ...prev, [name]: true }));
@@ -287,6 +342,10 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
   const clearErrorBanner = useCallback(() => setErrorBanner(null), []);
 
   const submitRegistration = useCallback(async (): Promise<{ ok: boolean }> => {
+    if (latitude === null || longitude === null) {
+      setErrorBanner("Confirmá la ubicación en el mapa antes de continuar.");
+      return { ok: false };
+    }
     setLoading(true);
     setErrorBanner(null);
     try {
@@ -295,7 +354,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
         email: fields.email.trim().toLowerCase(),
         phone: toE164Phone(fields.phone),
         password: fields.password,
-        dni: fields.dni,
+        dni: fields.dni.replace(/\D/g, ""),
         address: {
           street: fields.street,
           number: fields.number,
@@ -303,12 +362,27 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
           city: fields.city,
           province: fields.province,
           zip: fields.zip,
+          lat: latitude,
+          long: longitude,
         },
         phoneVerificationToken: phoneVerificationToken ?? "",
       });
       setUserId(response.userId);
       setKycStatus(response.kycStatus);
-      await secureStore.setItem(SECURE_STORE_KEYS.pendingRegistrationUserId, response.userId);
+      setAccessToken(response.accessToken);
+      // El phoneVerificationToken es de un solo uso y el backend ya lo consumió acá
+      // arriba (auth.service.ts#register) — si queda en el contexto, un wizard que se
+      // vuelve a montar (ver goNext en register.tsx) lo cree todavía válido, salta el
+      // paso de OTP, y el segundo `register()` falla con AUTH_OTP_INVALID en vez de
+      // pedir un código nuevo.
+      setOtpId(null);
+      setPhoneVerificationToken(null);
+      setVerifiedPhone(null);
+      await Promise.all([
+        secureStore.setItem(SECURE_STORE_KEYS.pendingRegistrationUserId, response.userId),
+        secureStore.setItem(SECURE_STORE_KEYS.pendingRegistrationAccessToken, response.accessToken),
+        secureStore.setItem(SECURE_STORE_KEYS.pendingRegistrationRefreshToken, response.refreshToken),
+      ]);
       return { ok: true };
     } catch (err) {
       if (err instanceof ApiError && err.code === "USER_EMAIL_ALREADY_EXISTS") {
@@ -324,7 +398,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [fields, phoneVerificationToken]);
+  }, [fields, phoneVerificationToken, latitude, longitude]);
 
   const sendOtp = useCallback(async (): Promise<{ ok: boolean; cooldownSeconds: number }> => {
     setLoading(true);
@@ -350,6 +424,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
         const response = await authClient.verifyOtp({ otpId, code });
         setPhoneVerificationToken(response.phoneVerificationToken);
         setPhoneVerifiedAt(response.phoneVerifiedAt);
+        setVerifiedPhone(toE164Phone(fields.phone));
         return { ok: true };
       } catch (err) {
         setErrorBanner(friendlyErrorMessage(err, "No pudimos verificar el código. Intentá de nuevo."));
@@ -358,7 +433,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       }
     },
-    [otpId],
+    [otpId, fields.phone],
   );
 
   const resendOtp = useCallback(async (): Promise<{ ok: boolean; cooldownSeconds: number }> => {
@@ -373,12 +448,42 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
     }
   }, [otpId]);
 
-  const createKycSession = useCallback(async (): Promise<{ ok: boolean; sessionToken?: string }> => {
-    if (!userId) return { ok: false };
+  // Paso de mapa (MOVO-73): geocodifica la dirección ya cargada para centrar el pin
+  // inicial. Público en el backend — se llama antes de crear la cuenta.
+  const geocodeAddress = useCallback(async (): Promise<{ ok: boolean }> => {
     setLoading(true);
     setErrorBanner(null);
     try {
-      const response = await authClient.createKycSession(userId);
+      const response = await authClient.geocodeAddress({
+        street: fields.street,
+        number: fields.number,
+        floor: fields.floor || undefined,
+        city: fields.city,
+        province: fields.province,
+        zip: fields.zip,
+      });
+      setLatitude(response.lat);
+      setLongitude(response.long);
+      return { ok: true };
+    } catch (err) {
+      setErrorBanner(friendlyErrorMessage(err, "No pudimos ubicar tu dirección en el mapa. Intentá de nuevo."));
+      return { ok: false };
+    } finally {
+      setLoading(false);
+    }
+  }, [fields.street, fields.number, fields.floor, fields.city, fields.province, fields.zip]);
+
+  const confirmLocation = useCallback((lat: number, long: number) => {
+    setLatitude(lat);
+    setLongitude(long);
+  }, []);
+
+  const createKycSession = useCallback(async (): Promise<{ ok: boolean; sessionToken?: string }> => {
+    if (!accessToken) return { ok: false };
+    setLoading(true);
+    setErrorBanner(null);
+    try {
+      const response = await authClient.createKycSession(accessToken);
       return { ok: true, sessionToken: response.sessionToken };
     } catch (err) {
       setErrorBanner(friendlyErrorMessage(err, "No pudimos iniciar la verificación. Intentá de nuevo."));
@@ -386,27 +491,37 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [accessToken]);
 
   const refreshKycStatus = useCallback(async () => {
-    if (!userId) return;
+    if (!accessToken) return;
     try {
-      const response = await authClient.getKycStatus(userId);
-      setKycStatus(response.kycStatus);
+      const response = await authClient.getKycStatus(accessToken);
+      setKycStatus(response.status);
+      setManualReviewReason(response.manualReviewReason);
     } catch {
       // Silencioso: el polling de estado no debe tirar la pantalla abajo.
     }
-  }, [userId]);
+  }, [accessToken]);
 
   const resetRegistration = useCallback(async () => {
-    await secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationUserId);
+    await Promise.all([
+      secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationUserId),
+      secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationAccessToken),
+      secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationRefreshToken),
+    ]);
     setFields(EMPTY_FIELDS);
     setTouched({});
     setUserId(null);
     setKycStatus(null);
+    setManualReviewReason(null);
     setOtpId(null);
     setPhoneVerificationToken(null);
     setPhoneVerifiedAt(null);
+    setVerifiedPhone(null);
+    setLatitude(null);
+    setLongitude(null);
+    setAccessToken(null);
     setErrorBanner(null);
   }, []);
 
@@ -419,7 +534,11 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       touchAll,
       userId,
       kycStatus,
+      manualReviewReason,
       phoneVerifiedAt,
+      phoneVerificationToken,
+      latitude,
+      longitude,
       loading,
       errorBanner,
       clearErrorBanner,
@@ -428,6 +547,8 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       sendOtp,
       verifyPhoneOtp,
       resendOtp,
+      geocodeAddress,
+      confirmLocation,
       submitRegistration,
       createKycSession,
       refreshKycStatus,
@@ -441,7 +562,11 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       touchAll,
       userId,
       kycStatus,
+      manualReviewReason,
       phoneVerifiedAt,
+      phoneVerificationToken,
+      latitude,
+      longitude,
       loading,
       errorBanner,
       clearErrorBanner,
@@ -449,6 +574,8 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       sendOtp,
       verifyPhoneOtp,
       resendOtp,
+      geocodeAddress,
+      confirmLocation,
       submitRegistration,
       createKycSession,
       refreshKycStatus,

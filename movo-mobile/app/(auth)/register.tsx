@@ -1,5 +1,6 @@
 import { router } from "expo-router";
 import {
+  CircleCheck,
   ClipboardCheck,
   Eye,
   EyeOff,
@@ -7,6 +8,7 @@ import {
   IdCard,
   Lock,
   type LucideIcon,
+  MapPin,
   MessageSquare,
   Pencil,
   UserRound,
@@ -23,6 +25,8 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useColorScheme } from "nativewind";
+import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../../components/auth/primary-button";
 import { WizardHeader } from "../../components/auth/wizard-header";
@@ -30,6 +34,7 @@ import { ErrorBanner } from "../../components/ui/error-banner";
 import { PasswordStrengthMeter } from "../../components/ui/password-strength-meter";
 import { SelectField } from "../../components/ui/select-field";
 import { TextField } from "../../components/ui/text-field";
+import { movoMapStyleDark, movoMapStyleLight } from "../../src/constants/map-style";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import {
   type FieldName,
@@ -43,8 +48,8 @@ import {
 } from "../../src/hooks/use-registration";
 
 /**
- * Pasos 0, 1, 2, 4 y 5 (info básica, DNI, dirección, contraseña, revisión) +
- * el paso de OTP (3) del mockup "Flujo de Registro" viven todos en este
+ * Pasos 0, 1, 2, 5 y 6 (info básica, DNI, dirección, contraseña, revisión) +
+ * el paso de OTP (4) del mockup "Flujo de Registro" viven todos en este
  * wizard, en el mismo orden que el mockup — la verificación de teléfono
  * ocurre ANTES de crear la cuenta. Esto es un cambio respecto a la primera
  * versión de esta pantalla (donde el OTP era una ruta separada post-alta,
@@ -53,6 +58,12 @@ import {
  * `verify-otp`) más un `phoneVerificationToken` que viaja en el `register`
  * final — ver el comentario en `src/api/auth-client.ts` y en los tickets
  * MOVO-70/MOVO-72/MOVO-73 de Linear.
+ *
+ * Paso de mapa (3, nuevo): geocodifica la dirección del paso anterior para
+ * centrar un pin que el usuario puede arrastrar y ajustar antes de
+ * confirmar — mismo patrón "clásico" de apps de delivery/logística. El
+ * `lat`/`long` final viaja en el `address` de `POST /auth/register`
+ * (`users.address` del DER, MOVO-73).
  */
 
 const OTP_LENGTH = 6;
@@ -64,15 +75,31 @@ const OTP_LENGTH = 6;
 const STEP0_FIELD_ORDER: FieldName[] = ["firstName", "lastName", "email", "phone"];
 const STEP2_FIELD_ORDER: FieldName[] = ["street", "number", "floor", "city", "zip"];
 
-const STEP_LABELS = ["Paso 1", "Paso 2", "Paso 3", "Paso 4", "Paso 5", "Paso 6"];
+const STEP_LABELS = ["Paso 1", "Paso 2", "Paso 3", "Paso 4", "Paso 5", "Paso 6", "Paso 7"];
 
-type Step = 0 | 1 | 2 | 3 | 4 | 5;
+// Córdoba Capital, Argentina — fallback si `geocodeAddress` todavía no resolvió el
+// pin cuando se arma el mapa (no debería pasar salvo por una carrera de renders).
+const FALLBACK_REGION: Region = { latitude: -31.4201, longitude: -64.1888, latitudeDelta: 0.01, longitudeDelta: 0.01 };
+
+type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 export default function RegisterScreen() {
   const colors = useThemeColors();
+  const { colorScheme } = useColorScheme();
   const registration = useRegistration();
-  const { fields, touched, setField, touch, touchAll, errorBanner, clearErrorBanner, loading } =
-    registration;
+  const {
+    fields,
+    touched,
+    setField,
+    touch,
+    touchAll,
+    errorBanner,
+    clearErrorBanner,
+    loading,
+    latitude,
+    longitude,
+    confirmLocation,
+  } = registration;
   const [step, setStep] = useState<Step>(0);
   const [showPassword, setShowPassword] = useState(false);
   const [otpDigits, setOtpDigits] = useState<string[]>(Array(OTP_LENGTH).fill(""));
@@ -139,6 +166,12 @@ export default function RegisterScreen() {
       router.back();
       return;
     }
+    // Simétrico al salto hacia adelante en goNext (step 3): si el teléfono ya está
+    // verificado, el paso de OTP (4) queda fuera de la navegación en ambos sentidos.
+    if (step === 5 && registration.phoneVerificationToken) {
+      goToStep(3);
+      return;
+    }
     goToStep((step - 1) as Step);
   }
 
@@ -203,21 +236,33 @@ export default function RegisterScreen() {
     } else if (step === 2) {
       touchAll(["street", "number", "city", "province", "zip"]);
       if (!isStepValid(2, fields)) return;
+      const result = await registration.geocodeAddress();
+      if (!result.ok) return;
+      goToStep(3);
+    } else if (step === 3) {
+      if (latitude === null || longitude === null) return;
+      // El teléfono ya está verificado para el número actual (no cambió desde la
+      // última vez) — reenviar un OTP acá sería gastar un SMS de más y hacerle pisar
+      // el paso al usuario de nuevo sin necesidad.
+      if (registration.phoneVerificationToken) {
+        goToStep(5);
+        return;
+      }
       const result = await registration.sendOtp();
       if (!result.ok) return;
       setOtpDigits(Array(OTP_LENGTH).fill(""));
       setOtpSecondsLeft(result.cooldownSeconds);
-      goToStep(3);
-    } else if (step === 3) {
+      goToStep(4);
+    } else if (step === 4) {
       const code = otpDigits.join("");
       if (code.length < OTP_LENGTH) return;
       const result = await registration.verifyPhoneOtp(code);
       if (!result.ok) return;
-      goToStep(4);
-    } else if (step === 4) {
+      goToStep(5);
+    } else if (step === 5) {
       touchAll(["password", "passwordConfirm"]);
       if (!isStepValid(3, fields)) return;
-      goToStep(5);
+      goToStep(6);
     } else {
       const result = await registration.submitRegistration();
       if (result.ok) {
@@ -232,7 +277,7 @@ export default function RegisterScreen() {
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
       <WizardHeader
-        progress={(step + 1) / 6}
+        progress={(step + 1) / 7}
         stepLabel={STEP_LABELS[step]}
         onBack={goBack}
         testID="register-back"
@@ -498,6 +543,67 @@ export default function RegisterScreen() {
 
         {step === 3 && (
           <View>
+            <StepIcon icon={MapPin} />
+            <Text className="mb-1.5 font-sans-semibold text-title text-fg">
+              Confirmá tu ubicación
+            </Text>
+            <Text className="mb-5 font-sans text-body text-fg-2">
+              Arrastrá el pin hasta el punto exacto de tu dirección.
+            </Text>
+            <View className="relative h-80 overflow-hidden rounded-[10px]">
+              <MapView
+                testID="register-map"
+                provider={PROVIDER_GOOGLE}
+                customMapStyle={colorScheme === "dark" ? movoMapStyleDark : movoMapStyleLight}
+                style={{ flex: 1 }}
+                initialRegion={
+                  latitude !== null && longitude !== null
+                    ? { latitude, longitude, latitudeDelta: 0.01, longitudeDelta: 0.01 }
+                    : FALLBACK_REGION
+                }
+              >
+                {latitude !== null && longitude !== null && (
+                  <Marker
+                    testID="register-map-marker"
+                    coordinate={{ latitude, longitude }}
+                    draggable
+                    anchor={{ x: 0.5, y: 1 }}
+                    onDragEnd={(e) => {
+                      const { latitude: lat, longitude: long } = e.nativeEvent.coordinate;
+                      confirmLocation(lat, long);
+                    }}
+                  >
+                    <View
+                      style={{
+                        paddingTop: 12,
+                        paddingHorizontal: 12,
+                        shadowColor: "#000",
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.3,
+                        shadowRadius: 3,
+                        elevation: 4,
+                      }}
+                    >
+                      <MapPin size={52} strokeWidth={1.5} color="#1A1A1D" fill="#C6F24A" />
+                    </View>
+                  </Marker>
+                )}
+              </MapView>
+              <View
+                pointerEvents="none"
+                className="absolute inset-0 rounded-[10px] border border-border"
+              />
+            </View>
+            <Text className="mt-2.5 font-sans text-[12px] text-fg-3">
+              {latitude !== null && longitude !== null
+                ? `Lat ${latitude.toFixed(5)}, Long ${longitude.toFixed(5)}`
+                : "Ubicando tu dirección…"}
+            </Text>
+          </View>
+        )}
+
+        {step === 4 && (
+          <View>
             <StepIcon icon={MessageSquare} />
             <Text className="mb-1.5 font-sans-semibold text-title text-fg">
               Verificá tu teléfono
@@ -548,7 +654,7 @@ export default function RegisterScreen() {
           </View>
         )}
 
-        {step === 4 && (
+        {step === 5 && (
           <View>
             <StepIcon icon={Lock} />
             <Text className="mb-1.5 font-sans-semibold text-title text-fg">
@@ -610,7 +716,7 @@ export default function RegisterScreen() {
           </View>
         )}
 
-        {step === 5 && (
+        {step === 6 && (
           <View>
             <StepIcon icon={ClipboardCheck} />
             <Text className="mb-1.5 font-sans-semibold text-title text-fg">
@@ -685,7 +791,7 @@ export default function RegisterScreen() {
       <PrimaryButton
         testID="register-primary-action"
         label={
-          step === 5
+          step === 6
             ? loading
               ? "Creando cuenta…"
               : "Crear cuenta"
@@ -693,7 +799,11 @@ export default function RegisterScreen() {
         }
         onPress={goNext}
         loading={loading}
-        disabled={loading || (step === 3 && otpDigits.some((d) => !d))}
+        disabled={
+          loading ||
+          (step === 3 && (latitude === null || longitude === null)) ||
+          (step === 4 && otpDigits.some((d) => !d))
+        }
       />
     </SafeAreaView>
   );
@@ -722,12 +832,15 @@ function ReviewRow({
     >
       <View className="flex-1">
         <Text className="mb-0.5 font-sans text-[11px] text-fg-3">{label}</Text>
-        <Text className="font-sans-medium text-[14px] text-fg">
-          {value || "—"}
+        <View className="flex-row items-center gap-1.5">
+          <Text className="font-sans-medium text-[14px] text-fg">{value || "—"}</Text>
           {badge ? (
-            <Text className="font-sans-semibold text-[14px] text-success-500"> · {badge}</Text>
+            <View className="flex-row items-center gap-1">
+              <CircleCheck size={14} color="#2BB673" strokeWidth={2} fill="none" />
+              <Text className="font-sans-semibold text-[12px] text-success-500">{badge}</Text>
+            </View>
           ) : null}
-        </Text>
+        </View>
       </View>
       <Pressable
         testID={`review-edit-${label}`}
