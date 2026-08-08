@@ -17,11 +17,35 @@ export interface CreateDiditSessionInput {
   callbackUrl?: string;
 }
 
+/** Decisión actual de una sesión ya creada, consultada bajo demanda. */
+export interface DiditSessionDecision {
+  sessionId: string;
+  /** Vocabulario crudo de Didit (`DiditRawStatus`) — mapear con
+   * `mapDiditStatusToKycStatus` antes de usarlo en el resto del servicio. */
+  rawStatus: string;
+  /** Cuerpo completo de la respuesta. Mismo criterio que `decision` en el webhook: no
+   * se tipa en detalle porque trae PII que AC9 prohíbe persistir — solo debe pasar por
+   * `extractDecisionWarnings`, nunca copiarse tal cual. */
+  decision: unknown;
+}
+
 /** Interfaz detrás de la que vive la integración con Didit.me (MOVO-72), mismo
  * criterio que `SmsProvider` (MOVO-71): permite testear `kyc.service.ts` sin red y
  * cambiar de implementación (real/mock) sin tocar el resto del servicio. */
 export interface DiditClient {
   createSession(input: CreateDiditSessionInput): Promise<DiditSession>;
+  /**
+   * Consulta la decisión actual de una sesión ya creada. Es la contraparte *pull* del
+   * webhook (que es *push*): se usa para reconciliar un intento `pending` antes de
+   * descartarlo como abandonado, cerrando la ventana en la que el usuario terminó la
+   * verificación pero el webhook todavía no llegó (ver
+   * `kyc.service.ts#reconcilePendingAttempt`).
+   *
+   * Devuelve `null` si Didit no conoce la sesión (404) — ese intento se puede descartar
+   * sin perder nada. Cualquier otro fallo (red, 5xx, credenciales) tira `ApiError`: la
+   * política de qué hacer con un proveedor caído es del servicio, no del adapter.
+   */
+  getSessionDecision(sessionId: string): Promise<DiditSessionDecision | null>;
 }
 
 /**

@@ -3,7 +3,8 @@ import { ApiError, KycStatus } from "@movo/shared";
 import { PrismaClient } from "../../generated/prisma/client";
 import { createUserRepository } from "../../repositories/user-repository";
 import { createKycVerificationRepository } from "../../repositories/kyc-verification-repository";
-import { DiditClient, mapDiditStatusToKycStatus } from "../../adapters/didit-client";
+import { DiditClient, DiditSessionDecision, mapDiditStatusToKycStatus } from "../../adapters/didit-client";
+import { KycVerification } from "../../models/kyc-verification";
 import { verifyDiditSignature } from "../../adapters/didit-signature";
 
 /**
@@ -19,9 +20,9 @@ import { verifyDiditSignature } from "../../adapters/didit-signature";
  * en `pending` para siempre, sin ninguna forma de reintentar.
  *
  * A cambio, `createSession` marca el intento anterior como `expired` antes de abrir el
- * nuevo (ver abajo). Trade-off aceptado: si el usuario completó la verificación hace
- * segundos y el webhook viene en camino, ese resultado se descarta y tiene que rehacer
- * el KYC. Se prioriza no dejar a nadie sin salida.
+ * nuevo (ver abajo). Ese descarte llegó a costar la decisión real de una verificación ya
+ * completada cuyo webhook venía en camino — hoy no, porque `reconcilePendingAttempt` se
+ * la pide a Didit y la aplica antes de descartar nada (revisión de PR #52).
  */
 const ALLOWED_SESSION_SOURCE_STATUSES: ReadonlySet<KycStatus> = new Set([
   KycStatus.NOT_STARTED,
@@ -134,6 +135,22 @@ function buildRedactedRawDecision(payload: DiditWebhookPayload): Record<string, 
   return redacted;
 }
 
+/**
+ * Equivalente de `buildRedactedRawDecision` para la vía *pull* (`getSessionDecision`).
+ * Mismo criterio de AC9 —whitelist explícita, el cuerpo crudo nunca se copia tal cual—,
+ * con dos diferencias por la forma de esa respuesta: el detalle por feature viene en el
+ * nivel superior (no anidado bajo `decision`), y no hay `vendor_data`.
+ */
+function buildRedactedPulledDecision(decision: DiditSessionDecision): Record<string, unknown> {
+  const redacted: Record<string, unknown> = {
+    status: decision.rawStatus,
+    session_id: decision.sessionId,
+  };
+  const warnings = extractDecisionWarnings(decision.decision);
+  if (warnings.length > 0) redacted["warnings"] = warnings;
+  return redacted;
+}
+
 export function createKycService(
   db: PrismaClient,
   diditClient: DiditClient,
@@ -142,6 +159,115 @@ export function createKycService(
 ) {
   const userRepository = createUserRepository(db);
   const kycVerificationRepository = createKycVerificationRepository(db);
+
+  /**
+   * Aplica una decisión terminal de Didit sobre un intento que sigue en `pending`,
+   * sincronizando el caché de `users` en la misma transacción.
+   *
+   * Es el único camino de escritura de una decisión, sin importar si llegó por webhook
+   * (*push*) o por `getSessionDecision` (*pull*) — así las dos rutas comparten el mismo
+   * gate de idempotencia (AC7) y no pueden divergir. Devuelve `null` si la fila ya no
+   * estaba en `pending`: webhook duplicado, o la otra ruta ganó la carrera.
+   */
+  async function applyTerminalDecision(
+    externalSessionId: string,
+    targetStatus: KycStatus,
+    rawDecision: Record<string, unknown>
+  ): Promise<KycVerification | null> {
+    return db.$transaction(async (tx) => {
+      const txKycVerificationRepository = createKycVerificationRepository(tx);
+      const result = await txKycVerificationRepository.resolveByExternalSessionId({
+        externalSessionId,
+        fromStatus: KycStatus.PENDING,
+        toStatus: targetStatus,
+        rawDecision,
+      });
+      if (result) {
+        const txUserRepository = createUserRepository(tx);
+        await txUserRepository.updateKycStatusIdentity(result.userId, targetStatus);
+      }
+      return result;
+    });
+  }
+
+  /**
+   * Cierra la ventana entre "el usuario terminó la verificación en Didit" y "el webhook
+   * con la decisión llegó".
+   *
+   * `createSession` descarta los intentos `pending` previos (`expirePendingByUserId`)
+   * para no dejar trabado a quien nunca llegó a la UI de Didit. Pero `pending` es también
+   * el estado de alguien que SÍ completó la verificación segundos atrás, y descartarlo a
+   * ciegas hace que el webhook tardío deje de matchear (el gate de idempotencia exige
+   * `pending`): la decisión real —un `approved` incluido— se perdía en silencio y había
+   * que rehacer el KYC de cero. No es un caso remoto, porque la UI ofrece "Reintentar
+   * verificación" justo en ese estado.
+   *
+   * Antes de descartar nada, entonces, se le pregunta a Didit por la decisión de esa
+   * sesión; si ya es terminal se aplica por el mismo camino que el webhook. Devuelve el
+   * estado efectivo del usuario después de reconciliar, que es el que decide si se
+   * permite abrir una sesión nueva.
+   */
+  async function reconcilePendingAttempt(userId: string, currentStatus: KycStatus): Promise<KycStatus> {
+    if (currentStatus !== KycStatus.PENDING) {
+      return currentStatus;
+    }
+
+    const latest = await kycVerificationRepository.findLatestByUserId(userId, "identity");
+    if (!latest || latest.status !== KycStatus.PENDING) {
+      return currentStatus;
+    }
+
+    let decision: DiditSessionDecision | null;
+    try {
+      decision = await diditClient.getSessionDecision(latest.externalSessionId);
+    } catch (error) {
+      // Proveedor caído: se sigue de largo con el descarte en vez de bloquear el
+      // reintento. Falla hacia la fricción (rehacer el KYC) y no hacia dejar a alguien
+      // sin salida, que es el pozo que este flujo vino a resolver.
+      logger.warn(
+        { userId, externalSessionId: latest.externalSessionId, err: error, event: "kyc_reconcile_failed" },
+        "no se pudo consultar la decisión del intento pendiente; se descarta igual"
+      );
+      return currentStatus;
+    }
+
+    if (!decision) {
+      // Didit no conoce la sesión — no hay decisión que preservar.
+      return currentStatus;
+    }
+
+    const targetStatus = mapDiditStatusToKycStatus(decision.rawStatus);
+    if (targetStatus === null) {
+      // Estado no terminal (`Not Started`/`In Progress`/`Awaiting User`/`Resubmitted`):
+      // el intento sigue realmente en curso, no hay nada que preservar.
+      return currentStatus;
+    }
+
+    const resolved = await applyTerminalDecision(
+      latest.externalSessionId,
+      targetStatus,
+      buildRedactedPulledDecision(decision)
+    );
+
+    if (!resolved) {
+      // El webhook llegó entre la consulta y la escritura y ya aplicó la decisión por su
+      // cuenta. Se relee el usuario para no seguir con un estado viejo en la mano.
+      const refreshed = await userRepository.findById(userId);
+      return refreshed?.kycStatusIdentity ?? currentStatus;
+    }
+
+    logger.info(
+      {
+        userId,
+        externalSessionId: latest.externalSessionId,
+        previousStatus: KycStatus.PENDING,
+        newStatus: targetStatus,
+        event: "kyc_reconciled_before_retry",
+      },
+      "kyc status transition (reconciliada al pedir una sesión nueva)"
+    );
+    return targetStatus;
+  }
 
   return {
     async createSession(userId: string): Promise<CreateKycSessionResult> {
@@ -152,7 +278,12 @@ export function createKycService(
       if (!user.phoneVerified) {
         throw new ApiError(409, "KYC_SESSION_NOT_ALLOWED", "El teléfono todavía no fue verificado.");
       }
-      if (!ALLOWED_SESSION_SOURCE_STATUSES.has(user.kycStatusIdentity)) {
+      // Un `pending` puede estar escondiendo una decisión ya tomada en Didit cuyo
+      // webhook todavía no llegó — se reconcilia ANTES de evaluar si se permite abrir
+      // una sesión nueva, para no descartar ese resultado (ver la función).
+      const effectiveStatus = await reconcilePendingAttempt(userId, user.kycStatusIdentity);
+
+      if (!ALLOWED_SESSION_SOURCE_STATUSES.has(effectiveStatus)) {
         throw new ApiError(
           409,
           "KYC_SESSION_NOT_ALLOWED",
@@ -232,23 +363,11 @@ export function createKycService(
 
       const rawDecision = buildRedactedRawDecision(payload);
 
-      // Idempotencia (AC7): resolveByExternalSessionId solo aplica la transición si el
+      // Idempotencia (AC7): `applyTerminalDecision` solo aplica la transición si el
       // intento seguía en `pending` -- un webhook duplicado, o fuera de orden, devuelve
-      // `null` acá y no se toca nada más.
-      const resolved = await db.$transaction(async (tx) => {
-        const txKycVerificationRepository = createKycVerificationRepository(tx);
-        const result = await txKycVerificationRepository.resolveByExternalSessionId({
-          externalSessionId,
-          fromStatus: KycStatus.PENDING,
-          toStatus: targetStatus,
-          rawDecision,
-        });
-        if (result) {
-          const txUserRepository = createUserRepository(tx);
-          await txUserRepository.updateKycStatusIdentity(result.userId, targetStatus);
-        }
-        return result;
-      });
+      // `null` acá y no se toca nada más. Es el mismo camino que usa la reconciliación
+      // por pull (ver `reconcilePendingAttempt`), a propósito.
+      const resolved = await applyTerminalDecision(externalSessionId, targetStatus, rawDecision);
 
       if (!resolved) {
         logger.info({ externalSessionId, rawStatus }, "kyc webhook ignorado: duplicado o sesión desconocida (AC7)");

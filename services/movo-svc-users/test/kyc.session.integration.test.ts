@@ -3,7 +3,7 @@ import { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { buildApp } from "../src/app";
 import { SmsProvider } from "../src/adapters/sms-provider";
-import { DiditClient } from "../src/adapters/didit-client";
+import { DiditClient, DiditSessionDecision } from "../src/adapters/didit-client";
 
 function createCaptorSmsProvider() {
   const sentCodes = new Map<string, string>();
@@ -23,16 +23,38 @@ function createCaptorSmsProvider() {
  * devolver la sesión que ya existía en vez de crear una nueva. */
 function createFakeDiditClient() {
   let pinnedSessionId: string | null = null;
+  // Lo que va a devolver `getSessionDecision`. Default `null` = "Didit no conoce la
+  // sesión", el caso de un intento que nunca llegó a completarse.
+  let decision: DiditSessionDecision | null = null;
+  let decisionError: Error | null = null;
+  const decisionCalls: string[] = [];
+
   const client: DiditClient = {
     async createSession() {
       const sessionId = pinnedSessionId ?? `sess-${randomUUID()}`;
       return { sessionId, sessionToken: `token-${sessionId}`, url: `https://didit.test/${sessionId}` };
     },
+    async getSessionDecision(sessionId: string) {
+      decisionCalls.push(sessionId);
+      if (decisionError) throw decisionError;
+      return decision;
+    },
   };
+
   return {
     client,
+    decisionCalls,
     pinSessionId(sessionId: string | null) {
       pinnedSessionId = sessionId;
+    },
+    /** Simula que Didit ya tiene una decisión tomada para el intento pendiente. */
+    setDecision(next: DiditSessionDecision | null) {
+      decision = next;
+      decisionError = null;
+    },
+    /** Simula el proveedor caído al consultar la decisión. */
+    failDecisionWith(error: Error) {
+      decisionError = error;
     },
   };
 }
@@ -58,6 +80,8 @@ describe("POST /kyc/session (MOVO-72)", () => {
 
   beforeEach(async () => {
     didit.pinSessionId(null);
+    didit.setDecision(null);
+    didit.decisionCalls.length = 0;
     await app.db.$executeRawUnsafe("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
     let cursor = "0";
     do {
@@ -185,6 +209,8 @@ describe("POST /kyc/session (MOVO-72)", () => {
     expect(second.statusCode).toBe(201);
     const secondSessionId = (JSON.parse(second.body) as { sessionId: string }).sessionId;
     expect(secondSessionId).not.toBe(firstSessionId);
+    // Se le preguntó a Didit antes de descartar; acá no había decisión que preservar.
+    expect(didit.decisionCalls).toContain(firstSessionId);
 
     const abandoned = await app.db.kycVerification.findUnique({
       where: { externalSessionId: firstSessionId },
@@ -203,6 +229,108 @@ describe("POST /kyc/session (MOVO-72)", () => {
     expect(user?.kycStatusIdentity).toBe("pending");
     const stillPending = await app.db.kycVerification.findMany({ where: { userId, status: "pending" } });
     expect(stillPending).toHaveLength(1);
+  });
+
+  // Revisión de PR #52: descartar el intento `pending` a ciegas perdía la decisión de una
+  // verificación recién completada cuyo webhook todavía no había llegado (el gate de
+  // idempotencia exige `pending`, así que el webhook tardío ya no matcheaba). Ahora se le
+  // pregunta a Didit antes de descartar nada.
+  it("preserva la decisión de Didit que el webhook todavía no entregó: aprueba y ya no deja abrir otra sesión", async () => {
+    const userId = await registerVerifiedUser();
+    const first = await app.inject({ method: "POST", url: "/kyc/session", headers: { "x-user-id": userId } });
+    const sessionId = (JSON.parse(first.body) as { sessionId: string }).sessionId;
+
+    // El usuario completó la verificación en Didit; el webhook viene en camino.
+    didit.setDecision({
+      sessionId,
+      rawStatus: "Approved",
+      decision: { status: "Approved", id_verifications: [{ warnings: [] }] },
+    });
+
+    const retry = await app.inject({ method: "POST", url: "/kyc/session", headers: { "x-user-id": userId } });
+
+    expect(didit.decisionCalls).toContain(sessionId);
+    // Ya está aprobado: no corresponde una sesión nueva (AC2).
+    expect(retry.statusCode).toBe(409);
+    expect(JSON.parse(retry.body).error.code).toBe("KYC_SESSION_NOT_ALLOWED");
+
+    const resolved = await app.db.kycVerification.findUnique({ where: { externalSessionId: sessionId } });
+    expect(resolved?.status).toBe("approved");
+    expect(resolved?.resolvedAt).toBeInstanceOf(Date);
+
+    const user = await app.db.user.findUnique({ where: { id: userId } });
+    expect(user?.kycStatusIdentity).toBe("approved");
+
+    // No se abrió ningún intento nuevo.
+    const verifications = await app.db.kycVerification.findMany({ where: { userId } });
+    expect(verifications).toHaveLength(1);
+  });
+
+  it("aplica una decisión pendiente de rechazo y deja reintentar en la misma llamada", async () => {
+    const userId = await registerVerifiedUser();
+    const first = await app.inject({ method: "POST", url: "/kyc/session", headers: { "x-user-id": userId } });
+    const sessionId = (JSON.parse(first.body) as { sessionId: string }).sessionId;
+
+    didit.setDecision({
+      sessionId,
+      rawStatus: "Declined",
+      decision: {
+        status: "Declined",
+        id_verifications: [
+          {
+            address: "Calle Falsa 123", // PII: AC9 prohíbe persistirla
+            warnings: [{ feature: "ID_VERIFICATION", risk: "DOCUMENT_EXPIRED", short_description: "Document expired" }],
+          },
+        ],
+      },
+    });
+
+    const retry = await app.inject({ method: "POST", url: "/kyc/session", headers: { "x-user-id": userId } });
+
+    // `rejected` sí permite reintentar, así que la sesión nueva se crea igual.
+    expect(retry.statusCode).toBe(201);
+    const newSessionId = (JSON.parse(retry.body) as { sessionId: string }).sessionId;
+    expect(newSessionId).not.toBe(sessionId);
+
+    // El intento viejo quedó con la decisión real, no como `expired`.
+    const resolved = await app.db.kycVerification.findUnique({ where: { externalSessionId: sessionId } });
+    expect(resolved?.status).toBe("rejected");
+    // Misma redacción de AC9 que el webhook: solo status/session_id/warnings acotados.
+    expect(resolved?.rawDecision).toEqual({
+      status: "Declined",
+      session_id: sessionId,
+      warnings: [{ feature: "ID_VERIFICATION", risk: "DOCUMENT_EXPIRED", description: "Document expired" }],
+    });
+    expect(JSON.stringify(resolved?.rawDecision)).not.toContain("Calle Falsa");
+  });
+
+  it("no bloquea el reintento si no se puede consultar la decisión (proveedor caído)", async () => {
+    const userId = await registerVerifiedUser();
+    const first = await app.inject({ method: "POST", url: "/kyc/session", headers: { "x-user-id": userId } });
+    const sessionId = (JSON.parse(first.body) as { sessionId: string }).sessionId;
+
+    didit.failDecisionWith(new Error("didit caído"));
+
+    const retry = await app.inject({ method: "POST", url: "/kyc/session", headers: { "x-user-id": userId } });
+
+    // Falla hacia la fricción (descartar y rehacer), nunca hacia dejar al usuario trabado.
+    expect(retry.statusCode).toBe(201);
+    const abandoned = await app.db.kycVerification.findUnique({ where: { externalSessionId: sessionId } });
+    expect(abandoned?.status).toBe("expired");
+  });
+
+  it("no cambia nada si Didit reporta un estado no terminal: el intento se descarta como antes", async () => {
+    const userId = await registerVerifiedUser();
+    const first = await app.inject({ method: "POST", url: "/kyc/session", headers: { "x-user-id": userId } });
+    const sessionId = (JSON.parse(first.body) as { sessionId: string }).sessionId;
+
+    didit.setDecision({ sessionId, rawStatus: "In Progress", decision: { status: "In Progress" } });
+
+    const retry = await app.inject({ method: "POST", url: "/kyc/session", headers: { "x-user-id": userId } });
+
+    expect(retry.statusCode).toBe(201);
+    const abandoned = await app.db.kycVerification.findUnique({ where: { externalSessionId: sessionId } });
+    expect(abandoned?.status).toBe("expired");
   });
 
   // Didit hace dedupe implícito por `vendor_data` (spike MOVO-48): con una sesión sin

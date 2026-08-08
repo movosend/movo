@@ -17,5 +17,12 @@ export function createMockDiditClient(): DiditClient {
         url: `https://verification.didit.me/mock/${sessionId}`,
       };
     },
+
+    // Una sesión sintética nunca llegó a Didit, así que nunca hay una decisión real que
+    // preservar: `null` deja el comportamiento de dev exactamente igual que antes de la
+    // reconciliación (el intento `pending` se descarta y se abre uno nuevo).
+    async getSessionDecision(): Promise<null> {
+      return null;
+    },
   };
 }
