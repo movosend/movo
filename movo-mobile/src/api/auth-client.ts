@@ -1,5 +1,6 @@
-import type { KycStatus, UserRole } from "@movo/shared/dist/types/user";
+import type { KycStatus } from "@movo/shared/dist/types/user";
 import { httpClient } from "./http-client";
+import type { SessionResponse } from "./session-types";
 
 /**
  * Contrato de `movo-svc-users` (MOVO-70/71/72/73). `POST /auth/register` pasó a
@@ -34,15 +35,7 @@ export interface RegisterRequest {
 }
 
 /** Mismo shape que `LoginResponse` — register() autentica igual que login() (PR #51). */
-export interface RegisterResponse {
-  userId: string;
-  accessToken: string;
-  refreshToken: string;
-  expiresIn: number;
-  kycStatus: KycStatus;
-  fullName: string;
-  roles: UserRole[];
-}
+export type RegisterResponse = SessionResponse;
 
 export interface SendOtpResponse {
   otpId: string;
@@ -81,16 +74,14 @@ export interface LoginRequest {
   password: string;
 }
 
-export interface LoginResponse {
-  userId: string;
-  /** Persistencia de sesión (guardar en `secure-store`, adjuntar a `http-client`) es alcance de MOVO-76. */
-  accessToken: string;
+export type LoginResponse = SessionResponse;
+
+export interface RefreshRequest {
   refreshToken: string;
-  expiresIn: number;
-  kycStatus: KycStatus;
-  fullName: string;
-  roles: UserRole[];
 }
+
+/** Mismo shape que `LoginResponse` (auth.schema.ts#refreshResponse en svc-users). */
+export type RefreshResponse = SessionResponse;
 
 export interface GeocodeAddressInput {
   street: string;
@@ -116,9 +107,24 @@ export const authClient = {
     return httpClient.post<RegisterResponse>("/auth/register", payload);
   },
 
-  /** Contrato propuesto para MOVO-76 (login), no implementado en `movo-svc-users` todavía. */
   login(payload: LoginRequest): Promise<LoginResponse> {
     return httpClient.post<LoginResponse>("/auth/login", payload);
+  },
+
+  /** `POST /auth/refresh` es pública (el refresh token en el body es la credencial) —
+   * se llama directo con `httpClient.post`, nunca pasa por el interceptor de
+   * `http-client.ts` (que es justamente quien invoca esta función ante un 401
+   * `AUTH_TOKEN_EXPIRED`, así que no puede depender de sí mismo). */
+  refresh(payload: RefreshRequest): Promise<RefreshResponse> {
+    return httpClient.post<RefreshResponse>("/auth/refresh", payload);
+  },
+
+  /** Protegida (requiere `Authorization`, el gateway deriva `x-user-id` del JWT). Arma
+   * su propio header en vez de depender del interceptor: se dispara justo cuando la
+   * sesión está por invalidarse, más simple pasar el `accessToken` explícito que
+   * depender de que el store todavía lo tenga cargado en ese momento. */
+  logout(refreshToken: string, accessToken: string): Promise<void> {
+    return httpClient.post<void>("/auth/logout", { refreshToken }, authHeader(accessToken));
   },
 
   sendOtp(phone: string): Promise<SendOtpResponse> {
