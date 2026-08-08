@@ -33,15 +33,17 @@ export interface PhoneVerificationService {
    * (single-use — AC6). Cualquier falla mapea al mismo `401 AUTH_OTP_INVALID`, sin
    * distinguir el motivo ("reutilizarlo devuelve AUTH_OTP_INVALID"). Devuelve el `jti`
    * para que el caller pueda "devolver" el uso vía `releasePhoneVerificationToken` si
-   * el registro termina fallando por otra causa (conflicto de email/teléfono).
+   * el registro termina fallando por una causa ajena al teléfono.
    */
   consumePhoneVerificationToken(token: string, phone: string): Promise<{ phone: string; jti: string }>;
   /**
    * Revierte el consumo de `consumePhoneVerificationToken` (borra la key
    * `phone-verification-used:{jti}` de Redis) — usada cuando el registro consumió el
-   * token pero después falló por un conflicto de email/teléfono (ver PR #51, revisión
-   * de tmvergara): sin esto, un typo en el email obligaba a rehacer todo el flujo de
-   * OTP para reintentar el registro, aunque el teléfono siguiera verificado.
+   * token pero la creación del usuario falló después, por cualquier motivo ajeno al
+   * teléfono: un conflicto de email/teléfono (PR #51, revisión de tmvergara) o un error
+   * de DB / de la escritura de la dirección (PR #52, revisión de JcBordino4). Sin esto,
+   * un typo en el email —o una caída puntual de la DB— obligaba a rehacer todo el flujo
+   * de OTP para reintentar, aunque el teléfono siguiera verificado.
    */
   releasePhoneVerificationToken(jti: string): Promise<void>;
 }

@@ -204,13 +204,23 @@ export function createAuthService(
           address: input.address,
         });
       } catch (err) {
+        // El token ya se consumió arriba; si el registro no prospera se libera para que
+        // un reintento no tenga que rehacer el OTP (revisión de PR #51, tmvergara —
+        // repro: un typo en el email obligaba a pedir un código nuevo aunque el teléfono
+        // siguiera verificado).
+        //
+        // Se libera ante CUALQUIER causa de falla de `create()`, no solo el conflicto de
+        // datos (revisión de PR #52, JcBordino4): un error de DB, o de la escritura nueva
+        // de `address`, dejaba el token quemado por algo que no tuvo nada que ver con el
+        // teléfono. Es seguro porque `create()` es un nested write de Prisma, atómico
+        // (usuario + roles + dirección): si tiró, no quedó ninguna cuenta a medias y el
+        // teléfono sigue tan verificado como antes.
+        //
+        // El `catch` propio evita enmascarar el error original si Redis no responde: el
+        // caller tiene que ver la causa real, no un fallo de la liberación.
+        await phoneVerificationService.releasePhoneVerificationToken(jti).catch(() => undefined);
+
         if (err instanceof UserConflictError) {
-          // El token ya se consumió arriba; si el registro no prospera por un
-          // conflicto de datos (no por el token en sí), se libera para que un
-          // reintento con el email/teléfono corregido no tenga que rehacer el OTP
-          // (revisión de PR #51, tmvergara — repro: typo en el email obligaba a
-          // pedir un código nuevo aunque el teléfono siguiera verificado).
-          await phoneVerificationService.releasePhoneVerificationToken(jti);
           if (err.field === "email") {
             throw new ApiError(409, "USER_EMAIL_ALREADY_EXISTS", "Ya existe una cuenta registrada con este email.");
           }
