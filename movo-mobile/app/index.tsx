@@ -1,13 +1,48 @@
-import { Link } from "expo-router";
+import { KycStatus } from "@movo/shared/dist/types/user";
+import { Link, router } from "expo-router";
 import { ArrowRight } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
-import { Image, Pressable, Text, View } from "react-native";
+import { useEffect } from "react";
+import { ActivityIndicator, Image, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { DotPattern } from "../components/ui/dot-pattern";
+import { useRegistration } from "../src/hooks/use-registration";
+import { useThemeColors } from "../src/hooks/use-theme-colors";
 
 export default function WelcomeScreen() {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
+  const colors = useThemeColors();
+  const { resumeChecked, hasPendingRegistration, kycStatus } = useRegistration();
+
+  // AC7 (MOVO-73): si ya hay una cuenta creada que **nunca llegó a intentar** el KYC
+  // (`RegistrationProvider` vive en `app/_layout.tsx`, por fuera de esta pantalla, así
+  // que el estado sobrevive a volver acá), "Soy nuevo" no puede mandar al usuario a
+  // rehacer el wizard de registro desde cero — salta directo a `/kyc`.
+  //
+  // Ojo: el auto-redirect se limita a `NOT_STARTED` a propósito, no a
+  // `hasPendingRegistration` en general (como en una primera versión de este fix). Con
+  // cualquier otro estado (`PENDING`, `MANUAL_REVIEW`, etc. — el usuario ya interactuó
+  // con el KYC, aunque no haya terminado) redirigir siempre convierte al botón "Ir al
+  // inicio" de `kyc.tsx` en un loop sin salida: vuelve acá, esto lo manda de nuevo para
+  // allá. Con `NOT_STARTED` no hay ese riesgo porque `kyc.tsx` en ese estado no muestra
+  // ninguna pantalla de resultado (`kycStatusToResultKind` devuelve `null`) — solo la
+  // intro, así que no hay ningún botón "Ir al inicio" al que este redirect le compita.
+  const shouldAutoRedirect = hasPendingRegistration && kycStatus === KycStatus.NOT_STARTED;
+
+  useEffect(() => {
+    if (resumeChecked && shouldAutoRedirect) {
+      router.replace("/kyc");
+    }
+  }, [resumeChecked, shouldAutoRedirect]);
+
+  if (!resumeChecked || shouldAutoRedirect) {
+    return (
+      <SafeAreaView className="flex-1 items-center justify-center bg-bg">
+        <ActivityIndicator size="large" color={colors.fg1} />
+      </SafeAreaView>
+    );
+  }
   const logoSource = isDark
     ? require("../assets/movo_logo_full_dark.png")
     : require("../assets/movo_logo_full.png");
@@ -50,17 +85,37 @@ export default function WelcomeScreen() {
       </View>
 
       <View className="gap-2.5 px-6 pb-6">
-        <Link href="/register" asChild>
-          <Pressable
-            className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-lime-500 py-4"
-            testID="welcome-go-register"
-          >
-            <Text className="font-sans-semibold text-body text-ink-950">
-              Soy nuevo
-            </Text>
-            <ArrowRight size={16} color="#0A0A0B" strokeWidth={2} />
-          </Pressable>
-        </Link>
+        {hasPendingRegistration ? (
+          // Ya hay una cuenta creada con el KYC en algún estado post-`NOT_STARTED`
+          // (`PENDING`/`MANUAL_REVIEW`/etc. — el usuario ya interactuó con Didit,
+          // aunque no haya terminado, o volvió acá a propósito desde "Ir al inicio" de
+          // `kyc.tsx`). No la escondemos detrás de "Soy nuevo" (que rearmaría el
+          // wizard de registro entero) ni la auto-redirigimos (ver comentario de
+          // `shouldAutoRedirect` arriba) — se ofrece como acción explícita.
+          <Link href="/kyc" asChild>
+            <Pressable
+              className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-lime-500 py-4"
+              testID="welcome-continue-kyc"
+            >
+              <Text className="font-sans-semibold text-body text-ink-950">
+                Continuar verificación
+              </Text>
+              <ArrowRight size={16} color="#0A0A0B" strokeWidth={2} />
+            </Pressable>
+          </Link>
+        ) : (
+          <Link href="/register" asChild>
+            <Pressable
+              className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-lime-500 py-4"
+              testID="welcome-go-register"
+            >
+              <Text className="font-sans-semibold text-body text-ink-950">
+                Soy nuevo
+              </Text>
+              <ArrowRight size={16} color="#0A0A0B" strokeWidth={2} />
+            </Pressable>
+          </Link>
+        )}
         <Link href="/login" asChild>
           <Pressable
             className="w-full items-center justify-center rounded-lg border border-border-strong py-4"

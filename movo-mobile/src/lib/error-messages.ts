@@ -15,6 +15,10 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   AUTH_OTP_INVALID: "El código ingresado no es correcto. Revisalo e intentá de nuevo.",
   AUTH_OTP_EXPIRED: "El código venció. Pedí uno nuevo.",
   ACCOUNT_SUSPENDED: "Tu cuenta está suspendida. Contactá a soporte para más información.",
+  // El backend permite pedir una sesión de KYC desde cualquier estado salvo `approved`
+  // (ver ALLOWED_SESSION_SOURCE_STATUSES en svc-users), así que el único caso real que
+  // llega acá es una identidad ya verificada — un "intentá de nuevo" sería engañoso.
+  KYC_SESSION_NOT_ALLOWED: "Tu identidad ya está verificada.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",
   RATE_LIMIT_EXCEEDED: "Hiciste demasiados intentos. Esperá un momento y volvé a intentar.",

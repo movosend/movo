@@ -37,6 +37,7 @@ type ResultKind =
   | 'approved'
   | 'declined'
   | 'manual_review'
+  | 'in_progress'
   | VerificationErrorType;
 
 const RESULT_COPY: Record<ResultKind, { title: string; body: string }> = {
@@ -51,6 +52,10 @@ const RESULT_COPY: Record<ResultKind, { title: string; body: string }> = {
   manual_review: {
     title: 'Tu verificación está en revisión',
     body: 'A veces necesitamos un poco más de tiempo para confirmar tu identidad. Te avisamos por notificación en cuanto esté lista.',
+  },
+  in_progress: {
+    title: 'Tu verificación quedó a medias',
+    body: 'Iniciamos tu sesión con Didit pero nunca llegó un resultado — puede ser que la hayas dejado por la mitad, por ejemplo por un corte de conexión. Podés empezarla de nuevo cuando quieras.',
   },
   sessionExpired: {
     title: 'La sesión de verificación venció',
@@ -84,6 +89,7 @@ const RESULT_COPY: Record<ResultKind, { title: string; body: string }> = {
 
 const RETRYABLE: ResultKind[] = [
   'declined',
+  'in_progress',
   'sessionExpired',
   'networkError',
   'cameraAccessDenied',
@@ -98,8 +104,18 @@ function kycStatusToResultKind(status: KycStatus): ResultKind | null {
       return 'approved';
     case KycStatus.REJECTED:
       return 'declined';
-    case KycStatus.PENDING:
+    case KycStatus.MANUAL_REVIEW:
       return 'manual_review';
+    // PENDING = ya existe una sesión de Didit creada (kyc.service.ts#createSession la
+    // pone acá apenas se pide, no cuando se resuelve) pero todavía sin decisión
+    // terminal — nunca significa "en revisión humana" (eso es MANUAL_REVIEW). Es
+    // reintentable: el backend descarta el intento anterior como `expired` y abre uno
+    // nuevo (ver ALLOWED_SESSION_SOURCE_STATUSES en kyc.service.ts), justamente porque
+    // el caso típico acá es que el SDK de Didit nunca llegó a correr (sin conexión, sin
+    // development build) y entonces no hay ningún webhook en camino que vaya a
+    // resolverlo solo.
+    case KycStatus.PENDING:
+      return 'in_progress';
     case KycStatus.EXPIRED:
       return 'sessionExpired';
     default:
@@ -115,6 +131,7 @@ export default function KycScreen() {
   const { kycStatus, loading, errorBanner, createKycSession, refreshKycStatus } = registration;
   const [phase, setPhase] = useState<'intro' | 'connecting' | 'result'>('intro');
   const [resultKind, setResultKind] = useState<ResultKind | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Reanudable (AC7): si venimos de un registro en curso con un kycStatus
   // ya distinto de "not_started", saltamos directo al resultado en vez de
@@ -168,6 +185,15 @@ export default function KycScreen() {
     }
   }
 
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await refreshKycStatus();
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   function goHome() {
     // No hay área autenticada todavía (post-login es MOVO-76+) — vuelve al
     // inicio de la app.
@@ -191,6 +217,11 @@ export default function KycScreen() {
   if (phase === 'result' && resultKind) {
     const copy = RESULT_COPY[resultKind];
     const canRetry = RETRYABLE.includes(resultKind);
+    // Solo en 'in_progress' tiene sentido consultar el backend en vez de reintentar: es
+    // el único caso donde el resultado *podría* estar por llegar (el usuario completó la
+    // verificación y el webhook viene en camino). Queda como acción secundaria porque el
+    // caso mucho más común es el contrario — la sesión nunca llegó a Didit.
+    const canRefresh = resultKind === 'in_progress';
     return (
       <SafeAreaView className="flex-1 bg-bg px-8 pt-16">
         <View className="flex-1 items-center">
@@ -210,8 +241,17 @@ export default function KycScreen() {
           testID="kyc-primary-action"
           label={canRetry ? 'Reintentar verificación' : 'Ir al inicio'}
           onPress={canRetry ? beginVerification : goHome}
-          loading={loading}
+          loading={loading || refreshing}
         />
+        {canRefresh ? (
+          <Text
+            testID="kyc-refresh-status"
+            onPress={handleRefresh}
+            className="mb-3 text-center font-sans text-[13px] text-fg-3"
+          >
+            Ya la completé — actualizar estado
+          </Text>
+        ) : null}
         {canRetry ? (
           <Text onPress={goHome} className="mb-2 text-center font-sans text-[13px] text-fg-3">
             Ir al inicio
