@@ -11,8 +11,10 @@ import healthRoutes from "./modules/health/health.routes";
 import usersRoutes from "./modules/users/users.routes";
 import authRoutes, { AuthRoutesOptions } from "./modules/auth/auth.routes";
 import kycRoutes, { KycRoutesOptions } from "./modules/kyc/kyc.routes";
+import geocodeRoutes, { GeocodeRoutesOptions } from "./modules/geocode/geocode.routes";
 import { SmsProvider } from "./adapters/sms-provider";
 import { DiditClient } from "./adapters/didit-client";
+import { GeocodingProvider } from "./adapters/geocoding-provider";
 
 export interface BuildAppOptions {
   /** Override solo para tests de integración — permite capturar el código de OTP
@@ -21,6 +23,9 @@ export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de red/credenciales
    * reales de Didit.me (MOVO-72), mismo criterio que `smsProvider`. */
   diditClient?: DiditClient;
+  /** Override solo para tests de integración — evita depender de red/credenciales
+   * reales de Google Maps (MOVO-73), mismo criterio que `diditClient`. */
+  geocodingProvider?: GeocodingProvider;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -67,6 +72,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.diditClient ? { diditClient: opts.diditClient } : {}),
   };
   app.register(kycRoutes, kycRouteOpts);
+
+  const geocodeRouteOpts: GeocodeRoutesOptions = {
+    prefix: "/geocode",
+    ...(opts.geocodingProvider ? { geocodingProvider: opts.geocodingProvider } : {}),
+  };
+  app.register(geocodeRoutes, geocodeRouteOpts);
 
   return app;
 }
