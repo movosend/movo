@@ -26,10 +26,14 @@ export interface ExpirePendingInput {
 
 export interface ResolveKycVerificationInput {
   externalSessionId: string;
-  /** Estado esperado ANTES de la transición — la condición que hace atómica la
-   * idempotencia (AC7): si la fila ya no está en este estado (webhook duplicado, o ya
-   * resuelta por un evento anterior), `resolveByExternalSessionId` no toca nada. */
-  fromStatus: KycStatus;
+  /** Estado(s) esperado(s) ANTES de la transición — la condición que hace atómica la
+   * idempotencia (AC7): si la fila ya no está en ninguno de estos estados (webhook
+   * duplicado, o ya resuelta por un evento anterior), `resolveByExternalSessionId` no
+   * toca nada. Acepta más de un estado porque Didit puede mandar más de un webhook
+   * terminal para la misma sesión — `pending` → `manual_review` (entra a revisión) y
+   * después `manual_review` → `approved`/`rejected` (un operador la resuelve) — y las
+   * dos transiciones tienen que poder aplicarse. */
+  fromStatus: KycStatus | KycStatus[];
   toStatus: KycStatus;
   rawDecision: unknown;
 }
@@ -119,13 +123,18 @@ export function createKycVerificationRepository(db: Prisma.TransactionClient): K
     },
 
     async resolveByExternalSessionId(input: ResolveKycVerificationInput): Promise<KycVerification | null> {
-      // `updateMany` con `status: fromStatus` en el `where` es la pieza atómica de la
-      // idempotencia (AC7): Postgres solo aplica el UPDATE si la fila sigue en el
-      // estado esperado. Dos entregas concurrentes del mismo webhook (o un reintento
-      // de Didit sobre un evento ya procesado) hacen que como mucho una gane la
-      // carrera — la otra ve `count === 0` y no hay una segunda escritura posible.
+      const fromStatuses = Array.isArray(input.fromStatus) ? input.fromStatus : [input.fromStatus];
+      // `updateMany` con `status: { in: fromStatuses }` en el `where` es la pieza
+      // atómica de la idempotencia (AC7): Postgres solo aplica el UPDATE si la fila
+      // sigue en uno de los estados esperados. Dos entregas concurrentes del mismo
+      // webhook (o un reintento de Didit sobre un evento ya procesado) hacen que como
+      // mucho una gane la carrera — la otra ve `count === 0` y no hay una segunda
+      // escritura posible.
       const result = await db.kycVerification.updateMany({
-        where: { externalSessionId: input.externalSessionId, status: input.fromStatus as PrismaKycStatus },
+        where: {
+          externalSessionId: input.externalSessionId,
+          status: { in: fromStatuses as PrismaKycStatus[] },
+        },
         data: {
           status: input.toStatus as PrismaKycStatus,
           resolvedAt: new Date(),

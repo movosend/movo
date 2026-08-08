@@ -161,13 +161,24 @@ export function createKycService(
   const kycVerificationRepository = createKycVerificationRepository(db);
 
   /**
-   * Aplica una decisión terminal de Didit sobre un intento que sigue en `pending`,
-   * sincronizando el caché de `users` en la misma transacción.
+   * Aplica una decisión terminal de Didit sobre un intento que sigue en `pending` o
+   * `manual_review`, sincronizando el caché de `users` en la misma transacción.
    *
    * Es el único camino de escritura de una decisión, sin importar si llegó por webhook
    * (*push*) o por `getSessionDecision` (*pull*) — así las dos rutas comparten el mismo
    * gate de idempotencia (AC7) y no pueden divergir. Devuelve `null` si la fila ya no
-   * estaba en `pending`: webhook duplicado, o la otra ruta ganó la carrera.
+   * estaba en ninguno de esos dos estados: webhook duplicado, o la otra ruta ganó la
+   * carrera.
+   *
+   * `manual_review` está en el gate a propósito, no solo `pending`: Didit puede mandar
+   * DOS webhooks terminales para la misma sesión — primero `pending` → `manual_review`
+   * (entra a revisión humana) y después, cuando un operador la resuelve,
+   * `manual_review` → `approved`/`rejected`. Con el gate limitado a `fromStatus:
+   * pending` (como era antes), ese segundo webhook nunca aplicaba: la fila ya estaba en
+   * `manual_review`, no en `pending`, así que `resolveByExternalSessionId` la ignoraba
+   * como si fuera un duplicado — un caso real reportado (aprobación manual en la
+   * consola de Didit, webhook "entregado" según Didit, pero el usuario seguía viendo
+   * "en revisión" sin ninguna forma de destrabarse).
    */
   async function applyTerminalDecision(
     externalSessionId: string,
@@ -178,7 +189,7 @@ export function createKycService(
       const txKycVerificationRepository = createKycVerificationRepository(tx);
       const result = await txKycVerificationRepository.resolveByExternalSessionId({
         externalSessionId,
-        fromStatus: KycStatus.PENDING,
+        fromStatus: [KycStatus.PENDING, KycStatus.MANUAL_REVIEW],
         toStatus: targetStatus,
         rawDecision,
       });
@@ -191,29 +202,39 @@ export function createKycService(
   }
 
   /**
-   * Cierra la ventana entre "el usuario terminó la verificación en Didit" y "el webhook
-   * con la decisión llegó".
+   * Cierra la ventana entre "Didit ya tiene una decisión (terminó la verificación, o un
+   * operador resolvió la revisión manual)" y "el webhook con esa decisión llegó" —
+   * llamada tanto antes de abrir una sesión nueva (`createSession`, para no descartar un
+   * resultado real) como en cada `getStatus` (`GET /kyc/status`, para que "actualizar
+   * estado" en el mobile revalide contra Didit en vez de mostrar únicamente lo último
+   * que el webhook logró aplicar).
    *
-   * `createSession` descarta los intentos `pending` previos (`expirePendingByUserId`)
-   * para no dejar trabado a quien nunca llegó a la UI de Didit. Pero `pending` es también
-   * el estado de alguien que SÍ completó la verificación segundos atrás, y descartarlo a
-   * ciegas hace que el webhook tardío deje de matchear (el gate de idempotencia exige
-   * `pending`): la decisión real —un `approved` incluido— se perdía en silencio y había
-   * que rehacer el KYC de cero. No es un caso remoto, porque la UI ofrece "Reintentar
-   * verificación" justo en ese estado.
+   * Dispara para dos estados, no solo `pending`:
+   * - `pending`: `createSession` descarta los intentos `pending` previos
+   *   (`expirePendingByUserId`) para no dejar trabado a quien nunca llegó a la UI de
+   *   Didit. Pero `pending` es también el estado de alguien que SÍ completó la
+   *   verificación segundos atrás, y descartarlo a ciegas hace que el webhook tardío
+   *   deje de matchear — la decisión real se perdía en silencio.
+   * - `manual_review`: Didit puede resolver la revisión humana en cualquier momento
+   *   después del primer webhook (`In Review`), con un segundo webhook terminal
+   *   (`Approved`/`Declined`) que nuestro backend puede no haber recibido o procesado
+   *   (túnel de desarrollo caído, red, etc.) — sin este pull, no había ninguna forma de
+   *   que el usuario saliera de "en revisión" salvo que ese segundo webhook llegara
+   *   solo. Caso real reportado: aprobación manual confirmada en la consola de Didit
+   *   ("entregado"), pero la app seguía mostrando "en revisión" sin cambiar nunca.
    *
-   * Antes de descartar nada, entonces, se le pregunta a Didit por la decisión de esa
-   * sesión; si ya es terminal se aplica por el mismo camino que el webhook. Devuelve el
-   * estado efectivo del usuario después de reconciliar, que es el que decide si se
-   * permite abrir una sesión nueva.
+   * Se le pregunta a Didit por la decisión de la sesión más reciente; si ya es terminal
+   * se aplica por el mismo camino que el webhook (`applyTerminalDecision`, que acepta
+   * ambos estados como origen — ver su comentario). Devuelve el estado efectivo del
+   * usuario después de reconciliar.
    */
   async function reconcilePendingAttempt(userId: string, currentStatus: KycStatus): Promise<KycStatus> {
-    if (currentStatus !== KycStatus.PENDING) {
+    if (currentStatus !== KycStatus.PENDING && currentStatus !== KycStatus.MANUAL_REVIEW) {
       return currentStatus;
     }
 
     const latest = await kycVerificationRepository.findLatestByUserId(userId, "identity");
-    if (!latest || latest.status !== KycStatus.PENDING) {
+    if (!latest || latest.status !== currentStatus) {
       return currentStatus;
     }
 
@@ -226,7 +247,7 @@ export function createKycService(
       // sin salida, que es el pozo que este flujo vino a resolver.
       logger.warn(
         { userId, externalSessionId: latest.externalSessionId, err: error, event: "kyc_reconcile_failed" },
-        "no se pudo consultar la decisión del intento pendiente; se descarta igual"
+        "no se pudo consultar la decisión del intento en curso; se sigue con el estado actual"
       );
       return currentStatus;
     }
@@ -260,11 +281,11 @@ export function createKycService(
       {
         userId,
         externalSessionId: latest.externalSessionId,
-        previousStatus: KycStatus.PENDING,
+        previousStatus: currentStatus,
         newStatus: targetStatus,
-        event: "kyc_reconciled_before_retry",
+        event: "kyc_reconciled",
       },
-      "kyc status transition (reconciliada al pedir una sesión nueva)"
+      "kyc status transition (reconciliada por pull, no por webhook)"
     );
     return targetStatus;
   }
@@ -364,9 +385,9 @@ export function createKycService(
       const rawDecision = buildRedactedRawDecision(payload);
 
       // Idempotencia (AC7): `applyTerminalDecision` solo aplica la transición si el
-      // intento seguía en `pending` -- un webhook duplicado, o fuera de orden, devuelve
-      // `null` acá y no se toca nada más. Es el mismo camino que usa la reconciliación
-      // por pull (ver `reconcilePendingAttempt`), a propósito.
+      // intento seguía en `pending` o `manual_review` -- un webhook duplicado, o fuera
+      // de orden, devuelve `null` acá y no se toca nada más. Es el mismo camino que usa
+      // la reconciliación por pull (ver `reconcilePendingAttempt`), a propósito.
       const resolved = await applyTerminalDecision(externalSessionId, targetStatus, rawDecision);
 
       if (!resolved) {
@@ -381,7 +402,6 @@ export function createKycService(
         {
           userId: resolved.userId,
           externalSessionId,
-          previousStatus: KycStatus.PENDING,
           newStatus: targetStatus,
         },
         "kyc status transition"
@@ -394,6 +414,18 @@ export function createKycService(
         throw new ApiError(404, "NOT_FOUND", "Usuario no encontrado.");
       }
 
+      // Antes de devolver el estado cacheado en `users`, se revalida contra Didit si el
+      // usuario está en `pending`/`manual_review` (ver `reconcilePendingAttempt`) — sin
+      // esto, `GET /kyc/status` era una simple lectura de caché: si por lo que fuera un
+      // webhook terminal no se procesó (túnel de desarrollo caído, red, o el bug que
+      // motivó ampliar `applyTerminalDecision` a aceptar `manual_review` como origen),
+      // no había ninguna forma de que el usuario saliera de ese estado desde el mobile
+      // ("actualizar estado" solo releía el mismo valor viejo, sin cambiar nunca) salvo
+      // que abriera una sesión nueva. Es una llamada de red extra por consulta de
+      // estado, pero `GET /kyc/status` no se sondea en loop desde el mobile — se llama
+      // al entrar a la pantalla y ante un click explícito del usuario.
+      const effectiveStatus = await reconcilePendingAttempt(userId, user.kycStatusIdentity);
+
       // `raw_decision.warnings` (armado por `extractDecisionWarnings` en el webhook) es
       // un array de {feature, risk, description} -- se unen las descripciones en un
       // solo string para el contrato de la respuesta (kyc.schema.ts: string | null).
@@ -401,7 +433,7 @@ export function createKycService(
       // `In Review`: ningún feature individual traía warnings) -- no todo caso en
       // manual_review va a tener un motivo estructurado.
       let manualReviewReason: string | null = null;
-      if (user.kycStatusIdentity === KycStatus.MANUAL_REVIEW) {
+      if (effectiveStatus === KycStatus.MANUAL_REVIEW) {
         const latest = await kycVerificationRepository.findLatestByUserId(userId, "identity");
         const rawDecision = latest?.rawDecision as { warnings?: unknown } | null | undefined;
         const warnings = Array.isArray(rawDecision?.warnings) ? rawDecision.warnings : [];
@@ -411,7 +443,7 @@ export function createKycService(
         manualReviewReason = descriptions.length > 0 ? descriptions.join("; ") : null;
       }
 
-      return { status: user.kycStatusIdentity, manualReviewReason };
+      return { status: effectiveStatus, manualReviewReason };
     },
   };
 }
