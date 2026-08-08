@@ -12,7 +12,7 @@ import {
 } from "@movo/shared";
 import { createUserRepository } from "../../repositories/user-repository";
 import { createSessionRepository } from "../../repositories/session-repository";
-import { User, UserConflictError } from "../../models/user";
+import { User, UserConflictError, CreateUserAddressInput } from "../../models/user";
 import type { PhoneVerificationService } from "./phone-verification.service";
 
 /** Roles por defecto al registrarse (AC8): todo usuario puede operar como emisor y transportista. */
@@ -36,6 +36,10 @@ export interface RegisterUserInput {
   // antes de crear la cuenta para setear phoneVerified=true (AC2 de MOVO-72 depende de
   // este flag, que hasta esta US nunca se seteaba).
   phoneVerificationToken: string;
+  // MOVO-73: DNI y primera dirección (con lat/long ya confirmados por el paso de mapa
+  // del wizard) -- ver auth.schema.ts#registerBody.
+  dni: string;
+  address: CreateUserAddressInput;
 }
 
 export interface LoginUserInput {
@@ -194,8 +198,10 @@ export function createAuthService(
           firstName,
           lastName,
           passwordHash,
+          dni: input.dni,
           phoneVerified: true,
           roles: DEFAULT_USER_ROLES,
+          address: input.address,
         });
       } catch (err) {
         if (err instanceof UserConflictError) {

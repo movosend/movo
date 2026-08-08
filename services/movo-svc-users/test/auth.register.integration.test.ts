@@ -22,6 +22,16 @@ describe("POST /auth/register", () => {
     email: "juan.perez@example.com",
     phone: "3511234567",
     password: "Password1",
+    dni: "30123456",
+    address: {
+      street: "Av. Colón",
+      number: "1234",
+      city: "Córdoba",
+      province: "Córdoba",
+      zip: "5000",
+      lat: -31.4201,
+      long: -64.1888,
+    },
   };
 
   beforeAll(async () => {
@@ -132,6 +142,44 @@ describe("POST /auth/register", () => {
     // El ORDER BY de un enum de Postgres sigue el orden ordinal de declaración del
     // tipo ('sender','carrier','admin'), no el alfabético.
     expect(roles.map((r) => r.role)).toEqual(["sender", "carrier"]);
+  });
+
+  it("persiste el dni y la primera dirección del usuario (MOVO-73, tabla users.address del DER)", async () => {
+    const response = await register();
+    const { userId } = JSON.parse(response.body) as { userId: string };
+
+    const userRow = await app.db.user.findUnique({ where: { id: userId } });
+    expect(userRow?.dni).toBe(basePayload.dni);
+
+    const addresses = await app.db.address.findMany({ where: { userId } });
+    expect(addresses).toHaveLength(1);
+    expect(addresses[0]).toMatchObject({
+      label: null,
+      isDefault: true,
+      street: basePayload.address.street,
+      streetNumber: basePayload.address.number,
+      floorApartment: null,
+      city: basePayload.address.city,
+      province: basePayload.address.province,
+      postalCode: basePayload.address.zip,
+      country: "AR",
+    });
+    expect(Number(addresses[0]?.lat)).toBeCloseTo(basePayload.address.lat);
+    expect(Number(addresses[0]?.long)).toBeCloseTo(basePayload.address.long);
+  });
+
+  it("rechaza el registro sin dni/address con 400 VALIDATION_FAILED", async () => {
+    const phoneVerificationToken = await getPhoneVerificationToken(basePayload.phone, "+5493511234567");
+    const { dni, address, ...payloadWithoutDniAddress } = basePayload;
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: { ...payloadWithoutDniAddress, phoneVerificationToken },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).error.code).toBe("VALIDATION_FAILED");
   });
 
   it("rechaza el registro sin phoneVerificationToken con 400 VALIDATION_FAILED", async () => {

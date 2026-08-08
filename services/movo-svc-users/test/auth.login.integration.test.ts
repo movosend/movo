@@ -23,6 +23,16 @@ describe("POST /auth/login", () => {
     email: "tomasolmos04@example.com",
     phone: "3511234567",
     password: "Password1",
+    dni: "30123456",
+    address: {
+      street: "Av. Colón",
+      number: "1234",
+      city: "Córdoba",
+      province: "Córdoba",
+      zip: "5000",
+      lat: -31.4201,
+      long: -64.1888,
+    },
   };
 
   beforeAll(async () => {

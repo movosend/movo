@@ -61,6 +61,23 @@ export function toPublicUser(user: User): PublicUser {
   };
 }
 
+/**
+ * MOVO-73: primera dirección del usuario (tabla `users.address` del DER,
+ * `docs/movo_der.dbml`, implementada recién en esta US). `label`/`isDefault`/
+ * `country` no viajan del caller — el repositorio los hardcodea al crear (ver
+ * `user-repository.ts#create`).
+ */
+export interface CreateUserAddressInput {
+  street: string;
+  number: string;
+  floor?: string;
+  city: string;
+  province: string;
+  zip: string;
+  lat: number;
+  long: number;
+}
+
 export interface CreateUserInput {
   email: string;
   phone: string;
@@ -73,6 +90,9 @@ export interface CreateUserInput {
   // MOVO-72: register() ahora exige phoneVerificationToken (MOVO-71) y lo consume antes
   // de crear la cuenta — el usuario se persiste ya con el teléfono verificado.
   phoneVerified: boolean;
+  // MOVO-73: `POST /auth/register` exige `address` en el body (ver auth.schema.ts) —
+  // requerido acá también, no opcional, porque `users.address.lat/long` son NOT NULL.
+  address: CreateUserAddressInput;
 }
 
 /** Fila cruda de `users.users`, tal como la devuelve `pg` (snake_case). */
