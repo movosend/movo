@@ -21,7 +21,8 @@ export type ApiErrorCode =
   | "KYC_PROVIDER_ERROR"
   | "AUTH_REFRESH_INVALID"
   | "GEOCODING_PROVIDER_ERROR"
-  | "GEOCODING_ADDRESS_NOT_FOUND";
+  | "GEOCODING_ADDRESS_NOT_FOUND"
+  | "USER_NOT_FOUND";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

@@ -35,6 +35,15 @@ export interface User {
 export type PublicUser = Omit<User, "passwordHash">;
 
 /**
+ * Única definición de cómo se compone el nombre visible de un usuario (review de
+ * PR #55, tmvergara) — antes se armaba `${firstName} ${lastName}` suelto en
+ * `user-profile.ts` (x2) y `auth.service.ts`.
+ */
+export function fullName(user: Pick<User, "firstName" | "lastName">): string {
+  return `${user.firstName} ${user.lastName}`;
+}
+
+/**
  * Único puente permitido de `User` (interno) a lo que se serializa al cliente.
  * `toPublicUser` se construye campo por campo y no con spread: si se agrega una
  * propiedad a `User`, TypeScript rompe acá y obliga a decidir explícitamente si
