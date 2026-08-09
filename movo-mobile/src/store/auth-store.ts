@@ -105,12 +105,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const expiredOrExpiringSoon = Number.isNaN(expiresAt) || Date.now() >= expiresAt - REFRESH_MARGIN_MS;
 
     if (!expiredOrExpiringSoon) {
-      set({
-        status: "authenticated",
-        accessToken,
-        refreshToken,
-        user: JSON.parse(userJson) as SessionUser,
-      });
+      try {
+        const user = JSON.parse(userJson) as SessionUser;
+        set({ status: "authenticated", accessToken, refreshToken, user });
+      } catch {
+        // sessionUser corrupto en secure-store (escritura interrumpida, etc.) — no
+        // se puede confiar en el resto de la sesión persistida, se limpia y arranca
+        // sin sesión en vez de dejar restoreSession() colgado en una excepción no
+        // capturada durante el boot (app/_layout.tsx queda en "checking" para siempre).
+        await get().clearSession();
+      }
       return;
     }
 

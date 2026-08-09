@@ -107,6 +107,35 @@ describe("auth-store", () => {
     );
   });
 
+  it("restoreSession limpia la sesión si sessionUser está corrupto en secure-store", async () => {
+    const SecureStore = require("expo-secure-store");
+    const futureExpiry = Date.now() + 10 * 60 * 1000;
+    (SecureStore.getItemAsync as jest.Mock).mockImplementation((key: string) => {
+      switch (key) {
+        case SECURE_STORE_KEYS.sessionAccessToken:
+          return Promise.resolve("access_1");
+        case SECURE_STORE_KEYS.sessionRefreshToken:
+          return Promise.resolve("refresh_1");
+        case SECURE_STORE_KEYS.sessionUser:
+          return Promise.resolve("{not-valid-json");
+        case SECURE_STORE_KEYS.sessionExpiresAt:
+          return Promise.resolve(String(futureExpiry));
+        default:
+          return Promise.resolve(null);
+      }
+    });
+
+    const { useAuthStore } = require("../src/store/auth-store");
+    const { authClient } = require("../src/api/auth-client");
+
+    await expect(useAuthStore.getState().restoreSession()).resolves.not.toThrow();
+
+    expect(useAuthStore.getState().status).toBe("unauthenticated");
+    expect(useAuthStore.getState().accessToken).toBeNull();
+    expect(authClient.refresh).not.toHaveBeenCalled();
+    expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith(SECURE_STORE_KEYS.sessionAccessToken);
+  });
+
   it("restoreSession limpia todo si el refresh silencioso falla (AC6)", async () => {
     const SecureStore = require("expo-secure-store");
     const pastExpiry = Date.now() - 1000;
