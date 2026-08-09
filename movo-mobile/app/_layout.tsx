@@ -12,6 +12,7 @@ import {
   JetBrainsMono_600SemiBold,
   useFonts as useJetBrainsMonoFonts,
 } from '@expo-google-fonts/jetbrains-mono';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useColorScheme } from 'nativewind';
 import { useCallback, useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
@@ -20,6 +21,7 @@ import { Stack } from 'expo-router';
 import { View } from 'react-native';
 import { RegistrationProvider } from '../src/hooks/use-registration';
 import { loadApiOverride } from '../src/lib/api-override';
+import { useAuthStore } from '../src/store/auth-store';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -38,13 +40,26 @@ export default function RootLayout() {
   // Solo relevante en dev (ver getApiBaseUrl en src/lib/env.ts) pero se carga
   // siempre para no bifurcar el flujo de boot entre dev/prod.
   const [apiOverrideLoaded, setApiOverrideLoaded] = useState(false);
+  const [queryClient] = useState(() => new QueryClient());
+  const sessionStatus = useAuthStore((s) => s.status);
+  const restoreSession = useAuthStore((s) => s.restoreSession);
 
   const fontsLoaded = interLoaded && jetBrainsMonoLoaded;
-  const appReady = fontsLoaded && apiOverrideLoaded;
+  // AC8: gatea el mismo splash que fuentes/api-override — restaura la sesión (lee
+  // secure-store, intenta refresh silencioso si venció, AC7) antes de mostrar
+  // cualquier pantalla, para no dejar ver un parpadeo de login en un usuario ya
+  // autenticado. El *a dónde* navegar según el resultado no vive acá: lo resuelve el
+  // guard de `app/(app)/_layout.tsx`, este layout solo decide cuándo dejar de tapar.
+  const sessionChecked = sessionStatus !== 'checking';
+  const appReady = fontsLoaded && apiOverrideLoaded && sessionChecked;
 
   useEffect(() => {
     loadApiOverride().finally(() => setApiOverrideLoaded(true));
   }, []);
+
+  useEffect(() => {
+    restoreSession();
+  }, [restoreSession]);
 
   useEffect(() => {
     if (appReady) {
@@ -62,17 +77,14 @@ export default function RootLayout() {
     return null;
   }
 
-  // TODO(MOVO-76): cuando exista el módulo de sesión autenticada (tokens),
-  // envolver el Stack con la lógica de redirect (si hay sesión válida,
-  // saltar directo a la app; si no, quedarse en "/"). El `RegistrationProvider`
-  // de acá abajo es distinto: solo cubre el estado del onboarding
-  // pre-login (MOVO-73), no la sesión autenticada.
   return (
-    <RegistrationProvider>
-      <View onLayout={onLayout} className="flex-1 bg-bg">
-        <Stack screenOptions={{ headerShown: false }} />
-        <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
-      </View>
-    </RegistrationProvider>
+    <QueryClientProvider client={queryClient}>
+      <RegistrationProvider>
+        <View onLayout={onLayout} className="flex-1 bg-bg">
+          <Stack screenOptions={{ headerShown: false }} />
+          <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+        </View>
+      </RegistrationProvider>
+    </QueryClientProvider>
   );
 }

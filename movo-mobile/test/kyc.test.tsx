@@ -1,9 +1,16 @@
 import { render, fireEvent, within } from "@testing-library/react-native";
 import { KycStatus } from "@movo/shared/dist/types/user";
+import { router } from "expo-router";
 import KycScreen from "../app/(auth)/kyc";
 
 jest.mock("expo-router", () => ({
   router: { back: jest.fn(), replace: jest.fn() },
+}));
+
+let mockAuthStatus: "checking" | "authenticated" | "unauthenticated" = "unauthenticated";
+jest.mock("../src/store/auth-store", () => ({
+  useAuthStore: (selector: (s: { status: string }) => unknown) =>
+    selector({ status: mockAuthStatus }),
 }));
 
 const mockStartVerification = jest.fn();
@@ -30,6 +37,7 @@ describe("KycScreen", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockKycStatus = null;
+    mockAuthStatus = "unauthenticated";
   });
 
   it("inicia la verificación y muestra la pantalla de aprobado", async () => {
@@ -123,5 +131,30 @@ describe("KycScreen", () => {
 
     expect(mockRefreshKycStatus).toHaveBeenCalled();
     expect(mockCreateKycSession).not.toHaveBeenCalled();
+  });
+
+  // MOVO-76: sin esta distinción, un usuario autenticado (login/sesión restaurada) que
+  // toca "Ir al inicio" acá volvía a "/", de donde `app/index.tsx` lo mandaba de nuevo
+  // para acá — loop infinito.
+  it("'Ir al inicio' va a /home con sesión autenticada real (no vuelve a /, evita el loop con app/index.tsx)", async () => {
+    mockAuthStatus = "authenticated";
+    mockKycStatus = KycStatus.MANUAL_REVIEW;
+
+    const { findByTestId } = await render(<KycScreen />);
+    await fireEvent.press(await findByTestId("kyc-primary-action"));
+
+    expect(router.replace).toHaveBeenCalledWith("/home");
+    expect(router.replace).not.toHaveBeenCalledWith("/");
+  });
+
+  it("'Ir al inicio' va a / sin sesión autenticada (wizard de registro, todavía sin login)", async () => {
+    mockAuthStatus = "unauthenticated";
+    mockKycStatus = KycStatus.MANUAL_REVIEW;
+
+    const { findByTestId } = await render(<KycScreen />);
+    await fireEvent.press(await findByTestId("kyc-primary-action"));
+
+    expect(router.replace).toHaveBeenCalledWith("/");
+    expect(router.replace).not.toHaveBeenCalledWith("/home");
   });
 });

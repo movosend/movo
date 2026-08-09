@@ -14,22 +14,21 @@ import { PrimaryButton } from '../../components/auth/primary-button';
 import { ErrorBanner } from '../../components/ui/error-banner';
 import { TextField } from '../../components/ui/text-field';
 import { ApiError } from '@movo/shared/dist/errors/api-error';
+import { KycStatus } from '@movo/shared/dist/types/user';
 import { authClient } from '../../src/api/auth-client';
-import { formatPhone, isPhoneValid, toE164Phone } from '../../src/hooks/use-registration';
+import {
+  formatPhone,
+  isPhoneValid,
+  toE164Phone,
+  useRegistration,
+} from '../../src/hooks/use-registration';
 import { friendlyErrorMessage } from '../../src/lib/error-messages';
 import { useThemeColors } from '../../src/hooks/use-theme-colors';
-
-/**
- * `POST /auth/login` no existe todavía en `movo-svc-users` (contrato
- * propuesto en `src/api/auth-client.ts`, MOVO-74) — el formulario ya queda
- * armado contra ese contrato. Al recibir una respuesta exitosa no hay
- * todavía dónde persistir la sesión (`secure-store`/`http-client` recién
- * ganan lógica de auth en MOVO-76), así que por ahora solo se navega al
- * inicio de la app, igual que hace `kyc.tsx` post-verificación.
- */
+import { useAuthStore } from '../../src/store/auth-store';
 
 export default function LoginScreen() {
   const colors = useThemeColors();
+  const registration = useRegistration();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -51,9 +50,19 @@ export default function LoginScreen() {
     setLoading(true);
     setErrorBanner(null);
     try {
-      await authClient.login({ phone: toE164Phone(phone), password });
-      // No hay área autenticada todavía (post-login es MOVO-76+) — vuelve al inicio.
-      router.replace('/');
+      const response = await authClient.login({ phone: toE164Phone(phone), password });
+      await useAuthStore.getState().setSession(response);
+      // Mismo criterio que el wizard de registro (MOVO-73): solo una cuenta con KYC
+      // aprobado entra al área autenticada. Cualquier otro estado (sin empezar, en
+      // curso, en revisión, rechazado, vencido) muestra la misma pantalla de resultado
+      // de `/kyc` que ve un usuario recién registrado — nunca una pantalla propia del
+      // login.
+      if (response.kycStatus === KycStatus.APPROVED) {
+        router.replace('/home');
+      } else {
+        await registration.hydrateFromLogin(response);
+        router.replace('/kyc');
+      }
     } catch (err) {
       // Cuenta suspendida/deshabilitada tiene su propia pantalla explicativa
       // (no un error inline) — ver `account-suspended.tsx`.
@@ -147,6 +156,13 @@ export default function LoginScreen() {
               </Pressable>
             }
           />
+
+          <Text
+            testID="login-forgot-password"
+            className="mt-2.5 text-right font-sans text-[13px] text-fg-3"
+          >
+            Recuperar contraseña (próximamente)
+          </Text>
 
           <View className="h-6" />
         </ScrollView>

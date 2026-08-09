@@ -1632,3 +1632,69 @@ errores en ambos.
 Pendiente / fuera de alcance: `getSessionDecision` no está validado contra el sandbox real
 todavía (el endpoint sí está documentado en el skill de Didit versionado en el repo, pero
 la corrida end-to-end de MOVO-72 solo ejercitó `createSession` y el webhook).
+
+### MOVO-76 — Pantalla de login, secure storage de tokens, refresh automático y guard de navegación (`movo-mobile`)
+
+Implementado: `app/(auth)/login.tsx` (pantalla real, antes placeholder), interceptor de
+sesión en `src/api/http-client.ts` (adjunta `Authorization` automáticamente, refresh
+single-flight ante `401 AUTH_TOKEN_EXPIRED`, reintento único), `src/store/auth-store.ts`
+(Zustand: `restoreSession`/`setSession`/`clearSession`/`logout`, persistidos en
+`expo-secure-store` vía `src/lib/secure-store.ts`), `src/hooks/use-auth.ts` (wrapper para
+componentes), `app/(app)/_layout.tsx` (guard único de rutas autenticadas) +
+`app/(app)/home.tsx` (home placeholder, primera pantalla real post-login — perfil real es
+MOVO-78).
+
+Decisiones clave:
+- **Single-flight de refresh (AC5)**: `refreshPromise` como variable de módulo en
+  `http-client.ts`, no en el store — JS single-threaded garantiza que el primer 401 en
+  crearla lo hace antes de cualquier `await` posterior, así que cualquier otro request
+  que llegue al mismo punto la reusa en vez de disparar un segundo refresh.
+- **El interceptor nunca reintenta si el 401 viene de un `Authorization` explícito del
+  caller** (`options.headers.Authorization`, usado por `createKycSession`/`getKycStatus`
+  del onboarding de MOVO-73 y por `authClient.logout`) — un 401 ahí no dice nada de la
+  sesión real, y sin este chequeo el token efímero del wizard (que nunca se refresca,
+  MOVO-73) dispararía un refresh de la sesión real en cada boot, compitiendo por el mismo
+  refresh token con el proactivo de `restoreSession()` y disparando la detección de reuso
+  de MOVO-75 (revoca todas las sesiones).
+- **Refresh token opaco compuesto**: sin cambios de contrato acá — ya lo resolvió MOVO-75
+  del lado del backend (`"{userId}.{tokenId}.{secret}"`); el mobile solo lo persiste y
+  reenvía tal cual.
+- **Gap real encontrado y corregido en esta misma US, no en una posterior**: la primera
+  versión dejaba `restoreSession()` (AC7) actualizando correctamente el *estado* del
+  store a `authenticated` (incluido el refresh silencioso si el token había vencido),
+  pero **nada navegaba** al usuario a la zona autenticada — `app/index.tsx` (bienvenida)
+  no leía `useAuthStore` en absoluto, así que un usuario que reabría la app con sesión
+  válida seguía viendo la pantalla de marketing como si nunca se hubiera registrado.
+  Corregido con un efecto en `app/index.tsx`: sesión autenticada + `kycStatus ===
+  approved` → `/home`; cualquier otro estado → hidrata `RegistrationContext`
+  (`hydrateFromLogin`, ya existía desde MOVO-73/72) y manda a `/kyc` — mismo criterio que
+  ya usaba `login.tsx#handleLogin` para la rama de login manual.
+- **Ese fix introdujo un loop real, corregido en el mismo cambio**: con `app/index.tsx`
+  redirigiendo cualquier sesión autenticada no-aprobada a `/kyc`, el botón "Ir al inicio"
+  de `kyc.tsx` (que antes siempre volvía a `/`, pensado para el wizard de registro sin
+  sesión real) rebotaba de inmediato de vuelta a `/kyc` para un usuario ya logueado —
+  quedaba imposible salir de esa pantalla. `kyc.tsx#goHome()` ahora chequea
+  `useAuthStore` y va a `/home` si hay sesión autenticada real (cualquier `kycStatus`,
+  el guard de `(app)/_layout.tsx` no filtra por eso) o a `/` si no la hay (caso wizard,
+  sin cambios de comportamiento ahí). Esto además es lo que hace *alcanzable* el AC11: el
+  banner de estado de KYC en `app/(app)/home.tsx#KYC_BANNER_TEXT` ya existía pero era
+  código muerto sin este cambio — ningún camino llegaba a `/home` con un usuario no
+  aprobado.
+- **AC1 (login con email/teléfono)**: solo teléfono — `POST /auth/login` (MOVO-74) nunca
+  aceptó email, decisión ya tomada en ese ticket, no en este.
+- **AC6/AC10 (limpiar sesión y redirigir a login)**: no hay una llamada explícita a
+  `router.replace('/login')` en ninguno de los dos casos — el guard de
+  `(app)/_layout.tsx` reacciona solo al cambio de `status` en el store (Zustand
+  re-renderiza a cualquier suscriptor), así que basta con `clearSession()` para que
+  cualquier pantalla dentro de `(app)/` sea redirigida.
+- Tests nuevos: `test/auth-store.test.tsx`, `test/app-guard.test.tsx`, casos agregados a
+  `test/http-client.test.tsx` (single-flight, no-retry en `/auth/refresh`, no-retry con
+  `Authorization` explícito), `test/App.test.tsx` (redirect de sesión restaurada a
+  `/home`/`/kyc`) y `test/kyc.test.tsx` (`goHome` a `/home` vs `/` según sesión). 50/50 en
+  `movo-mobile`. `tsc --noEmit` sin errores.
+
+Pendiente / fuera de alcance de MOVO-76: `app/(app)/home.tsx` es un placeholder (perfil
+real es MOVO-78); no hay acción en `/home` para volver a `/kyc` y reintentar la
+verificación desde ahí (el único camino de retry sigue siendo dentro de `/kyc` mismo);
+DoD manual (TTL de 1 minuto en dev, cierre/reapertura de la app con sesión activa) —
+pendiente de correr contra el backend real, no verificado en esta sesión.

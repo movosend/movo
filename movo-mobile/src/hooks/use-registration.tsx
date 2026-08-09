@@ -238,6 +238,16 @@ interface RegistrationContextValue {
   createKycSession: () => Promise<{ ok: boolean; sessionToken?: string }>;
   refreshKycStatus: () => Promise<void>;
   resetRegistration: () => Promise<void>;
+  /** Puebla este contexto con la sesión que devuelve `login()` para una cuenta cuyo
+   * KYC todavía no está aprobado — permite que `/kyc` (MOVO-73) sea la misma pantalla
+   * de resultado tanto viniendo del wizard de registro como de un login a una cuenta
+   * ya existente, en vez de una pantalla propia del login (ver `login.tsx`). */
+  hydrateFromLogin: (session: {
+    userId: string;
+    accessToken: string;
+    refreshToken: string;
+    kycStatus: KycStatus;
+  }) => Promise<void>;
 }
 
 const RegistrationContext = createContext<RegistrationContextValue | null>(null);
@@ -259,7 +269,8 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
   const [longitude, setLongitude] = useState<number | null>(null);
   // Tokens de sesión que emite `register()` (PR #51 de MOVO-72) — necesarios para el
   // header `Authorization` de /kyc/session y /kyc/status, protegidas desde ese mismo
-  // cambio. `refreshToken` no se usa todavía (MOVO-76), se guarda por si acaso.
+  // cambio. `refreshToken` no se consume acá a propósito — ver comentario de la
+  // "Limitación aceptada" más abajo.
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
@@ -270,11 +281,13 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
   // (protegida desde PR #51 de MOVO-72). El paso en el que está el usuario se sigue
   // derivando siempre del backend (`kycStatus`), nunca de estado local.
   //
-  // Limitación aceptada de este sprint (documentada en MOVO-73, pendiente explícito
-  // en MOVO-76): el access token dura 60min y no hay refresh automático todavía. Si
-  // el usuario reabre la app después de que expiró, `getKycStatus` devuelve 401 y acá
-  // se trata igual que "no hay registro pendiente" — se limpia el storage y arranca
-  // el wizard desde cero, en vez de intentar refrescar.
+  // Limitación aceptada, decidida a propósito (no pendiente): el access token dura
+  // 60min y este flujo no usa el refresh automático de MOVO-76 (`src/store/
+  // auth-store.ts`) — es un token efímero de un wizard que todavía no terminó, no una
+  // sesión autenticada, y sumarle refresh acoplaría dos conceptos que el código separa
+  // a propósito (ver comentario en `secure-store.ts`). Si el usuario reabre la app
+  // después de que expiró, `getKycStatus` devuelve 401 y acá se trata igual que "no
+  // hay registro pendiente" — se limpia el storage y arranca el wizard desde cero.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -504,6 +517,26 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
     }
   }, [accessToken]);
 
+  const hydrateFromLogin = useCallback(
+    async (session: {
+      userId: string;
+      accessToken: string;
+      refreshToken: string;
+      kycStatus: KycStatus;
+    }) => {
+      setUserId(session.userId);
+      setAccessToken(session.accessToken);
+      setKycStatus(session.kycStatus);
+      setManualReviewReason(null);
+      await Promise.all([
+        secureStore.setItem(SECURE_STORE_KEYS.pendingRegistrationUserId, session.userId),
+        secureStore.setItem(SECURE_STORE_KEYS.pendingRegistrationAccessToken, session.accessToken),
+        secureStore.setItem(SECURE_STORE_KEYS.pendingRegistrationRefreshToken, session.refreshToken),
+      ]);
+    },
+    [],
+  );
+
   const resetRegistration = useCallback(async () => {
     await Promise.all([
       secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationUserId),
@@ -553,6 +586,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       createKycSession,
       refreshKycStatus,
       resetRegistration,
+      hydrateFromLogin,
     }),
     [
       fields,
@@ -580,6 +614,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       createKycSession,
       refreshKycStatus,
       resetRegistration,
+      hydrateFromLogin,
     ],
   );
 
