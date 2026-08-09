@@ -1,24 +1,7 @@
 import { FastifyInstance, FastifyRequest } from "fastify";
-import { ApiError } from "@movo/shared";
 import { createUsersService } from "./users.service";
 import { usersSchemas } from "./users.schema";
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * El `userId` sale del header `x-user-id`, inyectado por el gateway después de
- * validar el JWT (ADR-010) — mismo criterio que `kyc.routes.ts#requireUserIdFromHeader`.
- * Un valor ausente o mal formado significa que la request no pasó por el gateway como
- * se esperaba, no que el usuario no exista (eso lo resuelve el service con 404).
- */
-function requireUserIdFromHeader(request: FastifyRequest): string {
-  const raw = request.headers["x-user-id"];
-  const userId = Array.isArray(raw) ? raw[0] : raw;
-  if (!userId || !UUID_PATTERN.test(userId)) {
-    throw new ApiError(401, "AUTH_TOKEN_INVALID", "Falta autenticación válida para esta operación.");
-  }
-  return userId;
-}
+import { requireUserIdFromHeader } from "../../utils/require-user-id";
 
 export default async function usersRoutes(app: FastifyInstance) {
   const service = createUsersService(app.db);

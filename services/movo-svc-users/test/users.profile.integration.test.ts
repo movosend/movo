@@ -184,5 +184,37 @@ describe("GET /users/me y GET /users/:id (MOVO-77)", () => {
       expect(response.statusCode).toBe(401);
       expect(JSON.parse(response.body).error.code).toBe("AUTH_TOKEN_INVALID");
     });
+
+    it("devuelve 404 USER_NOT_FOUND para una cuenta deleted (review de PR #55: baja lógica, tratada como inexistente)", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput());
+      await app.db.user.update({ where: { id: target.id }, data: { status: "deleted" } });
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/users/${target.id}`,
+        headers: { "x-user-id": caller.id },
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(JSON.parse(response.body).error.code).toBe("USER_NOT_FOUND");
+    });
+
+    it("sigue devolviendo el perfil para una cuenta banned (review de PR #55: sanción reversible, no baja voluntaria)", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput({ firstName: "Juan", lastName: "Perez" }));
+      await app.db.user.update({ where: { id: target.id }, data: { status: "banned" } });
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/users/${target.id}`,
+        headers: { "x-user-id": caller.id },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.fullName).toBe("Juan Perez");
+      expect(body).not.toHaveProperty("accountStatus");
+    });
   });
 });

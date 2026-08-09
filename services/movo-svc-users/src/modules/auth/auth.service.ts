@@ -12,7 +12,7 @@ import {
 } from "@movo/shared";
 import { createUserRepository } from "../../repositories/user-repository";
 import { createSessionRepository } from "../../repositories/session-repository";
-import { User, UserConflictError, CreateUserAddressInput } from "../../models/user";
+import { User, UserConflictError, CreateUserAddressInput, fullName } from "../../models/user";
 import type { PhoneVerificationService } from "./phone-verification.service";
 
 /** Roles por defecto al registrarse (AC8): todo usuario puede operar como emisor y transportista. */
@@ -166,7 +166,7 @@ export function createAuthService(
       refreshToken: buildRefreshToken(user.id, tokenId, secret),
       expiresIn: 3600,
       kycStatus: user.kycStatusIdentity,
-      fullName: `${user.firstName} ${user.lastName}`,
+      fullName: fullName(user),
       roles: user.roles,
     };
   }

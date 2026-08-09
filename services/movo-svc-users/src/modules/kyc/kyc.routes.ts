@@ -3,30 +3,12 @@ import { ApiError } from "@movo/shared";
 import { createKycService, DiditWebhookPayload } from "./kyc.service";
 import { kycSchemas } from "./kyc.schema";
 import { createDiditClient, DiditClient } from "../../adapters/didit-client";
+import { requireUserIdFromHeader } from "../../utils/require-user-id";
 
 export interface KycRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de red/credenciales
    * reales de Didit.me, mismo criterio que `smsProvider` en `auth.routes.ts`. */
   diditClient?: DiditClient;
-}
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * El `userId` sale del header `x-user-id`, inyectado por el gateway después de
- * validar el JWT (ADR-010) — revisión de PR #51 (tmvergara), reemplaza el `userId`
- * explícito en body/querystring de la primera versión (rutas sin JWT, seguimiento en
- * MOVO-94). Un valor ausente o mal formado acá significa que la request no pasó por
- * el gateway como se esperaba (o alguien está pegándole directo al servicio) — no es
- * el caso de "usuario no encontrado" (eso lo resuelve el service con 404).
- */
-function requireUserIdFromHeader(request: FastifyRequest): string {
-  const raw = request.headers["x-user-id"];
-  const userId = Array.isArray(raw) ? raw[0] : raw;
-  if (!userId || !UUID_PATTERN.test(userId)) {
-    throw new ApiError(401, "AUTH_TOKEN_INVALID", "Falta autenticación válida para esta operación.");
-  }
-  return userId;
 }
 
 declare module "fastify" {

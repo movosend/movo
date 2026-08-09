@@ -1,12 +1,14 @@
 import { AccountStatus, KycStatus, UserRole } from "@movo/shared";
-import { User } from "./user";
+import { User, fullName } from "./user";
 
 /**
- * Insignias calculadas desde el estado real del usuario (MOVO-77 AC5). Por ahora hay
- * una sola posible: `"licencia_verificada"` se suma cuando exista MOVO-15
- * (verificación de licencia de conducir), todavía sin implementar.
+ * Insignias calculadas desde el estado real del usuario (MOVO-77 AC5). Por ahora la
+ * única posible es `"kyc_verified"`; MOVO-15 sumará `"license_verified"` cuando exista
+ * verificación de licencia de conducir. En inglés a propósito (review de PR #55,
+ * tmvergara): es un valor que el móvil matchea, y el resto de los enums de wire
+ * contract (`UserRole`, `KycStatus`, `AccountStatus`) ya están en inglés.
  */
-export type ProfileBadge = "kyc_verified";
+export type ProfileBadge = "kyc_verified" | "license_verified";
 
 /**
  * Contadores de transacciones por rol. Sin tablas de envíos todavía (MOVO-25) — el
@@ -21,6 +23,14 @@ export interface TransactionCounts {
 /**
  * Perfil completo del usuario autenticado (`GET /users/me`, AC1). Interno del wire
  * contract de este endpoint — nunca se expone en la proyección pública.
+ *
+ * **No incluye `phoneVerified`/`dni`/`birthdate`** (review de PR #55, tmvergara):
+ * AC1 no los pide, y quedan afuera a propósito hasta confirmar con quien implemente
+ * MOVO-31 (editar datos personales) si hacen falta — sumarlos ahora es barato,
+ * sumarlos después de fijado el contrato implica una segunda vuelta de backend +
+ * release del móvil. Si se necesitan, van solo acá (nunca en `PublicProfile`: `dni`
+ * y `birthdate` son datos personales sensibles, el mismo caso que AC3 previene por
+ * construcción para el resto de los campos).
  */
 export interface PrivateProfile {
   id: string;
@@ -60,7 +70,7 @@ function computeBadges(user: User): ProfileBadge[] {
   if (user.kycStatusIdentity === KycStatus.APPROVED) {
     badges.push("kyc_verified");
   }
-  // TODO(MOVO-15): sumar "licencia_verificada" cuando exista verificación de licencia.
+  // TODO(MOVO-15): sumar "license_verified" cuando exista verificación de licencia.
   return badges;
 }
 
@@ -77,7 +87,7 @@ export function toPrivateProfile(user: User): PrivateProfile {
     id: user.id,
     firstName: user.firstName,
     lastName: user.lastName,
-    fullName: `${user.firstName} ${user.lastName}`,
+    fullName: fullName(user),
     email: user.email,
     phone: user.phone,
     photoUrl: user.photoUrl,
@@ -95,7 +105,7 @@ export function toPrivateProfile(user: User): PrivateProfile {
 export function toPublicProfile(user: User): PublicProfile {
   return {
     id: user.id,
-    fullName: `${user.firstName} ${user.lastName}`,
+    fullName: fullName(user),
     photoUrl: user.photoUrl,
     isVerified: user.kycStatusIdentity === KycStatus.APPROVED,
     badges: computeBadges(user),

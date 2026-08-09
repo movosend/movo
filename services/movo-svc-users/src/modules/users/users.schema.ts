@@ -3,8 +3,8 @@
 const KYC_STATUS_VALUES = ["not_started", "pending", "approved", "rejected", "expired", "manual_review"];
 const ACCOUNT_STATUS_VALUES = ["active", "banned", "deleted"];
 const USER_ROLE_VALUES = ["sender", "carrier", "admin"];
-// MOVO-15 sumará "licencia_verificada" cuando exista verificación de licencia.
-const PROFILE_BADGE_VALUES = ["kyc_verified"];
+// MOVO-15 sumará "license_verified" cuando exista verificación de licencia.
+const PROFILE_BADGE_VALUES = ["kyc_verified", "license_verified"];
 
 const transactionCounts = {
   type: "object",
