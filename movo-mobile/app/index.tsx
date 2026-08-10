@@ -24,7 +24,7 @@ export default function WelcomeScreen() {
   // ramificación por kycStatus que ya usa `login.tsx#handleLogin`: aprobado → directo a
   // `/home`; cualquier otro estado → hidrata el contexto de registro (para que `/kyc`
   // pueda leer `kycStatus` y ofrecer reintentar/revisar) y manda ahí, nunca a `/home`
-  // con un aviso — eso es lo que muestra ese mismo estado dentro de `(app)/home.tsx`
+  // con un aviso — eso es lo que muestra ese mismo estado dentro de `(app)/(tabs)/home.tsx`
   // para el caso de un usuario que llega aprobado y luego su KYC vence, no el de recién
   // entrar. `authRedirectedRef` evita relanzar el efecto ante cada re-render mientras la
   // navegación está en curso (`hydrateFromLogin` es async).
