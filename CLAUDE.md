@@ -1698,3 +1698,94 @@ real es MOVO-78); no hay acción en `/home` para volver a `/kyc` y reintentar la
 verificación desde ahí (el único camino de retry sigue siendo dentro de `/kyc` mismo);
 DoD manual (TTL de 1 minuto en dev, cierre/reapertura de la app con sesión activa) —
 pendiente de correr contra el backend real, no verificado en esta sesión.
+
+### MOVO-78 — Pantalla de perfil propio con estado de KYC, insignias y logout (`movo-mobile`)
+
+Implementado: tab bar de 3 pestañas (`app/(app)/(tabs)/_layout.tsx`: Inicio/Transportar/
+Ajustes), pantalla real de perfil (`app/(app)/(tabs)/profile.tsx`) compuesta a partir de
+piezas en `components/profile/` (`profile-avatar`, `profile-badges`,
+`profile-verified-badge`, `profile-kyc-status-banner`, `profile-stats-row`,
+`profile-private-section`, `profile-settings-section`, `profile-logout-button`,
+`profile-skeleton`, `profile-error-state`), `src/hooks/use-profile.ts` (`GET /users/me`
+sobre TanStack Query), `src/api/users-client.ts`, `src/lib/profile-format.ts` (AC10) y
+`src/lib/kyc-status-ui.ts` (tono/ícono/label por `KycStatus`).
+
+Decisiones clave:
+- **Tipos de wire contract migrados de `movo-svc-users` a `@movo/shared`**:
+  `ProfileBadge`/`TransactionCounts`/`PrivateProfile`/`PublicProfile` (definidos en
+  MOVO-77 dentro de `services/movo-svc-users/src/models/user-profile.ts`) pasan a
+  `shared/movo-shared/src/types/user-profile.ts` — el mobile los necesitaba sin
+  duplicarlos, mismo criterio que ya usa el resto del proyecto para wire contracts
+  (`UserRole`/`KycStatus`/`AccountStatus`). `models/user-profile.ts` del backend
+  re-exporta los tipos desde `@movo/shared` para no romper `users.service.ts`, y sigue
+  siendo el único lugar con las funciones de mapeo `User → PrivateProfile/PublicProfile`.
+  Import por subpath (`@movo/shared/dist/types/user-profile`), mismo motivo que el resto
+  del mobile (el barrel raíz arrastra `jsonwebtoken`/`node:crypto`, rompe Metro).
+- **AC10 ("el criterio que rompe la demo")**: `profile-format.ts` centraliza el
+  formateo de contadores/score con un guard `isMissing` explícito (`null`/`undefined`/
+  `NaN` → "Sin envíos aún"/"Sin viajes aún"/"Sin calificaciones"), nunca un `?? 0` ciego
+  (que dejaría pasar `NaN` tal cual, ya que `NaN ?? 0` es `NaN`). Test dedicado
+  (`test/profile-format.test.ts` + caso en `test/profile.test.tsx`) verifica que ni
+  `"0"` ni `"null"` ni `"NaN"` aparecen renderizados con el perfil en su estado real de
+  este sprint (todo en cero).
+- **AC3 (distinción pública/privada) resuelto con un componente que a propósito NO es
+  compatible con `PublicProfile`**: `ProfilePrivateSection` (header "Tus datos
+  personales" + ícono de candado) solo acepta `email`/`phone`, campos que no existen en
+  `PublicProfile` — la separación de tipos de MOVO-77 (AC3 de ese ticket) se refleja acá
+  como la separación de qué componente puede recibir qué dato, no con un flag visual
+  sobre un componente genérico.
+- **`kyc-status-ui.ts` factoriza tono/ícono/label por `KycStatus`**, reusado en el
+  banner del perfil, el badge (`ProfileVerifiedBadge`) y el resultado de `kyc.tsx`
+  (`app/(auth)/kyc.tsx`, que antes tenía su propio mapeo duplicado) — las 3 instancias
+  donde se muestra estado de KYC en la app quedan consistentes por construcción en vez
+  de tres mapeos que podían divergir. `app/(app)/home.tsx` (MOVO-76) también migrado a
+  este helper.
+- **AC6**: `ProfileKycStatusBanner` oculta el banner en `approved` (no hace falta alerta
+  cuando todo está bien) y ofrece "Ver estado" (solo `manual_review`, no hay nada que
+  reintentar con una revisión ya en curso) o "Reintentar verificación" (resto de los
+  estados no aprobados), navegando a `/kyc` en ambos casos.
+- **Reusabilidad para perfil público (guía del ticket, MOVO-17 todavía no existe)**:
+  `ProfileAvatar`/`ProfileStatsRow`/`ProfileBadges` documentan explícitamente en
+  comentario que sus props son compatibles con `PublicProfile` (mismos campos en ambas
+  proyecciones) — pensados para que la futura pantalla de perfil de otro usuario los
+  reuse sin reescritura, sin construir esa pantalla en este ticket.
+- **Restructuración de rutas del área autenticada**: `app/(app)/home.tsx` (MOVO-76) se
+  mueve a `app/(app)/(tabs)/home.tsx`, sumando `(tabs)/transport.tsx` (placeholder, sin
+  ticket propio — épica de transporte todavía no arrancó) y `(tabs)/profile.tsx`, todos
+  bajo el navigator de tabs nuevo. El archivo se sigue llamando `home.tsx` y no
+  `index.tsx` a propósito: un `index.tsx` ahí resolvería a la ruta `/` (los grupos
+  `(app)`/`(tabs)` no aportan al path) y colisionaría con `app/index.tsx` (bienvenida
+  pública) — con `home.tsx` el path externo sigue siendo `/home`, sin tocar los
+  `router.replace('/home')` existentes de MOVO-73/76.
+- **Tab bar flotante "glassy"** (`components/tab-bar/floating-tab-bar.tsx`, vía
+  `expo-blur`): reescrita tras feedback de que se veía mal en dispositivo real —
+  `blurMethod` default de `expo-blur` en Android no hace blur de verdad (superficie
+  semitransparente lisa); se activa el método experimental `dimezisBlurView` (librería
+  nativa de Dimezis) para blur real en Android, y en iOS se usan los materiales de
+  sistema (`systemUltraThinMaterial*`) en vez de `tint` genérico. Dependencias nuevas:
+  `expo-blur`, `expo-linear-gradient` (bordes tipo "specular reflection" en
+  `ProfileStatsRow`, RN no tiene border-gradient nativo).
+- **`jest.config.js` necesitó un resolver custom** (`react-native-worklets/jest/resolver.js`)
+  + `setupFiles` (`test/mocks/reanimated-setup.js`) para poder testear componentes que
+  tocan `react-native-reanimated`/`react-native-worklets` (ya eran dependencias del
+  proyecto, no nuevas de este ticket) — sin esto, Jest resuelve el módulo nativo real de
+  worklets (inexistente en test) en vez del stub, y falla incluso con el mock estándar
+  de reanimated puesto.
+- **`ProfileSettingsSection`** (6 ítems tipo "Cuenta y seguridad", "Notificaciones", etc.)
+  no estaba en los ACs — se agregó como fidelidad al Manual de Marca (AC9) para que la
+  pantalla no se vea vacía debajo del contenido real; todos los ítems están
+  deshabilitados visualmente y muestran `Alert.alert("Próximamente", ...)` al tocarlos,
+  ninguna de esas 6 pantallas existe todavía.
+
+Tests: 93/93 en `movo-mobile` (11 suites, incluye `profile.test.tsx`,
+`profile-format.test.ts`, `kyc-status-ui.test.ts`, `floating-tab-bar.test.tsx` nuevos).
+`tsc --noEmit` sin errores en `movo-mobile`, `movo-svc-users` (tras la migración de
+tipos) y build de `@movo/shared`. No se corrió la suite de integración de
+`movo-svc-users` en esta sesión (Docker no estaba levantado) — el cambio ahí es sólo
+re-exportar tipos ya existentes, sin tocar lógica de `users.service.ts`.
+
+Pendiente / fuera de alcance de MOVO-78: pantalla de perfil público de otro usuario
+(MOVO-17, explícitamente fuera de este ticket); tab "Transportar" es placeholder sin
+funcionalidad (épica futura); las 6 pantallas de `ProfileSettingsSection` no existen.
+Screenshot/video del flujo y casos de prueba manuales (DoD adicional) gestionados por
+el usuario fuera de este repo.
