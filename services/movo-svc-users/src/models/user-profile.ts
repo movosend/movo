@@ -1,69 +1,18 @@
-import { AccountStatus, KycStatus, UserRole } from "@movo/shared";
+import {
+  KycStatus,
+  type PrivateProfile,
+  type ProfileBadge,
+  type PublicProfile,
+  type TransactionCounts,
+} from "@movo/shared";
 import { User, fullName } from "./user";
 
-/**
- * Insignias calculadas desde el estado real del usuario (MOVO-77 AC5). Por ahora la
- * única posible es `"kyc_verified"`; MOVO-15 sumará `"license_verified"` cuando exista
- * verificación de licencia de conducir. En inglés a propósito (review de PR #55,
- * tmvergara): es un valor que el móvil matchea, y el resto de los enums de wire
- * contract (`UserRole`, `KycStatus`, `AccountStatus`) ya están en inglés.
- */
-export type ProfileBadge = "kyc_verified" | "license_verified";
-
-/**
- * Contadores de transacciones por rol. Sin tablas de envíos todavía (MOVO-25) — el
- * contrato queda fijo con ceros para que el móvil no necesite cambios cuando el dato
- * exista de verdad (AC6).
- */
-export interface TransactionCounts {
-  asSender: number;
-  asCarrier: number;
-}
-
-/**
- * Perfil completo del usuario autenticado (`GET /users/me`, AC1). Interno del wire
- * contract de este endpoint — nunca se expone en la proyección pública.
- *
- * **No incluye `phoneVerified`/`dni`/`birthdate`** (review de PR #55, tmvergara):
- * AC1 no los pide, y quedan afuera a propósito hasta confirmar con quien implemente
- * MOVO-31 (editar datos personales) si hacen falta — sumarlos ahora es barato,
- * sumarlos después de fijado el contrato implica una segunda vuelta de backend +
- * release del móvil. Si se necesitan, van solo acá (nunca en `PublicProfile`: `dni`
- * y `birthdate` son datos personales sensibles, el mismo caso que AC3 previene por
- * construcción para el resto de los campos).
- */
-export interface PrivateProfile {
-  id: string;
-  firstName: string;
-  lastName: string;
-  fullName: string;
-  email: string;
-  phone: string;
-  photoUrl: string | null;
-  kycStatus: KycStatus;
-  accountStatus: AccountStatus;
-  roles: UserRole[];
-  badges: ProfileBadge[];
-  transactionCounts: TransactionCounts;
-  reputationScore: number | null;
-}
-
-/**
- * Proyección pública de cualquier usuario (`GET /users/:id`, AC2). Tipo separado a
- * propósito (no un `Omit`/flag sobre `PrivateProfile`, AC3): nunca puede tener
- * `email`/`phone`/`accountStatus` porque esos campos no existen en este tipo — si se
- * agrega un dato sensible a `PrivateProfile` a futuro, no aparece acá salvo que se
- * decida explícitamente sumarlo también a este tipo y a `toPublicProfile`.
- */
-export interface PublicProfile {
-  id: string;
-  fullName: string;
-  photoUrl: string | null;
-  isVerified: boolean;
-  badges: ProfileBadge[];
-  transactionCounts: TransactionCounts;
-  reputationScore: number | null;
-}
+// Los tipos de wire contract (`ProfileBadge`, `TransactionCounts`, `PrivateProfile`,
+// `PublicProfile`) viven en `@movo/shared` (MOVO-78, migrados desde este archivo) —
+// movo-mobile los consume por subpath (`@movo/shared/dist/types/user-profile`) sin
+// duplicarlos. Este módulo re-exporta los tipos para no romper a `users.service.ts`,
+// y sigue siendo el único lugar con las funciones de mapeo `User` → proyección.
+export type { ProfileBadge, TransactionCounts, PrivateProfile, PublicProfile };
 
 function computeBadges(user: User): ProfileBadge[] {
   const badges: ProfileBadge[] = [];

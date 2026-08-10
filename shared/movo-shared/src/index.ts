@@ -23,3 +23,9 @@ export type { ApiErrorCode, SerializedApiError } from "./errors/api-error";
 // types
 export { UserRole, KycStatus, AccountStatus } from "./types/user";
 export { ShipmentStatus } from "./types/shipment";
+export type {
+  ProfileBadge,
+  TransactionCounts,
+  PrivateProfile,
+  PublicProfile,
+} from "./types/user-profile";
