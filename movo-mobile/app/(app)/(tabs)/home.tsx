@@ -1,9 +1,14 @@
 import { KycStatus } from '@movo/shared/dist/types/user';
-import { ShieldAlert } from 'lucide-react-native';
 import { Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { PrimaryButton } from '../../components/auth/primary-button';
-import { useAuth } from '../../src/hooks/use-auth';
+import { PrimaryButton } from '../../../components/auth/primary-button';
+import { useAuth } from '../../../src/hooks/use-auth';
+import { useThemeColors } from '../../../src/hooks/use-theme-colors';
+import {
+  KYC_TONE_ICON_HEX,
+  kycStatusIcon,
+  kycStatusTone,
+} from '../../../src/lib/kyc-status-ui';
 
 /**
  * Home placeholder del área autenticada (MOVO-76) — no hay todavía ninguna pantalla
@@ -24,7 +29,17 @@ const KYC_BANNER_TEXT: Partial<Record<KycStatus, string>> = {
 
 export default function AuthenticatedHomeScreen() {
   const { user, logout } = useAuth();
+  const colors = useThemeColors();
   const bannerText = user ? KYC_BANNER_TEXT[user.kycStatus] : undefined;
+  // Ícono/color por estado (src/lib/kyc-status-ui.ts, MOVO-78) en vez del `ShieldAlert`
+  // fijo de antes — mismo criterio visual que `kyc.tsx#RESULT_BADGE` y el badge de
+  // perfil, para que las 3 instancias donde se ve estado de KYC queden consistentes.
+  // El marco del banner (borde/fondo) se mantiene en warning para todos los casos que
+  // llegan acá: ningún valor de `KYC_BANNER_TEXT` es `APPROVED`, y el mensaje siempre es
+  // "tu acceso está restringido", no una alerta de rechazo — solo el ícono diferencia.
+  const tone = user ? kycStatusTone(user.kycStatus) : "warning";
+  const BannerIcon = user ? kycStatusIcon(user.kycStatus) : undefined;
+  const bannerIconColor = tone === "neutral" ? colors.fg2 : KYC_TONE_ICON_HEX[tone === "success" ? "warning" : tone];
 
   return (
     <SafeAreaView className="flex-1 bg-bg px-6 pt-8" edges={['top', 'bottom']}>
@@ -35,12 +50,12 @@ export default function AuthenticatedHomeScreen() {
         Ya estás dentro de Movo.
       </Text>
 
-      {bannerText ? (
+      {bannerText && BannerIcon ? (
         <View
           testID="app-home-kyc-banner"
           className="mb-5 flex-row items-start gap-2.5 rounded-[10px] border border-warning-300 bg-warning-100 px-3.5 py-3"
         >
-          <ShieldAlert size={18} color="#A97714" strokeWidth={1.8} />
+          <BannerIcon size={18} color={bannerIconColor} strokeWidth={1.8} />
           <Text className="flex-1 font-sans text-[13px] text-ink-950">{bannerText}</Text>
         </View>
       ) : null}

@@ -6,14 +6,9 @@ import type {
 import { router } from "expo-router";
 import {
   CameraOff,
-  Check,
-  Clock,
-  Hourglass,
   ShieldAlert,
-  TimerOff,
   TriangleAlert,
   WifiOff,
-  X,
   type LucideIcon,
 } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
@@ -24,6 +19,11 @@ import { PrimaryButton } from "../../components/auth/primary-button";
 import { ErrorBanner } from "../../components/ui/error-banner";
 import { useRegistration } from "../../src/hooks/use-registration";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import {
+  KYC_TONE_BG_CLASS,
+  KYC_TONE_ICON_HEX,
+  kycStatusIcon,
+} from "../../src/lib/kyc-status-ui";
 import { useAuthStore } from "../../src/store/auth-store";
 
 /**
@@ -115,15 +115,21 @@ const RESULT_COPY: Record<ResultKind, { title: string; body: string }> = {
  * dark en `global.css` (ver nota de dark mode en CLAUDE.md). El tono `neutral`
  * sí es temático: `bg-mute` + `fg-2` vía `useThemeColors()`.
  */
+// Los 5 casos que son 1:1 con un `KycStatus` (approved/declined/manual_review/
+// in_progress/sessionExpired, ver `kycStatusToResultKind` abajo) delegan ícono/tono a
+// `src/lib/kyc-status-ui.ts` (MOVO-78) para quedar consistentes con el banner de
+// `home.tsx` y el badge de perfil. Los `VerificationErrorType` del SDK de Didit
+// (networkError, cameraAccessDenied, etc.) son fallas del flujo de verificación, no
+// estados de KYC — siguen con su propio ícono/tono acá, sin tocar.
 const RESULT_BADGE: Record<
   ResultKind,
   { Icon: LucideIcon; tone: "success" | "danger" | "warning" | "neutral" }
 > = {
-  approved: { Icon: Check, tone: "success" },
-  declined: { Icon: X, tone: "danger" },
-  manual_review: { Icon: Hourglass, tone: "warning" },
-  in_progress: { Icon: Clock, tone: "warning" },
-  sessionExpired: { Icon: TimerOff, tone: "warning" },
+  approved: { Icon: kycStatusIcon(KycStatus.APPROVED), tone: "success" },
+  declined: { Icon: kycStatusIcon(KycStatus.REJECTED), tone: "danger" },
+  manual_review: { Icon: kycStatusIcon(KycStatus.MANUAL_REVIEW), tone: "warning" },
+  in_progress: { Icon: kycStatusIcon(KycStatus.PENDING), tone: "warning" },
+  sessionExpired: { Icon: kycStatusIcon(KycStatus.EXPIRED), tone: "warning" },
   networkError: { Icon: WifiOff, tone: "neutral" },
   cameraAccessDenied: { Icon: CameraOff, tone: "neutral" },
   notInitialized: { Icon: TriangleAlert, tone: "neutral" },
@@ -132,23 +138,11 @@ const RESULT_BADGE: Record<
   unknown: { Icon: TriangleAlert, tone: "neutral" },
 };
 
-const BADGE_TONE_CLASS: Record<
-  "success" | "danger" | "warning" | "neutral",
-  string
-> = {
-  success: "bg-lime-500",
-  danger: "bg-danger-100",
-  warning: "bg-warning-100",
-  neutral: "bg-bg-mute",
-};
+const BADGE_TONE_CLASS = KYC_TONE_BG_CLASS;
 
 // Hex y no className: `lucide-react-native` recibe el color por prop `color`,
 // que NativeWind no intercepta (mismo motivo que `use-theme-colors.ts`).
-const BADGE_ICON_COLOR: Record<"success" | "danger" | "warning", string> = {
-  success: "#0A0A0B", // ink-950, sobre el relleno lime
-  danger: "#C22F35", // danger-600
-  warning: "#A97714", // warning-700
-};
+const BADGE_ICON_COLOR = KYC_TONE_ICON_HEX;
 
 const RETRYABLE: ResultKind[] = [
   "declined",
@@ -306,7 +300,7 @@ export default function KycScreen() {
     // sesión restaurada a una cuenta con KYC no aprobado (MOVO-76,
     // `login.tsx#handleLogin` / `app/index.tsx`). Solo en el segundo caso hay una sesión
     // autenticada real para mandar a `/home` — que ya muestra el aviso de AC11
-    // (`app/(app)/home.tsx#KYC_BANNER_TEXT`) para cualquier estado no aprobado. Crítico
+    // (`app/(app)/(tabs)/home.tsx#KYC_BANNER_TEXT`) para cualquier estado no aprobado. Crítico
     // no mandar siempre a `/` acá: con el redirect de sesión restaurada de
     // `app/index.tsx` (AC7), un usuario autenticado que vuelve a `/` con KYC no
     // aprobado es enviado de nuevo a esta misma pantalla — "Ir al inicio" se convertía
