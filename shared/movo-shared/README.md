@@ -22,4 +22,4 @@ Es la zona de conflicto crítica de este paquete: agregá tu export como una lí
 
 ## Estado de los tipos de dominio
 
-`KycStatus` está tomado directamente del DER (`User.kyc_status_identity`). `UserRole`, `AccountStatus` y `ShipmentStatus` son provisorios — ver el comentario en MOVO-67 en Linear para el detalle de qué falta confirmar.
+`KycStatus` está tomado directamente del DER (`User.kyc_status_identity`). `UserRole` y `AccountStatus` son provisorios — ver el comentario en MOVO-67 en Linear para el detalle de qué falta confirmar. `ShipmentStatus` es el set canónico cerrado en MOVO-79/MOVO-105 (9 estados) — ya no es provisorio.
