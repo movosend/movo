@@ -1792,9 +1792,9 @@ el usuario fuera de este repo.
 
 ### MOVO-105 — Máquina de estados del ciclo de vida del envío (`svc-shipments`)
 
-Sub-issue de MOVO-79 (la otra mitad, MOVO-104/schema y migraciones, la trabaja en
-paralelo Lucas Dalmagro — el único punto de contacto es el enum de `status`, ya cerrado
-acá). Implementado `src/domain/shipment-state-machine.ts`: grafo explícito de
+Sub-issue de MOVO-79 (la otra mitad, MOVO-104/schema y migraciones, todavía en `Todo` —
+el único punto de contacto entre ambas es el enum de `status`, ya cerrado acá).
+Implementado `src/domain/shipment-state-machine.ts`: grafo explícito de
 transiciones válidas sobre los 9 estados canónicos de `ShipmentStatus`
 (`@movo/shared`), `canTransition()`/`transition()` (única vía de escritura de estado —
 lanza `InvalidShipmentTransitionError` ante una transición no listada) e
