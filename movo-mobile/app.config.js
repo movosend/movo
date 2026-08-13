@@ -74,6 +74,7 @@ module.exports = {
       "expo-font",
       "expo-splash-screen",
       "expo-router",
+      "expo-notifications",
       // Config explícita acá (no `ios.config.googleMapsApiKey`/`android.config.googleMaps.apiKey`)
       // a propósito: ese mod genérico de Expo agrega el pod `react-native-google-maps` en
       // iOS, que ya no existe en `react-native-maps@1.27` (se renombró a un subspec,

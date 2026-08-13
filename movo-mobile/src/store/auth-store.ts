@@ -4,6 +4,7 @@ import { authClient } from "../api/auth-client";
 import { registerAuthHooks } from "../api/http-client";
 import type { SessionResponse } from "../api/session-types";
 import { SECURE_STORE_KEYS, secureStore } from "../lib/secure-store";
+import { unregisterCurrentDevice } from "../lib/push-registration";
 
 export interface SessionUser {
   userId: string;
@@ -141,6 +142,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         // el backend queda viva hasta que expire sola (90 días, ADR-013) o se detecte
         // reuso del refresh token en un intento posterior.
       }
+    }
+    // MOVO-107 AC4: con la sesión todavía viva (httpClient necesita el accessToken
+    // para adjuntar `Authorization`) — `unregisterCurrentDevice()` ya tolera sus
+    // propios fallos internamente, pero se envuelve igual en `try/catch` acá (mismo
+    // criterio que `authClient.logout` arriba): un paso secundario nunca puede
+    // bloquear salir de la cuenta, ni siquiera si ese contrato interno cambiara.
+    try {
+      await unregisterCurrentDevice();
+    } catch {
+      // Tolerado a propósito, ver comentario de arriba.
     }
     await get().clearSession();
   },
