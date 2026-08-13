@@ -174,4 +174,74 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
       expect(response.statusCode).toBe(404);
     });
   });
+
+  describe("Rate limit estricto en ruta protegida: POST /users/me/photo/upload-url (MOVO-97, AC8)", () => {
+    // Cubre el gap real que encontró este ticket: getRateLimitOverrides() extiende el
+    // mecanismo de rate limit estricto (antes solo aplicable a getPublicRoutes()) a una
+    // ruta que SÍ exige JWT — sin ese cambio, esta ruta caía al límite general
+    // (RATE_LIMIT_MAX/min) en vez del propio {max:20, timeWindow:"15 minutes"}.
+    function issueToken(): string {
+      return signAccessToken({
+        sub: "33333333-3333-3333-3333-333333333333",
+        roles: [UserRole.SENDER, UserRole.CARRIER],
+        kycStatus: KycStatus.NOT_STARTED,
+      });
+    }
+
+    it("permite 20 intentos por IP y bloquea el 21vo con 429", async () => {
+      const testIp = `10.2.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`;
+      const token = issueToken();
+
+      for (let i = 0; i < 20; i++) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/v1/users/me/photo/upload-url",
+          headers: { authorization: `Bearer ${token}`, "x-forwarded-for": testIp },
+          payload: { contentType: "image/jpeg", contentLength: 1024 },
+        });
+        expect(response.statusCode).toBe(200);
+      }
+
+      const twentyFirst = await app.inject({
+        method: "POST",
+        url: "/api/v1/users/me/photo/upload-url",
+        headers: { authorization: `Bearer ${token}`, "x-forwarded-for": testIp },
+        payload: { contentType: "image/jpeg", contentLength: 1024 },
+      });
+
+      expect(twentyFirst.statusCode).toBe(429);
+    });
+
+    it("no afecta el límite general de otras rutas protegidas de /users, misma IP", async () => {
+      const testIp = `10.3.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`;
+      const token = issueToken();
+
+      for (let i = 0; i < 20; i++) {
+        await app.inject({
+          method: "POST",
+          url: "/api/v1/users/me/photo/upload-url",
+          headers: { authorization: `Bearer ${token}`, "x-forwarded-for": testIp },
+          payload: { contentType: "image/jpeg", contentLength: 1024 },
+        });
+      }
+
+      const otherRoute = await app.inject({
+        method: "GET",
+        url: "/api/v1/users/me",
+        headers: { authorization: `Bearer ${token}`, "x-forwarded-for": testIp },
+      });
+
+      expect(otherRoute.statusCode).toBe(200);
+    });
+
+    it("requiere autenticación (401 sin Authorization) — sigue siendo una ruta protegida, no pública", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/users/me/photo/upload-url",
+        payload: { contentType: "image/jpeg", contentLength: 1024 },
+      });
+
+      expect(response.statusCode).toBe(401);
+    });
+  });
 });
