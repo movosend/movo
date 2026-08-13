@@ -1,7 +1,13 @@
 import { FastifyInstance } from "fastify";
 import httpProxy from "@fastify/http-proxy";
 import { EnvConfig } from "../config/env";
-import { getServiceRoutes, getPublicRoutes, isPublicRoute, API_PREFIX } from "../config/routes-map";
+import {
+  getServiceRoutes,
+  getPublicRoutes,
+  getRateLimitOverrides,
+  isPublicRoute,
+  API_PREFIX,
+} from "../config/routes-map";
 
 // Sin fastify-plugin a propósito: este plugin no necesita exponer nada al
 // padre (a diferencia de auth.ts o rate-limit.ts), así que mantiene su
@@ -38,18 +44,26 @@ export default async function routesPlugin(
     keyGenerator: (request) => `general:${request.ip}`,
   });
 
+  // Union de dos fuentes: rutas públicas con rate limit propio (`getPublicRoutes()`,
+  // ej. /auth/login) y rutas PROTEGIDAS con rate limit propio (`getRateLimitOverrides()`,
+  // MOVO-97: /users/me/photo/upload-url exige JWT pero igual necesita un límite estricto
+  // — emitir presigned URLs es la puerta de entrada a escribir en el bucket de S3). El
+  // lookup en el preHandler es el mismo para las dos: por `method + path`, sin importar
+  // si la ruta es pública o no.
   const strictRateLimiters = new Map<string, ReturnType<typeof app.rateLimit>>();
-  for (const publicRoute of getPublicRoutes()) {
-    if (publicRoute.rateLimit) {
-      const routeKey = `${publicRoute.method} ${publicRoute.path}`;
-      strictRateLimiters.set(
-        routeKey,
-        app.rateLimit({
-          ...publicRoute.rateLimit,
-          keyGenerator: (request) => `${routeKey}:${request.ip}`,
-        })
-      );
-    }
+  const rateLimitedRoutes = [
+    ...getPublicRoutes().filter((r) => r.rateLimit),
+    ...getRateLimitOverrides(),
+  ];
+  for (const route of rateLimitedRoutes) {
+    const routeKey = `${route.method} ${route.path}`;
+    strictRateLimiters.set(
+      routeKey,
+      app.rateLimit({
+        ...route.rateLimit!,
+        keyGenerator: (request) => `${routeKey}:${request.ip}`,
+      })
+    );
   }
 
   for (const route of serviceRoutes) {
@@ -80,11 +94,11 @@ export default async function routesPlugin(
           : fullPath;
         const publicRoute = isPublicRoute(request.method, path);
 
-        // Rate limit: estricto si esta ruta puntual lo declara (ej. login),
-        // general en cualquier otro caso.
-        const strictLimiter = publicRoute?.rateLimit
-          ? strictRateLimiters.get(`${publicRoute.method} ${publicRoute.path}`)
-          : undefined;
+        // Rate limit: estricto si esta ruta puntual lo declara —pública (ej. login) o
+        // protegida (ej. /users/me/photo/upload-url, MOVO-97)—, general en cualquier
+        // otro caso. El lookup es independiente de si la ruta es pública: ver
+        // `rateLimitedRoutes` más arriba.
+        const strictLimiter = strictRateLimiters.get(`${request.method.toUpperCase()} ${path}`);
         await (strictLimiter ?? generalLimiter).call(app, request, reply);
 
         if (publicRoute) {
