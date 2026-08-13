@@ -103,6 +103,14 @@ services:
       # presente pero vacía no matchea el enum de envSchema y tira el servicio abajo al boot.
       - GEOCODING_PROVIDER=${GEOCODING_PROVIDER:-mock}
       - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      # MOVO-97: mismo criterio de `:-mock` que SMS_PROVIDER/DIDIT_MODE/GEOCODING_PROVIDER
+      # arriba — una var presente pero vacía no matchea el enum de envSchema y tira el
+      # servicio abajo al boot. Sin AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY a propósito:
+      # las credenciales de AWS salen del IAM role de la instancia EC2 (ADR-007/015), no
+      # de una env var.
+      - STORAGE_PROVIDER=${STORAGE_PROVIDER:-mock}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - S3_REGION=${S3_REGION}
     depends_on:
       - postgres
       - redis
