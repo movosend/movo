@@ -94,13 +94,14 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 | 005 | REST + `/api/v1/` + Socket.io para tracking; Swagger autogenerado | Over-fetching mitigado con query params de proyección |
 | 006 | EC2 + Docker Compose (no K8s/PaaS/ECS); frontends Next.js en Vercel | Sin auto-scaling; sin alta disponibilidad (aceptado para el alcance del TFG) |
 | 007 | AWS S3 con presigned URLs para imágenes de envíos (nunca BLOBs en Postgres ni filesystem local) | Cliente implementa flujo de 2 pasos (pedir URL, hacer PUT) |
-| 008 | Google Maps Distance Matrix API para la matriz de costos del VRPTW | Costo por llamada (N²) y dependencia de red en el camino crítico |
+| 008 | Google Maps Distance Matrix API para la matriz de costos del VRPTW (REEMPLAZADO por ADR-013: migración a Routes API, Compute Route Matrix) | Costo por llamada (N²) y dependencia de red en el camino crítico |
 | 009 | Terraform (AWS + Cloudflare) reemplaza aprovisionamiento manual | Curva de aprendizaje de HCL/state management |
 | 010 | Gateway: servicios internos confían en `x-user-*` sin revalidar (se apoya en que solo el gateway expone puerto público) | Si un atacante llega a la red interna, el modelo de confianza cae — perimetral, no zero-trust |
 | 011 | Prisma como ORM estándar para todos los servicios Node de MOVO (primera implementación en `movo-svc-users`, los demás lo adoptan al tener dominio real) | Curva de aprendizaje del equipo; requiere driver adapter (`@prisma/adapter-pg`, Prisma 7) y baselinear las 2 migraciones SQL ya aplicadas como histórico |
 | 012 | Twilio como proveedor de SMS para OTP (MOVO-71), detrás de una interfaz `SmsProvider`; implementación de consola es el default de dev/test/CI, Twilio real queda reservado para la demo final | Sin envío real de SMS fuera de la demo — limitación aceptada para no incurrir en costos de una API externa de pago (riesgo R10 del plan de proyecto); el adapter (riesgo R11) permite activar Twilio de verdad solo cambiando `SMS_PROVIDER` |
 | 013 | Refresh token con TTL extendido de 7 a 90 días (MOVO-75), reemplazando el valor original de ADR-004 — prioridad del equipo: minimizar cuánto tienen que volver a loguearse los usuarios en una app que no maneja datos bancarios | Ventana de exposición mayor si un refresh token es robado; mitigado por la rotación de un solo uso + detección de reuso que introduce la misma US (reusar un refresh ya canjeado revoca todas las sesiones del usuario) |
-| 014 | Google Maps como proveedor de geocoding para el paso de mapa del wizard de registro (MOVO-73), detrás de una interfaz `GeocodingProvider`; mock determinístico es el default de dev/test/CI, Google real vía `GEOCODING_PROVIDER=google` — primera implementación real de un servicio de Google Maps en el proyecto pese a que ADR-008 ya lo había decidido para `movo-svc-pricing-logistics` (todavía un esqueleto) | Dos API keys de Google distintas a provisionar (Geocoding API server-side, restringida por IP; Maps SDK client-side del mobile, restringida por bundle id/SHA) — ninguna cargada todavía, mismo estado pendiente que las credenciales de Twilio/Didit |
+| 014 | Google Maps como proveedor de geocoding para el paso de mapa del wizard de registro (MOVO-73), detrás de una interfaz `GeocodingProvider`; mock determinístico es el default de dev/test/CI, Google real vía `GEOCODING_PROVIDER=google` — primera implementación real de un servicio de Google Maps en el proyecto pese a que ADR-008/ADR-013 ya lo habían decidido para `movo-svc-pricing-logistics` (todavía un esqueleto) | Dos API keys de Google distintas a provisionar (Geocoding API server-side, restringida por IP; Maps SDK client-side del mobile, restringida por bundle id/SHA) — ninguna cargada todavía, mismo estado pendiente que las credenciales de Twilio/Didit |
+| 015 | Google Routes API (método `Compute Route Matrix`, tier Basic) reemplaza Distance Matrix API (ADR-008, declarada Legacy) — consumida desde `movo-svc-pricing-logistics` con cuota diaria dura en GCP y `GOOGLE_MAPS_MAX_ELEMENTS` como salvaguarda de costos | Tier Basic ($5/1.000 elem, sin tráfico en vivo/peajes); límite de 625 elementos por request y streaming |
 
 ## Convenciones de código
 
@@ -207,6 +208,18 @@ historias, 284hs. Backlog detallado y estimaciones por historia en Drive.
 
 _Sección viva — agregar una entrada corta por US/sprint relevante, no borrar el
 historial de entradas anteriores salvo que queden completamente obsoletas._
+
+### MOVO-50 — Spike: Algoritmo VRPTW con Google OR-Tools
+
+Spike técnica de investigación y benchmarking del motor de ruteo de vehículos con ventanas horarias y pares de retiro/entrega (VRPPDTW).
+Entregables publicados en `docs/or-tools/` (`vrptw-spike-report.md` y `vrptw_prototype.py`).
+
+Decisiones clave:
+- Flujo de invocación en Movo (MOVO-18, MOVO-10): el transportista posee un viaje activo (ej. Córdoba -> Villa María). Se evalúa el desvío marginal por candidato.
+- Prefiltro Geométrico al Segmento (CA 6): mide la distancia ortogonal del paquete al segmento de recta $Origen \to Destino$. Paquetes a $> 15\text{ km}$ (ej. Carlos Paz) son descartados localmente sin llamados a OR-Tools ni a Google Maps APIs.
+- ADR-013 (Adenda a ADR-008): adopta Google Routes API (`Compute Route Matrix`, tier Basic) para `movo-svc-pricing-logistics`. Mock Haversine reservado para dev/test/spikes.
+- Reutilización de Ruta y Cache (CA 7): la solución resuelta para el feed se cachea. Al presionar "Aceptar oferta", se recupera en $0.00\text{ ms}$ ($0$ llamados adicionales a OR-Tools).
+- SLA & Fallback: resolución en $< 50\text{ ms}$ para hasta 20 envíos con *First Solution Strategy*. Fallback de heurística Greedy determinística en $< 0.2\text{ ms}$.
 
 ### MOVO-67 — Librería compartida (`@movo/shared`)
 
