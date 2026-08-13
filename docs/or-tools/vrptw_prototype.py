@@ -16,7 +16,7 @@ Documentation: docs/or-tools/vrptw-spike-report.md
 import math
 import time
 from dataclasses import dataclass, field
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict
 
 # Attempt to import ortools
 try:
@@ -304,7 +304,6 @@ class VRPTWCandidatoEvaluator:
                 "service_time": nodes[node_idx].service_time
             })
 
-            prev_index = index
             index = solution.Value(routing.NextVar(index))
             next_node_idx = manager.IndexToNode(index)
 
@@ -370,11 +369,11 @@ def run_guided_demo():
 
     evaluator = VRPTWCandidatoEvaluator(origin, destination, avg_speed_kmh=75.0)
 
-    print(f"📍 Viaje Activo Declarado por Transportista:")
+    print("📍 Viaje Activo Declarado por Transportista:")
     print(f"   • Origen: {origin.name} ({origin.lat}, {origin.lon})")
     print(f"   • Destino: {destination.name} ({destination.lat}, {destination.lon})")
     print(f"   • Distancia directa estimada (Haversine): {evaluator.direct_dist_km:.2f} km")
-    print(f"   • Tiempo directo estimado (a 75 km/h): {evaluator.direct_time_min} min (~{evaluator.direct_time_min/60.1:.1f} horas)")
+    print(f"   • Tiempo directo estimado (a 75 km/h): {evaluator.direct_time_min} min (~{evaluator.direct_time_min / 60.0:.1f} horas)")
     print("-" * 85 + "\n")
 
     candidates = [
@@ -478,8 +477,8 @@ def run_guided_demo():
     cached_solution = solution_cache.get(accepted_id)
     reuse_elapsed_ms = (time.perf_counter() - start_reuse_time) * 1000.0
 
-    print(f"   ✅ Solución recuperada desde Cache de Redis/Servicio:")
-    print(f"      • Llamadas a OR-Tools en esta etapa: 0")
+    print("   ✅ Solución recuperada desde Cache de Redis/Servicio:")
+    print("      • Llamadas a OR-Tools en esta etapa: 0")
     print(f"      • Tiempo de recuperación: {reuse_elapsed_ms:.3f} ms")
     print(f"      • Coincidencia exacta de ruta y tiempos: {'100% VERIFICADO' if cached_solution == top_route else 'FALLO'}")
     print("\n" + "="*85)
