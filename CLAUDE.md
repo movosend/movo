@@ -1789,3 +1789,69 @@ Pendiente / fuera de alcance de MOVO-78: pantalla de perfil público de otro usu
 funcionalidad (épica futura); las 6 pantallas de `ProfileSettingsSection` no existen.
 Screenshot/video del flujo y casos de prueba manuales (DoD adicional) gestionados por
 el usuario fuera de este repo.
+
+### MOVO-105 — Máquina de estados del ciclo de vida del envío (`svc-shipments`)
+
+Sub-issue de MOVO-79 (la otra mitad, MOVO-104/schema y migraciones, todavía en `Todo` —
+el único punto de contacto entre ambas es el enum de `status`, ya cerrado acá).
+Implementado `src/domain/shipment-state-machine.ts`: grafo explícito de
+transiciones válidas sobre los 9 estados canónicos de `ShipmentStatus`
+(`@movo/shared`), `canTransition()`/`transition()` (única vía de escritura de estado —
+lanza `InvalidShipmentTransitionError` ante una transición no listada) e
+`INITIAL_SHIPMENT_STATUS`. No depende de que la migración de MOVO-104 esté aplicada
+(el módulo es dominio puro, sin DB) — consistente con la guía del ticket.
+
+Decisiones clave:
+- **`ShipmentStatus` (`shared/movo-shared/src/types/shipment.ts`) reemplazado por
+  completo**: los 5 valores provisorios de MOVO-67
+  (`created`/`matched`/`in_transit`/`delivered`/`cancelled`) no se usaban todavía en
+  ningún lado del código (verificado con grep antes del cambio — solo aparecían en el
+  propio archivo, el barrel de `index.ts` y el README), así que no hubo que migrar
+  ningún caller. Pasa a ser el set canónico de 9 estados de MOVO-79 (criterio 6):
+  `awaiting_receiver_confirmation`, `rejected_by_receiver`, `published`,
+  `assignment_pending`, `assigned`, `in_transit`, `delivered`, `cancelled`, `disputed`.
+- **El DTE se modeló primero fuera del código** (AC4): diagrama en Drive
+  (`Maquina de estados Shipment.jpg`/`.pdf`, adjuntado al issue de Linear) transcripto
+  después 1:1 a Mermaid en `docs/shipments/state-diagram.md` (mismo criterio que
+  `docs/kyc/state-diagram.md` de MOVO-72: versionado junto al código, se actualiza en
+  el mismo PR si el código cambia). El código es la única fuente de verdad ejecutable;
+  el diagrama documenta el mismo grafo para la cátedra.
+- **13 transiciones válidas, tal como las definió el diagrama** — en particular,
+  "emisor cancela" aparece en **cuatro** estados de origen distintos, no solo antes de
+  `assigned` como sugeriría a primera lectura el AC de MOVO-29 ("cancelar antes de que
+  sea asignado ... sin penalización"): `awaiting_receiver_confirmation`, `published` y
+  `assignment_pending` cancelan sin penalización (consistente con MOVO-29), pero el
+  diagrama agrega una cuarta arista `assigned -> cancelled` ("con penalización") que
+  MOVO-29 no cubre — todavía no hay ticket que implemente esa penalización, la arista
+  queda modelada a nivel de dominio a la espera de esa US futura. A partir de
+  `in_transit` ya no hay cancelación, solo `disputed` (reclamo).
+- **`disputed` queda sin transición de salida en este módulo, a propósito** (no es
+  necesariamente terminal en el negocio, pero no hay ticket que defina a qué estado
+  vuelve una disputa resuelta — MOVO-30 abre la disputa, la resolución es de un admin,
+  MOVO-32, sprint posterior). Modelar una transición de salida inventada habría
+  adelantado una decisión de producto que el equipo no tomó todavía.
+- Error de dominio (`InvalidShipmentTransitionError`, con `from`/`to` tipados) en vez de
+  `ApiError` directo — mismo patrón que `InvalidEnumValueError`/`UserConflictError` de
+  `svc-users`/`models/user.ts`: este módulo es dominio puro, la traducción a
+  `ApiError`/código HTTP es responsabilidad de la capa que lo consuma (MOVO-80/81/82,
+  todavía no implementadas — AC2 de este ticket se termina de verificar recién ahí).
+- `vitest.config.ts` del servicio: se sumó `src/domain/**/*.ts` al `include` de
+  cobertura (antes solo medía `src/modules/**/*.service.ts`/`*.repository.ts`, dejando
+  afuera este módulo nuevo).
+
+Tests: `test/shipment-state-machine.test.ts` — las 13 transiciones válidas del DTE +
+8 inválidas representativas (saltear estados, cancelar después de `in_transit`, salir
+de un estado terminal, revertir una transición válida, no-op al mismo estado), más un
+test que verifica que todo estado no terminal tiene salida definida en el propio
+diagrama de test (evita que una transición nueva en el código quede sin reflejarse en
+la lista de válidas del test). 24/24 en verde, 100% de statements/branches en
+`shipment-state-machine.ts`. `tsc --noEmit`/`eslint` sin errores en `svc-shipments` y
+en `@movo/shared`.
+
+Pendiente / fuera de alcance de MOVO-105: AC2 (ningún repositorio permite un `UPDATE`
+directo de `status`) se termina de verificar cuando MOVO-80/81/82 consuman este módulo
+— hoy no hay ningún repositorio real de `shipments` todavía (`shipments.repository.ts`
+sigue siendo un stub). Penalización de la cancelación post-`assigned` (solo modelada
+como arista válida, sin lógica de negocio de cuál es la penalización ni quién la
+cobra) y transición de salida de `disputed` — ambas, tickets futuros sin abrir
+todavía.
