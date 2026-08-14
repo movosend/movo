@@ -14,6 +14,7 @@ export interface UserRepository {
   create(input: CreateUserInput): Promise<User>;
   updateKycStatusIdentity(id: string, status: KycStatus): Promise<User | null>;
   updateKycStatusLicense(id: string, status: KycStatus): Promise<User | null>;
+  updatePhotoUrl(id: string, photoUrl: string | null): Promise<User | null>;
 }
 
 type UserWithRoles = Prisma.UserGetPayload<{ include: { roles: true } }>;
@@ -179,6 +180,22 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         const row = await db.user.update({
           where: { id },
           data: { kycStatusLicense: status as unknown as PrismaKycStatus },
+          include: { roles: true },
+        });
+        return toDomainUser(row);
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return null;
+        }
+        throw error;
+      }
+    },
+
+    async updatePhotoUrl(id: string, photoUrl: string | null): Promise<User | null> {
+      try {
+        const row = await db.user.update({
+          where: { id },
+          data: { photoUrl },
           include: { roles: true },
         });
         return toDomainUser(row);
