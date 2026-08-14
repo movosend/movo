@@ -139,6 +139,12 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
     },
 
     async updateStatus(id: string, to: ShipmentStatus, actorId: string | null, reason?: string): Promise<Shipment> {
+      // Limitación conocida (TOCTOU, MOVO-118): este findUnique corre fuera
+      // de la transacción del update de abajo, sin lock atómico — dos
+      // transiciones casi simultáneas del mismo envío pueden leer el mismo
+      // `status` viejo y la segunda pisa a la primera sin revalidar. Mismo
+      // tipo de gap aceptado en MOVO-75/MOVO-115; no bloqueante para este
+      // sprint (sin asignación automática ni alta concurrencia todavía).
       const current = await db.shipment.findUnique({ where: { id } });
       if (!current) {
         throw new ShipmentNotFoundError(id);

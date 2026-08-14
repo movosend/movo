@@ -1905,6 +1905,15 @@ Decisiones clave:
   evento correspondiente en `shipment_events`. Ningún otro método del repositorio toca
   `status`. Esto es lo que deja el AC2 de MOVO-105 verificado de punta a punta, no solo
   a nivel de dominio puro.
+- **Limitación conocida (TOCTOU) en `updateStatus()`, encontrada en la revisión de PR
+  #64 (Pedro Yorlano)**: el `findUnique` que relee el estado corre fuera de la
+  `$transaction` del `UPDATE` — sin lock atómico, dos transiciones casi simultáneas del
+  mismo envío pueden leer el mismo `status` viejo y la segunda pisa a la primera sin
+  revalidar. Mismo tipo de gap ya aceptado en MOVO-75 (rotación de refresh tokens) y
+  MOVO-115 (`confirmPhoto()`/`deletePhoto()` de `svc-users`) — no bloqueante para este
+  sprint (sin asignación automática ni alta concurrencia todavía). El arreglo requiere
+  `SELECT ... FOR UPDATE` dentro de la transacción (con Prisma 7 + driver adapter, vía
+  `$queryRaw`, la API tipada no lo expone). Ticket de seguimiento: **MOVO-118**.
 - **`create()` inserta la fila + el primer `shipment_events`** (`from_status: null`,
   `to_status: INITIAL_SHIPMENT_STATUS`) en la misma transacción — el historial de
   transiciones queda completo desde el alta, no solo desde el primer cambio real.
