@@ -116,6 +116,7 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
         body: usersSchemas.confirmPhotoBody,
         response: {
           200: usersSchemas.confirmPhotoResponse,
+          400: usersSchemas.errorResponse,
           401: usersSchemas.errorResponse,
           403: usersSchemas.errorResponse,
           404: usersSchemas.errorResponse,

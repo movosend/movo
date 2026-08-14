@@ -97,7 +97,9 @@ export function createUsersService(db: PrismaClient, storageProvider: StoragePro
         throw new ApiError(403, "PHOTO_FORBIDDEN_KEY", "La imagen no pertenece al usuario autenticado.");
       }
 
-      const head = await storageProvider.headObject(objectKey);
+      // `headObject` y `findById` son independientes entre sí — se piden en paralelo
+      // para no pagar dos round-trips en serie en cada confirmación.
+      const [head, user] = await Promise.all([storageProvider.headObject(objectKey), repository.findById(userId)]);
       if (!head.exists) {
         throw new ApiError(422, "PHOTO_OBJECT_NOT_FOUND", "La imagen no existe en el storage.");
       }
@@ -109,7 +111,6 @@ export function createUsersService(db: PrismaClient, storageProvider: StoragePro
         assertValidPhotoConstraints(head.contentType, head.contentLength);
       }
 
-      const user = await repository.findById(userId);
       if (!user) {
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
       }

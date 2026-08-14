@@ -170,13 +170,3 @@ export function getRateLimitOverrides(): RateLimitedRoute[] {
     },
   ];
 }
-
-export function getRateLimitConfig(method: string, path: string): RateLimitedRoute["rateLimit"] | undefined {
-  const upperMethod = method.toUpperCase();
-  const publicMatch = getPublicRoutes().find((r) => r.method === upperMethod && r.path === path);
-  if (publicMatch?.rateLimit) {
-    return publicMatch.rateLimit;
-  }
-  const override = getRateLimitOverrides().find((r) => r.method === upperMethod && r.path === path);
-  return override?.rateLimit;
-}
