@@ -1,10 +1,13 @@
 import { ApiError } from "@movo/shared";
+import { VerificationType } from "../models/kyc-verification";
 import { CreateDiditSessionInput, DiditClient, DiditSession, DiditSessionDecision } from "./didit-client";
 
 export interface HttpDiditClientConfig {
   baseUrl: string;
   apiKey: string;
-  workflowId: string;
+  /** Un `workflow_id` de Didit por tipo de verificación (MOVO-15: identidad y
+   * licencia son workflows distintos en la consola de Didit). */
+  workflowIds: Record<VerificationType, string>;
 }
 
 interface DiditCreateSessionResponse {
@@ -43,7 +46,7 @@ export function createHttpDiditClient(config: HttpDiditClientConfig): DiditClien
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            workflow_id: config.workflowId,
+            workflow_id: config.workflowIds[input.verificationType],
             vendor_data: input.vendorData,
             ...(input.callbackUrl ? { callback: input.callbackUrl } : {}),
           }),
