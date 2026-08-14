@@ -1870,6 +1870,134 @@ como arista válida, sin lógica de negocio de cuál es la penalización ni qui�
 cobra) y transición de salida de `disputed` — ambas, tickets futuros sin abrir
 todavía.
 
+**Actualización (MOVO-104)**: el `shipment-repository.ts` real ya existe y consume este
+módulo — AC2 queda verificado de punta a punta (ver entrada de MOVO-104 abajo), no solo
+a nivel de dominio puro.
+
+### MOVO-104 — Schema y migraciones de `shipments` (`svc-shipments`)
+
+La otra mitad de MOVO-79 (MOVO-105, arriba, ya mergeada en la misma rama). Le da a
+`movo-svc-shipments` su primer dominio real: hasta acá el servicio era un placeholder
+puro (`migrations/0001_init.sql` = `SELECT 1`, `app.db` era un `pg.Pool` crudo,
+`shipments.repository.ts` un stub vacío).
+
+Por ADR-011 ("Prisma... los demás [servicios] lo adoptan al tener dominio real"), y
+siendo este el momento exacto en que `svc-shipments` pasa a tener dominio real, se
+adoptó Prisma acá replicando el patrón de `movo-svc-users` (MOVO-93) — `prisma/
+schema.prisma`, `prisma.config.ts`, `prisma/migrations/`, `src/plugins/db.ts` con
+`PrismaPg` — en vez de sumar otro servicio más al `run-migrations.sh`/SQL a mano.
+
+Implementado: `prisma/schema.prisma` (modelos `Shipment`/`ShipmentEvent`/
+`ShipmentPhoto`, enums `PackageType`/`ShipmentStatus`/`PhotoStage`), migración inicial
+`20260813200345_create_shipments_schema`, `src/plugins/db.ts` (reescrito, mismos
+timeouts que `svc-users`), `src/models/shipment.ts`, `src/repositories/
+shipment-repository.ts`.
+
+Decisiones clave:
+- **Superset de columnas acordado con el usuario, más allá del AC2 literal**: además
+  de los campos que lista el AC2, se agregaron `carrier_id`/`urgent`/
+  `agreed_price_ars`/`payment_method`/`delivered_at`/`last_status_changed_at` — ya
+  estaban diseñados en `docs/movo_der.dbml` (`shipments.shipment` original) pero no en
+  el AC de este ticket. Decisión explícita: mejor migrar una vez con el superset ahora
+  que migrar de nuevo pronto cuando lleguen las US de asignación (EP-03) y pagos
+  (EP-05). `payment_method` queda como `text` libre (el DER ya lo marcaba "enum sin
+  valores definidos, pendiente" — no se inventaron valores que nadie definió).
+- **`package_type_enum` con 3 valores** (`letter_document`/`standard_package`/
+  `fragile_item`) — el AC original de MOVO-104 pedía 5 (sumaba `everyday_item`/
+  `urgent_item`), pero quedó desactualizado: la decisión final del equipo (revisión de
+  PR #64, Pedro Yorlano) fue mantener los mismos 3 conceptos que ya tenía
+  `docs/movo_der.dbml` desde la conversión original del Miro (DOCUMENTO/ESTANDAR/
+  OBJETO_FRAGIL), solo en inglés.
+- **`status` mapea 1:1 con `ShipmentStatus` de `@movo/shared`** (`shipment_status_enum`
+  de Postgres) — cierra el "enum sin valores definidos, pendiente" que tenía el DER
+  desde el Miro original en `shipment`/`offer`/`shipment_status_history`.
+- **`shipment-repository.ts#updateStatus()` es la única vía de escritura de `status`**:
+  relee el estado actual, llama `transition(from, to)` de
+  `../domain/shipment-state-machine` (MOVO-105) — lanza `InvalidShipmentTransitionError`
+  antes de tocar la fila si la transición no es válida — y recién ahí, en un
+  `$transaction`, hace el `UPDATE` (+`delivered_at` si `to === DELIVERED`) e inserta el
+  evento correspondiente en `shipment_events`. Ningún otro método del repositorio toca
+  `status`. Esto es lo que deja el AC2 de MOVO-105 verificado de punta a punta, no solo
+  a nivel de dominio puro.
+- **Limitación conocida (TOCTOU) en `updateStatus()`, encontrada en la revisión de PR
+  #64 (Pedro Yorlano)**: el `findUnique` que relee el estado corre fuera de la
+  `$transaction` del `UPDATE` — sin lock atómico, dos transiciones casi simultáneas del
+  mismo envío pueden leer el mismo `status` viejo y la segunda pisa a la primera sin
+  revalidar. Mismo tipo de gap ya aceptado en MOVO-75 (rotación de refresh tokens) y
+  MOVO-115 (`confirmPhoto()`/`deletePhoto()` de `svc-users`) — no bloqueante para este
+  sprint (sin asignación automática ni alta concurrencia todavía). El arreglo requiere
+  `SELECT ... FOR UPDATE` dentro de la transacción (con Prisma 7 + driver adapter, vía
+  `$queryRaw`, la API tipada no lo expone). Ticket de seguimiento: **MOVO-118**.
+- **`create()` inserta la fila + el primer `shipment_events`** (`from_status: null`,
+  `to_status: INITIAL_SHIPMENT_STATUS`) en la misma transacción — el historial de
+  transiciones queda completo desde el alta, no solo desde el primer cambio real.
+- **`PackageType`/`PhotoStage` se reexportan directo del cliente Prisma generado**, sin
+  duplicarlos en `@movo/shared` — a diferencia de `ShipmentStatus` (que ya vive ahí por
+  MOVO-105), estos dos todavía no tienen ningún consumidor cross-servicio. Mismo
+  criterio incremental que `UserRole`/`KycStatus` en `svc-users` antes de que el mobile
+  los necesitara (MOVO-78).
+- **`InvalidEnumValueError`/`parseShipmentStatus`** en `models/shipment.ts`: mismo
+  patrón defensivo que `parseKycStatus` en `svc-users` — protege contra que un valor
+  presente en el enum de Postgres pero ausente de `@movo/shared` (drift de schema)
+  llegue silenciosamente al dominio.
+- **Hallazgo de infraestructura, no documentado así en la guía de Prisma**: en este
+  proyecto, un solo Postgres aloja todos los schemas (ADR-003), y la tabla de historial
+  de Prisma Migrate (`_prisma_migrations`) vive siempre en el schema `public` —
+  **compartida entre todos los servicios que usan Prisma sobre la misma instancia**, sin
+  importar el `schemas` del datasource de cada uno. Con solo `movo-svc-users` en Prisma
+  esto no se notaba; al sumar `movo-svc-shipments` como segundo consumidor,
+  `prisma migrate dev` (que sí es estricto: espera ver *sus propias* migraciones y
+  ninguna más en esa tabla) rompe apenas detecta las filas de `svc-users` ahí, ofreciendo
+  un `migrate reset` que advierte "se pierden todos los datos" pese a que sólo hace falta
+  tocar el schema `shipments`. **Se generó el `migration.sql` inicial con
+  `prisma migrate diff --from-empty --to-schema prisma/schema.prisma --script`** (no
+  toca la DB ni su historial) y se aplicó con `prisma migrate deploy`, que sí tolera
+  filas de otros servicios en `_prisma_migrations` — confirmado migrando en limpio,
+  reaplicando (no-op) y haciendo rollback manual (`DROP SCHEMA shipments CASCADE` + borrar
+  la fila del ledger) seguido de reaplicar. **Cualquier migración nueva de
+  `movo-svc-shipments` de acá en adelante tiene que generarse igual** (`migrate diff` +
+  editar a mano, nunca `migrate dev` contra el Postgres compartido de dev) hasta que el
+  equipo decida separar instancias o el problema deje de importar.
+- **CI** (`pr-checks.yml`/`ci-dev.yml`/`ci-prod.yml`): `movo-svc-shipments` se sumó a la
+  condición del step "Run migrations (Prisma)" (antes solo `movo-svc-users`) y se sacó
+  del step "Run migrations (SQL)". En `ci-dev.yml`/`ci-prod.yml` se sacó
+  `services/movo-svc-shipments/migrations` del `scp` (ya no existe, era el placeholder)
+  y del loop de `run-migrations.sh` en la EC2, sumando `docker compose pull
+  movo-svc-shipments && docker compose run --rm -T movo-svc-shipments npx prisma
+  migrate deploy` junto al de `movo-svc-users` — mismo patrón, sin tocar la lógica de
+  percent-encoding de `DATABASE_URL` (ya cubre a cualquier servicio con Prisma).
+- **`docs/movo_der.dbml` actualizado**: `shipments.shipment` (singular, del Miro
+  original) pasa a `shipments.shipments` (plural, igual que `users.user` ->
+  `users.users` en su momento) con las columnas reales implementadas.
+  `shipments.package_photo` y `shipments.shipment_status_history` se reemplazan por
+  `shipments.shipment_photos`/`shipments.shipment_events` (mismos conceptos, ya
+  implementados, con sus enums resueltos en vez de "pendiente"). Las tablas fuera de
+  alcance de este ticket (`tracking_position`, `custody_transfer_event`, `offer`)
+  quedan intactas, con nota de que todavía no tienen ticket de implementación.
+- Verificado también con la imagen de Docker ya buildeada (no solo en local): `docker
+  build` con el Dockerfile actualizado, `npx prisma migrate deploy` corrido *dentro* del
+  contenedor contra el Postgres compartido (mismo mecanismo que usa el deploy real) y
+  smoke test de `GET /health` con el contenedor arriba — mismo criterio de verificación
+  que usó MOVO-93 para `svc-users`.
+
+Tests: `test/shipment-repository.integration.test.ts` nuevo (Postgres real, `TRUNCATE`
+en `beforeEach` — mismo patrón que `user-repository.integration.test.ts`): alta con
+evento inicial, transición válida con evento logueado, `deliveredAt` seteado sólo al
+llegar a `delivered`, transición inválida (no persiste nada), `ShipmentNotFoundError`,
+fotos por etapa. `vitest.config.ts` sumó `fileParallelism: false` (mismo motivo que
+MOVO-87: tests de integración con `TRUNCATE` corriendo en paralelo se pisan) y
+`src/repositories/**`/`src/models/**` al `include` de cobertura. 34/34 tests en verde
+en `svc-shipments` (suben de 25). `tsc --noEmit`/`eslint`/`npm run build` sin errores en
+`svc-shipments` y `@movo/shared`.
+
+Pendiente / fuera de alcance de MOVO-104: `src/modules/shipments/*` (stubs de
+rutas/servicio/schema HTTP) no se tocaron — son de las US de API (MOVO-80/81/82).
+`src/plugins/redis.ts` tampoco, ninguna AC lo requería. `listEvents`/`addPhoto`/
+`listPhotos` del repositorio están implementados pero todavía sin ningún caller real
+(esperan a las US de API). Baseline de Prisma en dev/prod real (EC2) — verificado el
+mecanismo con la imagen Docker local, pero no corrido todavía contra
+`api-dev.movosend.app`/`api.movosend.app`, misma situación que tuvo `svc-users` en
+MOVO-93 hasta su primer deploy real.
 ### MOVO-15 — Verificación de licencia de conducir (`svc-users` + `movo-mobile`)
 
 Reutiliza por completo el mecanismo de KYC de MOVO-72 (identidad), con
