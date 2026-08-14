@@ -1995,3 +1995,81 @@ Cargar `STORAGE_PROVIDER=s3`/`S3_BUCKET_NAME=movo-shipment-media-dev`/
 equivalentes de prod son tarea manual del equipo con acceso a AWS — el código ya está
 listo para tomarlas. El desarrollo completo de ADR-016 (contexto/alternativas) queda
 pendiente de pegar en Drive, mismo estado que ADR-012/013/014/015.
+
+### MOVO-107 — Permisos, registro de push token y manejo de notificaciones (`movo-mobile`)
+
+Lado cliente de push notifications: pedir permiso, obtener el push token de Expo,
+registrarlo contra el backend y manejar la notificación recibida. Implementado contra
+el contrato que define **MOVO-106** (`svc-users`, todavía en `Todo` al momento de
+escribir esto) — mismo criterio que MOVO-73 con MOVO-70/72: el mobile se adelanta al
+contrato acordado, sin bloquearse en que el backend exista.
+
+Archivos nuevos: `src/lib/device-id.ts` (`getOrCreateDeviceId`, UUID estable vía
+`Crypto.randomUUID()` de `expo-crypto`, persistido en `expo-secure-store` — nueva key
+`SECURE_STORE_KEYS.pushDeviceId`, la única que **sobrevive** a `clearSession()`/
+`logout()` porque identifica el dispositivo, no la sesión), `src/api/
+notifications-client.ts` (`registerPushToken`/`unregisterPushToken` contra `POST`/
+`DELETE /users/me/push-token`, mismo patrón minimalista que `users-client.ts`),
+`src/lib/push-registration.ts` (funciones puras — `requestPermissionAndRegisterPushToken`/
+`unregisterCurrentDevice` — separadas del hook de React para que `auth-store.ts` las
+importe sin depender de un hook) y `src/hooks/use-push-notifications.ts` (hook que
+dispara el registro al detectar sesión autenticada, configura el handler de
+notificaciones y escucha taps).
+
+Decisiones clave:
+- **AC5 (aviso en foreground) sin componente nuevo**: se configura
+  `Notifications.setNotificationHandler({ shouldShowAlert: true, ... })` a nivel de
+  módulo — usa el banner nativo del SO incluso con la app abierta. No hay ningún
+  banner auto-dismiss reusable en el repo (`ErrorBanner` es persistente a propósito),
+  así que construir uno hubiera sido alcance extra no pedido por el AC.
+- **AC6 (navegar al detalle de un envío) queda parcialmente resuelto a propósito**: el
+  listener (`addNotificationResponseReceivedListener`) parsea `data.type === 'shipment'`
+  y deja el punto de extensión documentado en el propio código, pero no navega a
+  ningún lado real — no existe ninguna pantalla de envíos todavía (MOVO-83+, sin
+  arrancar). Decisión tomada con el usuario: mejor dejar el parseo listo y sin acción
+  que inventar un destino (`/home`) que no es el real.
+- **`httpClient` no exponía `delete`** (`HttpMethod` ya incluía `"DELETE"` pero el
+  objeto exportado no lo usaba) — se agregó `httpClient.delete<T>(path, body, headers)`,
+  mismo shape que `post`/`patch`, porque el contrato de MOVO-106 manda `{ deviceId }`
+  en el body del `DELETE`.
+- **`expo-crypto` en vez del paquete `uuid`** para generar el `deviceId`: evita el
+  polyfill de `crypto.getRandomValues` que `uuid` necesita en RN/Hermes — decisión
+  tomada con el usuario junto con las dos anteriores.
+- **AC4 (des-registro en logout)**: `auth-store.ts#logout()` llama a
+  `unregisterCurrentDevice()` **antes** de `clearSession()` (necesita el accessToken
+  todavía en memoria para el header `Authorization`), envuelto en `try/catch` propio
+  además del que ya trae la función internamente — mismo criterio de "un paso
+  secundario nunca bloquea salir de la cuenta" que ya usa esa función con
+  `authClient.logout`.
+- **`eas init` ya se había corrido** (proyecto "movo-mobile", org "movosend"), pero el
+  `projectId` nunca quedó commiteado — vivía en un `app.json` local de una rama
+  anterior, reemplazado por `app.config.js` en MOVO-73 sin portar el valor, y se perdió
+  al cambiar de rama. Repuesto acá: `owner: "movosend"` +
+  `extra.eas.projectId: "077f9c8d-cb66-4772-a76c-34e4548290e7"` en `app.config.js`
+  (verificado con `npx expo config --type public`, que ahora sí resuelve ambos).
+- **AC7 (Expo Go, aun con `projectId` configurado)**: `Notifications.
+  getExpoPushTokenAsync({ projectId })` sigue tirando en Expo Go (no soporta push
+  remoto, independientemente del `projectId`) — se atrapa en `push-registration.ts`,
+  se loguea y no rompe nada más.
+- `app.config.js`: se agregó `"expo-notifications"` al array `plugins` (sin esto
+  Android no genera el ícono/sonido de notificación en el build nativo). Sin cambios
+  en `.env.example` — el push token de Expo no requiere ningún secret del lado
+  cliente, a diferencia de las keys de Google Maps.
+
+Tests nuevos: `test/device-id.test.ts`, `test/notifications-client.test.ts`,
+`test/push-registration.test.ts` (permiso denegado no registra — AC1; permiso
+concedido registra — AC2/AC3; `getExpoPushTokenAsync` fallando no rompe — AC7;
+de-registro tolera fallos), `test/use-push-notifications.test.tsx` (registro único por
+transición a autenticado, re-registro tras logout/login en el mismo dispositivo, tap
+de notificación de envío no crashea, cleanup del listener al desmontar), más dos casos
+agregados a `test/auth-store.test.tsx` (logout des-registra el dispositivo, y tolera
+que falle). 111/111 en `movo-mobile` (subieron de 93). `tsc --noEmit` sin errores. No
+hay `eslint.config.js` en `movo-mobile` todavía (paquete sin lint configurado, a
+diferencia del resto del monorepo) — no es parte de esta US.
+
+Pendiente / fuera de alcance de MOVO-107: backend real de MOVO-106 (código escrito
+contra su contrato, sin poder integrar hasta que exista — con `projectId` ya
+configurado, este es ahora el único bloqueo real para probar push de punta a punta),
+pantalla de destino real para AC6 (depende de MOVO-83+), y el DoD manual del ticket
+(development build en dispositivo físico, casos de prueba con push real) — no
+verificable en este entorno.

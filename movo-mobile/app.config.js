@@ -19,6 +19,7 @@ module.exports = {
   expo: {
     name: "Movo",
     slug: "movo-mobile",
+    owner: "movosend",
     version: "1.0.0",
     scheme: "movo",
     orientation: "portrait",
@@ -74,6 +75,7 @@ module.exports = {
       "expo-font",
       "expo-splash-screen",
       "expo-router",
+      "expo-notifications",
       // Config explícita acá (no `ios.config.googleMapsApiKey`/`android.config.googleMaps.apiKey`)
       // a propósito: ese mod genérico de Expo agrega el pod `react-native-google-maps` en
       // iOS, que ya no existe en `react-native-maps@1.27` (se renombró a un subspec,
@@ -89,6 +91,16 @@ module.exports = {
     ],
     experiments: {
       typedRoutes: true,
+    },
+    // `eas init` (proyecto "movo-mobile", org "movosend") — necesario para que
+    // `Notifications.getExpoPushTokenAsync({ projectId })` (MOVO-107) pueda pedir un
+    // token real. Se había corrido en una rama anterior pero el valor nunca se
+    // commiteó (vivía solo en un `app.json` local, reemplazado por este
+    // `app.config.js` en MOVO-73) — se perdió al cambiar de rama.
+    extra: {
+      eas: {
+        projectId: "077f9c8d-cb66-4772-a76c-34e4548290e7",
+      },
     },
   },
 };
