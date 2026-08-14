@@ -7,10 +7,10 @@ export interface ProfileVerifiedBadgeProps {
 
 /**
  * Insignia de identidad verificada (MOVO-78), integrada debajo del nombre en el
- * header en vez de un chip genérico dentro de `ProfileBadges` — es la única
- * insignia que hoy se calcula de verdad (`license_verified` sigue pendiente de
- * MOVO-15), así que se le da lugar propio pegado a la identidad del usuario en vez
- * de tratarla como una más de una lista de chips.
+ * header en vez de un chip genérico dentro de `ProfileBadges` — se le da lugar
+ * propio pegado a la identidad del usuario en vez de tratarla como una más de una
+ * lista de chips (`license_verified`, MOVO-15, sí queda como chip genérico en
+ * `ProfileBadges`: no está pegada al nombre de la misma forma).
  */
 export function ProfileVerifiedBadge({ testID }: ProfileVerifiedBadgeProps) {
   return (

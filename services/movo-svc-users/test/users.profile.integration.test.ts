@@ -70,6 +70,7 @@ describe("GET /users/me y GET /users/:id (MOVO-77)", () => {
         phone: user.phone,
         photoUrl: null,
         kycStatus: KycStatus.NOT_STARTED,
+        licenseKycStatus: KycStatus.NOT_STARTED,
         accountStatus: "active",
         badges: [],
         transactionCounts: { asSender: 0, asCarrier: 0 },
@@ -91,6 +92,37 @@ describe("GET /users/me y GET /users/:id (MOVO-77)", () => {
       const body = JSON.parse(response.body);
       expect(body.kycStatus).toBe(KycStatus.APPROVED);
       expect(body.badges).toEqual(["kyc_verified"]);
+    });
+
+    it("incluye la insignia license_verified cuando kyc_status_license está aprobado (MOVO-15)", async () => {
+      const user = await repo.create(buildInput());
+      await repo.updateKycStatusLicense(user.id, KycStatus.APPROVED);
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/users/me",
+        headers: { "x-user-id": user.id },
+      });
+
+      const body = JSON.parse(response.body);
+      expect(body.licenseKycStatus).toBe(KycStatus.APPROVED);
+      expect(body.kycStatus).toBe(KycStatus.NOT_STARTED);
+      expect(body.badges).toEqual(["license_verified"]);
+    });
+
+    it("incluye ambas insignias cuando identidad y licencia están aprobadas", async () => {
+      const user = await repo.create(buildInput());
+      await repo.updateKycStatusIdentity(user.id, KycStatus.APPROVED);
+      await repo.updateKycStatusLicense(user.id, KycStatus.APPROVED);
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/users/me",
+        headers: { "x-user-id": user.id },
+      });
+
+      const body = JSON.parse(response.body);
+      expect(body.badges.sort()).toEqual(["kyc_verified", "license_verified"]);
     });
 
     it("devuelve 401 AUTH_TOKEN_INVALID sin header x-user-id", async () => {

@@ -3,7 +3,6 @@
 const KYC_STATUS_VALUES = ["not_started", "pending", "approved", "rejected", "expired", "manual_review"];
 const ACCOUNT_STATUS_VALUES = ["active", "banned", "deleted"];
 const USER_ROLE_VALUES = ["sender", "carrier", "admin"];
-// MOVO-15 sumará "license_verified" cuando exista verificación de licencia.
 const PROFILE_BADGE_VALUES = ["kyc_verified", "license_verified"];
 // MOVO-97 AC2: mismos valores que ALLOWED_PHOTO_CONTENT_TYPES/MAX_PHOTO_CONTENT_LENGTH_BYTES
 // de users.service.ts — duplicados acá por el mismo criterio de "autocontenido" de arriba.
@@ -47,6 +46,7 @@ export const usersSchemas = {
       "phone",
       "photoUrl",
       "kycStatus",
+      "licenseKycStatus",
       "accountStatus",
       "roles",
       "badges",
@@ -62,6 +62,7 @@ export const usersSchemas = {
       phone: { type: "string" },
       photoUrl: { type: ["string", "null"] },
       kycStatus: { type: "string", enum: KYC_STATUS_VALUES },
+      licenseKycStatus: { type: "string", enum: KYC_STATUS_VALUES },
       accountStatus: { type: "string", enum: ACCOUNT_STATUS_VALUES },
       roles: { type: "array", items: { type: "string", enum: USER_ROLE_VALUES } },
       badges: { type: "array", items: { type: "string", enum: PROFILE_BADGE_VALUES } },

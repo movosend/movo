@@ -98,6 +98,8 @@ services:
       - DIDIT_BASE_URL=${DIDIT_BASE_URL}
       - DIDIT_API_KEY=${DIDIT_API_KEY}
       - DIDIT_WORKFLOW_ID_IDENTITY=${DIDIT_WORKFLOW_ID_IDENTITY}
+      # MOVO-15: workflow separado para la verificación de licencia de conducir.
+      - DIDIT_WORKFLOW_ID_LICENSE=${DIDIT_WORKFLOW_ID_LICENSE}
       - DIDIT_WEBHOOK_SECRET=${DIDIT_WEBHOOK_SECRET}
       # MOVO-73: mismo criterio de `:-mock` que SMS_PROVIDER/DIDIT_MODE arriba — una var
       # presente pero vacía no matchea el enum de envSchema y tira el servicio abajo al boot.

@@ -14,6 +14,7 @@ export interface EnvConfig {
   DIDIT_BASE_URL?: string;
   DIDIT_API_KEY?: string;
   DIDIT_WORKFLOW_ID_IDENTITY?: string;
+  DIDIT_WORKFLOW_ID_LICENSE?: string;
   DIDIT_WEBHOOK_SECRET?: string;
   GEOCODING_PROVIDER: "mock" | "google";
   GOOGLE_MAPS_API_KEY?: string;
@@ -44,12 +45,14 @@ export const envSchema = {
     TELEGRAM_CHAT_ID: { type: "string" },
     // MOVO-72: default "mock" (mismo criterio que SMS_PROVIDER=console) — no depender
     // de credenciales de sandbox de Didit.me para levantar el servicio en dev/test/CI.
-    // La obligatoriedad de las otras 4 vars cuando DIDIT_MODE=live la valida
+    // La obligatoriedad de las otras vars cuando DIDIT_MODE=live la valida
     // createDiditClient al arrancar, no este schema.
     DIDIT_MODE: { type: "string", enum: ["mock", "live"], default: "mock" },
     DIDIT_BASE_URL: { type: "string" },
     DIDIT_API_KEY: { type: "string" },
     DIDIT_WORKFLOW_ID_IDENTITY: { type: "string" },
+    // MOVO-15: workflow separado para la verificación de licencia de conducir.
+    DIDIT_WORKFLOW_ID_LICENSE: { type: "string" },
     DIDIT_WEBHOOK_SECRET: { type: "string" },
     // MOVO-73: default "mock" (mismo criterio que DIDIT_MODE=mock) — el paso de mapa
     // del wizard de registro no depende de una API key de Google para levantar el

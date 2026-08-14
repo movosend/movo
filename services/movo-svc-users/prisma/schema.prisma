@@ -44,13 +44,26 @@ enum KycStatus {
 }
 
 // MOVO-72: distingue las dos verificaciones que ya modela el DER sobre la misma tabla
-// (kyc_status_identity / kyc_status_license en User) -- esta US solo escribe filas
-// `identity`; `license` queda listo para cuando exista esa integración (MOVO-15/25).
+// (kyc_status_identity / kyc_status_license en User). MOVO-15 empieza a escribir filas
+// `license` (antes solo `identity`).
 enum VerificationType {
   identity
   license
 
   @@map("verification_type_enum")
+  @@schema("users")
+}
+
+// MOVO-15: ciclo de vida del carnet en sí (distinto del ciclo de vida del intento de
+// verificación, que ya cubre KycStatus) -- `pending`/`expired` quedan modelados para
+// el día que exista limpieza por vencimiento real del carnet (fuera de alcance de esta
+// US, ver drivers_license.status abajo).
+enum DriversLicenseStatus {
+  pending
+  verified
+  expired
+
+  @@map("drivers_license_status_enum")
   @@schema("users")
 }
 
@@ -86,6 +99,7 @@ model User {
   roles             UserRoleGrant[]
   kycVerifications  KycVerification[]
   addresses         Address[]
+  driversLicense    DriversLicense?
 
   // users_email_lower_idx (índice único funcional sobre LOWER(email)) no tiene
   // equivalente declarable en schema.prisma (Prisma no modela expression indexes).
@@ -126,6 +140,7 @@ model KycVerification {
   // de documento ni dato biométrico, AC9). Ver kyc.service.ts#buildRedactedRawDecision.
   rawDecision       Json?             @map("raw_decision")
   user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  driversLicenses   DriversLicense[]
 
   @@index([userId], map: "kyc_verification_user_id_idx")
   @@map("kyc_verification")
@@ -163,5 +178,31 @@ model Address {
 
   @@index([userId], map: "address_user_id_idx")
   @@map("address")
+  @@schema("users")
+}
+
+// MOVO-15: tabla `drivers_license` del DER (docs/movo_der.dbml) -- el registro del
+// carnet en sí, distinto de `kyc_verification` (que es el log de intentos, 1 a N). Un
+// carnet tiene un ciclo de vida propio (vencimiento, renovación) que un DNI verificado
+// no tiene en el resto del sistema, por eso vive en su propia tabla en vez de
+// reutilizar solo el caché de `User.kycStatusLicense`. `userId` único: se upsertea en
+// cada re-verificación aprobada (kyc.service.ts#applyTerminalDecision), no se acumula
+// historial acá -- eso ya lo tiene `kyc_verification`.
+model DriversLicense {
+  id                String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String               @unique(map: "drivers_license_user_id_key") @map("user_id") @db.Uuid
+  kycVerificationId String               @map("kyc_verification_id") @db.Uuid
+  // Fecha de vencimiento impresa en el documento -- extraída de
+  // `decision.id_verifications[0].expiration_date` (feature "ID Verification" de
+  // Didit, confirmado por el equipo que no es dato biométrico, AC6). Nullable: puede
+  // no venir en el payload real, no bloquea la aprobación de la verificación en sí.
+  expirationDate    DateTime?            @map("expiration_date") @db.Date
+  status            DriversLicenseStatus
+  createdAt         DateTime             @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime             @updatedAt @map("updated_at") @db.Timestamptz
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kycVerification   KycVerification      @relation(fields: [kycVerificationId], references: [id], onDelete: Cascade)
+
+  @@map("drivers_license")
   @@schema("users")
 }

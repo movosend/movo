@@ -1870,6 +1870,112 @@ como arista válida, sin lógica de negocio de cuál es la penalización ni qui�
 cobra) y transición de salida de `disputed` — ambas, tickets futuros sin abrir
 todavía.
 
+### MOVO-15 — Verificación de licencia de conducir (`svc-users` + `movo-mobile`)
+
+Reutiliza por completo el mecanismo de KYC de MOVO-72 (identidad), con
+`verification_type: "license"` en vez de `"identity"` — la infraestructura ya estaba
+diseñada para esto (`VerificationType` en `models/kyc-verification.ts`,
+`kyc-verification-repository.ts` genérico por tipo, `User.kycStatusLicense`,
+`ProfileBadge.license_verified` en `@movo/shared`); esta US termina de cablearla.
+
+Implementado en `services/movo-svc-users`:
+- **`kyc.service.ts` generalizado por `VerificationType`**: `createSession`/`getStatus`/
+  `reconcilePendingAttempt` ahora reciben el tipo como parámetro en vez de hardcodear
+  `"identity"`; dos helpers (`getUserKycStatus`/`updateUserKycStatus`) dispatchan entre
+  `kycStatusIdentity`/`kycStatusLicense` según corresponda. `applyTerminalDecision`
+  (único camino de escritura, push o pull) sigue siendo el único punto que decide qué
+  columna de `users` tocar, ahora leyendo `result.verificationType` de la fila resuelta
+  — el webhook no necesita saber de antemano qué tipo de verificación está resolviendo.
+- **`DiditClient` con un `workflow_id` por tipo**: `CreateDiditSessionInput` gana
+  `verificationType`; `HttpDiditClientConfig.workflowId` (string) pasa a `workflowIds:
+  Record<VerificationType, string>`. `DIDIT_WORKFLOW_ID_LICENSE` nuevo en
+  `config/env.ts`/`.env.example`/`docker-compose.yml`, junto a `DIDIT_WORKFLOW_ID_IDENTITY`
+  — `createDiditClient` ahora exige las 5 credenciales completas (antes 4) cuando
+  `DIDIT_MODE=live`.
+- **Rutas nuevas `POST /kyc/license/session` / `GET /kyc/license/status`**, agregadas
+  al mismo plugin `kyc.routes.ts` (`/kyc/session`/`/kyc/status` de identidad quedan sin
+  cambio de contrato, ahora llaman al servicio con `"identity"` explícito). El gateway
+  no necesitó ningún cambio: `/kyc` ya proxea todo el prefijo a `svc-users`
+  (`routes-map.ts`), y como las rutas nuevas no están en `getPublicRoutes()`, quedan
+  protegidas por defecto igual que las de identidad desde PR #51 de MOVO-72.
+- **Tabla nueva `users.drivers_license`** (DER, `docs/movo_der.dbml`): el registro del
+  carnet en sí, distinto de `kyc_verification` (que es el log de intentos) — un carnet
+  tiene ciclo de vida propio (vencimiento/renovación) que un DNI verificado no tiene en
+  el resto del sistema. `user_id` único (se upsertea en cada re-verificación aprobada,
+  no se acumula historial ahí); `status` (`drivers_license_status_enum`:
+  `pending`/`verified`/`expired`, minúscula — el DER lo dibuja en mayúscula, mismo
+  criterio de estilo que otros enums del diagrama) se escribe siempre `verified` al
+  crear la fila, solo cuando una verificación de licencia se **aprueba**
+  (`applyTerminalDecision`, dentro de la misma transacción que actualiza
+  `kyc_status_license`). `pending`/`expired` quedan modelados para el ciclo de vida
+  futuro del carnet (vencimiento real con el tiempo, limpieza por cron) — fuera de
+  alcance de esta US. Migración `20260814190000_add_drivers_license_movo_15` +
+  `repositories/drivers-license-repository.ts` (un único método,
+  `upsertVerified`) + `models/drivers-license.ts` (mismo patrón de
+  `parseDriversLicenseStatus`/`InvalidEnumValueError` que el resto de los enums de DB).
+- **`expiration_date` extraído del payload de Didit, no dejado en null** (a diferencia
+  del precedente de MOVO-96 para el DNI, que se dejó sin implementar por falta de
+  confirmación de shape): el usuario confirmó contra la documentación de Didit que el
+  feature "ID Verification" devuelve `expiration_date` como campo de nivel superior por
+  documento (misma categoría que `document_number`/`document_type`, no es dato
+  biométrico, AC6 sigue cumplido). `extractDocumentExpirationDate(decision)`
+  (`kyc.service.ts`, mismo estilo defensivo que `extractDecisionWarnings` — nunca tira,
+  `null` si no matchea) se suma al whitelist de redacción de AC9
+  (`buildRedactedRawDecision`/`buildRedactedPulledDecision`) tanto para la vía push
+  (webhook) como pull (`getSessionDecision`). Sigue sin validarse contra un payload real
+  de licencia del sandbox de Didit (el shape viene confirmado por documentación, no por
+  una corrida real como sí se hizo para identidad en MOVO-72 Paso 7) — mismo tipo de
+  gap que `Expired`/`Abandoned`/`Kyc Expired` dejó abierto en su momento.
+- **Insignia `license_verified`**: `computeBadges()` (`models/user-profile.ts`) ya
+  tenía el `TODO(MOVO-15)` marcado — se reemplaza por el chequeo real de
+  `kycStatusLicense === APPROVED`.
+- **`PrivateProfile` gana `licenseKycStatus`** (`@movo/shared`, mapeado en
+  `toPrivateProfile()`, agregado a `users.schema.ts#privateProfileResponse`) — para que
+  el banner del perfil en mobile no necesite una llamada aparte a
+  `/kyc/license/status`. No se agregó a `PublicProfile`: la insignia ya comunica el
+  resultado ahí, mismo criterio que `kycStatus` (identidad) tampoco vive en esa
+  proyección.
+
+Implementado en `movo-mobile`:
+- **`app/(app)/license-kyc.tsx`**, nueva pantalla — mismo patrón de fases
+  (`intro`/`connecting`/`result`) y mismo SDK nativo de Didit que
+  `app/(auth)/kyc.tsx` (identidad), pero **desacoplada de `useRegistration()`**: el
+  transportista ya está logueado de verdad cuando llega acá (vía el banner de Perfil),
+  así que el estado del flujo es local al componente y `authClient.
+  createLicenseKycSession()`/`getLicenseKycStatus()` se llaman **sin** `accessToken`
+  explícito — a diferencia de las de identidad (token efímero del wizard de registro,
+  sin sesión real todavía), el interceptor de `http-client.ts` adjunta el de la sesión
+  real solo, con el refresh automático de MOVO-76 incluido.
+- `error-messages.ts#CODE_MESSAGES["KYC_SESSION_NOT_ALLOWED"]` sigue diciendo "Tu
+  identidad ya está verificada" (correcto para `/kyc/session`) — sería incorrecto para
+  licencia. `license-kyc.tsx` resuelve ese código a mano ("Tu licencia ya está
+  verificada.") antes de delegar al helper genérico para el resto.
+- **Banner nuevo en Perfil** (`components/profile/profile-license-status-banner.tsx`,
+  copia de `profile-kyc-status-banner.tsx` con textos de licencia), gateado en
+  `profile.tsx` a `data.roles.includes(UserRole.CARRIER)` — un usuario sin rol
+  transportista no ve un banner pidiéndole verificar una licencia. `ProfileBadges`/
+  `ProfileVerifiedBadge` no necesitaron cambios: ya tenían el mapeo de
+  `license_verified` esperando desde MOVO-78.
+
+Tests: 240/240 en `svc-users` (subieron de 226 — nuevo `kyc.license.integration.test.ts`,
+casos de licencia sumados a `kyc.webhook.integration.test.ts` y
+`users.profile.integration.test.ts`, casos de `workflowIds`/5 credenciales en los tests
+de adapters de Didit), 105/105 en `movo-mobile` (subieron de 93 — `license-kyc.test.tsx`
+nuevo, casos nuevos en `profile.test.tsx`), 32/32 en gateway (sin cambios de contrato).
+`tsc --noEmit`/`eslint` sin errores en los tres paquetes tocados (`svc-users`,
+`@movo/shared`, `movo-mobile` — salvo el mismo hueco preexistente de tipado de rutas de
+expo-router que ya afecta a `kyc.tsx`/`login.tsx`/`app/index.tsx`, sin relación con este
+cambio). Migración verificada aplicando limpia contra Postgres real.
+
+Pendiente / fuera de alcance de MOVO-15: cargar `DIDIT_WORKFLOW_ID_LICENSE` real en AWS
+Secrets Manager y en el `.env` local de cada integrante (mismo pendiente manual que
+viene arrastrando el resto de credenciales de Didit/Twilio) — sin esto, `DIDIT_MODE=live`
+no arranca hasta configurarlo, igual que ya pasaba con las otras credenciales de Didit.
+Validación contra el sandbox real de un payload de licencia (confirmar `expiration_date`
+contra una respuesta real, no solo documentación). Ciclo de vida propio del carnet ya
+verificado (`drivers_license.status = expired` por vencimiento real/cron) y regla de
+"identidad aprobada como prerequisito de licencia" (no la pide ningún AC, no se agregó)
+— ambas, decisiones de producto futuras sin ticket todavía.
 ### MOVO-97 — Foto de perfil: subida a S3 con presigned URLs, confirmación y borrado (`svc-users`)
 
 Primera implementación real de ADR-007 (S3 + presigned URLs) — hasta este ticket no

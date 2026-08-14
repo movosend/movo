@@ -1,4 +1,5 @@
 import { KycStatus } from "@movo/shared";
+import { VerificationType } from "../models/kyc-verification";
 import { createHttpDiditClient } from "./http-didit-client";
 import { createMockDiditClient } from "./mock-didit-client";
 
@@ -14,6 +15,9 @@ export interface CreateDiditSessionInput {
    * el webhook de resultado (dedupe implícito de Didit: un `vendor_data` con una
    * sesión sin terminar devuelve la sesión existente, según el spike MOVO-48). */
   vendorData: string;
+  /** Determina qué `workflow_id` de Didit se usa (MOVO-15: identidad y licencia son
+   * dos workflows distintos en la consola de Didit). */
+  verificationType: VerificationType;
   callbackUrl?: string;
 }
 
@@ -103,11 +107,10 @@ export interface DiditClientConfig {
   DIDIT_MODE: "mock" | "live";
   DIDIT_BASE_URL?: string;
   DIDIT_API_KEY?: string;
-  // Didit maneja un workflow distinto por tipo de verificación (DNI vs. licencia) — el
-  // nombre lleva el sufijo `_IDENTITY` a propósito, para dejar el lugar libre a
-  // `DIDIT_WORKFLOW_ID_LICENSE` el día que se implemente esa integración (MOVO-72 solo
-  // escribe filas `identity` en `kyc_verification`, ver models/kyc-verification.ts).
+  // Didit maneja un workflow distinto por tipo de verificación (DNI vs. licencia) —
+  // MOVO-15 agrega el segundo, que hasta ahora sólo tenía el lugar reservado.
   DIDIT_WORKFLOW_ID_IDENTITY?: string;
+  DIDIT_WORKFLOW_ID_LICENSE?: string;
   DIDIT_WEBHOOK_SECRET?: string;
 }
 
@@ -122,15 +125,24 @@ const DEFAULT_DIDIT_BASE_URL = "https://verification.didit.me";
  */
 export function createDiditClient(config: DiditClientConfig): DiditClient {
   if (config.DIDIT_MODE === "live") {
-    if (!config.DIDIT_API_KEY || !config.DIDIT_WORKFLOW_ID_IDENTITY || !config.DIDIT_WEBHOOK_SECRET) {
+    if (
+      !config.DIDIT_API_KEY ||
+      !config.DIDIT_WORKFLOW_ID_IDENTITY ||
+      !config.DIDIT_WORKFLOW_ID_LICENSE ||
+      !config.DIDIT_WEBHOOK_SECRET
+    ) {
       throw new Error(
-        "DIDIT_MODE=live requiere DIDIT_API_KEY, DIDIT_WORKFLOW_ID_IDENTITY y DIDIT_WEBHOOK_SECRET"
+        "DIDIT_MODE=live requiere DIDIT_API_KEY, DIDIT_WORKFLOW_ID_IDENTITY, " +
+          "DIDIT_WORKFLOW_ID_LICENSE y DIDIT_WEBHOOK_SECRET"
       );
     }
     return createHttpDiditClient({
       baseUrl: config.DIDIT_BASE_URL ?? DEFAULT_DIDIT_BASE_URL,
       apiKey: config.DIDIT_API_KEY,
-      workflowId: config.DIDIT_WORKFLOW_ID_IDENTITY,
+      workflowIds: {
+        identity: config.DIDIT_WORKFLOW_ID_IDENTITY,
+        license: config.DIDIT_WORKFLOW_ID_LICENSE,
+      },
     });
   }
   return createMockDiditClient();

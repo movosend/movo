@@ -1,15 +1,19 @@
 import { FastifyBaseLogger } from "fastify";
 import { ApiError, KycStatus } from "@movo/shared";
 import { PrismaClient } from "../../generated/prisma/client";
-import { createUserRepository } from "../../repositories/user-repository";
+import { User } from "../../models/user";
+import { createUserRepository, UserRepository } from "../../repositories/user-repository";
 import { createKycVerificationRepository } from "../../repositories/kyc-verification-repository";
+import { createDriversLicenseRepository } from "../../repositories/drivers-license-repository";
 import { DiditClient, DiditSessionDecision, mapDiditStatusToKycStatus } from "../../adapters/didit-client";
-import { KycVerification } from "../../models/kyc-verification";
+import { KycVerification, VerificationType } from "../../models/kyc-verification";
 import { verifyDiditSignature } from "../../adapters/didit-signature";
 
 /**
  * Estados desde los que se puede pedir una sesión nueva (AC2) — todos menos `approved`
- * (una identidad ya verificada no se vuelve a verificar).
+ * (una identidad/licencia ya verificada no se vuelve a verificar). Aplica igual a los
+ * dos `VerificationType` (MOVO-15): no hay ninguna regla que exija que la identidad
+ * esté aprobada antes de poder verificar la licencia, ningún AC la pide.
  *
  * `pending` está incluido a propósito, revirtiendo la política original de MOVO-72 ("un
  * intento en curso no se reintenta ni devuelve, se rechaza (409)"). Esa regla asumía que
@@ -51,14 +55,14 @@ export interface KycStatusResult {
  * IP, etc.) — incluye imágenes de documento, domicilio, fecha de nacimiento y otros
  * datos que AC9 prohíbe persistir. No se tipa `decision` en detalle a propósito: el
  * resto del código no debe tocarlo directamente, solo a través de
- * `extractDecisionWarnings`.
+ * `extractDecisionWarnings`/`extractDocumentExpirationDate`.
  *
  * **No hay un campo `reason` de nivel superior.** `decision.reviews` tampoco sirve
  * (queda vacío incluso en el payload real de ejemplo de `In Review` — se completa
  * recién cuando un humano termina una revisión manual en el back-office de Didit,
- * después de este webhook, no en el momento de la transición). El motivo real vive
- * disperso en `decision.<feature>[].warnings[]` (confirmado con un payload real de
- * `Declined`: `decision.id_verifications[0].warnings[0]` trae
+ * después de este webhook). El motivo real vive disperso en
+ * `decision.<feature>[].warnings[]` (confirmado con un payload real de `Declined`:
+ * `decision.id_verifications[0].warnings[0]` trae
  * `{feature, risk: "DOCUMENT_EXPIRED", short_description: "Document expired", ...}`) —
  * ver `extractDecisionWarnings`.
  */
@@ -119,11 +123,39 @@ function extractDecisionWarnings(decision: unknown): DecisionWarning[] {
 }
 
 /**
+ * Fecha de vencimiento impresa en el documento (MOVO-15, `users.drivers_license.
+ * expiration_date`) — campo de nivel superior del feature "ID Verification" de Didit
+ * (misma categoría que `document_number`/`document_type`, confirmado por el equipo que
+ * no es dato biométrico, AC6 sigue cumplido). Aplica tanto al webhook
+ * (`decision.id_verifications[0]`) como a la respuesta pulleada de
+ * `getSessionDecision` (`decision.id_verifications[0]` también, ver
+ * `buildRedactedPulledDecision`) — mismo shape de `decision` en ambos casos. Nunca
+ * tira: si `id_verifications` falta, está vacío, o el campo no es un string, devuelve
+ * `null` en vez de inventar una fecha.
+ */
+function extractDocumentExpirationDate(decision: unknown): string | null {
+  if (!decision || typeof decision !== "object") {
+    return null;
+  }
+  const idVerifications = (decision as Record<string, unknown>)["id_verifications"];
+  if (!Array.isArray(idVerifications) || idVerifications.length === 0) {
+    return null;
+  }
+  const first = idVerifications[0];
+  if (!first || typeof first !== "object") {
+    return null;
+  }
+  const value = (first as Record<string, unknown>)["expiration_date"];
+  return typeof value === "string" ? value : null;
+}
+
+/**
  * Whitelist explícita de campos "seguros" del payload del webhook (AC9: Movo no
  * persiste imágenes de documentos ni datos biométricos). Se arma campo por campo en vez
  * de guardar el payload completo, para que un campo nuevo que Didit agregue mañana
  * (ej. una URL de foto) no se cuele por default — en particular, `payload.decision`
- * nunca se copia tal cual, solo se le pasa a `extractDecisionWarnings`.
+ * nunca se copia tal cual, solo se le pasa a `extractDecisionWarnings`/
+ * `extractDocumentExpirationDate`.
  */
 function buildRedactedRawDecision(payload: DiditWebhookPayload): Record<string, unknown> {
   const redacted: Record<string, unknown> = {};
@@ -132,6 +164,8 @@ function buildRedactedRawDecision(payload: DiditWebhookPayload): Record<string, 
   if (typeof payload.vendor_data === "string") redacted["vendor_data"] = payload.vendor_data;
   const warnings = extractDecisionWarnings(payload.decision);
   if (warnings.length > 0) redacted["warnings"] = warnings;
+  const expirationDate = extractDocumentExpirationDate(payload.decision);
+  if (expirationDate) redacted["expiration_date"] = expirationDate;
   return redacted;
 }
 
@@ -148,7 +182,29 @@ function buildRedactedPulledDecision(decision: DiditSessionDecision): Record<str
   };
   const warnings = extractDecisionWarnings(decision.decision);
   if (warnings.length > 0) redacted["warnings"] = warnings;
+  const expirationDate = extractDocumentExpirationDate(decision.decision);
+  if (expirationDate) redacted["expiration_date"] = expirationDate;
   return redacted;
+}
+
+/** Lee el `KycStatus` vigente de un usuario para un tipo de verificación dado — evita
+ * repetir el `if (type === "identity") ... else ...` en cada punto que necesita leer
+ * el estado (MOVO-15). */
+function getUserKycStatus(user: User, verificationType: VerificationType): KycStatus {
+  return verificationType === "identity" ? user.kycStatusIdentity : user.kycStatusLicense;
+}
+
+/** Contraparte de escritura de `getUserKycStatus` — dispatcha al método correcto de
+ * `UserRepository` según el tipo de verificación (MOVO-15). */
+function updateUserKycStatus(
+  userRepository: UserRepository,
+  userId: string,
+  verificationType: VerificationType,
+  status: KycStatus
+): Promise<User | null> {
+  return verificationType === "identity"
+    ? userRepository.updateKycStatusIdentity(userId, status)
+    : userRepository.updateKycStatusLicense(userId, status);
 }
 
 export function createKycService(
@@ -179,6 +235,11 @@ export function createKycService(
    * como si fuera un duplicado — un caso real reportado (aprobación manual en la
    * consola de Didit, webhook "entregado" según Didit, pero el usuario seguía viendo
    * "en revisión" sin ninguna forma de destrabarse).
+   *
+   * MOVO-15: además de sincronizar `users.kyc_status_identity`/`kyc_status_license`
+   * (según `result.verificationType`), si el tipo es `license` y la decisión es
+   * `approved`, upsertea `users.drivers_license` en la misma transacción — es el único
+   * punto de escritura de esa tabla.
    */
   async function applyTerminalDecision(
     externalSessionId: string,
@@ -195,7 +256,20 @@ export function createKycService(
       });
       if (result) {
         const txUserRepository = createUserRepository(tx);
-        await txUserRepository.updateKycStatusIdentity(result.userId, targetStatus);
+        await updateUserKycStatus(txUserRepository, result.userId, result.verificationType, targetStatus);
+
+        if (result.verificationType === "license" && targetStatus === KycStatus.APPROVED) {
+          const expirationDateStr =
+            typeof (result.rawDecision as { expiration_date?: unknown } | null)?.expiration_date === "string"
+              ? ((result.rawDecision as { expiration_date: string }).expiration_date as string)
+              : null;
+          const txDriversLicenseRepository = createDriversLicenseRepository(tx);
+          await txDriversLicenseRepository.upsertVerified({
+            userId: result.userId,
+            kycVerificationId: result.id,
+            expirationDate: expirationDateStr ? new Date(expirationDateStr) : null,
+          });
+        }
       }
       return result;
     });
@@ -205,9 +279,9 @@ export function createKycService(
    * Cierra la ventana entre "Didit ya tiene una decisión (terminó la verificación, o un
    * operador resolvió la revisión manual)" y "el webhook con esa decisión llegó" —
    * llamada tanto antes de abrir una sesión nueva (`createSession`, para no descartar un
-   * resultado real) como en cada `getStatus` (`GET /kyc/status`, para que "actualizar
-   * estado" en el mobile revalide contra Didit en vez de mostrar únicamente lo último
-   * que el webhook logró aplicar).
+   * resultado real) como en cada `getStatus` (`GET /kyc/status`/`GET /kyc/license/status`,
+   * para que "actualizar estado" en el mobile revalide contra Didit en vez de mostrar
+   * únicamente lo último que el webhook logró aplicar).
    *
    * Dispara para dos estados, no solo `pending`:
    * - `pending`: `createSession` descarta los intentos `pending` previos
@@ -228,12 +302,16 @@ export function createKycService(
    * ambos estados como origen — ver su comentario). Devuelve el estado efectivo del
    * usuario después de reconciliar.
    */
-  async function reconcilePendingAttempt(userId: string, currentStatus: KycStatus): Promise<KycStatus> {
+  async function reconcilePendingAttempt(
+    userId: string,
+    verificationType: VerificationType,
+    currentStatus: KycStatus
+  ): Promise<KycStatus> {
     if (currentStatus !== KycStatus.PENDING && currentStatus !== KycStatus.MANUAL_REVIEW) {
       return currentStatus;
     }
 
-    const latest = await kycVerificationRepository.findLatestByUserId(userId, "identity");
+    const latest = await kycVerificationRepository.findLatestByUserId(userId, verificationType);
     if (!latest || latest.status !== currentStatus) {
       return currentStatus;
     }
@@ -274,13 +352,14 @@ export function createKycService(
       // El webhook llegó entre la consulta y la escritura y ya aplicó la decisión por su
       // cuenta. Se relee el usuario para no seguir con un estado viejo en la mano.
       const refreshed = await userRepository.findById(userId);
-      return refreshed?.kycStatusIdentity ?? currentStatus;
+      return refreshed ? getUserKycStatus(refreshed, verificationType) : currentStatus;
     }
 
     logger.info(
       {
         userId,
         externalSessionId: latest.externalSessionId,
+        verificationType,
         previousStatus: currentStatus,
         newStatus: targetStatus,
         event: "kyc_reconciled",
@@ -291,7 +370,7 @@ export function createKycService(
   }
 
   return {
-    async createSession(userId: string): Promise<CreateKycSessionResult> {
+    async createSession(userId: string, verificationType: VerificationType): Promise<CreateKycSessionResult> {
       const user = await userRepository.findById(userId);
       if (!user) {
         throw new ApiError(404, "NOT_FOUND", "Usuario no encontrado.");
@@ -302,7 +381,7 @@ export function createKycService(
       // Un `pending` puede estar escondiendo una decisión ya tomada en Didit cuyo
       // webhook todavía no llegó — se reconcilia ANTES de evaluar si se permite abrir
       // una sesión nueva, para no descartar ese resultado (ver la función).
-      const effectiveStatus = await reconcilePendingAttempt(userId, user.kycStatusIdentity);
+      const effectiveStatus = await reconcilePendingAttempt(userId, verificationType, getUserKycStatus(user, verificationType));
 
       if (!ALLOWED_SESSION_SOURCE_STATUSES.has(effectiveStatus)) {
         throw new ApiError(
@@ -312,7 +391,7 @@ export function createKycService(
         );
       }
 
-      const session = await diditClient.createSession({ vendorData: userId });
+      const session = await diditClient.createSession({ vendorData: userId, verificationType });
 
       // Las tres escrituras (descartar intentos viejos + el intento nuevo + el caché en
       // `users`) en una sola transacción -- evita que queden desincronizadas si algo
@@ -329,23 +408,23 @@ export function createKycService(
         // resultado de una sesión que este usuario abandonó.
         const superseded = await txKycVerificationRepository.expirePendingByUserId({
           userId,
-          verificationType: "identity",
+          verificationType,
           exceptExternalSessionId: session.sessionId,
         });
 
         await txKycVerificationRepository.upsertPendingSession({
           userId,
-          verificationType: "identity",
+          verificationType,
           provider: "didit",
           externalSessionId: session.sessionId,
         });
-        await txUserRepository.updateKycStatusIdentity(userId, KycStatus.PENDING);
+        await updateUserKycStatus(txUserRepository, userId, verificationType, KycStatus.PENDING);
         return superseded;
       });
 
       // AC11: registro estructurado del evento (pino, ya activo en Fastify::app.log).
       logger.info(
-        { userId, sessionId: session.sessionId, supersededCount, event: "kyc_session_created" },
+        { userId, verificationType, sessionId: session.sessionId, supersededCount, event: "kyc_session_created" },
         "KYC session created"
       );
 
@@ -387,7 +466,9 @@ export function createKycService(
       // Idempotencia (AC7): `applyTerminalDecision` solo aplica la transición si el
       // intento seguía en `pending` o `manual_review` -- un webhook duplicado, o fuera
       // de orden, devuelve `null` acá y no se toca nada más. Es el mismo camino que usa
-      // la reconciliación por pull (ver `reconcilePendingAttempt`), a propósito.
+      // la reconciliación por pull (ver `reconcilePendingAttempt`), a propósito. No
+      // hace falta saber el `verificationType` acá: `applyTerminalDecision` lo lee de
+      // la fila resuelta y dispatcha solo (MOVO-15).
       const resolved = await applyTerminalDecision(externalSessionId, targetStatus, rawDecision);
 
       if (!resolved) {
@@ -401,6 +482,7 @@ export function createKycService(
       logger.info(
         {
           userId: resolved.userId,
+          verificationType: resolved.verificationType,
           externalSessionId,
           newStatus: targetStatus,
         },
@@ -408,7 +490,7 @@ export function createKycService(
       );
     },
 
-    async getStatus(userId: string): Promise<KycStatusResult> {
+    async getStatus(userId: string, verificationType: VerificationType): Promise<KycStatusResult> {
       const user = await userRepository.findById(userId);
       if (!user) {
         throw new ApiError(404, "NOT_FOUND", "Usuario no encontrado.");
@@ -416,15 +498,15 @@ export function createKycService(
 
       // Antes de devolver el estado cacheado en `users`, se revalida contra Didit si el
       // usuario está en `pending`/`manual_review` (ver `reconcilePendingAttempt`) — sin
-      // esto, `GET /kyc/status` era una simple lectura de caché: si por lo que fuera un
-      // webhook terminal no se procesó (túnel de desarrollo caído, red, o el bug que
-      // motivó ampliar `applyTerminalDecision` a aceptar `manual_review` como origen),
-      // no había ninguna forma de que el usuario saliera de ese estado desde el mobile
-      // ("actualizar estado" solo releía el mismo valor viejo, sin cambiar nunca) salvo
-      // que abriera una sesión nueva. Es una llamada de red extra por consulta de
-      // estado, pero `GET /kyc/status` no se sondea en loop desde el mobile — se llama
-      // al entrar a la pantalla y ante un click explícito del usuario.
-      const effectiveStatus = await reconcilePendingAttempt(userId, user.kycStatusIdentity);
+      // esto, `GET /kyc/status`/`GET /kyc/license/status` era una simple lectura de
+      // caché: si por lo que fuera un webhook terminal no se procesó (túnel de
+      // desarrollo caído, red, o el bug que motivó ampliar `applyTerminalDecision` a
+      // aceptar `manual_review` como origen), no había ninguna forma de que el usuario
+      // saliera de ese estado desde el mobile ("actualizar estado" solo releía el mismo
+      // valor viejo, sin cambiar nunca) salvo que abriera una sesión nueva. Es una
+      // llamada de red extra por consulta de estado, pero no se sondea en loop desde el
+      // mobile — se llama al entrar a la pantalla y ante un click explícito del usuario.
+      const effectiveStatus = await reconcilePendingAttempt(userId, verificationType, getUserKycStatus(user, verificationType));
 
       // `raw_decision.warnings` (armado por `extractDecisionWarnings` en el webhook) es
       // un array de {feature, risk, description} -- se unen las descripciones en un
@@ -434,7 +516,7 @@ export function createKycService(
       // manual_review va a tener un motivo estructurado.
       let manualReviewReason: string | null = null;
       if (effectiveStatus === KycStatus.MANUAL_REVIEW) {
-        const latest = await kycVerificationRepository.findLatestByUserId(userId, "identity");
+        const latest = await kycVerificationRepository.findLatestByUserId(userId, verificationType);
         const rawDecision = latest?.rawDecision as { warnings?: unknown } | null | undefined;
         const warnings = Array.isArray(rawDecision?.warnings) ? rawDecision.warnings : [];
         const descriptions = warnings
