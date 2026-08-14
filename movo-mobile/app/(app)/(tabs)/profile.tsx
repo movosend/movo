@@ -2,7 +2,8 @@ import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ProfileAvatar } from '../../../components/profile/profile-avatar';
+import { useQueryClient } from '@tanstack/react-query';
+import { PhotoPicker } from '../../../components/profile/photo-picker';
 import { ProfileBadges } from '../../../components/profile/profile-badges';
 import { ProfileErrorState } from '../../../components/profile/profile-error-state';
 import { ProfileKycStatusBanner } from '../../../components/profile/profile-kyc-status-banner';
@@ -22,6 +23,7 @@ import { friendlyErrorMessage } from '../../../src/lib/error-messages';
  * MOVO-77 backend, ya Done).
  */
 export default function ProfileScreen() {
+  const queryClient = useQueryClient();
   const { logout } = useAuth();
   const { data, isLoading, isError, error, refetch } = useMyProfile();
 
@@ -45,7 +47,15 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View className="mb-6 flex-row items-center gap-3">
-          <ProfileAvatar testID="profile-avatar" fullName={data.fullName} photoUrl={data.photoUrl} />
+          <PhotoPicker
+            testID="profile-photo-picker"
+            fullName={data.fullName}
+            currentPhotoUrl={data.photoUrl}
+            size={56}
+            onPhotoUpdated={() => {
+              void queryClient.invalidateQueries({ queryKey: ['profile', 'me'] });
+            }}
+          />
           <View className="flex-1">
             <Text testID="profile-full-name" className="font-sans-semibold text-h2 text-fg">
               {data.fullName}

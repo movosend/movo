@@ -1,14 +1,17 @@
 import { KycStatus } from '@movo/shared/dist/types/user';
+import { useEffect } from 'react';
 import { Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PrimaryButton } from '../../../components/auth/primary-button';
 import { useAuth } from '../../../src/hooks/use-auth';
+import { useMyProfile } from '../../../src/hooks/use-profile';
 import { useThemeColors } from '../../../src/hooks/use-theme-colors';
 import {
   KYC_TONE_ICON_HEX,
   kycStatusIcon,
   kycStatusTone,
 } from '../../../src/lib/kyc-status-ui';
+import { useAuthStore } from '../../../src/store/auth-store';
 
 /**
  * Home placeholder del área autenticada (MOVO-76) — no hay todavía ninguna pantalla
@@ -29,16 +32,22 @@ const KYC_BANNER_TEXT: Partial<Record<KycStatus, string>> = {
 
 export default function AuthenticatedHomeScreen() {
   const { user, logout } = useAuth();
+  const { data: profile } = useMyProfile();
   const colors = useThemeColors();
-  const bannerText = user ? KYC_BANNER_TEXT[user.kycStatus] : undefined;
-  // Ícono/color por estado (src/lib/kyc-status-ui.ts, MOVO-78) en vez del `ShieldAlert`
-  // fijo de antes — mismo criterio visual que `kyc.tsx#RESULT_BADGE` y el badge de
-  // perfil, para que las 3 instancias donde se ve estado de KYC queden consistentes.
-  // El marco del banner (borde/fondo) se mantiene en warning para todos los casos que
-  // llegan acá: ningún valor de `KYC_BANNER_TEXT` es `APPROVED`, y el mensaje siempre es
-  // "tu acceso está restringido", no una alerta de rechazo — solo el ícono diferencia.
-  const tone = user ? kycStatusTone(user.kycStatus) : "warning";
-  const BannerIcon = user ? kycStatusIcon(user.kycStatus) : undefined;
+
+  // El perfil fresco del backend prevalece sobre el snapshot estático del login
+  const currentKycStatus = profile?.kycStatus ?? user?.kycStatus;
+
+  // Si el perfil fresco reporta un kycStatus distinto al almacenado localmente, sincronizamos authStore
+  useEffect(() => {
+    if (profile?.kycStatus && user?.kycStatus && profile.kycStatus !== user.kycStatus) {
+      void useAuthStore.getState().updateKycStatus(profile.kycStatus);
+    }
+  }, [profile?.kycStatus, user?.kycStatus]);
+
+  const bannerText = currentKycStatus ? KYC_BANNER_TEXT[currentKycStatus] : undefined;
+  const tone = currentKycStatus ? kycStatusTone(currentKycStatus) : "warning";
+  const BannerIcon = currentKycStatus ? kycStatusIcon(currentKycStatus) : undefined;
   const bannerIconColor = tone === "neutral" ? colors.fg2 : KYC_TONE_ICON_HEX[tone === "success" ? "warning" : tone];
 
   return (
