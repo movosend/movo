@@ -25,7 +25,8 @@ export type ApiErrorCode =
   | "USER_NOT_FOUND"
   | "STORAGE_PROVIDER_ERROR"
   | "PHOTO_OBJECT_NOT_FOUND"
-  | "PHOTO_FORBIDDEN_KEY";
+  | "PHOTO_FORBIDDEN_KEY"
+  | "PUSH_PROVIDER_ERROR";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {
