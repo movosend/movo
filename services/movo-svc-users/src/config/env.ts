@@ -20,6 +20,7 @@ export interface EnvConfig {
   STORAGE_PROVIDER: "mock" | "s3";
   S3_BUCKET_NAME?: string;
   S3_REGION?: string;
+  PUSH_PROVIDER: "mock" | "expo";
 }
 
 export const envSchema = {
@@ -64,6 +65,12 @@ export const envSchema = {
     STORAGE_PROVIDER: { type: "string", enum: ["mock", "s3"], default: "mock" },
     S3_BUCKET_NAME: { type: "string" },
     S3_REGION: { type: "string" },
+    // MOVO-106: default "mock" (mismo criterio que STORAGE_PROVIDER/GEOCODING_PROVIDER/
+    // DIDIT_MODE/SMS_PROVIDER) — no depender de red para levantar el servicio en
+    // dev/test/CI. A diferencia de esos otros proveedores, la API pública de Expo Push
+    // no requiere credenciales, así que no hay nada que `createPushNotificationProvider`
+    // tenga que validar al arrancar con PUSH_PROVIDER=expo.
+    PUSH_PROVIDER: { type: "string", enum: ["mock", "expo"], default: "mock" },
   },
 };
 
