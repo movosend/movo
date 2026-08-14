@@ -15,6 +15,36 @@
  * backend (`services/movo-svc-users`), que es la key de **Geocoding API**, server-side,
  * restringida por IP. Ver `.env.example` para cómo conseguir ambas.
  */
+// MOVO-107: instalar `expo-notifications` agrega el entitlement `aps-environment` al
+// proyecto iOS **sin importar si el plugin figura en `plugins` acá abajo** — Expo
+// autolinkea un mod de entitlements implícito (`withIosExpoPlugins`) para cualquier
+// paquete de notificaciones instalado, corra o no explícitamente el plugin (verificado
+// con `EXPO_DEBUG=1 npx expo prebuild`: el mod `withExpoNotifications` corre igual con
+// el plugin sacado de la lista de abajo). Esa capability no la puede firmar un team
+// personal de Apple ("Personal Team", el que usa `expo run:ios` con un Apple ID
+// gratis): Xcode rechaza el provisioning profile entero ("Personal development teams
+// ... do not support the Push Notifications capability"), tumbando el build completo,
+// no solo push. Como sacar el plugin de `plugins` no alcanza, se agrega
+// `withoutPushEntitlement` al final del array — un mod propio que borra
+// `aps-environment` del `.entitlements` generado después de que el autolinking lo
+// puso — gateado detrás de `ENABLE_PUSH_NOTIFICATIONS` (default `false`, mismo
+// criterio que `SMS_PROVIDER=console`/`GEOCODING_PROVIDER=mock`: capability real
+// reservada para cuando haga falta probarla, no prendida por default en local). Sin
+// la entitlement, `expo-notifications` sigue andando en JS (`getExpoPushTokenAsync`
+// tira y ya se atrapa en `push-registration.ts`, MOVO-107), solo no queda declarada
+// la capability nativa. Los builds de EAS (`eas.json`) sí la necesitan real: seteá
+// `ENABLE_PUSH_NOTIFICATIONS=true` como EAS Environment Variable en los perfiles que
+// vayan a probar push de punta a punta, una vez que el team de Apple sea de pago.
+const { withEntitlementsPlist } = require("expo/config-plugins");
+
+const PUSH_NOTIFICATIONS_ENABLED = process.env.ENABLE_PUSH_NOTIFICATIONS === "true";
+
+const withoutPushEntitlement = (config) =>
+  withEntitlementsPlist(config, (config) => {
+    delete config.modResults["aps-environment"];
+    return config;
+  });
+
 module.exports = {
   expo: {
     name: "Movo",
@@ -75,7 +105,7 @@ module.exports = {
       "expo-font",
       "expo-splash-screen",
       "expo-router",
-      "expo-notifications",
+      ...(PUSH_NOTIFICATIONS_ENABLED ? ["expo-notifications"] : []),
       // Config explícita acá (no `ios.config.googleMapsApiKey`/`android.config.googleMaps.apiKey`)
       // a propósito: ese mod genérico de Expo agrega el pod `react-native-google-maps` en
       // iOS, que ya no existe en `react-native-maps@1.27` (se renombró a un subspec,
@@ -88,6 +118,7 @@ module.exports = {
           androidGoogleMapsApiKey: process.env.GOOGLE_MAPS_ANDROID_API_KEY ?? "",
         },
       ],
+      ...(PUSH_NOTIFICATIONS_ENABLED ? [] : [withoutPushEntitlement]),
     ],
     experiments: {
       typedRoutes: true,
