@@ -30,6 +30,10 @@ function baseProfile(overrides: Partial<PrivateProfile> = {}): PrivateProfile {
     phone: "+5491140238871",
     photoUrl: null,
     kycStatus: KycStatus.APPROVED,
+    // approved por default para no interferir con los tests existentes del banner de
+    // identidad (ambos banners comparten el label "Reintentar verificación" en la
+    // mayoría de los estados) — los tests de MOVO-15 lo pisan explícitamente.
+    licenseKycStatus: KycStatus.APPROVED,
     accountStatus: "active" as never,
     roles: [UserRole.SENDER, UserRole.CARRIER],
     badges: ["kyc_verified"],
@@ -128,6 +132,61 @@ describe("ProfileScreen", () => {
     const { getByText } = await render(<ProfileScreen />);
 
     expect(getByText("Reintentar verificación")).toBeTruthy();
+  });
+
+  // MOVO-15: banner de licencia, análogo al de identidad — mismos casos clave
+  // (oculto en approved, visible con CTA en el resto), más el gate específico de rol.
+  it("no muestra el banner de licencia si el usuario no tiene rol carrier", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile({ roles: [UserRole.SENDER], licenseKycStatus: KycStatus.NOT_STARTED }),
+      refetch: mockRefetch,
+    });
+
+    const { queryByTestId } = await render(<ProfileScreen />);
+
+    expect(queryByTestId("profile-license-banner")).toBeNull();
+  });
+
+  it("muestra el banner de licencia con rol carrier y estado no aprobado", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile({ licenseKycStatus: KycStatus.NOT_STARTED }),
+      refetch: mockRefetch,
+    });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+
+    expect(getByTestId("profile-license-banner")).toBeTruthy();
+  });
+
+  it("no muestra el banner de licencia cuando el estado es approved, aunque el rol sea carrier", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile({ licenseKycStatus: KycStatus.APPROVED }),
+      refetch: mockRefetch,
+    });
+
+    const { queryByTestId } = await render(<ProfileScreen />);
+
+    expect(queryByTestId("profile-license-banner")).toBeNull();
+  });
+
+  it("el banner de licencia en manual_review navega a /license-kyc al tocar 'Ver estado'", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile({ licenseKycStatus: KycStatus.MANUAL_REVIEW }),
+      refetch: mockRefetch,
+    });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+
+    fireEvent.press(within(getByTestId("profile-license-banner")).getByText("Ver estado"));
+    expect(router.push).toHaveBeenCalledWith("/license-kyc");
   });
 
   it("AC7: dispara logout al tocar 'Cerrar sesión'", async () => {
