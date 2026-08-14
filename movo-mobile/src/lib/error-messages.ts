@@ -19,6 +19,15 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   // (ver ALLOWED_SESSION_SOURCE_STATUSES en svc-users), así que el único caso real que
   // llega acá es una identidad ya verificada — un "intentá de nuevo" sería engañoso.
   KYC_SESSION_NOT_ALLOWED: "Tu identidad ya está verificada.",
+  KYC_PROVIDER_ERROR: "Hubo un problema con el servicio de verificación. Intentá de nuevo más tarde.",
+  STORAGE_PROVIDER_ERROR: "Hubo un problema con el almacenamiento de la imagen. Intentá de nuevo.",
+  PHOTO_OBJECT_NOT_FOUND: "No pudimos procesar la imagen subida. Intentá cargarla de nuevo.",
+  PHOTO_FORBIDDEN_KEY: "No tenés permiso para guardar esta foto.",
+  USER_NOT_FOUND: "No se encontró el usuario.",
+  USER_EMAIL_ALREADY_EXISTS: "El email ya se encuentra registrado.",
+  USER_PHONE_ALREADY_EXISTS: "El teléfono ya se encuentra registrado.",
+  GEOCODING_PROVIDER_ERROR: "No pudimos validar la dirección en el mapa. Intentá de nuevo.",
+  GEOCODING_ADDRESS_NOT_FOUND: "No encontramos la dirección ingresada.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",
   RATE_LIMIT_EXCEEDED: "Hiciste demasiados intentos. Esperá un momento y volvé a intentar.",
