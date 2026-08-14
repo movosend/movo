@@ -36,6 +36,15 @@ export interface PublicRoute {
   };
 }
 
+export interface RateLimitedRoute {
+  method: PublicRoute["method"];
+  path: string;
+  rateLimit: {
+    max: number;
+    timeWindow: string;
+  };
+}
+
 export function getServiceRoutes(env: {
   USERS_SERVICE_URL: string;
   SHIPMENTS_SERVICE_URL: string;
@@ -142,4 +151,22 @@ export function isPublicRoute(method: string, path: string): PublicRoute | undef
   return getPublicRoutes().find(
     (r) => r.method === method.toUpperCase() && r.path === path
   );
+}
+
+/**
+ * Rate limit estricto sobre rutas PROTEGIDAS (a diferencia de `PublicRoute.rateLimit`,
+ * que solo aplica a las de `getPublicRoutes()`). MOVO-97: `POST /users/me/photo/
+ * upload-url` necesita un límite propio (AC8) pese a requerir JWT — emitir presigned
+ * URLs es barato para nosotros pero es la puerta de entrada a escribir en el bucket de
+ * S3. Separada de `getPublicRoutes()` a propósito: no cambia si la ruta es pública o
+ * no, solo le suma un limiter estricto además de la autenticación normal.
+ */
+export function getRateLimitOverrides(): RateLimitedRoute[] {
+  return [
+    {
+      method: "POST",
+      path: "/users/me/photo/upload-url",
+      rateLimit: { max: 20, timeWindow: "15 minutes" },
+    },
+  ];
 }

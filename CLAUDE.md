@@ -102,6 +102,7 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 | 013 | Refresh token con TTL extendido de 7 a 90 días (MOVO-75), reemplazando el valor original de ADR-004 — prioridad del equipo: minimizar cuánto tienen que volver a loguearse los usuarios en una app que no maneja datos bancarios | Ventana de exposición mayor si un refresh token es robado; mitigado por la rotación de un solo uso + detección de reuso que introduce la misma US (reusar un refresh ya canjeado revoca todas las sesiones del usuario) |
 | 014 | Google Maps como proveedor de geocoding para el paso de mapa del wizard de registro (MOVO-73), detrás de una interfaz `GeocodingProvider`; mock determinístico es el default de dev/test/CI, Google real vía `GEOCODING_PROVIDER=google` — primera implementación real de un servicio de Google Maps en el proyecto pese a que ADR-008/ADR-013 ya lo habían decidido para `movo-svc-pricing-logistics` (todavía un esqueleto) | Dos API keys de Google distintas a provisionar (Geocoding API server-side, restringida por IP; Maps SDK client-side del mobile, restringida por bundle id/SHA) — ninguna cargada todavía, mismo estado pendiente que las credenciales de Twilio/Didit |
 | 015 | Google Routes API (método `Compute Route Matrix`, tier Basic) reemplaza Distance Matrix API (ADR-008, declarada Legacy) — consumida desde `movo-svc-pricing-logistics` con cuota diaria dura en GCP y `GOOGLE_MAPS_MAX_ELEMENTS` como salvaguarda de costos | Tier Basic ($5/1.000 elem, sin tráfico en vivo/peajes); límite de 625 elementos por request y streaming |
+| 016 | Foto de perfil (MOVO-97, primera implementación real de ADR-007): bucket S3 con el prefijo `profile-photos/` de lectura pública (policy de bucket, resto privado) + key con UUID aleatorio, en vez de bucket 100% privado con presigned GET en cada lectura | `photo_url` queda como URL estable y cacheable por el cliente; a cambio, quien tenga la URL exacta ve la foto sin autenticarse — aceptado porque la foto ya es información pública por diseño (AC9 de MOVO-97, la usa la contraparte de un envío para reconocer a la persona) |
 
 ## Convenciones de código
 
@@ -1975,3 +1976,128 @@ contra una respuesta real, no solo documentación). Ciclo de vida propio del car
 verificado (`drivers_license.status = expired` por vencimiento real/cron) y regla de
 "identidad aprobada como prerequisito de licencia" (no la pide ningún AC, no se agregó)
 — ambas, decisiones de producto futuras sin ticket todavía.
+### MOVO-97 — Foto de perfil: subida a S3 con presigned URLs, confirmación y borrado (`svc-users`)
+
+Primera implementación real de ADR-007 (S3 + presigned URLs) — hasta este ticket no
+había una sola línea de `@aws-sdk/*` en el repo. Implementado `src/adapters/{storage-
+provider,s3-storage-provider,mock-storage-provider}.ts` (mismo patrón de interfaz +
+real + mock que `SmsProvider`/`DiditClient`/`GeocodingProvider`), 3 rutas nuevas en
+`src/modules/users/{users.routes,users.schema}.ts` (`POST /users/me/photo/upload-url`,
+`PUT /users/me/photo`, `DELETE /users/me/photo`), lógica de negocio en
+`users.service.ts` y `user-repository.ts#updatePhotoUrl`. El lado de lectura
+(`photoUrl` en `PrivateProfile`/`PublicProfile`) ya estaba resuelto de punta a punta
+desde MOVO-77/78 — este ticket es puramente el lado de escritura.
+
+Decisiones clave:
+- **ADR-016**: lectura pública del prefijo `profile-photos/` (ver tabla de ADRs
+  arriba) — confirmado con el equipo antes de implementar, tal como pedía el ticket.
+- **No hace falta columna nueva para el `objectKey`**: al reemplazar/borrar una foto,
+  la key del objeto viejo se deriva parseando la URL ya guardada en `photo_url`
+  (`StorageProvider.getKeyFromUrl`, inversa exacta de `getPublicUrl` — vive en el
+  adapter para que real y mock no diverjan). Limitación aceptada y documentada: si en
+  algún momento se pone un CDN delante del bucket, este parseo deja de ser válido.
+- **AC2 (tipo/tamaño firmados en la URL, no solo validados)**: `S3StorageProvider`
+  firma la presigned URL con `signableHeaders: Set(["content-type", "content-length"])`
+  sobre el `PutObjectCommand` — el cliente tiene que mandar esos headers exactos en el
+  `PUT` o S3 rechaza la firma (403). `contentType` además pasa por whitelist
+  (`image/jpeg|png|webp`) y `contentLength` por `maximum: 5MB` en el JSON schema del
+  body de `upload-url` (reusa `VALIDATION_FAILED`/400 estándar, no un código nuevo).
+- **`MockStorageProvider` expone `__simulateUpload(key, meta)`**, fuera de la interfaz
+  `StorageProvider` real — único punto donde el mock necesita más superficie que S3:
+  nadie hace un PUT real a una presigned URL sintética en tests, así que los tests de
+  integración marcan el objeto como "ya subido" a mano antes de confirmar.
+- **Gap real de gateway encontrado y corregido, no cosmético**: el mecanismo de rate
+  limit estricto (`gateway/src/routes/index.ts`) solo aplicaba a rutas de
+  `getPublicRoutes()` — AC8 pide `{max:20, timeWindow:"15 minutes"}` en
+  `POST /users/me/photo/upload-url`, que es una ruta **protegida** (exige JWT). Se
+  agregó `getRateLimitOverrides()` en `routes-map.ts` (lista independiente de
+  pública/protegida) y el lookup del `preHandler` pasa a ser por `method+path` sin
+  importar si la ruta es pública — mismo `keyGenerator` explícito por limiter que ya
+  corrigió el bug de namespace compartido de MOVO-72.
+- Tres códigos nuevos en `ApiErrorCode` de `@movo/shared`: `STORAGE_PROVIDER_ERROR`
+  (502, S3 caído/credenciales), `PHOTO_OBJECT_NOT_FOUND` (422, confirmar un objeto que
+  no existe), `PHOTO_FORBIDDEN_KEY` (403, `objectKey` fuera del prefijo del usuario).
+- **Credenciales AWS vía IAM role de la EC2**, no access key/secret — el SDK las toma
+  solas de la default credential chain (decisión del ticket, sin nada nuevo que rotar
+  en Secrets Manager).
+- **No hay comunicación entre `svc-users` y `svc-shipments`/`svc-admin`**: cuando
+  MOVO-81 (fotos de paquete) adopte este patrón, va a copiar los 3 archivos del
+  adapter a su propia `src/adapters/`, con su propio prefijo de key
+  (`shipment-photos/{shipmentId}/...`) y hablando directo con S3 con sus propias
+  credenciales — no se extrajo a `@movo/shared` (ese paquete solo tiene contratos de
+  dominio, nunca lógica de negocio ni SDKs de terceros, mismo criterio que
+  `axios`/`twilio` hoy).
+
+Tests: `test/adapters/storage-provider.test.ts` (factory, fail-fast), `test/adapters/
+s3-storage-provider.test.ts` (SDK de AWS mockeado — única excepción justificada además
+de Twilio, mismo motivo: API externa de pago/credenciales), `test/users.photo.
+integration.test.ts` (Fastify + Postgres/Redis reales, `MockStorageProvider` inyectado
+vía `buildApp({storageProvider})`: emisión de URL, whitelist/tamaño, confirmación
+feliz, key ajena, objeto inexistente, reemplazo con borrado del anterior, borrado
+idempotente), caso nuevo en `gateway/test/routes-prefix.test.ts` (rate limit estricto
+en la ruta protegida). 244/244 tests en `svc-users` (subieron de 224), 35/35 en
+gateway (subieron de 32), 11/11 en `@movo/shared`. `tsc --noEmit`/`eslint`/`npm run
+build` sin errores en los tres paquetes. Swagger generado confirmado con los 3
+endpoints nuevos (`/docs/json`). Smoke manual contra el servicio real corriendo local
+(`STORAGE_PROVIDER=mock`): flujo completo de registro → `upload-url` → 422 esperado al
+confirmar sin subir nada → `DELETE` idempotente → `GET /users/me` refleja
+`photoUrl: null` → whitelist de `contentType` rechaza `image/gif`.
+
+**Verificación contra el bucket real de dev, hecha en esta sesión (DoD del ticket)**:
+bucket `movo-shipment-media-dev` (`sa-east-1`) — confirmado que ya está provisionado
+por el equipo (`movo-infra`), pero le faltaban dos cosas para que el diseño de AC9/
+ADR-016 funcionara: **CORS** (no existía ninguna regla) y la **policy de lectura
+pública** de `profile-photos/*` estaba bloqueada por el `PublicAccessBlockConfiguration`
+del bucket (las 4 flags en `true`) — probado empíricamente subiendo un objeto real y
+leyéndolo sin credenciales (403). Se resolvió vía AWS CLI directo (con las credenciales
+locales de `movo-team`, que sí tienen permisos pese a que el bucket policy previo solo
+listaba el role `movo-dev-ec2-role`):
+- `PutPublicAccessBlock`: solo se relajaron `BlockPublicPolicy`/`RestrictPublicBuckets`
+  a `false` — `BlockPublicAcls`/`IgnorePublicAcls` **quedan en `true`**, así que ninguna
+  ACL (accidental o no) puede hacer público un objeto; la única vía de exposición
+  pública posible de acá en más es la bucket policy explícita, revisada a mano.
+- Bucket policy: se agregó un statement `PublicReadProfilePhotos`
+  (`Principal: "*"`, `Action: s3:GetObject`, `Resource: .../profile-photos/*`) al final
+  de la policy existente (el `AllowEC2RoleOnly`/`AllowEC2RoleListBucket` original no se
+  tocó). Sin `s3:ListBucket` público — no se puede enumerar qué fotos existen, solo leer
+  una key exacta (UUID v4, no adivinable).
+- CORS: una regla, `AllowedMethods: ["PUT"]`, `AllowedOrigins: ["https://api-dev.movosend.app"]`
+  (acotado al dominio público de la EC2 de dev, no `*` — decisión del equipo: se
+  prueba desde dispositivo real recién con esta rama mergeada y desplegada, no hace
+  falta un origen más amplio por ahora), `AllowedHeaders: ["content-type", "content-length"]`.
+- Verificado con curl real contra el bucket (no `MockStorageProvider`): presigned URL
+  real firmada con `signableHeaders` de `content-type`/`content-length`, `PUT` real de
+  16 bytes exitoso, `PUT /users/me/photo` confirma contra un `HeadObject` real,
+  `GET /users/me` refleja la URL real, lectura pública sin credenciales da 200 dentro
+  de `profile-photos/*` y sigue en 403 fuera de ese prefijo, reemplazo borra el objeto
+  viejo de verdad (verificado con `HeadObject` → 404 post-borrado), `DELETE` dos veces
+  seguidas idempotente (204/204) con el objeto realmente borrado de S3.
+
+**Portado a Terraform (`movo-infra`), mismo alcance de esta sesión** — los tres cambios
+de arriba se habían aplicado primero directo por AWS CLI para desbloquear la prueba
+manual; después se replicaron en `modules/storage` (nuevas variables
+`public_read_prefix`/`cors_allowed_origins`, `aws_s3_bucket_public_access_block`
+condicional, tercer statement de la bucket policy, `aws_s3_bucket_cors_configuration`
+nuevo) y se wirearon en **ambos** `envs/dev/main.tf` y `envs/prod/main.tf` con
+`public_read_prefix = "profile-photos"`. `terraform apply` corrido en dev — `terraform
+plan` del módulo `storage` da **"No changes"**, código/state/AWS real reconciliados.
+Rama `feature/movo-97-svc-users-foto-de-perfil-subida-a-s3-con-presigned-urls` en
+`movo-infra` (PR #2), ya mergeada a `main`. **Prod (`movo-shipment-media-prod`) tiene
+el código listo pero el `terraform apply` real todavía no se corrió ahí** — queda
+pendiente para cuando se despliegue esta US a prod.
+
+Pendiente / fuera de alcance de MOVO-97: sumar al IAM role de las EC2 los permisos
+`s3:PutObject`/`GetObject`/`DeleteObject` acotados a `profile-photos/*` (hoy la policy
+ya lista esas acciones para `movo-dev-ec2-role` sobre **todo** el bucket — no está
+acotado al prefijo, y **es intencional, no un descuido**: el mismo role necesita
+`PutObject`/`DeleteObject` sobre otros prefijos del mismo bucket compartido para
+`svc-shipments`/`svc-admin` cuando adopten este patrón, así que estrecharlo a
+`profile-photos/*` rompería esos casos futuros — revisar si conviene separar por
+prefijo recién cuando esos otros consumidores existan de verdad. Nota aparte: el AC
+del ticket menciona `s3:HeadObject` como permiso a sumar, pero no existe como acción
+IAM separada — `HeadObject` se autoriza con el mismo `s3:GetObject`, ya concedido).
+Cargar `STORAGE_PROVIDER=s3`/`S3_BUCKET_NAME=movo-shipment-media-dev`/
+`S3_REGION=sa-east-1` en AWS Secrets Manager (`movo/dev/app-secrets`) y las variables
+equivalentes de prod son tarea manual del equipo con acceso a AWS — el código ya está
+listo para tomarlas. El desarrollo completo de ADR-016 (contexto/alternativas) queda
+pendiente de pegar en Drive, mismo estado que ADR-012/013/014/015.
