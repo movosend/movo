@@ -1888,10 +1888,12 @@ Decisiones clave:
   que migrar de nuevo pronto cuando lleguen las US de asignación (EP-03) y pagos
   (EP-05). `payment_method` queda como `text` libre (el DER ya lo marcaba "enum sin
   valores definidos, pendiente" — no se inventaron valores que nadie definió).
-- **`package_type_enum` con los 5 valores reales del AC2** (`letter_document`/
-  `standard_package`/`everyday_item`/`fragile_item`/`urgent_item`), reemplazando el
-  enum de 3 valores incompleto que tenía `docs/movo_der.dbml` desde la conversión
-  original del Miro.
+- **`package_type_enum` con 3 valores** (`letter_document`/`standard_package`/
+  `fragile_item`) — el AC original de MOVO-104 pedía 5 (sumaba `everyday_item`/
+  `urgent_item`), pero quedó desactualizado: la decisión final del equipo (revisión de
+  PR #64, Pedro Yorlano) fue mantener los mismos 3 conceptos que ya tenía
+  `docs/movo_der.dbml` desde la conversión original del Miro (DOCUMENTO/ESTANDAR/
+  OBJETO_FRAGIL), solo en inglés.
 - **`status` mapea 1:1 con `ShipmentStatus` de `@movo/shared`** (`shipment_status_enum`
   de Postgres) — cierra el "enum sin valores definidos, pendiente" que tenía el DER
   desde el Miro original en `shipment`/`offer`/`shipment_status_history`.

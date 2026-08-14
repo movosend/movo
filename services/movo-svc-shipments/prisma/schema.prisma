@@ -17,15 +17,14 @@ datasource db {
   schemas  = ["shipments"]
 }
 
-// MOVO-104 AC2: 5 categorías acordadas. Reemplaza el `package_type_enum` de 3
-// valores que tenía docs/movo_der.dbml (DOCUMENTO/ESTANDAR/OBJETO_FRAGIL),
-// incompleto respecto al AC — se actualiza el DER en el mismo PR.
+// MOVO-104 AC2: 3 categorías acordadas por el equipo (decisión final,
+// reduce las 5 que traía una primera pasada del AC). Reemplaza el
+// `package_type_enum` de 3 valores que tenía docs/movo_der.dbml
+// (DOCUMENTO/ESTANDAR/OBJETO_FRAGIL) — mismos 3 conceptos, nombres en inglés.
 enum PackageType {
   letter_document
   standard_package
-  everyday_item
   fragile_item
-  urgent_item
 
   @@map("package_type_enum")
   @@schema("shipments")

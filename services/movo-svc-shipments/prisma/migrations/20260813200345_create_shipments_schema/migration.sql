@@ -2,7 +2,7 @@
 CREATE SCHEMA IF NOT EXISTS "shipments";
 
 -- CreateEnum
-CREATE TYPE "shipments"."package_type_enum" AS ENUM ('letter_document', 'standard_package', 'everyday_item', 'fragile_item', 'urgent_item');
+CREATE TYPE "shipments"."package_type_enum" AS ENUM ('letter_document', 'standard_package', 'fragile_item');
 
 -- CreateEnum
 CREATE TYPE "shipments"."shipment_status_enum" AS ENUM ('awaiting_receiver_confirmation', 'rejected_by_receiver', 'published', 'assignment_pending', 'assigned', 'in_transit', 'delivered', 'cancelled', 'disputed');

@@ -74,16 +74,13 @@ enum drivers_license_status_enum {
   EXPIRED
 }
 
-// MOVO-104: reemplaza el enum de 3 valores que tenía el Miro original
-// (DOCUMENTO/ESTANDAR/OBJETO_FRAGIL, incompleto) por las 5 categorías
-// acordadas en el AC2 de MOVO-104, ya implementadas como
-// shipments.package_type_enum.
+// MOVO-104: mismos 3 conceptos que el enum del Miro original
+// (DOCUMENTO/ESTANDAR/OBJETO_FRAGIL), nombres en inglés — decisión final del
+// equipo, ya implementados como shipments.package_type_enum.
 enum package_type_enum {
   letter_document
   standard_package
-  everyday_item
   fragile_item
-  urgent_item
 }
 
 // MOVO-104 AC6: set canónico de 9 estados acordado en MOVO-79, ya vigente
