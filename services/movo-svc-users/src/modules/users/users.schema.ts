@@ -5,6 +5,10 @@ const ACCOUNT_STATUS_VALUES = ["active", "banned", "deleted"];
 const USER_ROLE_VALUES = ["sender", "carrier", "admin"];
 // MOVO-15 sumará "license_verified" cuando exista verificación de licencia.
 const PROFILE_BADGE_VALUES = ["kyc_verified", "license_verified"];
+// MOVO-97 AC2: mismos valores que ALLOWED_PHOTO_CONTENT_TYPES/MAX_PHOTO_CONTENT_LENGTH_BYTES
+// de users.service.ts — duplicados acá por el mismo criterio de "autocontenido" de arriba.
+const PHOTO_CONTENT_TYPE_VALUES = ["image/jpeg", "image/png", "image/webp"];
+const MAX_PHOTO_CONTENT_LENGTH_BYTES = 5 * 1024 * 1024;
 
 const transactionCounts = {
   type: "object",
@@ -77,6 +81,41 @@ export const usersSchemas = {
       badges: { type: "array", items: { type: "string", enum: PROFILE_BADGE_VALUES } },
       transactionCounts,
       reputationScore: { type: ["number", "null"] },
+    },
+  },
+
+  photoUploadUrlBody: {
+    type: "object",
+    required: ["contentType", "contentLength"],
+    properties: {
+      contentType: { type: "string", enum: PHOTO_CONTENT_TYPE_VALUES },
+      contentLength: { type: "integer", minimum: 1, maximum: MAX_PHOTO_CONTENT_LENGTH_BYTES },
+    },
+  },
+
+  photoUploadUrlResponse: {
+    type: "object",
+    required: ["uploadUrl", "objectKey", "expiresIn"],
+    properties: {
+      uploadUrl: { type: "string" },
+      objectKey: { type: "string" },
+      expiresIn: { type: "integer" },
+    },
+  },
+
+  confirmPhotoBody: {
+    type: "object",
+    required: ["objectKey"],
+    properties: {
+      objectKey: { type: "string" },
+    },
+  },
+
+  confirmPhotoResponse: {
+    type: "object",
+    required: ["photoUrl"],
+    properties: {
+      photoUrl: { type: "string" },
     },
   },
 
