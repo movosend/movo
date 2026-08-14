@@ -1,11 +1,11 @@
 import { AccountStatus, KycStatus, UserRole } from "./user";
 
 /**
- * Insignias calculadas desde el estado real del usuario (MOVO-77 AC5). Por ahora la
- * única posible es `"kyc_verified"`; MOVO-15 sumará `"license_verified"` cuando exista
- * verificación de licencia de conducir. En inglés a propósito (review de PR #55,
- * tmvergara): es un valor que el móvil matchea, y el resto de los enums de wire
- * contract (`UserRole`, `KycStatus`, `AccountStatus`) ya están en inglés.
+ * Insignias calculadas desde el estado real del usuario (MOVO-77 AC5). `"kyc_verified"`
+ * es identidad; `"license_verified"` (MOVO-15) es licencia de conducir. En inglés a
+ * propósito (review de PR #55, tmvergara): es un valor que el móvil matchea, y el
+ * resto de los enums de wire contract (`UserRole`, `KycStatus`, `AccountStatus`) ya
+ * están en inglés.
  */
 export type ProfileBadge = "kyc_verified" | "license_verified";
 
@@ -36,6 +36,11 @@ export interface PrivateProfile {
   phone: string;
   photoUrl: string | null;
   kycStatus: KycStatus;
+  /** Estado de la verificación de licencia de conducir (MOVO-15) — mismo enum que
+   * `kycStatus` (identidad), columna separada en `User.kycStatusLicense`. No vive en
+   * `PublicProfile`: la insignia (`badges`) ya comunica el resultado ahí, mismo
+   * criterio que `kycStatus` (identidad) tampoco vive en esa proyección. */
+  licenseKycStatus: KycStatus;
   accountStatus: AccountStatus;
   roles: UserRole[];
   badges: ProfileBadge[];

@@ -22,7 +22,10 @@ export type ApiErrorCode =
   | "AUTH_REFRESH_INVALID"
   | "GEOCODING_PROVIDER_ERROR"
   | "GEOCODING_ADDRESS_NOT_FOUND"
-  | "USER_NOT_FOUND";
+  | "USER_NOT_FOUND"
+  | "STORAGE_PROVIDER_ERROR"
+  | "PHOTO_OBJECT_NOT_FOUND"
+  | "PHOTO_FORBIDDEN_KEY";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

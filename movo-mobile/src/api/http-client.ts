@@ -198,4 +198,6 @@ export const httpClient = {
     request<T>(path, { method: "POST", body, headers }),
   patch: <T>(path: string, body?: unknown, headers?: RequestOptions["headers"]) =>
     request<T>(path, { method: "PATCH", body, headers }),
+  delete: <T>(path: string, body?: unknown, headers?: RequestOptions["headers"]) =>
+    request<T>(path, { method: "DELETE", body, headers }),
 };

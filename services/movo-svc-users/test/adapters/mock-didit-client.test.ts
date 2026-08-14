@@ -5,7 +5,7 @@ describe("Mock Didit Client (DIDIT_MODE=mock, default, MOVO-72)", () => {
   it("genera una sesión sintética sin red, con sessionId/sessionToken/url no vacíos", async () => {
     const client = createMockDiditClient();
 
-    const session = await client.createSession({ vendorData: "user-123" });
+    const session = await client.createSession({ vendorData: "user-123", verificationType: "identity" });
 
     expect(session.sessionId).toEqual(expect.any(String));
     expect(session.sessionId.length).toBeGreaterThan(0);
@@ -16,8 +16,8 @@ describe("Mock Didit Client (DIDIT_MODE=mock, default, MOVO-72)", () => {
   it("genera un sessionId distinto en cada llamada", async () => {
     const client = createMockDiditClient();
 
-    const first = await client.createSession({ vendorData: "user-1" });
-    const second = await client.createSession({ vendorData: "user-2" });
+    const first = await client.createSession({ vendorData: "user-1", verificationType: "identity" });
+    const second = await client.createSession({ vendorData: "user-2", verificationType: "identity" });
 
     expect(first.sessionId).not.toBe(second.sessionId);
   });

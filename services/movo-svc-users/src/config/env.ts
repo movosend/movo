@@ -14,9 +14,13 @@ export interface EnvConfig {
   DIDIT_BASE_URL?: string;
   DIDIT_API_KEY?: string;
   DIDIT_WORKFLOW_ID_IDENTITY?: string;
+  DIDIT_WORKFLOW_ID_LICENSE?: string;
   DIDIT_WEBHOOK_SECRET?: string;
   GEOCODING_PROVIDER: "mock" | "google";
   GOOGLE_MAPS_API_KEY?: string;
+  STORAGE_PROVIDER: "mock" | "s3";
+  S3_BUCKET_NAME?: string;
+  S3_REGION?: string;
 }
 
 export const envSchema = {
@@ -41,12 +45,14 @@ export const envSchema = {
     TELEGRAM_CHAT_ID: { type: "string" },
     // MOVO-72: default "mock" (mismo criterio que SMS_PROVIDER=console) — no depender
     // de credenciales de sandbox de Didit.me para levantar el servicio en dev/test/CI.
-    // La obligatoriedad de las otras 4 vars cuando DIDIT_MODE=live la valida
+    // La obligatoriedad de las otras vars cuando DIDIT_MODE=live la valida
     // createDiditClient al arrancar, no este schema.
     DIDIT_MODE: { type: "string", enum: ["mock", "live"], default: "mock" },
     DIDIT_BASE_URL: { type: "string" },
     DIDIT_API_KEY: { type: "string" },
     DIDIT_WORKFLOW_ID_IDENTITY: { type: "string" },
+    // MOVO-15: workflow separado para la verificación de licencia de conducir.
+    DIDIT_WORKFLOW_ID_LICENSE: { type: "string" },
     DIDIT_WEBHOOK_SECRET: { type: "string" },
     // MOVO-73: default "mock" (mismo criterio que DIDIT_MODE=mock) — el paso de mapa
     // del wizard de registro no depende de una API key de Google para levantar el
@@ -54,6 +60,13 @@ export const envSchema = {
     // GEOCODING_PROVIDER=google la valida createGeocodingProvider al arrancar.
     GEOCODING_PROVIDER: { type: "string", enum: ["mock", "google"], default: "mock" },
     GOOGLE_MAPS_API_KEY: { type: "string" },
+    // MOVO-97: default "mock" (mismo criterio que GEOCODING_PROVIDER/DIDIT_MODE/
+    // SMS_PROVIDER) — no depender de un bucket real ni de credenciales de AWS para
+    // levantar el servicio en dev/test/CI. La obligatoriedad de S3_BUCKET_NAME/
+    // S3_REGION con STORAGE_PROVIDER=s3 la valida createStorageProvider al arrancar.
+    STORAGE_PROVIDER: { type: "string", enum: ["mock", "s3"], default: "mock" },
+    S3_BUCKET_NAME: { type: "string" },
+    S3_REGION: { type: "string" },
   },
 };
 

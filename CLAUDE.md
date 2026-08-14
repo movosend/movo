@@ -94,13 +94,15 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 | 005 | REST + `/api/v1/` + Socket.io para tracking; Swagger autogenerado | Over-fetching mitigado con query params de proyección |
 | 006 | EC2 + Docker Compose (no K8s/PaaS/ECS); frontends Next.js en Vercel | Sin auto-scaling; sin alta disponibilidad (aceptado para el alcance del TFG) |
 | 007 | AWS S3 con presigned URLs para imágenes de envíos (nunca BLOBs en Postgres ni filesystem local) | Cliente implementa flujo de 2 pasos (pedir URL, hacer PUT) |
-| 008 | Google Maps Distance Matrix API para la matriz de costos del VRPTW | Costo por llamada (N²) y dependencia de red en el camino crítico |
+| 008 | Google Maps Distance Matrix API para la matriz de costos del VRPTW (REEMPLAZADO por ADR-013: migración a Routes API, Compute Route Matrix) | Costo por llamada (N²) y dependencia de red en el camino crítico |
 | 009 | Terraform (AWS + Cloudflare) reemplaza aprovisionamiento manual | Curva de aprendizaje de HCL/state management |
 | 010 | Gateway: servicios internos confían en `x-user-*` sin revalidar (se apoya en que solo el gateway expone puerto público) | Si un atacante llega a la red interna, el modelo de confianza cae — perimetral, no zero-trust |
 | 011 | Prisma como ORM estándar para todos los servicios Node de MOVO (primera implementación en `movo-svc-users`, los demás lo adoptan al tener dominio real) | Curva de aprendizaje del equipo; requiere driver adapter (`@prisma/adapter-pg`, Prisma 7) y baselinear las 2 migraciones SQL ya aplicadas como histórico |
 | 012 | Twilio como proveedor de SMS para OTP (MOVO-71), detrás de una interfaz `SmsProvider`; implementación de consola es el default de dev/test/CI, Twilio real queda reservado para la demo final | Sin envío real de SMS fuera de la demo — limitación aceptada para no incurrir en costos de una API externa de pago (riesgo R10 del plan de proyecto); el adapter (riesgo R11) permite activar Twilio de verdad solo cambiando `SMS_PROVIDER` |
 | 013 | Refresh token con TTL extendido de 7 a 90 días (MOVO-75), reemplazando el valor original de ADR-004 — prioridad del equipo: minimizar cuánto tienen que volver a loguearse los usuarios en una app que no maneja datos bancarios | Ventana de exposición mayor si un refresh token es robado; mitigado por la rotación de un solo uso + detección de reuso que introduce la misma US (reusar un refresh ya canjeado revoca todas las sesiones del usuario) |
-| 014 | Google Maps como proveedor de geocoding para el paso de mapa del wizard de registro (MOVO-73), detrás de una interfaz `GeocodingProvider`; mock determinístico es el default de dev/test/CI, Google real vía `GEOCODING_PROVIDER=google` — primera implementación real de un servicio de Google Maps en el proyecto pese a que ADR-008 ya lo había decidido para `movo-svc-pricing-logistics` (todavía un esqueleto) | Dos API keys de Google distintas a provisionar (Geocoding API server-side, restringida por IP; Maps SDK client-side del mobile, restringida por bundle id/SHA) — ninguna cargada todavía, mismo estado pendiente que las credenciales de Twilio/Didit |
+| 014 | Google Maps como proveedor de geocoding para el paso de mapa del wizard de registro (MOVO-73), detrás de una interfaz `GeocodingProvider`; mock determinístico es el default de dev/test/CI, Google real vía `GEOCODING_PROVIDER=google` — primera implementación real de un servicio de Google Maps en el proyecto pese a que ADR-008/ADR-013 ya lo habían decidido para `movo-svc-pricing-logistics` (todavía un esqueleto) | Dos API keys de Google distintas a provisionar (Geocoding API server-side, restringida por IP; Maps SDK client-side del mobile, restringida por bundle id/SHA) — ninguna cargada todavía, mismo estado pendiente que las credenciales de Twilio/Didit |
+| 015 | Google Routes API (método `Compute Route Matrix`, tier Basic) reemplaza Distance Matrix API (ADR-008, declarada Legacy) — consumida desde `movo-svc-pricing-logistics` con cuota diaria dura en GCP y `GOOGLE_MAPS_MAX_ELEMENTS` como salvaguarda de costos | Tier Basic ($5/1.000 elem, sin tráfico en vivo/peajes); límite de 625 elementos por request y streaming |
+| 016 | Foto de perfil (MOVO-97, primera implementación real de ADR-007): bucket S3 con el prefijo `profile-photos/` de lectura pública (policy de bucket, resto privado) + key con UUID aleatorio, en vez de bucket 100% privado con presigned GET en cada lectura | `photo_url` queda como URL estable y cacheable por el cliente; a cambio, quien tenga la URL exacta ve la foto sin autenticarse — aceptado porque la foto ya es información pública por diseño (AC9 de MOVO-97, la usa la contraparte de un envío para reconocer a la persona) |
 
 ## Convenciones de código
 
@@ -207,6 +209,18 @@ historias, 284hs. Backlog detallado y estimaciones por historia en Drive.
 
 _Sección viva — agregar una entrada corta por US/sprint relevante, no borrar el
 historial de entradas anteriores salvo que queden completamente obsoletas._
+
+### MOVO-50 — Spike: Algoritmo VRPTW con Google OR-Tools
+
+Spike técnica de investigación y benchmarking del motor de ruteo de vehículos con ventanas horarias y pares de retiro/entrega (VRPPDTW).
+Entregables publicados en `docs/or-tools/` (`vrptw-spike-report.md` y `vrptw_prototype.py`).
+
+Decisiones clave:
+- Flujo de invocación en Movo (MOVO-18, MOVO-10): el transportista posee un viaje activo (ej. Córdoba -> Villa María). Se evalúa el desvío marginal por candidato.
+- Prefiltro Geométrico al Segmento (CA 6): mide la distancia ortogonal del paquete al segmento de recta $Origen \to Destino$. Paquetes a $> 15\text{ km}$ (ej. Carlos Paz) son descartados localmente sin llamados a OR-Tools ni a Google Maps APIs.
+- ADR-013 (Adenda a ADR-008): adopta Google Routes API (`Compute Route Matrix`, tier Basic) para `movo-svc-pricing-logistics`. Mock Haversine reservado para dev/test/spikes.
+- Reutilización de Ruta y Cache (CA 7): la solución resuelta para el feed se cachea. Al presionar "Aceptar oferta", se recupera en $0.00\text{ ms}$ ($0$ llamados adicionales a OR-Tools).
+- SLA & Fallback: resolución en $< 50\text{ ms}$ para hasta 20 envíos con *First Solution Strategy*. Fallback de heurística Greedy determinística en $< 0.2\text{ ms}$.
 
 ### MOVO-67 — Librería compartida (`@movo/shared`)
 
@@ -1984,3 +1998,312 @@ rutas/servicio/schema HTTP) no se tocaron — son de las US de API (MOVO-80/81/8
 mecanismo con la imagen Docker local, pero no corrido todavía contra
 `api-dev.movosend.app`/`api.movosend.app`, misma situación que tuvo `svc-users` en
 MOVO-93 hasta su primer deploy real.
+### MOVO-15 — Verificación de licencia de conducir (`svc-users` + `movo-mobile`)
+
+Reutiliza por completo el mecanismo de KYC de MOVO-72 (identidad), con
+`verification_type: "license"` en vez de `"identity"` — la infraestructura ya estaba
+diseñada para esto (`VerificationType` en `models/kyc-verification.ts`,
+`kyc-verification-repository.ts` genérico por tipo, `User.kycStatusLicense`,
+`ProfileBadge.license_verified` en `@movo/shared`); esta US termina de cablearla.
+
+Implementado en `services/movo-svc-users`:
+- **`kyc.service.ts` generalizado por `VerificationType`**: `createSession`/`getStatus`/
+  `reconcilePendingAttempt` ahora reciben el tipo como parámetro en vez de hardcodear
+  `"identity"`; dos helpers (`getUserKycStatus`/`updateUserKycStatus`) dispatchan entre
+  `kycStatusIdentity`/`kycStatusLicense` según corresponda. `applyTerminalDecision`
+  (único camino de escritura, push o pull) sigue siendo el único punto que decide qué
+  columna de `users` tocar, ahora leyendo `result.verificationType` de la fila resuelta
+  — el webhook no necesita saber de antemano qué tipo de verificación está resolviendo.
+- **`DiditClient` con un `workflow_id` por tipo**: `CreateDiditSessionInput` gana
+  `verificationType`; `HttpDiditClientConfig.workflowId` (string) pasa a `workflowIds:
+  Record<VerificationType, string>`. `DIDIT_WORKFLOW_ID_LICENSE` nuevo en
+  `config/env.ts`/`.env.example`/`docker-compose.yml`, junto a `DIDIT_WORKFLOW_ID_IDENTITY`
+  — `createDiditClient` ahora exige las 5 credenciales completas (antes 4) cuando
+  `DIDIT_MODE=live`.
+- **Rutas nuevas `POST /kyc/license/session` / `GET /kyc/license/status`**, agregadas
+  al mismo plugin `kyc.routes.ts` (`/kyc/session`/`/kyc/status` de identidad quedan sin
+  cambio de contrato, ahora llaman al servicio con `"identity"` explícito). El gateway
+  no necesitó ningún cambio: `/kyc` ya proxea todo el prefijo a `svc-users`
+  (`routes-map.ts`), y como las rutas nuevas no están en `getPublicRoutes()`, quedan
+  protegidas por defecto igual que las de identidad desde PR #51 de MOVO-72.
+- **Tabla nueva `users.drivers_license`** (DER, `docs/movo_der.dbml`): el registro del
+  carnet en sí, distinto de `kyc_verification` (que es el log de intentos) — un carnet
+  tiene ciclo de vida propio (vencimiento/renovación) que un DNI verificado no tiene en
+  el resto del sistema. `user_id` único (se upsertea en cada re-verificación aprobada,
+  no se acumula historial ahí); `status` (`drivers_license_status_enum`:
+  `pending`/`verified`/`expired`, minúscula — el DER lo dibuja en mayúscula, mismo
+  criterio de estilo que otros enums del diagrama) se escribe siempre `verified` al
+  crear la fila, solo cuando una verificación de licencia se **aprueba**
+  (`applyTerminalDecision`, dentro de la misma transacción que actualiza
+  `kyc_status_license`). `pending`/`expired` quedan modelados para el ciclo de vida
+  futuro del carnet (vencimiento real con el tiempo, limpieza por cron) — fuera de
+  alcance de esta US. Migración `20260814190000_add_drivers_license_movo_15` +
+  `repositories/drivers-license-repository.ts` (un único método,
+  `upsertVerified`) + `models/drivers-license.ts` (mismo patrón de
+  `parseDriversLicenseStatus`/`InvalidEnumValueError` que el resto de los enums de DB).
+- **`expiration_date` extraído del payload de Didit, no dejado en null** (a diferencia
+  del precedente de MOVO-96 para el DNI, que se dejó sin implementar por falta de
+  confirmación de shape): el usuario confirmó contra la documentación de Didit que el
+  feature "ID Verification" devuelve `expiration_date` como campo de nivel superior por
+  documento (misma categoría que `document_number`/`document_type`, no es dato
+  biométrico, AC6 sigue cumplido). `extractDocumentExpirationDate(decision)`
+  (`kyc.service.ts`, mismo estilo defensivo que `extractDecisionWarnings` — nunca tira,
+  `null` si no matchea) se suma al whitelist de redacción de AC9
+  (`buildRedactedRawDecision`/`buildRedactedPulledDecision`) tanto para la vía push
+  (webhook) como pull (`getSessionDecision`). Sigue sin validarse contra un payload real
+  de licencia del sandbox de Didit (el shape viene confirmado por documentación, no por
+  una corrida real como sí se hizo para identidad en MOVO-72 Paso 7) — mismo tipo de
+  gap que `Expired`/`Abandoned`/`Kyc Expired` dejó abierto en su momento.
+- **Insignia `license_verified`**: `computeBadges()` (`models/user-profile.ts`) ya
+  tenía el `TODO(MOVO-15)` marcado — se reemplaza por el chequeo real de
+  `kycStatusLicense === APPROVED`.
+- **`PrivateProfile` gana `licenseKycStatus`** (`@movo/shared`, mapeado en
+  `toPrivateProfile()`, agregado a `users.schema.ts#privateProfileResponse`) — para que
+  el banner del perfil en mobile no necesite una llamada aparte a
+  `/kyc/license/status`. No se agregó a `PublicProfile`: la insignia ya comunica el
+  resultado ahí, mismo criterio que `kycStatus` (identidad) tampoco vive en esa
+  proyección.
+
+Implementado en `movo-mobile`:
+- **`app/(app)/license-kyc.tsx`**, nueva pantalla — mismo patrón de fases
+  (`intro`/`connecting`/`result`) y mismo SDK nativo de Didit que
+  `app/(auth)/kyc.tsx` (identidad), pero **desacoplada de `useRegistration()`**: el
+  transportista ya está logueado de verdad cuando llega acá (vía el banner de Perfil),
+  así que el estado del flujo es local al componente y `authClient.
+  createLicenseKycSession()`/`getLicenseKycStatus()` se llaman **sin** `accessToken`
+  explícito — a diferencia de las de identidad (token efímero del wizard de registro,
+  sin sesión real todavía), el interceptor de `http-client.ts` adjunta el de la sesión
+  real solo, con el refresh automático de MOVO-76 incluido.
+- `error-messages.ts#CODE_MESSAGES["KYC_SESSION_NOT_ALLOWED"]` sigue diciendo "Tu
+  identidad ya está verificada" (correcto para `/kyc/session`) — sería incorrecto para
+  licencia. `license-kyc.tsx` resuelve ese código a mano ("Tu licencia ya está
+  verificada.") antes de delegar al helper genérico para el resto.
+- **Banner nuevo en Perfil** (`components/profile/profile-license-status-banner.tsx`,
+  copia de `profile-kyc-status-banner.tsx` con textos de licencia), gateado en
+  `profile.tsx` a `data.roles.includes(UserRole.CARRIER)` — un usuario sin rol
+  transportista no ve un banner pidiéndole verificar una licencia. `ProfileBadges`/
+  `ProfileVerifiedBadge` no necesitaron cambios: ya tenían el mapeo de
+  `license_verified` esperando desde MOVO-78.
+
+Tests: 240/240 en `svc-users` (subieron de 226 — nuevo `kyc.license.integration.test.ts`,
+casos de licencia sumados a `kyc.webhook.integration.test.ts` y
+`users.profile.integration.test.ts`, casos de `workflowIds`/5 credenciales en los tests
+de adapters de Didit), 105/105 en `movo-mobile` (subieron de 93 — `license-kyc.test.tsx`
+nuevo, casos nuevos en `profile.test.tsx`), 32/32 en gateway (sin cambios de contrato).
+`tsc --noEmit`/`eslint` sin errores en los tres paquetes tocados (`svc-users`,
+`@movo/shared`, `movo-mobile` — salvo el mismo hueco preexistente de tipado de rutas de
+expo-router que ya afecta a `kyc.tsx`/`login.tsx`/`app/index.tsx`, sin relación con este
+cambio). Migración verificada aplicando limpia contra Postgres real.
+
+Pendiente / fuera de alcance de MOVO-15: cargar `DIDIT_WORKFLOW_ID_LICENSE` real en AWS
+Secrets Manager y en el `.env` local de cada integrante (mismo pendiente manual que
+viene arrastrando el resto de credenciales de Didit/Twilio) — sin esto, `DIDIT_MODE=live`
+no arranca hasta configurarlo, igual que ya pasaba con las otras credenciales de Didit.
+Validación contra el sandbox real de un payload de licencia (confirmar `expiration_date`
+contra una respuesta real, no solo documentación). Ciclo de vida propio del carnet ya
+verificado (`drivers_license.status = expired` por vencimiento real/cron) y regla de
+"identidad aprobada como prerequisito de licencia" (no la pide ningún AC, no se agregó)
+— ambas, decisiones de producto futuras sin ticket todavía.
+### MOVO-97 — Foto de perfil: subida a S3 con presigned URLs, confirmación y borrado (`svc-users`)
+
+Primera implementación real de ADR-007 (S3 + presigned URLs) — hasta este ticket no
+había una sola línea de `@aws-sdk/*` en el repo. Implementado `src/adapters/{storage-
+provider,s3-storage-provider,mock-storage-provider}.ts` (mismo patrón de interfaz +
+real + mock que `SmsProvider`/`DiditClient`/`GeocodingProvider`), 3 rutas nuevas en
+`src/modules/users/{users.routes,users.schema}.ts` (`POST /users/me/photo/upload-url`,
+`PUT /users/me/photo`, `DELETE /users/me/photo`), lógica de negocio en
+`users.service.ts` y `user-repository.ts#updatePhotoUrl`. El lado de lectura
+(`photoUrl` en `PrivateProfile`/`PublicProfile`) ya estaba resuelto de punta a punta
+desde MOVO-77/78 — este ticket es puramente el lado de escritura.
+
+Decisiones clave:
+- **ADR-016**: lectura pública del prefijo `profile-photos/` (ver tabla de ADRs
+  arriba) — confirmado con el equipo antes de implementar, tal como pedía el ticket.
+- **No hace falta columna nueva para el `objectKey`**: al reemplazar/borrar una foto,
+  la key del objeto viejo se deriva parseando la URL ya guardada en `photo_url`
+  (`StorageProvider.getKeyFromUrl`, inversa exacta de `getPublicUrl` — vive en el
+  adapter para que real y mock no diverjan). Limitación aceptada y documentada: si en
+  algún momento se pone un CDN delante del bucket, este parseo deja de ser válido.
+- **AC2 (tipo/tamaño firmados en la URL, no solo validados)**: `S3StorageProvider`
+  firma la presigned URL con `signableHeaders: Set(["content-type", "content-length"])`
+  sobre el `PutObjectCommand` — el cliente tiene que mandar esos headers exactos en el
+  `PUT` o S3 rechaza la firma (403). `contentType` además pasa por whitelist
+  (`image/jpeg|png|webp`) y `contentLength` por `maximum: 5MB` en el JSON schema del
+  body de `upload-url` (reusa `VALIDATION_FAILED`/400 estándar, no un código nuevo).
+- **`MockStorageProvider` expone `__simulateUpload(key, meta)`**, fuera de la interfaz
+  `StorageProvider` real — único punto donde el mock necesita más superficie que S3:
+  nadie hace un PUT real a una presigned URL sintética en tests, así que los tests de
+  integración marcan el objeto como "ya subido" a mano antes de confirmar.
+- **Gap real de gateway encontrado y corregido, no cosmético**: el mecanismo de rate
+  limit estricto (`gateway/src/routes/index.ts`) solo aplicaba a rutas de
+  `getPublicRoutes()` — AC8 pide `{max:20, timeWindow:"15 minutes"}` en
+  `POST /users/me/photo/upload-url`, que es una ruta **protegida** (exige JWT). Se
+  agregó `getRateLimitOverrides()` en `routes-map.ts` (lista independiente de
+  pública/protegida) y el lookup del `preHandler` pasa a ser por `method+path` sin
+  importar si la ruta es pública — mismo `keyGenerator` explícito por limiter que ya
+  corrigió el bug de namespace compartido de MOVO-72.
+- Tres códigos nuevos en `ApiErrorCode` de `@movo/shared`: `STORAGE_PROVIDER_ERROR`
+  (502, S3 caído/credenciales), `PHOTO_OBJECT_NOT_FOUND` (422, confirmar un objeto que
+  no existe), `PHOTO_FORBIDDEN_KEY` (403, `objectKey` fuera del prefijo del usuario).
+- **Credenciales AWS vía IAM role de la EC2**, no access key/secret — el SDK las toma
+  solas de la default credential chain (decisión del ticket, sin nada nuevo que rotar
+  en Secrets Manager).
+- **No hay comunicación entre `svc-users` y `svc-shipments`/`svc-admin`**: cuando
+  MOVO-81 (fotos de paquete) adopte este patrón, va a copiar los 3 archivos del
+  adapter a su propia `src/adapters/`, con su propio prefijo de key
+  (`shipment-photos/{shipmentId}/...`) y hablando directo con S3 con sus propias
+  credenciales — no se extrajo a `@movo/shared` (ese paquete solo tiene contratos de
+  dominio, nunca lógica de negocio ni SDKs de terceros, mismo criterio que
+  `axios`/`twilio` hoy).
+
+Tests: `test/adapters/storage-provider.test.ts` (factory, fail-fast), `test/adapters/
+s3-storage-provider.test.ts` (SDK de AWS mockeado — única excepción justificada además
+de Twilio, mismo motivo: API externa de pago/credenciales), `test/users.photo.
+integration.test.ts` (Fastify + Postgres/Redis reales, `MockStorageProvider` inyectado
+vía `buildApp({storageProvider})`: emisión de URL, whitelist/tamaño, confirmación
+feliz, key ajena, objeto inexistente, reemplazo con borrado del anterior, borrado
+idempotente), caso nuevo en `gateway/test/routes-prefix.test.ts` (rate limit estricto
+en la ruta protegida). 244/244 tests en `svc-users` (subieron de 224), 35/35 en
+gateway (subieron de 32), 11/11 en `@movo/shared`. `tsc --noEmit`/`eslint`/`npm run
+build` sin errores en los tres paquetes. Swagger generado confirmado con los 3
+endpoints nuevos (`/docs/json`). Smoke manual contra el servicio real corriendo local
+(`STORAGE_PROVIDER=mock`): flujo completo de registro → `upload-url` → 422 esperado al
+confirmar sin subir nada → `DELETE` idempotente → `GET /users/me` refleja
+`photoUrl: null` → whitelist de `contentType` rechaza `image/gif`.
+
+**Verificación contra el bucket real de dev, hecha en esta sesión (DoD del ticket)**:
+bucket `movo-shipment-media-dev` (`sa-east-1`) — confirmado que ya está provisionado
+por el equipo (`movo-infra`), pero le faltaban dos cosas para que el diseño de AC9/
+ADR-016 funcionara: **CORS** (no existía ninguna regla) y la **policy de lectura
+pública** de `profile-photos/*` estaba bloqueada por el `PublicAccessBlockConfiguration`
+del bucket (las 4 flags en `true`) — probado empíricamente subiendo un objeto real y
+leyéndolo sin credenciales (403). Se resolvió vía AWS CLI directo (con las credenciales
+locales de `movo-team`, que sí tienen permisos pese a que el bucket policy previo solo
+listaba el role `movo-dev-ec2-role`):
+- `PutPublicAccessBlock`: solo se relajaron `BlockPublicPolicy`/`RestrictPublicBuckets`
+  a `false` — `BlockPublicAcls`/`IgnorePublicAcls` **quedan en `true`**, así que ninguna
+  ACL (accidental o no) puede hacer público un objeto; la única vía de exposición
+  pública posible de acá en más es la bucket policy explícita, revisada a mano.
+- Bucket policy: se agregó un statement `PublicReadProfilePhotos`
+  (`Principal: "*"`, `Action: s3:GetObject`, `Resource: .../profile-photos/*`) al final
+  de la policy existente (el `AllowEC2RoleOnly`/`AllowEC2RoleListBucket` original no se
+  tocó). Sin `s3:ListBucket` público — no se puede enumerar qué fotos existen, solo leer
+  una key exacta (UUID v4, no adivinable).
+- CORS: una regla, `AllowedMethods: ["PUT"]`, `AllowedOrigins: ["https://api-dev.movosend.app"]`
+  (acotado al dominio público de la EC2 de dev, no `*` — decisión del equipo: se
+  prueba desde dispositivo real recién con esta rama mergeada y desplegada, no hace
+  falta un origen más amplio por ahora), `AllowedHeaders: ["content-type", "content-length"]`.
+- Verificado con curl real contra el bucket (no `MockStorageProvider`): presigned URL
+  real firmada con `signableHeaders` de `content-type`/`content-length`, `PUT` real de
+  16 bytes exitoso, `PUT /users/me/photo` confirma contra un `HeadObject` real,
+  `GET /users/me` refleja la URL real, lectura pública sin credenciales da 200 dentro
+  de `profile-photos/*` y sigue en 403 fuera de ese prefijo, reemplazo borra el objeto
+  viejo de verdad (verificado con `HeadObject` → 404 post-borrado), `DELETE` dos veces
+  seguidas idempotente (204/204) con el objeto realmente borrado de S3.
+
+**Portado a Terraform (`movo-infra`), mismo alcance de esta sesión** — los tres cambios
+de arriba se habían aplicado primero directo por AWS CLI para desbloquear la prueba
+manual; después se replicaron en `modules/storage` (nuevas variables
+`public_read_prefix`/`cors_allowed_origins`, `aws_s3_bucket_public_access_block`
+condicional, tercer statement de la bucket policy, `aws_s3_bucket_cors_configuration`
+nuevo) y se wirearon en **ambos** `envs/dev/main.tf` y `envs/prod/main.tf` con
+`public_read_prefix = "profile-photos"`. `terraform apply` corrido en dev — `terraform
+plan` del módulo `storage` da **"No changes"**, código/state/AWS real reconciliados.
+Rama `feature/movo-97-svc-users-foto-de-perfil-subida-a-s3-con-presigned-urls` en
+`movo-infra` (PR #2), ya mergeada a `main`. **Prod (`movo-shipment-media-prod`) tiene
+el código listo pero el `terraform apply` real todavía no se corrió ahí** — queda
+pendiente para cuando se despliegue esta US a prod.
+
+Pendiente / fuera de alcance de MOVO-97: sumar al IAM role de las EC2 los permisos
+`s3:PutObject`/`GetObject`/`DeleteObject` acotados a `profile-photos/*` (hoy la policy
+ya lista esas acciones para `movo-dev-ec2-role` sobre **todo** el bucket — no está
+acotado al prefijo, y **es intencional, no un descuido**: el mismo role necesita
+`PutObject`/`DeleteObject` sobre otros prefijos del mismo bucket compartido para
+`svc-shipments`/`svc-admin` cuando adopten este patrón, así que estrecharlo a
+`profile-photos/*` rompería esos casos futuros — revisar si conviene separar por
+prefijo recién cuando esos otros consumidores existan de verdad. Nota aparte: el AC
+del ticket menciona `s3:HeadObject` como permiso a sumar, pero no existe como acción
+IAM separada — `HeadObject` se autoriza con el mismo `s3:GetObject`, ya concedido).
+Cargar `STORAGE_PROVIDER=s3`/`S3_BUCKET_NAME=movo-shipment-media-dev`/
+`S3_REGION=sa-east-1` en AWS Secrets Manager (`movo/dev/app-secrets`) y las variables
+equivalentes de prod son tarea manual del equipo con acceso a AWS — el código ya está
+listo para tomarlas. El desarrollo completo de ADR-016 (contexto/alternativas) queda
+pendiente de pegar en Drive, mismo estado que ADR-012/013/014/015.
+
+### MOVO-107 — Permisos, registro de push token y manejo de notificaciones (`movo-mobile`)
+
+Lado cliente de push notifications: pedir permiso, obtener el push token de Expo,
+registrarlo contra el backend y manejar la notificación recibida. Implementado contra
+el contrato que define **MOVO-106** (`svc-users`, todavía en `Todo` al momento de
+escribir esto) — mismo criterio que MOVO-73 con MOVO-70/72: el mobile se adelanta al
+contrato acordado, sin bloquearse en que el backend exista.
+
+Archivos nuevos: `src/lib/device-id.ts` (`getOrCreateDeviceId`, UUID estable vía
+`Crypto.randomUUID()` de `expo-crypto`, persistido en `expo-secure-store` — nueva key
+`SECURE_STORE_KEYS.pushDeviceId`, la única que **sobrevive** a `clearSession()`/
+`logout()` porque identifica el dispositivo, no la sesión), `src/api/
+notifications-client.ts` (`registerPushToken`/`unregisterPushToken` contra `POST`/
+`DELETE /users/me/push-token`, mismo patrón minimalista que `users-client.ts`),
+`src/lib/push-registration.ts` (funciones puras — `requestPermissionAndRegisterPushToken`/
+`unregisterCurrentDevice` — separadas del hook de React para que `auth-store.ts` las
+importe sin depender de un hook) y `src/hooks/use-push-notifications.ts` (hook que
+dispara el registro al detectar sesión autenticada, configura el handler de
+notificaciones y escucha taps).
+
+Decisiones clave:
+- **AC5 (aviso en foreground) sin componente nuevo**: se configura
+  `Notifications.setNotificationHandler({ shouldShowAlert: true, ... })` a nivel de
+  módulo — usa el banner nativo del SO incluso con la app abierta. No hay ningún
+  banner auto-dismiss reusable en el repo (`ErrorBanner` es persistente a propósito),
+  así que construir uno hubiera sido alcance extra no pedido por el AC.
+- **AC6 (navegar al detalle de un envío) queda parcialmente resuelto a propósito**: el
+  listener (`addNotificationResponseReceivedListener`) parsea `data.type === 'shipment'`
+  y deja el punto de extensión documentado en el propio código, pero no navega a
+  ningún lado real — no existe ninguna pantalla de envíos todavía (MOVO-83+, sin
+  arrancar). Decisión tomada con el usuario: mejor dejar el parseo listo y sin acción
+  que inventar un destino (`/home`) que no es el real.
+- **`httpClient` no exponía `delete`** (`HttpMethod` ya incluía `"DELETE"` pero el
+  objeto exportado no lo usaba) — se agregó `httpClient.delete<T>(path, body, headers)`,
+  mismo shape que `post`/`patch`, porque el contrato de MOVO-106 manda `{ deviceId }`
+  en el body del `DELETE`.
+- **`expo-crypto` en vez del paquete `uuid`** para generar el `deviceId`: evita el
+  polyfill de `crypto.getRandomValues` que `uuid` necesita en RN/Hermes — decisión
+  tomada con el usuario junto con las dos anteriores.
+- **AC4 (des-registro en logout)**: `auth-store.ts#logout()` llama a
+  `unregisterCurrentDevice()` **antes** de `clearSession()` (necesita el accessToken
+  todavía en memoria para el header `Authorization`), envuelto en `try/catch` propio
+  además del que ya trae la función internamente — mismo criterio de "un paso
+  secundario nunca bloquea salir de la cuenta" que ya usa esa función con
+  `authClient.logout`.
+- **`eas init` ya se había corrido** (proyecto "movo-mobile", org "movosend"), pero el
+  `projectId` nunca quedó commiteado — vivía en un `app.json` local de una rama
+  anterior, reemplazado por `app.config.js` en MOVO-73 sin portar el valor, y se perdió
+  al cambiar de rama. Repuesto acá: `owner: "movosend"` +
+  `extra.eas.projectId: "077f9c8d-cb66-4772-a76c-34e4548290e7"` en `app.config.js`
+  (verificado con `npx expo config --type public`, que ahora sí resuelve ambos).
+- **AC7 (Expo Go, aun con `projectId` configurado)**: `Notifications.
+  getExpoPushTokenAsync({ projectId })` sigue tirando en Expo Go (no soporta push
+  remoto, independientemente del `projectId`) — se atrapa en `push-registration.ts`,
+  se loguea y no rompe nada más.
+- `app.config.js`: se agregó `"expo-notifications"` al array `plugins` (sin esto
+  Android no genera el ícono/sonido de notificación en el build nativo). Sin cambios
+  en `.env.example` — el push token de Expo no requiere ningún secret del lado
+  cliente, a diferencia de las keys de Google Maps.
+
+Tests nuevos: `test/device-id.test.ts`, `test/notifications-client.test.ts`,
+`test/push-registration.test.ts` (permiso denegado no registra — AC1; permiso
+concedido registra — AC2/AC3; `getExpoPushTokenAsync` fallando no rompe — AC7;
+de-registro tolera fallos), `test/use-push-notifications.test.tsx` (registro único por
+transición a autenticado, re-registro tras logout/login en el mismo dispositivo, tap
+de notificación de envío no crashea, cleanup del listener al desmontar), más dos casos
+agregados a `test/auth-store.test.tsx` (logout des-registra el dispositivo, y tolera
+que falle). 111/111 en `movo-mobile` (subieron de 93). `tsc --noEmit` sin errores. No
+hay `eslint.config.js` en `movo-mobile` todavía (paquete sin lint configurado, a
+diferencia del resto del monorepo) — no es parte de esta US.
+
+Pendiente / fuera de alcance de MOVO-107: backend real de MOVO-106 (código escrito
+contra su contrato, sin poder integrar hasta que exista — con `projectId` ya
+configurado, este es ahora el único bloqueo real para probar push de punta a punta),
+pantalla de destino real para AC6 (depende de MOVO-83+), y el DoD manual del ticket
+(development build en dispositivo físico, casos de prueba con push real) — no
+verificable en este entorno.

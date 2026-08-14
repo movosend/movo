@@ -69,7 +69,7 @@ export default async function kycRoutes(app: FastifyInstance, opts: KycRoutesOpt
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const userId = requireUserIdFromHeader(request);
-      const result = await service.createSession(userId);
+      const result = await service.createSession(userId, "identity");
       reply.code(201);
       return result;
     }
@@ -94,7 +94,61 @@ export default async function kycRoutes(app: FastifyInstance, opts: KycRoutesOpt
     },
     async (request: FastifyRequest) => {
       const userId = requireUserIdFromHeader(request);
-      return service.getStatus(userId);
+      return service.getStatus(userId, "identity");
+    }
+  );
+
+  // MOVO-15: mismo mecanismo de KYC que /session y /status de arriba, con
+  // verification_type "license" en vez de "identity" — reusa los mismos schemas de
+  // respuesta (kycSessionResponse/kycStatusResponse), el shape es idéntico.
+  app.post(
+    "/license/session",
+    {
+      schema: {
+        summary: "Crear sesión de verificación de licencia de conducir",
+        description:
+          "Crea una sesión de verificación en Didit.me para la licencia de conducir del " +
+          "transportista autenticado (MOVO-15 AC1/AC2) y devuelve el sessionToken que el " +
+          "cliente móvil pasa al SDK nativo de Didit. Solo permitido si el teléfono está " +
+          "verificado y el kyc_status_license actual lo permite (mismo criterio que /session).",
+        tags: ["kyc"],
+        response: {
+          201: kycSchemas.kycSessionResponse,
+          400: kycSchemas.errorResponse,
+          401: kycSchemas.errorResponse,
+          404: kycSchemas.errorResponse,
+          409: kycSchemas.errorResponse,
+          502: kycSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const userId = requireUserIdFromHeader(request);
+      const result = await service.createSession(userId, "license");
+      reply.code(201);
+      return result;
+    }
+  );
+
+  app.get(
+    "/license/status",
+    {
+      schema: {
+        summary: "Consultar estado de verificación de licencia de conducir",
+        description:
+          "Permite al cliente móvil hacer polling del estado de kyc_status_license " +
+          "mientras la verificación está en curso (MOVO-15 AC3).",
+        tags: ["kyc"],
+        response: {
+          200: kycSchemas.kycStatusResponse,
+          401: kycSchemas.errorResponse,
+          404: kycSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      return service.getStatus(userId, "license");
     }
   );
 

@@ -13,6 +13,10 @@ jest.mock("../src/api/auth-client", () => ({
   },
 }));
 
+jest.mock("../src/lib/push-registration", () => ({
+  unregisterCurrentDevice: jest.fn().mockResolvedValue(undefined),
+}));
+
 const SESSION_USER = {
   userId: "usr_1",
   fullName: "Julia Pérez",
@@ -188,5 +192,31 @@ describe("auth-store", () => {
 
     expect(useAuthStore.getState().status).toBe("unauthenticated");
     expect(useAuthStore.getState().accessToken).toBeNull();
+  });
+
+  it("logout() da de baja el push token del dispositivo antes de limpiar la sesión (MOVO-107 AC4)", async () => {
+    const { useAuthStore } = require("../src/store/auth-store");
+    const { authClient } = require("../src/api/auth-client");
+    const { unregisterCurrentDevice } = require("../src/lib/push-registration");
+    (authClient.logout as jest.Mock).mockResolvedValue(undefined);
+
+    await useAuthStore.getState().setSession(REFRESHED_SESSION);
+    await useAuthStore.getState().logout();
+
+    expect(unregisterCurrentDevice).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().status).toBe("unauthenticated");
+  });
+
+  it("logout() tolera que la baja del push token falle y limpia la sesión igual", async () => {
+    const { useAuthStore } = require("../src/store/auth-store");
+    const { authClient } = require("../src/api/auth-client");
+    const { unregisterCurrentDevice } = require("../src/lib/push-registration");
+    (authClient.logout as jest.Mock).mockResolvedValue(undefined);
+    (unregisterCurrentDevice as jest.Mock).mockRejectedValue(new Error("network"));
+
+    await useAuthStore.getState().setSession(REFRESHED_SESSION);
+    await expect(useAuthStore.getState().logout()).resolves.not.toThrow();
+
+    expect(useAuthStore.getState().status).toBe("unauthenticated");
   });
 });

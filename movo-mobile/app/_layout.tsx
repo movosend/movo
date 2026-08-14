@@ -19,6 +19,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { Stack } from 'expo-router';
 import { View } from 'react-native';
+import { usePushNotifications } from '../src/hooks/use-push-notifications';
 import { RegistrationProvider } from '../src/hooks/use-registration';
 import { loadApiOverride } from '../src/lib/api-override';
 import { useAuthStore } from '../src/store/auth-store';
@@ -60,6 +61,11 @@ export default function RootLayout() {
   useEffect(() => {
     restoreSession();
   }, [restoreSession]);
+
+  // MOVO-107: pide permiso de notificaciones y registra el push token al detectar
+  // sesión autenticada (login o `restoreSession()` de arriba). No participa de
+  // `appReady`/el splash — corre en paralelo, nunca es un muro (AC1).
+  usePushNotifications();
 
   useEffect(() => {
     if (appReady) {
