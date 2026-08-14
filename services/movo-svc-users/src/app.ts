@@ -12,10 +12,12 @@ import usersRoutes, { UsersRoutesOptions } from "./modules/users/users.routes";
 import authRoutes, { AuthRoutesOptions } from "./modules/auth/auth.routes";
 import kycRoutes, { KycRoutesOptions } from "./modules/kyc/kyc.routes";
 import geocodeRoutes, { GeocodeRoutesOptions } from "./modules/geocode/geocode.routes";
+import notificationsRoutes, { NotificationsRoutesOptions } from "./modules/notifications/notifications.routes";
 import { SmsProvider } from "./adapters/sms-provider";
 import { DiditClient } from "./adapters/didit-client";
 import { GeocodingProvider } from "./adapters/geocoding-provider";
 import { StorageProvider } from "./adapters/storage-provider";
+import { PushNotificationProvider } from "./adapters/push-notification-provider";
 
 export interface BuildAppOptions {
   /** Override solo para tests de integración — permite capturar el código de OTP
@@ -30,6 +32,9 @@ export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de un bucket real/
    * credenciales de AWS (MOVO-97), mismo criterio que `geocodingProvider`. */
   storageProvider?: StorageProvider;
+  /** Override solo para tests de integración — evita depender de red (MOVO-106),
+   * mismo criterio que `storageProvider`. */
+  pushProvider?: PushNotificationProvider;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -86,6 +91,15 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.geocodingProvider ? { geocodingProvider: opts.geocodingProvider } : {}),
   };
   app.register(geocodeRoutes, geocodeRouteOpts);
+
+  // Interno (AC6/AC7 de MOVO-106): no se declara `/internal` en
+  // `gateway/src/config/routes-map.ts`, así que el gateway no lo proxea — solo
+  // alcanzable dentro de la red Docker por otros servicios.
+  const notificationsRouteOpts: NotificationsRoutesOptions = {
+    prefix: "/internal/notifications",
+    ...(opts.pushProvider ? { pushProvider: opts.pushProvider } : {}),
+  };
+  app.register(notificationsRoutes, notificationsRouteOpts);
 
   return app;
 }
