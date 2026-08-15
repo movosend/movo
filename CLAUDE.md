@@ -18,7 +18,9 @@ tests, chequea si falta un ADR, y actualiza este mismo archivo.
   una convención: actualizá la sección **"Estado actual de la implementación"** con una
   entrada corta (qué se hizo, en qué archivos, qué queda pendiente/fuera de alcance).
   No dupliques el detalle que ya está en el commit o en la descripción del PR — un
-  párrafo de 3-5 líneas alcanza.
+  párrafo de 3-5 líneas alcanza. No repitas stats de tests ni narres cada bug encontrado
+  y corregido en el camino: solo el estado final y, si hay una, la razón de una decisión
+  no obvia.
 - Si una convención de código/proceso cambia (nuevo ADR, nueva regla de linting, etc.),
   actualizá la sección correspondiente acá, no solo en el documento de Drive.
 - Si agregás un ADR nuevo en el entregable de Sprint 0 (Drive), sumá su resumen de una
@@ -164,6 +166,17 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 - Puerto 22 SSH abierto a `0.0.0.0/0` en las EC2 es una limitación aceptada y documentada
   (restricción de AWS Security Groups para filtrar solo IPs de GitHub Actions), no un
   descuido.
+- Migraciones en deploy: `run-migrations.sh` (SQL a mano, `svc-payments`/`svc-admin`)
+  lleva ledger propio (`public.schema_migrations`) para tolerar reruns sin repetir
+  migraciones no-idempotentes. `svc-users`/`svc-shipments` (Prisma) usan
+  `docker compose pull <servicio> && docker compose run --rm -T <servicio> npx prisma
+  migrate deploy` — el `pull` explícito es necesario porque `run` no repullea una imagen
+  ya presente localmente. `DATABASE_URL` para Prisma necesita user/password
+  percent-encodeados (a diferencia de `pg`, que tolera el string crudo) — el parseo
+  hace backtrack desde el último `@` para tolerar passwords que contengan `@`.
+- `docker image prune -af` (sin `--volumes`) corre al final de cada deploy — el disco
+  chico de la EC2 (ADR-006) se llena de imágenes `<none>` si no se limpia. Rotación de
+  logs (`json-file`, `max-size: 10m` / `max-file: 3`) en todos los servicios.
 
 ## Documentación completa (Google Drive)
 
@@ -207,2103 +220,275 @@ historias, 284hs. Backlog detallado y estimaciones por historia en Drive.
 
 ## Estado actual de la implementación
 
-_Sección viva — agregar una entrada corta por US/sprint relevante, no borrar el
-historial de entradas anteriores salvo que queden completamente obsoletas._
+_Sección viva — entrada corta por US/sprint (qué se hizo, en qué archivos, decisiones no
+obvias, qué queda pendiente). Detalle completo (narrativa de bugs, stats de tests,
+alternativas consideradas) vive en el historial de commits/PRs, no acá._
 
-### MOVO-50 — Spike: Algoritmo VRPTW con Google OR-Tools
+### MOVO-50 — Spike: VRPTW con Google OR-Tools
 
-Spike técnica de investigación y benchmarking del motor de ruteo de vehículos con ventanas horarias y pares de retiro/entrega (VRPPDTW).
-Entregables publicados en `docs/or-tools/` (`vrptw-spike-report.md` y `vrptw_prototype.py`).
+Entregables en `docs/or-tools/` (`vrptw-spike-report.md`, `vrptw_prototype.py`).
+Prefiltro geométrico al segmento de ruta (descarta candidatos >15km sin llamar a
+OR-Tools/Google Maps). Cache de la solución del feed (0 llamados extra al aceptar una
+oferta). SLA <50ms para 20 envíos, fallback greedy determinístico <0.2ms. Motivó
+ADR-013 (Routes API sobre Distance Matrix).
 
-Decisiones clave:
-- Flujo de invocación en Movo (MOVO-18, MOVO-10): el transportista posee un viaje activo (ej. Córdoba -> Villa María). Se evalúa el desvío marginal por candidato.
-- Prefiltro Geométrico al Segmento (CA 6): mide la distancia ortogonal del paquete al segmento de recta $Origen \to Destino$. Paquetes a $> 15\text{ km}$ (ej. Carlos Paz) son descartados localmente sin llamados a OR-Tools ni a Google Maps APIs.
-- ADR-013 (Adenda a ADR-008): adopta Google Routes API (`Compute Route Matrix`, tier Basic) para `movo-svc-pricing-logistics`. Mock Haversine reservado para dev/test/spikes.
-- Reutilización de Ruta y Cache (CA 7): la solución resuelta para el feed se cachea. Al presionar "Aceptar oferta", se recupera en $0.00\text{ ms}$ ($0$ llamados adicionales a OR-Tools).
-- SLA & Fallback: resolución en $< 50\text{ ms}$ para hasta 20 envíos con *First Solution Strategy*. Fallback de heurística Greedy determinística en $< 0.2\text{ ms}$.
+### MOVO-67 — `@movo/shared`
 
-### MOVO-67 — Librería compartida (`@movo/shared`)
-
-JWT (`signAccessToken`/`verifyAccessToken`, TTL 60min, issuer `movo`), refresh token
-opaco (`signRefreshToken`, no persiste — el servicio consumidor guarda el hash en
-Redis), contrato `ApiError`/`ApiErrorCode` (formato único de error, códigos son wire
-contract: nunca se renombran, solo se agregan), tipos de dominio (`UserRole`,
-`KycStatus`, `AccountStatus`). Consumida como npm workspace real desde `gateway/` y los
-servicios Node (`package.json: "@movo/shared": "*"`).
+JWT (`signAccessToken`/`verifyAccessToken`, TTL 60min), refresh token opaco, contrato
+`ApiError`/`ApiErrorCode` (códigos nunca se renombran, solo se agregan), tipos de
+dominio (`UserRole`, `KycStatus`, `AccountStatus`). Consumido como npm workspace por
+gateway y servicios Node — el mobile lo importa siempre por subpath (ver MOVO-73), el
+barrel raíz arrastra `jsonwebtoken`/`node:crypto`.
 
 ### MOVO-68 — Middleware del API Gateway
 
-Implementado: autenticación (`plugins/auth.ts`), autorización por rol
-(`app.authorize(roles)`), rate limiting con Redis (`plugins/rate-limit.ts` +
-`plugins/redis.ts`), manejador de errores central (`plugins/error-handler.ts`), ruteo
-declarativo bajo `/api/v1` (`config/routes-map.ts` + `routes/index.ts`).
+Auth, autorización por rol (`app.authorize(roles)`), rate limiting con Redis, error
+handler central, ruteo declarativo `/api/v1` (`config/routes-map.ts`). Rutas públicas
+se declaran por método+path exacto en `getPublicRoutes()` — cualquier ruta nueva es
+protegida por defecto salvo que se liste explícitamente. Rate limit general 200/min +
+estricto en login (5/15min); `keyGenerator` explícito por limiter (necesario:
+`@fastify/rate-limit` en modo decorator comparte namespace de Redis entre limiters sin
+esto). Solo `svc-users`/`svc-shipments` conectados por ahora.
 
-Decisiones clave:
-- Rutas públicas se declaran por **método+path exacto**, no por prefijo — cualquier ruta
-  nueva es protegida por defecto salvo que se liste explícitamente en
-  `getPublicRoutes()`. Ver comentario en `routes-map.ts` (zona de conflicto: sumar al
-  final de la lista, nunca reordenar).
-- Rate limit: general (200/min, configurable vía `RATE_LIMIT_MAX`) + estricto en
-  `POST /auth/login` (5 intentos/15min). `register`/`refresh`/`verify-phone` quedan bajo
-  el general — decisión abierta si conviene extender el estricto a esos endpoints
-  también.
-- `@fastify/rate-limit` corre un solo chequeo por request (flag interno
-  `rateLimitRan`): el limitador general se registra con `global: false` y se aplica
-  explícitamente por ruta junto al estricto, nunca los dos a la vez.
-- Solo `svc-users` y `svc-shipments` están conectados al gateway este sprint.
-  `svc-payments` y `svc-admin` quedan comentados en `routes-map.ts`, listos para
-  descomentar. `svc-pricing-logistics` todavía no tiene ruta pública definida.
-- `/webhooks/didit` es un path placeholder — ajustar cuando la US de integración con
-  Didit.me defina el path real.
-- Confianza en la red interna documentada en ADR-010 (ver tabla de ADRs arriba).
+### MOVO-70 — `POST /auth/register` (`svc-users`)
 
-Pendiente / fuera de alcance de MOVO-68: proxy hacia `svc-payments`/`svc-admin`, rate
-limit estricto en más endpoints de auth (si el equipo lo decide).
+`src/modules/auth/`. Hash con `@node-rs/argon2` (binarios prebuilt, portable entre SO
+del equipo). Teléfono normalizado a E.164 AR. Duplicados (409) resueltos traduciendo
+la violación de índice único de Postgres, no con un SELECT previo (evita carrera).
+`dni`/`address` y verificación de teléfono se movieron a US posteriores (MOVO-71/73).
 
-### MOVO-70 — Endpoint de registro de usuario (`svc-users`)
+### MOVO-85 — Plugin `fastify.db` (Postgres)
 
-Implementado `POST /auth/register` (ya público en el gateway desde MOVO-68, sin
-cambios ahí): `src/modules/auth/{auth.routes,auth.service,auth.schema}.ts`, más
-`src/plugins/error-handler.ts` (portado del gateway, primer uso de `ApiError` en
-`svc-users`) registrado en `app.ts`.
+`src/plugins/db.ts`. `search_path` fijado vía connection param (no `SET` en el evento
+`connect`, evita carrera con la primera query del caller). `statement_timeout`/
+`query_timeout` en el `Pool` — sin esto, un Postgres colgado (no caído) agota el pool
+con healthchecks que nunca sueltan el cliente.
 
-Decisiones clave:
-- **Actualizado al integrar develop (MOVO-85/87/91 mergeados)**: la primera versión de
-  esta US traía un `auth.repository.ts` propio (con `createUser` ad-hoc e inserción de
-  roles por defecto como literales `'emisor'`/`'transportista'` de la DB), construido
-  porque MOVO-87 (user-repository completo) y MOVO-85 (plugin `fastify.db` con
-  `search_path`/healthcheck) no habían arrancado todavía. Al mergear develop ese archivo
-  se borró: `auth.service.ts` ahora usa `createUserRepository()` de
-  `src/repositories/user-repository.ts` (MOVO-87), pasando
-  `roles: [UserRole.SENDER, UserRole.CARRIER]` (`DEFAULT_USER_ROLES` en
-  `auth.service.ts`) en vez de literales de DB — el mapeo rol/KYC lo resuelve la capa de
-  `models/user.ts` (`roleToDb`/`kycStatusFromDb`). El `kycStatus` de la respuesta ahora
-  sale de `user.kycStatusIdentity` (leído de la fila recién persistida), no de un
-  `KycStatus.NOT_STARTED` hardcodeado. El error de duplicado que se atrapa es
-  `UserConflictError` (de `models/user.ts`), no el `DuplicateUserError` propio que existía
-  antes — mismo shape (`field: "email" | "phone"`). Ver **MOVO-91** más abajo: cuando esa
-  US alinee los enums de la DB a `@movo/shared`, esta capa de mapeo desaparece pero el
-  código de `auth.service.ts` no debería necesitar cambios (ya consume tipos de dominio,
-  no literales de DB).
-- `fullName` se separa en `first_name`/`last_name` (la migración no tiene un campo
-  único) partiendo por el primer espacio; el schema exige al menos dos palabras.
-- Teléfono normalizado a E.164 argentino (`+549` + 10 dígitos) sin importar si el
-  usuario mandó `+54`, `9`, ambos o ninguno — normalización en
-  `auth.service.ts#normalizePhoneToE164Ar`.
-- AC3/AC4 (409 en duplicado) se resuelven confiando en los índices únicos de la
-  migración (`users_email_lower_idx`, `users_phone_key`) y traduciendo la violación de
-  Postgres (código `23505`) al código de error correspondiente, en vez de un `SELECT`
-  previo — evita una ventana de carrera entre el chequeo y el `INSERT`.
-- Hash de contraseña con **`@node-rs/argon2`** (Argon2id), no `argon2` (paquete nativo
-  vía `node-gyp`): falló al instalar en Windows sin Visual Studio Build Tools.
-  `@node-rs/argon2` trae binarios prebuilt (napi-rs) por plataforma, sin compilación
-  local — más portable para un equipo con máquinas dev distintas.
-- Se agregaron dos códigos nuevos al contrato `ApiErrorCode` de `@movo/shared`:
-  `USER_EMAIL_ALREADY_EXISTS`, `USER_PHONE_ALREADY_EXISTS` (409).
-- El error-handler de `svc-users` también normaliza errores de validación de schema
-  (AJV) al formato único (`VALIDATION_FAILED`, 400) — antes no existía ningún
-  `setErrorHandler` en este servicio.
-- **Decisión de scope (04/08, coordinada con el equipo vía comentario en Linear)**: en
-  los comentarios del ticket se propuso extender el contrato con `dni`/`address` y mover
-  la verificación de teléfono por OTP a *antes* de la creación de la cuenta (`register`
-  exigiendo un `phoneVerificationToken`). Ninguna de las dos entra en esta US:
-  - `dni`/`address` quedan afuera del payload de `POST /auth/register` — si hacen falta,
-    van en una US de perfil aparte, todavía sin definir.
-  - El flujo OTP-antes-del-registro es contrato de **MOVO-71** ("Verificación de
-    teléfono por OTP"), que sigue en Todo con el AC original (OTP *después* de crear la
-    cuenta). MOVO-70 no implementa `phoneVerificationToken` hasta que MOVO-71 se
-    actualice al nuevo orden — evita que este endpoint quede bloqueado por un ticket que
-    ni siquiera arrancó.
-  - La normalización de `account_status`/KYC (parte de lo que pedía el AC7 original) es
-    alcance de **MOVO-92** ("Chore actualización de la Entidad User"), en curso en
-    paralelo (Pedro Yorlano) — no de MOVO-70.
+### MOVO-87 — `user-repository`
 
-Pendiente / fuera de alcance de MOVO-70: suite de tests corrida completa tras el merge
-con develop, contra Postgres/Redis reales — **59/59 tests pasan**, cobertura 94%
-statements / 84.21% branches / 100% funciones (umbral configurado: 55%). `tsc --noEmit`,
-`eslint` y `npm run build` sin errores.
-
-### MOVO-85 — Plugin de conexión PostgreSQL en movo-svc-users (`fastify.db`)
-
-Implementado en `src/plugins/db.ts`: pool de `pg` decorado como `fastify.db`,
-`search_path` fijado al schema `users`, manejo de errores de pool sin tumbar el
-proceso, y `checkDbHealth()` para el futuro `GET /health` (MOVO-89).
-
-Decisiones clave:
-- `search_path` se fija vía el parámetro de conexión `options: "-c search_path=users,public"`
-  (aplicado por Postgres en el handshake), no con un `client.query("SET search_path...")`
-  en el evento `connect` del pool — esa alternativa generaba una carrera real entre esa
-  query y la primera query del caller sobre el mismo cliente (warning de deprecación de
-  `pg` por queries superpuestas). La vía por connection param es atómica y no la tiene.
-- `pool.on("error", ...)` solo loguea — `pg.Pool` reconecta solo en el próximo uso, no
-  hace falta lógica de retry manual.
-- `checkDbHealth()` replica el shape de `checkRedisHealth()` (MOVO-86) a propósito, para
-  que MOVO-89 pueda componer ambos con `Promise.all` sin adaptar nada.
-- Límites de pool explícitos (`max: 10`, `idleTimeoutMillis`, `connectionTimeoutMillis`)
-  agregados más allá de lo pedido por el AC, para no depender de los defaults de `pg` en
-  una EC2 sin autoscaling (ADR-006).
-- `checkDbHealth()` NO usa `Promise.race` con timeout manual: si Postgres cuelga en vez
-  de responder, esa técnica no cancela la query real — `pool.query` sigue viva y retiene
-  el cliente para siempre (con `max: 10`, pocos healthchecks colgados agotan el pool y
-  tumban el servicio para requests reales). Se corrigió vía `statement_timeout` +
-  `query_timeout` en la config del `Pool` (línea de `new Pool({...})`): Postgres cancela
-  la query server-side y `pg-pool` trata el timeout como error de cliente, evictando y
-  destruyendo el cliente colgado (`_release` → `_remove` → `client.end()`) en vez de
-  devolverlo al pool. Corregido a partir de comment de review en MOVO-85.
-
-Pendiente / fuera de alcance: el endpoint `GET /health` en sí (MOVO-89) y el
-`user-repository` completo sobre este plugin (MOVO-87) — ambos consumen `fastify.db` /
-`checkDbHealth()` sin necesitar cambios de este plugin.
-
-### MOVO-87 — `user-repository`: capa de acceso a datos de usuarios
-
-Implementado en `src/repositories/user-repository.ts` + `src/models/user.ts`:
-`findByEmail`/`findByPhone`/`findById` (case-insensitive en email), `create` (usuario +
-roles en una transacción), `updateKycStatusIdentity`/`updateKycStatusLicense`. Se
-consolidó ahí también el `count()` que vivía en el scaffold viejo de
-`modules/users/users.repository.ts` (borrado).
-
-Decisiones clave:
-- `updateKycStatus(id, status)` del AC se implementó como **dos** métodos
-  (`updateKycStatusIdentity`/`updateKycStatusLicense`) en vez de uno, porque la tabla
-  tiene dos columnas KYC — el de identidad es el que gobierna autorización general
-  (ADR-004), el de licencia es solo persistencia (no lógica de MOVO-15). Detalle en
-  comentario de MOVO-87 en Linear.
-- `create()` excede la firma literal del AC (`create(userData)`): también acepta
-  `roles` e inserta en `users.users` + `users.user_roles` en una sola transacción,
-  coordinado con MOVO-70 (Alena tenía un repo local propio para no bloquearse, ver
-  comentarios en MOVO-87).
-- El array de roles agregado con `array_agg(ur.role::text)` necesita el cast a `text`:
-  `pg` no conoce el OID de un enum custom de Postgres y sin el cast devuelve el array
-  como el string literal crudo (`"{...}"`), no un array de JS.
-- `vitest.config.ts` del servicio: se agregó `fileParallelism: false` (los tests de
-  integración pegan contra el mismo Postgres real con `TRUNCATE` en `beforeEach` — sin
-  esto, archivos de test corriendo en paralelo se pisan datos entre sí) y se amplió el
-  `include` de coverage a `src/repositories/**`/`src/models/**` (antes solo medía
-  `src/modules/**`, dejando afuera `session-repository.ts` de MOVO-88 y todo este
-  ticket).
-- **Mismatch de enums (rol/KYC) entre `@movo/shared` y la DB, resuelto y luego
-  revertido**: MOVO-87 lo resolvió originalmente con una capa de mapeo explícita
-  (`roleToDb`/`roleFromDb`/`kycStatusToDb`/`kycStatusFromDb` en `models/user.ts`). El
-  equipo decidió después alinear los enums de la DB a `@movo/shared` en vez de mantener
-  el mapeo — ver **MOVO-91** más abajo, que reemplaza esa capa.
-
-Correcciones a partir del review del PR #28 (MOVO-87):
-- **`InvalidEnumValueError`** (`models/user.ts`): `roleFromDb`/`kycStatusFromDb` tiraban
-  `Error` genérico, indistinguible de un fallo de conexión para el que lo atrapa. Un
-  valor de enum sin equivalente en `@movo/shared` es drift de schema (integridad), no
-  algo transitorio que convenga reintentar. `kycStatusFromDb` ahora recibe el nombre de
-  columna porque el mismo enum respalda `kyc_status_identity` y `kyc_status_license`.
-  `roleToDb` queda con `Error` genérico a propósito: ese caso es bug de código.
-- **`PublicUser` + `toPublicUser()`** (`models/user.ts`): `User` es interno e incluye
-  `passwordHash`; el DTO público lo excluye vía `Omit`. `toPublicUser` se construye
-  campo por campo y no con spread, para que agregar una propiedad a `User` rompa en
-  compilación y obligue a decidir si es pública, en vez de filtrarla por defecto.
-- **`create()` relee la fila persistida** antes del `COMMIT` (mismo `client`, ve sus
-  propias escrituras) en vez de derivar los roles de `input.roles`. Las columnas del
-  usuario ya venían de `RETURNING *`; el hueco eran solo los roles.
-- **Integración con MOVO-91 (hecha)**: 91 elimina las funciones donde vivía
-  `InvalidEnumValueError`, así que el conflicto podía "resolverse" tomando la versión de
-  91 y hacer desaparecer el fix sin que fallara ningún test (los casts no validan nada).
-  Se conservó la validación, portada a `parseUserRole`/`parseKycStatus` — ver MOVO-91
-  más abajo.
-
-Pendiente / fuera de alcance: reputación, verificación real de licencia (MOVO-25,
-MOVO-15), endpoints de registro/login/KYC (MOVO-70 y siguientes).
+`create`/`find*`/`updateKycStatus*`, transacción única para usuario+roles.
+`InvalidEnumValueError` (un valor de enum sin equivalente en `@movo/shared` es drift
+de schema, no un error transitorio) y `PublicUser`/`toPublicUser()` (DTO explícito
+campo por campo, nunca spread, para que agregar un campo a `User` obligue a decidir si
+es público).
 
 ### MOVO-91 — Alinear enums de `users.users` con `@movo/shared`
 
-Revierte la capa de mapeo de MOVO-87: en vez de traducir entre el enum de Postgres
-(español/mayúscula) y `@movo/shared` (inglés/minúscula) en cada lectura/escritura, se
-alinea la DB a `@movo/shared` (que no se toca, sigue siendo la fuente de verdad) vía
-`ALTER TYPE ... RENAME VALUE` (preserva filas existentes, no requiere migrar datos).
-Ticket nuevo en vez de reabrir MOVO-84 (ya Done), para dejar trazado en la memoria del
-TFG por qué se tocó un schema ya cerrado.
+Migración `ALTER TYPE ... RENAME VALUE` (preserva datos). Reemplaza la capa de mapeo
+enum DB↔dominio de MOVO-87 por el mismo string en ambos lados. Se conservó la
+validación (`parseUserRole`/`parseKycStatus`, tiran `InvalidEnumValueError`) en vez de
+un cast directo — los roles gobiernan autorización (ADR-004), un valor de Postgres sin
+equivalente en `@movo/shared` no debe colarse a los claims del JWT en silencio.
 
-Implementado: migración `20260731200000_align_user_enums_with_shared.sql` (+
-`.down.sql`) con `ALTER TYPE ... RENAME VALUE` — `users.user_role_enum` pasa de
-`emisor/transportista/admin` a `sender/carrier/admin`; `users.kyc_status_enum` de
-mayúscula a minúscula (`not_started/pending/approved/rejected/expired`); `DEFAULT` de
-columna re-especificado explícitamente por claridad (aunque el rename ya los actualiza
-solo, al estar resueltos por OID y no por texto).
+### MOVO-89 — `GET /health`
 
-Se borró por completo la capa de mapeo de MOVO-87 en `models/user.ts`
-(`roleToDb`/`roleFromDb`/`kycStatusToDb`/`kycStatusFromDb` y sus diccionarios):
-ya no hay traducción, el literal de DB y el valor de dominio son el mismo string.
-`user-repository.ts` pasa `UserRole`/`KycStatus` directo como parámetro de query.
+Compone `checkDbHealth`/`checkRedisHealth` con `Promise.all`. 200 ambas OK, 503 si
+falla una, 502 si fallan las dos. El body nunca expone el mensaje crudo del error
+(puede filtrar host/user/puerto de la conexión) — se loguea server-side, el schema de
+respuesta solo declara `status`.
 
-**Corrección al integrar con develop (PR #29):** la versión original de MOVO-91
-reemplazaba la capa de mapeo por casts sin validar (`row.kyc_status_identity as
-KycStatus`), con el argumento de que la columna es un enum de Postgres y físicamente no
-puede tener un valor fuera del enum. El argumento es cierto pero cubre el riesgo
-equivocado: lo que puede entrar es un valor que **sí** está en el enum de Postgres pero
-**no** en `@movo/shared` (un `ALTER TYPE ... ADD VALUE` que no actualice el dominio).
-Esa desalineación no es hipotética — es exactamente la que motivó este ticket. Y los
-roles gobiernan autorización (ADR-004), así que un valor inválido entrando en silencio
-llega a los claims del JWT. Se conserva entonces la validación que MOVO-87 sumó por
-review, portada a la forma alineada: `parseUserRole`/`parseKycStatus` chequean contra
-`Object.values(...)` y tiran `InvalidEnumValueError` antes de castear.
+### MOVO-93 — Prisma como ORM en `movo-svc-users` (ADR-011)
 
-Pendiente: el ticket de Linear queda abierto (no se pasa a Done) a pedido del usuario.
-_(completar detalle de archivos/decisiones cuando se termine de implementar)_
+Primer servicio en adoptarlo — los demás lo suman al tener dominio real.
+`@prisma/adapter-pg` (Prisma 7 exige driver adapter para providers SQL). Prisma no
+modela `search_path` ni expression indexes (`users_email_lower_idx` sigue en la DB sin
+representación en `schema.prisma`; se usa `mode:"insensitive"` en su lugar). `prisma`
+es dependency (no dev) — la CLI corre dentro del contenedor en deploy, Postgres no
+expone puerto público (ADR-010). Gotcha: con el driver adapter, los campos de un
+conflicto único (`P2002`) vienen anidados en
+`error.meta.driverAdapterError.cause.constraint.fields`, no en `error.meta.target`.
 
-### MOVO-89 — `GET /health` con estado de PostgreSQL y Redis
+### MOVO-92 — Actualización de la entidad User
 
-Implementado en `src/modules/health/` (`health.routes.ts` + `health.schema.ts`),
-registrado desde `app.ts` en reemplazo del stub que devolvía `{ status: "ok" }` fijo.
-Compone `checkDbHealth()` (MOVO-85) y `checkRedisHealth()` (MOVO-86) — es el único
-sub-issue de MOVO-66 que integra ambos plugins.
+`AccountStatus` (`@movo/shared`): `active`/`banned`/`deleted`. Se removieron columnas
+KYC obsoletas e `is_banned`; se agregaron `status`/`birthdate`.
 
-Decisiones clave:
-- **Códigos de status**: 200 ambas OK, **503** si falla una, **502** si fallan las dos.
-  El AC 3 original decía "503 si alguna falla"; se ajustó a pedido del equipo (ticket
-  actualizado en Linear). Para el `HEALTHCHECK` de Docker es indistinto —cualquier
-  no-2xx cuenta como fallo—, la distinción es para diagnóstico humano.
-- **El body nunca lleva el detalle del error.** `checkDbHealth`/`checkRedisHealth`
-  devuelven el mensaje crudo de `pg`/`ioredis`, que puede incluir usuario, host o puerto
-  de la conexión, y `/health` se sirve sin autenticación. El handler lo loguea con
-  `app.log.error` y publica sólo `status`. El schema de respuesta es la segunda barrera:
-  Fastify serializa únicamente lo declarado, así que un descuido futuro tampoco filtra.
-  Viene del review de MOVO-85, donde se difirió explícitamente a esta issue.
-- Los dos checks corren con `Promise.all`: la latencia es la del más lento y no la suma
-  (AC 2). Ninguna de las dos funciones rechaza, así que `Promise.all` no corta antes.
-- **`Dockerfile`: `HEALTHCHECK --timeout` de 5s a 10s.** El pool corta las queries a los
-  5s (`statement_timeout`/`query_timeout`, MOVO-85), así que con Postgres "vivo pero
-  mudo" el check tardaba exactamente el límite y Docker mataba el `wget` antes de que se
-  entregara el 503 — nunca se veía el body que dice cuál dependencia cayó. Con Postgres
-  caído de verdad (conexión rechazada) falla al instante y esto no aplica.
-- Vocabulario del body (`status` + `checks`, valores `ok`/`error`) elegido para que lo
-  copien el resto de los servicios: reusa el mismo shape que ya devuelven los dos
-  plugins, sin traducir.
+### MOVO-71 — Verificación de teléfono por OTP
 
-Pendiente / fuera de alcance: el gateway no rutea el `/health` de los servicios (se
-consulta desde dentro de la red Docker), su propio `/health` sigue siendo un stub.
+El OTP se verifica **antes** de crear la cuenta (cambia el contrato original, que lo
+pedía después). `otp-repository.ts` (Redis, genérico — reusable para reset de
+password), un solo OTP activo por target, código siempre hasheado. Emite un
+`phoneVerificationToken` (JWT de un solo uso, TTL 15min) que `register()` consume
+(MOVO-72 agregó después `releasePhoneVerificationToken` para reintentos tras un
+fallo). `SmsProvider`: `console` (dev/CI), `telegram` (develop), `twilio` (prod,
+ADR-012).
 
-### Hotfix — Migraciones de DB automáticas en deploy (`ci-dev.yml` / `ci-prod.yml`)
+### MOVO-74 — `POST /auth/login`
 
-Los deploys a dev/prod nunca corrían los `.sql` de `services/*/migrations/` contra la
-base real de la EC2 — `scripts/run-migrations.sh` solo se usaba en el job de tests,
-contra el Postgres efímero del CI. Se agregaron dos steps nuevos a `deploy-dev` y
-`deploy-prod` (antes del step que pushea las imágenes nuevas, para que ningún
-contenedor arranque contra un schema desactualizado): copian el script + las carpetas
-`migrations/` de cada servicio a la EC2, y por SSH levantan Postgres, esperan a que
-esté listo (`pg_isready` vía `docker exec`) y corren las migraciones de `svc-users`,
-`svc-shipments`, `svc-payments` y `svc-admin` en ese orden.
+Respuesta plana (sin anidar en `user`). Verificación contra un hash sintético si el
+usuario no existe (previene timing attack). Cuenta `banned`/`deleted` → 403. Access
+token TTL 60min, refresh en Redis (TTL ver MOVO-75).
 
-Decisiones clave:
-- Como Postgres no expone puerto público en la EC2 (ADR-010), la migración se aplica
-  vía `docker exec` dentro del propio contenedor — mismo fallback que ya tenía
-  `run-migrations.sh` para cuando no hay `psql` en el host, ahora es el camino
-  principal en producción/dev, no un fallback incidental.
-- **`scripts/run-migrations.sh` ahora lleva registro de lo aplicado** en una tabla
-  `public.schema_migrations` (compartida entre servicios, una sola instancia de
-  Postgres — ADR-003), con `(service, filename)` como clave. Antes, el script
-  reaplicaba todos los `.sql` de la carpeta en cada corrida — funcionaba de pura
-  suerte porque la única migración real hasta ahora está escrita con guards
-  `IF NOT EXISTS`. Corriendo automáticamente en cada deploy contra una base
-  persistente, eso ya no alcanza: una migración futura no-idempotente (un
-  `ALTER TABLE ADD COLUMN` con backfill, un `INSERT`) rompería el segundo deploy.
-  Cada migración se aplica junto con su `INSERT` al ledger en la misma transacción
-  (`BEGIN`/`COMMIT`), así una falla a mitad de camino no la deja marcada como
-  aplicada sin estarlo.
-- Verificado localmente contra Postgres real: primera corrida aplica y registra,
-  segunda corrida saltea todo sin tocar la DB.
+### MOVO-75 — Refresh token: rotación de un solo uso + logout/logout-all
 
-Este hotfix se armó y mergeó directo a `main` (rama `hotfix/run-db-migrations-on-deploy`)
-mientras `develop` tenía en curso la adopción de Prisma (MOVO-93, más abajo) — de ahí
-que el step haya tenido que rehacerse desde cero en `develop` al promoverlo (ver
-**Fix — Reponer migraciones de deploy** más abajo, que documenta esa reconstrucción y
-dos bugs nuevos que aparecieron recién al correr contra la EC2 real).
+Refresh token opaco compuesto `"{userId}.{tokenId}.{secret}"` (permite ubicar la key
+en Redis a partir de lo que ve el cliente). Rotación de un solo uso: al refrescar la
+sesión vieja queda como tombstone (`used:true`); un refresh reusado revoca todas las
+sesiones del usuario (detección de robo). TTL extendido a 90 días (ADR-013). Logout
+recibe el refresh token en el body (los claims del access token no incluyen
+`tokenId`) y siempre responde 204, incluso con token ajeno/inválido (no filtra info).
 
-### MOVO-93 — Adoptar Prisma como ORM en `movo-svc-users`
+### MOVO-72 — Integración con Didit.me (KYC de identidad)
 
-ADR-011: Prisma pasa a ser el ORM estándar para **todos** los servicios Node de
-MOVO, no una decisión puntual de este servicio. `movo-svc-users` es la primera
-implementación porque es el único con dominio real hoy — `svc-shipments`/
-`svc-payments`/`svc-admin` siguen siendo placeholders (`SELECT 1`, sin schema real) y
-por eso siguen con `run-migrations.sh` por ahora; adoptan Prisma desde el arranque
-cuando empiecen a modelar su dominio, en vez de escribir SQL a mano y migrar después.
+`src/modules/kyc/`, `kyc-verification-repository.ts` (tabla `users.kyc_verification`,
+alineada al DER). `POST /kyc/session`, `GET /kyc/status`, `POST /kyc/webhook` —
+protegidas (JWT): `register()` pasó a emitir tokens de sesión igual que `login()`, lo
+que habilita estas rutas sin necesitar un diseño público aparte. Webhook idempotente
+vía `updateMany` condicionado al estado de origen (atómico a nivel DB). Redacción de
+PII con whitelist explícita (nunca se persiste el payload crudo de Didit).
+`DIDIT_MODE=mock` default (dev/test/CI); `live` valida credenciales al arrancar.
+Validado end-to-end contra el sandbox real (firma HMAC, sesión y webhook reales).
 
-Implementado:
-- `prisma/schema.prisma`: modela a mano (no `db pull`) las 2 migraciones SQL ya
-  aplicadas — `datasource` con `schemas = ["users"]` (multi-schema, GA desde 5.15, sin
-  `previewFeatures`), modelos `User`/`UserRoleGrant` con `@map`/`@@map` a las columnas y
-  tablas snake_case existentes, enums `UserRole`/`KycStatus` mapeados a
-  `user_role_enum`/`kyc_status_enum`. `generator client` usa `moduleFormat = "cjs"` — el
-  resto del servicio sigue siendo CommonJS, no se fuerza la conversión a ESM que Prisma 7
-  trae por default.
-- **Prisma 7 requiere driver adapter para providers SQL** (`@prisma/adapter-pg`, sobre
-  `pg`) — `new PrismaClient()` sin adapter no compila. `src/plugins/db.ts` instancia
-  `PrismaPg` con los mismos timeouts que tenía el `Pool` de MOVO-85
-  (`statement_timeout`/`query_timeout`/`connectionTimeoutMillis`) y decora `app.db` con
-  el `PrismaClient` resultante. Se cae el `search_path=users,public` que fijaba MOVO-85:
-  con `schemas = ["users"]`, Prisma genera SQL con el schema ya calificado
-  (`"users"."users"`), no depende de search_path.
-- Las 2 migraciones SQL existentes (`20260728160000_create_users_schema`,
-  `20260731200000_align_user_enums_with_shared` de MOVO-91) se copiaron tal cual a
-  `prisma/migrations/<mismo-nombre>/migration.sql` y se marcaron como aplicadas con
-  `prisma migrate resolve --applied` — no se re-ejecutan, Prisma solo las trata como
-  historial. Migraciones nuevas de acá en adelante se crean con
-  `prisma migrate dev`/`migrate deploy` (`npm run migrate`/`migrate:dev`), no a mano.
-- `user-repository.ts` reescrito con `PrismaClient`: `create()` pasa a un nested write
-  (`user.create({ data: { ..., roles: { create: [...] } } })`), atómico por diseño de
-  Prisma, reemplaza el `BEGIN`/`COMMIT` manual. `findByEmail` usa el filtro
-  `mode: "insensitive"` de Prisma en vez de `LOWER(email) = LOWER($1)` a mano — el índice
-  funcional `users_email_lower_idx` de la migración original sigue en la DB pero no tiene
-  representación en `schema.prisma` (Prisma no modela expression indexes).
-- **Hallazgo empírico, no documentado así en la guía de Prisma**: con el driver adapter
-  de Prisma 7, un conflicto de unicidad (`P2002`) no expone los campos en
-  `error.meta.target` como en versiones anteriores — vienen anidados en
-  `error.meta.driverAdapterError.cause.constraint.fields`. Verificado corriendo un script
-  ad-hoc contra Postgres real antes de confiar en la forma del error (Prisma 7.9.1). Está
-  documentado como comentario en `user-repository.ts#uniqueConstraintFields` por si una
-  futura versión de Prisma cambia el shape.
-- `update()` de Prisma tira `P2025` si el id no existe, en vez de devolver 0 filas como el
-  `UPDATE ... RETURNING *` original — `updateKycStatusIdentity`/`updateKycStatusLicense`
-  atrapan `P2025` y devuelven `null`, preservando el contrato previo.
-- Tests de integración migrados de `app.db.query(...)` (API de `pg`) a la API tipada de
-  Prisma o `$queryRaw`/`$executeRawUnsafe` cuando hace falta SQL crudo:
-  `user-repository.integration.test.ts`, `auth.register.integration.test.ts`,
-  `db.plugin.test.ts`, `users.count.integration.test.ts`. El test de `db.plugin.test.ts`
-  que verificaba `search_path` se reemplazó por uno que prueba que una query contra el
-  schema `users` resuelve bien sin depender de él (ver arriba).
-- **Bug preexistente en `develop` encontrado de paso, no introducido por esta US**:
-  `auth.register.integration.test.ts` (MOVO-70) todavía esperaba los literales de enum
-  pre-MOVO-91 (`"NOT_STARTED"`, `"emisor"/"transportista"`) — el último push a `develop`
-  (merge de MOVO-91) quedó en CI rojo por esto. Se corrigió en el mismo commit al migrar
-  ese test a Prisma.
-- CI: `pr-checks.yml`/`ci-dev.yml`/`ci-prod.yml` — el step "Run migrations" se separó en
-  dos, condicionados por `matrix.service.name`: `npx prisma migrate deploy` para
-  `movo-svc-users`, `run-migrations.sh` sin cambios para los demás.
-- `package.json`: `postinstall: prisma generate` (se regenera el cliente en cada
-  `npm ci`/`install`, no se commitea `src/generated/prisma/` — gitignored). `prisma`
-  como **dependency, no devDependency**: la CLI viaja en la imagen de producción a
-  propósito (ver Dockerfile abajo).
-- **Dockerfile**: el stage de runtime copia también `prisma.config.ts` y `prisma/`
-  (schema + migraciones), y ya no usa `--omit=dev` para excluir `prisma` (ahora es
-  dependency). Motivo: Postgres no expone puerto público en la EC2 (ADR-010), así que
-  no hay forma de correr `prisma migrate deploy` desde afuera del contenedor — el
-  deploy tiene que invocarlo *dentro* de la imagen ya pulleada, con
-  `docker compose run --rm movo-svc-users npx prisma migrate deploy`, sin instalar
-  nada nuevo en la EC2 ni depender de red hacia el registry de npm desde prod. Los dos
-  `npm ci` del Dockerfile siguen con `--ignore-scripts`: en ninguno de los dos stages
-  está copiado `prisma/schema.prisma` en el momento en que corre `npm ci` (se copia
-  package.json solo, para cachear la capa de deps aparte del código fuente); el
-  builder corre `prisma generate` explícito ya con el código fuente copiado, el
-  runtime no lo necesita (usa el cliente ya compilado en `dist/`).
-- Verificado con la imagen ya buildeada (no en una imagen de desarrollo): `docker run
-  ... npx prisma migrate deploy` aplica las 2 migraciones contra Postgres real, una
-  segunda corrida es no-op, y la app sigue arrancando y sirviendo `/health` normal.
+### MOVO-73 — Onboarding en `movo-mobile`: registro, OTP, mapa, KYC embebido, dark mode
 
-Pendiente / fuera de alcance de MOVO-93 (ver corrección más abajo): el commit
-`992fd60` de esta rama ("ci: correr prisma migrate deploy para movo-svc-users en los
-workflows") agregó el step de migraciones Prisma dentro del job de tests
-(`node-services`, contra el Postgres efímero del CI) pero de paso **borró por
-completo** el bloque `Aplicar migraciones de base de datos en dev/prod` de
-`deploy-dev`/`deploy-prod` — el que agregó el hotfix
-`hotfix/run-db-migrations-on-deploy` contra `main` y corre migraciones reales contra
-la EC2 por SSH. No fue un ajuste del loop, fue una eliminación del step entero: esta
-rama se creó antes de que ese hotfix llegara a `main`, así que en el `develop` de
-origen ese bloque todavía no existía como para "ajustarlo" — el TODO que dejó el
-hotfix avisando este punto de integración quedó, sin querer, resuelto de la forma
-más rota posible (ningún servicio migra contra la EC2 real en deploy, ni con
-Prisma ni con SQL).
+Wizard de 7 pasos (`app/(auth)/register.tsx`): datos básicos → DNI → dirección → mapa
+(geocoding) → OTP → contraseña → revisión. KYC vía SDK nativo de Didit — import
+diferido con `require()` dentro del handler, nunca `import` estático (el SDK rompe
+Expo Go si se evalúa al arrancar, porque expo-router evalúa todas las rutas al abrir
+la app). Dark mode automático (`darkMode:"class"` en NativeWind — sigue el tema del
+SO, sin toggle manual). Tabla `users.address` nueva (una por registro, lat/long vía
+`GeocodingProvider` mock/google, ADR-014); endpoint público `POST /geocode` que proxea
+la Geocoding API server-side. Keys de Google Maps van en `app.config.js`/EAS env vars,
+nunca en `app.json`/`eas.json` (se trackean en git).
 
-### Fix — Reponer migraciones de deploy tras la integración con MOVO-93
+Fixes de esta misma US que dejaron el flujo realmente utilizable:
+- Resume del onboarding: el redirect a `/kyc` desde `/` no se disparaba porque nadie
+  consumía `hasPendingRegistration` — corregido en `app/index.tsx`.
+- KYC en `pending` era un pozo sin salida: `createSession` ahora reconcilia contra
+  Didit (`getSessionDecision`, pull) antes de expirar el intento previo — evita
+  perder un `approved`/`rejected` real por reintentar demasiado rápido.
+- `phoneVerificationToken` se libera ante cualquier falla de `create()` (nested write
+  atómico de Prisma, seguro liberar siempre), no solo en conflicto de datos.
+- `Expired`/`Abandoned`/`Kyc Expired` de Didit mapean a `KycStatus.EXPIRED`
+  (reintentable) — sin validar contra sandbox real.
 
-Detectado antes de promover `develop` a `main` (habría sido una regresión
-silenciosa: CI en verde, deploy en verde, pero ningún contenedor con schema al
-día). Repuesto en `ci-dev.yml`/`ci-prod.yml` el step `Aplicar migraciones de base de
-datos en dev/prod` que había desaparecido, con el mismo mecanismo SSH/`docker exec`
-de siempre para `svc-shipments`/`svc-payments`/`svc-admin`, y `movo-svc-users`
-separado con `docker compose run --rm -T movo-svc-users npx prisma migrate deploy`
-(la imagen ya trae la CLI de Prisma + `prisma/migrations`, ver comentario en el
-Dockerfile del servicio) tal como indicaba el TODO original.
+### MOVO-76 — Login, secure storage, refresh automático, guard de navegación (mobile)
 
-Decisión clave: antes del `prisma migrate deploy` se agrega
-`docker compose pull movo-svc-users` explícito — `docker compose run` no repullea
-una imagen que ya existe localmente con el mismo tag (`policy: missing`), y en este
-punto del workflow el pull general recién pasa en el step siguiente. Sin este pull
-explícito, el deploy migraría con el schema de la imagen vieja.
+`http-client.ts`: interceptor adjunta `Authorization`, refresh single-flight ante 401
+(no reintenta si el 401 viene de un `Authorization` explícito del caller — evita
+competir con el refresh proactivo y disparar la detección de reuso de MOVO-75).
+`auth-store.ts` (Zustand + `expo-secure-store`). El guard de `(app)/_layout.tsx`
+reacciona al store solo, sin `router.replace` explícito en logout. `app/index.tsx`
+redirige sesión restaurada a `/home` (KYC aprobado) o `/kyc` (resto).
 
-Segundo hallazgo relacionado: `scripts/run-migrations.sh` en `develop` también era
-la versión **sin ledger** (`develop` nunca recibió el hotfix
-`run-db-migrations-on-deploy`, que fue directo a `main`) — el mismo script que el
-CLAUDE.md documentaba como corregido, en `develop` seguía reaplicando todas las
-migraciones `.sql` en cada corrida. Se reemplazó por la versión de `main` con la
-tabla `public.schema_migrations` y `BEGIN`/`COMMIT` por archivo.
+### MOVO-78 — Perfil propio, insignias, logout (mobile)
 
-### Fix — Percent-encoding de DATABASE_URL para Prisma
+Tab bar de 3 pestañas. Tipos de wire contract (`PublicProfile`/`PrivateProfile`/
+`ProfileBadge`) movidos a `@movo/shared`. Formateo de contadores con guard explícito
+contra `null`/`NaN` (nunca `?? 0` ciego — `NaN ?? 0` sigue siendo `NaN`). Separación
+pública/privada resuelta por tipos de componente (`ProfilePrivateSection` no acepta
+campos de `PublicProfile`), no por flag visual sobre un componente genérico.
 
-El primer deploy a dev con el step repuesto (arriba) rompió igual:
-`prisma migrate deploy` tiraba `P1013: invalid port number in database URL`. Causa:
-la password de Postgres en Secrets Manager sale sin percent-encodear, y trae
-caracteres reservados de RFC 3986 (`/`, `#`, `%`, `{`, `}`, etc. — password generada
-aleatoriamente). `node-postgres` (`pg`, usado por `svc-shipments`/`payments`/`admin`
-y por el resto de la app antes de MOVO-93) parsea ese connection string con un regex
-propio tolerante; el parser de Prisma no, y rompe apenas encuentra un `/` o similar
-donde no lo espera.
+### MOVO-105 — Máquina de estados de envío (`svc-shipments`)
 
-Fix en el step "Generar .env desde Secrets Manager" de `ci-dev.yml`/`ci-prod.yml`:
-después de volcar el secret a `.env`, se re-escribe la línea `DATABASE_URL=` con
-user/password percent-encodeados (`urllib.parse.quote` vía `python3 -c`, invocado
-desde bash con regex `[[ =~ ]]`/`BASH_REMATCH` para no depender de parsing YAML/JSON
-adicional). Percent-encodeado es válido también para `pg` (lo decodea), así que no
-rompe a los otros servicios.
+`src/domain/shipment-state-machine.ts`, dominio puro sin DB. 9 estados canónicos
+(`ShipmentStatus` en `@movo/shared`, reemplaza los 5 provisorios de MOVO-67), 13
+transiciones válidas según el DTE diseñado en Drive (`docs/shipments/
+state-diagram.md`). Cancelación del emisor válida desde 4 estados de origen (una,
+post-`assigned`, "con penalización" — penalización aún sin implementar). `disputed`
+sin transición de salida modelada (resolución de admin, ticket futuro).
 
-De paso, se reemplazó el `set -a; source .env; set +a` de esas mismas migraciones
-(pre-existente desde el hotfix original, también en `main`) por un loop
-`while IFS='=' read` que exporta cada variable sin que bash intente parsear el
-`.env` como script — la password con caracteres especiales rompía el `source`
-literal (`syntax error near unexpected token`), silencioso hasta ahora porque el
-único valor que se leía de ahí (`POSTGRES_USER`) tenía default `movo` que
-coincidía por casualidad.
+### MOVO-104 — Schema y migraciones de `shipments`
 
-Confirmado en dev: `workflow_dispatch` de `ci-dev.yml` corrió entero contra la EC2
-(deploy + migraciones + baseline de Prisma) antes de promover `develop` a `main`.
+Primer dominio real de `svc-shipments` → adopta Prisma (ADR-011). Modelos
+`Shipment`/`ShipmentEvent`/`ShipmentPhoto`. `shipment-repository.ts#updateStatus()` es
+la única vía de escritura de `status` (usa `transition()` de MOVO-105 antes del
+UPDATE, en la misma transacción inserta el evento). TOCTOU conocido y aceptado (sin
+lock atómico entre la relectura del estado y el UPDATE) — seguimiento en MOVO-118.
+Gotcha: `_prisma_migrations` vive en `public`, compartida entre todos los servicios
+Prisma sobre el mismo Postgres (ADR-003) — migraciones nuevas de `svc-shipments` se
+generan con `prisma migrate diff --from-empty` + `migrate deploy`, nunca
+`migrate dev` contra el Postgres compartido de dev.
 
-### Fix — Password con `@` rompía el split de user/password en DATABASE_URL
+### MOVO-80 — Creación de envío, detalle y listado propio (`svc-shipments`)
 
-Al promover a `main`, el primer deploy a **prod** no llegó ni al P3005 (baseline):
-`prisma migrate deploy` tiraba `P1001: Can't reach database server at
-'eGs-W.9}9H:5432'` — un host que no existe, con pinta de fragmento de la password.
-Causa: la password de prod (a diferencia de la de dev) tiene un `@` adentro. El
-regex del fix anterior, `([^@]+)@`, corta en el **primer** `@` que encuentra —
-aunque esté adentro de la password — y deja el resto de la password pegado al host
-real en el grupo "rest", que se vuelca sin encodear al `DATABASE_URL` final.
-`pg` nunca tuvo este problema: su parser corta en el **último** `@`.
-
-Fix: el grupo de la password pasa a ser `(.+)` (codicioso, sí puede contener `@`)
-seguido de `@([^@]+)$` para el host — el motor de regex hace backtrack del
-codicioso hasta el último `@` posible, que es el separador real. Verificado en
-local con una password sintética que incluye `@` en el medio: separa host/puerto
-correctos y decodea exacto a la password original.
-
-Pendiente: falta el baseline manual de Prisma (`prisma migrate resolve --applied`
-para las 2 migraciones históricas) contra `api.movosend.app` — el P1001 pasó antes
-de llegar a esa validación, así que sigue sin hacerse. Primera corrida de
-`ci-prod.yml` después de este fix va a fallar con P3005 (mismo motivo que en dev)
-hasta correr el baseline.
-
-### MOVO-92 — Chore actualización de la Entidad User
-
-Normalización y alineación completa de la entidad `User` en todo el repositorio según las definiciones del equipo (DER / MOVO-92):
-- **`@movo/shared`**: `AccountStatus` actualizado a `active`, `banned`, `deleted`.
-- **Prisma & DB**: Migración `20260804210000_update_user_entity_movo_92.sql` + actualización de `schema.prisma`. Se removieron los campos obsoletos de KYC (`last_kyc_verification_identity_id` y `last_kyc_verification_license_id`) y el booleano `is_banned`. Se agregaron la columna `status` (`account_status_enum` default `'active'`) y `birthdate` (`DATE` nullable).
-- **Dominio & Repositorio**: `models/user.ts` (interfaces `User`, `PublicUser`, `UserRow`, `CreateUserInput`, validador `parseAccountStatus`), `repositories/user-repository.ts` y suite de tests en `test/` refactorizados y 100% en verde.
-
-### Hotfix — `docker image prune` automático en deploy (dev/prod)
-
-Incidente en prod (04/08): el deploy de una PR mergeada a `main` falló a mitad de
-camino — "no space left on device" al pullear imágenes nuevas. El disco de la EC2
-(6.8GB) se había llenado de imágenes `<none>` acumuladas de deploys anteriores: cada
-deploy mueve el tag (`:dev`/`:prod`) a la imagen nueva y deja la vieja como dangling,
-y ningún paso del workflow las borraba nunca. `movo-svc-users` y `proxy` quedaron sin
-poder recrearse, prod quedó con `svc-users` corriendo en una imagen vieja/sin tag
-(código desalineado del schema recién migrado) hasta la recuperación manual.
-
-Fix en `ci-dev.yml`/`ci-prod.yml`: al final del step "Pull de imágenes nuevas y restart
-de contenedores", después de `docker compose up -d`/`restart proxy` (con los
-contenedores nuevos ya arriba, así solo se borra lo que nadie usa), se agrega
-`docker image prune -af`. Deliberadamente **sin** `--volumes` — ese flag sí puede
-borrar volúmenes no referenciados por ningún contenedor en el momento del prune (ahí
-vive `movo_postgres-data`), y no hace falta para liberar el espacio que ocupan las
-imágenes.
-
-De paso, se agregó rotación de logs (`x-logging` en `infra/docker-compose.yml`,
-`json-file` con `max-size: 10m` / `max-file: 3`, aplicado a los 9 servicios) —
-preventivo: al revisar el incidente, los logs no resultaron ser la causa (contenedores
-recién recreados, tamaños insignificantes), pero el driver `json-file` no tiene tope
-por default y es el mismo tipo de problema (disco chico, ADR-006) que ya nos mordió una
-vez con las imágenes.
-
-Pendiente / fuera de alcance de este hotfix: aumentar el tamaño de disco de la EC2 si
-vuelve a quedar justo — el prune y la rotación de logs resuelven la acumulación, no un
-piso de espacio muy chico de por sí.
-
-### MOVO-71 — Verificación de teléfono por OTP (`svc-users`)
-
-**Cambio de contrato respecto al AC original, ya resuelto y reflejado en Linear (ver
-nota de MOVO-70 más arriba, ahora desactualizada en ese punto)**: el OTP se verifica
-**antes** de crear la cuenta, no después. `POST /api/v1/auth/register` (MOVO-70, todavía
-sin implementar ese lado) va a requerir un `phoneVerificationToken` emitido acá.
-
-Implementado: `src/repositories/otp-repository.ts` (Redis, motor genérico — no sabe que
-`target` es un teléfono, a propósito, para poder reusarlo en el reset de contraseña de
-MOVO-64 sin reescribir esta capa), `src/services/otp-service.ts` (genera/verifica/reenvía,
-hashea con `@node-rs/argon2` igual que las contraseñas), `src/adapters/{sms-provider,
-console-sms-provider,twilio-sms-provider}.ts` (AC8), `src/modules/auth/
-phone-verification.service.ts` (capa específica de teléfono: normaliza, orquesta
-`otp-service`, emite/consume el `phoneVerificationToken`), 3 rutas nuevas en
-`auth.routes.ts`/`auth.schema.ts` (`send-otp`, `verify-otp`, `resend-otp`).
+Primer flujo de negocio real de `svc-shipments` sobre MOVO-104/105: `POST /shipments`,
+`GET /shipments/:id` (403 a un tercero, nunca 404 filtrado) y `GET /shipments/mine`
+(paginado, primer endpoint paginado del repo). `src/app.ts` de este servicio nunca
+había terminado de cablearse (sin `@fastify/env`, sin error-handler) — se completó
+como prerrequisito, portando el mismo patrón de `movo-svc-users`.
 
 Decisiones clave:
-- **Invariante: un solo OTP activo por target.** `otp-repository.create()` invalida
-  cualquier OTP previo del mismo `target` (índice secundario `otp:target:{target}` →
-  `otpId`) antes de crear uno nuevo — sin esto, llamar `send-otp` repetidas veces después
-  de vencido el cooldown (pero antes del TTL de 10 min) dejaba códigos válidos
-  simultáneos, cada uno con su propio presupuesto de 5 intentos.
-- **`resend-otp` siempre genera un código nuevo** bajo el mismo `otpId`: como el código
-  se guarda hasheado (nunca en claro, AC3), reenviar el original es imposible — el texto
-  plano no existe en ningún lado después del envío inicial.
-- **AC2 se agregó al ticket después de la primera pasada de implementación** (el mensaje
-  de SMS tiene que recordar no compartir el código y que nadie de Movo lo va a pedir —
-  mitiga ingeniería social contra OTP). Detectado al cerrar la US comparando contra el
-  ticket de nuevo. `buildOtpMessage(code)` centralizado en `adapters/sms-provider.ts`,
-  usado tanto por `TwilioSmsProvider` como por el log de `ConsoleSmsProvider` (para que
-  en dev se vea el texto real), con test dedicado al contenido del mensaje.
-- **`send-otp` nunca devuelve 429**, a propósito: dentro del cooldown de un OTP activo
-  devuelve el mismo `otpId` sin mandar SMS de nuevo (evita el bypass obvio de llamar
-  `send-otp` en loop en vez de `resend-otp`, que sí devuelve 429).
-- **Status codes exactos del AC vigente** (no los que parecían más "estándar" a priori):
-  `AUTH_OTP_INVALID` → 401, `AUTH_OTP_EXPIRED` → 422 — ambos con el mismo `message`
-  genérico, la distinción vive en `code`/`statusCode`, no en el texto.
-- `incrementAttempts` usa un script Lua (`EXISTS` + `HINCRBY`) para que el incremento sea
-  atómico: sin esto, un TTL que vence justo entre el `findById` del caller y el
-  incremento crea una key "fantasma" de un solo campo, sin TTL.
-- `phoneVerificationToken`: JWT firmado con `jsonwebtoken` (no `@fastify/jwt`, para que
-  `phone-verification.service.ts` sea un servicio puro sin depender de la instancia de
-  Fastify — así lo puede importar MOVO-70 sin acoplarse a rutas), claims `sub` (teléfono
-  E.164), `purpose: "phone_verification"`, `jti`, TTL 15 min. **AC6 pone la invalidación
-  de un solo uso dentro del scope de esta US** (no solo emitir el token):
-  `consumePhoneVerificationToken(token, phone)` valida firma/propósito/expiración/
-  teléfono y marca el `jti` como usado en Redis (`SET ... NX`, atómico) — construida acá
-  para que MOVO-70 no tenga que reabrir esta capa, aunque el único caller real (el
-  `register()` que la va a invocar) todavía no existe.
-- Gateway (`gateway/src/config/routes-map.ts`): reemplazadas las tres rutas nuevas por el
-  placeholder muerto `POST /auth/verify-phone` (contrato viejo que ya no existe) en
-  `getPublicRoutes()` — sin esto, las tres rutas quedan protegidas por defecto (MOVO-68) y
-  nadie sin cuenta puede llamarlas, rompiendo el flujo completo. No estaba en el file-list
-  original del ticket, pero es una consecuencia necesaria.
-- `SMS_PROVIDER` (`console`|`twilio`, default `console`) + credenciales de Twilio nuevas
-  en `config/env.ts`/`.env.example` — ver ADR-012. **Auth vía API Key, no Auth Token**
-  (recomendación explícita de Twilio: el Auth Token da acceso total a la cuenta y no es
-  revocable sin regenerar todo; una API Key se limita en permisos y se revoca sola). El
-  SDK espera `twilio(apiKeySid, apiKeySecret, { accountSid })` — el Account SID sigue
-  siendo obligatorio (identifica la cuenta) pero ya no es la credencial: son
-  `TWILIO_ACCOUNT_SID` + `TWILIO_API_KEY_SID` + `TWILIO_API_KEY_SECRET` +
-  `TWILIO_FROM_NUMBER`, las 4 requeridas si `SMS_PROVIDER=twilio`. También agregadas al
-  `environment:` de `movo-svc-users` en `infra/docker-compose.yml` (antes solo tenía
-  `DATABASE_URL`/`REDIS_URL`/`JWT_SECRET` — sin este paso, cargarlas en Secrets Manager
-  no alcanza: el compose no reenvía todo `.env`, enumera variable por variable). Ojo con
-  `SMS_PROVIDER=${SMS_PROVIDER:-console}` en ese archivo (no `${SMS_PROVIDER-console}`):
-  si la variable está ausente en Secrets Manager, Compose la sustituye por vacío, y una
-  env var *presente pero vacía* no matchea el enum de `envSchema` (AJV solo aplica su
-  default cuando la variable está ausente) — sin el `:-` el servicio no arranca.
-- Tests: `test/otp-repository.test.ts` (Redis puro), `test/auth.otp.integration.test.ts`
-  (Fastify + Postgres/Redis reales, con un `SmsProvider` capturador inyectado vía
-  `buildApp({ smsProvider })` para poder leer el código generado, ya que nunca sale por
-  HTTP — verificado también a mano contra el server real con `SMS_PROVIDER=console`),
-  `test/adapters/twilio-sms-provider.test.ts` (única excepción a "nunca mockeado": Twilio
-  es una API de pago, se mockea el SDK). 105/105 tests del servicio en verde, cobertura
-  92.04% statements / 82.66% branches (umbral: 55%).
-- **Bug preexistente encontrado de paso, no introducido por esta US ni corregido acá**:
-  `src/plugins/auth.ts` (scaffold viejo de `@fastify/jwt`, sin uso real todavía) lee
-  `process.env.JWT_SECRET` directo, pero `env-schema` (detrás de `@fastify/env`) con
-  `dotenv: true` nunca escribe en `process.env` — solo arma `app.config`. `npm run dev`
-  se cae al boot con "missing secret" salvo que `JWT_SECRET` ya esté exportado en la
-  shell (los tests no lo sufren porque lo setean a mano en `beforeAll`). Fuera de alcance
-  arreglarlo acá — es el mismo plugin que la nota de MOVO-68/CLAUDE.md ya marca para
-  migrar a `signAccessToken`/`verifyAccessToken` de `@movo/shared` cuando se implemente
-  login.
-
-Pendiente / fuera de alcance de MOVO-71: `POST /auth/register` (MOVO-70) todavía no
-consume `phoneVerificationToken` ni persiste `phoneVerified=true` — la función
-`consumePhoneVerificationToken` queda lista para que esa US la use. AC7 ("no se puede
-avanzar a KYC sin teléfono verificado") queda satisfecho por construcción del nuevo
-orden, no por un chequeo explícito de esta US. Dos pendientes que no son código: falta
-pegar el ADR-012 completo (contexto/alternativas) en el Drive — solo se agregó el
-resumen de una línea acá, sin permiso de escritura sobre el Doc; y falta cargar las 4
-credenciales de Twilio en AWS Secrets Manager (`movo/dev/app-secrets` y
-`movo/prod/app-secrets`) para que `SMS_PROVIDER=twilio` funcione fuera de local — el
-código ya está listo para tomarlas (ver bullet de `docker-compose.yml` arriba), la
-carga real es una acción del equipo con acceso a AWS.
-
-**Agregado tras el merge con `develop` (login MOVO-74, conflicto en `auth.routes.ts`
-resuelto combinando ambos lados sin cambiar comportamiento de ninguno)**: se sumó un
-tercer `SmsProvider`, `TelegramSmsProvider` (`src/adapters/telegram-sms-provider.ts`),
-exclusivo del entorno `develop` (`SMS_PROVIDER=telegram`) — manda el OTP a un grupo de
-Telegram vía el HTTP API del bot (`fetch` nativo de Node 20, sin dependencia nueva), en
-vez de depender de mirar la consola de EC2 en `api-dev.movosend.app`. El texto del
-mensaje identifica teléfono y código (no reusa `buildOtpMessage`, pensado para el
-usuario final: acá el destinatario es el grupo de devs). En `prod` se sigue usando
-`twilio`. Mismo mecanismo de secrets que Twilio: `TELEGRAM_BOT_TOKEN`/
-`TELEGRAM_CHAT_ID` nuevas en `config/env.ts`/`.env.example`/`docker-compose.yml`,
-`createSmsProvider` falla rápido al arrancar si faltan con `SMS_PROVIDER=telegram`.
-Test: `test/adapters/telegram-sms-provider.test.ts` (mockea `fetch`, mismo criterio que
-`twilio-sms-provider.test.ts`). Pendiente, fuera de este cambio de código: crear el bot
-con BotFather, agregarlo al grupo de devs, y cargar `SMS_PROVIDER=telegram` +
-`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` en `movo/dev/app-secrets` — tarea manual del
-equipo con acceso a AWS, igual que el pendiente de credenciales de Twilio de arriba.
-
-### MOVO-74 — Endpoint de login (`POST /auth/login`)
-
-Implementado endpoint de autenticación con credenciales (`phone` + `password`) en `src/modules/auth/` (`auth.routes.ts`, `auth.schema.ts`, `auth.service.ts`), expuesto como `POST /api/v1/auth/login` por el gateway.
-
-Decisiones clave:
-- **Respuesta Plana en la Raíz**: Devuelve `200` con `userId`, `accessToken`, `refreshToken`, `expiresIn` (3600s), `kycStatus`, `fullName`, `roles` directamente en la raíz de la respuesta (sin anidar en un objeto `user`), alineado al contrato de `movo-mobile`.
-- **Prevención de Timing Attacks**: Si el usuario no existe por teléfono, se ejecuta la verificación de contraseña con Argon2id contra un hash sintético (`DUMMY_HASH`) para garantizar latencia constante y prevenir enumeración de usuarios.
-- **Validación de Estado de Cuenta**: Si `user.status` es `banned` o `deleted`, responde `403` con `ApiError` code `"ACCOUNT_SUSPENDED"`.
-- **Emisión de Tokens**: Access Token JWT firmado con claims (`sub`, `roles`, `kycStatus`) y TTL de 60 minutos (ADR-004). Refresh token opaco persistido en Redis en `refresh:{userId}:{tokenId}` con TTL de 7 días usando `createSessionRepository`. Soporta múltiples logins simultáneos sin revocar sesiones previas.
-- **Swagger & Schema Validation**: Registrado en OpenAPI con esquemas de entrada/salida y códigos HTTP `200`, `400`, `401`, `403`.
-
-### MOVO-75 — Refresh token con rotación y logout/logout-all (`svc-users`)
-
-Implementado en `src/modules/auth/` (`auth.routes.ts`, `auth.schema.ts`, `auth.service.ts`):
-`POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all`. `/auth/refresh` ya
-estaba declarada pública en `gateway/src/config/routes-map.ts` desde MOVO-68 (quedó
-como placeholder a propósito para esta US); `/auth/logout`/`/auth/logout-all` no están
-en `getPublicRoutes()` así que quedan protegidas por defecto sin tocar el gateway.
-
-Decisiones clave:
-- **Gap encontrado en MOVO-74, corregido acá**: `login()` guardaba el refresh token en
-  texto plano en Redis y el cliente solo recibía el secreto opaco
-  (`signRefreshToken().token`), nunca el `tokenId` — sin eso no había forma de ubicar
-  la key `refresh:{userId}:{tokenId}` a partir de lo único que tenía el cliente,
-  bloqueando directamente `/auth/refresh` y `/auth/logout`. Se corrigió sin cambiar el
-  `SessionRepository` (ya aceptaba `Record<string, unknown>` como payload): el
-  `refreshToken` que ve el cliente pasa a ser un token opaco compuesto
-  `"{userId}.{tokenId}.{secret}"` (ninguno de los tres contiene un punto, el split es
-  seguro), y en Redis se guarda `{ hash: sha256(secret), used: boolean }` en vez del
-  secreto plano. SHA-256 y no Argon2id: `secret` ya son 256 bits de aleatoriedad
-  criptográfica, no una contraseña de usuario. `login()` se adaptó al mismo formato
-  (helper compartido `issueSession()` en `auth.service.ts`, usado también por
-  `refresh()`) sin cambiar su contrato externo.
-- **Rotación de un solo uso + detección de reuso (AC2/AC3)**: al refrescar, la sesión
-  usada se marca `used: true` sobre la misma key (no se borra — queda como tombstone
-  con el mismo TTL) y se emite un `tokenId` nuevo. Si llega un refresh cuya key ya
-  tiene `used: true`, se interpreta como señal de robo: `revokeAllForUser()` sobre
-  todas las sesiones del usuario y `401 AUTH_REFRESH_INVALID`. Limitación aceptada
-  (alcance TFG): no hay lock atómico entre el chequeo de `used` y el marcado — una
-  carrera de dos refresh concurrentes con el mismo token válido podría no detectarse.
-- **AC5** (roles/kycStatus/account_status actuales al refrescar): `refresh()` relee el
-  usuario con `userRepository.findById` (ya existía, sin cambios) antes de emitir el
-  par nuevo — no deriva nada del access token viejo.
-- **AC6**: cuenta suspendida (`banned`/`deleted`) en el momento del refresh revoca
-  todas las sesiones y devuelve `403 ACCOUNT_SUSPENDED`, mismo código que usa login
-  para el mismo caso.
-- **`POST /auth/logout` recibe el refresh token en el body**, no solo el `x-user-id`
-  del gateway — los claims del access token (`AccessTokenClaims`) no incluyen
-  `tokenId`, así que no hay forma de saber cuál sesión puntual cerrar sin que el
-  cliente diga cuál. Si el `userId` embebido en el token no coincide con el
-  `x-user-id` inyectado por el gateway (ADR-010), o el token es inválido/inexistente,
-  no se lanza error — responde `204` igual, por diseño (AC9: idempotente, y evita que
-  un token ajeno filtre información sobre si existía o no).
-- **`AUTH_REFRESH_INVALID`** agregado a `ApiErrorCode` en `@movo/shared` (solo se
-  agregó, ningún código existente se renombró).
-- **ADR-013**: TTL del refresh token extendido de 7 a 90 días (`DEFAULT_REFRESH_TOKEN_TTL_SECONDS`
-  en `session-repository.ts`), a pedido del equipo (comentario sin resolver de Pedro en
-  MOVO-74) y alineado a la prioridad explícita de minimizar cuánto tienen que volver a
-  loguearse los usuarios — la app no maneja datos bancarios. El riesgo de una ventana de
-  exposición más larga si el token es robado es lo que mitiga la rotación de un solo uso
-  + detección de reuso de esta misma US. Fila agregada a la tabla de ADRs arriba; el
-  desarrollo completo (contexto/alternativas) queda pendiente de pegar en el Drive,
-  igual que ADR-012.
-- Tests de integración nuevos: `test/auth.refresh.integration.test.ts` (rotación, reuso,
-  malformado/inexistente, AC5, AC6), `test/auth.logout.integration.test.ts` (logout de
-  una sesión sin afectar otras, idempotencia, no revocar sesión ajena, logout-all). Test
-  de TTL en `test/auth.login.integration.test.ts` actualizado a 90 días.
-
-Pendiente / fuera de alcance de MOVO-75: no se agregó rate limiting específico en el
-gateway para `/auth/refresh`/`/auth/logout` (quedan bajo el límite general, 200/min) —
-no lo pedía el AC; el mobile (MOVO-76) todavía no llama a `/auth/refresh`
-automáticamente antes de que expire el access token, así que el beneficio práctico del
-TTL más largo depende de esa US.
-
-### MOVO-72 — Integración con Didit.me: sesión KYC, webhook y máquina de estados (`svc-users`)
-
-Implementado `src/modules/kyc/` (`kyc.routes.ts`/`kyc.schema.ts`/`kyc.service.ts`, sigue
-la convención real de módulos del servicio, no el `src/routes/` suelto que sugería el
-ticket), `src/adapters/didit-client.ts` (+ `http-didit-client.ts`/`mock-didit-client.ts`/
-`didit-signature.ts`), `src/repositories/kyc-verification-repository.ts` +
-`src/models/kyc-verification.ts`. Tres rutas nuevas, públicas en el gateway (sin JWT —
-ver más abajo): `POST /kyc/session`, `GET /kyc/status`, `POST /kyc/webhook`.
-
-Decisiones clave:
-- **Modelo de datos alineado al DER, no inventado**: el usuario compartió el DER vigente
-  del dominio (`Movo_DER_1.0.md`) durante la planificación — ya modelaba una tabla
-  `KYC_VERIFICATION` (singular: `users.kyc_verification`) con `verification_type` enum
-  (`identity`/`license`, minúscula post-MOVO-91 — el DER la dibuja en mayúscula, es solo
-  estilo del diagrama), `provider`, `external_session_id` (único), `status`
-  (reusa `KycStatus` de `@movo/shared`, no duplica vocabulario), `requested_at`,
-  `resolved_at`, `raw_decision`. `User.kycStatusIdentity` sigue siendo el caché de
-  lectura rápida que el propio DER documenta ("se necesita acceder a esto cada vez que
-  se revisa si un usuario es válido"); toda escritura a `kyc_verification` actualiza ese
-  caché en la misma `db.$transaction`. Detalle completo del esquema documentado también
-  como comentario en MOVO-72 (Linear), con el compromiso de actualizarlo si algo cambia
-  durante la implementación.
-- **`KycStatus` de `@movo/shared` no tenía `manual_review`** (mapea "In Review" de
-  Didit) — agregado al final del enum (aditivo, mismo criterio que `ApiErrorCode`).
-  Migración `20260805235652_add_kyc_verification_movo_72` — generada con
-  `prisma migrate dev` pero **editada a mano** después: la primera corrida coló cambios
-  de drift no relacionados (VARCHAR→TEXT, `ON UPDATE CASCADE`, un índice recreado) entre
-  `schema.prisma` y el SQL original de MOVO-93 — se recortó el `.sql` a solo lo de KYC y
-  se verificó con `prisma migrate reset` que la migración recortada aplica limpia sola.
-- **Sin tabla de auditoría aparte**: AC11 pide "tabla de auditoría **o** log
-  estructurado" (no ambas) — se cubre con logging estructurado (pino, ya activo,
-  `Fastify({ logger: true })`) en cada transición, más la propia `kyc_verification`
-  como historial persistente. Evita una segunda tabla (`kyc_events`) que se había
-  diseñado en una iteración anterior del plan y se descartó al confirmar con el usuario
-  que alcanzaba con lo mínimo.
-- **Idempotencia del webhook (AC7) sin tabla ni constraint aparte**: `resolveByExternalSessionId`
-  hace un `updateMany` condicionado a `status: fromStatus` (Prisma) — atómico a nivel DB.
-  Si `count === 0` (webhook duplicado, o `session_id` desconocido/fuera de orden), no-op
-  y 200 igual (Didit reintenta si no recibe 2xx).
-- **Gap real encontrado y cerrado dentro de esta US**: `POST /auth/register` (MOVO-70)
-  nunca consumía el `phoneVerificationToken` que emite `verify-otp` (MOVO-71) —
-  `phone_verified` no se seteaba en ningún lado del código. El AC2 de MOVO-72 ("solo
-  crear sesión si el teléfono está verificado") era imposible de cumplir de punta a
-  punta sin esto. Confirmado con el usuario: se extendió el scope de MOVO-72 para
-  wirear `register()` (`auth.schema.ts`/`auth.service.ts`/`auth.routes.ts`) — el
-  `phoneVerificationToken` ahora es requerido en el body y se consume (single-use)
-  antes de crear la cuenta.
-- **`POST /kyc/session` y `GET /kyc/status` eran rutas públicas en la primera versión**
-  (sin JWT, `userId` explícito en vez de derivarlo de un token) — en el punto del
-  onboarding donde mobile las llama (justo después de `register`, antes de `login`)
-  todavía no había access token. Revertido en la revisión de PR #51 (tmvergara, ver
-  bullet siguiente): con `register()` emitiendo tokens, el diseño original del AC1
-  ("crea una sesión [...] para el usuario autenticado") vuelve a ser posible sin el
-  desvío. **MOVO-94 queda resuelto por este cambio, no solo mitigado** — no hace falta
-  el ticket de seguimiento que se había abierto para la decisión anterior.
-- **`register()` emite tokens de sesión, igual que `login()` (revisión de PR #51,
-  tmvergara)**: `RegisterUserResult` pasa a ser el mismo shape que `LoginUserResult`
-  (`accessToken`/`refreshToken`/`expiresIn`/`kycStatus`/`fullName`/`roles`) —
-  `auth.service.ts#register()` firma el access token y persiste el refresh token en
-  Redis (`sessionRepository.saveRefreshToken`) antes de devolver la respuesta 201.
-  Motivo: el estándar de industria en onboarding con KYC (Stripe Identity, Persona, la
-  mayoría de neobancos) es que el registro autentica; el AC1 original de MOVO-72 ya lo
-  asumía. Como consecuencia directa, `/kyc/session` y `/kyc/status` (gateway,
-  `routes-map.ts`) dejan de estar en `getPublicRoutes()` — son rutas protegidas como
-  cualquier otra, sin rate limit estricto (quedan bajo el general 200/min). El `userId`
-  se deriva del header `x-user-id` que el gateway inyecta tras validar el JWT (ADR-010,
-  `kyc.routes.ts#requireUserIdFromHeader`), no de un parámetro del body/querystring —
-  `KycSessionBody`/`KycStatusQuerystring` (`kyc.schema.ts`) se eliminaron. Un
-  `x-user-id` ausente o mal formado (llamada directa al servicio sin pasar por el
-  gateway) responde `401 AUTH_TOKEN_INVALID`.
-  **Pendiente, fuera de este cambio**: coordinar con MOVO-73 (movo-mobile, in progress)
-  — `use-registration.ts` tiene que persistir los tokens que devuelve el `register`
-  nuevo antes de navegar a la pantalla de KYC, y las llamadas a `/kyc/session`/
-  `/kyc/status` necesitan adjuntar `Authorization` a mano (el interceptor genérico
-  sigue siendo alcance de MOVO-76, que no existe todavía). El caso borde de token
-  vencido a mitad del onboarding (AC7 de MOVO-73, "flujo reanudable") queda sin
-  resolver en este cambio — a decidir si es limitación aceptada o si MOVO-73 necesita
-  un refresh manual mínimo.
-- **Bug encontrado en la misma revisión: el `phoneVerificationToken` se perdía en un
-  reintento de registro tras un conflicto de datos.** `register()` consume el token
-  (single-use) *antes* de llamar a `repository.create()`; si `create()` fallaba por
-  `UserConflictError` (409, típicamente un typo en el email), el token ya había quedado
-  marcado como usado en Redis — el usuario tenía que rehacer todo el flujo de OTP para
-  reintentar, aunque su teléfono siguiera verificado. Corregido agregando
-  `releasePhoneVerificationToken(jti)` a `PhoneVerificationService`
-  (`phone-verification.service.ts`) — borra la key `phone-verification-used:{jti}` de
-  Redis — y llamándolo en el `catch` de `UserConflictError` dentro de
-  `auth.service.ts#register()`, antes de relanzar el 409. `consumePhoneVerificationToken`
-  ahora devuelve también el `jti` (antes solo `{ phone }`) para poder liberarlo.
-- **Bug de rate-limit del gateway encontrado y corregido de paso**: al agregar el rate
-  limit estricto de `/kyc/session` (mismo `{max:5, timeWindow:"15 minutes"}` que
-  `/auth/login`), los tests mostraron que ambos limiters compartían el mismo contador en
-  Redis. Causa: `@fastify/rate-limit` en modo decorator (`app.rateLimit(opts)`, la forma
-  en que `gateway/src/routes/index.ts` arma el limiter general y cada uno estricto)
-  siempre arma el namespace del store con `routeInfo: {}` fijo — la clave real en Redis
-  terminaba siendo `fastify-rate-limit-undefinedundefined-<ip>` para **todos** los
-  limiters creados así, sin importar su ruta o config (confirmado con
-  `redis-cli keys`). Preexistente desde MOVO-68, agravado recién ahora al haber una
-  segunda ruta con rate limit estricto. Corregido agregando un `keyGenerator` explícito
-  por limiter (`` `${method} ${path}:${ip}` ``) en `routes/index.ts` — es la única forma
-  de distinguirlos con esta API (`routeInfo` no es configurable desde afuera de la
-  librería).
-- **Raw body para verificar la firma del webhook (AC5)**: `addContentTypeParser`
-  scopeado dentro de `kycRoutes` (Fastify lo encapsula por plugin, no se filtra a
-  `/auth/*` ni `/users/*` — verificado con `test/kyc.raw-body-isolation.test.ts`).
-  HMAC-SHA256 sobre JSON canónico (claves ordenadas recursivamente), comparación
-  timing-safe, ventana anti-replay de 300s sobre `X-Timestamp`.
-- **Mapeo de estados de Didit → `KycStatus`**: solo los 3 estados terminales
-  (`Approved`/`Declined`/`In Review`) disparan transición; los intermedios
-  (`Not Started`/`In Progress`/`Awaiting User`/`Resubmitted`) se ignoran. `Expired`/
-  `Abandoned`/`Kyc Expired` quedan **sin mapear a propósito** — todavía sin confirmar
-  contra el sandbox real (los otros 3 sí, ver "Validado contra el sandbox real" abajo).
-  **Superado**: los tres mapean a `KycStatus.EXPIRED` desde el fix de retry de KYC — ver
-  "MOVO-73 (fix) — Reanudación del onboarding y retry de KYC atascado en `pending`" al
-  final de este archivo.
-- **Shape real del payload del webhook confirmado contra el sandbox** (vía "Probar
-  Webhook" de la consola, los 3 escenarios terminales): `status`/`session_id`/
-  `vendor_data`/`workflow_id`/`webhook_type` viven en el nivel superior — coincide con
-  lo que el código esperaba. `decision` es un objeto de ~20KB con el detalle completo de
-  cada feature (OCR, NFC, AML, liveness, cuestionario, IP) — trae imágenes de
-  documento, domicilio, fecha de nacimiento y otros datos que AC9 prohíbe persistir;
-  `buildRedactedRawDecision` nunca lo copia tal cual, confirmado con un test que verifica
-  que ningún campo sensible del fixture sobrevive a la redacción.
-- **El motivo de revisión manual no vive donde se había asumido originalmente**:
-  `decision.reviews` queda vacío incluso en el payload real de ejemplo de `In Review`
-  (se completa recién cuando un humano termina una revisión manual en el back-office de
-  Didit, después de este webhook). El motivo real está disperso en
-  `decision.<feature>[].warnings[]` — confirmado con el payload real de `Declined`
-  (`decision.id_verifications[0].warnings[0]` trae `{feature, risk:
-  "DOCUMENT_EXPIRED", short_description: "Document expired", ...}`).
-  `extractDecisionWarnings()` (`kyc.service.ts`) recorre genéricamente todas las arrays
-  de `decision` (no las lista a mano — Didit puede agregar features nuevas) y extrae
-  solo `feature`/`risk`/`short_description` de cada `warnings[]` — nunca
-  `long_description` (más texto libre, menos revisado) ni ningún otro campo del item
-  que las contiene. Puede devolver `[]` legítimamente (el ejemplo real de `In Review` no
-  trae ningún warning individual) — no todo caso en `manual_review` va a tener un motivo
-  estructurado, y eso está bien.
-- Modo `DIDIT_MODE=mock` (default, mismo criterio que `SMS_PROVIDER=console`): sesiones
-  sintéticas sin red, no depende de credenciales de sandbox para levantar el servicio en
-  dev/test/CI. `DIDIT_MODE=live` exige `DIDIT_API_KEY`/`DIDIT_WORKFLOW_ID_IDENTITY`/
-  `DIDIT_WEBHOOK_SECRET` (`createDiditClient` falla rápido al arrancar si faltan).
-- Diagramas de secuencia y de estados (Mermaid) en `docs/kyc/` — versionados junto al
-  código (mismo criterio que `docs/plan-de-testing.md`) en vez de Drive, para que sirvan
-  de guía de diseño y se actualicen en el mismo PR si el flujo cambia.
-- Gateway (`routes-map.ts`): prefix `/kyc` nuevo; se remueve por completo el placeholder
-  `/webhooks/didit` de MOVO-68 (dead code, reemplazado por `/kyc/webhook` — AC4 del
-  ticket pide ese path explícitamente).
-
-Tests: 169/169 en `svc-users` (subieron de 167 al agregar cobertura de
-`extractDecisionWarnings` con el shape real), 30/30 en `gateway`. Suite completa
-(`svc-users` + `gateway` + `shared`) verificada contra Postgres/Redis reales.
-
-**Validado contra el sandbox real de Didit.me** (Paso 7 del plan, hecho en vivo con
-credenciales reales del usuario — no solo con `DIDIT_MODE=mock`):
-- `POST /kyc/session` real: `createSession` contra `POST /v3/session/` con
-  `DIDIT_API_KEY`/`DIDIT_WORKFLOW_ID_IDENTITY` reales devolvió 201 con
-  `session_id`/`session_token` reales, persistidos correctamente en `kyc_verification`.
-- Túnel local: `ngrok` no estaba instalado; `npx localtunnel` funcionó para la primera
-  prueba pero **el servicio gratuito `loca.lt` resultó no confiable** (el túnel murió
-  solo, y una segunda instancia ni siquiera conectó — confirmado que no era problema de
-  red local, `google.com` respondía normal). Se cambió a `cloudflared tunnel --url`
-  (Cloudflare Quick Tunnels, `brew install cloudflared`, sin cuenta/login) — mucho más
-  estable (<1s de respuesta consistente). Recomendado sobre `localtunnel` para este
-  flujo de ahora en más.
-- **Firma real de Didit validada end-to-end**: "Probar Webhook" de la consola (con la
-  firma real que calcula Didit, no una simulada por nosotros) llegó a
-  `POST /kyc/webhook` a través del túnel y `verifyDiditSignature` la aceptó — confirma
-  que la canonicalización JSON (claves ordenadas recursivamente) coincide exactamente
-  con la de Didit. Era el mayor riesgo técnico del ticket y ya no es una incógnita.
-- El primer intento devolvió `401`/timeout porque el shape del payload y el
-  `session_id` de prueba de Didit no coinciden con una sesión real nuestra — comportamiento
-  esperado y correcto (AC7: sesión desconocida se ignora, responde 200 igual).
-- **Ciclo completo de punta a punta con una sesión propia real** (no simulada por
-  "Probar Webhook"): se creó una sesión real vía `POST /kyc/session`, se completó el
-  flujo de verificación real en `https://verify.didit.me/session/<token>` (modo
-  sandbox — simulado, no valida documentos de verdad) con resultado `Declined`, y
-  Didit mandó el webhook real correspondiente. Resultado: `kyc_verification.status =
-  rejected` con `resolvedAt` seteado, `vendor_data` coincidiendo exactamente con el
-  `userId`, y `extractDecisionWarnings()` extrayendo 4 warnings reales
-  (`DATA_REVIEW_MINOR_FIELD_MISMATCH`, `DATA_REVIEW_CRITICAL_FIELD_MISMATCH`,
-  `DATA_REVIEW_FIELDS_EDITED_BY_USER`, `DOCUMENT_NOT_SUPPORTED_FOR_APPLICATION`) sin
-  ningún dato sensible mezclado. `GET /kyc/status` reflejó `rejected` correctamente
-  (`manualReviewReason: null` es el comportamiento esperado para `rejected` — ese campo
-  solo se expone para `manual_review` por diseño; el detalle sigue disponible en
-  `raw_decision` para debugging/futuro panel de admin). Esta es la confirmación más
-  fuerte posible de que el flujo funciona real de punta a punta, no solo contra mocks.
-
-Pendiente / fuera de alcance de MOVO-72: ~~mapeo de `Expired`/`Abandoned`/`Kyc Expired`
-(no hay forma de generar esos escenarios desde "Probar Webhook" de la consola;
-requeriría dejar vencer una sesión real o abandonarla a mitad de camino)~~ — **resuelto**
-en el fix de retry de KYC (última entrada de este archivo): los tres mapean a
-`KycStatus.EXPIRED`, que es reintentable. Sigue sin validarse contra el sandbox real, por
-el motivo tachado arriba. Panel de
-admin para casos en `manual_review` (AC10 solo deja el dato consultable,
-`findManualReviewCases()`): MOVO-32, sprint posterior. La decisión de rutas públicas
-sin JWT (que tenía seguimiento en MOVO-94) quedó resuelta en la revisión de PR #51 —
-ver bullets de arriba ("`register()` emite tokens de sesión").
-
-**Cambios aplicados tras la revisión de PR #51 (tmvergara, 2026-08-06)**: además de los
-tres bullets de arriba (rutas de KYC protegidas, `register()` emite tokens, fix del
-`phoneVerificationToken` perdido en reintento), se actualizaron los tests existentes al
-nuevo contrato: `auth.register.integration.test.ts` (shape de respuesta + caso nuevo de
-liberación de token), `auth.login.integration.test.ts` (conteo de refresh tokens en
-Redis, ahora +1 por cada `register()` de fixture), `kyc.session.integration.test.ts` /
-`kyc.status.integration.test.ts` (header `x-user-id` en vez de body/querystring, casos
-nuevos de 401 sin header / header inválido), `gateway/test/routes-prefix.test.ts`
-(`/kyc/session` y `/kyc/status` exigen `Authorization: Bearer`). `docs/kyc/
-sequence-diagram.md` y el `README.md` raíz (sección de rutas públicas) actualizados
-para no contradecir el diseño nuevo. 173/173 tests en `svc-users` (subieron de 169),
-32/32 en gateway (subieron de 30) — suite completa contra Postgres/Redis reales, más un
-smoke test manual de punta a punta a través del gateway real (`register` → token →
-`POST /kyc/session` con `Authorization` → `GET /kyc/status`) para confirmar la
-inyección de `x-user-id`, no solo `app.inject()` sin gateway de por medio.
-
-**Housekeeping de Linear (hecho, sin cambios de código adicionales)**: creado
-**MOVO-95** (`[svc-users] register() emite tokens de sesión — AC10/AC3 de MOVO-70
-desactualizados`), referencia AC10 (contradicho) y AC3 (también contradicho: el fix
-de liberar el token en conflicto va en contra de "se consume sea cual sea el
-resultado del registro", tal como está escrito hoy) más un gap de DoD encontrado al
-auditar MOVO-70 contra la implementación (falta test de integración de
-`phoneVerificationToken` vencido contra el endpoint real, hoy solo cubierto a nivel
-de servicio). **MOVO-94** pasado a `Done` con nota de resolución. **MOVO-73**:
-comentario agregado con los tres puntos de coordinación (persistir tokens en
-`use-registration.ts`, `Authorization` manual en las dos llamadas de KYC, caso borde
-de token vencido durante el resume) — sin tocar el AC de la US directamente, es
-ticket de otra persona (Tomás, in progress).
-
-
-### MOVO-73 (parcial) — Pantalla de bienvenida y navegación base en `movo-mobile`
-
-Implementado: `expo-router` como base de navegación file-based (`app/_layout.tsx`
-reemplaza a `App.tsx`/`index.ts`, que se eliminaron; `main` en `package.json` apunta a
-`expo-router/entry`). Pantalla de bienvenida en `app/index.tsx` — ruta inicial (`/`) de
-la app, deriva a `/register` ("Soy nuevo") o `/login` ("Ya tengo cuenta") vía `Link` de
-expo-router. Íconos con `lucide-react-native` (sobre `react-native-svg`) en vez de SVG
-inline, para consistencia con los próximos pasos de registro/OTP de este mismo ticket.
-`DevTokensScreen` se mantiene como ruta de desarrollo en `app/dev-tokens.tsx`.
-
-Decisiones clave:
-- `app/register.tsx` y `app/login.tsx` son **placeholders mínimos** (título + volver) —
-  el objetivo era destrabar la navegación end-to-end; el contenido real de esas
-  pantallas es trabajo de las próximas US de este ticket.
-- No hay gating por sesión iniciada: no existe todavía módulo de storage de
-  token/sesión en el mobile (el backend de auth ya existe, ver MOVO-68), así que `/`
-  siempre muestra bienvenida. Punto de extensión marcado con `// TODO` en
-  `app/_layout.tsx` para cuando se agregue el redirect condicional.
-- `jest.config.js` necesitó dos ajustes para soportar expo-router + lucide-react-native
-  en tests: sumar `standard-navigation`, `expo-modules-core` y `lucide-react-native` al
-  `transformIgnorePatterns`, y agregar un `transform` explícito para `.mjs` (el preset
-  `jest-expo` sólo transforma `.[jt]sx?` por defecto, y `lucide-react-native` resuelve a
-  un build ESM `.mjs` vía el campo `"react-native"` de su `package.json`).
-- El degradé de texto (`titanium-gradient`) del diseño original no se replicó (RN no
-  soporta `background-clip: text` sin sumar `@react-native-masked-view/masked-view`) —
-  se resolvió con un color sólido (`text-ink-700`) como fallback aceptado.
-- El patrón de puntos decorativo (halftone) de fondo del diseño no se implementó en este
-  alcance — se priorizó fidelidad de layout y jerarquía tipográfica sobre el efecto
-  decorativo.
-
-Pendiente / fuera de alcance: contenido real de `/register` y `/login`, verificación de
-OTP, storage de sesión y redirect condicional en `/`. (Continuado abajo.)
-
-### MOVO-73 (continuación) — Registro, OTP y KYC embebido en `movo-mobile`
-
-Implementado: pantallas reales de registro (`app/(auth)/register.tsx`, wizard de 5 pasos:
-datos básicos, DNI, dirección, contraseña, revisión), verificación de OTP
-(`app/(auth)/verify-phone.tsx`, 6 casillas con autofoco/avance automático y reenvío con
-cooldown de 60s) y KYC embebido (`app/(auth)/kyc.tsx`, vía SDK nativo de Didit). Base de
-conexión con el API: `src/api/http-client.ts` (fetch wrapper, sin lógica de auth — eso es
-de MOVO-76), `src/api/auth-client.ts` (funciones tipadas de register/verify-phone/kyc),
-`src/lib/secure-store.ts` (wrapper sobre `expo-secure-store`, genérico, sin lógica de
-tokens todavía), `src/lib/env.ts` (`EXPO_PUBLIC_API_URL`). Estado del wizard en
-`src/hooks/use-registration.ts` (Context + hook, sin librería nueva de state management).
-
-Decisiones clave:
-- **Rutas movidas a `app/(auth)/`**: `register.tsx` y `login.tsx` (este último con su
-  contenido real pendiente de MOVO-76) se movieron desde `app/` a `app/(auth)/`, sumando
-  `verify-phone.tsx` y `kyc.tsx` — la estructura de navegación completa del onboarding
-  queda definida desde ahora, tal como pide la guía del ticket.
-- **Backend de MOVO-70/MOVO-72 no existe en este checkout** — el contrato de
-  `POST /auth/register` (extendido con `dni`/`address`, no estaban en el AC original),
-  `POST /auth/verify-phone`, `POST /auth/resend-otp`, `POST /kyc/session` y
-  `GET /kyc/status` se dejó como comentario en Linear (MOVO-70, MOVO-72, MOVO-73) para
-  coordinar con el equipo antes de que se implemente el backend real. El mobile ya está
-  armado contra ese contrato.
-- **`@movo/shared` ahora es consumible desde `movo-mobile`**: se agregó `movo-mobile` al
-  `workspaces` del `package.json` raíz (antes tenía su propio `package-lock.json`,
-  eliminado) y se ajustó `movo-mobile/metro.config.js` (`watchFolders` +
-  `resolver.nodeModulesPaths`) para resolución de monorepo. **Importante**: el mobile
-  importa por **subpath** (`@movo/shared/dist/types/user`,
-  `@movo/shared/dist/errors/api-error`), nunca desde el barrel raíz `@movo/shared` — ese
-  barrel re-exporta `auth/jwt.ts`, que depende de `jsonwebtoken`/`node:crypto` y rompe el
-  bundle de Metro/Hermes en React Native. Si se agrega un módulo nuevo a
-  `shared/movo-shared/src` pensado también para mobile, mantenerlo sin dependencias de
-  Node o el mobile tiene que seguir importando por subpath específico.
-- **KYC vía SDK nativo de Didit, no WebView**: `@didit-protocol/sdk-react-native` ya
-  estaba instalado y linkeado (dependencia + config plugin en `app.json`, Pods de iOS ya
-  generados) pero no se usaba en ningún componente — se integró en `kyc.tsx`
-  (`startVerification(sessionToken)`). El import del SDK es **diferido**
-  (`require()` recién dentro del handler del botón, nunca `import` estático): el módulo
-  `NativeSdkReactNative.ts` interno del SDK llama a `TurboModuleRegistry.getEnforcing(...)`
-  en el scope del módulo, que tira una excepción apenas se evalúa si no hay development
-  build — como pasa siempre en Expo Go. Con `import` estático, como expo-router evalúa
-  todas las rutas al arrancar, esto tumbaba la app entera (no solo esta pantalla) al
-  abrirla en Expo Go. Con el `require` diferido, el resto de la app funciona en Expo Go;
-  solo tocar "Empezar verificación con Didit" requiere un development build.
-- El pedido de permiso de cámara lo maneja el SDK internamente — no hay código propio de
-  permisos. Se agregaron los usage-description strings a `app.json` →
-  `expo.ios.infoPlist` (`NSCameraUsageDescription`, etc.) porque el config plugin del SDK
-  solo configura Gradle/Podfile, no esas keys.
-- **Flujo reanudable (AC7)**: se persiste únicamente el `userId` del registro en curso en
-  `expo-secure-store` — el paso en el que quedó el usuario se deriva siempre consultando
-  al backend (`kycStatus`), nunca de estado local, tal como pide la guía del ticket.
-- El orden de pasos difiere del mockup de Claude Design: el mockup verifica el OTP antes
-  de pedir la contraseña; acá el registro se manda completo (con contraseña incluida) en
-  una sola llamada a `POST /auth/register` porque así lo define el AC de MOVO-70, y la
-  verificación de teléfono queda como paso posterior separado.
-- `EXPO_PUBLIC_API_URL` resuelve el ambiente: local vía `.env.local` (gitignored,
-  `.env.example` documentado), dev `https://api-dev.movosend.app` y prod
-  `https://api.movosend.app` vía `eas.json` (perfiles `development`/`preview`/`production`).
-  `eas init` (requiere cuenta EAS del equipo) queda pendiente — sin eso, los perfiles de
-  build no están activados de verdad todavía.
-
-Pendiente / fuera de alcance: backend real de MOVO-70/MOVO-72 (mobile ya integrado contra
-el contrato propuesto), `eas init`, development build real y prueba en dispositivo físico
-(DoD del ticket — Expo Go no soporta el SDK de Didit), storage de sesión autenticada y
-redirect condicional en `/` (MOVO-76).
-
-### MOVO-73 (corrección) — OTP embebido en el wizard, no como pantalla separada
-
-**Supera la decisión de "orden de pasos difiere del mockup" de la entrada anterior.** El
-paso de OTP se movió de una ruta separada post-alta (`app/(auth)/verify-phone.tsx`, ya
-**eliminada**, junto con su test) a un paso embebido dentro de `app/(auth)/register.tsx`,
-en el mismo orden que el mockup: datos básicos → DNI → dirección → **OTP** → contraseña →
-revisión (wizard de 6 pasos, antes 5). La verificación de teléfono ahora ocurre **antes**
-de crear la cuenta, no después.
-
-- Esto partió el contrato de backend en dos llamadas nuevas sin cuenta todavía
-  (`POST /auth/send-otp`, `POST /auth/verify-otp`) en vez de la única `POST /auth/verify-phone`
-  post-alta que tenía el contrato anterior. `POST /auth/register` ahora requiere un
-  `phoneVerificationToken` en el body (emitido por `verify-otp`). Contrato propuesto
-  documentado en el comentario de MOVO-70 en Linear (el endpoint es de `svc-users`/auth,
-  no de MOVO-72/KYC pese a que estaba mencionado ahí en la entrada anterior).
-- `src/hooks/use-registration.tsx`: `verifyPhone(code)`/`resendOtp()` atados a `userId` se
-  reemplazaron por `sendOtp()` / `verifyPhoneOtp(code)` / `resendOtp()` atados a un `otpId`
-  (no hay `userId` todavía en este punto del flujo).
-- El paso de revisión del wizard muestra "Teléfono · Verificado" (verde) porque en ese
-  punto el teléfono siempre está verificado — antes no se podía mostrar ese estado ahí.
-- El resto de la US no cambia: KYC sigue siendo el paso post-alta (`router.replace('/kyc')`
-  al terminar `submitRegistration`), y el flujo reanudable (AC7) sigue basado solo en
-  `userId` + `kycStatus` del backend, sin estado local — como la cuenta se sigue creando
-  recién al final del wizard (igual que antes), la reanudación no se ve afectada por este
-  cambio.
-
-### MOVO-73 (extra) — Dark mode automático en `movo-mobile`
-
-La infraestructura ya existía (variables CSS en `global.css`, tokens `bg`/`bg-sub`/
-`bg-mute`/`fg`/`fg-2`/`fg-3`/`border`/`border-strong` en `tailwind.config.js`) pero las
-pantallas de bienvenida/registro/OTP/KYC usaban colores fijos de la escala `ink-*`/
-`bg-paper`, que no cambian con el tema. Se reemplazaron por los tokens semánticos en
-`app/index.tsx`, `app/(auth)/{login,register,kyc}.tsx` y los componentes
-`wizard-header`, `text-field`, `password-strength-meter`, `select-field`,
-`primary-button`.
-
-- **`tailwind.config.js` necesitó `darkMode: "class"` explícito** — sin esa línea
-  (default `"media"`), NativeWind/`react-native-css-interop` **no reconoce** el patrón
-  `.dark:root { ... }` de `global.css` como bloque de variables dark (ver
-  `normalize-selectors.js` del paquete: ese matching solo corre si
-  `options.darkMode?.type === "class"`); con `"media"` las variables `--color-*` nunca
-  cambiaban y toda la app se veía en claro sin importar el tema del teléfono. `"class"`
-  **no** implica toggle manual: NativeWind sigue automáticamente el `Appearance` del
-  sistema por default en ambos modos (ver `colorScheme` en
-  `appearance-observables.js` — solo deja de auto-seguir si algo llama
-  `colorScheme.set()` explícitamente, cosa que esta app no hace). Es justo lo que pidió
-  el equipo ("que siga la variante configurada en el teléfono"), sin toggle manual en
-  ningún flujo de usuario.
-- **Colores que reciben una prop `color` en JS (íconos de `lucide-react-native`,
-  `placeholderTextColor`, `ActivityIndicator`) no pueden resolver variables CSS** —
-  NativeWind solo interviene sobre `className`. Se agregó
-  `src/hooks/use-theme-colors.ts` (`useThemeColors()`, hex de `fg`/`fg-2`/`fg-3` según
-  `useColorScheme()` de NativeWind) para esos casos puntuales. Si se agrega un color
-  nuevo a `global.css`, sumarlo también acá.
-- **Qué se dejó fijo a propósito** (no se tokenizó): los acentos vivos (`lime-*`,
-  `route-500`) y las escalas semánticas (`danger`/`warning`/`success`/`info`) no tienen
-  variante dark en `global.css` todavía — los banners de error (`bg-danger-100` +
-  `text-ink-950`) y el botón primario `variant="dark"` (`bg-ink-950`/`text-paper`, CTA
-  de marca) quedan iguales en ambos temas. Si el equipo quiere que esos banners también
-  se adapten, hace falta definir pasos dark para esas escalas primero.
-- `components/dev/DevTokensScreen.tsx` (ruta `/dev-tokens`) tiene un toggle manual
-  (`colorScheme.set(...)`) sin tocar — con `darkMode: "class"` ya activo, ese botón
-  ahora funciona (antes de este cambio tiraba excepción, porque `colorScheme.set()`
-  solo está permitido con `darkMode: "class"`).
-
-### MOVO-73 (fix) — Errores inline consistentes y visibles en el paso correcto
-
-El wizard de registro (`app/(auth)/register.tsx`) tenía un único `errorBanner` (string)
-en `useRegistration()` sin asociar a ningún paso, pero solo se renderizaba dentro de los
-bloques JSX de los pasos 0 y 3 — un error de `sendOtp` (disparado al salir del paso 2) o
-de `submitRegistration` (paso 5) quedaba seteado en el estado pero invisible hasta que el
-usuario volvía manualmente al paso 0, dando la sensación de falla silenciosa. Además había
-tres estilos visuales distintos para "texto de error" (campo, banner, y un texto de OTP
-que reusaba el estilo de campo para un error que semánticamente era de API).
-
-- **`components/ui/error-banner.tsx`**: banner compartido único (`border-danger-300` +
-  `bg-danger-100` + `text-ink-950`) para errores de API/red a nivel de paso — reemplaza
-  los dos bloques duplicados (`register.tsx`, `kyc.tsx`) y el texto mal estilado del paso
-  de OTP. Los errores de validación de campo (`TextField`/`SelectField`, prop `error`)
-  siguen siendo el único estilo separado — ya eran consistentes entre sí, no se tocaron.
-- En `register.tsx`, el `ErrorBanner` se movió a **un solo render, arriba de todos los
-  bloques de paso** (antes de `{step === 0 && ...}`) en vez de duplicado adentro de cada
-  paso — así queda visible sin importar en qué paso ocurrió el error, porque `goNext`
-  siempre deja al usuario en el paso donde falló la llamada (nunca avanza en un
-  `!result.ok`).
-- Se agregó `goToStep()` (envuelve `setStep` + `clearErrorBanner()`) para todo cambio de
-  paso — antes `clearErrorBanner` estaba expuesto en el hook pero nunca se llamaba desde
-  ningún lado, así que un error viejo podía seguir mostrándose después de que el usuario
-  avanzara.
-- **`src/lib/error-messages.ts`** (`friendlyErrorMessage(err, fallback)`): antes,
-  cualquier `ApiError` sin manejo especial mostraba `err.message` **tal cual lo mandó el
-  backend** (texto técnico, a veces en inglés) — ahora hay un mapa único
-  `ApiErrorCode → mensaje en español` reutilizable en toda la app (no solo
-  registro/KYC), con fallback específico por acción si el código no está mapeado. El caso
-  `statusCode === 0` (fallo de red, sin conexión) es la excepción: usa tal cual el mensaje
-  ya armado por `http-client.ts` ("No se pudo conectar…"), porque ya es preciso y está en
-  español.
-- **`resendOtp` fallaba en silencio**: no seteaba `errorBanner` y devolvía
-  `{ ok: false, cooldownSeconds: 60 }`, pero `register.tsx` no chequeaba `result.ok` — o
-  sea que un reenvío de OTP fallido se comportaba visualmente como exitoso (limpiaba las
-  casillas y arrancaba el cooldown de 60s igual). Se corrigió `resendOtp` para setear
-  `errorBanner` y devolver `cooldownSeconds: 0` en la falla, y `handleResendOtp` ahora
-  chequea `result.ok` antes de tocar el estado del OTP.
-- `refreshKycStatus` (polling de estado en background) sigue silencioso a propósito — no
-  es una acción disparada por el usuario, cae fuera de los casos de arriba.
-
-### MOVO-73 (alineación) — Contrato de auth de PR #51 (MOVO-72/95) + `users.address` (DER) + paso de mapa
-
-PR #51 (MOVO-72) cambió el contrato después de que esta US ya había implementado el
-mobile contra el contrato viejo: `POST /auth/register` pasó a emitir tokens de sesión
-(mismo shape que `login`) y `POST /kyc/session`/`GET /kyc/status` dejaron de ser
-públicas (ver MOVO-95/MOVO-94 más arriba). Esto rompía tres cosas del mobile: el
-registro nunca persistía los tokens nuevos, las dos llamadas de KYC iban a devolver
-401 (sin `Authorization`), y el estado de KYC nunca se leía (`GET /kyc/status` devuelve
-`status`, no `kycStatus`). De paso, se encontró y resolvió un gap preexistente: el
-wizard mandaba `dni`/`address` pero `registerBody` nunca los había aceptado
-(`additionalProperties: false`) — toda request de registro real habría sido rechazada
-con 400.
-
-**Backend (`services/movo-svc-users`)**:
-- **Tabla `users.address` implementada** (patrón libreta de direcciones del DER,
-  `docs/movo_der.dbml`, diseñada pero nunca creada hasta ahora): modelo `Address` en
-  `prisma/schema.prisma` + migración `20260807213247_add_user_address_movo_73`. Solo
-  se crea la primera dirección al registrarse (`label: null`, `is_default: true`,
-  `country: "AR"` hardcodeados server-side, no viajan en el request) — el resto del
-  CRUD de libreta de direcciones (agregar/editar/marcar otra como default) queda fuera
-  de alcance, sin ticket propio todavía. `lat`/`long` son `NOT NULL` (tal cual el DER,
-  a diferencia del primer borrador de este plan que los iba a dejar nullable) —
-  poblados por el paso de mapa/geocoding nuevo del wizard, no por el usuario a mano.
-  **No se agregó constraint unique a `dni`**: el DER lo deja como pregunta abierta
-  ("candidato natural a unique, no decidido") y se mantiene así.
-- `auth.schema.ts#registerBody`: `dni` (string, patrón `^\d{7,8}$`) y `address`
-  (`street`/`number`/`floor?`/`city`/`province`/`zip`/`lat`/`long`) ahora requeridos.
-  `user-repository.ts#create()` extiende el nested write de Prisma (mismo patrón que
-  ya usaba para `roles`, MOVO-93) para crear la fila de `Address` en la misma
-  transacción atómica que el alta del usuario.
-- **Paso de mapa (geocoding), nuevo de punta a punta** — ni la librería de mapa ni
-  ninguna API key de Google Maps existían en el proyecto todavía (ni siquiera para el
-  caso ya decidido en ADR-008, Distance Matrix de `movo-svc-pricing-logistics`, que
-  sigue siendo solo un esqueleto sin implementar):
-  - `GeocodingProvider` (mismo patrón que `SmsProvider`/`DiditClient`): interfaz +
-    `MockGeocodingProvider` (determinístico, hash de la dirección, sin red — default
-    dev/test/CI) + `GoogleGeocodingProvider` (real, sobre la Geocoding API de Google).
-    `GEOCODING_PROVIDER` (`mock`|`google`, default `mock`) + `GOOGLE_MAPS_API_KEY`
-    nuevos en `config/env.ts`/`.env.example`.
-  - `POST /api/v1/geocode` (nuevo módulo `src/modules/geocode/`) — **público**, se
-    llama durante el wizard antes de que exista cuenta o token (mismo momento que
-    `send-otp`/`verify-otp`). Proxea la Geocoding API server-side a propósito: esa key
-    es distinta de la key de renderizado de mapa del mobile (esta es secreta,
-    restringida por IP; la del mobile restringe por bundle id/SHA fingerprint, no es
-    sensible de la misma forma). Gateway: nuevo prefix `/geocode` en
-    `getServiceRoutes()` + entrada en `getPublicRoutes()` con rate limit propio
-    (`{max: 20, timeWindow: "15 minutes"}`) para no quedar abierto como proxy gratis
-    de la API de Google.
-  - Candidato a **ADR-014** (primera vez que se usa una API de Google Maps en el
-    proyecto pese a que ADR-008 ya la había decidido para otro caso) — falta pegar el
-    desarrollo completo en Drive, mismo estado pendiente que ADR-012/013.
-  - Dos códigos nuevos en `ApiErrorCode` de `@movo/shared`: `GEOCODING_PROVIDER_ERROR`,
-    `GEOCODING_ADDRESS_NOT_FOUND`.
-
-**Mobile (`movo-mobile`)**:
-- `src/api/auth-client.ts`: `RegisterResponse`/`LoginResponse` alineados al shape real
-  (`accessToken`/`refreshToken`/`expiresIn`/`fullName`/`roles`); `KycStatusResponse`
-  corregido a `{status, manualReviewReason}` (el campo es `status`, no `kycStatus`);
-  `createKycSession`/`getKycStatus` pasan a recibir un `accessToken` (no `userId`) y
-  adjuntan `Authorization: Bearer` a mano — **no** es el interceptor genérico de
-  MOVO-76 (`http-client.ts` solo gana un `headers` opcional por request, nada lo
-  adjunta automáticamente); nuevo `geocodeAddress()` contra `POST /geocode`.
-- `src/lib/secure-store.ts`: nuevas keys `pendingRegistrationAccessToken`/
-  `pendingRegistrationRefreshToken` — `submitRegistration()` persiste ahí los tokens
-  que devuelve `register()`, sin los cuales no hay forma de armar el header
-  `Authorization` que ahora exigen `/kyc/session`/`/kyc/status`.
-- **Limitación aceptada de este sprint (decisión explícita con el usuario, no un
-  descuido)**: el access token dura 60min y MOVO-76 (refresh automático) todavía no
-  existe. Si el usuario cierra la app en medio del onboarding y vuelve después de que
-  expiró, el efecto de resume (AC7) trata el 401 de `getKycStatus` igual que "no hay
-  registro pendiente" — limpia el storage y arranca el wizard desde cero, sin
-  intentar refrescar. Pendiente explícito en MOVO-76: evaluar si hace falta un
-  refresh manual mínimo antes de esa US completa, o si esto queda como limitación
-  permanente del producto.
-- **Wizard de registro: nuevo paso de mapa** (`app/(auth)/register.tsx`), insertado
-  entre dirección y OTP — 6 pasos pasan a ser 7 (`Step` `0-6`, `STEP_LABELS`,
-  denominador de progreso `/7`). Al salir del paso de dirección se llama
-  `geocodeAddress()` (centra el pin inicial); el usuario arrastra un `Marker` de
-  `react-native-maps` (nueva dependencia, instalada vía `expo install` — primera vez
-  que se usa un mapa en el mobile) para ajustar la ubicación exacta antes de
-  confirmar; `lat`/`long` viajan en el `address` de `submitRegistration()`.
-  **`app.json` → `app.config.js`** (corrección post-review, ver más abajo): plugin
-  `react-native-maps`, `ios.config.googleMapsApiKey`/`android.config.googleMaps.apiKey`
-  leídos de `GOOGLE_MAPS_IOS_API_KEY`/`GOOGLE_MAPS_ANDROID_API_KEY` (`process.env`, sin
-  prefijo `EXPO_PUBLIC_` — solo se consumen en build/prebuild time, no en el bundle
-  JS), y `NSLocationWhenInUseUsageDescription` nuevo en `infoPlist`.
-- `use-registration.tsx`: estado nuevo `latitude`/`longitude`/`accessToken`/
-  `manualReviewReason`; `submitRegistration()` bloquea con error si no hay
-  lat/long confirmados; `createKycSession`/`refreshKycStatus` migrados a usar
-  `accessToken` en vez de `userId`.
-
-**DNI vía Didit — investigado, no implementado**: se evaluó si el step manual de DNI
-del wizard se podía eliminar extrayendo `document_number` del resultado de Didit. Hoy
-el backend no lo extrae ni lo persiste en ningún lado (`buildRedactedRawDecision`, el
-whitelist de redacción de AC9 de MOVO-72, lo descartaría aunque viniera), y no hay
-confirmación contra el sandbox real de que el webhook de sesión lo incluya (a
-diferencia del endpoint standalone `/v3/id-verification/`, que sí lo documenta).
-Decisión: se mantiene el step manual tal cual está. Seguimiento en **MOVO-96**
-(ticket de investigación nuevo, sin implementación).
-
-Tests: 192/192 en `svc-users` (subieron de 173 — nuevos casos de `users.address`,
-`POST /geocode`, y fixtures de registro actualizados con `dni`/`address` en los 6
-archivos que llaman `/auth/register`), 32/32 en gateway (sin cambios de contenido,
-solo la nueva ruta pública no rompió nada existente), 26/26 en `movo-mobile` (Jest).
-`tsc --noEmit`/`eslint`/`npm run build` sin errores en los tres paquetes tocados.
-
-### MOVO-73 (corrección) — Keys de Google Maps: `app.json` en git y ownership entre servicios
-
-Dos problemas detectados en revisión sobre la entrada anterior, ambos corregidos en el
-mismo cambio:
-
-- **`app.json` se trackea en git** (solo `.env*.local` está en `.gitignore`) — pegar
-  ahí una API key, aunque sea de bajo riesgo (restringida por bundle id/SHA
-  fingerprint, no por IP), la deja commiteada para siempre en el historial. Se
-  reemplazó `app.json` por **`app.config.js`**, que Expo evalúa en Node en
-  build/prebuild time y sí puede leer `process.env` — mismo mecanismo que ya usaba
-  `EXPO_PUBLIC_API_URL` (Expo CLI carga `.env.local` automáticamente antes de evaluar
-  el config, no solo antes de bundlear). `GOOGLE_MAPS_IOS_API_KEY`/
-  `GOOGLE_MAPS_ANDROID_API_KEY` nuevas en `.env.example`, sin prefijo `EXPO_PUBLIC_` a
-  propósito (se consumen una sola vez en build time para generar
-  `Info.plist`/`AndroidManifest.xml`, no hace falta que viajen embebidas en el bundle
-  JS). **En builds de EAS tampoco van al bloque `env` de `eas.json`** (ese archivo
-  también se trackea) — se cargan como EAS Environment Variables (`eas env:create`),
-  fuera del repo.
-- **Cómo generarlas**: documentado en el comentario de `.env.example` — proyecto de
-  Google Cloud Console, habilitar "Maps SDK for Android"/"Maps SDK for iOS", crear dos
-  API keys separadas (una por plataforma, para poder restringir cada una por su propio
-  bundle id / SHA-1 del keystore de firma).
-- **Ownership de la key de Geocoding del backend (`GOOGLE_MAPS_API_KEY`,
-  `services/movo-svc-users`), decisión con el equipo**: quedaba mal ubicada
-  conceptualmente en `svc-users` — geocoding no es un concern de identidad, y
-  `svc-shipments`/`svc-pricing-logistics` (Distance Matrix, ADR-008, hoy sin
-  implementar) casi seguro la van a necesitar también. Se decidió **una sola API key
-  de Google Cloud, compartida** (mismo proyecto GCP, Geocoding API + Distance Matrix
-  API habilitadas, restringida por IP a las EC2 de Movo) — se carga una vez en AWS
-  Secrets Manager y cada servicio que la necesite la lee de su propio env bajo el
-  mismo nombre de variable (`GOOGLE_MAPS_API_KEY`), mismo criterio que ya usa el
-  proyecto para inyectar variable por variable en `docker-compose.yml` (no todo el
-  secret de una vez). Trade-off aceptado: los servicios que la compartan comparten
-  también la cuota/rate-limit de esa key — si eso se vuelve un problema real, se
-  separan keys por servicio más adelante, no ahora que solo `svc-users` la usa.
-  Candidato a ampliar en **ADR-014** cuando `svc-shipments`/`pricing-logistics` la
-  adopten de verdad.
-
-Verificado: `npx expo config --type public` resuelve `app.config.js` correctamente
-(carga `.env.local`, plugins y campos nativos intactos) — no se corrió un build real
-de EAS (`eas init` sigue pendiente, ver notas de MOVO-73 más arriba).
-
-### MOVO-73 (fix) — Reanudación del onboarding y retry de KYC atascado en `pending`
-
-Tres bugs encadenados encontrados probando el flujo real fuera del camino feliz (el SDK
-de Didit falla por falta de conexión en local, que es el caso más común en dev). Los tres
-dejaban al usuario en un punto sin salida.
-
-**1. El wizard se rehacía entero al volver al inicio.** `RegistrationProvider` vive en
-`app/_layout.tsx`, así que el estado (`userId`/`accessToken`/`kycStatus`) sobrevivía a
-volver a `/`, y el resume por `secureStore` + `getKycStatus` ya existía (AC7) — pero
-**nadie consumía `hasPendingRegistration` para navegar**, y el `step` del wizard es estado
-local de `RegisterScreen`, que se remonta en `0`. Se agregó el redirect en `app/index.tsx`.
-
-**2. Un `phoneVerificationToken` ya consumido saltaba el paso de OTP.** Como el contexto
-no se limpiaba tras un registro exitoso, `goNext` (paso de mapa) veía el token todavía
-presente, saltaba el OTP, y el `register()` siguiente fallaba con `AUTH_OTP_INVALID` — un
-mensaje que habla de "el código ingresado" cuando nunca se pidió ningún código. Corregido
-limpiando `otpId`/`phoneVerificationToken`/`verifiedPhone` en `submitRegistration()`
-apenas responde el backend.
-
-**3. `pending` era un pozo sin fondo (el bug de fondo).** Dos causas superpuestas:
-- `kyc.tsx#kycStatusToResultKind` mapeaba `KycStatus.PENDING` a la pantalla de
-  `manual_review` ("en revisión"), que no es reintentable, y `KycStatus.MANUAL_REVIEW` no
-  estaba mapeado (caía a `null`). `pending` no es "en revisión humana": `createSession` lo
-  setea apenas se pide la sesión, **antes** de que el cliente llegue a la UI de Didit.
-- `ALLOWED_SESSION_SOURCE_STATUSES` (`kyc.service.ts`) rechazaba con 409 cualquier sesión
-  nueva desde `pending`. La regla asumía que un intento `pending` siempre se resuelve por
-  webhook — falso cuando el SDK nunca llegó a Didit: no hay nada que reportar, el webhook
-  no llega nunca, y el usuario queda trabado para siempre.
-
-Decisiones clave del arreglo de (3):
-
-- **Se revierte la política "un intento en curso no se reintenta ni devuelve, se rechaza
-  (409)"** de MOVO-72. `ALLOWED_SESSION_SOURCE_STATUSES` pasa a ser todo menos `approved`
-  (suma `pending` y `expired`). A cambio, `createSession` marca los intentos `pending`
-  previos del usuario como `expired` dentro de la misma `db.$transaction`, antes de abrir
-  el nuevo (`expirePendingByUserId`). **Trade-off aceptado, decidido con el equipo**: si el
-  usuario completó la verificación hace segundos y el webhook viene en camino, ese
-  resultado se descarta y tiene que rehacer el KYC. Se evaluó una ventana de gracia por
-  antigüedad del intento y se descartó — deja al usuario esperando, que es exactamente la
-  fricción que motivó el ticket.
-- **El supersede a `expired` cierra de paso un bug latente preexistente**: como
-  `resolveByExternalSessionId` solo aplica una transición si la fila sigue en `pending`, un
-  webhook tardío de una sesión abandonada ya no matchea y se ignora solo — antes podía
-  resolver esa fila **y pisar `users.kyc_status_identity`** con el resultado de un intento
-  que el usuario había abandonado, aunque hubiera una sesión más nueva en curso. No hizo
-  falta código extra: el gate de idempotencia de AC7 hace el trabajo.
-- **`create()` del repositorio pasa a ser `upsertPendingSession()`** (upsert por
-  `externalSessionId`, revive la fila dejándola en `pending` y limpiando
-  `resolvedAt`/`rawDecision`). No es cosmético: el spike MOVO-48 documenta que Didit hace
-  dedupe implícito por `vendor_data` y puede **devolver la misma sesión** ante un
-  reintento — con el insert plano anterior eso reventaba contra la constraint única de la
-  columna. `expirePendingByUserId` recibe un `exceptExternalSessionId` por el mismo
-  motivo (no matar el intento que estamos por revivir).
-- **`Expired`/`Abandoned`/`Kyc Expired` ahora mapean a `KycStatus.EXPIRED`**
-  (`didit-client.ts`), resolviendo el pendiente que MOVO-72 había dejado abierto. `expired`
-  **tiene que estar** en `ALLOWED_SESSION_SOURCE_STATUSES`: mapearlos a un estado sin
-  salida habría creado un segundo pozo en vez de resolver el primero. Sigue sin validarse
-  contra el sandbox real (no hay forma de generar esos escenarios desde "Probar Webhook");
-  el peor caso de un mapeo equivocado es que un usuario tenga que reintentar.
-- **Mobile**: `in_progress` (el `pending` real) pasa a `RETRYABLE` con "Reintentar
-  verificación" como acción primaria y "Ya la completé — actualizar estado"
-  (`refreshKycStatus`) como link secundario — el caso donde el resultado *sí* puede estar
-  en camino existe, pero es el menos común. `KYC_SESSION_NOT_ALLOWED` sumado a
-  `error-messages.ts`: tras el cambio el único caso que lo dispara es una identidad ya
-  verificada, así que el mensaje lo dice en vez de un "intentá de nuevo" engañoso.
-- **El auto-redirect de `app/index.tsx` se limita a `NOT_STARTED`**, no a
-  `hasPendingRegistration` en general: con cualquier otro estado, redirigir siempre
-  convierte el botón "Ir al inicio" de `kyc.tsx` en un loop sin salida (vuelve al inicio,
-  el inicio lo manda de vuelta). Para esos casos la bienvenida muestra una CTA explícita
-  "Continuar verificación" en lugar de "Soy nuevo".
-
-Tests: 199/199 en `svc-users` (subieron de 192), 30/30 en `movo-mobile`. Se reemplazó el
-test que fijaba el 409 desde `pending` por uno de supersede, y se sumaron: dedupe de Didit
-(misma sesión devuelta), webhook tardío de sesión descartada que no pisa el intento nuevo,
-y los tres estados de abandono. Verificado además contra el `svc-users` real corriendo en
-Docker, reproduciendo el estado exacto del bug (usuario en `pending` con sesión huérfana):
-`POST /kyc/session` devuelve 201, la sesión vieja queda `expired` con `resolved_at`, la
-nueva `pending`, y queda un solo intento vivo.
-
-Pendiente / fuera de alcance: limpieza automática de filas `pending` viejas por antigüedad
-(cron/TTL) — con el supersede en `createSession` no hace falta para destrabar al usuario.
-
-### MOVO-73 (revisión PR #52) — Reconciliación con Didit antes de descartar un intento `pending`
-
-Dos hallazgos de la revisión de JcBordino4 sobre la entrada anterior. **El primero supera
-el trade-off que esa entrada daba por aceptado** ("si el usuario completó la verificación
-hace segundos y el webhook viene en camino, ese resultado se descarta").
-
-**1. La decisión real de Didit se perdía en silencio al reintentar.** `createSession`
-descarta los intentos `pending` previos como `expired`, y `resolveByExternalSessionId`
-solo transiciona si la fila sigue en `pending` — así que un webhook que llegaba después
-del descarte dejaba de matchear y se ignoraba. Un `approved` recién emitido se perdía y el
-usuario tenía que rehacer el KYC de cero. No era un caso remoto: la UI ofrece "Reintentar
-verificación" **justo** en ese estado, así que la ventana estaba expuesta como acción
-primaria.
-
-- **`DiditClient.getSessionDecision(sessionId)`** nuevo (`GET /v3/session/{id}/decision/`,
-  la contraparte *pull* del webhook): `http-didit-client.ts` lo implementa —404 devuelve
-  `null` en vez de tirar, y un cuerpo sin `status` también, para no inventar una
-  transición a partir de algo que no entendemos—; `mock-didit-client.ts` devuelve `null`
-  siempre (una sesión sintética nunca llegó a Didit, así que dev/CI se comportan igual que
-  antes). Los fallos reales (red, 5xx, credenciales) siguen tirando `ApiError` 502: la
-  política de qué hacer con el proveedor caído es del servicio, no del adapter.
-- **`kyc.service.ts#reconcilePendingAttempt`**: antes de evaluar
-  `ALLOWED_SESSION_SOURCE_STATUSES`, si el usuario está en `pending` se le pregunta a
-  Didit por la decisión de esa sesión; si ya es terminal, se aplica y el estado efectivo
-  resultante es el que decide si se puede abrir una sesión nueva. Un `approved`
-  reconciliado ahora responde 409 "ya está verificado" en vez de perder el resultado; un
-  `rejected`/`manual_review` queda persistido con su `raw_decision` real y **igual** deja
-  reintentar en la misma llamada.
-- **`applyTerminalDecision` es ahora el único camino de escritura de una decisión**, lo use
-  el webhook (*push*) o la reconciliación (*pull*) — el handler del webhook se refactorizó
-  para llamarlo. Así las dos rutas comparten el mismo gate de idempotencia de AC7 y no
-  pueden divergir. Si el webhook gana la carrera, la reconciliación ve `null` y relee el
-  usuario en vez de seguir con un estado viejo.
-- **Redacción de AC9 también en la vía pull** (`buildRedactedPulledDecision`): el endpoint
-  de decisión trae el detalle por feature en el nivel superior (no anidado bajo `decision`
-  como el webhook) y sin `vendor_data` — misma whitelist explícita, con un test que
-  verifica que la PII del cuerpo crudo no sobrevive.
-- **Ante Didit caído se sigue de largo con el descarte**, no se bloquea el reintento:
-  falla hacia la fricción (rehacer el KYC) y nunca hacia dejar a alguien sin salida, que
-  es el pozo que este flujo vino a resolver. Queda logueado como
-  `event: "kyc_reconcile_failed"`.
-
-**2. El switch sobre `result.session.status` en `kyc.tsx` no tenía rama `default`.** A
-nivel de tipos es exhaustivo (`VerificationStatus` son 3 valores), así que TS no lo
-marcaba; el agujero es en runtime, porque el valor viene del módulo nativo, donde el
-bridge lo declara `status?: string`, y la API de Didit maneja 10 estados crudos
-(`DiditRawStatus`). Sin `default`, `resultKind` quedaba en `null` y la pantalla caía a la
-intro — invitando a empezar una verificación que en realidad ya se había hecho. Se agregó
-`default: setResultKind('unknown')` y, como segunda barrera, el bloque de render pasa de
-`phase === 'result' && resultKind` a `phase === 'result'` con `resultKind ?? 'unknown'`,
-que cubre cualquier camino futuro que setee la fase sin setear el resultado.
-
-**3. `register()` quemaba el `phoneVerificationToken` ante cualquier falla que no fuera
-un conflicto de datos.** El token es single-use y se consume ANTES de crear el usuario,
-pero el `catch` solo lo liberaba (`releasePhoneVerificationToken`, agregado en PR #51)
-para `UserConflictError` — un error de DB, o de la escritura nueva de `address`, dejaba
-el token gastado y el reintento fallaba con `401 AUTH_OTP_INVALID`, obligando a rehacer
-todo el paso de OTP por algo ajeno al teléfono. Ahora se libera ante cualquier causa de
-falla de `create()`: es seguro porque ese `create()` es un nested write de Prisma,
-atómico (usuario + roles + dirección), así que si tiró no quedó ninguna cuenta a medias.
-La liberación va con `catch` propio para no enmascarar el error original si Redis no
-responde. Test nuevo `test/auth.register-token-release.test.ts` — unitario y no de
-integración a propósito, porque la causa de falla que importa es justamente la que no se
-puede provocar contra una DB sana.
-
-Tests: 210/210 en `svc-users` (subieron de 199: 4 de integración sobre la reconciliación —
-decisión aprobada preservada, rechazada aplicada + reintento, proveedor caído, estado no
-terminal—, 4 del adapter HTTP y 3 de la liberación del token), 31/31 en `movo-mobile`. `tsc --noEmit` y `eslint` sin
-errores en ambos.
-
-Pendiente / fuera de alcance: `getSessionDecision` no está validado contra el sandbox real
-todavía (el endpoint sí está documentado en el skill de Didit versionado en el repo, pero
-la corrida end-to-end de MOVO-72 solo ejercitó `createSession` y el webhook).
-
-### MOVO-76 — Pantalla de login, secure storage de tokens, refresh automático y guard de navegación (`movo-mobile`)
-
-Implementado: `app/(auth)/login.tsx` (pantalla real, antes placeholder), interceptor de
-sesión en `src/api/http-client.ts` (adjunta `Authorization` automáticamente, refresh
-single-flight ante `401 AUTH_TOKEN_EXPIRED`, reintento único), `src/store/auth-store.ts`
-(Zustand: `restoreSession`/`setSession`/`clearSession`/`logout`, persistidos en
-`expo-secure-store` vía `src/lib/secure-store.ts`), `src/hooks/use-auth.ts` (wrapper para
-componentes), `app/(app)/_layout.tsx` (guard único de rutas autenticadas) +
-`app/(app)/home.tsx` (home placeholder, primera pantalla real post-login — perfil real es
-MOVO-78).
-
-Decisiones clave:
-- **Single-flight de refresh (AC5)**: `refreshPromise` como variable de módulo en
-  `http-client.ts`, no en el store — JS single-threaded garantiza que el primer 401 en
-  crearla lo hace antes de cualquier `await` posterior, así que cualquier otro request
-  que llegue al mismo punto la reusa en vez de disparar un segundo refresh.
-- **El interceptor nunca reintenta si el 401 viene de un `Authorization` explícito del
-  caller** (`options.headers.Authorization`, usado por `createKycSession`/`getKycStatus`
-  del onboarding de MOVO-73 y por `authClient.logout`) — un 401 ahí no dice nada de la
-  sesión real, y sin este chequeo el token efímero del wizard (que nunca se refresca,
-  MOVO-73) dispararía un refresh de la sesión real en cada boot, compitiendo por el mismo
-  refresh token con el proactivo de `restoreSession()` y disparando la detección de reuso
-  de MOVO-75 (revoca todas las sesiones).
-- **Refresh token opaco compuesto**: sin cambios de contrato acá — ya lo resolvió MOVO-75
-  del lado del backend (`"{userId}.{tokenId}.{secret}"`); el mobile solo lo persiste y
-  reenvía tal cual.
-- **Gap real encontrado y corregido en esta misma US, no en una posterior**: la primera
-  versión dejaba `restoreSession()` (AC7) actualizando correctamente el *estado* del
-  store a `authenticated` (incluido el refresh silencioso si el token había vencido),
-  pero **nada navegaba** al usuario a la zona autenticada — `app/index.tsx` (bienvenida)
-  no leía `useAuthStore` en absoluto, así que un usuario que reabría la app con sesión
-  válida seguía viendo la pantalla de marketing como si nunca se hubiera registrado.
-  Corregido con un efecto en `app/index.tsx`: sesión autenticada + `kycStatus ===
-  approved` → `/home`; cualquier otro estado → hidrata `RegistrationContext`
-  (`hydrateFromLogin`, ya existía desde MOVO-73/72) y manda a `/kyc` — mismo criterio que
-  ya usaba `login.tsx#handleLogin` para la rama de login manual.
-- **Ese fix introdujo un loop real, corregido en el mismo cambio**: con `app/index.tsx`
-  redirigiendo cualquier sesión autenticada no-aprobada a `/kyc`, el botón "Ir al inicio"
-  de `kyc.tsx` (que antes siempre volvía a `/`, pensado para el wizard de registro sin
-  sesión real) rebotaba de inmediato de vuelta a `/kyc` para un usuario ya logueado —
-  quedaba imposible salir de esa pantalla. `kyc.tsx#goHome()` ahora chequea
-  `useAuthStore` y va a `/home` si hay sesión autenticada real (cualquier `kycStatus`,
-  el guard de `(app)/_layout.tsx` no filtra por eso) o a `/` si no la hay (caso wizard,
-  sin cambios de comportamiento ahí). Esto además es lo que hace *alcanzable* el AC11: el
-  banner de estado de KYC en `app/(app)/home.tsx#KYC_BANNER_TEXT` ya existía pero era
-  código muerto sin este cambio — ningún camino llegaba a `/home` con un usuario no
-  aprobado.
-- **AC1 (login con email/teléfono)**: solo teléfono — `POST /auth/login` (MOVO-74) nunca
-  aceptó email, decisión ya tomada en ese ticket, no en este.
-- **AC6/AC10 (limpiar sesión y redirigir a login)**: no hay una llamada explícita a
-  `router.replace('/login')` en ninguno de los dos casos — el guard de
-  `(app)/_layout.tsx` reacciona solo al cambio de `status` en el store (Zustand
-  re-renderiza a cualquier suscriptor), así que basta con `clearSession()` para que
-  cualquier pantalla dentro de `(app)/` sea redirigida.
-- Tests nuevos: `test/auth-store.test.tsx`, `test/app-guard.test.tsx`, casos agregados a
-  `test/http-client.test.tsx` (single-flight, no-retry en `/auth/refresh`, no-retry con
-  `Authorization` explícito), `test/App.test.tsx` (redirect de sesión restaurada a
-  `/home`/`/kyc`) y `test/kyc.test.tsx` (`goHome` a `/home` vs `/` según sesión). 50/50 en
-  `movo-mobile`. `tsc --noEmit` sin errores.
-
-Pendiente / fuera de alcance de MOVO-76: `app/(app)/home.tsx` es un placeholder (perfil
-real es MOVO-78); no hay acción en `/home` para volver a `/kyc` y reintentar la
-verificación desde ahí (el único camino de retry sigue siendo dentro de `/kyc` mismo);
-DoD manual (TTL de 1 minuto en dev, cierre/reapertura de la app con sesión activa) —
-pendiente de correr contra el backend real, no verificado en esta sesión.
-
-### MOVO-78 — Pantalla de perfil propio con estado de KYC, insignias y logout (`movo-mobile`)
-
-Implementado: tab bar de 3 pestañas (`app/(app)/(tabs)/_layout.tsx`: Inicio/Transportar/
-Ajustes), pantalla real de perfil (`app/(app)/(tabs)/profile.tsx`) compuesta a partir de
-piezas en `components/profile/` (`profile-avatar`, `profile-badges`,
-`profile-verified-badge`, `profile-kyc-status-banner`, `profile-stats-row`,
-`profile-private-section`, `profile-settings-section`, `profile-logout-button`,
-`profile-skeleton`, `profile-error-state`), `src/hooks/use-profile.ts` (`GET /users/me`
-sobre TanStack Query), `src/api/users-client.ts`, `src/lib/profile-format.ts` (AC10) y
-`src/lib/kyc-status-ui.ts` (tono/ícono/label por `KycStatus`).
-
-Decisiones clave:
-- **Tipos de wire contract migrados de `movo-svc-users` a `@movo/shared`**:
-  `ProfileBadge`/`TransactionCounts`/`PrivateProfile`/`PublicProfile` (definidos en
-  MOVO-77 dentro de `services/movo-svc-users/src/models/user-profile.ts`) pasan a
-  `shared/movo-shared/src/types/user-profile.ts` — el mobile los necesitaba sin
-  duplicarlos, mismo criterio que ya usa el resto del proyecto para wire contracts
-  (`UserRole`/`KycStatus`/`AccountStatus`). `models/user-profile.ts` del backend
-  re-exporta los tipos desde `@movo/shared` para no romper `users.service.ts`, y sigue
-  siendo el único lugar con las funciones de mapeo `User → PrivateProfile/PublicProfile`.
-  Import por subpath (`@movo/shared/dist/types/user-profile`), mismo motivo que el resto
-  del mobile (el barrel raíz arrastra `jsonwebtoken`/`node:crypto`, rompe Metro).
-- **AC10 ("el criterio que rompe la demo")**: `profile-format.ts` centraliza el
-  formateo de contadores/score con un guard `isMissing` explícito (`null`/`undefined`/
-  `NaN` → "Sin envíos aún"/"Sin viajes aún"/"Sin calificaciones"), nunca un `?? 0` ciego
-  (que dejaría pasar `NaN` tal cual, ya que `NaN ?? 0` es `NaN`). Test dedicado
-  (`test/profile-format.test.ts` + caso en `test/profile.test.tsx`) verifica que ni
-  `"0"` ni `"null"` ni `"NaN"` aparecen renderizados con el perfil en su estado real de
-  este sprint (todo en cero).
-- **AC3 (distinción pública/privada) resuelto con un componente que a propósito NO es
-  compatible con `PublicProfile`**: `ProfilePrivateSection` (header "Tus datos
-  personales" + ícono de candado) solo acepta `email`/`phone`, campos que no existen en
-  `PublicProfile` — la separación de tipos de MOVO-77 (AC3 de ese ticket) se refleja acá
-  como la separación de qué componente puede recibir qué dato, no con un flag visual
-  sobre un componente genérico.
-- **`kyc-status-ui.ts` factoriza tono/ícono/label por `KycStatus`**, reusado en el
-  banner del perfil, el badge (`ProfileVerifiedBadge`) y el resultado de `kyc.tsx`
-  (`app/(auth)/kyc.tsx`, que antes tenía su propio mapeo duplicado) — las 3 instancias
-  donde se muestra estado de KYC en la app quedan consistentes por construcción en vez
-  de tres mapeos que podían divergir. `app/(app)/home.tsx` (MOVO-76) también migrado a
-  este helper.
-- **AC6**: `ProfileKycStatusBanner` oculta el banner en `approved` (no hace falta alerta
-  cuando todo está bien) y ofrece "Ver estado" (solo `manual_review`, no hay nada que
-  reintentar con una revisión ya en curso) o "Reintentar verificación" (resto de los
-  estados no aprobados), navegando a `/kyc` en ambos casos.
-- **Reusabilidad para perfil público (guía del ticket, MOVO-17 todavía no existe)**:
-  `ProfileAvatar`/`ProfileStatsRow`/`ProfileBadges` documentan explícitamente en
-  comentario que sus props son compatibles con `PublicProfile` (mismos campos en ambas
-  proyecciones) — pensados para que la futura pantalla de perfil de otro usuario los
-  reuse sin reescritura, sin construir esa pantalla en este ticket.
-- **Restructuración de rutas del área autenticada**: `app/(app)/home.tsx` (MOVO-76) se
-  mueve a `app/(app)/(tabs)/home.tsx`, sumando `(tabs)/transport.tsx` (placeholder, sin
-  ticket propio — épica de transporte todavía no arrancó) y `(tabs)/profile.tsx`, todos
-  bajo el navigator de tabs nuevo. El archivo se sigue llamando `home.tsx` y no
-  `index.tsx` a propósito: un `index.tsx` ahí resolvería a la ruta `/` (los grupos
-  `(app)`/`(tabs)` no aportan al path) y colisionaría con `app/index.tsx` (bienvenida
-  pública) — con `home.tsx` el path externo sigue siendo `/home`, sin tocar los
-  `router.replace('/home')` existentes de MOVO-73/76.
-- **Tab bar flotante "glassy"** (`components/tab-bar/floating-tab-bar.tsx`, vía
-  `expo-blur`): reescrita tras feedback de que se veía mal en dispositivo real —
-  `blurMethod` default de `expo-blur` en Android no hace blur de verdad (superficie
-  semitransparente lisa); se activa el método experimental `dimezisBlurView` (librería
-  nativa de Dimezis) para blur real en Android, y en iOS se usan los materiales de
-  sistema (`systemUltraThinMaterial*`) en vez de `tint` genérico. Dependencias nuevas:
-  `expo-blur`, `expo-linear-gradient` (bordes tipo "specular reflection" en
-  `ProfileStatsRow`, RN no tiene border-gradient nativo).
-- **`jest.config.js` necesitó un resolver custom** (`react-native-worklets/jest/resolver.js`)
-  + `setupFiles` (`test/mocks/reanimated-setup.js`) para poder testear componentes que
-  tocan `react-native-reanimated`/`react-native-worklets` (ya eran dependencias del
-  proyecto, no nuevas de este ticket) — sin esto, Jest resuelve el módulo nativo real de
-  worklets (inexistente en test) en vez del stub, y falla incluso con el mock estándar
-  de reanimated puesto.
-- **`ProfileSettingsSection`** (6 ítems tipo "Cuenta y seguridad", "Notificaciones", etc.)
-  no estaba en los ACs — se agregó como fidelidad al Manual de Marca (AC9) para que la
-  pantalla no se vea vacía debajo del contenido real; todos los ítems están
-  deshabilitados visualmente y muestran `Alert.alert("Próximamente", ...)` al tocarlos,
-  ninguna de esas 6 pantallas existe todavía.
-
-Tests: 93/93 en `movo-mobile` (11 suites, incluye `profile.test.tsx`,
-`profile-format.test.ts`, `kyc-status-ui.test.ts`, `floating-tab-bar.test.tsx` nuevos).
-`tsc --noEmit` sin errores en `movo-mobile`, `movo-svc-users` (tras la migración de
-tipos) y build de `@movo/shared`. No se corrió la suite de integración de
-`movo-svc-users` en esta sesión (Docker no estaba levantado) — el cambio ahí es sólo
-re-exportar tipos ya existentes, sin tocar lógica de `users.service.ts`.
-
-Pendiente / fuera de alcance de MOVO-78: pantalla de perfil público de otro usuario
-(MOVO-17, explícitamente fuera de este ticket); tab "Transportar" es placeholder sin
-funcionalidad (épica futura); las 6 pantallas de `ProfileSettingsSection` no existen.
-Screenshot/video del flujo y casos de prueba manuales (DoD adicional) gestionados por
-el usuario fuera de este repo.
-
-### MOVO-105 — Máquina de estados del ciclo de vida del envío (`svc-shipments`)
-
-Sub-issue de MOVO-79 (la otra mitad, MOVO-104/schema y migraciones, todavía en `Todo` —
-el único punto de contacto entre ambas es el enum de `status`, ya cerrado acá).
-Implementado `src/domain/shipment-state-machine.ts`: grafo explícito de
-transiciones válidas sobre los 9 estados canónicos de `ShipmentStatus`
-(`@movo/shared`), `canTransition()`/`transition()` (única vía de escritura de estado —
-lanza `InvalidShipmentTransitionError` ante una transición no listada) e
-`INITIAL_SHIPMENT_STATUS`. No depende de que la migración de MOVO-104 esté aplicada
-(el módulo es dominio puro, sin DB) — consistente con la guía del ticket.
-
-Decisiones clave:
-- **`ShipmentStatus` (`shared/movo-shared/src/types/shipment.ts`) reemplazado por
-  completo**: los 5 valores provisorios de MOVO-67
-  (`created`/`matched`/`in_transit`/`delivered`/`cancelled`) no se usaban todavía en
-  ningún lado del código (verificado con grep antes del cambio — solo aparecían en el
-  propio archivo, el barrel de `index.ts` y el README), así que no hubo que migrar
-  ningún caller. Pasa a ser el set canónico de 9 estados de MOVO-79 (criterio 6):
-  `awaiting_receiver_confirmation`, `rejected_by_receiver`, `published`,
-  `assignment_pending`, `assigned`, `in_transit`, `delivered`, `cancelled`, `disputed`.
-- **El DTE se modeló primero fuera del código** (AC4): diagrama en Drive
-  (`Maquina de estados Shipment.jpg`/`.pdf`, adjuntado al issue de Linear) transcripto
-  después 1:1 a Mermaid en `docs/shipments/state-diagram.md` (mismo criterio que
-  `docs/kyc/state-diagram.md` de MOVO-72: versionado junto al código, se actualiza en
-  el mismo PR si el código cambia). El código es la única fuente de verdad ejecutable;
-  el diagrama documenta el mismo grafo para la cátedra.
-- **13 transiciones válidas, tal como las definió el diagrama** — en particular,
-  "emisor cancela" aparece en **cuatro** estados de origen distintos, no solo antes de
-  `assigned` como sugeriría a primera lectura el AC de MOVO-29 ("cancelar antes de que
-  sea asignado ... sin penalización"): `awaiting_receiver_confirmation`, `published` y
-  `assignment_pending` cancelan sin penalización (consistente con MOVO-29), pero el
-  diagrama agrega una cuarta arista `assigned -> cancelled` ("con penalización") que
-  MOVO-29 no cubre — todavía no hay ticket que implemente esa penalización, la arista
-  queda modelada a nivel de dominio a la espera de esa US futura. A partir de
-  `in_transit` ya no hay cancelación, solo `disputed` (reclamo).
-- **`disputed` queda sin transición de salida en este módulo, a propósito** (no es
-  necesariamente terminal en el negocio, pero no hay ticket que defina a qué estado
-  vuelve una disputa resuelta — MOVO-30 abre la disputa, la resolución es de un admin,
-  MOVO-32, sprint posterior). Modelar una transición de salida inventada habría
-  adelantado una decisión de producto que el equipo no tomó todavía.
-- Error de dominio (`InvalidShipmentTransitionError`, con `from`/`to` tipados) en vez de
-  `ApiError` directo — mismo patrón que `InvalidEnumValueError`/`UserConflictError` de
-  `svc-users`/`models/user.ts`: este módulo es dominio puro, la traducción a
-  `ApiError`/código HTTP es responsabilidad de la capa que lo consuma (MOVO-80/81/82,
-  todavía no implementadas — AC2 de este ticket se termina de verificar recién ahí).
-- `vitest.config.ts` del servicio: se sumó `src/domain/**/*.ts` al `include` de
-  cobertura (antes solo medía `src/modules/**/*.service.ts`/`*.repository.ts`, dejando
-  afuera este módulo nuevo).
-
-Tests: `test/shipment-state-machine.test.ts` — las 13 transiciones válidas del DTE +
-8 inválidas representativas (saltear estados, cancelar después de `in_transit`, salir
-de un estado terminal, revertir una transición válida, no-op al mismo estado), más un
-test que verifica que todo estado no terminal tiene salida definida en el propio
-diagrama de test (evita que una transición nueva en el código quede sin reflejarse en
-la lista de válidas del test). 24/24 en verde, 100% de statements/branches en
-`shipment-state-machine.ts`. `tsc --noEmit`/`eslint` sin errores en `svc-shipments` y
-en `@movo/shared`.
-
-Pendiente / fuera de alcance de MOVO-105: AC2 (ningún repositorio permite un `UPDATE`
-directo de `status`) se termina de verificar cuando MOVO-80/81/82 consuman este módulo
-— hoy no hay ningún repositorio real de `shipments` todavía (`shipments.repository.ts`
-sigue siendo un stub). Penalización de la cancelación post-`assigned` (solo modelada
-como arista válida, sin lógica de negocio de cuál es la penalización ni quién la
-cobra) y transición de salida de `disputed` — ambas, tickets futuros sin abrir
-todavía.
-
-**Actualización (MOVO-104)**: el `shipment-repository.ts` real ya existe y consume este
-módulo — AC2 queda verificado de punta a punta (ver entrada de MOVO-104 abajo), no solo
-a nivel de dominio puro.
-
-### MOVO-104 — Schema y migraciones de `shipments` (`svc-shipments`)
-
-La otra mitad de MOVO-79 (MOVO-105, arriba, ya mergeada en la misma rama). Le da a
-`movo-svc-shipments` su primer dominio real: hasta acá el servicio era un placeholder
-puro (`migrations/0001_init.sql` = `SELECT 1`, `app.db` era un `pg.Pool` crudo,
-`shipments.repository.ts` un stub vacío).
-
-Por ADR-011 ("Prisma... los demás [servicios] lo adoptan al tener dominio real"), y
-siendo este el momento exacto en que `svc-shipments` pasa a tener dominio real, se
-adoptó Prisma acá replicando el patrón de `movo-svc-users` (MOVO-93) — `prisma/
-schema.prisma`, `prisma.config.ts`, `prisma/migrations/`, `src/plugins/db.ts` con
-`PrismaPg` — en vez de sumar otro servicio más al `run-migrations.sh`/SQL a mano.
-
-Implementado: `prisma/schema.prisma` (modelos `Shipment`/`ShipmentEvent`/
-`ShipmentPhoto`, enums `PackageType`/`ShipmentStatus`/`PhotoStage`), migración inicial
-`20260813200345_create_shipments_schema`, `src/plugins/db.ts` (reescrito, mismos
-timeouts que `svc-users`), `src/models/shipment.ts`, `src/repositories/
-shipment-repository.ts`.
-
-Decisiones clave:
-- **Superset de columnas acordado con el usuario, más allá del AC2 literal**: además
-  de los campos que lista el AC2, se agregaron `carrier_id`/`urgent`/
-  `agreed_price_ars`/`payment_method`/`delivered_at`/`last_status_changed_at` — ya
-  estaban diseñados en `docs/movo_der.dbml` (`shipments.shipment` original) pero no en
-  el AC de este ticket. Decisión explícita: mejor migrar una vez con el superset ahora
-  que migrar de nuevo pronto cuando lleguen las US de asignación (EP-03) y pagos
-  (EP-05). `payment_method` queda como `text` libre (el DER ya lo marcaba "enum sin
-  valores definidos, pendiente" — no se inventaron valores que nadie definió).
-- **`package_type_enum` con 3 valores** (`letter_document`/`standard_package`/
-  `fragile_item`) — el AC original de MOVO-104 pedía 5 (sumaba `everyday_item`/
-  `urgent_item`), pero quedó desactualizado: la decisión final del equipo (revisión de
-  PR #64, Pedro Yorlano) fue mantener los mismos 3 conceptos que ya tenía
-  `docs/movo_der.dbml` desde la conversión original del Miro (DOCUMENTO/ESTANDAR/
-  OBJETO_FRAGIL), solo en inglés.
-- **`status` mapea 1:1 con `ShipmentStatus` de `@movo/shared`** (`shipment_status_enum`
-  de Postgres) — cierra el "enum sin valores definidos, pendiente" que tenía el DER
-  desde el Miro original en `shipment`/`offer`/`shipment_status_history`.
-- **`shipment-repository.ts#updateStatus()` es la única vía de escritura de `status`**:
-  relee el estado actual, llama `transition(from, to)` de
-  `../domain/shipment-state-machine` (MOVO-105) — lanza `InvalidShipmentTransitionError`
-  antes de tocar la fila si la transición no es válida — y recién ahí, en un
-  `$transaction`, hace el `UPDATE` (+`delivered_at` si `to === DELIVERED`) e inserta el
-  evento correspondiente en `shipment_events`. Ningún otro método del repositorio toca
-  `status`. Esto es lo que deja el AC2 de MOVO-105 verificado de punta a punta, no solo
-  a nivel de dominio puro.
-- **Limitación conocida (TOCTOU) en `updateStatus()`, encontrada en la revisión de PR
-  #64 (Pedro Yorlano)**: el `findUnique` que relee el estado corre fuera de la
-  `$transaction` del `UPDATE` — sin lock atómico, dos transiciones casi simultáneas del
-  mismo envío pueden leer el mismo `status` viejo y la segunda pisa a la primera sin
-  revalidar. Mismo tipo de gap ya aceptado en MOVO-75 (rotación de refresh tokens) y
-  MOVO-115 (`confirmPhoto()`/`deletePhoto()` de `svc-users`) — no bloqueante para este
-  sprint (sin asignación automática ni alta concurrencia todavía). El arreglo requiere
-  `SELECT ... FOR UPDATE` dentro de la transacción (con Prisma 7 + driver adapter, vía
-  `$queryRaw`, la API tipada no lo expone). Ticket de seguimiento: **MOVO-118**.
-- **`create()` inserta la fila + el primer `shipment_events`** (`from_status: null`,
-  `to_status: INITIAL_SHIPMENT_STATUS`) en la misma transacción — el historial de
-  transiciones queda completo desde el alta, no solo desde el primer cambio real.
-- **`PackageType`/`PhotoStage` se reexportan directo del cliente Prisma generado**, sin
-  duplicarlos en `@movo/shared` — a diferencia de `ShipmentStatus` (que ya vive ahí por
-  MOVO-105), estos dos todavía no tienen ningún consumidor cross-servicio. Mismo
-  criterio incremental que `UserRole`/`KycStatus` en `svc-users` antes de que el mobile
-  los necesitara (MOVO-78).
-- **`InvalidEnumValueError`/`parseShipmentStatus`** en `models/shipment.ts`: mismo
-  patrón defensivo que `parseKycStatus` en `svc-users` — protege contra que un valor
-  presente en el enum de Postgres pero ausente de `@movo/shared` (drift de schema)
-  llegue silenciosamente al dominio.
-- **Hallazgo de infraestructura, no documentado así en la guía de Prisma**: en este
-  proyecto, un solo Postgres aloja todos los schemas (ADR-003), y la tabla de historial
-  de Prisma Migrate (`_prisma_migrations`) vive siempre en el schema `public` —
-  **compartida entre todos los servicios que usan Prisma sobre la misma instancia**, sin
-  importar el `schemas` del datasource de cada uno. Con solo `movo-svc-users` en Prisma
-  esto no se notaba; al sumar `movo-svc-shipments` como segundo consumidor,
-  `prisma migrate dev` (que sí es estricto: espera ver *sus propias* migraciones y
-  ninguna más en esa tabla) rompe apenas detecta las filas de `svc-users` ahí, ofreciendo
-  un `migrate reset` que advierte "se pierden todos los datos" pese a que sólo hace falta
-  tocar el schema `shipments`. **Se generó el `migration.sql` inicial con
-  `prisma migrate diff --from-empty --to-schema prisma/schema.prisma --script`** (no
-  toca la DB ni su historial) y se aplicó con `prisma migrate deploy`, que sí tolera
-  filas de otros servicios en `_prisma_migrations` — confirmado migrando en limpio,
-  reaplicando (no-op) y haciendo rollback manual (`DROP SCHEMA shipments CASCADE` + borrar
-  la fila del ledger) seguido de reaplicar. **Cualquier migración nueva de
-  `movo-svc-shipments` de acá en adelante tiene que generarse igual** (`migrate diff` +
-  editar a mano, nunca `migrate dev` contra el Postgres compartido de dev) hasta que el
-  equipo decida separar instancias o el problema deje de importar.
-- **CI** (`pr-checks.yml`/`ci-dev.yml`/`ci-prod.yml`): `movo-svc-shipments` se sumó a la
-  condición del step "Run migrations (Prisma)" (antes solo `movo-svc-users`) y se sacó
-  del step "Run migrations (SQL)". En `ci-dev.yml`/`ci-prod.yml` se sacó
-  `services/movo-svc-shipments/migrations` del `scp` (ya no existe, era el placeholder)
-  y del loop de `run-migrations.sh` en la EC2, sumando `docker compose pull
-  movo-svc-shipments && docker compose run --rm -T movo-svc-shipments npx prisma
-  migrate deploy` junto al de `movo-svc-users` — mismo patrón, sin tocar la lógica de
-  percent-encoding de `DATABASE_URL` (ya cubre a cualquier servicio con Prisma).
-- **`docs/movo_der.dbml` actualizado**: `shipments.shipment` (singular, del Miro
-  original) pasa a `shipments.shipments` (plural, igual que `users.user` ->
-  `users.users` en su momento) con las columnas reales implementadas.
-  `shipments.package_photo` y `shipments.shipment_status_history` se reemplazan por
-  `shipments.shipment_photos`/`shipments.shipment_events` (mismos conceptos, ya
-  implementados, con sus enums resueltos en vez de "pendiente"). Las tablas fuera de
-  alcance de este ticket (`tracking_position`, `custody_transfer_event`, `offer`)
-  quedan intactas, con nota de que todavía no tienen ticket de implementación.
-- Verificado también con la imagen de Docker ya buildeada (no solo en local): `docker
-  build` con el Dockerfile actualizado, `npx prisma migrate deploy` corrido *dentro* del
-  contenedor contra el Postgres compartido (mismo mecanismo que usa el deploy real) y
-  smoke test de `GET /health` con el contenedor arriba — mismo criterio de verificación
-  que usó MOVO-93 para `svc-users`.
-
-Tests: `test/shipment-repository.integration.test.ts` nuevo (Postgres real, `TRUNCATE`
-en `beforeEach` — mismo patrón que `user-repository.integration.test.ts`): alta con
-evento inicial, transición válida con evento logueado, `deliveredAt` seteado sólo al
-llegar a `delivered`, transición inválida (no persiste nada), `ShipmentNotFoundError`,
-fotos por etapa. `vitest.config.ts` sumó `fileParallelism: false` (mismo motivo que
-MOVO-87: tests de integración con `TRUNCATE` corriendo en paralelo se pisan) y
-`src/repositories/**`/`src/models/**` al `include` de cobertura. 34/34 tests en verde
-en `svc-shipments` (suben de 25). `tsc --noEmit`/`eslint`/`npm run build` sin errores en
-`svc-shipments` y `@movo/shared`.
-
-Pendiente / fuera de alcance de MOVO-104: `src/modules/shipments/*` (stubs de
-rutas/servicio/schema HTTP) no se tocaron — son de las US de API (MOVO-80/81/82).
-`src/plugins/redis.ts` tampoco, ninguna AC lo requería. `listEvents`/`addPhoto`/
-`listPhotos` del repositorio están implementados pero todavía sin ningún caller real
-(esperan a las US de API). Baseline de Prisma en dev/prod real (EC2) — verificado el
-mecanismo con la imagen Docker local, pero no corrido todavía contra
-`api-dev.movosend.app`/`api.movosend.app`, misma situación que tuvo `svc-users` en
-MOVO-93 hasta su primer deploy real.
-### MOVO-15 — Verificación de licencia de conducir (`svc-users` + `movo-mobile`)
-
-Reutiliza por completo el mecanismo de KYC de MOVO-72 (identidad), con
-`verification_type: "license"` en vez de `"identity"` — la infraestructura ya estaba
-diseñada para esto (`VerificationType` en `models/kyc-verification.ts`,
-`kyc-verification-repository.ts` genérico por tipo, `User.kycStatusLicense`,
-`ProfileBadge.license_verified` en `@movo/shared`); esta US termina de cablearla.
-
-Implementado en `services/movo-svc-users`:
-- **`kyc.service.ts` generalizado por `VerificationType`**: `createSession`/`getStatus`/
-  `reconcilePendingAttempt` ahora reciben el tipo como parámetro en vez de hardcodear
-  `"identity"`; dos helpers (`getUserKycStatus`/`updateUserKycStatus`) dispatchan entre
-  `kycStatusIdentity`/`kycStatusLicense` según corresponda. `applyTerminalDecision`
-  (único camino de escritura, push o pull) sigue siendo el único punto que decide qué
-  columna de `users` tocar, ahora leyendo `result.verificationType` de la fila resuelta
-  — el webhook no necesita saber de antemano qué tipo de verificación está resolviendo.
-- **`DiditClient` con un `workflow_id` por tipo**: `CreateDiditSessionInput` gana
-  `verificationType`; `HttpDiditClientConfig.workflowId` (string) pasa a `workflowIds:
-  Record<VerificationType, string>`. `DIDIT_WORKFLOW_ID_LICENSE` nuevo en
-  `config/env.ts`/`.env.example`/`docker-compose.yml`, junto a `DIDIT_WORKFLOW_ID_IDENTITY`
-  — `createDiditClient` ahora exige las 5 credenciales completas (antes 4) cuando
-  `DIDIT_MODE=live`.
-- **Rutas nuevas `POST /kyc/license/session` / `GET /kyc/license/status`**, agregadas
-  al mismo plugin `kyc.routes.ts` (`/kyc/session`/`/kyc/status` de identidad quedan sin
-  cambio de contrato, ahora llaman al servicio con `"identity"` explícito). El gateway
-  no necesitó ningún cambio: `/kyc` ya proxea todo el prefijo a `svc-users`
-  (`routes-map.ts`), y como las rutas nuevas no están en `getPublicRoutes()`, quedan
-  protegidas por defecto igual que las de identidad desde PR #51 de MOVO-72.
-- **Tabla nueva `users.drivers_license`** (DER, `docs/movo_der.dbml`): el registro del
-  carnet en sí, distinto de `kyc_verification` (que es el log de intentos) — un carnet
-  tiene ciclo de vida propio (vencimiento/renovación) que un DNI verificado no tiene en
-  el resto del sistema. `user_id` único (se upsertea en cada re-verificación aprobada,
-  no se acumula historial ahí); `status` (`drivers_license_status_enum`:
-  `pending`/`verified`/`expired`, minúscula — el DER lo dibuja en mayúscula, mismo
-  criterio de estilo que otros enums del diagrama) se escribe siempre `verified` al
-  crear la fila, solo cuando una verificación de licencia se **aprueba**
-  (`applyTerminalDecision`, dentro de la misma transacción que actualiza
-  `kyc_status_license`). `pending`/`expired` quedan modelados para el ciclo de vida
-  futuro del carnet (vencimiento real con el tiempo, limpieza por cron) — fuera de
-  alcance de esta US. Migración `20260814190000_add_drivers_license_movo_15` +
-  `repositories/drivers-license-repository.ts` (un único método,
-  `upsertVerified`) + `models/drivers-license.ts` (mismo patrón de
-  `parseDriversLicenseStatus`/`InvalidEnumValueError` que el resto de los enums de DB).
-- **`expiration_date` extraído del payload de Didit, no dejado en null** (a diferencia
-  del precedente de MOVO-96 para el DNI, que se dejó sin implementar por falta de
-  confirmación de shape): el usuario confirmó contra la documentación de Didit que el
-  feature "ID Verification" devuelve `expiration_date` como campo de nivel superior por
-  documento (misma categoría que `document_number`/`document_type`, no es dato
-  biométrico, AC6 sigue cumplido). `extractDocumentExpirationDate(decision)`
-  (`kyc.service.ts`, mismo estilo defensivo que `extractDecisionWarnings` — nunca tira,
-  `null` si no matchea) se suma al whitelist de redacción de AC9
-  (`buildRedactedRawDecision`/`buildRedactedPulledDecision`) tanto para la vía push
-  (webhook) como pull (`getSessionDecision`). Sigue sin validarse contra un payload real
-  de licencia del sandbox de Didit (el shape viene confirmado por documentación, no por
-  una corrida real como sí se hizo para identidad en MOVO-72 Paso 7) — mismo tipo de
-  gap que `Expired`/`Abandoned`/`Kyc Expired` dejó abierto en su momento.
-- **Insignia `license_verified`**: `computeBadges()` (`models/user-profile.ts`) ya
-  tenía el `TODO(MOVO-15)` marcado — se reemplaza por el chequeo real de
-  `kycStatusLicense === APPROVED`.
-- **`PrivateProfile` gana `licenseKycStatus`** (`@movo/shared`, mapeado en
-  `toPrivateProfile()`, agregado a `users.schema.ts#privateProfileResponse`) — para que
-  el banner del perfil en mobile no necesite una llamada aparte a
-  `/kyc/license/status`. No se agregó a `PublicProfile`: la insignia ya comunica el
-  resultado ahí, mismo criterio que `kycStatus` (identidad) tampoco vive en esa
-  proyección.
-
-Implementado en `movo-mobile`:
-- **`app/(app)/license-kyc.tsx`**, nueva pantalla — mismo patrón de fases
-  (`intro`/`connecting`/`result`) y mismo SDK nativo de Didit que
-  `app/(auth)/kyc.tsx` (identidad), pero **desacoplada de `useRegistration()`**: el
-  transportista ya está logueado de verdad cuando llega acá (vía el banner de Perfil),
-  así que el estado del flujo es local al componente y `authClient.
-  createLicenseKycSession()`/`getLicenseKycStatus()` se llaman **sin** `accessToken`
-  explícito — a diferencia de las de identidad (token efímero del wizard de registro,
-  sin sesión real todavía), el interceptor de `http-client.ts` adjunta el de la sesión
-  real solo, con el refresh automático de MOVO-76 incluido.
-- `error-messages.ts#CODE_MESSAGES["KYC_SESSION_NOT_ALLOWED"]` sigue diciendo "Tu
-  identidad ya está verificada" (correcto para `/kyc/session`) — sería incorrecto para
-  licencia. `license-kyc.tsx` resuelve ese código a mano ("Tu licencia ya está
-  verificada.") antes de delegar al helper genérico para el resto.
-- **Banner nuevo en Perfil** (`components/profile/profile-license-status-banner.tsx`,
-  copia de `profile-kyc-status-banner.tsx` con textos de licencia), gateado en
-  `profile.tsx` a `data.roles.includes(UserRole.CARRIER)` — un usuario sin rol
-  transportista no ve un banner pidiéndole verificar una licencia. `ProfileBadges`/
-  `ProfileVerifiedBadge` no necesitaron cambios: ya tenían el mapeo de
-  `license_verified` esperando desde MOVO-78.
-
-Tests: 240/240 en `svc-users` (subieron de 226 — nuevo `kyc.license.integration.test.ts`,
-casos de licencia sumados a `kyc.webhook.integration.test.ts` y
-`users.profile.integration.test.ts`, casos de `workflowIds`/5 credenciales en los tests
-de adapters de Didit), 105/105 en `movo-mobile` (subieron de 93 — `license-kyc.test.tsx`
-nuevo, casos nuevos en `profile.test.tsx`), 32/32 en gateway (sin cambios de contrato).
-`tsc --noEmit`/`eslint` sin errores en los tres paquetes tocados (`svc-users`,
-`@movo/shared`, `movo-mobile` — salvo el mismo hueco preexistente de tipado de rutas de
-expo-router que ya afecta a `kyc.tsx`/`login.tsx`/`app/index.tsx`, sin relación con este
-cambio). Migración verificada aplicando limpia contra Postgres real.
-
-Pendiente / fuera de alcance de MOVO-15: cargar `DIDIT_WORKFLOW_ID_LICENSE` real en AWS
-Secrets Manager y en el `.env` local de cada integrante (mismo pendiente manual que
-viene arrastrando el resto de credenciales de Didit/Twilio) — sin esto, `DIDIT_MODE=live`
-no arranca hasta configurarlo, igual que ya pasaba con las otras credenciales de Didit.
-Validación contra el sandbox real de un payload de licencia (confirmar `expiration_date`
-contra una respuesta real, no solo documentación). Ciclo de vida propio del carnet ya
-verificado (`drivers_license.status = expired` por vencimiento real/cron) y regla de
-"identidad aprobada como prerequisito de licencia" (no la pide ningún AC, no se agregó)
-— ambas, decisiones de producto futuras sin ticket todavía.
-### MOVO-97 — Foto de perfil: subida a S3 con presigned URLs, confirmación y borrado (`svc-users`)
-
-Primera implementación real de ADR-007 (S3 + presigned URLs) — hasta este ticket no
-había una sola línea de `@aws-sdk/*` en el repo. Implementado `src/adapters/{storage-
-provider,s3-storage-provider,mock-storage-provider}.ts` (mismo patrón de interfaz +
-real + mock que `SmsProvider`/`DiditClient`/`GeocodingProvider`), 3 rutas nuevas en
-`src/modules/users/{users.routes,users.schema}.ts` (`POST /users/me/photo/upload-url`,
-`PUT /users/me/photo`, `DELETE /users/me/photo`), lógica de negocio en
-`users.service.ts` y `user-repository.ts#updatePhotoUrl`. El lado de lectura
-(`photoUrl` en `PrivateProfile`/`PublicProfile`) ya estaba resuelto de punta a punta
-desde MOVO-77/78 — este ticket es puramente el lado de escritura.
-
-Decisiones clave:
-- **ADR-016**: lectura pública del prefijo `profile-photos/` (ver tabla de ADRs
-  arriba) — confirmado con el equipo antes de implementar, tal como pedía el ticket.
-- **No hace falta columna nueva para el `objectKey`**: al reemplazar/borrar una foto,
-  la key del objeto viejo se deriva parseando la URL ya guardada en `photo_url`
-  (`StorageProvider.getKeyFromUrl`, inversa exacta de `getPublicUrl` — vive en el
-  adapter para que real y mock no diverjan). Limitación aceptada y documentada: si en
-  algún momento se pone un CDN delante del bucket, este parseo deja de ser válido.
-- **AC2 (tipo/tamaño firmados en la URL, no solo validados)**: `S3StorageProvider`
-  firma la presigned URL con `signableHeaders: Set(["content-type", "content-length"])`
-  sobre el `PutObjectCommand` — el cliente tiene que mandar esos headers exactos en el
-  `PUT` o S3 rechaza la firma (403). `contentType` además pasa por whitelist
-  (`image/jpeg|png|webp`) y `contentLength` por `maximum: 5MB` en el JSON schema del
-  body de `upload-url` (reusa `VALIDATION_FAILED`/400 estándar, no un código nuevo).
-- **`MockStorageProvider` expone `__simulateUpload(key, meta)`**, fuera de la interfaz
-  `StorageProvider` real — único punto donde el mock necesita más superficie que S3:
-  nadie hace un PUT real a una presigned URL sintética en tests, así que los tests de
-  integración marcan el objeto como "ya subido" a mano antes de confirmar.
-- **Gap real de gateway encontrado y corregido, no cosmético**: el mecanismo de rate
-  limit estricto (`gateway/src/routes/index.ts`) solo aplicaba a rutas de
-  `getPublicRoutes()` — AC8 pide `{max:20, timeWindow:"15 minutes"}` en
-  `POST /users/me/photo/upload-url`, que es una ruta **protegida** (exige JWT). Se
-  agregó `getRateLimitOverrides()` en `routes-map.ts` (lista independiente de
-  pública/protegida) y el lookup del `preHandler` pasa a ser por `method+path` sin
-  importar si la ruta es pública — mismo `keyGenerator` explícito por limiter que ya
-  corrigió el bug de namespace compartido de MOVO-72.
-- Tres códigos nuevos en `ApiErrorCode` de `@movo/shared`: `STORAGE_PROVIDER_ERROR`
-  (502, S3 caído/credenciales), `PHOTO_OBJECT_NOT_FOUND` (422, confirmar un objeto que
-  no existe), `PHOTO_FORBIDDEN_KEY` (403, `objectKey` fuera del prefijo del usuario).
-- **Credenciales AWS vía IAM role de la EC2**, no access key/secret — el SDK las toma
-  solas de la default credential chain (decisión del ticket, sin nada nuevo que rotar
-  en Secrets Manager).
-- **No hay comunicación entre `svc-users` y `svc-shipments`/`svc-admin`**: cuando
-  MOVO-81 (fotos de paquete) adopte este patrón, va a copiar los 3 archivos del
-  adapter a su propia `src/adapters/`, con su propio prefijo de key
-  (`shipment-photos/{shipmentId}/...`) y hablando directo con S3 con sus propias
-  credenciales — no se extrajo a `@movo/shared` (ese paquete solo tiene contratos de
-  dominio, nunca lógica de negocio ni SDKs de terceros, mismo criterio que
-  `axios`/`twilio` hoy).
-
-Tests: `test/adapters/storage-provider.test.ts` (factory, fail-fast), `test/adapters/
-s3-storage-provider.test.ts` (SDK de AWS mockeado — única excepción justificada además
-de Twilio, mismo motivo: API externa de pago/credenciales), `test/users.photo.
-integration.test.ts` (Fastify + Postgres/Redis reales, `MockStorageProvider` inyectado
-vía `buildApp({storageProvider})`: emisión de URL, whitelist/tamaño, confirmación
-feliz, key ajena, objeto inexistente, reemplazo con borrado del anterior, borrado
-idempotente), caso nuevo en `gateway/test/routes-prefix.test.ts` (rate limit estricto
-en la ruta protegida). 244/244 tests en `svc-users` (subieron de 224), 35/35 en
-gateway (subieron de 32), 11/11 en `@movo/shared`. `tsc --noEmit`/`eslint`/`npm run
-build` sin errores en los tres paquetes. Swagger generado confirmado con los 3
-endpoints nuevos (`/docs/json`). Smoke manual contra el servicio real corriendo local
-(`STORAGE_PROVIDER=mock`): flujo completo de registro → `upload-url` → 422 esperado al
-confirmar sin subir nada → `DELETE` idempotente → `GET /users/me` refleja
-`photoUrl: null` → whitelist de `contentType` rechaza `image/gif`.
-
-**Verificación contra el bucket real de dev, hecha en esta sesión (DoD del ticket)**:
-bucket `movo-shipment-media-dev` (`sa-east-1`) — confirmado que ya está provisionado
-por el equipo (`movo-infra`), pero le faltaban dos cosas para que el diseño de AC9/
-ADR-016 funcionara: **CORS** (no existía ninguna regla) y la **policy de lectura
-pública** de `profile-photos/*` estaba bloqueada por el `PublicAccessBlockConfiguration`
-del bucket (las 4 flags en `true`) — probado empíricamente subiendo un objeto real y
-leyéndolo sin credenciales (403). Se resolvió vía AWS CLI directo (con las credenciales
-locales de `movo-team`, que sí tienen permisos pese a que el bucket policy previo solo
-listaba el role `movo-dev-ec2-role`):
-- `PutPublicAccessBlock`: solo se relajaron `BlockPublicPolicy`/`RestrictPublicBuckets`
-  a `false` — `BlockPublicAcls`/`IgnorePublicAcls` **quedan en `true`**, así que ninguna
-  ACL (accidental o no) puede hacer público un objeto; la única vía de exposición
-  pública posible de acá en más es la bucket policy explícita, revisada a mano.
-- Bucket policy: se agregó un statement `PublicReadProfilePhotos`
-  (`Principal: "*"`, `Action: s3:GetObject`, `Resource: .../profile-photos/*`) al final
-  de la policy existente (el `AllowEC2RoleOnly`/`AllowEC2RoleListBucket` original no se
-  tocó). Sin `s3:ListBucket` público — no se puede enumerar qué fotos existen, solo leer
-  una key exacta (UUID v4, no adivinable).
-- CORS: una regla, `AllowedMethods: ["PUT"]`, `AllowedOrigins: ["https://api-dev.movosend.app"]`
-  (acotado al dominio público de la EC2 de dev, no `*` — decisión del equipo: se
-  prueba desde dispositivo real recién con esta rama mergeada y desplegada, no hace
-  falta un origen más amplio por ahora), `AllowedHeaders: ["content-type", "content-length"]`.
-- Verificado con curl real contra el bucket (no `MockStorageProvider`): presigned URL
-  real firmada con `signableHeaders` de `content-type`/`content-length`, `PUT` real de
-  16 bytes exitoso, `PUT /users/me/photo` confirma contra un `HeadObject` real,
-  `GET /users/me` refleja la URL real, lectura pública sin credenciales da 200 dentro
-  de `profile-photos/*` y sigue en 403 fuera de ese prefijo, reemplazo borra el objeto
-  viejo de verdad (verificado con `HeadObject` → 404 post-borrado), `DELETE` dos veces
-  seguidas idempotente (204/204) con el objeto realmente borrado de S3.
-
-**Portado a Terraform (`movo-infra`), mismo alcance de esta sesión** — los tres cambios
-de arriba se habían aplicado primero directo por AWS CLI para desbloquear la prueba
-manual; después se replicaron en `modules/storage` (nuevas variables
-`public_read_prefix`/`cors_allowed_origins`, `aws_s3_bucket_public_access_block`
-condicional, tercer statement de la bucket policy, `aws_s3_bucket_cors_configuration`
-nuevo) y se wirearon en **ambos** `envs/dev/main.tf` y `envs/prod/main.tf` con
-`public_read_prefix = "profile-photos"`. `terraform apply` corrido en dev — `terraform
-plan` del módulo `storage` da **"No changes"**, código/state/AWS real reconciliados.
-Rama `feature/movo-97-svc-users-foto-de-perfil-subida-a-s3-con-presigned-urls` en
-`movo-infra` (PR #2), ya mergeada a `main`. **Prod (`movo-shipment-media-prod`) tiene
-el código listo pero el `terraform apply` real todavía no se corrió ahí** — queda
-pendiente para cuando se despliegue esta US a prod.
-
-Pendiente / fuera de alcance de MOVO-97: sumar al IAM role de las EC2 los permisos
-`s3:PutObject`/`GetObject`/`DeleteObject` acotados a `profile-photos/*` (hoy la policy
-ya lista esas acciones para `movo-dev-ec2-role` sobre **todo** el bucket — no está
-acotado al prefijo, y **es intencional, no un descuido**: el mismo role necesita
-`PutObject`/`DeleteObject` sobre otros prefijos del mismo bucket compartido para
-`svc-shipments`/`svc-admin` cuando adopten este patrón, así que estrecharlo a
-`profile-photos/*` rompería esos casos futuros — revisar si conviene separar por
-prefijo recién cuando esos otros consumidores existan de verdad. Nota aparte: el AC
-del ticket menciona `s3:HeadObject` como permiso a sumar, pero no existe como acción
-IAM separada — `HeadObject` se autoriza con el mismo `s3:GetObject`, ya concedido).
-Cargar `STORAGE_PROVIDER=s3`/`S3_BUCKET_NAME=movo-shipment-media-dev`/
-`S3_REGION=sa-east-1` en AWS Secrets Manager (`movo/dev/app-secrets`) y las variables
-equivalentes de prod son tarea manual del equipo con acceso a AWS — el código ya está
-listo para tomarlas. El desarrollo completo de ADR-016 (contexto/alternativas) queda
-pendiente de pegar en Drive, mismo estado que ADR-012/013/014/015.
-
-### MOVO-107 — Permisos, registro de push token y manejo de notificaciones (`movo-mobile`)
-
-Lado cliente de push notifications: pedir permiso, obtener el push token de Expo,
-registrarlo contra el backend y manejar la notificación recibida. Implementado contra
-el contrato que define **MOVO-106** (`svc-users`, todavía en `Todo` al momento de
-escribir esto) — mismo criterio que MOVO-73 con MOVO-70/72: el mobile se adelanta al
-contrato acordado, sin bloquearse en que el backend exista.
-
-Archivos nuevos: `src/lib/device-id.ts` (`getOrCreateDeviceId`, UUID estable vía
-`Crypto.randomUUID()` de `expo-crypto`, persistido en `expo-secure-store` — nueva key
-`SECURE_STORE_KEYS.pushDeviceId`, la única que **sobrevive** a `clearSession()`/
-`logout()` porque identifica el dispositivo, no la sesión), `src/api/
-notifications-client.ts` (`registerPushToken`/`unregisterPushToken` contra `POST`/
-`DELETE /users/me/push-token`, mismo patrón minimalista que `users-client.ts`),
-`src/lib/push-registration.ts` (funciones puras — `requestPermissionAndRegisterPushToken`/
-`unregisterCurrentDevice` — separadas del hook de React para que `auth-store.ts` las
-importe sin depender de un hook) y `src/hooks/use-push-notifications.ts` (hook que
-dispara el registro al detectar sesión autenticada, configura el handler de
-notificaciones y escucha taps).
-
-Decisiones clave:
-- **AC5 (aviso en foreground) sin componente nuevo**: se configura
-  `Notifications.setNotificationHandler({ shouldShowAlert: true, ... })` a nivel de
-  módulo — usa el banner nativo del SO incluso con la app abierta. No hay ningún
-  banner auto-dismiss reusable en el repo (`ErrorBanner` es persistente a propósito),
-  así que construir uno hubiera sido alcance extra no pedido por el AC.
-- **AC6 (navegar al detalle de un envío) queda parcialmente resuelto a propósito**: el
-  listener (`addNotificationResponseReceivedListener`) parsea `data.type === 'shipment'`
-  y deja el punto de extensión documentado en el propio código, pero no navega a
-  ningún lado real — no existe ninguna pantalla de envíos todavía (MOVO-83+, sin
-  arrancar). Decisión tomada con el usuario: mejor dejar el parseo listo y sin acción
-  que inventar un destino (`/home`) que no es el real.
-- **`httpClient` no exponía `delete`** (`HttpMethod` ya incluía `"DELETE"` pero el
-  objeto exportado no lo usaba) — se agregó `httpClient.delete<T>(path, body, headers)`,
-  mismo shape que `post`/`patch`, porque el contrato de MOVO-106 manda `{ deviceId }`
-  en el body del `DELETE`.
-- **`expo-crypto` en vez del paquete `uuid`** para generar el `deviceId`: evita el
-  polyfill de `crypto.getRandomValues` que `uuid` necesita en RN/Hermes — decisión
-  tomada con el usuario junto con las dos anteriores.
-- **AC4 (des-registro en logout)**: `auth-store.ts#logout()` llama a
-  `unregisterCurrentDevice()` **antes** de `clearSession()` (necesita el accessToken
-  todavía en memoria para el header `Authorization`), envuelto en `try/catch` propio
-  además del que ya trae la función internamente — mismo criterio de "un paso
-  secundario nunca bloquea salir de la cuenta" que ya usa esa función con
-  `authClient.logout`.
-- **`eas init` ya se había corrido** (proyecto "movo-mobile", org "movosend"), pero el
-  `projectId` nunca quedó commiteado — vivía en un `app.json` local de una rama
-  anterior, reemplazado por `app.config.js` en MOVO-73 sin portar el valor, y se perdió
-  al cambiar de rama. Repuesto acá: `owner: "movosend"` +
-  `extra.eas.projectId: "077f9c8d-cb66-4772-a76c-34e4548290e7"` en `app.config.js`
-  (verificado con `npx expo config --type public`, que ahora sí resuelve ambos).
-- **AC7 (Expo Go, aun con `projectId` configurado)**: `Notifications.
-  getExpoPushTokenAsync({ projectId })` sigue tirando en Expo Go (no soporta push
-  remoto, independientemente del `projectId`) — se atrapa en `push-registration.ts`,
-  se loguea y no rompe nada más.
-- `app.config.js`: se agregó `"expo-notifications"` al array `plugins` (sin esto
-  Android no genera el ícono/sonido de notificación en el build nativo). Sin cambios
-  en `.env.example` — el push token de Expo no requiere ningún secret del lado
-  cliente, a diferencia de las keys de Google Maps.
-
-Tests nuevos: `test/device-id.test.ts`, `test/notifications-client.test.ts`,
-`test/push-registration.test.ts` (permiso denegado no registra — AC1; permiso
-concedido registra — AC2/AC3; `getExpoPushTokenAsync` fallando no rompe — AC7;
-de-registro tolera fallos), `test/use-push-notifications.test.tsx` (registro único por
-transición a autenticado, re-registro tras logout/login en el mismo dispositivo, tap
-de notificación de envío no crashea, cleanup del listener al desmontar), más dos casos
-agregados a `test/auth-store.test.tsx` (logout des-registra el dispositivo, y tolera
-que falle). 111/111 en `movo-mobile` (subieron de 93). `tsc --noEmit` sin errores. No
-hay `eslint.config.js` en `movo-mobile` todavía (paquete sin lint configurado, a
-diferencia del resto del monorepo) — no es parte de esta US.
-
-Pendiente / fuera de alcance de MOVO-107: backend real de MOVO-106 (código escrito
-contra su contrato, sin poder integrar hasta que exista — con `projectId` ya
-configurado, este es ahora el único bloqueo real para probar push de punta a punta),
-pantalla de destino real para AC6 (depende de MOVO-83+), y el DoD manual del ticket
-(development build en dispositivo físico, casos de prueba con push real) — no
-verificable en este entorno.
+- **Búsqueda de receptor movida a `svc-users`** (`GET /users/search?q=`, no en
+  `svc-shipments` como sugería el AC literal) — es su dominio, evita una llamada
+  extra entre servicios solo para buscar. Busca por nombre completo
+  (`firstName`+`lastName`, substring case-insensitive) — no hay campo `username` en
+  `User`, y buscar por email/teléfono se descartó a propósito (habilitaría
+  enumeración de usuarios).
+- **`src/adapters/users-client.ts`**: primera llamada interna servicio-a-servicio del
+  repo (hasta ahora todos los adapters hablaban con APIs de terceros). `fetch` nativo
+  + `AbortSignal.timeout(5000)` — sin timeout, una demora en `svc-users` cuelga el
+  request de creación de envío indefinidamente. Sin modo mock (a diferencia de
+  `DiditClient`/`GeocodingProvider`): los tests inyectan un `UsersClient` falso vía
+  `buildApp({ usersClient })`, no hace falta un tercer modo por costo/credenciales.
+  Chequea existencia y KYC de identidad aprobado del receptor en una sola llamada
+  (`GET /users/:id` ya devuelve `isVerified`).
+- **`suggestedPriceArs` con fórmula placeholder** (tarifa base + $/kg + $/km
+  Haversine) en `shipments.service.ts` — `svc-pricing-logistics` (motor real, EP-05)
+  todavía es solo un esqueleto. Documentado explícitamente como temporal, sin nueva
+  migración ni adapter de pricing.
+- **Bug de timezone encontrado corriendo el servicio real (no por los tests
+  `app.inject`)**: `pickupDate`/`pickupTimeWindowStart`/`pickupTimeWindowEnd` se
+  guardan como `Date` ancladas a UTC (valores de calendario/reloj de pared, no
+  instantes), pero los serializadores `asDate`/`asTime` de fast-json-stringify
+  (detrás de `format: "date"`/`"time"` en el schema de respuesta) le restan el
+  `getTimezoneOffset()` del proceso antes de recortar el ISO string — pensado para
+  mostrar un instante real en hora local, corre el valor si el proceso no corre en
+  UTC (confirmado en local, Córdoba UTC-3: "09:00" salía "06:00"). Corregido
+  convirtiendo esos tres campos a string ya formateado (`toShipmentDto` en
+  `shipments.routes.ts`) antes de que lleguen al serializador — `asDate`/`asTime`
+  dejan pasar un string tal cual, sin ajuste. Sin este fix, cualquier deploy con
+  `TZ` distinto de UTC habría corrompido esos tres campos en toda respuesta.
+
+Pendiente / fuera de alcance de MOVO-80: penalización de cancelación post-`assigned`
+y transición de salida de `disputed` (MOVO-105, sin ticket todavía); el `carrierId`
+no participa en `GET /shipments/mine` (no hay asignación automática este sprint).
+
+### MOVO-15 — Verificación de licencia de conducir
+
+Reutiliza el mecanismo de KYC de MOVO-72 con `verification_type:"license"` (mismo
+pipeline, `workflow_id` distinto por tipo en Didit). Tabla nueva
+`users.drivers_license` (registro del carnet, ciclo de vida propio — distinto del log
+de intentos en `kyc_verification`). Insignia `license_verified` cableada. Pantalla
+`license-kyc.tsx` en mobile, desacoplada del wizard de registro (usuario ya logueado,
+usa la sesión real vía el interceptor de MOVO-76).
+
+### MOVO-97 — Foto de perfil: S3 + presigned URLs (ADR-007, ADR-016)
+
+`StorageProvider` (interfaz + `S3StorageProvider`/`MockStorageProvider`). La
+presigned URL firma también `content-type`/`content-length` (el cliente tiene que
+mandar esos headers exactos o S3 rechaza la firma). La key del objeto se deriva
+parseando `photo_url` ya guardado — no hay columna nueva. Credenciales AWS vía IAM
+role de la EC2. Bucket real (`movo-shipment-media-dev`) configurado con CORS + policy
+de lectura pública acotada a `profile-photos/*` (sin `ListBucket` público) — portado a
+Terraform (`movo-infra`), aplicado en dev; prod tiene el código listo pero sin
+`terraform apply` corrido todavía.
+
+### MOVO-107 — Push notifications: permisos y registro de token (mobile)
+
+Implementado contra el contrato de MOVO-106 (backend, todavía sin implementar).
+`device-id.ts` (UUID persistido en secure-store, sobrevive a logout — identifica el
+dispositivo, no la sesión). `expo-crypto` en vez del paquete `uuid` (evita el
+polyfill de `crypto.getRandomValues` en Hermes). Des-registro en logout, tolera
+fallos sin bloquear el logout. `eas.projectId` repuesto en `app.config.js` (se había
+perdido al migrar de `app.json` en MOVO-73).
+
+### Pendientes transversales
+
+- **Credenciales reales sin cargar** en AWS Secrets Manager (dev y prod) — el código
+  ya está listo para tomarlas apenas se configuren: Twilio (4 vars, ADR-012), Didit
+  (`DIDIT_MODE=live` + 5 vars, incluye `DIDIT_WORKFLOW_ID_LICENSE` de MOVO-15), Google
+  Maps (server-side `GOOGLE_MAPS_API_KEY` compartida entre `svc-users`/futuros
+  consumidores + `GOOGLE_MAPS_IOS/ANDROID_API_KEY` del mobile), Telegram bot
+  (`SMS_PROVIDER=telegram`, solo dev), `STORAGE_PROVIDER=s3` + bucket/region de MOVO-97.
+- **Terraform de `movo-infra`**: bucket de fotos de perfil (MOVO-97/ADR-016) aplicado
+  en dev, `terraform apply` de prod pendiente.
+- **MOVO-118**: arreglar el TOCTOU de `shipment-repository.ts#updateStatus()`
+  (MOVO-104) con `SELECT ... FOR UPDATE` cuando haya asignación automática o
+  concurrencia real.
+- **ADRs con desarrollo completo pendiente de pegar en Drive** (solo tienen el resumen
+  de una línea en la tabla de arriba): 012, 013, 014, 015, 016.
+- **`eas init`/development build real en dispositivo**: pendiente para probar de
+  punta a punta el SDK de Didit (KYC) y push notifications (MOVO-107) fuera de Expo Go.
+- Backend de **MOVO-106** (registro de push token del lado servidor) no existe
+  todavía — MOVO-107 (mobile) está implementado contra su contrato propuesto.
