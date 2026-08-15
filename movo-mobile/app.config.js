@@ -61,11 +61,11 @@ module.exports = {
         process.env.IOS_BUNDLE_ID ?? `com.movosend.movomobile.${process.env.USER ?? "dev"}`,
       infoPlist: {
         NSCameraUsageDescription:
-          "Movo necesita la cámara para escanear tu documento y tomar una selfie durante la verificación de identidad con Didit.",
+          "Movo necesita la cámara para tomar tu foto de perfil y verificar tu identidad durante el registro.",
         NSMicrophoneUsageDescription:
           "Movo necesita el micrófono para grabar el video de verificación de vida durante la verificación de identidad con Didit.",
         NSPhotoLibraryUsageDescription:
-          "Movo necesita acceso a tus fotos para subir imágenes de tu documento durante la verificación de identidad con Didit.",
+          "Movo necesita acceso a tus fotos para elegir tu foto de perfil y subir imágenes de tu documento.",
         NFCReaderUsageDescription:
           "Movo usa NFC para leer el chip de tu pasaporte durante la verificación de identidad con Didit.",
         NSLocationWhenInUseUsageDescription:
@@ -100,6 +100,15 @@ module.exports = {
         {
           iosNfcEnabled: false,
           androidNfcEnabled: false,
+        },
+      ],
+      [
+        "expo-image-picker",
+        {
+          photosPermission:
+            "Movo necesita acceso a tus fotos para que puedas elegir tu foto de perfil.",
+          cameraPermission:
+            "Movo necesita acceso a tu cámara para que puedas tomarte una foto de perfil.",
         },
       ],
       "expo-font",

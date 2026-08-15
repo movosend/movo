@@ -22,7 +22,7 @@ import type { SessionResponse } from "./session-types";
 
 const AUTH_REFRESH_PATH = "/auth/refresh";
 
-type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
+type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 interface RequestOptions {
   method?: HttpMethod;
@@ -115,13 +115,14 @@ async function doFetch(path: string, options: RequestOptions): Promise<Response>
   const { method = "GET", body, query, headers } = options;
   const accessToken = headers?.Authorization ? null : (authHooks?.getAccessToken() ?? null);
   const authHeader = accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined;
+  const contentTypeHeader = body !== undefined ? { "Content-Type": "application/json" } : undefined;
 
   try {
     return await fetch(buildUrl(path, query), {
       method,
       headers: {
-        "Content-Type": "application/json",
         Accept: "application/json",
+        ...contentTypeHeader,
         ...authHeader,
         ...headers,
       },
@@ -139,7 +140,11 @@ async function parseResponse<T>(response: Response): Promise<T> {
   if (response.status === 204) {
     return undefined as T;
   }
-  return (await response.json()) as T;
+  try {
+    return (await response.json()) as T;
+  } catch {
+    return undefined as T;
+  }
 }
 
 export async function request<T>(
@@ -196,6 +201,8 @@ export const httpClient = {
     request<T>(path, { method: "GET", query, headers }),
   post: <T>(path: string, body?: unknown, headers?: RequestOptions["headers"]) =>
     request<T>(path, { method: "POST", body, headers }),
+  put: <T>(path: string, body?: unknown, headers?: RequestOptions["headers"]) =>
+    request<T>(path, { method: "PUT", body, headers }),
   patch: <T>(path: string, body?: unknown, headers?: RequestOptions["headers"]) =>
     request<T>(path, { method: "PATCH", body, headers }),
   delete: <T>(path: string, body?: unknown, headers?: RequestOptions["headers"]) =>
