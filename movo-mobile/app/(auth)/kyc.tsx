@@ -294,6 +294,20 @@ export default function KycScreen() {
     }
   }
 
+  function handlePrimaryAction() {
+    const isRetryable = resultKind ? RETRYABLE.includes(resultKind) : false;
+    if (isRetryable) {
+      void beginVerification();
+      return;
+    }
+    // Solo un KYC aprobado pasa al paso de foto de perfil (cierre de onboarding)
+    if (resultKind === "approved") {
+      router.replace("/profile-photo" as never);
+      return;
+    }
+    goHome();
+  }
+
   function goHome() {
     // Esta pantalla se llega tanto desde el wizard de registro (sin sesión real
     // todavía, `useAuthStore` en 'unauthenticated'/'checking') como desde un login o una
@@ -343,6 +357,7 @@ export default function KycScreen() {
     // app"/"toqué Continuar verificación"); este link es la vía manual para cuando el
     // usuario se queda en la pantalla esperando y quiere volver a chequear sin salir.
     const canRefresh = kind === "in_progress" || kind === "manual_review";
+    const isApproved = kind === "approved";
     return (
       <SafeAreaView className="flex-1 bg-bg px-8 pt-16">
         <View className="flex-1 items-center">
@@ -374,8 +389,14 @@ export default function KycScreen() {
         </View>
         <PrimaryButton
           testID="kyc-primary-action"
-          label={canRetry ? "Reintentar verificación" : "Ir al inicio"}
-          onPress={canRetry ? beginVerification : goHome}
+          label={
+            canRetry
+              ? "Reintentar verificación"
+              : isApproved
+                ? "Continuar"
+                : "Ir al inicio"
+          }
+          onPress={handlePrimaryAction}
           loading={loading || refreshing}
         />
         {canRefresh ? (

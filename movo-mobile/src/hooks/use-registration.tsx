@@ -12,6 +12,7 @@ import {
 import { authClient } from "../api/auth-client";
 import { friendlyErrorMessage } from "../lib/error-messages";
 import { SECURE_STORE_KEYS, secureStore } from "../lib/secure-store";
+import { useAuthStore } from "../store/auth-store";
 
 export const PROVINCES = [
   "Buenos Aires",
@@ -512,6 +513,10 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       const response = await authClient.getKycStatus(accessToken);
       setKycStatus(response.status);
       setManualReviewReason(response.manualReviewReason);
+      const authUser = useAuthStore.getState().user;
+      if (authUser && authUser.kycStatus !== response.status) {
+        await useAuthStore.getState().updateKycStatus(response.status);
+      }
     } catch {
       // Silencioso: el polling de estado no debe tirar la pantalla abajo.
     }
