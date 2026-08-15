@@ -45,7 +45,12 @@ export function createExpoPushProvider(): PushNotificationProvider {
         throw new ApiError(502, "PUSH_PROVIDER_ERROR", "El proveedor de push notifications devolvió un error.");
       }
 
-      const body = (await response.json()) as ExpoPushResponse;
+      let body: ExpoPushResponse;
+      try {
+        body = (await response.json()) as ExpoPushResponse;
+      } catch {
+        throw new ApiError(502, "PUSH_PROVIDER_ERROR", "El proveedor de push notifications devolvió una respuesta inválida.");
+      }
       const ticket = body.data?.[0];
       // Expo puede responder 200 y aun así reportar el envío puntual como fallido
       // (ticket.status === "error", ej. token con formato válido pero ya no
