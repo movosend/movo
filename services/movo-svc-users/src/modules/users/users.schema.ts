@@ -74,6 +74,14 @@ export const usersSchemas = {
     },
   },
 
+  searchQuery: {
+    type: "object",
+    required: ["q"],
+    properties: {
+      q: { type: "string", minLength: 2, maxLength: 100 },
+    },
+  },
+
   publicProfileResponse: {
     type: "object",
     required: ["id", "fullName", "photoUrl", "isVerified", "badges", "transactionCounts", "reputationScore"],
@@ -85,6 +93,23 @@ export const usersSchemas = {
       badges: { type: "array", items: { type: "string", enum: PROFILE_BADGE_VALUES } },
       transactionCounts,
       reputationScore: { type: ["number", "null"] },
+    },
+  },
+
+  searchResponse: {
+    type: "array",
+    items: {
+      type: "object",
+      required: ["id", "fullName", "photoUrl", "isVerified", "badges", "transactionCounts", "reputationScore"],
+      properties: {
+        id: { type: "string" },
+        fullName: { type: "string" },
+        photoUrl: { type: ["string", "null"] },
+        isVerified: { type: "boolean" },
+        badges: { type: "array", items: { type: "string", enum: PROFILE_BADGE_VALUES } },
+        transactionCounts,
+        reputationScore: { type: ["number", "null"] },
+      },
     },
   },
 

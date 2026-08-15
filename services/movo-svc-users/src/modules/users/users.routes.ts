@@ -47,6 +47,35 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
     },
   );
 
+  // Ruta estática — se registra antes de "/:id" para que no haya ambigüedad visual
+  // con el próximo lector del archivo (el radix router de Fastify ya resuelve esto
+  // bien sin importar el orden de registro).
+  app.get(
+    "/search",
+    {
+      schema: {
+        summary: "Buscar usuarios por nombre completo",
+        description:
+          "AC3 de MOVO-80: busca por firstName+lastName (substring, case-insensitive) " +
+          "-- nunca por email/teléfono, evita enumeración. Devuelve la proyección " +
+          "pública (PublicProfile[]), máximo 20 resultados, excluye al propio caller. " +
+          "Ruta protegida.",
+        tags: ["users"],
+        querystring: usersSchemas.searchQuery,
+        response: {
+          200: usersSchemas.searchResponse,
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { q } = request.query as { q: string };
+      return service.searchUsers(q, callerId);
+    },
+  );
+
   app.get(
     "/:id",
     {

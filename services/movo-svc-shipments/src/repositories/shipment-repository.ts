@@ -78,6 +78,12 @@ export interface ShipmentRepository {
   listEvents(shipmentId: string): Promise<ShipmentEvent[]>;
   addPhoto(shipmentId: string, stage: PhotoStage, s3Key: string): Promise<ShipmentPhoto>;
   listPhotos(shipmentId: string): Promise<ShipmentPhoto[]>;
+  /**
+   * Envíos donde el usuario participa como sender o como receiver (AC9 de MOVO-80 —
+   * todavía no hay rol de "carrier" asignado en este sprint). Paginado, más reciente
+   * primero.
+   */
+  listByUser(userId: string, page: number, limit: number): Promise<{ items: Shipment[]; total: number }>;
 }
 
 export class ShipmentNotFoundError extends Error {
@@ -203,6 +209,20 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         orderBy: { createdAt: "asc" },
       });
       return rows.map(mapPhoto);
+    },
+
+    async listByUser(userId: string, page: number, limit: number): Promise<{ items: Shipment[]; total: number }> {
+      const where = { OR: [{ senderId: userId }, { receiverId: userId }] };
+      const [rows, total] = await Promise.all([
+        db.shipment.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        db.shipment.count({ where }),
+      ]);
+      return { items: rows.map(mapShipment), total };
     },
   };
 }
