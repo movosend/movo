@@ -22,7 +22,7 @@ sequenceDiagram
     alt senderId === receiverId
         SS-->>GW: 422 SHIPMENT_RECEIVER_IS_SENDER
         GW-->>Mobile: 422
-    else franja de retiro inválida (fin &lt;= inicio)
+    else franja de retiro inválida (fin no posterior al inicio)
         SS-->>GW: 422 SHIPMENT_PICKUP_WINDOW_INVALID
         GW-->>Mobile: 422
     else franja de retiro en el pasado
