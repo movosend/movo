@@ -1,3 +1,4 @@
+import { UserRole } from '@movo/shared/dist/types/user';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
@@ -6,6 +7,7 @@ import { ProfileAvatar } from '../../../components/profile/profile-avatar';
 import { ProfileBadges } from '../../../components/profile/profile-badges';
 import { ProfileErrorState } from '../../../components/profile/profile-error-state';
 import { ProfileKycStatusBanner } from '../../../components/profile/profile-kyc-status-banner';
+import { ProfileLicenseStatusBanner } from '../../../components/profile/profile-license-status-banner';
 import { ProfileLogoutButton } from '../../../components/profile/profile-logout-button';
 import { ProfilePrivateSection } from '../../../components/profile/profile-private-section';
 import { ProfileSettingsSection } from '../../../components/profile/profile-settings-section';
@@ -61,6 +63,14 @@ export default function ProfileScreen() {
           status={data.kycStatus}
           onPrimaryAction={() => router.push('/kyc')}
         />
+
+        {data.roles.includes(UserRole.CARRIER) && (
+          <ProfileLicenseStatusBanner
+            testID="profile-license-banner"
+            status={data.licenseKycStatus}
+            onPrimaryAction={() => router.push('/license-kyc')}
+          />
+        )}
 
         <ProfileStatsRow
           testID="profile-stats-row"

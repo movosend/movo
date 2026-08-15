@@ -33,7 +33,9 @@ describe("POST /kyc/webhook (MOVO-72, AC4-AC7)", () => {
     await app.db.$executeRawUnsafe("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
   });
 
-  async function createPendingVerification(): Promise<{ userId: string; externalSessionId: string }> {
+  async function createPendingVerification(
+    verificationType: "identity" | "license" = "identity"
+  ): Promise<{ userId: string; externalSessionId: string }> {
     const user = await app.db.user.create({
       data: {
         email: `${randomUUID()}@example.com`,
@@ -42,14 +44,14 @@ describe("POST /kyc/webhook (MOVO-72, AC4-AC7)", () => {
         lastName: "Perez",
         passwordHash: "hash",
         phoneVerified: true,
-        kycStatusIdentity: "pending",
+        ...(verificationType === "identity" ? { kycStatusIdentity: "pending" } : { kycStatusLicense: "pending" }),
       },
     });
     const externalSessionId = `sess-${randomUUID()}`;
     await app.db.kycVerification.create({
       data: {
         userId: user.id,
-        verificationType: "identity",
+        verificationType,
         provider: "didit",
         externalSessionId,
         status: "pending",
@@ -265,5 +267,97 @@ describe("POST /kyc/webhook (MOVO-72, AC4-AC7)", () => {
     });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  // MOVO-15: a diferencia de identity, un webhook Approved de license además tiene que
+  // upsertear users.drivers_license (AC3) — cubierto acá porque handleWebhook es el
+  // único camino real de llegar a un Approved fuera de tests unitarios de servicio.
+  it("Approved de tipo license actualiza kyc_status_license (no identity) y crea la fila en drivers_license con expiration_date", async () => {
+    const { userId, externalSessionId } = await createPendingVerification("license");
+
+    const response = await postWebhook({
+      status: "Approved",
+      session_id: externalSessionId,
+      decision: {
+        id_verifications: [
+          {
+            document_type: "DRIVERS_LICENSE",
+            expiration_date: "2030-05-20",
+            warnings: [],
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    const user = await app.db.user.findUnique({ where: { id: userId } });
+    expect(user?.kycStatusLicense).toBe("approved");
+    expect(user?.kycStatusIdentity).toBe("not_started");
+
+    const verification = await app.db.kycVerification.findUnique({ where: { externalSessionId } });
+    expect(verification?.status).toBe("approved");
+    expect((verification?.rawDecision as { expiration_date?: string })?.expiration_date).toBe("2030-05-20");
+
+    const driversLicense = await app.db.driversLicense.findUnique({ where: { userId } });
+    expect(driversLicense).toMatchObject({
+      userId,
+      kycVerificationId: verification?.id,
+      status: "verified",
+    });
+    expect(driversLicense?.expirationDate?.toISOString().slice(0, 10)).toBe("2030-05-20");
+  });
+
+  it("Approved de tipo license sin expiration_date en el payload crea drivers_license con expiration_date null (no revienta)", async () => {
+    const { userId, externalSessionId } = await createPendingVerification("license");
+
+    const response = await postWebhook({
+      status: "Approved",
+      session_id: externalSessionId,
+      decision: { id_verifications: [{ document_type: "DRIVERS_LICENSE", warnings: [] }] },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const driversLicense = await app.db.driversLicense.findUnique({ where: { userId } });
+    expect(driversLicense?.expirationDate).toBeNull();
+  });
+
+  it("Declined de tipo license actualiza kyc_status_license pero no crea fila en drivers_license", async () => {
+    const { userId, externalSessionId } = await createPendingVerification("license");
+
+    const response = await postWebhook({ status: "Declined", session_id: externalSessionId });
+
+    expect(response.statusCode).toBe(200);
+    const user = await app.db.user.findUnique({ where: { id: userId } });
+    expect(user?.kycStatusLicense).toBe("rejected");
+    const driversLicense = await app.db.driversLicense.findUnique({ where: { userId } });
+    expect(driversLicense).toBeNull();
+  });
+
+  it("una segunda verificación de license aprobada actualiza (upsert) la misma fila de drivers_license, no crea una segunda", async () => {
+    const { userId, externalSessionId: firstSessionId } = await createPendingVerification("license");
+    await postWebhook({
+      status: "Approved",
+      session_id: firstSessionId,
+      decision: { id_verifications: [{ expiration_date: "2028-01-01", warnings: [] }] },
+    });
+
+    // Reintento: nueva sesión de licencia para el mismo usuario, después aprobada con
+    // una fecha de vencimiento distinta (renovación del carnet).
+    const secondSessionId = `sess-${randomUUID()}`;
+    await app.db.kycVerification.create({
+      data: { userId, verificationType: "license", provider: "didit", externalSessionId: secondSessionId, status: "pending" },
+    });
+    await postWebhook({
+      status: "Approved",
+      session_id: secondSessionId,
+      decision: { id_verifications: [{ expiration_date: "2031-06-15", warnings: [] }] },
+    });
+
+    const licenses = await app.db.driversLicense.findMany({ where: { userId } });
+    expect(licenses).toHaveLength(1);
+    expect(licenses[0].expirationDate?.toISOString().slice(0, 10)).toBe("2031-06-15");
+    const secondVerification = await app.db.kycVerification.findUnique({ where: { externalSessionId: secondSessionId } });
+    expect(licenses[0].kycVerificationId).toBe(secondVerification?.id);
   });
 });

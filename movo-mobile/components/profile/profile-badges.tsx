@@ -4,8 +4,6 @@ import { Text, View } from "react-native";
 
 const BADGE_META: Record<ProfileBadge, { label: string; Icon: LucideIcon }> = {
   kyc_verified: { label: "Identidad verificada", Icon: ShieldCheck },
-  // Todavía no se calcula de verdad (MOVO-15 pendiente) — el mapeo ya queda listo para
-  // cuando el backend empiece a devolverla.
   license_verified: { label: "Licencia verificada", Icon: IdCard },
 };
 
