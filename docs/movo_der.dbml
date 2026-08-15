@@ -68,6 +68,15 @@ enum kyc_verification_type_enum {
   LICENSE
 }
 
+// MOVO-106: sin equivalente en el Miro original (push notifications no estaba
+// modelado) -- valores en minúscula, alineados directo a @movo/shared/Prisma (no hay
+// un enum legado en mayúscula que preservar, a diferencia de user_role_enum/
+// kyc_status_enum).
+enum push_platform_enum {
+  ios
+  android
+}
+
 enum drivers_license_status_enum {
   PENDING
   VERIFIED
@@ -296,6 +305,20 @@ Table users.address {
   long decimal
   created_at timestamp
   updated_at timestamp
+}
+
+// MOVO-106: registro de push token de Expo por dispositivo -- un usuario puede tener
+// varios dispositivos (multi-dispositivo), cada uno con un solo token vigente.
+Table users.push_token {
+  id uuid [pk]
+  user_id uuid [ref: > users.user.id]
+  expo_push_token varchar
+  device_id varchar
+  platform push_platform_enum
+  created_at timestamp
+  updated_at timestamp
+
+  Note: 'índice único (user_id, device_id) -- un dispositivo tiene un solo token vigente por usuario'
 }
 
 Table users.payment_method {
