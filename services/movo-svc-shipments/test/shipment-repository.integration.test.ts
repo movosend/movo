@@ -150,4 +150,40 @@ describe("shipment-repository (Postgres)", () => {
       expect(await repo.listPhotos(created.id)).toEqual([]);
     });
   });
+
+  describe("listByUser", () => {
+    it("incluye envíos donde el usuario es sender y donde es receiver, ordenados por más reciente", async () => {
+      const userId = randomUUID();
+      const asSender = await repo.create({ ...baseInput, senderId: userId, receiverId: randomUUID() });
+      const asReceiver = await repo.create({ ...baseInput, senderId: randomUUID(), receiverId: userId });
+      await repo.create(baseInput); // ajeno, no debe aparecer
+
+      const { items, total } = await repo.listByUser(userId, 1, 20);
+
+      expect(total).toBe(2);
+      expect(items.map((s) => s.id)).toEqual([asReceiver.id, asSender.id]);
+    });
+
+    it("pagina con skip/take", async () => {
+      const userId = randomUUID();
+      for (let i = 0; i < 3; i++) {
+        await repo.create({ ...baseInput, senderId: userId });
+      }
+
+      const page1 = await repo.listByUser(userId, 1, 2);
+      const page2 = await repo.listByUser(userId, 2, 2);
+
+      expect(page1.items).toHaveLength(2);
+      expect(page2.items).toHaveLength(1);
+      expect(page1.total).toBe(3);
+      expect(page2.total).toBe(3);
+    });
+
+    it("devuelve vacío si el usuario no participa en ningún envío", async () => {
+      await repo.create(baseInput);
+      const { items, total } = await repo.listByUser(randomUUID(), 1, 20);
+      expect(items).toEqual([]);
+      expect(total).toBe(0);
+    });
+  });
 });
