@@ -48,4 +48,10 @@ export const SECURE_STORE_KEYS = {
   sessionExpiresAt: "movo.session.expiresAt",
   /** Override de `EXPO_PUBLIC_API_URL` seteado desde la vista dev — ver `src/lib/api-override.ts`. */
   apiBaseUrlOverride: "movo.dev.apiBaseUrlOverride",
+  /** UUID estable generado una sola vez por instalación (MOVO-107, `src/lib/device-id.ts`)
+   * — identifica el dispositivo, no la sesión. A diferencia de las keys `session*`,
+   * **sobrevive** a `clearSession()`/`logout()`: se sigue necesitando para poder pedir
+   * `DELETE /users/me/push-token` en el próximo login desde el mismo dispositivo, y
+   * reusarlo evita registrar un token nuevo por cada logout/login del mismo aparato. */
+  pushDeviceId: "movo.push.deviceId",
 } as const;

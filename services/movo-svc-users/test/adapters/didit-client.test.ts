@@ -9,16 +9,28 @@ describe("createDiditClient (factory, MOVO-72)", () => {
 
   it("DIDIT_MODE=live sin credenciales falla rápido al arrancar", () => {
     expect(() => createDiditClient({ DIDIT_MODE: "live" })).toThrow(
-      /DIDIT_API_KEY, DIDIT_WORKFLOW_ID_IDENTITY y DIDIT_WEBHOOK_SECRET/
+      /DIDIT_API_KEY, DIDIT_WORKFLOW_ID_IDENTITY, DIDIT_WORKFLOW_ID_LICENSE y DIDIT_WEBHOOK_SECRET/
     );
   });
 
-  it("DIDIT_MODE=live con las 4 credenciales completas no falla", () => {
+  it("DIDIT_MODE=live sin DIDIT_WORKFLOW_ID_LICENSE (MOVO-15) falla rápido al arrancar", () => {
     expect(() =>
       createDiditClient({
         DIDIT_MODE: "live",
         DIDIT_API_KEY: "k",
         DIDIT_WORKFLOW_ID_IDENTITY: "w",
+        DIDIT_WEBHOOK_SECRET: "s",
+      })
+    ).toThrow(/DIDIT_WORKFLOW_ID_LICENSE/);
+  });
+
+  it("DIDIT_MODE=live con las 5 credenciales completas no falla", () => {
+    expect(() =>
+      createDiditClient({
+        DIDIT_MODE: "live",
+        DIDIT_API_KEY: "k",
+        DIDIT_WORKFLOW_ID_IDENTITY: "w",
+        DIDIT_WORKFLOW_ID_LICENSE: "w2",
         DIDIT_WEBHOOK_SECRET: "s",
       })
     ).not.toThrow();

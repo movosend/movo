@@ -154,4 +154,21 @@ export const authClient = {
   getKycStatus(accessToken: string): Promise<KycStatusResponse> {
     return httpClient.get<KycStatusResponse>("/kyc/status", undefined, authHeader(accessToken));
   },
+
+  /**
+   * Verificación de licencia de conducir (MOVO-15) — mismo backend que
+   * `createKycSession`/`getKycStatus` (`/kyc/license/session`, `/kyc/license/status`),
+   * pero **sin** armar el header a mano: a diferencia del onboarding (token efímero de
+   * `RegistrationContext`, antes de que exista sesión real), este flujo ocurre con el
+   * transportista ya logueado de verdad — se deja que el interceptor de
+   * `http-client.ts` adjunte `Authorization` desde `authHooks.getAccessToken()`, con el
+   * refresh automático de MOVO-76 incluido.
+   */
+  createLicenseKycSession(): Promise<CreateKycSessionResponse> {
+    return httpClient.post<CreateKycSessionResponse>("/kyc/license/session");
+  },
+
+  getLicenseKycStatus(): Promise<KycStatusResponse> {
+    return httpClient.get<KycStatusResponse>("/kyc/license/status");
+  },
 };

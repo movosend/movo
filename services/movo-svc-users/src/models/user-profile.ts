@@ -19,7 +19,9 @@ function computeBadges(user: User): ProfileBadge[] {
   if (user.kycStatusIdentity === KycStatus.APPROVED) {
     badges.push("kyc_verified");
   }
-  // TODO(MOVO-15): sumar "license_verified" cuando exista verificación de licencia.
+  if (user.kycStatusLicense === KycStatus.APPROVED) {
+    badges.push("license_verified");
+  }
   return badges;
 }
 
@@ -41,6 +43,7 @@ export function toPrivateProfile(user: User): PrivateProfile {
     phone: user.phone,
     photoUrl: user.photoUrl,
     kycStatus: user.kycStatusIdentity,
+    licenseKycStatus: user.kycStatusLicense,
     accountStatus: user.status,
     roles: user.roles,
     badges: computeBadges(user),
