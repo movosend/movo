@@ -51,6 +51,18 @@ export function createUsersService(db: PrismaClient, storageProvider: StoragePro
       return toPrivateProfile(user);
     },
 
+    /** AC3 de MOVO-80: búsqueda de receptor por nombre completo. Devuelve la
+     * proyección pública -- nunca expone email/teléfono como criterio de búsqueda ni
+     * como resultado, evita habilitar enumeración de usuarios. */
+    async searchUsers(query: string, callerId: string): Promise<PublicProfile[]> {
+      const trimmed = query.trim();
+      if (trimmed.length < 2) {
+        throw new ApiError(400, "VALIDATION_FAILED", "El término de búsqueda debe tener al menos 2 caracteres.");
+      }
+      const users = await repository.search(trimmed, callerId, 20);
+      return users.map(toPublicProfile);
+    },
+
     async getPublicProfile(id: string): Promise<PublicProfile> {
       const user = await repository.findById(id);
       // `deleted` es baja lógica (el registro sigue en la DB) pero se trata como

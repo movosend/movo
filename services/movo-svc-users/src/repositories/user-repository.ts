@@ -15,6 +15,11 @@ export interface UserRepository {
   updateKycStatusIdentity(id: string, status: KycStatus): Promise<User | null>;
   updateKycStatusLicense(id: string, status: KycStatus): Promise<User | null>;
   updatePhotoUrl(id: string, photoUrl: string | null): Promise<User | null>;
+  /**
+   * Búsqueda de receptor (AC3 de MOVO-80) por nombre completo — no existe columna
+   * `username` en este modelo. Excluye al propio caller.
+   */
+  search(query: string, excludeUserId: string, limit: number): Promise<User[]>;
 }
 
 type UserWithRoles = Prisma.UserGetPayload<{ include: { roles: true } }>;
@@ -205,6 +210,37 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         }
         throw error;
       }
+    },
+
+    async search(query: string, excludeUserId: string, limit: number): Promise<User[]> {
+      const words = query.split(/\s+/).filter(Boolean);
+      const or: Prisma.UserWhereInput[] = [
+        { firstName: { contains: query, mode: "insensitive" } },
+        { lastName: { contains: query, mode: "insensitive" } },
+      ];
+      // "Nombre completo" (AC3 de MOVO-80): con 2+ palabras, además intenta matchear
+      // "firstName lastName" y "lastName firstName" por separado -- cubre el caso real
+      // de búsqueda ("Juan Pérez") sin una raw query concatenando columnas. Limitación
+      // aceptada: nombres de 3+ tokens no se cubren perfecto -- mejora futura con
+      // pg_trgm si el volumen de usuarios lo justifica.
+      const [first, ...restWords] = words;
+      if (first && restWords.length > 0) {
+        const rest = restWords.join(" ");
+        or.push({
+          AND: [{ firstName: { contains: first, mode: "insensitive" } }, { lastName: { contains: rest, mode: "insensitive" } }],
+        });
+        or.push({
+          AND: [{ lastName: { contains: first, mode: "insensitive" } }, { firstName: { contains: rest, mode: "insensitive" } }],
+        });
+      }
+
+      const rows = await db.user.findMany({
+        where: { AND: [{ id: { not: excludeUserId } }, { OR: or }] },
+        include: { roles: true },
+        take: limit,
+        orderBy: { firstName: "asc" },
+      });
+      return rows.map(toDomainUser);
     },
   };
 }
