@@ -1,0 +1,105 @@
+import { randomUUID } from "node:crypto";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { FastifyInstance } from "fastify";
+import { buildApp } from "../src/app";
+import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
+import { CreateShipmentInput, PackageType } from "../src/models/shipment";
+import { createFakeUsersClient } from "./fake-users-client";
+
+describe("GET /shipments/:id (Postgres)", () => {
+  let app: FastifyInstance;
+  let repo: ShipmentRepository;
+  const senderId = randomUUID();
+  const receiverId = randomUUID();
+
+  const baseInput: CreateShipmentInput = {
+    senderId,
+    receiverId,
+    packageType: PackageType.standard_package,
+    weightKg: 2.5,
+    lengthCm: 30,
+    widthCm: 20,
+    heightCm: 15,
+    pickupAddress: "Av. Colón 1234, Córdoba",
+    pickupLat: -31.4201,
+    pickupLng: -64.1888,
+    deliveryAddress: "Bv. San Juan 500, Córdoba",
+    deliveryLat: -31.4135,
+    deliveryLng: -64.1811,
+    pickupDate: new Date("2030-01-01T00:00:00.000Z"),
+    pickupTimeWindowStart: new Date("1970-01-01T09:00:00.000Z"),
+    pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
+    suggestedPriceArs: 4500,
+  };
+
+  beforeAll(async () => {
+    process.env.JWT_SECRET = "test-secret";
+    process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
+    process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+
+    app = buildApp({ usersClient: createFakeUsersClient({}) });
+    await app.ready();
+    repo = createShipmentRepository(app.db);
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(async () => {
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
+  });
+
+  it("el emisor puede ver el detalle", async () => {
+    const shipment = await repo.create(baseInput);
+    const response = await app.inject({
+      method: "GET",
+      url: `/shipments/${shipment.id}`,
+      headers: { "x-user-id": senderId },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().id).toBe(shipment.id);
+  });
+
+  it("el receptor puede ver el detalle", async () => {
+    const shipment = await repo.create(baseInput);
+    const response = await app.inject({
+      method: "GET",
+      url: `/shipments/${shipment.id}`,
+      headers: { "x-user-id": receiverId },
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("un admin ajeno al envío puede ver el detalle", async () => {
+    const shipment = await repo.create(baseInput);
+    const adminId = randomUUID();
+    const response = await app.inject({
+      method: "GET",
+      url: `/shipments/${shipment.id}`,
+      headers: { "x-user-id": adminId, "x-user-roles": "admin" },
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("un tercero recibe 403, no 404", async () => {
+    const shipment = await repo.create(baseInput);
+    const strangerId = randomUUID();
+    const response = await app.inject({
+      method: "GET",
+      url: `/shipments/${shipment.id}`,
+      headers: { "x-user-id": strangerId },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.code).toBe("AUTH_FORBIDDEN");
+  });
+
+  it("responde 404 para un id inexistente", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: `/shipments/${randomUUID()}`,
+      headers: { "x-user-id": senderId },
+    });
+    expect(response.statusCode).toBe(404);
+  });
+});

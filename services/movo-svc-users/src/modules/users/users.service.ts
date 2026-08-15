@@ -3,8 +3,10 @@ import { FastifyBaseLogger } from "fastify";
 import { AccountStatus, ApiError } from "@movo/shared";
 import { PrismaClient } from "../../generated/prisma/client";
 import { createUserRepository } from "../../repositories/user-repository";
+import { createPushTokenRepository } from "../../repositories/push-token-repository";
 import { PrivateProfile, PublicProfile, toPrivateProfile, toPublicProfile } from "../../models/user-profile";
 import { StorageProvider } from "../../adapters/storage-provider";
+import { PushPlatform } from "../../models/push-token";
 
 /** AC2 de MOVO-97: whitelist de tipos permitidos para la foto de perfil. Duplicada en
  * `users.schema.ts` (JSON schema autocontenido, mismo criterio que el resto de los
@@ -35,8 +37,15 @@ function assertValidPhotoConstraints(contentType: string, contentLength: number)
   return ext;
 }
 
+export interface RegisterPushTokenInput {
+  expoPushToken: string;
+  deviceId: string;
+  platform: PushPlatform;
+}
+
 export function createUsersService(db: PrismaClient, storageProvider: StorageProvider, logger: FastifyBaseLogger) {
   const repository = createUserRepository(db);
+  const pushTokenRepository = createPushTokenRepository(db);
 
   return {
     async getUsersCount(): Promise<number> {
@@ -49,6 +58,18 @@ export function createUsersService(db: PrismaClient, storageProvider: StoragePro
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
       }
       return toPrivateProfile(user);
+    },
+
+    /** AC3 de MOVO-80: búsqueda de receptor por nombre completo. Devuelve la
+     * proyección pública -- nunca expone email/teléfono como criterio de búsqueda ni
+     * como resultado, evita habilitar enumeración de usuarios. */
+    async searchUsers(query: string, callerId: string): Promise<PublicProfile[]> {
+      const trimmed = query.trim();
+      if (trimmed.length < 2) {
+        throw new ApiError(400, "VALIDATION_FAILED", "El término de búsqueda debe tener al menos 2 caracteres.");
+      }
+      const users = await repository.search(trimmed, callerId, 20);
+      return users.map(toPublicProfile);
     },
 
     async getPublicProfile(id: string): Promise<PublicProfile> {
@@ -165,6 +186,30 @@ export function createUsersService(db: PrismaClient, storageProvider: StoragePro
           );
         }
       }
+    },
+
+    /** AC1/AC2: upsert por `(user_id, device_id)` — un mismo dispositivo reemplaza su
+     * token vigente en vez de acumular filas duplicadas. */
+    async registerPushToken(
+      userId: string,
+      input: RegisterPushTokenInput
+    ): Promise<{ deviceId: string; platform: PushPlatform }> {
+      const user = await repository.findById(userId);
+      if (!user) {
+        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
+      const token = await pushTokenRepository.upsert({
+        userId,
+        deviceId: input.deviceId,
+        expoPushToken: input.expoPushToken,
+        platform: input.platform,
+      });
+      return { deviceId: token.deviceId, platform: token.platform };
+    },
+
+    /** AC3: idempotente — sin token previo para ese dispositivo, no-op (204 igual). */
+    async unregisterPushToken(userId: string, deviceId: string): Promise<void> {
+      await pushTokenRepository.deleteByDeviceId(userId, deviceId);
     },
   };
 }

@@ -113,6 +113,10 @@ services:
       - STORAGE_PROVIDER=${STORAGE_PROVIDER:-mock}
       - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - S3_REGION=${S3_REGION}
+      # MOVO-106: mismo criterio de `:-mock` que STORAGE_PROVIDER/GEOCODING_PROVIDER/
+      # DIDIT_MODE/SMS_PROVIDER arriba — una var presente pero vacía no matchea el enum
+      # de envSchema y tira el servicio abajo al boot.
+      - PUSH_PROVIDER=${PUSH_PROVIDER:-mock}
     depends_on:
       - postgres
       - redis

@@ -17,6 +17,8 @@ export default defineConfig({
         "src/domain/**/*.ts",
         "src/repositories/**/*.ts",
         "src/models/**/*.ts",
+        "src/adapters/**/*.ts",
+        "src/utils/**/*.ts",
       ],
       exclude: ["src/modules/**/*.schema.ts", "src/modules/**/*.routes.ts"],
       // Umbral general (55% lines) se activa cuando el resto de los módulos (hoy stubs

@@ -76,6 +76,16 @@ enum AccountStatus {
   @@schema("users")
 }
 
+// MOVO-106: plataforma del dispositivo que registró el push token -- solo las dos que
+// soporta Expo Push (no hay "web" todavía, el mobile es la única app cliente).
+enum PushPlatform {
+  ios
+  android
+
+  @@map("push_platform_enum")
+  @@schema("users")
+}
+
 model User {
   id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email             String        @unique(map: "users_email_key")
@@ -99,6 +109,7 @@ model User {
   roles             UserRoleGrant[]
   kycVerifications  KycVerification[]
   addresses         Address[]
+  pushTokens        PushToken[]
   driversLicense    DriversLicense?
 
   // users_email_lower_idx (índice único funcional sobre LOWER(email)) no tiene
@@ -178,6 +189,25 @@ model Address {
 
   @@index([userId], map: "address_user_id_idx")
   @@map("address")
+  @@schema("users")
+}
+
+// MOVO-106: registro de push token por dispositivo (AC1) -- un usuario puede tener N
+// dispositivos, cada uno con un solo token vigente (índice único (user_id, device_id),
+// permite multi-dispositivo). FK real a users.users (mismo schema, mismo criterio que
+// Address/KycVerification).
+model PushToken {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  expoPushToken  String       @map("expo_push_token")
+  deviceId       String       @map("device_id")
+  platform       PushPlatform
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId], map: "push_token_user_id_device_id_key")
+  @@map("push_token")
   @@schema("users")
 }
 

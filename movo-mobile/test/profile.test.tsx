@@ -11,6 +11,14 @@ jest.mock("expo-router", () => ({
 const mockLogout = jest.fn();
 const mockRefetch = jest.fn();
 const mockUseMyProfile = jest.fn();
+const mockInvalidateQueries = jest.fn();
+
+jest.mock("@tanstack/react-query", () => ({
+  ...jest.requireActual("@tanstack/react-query"),
+  useQueryClient: () => ({
+    invalidateQueries: mockInvalidateQueries,
+  }),
+}));
 
 jest.mock("../src/hooks/use-auth", () => ({
   useAuth: () => ({ logout: mockLogout }),
@@ -202,4 +210,21 @@ describe("ProfileScreen", () => {
     fireEvent.press(getByTestId("profile-logout-button"));
     expect(mockLogout).toHaveBeenCalled();
   });
+
+  it("MOVO-98: renderiza el PhotoPicker interactivo con la foto del usuario", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile({
+        photoUrl: "https://s3.amazonaws.com/bucket/profile-photos/u1.jpg",
+      }),
+      refetch: mockRefetch,
+    });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+
+    expect(getByTestId("profile-photo-picker")).toBeTruthy();
+    expect(getByTestId("profile-photo-picker-avatar")).toBeTruthy();
+  });
 });
+

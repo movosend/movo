@@ -133,28 +133,48 @@ describe("KycScreen", () => {
     expect(mockCreateKycSession).not.toHaveBeenCalled();
   });
 
-  // MOVO-76: sin esta distinción, un usuario autenticado (login/sesión restaurada) que
-  // toca "Ir al inicio" acá volvía a "/", de donde `app/index.tsx` lo mandaba de nuevo
-  // para acá — loop infinito.
-  it("'Ir al inicio' va a /home con sesión autenticada real (no vuelve a /, evita el loop con app/index.tsx)", async () => {
+  // MOVO-98: manual_review no pasa a foto (va al inicio), approved continúa a /profile-photo
+  it("'Ir al inicio' en MANUAL_REVIEW navega a /home si está autenticado", async () => {
     mockAuthStatus = "authenticated";
     mockKycStatus = KycStatus.MANUAL_REVIEW;
 
     const { findByTestId } = await render(<KycScreen />);
-    await fireEvent.press(await findByTestId("kyc-primary-action"));
+    const primaryBtn = await findByTestId("kyc-primary-action");
+    expect(within(primaryBtn).getByText(/ir al inicio/i)).toBeTruthy();
+
+    await fireEvent.press(primaryBtn);
 
     expect(router.replace).toHaveBeenCalledWith("/home");
-    expect(router.replace).not.toHaveBeenCalledWith("/");
   });
 
-  it("'Ir al inicio' va a / sin sesión autenticada (wizard de registro, todavía sin login)", async () => {
+  it("'Ir al inicio' en MANUAL_REVIEW navega a / si no está autenticado", async () => {
     mockAuthStatus = "unauthenticated";
     mockKycStatus = KycStatus.MANUAL_REVIEW;
 
     const { findByTestId } = await render(<KycScreen />);
-    await fireEvent.press(await findByTestId("kyc-primary-action"));
+    const primaryBtn = await findByTestId("kyc-primary-action");
+    expect(within(primaryBtn).getByText(/ir al inicio/i)).toBeTruthy();
+
+    await fireEvent.press(primaryBtn);
 
     expect(router.replace).toHaveBeenCalledWith("/");
-    expect(router.replace).not.toHaveBeenCalledWith("/home");
+  });
+
+  it("'Continuar' navega a /profile-photo al completar con APPROVED", async () => {
+    mockCreateKycSession.mockResolvedValue({ ok: true, sessionToken: "tok_1" });
+    mockStartVerification.mockResolvedValue({
+      type: "completed",
+      session: { sessionId: "s1", status: "Approved" },
+    });
+
+    const { getByTestId, findByTestId } = await render(<KycScreen />);
+    await fireEvent.press(getByTestId("kyc-begin-verification"));
+
+    const primaryBtn = await findByTestId("kyc-primary-action");
+    expect(within(primaryBtn).getByText(/continuar/i)).toBeTruthy();
+
+    await fireEvent.press(primaryBtn);
+
+    expect(router.replace).toHaveBeenCalledWith("/profile-photo");
   });
 });

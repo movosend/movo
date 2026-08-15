@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
-import { createUsersService, PhotoUploadUrlInput } from "./users.service";
+import { createUsersService, PhotoUploadUrlInput, RegisterPushTokenInput } from "./users.service";
 import { usersSchemas } from "./users.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
@@ -44,6 +44,35 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
     async (request: FastifyRequest) => {
       const userId = requireUserIdFromHeader(request);
       return service.getPrivateProfile(userId);
+    },
+  );
+
+  // Ruta estática — se registra antes de "/:id" para que no haya ambigüedad visual
+  // con el próximo lector del archivo (el radix router de Fastify ya resuelve esto
+  // bien sin importar el orden de registro).
+  app.get(
+    "/search",
+    {
+      schema: {
+        summary: "Buscar usuarios por nombre completo",
+        description:
+          "AC3 de MOVO-80: busca por firstName+lastName (substring, case-insensitive) " +
+          "-- nunca por email/teléfono, evita enumeración. Devuelve la proyección " +
+          "pública (PublicProfile[]), máximo 20 resultados, excluye al propio caller. " +
+          "Ruta protegida.",
+        tags: ["users"],
+        querystring: usersSchemas.searchQuery,
+        response: {
+          200: usersSchemas.searchResponse,
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { q } = request.query as { q: string };
+      return service.searchUsers(q, callerId);
     },
   );
 
@@ -150,6 +179,57 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
     async (request: FastifyRequest, reply: FastifyReply) => {
       const userId = requireUserIdFromHeader(request);
       await service.deletePhoto(userId);
+      reply.code(204);
+    },
+  );
+
+  app.post(
+    "/me/push-token",
+    {
+      schema: {
+        summary: "Registrar push token del dispositivo",
+        description:
+          "AC1/AC2 de MOVO-106: upsert por (user_id, device_id) — un dispositivo tiene " +
+          "un solo token vigente por usuario, permite multi-dispositivo. El userId sale " +
+          "del header x-user-id inyectado por el gateway (ADR-010), nunca del body.",
+        tags: ["users"],
+        body: usersSchemas.registerPushTokenBody,
+        response: {
+          200: usersSchemas.registerPushTokenResponse,
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      const body = request.body as RegisterPushTokenInput;
+      return service.registerPushToken(userId, body);
+    },
+  );
+
+  app.delete(
+    "/me/push-token",
+    {
+      schema: {
+        summary: "Borrar push token de un dispositivo",
+        description:
+          "AC3 de MOVO-106: borra el token del dispositivo indicado para el usuario " +
+          "autenticado. Idempotente — sin token previo también responde 204.",
+        tags: ["users"],
+        body: usersSchemas.unregisterPushTokenBody,
+        response: {
+          204: { type: "null", description: "Sin contenido" },
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const userId = requireUserIdFromHeader(request);
+      const { deviceId } = request.body as { deviceId: string };
+      await service.unregisterPushToken(userId, deviceId);
       reply.code(204);
     },
   );

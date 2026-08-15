@@ -8,6 +8,9 @@ const PROFILE_BADGE_VALUES = ["kyc_verified", "license_verified"];
 // de users.service.ts — duplicados acá por el mismo criterio de "autocontenido" de arriba.
 const PHOTO_CONTENT_TYPE_VALUES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_PHOTO_CONTENT_LENGTH_BYTES = 5 * 1024 * 1024;
+// MOVO-106 AC1: mismos valores que PushPlatform en models/push-token.ts — duplicados
+// acá por el mismo criterio de "autocontenido" de arriba.
+const PUSH_PLATFORM_VALUES = ["ios", "android"];
 
 const transactionCounts = {
   type: "object",
@@ -71,6 +74,14 @@ export const usersSchemas = {
     },
   },
 
+  searchQuery: {
+    type: "object",
+    required: ["q"],
+    properties: {
+      q: { type: "string", minLength: 2, maxLength: 100 },
+    },
+  },
+
   publicProfileResponse: {
     type: "object",
     required: ["id", "fullName", "photoUrl", "isVerified", "badges", "transactionCounts", "reputationScore"],
@@ -82,6 +93,23 @@ export const usersSchemas = {
       badges: { type: "array", items: { type: "string", enum: PROFILE_BADGE_VALUES } },
       transactionCounts,
       reputationScore: { type: ["number", "null"] },
+    },
+  },
+
+  searchResponse: {
+    type: "array",
+    items: {
+      type: "object",
+      required: ["id", "fullName", "photoUrl", "isVerified", "badges", "transactionCounts", "reputationScore"],
+      properties: {
+        id: { type: "string" },
+        fullName: { type: "string" },
+        photoUrl: { type: ["string", "null"] },
+        isVerified: { type: "boolean" },
+        badges: { type: "array", items: { type: "string", enum: PROFILE_BADGE_VALUES } },
+        transactionCounts,
+        reputationScore: { type: ["number", "null"] },
+      },
     },
   },
 
@@ -117,6 +145,33 @@ export const usersSchemas = {
     required: ["photoUrl"],
     properties: {
       photoUrl: { type: "string" },
+    },
+  },
+
+  registerPushTokenBody: {
+    type: "object",
+    required: ["expoPushToken", "deviceId", "platform"],
+    properties: {
+      expoPushToken: { type: "string", minLength: 1 },
+      deviceId: { type: "string", minLength: 1 },
+      platform: { type: "string", enum: PUSH_PLATFORM_VALUES },
+    },
+  },
+
+  registerPushTokenResponse: {
+    type: "object",
+    required: ["deviceId", "platform"],
+    properties: {
+      deviceId: { type: "string" },
+      platform: { type: "string", enum: PUSH_PLATFORM_VALUES },
+    },
+  },
+
+  unregisterPushTokenBody: {
+    type: "object",
+    required: ["deviceId"],
+    properties: {
+      deviceId: { type: "string", minLength: 1 },
     },
   },
 

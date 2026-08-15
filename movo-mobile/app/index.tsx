@@ -6,6 +6,7 @@ import { useEffect, useRef } from "react";
 import { ActivityIndicator, Image, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { DotPattern } from "../components/ui/dot-pattern";
+import { usersClient } from "../src/api/users-client";
 import { useRegistration } from "../src/hooks/use-registration";
 import { useThemeColors } from "../src/hooks/use-theme-colors";
 import { useAuthStore } from "../src/store/auth-store";
@@ -45,6 +46,18 @@ export default function WelcomeScreen() {
     }
 
     void (async () => {
+      // Revalida contra el backend por si el KYC fue aprobado mientras la app estaba cerrada
+      try {
+        const fresh = await usersClient.getMyProfile();
+        if (fresh.kycStatus === KycStatus.APPROVED) {
+          await useAuthStore.getState().updateKycStatus(KycStatus.APPROVED);
+          router.replace("/home");
+          return;
+        }
+      } catch {
+        // En caso de fallo de red, continúa con el snapshot local
+      }
+
       await registration.hydrateFromLogin({
         userId: authUser.userId,
         accessToken: authAccessToken ?? "",
