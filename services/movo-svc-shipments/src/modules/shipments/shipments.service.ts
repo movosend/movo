@@ -75,6 +75,23 @@ function combineDateAndTime(dateStr: string, timeStr: string): Date {
   return new Date(`${dateStr}T${normalizeTime(timeStr)}.000Z`);
 }
 
+// La app opera solo en Argentina (mismo criterio que el regex de teléfono/país
+// hardcodeado en address) — sin DST, por lo que el offset es constante.
+const ARGENTINA_UTC_OFFSET_HOURS = 3;
+
+/**
+ * `combineDateAndTime` ancla el valor de calendario/reloj de pared (hora local
+ * argentina) como si fuera UTC -- correcto para persistir (ver `toEpochTime`/nota de
+ * MOVO-80 en CLAUDE.md), pero incorrecto para comparar contra un instante real como
+ * `new Date()`. Sin este ajuste, "está en el pasado" queda desfasado exactamente el
+ * offset de Argentina (UTC-3): un horario todavía futuro en hora local argentina
+ * podía rechazarse como pasado. Convierte el valor anclado al instante UTC real que
+ * representa esa hora de pared en Argentina.
+ */
+function toRealInstant(anchoredDate: Date): Date {
+  return new Date(anchoredDate.getTime() + ARGENTINA_UTC_OFFSET_HOURS * 60 * 60 * 1000);
+}
+
 /** Hora sobre la fecha epoch 1970-01-01 — mismo formato que ya usan las columnas
  * `@db.Time` del repositorio (ver shipment-repository.integration.test.ts). */
 function toEpochTime(timeStr: string): Date {
@@ -99,7 +116,7 @@ export function createShipmentsService(repository: ShipmentRepository, usersClie
           "El fin de la franja de retiro debe ser posterior al inicio."
         );
       }
-      if (windowStartAt < new Date()) {
+      if (toRealInstant(windowStartAt) < new Date()) {
         throw new ApiError(422, "SHIPMENT_PICKUP_WINDOW_IN_PAST", "La franja de retiro no puede estar en el pasado.");
       }
 

@@ -112,6 +112,30 @@ describe("shipments.service — createShipment", () => {
     expect(repository.create).not.toHaveBeenCalled();
   });
 
+  it("acepta una franja de retiro futura en hora local aunque sea anterior al instante UTC actual", async () => {
+    // Regresión: la hora de pared ("11:00") se ancla como si fuera UTC para persistir,
+    // pero acá tiene que compararse como hora argentina real (UTC-3). "now" = 13:30 UTC
+    // = 10:30 en Argentina; la franja empieza a las 11:00 ARG (14:00 UTC real) -> todavía
+    // futura, aunque 11:00 (el valor anclado) sea "menor" que 13:30 en UTC naive.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-01-01T13:30:00.000Z"));
+    try {
+      const repository = fakeRepository();
+      const usersClient = createFakeUsersClient({
+        "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
+      });
+      const service = createShipmentsService(repository, usersClient);
+
+      await expect(
+        service.createShipment({ ...baseInput, pickupDate: "2030-01-01", pickupTimeWindowStart: "11:00", pickupTimeWindowEnd: "12:00" })
+      ).resolves.toBeDefined();
+
+      expect(repository.create).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("falla con 404 si el receptor no existe", async () => {
     const repository = fakeRepository();
     const usersClient = createFakeUsersClient({});
