@@ -2307,3 +2307,126 @@ configurado, este es ahora el único bloqueo real para probar push de punta a pu
 pantalla de destino real para AC6 (depende de MOVO-83+), y el DoD manual del ticket
 (development build en dispositivo físico, casos de prueba con push real) — no
 verificable en este entorno.
+
+### MOVO-102 — Schema y máquina de estados de la oferta (Offer) (`svc-shipments`)
+
+Hermano de MOVO-79 (MOVO-104/105) para la entidad `Offer` — hasta este ticket existía en
+el DER 2.0 pero ningún ticket la implementaba, y MOVO-23/MOVO-17 la daban por hecha.
+Mismo patrón exacto que `Shipment`: `prisma/schema.prisma` (enum `OfferStatus` + modelo
+`Offer`), migración `20260815222908_create_offers_table`, `src/models/offer.ts`,
+`src/domain/offer-state-machine.ts`, `src/repositories/offer-repository.ts`.
+
+Decisiones clave:
+- **`OfferStatus` sumado a `@movo/shared`** (`shared/movo-shared/src/types/offer.ts`),
+  no local al servicio — mismo criterio que `ShipmentStatus` (no `PackageType`/
+  `PhotoStage`): va a ser consumido por los futuros endpoints HTTP de MOVO-17/23, igual
+  que pasó con `ShipmentStatus` y MOVO-80/81/82.
+- **`expired` es un estado derivado, nunca una transición real (AC11)**: la expiración es
+  perezosa, sin scheduler (no hay ninguno en el stack). `offer-state-machine.ts` modela
+  la clave `EXPIRED` vacía por completitud, pero `transition(pending, expired)` está
+  explícitamente probada como inválida — ningún repositorio la ejecuta jamás. El cálculo
+  real vive en `models/offer.ts#deriveEffectiveOfferStatus(status, expiresAt, now)`,
+  aplicado en TODA lectura del repositorio (`findById`/`listByShipment`/mapeo interno de
+  `acceptOffer`/`withdraw`/`reject`) — nunca se expone el `status` crudo de la fila.
+- **AC9 (bloqueo optimista real, "el punto crítico de todo el flujo"), resuelto sin
+  `SELECT ... FOR UPDATE` ni `$queryRaw`**: `acceptOffer()` usa
+  `tx.shipment.updateMany({ where: { id, status: 'published' }, data: {...} })` dentro de
+  la transacción y chequea `count`. Bajo READ COMMITTED (default de Postgres), el
+  `UPDATE` toma un row-lock exclusivo; una segunda transacción concurrente que intente el
+  mismo `UPDATE` sobre el mismo envío espera ese lock y, al liberarse, reevalúa su propio
+  `WHERE` contra los datos ya commiteados (`EvalPlanQual`) — si el status ya cambió, deja
+  de matchear y `count` da 0, y se lanza `ShipmentNotAvailableForAssignmentError` en vez
+  de aplicar una segunda asignación. Es el primer uso de optimistic locking real del
+  proyecto (a diferencia del TOCTOU aceptado de `shipment-repository.ts#updateStatus`,
+  MOVO-118, que sigue sin resolver porque ningún AC de ese ticket lo exigía).
+  **Verificado con un test de concurrencia real** (`Promise.allSettled` de dos
+  `acceptOffer` simultáneos contra Postgres real, no simulado): una gana, la otra recibe
+  el error de dominio. El test necesitó precalentar el pool de conexiones
+  (`Promise.all` de dos `SELECT 1`) antes de la carrera real — sin eso, el resto de la
+  suite deja el pool con una sola conexión idle (nunca había necesitado una segunda), y
+  la "perdedora" arrancaba su transacción con una conexión nueva más lenta de abrir,
+  perdiendo la carrera de forma no representativa (encontraba su propia oferta ya
+  `superseded` al leerla, en vez de competir por el lock del envío).
+- **AC8 en lote, con exclusión de ofertas ya vencidas**: al aceptar, las demás ofertas
+  `pending` del mismo envío pasan a `superseded` — pero el `updateMany` del batch excluye
+  las que ya vencieron lógicamente (`expiresAt` pasado), para que sigan reportando
+  `expired` en lectura y no `superseded`. Costo cero (una condición más en el `WHERE`).
+- **`Shipment.carrierId` se setea en el mismo `UPDATE` del accept**, más allá del AC8
+  literal ("el envío pasa a `assignment_pending`"): es la consecuencia directa de decidir
+  quién ofertó y ganó, la columna ya existe nullable exactamente para esto (MOVO-104,
+  preparación para EP-03), y hacerlo en el mismo `UPDATE` evita una segunda escritura con
+  su propia historia de locking. Documentado como superset, no bloqueante.
+- **AC10 reinterpretado por drift del AC contra el schema real**: el AC pide que
+  `offered_date` caiga dentro de un rango `pickup_date_start`—`pickup_date_end` que
+  **nunca existió** — ni en el DER original ni en el `Shipment` real de MOVO-104, que
+  solo tiene una fecha de retiro (`pickupDate`) más una ventana horaria sin fecha
+  (`pickupTimeWindowStart/End`, `@db.Time`). Se interpretó como el caso degenerado de un
+  rango de un día: `offeredDate` debe coincidir (mismo día UTC) con `shipment.pickupDate`
+  — validado dentro de la misma transacción de `create()`, antes del `INSERT`. El nombre
+  del error (`OfferDateOutOfRangeError`, no `Mismatch`) se dejó genérico por si en el
+  futuro se reintroduce un rango real de varios días.
+- **AC7 (una sola oferta activa por transportista/envío) resuelto 100% en la base**:
+  índice único parcial `offers_shipment_carrier_pending_unique` sobre
+  `(shipment_id, carrier_id) WHERE status = 'pending'` — no representable en el DSL de
+  Prisma (mismo tipo de gap que el trigger de `updated_at` de `shipments.shipments`), se
+  agregó a mano en `migration.sql` después del diff. `create()` traduce la violación
+  (Postgres `23505`) a `DuplicateActiveOfferError`. Un rechazo/retiro previo no bloquea
+  una oferta nueva, porque el índice solo cubre `status = 'pending'`.
+- **AC13 (KYC del transportista) queda fuera de alcance de este ticket, a propósito**:
+  `svc-shipments` no tiene acceso a `users.users` (ADR-003), así que el repositorio
+  físicamente no puede validarlo — mismo criterio que MOVO-105 documentó para el AC2 de
+  la máquina de estados de `Shipment` ("se termina de verificar cuando MOVO-80/81/82
+  consuman este módulo"). Nota dejada para el ticket futuro (tipo MOVO-80 para `Offer`):
+  el JWT de acceso ya lleva `kycStatus` como claim (`AccessTokenClaims.kycStatus`,
+  emitido en `login()` de `svc-users` como `user.kycStatusIdentity`, ADR-004) — la futura
+  capa HTTP puede validarlo leyendo el claim ya verificado, sin ninguna llamada
+  cross-servicio nueva.
+- **Sin `updated_at` en `Offer`**: a diferencia de `Shipment` (vida larga, muchos campos
+  mutables), el único campo que cambia fuera de `status` es `respondedAt`, ya gobernado
+  por la máquina de estados — un trigger genérico no aporta nada que `respondedAt` no
+  cubra. Decisión explícita, ni el AC ni el DER lo pedían.
+- **Sin tabla `offer_events`**: ninguna AC la pide y el ciclo de vida de `Offer` es mucho
+  más simple que el de `Shipment` (`pending` → un terminal en una sola transición o batch)
+  — `status` + `respondedAt` alcanza. No se replicó el patrón de historial append-only de
+  `shipment_events` sin necesidad real.
+- **Snapshot del transportista (AC2) mínimo, sin vehículo**: `carrierRatingAtOffer`/
+  `carrierNameAtOffer` (evitan el N+1 al listar, MOVO-17) sí se agregaron —
+  `rating_overall`/nombre ya existen en `users.user` del DER. Snapshot de vehículo NO se
+  agregó: no hay ninguna entidad de vehículo diseñada todavía en ningún lado del DER,
+  inventar columnas ahora habría adelantado un modelo que MOVO-17 no cerró.
+- **Migración generada con `prisma migrate diff --from-schema <schema.prisma previo al
+  cambio> --to-schema prisma/schema.prisma --script`** (diff incremental, no
+  `--from-empty` — el schema `shipments` ya tenía tablas), nunca `prisma migrate dev`
+  contra el Postgres compartido de dev (mismo motivo documentado en MOVO-104:
+  `_prisma_migrations` vive en `public`, compartida entre todos los servicios Prisma de
+  la instancia). Verificado con la imagen Docker ya buildeada: `prisma migrate deploy`
+  aplica limpio, una segunda corrida es no-op, y `GET /health` responde 200 con el
+  contenedor arriba — mismo criterio de verificación que MOVO-93/104.
+- **DER actualizado** (`docs/movo_der.dbml`): `shipments.offer` (placeholder) pasa a
+  `shipments.offers` (plural, mismo criterio que `shipment` → `shipments`), con los 3
+  campos nuevos del criterio 2 y el enum `offer_status_enum` real reemplazando el
+  `status varchar (pendiente)`. Diagrama Mermaid nuevo en
+  `docs/shipments/offer-state-diagram.md`, mismo formato que
+  `docs/shipments/state-diagram.md` (MOVO-105).
+
+Tests: `test/offer-state-machine.test.ts` (14 casos: 4 transiciones válidas + 7 inválidas
+representativas, incluyendo `pending -> expired` para fijar la decisión de que `expired`
+es inalcanzable vía `transition()`, más 3 tests puntuales — estado inicial, identidad del
+error, y "todo estado no terminal tiene salida"), `test/offer-repository.integration.test.ts`
+(21 casos contra Postgres real: `create`/AC10/AC7/snapshot, `findById`/`listByShipment`
+con expiración perezosa, `withdraw`/`reject`, y `acceptOffer` con el camino feliz de AC8,
+envío ya no disponible, y el test de concurrencia real de AC9). 69/69 en `svc-shipments`
+(subían 34 antes de este ticket: 24 de `shipment-state-machine`, 9 de
+`shipment-repository.integration`, 1 de `health`), 93.02% statements / 93.44% branches en
+`models`/`domain`/`repositories` (umbral repo-wide sigue sin activarse, ver
+`vitest.config.ts`). `tsc --noEmit`/`eslint`/`npm run build` sin errores en
+`svc-shipments` y `@movo/shared` (11/11 tests, 100% de cobertura).
+
+Pendiente / fuera de alcance de MOVO-102: AC12 (`carrier_id` desde `x-user-id`, nunca del
+body) y AC13 (KYC) son guía para la futura capa HTTP (tipo MOVO-80 para `Offer`), sin
+ticket propio todavía — este ticket es solo schema/dominio/repositorio, sin endpoints.
+`src/modules/shipments/*` (stubs HTTP) sigue sin tocarse, mismo alcance que dejó
+MOVO-104/105. Negociación encadenada (`parent_offer_id`) — recorte de alcance explícito
+del propio ticket. Validación de `expiresAt` contra un valor de negocio real (cuánto dura
+una oferta activa) — el campo existe y la lectura lo respeta, pero ningún AC definió el
+valor default ni quién lo setea; queda a criterio del futuro caller de `create()`.

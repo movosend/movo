@@ -106,6 +106,21 @@ enum photo_stage_enum {
   delivery
 }
 
+// MOVO-102 AC5: 6 valores, ya vigente como OfferStatus en @movo/shared y
+// como shipments.offer_status_enum. Reemplaza el "status varchar
+// (pendiente)" que tenía el Miro original en shipment/offer/
+// shipment_status_history. `expired` es un estado derivado (AC11): nunca se
+// persiste un UPDATE a ese valor — se calcula en cada lectura cuando
+// expires_at ya pasó, sin scheduler (no hay ninguno en el stack).
+enum offer_status_enum {
+  pending
+  accepted
+  rejected
+  withdrawn
+  expired
+  superseded
+}
+
 enum transaction_payment_method_enum {
   TARJETA
   EFECTIVO
@@ -401,17 +416,26 @@ Table shipments.custody_transfer_event {
   Note: 'Log append-only con hashing encadenado (previous_event_hash referencia al evento anterior). Todavía sin ticket de implementación.'
 }
 
-Table shipments.offer {
+// MOVO-102: implementada. Plural (shipments.offers), mismo criterio que
+// shipment -> shipments (MOVO-104). Una sola ronda de negociación (sin
+// contraoferta): el transportista oferta, el emisor acepta o rechaza — para
+// negociación encadenada se modelaría un parent_offer_id, explícitamente
+// fuera de alcance por ahora.
+Table shipments.offers {
   id uuid [pk]
   shipment_id uuid [ref: > shipments.shipments.id]
-  carrier_id uuid [ref: > shipments.user_ref.id]
-  price_offered decimal
-  offered_date date
-  status varchar [note: 'enum sin valores definidos en el DER original (pendiente)']
+  carrier_id uuid [ref: > shipments.user_ref.id, note: 'referencia lógica, sin FK real (ADR-003)']
+  price_offered decimal [note: 'numeric, nunca float (AC3). Precio BRUTO, el mismo criterio que suggested_price_ars de shipments.shipments']
+  offered_date date [note: 'tiene que coincidir con pickup_date del envío (AC10)']
+  message varchar [null, note: 'mensaje opcional del transportista (AC2, MOVO-23). Límite de caracteres es de negocio/UI, no del schema']
+  carrier_rating_at_offer decimal [null, note: 'snapshot del transportista al ofertar (AC2), evita N+1 al listar (MOVO-17). Envejece con el tiempo, trade-off aceptado']
+  carrier_name_at_offer varchar [null, note: 'snapshot del transportista al ofertar (AC2). Snapshot de vehículo pendiente: no hay entidad de vehículo diseñada todavía']
+  status offer_status_enum
+  expires_at timestamp [null, note: 'sostiene la expiración perezosa (AC11): sin scheduler, se evalúa en cada lectura']
   created_at timestamp
-  responded_at timestamp
+  responded_at timestamp [null]
 
-  Note: 'Todavía sin ticket de implementación (EP-03).'
+  Note: 'Implementada en MOVO-102 (hermano de MOVO-79/104/105 para la entidad Offer). Índice único parcial sobre (shipment_id, carrier_id) filtrado a status pending (AC7): un transportista no puede tener más de una oferta activa por envío, pero un rechazo/retiro previo no bloquea una oferta nueva.'
 }
 
 // MOVO-104 AC3: implementada como shipments.shipment_events (reemplaza a
