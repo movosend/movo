@@ -2,6 +2,7 @@ import { render, fireEvent, waitFor } from "@testing-library/react-native";
 import { KycStatus, UserRole } from "@movo/shared/dist/types/user";
 import { router } from "expo-router";
 import ProfilePhotoScreen from "../app/(auth)/profile-photo";
+import { authClient } from "../src/api/auth-client";
 import { SECURE_STORE_KEYS, secureStore } from "../src/lib/secure-store";
 import { useAuthStore } from "../src/store/auth-store";
 
@@ -12,6 +13,19 @@ jest.mock("expo-router", () => ({
     back: jest.fn(),
   },
 }));
+
+/** JWT sintético (sin firma real, `getJwtExpiresInSeconds` no la valida) con un `exp`
+ * dado, en segundos desde epoch — para probar el fallback de `activateSession()` sin
+ * depender de un token real emitido por el backend. */
+function makeJwt(expSecondsFromNow: number): string {
+  const base64url = (obj: unknown) =>
+    btoa(JSON.stringify(obj))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  const exp = Math.floor(Date.now() / 1000) + expSecondsFromNow;
+  return `${base64url({ alg: "none" })}.${base64url({ exp })}.sig`;
+}
 
 const mockResetRegistration = jest.fn();
 let mockKycStatus = "approved" as KycStatus;
@@ -60,10 +74,11 @@ describe("ProfilePhotoScreen", () => {
     expect(getByTestId("profile-photo-skip-btn")).toBeTruthy();
   });
 
-  it("permite saltar con 'Más tarde', limpia el registro pendiente y va a /home", async () => {
+  it("permite saltar con 'Más tarde', limpia el registro pendiente y va a /home (fallback con el exp real del token)", async () => {
+    jest.spyOn(authClient, "refresh").mockRejectedValue(new Error("network down"));
     jest.spyOn(secureStore, "getItem").mockImplementation(async (key: string) => {
       if (key === SECURE_STORE_KEYS.pendingRegistrationRefreshToken) return "mock-refresh-tok";
-      if (key === SECURE_STORE_KEYS.pendingRegistrationAccessToken) return "mock-access-tok";
+      if (key === SECURE_STORE_KEYS.pendingRegistrationAccessToken) return makeJwt(1800);
       if (key === SECURE_STORE_KEYS.pendingRegistrationUserId) return "u-123";
       return null;
     });
@@ -76,6 +91,24 @@ describe("ProfilePhotoScreen", () => {
       expect(mockResetRegistration).toHaveBeenCalled();
       expect(router.replace).toHaveBeenCalledWith("/home");
     });
+  });
+
+  it("si el refresh falla y el token pendiente ya venció, no navega y muestra el error de sesión", async () => {
+    jest.spyOn(authClient, "refresh").mockRejectedValue(new Error("network down"));
+    jest.spyOn(secureStore, "getItem").mockImplementation(async (key: string) => {
+      if (key === SECURE_STORE_KEYS.pendingRegistrationRefreshToken) return "mock-refresh-tok";
+      if (key === SECURE_STORE_KEYS.pendingRegistrationAccessToken) return makeJwt(-60);
+      if (key === SECURE_STORE_KEYS.pendingRegistrationUserId) return "u-123";
+      return null;
+    });
+
+    const { getByTestId, findByTestId } = await render(<ProfilePhotoScreen />);
+
+    await fireEvent.press(getByTestId("profile-photo-skip-btn"));
+
+    expect(await findByTestId("profile-photo-session-error-banner")).toBeTruthy();
+    expect(mockResetRegistration).not.toHaveBeenCalled();
+    expect(router.replace).not.toHaveBeenCalledWith("/home");
   });
 
   it("al continuar con foto, limpia el registro pendiente y navega a /home", async () => {

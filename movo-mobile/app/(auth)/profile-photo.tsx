@@ -1,15 +1,17 @@
 import { KycStatus, UserRole } from "@movo/shared/dist/types/user";
 import { router } from "expo-router";
 import { ShieldCheck, UserCheck } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../../components/auth/primary-button";
 import { PhotoPicker } from "../../components/profile/photo-picker";
+import { ErrorBanner } from "../../components/ui/error-banner";
 import { authClient } from "../../src/api/auth-client";
 import { useMyProfile } from "../../src/hooks/use-profile";
 import { useRegistration } from "../../src/hooks/use-registration";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { getJwtExpiresInSeconds } from "../../src/lib/jwt";
 import { SECURE_STORE_KEYS, secureStore } from "../../src/lib/secure-store";
 import { useAuthStore } from "../../src/store/auth-store";
 
@@ -17,9 +19,14 @@ export default function ProfilePhotoScreen() {
   const colors = useThemeColors();
   const registration = useRegistration();
   const { fields, resetRegistration, kycStatus } = registration;
-  const { data: profile } = useMyProfile();
+  const authStatus = useAuthStore((state) => state.status);
+  // Recién habilitado cuando la sesión está activada (ver `activateSession` abajo) —
+  // antes de eso el interceptor de `http-client.ts` no tiene token que adjuntar, y
+  // disparar el fetch igual solo lo manda sin `Authorization` a reintentar en vano.
+  const { data: profile } = useMyProfile({ enabled: authStatus === "authenticated" });
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
+  const [sessionError, setSessionError] = useState(false);
 
   const displayPhotoUrl = photoUrl ?? profile?.photoUrl ?? null;
   const fullName =
@@ -27,54 +34,85 @@ export default function ProfilePhotoScreen() {
     profile?.fullName ||
     "Usuario";
 
+  // Dedupea llamados concurrentes/repetidos a la misma activación — `null` habilita un
+  // reintento (se limpia en `handleFinish` si la activación no logró autenticar).
+  const activationPromiseRef = useRef<Promise<void> | null>(null);
+
   // Al entrar al paso de foto, activamos la sesión persistida en authStore si aún no lo está,
   // para que las llamadas de PhotoPicker (upload-url, confirmPhoto, etc.) lleven el Bearer token (AC9).
-  useEffect(() => {
-    async function activatePendingSession() {
-      const authState = useAuthStore.getState();
-      if (authState.status !== "authenticated") {
-        const [savedRefreshToken, savedAccessToken, savedUserId] =
-          await Promise.all([
-            secureStore.getItem(
-              SECURE_STORE_KEYS.pendingRegistrationRefreshToken,
-            ),
-            secureStore.getItem(
-              SECURE_STORE_KEYS.pendingRegistrationAccessToken,
-            ),
-            secureStore.getItem(SECURE_STORE_KEYS.pendingRegistrationUserId),
-          ]);
+  const activateSession = useCallback((): Promise<void> => {
+    if (activationPromiseRef.current) return activationPromiseRef.current;
 
-        if (savedRefreshToken) {
-          try {
-            const refreshed = await authClient.refresh({
+    const promise = (async () => {
+      const authState = useAuthStore.getState();
+      if (authState.status === "authenticated") return;
+
+      const [savedRefreshToken, savedAccessToken, savedUserId] =
+        await Promise.all([
+          secureStore.getItem(
+            SECURE_STORE_KEYS.pendingRegistrationRefreshToken,
+          ),
+          secureStore.getItem(
+            SECURE_STORE_KEYS.pendingRegistrationAccessToken,
+          ),
+          secureStore.getItem(SECURE_STORE_KEYS.pendingRegistrationUserId),
+        ]);
+
+      if (!savedRefreshToken) return;
+
+      try {
+        const refreshed = await authClient.refresh({
+          refreshToken: savedRefreshToken,
+        });
+        await authState.setSession(refreshed);
+      } catch {
+        if (savedAccessToken && savedUserId) {
+          // El access token pendiente ya fue emitido antes (en el registro) — se
+          // decodifica su `exp` real en vez de asumir 3600s de vida completos, que
+          // trataría un token casi vencido como recién emitido.
+          const expiresIn = getJwtExpiresInSeconds(savedAccessToken);
+          if (expiresIn !== null && expiresIn > 0) {
+            await authState.setSession({
+              accessToken: savedAccessToken,
               refreshToken: savedRefreshToken,
+              userId: savedUserId,
+              fullName,
+              roles: [UserRole.SENDER, UserRole.CARRIER],
+              kycStatus: kycStatus ?? KycStatus.APPROVED,
+              expiresIn,
             });
-            await authState.setSession(refreshed);
-          } catch {
-            if (savedAccessToken && savedUserId) {
-              await authState.setSession({
-                accessToken: savedAccessToken,
-                refreshToken: savedRefreshToken,
-                userId: savedUserId,
-                fullName,
-                roles: [UserRole.SENDER, UserRole.CARRIER],
-                kycStatus: kycStatus ?? KycStatus.APPROVED,
-                expiresIn: 3600,
-              });
-            }
           }
         }
       }
-    }
-    void activatePendingSession();
+    })();
+
+    activationPromiseRef.current = promise;
+    return promise;
   }, [fullName, kycStatus]);
+
+  useEffect(() => {
+    void activateSession();
+  }, [activateSession]);
 
   async function handleFinish() {
     if (finishing) return;
     setFinishing(true);
     try {
-      // Aseguramos que el estado local de KYC quede en APPROVED
+      // Espera a que la sesión termine de activarse antes de navegar — si el usuario
+      // toca "Continuar"/"Más tarde" antes de que resuelva (o si tanto el refresh como
+      // el fallback fallan), navegar igual a /home dejaría al guard de
+      // (app)/_layout.tsx mandarlo de vuelta a /login justo después de completar todo
+      // el onboarding.
+      await activateSession();
       const authState = useAuthStore.getState();
+      if (authState.status !== "authenticated") {
+        activationPromiseRef.current = null; // permite reintentar en el próximo tap
+        setSessionError(true);
+        return;
+      }
+      setSessionError(false);
+
+      // Aseguramos que el estado local de KYC quede en APPROVED
       if (authState.user && authState.user.kycStatus !== KycStatus.APPROVED) {
         await authState.updateKycStatus(KycStatus.APPROVED);
       }
@@ -110,6 +148,15 @@ export default function ProfilePhotoScreen() {
           contraparte te reconozca en el punto de encuentro y fortalece la
           confianza del intercambio.
         </Text>
+
+        <ErrorBanner
+          testID="profile-photo-session-error-banner"
+          message={
+            sessionError
+              ? "No pudimos confirmar tu sesión. Probá de nuevo."
+              : null
+          }
+        />
 
         <View className="my-auto items-center py-4">
           <PhotoPicker
