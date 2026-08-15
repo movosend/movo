@@ -3,6 +3,7 @@ import {
   Prisma,
   UserRole as PrismaUserRole,
   KycStatus as PrismaKycStatus,
+  AccountStatus as PrismaAccountStatus,
 } from "../generated/prisma/client";
 import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus, parseAccountStatus } from "../models/user";
 
@@ -235,7 +236,10 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
       }
 
       const rows = await db.user.findMany({
-        where: { AND: [{ id: { not: excludeUserId } }, { OR: or }] },
+        // Mismo criterio que `getPublicProfile` (users.service.ts): `deleted` es baja
+        // lógica y se trata como "no existe" hacia afuera; `banned` sí es buscable
+        // (sanción reversible, no una baja voluntaria).
+        where: { AND: [{ id: { not: excludeUserId } }, { status: { not: PrismaAccountStatus.deleted } }, { OR: or }] },
         include: { roles: true },
         take: limit,
         orderBy: { firstName: "asc" },

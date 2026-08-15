@@ -124,6 +124,38 @@ describe("GET /users/search (MOVO-80)", () => {
     expect(result).toHaveProperty("isVerified");
   });
 
+  it("excluye usuarios con baja lógica (status deleted), mismo criterio que GET /users/:id", async () => {
+    const caller = await repo.create(buildInput());
+    const deletedUser = await repo.create(buildInput({ firstName: "Marina", lastName: "Soft-Deleted" }));
+    await app.db.$executeRawUnsafe(
+      `UPDATE users.users SET status = 'deleted' WHERE id = '${deletedUser.id}'`
+    );
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/users/search?q=Marina",
+      headers: { "x-user-id": caller.id },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual([]);
+  });
+
+  it("incluye usuarios baneados (sanción reversible, no una baja voluntaria)", async () => {
+    const caller = await repo.create(buildInput());
+    const bannedUser = await repo.create(buildInput({ firstName: "Ramiro", lastName: "Baneado" }));
+    await app.db.$executeRawUnsafe(`UPDATE users.users SET status = 'banned' WHERE id = '${bannedUser.id}'`);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/users/search?q=Ramiro",
+      headers: { "x-user-id": caller.id },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().map((u: { id: string }) => u.id)).toContain(bannedUser.id);
+  });
+
   it("responde 400 con un término de búsqueda demasiado corto", async () => {
     const caller = await repo.create(buildInput());
     const response = await app.inject({
