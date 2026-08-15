@@ -60,6 +60,24 @@ enum PhotoStage {
   @@schema("shipments")
 }
 
+// MOVO-102 AC5: 6 estados, ya vigente como `OfferStatus` en @movo/shared y
+// consumido por offer-state-machine.ts. `expired` es un estado DERIVADO
+// (AC11, perezoso, sin scheduler): ningún código de este servicio ejecuta
+// jamás un UPDATE a 'expired' — se calcula en cada lectura. El valor existe
+// en el enum de Postgres por completitud/futuro-proofing, no porque algo lo
+// escriba.
+enum OfferStatus {
+  pending
+  accepted
+  rejected
+  withdrawn
+  expired
+  superseded
+
+  @@map("offer_status_enum")
+  @@schema("shipments")
+}
+
 // MOVO-104 AC2 + superset acordado con el usuario del DER original
 // (docs/movo_der.dbml): carrier_id/urgent/agreedPriceArs/paymentMethod/
 // deliveredAt/lastStatusChangedAt no estaban en el AC literal pero sí en el
@@ -110,6 +128,7 @@ model Shipment {
 
   events ShipmentEvent[]
   photos ShipmentPhoto[]
+  offers Offer[]
 
   @@index([senderId], map: "shipments_sender_id_idx")
   @@index([receiverId], map: "shipments_receiver_id_idx")
@@ -155,5 +174,53 @@ model ShipmentPhoto {
 
   @@index([shipmentId], map: "shipment_photos_shipment_id_idx")
   @@map("shipment_photos")
+  @@schema("shipments")
+}
+
+// MOVO-102: hermano de Shipment (MOVO-79/104/105) para la entidad Offer.
+// Una sola ronda de negociación (sin contraoferta) — si en el futuro se
+// necesita negociación encadenada, se modela con un parent_offer_id sin
+// romper nada de esto; explícitamente fuera de alcance acá.
+//
+// AC7 (índice único parcial `UNIQUE (shipment_id, carrier_id) WHERE status =
+// 'pending'`) y el resto de los índices del AC14 se agregan a mano en la
+// migración SQL — Prisma no representa índices parciales en su DSL, mismo
+// tipo de gap que el trigger de updated_at de Shipment (MOVO-104).
+model Offer {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId String @map("shipment_id") @db.Uuid
+  // Referencia lógica a users.users, sin FK real (AC4, ADR-003) — mismo
+  // criterio que Shipment.senderId/receiverId/carrierId.
+  carrierId  String @map("carrier_id") @db.Uuid
+
+  // AC3: numeric, nunca float. Precio BRUTO (lo que paga el emisor, incluye
+  // comisión Movo) — el cálculo neto/bruto es de UI/servicio (MOVO-23), acá
+  // solo se persiste.
+  priceOffered Decimal  @map("price_offered") @db.Decimal
+  offeredDate  DateTime @map("offered_date") @db.Date
+  // AC2: mensaje opcional del transportista. El límite de caracteres es de
+  // negocio/UI, no se valida en el schema.
+  message      String?  @db.Text
+
+  // AC2: snapshot del transportista al momento de ofertar, evita el N+1 al
+  // listar (MOVO-17) y es el dato correcto para una disputa futura ("qué
+  // reputación tenía cuando lo elegí"). Envejece con el tiempo — trade-off
+  // aceptado. Snapshot de vehículo NO se agrega: no hay ninguna entidad de
+  // vehículo diseñada todavía en users.users/DER — pendiente explícito.
+  carrierRatingAtOffer Decimal? @map("carrier_rating_at_offer") @db.Decimal
+  carrierNameAtOffer   String?  @map("carrier_name_at_offer")
+
+  status OfferStatus @default(pending)
+  // AC2: sostiene la expiración perezosa (AC11).
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  respondedAt DateTime? @map("responded_at") @db.Timestamptz
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId], map: "offers_shipment_id_idx")
+  @@index([carrierId], map: "offers_carrier_id_idx")
+  @@index([status], map: "offers_status_idx")
+  @@map("offers")
   @@schema("shipments")
 }
