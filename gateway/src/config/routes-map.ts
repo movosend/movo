@@ -105,6 +105,23 @@ export function getServiceRoutes(env: {
       prefix: "/geocode",
       upstream: env.USERS_SERVICE_URL,
     },
+
+    // addresses (MOVO-119): CRUD de libreta de direcciones guardadas. Prefijo propio
+    // (no anidado bajo /users) porque el ticket define el contrato así -- mismo
+    // criterio que /kyc y /geocode. Protegido por defecto (no está en publicRoutes).
+    {
+      prefix: "/addresses",
+      upstream: env.USERS_SERVICE_URL,
+    },
+
+    // places (MOVO-83): paso de direcciones del wizard de envío (estilo Uber/Pedidos
+    // Ya), proxea la Places API (New) de Google server-side. Público (ver
+    // publicRoutes) — mismo criterio que /geocode, ninguna razón de negocio para
+    // exigir token acá aunque en la práctica solo lo llama un usuario ya logueado.
+    {
+      prefix: "/places",
+      upstream: env.USERS_SERVICE_URL,
+    },
   ];
 }
 
@@ -143,13 +160,35 @@ export function getPublicRoutes(): PublicRoute[] {
     // geocode (MOVO-73): se llama durante el wizard de registro, antes de que exista
     // cuenta o token — mismo momento del onboarding que send-otp/verify-otp. Rate limit
     // propio para no quedar abierto como proxy gratuito de la API de Google.
-    { method: "POST", path: "/geocode", rateLimit: { max: 20, timeWindow: "15 minutes" } },
+    {
+      method: "POST",
+      path: "/geocode",
+      rateLimit: { max: 20, timeWindow: "15 minutes" },
+    },
+
+    // places (MOVO-83): autocomplete se dispara por cada tecleo (debounced en el
+    // cliente) del paso de direcciones del wizard de envío — presupuesto de rate
+    // limit más generoso que /geocode (un solo llamado por dirección) para no
+    // interrumpir la búsqueda a mitad de tipeo.
+    {
+      method: "POST",
+      path: "/places/autocomplete",
+      rateLimit: { max: 30, timeWindow: "15 minutes" },
+    },
+    {
+      method: "POST",
+      path: "/places/details",
+      rateLimit: { max: 30, timeWindow: "15 minutes" },
+    },
   ];
 }
 
-export function isPublicRoute(method: string, path: string): PublicRoute | undefined {
+export function isPublicRoute(
+  method: string,
+  path: string,
+): PublicRoute | undefined {
   return getPublicRoutes().find(
-    (r) => r.method === method.toUpperCase() && r.path === path
+    (r) => r.method === method.toUpperCase() && r.path === path,
   );
 }
 
@@ -166,6 +205,14 @@ export function getRateLimitOverrides(): RateLimitedRoute[] {
     {
       method: "POST",
       path: "/users/me/photo/upload-url",
+      rateLimit: { max: 20, timeWindow: "15 minutes" },
+    },
+    // MOVO-123: proxy directo a Google Routes API (pago) — mismo criterio que
+    // /geocode y /places/*, para no quedar abierto como proxy gratuito de Google.
+    // Se llama una vez por paso de resumen del wizard de envíos, no por tecleo.
+    {
+      method: "GET",
+      path: "/shipments/route",
       rateLimit: { max: 20, timeWindow: "15 minutes" },
     },
   ];

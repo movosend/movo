@@ -154,6 +154,27 @@ export const shipmentsSchemas = {
     },
   },
 
+  routeQuery: {
+    type: "object",
+    required: ["originLat", "originLng", "destinationLat", "destinationLng"],
+    properties: {
+      originLat: { type: "number", minimum: -90, maximum: 90 },
+      originLng: { type: "number", minimum: -180, maximum: 180 },
+      destinationLat: { type: "number", minimum: -90, maximum: 90 },
+      destinationLng: { type: "number", minimum: -180, maximum: 180 },
+    },
+  },
+
+  routeResponse: {
+    type: "object",
+    required: ["polyline", "distanceMeters", "durationSeconds"],
+    properties: {
+      polyline: { type: "string" },
+      distanceMeters: { type: "number" },
+      durationSeconds: { type: "number" },
+    },
+  },
+
   errorResponse: {
     type: "object",
     required: ["error"],
