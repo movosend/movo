@@ -129,7 +129,9 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
 
       expect(response.statusCode).toBe(200);
       expect(capturedUrl).toBe("/kyc/session");
-      expect(capturedHeaders["x-user-id"]).toBe("11111111-1111-1111-1111-111111111111");
+      expect(capturedHeaders["x-user-id"]).toBe(
+        "11111111-1111-1111-1111-111111111111",
+      );
     });
 
     it("GET /kyc/status exige token (401 sin Authorization)", async () => {
@@ -150,7 +152,9 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
 
       expect(response.statusCode).toBe(200);
       expect(capturedUrl).toBe("/kyc/status");
-      expect(capturedHeaders["x-user-id"]).toBe("11111111-1111-1111-1111-111111111111");
+      expect(capturedHeaders["x-user-id"]).toBe(
+        "11111111-1111-1111-1111-111111111111",
+      );
     });
 
     it("POST /kyc/webhook es público (sin token) — Didit no puede mandar un JWT", async () => {
@@ -175,6 +179,39 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
     });
   });
 
+  describe("Rutas de /addresses (MOVO-119)", () => {
+    function issueToken(): string {
+      return signAccessToken({
+        sub: "22222222-2222-2222-2222-222222222222",
+        roles: [UserRole.SENDER, UserRole.CARRIER],
+        kycStatus: KycStatus.NOT_STARTED,
+      });
+    }
+
+    it("GET /addresses exige token (401 sin Authorization)", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/addresses",
+      });
+
+      expect(response.statusCode).toBe(401);
+    });
+
+    it("GET /addresses con token válido llega al upstream con el prefijo /addresses preservado y x-user-id inyectado", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/addresses",
+        headers: { authorization: `Bearer ${issueToken()}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedUrl).toBe("/addresses");
+      expect(capturedHeaders["x-user-id"]).toBe(
+        "22222222-2222-2222-2222-222222222222",
+      );
+    });
+  });
+
   describe("Rate limit estricto en ruta protegida: POST /users/me/photo/upload-url (MOVO-97, AC8)", () => {
     // Cubre el gap real que encontró este ticket: getRateLimitOverrides() extiende el
     // mecanismo de rate limit estricto (antes solo aplicable a getPublicRoutes()) a una
@@ -196,7 +233,10 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
         const response = await app.inject({
           method: "POST",
           url: "/api/v1/users/me/photo/upload-url",
-          headers: { authorization: `Bearer ${token}`, "x-forwarded-for": testIp },
+          headers: {
+            authorization: `Bearer ${token}`,
+            "x-forwarded-for": testIp,
+          },
           payload: { contentType: "image/jpeg", contentLength: 1024 },
         });
         expect(response.statusCode).toBe(200);
@@ -205,7 +245,10 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
       const twentyFirst = await app.inject({
         method: "POST",
         url: "/api/v1/users/me/photo/upload-url",
-        headers: { authorization: `Bearer ${token}`, "x-forwarded-for": testIp },
+        headers: {
+          authorization: `Bearer ${token}`,
+          "x-forwarded-for": testIp,
+        },
         payload: { contentType: "image/jpeg", contentLength: 1024 },
       });
 
@@ -220,7 +263,10 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
         await app.inject({
           method: "POST",
           url: "/api/v1/users/me/photo/upload-url",
-          headers: { authorization: `Bearer ${token}`, "x-forwarded-for": testIp },
+          headers: {
+            authorization: `Bearer ${token}`,
+            "x-forwarded-for": testIp,
+          },
           payload: { contentType: "image/jpeg", contentLength: 1024 },
         });
       }
@@ -228,7 +274,10 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
       const otherRoute = await app.inject({
         method: "GET",
         url: "/api/v1/users/me",
-        headers: { authorization: `Bearer ${token}`, "x-forwarded-for": testIp },
+        headers: {
+          authorization: `Bearer ${token}`,
+          "x-forwarded-for": testIp,
+        },
       });
 
       expect(otherRoute.statusCode).toBe(200);
