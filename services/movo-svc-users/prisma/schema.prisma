@@ -159,11 +159,13 @@ model KycVerification {
 }
 
 // MOVO-73: tabla `address` del DER (docs/movo_der.dbml), diseñada como patrón de
-// libreta de direcciones (1:N desde User, con label/is_default) pero nunca
-// implementada hasta ahora. Esta US solo crea la primera dirección al registrarse
-// (label: null, is_default: true) — el resto del CRUD de libreta de direcciones
-// (agregar/editar/marcar otra como default) queda fuera de alcance, sin ticket propio
-// todavía.
+// libreta de direcciones (1:N desde User, con label/is_default). MOVO-73 solo creaba
+// la primera dirección al registrarse (label: null, is_default: true); el resto del
+// CRUD de libreta de direcciones (listar/agregar/editar/borrar, swap atómico de
+// default) lo implementa MOVO-119 (`src/modules/addresses/`). El índice único parcial
+// `address_user_id_default_unique` (migración de MOVO-119) garantiza a nivel de DB
+// que nunca haya dos filas `is_default = true` para el mismo usuario -- ver AC7 de
+// MOVO-102 para el mismo criterio con otra invariante.
 model Address {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId          String   @map("user_id") @db.Uuid

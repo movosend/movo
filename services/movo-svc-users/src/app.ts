@@ -11,8 +11,13 @@ import healthRoutes from "./modules/health/health.routes";
 import usersRoutes, { UsersRoutesOptions } from "./modules/users/users.routes";
 import authRoutes, { AuthRoutesOptions } from "./modules/auth/auth.routes";
 import kycRoutes, { KycRoutesOptions } from "./modules/kyc/kyc.routes";
-import geocodeRoutes, { GeocodeRoutesOptions } from "./modules/geocode/geocode.routes";
-import notificationsRoutes, { NotificationsRoutesOptions } from "./modules/notifications/notifications.routes";
+import geocodeRoutes, {
+  GeocodeRoutesOptions,
+} from "./modules/geocode/geocode.routes";
+import notificationsRoutes, {
+  NotificationsRoutesOptions,
+} from "./modules/notifications/notifications.routes";
+import addressesRoutes from "./modules/addresses/addresses.routes";
 import { SmsProvider } from "./adapters/sms-provider";
 import { DiditClient } from "./adapters/didit-client";
 import { GeocodingProvider } from "./adapters/geocoding-provider";
@@ -88,7 +93,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   const geocodeRouteOpts: GeocodeRoutesOptions = {
     prefix: "/geocode",
-    ...(opts.geocodingProvider ? { geocodingProvider: opts.geocodingProvider } : {}),
+    ...(opts.geocodingProvider
+      ? { geocodingProvider: opts.geocodingProvider }
+      : {}),
   };
   app.register(geocodeRoutes, geocodeRouteOpts);
 
@@ -100,6 +107,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.pushProvider ? { pushProvider: opts.pushProvider } : {}),
   };
   app.register(notificationsRoutes, notificationsRouteOpts);
+
+  // MOVO-119: prefijo propio (no anidado bajo /users), mismo criterio que /kyc y
+  // /geocode -- recurso con identidad propia aunque comparta este mismo servicio.
+  app.register(addressesRoutes, { prefix: "/addresses" });
 
   return app;
 }
