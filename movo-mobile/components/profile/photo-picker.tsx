@@ -8,7 +8,13 @@ import {
   Text,
   View,
 } from "react-native";
-import { Camera, Image as ImageIcon, Trash2, X } from "lucide-react-native";
+import {
+  Camera,
+  Image as ImageIcon,
+  Pencil,
+  Trash2,
+  X,
+} from "lucide-react-native";
 import { usersClient } from "../../src/api/users-client";
 import { friendlyErrorMessage } from "../../src/lib/error-messages";
 import {
@@ -40,6 +46,8 @@ export function PhotoPicker({
   testID = "photo-picker",
 }: PhotoPickerProps) {
   const colors = useThemeColors();
+  const badgeSize = Math.round(Math.min(36, Math.max(24, size * 0.32)));
+  const badgeIconSize = Math.round(badgeSize * 0.5);
   const [modalVisible, setModalVisible] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -192,9 +200,14 @@ export function PhotoPicker({
           {!isUploading && (
             <View
               testID={`${testID}-badge-icon`}
-              className="absolute bottom-0 right-0 h-9 w-9 items-center justify-center rounded-full border-2 border-bg bg-lime-500 shadow-sm"
+              style={{
+                width: badgeSize,
+                height: badgeSize,
+                borderRadius: badgeSize / 2,
+              }}
+              className="absolute bottom-0 right-0 items-center justify-center border-2 border-bg bg-lime-500 shadow-sm"
             >
-              <Camera size={16} color="#0A0A0B" strokeWidth={2.2} />
+              <Pencil size={badgeIconSize} color="#0A0A0B" strokeWidth={2.2} />
             </View>
           )}
         </Pressable>

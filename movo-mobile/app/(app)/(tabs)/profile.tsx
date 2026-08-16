@@ -48,12 +48,12 @@ export default function ProfileScreen() {
         contentContainerClassName="px-6 pb-32 pt-8"
         showsVerticalScrollIndicator={false}
       >
-        <View className="mb-6 flex-row items-center gap-3">
+        <View className="mb-6 flex-row items-center gap-4">
           <PhotoPicker
             testID="profile-photo-picker"
             fullName={data.fullName}
             currentPhotoUrl={data.photoUrl}
-            size={56}
+            size={88}
             onPhotoUpdated={() => {
               void queryClient.invalidateQueries({ queryKey: ['profile', 'me'] });
             }}
