@@ -2,6 +2,7 @@ import {
   formatReputationScore,
   formatShipmentCount,
   formatTripCount,
+  getFirstName,
   getInitials,
 } from "../src/lib/profile-format";
 
@@ -60,6 +61,21 @@ describe("profile-format", () => {
       ["Martina Zurita Gomez", "MG"],
     ])("getInitials(%p) === %p", (input, expected) => {
       expect(getInitials(input)).toBe(expected);
+    });
+  });
+
+  describe("getFirstName", () => {
+    it.each([
+      [null, ""],
+      [undefined, ""],
+      ["", ""],
+      ["   ", ""],
+      ["Martina", "Martina"],
+      ["Martina Zurita", "Martina"],
+      ["  martina   zurita  ", "martina"],
+      ["Martina Zurita Gomez", "Martina"],
+    ])("getFirstName(%p) === %p", (input, expected) => {
+      expect(getFirstName(input)).toBe(expected);
     });
   });
 });

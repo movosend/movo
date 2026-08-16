@@ -30,6 +30,12 @@ export function formatReputationScore(score: number | null | undefined): string 
   return score.toFixed(1);
 }
 
+/** Primer nombre para saludos cortos (home) — el nombre completo se reserva para
+ * lugares con más espacio (perfil). "" si no hay nombre real. */
+export function getFirstName(fullName: string | null | undefined): string {
+  return (fullName ?? "").trim().split(/\s+/)[0] ?? "";
+}
+
 /** Iniciales para el fallback del avatar — "?" si no hay nombre real. */
 export function getInitials(fullName: string | null | undefined): string {
   const parts = (fullName ?? "").trim().split(/\s+/).filter(Boolean);
