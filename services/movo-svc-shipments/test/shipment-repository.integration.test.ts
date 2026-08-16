@@ -5,7 +5,7 @@ import { ShipmentStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository, ShipmentNotFoundError } from "../src/repositories/shipment-repository";
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
-import { InvalidShipmentTransitionError } from "../src/domain/shipment-state-machine";
+import { InvalidShipmentTransitionError, InsufficientCreationPhotosError } from "../src/domain/shipment-state-machine";
 
 describe("shipment-repository (Postgres)", () => {
   let app: FastifyInstance;
@@ -79,9 +79,18 @@ describe("shipment-repository (Postgres)", () => {
     });
   });
 
+  /** AC6 de MOVO-81: precondición para publicar, no forma parte del grafo de
+   * transiciones -- se cumple acá para no acoplar los tests de `updateStatus` que no
+   * son sobre el gate de fotos a esa precondición. */
+  async function addTwoCreationPhotos(shipmentId: string): Promise<void> {
+    await repo.addPhoto(shipmentId, PhotoStage.creation, `shipments/${shipmentId}/creation/${randomUUID()}.jpg`);
+    await repo.addPhoto(shipmentId, PhotoStage.creation, `shipments/${shipmentId}/creation/${randomUUID()}.jpg`);
+  }
+
   describe("updateStatus", () => {
     it("aplica una transición válida, persiste el nuevo estado y loguea el evento", async () => {
       const created = await repo.create(baseInput);
+      await addTwoCreationPhotos(created.id);
       const actorId = randomUUID();
 
       const updated = await repo.updateStatus(created.id, ShipmentStatus.PUBLISHED, actorId, "receptor confirmó");
@@ -101,6 +110,7 @@ describe("shipment-repository (Postgres)", () => {
 
     it("setea deliveredAt al transicionar a delivered", async () => {
       const created = await repo.create(baseInput);
+      await addTwoCreationPhotos(created.id);
       await repo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null);
       await repo.updateStatus(created.id, ShipmentStatus.ASSIGNMENT_PENDING, null);
       await repo.updateStatus(created.id, ShipmentStatus.ASSIGNED, null);
@@ -129,6 +139,45 @@ describe("shipment-repository (Postgres)", () => {
       await expect(
         repo.updateStatus("00000000-0000-0000-0000-000000000000", ShipmentStatus.PUBLISHED, null),
       ).rejects.toThrow(ShipmentNotFoundError);
+    });
+
+    it("rechaza publicar sin ninguna foto de creation (AC6 de MOVO-81)", async () => {
+      const created = await repo.create(baseInput);
+
+      await expect(repo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null)).rejects.toThrow(
+        InsufficientCreationPhotosError,
+      );
+
+      const reloaded = await repo.findById(created.id);
+      expect(reloaded?.status).toBe(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION);
+    });
+
+    it("rechaza publicar con una sola foto de creation", async () => {
+      const created = await repo.create(baseInput);
+      await repo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+
+      await expect(repo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null)).rejects.toThrow(
+        InsufficientCreationPhotosError,
+      );
+    });
+
+    it("fotos de otra etapa (pickup/delivery) no cuentan para el mínimo de creation", async () => {
+      const created = await repo.create(baseInput);
+      await repo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+      await repo.addPhoto(created.id, PhotoStage.pickup, `shipments/${created.id}/pickup/${randomUUID()}.jpg`);
+      await repo.addPhoto(created.id, PhotoStage.pickup, `shipments/${created.id}/pickup/${randomUUID()}.jpg`);
+
+      await expect(repo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null)).rejects.toThrow(
+        InsufficientCreationPhotosError,
+      );
+    });
+
+    it("permite publicar con 2 o más fotos de creation", async () => {
+      const created = await repo.create(baseInput);
+      await addTwoCreationPhotos(created.id);
+
+      const updated = await repo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null);
+      expect(updated.status).toBe(ShipmentStatus.PUBLISHED);
     });
   });
 

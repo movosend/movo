@@ -15,7 +15,7 @@ import {
 } from "../src/repositories/offer-repository";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { CreateOfferInput } from "../src/models/offer";
-import { CreateShipmentInput, PackageType } from "../src/models/shipment";
+import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
 import { InvalidOfferTransitionError } from "../src/domain/offer-state-machine";
 
 const PICKUP_DATE = new Date("2026-08-20T00:00:00.000Z");
@@ -56,9 +56,13 @@ describe("offer-repository (Postgres)", () => {
     };
   }
 
-  /** Bypasea la máquina de estados de Shipment a propósito: es fixture de test, no flujo de negocio. */
+  /** Bypasea la máquina de estados de Shipment a propósito: es fixture de test, no flujo
+   * de negocio. Las 2 fotos de creation son para satisfacer el gate de AC6 de MOVO-81
+   * (mínimo para poder publicar) -- no son el objeto bajo prueba en este archivo. */
   async function createPublishedShipment(): Promise<string> {
     const created = await shipmentRepo.create(baseShipmentInput);
+    await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+    await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
     const published = await shipmentRepo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null);
     return published.id;
   }
