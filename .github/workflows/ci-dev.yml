@@ -385,6 +385,14 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           envs: GHCR_USER,GHCR_PAT
+          # Default de appleboy/ssh-action (10m) no alcanza desde que
+          # movo-svc-shipments también corre `prisma migrate deploy` en cada
+          # deploy (MOVO-102): un `migrate deploy` individual puede tardar
+          # varios minutos en esta EC2 chica (ADR-006) por contención de
+          # recursos, no por el contenido de la migración -- con dos servicios
+          # en serie el default se quedaba corto y mataba el script a mitad de
+          # camino (visto en el run que rompió dev tras el merge de MOVO-102).
+          command_timeout: 20m
           script: |
             echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             cd ~/movo
