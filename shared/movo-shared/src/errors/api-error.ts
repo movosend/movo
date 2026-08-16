@@ -34,7 +34,9 @@ export type ApiErrorCode =
   | "PUSH_PROVIDER_ERROR"
   | "ADDRESS_NOT_FOUND"
   | "PLACES_PROVIDER_ERROR"
-  | "PLACE_NOT_FOUND";
+  | "PLACE_NOT_FOUND"
+  | "ROUTES_PROVIDER_ERROR"
+  | "ROUTE_NOT_FOUND";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {
