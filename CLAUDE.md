@@ -567,3 +567,60 @@ Decisiones clave:
 - `app.config.js`: agregados `NSPhotoLibraryUsageDescription` y `NSCameraUsageDescription` en `infoPlist`, más el plugin `expo-image-picker`.
 
 Tests nuevos y actualizados: `test/photo-utils.test.ts`, `test/users-client.test.ts`, `test/photo-picker.test.tsx`, `test/profile-photo-screen.test.tsx`, `test/kyc.test.tsx`, `test/profile.test.tsx`, `test/http-client.test.tsx`. Total de 19 suites pasadas / 137 tests exitosos en `movo-mobile`. `tsc --noEmit` sin errores.
+
+### MOVO-102 — Schema y máquina de estados de la oferta (Offer) (`svc-shipments`)
+
+Hermano de MOVO-79/104/105 para la entidad `Offer` (existía en el DER 2.0 pero ningún
+ticket la implementaba). `prisma/schema.prisma` (enum `OfferStatus` + modelo `Offer`),
+`offer-state-machine.ts`, `offer-repository.ts`. `OfferStatus` vive en `@movo/shared`
+(mismo criterio que `ShipmentStatus`, consumido cross-servicio por los futuros endpoints
+de MOVO-17/23).
+
+Decisiones clave:
+- **`expired` es un estado derivado, nunca una transición real (AC11)**: expiración
+  perezosa, sin scheduler. `transition(pending, expired)` está probada como inválida —
+  se calcula en cada lectura (`deriveEffectiveOfferStatus`), nunca se persiste un
+  `UPDATE` a ese valor.
+- **AC9 (bloqueo optimista, "el punto crítico de todo el flujo") sin `SELECT...FOR
+  UPDATE` ni `$queryRaw`**: `acceptOffer()` condiciona `tx.shipment.updateMany({where:
+  {id, status:'published'}, ...})` y chequea `count` — bajo READ COMMITTED, el `UPDATE`
+  toma un row-lock exclusivo; la transacción perdedora reevalúa su `WHERE` contra datos
+  ya commiteados y `count` da 0, lanzando `ShipmentNotAvailableForAssignmentError` en
+  vez de una segunda asignación. Primer optimistic locking real del proyecto (distinto
+  del TOCTOU aceptado de `shipment-repository.ts#updateStatus`, MOVO-118). Verificado
+  con un test de concurrencia real (`Promise.allSettled` de dos `acceptOffer`
+  simultáneos contra Postgres) — necesitó precalentar el pool de conexiones antes de la
+  carrera, sin eso la suite completa dejaba una sola conexión idle y la carrera perdía
+  representatividad.
+- **AC7 resuelto 100% en la base**: índice único parcial `(shipment_id, carrier_id)
+  WHERE status='pending'` — no representable en el DSL de Prisma, agregado a mano en
+  `migration.sql`. Un rechazo/retiro previo no bloquea una oferta nueva.
+- **AC10 reinterpretado por drift del AC contra el schema real, pendiente de
+  confirmación del equipo (comentario en Linear)**: el rango `pickup_date_start`–
+  `pickup_date_end` que pide el AC no existe en el `Shipment` real de MOVO-104 (solo
+  hay `pickupDate`, un día) — se validó como igualdad de día contra `pickupDate`.
+- **Snapshot del transportista (AC2) sin vehículo**: `carrierRatingAtOffer`/
+  `carrierNameAtOffer` sí se agregaron; vehículo no, porque no hay ninguna entidad de
+  vehículo diseñada todavía en el DER — habría adelantado un modelo que MOVO-17 no
+  cerró.
+- **AC12/AC13 (header `x-user-id`, validación de KYC) fuera de alcance**: este ticket
+  es solo schema/dominio/repositorio, sin capa HTTP — `svc-shipments` tampoco tiene
+  acceso a `users.users` (ADR-003) para validar KYC. Documentado para el futuro ticket
+  HTTP tipo MOVO-80 (el JWT ya lleva `kycStatus` como claim, sin llamada cross-servicio
+  nueva).
+- **Migración con `prisma migrate diff` incremental** (nunca `migrate dev` contra el
+  Postgres compartido, mismo motivo que MOVO-104). DER actualizado: `shipments.offer`
+  (placeholder) → `shipments.offers`, con el enum real. Diagrama Mermaid nuevo en
+  `docs/shipments/offer-state-diagram.md`.
+
+Tests: 69/69 en `svc-shipments` (35 nuevos: 14 de `offer-state-machine`, incluyendo
+`pending -> expired` para fijar que es inalcanzable vía `transition()`; 21 de
+`offer-repository`, contra Postgres real, incluye el test de concurrencia de AC9).
+93.02% statements / 93.44% branches en `models`/`domain`/`repositories`. Verificado
+además con la imagen Docker ya buildeada (`prisma migrate deploy` idempotente,
+`GET /health` real).
+
+Pendiente / fuera de alcance: negociación encadenada (`parent_offer_id`, recorte de
+alcance explícito del ticket); valor default de `expiresAt` (el campo existe, ningún AC
+definió cuánto dura una oferta activa); `src/modules/shipments/*` (stubs HTTP) sigue sin
+tocarse.
