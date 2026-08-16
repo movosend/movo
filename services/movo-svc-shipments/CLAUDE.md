@@ -1,0 +1,135 @@
+# CLAUDE.md — services/movo-svc-shipments
+
+Estado de implementación de `movo-svc-shipments`. Ver el `CLAUDE.md` de la raíz del
+repo para contexto general del proyecto (stack, ADRs, convenciones, git/PR). Entrada
+corta por US: qué se hizo, en qué archivos, decisiones no obvias, qué queda pendiente.
+
+## Estado actual de la implementación
+
+### MOVO-105 — Máquina de estados de envío (`svc-shipments`)
+
+`src/domain/shipment-state-machine.ts`, dominio puro sin DB. 9 estados canónicos
+(`ShipmentStatus` en `@movo/shared`, reemplaza los 5 provisorios de MOVO-67), 13
+transiciones válidas según el DTE diseñado en Drive (`docs/shipments/
+state-diagram.md`). Cancelación del emisor válida desde 4 estados de origen (una,
+post-`assigned`, "con penalización" — penalización aún sin implementar). `disputed`
+sin transición de salida modelada (resolución de admin, ticket futuro).
+
+### MOVO-104 — Schema y migraciones de `shipments`
+
+Primer dominio real de `svc-shipments` → adopta Prisma (ADR-011). Modelos
+`Shipment`/`ShipmentEvent`/`ShipmentPhoto`. `shipment-repository.ts#updateStatus()` es
+la única vía de escritura de `status` (usa `transition()` de MOVO-105 antes del
+UPDATE, en la misma transacción inserta el evento). TOCTOU conocido y aceptado (sin
+lock atómico entre la relectura del estado y el UPDATE) — seguimiento en MOVO-118.
+Gotcha: `_prisma_migrations` vive en `public`, compartida entre todos los servicios
+Prisma sobre el mismo Postgres (ADR-003) — migraciones nuevas de `svc-shipments` se
+generan con `prisma migrate diff --from-empty` + `migrate deploy`, nunca
+`migrate dev` contra el Postgres compartido de dev.
+
+### MOVO-80 — Creación de envío, detalle y listado propio (`svc-shipments`)
+
+Primer flujo de negocio real de `svc-shipments` sobre MOVO-104/105: `POST /shipments`,
+`GET /shipments/:id` (403 a un tercero, nunca 404 filtrado) y `GET /shipments/mine`
+(paginado, primer endpoint paginado del repo). `src/app.ts` de este servicio nunca
+había terminado de cablearse (sin `@fastify/env`, sin error-handler) — se completó
+como prerrequisito, portando el mismo patrón de `movo-svc-users`.
+
+Decisiones clave:
+- **Búsqueda de receptor movida a `svc-users`** (`GET /users/search?q=`, no en
+  `svc-shipments` como sugería el AC literal) — es su dominio, evita una llamada
+  extra entre servicios solo para buscar. Busca por nombre completo
+  (`firstName`+`lastName`, substring case-insensitive) — no hay campo `username` en
+  `User`, y buscar por email/teléfono se descartó a propósito (habilitaría
+  enumeración de usuarios).
+- **`src/adapters/users-client.ts`**: primera llamada interna servicio-a-servicio del
+  repo (hasta ahora todos los adapters hablaban con APIs de terceros). `fetch` nativo
+  + `AbortSignal.timeout(5000)` — sin timeout, una demora en `svc-users` cuelga el
+  request de creación de envío indefinidamente. Sin modo mock (a diferencia de
+  `DiditClient`/`GeocodingProvider`): los tests inyectan un `UsersClient` falso vía
+  `buildApp({ usersClient })`, no hace falta un tercer modo por costo/credenciales.
+  Chequea existencia y KYC de identidad aprobado del receptor en una sola llamada
+  (`GET /users/:id` ya devuelve `isVerified`).
+- **`suggestedPriceArs` con fórmula placeholder** (tarifa base + $/kg + $/km
+  Haversine) en `shipments.service.ts` — `svc-pricing-logistics` (motor real, EP-05)
+  todavía es solo un esqueleto. Documentado explícitamente como temporal, sin nueva
+  migración ni adapter de pricing.
+- **Bug de timezone encontrado corriendo el servicio real (no por los tests
+  `app.inject`)**: `pickupDate`/`pickupTimeWindowStart`/`pickupTimeWindowEnd` se
+  guardan como `Date` ancladas a UTC (valores de calendario/reloj de pared, no
+  instantes), pero los serializadores `asDate`/`asTime` de fast-json-stringify
+  (detrás de `format: "date"`/`"time"` en el schema de respuesta) le restan el
+  `getTimezoneOffset()` del proceso antes de recortar el ISO string — pensado para
+  mostrar un instante real en hora local, corre el valor si el proceso no corre en
+  UTC (confirmado en local, Córdoba UTC-3: "09:00" salía "06:00"). Corregido
+  convirtiendo esos tres campos a string ya formateado (`toShipmentDto` en
+  `shipments.routes.ts`) antes de que lleguen al serializador — `asDate`/`asTime`
+  dejan pasar un string tal cual, sin ajuste. Sin este fix, cualquier deploy con
+  `TZ` distinto de UTC habría corrompido esos tres campos en toda respuesta.
+
+Pendiente / fuera de alcance de MOVO-80: penalización de cancelación post-`assigned`
+y transición de salida de `disputed` (MOVO-105, sin ticket todavía); el `carrierId`
+no participa en `GET /shipments/mine` (no hay asignación automática este sprint).
+
+### MOVO-102 — Schema y máquina de estados de la oferta (Offer) (`svc-shipments`)
+
+Hermano de MOVO-79/104/105 para la entidad `Offer` (existía en el DER 2.0 pero ningún
+ticket la implementaba). `prisma/schema.prisma` (enum `OfferStatus` + modelo `Offer`),
+`offer-state-machine.ts`, `offer-repository.ts`. `OfferStatus` vive en `@movo/shared`
+(mismo criterio que `ShipmentStatus`, consumido cross-servicio por los futuros endpoints
+de MOVO-17/23).
+
+Decisiones clave:
+- **`expired` es un estado derivado, nunca una transición real (AC11)**: expiración
+  perezosa, sin scheduler. `transition(pending, expired)` está probada como inválida —
+  se calcula en cada lectura (`deriveEffectiveOfferStatus`), nunca se persiste un
+  `UPDATE` a ese valor.
+- **AC9 (bloqueo optimista, "el punto crítico de todo el flujo") sin `SELECT...FOR
+  UPDATE` ni `$queryRaw`**: `acceptOffer()` condiciona `tx.shipment.updateMany({where:
+  {id, status:'published'}, ...})` y chequea `count` — bajo READ COMMITTED, el `UPDATE`
+  toma un row-lock exclusivo; la transacción perdedora reevalúa su `WHERE` contra datos
+  ya commiteados y `count` da 0, lanzando `ShipmentNotAvailableForAssignmentError` en
+  vez de una segunda asignación. Primer optimistic locking real del proyecto (distinto
+  del TOCTOU aceptado de `shipment-repository.ts#updateStatus`, MOVO-118). Verificado
+  con un test de concurrencia real (`Promise.allSettled` de dos `acceptOffer`
+  simultáneos contra Postgres) — necesitó precalentar el pool de conexiones antes de la
+  carrera, sin eso la suite completa dejaba una sola conexión idle y la carrera perdía
+  representatividad.
+- **AC7 resuelto 100% en la base**: índice único parcial `(shipment_id, carrier_id)
+  WHERE status='pending'` — no representable en el DSL de Prisma, agregado a mano en
+  `migration.sql`. Un rechazo/retiro previo no bloquea una oferta nueva.
+- **AC10 reinterpretado por drift del AC contra el schema real, pendiente de
+  confirmación del equipo (comentario en Linear)**: el rango `pickup_date_start`–
+  `pickup_date_end` que pide el AC no existe en el `Shipment` real de MOVO-104 (solo
+  hay `pickupDate`, un día) — se validó como igualdad de día contra `pickupDate`.
+- **Snapshot del transportista (AC2) sin vehículo**: `carrierRatingAtOffer`/
+  `carrierNameAtOffer` sí se agregaron; vehículo no, porque no hay ninguna entidad de
+  vehículo diseñada todavía en el DER — habría adelantado un modelo que MOVO-17 no
+  cerró.
+- **AC12/AC13 (header `x-user-id`, validación de KYC) fuera de alcance**: este ticket
+  es solo schema/dominio/repositorio, sin capa HTTP — `svc-shipments` tampoco tiene
+  acceso a `users.users` (ADR-003) para validar KYC. Documentado para el futuro ticket
+  HTTP tipo MOVO-80 (el JWT ya lleva `kycStatus` como claim, sin llamada cross-servicio
+  nueva).
+- **Migración con `prisma migrate diff` incremental** (nunca `migrate dev` contra el
+  Postgres compartido, mismo motivo que MOVO-104). DER actualizado: `shipments.offer`
+  (placeholder) → `shipments.offers`, con el enum real. Diagrama Mermaid nuevo en
+  `docs/shipments/offer-state-diagram.md`.
+
+Tests: 69/69 en `svc-shipments` (35 nuevos: 14 de `offer-state-machine`, incluyendo
+`pending -> expired` para fijar que es inalcanzable vía `transition()`; 21 de
+`offer-repository`, contra Postgres real, incluye el test de concurrencia de AC9).
+93.02% statements / 93.44% branches en `models`/`domain`/`repositories`. Verificado
+además con la imagen Docker ya buildeada (`prisma migrate deploy` idempotente,
+`GET /health` real).
+
+Pendiente / fuera de alcance: negociación encadenada (`parent_offer_id`, recorte de
+alcance explícito del ticket); valor default de `expiresAt` (el campo existe, ningún AC
+definió cuánto dura una oferta activa); `src/modules/shipments/*` (stubs HTTP) sigue sin
+tocarse.
+
+### Pendientes de este servicio
+
+- **MOVO-118**: arreglar el TOCTOU de `shipment-repository.ts#updateStatus()`
+  (MOVO-104) con `SELECT ... FOR UPDATE` cuando haya asignación automática o
+  concurrencia real.
