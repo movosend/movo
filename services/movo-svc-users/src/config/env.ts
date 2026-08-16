@@ -18,6 +18,7 @@ export interface EnvConfig {
   DIDIT_WEBHOOK_SECRET?: string;
   GEOCODING_PROVIDER: "mock" | "google";
   GOOGLE_MAPS_API_KEY?: string;
+  PLACES_PROVIDER: "mock" | "google";
   STORAGE_PROVIDER: "mock" | "s3";
   S3_BUCKET_NAME?: string;
   S3_REGION?: string;
@@ -61,6 +62,13 @@ export const envSchema = {
     // GEOCODING_PROVIDER=google la valida createGeocodingProvider al arrancar.
     GEOCODING_PROVIDER: { type: "string", enum: ["mock", "google"], default: "mock" },
     GOOGLE_MAPS_API_KEY: { type: "string" },
+    // MOVO-83: mismo criterio que GEOCODING_PROVIDER=mock — el paso de direcciones del
+    // wizard de envío no depende de una API key de Google para levantar el servicio en
+    // dev/test/CI. Reusa la misma GOOGLE_MAPS_API_KEY de arriba (mismo proyecto de
+    // Google Cloud, solo hace falta habilitar la Places API (New) sobre esa key). La
+    // obligatoriedad de GOOGLE_MAPS_API_KEY con PLACES_PROVIDER=google la valida
+    // createPlacesProvider al arrancar.
+    PLACES_PROVIDER: { type: "string", enum: ["mock", "google"], default: "mock" },
     // MOVO-97: default "mock" (mismo criterio que GEOCODING_PROVIDER/DIDIT_MODE/
     // SMS_PROVIDER) — no depender de un bucket real ni de credenciales de AWS para
     // levantar el servicio en dev/test/CI. La obligatoriedad de S3_BUCKET_NAME/

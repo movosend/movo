@@ -473,6 +473,25 @@ polyfill de `crypto.getRandomValues` en Hermes). Des-registro en logout, tolera
 fallos sin bloquear el logout. `eas.projectId` repuesto en `app.config.js` (se había
 perdido al migrar de `app.json` en MOVO-73).
 
+### MOVO-120 — Proxy de Google Places Autocomplete (`svc-users`)
+
+`POST /places/autocomplete`/`/places/details` sobre `PlacesProvider` (mock default,
+`google` real vía `createGooglePlacesProvider`) — mismo criterio que
+`GeocodingProvider`/`SmsProvider`. Público a propósito, igual que `/geocode`.
+
+Fixes de review sobre la implementación inicial:
+- `details()` distinguía mal los errores de Google: cualquier respuesta no-2xx caía en
+  422 `PLACE_NOT_FOUND`, incluida una API key sin habilitar (403) o cuota excedida
+  (429) — mostraba "no encontramos esa dirección" para un error de configuración. Ahora
+  solo un 404 real mapea a `PLACE_NOT_FOUND` (consistente con el mock provider), el
+  resto a 502 `PLACES_PROVIDER_ERROR` (mismo criterio que ya usaba `autocomplete()`).
+- `input` de `/places/autocomplete` no tenía `maxLength` — endpoint público sin auth,
+  cada request es una llamada facturable a Google; se agregó `maxLength: 200`.
+- `sessionToken` opcional threadeado en `PlacesProvider`/rutas/schema: agrupa un
+  autocomplete + su details bajo billing por sesión en Places API (New), más barato
+  que facturar cada request suelto. El proxy ya lo reenvía si llega; el mobile todavía
+  no lo genera (pendiente, ver abajo).
+
 ### Pendientes transversales
 
 - **Credenciales reales sin cargar** en AWS Secrets Manager (dev y prod) — el código
@@ -522,6 +541,10 @@ perdido al migrar de `app.json` en MOVO-73).
   al cambiar de rama. Repuesto acá: `owner: "movosend"` +
   `extra.eas.projectId: "077f9c8d-cb66-4772-a76c-34e4548290e7"` en `app.config.js`
   (verificado con `npx expo config --type public`, que ahora sí resuelve ambos).
+- Mobile de MOVO-120 no genera/envía todavía un `sessionToken` de Places (ver arriba)
+  — cuando exista la pantalla de búsqueda de dirección con autocomplete, generar un
+  token por sesión de búsqueda y mandarlo en cada `/places/autocomplete` + el
+  `/places/details` final.
 - **AC7 (Expo Go, aun con `projectId` configurado)**: `Notifications.
   getExpoPushTokenAsync({ projectId })` sigue tirando en Expo Go (no soporta push
   remoto, independientemente del `projectId`) — se atrapa en `push-registration.ts`,
