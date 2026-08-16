@@ -567,3 +567,40 @@ Decisiones clave:
 - `app.config.js`: agregados `NSPhotoLibraryUsageDescription` y `NSCameraUsageDescription` en `infoPlist`, más el plugin `expo-image-picker`.
 
 Tests nuevos y actualizados: `test/photo-utils.test.ts`, `test/users-client.test.ts`, `test/photo-picker.test.tsx`, `test/profile-photo-screen.test.tsx`, `test/kyc.test.tsx`, `test/profile.test.tsx`, `test/http-client.test.tsx`. Total de 19 suites pasadas / 137 tests exitosos en `movo-mobile`. `tsc --noEmit` sin errores.
+
+### MOVO-119 — CRUD de direcciones guardadas (`/addresses`, `svc-users`)
+
+`users.address` (MOVO-73) pasó de write-only (una fila por registro, nunca marcada
+`isDefault`) a libreta de direcciones completa: `GET/POST /addresses`,
+`PATCH/DELETE /addresses/:id` en `src/modules/addresses/`.
+
+Decisiones clave:
+- **Prefijo propio `/addresses`, no anidado en `/users`**: el contrato del ticket
+  define el path externo como `/api/v1/addresses`; mismo criterio que `/kyc`/`/geocode`
+  (recurso con identidad propia aunque comparta el servicio de `svc-users`). Requirió
+  sumar la entrada a `gateway/src/config/routes-map.ts#getServiceRoutes()` — protegido
+  por defecto, sin tocar `getPublicRoutes()`.
+- **`isDefault` atómico vía transacción, más índice único parcial de defensa en
+  profundidad**: `address-repository.ts` desmarca la default anterior (`updateMany`)
+  antes del `create`/`update` dentro de `db.$transaction`, mismo patrón que
+  `offer-repository.ts#acceptOffer` (MOVO-102) — sin `SELECT...FOR UPDATE`, confía en
+  el row-lock del `UPDATE` bajo READ COMMITTED. Se sumó además
+  `address_user_id_default_unique` (índice único parcial `WHERE is_default = true`),
+  mismo criterio que AC7 de MOVO-102: la invariante "nunca dos defaults" no depende
+  solo de la lógica de aplicación.
+- **403 sobre dirección ajena, nunca 404 filtrado**: `addresses.service.ts` resuelve
+  ownership antes de delegar a update/delete, mismo orden que
+  `shipments.service.ts#getShipmentDetail` (MOVO-80).
+- **Migración de backfill sin diff de schema.prisma**: `UPDATE ... SET is_default =
+  true` para las filas ya creadas por `POST /auth/register` (hoy 1 por usuario, sin
+  conflicto con el índice nuevo) + el índice, escrita a mano, mismo patrón que el
+  índice parcial de la migración de `offers` (MOVO-102).
+
+Pendiente / fuera de alcance: consumo desde `movo-mobile` (ticket aparte, el wizard de
+envío de MOVO-83 es quien lo necesita); exponer la dirección en `GET /users/me`
+(`PrivateProfile`) — no se pidió, el wizard consume `/addresses` directamente.
+
+Tests: `services/movo-svc-users/test/addresses.integration.test.ts` (19 casos, Postgres
+real) + 2 casos nuevos en `gateway/test/routes-prefix.test.ts` (`describe("Rutas de
+/addresses")`). 37/37 suites / 308/308 tests en `movo-svc-users`, 5/5 suites / 37/37
+tests en `gateway`. `tsc --noEmit` limpio en ambos paquetes.
