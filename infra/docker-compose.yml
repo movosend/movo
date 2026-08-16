@@ -131,6 +131,12 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}
+      # MOVO-81: mismo bucket que movo-svc-users (movo-shipment-media-{env}), prefijo
+      # shipments/* en vez de profile-photos/*. Mismo criterio de `:-mock` que el resto
+      # de los STORAGE_PROVIDER/GEOCODING_PROVIDER/DIDIT_MODE del compose.
+      - STORAGE_PROVIDER=${STORAGE_PROVIDER:-mock}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - S3_REGION=${S3_REGION}
     depends_on:
       - postgres
       - redis

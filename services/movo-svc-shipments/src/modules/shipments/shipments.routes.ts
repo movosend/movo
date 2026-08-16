@@ -1,9 +1,11 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
 import { createShipmentsService, CreateShipmentServiceInput } from "./shipments.service";
+import { createPhotosService, ConfirmPhotoInput, PresignPhotoInput } from "./photos.service";
 import { shipmentsSchemas } from "./shipments.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
+import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { Shipment } from "../../models/shipment";
 
@@ -12,6 +14,10 @@ export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
    * real levantado, mismo criterio que `storageProvider`/`diditClient` en
    * movo-svc-users. */
   usersClient?: UsersClient;
+  /** Override solo para tests de integración — evita depender de un bucket real/
+   * credenciales de AWS (MOVO-81), mismo criterio que `storageProvider` en
+   * movo-svc-users. */
+  storageProvider?: StorageProvider;
 }
 
 type CreateShipmentBody = Omit<CreateShipmentServiceInput, "senderId">;
@@ -38,8 +44,10 @@ function toShipmentDto(shipment: Shipment) {
 
 export default async function shipmentsRoutes(app: FastifyInstance, opts: ShipmentsRoutesOptions) {
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
+  const storageProvider = opts.storageProvider ?? createStorageProvider(app.config);
   const repository = createShipmentRepository(app.db);
   const service = createShipmentsService(repository, usersClient);
+  const photosService = createPhotosService(repository, storageProvider);
 
   app.post(
     "/",
@@ -125,6 +133,93 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const { id } = request.params as { id: string };
       const shipment = await service.getShipmentDetail(id, callerId, callerRoles);
       return toShipmentDto(shipment);
+    }
+  );
+
+  app.post(
+    "/:id/photos/presign",
+    {
+      schema: {
+        summary: "Presigned URL para subir una foto del paquete",
+        description:
+          "AC1/AC2/AC3 de MOVO-81: devuelve una presigned URL de PUT a S3 (TTL 5 " +
+          "minutos) para el tipo/tamaño declarados -- ambos quedan firmados dentro de " +
+          "la URL, no solo validados acá. Solo el emisor puede pedirla, y solo para la " +
+          "etapa creation. El s3Key lo genera el servidor bajo shipments/{id}/{stage}/, " +
+          "nunca uno propuesto por el cliente.",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        body: shipmentsSchemas.presignPhotoBody,
+        response: {
+          200: shipmentsSchemas.presignPhotoResponse,
+          400: shipmentsSchemas.errorResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      const body = request.body as PresignPhotoInput;
+      return photosService.getPhotoUploadUrl(id, callerId, body);
+    }
+  );
+
+  app.post(
+    "/:id/photos/confirm",
+    {
+      schema: {
+        summary: "Confirmar foto del paquete subida",
+        description:
+          "AC4/AC5 de MOVO-81: verifica contra S3 (HEAD) que el objeto exista antes de " +
+          "registrarlo en shipment_photos -- sin esto, el cliente podría confirmar " +
+          "fotos que nunca subió.",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        body: shipmentsSchemas.confirmPhotoBody,
+        response: {
+          200: shipmentsSchemas.confirmPhotoResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+          422: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      const body = request.body as ConfirmPhotoInput;
+      return photosService.confirmPhoto(id, callerId, body);
+    }
+  );
+
+  app.get(
+    "/:id/photos",
+    {
+      schema: {
+        summary: "Fotos del paquete",
+        description:
+          "AC7/AC8 de MOVO-81: URLs prefirmadas de lectura, TTL corto -- el bucket es " +
+          "privado para este prefijo, ningún objeto es accesible públicamente. " +
+          "Accesible solo para emisor, receptor o admin.",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        response: {
+          200: shipmentsSchemas.listPhotosResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const callerRoles = getUserRolesFromHeader(request);
+      const { id } = request.params as { id: string };
+      return photosService.listPhotoUrls(id, callerId, callerRoles);
     }
   );
 }

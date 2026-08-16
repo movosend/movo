@@ -22,6 +22,25 @@ export class InvalidShipmentTransitionError extends Error {
   }
 }
 
+/** AC6 de MOVO-81: mínimo de fotos de etapa `creation` para que un envío pueda pasar a
+ * `published` (el receptor confirma, MOVO-16). No forma parte del grafo de transiciones
+ * -- es una precondición de negocio sobre una transición que ya es estructuralmente
+ * válida, por eso es un error de dominio separado de `InvalidShipmentTransitionError`. */
+export const MIN_CREATION_PHOTOS_TO_PUBLISH = 2;
+
+export class InsufficientCreationPhotosError extends Error {
+  constructor(
+    public readonly shipmentId: string,
+    public readonly photoCount: number,
+  ) {
+    super(
+      `El envío '${shipmentId}' tiene ${photoCount} foto(s) de etapa 'creation', ` +
+        `se necesitan al menos ${MIN_CREATION_PHOTOS_TO_PUBLISH} para publicarlo`,
+    );
+    this.name = "InsufficientCreationPhotosError";
+  }
+}
+
 /**
  * Grafo de transiciones válidas del ciclo de vida del envío — DTE de
  * MOVO-105 (`docs/shipments/state-diagram.md`, diagrama fuente adjunto en

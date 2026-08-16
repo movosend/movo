@@ -1,6 +1,11 @@
 import { ShipmentStatus } from "@movo/shared";
 import { PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
-import { INITIAL_SHIPMENT_STATUS, transition } from "../domain/shipment-state-machine";
+import {
+  INITIAL_SHIPMENT_STATUS,
+  InsufficientCreationPhotosError,
+  MIN_CREATION_PHOTOS_TO_PUBLISH,
+  transition,
+} from "../domain/shipment-state-machine";
 import {
   Shipment,
   ShipmentEvent,
@@ -160,6 +165,20 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       // Lanza InvalidShipmentTransitionError si la transición no es válida —
       // ningún UPDATE se ejecuta si esto tira.
       transition(from, to);
+
+      // AC6 de MOVO-81: precondición de negocio sobre una transición que ya es
+      // estructuralmente válida — publicar exige evidencia mínima del paquete. Vive acá
+      // (la única vía de escritura de `status`, AC2 de MOVO-104) para que cualquier
+      // caller futuro (MOVO-16, receptor confirma) quede cubierto sin tener que
+      // reimplementar el chequeo.
+      if (to === ShipmentStatus.PUBLISHED) {
+        const creationPhotoCount = await db.shipmentPhoto.count({
+          where: { shipmentId: id, stage: PhotoStage.creation },
+        });
+        if (creationPhotoCount < MIN_CREATION_PHOTOS_TO_PUBLISH) {
+          throw new InsufficientCreationPhotosError(id, creationPhotoCount);
+        }
+      }
 
       const now = new Date();
       const row = await db.$transaction(async (tx) => {
