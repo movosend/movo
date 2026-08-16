@@ -19,8 +19,13 @@ export interface PlaceDetails {
  * `GeocodingProvider`/`SmsProvider`/`DiditClient`: testear las rutas sin red y poder
  * cambiar de implementación sin tocar el resto del servicio. */
 export interface PlacesProvider {
-  autocomplete(input: string): Promise<PlacePrediction[]>;
-  details(placeId: string): Promise<PlaceDetails>;
+  /** `sessionToken`: agrupa un autocomplete + su details bajo billing por sesión en
+   * vez de por request individual (mucho más barato en Places API New) — ver
+   * `createGooglePlacesProvider`. Opcional: el mobile todavía no lo genera/envía
+   * (pendiente, ver CLAUDE.md), pero el proxy ya lo soporta de punta a punta para
+   * activarlo sin volver a tocar el backend. */
+  autocomplete(input: string, sessionToken?: string): Promise<PlacePrediction[]>;
+  details(placeId: string, sessionToken?: string): Promise<PlaceDetails>;
 }
 
 export interface PlacesProviderConfig {

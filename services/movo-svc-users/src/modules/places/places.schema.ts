@@ -21,7 +21,8 @@ export const placesSchemas = {
     additionalProperties: false,
     required: ["input"],
     properties: {
-      input: { type: "string", minLength: 2 },
+      input: { type: "string", minLength: 2, maxLength: 200 },
+      sessionToken: { type: "string", minLength: 1, maxLength: 100 },
     },
   },
   autocompleteResponse: {
@@ -48,6 +49,7 @@ export const placesSchemas = {
     required: ["placeId"],
     properties: {
       placeId: { type: "string", minLength: 1 },
+      sessionToken: { type: "string", minLength: 1, maxLength: 100 },
     },
   },
   detailsResponse: {

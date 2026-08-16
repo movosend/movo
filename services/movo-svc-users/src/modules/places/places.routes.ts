@@ -11,10 +11,12 @@ export interface PlacesRoutesOptions extends FastifyPluginOptions {
 
 interface AutocompleteBody {
   input: string;
+  sessionToken?: string;
 }
 
 interface DetailsBody {
   placeId: string;
+  sessionToken?: string;
 }
 
 /**
@@ -52,7 +54,7 @@ export default async function placesRoutes(app: FastifyInstance, opts: PlacesRou
       },
     },
     async (request: FastifyRequest<{ Body: AutocompleteBody }>, reply: FastifyReply) => {
-      const predictions = await provider.autocomplete(request.body.input);
+      const predictions = await provider.autocomplete(request.body.input, request.body.sessionToken);
       reply.code(200);
       return { predictions };
     }
@@ -79,7 +81,7 @@ export default async function placesRoutes(app: FastifyInstance, opts: PlacesRou
       },
     },
     async (request: FastifyRequest<{ Body: DetailsBody }>, reply: FastifyReply) => {
-      const details = await provider.details(request.body.placeId);
+      const details = await provider.details(request.body.placeId, request.body.sessionToken);
       reply.code(200);
       return details;
     }

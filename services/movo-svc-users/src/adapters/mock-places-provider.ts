@@ -39,6 +39,7 @@ export function createMockPlacesProvider(): PlacesProvider {
     },
 
     async details(placeId: string): Promise<PlaceDetails> {
+      // sessionToken no aplica: sin llamada real a Google que agrupar por sesión
       const place = MOCK_PLACES.find((p) => p.placeId === placeId);
       if (!place) {
         throw new ApiError(404, "PLACE_NOT_FOUND", "No encontramos esa dirección.");

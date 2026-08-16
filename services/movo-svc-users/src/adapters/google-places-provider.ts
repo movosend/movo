@@ -37,13 +37,18 @@ interface GoogleDetailsResponse {
  * Reusa la misma `GOOGLE_MAPS_API_KEY` server-side de `GeocodingProvider` (ADR-014) —
  * restringida por IP, nunca embebida en el bundle del mobile. Restringido a Argentina
  * (`includedRegionCodes`) para no devolver sugerencias fuera del alcance de la app.
+ *
+ * `sessionToken` (opcional, ver `PlacesProvider`): agrupa un autocomplete + su details
+ * bajo billing por sesión en Places API (New), en vez de facturar cada request suelto
+ * — el patrón de uso real acá (autocomplete en cada tecleo + un details al final).
+ * Pendiente que el mobile lo genere/envíe; el proxy ya lo reenvía si llega.
  */
 export function createGooglePlacesProvider(config: GooglePlacesProviderConfig): PlacesProvider {
   const autocompleteUrl = config.autocompleteUrl ?? DEFAULT_AUTOCOMPLETE_URL;
   const detailsBaseUrl = config.detailsBaseUrl ?? DEFAULT_DETAILS_BASE_URL;
 
   return {
-    async autocomplete(input: string): Promise<PlacePrediction[]> {
+    async autocomplete(input: string, sessionToken?: string): Promise<PlacePrediction[]> {
       let response: Response;
       try {
         response = await fetch(autocompleteUrl, {
@@ -52,7 +57,11 @@ export function createGooglePlacesProvider(config: GooglePlacesProviderConfig): 
             "Content-Type": "application/json",
             "X-Goog-Api-Key": config.apiKey,
           },
-          body: JSON.stringify({ input, includedRegionCodes: ["ar"] }),
+          body: JSON.stringify({
+            input,
+            includedRegionCodes: ["ar"],
+            ...(sessionToken ? { sessionToken } : {}),
+          }),
         });
       } catch {
         throw new ApiError(502, "PLACES_PROVIDER_ERROR", "No se pudo conectar con el proveedor de direcciones.");
@@ -69,10 +78,14 @@ export function createGooglePlacesProvider(config: GooglePlacesProviderConfig): 
         .map((p) => ({ placeId: p.placeId, description: p.text?.text ?? "" }));
     },
 
-    async details(placeId: string): Promise<PlaceDetails> {
+    async details(placeId: string, sessionToken?: string): Promise<PlaceDetails> {
       let response: Response;
       try {
-        response = await fetch(`${detailsBaseUrl}/${encodeURIComponent(placeId)}`, {
+        const url = new URL(`${detailsBaseUrl}/${encodeURIComponent(placeId)}`);
+        if (sessionToken) {
+          url.searchParams.set("sessionToken", sessionToken);
+        }
+        response = await fetch(url, {
           method: "GET",
           headers: {
             "X-Goog-Api-Key": config.apiKey,
@@ -83,8 +96,11 @@ export function createGooglePlacesProvider(config: GooglePlacesProviderConfig): 
         throw new ApiError(502, "PLACES_PROVIDER_ERROR", "No se pudo conectar con el proveedor de direcciones.");
       }
 
+      if (response.status === 404) {
+        throw new ApiError(404, "PLACE_NOT_FOUND", "No encontramos esa dirección.");
+      }
       if (!response.ok) {
-        throw new ApiError(422, "PLACE_NOT_FOUND", "No encontramos esa dirección.");
+        throw new ApiError(502, "PLACES_PROVIDER_ERROR", "El proveedor de direcciones devolvió un error.");
       }
 
       const body = (await response.json()) as GoogleDetailsResponse;
