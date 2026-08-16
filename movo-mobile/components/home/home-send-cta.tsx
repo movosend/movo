@@ -37,6 +37,17 @@ export function HomeSendCta({ kycStatus, testID }: HomeSendCtaProps) {
       testID={testID}
       onPress={handlePress}
       disabled={isLocked}
+      style={
+        isLocked
+          ? undefined
+          : {
+              shadowColor: colors.chromeShadow,
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 1,
+              shadowRadius: 12,
+              elevation: 4,
+            }
+      }
       className={`mb-6 flex-row items-center gap-4 rounded-[20px] p-[18px] ${
         isLocked ? "bg-bg-mute" : "bg-lime-500"
       }`}
