@@ -105,6 +105,14 @@ export function getServiceRoutes(env: {
       prefix: "/geocode",
       upstream: env.USERS_SERVICE_URL,
     },
+
+    // addresses (MOVO-119): CRUD de libreta de direcciones guardadas. Prefijo propio
+    // (no anidado bajo /users) porque el ticket define el contrato así -- mismo
+    // criterio que /kyc y /geocode. Protegido por defecto (no está en publicRoutes).
+    {
+      prefix: "/addresses",
+      upstream: env.USERS_SERVICE_URL,
+    },
   ];
 }
 
@@ -143,13 +151,20 @@ export function getPublicRoutes(): PublicRoute[] {
     // geocode (MOVO-73): se llama durante el wizard de registro, antes de que exista
     // cuenta o token — mismo momento del onboarding que send-otp/verify-otp. Rate limit
     // propio para no quedar abierto como proxy gratuito de la API de Google.
-    { method: "POST", path: "/geocode", rateLimit: { max: 20, timeWindow: "15 minutes" } },
+    {
+      method: "POST",
+      path: "/geocode",
+      rateLimit: { max: 20, timeWindow: "15 minutes" },
+    },
   ];
 }
 
-export function isPublicRoute(method: string, path: string): PublicRoute | undefined {
+export function isPublicRoute(
+  method: string,
+  path: string,
+): PublicRoute | undefined {
   return getPublicRoutes().find(
-    (r) => r.method === method.toUpperCase() && r.path === path
+    (r) => r.method === method.toUpperCase() && r.path === path,
   );
 }
 
