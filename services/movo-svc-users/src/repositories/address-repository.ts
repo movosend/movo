@@ -19,6 +19,16 @@ export interface AddressRepository {
 
 type AddressRow = Prisma.AddressGetPayload<Record<string, never>>;
 
+/** Mismo criterio que `isUniqueConstraintError` de `user-repository.ts`. El único
+ * índice único de `address` es `address_user_id_default_unique` (parcial, MOVO-119),
+ * así que cualquier P2002 en `create()` solo puede venir de ahí -- no hace falta
+ * inspeccionar `meta` para identificar el campo en conflicto. */
+function isDefaultUniqueConflict(
+  error: unknown,
+): error is Prisma.PrismaClientKnownRequestError {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
 /** Mismo criterio que `toDomainUser`/`toDomainPushToken`: campo por campo, no
  * spread, para que agregar una columna rompa en compilación. */
 function toDomainAddress(row: AddressRow): Address {
@@ -57,43 +67,60 @@ export function createAddressRepository(db: PrismaClient): AddressRepository {
     },
 
     async create(userId: string, input: CreateAddressInput): Promise<Address> {
-      const created = await db.$transaction(async (tx) => {
-        // La primera dirección del usuario se fuerza default sin importar lo que
-        // mande el cliente (contrato de MOVO-119) -- nunca dejar a un usuario con
-        // direcciones guardadas y ninguna default.
-        const existingCount = await tx.address.count({ where: { userId } });
-        const isDefault =
-          existingCount === 0 ? true : (input.isDefault ?? false);
+      const attempt = (): Promise<AddressRow> =>
+        db.$transaction(async (tx) => {
+          // La primera dirección del usuario se fuerza default sin importar lo que
+          // mande el cliente (contrato de MOVO-119) -- nunca dejar a un usuario con
+          // direcciones guardadas y ninguna default.
+          const existingCount = await tx.address.count({ where: { userId } });
+          const isDefault =
+            existingCount === 0 ? true : (input.isDefault ?? false);
 
-        if (isDefault) {
-          // Bajo READ COMMITTED, este UPDATE toma row-lock exclusivo sobre la fila
-          // default actual (si existe) antes de que el INSERT de abajo compita con
-          // otra transacción por el mismo índice único parcial -- mismo criterio que
-          // `offer-repository.ts#acceptOffer` (MOVO-102), sin `SELECT ... FOR UPDATE`.
-          await tx.address.updateMany({
-            where: { userId, isDefault: true },
-            data: { isDefault: false },
+          if (isDefault) {
+            // Bajo READ COMMITTED, este UPDATE toma row-lock exclusivo sobre la fila
+            // default actual (si existe) antes de que el INSERT de abajo compita con
+            // otra transacción por el mismo índice único parcial -- mismo criterio que
+            // `offer-repository.ts#acceptOffer` (MOVO-102), sin `SELECT ... FOR UPDATE`.
+            // No cubre el caso "primera dirección concurrente" (no hay fila default que
+            // lockear todavía) -- ese caso lo resuelve el catch de abajo con un retry.
+            await tx.address.updateMany({
+              where: { userId, isDefault: true },
+              data: { isDefault: false },
+            });
+          }
+
+          return tx.address.create({
+            data: {
+              userId,
+              label: input.label ?? null,
+              isDefault,
+              street: input.street,
+              streetNumber: input.streetNumber,
+              floorApartment: input.floorApartment ?? null,
+              city: input.city,
+              province: input.province,
+              postalCode: input.postalCode,
+              country: input.country,
+              lat: input.lat,
+              long: input.long,
+            },
           });
-        }
-
-        return tx.address.create({
-          data: {
-            userId,
-            label: input.label ?? null,
-            isDefault,
-            street: input.street,
-            streetNumber: input.streetNumber,
-            floorApartment: input.floorApartment ?? null,
-            city: input.city,
-            province: input.province,
-            postalCode: input.postalCode,
-            country: input.country,
-            lat: input.lat,
-            long: input.long,
-          },
         });
-      });
-      return toDomainAddress(created);
+
+      try {
+        return toDomainAddress(await attempt());
+      } catch (error) {
+        if (!isDefaultUniqueConflict(error)) {
+          throw error;
+        }
+        // Dos POST /addresses concurrentes con existingCount===0 en ambos: los dos
+        // calculan isDefault=true y solo uno gana `address_user_id_default_unique`.
+        // Para cuando este catch corre, la otra transacción ya hizo commit -- un
+        // único retry vuelve a contar filas, ve existingCount>0 y ya no pisa el
+        // índice único (mismo criterio de "retry post-commit" que la detección de
+        // reuso de refresh token en MOVO-75, sin necesitar `SELECT ... FOR UPDATE`).
+        return toDomainAddress(await attempt());
+      }
     },
 
     async update(id: string, input: UpdateAddressInput): Promise<Address> {

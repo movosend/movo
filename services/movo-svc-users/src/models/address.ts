@@ -38,8 +38,9 @@ export interface CreateAddressInput {
 
 /** Body de `PATCH /addresses/:id` — update parcial, cualquier campo declarado en
  * `CreateAddressInput` salvo `isDefault`, que sí puede pasarse para forzar el swap
- * atómico de default (nunca para desmarcarla explícitamente: `isDefault: false` sobre
- * la fila default hoy no tiene un efecto definido por el contrato, se ignora). */
+ * atómico de default (nunca para desmarcarla explícitamente: `addresses.schema.ts`
+ * declara `isDefault: { enum: [true] }` en `updateBody`, así que `isDefault: false`
+ * no se ignora -- AJV lo rechaza con 400 antes de llegar al service). */
 export type UpdateAddressInput = Partial<
   Omit<CreateAddressInput, "isDefault">
 > & {
