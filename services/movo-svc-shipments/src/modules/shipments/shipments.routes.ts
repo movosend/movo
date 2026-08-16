@@ -6,6 +6,7 @@ import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
 import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
+import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-provider";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { Shipment } from "../../models/shipment";
 
@@ -18,6 +19,9 @@ export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
    * credenciales de AWS (MOVO-81), mismo criterio que `storageProvider` en
    * movo-svc-users. */
   storageProvider?: StorageProvider;
+  /** Override solo para tests de integración — evita depender de credenciales reales
+   * de Google (MOVO-123), mismo criterio que `usersClient`. */
+  routesProvider?: RoutesProvider;
 }
 
 type CreateShipmentBody = Omit<CreateShipmentServiceInput, "senderId">;
@@ -45,6 +49,7 @@ function toShipmentDto(shipment: Shipment) {
 export default async function shipmentsRoutes(app: FastifyInstance, opts: ShipmentsRoutesOptions) {
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
   const storageProvider = opts.storageProvider ?? createStorageProvider(app.config);
+  const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config);
   const repository = createShipmentRepository(app.db);
   const service = createShipmentsService(repository, usersClient);
   const photosService = createPhotosService(repository, storageProvider);
@@ -105,6 +110,45 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const { page, limit } = request.query as { page: number; limit: number };
       const result = await service.listMyShipments(userId, page, limit);
       return { ...result, items: result.items.map(toShipmentDto) };
+    }
+  );
+
+  // Ruta estática — mismo criterio que "/mine": se registra antes de "/:id" por
+  // claridad, aunque find-my-way ya prioriza segmentos estáticos.
+  app.get(
+    "/route",
+    {
+      schema: {
+        summary: "Ruta origen→destino para el mapa",
+        description:
+          "MOVO-123: polyline codificado (algoritmo estándar de Google) de la ruta " +
+          "real por calle entre dos puntos — consumido por el mapa del paso de resumen " +
+          "del wizard de envíos (MOVO-83). Requiere autenticación (igual que el resto de " +
+          "`/shipments`) pero no depende del `x-user-id`, cualquier usuario logueado " +
+          "puede pedir cualquier ruta.",
+        tags: ["shipments"],
+        querystring: shipmentsSchemas.routeQuery,
+        response: {
+          200: shipmentsSchemas.routeResponse,
+          400: shipmentsSchemas.errorResponse,
+          401: shipmentsSchemas.errorResponse,
+          422: shipmentsSchemas.errorResponse,
+          502: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      requireUserIdFromHeader(request);
+      const { originLat, originLng, destinationLat, destinationLng } = request.query as {
+        originLat: number;
+        originLng: number;
+        destinationLat: number;
+        destinationLng: number;
+      };
+      return routesProvider.getRoute({
+        origin: { lat: originLat, lng: originLng },
+        destination: { lat: destinationLat, lng: destinationLng },
+      });
     }
   );
 

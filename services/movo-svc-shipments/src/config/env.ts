@@ -7,6 +7,8 @@ export interface EnvConfig {
   STORAGE_PROVIDER: "mock" | "s3";
   S3_BUCKET_NAME?: string;
   S3_REGION?: string;
+  ROUTES_PROVIDER: "mock" | "google";
+  GOOGLE_MAPS_API_KEY?: string;
 }
 
 export const envSchema = {
@@ -32,6 +34,12 @@ export const envSchema = {
     STORAGE_PROVIDER: { type: "string", enum: ["mock", "s3"], default: "mock" },
     S3_BUCKET_NAME: { type: "string" },
     S3_REGION: { type: "string" },
+    // MOVO-123: mismo criterio que GEOCODING_PROVIDER (ADR-014, movo-svc-users) — mock
+    // default en dev/test/CI, no depende de una API key de Google para levantar.
+    ROUTES_PROVIDER: { type: "string", enum: ["mock", "google"], default: "mock" },
+    // Validada en runtime por `createRoutesProvider` cuando ROUTES_PROVIDER=google, no
+    // acá — mismo criterio que GOOGLE_MAPS_API_KEY en movo-svc-users/src/config/env.ts.
+    GOOGLE_MAPS_API_KEY: { type: "string" },
   },
 };
 
