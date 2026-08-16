@@ -131,6 +131,11 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}
+      # MOVO-123: mismo criterio de `:-mock` que SMS_PROVIDER/DIDIT_MODE/GEOCODING_PROVIDER
+      # arriba — una var presente pero vacía no matchea el enum de envSchema y tira el
+      # servicio abajo al boot.
+      - ROUTES_PROVIDER=${ROUTES_PROVIDER:-mock}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
     depends_on:
       - postgres
       - redis

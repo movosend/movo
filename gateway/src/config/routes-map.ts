@@ -207,5 +207,13 @@ export function getRateLimitOverrides(): RateLimitedRoute[] {
       path: "/users/me/photo/upload-url",
       rateLimit: { max: 20, timeWindow: "15 minutes" },
     },
+    // MOVO-123: proxy directo a Google Routes API (pago) — mismo criterio que
+    // /geocode y /places/*, para no quedar abierto como proxy gratuito de Google.
+    // Se llama una vez por paso de resumen del wizard de envíos, no por tecleo.
+    {
+      method: "GET",
+      path: "/shipments/route",
+      rateLimit: { max: 20, timeWindow: "15 minutes" },
+    },
   ];
 }
