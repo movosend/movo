@@ -31,7 +31,8 @@ export type ApiErrorCode =
   | "SHIPMENT_PICKUP_WINDOW_IN_PAST"
   | "SHIPMENT_PICKUP_WINDOW_INVALID"
   | "USERS_SERVICE_UNAVAILABLE"
-  | "PUSH_PROVIDER_ERROR";
+  | "PUSH_PROVIDER_ERROR"
+  | "ADDRESS_NOT_FOUND";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {
