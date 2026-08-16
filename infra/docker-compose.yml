@@ -105,6 +105,12 @@ services:
       # presente pero vacía no matchea el enum de envSchema y tira el servicio abajo al boot.
       - GEOCODING_PROVIDER=${GEOCODING_PROVIDER:-mock}
       - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      # Mismo criterio de `:-mock` que GEOCODING_PROVIDER arriba — una var presente pero
+      # vacía no matchea el enum de envSchema y tira el servicio abajo al boot. Faltaba
+      # esta línea (a diferencia de ROUTES_PROVIDER en movo-svc-shipments más abajo), por
+      # lo que PLACES_PROVIDER nunca llegaba al contenedor aunque se cargara en Secrets
+      # Manager. Reusa el mismo GOOGLE_MAPS_API_KEY ya declarado arriba.
+      - PLACES_PROVIDER=${PLACES_PROVIDER:-mock}
       # MOVO-97: mismo criterio de `:-mock` que SMS_PROVIDER/DIDIT_MODE/GEOCODING_PROVIDER
       # arriba — una var presente pero vacía no matchea el enum de envSchema y tira el
       # servicio abajo al boot. Sin AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY a propósito:
