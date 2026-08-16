@@ -473,6 +473,25 @@ polyfill de `crypto.getRandomValues` en Hermes). Des-registro en logout, tolera
 fallos sin bloquear el logout. `eas.projectId` repuesto en `app.config.js` (se había
 perdido al migrar de `app.json` en MOVO-73).
 
+### MOVO-120 — Proxy de Google Places Autocomplete (`svc-users`)
+
+`POST /places/autocomplete`/`/places/details` sobre `PlacesProvider` (mock default,
+`google` real vía `createGooglePlacesProvider`) — mismo criterio que
+`GeocodingProvider`/`SmsProvider`. Público a propósito, igual que `/geocode`.
+
+Fixes de review sobre la implementación inicial:
+- `details()` distinguía mal los errores de Google: cualquier respuesta no-2xx caía en
+  422 `PLACE_NOT_FOUND`, incluida una API key sin habilitar (403) o cuota excedida
+  (429) — mostraba "no encontramos esa dirección" para un error de configuración. Ahora
+  solo un 404 real mapea a `PLACE_NOT_FOUND` (consistente con el mock provider), el
+  resto a 502 `PLACES_PROVIDER_ERROR` (mismo criterio que ya usaba `autocomplete()`).
+- `input` de `/places/autocomplete` no tenía `maxLength` — endpoint público sin auth,
+  cada request es una llamada facturable a Google; se agregó `maxLength: 200`.
+- `sessionToken` opcional threadeado en `PlacesProvider`/rutas/schema: agrupa un
+  autocomplete + su details bajo billing por sesión en Places API (New), más barato
+  que facturar cada request suelto. El proxy ya lo reenvía si llega; el mobile todavía
+  no lo genera (pendiente, ver abajo).
+
 ### Pendientes transversales
 
 - **Credenciales reales sin cargar** en AWS Secrets Manager (dev y prod) — el código
@@ -522,6 +541,10 @@ perdido al migrar de `app.json` en MOVO-73).
   al cambiar de rama. Repuesto acá: `owner: "movosend"` +
   `extra.eas.projectId: "077f9c8d-cb66-4772-a76c-34e4548290e7"` en `app.config.js`
   (verificado con `npx expo config --type public`, que ahora sí resuelve ambos).
+- Mobile de MOVO-120 no genera/envía todavía un `sessionToken` de Places (ver arriba)
+  — cuando exista la pantalla de búsqueda de dirección con autocomplete, generar un
+  token por sesión de búsqueda y mandarlo en cada `/places/autocomplete` + el
+  `/places/details` final.
 - **AC7 (Expo Go, aun con `projectId` configurado)**: `Notifications.
   getExpoPushTokenAsync({ projectId })` sigue tirando en Expo Go (no soporta push
   remoto, independientemente del `projectId`) — se atrapa en `push-registration.ts`,
@@ -604,3 +627,60 @@ Tests: `services/movo-svc-users/test/addresses.integration.test.ts` (19 casos, P
 real) + 2 casos nuevos en `gateway/test/routes-prefix.test.ts` (`describe("Rutas de
 /addresses")`). 37/37 suites / 308/308 tests en `movo-svc-users`, 5/5 suites / 37/37
 tests en `gateway`. `tsc --noEmit` limpio en ambos paquetes.
+
+### MOVO-102 — Schema y máquina de estados de la oferta (Offer) (`svc-shipments`)
+
+Hermano de MOVO-79/104/105 para la entidad `Offer` (existía en el DER 2.0 pero ningún
+ticket la implementaba). `prisma/schema.prisma` (enum `OfferStatus` + modelo `Offer`),
+`offer-state-machine.ts`, `offer-repository.ts`. `OfferStatus` vive en `@movo/shared`
+(mismo criterio que `ShipmentStatus`, consumido cross-servicio por los futuros endpoints
+de MOVO-17/23).
+
+Decisiones clave:
+- **`expired` es un estado derivado, nunca una transición real (AC11)**: expiración
+  perezosa, sin scheduler. `transition(pending, expired)` está probada como inválida —
+  se calcula en cada lectura (`deriveEffectiveOfferStatus`), nunca se persiste un
+  `UPDATE` a ese valor.
+- **AC9 (bloqueo optimista, "el punto crítico de todo el flujo") sin `SELECT...FOR
+  UPDATE` ni `$queryRaw`**: `acceptOffer()` condiciona `tx.shipment.updateMany({where:
+  {id, status:'published'}, ...})` y chequea `count` — bajo READ COMMITTED, el `UPDATE`
+  toma un row-lock exclusivo; la transacción perdedora reevalúa su `WHERE` contra datos
+  ya commiteados y `count` da 0, lanzando `ShipmentNotAvailableForAssignmentError` en
+  vez de una segunda asignación. Primer optimistic locking real del proyecto (distinto
+  del TOCTOU aceptado de `shipment-repository.ts#updateStatus`, MOVO-118). Verificado
+  con un test de concurrencia real (`Promise.allSettled` de dos `acceptOffer`
+  simultáneos contra Postgres) — necesitó precalentar el pool de conexiones antes de la
+  carrera, sin eso la suite completa dejaba una sola conexión idle y la carrera perdía
+  representatividad.
+- **AC7 resuelto 100% en la base**: índice único parcial `(shipment_id, carrier_id)
+  WHERE status='pending'` — no representable en el DSL de Prisma, agregado a mano en
+  `migration.sql`. Un rechazo/retiro previo no bloquea una oferta nueva.
+- **AC10 reinterpretado por drift del AC contra el schema real, pendiente de
+  confirmación del equipo (comentario en Linear)**: el rango `pickup_date_start`–
+  `pickup_date_end` que pide el AC no existe en el `Shipment` real de MOVO-104 (solo
+  hay `pickupDate`, un día) — se validó como igualdad de día contra `pickupDate`.
+- **Snapshot del transportista (AC2) sin vehículo**: `carrierRatingAtOffer`/
+  `carrierNameAtOffer` sí se agregaron; vehículo no, porque no hay ninguna entidad de
+  vehículo diseñada todavía en el DER — habría adelantado un modelo que MOVO-17 no
+  cerró.
+- **AC12/AC13 (header `x-user-id`, validación de KYC) fuera de alcance**: este ticket
+  es solo schema/dominio/repositorio, sin capa HTTP — `svc-shipments` tampoco tiene
+  acceso a `users.users` (ADR-003) para validar KYC. Documentado para el futuro ticket
+  HTTP tipo MOVO-80 (el JWT ya lleva `kycStatus` como claim, sin llamada cross-servicio
+  nueva).
+- **Migración con `prisma migrate diff` incremental** (nunca `migrate dev` contra el
+  Postgres compartido, mismo motivo que MOVO-104). DER actualizado: `shipments.offer`
+  (placeholder) → `shipments.offers`, con el enum real. Diagrama Mermaid nuevo en
+  `docs/shipments/offer-state-diagram.md`.
+
+Tests: 69/69 en `svc-shipments` (35 nuevos: 14 de `offer-state-machine`, incluyendo
+`pending -> expired` para fijar que es inalcanzable vía `transition()`; 21 de
+`offer-repository`, contra Postgres real, incluye el test de concurrencia de AC9).
+93.02% statements / 93.44% branches en `models`/`domain`/`repositories`. Verificado
+además con la imagen Docker ya buildeada (`prisma migrate deploy` idempotente,
+`GET /health` real).
+
+Pendiente / fuera de alcance: negociación encadenada (`parent_offer_id`, recorte de
+alcance explícito del ticket); valor default de `expiresAt` (el campo existe, ningún AC
+definió cuánto dura una oferta activa); `src/modules/shipments/*` (stubs HTTP) sigue sin
+tocarse.

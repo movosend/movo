@@ -113,6 +113,15 @@ export function getServiceRoutes(env: {
       prefix: "/addresses",
       upstream: env.USERS_SERVICE_URL,
     },
+
+    // places (MOVO-83): paso de direcciones del wizard de envío (estilo Uber/Pedidos
+    // Ya), proxea la Places API (New) de Google server-side. Público (ver
+    // publicRoutes) — mismo criterio que /geocode, ninguna razón de negocio para
+    // exigir token acá aunque en la práctica solo lo llama un usuario ya logueado.
+    {
+      prefix: "/places",
+      upstream: env.USERS_SERVICE_URL,
+    },
   ];
 }
 
@@ -155,6 +164,21 @@ export function getPublicRoutes(): PublicRoute[] {
       method: "POST",
       path: "/geocode",
       rateLimit: { max: 20, timeWindow: "15 minutes" },
+    },
+
+    // places (MOVO-83): autocomplete se dispara por cada tecleo (debounced en el
+    // cliente) del paso de direcciones del wizard de envío — presupuesto de rate
+    // limit más generoso que /geocode (un solo llamado por dirección) para no
+    // interrumpir la búsqueda a mitad de tipeo.
+    {
+      method: "POST",
+      path: "/places/autocomplete",
+      rateLimit: { max: 30, timeWindow: "15 minutes" },
+    },
+    {
+      method: "POST",
+      path: "/places/details",
+      rateLimit: { max: 30, timeWindow: "15 minutes" },
     },
   ];
 }

@@ -371,6 +371,10 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           envs: GHCR_USER,GHCR_PAT
+          # Ver nota equivalente en ci-dev.yml: default de 10m no alcanza con
+          # dos servicios Prisma (movo-svc-users + movo-svc-shipments desde
+          # MOVO-102) corriendo `migrate deploy` en serie.
+          command_timeout: 20m
           script: |
             echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             cd ~/movo
