@@ -128,8 +128,51 @@ alcance explícito del ticket); valor default de `expiresAt` (el campo existe, n
 definió cuánto dura una oferta activa); `src/modules/shipments/*` (stubs HTTP) sigue sin
 tocarse.
 
+### MOVO-81 — Carga de fotos del paquete con presigned URLs de S3 (`svc-shipments`)
+
+`src/adapters/storage-provider.ts`+`s3-storage-provider.ts`+`mock-storage-provider.ts`
+(mismo patrón que `movo-svc-users`/MOVO-97, pero con `createDownloadUrl` en vez de
+`getPublicUrl`/`getKeyFromUrl` — el prefijo `shipments/*` es privado, AC8, y la key ya
+se persiste directo en `shipment_photos.s3_key`, no hay que derivarla de una URL
+pública). `photos.service.ts` + 3 endpoints nuevos en `shipments.routes.ts`:
+`POST/:id/photos/presign`, `POST /:id/photos/confirm`, `GET /:id/photos`. JPEG-only,
+2 MB máx (sugerido explícito del ticket, no los 5 MB de la foto de perfil). Solo el
+emisor puede presign/confirm para `stage: creation` (única etapa autorizada por
+ahora — MOVO-21/MOVO-30 suman `pickup`/`delivery` reusando el mismo dominio, ya
+genérico por stage desde MOVO-104).
+
+Decisiones clave:
+- **AC6 ("no puede pasar a `awaiting_receiver_confirmation` con <2 fotos") es
+  imposible tal cual está escrito**: ese es el estado *inicial* del envío
+  (MOVO-80/105), no el destino de ninguna transición. Implementado como gate en
+  `shipment-repository.ts#updateStatus()` cuando `to === published` (la transición
+  real que dispara MOVO-16, receptor confirma) — `InsufficientCreationPhotosError`
+  nueva en `shipment-state-machine.ts`. Comentado en Linear pidiendo confirmación del
+  equipo, sin respuesta todavía.
+- **La guía de "lifecycle rule si sobra tiempo" para objetos huérfanos no es trivial**:
+  una regla ingenua por edad/prefijo borraría también evidencia ya confirmada (S3 no
+  distingue "confirmado" de "no confirmado" por sí solo) — hace falta tagging o un
+  prefijo de cuarentena, código nuevo en `svc-users` y `svc-shipments` además del
+  cambio de Terraform. Spin-off a MOVO-124 en vez de resolverlo acá.
+
+Pendiente / fuera de alcance: prueba manual end-to-end contra el bucket real de dev
+(DoD del ticket, necesita credenciales AWS que no había en el entorno de desarrollo);
+el endpoint de MOVO-16 que efectivamente ejercita el gate de AC6 no existe todavía.
+
+Tests: 118/118 en `svc-shipments` (suite completa — `photos.integration.test.ts`
+nuevo, más casos nuevos de `updateStatus`→`published` en
+`shipment-repository.integration.test.ts`, y el fixture de
+`offer-repository.integration.test.ts` ajustado para seguir cumpliendo el gate nuevo).
+`tsc --noEmit` y `eslint` limpios.
+
 ### Pendientes de este servicio
 
 - **MOVO-118**: arreglar el TOCTOU de `shipment-repository.ts#updateStatus()`
   (MOVO-104) con `SELECT ... FOR UPDATE` cuando haya asignación automática o
   concurrencia real.
+- **MOVO-124**: lifecycle rule de S3 para objetos huérfanos de fotos no confirmadas
+  (`shipments/*` y, retroactivamente, `profile-photos/*` de MOVO-97) — no es un
+  ajuste chico, ver la decisión de MOVO-81 arriba.
+- **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
+  `→ published` (interpretación propuesta en Linear); si el equipo responde distinto,
+  es un ajuste acotado a `shipment-repository.ts#updateStatus()`.
