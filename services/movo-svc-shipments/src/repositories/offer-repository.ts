@@ -1,6 +1,7 @@
 import { OfferStatus, ShipmentStatus } from "@movo/shared";
 import { PrismaClient, Offer as OfferRow } from "../generated/prisma/client";
 import { INITIAL_OFFER_STATUS, transition } from "../domain/offer-state-machine";
+import { transition as transitionShipmentStatus } from "../domain/shipment-state-machine";
 import {
   Offer,
   CreateOfferInput,
@@ -103,6 +104,22 @@ export class ShipmentNotAvailableForAssignmentError extends Error {
   }
 }
 
+/**
+ * Compare-and-swap perdido: otra transacción (típicamente `acceptOffer`,
+ * que puede marcar esta misma oferta como `superseded` en su batch) ya
+ * escribió sobre esta fila entre la lectura y el `UPDATE` de esta
+ * operación. Hallazgo de review (PR #70, tmvergara) sobre
+ * `applyTerminalTransition`: sin este chequeo, un `withdraw`/`reject`
+ * concurrente con un `acceptOffer` del mismo envío podía pisar un
+ * `superseded` ya resuelto y dejar el historial de la oferta incorrecto.
+ */
+export class OfferConcurrentModificationError extends Error {
+  constructor(public readonly id: string) {
+    super(`La oferta '${id}' fue modificada por otra operación antes de poder aplicar este cambio`);
+    this.name = "OfferConcurrentModificationError";
+  }
+}
+
 function isPendingOfferConflict(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -116,9 +133,17 @@ export interface OfferRepository {
   create(input: CreateOfferInput): Promise<Offer>;
   findById(id: string): Promise<Offer | null>;
   listByShipment(shipmentId: string): Promise<Offer[]>;
-  /** AC6: el transportista retira su propia oferta antes de que el emisor responda. */
+  /**
+   * AC6: el transportista retira su propia oferta antes de que el emisor
+   * responda. El `UPDATE` es compare-and-swap contra el `status` leído —
+   * lanza `OfferConcurrentModificationError` si otra operación (típicamente
+   * `acceptOffer` marcándola `superseded`) ya escribió sobre la fila.
+   */
   withdraw(id: string): Promise<Offer>;
-  /** AC6: el emisor rechaza explícitamente — el transportista puede volver a ofertar (fila nueva). */
+  /**
+   * AC6: el emisor rechaza explícitamente — el transportista puede volver a
+   * ofertar (fila nueva). Mismo compare-and-swap que `withdraw`.
+   */
   reject(id: string): Promise<Offer>;
   /**
    * AC8/AC9: única vía para aceptar una oferta. En una sola transacción
@@ -127,7 +152,9 @@ export interface OfferRepository {
    * `assignment_pending` con bloqueo optimista (el `UPDATE` del envío
    * condiciona por `status = 'published'`; si no afecta ninguna fila, lanza
    * `ShipmentNotAvailableForAssignmentError` en vez de aplicar una segunda
-   * asignación).
+   * asignación). El `UPDATE` de la oferta en sí también es compare-and-swap
+   * (lanza `OfferConcurrentModificationError` si un `withdraw`/`reject`
+   * concurrente ya la modificó).
    */
   acceptOffer(id: string, actorId: string | null): Promise<{ offer: Offer; shipmentId: string }>;
 }
@@ -200,6 +227,22 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         const from = deriveEffectiveOfferStatus(parseOfferStatus(current.status), current.expiresAt);
         transition(from, OfferStatus.ACCEPTED);
 
+        // Hallazgo de review (PR #70, tmvergara): este UPDATE escribe
+        // shipment.status directo, por fuera de shipment-repository.ts —
+        // el único otro lugar del servicio que toca esa columna, y el que
+        // CLAUDE.md/MOVO-104 documentan como "la única vía de escritura".
+        // No se enruta a través de ese repositorio porque updateStatus()
+        // no ofrece bloqueo optimista (hace un UPDATE incondicional después
+        // de un findUnique previo, el TOCTOU de MOVO-118) — perderíamos
+        // justo el mecanismo que resuelve AC9. En cambio, se valida acá la
+        // transición contra el mismo grafo canónico
+        // (shipment-state-machine.ts) antes de ejecutar el UPDATE: si el
+        // grafo cambia (se agrega una guarda, se restringe esta arista),
+        // esto lanza InvalidShipmentTransitionError en vez de seguir
+        // escribiendo una transición no auditada contra el mecanismo
+        // canónico.
+        transitionShipmentStatus(ShipmentStatus.PUBLISHED, ShipmentStatus.ASSIGNMENT_PENDING);
+
         // AC9: bloqueo optimista real. El UPDATE condiciona por
         // status='published' y se cuenta `count`. Bajo el nivel de
         // aislamiento por defecto de Postgres (READ COMMITTED), un UPDATE
@@ -238,10 +281,19 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         });
 
         const now = new Date();
-        const accepted = await tx.offer.update({
-          where: { id },
+        // Mismo compare-and-swap que applyTerminalTransition (PR #70,
+        // tmvergara): protege el caso simétrico — un withdraw/reject
+        // concurrente sobre esta misma oferta, entre el findUnique de
+        // arriba y este UPDATE, no debería pisarse silenciosamente con
+        // "accepted" solo porque esta transacción ya reservó el envío.
+        const offerUpdate = await tx.offer.updateMany({
+          where: { id, status: current.status },
           data: { status: OfferStatus.ACCEPTED, respondedAt: now },
         });
+        if (offerUpdate.count === 0) {
+          throw new OfferConcurrentModificationError(id);
+        }
+        const accepted = { ...current, status: OfferStatus.ACCEPTED, respondedAt: now };
 
         // AC8, en lote: las demás ofertas pending del mismo envío pasan a
         // superseded. Excluye las que ya vencieron lógicamente (expiresAt
@@ -264,17 +316,20 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
 }
 
 /**
- * Helper compartido por `withdraw`/`reject`: mismo patrón que
- * `updateStatus()` de `shipment-repository.ts` (MOVO-104) — `findUnique`
- * fuera de la transacción de escritura.
+ * Helper compartido por `withdraw`/`reject`: `findUnique` fuera de la
+ * transacción de escritura, mismo patrón inicial que `updateStatus()` de
+ * `shipment-repository.ts` (MOVO-104).
  *
- * Limitación conocida (TOCTOU, mismo criterio aceptado que MOVO-118 en
- * `shipment-repository.ts#updateStatus`): sin lock atómico entre esta
- * lectura y el `UPDATE` de abajo, dos respuestas casi simultáneas sobre la
- * misma oferta podrían pisarse. No bloqueante para este ticket: a diferencia
- * de `acceptOffer` (AC9, resuelto con bloqueo optimista real porque el
- * propio ticket lo marca como "el punto crítico"), `withdraw`/`reject` no
- * tienen ningún AC que exija concurrencia segura.
+ * A diferencia de ese helper, el `UPDATE` de acá SÍ es un compare-and-swap
+ * (`updateMany` condicionado por `status: current.status`, no un `update`
+ * incondicional) — hallazgo de review (PR #70, tmvergara): sin esto, un
+ * `withdraw`/`reject` que lee la oferta como `pending` podía pisar con
+ * `withdrawn`/`rejected` un `superseded` que `acceptOffer()` ya había
+ * escrito para esa misma fila mientras tanto (el emisor aceptó otra oferta
+ * del mismo envío, entre la lectura y este `UPDATE`), dejando el historial
+ * de la oferta incorrecto. Si `count === 0`, alguien más ya escribió sobre
+ * esta fila entre la lectura y este punto — se lanza
+ * `OfferConcurrentModificationError` en vez de pisarlo.
  */
 async function applyTerminalTransition(
   db: PrismaClient,
@@ -290,10 +345,14 @@ async function applyTerminalTransition(
   const from = deriveEffectiveOfferStatus(parseOfferStatus(current.status), current.expiresAt);
   transition(from, to);
 
-  const row = await db.offer.update({
-    where: { id },
-    data: { status: to, respondedAt: setRespondedAt ? new Date() : current.respondedAt },
+  const respondedAt = setRespondedAt ? new Date() : current.respondedAt;
+  const result = await db.offer.updateMany({
+    where: { id, status: current.status },
+    data: { status: to, respondedAt },
   });
+  if (result.count === 0) {
+    throw new OfferConcurrentModificationError(id);
+  }
 
-  return mapOffer(row);
+  return mapOffer({ ...current, status: to, respondedAt });
 }

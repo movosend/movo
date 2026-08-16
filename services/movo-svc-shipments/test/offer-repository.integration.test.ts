@@ -11,6 +11,7 @@ import {
   OfferDateOutOfRangeError,
   DuplicateActiveOfferError,
   ShipmentNotAvailableForAssignmentError,
+  OfferConcurrentModificationError,
 } from "../src/repositories/offer-repository";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { CreateOfferInput } from "../src/models/offer";
@@ -225,6 +226,39 @@ describe("offer-repository (Postgres)", () => {
 
       await expect(repo.withdraw(created.id)).rejects.toThrow(InvalidOfferTransitionError);
     });
+
+    it("compare-and-swap real: dos respuestas terminales simultáneas sobre la misma oferta — una gana, la otra falla sin pisar el resultado (hallazgo de review PR #70)", async () => {
+      // Reproduce el escenario de tmvergara sin depender de orden secuencial
+      // (el caso secuencial, ej. withdraw() después de que acceptOffer() ya
+      // dejó la oferta en superseded, ya lo atrapaba transition() antes de
+      // este fix). El bug real era el read-then-write sin guarda: si el
+      // UPDATE de una corre DESPUÉS del commit de la otra pero la lectura
+      // previa a ese UPDATE fue ANTES, el UPDATE incondicional pisaba el
+      // resultado igual. Carrera genuina entre withdraw/reject sobre la
+      // misma oferta ejercita exactamente ese read-then-write.
+      const shipmentId = await createPublishedShipment();
+      const offer = await repo.create(baseOfferInput({ shipmentId }));
+
+      // Precalienta el pool de conexiones (mismo motivo que el test de
+      // concurrencia de AC9 más abajo).
+      await Promise.all([app.db.$queryRawUnsafe("SELECT 1"), app.db.$queryRawUnsafe("SELECT 1")]);
+
+      const [resWithdraw, resReject] = await Promise.allSettled([repo.withdraw(offer.id), repo.reject(offer.id)]);
+
+      const results = [resWithdraw, resReject];
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      const rejected = results.filter((r) => r.status === "rejected");
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(OfferConcurrentModificationError);
+
+      // El estado final es exactamente el de la operación ganadora — nunca
+      // termina pisado por la perdedora.
+      const winnerStatus = (fulfilled[0] as PromiseFulfilledResult<{ status: OfferStatus }>).value.status;
+      const final = await repo.findById(offer.id);
+      expect(final?.status).toBe(winnerStatus);
+    });
   });
 
   describe("acceptOffer (AC8/AC9)", () => {
@@ -338,6 +372,37 @@ describe("offer-repository (Postgres)", () => {
       const [reloadedA, reloadedB] = await Promise.all([repo.findById(offerA.id), repo.findById(offerB.id)]);
       const statuses = [reloadedA?.status, reloadedB?.status].sort();
       expect(statuses).toEqual([OfferStatus.ACCEPTED, OfferStatus.SUPERSEDED].sort());
+    });
+
+    it("compare-and-swap en el UPDATE de la propia oferta: un reject concurrente sobre la misma oferta que se está aceptando no queda pisado, y si gana el reject, el envío no se toca (rollback completo)", async () => {
+      const shipmentId = await createPublishedShipment();
+      const offer = await repo.create(baseOfferInput({ shipmentId }));
+
+      await Promise.all([app.db.$queryRawUnsafe("SELECT 1"), app.db.$queryRawUnsafe("SELECT 1")]);
+
+      const [resAccept, resReject] = await Promise.allSettled([
+        repo.acceptOffer(offer.id, randomUUID()),
+        repo.reject(offer.id),
+      ]);
+
+      const results = [resAccept, resReject];
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      const rejectedResults = results.filter((r) => r.status === "rejected");
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejectedResults).toHaveLength(1);
+      expect((rejectedResults[0] as PromiseRejectedResult).reason).toBeInstanceOf(OfferConcurrentModificationError);
+
+      if (resAccept.status === "rejected") {
+        // reject ganó la carrera: acceptOffer tira OfferConcurrentModificationError
+        // en su propio UPDATE de la oferta -- eso hace ROLLBACK de toda su
+        // transacción, así que el envío nunca debería haber quedado tocado.
+        const shipment = await shipmentRepo.findById(shipmentId);
+        expect(shipment?.status).toBe(ShipmentStatus.PUBLISHED);
+      }
+
+      const final = await repo.findById(offer.id);
+      expect([OfferStatus.ACCEPTED, OfferStatus.REJECTED]).toContain(final?.status);
     });
   });
 });
