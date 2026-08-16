@@ -12,10 +12,12 @@ import usersRoutes, { UsersRoutesOptions } from "./modules/users/users.routes";
 import authRoutes, { AuthRoutesOptions } from "./modules/auth/auth.routes";
 import kycRoutes, { KycRoutesOptions } from "./modules/kyc/kyc.routes";
 import geocodeRoutes, { GeocodeRoutesOptions } from "./modules/geocode/geocode.routes";
+import placesRoutes, { PlacesRoutesOptions } from "./modules/places/places.routes";
 import notificationsRoutes, { NotificationsRoutesOptions } from "./modules/notifications/notifications.routes";
 import { SmsProvider } from "./adapters/sms-provider";
 import { DiditClient } from "./adapters/didit-client";
 import { GeocodingProvider } from "./adapters/geocoding-provider";
+import { PlacesProvider } from "./adapters/places-provider";
 import { StorageProvider } from "./adapters/storage-provider";
 import { PushNotificationProvider } from "./adapters/push-notification-provider";
 
@@ -29,6 +31,9 @@ export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de red/credenciales
    * reales de Google Maps (MOVO-73), mismo criterio que `diditClient`. */
   geocodingProvider?: GeocodingProvider;
+  /** Override solo para tests de integración — evita depender de red/credenciales
+   * reales de Google Maps (MOVO-83), mismo criterio que `geocodingProvider`. */
+  placesProvider?: PlacesProvider;
   /** Override solo para tests de integración — evita depender de un bucket real/
    * credenciales de AWS (MOVO-97), mismo criterio que `geocodingProvider`. */
   storageProvider?: StorageProvider;
@@ -91,6 +96,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.geocodingProvider ? { geocodingProvider: opts.geocodingProvider } : {}),
   };
   app.register(geocodeRoutes, geocodeRouteOpts);
+
+  const placesRouteOpts: PlacesRoutesOptions = {
+    prefix: "/places",
+    ...(opts.placesProvider ? { placesProvider: opts.placesProvider } : {}),
+  };
+  app.register(placesRoutes, placesRouteOpts);
 
   // Interno (AC6/AC7 de MOVO-106): no se declara `/internal` en
   // `gateway/src/config/routes-map.ts`, así que el gateway no lo proxea — solo
