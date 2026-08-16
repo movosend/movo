@@ -69,7 +69,7 @@ module.exports = {
         NFCReaderUsageDescription:
           "Movo usa NFC para leer el chip de tu pasaporte durante la verificación de identidad con Didit.",
         NSLocationWhenInUseUsageDescription:
-          "Movo usa tu ubicación para ayudarte a marcar el punto exacto de tu dirección en el mapa durante el registro.",
+          "Movo usa tu ubicación para ayudarte a marcar el punto exacto de una dirección en el mapa, durante el registro y al crear un envío.",
         // Permite tráfico HTTP plano hacia direcciones de red local (RFC1918/.local) sin
         // afectar ATS para el resto de internet — necesario para probar un development
         // build en un iPhone físico contra el backend corriendo en la LAN (override desde
@@ -89,6 +89,7 @@ module.exports = {
       },
       predictiveBackGestureEnabled: false,
       package: "com.anonymous.movomobile",
+      permissions: ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"],
     },
     web: {
       favicon: "./assets/favicon.png",
@@ -109,6 +110,13 @@ module.exports = {
             "Movo necesita acceso a tus fotos para que puedas elegir tu foto de perfil.",
           cameraPermission:
             "Movo necesita acceso a tu cámara para que puedas tomarte una foto de perfil.",
+        },
+      ],
+      [
+        "expo-location",
+        {
+          locationWhenInUsePermission:
+            "Movo usa tu ubicación para ayudarte a marcar el punto exacto de una dirección en el mapa, durante el registro y al crear un envío.",
         },
       ],
       "expo-font",

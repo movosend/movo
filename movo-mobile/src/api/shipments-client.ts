@@ -45,10 +45,38 @@ export interface ListMineResponse {
   total: number;
 }
 
+/**
+ * Body de `POST /shipments` (`createShipmentBody` en `shipments.schema.ts`,
+ * `movo-svc-shipments`, MOVO-80) — `additionalProperties: false` en el backend, nunca
+ * mandar `senderId` (viaja en el header `x-user-id` inyectado por el gateway).
+ */
+export interface CreateShipmentInput {
+  packageType: "letter_document" | "standard_package" | "fragile_item";
+  weightKg: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  description?: string;
+  receiverId: string;
+  pickupAddress: string;
+  pickupLat: number;
+  pickupLng: number;
+  deliveryAddress: string;
+  deliveryLat: number;
+  deliveryLng: number;
+  pickupDate: string;
+  pickupTimeWindowStart: string;
+  pickupTimeWindowEnd: string;
+}
+
 export const shipmentsClient = {
   /** Protegida — `httpClient` adjunta `Authorization` automáticamente vía el
    * interceptor de sesión (MOVO-76). */
   listMine(params?: { page?: number; limit?: number }): Promise<ListMineResponse> {
     return httpClient.get<ListMineResponse>("/shipments/mine", params);
+  },
+
+  create(body: CreateShipmentInput): Promise<ShipmentSummary> {
+    return httpClient.post<ShipmentSummary>("/shipments", body);
   },
 };

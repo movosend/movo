@@ -50,3 +50,12 @@ export function formatShipmentPrice(agreedPriceArs: number | null, suggestedPric
   if (price === null || price === undefined || Number.isNaN(price)) return "Precio a definir";
   return `$${price.toLocaleString("es-AR")}`;
 }
+
+/** Hermana de `formatShipmentPrice`, para el preview de precio del paso de resumen
+ * del wizard de envíos (MOVO-83, AC7/AC8) — ahí no hay todavía un `ShipmentSummary`
+ * real, solo un `number | null` de un `PricingProvider` (mock o real). `null`
+ * significa "falta un dato requerido o el servicio de pricing no respondió". */
+export function formatPriceArs(value: number | null): string {
+  if (value === null || Number.isNaN(value)) return "Precio a estimar";
+  return `$${value.toLocaleString("es-AR")}`;
+}

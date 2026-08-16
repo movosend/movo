@@ -11,6 +11,11 @@ export interface PreparedPhoto {
 const MAX_DIMENSION = 1024;
 const JPEG_QUALITY = 0.8;
 
+export interface PrepareImageOptions {
+  maxDimension: number;
+  quality: number;
+}
+
 /**
  * Lee un archivo local (file://, ph://, etc.) a un Blob binario en React Native
  * usando XMLHttpRequest (el estándar más confiable en iOS/Android) con fallback a fetch.
@@ -43,15 +48,20 @@ export async function uriToBlob(uri: string): Promise<Blob> {
 }
 
 /**
- * Redimensiona (lado máximo 1024px) y comprime (JPEG calidad 0.8) la imagen
- * en el cliente antes de subir a S3 (MOVO-98 AC5).
+ * Redimensiona (lado máximo `maxDimension`) y comprime (JPEG, `quality`) una imagen
+ * en el cliente antes de subir — generalización de la compresión de foto de perfil
+ * (MOVO-98 AC5) para reusarla también en las fotos de envío del wizard (MOVO-83 AC6,
+ * valores distintos: 1600px/0.7 según la guía del ticket vs. 1024px/0.8 de perfil).
  */
-export async function prepareProfilePhoto(imageUri: string): Promise<PreparedPhoto> {
+export async function prepareImageForUpload(
+  imageUri: string,
+  options: PrepareImageOptions,
+): Promise<PreparedPhoto> {
   const manipulationResult = await ImageManipulator.manipulateAsync(
     imageUri,
-    [{ resize: { width: MAX_DIMENSION } }],
+    [{ resize: { width: options.maxDimension } }],
     {
-      compress: JPEG_QUALITY,
+      compress: options.quality,
       format: ImageManipulator.SaveFormat.JPEG,
     },
   );
@@ -64,6 +74,14 @@ export async function prepareProfilePhoto(imageUri: string): Promise<PreparedPho
     contentLength: blob.size,
     blob,
   };
+}
+
+/**
+ * Redimensiona (lado máximo 1024px) y comprime (JPEG calidad 0.8) la imagen
+ * en el cliente antes de subir a S3 (MOVO-98 AC5).
+ */
+export function prepareProfilePhoto(imageUri: string): Promise<PreparedPhoto> {
+  return prepareImageForUpload(imageUri, { maxDimension: MAX_DIMENSION, quality: JPEG_QUALITY });
 }
 
 /**
