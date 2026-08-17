@@ -41,6 +41,13 @@ const PRICE_PER_KG_ARS = 300;
 const PRICE_PER_KM_ARS = 150;
 const EARTH_RADIUS_KM = 6371;
 
+// MOVO-126: retiro y entrega a menos de 100m se tratan como la misma ubicación —
+// umbral chico a propósito (mismo criterio que el rechazo duro de
+// SHIPMENT_RECEIVER_IS_SENDER, un caso que nunca tiene sentido de negocio), no
+// pensado para descartar casos legítimos como "de mi depto a la portería del mismo
+// edificio".
+const MIN_PICKUP_DELIVERY_DISTANCE_KM = 0.1;
+
 function toRadians(degrees: number): number {
   return (degrees * Math.PI) / 180;
 }
@@ -54,15 +61,8 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function computePlaceholderPrice(input: {
-  weightKg: number;
-  pickupLat: number;
-  pickupLng: number;
-  deliveryLat: number;
-  deliveryLng: number;
-}): number {
-  const distanceKm = haversineKm(input.pickupLat, input.pickupLng, input.deliveryLat, input.deliveryLng);
-  return Math.round(BASE_FARE_ARS + input.weightKg * PRICE_PER_KG_ARS + distanceKm * PRICE_PER_KM_ARS);
+function computePlaceholderPrice(weightKg: number, distanceKm: number): number {
+  return Math.round(BASE_FARE_ARS + weightKg * PRICE_PER_KG_ARS + distanceKm * PRICE_PER_KM_ARS);
 }
 
 /** "HH:MM" -> "HH:MM:00"; "HH:MM:SS" queda igual. */
@@ -106,6 +106,22 @@ export function createShipmentsService(repository: ShipmentRepository, usersClie
         throw new ApiError(422, "SHIPMENT_RECEIVER_IS_SENDER", "No podés designarte a vos mismo como receptor.");
       }
 
+      // MOVO-126 — retiro y entrega no pueden ser la misma ubicación, todavía sin I/O.
+      // El resultado se reusa más abajo para el precio sugerido, no se recalcula.
+      const pickupDeliveryDistanceKm = haversineKm(
+        input.pickupLat,
+        input.pickupLng,
+        input.deliveryLat,
+        input.deliveryLng
+      );
+      if (pickupDeliveryDistanceKm < MIN_PICKUP_DELIVERY_DISTANCE_KM) {
+        throw new ApiError(
+          422,
+          "SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE",
+          "El retiro y la entrega tienen que estar en ubicaciones distintas."
+        );
+      }
+
       // AC6 — validación de fecha/franja, todavía sin I/O.
       const windowStartAt = combineDateAndTime(input.pickupDate, input.pickupTimeWindowStart);
       const windowEndAt = combineDateAndTime(input.pickupDate, input.pickupTimeWindowEnd);
@@ -135,7 +151,7 @@ export function createShipmentsService(repository: ShipmentRepository, usersClie
         );
       }
 
-      const suggestedPriceArs = computePlaceholderPrice(input);
+      const suggestedPriceArs = computePlaceholderPrice(input.weightKg, pickupDeliveryDistanceKm);
 
       return repository.create({
         senderId: input.senderId,
