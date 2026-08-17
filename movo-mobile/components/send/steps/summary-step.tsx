@@ -116,7 +116,11 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
    * submit anterior, ya no navega ni resetea el wizard acá adentro, eso pasa recién
    * cuando el usuario toca "Ver envío" (`handleViewShipment`). */
   async function publish(): Promise<string> {
-    if (!receiver || !pickup || !delivery) throw new Error("Faltan datos del envío.");
+    if (!receiver || !pickup || !delivery) {
+      const err = new Error("Faltan datos del envío.");
+      setSubmission({ status: "error", errorMessage: err.message, fieldErrorStep: null });
+      throw err;
+    }
     setSubmission({ status: "submitting", errorMessage: null, fieldErrorStep: null });
 
     let shipmentId = createdShipmentId;
@@ -165,8 +169,11 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
       const err = new Error("photo-upload-failed");
       setSubmission({
         status: "error",
-        errorMessage: "El envío se creó, pero alguna foto no se pudo subir. Reintentá la subida.",
-        fieldErrorStep: null,
+        errorMessage: "El envío se creó, pero alguna foto no se pudo subir. Volvé al paso de fotos y reintentá.",
+        // Reusa el mismo link "Ir a corregir" que ya existe para errores de negocio del
+        // backend (ver `errorCodeToStep`) — el paso de fotos (índice 3) es donde el
+        // usuario puede ver cuál falló y tocar reintentar.
+        fieldErrorStep: 3,
       });
       throw err;
     }

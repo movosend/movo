@@ -71,7 +71,7 @@ export function AddressSearchSheet({
   testID,
 }: AddressSearchSheetProps) {
   const colors = useThemeColors();
-  const { useMyLocation, locating } = useShipmentAddress();
+  const { useMyLocation, locating, error: locationError, clearError: clearLocationError } = useShipmentAddress();
   const [query, setQuery] = useState("");
   const [predictions, setPredictions] = useState<PlacePrediction[]>([]);
   const [loading, setLoading] = useState(false);
@@ -84,7 +84,9 @@ export function AddressSearchSheet({
       setQuery("");
       setPredictions([]);
       setError(null);
+      clearLocationError();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
   useEffect(() => {
@@ -219,6 +221,15 @@ export function AddressSearchSheet({
                     Usar mi ubicación actual
                   </Text>
                 </Pressable>
+
+                {locationError ? (
+                  <Text
+                    testID={testID ? `${testID}-location-error` : undefined}
+                    className="mt-2 font-sans text-[12px] text-danger-500"
+                  >
+                    {locationError}
+                  </Text>
+                ) : null}
 
                 {!showResults && savedAddresses && savedAddresses.length > 0 ? (
                   <View testID={testID ? `${testID}-saved` : undefined}>

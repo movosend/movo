@@ -6,6 +6,8 @@ import type { AddressSelection } from "../../src/store/shipment-wizard-store";
 import { AddressSearchSheet } from "./address-search-sheet";
 import { CollapsibleMapRow } from "./collapsible-map-row";
 
+const SAVE_ADDRESS_ERROR = "No pudimos guardar la dirección. Probá de nuevo.";
+
 interface AddressFieldProps {
   label: string;
   dotColor: string;
@@ -26,6 +28,7 @@ export function AddressField({ label, dotColor, value, onChange, testID }: Addre
   const [sheetOpen, setSheetOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const { data: savedAddresses } = useAddresses();
   const createAddress = useCreateAddress();
 
@@ -36,26 +39,31 @@ export function AddressField({ label, dotColor, value, onChange, testID }: Addre
     setSaved(false);
   };
 
-  const handleSaveAddress = () => {
+  const handleSaveAddress = async () => {
     if (!value) return;
+    setSaveError(null);
     // Places solo devuelve `formattedAddress` (sin componentes estructurados) — split
     // best-effort en vez de una dirección estructurada real, simplificación conocida
     // documentada acá, no un bug.
     const [firstSegment, ...rest] = value.address.split(",").map((s) => s.trim());
-    createAddress.mutate({
-      label: null,
-      isDefault: false,
-      street: firstSegment ?? value.address,
-      streetNumber: "",
-      floorApartment: null,
-      city: rest[0] ?? "",
-      province: "",
-      postalCode: "",
-      country: "Argentina",
-      lat: value.lat,
-      long: value.lng,
-    });
-    setSaved(true);
+    try {
+      await createAddress.mutateAsync({
+        label: null,
+        isDefault: false,
+        street: firstSegment ?? value.address,
+        streetNumber: "",
+        floorApartment: null,
+        city: rest[0] ?? "",
+        province: "",
+        postalCode: "",
+        country: "Argentina",
+        lat: value.lat,
+        long: value.lng,
+      });
+      setSaved(true);
+    } catch {
+      setSaveError(SAVE_ADDRESS_ERROR);
+    }
   };
 
   return (
@@ -89,18 +97,28 @@ export function AddressField({ label, dotColor, value, onChange, testID }: Addre
       </Pressable>
 
       {value && value.source !== "saved" ? (
-        <Pressable
-          testID={testID ? `${testID}-save-address` : undefined}
-          onPress={handleSaveAddress}
-          disabled={saved || createAddress.isPending}
-          hitSlop={8}
-          className="flex-row items-center gap-1.5 self-start rounded-full px-1 py-2"
-        >
-          <Star size={13} color={saved ? "#C6F24A" : "#8A8A93"} fill={saved ? "#C6F24A" : "none"} />
-          <Text className="font-sans-medium text-[12px] text-fg-2">
-            {saved ? "Dirección guardada" : "Guardar para la próxima"}
-          </Text>
-        </Pressable>
+        <View className="self-start">
+          <Pressable
+            testID={testID ? `${testID}-save-address` : undefined}
+            onPress={() => void handleSaveAddress()}
+            disabled={saved || createAddress.isPending}
+            hitSlop={8}
+            className="flex-row items-center gap-1.5 self-start rounded-full px-1 py-2"
+          >
+            <Star size={13} color={saved ? "#C6F24A" : "#8A8A93"} fill={saved ? "#C6F24A" : "none"} />
+            <Text className="font-sans-medium text-[12px] text-fg-2">
+              {saved ? "Dirección guardada" : "Guardar para la próxima"}
+            </Text>
+          </Pressable>
+          {saveError ? (
+            <Text
+              testID={testID ? `${testID}-save-address-error` : undefined}
+              className="px-1 font-sans text-[11px] text-danger-500"
+            >
+              {saveError}
+            </Text>
+          ) : null}
+        </View>
       ) : null}
 
       {mapOpen ? (

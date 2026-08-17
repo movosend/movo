@@ -1,7 +1,7 @@
 import * as Crypto from "expo-crypto";
 import { Camera } from "lucide-react-native";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { Alert, Linking, Text, View } from "react-native";
 import { prepareImageForUpload, takePhotoWithCamera } from "../../../src/lib/photo-utils";
 import { useShipmentWizardStore, type WizardPhoto } from "../../../src/store/shipment-wizard-store";
 import { AddPhotoTile, PhotoSlot } from "../photo-slot";
@@ -26,6 +26,19 @@ export function isPhotosStepValid(state: { photos: WizardPhoto[] }): boolean {
   return state.photos.filter((p) => p.status === "uploaded").length >= REQUIRED_PHOTO_COUNT;
 }
 
+// Mismo patrón que `photo-picker.tsx` (MOVO-98) para pedir permiso de cámara de nuevo
+// desde Ajustes — un permiso denegado no debería quedar en silencio.
+function showCameraPermissionAlert() {
+  Alert.alert(
+    "Permiso necesario",
+    "Movo necesita acceso a tu cámara para sacar las fotos del paquete. Podés habilitarlo desde los ajustes de tu dispositivo.",
+    [
+      { text: "Cancelar", style: "cancel" },
+      { text: "Abrir Ajustes", onPress: () => void Linking.openSettings() },
+    ],
+  );
+}
+
 export function PhotosStep() {
   const { photos, addPhoto, updatePhoto, removePhoto } = useShipmentWizardStore();
   const [slotSize, setSlotSize] = useState(0);
@@ -34,7 +47,11 @@ export function PhotosStep() {
     // Sin `allowsEditing`: forzar el recorte cuadrado 1:1 tiene sentido para una foto
     // de perfil (MOVO-98), no para evidencia de un paquete, casi nunca cuadrado.
     const result = await takePhotoWithCamera({ allowsEditing: false });
-    if (result.permissionDenied || result.cancelled || !result.uri) return;
+    if (result.permissionDenied) {
+      showCameraPermissionAlert();
+      return;
+    }
+    if (result.cancelled || !result.uri) return;
 
     const id = existingId ?? Crypto.randomUUID();
     if (existingId) {
