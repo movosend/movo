@@ -442,9 +442,9 @@ export function PublishShipmentButton({
                       textAlign: "center",
                     }}
                   >
-                    Tu envio ya fue publicado a la comunidad de Movers. <br />
-                    Ahora vas a empezar a recibir ofertas y podes elegir la que
-                    más te convenga.
+                    Tu envío ya fue publicado a la comunidad de Movers. Ahora
+                    vas a empezar a recibir ofertas y podés elegir la que más
+                    te convenga.
                   </Text>
                 </View>
                 <Pressable
