@@ -13,3 +13,13 @@ JWT (`signAccessToken`/`verifyAccessToken`, TTL 60min), refresh token opaco, con
 dominio (`UserRole`, `KycStatus`, `AccountStatus`). Consumido como npm workspace por
 gateway y servicios Node — el mobile lo importa siempre por subpath (ver MOVO-73), el
 barrel raíz arrastra `jsonwebtoken`/`node:crypto`.
+
+### MOVO-121 — `Address`/`CreateAddressInput`/`UpdateAddressInput`
+
+`src/types/address.ts` — wire contract de `/addresses` (`movo-svc-users`, MOVO-119),
+migrado desde un duplicado local en `movo-mobile/src/api/addresses-client.ts` (mismo
+criterio que `PrivateProfile`/`PublicProfile`, MOVO-78). `createdAt`/`updatedAt` son
+`string` (ya serializados), no `Date` — es el shape de la respuesta HTTP, no el modelo
+interno del backend. El backend (`services/movo-svc-users/src/models/address.ts`) no
+se migró a importar este tipo — fuera de alcance de MOVO-121 (mobile-only), su modelo
+local ya coincide estructuralmente.

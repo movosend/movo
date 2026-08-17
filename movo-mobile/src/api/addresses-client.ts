@@ -1,32 +1,11 @@
 import { httpClient } from "./http-client";
+import type {
+  Address,
+  CreateAddressInput,
+  UpdateAddressInput,
+} from "@movo/shared/dist/types/address";
 
-/**
- * Contrato propuesto en MOVO-119 (`[movo-svc-users] CRUD de direcciones guardadas
- * (/addresses)`) — backend todavía sin implementar al momento de escribir este
- * cliente (MOVO-83). Se implementa ya contra el contrato propuesto para que, al
- * cerrarse MOVO-119, el mobile funcione sin cambios — mientras tanto estas llamadas
- * fallan (404/otro) y los callers (`use-addresses.ts`) degradan a "sin direcciones
- * guardadas" en vez de romper el wizard.
- */
-export interface Address {
-  id: string;
-  label: string | null;
-  isDefault: boolean;
-  street: string;
-  streetNumber: string;
-  floorApartment: string | null;
-  city: string;
-  province: string;
-  postalCode: string;
-  country: string;
-  lat: number;
-  long: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type CreateAddressInput = Omit<Address, "id" | "createdAt" | "updatedAt">;
-export type UpdateAddressInput = Partial<CreateAddressInput>;
+export type { Address, CreateAddressInput, UpdateAddressInput };
 
 export const addressesClient = {
   /** Protegida — `httpClient` adjunta `Authorization` automáticamente (MOVO-76). */
