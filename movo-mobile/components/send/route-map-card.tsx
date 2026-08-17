@@ -9,7 +9,7 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useShipmentRoute } from "../../src/hooks/use-shipments";
 import { hexToRgba } from "../../src/lib/color";
 import { decodePolyline } from "../../src/lib/polyline";
-import type { AddressSelection } from "../../src/store/shipment-wizard-store";
+import type { AddressSelection } from "../../src/types/address-selection";
 
 const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
 

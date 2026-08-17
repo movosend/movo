@@ -1,7 +1,7 @@
 import { render } from "@testing-library/react-native";
 import { AddressStep, isAddressStepValid } from "../components/send/steps/address-step";
 import { useShipmentWizardStore } from "../src/store/shipment-wizard-store";
-import type { AddressSelection } from "../src/store/shipment-wizard-store";
+import type { AddressSelection } from "../src/types/address-selection";
 
 jest.mock("../src/api/places-client", () => ({
   placesClient: { autocomplete: jest.fn(), details: jest.fn() },

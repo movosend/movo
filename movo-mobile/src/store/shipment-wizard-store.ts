@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { PublicProfile } from "@movo/shared/dist/types/user-profile";
+import type { AddressSelection } from "../types/address-selection";
 
 /**
  * Store del wizard de creación de envío (MOVO-83). Fuente de verdad única para los 5
@@ -20,15 +21,6 @@ import type { PublicProfile } from "@movo/shared/dist/types/user-profile";
  */
 
 export type PackageType = "letter_document" | "standard_package" | "fragile_item";
-
-export type AddressSource = "places" | "gps" | "map-pin" | "saved";
-
-export interface AddressSelection {
-  address: string;
-  lat: number;
-  lng: number;
-  source: AddressSource;
-}
 
 export type WizardPhotoStatus = "idle" | "compressing" | "ready" | "uploading" | "uploaded" | "error";
 
