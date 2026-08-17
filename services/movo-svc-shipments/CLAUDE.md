@@ -159,11 +159,30 @@ Pendiente / fuera de alcance: prueba manual end-to-end contra el bucket real de 
 (DoD del ticket, necesita credenciales AWS que no había en el entorno de desarrollo);
 el endpoint de MOVO-16 que efectivamente ejercita el gate de AC6 no existe todavía.
 
-Tests: 118/118 en `svc-shipments` (suite completa — `photos.integration.test.ts`
-nuevo, más casos nuevos de `updateStatus`→`published` en
-`shipment-repository.integration.test.ts`, y el fixture de
-`offer-repository.integration.test.ts` ajustado para seguir cumpliendo el gate nuevo).
-`tsc --noEmit` y `eslint` limpios.
+Fixes de review (PR #76, tmvergara, antes de mergear):
+- **`confirmPhoto` era no-idempotente**: confirmar el mismo `s3Key` dos veces (ej.
+  reintento del cliente ante un timeout) insertaba dos filas en `shipment_photos` para
+  el mismo objeto de S3, sin nada que lo evitara — el gate de AC6 contaba evidencia
+  duplicada. Se agregó `@@unique([shipmentId, s3Key])` en el modelo (migración
+  `20260817120000_add_shipment_photos_unique_key`) y `addPhoto()` en
+  `shipment-repository.ts` ahora atrapa el `P2002` y devuelve la fila ya existente en
+  vez de propagar el conflicto — mismo criterio duck-typed de `isPendingOfferConflict`
+  en `offer-repository.ts` (MOVO-102), no el de `driverAdapterError` de `svc-users`
+  (acá no hace falta inspeccionar qué campo violó el constraint).
+- **`InsufficientCreationPhotosError` nunca se traducía a `ApiError`**: extendía `Error`
+  a secas y el error handler solo especializa `instanceof ApiError`, así que apenas el
+  gate de AC6 quede alcanzable por HTTP (MOVO-16) iba a devolver un 500 opaco en vez del
+  409 con `SHIPMENT_INSUFFICIENT_CREATION_PHOTOS` (código que esta misma US ya había
+  agregado a `@movo/shared` pero nunca conectó). Wireado en
+  `plugins/error-handler.ts` — mismo patrón de traducción explícita que ya usa para los
+  errores de validación de AJV.
+
+Tests: 130/130 en `svc-shipments` (128 de la suite original de esta US +
+`photos.integration.test.ts#"confirmar el mismo s3Key dos veces es idempotente"` y
+`error-handler.test.ts` nuevo, aislado con una instancia mínima de Fastify porque
+todavía no hay ninguna ruta HTTP real que dispare `InsufficientCreationPhotosError`).
+`tsc --noEmit` y `eslint` limpios (el único error de `eslint.config.js` es preexistente,
+no de este PR).
 
 ### Pendientes de este servicio
 
