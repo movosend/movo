@@ -1,5 +1,6 @@
 import { MapPin } from "lucide-react-native";
 import { Text, View } from "react-native";
+import { haversineKm } from "../../../src/lib/geo";
 import {
   useShipmentWizardStore,
   type AddressSelection,
@@ -20,6 +21,18 @@ function isValidSelection(selection: AddressSelection | null): boolean {
   );
 }
 
+// MOVO-126: mismo umbral que rechaza el backend (`shipments.service.ts`) — retiro y
+// entrega a menos de 100m se tratan como la misma ubicación. Repetido acá a propósito
+// (no hay una llamada al backend para esto, sería un round-trip innecesario por algo
+// que ya tenemos ambos puntos en el cliente) para dar el error apenas se elige la
+// segunda dirección, en vez de recién al fallar el submit del resumen.
+const MIN_PICKUP_DELIVERY_DISTANCE_KM = 0.1;
+
+function arePickupAndDeliveryTooClose(pickup: AddressSelection | null, delivery: AddressSelection | null): boolean {
+  if (!isValidSelection(pickup) || !isValidSelection(delivery)) return false;
+  return haversineKm(pickup!.lat, pickup!.lng, delivery!.lat, delivery!.lng) < MIN_PICKUP_DELIVERY_DISTANCE_KM;
+}
+
 /** AC5: selección de direcciones con obtención de coordenadas + franja horaria de
  * retiro — mismas reglas que el backend valida en `shipments.service.ts` (MOVO-80):
  * la fecha no puede estar en el pasado y el fin de la ventana tiene que ser posterior
@@ -34,6 +47,7 @@ export function isAddressStepValid(state: {
 }): boolean {
   if (!isValidSelection(state.pickup) || !isValidSelection(state.delivery))
     return false;
+  if (arePickupAndDeliveryTooClose(state.pickup, state.delivery)) return false;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(state.pickupDate)) return false;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -55,6 +69,8 @@ export function AddressStep() {
     setPickupTimeWindowStart,
     setPickupTimeWindowEnd,
   } = useShipmentWizardStore();
+
+  const tooClose = arePickupAndDeliveryTooClose(pickup, delivery);
 
   return (
     <View className="gap-6">
@@ -89,6 +105,11 @@ export function AddressStep() {
           value={delivery}
           onChange={setDelivery}
         />
+        {tooClose ? (
+          <Text testID="address-step-same-location-error" className="font-sans text-[12px] text-danger-500">
+            El retiro y la entrega están muy cerca — elegí ubicaciones distintas.
+          </Text>
+        ) : null}
       </View>
 
       <View className="gap-2.5 rounded-[10px] border border-border-strong bg-bg-sub p-4">
