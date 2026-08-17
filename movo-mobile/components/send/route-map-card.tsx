@@ -1,7 +1,8 @@
 import { Pencil } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Pressable, Text, View } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
+import Animated, { useAnimatedProps, useFrameCallback, useSharedValue } from "react-native-reanimated";
 import { useColorScheme } from "nativewind";
 import { movoMapStyleDark, movoMapStyleLight } from "../../src/constants/map-style";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -9,6 +10,8 @@ import { useShipmentRoute } from "../../src/hooks/use-shipments";
 import { hexToRgba } from "../../src/lib/color";
 import { decodePolyline } from "../../src/lib/polyline";
 import type { AddressSelection } from "../../src/store/shipment-wizard-store";
+
+const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
 
 const MAP_HEIGHT = 220;
 const EDGE_PADDING = { top: 64, right: 48, bottom: 40, left: 48 };
@@ -25,7 +28,10 @@ const SWEEP_HOLD_MS = 400;
 const SWEEP_FADE_MS = 1400;
 const SWEEP_TOTAL_MS = SWEEP_DRAW_MS + SWEEP_HOLD_MS + SWEEP_FADE_MS;
 
+// `worklet`: además de usarse al armar la ruta fallback (JS thread), la reusa el
+// worklet de `useAnimatedProps` de abajo (UI thread) para no duplicar la fórmula.
 function interpolate(a: number, b: number, t: number) {
+  "worklet";
   return a + (b - a) * t;
 }
 
@@ -77,37 +83,79 @@ export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardP
   const { colorScheme } = useColorScheme();
   const colors = useThemeColors();
   const mapRef = useRef<MapView>(null);
-  const [sweep, setSweep] = useState({ length: 0, opacity: 1 });
 
   const { data: route } = useShipmentRoute(
     pickup ? { lat: pickup.lat, lng: pickup.lng } : null,
     delivery ? { lat: delivery.lat, lng: delivery.lng } : null,
   );
 
+  // Progreso del barrido en shared values (UI thread) en vez de `useState` — la
+  // versión anterior llamaba `setState` en cada `requestAnimationFrame` (hasta 60
+  // veces por segundo), re-renderizando todo `RouteMapCard` (`MapView`,
+  // `Marker`s, `Polyline`s) en el JS thread por cada frame. `useFrameCallback` corre
+  // el mismo cálculo de barrido en el UI thread sin tocar React; `useAnimatedProps`
+  // empuja el resultado directo a `AnimatedPolyline` vía `setNativeProps`, también sin
+  // re-render de React.
+  const sweepLength = useSharedValue(0);
+  const sweepOpacity = useSharedValue(1);
+  const startedAt = useSharedValue<number | null>(null);
+
+  const frameCallback = useFrameCallback((frameInfo) => {
+    if (startedAt.value === null) startedAt.value = frameInfo.timestamp;
+    const elapsed = (frameInfo.timestamp - startedAt.value) % SWEEP_TOTAL_MS;
+    if (elapsed < SWEEP_DRAW_MS) {
+      sweepLength.value = elapsed / SWEEP_DRAW_MS;
+      sweepOpacity.value = 1;
+    } else if (elapsed < SWEEP_DRAW_MS + SWEEP_HOLD_MS) {
+      sweepLength.value = 1;
+      sweepOpacity.value = 1;
+    } else {
+      const fadeT = (elapsed - SWEEP_DRAW_MS - SWEEP_HOLD_MS) / SWEEP_FADE_MS;
+      sweepLength.value = 1;
+      sweepOpacity.value = 1 - fadeT;
+    }
+  }, false);
+
   useEffect(() => {
-    if (!pickup || !delivery) return;
-    // requestAnimationFrame en vez de setInterval: corre atado al refresh real del
-    // dispositivo (hasta 60fps) en lugar de un intervalo fijo de JS, y al basarse en
-    // el tiempo transcurrido real (no en cuántos ticks pasaron) no se nota "a los
-    // saltos" si el JS thread se atrasa un frame — el próximo tick recalcula la
-    // posición correcta en vez de arrastrar el retraso.
-    let rafId: number;
-    const startedAt = Date.now();
-    const tick = () => {
-      const elapsed = (Date.now() - startedAt) % SWEEP_TOTAL_MS;
-      if (elapsed < SWEEP_DRAW_MS) {
-        setSweep({ length: elapsed / SWEEP_DRAW_MS, opacity: 1 });
-      } else if (elapsed < SWEEP_DRAW_MS + SWEEP_HOLD_MS) {
-        setSweep({ length: 1, opacity: 1 });
-      } else {
-        const fadeT = (elapsed - SWEEP_DRAW_MS - SWEEP_HOLD_MS) / SWEEP_FADE_MS;
-        setSweep({ length: 1, opacity: 1 - fadeT });
-      }
-      rafId = requestAnimationFrame(tick);
+    frameCallback.setActive(Boolean(pickup && delivery));
+  }, [pickup, delivery, frameCallback]);
+
+  // Calculado antes del early return de abajo: los hooks (`useAnimatedProps`) no
+  // pueden ser condicionales, así que `routePoints` se resuelve acá con `pickup`/
+  // `delivery` todavía potencialmente `null` (ruta vacía en ese caso — nunca se
+  // llega a renderizar el mapa que la usaría).
+  const routePoints = useMemo(
+    () => (pickup && delivery ? (route ? decodePolyline(route.polyline) : buildFallbackRoutePoints(pickup, delivery)) : []),
+    [pickup, delivery, route],
+  );
+
+  // La punta del barrido interpola entre los dos puntos de ruta más cercanos en vez de
+  // saltar de punto en punto — con pocos puntos (ruta fallback, o un polyline real con
+  // segmentos largos) redondear al índice más cercano se veía "a los tirones". Corre
+  // como worklet en el UI thread: `sweepLength`/`sweepOpacity` cambian en cada frame
+  // (`useFrameCallback` arriba) y este cálculo se vuelve a correr ahí mismo, sin pasar
+  // por React.
+  const animatedSweepProps = useAnimatedProps<{ coordinates: LatLng[]; strokeColor: string }>(() => {
+    "worklet";
+    const routeSteps = routePoints.length - 1;
+    if (routeSteps < 0) return { coordinates: [], strokeColor: hexToRgba(colors.fg1, sweepOpacity.value) };
+    const rawIdx = sweepLength.value * routeSteps;
+    const sweepFloorIdx = Math.min(routeSteps, Math.floor(rawIdx));
+    const sweepFrac = rawIdx - sweepFloorIdx;
+    const sweepPoints = routePoints.slice(0, sweepFloorIdx + 1);
+    if (sweepFloorIdx < routeSteps) {
+      const from = routePoints[sweepFloorIdx];
+      const to = routePoints[sweepFloorIdx + 1];
+      sweepPoints.push({
+        latitude: interpolate(from.latitude, to.latitude, sweepFrac),
+        longitude: interpolate(from.longitude, to.longitude, sweepFrac),
+      });
+    }
+    return {
+      coordinates: sweepPoints,
+      strokeColor: hexToRgba(colors.fg1, sweepOpacity.value),
     };
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
-  }, [pickup, delivery]);
+  }, [routePoints, colors.fg1]);
 
   if (!pickup || !delivery) {
     return (
@@ -118,24 +166,6 @@ export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardP
         <Text className="font-sans-medium text-[13px] text-fg-3">Definí el origen y destino para ver la ruta</Text>
       </View>
     );
-  }
-
-  const routePoints = route ? decodePolyline(route.polyline) : buildFallbackRoutePoints(pickup, delivery);
-  const routeSteps = routePoints.length - 1;
-  // La punta del barrido interpola entre los dos puntos de ruta más cercanos en vez de
-  // saltar de punto en punto — con pocos puntos (ruta fallback, o un polyline real con
-  // segmentos largos) redondear al índice más cercano se veía "a los tirones".
-  const rawIdx = sweep.length * routeSteps;
-  const sweepFloorIdx = Math.min(routeSteps, Math.floor(rawIdx));
-  const sweepFrac = rawIdx - sweepFloorIdx;
-  const sweepPoints = routePoints.slice(0, sweepFloorIdx + 1);
-  if (sweepFloorIdx < routeSteps) {
-    const from = routePoints[sweepFloorIdx];
-    const to = routePoints[sweepFloorIdx + 1];
-    sweepPoints.push({
-      latitude: interpolate(from.latitude, to.latitude, sweepFrac),
-      longitude: interpolate(from.longitude, to.longitude, sweepFrac),
-    });
   }
 
   return (
@@ -165,7 +195,12 @@ export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardP
           rotateEnabled={false}
         >
           <Polyline coordinates={routePoints} strokeColor={colors.fg3} strokeWidth={3.5} />
-          <Polyline coordinates={sweepPoints} strokeColor={hexToRgba(colors.fg1, sweep.opacity)} strokeWidth={3.5} />
+          <AnimatedPolyline
+            coordinates={routePoints}
+            strokeColor={hexToRgba(colors.fg1, 1)}
+            strokeWidth={3.5}
+            animatedProps={animatedSweepProps}
+          />
 
           <Marker coordinate={{ latitude: pickup.lat, longitude: pickup.lng }} anchor={{ x: 0.5, y: 1 }}>
             <View className="items-center">
