@@ -1,6 +1,6 @@
 import { router } from "expo-router";
 import { ClipboardCheck } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { createPhotoUploadProvider } from "../../../src/adapters/photo-upload-provider";
@@ -64,7 +64,6 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
   } = state;
 
   const createShipment = useCreateShipment();
-  const [createdShipmentId, setCreatedShipmentId] = useState<string | null>(null);
 
   useEffect(() => {
     const weight = Number(weightKg) || null;
@@ -112,10 +111,12 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
 
   /** Hace el trabajo real detrás de `PublishShipmentButton` (MOVO-83): crea el envío
    * si todavía no existe (reintentos después de un error no lo duplican, gracias a
-   * `createdShipmentId`) y sube las fotos pendientes. Devuelve el id para que el
-   * botón navegue a `/shipments/:id` en su pantalla de éxito — a diferencia del
-   * submit anterior, ya no navega ni resetea el wizard acá adentro, eso pasa recién
-   * cuando el usuario toca "Ver envío" (`handleViewShipment`). */
+   * `submission.shipmentId` — vive en el store, no en un `useState` local, porque un
+   * reintento desde el paso de fotos desmonta este componente) y sube las fotos
+   * pendientes. Devuelve el id para que el botón navegue a `/shipments/:id` en su
+   * pantalla de éxito — a diferencia del submit anterior, ya no navega ni resetea el
+   * wizard acá adentro, eso pasa recién cuando el usuario toca "Ver envío"
+   * (`handleViewShipment`). */
   async function publish(): Promise<string> {
     if (!receiver || !pickup || !delivery) {
       const err = new Error("Faltan datos del envío.");
@@ -124,7 +125,7 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
     }
     setSubmission({ status: "submitting", errorMessage: null, fieldErrorStep: null });
 
-    let shipmentId = createdShipmentId;
+    let shipmentId = submission.shipmentId;
     if (!shipmentId) {
       const body: CreateShipmentInput = {
         packageType: packageType!,
@@ -148,7 +149,7 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
       try {
         const created = await createShipment.mutateAsync(body);
         shipmentId = created.id;
-        setCreatedShipmentId(created.id);
+        setSubmission({ shipmentId: created.id });
       } catch (err) {
         const fieldErrorStep = err instanceof ApiError ? errorCodeToStep(err.code) : null;
         setSubmission({

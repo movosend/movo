@@ -23,7 +23,9 @@ const GRID_GAP = 10;
  * /shipments/:id/photos/presign`, que necesita un `id` de envío que todavía no existe
  * durante el wizard. */
 export function isPhotosStepValid(state: { photos: WizardPhoto[] }): boolean {
-  return state.photos.filter((p) => p.status === "uploaded").length >= REQUIRED_PHOTO_COUNT;
+  return (
+    state.photos.filter((p) => p.status === "ready" || p.status === "uploaded").length >= REQUIRED_PHOTO_COUNT
+  );
 }
 
 // Mismo patrón que `photo-picker.tsx` (MOVO-98) para pedir permiso de cámara de nuevo
@@ -66,7 +68,7 @@ export function PhotosStep() {
         updatePhoto(id, { status: "error", errorMessage: "La imagen es muy pesada, probá con otra." });
         return;
       }
-      updatePhoto(id, { status: "uploaded", localUri: prepared.uri });
+      updatePhoto(id, { status: "ready", localUri: prepared.uri });
     } catch {
       updatePhoto(id, { status: "error", errorMessage: "No pudimos procesar la foto. Probá de nuevo." });
     }

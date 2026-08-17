@@ -30,7 +30,7 @@ export interface AddressSelection {
   source: AddressSource;
 }
 
-export type WizardPhotoStatus = "idle" | "compressing" | "uploading" | "uploaded" | "error";
+export type WizardPhotoStatus = "idle" | "compressing" | "ready" | "uploading" | "uploaded" | "error";
 
 export interface WizardPhoto {
   id: string;
@@ -53,6 +53,11 @@ export interface SubmissionState {
    * a un paso concreto (p.ej. `SHIPMENT_RECEIVER_KYC_NOT_APPROVED` → paso 1). `null`
    * si el error no es atribuible a un paso puntual. */
   fieldErrorStep: number | null;
+  /** Id del envío ya creado, para que un reintento (p.ej. tras un fallo de subida de
+   * fotos que manda al usuario de vuelta al paso 4) no dispare `createShipment` de
+   * nuevo — vive acá y no en un `useState` de `SummaryStep` porque volver al paso 4
+   * desmonta el componente. */
+  shipmentId: string | null;
 }
 
 interface ShipmentWizardState {
@@ -110,7 +115,7 @@ const initialState = {
   pickupTimeWindowEnd: "",
   photos: [] as WizardPhoto[],
   priceQuote: { suggestedPriceArs: null, status: "idle" } as PriceQuoteState,
-  submission: { status: "idle", errorMessage: null, fieldErrorStep: null } as SubmissionState,
+  submission: { status: "idle", errorMessage: null, fieldErrorStep: null, shipmentId: null } as SubmissionState,
 };
 
 export const useShipmentWizardStore = create<ShipmentWizardState>((set) => ({

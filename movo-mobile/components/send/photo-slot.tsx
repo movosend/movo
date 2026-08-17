@@ -49,8 +49,8 @@ interface PhotoSlotProps {
 }
 
 /** Una celda del grid de fotos del paquete (AC6/AC12), cuadrada. Estados:
- * `compressing` → `uploaded` (preview local, la subida real pasa a ser parte del
- * submit — ver `photos-step.tsx`), o `error` con reintento sin perder el resto del
+ * `compressing` → `ready` (preview local, la subida real a S3 pasa a ser parte del
+ * submit — ver `summary-step.tsx`), o `error` con reintento sin perder el resto del
  * wizard. */
 export function PhotoSlot({ photo, onRetry, onRemove, size, testID }: PhotoSlotProps) {
   const colors = useThemeColors();
