@@ -18,12 +18,19 @@ export interface GeocodeResult {
   formattedAddress: string;
 }
 
+export interface ReverseGeocodeResult {
+  formattedAddress: string;
+}
+
 /** Interfaz detrás de la que vive la integración de geocoding (MOVO-73), mismo
  * criterio que `SmsProvider` (ADR-012) y `DiditClient` (MOVO-72): permite testear
  * `geocode.routes.ts` sin red y cambiar de implementación (real/mock) sin tocar el
- * resto del servicio. */
+ * resto del servicio. `reverseGeocode` (MOVO-125) resuelve el sentido inverso
+ * (lat/long → dirección) para "usar mi ubicación actual" del wizard de envíos — sin
+ * esto, esa selección quedaba guardada como el string fijo "Ubicación actual". */
 export interface GeocodingProvider {
   geocode(input: GeocodeAddressInput): Promise<GeocodeResult>;
+  reverseGeocode(lat: number, long: number): Promise<ReverseGeocodeResult>;
 }
 
 export interface GeocodingProviderConfig {

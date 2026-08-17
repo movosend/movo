@@ -215,5 +215,14 @@ export function getRateLimitOverrides(): RateLimitedRoute[] {
       path: "/shipments/route",
       rateLimit: { max: 20, timeWindow: "15 minutes" },
     },
+    // MOVO-125: reverse geocoding del GPS del wizard de envíos — PROTEGIDA (no está en
+    // getPublicRoutes), a diferencia de /geocode y /places/*. Igual necesita este
+    // limiter propio: requerir JWT no la protege de un usuario logueado disparando el
+    // paso de "usar mi ubicación actual" en loop contra la Geocoding API de Google.
+    {
+      method: "POST",
+      path: "/geocode/reverse",
+      rateLimit: { max: 20, timeWindow: "15 minutes" },
+    },
   ];
 }
