@@ -8,13 +8,16 @@ import { createPricingProvider } from "../../../src/adapters/pricing-provider";
 import { useCreateShipment } from "../../../src/hooks/use-shipments";
 import { friendlyErrorMessage } from "../../../src/lib/error-messages";
 import { uriToBlob } from "../../../src/lib/photo-utils";
+import { capitalizeName } from "../../../src/lib/profile-format";
+import { formatPickupDateLabel } from "../../../src/lib/shipment-format";
 import { useShipmentWizardStore, type WizardPhoto } from "../../../src/store/shipment-wizard-store";
 import type { CreateShipmentInput } from "../../../src/api/shipments-client";
 import { ErrorBanner } from "../../ui/error-banner";
-import { PrimaryButton } from "../../auth/primary-button";
 import { packageTypeLabel } from "../category-grid";
 import { PricePreviewCard } from "../price-preview-card";
+import { PublishShipmentButton } from "../publish-shipment-button";
 import { ReviewRow } from "../review-row";
+import { RouteMapCard } from "../route-map-card";
 
 /** Mapea un `ApiErrorCode` de negocio del submit a un paso del wizard al que volver
  * (AC12 + el error-handling del plan) — `null` si no es atribuible a un paso puntual. */
@@ -103,8 +106,14 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
     }
   }
 
-  async function handleSubmit() {
-    if (!receiver || !pickup || !delivery) return;
+  /** Hace el trabajo real detrás de `PublishShipmentButton` (MOVO-83): crea el envío
+   * si todavía no existe (reintentos después de un error no lo duplican, gracias a
+   * `createdShipmentId`) y sube las fotos pendientes. Devuelve el id para que el
+   * botón navegue a `/shipments/:id` en su pantalla de éxito — a diferencia del
+   * submit anterior, ya no navega ni resetea el wizard acá adentro, eso pasa recién
+   * cuando el usuario toca "Ver envío" (`handleViewShipment`). */
+  async function publish(): Promise<string> {
+    if (!receiver || !pickup || !delivery) throw new Error("Faltan datos del envío.");
     setSubmission({ status: "submitting", errorMessage: null, fieldErrorStep: null });
 
     let shipmentId = createdShipmentId;
@@ -139,7 +148,7 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
           errorMessage: friendlyErrorMessage(err, "No pudimos crear el envío. Intentá de nuevo."),
           fieldErrorStep,
         });
-        return;
+        throw err;
       }
     }
 
@@ -150,30 +159,35 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
 
     const stillFailing = useShipmentWizardStore.getState().photos.some((p) => p.status === "error");
     if (stillFailing) {
+      const err = new Error("photo-upload-failed");
       setSubmission({
         status: "error",
         errorMessage: "El envío se creó, pero alguna foto no se pudo subir. Reintentá la subida.",
         fieldErrorStep: null,
       });
-      return;
+      throw err;
     }
 
     setSubmission({ status: "idle", errorMessage: null, fieldErrorStep: null });
-    resetWizard();
-    router.replace("/(app)/(tabs)/home");
+    return shipmentId;
   }
 
-  const submitting = submission.status === "submitting" || createShipment.isPending;
+  function handleViewShipment(shipmentId: string) {
+    resetWizard();
+    router.replace(`/(app)/shipments/${shipmentId}`);
+  }
 
   return (
     <View className="gap-6">
-      <View className="mt-2 mb-1 h-14 w-14 items-center justify-center rounded-[14px] bg-lime-200">
+      <View className="mb-1 h-14 w-14 items-center justify-center rounded-[14px] bg-lime-200">
         <ClipboardCheck size={26} color="#0A0A0B" strokeWidth={1.8} />
       </View>
       <View>
         <Text className="mb-1.5 font-sans-semibold text-title text-fg">Revisá y confirmá</Text>
         <Text className="font-sans text-body text-fg-2">Chequeá los datos antes de publicar el envío.</Text>
       </View>
+
+      <RouteMapCard testID="summary-step-route-map" pickup={pickup} delivery={delivery} onEdit={() => onGoToStep(2)} />
 
       {submission.status === "error" ? (
         <View>
@@ -192,23 +206,25 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
 
       <View className="overflow-hidden rounded-[10px] border border-border">
         <ReviewRow label="Tipo de paquete" value={packageTypeLabel(packageType)} onEdit={() => onGoToStep(0)} />
-        <ReviewRow label="Peso" value={`${weightKg || "—"} kg`} onEdit={() => onGoToStep(0)} />
-        <ReviewRow
-          label="Dimensiones"
-          value={`${lengthCm || "—"} × ${widthCm || "—"} × ${heightCm || "—"} cm`}
-          onEdit={() => onGoToStep(0)}
-        />
+        {packageType === "letter_document" ? null : (
+          <>
+            <ReviewRow label="Peso" value={`${weightKg || "—"} kg`} onEdit={() => onGoToStep(0)} />
+            <ReviewRow
+              label="Dimensiones"
+              value={`${lengthCm || "—"} × ${widthCm || "—"} × ${heightCm || "—"} cm`}
+              onEdit={() => onGoToStep(0)}
+            />
+          </>
+        )}
         <ReviewRow
           label="Receptor"
-          value={receiver?.fullName ?? "—"}
+          value={receiver ? capitalizeName(receiver.fullName) : "—"}
           badge={receiver?.isVerified ? "Verificado" : undefined}
           onEdit={() => onGoToStep(1)}
         />
-        <ReviewRow label="Retiro" value={pickup?.address ?? "—"} onEdit={() => onGoToStep(2)} />
-        <ReviewRow label="Entrega" value={delivery?.address ?? "—"} onEdit={() => onGoToStep(2)} />
         <ReviewRow
           label="Franja horaria"
-          value={`${pickupDate || "—"} · ${pickupTimeWindowStart || "—"} a ${pickupTimeWindowEnd || "—"}`}
+          value={`${formatPickupDateLabel(pickupDate) || "—"} · ${pickupTimeWindowStart || "—"} a ${pickupTimeWindowEnd || "—"}`}
           onEdit={() => onGoToStep(2)}
           last
         />
@@ -220,7 +236,9 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
         caption={
           priceQuote.status === "loading"
             ? "Calculando…"
-            : `${weightKg || "—"} kg · ${packageTypeLabel(packageType)}`
+            : packageType === "letter_document"
+              ? packageTypeLabel(packageType)
+              : `${weightKg || "—"} kg · ${packageTypeLabel(packageType)}`
         }
       />
 
@@ -231,13 +249,12 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
         </View>
       ) : null}
 
-      <PrimaryButton
+      <PublishShipmentButton
         testID="summary-step-submit"
-        label="Publicar envío"
-        variant="lime"
-        loading={submitting}
-        disabled={submitting}
-        onPress={handleSubmit}
+        disabled={!receiver || !pickup || !delivery}
+        onPublish={publish}
+        onPublishError={() => {}}
+        onViewShipment={handleViewShipment}
       />
     </View>
   );

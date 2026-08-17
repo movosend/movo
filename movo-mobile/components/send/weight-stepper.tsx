@@ -2,7 +2,7 @@ import { Minus, Plus } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 
-const STEP_KG = 0.5;
+const STEP_KG = 0.1;
 const MIN_KG = 0.1;
 const MAX_KG = 30;
 
@@ -19,7 +19,10 @@ export function WeightStepper({ value, onChange, testID }: WeightStepperProps) {
   const numeric = Number(value) || MIN_KG;
 
   const step = (delta: number) => {
-    const next = Math.min(MAX_KG, Math.max(MIN_KG, Math.round((numeric + delta) * 10) / 10));
+    const next = Math.min(
+      MAX_KG,
+      Math.max(MIN_KG, Math.round((numeric + delta) * 10) / 10),
+    );
     onChange(String(next));
   };
 
@@ -35,7 +38,9 @@ export function WeightStepper({ value, onChange, testID }: WeightStepperProps) {
       >
         <Minus size={14} color={colors.fg1} strokeWidth={2} />
       </Pressable>
-      <Text className="flex-1 text-center font-sans text-[22px] font-light text-fg">{numeric} kg</Text>
+      <Text className="flex-1 text-center font-sans text-[22px] font-light text-fg">
+        {numeric} kg
+      </Text>
       <Pressable
         testID={testID ? `${testID}-plus` : undefined}
         onPress={() => step(STEP_KG)}

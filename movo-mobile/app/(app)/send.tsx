@@ -1,13 +1,33 @@
 import { router } from "expo-router";
-import { Alert, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
+import {
+  Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../../components/auth/primary-button";
 import { WizardHeader } from "../../components/auth/wizard-header";
-import { AddressStep, isAddressStepValid } from "../../components/send/steps/address-step";
-import { PackageStep, isPackageStepValid } from "../../components/send/steps/package-step";
-import { PhotosStep, isPhotosStepValid } from "../../components/send/steps/photos-step";
-import { ReceiverStep, isReceiverStepValid } from "../../components/send/steps/receiver-step";
+import {
+  AddressStep,
+  isAddressStepValid,
+} from "../../components/send/steps/address-step";
+import {
+  PackageStep,
+  isPackageStepValid,
+} from "../../components/send/steps/package-step";
+import {
+  PhotosStep,
+  isPhotosStepValid,
+} from "../../components/send/steps/photos-step";
+import {
+  ReceiverStep,
+  isReceiverStepValid,
+} from "../../components/send/steps/receiver-step";
 import { SummaryStep } from "../../components/send/steps/summary-step";
+import { useKeyboardScroll } from "../../src/hooks/use-keyboard-scroll";
 import { useShipmentWizardStore } from "../../src/store/shipment-wizard-store";
 
 const TOTAL_STEPS = 5;
@@ -29,6 +49,7 @@ const STEP_LABELS = ["Paso 1", "Paso 2", "Paso 3", "Paso 4", "Paso 5"];
 export default function SendShipmentScreen() {
   const store = useShipmentWizardStore();
   const { step, setStep, resetWizard } = store;
+  const { scrollRef, onScroll, onFocusInput } = useKeyboardScroll();
 
   function goToStep(next: number) {
     setStep(Math.max(0, Math.min(TOTAL_STEPS - 1, next)));
@@ -36,17 +57,21 @@ export default function SendShipmentScreen() {
 
   function handleBack() {
     if (step === 0) {
-      Alert.alert("¿Descartar este envío?", "Vas a perder los datos que cargaste hasta ahora.", [
-        { text: "Seguir cargando", style: "cancel" },
-        {
-          text: "Descartar",
-          style: "destructive",
-          onPress: () => {
-            resetWizard();
-            router.back();
+      Alert.alert(
+        "¿Descartar este envío?",
+        "Vas a perder los datos que cargaste hasta ahora.",
+        [
+          { text: "Seguir cargando", style: "cancel" },
+          {
+            text: "Descartar",
+            style: "destructive",
+            onPress: () => {
+              resetWizard();
+              router.back();
+            },
           },
-        },
-      ]);
+        ],
+      );
       return;
     }
     goToStep(step - 1);
@@ -80,12 +105,21 @@ export default function SendShipmentScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 16 : 0}
       >
-        <ScrollView className="flex-1 px-5" contentContainerClassName="pb-8" keyboardShouldPersistTaps="handled">
-          {step === 0 ? <PackageStep /> : null}
-          {step === 1 ? <ReceiverStep /> : null}
-          {step === 2 ? <AddressStep /> : null}
-          {step === 3 ? <PhotosStep /> : null}
-          {step === 4 ? <SummaryStep onGoToStep={goToStep} /> : null}
+        <ScrollView
+          ref={scrollRef}
+          className="flex-1 px-5"
+          contentContainerClassName="pb-8"
+          keyboardShouldPersistTaps="handled"
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+        >
+          <Pressable onPress={Keyboard.dismiss}>
+            {step === 0 ? <PackageStep onFocusInput={onFocusInput} /> : null}
+            {step === 1 ? <ReceiverStep onFocusInput={onFocusInput} /> : null}
+            {step === 2 ? <AddressStep /> : null}
+            {step === 3 ? <PhotosStep /> : null}
+            {step === 4 ? <SummaryStep onGoToStep={goToStep} /> : null}
+          </Pressable>
         </ScrollView>
 
         {step < 4 ? (

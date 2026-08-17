@@ -1,4 +1,4 @@
-import { ChevronRight, Star } from "lucide-react-native";
+import { ChevronRight, MapPin, Star } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useCreateAddress, useAddresses } from "../../src/hooks/use-addresses";
@@ -63,7 +63,7 @@ export function AddressField({ label, dotColor, value, onChange, testID }: Addre
       <Pressable
         testID={testID}
         onPress={() => setSheetOpen(true)}
-        className="flex-row items-center gap-3 rounded-[10px] border border-border-strong bg-bg px-3.5 py-3.5"
+        className="flex-row items-center gap-3 rounded-[10px] border border-border-strong bg-bg py-3.5 pl-3.5 pr-2"
       >
         <View className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: dotColor }} />
         <View className="flex-1">
@@ -75,30 +75,32 @@ export function AddressField({ label, dotColor, value, onChange, testID }: Addre
             {value?.address || "Tocá para buscar la dirección"}
           </Text>
         </View>
+        {value ? (
+          <Pressable
+            testID={testID ? `${testID}-adjust-map` : undefined}
+            onPress={() => setMapOpen((v) => !v)}
+            hitSlop={8}
+            className={`h-9 w-9 items-center justify-center rounded-full ${mapOpen ? "bg-fg" : "bg-bg-sub"}`}
+          >
+            <MapPin size={16} color={mapOpen ? "#C6F24A" : "#8A8A93"} strokeWidth={1.8} />
+          </Pressable>
+        ) : null}
         <ChevronRight size={18} color="#8A8A93" strokeWidth={1.8} />
       </Pressable>
 
-      {value ? (
-        <View className="flex-row flex-wrap items-center gap-4 px-1">
-          <Pressable testID={testID ? `${testID}-adjust-map` : undefined} onPress={() => setMapOpen((v) => !v)}>
-            <Text className="font-sans-medium text-[12px] text-fg-2">
-              {mapOpen ? "Ocultar mapa" : "Ajustar en el mapa"}
-            </Text>
-          </Pressable>
-          {value.source !== "saved" ? (
-            <Pressable
-              testID={testID ? `${testID}-save-address` : undefined}
-              onPress={handleSaveAddress}
-              disabled={saved || createAddress.isPending}
-              className="flex-row items-center gap-1"
-            >
-              <Star size={12} color={saved ? "#C6F24A" : "#8A8A93"} fill={saved ? "#C6F24A" : "none"} />
-              <Text className="font-sans-medium text-[12px] text-fg-2">
-                {saved ? "Dirección guardada" : "Guardar para la próxima"}
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
+      {value && value.source !== "saved" ? (
+        <Pressable
+          testID={testID ? `${testID}-save-address` : undefined}
+          onPress={handleSaveAddress}
+          disabled={saved || createAddress.isPending}
+          hitSlop={8}
+          className="flex-row items-center gap-1.5 self-start rounded-full px-1 py-2"
+        >
+          <Star size={13} color={saved ? "#C6F24A" : "#8A8A93"} fill={saved ? "#C6F24A" : "none"} />
+          <Text className="font-sans-medium text-[12px] text-fg-2">
+            {saved ? "Dirección guardada" : "Guardar para la próxima"}
+          </Text>
+        </Pressable>
       ) : null}
 
       {mapOpen ? (
@@ -113,7 +115,6 @@ export function AddressField({ label, dotColor, value, onChange, testID }: Addre
             autoExpand
             onConfirm={(lat, lng) => {
               onChange(value ? { ...value, lat, lng, source: "map-pin" } : { address: "Ubicación en el mapa", lat, lng, source: "map-pin" });
-              setMapOpen(false);
             }}
           />
         </View>

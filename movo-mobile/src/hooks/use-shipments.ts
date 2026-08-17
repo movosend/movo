@@ -1,6 +1,11 @@
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { shipmentsClient, type CreateShipmentInput, type ShipmentSummary } from "../api/shipments-client";
 
+interface LatLng {
+  lat: number;
+  lng: number;
+}
+
 /**
  * Últimos envíos propios para la sección "Actividad reciente" de Inicio (MOVO-83).
  * `limit: 3` — la home solo necesita una vista previa, no el listado completo (ese
@@ -22,5 +27,26 @@ export function useCreateShipment() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "recent"] });
     },
+  });
+}
+
+/** Ruta real por calle entre origen y destino (MOVO-123) para el mapa del paso de
+ * resumen del wizard — `enabled` solo cuando ambos puntos ya están definidos. */
+export function useShipmentRoute(origin: LatLng | null, destination: LatLng | null) {
+  return useQuery({
+    queryKey: ["shipments", "route", origin, destination],
+    queryFn: () => shipmentsClient.getRoute(origin!, destination!),
+    enabled: origin !== null && destination !== null,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Detalle de un envío propio — pantalla a la que lleva "Ver envío" al terminar el
+ * wizard de creación (MOVO-83). `enabled` solo con un id real (nunca `undefined`). */
+export function useShipment(id: string | undefined) {
+  return useQuery({
+    queryKey: ["shipments", "detail", id],
+    queryFn: () => shipmentsClient.getById(id!),
+    enabled: !!id,
   });
 }

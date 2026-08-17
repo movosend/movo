@@ -69,6 +69,15 @@ export interface CreateShipmentInput {
   pickupTimeWindowEnd: string;
 }
 
+/** Respuesta de `GET /shipments/route` (`routeResponse` en `shipments.schema.ts`,
+ * `movo-svc-shipments`, MOVO-123) — polyline codificado (algoritmo estándar de
+ * Google), consumido por `RouteMapCard` del paso de resumen del wizard. */
+export interface RouteResult {
+  polyline: string;
+  distanceMeters: number;
+  durationSeconds: number;
+}
+
 export const shipmentsClient = {
   /** Protegida — `httpClient` adjunta `Authorization` automáticamente vía el
    * interceptor de sesión (MOVO-76). */
@@ -78,5 +87,20 @@ export const shipmentsClient = {
 
   create(body: CreateShipmentInput): Promise<ShipmentSummary> {
     return httpClient.post<ShipmentSummary>("/shipments", body);
+  },
+
+  getRoute(origin: { lat: number; lng: number }, destination: { lat: number; lng: number }): Promise<RouteResult> {
+    return httpClient.get<RouteResult>("/shipments/route", {
+      originLat: origin.lat,
+      originLng: origin.lng,
+      destinationLat: destination.lat,
+      destinationLng: destination.lng,
+    });
+  },
+
+  /** `GET /shipments/:id` (MOVO-80) — 403 si el envío es de otro usuario, nunca 404
+   * filtrado (el backend distingue "no existe" de "no es tuyo"). */
+  getById(id: string): Promise<ShipmentSummary> {
+    return httpClient.get<ShipmentSummary>(`/shipments/${id}`);
   },
 };

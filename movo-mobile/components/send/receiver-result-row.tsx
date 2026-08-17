@@ -1,6 +1,7 @@
 import type { PublicProfile } from "@movo/shared/dist/types/user-profile";
 import { CircleCheck } from "lucide-react-native";
 import { Image, Pressable, Text, View } from "react-native";
+import { capitalizeName } from "../../src/lib/profile-format";
 
 interface ReceiverResultRowProps {
   profile: PublicProfile;
@@ -40,7 +41,7 @@ export function ReceiverResultRow({ profile, onSelect, testID }: ReceiverResultR
       </View>
       <View className="flex-1">
         <Text className="font-sans-semibold text-[14px] text-fg" numberOfLines={1}>
-          {profile.fullName}
+          {capitalizeName(profile.fullName)}
         </Text>
         {disabled ? (
           <Text className="font-sans text-[12px] text-fg-3">Verificación pendiente</Text>

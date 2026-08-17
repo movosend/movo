@@ -37,7 +37,8 @@
 // vayan a probar push de punta a punta, una vez que el team de Apple sea de pago.
 const { withEntitlementsPlist } = require("expo/config-plugins");
 
-const PUSH_NOTIFICATIONS_ENABLED = process.env.ENABLE_PUSH_NOTIFICATIONS === "true";
+const PUSH_NOTIFICATIONS_ENABLED =
+  process.env.ENABLE_PUSH_NOTIFICATIONS === "true";
 
 const withoutPushEntitlement = (config) =>
   withEntitlementsPlist(config, (config) => {
@@ -58,7 +59,8 @@ module.exports = {
       icon: "./assets/ios-icon.icon",
       supportsTablet: true,
       bundleIdentifier:
-        process.env.IOS_BUNDLE_ID ?? `com.movosend.movomobile.${process.env.USER ?? "dev"}`,
+        process.env.IOS_BUNDLE_ID ??
+        `com.movosend.movomobile.${process.env.USER ?? "dev"}`,
       infoPlist: {
         NSCameraUsageDescription:
           "Movo necesita la cámara para tomar tu foto de perfil y verificar tu identidad durante el registro.",
@@ -122,6 +124,7 @@ module.exports = {
       "expo-font",
       "expo-splash-screen",
       "expo-router",
+      "@react-native-community/datetimepicker",
       ...(PUSH_NOTIFICATIONS_ENABLED ? ["expo-notifications"] : []),
       // Config explícita acá (no `ios.config.googleMapsApiKey`/`android.config.googleMaps.apiKey`)
       // a propósito: ese mod genérico de Expo agrega el pod `react-native-google-maps` en
@@ -132,7 +135,8 @@ module.exports = {
         "react-native-maps",
         {
           iosGoogleMapsApiKey: process.env.GOOGLE_MAPS_IOS_API_KEY ?? "",
-          androidGoogleMapsApiKey: process.env.GOOGLE_MAPS_ANDROID_API_KEY ?? "",
+          androidGoogleMapsApiKey:
+            process.env.GOOGLE_MAPS_ANDROID_API_KEY ?? "",
         },
       ],
       ...(PUSH_NOTIFICATIONS_ENABLED ? [] : [withoutPushEntitlement]),

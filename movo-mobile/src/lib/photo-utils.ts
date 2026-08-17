@@ -84,19 +84,31 @@ export function prepareProfilePhoto(imageUri: string): Promise<PreparedPhoto> {
   return prepareImageForUpload(imageUri, { maxDimension: MAX_DIMENSION, quality: JPEG_QUALITY });
 }
 
+export interface PickImageOptions {
+  /** Default `true` — el recorte cuadrado de perfil (MOVO-98) sigue siendo el default
+   * para no romper `photo-picker.tsx`. Las fotos del paquete del wizard de envíos
+   * (MOVO-83) lo desactivan: no hay ninguna razón de producto para forzar 1:1 sobre
+   * evidencia de un paquete, que casi nunca es cuadrado. */
+  allowsEditing?: boolean;
+}
+
 /**
- * Abre la cámara con recorte nativo cuadrado (1:1) tras verificar permisos.
+ * Abre la cámara (recorte cuadrado 1:1 opcional, ver `PickImageOptions`) tras
+ * verificar permisos.
  */
-export async function takePhotoWithCamera(): Promise<{ cancelled: boolean; uri?: string; permissionDenied?: boolean }> {
+export async function takePhotoWithCamera(
+  options?: PickImageOptions,
+): Promise<{ cancelled: boolean; uri?: string; permissionDenied?: boolean }> {
   const permission = await ImagePicker.requestCameraPermissionsAsync();
   if (!permission.granted) {
     return { cancelled: true, permissionDenied: true };
   }
 
+  const allowsEditing = options?.allowsEditing ?? true;
   const result = await ImagePicker.launchCameraAsync({
     mediaTypes: ["images"],
-    allowsEditing: true,
-    aspect: [1, 1],
+    allowsEditing,
+    ...(allowsEditing ? { aspect: [1, 1] as [number, number] } : {}),
     quality: 1,
   });
 
@@ -108,18 +120,22 @@ export async function takePhotoWithCamera(): Promise<{ cancelled: boolean; uri?:
 }
 
 /**
- * Abre la galería con recorte nativo cuadrado (1:1) tras verificar permisos.
+ * Abre la galería (recorte cuadrado 1:1 opcional, ver `PickImageOptions`) tras
+ * verificar permisos.
  */
-export async function pickPhotoFromGallery(): Promise<{ cancelled: boolean; uri?: string; permissionDenied?: boolean }> {
+export async function pickPhotoFromGallery(
+  options?: PickImageOptions,
+): Promise<{ cancelled: boolean; uri?: string; permissionDenied?: boolean }> {
   const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (!permission.granted) {
     return { cancelled: true, permissionDenied: true };
   }
 
+  const allowsEditing = options?.allowsEditing ?? true;
   const result = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ["images"],
-    allowsEditing: true,
-    aspect: [1, 1],
+    allowsEditing,
+    ...(allowsEditing ? { aspect: [1, 1] as [number, number] } : {}),
     quality: 1,
   });
 

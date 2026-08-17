@@ -12,7 +12,7 @@ import {
   kycStatusIcon,
   kycStatusTone,
 } from '../../../src/lib/kyc-status-ui';
-import { getFirstName } from '../../../src/lib/profile-format';
+import { capitalizeName, getFirstName } from '../../../src/lib/profile-format';
 import { useAuthStore } from '../../../src/store/auth-store';
 
 /**
@@ -60,7 +60,7 @@ export default function AuthenticatedHomeScreen() {
   // sobre partir `fullName` a mano. El fallback solo cubre el instante entre el mount
   // y que resuelva `useMyProfile()`: la sesión de login/refresh (`SessionResponse`,
   // `auth-store.ts`) nunca trajo `firstName` separado, solo `fullName`.
-  const firstName = profile?.firstName ?? getFirstName(user?.fullName);
+  const firstName = profile?.firstName ? capitalizeName(profile.firstName) : getFirstName(user?.fullName);
 
   return (
     <View className="flex-1 bg-bg">

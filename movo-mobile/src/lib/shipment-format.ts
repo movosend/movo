@@ -59,3 +59,18 @@ export function formatPriceArs(value: number | null): string {
   if (value === null || Number.isNaN(value)) return "Precio a estimar";
   return `$${value.toLocaleString("es-AR")}`;
 }
+
+const PICKUP_DATE_FORMATTER = new Intl.DateTimeFormat("es-AR", {
+  weekday: "short",
+  day: "numeric",
+  month: "long",
+});
+
+/** `pickupDate` viaja como string `"YYYY-MM-DD"` (wire format, sin hora) — se parsea
+ * con año/mes/día explícitos, nunca `new Date(pickupDate)`, para no interpretarlo como
+ * medianoche UTC y correr el día en zonas horarias negativas (Argentina, UTC-3). */
+export function formatPickupDateLabel(pickupDate: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(pickupDate)) return null;
+  const [year, month, day] = pickupDate.split("-").map(Number);
+  return PICKUP_DATE_FORMATTER.format(new Date(year, month - 1, day));
+}

@@ -1,4 +1,5 @@
 import {
+  capitalizeName,
   formatReputationScore,
   formatShipmentCount,
   formatTripCount,
@@ -72,10 +73,30 @@ describe("profile-format", () => {
       ["   ", ""],
       ["Martina", "Martina"],
       ["Martina Zurita", "Martina"],
-      ["  martina   zurita  ", "martina"],
+      // Capitaliza el resultado (MOVO-83, feedback de UI) — nunca se confía en cómo
+      // quedó guardado el nombre.
+      ["  martina   zurita  ", "Martina"],
+      ["MARTINA", "Martina"],
       ["Martina Zurita Gomez", "Martina"],
     ])("getFirstName(%p) === %p", (input, expected) => {
       expect(getFirstName(input)).toBe(expected);
+    });
+  });
+
+  describe("capitalizeName", () => {
+    it.each([
+      [null, ""],
+      [undefined, ""],
+      ["", ""],
+      ["   ", ""],
+      ["martina zurita", "Martina Zurita"],
+      ["MARTINA ZURITA", "Martina Zurita"],
+      ["MaRtInA zUrItA", "Martina Zurita"],
+      ["  martina   zurita  ", "Martina Zurita"],
+      ["josé maría pérez", "José María Pérez"],
+      ["ana-maria lópez", "Ana-Maria López"],
+    ])("capitalizeName(%p) === %p", (input, expected) => {
+      expect(capitalizeName(input)).toBe(expected);
     });
   });
 });

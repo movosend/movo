@@ -18,6 +18,7 @@ import { ProfileVerifiedBadge } from '../../../components/profile/profile-verifi
 import { useAuth } from '../../../src/hooks/use-auth';
 import { useMyProfile } from '../../../src/hooks/use-profile';
 import { friendlyErrorMessage } from '../../../src/lib/error-messages';
+import { capitalizeName } from '../../../src/lib/profile-format';
 
 /**
  * Pantalla de perfil propio (MOVO-78, tab "Ajustes"). Compone las piezas de
@@ -41,6 +42,8 @@ export default function ProfileScreen() {
     );
   }
 
+  const displayName = capitalizeName(data.fullName);
+
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={['top']}>
       <ScrollView
@@ -51,7 +54,7 @@ export default function ProfileScreen() {
         <View className="mb-6 flex-row items-center gap-4">
           <PhotoPicker
             testID="profile-photo-picker"
-            fullName={data.fullName}
+            fullName={displayName}
             currentPhotoUrl={data.photoUrl}
             size={88}
             onPhotoUpdated={() => {
@@ -60,7 +63,7 @@ export default function ProfileScreen() {
           />
           <View className="flex-1">
             <Text testID="profile-full-name" className="font-sans-semibold text-h2 text-fg">
-              {data.fullName}
+              {displayName}
             </Text>
             {data.badges.includes('kyc_verified') && (
               <ProfileVerifiedBadge testID="profile-verified-badge" />

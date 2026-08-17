@@ -36,6 +36,7 @@ import { SelectField } from "../../components/ui/select-field";
 import { TextField } from "../../components/ui/text-field";
 import { movoMapStyleDark, movoMapStyleLight } from "../../src/constants/map-style";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { capitalizeName } from "../../src/lib/profile-format";
 import {
   type FieldName,
   formatDni,
@@ -728,7 +729,7 @@ export default function RegisterScreen() {
             <View className="mb-5 overflow-hidden rounded-[10px] border border-border">
               <ReviewRow
                 label="Nombre"
-                value={`${fields.firstName} ${fields.lastName}`.trim()}
+                value={capitalizeName(`${fields.firstName} ${fields.lastName}`)}
                 onEdit={() => goToStep(0)}
               />
               <ReviewRow

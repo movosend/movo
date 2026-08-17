@@ -6,17 +6,26 @@
 const React = require("react");
 const { View } = require("react-native");
 
-function MapView(props) {
+const MapView = React.forwardRef(function MapView(props, ref) {
+  React.useImperativeHandle(ref, () => ({
+    fitToCoordinates: () => {},
+    animateToRegion: () => {},
+  }));
   return React.createElement(View, { testID: props.testID }, props.children);
-}
+});
 
 function Marker(props) {
   return React.createElement(View, { testID: props.testID }, props.children);
+}
+
+function Polyline(props) {
+  return React.createElement(View, { testID: props.testID });
 }
 
 module.exports = {
   __esModule: true,
   default: MapView,
   Marker,
+  Polyline,
   PROVIDER_GOOGLE: "google",
 };

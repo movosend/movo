@@ -1,6 +1,9 @@
 import { MapPin } from "lucide-react-native";
 import { Text, View } from "react-native";
-import { useShipmentWizardStore, type AddressSelection } from "../../../src/store/shipment-wizard-store";
+import {
+  useShipmentWizardStore,
+  type AddressSelection,
+} from "../../../src/store/shipment-wizard-store";
 import { AddressField } from "../address-field";
 import { TimeWindowPicker } from "../time-window-picker";
 
@@ -29,7 +32,8 @@ export function isAddressStepValid(state: {
   pickupTimeWindowStart: string;
   pickupTimeWindowEnd: string;
 }): boolean {
-  if (!isValidSelection(state.pickup) || !isValidSelection(state.delivery)) return false;
+  if (!isValidSelection(state.pickup) || !isValidSelection(state.delivery))
+    return false;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(state.pickupDate)) return false;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -58,16 +62,26 @@ export function AddressStep() {
         <MapPin size={26} color="#0A0A0B" strokeWidth={1.8} />
       </View>
       <View>
-        <Text className="mb-1.5 font-sans-semibold text-title text-fg">¿De dónde a dónde?</Text>
+        <Text className="mb-1.5 font-sans-semibold text-title text-fg">
+          ¿De dónde a dónde?
+        </Text>
         <Text className="font-sans text-body text-fg-2">
-          Elegí retiro y entrega — podés usar tu ubicación actual, cargarla a mano o
-          corregir el punto exacto en el mapa.
+          Elegí retiro y entrega — podés usar tu ubicación actual, cargarla a
+          mano o corregir el punto exacto en el mapa.
         </Text>
       </View>
 
       <View className="gap-3">
-        <Text className="font-sans-semibold text-[11px] uppercase tracking-wider text-fg-3">Ruta</Text>
-        <AddressField testID="address-step-pickup" label="Retiro" dotColor="#0A0A0B" value={pickup} onChange={setPickup} />
+        <Text className="font-sans-semibold text-[11px] uppercase tracking-wider text-fg-3">
+          Ruta
+        </Text>
+        <AddressField
+          testID="address-step-pickup"
+          label="Retiro"
+          dotColor="#0A0A0B"
+          value={pickup}
+          onChange={setPickup}
+        />
         <AddressField
           testID="address-step-delivery"
           label="Entrega"
