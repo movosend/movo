@@ -2,6 +2,7 @@ import fp from "fastify-plugin";
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ApiError, ApiErrorCode } from "@movo/shared";
 import { randomUUID } from "node:crypto";
+import { InsufficientCreationPhotosError } from "../domain/shipment-state-machine";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -23,6 +24,19 @@ export default fp(async (app: FastifyInstance) => {
     if (error instanceof ApiError) {
       reply.code(error.statusCode).send({
         ...error.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    // Fix de review (PR #76, tmvergara): sin este caso, el gate de AC6 de MOVO-81
+    // (`shipment-repository.ts#updateStatus()`) tira un 500 genérico apenas quede
+    // alcanzable por HTTP (MOVO-16) en vez del 409 con el código dedicado
+    // `SHIPMENT_INSUFFICIENT_CREATION_PHOTOS` que ya existe en `@movo/shared`.
+    if (error instanceof InsufficientCreationPhotosError) {
+      const apiError = new ApiError(409, "SHIPMENT_INSUFFICIENT_CREATION_PHOTOS", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
         requestId,
       });
       return;
