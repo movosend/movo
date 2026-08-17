@@ -2,7 +2,8 @@ import { ChevronRight, MapPin, Star } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useCreateAddress, useAddresses } from "../../src/hooks/use-addresses";
-import type { AddressSelection } from "../../src/store/shipment-wizard-store";
+import { addressSelectionToCreateInput } from "../../src/lib/address-selection-to-input";
+import type { AddressSelection } from "../../src/types/address-selection";
 import { AddressSearchSheet } from "./address-search-sheet";
 import { CollapsibleMapRow } from "./collapsible-map-row";
 
@@ -42,24 +43,8 @@ export function AddressField({ label, dotColor, value, onChange, testID }: Addre
   const handleSaveAddress = async () => {
     if (!value) return;
     setSaveError(null);
-    // Places solo devuelve `formattedAddress` (sin componentes estructurados) — split
-    // best-effort en vez de una dirección estructurada real, simplificación conocida
-    // documentada acá, no un bug.
-    const [firstSegment, ...rest] = value.address.split(",").map((s) => s.trim());
     try {
-      await createAddress.mutateAsync({
-        label: null,
-        isDefault: false,
-        street: firstSegment ?? value.address,
-        streetNumber: "",
-        floorApartment: null,
-        city: rest[0] ?? "",
-        province: "",
-        postalCode: "",
-        country: "Argentina",
-        lat: value.lat,
-        long: value.lng,
-      });
+      await createAddress.mutateAsync(addressSelectionToCreateInput(value));
       setSaved(true);
     } catch {
       setSaveError(SAVE_ADDRESS_ERROR);
