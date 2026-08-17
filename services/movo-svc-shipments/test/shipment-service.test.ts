@@ -52,8 +52,8 @@ function fakeRepository(overrides: Partial<ShipmentRepository> = {}): ShipmentRe
   };
 }
 
-// Pickup/delivery en el mismo punto -> distancia haversine 0, aísla el cálculo del
-// placeholder de precio a solo la parte de peso (1500 base + 2kg*300 = 2100).
+// Pickup/delivery a ~1.04km entre sí (MOVO-126: ya no pueden ser el mismo punto, ver
+// describe de más abajo) -> precio placeholder = 1500 base + 2kg*300 + 1.0423km*150 ≈ 2256.
 const baseInput: CreateShipmentServiceInput = {
   senderId: "sender-id",
   receiverId: "receiver-id",
@@ -66,8 +66,8 @@ const baseInput: CreateShipmentServiceInput = {
   pickupLat: -31.4201,
   pickupLng: -64.1888,
   deliveryAddress: "Bv. San Juan 500, Córdoba",
-  deliveryLat: -31.4201,
-  deliveryLng: -64.1888,
+  deliveryLat: -31.4135,
+  deliveryLng: -64.181,
   pickupDate: "2030-01-01",
   pickupTimeWindowStart: "09:00",
   pickupTimeWindowEnd: "12:00",
@@ -189,12 +189,52 @@ describe("shipments.service — createShipment", () => {
       expect.objectContaining({
         senderId: "sender-id",
         receiverId: "receiver-id",
-        suggestedPriceArs: 2100,
+        suggestedPriceArs: 2256,
         pickupDate: new Date("2030-01-01T00:00:00.000Z"),
         pickupTimeWindowStart: new Date("1970-01-01T09:00:00.000Z"),
         pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
       })
     );
+  });
+
+  it("rechaza retiro y entrega en exactamente la misma ubicación, sin llamar al repositorio ni a svc-users (MOVO-126)", async () => {
+    const repository = fakeRepository();
+    const usersClient = createFakeUsersClient({});
+    const findPublicProfileSpy = vi.spyOn(usersClient, "findPublicProfile");
+    const service = createShipmentsService(repository, usersClient);
+
+    await expect(
+      service.createShipment({ ...baseInput, deliveryLat: baseInput.pickupLat, deliveryLng: baseInput.pickupLng })
+    ).rejects.toMatchObject({ statusCode: 422, code: "SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE" });
+
+    expect(repository.create).not.toHaveBeenCalled();
+    expect(findPublicProfileSpy).not.toHaveBeenCalled();
+  });
+
+  it("rechaza retiro y entrega a ~50m entre sí, por debajo del umbral de 100m (MOVO-126)", async () => {
+    const repository = fakeRepository();
+    const usersClient = createFakeUsersClient({});
+    const service = createShipmentsService(repository, usersClient);
+
+    await expect(
+      service.createShipment({ ...baseInput, deliveryLat: baseInput.pickupLat + 0.00045, deliveryLng: baseInput.pickupLng })
+    ).rejects.toMatchObject({ statusCode: 422, code: "SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE" });
+
+    expect(repository.create).not.toHaveBeenCalled();
+  });
+
+  it("acepta retiro y entrega justo por encima del umbral de 100m (MOVO-126)", async () => {
+    const repository = fakeRepository();
+    const usersClient = createFakeUsersClient({
+      "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
+    });
+    const service = createShipmentsService(repository, usersClient);
+
+    await expect(
+      service.createShipment({ ...baseInput, deliveryLat: baseInput.pickupLat + 0.0011, deliveryLng: baseInput.pickupLng })
+    ).resolves.toBeDefined();
+
+    expect(repository.create).toHaveBeenCalled();
   });
 });
 

@@ -37,7 +37,8 @@
 // vayan a probar push de punta a punta, una vez que el team de Apple sea de pago.
 const { withEntitlementsPlist } = require("expo/config-plugins");
 
-const PUSH_NOTIFICATIONS_ENABLED = process.env.ENABLE_PUSH_NOTIFICATIONS === "true";
+const PUSH_NOTIFICATIONS_ENABLED =
+  process.env.ENABLE_PUSH_NOTIFICATIONS === "true";
 
 const withoutPushEntitlement = (config) =>
   withEntitlementsPlist(config, (config) => {
@@ -58,7 +59,8 @@ module.exports = {
       icon: "./assets/ios-icon.icon",
       supportsTablet: true,
       bundleIdentifier:
-        process.env.IOS_BUNDLE_ID ?? `com.movosend.movomobile.${process.env.USER ?? "dev"}`,
+        process.env.IOS_BUNDLE_ID ??
+        `com.movosend.movomobile.${process.env.USER ?? "dev"}`,
       infoPlist: {
         NSCameraUsageDescription:
           "Movo necesita la cámara para tomar tu foto de perfil y verificar tu identidad durante el registro.",
@@ -69,7 +71,7 @@ module.exports = {
         NFCReaderUsageDescription:
           "Movo usa NFC para leer el chip de tu pasaporte durante la verificación de identidad con Didit.",
         NSLocationWhenInUseUsageDescription:
-          "Movo usa tu ubicación para ayudarte a marcar el punto exacto de tu dirección en el mapa durante el registro.",
+          "Movo usa tu ubicación para ayudarte a marcar el punto exacto de una dirección en el mapa, durante el registro y al crear un envío.",
         // Permite tráfico HTTP plano hacia direcciones de red local (RFC1918/.local) sin
         // afectar ATS para el resto de internet — necesario para probar un development
         // build en un iPhone físico contra el backend corriendo en la LAN (override desde
@@ -89,6 +91,7 @@ module.exports = {
       },
       predictiveBackGestureEnabled: false,
       package: "com.anonymous.movomobile",
+      permissions: ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"],
     },
     web: {
       favicon: "./assets/favicon.png",
@@ -111,9 +114,17 @@ module.exports = {
             "Movo necesita acceso a tu cámara para que puedas tomarte una foto de perfil.",
         },
       ],
+      [
+        "expo-location",
+        {
+          locationWhenInUsePermission:
+            "Movo usa tu ubicación para ayudarte a marcar el punto exacto de una dirección en el mapa, durante el registro y al crear un envío.",
+        },
+      ],
       "expo-font",
       "expo-splash-screen",
       "expo-router",
+      "@react-native-community/datetimepicker",
       ...(PUSH_NOTIFICATIONS_ENABLED ? ["expo-notifications"] : []),
       // Config explícita acá (no `ios.config.googleMapsApiKey`/`android.config.googleMaps.apiKey`)
       // a propósito: ese mod genérico de Expo agrega el pod `react-native-google-maps` en
@@ -124,7 +135,8 @@ module.exports = {
         "react-native-maps",
         {
           iosGoogleMapsApiKey: process.env.GOOGLE_MAPS_IOS_API_KEY ?? "",
-          androidGoogleMapsApiKey: process.env.GOOGLE_MAPS_ANDROID_API_KEY ?? "",
+          androidGoogleMapsApiKey:
+            process.env.GOOGLE_MAPS_ANDROID_API_KEY ?? "",
         },
       ],
       ...(PUSH_NOTIFICATIONS_ENABLED ? [] : [withoutPushEntitlement]),

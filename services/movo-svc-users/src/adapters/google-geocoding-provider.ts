@@ -1,5 +1,5 @@
 import { ApiError } from "@movo/shared";
-import { GeocodeAddressInput, GeocodeResult, GeocodingProvider } from "./geocoding-provider";
+import { GeocodeAddressInput, GeocodeResult, GeocodingProvider, ReverseGeocodeResult } from "./geocoding-provider";
 
 export interface GoogleGeocodingProviderConfig {
   apiKey: string;
@@ -57,6 +57,34 @@ export function createGoogleGeocodingProvider(config: GoogleGeocodingProviderCon
         long: first.geometry.location.lng,
         formattedAddress: first.formatted_address,
       };
+    },
+
+    // MOVO-125: mismo endpoint que `geocode()`, con `latlng=` en vez de `address=` —
+    // es el mismo recurso de la Geocoding API resolviendo el sentido inverso, no una
+    // API distinta (a diferencia de Places, que no toma coordenadas crudas).
+    async reverseGeocode(lat: number, long: number): Promise<ReverseGeocodeResult> {
+      const url = new URL(baseUrl);
+      url.searchParams.set("latlng", `${lat},${long}`);
+      url.searchParams.set("key", config.apiKey);
+
+      let response: Response;
+      try {
+        response = await fetch(url.toString());
+      } catch {
+        throw new ApiError(502, "GEOCODING_PROVIDER_ERROR", "No se pudo conectar con el proveedor de geocoding.");
+      }
+
+      if (!response.ok) {
+        throw new ApiError(502, "GEOCODING_PROVIDER_ERROR", "El proveedor de geocoding devolvió un error.");
+      }
+
+      const body = (await response.json()) as GoogleGeocodeResponse;
+      const first = body.results[0];
+      if (body.status !== "OK" || !first) {
+        throw new ApiError(422, "GEOCODING_ADDRESS_NOT_FOUND", "No pudimos ubicar una dirección para esa posición.");
+      }
+
+      return { formattedAddress: first.formatted_address };
     },
   };
 }

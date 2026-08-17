@@ -30,6 +30,34 @@ export function formatReputationScore(score: number | null | undefined): string 
   return score.toFixed(1);
 }
 
+/** Nombre propio o compuesto ("Ana-Maria") a Title Case — nunca se confía en cómo
+ * quedó guardado (DNI/formulario pueden traerlo en mayúsculas, minúsculas o mezclado),
+ * así que arranca de un `toLocaleLowerCase` antes de capitalizar cada palabra. Único
+ * punto de esta lógica — todo lugar de la app que muestra un nombre de usuario pasa
+ * por acá, en vez de confiar en el casing que vino de la fuente (input del usuario,
+ * import de datos, etc.). */
+export function capitalizeName(name: string | null | undefined): string {
+  return (name ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) =>
+      word
+        .split("-")
+        .map((part) =>
+          part ? part.charAt(0).toLocaleUpperCase("es-AR") + part.slice(1).toLocaleLowerCase("es-AR") : part,
+        )
+        .join("-"),
+    )
+    .join(" ");
+}
+
+/** Primer nombre para saludos cortos (home) — el nombre completo se reserva para
+ * lugares con más espacio (perfil). "" si no hay nombre real. */
+export function getFirstName(fullName: string | null | undefined): string {
+  return capitalizeName((fullName ?? "").trim().split(/\s+/)[0] ?? "");
+}
+
 /** Iniciales para el fallback del avatar — "?" si no hay nombre real. */
 export function getInitials(fullName: string | null | undefined): string {
   const parts = (fullName ?? "").trim().split(/\s+/).filter(Boolean);

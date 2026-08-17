@@ -1,7 +1,9 @@
 import {
+  capitalizeName,
   formatReputationScore,
   formatShipmentCount,
   formatTripCount,
+  getFirstName,
   getInitials,
 } from "../src/lib/profile-format";
 
@@ -60,6 +62,41 @@ describe("profile-format", () => {
       ["Martina Zurita Gomez", "MG"],
     ])("getInitials(%p) === %p", (input, expected) => {
       expect(getInitials(input)).toBe(expected);
+    });
+  });
+
+  describe("getFirstName", () => {
+    it.each([
+      [null, ""],
+      [undefined, ""],
+      ["", ""],
+      ["   ", ""],
+      ["Martina", "Martina"],
+      ["Martina Zurita", "Martina"],
+      // Capitaliza el resultado (MOVO-83, feedback de UI) — nunca se confía en cómo
+      // quedó guardado el nombre.
+      ["  martina   zurita  ", "Martina"],
+      ["MARTINA", "Martina"],
+      ["Martina Zurita Gomez", "Martina"],
+    ])("getFirstName(%p) === %p", (input, expected) => {
+      expect(getFirstName(input)).toBe(expected);
+    });
+  });
+
+  describe("capitalizeName", () => {
+    it.each([
+      [null, ""],
+      [undefined, ""],
+      ["", ""],
+      ["   ", ""],
+      ["martina zurita", "Martina Zurita"],
+      ["MARTINA ZURITA", "Martina Zurita"],
+      ["MaRtInA zUrItA", "Martina Zurita"],
+      ["  martina   zurita  ", "Martina Zurita"],
+      ["josé maría pérez", "José María Pérez"],
+      ["ana-maria lópez", "Ana-Maria López"],
+    ])("capitalizeName(%p) === %p", (input, expected) => {
+      expect(capitalizeName(input)).toBe(expected);
     });
   });
 });

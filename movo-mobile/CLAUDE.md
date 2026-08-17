@@ -48,6 +48,35 @@ contra `null`/`NaN` (nunca `?? 0` ciego — `NaN ?? 0` sigue siendo `NaN`). Sepa
 pública/privada resuelta por tipos de componente (`ProfilePrivateSection` no acepta
 campos de `PublicProfile`), no por flag visual sobre un componente genérico.
 
+### MOVO-83 (parcial) — Rediseño de Inicio y punto de entrada al wizard de envío (`movo-mobile`)
+
+Solo el punto de entrada (AC1): el wizard de creación de envío en sí es un ticket
+aparte, todavía sin arrancar. `home.tsx` deja de ser el placeholder de MOVO-76
+(saludo + logout) y pasa a `ScrollView` con: saludo + banner KYC (sin cambios),
+`HomeSendCta` (CTA primaria con el acento lime de marca, bloqueada hasta KYC de
+identidad aprobado) y `RecentShipmentsSection` (vista previa de los últimos 3 envíos
+propios vía `GET /shipments/mine`, MOVO-80 backend — ya Done). El botón de logout se
+sacó de Inicio (ya vive en Perfil, `ProfileLogoutButton`, MOVO-78).
+
+- **`GradientBorderCard` extraído** de `profile-stats-row.tsx` a
+  `components/ui/gradient-border-card.tsx` — mismo lenguaje visual "chrome" reusado
+  por `RecentShipmentsSection`, evita duplicar el truco de doble `LinearGradient`.
+- **`app/(app)/send.tsx`**: placeholder, sibling de `license-kyc.tsx` (fuera de
+  `(tabs)/`, con su propio header — no otro ítem de la tab bar flotante, según AC1).
+  Deja la navegación real cableada (`router.push('/send')` desde la CTA) sin inventar
+  un destino falso — el wizard real reemplaza este archivo cuando arranque su ticket.
+- **`src/api/shipments-client.ts`** (`listMine`) y **`src/hooks/use-shipments.ts`**
+  (`useRecentShipments`, TanStack Query, `limit: 3`) nuevos — primer consumo del
+  mobile de `GET /shipments/mine`.
+- **`src/lib/shipment-format.ts`**: traducción de `ShipmentStatus` a español + tono
+  semántico por estado, y formateo de precio (prioriza `agreedPriceArs`, cae a
+  `suggestedPriceArs` si todavía no hay acuerdo — nunca "$0").
+
+Pendiente / fuera de alcance: el wizard de creación en sí (pasos de
+paquete/direcciones/receptor/confirmación), listado completo de envíos (la home solo
+muestra una vista previa de 3), y cross-sell a Transportar desde Inicio (evaluado,
+descartado por ahora para no duplicar el tab).
+
 ### MOVO-107 — Push notifications: permisos y registro de token (mobile)
 
 Implementado contra el contrato de MOVO-106 (backend, todavía sin implementar).
