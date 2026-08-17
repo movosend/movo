@@ -95,10 +95,13 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
     for (const photo of photosToUpload) {
       updatePhoto(photo.id, { status: "uploading", progress: 0, errorMessage: null });
       try {
-        const { uploadUrl, s3Key } = await provider.requestUploadUrl(shipmentId, "creation");
+        // El blob se resuelve antes del presign: `contentLength` viaja firmado dentro
+        // de la presigned URL (AC3 de MOVO-81) y tiene que coincidir exacto con el
+        // tamaño real del blob que se sube después, o S3 rechaza la firma.
         const blob = await uriToBlob(photo.localUri);
+        const { uploadUrl, s3Key } = await provider.requestUploadUrl(shipmentId, "creation", "image/jpeg", blob.size);
         await provider.uploadToUrl(uploadUrl, blob, "image/jpeg", (pct) => updatePhoto(photo.id, { progress: pct }));
-        await provider.confirmUpload(shipmentId, s3Key);
+        await provider.confirmUpload(shipmentId, s3Key, "creation");
         updatePhoto(photo.id, { status: "uploaded", s3Key, progress: 100 });
       } catch {
         updatePhoto(photo.id, { status: "error", errorMessage: "No se pudo subir esta foto. Reintentá." });

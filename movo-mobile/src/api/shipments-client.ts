@@ -78,6 +78,36 @@ export interface RouteResult {
   durationSeconds: number;
 }
 
+/** Único stage soportado por el contrato hoy (`presignPhotoBody`/`confirmPhotoBody`
+ * en `shipments.schema.ts`, MOVO-81) — pickup/delivery quedan para MOVO-21. */
+export type ShipmentPhotoStage = "creation";
+
+/** Body de `POST /shipments/:id/photos/presign` (MOVO-81) — `contentType`/
+ * `contentLength` quedan firmados dentro de la presigned URL (no solo validados), el
+ * cliente tiene que subir exactamente ese tipo/tamaño o S3 rechaza la firma. */
+export interface PresignShipmentPhotoInput {
+  stage: ShipmentPhotoStage;
+  contentType: "image/jpeg";
+  contentLength: number;
+}
+
+export interface PresignShipmentPhotoResponse {
+  uploadUrl: string;
+  s3Key: string;
+  expiresIn: number;
+}
+
+export interface ConfirmShipmentPhotoInput {
+  s3Key: string;
+  stage: ShipmentPhotoStage;
+}
+
+export interface ConfirmShipmentPhotoResponse {
+  id: string;
+  stage: ShipmentPhotoStage;
+  createdAt: string;
+}
+
 export const shipmentsClient = {
   /** Protegida — `httpClient` adjunta `Authorization` automáticamente vía el
    * interceptor de sesión (MOVO-76). */
@@ -102,5 +132,16 @@ export const shipmentsClient = {
    * filtrado (el backend distingue "no existe" de "no es tuyo"). */
   getById(id: string): Promise<ShipmentSummary> {
     return httpClient.get<ShipmentSummary>(`/shipments/${id}`);
+  },
+
+  /** `POST /shipments/:id/photos/presign` (MOVO-81) — solo el emisor puede pedirla. */
+  presignPhoto(shipmentId: string, body: PresignShipmentPhotoInput): Promise<PresignShipmentPhotoResponse> {
+    return httpClient.post<PresignShipmentPhotoResponse>(`/shipments/${shipmentId}/photos/presign`, body);
+  },
+
+  /** `POST /shipments/:id/photos/confirm` (MOVO-81) — el backend valida contra S3
+   * (HEAD real) antes de registrar la foto. */
+  confirmPhoto(shipmentId: string, body: ConfirmShipmentPhotoInput): Promise<ConfirmShipmentPhotoResponse> {
+    return httpClient.post<ConfirmShipmentPhotoResponse>(`/shipments/${shipmentId}/photos/confirm`, body);
   },
 };
