@@ -60,6 +60,15 @@ function mapEvent(row: ShipmentEventRow): ShipmentEvent {
   };
 }
 
+function isUniquePhotoConflict(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
+
 function mapPhoto(row: ShipmentPhotoRow): ShipmentPhoto {
   return {
     id: row.id,
@@ -216,10 +225,25 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
     },
 
     async addPhoto(shipmentId: string, stage: PhotoStage, s3Key: string): Promise<ShipmentPhoto> {
-      const row = await db.shipmentPhoto.create({
-        data: { shipmentId, stage, s3Key },
-      });
-      return mapPhoto(row);
+      try {
+        const row = await db.shipmentPhoto.create({
+          data: { shipmentId, stage, s3Key },
+        });
+        return mapPhoto(row);
+      } catch (error) {
+        // Fix de review (PR #76, tmvergara): confirmar el mismo `s3Key` dos veces
+        // (reintento del cliente) violaba antes solo la lógica de negocio -- ahora
+        // choca con `shipment_photos_shipment_id_s3_key_key`. En vez de propagar el
+        // conflicto, se trata como idempotente: devuelve la fila ya registrada, así el
+        // conteo de AC6 nunca cuenta la misma foto dos veces.
+        if (isUniquePhotoConflict(error)) {
+          const existing = await db.shipmentPhoto.findFirst({ where: { shipmentId, s3Key } });
+          if (existing) {
+            return mapPhoto(existing);
+          }
+        }
+        throw error;
+      }
     },
 
     async listPhotos(shipmentId: string): Promise<ShipmentPhoto[]> {

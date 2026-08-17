@@ -182,6 +182,42 @@ describe("Fotos del paquete (MOVO-81, Postgres)", () => {
       expect(photos).toHaveLength(1);
       expect(photos[0].s3Key).toBe(s3Key);
     });
+
+    it("confirmar el mismo s3Key dos veces es idempotente (no duplica la fila)", async () => {
+      // Fix de review (PR #76, tmvergara): sin esto, un reintento del cliente ante un
+      // timeout de red creaba dos filas para la misma foto y el gate de AC6
+      // (MIN_CREATION_PHOTOS_TO_PUBLISH) contaba evidencia duplicada como si fueran dos
+      // fotos reales distintas.
+      const shipment = await repo.create(baseInput);
+      const presign = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/photos/presign`,
+        headers: { "x-user-id": senderId },
+        payload: { stage: "creation", contentType: "image/jpeg", contentLength: 500_000 },
+      });
+      const { s3Key } = presign.json();
+      storageProvider.__simulateUpload(s3Key, { contentType: "image/jpeg", contentLength: 500_000 });
+
+      const first = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/photos/confirm`,
+        headers: { "x-user-id": senderId },
+        payload: { s3Key, stage: "creation" },
+      });
+      const second = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/photos/confirm`,
+        headers: { "x-user-id": senderId },
+        payload: { s3Key, stage: "creation" },
+      });
+
+      expect(first.statusCode).toBe(200);
+      expect(second.statusCode).toBe(200);
+      expect(second.json().id).toBe(first.json().id);
+
+      const photos = await repo.listPhotos(shipment.id);
+      expect(photos).toHaveLength(1);
+    });
   });
 
   describe("GET /shipments/:id/photos", () => {
