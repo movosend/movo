@@ -1,7 +1,7 @@
 import { router } from "expo-router";
 import { ClipboardCheck } from "lucide-react-native";
 import { useEffect } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { createPhotoUploadProvider } from "../../../src/adapters/photo-upload-provider";
 import { createPricingProvider } from "../../../src/adapters/pricing-provider";
@@ -253,13 +253,6 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
               : `${weightKg || "—"} kg · ${packageTypeLabel(packageType)}`
         }
       />
-
-      {photos.some((p) => p.status === "uploading") ? (
-        <View className="flex-row items-center gap-2">
-          <ActivityIndicator size="small" />
-          <Text className="font-sans text-[13px] text-fg-2">Subiendo fotos…</Text>
-        </View>
-      ) : null}
 
       <PublishShipmentButton
         testID="summary-step-submit"
