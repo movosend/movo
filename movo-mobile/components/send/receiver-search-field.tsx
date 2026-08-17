@@ -3,7 +3,6 @@ import { CircleCheck, MessageCircle, Search, X } from "lucide-react-native";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   Linking,
   Pressable,
   Text,
@@ -15,10 +14,28 @@ import type { OnFocusInput } from "../../src/hooks/use-keyboard-scroll";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { usersClient } from "../../src/api/users-client";
 import { capitalizeName } from "../../src/lib/profile-format";
+import { AvatarImage } from "../ui/avatar-image";
+import { SkeletonBlock } from "../ui/skeleton-block";
 import { ReceiverResultRow } from "./receiver-result-row";
 
 const MIN_QUERY_LENGTH = 2;
 const DEBOUNCE_MS = 350;
+const SKELETON_ROWS = 3;
+
+/** Fila fantasma mientras resuelve la primera búsqueda (MOVO-83, feedback de UI):
+ * mismo alto/gap que `ReceiverResultRow`, sin esperar a que lleguen resultados reales
+ * para mostrar algo con la forma final en vez de la lista vacía + spinner del input. */
+function ReceiverResultSkeletonRow() {
+  return (
+    <View className="flex-row items-center gap-2.5 px-3.5 py-3">
+      <SkeletonBlock className="h-9 w-9 rounded-full" />
+      <View className="flex-1 gap-1.5">
+        <SkeletonBlock className="h-3 w-32 rounded-sm" />
+        <SkeletonBlock className="h-2.5 w-24 rounded-sm" />
+      </View>
+    </View>
+  );
+}
 
 // TODO: sumar el link de descarga real (App Store/Play Store) al mensaje cuando la
 // app esté publicada — todavía no existe (proyecto sin lanzar, ver "Pendientes
@@ -33,15 +50,6 @@ function buildInviteMessage(query: string): string {
 
 function whatsappInviteUrl(query: string): string {
   return `https://wa.me/?text=${encodeURIComponent(buildInviteMessage(query))}`;
-}
-
-function initials(fullName: string): string {
-  return fullName
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
 }
 
 interface ReceiverSearchFieldProps {
@@ -66,39 +74,51 @@ export function ReceiverSearchField({
   const inputRef = useRef<TextInput>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PublicProfile[]>([]);
-  const [loading, setLoading] = useState(false);
+  // Query al que corresponden los `results` actuales — `null` mientras ninguna
+  // búsqueda terminó todavía. Comparar esto contra `trimmedQuery` (en vez de un
+  // booleano `loading` separado) es lo que evita la carrera: `loading` recién pasa a
+  // `true` DENTRO del efecto, un render después de que `debouncedQuery` cambia, así
+  // que hay un frame en el medio con `loading=false` y `results` todavía del query
+  // anterior — ahí se colaba "no encontramos a nadie" un instante antes de que
+  // aparezca la persona real. `resultsQuery` se actualiza en el mismo `setState` que
+  // `results`, nunca queda desincronizado de lo que representa.
+  const [resultsQuery, setResultsQuery] = useState<string | null>(null);
   const debouncedQuery = useDebouncedValue(query, DEBOUNCE_MS);
+  const trimmedQuery = debouncedQuery.trim();
 
   useEffect(() => {
-    if (selected || debouncedQuery.trim().length < MIN_QUERY_LENGTH) {
+    if (selected || trimmedQuery.length < MIN_QUERY_LENGTH) {
       setResults([]);
+      setResultsQuery(null);
       return;
     }
     let cancelled = false;
-    setLoading(true);
     usersClient
-      .search(debouncedQuery.trim())
+      .search(trimmedQuery)
       .then((found) => {
-        if (!cancelled) setResults(found);
+        if (!cancelled) {
+          setResults(found);
+          setResultsQuery(trimmedQuery);
+        }
       })
       .catch(() => {
-        if (!cancelled) setResults([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setResults([]);
+          setResultsQuery(trimmedQuery);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [debouncedQuery, selected]);
+  }, [trimmedQuery, selected]);
 
-  const trimmedQuery = debouncedQuery.trim();
-  const showDropdown = !selected && results.length > 0;
-  const showInvite =
-    !selected &&
-    !loading &&
-    trimmedQuery.length >= MIN_QUERY_LENGTH &&
-    results.length === 0;
+  const searching = !selected && trimmedQuery.length >= MIN_QUERY_LENGTH && resultsQuery !== trimmedQuery;
+  const showDropdown = !selected && !searching && results.length > 0;
+  // Solo para la primera búsqueda (sin resultados todavía) — un refetch por tecleo
+  // sobre resultados ya visibles no reemplaza la lista por el skeleton, el spinner
+  // del input ya cubre ese caso sin el parpadeo de vaciar y repoblar la lista.
+  const showSkeleton = !selected && searching && results.length === 0;
+  const showInvite = !selected && !searching && trimmedQuery.length >= MIN_QUERY_LENGTH && results.length === 0;
 
   const handleInvite = () => {
     Linking.openURL(whatsappInviteUrl(trimmedQuery)).catch(() => {
@@ -116,19 +136,7 @@ export function ReceiverSearchField({
       >
         {selected ? (
           <View className="flex-1 flex-row items-center gap-2.5">
-            <View className="h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-bg-mute">
-              {selected.photoUrl ? (
-                <Image
-                  source={{ uri: selected.photoUrl }}
-                  className="h-full w-full"
-                  resizeMode="cover"
-                />
-              ) : (
-                <Text className="font-sans-semibold text-[11px] text-fg-2">
-                  {initials(selected.fullName)}
-                </Text>
-              )}
-            </View>
+            <AvatarImage fullName={selected.fullName} photoUrl={selected.photoUrl} size={32} />
             <View className="flex-1">
               <Text
                 className="font-sans-semibold text-[14px] text-fg"
@@ -169,12 +177,25 @@ export function ReceiverSearchField({
               className="flex-1 font-sans text-[15px] text-fg"
               style={{ includeFontPadding: false }}
             />
-            {loading ? (
+            {searching ? (
               <ActivityIndicator size="small" color={colors.fg3} />
             ) : null}
           </>
         )}
       </View>
+
+      {showSkeleton ? (
+        <View
+          testID={testID ? `${testID}-skeleton` : undefined}
+          className="mt-1.5 overflow-hidden rounded-[10px] border border-border bg-bg"
+        >
+          {Array.from({ length: SKELETON_ROWS }).map((_, index) => (
+            <View key={index} className={index === 0 ? "" : "border-t border-border"}>
+              <ReceiverResultSkeletonRow />
+            </View>
+          ))}
+        </View>
+      ) : null}
 
       {showDropdown ? (
         <View

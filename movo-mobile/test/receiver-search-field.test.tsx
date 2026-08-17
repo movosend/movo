@@ -91,8 +91,43 @@ describe("ReceiverSearchField", () => {
 
     await waitFor(() => expect(mockSearch).toHaveBeenCalled(), { timeout: 1000 });
     expect(queryByTestId("receiver-invite")).toBeNull();
+    // MOVO-83, feedback de UI: mientras resuelve la primera búsqueda se muestra un
+    // skeleton en vez de dejar la lista vacía sin ninguna forma hasta que llegan
+    // los resultados (o la invitación, si no hay ninguno).
+    expect(getByTestId("receiver-skeleton")).toBeTruthy();
 
     resolveSearch([]);
     await waitFor(() => expect(getByTestId("receiver-invite")).toBeTruthy());
+    expect(queryByTestId("receiver-skeleton")).toBeNull();
+  });
+
+  it("nunca muestra 'invitar' de paso cuando la búsqueda sí encuentra a alguien (regresión)", async () => {
+    let resolveSearch: (value: unknown[]) => void = () => {};
+    mockSearch.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSearch = resolve;
+      }),
+    );
+
+    const { getByTestId, queryByTestId, getByText } = await render(
+      <ReceiverSearchField
+        testID="receiver"
+        selected={null}
+        onSelect={jest.fn()}
+        onClear={jest.fn()}
+        onFocusInput={jest.fn()}
+      />,
+    );
+
+    fireEvent.changeText(getByTestId("receiver"), "Ana");
+    await waitFor(() => expect(mockSearch).toHaveBeenCalled(), { timeout: 1000 });
+    expect(queryByTestId("receiver-invite")).toBeNull();
+
+    resolveSearch([{ id: "u1", fullName: "Ana López", isVerified: true, photoUrl: null, reputationScore: null }]);
+    await waitFor(() => expect(getByText("Ana López")).toBeTruthy());
+    // El punto de la regresión: en el código viejo, `loading` volvía a `false` un
+    // instante *antes* de que `results` se poblara (dos `setState` separados en el
+    // mismo `.then`), así que entre esos dos renders "invitar" se veía de paso.
+    expect(queryByTestId("receiver-invite")).toBeNull();
   });
 });
