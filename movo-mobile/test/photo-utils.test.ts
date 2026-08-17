@@ -124,6 +124,28 @@ describe("photo-utils", () => {
 
       expect(result).toEqual({ cancelled: true });
     });
+
+    it("abre la cámara sin recorte cuando allowsEditing es false", async () => {
+      (ImagePicker.requestCameraPermissionsAsync as jest.Mock).mockResolvedValue({
+        granted: true,
+      });
+      (ImagePicker.launchCameraAsync as jest.Mock).mockResolvedValue({
+        canceled: false,
+        assets: [{ uri: "file:///camera/photo.jpg" }],
+      });
+
+      const result = await takePhotoWithCamera({ allowsEditing: false });
+
+      expect(ImagePicker.launchCameraAsync).toHaveBeenCalledWith({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 1,
+      });
+      expect(result).toEqual({
+        cancelled: false,
+        uri: "file:///camera/photo.jpg",
+      });
+    });
   });
 
   describe("pickPhotoFromGallery", () => {

@@ -63,7 +63,17 @@ export function ProfileLicenseStatusBanner({ status, onPrimaryAction, testID }: 
   const frameTone = tone === "success" ? "warning" : tone;
   const Icon = kycStatusIcon(status);
   const iconColor = frameTone === "neutral" ? colors.fg2 : KYC_TONE_ICON_HEX[frameTone];
-  const primaryLabel = status === KycStatus.MANUAL_REVIEW ? "Ver estado" : "Reintentar verificación";
+  // NOT_STARTED nunca tuvo un intento previo — "Reintentar" no aplica. PENDING tiene
+  // un intento sin resolver, se retoma. MANUAL_REVIEW solo consulta. REJECTED/EXPIRED
+  // sí son reintentos reales.
+  const primaryLabel =
+    status === KycStatus.MANUAL_REVIEW
+      ? "Ver estado"
+      : status === KycStatus.NOT_STARTED
+        ? "Verificar licencia"
+        : status === KycStatus.PENDING
+          ? "Continuar verificación"
+          : "Reintentar verificación";
 
   return (
     <View
@@ -73,8 +83,8 @@ export function ProfileLicenseStatusBanner({ status, onPrimaryAction, testID }: 
       <View className="flex-row items-start gap-2.5">
         <Icon size={18} strokeWidth={1.8} color={iconColor} />
         <View className="flex-1">
-          <Text className="mb-0.5 font-sans-semibold text-[13px] text-ink-950">{copy.title}</Text>
-          <Text className="font-sans text-[13px] text-ink-950">{copy.body}</Text>
+          <Text className="mb-0.5 font-sans-semibold text-[13px] text-fg">{copy.title}</Text>
+          <Text className="font-sans text-[13px] text-fg-2">{copy.body}</Text>
         </View>
       </View>
       <Pressable
@@ -82,7 +92,7 @@ export function ProfileLicenseStatusBanner({ status, onPrimaryAction, testID }: 
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           onPrimaryAction();
         }}
-        className="self-start rounded-full bg-fg px-4 py-2"
+        className="self-end rounded-full bg-fg px-4 py-2"
       >
         <Text className="font-sans-semibold text-[13px] text-bg">{primaryLabel}</Text>
       </Pressable>

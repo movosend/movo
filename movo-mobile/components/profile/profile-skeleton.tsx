@@ -1,9 +1,6 @@
 import { View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-
-function Block({ className }: { className: string }) {
-  return <View className={`bg-bg-mute ${className}`} />;
-}
+import { SkeletonBlock as Block } from "../ui/skeleton-block";
 
 /** Estado de carga del perfil (MOVO-78 AC8) — bloques estáticos imitando la forma de
  * cada sección, sin librería de shimmer nueva. */

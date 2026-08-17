@@ -1,5 +1,6 @@
-import type { PrivateProfile } from "@movo/shared/dist/types/user-profile";
+import type { PrivateProfile, PublicProfile } from "@movo/shared/dist/types/user-profile";
 import { httpClient } from "./http-client";
+import { uploadBlobToPresignedUrl } from "../lib/s3-upload";
 
 /**
  * `PrivateProfile` viene de `@movo/shared` (MOVO-78, migrado desde
@@ -36,6 +37,14 @@ export const usersClient = {
    * como sí hace `authClient.logout`. */
   getMyProfile(): Promise<PrivateProfile> {
     return httpClient.get<PrivateProfile>("/users/me");
+  },
+
+  /** Búsqueda de receptor para el wizard de envíos (MOVO-83) — `GET /users/search`
+   * ya existía en el backend desde MOVO-80, sin wirear en mobile hasta ahora. Busca
+   * por `firstName`+`lastName` (nunca email/teléfono, evita enumeración), excluye al
+   * caller. `q` debe tener al menos 2 caracteres (el backend lo exige). */
+  search(q: string): Promise<PublicProfile[]> {
+    return httpClient.get<PublicProfile[]>("/users/search", { q });
   },
 
   /** Pide presigned URL para subir foto a S3 (MOVO-97/98, ADR-007). */
@@ -86,39 +95,11 @@ export const usersClient = {
       blob = imageSource;
     }
 
-    if (typeof XMLHttpRequest !== "undefined") {
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("PUT", uploadUrl, true);
-        xhr.setRequestHeader("Content-Type", contentType);
-        xhr.setRequestHeader("Content-Length", String(contentLength));
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
-          } else {
-            reject(new Error(`Error al subir la imagen a S3 (HTTP ${xhr.status})`));
-          }
-        };
-        xhr.onerror = () => {
-          reject(new Error("Error de red al subir la imagen a S3"));
-        };
-        xhr.send(blob);
-      });
-      return;
-    }
-
-    const s3Res = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: {
-        "Content-Type": contentType,
-        "Content-Length": String(contentLength),
-      },
-      body: blob,
-    });
-
-    if (!s3Res.ok) {
-      throw new Error(`Error al subir la imagen (HTTP ${s3Res.status})`);
-    }
+    // `contentLength` ya viaja en el header vía `blob.size` dentro del helper
+    // compartido (MOVO-83) — se ignora el parámetro acá salvo para preservar la
+    // firma pública existente de este método (callers ya establecidos: PhotoPicker).
+    void contentLength;
+    await uploadBlobToPresignedUrl(uploadUrl, blob, contentType);
   },
 };
 

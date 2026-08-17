@@ -11,6 +11,11 @@ export interface PreparedPhoto {
 const MAX_DIMENSION = 1024;
 const JPEG_QUALITY = 0.8;
 
+export interface PrepareImageOptions {
+  maxDimension: number;
+  quality: number;
+}
+
 /**
  * Lee un archivo local (file://, ph://, etc.) a un Blob binario en React Native
  * usando XMLHttpRequest (el estándar más confiable en iOS/Android) con fallback a fetch.
@@ -43,15 +48,20 @@ export async function uriToBlob(uri: string): Promise<Blob> {
 }
 
 /**
- * Redimensiona (lado máximo 1024px) y comprime (JPEG calidad 0.8) la imagen
- * en el cliente antes de subir a S3 (MOVO-98 AC5).
+ * Redimensiona (lado máximo `maxDimension`) y comprime (JPEG, `quality`) una imagen
+ * en el cliente antes de subir — generalización de la compresión de foto de perfil
+ * (MOVO-98 AC5) para reusarla también en las fotos de envío del wizard (MOVO-83 AC6,
+ * valores distintos: 1600px/0.7 según la guía del ticket vs. 1024px/0.8 de perfil).
  */
-export async function prepareProfilePhoto(imageUri: string): Promise<PreparedPhoto> {
+export async function prepareImageForUpload(
+  imageUri: string,
+  options: PrepareImageOptions,
+): Promise<PreparedPhoto> {
   const manipulationResult = await ImageManipulator.manipulateAsync(
     imageUri,
-    [{ resize: { width: MAX_DIMENSION } }],
+    [{ resize: { width: options.maxDimension } }],
     {
-      compress: JPEG_QUALITY,
+      compress: options.quality,
       format: ImageManipulator.SaveFormat.JPEG,
     },
   );
@@ -67,18 +77,38 @@ export async function prepareProfilePhoto(imageUri: string): Promise<PreparedPho
 }
 
 /**
- * Abre la cámara con recorte nativo cuadrado (1:1) tras verificar permisos.
+ * Redimensiona (lado máximo 1024px) y comprime (JPEG calidad 0.8) la imagen
+ * en el cliente antes de subir a S3 (MOVO-98 AC5).
  */
-export async function takePhotoWithCamera(): Promise<{ cancelled: boolean; uri?: string; permissionDenied?: boolean }> {
+export function prepareProfilePhoto(imageUri: string): Promise<PreparedPhoto> {
+  return prepareImageForUpload(imageUri, { maxDimension: MAX_DIMENSION, quality: JPEG_QUALITY });
+}
+
+export interface PickImageOptions {
+  /** Default `true` — el recorte cuadrado de perfil (MOVO-98) sigue siendo el default
+   * para no romper `photo-picker.tsx`. Las fotos del paquete del wizard de envíos
+   * (MOVO-83) lo desactivan: no hay ninguna razón de producto para forzar 1:1 sobre
+   * evidencia de un paquete, que casi nunca es cuadrado. */
+  allowsEditing?: boolean;
+}
+
+/**
+ * Abre la cámara (recorte cuadrado 1:1 opcional, ver `PickImageOptions`) tras
+ * verificar permisos.
+ */
+export async function takePhotoWithCamera(
+  options?: PickImageOptions,
+): Promise<{ cancelled: boolean; uri?: string; permissionDenied?: boolean }> {
   const permission = await ImagePicker.requestCameraPermissionsAsync();
   if (!permission.granted) {
     return { cancelled: true, permissionDenied: true };
   }
 
+  const allowsEditing = options?.allowsEditing ?? true;
   const result = await ImagePicker.launchCameraAsync({
     mediaTypes: ["images"],
-    allowsEditing: true,
-    aspect: [1, 1],
+    allowsEditing,
+    ...(allowsEditing ? { aspect: [1, 1] as [number, number] } : {}),
     quality: 1,
   });
 
@@ -90,18 +120,22 @@ export async function takePhotoWithCamera(): Promise<{ cancelled: boolean; uri?:
 }
 
 /**
- * Abre la galería con recorte nativo cuadrado (1:1) tras verificar permisos.
+ * Abre la galería (recorte cuadrado 1:1 opcional, ver `PickImageOptions`) tras
+ * verificar permisos.
  */
-export async function pickPhotoFromGallery(): Promise<{ cancelled: boolean; uri?: string; permissionDenied?: boolean }> {
+export async function pickPhotoFromGallery(
+  options?: PickImageOptions,
+): Promise<{ cancelled: boolean; uri?: string; permissionDenied?: boolean }> {
   const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (!permission.granted) {
     return { cancelled: true, permissionDenied: true };
   }
 
+  const allowsEditing = options?.allowsEditing ?? true;
   const result = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ["images"],
-    allowsEditing: true,
-    aspect: [1, 1],
+    allowsEditing,
+    ...(allowsEditing ? { aspect: [1, 1] as [number, number] } : {}),
     quality: 1,
   });
 
