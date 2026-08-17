@@ -17,6 +17,18 @@ const DIMENSION_CM_MAX = 150;
 // simple sin zona horaria.
 const TIME_PATTERN = "^([01]\\d|2[0-3]):[0-5]\\d(:[0-5]\\d)?$";
 
+// MOVO-81: solo "creation" es una etapa válida en el contrato por ahora -- pickup/
+// delivery (MOVO-21) suman valores acá y un caso de autorización en
+// `photos.service.ts`, sin tocar el resto. El dominio (`PhotoStage`, `addPhoto`) ya es
+// genérico por stage desde MOVO-104.
+const PHOTO_STAGE_VALUES = ["creation"];
+
+// AC10: convención de key `.jpg` -- duplicado en `photos.service.ts`
+// (`ALLOWED_PHOTO_CONTENT_TYPE`/`MAX_PHOTO_CONTENT_LENGTH_BYTES`), mismo criterio que
+// el resto del repo: si se agrega un tipo/límite acá, agregarlo también ahí.
+const PHOTO_CONTENT_TYPE_VALUES = ["image/jpeg"];
+const MAX_PHOTO_CONTENT_LENGTH_BYTES = 2 * 1024 * 1024;
+
 const shipmentResponse = {
   type: "object",
   required: [
@@ -172,6 +184,62 @@ export const shipmentsSchemas = {
       polyline: { type: "string" },
       distanceMeters: { type: "number" },
       durationSeconds: { type: "number" },
+    },
+  },
+
+  presignPhotoBody: {
+    type: "object",
+    required: ["stage", "contentType", "contentLength"],
+    properties: {
+      stage: { type: "string", enum: PHOTO_STAGE_VALUES },
+      contentType: { type: "string", enum: PHOTO_CONTENT_TYPE_VALUES },
+      contentLength: { type: "integer", minimum: 1, maximum: MAX_PHOTO_CONTENT_LENGTH_BYTES },
+    },
+    additionalProperties: false,
+  },
+
+  presignPhotoResponse: {
+    type: "object",
+    required: ["uploadUrl", "s3Key", "expiresIn"],
+    properties: {
+      uploadUrl: { type: "string" },
+      s3Key: { type: "string" },
+      expiresIn: { type: "integer" },
+    },
+  },
+
+  confirmPhotoBody: {
+    type: "object",
+    required: ["s3Key", "stage"],
+    properties: {
+      s3Key: { type: "string" },
+      stage: { type: "string", enum: PHOTO_STAGE_VALUES },
+    },
+    additionalProperties: false,
+  },
+
+  confirmPhotoResponse: {
+    type: "object",
+    required: ["id", "stage", "createdAt"],
+    properties: {
+      id: { type: "string" },
+      stage: { type: "string", enum: PHOTO_STAGE_VALUES },
+      createdAt: { type: "string", format: "date-time" },
+    },
+  },
+
+  listPhotosResponse: {
+    type: "array",
+    items: {
+      type: "object",
+      required: ["id", "stage", "url", "expiresIn", "createdAt"],
+      properties: {
+        id: { type: "string" },
+        stage: { type: "string", enum: PHOTO_STAGE_VALUES },
+        url: { type: "string" },
+        expiresIn: { type: "integer" },
+        createdAt: { type: "string", format: "date-time" },
+      },
     },
   },
 

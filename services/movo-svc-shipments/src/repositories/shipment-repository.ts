@@ -1,6 +1,11 @@
 import { ShipmentStatus } from "@movo/shared";
 import { PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
-import { INITIAL_SHIPMENT_STATUS, transition } from "../domain/shipment-state-machine";
+import {
+  INITIAL_SHIPMENT_STATUS,
+  InsufficientCreationPhotosError,
+  MIN_CREATION_PHOTOS_TO_PUBLISH,
+  transition,
+} from "../domain/shipment-state-machine";
 import {
   Shipment,
   ShipmentEvent,
@@ -53,6 +58,15 @@ function mapEvent(row: ShipmentEventRow): ShipmentEvent {
     reason: row.reason,
     createdAt: row.createdAt,
   };
+}
+
+function isUniquePhotoConflict(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
 }
 
 function mapPhoto(row: ShipmentPhotoRow): ShipmentPhoto {
@@ -161,6 +175,20 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       // ningún UPDATE se ejecuta si esto tira.
       transition(from, to);
 
+      // AC6 de MOVO-81: precondición de negocio sobre una transición que ya es
+      // estructuralmente válida — publicar exige evidencia mínima del paquete. Vive acá
+      // (la única vía de escritura de `status`, AC2 de MOVO-104) para que cualquier
+      // caller futuro (MOVO-16, receptor confirma) quede cubierto sin tener que
+      // reimplementar el chequeo.
+      if (to === ShipmentStatus.PUBLISHED) {
+        const creationPhotoCount = await db.shipmentPhoto.count({
+          where: { shipmentId: id, stage: PhotoStage.creation },
+        });
+        if (creationPhotoCount < MIN_CREATION_PHOTOS_TO_PUBLISH) {
+          throw new InsufficientCreationPhotosError(id, creationPhotoCount);
+        }
+      }
+
       const now = new Date();
       const row = await db.$transaction(async (tx) => {
         const updated = await tx.shipment.update({
@@ -197,10 +225,25 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
     },
 
     async addPhoto(shipmentId: string, stage: PhotoStage, s3Key: string): Promise<ShipmentPhoto> {
-      const row = await db.shipmentPhoto.create({
-        data: { shipmentId, stage, s3Key },
-      });
-      return mapPhoto(row);
+      try {
+        const row = await db.shipmentPhoto.create({
+          data: { shipmentId, stage, s3Key },
+        });
+        return mapPhoto(row);
+      } catch (error) {
+        // Fix de review (PR #76, tmvergara): confirmar el mismo `s3Key` dos veces
+        // (reintento del cliente) violaba antes solo la lógica de negocio -- ahora
+        // choca con `shipment_photos_shipment_id_s3_key_key`. En vez de propagar el
+        // conflicto, se trata como idempotente: devuelve la fila ya registrada, así el
+        // conteo de AC6 nunca cuenta la misma foto dos veces.
+        if (isUniquePhotoConflict(error)) {
+          const existing = await db.shipmentPhoto.findFirst({ where: { shipmentId, s3Key } });
+          if (existing) {
+            return mapPhoto(existing);
+          }
+        }
+        throw error;
+      }
     },
 
     async listPhotos(shipmentId: string): Promise<ShipmentPhoto[]> {

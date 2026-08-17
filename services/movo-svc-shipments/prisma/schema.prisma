@@ -172,6 +172,7 @@ model ShipmentPhoto {
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
+  @@unique([shipmentId, s3Key], map: "shipment_photos_shipment_id_s3_key_key")
   @@index([shipmentId], map: "shipment_photos_shipment_id_idx")
   @@map("shipment_photos")
   @@schema("shipments")

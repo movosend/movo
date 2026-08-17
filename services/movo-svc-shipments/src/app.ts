@@ -9,6 +9,7 @@ import authPlugin from "./plugins/auth";
 import errorHandlerPlugin from "./plugins/error-handler";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import { UsersClient } from "./adapters/users-client";
+import { StorageProvider } from "./adapters/storage-provider";
 import { RoutesProvider } from "./adapters/routes-provider";
 
 export interface BuildAppOptions {
@@ -16,6 +17,9 @@ export interface BuildAppOptions {
    * real levantado, mismo criterio que `smsProvider`/`diditClient`/`geocodingProvider`/
    * `storageProvider` en movo-svc-users. */
   usersClient?: UsersClient;
+  /** Override solo para tests de integración — evita depender de un bucket real/
+   * credenciales de AWS (MOVO-81). */
+  storageProvider?: StorageProvider;
   /** Override solo para tests de integración — evita depender de credenciales reales
    * de Google (MOVO-123), mismo criterio que `usersClient`. */
   routesProvider?: RoutesProvider;
@@ -50,6 +54,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const shipmentsRouteOpts: ShipmentsRoutesOptions = {
     prefix: "/shipments",
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
     ...(opts.routesProvider ? { routesProvider: opts.routesProvider } : {}),
   };
   app.register(shipmentsRoutes, shipmentsRouteOpts);
