@@ -21,6 +21,22 @@ export const geocodeSchemas = {
       formattedAddress: { type: "string" },
     },
   },
+  reverseGeocodeBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["lat", "long"],
+    properties: {
+      lat: { type: "number", minimum: -90, maximum: 90 },
+      long: { type: "number", minimum: -180, maximum: 180 },
+    },
+  },
+  reverseGeocodeResponse: {
+    type: "object",
+    required: ["formattedAddress"],
+    properties: {
+      formattedAddress: { type: "string" },
+    },
+  },
   errorResponse: {
     type: "object",
     required: ["error"],
