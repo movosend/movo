@@ -29,6 +29,7 @@ function errorCodeToStep(code: string): number | null {
       return 1;
     case "SHIPMENT_PICKUP_WINDOW_INVALID":
     case "SHIPMENT_PICKUP_WINDOW_IN_PAST":
+    case "SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE":
       return 2;
     default:
       return null;
