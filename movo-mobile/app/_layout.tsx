@@ -19,6 +19,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { Stack } from 'expo-router';
 import { View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { usePushNotifications } from '../src/hooks/use-push-notifications';
 import { RegistrationProvider } from '../src/hooks/use-registration';
 import { loadApiOverride } from '../src/lib/api-override';
@@ -84,13 +85,18 @@ export default function RootLayout() {
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <RegistrationProvider>
-        <View onLayout={onLayout} className="flex-1 bg-bg">
-          <Stack screenOptions={{ headerShown: false }} />
-          <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
-        </View>
-      </RegistrationProvider>
-    </QueryClientProvider>
+    // Requerido por react-native-gesture-handler v2 (pinch-to-zoom del visor de fotos,
+    // MOVO-127) — tiene que envolver todo el árbol de navegación, no solo la pantalla
+    // que lo usa, o los gestos nativos no se registran (sobre todo en Android).
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <QueryClientProvider client={queryClient}>
+        <RegistrationProvider>
+          <View onLayout={onLayout} className="flex-1 bg-bg">
+            <Stack screenOptions={{ headerShown: false }} />
+            <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+          </View>
+        </RegistrationProvider>
+      </QueryClientProvider>
+    </GestureHandlerRootView>
   );
 }

@@ -7,7 +7,10 @@ module.exports = {
   // mock de `react-native-reanimated` puesto, porque el propio mock importa el
   // inicializador real de reanimated/worklets internamente.
   resolver: "react-native-worklets/jest/resolver.js",
-  setupFiles: ["<rootDir>/test/mocks/reanimated-setup.js"],
+  setupFiles: [
+    "<rootDir>/test/mocks/reanimated-setup.js",
+    "react-native-gesture-handler/jestSetup.js",
+  ],
   transform: {
     "\\.[jt]sx?$": "babel-jest",
     "\\.mjs$": "babel-jest",

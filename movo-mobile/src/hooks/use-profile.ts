@@ -19,3 +19,14 @@ export function useMyProfile(options?: { enabled?: boolean }) {
     enabled: options?.enabled ?? true,
   });
 }
+
+/** Proyección pública de un usuario (`GET /users/:id`, MOVO-77) — usada por la card
+ * de receptor/transportista del detalle de envío (MOVO-127). `enabled` solo con un id
+ * real (nunca `undefined` — p.ej. transportista antes de asignarse). */
+export function usePublicProfile(id: string | undefined) {
+  return useQuery({
+    queryKey: ["profile", "public", id],
+    queryFn: () => usersClient.getPublicProfile(id!),
+    enabled: !!id,
+  });
+}

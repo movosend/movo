@@ -50,3 +50,14 @@ export function useShipment(id: string | undefined) {
     enabled: !!id,
   });
 }
+
+/** Fotos de evidencia del paquete (`GET /shipments/:id/photos`, MOVO-81) para la card
+ * de paquete del detalle de envío (MOVO-127) — falla independiente del resto de la
+ * pantalla, nunca bloquea el detalle principal. */
+export function useShipmentPhotos(id: string | undefined) {
+  return useQuery({
+    queryKey: ["shipments", "photos", id],
+    queryFn: () => shipmentsClient.listPhotos(id!),
+    enabled: !!id,
+  });
+}

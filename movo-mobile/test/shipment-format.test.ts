@@ -1,6 +1,7 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import {
   formatShipmentPrice,
+  receiverConfirmationStatus,
   shipmentStatusLabel,
   shipmentStatusTone,
 } from "../src/lib/shipment-format";
@@ -37,5 +38,20 @@ describe("formatShipmentPrice", () => {
 
   it("cae al precio sugerido si todavía no hay acuerdo", () => {
     expect(formatShipmentPrice(null, 4500)).toBe("$4.500");
+  });
+});
+
+describe("receiverConfirmationStatus", () => {
+  it("mapea awaiting_receiver_confirmation a pending", () => {
+    expect(receiverConfirmationStatus(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe("pending");
+  });
+
+  it("mapea rejected_by_receiver a rejected", () => {
+    expect(receiverConfirmationStatus(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("rejected");
+  });
+
+  it("mapea cualquier estado posterior a confirmed", () => {
+    expect(receiverConfirmationStatus(ShipmentStatus.PUBLISHED)).toBe("confirmed");
+    expect(receiverConfirmationStatus(ShipmentStatus.DELIVERED)).toBe("confirmed");
   });
 });

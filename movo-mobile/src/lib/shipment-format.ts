@@ -43,6 +43,17 @@ export function shipmentStatusTone(
   }
 }
 
+/** Estado de confirmación del receptor (AC7 de MOVO-127, feedback post-QA) — derivado
+ * de `ShipmentStatus`, no hay una columna separada: `awaiting_receiver_confirmation`/
+ * `rejected_by_receiver` son los únicos dos estados donde el receptor todavía no dio
+ * el visto bueno; cualquier estado posterior (`published` en adelante) implica que ya
+ * confirmó, porque no hay transición posible sin pasar por esa confirmación. */
+export function receiverConfirmationStatus(status: ShipmentStatus): "pending" | "confirmed" | "rejected" {
+  if (status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION) return "pending";
+  if (status === ShipmentStatus.REJECTED_BY_RECEIVER) return "rejected";
+  return "confirmed";
+}
+
 /** Nunca "$0" — un envío recién creado sin precio acordado todavía muestra la
  * sugerencia, nunca un número que parezca gratis. */
 export function formatShipmentPrice(agreedPriceArs: number | null, suggestedPriceArs: number): string {

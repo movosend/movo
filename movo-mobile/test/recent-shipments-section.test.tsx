@@ -1,7 +1,13 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { render } from "@testing-library/react-native";
+import { fireEvent, render } from "@testing-library/react-native";
 import type { ShipmentSummary } from "../src/api/shipments-client";
 import { RecentShipmentsSection } from "../components/home/recent-shipments-section";
+
+const mockRouterPush = jest.fn();
+
+jest.mock("expo-router", () => ({
+  router: { push: (...args: unknown[]) => mockRouterPush(...args) },
+}));
 
 const mockUseRecentShipments = jest.fn();
 
@@ -100,5 +106,20 @@ describe("RecentShipmentsSection", () => {
     expect(getByText("Bv. San Juan 500, Córdoba")).toBeTruthy();
     expect(getByText("En camino")).toBeTruthy();
     expect(getByText("$5.200")).toBeTruthy();
+  });
+
+  it("navega al detalle del envío al tocar una fila (MOVO-127)", async () => {
+    mockUseRecentShipments.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: { items: [shipment({ id: "s1" })], page: 1, limit: 3, total: 1 },
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<RecentShipmentsSection testID="section" />);
+
+    await fireEvent.press(getByTestId("shipment-row-s1"));
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/s1");
   });
 });

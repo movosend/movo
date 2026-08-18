@@ -108,6 +108,17 @@ export interface ConfirmShipmentPhotoResponse {
   createdAt: string;
 }
 
+/** Item de `GET /shipments/:id/photos` (`listPhotosResponse` en `shipments.schema.ts`,
+ * MOVO-81) — `url` es una presigned GET de TTL corto, nunca cachear más allá de
+ * `expiresIn`. */
+export interface ShipmentPhoto {
+  id: string;
+  stage: ShipmentPhotoStage;
+  url: string;
+  expiresIn: number;
+  createdAt: string;
+}
+
 export const shipmentsClient = {
   /** Protegida — `httpClient` adjunta `Authorization` automáticamente vía el
    * interceptor de sesión (MOVO-76). */
@@ -143,5 +154,12 @@ export const shipmentsClient = {
    * (HEAD real) antes de registrar la foto. */
   confirmPhoto(shipmentId: string, body: ConfirmShipmentPhotoInput): Promise<ConfirmShipmentPhotoResponse> {
     return httpClient.post<ConfirmShipmentPhotoResponse>(`/shipments/${shipmentId}/photos/confirm`, body);
+  },
+
+  /** `GET /shipments/:id/photos` (MOVO-81) — mismo criterio de acceso que `getById`
+   * (403 ajeno, 404 inexistente). Consumida por la card de paquete del detalle de
+   * envío (MOVO-127). */
+  listPhotos(shipmentId: string): Promise<ShipmentPhoto[]> {
+    return httpClient.get<ShipmentPhoto[]>(`/shipments/${shipmentId}/photos`);
   },
 };

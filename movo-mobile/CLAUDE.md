@@ -123,6 +123,116 @@ Decisiones clave:
 
 Tests nuevos y actualizados: `test/photo-utils.test.ts`, `test/users-client.test.ts`, `test/photo-picker.test.tsx`, `test/profile-photo-screen.test.tsx`, `test/kyc.test.tsx`, `test/profile.test.tsx`, `test/http-client.test.tsx`. Total de 19 suites pasadas / 137 tests exitosos en `movo-mobile`. `tsc --noEmit` sin errores.
 
+### MOVO-127 — Pantalla de detalle de un envío específico (`movo-mobile`)
+
+Reemplaza el placeholder mínimo de `app/(app)/shipments/[id].tsx` (MOVO-83) por el
+detalle real: ruta, paquete (con fotos), ventana de retiro/precio, receptor y —si
+tiene— transportista, línea de tiempo y banner de ofertas. Referencia visual: pantalla
+"02 · Detalle del pedido" del proyecto Claude Design "Movo Mobile Main Views".
+
+Primera versión (antes de probarla en dispositivo) recortaba tabs, banner de ofertas y
+link de cancelar del mock. Tras probarla, feedback del usuario revirtió dos de esos
+recortes:
+- **Tabs Detalles/Línea de tiempo del mock, mantenidas** (`useState<DetailTab>`) en vez
+  de un solo scroll con todas las secciones apiladas — la tab de línea de tiempo queda
+  planteada aunque MOVO-128 (backend de eventos) siga sin arrancar, mostrando
+  `TimelineSection` (estado vacío) en su propio tab en vez de mezclada con el resto.
+- **`OffersBanner` nuevo** (`components/shipments/offers-banner.tsx`): siempre en
+  estado vacío ("Aún no tenés ofertas", sin `onPress`) hasta que exista MOVO-17 —
+  mismo lenguaje visual "bloqueado" que `HomeSendCta` (icono en círculo mute, sin
+  acento de color). Solo se muestra si el envío sigue abierto a ofertas (`!carrierId`
+  y el receptor ya confirmó, `receiverConfirmationStatus === "confirmed"`).
+- **CTA "Volver a Inicio" al pie de la pantalla, eliminado** — no aportaba nada que el
+  botón de volver del header no hiciera ya.
+- **Badge de confirmación del receptor** en `CounterpartCard` (prop
+  `receiverConfirmation`, solo para el receptor, nunca para el transportista):
+  "Pend. de aceptar" / "Aceptó el envío" / "Rechazó el envío", derivado de
+  `shipment.status` vía `receiverConfirmationStatus()` nueva en `shipment-format.ts`
+  (no hay columna separada — `awaiting_receiver_confirmation`/`rejected_by_receiver`
+  son los únicos dos estados donde todavía no confirmó, cualquier estado posterior
+  implica que sí).
+
+- **`RouteMapCard` generalizado para reuso fuera del wizard** (`components/send/
+  route-map-card.tsx`): `onEdit` pasa a opcional (sin botón de lápiz si no se pasa) y
+  el tipo de `pickup`/`delivery` se angosta de `AddressSelection` (con un `source` que
+  el componente nunca usaba) a `{ address, lat, lng }` — desacopla el mapa del estado
+  del wizard, `AddressSelection` lo sigue satisfaciendo por tipado estructural. El
+  detalle de envío reusa el mismo mapa animado del paso de resumen del wizard
+  (MOVO-83/123), no la card estática del mock de diseño.
+- **`components/shipments/`** nuevo: `ShipmentStatusBadge` (extraído, antes duplicado
+  en el placeholder y en `RecentShipmentsSection`), `PackageCard` (consume
+  `GET /shipments/:id/photos`, MOVO-81, nuevo `listPhotos`/`useShipmentPhotos`),
+  `CounterpartCard` (reusa `AvatarImage`/`ProfileVerifiedBadge` ya existentes de
+  perfil, consume `GET /users/:id` vía nuevo `usersClient.getPublicProfile`/
+  `usePublicProfile`), `TimelineSection`.
+- **Timeline con estado vacío explícito, a propósito**: `GET /shipments/:id/events`
+  (MOVO-128) no existe todavía — mismo criterio que AC6 de MOVO-107, nunca se
+  inventan timestamps a partir de `status`/`lastStatusChangedAt` (perdería los pasos
+  intermedios).
+- **Errores 403/404 de `useShipment` distinguidos** vía `ApiError.statusCode`
+  (`@movo/shared/dist/errors/api-error`) — "no te pertenece" vs. "no existe" en vez
+  del banner genérico único que tenía el placeholder.
+- Wiring de navegación: `ShipmentRow` de `RecentShipmentsSection` (antes sin
+  `onPress`) navega a `/shipments/${id}`.
+- **Botón de volver del header corregido**: usaba `router.replace(home)`, que
+  reemplaza la entrada actual de la pila en vez de sacarla — Expo Router lo animaba
+  como una pantalla nueva entrando, no como la actual saliendo hacia atrás (reportado
+  por el usuario probando en dispositivo). Ahora `router.back()` si
+  `router.canGoBack()`, con `replace(home)` solo como fallback para una futura entrada
+  directa sin historial (push notification, MOVO-107 AC6 todavía sin destino real).
+- **Visor de fotos de evidencia a pantalla completa** (`components/shipments/
+  photo-viewer-modal.tsx`, feedback post-QA: antes las fotos de `PackageCard` eran
+  solo un conteo en texto, sin forma de verlas). `PackageCard` ahora muestra una tira
+  de miniaturas reales (`Image`, 56×56); tocar una abre `PhotoViewerModal` en esa
+  foto — `FlatList` horizontal paginado (`initialScrollIndex` + `getItemLayout`, sin
+  el salto/flash de animar el scroll después del primer render), contador "N / M" y
+  cierre. Mismo patrón de `Modal` nativo que `AddressSearchSheet`/`select-field` (el
+  repo no usa presentación modal de expo-router en ningún lado todavía) — no una ruta
+  nueva, a propósito.
+  - **Centrado vertical corregido**: la primera versión restaba un alto de header fijo
+    a mano (`Dimensions().height - 80`) para el contenedor de la imagen — no coincidía
+    con el alto real del header (safe area + fila), dejando la foto visualmente
+    descentrada (reportado por el usuario probando en dispositivo). Ahora el
+    contenedor de cada foto usa `flex: 1` dentro del layout de `SafeAreaView`, sin
+    ningún cálculo manual — el sistema de layout resuelve el alto disponible real.
+  - **Pinch-to-zoom + pan + doble tap** (`ZoomableImage`, componente local del mismo
+    archivo): primer uso real de la API de gestos de `react-native-gesture-handler`
+    en el repo (ya era dependencia transitiva, pero ningún componente la usaba) —
+    requirió agregar `GestureHandlerRootView` en la raíz (`app/_layout.tsx`, tiene que
+    envolver todo el árbol de navegación para que los gestos nativos se registren,
+    sobre todo en Android) y `react-native-gesture-handler/jestSetup.js` a
+    `setupFiles` de `jest.config.js`. El `FlatList` del visor es el de
+    `react-native-gesture-handler` (no el de React Native) para que su scroll
+    conviva con los gestos de pinch/pan sin pelearse por el mismo puntero;
+    `scrollEnabled` del `FlatList` se desactiva mientras una foto está agrandada
+    (`onZoomChange`), si no arrastrar dentro de una foto zoomeada competiría con el
+    paginado horizontal entre fotos. Doble tap alterna entre escala 1 y 2.5x.
+    - **Bug encontrado en device tras el primer merge**: el swipe entre fotos no
+      andaba nunca, con o sin zoom. Causa: `Gesture.Pan()` (un dedo) quedaba
+      *siempre* activo — el `if (savedScale.value <= 1) return` de adentro solo
+      evitaba mover la imagen, pero el gesto igual "reclamaba" el touch antes que el
+      scroll nativo del `FlatList` pudiera recibirlo. Fix: `pan.enabled(isZoomed)`,
+      con `isZoomed` como estado de React espejado desde los shared values (gatea el
+      gesto en sí, no solo su efecto) — sin zoom, `Gesture.Pan()` queda excluido de
+      `Gesture.Simultaneous(pinch, pan)` y el touch de un dedo cae directo al scroll
+      del `FlatList`.
+- **Skeletons animados en vez de `ActivityIndicator`** (feedback post-QA): el header
+  del skeleton replica el layout real (volver + título + badge), evita el doble
+  header renderizando `ShipmentDetailSkeleton` completo en vez del `ActivityIndicator`
+  centrado de antes. El pulso (opacidad 0.5↔1 en loop, Reanimated) se agregó al
+  `SkeletonBlock` **compartido** (`components/ui/skeleton-block.tsx`), no como algo
+  aislado de esta pantalla — se propaga gratis a `ProfileSkeleton` y a cualquier
+  consumidor futuro, decisión tomada con el usuario para no terminar con dos sistemas
+  de skeleton distintos conviviendo en la app. `components/shipments/
+  shipment-detail-skeleton.tsx` nuevo (mismo alto que `RouteMapCard` en el
+  placeholder del mapa, sin salto de layout al terminar de cargar);
+  `PackageCard`/`CounterpartCard` también cambiaron sus spinners chicos por bloques
+  con la forma real del contenido (miniaturas/avatar+nombre).
+
+Pendiente / fuera de alcance: cancelar envío (MOVO-29), detalle/lista de ofertas
+(MOVO-17), handshake/tracking en vivo (MOVO-6/MOVO-11) — igual que documenta el
+propio ticket.
+
 ### Pendientes de este paquete
 
 - **`eas init`/development build real en dispositivo**: pendiente para probar de

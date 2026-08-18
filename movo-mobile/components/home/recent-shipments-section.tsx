@@ -1,22 +1,12 @@
+import { router } from "expo-router";
 import { Package, PackageX, WifiOff } from "lucide-react-native";
-import { ActivityIndicator, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import type { ShipmentSummary } from "../../src/api/shipments-client";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useRecentShipments } from "../../src/hooks/use-shipments";
-import {
-  formatShipmentPrice,
-  shipmentStatusLabel,
-  shipmentStatusTone,
-} from "../../src/lib/shipment-format";
+import { formatShipmentPrice } from "../../src/lib/shipment-format";
+import { ShipmentStatusBadge } from "../shipments/status-badge";
 import { GradientBorderCard } from "../ui/gradient-border-card";
-
-const TONE_BADGE_CLASS: Record<"success" | "warning" | "danger" | "info" | "neutral", string> = {
-  success: "bg-success-100 text-success-700",
-  warning: "bg-warning-100 text-warning-700",
-  danger: "bg-danger-100 text-danger-700",
-  info: "bg-info-100 text-info-700",
-  neutral: "bg-bg-mute text-fg-2",
-};
 
 function ShipmentRow({
   shipment,
@@ -28,12 +18,11 @@ function ShipmentRow({
   testID?: string;
 }) {
   const colors = useThemeColors();
-  const tone = shipmentStatusTone(shipment.status);
-  const [badgeBg, badgeText] = TONE_BADGE_CLASS[tone].split(" ");
 
   return (
-    <View
+    <Pressable
       testID={testID}
+      onPress={() => router.push(`/shipments/${shipment.id}`)}
       className={`flex-row items-center gap-3 py-3 ${isFirst ? "" : "border-t border-border"}`}
     >
       <View className="h-9 w-9 items-center justify-center rounded-full bg-bg-mute">
@@ -47,12 +36,8 @@ function ShipmentRow({
           {formatShipmentPrice(shipment.agreedPriceArs, shipment.suggestedPriceArs)}
         </Text>
       </View>
-      <View className={`rounded-full px-2.5 py-1 ${badgeBg}`}>
-        <Text className={`font-sans-medium text-[11px] ${badgeText}`}>
-          {shipmentStatusLabel(shipment.status)}
-        </Text>
-      </View>
-    </View>
+      <ShipmentStatusBadge status={shipment.status} />
+    </Pressable>
   );
 }
 
@@ -114,7 +99,12 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
         ) : (
           <View>
             {data.items.map((shipment, index) => (
-              <ShipmentRow key={shipment.id} shipment={shipment} isFirst={index === 0} />
+              <ShipmentRow
+                key={shipment.id}
+                shipment={shipment}
+                isFirst={index === 0}
+                testID={`shipment-row-${shipment.id}`}
+              />
             ))}
           </View>
         )}

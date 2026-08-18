@@ -1,110 +1,212 @@
+import { ApiError } from "@movo/shared/dist/errors/api-error";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useLocalSearchParams } from "expo-router";
-import { ChevronLeft, MapPin, Package } from "lucide-react-native";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { ChevronLeft, Clock } from "lucide-react-native";
+import { useState, type ReactNode } from "react";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { PrimaryButton } from "../../../components/auth/primary-button";
+import { CounterpartCard } from "../../../components/shipments/counterpart-card";
+import { OffersBanner } from "../../../components/shipments/offers-banner";
+import { PackageCard } from "../../../components/shipments/package-card";
+import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
+import { ShipmentStatusBadge } from "../../../components/shipments/status-badge";
+import { TimelineSection } from "../../../components/shipments/timeline-section";
+import { RouteMapCard } from "../../../components/send/route-map-card";
 import { ErrorBanner } from "../../../components/ui/error-banner";
+import { GridPattern } from "../../../components/ui/grid-pattern";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useShipment } from "../../../src/hooks/use-shipments";
 import {
+  formatPickupDateLabel,
   formatShipmentPrice,
-  shipmentStatusLabel,
-  shipmentStatusTone,
+  receiverConfirmationStatus,
 } from "../../../src/lib/shipment-format";
 
-const TONE_BADGE_CLASS: Record<"success" | "warning" | "danger" | "info" | "neutral", string> = {
-  success: "bg-success-100 text-success-700",
-  warning: "bg-warning-100 text-warning-700",
-  danger: "bg-danger-100 text-danger-700",
-  info: "bg-info-100 text-info-700",
-  neutral: "bg-bg-mute text-fg-2",
-};
+type DetailTab = "detalle" | "timeline";
+
+function Eyebrow({ children }: { children: ReactNode }) {
+  return <Text className="mb-1.5 font-sans-medium text-caption uppercase text-fg-3">{children}</Text>;
+}
+
+function ShipmentDetailError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  const message =
+    error instanceof ApiError && error.statusCode === 403
+      ? "Este envío no te pertenece."
+      : error instanceof ApiError && error.statusCode === 404
+        ? "Este envío no existe."
+        : "No pudimos cargar este envío.";
+
+  return (
+    <View className="px-5 pt-2">
+      <ErrorBanner testID="shipment-detail-error" message={message} />
+      <Text onPress={onRetry} className="mt-3 font-sans-medium text-small text-fg">
+        Reintentar
+      </Text>
+    </View>
+  );
+}
+
+const TABS: [DetailTab, string][] = [
+  ["detalle", "Detalles"],
+  ["timeline", "Línea de tiempo"],
+];
 
 /**
- * Detalle de un envío propio — todavía un placeholder mínimo (solo lo que ya expone
- * `GET /shipments/:id`, MOVO-80): destino de "Ver envío" al terminar de publicar
- * (`PublishShipmentButton`, MOVO-83). El detalle real (tracking en vivo, timeline de
- * eventos, handshake) es un ticket aparte, sin arrancar todavía — a propósito no se
- * inventa ninguna sección que no tenga datos reales atrás.
+ * Detalle de un envío propio (MOVO-127) — reemplaza el placeholder mínimo de
+ * MOVO-83. Referencia visual: "02 · Detalle del pedido" del proyecto de Claude
+ * Design "Movo Mobile Main Views". A diferencia de la primera versión de este
+ * ticket, se mantienen las tabs Detalles/Línea de tiempo del mock (feedback post-QA:
+ * dejar el lugar de la línea de tiempo planteado aunque MOVO-128 todavía no exista) y
+ * el banner de ofertas (`OffersBanner`, siempre en estado vacío hasta MOVO-17). Sin
+ * link de cancelar (MOVO-29 aparte). El mapa de ruta reusa `RouteMapCard` (mismo
+ * componente animado del paso de resumen del wizard de envío, MOVO-83/123) en vez de
+ * la card estática del mock.
  */
 export default function ShipmentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useThemeColors();
-  const { data: shipment, isLoading, isError, refetch } = useShipment(id);
+  const { data: shipment, isLoading, isError, error, refetch } = useShipment(id);
+  const [tab, setTab] = useState<DetailTab>("detalle");
 
-  const tone = shipment ? shipmentStatusTone(shipment.status) : "neutral";
-  const [badgeBg, badgeText] = TONE_BADGE_CLASS[tone].split(" ");
+  const pickupDateLabel = shipment ? formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate : null;
+  // Banner de ofertas: solo tiene sentido mientras el envío sigue abierto a ofertas
+  // (publicado, sin transportista todavía) — un envío ya asignado, cancelado, o
+  // pendiente de que el receptor confirme, no debería sugerir "todavía no tenés
+  // ofertas" como si pudiera recibir alguna en cualquier momento.
+  const showOffersBanner =
+    shipment !== undefined && !shipment.carrierId && receiverConfirmationStatus(shipment.status) === "confirmed";
+
+  // `router.back()` (no `replace`) — esta pantalla siempre se llega empujando una
+  // ruta nueva (fila de "Actividad reciente", MOVO-127), así que hay historial para
+  // hacer pop; `replace` reemplazaba la entrada actual por Inicio en vez de sacarla
+  // de la pila, lo que Expo Router anima como una pantalla nueva entrando en vez de
+  // la actual saliendo hacia atrás. `canGoBack()` solo cubre una futura entrada
+  // directa (push notification, MOVO-107 AC6 todavía sin destino real) sin historial.
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(app)/(tabs)/home");
+    }
+  };
+
+  if (isLoading) {
+    return <ShipmentDetailSkeleton testID="shipment-detail-skeleton" />;
+  }
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
       <View className="flex-row items-center gap-3 px-5 pb-3.5 pt-1.5">
         <Pressable
           testID="shipment-detail-back"
-          onPress={() => router.replace("/(app)/(tabs)/home")}
+          onPress={handleBack}
           className="h-8 w-8 items-center justify-center rounded-full bg-bg-mute"
         >
           <ChevronLeft size={18} color={colors.fg1} strokeWidth={2} />
         </Pressable>
-        <Text className="font-sans-semibold text-h3 text-fg">Tu envío</Text>
+        <View className="flex-1">
+          <Text className="font-sans-semibold text-h3 text-fg">Detalle del envío</Text>
+          {shipment ? (
+            <Text className="mt-0.5 font-sans text-[10px] uppercase tracking-wide text-fg-3">
+              {shipment.id.slice(0, 8)}
+            </Text>
+          ) : null}
+        </View>
+        {shipment ? <ShipmentStatusBadge status={shipment.status} /> : null}
       </View>
 
-      {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color={colors.fg3} />
-        </View>
-      ) : isError || !shipment ? (
-        <View className="px-5 pt-2">
-          <ErrorBanner testID="shipment-detail-error" message="No pudimos cargar este envío." />
-          <Text onPress={() => refetch()} className="mt-3 font-sans-medium text-small text-fg">
-            Reintentar
-          </Text>
-        </View>
+      {isError || !shipment ? (
+        <ShipmentDetailError error={error} onRetry={() => refetch()} />
       ) : (
-        <View className="flex-1 justify-between">
-          <View className="gap-5 px-5 pt-2">
-            <View className="flex-row items-center justify-between">
-              <View className="h-12 w-12 items-center justify-center rounded-[12px] bg-lime-200">
-                <Package size={22} color="#0A0A0B" strokeWidth={1.8} />
-              </View>
-              <View className={`rounded-full px-3 py-1.5 ${badgeBg}`}>
-                <Text className={`font-sans-medium text-[12px] ${badgeText}`}>
-                  {shipmentStatusLabel(shipment.status)}
+        <View className="flex-1">
+          {showOffersBanner ? (
+            <View className="px-5 pt-1">
+              <OffersBanner testID="shipment-detail-offers" />
+            </View>
+          ) : null}
+
+          <View className="flex-row px-5 pt-3">
+            {TABS.map(([tabId, label]) => (
+              <Pressable
+                key={tabId}
+                testID={`shipment-detail-tab-${tabId}`}
+                onPress={() => setTab(tabId)}
+                className={`flex-1 border-b-2 py-2.5 ${tab === tabId ? "border-fg" : "border-border"}`}
+              >
+                <Text
+                  className={`text-center text-body ${
+                    tab === tabId ? "font-sans-semibold text-fg" : "font-sans text-fg-3"
+                  }`}
+                >
+                  {label}
                 </Text>
-              </View>
-            </View>
-
-            <View className="overflow-hidden rounded-[14px] border border-border">
-              <View className="flex-row items-start gap-3 border-b border-border px-4 py-3.5">
-                <MapPin size={16} color="#0A0A0B" strokeWidth={1.8} style={{ marginTop: 2 }} />
-                <View className="flex-1">
-                  <Text className="mb-0.5 font-sans text-[11px] text-fg-3">Retiro</Text>
-                  <Text className="font-sans-medium text-[15px] text-fg">{shipment.pickupAddress}</Text>
-                </View>
-              </View>
-              <View className="flex-row items-start gap-3 px-4 py-3.5">
-                <MapPin size={16} color="#2B6BFF" strokeWidth={1.8} style={{ marginTop: 2 }} />
-                <View className="flex-1">
-                  <Text className="mb-0.5 font-sans text-[11px] text-fg-3">Entrega</Text>
-                  <Text className="font-sans-medium text-[15px] text-fg">{shipment.deliveryAddress}</Text>
-                </View>
-              </View>
-            </View>
-
-            <View className="flex-row items-center justify-between rounded-[14px] border border-border px-4 py-3.5">
-              <Text className="font-sans text-body text-fg-2">
-                {shipment.pickupDate} · {shipment.pickupTimeWindowStart} a {shipment.pickupTimeWindowEnd}
-              </Text>
-              <Text className="font-sans-semibold text-[17px] text-fg">
-                {formatShipmentPrice(shipment.agreedPriceArs, shipment.suggestedPriceArs)}
-              </Text>
-            </View>
+              </Pressable>
+            ))}
           </View>
 
-          <PrimaryButton
-            testID="shipment-detail-home"
-            label="Volver a Inicio"
-            onPress={() => router.replace("/(app)/(tabs)/home")}
-          />
+          {tab === "detalle" ? (
+            <ScrollView className="flex-1" contentContainerClassName="gap-5 px-5 pb-6 pt-4">
+              <View>
+                <Eyebrow>Ruta</Eyebrow>
+                <RouteMapCard
+                  testID="shipment-detail-route-map"
+                  pickup={{ address: shipment.pickupAddress, lat: shipment.pickupLat, lng: shipment.pickupLng }}
+                  delivery={{
+                    address: shipment.deliveryAddress,
+                    lat: shipment.deliveryLat,
+                    lng: shipment.deliveryLng,
+                  }}
+                />
+              </View>
+
+              <View>
+                <Eyebrow>Paquete</Eyebrow>
+                <PackageCard shipment={shipment} testID="shipment-detail-package" />
+              </View>
+
+              <View className="flex-row gap-2.5">
+                <View className="flex-1 rounded-[10px] border border-border bg-bg px-3.5 py-3.5">
+                  <View className="mb-1.5 flex-row items-center gap-1">
+                    <Clock size={12} color={colors.fg3} strokeWidth={1.8} />
+                    <Text className="font-sans text-[11px] text-fg-3">Ventana de retiro</Text>
+                  </View>
+                  <Text className="font-sans-semibold text-[13px] text-fg">{pickupDateLabel}</Text>
+                  <Text className="mt-0.5 font-sans text-[12px] text-fg-2">
+                    {shipment.pickupTimeWindowStart} – {shipment.pickupTimeWindowEnd}
+                  </Text>
+                </View>
+                <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
+                  <GridPattern />
+                  <Text className="mb-1 font-sans text-[11px] text-ink-950/50">
+                    {shipment.agreedPriceArs !== null ? "Precio acordado" : "Precio sugerido"}
+                  </Text>
+                  <Text className="font-sans-semibold text-[20px] text-ink-950">
+                    {formatShipmentPrice(shipment.agreedPriceArs, shipment.suggestedPriceArs)}
+                  </Text>
+                </View>
+              </View>
+
+              <View>
+                <Eyebrow>Receptor</Eyebrow>
+                <CounterpartCard
+                  userId={shipment.receiverId}
+                  receiverConfirmation={receiverConfirmationStatus(shipment.status)}
+                  testID="shipment-detail-receiver"
+                />
+              </View>
+
+              {shipment.carrierId ? (
+                <View>
+                  <Eyebrow>Transportista</Eyebrow>
+                  <CounterpartCard userId={shipment.carrierId} testID="shipment-detail-carrier" />
+                </View>
+              ) : null}
+            </ScrollView>
+          ) : (
+            <View className="flex-1 px-5 pb-6 pt-4">
+              <TimelineSection testID="shipment-detail-timeline" />
+            </View>
+          )}
         </View>
       )}
     </SafeAreaView>
