@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { shipmentsClient, type CreateShipmentInput, type ShipmentSummary } from "../api/shipments-client";
 
 interface LatLng {
@@ -19,14 +19,29 @@ export function useRecentShipments() {
 }
 
 /** Crea un envío (wizard de MOVO-83). Invalida el preview de "Envíos recientes" de
- * Inicio para que el envío nuevo aparezca ahí sin esperar un refetch manual. */
+ * Inicio y el listado completo de "Mis Envíos" (MOVO-127) para que el envío nuevo
+ * aparezca en ambos sin esperar un refetch manual. */
 export function useCreateShipment() {
   const queryClient = useQueryClient();
   return useMutation<ShipmentSummary, unknown, CreateShipmentInput>({
     mutationFn: (body) => shipmentsClient.create(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "recent"] });
+      queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "list"] });
     },
+  });
+}
+
+/** Listado completo y paginado de "Mis Envíos" (MOVO-127) — a diferencia de
+ * `useRecentShipments` (preview fijo de 3), acá se pagina de a `limit` con scroll
+ * infinito. Query key propia, sin compartir cache con el preview de Home. */
+export function useMyShipments(limit = 20) {
+  return useInfiniteQuery({
+    queryKey: ["shipments", "mine", "list"],
+    queryFn: ({ pageParam }) => shipmentsClient.listMine({ page: pageParam, limit }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.page * lastPage.limit < lastPage.total ? lastPage.page + 1 : undefined,
   });
 }
 
@@ -47,6 +62,28 @@ export function useShipment(id: string | undefined) {
   return useQuery({
     queryKey: ["shipments", "detail", id],
     queryFn: () => shipmentsClient.getById(id!),
+    enabled: !!id,
+  });
+}
+
+/** Fotos de evidencia del paquete (`GET /shipments/:id/photos`, MOVO-81) para la card
+ * de paquete del detalle de envío (MOVO-127) — falla independiente del resto de la
+ * pantalla, nunca bloquea el detalle principal. */
+export function useShipmentPhotos(id: string | undefined) {
+  return useQuery({
+    queryKey: ["shipments", "photos", id],
+    queryFn: () => shipmentsClient.listPhotos(id!),
+    enabled: !!id,
+  });
+}
+
+/** Historial de cambios de estado (`GET /shipments/:id/events`, MOVO-128) para la
+ * línea de tiempo del detalle de envío (MOVO-127) — falla y carga independientes del
+ * detalle principal, igual que `useShipmentPhotos`. */
+export function useShipmentEvents(id: string | undefined) {
+  return useQuery({
+    queryKey: ["shipments", "events", id],
+    queryFn: () => shipmentsClient.listEvents(id!),
     enabled: !!id,
   });
 }

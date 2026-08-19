@@ -1,8 +1,18 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import {
+  formatEventTimestamp,
+  formatPickupWindowLabel,
   formatShipmentPrice,
+  receiverConfirmationStatus,
+  remainingLifecycleSteps,
+  shipmentActorLabel,
+  shipmentEventDetail,
+  shipmentEventTitle,
+  shipmentLifecycleStage,
+  shipmentPendingStepLabel,
   shipmentStatusLabel,
   shipmentStatusTone,
+  shortAddressLabel,
 } from "../src/lib/shipment-format";
 
 describe("shipmentStatusLabel", () => {
@@ -37,5 +47,144 @@ describe("formatShipmentPrice", () => {
 
   it("cae al precio sugerido si todavía no hay acuerdo", () => {
     expect(formatShipmentPrice(null, 4500)).toBe("$4.500");
+  });
+});
+
+describe("receiverConfirmationStatus", () => {
+  it("mapea awaiting_receiver_confirmation a pending", () => {
+    expect(receiverConfirmationStatus(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe("pending");
+  });
+
+  it("mapea rejected_by_receiver a rejected", () => {
+    expect(receiverConfirmationStatus(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("rejected");
+  });
+
+  it("mapea cualquier estado posterior a confirmed", () => {
+    expect(receiverConfirmationStatus(ShipmentStatus.PUBLISHED)).toBe("confirmed");
+    expect(receiverConfirmationStatus(ShipmentStatus.DELIVERED)).toBe("confirmed");
+  });
+});
+
+describe("shipmentLifecycleStage", () => {
+  it("agrupa entregado/cancelado/rechazado como pasados", () => {
+    expect(shipmentLifecycleStage(ShipmentStatus.DELIVERED)).toBe("past");
+    expect(shipmentLifecycleStage(ShipmentStatus.CANCELLED)).toBe("past");
+    expect(shipmentLifecycleStage(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("past");
+  });
+
+  it("agrupa el resto, incluido disputado, como en curso", () => {
+    expect(shipmentLifecycleStage(ShipmentStatus.PUBLISHED)).toBe("ongoing");
+    expect(shipmentLifecycleStage(ShipmentStatus.IN_TRANSIT)).toBe("ongoing");
+    expect(shipmentLifecycleStage(ShipmentStatus.DISPUTED)).toBe("ongoing");
+  });
+});
+
+describe("shortAddressLabel", () => {
+  it("recorta la dirección al primer segmento antes de la coma", () => {
+    expect(shortAddressLabel("Av. Colón 1234, Córdoba")).toBe("Av. Colón 1234");
+  });
+
+  it("devuelve la dirección completa si no tiene coma", () => {
+    expect(shortAddressLabel("Av. Colón 1234")).toBe("Av. Colón 1234");
+  });
+});
+
+describe("formatPickupWindowLabel", () => {
+  it("arma el rango horario legible", () => {
+    expect(formatPickupWindowLabel("09:00", "12:00")).toBe("09:00 a 12:00");
+  });
+});
+
+describe("shipmentEventTitle", () => {
+  it("lee el evento inicial (`fromStatus` null) como la creación del envío", () => {
+    expect(shipmentEventTitle(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, null)).toBe("Envío creado");
+  });
+
+  it("nombra la aceptación del receptor, que no tiene estado propio (es la transición a published)", () => {
+    expect(
+      shipmentEventTitle(ShipmentStatus.PUBLISHED, ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION),
+    ).toBe("El receptor aceptó el envío");
+  });
+
+  it("usa un título narrativo, distinto de la etiqueta de estado", () => {
+    expect(shipmentEventTitle(ShipmentStatus.IN_TRANSIT, ShipmentStatus.ASSIGNED)).toBe(
+      "El paquete salió en camino",
+    );
+    expect(shipmentEventTitle(ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe(
+      "El receptor rechazó el envío",
+    );
+  });
+});
+
+describe("shipmentEventDetail", () => {
+  it("aclara que aceptar publica el envío en el mismo paso", () => {
+    expect(
+      shipmentEventDetail(ShipmentStatus.PUBLISHED, ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION),
+    ).toBe("Publicado para transportistas");
+  });
+
+  it("no agrega nada cuando el título ya dice todo", () => {
+    expect(shipmentEventDetail(ShipmentStatus.DELIVERED, ShipmentStatus.IN_TRANSIT)).toBeNull();
+  });
+});
+
+describe("formatEventTimestamp", () => {
+  it("formatea un ISO datetime válido", () => {
+    expect(formatEventTimestamp("2026-08-15T13:00:00.000Z")).toBeTruthy();
+  });
+
+  it("devuelve null ante una fecha inválida en vez de 'Invalid Date'", () => {
+    expect(formatEventTimestamp("no-es-una-fecha")).toBeNull();
+  });
+});
+
+describe("shipmentActorLabel", () => {
+  const parties = { senderId: "sender-1", receiverId: "receiver-1", carrierId: "carrier-1" };
+
+  it("prioriza la primera persona sobre el rol", () => {
+    expect(shipmentActorLabel("sender-1", parties, "sender-1")).toBe("Vos");
+  });
+
+  it("resuelve cada parte del envío a su rol", () => {
+    expect(shipmentActorLabel("sender-1", parties, "otro")).toBe("El emisor");
+    expect(shipmentActorLabel("receiver-1", parties, "otro")).toBe("El receptor");
+    expect(shipmentActorLabel("carrier-1", parties, "otro")).toBe("El transportista");
+  });
+
+  it("no muestra actor en una transición sin persona detrás", () => {
+    expect(shipmentActorLabel(null, parties, "sender-1")).toBeNull();
+  });
+
+  it("cae a 'Equipo Movo' para un actor ajeno a las tres partes (admin)", () => {
+    expect(shipmentActorLabel("admin-9", parties, "sender-1")).toBe("Equipo Movo");
+  });
+});
+
+describe("remainingLifecycleSteps", () => {
+  it("devuelve los pasos posteriores al estado actual, en orden", () => {
+    expect(remainingLifecycleSteps(ShipmentStatus.PUBLISHED)).toEqual([
+      ShipmentStatus.ASSIGNMENT_PENDING,
+      ShipmentStatus.ASSIGNED,
+      ShipmentStatus.IN_TRANSIT,
+      ShipmentStatus.DELIVERED,
+    ]);
+  });
+
+  it("no devuelve nada en el estado final del camino feliz", () => {
+    expect(remainingLifecycleSteps(ShipmentStatus.DELIVERED)).toEqual([]);
+  });
+
+  it("no devuelve nada para un envío que salió del camino feliz", () => {
+    expect(remainingLifecycleSteps(ShipmentStatus.CANCELLED)).toEqual([]);
+    expect(remainingLifecycleSteps(ShipmentStatus.REJECTED_BY_RECEIVER)).toEqual([]);
+    expect(remainingLifecycleSteps(ShipmentStatus.DISPUTED)).toEqual([]);
+  });
+});
+
+describe("shipmentPendingStepLabel", () => {
+  it("nombra el paso futuro sin usar el pasado de shipmentEventTitle", () => {
+    expect(shipmentPendingStepLabel(ShipmentStatus.PUBLISHED)).toBe("Aceptación del receptor");
+    expect(shipmentPendingStepLabel(ShipmentStatus.IN_TRANSIT)).toBe("Retiro del paquete");
+    expect(shipmentPendingStepLabel(ShipmentStatus.DELIVERED)).toBe("Entrega al receptor");
   });
 });

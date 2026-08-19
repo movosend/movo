@@ -201,6 +201,238 @@ Pendiente / fuera de alcance: no se tocó el backend (`movo-svc-users`) para que
 tipo migrado a `@movo/shared` — su modelo local ya coincidía estructuralmente, no era
 necesario para este ticket mobile-only.
 
+### MOVO-127 — Pantalla de detalle de un envío específico (`movo-mobile`)
+
+Reemplaza el placeholder mínimo de `app/(app)/shipments/[id].tsx` (MOVO-83) por el
+detalle real: ruta, paquete (con fotos), ventana de retiro/precio, receptor y —si
+tiene— transportista, línea de tiempo y banner de ofertas. Referencia visual: pantalla
+"02 · Detalle del pedido" del proyecto Claude Design "Movo Mobile Main Views".
+
+Primera versión (antes de probarla en dispositivo) recortaba tabs, banner de ofertas y
+link de cancelar del mock. Tras probarla, feedback del usuario revirtió dos de esos
+recortes:
+- **Tabs Detalles/Línea de tiempo del mock, mantenidas** (`useState<DetailTab>`) en vez
+  de un solo scroll con todas las secciones apiladas — la tab de línea de tiempo queda
+  planteada aunque MOVO-128 (backend de eventos) siga sin arrancar, mostrando
+  `TimelineSection` (estado vacío) en su propio tab en vez de mezclada con el resto.
+- **`OffersBanner` nuevo** (`components/shipments/offers-banner.tsx`): siempre en
+  estado vacío ("Aún no tenés ofertas", sin `onPress`) hasta que exista MOVO-17 —
+  mismo lenguaje visual "bloqueado" que `HomeSendCta` (icono en círculo mute, sin
+  acento de color). Solo se muestra si el envío sigue abierto a ofertas (`!carrierId`
+  y el receptor ya confirmó, `receiverConfirmationStatus === "confirmed"`).
+- **CTA "Volver a Inicio" al pie de la pantalla, eliminado** — no aportaba nada que el
+  botón de volver del header no hiciera ya.
+- **Badge de confirmación del receptor** en `CounterpartCard` (prop
+  `receiverConfirmation`, solo para el receptor, nunca para el transportista):
+  "Pend. de aceptar" / "Aceptó el envío" / "Rechazó el envío", derivado de
+  `shipment.status` vía `receiverConfirmationStatus()` nueva en `shipment-format.ts`
+  (no hay columna separada — `awaiting_receiver_confirmation`/`rejected_by_receiver`
+  son los únicos dos estados donde todavía no confirmó, cualquier estado posterior
+  implica que sí).
+
+- **`RouteMapCard` generalizado para reuso fuera del wizard** (`components/send/
+  route-map-card.tsx`): `onEdit` pasa a opcional (sin botón de lápiz si no se pasa) y
+  el tipo de `pickup`/`delivery` se angosta de `AddressSelection` (con un `source` que
+  el componente nunca usaba) a `{ address, lat, lng }` — desacopla el mapa del estado
+  del wizard, `AddressSelection` lo sigue satisfaciendo por tipado estructural. El
+  detalle de envío reusa el mismo mapa animado del paso de resumen del wizard
+  (MOVO-83/123), no la card estática del mock de diseño.
+- **`components/shipments/`** nuevo: `ShipmentStatusBadge` (extraído, antes duplicado
+  en el placeholder y en `RecentShipmentsSection`), `PackageCard` (consume
+  `GET /shipments/:id/photos`, MOVO-81, nuevo `listPhotos`/`useShipmentPhotos`),
+  `CounterpartCard` (reusa `AvatarImage`/`ProfileVerifiedBadge` ya existentes de
+  perfil, consume `GET /users/:id` vía nuevo `usersClient.getPublicProfile`/
+  `usePublicProfile`), `TimelineSection`.
+- **Timeline contra datos reales (`TimelineSection`, MOVO-128 ya mergeado a
+  `develop`)**: consume `GET /shipments/:id/events` vía `listEvents`/
+  `useShipmentEvents` nuevos, en el orden ascendente que devuelve el backend — el
+  último evento es el estado actual y se destaca en `text-fg` (el resto en `fg-2`).
+  Riel vertical dibujado dentro de cada fila (`w-px flex-1`), no como una línea
+  absoluta detrás de todas: se estira solo hasta el alto real del evento, que varía
+  según tenga `reason` o no.
+  - **Título anclado al círculo por construcción** (caja `h-9 justify-center`, mismo
+    alto que el círculo), no con un padding calculado contra el line-height: ese
+    cálculo alineaba bien las filas de una sola línea pero se rompía apenas la fila
+    tenía fecha/actor debajo (feedback post-QA en device).
+  - **Ritmo fijo (`min-h-[56px]` + `pb-5`), no reparto del alto de pantalla**: una
+    iteración intermedia estiraba las filas con `flex-1` para llenar la vista, y con
+    los 5-6 pasos típicos de un envío dejaba huecos enormes entre eventos. Sigue valiendo el criterio original: si el historial
+  viene vacío se muestra un estado vacío explícito, nunca se sintetizan eventos a
+  partir de `status`/`lastStatusChangedAt` (perdería los pasos intermedios).
+  - `shipmentEventTitle()` (narrativa en pasado, "El paquete salió en camino")
+    separada de `shipmentStatusLabel()` (nombra el estado actual) — el evento con
+    `fromStatus === null` se lee como "Envío creado", no como "Esperando confirmación".
+  - **La aceptación del receptor no tiene estado propio**: es exactamente la
+    transición `awaiting_receiver_confirmation → published` (un solo `updateStatus` en
+    `acceptShipment`, MOVO-129), así que el backend registra un único evento. Titularlo
+    por su `toStatus` lo mostraba como "Publicado para transportistas" y escondía el
+    paso que el emisor está esperando — se titula por la acción de la persona ("El
+    receptor aceptó el envío") con la publicación como consecuencia debajo
+    (`shipmentEventDetail()`, hoy el único caso). Por lo mismo, el paso pendiente de
+    `published` se llama "Aceptación del receptor", no "Publicación".
+  - `shipmentActorLabel()` resuelve `actorId` contra `senderId`/`receiverId`/
+    `carrierId` que el detalle ya tiene cargados, en vez de pedir `GET /users/:id` por
+    evento: el rol ("Vos"/"El receptor"/"El transportista") es lo informativo en una
+    línea de tiempo, y el nombre de la contraparte ya lo muestra `CounterpartCard`.
+    `actorId: null` (transición sin persona detrás) no muestra actor; un id ajeno a
+    las tres partes (admin resolviendo una disputa) cae a "Equipo Movo".
+  - **Pasos futuros proyectados en gris apagado** debajo del último evento
+    (`remainingLifecycleSteps()` + `shipmentPendingStepLabel()`): recorren el camino
+    feliz de `shipment-state-machine.ts` (`svc-shipments`, MOVO-105) desde el estado
+    actual hasta `delivered`, con círculo vacío de borde punteado (el relleno de color
+    se gana al ocurrir de verdad), texto `fg-3`, y sin fecha ni actor. Un envío fuera
+    del camino feliz (`cancelled`/`rejected_by_receiver`/`disputed`) no proyecta nada
+    — prometer "Entrega al receptor" debajo de un envío cancelado sería mentir.
+    Etiquetas en sustantivo ("Retiro del paquete"), nunca el pasado de
+    `shipmentEventTitle` — un paso futuro descrito en pasado se lee como ya ocurrido.
+    La proyección sale del `toStatus` del último evento, no de `shipment.status`: toda
+    la línea se lee contra una sola fuente, sin poder desincronizarse entre queries.
+  - `formatEventTimestamp()` sí usa `new Date` y la zona horaria del dispositivo (a
+    diferencia de `formatPickupDateLabel`, ver MOVO-80): `createdAt` viaja como ISO
+    datetime completo con offset, y "cuándo pasó esto" se lee en hora local.
+- **Errores 403/404 de `useShipment` distinguidos** vía `ApiError.statusCode`
+  (`@movo/shared/dist/errors/api-error`) — "no te pertenece" vs. "no existe" en vez
+  del banner genérico único que tenía el placeholder.
+- Wiring de navegación: `ShipmentRow` de `RecentShipmentsSection` (antes sin
+  `onPress`) navega a `/shipments/${id}`.
+- **Botón de volver del header corregido**: usaba `router.replace(home)`, que
+  reemplaza la entrada actual de la pila en vez de sacarla — Expo Router lo animaba
+  como una pantalla nueva entrando, no como la actual saliendo hacia atrás (reportado
+  por el usuario probando en dispositivo). Ahora `router.back()` si
+  `router.canGoBack()`, con `replace(home)` solo como fallback para una futura entrada
+  directa sin historial (push notification, MOVO-107 AC6 todavía sin destino real).
+- **Visor de fotos de evidencia a pantalla completa** (`components/shipments/
+  photo-viewer-modal.tsx`, feedback post-QA: antes las fotos de `PackageCard` eran
+  solo un conteo en texto, sin forma de verlas). `PackageCard` ahora muestra una tira
+  de miniaturas reales (`Image`, 56×56); tocar una abre `PhotoViewerModal` en esa
+  foto — `FlatList` horizontal paginado (`initialScrollIndex` + `getItemLayout`, sin
+  el salto/flash de animar el scroll después del primer render), contador "N / M" y
+  cierre. Mismo patrón de `Modal` nativo que `AddressSearchSheet`/`select-field` (el
+  repo no usa presentación modal de expo-router en ningún lado todavía) — no una ruta
+  nueva, a propósito.
+  - **Centrado vertical corregido**: la primera versión restaba un alto de header fijo
+    a mano (`Dimensions().height - 80`) para el contenedor de la imagen — no coincidía
+    con el alto real del header (safe area + fila), dejando la foto visualmente
+    descentrada (reportado por el usuario probando en dispositivo). Ahora el
+    contenedor de cada foto usa `flex: 1` dentro del layout de `SafeAreaView`, sin
+    ningún cálculo manual — el sistema de layout resuelve el alto disponible real.
+  - **Pinch-to-zoom + pan + doble tap** (`ZoomableImage`, componente local del mismo
+    archivo): primer uso real de la API de gestos de `react-native-gesture-handler`
+    en el repo (ya era dependencia transitiva, pero ningún componente la usaba) —
+    requirió agregar `GestureHandlerRootView` en la raíz (`app/_layout.tsx`, tiene que
+    envolver todo el árbol de navegación para que los gestos nativos se registren,
+    sobre todo en Android) y `react-native-gesture-handler/jestSetup.js` a
+    `setupFiles` de `jest.config.js`. El `FlatList` del visor es el de
+    `react-native-gesture-handler` (no el de React Native) para que su scroll
+    conviva con los gestos de pinch/pan sin pelearse por el mismo puntero;
+    `scrollEnabled` del `FlatList` se desactiva mientras una foto está agrandada
+    (`onZoomChange`), si no arrastrar dentro de una foto zoomeada competiría con el
+    paginado horizontal entre fotos. Doble tap alterna entre escala 1 y 2.5x.
+    - **Bug encontrado en device tras el primer merge**: el swipe entre fotos no
+      andaba nunca, con o sin zoom. Causa: `Gesture.Pan()` (un dedo) quedaba
+      *siempre* activo — el `if (savedScale.value <= 1) return` de adentro solo
+      evitaba mover la imagen, pero el gesto igual "reclamaba" el touch antes que el
+      scroll nativo del `FlatList` pudiera recibirlo. Fix: `pan.enabled(isZoomed)`,
+      con `isZoomed` como estado de React espejado desde los shared values (gatea el
+      gesto en sí, no solo su efecto) — sin zoom, `Gesture.Pan()` queda excluido de
+      `Gesture.Simultaneous(pinch, pan)` y el touch de un dedo cae directo al scroll
+      del `FlatList`.
+- **Skeletons animados en vez de `ActivityIndicator`** (feedback post-QA): el header
+  del skeleton replica el layout real (volver + título + badge), evita el doble
+  header renderizando `ShipmentDetailSkeleton` completo en vez del `ActivityIndicator`
+  centrado de antes. El pulso (opacidad 0.5↔1 en loop, Reanimated) se agregó al
+  `SkeletonBlock` **compartido** (`components/ui/skeleton-block.tsx`), no como algo
+  aislado de esta pantalla — se propaga gratis a `ProfileSkeleton` y a cualquier
+  consumidor futuro, decisión tomada con el usuario para no terminar con dos sistemas
+  de skeleton distintos conviviendo en la app. `components/shipments/
+  shipment-detail-skeleton.tsx` nuevo (mismo alto que `RouteMapCard` en el
+  placeholder del mapa, sin salto de layout al terminar de cargar);
+  `PackageCard`/`CounterpartCard` también cambiaron sus spinners chicos por bloques
+  con la forma real del contenido (miniaturas/avatar+nombre).
+
+Pendiente / fuera de alcance: cancelar envío (MOVO-29), detalle/lista de ofertas
+(MOVO-17), handshake/tracking en vivo (MOVO-6/MOVO-11) — igual que documenta el
+propio ticket.
+
+### Pantalla "Mis Envíos" (listado completo, punto de acceso desde Inicio)
+
+`useRecentShipments` (preview de 3 en Inicio) documentaba desde MOVO-83 que el listado
+completo quedaba "fuera de este ticket" — se implementó como parte del pulido de
+MOVO-127: `app/(app)/shipments/index.tsx` nueva, listado paginado con scroll infinito
+(`useMyShipments`, `useInfiniteQuery` de TanStack Query — primer uso en el repo, query
+key `["shipments","mine","list"]` separada de la del preview) y pull-to-refresh (primer
+uso de `RefreshControl` en el repo).
+
+- **`ShipmentCard` nueva** (`components/shipments/shipment-card.tsx`), no la fila de una
+  sola línea (`ShipmentRow`) reusada del preview de Home — feedback post-QA: esa fila
+  "quedaba horrible" repetida en un listado largo. Reinterpretación de una card de
+  referencia (viaje/transportista con foto+nombre, badge de estado, mini-ruta con dos
+  puntos y hora) sin la foto/nombre — acá no hay contraparte asignada todavía, el
+  precio ocupa ese lugar. `shortAddressLabel`/`formatPickupWindowLabel` nuevas en
+  `shipment-format.ts` para el segmento corto de dirección (antes de la primera coma,
+  no hay campo de barrio separado) y el rango horario. `ShipmentRow` (fila compacta de
+  una línea) se mantiene sin cambios, sigue siendo la correcta para el preview de 3 de
+  Home — cada pantalla su propia densidad de información.
+- **Punto de acceso, a propósito deliberadamente discreto y en su propia sección**: dos
+  iteraciones previas de este cambio lo pusieron como botón/card secundario en Inicio
+  (mismo peso visual que `HomeSendCta`) y después como link al pie de la card de
+  Actividad Reciente — el usuario rechazó ambas explícitamente. Quedó como
+  `ViewAllShipmentsLink` (`components/home/view-all-shipments-link.tsx`), sección propia
+  debajo de `RecentShipmentsSection` en `home.tsx`: botón outline chico y centrado
+  (borde `border-border`, texto `text-fg-2`), reusa `useRecentShipments()` (mismo query
+  key, TanStack Query dedupe la request) para decidir si mostrarse — solo con al menos
+  un envío.
+- `useCreateShipment` ahora invalida también `["shipments","mine","list"]` (antes solo
+  invalidaba el preview) para que un envío nuevo aparezca en el listado completo sin
+  esperar un refetch manual.
+
+Tests nuevos: `test/shipment-row.test.tsx`, `test/shipment-card.test.tsx`,
+`test/view-all-shipments-link.test.tsx`, `test/shipments-list-screen.test.tsx`.
+
+**Iteración siguiente (mismo día, feedback post-QA con referencia visual de Uber
+"Activity"):** título grande ("Mis envíos", `text-title`, reemplaza el `text-h3` chico
+junto al botón volver) + tabs "En curso"/"Completados" + botón de filtro circular
+(`SlidersHorizontal`) que abre una hoja inferior con chips de estado — mismo patrón de
+`Modal` que ya usa `SelectField` (overlay + hoja `rounded-t-2xl` + `SafeAreaView
+edges={['bottom']}`), nunca un componente de sheet nuevo.
+
+- **`shipmentLifecycleStage` nueva** en `shipment-format.ts`: agrupa el `ShipmentStatus`
+  en `"ongoing" | "past"` — `DELIVERED`/`CANCELLED`/`REJECTED_BY_RECEIVER` son los
+  únicos "pasados", `DISPUTED` cuenta como en curso (todavía espera resolución, no es un
+  estado final desde la perspectiva del usuario).
+- **Tab + filtro de estado, 100% client-side** sobre las páginas ya cargadas de
+  `useMyShipments` — `GET /shipments/mine` no tiene un parámetro de estado en el backend
+  todavía (MOVO-80). El scroll infinito sigue pidiendo la próxima página según
+  `hasNextPage` de la query completa, sin depender de cuántos items sobrevivan al
+  filtro visible en pantalla — aceptable para el volumen de envíos de un usuario real,
+  pero si el filtrado server-side se vuelve necesario (usuarios con cientos de envíos)
+  es un ticket de backend aparte.
+- Las opciones de chip de la hoja de filtro dependen de la tab activa (en "En curso" no
+  tiene sentido ofrecer "Entregado" como filtro) — cambiar de tab resetea el filtro a
+  "Todos".
+- **Tres iteraciones de diseño del punto de acceso desde Home documentadas en la
+  entrada de arriba** — quedó como link de ancho completo en su propia sección, nunca
+  como botón/card que compita con `HomeSendCta`.
+
+**Segunda iteración de los filtros (mismo día, feedback post-QA sobre la primera):**
+los chips de "Estado" (6 opciones abiertas de una) "no funcionaban, son demasiados" y
+el botón "Aplicar" quedaba pegado contra el último renglón en pantallas chicas. Se
+reemplazó por `FilterDropdown` — mismo patrón que `SelectField` (trigger cerrado +
+`Modal` inferior con lista y check), generalizado a `{ id, label }` en vez de solo
+`string` — necesario para el filtro nuevo de "Destinatario", donde el label (nombre)
+solo no alcanza para identificar sin ambigüedad a la persona si dos comparten nombre.
+Cada dropdown aplica al elegir una opción (sin botón "Aplicar" separado); un link
+"Limpiar" en el header de la hoja resetea ambos filtros a la vez.
+
+- **`usePublicProfiles` nueva** en `use-profile.ts` (`useQueries` de TanStack Query,
+  mismo query key por id que `usePublicProfile` — comparte cache, no duplica requests
+  si `CounterpartCard` ya trajo alguno de esos perfiles) — resuelve los nombres reales
+  de los destinatarios únicos de la tab activa antes de listarlos como opciones del
+  filtro.
+- Cambiar de tab ("En curso"/"Completados") resetea ambos filtros — el set de
+  destinatarios/estados disponibles es distinto por tab, un filtro que sobrevive al
+  cambio podría apuntar a una opción que ya no existe en la tab nueva.
+
 ### Pendientes de este paquete
 
 - **`eas init`/development build real en dispositivo**: pendiente para probar de

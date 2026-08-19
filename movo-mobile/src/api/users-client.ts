@@ -39,6 +39,12 @@ export const usersClient = {
     return httpClient.get<PrivateProfile>("/users/me");
   },
 
+  /** Proyección pública de cualquier usuario (`GET /users/:id`, MOVO-77) — usada por
+   * la card de receptor/transportista del detalle de envío (MOVO-127). */
+  getPublicProfile(id: string): Promise<PublicProfile> {
+    return httpClient.get<PublicProfile>(`/users/${id}`);
+  },
+
   /** Búsqueda de receptor para el wizard de envíos (MOVO-83) — `GET /users/search`
    * ya existía en el backend desde MOVO-80, sin wirear en mobile hasta ahora. Busca
    * por `firstName`+`lastName` (nunca email/teléfono, evita enumeración), excluye al

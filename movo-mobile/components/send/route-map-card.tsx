@@ -9,7 +9,6 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useShipmentRoute } from "../../src/hooks/use-shipments";
 import { hexToRgba } from "../../src/lib/color";
 import { decodePolyline } from "../../src/lib/polyline";
-import type { AddressSelection } from "../../src/types/address-selection";
 
 const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
 
@@ -35,7 +34,18 @@ function interpolate(a: number, b: number, t: number) {
   return a + (b - a) * t;
 }
 
-function buildFallbackRoutePoints(pickup: AddressSelection, delivery: AddressSelection): LatLng[] {
+/** Subconjunto de `AddressSelection` (`src/types/address-selection.ts`) que el mapa
+ * realmente necesita — desacoplado del wizard a propósito para que otros callers
+ * (detalle de envío, MOVO-127) no tengan que fabricar un `source` que este
+ * componente nunca usa. `AddressSelection` sigue siendo asignable acá (tipado
+ * estructural), así que el wizard no necesita ningún cambio. */
+interface RoutePoint {
+  address: string;
+  lat: number;
+  lng: number;
+}
+
+function buildFallbackRoutePoints(pickup: RoutePoint, delivery: RoutePoint): LatLng[] {
   const points: LatLng[] = [];
   for (let i = 0; i <= FALLBACK_ROUTE_STEPS; i += 1) {
     const t = i / FALLBACK_ROUTE_STEPS;
@@ -61,9 +71,11 @@ function RouteBadge({ label }: { label: string }) {
 }
 
 interface RouteMapCardProps {
-  pickup: AddressSelection | null;
-  delivery: AddressSelection | null;
-  onEdit: () => void;
+  pickup: RoutePoint | null;
+  delivery: RoutePoint | null;
+  /** Sin `onEdit` no se renderiza el botón flotante de lápiz — el detalle de envío
+   * (MOVO-127) reusa este mapa en modo solo lectura, la ruta ya está fijada. */
+  onEdit?: () => void;
   testID?: string;
 }
 
@@ -232,15 +244,17 @@ export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardP
           </Marker>
         </MapView>
 
-        <Pressable
-          testID={testID ? `${testID}-edit` : undefined}
-          onPress={onEdit}
-          hitSlop={8}
-          className="absolute right-3 top-3 h-9 w-9 items-center justify-center rounded-full bg-bg"
-          style={{ shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } }}
-        >
-          <Pencil size={16} color={colors.fg1} strokeWidth={1.8} />
-        </Pressable>
+        {onEdit ? (
+          <Pressable
+            testID={testID ? `${testID}-edit` : undefined}
+            onPress={onEdit}
+            hitSlop={8}
+            className="absolute right-3 top-3 h-9 w-9 items-center justify-center rounded-full bg-bg"
+            style={{ shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } }}
+          >
+            <Pencil size={16} color={colors.fg1} strokeWidth={1.8} />
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
