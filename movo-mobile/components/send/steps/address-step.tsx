@@ -1,10 +1,8 @@
 import { MapPin } from "lucide-react-native";
 import { Text, View } from "react-native";
 import { haversineKm } from "../../../src/lib/geo";
-import {
-  useShipmentWizardStore,
-  type AddressSelection,
-} from "../../../src/store/shipment-wizard-store";
+import { useShipmentWizardStore } from "../../../src/store/shipment-wizard-store";
+import type { AddressSelection } from "../../../src/types/address-selection";
 import { AddressField } from "../address-field";
 import { TimeWindowPicker } from "../time-window-picker";
 

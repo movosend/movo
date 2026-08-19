@@ -29,9 +29,9 @@ import {
 } from "../../src/api/places-client";
 import type { Address } from "../../src/api/addresses-client";
 import { useDebouncedValue } from "../../src/hooks/use-debounced-value";
-import { useShipmentAddress } from "../../src/hooks/use-shipment-address";
+import { useMyLocation as useMyLocationResolver } from "../../src/hooks/use-my-location";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
-import type { AddressSelection } from "../../src/store/shipment-wizard-store";
+import type { AddressSelection } from "../../src/types/address-selection";
 
 const MIN_QUERY_LENGTH = 2;
 const DEBOUNCE_MS = 350;
@@ -71,7 +71,7 @@ export function AddressSearchSheet({
   testID,
 }: AddressSearchSheetProps) {
   const colors = useThemeColors();
-  const { useMyLocation, locating, error: locationError, clearError: clearLocationError } = useShipmentAddress();
+  const { resolveCurrentLocation, locating, error: locationError, clearError: clearLocationError } = useMyLocationResolver();
   const [query, setQuery] = useState("");
   const [predictions, setPredictions] = useState<PlacePrediction[]>([]);
   const [loading, setLoading] = useState(false);
@@ -138,7 +138,7 @@ export function AddressSearchSheet({
   };
 
   const handleUseLocation = async () => {
-    const selection = await useMyLocation();
+    const selection = await resolveCurrentLocation();
     if (selection) onSelect(selection);
   };
 

@@ -1,25 +1,21 @@
 import { useCallback, useState } from "react";
 import { geocodeClient } from "../api/geocode-client";
 import { getCurrentLocation } from "../lib/location";
-import type { AddressSelection } from "../store/shipment-wizard-store";
+import type { AddressSelection } from "../types/address-selection";
 
 /**
- * Wrapper del paso de direcciones del wizard de envíos (MOVO-83) alrededor de
- * `src/lib/location.ts` (GPS). Devuelve un `AddressSelection` listo para el store en
- * vez de tocarlo directo — el paso decide cuándo llamar `setPickup`/`setDelivery`.
- *
- * El geocoding de dirección cargada a mano (`POST /geocode`, MOVO-73) se sacó de acá:
- * el rediseño tipo Uber/PedidosYa del paso de direcciones usa `placesClient`
- * (autocomplete + details) en `address-search-sheet.tsx` en su lugar — no queda
- * ningún caller de un geocode estructurado (calle/número/ciudad/CP) en este wizard.
+ * GPS + reverse geocoding, resuelto a un `AddressSelection` listo para usar (MOVO-83,
+ * extraído del wizard de envíos en MOVO-121 — sin dependencias del store del wizard,
+ * reusado también por la pantalla de gestión de direcciones guardadas vía
+ * `address-search-sheet.tsx`).
  */
 const FALLBACK_ADDRESS = "Ubicación actual";
 
-export function useShipmentAddress() {
+export function useMyLocation() {
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const useMyLocation = useCallback(async (): Promise<AddressSelection | null> => {
+  const resolveCurrentLocation = useCallback(async (): Promise<AddressSelection | null> => {
     setLocating(true);
     setError(null);
     try {
@@ -49,5 +45,5 @@ export function useShipmentAddress() {
     }
   }, []);
 
-  return { useMyLocation, locating, error, clearError: () => setError(null) };
+  return { resolveCurrentLocation, locating, error, clearError: () => setError(null) };
 }

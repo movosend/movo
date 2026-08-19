@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import {
   Bell,
   ChevronRight,
@@ -14,26 +15,28 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 interface SettingsItem {
   label: string;
   Icon: LucideIcon;
+  /** `undefined` = placeholder, sigue mostrando el `Alert.alert` de "Próximamente". */
+  onPress?: () => void;
 }
 
-const SETTINGS_ITEMS: SettingsItem[] = [
-  { label: "Cuenta y seguridad", Icon: Shield },
-  { label: "Notificaciones", Icon: Bell },
-  { label: "Pagos y cobros", Icon: Wallet },
-  { label: "Direcciones guardadas", Icon: MapPin },
-  { label: "Ayuda y soporte", Icon: HelpCircle },
-  { label: "Legal", Icon: FileText },
-];
-
 /**
- * Sección "CONFIGURACIÓN" del perfil (MOVO-78) — fiel a la referencia visual, pero
- * ninguna de las 6 pantallas existe todavía. Cada ítem queda deshabilitado
- * visualmente y da un feedback simple al tocarlo. Se usa `Alert.alert` nativo (sin
- * traer una librería de toast nueva solo para este caso, no hay ninguna instalada hoy)
- * — si en el futuro se agrega una para otro flujo, vale la pena migrar esto también.
+ * Sección "CONFIGURACIÓN" del perfil (MOVO-78) — fiel a la referencia visual. 5 de
+ * los 6 ítems siguen sin pantalla propia y quedan deshabilitados visualmente con el
+ * mismo `Alert.alert("Próximamente", ...)` de siempre (sin traer una librería de
+ * toast nueva solo para este caso). "Direcciones guardadas" es el primero en tener
+ * pantalla real (MOVO-121) — a diferencia del resto, no lleva `opacity-60`.
  */
 export function ProfileSettingsSection({ testID }: { testID?: string }) {
   const colors = useThemeColors();
+
+  const settingsItems: SettingsItem[] = [
+    { label: "Cuenta y seguridad", Icon: Shield },
+    { label: "Notificaciones", Icon: Bell },
+    { label: "Pagos y cobros", Icon: Wallet },
+    { label: "Direcciones guardadas", Icon: MapPin, onPress: () => router.push("/addresses") },
+    { label: "Ayuda y soporte", Icon: HelpCircle },
+    { label: "Legal", Icon: FileText },
+  ];
 
   return (
     <View testID={testID} className="mb-5">
@@ -41,12 +44,16 @@ export function ProfileSettingsSection({ testID }: { testID?: string }) {
         Configuración
       </Text>
       <View className="overflow-hidden rounded-[10px] border border-border bg-bg-sub">
-        {SETTINGS_ITEMS.map(({ label, Icon }, index) => (
+        {settingsItems.map(({ label, Icon, onPress }, index) => (
           <Pressable
             key={label}
-            onPress={() => Alert.alert("Próximamente", "Estamos trabajando en esta sección.")}
-            className={`flex-row items-center gap-3 px-4 py-4 opacity-60 ${
-              index < SETTINGS_ITEMS.length - 1 ? "border-b border-border" : ""
+            testID={testID ? `${testID}-${label}` : undefined}
+            onPress={
+              onPress ??
+              (() => Alert.alert("Próximamente", "Estamos trabajando en esta sección."))
+            }
+            className={`flex-row items-center gap-3 px-4 py-4 ${onPress ? "" : "opacity-60"} ${
+              index < settingsItems.length - 1 ? "border-b border-border" : ""
             }`}
           >
             <Icon size={18} strokeWidth={1.8} color={colors.fg3} />

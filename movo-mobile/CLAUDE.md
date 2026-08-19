@@ -123,6 +123,84 @@ Decisiones clave:
 
 Tests nuevos y actualizados: `test/photo-utils.test.ts`, `test/users-client.test.ts`, `test/photo-picker.test.tsx`, `test/profile-photo-screen.test.tsx`, `test/kyc.test.tsx`, `test/profile.test.tsx`, `test/http-client.test.tsx`. Total de 19 suites pasadas / 137 tests exitosos en `movo-mobile`. `tsc --noEmit` sin errores.
 
+### MOVO-121 — Pantalla de gestión de direcciones guardadas (Perfil)
+
+Reemplaza el placeholder "Direcciones guardadas" de Perfil → Configuración
+(`profile-settings-section.tsx`, MOVO-78) por `app/(app)/addresses.tsx`: listar
+(estrella lima para la default), agregar, editar `label`/`isDefault` y borrar (con
+confirmación `Alert.alert`, mismo criterio que "¿Descartar este envío?" de `send.tsx`).
+Bloqueado por MOVO-119 (backend) y por el wizard de MOVO-83 (de donde se reusa
+código) — el ticket arrancó recién cuando el PR de MOVO-83 se mergeó a `develop`.
+
+Decisiones clave:
+- **`Address`/`CreateAddressInput`/`UpdateAddressInput` migrados a `@movo/shared`**
+  (`src/types/address.ts`, ver `shared/movo-shared/CLAUDE.md`) — antes duplicados a
+  mano en `addresses-client.ts` contra un contrato "propuesto" (MOVO-83, escrito
+  antes de que MOVO-119 backend existiera) que ya no coincidía del todo con el real
+  (`label`/`isDefault` opcionales en el alta, `isDefault` solo acepta `true` en el
+  update). Mismo criterio que `PrivateProfile`/`PublicProfile` (MOVO-78).
+- **`AddressSearchSheet` desacoplado del wizard para poder reusarlo (AC3)**: tenía dos
+  imports directos al dominio del wizard. `AddressSelection`/`AddressSource` se
+  movieron de `shipment-wizard-store.ts` a `src/types/address-selection.ts` (tipo
+  neutral); `useShipmentAddress()` se renombró a `useMyLocation()`
+  (`src/hooks/use-my-location.ts`, método interno `resolveCurrentLocation`) — ya no
+  tenía ninguna dependencia real del wizard, solo el import de tipo. Con esto el
+  sheet no importa nada del store de Zustand del wizard.
+- **AC4 con el alcance mínimo aceptado por el propio ticket**: `edit-address-sheet.tsx`
+  solo edita `label`/`isDefault`, sin reabrir el buscador de Places. El toggle de
+  default queda deshabilitado si la dirección ya lo es (nunca manda `isDefault:false`,
+  el backend lo rechaza con 400).
+- **Paso de confirmación entre elegir y guardar (`confirm-add-address-sheet.tsx`,
+  fix de feedback post-implementación)**: guardar automáticamente apenas se elegía una
+  dirección en `AddressSearchSheet` tenía dos problemas — nunca se mostraba el mapa
+  para ajustar el pin, y un error de guardado quedaba oculto detrás del `Modal` del
+  buscador (solo visible si el usuario lo cerraba a mano, y aparecía "en la pantalla
+  principal" en vez de en el buscador). Ahora `AddressSearchSheet` solo elige
+  (`AddressSelection`, sin guardar), y `ConfirmAddAddressSheet` — con
+  `CollapsibleMapRow` siempre expandido (`autoExpand`) para ajustar el pin — hace el
+  alta real con un botón explícito "Guardar dirección" y muestra el error ahí mismo.
+- **`addressSelectionToCreateInput()` (`src/lib/address-selection-to-input.ts`, fix de
+  bug) reemplaza el split a mano duplicado en `address-field.tsx` y en la pantalla de
+  direcciones**: el split anterior mandaba `streetNumber`/`province`/`postalCode`
+  siempre `""`, y `addresses.schema.ts` (`movo-svc-users`) exige `minLength: 1` en esos
+  campos — el alta fallaba con 400 en TODOS los casos, no como excepción (bug
+  reportado por el usuario). El helper separa el número de calle con una regex
+  (`"Av. Colón 1000"` → calle "Av. Colón" + altura "1000") y completa lo que Places no
+  puede dar con precisión (`province`/`postalCode`, a veces `city`) con un placeholder
+  explícito ("S/D") en vez de string vacío.
+- Marcar default también expuesto como acción rápida por fila (tocar la estrella),
+  además de dentro del sheet de editar (AC5).
+- `edit-address-sheet.tsx` envuelto en `KeyboardAvoidingView` (mismo criterio que
+  `address-search-sheet.tsx`) — el teclado tapaba el campo de `label` al editar.
+  Subtítulo agregado arriba de la lista explicando qué se puede hacer en la pantalla.
+- **`ConfirmAddAddressBody` remontado con `key` derivado de la selección (fix de bug
+  de feedback)**: el `Modal` de RN nunca desmonta a sus hijos entre aperturas (solo
+  los oculta) — sin este `key`, `MapView#initialRegion` (que solo se lee al montar)
+  quedaba congelado en la primera dirección que se había confirmado, así que el mapa
+  mostraba siempre esa mientras el usuario elegía direcciones nuevas en pasadas
+  posteriores del mismo sheet. Distinto del bug de campos vacíos de más arriba — este
+  es sobre el `lat`/`lng` mostrados en el mapa, no sobre lo que se guarda.
+- **Mapa a pantalla completa (pedido explícito de diseño)**: `MapView`/`Marker` se
+  arman a mano en `ConfirmAddAddressBody` (no `CollapsibleMapRow`, pensado para una
+  fila colapsable de alto fijo) — header y card inferior (dirección + "Guardar
+  dirección") flotan sobre el mapa con `BlurView`, mismo lenguaje "glassy" que
+  `FloatingTabBar` (MOVO-78, `intensity`/`tint`/`blurMethod` por plataforma
+  idénticos). Sin `SafeAreaView`: el mapa necesita ocupar el área completa incluidos
+  los insets, así que el padding de status bar/home indicator se aplica a mano
+  (`insets.top`/`insets.bottom`) en el header y la card inferior respectivamente.
+
+Tests nuevos: `test/addresses-screen.test.tsx` (loading/error/vacío/lista/borrar con
+confirmación, elegir dirección abre el paso de confirmación en vez de guardar sola),
+`test/edit-address-sheet.test.tsx`, `test/profile-settings-section.test.tsx`
+(navegación del ítem real vs. placeholder del resto), `test/confirm-add-address-sheet.test.tsx`
+(incluye regresión del mapa congelado entre selecciones),
+`test/address-selection-to-input.test.ts` (regresión del bug de campos vacíos).
+36/36 suites, 239/239 tests en `movo-mobile`. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: no se tocó el backend (`movo-svc-users`) para que use el
+tipo migrado a `@movo/shared` — su modelo local ya coincidía estructuralmente, no era
+necesario para este ticket mobile-only.
+
 ### MOVO-127 — Pantalla de detalle de un envío específico (`movo-mobile`)
 
 Reemplaza el placeholder mínimo de `app/(app)/shipments/[id].tsx` (MOVO-83) por el
