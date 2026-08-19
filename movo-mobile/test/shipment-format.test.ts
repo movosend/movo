@@ -6,6 +6,7 @@ import {
   receiverConfirmationStatus,
   remainingLifecycleSteps,
   shipmentActorLabel,
+  shipmentEventDetail,
   shipmentEventTitle,
   shipmentLifecycleStage,
   shipmentPendingStepLabel,
@@ -99,6 +100,12 @@ describe("shipmentEventTitle", () => {
     expect(shipmentEventTitle(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, null)).toBe("Envío creado");
   });
 
+  it("nombra la aceptación del receptor, que no tiene estado propio (es la transición a published)", () => {
+    expect(
+      shipmentEventTitle(ShipmentStatus.PUBLISHED, ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION),
+    ).toBe("El receptor aceptó el envío");
+  });
+
   it("usa un título narrativo, distinto de la etiqueta de estado", () => {
     expect(shipmentEventTitle(ShipmentStatus.IN_TRANSIT, ShipmentStatus.ASSIGNED)).toBe(
       "El paquete salió en camino",
@@ -106,6 +113,18 @@ describe("shipmentEventTitle", () => {
     expect(shipmentEventTitle(ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe(
       "El receptor rechazó el envío",
     );
+  });
+});
+
+describe("shipmentEventDetail", () => {
+  it("aclara que aceptar publica el envío en el mismo paso", () => {
+    expect(
+      shipmentEventDetail(ShipmentStatus.PUBLISHED, ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION),
+    ).toBe("Publicado para transportistas");
+  });
+
+  it("no agrega nada cuando el título ya dice todo", () => {
+    expect(shipmentEventDetail(ShipmentStatus.DELIVERED, ShipmentStatus.IN_TRANSIT)).toBeNull();
   });
 });
 
@@ -164,6 +183,7 @@ describe("remainingLifecycleSteps", () => {
 
 describe("shipmentPendingStepLabel", () => {
   it("nombra el paso futuro sin usar el pasado de shipmentEventTitle", () => {
+    expect(shipmentPendingStepLabel(ShipmentStatus.PUBLISHED)).toBe("Aceptación del receptor");
     expect(shipmentPendingStepLabel(ShipmentStatus.IN_TRANSIT)).toBe("Retiro del paquete");
     expect(shipmentPendingStepLabel(ShipmentStatus.DELIVERED)).toBe("Entrega al receptor");
   });

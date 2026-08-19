@@ -262,6 +262,14 @@ recortes:
   - `shipmentEventTitle()` (narrativa en pasado, "El paquete salió en camino")
     separada de `shipmentStatusLabel()` (nombra el estado actual) — el evento con
     `fromStatus === null` se lee como "Envío creado", no como "Esperando confirmación".
+  - **La aceptación del receptor no tiene estado propio**: es exactamente la
+    transición `awaiting_receiver_confirmation → published` (un solo `updateStatus` en
+    `acceptShipment`, MOVO-129), así que el backend registra un único evento. Titularlo
+    por su `toStatus` lo mostraba como "Publicado para transportistas" y escondía el
+    paso que el emisor está esperando — se titula por la acción de la persona ("El
+    receptor aceptó el envío") con la publicación como consecuencia debajo
+    (`shipmentEventDetail()`, hoy el único caso). Por lo mismo, el paso pendiente de
+    `published` se llama "Aceptación del receptor", no "Publicación".
   - `shipmentActorLabel()` resuelve `actorId` contra `senderId`/`receiverId`/
     `carrierId` que el detalle ya tiene cargados, en vez de pedir `GET /users/:id` por
     evento: el rol ("Vos"/"El receptor"/"El transportista") es lo informativo en una

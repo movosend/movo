@@ -110,6 +110,20 @@ export function formatPickupDateLabel(pickupDate: string): string | null {
 export function shipmentEventTitle(toStatus: ShipmentStatus, fromStatus: ShipmentStatus | null): string {
   if (fromStatus === null) return "Envío creado";
 
+  // La aceptación del receptor no tiene estado propio: es exactamente la transición
+  // `awaiting_receiver_confirmation -> published` (`acceptShipment` en
+  // `shipments.service.ts` la hace en un solo `updateStatus`, MOVO-129 / grafo de
+  // MOVO-105). Titularla por el `toStatus` la mostraba como "Publicado para
+  // transportistas" a secas, escondiendo el paso que el usuario está esperando —
+  // acá se nombra por lo que hizo la persona, y la publicación queda como
+  // consecuencia en `shipmentEventDetail`.
+  if (
+    fromStatus === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION &&
+    toStatus === ShipmentStatus.PUBLISHED
+  ) {
+    return "El receptor aceptó el envío";
+  }
+
   switch (toStatus) {
     case ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION:
       return "Esperando confirmación del receptor";
@@ -132,6 +146,23 @@ export function shipmentEventTitle(toStatus: ShipmentStatus, fromStatus: Shipmen
     default:
       return shipmentStatusLabel(toStatus);
   }
+}
+
+/** Consecuencia automática de una transición, cuando el título nombra la acción de
+ * una persona y el cambio de estado en sí queda implícito — hoy solo la aceptación
+ * del receptor, que publica el envío en el mismo paso. Devuelve `null` cuando el
+ * título ya dice todo (la mayoría de los casos). */
+export function shipmentEventDetail(
+  toStatus: ShipmentStatus,
+  fromStatus: ShipmentStatus | null,
+): string | null {
+  if (
+    fromStatus === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION &&
+    toStatus === ShipmentStatus.PUBLISHED
+  ) {
+    return "Publicado para transportistas";
+  }
+  return null;
 }
 
 /** Camino feliz del ciclo de vida, en orden — el mismo grafo de
@@ -169,8 +200,11 @@ export function remainingLifecycleSteps(currentStatus: ShipmentStatus): Shipment
  * un paso futuro descrito en pasado se lee como algo que ya pasó. */
 export function shipmentPendingStepLabel(status: ShipmentStatus): string {
   switch (status) {
+    // Nombrado por la acción que falta (que el receptor acepte), no por el estado que
+    // se alcanza — es lo que el emisor está esperando mientras el envío sigue en
+    // `awaiting_receiver_confirmation`; la publicación es la consecuencia.
     case ShipmentStatus.PUBLISHED:
-      return "Publicación para transportistas";
+      return "Aceptación del receptor";
     case ShipmentStatus.ASSIGNMENT_PENDING:
       return "Búsqueda de transportista";
     case ShipmentStatus.ASSIGNED:

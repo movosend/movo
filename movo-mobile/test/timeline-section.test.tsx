@@ -93,6 +93,9 @@ describe("TimelineSection", () => {
     // `fromStatus: null` se lee como la creación del envío, no como "esperando
     // confirmación" (que es el estado, no lo que pasó).
     expect(getByText("Envío creado")).toBeTruthy();
+    // La transición a `published` es la aceptación del receptor (no tiene estado
+    // propio): se titula por la acción, con la publicación como consecuencia debajo.
+    expect(getByText("El receptor aceptó el envío")).toBeTruthy();
     expect(getByText("Publicado para transportistas")).toBeTruthy();
   });
 

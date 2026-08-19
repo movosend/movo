@@ -22,6 +22,7 @@ import {
   formatEventTimestamp,
   remainingLifecycleSteps,
   shipmentActorLabel,
+  shipmentEventDetail,
   shipmentEventTitle,
   shipmentPendingStepLabel,
   shipmentStatusTone,
@@ -144,6 +145,7 @@ function EventRow({
   const tone = TONE_STYLE[shipmentStatusTone(event.toStatus)];
   const timestamp = formatEventTimestamp(event.createdAt);
   const actor = shipmentActorLabel(event.actorId, parties, currentUserId);
+  const detail = shipmentEventDetail(event.toStatus, event.fromStatus);
 
   return (
     <TimelineRow
@@ -167,6 +169,7 @@ function EventRow({
           </>
         ) : null}
       </View>
+      {detail ? <Text className="mt-1 font-sans text-small text-fg-3">{detail}</Text> : null}
       {event.reason ? (
         <Text className="mt-2 font-sans text-small text-fg-2">{event.reason}</Text>
       ) : null}
