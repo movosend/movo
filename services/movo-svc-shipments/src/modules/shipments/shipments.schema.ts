@@ -161,6 +161,7 @@ export const shipmentsSchemas = {
 
   rejectShipmentBody: {
     type: "object",
+    nullable: true,
     properties: {
       reason: { type: "string", maxLength: 500 },
     },
