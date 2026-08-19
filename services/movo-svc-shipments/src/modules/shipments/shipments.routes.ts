@@ -8,7 +8,7 @@ import { createUsersClient, UsersClient } from "../../adapters/users-client";
 import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
 import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-provider";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
-import { Shipment } from "../../models/shipment";
+import { Shipment, ShipmentEvent } from "../../models/shipment";
 
 export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -43,6 +43,18 @@ function toShipmentDto(shipment: Shipment) {
     pickupDate: shipment.pickupDate.toISOString().slice(0, 10),
     pickupTimeWindowStart: shipment.pickupTimeWindowStart.toISOString().slice(11, 19),
     pickupTimeWindowEnd: shipment.pickupTimeWindowEnd.toISOString().slice(11, 19),
+  };
+}
+
+function toShipmentEventDto(event: ShipmentEvent) {
+  return {
+    id: event.id,
+    shipmentId: event.shipmentId,
+    fromStatus: event.fromStatus,
+    toStatus: event.toStatus,
+    actorId: event.actorId,
+    reason: event.reason,
+    createdAt: event.createdAt,
   };
 }
 
@@ -264,6 +276,35 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const callerRoles = getUserRolesFromHeader(request);
       const { id } = request.params as { id: string };
       return photosService.listPhotoUrls(id, callerId, callerRoles);
+    }
+  );
+
+  app.get(
+    "/:id/events",
+    {
+      schema: {
+        summary: "Historial de eventos de un envío",
+        description:
+          "MOVO-128: devuelve el historial completo de cambios de estado del envío en " +
+          "orden cronológico ascendente. Accesible únicamente para el emisor, el receptor o un admin. " +
+          "Un usuario ajeno recibe 403, nunca 404 con datos filtrados.",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        response: {
+          200: shipmentsSchemas.shipmentEventsResponse,
+          400: shipmentsSchemas.errorResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const callerRoles = getUserRolesFromHeader(request);
+      const { id } = request.params as { id: string };
+      const events = await service.getShipmentEvents(id, callerId, callerRoles);
+      return events.map(toShipmentEventDto);
     }
   );
 }

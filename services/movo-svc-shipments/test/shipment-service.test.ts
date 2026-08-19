@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { ApiError, ShipmentStatus, UserRole } from "@movo/shared";
 import { createShipmentsService, CreateShipmentServiceInput } from "../src/modules/shipments/shipments.service";
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
-import { Shipment, PackageType } from "../src/models/shipment";
+import { Shipment, ShipmentEvent, PackageType } from "../src/models/shipment";
 import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
 
 function fakeShipment(overrides: Partial<Shipment> = {}): Shipment {
@@ -35,6 +35,19 @@ function fakeShipment(overrides: Partial<Shipment> = {}): Shipment {
     deliveredAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
+    ...overrides,
+  };
+}
+
+function fakeEvent(overrides: Partial<ShipmentEvent> = {}): ShipmentEvent {
+  return {
+    id: "event-id",
+    shipmentId: "shipment-id",
+    fromStatus: null,
+    toStatus: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+    actorId: "sender-id",
+    reason: null,
+    createdAt: new Date(),
     ...overrides,
   };
 }
@@ -282,5 +295,78 @@ describe("shipments.service — getShipmentDetail", () => {
       statusCode: 404,
       code: "NOT_FOUND",
     });
+  });
+});
+
+describe("shipments.service — getShipmentEvents", () => {
+  it("devuelve la lista de eventos al emisor", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+    const events = [
+      fakeEvent({ shipmentId: shipment.id, fromStatus: null, toStatus: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION }),
+      fakeEvent({
+        id: "event-2",
+        shipmentId: shipment.id,
+        fromStatus: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+        toStatus: ShipmentStatus.PUBLISHED,
+        actorId: "receiver-id",
+      }),
+    ];
+    const repository = fakeRepository({
+      findById: vi.fn().mockResolvedValue(shipment),
+      listEvents: vi.fn().mockResolvedValue(events),
+    });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.getShipmentEvents(shipment.id, "sender-id", [])).resolves.toBe(events);
+    expect(repository.listEvents).toHaveBeenCalledWith(shipment.id);
+  });
+
+  it("devuelve la lista de eventos al receptor", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+    const events = [fakeEvent({ shipmentId: shipment.id })];
+    const repository = fakeRepository({
+      findById: vi.fn().mockResolvedValue(shipment),
+      listEvents: vi.fn().mockResolvedValue(events),
+    });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.getShipmentEvents(shipment.id, "receiver-id", [])).resolves.toBe(events);
+    expect(repository.listEvents).toHaveBeenCalledWith(shipment.id);
+  });
+
+  it("devuelve la lista de eventos a un admin ajeno al envío", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+    const events = [fakeEvent({ shipmentId: shipment.id })];
+    const repository = fakeRepository({
+      findById: vi.fn().mockResolvedValue(shipment),
+      listEvents: vi.fn().mockResolvedValue(events),
+    });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.getShipmentEvents(shipment.id, "admin-id", [UserRole.ADMIN])).resolves.toBe(events);
+    expect(repository.listEvents).toHaveBeenCalledWith(shipment.id);
+  });
+
+  it("rechaza con 403 (no 404) a un tercero sin rol admin", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.getShipmentEvents(shipment.id, "stranger-id", [])).rejects.toMatchObject({
+      statusCode: 403,
+      code: "AUTH_FORBIDDEN",
+    });
+    expect(repository.listEvents).not.toHaveBeenCalled();
+  });
+
+  it("responde 404 si el envío no existe", async () => {
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(null) });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.getShipmentEvents("unknown-id", "any-id", [])).rejects.toMatchObject({
+      statusCode: 404,
+      code: "NOT_FOUND",
+    });
+    expect(repository.listEvents).not.toHaveBeenCalled();
   });
 });
