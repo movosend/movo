@@ -101,6 +101,75 @@ export function formatPickupDateLabel(pickupDate: string): string | null {
   return PICKUP_DATE_FORMATTER.format(new Date(year, month - 1, day));
 }
 
+/** Título de un evento de la línea de tiempo (`GET /shipments/:id/events`, MOVO-128)
+ * — narrativo y en pasado ("Transportista asignado"), a diferencia de
+ * `shipmentStatusLabel`, que nombra el estado actual del envío ("Transportista
+ * asignado" como situación). El evento inicial (`fromStatus === null`, único caso
+ * garantizado por el backend) se muestra como "Envío creado" en vez de "Esperando
+ * confirmación": lo que pasó ahí fue la creación, el estado es solo su consecuencia. */
+export function shipmentEventTitle(toStatus: ShipmentStatus, fromStatus: ShipmentStatus | null): string {
+  if (fromStatus === null) return "Envío creado";
+
+  switch (toStatus) {
+    case ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION:
+      return "Esperando confirmación del receptor";
+    case ShipmentStatus.REJECTED_BY_RECEIVER:
+      return "El receptor rechazó el envío";
+    case ShipmentStatus.PUBLISHED:
+      return "Publicado para transportistas";
+    case ShipmentStatus.ASSIGNMENT_PENDING:
+      return "Buscando transportista";
+    case ShipmentStatus.ASSIGNED:
+      return "Transportista asignado";
+    case ShipmentStatus.IN_TRANSIT:
+      return "El paquete salió en camino";
+    case ShipmentStatus.DELIVERED:
+      return "Paquete entregado";
+    case ShipmentStatus.CANCELLED:
+      return "Envío cancelado";
+    case ShipmentStatus.DISPUTED:
+      return "Envío en disputa";
+    default:
+      return shipmentStatusLabel(toStatus);
+  }
+}
+
+const EVENT_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("es-AR", {
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+/** `createdAt` de un evento viaja como ISO datetime completo (con offset), a
+ * diferencia de `pickupDate` — acá sí se parsea con `new Date` y se muestra en la
+ * zona horaria del dispositivo, que es la correcta para "cuándo pasó esto". Devuelve
+ * `null` ante una fecha inválida para que el caller decida qué mostrar, nunca
+ * "Invalid Date". */
+export function formatEventTimestamp(iso: string): string | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return EVENT_TIMESTAMP_FORMATTER.format(date);
+}
+
+/** Quién disparó la transición, resuelto contra los ids que ya tiene el envío en vez
+ * de pedir el perfil de `actorId` (`GET /users/:id`) — el rol es lo informativo en una
+ * línea de tiempo, y el nombre de la contraparte ya se muestra en `CounterpartCard`.
+ * `null` = sin actor humano (transición automática del sistema) o un actor que no es
+ * ninguna de las tres partes (un admin resolviendo una disputa). */
+export function shipmentActorLabel(
+  actorId: string | null,
+  parties: { senderId: string; receiverId: string; carrierId: string | null },
+  currentUserId: string | null,
+): string | null {
+  if (actorId === null) return null;
+  if (currentUserId !== null && actorId === currentUserId) return "Vos";
+  if (actorId === parties.senderId) return "El emisor";
+  if (actorId === parties.receiverId) return "El receptor";
+  if (parties.carrierId !== null && actorId === parties.carrierId) return "El transportista";
+  return "Equipo Movo";
+}
+
 /** Recorta una dirección completa a su primer segmento, antes de la primera coma —
  * "Av. Colón 1234, Córdoba" → "Av. Colón 1234" (MOVO-127, card de `ShipmentCard`). El
  * modelo no tiene un campo de barrio separado, así que la calle es el identificador

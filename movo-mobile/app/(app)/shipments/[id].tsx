@@ -55,8 +55,8 @@ const TABS: [DetailTab, string][] = [
  * Detalle de un envío propio (MOVO-127) — reemplaza el placeholder mínimo de
  * MOVO-83. Referencia visual: "02 · Detalle del pedido" del proyecto de Claude
  * Design "Movo Mobile Main Views". A diferencia de la primera versión de este
- * ticket, se mantienen las tabs Detalles/Línea de tiempo del mock (feedback post-QA:
- * dejar el lugar de la línea de tiempo planteado aunque MOVO-128 todavía no exista) y
+ * ticket, se mantienen las tabs Detalles/Línea de tiempo del mock (la de línea de
+ * tiempo ya consume el historial real de `GET /shipments/:id/events`, MOVO-128) y
  * el banner de ofertas (`OffersBanner`, siempre en estado vacío hasta MOVO-17). Sin
  * link de cancelar (MOVO-29 aparte). El mapa de ruta reusa `RouteMapCard` (mismo
  * componente animado del paso de resumen del wizard de envío, MOVO-83/123) en vez de
@@ -203,8 +203,16 @@ export default function ShipmentDetailScreen() {
               ) : null}
             </ScrollView>
           ) : (
-            <View className="flex-1 px-5 pb-6 pt-4">
-              <TimelineSection testID="shipment-detail-timeline" />
+            <View className="flex-1 px-5 pt-4">
+              <TimelineSection
+                shipmentId={shipment.id}
+                parties={{
+                  senderId: shipment.senderId,
+                  receiverId: shipment.receiverId,
+                  carrierId: shipment.carrierId,
+                }}
+                testID="shipment-detail-timeline"
+              />
             </View>
           )}
         </View>

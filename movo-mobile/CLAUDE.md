@@ -243,10 +243,27 @@ recortes:
   `CounterpartCard` (reusa `AvatarImage`/`ProfileVerifiedBadge` ya existentes de
   perfil, consume `GET /users/:id` vía nuevo `usersClient.getPublicProfile`/
   `usePublicProfile`), `TimelineSection`.
-- **Timeline con estado vacío explícito, a propósito**: `GET /shipments/:id/events`
-  (MOVO-128) no existe todavía — mismo criterio que AC6 de MOVO-107, nunca se
-  inventan timestamps a partir de `status`/`lastStatusChangedAt` (perdería los pasos
-  intermedios).
+- **Timeline contra datos reales (`TimelineSection`, MOVO-128 ya mergeado a
+  `develop`)**: consume `GET /shipments/:id/events` vía `listEvents`/
+  `useShipmentEvents` nuevos, en el orden ascendente que devuelve el backend — el
+  último evento es el estado actual y se destaca en `text-fg` (el resto en `fg-2`).
+  Riel vertical dibujado dentro de cada fila (`w-px flex-1`), no como una línea
+  absoluta detrás de todas: se estira solo hasta el alto real del evento, que varía
+  según tenga `reason` o no. Sigue valiendo el criterio original: si el historial
+  viene vacío se muestra un estado vacío explícito, nunca se sintetizan eventos a
+  partir de `status`/`lastStatusChangedAt` (perdería los pasos intermedios).
+  - `shipmentEventTitle()` (narrativa en pasado, "El paquete salió en camino")
+    separada de `shipmentStatusLabel()` (nombra el estado actual) — el evento con
+    `fromStatus === null` se lee como "Envío creado", no como "Esperando confirmación".
+  - `shipmentActorLabel()` resuelve `actorId` contra `senderId`/`receiverId`/
+    `carrierId` que el detalle ya tiene cargados, en vez de pedir `GET /users/:id` por
+    evento: el rol ("Vos"/"El receptor"/"El transportista") es lo informativo en una
+    línea de tiempo, y el nombre de la contraparte ya lo muestra `CounterpartCard`.
+    `actorId: null` (transición sin persona detrás) no muestra actor; un id ajeno a
+    las tres partes (admin resolviendo una disputa) cae a "Equipo Movo".
+  - `formatEventTimestamp()` sí usa `new Date` y la zona horaria del dispositivo (a
+    diferencia de `formatPickupDateLabel`, ver MOVO-80): `createdAt` viaja como ISO
+    datetime completo con offset, y "cuándo pasó esto" se lee en hora local.
 - **Errores 403/404 de `useShipment` distinguidos** vía `ApiError.statusCode`
   (`@movo/shared/dist/errors/api-error`) — "no te pertenece" vs. "no existe" en vez
   del banner genérico único que tenía el placeholder.

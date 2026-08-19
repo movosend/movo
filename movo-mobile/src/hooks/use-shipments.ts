@@ -76,3 +76,14 @@ export function useShipmentPhotos(id: string | undefined) {
     enabled: !!id,
   });
 }
+
+/** Historial de cambios de estado (`GET /shipments/:id/events`, MOVO-128) para la
+ * línea de tiempo del detalle de envío (MOVO-127) — falla y carga independientes del
+ * detalle principal, igual que `useShipmentPhotos`. */
+export function useShipmentEvents(id: string | undefined) {
+  return useQuery({
+    queryKey: ["shipments", "events", id],
+    queryFn: () => shipmentsClient.listEvents(id!),
+    enabled: !!id,
+  });
+}

@@ -22,6 +22,7 @@ jest.mock("../src/hooks/use-shipments", () => ({
   useShipment: () => mockUseShipment(),
   useShipmentPhotos: () => ({ data: [], isLoading: false }),
   useShipmentRoute: () => ({ data: undefined }),
+  useShipmentEvents: () => ({ data: [], isLoading: false, isError: false, refetch: jest.fn() }),
 }));
 
 // `RouteMapCard` usa `useFrameCallback` de `react-native-reanimated` para el barrido
@@ -158,7 +159,7 @@ describe("ShipmentDetailScreen", () => {
     expect(getByTestId("shipment-detail-carrier")).toBeTruthy();
   });
 
-  it("cambia a la tab de línea de tiempo al tocarla, dejando el lugar planteado (MOVO-128 pendiente)", async () => {
+  it("cambia a la tab de línea de tiempo al tocarla, mostrando el historial (MOVO-128)", async () => {
     mockUseShipment.mockReturnValue({
       isLoading: false,
       isError: false,

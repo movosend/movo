@@ -1,8 +1,11 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import {
+  formatEventTimestamp,
   formatPickupWindowLabel,
   formatShipmentPrice,
   receiverConfirmationStatus,
+  shipmentActorLabel,
+  shipmentEventTitle,
   shipmentLifecycleStage,
   shipmentStatusLabel,
   shipmentStatusTone,
@@ -86,5 +89,52 @@ describe("shortAddressLabel", () => {
 describe("formatPickupWindowLabel", () => {
   it("arma el rango horario legible", () => {
     expect(formatPickupWindowLabel("09:00", "12:00")).toBe("09:00 a 12:00");
+  });
+});
+
+describe("shipmentEventTitle", () => {
+  it("lee el evento inicial (`fromStatus` null) como la creación del envío", () => {
+    expect(shipmentEventTitle(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, null)).toBe("Envío creado");
+  });
+
+  it("usa un título narrativo, distinto de la etiqueta de estado", () => {
+    expect(shipmentEventTitle(ShipmentStatus.IN_TRANSIT, ShipmentStatus.ASSIGNED)).toBe(
+      "El paquete salió en camino",
+    );
+    expect(shipmentEventTitle(ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe(
+      "El receptor rechazó el envío",
+    );
+  });
+});
+
+describe("formatEventTimestamp", () => {
+  it("formatea un ISO datetime válido", () => {
+    expect(formatEventTimestamp("2026-08-15T13:00:00.000Z")).toBeTruthy();
+  });
+
+  it("devuelve null ante una fecha inválida en vez de 'Invalid Date'", () => {
+    expect(formatEventTimestamp("no-es-una-fecha")).toBeNull();
+  });
+});
+
+describe("shipmentActorLabel", () => {
+  const parties = { senderId: "sender-1", receiverId: "receiver-1", carrierId: "carrier-1" };
+
+  it("prioriza la primera persona sobre el rol", () => {
+    expect(shipmentActorLabel("sender-1", parties, "sender-1")).toBe("Vos");
+  });
+
+  it("resuelve cada parte del envío a su rol", () => {
+    expect(shipmentActorLabel("sender-1", parties, "otro")).toBe("El emisor");
+    expect(shipmentActorLabel("receiver-1", parties, "otro")).toBe("El receptor");
+    expect(shipmentActorLabel("carrier-1", parties, "otro")).toBe("El transportista");
+  });
+
+  it("no muestra actor en una transición sin persona detrás", () => {
+    expect(shipmentActorLabel(null, parties, "sender-1")).toBeNull();
+  });
+
+  it("cae a 'Equipo Movo' para un actor ajeno a las tres partes (admin)", () => {
+    expect(shipmentActorLabel("admin-9", parties, "sender-1")).toBe("Equipo Movo");
   });
 });
