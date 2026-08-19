@@ -249,7 +249,14 @@ recortes:
   último evento es el estado actual y se destaca en `text-fg` (el resto en `fg-2`).
   Riel vertical dibujado dentro de cada fila (`w-px flex-1`), no como una línea
   absoluta detrás de todas: se estira solo hasta el alto real del evento, que varía
-  según tenga `reason` o no. Sigue valiendo el criterio original: si el historial
+  según tenga `reason` o no.
+  - **Título anclado al círculo por construcción** (caja `h-9 justify-center`, mismo
+    alto que el círculo), no con un padding calculado contra el line-height: ese
+    cálculo alineaba bien las filas de una sola línea pero se rompía apenas la fila
+    tenía fecha/actor debajo (feedback post-QA en device).
+  - **Ritmo fijo (`min-h-[56px]` + `pb-5`), no reparto del alto de pantalla**: una
+    iteración intermedia estiraba las filas con `flex-1` para llenar la vista, y con
+    los 5-6 pasos típicos de un envío dejaba huecos enormes entre eventos. Sigue valiendo el criterio original: si el historial
   viene vacío se muestra un estado vacío explícito, nunca se sintetizan eventos a
   partir de `status`/`lastStatusChangedAt` (perdería los pasos intermedios).
   - `shipmentEventTitle()` (narrativa en pasado, "El paquete salió en camino")
