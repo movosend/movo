@@ -6,6 +6,12 @@ on:
       - develop
       - main
 
+# Un push nuevo a la misma PR cancela el run anterior: sin esto quedan varios
+# runs de la misma rama corriendo en paralelo y compitiendo por runners.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   NODE_VERSION: "20"
   PYTHON_VERSION: "3.12"
@@ -13,6 +19,7 @@ env:
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       gateway: ${{ steps.filter.outputs.gateway }}
       svc-users: ${{ steps.filter.outputs.svc-users }}
@@ -63,6 +70,7 @@ jobs:
       needs.detect-changes.outputs.svc-admin == 'true'
 
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     services:
       postgres:
@@ -187,6 +195,7 @@ jobs:
     if: needs.detect-changes.outputs.mobile == 'true'
 
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
@@ -218,6 +227,7 @@ jobs:
     if: needs.detect-changes.outputs.admin-web == 'true'
 
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     defaults:
       run:
@@ -244,6 +254,7 @@ jobs:
     if: needs.detect-changes.outputs.svc-pricing-logistics == 'true'
 
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     defaults:
       run:
@@ -273,6 +284,7 @@ jobs:
     if: always()
     needs: [node-services, python-service, mobile, admin-web]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Verificar que todos los jobs de test pasaron
         run: |
