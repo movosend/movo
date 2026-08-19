@@ -159,6 +159,13 @@ export const shipmentsSchemas = {
     },
   },
 
+  acceptShipmentBody: {
+    type: "object",
+    nullable: true,
+    properties: {},
+    additionalProperties: false,
+  },
+
   rejectShipmentBody: {
     type: "object",
     nullable: true,

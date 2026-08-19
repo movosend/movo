@@ -325,6 +325,10 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "Dispara notificación push best-effort al emisor.",
         tags: ["shipments"],
         params: shipmentsSchemas.shipmentIdParam,
+        // Body vacío u omitido: se declara nullable para que un cliente que
+        // mande content-type: application/json sin payload no reviente con
+        // FST_ERR_CTP_EMPTY_JSON_BODY (mismo criterio que /:id/reject).
+        body: shipmentsSchemas.acceptShipmentBody,
         response: {
           200: shipmentsSchemas.shipmentResponse,
           400: shipmentsSchemas.errorResponse,

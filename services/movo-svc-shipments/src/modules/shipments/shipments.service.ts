@@ -101,6 +101,37 @@ function toEpochTime(timeStr: string): Date {
   return new Date(`1970-01-01T${normalizeTime(timeStr)}.000Z`);
 }
 
+interface ReceiverDecisionPushParams {
+  shipment: Shipment;
+  callerId: string;
+  title: string;
+  bodyTemplate: (name: string) => string;
+  type: "shipment_accepted" | "shipment_rejected";
+}
+
+async function dispatchReceiverDecisionPush(
+  notificationsClient: NotificationsClient,
+  usersClient: UsersClient,
+  logger: FastifyBaseLogger | { warn: (obj: unknown, msg?: string) => void; error: (obj: unknown, msg?: string) => void } | undefined,
+  params: ReceiverDecisionPushParams
+): Promise<void> {
+  try {
+    const receiverProfile = await usersClient.findPublicProfile(params.callerId, params.callerId);
+    const receiverName = receiverProfile?.fullName ?? "El receptor";
+    await notificationsClient.sendPush({
+      userId: params.shipment.senderId,
+      title: params.title,
+      body: params.bodyTemplate(receiverName),
+      data: { shipmentId: params.shipment.id, type: params.type },
+    });
+  } catch (err) {
+    logger?.warn(
+      { err, event: "notification_dispatch_failed", shipmentId: params.shipment.id },
+      "No se pudo enviar la push de decisión del receptor"
+    );
+  }
+}
+
 export function createShipmentsService(
   repository: ShipmentRepository,
   usersClient: UsersClient,
@@ -213,20 +244,17 @@ export function createShipmentsService(
 
       const updated = await repository.updateStatus(shipmentId, ShipmentStatus.PUBLISHED, callerId);
 
-      // Best-effort push notification al emisor (AC9 de MOVO-129)
+      // Best-effort push notification al emisor (AC9 de MOVO-129): deliberadamente
+      // sin await -- el estado ya está commiteado y la push no debe agregar latencia
+      // ni poder hacer fallar la respuesta.
       if (notificationsClient) {
-        try {
-          const receiverProfile = await usersClient.findPublicProfile(callerId, callerId);
-          const receiverName = receiverProfile?.fullName ?? "El receptor";
-          await notificationsClient.sendPush({
-            userId: shipment.senderId,
-            title: "Envío aceptado",
-            body: `${receiverName} aceptó el envío, ya está publicado`,
-            data: { shipmentId, type: "shipment_accepted" },
-          });
-        } catch (err) {
-          logger?.warn({ err, event: "notification_dispatch_failed", shipmentId }, "No se pudo enviar la push de aceptación");
-        }
+        void dispatchReceiverDecisionPush(notificationsClient, usersClient, logger, {
+          shipment,
+          callerId,
+          title: "Envío aceptado",
+          bodyTemplate: (name) => `${name} aceptó el envío, ya está publicado`,
+          type: "shipment_accepted",
+        });
       }
 
       return updated;
@@ -242,20 +270,17 @@ export function createShipmentsService(
 
       const updated = await repository.updateStatus(shipmentId, ShipmentStatus.REJECTED_BY_RECEIVER, callerId, reason);
 
-      // Best-effort push notification al emisor (AC8 de MOVO-129)
+      // Best-effort push notification al emisor (AC8 de MOVO-129): deliberadamente
+      // sin await -- el estado ya está commiteado y la push no debe agregar latencia
+      // ni poder hacer fallar la respuesta.
       if (notificationsClient) {
-        try {
-          const receiverProfile = await usersClient.findPublicProfile(callerId, callerId);
-          const receiverName = receiverProfile?.fullName ?? "El receptor";
-          await notificationsClient.sendPush({
-            userId: shipment.senderId,
-            title: "Envío rechazado",
-            body: `${receiverName} rechazó el envío`,
-            data: { shipmentId, type: "shipment_rejected" },
-          });
-        } catch (err) {
-          logger?.warn({ err, event: "notification_dispatch_failed", shipmentId }, "No se pudo enviar la push de rechazo");
-        }
+        void dispatchReceiverDecisionPush(notificationsClient, usersClient, logger, {
+          shipment,
+          callerId,
+          title: "Envío rechazado",
+          bodyTemplate: (name) => `${name} rechazó el envío`,
+          type: "shipment_rejected",
+        });
       }
 
       return updated;

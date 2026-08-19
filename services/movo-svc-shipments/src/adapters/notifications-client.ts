@@ -7,7 +7,7 @@ export interface SendPushNotificationInput {
 
 /**
  * Cliente para el envío interno de push notifications hacia `movo-svc-users`
- * (`POST /notifications/push`).
+ * (`POST /internal/notifications/push`).
  */
 export interface NotificationsClient {
   sendPush(input: SendPushNotificationInput): Promise<void>;
@@ -18,11 +18,12 @@ export interface NotificationsClientConfig {
 }
 
 const REQUEST_TIMEOUT_MS = 5000;
+const PUSH_ENDPOINT = "/internal/notifications/push";
 
 export function createNotificationsClient(config: NotificationsClientConfig): NotificationsClient {
   return {
     async sendPush(input: SendPushNotificationInput): Promise<void> {
-      const response = await fetch(`${config.USERS_SERVICE_URL}/notifications/push`, {
+      const response = await fetch(`${config.USERS_SERVICE_URL}${PUSH_ENDPOINT}`, {
         method: "POST",
         headers: {
           "content-type": "application/json",

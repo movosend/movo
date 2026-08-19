@@ -214,12 +214,15 @@ Decisiones clave:
 - **Mapeo de error de transiciones inválidas**: `InvalidShipmentTransitionError` se mapea
   a HTTP 409 con el código `SHIPMENT_INVALID_TRANSITION` en `@movo/shared` y en
   `error-handler.ts` (cubre doble tap, envíos ya cancelados o ya rechazados).
-- **Push notifications best-effort al emisor**: `NotificationsClient`
-  (`src/adapters/notifications-client.ts`) invoca internamente a `POST /notifications/push`
-  en `movo-svc-users`. Si la llamada falla o hace timeout, la operación no falla y se
-  loguea `notification_dispatch_failed`.
-- **Receptor no edita campos del envío (AC7)**: el body de `/accept` es vacío y el de
-  `/reject` solo admite `{ reason?: string }` (persistido en `shipment_events.reason`).
+- **Push notifications best-effort y no bloqueantes al emisor**: `NotificationsClient`
+  (`src/adapters/notifications-client.ts`) invoca internamente a `POST /internal/notifications/push`
+  en `movo-svc-users`. El despacho (`dispatchReceiverDecisionPush`) se realiza en modo
+  fire-and-forget (sin `await` en el handler) para no sumar latencia ni riesgo de timeout
+  a la respuesta HTTP. Si falla o hace timeout, se loguea `notification_dispatch_failed`.
+- **Receptor no edita campos del envío (AC7)**: el body de `/accept` (`acceptShipmentBody`,
+  `nullable: true`, `additionalProperties: false`) no admite campos y el de `/reject`
+  solo admite `{ reason?: string }` (persistido en `shipment_events.reason`). Ambos declaran
+  `nullable: true` para tolerar `Content-Type: application/json` con payload vacío.
 
 ### Pendientes de este servicio
 

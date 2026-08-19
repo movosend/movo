@@ -94,12 +94,44 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
         actorId: receiverId,
       });
 
-      expect(notificationsClient.sendPush).toHaveBeenCalledWith({
-        userId: senderId,
-        title: "Envío aceptado",
-        body: "Lucía aceptó el envío, ya está publicado",
-        data: { shipmentId: shipment.id, type: "shipment_accepted" },
+      await vi.waitFor(() => {
+        expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+          userId: senderId,
+          title: "Envío aceptado",
+          body: "Lucía aceptó el envío, ya está publicado",
+          data: { shipmentId: shipment.id, type: "shipment_accepted" },
+        });
       });
+    });
+
+    it("el receptor puede aceptar con header Content-Type application/json y payload vacío o {}", async () => {
+      const shipment = await repo.create(baseInput);
+      await addTwoCreationPhotos(shipment.id);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/accept`,
+        headers: { "x-user-id": receiverId, "content-type": "application/json" },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().status).toBe(ShipmentStatus.PUBLISHED);
+    });
+
+    it("falla con 400 si el receptor manda campos en el body al aceptar (additionalProperties: false)", async () => {
+      const shipment = await repo.create(baseInput);
+      await addTwoCreationPhotos(shipment.id);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/accept`,
+        headers: { "x-user-id": receiverId },
+        payload: { weightKg: 10 },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe("VALIDATION_FAILED");
     });
 
     it("falla con 409 si faltan fotos de creación requeridas", async () => {
@@ -225,11 +257,13 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
         reason: "No estoy en la ciudad",
       });
 
-      expect(notificationsClient.sendPush).toHaveBeenCalledWith({
-        userId: senderId,
-        title: "Envío rechazado",
-        body: "Lucía rechazó el envío",
-        data: { shipmentId: shipment.id, type: "shipment_rejected" },
+      await vi.waitFor(() => {
+        expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+          userId: senderId,
+          title: "Envío rechazado",
+          body: "Lucía rechazó el envío",
+          data: { shipmentId: shipment.id, type: "shipment_rejected" },
+        });
       });
     });
 

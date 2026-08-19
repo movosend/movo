@@ -388,11 +388,13 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
 
     expect(result.status).toBe(ShipmentStatus.PUBLISHED);
     expect(repository.updateStatus).toHaveBeenCalledWith(shipment.id, ShipmentStatus.PUBLISHED, "receiver-id");
-    expect(notificationsClient.sendPush).toHaveBeenCalledWith({
-      userId: "sender-id",
-      title: "Envío aceptado",
-      body: "María aceptó el envío, ya está publicado",
-      data: { shipmentId: shipment.id, type: "shipment_accepted" },
+    await vi.waitFor(() => {
+      expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+        userId: "sender-id",
+        title: "Envío aceptado",
+        body: "María aceptó el envío, ya está publicado",
+        data: { shipmentId: shipment.id, type: "shipment_accepted" },
+      });
     });
   });
 
@@ -483,11 +485,13 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       "receiver-id",
       "No lo pedí"
     );
-    expect(notificationsClient.sendPush).toHaveBeenCalledWith({
-      userId: "sender-id",
-      title: "Envío rechazado",
-      body: "Carlos rechazó el envío",
-      data: { shipmentId: shipment.id, type: "shipment_rejected" },
+    await vi.waitFor(() => {
+      expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+        userId: "sender-id",
+        title: "Envío rechazado",
+        body: "Carlos rechazó el envío",
+        data: { shipmentId: shipment.id, type: "shipment_rejected" },
+      });
     });
   });
 
