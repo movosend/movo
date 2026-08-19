@@ -1,6 +1,8 @@
-import { ApiError, UserRole } from "@movo/shared";
+import { ApiError, ShipmentStatus, UserRole } from "@movo/shared";
+import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { UsersClient } from "../../adapters/users-client";
+import { NotificationsClient } from "../../adapters/notifications-client";
 import { PackageType, Shipment } from "../../models/shipment";
 
 export interface CreateShipmentServiceInput {
@@ -98,7 +100,22 @@ function toEpochTime(timeStr: string): Date {
   return new Date(`1970-01-01T${normalizeTime(timeStr)}.000Z`);
 }
 
-export function createShipmentsService(repository: ShipmentRepository, usersClient: UsersClient) {
+/**
+ * Chequea que el usuario sea estrictamente el receptor designado del envío (MOVO-129).
+ * A diferencia del acceso a detalle/fotos, ni el emisor ni el admin pueden aceptar o rechazar.
+ */
+function assertIsReceiver(shipment: Shipment, callerId: string): void {
+  if (callerId !== shipment.receiverId) {
+    throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el receptor designado puede aceptar o rechazar este envío.");
+  }
+}
+
+export function createShipmentsService(
+  repository: ShipmentRepository,
+  usersClient: UsersClient,
+  notificationsClient?: NotificationsClient,
+  logger?: FastifyBaseLogger | { warn: (obj: unknown, msg?: string) => void; error: (obj: unknown, msg?: string) => void }
+) {
   return {
     async createShipment(input: CreateShipmentServiceInput): Promise<Shipment> {
       // AC4 — auto-designación, primero por ser el chequeo más barato (sin I/O).
@@ -189,6 +206,64 @@ export function createShipmentsService(repository: ShipmentRepository, usersClie
         throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver este envío.");
       }
       return shipment;
+    },
+
+    async acceptShipment(shipmentId: string, callerId: string): Promise<Shipment> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+
+      assertIsReceiver(shipment, callerId);
+
+      const updated = await repository.updateStatus(shipmentId, ShipmentStatus.PUBLISHED, callerId);
+
+      // Best-effort push notification al emisor (AC9 de MOVO-129)
+      if (notificationsClient) {
+        try {
+          const receiverProfile = await usersClient.findPublicProfile(callerId, callerId);
+          const receiverName = receiverProfile?.fullName ?? "El receptor";
+          await notificationsClient.sendPush({
+            userId: shipment.senderId,
+            title: "Envío aceptado",
+            body: `${receiverName} aceptó el envío, ya está publicado`,
+            data: { shipmentId, type: "shipment_accepted" },
+          });
+        } catch (err) {
+          logger?.warn({ err, event: "notification_dispatch_failed", shipmentId }, "No se pudo enviar la push de aceptación");
+        }
+      }
+
+      return updated;
+    },
+
+    async rejectShipment(shipmentId: string, callerId: string, reason?: string): Promise<Shipment> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+
+      assertIsReceiver(shipment, callerId);
+
+      const updated = await repository.updateStatus(shipmentId, ShipmentStatus.REJECTED_BY_RECEIVER, callerId, reason);
+
+      // Best-effort push notification al emisor (AC8 de MOVO-129)
+      if (notificationsClient) {
+        try {
+          const receiverProfile = await usersClient.findPublicProfile(callerId, callerId);
+          const receiverName = receiverProfile?.fullName ?? "El receptor";
+          await notificationsClient.sendPush({
+            userId: shipment.senderId,
+            title: "Envío rechazado",
+            body: `${receiverName} rechazó el envío`,
+            data: { shipmentId, type: "shipment_rejected" },
+          });
+        } catch (err) {
+          logger?.warn({ err, event: "notification_dispatch_failed", shipmentId }, "No se pudo enviar la push de rechazo");
+        }
+      }
+
+      return updated;
     },
 
     async listMyShipments(userId: string, page: number, limit: number): Promise<ListMineResult> {

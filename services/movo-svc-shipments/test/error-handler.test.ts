@@ -1,7 +1,8 @@
 import Fastify, { FastifyInstance } from "fastify";
 import { describe, it, expect, afterEach } from "vitest";
 import errorHandlerPlugin from "../src/plugins/error-handler";
-import { InsufficientCreationPhotosError } from "../src/domain/shipment-state-machine";
+import { InsufficientCreationPhotosError, InvalidShipmentTransitionError } from "../src/domain/shipment-state-machine";
+import { ShipmentStatus } from "@movo/shared";
 
 describe("error-handler: InsufficientCreationPhotosError", () => {
   let app: FastifyInstance;
@@ -26,5 +27,19 @@ describe("error-handler: InsufficientCreationPhotosError", () => {
 
     expect(response.statusCode).toBe(409);
     expect(response.json().error.code).toBe("SHIPMENT_INSUFFICIENT_CREATION_PHOTOS");
+  });
+
+  it("se traduce InvalidShipmentTransitionError a un 409 con el código SHIPMENT_INVALID_TRANSITION", async () => {
+    app = Fastify({ logger: false });
+    await app.register(errorHandlerPlugin);
+    app.get("/invalid-transition", async () => {
+      throw new InvalidShipmentTransitionError(ShipmentStatus.PUBLISHED, ShipmentStatus.PUBLISHED);
+    });
+    await app.ready();
+
+    const response = await app.inject({ method: "GET", url: "/invalid-transition" });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe("SHIPMENT_INVALID_TRANSITION");
   });
 });

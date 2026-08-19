@@ -145,6 +145,14 @@ export const shipmentsSchemas = {
     },
   },
 
+  rejectShipmentBody: {
+    type: "object",
+    properties: {
+      reason: { type: "string", maxLength: 500 },
+    },
+    additionalProperties: false,
+  },
+
   listMineQuery: {
     type: "object",
     properties: {

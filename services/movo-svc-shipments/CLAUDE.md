@@ -184,6 +184,25 @@ todavía no hay ninguna ruta HTTP real que dispare `InsufficientCreationPhotosEr
 `tsc --noEmit` y `eslint` limpios (el único error de `eslint.config.js` es preexistente,
 no de este PR).
 
+### MOVO-129 — Endpoints de aceptación y rechazo del envío por el receptor (`svc-shipments`)
+
+`POST /shipments/:id/accept` y `POST /shipments/:id/reject` (backend de MOVO-16) permiten
+al receptor confirmar un envío (transición a `published`) o rechazarlo (transición a
+`rejected_by_receiver`, terminal).
+
+Decisiones clave:
+- **Autorización estricta al receptor (`assertIsReceiver`)**: solo `shipment.receiverId`
+  puede aceptar o rechazar (403 `AUTH_FORBIDDEN` para el emisor, admin o terceros).
+- **Mapeo de error de transiciones inválidas**: `InvalidShipmentTransitionError` se mapea
+  a HTTP 409 con el código `SHIPMENT_INVALID_TRANSITION` en `@movo/shared` y en
+  `error-handler.ts` (cubre doble tap, envíos ya cancelados o ya rechazados).
+- **Push notifications best-effort al emisor**: `NotificationsClient`
+  (`src/adapters/notifications-client.ts`) invoca internamente a `POST /notifications/push`
+  en `movo-svc-users`. Si la llamada falla o hace timeout, la operación no falla y se
+  loguea `notification_dispatch_failed`.
+- **Receptor no edita campos del envío (AC7)**: el body de `/accept` es vacío y el de
+  `/reject` solo admite `{ reason?: string }` (persistido en `shipment_events.reason`).
+
 ### Pendientes de este servicio
 
 - **MOVO-118**: arreglar el TOCTOU de `shipment-repository.ts#updateStatus()`

@@ -2,7 +2,7 @@ import fp from "fastify-plugin";
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ApiError, ApiErrorCode } from "@movo/shared";
 import { randomUUID } from "node:crypto";
-import { InsufficientCreationPhotosError } from "../domain/shipment-state-machine";
+import { InsufficientCreationPhotosError, InvalidShipmentTransitionError } from "../domain/shipment-state-machine";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -35,6 +35,17 @@ export default fp(async (app: FastifyInstance) => {
     // `SHIPMENT_INSUFFICIENT_CREATION_PHOTOS` que ya existe en `@movo/shared`.
     if (error instanceof InsufficientCreationPhotosError) {
       const apiError = new ApiError(409, "SHIPMENT_INSUFFICIENT_CREATION_PHOTOS", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    // MOVO-129: mapeo de transiciones inválidas (doble tap, cancelado, ya aceptado/rechazado)
+    // a 409 con SHIPMENT_INVALID_TRANSITION.
+    if (error instanceof InvalidShipmentTransitionError) {
+      const apiError = new ApiError(409, "SHIPMENT_INVALID_TRANSITION", error.message);
       reply.code(apiError.statusCode).send({
         ...apiError.toJSON(),
         requestId,
