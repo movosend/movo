@@ -134,6 +134,56 @@ export function shipmentEventTitle(toStatus: ShipmentStatus, fromStatus: Shipmen
   }
 }
 
+/** Camino feliz del ciclo de vida, en orden — el mismo grafo de
+ * `shipment-state-machine.ts` (`svc-shipments`, MOVO-105) recorrido por su rama sin
+ * incidentes. Los estados terminales por excepción (`cancelled`,
+ * `rejected_by_receiver`, `disputed`) quedan afuera a propósito: no son "el próximo
+ * paso" de nada, son salidas. `assignment_pending` sí entra — es un estado que el
+ * usuario efectivamente ve mientras se reservan los fondos, no un detalle interno. */
+const HAPPY_PATH: readonly ShipmentStatus[] = [
+  ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+  ShipmentStatus.PUBLISHED,
+  ShipmentStatus.ASSIGNMENT_PENDING,
+  ShipmentStatus.ASSIGNED,
+  ShipmentStatus.IN_TRANSIT,
+  ShipmentStatus.DELIVERED,
+];
+
+/**
+ * Pasos que todavía faltan para llegar a la entrega, para pintarlos en gris apagado
+ * al final de la línea de tiempo. Es una proyección, no historial: nunca lleva
+ * timestamp ni actor, y un envío que salió del camino feliz (cancelado, rechazado, en
+ * disputa) devuelve lista vacía — no tiene sentido prometer "Entrega" debajo de un
+ * envío cancelado. `assignment_pending` puede volver a `published` si falla el hold de
+ * fondos; buscar el índice del estado actual (en vez de contar transiciones ocurridas)
+ * hace que el retroceso vuelva a listar los pasos correctos sin lógica extra.
+ */
+export function remainingLifecycleSteps(currentStatus: ShipmentStatus): ShipmentStatus[] {
+  const index = HAPPY_PATH.indexOf(currentStatus);
+  if (index === -1) return [];
+  return HAPPY_PATH.slice(index + 1);
+}
+
+/** Etiqueta de un paso que todavía no ocurrió — en infinitivo/sustantivo ("Retiro del
+ * paquete") en vez del pasado de `shipmentEventTitle` ("El paquete salió en camino"):
+ * un paso futuro descrito en pasado se lee como algo que ya pasó. */
+export function shipmentPendingStepLabel(status: ShipmentStatus): string {
+  switch (status) {
+    case ShipmentStatus.PUBLISHED:
+      return "Publicación para transportistas";
+    case ShipmentStatus.ASSIGNMENT_PENDING:
+      return "Búsqueda de transportista";
+    case ShipmentStatus.ASSIGNED:
+      return "Asignación del transportista";
+    case ShipmentStatus.IN_TRANSIT:
+      return "Retiro del paquete";
+    case ShipmentStatus.DELIVERED:
+      return "Entrega al receptor";
+    default:
+      return shipmentStatusLabel(status);
+  }
+}
+
 const EVENT_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat("es-AR", {
   day: "numeric",
   month: "short",

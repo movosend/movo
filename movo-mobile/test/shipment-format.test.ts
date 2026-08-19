@@ -4,9 +4,11 @@ import {
   formatPickupWindowLabel,
   formatShipmentPrice,
   receiverConfirmationStatus,
+  remainingLifecycleSteps,
   shipmentActorLabel,
   shipmentEventTitle,
   shipmentLifecycleStage,
+  shipmentPendingStepLabel,
   shipmentStatusLabel,
   shipmentStatusTone,
   shortAddressLabel,
@@ -136,5 +138,33 @@ describe("shipmentActorLabel", () => {
 
   it("cae a 'Equipo Movo' para un actor ajeno a las tres partes (admin)", () => {
     expect(shipmentActorLabel("admin-9", parties, "sender-1")).toBe("Equipo Movo");
+  });
+});
+
+describe("remainingLifecycleSteps", () => {
+  it("devuelve los pasos posteriores al estado actual, en orden", () => {
+    expect(remainingLifecycleSteps(ShipmentStatus.PUBLISHED)).toEqual([
+      ShipmentStatus.ASSIGNMENT_PENDING,
+      ShipmentStatus.ASSIGNED,
+      ShipmentStatus.IN_TRANSIT,
+      ShipmentStatus.DELIVERED,
+    ]);
+  });
+
+  it("no devuelve nada en el estado final del camino feliz", () => {
+    expect(remainingLifecycleSteps(ShipmentStatus.DELIVERED)).toEqual([]);
+  });
+
+  it("no devuelve nada para un envío que salió del camino feliz", () => {
+    expect(remainingLifecycleSteps(ShipmentStatus.CANCELLED)).toEqual([]);
+    expect(remainingLifecycleSteps(ShipmentStatus.REJECTED_BY_RECEIVER)).toEqual([]);
+    expect(remainingLifecycleSteps(ShipmentStatus.DISPUTED)).toEqual([]);
+  });
+});
+
+describe("shipmentPendingStepLabel", () => {
+  it("nombra el paso futuro sin usar el pasado de shipmentEventTitle", () => {
+    expect(shipmentPendingStepLabel(ShipmentStatus.IN_TRANSIT)).toBe("Retiro del paquete");
+    expect(shipmentPendingStepLabel(ShipmentStatus.DELIVERED)).toBe("Entrega al receptor");
   });
 });

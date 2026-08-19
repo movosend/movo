@@ -20,8 +20,10 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useAuthStore } from "../../src/store/auth-store";
 import {
   formatEventTimestamp,
+  remainingLifecycleSteps,
   shipmentActorLabel,
   shipmentEventTitle,
+  shipmentPendingStepLabel,
   shipmentStatusTone,
 } from "../../src/lib/shipment-format";
 import { ErrorBanner } from "../ui/error-banner";
@@ -79,54 +81,101 @@ function TimelineSkeleton({ testID }: { testID?: string }) {
   );
 }
 
+/** Estructura común de una fila (círculo + riel + contenido) — compartida entre los
+ * eventos ya ocurridos y los pasos futuros, para que ambos queden alineados sobre el
+ * mismo riel aunque su relleno visual sea distinto. */
 function TimelineRow({
+  Icon,
+  iconColor,
+  circleClass,
+  railClass,
+  isLast,
+  children,
+}: {
+  Icon: LucideIcon;
+  iconColor: string;
+  circleClass: string;
+  railClass: string;
+  isLast: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <View className="flex-row gap-3">
+      <View className="items-center">
+        <View className={`h-8 w-8 items-center justify-center rounded-full ${circleClass}`}>
+          <Icon size={15} color={iconColor} strokeWidth={1.9} />
+        </View>
+        {/* El riel se dibuja como parte de la fila (no como una línea absoluta de alto
+            fijo detrás de todas): así se estira solo hasta el alto real del contenido
+            de cada evento, que varía según tenga o no `reason`. */}
+        {isLast ? null : <View className={`w-px flex-1 ${railClass}`} />}
+      </View>
+      <View className={`flex-1 ${isLast ? "" : "pb-5"}`}>{children}</View>
+    </View>
+  );
+}
+
+function EventRow({
   event,
+  isCurrent,
   isLast,
   parties,
   currentUserId,
 }: {
   event: ShipmentEvent;
+  isCurrent: boolean;
   isLast: boolean;
   parties: TimelineSectionProps["parties"];
   currentUserId: string | null;
 }) {
   const colors = useThemeColors();
   const tone = TONE_STYLE[shipmentStatusTone(event.toStatus)];
-  const Icon = EVENT_ICON[event.toStatus] ?? Clock;
   const timestamp = formatEventTimestamp(event.createdAt);
   const actor = shipmentActorLabel(event.actorId, parties, currentUserId);
 
   return (
-    <View className="flex-row gap-3">
-      <View className="items-center">
-        <View className={`h-8 w-8 items-center justify-center rounded-full ${tone.bgClass}`}>
-          <Icon size={15} color={tone.iconColor ?? colors.fg3} strokeWidth={1.9} />
-        </View>
-        {/* El riel se dibuja como parte de la fila (no como una línea absoluta de alto
-            fijo detrás de todas): así se estira solo hasta el alto real del contenido
-            de cada evento, que varía según tenga o no `reason`. */}
-        {isLast ? null : <View className="w-px flex-1 bg-border" />}
-      </View>
-      <View className={`flex-1 ${isLast ? "" : "pb-5"}`}>
-        <Text
-          className={`font-sans-semibold text-[14px] ${isLast ? "text-fg" : "text-fg-2"}`}
-        >
-          {shipmentEventTitle(event.toStatus, event.fromStatus)}
-        </Text>
-        <View className="mt-0.5 flex-row items-center gap-1.5">
-          {timestamp ? <Text className="font-sans text-[12px] text-fg-3">{timestamp}</Text> : null}
-          {actor ? (
-            <>
-              {timestamp ? <Text className="font-sans text-[12px] text-fg-3">·</Text> : null}
-              <Text className="font-sans text-[12px] text-fg-3">{actor}</Text>
-            </>
-          ) : null}
-        </View>
-        {event.reason ? (
-          <Text className="mt-1.5 font-sans text-[12px] leading-[17px] text-fg-2">{event.reason}</Text>
+    <TimelineRow
+      Icon={EVENT_ICON[event.toStatus] ?? Clock}
+      iconColor={tone.iconColor ?? colors.fg3}
+      circleClass={tone.bgClass}
+      railClass="bg-border"
+      isLast={isLast}
+    >
+      <Text className={`font-sans-semibold text-[14px] ${isCurrent ? "text-fg" : "text-fg-2"}`}>
+        {shipmentEventTitle(event.toStatus, event.fromStatus)}
+      </Text>
+      <View className="mt-0.5 flex-row items-center gap-1.5">
+        {timestamp ? <Text className="font-sans text-[12px] text-fg-3">{timestamp}</Text> : null}
+        {actor ? (
+          <>
+            {timestamp ? <Text className="font-sans text-[12px] text-fg-3">·</Text> : null}
+            <Text className="font-sans text-[12px] text-fg-3">{actor}</Text>
+          </>
         ) : null}
       </View>
-    </View>
+      {event.reason ? (
+        <Text className="mt-1.5 font-sans text-[12px] leading-[17px] text-fg-2">{event.reason}</Text>
+      ) : null}
+    </TimelineRow>
+  );
+}
+
+/** Paso que todavía no ocurrió: círculo vacío con borde punteado (nunca relleno con
+ * el tono semántico del estado — el color se gana al pasar de verdad), texto en
+ * `fg-3` y sin fecha ni actor, porque no hay ninguno que mostrar. */
+function PendingStepRow({ status, isLast }: { status: ShipmentStatus; isLast: boolean }) {
+  const colors = useThemeColors();
+
+  return (
+    <TimelineRow
+      Icon={EVENT_ICON[status] ?? Clock}
+      iconColor={colors.fg3}
+      circleClass="border border-dashed border-border-strong bg-bg-sub"
+      railClass="bg-border"
+      isLast={isLast}
+    >
+      <Text className="font-sans-medium text-[14px] text-fg-3">{shipmentPendingStepLabel(status)}</Text>
+    </TimelineRow>
   );
 }
 
@@ -173,16 +222,26 @@ export function TimelineSection({ shipmentId, parties, testID }: TimelineSection
     );
   }
 
+  // Los pasos futuros se proyectan desde el último evento (el estado actual del
+  // envío), no desde `shipment.status`: la línea de tiempo se lee entera contra una
+  // sola fuente, así nunca puede mostrar un paso ya cumplido como pendiente si una de
+  // las dos queries quedó desactualizada respecto de la otra.
+  const pendingSteps = remainingLifecycleSteps(events[events.length - 1].toStatus);
+
   return (
     <ScrollView testID={testID} className="flex-1" contentContainerClassName="pb-6 pt-1">
       {events.map((event, index) => (
-        <TimelineRow
+        <EventRow
           key={event.id}
           event={event}
-          isLast={index === events.length - 1}
+          isCurrent={index === events.length - 1}
+          isLast={index === events.length - 1 && pendingSteps.length === 0}
           parties={parties}
           currentUserId={currentUserId}
         />
+      ))}
+      {pendingSteps.map((status, index) => (
+        <PendingStepRow key={status} status={status} isLast={index === pendingSteps.length - 1} />
       ))}
     </ScrollView>
   );

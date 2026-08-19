@@ -119,6 +119,51 @@ describe("TimelineSection", () => {
     expect(getByText("El transportista")).toBeTruthy();
   });
 
+  it("proyecta los pasos que faltan, sin fecha ni actor, después del último evento", async () => {
+    mockUseShipmentEvents.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+      data: [
+        event(),
+        event({
+          id: "event-2",
+          fromStatus: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+          toStatus: ShipmentStatus.PUBLISHED,
+        }),
+      ],
+    });
+
+    const { getByText } = await renderTimeline();
+
+    expect(getByText("Búsqueda de transportista")).toBeTruthy();
+    expect(getByText("Asignación del transportista")).toBeTruthy();
+    expect(getByText("Retiro del paquete")).toBeTruthy();
+    expect(getByText("Entrega al receptor")).toBeTruthy();
+  });
+
+  it("no proyecta pasos futuros cuando el envío salió del camino feliz", async () => {
+    mockUseShipmentEvents.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+      data: [
+        event(),
+        event({
+          id: "event-2",
+          fromStatus: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+          toStatus: ShipmentStatus.CANCELLED,
+        }),
+      ],
+    });
+
+    const { queryByText } = await renderTimeline();
+
+    // Prometer "Entrega al receptor" debajo de un envío cancelado sería mentir.
+    expect(queryByText("Entrega al receptor")).toBeNull();
+    expect(queryByText("Retiro del paquete")).toBeNull();
+  });
+
   it("muestra el motivo del evento cuando el backend lo manda", async () => {
     mockUseShipmentEvents.mockReturnValue({
       isLoading: false,

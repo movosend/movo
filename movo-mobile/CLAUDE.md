@@ -261,6 +261,17 @@ recortes:
     línea de tiempo, y el nombre de la contraparte ya lo muestra `CounterpartCard`.
     `actorId: null` (transición sin persona detrás) no muestra actor; un id ajeno a
     las tres partes (admin resolviendo una disputa) cae a "Equipo Movo".
+  - **Pasos futuros proyectados en gris apagado** debajo del último evento
+    (`remainingLifecycleSteps()` + `shipmentPendingStepLabel()`): recorren el camino
+    feliz de `shipment-state-machine.ts` (`svc-shipments`, MOVO-105) desde el estado
+    actual hasta `delivered`, con círculo vacío de borde punteado (el relleno de color
+    se gana al ocurrir de verdad), texto `fg-3`, y sin fecha ni actor. Un envío fuera
+    del camino feliz (`cancelled`/`rejected_by_receiver`/`disputed`) no proyecta nada
+    — prometer "Entrega al receptor" debajo de un envío cancelado sería mentir.
+    Etiquetas en sustantivo ("Retiro del paquete"), nunca el pasado de
+    `shipmentEventTitle` — un paso futuro descrito en pasado se lee como ya ocurrido.
+    La proyección sale del `toStatus` del último evento, no de `shipment.status`: toda
+    la línea se lee contra una sola fuente, sin poder desincronizarse entre queries.
   - `formatEventTimestamp()` sí usa `new Date` y la zona horaria del dispositivo (a
     diferencia de `formatPickupDateLabel`, ver MOVO-80): `createdAt` viaja como ISO
     datetime completo con offset, y "cuándo pasó esto" se lee en hora local.
