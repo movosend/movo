@@ -3,6 +3,7 @@ import { ApiError, UserRole } from "@movo/shared";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { StorageProvider } from "../../adapters/storage-provider";
 import { PhotoStage } from "../../models/shipment";
+import { assertShipmentAccess } from "./assert-shipment-access";
 
 /** AC10 de MOVO-81: convención de key `shipments/{shipmentId}/{stage}/{uuid}.jpg`.
  * A diferencia del whitelist de 3 tipos de MOVO-97 (foto de perfil), acá el AC10 fija
@@ -115,11 +116,7 @@ export function createPhotosService(repository: ShipmentRepository, storageProvi
       if (!shipment) {
         throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
       }
-      const isParty = callerId === shipment.senderId || callerId === shipment.receiverId;
-      const isAdmin = callerRoles.includes(UserRole.ADMIN);
-      if (!isParty && !isAdmin) {
-        throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver las fotos de este envío.");
-      }
+      assertShipmentAccess(shipment, callerId, callerRoles, "No tenés permiso para ver las fotos de este envío.");
 
       const photos = await repository.listPhotos(shipmentId);
       return Promise.all(

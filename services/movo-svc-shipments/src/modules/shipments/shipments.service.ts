@@ -1,7 +1,8 @@
 import { ApiError, UserRole } from "@movo/shared";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { UsersClient } from "../../adapters/users-client";
-import { PackageType, Shipment } from "../../models/shipment";
+import { PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
+import { assertShipmentAccess } from "./assert-shipment-access";
 
 export interface CreateShipmentServiceInput {
   senderId: string;
@@ -181,14 +182,18 @@ export function createShipmentsService(repository: ShipmentRepository, usersClie
         throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
       }
 
-      const isParty = callerId === shipment.senderId || callerId === shipment.receiverId;
-      const isAdmin = callerRoles.includes(UserRole.ADMIN);
-      if (!isParty && !isAdmin) {
-        // AC8: 403 explícito, nunca 404 "filtrado" — el id es un UUID no adivinable,
-        // mismo criterio ya aceptado para PHOTO_FORBIDDEN_KEY en MOVO-97.
-        throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver este envío.");
-      }
+      assertShipmentAccess(shipment, callerId, callerRoles);
       return shipment;
+    },
+
+    async getShipmentEvents(shipmentId: string, callerId: string, callerRoles: UserRole[]): Promise<ShipmentEvent[]> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+
+      assertShipmentAccess(shipment, callerId, callerRoles);
+      return repository.listEvents(shipmentId);
     },
 
     async listMyShipments(userId: string, page: number, limit: number): Promise<ListMineResult> {

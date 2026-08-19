@@ -184,6 +184,23 @@ todavía no hay ninguna ruta HTTP real que dispare `InsufficientCreationPhotosEr
 `tsc --noEmit` y `eslint` limpios (el único error de `eslint.config.js` es preexistente,
 no de este PR).
 
+### MOVO-128 — Endpoint GET /shipments/:id/events (historial de estados) (`svc-shipments`)
+
+`GET /shipments/:id/events` expone el historial completo de cambios de estado de un
+envío en orden cronológico ascendente (más antiguo primero), para la línea de tiempo de
+MOVO-127.
+
+Decisiones clave:
+- **Mismo criterio de autorización que `GET /shipments/:id` (AC8 de MOVO-80)**: solo
+  emisor, receptor o admin. Un usuario ajeno recibe 403 `AUTH_FORBIDDEN`, nunca 404
+  filtrado. Se extrajo la lógica duplicada a un helper compartido
+  `assertShipmentAccess(shipment, callerId, callerRoles)` reutilizado entre
+  `getShipmentDetail`, `getShipmentEvents` y `listPhotoUrls` (`photos.service.ts`).
+- **Respuesta plana sin paginación ni enriquecimiento**: array de `ShipmentEvent` con
+  `fromStatus`/`toStatus` crudos (`ShipmentStatus`), `actorId` como UUID crudo (sin
+  acceso cruzado a `users.users`, ADR-003). `fromStatus` es `null` únicamente en el
+  evento inicial de creación.
+
 ### Pendientes de este servicio
 
 - **MOVO-118**: arreglar el TOCTOU de `shipment-repository.ts#updateStatus()`
