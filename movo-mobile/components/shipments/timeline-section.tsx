@@ -67,13 +67,13 @@ export interface TimelineSectionProps {
 
 function TimelineSkeleton({ testID }: { testID?: string }) {
   return (
-    <View testID={testID} className="gap-5 pt-1">
-      {[0, 1, 2].map((i) => (
-        <View key={i} className="flex-row gap-3">
-          <SkeletonBlock className="h-8 w-8 rounded-full" />
-          <View className="flex-1 gap-1.5 pt-1">
-            <SkeletonBlock className="h-3.5 w-40 rounded-md" />
-            <SkeletonBlock className="h-3 w-24 rounded-md" />
+    <View testID={testID} className="pt-2">
+      {[0, 1, 2, 3].map((i) => (
+        <View key={i} className="min-h-[84px] flex-row gap-3.5">
+          <SkeletonBlock className="h-9 w-9 rounded-full" />
+          <View className="flex-1 gap-2 pt-[7px]">
+            <SkeletonBlock className="h-4 w-44 rounded-md" />
+            <SkeletonBlock className="h-3 w-28 rounded-md" />
           </View>
         </View>
       ))}
@@ -100,17 +100,24 @@ function TimelineRow({
   children: React.ReactNode;
 }) {
   return (
-    <View className="flex-row gap-3">
+    // Todas las filas menos la última crecen por igual (`flex-1`) dentro de un
+    // contenedor que ocupa el alto de la pantalla: con pocos pasos —el caso normal, un
+    // envío tiene entre 2 y 6— la línea se reparte el espacio vertical en vez de
+    // quedar apelotonada arriba. `min-h` es el piso cuando sí hay que scrollear
+    // (muchos eventos, o eventos con `reason` largo).
+    <View className={`flex-row gap-3.5 ${isLast ? "" : "min-h-[84px] flex-1"}`}>
       <View className="items-center">
-        <View className={`h-8 w-8 items-center justify-center rounded-full ${circleClass}`}>
-          <Icon size={15} color={iconColor} strokeWidth={1.9} />
+        <View className={`h-9 w-9 items-center justify-center rounded-full ${circleClass}`}>
+          <Icon size={16} color={iconColor} strokeWidth={1.9} />
         </View>
         {/* El riel se dibuja como parte de la fila (no como una línea absoluta de alto
-            fijo detrás de todas): así se estira solo hasta el alto real del contenido
-            de cada evento, que varía según tenga o no `reason`. */}
-        {isLast ? null : <View className={`w-px flex-1 ${railClass}`} />}
+            fijo detrás de todas): así se estira hasta el alto real de la fila, tanto
+            si lo define el contenido (un `reason` largo) como el reparto vertical. */}
+        {isLast ? null : <View className={`my-1 w-px flex-1 ${railClass}`} />}
       </View>
-      <View className={`flex-1 ${isLast ? "" : "pb-5"}`}>{children}</View>
+      {/* `pt-[7px]` centra la primera línea de texto (22px de line-height) contra el
+          círculo de 36px, en vez de dejarla pegada a su borde superior. */}
+      <View className={`flex-1 pt-[7px] ${isLast ? "" : "pb-4"}`}>{children}</View>
     </View>
   );
 }
@@ -141,20 +148,20 @@ function EventRow({
       railClass="bg-border"
       isLast={isLast}
     >
-      <Text className={`font-sans-semibold text-[14px] ${isCurrent ? "text-fg" : "text-fg-2"}`}>
+      <Text className={`font-sans-semibold text-body ${isCurrent ? "text-fg" : "text-fg-2"}`}>
         {shipmentEventTitle(event.toStatus, event.fromStatus)}
       </Text>
-      <View className="mt-0.5 flex-row items-center gap-1.5">
-        {timestamp ? <Text className="font-sans text-[12px] text-fg-3">{timestamp}</Text> : null}
+      <View className="mt-1 flex-row items-center gap-1.5">
+        {timestamp ? <Text className="font-sans text-small text-fg-3">{timestamp}</Text> : null}
         {actor ? (
           <>
-            {timestamp ? <Text className="font-sans text-[12px] text-fg-3">·</Text> : null}
-            <Text className="font-sans text-[12px] text-fg-3">{actor}</Text>
+            {timestamp ? <Text className="font-sans text-small text-fg-3">·</Text> : null}
+            <Text className="font-sans text-small text-fg-3">{actor}</Text>
           </>
         ) : null}
       </View>
       {event.reason ? (
-        <Text className="mt-1.5 font-sans text-[12px] leading-[17px] text-fg-2">{event.reason}</Text>
+        <Text className="mt-2 font-sans text-small text-fg-2">{event.reason}</Text>
       ) : null}
     </TimelineRow>
   );
@@ -174,7 +181,7 @@ function PendingStepRow({ status, isLast }: { status: ShipmentStatus; isLast: bo
       railClass="bg-border"
       isLast={isLast}
     >
-      <Text className="font-sans-medium text-[14px] text-fg-3">{shipmentPendingStepLabel(status)}</Text>
+      <Text className="font-sans-medium text-body text-fg-3">{shipmentPendingStepLabel(status)}</Text>
     </TimelineRow>
   );
 }
@@ -229,7 +236,10 @@ export function TimelineSection({ shipmentId, parties, testID }: TimelineSection
   const pendingSteps = remainingLifecycleSteps(events[events.length - 1].toStatus);
 
   return (
-    <ScrollView testID={testID} className="flex-1" contentContainerClassName="pb-6 pt-1">
+    // `flex-grow` (no `flex-1`) en el contenido: el contenedor mide al menos el alto
+    // visible —lo que habilita el reparto vertical de las filas— pero puede crecer más
+    // y scrollear cuando los eventos no entran.
+    <ScrollView testID={testID} className="flex-1" contentContainerClassName="flex-grow pb-6 pt-2">
       {events.map((event, index) => (
         <EventRow
           key={event.id}
