@@ -192,7 +192,9 @@ al receptor confirmar un envío (transición a `published`) o rechazarlo (transi
 
 Decisiones clave:
 - **Autorización estricta al receptor (`assertIsReceiver`)**: solo `shipment.receiverId`
-  puede aceptar o rechazar (403 `AUTH_FORBIDDEN` para el emisor, admin o terceros).
+  puede aceptar o rechazar (403 `AUTH_FORBIDDEN` para el emisor, admin o terceros). Se
+  definió como helper local en `shipments.service.ts` para no colisionar ni acoplarse con
+  el refactor de `assertShipmentAccess` del PR paralelo de MOVO-128.
 - **Mapeo de error de transiciones inválidas**: `InvalidShipmentTransitionError` se mapea
   a HTTP 409 con el código `SHIPMENT_INVALID_TRANSITION` en `@movo/shared` y en
   `error-handler.ts` (cubre doble tap, envíos ya cancelados o ya rechazados).
