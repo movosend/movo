@@ -93,6 +93,20 @@ const shipmentResponse = {
   },
 };
 
+const shipmentEventResponse = {
+  type: "object",
+  required: ["id", "shipmentId", "fromStatus", "toStatus", "actorId", "reason", "createdAt"],
+  properties: {
+    id: { type: "string" },
+    shipmentId: { type: "string" },
+    fromStatus: { type: ["string", "null"] },
+    toStatus: { type: "string" },
+    actorId: { type: ["string", "null"] },
+    reason: { type: ["string", "null"] },
+    createdAt: { type: "string", format: "date-time" },
+  },
+};
+
 export const shipmentsSchemas = {
   createShipmentBody: {
     type: "object",
@@ -249,6 +263,13 @@ export const shipmentsSchemas = {
         createdAt: { type: "string", format: "date-time" },
       },
     },
+  },
+
+  shipmentEventResponse,
+
+  shipmentEventsResponse: {
+    type: "array",
+    items: shipmentEventResponse,
   },
 
   errorResponse: {

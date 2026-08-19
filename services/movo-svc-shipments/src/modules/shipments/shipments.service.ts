@@ -3,7 +3,8 @@ import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
-import { PackageType, Shipment } from "../../models/shipment";
+import { PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
+import { assertIsReceiver, assertShipmentAccess } from "./assert-shipment-access";
 
 export interface CreateShipmentServiceInput {
   senderId: string;
@@ -100,16 +101,6 @@ function toEpochTime(timeStr: string): Date {
   return new Date(`1970-01-01T${normalizeTime(timeStr)}.000Z`);
 }
 
-/**
- * Chequea que el usuario sea estrictamente el receptor designado del envío (MOVO-129).
- * A diferencia del acceso a detalle/fotos, ni el emisor ni el admin pueden aceptar o rechazar.
- */
-function assertIsReceiver(shipment: Shipment, callerId: string): void {
-  if (callerId !== shipment.receiverId) {
-    throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el receptor designado puede aceptar o rechazar este envío.");
-  }
-}
-
 export function createShipmentsService(
   repository: ShipmentRepository,
   usersClient: UsersClient,
@@ -198,14 +189,18 @@ export function createShipmentsService(
         throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
       }
 
-      const isParty = callerId === shipment.senderId || callerId === shipment.receiverId;
-      const isAdmin = callerRoles.includes(UserRole.ADMIN);
-      if (!isParty && !isAdmin) {
-        // AC8: 403 explícito, nunca 404 "filtrado" — el id es un UUID no adivinable,
-        // mismo criterio ya aceptado para PHOTO_FORBIDDEN_KEY en MOVO-97.
-        throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver este envío.");
-      }
+      assertShipmentAccess(shipment, callerId, callerRoles);
       return shipment;
+    },
+
+    async getShipmentEvents(shipmentId: string, callerId: string, callerRoles: UserRole[]): Promise<ShipmentEvent[]> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+
+      assertShipmentAccess(shipment, callerId, callerRoles);
+      return repository.listEvents(shipmentId);
     },
 
     async acceptShipment(shipmentId: string, callerId: string): Promise<Shipment> {

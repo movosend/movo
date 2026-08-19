@@ -184,6 +184,23 @@ todavía no hay ninguna ruta HTTP real que dispare `InsufficientCreationPhotosEr
 `tsc --noEmit` y `eslint` limpios (el único error de `eslint.config.js` es preexistente,
 no de este PR).
 
+### MOVO-128 — Endpoint GET /shipments/:id/events (historial de estados) (`svc-shipments`)
+
+`GET /shipments/:id/events` expone el historial completo de cambios de estado de un
+envío en orden cronológico ascendente (más antiguo primero), para la línea de tiempo de
+MOVO-127.
+
+Decisiones clave:
+- **Mismo criterio de autorización que `GET /shipments/:id` (AC8 de MOVO-80)**: solo
+  emisor, receptor o admin. Un usuario ajeno recibe 403 `AUTH_FORBIDDEN`, nunca 404
+  filtrado. Se extrajo la lógica duplicada a un helper compartido
+  `assertShipmentAccess(shipment, callerId, callerRoles)` reutilizado entre
+  `getShipmentDetail`, `getShipmentEvents` y `listPhotoUrls` (`photos.service.ts`).
+- **Respuesta plana sin paginación ni enriquecimiento**: array de `ShipmentEvent` con
+  `fromStatus`/`toStatus` crudos (`ShipmentStatus`), `actorId` como UUID crudo (sin
+  acceso cruzado a `users.users`, ADR-003). `fromStatus` es `null` únicamente en el
+  evento inicial de creación.
+
 ### MOVO-129 — Endpoints de aceptación y rechazo del envío por el receptor (`svc-shipments`)
 
 `POST /shipments/:id/accept` y `POST /shipments/:id/reject` (backend de MOVO-16) permiten
@@ -192,9 +209,8 @@ al receptor confirmar un envío (transición a `published`) o rechazarlo (transi
 
 Decisiones clave:
 - **Autorización estricta al receptor (`assertIsReceiver`)**: solo `shipment.receiverId`
-  puede aceptar o rechazar (403 `AUTH_FORBIDDEN` para el emisor, admin o terceros). Se
-  definió como helper local en `shipments.service.ts` para no colisionar ni acoplarse con
-  el refactor de `assertShipmentAccess` del PR paralelo de MOVO-128.
+  puede aceptar o rechazar (403 `AUTH_FORBIDDEN` para el emisor, admin o terceros).
+  Ubicada en `assert-shipment-access.ts` junto a `assertShipmentAccess`.
 - **Mapeo de error de transiciones inválidas**: `InvalidShipmentTransitionError` se mapea
   a HTTP 409 con el código `SHIPMENT_INVALID_TRANSITION` en `@movo/shared` y en
   `error-handler.ts` (cubre doble tap, envíos ya cancelados o ya rechazados).
