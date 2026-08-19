@@ -311,5 +311,26 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
       expect(response.statusCode).toBe(409);
       expect(response.json().error.code).toBe("SHIPMENT_INVALID_TRANSITION");
     });
+
+    it("responde 401 sin x-user-id", async () => {
+      const shipment = await repo.create(baseInput);
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/reject`,
+      });
+      expect(response.statusCode).toBe(401);
+    });
+
+    it("responde 400 si el motivo excede 500 caracteres", async () => {
+      const shipment = await repo.create(baseInput);
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/reject`,
+        headers: { "x-user-id": receiverId },
+        payload: { reason: "a".repeat(501) },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe("VALIDATION_FAILED");
+    });
   });
 });
