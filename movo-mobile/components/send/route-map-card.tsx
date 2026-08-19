@@ -2,14 +2,14 @@ import { Pencil } from "lucide-react-native";
 import { useEffect, useMemo, useRef } from "react";
 import { Pressable, Text, View } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
-import Animated, { useAnimatedProps, useFrameCallback, useSharedValue } from "react-native-reanimated";
+import Animated, { processColor, useAnimatedProps, useFrameCallback, useSharedValue } from "react-native-reanimated";
 import { useColorScheme } from "nativewind";
 import { movoMapStyleDark, movoMapStyleLight } from "../../src/constants/map-style";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useShipmentRoute } from "../../src/hooks/use-shipments";
 import { hexToRgba } from "../../src/lib/color";
 import { decodePolyline } from "../../src/lib/polyline";
-import type { AddressSelection } from "../../src/store/shipment-wizard-store";
+import type { AddressSelection } from "../../src/types/address-selection";
 
 const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
 
@@ -135,10 +135,22 @@ export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardP
   // como worklet en el UI thread: `sweepLength`/`sweepOpacity` cambian en cada frame
   // (`useFrameCallback` arriba) y este cálculo se vuelve a correr ahí mismo, sin pasar
   // por React.
+  // `strokeColor` no está en la allowlist `ColorProperties` de Reanimated (es un prop
+  // custom de `react-native-maps`, no un estilo estándar) — `useAnimatedProps` solo le
+  // aplica `processColor` automáticamente a los props de esa lista, así que sin llamarlo
+  // acá a mano el string `rgba(...)` cruza tal cual al lado nativo. En iOS, el view
+  // manager de `Polyline` no logra parsearlo y el `GMSPolyline` cae a su azul por
+  // defecto — se ve como un bug de color pero es un string sin procesar.
   const animatedSweepProps = useAnimatedProps<{ coordinates: LatLng[]; strokeColor: string }>(() => {
     "worklet";
+    // `processColor` devuelve el int nativo que espera el view manager, no un string —
+    // el tipo de `Polyline#strokeColor` (react-native-maps) sigue siendo `string` porque
+    // así lo tipa la librería para el caso no-animado, así que se castea acá.
+    const nativeStrokeColor = processColor(
+      hexToRgba(colors.fg1, sweepOpacity.value),
+    ) as unknown as string;
     const routeSteps = routePoints.length - 1;
-    if (routeSteps < 0) return { coordinates: [], strokeColor: hexToRgba(colors.fg1, sweepOpacity.value) };
+    if (routeSteps < 0) return { coordinates: [], strokeColor: nativeStrokeColor };
     const rawIdx = sweepLength.value * routeSteps;
     const sweepFloorIdx = Math.min(routeSteps, Math.floor(rawIdx));
     const sweepFrac = rawIdx - sweepFloorIdx;
@@ -153,7 +165,7 @@ export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardP
     }
     return {
       coordinates: sweepPoints,
-      strokeColor: hexToRgba(colors.fg1, sweepOpacity.value),
+      strokeColor: nativeStrokeColor,
     };
   }, [routePoints, colors.fg1]);
 
