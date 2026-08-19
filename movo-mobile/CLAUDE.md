@@ -233,6 +233,85 @@ Pendiente / fuera de alcance: cancelar envío (MOVO-29), detalle/lista de oferta
 (MOVO-17), handshake/tracking en vivo (MOVO-6/MOVO-11) — igual que documenta el
 propio ticket.
 
+### Pantalla "Mis Envíos" (listado completo, punto de acceso desde Inicio)
+
+`useRecentShipments` (preview de 3 en Inicio) documentaba desde MOVO-83 que el listado
+completo quedaba "fuera de este ticket" — se implementó como parte del pulido de
+MOVO-127: `app/(app)/shipments/index.tsx` nueva, listado paginado con scroll infinito
+(`useMyShipments`, `useInfiniteQuery` de TanStack Query — primer uso en el repo, query
+key `["shipments","mine","list"]` separada de la del preview) y pull-to-refresh (primer
+uso de `RefreshControl` en el repo).
+
+- **`ShipmentCard` nueva** (`components/shipments/shipment-card.tsx`), no la fila de una
+  sola línea (`ShipmentRow`) reusada del preview de Home — feedback post-QA: esa fila
+  "quedaba horrible" repetida en un listado largo. Reinterpretación de una card de
+  referencia (viaje/transportista con foto+nombre, badge de estado, mini-ruta con dos
+  puntos y hora) sin la foto/nombre — acá no hay contraparte asignada todavía, el
+  precio ocupa ese lugar. `shortAddressLabel`/`formatPickupWindowLabel` nuevas en
+  `shipment-format.ts` para el segmento corto de dirección (antes de la primera coma,
+  no hay campo de barrio separado) y el rango horario. `ShipmentRow` (fila compacta de
+  una línea) se mantiene sin cambios, sigue siendo la correcta para el preview de 3 de
+  Home — cada pantalla su propia densidad de información.
+- **Punto de acceso, a propósito deliberadamente discreto y en su propia sección**: dos
+  iteraciones previas de este cambio lo pusieron como botón/card secundario en Inicio
+  (mismo peso visual que `HomeSendCta`) y después como link al pie de la card de
+  Actividad Reciente — el usuario rechazó ambas explícitamente. Quedó como
+  `ViewAllShipmentsLink` (`components/home/view-all-shipments-link.tsx`), sección propia
+  debajo de `RecentShipmentsSection` en `home.tsx`: botón outline chico y centrado
+  (borde `border-border`, texto `text-fg-2`), reusa `useRecentShipments()` (mismo query
+  key, TanStack Query dedupe la request) para decidir si mostrarse — solo con al menos
+  un envío.
+- `useCreateShipment` ahora invalida también `["shipments","mine","list"]` (antes solo
+  invalidaba el preview) para que un envío nuevo aparezca en el listado completo sin
+  esperar un refetch manual.
+
+Tests nuevos: `test/shipment-row.test.tsx`, `test/shipment-card.test.tsx`,
+`test/view-all-shipments-link.test.tsx`, `test/shipments-list-screen.test.tsx`.
+
+**Iteración siguiente (mismo día, feedback post-QA con referencia visual de Uber
+"Activity"):** título grande ("Mis envíos", `text-title`, reemplaza el `text-h3` chico
+junto al botón volver) + tabs "En curso"/"Completados" + botón de filtro circular
+(`SlidersHorizontal`) que abre una hoja inferior con chips de estado — mismo patrón de
+`Modal` que ya usa `SelectField` (overlay + hoja `rounded-t-2xl` + `SafeAreaView
+edges={['bottom']}`), nunca un componente de sheet nuevo.
+
+- **`shipmentLifecycleStage` nueva** en `shipment-format.ts`: agrupa el `ShipmentStatus`
+  en `"ongoing" | "past"` — `DELIVERED`/`CANCELLED`/`REJECTED_BY_RECEIVER` son los
+  únicos "pasados", `DISPUTED` cuenta como en curso (todavía espera resolución, no es un
+  estado final desde la perspectiva del usuario).
+- **Tab + filtro de estado, 100% client-side** sobre las páginas ya cargadas de
+  `useMyShipments` — `GET /shipments/mine` no tiene un parámetro de estado en el backend
+  todavía (MOVO-80). El scroll infinito sigue pidiendo la próxima página según
+  `hasNextPage` de la query completa, sin depender de cuántos items sobrevivan al
+  filtro visible en pantalla — aceptable para el volumen de envíos de un usuario real,
+  pero si el filtrado server-side se vuelve necesario (usuarios con cientos de envíos)
+  es un ticket de backend aparte.
+- Las opciones de chip de la hoja de filtro dependen de la tab activa (en "En curso" no
+  tiene sentido ofrecer "Entregado" como filtro) — cambiar de tab resetea el filtro a
+  "Todos".
+- **Tres iteraciones de diseño del punto de acceso desde Home documentadas en la
+  entrada de arriba** — quedó como link de ancho completo en su propia sección, nunca
+  como botón/card que compita con `HomeSendCta`.
+
+**Segunda iteración de los filtros (mismo día, feedback post-QA sobre la primera):**
+los chips de "Estado" (6 opciones abiertas de una) "no funcionaban, son demasiados" y
+el botón "Aplicar" quedaba pegado contra el último renglón en pantallas chicas. Se
+reemplazó por `FilterDropdown` — mismo patrón que `SelectField` (trigger cerrado +
+`Modal` inferior con lista y check), generalizado a `{ id, label }` en vez de solo
+`string` — necesario para el filtro nuevo de "Destinatario", donde el label (nombre)
+solo no alcanza para identificar sin ambigüedad a la persona si dos comparten nombre.
+Cada dropdown aplica al elegir una opción (sin botón "Aplicar" separado); un link
+"Limpiar" en el header de la hoja resetea ambos filtros a la vez.
+
+- **`usePublicProfiles` nueva** en `use-profile.ts` (`useQueries` de TanStack Query,
+  mismo query key por id que `usePublicProfile` — comparte cache, no duplica requests
+  si `CounterpartCard` ya trajo alguno de esos perfiles) — resuelve los nombres reales
+  de los destinatarios únicos de la tab activa antes de listarlos como opciones del
+  filtro.
+- Cambiar de tab ("En curso"/"Completados") resetea ambos filtros — el set de
+  destinatarios/estados disponibles es distinto por tab, un filtro que sobrevive al
+  cambio podría apuntar a una opción que ya no existe en la tab nueva.
+
 ### Pendientes de este paquete
 
 - **`eas init`/development build real en dispositivo**: pendiente para probar de

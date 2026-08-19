@@ -1,9 +1,12 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import {
+  formatPickupWindowLabel,
   formatShipmentPrice,
   receiverConfirmationStatus,
+  shipmentLifecycleStage,
   shipmentStatusLabel,
   shipmentStatusTone,
+  shortAddressLabel,
 } from "../src/lib/shipment-format";
 
 describe("shipmentStatusLabel", () => {
@@ -53,5 +56,35 @@ describe("receiverConfirmationStatus", () => {
   it("mapea cualquier estado posterior a confirmed", () => {
     expect(receiverConfirmationStatus(ShipmentStatus.PUBLISHED)).toBe("confirmed");
     expect(receiverConfirmationStatus(ShipmentStatus.DELIVERED)).toBe("confirmed");
+  });
+});
+
+describe("shipmentLifecycleStage", () => {
+  it("agrupa entregado/cancelado/rechazado como pasados", () => {
+    expect(shipmentLifecycleStage(ShipmentStatus.DELIVERED)).toBe("past");
+    expect(shipmentLifecycleStage(ShipmentStatus.CANCELLED)).toBe("past");
+    expect(shipmentLifecycleStage(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("past");
+  });
+
+  it("agrupa el resto, incluido disputado, como en curso", () => {
+    expect(shipmentLifecycleStage(ShipmentStatus.PUBLISHED)).toBe("ongoing");
+    expect(shipmentLifecycleStage(ShipmentStatus.IN_TRANSIT)).toBe("ongoing");
+    expect(shipmentLifecycleStage(ShipmentStatus.DISPUTED)).toBe("ongoing");
+  });
+});
+
+describe("shortAddressLabel", () => {
+  it("recorta la dirección al primer segmento antes de la coma", () => {
+    expect(shortAddressLabel("Av. Colón 1234, Córdoba")).toBe("Av. Colón 1234");
+  });
+
+  it("devuelve la dirección completa si no tiene coma", () => {
+    expect(shortAddressLabel("Av. Colón 1234")).toBe("Av. Colón 1234");
+  });
+});
+
+describe("formatPickupWindowLabel", () => {
+  it("arma el rango horario legible", () => {
+    expect(formatPickupWindowLabel("09:00", "12:00")).toBe("09:00 a 12:00");
   });
 });

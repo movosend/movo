@@ -43,6 +43,21 @@ export function shipmentStatusTone(
   }
 }
 
+/** Agrupa el ciclo de vida en dos etapas para las tabs "En curso"/"Completados" de
+ * "Mis Envíos" (MOVO-127) — patrón estándar de listados de pedidos/viajes (Uber,
+ * apps de delivery). `DISPUTED` cuenta como "en curso": todavía espera una resolución,
+ * no es un estado final desde la perspectiva del usuario. */
+export function shipmentLifecycleStage(status: ShipmentStatus): "ongoing" | "past" {
+  switch (status) {
+    case ShipmentStatus.DELIVERED:
+    case ShipmentStatus.CANCELLED:
+    case ShipmentStatus.REJECTED_BY_RECEIVER:
+      return "past";
+    default:
+      return "ongoing";
+  }
+}
+
 /** Estado de confirmación del receptor (AC7 de MOVO-127, feedback post-QA) — derivado
  * de `ShipmentStatus`, no hay una columna separada: `awaiting_receiver_confirmation`/
  * `rejected_by_receiver` son los únicos dos estados donde el receptor todavía no dio
@@ -84,4 +99,20 @@ export function formatPickupDateLabel(pickupDate: string): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(pickupDate)) return null;
   const [year, month, day] = pickupDate.split("-").map(Number);
   return PICKUP_DATE_FORMATTER.format(new Date(year, month - 1, day));
+}
+
+/** Recorta una dirección completa a su primer segmento, antes de la primera coma —
+ * "Av. Colón 1234, Córdoba" → "Av. Colón 1234" (MOVO-127, card de `ShipmentCard`). El
+ * modelo no tiene un campo de barrio separado, así que la calle es el identificador
+ * más corto y reconocible disponible para una mini-ruta de dos puntos. */
+export function shortAddressLabel(address: string): string {
+  return address.split(",")[0].trim();
+}
+
+/** Ventana horaria de retiro formateada para la card de listado (MOVO-127) — deja el
+ * rango explícito ("09:00 a 12:00") en vez de inventar frases relativas tipo "antes de
+ * las 15h", que requerirían comparar `pickupDate` contra "hoy" y reabrir el mismo
+ * riesgo de desfasaje de huso horario que ya documenta `formatPickupDateLabel`. */
+export function formatPickupWindowLabel(start: string, end: string): string {
+  return `${start} a ${end}`;
 }

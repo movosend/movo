@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { usersClient } from "../api/users-client";
 
 /**
@@ -28,5 +28,18 @@ export function usePublicProfile(id: string | undefined) {
     queryKey: ["profile", "public", id],
     queryFn: () => usersClient.getPublicProfile(id!),
     enabled: !!id,
+  });
+}
+
+/** Varias proyecciones públicas a la vez — mismo query key por id que `usePublicProfile`
+ * (comparten cache, `useQueries` no dispara de nuevo lo que ya esté cacheado), usado
+ * por el filtro "Destinatario" de "Mis Envíos" (MOVO-127) para resolver los nombres de
+ * los receptores únicos de la tab activa antes de listarlos como opciones. */
+export function usePublicProfiles(ids: string[]) {
+  return useQueries({
+    queries: ids.map((id) => ({
+      queryKey: ["profile", "public", id],
+      queryFn: () => usersClient.getPublicProfile(id),
+    })),
   });
 }

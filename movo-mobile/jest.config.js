@@ -9,6 +9,7 @@ module.exports = {
   resolver: "react-native-worklets/jest/resolver.js",
   setupFiles: [
     "<rootDir>/test/mocks/reanimated-setup.js",
+    "<rootDir>/test/mocks/safe-area-setup.js",
     "react-native-gesture-handler/jestSetup.js",
   ],
   transform: {

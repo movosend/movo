@@ -4,6 +4,7 @@ import { ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { HomeSendCta } from '../../../components/home/home-send-cta';
 import { RecentShipmentsSection } from '../../../components/home/recent-shipments-section';
+import { ViewAllShipmentsLink } from '../../../components/home/view-all-shipments-link';
 import { useAuth } from '../../../src/hooks/use-auth';
 import { useMyProfile } from '../../../src/hooks/use-profile';
 import { useThemeColors } from '../../../src/hooks/use-theme-colors';
@@ -86,6 +87,7 @@ export default function AuthenticatedHomeScreen() {
         <HomeSendCta testID="app-home-send-cta" kycStatus={currentKycStatus} />
 
         <RecentShipmentsSection testID="app-home-recent-shipments" />
+        <ViewAllShipmentsLink testID="app-home-view-all-shipments" />
       </ScrollView>
     </View>
   );
