@@ -9,6 +9,9 @@ export interface EnvConfig {
   S3_REGION?: string;
   ROUTES_PROVIDER: "mock" | "google";
   GOOGLE_MAPS_API_KEY?: string;
+  RECEIVER_CONFIRMATION_TIMEOUT_HOURS: number;
+  RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES: number;
+  RECEIVER_CONFIRMATION_SWEEP_ENABLED?: boolean;
 }
 
 export const envSchema = {
@@ -40,6 +43,12 @@ export const envSchema = {
     // Validada en runtime por `createRoutesProvider` cuando ROUTES_PROVIDER=google, no
     // acá — mismo criterio que GOOGLE_MAPS_API_KEY en movo-svc-users/src/config/env.ts.
     GOOGLE_MAPS_API_KEY: { type: "string" },
+    // MOVO-130: plazo en horas para que el receptor acepte/rechace antes de que el envío expire.
+    RECEIVER_CONFIRMATION_TIMEOUT_HOURS: { type: "number", default: 48 },
+    // MOVO-130: intervalo en minutos del barrido periódico de expiración.
+    RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
+    // MOVO-130: flag para habilitar/deshabilitar el barrido periódico (útil en test/CI).
+    RECEIVER_CONFIRMATION_SWEEP_ENABLED: { type: "boolean", default: true },
   },
 };
 

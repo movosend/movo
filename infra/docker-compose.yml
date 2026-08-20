@@ -148,6 +148,9 @@ services:
       # servicio abajo al boot.
       - ROUTES_PROVIDER=${ROUTES_PROVIDER:-mock}
       - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      # MOVO-130: expiración automática del envío no confirmado
+      - RECEIVER_CONFIRMATION_TIMEOUT_HOURS=${RECEIVER_CONFIRMATION_TIMEOUT_HOURS:-48}
+      - RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES=${RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES:-15}
     depends_on:
       - postgres
       - redis
