@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import { ShipmentStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
@@ -11,6 +11,7 @@ describe("POST /shipments (Postgres)", () => {
   const senderId = randomUUID();
   const receiverId = randomUUID();
   const unverifiedReceiverId = randomUUID();
+  const sendPush = vi.fn().mockResolvedValue(undefined);
 
   const validBody = {
     packageType: "standard_package",
@@ -40,7 +41,7 @@ describe("POST /shipments (Postgres)", () => {
       [receiverId]: fakePublicProfile({ id: receiverId, isVerified: true }),
       [unverifiedReceiverId]: fakePublicProfile({ id: unverifiedReceiverId, isVerified: false }),
     });
-    app = buildApp({ usersClient });
+    app = buildApp({ usersClient, notificationsClient: { sendPush } });
     await app.ready();
   });
 
@@ -50,6 +51,7 @@ describe("POST /shipments (Postgres)", () => {
 
   beforeEach(async () => {
     await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
+    sendPush.mockClear();
   });
 
   it("crea el envío en estado awaiting_receiver_confirmation y registra el evento inicial", async () => {
@@ -78,6 +80,37 @@ describe("POST /shipments (Postgres)", () => {
     expect(events[0].fromStatus).toBeNull();
     expect(events[0].toStatus).toBe(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION);
     expect(events[0].actorId).toBe(senderId);
+  });
+
+  it("AC1 de MOVO-108: notifica al receptor tras crear el envío", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/shipments",
+      headers: { "x-user-id": senderId },
+      payload: validBody,
+    });
+
+    expect(response.statusCode).toBe(201);
+    const shipmentId = response.json().id;
+    expect(sendPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: receiverId,
+        data: { type: "shipment", shipmentId },
+      })
+    );
+  });
+
+  it("AC5 de MOVO-108: un fallo del cliente de notificaciones no bloquea la creación del envío", async () => {
+    sendPush.mockRejectedValueOnce(new Error("svc-users caído"));
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/shipments",
+      headers: { "x-user-id": senderId },
+      payload: validBody,
+    });
+
+    expect(response.statusCode).toBe(201);
   });
 
   it("ignora un senderId falsificado en el body — usa siempre el del header", async () => {
