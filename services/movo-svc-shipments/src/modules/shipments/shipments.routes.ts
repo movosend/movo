@@ -46,6 +46,9 @@ function toShipmentDto(shipment: Shipment) {
     pickupDate: shipment.pickupDate.toISOString().slice(0, 10),
     pickupTimeWindowStart: shipment.pickupTimeWindowStart.toISOString().slice(11, 19),
     pickupTimeWindowEnd: shipment.pickupTimeWindowEnd.toISOString().slice(11, 19),
+    receiverConfirmationDeadline: shipment.receiverConfirmationDeadline
+      ? shipment.receiverConfirmationDeadline.toISOString()
+      : null,
   };
 }
 
@@ -67,7 +70,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config);
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
   const repository = createShipmentRepository(app.db);
-  const service = createShipmentsService(repository, usersClient, notificationsClient, app.log);
+  const service = createShipmentsService(repository, usersClient, notificationsClient, app.log, {
+    receiverConfirmationTimeoutHours: app.config.RECEIVER_CONFIRMATION_TIMEOUT_HOURS,
+  });
   const photosService = createPhotosService(repository, storageProvider);
 
   app.post(

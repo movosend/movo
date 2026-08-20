@@ -112,7 +112,7 @@ interface ReceiverDecisionPushParams {
 async function dispatchReceiverDecisionPush(
   notificationsClient: NotificationsClient,
   usersClient: UsersClient,
-  logger: FastifyBaseLogger | { warn: (obj: unknown, msg?: string) => void; error: (obj: unknown, msg?: string) => void } | undefined,
+  logger: FastifyBaseLogger | { info?: (obj: unknown, msg?: string) => void; warn: (obj: unknown, msg?: string) => void; error: (obj: unknown, msg?: string) => void } | undefined,
   params: ReceiverDecisionPushParams
 ): Promise<void> {
   try {
@@ -132,12 +132,46 @@ async function dispatchReceiverDecisionPush(
   }
 }
 
+async function dispatchReceiverTimeoutPush(
+  notificationsClient: NotificationsClient,
+  usersClient: UsersClient,
+  logger: FastifyBaseLogger | { info?: (obj: unknown, msg?: string) => void; warn: (obj: unknown, msg?: string) => void; error: (obj: unknown, msg?: string) => void } | undefined,
+  shipment: Shipment
+): Promise<void> {
+  try {
+    // El segundo argumento de findPublicProfile es el callerId (quien realiza la consulta).
+    // En este contexto el barrido actúa en nombre del emisor (senderId), que es quien
+    // recibe la notificación y tiene relación directa con el envío — mismo criterio que
+    // dispatchReceiverDecisionPush, donde el callerId es el receptor que tomó la decisión.
+    const receiverProfile = await usersClient.findPublicProfile(shipment.receiverId, shipment.senderId);
+    const receiverName = receiverProfile?.fullName ?? "El receptor";
+    await notificationsClient.sendPush({
+      userId: shipment.senderId,
+      title: "Envío cancelado",
+      body: `Tu envío se canceló: ${receiverName} no lo confirmó a tiempo`,
+      data: { shipmentId: shipment.id, type: "shipment_cancelled" },
+    });
+  } catch (err) {
+    logger?.warn(
+      { err, event: "notification_dispatch_failed", shipmentId: shipment.id },
+      "No se pudo enviar la push de cancelación por timeout al emisor"
+    );
+  }
+}
+
+export interface ShipmentsServiceOptions {
+  receiverConfirmationTimeoutHours?: number;
+}
+
 export function createShipmentsService(
   repository: ShipmentRepository,
   usersClient: UsersClient,
   notificationsClient?: NotificationsClient,
-  logger?: FastifyBaseLogger | { warn: (obj: unknown, msg?: string) => void; error: (obj: unknown, msg?: string) => void }
+  logger?: FastifyBaseLogger | { info: (obj: unknown, msg?: string) => void; warn: (obj: unknown, msg?: string) => void; error: (obj: unknown, msg?: string) => void },
+  opts: ShipmentsServiceOptions = {}
 ) {
+  const timeoutHours = opts.receiverConfirmationTimeoutHours ?? 48;
+
   return {
     async createShipment(input: CreateShipmentServiceInput): Promise<Shipment> {
       // AC4 — auto-designación, primero por ser el chequeo más barato (sin I/O).
@@ -192,6 +226,9 @@ export function createShipmentsService(
 
       const suggestedPriceArs = computePlaceholderPrice(input.weightKg, pickupDeliveryDistanceKm);
 
+      // MOVO-130 AC1: deadline de confirmación = createdAt (ahora) + RECEIVER_CONFIRMATION_TIMEOUT_HOURS.
+      const receiverConfirmationDeadline = new Date(Date.now() + timeoutHours * 60 * 60 * 1000);
+
       return repository.create({
         senderId: input.senderId,
         receiverId: input.receiverId,
@@ -211,6 +248,7 @@ export function createShipmentsService(
         pickupTimeWindowStart: toEpochTime(input.pickupTimeWindowStart),
         pickupTimeWindowEnd: toEpochTime(input.pickupTimeWindowEnd),
         suggestedPriceArs,
+        receiverConfirmationDeadline,
       });
     },
 
@@ -242,6 +280,15 @@ export function createShipmentsService(
 
       assertIsReceiver(shipment, callerId);
 
+      // MOVO-130 AC5: si la deadline venció, 409 aunque el barrido todavía no haya corrido
+      if (shipment.receiverConfirmationDeadline && shipment.receiverConfirmationDeadline < new Date()) {
+        throw new ApiError(
+          409,
+          "SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED",
+          "El plazo para que el receptor confirme o rechace este envío ha expirado."
+        );
+      }
+
       const updated = await repository.updateStatus(shipmentId, ShipmentStatus.PUBLISHED, callerId);
 
       // Best-effort push notification al emisor (AC9 de MOVO-129): deliberadamente
@@ -268,6 +315,15 @@ export function createShipmentsService(
 
       assertIsReceiver(shipment, callerId);
 
+      // MOVO-130 AC5: si la deadline venció, 409 aunque el barrido todavía no haya corrido
+      if (shipment.receiverConfirmationDeadline && shipment.receiverConfirmationDeadline < new Date()) {
+        throw new ApiError(
+          409,
+          "SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED",
+          "El plazo para que el receptor confirme o rechace este envío ha expirado."
+        );
+      }
+
       const updated = await repository.updateStatus(shipmentId, ShipmentStatus.REJECTED_BY_RECEIVER, callerId, reason);
 
       // Best-effort push notification al emisor (AC8 de MOVO-129): deliberadamente
@@ -289,6 +345,53 @@ export function createShipmentsService(
     async listMyShipments(userId: string, page: number, limit: number): Promise<ListMineResult> {
       const { items, total } = await repository.listByUser(userId, page, limit);
       return { items, page, limit, total };
+    },
+
+    /**
+     * MOVO-130 AC3/AC4: Barrido periódico de envíos no confirmados por el receptor.
+     * Transiciona a cancelled en lotes y envía notificación push al emisor (best-effort).
+     */
+    async expireOverdueShipments(batchSize = 100): Promise<{ expiredCount: number; errorsCount: number }> {
+      const now = new Date();
+      const overdueShipments = await repository.findExpiredAwaitingConfirmation(now, batchSize);
+      let expiredCount = 0;
+      let errorsCount = 0;
+
+      for (const shipment of overdueShipments) {
+        try {
+          await repository.updateStatus(
+            shipment.id,
+            ShipmentStatus.CANCELLED,
+            null,
+            "El receptor no confirmó dentro del plazo"
+          );
+          expiredCount++;
+
+          if (notificationsClient) {
+            void dispatchReceiverTimeoutPush(notificationsClient, usersClient, logger, shipment);
+          }
+        } catch (err) {
+          errorsCount++;
+          logger?.error(
+            { err, shipmentId: shipment.id, event: "receiver_confirmation_sweep_error" },
+            "Error al expirar envío no confirmado en barrido"
+          );
+        }
+      }
+
+      if (overdueShipments.length > 0) {
+        logger?.info(
+          {
+            event: "receiver_confirmation_sweep",
+            totalFound: overdueShipments.length,
+            expiredCount,
+            errorsCount,
+          },
+          `Barrido de confirmación de receptor finalizado: ${expiredCount} expirados, ${errorsCount} fallos`
+        );
+      }
+
+      return { expiredCount, errorsCount };
     },
   };
 }
