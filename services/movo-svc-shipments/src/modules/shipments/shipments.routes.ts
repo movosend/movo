@@ -7,7 +7,9 @@ import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
 import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
 import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-provider";
+import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
+import { createOfferRepository } from "../../repositories/offer-repository";
 import { Shipment, ShipmentEvent } from "../../models/shipment";
 
 export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
@@ -22,6 +24,9 @@ export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de credenciales reales
    * de Google (MOVO-123), mismo criterio que `usersClient`. */
   routesProvider?: RoutesProvider;
+  /** Override solo para tests de integración — evita depender de un `movo-svc-users`
+   * real levantado (MOVO-108), mismo criterio que `usersClient`. */
+  notificationsClient?: NotificationsClient;
 }
 
 type CreateShipmentBody = Omit<CreateShipmentServiceInput, "senderId">;
@@ -62,8 +67,10 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
   const storageProvider = opts.storageProvider ?? createStorageProvider(app.config);
   const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config);
+  const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config, app.log);
   const repository = createShipmentRepository(app.db);
-  const service = createShipmentsService(repository, usersClient);
+  const offerRepository = createOfferRepository(app.db);
+  const service = createShipmentsService(repository, usersClient, offerRepository, notificationsClient);
   const photosService = createPhotosService(repository, storageProvider);
 
   app.post(
@@ -305,6 +312,52 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const { id } = request.params as { id: string };
       const events = await service.getShipmentEvents(id, callerId, callerRoles);
       return events.map(toShipmentEventDto);
+    }
+  );
+
+  app.post(
+    "/:id/cancel",
+    {
+      // El body es enteramente opcional (`reason` es el único campo, y ni siquiera
+      // ese es obligatorio) -- un cliente que no manda ningún payload llega acá con
+      // `request.body === undefined`, que el schema de abajo (`type: "object"`)
+      // rechazaría con 400 antes de llegar al handler. Default explícito a `{}` antes
+      // de que corra la validación (`default` a nivel raíz del schema no es una opción
+      // en modo estricto de Fastify).
+      preValidation: (request, _reply, done) => {
+        if (request.body === undefined) {
+          request.body = {};
+        }
+        done();
+      },
+      schema: {
+        summary: "Cancelar un envío",
+        description:
+          "MOVO-29 (alcance acotado en MOVO-108, ver CLAUDE.md): cancela un envío " +
+          "propio desde awaiting_receiver_confirmation, published o assignment_pending " +
+          "-- ninguno de los tres tiene fondos confirmados, así que no aplica " +
+          "penalización. Cancelar desde assigned todavía no está soportado (requiere " +
+          "una política de penalización real en svc-payments). Solo el emisor puede " +
+          "cancelar. Si el envío estaba published o assignment_pending, se notifica a " +
+          "cada transportista con una oferta pending sobre él.",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        body: shipmentsSchemas.cancelShipmentBody,
+        response: {
+          200: shipmentsSchemas.shipmentResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+          409: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      const { reason } = request.body as { reason?: string };
+      const shipment = await service.cancelShipment(id, callerId, reason);
+      return toShipmentDto(shipment);
     }
   );
 }

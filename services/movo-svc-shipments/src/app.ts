@@ -11,6 +11,7 @@ import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shi
 import { UsersClient } from "./adapters/users-client";
 import { StorageProvider } from "./adapters/storage-provider";
 import { RoutesProvider } from "./adapters/routes-provider";
+import { NotificationsClient } from "./adapters/notifications-client";
 
 export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -23,6 +24,9 @@ export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de credenciales reales
    * de Google (MOVO-123), mismo criterio que `usersClient`. */
   routesProvider?: RoutesProvider;
+  /** Override solo para tests de integración — evita depender de un `movo-svc-users`
+   * real levantado (MOVO-108), mismo criterio que `usersClient`. */
+  notificationsClient?: NotificationsClient;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -56,6 +60,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
     ...(opts.routesProvider ? { routesProvider: opts.routesProvider } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
   };
   app.register(shipmentsRoutes, shipmentsRouteOpts);
 

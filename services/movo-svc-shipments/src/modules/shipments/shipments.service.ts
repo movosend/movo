@@ -1,6 +1,8 @@
-import { ApiError, UserRole } from "@movo/shared";
+import { ApiError, OfferStatus, ShipmentStatus, UserRole } from "@movo/shared";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
+import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
+import { NotificationsClient } from "../../adapters/notifications-client";
 import { PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
 import { assertShipmentAccess } from "./assert-shipment-access";
 
@@ -99,7 +101,12 @@ function toEpochTime(timeStr: string): Date {
   return new Date(`1970-01-01T${normalizeTime(timeStr)}.000Z`);
 }
 
-export function createShipmentsService(repository: ShipmentRepository, usersClient: UsersClient) {
+export function createShipmentsService(
+  repository: ShipmentRepository,
+  usersClient: UsersClient,
+  offerRepository: OfferRepository,
+  notificationsClient: NotificationsClient
+) {
   return {
     async createShipment(input: CreateShipmentServiceInput): Promise<Shipment> {
       // AC4 — auto-designación, primero por ser el chequeo más barato (sin I/O).
@@ -154,7 +161,7 @@ export function createShipmentsService(repository: ShipmentRepository, usersClie
 
       const suggestedPriceArs = computePlaceholderPrice(input.weightKg, pickupDeliveryDistanceKm);
 
-      return repository.create({
+      const created = await repository.create({
         senderId: input.senderId,
         receiverId: input.receiverId,
         packageType: input.packageType,
@@ -174,6 +181,23 @@ export function createShipmentsService(repository: ShipmentRepository, usersClie
         pickupTimeWindowEnd: toEpochTime(input.pickupTimeWindowEnd),
         suggestedPriceArs,
       });
+
+      // AC1/AC5 de MOVO-108: best-effort, nunca bloquea la creación ya confirmada.
+      // notifications-client.ts ya atrapa y loguea cualquier fallo internamente y no
+      // debería rechazar nunca -- este try/catch es defensa en profundidad, no la
+      // garantía principal (ver notifications-client.ts).
+      try {
+        await notificationsClient.sendPush({
+          userId: created.receiverId,
+          title: "Tenés un envío nuevo para confirmar",
+          body: "Alguien te agregó como receptor de un envío. Revisalo en la app.",
+          data: { type: "shipment", shipmentId: created.id },
+        });
+      } catch {
+        // swallow — ver comentario arriba.
+      }
+
+      return created;
     },
 
     async getShipmentDetail(shipmentId: string, callerId: string, callerRoles: UserRole[]): Promise<Shipment> {
@@ -199,6 +223,68 @@ export function createShipmentsService(repository: ShipmentRepository, usersClie
     async listMyShipments(userId: string, page: number, limit: number): Promise<ListMineResult> {
       const { items, total } = await repository.listByUser(userId, page, limit);
       return { items, page, limit, total };
+    },
+
+    /**
+     * MOVO-29 (recorte de alcance acordado en MOVO-108, ver comentario en Linear):
+     * solo cubre la cancelación sin penalización, desde los tres estados que todavía
+     * no tienen fondos confirmados. `svc-payments` hoy es un esqueleto sin holds ni
+     * capture reales -- cancelar desde `assigned` (que sí exige aplicar una política
+     * de penalización, AC de MOVO-29) queda bloqueado explícitamente más abajo hasta
+     * que esa integración exista, en vez de fingir una transición sin su consecuencia
+     * de negocio.
+     */
+    async cancelShipment(shipmentId: string, callerId: string, reason?: string): Promise<Shipment> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+
+      // Solo el emisor puede cancelar -- a diferencia de assertShipmentAccess (lectura,
+      // también habilita a receptor/admin), cancelar es una acción exclusiva del emisor.
+      if (shipment.senderId !== callerId) {
+        throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el emisor puede cancelar este envío.");
+      }
+
+      if (shipment.status === ShipmentStatus.ASSIGNED) {
+        throw new ApiError(
+          409,
+          "SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED",
+          "No se puede cancelar un envío ya asignado todavía -- la política de penalización no está implementada."
+        );
+      }
+
+      const previousStatus = shipment.status;
+      // Cualquier otro estado sin salida hacia `cancelled` (delivered, in_transit,
+      // disputed, cancelled, rejected_by_receiver) llega hasta acá y
+      // shipment-state-machine.ts lo rechaza con InvalidShipmentTransitionError
+      // (409 SHIPMENT_INVALID_TRANSITION, ver plugins/error-handler.ts).
+      const cancelled = await repository.updateStatus(shipmentId, ShipmentStatus.CANCELLED, callerId, reason);
+
+      // AC7 de MOVO-108: solo estos dos estados de origen pueden tener ofertas
+      // `pending` colgando (desde `awaiting_receiver_confirmation` el envío ni
+      // publicado está, no puede tener ofertas).
+      if (previousStatus === ShipmentStatus.PUBLISHED || previousStatus === ShipmentStatus.ASSIGNMENT_PENDING) {
+        const offers = await offerRepository.listByShipment(shipmentId);
+        const pendingOffers = offers.filter((offer) => offer.status === OfferStatus.PENDING);
+
+        await Promise.all(
+          pendingOffers.map(async (offer) => {
+            try {
+              await notificationsClient.sendPush({
+                userId: offer.carrierId,
+                title: "Tu oferta fue cancelada",
+                body: "El envío ya no está disponible.",
+                data: { type: "shipment", shipmentId },
+              });
+            } catch {
+              // swallow — mismo criterio de defensa en profundidad que en createShipment.
+            }
+          })
+        );
+      }
+
+      return cancelled;
     },
   };
 }
