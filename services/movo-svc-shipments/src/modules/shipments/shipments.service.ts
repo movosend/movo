@@ -281,7 +281,11 @@ export function createShipmentsService(
       assertIsReceiver(shipment, callerId);
 
       // MOVO-130 AC5: si la deadline venció, 409 aunque el barrido todavía no haya corrido
-      if (shipment.receiverConfirmationDeadline && shipment.receiverConfirmationDeadline < new Date()) {
+      if (
+        shipment.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION &&
+        shipment.receiverConfirmationDeadline &&
+        shipment.receiverConfirmationDeadline < new Date()
+      ) {
         throw new ApiError(
           409,
           "SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED",
@@ -316,7 +320,11 @@ export function createShipmentsService(
       assertIsReceiver(shipment, callerId);
 
       // MOVO-130 AC5: si la deadline venció, 409 aunque el barrido todavía no haya corrido
-      if (shipment.receiverConfirmationDeadline && shipment.receiverConfirmationDeadline < new Date()) {
+      if (
+        shipment.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION &&
+        shipment.receiverConfirmationDeadline &&
+        shipment.receiverConfirmationDeadline < new Date()
+      ) {
         throw new ApiError(
           409,
           "SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED",

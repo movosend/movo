@@ -509,6 +509,24 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
     expect(repository.updateStatus).not.toHaveBeenCalled();
   });
 
+  it("si el envío ya no está en awaiting_receiver_confirmation, no lanza error de expiración aunque la deadline haya vencido", async () => {
+    const expiredDeadline = new Date(Date.now() - 60_000);
+    const shipment = fakeShipment({
+      senderId: "sender-id",
+      receiverId: "receiver-id",
+      status: ShipmentStatus.PUBLISHED,
+      receiverConfirmationDeadline: expiredDeadline,
+    });
+    const repository = fakeRepository({
+      findById: vi.fn().mockResolvedValue(shipment),
+      updateStatus: vi.fn().mockRejectedValue(new Error("Transición inválida")),
+    });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.acceptShipment(shipment.id, "receiver-id")).rejects.toThrow("Transición inválida");
+    expect(repository.updateStatus).toHaveBeenCalledWith(shipment.id, ShipmentStatus.PUBLISHED, "receiver-id");
+  });
+
   it("el receptor puede rechazar el envío con motivo y dispara push notification al emisor", async () => {
     const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
     const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.REJECTED_BY_RECEIVER });
@@ -580,6 +598,29 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       code: "SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED",
     });
     expect(repository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("si el envío ya no está en awaiting_receiver_confirmation al rechazar, no lanza error de expiración aunque la deadline haya vencido", async () => {
+    const expiredDeadline = new Date(Date.now() - 60_000);
+    const shipment = fakeShipment({
+      senderId: "sender-id",
+      receiverId: "receiver-id",
+      status: ShipmentStatus.PUBLISHED,
+      receiverConfirmationDeadline: expiredDeadline,
+    });
+    const repository = fakeRepository({
+      findById: vi.fn().mockResolvedValue(shipment),
+      updateStatus: vi.fn().mockRejectedValue(new Error("Transición inválida")),
+    });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.rejectShipment(shipment.id, "receiver-id")).rejects.toThrow("Transición inválida");
+    expect(repository.updateStatus).toHaveBeenCalledWith(
+      shipment.id,
+      ShipmentStatus.REJECTED_BY_RECEIVER,
+      "receiver-id",
+      undefined
+    );
   });
 
   it("el emisor recibe 403 al intentar rechazar", async () => {

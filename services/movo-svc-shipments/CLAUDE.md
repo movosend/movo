@@ -257,10 +257,9 @@ Decisiones clave:
   tras la cancelación sin frenar el procesamiento si falla.
 - **Configuración**: `RECEIVER_CONFIRMATION_TIMEOUT_HOURS` (default 48), `RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES` (default 15)
   y `RECEIVER_CONFIRMATION_SWEEP_ENABLED` (default true, desactivable en tests/CI).
-- **Índice compuesto descartado**: el índice `shipmentsstatusidx` ya existente cubre la consulta del barrido
-  (`findExpiredAwaitingConfirmation`). Se evaluó un índice compuesto `(status, receiver_confirmation_deadline)` con
-  `EXPLAIN` sobre datos de dev y se descartó — con el volumen del TFG el planner usa el índice de status existente
-  de forma eficiente y el overhead de mantener un índice adicional no se justifica.
+- **Índice compuesto descartado**: con el volumen de envíos del PF el índice `shipments_status_idx` existente
+  alcanza para la consulta del barrido; el costo de mantener un índice adicional no se justifica. Si el volumen
+  creciera, el candidato sería `(status, receiver_confirmation_deadline)`.
 
 ### Pendientes de este servicio
 

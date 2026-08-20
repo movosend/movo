@@ -280,7 +280,6 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         where: {
           status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
           receiverConfirmationDeadline: {
-            not: null,
             lte: deadline,
           },
         },
