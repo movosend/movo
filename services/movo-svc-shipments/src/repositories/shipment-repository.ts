@@ -43,6 +43,7 @@ function mapShipment(row: ShipmentRow): Shipment {
     status: parseShipmentStatus(row.status, "status"),
     lastStatusChangedAt: row.lastStatusChangedAt,
     deliveredAt: row.deliveredAt,
+    receiverConfirmationDeadline: row.receiverConfirmationDeadline,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -98,6 +99,11 @@ export interface ShipmentRepository {
    * primero.
    */
   listByUser(userId: string, page: number, limit: number): Promise<{ items: Shipment[]; total: number }>;
+  /**
+   * MOVO-130 AC3: Envíos en awaiting_receiver_confirmation cuya deadline ya venció.
+   * Lote acotado ordenado por deadline ascendente.
+   */
+  findExpiredAwaitingConfirmation(deadline: Date, limit: number): Promise<Shipment[]>;
 }
 
 export class ShipmentNotFoundError extends Error {
@@ -132,6 +138,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             pickupTimeWindowStart: input.pickupTimeWindowStart,
             pickupTimeWindowEnd: input.pickupTimeWindowEnd,
             suggestedPriceArs: input.suggestedPriceArs,
+            receiverConfirmationDeadline: input.receiverConfirmationDeadline ?? null,
             status: INITIAL_SHIPMENT_STATUS,
             lastStatusChangedAt: new Date(),
           },
@@ -266,6 +273,20 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         db.shipment.count({ where }),
       ]);
       return { items: rows.map(mapShipment), total };
+    },
+
+    async findExpiredAwaitingConfirmation(deadline: Date, limit: number): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: {
+          status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+          receiverConfirmationDeadline: {
+            lte: deadline,
+          },
+        },
+        take: limit,
+        orderBy: { receiverConfirmationDeadline: "asc" },
+      });
+      return rows.map(mapShipment);
     },
   };
 }

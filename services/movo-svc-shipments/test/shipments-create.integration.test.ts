@@ -40,7 +40,7 @@ describe("POST /shipments (Postgres)", () => {
       [receiverId]: fakePublicProfile({ id: receiverId, isVerified: true }),
       [unverifiedReceiverId]: fakePublicProfile({ id: unverifiedReceiverId, isVerified: false }),
     });
-    app = buildApp({ usersClient });
+    app = buildApp({ usersClient, sweepEnabled: false });
     await app.ready();
   });
 
@@ -71,6 +71,8 @@ describe("POST /shipments (Postgres)", () => {
     expect(body.pickupDate).toBe("2030-01-01");
     expect(body.pickupTimeWindowStart).toBe("09:00:00");
     expect(body.pickupTimeWindowEnd).toBe("12:00:00");
+    expect(body.receiverConfirmationDeadline).toBeTruthy();
+    expect(new Date(body.receiverConfirmationDeadline).getTime()).toBeGreaterThan(Date.now());
 
     const repo = createShipmentRepository(app.db);
     const events = await repo.listEvents(body.id);

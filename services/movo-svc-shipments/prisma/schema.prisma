@@ -119,6 +119,9 @@ model Shipment {
   status               ShipmentStatus @default(awaiting_receiver_confirmation)
   lastStatusChangedAt  DateTime?      @map("last_status_changed_at") @db.Timestamptz
   deliveredAt          DateTime?      @map("delivered_at") @db.Timestamptz
+  // MOVO-130 AC1: deadline de confirmación del receptor (createdAt + RECEIVER_CONFIRMATION_TIMEOUT_HOURS).
+  // Nullable para envíos preexistentes sin backfill.
+  receiverConfirmationDeadline DateTime? @map("receiver_confirmation_deadline") @db.Timestamptz
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   // Mantenida por trigger de Postgres (shipments.update_updated_at_column()),

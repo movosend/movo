@@ -8,6 +8,7 @@ import dbPlugin from "./plugins/db";
 import redisPlugin from "./plugins/redis";
 import authPlugin from "./plugins/auth";
 import errorHandlerPlugin from "./plugins/error-handler";
+import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-sweep";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import { UsersClient } from "./adapters/users-client";
 import { StorageProvider } from "./adapters/storage-provider";
@@ -27,6 +28,8 @@ export interface BuildAppOptions {
   routesProvider?: RoutesProvider;
   /** Override solo para tests de integración — evita llamadas reales a notificaciones push (MOVO-129). */
   notificationsClient?: NotificationsClient;
+  /** Override para habilitar/deshabilitar el barrido periódico en background (MOVO-130). */
+  sweepEnabled?: boolean;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -75,6 +78,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(dbPlugin);
   app.register(redisPlugin);
   app.register(authPlugin);
+  app.register(receiverConfirmationSweepPlugin, {
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.sweepEnabled !== undefined ? { enabled: opts.sweepEnabled } : {}),
+  });
 
   app.get("/health", async () => ({ status: "ok" }));
 
