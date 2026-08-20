@@ -104,7 +104,10 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
       });
     });
 
-    it("el receptor puede aceptar con header Content-Type application/json y payload vacío o {}", async () => {
+    it.each([
+      ["con payload {}", {} as unknown],
+      ["sin body", undefined],
+    ])("el receptor puede aceptar con header Content-Type application/json %s", async (_caso, payload) => {
       const shipment = await repo.create(baseInput);
       await addTwoCreationPhotos(shipment.id);
 
@@ -112,14 +115,14 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
         method: "POST",
         url: `/shipments/${shipment.id}/accept`,
         headers: { "x-user-id": receiverId, "content-type": "application/json" },
-        payload: {},
+        ...(payload === undefined ? {} : { payload }),
       });
 
       expect(response.statusCode).toBe(200);
       expect(response.json().status).toBe(ShipmentStatus.PUBLISHED);
     });
 
-    it("falla con 400 si el receptor manda campos en el body al aceptar (additionalProperties: false)", async () => {
+    it("ignora los campos que el receptor mande en el body al aceptar (no puede editar el envío)", async () => {
       const shipment = await repo.create(baseInput);
       await addTwoCreationPhotos(shipment.id);
 
@@ -127,7 +130,29 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
         method: "POST",
         url: `/shipments/${shipment.id}/accept`,
         headers: { "x-user-id": receiverId },
-        payload: { weightKg: 10 },
+        payload: { weightKg: 10, deliveryAddress: "Otra dirección 999" },
+      });
+
+      // 200 y no 400: Fastify trae `removeAdditional: true` como default de AJV, así que
+      // `additionalProperties: false` descarta los campos de más en vez de rechazar el
+      // request. Lo que importa para el AC es que no lleguen al envío persistido.
+      expect(response.statusCode).toBe(200);
+      expect(response.json().status).toBe(ShipmentStatus.PUBLISHED);
+
+      const persisted = await repo.findById(shipment.id);
+      expect(persisted?.weightKg).toBe(baseInput.weightKg);
+      expect(persisted?.deliveryAddress).toBe(baseInput.deliveryAddress);
+    });
+
+    it("falla con 400 si el body no es JSON válido", async () => {
+      const shipment = await repo.create(baseInput);
+      await addTwoCreationPhotos(shipment.id);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/accept`,
+        headers: { "x-user-id": receiverId, "content-type": "application/json" },
+        payload: "{roto",
       });
 
       expect(response.statusCode).toBe(400);
