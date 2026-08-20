@@ -234,6 +234,34 @@ Decisiones clave:
   `ApiError(400, VALIDATION_FAILED)` (un `Error` suelto caería al 500 genérico del
   error handler). Aplica a todo el servicio, no solo a los endpoints del receptor.
 
+### MOVO-130 — Expiración automática del envío no confirmado por el receptor (`svc-shipments`)
+
+Expiración automática por timeout de envíos en `awaiting_receiver_confirmation` (AC6 de MOVO-16).
+Persiste `receiver_confirmation_deadline` (`createdAt + RECEIVER_CONFIRMATION_TIMEOUT_HOURS`, default 48h),
+lo expone en DTOs para el mobile (MOVO-131), valida deadline vencida en `POST /accept` y `POST /reject` (HTTP 409
+`SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED`), y ejecuta un barrido periódico asíncrono en segundo plano vía plugin de
+Fastify con `setInterval` y lock distribuido en Redis.
+
+Decisiones clave:
+- **Columna nullable `receiver_confirmation_deadline`**: `timestamptz` en `shipments.shipments` (migración
+  `20260820120000_add_receiver_confirmation_deadline`). Los envíos preexistentes quedan en `NULL` y no expiran
+  (backfill explícitamente descartado).
+- **Validación anticipada de deadline en `/accept` y `/reject` (AC5)**: la deadline manda sobre el reloj del job; si el
+  plazo ya venció, responde 409 `SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED` inmediatamente aunque el barrido periódico
+  todavía no haya corrido.
+- **Barrido como plugin de Fastify con `setInterval` y Redis lock**: sin infra de cron/jobs separada (ADR-006). Adquiere
+  lock `locks:receiver-confirmation-sweep` en Redis con TTL del 80% del intervalo antes de cada corrida para evitar
+  duplicación en caso de múltiples réplicas. Procesa en lotes (100 por corrida) y transiciona a `cancelled` con `actorId: null`
+  y reason `"El receptor no confirmó dentro del plazo"`.
+- **Notificación push best-effort al emisor**: envía push (`"Tu envío se canceló: {Nombre} no lo confirmó a tiempo"`)
+  tras la cancelación sin frenar el procesamiento si falla.
+- **Configuración**: `RECEIVER_CONFIRMATION_TIMEOUT_HOURS` (default 48), `RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES` (default 15)
+  y `RECEIVER_CONFIRMATION_SWEEP_ENABLED` (default true, desactivable en tests/CI).
+- **Índice compuesto descartado**: el índice `shipmentsstatusidx` ya existente cubre la consulta del barrido
+  (`findExpiredAwaitingConfirmation`). Se evaluó un índice compuesto `(status, receiver_confirmation_deadline)` con
+  `EXPLAIN` sobre datos de dev y se descartó — con el volumen del TFG el planner usa el índice de status existente
+  de forma eficiente y el overhead de mantener un índice adicional no se justifica.
+
 ### Pendientes de este servicio
 
 - **MOVO-118**: arreglar el TOCTOU de `shipment-repository.ts#updateStatus()`
