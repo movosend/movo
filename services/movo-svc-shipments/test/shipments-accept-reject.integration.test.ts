@@ -52,6 +52,7 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
         [receiverId]: fakePublicProfile({ id: receiverId, fullName: "Lucía" }),
       }),
       notificationsClient,
+      sweepEnabled: false,
     });
     await app.ready();
     repo = createShipmentRepository(app.db);
@@ -243,6 +244,24 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
       expect(response.json().error.code).toBe("NOT_FOUND");
     });
 
+    it("falla con 409 si la deadline de confirmación del receptor ya expiró (MOVO-130 AC5)", async () => {
+      const pastDeadline = new Date(Date.now() - 60_000);
+      const shipment = await repo.create({
+        ...baseInput,
+        receiverConfirmationDeadline: pastDeadline,
+      });
+      await addTwoCreationPhotos(shipment.id);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/accept`,
+        headers: { "x-user-id": receiverId },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error.code).toBe("SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED");
+    });
+
     it("responde 401 sin x-user-id", async () => {
       const shipment = await repo.create(baseInput);
       const response = await app.inject({
@@ -369,6 +388,23 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
 
       expect(response.statusCode).toBe(409);
       expect(response.json().error.code).toBe("SHIPMENT_INVALID_TRANSITION");
+    });
+
+    it("falla con 409 si la deadline de confirmación del receptor ya expiró (MOVO-130 AC5)", async () => {
+      const pastDeadline = new Date(Date.now() - 60_000);
+      const shipment = await repo.create({
+        ...baseInput,
+        receiverConfirmationDeadline: pastDeadline,
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/reject`,
+        headers: { "x-user-id": receiverId },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error.code).toBe("SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED");
     });
 
     it("responde 401 sin x-user-id", async () => {
