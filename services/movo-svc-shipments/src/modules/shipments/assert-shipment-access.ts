@@ -18,3 +18,13 @@ export function assertShipmentAccess(
     throw new ApiError(403, "AUTH_FORBIDDEN", forbiddenMessage);
   }
 }
+
+/**
+ * Chequea que el usuario sea estrictamente el receptor designado del envío (MOVO-129).
+ * A diferencia de `assertShipmentAccess`, ni el emisor ni el admin pueden aceptar o rechazar.
+ */
+export function assertIsReceiver(shipment: Shipment, callerId: string): void {
+  if (callerId !== shipment.receiverId) {
+    throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el receptor designado puede aceptar o rechazar este envío.");
+  }
+}

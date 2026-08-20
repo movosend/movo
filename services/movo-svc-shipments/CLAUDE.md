@@ -201,6 +201,39 @@ Decisiones clave:
   acceso cruzado a `users.users`, ADR-003). `fromStatus` es `null` únicamente en el
   evento inicial de creación.
 
+### MOVO-129 — Endpoints de aceptación y rechazo del envío por el receptor (`svc-shipments`)
+
+`POST /shipments/:id/accept` y `POST /shipments/:id/reject` (backend de MOVO-16) permiten
+al receptor confirmar un envío (transición a `published`) o rechazarlo (transición a
+`rejected_by_receiver`, terminal).
+
+Decisiones clave:
+- **Autorización estricta al receptor (`assertIsReceiver`)**: solo `shipment.receiverId`
+  puede aceptar o rechazar (403 `AUTH_FORBIDDEN` para el emisor, admin o terceros).
+  Ubicada en `assert-shipment-access.ts` junto a `assertShipmentAccess`.
+- **Mapeo de error de transiciones inválidas**: `InvalidShipmentTransitionError` se mapea
+  a HTTP 409 con el código `SHIPMENT_INVALID_TRANSITION` en `@movo/shared` y en
+  `error-handler.ts` (cubre doble tap, envíos ya cancelados o ya rechazados).
+- **Push notifications best-effort y no bloqueantes al emisor**: `NotificationsClient`
+  (`src/adapters/notifications-client.ts`) invoca internamente a `POST /internal/notifications/push`
+  en `movo-svc-users`. El despacho (`dispatchReceiverDecisionPush`) se realiza en modo
+  fire-and-forget (sin `await` en el handler) para no sumar latencia ni riesgo de timeout
+  a la respuesta HTTP. Si falla o hace timeout, se loguea `notification_dispatch_failed`.
+- **Receptor no edita campos del envío (AC7)**: el body de `/accept` (`acceptShipmentBody`,
+  `additionalProperties: false`) no admite campos y el de `/reject` solo admite
+  `{ reason?: string }` (persistido en `shipment_events.reason`). Ojo: Fastify trae
+  `removeAdditional: true` como default de AJV, así que los campos de más se **descartan
+  en silencio** en vez de devolver 400 — el AC se cumple igual (no llegan al envío
+  persistido) y el test lo verifica así, pero no esperes un `VALIDATION_FAILED`. Cambiar
+  eso requiere `ajv.customOptions.removeAdditional: false`, que aplica a todos los
+  endpoints del servicio y es una decisión de convención pendiente, no un ajuste local.
+- **Body vacío con `content-type: application/json`**: el parser JSON por defecto de
+  Fastify falla con `FST_ERR_CTP_EMPTY_JSON_BODY` (400) antes de la validación de schema,
+  así que declarar el body como `nullable: true` **no alcanza**. `app.ts` registra un
+  `addContentTypeParser` que mapea el body vacío a `null` y el JSON inválido a un
+  `ApiError(400, VALIDATION_FAILED)` (un `Error` suelto caería al 500 genérico del
+  error handler). Aplica a todo el servicio, no solo a los endpoints del receptor.
+
 ### Pendientes de este servicio
 
 - **MOVO-118**: arreglar el TOCTOU de `shipment-repository.ts#updateStatus()`

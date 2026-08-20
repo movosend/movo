@@ -7,6 +7,7 @@ import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
 import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
 import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-provider";
+import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { Shipment, ShipmentEvent } from "../../models/shipment";
 
@@ -22,6 +23,8 @@ export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de credenciales reales
    * de Google (MOVO-123), mismo criterio que `usersClient`. */
   routesProvider?: RoutesProvider;
+  /** Override solo para tests de integración — evita llamadas reales a notificaciones push (MOVO-129). */
+  notificationsClient?: NotificationsClient;
 }
 
 type CreateShipmentBody = Omit<CreateShipmentServiceInput, "senderId">;
@@ -62,8 +65,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
   const storageProvider = opts.storageProvider ?? createStorageProvider(app.config);
   const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config);
+  const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
   const repository = createShipmentRepository(app.db);
-  const service = createShipmentsService(repository, usersClient);
+  const service = createShipmentsService(repository, usersClient, notificationsClient, app.log);
   const photosService = createPhotosService(repository, storageProvider);
 
   app.post(
@@ -305,6 +309,73 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const { id } = request.params as { id: string };
       const events = await service.getShipmentEvents(id, callerId, callerRoles);
       return events.map(toShipmentEventDto);
+    }
+  );
+
+  app.post(
+    "/:id/accept",
+    {
+      schema: {
+        summary: "Aceptar un envío (receptor)",
+        description:
+          "MOVO-129 (backend de MOVO-16): transiciona el envío de awaiting_receiver_confirmation " +
+          "a published. Solo el receptor designado puede llamar a este endpoint. El receptor " +
+          "no puede editar ningún dato del envío (body vacío). Requiere al menos 2 fotos de creación " +
+          "cargadas (409 si faltan fotos o si el envío no está en awaiting_receiver_confirmation). " +
+          "Dispara notificación push best-effort al emisor.",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        // Body vacío u omitido: se declara nullable para que un cliente que
+        // mande content-type: application/json sin payload no reviente con
+        // FST_ERR_CTP_EMPTY_JSON_BODY (mismo criterio que /:id/reject).
+        body: shipmentsSchemas.acceptShipmentBody,
+        response: {
+          200: shipmentsSchemas.shipmentResponse,
+          400: shipmentsSchemas.errorResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+          409: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      const shipment = await service.acceptShipment(id, callerId);
+      return toShipmentDto(shipment);
+    }
+  );
+
+  app.post(
+    "/:id/reject",
+    {
+      schema: {
+        summary: "Rechazar un envío (receptor)",
+        description:
+          "MOVO-129 (backend de MOVO-16): transiciona el envío de awaiting_receiver_confirmation " +
+          "a rejected_by_receiver (terminal). Solo el receptor designado puede llamar a este endpoint. " +
+          "Body opcional { reason: string } (máx 500 chars) persistido en shipment_events. " +
+          "Dispara notificación push best-effort al emisor.",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        body: shipmentsSchemas.rejectShipmentBody,
+        response: {
+          200: shipmentsSchemas.shipmentResponse,
+          400: shipmentsSchemas.errorResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+          409: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      const body = (request.body ?? {}) as { reason?: string };
+      const shipment = await service.rejectShipment(id, callerId, body.reason);
+      return toShipmentDto(shipment);
     }
   );
 }

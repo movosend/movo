@@ -159,6 +159,22 @@ export const shipmentsSchemas = {
     },
   },
 
+  acceptShipmentBody: {
+    type: "object",
+    nullable: true,
+    properties: {},
+    additionalProperties: false,
+  },
+
+  rejectShipmentBody: {
+    type: "object",
+    nullable: true,
+    properties: {
+      reason: { type: "string", maxLength: 500 },
+    },
+    additionalProperties: false,
+  },
+
   listMineQuery: {
     type: "object",
     properties: {

@@ -4,6 +4,7 @@ import { createShipmentsService, CreateShipmentServiceInput } from "../src/modul
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
 import { Shipment, ShipmentEvent, PackageType } from "../src/models/shipment";
 import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
+import { createFakeNotificationsClient } from "./fake-notifications-client";
 
 function fakeShipment(overrides: Partial<Shipment> = {}): Shipment {
   return {
@@ -298,7 +299,7 @@ describe("shipments.service — getShipmentDetail", () => {
   });
 });
 
-describe("shipments.service — getShipmentEvents", () => {
+describe("shipments.service — shipment interactions (events, accept, reject)", () => {
   it("devuelve la lista de eventos al emisor", async () => {
     const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
     const events = [
@@ -347,7 +348,7 @@ describe("shipments.service — getShipmentEvents", () => {
     expect(repository.listEvents).toHaveBeenCalledWith(shipment.id);
   });
 
-  it("rechaza con 403 (no 404) a un tercero sin rol admin", async () => {
+  it("rechaza con 403 (no 404) a un tercero sin rol admin (events)", async () => {
     const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
     const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
     const service = createShipmentsService(repository, createFakeUsersClient({}));
@@ -359,7 +360,7 @@ describe("shipments.service — getShipmentEvents", () => {
     expect(repository.listEvents).not.toHaveBeenCalled();
   });
 
-  it("responde 404 si el envío no existe", async () => {
+  it("responde 404 si el envío no existe (events)", async () => {
     const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(null) });
     const service = createShipmentsService(repository, createFakeUsersClient({}));
 
@@ -368,5 +369,221 @@ describe("shipments.service — getShipmentEvents", () => {
       code: "NOT_FOUND",
     });
     expect(repository.listEvents).not.toHaveBeenCalled();
+  });
+
+  it("el receptor puede aceptar el envío y dispara push notification al emisor", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+    const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.PUBLISHED });
+    const repository = fakeRepository({
+      findById: vi.fn().mockResolvedValue(shipment),
+      updateStatus: vi.fn().mockResolvedValue(updatedShipment),
+    });
+    const usersClient = createFakeUsersClient({
+      "receiver-id": fakePublicProfile({ id: "receiver-id", fullName: "María" }),
+    });
+    const notificationsClient = createFakeNotificationsClient();
+    const service = createShipmentsService(repository, usersClient, notificationsClient);
+
+    const result = await service.acceptShipment(shipment.id, "receiver-id");
+
+    expect(result.status).toBe(ShipmentStatus.PUBLISHED);
+    expect(repository.updateStatus).toHaveBeenCalledWith(shipment.id, ShipmentStatus.PUBLISHED, "receiver-id");
+    await vi.waitFor(() => {
+      expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+        userId: "sender-id",
+        title: "Envío aceptado",
+        body: "María aceptó el envío, ya está publicado",
+        data: { shipmentId: shipment.id, type: "shipment_accepted" },
+      });
+    });
+  });
+
+  it("el emisor recibe 403 al intentar aceptar", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.acceptShipment(shipment.id, "sender-id")).rejects.toMatchObject({
+      statusCode: 403,
+      code: "AUTH_FORBIDDEN",
+    });
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("un admin recibe 403 al intentar aceptar", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.acceptShipment(shipment.id, "admin-id")).rejects.toMatchObject({
+      statusCode: 403,
+      code: "AUTH_FORBIDDEN",
+    });
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("un tercero recibe 403 al intentar aceptar", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.acceptShipment(shipment.id, "stranger-id")).rejects.toMatchObject({
+      statusCode: 403,
+      code: "AUTH_FORBIDDEN",
+    });
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("responde 404 si el envío no existe al aceptar", async () => {
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(null) });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.acceptShipment("unknown-id", "receiver-id")).rejects.toMatchObject({
+      statusCode: 404,
+      code: "NOT_FOUND",
+    });
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("si la notificación push falla, la aceptación se completa igual (best-effort)", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+    const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.PUBLISHED });
+    const repository = fakeRepository({
+      findById: vi.fn().mockResolvedValue(shipment),
+      updateStatus: vi.fn().mockResolvedValue(updatedShipment),
+    });
+    const usersClient = createFakeUsersClient({});
+    const notificationsClient = createFakeNotificationsClient({
+      sendPush: vi.fn().mockRejectedValue(new Error("Push service down")),
+    });
+    const service = createShipmentsService(repository, usersClient, notificationsClient);
+
+    const result = await service.acceptShipment(shipment.id, "receiver-id");
+    expect(result.status).toBe(ShipmentStatus.PUBLISHED);
+    expect(repository.updateStatus).toHaveBeenCalledWith(shipment.id, ShipmentStatus.PUBLISHED, "receiver-id");
+  });
+
+  it("el receptor puede rechazar el envío con motivo y dispara push notification al emisor", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+    const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.REJECTED_BY_RECEIVER });
+    const repository = fakeRepository({
+      findById: vi.fn().mockResolvedValue(shipment),
+      updateStatus: vi.fn().mockResolvedValue(updatedShipment),
+    });
+    const usersClient = createFakeUsersClient({
+      "receiver-id": fakePublicProfile({ id: "receiver-id", fullName: "Carlos" }),
+    });
+    const notificationsClient = createFakeNotificationsClient();
+    const service = createShipmentsService(repository, usersClient, notificationsClient);
+
+    const result = await service.rejectShipment(shipment.id, "receiver-id", "No lo pedí");
+
+    expect(result.status).toBe(ShipmentStatus.REJECTED_BY_RECEIVER);
+    expect(repository.updateStatus).toHaveBeenCalledWith(
+      shipment.id,
+      ShipmentStatus.REJECTED_BY_RECEIVER,
+      "receiver-id",
+      "No lo pedí"
+    );
+    await vi.waitFor(() => {
+      expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+        userId: "sender-id",
+        title: "Envío rechazado",
+        body: "Carlos rechazó el envío",
+        data: { shipmentId: shipment.id, type: "shipment_rejected" },
+      });
+    });
+  });
+
+  it("el receptor puede rechazar el envío sin motivo", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+    const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.REJECTED_BY_RECEIVER });
+    const repository = fakeRepository({
+      findById: vi.fn().mockResolvedValue(shipment),
+      updateStatus: vi.fn().mockResolvedValue(updatedShipment),
+    });
+    const usersClient = createFakeUsersClient({});
+    const notificationsClient = createFakeNotificationsClient();
+    const service = createShipmentsService(repository, usersClient, notificationsClient);
+
+    const result = await service.rejectShipment(shipment.id, "receiver-id");
+
+    expect(result.status).toBe(ShipmentStatus.REJECTED_BY_RECEIVER);
+    expect(repository.updateStatus).toHaveBeenCalledWith(
+      shipment.id,
+      ShipmentStatus.REJECTED_BY_RECEIVER,
+      "receiver-id",
+      undefined
+    );
+  });
+
+  it("el emisor recibe 403 al intentar rechazar", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.rejectShipment(shipment.id, "sender-id")).rejects.toMatchObject({
+      statusCode: 403,
+      code: "AUTH_FORBIDDEN",
+    });
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("un admin recibe 403 al intentar rechazar", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.rejectShipment(shipment.id, "admin-id")).rejects.toMatchObject({
+      statusCode: 403,
+      code: "AUTH_FORBIDDEN",
+    });
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("un tercero recibe 403 al intentar rechazar", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.rejectShipment(shipment.id, "stranger-id")).rejects.toMatchObject({
+      statusCode: 403,
+      code: "AUTH_FORBIDDEN",
+    });
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("responde 404 si el envío no existe al rechazar", async () => {
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(null) });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.rejectShipment("unknown-id", "receiver-id")).rejects.toMatchObject({
+      statusCode: 404,
+      code: "NOT_FOUND",
+    });
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("si la notificación push falla, el rechazo se completa igual (best-effort)", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+    const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.REJECTED_BY_RECEIVER });
+    const repository = fakeRepository({
+      findById: vi.fn().mockResolvedValue(shipment),
+      updateStatus: vi.fn().mockResolvedValue(updatedShipment),
+    });
+    const usersClient = createFakeUsersClient({});
+    const notificationsClient = createFakeNotificationsClient({
+      sendPush: vi.fn().mockRejectedValue(new Error("Push service down")),
+    });
+    const service = createShipmentsService(repository, usersClient, notificationsClient);
+
+    const result = await service.rejectShipment(shipment.id, "receiver-id");
+    expect(result.status).toBe(ShipmentStatus.REJECTED_BY_RECEIVER);
+    expect(repository.updateStatus).toHaveBeenCalledWith(
+      shipment.id,
+      ShipmentStatus.REJECTED_BY_RECEIVER,
+      "receiver-id",
+      undefined
+    );
   });
 });

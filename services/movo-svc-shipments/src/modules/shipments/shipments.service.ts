@@ -1,8 +1,10 @@
-import { ApiError, UserRole } from "@movo/shared";
+import { ApiError, ShipmentStatus, UserRole } from "@movo/shared";
+import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { UsersClient } from "../../adapters/users-client";
+import { NotificationsClient } from "../../adapters/notifications-client";
 import { PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
-import { assertShipmentAccess } from "./assert-shipment-access";
+import { assertIsReceiver, assertShipmentAccess } from "./assert-shipment-access";
 
 export interface CreateShipmentServiceInput {
   senderId: string;
@@ -99,7 +101,43 @@ function toEpochTime(timeStr: string): Date {
   return new Date(`1970-01-01T${normalizeTime(timeStr)}.000Z`);
 }
 
-export function createShipmentsService(repository: ShipmentRepository, usersClient: UsersClient) {
+interface ReceiverDecisionPushParams {
+  shipment: Shipment;
+  callerId: string;
+  title: string;
+  bodyTemplate: (name: string) => string;
+  type: "shipment_accepted" | "shipment_rejected";
+}
+
+async function dispatchReceiverDecisionPush(
+  notificationsClient: NotificationsClient,
+  usersClient: UsersClient,
+  logger: FastifyBaseLogger | { warn: (obj: unknown, msg?: string) => void; error: (obj: unknown, msg?: string) => void } | undefined,
+  params: ReceiverDecisionPushParams
+): Promise<void> {
+  try {
+    const receiverProfile = await usersClient.findPublicProfile(params.callerId, params.callerId);
+    const receiverName = receiverProfile?.fullName ?? "El receptor";
+    await notificationsClient.sendPush({
+      userId: params.shipment.senderId,
+      title: params.title,
+      body: params.bodyTemplate(receiverName),
+      data: { shipmentId: params.shipment.id, type: params.type },
+    });
+  } catch (err) {
+    logger?.warn(
+      { err, event: "notification_dispatch_failed", shipmentId: params.shipment.id },
+      "No se pudo enviar la push de decisión del receptor"
+    );
+  }
+}
+
+export function createShipmentsService(
+  repository: ShipmentRepository,
+  usersClient: UsersClient,
+  notificationsClient?: NotificationsClient,
+  logger?: FastifyBaseLogger | { warn: (obj: unknown, msg?: string) => void; error: (obj: unknown, msg?: string) => void }
+) {
   return {
     async createShipment(input: CreateShipmentServiceInput): Promise<Shipment> {
       // AC4 — auto-designación, primero por ser el chequeo más barato (sin I/O).
@@ -194,6 +232,58 @@ export function createShipmentsService(repository: ShipmentRepository, usersClie
 
       assertShipmentAccess(shipment, callerId, callerRoles);
       return repository.listEvents(shipmentId);
+    },
+
+    async acceptShipment(shipmentId: string, callerId: string): Promise<Shipment> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+
+      assertIsReceiver(shipment, callerId);
+
+      const updated = await repository.updateStatus(shipmentId, ShipmentStatus.PUBLISHED, callerId);
+
+      // Best-effort push notification al emisor (AC9 de MOVO-129): deliberadamente
+      // sin await -- el estado ya está commiteado y la push no debe agregar latencia
+      // ni poder hacer fallar la respuesta.
+      if (notificationsClient) {
+        void dispatchReceiverDecisionPush(notificationsClient, usersClient, logger, {
+          shipment,
+          callerId,
+          title: "Envío aceptado",
+          bodyTemplate: (name) => `${name} aceptó el envío, ya está publicado`,
+          type: "shipment_accepted",
+        });
+      }
+
+      return updated;
+    },
+
+    async rejectShipment(shipmentId: string, callerId: string, reason?: string): Promise<Shipment> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+
+      assertIsReceiver(shipment, callerId);
+
+      const updated = await repository.updateStatus(shipmentId, ShipmentStatus.REJECTED_BY_RECEIVER, callerId, reason);
+
+      // Best-effort push notification al emisor (AC8 de MOVO-129): deliberadamente
+      // sin await -- el estado ya está commiteado y la push no debe agregar latencia
+      // ni poder hacer fallar la respuesta.
+      if (notificationsClient) {
+        void dispatchReceiverDecisionPush(notificationsClient, usersClient, logger, {
+          shipment,
+          callerId,
+          title: "Envío rechazado",
+          bodyTemplate: (name) => `${name} rechazó el envío`,
+          type: "shipment_rejected",
+        });
+      }
+
+      return updated;
     },
 
     async listMyShipments(userId: string, page: number, limit: number): Promise<ListMineResult> {
