@@ -1,4 +1,5 @@
 import Fastify, { FastifyInstance } from "fastify";
+import { ApiError } from "@movo/shared";
 import fastifyEnv from "@fastify/env";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
@@ -30,6 +31,29 @@ export interface BuildAppOptions {
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: true });
+
+  // MOVO-129: un body vacío con `content-type: application/json` (lo que manda cualquier
+  // cliente HTTP que setee el header incondicionalmente) hace fallar al parser por defecto
+  // con FST_ERR_CTP_EMPTY_JSON_BODY -- un 400 antes de llegar a la validación de schema.
+  // Los endpoints de decisión del receptor se documentan como "body vacío", así que acá lo
+  // tratamos como `null` y dejamos que el schema (`nullable: true`) decida.
+  app.addContentTypeParser(
+    "application/json",
+    { parseAs: "string" },
+    (_req, body: string, done) => {
+      if (body === "") {
+        done(null, null);
+        return;
+      }
+      try {
+        done(null, JSON.parse(body));
+      } catch {
+        // `ApiError` y no un Error suelto: el error handler solo mapea al formato único
+        // los `ApiError` y los de validación de AJV -- cualquier otro cae al 500 genérico.
+        done(new ApiError(400, "VALIDATION_FAILED", "El body no es JSON válido."), undefined);
+      }
+    }
+  );
 
   app.register(fastifyEnv, {
     schema: envSchema,
