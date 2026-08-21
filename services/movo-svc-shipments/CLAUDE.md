@@ -20,8 +20,9 @@ sin transición de salida modelada (resolución de admin, ticket futuro).
 Primer dominio real de `svc-shipments` → adopta Prisma (ADR-011). Modelos
 `Shipment`/`ShipmentEvent`/`ShipmentPhoto`. `shipment-repository.ts#updateStatus()` es
 la única vía de escritura de `status` (usa `transition()` de MOVO-105 antes del
-UPDATE, en la misma transacción inserta el evento). TOCTOU conocido y aceptado (sin
-lock atómico entre la relectura del estado y el UPDATE) — seguimiento en MOVO-118.
+UPDATE, en la misma transacción inserta el evento). TOCTOU conocido y aceptado en su
+momento (sin lock atómico entre la relectura del estado y el UPDATE) — resuelto con
+compare-and-swap en MOVO-118.
 Gotcha: `_prisma_migrations` vive en `public`, compartida entre todos los servicios
 Prisma sobre el mismo Postgres (ADR-003) — migraciones nuevas de `svc-shipments` se
 generan con `prisma migrate diff --from-empty` + `migrate deploy`, nunca
@@ -89,8 +90,9 @@ Decisiones clave:
   {id, status:'published'}, ...})` y chequea `count` — bajo READ COMMITTED, el `UPDATE`
   toma un row-lock exclusivo; la transacción perdedora reevalúa su `WHERE` contra datos
   ya commiteados y `count` da 0, lanzando `ShipmentNotAvailableForAssignmentError` en
-  vez de una segunda asignación. Primer optimistic locking real del proyecto (distinto
-  del TOCTOU aceptado de `shipment-repository.ts#updateStatus`, MOVO-118). Verificado
+  vez de una segunda asignación. Primer optimistic locking real del proyecto — el mismo
+  patrón se reusó después para cerrar el TOCTOU de `shipment-repository.ts#updateStatus`
+  (MOVO-118). Verificado
   con un test de concurrencia real (`Promise.allSettled` de dos `acceptOffer`
   simultáneos contra Postgres) — necesitó precalentar el pool de conexiones antes de la
   carrera, sin eso la suite completa dejaba una sola conexión idle y la carrera perdía
@@ -261,11 +263,40 @@ Decisiones clave:
   alcanza para la consulta del barrido; el costo de mantener un índice adicional no se justifica. Si el volumen
   creciera, el candidato sería `(status, receiver_confirmation_deadline)`.
 
+### MOVO-118 — Race condition (TOCTOU) en `shipment-repository.ts#updateStatus()`
+
+Cierra la ventana de carrera aceptada desde MOVO-104: dos transiciones concurrentes
+sobre el mismo envío (ej. transportista acepta oferta a la vez que el emisor cancela)
+ya no se pisan sin revalidar.
+
+- **Compare-and-swap, no `SELECT...FOR UPDATE`**: pese a que el ticket proponía mover
+  el `findUnique` a `SELECT...FOR UPDATE` vía `$queryRaw`, se adoptó el mismo patrón
+  que `offer-repository.ts#acceptOffer` (MOVO-102/AC9), ya probado en este mismo
+  servicio: `tx.shipment.updateMany({where: {id, status: from}, ...})` condicionado
+  por el `status` leído. Bajo READ COMMITTED, el `UPDATE` toma el row-lock; la
+  transacción perdedora reevalúa su `WHERE` contra el dato ya commiteado
+  (EvalPlanQual) y `count` da 0 — sin SQL crudo, sin abrir una segunda vía de acceso a
+  la tabla.
+- **`ShipmentConcurrentModificationError` nueva** (`shipment-repository.ts`, mismo
+  criterio que `OfferConcurrentModificationError`), mapeada a 409
+  `SHIPMENT_CONCURRENT_MODIFICATION` (`@movo/shared`/`error-handler.ts`).
+- **Fila devuelta reconstruida a mano** (`{...current, status: to, ...}`) en vez de un
+  `SELECT` extra post-`UPDATE` — `updateMany` no devuelve la fila, mismo criterio que
+  el objeto `accepted` de `acceptOffer`.
+- El comentario de `offer-repository.ts` que explicaba por qué `acceptOffer` no
+  reusaba `updateStatus()` ("no ofrece bloqueo optimista") quedó desactualizado y se
+  corrigió: la razón real es que `updateStatus()` abre su propia `$transaction`, no
+  anidable dentro de la transacción única que necesita `acceptOffer` para
+  shipment+offer+evento atómicos.
+
+Test de integración nuevo (`shipment-repository.integration.test.ts`): dos
+`updateStatus()` concurrentes desde `published` (`Promise.allSettled`, una a
+`assignment_pending` y otra a `cancelled`) — exactamente una resuelve,
+la otra lanza `ShipmentConcurrentModificationError`, y el envío persiste solo el
+estado de la transición ganadora (verificado 5/5 corridas sin flakiness).
+
 ### Pendientes de este servicio
 
-- **MOVO-118**: arreglar el TOCTOU de `shipment-repository.ts#updateStatus()`
-  (MOVO-104) con `SELECT ... FOR UPDATE` cuando haya asignación automática o
-  concurrencia real.
 - **MOVO-124**: lifecycle rule de S3 para objetos huérfanos de fotos no confirmadas
   (`shipments/*` y, retroactivamente, `profile-photos/*` de MOVO-97) — no es un
   ajuste chico, ver la decisión de MOVO-81 arriba.
