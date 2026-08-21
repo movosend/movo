@@ -21,6 +21,17 @@ export interface UserRepository {
    * `username` en este modelo. Excluye al propio caller.
    */
   search(query: string, excludeUserId: string, limit: number): Promise<User[]>;
+  /** MOVO-134: `POST /users/me/password`, después de verificar la contraseña actual. */
+  updatePassword(id: string, passwordHash: string): Promise<User | null>;
+  /**
+   * MOVO-134: soft-delete + anonimización de PII en un solo UPDATE. `email`/`phone`
+   * se derivan del propio `id` (ya único), así que nunca pueden colisionar con otro
+   * usuario -- no hace falta capturar P2002 acá, a diferencia de `create()`.
+   * `dni`/`birthdate`/`photoUrl` a `NULL`; `firstName`/`lastName` a un placeholder.
+   * No borra la fila (el `user_id` está referenciado desde envíos históricos en
+   * `svc-shipments`, la integridad referencial del historial tiene que sobrevivir).
+   */
+  anonymizeAndDelete(id: string): Promise<User | null>;
 }
 
 type UserWithRoles = Prisma.UserGetPayload<{ include: { roles: true } }>;
@@ -245,6 +256,47 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         orderBy: { firstName: "asc" },
       });
       return rows.map(toDomainUser);
+    },
+
+    async updatePassword(id: string, passwordHash: string): Promise<User | null> {
+      try {
+        const row = await db.user.update({
+          where: { id },
+          data: { passwordHash },
+          include: { roles: true },
+        });
+        return toDomainUser(row);
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return null;
+        }
+        throw error;
+      }
+    },
+
+    async anonymizeAndDelete(id: string): Promise<User | null> {
+      try {
+        const row = await db.user.update({
+          where: { id },
+          data: {
+            status: PrismaAccountStatus.deleted,
+            email: `deleted+${id}@movo.invalid`,
+            phone: `deleted-${id}`,
+            firstName: "Usuario",
+            lastName: "eliminado",
+            dni: null,
+            birthdate: null,
+            photoUrl: null,
+          },
+          include: { roles: true },
+        });
+        return toDomainUser(row);
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return null;
+        }
+        throw error;
+      }
     },
   };
 }
