@@ -1,12 +1,45 @@
 import { randomUUID } from "node:crypto";
 import { FastifyBaseLogger } from "fastify";
+import { hash, verify } from "@node-rs/argon2";
+import Redis from "ioredis";
 import { AccountStatus, ApiError } from "@movo/shared";
 import { PrismaClient } from "../../generated/prisma/client";
 import { createUserRepository } from "../../repositories/user-repository";
 import { createPushTokenRepository } from "../../repositories/push-token-repository";
+import { createSessionRepository } from "../../repositories/session-repository";
 import { PrivateProfile, PublicProfile, toPrivateProfile, toPublicProfile } from "../../models/user-profile";
 import { StorageProvider } from "../../adapters/storage-provider";
 import { PushPlatform } from "../../models/push-token";
+import { ShipmentsClient } from "../../adapters/shipments-client";
+import { issueSession, LoginUserResult } from "../auth/auth.service";
+
+// @node-rs/argon2 exporta `Algorithm` como `const enum`, incompatible con
+// `isolatedModules` -- mismo motivo/valor que auth.service.ts/otp-service.ts.
+const ARGON2ID = 2;
+
+// MOVO-134: rate limit "por usuario" del cambio de contraseña -- el gateway no puede
+// aplicar esto (su rate-limiting corre antes de decodificar el JWT, así que solo
+// conoce la IP, nunca el userId; ver los 4 rate limits estrictos ya existentes en
+// gateway/src/config/routes-map.ts, todos keyeados por IP). Mismo patrón que el
+// contador de intentos de OTP (otp-repository.ts#incrementAttempts), pero por ventana
+// fija en vez de contador+invalidación.
+const PASSWORD_CHANGE_RATE_LIMIT_MAX = 5;
+const PASSWORD_CHANGE_RATE_LIMIT_WINDOW_SECONDS = 15 * 60;
+
+async function checkPasswordChangeRateLimit(redis: Redis, userId: string): Promise<void> {
+  const key = `password-change-attempts:${userId}`;
+  const count = await redis.incr(key);
+  if (count === 1) {
+    await redis.expire(key, PASSWORD_CHANGE_RATE_LIMIT_WINDOW_SECONDS);
+  }
+  if (count > PASSWORD_CHANGE_RATE_LIMIT_MAX) {
+    throw new ApiError(
+      429,
+      "RATE_LIMIT_EXCEEDED",
+      "Demasiados intentos de cambio de contraseña. Esperá unos minutos antes de reintentar."
+    );
+  }
+}
 
 /** AC2 de MOVO-97: whitelist de tipos permitidos para la foto de perfil. Duplicada en
  * `users.schema.ts` (JSON schema autocontenido, mismo criterio que el resto de los
@@ -43,9 +76,16 @@ export interface RegisterPushTokenInput {
   platform: PushPlatform;
 }
 
-export function createUsersService(db: PrismaClient, storageProvider: StorageProvider, logger: FastifyBaseLogger) {
+export function createUsersService(
+  db: PrismaClient,
+  storageProvider: StorageProvider,
+  logger: FastifyBaseLogger,
+  redis: Redis,
+  shipmentsClient: ShipmentsClient
+) {
   const repository = createUserRepository(db);
   const pushTokenRepository = createPushTokenRepository(db);
+  const sessionRepository = createSessionRepository(redis);
 
   return {
     async getUsersCount(): Promise<number> {
@@ -210,6 +250,106 @@ export function createUsersService(db: PrismaClient, storageProvider: StoragePro
     /** AC3: idempotente — sin token previo para ese dispositivo, no-op (204 igual). */
     async unregisterPushToken(userId: string, deviceId: string): Promise<void> {
       await pushTokenRepository.deleteByDeviceId(userId, deviceId);
+    },
+
+    /**
+     * MOVO-134: cambio de contraseña. Revoca todas las sesiones y emite un par de
+     * tokens nuevo (mismo shape que login()) -- quien hizo el cambio no queda
+     * deslogueado, el resto de los dispositivos sí (motivo de devolver tokens en vez
+     * de 204).
+     */
+    async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<LoginUserResult> {
+      await checkPasswordChangeRateLimit(redis, userId);
+
+      const user = await repository.findById(userId);
+      if (!user) {
+        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
+
+      const isValidPassword = await verify(user.passwordHash, currentPassword);
+      if (!isValidPassword) {
+        throw new ApiError(401, "AUTH_INVALID_CREDENTIALS", "Credenciales inválidas.");
+      }
+
+      if (newPassword === currentPassword) {
+        throw new ApiError(400, "VALIDATION_FAILED", "La contraseña nueva no puede ser igual a la actual.");
+      }
+
+      const newPasswordHash = await hash(newPassword, { algorithm: ARGON2ID });
+      const updated = await repository.updatePassword(userId, newPasswordHash);
+      if (!updated) {
+        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
+
+      await sessionRepository.revokeAllForUser(userId);
+      return issueSession(sessionRepository, updated);
+    },
+
+    /**
+     * MOVO-134: baja de cuenta. Bloquea con 409 si el usuario tiene una disputa o un
+     * envío activo (cualquier rol: emisor/receptor/transportista) -- sin cascada de
+     * cancelación, el usuario cancela por su cuenta y reintenta. Idempotente: una
+     * cuenta ya `deleted` no vuelve a validar nada (ni password, ni envíos activos).
+     */
+    async deleteAccount(userId: string, password: string): Promise<void> {
+      const user = await repository.findById(userId);
+      if (!user) {
+        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
+      if (user.status === AccountStatus.DELETED) {
+        return;
+      }
+
+      const isValidPassword = await verify(user.passwordHash, password);
+      if (!isValidPassword) {
+        throw new ApiError(401, "AUTH_INVALID_CREDENTIALS", "Credenciales inválidas.");
+      }
+
+      const { hasActiveDispute, hasActiveShipments } = await shipmentsClient.hasActiveShipments(userId);
+      if (hasActiveDispute) {
+        throw new ApiError(
+          409,
+          "ACCOUNT_HAS_ACTIVE_DISPUTES",
+          "Tenés una disputa activa -- un administrador tiene que resolverla antes de poder dar de baja tu cuenta."
+        );
+      }
+      if (hasActiveShipments) {
+        throw new ApiError(
+          409,
+          "ACCOUNT_HAS_ACTIVE_SHIPMENTS",
+          "Tenés envíos activos -- cancelalos antes de poder dar de baja tu cuenta."
+        );
+      }
+
+      const previousPhotoUrl = user.photoUrl;
+
+      await db.$transaction(async (tx) => {
+        const txUserRepository = createUserRepository(tx);
+        const txPushTokenRepository = createPushTokenRepository(tx);
+        await txUserRepository.anonymizeAndDelete(userId);
+        await txPushTokenRepository.deleteAllByUserId(userId);
+        // address-repository.ts#delete() abre su propia $transaction (para promover
+        // un nuevo default) -- no se puede componer acá, necesita un PrismaClient
+        // completo. Un deleteMany crudo no tiene esa lógica que preservar: no queda
+        // ningún usuario que necesite un default después de esto.
+        await tx.address.deleteMany({ where: { userId } });
+      });
+
+      await sessionRepository.revokeAllForUser(userId);
+
+      if (previousPhotoUrl) {
+        const key = storageProvider.getKeyFromUrl(previousPhotoUrl);
+        if (key) {
+          try {
+            await storageProvider.deleteObject(key);
+          } catch (error) {
+            logger.warn(
+              { userId, key, event: "photo_delete_orphan_failed", error: (error as Error).message },
+              "No se pudo borrar la foto de perfil al dar de baja la cuenta"
+            );
+          }
+        }
+      }
     },
   };
 }

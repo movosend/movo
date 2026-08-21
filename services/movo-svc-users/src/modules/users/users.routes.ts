@@ -3,16 +3,21 @@ import { createUsersService, PhotoUploadUrlInput, RegisterPushTokenInput } from 
 import { usersSchemas } from "./users.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
+import { createShipmentsClient, ShipmentsClient } from "../../adapters/shipments-client";
 
 export interface UsersRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de un bucket real/
    * credenciales de AWS (MOVO-97), mismo criterio que `geocodingProvider`/`diditClient`. */
   storageProvider?: StorageProvider;
+  /** Override solo para tests de integración — evita depender de un `movo-svc-shipments`
+   * real levantado (MOVO-134), mismo criterio que `storageProvider`. */
+  shipmentsClient?: ShipmentsClient;
 }
 
 export default async function usersRoutes(app: FastifyInstance, opts: UsersRoutesOptions) {
   const storageProvider = opts.storageProvider ?? createStorageProvider(app.config);
-  const service = createUsersService(app.db, storageProvider, app.log);
+  const shipmentsClient = opts.shipmentsClient ?? createShipmentsClient(app.config);
+  const service = createUsersService(app.db, storageProvider, app.log, app.redis, shipmentsClient);
 
   app.get(
     "/count",
@@ -44,6 +49,68 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
     async (request: FastifyRequest) => {
       const userId = requireUserIdFromHeader(request);
       return service.getPrivateProfile(userId);
+    },
+  );
+
+  app.post(
+    "/me/password",
+    {
+      schema: {
+        summary: "Cambiar la contraseña propia",
+        description:
+          "MOVO-134: verifica currentPassword contra argon2 (401 si no coincide), " +
+          "aplica la política de contraseña del registro a newPassword, revoca todas " +
+          "las sesiones y devuelve un par de tokens nuevo (mismo shape que login) -- " +
+          "quien hizo el cambio no queda deslogueado, el resto de los dispositivos sí. " +
+          "Rate limit por usuario (5 intentos / 15 min), independiente del rate " +
+          "limiting por IP del gateway.",
+        tags: ["users"],
+        body: usersSchemas.changePasswordBody,
+        response: {
+          200: usersSchemas.changePasswordResponse,
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+          429: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      const { currentPassword, newPassword } = request.body as { currentPassword: string; newPassword: string };
+      return service.changePassword(userId, currentPassword, newPassword);
+    },
+  );
+
+  app.delete(
+    "/me",
+    {
+      schema: {
+        summary: "Dar de baja la cuenta propia",
+        description:
+          "MOVO-134: confirma con password (no alcanza con el JWT). Bloquea con 409 " +
+          "ACCOUNT_HAS_ACTIVE_DISPUTES/ACCOUNT_HAS_ACTIVE_SHIPMENTS si el usuario " +
+          "(como emisor, receptor o transportista) tiene una disputa o un envío en un " +
+          "estado no terminal -- sin cascada de cancelación, el usuario cancela por su " +
+          "cuenta y reintenta. Si no hay nada bloqueante: soft-delete + anonimización " +
+          "de PII, revoca sesiones, borra push tokens/direcciones y la foto de S3. " +
+          "Idempotente -- una cuenta ya deleted responde 204 sin efectos.",
+        tags: ["users"],
+        body: usersSchemas.deleteAccountBody,
+        response: {
+          204: { type: "null", description: "Sin contenido" },
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+          409: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const userId = requireUserIdFromHeader(request);
+      const { password } = request.body as { password: string };
+      await service.deleteAccount(userId, password);
+      reply.code(204);
     },
   );
 

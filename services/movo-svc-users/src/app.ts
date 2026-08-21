@@ -27,6 +27,7 @@ import { GeocodingProvider } from "./adapters/geocoding-provider";
 import { PlacesProvider } from "./adapters/places-provider";
 import { StorageProvider } from "./adapters/storage-provider";
 import { PushNotificationProvider } from "./adapters/push-notification-provider";
+import { ShipmentsClient } from "./adapters/shipments-client";
 
 export interface BuildAppOptions {
   /** Override solo para tests de integración — permite capturar el código de OTP
@@ -47,6 +48,9 @@ export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de red (MOVO-106),
    * mismo criterio que `storageProvider`. */
   pushProvider?: PushNotificationProvider;
+  /** Override solo para tests de integración — evita depender de un `movo-svc-shipments`
+   * real levantado (MOVO-134), mismo criterio que `storageProvider`. */
+  shipmentsClient?: ShipmentsClient;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -80,6 +84,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const usersRouteOpts: UsersRoutesOptions = {
     prefix: "/users",
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.shipmentsClient ? { shipmentsClient: opts.shipmentsClient } : {}),
   };
   app.register(usersRoutes, usersRouteOpts);
 
