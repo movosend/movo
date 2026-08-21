@@ -315,6 +315,34 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
       expect(JSON.parse(response.body).error.code).toBe("AUTH_OTP_EXPIRED");
     });
 
+    it("AC6: reusar un otpId/code ya verificado con éxito -> 422 AUTH_OTP_EXPIRED, no aplica dos veces", async () => {
+      const user = await repo.create(buildInput());
+      const newPhone = nextPhone();
+
+      const { body: otpBody } = await requestPhoneChange(user.id, newPhone);
+      const code = captor.sentCodes.get(newPhone)!;
+
+      const first = await app.inject({
+        method: "POST",
+        url: "/users/me/phone/change/verify",
+        headers: { "x-user-id": user.id },
+        payload: { otpId: otpBody.otpId, code },
+      });
+      expect(first.statusCode).toBe(200);
+
+      const reused = await app.inject({
+        method: "POST",
+        url: "/users/me/phone/change/verify",
+        headers: { "x-user-id": user.id },
+        payload: { otpId: otpBody.otpId, code },
+      });
+      expect(reused.statusCode).toBe(422);
+      expect(JSON.parse(reused.body).error.code).toBe("AUTH_OTP_EXPIRED");
+
+      const reloaded = await repo.findById(user.id);
+      expect(reloaded?.phone).toBe(newPhone);
+    });
+
     it("AC7: exige JWT -> 401 sin header x-user-id", async () => {
       const otpResponse = await app.inject({
         method: "POST",
@@ -426,6 +454,34 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
 
       expect(response.statusCode).toBe(401);
       expect(JSON.parse(response.body).error.code).toBe("AUTH_OTP_INVALID");
+    });
+
+    it("AC6: reusar un otpId/code ya verificado con éxito -> 422 AUTH_OTP_EXPIRED, no aplica dos veces", async () => {
+      const user = await repo.create(buildInput());
+      const newEmail = `nuevo-${randomUUID()}@movo.test`;
+
+      const { body: otpBody } = await requestEmailChange(user.id, newEmail);
+      const code = captor.sentCodes.get(user.phone)!;
+
+      const first = await app.inject({
+        method: "POST",
+        url: "/users/me/email/change/verify",
+        headers: { "x-user-id": user.id },
+        payload: { otpId: otpBody.otpId, code },
+      });
+      expect(first.statusCode).toBe(200);
+
+      const reused = await app.inject({
+        method: "POST",
+        url: "/users/me/email/change/verify",
+        headers: { "x-user-id": user.id },
+        payload: { otpId: otpBody.otpId, code },
+      });
+      expect(reused.statusCode).toBe(422);
+      expect(JSON.parse(reused.body).error.code).toBe("AUTH_OTP_EXPIRED");
+
+      const reloaded = await repo.findById(user.id);
+      expect(reloaded?.email).toBe(newEmail);
     });
 
     it("otpId vencido/inexistente -> 422 AUTH_OTP_EXPIRED", async () => {
