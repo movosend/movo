@@ -174,6 +174,68 @@ real) + 2 casos nuevos en `gateway/test/routes-prefix.test.ts` (`describe("Rutas
 /addresses")`). 37/37 suites / 308/308 tests en `movo-svc-users`, 5/5 suites / 37/37
 tests en `gateway`. `tsc --noEmit` limpio en ambos paquetes.
 
+### MOVO-133 — `PATCH /users/me` y cambio verificado de teléfono/email por OTP
+
+`src/modules/users/` pasa de ser solo lectura (+foto MOVO-97, +push token MOVO-106) a
+tener su primera escritura sobre los datos propios del usuario: `PATCH /users/me`
+(nombre/apellido) y dos flujos de dos pasos cada uno para cambiar teléfono y email.
+
+Decisiones clave:
+- **`PATCH /users/me` con `additionalProperties:false` no alcanza contra el
+  `removeAdditional:true` default de AJV de Fastify**: mismo gotcha ya documentado en
+  `services/movo-svc-shipments/CLAUDE.md` (MOVO-129) — un campo de más (`email`,
+  `roles`, etc.) se descarta en silencio en vez de devolver 400. Se agregó un
+  `preValidation` que corre antes de esa fase y rechaza explícitamente cualquier clave
+  que no sea `firstName`/`lastName`, sin tocar la configuración global de AJV del
+  resto del servicio (esa decisión de convención sigue pendiente, igual que en
+  `svc-shipments`).
+- **Nombre inmutable con KYC de identidad aprobado (AC3, decisión de refinamiento)**:
+  `409 PROFILE_NAME_LOCKED_BY_KYC` si `kyc_status_identity=approved` y el `firstName`/
+  `lastName` nuevo difiere del actual — el nombre ya quedó validado contra el
+  documento por Didit (MOVO-72), permitir cambiarlo después rompería esa garantía.
+  Reenviar el mismo nombre no cuenta como cambio (PATCH idempotente sigue permitido).
+- **Cambio de teléfono reusa `otp-service.ts` directo, no
+  `phone-verification.service.ts`**: ese servicio es específico del registro (emite un
+  `phoneVerificationToken` intermedio de un solo uso, MOVO-71/72) porque en ese punto
+  todavía no hay cuenta ni sesión. Acá el caller ya está autenticado, así que verificar
+  el OTP persiste `phone`+`phoneVerified=true` directo, sin el token intermedio. El
+  `target` del OTP **es** el teléfono nuevo (prueba de posesión).
+- **Cambio de email verificado con OTP al teléfono ACTUAL, no al email nuevo
+  (decisión de refinamiento, se aparta de la letra del AC original)**: el proyecto no
+  tiene ningún `EmailProvider` (sin nodemailer/SES/Resend, sin columna
+  `email_verified`) — construir uno es alcance de ADR nuevo, no de este ticket. Se
+  verifica la identidad del dueño de la cuenta mandando el OTP a su teléfono ya
+  verificado. El email candidato viaja en Redis atado al `otpId`
+  (`pending-email-repository.ts`, mismo TTL que el OTP) hasta que el verify lo
+  persiste. **Limitación aceptada**: no se puede notificar al email anterior que el
+  email cambió (mismo motivo, sin canal de email) — se cierra cuando exista un
+  `EmailProvider` compartido con MOVO-64 (recuperación de contraseña). No revoca
+  sesiones (el email no es credencial de sesión, a diferencia de la contraseña — ver
+  ticket hermano MOVO-134).
+- **Unicidad de email case-insensitive resuelta en el service, no en la DB**: el
+  índice único real de `users.email` es case-sensitive (MOVO-93: `users_email_lower_idx`
+  es funcional, no fuerza unicidad) — un `P2002` del `UPDATE` final solo cubre
+  colisiones de mismo casing exacto. El chequeo case-insensitive real
+  (`findByEmail`, ya usaba `mode:"insensitive"`) corre explícito tanto en el paso 1
+  como de nuevo justo antes del `UPDATE` del paso 2, para cubrir la carrera de
+  unicidad (AC5) sin depender de un constraint que no existe a nivel de DB.
+- **`UserConflictError` (ya existía para el registro, MOVO-70) reusada tal cual** para
+  las colisiones de `updatePhone`/`updateEmail` -- se traduce a los códigos nuevos
+  `PHONE_ALREADY_IN_USE`/`EMAIL_ALREADY_IN_USE` (@movo/shared), distintos de
+  `USER_PHONE_ALREADY_EXISTS`/`USER_EMAIL_ALREADY_EXISTS` del registro porque el
+  mensaje/contexto es otro (cambiar un dato de una cuenta existente, no crearla).
+
+Tests: `test/users.profile-edit.integration.test.ts` (21 casos, Postgres+Redis reales,
+mismo patrón de `SmsProvider` captor que `auth.otp.integration.test.ts`) cubriendo las
+8 AC del ticket, incluida la carrera de unicidad de teléfono/email simulada
+adelantando el `UPDATE` de otro usuario entre el paso 1 y el verify. 40/40 suites /
+347/347 tests en `movo-svc-users`. `tsc --noEmit` limpio acá, en `gateway` y en
+`shared/movo-shared`.
+
+Pendiente / fuera de alcance: consumo desde `movo-mobile` (ticket aparte); cambio de
+contraseña y baja de cuenta (ticket hermano MOVO-134, en refinamiento con el equipo);
+`birthdate`/`dni` (existen en el schema, no se editan por ningún endpoint todavía).
+
 ### Pendientes de este servicio
 
 - **Credenciales reales sin cargar** en AWS Secrets Manager (dev y prod) — el código
