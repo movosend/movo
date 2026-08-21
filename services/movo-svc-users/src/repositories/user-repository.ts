@@ -17,6 +17,26 @@ export interface UserRepository {
   updateKycStatusLicense(id: string, status: KycStatus): Promise<User | null>;
   updatePhotoUrl(id: string, photoUrl: string | null): Promise<User | null>;
   /**
+   * MOVO-133 AC1: actualización parcial de nombre/apellido -- ambos campos opcionales.
+   * El caller (`users.service.ts#updateProfile`) nunca llama con los dos `undefined`
+   * (el schema de `PATCH /users/me` exige `minProperties:1`).
+   */
+  updateProfile(id: string, input: { firstName?: string; lastName?: string }): Promise<User | null>;
+  /**
+   * MOVO-133: persiste `phone` + `phoneVerified=true` en el mismo UPDATE -- se llama
+   * solo después de que el OTP al teléfono nuevo ya probó posesión. Lanza
+   * `UserConflictError("phone")` si `users_phone_key` rechaza el valor (carrera de
+   * unicidad entre el paso 1 -- `POST /me/phone/change/otp` -- y este UPDATE).
+   */
+  updatePhone(id: string, phone: string): Promise<User | null>;
+  /**
+   * MOVO-133: lanza `UserConflictError("email")` si `users_email_key` rechaza el
+   * valor -- cubre solo colisiones de mismo casing exacto (MOVO-93: `users_email_lower_idx`
+   * no fuerza unicidad a nivel de DB). El re-chequeo case-insensitive real vive en
+   * `users.service.ts#requestEmailChange`/`verifyEmailChange`.
+   */
+  updateEmail(id: string, email: string): Promise<User | null>;
+  /**
    * Búsqueda de receptor (AC3 de MOVO-80) por nombre completo — no existe columna
    * `username` en este modelo. Excluye al propio caller.
    */
@@ -208,6 +228,63 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
       } catch (error) {
         if (isRecordNotFoundError(error)) {
           return null;
+        }
+        throw error;
+      }
+    },
+
+    async updateProfile(id: string, input: { firstName?: string; lastName?: string }): Promise<User | null> {
+      try {
+        const row = await db.user.update({
+          where: { id },
+          data: {
+            ...(input.firstName !== undefined ? { firstName: input.firstName } : {}),
+            ...(input.lastName !== undefined ? { lastName: input.lastName } : {}),
+          },
+          include: { roles: true },
+        });
+        return toDomainUser(row);
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return null;
+        }
+        throw error;
+      }
+    },
+
+    async updatePhone(id: string, phone: string): Promise<User | null> {
+      try {
+        const row = await db.user.update({
+          where: { id },
+          data: { phone, phoneVerified: true },
+          include: { roles: true },
+        });
+        return toDomainUser(row);
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return null;
+        }
+        if (isUniqueConstraintError(error) && uniqueConstraintFields(error).includes("phone")) {
+          throw new UserConflictError("phone");
+        }
+        throw error;
+      }
+    },
+
+    async updateEmail(id: string, email: string): Promise<User | null> {
+      try {
+        const row = await db.user.update({
+          where: { id },
+          data: { email },
+          include: { roles: true },
+        });
+        return toDomainUser(row);
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return null;
+        }
+        if (isUniqueConstraintError(error) && uniqueConstraintFields(error).includes("email")) {
+          throw new UserConflictError("email");
         }
         throw error;
       }
