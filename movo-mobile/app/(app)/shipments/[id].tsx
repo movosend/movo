@@ -8,12 +8,14 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { CounterpartCard } from "../../../components/shipments/counterpart-card";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
 import { PackageCard } from "../../../components/shipments/package-card";
+import { ReceiverActionsBar } from "../../../components/shipments/receiver-actions-bar";
 import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
 import { ShipmentStatusBadge } from "../../../components/shipments/status-badge";
 import { TimelineSection } from "../../../components/shipments/timeline-section";
 import { RouteMapCard } from "../../../components/send/route-map-card";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { GridPattern } from "../../../components/ui/grid-pattern";
+import { useAuthStore } from "../../../src/store/auth-store";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useShipment } from "../../../src/hooks/use-shipments";
 import {
@@ -65,8 +67,13 @@ const TABS: [DetailTab, string][] = [
 export default function ShipmentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useThemeColors();
+  const currentUser = useAuthStore((state) => state.user);
   const { data: shipment, isLoading, isError, error, refetch } = useShipment(id);
   const [tab, setTab] = useState<DetailTab>("detalle");
+
+  const isReceiver = shipment !== undefined && currentUser?.userId === shipment.receiverId;
+  const showReceiverActions =
+    isReceiver && shipment?.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION;
 
   const pickupDateLabel = shipment ? formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate : null;
   // Banner de ofertas: solo tiene sentido mientras el envío sigue abierto a ofertas
@@ -187,11 +194,13 @@ export default function ShipmentDetailScreen() {
               </View>
 
               <View>
-                <Eyebrow>Receptor</Eyebrow>
+                <Eyebrow>{isReceiver ? "Emisor" : "Receptor"}</Eyebrow>
                 <CounterpartCard
-                  userId={shipment.receiverId}
-                  receiverConfirmation={receiverConfirmationStatus(shipment.status)}
-                  testID="shipment-detail-receiver"
+                  userId={isReceiver ? shipment.senderId : shipment.receiverId}
+                  receiverConfirmation={
+                    isReceiver ? undefined : receiverConfirmationStatus(shipment.status)
+                  }
+                  testID={isReceiver ? "shipment-detail-sender" : "shipment-detail-receiver"}
                 />
               </View>
 
@@ -215,8 +224,18 @@ export default function ShipmentDetailScreen() {
               />
             </View>
           )}
+
+          {showReceiverActions && shipment ? (
+            <ReceiverActionsBar
+              shipmentId={shipment.id}
+              receiverConfirmationDeadline={shipment.receiverConfirmationDeadline}
+              onRefetch={() => refetch()}
+              testID="shipment-detail-receiver-actions"
+            />
+          ) : null}
         </View>
       )}
     </SafeAreaView>
   );
 }
+

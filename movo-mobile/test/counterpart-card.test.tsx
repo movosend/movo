@@ -109,4 +109,28 @@ describe("CounterpartCard", () => {
     expect(queryByText("Pend. de aceptar")).toBeNull();
     expect(queryByText("Rechazó el envío")).toBeNull();
   });
+
+  it("no muestra ningún badge de confirmación cuando se renderiza el emisor sin `receiverConfirmation` (MOVO-131)", async () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: {
+        id: "sender-1",
+        fullName: "Pedro Emisor",
+        photoUrl: null,
+        isVerified: true,
+        badges: ["kyc_verified"],
+        transactionCounts: { asSender: 2, asCarrier: 0 },
+        reputationScore: null,
+      },
+      isLoading: false,
+      isError: false,
+    });
+
+    const { getByText, queryByText } = await render(<CounterpartCard userId="sender-1" />);
+
+    expect(getByText("Pedro Emisor")).toBeTruthy();
+    expect(queryByText("Aceptó el envío")).toBeNull();
+    expect(queryByText("Pend. de aceptar")).toBeNull();
+    expect(queryByText("Rechazó el envío")).toBeNull();
+  });
 });
+

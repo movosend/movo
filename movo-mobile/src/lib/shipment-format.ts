@@ -269,3 +269,32 @@ export function shortAddressLabel(address: string): string {
 export function formatPickupWindowLabel(start: string, end: string): string {
   return `${start} a ${end}`;
 }
+
+/**
+ * Formatea el tiempo restante para responder a la confirmación de un envío (MOVO-131 / MOVO-130).
+ * Calcula el plazo en horas entre `deadlineIso` y `now` (por defecto `new Date()`).
+ * Si el campo es nulo, indefinido, inválido o el plazo ya expiró (<= 0), devuelve `null`
+ * para degradar silenciosamente.
+ *
+ * Ejemplos:
+ * - 36 horas restantes -> "Te quedan 36 h para confirmar"
+ * - 1 hora restante -> "Te queda 1 h para confirmar"
+ */
+export function formatReceiverConfirmationDeadline(
+  deadlineIso: string | null | undefined,
+  now: Date = new Date(),
+): string | null {
+  if (!deadlineIso) return null;
+  const deadlineDate = new Date(deadlineIso);
+  const timeMs = deadlineDate.getTime();
+  if (Number.isNaN(timeMs)) return null;
+
+  const diffMs = timeMs - now.getTime();
+  if (diffMs <= 0) return null;
+
+  const hours = Math.ceil(diffMs / (1000 * 60 * 60));
+  if (hours <= 0) return null;
+  if (hours === 1) return "Te queda 1 h para confirmar";
+  return `Te quedan ${hours} h para confirmar`;
+}
+

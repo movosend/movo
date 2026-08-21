@@ -8,7 +8,7 @@ import { ApiError, type ApiErrorCode } from "@movo/shared/dist/errors/api-error"
  * contrato, sumar acá su traducción.
  */
 const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
-  AUTH_INVALID_CREDENTIALS: "El email o la contraseña no son correctos.",
+  AUTH_INVALID_CREDENTIALS: "El teléfono o la contraseña no son correctos.",
   AUTH_TOKEN_EXPIRED: "Tu sesión expiró. Iniciá sesión de nuevo.",
   AUTH_TOKEN_INVALID: "Tu sesión no es válida. Iniciá sesión de nuevo.",
   AUTH_FORBIDDEN: "No tenés permiso para hacer esto.",
