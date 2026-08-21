@@ -80,6 +80,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const usersRouteOpts: UsersRoutesOptions = {
     prefix: "/users",
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    // MOVO-133: cambio de teléfono/email reusa el motor de OTP -- mismo override que
+    // ya usa authRouteOpts para tests de integración.
+    ...(opts.smsProvider ? { smsProvider: opts.smsProvider } : {}),
   };
   app.register(usersRoutes, usersRouteOpts);
 
