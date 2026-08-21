@@ -2,6 +2,7 @@ import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import {
   formatEventTimestamp,
   formatPickupWindowLabel,
+  formatReceiverConfirmationDeadline,
   formatShipmentPrice,
   receiverConfirmationStatus,
   remainingLifecycleSteps,
@@ -188,3 +189,37 @@ describe("shipmentPendingStepLabel", () => {
     expect(shipmentPendingStepLabel(ShipmentStatus.DELIVERED)).toBe("Entrega al receptor");
   });
 });
+
+describe("formatReceiverConfirmationDeadline", () => {
+  it("devuelve null si no hay deadline o es inválido", () => {
+    expect(formatReceiverConfirmationDeadline(null)).toBeNull();
+    expect(formatReceiverConfirmationDeadline(undefined)).toBeNull();
+    expect(formatReceiverConfirmationDeadline("")).toBeNull();
+    expect(formatReceiverConfirmationDeadline("fecha-invalida")).toBeNull();
+  });
+
+  it("devuelve null si el plazo ya venció", () => {
+    const deadline = "2026-08-20T12:00:00.000Z";
+    const now = new Date("2026-08-20T13:00:00.000Z");
+    expect(formatReceiverConfirmationDeadline(deadline, now)).toBeNull();
+  });
+
+  it("formatea el plazo en plural para más de 1 hora", () => {
+    const deadline = "2026-08-22T00:00:00.000Z";
+    const now = new Date("2026-08-20T12:00:00.000Z"); // 36 horas
+    expect(formatReceiverConfirmationDeadline(deadline, now)).toBe("Te quedan 36 h para confirmar");
+  });
+
+  it("formatea el plazo en singular para 1 hora", () => {
+    const deadline = "2026-08-20T13:00:00.000Z";
+    const now = new Date("2026-08-20T12:00:00.000Z"); // 1 hora
+    expect(formatReceiverConfirmationDeadline(deadline, now)).toBe("Te queda 1 h para confirmar");
+  });
+
+  it("redondea hacia arriba fracciones de hora", () => {
+    const deadline = "2026-08-20T12:30:00.000Z";
+    const now = new Date("2026-08-20T12:00:00.000Z"); // 30 min -> 1 h
+    expect(formatReceiverConfirmationDeadline(deadline, now)).toBe("Te queda 1 h para confirmar");
+  });
+});
+
