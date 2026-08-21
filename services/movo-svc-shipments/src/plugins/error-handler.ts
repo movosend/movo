@@ -43,9 +43,9 @@ export default fp(async (app: FastifyInstance) => {
     }
 
     // Mismo gap que InsufficientCreationPhotosError arriba, encontrado al implementar
-    // MOVO-29/MOVO-108: sin este caso, cancelar un envío en un estado sin salida hacia
-    // `cancelled` (ya entregado, ya cancelado, etc.) tiraba un 500 genérico en vez de
-    // un 409 explícito.
+    // MOVO-29/MOVO-108 (cancelar un envío en un estado sin salida hacia `cancelled`) y
+    // confirmado de nuevo por MOVO-129 (doble tap, cancelado, ya aceptado/rechazado):
+    // sin este caso tiraba un 500 genérico en vez de un 409 explícito.
     if (error instanceof InvalidShipmentTransitionError) {
       const apiError = new ApiError(409, "SHIPMENT_INVALID_TRANSITION", error.message);
       reply.code(apiError.statusCode).send({

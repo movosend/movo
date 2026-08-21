@@ -38,22 +38,22 @@ const RECEIVER_CONFIRMATION_META: Record<
 
 export interface CounterpartCardProps {
   userId: string;
-  /** Solo para el receptor (AC7 de MOVO-127, feedback post-QA): si el receptor
-   * todavía no confirmó, rechazó, o ya confirmó el envío — derivado de
+  /** Solo para el receptor cuando quien mira es el emisor (AC7 de MOVO-127, feedback post-QA):
+   * si el receptor todavía no confirmó, rechazó, o ya confirmó el envío — derivado de
    * `shipment.status` por el caller (`AWAITING_RECEIVER_CONFIRMATION`/
    * `REJECTED_BY_RECEIVER`/cualquier otro estado posterior), esta card no conoce el
-   * enum de estados del envío. `undefined` (transportista) no muestra nada. */
+   * enum de estados del envío. `undefined` (emisor o transportista) no muestra badge. */
   receiverConfirmation?: ReceiverConfirmationStatus;
-  /** Etiqueta de la sección ("Receptor"/"Transportista") — la card no la muestra, la
+  /** Etiqueta de la sección ("Emisor"/"Receptor"/"Transportista") — la card no la muestra, la
    * pinta el caller vía `Eyebrow` (mismo patrón que `RouteMapCard`/`PackageCard`, cada
    * card es solo el contenido, el título de sección vive afuera). */
   testID?: string;
 }
 
 /**
- * Card de contraparte del envío (AC7 de MOVO-127) — reusada tanto para el receptor
- * (`shipment.receiverId`, siempre presente) como el transportista
- * (`shipment.carrierId`, el caller directamente no la renderiza si es `null`, AC9).
+ * Card de contraparte del envío (AC7 de MOVO-127, MOVO-131) — reusada para el receptor
+ * (`shipment.receiverId`), el emisor (`shipment.senderId`, cuando el usuario es el
+ * receptor) y el transportista (`shipment.carrierId`, cuando existe).
  * Sin rating: `reputationScore` de `PublicProfile` es siempre `null` hoy (MOVO-25
  * pendiente), mostrar un "★ —" vacío sería peor que no mostrar nada.
  */

@@ -58,6 +58,7 @@ const shipmentResponse = {
     "status",
     "lastStatusChangedAt",
     "deliveredAt",
+    "receiverConfirmationDeadline",
     "createdAt",
     "updatedAt",
   ],
@@ -88,6 +89,7 @@ const shipmentResponse = {
     status: { type: "string" },
     lastStatusChangedAt: { type: ["string", "null"], format: "date-time" },
     deliveredAt: { type: ["string", "null"], format: "date-time" },
+    receiverConfirmationDeadline: { type: ["string", "null"], format: "date-time" },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
   },
@@ -167,6 +169,22 @@ export const shipmentsSchemas = {
     properties: {
       id: { type: "string", format: "uuid" },
     },
+  },
+
+  acceptShipmentBody: {
+    type: "object",
+    nullable: true,
+    properties: {},
+    additionalProperties: false,
+  },
+
+  rejectShipmentBody: {
+    type: "object",
+    nullable: true,
+    properties: {
+      reason: { type: "string", maxLength: 500 },
+    },
+    additionalProperties: false,
   },
 
   listMineQuery: {

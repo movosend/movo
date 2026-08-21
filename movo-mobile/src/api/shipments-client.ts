@@ -34,6 +34,7 @@ export interface ShipmentSummary {
   status: ShipmentStatus;
   lastStatusChangedAt: string | null;
   deliveredAt: string | null;
+  receiverConfirmationDeadline?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -184,5 +185,17 @@ export const shipmentsClient = {
    * definición (una entrada por transición de estado). */
   listEvents(shipmentId: string): Promise<ShipmentEvent[]> {
     return httpClient.get<ShipmentEvent[]>(`/shipments/${shipmentId}/events`);
+  },
+
+  /** `POST /shipments/:id/accept` (MOVO-129 / MOVO-131) — solo el receptor designado
+   * puede llamar a este endpoint en estado `awaiting_receiver_confirmation`. */
+  accept(shipmentId: string): Promise<ShipmentSummary> {
+    return httpClient.post<ShipmentSummary>(`/shipments/${shipmentId}/accept`, {});
+  },
+
+  /** `POST /shipments/:id/reject` (MOVO-129 / MOVO-131) — solo el receptor designado
+   * puede llamar a este endpoint en estado `awaiting_receiver_confirmation`. */
+  reject(shipmentId: string, body?: { reason?: string }): Promise<ShipmentSummary> {
+    return httpClient.post<ShipmentSummary>(`/shipments/${shipmentId}/reject`, body ?? {});
   },
 };

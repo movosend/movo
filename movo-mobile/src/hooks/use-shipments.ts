@@ -87,3 +87,40 @@ export function useShipmentEvents(id: string | undefined) {
     enabled: !!id,
   });
 }
+
+/**
+ * Acepta un envío como receptor (MOVO-131). En éxito invalida las listas de envíos y el
+ * detalle del envío para reflejar el estado `published`.
+ */
+export function useAcceptShipment() {
+  const queryClient = useQueryClient();
+  return useMutation<ShipmentSummary, unknown, { id: string }>({
+    mutationFn: ({ id }) => shipmentsClient.accept(id),
+    onSuccess: (data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["shipments", "mine"] });
+      queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "recent"] });
+      queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "list"] });
+      queryClient.invalidateQueries({ queryKey: ["shipments", "detail", id] });
+      queryClient.setQueryData(["shipments", "detail", id], data);
+    },
+  });
+}
+
+/**
+ * Rechaza un envío como receptor (MOVO-131). En éxito invalida las listas de envíos y el
+ * detalle del envío para reflejar el estado terminal `rejected_by_receiver`.
+ */
+export function useRejectShipment() {
+  const queryClient = useQueryClient();
+  return useMutation<ShipmentSummary, unknown, { id: string; reason?: string }>({
+    mutationFn: ({ id, reason }) => shipmentsClient.reject(id, reason ? { reason } : undefined),
+    onSuccess: (data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["shipments", "mine"] });
+      queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "recent"] });
+      queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "list"] });
+      queryClient.invalidateQueries({ queryKey: ["shipments", "detail", id] });
+      queryClient.setQueryData(["shipments", "detail", id], data);
+    },
+  });
+}
+

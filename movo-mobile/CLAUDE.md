@@ -433,6 +433,18 @@ Cada dropdown aplica al elegir una opción (sin botón "Aplicar" separado); un l
   destinatarios/estados disponibles es distinto por tab, un filtro que sobrevive al
   cambio podría apuntar a una opción que ya no existe en la tab nueva.
 
+### MOVO-131 — Vista de receptor en el detalle del envío: perfil del emisor y acciones de aceptar/rechazar (`movo-mobile`)
+
+Perspectiva del receptor sobre la pantalla de detalle de envío (`app/(app)/shipments/[id].tsx`, MOVO-127), resolviendo el frontend de MOVO-16 (AC3, AC4, AC7) sin bifurcar la pantalla en vistas separadas por rol.
+
+- **Detección dinámica de rol en `shipments/[id].tsx`**: compara `useAuthStore().user?.userId` con `shipment.receiverId` / `shipment.senderId`. Mirando como receptor, la sección de contraparte titula "Emisor" y muestra el perfil público de `shipment.senderId` (foto, nombre, insignia de verificado, reputación) mediante `CounterpartCard` + `usePublicProfile`, omitiendo el badge de confirmación (solo aplica cuando la contraparte es el receptor).
+- **`ReceiverActionsBar` nueva (`components/shipments/receiver-actions-bar.tsx`)**: barra de acciones fija al pie, mostrada únicamente cuando el usuario es el receptor y el envío está en `AWAITING_RECEIVER_CONFIRMATION`.
+  - **Aceptar envío**: CTA primaria con acento Signal Lime (`bg-lime-500`, texto oscuro), pide confirmación con diálogo nativo `Alert.alert` y ejecuta `POST /shipments/:id/accept`.
+  - **Rechazar**: botón secundario/destructivo que abre modal de confirmación con advertencia de irreversibilidad y campo opcional para motivo (`reason`, máx 500 caracteres, `POST /shipments/:id/reject`).
+  - **Deadline de confirmación**: calcula y muestra el tiempo restante en horas ("Te quedan 36 h para confirmar", "Te queda 1 h para confirmar") con formateo puro (`formatReceiverConfirmationDeadline` en `src/lib/shipment-format.ts`), degradando silenciosamente si no viene o ya expiró.
+  - **Bloqueo de doble tap y feedback de errores**: deshabilita ambos botones con spinners durante mutación en vuelo. Mapea `ApiError.statusCode` a mensajes específicos (409 → "Este envío ya no se puede confirmar" + refetch del detalle; 403 → "No sos el destinatario de este envío"; banner genérico para el resto).
+- **Mutaciones en `use-shipments.ts`**: `useAcceptShipment` y `useRejectShipment` (`POST /shipments/:id/accept` y `/reject` en `shipments-client.ts`) invalidan queries `["shipments", "mine"]`, `["shipments", "mine", "recent"]`, `["shipments", "mine", "list"]` y `["shipments", "detail", id]` actualizando la cache para reflejar el estado sin salir de la pantalla.
+
 ### Pendientes de este paquete
 
 - **`eas init`/development build real en dispositivo**: pendiente para probar de

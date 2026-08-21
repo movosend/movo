@@ -1,10 +1,11 @@
 import { ApiError, OfferStatus, ShipmentStatus, UserRole } from "@movo/shared";
+import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
-import { assertShipmentAccess } from "./assert-shipment-access";
+import { assertIsReceiver, assertShipmentAccess } from "./assert-shipment-access";
 
 export interface CreateShipmentServiceInput {
   senderId: string;
@@ -101,12 +102,81 @@ function toEpochTime(timeStr: string): Date {
   return new Date(`1970-01-01T${normalizeTime(timeStr)}.000Z`);
 }
 
+interface ReceiverDecisionPushParams {
+  shipment: Shipment;
+  callerId: string;
+  title: string;
+  bodyTemplate: (name: string) => string;
+  type: "shipment_accepted" | "shipment_rejected";
+}
+
+async function dispatchReceiverDecisionPush(
+  notificationsClient: NotificationsClient,
+  usersClient: UsersClient,
+  logger: FastifyBaseLogger | { info?: (obj: unknown, msg?: string) => void; warn: (obj: unknown, msg?: string) => void; error: (obj: unknown, msg?: string) => void } | undefined,
+  params: ReceiverDecisionPushParams
+): Promise<void> {
+  try {
+    const receiverProfile = await usersClient.findPublicProfile(params.callerId, params.callerId);
+    const receiverName = receiverProfile?.fullName ?? "El receptor";
+    await notificationsClient.sendPush({
+      userId: params.shipment.senderId,
+      title: params.title,
+      body: params.bodyTemplate(receiverName),
+      data: { shipmentId: params.shipment.id, type: params.type },
+    });
+  } catch (err) {
+    logger?.warn(
+      { err, event: "notification_dispatch_failed", shipmentId: params.shipment.id },
+      "No se pudo enviar la push de decisión del receptor"
+    );
+  }
+}
+
+async function dispatchReceiverTimeoutPush(
+  notificationsClient: NotificationsClient,
+  usersClient: UsersClient,
+  logger: FastifyBaseLogger | { info?: (obj: unknown, msg?: string) => void; warn: (obj: unknown, msg?: string) => void; error: (obj: unknown, msg?: string) => void } | undefined,
+  shipment: Shipment
+): Promise<void> {
+  try {
+    // El segundo argumento de findPublicProfile es el callerId (quien realiza la consulta).
+    // En este contexto el barrido actúa en nombre del emisor (senderId), que es quien
+    // recibe la notificación y tiene relación directa con el envío — mismo criterio que
+    // dispatchReceiverDecisionPush, donde el callerId es el receptor que tomó la decisión.
+    const receiverProfile = await usersClient.findPublicProfile(shipment.receiverId, shipment.senderId);
+    const receiverName = receiverProfile?.fullName ?? "El receptor";
+    await notificationsClient.sendPush({
+      userId: shipment.senderId,
+      title: "Envío cancelado",
+      body: `Tu envío se canceló: ${receiverName} no lo confirmó a tiempo`,
+      data: { shipmentId: shipment.id, type: "shipment_cancelled" },
+    });
+  } catch (err) {
+    logger?.warn(
+      { err, event: "notification_dispatch_failed", shipmentId: shipment.id },
+      "No se pudo enviar la push de cancelación por timeout al emisor"
+    );
+  }
+}
+
+export interface ShipmentsServiceOptions {
+  receiverConfirmationTimeoutHours?: number;
+  /** Requerido solo para `cancelShipment` (AC7 de MOVO-108, notificar ofertas
+   * pendientes) — el barrido de MOVO-130 no lo necesita, nunca cancela por esa vía. */
+  offerRepository?: OfferRepository;
+}
+
 export function createShipmentsService(
   repository: ShipmentRepository,
   usersClient: UsersClient,
-  offerRepository: OfferRepository,
-  notificationsClient: NotificationsClient
+  notificationsClient?: NotificationsClient,
+  logger?: FastifyBaseLogger | { info: (obj: unknown, msg?: string) => void; warn: (obj: unknown, msg?: string) => void; error: (obj: unknown, msg?: string) => void },
+  opts: ShipmentsServiceOptions = {}
 ) {
+  const timeoutHours = opts.receiverConfirmationTimeoutHours ?? 48;
+  const offerRepository = opts.offerRepository;
+
   return {
     async createShipment(input: CreateShipmentServiceInput): Promise<Shipment> {
       // AC4 — auto-designación, primero por ser el chequeo más barato (sin I/O).
@@ -161,6 +231,9 @@ export function createShipmentsService(
 
       const suggestedPriceArs = computePlaceholderPrice(input.weightKg, pickupDeliveryDistanceKm);
 
+      // MOVO-130 AC1: deadline de confirmación = createdAt (ahora) + RECEIVER_CONFIRMATION_TIMEOUT_HOURS.
+      const receiverConfirmationDeadline = new Date(Date.now() + timeoutHours * 60 * 60 * 1000);
+
       const created = await repository.create({
         senderId: input.senderId,
         receiverId: input.receiverId,
@@ -180,21 +253,28 @@ export function createShipmentsService(
         pickupTimeWindowStart: toEpochTime(input.pickupTimeWindowStart),
         pickupTimeWindowEnd: toEpochTime(input.pickupTimeWindowEnd),
         suggestedPriceArs,
+        receiverConfirmationDeadline,
       });
 
       // AC1/AC5 de MOVO-108: best-effort, nunca bloquea la creación ya confirmada.
-      // notifications-client.ts ya atrapa y loguea cualquier fallo internamente y no
-      // debería rechazar nunca -- este try/catch es defensa en profundidad, no la
-      // garantía principal (ver notifications-client.ts).
-      try {
-        await notificationsClient.sendPush({
-          userId: created.receiverId,
-          title: "Tenés un envío nuevo para confirmar",
-          body: "Alguien te agregó como receptor de un envío. Revisalo en la app.",
-          data: { type: "shipment", shipmentId: created.id },
-        });
-      } catch {
-        // swallow — ver comentario arriba.
+      // El cliente puede rechazar (notifications-client.ts) -- mismo patrón caller-side
+      // try/catch+log que dispatchReceiverDecisionPush (MOVO-129), pero acá sí se espera
+      // (no fire-and-forget): no hay razón de negocio para no esperar el intento antes
+      // de responder, a diferencia de accept/reject donde la latencia extra no aporta.
+      if (notificationsClient) {
+        try {
+          await notificationsClient.sendPush({
+            userId: created.receiverId,
+            title: "Tenés un envío nuevo para confirmar",
+            body: "Alguien te agregó como receptor de un envío. Revisalo en la app.",
+            data: { type: "shipment", shipmentId: created.id },
+          });
+        } catch (err) {
+          logger?.warn(
+            { err, event: "notification_dispatch_failed", shipmentId: created.id },
+            "No se pudo notificar al receptor sobre el envío nuevo"
+          );
+        }
       }
 
       return created;
@@ -218,6 +298,84 @@ export function createShipmentsService(
 
       assertShipmentAccess(shipment, callerId, callerRoles);
       return repository.listEvents(shipmentId);
+    },
+
+    async acceptShipment(shipmentId: string, callerId: string): Promise<Shipment> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+
+      assertIsReceiver(shipment, callerId);
+
+      // MOVO-130 AC5: si la deadline venció, 409 aunque el barrido todavía no haya corrido
+      if (
+        shipment.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION &&
+        shipment.receiverConfirmationDeadline &&
+        shipment.receiverConfirmationDeadline < new Date()
+      ) {
+        throw new ApiError(
+          409,
+          "SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED",
+          "El plazo para que el receptor confirme o rechace este envío ha expirado."
+        );
+      }
+
+      const updated = await repository.updateStatus(shipmentId, ShipmentStatus.PUBLISHED, callerId);
+
+      // Best-effort push notification al emisor (AC9 de MOVO-129): deliberadamente
+      // sin await -- el estado ya está commiteado y la push no debe agregar latencia
+      // ni poder hacer fallar la respuesta.
+      if (notificationsClient) {
+        void dispatchReceiverDecisionPush(notificationsClient, usersClient, logger, {
+          shipment,
+          callerId,
+          title: "Envío aceptado",
+          bodyTemplate: (name) => `${name} aceptó el envío, ya está publicado`,
+          type: "shipment_accepted",
+        });
+      }
+
+      return updated;
+    },
+
+    async rejectShipment(shipmentId: string, callerId: string, reason?: string): Promise<Shipment> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+
+      assertIsReceiver(shipment, callerId);
+
+      // MOVO-130 AC5: si la deadline venció, 409 aunque el barrido todavía no haya corrido
+      if (
+        shipment.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION &&
+        shipment.receiverConfirmationDeadline &&
+        shipment.receiverConfirmationDeadline < new Date()
+      ) {
+        throw new ApiError(
+          409,
+          "SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED",
+          "El plazo para que el receptor confirme o rechace este envío ha expirado."
+        );
+      }
+
+      const updated = await repository.updateStatus(shipmentId, ShipmentStatus.REJECTED_BY_RECEIVER, callerId, reason);
+
+      // Best-effort push notification al emisor (AC8 de MOVO-129): deliberadamente
+      // sin await -- el estado ya está commiteado y la push no debe agregar latencia
+      // ni poder hacer fallar la respuesta.
+      if (notificationsClient) {
+        void dispatchReceiverDecisionPush(notificationsClient, usersClient, logger, {
+          shipment,
+          callerId,
+          title: "Envío rechazado",
+          bodyTemplate: (name) => `${name} rechazó el envío`,
+          type: "shipment_rejected",
+        });
+      }
+
+      return updated;
     },
 
     async listMyShipments(userId: string, page: number, limit: number): Promise<ListMineResult> {
@@ -265,11 +423,18 @@ export function createShipmentsService(
       // `pending` colgando (desde `awaiting_receiver_confirmation` el envío ni
       // publicado está, no puede tener ofertas).
       if (previousStatus === ShipmentStatus.PUBLISHED || previousStatus === ShipmentStatus.ASSIGNMENT_PENDING) {
+        if (!offerRepository) {
+          throw new Error("cancelShipment requiere offerRepository (ShipmentsServiceOptions) para notificar ofertas pendientes.");
+        }
+
         const offers = await offerRepository.listByShipment(shipmentId);
         const pendingOffers = offers.filter((offer) => offer.status === OfferStatus.PENDING);
 
         await Promise.all(
           pendingOffers.map(async (offer) => {
+            if (!notificationsClient) {
+              return;
+            }
             try {
               await notificationsClient.sendPush({
                 userId: offer.carrierId,
@@ -277,14 +442,64 @@ export function createShipmentsService(
                 body: "El envío ya no está disponible.",
                 data: { type: "shipment", shipmentId },
               });
-            } catch {
-              // swallow — mismo criterio de defensa en profundidad que en createShipment.
+            } catch (err) {
+              logger?.warn(
+                { err, event: "notification_dispatch_failed", shipmentId, carrierId: offer.carrierId },
+                "No se pudo notificar al transportista sobre la cancelación del envío"
+              );
             }
           })
         );
       }
 
       return cancelled;
+    },
+
+    /**
+     * MOVO-130 AC3/AC4: Barrido periódico de envíos no confirmados por el receptor.
+     * Transiciona a cancelled en lotes y envía notificación push al emisor (best-effort).
+     */
+    async expireOverdueShipments(batchSize = 100): Promise<{ expiredCount: number; errorsCount: number }> {
+      const now = new Date();
+      const overdueShipments = await repository.findExpiredAwaitingConfirmation(now, batchSize);
+      let expiredCount = 0;
+      let errorsCount = 0;
+
+      for (const shipment of overdueShipments) {
+        try {
+          await repository.updateStatus(
+            shipment.id,
+            ShipmentStatus.CANCELLED,
+            null,
+            "El receptor no confirmó dentro del plazo"
+          );
+          expiredCount++;
+
+          if (notificationsClient) {
+            void dispatchReceiverTimeoutPush(notificationsClient, usersClient, logger, shipment);
+          }
+        } catch (err) {
+          errorsCount++;
+          logger?.error(
+            { err, shipmentId: shipment.id, event: "receiver_confirmation_sweep_error" },
+            "Error al expirar envío no confirmado en barrido"
+          );
+        }
+      }
+
+      if (overdueShipments.length > 0) {
+        logger?.info(
+          {
+            event: "receiver_confirmation_sweep",
+            totalFound: overdueShipments.length,
+            expiredCount,
+            errorsCount,
+          },
+          `Barrido de confirmación de receptor finalizado: ${expiredCount} expirados, ${errorsCount} fallos`
+        );
+      }
+
+      return { expiredCount, errorsCount };
     },
   };
 }

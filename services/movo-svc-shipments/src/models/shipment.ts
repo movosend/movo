@@ -38,6 +38,7 @@ export interface Shipment {
   status: ShipmentStatus;
   lastStatusChangedAt: Date | null;
   deliveredAt: Date | null;
+  receiverConfirmationDeadline: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -62,6 +63,7 @@ export interface CreateShipmentInput {
   pickupTimeWindowStart: Date;
   pickupTimeWindowEnd: Date;
   suggestedPriceArs: number;
+  receiverConfirmationDeadline?: Date | null;
 }
 
 export interface ShipmentEvent {

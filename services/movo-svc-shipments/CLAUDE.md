@@ -262,6 +262,79 @@ Pendiente / fuera de alcance: liberación del hold de MercadoPago y cancelación
 penalización desde `assigned` (bloqueadas por `svc-payments`, ver arriba); AC2/AC3 de
 MOVO-108 (ver comentarios en MOVO-23/MOVO-17).
 
+### MOVO-129 — Endpoints de aceptación y rechazo del envío por el receptor (`svc-shipments`)
+
+`POST /shipments/:id/accept` y `POST /shipments/:id/reject` (backend de MOVO-16) permiten
+al receptor confirmar un envío (transición a `published`) o rechazarlo (transición a
+`rejected_by_receiver`, terminal).
+
+Decisiones clave:
+- **Autorización estricta al receptor (`assertIsReceiver`)**: solo `shipment.receiverId`
+  puede aceptar o rechazar (403 `AUTH_FORBIDDEN` para el emisor, admin o terceros).
+  Ubicada en `assert-shipment-access.ts` junto a `assertShipmentAccess`.
+- **Mapeo de error de transiciones inválidas**: `InvalidShipmentTransitionError` se mapea
+  a HTTP 409 con el código `SHIPMENT_INVALID_TRANSITION` en `@movo/shared` y en
+  `error-handler.ts` (cubre doble tap, envíos ya cancelados o ya rechazados).
+- **Push notifications best-effort y no bloqueantes al emisor**: `NotificationsClient`
+  (`src/adapters/notifications-client.ts`) invoca internamente a `POST /internal/notifications/push`
+  en `movo-svc-users`. El despacho (`dispatchReceiverDecisionPush`) se realiza en modo
+  fire-and-forget (sin `await` en el handler) para no sumar latencia ni riesgo de timeout
+  a la respuesta HTTP. Si falla o hace timeout, se loguea `notification_dispatch_failed`.
+- **Receptor no edita campos del envío (AC7)**: el body de `/accept` (`acceptShipmentBody`,
+  `additionalProperties: false`) no admite campos y el de `/reject` solo admite
+  `{ reason?: string }` (persistido en `shipment_events.reason`). Ojo: Fastify trae
+  `removeAdditional: true` como default de AJV, así que los campos de más se **descartan
+  en silencio** en vez de devolver 400 — el AC se cumple igual (no llegan al envío
+  persistido) y el test lo verifica así, pero no esperes un `VALIDATION_FAILED`. Cambiar
+  eso requiere `ajv.customOptions.removeAdditional: false`, que aplica a todos los
+  endpoints del servicio y es una decisión de convención pendiente, no un ajuste local.
+- **Body vacío con `content-type: application/json`**: el parser JSON por defecto de
+  Fastify falla con `FST_ERR_CTP_EMPTY_JSON_BODY` (400) antes de la validación de schema,
+  así que declarar el body como `nullable: true` **no alcanza**. `app.ts` registra un
+  `addContentTypeParser` que mapea el body vacío a `null` y el JSON inválido a un
+  `ApiError(400, VALIDATION_FAILED)` (un `Error` suelto caería al 500 genérico del
+  error handler). Aplica a todo el servicio, no solo a los endpoints del receptor.
+
+### MOVO-130 — Expiración automática del envío no confirmado por el receptor (`svc-shipments`)
+
+Expiración automática por timeout de envíos en `awaiting_receiver_confirmation` (AC6 de MOVO-16).
+Persiste `receiver_confirmation_deadline` (`createdAt + RECEIVER_CONFIRMATION_TIMEOUT_HOURS`, default 48h),
+lo expone en DTOs para el mobile (MOVO-131), valida deadline vencida en `POST /accept` y `POST /reject` (HTTP 409
+`SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED`), y ejecuta un barrido periódico asíncrono en segundo plano vía plugin de
+Fastify con `setInterval` y lock distribuido en Redis.
+
+Decisiones clave:
+- **Columna nullable `receiver_confirmation_deadline`**: `timestamptz` en `shipments.shipments` (migración
+  `20260820120000_add_receiver_confirmation_deadline`). Los envíos preexistentes quedan en `NULL` y no expiran
+  (backfill explícitamente descartado).
+- **Validación anticipada de deadline en `/accept` y `/reject` (AC5)**: la deadline manda sobre el reloj del job; si el
+  plazo ya venció, responde 409 `SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED` inmediatamente aunque el barrido periódico
+  todavía no haya corrido.
+- **Barrido como plugin de Fastify con `setInterval` y Redis lock**: sin infra de cron/jobs separada (ADR-006). Adquiere
+  lock `locks:receiver-confirmation-sweep` en Redis con TTL del 80% del intervalo antes de cada corrida para evitar
+  duplicación en caso de múltiples réplicas. Procesa en lotes (100 por corrida) y transiciona a `cancelled` con `actorId: null`
+  y reason `"El receptor no confirmó dentro del plazo"`.
+- **Notificación push best-effort al emisor**: envía push (`"Tu envío se canceló: {Nombre} no lo confirmó a tiempo"`)
+  tras la cancelación sin frenar el procesamiento si falla.
+- **Configuración**: `RECEIVER_CONFIRMATION_TIMEOUT_HOURS` (default 48), `RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES` (default 15)
+  y `RECEIVER_CONFIRMATION_SWEEP_ENABLED` (default true, desactivable en tests/CI).
+- **Índice compuesto descartado**: con el volumen de envíos del PF el índice `shipments_status_idx` existente
+  alcanza para la consulta del barrido; el costo de mantener un índice adicional no se justifica. Si el volumen
+  creciera, el candidato sería `(status, receiver_confirmation_deadline)`.
+
+**Merge MOVO-108 ↔ MOVO-129/130 (`develop`)**: ambos ramas habían escrito
+`notifications-client.ts` en paralelo con contratos distintos — MOVO-108 lo hacía
+best-effort *adentro* del cliente (nunca rechaza, loguea internamente); MOVO-129/130 lo
+dejaban rechazar y resolvían el best-effort en cada caller. Se unificó al segundo
+criterio (ya usado por 3 sitios de llamada en `develop` contra 2 de MOVO-108) — los dos
+sitios de MOVO-108 (`createShipment`, `cancelShipment`) se adaptaron al mismo patrón
+try/catch + `logger?.warn` que ya usaban `acceptShipment`/`rejectShipment`/
+`expireOverdueShipments`. `createShipmentsService()` también cambió de firma:
+`offerRepository` (que solo necesita `cancelShipment`) pasó a viajar en
+`ShipmentsServiceOptions.offerRepository` en vez de como parámetro posicional propio,
+para no romper la firma `(repository, usersClient, notificationsClient?, logger?, opts)`
+que ya usaban `acceptShipment`/`rejectShipment`/el barrido de MOVO-130.
+
 ### Pendientes de este servicio
 
 - **MOVO-118**: arreglar el TOCTOU de `shipment-repository.ts#updateStatus()`

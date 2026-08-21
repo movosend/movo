@@ -179,6 +179,24 @@ describe("shipment-repository (Postgres)", () => {
       const updated = await repo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null);
       expect(updated.status).toBe(ShipmentStatus.PUBLISHED);
     });
+
+    it("persiste un evento con actorId null y el reason esperado al cancelar por expiración de plazo", async () => {
+      const created = await repo.create(baseInput);
+      const reason = "El receptor no confirmó dentro del plazo";
+
+      const updated = await repo.updateStatus(created.id, ShipmentStatus.CANCELLED, null, reason);
+
+      expect(updated.status).toBe(ShipmentStatus.CANCELLED);
+
+      const events = await repo.listEvents(created.id);
+      expect(events).toHaveLength(2);
+      expect(events[1]).toMatchObject({
+        fromStatus: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+        toStatus: ShipmentStatus.CANCELLED,
+        actorId: null,
+        reason,
+      });
+    });
   });
 
   describe("addPhoto / listPhotos", () => {
@@ -233,6 +251,53 @@ describe("shipment-repository (Postgres)", () => {
       const { items, total } = await repo.listByUser(randomUUID(), 1, 20);
       expect(items).toEqual([]);
       expect(total).toBe(0);
+    });
+  });
+
+  describe("findExpiredAwaitingConfirmation", () => {
+    it("encuentra envíos awaiting_receiver_confirmation con deadline vencida y los ordena ascendentemente", async () => {
+      const now = new Date();
+      const past1 = new Date(now.getTime() - 60_000);
+      const past2 = new Date(now.getTime() - 120_000);
+      const future = new Date(now.getTime() + 60_000);
+
+      const expiredOlder = await repo.create({ ...baseInput, receiverConfirmationDeadline: past2 });
+      const expiredNewer = await repo.create({ ...baseInput, receiverConfirmationDeadline: past1 });
+      // Futuro: no debe aparecer
+      await repo.create({ ...baseInput, receiverConfirmationDeadline: future });
+      // Sin deadline (NULL): no debe aparecer
+      await repo.create(baseInput);
+
+      const result = await repo.findExpiredAwaitingConfirmation(now, 10);
+
+      expect(result).toHaveLength(2);
+      expect(result.map((s) => s.id)).toEqual([expiredOlder.id, expiredNewer.id]);
+    });
+
+    it("ignora envíos que ya no están en awaiting_receiver_confirmation aunque su deadline esté vencida", async () => {
+      const now = new Date();
+      const past = new Date(now.getTime() - 60_000);
+
+      const publishedShipment = await repo.create({ ...baseInput, receiverConfirmationDeadline: past });
+      await addTwoCreationPhotos(publishedShipment.id);
+      await repo.updateStatus(publishedShipment.id, ShipmentStatus.PUBLISHED, randomUUID());
+
+      const rejectedShipment = await repo.create({ ...baseInput, receiverConfirmationDeadline: past });
+      await repo.updateStatus(rejectedShipment.id, ShipmentStatus.REJECTED_BY_RECEIVER, randomUUID(), "rechazado");
+
+      const result = await repo.findExpiredAwaitingConfirmation(now, 10);
+      expect(result).toEqual([]);
+    });
+
+    it("respeta el límite de elementos (limit)", async () => {
+      const now = new Date();
+      const past = new Date(now.getTime() - 60_000);
+
+      await repo.create({ ...baseInput, receiverConfirmationDeadline: new Date(past.getTime() - 2000) });
+      await repo.create({ ...baseInput, receiverConfirmationDeadline: new Date(past.getTime() - 1000) });
+
+      const result = await repo.findExpiredAwaitingConfirmation(now, 1);
+      expect(result).toHaveLength(1);
     });
   });
 });

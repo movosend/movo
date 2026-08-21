@@ -18,11 +18,24 @@ jest.mock("expo-router", () => ({
 }));
 
 const mockUseShipment = jest.fn();
+const mockAcceptMutation = { mutateAsync: jest.fn(), isPending: false };
+const mockRejectMutation = { mutateAsync: jest.fn(), isPending: false };
+
 jest.mock("../src/hooks/use-shipments", () => ({
   useShipment: () => mockUseShipment(),
   useShipmentPhotos: () => ({ data: [], isLoading: false }),
   useShipmentRoute: () => ({ data: undefined }),
   useShipmentEvents: () => ({ data: [], isLoading: false, isError: false, refetch: jest.fn() }),
+  useAcceptShipment: () => mockAcceptMutation,
+  useRejectShipment: () => mockRejectMutation,
+}));
+
+const mockCurrentUser = jest.fn();
+jest.mock("../src/store/auth-store", () => ({
+  useAuthStore: (selector?: (state: { user: { userId: string } | null }) => unknown) => {
+    const state = { user: mockCurrentUser() };
+    return typeof selector === "function" ? selector(state) : state;
+  },
 }));
 
 // `RouteMapCard` usa `useFrameCallback` de `react-native-reanimated` para el barrido
@@ -35,10 +48,10 @@ jest.mock("../components/send/route-map-card", () => {
 });
 
 jest.mock("../src/hooks/use-profile", () => ({
-  usePublicProfile: () => ({
+  usePublicProfile: (userId: string) => ({
     data: {
-      id: "receiver-1",
-      fullName: "Marta González",
+      id: userId,
+      fullName: userId === "user-1" ? "Pedro Emisor" : "Tomás Olmos",
       photoUrl: null,
       isVerified: true,
       badges: ["kyc_verified"],
@@ -85,7 +98,10 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
 }
 
 describe("ShipmentDetailScreen", () => {
-  beforeEach(() => mockCanGoBack.mockReturnValue(true));
+  beforeEach(() => {
+    mockCanGoBack.mockReturnValue(true);
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+  });
   afterEach(() => jest.clearAllMocks());
 
   it("muestra el skeleton con la forma de la pantalla mientras el fetch está pendiente", async () => {
@@ -125,7 +141,7 @@ describe("ShipmentDetailScreen", () => {
     expect(getByText("Este envío no existe.")).toBeTruthy();
   });
 
-  it("renderiza el mapa de ruta, el paquete, el precio y el receptor de un envío propio", async () => {
+  it("renderiza el mapa de ruta, el paquete, el precio y el receptor de un envío propio (mirando como emisor)", async () => {
     mockUseShipment.mockReturnValue({
       isLoading: false,
       isError: false,
@@ -138,11 +154,79 @@ describe("ShipmentDetailScreen", () => {
 
     expect(getByTestId("shipment-detail-route-map")).toBeTruthy();
     expect(getByTestId("shipment-detail-package")).toBeTruthy();
-    expect(getByText("Marta González")).toBeTruthy();
+    expect(getByText("Receptor")).toBeTruthy();
+    expect(getByTestId("shipment-detail-receiver")).toBeTruthy();
+    expect(getByText("Tomás Olmos")).toBeTruthy();
     expect(getByText("$4.500")).toBeTruthy();
     expect(queryByTestId("shipment-detail-carrier")).toBeNull();
+    expect(queryByTestId("shipment-detail-receiver-actions")).toBeNull();
     // Feedback post-QA: sin CTA de "Volver a Inicio" al pie de la pantalla.
     expect(queryByText("Volver a Inicio")).toBeNull();
+  });
+
+  it("mirando como receptor, muestra la card del emisor como contraparte (AC1/AC3 de MOVO-131)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({ status: ShipmentStatus.PUBLISHED }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId, getByText, queryByTestId, queryByText } = await render(<ShipmentDetailScreen />);
+
+    expect(getByText("Emisor")).toBeTruthy();
+    expect(getByTestId("shipment-detail-sender")).toBeTruthy();
+    expect(getByText("Pedro Emisor")).toBeTruthy();
+    expect(queryByTestId("shipment-detail-receiver")).toBeNull();
+    expect(queryByText("Pend. de aceptar")).toBeNull();
+    expect(queryByText("Aceptó el envío")).toBeNull();
+  });
+
+  it("mirando como receptor en awaiting_receiver_confirmation, muestra la barra de acciones (AC4 de MOVO-131)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({ status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-receiver-actions")).toBeTruthy();
+  });
+
+  it("mirando como emisor en awaiting_receiver_confirmation, NO muestra la barra de acciones", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({ status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-receiver-actions")).toBeNull();
+  });
+
+  it("mirando como receptor en estado publicado u otro posterior, NO muestra la barra de acciones", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({ status: ShipmentStatus.PUBLISHED }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-receiver-actions")).toBeNull();
   });
 
   it("muestra la card de transportista solo cuando el envío ya tiene uno asignado", async () => {
@@ -285,3 +369,4 @@ describe("ShipmentDetailScreen", () => {
     expect(mockRouterBack).not.toHaveBeenCalled();
   });
 });
+
