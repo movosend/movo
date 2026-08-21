@@ -232,10 +232,11 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         // el único otro lugar del servicio que toca esa columna, y el que
         // CLAUDE.md/MOVO-104 documentan como "la única vía de escritura".
         // No se enruta a través de ese repositorio porque updateStatus()
-        // no ofrece bloqueo optimista (hace un UPDATE incondicional después
-        // de un findUnique previo, el TOCTOU de MOVO-118) — perderíamos
-        // justo el mecanismo que resuelve AC9. En cambio, se valida acá la
-        // transición contra el mismo grafo canónico
+        // abre su propia `$transaction` (MOVO-118 le sumó compare-and-swap,
+        // pero sigue siendo una transacción propia) — no se puede anidar
+        // dentro de la transacción única que necesita este método para que
+        // shipment+offer+evento sean atómicos entre sí. En cambio, se valida
+        // acá la transición contra el mismo grafo canónico
         // (shipment-state-machine.ts) antes de ejecutar el UPDATE: si el
         // grafo cambia (se agrega una guarda, se restringe esta arista),
         // esto lanza InvalidShipmentTransitionError en vez de seguir

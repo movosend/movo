@@ -3,6 +3,7 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ApiError, ApiErrorCode } from "@movo/shared";
 import { randomUUID } from "node:crypto";
 import { InsufficientCreationPhotosError, InvalidShipmentTransitionError } from "../domain/shipment-state-machine";
+import { ShipmentConcurrentModificationError } from "../repositories/shipment-repository";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -46,6 +47,18 @@ export default fp(async (app: FastifyInstance) => {
     // a 409 con SHIPMENT_INVALID_TRANSITION.
     if (error instanceof InvalidShipmentTransitionError) {
       const apiError = new ApiError(409, "SHIPMENT_INVALID_TRANSITION", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    // MOVO-118: el compare-and-swap de updateStatus() perdió la carrera
+    // contra otra transición concurrente sobre el mismo envío — 409 en vez
+    // de dejarlo caer al 500 genérico de abajo.
+    if (error instanceof ShipmentConcurrentModificationError) {
+      const apiError = new ApiError(409, "SHIPMENT_CONCURRENT_MODIFICATION", error.message);
       reply.code(apiError.statusCode).send({
         ...apiError.toJSON(),
         requestId,
