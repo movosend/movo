@@ -3,6 +3,7 @@ import { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
 import { SmsProvider } from "../src/adapters/sms-provider";
 import { ShipmentsClient } from "../src/adapters/shipments-client";
+import { createMockStorageProvider, MockStorageProvider } from "../src/adapters/mock-storage-provider";
 import { createUserRepository } from "../src/repositories/user-repository";
 
 function createCaptorSmsProvider() {
@@ -39,6 +40,7 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
   let app: FastifyInstance;
   let captor: ReturnType<typeof createCaptorSmsProvider>;
   let shipmentsFake: ReturnType<typeof createFakeShipmentsClient>;
+  let storage: MockStorageProvider;
 
   const validRegisterPayload = {
     fullName: "Tomas Olmos",
@@ -63,7 +65,8 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
     captor = createCaptorSmsProvider();
     shipmentsFake = createFakeShipmentsClient();
-    app = buildApp({ smsProvider: captor.provider, shipmentsClient: shipmentsFake.client });
+    storage = createMockStorageProvider();
+    app = buildApp({ smsProvider: captor.provider, shipmentsClient: shipmentsFake.client, storageProvider: storage });
     await app.ready();
   });
 
@@ -288,6 +291,55 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
       expect(loginAttempt.statusCode).toBe(401);
     });
 
+    it("AC4: borra la foto de perfil de S3 al dar de baja la cuenta", async () => {
+      const { userId } = await registerFixtureUser();
+
+      const uploadUrlResponse = await app.inject({
+        method: "POST",
+        url: "/users/me/photo/upload-url",
+        headers: { "x-user-id": userId },
+        payload: { contentType: "image/jpeg", contentLength: 1024 },
+      });
+      const { objectKey } = JSON.parse(uploadUrlResponse.body) as { objectKey: string };
+      storage.__simulateUpload(objectKey, { contentType: "image/jpeg", contentLength: 1024 });
+      const confirmResponse = await app.inject({
+        method: "PUT",
+        url: "/users/me/photo",
+        headers: { "x-user-id": userId },
+        payload: { objectKey },
+      });
+      expect(confirmResponse.statusCode).toBe(200);
+      expect((await storage.headObject(objectKey)).exists).toBe(true);
+
+      const deleteResponse = await app.inject({
+        method: "DELETE",
+        url: "/users/me",
+        headers: { "x-user-id": userId },
+        payload: { password: "Password1" },
+      });
+      expect(deleteResponse.statusCode).toBe(204);
+
+      expect((await storage.headObject(objectKey)).exists).toBe(false);
+    });
+
+    it("AC9 (regresión): login sobre una cuenta deleted (status seteado directo, sin pasar por esta baja) sigue devolviendo 403", async () => {
+      // Caso distinto del de arriba a propósito: acá el teléfono/email NO cambian
+      // (ej. una baja administrativa futura que no anonimiza) -- ejercita el chequeo
+      // de `login()` (MOVO-74) que sigue sin tocarse en este ticket, no el 401 de
+      // "teléfono inexistente" que deja la anonimización de esta US.
+      const { userId } = await registerFixtureUser();
+      await app.db.user.update({ where: { id: userId }, data: { status: "deleted" } });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/auth/login",
+        payload: { phone: validRegisterPayload.phone, password: "Password1" },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(JSON.parse(response.body).error.code).toBe("ACCOUNT_SUSPENDED");
+    });
+
     it("permite volver a registrar una cuenta nueva con el email/teléfono ya liberados", async () => {
       const { userId } = await registerFixtureUser();
 
@@ -391,5 +443,11 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
       expect(response.statusCode).toBe(401);
       expect(JSON.parse(response.body).error.code).toBe("AUTH_TOKEN_INVALID");
     });
+  });
+
+  it("AC12: la Swagger generada refleja POST /users/me/password y DELETE /users/me", () => {
+    const swagger = app.swagger() as { paths: Record<string, Record<string, unknown>> };
+    expect(swagger.paths["/users/me/password"]?.post).toBeDefined();
+    expect(swagger.paths["/users/me"]?.delete).toBeDefined();
   });
 });
