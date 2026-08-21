@@ -23,6 +23,7 @@ export interface EnvConfig {
   S3_BUCKET_NAME?: string;
   S3_REGION?: string;
   PUSH_PROVIDER: "mock" | "expo";
+  SHIPMENTS_SERVICE_URL: string;
 }
 
 export const envSchema = {
@@ -82,6 +83,10 @@ export const envSchema = {
     // no requiere credenciales, así que no hay nada que `createPushNotificationProvider`
     // tenga que validar al arrancar con PUSH_PROVIDER=expo.
     PUSH_PROVIDER: { type: "string", enum: ["mock", "expo"], default: "mock" },
+    // MOVO-134: consultado por DELETE /users/me antes de aplicar una baja de cuenta --
+    // primera llamada síncrona en sentido svc-users -> svc-shipments (mismo criterio
+    // de default que USERS_SERVICE_URL en movo-svc-shipments, la dirección inversa).
+    SHIPMENTS_SERVICE_URL: { type: "string", default: "http://movo-svc-shipments:3000" },
   },
 };
 
