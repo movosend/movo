@@ -23,10 +23,12 @@ import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useMyShipments } from "../../../src/hooks/use-shipments";
 import { capitalizeName } from "../../../src/lib/profile-format";
 import { shipmentLifecycleStage, shipmentStatusLabel } from "../../../src/lib/shipment-format";
+import { useAuthStore } from "../../../src/store/auth-store";
 
 type LifecycleStage = "ongoing" | "past";
 type StatusFilter = ShipmentStatus | "all";
 type ReceiverFilter = string | "all";
+type RoleFilter = "all" | "sent" | "received";
 
 const STAGE_LABEL: Record<LifecycleStage, string> = {
   ongoing: "En curso",
@@ -51,6 +53,12 @@ const STAGE_EMPTY_TEXT: Record<LifecycleStage, string> = {
 };
 
 const ALL_OPTION_ID = "all";
+
+const ROLE_OPTIONS: FilterOption[] = [
+  { id: ALL_OPTION_ID, label: "Todos" },
+  { id: "sent", label: "Enviados" },
+  { id: "received", label: "Recibidos" },
+];
 
 /** Cuántos destinatarios se ofrecen como pill sin buscar — más allá de eso, la fila deja
  * de leerse como un filtro y hay que escribir para llegar al resto. */
@@ -120,24 +128,8 @@ function FilterPillRow({
 }
 
 /**
- * Hoja de filtro (MOVO-127, referencia visual Uber "Activity" — "Filter by…"): título
- * centrado, un grupo de pills por criterio y "Aplicar" de ancho completo al pie.
- * "Estado" depende de la tab activa (no tiene sentido ofrecer "Entregado" en "En
- * curso"); "Destinatario" resuelve nombres reales vía `usePublicProfiles` (MOVO-77),
- * muestra como pill solo a los `TOP_RECEIVERS_SHOWN` más frecuentes y deja al resto
- * detrás del buscador, que filtra sobre la lista completa.
- *
- * Estado "draft" propio: cada pill actualiza el borrador, "Aplicar" confirma ambos
- * filtros de una y cierra; "Limpiar" resetea borrador y filtro aplicado sin cerrar. Se
- * re-sincroniza desde los filtros aplicados cada vez que la hoja se abre.
- *
- * `useSafeAreaInsets` (no `SafeAreaView`) para el padding inferior: el botón "Aplicar"
- * tiene que quedar por encima del home indicator, pero el fondo de la hoja tiene que
- * pintar *debajo* de él — un `SafeAreaView` recorta el fondo y deja la zona
- * transparente, que es exactamente lo que se veía mal. Las pills escapan del padding
- * lateral a propósito (`paddingHorizontal` va en el `contentContainerStyle` del
- * `ScrollView`, no en el contenedor) para que la fila sangre hasta el borde y se lea
- * como scrolleable.
+ * Hoja de filtro (MOVO-127 / MOVO-132, referencia visual Uber "Activity" — "Filter by…"):
+ * agrupa filtros por Rol (Todos / Enviados / Recibidos), Estado y Destinatario.
  */
 function ShipmentsFilterSheet({
   visible,
@@ -145,6 +137,7 @@ function ShipmentsFilterSheet({
   stage,
   appliedStatus,
   appliedReceiver,
+  appliedRole,
   receiverOptions,
   onApply,
   onClear,
@@ -154,35 +147,32 @@ function ShipmentsFilterSheet({
   stage: LifecycleStage;
   appliedStatus: StatusFilter;
   appliedReceiver: ReceiverFilter;
+  appliedRole: RoleFilter;
   receiverOptions: FilterOption[];
-  onApply: (status: StatusFilter, receiver: ReceiverFilter) => void;
+  onApply: (status: StatusFilter, receiver: ReceiverFilter, role: RoleFilter) => void;
   onClear: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const [draftStatus, setDraftStatus] = useState<StatusFilter>(appliedStatus);
   const [draftReceiver, setDraftReceiver] = useState<ReceiverFilter>(appliedReceiver);
+  const [draftRole, setDraftRole] = useState<RoleFilter>(appliedRole);
   const [receiverQuery, setReceiverQuery] = useState("");
 
   useEffect(() => {
     if (visible) {
       setDraftStatus(appliedStatus);
       setDraftReceiver(appliedReceiver);
+      setDraftRole(appliedRole);
       setReceiverQuery("");
     }
-  }, [visible, appliedStatus, appliedReceiver]);
+  }, [visible, appliedStatus, appliedReceiver, appliedRole]);
 
   const statusOptions: FilterOption[] = [
     { id: ALL_OPTION_ID, label: "Todos" },
     ...STAGE_STATUSES[stage].map((status) => ({ id: status, label: shipmentStatusLabel(status) })),
   ];
   const normalizedQuery = receiverQuery.trim().toLowerCase();
-  // Sin búsqueda, solo los `TOP_RECEIVERS_SHOWN` destinatarios más frecuentes (vienen ya
-  // ordenados por frecuencia): una fila de pills con decenas de nombres es una lista
-  // disfrazada de filtro. El resto se llega escribiendo — por eso el buscador filtra
-  // sobre `receiverOptions` completo, no sobre el recorte visible. El destinatario ya
-  // elegido se fuerza dentro del recorte para que su pill no desaparezca al reabrir la
-  // hoja si no está entre los más frecuentes.
   const visibleReceiverOptions = normalizedQuery
     ? receiverOptions.filter((option) => option.label.toLowerCase().includes(normalizedQuery))
     : receiverOptions.filter(
@@ -192,17 +182,18 @@ function ShipmentsFilterSheet({
     { id: ALL_OPTION_ID, label: "Todos" },
     ...visibleReceiverOptions,
   ];
-  const isDraftActive = draftStatus !== "all" || draftReceiver !== "all";
+  const isDraftActive = draftStatus !== "all" || draftReceiver !== "all" || draftRole !== "all";
 
   const handleClear = () => {
     setDraftStatus("all");
     setDraftReceiver("all");
+    setDraftRole("all");
     setReceiverQuery("");
     onClear();
   };
 
   const handleApply = () => {
-    onApply(draftStatus, draftReceiver);
+    onApply(draftStatus, draftReceiver, draftRole);
     onClose();
   };
 
@@ -227,6 +218,16 @@ function ShipmentsFilterSheet({
             </View>
 
             <View className="gap-2.5 pt-5">
+              <Text className="px-5 font-sans-semibold text-[17px] text-fg">Rol</Text>
+              <FilterPillRow
+                testID="shipments-filter-role"
+                options={ROLE_OPTIONS}
+                valueId={draftRole}
+                onChange={(id) => setDraftRole(id as RoleFilter)}
+              />
+            </View>
+
+            <View className="gap-2.5 pt-6">
               <Text className="px-5 font-sans-semibold text-[17px] text-fg">Estado</Text>
               <FilterPillRow
                 testID="shipments-filter-status"
@@ -280,28 +281,21 @@ function ShipmentsFilterSheet({
   );
 }
 
-
 /**
- * "Mis Envíos" (MOVO-127): listado completo y paginado de `GET /shipments/mine`, a
- * diferencia del preview de 3 que muestra "Actividad reciente" en Inicio. Título
- * grande + tabs "En curso"/"Completados" + filtro por estado/destinatario (referencia
- * visual Uber "Activity", feedback post-QA) — patrón estándar de listados de
- * pedidos/viajes. `FlatList` de `react-native-gesture-handler` (no el de React Native)
- * por consistencia con el resto del paquete `shipments/` (`photo-viewer-modal.tsx`).
- *
- * Filtros y tab activa son puramente client-side sobre las páginas ya cargadas —
- * `GET /shipments/mine` no soporta parámetros de filtro en el backend todavía
- * (MOVO-80). El scroll infinito sigue pidiendo la próxima página según `hasNextPage`
- * de la query completa, sin depender de cuántos items sobrevivan a los filtros
- * visibles — aceptable para el volumen de envíos de un usuario real.
+ * "Mis Envíos" (MOVO-127 / MOVO-132): listado completo y paginado de `GET /shipments/mine`.
+ * Permite filtrar por Rol (Todos / Enviados / Recibidos), Estado y Destinatario.
+ * Prioriza en la cima de la pestaña "En curso" los envíos recibidos que esperan
+ * confirmación del receptor.
  */
 export default function MyShipmentsScreen() {
   const colors = useThemeColors();
+  const currentUserId = useAuthStore((s) => s.user?.userId);
   const { data, isLoading, isError, isRefetching, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useMyShipments();
   const [stage, setStage] = useState<LifecycleStage>("ongoing");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [receiverFilter, setReceiverFilter] = useState<ReceiverFilter>("all");
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [filterOpen, setFilterOpen] = useState(false);
 
   const handleBack = () => {
@@ -316,14 +310,13 @@ export default function MyShipmentsScreen() {
     setStage(nextStage);
     setStatusFilter("all");
     setReceiverFilter("all");
+    setRoleFilter("all");
   };
 
   const items = data?.pages.flatMap((page) => page.items) ?? [];
   const stageItems = items.filter((item) => shipmentLifecycleStage(item.status) === stage);
 
-  // Ordenados por frecuencia (más envíos primero): la hoja de filtro solo muestra los
-  // primeros como pills y deja el resto detrás del buscador, así que cuáles quedan a la
-  // vista tiene que ser "los que más usás", no el orden en que llegaron de la API.
+  // Ordenados por frecuencia (más envíos primero)
   const receiverCounts = new Map<string, number>();
   for (const item of stageItems) {
     receiverCounts.set(item.receiverId, (receiverCounts.get(item.receiverId) ?? 0) + 1);
@@ -337,10 +330,32 @@ export default function MyShipmentsScreen() {
     label: capitalizeName(receiverProfiles[index]?.data?.fullName) || "Destinatario",
   }));
 
-  const visibleItems = stageItems
+  const filteredItems = stageItems
     .filter((item) => statusFilter === "all" || item.status === statusFilter)
-    .filter((item) => receiverFilter === "all" || item.receiverId === receiverFilter);
-  const isFilterActive = statusFilter !== "all" || receiverFilter !== "all";
+    .filter((item) => receiverFilter === "all" || item.receiverId === receiverFilter)
+    .filter((item) => {
+      if (roleFilter === "sent") return item.senderId === currentUserId;
+      if (roleFilter === "received") return item.receiverId === currentUserId;
+      return true;
+    });
+
+  // AC2 de MOVO-132: En curso, prioriza en la cima los envíos que requieren confirmación propia
+  const visibleItems =
+    stage === "ongoing"
+      ? [...filteredItems].sort((a, b) => {
+          const aPending =
+            a.receiverId === currentUserId &&
+            a.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION;
+          const bPending =
+            b.receiverId === currentUserId &&
+            b.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION;
+          if (aPending && !bPending) return -1;
+          if (!aPending && bPending) return 1;
+          return 0;
+        })
+      : filteredItems;
+
+  const isFilterActive = statusFilter !== "all" || receiverFilter !== "all" || roleFilter !== "all";
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
@@ -408,6 +423,7 @@ export default function MyShipmentsScreen() {
             onPress={() => {
               setStatusFilter("all");
               setReceiverFilter("all");
+              setRoleFilter("all");
             }}
             className="font-sans-medium text-small text-fg"
           >
@@ -446,16 +462,20 @@ export default function MyShipmentsScreen() {
         stage={stage}
         appliedStatus={statusFilter}
         appliedReceiver={receiverFilter}
+        appliedRole={roleFilter}
         receiverOptions={receiverOptions}
-        onApply={(status, receiver) => {
+        onApply={(status, receiver, role) => {
           setStatusFilter(status);
           setReceiverFilter(receiver);
+          setRoleFilter(role);
         }}
         onClear={() => {
           setStatusFilter("all");
           setReceiverFilter("all");
+          setRoleFilter("all");
         }}
       />
     </SafeAreaView>
   );
 }
+

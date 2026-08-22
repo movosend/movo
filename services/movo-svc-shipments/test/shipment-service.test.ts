@@ -258,6 +258,27 @@ describe("shipments.service — createShipment", () => {
     expect(deadline).toBeLessThanOrEqual(after + 24 * 3600 * 1000);
   });
 
+  it("envía push al receptor con el nombre del emisor al crear el envío (MOVO-108 / MOVO-132)", async () => {
+    const repository = fakeRepository();
+    const usersClient = createFakeUsersClient({
+      "sender-id": fakePublicProfile({ id: "sender-id", fullName: "Lucas Romero", isVerified: true }),
+      "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
+    });
+    const fakeNotifications = createFakeNotificationsClient();
+    const service = createShipmentsService(repository, usersClient, fakeNotifications);
+
+    await service.createShipment(baseInput);
+
+    expect(fakeNotifications.sendPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "receiver-id",
+        title: "Tenés un envío nuevo para confirmar",
+        body: expect.stringContaining("Lucas Romero te envió un paquete"),
+        data: expect.objectContaining({ type: "shipment" }),
+      })
+    );
+  });
+
   it("rechaza retiro y entrega en exactamente la misma ubicación, sin llamar al repositorio ni a svc-users (MOVO-126)", async () => {
     const repository = fakeRepository();
     const usersClient = createFakeUsersClient({});

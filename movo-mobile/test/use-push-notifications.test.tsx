@@ -1,5 +1,10 @@
 import { renderHook } from "@testing-library/react-native";
 
+const mockRouterPush = jest.fn();
+jest.mock("expo-router", () => ({
+  router: { push: (...args: unknown[]) => mockRouterPush(...args) },
+}));
+
 const mockUseAuthStore = jest.fn();
 jest.mock("../src/store/auth-store", () => ({
   useAuthStore: (selector: (s: { status: string }) => unknown) => mockUseAuthStore(selector),
@@ -12,10 +17,12 @@ jest.mock("../src/lib/push-registration", () => ({
 
 const mockRemove = jest.fn();
 const mockAddNotificationResponseReceivedListener = jest.fn().mockReturnValue({ remove: mockRemove });
+const mockGetLastNotificationResponseAsync = jest.fn().mockResolvedValue(null);
 jest.mock("expo-notifications", () => ({
   setNotificationHandler: jest.fn(),
   addNotificationResponseReceivedListener: (...args: unknown[]) =>
     mockAddNotificationResponseReceivedListener(...args),
+  getLastNotificationResponseAsync: () => mockGetLastNotificationResponseAsync(),
 }));
 
 import { usePushNotifications } from "../src/hooks/use-push-notifications";
@@ -23,6 +30,7 @@ import { usePushNotifications } from "../src/hooks/use-push-notifications";
 describe("usePushNotifications", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetLastNotificationResponseAsync.mockResolvedValue(null);
   });
 
   it("no pide permiso ni registra nada si la sesión no está autenticada", async () => {
@@ -57,27 +65,33 @@ describe("usePushNotifications", () => {
     expect(mockRequestPermissionAndRegisterPushToken).toHaveBeenCalledTimes(2);
   });
 
-  it("AC6: tocar una notificación de envío no crashea aunque no haya pantalla de destino todavía", async () => {
-    mockUseAuthStore.mockImplementation((selector) => selector({ status: "unauthenticated" }));
-    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+  it("AC5 de MOVO-132: tocar una notificación de envío navega directo a /shipments/:id", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
 
     await renderHook(() => usePushNotifications());
 
     expect(mockAddNotificationResponseReceivedListener).toHaveBeenCalledTimes(1);
     const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (response: unknown) => void;
 
-    expect(() =>
-      listener({
-        notification: { request: { content: { data: { type: "shipment", shipmentId: "shp_1" } } } },
-      }),
-    ).not.toThrow();
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("shp_1"));
+    listener({
+      notification: { request: { content: { data: { type: "shipment", shipmentId: "shp_1" } } } },
+    });
 
-    expect(() =>
-      listener({ notification: { request: { content: { data: { type: "other" } } } } }),
-    ).not.toThrow();
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shp_1");
+  });
 
-    warnSpy.mockRestore();
+  it("AC6 de MOVO-132: cold start con notificación navega al detalle del envío una vez autenticado", async () => {
+    mockGetLastNotificationResponseAsync.mockResolvedValue({
+      notification: { request: { content: { data: { type: "shipment", shipmentId: "shp_cold" } } } },
+    });
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+
+    await renderHook(() => usePushNotifications());
+
+    // Esperar microtasks para resolver getLastNotificationResponseAsync
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shp_cold");
   });
 
   it("limpia el listener de notificaciones al desmontar", async () => {

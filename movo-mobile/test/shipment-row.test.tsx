@@ -43,8 +43,19 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
   };
 }
 
-// MOVO-127: fila reusada por el preview de Home y el listado completo "Mis Envíos".
+const mockCurrentUser = jest.fn();
+jest.mock("../src/store/auth-store", () => ({
+  useAuthStore: (selector?: (state: { user: { userId: string } | null }) => unknown) => {
+    const state = { user: mockCurrentUser() };
+    return typeof selector === "function" ? selector(state) : state;
+  },
+}));
+
+// MOVO-127 / MOVO-132: fila reusada por el preview de Home y el listado completo "Mis Envíos".
 describe("ShipmentRow", () => {
+  beforeEach(() => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+  });
   afterEach(() => jest.clearAllMocks());
 
   it("muestra dirección de entrega, precio y estado", async () => {
@@ -58,6 +69,40 @@ describe("ShipmentRow", () => {
     expect(getByText("Bv. San Juan 500, Córdoba")).toBeTruthy();
     expect(getByText("En camino")).toBeTruthy();
     expect(getByText("$5.200")).toBeTruthy();
+  });
+
+  it("muestra tag 'Enviás' cuando el usuario es el emisor (MOVO-132)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    const { getByText } = await render(
+      <ShipmentRow
+        shipment={shipment({
+          status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+          senderId: "user-1",
+          receiverId: "user-2",
+        })}
+        isFirst
+      />,
+    );
+
+    expect(getByText("Enviás")).toBeTruthy();
+    expect(getByText("Esperando al receptor")).toBeTruthy();
+  });
+
+  it("muestra tag 'Recibís' y 'Requiere tu confirmación' cuando el usuario es el receptor (MOVO-132)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-2" });
+    const { getByText } = await render(
+      <ShipmentRow
+        shipment={shipment({
+          status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+          senderId: "user-1",
+          receiverId: "user-2",
+        })}
+        isFirst
+      />,
+    );
+
+    expect(getByText("Recibís")).toBeTruthy();
+    expect(getByText("Requiere tu confirmación")).toBeTruthy();
   });
 
   it("navega al detalle del envío al tocar la fila", async () => {

@@ -16,7 +16,13 @@ const STATUS_LABEL: Record<ShipmentStatus, string> = {
   [ShipmentStatus.DISPUTED]: "En disputa",
 };
 
-export function shipmentStatusLabel(status: ShipmentStatus): string {
+export function shipmentStatusLabel(
+  status: ShipmentStatus,
+  options?: { isReceiver?: boolean },
+): string {
+  if (status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION && options?.isReceiver !== undefined) {
+    return options.isReceiver ? "Requiere tu confirmación" : "Esperando al receptor";
+  }
   return STATUS_LABEL[status] ?? status;
 }
 

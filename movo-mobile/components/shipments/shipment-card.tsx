@@ -1,14 +1,17 @@
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router } from "expo-router";
-import { Clock } from "lucide-react-native";
+import { AlertCircle, Clock } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import type { ShipmentSummary } from "../../src/api/shipments-client";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import {
   formatPickupDateLabel,
   formatPickupWindowLabel,
+  formatReceiverConfirmationDeadline,
   formatShipmentPrice,
   shortAddressLabel,
 } from "../../src/lib/shipment-format";
+import { useAuthStore } from "../../src/store/auth-store";
 import { ShipmentStatusBadge } from "./status-badge";
 
 export interface ShipmentCardProps {
@@ -17,21 +20,22 @@ export interface ShipmentCardProps {
 }
 
 /**
- * Card de envío para el listado completo "Mis Envíos" (MOVO-127, feedback post-QA: la
- * fila de una sola línea de `ShipmentRow` — reusada en el preview de Home — "quedaba
- * horrible" repetida en un listado largo). Reinterpretación de una card de
- * viaje/transportista de referencia (mini-ruta con dos puntos + línea, badge de
- * estado, hora), sin la foto/nombre de esa referencia porque acá no hay contraparte
- * todavía asignada — el precio ocupa ese lugar en la fila superior en su lugar.
- *
- * Es una card propia por envío (`gap`/gruesa, sin `border-t` entre filas) en vez de la
- * lista densa de líneas divididas por borde — la que "Actividad reciente" sigue usando
- * porque ahí el objetivo es otro (preview compacto de 3, no la pantalla principal).
+ * Card de envío para el listado completo "Mis Envíos" (MOVO-127 / MOVO-132).
+ * Distingue el rol del usuario (emisor vs receptor) y destaca envíos recibidos
+ * pendientes de confirmación con su plazo restante.
  */
 export function ShipmentCard({ shipment, testID }: ShipmentCardProps) {
   const colors = useThemeColors();
+  const currentUserId = useAuthStore((s) => s.user?.userId);
+  const isReceiver = currentUserId === shipment.receiverId;
   const pickupDateLabel = formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate;
   const windowLabel = formatPickupWindowLabel(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd);
+  const deadlineLabel =
+    isReceiver &&
+    shipment.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION &&
+    shipment.receiverConfirmationDeadline
+      ? formatReceiverConfirmationDeadline(shipment.receiverConfirmationDeadline)
+      : null;
 
   return (
     <Pressable
@@ -40,10 +44,20 @@ export function ShipmentCard({ shipment, testID }: ShipmentCardProps) {
       className="gap-3.5 rounded-[16px] border border-border bg-bg-sub p-4"
     >
       <View className="flex-row items-center justify-between">
-        <Text className="font-sans-semibold text-body text-fg">
-          {formatShipmentPrice(shipment.agreedPriceArs, shipment.suggestedPriceArs)}
-        </Text>
-        <ShipmentStatusBadge status={shipment.status} />
+        <View className="flex-row items-center gap-2">
+          <View
+            testID={testID ? `${testID}-role-tag` : undefined}
+            className={`rounded-md px-2 py-0.5 ${isReceiver ? "bg-info-100" : "bg-bg-mute"}`}
+          >
+            <Text className={`font-sans-medium text-[11px] ${isReceiver ? "text-info-700" : "text-fg-2"}`}>
+              {isReceiver ? "Recibís" : "Enviás"}
+            </Text>
+          </View>
+          <Text className="font-sans-semibold text-body text-fg">
+            {formatShipmentPrice(shipment.agreedPriceArs, shipment.suggestedPriceArs)}
+          </Text>
+        </View>
+        <ShipmentStatusBadge status={shipment.status} isReceiver={isReceiver} />
       </View>
 
       <View className="flex-row items-center gap-2">
@@ -57,6 +71,16 @@ export function ShipmentCard({ shipment, testID }: ShipmentCardProps) {
         </Text>
         <View className="h-2 w-2 rounded-full bg-lime-500" />
       </View>
+
+      {deadlineLabel ? (
+        <View
+          testID={testID ? `${testID}-deadline` : undefined}
+          className="flex-row items-center gap-1.5 rounded-lg bg-warning-100/70 px-2.5 py-1.5"
+        >
+          <AlertCircle size={13} strokeWidth={1.8} color="#B45309" />
+          <Text className="font-sans-medium text-[12px] text-warning-700">{deadlineLabel}</Text>
+        </View>
+      ) : null}
 
       <View className="flex-row items-center gap-1.5">
         <Clock size={13} strokeWidth={1.8} color={colors.fg3} />

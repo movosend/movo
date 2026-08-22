@@ -21,6 +21,16 @@ describe("shipmentStatusLabel", () => {
     expect(shipmentStatusLabel(ShipmentStatus.PUBLISHED)).toBe("Publicado");
     expect(shipmentStatusLabel(ShipmentStatus.IN_TRANSIT)).toBe("En camino");
     expect(shipmentStatusLabel(ShipmentStatus.DELIVERED)).toBe("Entregado");
+    expect(shipmentStatusLabel(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe("Esperando confirmación");
+  });
+
+  it("distingue el rol en awaiting_receiver_confirmation si se especifica isReceiver (MOVO-132)", () => {
+    expect(
+      shipmentStatusLabel(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, { isReceiver: true }),
+    ).toBe("Requiere tu confirmación");
+    expect(
+      shipmentStatusLabel(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, { isReceiver: false }),
+    ).toBe("Esperando al receptor");
   });
 });
 

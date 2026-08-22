@@ -263,10 +263,12 @@ export function createShipmentsService(
       // de responder, a diferencia de accept/reject donde la latencia extra no aporta.
       if (notificationsClient) {
         try {
+          const senderProfile = await usersClient.findPublicProfile(input.senderId, input.senderId);
+          const senderName = senderProfile?.fullName ?? "Un usuario";
           await notificationsClient.sendPush({
             userId: created.receiverId,
             title: "Tenés un envío nuevo para confirmar",
-            body: "Alguien te agregó como receptor de un envío. Revisalo en la app.",
+            body: `${senderName} te envió un paquete. Tocá para revisar y confirmar el envío.`,
             data: { type: "shipment", shipmentId: created.id },
           });
         } catch (err) {
