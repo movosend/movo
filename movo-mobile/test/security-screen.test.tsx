@@ -21,6 +21,14 @@ describe("AccountSecurityScreen", () => {
     expect(router.push).toHaveBeenCalledWith("/profile/change-password");
   });
 
+  it("navega a la baja de cuenta", async () => {
+    const { getByTestId } = await render(<AccountSecurityScreen />);
+
+    await fireEvent.press(getByTestId("security-delete-account"));
+
+    expect(router.push).toHaveBeenCalledWith("/profile/delete-account");
+  });
+
   it("vuelve atrás desde el header", async () => {
     const { getByTestId } = await render(<AccountSecurityScreen />);
 
