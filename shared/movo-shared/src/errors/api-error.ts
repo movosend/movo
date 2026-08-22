@@ -45,7 +45,8 @@ export type ApiErrorCode =
   | "ACCOUNT_HAS_ACTIVE_SHIPMENTS"
   | "SHIPMENTS_SERVICE_UNAVAILABLE"
   | "SHIPMENT_CONCURRENT_MODIFICATION"
-  | "SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED";
+  | "SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED"
+  | "ACCOUNT_DELETION_IN_PROGRESS";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

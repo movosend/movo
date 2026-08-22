@@ -27,8 +27,9 @@ export interface UserRepository {
    * MOVO-134: soft-delete + anonimización de PII en un solo UPDATE. `email`/`phone`
    * se derivan del propio `id` (ya único), así que nunca pueden colisionar con otro
    * usuario -- no hace falta capturar P2002 acá, a diferencia de `create()`.
-   * `dni`/`birthdate`/`photoUrl` a `NULL`; `firstName`/`lastName` a un placeholder.
-   * No borra la fila (el `user_id` está referenciado desde envíos históricos en
+   * `dni`/`birthdate`/`photoUrl` a `NULL`; `firstName`/`lastName` a un placeholder;
+   * `phoneVerified` a `false` (el teléfono anonimizado nunca estuvo verificado). No
+   * borra la fila (el `user_id` está referenciado desde envíos históricos en
    * `svc-shipments`, la integridad referencial del historial tiene que sobrevivir).
    */
   anonymizeAndDelete(id: string): Promise<User | null>;
@@ -287,6 +288,7 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
             dni: null,
             birthdate: null,
             photoUrl: null,
+            phoneVerified: false,
           },
           include: { roles: true },
         });
