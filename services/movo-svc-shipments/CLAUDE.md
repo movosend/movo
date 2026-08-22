@@ -203,6 +203,67 @@ Decisiones clave:
   acceso cruzado a `users.users`, ADR-003). `fromStatus` es `null` únicamente en el
   evento inicial de creación.
 
+### MOVO-108 / MOVO-29 (alcance acotado) — Notificaciones push al crear envío + cancelación temprana (`svc-shipments`)
+
+`src/adapters/notifications-client.ts` (nuevo): cliente HTTP interno hacia
+`POST /internal/notifications/push` de `movo-svc-users` (MOVO-106), reusa
+`USERS_SERVICE_URL`. A diferencia de `users-client.ts`, `sendPush` **nunca rechaza**
+— atrapa y loguea cualquier fallo (`event: "notification_dispatch_failed"`) adentro,
+así el best-effort de AC5 es una garantía del cliente, no algo que cada caller tenga
+que recordar. `shipments.service.ts#createShipment` lo dispara al receptor tras crear
+el envío (AC1); cada caller igual lo envuelve en un try/catch mudo como defensa en
+profundidad, no como la garantía principal.
+
+**AC2/AC3 de MOVO-108 (notificar en creación/aceptación de oferta) descartados de esta
+pasada**: no existe `offer-service.ts` ni ninguna ruta HTTP de ofertas — MOVO-102 solo
+entregó dominio/repositorio, y MOVO-23/MOVO-17 (quienes agregarían esa capa) siguen en
+Backlog sin asignar. Documentado en comentarios de esas dos issues, para retomarlo ahí
+cuando entren en refinamiento.
+
+**MOVO-29 (cancelación de envío) no tenía diseño técnico propio** — se diseñó e
+implementó acá porque bloqueaba AC7 de MOVO-108 (detalle completo en el comentario de
+MOVO-108 en Linear). `shipments.service.ts#cancelShipment` es 100% orquestación nueva
+sobre piezas que ya existían sin que nadie las hubiera conectado:
+`shipment-state-machine.ts` (MOVO-105) ya modelaba las 4 transiciones de cancelación,
+y `shipment-repository.ts#updateStatus(id, to, actorId, reason?)` (MOVO-104) ya
+persistía el motivo en `ShipmentEvent` — no hizo falta tocar ninguna de las dos.
+`POST /shipments/:id/cancel` nuevo en `shipments.routes.ts`, solo el emisor puede
+cancelar.
+
+- **Alcance acotado a los 3 estados sin penalización** (`awaiting_receiver_confirmation`/
+  `published`/`assignment_pending`, mismo criterio de recorte que AC2/AC3 de arriba):
+  `svc-payments` hoy es un esqueleto puro (una ruta `GET /` de stub), sin holds ni
+  capture reales. Cancelar desde `assigned` queda bloqueado con 409
+  `SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED` (chequeo explícito antes de tocar la
+  máquina de estados, que sí modela esa transición para cuando la integración exista)
+  en vez de permitir la transición sin su consecuencia de negocio. La liberación del
+  hold de MercadoPago al cancelar desde `assignment_pending` (parte del AC de MOVO-29)
+  tampoco se implementa por el mismo motivo.
+- **AC7 de MOVO-108** vive en el mismo método: si el estado previo era `published` o
+  `assignment_pending`, se listan las ofertas `pending` (`offerRepository.listByShipment`)
+  y se notifica a cada transportista, best-effort.
+- **Gap encontrado al implementar (mismo patrón que `InsufficientCreationPhotosError`
+  de MOVO-81)**: `InvalidShipmentTransitionError` nunca se traducía a `ApiError` —
+  cancelar un envío ya en un estado terminal (`delivered`, `cancelled`, etc.) tiraba
+  500 genérico en vez de 409. Wireado en `plugins/error-handler.ts` con el código
+  nuevo `SHIPMENT_INVALID_TRANSITION` (`@movo/shared`, junto con
+  `SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED`).
+
+Tests: 168/168 en `svc-shipments` (17 suites, incluye `shipments-cancel.integration.test.ts`
+nuevo contra Postgres real + 2 casos sumados a `shipments-create.integration.test.ts` +
+33 unitarios nuevos/actualizados en `shipment-service.test.ts`/`notifications-client.test.ts`).
+`shipments.service.ts` 100% statements / 96.42% branches. `tsc --noEmit` y `eslint`
+limpios. Gotcha de entorno (no de la implementación): el volumen local de Postgres
+preexistente tenía `pg_hba.conf` en `trust` para conexiones desde dentro del propio
+contenedor pero `scram-sha-256` real para las que llegan por el port-forward desde el
+host — cualquier password "andaba" al conectar vía `docker exec`, sin verificarse en
+serio; hubo que resetear la password del rol (`ALTER ROLE`, no toca datos) para poder
+correr el suite real contra Postgres.
+
+Pendiente / fuera de alcance: liberación del hold de MercadoPago y cancelación con
+penalización desde `assigned` (bloqueadas por `svc-payments`, ver arriba); AC2/AC3 de
+MOVO-108 (ver comentarios en MOVO-23/MOVO-17).
+
 ### MOVO-129 — Endpoints de aceptación y rechazo del envío por el receptor (`svc-shipments`)
 
 `POST /shipments/:id/accept` y `POST /shipments/:id/reject` (backend de MOVO-16) permiten
@@ -295,6 +356,19 @@ Test de integración nuevo (`shipment-repository.integration.test.ts`): dos
 la otra lanza `ShipmentConcurrentModificationError`, y el envío persiste solo el
 estado de la transición ganadora (verificado 5/5 corridas sin flakiness).
 
+**Merge MOVO-108 ↔ MOVO-129/130 (`develop`)**: ambos ramas habían escrito
+`notifications-client.ts` en paralelo con contratos distintos — MOVO-108 lo hacía
+best-effort *adentro* del cliente (nunca rechaza, loguea internamente); MOVO-129/130 lo
+dejaban rechazar y resolvían el best-effort en cada caller. Se unificó al segundo
+criterio (ya usado por 3 sitios de llamada en `develop` contra 2 de MOVO-108) — los dos
+sitios de MOVO-108 (`createShipment`, `cancelShipment`) se adaptaron al mismo patrón
+try/catch + `logger?.warn` que ya usaban `acceptShipment`/`rejectShipment`/
+`expireOverdueShipments`. `createShipmentsService()` también cambió de firma:
+`offerRepository` (que solo necesita `cancelShipment`) pasó a viajar en
+`ShipmentsServiceOptions.offerRepository` en vez de como parámetro posicional propio,
+para no romper la firma `(repository, usersClient, notificationsClient?, logger?, opts)`
+que ya usaban `acceptShipment`/`rejectShipment`/el barrido de MOVO-130.
+
 ### Pendientes de este servicio
 
 - **MOVO-124**: lifecycle rule de S3 para objetos huérfanos de fotos no confirmadas
@@ -303,3 +377,6 @@ estado de la transición ganadora (verificado 5/5 corridas sin flakiness).
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
   `→ published` (interpretación propuesta en Linear); si el equipo responde distinto,
   es un ajuste acotado a `shipment-repository.ts#updateStatus()`.
+- **Liberación del hold de MercadoPago al cancelar (MOVO-29) y cancelación con
+  penalización desde `assigned`**: bloqueadas por `svc-payments`, que hoy no tiene
+  holds/capture reales — ver MOVO-108 arriba.

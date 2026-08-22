@@ -153,6 +153,16 @@ export const shipmentsSchemas = {
     additionalProperties: false,
   },
 
+  // MOVO-29/MOVO-108: motivo opcional, texto libre corto -- mismo límite razonable que
+  // `description` de `createShipmentBody`, sin un AC que pida uno específico.
+  cancelShipmentBody: {
+    type: "object",
+    properties: {
+      reason: { type: "string", maxLength: 500 },
+    },
+    additionalProperties: false,
+  },
+
   shipmentIdParam: {
     type: "object",
     required: ["id"],
