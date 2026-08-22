@@ -445,17 +445,19 @@ Perspectiva del receptor sobre la pantalla de detalle de envío (`app/(app)/ship
   - **Bloqueo de doble tap y feedback de errores**: deshabilita ambos botones con spinners durante mutación en vuelo. Mapea `ApiError.statusCode` a mensajes específicos (409 → "Este envío ya no se puede confirmar" + refetch del detalle; 403 → "No sos el destinatario de este envío"; banner genérico para el resto).
 - **Mutaciones en `use-shipments.ts`**: `useAcceptShipment` y `useRejectShipment` (`POST /shipments/:id/accept` y `/reject` en `shipments-client.ts`) invalidan queries `["shipments", "mine"]`, `["shipments", "mine", "recent"]`, `["shipments", "mine", "list"]` y `["shipments", "detail", id]` actualizando la cache para reflejar el estado sin salir de la pantalla.
 
-### MOVO-136 (parcial) — Pantalla "Cuenta y seguridad": cambio de contraseña
+### MOVO-136 — Pantalla "Cuenta y seguridad": cambio de contraseña y baja de cuenta
 
 Convierte el primer ítem de Perfil → Configuración (`profile-settings-section.tsx`,
-MOVO-78) en ruta real, igual que hizo MOVO-121 con "Direcciones guardadas". Escrito
-contra el contrato de MOVO-134 (backend, PR abierto todavía sin mergear).
+MOVO-78) en ruta real, igual que hizo MOVO-121 con "Direcciones guardadas". Consume el
+backend de MOVO-134, ya mergeado a `develop`; absorbe además la parte mobile de
+MOVO-39 (derecho de supresión).
 
-Alcance de esta pasada: hub + cambio de contraseña. **La baja de cuenta queda
-pendiente** — depende de códigos de error (`ACCOUNT_HAS_ACTIVE_SHIPMENTS`,
-`ACCOUNT_HAS_ACTIVE_DISPUTES`, `SHIPMENTS_SERVICE_UNAVAILABLE`) que solo existen en la
-rama de MOVO-134, y `movo-mobile` importa `@movo/shared/dist/`, o sea el build: hasta
-que ese PR no esté en `develop`, `error-messages.ts` no tipa esos códigos.
+Se implementó en dos pasadas: primero el hub + cambio de contraseña, y la baja de
+cuenta después, cuando MOVO-133/MOVO-134 entraron a `develop` — sus códigos de error
+(`ACCOUNT_HAS_ACTIVE_SHIPMENTS`, `ACCOUNT_HAS_ACTIVE_DISPUTES`,
+`ACCOUNT_DELETION_IN_PROGRESS`, `SHIPMENTS_SERVICE_UNAVAILABLE`) viven en
+`@movo/shared`, y el mobile importa `@movo/shared/dist/`, o sea el build: hasta ese
+merge `error-messages.ts` no podía tiparlos.
 
 - **`app/(app)/profile/security.tsx` es un hub, no un formulario único**: cada acción
   vive en su propia ruta. No es estética — la baja de cuenta (irreversible) no puede
@@ -485,6 +487,28 @@ que ese PR no esté en `develop`, `error-messages.ts` no tipa esos códigos.
   es un estado de pantalla (mismo criterio que `kyc.tsx`) y no un `Alert`, porque el
   repo evitó a propósito traer una librería de toast; el 401 se ancla bajo el campo de
   contraseña actual (con foco), el resto va al `ErrorBanner`.
+- **Baja de cuenta con tres barreras, no un `Alert` solo** (`app/(app)/profile/
+  delete-account.tsx`, AC5): entrar a la ruta desde el hub → marcar el reconocimiento
+  explícito y escribir la contraseña → confirmar en el `Alert` nativo con el botón
+  destructivo. El diálogo es el último paso y no el único: es el patrón que la
+  plataforma ya enseñó a leer como "sin vuelta atrás", pero no es lugar para explicar
+  cuatro consecuencias, y enterarte de lo que perdés después de haber escrito la
+  contraseña no es consentimiento informado. En el hub va bajo "Zona de riesgo", en
+  tarjeta aparte con borde `danger` — nunca compartiendo tarjeta con "Contraseña".
+- **`deleteAccountAndClearSession()` limpia con `clearSession()`, nunca `logout()`**:
+  `logout()` pega contra `POST /auth/logout` y `DELETE /notifications/push-tokens` con
+  el token de una cuenta que el backend ya anonimizó y cuyas sesiones ya revocó — dos
+  requests condenados a fallar contra recursos que ya no existen, y la baja ya hace
+  del lado del servidor todo lo que `logout()` haría. Antes de eso, `queryClient.clear()`:
+  sin eso el perfil/envíos/direcciones de la cuenta borrada sobreviven en memoria y se
+  pintan por un frame en el próximo login de OTRO usuario del mismo dispositivo (AC6
+  pide "sin sesión guardada ni caché de perfil"). No hay pantalla de éxito — el guard
+  de `app/(app)/_layout.tsx` redirige solo a `/login` al caer `status`.
+- **Los dos 409 de la baja no son "error, reintentá"**: el backend no cancela en
+  cascada a propósito, son estados que el usuario tiene que resolver. El de envíos
+  activos ofrece "Ver mis envíos" accionable; el de disputas no, porque ahí no hay
+  nada que el usuario pueda hacer más que esperar a un administrador — un atajo que no
+  lleva a ningún lado es peor que ninguno.
 - **AC6 del ticket corregido en Linear**: pedía que el login post-baja fallara "con el
   mensaje de cuenta dada de baja". No es satisfacible — `anonymizeAndDelete()` de
   MOVO-134 reescribe el teléfono, así que el login devuelve `401
@@ -500,17 +524,20 @@ que ese PR no esté en `develop`, `error-messages.ts` no tipa esos códigos.
 lógica testeable se extrajo a una función async pura y el test no monta React.
 
 Tests nuevos: `test/password-policy.test.ts`, `test/use-account-security.test.ts`
-(AC2), `test/change-password-screen.test.tsx` (AC3/AC4/AC7),
-`test/security-screen.test.tsx` (AC1), más casos agregados a
-`test/profile-settings-section.test.tsx` y `test/users-client.test.ts`. El interceptor
-que garantiza AC3 a nivel de red ya estaba cubierto desde MOVO-76
-(`http-client.test.tsx`: "no dispara refresh ante AUTH_INVALID_CREDENTIALS"). 54/54
-suites, 371/371 tests. `tsc --noEmit` limpio.
+(AC2/AC6), `test/change-password-screen.test.tsx` (AC3/AC4/AC7),
+`test/delete-account-screen.test.tsx` (AC5/AC7), `test/security-screen.test.tsx`
+(AC1), más casos agregados a `test/profile-settings-section.test.tsx` y
+`test/users-client.test.ts`. El interceptor que garantiza AC3 a nivel de red ya estaba
+cubierto desde MOVO-76 (`http-client.test.tsx`: "no dispara refresh ante
+AUTH_INVALID_CREDENTIALS"). El callback del `Alert` nativo se ejecuta dentro de
+`act()` en el test de la baja: no pasa por ningún evento de RNTL, así que sin eso los
+`setState` del `onError` no se flushean antes del assert. 55/55 suites, 390/390 tests.
+`tsc --noEmit` limpio.
 
-Pendiente: baja de cuenta (AC5/AC6) — `DELETE /users/me`, modal de confirmación con
-contraseña, manejo de los dos 409 (con "Ver mis envíos" accionable para el de envíos
-activos) y `clearSession()` + `queryClient.clear()` (nunca `logout()`: pegaría contra
-una cuenta ya borrada con sesiones revocadas).
+Pendiente / fuera de alcance: AC6 solo se verifica hasta donde llega el mobile (la
+sesión y la caché quedan limpias y la app cae al login) — que el login posterior con
+las credenciales viejas falle es comportamiento del backend, cubierto por el test
+"AC9 (regresión)" de MOVO-134, no se duplica acá.
 
 ### Pendientes de este paquete
 
