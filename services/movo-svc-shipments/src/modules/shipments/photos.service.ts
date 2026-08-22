@@ -1,9 +1,18 @@
 import { randomUUID } from "node:crypto";
+import { FastifyBaseLogger } from "fastify";
+import type Redis from "ioredis";
 import { ApiError, UserRole } from "@movo/shared";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { StorageProvider } from "../../adapters/storage-provider";
 import { PhotoStage } from "../../models/shipment";
 import { assertShipmentAccess } from "./assert-shipment-access";
+
+/** MOVO-124: sorted set de Redis con las keys de S3 pendientes de confirmar (score =
+ * timestamp del presign). Es solo un candidato-list para el sweep de fotos huérfanas
+ * -- Postgres (`shipment_photos`) sigue siendo la única fuente de verdad de "confirmado
+ * o no" (ver `existsPhotoByS3Key`). Exportada para que `orphan-photo-sweep.ts` use la
+ * misma key sin duplicar el literal. */
+export const PENDING_PHOTOS_REDIS_KEY = "photos:pending:shipments";
 
 /** AC10 de MOVO-81: convención de key `shipments/{shipmentId}/{stage}/{uuid}.jpg`.
  * A diferencia del whitelist de 3 tipos de MOVO-97 (foto de perfil), acá el AC10 fija
@@ -46,7 +55,12 @@ function assertValidPhotoConstraints(contentType: string, contentLength: number)
   }
 }
 
-export function createPhotosService(repository: ShipmentRepository, storageProvider: StorageProvider) {
+export function createPhotosService(
+  repository: ShipmentRepository,
+  storageProvider: StorageProvider,
+  redis: Redis,
+  logger: FastifyBaseLogger
+) {
   return {
     /** AC1/AC2/AC3: solo el emisor puede pedir presign para la etapa `creation` (única
      * etapa que autoriza esta US -- pickup/delivery quedan para MOVO-21). El objectKey
@@ -71,6 +85,20 @@ export function createPhotosService(repository: ShipmentRepository, storageProvi
         contentType: input.contentType,
         contentLength: input.contentLength,
       });
+
+      // MOVO-124: registra la key como "pendiente" para que el sweep de fotos huérfanas
+      // la pueda encontrar si nunca se confirma. Best-effort -- si Redis falla acá, el
+      // objeto queda sin trackear (mismo estado que el bug original: huérfano para
+      // siempre, nunca borrado de más).
+      try {
+        await redis.zadd(PENDING_PHOTOS_REDIS_KEY, Date.now(), s3Key);
+      } catch (error) {
+        logger.warn(
+          { shipmentId, s3Key, event: "photo_pending_track_failed", error: (error as Error).message },
+          "No se pudo registrar la foto como pendiente en Redis"
+        );
+      }
+
       return { uploadUrl, s3Key, expiresIn };
     },
 
@@ -106,6 +134,20 @@ export function createPhotosService(repository: ShipmentRepository, storageProvi
       }
 
       const photo = await repository.addPhoto(shipmentId, input.stage, input.s3Key);
+
+      // MOVO-124: saca la key del tracking de pendientes -- ya está confirmada, el
+      // sweep no debería volver a evaluarla. Best-effort: si el ZREM falla, el sweep
+      // igual la va a dejar en paz porque revalida contra Postgres antes de borrar
+      // nada (AC3), esto es solo para no reprocesarla en cada corrida.
+      try {
+        await redis.zrem(PENDING_PHOTOS_REDIS_KEY, input.s3Key);
+      } catch (error) {
+        logger.warn(
+          { shipmentId, s3Key: input.s3Key, event: "photo_pending_untrack_failed", error: (error as Error).message },
+          "No se pudo remover el tracking de Redis tras confirmar la foto"
+        );
+      }
+
       return { id: photo.id, stage: photo.stage, createdAt: photo.createdAt };
     },
 

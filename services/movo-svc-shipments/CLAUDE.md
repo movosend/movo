@@ -396,11 +396,59 @@ try/catch + `logger?.warn` que ya usaban `acceptShipment`/`rejectShipment`/
 para no romper la firma `(repository, usersClient, notificationsClient?, logger?, opts)`
 que ya usaban `acceptShipment`/`rejectShipment`/el barrido de MOVO-130.
 
+### MOVO-124 — Sweep de fotos huérfanas en S3 vía tracking en Redis (`svc-shipments` + `svc-users`)
+
+Reemplaza las dos opciones de lifecycle rule de S3 que había dejado planteadas MOVO-81
+(tagging + `PutObjectTagging`/prefijo de cuarentena + `CopyObject`) por un mecanismo que
+no toca Terraform ni bucket policy: cada presign registra su key en un sorted set de
+Redis (`photos:pending:shipments` acá, `photos:pending:profile-photos` en `svc-users`,
+score = timestamp), `confirmPhoto()` la saca del set al confirmar, y un plugin nuevo
+(`src/plugins/orphan-photo-sweep.ts`, mismo esqueleto `setInterval` + lock distribuido
+en Redis que `receiver-confirmation-sweep.ts` de MOVO-130) barre periódicamente las keys
+más viejas que `ORPHAN_PHOTO_RETENTION_HOURS` (default 24, igual que sugería el ticket)
+y borra de S3 (`storageProvider.deleteObject`, nuevo en la interfaz) las que siguen sin
+confirmar. Decisión completa (por qué Redis en vez de las dos opciones del ticket)
+comentada en MOVO-124 (Linear).
+
+Decisiones clave:
+- **AC3 ("objetos confirmados nunca se ven afectados, verificado explícitamente") no
+  se apoya solo en Redis**: el `ZREM` de `confirmPhoto()` es best-effort (si Redis
+  falla ahí, la key queda en el set pese a estar confirmada) — así que antes de
+  cualquier `deleteObject` el sweep revalida contra Postgres
+  (`shipment-repository.ts#existsPhotoByS3Key`, nuevo). Si el candidato tiene fila en
+  `shipment_photos`, se lo destrackea de Redis sin tocar el objeto de S3. Postgres
+  sigue siendo la única fuente de verdad de "confirmado"; Redis es solo la lista de
+  candidatos a evaluar.
+- **Falla segura si Redis pierde el tracking** (reinicio, TTL manual, etc.): una key
+  que nunca se registró o que se pierde del set queda huérfana para siempre — mismo
+  estado que el bug original de MOVO-81/124, no una regresión nueva. El riesgo
+  inverso (borrar algo confirmado) está cubierto por el chequeo de Postgres de arriba,
+  no por confiar en que Redis nunca pierda datos.
+- **No se ató la ventana de retención al TTL de la presigned URL** (300s, solo acota
+  el `PUT`): la confirmación puede demorar mucho más que la subida (el cliente sube la
+  foto y recién confirma en una sesión posterior), así que ligar el sweep a esos 300s
+  habría borrado objetos legítimos todavía no confirmados.
+- **Sin permisos IAM nuevos más allá de `s3:DeleteObject` para `shipments/*`** (pendiente
+  de aplicar en `movo-infra`, repo separado, no tocado en este PR) — `profile-photos/*`
+  ya lo tiene desde MOVO-97/`deletePhoto()`. Ninguna de las dos opciones originales del
+  ticket (tagging/`CopyObject`) hacía falta.
+- **`svc-users` recibió el mismo mecanismo en paralelo** (`existsByPhotoUrl` en
+  `user-repository.ts`, mismo plugin `orphan-photo-sweep.ts` — primer scheduled job de
+  ese servicio) — ver `services/movo-svc-users/CLAUDE.md`.
+
+Tests: `test/orphan-photo-sweep.test.ts` nuevo (mockeado, cubre habilitado/deshabilitado,
+lock de Redis, y explícitamente el caso AC3 — candidato con fila en Postgres nunca
+dispara `deleteObject`). `test/photos.integration.test.ts` ampliado con dos casos contra
+Redis real (la key queda en el sorted set tras el presign, sale tras confirmar). Suite
+completa 234/234, `tsc --noEmit` y `eslint` limpios.
+
+Pendiente / fuera de alcance: aplicar el permiso IAM `s3:DeleteObject` para
+`shipments/*` en `movo-infra` (repo separado, coordinar con quien tenga acceso al
+bucket real de dev/prod — sin este permiso el sweep loguea el error y reintenta en la
+próxima corrida, no bloquea nada más).
+
 ### Pendientes de este servicio
 
-- **MOVO-124**: lifecycle rule de S3 para objetos huérfanos de fotos no confirmadas
-  (`shipments/*` y, retroactivamente, `profile-photos/*` de MOVO-97) — no es un
-  ajuste chico, ver la decisión de MOVO-81 arriba.
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
   `→ published` (interpretación propuesta en Linear); si el equipo responde distinto,
   es un ajuste acotado a `shipment-repository.ts#updateStatus()`.
