@@ -92,14 +92,16 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
         await app.redis.del(...keys);
       }
     } while (cursor !== "0");
-    cursor = "0";
-    do {
-      const [nextCursor, keys] = await app.redis.scan(cursor, "MATCH", "password-change-attempts:*", "COUNT", 100);
-      cursor = nextCursor;
-      if (keys.length > 0) {
-        await app.redis.del(...keys);
-      }
-    } while (cursor !== "0");
+    for (const pattern of ["password-change-attempts:*", "user-revoked-at:*", "account-deletion-lock:*"]) {
+      cursor = "0";
+      do {
+        const [nextCursor, keys] = await app.redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
+        cursor = nextCursor;
+        if (keys.length > 0) {
+          await app.redis.del(...keys);
+        }
+      } while (cursor !== "0");
+    }
   });
 
   /** Mismo helper que auth.login.integration.test.ts: /auth/register exige un phoneVerificationToken real. */
@@ -140,6 +142,10 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
       expect(body.userId).toBe(userId);
       expect(body.accessToken).toBeTruthy();
       expect(body.refreshToken).toBeTruthy();
+
+      // El gateway (plugins/auth.ts) es quien lee esta key para rechazar un access
+      // token ya emitido -- acá solo se verifica el lado que escribe (MOVO-134).
+      expect(await app.redis.get(`user-revoked-at:${userId}`)).toBeTruthy();
 
       const oldLogin = await app.inject({
         method: "POST",
@@ -240,6 +246,47 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
       expect(JSON.parse(sixth.body).error.code).toBe("RATE_LIMIT_EXCEEDED");
     });
 
+    it("un cambio exitoso resetea el contador de intentos fallidos", async () => {
+      const { userId } = await registerFixtureUser();
+
+      for (let i = 0; i < 4; i++) {
+        const attempt = await app.inject({
+          method: "POST",
+          url: "/users/me/password",
+          headers: { "x-user-id": userId },
+          payload: { currentPassword: "Incorrecta1", newPassword: "NuevaPass2" },
+        });
+        expect(attempt.statusCode).toBe(401);
+      }
+
+      const success = await app.inject({
+        method: "POST",
+        url: "/users/me/password",
+        headers: { "x-user-id": userId },
+        payload: { currentPassword: "Password1", newPassword: "NuevaPass2" },
+      });
+      expect(success.statusCode).toBe(200);
+
+      // Si el contador no se hubiera reseteado, este 5to intento fallido llegaría a 5
+      // acumulados desde antes del éxito y el próximo (bajo el límite) ya estaría 429.
+      for (let i = 0; i < 4; i++) {
+        const attempt = await app.inject({
+          method: "POST",
+          url: "/users/me/password",
+          headers: { "x-user-id": userId },
+          payload: { currentPassword: "Incorrecta1", newPassword: "OtraPass3" },
+        });
+        expect(attempt.statusCode).toBe(401);
+      }
+      const stillUnderLimit = await app.inject({
+        method: "POST",
+        url: "/users/me/password",
+        headers: { "x-user-id": userId },
+        payload: { currentPassword: "NuevaPass2", newPassword: "OtraPass3" },
+      });
+      expect(stillUnderLimit.statusCode).toBe(200);
+    });
+
     it("devuelve 401 AUTH_TOKEN_INVALID sin header x-user-id", async () => {
       const response = await app.inject({
         method: "POST",
@@ -272,9 +319,14 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
       expect(reloaded?.dni).toBeNull();
       expect(reloaded?.birthdate).toBeNull();
       expect(reloaded?.photoUrl).toBeNull();
+      expect(reloaded?.phoneVerified).toBe(false);
 
       const addresses = await app.db.address.findMany({ where: { userId } });
       expect(addresses).toEqual([]);
+
+      // El gateway (plugins/auth.ts) es quien lee esta key para rechazar un access
+      // token ya emitido -- acá solo se verifica el lado que escribe (MOVO-134).
+      expect(await app.redis.get(`user-revoked-at:${userId}`)).toBeTruthy();
 
       const refreshAttempt = await app.inject({
         method: "POST",
@@ -289,6 +341,39 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
         payload: { phone: validRegisterPayload.phone, password: "Password1" },
       });
       expect(loginAttempt.statusCode).toBe(401);
+    });
+
+    it("borra los registros de KYC/licencia de conducir al dar de baja la cuenta", async () => {
+      const { userId } = await registerFixtureUser();
+
+      const kycVerification = await app.db.kycVerification.create({
+        data: {
+          userId,
+          verificationType: "identity",
+          provider: "didit",
+          externalSessionId: `session-${userId}`,
+          status: "approved",
+          rawDecision: { foo: "bar" },
+        },
+      });
+      await app.db.driversLicense.create({
+        data: {
+          userId,
+          kycVerificationId: kycVerification.id,
+          status: "verified",
+        },
+      });
+
+      const response = await app.inject({
+        method: "DELETE",
+        url: "/users/me",
+        headers: { "x-user-id": userId },
+        payload: { password: "Password1" },
+      });
+      expect(response.statusCode).toBe(204);
+
+      expect(await app.db.kycVerification.findMany({ where: { userId } })).toEqual([]);
+      expect(await app.db.driversLicense.findMany({ where: { userId } })).toEqual([]);
     });
 
     it("AC4: borra la foto de perfil de S3 al dar de baja la cuenta", async () => {
@@ -410,6 +495,32 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
         payload: { password: "Incorrecta1" },
       });
       expect(wrongPassword.statusCode).toBe(401);
+
+      const repo = createUserRepository(app.db);
+      const reloaded = await repo.findById(userId);
+      expect(reloaded?.status).toBe("active");
+    });
+
+    it("con el lock de baja ya tomado (otra baja del mismo usuario en curso) -> 409 ACCOUNT_DELETION_IN_PROGRESS, sin efecto", async () => {
+      // Simula la ventana de una baja concurrente adquiriendo el lock por afuera, en
+      // vez de confiar en que dos app.inject() en Promise.all se solapen de verdad --
+      // eso resultó flaky (ninguna garantía de que el segundo llegue al SET NX antes
+      // de que el primero libere el lock en el finally). Este test ejercita
+      // directamente la rama "lock ya tomado" del mecanismo (MOVO-134).
+      const { userId } = await registerFixtureUser();
+
+      const acquired = await app.redis.set(`account-deletion-lock:${userId}`, "1", "EX", 30, "NX");
+      expect(acquired).toBe("OK");
+
+      const response = await app.inject({
+        method: "DELETE",
+        url: "/users/me",
+        headers: { "x-user-id": userId },
+        payload: { password: "Password1" },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(JSON.parse(response.body).error.code).toBe("ACCOUNT_DELETION_IN_PROGRESS");
 
       const repo = createUserRepository(app.db);
       const reloaded = await repo.findById(userId);
