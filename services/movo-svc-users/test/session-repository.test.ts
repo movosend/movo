@@ -4,6 +4,7 @@ import {
   createSessionRepository,
   SessionRepository,
   DEFAULT_REFRESH_TOKEN_TTL_SECONDS,
+  ACCESS_TOKEN_TTL_SECONDS,
 } from "../src/repositories/session-repository";
 
 describe("Session Repository (Redis)", () => {
@@ -21,15 +22,17 @@ describe("Session Repository (Redis)", () => {
   });
 
   beforeEach(async () => {
-    // Clean up test keys matching refresh:* pattern before each test
-    let cursor = "0";
-    do {
-      const [nextCursor, keys] = await redis.scan(cursor, "MATCH", "refresh:*", "COUNT", 100);
-      cursor = nextCursor;
-      if (keys.length > 0) {
-        await redis.del(...keys);
-      }
-    } while (cursor !== "0");
+    // Clean up test keys matching refresh:* and user-revoked-at:* before each test
+    for (const pattern of ["refresh:*", "user-revoked-at:*"]) {
+      let cursor = "0";
+      do {
+        const [nextCursor, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
+        cursor = nextCursor;
+        if (keys.length > 0) {
+          await redis.del(...keys);
+        }
+      } while (cursor !== "0");
+    }
   });
 
   it("guarda y recupera un refresh token con TTL de 7 días por defecto (ADR-004)", async () => {
@@ -140,5 +143,31 @@ describe("Session Repository (Redis)", () => {
     expect(countStar).toBe(1);
     expect(await sessionRepo.findRefreshToken(userStar, "tok-s1")).toBeNull();
     expect(await sessionRepo.findRefreshToken(userNormal, "tok-n1")).toBe("true");
+  });
+
+  it("sella user-revoked-at:{userId} con el instante actual en segundos Unix y TTL de ACCESS_TOKEN_TTL_SECONDS", async () => {
+    const userId = "usr-uuid-revoke";
+    const beforeSeconds = Math.floor(Date.now() / 1000);
+
+    await sessionRepo.revokeAccessTokensIssuedBefore(userId);
+
+    const raw = await redis.get(`user-revoked-at:${userId}`);
+    expect(raw).not.toBeNull();
+    const revokedAt = Number(raw);
+    expect(revokedAt).toBeGreaterThanOrEqual(beforeSeconds);
+    expect(revokedAt).toBeLessThanOrEqual(Math.floor(Date.now() / 1000));
+
+    const ttl = await redis.ttl(`user-revoked-at:${userId}`);
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(ACCESS_TOKEN_TTL_SECONDS);
+  });
+
+  it("rechaza userId vacío o con dos puntos al sellar la revocación", async () => {
+    await expect(sessionRepo.revokeAccessTokensIssuedBefore("")).rejects.toThrow(
+      "userId is required and cannot contain colons"
+    );
+    await expect(sessionRepo.revokeAccessTokensIssuedBefore("user:id")).rejects.toThrow(
+      "userId is required and cannot contain colons"
+    );
   });
 });

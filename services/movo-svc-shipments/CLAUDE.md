@@ -324,6 +324,33 @@ Decisiones clave:
   alcanza para la consulta del barrido; el costo de mantener un índice adicional no se justifica. Si el volumen
   creciera, el candidato sería `(status, receiver_confirmation_deadline)`.
 
+### MOVO-134 — Endpoint interno de solo lectura para baja de cuenta (`svc-shipments`)
+
+`GET /internal/account-deletion/users/:userId/active-shipments` (`src/modules/account-deletion/`),
+consultado por `svc-users` antes de aplicar una baja de cuenta (ticket completo en
+`services/movo-svc-users/CLAUDE.md`). Primera llamada síncrona en sentido
+`svc-users` → `svc-shipments` — hasta ahora todas las llamadas internas del proyecto
+iban al revés (`users-client.ts`, MOVO-80).
+
+Decisiones clave:
+- **De solo lectura, no cancela nada**: decisión de refinamiento del ticket —
+  bloquear la baja con 409 si hay algo activo, sin cascada de cancelación
+  automática. El usuario cancela por su cuenta (endpoints ya existentes) y reintenta.
+- **`hasActiveShipmentsForUser()` separa `disputed` del resto de los estados no
+  terminales**: el mensaje de error del lado de `svc-users` es distinto para cada
+  caso (una disputa la resuelve un admin, no el usuario cancelando).
+- **Sin transición `in_transit → cancelled` agregada al grafo de MOVO-105**: se
+  evaluó y se descartó — un envío en tránsito bloquea la baja igual que una
+  disputa, sin cascada. Cancelar un envío con el paquete físicamente en manos de un
+  transportista es una decisión de producto/operativa aparte (¿devolución?
+  ¿penalización?), fuera de alcance de este ticket.
+- **Interno, no proxeado por el gateway** (`schema: { hide: true }`, no aparece en
+  la Swagger pública) — mismo criterio que `/internal/notifications` de `svc-users`
+  (MOVO-106).
+
+Tests: `test/account-deletion.integration.test.ts` (11 casos, Postgres real) —
+cubre las 3 combinaciones de rol (sender/receiver/carrierId), todos los estados no
+terminales, los 3 terminales, y un usuario con disputa + envío activo simultáneos.
 ### MOVO-118 — Race condition (TOCTOU) en `shipment-repository.ts#updateStatus()`
 
 Cierra la ventana de carrera aceptada desde MOVO-104: dos transiciones concurrentes

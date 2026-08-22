@@ -182,6 +182,48 @@ export const usersSchemas = {
     },
   },
 
+  // MOVO-134: mismo patrón que registerBody.password de auth.schema.ts (mínimo 8,
+  // al menos una letra y un dígito) -- duplicado acá por el criterio "autocontenido".
+  changePasswordBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["currentPassword", "newPassword"],
+    properties: {
+      currentPassword: { type: "string", minLength: 1 },
+      newPassword: {
+        type: "string",
+        minLength: 8,
+        pattern: "^(?=.*[A-Za-z])(?=.*\\d).{8,}$",
+      },
+    },
+  },
+
+  // Mismo shape que loginResponse de auth.schema.ts (MOVO-134: el cambio de
+  // contraseña emite un par de tokens nuevo igual que un login) -- duplicado acá por
+  // el criterio "autocontenido".
+  changePasswordResponse: {
+    type: "object",
+    required: ["userId", "accessToken", "refreshToken", "expiresIn", "kycStatus", "fullName", "roles"],
+    properties: {
+      userId: { type: "string", format: "uuid" },
+      accessToken: { type: "string" },
+      refreshToken: { type: "string" },
+      expiresIn: { type: "integer" },
+      kycStatus: { type: "string", enum: KYC_STATUS_VALUES },
+      fullName: { type: "string" },
+      roles: { type: "array", items: { type: "string", enum: USER_ROLE_VALUES } },
+    },
+  },
+
+  deleteAccountBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["password"],
+    properties: {
+      password: { type: "string", minLength: 1 },
+    },
+  },
+
   patchProfileBody: {
     type: "object",
     additionalProperties: false,

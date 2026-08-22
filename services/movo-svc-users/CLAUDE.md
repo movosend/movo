@@ -277,6 +277,110 @@ el schema, no se editan por ningún endpoint todavía).
   las columnas son `text` sin límite en Postgres -- un nombre de 1 MB se aceptaba y
   se devolvía en cada perfil/resultado de búsqueda.
 
+### MOVO-134 — Cambio de contraseña y baja de cuenta (Cuenta y seguridad)
+
+Backend del ítem "Cuenta y seguridad" del perfil: `POST /users/me/password` y
+`DELETE /users/me`. Cierra MOVO-39 (derecho de supresión) junto con el ticket
+hermano de mobile.
+
+Decisiones clave:
+- **Bloqueo por envíos/disputas activos, sin cascada de cancelación** (decisión de
+  refinamiento con el equipo, se aparta del planteo inicial del ticket): `DELETE
+  /users/me` consulta `GET /internal/account-deletion/users/:userId/active-shipments`
+  en `svc-shipments` (primera llamada síncrona `svc-users` → `svc-shipments`, ver
+  `services/movo-svc-shipments/CLAUDE.md`) y bloquea con `409
+  ACCOUNT_HAS_ACTIVE_DISPUTES`/`ACCOUNT_HAS_ACTIVE_SHIPMENTS` si el usuario (como
+  emisor, receptor o transportista) tiene algo en un estado no terminal —
+  **sin importar cuál** (incluye `in_transit`, evaluado y descartado agregarle una
+  transición de cancelación al grafo de MOVO-105). Es el usuario quien cancela por su
+  cuenta y reintenta la baja; sin timeout/fallback seguro si `svc-shipments` no
+  responde (la baja falla, a diferencia de la validación de receptor de MOVO-80).
+- **`issueSession()` de `auth.service.ts` pasó de closure interno a función standalone
+  exportada** (recibe `sessionRepository` explícito): `changePassword()` necesita
+  emitir el mismo shape de tokens que login/register/refresh sin instanciar
+  `phoneVerificationService` (dependencia de `createAuthService` que no le hace
+  falta acá). `login()`/`register()`/`refresh()` se actualizaron para llamarla igual.
+- **Rate limit del cambio de contraseña resuelto adentro de `svc-users`, no en el
+  gateway**: el rate-limiting del gateway corre *antes* de decodificar el JWT (así
+  están armados los 4 rate limits estrictos ya existentes en
+  `gateway/src/config/routes-map.ts`, todos keyeados por IP) — no puede limitar "por
+  usuario" sin reordenar ese hook para *todas* las rutas protegidas. Se resolvió con
+  un contador en Redis por `userId` (5 intentos / 15 min), mismo patrón que
+  `otp-repository.ts#incrementAttempts` pero con ventana fija.
+- **Anonimización de PII derivada del propio `id`** (`deleted+{id}@movo.invalid` /
+  `deleted-{id}`), no de un UUID nuevo random: ya es único (el `id` lo es), evita una
+  generación extra, y dobla como "derivado del id" tal cual pedía el ticket. Sin
+  `DELETE` físico — el `user_id` sigue referenciado desde envíos históricos en
+  `svc-shipments`, la integridad referencial del historial tiene que sobrevivir
+  (mismo motivo que ya documentaba `getPublicProfile`, MOVO-77, para tratar `deleted`
+  como "no existe" hacia afuera).
+- **`address-repository.ts#delete()` no se pudo reusar en la transacción de baja**:
+  ese método abre su propia `$transaction` (para promover un nuevo default cuando se
+  borra la default) — necesita un `PrismaClient` completo, no el `tx` que entrega
+  `db.$transaction(async (tx) => ...)`. La baja usa un `deleteMany` crudo en su
+  lugar (no hace falta preservar ningún default, no queda ningún usuario). Mismo
+  problema no aplicó a `push-token-repository.ts`: sus métodos nunca abren su propia
+  transacción, así que se pudo ensanchar su tipo a `Prisma.TransactionClient` sin
+  riesgo (mismo criterio que `user-repository.ts` desde MOVO-72).
+- **Anonimización inmediata, sin ventana de gracia** (recomendación original del
+  ticket, no revisada en el refinamiento de MOVO-134): purga diferida necesitaría un
+  job programado que hoy no existe en el proyecto.
+- **Limitación aceptada**: sin `EmailProvider`, no se manda ningún mail de "tu
+  contraseña cambió" ni de confirmación de baja — mismo motivo que el ticket hermano
+  MOVO-133, se cierra cuando exista un `EmailProvider` compartido con MOVO-64.
+
+Tests: `test/users.account-settings.integration.test.ts` (19 casos) +
+`services/movo-svc-shipments/test/account-deletion.integration.test.ts` (11 casos,
+ver ese CLAUDE.md) — Postgres+Redis reales, `ShipmentsClient` fake inyectable vía
+`buildApp({ shipmentsClient })` (mismo criterio que `storageProvider`/`smsProvider`).
+Cubre el ciclo completo de registro→cambio de contraseña→refresh viejo invalidado,
+bloqueo por disputa/envío activo sin efecto, idempotencia de la baja, y re-registro
+post-baja con el mismo email/teléfono.
+
+Pendiente / fuera de alcance: consumo desde `movo-mobile` (ticket aparte).
+
+**Fixes de review sobre la implementación inicial (tmvergara, PR #92):**
+- **El access token sobrevivía a la baja de cuenta y al cambio de contraseña**
+  (Medium): `revokeAllForUser` solo invalida refresh tokens -- el access token, JWT
+  stateless (ADR-004), seguía siendo válido hasta sus 60 minutos de TTL. Se agregó
+  `sessionRepository.revokeAccessTokensIssuedBefore(userId)`, que sella
+  `user-revoked-at:{userId}` en Redis (segundos Unix, TTL = TTL del access token) --
+  el gateway (`gateway/src/plugins/auth.ts#authenticate`) lo lee en cada request
+  autenticado y rechaza cualquier token con `iat` anterior. Guardado en segundos, no
+  milisegundos, a propósito: comparar contra `Date.now()` dejaría el token nuevo que
+  la propia `changePassword()` emite auto-revocado por el redondeo de `iat` al
+  segundo. Mismo mecanismo cierra `deleteAccount()` y `changePassword()`.
+- **PII de KYC/licencia sobrevivía a la baja de cuenta** (Medium): `onDelete:
+  Cascade` de `KycVerification`/`DriversLicense` nunca disparaba porque la fila de
+  `users` sobrevive a propósito (integridad referencial con envíos históricos) --
+  `rawDecision`/`external_session_id` (sesión de Didit con documento y biometría) y
+  la fecha de vencimiento del carnet quedaban en la base. Se agregó el borrado
+  explícito de ambas tablas a la `$transaction` de `deleteAccount` (sin FK entrante
+  desde envíos, a diferencia de `users`); `phoneVerified` también se resetea a
+  `false` en `anonymizeAndDelete`.
+- **TOCTOU entre el chequeo de envíos activos y la anonimización** (Low/medium):
+  se agregó un lock por usuario en Redis (`account-deletion-lock:{userId}`, `SET NX
+  EX 30`) alrededor de todo el bloque de `deleteAccount` -- cierra el caso de dos
+  bajas concurrentes del mismo usuario. **No cierra** la carrera más amplia contra un
+  envío creado desde `svc-shipments` en el medio (misma clase de problema que tuvo
+  MOVO-118 antes de su fix) -- la solución de fondo (que `svc-shipments` valide
+  `status` del sender/carrier al crear/aceptar un envío, rechazando `deleted`) queda
+  fuera de alcance de este PR, aceptada por ahora sin ticket de seguimiento dedicado.
+- **Rate limit de cambio de contraseña sin TTL ante una caída a mitad de camino**
+  (Low): `INCR` + `EXPIRE` condicional eran dos comandos separados -- un fallo entre
+  medio dejaba la key sin TTL, bloqueando al usuario para siempre. Se resolvió con
+  `SET NX EX` atómico (mismo patrón que `phone-verification.service.ts`). Secundario:
+  el contador solo se incrementa en intentos **fallidos** ahora (antes también en
+  éxitos) y se resetea en un cambio exitoso -- 5 cambios legítimos seguidos ya no
+  bloquean al usuario.
+- **Endpoint interno de `svc-shipments` sin `response` schema** (Low): se cableó
+  `response: { 200: activeShipmentsResponse }` en
+  `account-deletion.routes.ts` -- sin esto, un cambio de forma en
+  `hasActiveShipmentsForUser` podía pasar `undefined` (falsy) a `shipments-client.ts`
+  y dejar pasar la baja en la dirección insegura, en silencio.
+- Comentario desactualizado en `shipments-client.ts` corregido (decía "sin timeout
+  explícito" sobre código que sí lo tiene).
+
 ### Pendientes de este servicio
 
 - **Credenciales reales sin cargar** en AWS Secrets Manager (dev y prod) — el código

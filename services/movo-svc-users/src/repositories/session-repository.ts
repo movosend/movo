@@ -2,6 +2,13 @@ import Redis from "ioredis";
 
 export const DEFAULT_REFRESH_TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60; // 90 days (7776000s), ADR-013
 
+/** TTL del access token (ADR-004) — mismo valor que `ACCESS_TOKEN_TTL` en
+ * `shared/movo-shared/src/auth/jwt.ts`, duplicado acá porque esa constante no se
+ * exporta en segundos. Marca hasta cuándo puede quedar viva la marca de revocación
+ * de `revokeAccessTokensIssuedBefore` -- pasado ese tiempo, todo access token emitido
+ * antes ya expiró por su cuenta y la key es redundante. */
+export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
+
 export type ConsumeRefreshTokenResult = "ok" | "already-used" | "hash-mismatch" | "not-found";
 
 export interface SessionRepository {
@@ -25,6 +32,19 @@ export interface SessionRepository {
   consumeRefreshToken(userId: string, tokenId: string, expectedHash: string): Promise<ConsumeRefreshTokenResult>;
   revokeRefreshToken(userId: string, tokenId: string): Promise<boolean>;
   revokeAllForUser(userId: string): Promise<number>;
+  /**
+   * Sella `user-revoked-at:{userId}` con el instante actual, en segundos Unix -- misma
+   * unidad que el claim `iat` de un JWT (RFC 7519), a propósito: si se guardara en
+   * milisegundos (`Date.now()`), el access token nuevo que `changePassword()` emite
+   * milisegundos después podría quedar con `iat` (truncado al segundo) por debajo del
+   * corte y auto-revocarse. TTL = `ACCESS_TOKEN_TTL_SECONDS`, la key se limpia sola.
+   * El gateway (`plugins/auth.ts`) lo lee en cada request autenticado y rechaza
+   * cualquier access token cuyo `iat` sea anterior -- sin esto, `revokeAllForUser`
+   * solo invalida refresh tokens, pero el access token ya emitido (JWT stateless,
+   * ADR-004) sigue siendo válido hasta sus 60 minutos de TTL, sobreviviendo tanto a un
+   * cambio de contraseña como a una baja de cuenta.
+   */
+  revokeAccessTokensIssuedBefore(userId: string): Promise<void>;
 }
 
 // GET + cjson.decode + chequeo de `used` + SET atómico: sin esto, leer y escribir por
@@ -140,6 +160,14 @@ export function createSessionRepository(redis: Redis): SessionRepository {
       } while (cursor !== "0");
 
       return totalDeleted;
+    },
+
+    async revokeAccessTokensIssuedBefore(userId: string): Promise<void> {
+      if (!userId || userId.includes(":")) {
+        throw new Error("userId is required and cannot contain colons");
+      }
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      await redis.set(`user-revoked-at:${userId}`, nowSeconds, "EX", ACCESS_TOKEN_TTL_SECONDS);
     },
   };
 }
