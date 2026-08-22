@@ -200,10 +200,14 @@ export const authSchemas = {
   },
   sendOtpResponse: {
     type: "object",
-    required: ["otpId", "cooldownSeconds"],
+    // MOVO-133 (review de tmvergara sobre PR #91): `sent` distingue "mandé un SMS
+    // nuevo" de "reusé el OTP activo, dentro de su cooldown, sin mandar nada" --
+    // antes las dos ramas devolvían la misma forma y el cliente no podía saberlo.
+    required: ["otpId", "cooldownSeconds", "sent"],
     properties: {
       otpId: { type: "string", format: "uuid" },
       cooldownSeconds: { type: "integer", minimum: 0 },
+      sent: { type: "boolean" },
     },
   },
   verifyOtpBody: {

@@ -4,7 +4,6 @@ import { AccountStatus, ApiError, KycStatus } from "@movo/shared";
 import { PrismaClient } from "../../generated/prisma/client";
 import { createUserRepository } from "../../repositories/user-repository";
 import { createPushTokenRepository } from "../../repositories/push-token-repository";
-import { PendingEmailRepository } from "../../repositories/pending-email-repository";
 import { PrivateProfile, PublicProfile, toPrivateProfile, toPublicProfile } from "../../models/user-profile";
 import { UserConflictError } from "../../models/user";
 import { StorageProvider } from "../../adapters/storage-provider";
@@ -15,6 +14,13 @@ import { normalizePhoneToE164Ar } from "../auth/auth.service";
 const OTP_INVALID_MESSAGE = "El código ingresado es inválido o venció.";
 const PHONE_ALREADY_IN_USE_MESSAGE = "Ese teléfono ya está en uso por otra cuenta.";
 const EMAIL_ALREADY_IN_USE_MESSAGE = "Ese email ya está en uso por otra cuenta.";
+
+// MOVO-133 (review de tmvergara sobre PR #91): namespacea el OTP por flujo (ver
+// otp-service.ts) -- sin esto, un mismo target (el teléfono actual de la cuenta, en
+// el flujo de email) podía cruzarse con otro flujo sobre el mismo número, o con
+// POST /auth/send-otp (pública, sin flujo -- ahora "register").
+const PHONE_CHANGE_FLOW = "phone-change";
+const EMAIL_CHANGE_FLOW = "email-change";
 
 /** AC2 de MOVO-97: whitelist de tipos permitidos para la foto de perfil. Duplicada en
  * `users.schema.ts` (JSON schema autocontenido, mismo criterio que el resto de los
@@ -60,8 +66,7 @@ export function createUsersService(
   db: PrismaClient,
   storageProvider: StorageProvider,
   logger: FastifyBaseLogger,
-  otpService: OtpService,
-  pendingEmailRepository: PendingEmailRepository
+  otpService: OtpService
 ) {
   const repository = createUserRepository(db);
   const pushTokenRepository = createPushTokenRepository(db);
@@ -272,7 +277,7 @@ export function createUsersService(
      * `phoneVerificationToken` intermedio: verificar el OTP en el paso 2 persiste
      * `phone`/`phoneVerified` directo, porque el caller ya está autenticado.
      */
-    async requestPhoneChange(userId: string, phone: string): Promise<{ otpId: string; cooldownSeconds: number }> {
+    async requestPhoneChange(userId: string, phone: string): Promise<{ otpId: string; cooldownSeconds: number; sent: boolean }> {
       const user = await repository.findById(userId);
       if (!user) {
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
@@ -288,12 +293,19 @@ export function createUsersService(
         throw new ApiError(409, "PHONE_ALREADY_IN_USE", PHONE_ALREADY_IN_USE_MESSAGE);
       }
 
-      return otpService.generateOtp(normalizedPhone);
+      return otpService.generateOtp(PHONE_CHANGE_FLOW, normalizedPhone, { userId });
     },
 
-    /** MOVO-133, paso 2: el `target` del OTP verificado ES el teléfono nuevo. */
+    /**
+     * MOVO-133, paso 2: el `target` del OTP verificado ES el teléfono nuevo. El
+     * `flow` esperado (`PHONE_CHANGE_FLOW`) hace que `verifyOtp` rechace de plano un
+     * otpId real pero emitido para otro flujo (ej. el paso 1 de cambio de email) --
+     * antes esto se "aceptaba" y terminaba cambiando el teléfono al mismo que ya
+     * tenía la cuenta, consumiendo en el camino el OTP del otro flujo (review de
+     * tmvergara sobre PR #91).
+     */
     async verifyPhoneChange(userId: string, otpId: string, code: string): Promise<PrivateProfile> {
-      const { target: newPhone } = await otpService.verifyOtp(otpId, code);
+      const { target: newPhone } = await otpService.verifyOtp(otpId, code, PHONE_CHANGE_FLOW);
 
       try {
         const updated = await repository.updatePhone(userId, newPhone);
@@ -315,10 +327,16 @@ export function createUsersService(
      * MOVO-133, paso 1 de cambio de email -- decisión de refinamiento: sin
      * `EmailProvider` en el proyecto, se verifica la identidad del dueño de la cuenta
      * mandando el OTP a su teléfono YA verificado, no al email nuevo (que sería lo
-     * literal del AC original). El email candidato queda en Redis atado al `otpId`
-     * (`pendingEmailRepository`), con el mismo TTL que el OTP.
+     * literal del AC original). El email candidato viaja como metadata del propio OTP
+     * (`meta.pendingEmail`, `otp-repository.ts`) -- comparte TTL, rotación e
+     * invalidación con el OTP por construcción. Antes vivía en una key Redis paralela
+     * (`pending-email-repository.ts`, borrada en este mismo fix) cuyo TTL nunca se
+     * refrescaba en un reenvío (`POST /auth/resend-otp`, público): pedir un código
+     * nuevo cerca del vencimiento dejaba el OTP vivo pero el email candidato ya
+     * vencido, y el verify fallaba con un código que en realidad era válido (review
+     * de tmvergara sobre PR #91).
      */
-    async requestEmailChange(userId: string, email: string): Promise<{ otpId: string; cooldownSeconds: number }> {
+    async requestEmailChange(userId: string, email: string): Promise<{ otpId: string; cooldownSeconds: number; sent: boolean }> {
       const user = await repository.findById(userId);
       if (!user) {
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
@@ -337,16 +355,16 @@ export function createUsersService(
         throw new ApiError(409, "EMAIL_ALREADY_IN_USE", EMAIL_ALREADY_IN_USE_MESSAGE);
       }
 
-      const { otpId, cooldownSeconds } = await otpService.generateOtp(user.phone);
-      await pendingEmailRepository.set(otpId, normalizedEmail);
-      return { otpId, cooldownSeconds };
+      return otpService.generateOtp(EMAIL_CHANGE_FLOW, user.phone, { userId, pendingEmail: normalizedEmail });
     },
 
     /**
      * MOVO-133, paso 2: el `target` del OTP es el teléfono actual, no el email nuevo
      * -- verificarlo prueba que quien pide el cambio sigue teniendo acceso a la
      * cuenta. No revoca sesiones (el email no es credencial de sesión, a diferencia
-     * de la contraseña -- ver ticket hermano MOVO-134).
+     * de la contraseña -- ver ticket hermano MOVO-134). `flow` esperado
+     * (`EMAIL_CHANGE_FLOW`) cierra el mismo cruce entre flujos que `verifyPhoneChange`
+     * (ver su docstring).
      */
     async verifyEmailChange(userId: string, otpId: string, code: string): Promise<PrivateProfile> {
       const user = await repository.findById(userId);
@@ -354,7 +372,7 @@ export function createUsersService(
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
       }
 
-      const { target: verifiedPhone } = await otpService.verifyOtp(otpId, code);
+      const { target: verifiedPhone, meta } = await otpService.verifyOtp(otpId, code, EMAIL_CHANGE_FLOW);
       if (verifiedPhone !== user.phone) {
         // Defensa en profundidad: el teléfono de la cuenta cambió entre el paso 1 y
         // este verify (ej. un cambio de teléfono corrió en el medio) -- el OTP ya no
@@ -363,13 +381,18 @@ export function createUsersService(
         throw new ApiError(401, "AUTH_OTP_INVALID", OTP_INVALID_MESSAGE);
       }
 
-      const pendingEmail = await pendingEmailRepository.get(otpId);
+      const pendingEmail = meta.pendingEmail;
       if (!pendingEmail) {
         throw new ApiError(401, "AUTH_OTP_INVALID", OTP_INVALID_MESSAGE);
       }
 
       // Re-chequeo de unicidad case-insensitive (AC5): cubre una colisión aparecida
-      // recién entre el paso 1 y este verify.
+      // recién entre el paso 1 y este verify. El OTP ya se consumió arriba
+      // (verifyOtp lo invalida antes de devolver) -- este flujo no se puede
+      // reintentar con este otpId pase lo que pase de acá en más, así que no hay
+      // ninguna key de metadata que limpiar aparte (a diferencia de la
+      // `pendingEmailRepository` que reemplaza este fix, que sobrevivía en Redis
+      // hasta su TTL en cualquier rama que no fuera el éxito final).
       const existing = await repository.findByEmail(pendingEmail);
       if (existing && existing.id !== userId) {
         throw new ApiError(409, "EMAIL_ALREADY_IN_USE", EMAIL_ALREADY_IN_USE_MESSAGE);
@@ -380,7 +403,6 @@ export function createUsersService(
         if (!updated) {
           throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
         }
-        await pendingEmailRepository.delete(otpId);
         return toPrivateProfile(updated);
       } catch (err) {
         if (err instanceof UserConflictError) {

@@ -7,7 +7,6 @@ import { createStorageProvider, StorageProvider } from "../../adapters/storage-p
 import { createSmsProvider, SmsProvider } from "../../adapters/sms-provider";
 import { createOtpRepository } from "../../repositories/otp-repository";
 import { createOtpService } from "../../services/otp-service";
-import { createPendingEmailRepository } from "../../repositories/pending-email-repository";
 
 export interface UsersRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de un bucket real/
@@ -23,8 +22,7 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
   const smsProvider = opts.smsProvider ?? createSmsProvider(app.config);
   const otpRepository = createOtpRepository(app.redis);
   const otpService = createOtpService(otpRepository, smsProvider);
-  const pendingEmailRepository = createPendingEmailRepository(app.redis);
-  const service = createUsersService(app.db, storageProvider, app.log, otpService, pendingEmailRepository);
+  const service = createUsersService(app.db, storageProvider, app.log, otpService);
 
   app.get(
     "/count",
