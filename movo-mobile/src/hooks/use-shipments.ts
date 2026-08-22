@@ -124,3 +124,21 @@ export function useRejectShipment() {
   });
 }
 
+/**
+ * Cancela un envío como emisor (MOVO-29). En éxito invalida las listas de envíos y el
+ * detalle del envío para reflejar el estado terminal `cancelled`.
+ */
+export function useCancelShipment() {
+  const queryClient = useQueryClient();
+  return useMutation<ShipmentSummary, unknown, { id: string; reason?: string }>({
+    mutationFn: ({ id, reason }) => shipmentsClient.cancel(id, reason ? { reason } : undefined),
+    onSuccess: (data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["shipments", "mine"] });
+      queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "recent"] });
+      queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "list"] });
+      queryClient.invalidateQueries({ queryKey: ["shipments", "detail", id] });
+      queryClient.setQueryData(["shipments", "detail", id], data);
+    },
+  });
+}
+
