@@ -108,10 +108,12 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
         summary: "Solicitar cambio de teléfono (paso 1: OTP al nuevo)",
         description:
           "MOVO-133: envía un OTP al teléfono NUEVO (prueba de posesión). Protegida " +
-          "por JWT, a diferencia de POST /auth/send-otp (pública) -- evita habilitar " +
-          "enumeración de teléfonos sobre una cuenta existente. 409 " +
-          "PHONE_ALREADY_IN_USE si el teléfono ya pertenece a otra cuenta, 400 si es " +
-          "el mismo que ya tiene. Reenvío: POST /auth/resend-otp con el mismo otpId.",
+          "por JWT, a diferencia de POST /auth/send-otp (pública) -- pero el split " +
+          "200/409 sigue dejando enumerar teléfonos registrados a cualquier usuario " +
+          "logueado, la protección real es el rate limit propio del gateway (5/15min, " +
+          "más caro que el general por mandar SMS reales). 409 PHONE_ALREADY_IN_USE " +
+          "si el teléfono ya pertenece a otra cuenta, 400 si es el mismo que ya " +
+          "tiene. Reenvío: POST /auth/resend-otp con el mismo otpId.",
         tags: ["users"],
         body: usersSchemas.phoneChangeOtpBody,
         response: {
@@ -195,9 +197,10 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
         description:
           "MOVO-133: el target del OTP es el teléfono actual, no el email nuevo -- " +
           "verificarlo prueba que quien pide el cambio sigue teniendo acceso a la " +
-          "cuenta. El email pendiente (guardado en Redis atado al otpId) se " +
-          "persiste recién acá. No revoca sesiones (el email no es credencial de " +
-          "sesión, a diferencia de la contraseña -- ver ticket hermano MOVO-134).",
+          "cuenta. El email pendiente viaja como metadata del propio OTP (comparte " +
+          "TTL/rotación/invalidación con él) y se persiste recién acá. No revoca " +
+          "sesiones (el email no es credencial de sesión, a diferencia de la " +
+          "contraseña -- ver ticket hermano MOVO-134).",
         tags: ["users"],
         body: usersSchemas.otpVerifyBody,
         response: {
