@@ -45,9 +45,20 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
  * mensaje armado por `http-client.ts` ("No se pudo conectar…") — se muestra
  * tal cual porque es el caso donde más importa ser preciso (vs. genérico) y
  * ya está en español.
+ *
+ * `overrides` (MOVO-136) permite que una pantalla puntual reescriba el mensaje de un
+ * código cuyo texto global está redactado para otro contexto. El caso que lo motivó:
+ * `AUTH_INVALID_CREDENTIALS` dice "El teléfono o la contraseña no son correctos"
+ * porque nació para el login, pero en "Cuenta y seguridad" no hay ningún teléfono en
+ * juego — ahí significa "la contraseña actual no es correcta". Es un override, no un
+ * cambio del mapa global: el mensaje del login sigue siendo el correcto para el login.
  */
-export function friendlyErrorMessage(err: unknown, fallback: string): string {
+export function friendlyErrorMessage(
+  err: unknown,
+  fallback: string,
+  overrides?: Partial<Record<ApiErrorCode, string>>,
+): string {
   if (!(err instanceof ApiError)) return fallback;
   if (err.statusCode === 0) return err.message;
-  return CODE_MESSAGES[err.code] ?? fallback;
+  return overrides?.[err.code] ?? CODE_MESSAGES[err.code] ?? fallback;
 }
