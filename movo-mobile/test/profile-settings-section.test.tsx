@@ -7,9 +7,9 @@ jest.mock("expo-router", () => ({
   router: { push: jest.fn() },
 }));
 
-// MOVO-121: "Direcciones guardadas" es el primer ítem de esta sección con pantalla
-// real — cubre que navega en vez de mostrar el `Alert.alert` placeholder, y que el
-// resto de los 5 ítems (fuera de alcance del ticket) sigue mostrándolo.
+// "Direcciones guardadas" (MOVO-121) y "Cuenta y seguridad" (MOVO-136) son los dos
+// ítems de esta sección con pantalla real — cubre que navegan en vez de mostrar el
+// `Alert.alert` placeholder, y que el resto sigue mostrándolo.
 describe("ProfileSettingsSection", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -21,6 +21,14 @@ describe("ProfileSettingsSection", () => {
     fireEvent.press(getByText("Direcciones guardadas"));
 
     expect(router.push).toHaveBeenCalledWith("/addresses");
+  });
+
+  it("navega a /profile/security al tocar 'Cuenta y seguridad'", async () => {
+    const { getByText } = await render(<ProfileSettingsSection testID="settings" />);
+
+    fireEvent.press(getByText("Cuenta y seguridad"));
+
+    expect(router.push).toHaveBeenCalledWith("/profile/security");
   });
 
   it("sigue mostrando el placeholder 'Próximamente' para el resto de los ítems", async () => {
