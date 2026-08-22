@@ -21,8 +21,8 @@ export interface ShipmentsClientConfig {
   SHIPMENTS_SERVICE_URL: string;
 }
 
-// Mismo criterio que users-client.ts (MOVO-80): sin timeout explícito, una demora en
-// svc-shipments cuelga indefinidamente la baja de cuenta.
+// A diferencia de users-client.ts (MOVO-80), acá sí hay timeout explícito: una demora
+// en svc-shipments colgaría la baja de cuenta, y el caller no tiene un fallback seguro.
 const REQUEST_TIMEOUT_MS = 5000;
 
 export function createShipmentsClient(config: ShipmentsClientConfig): ShipmentsClient {
