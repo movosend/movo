@@ -188,8 +188,8 @@ export const usersSchemas = {
     // AC de MOVO-133: body vacío `{}` -- "nada que actualizar" -- es 400, no un no-op.
     minProperties: 1,
     properties: {
-      firstName: { type: "string", pattern: NAME_FIELD_PATTERN },
-      lastName: { type: "string", pattern: NAME_FIELD_PATTERN },
+      firstName: { type: "string", minLength: 1, maxLength: 80, pattern: NAME_FIELD_PATTERN },
+      lastName: { type: "string", minLength: 1, maxLength: 80, pattern: NAME_FIELD_PATTERN },
     },
   },
 
