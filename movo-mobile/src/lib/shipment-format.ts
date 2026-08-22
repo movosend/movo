@@ -69,6 +69,19 @@ export function receiverConfirmationStatus(status: ShipmentStatus): "pending" | 
   return "confirmed";
 }
 
+/** Estados desde los que el emisor puede cancelar sin penalización (MOVO-29,
+ * implementado en MOVO-108) — los únicos 3 sin fondos confirmados todavía. Cancelar
+ * desde `assigned` existe en `shipment-state-machine.ts` pero el backend lo bloquea
+ * con 409 hasta que `svc-payments` tenga holds/capture reales, así que acá no se
+ * ofrece el botón para ese ni ningún otro estado. */
+export function canCancelShipment(status: ShipmentStatus): boolean {
+  return (
+    status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION ||
+    status === ShipmentStatus.PUBLISHED ||
+    status === ShipmentStatus.ASSIGNMENT_PENDING
+  );
+}
+
 /** Nunca "$0" — un envío recién creado sin precio acordado todavía muestra la
  * sugerencia, nunca un número que parezca gratis. */
 export function formatShipmentPrice(agreedPriceArs: number | null, suggestedPriceArs: number): string {
