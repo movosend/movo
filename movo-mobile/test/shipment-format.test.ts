@@ -1,5 +1,6 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import {
+  canCancelShipment,
   formatEventTimestamp,
   formatPickupWindowLabel,
   formatReceiverConfirmationDeadline,
@@ -63,6 +64,23 @@ describe("receiverConfirmationStatus", () => {
   it("mapea cualquier estado posterior a confirmed", () => {
     expect(receiverConfirmationStatus(ShipmentStatus.PUBLISHED)).toBe("confirmed");
     expect(receiverConfirmationStatus(ShipmentStatus.DELIVERED)).toBe("confirmed");
+  });
+});
+
+describe("canCancelShipment", () => {
+  it("permite cancelar desde los 3 estados sin fondos confirmados", () => {
+    expect(canCancelShipment(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe(true);
+    expect(canCancelShipment(ShipmentStatus.PUBLISHED)).toBe(true);
+    expect(canCancelShipment(ShipmentStatus.ASSIGNMENT_PENDING)).toBe(true);
+  });
+
+  it("no permite cancelar desde assigned ni desde estados terminales", () => {
+    expect(canCancelShipment(ShipmentStatus.ASSIGNED)).toBe(false);
+    expect(canCancelShipment(ShipmentStatus.IN_TRANSIT)).toBe(false);
+    expect(canCancelShipment(ShipmentStatus.DELIVERED)).toBe(false);
+    expect(canCancelShipment(ShipmentStatus.CANCELLED)).toBe(false);
+    expect(canCancelShipment(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe(false);
+    expect(canCancelShipment(ShipmentStatus.DISPUTED)).toBe(false);
   });
 });
 
