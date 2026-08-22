@@ -17,6 +17,29 @@ export interface UserRepository {
   updateKycStatusLicense(id: string, status: KycStatus): Promise<User | null>;
   updatePhotoUrl(id: string, photoUrl: string | null): Promise<User | null>;
   /**
+   * MOVO-133 AC1: actualización parcial de nombre/apellido -- ambos campos opcionales.
+   * El caller (`users.service.ts#updateProfile`) nunca llama con los dos `undefined`
+   * (el schema de `PATCH /users/me` exige `minProperties:1`).
+   */
+  updateProfile(id: string, input: { firstName?: string; lastName?: string }): Promise<User | null>;
+  /**
+   * MOVO-133: persiste `phone` + `phoneVerified=true` en el mismo UPDATE -- se llama
+   * solo después de que el OTP al teléfono nuevo ya probó posesión. Lanza
+   * `UserConflictError("phone")` si `users_phone_key` rechaza el valor (carrera de
+   * unicidad entre el paso 1 -- `POST /me/phone/change/otp` -- y este UPDATE).
+   */
+  updatePhone(id: string, phone: string): Promise<User | null>;
+  /**
+   * MOVO-133: lanza `UserConflictError("email")` si `users_email_key` (mismo casing
+   * exacto) o `users_email_lower_idx` (MOVO-93: UNIQUE INDEX funcional sobre
+   * LOWER(email) -- sí fuerza unicidad case-insensitive a nivel de DB, pese a lo que
+   * decía este comentario antes) rechazan el valor. El chequeo explícito de
+   * `users.service.ts#requestEmailChange`/`verifyEmailChange` (vía `findByEmail`)
+   * sigue existiendo para devolver el 409 sin pagar el viaje a la DB en el caso común,
+   * pero este catch es la última línea de defensa real contra la carrera de AC5.
+   */
+  updateEmail(id: string, email: string): Promise<User | null>;
+  /**
    * Búsqueda de receptor (AC3 de MOVO-80) por nombre completo — no existe columna
    * `username` en este modelo. Excluye al propio caller.
    */
@@ -77,6 +100,21 @@ function uniqueConstraintFields(error: Prisma.PrismaClientKnownRequestError): st
     | undefined;
   const fields = driverError?.cause?.constraint?.fields;
   return Array.isArray(fields) ? fields.filter((f): f is string => typeof f === "string") : [];
+}
+
+/**
+ * `uniqueConstraintFields()` matchea exacto para un unique constraint de columna
+ * simple (`fields: ["email"]`), pero `users_email_lower_idx` (MOVO-93) es un UNIQUE
+ * INDEX de EXPRESIÓN sobre `LOWER(email)` -- verificado empíricamente contra Postgres
+ * real (ver historial de esta rama): para ese índice, el parseo del driver adapter no
+ * devuelve `[]` como documentaba este archivo antes, devuelve `["lower(email::text"]`
+ * (el nombre de la expresión, truncado en un paréntesis interno). Un `.includes(column)`
+ * exacto no matchea eso -- el P2002 se repropaga crudo y el caller ve 500 en vez de
+ * 409 justo en la carrera que AC5 existe para cubrir. `.some(f => f.includes(column))`
+ * matchea las dos formas sin depender de parsear `originalMessage`.
+ */
+function uniqueConstraintFieldsInclude(error: Prisma.PrismaClientKnownRequestError, column: string): boolean {
+  return uniqueConstraintFields(error).some((field) => field.includes(column));
 }
 
 // `Prisma.TransactionClient` (no `PrismaClient`) a propósito: un `PrismaClient` normal
@@ -153,11 +191,10 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         return toDomainUser(created);
       } catch (error) {
         if (isUniqueConstraintError(error)) {
-          const fields = uniqueConstraintFields(error);
-          if (fields.includes("email")) {
+          if (uniqueConstraintFieldsInclude(error, "email")) {
             throw new UserConflictError("email");
           }
-          if (fields.includes("phone")) {
+          if (uniqueConstraintFieldsInclude(error, "phone")) {
             throw new UserConflictError("phone");
           }
         }
@@ -208,6 +245,63 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
       } catch (error) {
         if (isRecordNotFoundError(error)) {
           return null;
+        }
+        throw error;
+      }
+    },
+
+    async updateProfile(id: string, input: { firstName?: string; lastName?: string }): Promise<User | null> {
+      try {
+        const row = await db.user.update({
+          where: { id },
+          data: {
+            ...(input.firstName !== undefined ? { firstName: input.firstName } : {}),
+            ...(input.lastName !== undefined ? { lastName: input.lastName } : {}),
+          },
+          include: { roles: true },
+        });
+        return toDomainUser(row);
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return null;
+        }
+        throw error;
+      }
+    },
+
+    async updatePhone(id: string, phone: string): Promise<User | null> {
+      try {
+        const row = await db.user.update({
+          where: { id },
+          data: { phone, phoneVerified: true },
+          include: { roles: true },
+        });
+        return toDomainUser(row);
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return null;
+        }
+        if (isUniqueConstraintError(error) && uniqueConstraintFieldsInclude(error, "phone")) {
+          throw new UserConflictError("phone");
+        }
+        throw error;
+      }
+    },
+
+    async updateEmail(id: string, email: string): Promise<User | null> {
+      try {
+        const row = await db.user.update({
+          where: { id },
+          data: { email },
+          include: { roles: true },
+        });
+        return toDomainUser(row);
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return null;
+        }
+        if (isUniqueConstraintError(error) && uniqueConstraintFieldsInclude(error, "email")) {
+          throw new UserConflictError("email");
         }
         throw error;
       }

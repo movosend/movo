@@ -1,18 +1,28 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
-import { createUsersService, PhotoUploadUrlInput, RegisterPushTokenInput } from "./users.service";
+import { ApiError } from "@movo/shared";
+import { createUsersService, PhotoUploadUrlInput, RegisterPushTokenInput, UpdateProfileInput } from "./users.service";
 import { usersSchemas } from "./users.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
+import { createSmsProvider, SmsProvider } from "../../adapters/sms-provider";
+import { createOtpRepository } from "../../repositories/otp-repository";
+import { createOtpService } from "../../services/otp-service";
 
 export interface UsersRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de un bucket real/
    * credenciales de AWS (MOVO-97), mismo criterio que `geocodingProvider`/`diditClient`. */
   storageProvider?: StorageProvider;
+  /** Override solo para tests de integración — mismo criterio que `auth.routes.ts`
+   * (MOVO-133 reusa el motor de OTP para el cambio de teléfono/email). */
+  smsProvider?: SmsProvider;
 }
 
 export default async function usersRoutes(app: FastifyInstance, opts: UsersRoutesOptions) {
   const storageProvider = opts.storageProvider ?? createStorageProvider(app.config);
-  const service = createUsersService(app.db, storageProvider, app.log);
+  const smsProvider = opts.smsProvider ?? createSmsProvider(app.config);
+  const otpRepository = createOtpRepository(app.redis);
+  const otpService = createOtpService(otpRepository, smsProvider);
+  const service = createUsersService(app.db, storageProvider, app.log, otpService);
 
   app.get(
     "/count",
@@ -44,6 +54,169 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
     async (request: FastifyRequest) => {
       const userId = requireUserIdFromHeader(request);
       return service.getPrivateProfile(userId);
+    },
+  );
+
+  app.patch(
+    "/me",
+    {
+      // Fastify trae `removeAdditional: true` como default de AJV (mismo gotcha
+      // documentado en el CLAUDE.md de MOVO-129 de svc-shipments): con solo
+      // `additionalProperties:false` en el schema, un campo de más (`email`, `roles`,
+      // etc.) se descarta en silencio en vez de devolver 400 -- este `preValidation`
+      // corre ANTES de esa fase y rechaza explícitamente cualquier clave que no sea
+      // firstName/lastName (AC2), sin tocar la configuración global de AJV del resto
+      // del servicio.
+      preValidation: async (request: FastifyRequest) => {
+        const body = request.body as Record<string, unknown> | undefined;
+        const allowedKeys = new Set(["firstName", "lastName"]);
+        if (body && Object.keys(body).some((key) => !allowedKeys.has(key))) {
+          throw new ApiError(400, "VALIDATION_FAILED", "Solo se puede editar firstName/lastName por esta vía.");
+        }
+      },
+      schema: {
+        summary: "Actualizar datos personales propios",
+        description:
+          "AC1/AC2/AC3 de MOVO-133: actualización parcial de nombre/apellido. " +
+          "Mandar email/phone/photoUrl/kycStatus/roles/accountStatus es 400 " +
+          "VALIDATION_FAILED (esos campos no se editan acá). Body vacío `{}` " +
+          "también es 400 (`minProperties:1`). Bloqueado con 409 " +
+          "PROFILE_NAME_LOCKED_BY_KYC si el KYC de identidad ya está aprobado -- " +
+          "el nombre quedó validado contra el documento por Didit (MOVO-72).",
+        tags: ["users"],
+        body: usersSchemas.patchProfileBody,
+        response: {
+          200: usersSchemas.privateProfileResponse,
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+          409: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      const body = request.body as UpdateProfileInput;
+      return service.updateProfile(userId, body);
+    },
+  );
+
+  app.post(
+    "/me/phone/change/otp",
+    {
+      schema: {
+        summary: "Solicitar cambio de teléfono (paso 1: OTP al nuevo)",
+        description:
+          "MOVO-133: envía un OTP al teléfono NUEVO (prueba de posesión). Protegida " +
+          "por JWT, a diferencia de POST /auth/send-otp (pública) -- pero el split " +
+          "200/409 sigue dejando enumerar teléfonos registrados a cualquier usuario " +
+          "logueado, la protección real es el rate limit propio del gateway (5/15min, " +
+          "más caro que el general por mandar SMS reales). 409 PHONE_ALREADY_IN_USE " +
+          "si el teléfono ya pertenece a otra cuenta, 400 si es el mismo que ya " +
+          "tiene. Reenvío: POST /auth/resend-otp con el mismo otpId.",
+        tags: ["users"],
+        body: usersSchemas.phoneChangeOtpBody,
+        response: {
+          200: usersSchemas.otpRequestResponse,
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+          409: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      const { phone } = request.body as { phone: string };
+      return service.requestPhoneChange(userId, phone);
+    },
+  );
+
+  app.post(
+    "/me/phone/change/verify",
+    {
+      schema: {
+        summary: "Confirmar cambio de teléfono (paso 2: verificar OTP)",
+        description:
+          "MOVO-133: el target del OTP ES el teléfono nuevo -- verificarlo prueba " +
+          "posesión y persiste phone + phoneVerified=true en el mismo UPDATE. 401 " +
+          "AUTH_OTP_INVALID ante código malo/reusado, 422 AUTH_OTP_EXPIRED si venció.",
+        tags: ["users"],
+        body: usersSchemas.otpVerifyBody,
+        response: {
+          200: usersSchemas.privateProfileResponse,
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+          409: usersSchemas.errorResponse,
+          422: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      const { otpId, code } = request.body as { otpId: string; code: string };
+      return service.verifyPhoneChange(userId, otpId, code);
+    },
+  );
+
+  app.post(
+    "/me/email/change/otp",
+    {
+      schema: {
+        summary: "Solicitar cambio de email (paso 1: OTP al teléfono actual)",
+        description:
+          "Decisión de refinamiento de MOVO-133: sin EmailProvider en el proyecto, " +
+          "se verifica la identidad del dueño de la cuenta mandando el OTP a su " +
+          "teléfono YA verificado, no al email nuevo (que sería lo literal del AC " +
+          "original). 409 EMAIL_ALREADY_IN_USE si el email ya pertenece a otra " +
+          "cuenta (chequeo case-insensitive), 400 si es el mismo que ya tiene.",
+        tags: ["users"],
+        body: usersSchemas.emailChangeOtpBody,
+        response: {
+          200: usersSchemas.otpRequestResponse,
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+          409: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      const { email } = request.body as { email: string };
+      return service.requestEmailChange(userId, email);
+    },
+  );
+
+  app.post(
+    "/me/email/change/verify",
+    {
+      schema: {
+        summary: "Confirmar cambio de email (paso 2: verificar OTP)",
+        description:
+          "MOVO-133: el target del OTP es el teléfono actual, no el email nuevo -- " +
+          "verificarlo prueba que quien pide el cambio sigue teniendo acceso a la " +
+          "cuenta. El email pendiente viaja como metadata del propio OTP (comparte " +
+          "TTL/rotación/invalidación con él) y se persiste recién acá. No revoca " +
+          "sesiones (el email no es credencial de sesión, a diferencia de la " +
+          "contraseña -- ver ticket hermano MOVO-134).",
+        tags: ["users"],
+        body: usersSchemas.otpVerifyBody,
+        response: {
+          200: usersSchemas.privateProfileResponse,
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+          409: usersSchemas.errorResponse,
+          422: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      const { otpId, code } = request.body as { otpId: string; code: string };
+      return service.verifyEmailChange(userId, otpId, code);
     },
   );
 
