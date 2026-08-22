@@ -350,9 +350,9 @@ recortes:
   `PackageCard`/`CounterpartCard` también cambiaron sus spinners chicos por bloques
   con la forma real del contenido (miniaturas/avatar+nombre).
 
-Pendiente / fuera de alcance: cancelar envío (MOVO-29), detalle/lista de ofertas
-(MOVO-17), handshake/tracking en vivo (MOVO-6/MOVO-11) — igual que documenta el
-propio ticket.
+Pendiente / fuera de alcance: cancelar envío (MOVO-29, resuelto después, ver su propia
+entrada más abajo), detalle/lista de ofertas (MOVO-17), handshake/tracking en vivo
+(MOVO-6/MOVO-11) — igual que documenta el propio ticket.
 
 ### Pantalla "Mis Envíos" (listado completo, punto de acceso desde Inicio)
 
@@ -444,6 +444,40 @@ Perspectiva del receptor sobre la pantalla de detalle de envío (`app/(app)/ship
   - **Deadline de confirmación**: calcula y muestra el tiempo restante en horas ("Te quedan 36 h para confirmar", "Te queda 1 h para confirmar") con formateo puro (`formatReceiverConfirmationDeadline` en `src/lib/shipment-format.ts`), degradando silenciosamente si no viene o ya expiró.
   - **Bloqueo de doble tap y feedback de errores**: deshabilita ambos botones con spinners durante mutación en vuelo. Mapea `ApiError.statusCode` a mensajes específicos (409 → "Este envío ya no se puede confirmar" + refetch del detalle; 403 → "No sos el destinatario de este envío"; banner genérico para el resto).
 - **Mutaciones en `use-shipments.ts`**: `useAcceptShipment` y `useRejectShipment` (`POST /shipments/:id/accept` y `/reject` en `shipments-client.ts`) invalidan queries `["shipments", "mine"]`, `["shipments", "mine", "recent"]`, `["shipments", "mine", "list"]` y `["shipments", "detail", id]` actualizando la cache para reflejar el estado sin salir de la pantalla.
+
+### MOVO-29 — Cancelar envío, lado emisor (`movo-mobile`)
+
+Resuelve la parte de MOVO-29 que había quedado explícitamente afuera de MOVO-127
+("Sin link de cancelar (MOVO-29 aparte)"). El backend (`POST /shipments/:id/cancel`)
+ya existía, mergeado a `develop` como parte de MOVO-108 (ver
+`services/movo-svc-shipments/CLAUDE.md`) — este ticket es 100% mobile.
+
+- **`SenderActionsBar` nueva (`components/shipments/sender-actions-bar.tsx`)**,
+  mismo patrón que `ReceiverActionsBar` (MOVO-131): barra fija al pie, un solo botón
+  "Cancelar envío" que abre un modal con motivo opcional (`reason`, máx 500
+  caracteres, persistido en el historial vía `GET /shipments/:id/events`, AC5) y
+  advertencia de irreversibilidad — reusa el mismo armado de modal que el "Rechazar"
+  del receptor en vez de `Alert.alert` (que no admite input de texto).
+- **`isSender`/`showSenderActions` en `shipments/[id].tsx`**: análogo a
+  `isReceiver`/`showReceiverActions`, mutuamente excluyente por construcción (un
+  usuario no puede ser emisor y receptor del mismo envío). Visible solo cuando
+  `canCancelShipment(shipment.status)` (nueva en `shipment-format.ts`) es `true` —
+  los 3 estados sin fondos confirmados (`awaiting_receiver_confirmation`,
+  `published`, `assignment_pending`). No se muestra ningún botón en `assigned` ni en
+  estados terminales: exponer una acción que el backend siempre va a rechazar con 409
+  no aporta nada.
+- **Mapeo de errores con dos 409 distintos**: `SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED`
+  (mensaje específico, "ya tiene un transportista asignado") vs.
+  `SHIPMENT_INVALID_TRANSITION` (genérico, "ya no se puede cancelar") — el primero no
+  debería alcanzarse desde el botón visible, pero puede darse por una carrera real (el
+  envío pasa a `assigned` entre que se cargó la pantalla y se toca cancelar); ambos
+  disparan `onRefetch?.()`, mismo criterio que el 409 de `ReceiverActionsBar`.
+- **`useCancelShipment` en `use-shipments.ts`**, mismas 4 invalidaciones de query que
+  `useAcceptShipment`/`useRejectShipment`.
+- **Fuera de alcance, ya documentado como limitación aceptada del lado backend**:
+  cancelar desde `assigned` con penalización y la liberación del hold de MercadoPago
+  siguen bloqueados por `svc-payments` (hoy un stub sin holds/capture reales) — no se
+  tocó nada de eso acá, el botón simplemente no se ofrece para ese estado.
 
 ### Pendientes de este paquete
 
