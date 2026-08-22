@@ -43,7 +43,9 @@ export type ApiErrorCode =
   | "ROUTE_NOT_FOUND"
   | "PROFILE_NAME_LOCKED_BY_KYC"
   | "PHONE_ALREADY_IN_USE"
-  | "EMAIL_ALREADY_IN_USE";
+  | "EMAIL_ALREADY_IN_USE"
+  | "SHIPMENT_CONCURRENT_MODIFICATION"
+  | "SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {
