@@ -3,7 +3,12 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import { ShipmentStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
-import { createShipmentRepository, ShipmentRepository, ShipmentNotFoundError } from "../src/repositories/shipment-repository";
+import {
+  createShipmentRepository,
+  ShipmentRepository,
+  ShipmentNotFoundError,
+  ShipmentConcurrentModificationError,
+} from "../src/repositories/shipment-repository";
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
 import { InvalidShipmentTransitionError, InsufficientCreationPhotosError } from "../src/domain/shipment-state-machine";
 
@@ -196,6 +201,42 @@ describe("shipment-repository (Postgres)", () => {
         actorId: null,
         reason,
       });
+    });
+
+    it("MOVO-118: dos transiciones concurrentes desde el mismo status resuelven por compare-and-swap, sin pisarse", async () => {
+      const created = await repo.create(baseInput);
+      await addTwoCreationPhotos(created.id);
+      await repo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null);
+
+      // Escenario del ticket: transportista acepta oferta (-> assignment_pending) a la
+      // vez que el emisor cancela (-> cancelled), ambas transiciones estructuralmente
+      // válidas desde `published`. Sin el compare-and-swap, la segunda en escribir
+      // pisaría a la primera sin revalidar contra el status ya cambiado.
+      const results = await Promise.allSettled([
+        repo.updateStatus(created.id, ShipmentStatus.ASSIGNMENT_PENDING, randomUUID(), "transportista acepta"),
+        repo.updateStatus(created.id, ShipmentStatus.CANCELLED, randomUUID(), "emisor cancela"),
+      ]);
+
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      const rejected = results.filter((r) => r.status === "rejected");
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(ShipmentConcurrentModificationError);
+
+      const winningStatus = (fulfilled[0] as PromiseFulfilledResult<{ status: ShipmentStatus }>).value.status;
+      expect([ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.CANCELLED]).toContain(winningStatus);
+
+      // El status persistido es el de la transición ganadora — nunca queda en un
+      // estado intermedio ni el de la que perdió la carrera.
+      const reloaded = await repo.findById(created.id);
+      expect(reloaded?.status).toBe(winningStatus);
+
+      // Solo la transición ganadora dejó evento (inicial + published + la ganadora) —
+      // la perdedora no persistió nada, ni siquiera un evento "fantasma".
+      const events = await repo.listEvents(created.id);
+      expect(events).toHaveLength(3);
+      expect(events[2].toStatus).toBe(winningStatus);
     });
   });
 

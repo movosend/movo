@@ -88,6 +88,9 @@ export interface ShipmentRepository {
    * transición con `shipment-state-machine.ts` (MOVO-105) antes de tocar la
    * fila, y dentro de la misma transacción registra el evento en
    * `shipment_events`. Ningún otro método de este repositorio toca `status`.
+   * Compare-and-swap contra `status` (MOVO-118): lanza
+   * `ShipmentConcurrentModificationError` si otra transición concurrente ya
+   * ganó la carrera por el UPDATE.
    */
   updateStatus(id: string, to: ShipmentStatus, actorId: string | null, reason?: string): Promise<Shipment>;
   listEvents(shipmentId: string): Promise<ShipmentEvent[]>;
@@ -119,6 +122,21 @@ export class ShipmentNotFoundError extends Error {
   constructor(public readonly id: string) {
     super(`No existe un envío con id '${id}'`);
     this.name = "ShipmentNotFoundError";
+  }
+}
+
+/**
+ * MOVO-118: otra transición concurrente sobre el mismo envío ganó la carrera
+ * por el UPDATE entre la lectura de `status` de este caller y su propio
+ * write. Mismo patrón de compare-and-swap que `OfferConcurrentModificationError`
+ * en `offer-repository.ts` (MOVO-102) — no hace falta `SELECT...FOR UPDATE`
+ * ni `$queryRaw`, el `updateMany` condicionado por `status` ya usa el mismo
+ * mecanismo de locking de Postgres (EvalPlanQual bajo READ COMMITTED).
+ */
+export class ShipmentConcurrentModificationError extends Error {
+  constructor(public readonly id: string) {
+    super(`El envío '${id}' fue modificado por otra transición concurrente`);
+    this.name = "ShipmentConcurrentModificationError";
   }
 }
 
@@ -175,12 +193,10 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
     },
 
     async updateStatus(id: string, to: ShipmentStatus, actorId: string | null, reason?: string): Promise<Shipment> {
-      // Limitación conocida (TOCTOU, MOVO-118): este findUnique corre fuera
-      // de la transacción del update de abajo, sin lock atómico — dos
-      // transiciones casi simultáneas del mismo envío pueden leer el mismo
-      // `status` viejo y la segunda pisa a la primera sin revalidar. Mismo
-      // tipo de gap aceptado en MOVO-75/MOVO-115; no bloqueante para este
-      // sprint (sin asignación automática ni alta concurrencia todavía).
+      // Esta lectura ya NO es la fuente de verdad de la carrera (MOVO-118) —
+      // solo sirve para validar la transición y la precondición de fotos
+      // antes de pagar el costo de abrir una transacción. La corrección real
+      // viene del `updateMany` condicionado por `status` de abajo.
       const current = await db.shipment.findUnique({ where: { id } });
       if (!current) {
         throw new ShipmentNotFoundError(id);
@@ -206,15 +222,27 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       }
 
       const now = new Date();
+      const deliveredAt = to === ShipmentStatus.DELIVERED ? now : current.deliveredAt;
+
       const row = await db.$transaction(async (tx) => {
-        const updated = await tx.shipment.update({
-          where: { id },
+        // MOVO-118: compare-and-swap, mismo patrón que
+        // `offer-repository.ts#acceptOffer` (MOVO-102/AC9). El WHERE
+        // condiciona por `status: from` (el valor leído más arriba) — bajo
+        // READ COMMITTED, el UPDATE toma el lock de fila y, si otra
+        // transición concurrente ya commiteó un cambio de status distinto,
+        // EvalPlanQual hace que este WHERE deje de matchear y `count` da 0.
+        const updated = await tx.shipment.updateMany({
+          where: { id, status: from },
           data: {
             status: to,
             lastStatusChangedAt: now,
-            deliveredAt: to === ShipmentStatus.DELIVERED ? now : current.deliveredAt,
+            deliveredAt,
           },
         });
+
+        if (updated.count === 0) {
+          throw new ShipmentConcurrentModificationError(id);
+        }
 
         await tx.shipmentEvent.create({
           data: {
@@ -226,7 +254,10 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           },
         });
 
-        return updated;
+        // `updateMany` no devuelve la fila actualizada (a diferencia de
+        // `update`) — se reconstruye a mano en vez de pagar un SELECT extra,
+        // mismo criterio que `accepted` en offer-repository.ts#acceptOffer.
+        return { ...current, status: to, lastStatusChangedAt: now, deliveredAt, updatedAt: now };
       });
 
       return mapShipment(row);

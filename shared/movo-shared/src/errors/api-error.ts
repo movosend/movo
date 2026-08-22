@@ -43,7 +43,9 @@ export type ApiErrorCode =
   | "ROUTE_NOT_FOUND"
   | "ACCOUNT_HAS_ACTIVE_DISPUTES"
   | "ACCOUNT_HAS_ACTIVE_SHIPMENTS"
-  | "SHIPMENTS_SERVICE_UNAVAILABLE";
+  | "SHIPMENTS_SERVICE_UNAVAILABLE"
+  | "SHIPMENT_CONCURRENT_MODIFICATION"
+  | "SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

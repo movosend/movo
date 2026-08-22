@@ -27,7 +27,8 @@ export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de credenciales reales
    * de Google (MOVO-123), mismo criterio que `usersClient`. */
   routesProvider?: RoutesProvider;
-  /** Override solo para tests de integración — evita llamadas reales a notificaciones push (MOVO-129). */
+  /** Override solo para tests de integración — evita depender de un `movo-svc-users`
+   * real levantado (MOVO-108/129), mismo criterio que `usersClient`. */
   notificationsClient?: NotificationsClient;
   /** Override para habilitar/deshabilitar el barrido periódico en background (MOVO-130). */
   sweepEnabled?: boolean;
