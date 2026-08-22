@@ -40,7 +40,8 @@ export type ApiErrorCode =
   | "SHIPMENT_INVALID_TRANSITION"
   | "SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED"
   | "ROUTES_PROVIDER_ERROR"
-  | "ROUTE_NOT_FOUND";
+  | "ROUTE_NOT_FOUND"
+  | "SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

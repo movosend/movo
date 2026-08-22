@@ -1,10 +1,30 @@
 import { describe, it, expect, vi } from "vitest";
-import { ApiError, ShipmentStatus, UserRole } from "@movo/shared";
+import { ApiError, OfferStatus, ShipmentStatus, UserRole } from "@movo/shared";
 import { createShipmentsService, CreateShipmentServiceInput } from "../src/modules/shipments/shipments.service";
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
+import { OfferRepository } from "../src/repositories/offer-repository";
+import { UsersClient } from "../src/adapters/users-client";
+import { NotificationsClient } from "../src/adapters/notifications-client";
 import { Shipment, ShipmentEvent, PackageType } from "../src/models/shipment";
 import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
 import { createFakeNotificationsClient } from "./fake-notifications-client";
+import { createFakeOfferRepository, fakeOffer } from "./fake-offer-repository";
+
+/**
+ * Wrapper de `createShipmentsService` para este archivo: los tests que no ejercitan
+ * ofertas/notificaciones (la mayoría, preexistentes a MOVO-108) no tienen que pasar
+ * esas dos dependencias nuevas a mano — usan el default (fakes no-op). `offerRepository`
+ * viaja en `opts` (no como parámetro posicional propio) porque `createShipmentsService`
+ * ahora también lo usan MOVO-129/130, que nunca lo necesitan.
+ */
+function createTestShipmentsService(
+  repository: ShipmentRepository,
+  usersClient: UsersClient,
+  offerRepository: OfferRepository = createFakeOfferRepository(),
+  notificationsClient: NotificationsClient = createFakeNotificationsClient()
+) {
+  return createShipmentsService(repository, usersClient, notificationsClient, undefined, { offerRepository });
+}
 
 function fakeShipment(overrides: Partial<Shipment> = {}): Shipment {
   return {
@@ -94,7 +114,7 @@ describe("shipments.service — createShipment", () => {
     const repository = fakeRepository();
     const usersClient = createFakeUsersClient({});
     const findPublicProfileSpy = vi.spyOn(usersClient, "findPublicProfile");
-    const service = createShipmentsService(repository, usersClient);
+    const service = createTestShipmentsService(repository, usersClient);
 
     await expect(
       service.createShipment({ ...baseInput, senderId: "same-id", receiverId: "same-id" })
@@ -107,7 +127,7 @@ describe("shipments.service — createShipment", () => {
   it("rechaza una franja de retiro con fin anterior o igual al inicio", async () => {
     const repository = fakeRepository();
     const usersClient = createFakeUsersClient({});
-    const service = createShipmentsService(repository, usersClient);
+    const service = createTestShipmentsService(repository, usersClient);
 
     await expect(
       service.createShipment({ ...baseInput, pickupTimeWindowStart: "12:00", pickupTimeWindowEnd: "12:00" })
@@ -119,7 +139,7 @@ describe("shipments.service — createShipment", () => {
   it("rechaza una franja de retiro en el pasado", async () => {
     const repository = fakeRepository();
     const usersClient = createFakeUsersClient({});
-    const service = createShipmentsService(repository, usersClient);
+    const service = createTestShipmentsService(repository, usersClient);
 
     await expect(
       service.createShipment({ ...baseInput, pickupDate: "2020-01-01", pickupTimeWindowStart: "09:00", pickupTimeWindowEnd: "10:00" })
@@ -140,7 +160,7 @@ describe("shipments.service — createShipment", () => {
       const usersClient = createFakeUsersClient({
         "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
       });
-      const service = createShipmentsService(repository, usersClient);
+      const service = createTestShipmentsService(repository, usersClient);
 
       await expect(
         service.createShipment({ ...baseInput, pickupDate: "2030-01-01", pickupTimeWindowStart: "11:00", pickupTimeWindowEnd: "12:00" })
@@ -155,7 +175,7 @@ describe("shipments.service — createShipment", () => {
   it("falla con 404 si el receptor no existe", async () => {
     const repository = fakeRepository();
     const usersClient = createFakeUsersClient({});
-    const service = createShipmentsService(repository, usersClient);
+    const service = createTestShipmentsService(repository, usersClient);
 
     await expect(service.createShipment(baseInput)).rejects.toMatchObject({
       statusCode: 404,
@@ -169,7 +189,7 @@ describe("shipments.service — createShipment", () => {
     const usersClient = createFakeUsersClient({
       "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: false }),
     });
-    const service = createShipmentsService(repository, usersClient);
+    const service = createTestShipmentsService(repository, usersClient);
 
     await expect(service.createShipment(baseInput)).rejects.toMatchObject({
       statusCode: 422,
@@ -183,7 +203,7 @@ describe("shipments.service — createShipment", () => {
     const usersClient = {
       findPublicProfile: vi.fn().mockRejectedValue(new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "caído")),
     };
-    const service = createShipmentsService(repository, usersClient);
+    const service = createTestShipmentsService(repository, usersClient);
 
     await expect(service.createShipment(baseInput)).rejects.toMatchObject({
       statusCode: 502,
@@ -197,7 +217,7 @@ describe("shipments.service — createShipment", () => {
     const usersClient = createFakeUsersClient({
       "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
     });
-    const service = createShipmentsService(repository, usersClient);
+    const service = createTestShipmentsService(repository, usersClient);
 
     await service.createShipment(baseInput);
 
@@ -242,7 +262,7 @@ describe("shipments.service — createShipment", () => {
     const repository = fakeRepository();
     const usersClient = createFakeUsersClient({});
     const findPublicProfileSpy = vi.spyOn(usersClient, "findPublicProfile");
-    const service = createShipmentsService(repository, usersClient);
+    const service = createTestShipmentsService(repository, usersClient);
 
     await expect(
       service.createShipment({ ...baseInput, deliveryLat: baseInput.pickupLat, deliveryLng: baseInput.pickupLng })
@@ -255,7 +275,7 @@ describe("shipments.service — createShipment", () => {
   it("rechaza retiro y entrega a ~50m entre sí, por debajo del umbral de 100m (MOVO-126)", async () => {
     const repository = fakeRepository();
     const usersClient = createFakeUsersClient({});
-    const service = createShipmentsService(repository, usersClient);
+    const service = createTestShipmentsService(repository, usersClient);
 
     await expect(
       service.createShipment({ ...baseInput, deliveryLat: baseInput.pickupLat + 0.00045, deliveryLng: baseInput.pickupLng })
@@ -269,12 +289,44 @@ describe("shipments.service — createShipment", () => {
     const usersClient = createFakeUsersClient({
       "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
     });
-    const service = createShipmentsService(repository, usersClient);
+    const service = createTestShipmentsService(repository, usersClient);
 
     await expect(
       service.createShipment({ ...baseInput, deliveryLat: baseInput.pickupLat + 0.0011, deliveryLng: baseInput.pickupLng })
     ).resolves.toBeDefined();
 
+    expect(repository.create).toHaveBeenCalled();
+  });
+
+  it("notifica al receptor tras crear el envío (AC1 de MOVO-108)", async () => {
+    const repository = fakeRepository();
+    const usersClient = createFakeUsersClient({
+      "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
+    });
+    const notificationsClient = createFakeNotificationsClient();
+    const service = createTestShipmentsService(repository, usersClient, createFakeOfferRepository(), notificationsClient);
+
+    await service.createShipment(baseInput);
+
+    expect(notificationsClient.sendPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "receiver-id",
+        data: { type: "shipment", shipmentId: "shipment-id" },
+      })
+    );
+  });
+
+  it("un fallo del cliente de notificaciones no bloquea la creación del envío (AC5)", async () => {
+    const repository = fakeRepository();
+    const usersClient = createFakeUsersClient({
+      "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
+    });
+    const notificationsClient = createFakeNotificationsClient({
+      sendPush: vi.fn().mockRejectedValue(new Error("svc-users caído")),
+    });
+    const service = createTestShipmentsService(repository, usersClient, createFakeOfferRepository(), notificationsClient);
+
+    await expect(service.createShipment(baseInput)).resolves.toBeDefined();
     expect(repository.create).toHaveBeenCalled();
   });
 });
@@ -283,7 +335,7 @@ describe("shipments.service — getShipmentDetail", () => {
   it("devuelve el envío al emisor", async () => {
     const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
     const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
-    const service = createShipmentsService(repository, createFakeUsersClient({}));
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}));
 
     await expect(service.getShipmentDetail(shipment.id, "sender-id", [])).resolves.toBe(shipment);
   });
@@ -291,7 +343,7 @@ describe("shipments.service — getShipmentDetail", () => {
   it("devuelve el envío al receptor", async () => {
     const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
     const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
-    const service = createShipmentsService(repository, createFakeUsersClient({}));
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}));
 
     await expect(service.getShipmentDetail(shipment.id, "receiver-id", [])).resolves.toBe(shipment);
   });
@@ -299,7 +351,7 @@ describe("shipments.service — getShipmentDetail", () => {
   it("devuelve el envío a un admin ajeno al envío", async () => {
     const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
     const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
-    const service = createShipmentsService(repository, createFakeUsersClient({}));
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}));
 
     await expect(service.getShipmentDetail(shipment.id, "admin-id", [UserRole.ADMIN])).resolves.toBe(shipment);
   });
@@ -307,7 +359,7 @@ describe("shipments.service — getShipmentDetail", () => {
   it("rechaza con 403 (no 404) a un tercero sin rol admin", async () => {
     const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
     const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
-    const service = createShipmentsService(repository, createFakeUsersClient({}));
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}));
 
     await expect(service.getShipmentDetail(shipment.id, "stranger-id", [])).rejects.toMatchObject({
       statusCode: 403,
@@ -317,7 +369,7 @@ describe("shipments.service — getShipmentDetail", () => {
 
   it("responde 404 si el envío no existe", async () => {
     const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(null) });
-    const service = createShipmentsService(repository, createFakeUsersClient({}));
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}));
 
     await expect(service.getShipmentDetail("unknown-id", "any-id", [])).rejects.toMatchObject({
       statusCode: 404,
@@ -343,7 +395,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       findById: vi.fn().mockResolvedValue(shipment),
       listEvents: vi.fn().mockResolvedValue(events),
     });
-    const service = createShipmentsService(repository, createFakeUsersClient({}));
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}));
 
     await expect(service.getShipmentEvents(shipment.id, "sender-id", [])).resolves.toBe(events);
     expect(repository.listEvents).toHaveBeenCalledWith(shipment.id);
@@ -356,7 +408,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       findById: vi.fn().mockResolvedValue(shipment),
       listEvents: vi.fn().mockResolvedValue(events),
     });
-    const service = createShipmentsService(repository, createFakeUsersClient({}));
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}));
 
     await expect(service.getShipmentEvents(shipment.id, "receiver-id", [])).resolves.toBe(events);
     expect(repository.listEvents).toHaveBeenCalledWith(shipment.id);
@@ -369,7 +421,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       findById: vi.fn().mockResolvedValue(shipment),
       listEvents: vi.fn().mockResolvedValue(events),
     });
-    const service = createShipmentsService(repository, createFakeUsersClient({}));
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}));
 
     await expect(service.getShipmentEvents(shipment.id, "admin-id", [UserRole.ADMIN])).resolves.toBe(events);
     expect(repository.listEvents).toHaveBeenCalledWith(shipment.id);
@@ -378,7 +430,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
   it("rechaza con 403 (no 404) a un tercero sin rol admin (events)", async () => {
     const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
     const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
-    const service = createShipmentsService(repository, createFakeUsersClient({}));
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}));
 
     await expect(service.getShipmentEvents(shipment.id, "stranger-id", [])).rejects.toMatchObject({
       statusCode: 403,
@@ -389,7 +441,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
 
   it("responde 404 si el envío no existe (events)", async () => {
     const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(null) });
-    const service = createShipmentsService(repository, createFakeUsersClient({}));
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}));
 
     await expect(service.getShipmentEvents("unknown-id", "any-id", [])).rejects.toMatchObject({
       statusCode: 404,
@@ -782,5 +834,125 @@ describe("shipments.service — expireOverdueShipments (MOVO-130)", () => {
     expect(result.expiredCount).toBe(1);
     expect(result.errorsCount).toBe(1);
     expect(repository.updateStatus).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("shipments.service — cancelShipment (MOVO-29/MOVO-108)", () => {
+  it("responde 404 si el envío no existe", async () => {
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(null) });
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.cancelShipment("unknown-id", "sender-id")).rejects.toMatchObject({
+      statusCode: 404,
+      code: "NOT_FOUND",
+    });
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("rechaza con 403 a quien no sea el emisor (ni el receptor ni un tercero)", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id", status: ShipmentStatus.PUBLISHED });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.cancelShipment(shipment.id, "receiver-id")).rejects.toMatchObject({
+      statusCode: 403,
+      code: "AUTH_FORBIDDEN",
+    });
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("rechaza con 409 SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED cancelar desde assigned", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", status: ShipmentStatus.ASSIGNED });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.cancelShipment(shipment.id, "sender-id")).rejects.toMatchObject({
+      statusCode: 409,
+      code: "SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED",
+    });
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it("cancela desde awaiting_receiver_confirmation sin consultar ofertas (no puede tener ninguna)", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION });
+    const cancelled = { ...shipment, status: ShipmentStatus.CANCELLED };
+    const repository = fakeRepository({
+      findById: vi.fn().mockResolvedValue(shipment),
+      updateStatus: vi.fn().mockResolvedValue(cancelled),
+    });
+    const offerRepository = createFakeOfferRepository();
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}), offerRepository);
+
+    await expect(service.cancelShipment(shipment.id, "sender-id", "me equivoqué")).resolves.toBe(cancelled);
+
+    expect(repository.updateStatus).toHaveBeenCalledWith(
+      shipment.id,
+      ShipmentStatus.CANCELLED,
+      "sender-id",
+      "me equivoqué"
+    );
+    expect(offerRepository.listByShipment).not.toHaveBeenCalled();
+  });
+
+  it.each([ShipmentStatus.PUBLISHED, ShipmentStatus.ASSIGNMENT_PENDING])(
+    "cancelar desde %s notifica solo a los transportistas con oferta pending (AC7)",
+    async (status) => {
+      const shipment = fakeShipment({ id: "shipment-1", senderId: "sender-id", status });
+      const cancelled = { ...shipment, status: ShipmentStatus.CANCELLED };
+      const repository = fakeRepository({
+        findById: vi.fn().mockResolvedValue(shipment),
+        updateStatus: vi.fn().mockResolvedValue(cancelled),
+      });
+      const offers = [
+        fakeOffer({ id: "offer-pending-1", shipmentId: shipment.id, carrierId: "carrier-1", status: OfferStatus.PENDING }),
+        fakeOffer({ id: "offer-pending-2", shipmentId: shipment.id, carrierId: "carrier-2", status: OfferStatus.PENDING }),
+        fakeOffer({ id: "offer-rejected", shipmentId: shipment.id, carrierId: "carrier-3", status: OfferStatus.REJECTED }),
+      ];
+      const offerRepository = createFakeOfferRepository({ listByShipment: vi.fn().mockResolvedValue(offers) });
+      const notificationsClient = createFakeNotificationsClient();
+      const service = createTestShipmentsService(
+        repository,
+        createFakeUsersClient({}),
+        offerRepository,
+        notificationsClient
+      );
+
+      await service.cancelShipment(shipment.id, "sender-id");
+
+      expect(offerRepository.listByShipment).toHaveBeenCalledWith(shipment.id);
+      expect(notificationsClient.sendPush).toHaveBeenCalledTimes(2);
+      expect(notificationsClient.sendPush).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: "carrier-1", data: { type: "shipment", shipmentId: shipment.id } })
+      );
+      expect(notificationsClient.sendPush).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: "carrier-2", data: { type: "shipment", shipmentId: shipment.id } })
+      );
+      expect(notificationsClient.sendPush).not.toHaveBeenCalledWith(expect.objectContaining({ userId: "carrier-3" }));
+    }
+  );
+
+  it("un fallo del cliente de notificaciones no bloquea la cancelación", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", status: ShipmentStatus.PUBLISHED });
+    const cancelled = { ...shipment, status: ShipmentStatus.CANCELLED };
+    const repository = fakeRepository({
+      findById: vi.fn().mockResolvedValue(shipment),
+      updateStatus: vi.fn().mockResolvedValue(cancelled),
+    });
+    const offerRepository = createFakeOfferRepository({
+      listByShipment: vi
+        .fn()
+        .mockResolvedValue([fakeOffer({ shipmentId: shipment.id, carrierId: "carrier-1", status: OfferStatus.PENDING })]),
+    });
+    const notificationsClient = createFakeNotificationsClient({
+      sendPush: vi.fn().mockRejectedValue(new Error("svc-users caído")),
+    });
+    const service = createTestShipmentsService(
+      repository,
+      createFakeUsersClient({}),
+      offerRepository,
+      notificationsClient
+    );
+
+    await expect(service.cancelShipment(shipment.id, "sender-id")).resolves.toBe(cancelled);
   });
 });

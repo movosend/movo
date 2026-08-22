@@ -1,6 +1,7 @@
-import { ApiError, ShipmentStatus, UserRole } from "@movo/shared";
+import { ApiError, OfferStatus, ShipmentStatus, UserRole } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
+import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
@@ -161,6 +162,9 @@ async function dispatchReceiverTimeoutPush(
 
 export interface ShipmentsServiceOptions {
   receiverConfirmationTimeoutHours?: number;
+  /** Requerido solo para `cancelShipment` (AC7 de MOVO-108, notificar ofertas
+   * pendientes) — el barrido de MOVO-130 no lo necesita, nunca cancela por esa vía. */
+  offerRepository?: OfferRepository;
 }
 
 export function createShipmentsService(
@@ -171,6 +175,7 @@ export function createShipmentsService(
   opts: ShipmentsServiceOptions = {}
 ) {
   const timeoutHours = opts.receiverConfirmationTimeoutHours ?? 48;
+  const offerRepository = opts.offerRepository;
 
   return {
     async createShipment(input: CreateShipmentServiceInput): Promise<Shipment> {
@@ -229,7 +234,7 @@ export function createShipmentsService(
       // MOVO-130 AC1: deadline de confirmación = createdAt (ahora) + RECEIVER_CONFIRMATION_TIMEOUT_HOURS.
       const receiverConfirmationDeadline = new Date(Date.now() + timeoutHours * 60 * 60 * 1000);
 
-      return repository.create({
+      const created = await repository.create({
         senderId: input.senderId,
         receiverId: input.receiverId,
         packageType: input.packageType,
@@ -250,6 +255,29 @@ export function createShipmentsService(
         suggestedPriceArs,
         receiverConfirmationDeadline,
       });
+
+      // AC1/AC5 de MOVO-108: best-effort, nunca bloquea la creación ya confirmada.
+      // El cliente puede rechazar (notifications-client.ts) -- mismo patrón caller-side
+      // try/catch+log que dispatchReceiverDecisionPush (MOVO-129), pero acá sí se espera
+      // (no fire-and-forget): no hay razón de negocio para no esperar el intento antes
+      // de responder, a diferencia de accept/reject donde la latencia extra no aporta.
+      if (notificationsClient) {
+        try {
+          await notificationsClient.sendPush({
+            userId: created.receiverId,
+            title: "Tenés un envío nuevo para confirmar",
+            body: "Alguien te agregó como receptor de un envío. Revisalo en la app.",
+            data: { type: "shipment", shipmentId: created.id },
+          });
+        } catch (err) {
+          logger?.warn(
+            { err, event: "notification_dispatch_failed", shipmentId: created.id },
+            "No se pudo notificar al receptor sobre el envío nuevo"
+          );
+        }
+      }
+
+      return created;
     },
 
     async getShipmentDetail(shipmentId: string, callerId: string, callerRoles: UserRole[]): Promise<Shipment> {
@@ -353,6 +381,78 @@ export function createShipmentsService(
     async listMyShipments(userId: string, page: number, limit: number): Promise<ListMineResult> {
       const { items, total } = await repository.listByUser(userId, page, limit);
       return { items, page, limit, total };
+    },
+
+    /**
+     * MOVO-29 (recorte de alcance acordado en MOVO-108, ver comentario en Linear):
+     * solo cubre la cancelación sin penalización, desde los tres estados que todavía
+     * no tienen fondos confirmados. `svc-payments` hoy es un esqueleto sin holds ni
+     * capture reales -- cancelar desde `assigned` (que sí exige aplicar una política
+     * de penalización, AC de MOVO-29) queda bloqueado explícitamente más abajo hasta
+     * que esa integración exista, en vez de fingir una transición sin su consecuencia
+     * de negocio.
+     */
+    async cancelShipment(shipmentId: string, callerId: string, reason?: string): Promise<Shipment> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+
+      // Solo el emisor puede cancelar -- a diferencia de assertShipmentAccess (lectura,
+      // también habilita a receptor/admin), cancelar es una acción exclusiva del emisor.
+      if (shipment.senderId !== callerId) {
+        throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el emisor puede cancelar este envío.");
+      }
+
+      if (shipment.status === ShipmentStatus.ASSIGNED) {
+        throw new ApiError(
+          409,
+          "SHIPMENT_CANCELLATION_PENALTY_NOT_SUPPORTED",
+          "No se puede cancelar un envío ya asignado todavía -- la política de penalización no está implementada."
+        );
+      }
+
+      const previousStatus = shipment.status;
+      // Cualquier otro estado sin salida hacia `cancelled` (delivered, in_transit,
+      // disputed, cancelled, rejected_by_receiver) llega hasta acá y
+      // shipment-state-machine.ts lo rechaza con InvalidShipmentTransitionError
+      // (409 SHIPMENT_INVALID_TRANSITION, ver plugins/error-handler.ts).
+      const cancelled = await repository.updateStatus(shipmentId, ShipmentStatus.CANCELLED, callerId, reason);
+
+      // AC7 de MOVO-108: solo estos dos estados de origen pueden tener ofertas
+      // `pending` colgando (desde `awaiting_receiver_confirmation` el envío ni
+      // publicado está, no puede tener ofertas).
+      if (previousStatus === ShipmentStatus.PUBLISHED || previousStatus === ShipmentStatus.ASSIGNMENT_PENDING) {
+        if (!offerRepository) {
+          throw new Error("cancelShipment requiere offerRepository (ShipmentsServiceOptions) para notificar ofertas pendientes.");
+        }
+
+        const offers = await offerRepository.listByShipment(shipmentId);
+        const pendingOffers = offers.filter((offer) => offer.status === OfferStatus.PENDING);
+
+        await Promise.all(
+          pendingOffers.map(async (offer) => {
+            if (!notificationsClient) {
+              return;
+            }
+            try {
+              await notificationsClient.sendPush({
+                userId: offer.carrierId,
+                title: "Tu oferta fue cancelada",
+                body: "El envío ya no está disponible.",
+                data: { type: "shipment", shipmentId },
+              });
+            } catch (err) {
+              logger?.warn(
+                { err, event: "notification_dispatch_failed", shipmentId, carrierId: offer.carrierId },
+                "No se pudo notificar al transportista sobre la cancelación del envío"
+              );
+            }
+          })
+        );
+      }
+
+      return cancelled;
     },
 
     /**
