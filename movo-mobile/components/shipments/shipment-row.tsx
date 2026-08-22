@@ -2,14 +2,15 @@ import { router } from "expo-router";
 import { Package } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import type { ShipmentSummary } from "../../src/api/shipments-client";
+import { usePublicProfile } from "../../src/hooks/use-profile";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
-import { formatShipmentPrice } from "../../src/lib/shipment-format";
+import { getFirstName } from "../../src/lib/profile-format";
 import { useAuthStore } from "../../src/store/auth-store";
 import { ShipmentStatusBadge } from "./status-badge";
 
 /**
- * Fila de envío reusada por `RecentShipmentsSection` (preview de Home, MOVO-83) y por
- * el listado completo "Mis Envíos" (`app/(app)/shipments/index.tsx`, MOVO-127 / MOVO-132).
+ * Fila de envío usada por `RecentShipmentsSection` (preview de Home, MOVO-83).
+ * Muestra "Envío a [Nombre]" o "Envío de [Nombre]" según el rol, y el badge de estado.
  */
 export function ShipmentRow({
   shipment,
@@ -23,6 +24,17 @@ export function ShipmentRow({
   const colors = useThemeColors();
   const currentUserId = useAuthStore((s) => s.user?.userId);
   const isReceiver = currentUserId === shipment.receiverId;
+  const counterpartId = isReceiver ? shipment.senderId : shipment.receiverId;
+  const { data: counterpartProfile } = usePublicProfile(counterpartId);
+  const counterpartName = getFirstName(counterpartProfile?.fullName);
+
+  const title = isReceiver
+    ? counterpartName
+      ? `Envío de ${counterpartName}`
+      : "Envío recibido"
+    : counterpartName
+      ? `Envío a ${counterpartName}`
+      : "Envío realizado";
 
   return (
     <Pressable
@@ -34,21 +46,8 @@ export function ShipmentRow({
         <Package size={16} strokeWidth={1.8} color={colors.fg3} />
       </View>
       <View className="flex-1">
-        <View className="flex-row items-center gap-1.5">
-          <View
-            testID={testID ? `${testID}-role-tag` : undefined}
-            className={`rounded px-1.5 py-0.5 ${isReceiver ? "bg-info-100" : "bg-bg-mute"}`}
-          >
-            <Text className={`font-sans-medium text-[10px] ${isReceiver ? "text-info-700" : "text-fg-2"}`}>
-              {isReceiver ? "Recibís" : "Enviás"}
-            </Text>
-          </View>
-          <Text numberOfLines={1} className="flex-1 font-sans-medium text-small text-fg">
-            {shipment.deliveryAddress}
-          </Text>
-        </View>
-        <Text className="mt-0.5 font-sans text-caption text-fg-3">
-          {formatShipmentPrice(shipment.agreedPriceArs, shipment.suggestedPriceArs)}
+        <Text numberOfLines={1} className="font-sans-medium text-small text-fg">
+          {title}
         </Text>
       </View>
       <ShipmentStatusBadge status={shipment.status} isReceiver={isReceiver} />

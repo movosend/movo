@@ -439,8 +439,8 @@ Perspectiva del receptor sobre la pantalla de detalle de envío (`app/(app)/ship
 
 - **Detección dinámica de rol en `shipments/[id].tsx`**: compara `useAuthStore().user?.userId` con `shipment.receiverId` / `shipment.senderId`. Mirando como receptor, la sección de contraparte titula "Emisor" y muestra el perfil público de `shipment.senderId` (foto, nombre, insignia de verificado, reputación) mediante `CounterpartCard` + `usePublicProfile`, omitiendo el badge de confirmación (solo aplica cuando la contraparte es el receptor).
 - **`ReceiverActionsBar` nueva (`components/shipments/receiver-actions-bar.tsx`)**: barra de acciones fija al pie, mostrada únicamente cuando el usuario es el receptor y el envío está en `AWAITING_RECEIVER_CONFIRMATION`.
-  - **Aceptar envío**: CTA primaria con acento Signal Lime (`bg-lime-500`, texto oscuro), pide confirmación con diálogo nativo `Alert.alert` y ejecuta `POST /shipments/:id/accept`.
-  - **Rechazar**: botón secundario/destructivo que abre modal de confirmación con advertencia de irreversibilidad y campo opcional para motivo (`reason`, máx 500 caracteres, `POST /shipments/:id/reject`).
+  - **Aceptar envío**: CTA primaria con acento Signal Lime (`bg-lime-500`, texto oscuro), pide confirmación mediante un modal propio in-app (mismo diseño que el de rechazo) y ejecuta `POST /shipments/:id/accept`.
+  - **Rechazar**: botón secundario/destructivo que abre modal in-app de confirmación con advertencia de irreversibilidad y campo opcional para motivo (`reason`, máx 500 caracteres, `POST /shipments/:id/reject`).
   - **Deadline de confirmación**: calcula y muestra el tiempo restante en horas ("Te quedan 36 h para confirmar", "Te queda 1 h para confirmar") con formateo puro (`formatReceiverConfirmationDeadline` en `src/lib/shipment-format.ts`), degradando silenciosamente si no viene o ya expiró.
   - **Bloqueo de doble tap y feedback de errores**: deshabilita ambos botones con spinners durante mutación en vuelo. Mapea `ApiError.statusCode` a mensajes específicos (409 → "Este envío ya no se puede confirmar" + refetch del detalle; 403 → "No sos el destinatario de este envío"; banner genérico para el resto).
 - **Mutaciones en `use-shipments.ts`**: `useAcceptShipment` y `useRejectShipment` (`POST /shipments/:id/accept` y `/reject` en `shipments-client.ts`) invalidan queries `["shipments", "mine"]`, `["shipments", "mine", "recent"]`, `["shipments", "mine", "list"]` y `["shipments", "detail", id]` actualizando la cache para reflejar el estado sin salir de la pantalla.
@@ -451,7 +451,7 @@ Completa el camino por el que el receptor llega a la pantalla de confirmación (
 
 - **Distinción de rol en tarjetas y filas (`ShipmentCard` y `ShipmentRow`)**:
   - Resuelve `isReceiver` comparando síncronamente `useAuthStore().user?.userId === shipment.receiverId`.
-  - Muestra un tag visual sutil de rol: *"Recibís"* (`bg-info-100 text-info-700`) vs *"Enviás"* (`bg-bg-mute text-fg-2`).
+  - Muestra un tag visual de rol: *"Recibís"* (`bg-info-100 text-info-700`) y *"Enviás"* (`bg-bg-mute text-fg-2`).
   - **Badge contextual según rol (`ShipmentStatusBadge`)**: en `AWAITING_RECEIVER_CONFIRMATION`, muestra *"Requiere tu confirmación"* para el receptor (con deadline restante `formatReceiverConfirmationDeadline` si aplica) y *"Esperando al receptor"* para el emisor.
 - **Filtro de Rol en "Mis Envíos" (`app/(app)/shipments/index.tsx`)**:
   - Suma la sección **"Rol"** a `ShipmentsFilterSheet` con pills: `Todos` / `Enviados` / `Recibidos` (100% client-side).

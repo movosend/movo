@@ -4,6 +4,7 @@ import {
   formatPickupWindowLabel,
   formatReceiverConfirmationDeadline,
   formatShipmentPrice,
+  formatTimeHHMM,
   receiverConfirmationStatus,
   remainingLifecycleSteps,
   shipmentActorLabel,
@@ -100,9 +101,24 @@ describe("shortAddressLabel", () => {
   });
 });
 
+describe("formatTimeHHMM", () => {
+  it("recorta los segundos si vienen en formato HH:MM:SS", () => {
+    expect(formatTimeHHMM("09:00:00")).toBe("09:00");
+    expect(formatTimeHHMM("18:30:45")).toBe("18:30");
+  });
+
+  it("mantiene el formato si ya viene como HH:MM", () => {
+    expect(formatTimeHHMM("09:00")).toBe("09:00");
+  });
+});
+
 describe("formatPickupWindowLabel", () => {
   it("arma el rango horario legible", () => {
     expect(formatPickupWindowLabel("09:00", "12:00")).toBe("09:00 a 12:00");
+  });
+
+  it("normaliza horas con segundos a HH:MM", () => {
+    expect(formatPickupWindowLabel("09:00:00", "12:00:00")).toBe("09:00 a 12:00");
   });
 });
 
@@ -124,6 +140,19 @@ describe("shipmentEventTitle", () => {
     expect(shipmentEventTitle(ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe(
       "El receptor rechazó el envío",
     );
+  });
+
+  it("personaliza con el nombre del receptor cuando está disponible", () => {
+    expect(
+      shipmentEventTitle(ShipmentStatus.PUBLISHED, ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, {
+        receiverName: "Lucas",
+      }),
+    ).toBe("Lucas aceptó el envío");
+    expect(
+      shipmentEventTitle(ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, {
+        receiverName: "Lucas",
+      }),
+    ).toBe("Lucas rechazó el envío");
   });
 });
 
@@ -160,6 +189,10 @@ describe("shipmentActorLabel", () => {
     expect(shipmentActorLabel("sender-1", parties, "otro")).toBe("El emisor");
     expect(shipmentActorLabel("receiver-1", parties, "otro")).toBe("El receptor");
     expect(shipmentActorLabel("carrier-1", parties, "otro")).toBe("El transportista");
+  });
+
+  it("muestra el nombre del receptor si está disponible", () => {
+    expect(shipmentActorLabel("receiver-1", parties, "otro", { receiverName: "Lucas" })).toBe("Lucas");
   });
 
   it("no muestra actor en una transición sin persona detrás", () => {

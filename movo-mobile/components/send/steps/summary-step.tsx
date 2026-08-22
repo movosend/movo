@@ -9,7 +9,7 @@ import { useCreateShipment } from "../../../src/hooks/use-shipments";
 import { friendlyErrorMessage } from "../../../src/lib/error-messages";
 import { uriToBlob } from "../../../src/lib/photo-utils";
 import { capitalizeName } from "../../../src/lib/profile-format";
-import { formatPickupDateLabel } from "../../../src/lib/shipment-format";
+import { formatPickupDateLabel, formatPickupWindowLabel } from "../../../src/lib/shipment-format";
 import { useShipmentWizardStore, type WizardPhoto } from "../../../src/store/shipment-wizard-store";
 import type { CreateShipmentInput } from "../../../src/api/shipments-client";
 import { ErrorBanner } from "../../ui/error-banner";
@@ -236,7 +236,7 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
         />
         <ReviewRow
           label="Franja horaria"
-          value={`${formatPickupDateLabel(pickupDate) || "—"} · ${pickupTimeWindowStart || "—"} a ${pickupTimeWindowEnd || "—"}`}
+          value={`${formatPickupDateLabel(pickupDate) || "—"} · ${formatPickupWindowLabel(pickupTimeWindowStart, pickupTimeWindowEnd)}`}
           onEdit={() => onGoToStep(2)}
           last
         />

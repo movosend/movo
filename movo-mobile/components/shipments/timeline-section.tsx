@@ -15,8 +15,10 @@ import {
 import { ScrollView, Text, View } from "react-native";
 import { ShipmentStatus as Status } from "@movo/shared/dist/types/shipment";
 import type { ShipmentEvent } from "../../src/api/shipments-client";
+import { usePublicProfile } from "../../src/hooks/use-profile";
 import { useShipmentEvents } from "../../src/hooks/use-shipments";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { getFirstName } from "../../src/lib/profile-format";
 import { useAuthStore } from "../../src/store/auth-store";
 import {
   formatEventTimestamp,
@@ -134,17 +136,21 @@ function EventRow({
   isLast,
   parties,
   currentUserId,
+  receiverFirstName,
 }: {
   event: ShipmentEvent;
   isCurrent: boolean;
   isLast: boolean;
   parties: TimelineSectionProps["parties"];
   currentUserId: string | null;
+  receiverFirstName: string | null;
 }) {
   const colors = useThemeColors();
   const tone = TONE_STYLE[shipmentStatusTone(event.toStatus)];
   const timestamp = formatEventTimestamp(event.createdAt);
-  const actor = shipmentActorLabel(event.actorId, parties, currentUserId);
+  const actor = shipmentActorLabel(event.actorId, parties, currentUserId, {
+    receiverName: receiverFirstName,
+  });
   const detail = shipmentEventDetail(event.toStatus, event.fromStatus);
 
   return (
@@ -156,7 +162,7 @@ function EventRow({
       isLast={isLast}
       title={
         <Text className={`font-sans-semibold text-body ${isCurrent ? "text-fg" : "text-fg-2"}`}>
-          {shipmentEventTitle(event.toStatus, event.fromStatus)}
+          {shipmentEventTitle(event.toStatus, event.fromStatus, { receiverName: receiverFirstName })}
         </Text>
       }
     >
@@ -180,7 +186,15 @@ function EventRow({
 /** Paso que todavía no ocurrió: círculo vacío con borde punteado (nunca relleno con
  * el tono semántico del estado — el color se gana al pasar de verdad), texto en
  * `fg-3` y sin fecha ni actor, porque no hay ninguno que mostrar. */
-function PendingStepRow({ status, isLast }: { status: ShipmentStatus; isLast: boolean }) {
+function PendingStepRow({
+  status,
+  isLast,
+  receiverFirstName,
+}: {
+  status: ShipmentStatus;
+  isLast: boolean;
+  receiverFirstName: string | null;
+}) {
   const colors = useThemeColors();
 
   return (
@@ -190,7 +204,11 @@ function PendingStepRow({ status, isLast }: { status: ShipmentStatus; isLast: bo
       circleClass="border border-dashed border-border-strong bg-bg-sub"
       railClass="bg-border"
       isLast={isLast}
-      title={<Text className="font-sans-medium text-body text-fg-3">{shipmentPendingStepLabel(status)}</Text>}
+      title={
+        <Text className="font-sans-medium text-body text-fg-3">
+          {shipmentPendingStepLabel(status, { receiverName: receiverFirstName })}
+        </Text>
+      }
     />
   );
 }
@@ -206,6 +224,8 @@ function PendingStepRow({ status, isLast }: { status: ShipmentStatus; isLast: bo
  */
 export function TimelineSection({ shipmentId, parties, testID }: TimelineSectionProps) {
   const { data: events, isLoading, isError, refetch } = useShipmentEvents(shipmentId);
+  const { data: receiverProfile } = usePublicProfile(parties.receiverId);
+  const receiverFirstName = getFirstName(receiverProfile?.fullName) || null;
   const currentUserId = useAuthStore((state) => state.user?.userId ?? null);
   const colors = useThemeColors();
 
@@ -254,10 +274,16 @@ export function TimelineSection({ shipmentId, parties, testID }: TimelineSection
           isLast={index === events.length - 1 && pendingSteps.length === 0}
           parties={parties}
           currentUserId={currentUserId}
+          receiverFirstName={receiverFirstName}
         />
       ))}
       {pendingSteps.map((status, index) => (
-        <PendingStepRow key={status} status={status} isLast={index === pendingSteps.length - 1} />
+        <PendingStepRow
+          key={status}
+          status={status}
+          isLast={index === pendingSteps.length - 1}
+          receiverFirstName={receiverFirstName}
+        />
       ))}
     </ScrollView>
   );

@@ -8,7 +8,6 @@ import {
   formatPickupDateLabel,
   formatPickupWindowLabel,
   formatReceiverConfirmationDeadline,
-  formatShipmentPrice,
   shortAddressLabel,
 } from "../../src/lib/shipment-format";
 import { useAuthStore } from "../../src/store/auth-store";
@@ -44,17 +43,12 @@ export function ShipmentCard({ shipment, testID }: ShipmentCardProps) {
       className="gap-3.5 rounded-[16px] border border-border bg-bg-sub p-4"
     >
       <View className="flex-row items-center justify-between">
-        <View className="flex-row items-center gap-2">
-          <View
-            testID={testID ? `${testID}-role-tag` : undefined}
-            className={`rounded-md px-2 py-0.5 ${isReceiver ? "bg-info-100" : "bg-bg-mute"}`}
-          >
-            <Text className={`font-sans-medium text-[11px] ${isReceiver ? "text-info-700" : "text-fg-2"}`}>
-              {isReceiver ? "Recibís" : "Enviás"}
-            </Text>
-          </View>
-          <Text className="font-sans-semibold text-body text-fg">
-            {formatShipmentPrice(shipment.agreedPriceArs, shipment.suggestedPriceArs)}
+        <View
+          testID={testID ? `${testID}-role-tag` : undefined}
+          className={`rounded-md px-2 py-0.5 ${isReceiver ? "bg-info-100" : "bg-bg-mute"}`}
+        >
+          <Text className={`font-sans-medium text-[11px] ${isReceiver ? "text-info-700" : "text-fg-2"}`}>
+            {isReceiver ? "Recibís" : "Enviás"}
           </Text>
         </View>
         <ShipmentStatusBadge status={shipment.status} isReceiver={isReceiver} />

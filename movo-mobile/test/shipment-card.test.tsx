@@ -58,8 +58,8 @@ describe("ShipmentCard", () => {
   });
   afterEach(() => jest.clearAllMocks());
 
-  it("muestra origen, destino, precio, estado y ventana horaria", async () => {
-    const { getByText } = await render(
+  it("muestra origen, destino, estado y ventana horaria", async () => {
+    const { getByText, queryByText } = await render(
       <ShipmentCard
         shipment={shipment({ status: ShipmentStatus.IN_TRANSIT, agreedPriceArs: 5200 })}
       />,
@@ -67,7 +67,7 @@ describe("ShipmentCard", () => {
 
     expect(getByText("Av. Colón 1234")).toBeTruthy();
     expect(getByText("Bv. San Juan 500")).toBeTruthy();
-    expect(getByText("$5.200")).toBeTruthy();
+    expect(queryByText("$5.200")).toBeNull();
     expect(getByText("En camino")).toBeTruthy();
     expect(getByText(/09:00 a 12:00/)).toBeTruthy();
   });

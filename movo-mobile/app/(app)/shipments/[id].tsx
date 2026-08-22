@@ -21,6 +21,7 @@ import { useShipment } from "../../../src/hooks/use-shipments";
 import {
   formatPickupDateLabel,
   formatShipmentPrice,
+  formatTimeHHMM,
   receiverConfirmationStatus,
 } from "../../../src/lib/shipment-format";
 
@@ -179,13 +180,13 @@ export default function ShipmentDetailScreen() {
                   </View>
                   <Text className="font-sans-semibold text-[13px] text-fg">{pickupDateLabel}</Text>
                   <Text className="mt-0.5 font-sans text-[12px] text-fg-2">
-                    {shipment.pickupTimeWindowStart} – {shipment.pickupTimeWindowEnd}
+                    {formatTimeHHMM(shipment.pickupTimeWindowStart)} – {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
                   </Text>
                 </View>
                 <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
                   <GridPattern />
                   <Text className="mb-1 font-sans text-[11px] text-ink-950/50">
-                    {shipment.agreedPriceArs !== null ? "Precio acordado" : "Precio sugerido"}
+                    {shipment.agreedPriceArs !== null ? "Precio acordado" : "Costo aproximado"}
                   </Text>
                   <Text className="font-sans-semibold text-[20px] text-ink-950">
                     {formatShipmentPrice(shipment.agreedPriceArs, shipment.suggestedPriceArs)}
