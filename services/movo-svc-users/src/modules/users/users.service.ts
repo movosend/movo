@@ -33,6 +33,13 @@ const PASSWORD_CHANGE_RATE_LIMIT_WINDOW_SECONDS = 15 * 60;
 // cubre, ninguna tarda más que eso en el peor caso normal.
 const ACCOUNT_DELETION_LOCK_TTL_SECONDS = 30;
 
+/** MOVO-124: sorted set de Redis con las keys de S3 pendientes de confirmar (score =
+ * timestamp del presign). Es solo un candidato-list para el sweep de fotos huérfanas
+ * -- Postgres (`users.photo_url`) sigue siendo la única fuente de verdad de
+ * "confirmado o no" (ver `existsByPhotoUrl`). Exportada para que
+ * `orphan-photo-sweep.ts` use la misma key sin duplicar el literal. */
+export const PENDING_PHOTOS_REDIS_KEY = "photos:pending:profile-photos";
+
 function passwordChangeAttemptsKey(userId: string): string {
   return `password-change-attempts:${userId}`;
 }
@@ -192,6 +199,20 @@ export function createUsersService(
         contentType: input.contentType,
         contentLength: input.contentLength,
       });
+
+      // MOVO-124: registra la key como "pendiente" para que el sweep de fotos huérfanas
+      // la pueda encontrar si nunca se confirma. Best-effort -- si Redis falla acá, el
+      // objeto queda sin trackear (mismo estado que el bug original: huérfano para
+      // siempre, nunca borrado de más).
+      try {
+        await redis.zadd(PENDING_PHOTOS_REDIS_KEY, Date.now(), objectKey);
+      } catch (error) {
+        logger.warn(
+          { userId, objectKey, event: "photo_pending_track_failed", error: (error as Error).message },
+          "No se pudo registrar la foto de perfil como pendiente en Redis"
+        );
+      }
+
       return { uploadUrl, objectKey, expiresIn };
     },
 
@@ -226,6 +247,19 @@ export function createUsersService(
       const updated = await repository.updatePhotoUrl(userId, photoUrl);
       if (!updated) {
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
+
+      // MOVO-124: saca la key del tracking de pendientes -- ya está confirmada, el
+      // sweep no debería volver a evaluarla. Best-effort: si el ZREM falla, el sweep
+      // igual la va a dejar en paz porque revalida contra Postgres antes de borrar
+      // nada (AC3), esto es solo para no reprocesarla en cada corrida.
+      try {
+        await redis.zrem(PENDING_PHOTOS_REDIS_KEY, objectKey);
+      } catch (error) {
+        logger.warn(
+          { userId, objectKey, event: "photo_pending_untrack_failed", error: (error as Error).message },
+          "No se pudo remover el tracking de Redis tras confirmar la foto de perfil"
+        );
       }
 
       // AC6: al reemplazar, el objeto anterior se borra best-effort — la foto nueva ya

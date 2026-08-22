@@ -381,6 +381,22 @@ Pendiente / fuera de alcance: consumo desde `movo-mobile` (ticket aparte).
 - Comentario desactualizado en `shipments-client.ts` corregido (decía "sin timeout
   explícito" sobre código que sí lo tiene).
 
+### MOVO-124 — Sweep de fotos huérfanas en S3 vía tracking en Redis (`svc-users` + `svc-shipments`)
+
+Decisión completa y detalle de la implementación en
+`services/movo-svc-shipments/CLAUDE.md` (mismo mecanismo en los dos servicios). Acá:
+`existsByPhotoUrl` nuevo en `user-repository.ts` (fuente de verdad contra Postgres que
+usa el sweep antes de borrar), `getPhotoUploadUrl`/`confirmPhoto` de `users.service.ts`
+ahora registran/destrackean la key en el sorted set `photos:pending:profile-photos` de
+Redis, y `src/plugins/orphan-photo-sweep.ts` — **primer scheduled job de este
+servicio** (mismo esqueleto `setInterval` + lock distribuido en Redis que
+`receiver-confirmation-sweep.ts` de `svc-shipments`, MOVO-130).
+
+Tests: `test/orphan-photo-sweep.test.ts` nuevo (mockeado, incluye el caso AC3: un
+candidato con `photoUrl` vigente en `users.users` nunca dispara `deleteObject`).
+`test/users.photo.integration.test.ts` ampliado con dos casos contra Redis real.
+Suite completa 385/385, `tsc --noEmit` y `eslint` limpios.
+
 ### Pendientes de este servicio
 
 - **Credenciales reales sin cargar** en AWS Secrets Manager (dev y prod) — el código
