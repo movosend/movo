@@ -17,6 +17,12 @@ interface PhoneVerificationTokenClaims {
 
 const TOKEN_INVALID_MESSAGE = "El token de verificación de teléfono es inválido, venció o ya fue usado.";
 
+// MOVO-133 (review de tmvergara sobre PR #91): el motor de OTP ahora namespacea por
+// flujo (otp-service.ts) -- "register" identifica los OTPs de POST /auth/send-otp,
+// distintos de los de cambio de teléfono/email de la propia cuenta (users.service.ts),
+// aunque el target (el mismo número) coincida.
+const REGISTER_OTP_FLOW = "register";
+
 /**
  * Capa específica de teléfono sobre el motor genérico de `otp-service.ts` (que no sabe
  * que `target` es un teléfono, ver ese archivo). Acá viven: la normalización a E.164 y
@@ -24,7 +30,7 @@ const TOKEN_INVALID_MESSAGE = "El token de verificación de teléfono es inváli
  * (MOVO-70).
  */
 export interface PhoneVerificationService {
-  sendOtp(phone: string): Promise<{ otpId: string; cooldownSeconds: number }>;
+  sendOtp(phone: string): Promise<{ otpId: string; cooldownSeconds: number; sent: boolean }>;
   verifyOtp(otpId: string, code: string): Promise<{ phoneVerificationToken: string }>;
   resendOtp(otpId: string): Promise<{ resentAt: string; cooldownSeconds: number }>;
   /**
@@ -56,11 +62,11 @@ export function createPhoneVerificationService(
   return {
     async sendOtp(phone: string) {
       const normalizedPhone = normalizePhoneToE164Ar(phone);
-      return otpService.generateOtp(normalizedPhone);
+      return otpService.generateOtp(REGISTER_OTP_FLOW, normalizedPhone);
     },
 
     async verifyOtp(otpId: string, code: string) {
-      const { target: phone } = await otpService.verifyOtp(otpId, code);
+      const { target: phone } = await otpService.verifyOtp(otpId, code, REGISTER_OTP_FLOW);
 
       const claims: PhoneVerificationTokenClaims = {
         sub: phone,

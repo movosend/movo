@@ -293,4 +293,45 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
       expect(response.statusCode).toBe(401);
     });
   });
+
+  describe("Rate limit estricto en rutas protegidas de cambio de teléfono/email (MOVO-133, review de tmvergara)", () => {
+    // Mandan SMS reales por Twilio (ADR-012) -- sin este override caían al límite
+    // general (RATE_LIMIT_MAX/min), y el cooldown de otpService.generateOtp() es por
+    // target, no por caller: una sola cuenta podía disparar ~200 SMS/min variando el
+    // teléfono en cada request.
+    function issueToken(): string {
+      return signAccessToken({
+        sub: "44444444-4444-4444-4444-444444444444",
+        roles: [UserRole.SENDER, UserRole.CARRIER],
+        kycStatus: KycStatus.NOT_STARTED,
+      });
+    }
+
+    it.each([
+      ["/api/v1/users/me/phone/change/otp", { phone: "3511234567" }],
+      ["/api/v1/users/me/email/change/otp", { email: "nuevo@movo.test" }],
+    ])("%s: permite 5 intentos por IP y bloquea el 6to con 429", async (url, payload) => {
+      const testIp = `10.4.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`;
+      const token = issueToken();
+
+      for (let i = 0; i < 5; i++) {
+        const response = await app.inject({
+          method: "POST",
+          url,
+          headers: { authorization: `Bearer ${token}`, "x-forwarded-for": testIp },
+          payload,
+        });
+        expect(response.statusCode).toBe(200);
+      }
+
+      const sixth = await app.inject({
+        method: "POST",
+        url,
+        headers: { authorization: `Bearer ${token}`, "x-forwarded-for": testIp },
+        payload,
+      });
+
+      expect(sixth.statusCode).toBe(429);
+    });
+  });
 });

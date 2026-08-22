@@ -33,3 +33,13 @@ Se sumó la entrada `/addresses` a `config/routes-map.ts#getServiceRoutes()` (pr
 por defecto, sin tocar `getPublicRoutes()`) para proxear el CRUD de direcciones
 guardadas de `svc-users`. Detalle completo de la US en
 `services/movo-svc-users/CLAUDE.md`.
+
+### MOVO-133 — Rate limit para cambio de teléfono/email (fix de review, PR #91)
+
+`config/routes-map.ts#getRateLimitOverrides()` suma `POST /users/me/phone/change/otp`
+y `POST /users/me/email/change/otp` (5/15min, mismo mecanismo que MOVO-97/123/125) --
+mandan SMS reales por Twilio (ADR-012) y el cooldown de `otpService.generateOtp()`
+(`movo-svc-users`) es por target, no por caller: sin este override, una cuenta
+autenticada podía disparar del orden de 200 SMS/min variando el teléfono en cada
+request bajo el límite general. Detalle completo en
+`services/movo-svc-users/CLAUDE.md` (MOVO-133, fixes de review).
