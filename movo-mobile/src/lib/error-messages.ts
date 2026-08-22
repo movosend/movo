@@ -33,6 +33,16 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE: "El retiro y la entrega tienen que estar en ubicaciones distintas.",
   GEOCODING_PROVIDER_ERROR: "No pudimos validar la dirección en el mapa. Intentá de nuevo.",
   GEOCODING_ADDRESS_NOT_FOUND: "No encontramos la dirección ingresada.",
+  // Baja de cuenta (MOVO-136 / backend MOVO-134). El backend no cancela en cascada a
+  // propósito: el usuario resuelve lo que bloquea y reintenta, así que el mensaje
+  // tiene que decir qué hacer, no solo que falló.
+  ACCOUNT_HAS_ACTIVE_SHIPMENTS:
+    "Tenés envíos en curso. Cancelalos o esperá a que terminen para poder dar de baja tu cuenta.",
+  ACCOUNT_HAS_ACTIVE_DISPUTES:
+    "Tenés una disputa abierta. Un administrador tiene que resolverla antes de que puedas dar de baja tu cuenta.",
+  ACCOUNT_DELETION_IN_PROGRESS: "Ya hay una baja en curso para tu cuenta. Esperá unos segundos.",
+  SHIPMENTS_SERVICE_UNAVAILABLE:
+    "No pudimos verificar si tenés envíos en curso. Intentá de nuevo en unos minutos.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",
   RATE_LIMIT_EXCEEDED: "Hiciste demasiados intentos. Esperá un momento y volvé a intentar.",

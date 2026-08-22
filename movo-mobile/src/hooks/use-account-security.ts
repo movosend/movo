@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { SessionResponse } from "../api/session-types";
 import { usersClient, type ChangePasswordInput } from "../api/users-client";
 import { useAuthStore } from "../store/auth-store";
@@ -41,6 +41,52 @@ export function useChangePassword() {
     // reintentar solo gastaría el rate limit del backend (5 intentos / 15 min por
     // usuario), así que se deja explícito el default de TanStack Query para
     // mutaciones (sin reintentos) para que no se cambie por descuido.
+    retry: false,
+  });
+}
+
+type ClearSession = () => Promise<void>;
+
+/**
+ * Da de baja la cuenta Y borra todo rastro local de la sesión, como una sola
+ * operación (MOVO-136 AC6 / backend MOVO-134). Mismo criterio que
+ * `changePasswordAndPersistSession()`: el efecto local no es un `onSuccess`
+ * opcional, es parte de la operación.
+ *
+ * Dos cosas que no se pueden invertir ni omitir:
+ *
+ * - **`clearSession()`, nunca `logout()`.** `logout()` pega contra
+ *   `POST /auth/logout` y `DELETE /notifications/push-tokens` con el access token de
+ *   una cuenta que el backend ya anonimizó y cuyas sesiones ya revocó: son dos
+ *   requests condenados a fallar (los tolera, pero es ruido) contra recursos que ya
+ *   no existen. La baja ya hace del lado del servidor todo lo que `logout()` haría.
+ * - **`queryClient.clear()` antes de limpiar la sesión.** El guard de
+ *   `app/(app)/_layout.tsx` redirige a `/login` en cuanto `status` deja de ser
+ *   `authenticated`; si la caché de TanStack Query sobreviviera, el perfil, los
+ *   envíos y las direcciones de la cuenta recién borrada quedarían en memoria y se
+ *   pintarían por un frame en el próximo login de OTRO usuario en el mismo
+ *   dispositivo (AC6: "sin sesión guardada ni caché de perfil").
+ */
+export async function deleteAccountAndClearSession(
+  clearSession: ClearSession,
+  queryClient: QueryClient,
+  password: string,
+): Promise<void> {
+  await usersClient.deleteAccount(password);
+  queryClient.clear();
+  await clearSession();
+}
+
+export function useDeleteAccount() {
+  const clearSession = useAuthStore((s) => s.clearSession);
+  const queryClient = useQueryClient();
+
+  return useMutation<void, unknown, string>({
+    mutationFn: (password) => deleteAccountAndClearSession(clearSession, queryClient, password),
+    // Igual que en `useChangePassword`: un 401 acá es "la contraseña no es correcta"
+    // y los 409 son estados del servidor que solo el usuario puede resolver
+    // (cancelar un envío, esperar una disputa). Reintentar solo gastaría el rate
+    // limit del backend.
     retry: false,
   });
 }

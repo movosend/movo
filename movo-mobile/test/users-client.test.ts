@@ -41,6 +41,20 @@ describe("usersClient", () => {
     expect(res).toEqual(session);
   });
 
+  it("deleteAccount hace DELETE /users/me con la contraseña en el body", async () => {
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: { delete: jest.fn().mockResolvedValue(undefined) },
+    }));
+    const { usersClient } = require("../src/api/users-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    await usersClient.deleteAccount("Password1");
+
+    // La contraseña va en el body de un DELETE (MOVO-134): confirmar una operación
+    // irreversible con el JWT solo no alcanza, y no puede viajar en la query string.
+    expect(httpClient.delete).toHaveBeenCalledWith("/users/me", { password: "Password1" });
+  });
+
   it("getMyProfile hace GET /users/me", async () => {
     jest.doMock("../src/api/http-client", () => ({
       httpClient: {

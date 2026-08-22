@@ -93,6 +93,26 @@ export const usersClient = {
   },
 
   /**
+   * Baja de cuenta (MOVO-136 AC5/AC6, backend MOVO-134). `DELETE /users/me` con la
+   * contraseña en el body: el JWT solo no alcanza para una operación irreversible.
+   * Responde `204` sin contenido — de ahí el `Promise<void>`.
+   *
+   * El backend hace soft-delete + anonimización de PII (`anonymizeAndDelete()`),
+   * revoca todas las sesiones y borra push tokens, direcciones, KYC y la foto de S3.
+   * Es idempotente: una cuenta ya dada de baja vuelve a responder 204.
+   *
+   * Errores que el caller tiene que distinguir (los tres son 409):
+   * `ACCOUNT_HAS_ACTIVE_SHIPMENTS` y `ACCOUNT_HAS_ACTIVE_DISPUTES` — el backend NO
+   * cancela en cascada, el usuario resuelve y reintenta — y
+   * `ACCOUNT_DELETION_IN_PROGRESS` (lock por usuario: doble tap o dos dispositivos a
+   * la vez). Un `401 AUTH_INVALID_CREDENTIALS` es la contraseña mal, igual que en
+   * `changePassword()`, no una sesión vencida.
+   */
+  deleteAccount(password: string): Promise<void> {
+    return httpClient.delete<void>("/users/me", { password });
+  },
+
+  /**
    * Sube el binario de la imagen directo a la presigned URL de S3 usando XMLHttpRequest
    * o fetch FUERA de `httpClient` (ADR-007 / MOVO-97): evita mandar el header Authorization
    * con nuestro JWT a AWS (lo que fallaría la firma con 403 y filtraría el token).
