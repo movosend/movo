@@ -348,4 +348,15 @@ describe("POST /auth/register", () => {
     expect(response.statusCode).toBe(400);
     expect(JSON.parse(response.body).error.code).toBe("VALIDATION_FAILED");
   });
+
+  it("MOVO-133 (fix de review): fullName sin cota superior -> 400 con más de 160 caracteres", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: { ...basePayload, fullName: `${"a".repeat(80)} ${"b".repeat(80)}`, phoneVerificationToken: "irrelevante" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).error.code).toBe("VALIDATION_FAILED");
+  });
 });

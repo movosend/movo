@@ -11,6 +11,13 @@ const MAX_PHOTO_CONTENT_LENGTH_BYTES = 5 * 1024 * 1024;
 // MOVO-106 AC1: mismos valores que PushPlatform en models/push-token.ts — duplicados
 // acá por el mismo criterio de "autocontenido" de arriba.
 const PUSH_PLATFORM_VALUES = ["ios", "android"];
+// MOVO-133: mismo espíritu que registerBody.fullName de auth.schema.ts (no vacío, sin
+// ser solo espacios) adaptado a un campo individual -- no se importa el de
+// auth.schema.ts a propósito, mismo criterio "autocontenido" de arriba.
+const NAME_FIELD_PATTERN = "^\\S+(\\s+\\S+)*$";
+// Mismo patrón que registerBody.phone/sendOtpBody.phone en auth.schema.ts: +54
+// opcional, 9 opcional (móvil), 10 dígitos.
+const PHONE_PATTERN = "^(\\+?54)?9?\\d{10}$";
 
 const transactionCounts = {
   type: "object",
@@ -172,6 +179,103 @@ export const usersSchemas = {
     required: ["deviceId"],
     properties: {
       deviceId: { type: "string", minLength: 1 },
+    },
+  },
+
+  // MOVO-134: mismo patrón que registerBody.password de auth.schema.ts (mínimo 8,
+  // al menos una letra y un dígito) -- duplicado acá por el criterio "autocontenido".
+  changePasswordBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["currentPassword", "newPassword"],
+    properties: {
+      currentPassword: { type: "string", minLength: 1 },
+      newPassword: {
+        type: "string",
+        minLength: 8,
+        pattern: "^(?=.*[A-Za-z])(?=.*\\d).{8,}$",
+      },
+    },
+  },
+
+  // Mismo shape que loginResponse de auth.schema.ts (MOVO-134: el cambio de
+  // contraseña emite un par de tokens nuevo igual que un login) -- duplicado acá por
+  // el criterio "autocontenido".
+  changePasswordResponse: {
+    type: "object",
+    required: ["userId", "accessToken", "refreshToken", "expiresIn", "kycStatus", "fullName", "roles"],
+    properties: {
+      userId: { type: "string", format: "uuid" },
+      accessToken: { type: "string" },
+      refreshToken: { type: "string" },
+      expiresIn: { type: "integer" },
+      kycStatus: { type: "string", enum: KYC_STATUS_VALUES },
+      fullName: { type: "string" },
+      roles: { type: "array", items: { type: "string", enum: USER_ROLE_VALUES } },
+    },
+  },
+
+  deleteAccountBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["password"],
+    properties: {
+      password: { type: "string", minLength: 1 },
+    },
+  },
+
+  patchProfileBody: {
+    type: "object",
+    additionalProperties: false,
+    // AC de MOVO-133: body vacío `{}` -- "nada que actualizar" -- es 400, no un no-op.
+    minProperties: 1,
+    properties: {
+      firstName: { type: "string", minLength: 1, maxLength: 80, pattern: NAME_FIELD_PATTERN },
+      lastName: { type: "string", minLength: 1, maxLength: 80, pattern: NAME_FIELD_PATTERN },
+    },
+  },
+
+  phoneChangeOtpBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["phone"],
+    properties: {
+      phone: { type: "string", pattern: PHONE_PATTERN },
+    },
+  },
+
+  emailChangeOtpBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["email"],
+    properties: {
+      email: { type: "string", pattern: "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$" },
+    },
+  },
+
+  // Compartido entre el paso 1 de cambio de teléfono y de email (MOVO-133) -- misma
+  // forma que sendOtpResponse de auth.schema.ts, duplicado acá por el criterio
+  // "autocontenido".
+  otpRequestResponse: {
+    type: "object",
+    // MOVO-133 (review de tmvergara sobre PR #91): `sent` distingue "mandé un SMS
+    // nuevo" de "reusé el OTP activo, dentro de su cooldown, sin mandar nada".
+    required: ["otpId", "cooldownSeconds", "sent"],
+    properties: {
+      otpId: { type: "string", format: "uuid" },
+      cooldownSeconds: { type: "integer", minimum: 0 },
+      sent: { type: "boolean" },
+    },
+  },
+
+  // Compartido entre el paso 2 de cambio de teléfono y de email.
+  otpVerifyBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["otpId", "code"],
+    properties: {
+      otpId: { type: "string", format: "uuid" },
+      code: { type: "string", pattern: "^\\d{6}$" },
     },
   },
 

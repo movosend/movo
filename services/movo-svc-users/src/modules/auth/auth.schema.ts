@@ -8,6 +8,11 @@ export const authSchemas = {
         type: "string",
         // Nombre y apellido (al menos dos palabras): la tabla persiste
         // first_name/last_name por separado (ver migración de MOVO-66).
+        // maxLength 160 == el maxLength:80 de cada campo individual en
+        // users.schema.ts#patchProfileBody (MOVO-133) x2 -- sin este límite acá, se
+        // podía registrar un nombre que el PATCH de edición después rechazaba.
+        minLength: 1,
+        maxLength: 160,
         pattern: "^\\S+(\\s+\\S+)+$",
       },
       email: {
@@ -200,10 +205,14 @@ export const authSchemas = {
   },
   sendOtpResponse: {
     type: "object",
-    required: ["otpId", "cooldownSeconds"],
+    // MOVO-133 (review de tmvergara sobre PR #91): `sent` distingue "mandé un SMS
+    // nuevo" de "reusé el OTP activo, dentro de su cooldown, sin mandar nada" --
+    // antes las dos ramas devolvían la misma forma y el cliente no podía saberlo.
+    required: ["otpId", "cooldownSeconds", "sent"],
     properties: {
       otpId: { type: "string", format: "uuid" },
       cooldownSeconds: { type: "integer", minimum: 0 },
+      sent: { type: "boolean" },
     },
   },
   verifyOtpBody: {

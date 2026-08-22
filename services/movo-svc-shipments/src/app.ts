@@ -10,6 +10,7 @@ import authPlugin from "./plugins/auth";
 import errorHandlerPlugin from "./plugins/error-handler";
 import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-sweep";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
+import accountDeletionRoutes from "./modules/account-deletion/account-deletion.routes";
 import { UsersClient } from "./adapters/users-client";
 import { StorageProvider } from "./adapters/storage-provider";
 import { RoutesProvider } from "./adapters/routes-provider";
@@ -95,6 +96,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
   };
   app.register(shipmentsRoutes, shipmentsRouteOpts);
+
+  // MOVO-134: consultado por movo-svc-users antes de aplicar una baja de cuenta.
+  // Interno -- no se declara en gateway/src/config/routes-map.ts (mismo criterio que
+  // /internal/notifications de movo-svc-users, MOVO-106).
+  app.register(accountDeletionRoutes, { prefix: "/internal/account-deletion" });
 
   return app;
 }

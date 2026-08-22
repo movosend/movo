@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma, PushPlatform as PrismaPushPlatform } from "../generated/prisma/client";
+import { Prisma, PushPlatform as PrismaPushPlatform } from "../generated/prisma/client";
 import { PushToken, PushPlatform, parsePushPlatform } from "../models/push-token";
 
 export interface UpsertPushTokenInput {
@@ -17,6 +17,8 @@ export interface PushTokenRepository {
   deleteByDeviceId(userId: string, deviceId: string): Promise<void>;
   /** AC6: todos los tokens de un usuario, para el endpoint interno de envío. */
   findAllByUserId(userId: string): Promise<PushToken[]>;
+  /** MOVO-134: baja de cuenta -- borra todos los dispositivos registrados del usuario, no solo uno. */
+  deleteAllByUserId(userId: string): Promise<void>;
 }
 
 type PushTokenRow = Prisma.PushTokenGetPayload<Record<string, never>>;
@@ -35,7 +37,11 @@ function toDomainPushToken(row: PushTokenRow): PushToken {
   };
 }
 
-export function createPushTokenRepository(db: PrismaClient): PushTokenRepository {
+// `Prisma.TransactionClient` (no `PrismaClient`) a propósito, mismo criterio que
+// `user-repository.ts`: MOVO-134 necesita pasarle el cliente transaccional de
+// `db.$transaction(async (tx) => ...)` para que el borrado de push tokens participe
+// de la misma transacción atómica que la anonimización del usuario.
+export function createPushTokenRepository(db: Prisma.TransactionClient): PushTokenRepository {
   return {
     async upsert(input: UpsertPushTokenInput): Promise<PushToken> {
       const row = await db.pushToken.upsert({
@@ -61,6 +67,10 @@ export function createPushTokenRepository(db: PrismaClient): PushTokenRepository
     async findAllByUserId(userId: string): Promise<PushToken[]> {
       const rows = await db.pushToken.findMany({ where: { userId } });
       return rows.map(toDomainPushToken);
+    },
+
+    async deleteAllByUserId(userId: string): Promise<void> {
+      await db.pushToken.deleteMany({ where: { userId } });
     },
   };
 }

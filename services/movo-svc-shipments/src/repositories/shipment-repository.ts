@@ -107,6 +107,15 @@ export interface ShipmentRepository {
    * Lote acotado ordenado por deadline ascendente.
    */
   findExpiredAwaitingConfirmation(deadline: Date, limit: number): Promise<Shipment[]>;
+  /**
+   * MOVO-134: soporte del endpoint interno de baja de cuenta de `svc-users` -- ¿el
+   * usuario (como sender, receiver o carrier) tiene algún envío en un estado no
+   * terminal? Separa `disputed` del resto (`awaiting_receiver_confirmation`,
+   * `published`, `assignment_pending`, `assigned`, `in_transit`) porque el mensaje de
+   * error del lado de `svc-users` es distinto (una disputa no la resuelve el usuario
+   * cancelando, necesita a un admin).
+   */
+  hasActiveShipmentsForUser(userId: string): Promise<{ hasActiveDispute: boolean; hasActiveShipments: boolean }>;
 }
 
 export class ShipmentNotFoundError extends Error {
@@ -318,6 +327,22 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         orderBy: { receiverConfirmationDeadline: "asc" },
       });
       return rows.map(mapShipment);
+    },
+
+    async hasActiveShipmentsForUser(userId: string): Promise<{ hasActiveDispute: boolean; hasActiveShipments: boolean }> {
+      const rows = await db.shipment.findMany({
+        where: {
+          OR: [{ senderId: userId }, { receiverId: userId }, { carrierId: userId }],
+          status: {
+            notIn: [ShipmentStatus.DELIVERED, ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.CANCELLED],
+          },
+        },
+        select: { status: true },
+      });
+      return {
+        hasActiveDispute: rows.some((r) => r.status === ShipmentStatus.DISPUTED),
+        hasActiveShipments: rows.some((r) => r.status !== ShipmentStatus.DISPUTED),
+      };
     },
   };
 }
