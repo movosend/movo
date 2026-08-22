@@ -231,8 +231,18 @@ export function createShipmentsService(
 
       const suggestedPriceArs = computePlaceholderPrice(input.weightKg, pickupDeliveryDistanceKm);
 
-      // MOVO-130 AC1: deadline de confirmación = createdAt (ahora) + RECEIVER_CONFIRMATION_TIMEOUT_HOURS.
-      const receiverConfirmationDeadline = new Date(Date.now() + timeoutHours * 60 * 60 * 1000);
+      // MOVO-130 AC1 (fix): deadline = min(now + RECEIVER_CONFIRMATION_TIMEOUT_HOURS, pickupDate + pickupTimeWindowEnd).
+      // El timeout configurable es el máximo posible, pero si la ventana de retiro cierra antes,
+      // se usa ese momento como tope: no tiene sentido que el receptor pueda aceptar un envío
+      // cuya ventana de retiro ya cerró. `pickupDate` viaja como "YYYY-MM-DD" (UTC midnight) y
+      // `pickupTimeWindowEnd` como "HH:MM" o "HH:MM:SS" — se construye el timestamp UTC sumando
+      // la hora de fin de ventana al comienzo del día en UTC.
+      const timeoutDeadline = new Date(Date.now() + timeoutHours * 60 * 60 * 1000);
+      const [endH, endM] = input.pickupTimeWindowEnd.split(":").map(Number);
+      const pickupWindowDeadline = new Date(`${input.pickupDate}T00:00:00.000Z`);
+      pickupWindowDeadline.setUTCHours(endH, endM, 0, 0);
+      const receiverConfirmationDeadline =
+        timeoutDeadline <= pickupWindowDeadline ? timeoutDeadline : pickupWindowDeadline;
 
       const created = await repository.create({
         senderId: input.senderId,
