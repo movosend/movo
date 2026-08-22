@@ -30,10 +30,13 @@ export interface UserRepository {
    */
   updatePhone(id: string, phone: string): Promise<User | null>;
   /**
-   * MOVO-133: lanza `UserConflictError("email")` si `users_email_key` rechaza el
-   * valor -- cubre solo colisiones de mismo casing exacto (MOVO-93: `users_email_lower_idx`
-   * no fuerza unicidad a nivel de DB). El re-chequeo case-insensitive real vive en
-   * `users.service.ts#requestEmailChange`/`verifyEmailChange`.
+   * MOVO-133: lanza `UserConflictError("email")` si `users_email_key` (mismo casing
+   * exacto) o `users_email_lower_idx` (MOVO-93: UNIQUE INDEX funcional sobre
+   * LOWER(email) -- sí fuerza unicidad case-insensitive a nivel de DB, pese a lo que
+   * decía este comentario antes) rechazan el valor. El chequeo explícito de
+   * `users.service.ts#requestEmailChange`/`verifyEmailChange` (vía `findByEmail`)
+   * sigue existiendo para devolver el 409 sin pagar el viaje a la DB en el caso común,
+   * pero este catch es la última línea de defensa real contra la carrera de AC5.
    */
   updateEmail(id: string, email: string): Promise<User | null>;
   /**
@@ -97,6 +100,21 @@ function uniqueConstraintFields(error: Prisma.PrismaClientKnownRequestError): st
     | undefined;
   const fields = driverError?.cause?.constraint?.fields;
   return Array.isArray(fields) ? fields.filter((f): f is string => typeof f === "string") : [];
+}
+
+/**
+ * `uniqueConstraintFields()` matchea exacto para un unique constraint de columna
+ * simple (`fields: ["email"]`), pero `users_email_lower_idx` (MOVO-93) es un UNIQUE
+ * INDEX de EXPRESIÓN sobre `LOWER(email)` -- verificado empíricamente contra Postgres
+ * real (ver historial de esta rama): para ese índice, el parseo del driver adapter no
+ * devuelve `[]` como documentaba este archivo antes, devuelve `["lower(email::text"]`
+ * (el nombre de la expresión, truncado en un paréntesis interno). Un `.includes(column)`
+ * exacto no matchea eso -- el P2002 se repropaga crudo y el caller ve 500 en vez de
+ * 409 justo en la carrera que AC5 existe para cubrir. `.some(f => f.includes(column))`
+ * matchea las dos formas sin depender de parsear `originalMessage`.
+ */
+function uniqueConstraintFieldsInclude(error: Prisma.PrismaClientKnownRequestError, column: string): boolean {
+  return uniqueConstraintFields(error).some((field) => field.includes(column));
 }
 
 // `Prisma.TransactionClient` (no `PrismaClient`) a propósito: un `PrismaClient` normal
@@ -173,11 +191,10 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         return toDomainUser(created);
       } catch (error) {
         if (isUniqueConstraintError(error)) {
-          const fields = uniqueConstraintFields(error);
-          if (fields.includes("email")) {
+          if (uniqueConstraintFieldsInclude(error, "email")) {
             throw new UserConflictError("email");
           }
-          if (fields.includes("phone")) {
+          if (uniqueConstraintFieldsInclude(error, "phone")) {
             throw new UserConflictError("phone");
           }
         }
@@ -264,7 +281,7 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         if (isRecordNotFoundError(error)) {
           return null;
         }
-        if (isUniqueConstraintError(error) && uniqueConstraintFields(error).includes("phone")) {
+        if (isUniqueConstraintError(error) && uniqueConstraintFieldsInclude(error, "phone")) {
           throw new UserConflictError("phone");
         }
         throw error;
@@ -283,7 +300,7 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         if (isRecordNotFoundError(error)) {
           return null;
         }
-        if (isUniqueConstraintError(error) && uniqueConstraintFields(error).includes("email")) {
+        if (isUniqueConstraintError(error) && uniqueConstraintFieldsInclude(error, "email")) {
           throw new UserConflictError("email");
         }
         throw error;
