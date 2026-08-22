@@ -24,7 +24,11 @@ export default async function accountDeletionRoutes(app: FastifyInstance, _opts:
       // No se documenta en la Swagger pública -- endpoint interno, no forma parte
       // del contrato que consumen los clientes (mismo criterio que POST /internal/
       // notifications/push en movo-svc-users).
-      schema: { hide: true, params: accountDeletionSchemas.userIdParam },
+      schema: {
+        hide: true,
+        params: accountDeletionSchemas.userIdParam,
+        response: { 200: accountDeletionSchemas.activeShipmentsResponse },
+      },
     },
     async (request: FastifyRequest) => {
       const { userId } = request.params as { userId: string };
