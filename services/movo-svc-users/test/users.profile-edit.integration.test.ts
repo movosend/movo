@@ -48,15 +48,6 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
         await app.redis.del(...keys);
       }
     } while (cursor !== "0");
-
-    cursor = "0";
-    do {
-      const [nextCursor, keys] = await app.redis.scan(cursor, "MATCH", "email-change-pending:*", "COUNT", 100);
-      cursor = nextCursor;
-      if (keys.length > 0) {
-        await app.redis.del(...keys);
-      }
-    } while (cursor !== "0");
   });
 
   let phoneCounter = 0;
@@ -194,6 +185,36 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
 
       expect(response.statusCode).toBe(401);
       expect(JSON.parse(response.body).error.code).toBe("AUTH_TOKEN_INVALID");
+    });
+
+    it("MOVO-133 (fix de review): firstName/lastName sin cota superior -> 400 con más de 80 caracteres", async () => {
+      const user = await repo.create(buildInput());
+
+      const response = await app.inject({
+        method: "PATCH",
+        url: "/users/me",
+        headers: { "x-user-id": user.id },
+        payload: { firstName: "a".repeat(81) },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body).error.code).toBe("VALIDATION_FAILED");
+
+      const reloaded = await repo.findById(user.id);
+      expect(reloaded?.firstName).toBe("Alena");
+    });
+
+    it("firstName de exactamente 80 caracteres sí se acepta (límite inclusivo)", async () => {
+      const user = await repo.create(buildInput());
+
+      const response = await app.inject({
+        method: "PATCH",
+        url: "/users/me",
+        headers: { "x-user-id": user.id },
+        payload: { firstName: "a".repeat(80) },
+      });
+
+      expect(response.statusCode).toBe(200);
     });
   });
 
@@ -399,6 +420,38 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
       expect(reloaded?.email).toBe(newEmail);
     });
 
+    it("MOVO-133 (fix de review, TTL desync): un código reenviado sigue viendo el email pendiente correcto", async () => {
+      // Regresión del bug real: antes, el email candidato vivía en una key Redis
+      // paralela (`email-change-pending:{otpId}`) con su propio TTL fijo al `create()`
+      // original -- un reenvío (POST /auth/resend-otp, público) refrescaba el TTL del
+      // OTP pero nunca el de esa key paralela. Ahora el email candidato es metadata
+      // del propio hash `otp:{otpId}` (mismo TTL, se refresca junto con el código en
+      // cada reenvío) -- no hay dos lifetimes que puedan desincronizarse.
+      const user = await repo.create(buildInput());
+      const newEmail = `nuevo-${randomUUID()}@movo.test`;
+
+      const { body: otpBody } = await requestEmailChange(user.id, newEmail);
+
+      // Vence el cooldown de reenvío sin esperar 60s reales (mismo patrón que el resto
+      // de la suite) y reenvía -- esto rota el código bajo el mismo otpId.
+      await app.redis.hset(`otp:${otpBody.otpId}`, "lastSentAt", String(Date.now() - 61_000));
+      const resend = await app.inject({ method: "POST", url: "/auth/resend-otp", payload: { otpId: otpBody.otpId } });
+      expect(resend.statusCode).toBe(200);
+
+      const resentCode = captor.sentCodes.get(user.phone)!;
+      expect(resentCode).toMatch(/^\d{6}$/);
+
+      const verifyResponse = await app.inject({
+        method: "POST",
+        url: "/users/me/email/change/verify",
+        headers: { "x-user-id": user.id },
+        payload: { otpId: otpBody.otpId, code: resentCode },
+      });
+
+      expect(verifyResponse.statusCode).toBe(200);
+      expect(JSON.parse(verifyResponse.body).email).toBe(newEmail);
+    });
+
     it("el email nuevo es igual al actual (case-insensitive) -> 400", async () => {
       const user = await repo.create(buildInput({ email: "Fijo@Movo.test" }));
 
@@ -512,6 +565,84 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
         payload: { otpId: randomUUID(), code: "123456" },
       });
       expect(verifyResponse.statusCode).toBe(401);
+    });
+  });
+
+  describe("Namespacing de OTP por flujo (MOVO-133, fix de review sobre PR #91)", () => {
+    it("un OTP real de cambio de email no sirve para confirmar un cambio de teléfono (ni al revés)", async () => {
+      // Escenario de tmvergara: el usuario arranca un cambio de email (OTP al
+      // teléfono actual) y, por confusión de pantalla/reintento del cliente, ese
+      // otpId+code termina posteado contra /me/phone/change/verify. Antes de este fix,
+      // el endpoint aceptaba cualquier OTP válido sin chequear para qué flujo se
+      // emitió -- "cambiaba" el teléfono al mismo que la cuenta ya tenía y consumía en
+      // el camino el OTP real del cambio de email, dejándolo muerto sin retorno.
+      const user = await repo.create(buildInput());
+      const newEmail = `nuevo-${randomUUID()}@movo.test`;
+
+      const emailOtpResponse = await app.inject({
+        method: "POST",
+        url: "/users/me/email/change/otp",
+        headers: { "x-user-id": user.id },
+        payload: { email: newEmail },
+      });
+      const emailOtpBody = JSON.parse(emailOtpResponse.body);
+      const code = captor.sentCodes.get(user.phone)!;
+
+      const misroutedVerify = await app.inject({
+        method: "POST",
+        url: "/users/me/phone/change/verify",
+        headers: { "x-user-id": user.id },
+        payload: { otpId: emailOtpBody.otpId, code },
+      });
+      expect(misroutedVerify.statusCode).toBe(401);
+      expect(JSON.parse(misroutedVerify.body).error.code).toBe("AUTH_OTP_INVALID");
+
+      // El teléfono no cambió, y el OTP real del cambio de email sigue vivo -- el
+      // mismatch de flujo no lo tocó (ni intentos, ni invalidación).
+      const reloaded = await repo.findById(user.id);
+      expect(reloaded?.phone).toBe(user.phone);
+
+      const correctVerify = await app.inject({
+        method: "POST",
+        url: "/users/me/email/change/verify",
+        headers: { "x-user-id": user.id },
+        payload: { otpId: emailOtpBody.otpId, code },
+      });
+      expect(correctVerify.statusCode).toBe(200);
+      expect(JSON.parse(correctVerify.body).email).toBe(newEmail);
+    });
+
+    it("un tercero sin autenticar no puede invalidar el OTP de cambio de teléfono de otro usuario llamando a POST /auth/send-otp con el mismo número", async () => {
+      // Antes del namespacing por flujo, `otp-repository.ts#create` invalidaba
+      // cualquier OTP previo para el mismo target sin importar quién lo pidió --
+      // POST /auth/send-otp es pública y solo necesita el número. Repetible contra
+      // cualquier cuenta cuyo teléfono nuevo (todavía no registrado por nadie) se
+      // conozca.
+      const user = await repo.create(buildInput());
+      const newPhone = nextPhone();
+
+      const phoneOtpResponse = await app.inject({
+        method: "POST",
+        url: "/users/me/phone/change/otp",
+        headers: { "x-user-id": user.id },
+        payload: { phone: newPhone },
+      });
+      const phoneOtpBody = JSON.parse(phoneOtpResponse.body);
+      const code = captor.sentCodes.get(newPhone)!;
+
+      // El "tercero" pide un OTP público para ese mismo número -- distinto flujo
+      // ("register"), no debería tocar el OTP de cambio de teléfono de `user`.
+      const publicSend = await app.inject({ method: "POST", url: "/auth/send-otp", payload: { phone: newPhone } });
+      expect(publicSend.statusCode).toBe(200);
+
+      const verifyResponse = await app.inject({
+        method: "POST",
+        url: "/users/me/phone/change/verify",
+        headers: { "x-user-id": user.id },
+        payload: { otpId: phoneOtpBody.otpId, code },
+      });
+      expect(verifyResponse.statusCode).toBe(200);
+      expect(JSON.parse(verifyResponse.body).phone).toBe(newPhone);
     });
   });
 });
