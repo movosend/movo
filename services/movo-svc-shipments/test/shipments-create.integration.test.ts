@@ -5,6 +5,7 @@ import { ShipmentStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createShipmentRepository } from "../src/repositories/shipment-repository";
 import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
+import { createFakePricingClient } from "./fake-pricing-client";
 
 describe("POST /shipments (Postgres)", () => {
   let app: FastifyInstance;
@@ -12,6 +13,7 @@ describe("POST /shipments (Postgres)", () => {
   const receiverId = randomUUID();
   const unverifiedReceiverId = randomUUID();
   const sendPush = vi.fn().mockResolvedValue(undefined);
+  const pricingClient = createFakePricingClient();
 
   const validBody = {
     packageType: "standard_package",
@@ -41,7 +43,7 @@ describe("POST /shipments (Postgres)", () => {
       [receiverId]: fakePublicProfile({ id: receiverId, isVerified: true }),
       [unverifiedReceiverId]: fakePublicProfile({ id: unverifiedReceiverId, isVerified: false }),
     });
-    app = buildApp({ usersClient, notificationsClient: { sendPush }, sweepEnabled: false });
+    app = buildApp({ usersClient, notificationsClient: { sendPush }, pricingClient, sweepEnabled: false });
     await app.ready();
   });
 
@@ -52,6 +54,7 @@ describe("POST /shipments (Postgres)", () => {
   beforeEach(async () => {
     await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
     sendPush.mockClear();
+    vi.mocked(pricingClient.getQuote).mockClear();
   });
 
   it("crea el envío en estado awaiting_receiver_confirmation y registra el evento inicial", async () => {
@@ -193,5 +196,39 @@ describe("POST /shipments (Postgres)", () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().error.code).toBe("VALIDATION_FAILED");
+  });
+
+  it("AC6 de MOVO-82: si movo-svc-pricing-logistics falla, el envío se crea igual con 'precio a estimar'", async () => {
+    vi.mocked(pricingClient.getQuote).mockResolvedValueOnce({
+      suggestedPriceArs: null,
+      calculationMethod: null,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/shipments",
+      headers: { "x-user-id": senderId },
+      payload: validBody,
+    });
+
+    expect(response.statusCode).toBe(201);
+    const body = response.json();
+    expect(body.suggestedPriceArs).toBeNull();
+    expect(body.calculationMethod).toBeNull();
+    expect(body.status).toBe(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION);
+  });
+
+  it("con pricing disponible, persiste suggestedPriceArs y calculationMethod", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/shipments",
+      headers: { "x-user-id": senderId },
+      payload: validBody,
+    });
+
+    expect(response.statusCode).toBe(201);
+    const body = response.json();
+    expect(body.suggestedPriceArs).toBe(2256);
+    expect(body.calculationMethod).toBe("euclidean_linear_v1");
   });
 });
