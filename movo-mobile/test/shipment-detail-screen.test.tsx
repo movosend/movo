@@ -163,7 +163,7 @@ describe("ShipmentDetailScreen", () => {
     expect(queryByTestId("shipment-detail-carrier")).toBeNull();
     expect(queryByTestId("shipment-detail-receiver-actions")).toBeNull();
     // El fixture por defecto está en `published` (cancelable) y el usuario actual es
-    // el emisor -- MOVO-29 muestra acá la barra de cancelar.
+    // el emisor -- MOVO-29 muestra acá el botón de cancelar en el header.
     expect(getByTestId("shipment-detail-sender-actions")).toBeTruthy();
     // Feedback post-QA: sin CTA de "Volver a Inicio" al pie de la pantalla.
     expect(queryByText("Volver a Inicio")).toBeNull();
@@ -234,7 +234,7 @@ describe("ShipmentDetailScreen", () => {
     expect(queryByTestId("shipment-detail-receiver-actions")).toBeNull();
   });
 
-  it("mirando como emisor en estado cancelable, muestra la barra de cancelar (MOVO-29)", async () => {
+  it("mirando como emisor en estado cancelable, muestra el botón de cancelar (MOVO-29)", async () => {
     mockCurrentUser.mockReturnValue({ userId: "user-1" });
     mockUseShipment.mockReturnValue({
       isLoading: false,

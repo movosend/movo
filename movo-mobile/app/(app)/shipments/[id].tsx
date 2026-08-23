@@ -63,9 +63,9 @@ const TABS: [DetailTab, string][] = [
  * tiempo ya consume el historial real de `GET /shipments/:id/events`, MOVO-128) y
  * el banner de ofertas (`OffersBanner`, siempre en estado vacío hasta MOVO-17). El
  * mapa de ruta reusa `RouteMapCard` (mismo componente animado del paso de resumen del
- * wizard de envío, MOVO-83/123) en vez de la card estática del mock. El link de
- * cancelar del emisor (MOVO-29, `SenderActionsBar`) se sumó después, ver su propia
- * entrada en CLAUDE.md.
+ * wizard de envío, MOVO-83/123) en vez de la card estática del mock. El botón de
+ * cancelar del emisor (MOVO-29, `SenderActionsBar`) vive en el header, no al pie —
+ * ver su propia entrada en CLAUDE.md.
  */
 export default function ShipmentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -126,6 +126,13 @@ export default function ShipmentDetailScreen() {
           ) : null}
         </View>
         {shipment ? <ShipmentStatusBadge status={shipment.status} /> : null}
+        {showSenderActions && shipment ? (
+          <SenderActionsBar
+            shipmentId={shipment.id}
+            onRefetch={() => refetch()}
+            testID="shipment-detail-sender-actions"
+          />
+        ) : null}
       </View>
 
       {isError || !shipment ? (
@@ -237,12 +244,6 @@ export default function ShipmentDetailScreen() {
               receiverConfirmationDeadline={shipment.receiverConfirmationDeadline}
               onRefetch={() => refetch()}
               testID="shipment-detail-receiver-actions"
-            />
-          ) : showSenderActions && shipment ? (
-            <SenderActionsBar
-              shipmentId={shipment.id}
-              onRefetch={() => refetch()}
-              testID="shipment-detail-sender-actions"
             />
           ) : null}
         </View>
