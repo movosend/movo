@@ -452,12 +452,63 @@ Resuelve la parte de MOVO-29 que había quedado explícitamente afuera de MOVO-1
 ya existía, mergeado a `develop` como parte de MOVO-108 (ver
 `services/movo-svc-shipments/CLAUDE.md`) — este ticket es 100% mobile.
 
-- **`SenderActionsBar` nueva (`components/shipments/sender-actions-bar.tsx`)**,
-  mismo patrón que `ReceiverActionsBar` (MOVO-131): barra fija al pie, un solo botón
-  "Cancelar envío" que abre un modal con motivo opcional (`reason`, máx 500
-  caracteres, persistido en el historial vía `GET /shipments/:id/events`, AC5) y
-  advertencia de irreversibilidad — reusa el mismo armado de modal que el "Rechazar"
-  del receptor en vez de `Alert.alert` (que no admite input de texto).
+- **`SenderActionsBar` nueva (`components/shipments/sender-actions-bar.tsx`)**: un
+  ícono de tres puntos en el header (junto a `ShipmentStatusBadge`, no una barra fija
+  al pie) que abre directo un modal con motivo opcional (`reason`, máx 500 caracteres,
+  persistido en el historial vía `GET /shipments/:id/events`, AC5) y advertencia de
+  irreversibilidad — reusa el mismo armado de modal que el "Rechazar" del receptor en
+  vez de `Alert.alert` (que no admite input de texto). Sin menú intermedio de
+  opciones: hoy es la única acción del emisor, se agrega ese paso solo si se suma una
+  segunda.
+  **Feedback tras probarlo (mismo día, dos rondas)**: la primera versión sí era una
+  barra fija al pie, mismo patrón que `ReceiverActionsBar` — el usuario la rechazó
+  ("esa franja debería estar libre, no es para un botón como cancelar") y pidió
+  combinarla con el header. La segunda versión movió el ícono al header pero lo hacía
+  abrir el modal de cancelación directo — el usuario también la rechazó ("tiene tres
+  puntitos pero abre el modal directo, no es intuitivo") y pidió un desplegable real
+  anclado debajo del ícono (mismo lenguaje que el menú "..." de WhatsApp/Telegram: una
+  lista de opciones, hoy con una sola fila "Cancelar envío", pensada para sumar
+  acciones futuras sin rehacer el patrón). El modal de confirmación ya no se cierra
+  ante un error (antes sí): al vivir el `ErrorBanner` ahora adentro del propio modal,
+  cerrarlo escondería el mensaje — el usuario ve el error sin perder el motivo ya
+  escrito y reintenta desde ahí.
+  - **Ancla del menú con offset fijo, no `measureInWindow`**: se evaluó medir la
+    posición real del ícono en runtime (patrón ya usado en
+    `publish-shipment-button.tsx`), pero su callback nunca se dispara en el entorno de
+    test de RNTL (`jest-expo` no lo simula) — el menú jamás habría abierto en los
+    tests. Como el ícono siempre vive en la misma fila del header, alcanza con un
+    offset constante (`insets.top + 64` / `right: 20`) vía `useSafeAreaInsets()`, sin
+    depender de medición nativa.
+  - **Tercera ronda de feedback (mismo día)**: la primera versión del desplegable era
+    una card plana (`bg-bg` + `border-border` + `shadow-lg` de NativeWind) — "se ve
+    berreta", pidió "algo más pulido o nativo". Se probó primero el mismo lenguaje
+    "glassy" de `FloatingTabBar` (MOVO-78, `BlurView` + sombra nativa) para no sumar
+    una dependencia nativa nueva sin dev client — pero para entonces el proyecto ya
+    tenía uno andando (ver abajo), así que se terminó reemplazando por completo.
+  - **Cuarta ronda (mismo día): `@react-native-menu/menu` reemplaza todo el
+    desplegable casero.** Con dev client disponible, se instaló `MenuView`
+    (`UIMenu` nativo de iOS 14+ / `PopupMenu` de Android, sin config plugin de Expo —
+    autolinking puro) en vez de seguir afinando CSS de un `Modal` a mano. Resuelve
+    gratis el problema de anclaje que antes forzó el offset fijo
+    (`isAnchoredToRight`, sin `measureInWindow` ni `insets.top` a mano) y el estilo
+    "destructivo" de "Cancelar envío" (`attributes: { destructive: true }`, rojo
+    automático en iOS; `titleColor`/`imageColor` explícitos para Android, que no
+    tiene ese atributo nativo). El modal de confirmación (con el campo de motivo)
+    sigue siendo un `Modal` de RN propio — un menú nativo no admite un input de
+    texto libre adentro.
+    - **`MenuView` no expone `disabled`**: el ícono se deshabilita envolviéndolo en
+      un `View` con `pointerEvents="none"` + opacidad 0.5 durante la mutación, en vez
+      de una prop nativa que no existe.
+    - **Requiere reconstruir el dev client** (no alcanza con `npm install`): es un
+      módulo nativo con código Swift/Kotlin, autolinkeado recién en el próximo
+      `expo prebuild`/build nativo — la instalación de JS por sí sola no lo activa
+      en un dev client ya instalado en el dispositivo.
+    - **Tests: mismo criterio que `time-window-picker.test.tsx` (`DateTimePicker`,
+      MOVO-83)**: el menú nativo no tiene representación en el árbol de React (lo
+      dibuja SwiftUI/Android, no JS) — `jest.mock("@react-native-menu/menu")`
+      reemplaza `MenuView` por un mock liviano que renderiza cada `action` como una
+      fila tocable y dispara `onPressAction` con el mismo `nativeEvent.event` que el
+      componente real, en vez de intentar simular la apertura del menú nativo.
 - **`isSender`/`showSenderActions` en `shipments/[id].tsx`**: análogo a
   `isReceiver`/`showReceiverActions`, mutuamente excluyente por construcción (un
   usuario no puede ser emisor y receptor del mismo envío). Visible solo cuando
@@ -478,6 +529,71 @@ ya existía, mergeado a `develop` como parte de MOVO-108 (ver
   cancelar desde `assigned` con penalización y la liberación del hold de MercadoPago
   siguen bloqueados por `svc-payments` (hoy un stub sin holds/capture reales) — no se
   tocó nada de eso acá, el botón simplemente no se ofrece para ese estado.
+
+### Ajuste post-feedback: labels y tonos de `ShipmentStatusBadge`
+
+Mismo día que el punto anterior — el usuario notó que algunos labels de
+`shipmentStatusLabel` eran largos para una pill (`"Rechazado por el receptor"`, 26
+caracteres) y que los tonos de `shipmentStatusTone` (`src/lib/shipment-format.ts`) no
+comunicaban nada consistente: dos etapas bien distintas del ciclo de vida —
+`awaiting_receiver_confirmation` (esperando al receptor) y `assignment_pending`
+(buscando transportista, ya confirmado) — compartían el mismo amarillo, y `disputed`
+(todavía resoluble) compartía el rojo de los dos únicos estados terminales fallidos
+(`cancelled`/`rejected_by_receiver`).
+
+- Labels acortados sin perder claridad: `"Esperando receptor"`, `"Rechazado"`,
+  `"Sin asignar"`, `"Asignado"` (antes 22-26 caracteres, ahora máx. 19).
+- Tonos reagrupados por lo que debe transmitirle al usuario, no por severidad
+  genérica: `warning` queda solo para los dos estados que esperan una acción de
+  alguien (`awaiting_receiver_confirmation` del receptor, `disputed` en revisión);
+  `assignment_pending` pasa a compartir `info` con `assigned`/`in_transit` como
+  progreso automático del camino feliz; `danger` queda reservado a los dos terminales
+  fallidos de verdad.
+- Sin tono nuevo en `tailwind.config.js` — se reordenó dentro de la misma paleta de 5
+  tonos que ya existía (`success`/`warning`/`danger`/`info`/`neutral`), evitando el
+  costo de una escala de color nueva (7 pasos, luz+oscuro) para un solo estado.
+
+### `useSheetAnimation` (`src/hooks/use-sheet-animation.ts`) — fix transversal de animación en todos los sheets del pie de pantalla
+
+Bug reportado por el usuario, presente en **todos** los sheets con overlay oscuro +
+hoja inferior del repo (no solo MOVO-29): `animationType="slide"` de RN `Modal` anima
+TODO el contenido del modal como una sola pieza, así que el overlay se deslizaba desde
+abajo pegado a la hoja en vez de solo aparecer — no es el comportamiento de ningún
+bottom sheet real (iOS/Android/Material: el overlay hace fade, solo la hoja se
+desliza).
+
+- **Alcance**: se aplicó a los 5 sheets que de verdad tienen ese patrón (overlay +
+  hoja parcial) — `sender-actions-bar.tsx`/`receiver-actions-bar.tsx` (modales de
+  cancelar/rechazar), `select-field.tsx`, `edit-address-sheet.tsx`, el sheet de
+  filtros de `app/(app)/shipments/index.tsx`. **No** se tocaron
+  `address-search-sheet.tsx` ni `confirm-add-address-sheet.tsx`: son pantallas
+  completas sin overlay (`transparent` ausente), el bug no aplica ahí — deslizar todo
+  de una pieza ahí sí es lo correcto.
+- **`Modal` en sí no anima nada** (`animationType="none"`) — el fade del overlay y el
+  slide de la hoja se manejan a mano con Reanimated, un único progreso compartido (0
+  cerrado, 1 abierto) para que abrir/cerrar se sienta como una animación coordinada,
+  no dos independientes. `isMounted` (no el `visible` del caller) es lo que se le pasa
+  al `Modal`, para demorar el desmontaje real hasta que termina la animación de
+  cierre.
+- **El open se demora un frame (`requestAnimationFrame`) antes de arrancar
+  `withTiming`** (fix de feedback: la primera versión sin este delay se veía menos
+  fluida en dispositivo — montar el `Modal` nativo de RN no es instantáneo, así que el
+  progreso ya iba adelantado para cuando el `Modal` terminaba de presentarse, y la
+  hoja "saltaba" a mitad de camino en vez de deslizarse fluida desde abajo). El cierre
+  no lo necesita, arranca con el `Modal` ya montado.
+- **Estructura por archivo**: un `Animated.View` (`StyleSheet.absoluteFill` +
+  `backdropStyle`, opacity-only) para el overlay, envolviendo el `Pressable` de cerrar
+  (mismo testID que antes); un `View pointerEvents="box-none"` posicionando la hoja
+  al pie (para que el espacio vacío arriba de la hoja no tape el overlay) con un
+  `Animated.View` interno (`sheetStyle`, solo `translateY`) para el contenido. En
+  `select-field.tsx` esto además permitió sacar el truco de `onPress={(e) =>
+  e.stopPropagation()}` que tenía el `Pressable` de contenido (ya no anidado dentro
+  del `Pressable` del backdrop, son hermanos).
+- **Tests sin cambios de comportamiento**: `isMounted` sigue reflejando el `visible`
+  real de forma síncrona en el mismo ciclo de test (el mock oficial de
+  `react-native-reanimated`, `test/mocks/reanimated-setup.js`, resuelve `withTiming`
+  sincrónicamente) — ningún test depende de los valores animados en sí (`opacity`/
+  `translateY`), solo de qué contenido está montado.
 
 ### Pendientes de este paquete
 
