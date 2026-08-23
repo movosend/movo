@@ -110,7 +110,12 @@ model Shipment {
   pickupTimeWindowStart  DateTime @map("pickup_time_window_start") @db.Time
   pickupTimeWindowEnd    DateTime @map("pickup_time_window_end") @db.Time
 
-  suggestedPriceArs Decimal  @map("suggested_price_ars") @db.Decimal
+  // MOVO-82: nullable = "precio a estimar" (AC6), cuando movo-svc-pricing-logistics no
+  // respondió o faltaban datos al crear el envío. Nunca se recalcula (AC8).
+  suggestedPriceArs Decimal? @map("suggested_price_ars") @db.Decimal
+  // Versión del algoritmo que produjo suggestedPriceArs (PriceCalculationMethod de
+  // @movo/shared, ej. "euclidean_linear_v1") -- null junto con un precio nulo.
+  calculationMethod String?  @map("calculation_method")
   agreedPriceArs    Decimal? @map("agreed_price_ars") @db.Decimal
   // DER: "tipado como enum en el Miro pero sin valores definidos" — se deja
   // texto libre a propósito, no se inventan valores que nadie definió.

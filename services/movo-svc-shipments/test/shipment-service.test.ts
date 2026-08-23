@@ -9,21 +9,28 @@ import { Shipment, ShipmentEvent, PackageType } from "../src/models/shipment";
 import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
 import { createFakeNotificationsClient } from "./fake-notifications-client";
 import { createFakeOfferRepository, fakeOffer } from "./fake-offer-repository";
+import { createFakePricingClient } from "./fake-pricing-client";
+import { PricingClient } from "../src/adapters/pricing-client";
 
 /**
  * Wrapper de `createShipmentsService` para este archivo: los tests que no ejercitan
- * ofertas/notificaciones (la mayoría, preexistentes a MOVO-108) no tienen que pasar
- * esas dos dependencias nuevas a mano — usan el default (fakes no-op). `offerRepository`
- * viaja en `opts` (no como parámetro posicional propio) porque `createShipmentsService`
- * ahora también lo usan MOVO-129/130, que nunca lo necesitan.
+ * ofertas/notificaciones/pricing (la mayoría, preexistentes a MOVO-108/82) no tienen
+ * que pasar esas dependencias nuevas a mano — usan el default (fakes no-op/deterministas).
+ * `offerRepository`/`pricingClient` viajan en `opts` (no como parámetros posicionales
+ * propios) porque `createShipmentsService` también lo usan MOVO-129/130, que nunca los
+ * necesitan.
  */
 function createTestShipmentsService(
   repository: ShipmentRepository,
   usersClient: UsersClient,
   offerRepository: OfferRepository = createFakeOfferRepository(),
-  notificationsClient: NotificationsClient = createFakeNotificationsClient()
+  notificationsClient: NotificationsClient = createFakeNotificationsClient(),
+  pricingClient: PricingClient = createFakePricingClient()
 ) {
-  return createShipmentsService(repository, usersClient, notificationsClient, undefined, { offerRepository });
+  return createShipmentsService(repository, usersClient, notificationsClient, undefined, {
+    offerRepository,
+    pricingClient,
+  });
 }
 
 function fakeShipment(overrides: Partial<Shipment> = {}): Shipment {
@@ -49,6 +56,7 @@ function fakeShipment(overrides: Partial<Shipment> = {}): Shipment {
     pickupTimeWindowStart: new Date("1970-01-01T09:00:00.000Z"),
     pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
     suggestedPriceArs: 2100,
+    calculationMethod: "euclidean_linear_v1",
     agreedPriceArs: null,
     paymentMethod: null,
     status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
@@ -89,7 +97,9 @@ function fakeRepository(overrides: Partial<ShipmentRepository> = {}): ShipmentRe
 }
 
 // Pickup/delivery a ~1.04km entre sí (MOVO-126: ya no pueden ser el mismo punto, ver
-// describe de más abajo) -> precio placeholder = 1500 base + 2kg*300 + 1.0423km*150 ≈ 2256.
+// describe de más abajo). El precio ya no lo calcula este servicio (MOVO-82) --
+// `createTestShipmentsService` inyecta `createFakePricingClient()` por default, que
+// devuelve un `suggestedPriceArs` fijo (2256) sin llamar a ningún servicio real.
 const baseInput: CreateShipmentServiceInput = {
   senderId: "sender-id",
   receiverId: "receiver-id",
@@ -212,24 +222,74 @@ describe("shipments.service — createShipment", () => {
     expect(repository.create).not.toHaveBeenCalled();
   });
 
-  it("crea el envío con el precio placeholder calculado (happy path)", async () => {
+  it("crea el envío con el precio sugerido que devuelve pricingClient (happy path, MOVO-82)", async () => {
     const repository = fakeRepository();
     const usersClient = createFakeUsersClient({
       "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
     });
-    const service = createTestShipmentsService(repository, usersClient);
+    const pricingClient = createFakePricingClient();
+    const service = createTestShipmentsService(repository, usersClient, undefined, undefined, pricingClient);
 
     await service.createShipment(baseInput);
 
+    expect(pricingClient.getQuote).toHaveBeenCalledWith(
+      expect.objectContaining({
+        weightKg: baseInput.weightKg,
+        lengthCm: baseInput.lengthCm,
+        widthCm: baseInput.widthCm,
+        heightCm: baseInput.heightCm,
+        packageType: baseInput.packageType,
+        originLat: baseInput.pickupLat,
+        originLng: baseInput.pickupLng,
+        destinationLat: baseInput.deliveryLat,
+        destinationLng: baseInput.deliveryLng,
+      })
+    );
     expect(repository.create).toHaveBeenCalledWith(
       expect.objectContaining({
         senderId: "sender-id",
         receiverId: "receiver-id",
         suggestedPriceArs: 2256,
+        calculationMethod: "euclidean_linear_v1",
         pickupDate: new Date("2030-01-01T00:00:00.000Z"),
         pickupTimeWindowStart: new Date("1970-01-01T09:00:00.000Z"),
         pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
       })
+    );
+  });
+
+  it("crea el envío con 'precio a estimar' si pricingClient falla (fallback, AC6 de MOVO-82)", async () => {
+    const repository = fakeRepository();
+    const usersClient = createFakeUsersClient({
+      "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
+    });
+    // Mismo contrato que el cliente real (pricing-client.ts) ante una falla real: nunca
+    // rechaza, resuelve al fallback -- acá se simula directo el resultado ya resuelto.
+    const pricingClient = createFakePricingClient({
+      getQuote: vi.fn().mockResolvedValue({ suggestedPriceArs: null, calculationMethod: null }),
+    });
+    const service = createTestShipmentsService(repository, usersClient, undefined, undefined, pricingClient);
+
+    await expect(service.createShipment(baseInput)).resolves.toBeDefined();
+
+    expect(repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ suggestedPriceArs: null, calculationMethod: null })
+    );
+  });
+
+  it("crea el envío con 'precio a estimar' si no hay pricingClient inyectado (AC6 de MOVO-82)", async () => {
+    const repository = fakeRepository();
+    const usersClient = createFakeUsersClient({
+      "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
+    });
+    const service = createShipmentsService(repository, usersClient, undefined, undefined, {
+      offerRepository: createFakeOfferRepository(),
+    });
+
+    await expect(service.createShipment(baseInput)).resolves.toBeDefined();
+
+    expect(repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ suggestedPriceArs: null, calculationMethod: null })
     );
   });
 

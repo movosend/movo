@@ -32,7 +32,13 @@ export interface Shipment {
   pickupDate: Date;
   pickupTimeWindowStart: Date;
   pickupTimeWindowEnd: Date;
-  suggestedPriceArs: number;
+  /** `null` = "precio a estimar" (MOVO-82 AC6): `movo-svc-pricing-logistics` no
+   * respondió o faltaban datos al momento de crear el envío. Nunca se recalcula
+   * retroactivamente (AC8). */
+  suggestedPriceArs: number | null;
+  /** Versión del algoritmo que produjo `suggestedPriceArs` (`PriceCalculationMethod`
+   * de `@movo/shared`), o `null` junto con un `suggestedPriceArs` nulo. */
+  calculationMethod: string | null;
   agreedPriceArs: number | null;
   paymentMethod: string | null;
   status: ShipmentStatus;
@@ -62,7 +68,8 @@ export interface CreateShipmentInput {
   pickupDate: Date;
   pickupTimeWindowStart: Date;
   pickupTimeWindowEnd: Date;
-  suggestedPriceArs: number;
+  suggestedPriceArs: number | null;
+  calculationMethod: string | null;
   receiverConfirmationDeadline?: Date | null;
 }
 

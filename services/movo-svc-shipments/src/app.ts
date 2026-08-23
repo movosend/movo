@@ -16,6 +16,7 @@ import { UsersClient } from "./adapters/users-client";
 import { StorageProvider } from "./adapters/storage-provider";
 import { RoutesProvider } from "./adapters/routes-provider";
 import { NotificationsClient } from "./adapters/notifications-client";
+import { PricingClient } from "./adapters/pricing-client";
 
 export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -31,6 +32,10 @@ export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
    * real levantado (MOVO-108/129), mismo criterio que `usersClient`. */
   notificationsClient?: NotificationsClient;
+  /** Override solo para tests de integración — evita depender de un
+   * `movo-svc-pricing-logistics` real levantado (MOVO-82), mismo criterio que
+   * `usersClient`. */
+  pricingClient?: PricingClient;
   /** Override para habilitar/deshabilitar el barrido periódico en background (MOVO-130). */
   sweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de fotos huérfanas en background (MOVO-124). */
@@ -101,6 +106,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
     ...(opts.routesProvider ? { routesProvider: opts.routesProvider } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.pricingClient ? { pricingClient: opts.pricingClient } : {}),
   };
   app.register(shipmentsRoutes, shipmentsRouteOpts);
 
