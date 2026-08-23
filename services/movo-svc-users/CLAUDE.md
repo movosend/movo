@@ -432,6 +432,31 @@ nadie probó todavía la propiedad de esas direcciones, que es justo lo que la U
 Rate limit propio en el gateway para `POST /users/me/email/verify/otp` (5/15min,
 `getRateLimitOverrides()`), alineado con los dos endpoints de cambio.
 
+**Diseño de los mails y entregabilidad** (iteración posterior al primer envío real, que
+cayó en la carpeta de no deseados de Outlook):
+- Paleta de marca tomada de `movo-mobile/tailwind.config.js` (ink-950 `#0A0A0B`,
+  lime-500 `#C6F24A`) para que un mail y una pantalla no parezcan de dos productos
+  distintos: cabecera negra con el wordmark, filete lime de 3px, y el código en
+  monoespaciada lime sobre negro (la app usa JetBrains Mono para datos así; ningún
+  cliente de correo la tiene, degrada al monoespaciado del sistema).
+- **Wordmark en texto, no el PNG del logo**: los clientes bloquean imágenes remotas
+  hasta que el usuario las habilita — el logo no se vería en la primera lectura, que en
+  un OTP es la única que importa —, un PNG pesado empeora el ratio texto/imagen que
+  miran los filtros de spam, y un `data:` URI lo descartan Gmail y Outlook. Para usar el
+  logo real haría falta hostearlo en una URL pública estable: el bucket de dev
+  (`movo-shipment-media-dev`) hoy solo expone `profile-photos/*`, así que requiere un
+  prefijo `brand/*` público en la policy — cambio de Terraform en `movo-infra` (ADR-009:
+  nada de aprovisionamiento manual), no un `put-bucket-policy` a mano.
+- Tablas anidadas con `bgcolor` en vez de divs: el motor de render de Outlook para
+  Windows es Word (sin flexbox, sin grid, sin `border-radius`).
+- `preheader` explícito: sin uno, la bandeja muestra el primer texto del cuerpo — en el
+  mail de OTP eso ponía el código en la lista de mensajes, a la vista de cualquiera que
+  mirara la pantalla.
+- **Falta el registro DMARC** (`_dmarc.movosend.app`): verificado con `dig` que DKIM,
+  SPF y el MX de bounces están, pero DMARC no existe en ninguno de los dos niveles. Es
+  la causa principal del filtrado en Outlook/SmartScreen, que además castiga a un
+  dominio recién creado sin historial de envíos. Pendiente en `movo-infra`.
+
 Tests: `test/users.email-verification.integration.test.ts` (18 casos, Postgres+Redis
 reales, captor de `EmailProvider` con el mismo patrón que el de SMS) + los casos de
 cambio de email de `test/users.profile-edit.integration.test.ts` actualizados al canal

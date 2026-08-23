@@ -31,18 +31,64 @@ export interface EmailMessage extends EmailBody {
  * testear y atarían el contenido al proveedor — justo lo que esta interfaz existe para
  * evitar. Sin librería de templating ni MJML: dos mails no justifican la dependencia.
  *
- * El HTML usa estilos inline y una tabla de un solo ancho: `<style>` en el head lo
- * descartan varios clientes de correo (Gmail web incluido, para reglas no triviales).
+ * El HTML usa estilos inline y tablas: `<style>` en el head lo descartan varios
+ * clientes de correo (Gmail web incluido, para reglas no triviales), y el motor de
+ * renderizado de Outlook para Windows es Word — sin flexbox, sin grid y sin
+ * `border-radius`, de ahí las tablas anidadas con `bgcolor` en vez de divs.
+ *
+ * Paleta tomada del manual de marca vía `movo-mobile/tailwind.config.js` (misma fuente
+ * de verdad que la app, para que un mail y una pantalla no se vean de dos productos
+ * distintos): ink-950 `#0A0A0B`, lime-500 `#C6F24A`, neutros de la escala ink.
  */
-function wrapHtml(title: string, bodyHtml: string): string {
+const INK_950 = "#0A0A0B";
+const INK_700 = "#27272B";
+const INK_500 = "#5A5A62";
+const INK_150 = "#E6E6EA";
+const INK_100 = "#F1F1F3";
+const LIME_500 = "#C6F24A";
+const PAPER = "#FFFFFF";
+
+/**
+ * Wordmark en texto y no una imagen, a propósito: la mayoría de los clientes bloquean
+ * imágenes remotas hasta que el usuario las habilita (así que el logo real no se vería
+ * en la primera lectura, que es la única que importa en un OTP), un PNG pesado empeora
+ * el ratio texto/imagen que miran los filtros de spam, y un `data:` URI directamente lo
+ * descartan Gmail y Outlook. Se ve nítido en cualquier densidad de pantalla, sin
+ * descargar nada. Ver `CLAUDE.md` de este servicio para el camino del logo real.
+ */
+function wordmark(): string {
+  return (
+    `<span style="font-size:22px;font-weight:700;letter-spacing:-0.5px;color:${PAPER};">movo</span>` +
+    `<span style="font-size:22px;font-weight:700;color:${LIME_500};">.</span>`
+  );
+}
+
+/**
+ * `preheader` es el texto de vista previa que muestran las bandejas debajo del asunto:
+ * sin uno explícito, el cliente agarra el primer texto del cuerpo (en un OTP, terminaba
+ * mostrando el código en la lista de mails, a la vista de cualquiera que mire la
+ * pantalla). Se oculta con el combo estándar de tamaño 0 + `display:none`.
+ */
+function wrapHtml(title: string, preheader: string, bodyHtml: string): string {
   return [
-    `<div style="margin:0;padding:24px;background-color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">`,
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:480px;margin:0 auto;background-color:#ffffff;border-radius:12px;">`,
+    `<div style="margin:0;padding:0;background-color:${INK_100};font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">`,
+    `<div style="display:none;font-size:0;line-height:0;max-height:0;overflow:hidden;opacity:0;">${preheader}</div>`,
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="${INK_100}" style="background-color:${INK_100};padding:32px 16px;">`,
+    `<tr><td align="center">`,
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="480" style="width:100%;max-width:480px;background-color:${PAPER};border:1px solid ${INK_150};">`,
+    // Cabecera negra con el wordmark: el bloque de marca que pedía el ticket, sin
+    // depender de que el cliente descargue una imagen.
+    `<tr><td bgcolor="${INK_950}" style="background-color:${INK_950};padding:20px 32px;">${wordmark()}</td></tr>`,
+    // Filete lime de 3px: el acento de marca, medido — no hay más lime en el cuerpo
+    // salvo el borde del bloque del código.
+    `<tr><td bgcolor="${LIME_500}" style="background-color:${LIME_500};font-size:0;line-height:0;height:3px;">&nbsp;</td></tr>`,
     `<tr><td style="padding:32px;">`,
-    `<p style="margin:0 0 24px;font-size:20px;font-weight:700;color:#111111;">Movo</p>`,
-    `<h1 style="margin:0 0 16px;font-size:18px;font-weight:600;color:#111111;">${title}</h1>`,
+    `<h1 style="margin:0 0 16px;font-size:19px;font-weight:600;line-height:26px;color:${INK_950};">${title}</h1>`,
     bodyHtml,
-    `<p style="margin:24px 0 0;font-size:12px;line-height:1.5;color:#888888;">Este es un mensaje automático de Movo. No respondas a esta dirección.</p>`,
+    `</td></tr>`,
+    `<tr><td style="padding:20px 32px;border-top:1px solid ${INK_150};">`,
+    `<p style="margin:0;font-size:12px;line-height:18px;color:${INK_500};">Este es un mensaje automático de Movo. No respondas a esta dirección.</p>`,
+    `</td></tr></table>`,
     `</td></tr></table></div>`,
   ].join("");
 }
@@ -59,10 +105,18 @@ export function buildOtpEmail(code: string): EmailMessage {
     `No lo compartas con nadie: ningún empleado de Movo te lo va a solicitar.`;
   const html = wrapHtml(
     "Verificá tu email",
+    "Tu código de verificación vence en 10 minutos.",
     [
-      `<p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#333333;">Ingresá este código en la app para confirmar tu dirección de correo:</p>`,
-      `<p style="margin:0 0 16px;font-size:32px;font-weight:700;letter-spacing:6px;color:#111111;">${code}</p>`,
-      `<p style="margin:0;font-size:14px;line-height:1.6;color:#333333;">Vence en 10 minutos. No lo compartas con nadie: ningún empleado de Movo te lo va a solicitar.</p>`,
+      `<p style="margin:0 0 24px;font-size:15px;line-height:22px;color:${INK_700};">Ingresá este código en la app para confirmar tu dirección de correo:</p>`,
+      // El código en monoespaciada sobre fondo negro: la app usa JetBrains Mono para
+      // datos como este (ver la escala `mono` de tailwind.config.js). Ningún cliente de
+      // correo la tiene instalada, así que degrada al monoespaciado del sistema — la
+      // intención tipográfica se mantiene igual.
+      `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">`,
+      `<tr><td align="center" bgcolor="${INK_950}" style="background-color:${INK_950};border-left:3px solid ${LIME_500};padding:20px 16px;">`,
+      `<span style="font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:34px;font-weight:600;letter-spacing:10px;color:${LIME_500};">${code}</span>`,
+      `</td></tr></table>`,
+      `<p style="margin:24px 0 0;font-size:15px;line-height:22px;color:${INK_700};">Vence en 10 minutos. No lo compartas con nadie: ningún empleado de Movo te lo va a solicitar.</p>`,
     ].join("")
   );
   return { subject: "Tu código de verificación de Movo", text, html };
@@ -85,9 +139,14 @@ export function buildEmailChangedNotice(newEmail: string): EmailMessage {
     `Si no fuiste vos, escribinos cuanto antes: alguien podría tener acceso a tu cuenta.`;
   const html = wrapHtml(
     "Cambiaste el email de tu cuenta",
+    "Si no fuiste vos, revisá tu cuenta cuanto antes.",
     [
-      `<p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#333333;">El email de tu cuenta de Movo se cambió a <strong>${masked}</strong>.</p>`,
-      `<p style="margin:0;font-size:14px;line-height:1.6;color:#333333;">Si no fuiste vos, escribinos cuanto antes: alguien podría tener acceso a tu cuenta.</p>`,
+      `<p style="margin:0 0 16px;font-size:15px;line-height:22px;color:${INK_700};">El email de tu cuenta de Movo se cambió a:</p>`,
+      `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">`,
+      `<tr><td bgcolor="${INK_100}" style="background-color:${INK_100};border-left:3px solid ${LIME_500};padding:14px 16px;">`,
+      `<span style="font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:15px;color:${INK_950};">${masked}</span>`,
+      `</td></tr></table>`,
+      `<p style="margin:24px 0 0;font-size:15px;line-height:22px;color:${INK_700};">Si no fuiste vos, escribinos cuanto antes: alguien podría tener acceso a tu cuenta.</p>`,
     ].join("")
   );
   return { subject: "Cambiaste el email de tu cuenta de Movo", text, html };

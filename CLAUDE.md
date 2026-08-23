@@ -249,9 +249,11 @@ sección solo lista lo transversal (infra, credenciales, decisiones cross-servic
   Resend (`EMAIL_PROVIDER=resend` + `RESEND_API_KEY`/`EMAIL_FROM`, ADR-017).
 - **Terraform de `movo-infra`**: bucket de fotos de perfil (MOVO-97/ADR-016) aplicado
   en dev, `terraform apply` de prod pendiente. Pendiente también el dominio de envío de
-  mails (MOVO-139/ADR-017): verificar `mail.movosend.app` en Resend y agregar sus
-  registros SPF/DKIM (+ MX de bounces y DMARC) a la zona de Cloudflare — subdominio
-  dedicado, para no mezclar el SPF del apex con un futuro correo humano y para aislar la
-  reputación de envío.
+  mails (MOVO-139/ADR-017): el dominio `mail.movosend.app` ya está verificado en Resend
+  y con DKIM/SPF/MX de bounces resueltos, pero **falta el registro DMARC**
+  (`_dmarc.movosend.app`, arrancar en `p=none`) — su ausencia es lo que manda los mails
+  a no deseados en Outlook. Falta además portar a Terraform los registros que se
+  cargaron a mano en Cloudflare, y (opcional) un prefijo `brand/*` público en el bucket
+  de dev si se quiere usar el PNG del logo en los mails.
 - **ADRs con desarrollo completo pendiente de pegar en Drive** (solo tienen el resumen
   de una línea en la tabla de arriba): 012, 013, 014, 015, 016, 017.
