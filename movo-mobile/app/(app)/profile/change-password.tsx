@@ -24,7 +24,7 @@ import { PrimaryButton } from "../../../components/auth/primary-button";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { PasswordStrengthMeter } from "../../../components/ui/password-strength-meter";
 import { TextField } from "../../../components/ui/text-field";
-import { useChangePassword } from "../../../src/hooks/use-account-security";
+import { SessionPersistError, useChangePassword } from "../../../src/hooks/use-account-security";
 import { useKeyboardScroll } from "../../../src/hooks/use-keyboard-scroll";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../src/lib/error-messages";
@@ -108,6 +108,15 @@ export default function ChangePasswordScreen() {
         },
         onError: (error) => {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          // El backend ya cambió la contraseña y revocó las sesiones viejas; lo único
+          // que falló fue guardarla localmente. Nunca es "contraseña actual mal" —
+          // reintentar con la vieja acá sería literalmente engañoso.
+          if (error instanceof SessionPersistError) {
+            setBanner(
+              "Tu contraseña se cambió, pero no pudimos guardar la sesión en este dispositivo. Cerrá la app y volvé a iniciar sesión con tu contraseña nueva.",
+            );
+            return;
+          }
           // Un 401 acá nunca es "la sesión venció" — el interceptor de `http-client.ts`
           // solo refresca ante `AUTH_TOKEN_EXPIRED` y deja pasar el resto de los 401
           // sin tocar la sesión, así que este código significa exactamente una cosa:

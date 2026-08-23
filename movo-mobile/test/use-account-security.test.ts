@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import {
+  SessionPersistError,
   changePasswordAndPersistSession,
   deleteAccountAndClearSession,
 } from "../src/hooks/use-account-security";
@@ -84,6 +85,24 @@ describe("changePasswordAndPersistSession", () => {
     ).rejects.toThrow("boom");
     expect(setSession).not.toHaveBeenCalled();
   });
+
+  // El caso que motivó el fix de review: el backend ya cambió la contraseña (y
+  // revocó las sesiones viejas) cuando `setSession` falla al persistir la nueva. Sin
+  // distinguir este error, la pantalla lo confundía con un 401 y mandaba al usuario a
+  // reintentar con la contraseña VIEJA, que ya no sirve.
+  it("lanza SessionPersistError (no el error crudo) si el cambio ya se aplicó pero no se pudo persistir la sesión", async () => {
+    mockChangePassword.mockResolvedValue(NEW_SESSION);
+    const persistFailure = new Error("secure-store lleno");
+    const setSession = jest.fn().mockRejectedValue(persistFailure);
+
+    const rejection = await changePasswordAndPersistSession(setSession, {
+      currentPassword: "Password1",
+      newPassword: "Password2",
+    }).catch((e: unknown) => e);
+
+    expect(rejection).toBeInstanceOf(SessionPersistError);
+    expect((rejection as SessionPersistError).cause).toBe(persistFailure);
+  });
 });
 
 /**
@@ -94,22 +113,38 @@ describe("changePasswordAndPersistSession", () => {
  * dispositivo.
  */
 describe("deleteAccountAndClearSession", () => {
-  const makeQueryClient = () => ({ clear: jest.fn() }) as unknown as QueryClient;
+  const makeQueryClient = () =>
+    ({ clear: jest.fn(), cancelQueries: jest.fn().mockResolvedValue(undefined) }) as unknown as QueryClient;
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it("borra la cuenta, limpia la caché y limpia la sesión local", async () => {
+  it("borra la cuenta, cancela queries en vuelo, limpia la sesión local y recién ahí la caché", async () => {
     mockDeleteAccount.mockResolvedValue(undefined);
-    const clearSession = jest.fn().mockResolvedValue(undefined);
+    const order: string[] = [];
+    const clearSession = jest.fn().mockImplementation(async () => {
+      order.push("clearSession");
+    });
     const queryClient = makeQueryClient();
+    (queryClient.cancelQueries as jest.Mock).mockImplementation(async () => {
+      order.push("cancelQueries");
+    });
+    (queryClient.clear as jest.Mock).mockImplementation(() => {
+      order.push("clear");
+    });
 
     await deleteAccountAndClearSession(clearSession, queryClient, "Password1");
 
     expect(mockDeleteAccount).toHaveBeenCalledWith("Password1");
+    expect(queryClient.cancelQueries).toHaveBeenCalled();
     expect(queryClient.clear).toHaveBeenCalled();
     expect(clearSession).toHaveBeenCalled();
+    // El orden es la parte que importa: `clearSession()` apaga el token en memoria y
+    // dispara el redirect del guard ANTES de que se limpie la caché — si no, una
+    // pantalla autenticada todavía montada podría refetchear con el JWT viejo (todavía
+    // válido, stateless) contra una cuenta ya anonimizada y repoblar la caché.
+    expect(order).toEqual(["cancelQueries", "clearSession", "clear"]);
   });
 
   it("no resuelve hasta que la sesión local quedó limpia", async () => {
@@ -136,6 +171,7 @@ describe("deleteAccountAndClearSession", () => {
     await expect(
       deleteAccountAndClearSession(clearSession, queryClient, "mala"),
     ).rejects.toThrow("boom");
+    expect(queryClient.cancelQueries).not.toHaveBeenCalled();
     expect(queryClient.clear).not.toHaveBeenCalled();
     expect(clearSession).not.toHaveBeenCalled();
   });

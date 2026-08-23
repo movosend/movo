@@ -2,6 +2,7 @@ import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { fireEvent, render } from "@testing-library/react-native";
 import { router } from "expo-router";
 import ChangePasswordScreen from "../app/(app)/profile/change-password";
+import { SessionPersistError } from "../src/hooks/use-account-security";
 
 jest.mock("expo-router", () => ({
   router: { back: jest.fn(), push: jest.fn() },
@@ -16,9 +17,20 @@ jest.mock("expo-haptics", () => ({
 
 const mockMutate = jest.fn();
 let mockIsPending = false;
-jest.mock("../src/hooks/use-account-security", () => ({
-  useChangePassword: () => ({ mutate: mockMutate, isPending: mockIsPending }),
-}));
+jest.mock("../src/hooks/use-account-security", () => {
+  class SessionPersistError extends Error {
+    cause: unknown;
+    constructor(cause: unknown) {
+      super("Tu contraseña se cambió, pero no pudimos guardar la sesión nueva en este dispositivo.");
+      this.name = "SessionPersistError";
+      this.cause = cause;
+    }
+  }
+  return {
+    useChangePassword: () => ({ mutate: mockMutate, isPending: mockIsPending }),
+    SessionPersistError,
+  };
+});
 
 /** El wiring real de `mutate` → `setSession` vive en `use-account-security.test.tsx`
  * (AC2); acá se cubre la pantalla: validación de cliente, errores y confirmación. */
@@ -115,6 +127,26 @@ describe("ChangePasswordScreen", () => {
     expect(getByText("La contraseña actual no es correcta.")).toBeTruthy();
     expect(queryByTestId("change-password-success")).toBeNull();
     expect(getByTestId("change-password-content")).toBeTruthy();
+  });
+
+  // Fix de review: si el backend ya cambió la contraseña pero persistir la sesión
+  // nueva falla localmente, esto NUNCA es "contraseña actual mal" — el campo de
+  // contraseña actual no debe mostrar error, el mensaje va al banner compartido.
+  it("ante SessionPersistError avisa que la contraseña sí se cambió, sin anclar el error al campo", async () => {
+    mockMutate.mockImplementation((_body, { onError }) =>
+      onError(new SessionPersistError(new Error("secure-store lleno"))),
+    );
+    const { getByTestId, getByText, queryByText } = await render(<ChangePasswordScreen />);
+
+    await fillValidForm(getByTestId);
+    await fireEvent.press(getByTestId("change-password-submit"));
+
+    expect(
+      getByText(
+        "Tu contraseña se cambió, pero no pudimos guardar la sesión en este dispositivo. Cerrá la app y volvé a iniciar sesión con tu contraseña nueva.",
+      ),
+    ).toBeTruthy();
+    expect(queryByText("La contraseña actual no es correcta.")).toBeNull();
   });
 
   it("limpia el error de contraseña actual apenas el usuario la corrige", async () => {

@@ -28,8 +28,30 @@ export async function changePasswordAndPersistSession(
   body: ChangePasswordInput,
 ): Promise<SessionResponse> {
   const session = await usersClient.changePassword(body);
-  await setSession(session);
+  try {
+    await setSession(session);
+  } catch (error) {
+    // El backend YA cambió la contraseña y revocó las sesiones viejas — si guardar la
+    // sesión nueva localmente falla (ej. secure-store), esto no es "la contraseña
+    // actual está mal" (401). Se distingue con un tipo propio para que la pantalla no
+    // lo confunda con esa validación y mande al usuario a reintentar con la
+    // contraseña VIEJA, que ya no sirve.
+    throw new SessionPersistError(error);
+  }
   return session;
+}
+
+/**
+ * Cambio de contraseña exitoso en el backend, pero la sesión nueva no se pudo
+ * persistir localmente (ver `changePasswordAndPersistSession`). El token en memoria
+ * queda desincronizado del backend (que ya revocó todo lo anterior), así que no hay
+ * forma de que la pantalla lo resuelva reintentando el submit.
+ */
+export class SessionPersistError extends Error {
+  constructor(public readonly cause: unknown) {
+    super("Tu contraseña se cambió, pero no pudimos guardar la sesión nueva en este dispositivo.");
+    this.name = "SessionPersistError";
+  }
 }
 
 export function useChangePassword() {
@@ -60,12 +82,16 @@ type ClearSession = () => Promise<void>;
  *   una cuenta que el backend ya anonimizó y cuyas sesiones ya revocó: son dos
  *   requests condenados a fallar (los tolera, pero es ruido) contra recursos que ya
  *   no existen. La baja ya hace del lado del servidor todo lo que `logout()` haría.
- * - **`queryClient.clear()` antes de limpiar la sesión.** El guard de
- *   `app/(app)/_layout.tsx` redirige a `/login` en cuanto `status` deja de ser
- *   `authenticated`; si la caché de TanStack Query sobreviviera, el perfil, los
- *   envíos y las direcciones de la cuenta recién borrada quedarían en memoria y se
- *   pintarían por un frame en el próximo login de OTRO usuario en el mismo
- *   dispositivo (AC6: "sin sesión guardada ni caché de perfil").
+ * - **`clearSession()` antes de `queryClient.clear()`, no al revés.** `clearSession()`
+ *   es lo que apaga el access token en memoria y dispara el redirect del guard de
+ *   `app/(app)/_layout.tsx` — hasta que resuelve, cualquier pantalla autenticada que
+ *   siga montada todavía puede refetchear con un JWT stateless (ADR-004) que sigue
+ *   siendo válido para el backend aunque la cuenta ya esté anonimizada. Si
+ *   `queryClient.clear()` corriera primero (como antes), esa ventana quedaba abierta
+ *   y una respuesta tardía podía repoblar la caché justo con datos de la cuenta que
+ *   se acaba de borrar. `cancelQueries()` además corta cualquier fetch que ya
+ *   estuviera en vuelo antes de tocar la sesión, para que no aterrice después del
+ *   `clear()` final.
  */
 export async function deleteAccountAndClearSession(
   clearSession: ClearSession,
@@ -73,8 +99,9 @@ export async function deleteAccountAndClearSession(
   password: string,
 ): Promise<void> {
   await usersClient.deleteAccount(password);
-  queryClient.clear();
+  await queryClient.cancelQueries();
   await clearSession();
+  queryClient.clear();
 }
 
 export function useDeleteAccount() {
