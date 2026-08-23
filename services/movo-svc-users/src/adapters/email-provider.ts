@@ -144,12 +144,27 @@ export function buildEmailChangedNotice(newEmail: string): EmailMessage {
       `<p style="margin:0 0 16px;font-size:15px;line-height:22px;color:${INK_700};">El email de tu cuenta de Movo se cambió a:</p>`,
       `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">`,
       `<tr><td bgcolor="${INK_100}" style="background-color:${INK_100};border-left:3px solid ${LIME_500};padding:14px 16px;">`,
-      `<span style="font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:15px;color:${INK_950};">${masked}</span>`,
+      `<span style="font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:15px;color:${INK_950};">${escapeHtml(masked)}</span>`,
       `</td></tr></table>`,
       `<p style="margin:24px 0 0;font-size:15px;line-height:22px;color:${INK_700};">Si no fuiste vos, escribinos cuanto antes: alguien podría tener acceso a tu cuenta.</p>`,
     ].join("")
   );
   return { subject: "Cambiaste el email de tu cuenta de Movo", text, html };
+}
+
+/**
+ * `maskEmail()` no enmascara el dominio (se muestra tal cual, solo el local-part se
+ * oculta) y viaja interpolado directo en el HTML del mail — hay que escaparlo antes:
+ * un dominio con metacaracteres HTML no es válido en DNS/SMTP y Resend no lo
+ * entregaría, pero no vale la pena confiar en esa restricción externa.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 /** `juan.perez@gmail.com` -> `j****z@gmail.com`. Direcciones muy cortas quedan
