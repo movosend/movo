@@ -199,6 +199,63 @@ describe("ShipmentDetailScreen", () => {
     expect(getByTestId("shipment-detail-receiver-actions")).toBeTruthy();
   });
 
+  it("mirando como receptor con el plazo vencido, oculta la barra de acciones y muestra el banner (MOVO-130 AC5)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({
+        status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+        receiverConfirmationDeadline: new Date(Date.now() - 60_000).toISOString(),
+      }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-receiver-actions")).toBeNull();
+    expect(getByTestId("shipment-detail-expired-banner")).toBeTruthy();
+  });
+
+  it("mirando como receptor con el plazo todavía vigente, muestra la barra y no el banner (MOVO-130 AC5)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({
+        status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+        receiverConfirmationDeadline: new Date(Date.now() + 60 * 60_000).toISOString(),
+      }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-receiver-actions")).toBeTruthy();
+    expect(queryByTestId("shipment-detail-expired-banner")).toBeNull();
+  });
+
+  it("mirando como emisor con el plazo vencido, no muestra el banner del receptor (MOVO-130 AC5)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({
+        status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+        receiverConfirmationDeadline: new Date(Date.now() - 60_000).toISOString(),
+      }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-expired-banner")).toBeNull();
+    expect(queryByTestId("shipment-detail-receiver-actions")).toBeNull();
+  });
+
   it("mirando como emisor en awaiting_receiver_confirmation, NO muestra la barra de acciones", async () => {
     mockCurrentUser.mockReturnValue({ userId: "user-1" });
     mockUseShipment.mockReturnValue({
