@@ -4,6 +4,7 @@ export interface EnvConfig {
   REDIS_URL: string;
   JWT_SECRET: string;
   USERS_SERVICE_URL: string;
+  PRICING_SERVICE_URL: string;
   STORAGE_PROVIDER: "mock" | "s3";
   S3_BUCKET_NAME?: string;
   S3_REGION?: string;
@@ -28,6 +29,11 @@ export const envSchema = {
     // para este mismo var (gateway/src/config/env.ts), así que no hace falta setearlo
     // explícito en docker-compose.yml, el default ya coincide.
     USERS_SERVICE_URL: { type: "string", default: "http://movo-svc-users:3000" },
+    // MOVO-82: mismo criterio que USERS_SERVICE_URL -- el default ya apunta al nombre
+    // del servicio en movo-net (infra/docker-compose.yml), no hace falta setearlo
+    // explícito ahí. Puerto 8000 porque movo-svc-pricing-logistics es FastAPI/uvicorn
+    // (ADR-002), no Fastify como el resto de los servicios Node.
+    PRICING_SERVICE_URL: { type: "string", default: "http://movo-svc-pricing-logistics:8000" },
     // MOVO-81: default "mock" (mismo criterio que movo-svc-users/MOVO-97) — no depender
     // de un bucket real ni de credenciales de AWS para levantar el servicio en
     // dev/test/CI. La obligatoriedad de S3_BUCKET_NAME/S3_REGION con

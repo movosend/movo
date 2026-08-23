@@ -53,6 +53,7 @@ const shipmentResponse = {
     "pickupTimeWindowStart",
     "pickupTimeWindowEnd",
     "suggestedPriceArs",
+    "calculationMethod",
     "agreedPriceArs",
     "paymentMethod",
     "status",
@@ -83,7 +84,11 @@ const shipmentResponse = {
     pickupDate: { type: "string", format: "date" },
     pickupTimeWindowStart: { type: "string", format: "time" },
     pickupTimeWindowEnd: { type: "string", format: "time" },
-    suggestedPriceArs: { type: "number" },
+    // MOVO-82 AC6: null = "precio a estimar" (movo-svc-pricing-logistics no respondió
+    // o faltaban datos al crear el envío). calculationMethod acompaña con la misma
+    // nulidad -- ver PriceCalculationMethod en @movo/shared para los valores posibles.
+    suggestedPriceArs: { type: ["number", "null"] },
+    calculationMethod: { type: ["string", "null"] },
     agreedPriceArs: { type: ["number", "null"] },
     paymentMethod: { type: ["string", "null"] },
     status: { type: "string" },
