@@ -255,8 +255,8 @@ describe("shipments.service — createShipment", () => {
   });
 
   it("asigna receiverConfirmationDeadline = cierre de ventana de retiro cuando es anterior al timeout (MOVO-130 fix)", async () => {
-    // Simula un envío creado hoy con retiro mañana a las 10:00 UTC.
-    // Con timeout de 48hs, el cierre de ventana (mañana 10:00) gana sobre now + 48hs.
+    // Simula un envío creado hoy con retiro mañana a las 10:00 hora local argentina.
+    // Con timeout de 48hs, el cierre de ventana (mañana 10:00 ART) gana sobre now + 48hs.
     vi.useFakeTimers();
     const now = new Date("2026-08-22T12:00:00.000Z");
     vi.setSystemTime(now);
@@ -269,7 +269,7 @@ describe("shipments.service — createShipment", () => {
         receiverConfirmationTimeoutHours: 48,
       });
 
-      // Retiro: mañana 2026-08-23, ventana 09:00–10:00 UTC
+      // Retiro: mañana 2026-08-23, ventana 09:00–10:00 hora local argentina
       await service.createShipment({
         ...baseInput,
         pickupDate: "2026-08-23",
@@ -280,8 +280,9 @@ describe("shipments.service — createShipment", () => {
       const callArg = (repository.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
       const deadline: Date = callArg.receiverConfirmationDeadline;
 
-      // El deadline esperado es 2026-08-23T10:00:00.000Z (ventana de retiro)
-      const expectedDeadline = new Date("2026-08-23T10:00:00.000Z");
+      // El deadline esperado es el instante real del cierre de ventana: 10:00 en
+      // Argentina (UTC-3) es 2026-08-23T13:00:00.000Z, no 10:00Z.
+      const expectedDeadline = new Date("2026-08-23T13:00:00.000Z");
       expect(deadline.getTime()).toBe(expectedDeadline.getTime());
     } finally {
       vi.useRealTimers();

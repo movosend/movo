@@ -320,6 +320,12 @@ Decisiones clave:
   tras la cancelación sin frenar el procesamiento si falla.
 - **Configuración**: `RECEIVER_CONFIRMATION_TIMEOUT_HOURS` (default 48), `RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES` (default 15)
   y `RECEIVER_CONFIRMATION_SWEEP_ENABLED` (default true, desactivable en tests/CI).
+- **La deadline se persiste siempre como instante real, nunca como reloj de pared**: es
+  `min(now + timeout, cierre de la ventana de retiro)`, y ese cierre sale de
+  `combineDateAndTime`, que ancla la hora local argentina como si fuera UTC (ver el
+  gotcha de timezone de MOVO-80) — hay que pasarlo por `toRealInstant()` antes de
+  compararlo o guardarlo junto a valores como `Date.now()`, o el plazo queda 3h corrido
+  y un envío puede nacer ya vencido.
 - **Índice compuesto descartado**: con el volumen de envíos del PF el índice `shipments_status_idx` existente
   alcanza para la consulta del barrido; el costo de mantener un índice adicional no se justifica. Si el volumen
   creciera, el candidato sería `(status, receiver_confirmation_deadline)`.
