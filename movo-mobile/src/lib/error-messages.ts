@@ -33,6 +33,11 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE: "El retiro y la entrega tienen que estar en ubicaciones distintas.",
   GEOCODING_PROVIDER_ERROR: "No pudimos validar la dirección en el mapa. Intentá de nuevo.",
   GEOCODING_ADDRESS_NOT_FOUND: "No encontramos la dirección ingresada.",
+  // Edición de perfil (MOVO-135 / backend MOVO-133).
+  PHONE_ALREADY_IN_USE: "Ese teléfono ya está asociado a otra cuenta.",
+  EMAIL_ALREADY_IN_USE: "Ese email ya está asociado a otra cuenta.",
+  PROFILE_NAME_LOCKED_BY_KYC:
+    "Tu nombre quedó verificado con tu documento y no se puede editar.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",
   RATE_LIMIT_EXCEEDED: "Hiciste demasiados intentos. Esperá un momento y volvé a intentar.",
