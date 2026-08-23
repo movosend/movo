@@ -48,6 +48,13 @@ export interface UserRepository {
    */
   updateEmail(id: string, email: string): Promise<User | null>;
   /**
+   * MOVO-139: marca como verificado el email que la cuenta YA tiene
+   * (`POST /users/me/email/verify/confirm`) -- se llama solo después de que el OTP
+   * mandado a esa misma dirección probó propiedad. No toca `email`, a diferencia de
+   * `updateEmail`, así que no puede colisionar con la unicidad de ninguna otra cuenta.
+   */
+  markEmailVerified(id: string): Promise<User | null>;
+  /**
    * Búsqueda de receptor (AC3 de MOVO-80) por nombre completo — no existe columna
    * `username` en este modelo. Excluye al propio caller.
    */
@@ -84,6 +91,8 @@ function toDomainUser(row: UserWithRoles): User {
     passwordHash: row.passwordHash,
     dni: row.dni,
     phoneVerified: row.phoneVerified,
+    emailVerified: row.emailVerified,
+    emailVerifiedAt: row.emailVerifiedAt,
     photoUrl: row.photoUrl,
     kycStatusIdentity: parseKycStatus(row.kycStatusIdentity, "kyc_status_identity"),
     kycStatusLicense: parseKycStatus(row.kycStatusLicense, "kyc_status_license"),
@@ -317,7 +326,11 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
       try {
         const row = await db.user.update({
           where: { id },
-          data: { email },
+          // MOVO-139 (AC4): `email` y `emailVerified` se persisten en el mismo UPDATE
+          // -- el OTP que habilita esta llamada viajó al email NUEVO, así que llegar
+          // acá ya es prueba de propiedad. Mismo criterio que `phone`/`phoneVerified`
+          // en `updatePhone` (MOVO-133).
+          data: { email, emailVerified: true, emailVerifiedAt: new Date() },
           include: { roles: true },
         });
         return toDomainUser(row);
@@ -327,6 +340,22 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         }
         if (isUniqueConstraintError(error) && uniqueConstraintFieldsInclude(error, "email")) {
           throw new UserConflictError("email");
+        }
+        throw error;
+      }
+    },
+
+    async markEmailVerified(id: string): Promise<User | null> {
+      try {
+        const row = await db.user.update({
+          where: { id },
+          data: { emailVerified: true, emailVerifiedAt: new Date() },
+          include: { roles: true },
+        });
+        return toDomainUser(row);
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return null;
         }
         throw error;
       }
@@ -396,6 +425,10 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
             birthdate: null,
             photoUrl: null,
             phoneVerified: false,
+            // MOVO-139: mismo criterio que `phoneVerified` -- el email anonimizado
+            // (`deleted+{id}@movo.invalid`) nunca estuvo verificado.
+            emailVerified: false,
+            emailVerifiedAt: null,
           },
           include: { roles: true },
         });

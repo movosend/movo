@@ -33,6 +33,13 @@ export interface PrivateProfile {
   lastName: string;
   fullName: string;
   email: string;
+  /**
+   * MOVO-139: el usuario probó posesión de esta dirección vía OTP. Es el dato que la
+   * pantalla de perfil usa para mostrar la insignia de email verificado y el CTA de
+   * verificación (MOVO-135), en paralelo a la que ya existe para el teléfono. Un email
+   * sin verificar no bloquea operar -- no hay gate duro, solo se refleja en el perfil.
+   */
+  emailVerified: boolean;
   phone: string;
   photoUrl: string | null;
   kycStatus: KycStatus;

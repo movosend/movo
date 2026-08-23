@@ -239,5 +239,15 @@ export function getRateLimitOverrides(): RateLimitedRoute[] {
       path: "/users/me/email/change/otp",
       rateLimit: { max: 5, timeWindow: "15 minutes" },
     },
+    // MOVO-139: mismo criterio, ahora sobre mails reales por Resend (ADR-017) -- la
+    // cuota del free tier (3k/mes) y la reputación del dominio son el recurso a
+    // proteger. `/me/email/verify/otp` no recibe body (el target es el email de la
+    // propia cuenta), así que su cooldown por target sí frena a un caller repetido;
+    // el límite igual queda alineado con los otros dos por consistencia.
+    {
+      method: "POST",
+      path: "/users/me/email/verify/otp",
+      rateLimit: { max: 5, timeWindow: "15 minutes" },
+    },
   ];
 }
