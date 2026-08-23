@@ -2,7 +2,11 @@ import fp from "fastify-plugin";
 import { FastifyInstance } from "fastify";
 import { createShipmentRepository, ShipmentRepository } from "../repositories/shipment-repository";
 import { createStorageProvider, StorageProvider } from "../adapters/storage-provider";
-import { PENDING_PHOTOS_REDIS_KEY } from "../modules/shipments/photos.service";
+import {
+  PENDING_PHOTOS_REDIS_KEY,
+  photoConfirmationLockKey,
+  PHOTO_CONFIRMATION_LOCK_TTL_MS,
+} from "../modules/shipments/photos.service";
 
 const BATCH_SIZE = 100;
 
@@ -59,6 +63,21 @@ export default fp(async (app: FastifyInstance, opts: OrphanPhotoSweepPluginOptio
       );
 
       for (const s3Key of candidates) {
+        // Fix de review (PR #96): mismo lock por key que toma `confirmPhoto()` --
+        // cierra la ventana de TOCTOU entre este chequeo contra Postgres y el
+        // `deleteObject` de abajo, donde una confirmación en curso podía terminar de
+        // commitear la fila justo después de que el sweep ya la había leído como "no
+        // confirmada" (violaba AC3: un objeto confirmado quedaba borrado igual, sin
+        // ningún error visible). Si `confirmPhoto()` tiene el lock ahora mismo, se
+        // salta este candidato -- no se remueve del set, así que se reevalúa en la
+        // próxima corrida, ya sin disputa.
+        const photoLockKey = photoConfirmationLockKey(s3Key);
+        const lockAcquired = await app.redis.set(photoLockKey, "1", "PX", PHOTO_CONFIRMATION_LOCK_TTL_MS, "NX");
+        if (lockAcquired !== "OK") {
+          app.log.debug({ s3Key }, "Candidato del sweep omitido: confirmPhoto lo tiene lockeado ahora mismo.");
+          continue;
+        }
+
         try {
           // AC3 de MOVO-124: nunca confiar solo en que Redis diga "no confirmado" --
           // Postgres es la fuente de verdad real. Si el ZREM de confirmPhoto falló por
@@ -67,11 +86,14 @@ export default fp(async (app: FastifyInstance, opts: OrphanPhotoSweepPluginOptio
           const confirmed = await repository.existsPhotoByS3Key(s3Key);
           if (confirmed) {
             await app.redis.zrem(PENDING_PHOTOS_REDIS_KEY, s3Key);
-            continue;
+          } else {
+            await storageProvider.deleteObject(s3Key);
+            await app.redis.zrem(PENDING_PHOTOS_REDIS_KEY, s3Key);
           }
-
-          await storageProvider.deleteObject(s3Key);
-          await app.redis.zrem(PENDING_PHOTOS_REDIS_KEY, s3Key);
+          // Libera el lock apenas termina -- best-effort, si esto falla el lock igual
+          // expira solo por TTL (PHOTO_CONFIRMATION_LOCK_TTL_MS) sin bloquear al
+          // candidato más que unos segundos.
+          await app.redis.unlink(photoLockKey);
         } catch (err) {
           // No se remueve del set en este caso -- reintenta en la próxima corrida.
           app.log.warn({ err, s3Key }, "No se pudo procesar un candidato del sweep de fotos huérfanas");
