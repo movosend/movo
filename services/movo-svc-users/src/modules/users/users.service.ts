@@ -14,6 +14,7 @@ import { PushPlatform } from "../../models/push-token";
 import { ShipmentsClient } from "../../adapters/shipments-client";
 import { issueSession, LoginUserResult, normalizePhoneToE164Ar } from "../auth/auth.service";
 import { OtpService } from "../../services/otp-service";
+import { buildEmailChangedNotice, EmailProvider } from "../../adapters/email-provider";
 
 // @node-rs/argon2 exporta `Algorithm` como `const enum`, incompatible con
 // `isolatedModules` -- mismo motivo/valor que auth.service.ts/otp-service.ts.
@@ -32,6 +33,25 @@ const PASSWORD_CHANGE_RATE_LIMIT_WINDOW_SECONDS = 15 * 60;
 // anonimización + la llamada a shipmentsClient son las dos únicas operaciones que
 // cubre, ninguna tarda más que eso en el peor caso normal.
 const ACCOUNT_DELETION_LOCK_TTL_SECONDS = 30;
+
+/** MOVO-124: sorted set de Redis con las keys de S3 pendientes de confirmar (score =
+ * timestamp del presign). Es solo un candidato-list para el sweep de fotos huérfanas
+ * -- Postgres (`users.photo_url`) sigue siendo la única fuente de verdad de
+ * "confirmado o no" (ver `existsByPhotoUrl`). Exportada para que
+ * `orphan-photo-sweep.ts` use la misma key sin duplicar el literal. */
+export const PENDING_PHOTOS_REDIS_KEY = "photos:pending:profile-photos";
+
+/** Fix de review (PR #96): lock por key de S3 que se disputan `confirmPhoto()` y el
+ * sweep de fotos huérfanas (`orphan-photo-sweep.ts`) -- sin esto hay una ventana de
+ * TOCTOU real: el sweep puede leer "no confirmada" en Postgres, y entre esa lectura y
+ * su `deleteObject` de S3, `confirmPhoto()` puede terminar de persistir `photoUrl` --
+ * el objeto queda borrado pero el perfil lo da por confirmado, sin ningún error
+ * visible (viola AC3 de MOVO-124). Mismo mecanismo que su gemelo de `svc-shipments`
+ * (ver `services/movo-svc-shipments/src/modules/shipments/photos.service.ts`). */
+export function photoConfirmationLockKey(objectKey: string): string {
+  return `locks:orphan-photo-sweep:key:profile-photos:${objectKey}`;
+}
+export const PHOTO_CONFIRMATION_LOCK_TTL_MS = 5_000;
 
 function passwordChangeAttemptsKey(userId: string): string {
   return `password-change-attempts:${userId}`;
@@ -80,6 +100,9 @@ const EMAIL_ALREADY_IN_USE_MESSAGE = "Ese email ya está en uso por otra cuenta.
 // POST /auth/send-otp (pública, sin flujo -- ahora "register").
 const PHONE_CHANGE_FLOW = "phone-change";
 const EMAIL_CHANGE_FLOW = "email-change";
+/** MOVO-139: verificar el email QUE LA CUENTA YA TIENE, distinto de cambiarlo por otro
+ * -- flujo propio para que un OTP de uno no pueda consumirse en el otro (AC8). */
+const EMAIL_VERIFY_FLOW = "email-verify";
 
 /** AC2 de MOVO-97: whitelist de tipos permitidos para la foto de perfil. Duplicada en
  * `users.schema.ts` (JSON schema autocontenido, mismo criterio que el resto de los
@@ -127,7 +150,8 @@ export function createUsersService(
   logger: FastifyBaseLogger,
   redis: Redis,
   shipmentsClient: ShipmentsClient,
-  otpService: OtpService
+  otpService: OtpService,
+  emailProvider: EmailProvider
 ) {
   const repository = createUserRepository(db);
   const pushTokenRepository = createPushTokenRepository(db);
@@ -192,6 +216,20 @@ export function createUsersService(
         contentType: input.contentType,
         contentLength: input.contentLength,
       });
+
+      // MOVO-124: registra la key como "pendiente" para que el sweep de fotos huérfanas
+      // la pueda encontrar si nunca se confirma. Best-effort -- si Redis falla acá, el
+      // objeto queda sin trackear (mismo estado que el bug original: huérfano para
+      // siempre, nunca borrado de más).
+      try {
+        await redis.zadd(PENDING_PHOTOS_REDIS_KEY, Date.now(), objectKey);
+      } catch (error) {
+        logger.warn(
+          { userId, objectKey, event: "photo_pending_track_failed", error: (error as Error).message },
+          "No se pudo registrar la foto de perfil como pendiente en Redis"
+        );
+      }
+
       return { uploadUrl, objectKey, expiresIn };
     },
 
@@ -204,49 +242,85 @@ export function createUsersService(
         throw new ApiError(403, "PHOTO_FORBIDDEN_KEY", "La imagen no pertenece al usuario autenticado.");
       }
 
-      // `headObject` y `findById` son independientes entre sí — se piden en paralelo
-      // para no pagar dos round-trips en serie en cada confirmación.
-      const [head, user] = await Promise.all([storageProvider.headObject(objectKey), repository.findById(userId)]);
-      if (!head.exists) {
-        throw new ApiError(422, "PHOTO_OBJECT_NOT_FOUND", "La imagen no existe en el storage.");
-      }
-      // Defensa en profundidad (AC4): revalida el tipo/tamaño reales que S3 reporta,
-      // no solo lo que el cliente declaró al pedir la URL. Si el HEAD no trae alguno de
-      // los dos (proveedor caído a medias, u objeto sin metadata), no bloquea acá — el
-      // gate principal ya corrió al firmar la URL (`createUploadUrl`).
-      if (head.contentType !== undefined && head.contentLength !== undefined) {
-        assertValidPhotoConstraints(head.contentType, head.contentLength);
-      }
-
-      if (!user) {
-        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      // Fix de review (PR #96): toma el mismo lock que usa el sweep de fotos huérfanas
+      // para esta key antes de tocar S3/Postgres -- cierra la ventana de TOCTOU entre
+      // "el sweep decide borrar" y "confirmPhoto termina de persistir photoUrl" (ver el
+      // comentario de `photoConfirmationLockKey`). Si el sweep tiene el lock en este
+      // preciso instante, se rechaza en vez de arriesgar una confirmación fantasma --
+      // el cliente puede reintentar de inmediato, el lock dura pocos segundos.
+      const lockKey = photoConfirmationLockKey(objectKey);
+      const lockAcquired = await redis.set(lockKey, "1", "PX", PHOTO_CONFIRMATION_LOCK_TTL_MS, "NX");
+      if (lockAcquired !== "OK") {
+        throw new ApiError(
+          409,
+          "PHOTO_CONFIRMATION_IN_PROGRESS",
+          "Hay una verificación en curso para esta imagen, reintentá en unos segundos."
+        );
       }
 
-      const photoUrl = storageProvider.getPublicUrl(objectKey);
-      const updated = await repository.updatePhotoUrl(userId, photoUrl);
-      if (!updated) {
-        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
-      }
+      try {
+        // `headObject` y `findById` son independientes entre sí — se piden en paralelo
+        // para no pagar dos round-trips en serie en cada confirmación.
+        const [head, user] = await Promise.all([storageProvider.headObject(objectKey), repository.findById(userId)]);
+        if (!head.exists) {
+          throw new ApiError(422, "PHOTO_OBJECT_NOT_FOUND", "La imagen no existe en el storage.");
+        }
+        // Defensa en profundidad (AC4): revalida el tipo/tamaño reales que S3 reporta,
+        // no solo lo que el cliente declaró al pedir la URL. Si el HEAD no trae alguno de
+        // los dos (proveedor caído a medias, u objeto sin metadata), no bloquea acá — el
+        // gate principal ya corrió al firmar la URL (`createUploadUrl`).
+        if (head.contentType !== undefined && head.contentLength !== undefined) {
+          assertValidPhotoConstraints(head.contentType, head.contentLength);
+        }
 
-      // AC6: al reemplazar, el objeto anterior se borra best-effort — la foto nueva ya
-      // es la buena, un fallo de borrado es basura huérfana, no un error para el
-      // usuario. `previousKey !== objectKey` cubre el caso (raro pero posible) de
-      // confirmar dos veces la misma key.
-      if (user.photoUrl) {
-        const previousKey = storageProvider.getKeyFromUrl(user.photoUrl);
-        if (previousKey && previousKey !== objectKey) {
-          try {
-            await storageProvider.deleteObject(previousKey);
-          } catch (error) {
-            logger.warn(
-              { userId, previousKey, event: "photo_delete_orphan_failed", error: (error as Error).message },
-              "No se pudo borrar la foto de perfil anterior"
-            );
+        if (!user) {
+          throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+        }
+
+        const photoUrl = storageProvider.getPublicUrl(objectKey);
+        const updated = await repository.updatePhotoUrl(userId, photoUrl);
+        if (!updated) {
+          throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+        }
+
+        // MOVO-124: saca la key del tracking de pendientes -- ya está confirmada, el
+        // sweep no debería volver a evaluarla. Best-effort: si el ZREM falla, el sweep
+        // igual la va a dejar en paz porque revalida contra Postgres antes de borrar
+        // nada (AC3), esto es solo para no reprocesarla en cada corrida.
+        try {
+          await redis.zrem(PENDING_PHOTOS_REDIS_KEY, objectKey);
+        } catch (error) {
+          logger.warn(
+            { userId, objectKey, event: "photo_pending_untrack_failed", error: (error as Error).message },
+            "No se pudo remover el tracking de Redis tras confirmar la foto de perfil"
+          );
+        }
+
+        // AC6: al reemplazar, el objeto anterior se borra best-effort — la foto nueva ya
+        // es la buena, un fallo de borrado es basura huérfana, no un error para el
+        // usuario. `previousKey !== objectKey` cubre el caso (raro pero posible) de
+        // confirmar dos veces la misma key.
+        if (user.photoUrl) {
+          const previousKey = storageProvider.getKeyFromUrl(user.photoUrl);
+          if (previousKey && previousKey !== objectKey) {
+            try {
+              await storageProvider.deleteObject(previousKey);
+            } catch (error) {
+              logger.warn(
+                { userId, previousKey, event: "photo_delete_orphan_failed", error: (error as Error).message },
+                "No se pudo borrar la foto de perfil anterior"
+              );
+            }
           }
         }
-      }
 
-      return { photoUrl };
+        return { photoUrl };
+      } finally {
+        // Mismo criterio que `account-deletion-lock` (arriba): si el `unlink` llegara a
+        // fallar, el lock igual expira solo por TTL (PHOTO_CONFIRMATION_LOCK_TTL_MS),
+        // no bloquea la misma key más que unos segundos.
+        await redis.unlink(lockKey);
+      }
     },
 
     /** AC7: idempotente — sin foto previa también responde éxito. */
@@ -521,17 +595,67 @@ export function createUsersService(
     },
 
     /**
-     * MOVO-133, paso 1 de cambio de email -- decisión de refinamiento: sin
-     * `EmailProvider` en el proyecto, se verifica la identidad del dueño de la cuenta
-     * mandando el OTP a su teléfono YA verificado, no al email nuevo (que sería lo
-     * literal del AC original). El email candidato viaja como metadata del propio OTP
+     * MOVO-139, paso 1 de verificación del email ACTUAL: manda el OTP a la dirección
+     * que la cuenta ya tiene. Es el CTA de la pantalla de perfil para los usuarios que
+     * se registraron antes de que existiera este flujo (todos quedaron en
+     * `email_verified = false` por backfill natural).
+     */
+    async requestEmailVerification(userId: string): Promise<{ otpId: string; cooldownSeconds: number; sent: boolean }> {
+      const user = await repository.findById(userId);
+      if (!user) {
+        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
+      if (user.emailVerified) {
+        // AC2: no se gasta un envío en reverificar algo ya verificado.
+        throw new ApiError(400, "VALIDATION_FAILED", "El email ya está verificado.");
+      }
+
+      return otpService.generateOtp(EMAIL_VERIFY_FLOW, user.email, { userId }, "email");
+    },
+
+    /**
+     * MOVO-139, paso 2 de verificación del email actual: el `target` del OTP ES el
+     * email de la cuenta, así que verificarlo prueba propiedad de esa dirección (AC3).
+     * No cambia el email -- solo lo marca verificado.
+     */
+    async confirmEmailVerification(userId: string, otpId: string, code: string): Promise<PrivateProfile> {
+      const user = await repository.findById(userId);
+      if (!user) {
+        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
+
+      const { target: verifiedEmail } = await otpService.verifyOtp(otpId, code, EMAIL_VERIFY_FLOW);
+      if (verifiedEmail.toLowerCase() !== user.email.toLowerCase()) {
+        // Defensa en profundidad: el email de la cuenta cambió entre el paso 1 y este
+        // confirm (ej. un cambio de email corrió en el medio) -- el OTP ya no prueba
+        // propiedad de la dirección vigente. Mismo 401 genérico que un código
+        // inválido, no distingue el motivo (mismo criterio que `verifyPhoneChange`).
+        throw new ApiError(401, "AUTH_OTP_INVALID", OTP_INVALID_MESSAGE);
+      }
+
+      const updated = await repository.markEmailVerified(userId);
+      if (!updated) {
+        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
+      return toPrivateProfile(updated);
+    },
+
+    /**
+     * MOVO-139, paso 1 de cambio de email: el OTP va al email NUEVO (prueba de
+     * propiedad), corrigiendo la decisión de refinamiento de MOVO-133 -- que lo mandaba
+     * al teléfono actual porque el proyecto no tenía ningún `EmailProvider`. Eso probaba
+     * posesión de la cuenta pero no propiedad del email, así que se podía dejar como
+     * email de la cuenta una dirección ajena; con MOVO-64 (recuperación de contraseña
+     * por email) eso deja de ser un dato de contacto y pasa a ser un vector de
+     * recuperación. Mismo criterio que `requestPhoneChange` desde MOVO-133.
+     *
+     * El email candidato sigue viajando como metadata del propio OTP
      * (`meta.pendingEmail`, `otp-repository.ts`) -- comparte TTL, rotación e
      * invalidación con el OTP por construcción. Antes vivía en una key Redis paralela
-     * (`pending-email-repository.ts`, borrada en este mismo fix) cuyo TTL nunca se
-     * refrescaba en un reenvío (`POST /auth/resend-otp`, público): pedir un código
-     * nuevo cerca del vencimiento dejaba el OTP vivo pero el email candidato ya
-     * vencido, y el verify fallaba con un código que en realidad era válido (review
-     * de tmvergara sobre PR #91).
+     * (`pending-email-repository.ts`, borrada en MOVO-133) cuyo TTL nunca se refrescaba
+     * en un reenvío (`POST /auth/resend-otp`, público): pedir un código nuevo cerca del
+     * vencimiento dejaba el OTP vivo pero el email candidato ya vencido, y el verify
+     * fallaba con un código que en realidad era válido (review de tmvergara sobre PR #91).
      */
     async requestEmailChange(userId: string, email: string): Promise<{ otpId: string; cooldownSeconds: number; sent: boolean }> {
       const user = await repository.findById(userId);
@@ -552,16 +676,22 @@ export function createUsersService(
         throw new ApiError(409, "EMAIL_ALREADY_IN_USE", EMAIL_ALREADY_IN_USE_MESSAGE);
       }
 
-      return otpService.generateOtp(EMAIL_CHANGE_FLOW, user.phone, { userId, pendingEmail: normalizedEmail });
+      return otpService.generateOtp(
+        EMAIL_CHANGE_FLOW,
+        normalizedEmail,
+        { userId, pendingEmail: normalizedEmail, previousEmail: user.email },
+        "email"
+      );
     },
 
     /**
-     * MOVO-133, paso 2: el `target` del OTP es el teléfono actual, no el email nuevo
-     * -- verificarlo prueba que quien pide el cambio sigue teniendo acceso a la
-     * cuenta. No revoca sesiones (el email no es credencial de sesión, a diferencia
-     * de la contraseña -- ver ticket hermano MOVO-134). `flow` esperado
-     * (`EMAIL_CHANGE_FLOW`) cierra el mismo cruce entre flujos que `verifyPhoneChange`
-     * (ver su docstring).
+     * MOVO-139, paso 2 de cambio de email: el `target` del OTP ES el email nuevo --
+     * verificarlo prueba propiedad de esa dirección, y por eso `email` y
+     * `emailVerified=true` se persisten juntos en el mismo UPDATE (AC4, mismo criterio
+     * que `phone`/`phoneVerified` en `verifyPhoneChange`). No revoca sesiones (el email
+     * no es credencial de sesión, a diferencia de la contraseña -- ver MOVO-134).
+     * `flow` esperado (`EMAIL_CHANGE_FLOW`) cierra el mismo cruce entre flujos que
+     * `verifyPhoneChange` (ver su docstring): un OTP de `email-verify` no sirve acá.
      */
     async verifyEmailChange(userId: string, otpId: string, code: string): Promise<PrivateProfile> {
       const user = await repository.findById(userId);
@@ -569,17 +699,12 @@ export function createUsersService(
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
       }
 
-      const { target: verifiedPhone, meta } = await otpService.verifyOtp(otpId, code, EMAIL_CHANGE_FLOW);
-      if (verifiedPhone !== user.phone) {
-        // Defensa en profundidad: el teléfono de la cuenta cambió entre el paso 1 y
-        // este verify (ej. un cambio de teléfono corrió en el medio) -- el OTP ya no
-        // prueba posesión del teléfono vigente. Mismo 401 genérico que un código
-        // inválido, no distingue el motivo.
-        throw new ApiError(401, "AUTH_OTP_INVALID", OTP_INVALID_MESSAGE);
-      }
+      const { target: verifiedEmail, meta } = await otpService.verifyOtp(otpId, code, EMAIL_CHANGE_FLOW);
 
       const pendingEmail = meta.pendingEmail;
-      if (!pendingEmail) {
+      if (!pendingEmail || pendingEmail !== verifiedEmail) {
+        // El target verificado y el email candidato tienen que ser el mismo valor: si
+        // difirieran, se estaría persistiendo una dirección cuya propiedad nadie probó.
         throw new ApiError(401, "AUTH_OTP_INVALID", OTP_INVALID_MESSAGE);
       }
 
@@ -600,6 +725,7 @@ export function createUsersService(
         if (!updated) {
           throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
         }
+        await notifyPreviousEmailOfChange(user.email, pendingEmail);
         return toPrivateProfile(updated);
       } catch (err) {
         if (err instanceof UserConflictError) {
@@ -609,4 +735,23 @@ export function createUsersService(
       }
     },
   };
+
+  /**
+   * AC5 de MOVO-139: aviso al email ANTERIOR -- cierra la limitación que MOVO-133 dejó
+   * documentada ("sin EmailProvider no se puede notificar al email anterior"). Sirve
+   * para que el dueño real de la cuenta se entere si el cambio no lo hizo él.
+   *
+   * Best-effort a propósito: el cambio ya está persistido y el OTP ya se consumió, así
+   * que un fallo de Resend acá no puede revertir nada -- devolver 500 le mostraría al
+   * usuario un error sobre una operación que en realidad salió bien, y reintentarla
+   * fallaría con "el email nuevo es igual al actual". Se loguea y sigue.
+   */
+  async function notifyPreviousEmailOfChange(previousEmail: string, newEmail: string): Promise<void> {
+    const { subject, text, html } = buildEmailChangedNotice(newEmail);
+    try {
+      await emailProvider.send(previousEmail, subject, { text, html });
+    } catch (err) {
+      logger.error({ err }, "No se pudo notificar al email anterior sobre el cambio de email");
+    }
+  }
 }

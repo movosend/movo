@@ -207,11 +207,10 @@ Decisiones clave:
   verifica la identidad del dueño de la cuenta mandando el OTP a su teléfono ya
   verificado. El email candidato viaja en Redis atado al `otpId`
   (`pending-email-repository.ts`, mismo TTL que el OTP) hasta que el verify lo
-  persiste. **Limitación aceptada**: no se puede notificar al email anterior que el
-  email cambió (mismo motivo, sin canal de email) — se cierra cuando exista un
-  `EmailProvider` compartido con MOVO-64 (recuperación de contraseña). No revoca
-  sesiones (el email no es credencial de sesión, a diferencia de la contraseña — ver
-  ticket hermano MOVO-134).
+  persiste. **Corregido por MOVO-139** (ADR-017): con `EmailProvider` en el proyecto, el
+  OTP pasó a ir al email nuevo y el aviso al email anterior existe — ver la entrada de
+  esa US más abajo. No revoca sesiones (el email no es credencial de sesión, a
+  diferencia de la contraseña — ver ticket hermano MOVO-134).
 - **Unicidad de email case-insensitive resuelta en el service, no en la DB**: el
   índice único real de `users.email` es case-sensitive (MOVO-93: `users_email_lower_idx`
   es funcional, no fuerza unicidad) — un `P2002` del `UPDATE` final solo cubre
@@ -325,9 +324,9 @@ Decisiones clave:
 - **Anonimización inmediata, sin ventana de gracia** (recomendación original del
   ticket, no revisada en el refinamiento de MOVO-134): purga diferida necesitaría un
   job programado que hoy no existe en el proyecto.
-- **Limitación aceptada**: sin `EmailProvider`, no se manda ningún mail de "tu
-  contraseña cambió" ni de confirmación de baja — mismo motivo que el ticket hermano
-  MOVO-133, se cierra cuando exista un `EmailProvider` compartido con MOVO-64.
+- **Limitación aceptada**: no se manda ningún mail de "tu contraseña cambió" ni de
+  confirmación de baja. MOVO-139 ya construyó el `EmailProvider` (ADR-017), así que hoy
+  es solo cuestión de cablear esos dos avisos — no estaba en el alcance de esa US.
 
 Tests: `test/users.account-settings.integration.test.ts` (19 casos) +
 `services/movo-svc-shipments/test/account-deletion.integration.test.ts` (11 casos,
@@ -381,6 +380,117 @@ Pendiente / fuera de alcance: consumo desde `movo-mobile` (ticket aparte).
 - Comentario desactualizado en `shipments-client.ts` corregido (decía "sin timeout
   explícito" sobre código que sí lo tiene).
 
+### MOVO-124 — Sweep de fotos huérfanas en S3 vía tracking en Redis (`svc-users` + `svc-shipments`)
+
+Decisión completa y detalle de la implementación en
+`services/movo-svc-shipments/CLAUDE.md` (mismo mecanismo en los dos servicios). Acá:
+`existsByPhotoUrl` nuevo en `user-repository.ts` (fuente de verdad contra Postgres que
+usa el sweep antes de borrar), `getPhotoUploadUrl`/`confirmPhoto` de `users.service.ts`
+ahora registran/destrackean la key en el sorted set `photos:pending:profile-photos` de
+Redis, y `src/plugins/orphan-photo-sweep.ts` — **primer scheduled job de este
+servicio** (mismo esqueleto `setInterval` + lock distribuido en Redis que
+`receiver-confirmation-sweep.ts` de `svc-shipments`, MOVO-130).
+
+Tests: `test/orphan-photo-sweep.test.ts` nuevo (mockeado, incluye el caso AC3: un
+candidato con `photoUrl` vigente en `users.users` nunca dispara `deleteObject`).
+`test/users.photo.integration.test.ts` ampliado con dos casos contra Redis real.
+Suite completa 385/385, `tsc --noEmit` y `eslint` limpios.
+
+**Fix de review (PR #96, tmvergara) — TOCTOU real entre `confirmPhoto()` y el sweep**:
+mismo bug y mismo fix que su gemelo de `svc-shipments` (detalle completo en
+`services/movo-svc-shipments/CLAUDE.md`, sección MOVO-124) — lock por key de S3 en
+Redis (`photoConfirmationLockKey()` en `users.service.ts`) que se disputan
+`confirmPhoto()` y el sweep antes de tocar S3/Postgres, cierra la ventana donde una
+confirmación tardía podía terminar en `photoUrl` persistido apuntando a un objeto ya
+borrado por el sweep, sin error visible.
+
+### MOVO-139 — `EmailProvider` (Resend) y verificación de email por OTP (ADR-017)
+
+Primer canal de email del proyecto. Cierra la limitación que MOVO-133/MOVO-134 dejaron
+documentada ("sin `EmailProvider` no se puede notificar al email anterior") y es
+precondición de MOVO-64 (recuperación de contraseña por email).
+
+Decisiones clave:
+- **`EmailProvider` calcado de `SmsProvider` (ADR-012)**: interfaz + factory por
+  `EMAIL_PROVIDER` + `console-email-provider.ts` como default de dev/test/CI +
+  `resend-email-provider.ts` para la demo, con fail-fast al arrancar si se pide `resend`
+  sin `RESEND_API_KEY`/`EMAIL_FROM`. Resend se consume por `fetch` contra su API HTTP,
+  no por su SDK (un solo POST con un JSON, mismo criterio que
+  `telegram-sms-provider.ts`/`expo-push-provider.ts`).
+- **El cuerpo viaja como `{ text, html }`, no como un string** (se aparta de la firma
+  literal del ticket, `send(to, subject, body)`): un mail transaccional sin parte de
+  texto plano es disparador clásico de filtros de spam, y sin HTML se ve roto en la
+  mayoría de los clientes. Los dos los arman `buildOtpEmail`/`buildEmailChangedNotice`
+  en `email-provider.ts` — templates en código, nunca en la UI de Resend (esos son para
+  Broadcasts: no se versionan, no se testean y atarían el contenido al proveedor).
+- **El canal se persiste en el registro de Redis del OTP** (`OtpRecord.channel`, nuevo):
+  `resendOtp(otpId)` solo recibe el otpId, así que sin ese campo el reenvío no sabría si
+  el target es un teléfono o un email. Mismo razonamiento por el que MOVO-133 metió
+  `flow` en el hash. `createOtpService` pasa a recibir `{ sms, email }` (los dos
+  obligatorios: `POST /auth/resend-otp` es genérica y puede tocarle cualquiera de los
+  dos). Los registros sin `channel` — los que quedaran vivos al momento del deploy, TTL
+  de 10 min — se leen como `sms`.
+- **El OTP de cambio de email pasa a ir al email NUEVO**, corrigiendo la decisión de
+  refinamiento de MOVO-133 (iba al teléfono actual, por no haber ningún canal de email):
+  eso probaba posesión de la cuenta pero no propiedad de la dirección, así que se podía
+  dejar como email de la cuenta una que no se controla. `email` + `emailVerified=true`
+  se persisten en el mismo UPDATE, mismo criterio que `phone`/`phoneVerified`.
+- **Aviso al email anterior best-effort**: se manda después del UPDATE ya persistido y
+  con el OTP ya consumido, así que un fallo de Resend no puede revertir nada — devolver
+  500 mostraría un error sobre una operación que salió bien, y el reintento fallaría con
+  "el email nuevo es igual al actual". Se loguea y sigue. La dirección nueva viaja
+  enmascarada (`j****z@gmail.com`): ese mail va a una casilla que ya no pertenece a la
+  cuenta.
+- **Flujo propio `email-verify`, separado de `email-change`** (AC8): verificar el email
+  que la cuenta ya tiene y cambiarlo por otro son casos de uso distintos, y el
+  namespacing por `flow` de MOVO-133 impide que un OTP de uno se consuma en el otro.
+- **Sin gate duro**: un email no verificado no bloquea operar, solo se refleja en
+  `PrivateProfile.emailVerified` (`@movo/shared`). Hacerlo obligatorio en el registro es
+  alcance de MOVO-7.
+
+Migración `20260823160000_add_email_verified_movo_139`: `email_verified` (default
+`false`) + `email_verified_at` (solo auditoría, nunca se lee para decidir) en
+`users.users`. Los usuarios existentes quedan sin verificar por backfill natural —
+nadie probó todavía la propiedad de esas direcciones, que es justo lo que la US arregla.
+
+Rate limit propio en el gateway para `POST /users/me/email/verify/otp` (5/15min,
+`getRateLimitOverrides()`), alineado con los dos endpoints de cambio.
+
+**Diseño de los mails y entregabilidad** (iteración posterior al primer envío real, que
+cayó en la carpeta de no deseados de Outlook):
+- Paleta de marca tomada de `movo-mobile/tailwind.config.js` (ink-950 `#0A0A0B`,
+  lime-500 `#C6F24A`) para que un mail y una pantalla no parezcan de dos productos
+  distintos: cabecera negra con el wordmark, filete lime de 3px, y el código en
+  monoespaciada lime sobre negro (la app usa JetBrains Mono para datos así; ningún
+  cliente de correo la tiene, degrada al monoespaciado del sistema).
+- **Wordmark en texto, no el PNG del logo**: los clientes bloquean imágenes remotas
+  hasta que el usuario las habilita — el logo no se vería en la primera lectura, que en
+  un OTP es la única que importa —, un PNG pesado empeora el ratio texto/imagen que
+  miran los filtros de spam, y un `data:` URI lo descartan Gmail y Outlook. Para usar el
+  logo real haría falta hostearlo en una URL pública estable: el bucket de dev
+  (`movo-shipment-media-dev`) hoy solo expone `profile-photos/*`, así que requiere un
+  prefijo `brand/*` público en la policy — cambio de Terraform en `movo-infra` (ADR-009:
+  nada de aprovisionamiento manual), no un `put-bucket-policy` a mano.
+- Tablas anidadas con `bgcolor` en vez de divs: el motor de render de Outlook para
+  Windows es Word (sin flexbox, sin grid, sin `border-radius`).
+- `preheader` explícito: sin uno, la bandeja muestra el primer texto del cuerpo — en el
+  mail de OTP eso ponía el código en la lista de mensajes, a la vista de cualquiera que
+  mirara la pantalla.
+- **Falta el registro DMARC** (`_dmarc.movosend.app`): verificado con `dig` que DKIM,
+  SPF y el MX de bounces están, pero DMARC no existe en ninguno de los dos niveles. Es
+  la causa principal del filtrado en Outlook/SmartScreen, que además castiga a un
+  dominio recién creado sin historial de envíos. Pendiente en `movo-infra`.
+
+Tests: `test/users.email-verification.integration.test.ts` (18 casos, Postgres+Redis
+reales, captor de `EmailProvider` con el mismo patrón que el de SMS) + los casos de
+cambio de email de `test/users.profile-edit.integration.test.ts` actualizados al canal
+nuevo, más el aviso al email anterior y su fallo. 42/42 suites, 403/403 tests.
+
+Pendiente / fuera de alcance: UI mobile (insignia + CTA, se suman a MOVO-135, que espera
+este ticket); verificación obligatoria en el registro (MOVO-7); recuperación de
+contraseña por email (MOVO-64); mover el `EmailProvider` a `shared/` (nace acá, se
+evalúa al haber un segundo consumidor real).
+
 ### Pendientes de este servicio
 
 - **Credenciales reales sin cargar** en AWS Secrets Manager (dev y prod) — el código
@@ -388,7 +498,9 @@ Pendiente / fuera de alcance: consumo desde `movo-mobile` (ticket aparte).
   (`DIDIT_MODE=live` + 5 vars, incluye `DIDIT_WORKFLOW_ID_LICENSE` de MOVO-15), Google
   Maps (server-side `GOOGLE_MAPS_API_KEY` compartida entre `svc-users`/futuros
   consumidores), Telegram bot (`SMS_PROVIDER=telegram`, solo dev),
-  `STORAGE_PROVIDER=s3` + bucket/region de MOVO-97.
+  `STORAGE_PROVIDER=s3` + bucket/region de MOVO-97, Resend (`EMAIL_PROVIDER=resend` +
+  `RESEND_API_KEY`/`EMAIL_FROM`, ADR-017 — falta además verificar el dominio de envío en
+  Resend y sus registros SPF/DKIM por Terraform).
 - **Terraform de `movo-infra`**: bucket de fotos de perfil (MOVO-97/ADR-016) aplicado
   en dev, `terraform apply` de prod pendiente.
 - Mobile de MOVO-120 no genera/envía todavía un `sessionToken` de Places — ver

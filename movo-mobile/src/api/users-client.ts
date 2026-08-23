@@ -1,5 +1,6 @@
 import type { PrivateProfile, PublicProfile } from "@movo/shared/dist/types/user-profile";
 import { httpClient } from "./http-client";
+import type { SessionResponse } from "./session-types";
 import { uploadBlobToPresignedUrl } from "../lib/s3-upload";
 
 /**
@@ -32,10 +33,12 @@ export interface UpdateProfileInput {
 }
 
 /**
- * Respuesta del paso 1 de los cambios verificados de teléfono/email (MOVO-133).
+ * Respuesta del paso 1 de los cambios verificados de teléfono/email (MOVO-133), y
+ * también de la verificación del email actual (MOVO-139) — mismo shape, mismo motor
+ * de OTP.
  *
  * `sent: false` significa que el backend reusó un OTP todavía activo dentro de su
- * cooldown en vez de mandar un SMS nuevo — la UI no debe prometer "te acabamos de
+ * cooldown en vez de mandar un código nuevo — la UI no debe prometer "te acabamos de
  * enviar un código" en ese caso.
  */
 export interface OtpRequestResponse {
@@ -47,6 +50,11 @@ export interface OtpRequestResponse {
 export interface OtpVerifyInput {
   otpId: string;
   code: string;
+}
+
+export interface ChangePasswordInput {
+  currentPassword: string;
+  newPassword: string;
 }
 
 /**
@@ -131,19 +139,77 @@ export const usersClient = {
   },
 
   /**
-   * Paso 1 del cambio de email. **El OTP va al teléfono ACTUAL ya verificado**, no
-   * al email nuevo: el proyecto no tiene ningún `EmailProvider` (decisión de
-   * refinamiento de MOVO-133). El email candidato queda guardado en Redis atado al
-   * `otpId`. `409 EMAIL_ALREADY_IN_USE` es case-insensitive.
+   * Paso 1 del cambio de email. **El OTP va al email NUEVO** (MOVO-139, corrige el
+   * criterio original de MOVO-133 que lo mandaba al teléfono actual por no existir
+   * ningún `EmailProvider` todavía) — es lo que prueba propiedad de la dirección
+   * nueva. `409 EMAIL_ALREADY_IN_USE` es case-insensitive, `400` si es el mismo email
+   * que ya tiene.
    */
   requestEmailChange(email: string): Promise<OtpRequestResponse> {
     return httpClient.post<OtpRequestResponse>("/users/me/email/change/otp", { email });
   },
 
-  /** Paso 2 del cambio de email: persiste el email pendiente. No revoca sesiones
-   * (el email no es credencial de sesión y el titular ya está autenticado). */
+  /**
+   * Paso 2 del cambio de email. Como el target del OTP ES el email nuevo, verificarlo
+   * persiste `email` + `emailVerified` en el mismo UPDATE (MOVO-139). Dispara un
+   * aviso al email anterior (best-effort, del lado del backend). No revoca sesiones
+   * (el email no es credencial de sesión y el titular ya está autenticado).
+   */
   verifyEmailChange(body: OtpVerifyInput): Promise<PrivateProfile> {
     return httpClient.post<PrivateProfile>("/users/me/email/change/verify", body);
+  },
+
+  /**
+   * Verificar el email ACTUAL de la cuenta (MOVO-139, CTA de la pantalla de perfil
+   * para cuentas creadas antes de que este flujo existiera). Sin body: el target del
+   * OTP es el email que la cuenta ya tiene. `400` si ya está verificado.
+   */
+  requestEmailVerification(): Promise<OtpRequestResponse> {
+    return httpClient.post<OtpRequestResponse>("/users/me/email/verify/otp", {});
+  },
+
+  /** Paso 2 de la verificación del email actual: persiste `emailVerified: true`. No
+   * cambia el email en sí, a diferencia de `verifyEmailChange`. */
+  verifyEmailVerification(body: OtpVerifyInput): Promise<PrivateProfile> {
+    return httpClient.post<PrivateProfile>("/users/me/email/verify/confirm", body);
+  },
+
+  /**
+   * Cambia la contraseña propia (`POST /users/me/password`, MOVO-134).
+   *
+   * Devuelve un `SessionResponse` completo, igual que `login()`: el backend revoca
+   * TODAS las sesiones del usuario y emite un par de tokens nuevo, así que el
+   * dispositivo que hizo el cambio no queda deslogueado pero el refresh token viejo
+   * ya no sirve. El caller está obligado a persistir la respuesta con
+   * `useAuthStore.setSession()` — ver `use-account-security.ts`, donde eso ocurre.
+   *
+   * Un `401 AUTH_INVALID_CREDENTIALS` acá significa "la contraseña actual no es
+   * correcta", NO que la sesión venció: el interceptor de `http-client.ts` solo
+   * dispara el refresh ante `AUTH_TOKEN_EXPIRED`, cualquier otro 401 se propaga tal
+   * cual sin tocar la sesión (AC3 de MOVO-136).
+   */
+  changePassword(body: ChangePasswordInput): Promise<SessionResponse> {
+    return httpClient.post<SessionResponse>("/users/me/password", body);
+  },
+
+  /**
+   * Baja de cuenta (MOVO-136 AC5/AC6, backend MOVO-134). `DELETE /users/me` con la
+   * contraseña en el body: el JWT solo no alcanza para una operación irreversible.
+   * Responde `204` sin contenido — de ahí el `Promise<void>`.
+   *
+   * El backend hace soft-delete + anonimización de PII (`anonymizeAndDelete()`),
+   * revoca todas las sesiones y borra push tokens, direcciones, KYC y la foto de S3.
+   * Es idempotente: una cuenta ya dada de baja vuelve a responder 204.
+   *
+   * Errores que el caller tiene que distinguir (los tres son 409):
+   * `ACCOUNT_HAS_ACTIVE_SHIPMENTS` y `ACCOUNT_HAS_ACTIVE_DISPUTES` — el backend NO
+   * cancela en cascada, el usuario resuelve y reintenta — y
+   * `ACCOUNT_DELETION_IN_PROGRESS` (lock por usuario: doble tap o dos dispositivos a
+   * la vez). Un `401 AUTH_INVALID_CREDENTIALS` es la contraseña mal, igual que en
+   * `changePassword()`, no una sesión vencida.
+   */
+  deleteAccount(password: string): Promise<void> {
+    return httpClient.delete<void>("/users/me", { password });
   },
 
   /**

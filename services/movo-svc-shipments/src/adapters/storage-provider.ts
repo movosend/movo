@@ -30,6 +30,11 @@ export interface StorageProvider {
 
   /** Presigned URL de `GET`, TTL corto -- el bucket es privado para este prefijo (AC7/AC8). */
   createDownloadUrl(key: string): Promise<{ url: string; expiresIn: number }>;
+
+  /** MOVO-124: borra un objeto de S3. Solo lo usa el sweep de fotos huérfanas (nunca el
+   * flujo normal de subida/confirmación) -- best-effort, quien llama decide si un fallo
+   * acá bloquea algo o solo se loguea. */
+  deleteObject(key: string): Promise<void>;
 }
 
 export interface StorageProviderConfig {

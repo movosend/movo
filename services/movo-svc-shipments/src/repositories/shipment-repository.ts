@@ -97,6 +97,14 @@ export interface ShipmentRepository {
   addPhoto(shipmentId: string, stage: PhotoStage, s3Key: string): Promise<ShipmentPhoto>;
   listPhotos(shipmentId: string): Promise<ShipmentPhoto[]>;
   /**
+   * MOVO-124: ¿este `s3Key` ya fue confirmado (tiene fila en `shipment_photos`)?
+   * Fuente de verdad del sweep de fotos huérfanas -- el tracking de "pendiente" vive en
+   * Redis (best-effort, puede perder la baja si `confirmPhoto` falla al hacer `ZREM`),
+   * así que antes de borrar un objeto de S3 el sweep siempre revalida acá (AC3 de
+   * MOVO-124: nunca confiar solo en que Redis diga "no confirmado").
+   */
+  existsPhotoByS3Key(s3Key: string): Promise<boolean>;
+  /**
    * Envíos donde el usuario participa como sender o como receiver (AC9 de MOVO-80 —
    * todavía no hay rol de "carrier" asignado en este sprint). Paginado, más reciente
    * primero.
@@ -299,6 +307,11 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         orderBy: { createdAt: "asc" },
       });
       return rows.map(mapPhoto);
+    },
+
+    async existsPhotoByS3Key(s3Key: string): Promise<boolean> {
+      const row = await db.shipmentPhoto.findFirst({ where: { s3Key }, select: { id: true } });
+      return row !== null;
     },
 
     async listByUser(userId: string, page: number, limit: number): Promise<{ items: Shipment[]; total: number }> {

@@ -9,15 +9,21 @@ import {
   Modal,
   Platform,
   Pressable,
+  StyleSheet,
   Text,
   View,
 } from "react-native";
+import Animated from "react-native-reanimated";
 import {
   SafeAreaProvider,
   SafeAreaView,
   initialWindowMetrics,
 } from "react-native-safe-area-context";
-import { useAcceptShipment, useRejectShipment } from "../../src/hooks/use-shipments";
+import {
+  useAcceptShipment,
+  useRejectShipment,
+} from "../../src/hooks/use-shipments";
+import { useSheetAnimation } from "../../src/hooks/use-sheet-animation";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { formatReceiverConfirmationDeadline } from "../../src/lib/shipment-format";
 import { ErrorBanner } from "../ui/error-banner";
@@ -73,8 +79,12 @@ export function ReceiverActionsBar({
   const [isRejectModalVisible, setIsRejectModalVisible] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { isMounted, backdropStyle, sheetStyle } =
+    useSheetAnimation(isRejectModalVisible);
 
-  const deadlineLabel = formatReceiverConfirmationDeadline(receiverConfirmationDeadline);
+  const deadlineLabel = formatReceiverConfirmationDeadline(
+    receiverConfirmationDeadline,
+  );
   const isBusy = acceptMutation.isPending || rejectMutation.isPending;
 
   const handleAcceptPress = () => {
@@ -150,13 +160,19 @@ export function ReceiverActionsBar({
           className="mb-3 flex-row items-center justify-center gap-1.5"
         >
           <Clock size={13} color={colors.fg3} strokeWidth={1.8} />
-          <Text className="font-sans text-small text-fg-3">{deadlineLabel}</Text>
+          <Text className="font-sans text-small text-fg-3">
+            {deadlineLabel}
+          </Text>
         </View>
       ) : null}
 
       <View className="flex-row gap-3">
         <Pressable
-          testID={testID ? `${testID}-reject-button` : "receiver-actions-reject-button"}
+          testID={
+            testID
+              ? `${testID}-reject-button`
+              : "receiver-actions-reject-button"
+          }
           onPress={handleRejectPress}
           disabled={isBusy}
           className={`flex-1 items-center justify-center rounded-lg border border-border py-3.5 ${
@@ -169,7 +185,11 @@ export function ReceiverActionsBar({
         </Pressable>
 
         <Pressable
-          testID={testID ? `${testID}-accept-button` : "receiver-actions-accept-button"}
+          testID={
+            testID
+              ? `${testID}-accept-button`
+              : "receiver-actions-accept-button"
+          }
           onPress={handleAcceptPress}
           disabled={isBusy}
           className={`flex-[2] flex-row items-center justify-center gap-2 rounded-lg py-3.5 ${
@@ -191,72 +211,102 @@ export function ReceiverActionsBar({
 
       {/* Modal de confirmación de rechazo */}
       <Modal
-        visible={isRejectModalVisible}
-        animationType="slide"
+        visible={isMounted}
+        animationType="none"
         transparent
         onRequestClose={() => setIsRejectModalVisible(false)}
         testID={testID ? `${testID}-reject-modal` : "receiver-reject-modal"}
       >
-        <SafeAreaProvider initialMetrics={initialWindowMetrics ?? FALLBACK_METRICS}>
+        <SafeAreaProvider
+          initialMetrics={initialWindowMetrics ?? FALLBACK_METRICS}
+        >
           <KeyboardAvoidingView
             className="flex-1"
             behavior={Platform.OS === "ios" ? "padding" : "height"}
           >
-            <View className="flex-1 justify-end bg-black/40">
-              <Pressable
-                testID={testID ? `${testID}-reject-modal-backdrop` : "receiver-reject-modal-backdrop"}
-                onPress={() => !isBusy && setIsRejectModalVisible(false)}
-                className="flex-1"
-              />
-              <SafeAreaView className="rounded-t-2xl bg-bg" edges={["bottom"]}>
-                <View className="px-5 pt-5">
-                  <Text className="mb-1 font-sans-semibold text-h3 text-fg">
-                    ¿Rechazar este envío?
-                  </Text>
-                  <Text className="mb-4 font-sans text-small text-fg-3">
-                    Esta acción es irreversible. El envío será cancelado y el emisor
-                    será notificado.
-                  </Text>
-
-                  <TextField
-                    testID={testID ? `${testID}-reject-reason-input` : "receiver-reject-reason-input"}
-                    label="Motivo del rechazo (opcional)"
-                    placeholder="Ej: No pedí este paquete, dirección incorrecta..."
-                    value={rejectReason}
-                    onChangeText={setRejectReason}
-                    maxLength={500}
-                  />
-
-                  <View className="mt-2 flex-col gap-2.5 pb-4 pt-2">
-                    <Pressable
-                      testID={testID ? `${testID}-reject-confirm-button` : "receiver-reject-confirm-button"}
-                      onPress={() => void handleConfirmReject()}
-                      disabled={rejectMutation.isPending}
-                      className={`w-full flex-row items-center justify-center gap-2 rounded-lg bg-danger-500 py-3.5 ${
-                        rejectMutation.isPending ? "opacity-70" : ""
-                      }`}
-                    >
-                      {rejectMutation.isPending ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                      ) : null}
-                      <Text className="font-sans-semibold text-body text-white">
-                        Confirmar rechazo
+            <View className="flex-1">
+              {/* Overlay: solo hace fade (nunca se desliza) — ver `useSheetAnimation`. */}
+              <Animated.View
+                style={[StyleSheet.absoluteFill, backdropStyle]}
+              >
+                <Pressable
+                  testID={
+                    testID
+                      ? `${testID}-reject-modal-backdrop`
+                      : "receiver-reject-modal-backdrop"
+                  }
+                  onPress={() => !isBusy && setIsRejectModalVisible(false)}
+                  className="flex-1 bg-black/40"
+                />
+              </Animated.View>
+              <View className="flex-1 justify-end" pointerEvents="box-none">
+                <Animated.View style={sheetStyle}>
+                  <SafeAreaView
+                    className="rounded-t-2xl bg-bg"
+                    edges={["bottom"]}
+                  >
+                    <View className="px-5 pt-5">
+                      <Text className="mb-1 font-sans-semibold text-h3 text-fg">
+                        ¿Rechazar este envío?
                       </Text>
-                    </Pressable>
-
-                    <Pressable
-                      testID={testID ? `${testID}-reject-cancel-button` : "receiver-reject-cancel-button"}
-                      onPress={() => setIsRejectModalVisible(false)}
-                      disabled={rejectMutation.isPending}
-                      className="w-full items-center justify-center py-2.5"
-                    >
-                      <Text className="font-sans-medium text-body text-fg-2">
-                        Volver
+                      <Text className="mb-4 font-sans text-small text-fg-3">
+                        Esta acción es irreversible. El envío será cancelado y
+                        el emisor será notificado.
                       </Text>
-                    </Pressable>
-                  </View>
-                </View>
-              </SafeAreaView>
+
+                      <TextField
+                        testID={
+                          testID
+                            ? `${testID}-reject-reason-input`
+                            : "receiver-reject-reason-input"
+                        }
+                        label="Motivo del rechazo (opcional)"
+                        placeholder="Ej: No pedí este paquete, dirección incorrecta..."
+                        value={rejectReason}
+                        onChangeText={setRejectReason}
+                        maxLength={500}
+                      />
+
+                      <View className="mt-2 flex-col gap-2.5 pb-4 pt-2">
+                        <Pressable
+                          testID={
+                            testID
+                              ? `${testID}-reject-confirm-button`
+                              : "receiver-reject-confirm-button"
+                          }
+                          onPress={() => void handleConfirmReject()}
+                          disabled={rejectMutation.isPending}
+                          className={`w-full flex-row items-center justify-center gap-2 rounded-lg bg-danger-500 py-3.5 ${
+                            rejectMutation.isPending ? "opacity-70" : ""
+                          }`}
+                        >
+                          {rejectMutation.isPending ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                          ) : null}
+                          <Text className="font-sans-semibold text-body text-white">
+                            Confirmar rechazo
+                          </Text>
+                        </Pressable>
+
+                        <Pressable
+                          testID={
+                            testID
+                              ? `${testID}-reject-cancel-button`
+                              : "receiver-reject-cancel-button"
+                          }
+                          onPress={() => setIsRejectModalVisible(false)}
+                          disabled={rejectMutation.isPending}
+                          className="w-full items-center justify-center py-2.5"
+                        >
+                          <Text className="font-sans-medium text-body text-fg-2">
+                            Volver
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  </SafeAreaView>
+                </Animated.View>
+              </View>
             </View>
           </KeyboardAvoidingView>
         </SafeAreaProvider>

@@ -38,6 +38,16 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   EMAIL_ALREADY_IN_USE: "Ese email ya está asociado a otra cuenta.",
   PROFILE_NAME_LOCKED_BY_KYC:
     "Tu nombre quedó verificado con tu documento y no se puede editar.",
+  // Baja de cuenta (MOVO-136 / backend MOVO-134). El backend no cancela en cascada a
+  // propósito: el usuario resuelve lo que bloquea y reintenta, así que el mensaje
+  // tiene que decir qué hacer, no solo que falló.
+  ACCOUNT_HAS_ACTIVE_SHIPMENTS:
+    "Tenés envíos en curso. Cancelalos o esperá a que terminen para poder dar de baja tu cuenta.",
+  ACCOUNT_HAS_ACTIVE_DISPUTES:
+    "Tenés una disputa abierta. Un administrador tiene que resolverla antes de que puedas dar de baja tu cuenta.",
+  ACCOUNT_DELETION_IN_PROGRESS: "Ya hay una baja en curso para tu cuenta. Esperá unos segundos.",
+  SHIPMENTS_SERVICE_UNAVAILABLE:
+    "No pudimos verificar si tenés envíos en curso. Intentá de nuevo en unos minutos.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",
   RATE_LIMIT_EXCEEDED: "Hiciste demasiados intentos. Esperá un momento y volvé a intentar.",
@@ -50,9 +60,20 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
  * mensaje armado por `http-client.ts` ("No se pudo conectar…") — se muestra
  * tal cual porque es el caso donde más importa ser preciso (vs. genérico) y
  * ya está en español.
+ *
+ * `overrides` (MOVO-136) permite que una pantalla puntual reescriba el mensaje de un
+ * código cuyo texto global está redactado para otro contexto. El caso que lo motivó:
+ * `AUTH_INVALID_CREDENTIALS` dice "El teléfono o la contraseña no son correctos"
+ * porque nació para el login, pero en "Cuenta y seguridad" no hay ningún teléfono en
+ * juego — ahí significa "la contraseña actual no es correcta". Es un override, no un
+ * cambio del mapa global: el mensaje del login sigue siendo el correcto para el login.
  */
-export function friendlyErrorMessage(err: unknown, fallback: string): string {
+export function friendlyErrorMessage(
+  err: unknown,
+  fallback: string,
+  overrides?: Partial<Record<ApiErrorCode, string>>,
+): string {
   if (!(err instanceof ApiError)) return fallback;
   if (err.statusCode === 0) return err.message;
-  return CODE_MESSAGES[err.code] ?? fallback;
+  return overrides?.[err.code] ?? CODE_MESSAGES[err.code] ?? fallback;
 }

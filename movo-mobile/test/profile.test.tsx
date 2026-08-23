@@ -35,6 +35,9 @@ function baseProfile(overrides: Partial<PrivateProfile> = {}): PrivateProfile {
     lastName: "Zurita",
     fullName: "Martina Zurita",
     email: "martina.zurita@gmail.com",
+    // MOVO-139: el backend ya devuelve este campo; la insignia/CTA de email verificado
+    // en la pantalla de perfil es alcance de MOVO-135.
+    emailVerified: false,
     phone: "+5491140238871",
     dni: "35123456",
     phoneVerified: true,

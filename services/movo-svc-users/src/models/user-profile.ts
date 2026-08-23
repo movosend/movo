@@ -40,6 +40,7 @@ export function toPrivateProfile(user: User): PrivateProfile {
     lastName: user.lastName,
     fullName: fullName(user),
     email: user.email,
+    emailVerified: user.emailVerified,
     phone: user.phone,
     dni: user.dni,
     phoneVerified: user.phoneVerified,

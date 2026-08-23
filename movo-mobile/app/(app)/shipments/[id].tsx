@@ -9,6 +9,7 @@ import { CounterpartCard } from "../../../components/shipments/counterpart-card"
 import { OffersBanner } from "../../../components/shipments/offers-banner";
 import { PackageCard } from "../../../components/shipments/package-card";
 import { ReceiverActionsBar } from "../../../components/shipments/receiver-actions-bar";
+import { SenderActionsBar } from "../../../components/shipments/sender-actions-bar";
 import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
 import { ShipmentStatusBadge } from "../../../components/shipments/status-badge";
 import { TimelineSection } from "../../../components/shipments/timeline-section";
@@ -20,6 +21,7 @@ import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
 import { useShipment } from "../../../src/hooks/use-shipments";
 import {
+  canCancelShipment,
   formatPickupDateLabel,
   formatShipmentPrice,
   receiverConfirmationStatus,
@@ -60,10 +62,11 @@ const TABS: [DetailTab, string][] = [
  * Design "Movo Mobile Main Views". A diferencia de la primera versión de este
  * ticket, se mantienen las tabs Detalles/Línea de tiempo del mock (la de línea de
  * tiempo ya consume el historial real de `GET /shipments/:id/events`, MOVO-128) y
- * el banner de ofertas (`OffersBanner`, siempre en estado vacío hasta MOVO-17). Sin
- * link de cancelar (MOVO-29 aparte). El mapa de ruta reusa `RouteMapCard` (mismo
- * componente animado del paso de resumen del wizard de envío, MOVO-83/123) en vez de
- * la card estática del mock.
+ * el banner de ofertas (`OffersBanner`, siempre en estado vacío hasta MOVO-17). El
+ * mapa de ruta reusa `RouteMapCard` (mismo componente animado del paso de resumen del
+ * wizard de envío, MOVO-83/123) en vez de la card estática del mock. El botón de
+ * cancelar del emisor (MOVO-29, `SenderActionsBar`) vive en el header, no al pie —
+ * ver su propia entrada en CLAUDE.md.
  */
 export default function ShipmentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -90,6 +93,9 @@ export default function ShipmentDetailScreen() {
     isReceiver &&
     shipment?.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION &&
     isDeadlineExpired;
+
+  const isSender = shipment !== undefined && currentUser?.userId === shipment.senderId;
+  const showSenderActions = isSender && shipment !== undefined && canCancelShipment(shipment.status);
 
   const pickupDateLabel = shipment ? formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate : null;
   // Banner de ofertas: solo tiene sentido mientras el envío sigue abierto a ofertas
@@ -136,6 +142,13 @@ export default function ShipmentDetailScreen() {
           ) : null}
         </View>
         {shipment ? <ShipmentStatusBadge status={shipment.status} /> : null}
+        {showSenderActions && shipment ? (
+          <SenderActionsBar
+            shipmentId={shipment.id}
+            onRefetch={() => refetch()}
+            testID="shipment-detail-sender-actions"
+          />
+        ) : null}
       </View>
 
       {isError || !shipment ? (

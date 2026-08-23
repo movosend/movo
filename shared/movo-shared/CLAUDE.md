@@ -43,3 +43,11 @@ pantalla de editar perfil lo muestra como dato de solo lectura junto al nombre.
   `emailVerified` ni columna equivalente en la DB — el sistema no tiene forma de verificar
   un email (sin `EmailProvider`, ver MOVO-133), y por eso el OTP del cambio de email viaja
   al teléfono. No construir una insignia de "email verificado" sobre este campo.
+
+### MOVO-139 — `PrivateProfile.emailVerified`
+
+Campo nuevo en el wire contract de `GET /users/me` (`src/types/user-profile.ts`): el
+email pasó a ser un dato verificado por OTP (`movo-svc-users`, ADR-017), no solo de
+contacto. Lo consume la pantalla de perfil del mobile para la insignia y el CTA de
+verificación (MOVO-135). Es obligatorio, no opcional: el backend siempre lo devuelve, y
+un `boolean | undefined` obligaría a cada consumidor a decidir qué significa la ausencia.

@@ -23,7 +23,13 @@ export interface EnvConfig {
   S3_BUCKET_NAME?: string;
   S3_REGION?: string;
   PUSH_PROVIDER: "mock" | "expo";
+  EMAIL_PROVIDER: "console" | "resend";
+  RESEND_API_KEY?: string;
+  EMAIL_FROM?: string;
   SHIPMENTS_SERVICE_URL: string;
+  ORPHAN_PHOTO_RETENTION_HOURS: number;
+  ORPHAN_PHOTO_SWEEP_INTERVAL_MINUTES: number;
+  ORPHAN_PHOTO_SWEEP_ENABLED?: boolean;
 }
 
 export const envSchema = {
@@ -83,10 +89,28 @@ export const envSchema = {
     // no requiere credenciales, así que no hay nada que `createPushNotificationProvider`
     // tenga que validar al arrancar con PUSH_PROVIDER=expo.
     PUSH_PROVIDER: { type: "string", enum: ["mock", "expo"], default: "mock" },
+    // MOVO-139 (ADR-017): default "console" (mismo criterio que SMS_PROVIDER) — loguea
+    // el mail en vez de mandarlo, así dev/test/CI no dependen de un dominio verificado
+    // en Resend ni consumen la cuota del free tier. La obligatoriedad de
+    // RESEND_API_KEY/EMAIL_FROM con EMAIL_PROVIDER=resend la valida createEmailProvider
+    // al arrancar, no este schema.
+    EMAIL_PROVIDER: { type: "string", enum: ["console", "resend"], default: "console" },
+    RESEND_API_KEY: { type: "string" },
+    EMAIL_FROM: { type: "string" },
     // MOVO-134: consultado por DELETE /users/me antes de aplicar una baja de cuenta --
     // primera llamada síncrona en sentido svc-users -> svc-shipments (mismo criterio
     // de default que USERS_SERVICE_URL en movo-svc-shipments, la dirección inversa).
     SHIPMENTS_SERVICE_URL: { type: "string", default: "http://movo-svc-shipments:3000" },
+    // MOVO-124: ventana desde el presign antes de considerar huérfana una key nunca
+    // confirmada (mismo criterio sugerido por el ticket). No se ata al TTL de la
+    // presigned URL (300s, solo acota el PUT) porque la confirmación puede demorar
+    // mucho más que la subida -- el cliente puede subir la foto y recién confirmar
+    // en una sesión posterior. Mismo criterio que movo-svc-shipments/src/config/env.ts.
+    ORPHAN_PHOTO_RETENTION_HOURS: { type: "number", default: 24 },
+    // MOVO-124: intervalo en minutos del barrido de fotos huérfanas.
+    ORPHAN_PHOTO_SWEEP_INTERVAL_MINUTES: { type: "number", default: 60 },
+    // MOVO-124: flag para habilitar/deshabilitar el barrido (útil en test/CI).
+    ORPHAN_PHOTO_SWEEP_ENABLED: { type: "boolean", default: true },
   },
 };
 

@@ -11,6 +11,50 @@ describe("usersClient", () => {
     globalThis.fetch = originalFetch;
   });
 
+  it("changePassword hace POST /users/me/password y devuelve la sesión nueva", async () => {
+    const session = {
+      userId: "u-1",
+      accessToken: "access-nuevo",
+      refreshToken: "refresh-nuevo",
+      expiresIn: 3600,
+      kycStatus: "approved",
+      fullName: "Juan Perez",
+      roles: ["sender"],
+    };
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: { post: jest.fn().mockResolvedValue(session) },
+    }));
+    const { usersClient } = require("../src/api/users-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    const res = await usersClient.changePassword({
+      currentPassword: "Password1",
+      newPassword: "Password2",
+    });
+
+    expect(httpClient.post).toHaveBeenCalledWith("/users/me/password", {
+      currentPassword: "Password1",
+      newPassword: "Password2",
+    });
+    // MOVO-134 devuelve el mismo shape que login: el caller está obligado a
+    // persistirlo (ver use-account-security.ts), no es un 204.
+    expect(res).toEqual(session);
+  });
+
+  it("deleteAccount hace DELETE /users/me con la contraseña en el body", async () => {
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: { delete: jest.fn().mockResolvedValue(undefined) },
+    }));
+    const { usersClient } = require("../src/api/users-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    await usersClient.deleteAccount("Password1");
+
+    // La contraseña va en el body de un DELETE (MOVO-134): confirmar una operación
+    // irreversible con el JWT solo no alcanza, y no puede viajar en la query string.
+    expect(httpClient.delete).toHaveBeenCalledWith("/users/me", { password: "Password1" });
+  });
+
   it("getMyProfile hace GET /users/me", async () => {
     jest.doMock("../src/api/http-client", () => ({
       httpClient: {
