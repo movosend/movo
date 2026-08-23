@@ -109,7 +109,8 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 | 014 | Google Maps como proveedor de geocoding para el paso de mapa del wizard de registro (MOVO-73), detrás de una interfaz `GeocodingProvider`; mock determinístico es el default de dev/test/CI, Google real vía `GEOCODING_PROVIDER=google` — primera implementación real de un servicio de Google Maps en el proyecto pese a que ADR-008/ADR-013 ya lo habían decidido para `movo-svc-pricing-logistics` (todavía un esqueleto) | Dos API keys de Google distintas a provisionar (Geocoding API server-side, restringida por IP; Maps SDK client-side del mobile, restringida por bundle id/SHA) — ninguna cargada todavía, mismo estado pendiente que las credenciales de Twilio/Didit |
 | 015 | Google Routes API (método `Compute Route Matrix`, tier Basic) reemplaza Distance Matrix API (ADR-008, declarada Legacy) — consumida desde `movo-svc-pricing-logistics` con cuota diaria dura en GCP y `GOOGLE_MAPS_MAX_ELEMENTS` como salvaguarda de costos | Tier Basic ($5/1.000 elem, sin tráfico en vivo/peajes); límite de 625 elementos por request y streaming |
 | 016 | Foto de perfil (MOVO-97, primera implementación real de ADR-007): bucket S3 con el prefijo `profile-photos/` de lectura pública (policy de bucket, resto privado) + key con UUID aleatorio, en vez de bucket 100% privado con presigned GET en cada lectura | `photo_url` queda como URL estable y cacheable por el cliente; a cambio, quien tenga la URL exacta ve la foto sin autenticarse — aceptado porque la foto ya es información pública por diseño (AC9 de MOVO-97, la usa la contraparte de un envío para reconocer a la persona) |
-| 017 | Precio sugerido de un envío (MOVO-82): contrato `POST /quote` en `movo-svc-pricing-logistics` con una implementación provisoria versionada explícitamente (`calculationMethod: euclidean_linear_v1` — distancia euclidiana + peso + factor de tipo de paquete, coeficientes en config), en vez de bloquear la creación de envíos hasta tener el motor real (demanda + combustible + Google Routes API) | Precio inexacto hasta que el motor real reemplace `euclidean_linear_v1`; el contrato ya queda versionado para ese reemplazo sin migrar a los consumidores (`movo-svc-shipments`, futuro wizard mobile de MOVO-83) |
+| 017 | Resend como proveedor de email (MOVO-139), detrás de una interfaz `EmailProvider` con el molde de ADR-012: implementación de consola como default de dev/test/CI, Resend real vía `EMAIL_PROVIDER=resend`. Elegido sobre AWS SES porque salir del sandbox de SES exige aprobación manual de AWS con tiempos impredecibles, y el free tier de Resend (3k mails/mes) cubre de sobra el TFG | Un proveedor externo más del que depender; el dominio de envío necesita SPF/DKIM propios (un `terraform apply` en `movo-infra`, el DNS ya se maneja por Cloudflare) y la cuenta queda sin verificar hasta la demo, igual que Twilio/Didit |
+| 018 | Precio sugerido de un envío (MOVO-82): contrato `POST /quote` en `movo-svc-pricing-logistics` con una implementación provisoria versionada explícitamente (`calculationMethod: euclidean_linear_v1` — distancia euclidiana + peso + factor de tipo de paquete, coeficientes en config), en vez de bloquear la creación de envíos hasta tener el motor real (demanda + combustible + Google Routes API) | Precio inexacto hasta que el motor real reemplace `euclidean_linear_v1`; el contrato ya queda versionado para ese reemplazo sin migrar a los consumidores (`movo-svc-shipments`, futuro wizard mobile de MOVO-83) |
 
 ## Convenciones de código
 
@@ -245,8 +246,15 @@ sección solo lista lo transversal (infra, credenciales, decisiones cross-servic
   (`DIDIT_MODE=live` + 5 vars, incluye `DIDIT_WORKFLOW_ID_LICENSE` de MOVO-15), Google
   Maps (server-side `GOOGLE_MAPS_API_KEY` compartida entre `svc-users`/futuros
   consumidores + `GOOGLE_MAPS_IOS/ANDROID_API_KEY` del mobile), Telegram bot
-  (`SMS_PROVIDER=telegram`, solo dev), `STORAGE_PROVIDER=s3` + bucket/region de MOVO-97.
+  (`SMS_PROVIDER=telegram`, solo dev), `STORAGE_PROVIDER=s3` + bucket/region de MOVO-97,
+  Resend (`EMAIL_PROVIDER=resend` + `RESEND_API_KEY`/`EMAIL_FROM`, ADR-017).
 - **Terraform de `movo-infra`**: bucket de fotos de perfil (MOVO-97/ADR-016) aplicado
-  en dev, `terraform apply` de prod pendiente.
+  en dev, `terraform apply` de prod pendiente. Pendiente también el dominio de envío de
+  mails (MOVO-139/ADR-017): el dominio `mail.movosend.app` ya está verificado en Resend
+  y con DKIM/SPF/MX de bounces resueltos, pero **falta el registro DMARC**
+  (`_dmarc.movosend.app`, arrancar en `p=none`) — su ausencia es lo que manda los mails
+  a no deseados en Outlook. Falta además portar a Terraform los registros que se
+  cargaron a mano en Cloudflare, y (opcional) un prefijo `brand/*` público en el bucket
+  de dev si se quiere usar el PNG del logo en los mails.
 - **ADRs con desarrollo completo pendiente de pegar en Drive** (solo tienen el resumen
-  de una línea en la tabla de arriba): 012, 013, 014, 015, 016, 017.
+  de una línea en la tabla de arriba): 012, 013, 014, 015, 016, 017, 018.

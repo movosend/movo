@@ -89,24 +89,26 @@ export function createPricingClient(config: PricingClientConfig): PricingClient 
         urgent: input.urgent ?? false,
       };
 
-      let response: Response;
+      let data: QuoteResponse;
       try {
-        response = await fetch(`${config.PRICING_SERVICE_URL}/quote`, {
+        const response = await fetch(`${config.PRICING_SERVICE_URL}/quote`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(request),
           signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
+
+        if (!response.ok) {
+          return NO_QUOTE;
+        }
+
+        data = (await response.json()) as QuoteResponse;
       } catch {
-        // Red caída o timeout -- mismo criterio de fallback que una respuesta no-ok.
+        // Red caída, timeout, o body que no parsea como JSON -- mismo criterio de
+        // fallback que una respuesta no-ok.
         return NO_QUOTE;
       }
 
-      if (!response.ok) {
-        return NO_QUOTE;
-      }
-
-      const data = (await response.json()) as QuoteResponse;
       return { suggestedPriceArs: data.suggestedPriceArs, calculationMethod: data.calculationMethod };
     },
   };

@@ -3,6 +3,7 @@ import { FastifyInstance } from "fastify";
 import jwt from "jsonwebtoken";
 import { buildApp } from "../src/app";
 import { SmsProvider } from "../src/adapters/sms-provider";
+import { EmailProvider } from "../src/adapters/email-provider";
 
 function createCaptorSmsProvider() {
   const sentCodes = new Map<string, string>();
@@ -15,6 +16,10 @@ function createCaptorSmsProvider() {
   };
   return { provider, sentCodes, sendCalls };
 }
+
+/** MOVO-139: esta suite solo ejercita OTPs de canal SMS -- el proveedor de email
+ * existe únicamente porque `createOtpService` exige los dos canales (ver su docstring). */
+const noopEmailProvider: EmailProvider = { async send(): Promise<void> {} };
 
 describe("OTP endpoints (send-otp / verify-otp / resend-otp)", () => {
   let app: FastifyInstance;
@@ -305,7 +310,7 @@ describe("OTP endpoints (send-otp / verify-otp / resend-otp)", () => {
       const { createPhoneVerificationService } = await import("../src/modules/auth/phone-verification.service");
 
       const service = createPhoneVerificationService(
-        createOtpService(createOtpRepository(app.redis), captor.provider),
+        createOtpService(createOtpRepository(app.redis), { sms: captor.provider, email: noopEmailProvider }),
         app.redis,
         "test-secret"
       );
@@ -327,7 +332,7 @@ describe("OTP endpoints (send-otp / verify-otp / resend-otp)", () => {
       const { createOtpService } = await import("../src/services/otp-service");
       const { createPhoneVerificationService } = await import("../src/modules/auth/phone-verification.service");
       const service = createPhoneVerificationService(
-        createOtpService(createOtpRepository(app.redis), captor.provider),
+        createOtpService(createOtpRepository(app.redis), { sms: captor.provider, email: noopEmailProvider }),
         app.redis,
         "test-secret"
       );
@@ -348,7 +353,7 @@ describe("OTP endpoints (send-otp / verify-otp / resend-otp)", () => {
       const { createOtpService } = await import("../src/services/otp-service");
       const { createPhoneVerificationService } = await import("../src/modules/auth/phone-verification.service");
       const service = createPhoneVerificationService(
-        createOtpService(createOtpRepository(app.redis), captor.provider),
+        createOtpService(createOtpRepository(app.redis), { sms: captor.provider, email: noopEmailProvider }),
         app.redis,
         "test-secret"
       );
@@ -367,7 +372,7 @@ describe("OTP endpoints (send-otp / verify-otp / resend-otp)", () => {
       const { createOtpService } = await import("../src/services/otp-service");
       const { createPhoneVerificationService } = await import("../src/modules/auth/phone-verification.service");
       const service = createPhoneVerificationService(
-        createOtpService(createOtpRepository(app.redis), captor.provider),
+        createOtpService(createOtpRepository(app.redis), { sms: captor.provider, email: noopEmailProvider }),
         app.redis,
         "test-secret"
       );

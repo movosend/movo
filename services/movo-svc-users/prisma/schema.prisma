@@ -95,6 +95,11 @@ model User {
   passwordHash      String        @map("password_hash")
   dni               String?
   phoneVerified     Boolean       @default(false) @map("phone_verified")
+  // MOVO-139: el email pasa a ser un dato verificado (precondición de MOVO-64,
+  // recuperación de contraseña por email) y no solo un dato de contacto.
+  // `emailVerifiedAt` existe para auditoría -- nunca se lee para decidir nada.
+  emailVerified     Boolean       @default(false) @map("email_verified")
+  emailVerifiedAt   DateTime?     @map("email_verified_at") @db.Timestamptz
   photoUrl          String?       @map("photo_url")
   kycStatusIdentity KycStatus     @default(not_started) @map("kyc_status_identity")
   kycStatusLicense  KycStatus     @default(not_started) @map("kyc_status_license")

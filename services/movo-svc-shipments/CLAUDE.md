@@ -402,7 +402,7 @@ try/catch + `logger?.warn` que ya usaban `acceptShipment`/`rejectShipment`/
 para no romper la firma `(repository, usersClient, notificationsClient?, logger?, opts)`
 que ya usaban `acceptShipment`/`rejectShipment`/el barrido de MOVO-130.
 
-### MOVO-82 — Precio sugerido vía `movo-svc-pricing-logistics` (ADR-017)
+### MOVO-82 — Precio sugerido vía `movo-svc-pricing-logistics` (ADR-018)
 
 Reemplaza el placeholder inline de MOVO-80 (`computePlaceholderPrice`/fórmula
 hardcodeada en `shipments.service.ts`, eliminado): `createShipment` ahora pide el

@@ -43,3 +43,10 @@ mandan SMS reales por Twilio (ADR-012) y el cooldown de `otpService.generateOtp(
 autenticada podía disparar del orden de 200 SMS/min variando el teléfono en cada
 request bajo el límite general. Detalle completo en
 `services/movo-svc-users/CLAUDE.md` (MOVO-133, fixes de review).
+
+### MOVO-139 — Rate limit para la verificación de email
+
+`getRateLimitOverrides()` suma `POST /users/me/email/verify/otp` (5/15min), alineado
+con los dos endpoints de cambio de arriba -- ahora manda mails reales por Resend
+(ADR-017): la cuota del free tier y la reputación del dominio son el recurso a
+proteger. Detalle completo en `services/movo-svc-users/CLAUDE.md` (MOVO-139).

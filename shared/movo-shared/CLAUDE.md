@@ -24,6 +24,14 @@ interno del backend. El backend (`services/movo-svc-users/src/models/address.ts`
 se migró a importar este tipo — fuera de alcance de MOVO-121 (mobile-only), su modelo
 local ya coincide estructuralmente.
 
+### MOVO-139 — `PrivateProfile.emailVerified`
+
+Campo nuevo en el wire contract de `GET /users/me` (`src/types/user-profile.ts`): el
+email pasó a ser un dato verificado por OTP (`movo-svc-users`, ADR-017), no solo de
+contacto. Lo consume la pantalla de perfil del mobile para la insignia y el CTA de
+verificación (MOVO-135). Es obligatorio, no opcional: el backend siempre lo devuelve, y
+un `boolean | undefined` obligaría a cada consumidor a decidir qué significa la ausencia.
+
 ### MOVO-82 — `QuoteRequest`/`QuoteResponse`/`PriceCalculationMethod`
 
 `src/types/pricing.ts` — wire contract de `POST /quote`

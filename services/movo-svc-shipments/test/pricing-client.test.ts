@@ -92,4 +92,17 @@ describe("PricingClient", () => {
 
     expect(result).toEqual({ suggestedPriceArs: null, calculationMethod: null });
   });
+
+  it("AC6: devuelve el fallback (no lanza) si la respuesta es 200 pero el body no parsea como JSON", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.reject(new SyntaxError("Unexpected token in JSON")),
+    });
+    globalThis.fetch = fetchMock;
+
+    const client = createPricingClient({ PRICING_SERVICE_URL: "http://movo-svc-pricing-logistics:8000" });
+    const result = await client.getQuote(completeInput);
+
+    expect(result).toEqual({ suggestedPriceArs: null, calculationMethod: null });
+  });
 });

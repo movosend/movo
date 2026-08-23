@@ -15,7 +15,7 @@ OR-Tools/Google Maps). Cache de la solución del feed (0 llamados extra al acept
 oferta). SLA <50ms para 20 envíos, fallback greedy determinístico <0.2ms. Motivó
 ADR-013 (Routes API sobre Distance Matrix).
 
-### MOVO-82 — `POST /quote`: contrato de precio sugerido, implementación provisoria (ADR-017)
+### MOVO-82 — `POST /quote`: contrato de precio sugerido, implementación provisoria (ADR-018)
 
 Primer endpoint de negocio real del servicio (hasta acá solo `GET /health`) y primer
 contacto real del equipo con FastAPI. Reestructurado a `app/{config,models,services,
@@ -63,5 +63,5 @@ a mano — más 1 caso de validación 422). 100% de cobertura sobre `main.py`+`a
 Pendiente / fuera de alcance: el motor real (demanda + precio de combustible +
 Google Routes API, VRPTW en producción) sigue sin implementar — hueco de backlog
 señalado explícitamente por el propio ticket MOVO-82, cubierto ahora por MOVO-138
-(sin refinar todavía). ADR-017 (resumen en `CLAUDE.md` raíz) pendiente de pegar
+(sin refinar todavía). ADR-018 (resumen en `CLAUDE.md` raíz) pendiente de pegar
 completo en Drive.
