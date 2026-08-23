@@ -5,12 +5,16 @@ import { authSchemas } from "./auth.schema";
 import { createOtpRepository } from "../../repositories/otp-repository";
 import { createOtpService } from "../../services/otp-service";
 import { createSmsProvider, SmsProvider } from "../../adapters/sms-provider";
+import { createEmailProvider, EmailProvider } from "../../adapters/email-provider";
 import { createPhoneVerificationService } from "./phone-verification.service";
 
 export interface AuthRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests — evita depender de logs de consola para leer el código
    * generado, ya que el código nunca sale por HTTP (DoD de MOVO-71). */
   smsProvider?: SmsProvider;
+  /** Override solo para tests — mismo criterio que `smsProvider` (MOVO-139).
+   * `POST /auth/resend-otp` es genérica: puede tocarle reenviar un OTP de canal email. */
+  emailProvider?: EmailProvider;
 }
 
 interface SendOtpBody {
@@ -32,8 +36,9 @@ interface RefreshBody {
 
 export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesOptions) {
   const smsProvider = opts.smsProvider ?? createSmsProvider(app.config);
+  const emailProvider = opts.emailProvider ?? createEmailProvider(app.config);
   const otpRepository = createOtpRepository(app.redis);
-  const otpService = createOtpService(otpRepository, smsProvider);
+  const otpService = createOtpService(otpRepository, { sms: smsProvider, email: emailProvider });
   const phoneVerificationService = createPhoneVerificationService(otpService, app.redis, app.config.JWT_SECRET);
 
   const service = createAuthService(app.db, app.redis, phoneVerificationService);

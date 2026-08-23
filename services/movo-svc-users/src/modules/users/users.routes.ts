@@ -6,6 +6,7 @@ import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
 import { createShipmentsClient, ShipmentsClient } from "../../adapters/shipments-client";
 import { createSmsProvider, SmsProvider } from "../../adapters/sms-provider";
+import { createEmailProvider, EmailProvider } from "../../adapters/email-provider";
 import { createOtpRepository } from "../../repositories/otp-repository";
 import { createOtpService } from "../../services/otp-service";
 
@@ -19,21 +20,26 @@ export interface UsersRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — mismo criterio que `auth.routes.ts`
    * (MOVO-133 reusa el motor de OTP para el cambio de teléfono/email). */
   smsProvider?: SmsProvider;
+  /** Override solo para tests de integración — mismo criterio que `smsProvider`
+   * (MOVO-139: el OTP de email y el aviso al email anterior salen por este proveedor). */
+  emailProvider?: EmailProvider;
 }
 
 export default async function usersRoutes(app: FastifyInstance, opts: UsersRoutesOptions) {
   const storageProvider = opts.storageProvider ?? createStorageProvider(app.config);
   const shipmentsClient = opts.shipmentsClient ?? createShipmentsClient(app.config);
   const smsProvider = opts.smsProvider ?? createSmsProvider(app.config);
+  const emailProvider = opts.emailProvider ?? createEmailProvider(app.config);
   const otpRepository = createOtpRepository(app.redis);
-  const otpService = createOtpService(otpRepository, smsProvider);
+  const otpService = createOtpService(otpRepository, { sms: smsProvider, email: emailProvider });
   const service = createUsersService(
     app.db,
     storageProvider,
     app.log,
     app.redis,
     shipmentsClient,
-    otpService
+    otpService,
+    emailProvider
   );
 
   app.get(
@@ -235,16 +241,69 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
   );
 
   app.post(
+    "/me/email/verify/otp",
+    {
+      schema: {
+        summary: "Verificar el email actual (paso 1: OTP al email de la cuenta)",
+        description:
+          "MOVO-139: manda un código a la dirección que la cuenta YA tiene, para " +
+          "probar que le pertenece. Sin body. 400 si el email ya está verificado. " +
+          "Reenvío: POST /auth/resend-otp con el mismo otpId. Rate limit propio en el " +
+          "gateway (5/15min), igual que los dos endpoints de cambio.",
+        tags: ["users"],
+        response: {
+          200: usersSchemas.otpRequestResponse,
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      return service.requestEmailVerification(userId);
+    },
+  );
+
+  app.post(
+    "/me/email/verify/confirm",
+    {
+      schema: {
+        summary: "Verificar el email actual (paso 2: confirmar OTP)",
+        description:
+          "MOVO-139: el target del OTP ES el email de la cuenta, así que verificarlo " +
+          "prueba propiedad. Persiste emailVerified=true (+ email_verified_at, solo " +
+          "auditoría) y devuelve el PrivateProfile actualizado. No cambia el email. " +
+          "401 AUTH_OTP_INVALID ante código malo/reusado, 422 AUTH_OTP_EXPIRED si venció.",
+        tags: ["users"],
+        body: usersSchemas.otpVerifyBody,
+        response: {
+          200: usersSchemas.privateProfileResponse,
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+          422: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      const { otpId, code } = request.body as { otpId: string; code: string };
+      return service.confirmEmailVerification(userId, otpId, code);
+    },
+  );
+
+  app.post(
     "/me/email/change/otp",
     {
       schema: {
-        summary: "Solicitar cambio de email (paso 1: OTP al teléfono actual)",
+        summary: "Solicitar cambio de email (paso 1: OTP al email nuevo)",
         description:
-          "Decisión de refinamiento de MOVO-133: sin EmailProvider en el proyecto, " +
-          "se verifica la identidad del dueño de la cuenta mandando el OTP a su " +
-          "teléfono YA verificado, no al email nuevo (que sería lo literal del AC " +
-          "original). 409 EMAIL_ALREADY_IN_USE si el email ya pertenece a otra " +
-          "cuenta (chequeo case-insensitive), 400 si es el mismo que ya tiene.",
+          "MOVO-139: el OTP va al email NUEVO (prueba de propiedad), corrigiendo la " +
+          "decisión de refinamiento de MOVO-133 -- que lo mandaba al teléfono actual " +
+          "por no haber ningún EmailProvider en el proyecto. 409 EMAIL_ALREADY_IN_USE " +
+          "si el email ya pertenece a otra cuenta (chequeo case-insensitive), 400 si " +
+          "es el mismo que ya tiene.",
         tags: ["users"],
         body: usersSchemas.emailChangeOtpBody,
         response: {
@@ -269,11 +328,12 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
       schema: {
         summary: "Confirmar cambio de email (paso 2: verificar OTP)",
         description:
-          "MOVO-133: el target del OTP es el teléfono actual, no el email nuevo -- " +
-          "verificarlo prueba que quien pide el cambio sigue teniendo acceso a la " +
-          "cuenta. El email pendiente viaja como metadata del propio OTP (comparte " +
-          "TTL/rotación/invalidación con él) y se persiste recién acá. No revoca " +
-          "sesiones (el email no es credencial de sesión, a diferencia de la " +
+          "MOVO-139: el target del OTP ES el email nuevo -- verificarlo prueba " +
+          "propiedad, y por eso email + emailVerified=true se persisten en el mismo " +
+          "UPDATE. El email pendiente viaja como metadata del propio OTP (comparte " +
+          "TTL/rotación/invalidación con él). Dispara un aviso al email ANTERIOR " +
+          "(best-effort: un fallo de envío no revierte el cambio ya persistido). No " +
+          "revoca sesiones (el email no es credencial de sesión, a diferencia de la " +
           "contraseña -- ver ticket hermano MOVO-134).",
         tags: ["users"],
         body: usersSchemas.otpVerifyBody,

@@ -6,6 +6,7 @@ import { buildApp } from "../src/app";
 import { createUserRepository, UserRepository } from "../src/repositories/user-repository";
 import { CreateUserInput } from "../src/models/user";
 import { SmsProvider } from "../src/adapters/sms-provider";
+import { EmailBody, EmailProvider } from "../src/adapters/email-provider";
 
 function createCaptorSmsProvider() {
   const sentCodes = new Map<string, string>();
@@ -17,17 +18,37 @@ function createCaptorSmsProvider() {
   return { provider, sentCodes };
 }
 
+/** MOVO-139: mismo patrón que el captor de SMS -- el código nunca sale por HTTP, así
+ * que los tests lo leen del mail que habría salido. `messages` guarda todo lo enviado
+ * (incluido el aviso al email anterior, que no lleva código). */
+function createCaptorEmailProvider() {
+  const sentCodes = new Map<string, string>();
+  const messages: { to: string; subject: string; body: EmailBody }[] = [];
+  const provider: EmailProvider = {
+    async send(to: string, subject: string, body: EmailBody): Promise<void> {
+      messages.push({ to, subject, body });
+      const match = body.text.match(/\b(\d{6})\b/);
+      if (match?.[1]) {
+        sentCodes.set(to, match[1]);
+      }
+    },
+  };
+  return { provider, sentCodes, messages };
+}
+
 describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", () => {
   let app: FastifyInstance;
   let repo: UserRepository;
   let captor: ReturnType<typeof createCaptorSmsProvider>;
+  let emailCaptor: ReturnType<typeof createCaptorEmailProvider>;
 
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
     process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo_local_pw@localhost:5432/movo";
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
     captor = createCaptorSmsProvider();
-    app = buildApp({ smsProvider: captor.provider });
+    emailCaptor = createCaptorEmailProvider();
+    app = buildApp({ smsProvider: captor.provider, emailProvider: emailCaptor.provider });
     await app.ready();
     repo = createUserRepository(app.db);
   });
@@ -39,6 +60,8 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
   beforeEach(async () => {
     await app.db.$executeRawUnsafe("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
     captor.sentCodes.clear();
+    emailCaptor.sentCodes.clear();
+    emailCaptor.messages.length = 0;
 
     let cursor = "0";
     do {
@@ -392,14 +415,16 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
       return { response, body: JSON.parse(response.body) };
     }
 
-    it("verifica el OTP al teléfono ACTUAL (no al email nuevo) y persiste el email pendiente", async () => {
+    it("MOVO-139 AC4: verifica el OTP mandado al email NUEVO y persiste email + emailVerified juntos", async () => {
       const user = await repo.create(buildInput());
       const newEmail = `nuevo-${randomUUID()}@movo.test`;
 
       const { response: otpResponse, body: otpBody } = await requestEmailChange(user.id, newEmail);
       expect(otpResponse.statusCode).toBe(200);
 
-      const code = captor.sentCodes.get(user.phone);
+      // El código va al email nuevo, no al teléfono actual (corrección de MOVO-133).
+      expect(captor.sentCodes.get(user.phone)).toBeUndefined();
+      const code = emailCaptor.sentCodes.get(newEmail);
       expect(code).toMatch(/^\d{6}$/);
 
       const reloadedBeforeVerify = await repo.findById(user.id);
@@ -415,6 +440,65 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
       expect(verifyResponse.statusCode).toBe(200);
       const body = JSON.parse(verifyResponse.body);
       expect(body.email).toBe(newEmail);
+      expect(body.emailVerified).toBe(true);
+
+      const reloaded = await repo.findById(user.id);
+      expect(reloaded?.email).toBe(newEmail);
+      expect(reloaded?.emailVerified).toBe(true);
+      expect(reloaded?.emailVerifiedAt).toBeInstanceOf(Date);
+    });
+
+    it("MOVO-139 AC5: el cambio dispara un aviso al email ANTERIOR", async () => {
+      const user = await repo.create(buildInput());
+      const previousEmail = user.email;
+      const newEmail = `nuevo-${randomUUID()}@movo.test`;
+
+      const { body: otpBody } = await requestEmailChange(user.id, newEmail);
+      const code = emailCaptor.sentCodes.get(newEmail)!;
+
+      const verifyResponse = await app.inject({
+        method: "POST",
+        url: "/users/me/email/change/verify",
+        headers: { "x-user-id": user.id },
+        payload: { otpId: otpBody.otpId, code },
+      });
+      expect(verifyResponse.statusCode).toBe(200);
+
+      const notice = emailCaptor.messages.find((m) => m.to === previousEmail);
+      expect(notice).toBeDefined();
+      expect(notice!.subject).toMatch(/email/i);
+      // La dirección nueva viaja enmascarada: el aviso va a una casilla que ya no
+      // pertenece a la cuenta.
+      expect(notice!.body.text).not.toContain(newEmail);
+    });
+
+    it("MOVO-139: un fallo al notificar al email anterior no revierte el cambio ya persistido", async () => {
+      const user = await repo.create(buildInput());
+      const previousEmail = user.email;
+      const newEmail = `nuevo-${randomUUID()}@movo.test`;
+
+      const { body: otpBody } = await requestEmailChange(user.id, newEmail);
+      const code = emailCaptor.sentCodes.get(newEmail)!;
+
+      const originalSend = emailCaptor.provider.send;
+      emailCaptor.provider.send = async (to, subject, body) => {
+        if (to === previousEmail) {
+          throw new Error("Resend caído");
+        }
+        await originalSend(to, subject, body);
+      };
+
+      try {
+        const verifyResponse = await app.inject({
+          method: "POST",
+          url: "/users/me/email/change/verify",
+          headers: { "x-user-id": user.id },
+          payload: { otpId: otpBody.otpId, code },
+        });
+        expect(verifyResponse.statusCode).toBe(200);
+      } finally {
+        emailCaptor.provider.send = originalSend;
+      }
 
       const reloaded = await repo.findById(user.id);
       expect(reloaded?.email).toBe(newEmail);
@@ -438,8 +522,11 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
       const resend = await app.inject({ method: "POST", url: "/auth/resend-otp", payload: { otpId: otpBody.otpId } });
       expect(resend.statusCode).toBe(200);
 
-      const resentCode = captor.sentCodes.get(user.phone)!;
+      // AC7 de MOVO-139: el reenvío sale por el canal persistido en el registro
+      // (email), no por SMS -- `resendOtp` solo recibe el otpId.
+      const resentCode = emailCaptor.sentCodes.get(newEmail)!;
       expect(resentCode).toMatch(/^\d{6}$/);
+      expect(captor.sentCodes.get(user.phone)).toBeUndefined();
 
       const verifyResponse = await app.inject({
         method: "POST",
@@ -475,7 +562,7 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
       const contestedEmail = `contested-${randomUUID()}@movo.test`;
 
       const { body: otpBody } = await requestEmailChange(user.id, contestedEmail);
-      const code = captor.sentCodes.get(user.phone);
+      const code = emailCaptor.sentCodes.get(contestedEmail);
 
       await repo.updateEmail(other.id, contestedEmail);
 
@@ -495,7 +582,7 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
       const newEmail = `nuevo-${randomUUID()}@movo.test`;
 
       const { body: otpBody } = await requestEmailChange(user.id, newEmail);
-      const code = captor.sentCodes.get(user.phone)!;
+      const code = emailCaptor.sentCodes.get(newEmail)!;
       const wrongCode = code === "000000" ? "111111" : "000000";
 
       const response = await app.inject({
@@ -514,7 +601,7 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
       const newEmail = `nuevo-${randomUUID()}@movo.test`;
 
       const { body: otpBody } = await requestEmailChange(user.id, newEmail);
-      const code = captor.sentCodes.get(user.phone)!;
+      const code = emailCaptor.sentCodes.get(newEmail)!;
 
       const first = await app.inject({
         method: "POST",
@@ -570,8 +657,8 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
 
   describe("Namespacing de OTP por flujo (MOVO-133, fix de review sobre PR #91)", () => {
     it("un OTP real de cambio de email no sirve para confirmar un cambio de teléfono (ni al revés)", async () => {
-      // Escenario de tmvergara: el usuario arranca un cambio de email (OTP al
-      // teléfono actual) y, por confusión de pantalla/reintento del cliente, ese
+      // Escenario de tmvergara: el usuario arranca un cambio de email (OTP al email
+      // nuevo desde MOVO-139) y, por confusión de pantalla/reintento del cliente, ese
       // otpId+code termina posteado contra /me/phone/change/verify. Antes de este fix,
       // el endpoint aceptaba cualquier OTP válido sin chequear para qué flujo se
       // emitió -- "cambiaba" el teléfono al mismo que la cuenta ya tenía y consumía en
@@ -586,7 +673,7 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
         payload: { email: newEmail },
       });
       const emailOtpBody = JSON.parse(emailOtpResponse.body);
-      const code = captor.sentCodes.get(user.phone)!;
+      const code = emailCaptor.sentCodes.get(newEmail)!;
 
       const misroutedVerify = await app.inject({
         method: "POST",

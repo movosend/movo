@@ -4,6 +4,23 @@ import { randomUUID } from "node:crypto";
 export const OTP_TTL_SECONDS = 600; // 10 min (AC2)
 export const OTP_MAX_ATTEMPTS = 5; // AC4
 
+/**
+ * MOVO-139: canal por el que se entregó el OTP. Se persiste en el propio registro
+ * porque `resendOtp(otpId)` solo recibe el otpId -- sin esto, el reenvío no tiene
+ * forma de saber si el `target` es un teléfono o un email (AC7). Mismo razonamiento
+ * por el que MOVO-133 metió `flow` en el hash.
+ */
+export type OtpChannel = "sms" | "email";
+
+/** Registros creados antes de MOVO-139 no tienen el campo `channel` en Redis. Mientras
+ * queden vivos (TTL de 10 min desde el deploy) se los trata como SMS, que es lo único
+ * que existía. */
+const DEFAULT_OTP_CHANNEL: OtpChannel = "sms";
+
+function parseChannel(raw: string | undefined): OtpChannel {
+  return raw === "email" ? "email" : DEFAULT_OTP_CHANNEL;
+}
+
 export interface OtpRecord {
   otpId: string;
   target: string;
@@ -18,6 +35,8 @@ export interface OtpRecord {
    * distintos sobre el mismo target se pisaban entre sí (ver `meta`/CLAUDE.md).
    */
   flow: string;
+  /** MOVO-139: canal de entrega del código (ver `OtpChannel`). */
+  channel: OtpChannel;
   /**
    * Metadata arbitraria atada al mismo hash que el OTP -- comparte su TTL, rotación
    * (`rotateCode`) e invalidación (`invalidate`) por construcción, así que no puede
@@ -31,7 +50,13 @@ export interface OtpRecord {
 
 export interface OtpRepository {
   /** Invalida cualquier OTP previamente activo para `(flow, target)` y crea uno nuevo. TTL fresco en ambas keys. */
-  create(flow: string, target: string, codeHash: string, meta?: Record<string, string>): Promise<{ otpId: string }>;
+  create(
+    flow: string,
+    target: string,
+    codeHash: string,
+    channel: OtpChannel,
+    meta?: Record<string, string>
+  ): Promise<{ otpId: string }>;
   findById(otpId: string): Promise<OtpRecord | null>;
   findActiveIdByTarget(flow: string, target: string): Promise<string | null>;
   /** Código nuevo bajo el mismo otpId: resetea attempts a 0 y refresca el TTL. No-op si otpId no existe. */
@@ -89,7 +114,13 @@ export function createOtpRepository(redis: Redis): OtpRepository {
   const targetKey = (flow: string, target: string): string => `otp:target:${flow}:${target}`;
 
   return {
-    async create(flow: string, target: string, codeHash: string, meta: Record<string, string> = {}): Promise<{ otpId: string }> {
+    async create(
+      flow: string,
+      target: string,
+      codeHash: string,
+      channel: OtpChannel,
+      meta: Record<string, string> = {}
+    ): Promise<{ otpId: string }> {
       if (!isValidId(flow)) {
         throw new Error("flow is required and cannot contain colons");
       }
@@ -116,6 +147,7 @@ export function createOtpRepository(redis: Redis): OtpRepository {
         attempts: 0,
         lastSentAt: now,
         flow,
+        channel,
         meta: JSON.stringify(meta),
       });
       await redis.expire(otpKey(otpId), OTP_TTL_SECONDS);
@@ -142,6 +174,7 @@ export function createOtpRepository(redis: Redis): OtpRepository {
         attempts: Number(data.attempts),
         lastSentAt: Number(data.lastSentAt),
         flow: data.flow,
+        channel: parseChannel(data.channel),
         meta: parseMeta(data.meta),
       };
     },

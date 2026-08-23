@@ -36,7 +36,7 @@ describe("Otp Repository (Redis)", () => {
 
   it("crea un OTP con TTL de ~600s en la key primaria y en el índice por (flow, target)", async () => {
     const target = "+5493511111111";
-    const { otpId } = await otpRepo.create(FLOW, target, "hash-abc");
+    const { otpId } = await otpRepo.create(FLOW, target, "hash-abc", "sms");
 
     const record = await otpRepo.findById(otpId);
     expect(record).toMatchObject({ otpId, target, codeHash: "hash-abc", attempts: 0, flow: FLOW, meta: {} });
@@ -49,12 +49,23 @@ describe("Otp Repository (Redis)", () => {
     expect(indexTtl).toBeLessThanOrEqual(OTP_TTL_SECONDS);
   });
 
+  it("MOVO-139: persiste el canal y lo devuelve en el registro; un registro sin canal (previo a MOVO-139) se lee como sms", async () => {
+    const emailTarget = "verificar@movo.test";
+    const { otpId } = await otpRepo.create(FLOW, emailTarget, "hash-email", "email");
+    expect((await otpRepo.findById(otpId))?.channel).toBe("email");
+
+    // Registro "viejo": el campo `channel` no existe en el hash. `resendOtp` tiene que
+    // poder seguir mandándolo por SMS, que es lo único que había antes.
+    await redis.hdel(`otp:${otpId}`, "channel");
+    expect((await otpRepo.findById(otpId))?.channel).toBe("sms");
+  });
+
   it("nunca persiste el código en claro — solo el hash pasado por el caller", async () => {
     const target = "+5493511111112";
     const plainCode = "482913";
     const codeHash = `hashed(${plainCode})`; // el hasheo real es responsabilidad de otp-service
 
-    const { otpId } = await otpRepo.create(FLOW, target, codeHash);
+    const { otpId } = await otpRepo.create(FLOW, target, codeHash, "sms");
     const record = await otpRepo.findById(otpId);
 
     expect(record?.codeHash).not.toBe(plainCode);
@@ -63,7 +74,7 @@ describe("Otp Repository (Redis)", () => {
 
   it("guarda y devuelve la metadata pasada a create()", async () => {
     const target = "+5493511111150";
-    const { otpId } = await otpRepo.create(FLOW, target, "hash-meta", { userId: "user-1", pendingEmail: "a@movo.test" });
+    const { otpId } = await otpRepo.create(FLOW, target, "hash-meta", "sms", { userId: "user-1", pendingEmail: "a@movo.test" });
 
     const record = await otpRepo.findById(otpId);
     expect(record?.meta).toEqual({ userId: "user-1", pendingEmail: "a@movo.test" });
@@ -71,8 +82,8 @@ describe("Otp Repository (Redis)", () => {
 
   it("un segundo create() para el mismo (flow, target) invalida el otpId anterior (un solo OTP activo por par)", async () => {
     const target = "+5493511111113";
-    const first = await otpRepo.create(FLOW, target, "hash-1");
-    const second = await otpRepo.create(FLOW, target, "hash-2");
+    const first = await otpRepo.create(FLOW, target, "hash-1", "sms");
+    const second = await otpRepo.create(FLOW, target, "hash-2", "sms");
 
     expect(second.otpId).not.toBe(first.otpId);
     expect(await otpRepo.findById(first.otpId)).toBeNull();
@@ -82,8 +93,8 @@ describe("Otp Repository (Redis)", () => {
 
   it("dos flujos distintos sobre el MISMO target no se pisan entre sí (MOVO-133, review de tmvergara)", async () => {
     const target = "+5493511111160";
-    const flowA = await otpRepo.create("flow-a", target, "hash-a");
-    const flowB = await otpRepo.create("flow-b", target, "hash-b");
+    const flowA = await otpRepo.create("flow-a", target, "hash-a", "sms");
+    const flowB = await otpRepo.create("flow-b", target, "hash-b", "sms");
 
     // Crear el OTP de flow-b no debe haber invalidado el de flow-a -- antes del
     // namespacing por flujo, ambos compartían la misma key de índice `otp:target:*`.
@@ -103,7 +114,7 @@ describe("Otp Repository (Redis)", () => {
 
   it("rotateCode reemplaza el hash, resetea attempts a 0 y refresca el TTL", async () => {
     const target = "+5493511111114";
-    const { otpId } = await otpRepo.create(FLOW, target, "hash-old");
+    const { otpId } = await otpRepo.create(FLOW, target, "hash-old", "sms");
 
     await otpRepo.incrementAttempts(otpId);
     await otpRepo.incrementAttempts(otpId);
@@ -131,7 +142,7 @@ describe("Otp Repository (Redis)", () => {
   });
 
   it("incrementAttempts incrementa atómicamente en llamadas sucesivas", async () => {
-    const { otpId } = await otpRepo.create(FLOW, "+5493511111115", "hash-x");
+    const { otpId } = await otpRepo.create(FLOW, "+5493511111115", "hash-x", "sms");
 
     expect(await otpRepo.incrementAttempts(otpId)).toBe(1);
     expect(await otpRepo.incrementAttempts(otpId)).toBe(2);
@@ -148,7 +159,7 @@ describe("Otp Repository (Redis)", () => {
 
   it("invalidate borra la key primaria y el índice por (flow, target) juntos, y es idempotente", async () => {
     const target = "+5493511111116";
-    const { otpId } = await otpRepo.create(FLOW, target, "hash-y");
+    const { otpId } = await otpRepo.create(FLOW, target, "hash-y", "sms");
 
     await otpRepo.invalidate(otpId);
 
@@ -160,7 +171,7 @@ describe("Otp Repository (Redis)", () => {
 
   it("un otpId con ':' se trata como no encontrado, nunca colisiona con otp:target:*", async () => {
     const target = "+5493511111117";
-    await otpRepo.create(FLOW, target, "hash-z");
+    await otpRepo.create(FLOW, target, "hash-z", "sms");
 
     const maliciousId = `target:${target}`;
     expect(await otpRepo.findById(maliciousId)).toBeNull();
@@ -174,7 +185,7 @@ describe("Otp Repository (Redis)", () => {
   describe("setMeta", () => {
     it("reemplaza la metadata de un OTP existente sin tocar código/attempts/TTL", async () => {
       const target = "+5493511111170";
-      const { otpId } = await otpRepo.create(FLOW, target, "hash-set-meta", { pendingEmail: "old@movo.test" });
+      const { otpId } = await otpRepo.create(FLOW, target, "hash-set-meta", "sms", { pendingEmail: "old@movo.test" });
       await otpRepo.incrementAttempts(otpId);
 
       await otpRepo.setMeta(otpId, { pendingEmail: "new@movo.test" });
