@@ -9,6 +9,7 @@ import { CounterpartCard } from "../../../components/shipments/counterpart-card"
 import { OffersBanner } from "../../../components/shipments/offers-banner";
 import { PackageCard } from "../../../components/shipments/package-card";
 import { ReceiverActionsBar } from "../../../components/shipments/receiver-actions-bar";
+import { SenderActionsBar } from "../../../components/shipments/sender-actions-bar";
 import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
 import { ShipmentStatusBadge } from "../../../components/shipments/status-badge";
 import { TimelineSection } from "../../../components/shipments/timeline-section";
@@ -17,8 +18,10 @@ import { ErrorBanner } from "../../../components/ui/error-banner";
 import { GridPattern } from "../../../components/ui/grid-pattern";
 import { useAuthStore } from "../../../src/store/auth-store";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
+import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
 import { useShipment } from "../../../src/hooks/use-shipments";
 import {
+  canCancelShipment,
   formatPickupDateLabel,
   formatShipmentPrice,
   receiverConfirmationStatus,
@@ -59,10 +62,11 @@ const TABS: [DetailTab, string][] = [
  * Design "Movo Mobile Main Views". A diferencia de la primera versión de este
  * ticket, se mantienen las tabs Detalles/Línea de tiempo del mock (la de línea de
  * tiempo ya consume el historial real de `GET /shipments/:id/events`, MOVO-128) y
- * el banner de ofertas (`OffersBanner`, siempre en estado vacío hasta MOVO-17). Sin
- * link de cancelar (MOVO-29 aparte). El mapa de ruta reusa `RouteMapCard` (mismo
- * componente animado del paso de resumen del wizard de envío, MOVO-83/123) en vez de
- * la card estática del mock.
+ * el banner de ofertas (`OffersBanner`, siempre en estado vacío hasta MOVO-17). El
+ * mapa de ruta reusa `RouteMapCard` (mismo componente animado del paso de resumen del
+ * wizard de envío, MOVO-83/123) en vez de la card estática del mock. El botón de
+ * cancelar del emisor (MOVO-29, `SenderActionsBar`) vive en el header, no al pie —
+ * ver su propia entrada en CLAUDE.md.
  */
 export default function ShipmentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -72,8 +76,26 @@ export default function ShipmentDetailScreen() {
   const [tab, setTab] = useState<DetailTab>("detalle");
 
   const isReceiver = shipment !== undefined && currentUser?.userId === shipment.receiverId;
+
+  // Si el deadline ya venció, el receptor no puede actuar aunque el barrido todavía
+  // no haya cancelado el envío — la deadline manda sobre el reloj del job (MOVO-130 AC5).
+  // El hook re-renderiza al vencer, así que las acciones desaparecen solas con la
+  // pantalla abierta, sin depender de un refetch.
+  const isDeadlineExpired = useDeadlineExpired(shipment?.receiverConfirmationDeadline) && isReceiver;
+
   const showReceiverActions =
-    isReceiver && shipment?.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION;
+    isReceiver &&
+    shipment?.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION &&
+    !isDeadlineExpired;
+
+  // Banner visible al receptor cuando el plazo venció pero el status todavía no es CANCELLED
+  const showExpiredBanner =
+    isReceiver &&
+    shipment?.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION &&
+    isDeadlineExpired;
+
+  const isSender = shipment !== undefined && currentUser?.userId === shipment.senderId;
+  const showSenderActions = isSender && shipment !== undefined && canCancelShipment(shipment.status);
 
   const pickupDateLabel = shipment ? formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate : null;
   // Banner de ofertas: solo tiene sentido mientras el envío sigue abierto a ofertas
@@ -120,6 +142,13 @@ export default function ShipmentDetailScreen() {
           ) : null}
         </View>
         {shipment ? <ShipmentStatusBadge status={shipment.status} /> : null}
+        {showSenderActions && shipment ? (
+          <SenderActionsBar
+            shipmentId={shipment.id}
+            onRefetch={() => refetch()}
+            testID="shipment-detail-sender-actions"
+          />
+        ) : null}
       </View>
 
       {isError || !shipment ? (
@@ -150,6 +179,20 @@ export default function ShipmentDetailScreen() {
               </Pressable>
             ))}
           </View>
+
+          {showExpiredBanner ? (
+            <View
+              testID="shipment-detail-expired-banner"
+              className="mx-5 mt-3 rounded-xl border border-danger-200 bg-danger-50 px-4 py-3"
+            >
+              <Text className="font-sans-semibold text-small text-danger-700">
+                El plazo para confirmar este envío ya venció
+              </Text>
+              <Text className="mt-0.5 font-sans text-caption text-danger-600">
+                No podés aceptar ni rechazar este envío. Será cancelado automáticamente en breve.
+              </Text>
+            </View>
+          ) : null}
 
           {tab === "detalle" ? (
             <ScrollView className="flex-1" contentContainerClassName="gap-5 px-5 pb-6 pt-4">

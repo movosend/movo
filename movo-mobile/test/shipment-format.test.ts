@@ -1,5 +1,6 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import {
+  canCancelShipment,
   formatEventTimestamp,
   formatPickupWindowLabel,
   formatReceiverConfirmationDeadline,
@@ -17,10 +18,14 @@ import {
 } from "../src/lib/shipment-format";
 
 describe("shipmentStatusLabel", () => {
-  it("traduce cada estado canónico a español", () => {
+  it("traduce cada estado canónico a español, corto y sin repetir el sujeto", () => {
     expect(shipmentStatusLabel(ShipmentStatus.PUBLISHED)).toBe("Publicado");
     expect(shipmentStatusLabel(ShipmentStatus.IN_TRANSIT)).toBe("En camino");
     expect(shipmentStatusLabel(ShipmentStatus.DELIVERED)).toBe("Entregado");
+    expect(shipmentStatusLabel(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe("Esperando receptor");
+    expect(shipmentStatusLabel(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("Rechazado");
+    expect(shipmentStatusLabel(ShipmentStatus.ASSIGNMENT_PENDING)).toBe("Sin asignar");
+    expect(shipmentStatusLabel(ShipmentStatus.ASSIGNED)).toBe("Asignado");
   });
 });
 
@@ -29,13 +34,18 @@ describe("shipmentStatusTone", () => {
     expect(shipmentStatusTone(ShipmentStatus.DELIVERED)).toBe("success");
   });
 
-  it("mapea cancelled/rejected/disputed a danger", () => {
+  it("mapea cancelled/rejected (terminales fallidos) a danger", () => {
     expect(shipmentStatusTone(ShipmentStatus.CANCELLED)).toBe("danger");
     expect(shipmentStatusTone(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("danger");
-    expect(shipmentStatusTone(ShipmentStatus.DISPUTED)).toBe("danger");
   });
 
-  it("mapea in_transit/assigned a info", () => {
+  it("mapea awaiting_receiver_confirmation/disputed (esperan una acción) a warning", () => {
+    expect(shipmentStatusTone(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe("warning");
+    expect(shipmentStatusTone(ShipmentStatus.DISPUTED)).toBe("warning");
+  });
+
+  it("mapea assignment_pending/assigned/in_transit (progreso automático) a info", () => {
+    expect(shipmentStatusTone(ShipmentStatus.ASSIGNMENT_PENDING)).toBe("info");
     expect(shipmentStatusTone(ShipmentStatus.ASSIGNED)).toBe("info");
     expect(shipmentStatusTone(ShipmentStatus.IN_TRANSIT)).toBe("info");
   });
@@ -63,6 +73,23 @@ describe("receiverConfirmationStatus", () => {
   it("mapea cualquier estado posterior a confirmed", () => {
     expect(receiverConfirmationStatus(ShipmentStatus.PUBLISHED)).toBe("confirmed");
     expect(receiverConfirmationStatus(ShipmentStatus.DELIVERED)).toBe("confirmed");
+  });
+});
+
+describe("canCancelShipment", () => {
+  it("permite cancelar desde los 3 estados sin fondos confirmados", () => {
+    expect(canCancelShipment(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe(true);
+    expect(canCancelShipment(ShipmentStatus.PUBLISHED)).toBe(true);
+    expect(canCancelShipment(ShipmentStatus.ASSIGNMENT_PENDING)).toBe(true);
+  });
+
+  it("no permite cancelar desde assigned ni desde estados terminales", () => {
+    expect(canCancelShipment(ShipmentStatus.ASSIGNED)).toBe(false);
+    expect(canCancelShipment(ShipmentStatus.IN_TRANSIT)).toBe(false);
+    expect(canCancelShipment(ShipmentStatus.DELIVERED)).toBe(false);
+    expect(canCancelShipment(ShipmentStatus.CANCELLED)).toBe(false);
+    expect(canCancelShipment(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe(false);
+    expect(canCancelShipment(ShipmentStatus.DISPUTED)).toBe(false);
   });
 });
 
