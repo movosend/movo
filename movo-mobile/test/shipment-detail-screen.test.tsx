@@ -20,6 +20,7 @@ jest.mock("expo-router", () => ({
 const mockUseShipment = jest.fn();
 const mockAcceptMutation = { mutateAsync: jest.fn(), isPending: false };
 const mockRejectMutation = { mutateAsync: jest.fn(), isPending: false };
+const mockCancelMutation = { mutateAsync: jest.fn(), isPending: false };
 
 jest.mock("../src/hooks/use-shipments", () => ({
   useShipment: () => mockUseShipment(),
@@ -28,6 +29,7 @@ jest.mock("../src/hooks/use-shipments", () => ({
   useShipmentEvents: () => ({ data: [], isLoading: false, isError: false, refetch: jest.fn() }),
   useAcceptShipment: () => mockAcceptMutation,
   useRejectShipment: () => mockRejectMutation,
+  useCancelShipment: () => mockCancelMutation,
 }));
 
 const mockCurrentUser = jest.fn();
@@ -160,6 +162,9 @@ describe("ShipmentDetailScreen", () => {
     expect(getByText("$4.500")).toBeTruthy();
     expect(queryByTestId("shipment-detail-carrier")).toBeNull();
     expect(queryByTestId("shipment-detail-receiver-actions")).toBeNull();
+    // El fixture por defecto está en `published` (cancelable) y el usuario actual es
+    // el emisor -- MOVO-29 muestra acá el botón de cancelar en el header.
+    expect(getByTestId("shipment-detail-sender-actions")).toBeTruthy();
     // Feedback post-QA: sin CTA de "Volver a Inicio" al pie de la pantalla.
     expect(queryByText("Volver a Inicio")).toBeNull();
   });
@@ -284,6 +289,52 @@ describe("ShipmentDetailScreen", () => {
     const { queryByTestId } = await render(<ShipmentDetailScreen />);
 
     expect(queryByTestId("shipment-detail-receiver-actions")).toBeNull();
+  });
+
+  it("mirando como emisor en estado cancelable, muestra el botón de cancelar (MOVO-29)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({ status: ShipmentStatus.ASSIGNMENT_PENDING }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-sender-actions")).toBeTruthy();
+  });
+
+  it("mirando como emisor en assigned (no cancelable), NO muestra ninguna barra de acciones (MOVO-29)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({ status: ShipmentStatus.ASSIGNED, carrierId: "carrier-1" }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-sender-actions")).toBeNull();
+    expect(queryByTestId("shipment-detail-receiver-actions")).toBeNull();
+  });
+
+  it("mirando como receptor, nunca muestra la barra de cancelar del emisor (MOVO-29)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({ status: ShipmentStatus.PUBLISHED }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-sender-actions")).toBeNull();
   });
 
   it("muestra la card de transportista solo cuando el envío ya tiene uno asignado", async () => {

@@ -198,4 +198,11 @@ export const shipmentsClient = {
   reject(shipmentId: string, body?: { reason?: string }): Promise<ShipmentSummary> {
     return httpClient.post<ShipmentSummary>(`/shipments/${shipmentId}/reject`, body ?? {});
   },
+
+  /** `POST /shipments/:id/cancel` (MOVO-29, implementado en MOVO-108) — solo el
+   * emisor puede llamar a este endpoint, desde `awaiting_receiver_confirmation`,
+   * `published` o `assignment_pending`. */
+  cancel(shipmentId: string, body?: { reason?: string }): Promise<ShipmentSummary> {
+    return httpClient.post<ShipmentSummary>(`/shipments/${shipmentId}/cancel`, body ?? {});
+  },
 };
