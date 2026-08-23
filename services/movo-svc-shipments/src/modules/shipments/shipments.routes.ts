@@ -77,7 +77,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
     receiverConfirmationTimeoutHours: app.config.RECEIVER_CONFIRMATION_TIMEOUT_HOURS,
     offerRepository,
   });
-  const photosService = createPhotosService(repository, storageProvider);
+  const photosService = createPhotosService(repository, storageProvider, app.redis, app.log);
 
   app.post(
     "/",

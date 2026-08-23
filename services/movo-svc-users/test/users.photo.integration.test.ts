@@ -6,6 +6,7 @@ import { buildApp } from "../src/app";
 import { createUserRepository, UserRepository } from "../src/repositories/user-repository";
 import { CreateUserInput } from "../src/models/user";
 import { createMockStorageProvider, MockStorageProvider } from "../src/adapters/mock-storage-provider";
+import { PENDING_PHOTOS_REDIS_KEY } from "../src/modules/users/users.service";
 
 describe("Foto de perfil: POST /users/me/photo/upload-url, PUT /users/me/photo, DELETE /users/me/photo (MOVO-97)", () => {
   let app: FastifyInstance;
@@ -28,6 +29,7 @@ describe("Foto de perfil: POST /users/me/photo/upload-url, PUT /users/me/photo, 
 
   beforeEach(async () => {
     await app.db.$executeRawUnsafe("TRUNCATE TABLE users.users RESTART IDENTITY CASCADE");
+    await app.redis.del(PENDING_PHOTOS_REDIS_KEY);
   });
 
   function buildInput(overrides: Partial<CreateUserInput> = {}): CreateUserInput {
@@ -72,6 +74,10 @@ describe("Foto de perfil: POST /users/me/photo/upload-url, PUT /users/me/photo, 
       expect(body.objectKey).toMatch(new RegExp(`^profile-photos/${user.id}/[0-9a-f-]+\\.jpg$`));
       expect(typeof body.uploadUrl).toBe("string");
       expect(body.expiresIn).toBe(300);
+
+      // MOVO-124: la key queda trackeada como "pendiente" en Redis apenas se presigna.
+      const score = await app.redis.zscore(PENDING_PHOTOS_REDIS_KEY, body.objectKey);
+      expect(score).not.toBeNull();
     });
 
     it("rechaza un contentType fuera de la whitelist con 400 VALIDATION_FAILED (AC2)", async () => {
@@ -121,6 +127,10 @@ describe("Foto de perfil: POST /users/me/photo/upload-url, PUT /users/me/photo, 
       expect(confirmResponse.statusCode).toBe(200);
       const { photoUrl } = JSON.parse(confirmResponse.body);
       expect(typeof photoUrl).toBe("string");
+
+      // MOVO-124: al confirmar, la key sale del tracking de pendientes de Redis.
+      const score = await app.redis.zscore(PENDING_PHOTOS_REDIS_KEY, objectKey);
+      expect(score).toBeNull();
 
       const profileResponse = await app.inject({
         method: "GET",

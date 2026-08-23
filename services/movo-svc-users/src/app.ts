@@ -21,6 +21,7 @@ import notificationsRoutes, {
   NotificationsRoutesOptions,
 } from "./modules/notifications/notifications.routes";
 import addressesRoutes from "./modules/addresses/addresses.routes";
+import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import { SmsProvider } from "./adapters/sms-provider";
 import { DiditClient } from "./adapters/didit-client";
 import { GeocodingProvider } from "./adapters/geocoding-provider";
@@ -51,6 +52,8 @@ export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-shipments`
    * real levantado (MOVO-134), mismo criterio que `storageProvider`. */
   shipmentsClient?: ShipmentsClient;
+  /** Override para habilitar/deshabilitar el sweep de fotos huérfanas en background (MOVO-124). */
+  orphanPhotoSweepEnabled?: boolean;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -76,6 +79,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(dbPlugin);
   app.register(redisPlugin);
   app.register(authPlugin);
+  app.register(orphanPhotoSweepPlugin, {
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.orphanPhotoSweepEnabled !== undefined ? { enabled: opts.orphanPhotoSweepEnabled } : {}),
+  });
 
   // Fuera de /api/v1 a propósito: lo consultan el healthcheck de Docker y el
   // load balancer, conviene que sea estable y no versionado.

@@ -9,6 +9,7 @@ import redisPlugin from "./plugins/redis";
 import authPlugin from "./plugins/auth";
 import errorHandlerPlugin from "./plugins/error-handler";
 import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-sweep";
+import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import accountDeletionRoutes from "./modules/account-deletion/account-deletion.routes";
 import { UsersClient } from "./adapters/users-client";
@@ -32,6 +33,8 @@ export interface BuildAppOptions {
   notificationsClient?: NotificationsClient;
   /** Override para habilitar/deshabilitar el barrido periódico en background (MOVO-130). */
   sweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el sweep de fotos huérfanas en background (MOVO-124). */
+  orphanPhotoSweepEnabled?: boolean;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -84,6 +87,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.sweepEnabled !== undefined ? { enabled: opts.sweepEnabled } : {}),
+  });
+  app.register(orphanPhotoSweepPlugin, {
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.orphanPhotoSweepEnabled !== undefined ? { enabled: opts.orphanPhotoSweepEnabled } : {}),
   });
 
   app.get("/health", async () => ({ status: "ok" }));
