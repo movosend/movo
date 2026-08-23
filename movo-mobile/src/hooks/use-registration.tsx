@@ -11,6 +11,7 @@ import {
 } from "react";
 import { authClient } from "../api/auth-client";
 import { friendlyErrorMessage } from "../lib/error-messages";
+import { isPasswordValid } from "../lib/password-policy";
 import { SECURE_STORE_KEYS, secureStore } from "../lib/secure-store";
 import { useAuthStore } from "../store/auth-store";
 
@@ -114,9 +115,10 @@ export function toE164Phone(localPhone: string): string {
   return `+549${localPhone.replace(/\D/g, "")}`;
 }
 
-export function isPasswordValid(v: string): boolean {
-  return v.length >= 8 && /[A-Za-z]/.test(v) && /\d/.test(v);
-}
+/** Re-export de `src/lib/password-policy.ts` (extraído ahí en MOVO-136, ver ese
+ * archivo) — los callers históricos del wizard lo siguen importando desde acá. */
+export { isPasswordValid };
+
 
 export function isDniValid(v: string): boolean {
   const d = v.replace(/\D/g, "");

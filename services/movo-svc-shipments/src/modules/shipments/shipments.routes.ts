@@ -84,7 +84,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
     offerRepository,
     pricingClient,
   });
-  const photosService = createPhotosService(repository, storageProvider);
+  const photosService = createPhotosService(repository, storageProvider, app.redis, app.log);
 
   app.post(
     "/",

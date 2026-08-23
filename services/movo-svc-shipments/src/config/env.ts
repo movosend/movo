@@ -13,6 +13,9 @@ export interface EnvConfig {
   RECEIVER_CONFIRMATION_TIMEOUT_HOURS: number;
   RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES: number;
   RECEIVER_CONFIRMATION_SWEEP_ENABLED?: boolean;
+  ORPHAN_PHOTO_RETENTION_HOURS: number;
+  ORPHAN_PHOTO_SWEEP_INTERVAL_MINUTES: number;
+  ORPHAN_PHOTO_SWEEP_ENABLED?: boolean;
 }
 
 export const envSchema = {
@@ -55,6 +58,17 @@ export const envSchema = {
     RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
     // MOVO-130: flag para habilitar/deshabilitar el barrido periódico (útil en test/CI).
     RECEIVER_CONFIRMATION_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-124: ventana desde el presign antes de considerar huérfana una key nunca
+    // confirmada (mismo criterio sugerido por el ticket). No se ata al TTL de la
+    // presigned URL (300s, solo acota el PUT) porque la confirmación puede demorar
+    // mucho más que la subida -- el cliente puede subir la foto y recién confirmar
+    // en una sesión posterior.
+    ORPHAN_PHOTO_RETENTION_HOURS: { type: "number", default: 24 },
+    // MOVO-124: intervalo en minutos del barrido de fotos huérfanas.
+    ORPHAN_PHOTO_SWEEP_INTERVAL_MINUTES: { type: "number", default: 60 },
+    // MOVO-124: flag para habilitar/deshabilitar el barrido (útil en test/CI), mismo
+    // criterio que RECEIVER_CONFIRMATION_SWEEP_ENABLED.
+    ORPHAN_PHOTO_SWEEP_ENABLED: { type: "boolean", default: true },
   },
 };
 

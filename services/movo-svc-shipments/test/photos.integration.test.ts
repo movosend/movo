@@ -6,6 +6,7 @@ import { createShipmentRepository, ShipmentRepository } from "../src/repositorie
 import { CreateShipmentInput, PackageType } from "../src/models/shipment";
 import { createFakeUsersClient } from "./fake-users-client";
 import { createMockStorageProvider, MockStorageProvider } from "../src/adapters/mock-storage-provider";
+import { PENDING_PHOTOS_REDIS_KEY } from "../src/modules/shipments/photos.service";
 
 describe("Fotos del paquete (MOVO-81, Postgres)", () => {
   let app: FastifyInstance;
@@ -51,6 +52,7 @@ describe("Fotos del paquete (MOVO-81, Postgres)", () => {
 
   beforeEach(async () => {
     await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
+    await app.redis.del(PENDING_PHOTOS_REDIS_KEY);
   });
 
   describe("POST /shipments/:id/photos/presign", () => {
@@ -69,6 +71,10 @@ describe("Fotos del paquete (MOVO-81, Postgres)", () => {
       expect(body.s3Key.startsWith(`shipments/${shipment.id}/creation/`)).toBe(true);
       expect(body.s3Key.endsWith(".jpg")).toBe(true);
       expect(body.expiresIn).toBeGreaterThan(0);
+
+      // MOVO-124: la key queda trackeada como "pendiente" en Redis apenas se presigna.
+      const score = await app.redis.zscore(PENDING_PHOTOS_REDIS_KEY, body.s3Key);
+      expect(score).not.toBeNull();
     });
 
     it("un tercero (ni emisor ni receptor) recibe 403", async () => {
@@ -181,6 +187,10 @@ describe("Fotos del paquete (MOVO-81, Postgres)", () => {
       const photos = await repo.listPhotos(shipment.id);
       expect(photos).toHaveLength(1);
       expect(photos[0].s3Key).toBe(s3Key);
+
+      // MOVO-124: al confirmar, la key sale del tracking de pendientes de Redis.
+      const score = await app.redis.zscore(PENDING_PHOTOS_REDIS_KEY, s3Key);
+      expect(score).toBeNull();
     });
 
     it("confirmar el mismo s3Key dos veces es idempotente (no duplica la fila)", async () => {

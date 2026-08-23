@@ -33,6 +33,25 @@ const PASSWORD_CHANGE_RATE_LIMIT_WINDOW_SECONDS = 15 * 60;
 // cubre, ninguna tarda más que eso en el peor caso normal.
 const ACCOUNT_DELETION_LOCK_TTL_SECONDS = 30;
 
+/** MOVO-124: sorted set de Redis con las keys de S3 pendientes de confirmar (score =
+ * timestamp del presign). Es solo un candidato-list para el sweep de fotos huérfanas
+ * -- Postgres (`users.photo_url`) sigue siendo la única fuente de verdad de
+ * "confirmado o no" (ver `existsByPhotoUrl`). Exportada para que
+ * `orphan-photo-sweep.ts` use la misma key sin duplicar el literal. */
+export const PENDING_PHOTOS_REDIS_KEY = "photos:pending:profile-photos";
+
+/** Fix de review (PR #96): lock por key de S3 que se disputan `confirmPhoto()` y el
+ * sweep de fotos huérfanas (`orphan-photo-sweep.ts`) -- sin esto hay una ventana de
+ * TOCTOU real: el sweep puede leer "no confirmada" en Postgres, y entre esa lectura y
+ * su `deleteObject` de S3, `confirmPhoto()` puede terminar de persistir `photoUrl` --
+ * el objeto queda borrado pero el perfil lo da por confirmado, sin ningún error
+ * visible (viola AC3 de MOVO-124). Mismo mecanismo que su gemelo de `svc-shipments`
+ * (ver `services/movo-svc-shipments/src/modules/shipments/photos.service.ts`). */
+export function photoConfirmationLockKey(objectKey: string): string {
+  return `locks:orphan-photo-sweep:key:profile-photos:${objectKey}`;
+}
+export const PHOTO_CONFIRMATION_LOCK_TTL_MS = 5_000;
+
 function passwordChangeAttemptsKey(userId: string): string {
   return `password-change-attempts:${userId}`;
 }
@@ -192,6 +211,20 @@ export function createUsersService(
         contentType: input.contentType,
         contentLength: input.contentLength,
       });
+
+      // MOVO-124: registra la key como "pendiente" para que el sweep de fotos huérfanas
+      // la pueda encontrar si nunca se confirma. Best-effort -- si Redis falla acá, el
+      // objeto queda sin trackear (mismo estado que el bug original: huérfano para
+      // siempre, nunca borrado de más).
+      try {
+        await redis.zadd(PENDING_PHOTOS_REDIS_KEY, Date.now(), objectKey);
+      } catch (error) {
+        logger.warn(
+          { userId, objectKey, event: "photo_pending_track_failed", error: (error as Error).message },
+          "No se pudo registrar la foto de perfil como pendiente en Redis"
+        );
+      }
+
       return { uploadUrl, objectKey, expiresIn };
     },
 
@@ -204,49 +237,85 @@ export function createUsersService(
         throw new ApiError(403, "PHOTO_FORBIDDEN_KEY", "La imagen no pertenece al usuario autenticado.");
       }
 
-      // `headObject` y `findById` son independientes entre sí — se piden en paralelo
-      // para no pagar dos round-trips en serie en cada confirmación.
-      const [head, user] = await Promise.all([storageProvider.headObject(objectKey), repository.findById(userId)]);
-      if (!head.exists) {
-        throw new ApiError(422, "PHOTO_OBJECT_NOT_FOUND", "La imagen no existe en el storage.");
-      }
-      // Defensa en profundidad (AC4): revalida el tipo/tamaño reales que S3 reporta,
-      // no solo lo que el cliente declaró al pedir la URL. Si el HEAD no trae alguno de
-      // los dos (proveedor caído a medias, u objeto sin metadata), no bloquea acá — el
-      // gate principal ya corrió al firmar la URL (`createUploadUrl`).
-      if (head.contentType !== undefined && head.contentLength !== undefined) {
-        assertValidPhotoConstraints(head.contentType, head.contentLength);
-      }
-
-      if (!user) {
-        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      // Fix de review (PR #96): toma el mismo lock que usa el sweep de fotos huérfanas
+      // para esta key antes de tocar S3/Postgres -- cierra la ventana de TOCTOU entre
+      // "el sweep decide borrar" y "confirmPhoto termina de persistir photoUrl" (ver el
+      // comentario de `photoConfirmationLockKey`). Si el sweep tiene el lock en este
+      // preciso instante, se rechaza en vez de arriesgar una confirmación fantasma --
+      // el cliente puede reintentar de inmediato, el lock dura pocos segundos.
+      const lockKey = photoConfirmationLockKey(objectKey);
+      const lockAcquired = await redis.set(lockKey, "1", "PX", PHOTO_CONFIRMATION_LOCK_TTL_MS, "NX");
+      if (lockAcquired !== "OK") {
+        throw new ApiError(
+          409,
+          "PHOTO_CONFIRMATION_IN_PROGRESS",
+          "Hay una verificación en curso para esta imagen, reintentá en unos segundos."
+        );
       }
 
-      const photoUrl = storageProvider.getPublicUrl(objectKey);
-      const updated = await repository.updatePhotoUrl(userId, photoUrl);
-      if (!updated) {
-        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
-      }
+      try {
+        // `headObject` y `findById` son independientes entre sí — se piden en paralelo
+        // para no pagar dos round-trips en serie en cada confirmación.
+        const [head, user] = await Promise.all([storageProvider.headObject(objectKey), repository.findById(userId)]);
+        if (!head.exists) {
+          throw new ApiError(422, "PHOTO_OBJECT_NOT_FOUND", "La imagen no existe en el storage.");
+        }
+        // Defensa en profundidad (AC4): revalida el tipo/tamaño reales que S3 reporta,
+        // no solo lo que el cliente declaró al pedir la URL. Si el HEAD no trae alguno de
+        // los dos (proveedor caído a medias, u objeto sin metadata), no bloquea acá — el
+        // gate principal ya corrió al firmar la URL (`createUploadUrl`).
+        if (head.contentType !== undefined && head.contentLength !== undefined) {
+          assertValidPhotoConstraints(head.contentType, head.contentLength);
+        }
 
-      // AC6: al reemplazar, el objeto anterior se borra best-effort — la foto nueva ya
-      // es la buena, un fallo de borrado es basura huérfana, no un error para el
-      // usuario. `previousKey !== objectKey` cubre el caso (raro pero posible) de
-      // confirmar dos veces la misma key.
-      if (user.photoUrl) {
-        const previousKey = storageProvider.getKeyFromUrl(user.photoUrl);
-        if (previousKey && previousKey !== objectKey) {
-          try {
-            await storageProvider.deleteObject(previousKey);
-          } catch (error) {
-            logger.warn(
-              { userId, previousKey, event: "photo_delete_orphan_failed", error: (error as Error).message },
-              "No se pudo borrar la foto de perfil anterior"
-            );
+        if (!user) {
+          throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+        }
+
+        const photoUrl = storageProvider.getPublicUrl(objectKey);
+        const updated = await repository.updatePhotoUrl(userId, photoUrl);
+        if (!updated) {
+          throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+        }
+
+        // MOVO-124: saca la key del tracking de pendientes -- ya está confirmada, el
+        // sweep no debería volver a evaluarla. Best-effort: si el ZREM falla, el sweep
+        // igual la va a dejar en paz porque revalida contra Postgres antes de borrar
+        // nada (AC3), esto es solo para no reprocesarla en cada corrida.
+        try {
+          await redis.zrem(PENDING_PHOTOS_REDIS_KEY, objectKey);
+        } catch (error) {
+          logger.warn(
+            { userId, objectKey, event: "photo_pending_untrack_failed", error: (error as Error).message },
+            "No se pudo remover el tracking de Redis tras confirmar la foto de perfil"
+          );
+        }
+
+        // AC6: al reemplazar, el objeto anterior se borra best-effort — la foto nueva ya
+        // es la buena, un fallo de borrado es basura huérfana, no un error para el
+        // usuario. `previousKey !== objectKey` cubre el caso (raro pero posible) de
+        // confirmar dos veces la misma key.
+        if (user.photoUrl) {
+          const previousKey = storageProvider.getKeyFromUrl(user.photoUrl);
+          if (previousKey && previousKey !== objectKey) {
+            try {
+              await storageProvider.deleteObject(previousKey);
+            } catch (error) {
+              logger.warn(
+                { userId, previousKey, event: "photo_delete_orphan_failed", error: (error as Error).message },
+                "No se pudo borrar la foto de perfil anterior"
+              );
+            }
           }
         }
-      }
 
-      return { photoUrl };
+        return { photoUrl };
+      } finally {
+        // Mismo criterio que `account-deletion-lock` (arriba): si el `unlink` llegara a
+        // fallar, el lock igual expira solo por TTL (PHOTO_CONFIRMATION_LOCK_TTL_MS),
+        // no bloquea la misma key más que unos segundos.
+        await redis.unlink(lockKey);
+      }
     },
 
     /** AC7: idempotente — sin foto previa también responde éxito. */
