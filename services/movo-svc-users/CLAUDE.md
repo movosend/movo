@@ -380,6 +380,30 @@ Pendiente / fuera de alcance: consumo desde `movo-mobile` (ticket aparte).
 - Comentario desactualizado en `shipments-client.ts` corregido (decía "sin timeout
   explícito" sobre código que sí lo tiene).
 
+### MOVO-124 — Sweep de fotos huérfanas en S3 vía tracking en Redis (`svc-users` + `svc-shipments`)
+
+Decisión completa y detalle de la implementación en
+`services/movo-svc-shipments/CLAUDE.md` (mismo mecanismo en los dos servicios). Acá:
+`existsByPhotoUrl` nuevo en `user-repository.ts` (fuente de verdad contra Postgres que
+usa el sweep antes de borrar), `getPhotoUploadUrl`/`confirmPhoto` de `users.service.ts`
+ahora registran/destrackean la key en el sorted set `photos:pending:profile-photos` de
+Redis, y `src/plugins/orphan-photo-sweep.ts` — **primer scheduled job de este
+servicio** (mismo esqueleto `setInterval` + lock distribuido en Redis que
+`receiver-confirmation-sweep.ts` de `svc-shipments`, MOVO-130).
+
+Tests: `test/orphan-photo-sweep.test.ts` nuevo (mockeado, incluye el caso AC3: un
+candidato con `photoUrl` vigente en `users.users` nunca dispara `deleteObject`).
+`test/users.photo.integration.test.ts` ampliado con dos casos contra Redis real.
+Suite completa 385/385, `tsc --noEmit` y `eslint` limpios.
+
+**Fix de review (PR #96, tmvergara) — TOCTOU real entre `confirmPhoto()` y el sweep**:
+mismo bug y mismo fix que su gemelo de `svc-shipments` (detalle completo en
+`services/movo-svc-shipments/CLAUDE.md`, sección MOVO-124) — lock por key de S3 en
+Redis (`photoConfirmationLockKey()` en `users.service.ts`) que se disputan
+`confirmPhoto()` y el sweep antes de tocar S3/Postgres, cierra la ventana donde una
+confirmación tardía podía terminar en `photoUrl` persistido apuntando a un objeto ya
+borrado por el sweep, sin error visible.
+
 ### MOVO-139 — `EmailProvider` (Resend) y verificación de email por OTP (ADR-017)
 
 Primer canal de email del proyecto. Cierra la limitación que MOVO-133/MOVO-134 dejaron

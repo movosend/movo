@@ -1,4 +1,10 @@
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { ApiError } from "@movo/shared";
 import { StorageProvider } from "./storage-provider";
@@ -76,6 +82,14 @@ export function createS3StorageProvider(config: S3StorageProviderConfig): Storag
         throw new ApiError(502, "STORAGE_PROVIDER_ERROR", "No se pudo generar la URL de lectura.");
       }
       return { url, expiresIn: PRESIGNED_URL_TTL_SECONDS };
+    },
+
+    async deleteObject(key) {
+      try {
+        await client.send(new DeleteObjectCommand({ Bucket: config.bucketName, Key: key }));
+      } catch {
+        throw new ApiError(502, "STORAGE_PROVIDER_ERROR", "No se pudo borrar el objeto del storage.");
+      }
     },
   };
 }

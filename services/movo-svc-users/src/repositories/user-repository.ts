@@ -17,6 +17,14 @@ export interface UserRepository {
   updateKycStatusLicense(id: string, status: KycStatus): Promise<User | null>;
   updatePhotoUrl(id: string, photoUrl: string | null): Promise<User | null>;
   /**
+   * MOVO-124: ¿esta `photoUrl` sigue vigente en `users.photo_url`? Fuente de verdad
+   * del sweep de fotos huérfanas -- el tracking de "pendiente" vive en Redis (best-
+   * effort, puede perder la baja si `confirmPhoto` falla al hacer `ZREM`), así que
+   * antes de borrar un objeto de S3 el sweep siempre revalida acá (AC3 de MOVO-124:
+   * nunca confiar solo en que Redis diga "no confirmado").
+   */
+  existsByPhotoUrl(photoUrl: string): Promise<boolean>;
+  /**
    * MOVO-133 AC1: actualización parcial de nombre/apellido -- ambos campos opcionales.
    * El caller (`users.service.ts#updateProfile`) nunca llama con los dos `undefined`
    * (el schema de `PATCH /users/me` exige `minProperties:1`).
@@ -269,6 +277,11 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         }
         throw error;
       }
+    },
+
+    async existsByPhotoUrl(photoUrl: string): Promise<boolean> {
+      const row = await db.user.findFirst({ where: { photoUrl }, select: { id: true } });
+      return row !== null;
     },
 
     async updateProfile(id: string, input: { firstName?: string; lastName?: string }): Promise<User | null> {

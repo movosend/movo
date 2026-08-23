@@ -27,6 +27,9 @@ export interface EnvConfig {
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
   SHIPMENTS_SERVICE_URL: string;
+  ORPHAN_PHOTO_RETENTION_HOURS: number;
+  ORPHAN_PHOTO_SWEEP_INTERVAL_MINUTES: number;
+  ORPHAN_PHOTO_SWEEP_ENABLED?: boolean;
 }
 
 export const envSchema = {
@@ -98,6 +101,16 @@ export const envSchema = {
     // primera llamada síncrona en sentido svc-users -> svc-shipments (mismo criterio
     // de default que USERS_SERVICE_URL en movo-svc-shipments, la dirección inversa).
     SHIPMENTS_SERVICE_URL: { type: "string", default: "http://movo-svc-shipments:3000" },
+    // MOVO-124: ventana desde el presign antes de considerar huérfana una key nunca
+    // confirmada (mismo criterio sugerido por el ticket). No se ata al TTL de la
+    // presigned URL (300s, solo acota el PUT) porque la confirmación puede demorar
+    // mucho más que la subida -- el cliente puede subir la foto y recién confirmar
+    // en una sesión posterior. Mismo criterio que movo-svc-shipments/src/config/env.ts.
+    ORPHAN_PHOTO_RETENTION_HOURS: { type: "number", default: 24 },
+    // MOVO-124: intervalo en minutos del barrido de fotos huérfanas.
+    ORPHAN_PHOTO_SWEEP_INTERVAL_MINUTES: { type: "number", default: 60 },
+    // MOVO-124: flag para habilitar/deshabilitar el barrido (útil en test/CI).
+    ORPHAN_PHOTO_SWEEP_ENABLED: { type: "boolean", default: true },
   },
 };
 

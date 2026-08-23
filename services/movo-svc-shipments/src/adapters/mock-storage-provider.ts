@@ -52,6 +52,10 @@ export function createMockStorageProvider(): MockStorageProvider {
       };
     },
 
+    async deleteObject(key) {
+      objects.delete(key);
+    },
+
     __simulateUpload(key, meta) {
       objects.set(key, meta);
     },

@@ -1,5 +1,6 @@
 import type { PrivateProfile, PublicProfile } from "@movo/shared/dist/types/user-profile";
 import { httpClient } from "./http-client";
+import type { SessionResponse } from "./session-types";
 import { uploadBlobToPresignedUrl } from "../lib/s3-upload";
 
 /**
@@ -22,6 +23,11 @@ export interface PhotoUploadUrlResponse {
 
 export interface ConfirmPhotoResponse {
   photoUrl: string;
+}
+
+export interface ChangePasswordInput {
+  currentPassword: string;
+  newPassword: string;
 }
 
 /**
@@ -66,6 +72,44 @@ export const usersClient = {
   /** Borra la foto de perfil propia (S3 + DB) de forma idempotente. */
   deletePhoto(): Promise<void> {
     return httpClient.delete<void>("/users/me/photo");
+  },
+
+  /**
+   * Cambia la contraseña propia (`POST /users/me/password`, MOVO-134).
+   *
+   * Devuelve un `SessionResponse` completo, igual que `login()`: el backend revoca
+   * TODAS las sesiones del usuario y emite un par de tokens nuevo, así que el
+   * dispositivo que hizo el cambio no queda deslogueado pero el refresh token viejo
+   * ya no sirve. El caller está obligado a persistir la respuesta con
+   * `useAuthStore.setSession()` — ver `use-account-security.ts`, donde eso ocurre.
+   *
+   * Un `401 AUTH_INVALID_CREDENTIALS` acá significa "la contraseña actual no es
+   * correcta", NO que la sesión venció: el interceptor de `http-client.ts` solo
+   * dispara el refresh ante `AUTH_TOKEN_EXPIRED`, cualquier otro 401 se propaga tal
+   * cual sin tocar la sesión (AC3 de MOVO-136).
+   */
+  changePassword(body: ChangePasswordInput): Promise<SessionResponse> {
+    return httpClient.post<SessionResponse>("/users/me/password", body);
+  },
+
+  /**
+   * Baja de cuenta (MOVO-136 AC5/AC6, backend MOVO-134). `DELETE /users/me` con la
+   * contraseña en el body: el JWT solo no alcanza para una operación irreversible.
+   * Responde `204` sin contenido — de ahí el `Promise<void>`.
+   *
+   * El backend hace soft-delete + anonimización de PII (`anonymizeAndDelete()`),
+   * revoca todas las sesiones y borra push tokens, direcciones, KYC y la foto de S3.
+   * Es idempotente: una cuenta ya dada de baja vuelve a responder 204.
+   *
+   * Errores que el caller tiene que distinguir (los tres son 409):
+   * `ACCOUNT_HAS_ACTIVE_SHIPMENTS` y `ACCOUNT_HAS_ACTIVE_DISPUTES` — el backend NO
+   * cancela en cascada, el usuario resuelve y reintenta — y
+   * `ACCOUNT_DELETION_IN_PROGRESS` (lock por usuario: doble tap o dos dispositivos a
+   * la vez). Un `401 AUTH_INVALID_CREDENTIALS` es la contraseña mal, igual que en
+   * `changePassword()`, no una sesión vencida.
+   */
+  deleteAccount(password: string): Promise<void> {
+    return httpClient.delete<void>("/users/me", { password });
   },
 
   /**

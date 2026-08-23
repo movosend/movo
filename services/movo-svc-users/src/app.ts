@@ -21,6 +21,7 @@ import notificationsRoutes, {
   NotificationsRoutesOptions,
 } from "./modules/notifications/notifications.routes";
 import addressesRoutes from "./modules/addresses/addresses.routes";
+import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import { SmsProvider } from "./adapters/sms-provider";
 import { EmailProvider } from "./adapters/email-provider";
 import { DiditClient } from "./adapters/didit-client";
@@ -55,6 +56,8 @@ export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de la API de Resend
    * (MOVO-139/ADR-017), mismo criterio que `smsProvider`. */
   emailProvider?: EmailProvider;
+  /** Override para habilitar/deshabilitar el sweep de fotos huérfanas en background (MOVO-124). */
+  orphanPhotoSweepEnabled?: boolean;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -80,6 +83,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(dbPlugin);
   app.register(redisPlugin);
   app.register(authPlugin);
+  app.register(orphanPhotoSweepPlugin, {
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.orphanPhotoSweepEnabled !== undefined ? { enabled: opts.orphanPhotoSweepEnabled } : {}),
+  });
 
   // Fuera de /api/v1 a propósito: lo consultan el healthcheck de Docker y el
   // load balancer, conviene que sea estable y no versionado.
