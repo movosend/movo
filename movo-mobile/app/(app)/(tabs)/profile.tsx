@@ -1,21 +1,21 @@
 import { UserRole } from '@movo/shared/dist/types/user';
+import { Pencil } from 'lucide-react-native';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import { ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQueryClient } from '@tanstack/react-query';
-import { PhotoPicker } from '../../../components/profile/photo-picker';
+import { ProfileAvatar } from '../../../components/profile/profile-avatar';
 import { ProfileBadges } from '../../../components/profile/profile-badges';
 import { ProfileErrorState } from '../../../components/profile/profile-error-state';
 import { ProfileKycStatusBanner } from '../../../components/profile/profile-kyc-status-banner';
 import { ProfileLicenseStatusBanner } from '../../../components/profile/profile-license-status-banner';
 import { ProfileLogoutButton } from '../../../components/profile/profile-logout-button';
-import { ProfilePrivateSection } from '../../../components/profile/profile-private-section';
 import { ProfileSettingsSection } from '../../../components/profile/profile-settings-section';
 import { ProfileSkeleton } from '../../../components/profile/profile-skeleton';
 import { ProfileStatsRow } from '../../../components/profile/profile-stats-row';
 import { ProfileVerifiedBadge } from '../../../components/profile/profile-verified-badge';
 import { useAuth } from '../../../src/hooks/use-auth';
+import { useThemeColors } from '../../../src/hooks/use-theme-colors';
 import { useMyProfile } from '../../../src/hooks/use-profile';
 import { friendlyErrorMessage } from '../../../src/lib/error-messages';
 import { capitalizeName } from '../../../src/lib/profile-format';
@@ -26,7 +26,7 @@ import { capitalizeName } from '../../../src/lib/profile-format';
  * MOVO-77 backend, ya Done).
  */
 export default function ProfileScreen() {
-  const queryClient = useQueryClient();
+  const colors = useThemeColors();
   const { logout } = useAuth();
   const { data, isLoading, isError, error, refetch } = useMyProfile();
 
@@ -52,14 +52,11 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View className="mb-6 flex-row items-center gap-4">
-          <PhotoPicker
-            testID="profile-photo-picker"
+          <ProfileAvatar
+            testID="profile-avatar"
             fullName={displayName}
-            currentPhotoUrl={data.photoUrl}
+            photoUrl={data.photoUrl}
             size={88}
-            onPhotoUpdated={() => {
-              void queryClient.invalidateQueries({ queryKey: ['profile', 'me'] });
-            }}
           />
           <View className="flex-1">
             <Text testID="profile-full-name" className="font-sans-semibold text-h2 text-fg">
@@ -69,6 +66,17 @@ export default function ProfileScreen() {
               <ProfileVerifiedBadge testID="profile-verified-badge" />
             )}
           </View>
+          {/* AC1 de MOVO-135: la edición del perfil se alcanza en un tap desde acá,
+              no desde la lista de Configuración (ahí vive "Cuenta y seguridad",
+              que es contraseña y baja de cuenta — MOVO-136). */}
+          <Pressable
+            testID="profile-edit-button"
+            onPress={() => router.push('/profile/edit')}
+            hitSlop={8}
+            className="h-9 w-9 items-center justify-center rounded-full bg-bg-mute"
+          >
+            <Pencil size={15} color={colors.fg2} strokeWidth={1.8} />
+          </Pressable>
         </View>
 
         <ProfileKycStatusBanner
@@ -95,8 +103,6 @@ export default function ProfileScreen() {
           testID="profile-badges"
           badges={data.badges.filter((badge) => badge !== 'kyc_verified')}
         />
-
-        <ProfilePrivateSection testID="profile-private-section" email={data.email} phone={data.phone} />
 
         <ProfileSettingsSection testID="profile-settings-section" />
 
