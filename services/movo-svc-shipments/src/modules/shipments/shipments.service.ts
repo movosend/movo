@@ -254,8 +254,16 @@ export function createShipmentsService(
         );
       }
 
-      // MOVO-130 AC1: deadline de confirmación = createdAt (ahora) + RECEIVER_CONFIRMATION_TIMEOUT_HOURS.
-      const receiverConfirmationDeadline = new Date(Date.now() + timeoutHours * 60 * 60 * 1000);
+      // MOVO-130 AC1 (fix): deadline = min(now + RECEIVER_CONFIRMATION_TIMEOUT_HOURS, pickupDate + pickupTimeWindowEnd).
+      // El timeout configurable es el máximo posible, pero si la ventana de retiro cierra antes,
+      // se usa ese momento como tope: no tiene sentido que el receptor pueda aceptar un envío
+      // cuya ventana de retiro ya cerró. `windowEndAt` viene anclado como reloj de pared
+      // argentino (ver `combineDateAndTime`), así que hay que pasarlo por `toRealInstant`
+      // antes de compararlo/persistirlo junto a instantes reales como `timeoutDeadline`.
+      const timeoutDeadline = new Date(Date.now() + timeoutHours * 60 * 60 * 1000);
+      const pickupWindowDeadline = toRealInstant(windowEndAt);
+      const receiverConfirmationDeadline =
+        timeoutDeadline <= pickupWindowDeadline ? timeoutDeadline : pickupWindowDeadline;
 
       const created = await repository.create({
         senderId: input.senderId,

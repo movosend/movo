@@ -17,6 +17,7 @@ import { ErrorBanner } from "../../../components/ui/error-banner";
 import { GridPattern } from "../../../components/ui/grid-pattern";
 import { useAuthStore } from "../../../src/store/auth-store";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
+import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
 import { useShipment } from "../../../src/hooks/use-shipments";
 import {
   formatPickupDateLabel,
@@ -72,8 +73,23 @@ export default function ShipmentDetailScreen() {
   const [tab, setTab] = useState<DetailTab>("detalle");
 
   const isReceiver = shipment !== undefined && currentUser?.userId === shipment.receiverId;
+
+  // Si el deadline ya venció, el receptor no puede actuar aunque el barrido todavía
+  // no haya cancelado el envío — la deadline manda sobre el reloj del job (MOVO-130 AC5).
+  // El hook re-renderiza al vencer, así que las acciones desaparecen solas con la
+  // pantalla abierta, sin depender de un refetch.
+  const isDeadlineExpired = useDeadlineExpired(shipment?.receiverConfirmationDeadline) && isReceiver;
+
   const showReceiverActions =
-    isReceiver && shipment?.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION;
+    isReceiver &&
+    shipment?.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION &&
+    !isDeadlineExpired;
+
+  // Banner visible al receptor cuando el plazo venció pero el status todavía no es CANCELLED
+  const showExpiredBanner =
+    isReceiver &&
+    shipment?.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION &&
+    isDeadlineExpired;
 
   const pickupDateLabel = shipment ? formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate : null;
   // Banner de ofertas: solo tiene sentido mientras el envío sigue abierto a ofertas
@@ -150,6 +166,20 @@ export default function ShipmentDetailScreen() {
               </Pressable>
             ))}
           </View>
+
+          {showExpiredBanner ? (
+            <View
+              testID="shipment-detail-expired-banner"
+              className="mx-5 mt-3 rounded-xl border border-danger-200 bg-danger-50 px-4 py-3"
+            >
+              <Text className="font-sans-semibold text-small text-danger-700">
+                El plazo para confirmar este envío ya venció
+              </Text>
+              <Text className="mt-0.5 font-sans text-caption text-danger-600">
+                No podés aceptar ni rechazar este envío. Será cancelado automáticamente en breve.
+              </Text>
+            </View>
+          ) : null}
 
           {tab === "detalle" ? (
             <ScrollView className="flex-1" contentContainerClassName="gap-5 px-5 pb-6 pt-4">
