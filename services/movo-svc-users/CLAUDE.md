@@ -397,6 +397,14 @@ candidato con `photoUrl` vigente en `users.users` nunca dispara `deleteObject`).
 `test/users.photo.integration.test.ts` ampliado con dos casos contra Redis real.
 Suite completa 385/385, `tsc --noEmit` y `eslint` limpios.
 
+**Fix de review (PR #96, tmvergara) — TOCTOU real entre `confirmPhoto()` y el sweep**:
+mismo bug y mismo fix que su gemelo de `svc-shipments` (detalle completo en
+`services/movo-svc-shipments/CLAUDE.md`, sección MOVO-124) — lock por key de S3 en
+Redis (`photoConfirmationLockKey()` en `users.service.ts`) que se disputan
+`confirmPhoto()` y el sweep antes de tocar S3/Postgres, cierra la ventana donde una
+confirmación tardía podía terminar en `photoUrl` persistido apuntando a un objeto ya
+borrado por el sweep, sin error visible.
+
 ### Pendientes de este servicio
 
 - **Credenciales reales sin cargar** en AWS Secrets Manager (dev y prod) — el código

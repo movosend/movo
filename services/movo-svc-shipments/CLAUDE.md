@@ -428,10 +428,15 @@ Decisiones clave:
   el `PUT`): la confirmación puede demorar mucho más que la subida (el cliente sube la
   foto y recién confirma en una sesión posterior), así que ligar el sweep a esos 300s
   habría borrado objetos legítimos todavía no confirmados.
-- **Sin permisos IAM nuevos más allá de `s3:DeleteObject` para `shipments/*`** (pendiente
-  de aplicar en `movo-infra`, repo separado, no tocado en este PR) — `profile-photos/*`
-  ya lo tiene desde MOVO-97/`deletePhoto()`. Ninguna de las dos opciones originales del
-  ticket (tagging/`CopyObject`) hacía falta.
+- **Sin permisos IAM nuevos**: el statement de `s3:DeleteObject` que agregó MOVO-97 para
+  `deletePhoto()` nunca estuvo restringido al prefijo `profile-photos/*` — se escribió
+  sobre el bucket entero (`arn:aws:s3:::movo-shipment-media-{dev,prod}/*`, sin condición
+  de prefijo) tanto en el rol de IAM (`movo-{dev,prod}-ec2-role`) como en el bucket
+  policy. Verificado con `aws iam simulate-principal-policy` contra una key de
+  `shipments/*` real: `s3:DeleteObject` da `allowed` en dev y en prod sin tocar nada de
+  `movo-infra` — el pendiente que había quedado anotado acá (ver más abajo, corregido)
+  estaba desactualizado. Ninguna de las dos opciones originales del ticket
+  (tagging/`CopyObject`) hacía falta tampoco.
 - **`svc-users` recibió el mismo mecanismo en paralelo** (`existsByPhotoUrl` en
   `user-repository.ts`, mismo plugin `orphan-photo-sweep.ts` — primer scheduled job de
   ese servicio) — ver `services/movo-svc-users/CLAUDE.md`.
@@ -442,10 +447,28 @@ dispara `deleteObject`). `test/photos.integration.test.ts` ampliado con dos caso
 Redis real (la key queda en el sorted set tras el presign, sale tras confirmar). Suite
 completa 234/234, `tsc --noEmit` y `eslint` limpios.
 
-Pendiente / fuera de alcance: aplicar el permiso IAM `s3:DeleteObject` para
-`shipments/*` en `movo-infra` (repo separado, coordinar con quien tenga acceso al
-bucket real de dev/prod — sin este permiso el sweep loguea el error y reintenta en la
-próxima corrida, no bloquea nada más).
+**Fix de review (PR #96, tmvergara) — TOCTOU real entre `confirmPhoto()` y el sweep**:
+el chequeo de AC3 contra Postgres (arriba) y el `deleteObject` del sweep no eran
+atómicos entre sí — una confirmación que llega justo pasado `ORPHAN_PHOTO_RETENTION_HOURS`
+(esperable, ver la nota de arriba sobre no atar la retención al TTL de la presigned URL)
+podía intercalarse: el sweep lee "no confirmada" en Postgres, `confirmPhoto()` termina de
+commitear la fila, el sweep borra el objeto de todos modos — la foto queda "confirmada"
+en la DB apuntando a un objeto ya borrado, sin ningún error visible (justo lo que AC3 dice
+garantizar). Se agregó un lock por key de S3 en Redis (`SET NX PX`, TTL 5s,
+`photoConfirmationLockKey()` en `photos.service.ts`), tomado tanto por `confirmPhoto()`
+como por cada candidato del sweep antes de tocar S3/Postgres — quien llega primero se
+queda con la key; el otro se corre (`confirmPhoto()` responde `409
+PHOTO_CONFIRMATION_IN_PROGRESS`, código nuevo en `@movo/shared`; el sweep salta el
+candidato y lo reevalúa en la próxima corrida). Mismo mecanismo espejado en
+`services/movo-svc-users/src/modules/users/users.service.ts` (mismo bug, mismo fix).
+Liberación del lock sin `try/catch` propio, mismo criterio que `account-deletion-lock`
+de `svc-users` (MOVO-134): si el `unlink` fallara, expira solo por TTL.
+
+**Verificación de AWS (sin cambios en `movo-infra`)**: confirmado con
+`aws iam simulate-principal-policy` que `s3:DeleteObject` sobre `shipments/*` ya da
+`allowed` en dev y prod — el statement de MOVO-97 nunca estuvo restringido a
+`profile-photos/*` (bucket entero, sin condición de prefijo). No hacía falta ningún
+`terraform apply` ni cambio manual de IAM para este ticket.
 
 ### Pendientes de este servicio
 
