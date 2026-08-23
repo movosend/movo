@@ -23,9 +23,11 @@ export interface TransactionCounts {
  * Perfil completo del usuario autenticado (`GET /users/me`, MOVO-77 AC1). Wire contract
  * de este endpoint — nunca se expone en la proyección pública.
  *
- * **No incluye `phoneVerified`/`dni`/`birthdate`** (review de PR #55, tmvergara):
- * AC1 no los pide, y quedan afuera a propósito hasta confirmar con quien implemente
- * MOVO-31 (editar datos personales) si hacen falta.
+ * **No incluye `birthdate`** (review de PR #55, tmvergara): AC1 no lo pide. `dni` y
+ * `phoneVerified` quedaban en la misma bolsa "hasta confirmar con quien implemente
+ * MOVO-31 (editar datos personales)" — MOVO-135 los confirmó: la pantalla de editar
+ * perfil muestra el DNI como dato de solo lectura y una insignia de verificación
+ * junto al teléfono, así que ambos pasaron a formar parte de esta proyección.
  */
 export interface PrivateProfile {
   id: string;
@@ -34,6 +36,18 @@ export interface PrivateProfile {
   fullName: string;
   email: string;
   phone: string;
+  /** Documento de identidad. `null` para las cuentas creadas antes de que el
+   * registro lo pidiera. Nunca editable: con KYC aprobado quedó validado contra el
+   * documento por Didit, y sin KYC todavía no hay flujo que permita corregirlo. */
+  dni: string | null;
+  /**
+   * Si el teléfono se probó por OTP (al registrarse, MOVO-71, o al cambiarlo,
+   * MOVO-133). **No existe el equivalente para el email**: el proyecto no tiene
+   * ningún `EmailProvider` ni columna `email_verified`, por eso el OTP del cambio de
+   * email viaja al teléfono. No inventar una insignia de "email verificado" sobre
+   * este campo — habla solo del teléfono.
+   */
+  phoneVerified: boolean;
   photoUrl: string | null;
   kycStatus: KycStatus;
   /** Estado de la verificación de licencia de conducir (MOVO-15) — mismo enum que

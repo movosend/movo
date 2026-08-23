@@ -41,6 +41,8 @@ export function toPrivateProfile(user: User): PrivateProfile {
     fullName: fullName(user),
     email: user.email,
     phone: user.phone,
+    dni: user.dni,
+    phoneVerified: user.phoneVerified,
     photoUrl: user.photoUrl,
     kycStatus: user.kycStatusIdentity,
     licenseKycStatus: user.kycStatusLicense,

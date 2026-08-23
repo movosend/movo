@@ -393,3 +393,16 @@ Pendiente / fuera de alcance: consumo desde `movo-mobile` (ticket aparte).
   en dev, `terraform apply` de prod pendiente.
 - Mobile de MOVO-120 no genera/envía todavía un `sessionToken` de Places — ver
   `movo-mobile/CLAUDE.md`.
+
+### MOVO-135 (backend mínimo) — `dni` y `phoneVerified` en la proyección privada
+
+Cambio aditivo pedido por el frontend de MOVO-135 (editar perfil muestra el DNI como
+dato de solo lectura, y una insignia de verificado junto al teléfono):
+`toPrivateProfile()` (`src/models/user-profile.ts`) ahora mapea `user.dni` y
+`user.phoneVerified`, y `privateProfileResponse` (`src/modules/users/users.schema.ts`) los
+declara como `["string", "null"]` y `boolean`, ambos requeridos. El tipo compartido cambió en el mismo commit
+(ver `shared/movo-shared/CLAUDE.md`).
+
+No se tocó ningún endpoint de escritura: `patchProfileBody` sigue aceptando solo
+`firstName`/`lastName`, así que mandar `dni` en el `PATCH /users/me` es 400
+`VALIDATION_FAILED` igual que antes. El DNI se expone, no se edita.
