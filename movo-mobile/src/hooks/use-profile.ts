@@ -1,5 +1,14 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
-import { usersClient } from "../api/users-client";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { PrivateProfile } from "@movo/shared/dist/types/user-profile";
+import {
+  usersClient,
+  type OtpRequestResponse,
+  type OtpVerifyInput,
+  type UpdateProfileInput,
+} from "../api/users-client";
+import { useAuthStore } from "../store/auth-store";
+
+export const MY_PROFILE_QUERY_KEY = ["profile", "me"] as const;
 
 /**
  * `GET /users/me` (MOVO-78, MOVO-77 backend). Expone `data`/`isLoading`/`isError`/
@@ -14,7 +23,7 @@ import { usersClient } from "../api/users-client";
  */
 export function useMyProfile(options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: ["profile", "me"],
+    queryKey: MY_PROFILE_QUERY_KEY,
     queryFn: usersClient.getMyProfile,
     enabled: options?.enabled ?? true,
   });
@@ -41,5 +50,89 @@ export function usePublicProfiles(ids: string[]) {
       queryKey: ["profile", "public", id],
       queryFn: () => usersClient.getPublicProfile(id),
     })),
+  });
+}
+
+/**
+ * Siembra la cache de `useMyProfile` con un `PrivateProfile` recién devuelto por el
+ * backend, en vez de invalidar y refetchear.
+ *
+ * Los tres endpoints de escritura de MOVO-133 (`PATCH /users/me` y los dos `verify`
+ * de teléfono/email) responden el perfil completo, así que un refetch sería una
+ * request de más y dejaría a la tab de perfil mostrando el dato viejo durante ese
+ * viaje de ida y vuelta. El AC2 pide justamente lo contrario: que al volver el
+ * cambio ya esté reflejado.
+ *
+ * Sincroniza además `fullName` en el store de sesión: vive persistido en
+ * secure-store (`SessionUser`) y `home.tsx` lo usa como fallback del saludo, así que
+ * sin esto el nombre viejo sobreviviría al cambio hasta el próximo login.
+ */
+function useProfileMutationSuccess() {
+  const queryClient = useQueryClient();
+  const updateFullName = useAuthStore((s) => s.updateFullName);
+
+  return (profile: PrivateProfile) => {
+    queryClient.setQueryData(MY_PROFILE_QUERY_KEY, profile);
+    void updateFullName(profile.fullName);
+  };
+}
+
+/** `PATCH /users/me` — nombre y apellido (MOVO-133/MOVO-135 AC2). */
+export function useUpdateProfile() {
+  const onProfileUpdated = useProfileMutationSuccess();
+  return useMutation<PrivateProfile, unknown, UpdateProfileInput>({
+    mutationFn: (body) => usersClient.updateProfile(body),
+    onSuccess: onProfileUpdated,
+  });
+}
+
+/** Paso 1 del cambio de teléfono — no toca la cache: todavía no cambió nada. */
+export function useRequestPhoneChange() {
+  return useMutation<OtpRequestResponse, unknown, string>({
+    mutationFn: (phone) => usersClient.requestPhoneChange(phone),
+  });
+}
+
+/** Paso 2 del cambio de teléfono (AC4). */
+export function useVerifyPhoneChange() {
+  const onProfileUpdated = useProfileMutationSuccess();
+  return useMutation<PrivateProfile, unknown, OtpVerifyInput>({
+    mutationFn: (body) => usersClient.verifyPhoneChange(body),
+    onSuccess: onProfileUpdated,
+  });
+}
+
+/** Paso 1 del cambio de email — el OTP viaja al email nuevo (MOVO-139), no toca la
+ * cache: todavía no cambió nada. */
+export function useRequestEmailChange() {
+  return useMutation<OtpRequestResponse, unknown, string>({
+    mutationFn: (email) => usersClient.requestEmailChange(email),
+  });
+}
+
+/** Paso 2 del cambio de email (AC5). */
+export function useVerifyEmailChange() {
+  const onProfileUpdated = useProfileMutationSuccess();
+  return useMutation<PrivateProfile, unknown, OtpVerifyInput>({
+    mutationFn: (body) => usersClient.verifyEmailChange(body),
+    onSuccess: onProfileUpdated,
+  });
+}
+
+/** Paso 1 de verificar el email ACTUAL (MOVO-139) — CTA de la pantalla de perfil
+ * para cuentas sin verificar. No toca la cache: todavía no cambió nada. */
+export function useRequestEmailVerification() {
+  return useMutation<OtpRequestResponse, unknown, void>({
+    mutationFn: () => usersClient.requestEmailVerification(),
+  });
+}
+
+/** Paso 2 de verificar el email actual: solo marca `emailVerified`, el email en sí
+ * no cambia. */
+export function useVerifyEmailVerification() {
+  const onProfileUpdated = useProfileMutationSuccess();
+  return useMutation<PrivateProfile, unknown, OtpVerifyInput>({
+    mutationFn: (body) => usersClient.verifyEmailVerification(body),
+    onSuccess: onProfileUpdated,
   });
 }

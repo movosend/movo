@@ -39,6 +39,8 @@ function baseProfile(overrides: Partial<PrivateProfile> = {}): PrivateProfile {
     // en la pantalla de perfil es alcance de MOVO-135.
     emailVerified: false,
     phone: "+5491140238871",
+    dni: "35123456",
+    phoneVerified: true,
     photoUrl: null,
     kycStatus: KycStatus.APPROVED,
     // approved por default para no interferir con los tests existentes del banner de
@@ -214,7 +216,10 @@ describe("ProfileScreen", () => {
     expect(mockLogout).toHaveBeenCalled();
   });
 
-  it("MOVO-98: renderiza el PhotoPicker interactivo con la foto del usuario", async () => {
+  // MOVO-135: la foto acá es de solo lectura. Editarla (y ver email/teléfono) vive
+  // únicamente en "Editar perfil" — tenerlo en las dos pantallas duplicaba la misma
+  // información y dos puntos de entrada para la misma acción.
+  it("muestra el avatar de solo lectura, sin control de edición de foto", async () => {
     mockUseMyProfile.mockReturnValue({
       isLoading: false,
       isError: false,
@@ -224,10 +229,25 @@ describe("ProfileScreen", () => {
       refetch: mockRefetch,
     });
 
-    const { getByTestId } = await render(<ProfileScreen />);
+    const { getByTestId, queryByTestId } = await render(<ProfileScreen />);
 
-    expect(getByTestId("profile-photo-picker")).toBeTruthy();
-    expect(getByTestId("profile-photo-picker-avatar")).toBeTruthy();
+    expect(getByTestId("profile-avatar")).toBeTruthy();
+    expect(queryByTestId("profile-photo-picker")).toBeNull();
+    expect(queryByTestId("profile-private-section")).toBeNull();
+  });
+
+  it("AC1 de MOVO-135: el botón de editar lleva a la pantalla de editar perfil", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile(),
+      refetch: mockRefetch,
+    });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+    fireEvent.press(getByTestId("profile-edit-button"));
+
+    expect(router.push).toHaveBeenCalledWith("/profile/edit");
   });
 });
 

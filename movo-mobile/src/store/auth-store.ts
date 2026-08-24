@@ -32,6 +32,9 @@ interface AuthState {
   setSession: (session: SessionResponse) => Promise<void>;
   /** Actualiza el estado de KYC del usuario en memoria y en secure-store. */
   updateKycStatus: (kycStatus: KycStatus) => Promise<void>;
+  /** Actualiza el nombre mostrado del usuario en memoria y en secure-store
+   * (MOVO-135: el perfil pasó a ser editable, `fullName` ya no es inmutable). */
+  updateFullName: (fullName: string) => Promise<void>;
   /** Limpia sesión local (secure-store + estado) sin llamar al backend — usado tanto
    * por un refresh fallido (AC6) como internamente por `logout()`. */
   clearSession: () => Promise<void>;
@@ -90,6 +93,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const currentUser = get().user;
     if (!currentUser) return;
     const updatedUser: SessionUser = { ...currentUser, kycStatus };
+    await secureStore.setItem(SECURE_STORE_KEYS.sessionUser, JSON.stringify(updatedUser));
+    set({ user: updatedUser });
+  },
+
+  async updateFullName(fullName: string) {
+    const currentUser = get().user;
+    if (!currentUser || currentUser.fullName === fullName) return;
+    const updatedUser: SessionUser = { ...currentUser, fullName };
     await secureStore.setItem(SECURE_STORE_KEYS.sessionUser, JSON.stringify(updatedUser));
     set({ user: updatedUser });
   },
