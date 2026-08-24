@@ -78,6 +78,60 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}
+      # MOVO-71: `:-console` (no solo `-console`) es a propósito — si SMS_PROVIDER no
+      # está en Secrets Manager, ${SMS_PROVIDER} se sustituye por vacío y el contenedor
+      # arranca con la env var *presente pero vacía*, que no matchea el enum de
+      # envSchema (AJV solo aplica su default cuando la variable está ausente, no
+      # cuando está vacía) y tira el servicio abajo al boot. `:-` cubre "unset o vacío".
+      - SMS_PROVIDER=${SMS_PROVIDER:-console}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_API_KEY_SID=${TWILIO_API_KEY_SID}
+      - TWILIO_API_KEY_SECRET=${TWILIO_API_KEY_SECRET}
+      - TWILIO_FROM_NUMBER=${TWILIO_FROM_NUMBER}
+      # MOVO-71: TelegramSmsProvider, exclusivo de develop (SMS_PROVIDER=telegram) —
+      # evita depender de la consola de EC2 para ver el OTP en dev.
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      # MOVO-72: mismo criterio de `:-mock` que SMS_PROVIDER arriba — una var presente
+      # pero vacía no matchea el enum de envSchema y tira el servicio abajo al boot.
+      - DIDIT_MODE=${DIDIT_MODE:-mock}
+      - DIDIT_BASE_URL=${DIDIT_BASE_URL}
+      - DIDIT_API_KEY=${DIDIT_API_KEY}
+      - DIDIT_WORKFLOW_ID_IDENTITY=${DIDIT_WORKFLOW_ID_IDENTITY}
+      # MOVO-15: workflow separado para la verificación de licencia de conducir.
+      - DIDIT_WORKFLOW_ID_LICENSE=${DIDIT_WORKFLOW_ID_LICENSE}
+      - DIDIT_WEBHOOK_SECRET=${DIDIT_WEBHOOK_SECRET}
+      # MOVO-73: mismo criterio de `:-mock` que SMS_PROVIDER/DIDIT_MODE arriba — una var
+      # presente pero vacía no matchea el enum de envSchema y tira el servicio abajo al boot.
+      - GEOCODING_PROVIDER=${GEOCODING_PROVIDER:-mock}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      # Mismo criterio de `:-mock` que GEOCODING_PROVIDER arriba — una var presente pero
+      # vacía no matchea el enum de envSchema y tira el servicio abajo al boot. Faltaba
+      # esta línea (a diferencia de ROUTES_PROVIDER en movo-svc-shipments más abajo), por
+      # lo que PLACES_PROVIDER nunca llegaba al contenedor aunque se cargara en Secrets
+      # Manager. Reusa el mismo GOOGLE_MAPS_API_KEY ya declarado arriba.
+      - PLACES_PROVIDER=${PLACES_PROVIDER:-mock}
+      # MOVO-97: mismo criterio de `:-mock` que SMS_PROVIDER/DIDIT_MODE/GEOCODING_PROVIDER
+      # arriba — una var presente pero vacía no matchea el enum de envSchema y tira el
+      # servicio abajo al boot. Sin AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY a propósito:
+      # las credenciales de AWS salen del IAM role de la instancia EC2 (ADR-007/015), no
+      # de una env var.
+      - STORAGE_PROVIDER=${STORAGE_PROVIDER:-mock}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - S3_REGION=${S3_REGION}
+      # MOVO-106: mismo criterio de `:-mock` que STORAGE_PROVIDER/GEOCODING_PROVIDER/
+      # DIDIT_MODE/SMS_PROVIDER arriba — una var presente pero vacía no matchea el enum
+      # de envSchema y tira el servicio abajo al boot.
+      - PUSH_PROVIDER=${PUSH_PROVIDER:-mock}
+      # MOVO-139 (ADR-017): mismo criterio de `:-console` que SMS_PROVIDER arriba -- una
+      # var presente pero vacía no matchea el enum de envSchema y tira el servicio abajo
+      # al boot. Faltaba todo este bloque: aunque EMAIL_PROVIDER/RESEND_API_KEY/EMAIL_FROM
+      # estuvieran en Secrets Manager, compose solo pasa al contenedor lo que está listado
+      # acá, así que el servicio arrancaba siempre con el ConsoleEmailProvider (loguea el
+      # mail en vez de mandarlo) y nada llegaba a Resend.
+      - EMAIL_PROVIDER=${EMAIL_PROVIDER:-console}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - EMAIL_FROM=${EMAIL_FROM}
     depends_on:
       - postgres
       - redis
@@ -92,6 +146,24 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}
+      # MOVO-81: mismo bucket que movo-svc-users (movo-shipment-media-{env}), prefijo
+      # shipments/* en vez de profile-photos/*. Mismo criterio de `:-mock` que el resto
+      # de los STORAGE_PROVIDER/GEOCODING_PROVIDER/DIDIT_MODE del compose.
+      - STORAGE_PROVIDER=${STORAGE_PROVIDER:-mock}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - S3_REGION=${S3_REGION}
+      # MOVO-123: mismo criterio de `:-mock` que SMS_PROVIDER/DIDIT_MODE/GEOCODING_PROVIDER
+      # arriba — una var presente pero vacía no matchea el enum de envSchema y tira el
+      # servicio abajo al boot.
+      - ROUTES_PROVIDER=${ROUTES_PROVIDER:-mock}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      # MOVO-130: expiración automática del envío no confirmado
+      - RECEIVER_CONFIRMATION_TIMEOUT_HOURS=${RECEIVER_CONFIRMATION_TIMEOUT_HOURS:-48}
+      - RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES=${RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES:-15}
+      - RECEIVER_CONFIRMATION_SWEEP_ENABLED=${RECEIVER_CONFIRMATION_SWEEP_ENABLED:-true}
+      # MOVO-82: el default de código (http://movo-svc-pricing-logistics:8000) ya
+      # coincide con el nombre del servicio en movo-net, mismo criterio que
+      # USERS_SERVICE_URL -- no hace falta setearlo acá.
     depends_on:
       - postgres
       - redis

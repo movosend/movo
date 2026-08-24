@@ -1,0 +1,136 @@
+import { ChevronRight, MapPin, Star } from "lucide-react-native";
+import { useState } from "react";
+import { Pressable, Text, View } from "react-native";
+import { useCreateAddress, useAddresses } from "../../src/hooks/use-addresses";
+import { addressSelectionToCreateInput } from "../../src/lib/address-selection-to-input";
+import type { AddressSelection } from "../../src/types/address-selection";
+import { AddressSearchSheet } from "./address-search-sheet";
+import { CollapsibleMapRow } from "./collapsible-map-row";
+
+const SAVE_ADDRESS_ERROR = "No pudimos guardar la dirección. Probá de nuevo.";
+
+interface AddressFieldProps {
+  label: string;
+  dotColor: string;
+  value: AddressSelection | null;
+  onChange: (selection: AddressSelection | null) => void;
+  testID?: string;
+}
+
+/**
+ * Un bloque de dirección (retiro o entrega) del paso de direcciones del wizard
+ * (AC5), rediseñado estilo Uber/PedidosYa tras feedback de UI (MOVO-83): una fila
+ * colapsada que abre `AddressSearchSheet` (búsqueda de texto libre + Google Places,
+ * GPS, direcciones guardadas) a pantalla completa, en vez de mostrar de una un
+ * formulario manual de 6 campos. "Ajustar en el mapa" queda como escape hatch
+ * opcional para corregir el pin exacto, reusando `CollapsibleMapRow` tal cual.
+ */
+export function AddressField({ label, dotColor, value, onChange, testID }: AddressFieldProps) {
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const { data: savedAddresses } = useAddresses();
+  const createAddress = useCreateAddress();
+
+  const handleSelect = (selection: AddressSelection) => {
+    onChange(selection);
+    setSheetOpen(false);
+    setMapOpen(false);
+    setSaved(false);
+  };
+
+  const handleSaveAddress = async () => {
+    if (!value) return;
+    setSaveError(null);
+    try {
+      await createAddress.mutateAsync(addressSelectionToCreateInput(value));
+      setSaved(true);
+    } catch {
+      setSaveError(SAVE_ADDRESS_ERROR);
+    }
+  };
+
+  return (
+    <View className="gap-2">
+      <Pressable
+        testID={testID}
+        onPress={() => setSheetOpen(true)}
+        className="flex-row items-center gap-3 rounded-[10px] border border-border-strong bg-bg py-3.5 pl-3.5 pr-2"
+      >
+        <View className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: dotColor }} />
+        <View className="flex-1">
+          <Text className="mb-0.5 font-sans text-[11px] text-fg-3">{label}</Text>
+          <Text
+            className={`font-sans-medium text-[15px] ${value ? "text-fg" : "text-fg-3"}`}
+            numberOfLines={1}
+          >
+            {value?.address || "Tocá para buscar la dirección"}
+          </Text>
+        </View>
+        {value ? (
+          <Pressable
+            testID={testID ? `${testID}-adjust-map` : undefined}
+            onPress={() => setMapOpen((v) => !v)}
+            hitSlop={8}
+            className={`h-9 w-9 items-center justify-center rounded-full ${mapOpen ? "bg-fg" : "bg-bg-sub"}`}
+          >
+            <MapPin size={16} color={mapOpen ? "#C6F24A" : "#8A8A93"} strokeWidth={1.8} />
+          </Pressable>
+        ) : null}
+        <ChevronRight size={18} color="#8A8A93" strokeWidth={1.8} />
+      </Pressable>
+
+      {value && value.source !== "saved" ? (
+        <View className="self-start">
+          <Pressable
+            testID={testID ? `${testID}-save-address` : undefined}
+            onPress={() => void handleSaveAddress()}
+            disabled={saved || createAddress.isPending}
+            hitSlop={8}
+            className="flex-row items-center gap-1.5 self-start rounded-full px-1 py-2"
+          >
+            <Star size={13} color={saved ? "#C6F24A" : "#8A8A93"} fill={saved ? "#C6F24A" : "none"} />
+            <Text className="font-sans-medium text-[12px] text-fg-2">
+              {saved ? "Dirección guardada" : "Guardar para la próxima"}
+            </Text>
+          </Pressable>
+          {saveError ? (
+            <Text
+              testID={testID ? `${testID}-save-address-error` : undefined}
+              className="px-1 font-sans text-[11px] text-danger-500"
+            >
+              {saveError}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {mapOpen ? (
+        <View className="rounded-[10px] border border-border-strong bg-bg">
+          <CollapsibleMapRow
+            testID={testID ? `${testID}-map` : undefined}
+            dotColor={dotColor}
+            label={label}
+            address={value?.address ?? ""}
+            lat={value?.lat ?? null}
+            lng={value?.lng ?? null}
+            autoExpand
+            onConfirm={(lat, lng) => {
+              onChange(value ? { ...value, lat, lng, source: "map-pin" } : { address: "Ubicación en el mapa", lat, lng, source: "map-pin" });
+            }}
+          />
+        </View>
+      ) : null}
+
+      <AddressSearchSheet
+        testID={testID ? `${testID}-sheet` : undefined}
+        visible={sheetOpen}
+        label={label}
+        savedAddresses={savedAddresses}
+        onClose={() => setSheetOpen(false)}
+        onSelect={handleSelect}
+      />
+    </View>
+  );
+}

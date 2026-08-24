@@ -16,11 +16,22 @@ describe("user-repository (Postgres)", () => {
     lastName: "Olmos",
     passwordHash: "hashed_password",
     roles: [UserRole.SENDER, UserRole.CARRIER],
+    phoneVerified: false,
+    address: {
+      street: "Av. Colón",
+      number: "1234",
+      city: "Córdoba",
+      province: "Córdoba",
+      zip: "5000",
+      lat: -31.4201,
+      long: -64.1888,
+    },
   };
 
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
     process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo_local_pw@localhost:5432/movo";
+    process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
     app = buildApp();
     await app.ready();
     repo = createUserRepository(app.db);
@@ -146,6 +157,32 @@ describe("user-repository (Postgres)", () => {
         KycStatus.APPROVED
       );
       expect(result).toBeNull();
+    });
+  });
+
+  describe("updateEmail", () => {
+    it("MOVO-133 (fix de review de tmvergara sobre PR #91): una colisión que difiere solo en casing lanza UserConflictError, no un P2002 crudo", async () => {
+      // Reproduce el hallazgo real: `users_email_lower_idx` (MOVO-93) es un UNIQUE
+      // INDEX de EXPRESIÓN sobre LOWER(email) -- Postgres sí lo hace cumplir. Cuando
+      // choca, el driver adapter de Prisma 7 no devuelve `fields: ["email"]` limpio
+      // como para un unique constraint de columna simple: devuelve el nombre de la
+      // expresión truncado (`["lower(email::text"]`, verificado empíricamente contra
+      // Postgres real). Un `.includes("email")` exacto no matchea eso -- antes de
+      // este fix, el P2002 se repropagaba crudo (500) en vez de traducirse a
+      // UserConflictError (409).
+      const other = await repo.create({ ...baseInput, email: `case-${Date.now()}@movo.test`, phone: "+5493510000002" });
+      const user = await repo.create({ ...baseInput, email: `throwaway-${Date.now()}@movo.test`, phone: "+5493510000003" });
+
+      await expect(repo.updateEmail(user.id, other.email.toUpperCase())).rejects.toMatchObject(
+        new UserConflictError("email")
+      );
+    });
+
+    it("colisión de mismo casing exacto (users_email_key) también lanza UserConflictError", async () => {
+      const other = await repo.create({ ...baseInput, email: `exact-${Date.now()}@movo.test`, phone: "+5493510000004" });
+      const user = await repo.create({ ...baseInput, email: `throwaway2-${Date.now()}@movo.test`, phone: "+5493510000005" });
+
+      await expect(repo.updateEmail(user.id, other.email)).rejects.toMatchObject(new UserConflictError("email"));
     });
   });
 

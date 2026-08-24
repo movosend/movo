@@ -6,6 +6,12 @@ on:
       - develop
       - main
 
+# Un push nuevo a la misma PR cancela el run anterior: sin esto quedan varios
+# runs de la misma rama corriendo en paralelo y compitiendo por runners.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   NODE_VERSION: "20"
   PYTHON_VERSION: "3.12"
@@ -13,6 +19,7 @@ env:
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       gateway: ${{ steps.filter.outputs.gateway }}
       svc-users: ${{ steps.filter.outputs.svc-users }}
@@ -63,6 +70,7 @@ jobs:
       needs.detect-changes.outputs.svc-admin == 'true'
 
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     services:
       postgres:
@@ -155,11 +163,14 @@ jobs:
         working-directory: ${{ matrix.service.path }}
         run: npx tsc --noEmit
 
-      # movo-svc-users usa Prisma Migrate (prisma migrate deploy, con tracking
-      # propio en _prisma_migrations) -- los demás servicios siguen con el
-      # runner de SQL a mano hasta que tengan dominio real (ver ADR-011).
+      # movo-svc-users y movo-svc-shipments usan Prisma Migrate (prisma migrate
+      # deploy, con tracking propio en _prisma_migrations) -- los demás
+      # servicios siguen con el runner de SQL a mano hasta que tengan dominio
+      # real (ver ADR-011; movo-svc-shipments lo adoptó en MOVO-104).
       - name: Run migrations (Prisma)
-        if: matrix.service.changed == 'true' && matrix.service.name == 'movo-svc-users'
+        if: |
+          matrix.service.changed == 'true' &&
+          (matrix.service.name == 'movo-svc-users' || matrix.service.name == 'movo-svc-shipments')
         working-directory: ${{ matrix.service.path }}
         run: npx prisma migrate deploy
 
@@ -167,7 +178,8 @@ jobs:
         if: |
           matrix.service.changed == 'true' &&
           matrix.service.name != 'gateway' &&
-          matrix.service.name != 'movo-svc-users'
+          matrix.service.name != 'movo-svc-users' &&
+          matrix.service.name != 'movo-svc-shipments'
         run: |
           sudo apt-get update && sudo apt-get install -y postgresql-client
           ./scripts/run-migrations.sh ${{ matrix.service.path }}
@@ -183,24 +195,30 @@ jobs:
     if: needs.detect-changes.outputs.mobile == 'true'
 
     runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: movo-mobile
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
 
+      # movo-mobile es un workspace npm del monorepo: no tiene package-lock
+      # propio y sus deps se instalan (hoisteadas) desde la raíz.
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: movo-mobile/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Instalar dependencias
         run: npm ci
 
+      # Los tests importan @movo/shared por subpath de dist/ (ver
+      # movo-mobile/src/api/http-client.ts) -- sin este build no resuelven.
+      - name: Build @movo/shared
+        working-directory: shared/movo-shared
+        run: npm run build
+
       - name: Tests
+        working-directory: movo-mobile
         run: npm test
 
   admin-web:
@@ -209,6 +227,7 @@ jobs:
     if: needs.detect-changes.outputs.admin-web == 'true'
 
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     defaults:
       run:
@@ -235,6 +254,7 @@ jobs:
     if: needs.detect-changes.outputs.svc-pricing-logistics == 'true'
 
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     defaults:
       run:
@@ -264,6 +284,7 @@ jobs:
     if: always()
     needs: [node-services, python-service, mobile, admin-web]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Verificar que todos los jobs de test pasaron
         run: |

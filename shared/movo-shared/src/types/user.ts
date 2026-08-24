@@ -29,6 +29,10 @@ export enum KycStatus {
   APPROVED = "approved",
   REJECTED = "rejected",
   EXPIRED = "expired",
+  // MOVO-72: estado intermedio de Didit.me ("In Review") que requiere revisión manual
+  // antes de resolverse a approved/rejected — agregado al final, nunca se renombra un
+  // valor existente (mismo criterio que ApiErrorCode).
+  MANUAL_REVIEW = "manual_review",
 }
 
 /**

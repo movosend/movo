@@ -1,0 +1,235 @@
+// Primer dominio real de movo-svc-shipments (MOVO-104) — adopta Prisma desde
+// el arranque en vez de SQL a mano (ADR-011: todos los servicios Node lo
+// adoptan al modelar dominio real; movo-svc-users fue el primero en MOVO-93).
+//
+// moduleFormat = "cjs": el resto del servicio es CommonJS, mismo motivo que
+// movo-svc-users/prisma/schema.prisma.
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Las tablas viven en el schema `shipments` de Postgres (ADR-003: una sola
+  // instancia compartida, un schema por servicio), no en `public`.
+  schemas  = ["shipments"]
+}
+
+// MOVO-104 AC2: 3 categorías acordadas por el equipo (decisión final,
+// reduce las 5 que traía una primera pasada del AC). Reemplaza el
+// `package_type_enum` de 3 valores que tenía docs/movo_der.dbml
+// (DOCUMENTO/ESTANDAR/OBJETO_FRAGIL) — mismos 3 conceptos, nombres en inglés.
+enum PackageType {
+  letter_document
+  standard_package
+  fragile_item
+
+  @@map("package_type_enum")
+  @@schema("shipments")
+}
+
+// MOVO-104 AC6: set canónico de 9 estados acordado en MOVO-79, ya vigente
+// como `ShipmentStatus` en @movo/shared y consumido por
+// shipment-state-machine.ts (MOVO-105). Este enum de Postgres es su
+// contraparte 1:1 — cualquier valor nuevo se agrega primero en
+// @movo/shared, después acá, nunca al revés.
+enum ShipmentStatus {
+  awaiting_receiver_confirmation
+  rejected_by_receiver
+  published
+  assignment_pending
+  assigned
+  in_transit
+  delivered
+  cancelled
+  disputed
+
+  @@map("shipment_status_enum")
+  @@schema("shipments")
+}
+
+// MOVO-104 AC4.
+enum PhotoStage {
+  creation
+  pickup
+  delivery
+
+  @@map("photo_stage_enum")
+  @@schema("shipments")
+}
+
+// MOVO-102 AC5: 6 estados, ya vigente como `OfferStatus` en @movo/shared y
+// consumido por offer-state-machine.ts. `expired` es un estado DERIVADO
+// (AC11, perezoso, sin scheduler): ningún código de este servicio ejecuta
+// jamás un UPDATE a 'expired' — se calcula en cada lectura. El valor existe
+// en el enum de Postgres por completitud/futuro-proofing, no porque algo lo
+// escriba.
+enum OfferStatus {
+  pending
+  accepted
+  rejected
+  withdrawn
+  expired
+  superseded
+
+  @@map("offer_status_enum")
+  @@schema("shipments")
+}
+
+// MOVO-104 AC2 + superset acordado con el usuario del DER original
+// (docs/movo_der.dbml): carrier_id/urgent/agreedPriceArs/paymentMethod/
+// deliveredAt/lastStatusChangedAt no estaban en el AC literal pero sí en el
+// DER — se agregan ahora para no migrar de nuevo pronto cuando lleguen las
+// US de asignación (MOVO-79 EP-03) y pagos (EP-05).
+model Shipment {
+  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Referencias lógicas a users.users, sin FK real (AC5, ADR-003).
+  senderId   String  @map("sender_id") @db.Uuid
+  receiverId String  @map("receiver_id") @db.Uuid
+  carrierId  String? @map("carrier_id") @db.Uuid
+
+  packageType PackageType @map("package_type")
+  weightKg    Decimal     @map("weight_kg") @db.Decimal
+  lengthCm    Decimal     @map("length_cm") @db.Decimal
+  widthCm     Decimal     @map("width_cm") @db.Decimal
+  heightCm    Decimal     @map("height_cm") @db.Decimal
+  description String?
+  urgent      Boolean     @default(false)
+
+  pickupAddress String  @map("pickup_address")
+  pickupLat     Decimal @map("pickup_lat") @db.Decimal(9, 6)
+  pickupLng     Decimal @map("pickup_lng") @db.Decimal(9, 6)
+
+  deliveryAddress String  @map("delivery_address")
+  deliveryLat     Decimal @map("delivery_lat") @db.Decimal(9, 6)
+  deliveryLng     Decimal @map("delivery_lng") @db.Decimal(9, 6)
+
+  pickupDate             DateTime @map("pickup_date") @db.Date
+  pickupTimeWindowStart  DateTime @map("pickup_time_window_start") @db.Time
+  pickupTimeWindowEnd    DateTime @map("pickup_time_window_end") @db.Time
+
+  // MOVO-82: nullable = "precio a estimar" (AC6), cuando movo-svc-pricing-logistics no
+  // respondió o faltaban datos al crear el envío. Nunca se recalcula (AC8).
+  suggestedPriceArs Decimal? @map("suggested_price_ars") @db.Decimal
+  // Versión del algoritmo que produjo suggestedPriceArs (PriceCalculationMethod de
+  // @movo/shared, ej. "euclidean_linear_v1") -- null junto con un precio nulo.
+  calculationMethod String?  @map("calculation_method")
+  agreedPriceArs    Decimal? @map("agreed_price_ars") @db.Decimal
+  // DER: "tipado como enum en el Miro pero sin valores definidos" — se deja
+  // texto libre a propósito, no se inventan valores que nadie definió.
+  paymentMethod     String?  @map("payment_method")
+
+  status               ShipmentStatus @default(awaiting_receiver_confirmation)
+  lastStatusChangedAt  DateTime?      @map("last_status_changed_at") @db.Timestamptz
+  deliveredAt          DateTime?      @map("delivered_at") @db.Timestamptz
+  // MOVO-130 AC1: deadline de confirmación del receptor (createdAt + RECEIVER_CONFIRMATION_TIMEOUT_HOURS).
+  // Nullable para envíos preexistentes sin backfill.
+  receiverConfirmationDeadline DateTime? @map("receiver_confirmation_deadline") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  // Mantenida por trigger de Postgres (shipments.update_updated_at_column()),
+  // mismo patrón que users.users — @updatedAt hace que Prisma también la
+  // pise en cada write, redundante con el trigger pero consistente.
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  events ShipmentEvent[]
+  photos ShipmentPhoto[]
+  offers Offer[]
+
+  @@index([senderId], map: "shipments_sender_id_idx")
+  @@index([receiverId], map: "shipments_receiver_id_idx")
+  @@index([carrierId], map: "shipments_carrier_id_idx")
+  @@index([status], map: "shipments_status_idx")
+  @@index([pickupDate], map: "shipments_pickup_date_idx")
+  @@map("shipments")
+  @@schema("shipments")
+}
+
+// MOVO-104 AC3: historial append-only de transiciones — nunca se actualiza
+// ni se borra una fila ya insertada.
+model ShipmentEvent {
+  id         String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId String          @map("shipment_id") @db.Uuid
+  // NULL solo en el evento de creación (no hay "from" antes del primer
+  // estado).
+  fromStatus ShipmentStatus? @map("from_status")
+  toStatus   ShipmentStatus  @map("to_status")
+  // Referencia lógica (sender/receiver/carrier/admin), sin FK — nullable
+  // porque una transición futura disparada por el sistema (ej. timeout) puede
+  // no tener actor humano.
+  actorId String? @map("actor_id") @db.Uuid
+  reason  String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId], map: "shipment_events_shipment_id_idx")
+  @@map("shipment_events")
+  @@schema("shipments")
+}
+
+// MOVO-104 AC4: solo la referencia a S3, nunca la imagen (ADR-007).
+model ShipmentPhoto {
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId String     @map("shipment_id") @db.Uuid
+  stage      PhotoStage
+  s3Key      String     @map("s3_key")
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@unique([shipmentId, s3Key], map: "shipment_photos_shipment_id_s3_key_key")
+  @@index([shipmentId], map: "shipment_photos_shipment_id_idx")
+  @@map("shipment_photos")
+  @@schema("shipments")
+}
+
+// MOVO-102: hermano de Shipment (MOVO-79/104/105) para la entidad Offer.
+// Una sola ronda de negociación (sin contraoferta) — si en el futuro se
+// necesita negociación encadenada, se modela con un parent_offer_id sin
+// romper nada de esto; explícitamente fuera de alcance acá.
+//
+// AC7 (índice único parcial `UNIQUE (shipment_id, carrier_id) WHERE status =
+// 'pending'`) y el resto de los índices del AC14 se agregan a mano en la
+// migración SQL — Prisma no representa índices parciales en su DSL, mismo
+// tipo de gap que el trigger de updated_at de Shipment (MOVO-104).
+model Offer {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId String @map("shipment_id") @db.Uuid
+  // Referencia lógica a users.users, sin FK real (AC4, ADR-003) — mismo
+  // criterio que Shipment.senderId/receiverId/carrierId.
+  carrierId  String @map("carrier_id") @db.Uuid
+
+  // AC3: numeric, nunca float. Precio BRUTO (lo que paga el emisor, incluye
+  // comisión Movo) — el cálculo neto/bruto es de UI/servicio (MOVO-23), acá
+  // solo se persiste.
+  priceOffered Decimal  @map("price_offered") @db.Decimal
+  offeredDate  DateTime @map("offered_date") @db.Date
+  // AC2: mensaje opcional del transportista. El límite de caracteres es de
+  // negocio/UI, no se valida en el schema.
+  message      String?  @db.Text
+
+  // AC2: snapshot del transportista al momento de ofertar, evita el N+1 al
+  // listar (MOVO-17) y es el dato correcto para una disputa futura ("qué
+  // reputación tenía cuando lo elegí"). Envejece con el tiempo — trade-off
+  // aceptado. Snapshot de vehículo NO se agrega: no hay ninguna entidad de
+  // vehículo diseñada todavía en users.users/DER — pendiente explícito.
+  carrierRatingAtOffer Decimal? @map("carrier_rating_at_offer") @db.Decimal
+  carrierNameAtOffer   String?  @map("carrier_name_at_offer")
+
+  status OfferStatus @default(pending)
+  // AC2: sostiene la expiración perezosa (AC11).
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  respondedAt DateTime? @map("responded_at") @db.Timestamptz
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId], map: "offers_shipment_id_idx")
+  @@index([carrierId], map: "offers_carrier_id_idx")
+  @@index([status], map: "offers_status_idx")
+  @@map("offers")
+  @@schema("shipments")
+}

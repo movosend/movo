@@ -23,3 +23,13 @@ export type { ApiErrorCode, SerializedApiError } from "./errors/api-error";
 // types
 export { UserRole, KycStatus, AccountStatus } from "./types/user";
 export { ShipmentStatus } from "./types/shipment";
+export { OfferStatus } from "./types/offer";
+export type {
+  ProfileBadge,
+  TransactionCounts,
+  PrivateProfile,
+  PublicProfile,
+} from "./types/user-profile";
+export type { Address, CreateAddressInput, UpdateAddressInput } from "./types/address";
+export { PriceCalculationMethod } from "./types/pricing";
+export type { QuoteRequest, QuoteResponse, PriceBreakdownItem } from "./types/pricing";

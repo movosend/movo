@@ -17,6 +17,8 @@ export default defineConfig({
         "src/modules/**/*.repository.ts",
         "src/repositories/**/*.ts",
         "src/models/**/*.ts",
+        "src/services/**/*.ts",
+        "src/adapters/**/*.ts",
       ],
       exclude: ["src/modules/**/*.schema.ts", "src/modules/**/*.routes.ts"],
       thresholds: {

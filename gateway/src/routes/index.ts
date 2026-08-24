@@ -1,7 +1,13 @@
 import { FastifyInstance } from "fastify";
 import httpProxy from "@fastify/http-proxy";
 import { EnvConfig } from "../config/env";
-import { getServiceRoutes, getPublicRoutes, isPublicRoute, API_PREFIX } from "../config/routes-map";
+import {
+  getServiceRoutes,
+  getPublicRoutes,
+  getRateLimitOverrides,
+  isPublicRoute,
+  API_PREFIX,
+} from "../config/routes-map";
 
 // Sin fastify-plugin a propósito: este plugin no necesita exponer nada al
 // padre (a diferencia de auth.ts o rate-limit.ts), así que mantiene su
@@ -22,26 +28,61 @@ export default async function routesPlugin(
   // marca un flag interno la primera vez que corre en un request y no
   // vuelve a chequear — si intentáramos aplicar ambos (general + estricto)
   // al mismo request, el segundo chequeo se ignoraría en silencio.
+  // MOVO-72: bug encontrado al agregar el segundo rate limit estricto (/kyc/session,
+  // misma config {max:5, timeWindow:"15 minutes"} que /auth/login) — `@fastify/rate-limit`
+  // en modo decorator (`app.rateLimit(opts)`, la forma en que se usa acá) siempre arma
+  // el namespace del store con `routeInfo: {}` fijo (ver `createLimiterArgs` en la
+  // librería), así que la clave real en Redis termina siendo
+  // `fastify-rate-limit-undefinedundefined-<ip>` para TODOS los limiters creados así,
+  // sin importar su `max`/`timeWindow` — general, login y kyc-session compartían un
+  // solo contador por IP (confirmado con `redis-cli keys`). Un `keyGenerator` explícito
+  // por limiter es la única forma de distinguirlos con esta API (routeInfo no es
+  // configurable desde afuera de la librería).
   const generalLimiter = app.rateLimit({
     max: opts.env.RATE_LIMIT_MAX,
     timeWindow: "1 minute",
+    keyGenerator: (request) => `general:${request.ip}`,
   });
 
+  // Union de dos fuentes: rutas públicas con rate limit propio (`getPublicRoutes()`,
+  // ej. /auth/login) y rutas PROTEGIDAS con rate limit propio (`getRateLimitOverrides()`,
+  // MOVO-97: /users/me/photo/upload-url exige JWT pero igual necesita un límite estricto
+  // — emitir presigned URLs es la puerta de entrada a escribir en el bucket de S3). El
+  // lookup en el preHandler es el mismo para las dos: por `method + path`, sin importar
+  // si la ruta es pública o no.
   const strictRateLimiters = new Map<string, ReturnType<typeof app.rateLimit>>();
-  for (const publicRoute of getPublicRoutes()) {
-    if (publicRoute.rateLimit) {
-      strictRateLimiters.set(
-        `${publicRoute.method} ${publicRoute.path}`,
-        app.rateLimit(publicRoute.rateLimit)
-      );
-    }
+  const rateLimitedRoutes = [
+    ...getPublicRoutes().filter((r) => r.rateLimit),
+    ...getRateLimitOverrides(),
+  ];
+  for (const route of rateLimitedRoutes) {
+    const routeKey = `${route.method} ${route.path}`;
+    strictRateLimiters.set(
+      routeKey,
+      app.rateLimit({
+        ...route.rateLimit!,
+        keyGenerator: (request) => `${routeKey}:${request.ip}`,
+      })
+    );
   }
 
   for (const route of serviceRoutes) {
     await app.register(httpProxy, {
       upstream: route.upstream,
       prefix: route.prefix,
-      rewritePrefix: "/",
+      // Sin rewrite: el path que expone cada microservicio (ej. `/auth/register`
+      // en movo-svc-users) es el mismo que expone el gateway bajo `/api/v1`, ya que
+      // cada servicio también se publica directo en su puerto para debug local (ver
+      // README) y genera su propio Swagger documentando esos paths. `rewritePrefix:
+      // "/"` (como estaba antes) le sacaba el prefijo del módulo (`/auth`, `/users`)
+      // al reenviar — el upstream nunca lo esperó así, así que TODO endpoint de
+      // movo-svc-users devolvía 404 al pasar por acá (nadie lo detectó porque el
+      // test suite del gateway pega contra un stub que responde 200 a cualquier
+      // path, y el de movo-svc-users llama las rutas directo con `app.inject()`,
+      // sin gateway de por medio). `rewritePrefix: route.prefix` es un no-op
+      // intencional: matchea `prefix` y lo vuelve a poner igual, el path llega
+      // intacto al upstream.
+      rewritePrefix: route.prefix,
       preHandler: async (request, reply) => {
         // request.url incluye el prefijo /api/v1 con el que se registró este
         // plugin; getPublicRoutes() declara los paths sin ese prefijo (son
@@ -53,11 +94,11 @@ export default async function routesPlugin(
           : fullPath;
         const publicRoute = isPublicRoute(request.method, path);
 
-        // Rate limit: estricto si esta ruta puntual lo declara (ej. login),
-        // general en cualquier otro caso.
-        const strictLimiter = publicRoute?.rateLimit
-          ? strictRateLimiters.get(`${publicRoute.method} ${publicRoute.path}`)
-          : undefined;
+        // Rate limit: estricto si esta ruta puntual lo declara —pública (ej. login) o
+        // protegida (ej. /users/me/photo/upload-url, MOVO-97)—, general en cualquier
+        // otro caso. El lookup es independiente de si la ruta es pública: ver
+        // `rateLimitedRoutes` más arriba.
+        const strictLimiter = strictRateLimiters.get(`${request.method.toUpperCase()} ${path}`);
         await (strictLimiter ?? generalLimiter).call(app, request, reply);
 
         if (publicRoute) {

@@ -16,6 +16,11 @@ export interface User {
   passwordHash: string;
   dni: string | null;
   phoneVerified: boolean;
+  /** MOVO-139: el usuario probó posesión del email vía OTP (`/users/me/email/verify/*`
+   * o el paso 2 de cambio de email). Precondición de MOVO-64. */
+  emailVerified: boolean;
+  /** Solo auditoría: nunca se lee para decidir nada, el booleano de arriba es la fuente. */
+  emailVerifiedAt: Date | null;
   photoUrl: string | null;
   kycStatusIdentity: KycStatus;
   kycStatusLicense: KycStatus;
@@ -35,6 +40,15 @@ export interface User {
 export type PublicUser = Omit<User, "passwordHash">;
 
 /**
+ * Única definición de cómo se compone el nombre visible de un usuario (review de
+ * PR #55, tmvergara) — antes se armaba `${firstName} ${lastName}` suelto en
+ * `user-profile.ts` (x2) y `auth.service.ts`.
+ */
+export function fullName(user: Pick<User, "firstName" | "lastName">): string {
+  return `${user.firstName} ${user.lastName}`;
+}
+
+/**
  * Único puente permitido de `User` (interno) a lo que se serializa al cliente.
  * `toPublicUser` se construye campo por campo y no con spread: si se agrega una
  * propiedad a `User`, TypeScript rompe acá y obliga a decidir explícitamente si
@@ -49,6 +63,8 @@ export function toPublicUser(user: User): PublicUser {
     lastName: user.lastName,
     dni: user.dni,
     phoneVerified: user.phoneVerified,
+    emailVerified: user.emailVerified,
+    emailVerifiedAt: user.emailVerifiedAt,
     photoUrl: user.photoUrl,
     kycStatusIdentity: user.kycStatusIdentity,
     kycStatusLicense: user.kycStatusLicense,
@@ -61,6 +77,23 @@ export function toPublicUser(user: User): PublicUser {
   };
 }
 
+/**
+ * MOVO-73: primera dirección del usuario (tabla `users.address` del DER,
+ * `docs/movo_der.dbml`, implementada recién en esta US). `label`/`isDefault`/
+ * `country` no viajan del caller — el repositorio los hardcodea al crear (ver
+ * `user-repository.ts#create`).
+ */
+export interface CreateUserAddressInput {
+  street: string;
+  number: string;
+  floor?: string;
+  city: string;
+  province: string;
+  zip: string;
+  lat: number;
+  long: number;
+}
+
 export interface CreateUserInput {
   email: string;
   phone: string;
@@ -70,6 +103,12 @@ export interface CreateUserInput {
   dni?: string;
   birthdate?: Date | null;
   roles: UserRole[];
+  // MOVO-72: register() ahora exige phoneVerificationToken (MOVO-71) y lo consume antes
+  // de crear la cuenta — el usuario se persiste ya con el teléfono verificado.
+  phoneVerified: boolean;
+  // MOVO-73: `POST /auth/register` exige `address` en el body (ver auth.schema.ts) —
+  // requerido acá también, no opcional, porque `users.address.lat/long` son NOT NULL.
+  address: CreateUserAddressInput;
 }
 
 /** Fila cruda de `users.users`, tal como la devuelve `pg` (snake_case). */
@@ -82,6 +121,8 @@ export interface UserRow {
   password_hash: string;
   dni: string | null;
   phone_verified: boolean;
+  email_verified: boolean;
+  email_verified_at: Date | null;
   photo_url: string | null;
   kyc_status_identity: string;
   kyc_status_license: string;
@@ -149,6 +190,8 @@ export function mapRowToUser(row: UserRow, roles: string[]): User {
     passwordHash: row.password_hash,
     dni: row.dni,
     phoneVerified: row.phone_verified,
+    emailVerified: row.email_verified,
+    emailVerifiedAt: row.email_verified_at,
     photoUrl: row.photo_url,
     kycStatusIdentity: parseKycStatus(row.kyc_status_identity, "kyc_status_identity"),
     kycStatusLicense: parseKycStatus(row.kyc_status_license, "kyc_status_license"),
