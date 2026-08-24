@@ -43,21 +43,69 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
   };
 }
 
-// MOVO-127: fila reusada por el preview de Home y el listado completo "Mis Envíos".
+const mockCurrentUser = jest.fn();
+jest.mock("../src/store/auth-store", () => ({
+  useAuthStore: (selector?: (state: { user: { userId: string } | null }) => unknown) => {
+    const state = { user: mockCurrentUser() };
+    return typeof selector === "function" ? selector(state) : state;
+  },
+}));
+
+jest.mock("../src/hooks/use-profile", () => ({
+  usePublicProfile: (userId: string) => ({
+    data: {
+      id: userId,
+      fullName: userId === "user-1" ? "Pedro Emisor" : "Tomás Olmos",
+      photoUrl: null,
+      isVerified: true,
+      badges: [],
+      transactionCounts: { asSender: 0, asCarrier: 0 },
+      reputationScore: null,
+    },
+    isLoading: false,
+    isError: false,
+  }),
+}));
+
+// MOVO-127 / MOVO-132: fila usada por el preview de Home ("Actividad reciente").
 describe("ShipmentRow", () => {
+  beforeEach(() => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+  });
   afterEach(() => jest.clearAllMocks());
 
-  it("muestra dirección de entrega, precio y estado", async () => {
-    const { getByText } = await render(
+  it("muestra 'Envío a [Nombre]' y estado cuando el usuario es el emisor", async () => {
+    const { getByText, queryByText } = await render(
       <ShipmentRow
-        shipment={shipment({ status: ShipmentStatus.IN_TRANSIT, agreedPriceArs: 5200 })}
+        shipment={shipment({
+          status: ShipmentStatus.IN_TRANSIT,
+          senderId: "user-1",
+          receiverId: "user-2",
+        })}
         isFirst
       />,
     );
 
-    expect(getByText("Bv. San Juan 500, Córdoba")).toBeTruthy();
+    expect(getByText("Envío a Tomás")).toBeTruthy();
     expect(getByText("En camino")).toBeTruthy();
-    expect(getByText("$5.200")).toBeTruthy();
+    expect(queryByText("Bv. San Juan 500, Córdoba")).toBeNull();
+  });
+
+  it("muestra 'Envío de [Nombre]' y 'Requiere tu confirmación' cuando el usuario es el receptor", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-2" });
+    const { getByText } = await render(
+      <ShipmentRow
+        shipment={shipment({
+          status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+          senderId: "user-1",
+          receiverId: "user-2",
+        })}
+        isFirst
+      />,
+    );
+
+    expect(getByText("Envío de Pedro")).toBeTruthy();
+    expect(getByText("Requiere tu confirmación")).toBeTruthy();
   });
 
   it("navega al detalle del envío al tocar la fila", async () => {

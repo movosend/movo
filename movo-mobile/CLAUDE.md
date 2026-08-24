@@ -439,12 +439,27 @@ Perspectiva del receptor sobre la pantalla de detalle de envío (`app/(app)/ship
 
 - **Detección dinámica de rol en `shipments/[id].tsx`**: compara `useAuthStore().user?.userId` con `shipment.receiverId` / `shipment.senderId`. Mirando como receptor, la sección de contraparte titula "Emisor" y muestra el perfil público de `shipment.senderId` (foto, nombre, insignia de verificado, reputación) mediante `CounterpartCard` + `usePublicProfile`, omitiendo el badge de confirmación (solo aplica cuando la contraparte es el receptor).
 - **`ReceiverActionsBar` nueva (`components/shipments/receiver-actions-bar.tsx`)**: barra de acciones fija al pie, mostrada únicamente cuando el usuario es el receptor y el envío está en `AWAITING_RECEIVER_CONFIRMATION`.
-  - **Aceptar envío**: CTA primaria con acento Signal Lime (`bg-lime-500`, texto oscuro), pide confirmación con diálogo nativo `Alert.alert` y ejecuta `POST /shipments/:id/accept`.
-  - **Rechazar**: botón secundario/destructivo que abre modal de confirmación con advertencia de irreversibilidad y campo opcional para motivo (`reason`, máx 500 caracteres, `POST /shipments/:id/reject`).
+  - **Aceptar envío**: CTA primaria con acento Signal Lime (`bg-lime-500`, texto oscuro), pide confirmación mediante un modal propio in-app (mismo diseño que el de rechazo) y ejecuta `POST /shipments/:id/accept`.
+  - **Rechazar**: botón secundario/destructivo que abre modal in-app de confirmación con advertencia de irreversibilidad y campo opcional para motivo (`reason`, máx 500 caracteres, `POST /shipments/:id/reject`).
   - **Deadline de confirmación**: calcula y muestra el tiempo restante en horas ("Te quedan 36 h para confirmar", "Te queda 1 h para confirmar") con formateo puro (`formatReceiverConfirmationDeadline` en `src/lib/shipment-format.ts`), degradando silenciosamente si no viene o ya expiró.
   - **Bloqueo de doble tap y feedback de errores**: deshabilita ambos botones con spinners durante mutación en vuelo. Mapea `ApiError.statusCode` a mensajes específicos (409 → "Este envío ya no se puede confirmar" + refetch del detalle; 403 → "No sos el destinatario de este envío"; banner genérico para el resto).
 - **Mutaciones en `use-shipments.ts`**: `useAcceptShipment` y `useRejectShipment` (`POST /shipments/:id/accept` y `/reject` en `shipments-client.ts`) invalidan queries `["shipments", "mine"]`, `["shipments", "mine", "recent"]`, `["shipments", "mine", "list"]` y `["shipments", "detail", id]` actualizando la cache para reflejar el estado sin salir de la pantalla.
 
+### MOVO-132 — Envíos que recibo: distinción de rol en el listado y entrada desde la notificación push (`movo-mobile`)
+
+Completa el camino por el que el receptor llega a la pantalla de confirmación (AC1, AC2 y AC4 de MOVO-16), resolviendo la distinción de rol en tarjetas y la navegación desde notificaciones push.
+
+- **Distinción de rol en tarjetas y filas (`ShipmentCard` y `ShipmentRow`)**:
+  - Resuelve `isReceiver` comparando síncronamente `useAuthStore().user?.userId === shipment.receiverId`.
+  - Muestra un tag visual de rol: *"Recibís"* (`bg-info-100 text-info-700`) y *"Enviás"* (`bg-bg-mute text-fg-2`).
+  - **Badge contextual según rol (`ShipmentStatusBadge`)**: en `AWAITING_RECEIVER_CONFIRMATION`, muestra *"Requiere tu confirmación"* para el receptor (con deadline restante `formatReceiverConfirmationDeadline` si aplica) y *"Esperando al receptor"* para el emisor.
+- **Filtro de Rol en "Mis Envíos" (`app/(app)/shipments/index.tsx`)**:
+  - Suma la sección **"Rol"** a `ShipmentsFilterSheet` con pills: `Todos` / `Enviados` / `Recibidos` (100% client-side).
+  - **Prioridad en la cima**: en la pestaña "En curso", los envíos recibidos en `AWAITING_RECEIVER_CONFIRMATION` se ordenan primero para destacar la acción pendiente requerida.
+- **Navegación desde Push Notifications (`use-push-notifications.ts`)**:
+  - Tocar una notificación con `data.type === "shipment"` navega directo a `/shipments/:id` (cierra el pendiente que MOVO-107 dejó documentado).
+  - Soporta **cold start**: `Notifications.getLastNotificationResponseAsync()` resuelve la notificación inicial una vez restaurada la sesión autenticada.
+  
 ### MOVO-136 — Pantalla "Cuenta y seguridad": cambio de contraseña y baja de cuenta
 
 Convierte el primer ítem de Perfil → Configuración (`profile-settings-section.tsx`,
@@ -700,12 +715,6 @@ desliza).
   módulo — usa el banner nativo del SO incluso con la app abierta. No hay ningún
   banner auto-dismiss reusable en el repo (`ErrorBanner` es persistente a propósito),
   así que construir uno hubiera sido alcance extra no pedido por el AC.
-- **AC6 (navegar al detalle de un envío) queda parcialmente resuelto a propósito**: el
-  listener (`addNotificationResponseReceivedListener`) parsea `data.type === 'shipment'`
-  y deja el punto de extensión documentado en el propio código, pero no navega a
-  ningún lado real — no existe ninguna pantalla de envíos todavía (MOVO-83+, sin
-  arrancar). Decisión tomada con el usuario: mejor dejar el parseo listo y sin acción
-  que inventar un destino (`/home`) que no es el real.
 - **`httpClient` no exponía `delete`** (`HttpMethod` ya incluía `"DELETE"` pero el
   objeto exportado no lo usaba) — se agregó `httpClient.delete<T>(path, body, headers)`,
   mismo shape que `post`/`patch`, porque el contrato de MOVO-106 manda `{ deviceId }`

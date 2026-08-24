@@ -8,6 +8,11 @@ jest.mock("../src/hooks/use-shipments", () => ({
   useShipmentEvents: (...args: unknown[]) => mockUseShipmentEvents(...args),
 }));
 
+const mockUsePublicProfile = jest.fn();
+jest.mock("../src/hooks/use-profile", () => ({
+  usePublicProfile: (id: string) => mockUsePublicProfile(id),
+}));
+
 const mockUser = jest.fn();
 jest.mock("../src/store/auth-store", () => ({
   useAuthStore: (selector: (state: { user: { userId: string } | null }) => unknown) =>
@@ -37,6 +42,7 @@ describe("TimelineSection", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUser.mockReturnValue({ userId: "sender-1" });
+    mockUsePublicProfile.mockReturnValue({ data: { id: "receiver-1", fullName: "Lucas Romero" } });
   });
 
   it("muestra el skeleton mientras carga", async () => {
@@ -72,7 +78,7 @@ describe("TimelineSection", () => {
     expect(refetch).toHaveBeenCalled();
   });
 
-  it("lista los eventos en el orden que los devuelve el backend, con el título del evento inicial", async () => {
+  it("lista los eventos en el orden que los devuelve el backend, con el nombre del receptor", async () => {
     mockUseShipmentEvents.mockReturnValue({
       isLoading: false,
       isError: false,
@@ -90,16 +96,15 @@ describe("TimelineSection", () => {
 
     const { getByText } = await renderTimeline();
 
-    // `fromStatus: null` se lee como la creación del envío, no como "esperando
-    // confirmación" (que es el estado, no lo que pasó).
+    // `fromStatus: null` se lee como la creación del envío
     expect(getByText("Envío creado")).toBeTruthy();
-    // La transición a `published` es la aceptación del receptor (no tiene estado
-    // propio): se titula por la acción, con la publicación como consecuencia debajo.
-    expect(getByText("El receptor aceptó el envío")).toBeTruthy();
+    // La transición a `published` nombra al receptor por su firstName
+    expect(getByText("Lucas aceptó el envío")).toBeTruthy();
     expect(getByText("Publicado para transportistas")).toBeTruthy();
+    expect(getByText("Lucas")).toBeTruthy();
   });
 
-  it("resuelve el actor contra las partes del envío sin pedir el perfil", async () => {
+  it("resuelve el actor contra las partes del envío y muestra el nombre del receptor", async () => {
     mockUseShipmentEvents.mockReturnValue({
       isLoading: false,
       isError: false,
@@ -112,6 +117,12 @@ describe("TimelineSection", () => {
           toStatus: ShipmentStatus.IN_TRANSIT,
           actorId: "carrier-1",
         }),
+        event({
+          id: "event-3",
+          fromStatus: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+          toStatus: ShipmentStatus.PUBLISHED,
+          actorId: "receiver-1",
+        }),
       ],
     });
 
@@ -120,6 +131,7 @@ describe("TimelineSection", () => {
     // El usuario logueado es el emisor: su propio evento se lee en primera persona.
     expect(getByText("Vos")).toBeTruthy();
     expect(getByText("El transportista")).toBeTruthy();
+    expect(getByText("Lucas")).toBeTruthy();
   });
 
   it("proyecta los pasos que faltan, sin fecha ni actor, después del último evento", async () => {
@@ -142,7 +154,7 @@ describe("TimelineSection", () => {
     expect(getByText("Búsqueda de transportista")).toBeTruthy();
     expect(getByText("Asignación del transportista")).toBeTruthy();
     expect(getByText("Retiro del paquete")).toBeTruthy();
-    expect(getByText("Entrega al receptor")).toBeTruthy();
+    expect(getByText("Entrega a Lucas")).toBeTruthy();
   });
 
   it("no proyecta pasos futuros cuando el envío salió del camino feliz", async () => {
@@ -184,5 +196,29 @@ describe("TimelineSection", () => {
     const { getByText } = await renderTimeline();
 
     expect(getByText("El emisor canceló antes de asignar transportista")).toBeTruthy();
+  });
+
+  it("muestra copy en segunda persona cuando el usuario logueado es el receptor", async () => {
+    mockUser.mockReturnValue({ userId: "receiver-1" });
+    mockUseShipmentEvents.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+      data: [
+        event(),
+        event({
+          id: "event-2",
+          fromStatus: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+          toStatus: ShipmentStatus.PUBLISHED,
+          actorId: "receiver-1",
+        }),
+      ],
+    });
+
+    const { getByText, queryByText } = await renderTimeline();
+
+    expect(getByText("Aceptaste el envío")).toBeTruthy();
+    expect(getByText("Vos")).toBeTruthy();
+    expect(queryByText("Lucas aceptó el envío")).toBeNull();
   });
 });

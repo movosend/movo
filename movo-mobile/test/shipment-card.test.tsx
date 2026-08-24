@@ -43,12 +43,23 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
   };
 }
 
-// MOVO-127: card de "Mis Envíos" — mini-ruta (origen/destino), precio, estado y ventana horaria.
+const mockCurrentUser = jest.fn();
+jest.mock("../src/store/auth-store", () => ({
+  useAuthStore: (selector?: (state: { user: { userId: string } | null }) => unknown) => {
+    const state = { user: mockCurrentUser() };
+    return typeof selector === "function" ? selector(state) : state;
+  },
+}));
+
+// MOVO-127 / MOVO-132: card de "Mis Envíos" — mini-ruta, precio, rol ("Enviás"/"Recibís"), estado y deadline.
 describe("ShipmentCard", () => {
+  beforeEach(() => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+  });
   afterEach(() => jest.clearAllMocks());
 
-  it("muestra origen, destino, precio, estado y ventana horaria", async () => {
-    const { getByText } = await render(
+  it("muestra origen, destino, estado y ventana horaria", async () => {
+    const { getByText, queryByText } = await render(
       <ShipmentCard
         shipment={shipment({ status: ShipmentStatus.IN_TRANSIT, agreedPriceArs: 5200 })}
       />,
@@ -56,9 +67,48 @@ describe("ShipmentCard", () => {
 
     expect(getByText("Av. Colón 1234")).toBeTruthy();
     expect(getByText("Bv. San Juan 500")).toBeTruthy();
-    expect(getByText("$5.200")).toBeTruthy();
+    expect(queryByText("$5.200")).toBeNull();
     expect(getByText("En camino")).toBeTruthy();
     expect(getByText(/09:00 a 12:00/)).toBeTruthy();
+  });
+
+  it("muestra tag 'Enviás' y 'Esperando al receptor' cuando el usuario es el emisor (MOVO-132)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    const { getByText, queryByTestId } = await render(
+      <ShipmentCard
+        shipment={shipment({
+          status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+          senderId: "user-1",
+          receiverId: "user-2",
+        })}
+        testID="card-1"
+      />,
+    );
+
+    expect(getByText("Enviás")).toBeTruthy();
+    expect(getByText("Esperando al receptor")).toBeTruthy();
+    expect(queryByTestId("card-1-deadline")).toBeNull();
+  });
+
+  it("muestra tag 'Recibís', 'Requiere tu confirmación' y deadline cuando el usuario es el receptor (MOVO-132)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-2" });
+    const futureDeadline = new Date(Date.now() + 36 * 3600 * 1000).toISOString();
+    const { getByText, getByTestId } = await render(
+      <ShipmentCard
+        shipment={shipment({
+          status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+          senderId: "user-1",
+          receiverId: "user-2",
+          receiverConfirmationDeadline: futureDeadline,
+        })}
+        testID="card-1"
+      />,
+    );
+
+    expect(getByText("Recibís")).toBeTruthy();
+    expect(getByText("Requiere tu confirmación")).toBeTruthy();
+    expect(getByTestId("card-1-deadline")).toBeTruthy();
+    expect(getByText(/Te quedan \d+ h para confirmar/)).toBeTruthy();
   });
 
   it("navega al detalle del envío al tocar la card", async () => {

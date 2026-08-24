@@ -12,4 +12,18 @@ describe("ShipmentStatusBadge", () => {
     const { getByText } = await render(<ShipmentStatusBadge status={ShipmentStatus.PUBLISHED} />);
     expect(getByText("Publicado")).toBeTruthy();
   });
+
+  it("muestra 'Requiere tu confirmación' si isReceiver es true en awaiting_receiver_confirmation", async () => {
+    const { getByText } = await render(
+      <ShipmentStatusBadge status={ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION} isReceiver={true} />,
+    );
+    expect(getByText("Requiere tu confirmación")).toBeTruthy();
+  });
+
+  it("muestra 'Esperando al receptor' si isReceiver es false en awaiting_receiver_confirmation", async () => {
+    const { getByText } = await render(
+      <ShipmentStatusBadge status={ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION} isReceiver={false} />,
+    );
+    expect(getByText("Esperando al receptor")).toBeTruthy();
+  });
 });

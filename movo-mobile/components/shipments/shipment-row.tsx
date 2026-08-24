@@ -2,14 +2,15 @@ import { router } from "expo-router";
 import { Package } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import type { ShipmentSummary } from "../../src/api/shipments-client";
+import { usePublicProfile } from "../../src/hooks/use-profile";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
-import { formatShipmentPrice } from "../../src/lib/shipment-format";
+import { getFirstName } from "../../src/lib/profile-format";
+import { useAuthStore } from "../../src/store/auth-store";
 import { ShipmentStatusBadge } from "./status-badge";
 
 /**
- * Fila de envío reusada por `RecentShipmentsSection` (preview de Home, MOVO-83) y por
- * el listado completo "Mis Envíos" (`app/(app)/shipments/index.tsx`, MOVO-127) — antes
- * vivía duplicada como función interna de la primera.
+ * Fila de envío usada por `RecentShipmentsSection` (preview de Home, MOVO-83).
+ * Muestra "Envío a [Nombre]" o "Envío de [Nombre]" según el rol, y el badge de estado.
  */
 export function ShipmentRow({
   shipment,
@@ -21,6 +22,19 @@ export function ShipmentRow({
   testID?: string;
 }) {
   const colors = useThemeColors();
+  const currentUserId = useAuthStore((s) => s.user?.userId);
+  const isReceiver = currentUserId === shipment.receiverId;
+  const counterpartId = isReceiver ? shipment.senderId : shipment.receiverId;
+  const { data: counterpartProfile } = usePublicProfile(counterpartId);
+  const counterpartName = getFirstName(counterpartProfile?.fullName);
+
+  const title = isReceiver
+    ? counterpartName
+      ? `Envío de ${counterpartName}`
+      : "Envío recibido"
+    : counterpartName
+      ? `Envío a ${counterpartName}`
+      : "Envío realizado";
 
   return (
     <Pressable
@@ -33,13 +47,10 @@ export function ShipmentRow({
       </View>
       <View className="flex-1">
         <Text numberOfLines={1} className="font-sans-medium text-small text-fg">
-          {shipment.deliveryAddress}
-        </Text>
-        <Text className="mt-0.5 font-sans text-caption text-fg-3">
-          {formatShipmentPrice(shipment.agreedPriceArs, shipment.suggestedPriceArs)}
+          {title}
         </Text>
       </View>
-      <ShipmentStatusBadge status={shipment.status} />
+      <ShipmentStatusBadge status={shipment.status} isReceiver={isReceiver} />
     </Pressable>
   );
 }
