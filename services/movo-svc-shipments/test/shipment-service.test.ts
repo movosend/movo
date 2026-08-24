@@ -90,8 +90,10 @@ function fakeRepository(overrides: Partial<ShipmentRepository> = {}): ShipmentRe
     listEvents: vi.fn(),
     addPhoto: vi.fn(),
     listPhotos: vi.fn(),
+    existsPhotoByS3Key: vi.fn().mockResolvedValue(false),
     listByUser: vi.fn(),
     findExpiredAwaitingConfirmation: vi.fn().mockResolvedValue([]),
+    hasActiveShipmentsForUser: vi.fn().mockResolvedValue({ hasActiveDispute: false, hasActiveShipments: false }),
     ...overrides,
   };
 }
