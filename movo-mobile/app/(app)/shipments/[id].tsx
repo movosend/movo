@@ -5,6 +5,7 @@ import { ChevronLeft, Clock } from "lucide-react-native";
 import { useState, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
 import { CounterpartCard } from "../../../components/shipments/counterpart-card";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
 import { PackageCard } from "../../../components/shipments/package-card";
@@ -24,6 +25,7 @@ import {
   canCancelShipment,
   formatPickupDateLabel,
   formatShipmentPrice,
+  formatTimeHHMM,
   receiverConfirmationStatus,
 } from "../../../src/lib/shipment-format";
 
@@ -74,6 +76,7 @@ export default function ShipmentDetailScreen() {
   const currentUser = useAuthStore((state) => state.user);
   const { data: shipment, isLoading, isError, error, refetch } = useShipment(id);
   const [tab, setTab] = useState<DetailTab>("detalle");
+  const [isAcceptSuccessVisible, setIsAcceptSuccessVisible] = useState(false);
 
   const isReceiver = shipment !== undefined && currentUser?.userId === shipment.receiverId;
 
@@ -141,7 +144,7 @@ export default function ShipmentDetailScreen() {
             </Text>
           ) : null}
         </View>
-        {shipment ? <ShipmentStatusBadge status={shipment.status} /> : null}
+        {shipment ? <ShipmentStatusBadge status={shipment.status} isReceiver={isReceiver} /> : null}
         {showSenderActions && shipment ? (
           <SenderActionsBar
             shipmentId={shipment.id}
@@ -155,26 +158,22 @@ export default function ShipmentDetailScreen() {
         <ShipmentDetailError error={error} onRetry={() => refetch()} />
       ) : (
         <View className="flex-1">
-          {showOffersBanner ? (
-            <View className="px-5 pt-1">
-              <OffersBanner testID="shipment-detail-offers" />
-            </View>
-          ) : null}
-
-          <View className="flex-row px-5 pt-3">
-            {TABS.map(([tabId, label]) => (
+          <View className="flex-row border-b border-border bg-bg px-5">
+            {(["detalle", "timeline"] as const).map((t) => (
               <Pressable
-                key={tabId}
-                testID={`shipment-detail-tab-${tabId}`}
-                onPress={() => setTab(tabId)}
-                className={`flex-1 border-b-2 py-2.5 ${tab === tabId ? "border-fg" : "border-border"}`}
+                key={t}
+                testID={`shipment-detail-tab-${t}`}
+                onPress={() => setTab(t)}
+                className={`mr-6 pb-2.5 pt-2 ${
+                  tab === t ? "border-b-2 border-primary" : "border-b-2 border-transparent"
+                }`}
               >
                 <Text
-                  className={`text-center text-body ${
-                    tab === tabId ? "font-sans-semibold text-fg" : "font-sans text-fg-3"
+                  className={`font-sans-medium text-small ${
+                    tab === t ? "text-primary" : "text-fg-3"
                   }`}
                 >
-                  {label}
+                  {t === "detalle" ? "Detalle" : "Línea de tiempo"}
                 </Text>
               </Pressable>
             ))}
@@ -200,7 +199,11 @@ export default function ShipmentDetailScreen() {
                 <Eyebrow>Ruta</Eyebrow>
                 <RouteMapCard
                   testID="shipment-detail-route-map"
-                  pickup={{ address: shipment.pickupAddress, lat: shipment.pickupLat, lng: shipment.pickupLng }}
+                  pickup={{
+                    address: shipment.pickupAddress,
+                    lat: shipment.pickupLat,
+                    lng: shipment.pickupLng,
+                  }}
                   delivery={{
                     address: shipment.deliveryAddress,
                     lat: shipment.deliveryLat,
@@ -209,32 +212,35 @@ export default function ShipmentDetailScreen() {
                 />
               </View>
 
-              <View>
-                <Eyebrow>Paquete</Eyebrow>
-                <PackageCard shipment={shipment} testID="shipment-detail-package" />
-              </View>
-
-              <View className="flex-row gap-2.5">
-                <View className="flex-1 rounded-[10px] border border-border bg-bg px-3.5 py-3.5">
-                  <View className="mb-1.5 flex-row items-center gap-1">
-                    <Clock size={12} color={colors.fg3} strokeWidth={1.8} />
-                    <Text className="font-sans text-[11px] text-fg-3">Ventana de retiro</Text>
+              <View className="flex-row gap-3">
+                <View className="relative flex-1 overflow-hidden rounded-[10px] bg-bg-mute px-3.5 py-3.5">
+                  <GridPattern />
+                  <View className="mb-2 flex-row items-center gap-1.5">
+                    <Clock size={14} color={colors.fg2} />
+                    <Text className="font-sans text-[11px] text-fg-3">Retiro</Text>
                   </View>
                   <Text className="font-sans-semibold text-[13px] text-fg">{pickupDateLabel}</Text>
                   <Text className="mt-0.5 font-sans text-[12px] text-fg-2">
-                    {shipment.pickupTimeWindowStart} – {shipment.pickupTimeWindowEnd}
+                    {formatTimeHHMM(shipment.pickupTimeWindowStart)} – {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
                   </Text>
                 </View>
                 <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
                   <GridPattern />
                   <Text className="mb-1 font-sans text-[11px] text-ink-950/50">
-                    {shipment.agreedPriceArs !== null ? "Precio acordado" : "Precio sugerido"}
+                    {shipment.agreedPriceArs !== null ? "Precio acordado" : "Costo aproximado"}
                   </Text>
                   <Text className="font-sans-semibold text-[20px] text-ink-950">
                     {formatShipmentPrice(shipment.agreedPriceArs, shipment.suggestedPriceArs)}
                   </Text>
                 </View>
               </View>
+
+              <View>
+                <Eyebrow>Paquete</Eyebrow>
+                <PackageCard shipment={shipment} testID="shipment-detail-package" />
+              </View>
+
+              {showOffersBanner ? <OffersBanner testID="shipment-detail-offers" /> : null}
 
               <View>
                 <Eyebrow>{isReceiver ? "Emisor" : "Receptor"}</Eyebrow>
@@ -273,12 +279,20 @@ export default function ShipmentDetailScreen() {
               shipmentId={shipment.id}
               receiverConfirmationDeadline={shipment.receiverConfirmationDeadline}
               onRefetch={() => refetch()}
+              onAcceptSuccess={() => setIsAcceptSuccessVisible(true)}
               testID="shipment-detail-receiver-actions"
             />
           ) : null}
+
+          <AcceptSuccessModal
+            visible={isAcceptSuccessVisible}
+            onDismiss={() => {
+              setIsAcceptSuccessVisible(false);
+              void refetch();
+            }}
+          />
         </View>
       )}
     </SafeAreaView>
   );
 }
-

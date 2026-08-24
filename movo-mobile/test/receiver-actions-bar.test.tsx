@@ -1,6 +1,5 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { fireEvent, render, waitFor } from "@testing-library/react-native";
-import { Alert } from "react-native";
 import { ReceiverActionsBar } from "../components/shipments/receiver-actions-bar";
 
 const mockMutateAccept = jest.fn();
@@ -20,17 +19,10 @@ jest.mock("../src/hooks/use-shipments", () => ({
 }));
 
 describe("ReceiverActionsBar", () => {
-  let alertSpy: jest.SpyInstance;
-
   beforeEach(() => {
     jest.clearAllMocks();
     mockAcceptState = { isPending: false };
     mockRejectState = { isPending: false };
-    alertSpy = jest.spyOn(Alert, "alert");
-  });
-
-  afterEach(() => {
-    alertSpy.mockRestore();
   });
 
   it("renderiza los botones de aceptar y rechazar", async () => {
@@ -71,30 +63,27 @@ describe("ReceiverActionsBar", () => {
     expect(queryByTestId("actions-deadline")).toBeNull();
   });
 
-  it("al tocar 'Aceptar envío' abre Alert.alert de confirmación nativo", async () => {
+  it("al tocar 'Aceptar envío' abre el modal de confirmación in-app, confirma y muestra pantalla de éxito", async () => {
+    const mockRefetch = jest.fn();
     mockMutateAccept.mockResolvedValueOnce({ id: "shipment-1", status: "published" });
 
-    const { getByTestId } = await render(
-      <ReceiverActionsBar shipmentId="shipment-1" testID="actions" />,
+    const { getByTestId, getByText } = await render(
+      <ReceiverActionsBar shipmentId="shipment-1" onRefetch={mockRefetch} testID="actions" />,
     );
 
     await fireEvent.press(getByTestId("actions-accept-button"));
 
-    expect(alertSpy).toHaveBeenCalledWith(
-      "¿Aceptar este envío?",
-      expect.stringContaining("Vas a confirmar"),
-      expect.arrayContaining([
-        expect.objectContaining({ text: "Cancelar", style: "cancel" }),
-        expect.objectContaining({ text: "Aceptar envío" }),
-      ]),
-    );
+    expect(getByTestId("actions-accept-modal")).toBeTruthy();
+    expect(getByText("¿Aceptar este envío?")).toBeTruthy();
 
-    // Simular confirmación en el Alert
-    const alertButtons = alertSpy.mock.calls[0][2];
-    const acceptButton = alertButtons.find((b: { text: string }) => b.text === "Aceptar envío");
-    await acceptButton.onPress();
+    await fireEvent.press(getByTestId("actions-accept-confirm-button"));
 
     expect(mockMutateAccept).toHaveBeenCalledWith({ id: "shipment-1" });
+    expect(getByTestId("actions-success-modal")).toBeTruthy();
+    expect(getByText("Envío aceptado")).toBeTruthy();
+
+    await fireEvent.press(getByTestId("actions-success-view-button"));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 
   it("al tocar 'Rechazar' abre el modal de confirmación con campo de motivo opcional", async () => {
@@ -157,10 +146,7 @@ describe("ReceiverActionsBar", () => {
     );
 
     await fireEvent.press(getByTestId("actions-accept-button"));
-
-    const alertButtons = alertSpy.mock.calls[0][2];
-    const acceptButton = alertButtons.find((b: { text: string }) => b.text === "Aceptar envío");
-    await acceptButton.onPress();
+    await fireEvent.press(getByTestId("actions-accept-confirm-button"));
 
     expect(await findByText("Este envío ya no se puede confirmar.")).toBeTruthy();
     expect(mockRefetch).toHaveBeenCalledTimes(1);
@@ -176,10 +162,7 @@ describe("ReceiverActionsBar", () => {
     );
 
     await fireEvent.press(getByTestId("actions-accept-button"));
-
-    const alertButtons = alertSpy.mock.calls[0][2];
-    const acceptButton = alertButtons.find((b: { text: string }) => b.text === "Aceptar envío");
-    await acceptButton.onPress();
+    await fireEvent.press(getByTestId("actions-accept-confirm-button"));
 
     expect(await findByText("No sos el destinatario de este envío.")).toBeTruthy();
   });

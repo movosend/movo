@@ -16,7 +16,13 @@ const STATUS_LABEL: Record<ShipmentStatus, string> = {
   [ShipmentStatus.DISPUTED]: "En disputa",
 };
 
-export function shipmentStatusLabel(status: ShipmentStatus): string {
+export function shipmentStatusLabel(
+  status: ShipmentStatus,
+  options?: { isReceiver?: boolean },
+): string {
+  if (status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION && options?.isReceiver !== undefined) {
+    return options.isReceiver ? "Requiere tu confirmación" : "Esperando al receptor";
+  }
   return STATUS_LABEL[status] ?? status;
 }
 
@@ -128,7 +134,11 @@ export function formatPickupDateLabel(pickupDate: string): string | null {
  * asignado" como situación). El evento inicial (`fromStatus === null`, único caso
  * garantizado por el backend) se muestra como "Envío creado" en vez de "Esperando
  * confirmación": lo que pasó ahí fue la creación, el estado es solo su consecuencia. */
-export function shipmentEventTitle(toStatus: ShipmentStatus, fromStatus: ShipmentStatus | null): string {
+export function shipmentEventTitle(
+  toStatus: ShipmentStatus,
+  fromStatus: ShipmentStatus | null,
+  options?: { receiverName?: string | null; isReceiver?: boolean },
+): string {
   if (fromStatus === null) return "Envío creado";
 
   // La aceptación del receptor no tiene estado propio: es exactamente la transición
@@ -142,14 +152,17 @@ export function shipmentEventTitle(toStatus: ShipmentStatus, fromStatus: Shipmen
     fromStatus === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION &&
     toStatus === ShipmentStatus.PUBLISHED
   ) {
-    return "El receptor aceptó el envío";
+    if (options?.isReceiver) return "Aceptaste el envío";
+    const receiver = options?.receiverName || "El receptor";
+    return `${receiver} aceptó el envío`;
   }
 
   switch (toStatus) {
     case ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION:
-      return "Esperando confirmación del receptor";
+      return "Esperando confirmación";
     case ShipmentStatus.REJECTED_BY_RECEIVER:
-      return "El receptor rechazó el envío";
+      if (options?.isReceiver) return "Rechazaste el envío";
+      return `${options?.receiverName || "El receptor"} rechazó el envío`;
     case ShipmentStatus.PUBLISHED:
       return "Publicado para transportistas";
     case ShipmentStatus.ASSIGNMENT_PENDING:
@@ -219,13 +232,18 @@ export function remainingLifecycleSteps(currentStatus: ShipmentStatus): Shipment
 /** Etiqueta de un paso que todavía no ocurrió — en infinitivo/sustantivo ("Retiro del
  * paquete") en vez del pasado de `shipmentEventTitle` ("El paquete salió en camino"):
  * un paso futuro descrito en pasado se lee como algo que ya pasó. */
-export function shipmentPendingStepLabel(status: ShipmentStatus): string {
+export function shipmentPendingStepLabel(
+  status: ShipmentStatus,
+  options?: { receiverName?: string | null; isReceiver?: boolean },
+): string {
+  const receiver = options?.receiverName;
   switch (status) {
     // Nombrado por la acción que falta (que el receptor acepte), no por el estado que
     // se alcanza — es lo que el emisor está esperando mientras el envío sigue en
     // `awaiting_receiver_confirmation`; la publicación es la consecuencia.
     case ShipmentStatus.PUBLISHED:
-      return "Aceptación del receptor";
+      if (options?.isReceiver) return "Tu confirmación";
+      return receiver ? `Aceptación de ${receiver}` : "Aceptación del receptor";
     case ShipmentStatus.ASSIGNMENT_PENDING:
       return "Búsqueda de transportista";
     case ShipmentStatus.ASSIGNED:
@@ -233,9 +251,10 @@ export function shipmentPendingStepLabel(status: ShipmentStatus): string {
     case ShipmentStatus.IN_TRANSIT:
       return "Retiro del paquete";
     case ShipmentStatus.DELIVERED:
-      return "Entrega al receptor";
+      if (options?.isReceiver) return "Entrega del paquete";
+      return receiver ? `Entrega a ${receiver}` : "Entrega al receptor";
     default:
-      return shipmentStatusLabel(status);
+      return shipmentStatusLabel(status, { isReceiver: options?.isReceiver });
   }
 }
 
@@ -266,11 +285,12 @@ export function shipmentActorLabel(
   actorId: string | null,
   parties: { senderId: string; receiverId: string; carrierId: string | null },
   currentUserId: string | null,
+  options?: { receiverName?: string | null },
 ): string | null {
   if (actorId === null) return null;
   if (currentUserId !== null && actorId === currentUserId) return "Vos";
   if (actorId === parties.senderId) return "El emisor";
-  if (actorId === parties.receiverId) return "El receptor";
+  if (actorId === parties.receiverId) return options?.receiverName || "El receptor";
   if (parties.carrierId !== null && actorId === parties.carrierId) return "El transportista";
   return "Equipo Movo";
 }
@@ -283,12 +303,22 @@ export function shortAddressLabel(address: string): string {
   return address.split(",")[0].trim();
 }
 
+/** Normaliza un string de hora a formato "HH:MM", eliminando segundos si vienen ("09:00:00" -> "09:00"). */
+export function formatTimeHHMM(time: string | null | undefined): string {
+  if (!time) return "";
+  const match = time.match(/^(\d{1,2}:\d{2})/);
+  return match ? match[1] : time;
+}
+
 /** Ventana horaria de retiro formateada para la card de listado (MOVO-127) — deja el
  * rango explícito ("09:00 a 12:00") en vez de inventar frases relativas tipo "antes de
  * las 15h", que requerirían comparar `pickupDate` contra "hoy" y reabrir el mismo
  * riesgo de desfasaje de huso horario que ya documenta `formatPickupDateLabel`. */
 export function formatPickupWindowLabel(start: string, end: string): string {
-  return `${start} a ${end}`;
+  const s = formatTimeHHMM(start);
+  const e = formatTimeHHMM(end);
+  if (!s && !e) return "";
+  return `${s || "—"} a ${e || "—"}`;
 }
 
 /**

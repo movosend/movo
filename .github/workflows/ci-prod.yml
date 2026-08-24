@@ -394,9 +394,43 @@ jobs:
             for svc in services/movo-svc-payments services/movo-svc-admin; do
               ./scripts/run-migrations.sh "$svc"
             done
+            # Prune ANTES del pull, no solo al final. El prune de cierre solo
+            # corre si el deploy llega hasta el final: un deploy que falla en
+            # las migraciones deja las imágenes que acaba de pullear sin
+            # limpiar, y el siguiente arranca con menos disco todavía. Cuatro
+            # merges seguidos con este paso fallando llenaron el disco de dev
+            # al 100% (37 MB libres) y Prisma empezo a tirar ENOSPC al
+            # descomprimir su schema-engine. Corre con los contenedores
+            # actuales arriba, así que -a solo borra lo que ya nadie usa.
+            docker image prune -af
             docker compose pull movo-svc-users movo-svc-shipments
-            docker compose run --rm -T movo-svc-users npx prisma migrate deploy
-            docker compose run --rm -T movo-svc-shipments npx prisma migrate deploy
+            # Timeout POR comando, además del command_timeout global del step.
+            # Sin esto, una migración trabada se come los 20m enteros y el log
+            # queda en silencio hasta que appleboy mata la sesion con un
+            # "Run Command Timeout" que no dice nada del servicio ni del
+            # motivo. Con el timeout individual, el que se cuelga se identifica
+            # solo y quedan minutos de sobra para que el otro corra.
+            # El fallo explícito es necesario porque el script no corre
+            # con `set -e`: sin él, si la migración de users falla y la de
+            # shipments pasa, el step termina en verde con el schema a medias.
+            migrate() {
+              echo ">> prisma migrate deploy: $1"
+              # El status se captura directo, no con `if ...; then return 0; fi`
+              # + `code=$?`: un `if` sin `else` cuya condición falla devuelve 0,
+              # así que `code` nunca vería el 124 del timeout.
+              timeout 600 docker compose run --rm -T "$1" npx prisma migrate deploy
+              code=$?
+              [ "$code" -eq 0 ] && return 0
+              if [ "$code" -eq 124 ]; then
+                echo "ERROR: '$1' superó los 600s en 'prisma migrate deploy' (timeout)."
+                echo "Revisar disco y memoria de la EC2 -- suele ser presión de recursos, no la migración."
+              else
+                echo "ERROR: '$1' falló en 'prisma migrate deploy' (exit $code)."
+              fi
+              exit 1
+            }
+            migrate movo-svc-users
+            migrate movo-svc-shipments
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_PAT: ${{ secrets.GHCR_PAT }}
@@ -422,15 +456,24 @@ jobs:
             # asignado esa IP después. Reiniciarlo fuerza una resolución
             # DNS nueva.
             docker compose restart proxy
-            # Cada deploy deja la imagen anterior de cada servicio como
-            # dangling (el tag ":prod" se mueve a la nueva) -- sin este paso
-            # se acumulan sin límite y terminan llenando el disco de la EC2
-            # (pasó acá: "no space left on device" a mitad de un pull, dejó
-            # a movo-svc-users y a proxy sin poder recrearse). Corre después
-            # de que los contenedores nuevos ya están arriba, así solo borra
-            # imágenes que ya nadie usa. Sin --volumes: nunca toca volúmenes
-            # (ahí vive la data de Postgres).
-            docker image prune -af
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_PAT: ${{ secrets.GHCR_PAT }}
+
+      # Cierra el ciclo: el prune de cierre corre PASE LO QUE PASE, no solo
+      # cuando el deploy termina bien. Cada deploy deja la imagen anterior de
+      # cada servicio como dangling (el tag ":prod" se mueve a la nueva) y
+      # sin limpiar se acumulan hasta llenar el disco de la EC2 (ADR-006).
+      # Un deploy fallido es justo el caso que más basura deja, y era el único
+      # que no limpiaba. Sin --volumes: nunca toca volúmenes (ahí vive la data
+      # de Postgres).
+      - name: Limpieza de imágenes huérfanas
+        if: always()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: api.movosend.app
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            docker image prune -af
+            df -h /
