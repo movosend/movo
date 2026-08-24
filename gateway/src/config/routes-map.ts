@@ -224,5 +224,30 @@ export function getRateLimitOverrides(): RateLimitedRoute[] {
       path: "/geocode/reverse",
       rateLimit: { max: 20, timeWindow: "15 minutes" },
     },
+    // MOVO-133 (review de tmvergara sobre PR #91): mandan SMS reales por Twilio
+    // (ADR-012), pagos. El cooldown de otpService.generateOtp() es POR TARGET, así que
+    // no frena a un caller autenticado que varía el teléfono en cada request -- sin
+    // este override quedaban bajo el límite general (200/min), es decir ~200 SMS/min a
+    // números arbitrarios desde una sola cuenta (riesgo R10 del plan de proyecto).
+    {
+      method: "POST",
+      path: "/users/me/phone/change/otp",
+      rateLimit: { max: 5, timeWindow: "15 minutes" },
+    },
+    {
+      method: "POST",
+      path: "/users/me/email/change/otp",
+      rateLimit: { max: 5, timeWindow: "15 minutes" },
+    },
+    // MOVO-139: mismo criterio, ahora sobre mails reales por Resend (ADR-017) -- la
+    // cuota del free tier (3k/mes) y la reputación del dominio son el recurso a
+    // proteger. `/me/email/verify/otp` no recibe body (el target es el email de la
+    // propia cuenta), así que su cooldown por target sí frena a un caller repetido;
+    // el límite igual queda alineado con los otros dos por consistencia.
+    {
+      method: "POST",
+      path: "/users/me/email/verify/otp",
+      rateLimit: { max: 5, timeWindow: "15 minutes" },
+    },
   ];
 }

@@ -21,12 +21,15 @@ import notificationsRoutes, {
   NotificationsRoutesOptions,
 } from "./modules/notifications/notifications.routes";
 import addressesRoutes from "./modules/addresses/addresses.routes";
+import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import { SmsProvider } from "./adapters/sms-provider";
+import { EmailProvider } from "./adapters/email-provider";
 import { DiditClient } from "./adapters/didit-client";
 import { GeocodingProvider } from "./adapters/geocoding-provider";
 import { PlacesProvider } from "./adapters/places-provider";
 import { StorageProvider } from "./adapters/storage-provider";
 import { PushNotificationProvider } from "./adapters/push-notification-provider";
+import { ShipmentsClient } from "./adapters/shipments-client";
 
 export interface BuildAppOptions {
   /** Override solo para tests de integración — permite capturar el código de OTP
@@ -47,6 +50,14 @@ export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de red (MOVO-106),
    * mismo criterio que `storageProvider`. */
   pushProvider?: PushNotificationProvider;
+  /** Override solo para tests de integración — evita depender de un `movo-svc-shipments`
+   * real levantado (MOVO-134), mismo criterio que `storageProvider`. */
+  shipmentsClient?: ShipmentsClient;
+  /** Override solo para tests de integración — evita depender de la API de Resend
+   * (MOVO-139/ADR-017), mismo criterio que `smsProvider`. */
+  emailProvider?: EmailProvider;
+  /** Override para habilitar/deshabilitar el sweep de fotos huérfanas en background (MOVO-124). */
+  orphanPhotoSweepEnabled?: boolean;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -72,6 +83,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(dbPlugin);
   app.register(redisPlugin);
   app.register(authPlugin);
+  app.register(orphanPhotoSweepPlugin, {
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.orphanPhotoSweepEnabled !== undefined ? { enabled: opts.orphanPhotoSweepEnabled } : {}),
+  });
 
   // Fuera de /api/v1 a propósito: lo consultan el healthcheck de Docker y el
   // load balancer, conviene que sea estable y no versionado.
@@ -80,6 +95,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const usersRouteOpts: UsersRoutesOptions = {
     prefix: "/users",
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.shipmentsClient ? { shipmentsClient: opts.shipmentsClient } : {}),
+    // MOVO-133: cambio de teléfono/email reusa el motor de OTP -- mismo override que
+    // ya usa authRouteOpts para tests de integración.
+    ...(opts.smsProvider ? { smsProvider: opts.smsProvider } : {}),
+    // MOVO-139: el OTP de verificación/cambio de email y el aviso al email anterior.
+    ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
   };
   app.register(usersRoutes, usersRouteOpts);
 
@@ -89,6 +110,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const authRouteOpts: AuthRoutesOptions = {
     prefix: "/auth",
     ...(opts.smsProvider ? { smsProvider: opts.smsProvider } : {}),
+    ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
   };
   app.register(authRoutes, authRouteOpts);
 

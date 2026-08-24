@@ -11,7 +11,7 @@ import {
   signRefreshToken,
 } from "@movo/shared";
 import { createUserRepository } from "../../repositories/user-repository";
-import { createSessionRepository } from "../../repositories/session-repository";
+import { createSessionRepository, SessionRepository } from "../../repositories/session-repository";
 import { User, UserConflictError, CreateUserAddressInput, fullName } from "../../models/user";
 import type { PhoneVerificationService } from "./phone-verification.service";
 
@@ -135,6 +135,36 @@ export function normalizePhoneToE164Ar(rawPhone: string): string {
   return `+549${digits}`;
 }
 
+/**
+ * Emite un par access/refresh token nuevo para `user` y persiste la sesión. Standalone
+ * (no un closure de `createAuthService`) desde MOVO-134: `users.service.ts#changePassword`
+ * necesita emitir el mismo shape de tokens sin tener que instanciar
+ * `phoneVerificationService` (dependencia de `createAuthService` que no le hace falta).
+ */
+export async function issueSession(sessionRepository: SessionRepository, user: User): Promise<LoginUserResult> {
+  const accessToken = signAccessToken({
+    sub: user.id,
+    roles: user.roles,
+    kycStatus: user.kycStatusIdentity,
+  });
+
+  const { token: secret, tokenId } = signRefreshToken();
+  await sessionRepository.saveRefreshToken(user.id, tokenId, {
+    hash: hashRefreshSecret(secret),
+    used: false,
+  });
+
+  return {
+    userId: user.id,
+    accessToken,
+    refreshToken: buildRefreshToken(user.id, tokenId, secret),
+    expiresIn: 3600,
+    kycStatus: user.kycStatusIdentity,
+    fullName: fullName(user),
+    roles: user.roles,
+  };
+}
+
 export function createAuthService(
   db: PrismaClient,
   redis: Redis,
@@ -145,31 +175,6 @@ export function createAuthService(
 ) {
   const repository = createUserRepository(db);
   const sessionRepository = createSessionRepository(redis);
-
-  /** Emite un par access/refresh token nuevo para `user` y persiste la sesión — usado por login() y refresh(). */
-  async function issueSession(user: User): Promise<LoginUserResult> {
-    const accessToken = signAccessToken({
-      sub: user.id,
-      roles: user.roles,
-      kycStatus: user.kycStatusIdentity,
-    });
-
-    const { token: secret, tokenId } = signRefreshToken();
-    await sessionRepository.saveRefreshToken(user.id, tokenId, {
-      hash: hashRefreshSecret(secret),
-      used: false,
-    });
-
-    return {
-      userId: user.id,
-      accessToken,
-      refreshToken: buildRefreshToken(user.id, tokenId, secret),
-      expiresIn: 3600,
-      kycStatus: user.kycStatusIdentity,
-      fullName: fullName(user),
-      roles: user.roles,
-    };
-  }
 
   return {
     async register(input: RegisterUserInput): Promise<RegisterUserResult> {
@@ -229,7 +234,7 @@ export function createAuthService(
         throw err;
       }
 
-      return issueSession(user);
+      return issueSession(sessionRepository, user);
     },
 
     async login(input: LoginUserInput): Promise<LoginUserResult> {
@@ -255,7 +260,7 @@ export function createAuthService(
         throw new ApiError(403, "ACCOUNT_SUSPENDED", "La cuenta se encuentra suspendida o inhabilitada.");
       }
 
-      return issueSession(user);
+      return issueSession(sessionRepository, user);
     },
 
     async refresh(refreshToken: string): Promise<RefreshTokenResult> {
@@ -290,7 +295,7 @@ export function createAuthService(
       }
 
       // AC5: roles/kycStatus releídos de la fila actual, no del token viejo.
-      return issueSession(user);
+      return issueSession(sessionRepository, user);
     },
 
     async logout(input: LogoutInput, requestUserId: string): Promise<void> {

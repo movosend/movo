@@ -8,6 +8,7 @@ import { createUsersClient, UsersClient } from "../../adapters/users-client";
 import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
 import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-provider";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
+import { createPricingClient, PricingClient } from "../../adapters/pricing-client";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
 import { Shipment, ShipmentEvent } from "../../models/shipment";
@@ -27,6 +28,10 @@ export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
    * real levantado (MOVO-108/129), mismo criterio que `usersClient`. */
   notificationsClient?: NotificationsClient;
+  /** Override solo para tests de integración — evita depender de un
+   * `movo-svc-pricing-logistics` real levantado (MOVO-82), mismo criterio que
+   * `usersClient`. */
+  pricingClient?: PricingClient;
 }
 
 type CreateShipmentBody = Omit<CreateShipmentServiceInput, "senderId">;
@@ -71,13 +76,15 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   const storageProvider = opts.storageProvider ?? createStorageProvider(app.config);
   const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config);
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
+  const pricingClient = opts.pricingClient ?? createPricingClient(app.config);
   const repository = createShipmentRepository(app.db);
   const offerRepository = createOfferRepository(app.db);
   const service = createShipmentsService(repository, usersClient, notificationsClient, app.log, {
     receiverConfirmationTimeoutHours: app.config.RECEIVER_CONFIRMATION_TIMEOUT_HOURS,
     offerRepository,
+    pricingClient,
   });
-  const photosService = createPhotosService(repository, storageProvider);
+  const photosService = createPhotosService(repository, storageProvider, app.redis, app.log);
 
   app.post(
     "/",

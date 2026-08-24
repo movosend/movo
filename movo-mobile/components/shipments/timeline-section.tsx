@@ -137,6 +137,7 @@ function EventRow({
   parties,
   currentUserId,
   receiverFirstName,
+  isReceiver,
 }: {
   event: ShipmentEvent;
   isCurrent: boolean;
@@ -144,6 +145,7 @@ function EventRow({
   parties: TimelineSectionProps["parties"];
   currentUserId: string | null;
   receiverFirstName: string | null;
+  isReceiver: boolean;
 }) {
   const colors = useThemeColors();
   const tone = TONE_STYLE[shipmentStatusTone(event.toStatus)];
@@ -162,7 +164,10 @@ function EventRow({
       isLast={isLast}
       title={
         <Text className={`font-sans-semibold text-body ${isCurrent ? "text-fg" : "text-fg-2"}`}>
-          {shipmentEventTitle(event.toStatus, event.fromStatus, { receiverName: receiverFirstName })}
+          {shipmentEventTitle(event.toStatus, event.fromStatus, { 
+            receiverName: receiverFirstName,
+            isReceiver,
+          })}
         </Text>
       }
     >
@@ -190,10 +195,12 @@ function PendingStepRow({
   status,
   isLast,
   receiverFirstName,
+  isReceiver,
 }: {
   status: ShipmentStatus;
   isLast: boolean;
   receiverFirstName: string | null;
+  isReceiver: boolean;
 }) {
   const colors = useThemeColors();
 
@@ -206,7 +213,7 @@ function PendingStepRow({
       isLast={isLast}
       title={
         <Text className="font-sans-medium text-body text-fg-3">
-          {shipmentPendingStepLabel(status, { receiverName: receiverFirstName })}
+          {shipmentPendingStepLabel(status, { receiverName: receiverFirstName, isReceiver })}
         </Text>
       }
     />
@@ -225,8 +232,10 @@ function PendingStepRow({
 export function TimelineSection({ shipmentId, parties, testID }: TimelineSectionProps) {
   const { data: events, isLoading, isError, refetch } = useShipmentEvents(shipmentId);
   const { data: receiverProfile } = usePublicProfile(parties.receiverId);
-  const receiverFirstName = getFirstName(receiverProfile?.fullName) || null;
   const currentUserId = useAuthStore((state) => state.user?.userId ?? null);
+  const isReceiver = Boolean(currentUserId && currentUserId === parties.receiverId);
+  const rawReceiverFirstName = getFirstName(receiverProfile?.fullName) || null;
+  const receiverFirstName = isReceiver ? null : rawReceiverFirstName;
   const colors = useThemeColors();
 
   if (isLoading) {
@@ -275,6 +284,7 @@ export function TimelineSection({ shipmentId, parties, testID }: TimelineSection
           parties={parties}
           currentUserId={currentUserId}
           receiverFirstName={receiverFirstName}
+          isReceiver={isReceiver}
         />
       ))}
       {pendingSteps.map((status, index) => (
@@ -283,6 +293,7 @@ export function TimelineSection({ shipmentId, parties, testID }: TimelineSection
           status={status}
           isLast={index === pendingSteps.length - 1}
           receiverFirstName={receiverFirstName}
+          isReceiver={isReceiver}
         />
       ))}
     </ScrollView>

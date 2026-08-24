@@ -37,7 +37,8 @@ function mapShipment(row: ShipmentRow): Shipment {
     pickupDate: row.pickupDate,
     pickupTimeWindowStart: row.pickupTimeWindowStart,
     pickupTimeWindowEnd: row.pickupTimeWindowEnd,
-    suggestedPriceArs: row.suggestedPriceArs.toNumber(),
+    suggestedPriceArs: row.suggestedPriceArs ? row.suggestedPriceArs.toNumber() : null,
+    calculationMethod: row.calculationMethod,
     agreedPriceArs: row.agreedPriceArs ? row.agreedPriceArs.toNumber() : null,
     paymentMethod: row.paymentMethod,
     status: parseShipmentStatus(row.status, "status"),
@@ -97,6 +98,14 @@ export interface ShipmentRepository {
   addPhoto(shipmentId: string, stage: PhotoStage, s3Key: string): Promise<ShipmentPhoto>;
   listPhotos(shipmentId: string): Promise<ShipmentPhoto[]>;
   /**
+   * MOVO-124: ¿este `s3Key` ya fue confirmado (tiene fila en `shipment_photos`)?
+   * Fuente de verdad del sweep de fotos huérfanas -- el tracking de "pendiente" vive en
+   * Redis (best-effort, puede perder la baja si `confirmPhoto` falla al hacer `ZREM`),
+   * así que antes de borrar un objeto de S3 el sweep siempre revalida acá (AC3 de
+   * MOVO-124: nunca confiar solo en que Redis diga "no confirmado").
+   */
+  existsPhotoByS3Key(s3Key: string): Promise<boolean>;
+  /**
    * Envíos donde el usuario participa como sender o como receiver (AC9 de MOVO-80 —
    * todavía no hay rol de "carrier" asignado en este sprint). Paginado, más reciente
    * primero.
@@ -107,6 +116,15 @@ export interface ShipmentRepository {
    * Lote acotado ordenado por deadline ascendente.
    */
   findExpiredAwaitingConfirmation(deadline: Date, limit: number): Promise<Shipment[]>;
+  /**
+   * MOVO-134: soporte del endpoint interno de baja de cuenta de `svc-users` -- ¿el
+   * usuario (como sender, receiver o carrier) tiene algún envío en un estado no
+   * terminal? Separa `disputed` del resto (`awaiting_receiver_confirmation`,
+   * `published`, `assignment_pending`, `assigned`, `in_transit`) porque el mensaje de
+   * error del lado de `svc-users` es distinto (una disputa no la resuelve el usuario
+   * cancelando, necesita a un admin).
+   */
+  hasActiveShipmentsForUser(userId: string): Promise<{ hasActiveDispute: boolean; hasActiveShipments: boolean }>;
 }
 
 export class ShipmentNotFoundError extends Error {
@@ -156,6 +174,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             pickupTimeWindowStart: input.pickupTimeWindowStart,
             pickupTimeWindowEnd: input.pickupTimeWindowEnd,
             suggestedPriceArs: input.suggestedPriceArs,
+            calculationMethod: input.calculationMethod,
             receiverConfirmationDeadline: input.receiverConfirmationDeadline ?? null,
             status: INITIAL_SHIPMENT_STATUS,
             lastStatusChangedAt: new Date(),
@@ -292,6 +311,11 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return rows.map(mapPhoto);
     },
 
+    async existsPhotoByS3Key(s3Key: string): Promise<boolean> {
+      const row = await db.shipmentPhoto.findFirst({ where: { s3Key }, select: { id: true } });
+      return row !== null;
+    },
+
     async listByUser(userId: string, page: number, limit: number): Promise<{ items: Shipment[]; total: number }> {
       const where = { OR: [{ senderId: userId }, { receiverId: userId }] };
       const [rows, total] = await Promise.all([
@@ -318,6 +342,22 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         orderBy: { receiverConfirmationDeadline: "asc" },
       });
       return rows.map(mapShipment);
+    },
+
+    async hasActiveShipmentsForUser(userId: string): Promise<{ hasActiveDispute: boolean; hasActiveShipments: boolean }> {
+      const rows = await db.shipment.findMany({
+        where: {
+          OR: [{ senderId: userId }, { receiverId: userId }, { carrierId: userId }],
+          status: {
+            notIn: [ShipmentStatus.DELIVERED, ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.CANCELLED],
+          },
+        },
+        select: { status: true },
+      });
+      return {
+        hasActiveDispute: rows.some((r) => r.status === ShipmentStatus.DISPUTED),
+        hasActiveShipments: rows.some((r) => r.status !== ShipmentStatus.DISPUTED),
+      };
     },
   };
 }

@@ -9,11 +9,14 @@ import redisPlugin from "./plugins/redis";
 import authPlugin from "./plugins/auth";
 import errorHandlerPlugin from "./plugins/error-handler";
 import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-sweep";
+import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
+import accountDeletionRoutes from "./modules/account-deletion/account-deletion.routes";
 import { UsersClient } from "./adapters/users-client";
 import { StorageProvider } from "./adapters/storage-provider";
 import { RoutesProvider } from "./adapters/routes-provider";
 import { NotificationsClient } from "./adapters/notifications-client";
+import { PricingClient } from "./adapters/pricing-client";
 
 export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -29,8 +32,14 @@ export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
    * real levantado (MOVO-108/129), mismo criterio que `usersClient`. */
   notificationsClient?: NotificationsClient;
+  /** Override solo para tests de integración — evita depender de un
+   * `movo-svc-pricing-logistics` real levantado (MOVO-82), mismo criterio que
+   * `usersClient`. */
+  pricingClient?: PricingClient;
   /** Override para habilitar/deshabilitar el barrido periódico en background (MOVO-130). */
   sweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el sweep de fotos huérfanas en background (MOVO-124). */
+  orphanPhotoSweepEnabled?: boolean;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -84,6 +93,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.sweepEnabled !== undefined ? { enabled: opts.sweepEnabled } : {}),
   });
+  app.register(orphanPhotoSweepPlugin, {
+    ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
+    ...(opts.orphanPhotoSweepEnabled !== undefined ? { enabled: opts.orphanPhotoSweepEnabled } : {}),
+  });
 
   app.get("/health", async () => ({ status: "ok" }));
 
@@ -93,8 +106,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
     ...(opts.routesProvider ? { routesProvider: opts.routesProvider } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.pricingClient ? { pricingClient: opts.pricingClient } : {}),
   };
   app.register(shipmentsRoutes, shipmentsRouteOpts);
+
+  // MOVO-134: consultado por movo-svc-users antes de aplicar una baja de cuenta.
+  // Interno -- no se declara en gateway/src/config/routes-map.ts (mismo criterio que
+  // /internal/notifications de movo-svc-users, MOVO-106).
+  app.register(accountDeletionRoutes, { prefix: "/internal/account-deletion" });
 
   return app;
 }

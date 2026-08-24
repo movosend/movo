@@ -1,3 +1,8 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic-settings==2.7.1
+# MOVO-82: pin explícito (fastapi==0.115.6 no lo fija) -- pydantic>=2.11 dispara
+# `UnsupportedFieldAttributeWarning` en cada request cuando un modelo combina
+# `alias_generator` con `Field(alias=...)` reconstruido internamente por FastAPI al
+# resolver el body (bug de compatibilidad, no del código de este servicio).
+pydantic==2.10.6

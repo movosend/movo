@@ -3,6 +3,7 @@ import { FastifyInstance } from "fastify";
 import jwt from "jsonwebtoken";
 import { buildApp } from "../src/app";
 import { SmsProvider } from "../src/adapters/sms-provider";
+import { EmailProvider } from "../src/adapters/email-provider";
 
 function createCaptorSmsProvider() {
   const sentCodes = new Map<string, string>();
@@ -15,6 +16,10 @@ function createCaptorSmsProvider() {
   };
   return { provider, sentCodes, sendCalls };
 }
+
+/** MOVO-139: esta suite solo ejercita OTPs de canal SMS -- el proveedor de email
+ * existe únicamente porque `createOtpService` exige los dos canales (ver su docstring). */
+const noopEmailProvider: EmailProvider = { async send(): Promise<void> {} };
 
 describe("OTP endpoints (send-otp / verify-otp / resend-otp)", () => {
   let app: FastifyInstance;
@@ -49,7 +54,7 @@ describe("OTP endpoints (send-otp / verify-otp / resend-otp)", () => {
 
   async function sendOtp(phone: string) {
     const response = await app.inject({ method: "POST", url: "/auth/send-otp", payload: { phone } });
-    return { response, body: JSON.parse(response.body) as { otpId: string; cooldownSeconds: number } };
+    return { response, body: JSON.parse(response.body) as { otpId: string; cooldownSeconds: number; sent: boolean } };
   }
 
   async function sendAndCapture(phone: string, normalizedPhone: string) {
@@ -68,6 +73,7 @@ describe("OTP endpoints (send-otp / verify-otp / resend-otp)", () => {
       expect(response.statusCode).toBe(200);
       expect(body.otpId).toEqual(expect.any(String));
       expect(body.cooldownSeconds).toBe(60);
+      expect(body.sent).toBe(true);
 
       const code = captor.sentCodes.get("+5493512220001");
       expect(code).toMatch(/^\d{6}$/);
@@ -99,6 +105,7 @@ describe("OTP endpoints (send-otp / verify-otp / resend-otp)", () => {
       expect(second.body.otpId).toBe(first.body.otpId);
       expect(second.body.cooldownSeconds).toBeGreaterThan(0);
       expect(second.body.cooldownSeconds).toBeLessThanOrEqual(60);
+      expect(second.body.sent).toBe(false);
       expect(captor.sendCalls).toHaveLength(0);
     });
 
@@ -303,7 +310,7 @@ describe("OTP endpoints (send-otp / verify-otp / resend-otp)", () => {
       const { createPhoneVerificationService } = await import("../src/modules/auth/phone-verification.service");
 
       const service = createPhoneVerificationService(
-        createOtpService(createOtpRepository(app.redis), captor.provider),
+        createOtpService(createOtpRepository(app.redis), { sms: captor.provider, email: noopEmailProvider }),
         app.redis,
         "test-secret"
       );
@@ -325,7 +332,7 @@ describe("OTP endpoints (send-otp / verify-otp / resend-otp)", () => {
       const { createOtpService } = await import("../src/services/otp-service");
       const { createPhoneVerificationService } = await import("../src/modules/auth/phone-verification.service");
       const service = createPhoneVerificationService(
-        createOtpService(createOtpRepository(app.redis), captor.provider),
+        createOtpService(createOtpRepository(app.redis), { sms: captor.provider, email: noopEmailProvider }),
         app.redis,
         "test-secret"
       );
@@ -346,7 +353,7 @@ describe("OTP endpoints (send-otp / verify-otp / resend-otp)", () => {
       const { createOtpService } = await import("../src/services/otp-service");
       const { createPhoneVerificationService } = await import("../src/modules/auth/phone-verification.service");
       const service = createPhoneVerificationService(
-        createOtpService(createOtpRepository(app.redis), captor.provider),
+        createOtpService(createOtpRepository(app.redis), { sms: captor.provider, email: noopEmailProvider }),
         app.redis,
         "test-secret"
       );
@@ -365,7 +372,7 @@ describe("OTP endpoints (send-otp / verify-otp / resend-otp)", () => {
       const { createOtpService } = await import("../src/services/otp-service");
       const { createPhoneVerificationService } = await import("../src/modules/auth/phone-verification.service");
       const service = createPhoneVerificationService(
-        createOtpService(createOtpRepository(app.redis), captor.provider),
+        createOtpService(createOtpRepository(app.redis), { sms: captor.provider, email: noopEmailProvider }),
         app.redis,
         "test-secret"
       );

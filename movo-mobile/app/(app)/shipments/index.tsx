@@ -1,6 +1,12 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router } from "expo-router";
-import { ChevronLeft, PackageX, Search, SlidersHorizontal, WifiOff } from "lucide-react-native";
+import {
+  ChevronLeft,
+  PackageX,
+  Search,
+  SlidersHorizontal,
+  WifiOff,
+} from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -15,14 +21,22 @@ import {
   View,
 } from "react-native";
 import { FlatList } from "react-native-gesture-handler";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import Animated from "react-native-reanimated";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { ShipmentCard } from "../../../components/shipments/shipment-card";
 import { SkeletonBlock as Block } from "../../../components/ui/skeleton-block";
+import { useSheetAnimation } from "../../../src/hooks/use-sheet-animation";
 import { usePublicProfiles } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useMyShipments } from "../../../src/hooks/use-shipments";
 import { capitalizeName } from "../../../src/lib/profile-format";
-import { shipmentLifecycleStage, shipmentStatusLabel } from "../../../src/lib/shipment-format";
+import {
+  shipmentLifecycleStage,
+  shipmentStatusLabel,
+} from "../../../src/lib/shipment-format";
 import { useAuthStore } from "../../../src/store/auth-store";
 
 type LifecycleStage = "ongoing" | "past";
@@ -44,7 +58,11 @@ const STAGE_STATUSES: Record<LifecycleStage, ShipmentStatus[]> = {
     ShipmentStatus.IN_TRANSIT,
     ShipmentStatus.DISPUTED,
   ],
-  past: [ShipmentStatus.DELIVERED, ShipmentStatus.CANCELLED, ShipmentStatus.REJECTED_BY_RECEIVER],
+  past: [
+    ShipmentStatus.DELIVERED,
+    ShipmentStatus.CANCELLED,
+    ShipmentStatus.REJECTED_BY_RECEIVER,
+  ],
 };
 
 const STAGE_EMPTY_TEXT: Record<LifecycleStage, string> = {
@@ -158,6 +176,7 @@ function ShipmentsFilterSheet({
   const [draftReceiver, setDraftReceiver] = useState<ReceiverFilter>(appliedReceiver);
   const [draftRole, setDraftRole] = useState<RoleFilter>(appliedRole);
   const [receiverQuery, setReceiverQuery] = useState("");
+  const { isMounted, backdropStyle, sheetStyle } = useSheetAnimation(visible);
 
   useEffect(() => {
     if (visible) {
@@ -170,13 +189,19 @@ function ShipmentsFilterSheet({
 
   const statusOptions: FilterOption[] = [
     { id: ALL_OPTION_ID, label: "Todos" },
-    ...STAGE_STATUSES[stage].map((status) => ({ id: status, label: shipmentStatusLabel(status) })),
+    ...STAGE_STATUSES[stage].map((status) => ({
+      id: status,
+      label: shipmentStatusLabel(status),
+    })),
   ];
   const normalizedQuery = receiverQuery.trim().toLowerCase();
   const visibleReceiverOptions = normalizedQuery
-    ? receiverOptions.filter((option) => option.label.toLowerCase().includes(normalizedQuery))
+    ? receiverOptions.filter((option) =>
+        option.label.toLowerCase().includes(normalizedQuery),
+      )
     : receiverOptions.filter(
-        (option, index) => index < TOP_RECEIVERS_SHOWN || option.id === draftReceiver,
+        (option, index) =>
+          index < TOP_RECEIVERS_SHOWN || option.id === draftReceiver,
       );
   const receiverOptionsWithAll: FilterOption[] = [
     { id: ALL_OPTION_ID, label: "Todos" },
@@ -198,84 +223,124 @@ function ShipmentsFilterSheet({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal
+      visible={isMounted}
+      animationType="none"
+      transparent
+      onRequestClose={onClose}
+    >
       <View className="flex-1 justify-end">
-        <Pressable testID="shipments-filter-backdrop" className="absolute inset-0 bg-black/40" onPress={onClose} />
+        {/* Overlay: solo hace fade (nunca se desliza) — ver `useSheetAnimation`. */}
+        <Animated.View
+          style={[
+            { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
+            backdropStyle,
+          ]}
+        >
+          <Pressable
+            testID="shipments-filter-backdrop"
+            className="flex-1 bg-black/40"
+            onPress={onClose}
+          />
+        </Animated.View>
 
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <View className="rounded-t-3xl bg-bg" style={{ paddingBottom: insets.bottom + 16 }}>
-            <View className="items-center border-b border-border px-5 pb-3.5 pt-4">
-              <Text className="font-sans-semibold text-[17px] text-fg">Filtrar por…</Text>
-              {isDraftActive ? (
-                <Text
-                  testID="shipments-filter-clear"
-                  onPress={handleClear}
-                  className="absolute right-5 top-[18px] font-sans-medium text-small text-fg-2"
-                >
-                  Limpiar
+        <Animated.View style={sheetStyle}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
+            <View
+              className="rounded-t-3xl bg-bg"
+              style={{ paddingBottom: insets.bottom + 16 }}
+            >
+              <View className="items-center border-b border-border px-5 pb-3.5 pt-4">
+                <Text className="font-sans-semibold text-[17px] text-fg">
+                  Filtrar por…
                 </Text>
-              ) : null}
-            </View>
-
-            <View className="gap-2.5 pt-5">
-              <Text className="px-5 font-sans-semibold text-[17px] text-fg">Rol</Text>
-              <FilterPillRow
-                testID="shipments-filter-role"
-                options={ROLE_OPTIONS}
-                valueId={draftRole}
-                onChange={(id) => setDraftRole(id as RoleFilter)}
-              />
-            </View>
-
-            <View className="gap-2.5 pt-6">
-              <Text className="px-5 font-sans-semibold text-[17px] text-fg">Estado</Text>
-              <FilterPillRow
-                testID="shipments-filter-status"
-                options={statusOptions}
-                valueId={draftStatus}
-                onChange={(id) => setDraftStatus(id === ALL_OPTION_ID ? "all" : (id as ShipmentStatus))}
-              />
-            </View>
-
-            <View className="gap-2.5 pt-6">
-              <Text className="px-5 font-sans-semibold text-[17px] text-fg">Destinatario</Text>
-              <View className="px-5">
-                <View className="flex-row items-center gap-2 rounded-full bg-bg-mute px-3.5 py-2.5">
-                  <Search size={16} color={colors.fg3} strokeWidth={2} />
-                  <TextInput
-                    testID="shipments-filter-receiver-search"
-                    value={receiverQuery}
-                    onChangeText={setReceiverQuery}
-                    placeholder="Buscar destinatario"
-                    placeholderTextColor={colors.fg3}
-                    autoCorrect={false}
-                    className="flex-1 p-0 font-sans text-small text-fg"
-                  />
-                </View>
+                {isDraftActive ? (
+                  <Text
+                    testID="shipments-filter-clear"
+                    onPress={handleClear}
+                    className="absolute right-5 top-[18px] font-sans-medium text-small text-fg-2"
+                  >
+                    Limpiar
+                  </Text>
+                ) : null}
               </View>
-              {normalizedQuery && visibleReceiverOptions.length === 0 ? (
-                <Text className="px-5 font-sans text-small text-fg-3">Sin resultados.</Text>
-              ) : (
-                <FilterPillRow
-                  testID="shipments-filter-receiver"
-                  options={receiverOptionsWithAll}
-                  valueId={draftReceiver}
-                  onChange={(id) => setDraftReceiver(id === ALL_OPTION_ID ? "all" : id)}
-                />
-              )}
-            </View>
 
-            <View className="px-5 pt-7">
-              <Pressable
-                testID="shipments-filter-apply"
-                onPress={handleApply}
-                className="w-full items-center rounded-full bg-fg py-4"
-              >
-                <Text className="font-sans-semibold text-body text-bg">Aplicar</Text>
-              </Pressable>
+              <View className="gap-2.5 pt-5">
+                <Text className="px-5 font-sans-semibold text-[17px] text-fg">Rol</Text>
+                <FilterPillRow
+                  testID="shipments-filter-role"
+                  options={ROLE_OPTIONS}
+                  valueId={draftRole}
+                  onChange={(id) => setDraftRole(id as RoleFilter)}
+                />
+              </View>
+
+              <View className="gap-2.5 pt-6">
+                <Text className="px-5 font-sans-semibold text-[17px] text-fg">
+                  Estado
+                </Text>
+                <FilterPillRow
+                  testID="shipments-filter-status"
+                  options={statusOptions}
+                  valueId={draftStatus}
+                  onChange={(id) =>
+                    setDraftStatus(
+                      id === ALL_OPTION_ID ? "all" : (id as ShipmentStatus),
+                    )
+                  }
+                />
+              </View>
+
+              <View className="gap-2.5 pt-6">
+                <Text className="px-5 font-sans-semibold text-[17px] text-fg">
+                  Destinatario
+                </Text>
+                <View className="px-5">
+                  <View className="flex-row items-center gap-2 rounded-full bg-bg-mute px-3.5 py-2.5">
+                    <Search size={16} color={colors.fg3} strokeWidth={2} />
+                    <TextInput
+                      testID="shipments-filter-receiver-search"
+                      value={receiverQuery}
+                      onChangeText={setReceiverQuery}
+                      placeholder="Buscar destinatario"
+                      placeholderTextColor={colors.fg3}
+                      autoCorrect={false}
+                      className="flex-1 p-0 font-sans text-small text-fg"
+                    />
+                  </View>
+                </View>
+                {normalizedQuery && visibleReceiverOptions.length === 0 ? (
+                  <Text className="px-5 font-sans text-small text-fg-3">
+                    Sin resultados.
+                  </Text>
+                ) : (
+                  <FilterPillRow
+                    testID="shipments-filter-receiver"
+                    options={receiverOptionsWithAll}
+                    valueId={draftReceiver}
+                    onChange={(id) =>
+                      setDraftReceiver(id === ALL_OPTION_ID ? "all" : id)
+                    }
+                  />
+                )}
+              </View>
+
+              <View className="px-5 pt-7">
+                <Pressable
+                  testID="shipments-filter-apply"
+                  onPress={handleApply}
+                  className="w-full items-center rounded-full bg-fg py-4"
+                >
+                  <Text className="font-sans-semibold text-body text-bg">
+                    Aplicar
+                  </Text>
+                </Pressable>
+              </View>
             </View>
-          </View>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -290,8 +355,16 @@ function ShipmentsFilterSheet({
 export default function MyShipmentsScreen() {
   const colors = useThemeColors();
   const currentUserId = useAuthStore((s) => s.user?.userId);
-  const { data, isLoading, isError, isRefetching, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    useMyShipments();
+  const {
+    data,
+    isLoading,
+    isError,
+    isRefetching,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useMyShipments();
   const [stage, setStage] = useState<LifecycleStage>("ongoing");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [receiverFilter, setReceiverFilter] = useState<ReceiverFilter>("all");
@@ -314,21 +387,30 @@ export default function MyShipmentsScreen() {
   };
 
   const items = data?.pages.flatMap((page) => page.items) ?? [];
-  const stageItems = items.filter((item) => shipmentLifecycleStage(item.status) === stage);
+  const stageItems = items.filter(
+    (item) => shipmentLifecycleStage(item.status) === stage,
+  );
 
   // Ordenados por frecuencia (más envíos primero)
   const receiverCounts = new Map<string, number>();
   for (const item of stageItems) {
-    receiverCounts.set(item.receiverId, (receiverCounts.get(item.receiverId) ?? 0) + 1);
+    receiverCounts.set(
+      item.receiverId,
+      (receiverCounts.get(item.receiverId) ?? 0) + 1,
+    );
   }
   const receiverIdsByFrequency = Array.from(receiverCounts.entries())
     .sort((a, b) => b[1] - a[1])
     .map(([id]) => id);
   const receiverProfiles = usePublicProfiles(receiverIdsByFrequency);
-  const receiverOptions: FilterOption[] = receiverIdsByFrequency.map((id, index) => ({
-    id,
-    label: capitalizeName(receiverProfiles[index]?.data?.fullName) || "Destinatario",
-  }));
+  const receiverOptions: FilterOption[] = receiverIdsByFrequency.map(
+    (id, index) => ({
+      id,
+      label:
+        capitalizeName(receiverProfiles[index]?.data?.fullName) ||
+        "Destinatario",
+    }),
+  );
 
   const filteredItems = stageItems
     .filter((item) => statusFilter === "all" || item.status === statusFilter)
@@ -369,7 +451,9 @@ export default function MyShipmentsScreen() {
         </Pressable>
       </View>
 
-      <Text className="px-5 pb-4 font-sans-semibold text-title text-fg">Mis envíos</Text>
+      <Text className="px-5 pb-4 font-sans-semibold text-title text-fg">
+        Mis envíos
+      </Text>
 
       <View className="flex-row items-center justify-between px-5 pb-3">
         <View className="flex-row gap-2">
@@ -380,7 +464,9 @@ export default function MyShipmentsScreen() {
               onPress={() => handleStageChange(s)}
               className={`rounded-full px-4 py-2 ${stage === s ? "bg-fg" : "bg-bg-mute"}`}
             >
-              <Text className={`font-sans-medium text-small ${stage === s ? "text-bg" : "text-fg-2"}`}>
+              <Text
+                className={`font-sans-medium text-small ${stage === s ? "text-bg" : "text-fg-2"}`}
+              >
                 {STAGE_LABEL[s]}
               </Text>
             </Pressable>
@@ -394,7 +480,10 @@ export default function MyShipmentsScreen() {
         >
           <SlidersHorizontal size={16} strokeWidth={1.8} color={colors.fg1} />
           {isFilterActive ? (
-            <View testID="my-shipments-filter-dot" className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-lime-500" />
+            <View
+              testID="my-shipments-filter-dot"
+              className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-lime-500"
+            />
           ) : null}
         </Pressable>
       </View>
@@ -404,20 +493,29 @@ export default function MyShipmentsScreen() {
       ) : isError ? (
         <View className="items-center gap-2 px-5 py-10">
           <WifiOff size={22} strokeWidth={1.8} color={colors.fg3} />
-          <Text className="text-center font-sans text-small text-fg-2">No pudimos cargar tus envíos.</Text>
-          <Text onPress={() => refetch()} className="font-sans-medium text-small text-fg">
+          <Text className="text-center font-sans text-small text-fg-2">
+            No pudimos cargar tus envíos.
+          </Text>
+          <Text
+            onPress={() => refetch()}
+            className="font-sans-medium text-small text-fg"
+          >
             Reintentar
           </Text>
         </View>
       ) : stageItems.length === 0 ? (
         <View className="items-center gap-2 px-5 py-10">
           <PackageX size={22} strokeWidth={1.8} color={colors.fg3} />
-          <Text className="text-center font-sans text-small text-fg-2">{STAGE_EMPTY_TEXT[stage]}</Text>
+          <Text className="text-center font-sans text-small text-fg-2">
+            {STAGE_EMPTY_TEXT[stage]}
+          </Text>
         </View>
       ) : visibleItems.length === 0 ? (
         <View className="items-center gap-2 px-5 py-10">
           <PackageX size={22} strokeWidth={1.8} color={colors.fg3} />
-          <Text className="text-center font-sans text-small text-fg-2">No hay envíos con ese filtro.</Text>
+          <Text className="text-center font-sans text-small text-fg-2">
+            No hay envíos con ese filtro.
+          </Text>
           <Text
             testID="my-shipments-clear-filter"
             onPress={() => {
@@ -435,8 +533,17 @@ export default function MyShipmentsScreen() {
           testID="my-shipments-list"
           data={visibleItems}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, gap: 12 }}
-          renderItem={({ item }) => <ShipmentCard shipment={item} testID={`my-shipments-card-${item.id}`} />}
+          contentContainerStyle={{
+            paddingHorizontal: 20,
+            paddingBottom: 24,
+            gap: 12,
+          }}
+          renderItem={({ item }) => (
+            <ShipmentCard
+              shipment={item}
+              testID={`my-shipments-card-${item.id}`}
+            />
+          )}
           onEndReachedThreshold={0.4}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) {
@@ -444,7 +551,11 @@ export default function MyShipmentsScreen() {
             }
           }}
           refreshControl={
-            <RefreshControl testID="my-shipments-refresh" refreshing={isRefetching} onRefresh={() => refetch()} />
+            <RefreshControl
+              testID="my-shipments-refresh"
+              refreshing={isRefetching}
+              onRefresh={() => refetch()}
+            />
           }
           ListFooterComponent={
             isFetchingNextPage ? (

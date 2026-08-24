@@ -4,6 +4,7 @@ import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
+import { PricingClient } from "../../adapters/pricing-client";
 import { PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
 import { assertIsReceiver, assertShipmentAccess } from "./assert-shipment-access";
 
@@ -36,13 +37,6 @@ export interface ListMineResult {
   total: number;
 }
 
-// Fórmula placeholder TEMPORAL: svc-pricing-logistics (motor real, EP-05) todavía es
-// solo un esqueleto. Determinística, sin I/O — reemplazar por la llamada real cuando
-// exista, sin tocar el resto de este servicio (el contrato de `createShipment` no
-// cambia, solo de dónde sale `suggestedPriceArs`).
-const BASE_FARE_ARS = 1500;
-const PRICE_PER_KG_ARS = 300;
-const PRICE_PER_KM_ARS = 150;
 const EARTH_RADIUS_KM = 6371;
 
 // MOVO-126: retiro y entrega a menos de 100m se tratan como la misma ubicación —
@@ -56,6 +50,10 @@ function toRadians(degrees: number): number {
   return (degrees * Math.PI) / 180;
 }
 
+// MOVO-82: ya no alimenta `suggestedPriceArs` (ahora lo calcula
+// movo-svc-pricing-logistics con su propia fórmula de distancia euclidiana, ver
+// pricing-client.ts) -- se mantiene standalone solo para la validación de umbral de
+// MOVO-126 de abajo.
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const dLat = toRadians(lat2 - lat1);
   const dLng = toRadians(lng2 - lng1);
@@ -63,10 +61,6 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLng / 2) ** 2;
   return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function computePlaceholderPrice(weightKg: number, distanceKm: number): number {
-  return Math.round(BASE_FARE_ARS + weightKg * PRICE_PER_KG_ARS + distanceKm * PRICE_PER_KM_ARS);
 }
 
 /** "HH:MM" -> "HH:MM:00"; "HH:MM:SS" queda igual. */
@@ -165,6 +159,12 @@ export interface ShipmentsServiceOptions {
   /** Requerido solo para `cancelShipment` (AC7 de MOVO-108, notificar ofertas
    * pendientes) — el barrido de MOVO-130 no lo necesita, nunca cancela por esa vía. */
   offerRepository?: OfferRepository;
+  /** Requerido solo para `createShipment` (MOVO-82) — mismo criterio que
+   * `offerRepository`: viaja en `opts` en vez de como parámetro posicional propio,
+   * para no romper la firma que ya usan `acceptShipment`/`rejectShipment`/el barrido
+   * de MOVO-130. Sin cliente inyectado, `createShipment` degrada directo a "precio a
+   * estimar" (mismo resultado que si el cliente estuviera pero fallara, AC6). */
+  pricingClient?: PricingClient;
 }
 
 export function createShipmentsService(
@@ -176,6 +176,7 @@ export function createShipmentsService(
 ) {
   const timeoutHours = opts.receiverConfirmationTimeoutHours ?? 48;
   const offerRepository = opts.offerRepository;
+  const pricingClient = opts.pricingClient;
 
   return {
     async createShipment(input: CreateShipmentServiceInput): Promise<Shipment> {
@@ -185,7 +186,6 @@ export function createShipmentsService(
       }
 
       // MOVO-126 — retiro y entrega no pueden ser la misma ubicación, todavía sin I/O.
-      // El resultado se reusa más abajo para el precio sugerido, no se recalcula.
       const pickupDeliveryDistanceKm = haversineKm(
         input.pickupLat,
         input.pickupLng,
@@ -229,10 +229,41 @@ export function createShipmentsService(
         );
       }
 
-      const suggestedPriceArs = computePlaceholderPrice(input.weightKg, pickupDeliveryDistanceKm);
+      // MOVO-82: `getQuote` nunca lanza -- degrada a `{ suggestedPriceArs: null,
+      // calculationMethod: null }` ("precio a estimar") ante cualquier falla de
+      // movo-svc-pricing-logistics (AC6), sin cliente inyectado, o datos incompletos
+      // (AC7, inalcanzable hoy porque createShipmentBody exige todos estos campos).
+      const quote = pricingClient
+        ? await pricingClient.getQuote({
+            weightKg: input.weightKg,
+            lengthCm: input.lengthCm,
+            widthCm: input.widthCm,
+            heightCm: input.heightCm,
+            packageType: input.packageType,
+            originLat: input.pickupLat,
+            originLng: input.pickupLng,
+            destinationLat: input.deliveryLat,
+            destinationLng: input.deliveryLng,
+          })
+        : { suggestedPriceArs: null, calculationMethod: null };
 
-      // MOVO-130 AC1: deadline de confirmación = createdAt (ahora) + RECEIVER_CONFIRMATION_TIMEOUT_HOURS.
-      const receiverConfirmationDeadline = new Date(Date.now() + timeoutHours * 60 * 60 * 1000);
+      if (quote.suggestedPriceArs === null) {
+        logger?.warn(
+          { event: "pricing_quote_unavailable", senderId: input.senderId },
+          "No se pudo obtener un precio sugerido -- el envío se crea con 'precio a estimar'"
+        );
+      }
+
+      // MOVO-130 AC1 (fix): deadline = min(now + RECEIVER_CONFIRMATION_TIMEOUT_HOURS, pickupDate + pickupTimeWindowEnd).
+      // El timeout configurable es el máximo posible, pero si la ventana de retiro cierra antes,
+      // se usa ese momento como tope: no tiene sentido que el receptor pueda aceptar un envío
+      // cuya ventana de retiro ya cerró. `windowEndAt` viene anclado como reloj de pared
+      // argentino (ver `combineDateAndTime`), así que hay que pasarlo por `toRealInstant`
+      // antes de compararlo/persistirlo junto a instantes reales como `timeoutDeadline`.
+      const timeoutDeadline = new Date(Date.now() + timeoutHours * 60 * 60 * 1000);
+      const pickupWindowDeadline = toRealInstant(windowEndAt);
+      const receiverConfirmationDeadline =
+        timeoutDeadline <= pickupWindowDeadline ? timeoutDeadline : pickupWindowDeadline;
 
       const created = await repository.create({
         senderId: input.senderId,
@@ -252,7 +283,8 @@ export function createShipmentsService(
         pickupDate: new Date(`${input.pickupDate}T00:00:00.000Z`),
         pickupTimeWindowStart: toEpochTime(input.pickupTimeWindowStart),
         pickupTimeWindowEnd: toEpochTime(input.pickupTimeWindowEnd),
-        suggestedPriceArs,
+        suggestedPriceArs: quote.suggestedPriceArs,
+        calculationMethod: quote.calculationMethod,
         receiverConfirmationDeadline,
       });
 
@@ -262,9 +294,20 @@ export function createShipmentsService(
       // (no fire-and-forget): no hay razón de negocio para no esperar el intento antes
       // de responder, a diferencia de accept/reject donde la latencia extra no aporta.
       if (notificationsClient) {
+        let senderName = "Un usuario";
         try {
           const senderProfile = await usersClient.findPublicProfile(input.senderId, input.senderId);
-          const senderName = senderProfile?.fullName ?? "Un usuario";
+          if (senderProfile?.fullName) {
+            senderName = senderProfile.fullName;
+          }
+        } catch (err) {
+          logger?.warn(
+            { err, event: "sender_profile_lookup_for_push_failed", senderId: input.senderId },
+            "No se pudo obtener el perfil del emisor para el copy del push; usando fallback"
+          );
+        }
+
+        try {
           await notificationsClient.sendPush({
             userId: created.receiverId,
             title: "Tenés un envío nuevo para confirmar",

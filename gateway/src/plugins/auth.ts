@@ -48,6 +48,24 @@ export default fp(async (app: FastifyInstance) => {
       );
     }
 
+    // MOVO-134 (review de tmvergara sobre el PR de cambio de contraseña/baja de
+    // cuenta): un access token es un JWT stateless (ADR-004) -- sin este chequeo,
+    // sigue siendo válido hasta sus 60 minutos de TTL aunque el usuario haya
+    // cambiado su contraseña o dado de baja la cuenta mientras tanto.
+    // `user-revoked-at:{userId}` lo sella `movo-svc-users`
+    // (`repositories/session-repository.ts#revokeAccessTokensIssuedBefore`) en
+    // segundos Unix, misma unidad que el claim `iat` -- comparar contra
+    // `Date.now()`/milisegundos dejaría el token recién emitido por ese mismo cambio
+    // auto-revocado por el redondeo de `iat` al segundo.
+    const revokedAt = await app.redis.get(`user-revoked-at:${result.claims.sub}`);
+    if (revokedAt && result.claims.iat < Number(revokedAt)) {
+      throw new ApiError(
+        401,
+        "AUTH_TOKEN_INVALID",
+        "Token revoked, please log in again."
+      );
+    }
+
     request.user = result.claims;
   });
 

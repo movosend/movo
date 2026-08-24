@@ -197,4 +197,28 @@ describe("TimelineSection", () => {
 
     expect(getByText("El emisor canceló antes de asignar transportista")).toBeTruthy();
   });
+
+  it("muestra copy en segunda persona cuando el usuario logueado es el receptor", async () => {
+    mockUser.mockReturnValue({ userId: "receiver-1" });
+    mockUseShipmentEvents.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+      data: [
+        event(),
+        event({
+          id: "event-2",
+          fromStatus: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+          toStatus: ShipmentStatus.PUBLISHED,
+          actorId: "receiver-1",
+        }),
+      ],
+    });
+
+    const { getByText, queryByText } = await renderTimeline();
+
+    expect(getByText("Aceptaste el envío")).toBeTruthy();
+    expect(getByText("Vos")).toBeTruthy();
+    expect(queryByText("Lucas aceptó el envío")).toBeNull();
+  });
 });

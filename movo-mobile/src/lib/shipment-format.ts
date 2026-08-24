@@ -5,11 +5,11 @@ import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
  * también, el fallback (`status` crudo) es deliberadamente poco amigable para que se
  * note en QA si falta agregar la traducción. */
 const STATUS_LABEL: Record<ShipmentStatus, string> = {
-  [ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION]: "Esperando confirmación",
-  [ShipmentStatus.REJECTED_BY_RECEIVER]: "Rechazado por el receptor",
+  [ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION]: "Esperando receptor",
+  [ShipmentStatus.REJECTED_BY_RECEIVER]: "Rechazado",
   [ShipmentStatus.PUBLISHED]: "Publicado",
-  [ShipmentStatus.ASSIGNMENT_PENDING]: "Buscando transportista",
-  [ShipmentStatus.ASSIGNED]: "Transportista asignado",
+  [ShipmentStatus.ASSIGNMENT_PENDING]: "Sin asignar",
+  [ShipmentStatus.ASSIGNED]: "Asignado",
   [ShipmentStatus.IN_TRANSIT]: "En camino",
   [ShipmentStatus.DELIVERED]: "Entregado",
   [ShipmentStatus.CANCELLED]: "Cancelado",
@@ -26,7 +26,15 @@ export function shipmentStatusLabel(
   return STATUS_LABEL[status] ?? status;
 }
 
-/** Tono visual del estado, reusa la misma paleta semántica que `kyc-status-ui.tsx`. */
+/** Tono visual del estado, reusa la misma paleta semántica que `kyc-status-ui.tsx`.
+ * Agrupado por lo que el tono debería comunicarle al usuario, no por "humor" del
+ * estado (feedback post-implementación, MOVO-127/MOVO-29): `warning` queda
+ * reservado a los dos estados que sí esperan una acción de alguien
+ * (`awaiting_receiver_confirmation` del receptor, `disputed` en revisión); el resto
+ * del camino feliz que avanza solo (`assignment_pending`/`assigned`/`in_transit`)
+ * comparte `info` como progreso automático, y `danger` queda reservado a los dos
+ * únicos estados terminales fallidos — antes `disputed` compartía ese rojo con
+ * ellos, aunque una disputa todavía se puede resolver bien. */
 export function shipmentStatusTone(
   status: ShipmentStatus,
 ): "success" | "warning" | "danger" | "info" | "neutral" {
@@ -35,11 +43,11 @@ export function shipmentStatusTone(
       return "success";
     case ShipmentStatus.CANCELLED:
     case ShipmentStatus.REJECTED_BY_RECEIVER:
-    case ShipmentStatus.DISPUTED:
       return "danger";
     case ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION:
-    case ShipmentStatus.ASSIGNMENT_PENDING:
+    case ShipmentStatus.DISPUTED:
       return "warning";
+    case ShipmentStatus.ASSIGNMENT_PENDING:
     case ShipmentStatus.ASSIGNED:
     case ShipmentStatus.IN_TRANSIT:
       return "info";
@@ -73,6 +81,19 @@ export function receiverConfirmationStatus(status: ShipmentStatus): "pending" | 
   if (status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION) return "pending";
   if (status === ShipmentStatus.REJECTED_BY_RECEIVER) return "rejected";
   return "confirmed";
+}
+
+/** Estados desde los que el emisor puede cancelar sin penalización (MOVO-29,
+ * implementado en MOVO-108) — los únicos 3 sin fondos confirmados todavía. Cancelar
+ * desde `assigned` existe en `shipment-state-machine.ts` pero el backend lo bloquea
+ * con 409 hasta que `svc-payments` tenga holds/capture reales, así que acá no se
+ * ofrece el botón para ese ni ningún otro estado. */
+export function canCancelShipment(status: ShipmentStatus): boolean {
+  return (
+    status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION ||
+    status === ShipmentStatus.PUBLISHED ||
+    status === ShipmentStatus.ASSIGNMENT_PENDING
+  );
 }
 
 /** Nunca "$0" — un envío recién creado sin precio acordado todavía muestra la
@@ -116,10 +137,8 @@ export function formatPickupDateLabel(pickupDate: string): string | null {
 export function shipmentEventTitle(
   toStatus: ShipmentStatus,
   fromStatus: ShipmentStatus | null,
-  options?: { receiverName?: string | null },
+  options?: { receiverName?: string | null; isReceiver?: boolean },
 ): string {
-  const receiver = options?.receiverName || "El receptor";
-
   if (fromStatus === null) return "Envío creado";
 
   // La aceptación del receptor no tiene estado propio: es exactamente la transición
@@ -133,6 +152,8 @@ export function shipmentEventTitle(
     fromStatus === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION &&
     toStatus === ShipmentStatus.PUBLISHED
   ) {
+    if (options?.isReceiver) return "Aceptaste el envío";
+    const receiver = options?.receiverName || "El receptor";
     return `${receiver} aceptó el envío`;
   }
 
@@ -140,7 +161,8 @@ export function shipmentEventTitle(
     case ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION:
       return "Esperando confirmación";
     case ShipmentStatus.REJECTED_BY_RECEIVER:
-      return `${receiver} rechazó el envío`;
+      if (options?.isReceiver) return "Rechazaste el envío";
+      return `${options?.receiverName || "El receptor"} rechazó el envío`;
     case ShipmentStatus.PUBLISHED:
       return "Publicado para transportistas";
     case ShipmentStatus.ASSIGNMENT_PENDING:
@@ -212,7 +234,7 @@ export function remainingLifecycleSteps(currentStatus: ShipmentStatus): Shipment
  * un paso futuro descrito en pasado se lee como algo que ya pasó. */
 export function shipmentPendingStepLabel(
   status: ShipmentStatus,
-  options?: { receiverName?: string | null },
+  options?: { receiverName?: string | null; isReceiver?: boolean },
 ): string {
   const receiver = options?.receiverName;
   switch (status) {
@@ -220,6 +242,7 @@ export function shipmentPendingStepLabel(
     // se alcanza — es lo que el emisor está esperando mientras el envío sigue en
     // `awaiting_receiver_confirmation`; la publicación es la consecuencia.
     case ShipmentStatus.PUBLISHED:
+      if (options?.isReceiver) return "Tu confirmación";
       return receiver ? `Aceptación de ${receiver}` : "Aceptación del receptor";
     case ShipmentStatus.ASSIGNMENT_PENDING:
       return "Búsqueda de transportista";
@@ -228,9 +251,10 @@ export function shipmentPendingStepLabel(
     case ShipmentStatus.IN_TRANSIT:
       return "Retiro del paquete";
     case ShipmentStatus.DELIVERED:
+      if (options?.isReceiver) return "Entrega del paquete";
       return receiver ? `Entrega a ${receiver}` : "Entrega al receptor";
     default:
-      return shipmentStatusLabel(status);
+      return shipmentStatusLabel(status, { isReceiver: options?.isReceiver });
   }
 }
 
@@ -291,7 +315,10 @@ export function formatTimeHHMM(time: string | null | undefined): string {
  * las 15h", que requerirían comparar `pickupDate` contra "hoy" y reabrir el mismo
  * riesgo de desfasaje de huso horario que ya documenta `formatPickupDateLabel`. */
 export function formatPickupWindowLabel(start: string, end: string): string {
-  return `${formatTimeHHMM(start)} a ${formatTimeHHMM(end)}`;
+  const s = formatTimeHHMM(start);
+  const e = formatTimeHHMM(end);
+  if (!s && !e) return "";
+  return `${s || "—"} a ${e || "—"}`;
 }
 
 /**

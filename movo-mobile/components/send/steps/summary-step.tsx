@@ -236,7 +236,7 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
         />
         <ReviewRow
           label="Franja horaria"
-          value={`${formatPickupDateLabel(pickupDate) || "—"} · ${formatPickupWindowLabel(pickupTimeWindowStart, pickupTimeWindowEnd)}`}
+          value={`${formatPickupDateLabel(pickupDate) || "—"} · ${formatPickupWindowLabel(pickupTimeWindowStart, pickupTimeWindowEnd) || "—"}`}
           onEdit={() => onGoToStep(2)}
           last
         />

@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { router, useRootNavigationState } from "expo-router";
 import * as Notifications from "expo-notifications";
 import { useEffect, useRef } from "react";
 import { requestPermissionAndRegisterPushToken } from "../lib/push-registration";
@@ -47,8 +47,12 @@ function isShipmentNotificationData(data: unknown): data is ShipmentNotification
  */
 export function usePushNotifications(): void {
   const sessionStatus = useAuthStore((s) => s.status);
+  const rootNavState = useRootNavigationState();
+  const isNavigatorMounted = Boolean(rootNavState?.key);
+
   const registeredRef = useRef(false);
-  const handledColdStartRef = useRef(false);
+  const handledResponseIdsRef = useRef<Set<string>>(new Set());
+  const coldStartHandledRef = useRef(false);
 
   useEffect(() => {
     if (sessionStatus !== "authenticated" || registeredRef.current) return;
@@ -59,31 +63,46 @@ export function usePushNotifications(): void {
   useEffect(() => {
     if (sessionStatus !== "authenticated") {
       registeredRef.current = false;
-      handledColdStartRef.current = false;
     }
   }, [sessionStatus]);
 
   // Manejo de cold start (app abierta desde la notificación estando cerrada)
+  // Gated por `isNavigatorMounted` para no disparar router.push antes de que
+  // el Root Layout monte el <Stack> (evita fallo en cold start).
   useEffect(() => {
-    if (sessionStatus !== "authenticated" || handledColdStartRef.current) return;
+    if (sessionStatus !== "authenticated" || !isNavigatorMounted || coldStartHandledRef.current) {
+      return;
+    }
+    coldStartHandledRef.current = true;
 
     void Notifications.getLastNotificationResponseAsync().then((response) => {
       if (!response) return;
       const data = response.notification?.request?.content?.data;
-      if (isShipmentNotificationData(data)) {
-        handledColdStartRef.current = true;
-        router.push(`/shipments/${data.shipmentId}`);
-      }
+      if (!isShipmentNotificationData(data)) return;
+
+      const responseId =
+        response.notification?.request?.identifier ||
+        `${data.shipmentId}-${response.notification?.date ?? Date.now()}`;
+      if (handledResponseIdsRef.current.has(responseId)) return;
+      handledResponseIdsRef.current.add(responseId);
+
+      router.push(`/shipments/${data.shipmentId}`);
     });
-  }, [sessionStatus]);
+  }, [sessionStatus, isNavigatorMounted]);
 
   // Manejo de interacción con notificación recibida en foreground / background
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification?.request?.content?.data;
-      if (isShipmentNotificationData(data)) {
-        router.push(`/shipments/${data.shipmentId}`);
-      }
+      if (!isShipmentNotificationData(data)) return;
+
+      const responseId =
+        response.notification?.request?.identifier ||
+        `${data.shipmentId}-${response.notification?.date ?? Date.now()}`;
+      if (handledResponseIdsRef.current.has(responseId)) return;
+      handledResponseIdsRef.current.add(responseId);
+
+      router.push(`/shipments/${data.shipmentId}`);
     });
     return () => subscription.remove();
   }, []);

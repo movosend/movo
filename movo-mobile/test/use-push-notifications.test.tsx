@@ -1,8 +1,10 @@
 import { renderHook } from "@testing-library/react-native";
 
 const mockRouterPush = jest.fn();
+const mockUseRootNavigationState = jest.fn().mockReturnValue({ key: "root" });
 jest.mock("expo-router", () => ({
   router: { push: (...args: unknown[]) => mockRouterPush(...args) },
+  useRootNavigationState: () => mockUseRootNavigationState(),
 }));
 
 const mockUseAuthStore = jest.fn();
@@ -80,11 +82,12 @@ describe("usePushNotifications", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shp_1");
   });
 
-  it("AC6 de MOVO-132: cold start con notificación navega al detalle del envío una vez autenticado", async () => {
+  it("AC6 de MOVO-132: cold start con notificación navega al detalle del envío una vez autenticado y montado el navigator", async () => {
     mockGetLastNotificationResponseAsync.mockResolvedValue({
-      notification: { request: { content: { data: { type: "shipment", shipmentId: "shp_cold" } } } },
+      notification: { request: { identifier: "notif_cold", content: { data: { type: "shipment", shipmentId: "shp_cold" } } } },
     });
     mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseRootNavigationState.mockReturnValue({ key: "root" });
 
     await renderHook(() => usePushNotifications());
 
@@ -92,6 +95,44 @@ describe("usePushNotifications", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shp_cold");
+  });
+
+  it("no navega en cold start si el navigator todavía no está montado", async () => {
+    mockGetLastNotificationResponseAsync.mockResolvedValue({
+      notification: { request: { identifier: "notif_cold", content: { data: { type: "shipment", shipmentId: "shp_cold" } } } },
+    });
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseRootNavigationState.mockReturnValue(undefined);
+
+    const { rerender } = await renderHook(() => usePushNotifications());
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockRouterPush).not.toHaveBeenCalled();
+
+    mockUseRootNavigationState.mockReturnValue({ key: "root" });
+    await rerender({});
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shp_cold");
+  });
+
+  it("deduplica respuestas idénticas entre cold start y listener", async () => {
+    const response = {
+      notification: { request: { identifier: "notif_shared_1", content: { data: { type: "shipment", shipmentId: "shp_1" } } } },
+    };
+    mockGetLastNotificationResponseAsync.mockResolvedValue(response);
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseRootNavigationState.mockReturnValue({ key: "root" });
+
+    await renderHook(() => usePushNotifications());
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockRouterPush).toHaveBeenCalledTimes(1);
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (r: unknown) => void;
+    listener(response);
+
+    expect(mockRouterPush).toHaveBeenCalledTimes(1);
   });
 
   it("limpia el listener de notificaciones al desmontar", async () => {
