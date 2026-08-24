@@ -144,6 +144,17 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
   vulnerabilidades.
 - `.env.example` se actualiza en el mismo PR que introduce la variable — un PR que
   agrega una env var sin documentarla no se aprueba.
+- **Una env var nueva se toca en tres lugares, siempre en el mismo PR**: (1)
+  `.env.example` del servicio, (2) el `envSchema` de `src/config/env.ts`, y (3) el bloque
+  `environment:` del servicio en `infra/docker-compose.yml`. Olvidarse del (3) ya nos
+  pasó dos veces (`PLACES_PROVIDER`, y `EMAIL_PROVIDER`/`RESEND_API_KEY`/`EMAIL_FROM` de
+  MOVO-139) y falla de la forma más cara de diagnosticar: el deploy sale verde y el
+  servicio arranca sano, pero silenciosamente con el default del schema (el provider
+  mock/console), porque Compose solo inyecta al contenedor lo que está listado en
+  `environment:` — cargarla en Secrets Manager no alcanza, el `.env` que genera
+  `ci-dev.yml` vuelca el secret entero pero ahí solo sirve para interpolación. Si la var
+  elige implementación (`*_PROVIDER`, `DIDIT_MODE`), va con `:-<default>` y no `-<default>`:
+  una var presente pero vacía no matchea el enum de AJV y tira el servicio abajo al boot.
 
 ## Testing
 

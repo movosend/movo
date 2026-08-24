@@ -123,6 +123,15 @@ services:
       # DIDIT_MODE/SMS_PROVIDER arriba — una var presente pero vacía no matchea el enum
       # de envSchema y tira el servicio abajo al boot.
       - PUSH_PROVIDER=${PUSH_PROVIDER:-mock}
+      # MOVO-139 (ADR-017): mismo criterio de `:-console` que SMS_PROVIDER arriba -- una
+      # var presente pero vacía no matchea el enum de envSchema y tira el servicio abajo
+      # al boot. Faltaba todo este bloque: aunque EMAIL_PROVIDER/RESEND_API_KEY/EMAIL_FROM
+      # estuvieran en Secrets Manager, compose solo pasa al contenedor lo que está listado
+      # acá, así que el servicio arrancaba siempre con el ConsoleEmailProvider (loguea el
+      # mail en vez de mandarlo) y nada llegaba a Resend.
+      - EMAIL_PROVIDER=${EMAIL_PROVIDER:-console}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - EMAIL_FROM=${EMAIL_FROM}
     depends_on:
       - postgres
       - redis
