@@ -402,6 +402,46 @@ try/catch + `logger?.warn` que ya usaban `acceptShipment`/`rejectShipment`/
 para no romper la firma `(repository, usersClient, notificationsClient?, logger?, opts)`
 que ya usaban `acceptShipment`/`rejectShipment`/el barrido de MOVO-130.
 
+### MOVO-82 — Precio sugerido vía `movo-svc-pricing-logistics` (ADR-018)
+
+Reemplaza el placeholder inline de MOVO-80 (`computePlaceholderPrice`/fórmula
+hardcodeada en `shipments.service.ts`, eliminado): `createShipment` ahora pide el
+precio a `movo-svc-pricing-logistics` (`POST /quote`, ver su `CLAUDE.md`) vía
+`src/adapters/pricing-client.ts` nuevo.
+
+Decisiones clave:
+- **`pricing-client.ts` nunca lanza** (a diferencia de `users-client.ts`): cualquier
+  falla de red/timeout/respuesta no-ok, o datos incompletos (peso/dimensiones/
+  coordenadas), resuelve a `{ suggestedPriceArs: null, calculationMethod: null }` —
+  acá el fallback es un resultado de negocio válido ("precio a estimar", AC6 del
+  ticket), no un fallo de transporte que deba abortar la creación del envío. Timeout
+  de 3000ms (más corto que los 5000ms de `users-client.ts`: degradar es gratis, no
+  vale la pena esperar tanto).
+- **Guard de datos incompletos (AC7) documentado como código muerto hoy**: con el
+  schema actual de `createShipmentBody` (todos los campos numéricos requeridos), la
+  rama nunca se ejercita vía `POST /shipments` — queda ahí para cuando MOVO-83 (el
+  wizard mobile, bloqueado por este ticket) reuse el mismo cliente desde un paso con
+  datos todavía parciales.
+- **`suggestedPriceArs`/`calculationMethod` nullables** (antes `suggestedPriceArs`
+  era `NOT NULL`): migración `20260822170000_add_pricing_calculation_method`
+  (`ALTER COLUMN ... DROP NOT NULL` + `ADD COLUMN calculation_method`). Envíos
+  preexistentes conservan su precio actual y quedan con `calculationMethod: null` —
+  backfill descartado a propósito, no hay forma de inferir retroactivamente qué
+  fórmula produjo un precio ya persistido (AC8: nunca se recalcula, y en efecto nada
+  en el repo vuelve a escribir el campo después de `create()`).
+- **`haversineKm` ya no alimenta el precio**, sigue viva solo para la validación de
+  umbral de MOVO-126 (retiro/entrega no pueden estar a menos de 100m).
+- **`pricingClient` viaja en `ShipmentsServiceOptions`** (no como parámetro
+  posicional propio de `createShipmentsService`), mismo criterio que
+  `offerRepository` (MOVO-108/129/130): evita romper la firma que ya usan
+  `acceptShipment`/`rejectShipment`/el barrido de MOVO-130, que nunca lo necesitan.
+
+Tests: `test/fake-pricing-client.ts` nuevo (mismo patrón que `fake-users-client.ts`).
+`shipment-service.test.ts` con 3 casos de `createShipment` (precio real vía
+`pricingClient`, fallback si el cliente falla, fallback si no hay cliente inyectado) +
+`shipments-create.integration.test.ts` con el caso end-to-end de AC6
+(`pricingClient` inyectado que falla → `POST /shipments` responde 201 con
+`suggestedPriceArs: null`).
 ### MOVO-124 — Sweep de fotos huérfanas en S3 vía tracking en Redis (`svc-shipments` + `svc-users`)
 
 Reemplaza las dos opciones de lifecycle rule de S3 que había dejado planteadas MOVO-81

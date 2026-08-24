@@ -31,3 +31,5 @@ export type {
   PublicProfile,
 } from "./types/user-profile";
 export type { Address, CreateAddressInput, UpdateAddressInput } from "./types/address";
+export { PriceCalculationMethod } from "./types/pricing";
+export type { QuoteRequest, QuoteResponse, PriceBreakdownItem } from "./types/pricing";

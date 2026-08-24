@@ -7,4 +7,4 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-addopts = "--cov=main --cov-report=term-missing --cov-fail-under=55"
+addopts = "--cov=main --cov=app --cov-report=term-missing --cov-fail-under=55"
