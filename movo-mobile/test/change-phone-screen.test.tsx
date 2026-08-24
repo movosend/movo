@@ -33,6 +33,7 @@ function baseProfile(): PrivateProfile {
     phone: "+5493511234567",
     dni: "35123456",
     phoneVerified: true,
+    emailVerified: true,
     photoUrl: null,
     kycStatus: KycStatus.APPROVED,
     licenseKycStatus: KycStatus.NOT_STARTED,

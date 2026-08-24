@@ -33,6 +33,7 @@ function baseProfile(): PrivateProfile {
     phone: "+5491140238871",
     dni: "35123456",
     phoneVerified: true,
+    emailVerified: true,
     photoUrl: null,
     kycStatus: KycStatus.APPROVED,
     licenseKycStatus: KycStatus.NOT_STARTED,
@@ -66,24 +67,23 @@ describe("ChangeEmailScreen (MOVO-135)", () => {
     mockVerify.mockResolvedValue(baseProfile());
   });
 
-  // AC5: el código va al teléfono actual, NO al email nuevo (no hay EmailProvider en
-  // el proyecto). Si la pantalla no lo dice, recibir un SMS al cambiar el email es
-  // desconcertante — por eso se avisa antes de pedirlo y de nuevo al pedirlo.
-  it("AC5: avisa antes de enviar que el código va por SMS al teléfono actual", async () => {
+  // AC5 (MOVO-139): el código va al email NUEVO, no al teléfono — prueba de
+  // propiedad directa de la dirección que se está por confirmar.
+  it("AC5: avisa antes de enviar que el código va a la dirección nueva", async () => {
     const screen = await render(<ChangeEmailScreen />);
 
-    expect(screen.getByTestId("change-email-sms-notice")).toBeTruthy();
-    expect(screen.getByText("+54 9 11 4023-8871")).toBeTruthy();
+    expect(screen.getByText(/Te vamos a mandar un código a esa dirección/)).toBeTruthy();
+    expect(screen.getByText("martina@gmail.com")).toBeTruthy();
   });
 
-  it("AC5: el paso del código nombra el teléfono al que se envió", async () => {
+  it("AC5: el paso del código nombra el email nuevo al que se envió", async () => {
     const screen = await render(<ChangeEmailScreen />);
     await typeIn(screen.getByTestId("change-email-input"), "nuevo@gmail.com");
     await press(screen.getByTestId("change-email-request"));
 
     expect(mockRequest).toHaveBeenCalledWith("nuevo@gmail.com");
-    expect(screen.getByText(/por SMS a tu teléfono actual/)).toBeTruthy();
-    expect(screen.getByText("+54 9 11 4023-8871")).toBeTruthy();
+    expect(screen.getByText(/Te enviamos un código de 6 dígitos a/)).toBeTruthy();
+    expect(screen.getByText("nuevo@gmail.com")).toBeTruthy();
   });
 
   it("no pide el cambio con un email inválido", async () => {

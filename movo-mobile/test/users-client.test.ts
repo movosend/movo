@@ -280,4 +280,34 @@ describe("usersClient", () => {
       code: "654321",
     });
   });
+
+  it("requestEmailVerification hace POST /users/me/email/verify/otp sin body", async () => {
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: {
+        post: jest.fn().mockResolvedValue({ otpId: "otp-3", cooldownSeconds: 60, sent: true }),
+      },
+    }));
+    const { usersClient } = require("../src/api/users-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    const result = await usersClient.requestEmailVerification();
+
+    expect(httpClient.post).toHaveBeenCalledWith("/users/me/email/verify/otp", {});
+    expect(result.otpId).toBe("otp-3");
+  });
+
+  it("verifyEmailVerification hace POST /users/me/email/verify/confirm", async () => {
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: { post: jest.fn().mockResolvedValue({ id: "u-1", emailVerified: true }) },
+    }));
+    const { usersClient } = require("../src/api/users-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    await usersClient.verifyEmailVerification({ otpId: "otp-3", code: "111222" });
+
+    expect(httpClient.post).toHaveBeenCalledWith("/users/me/email/verify/confirm", {
+      otpId: "otp-3",
+      code: "111222",
+    });
+  });
 });

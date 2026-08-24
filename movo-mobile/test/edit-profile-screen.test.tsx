@@ -41,6 +41,7 @@ function baseProfile(overrides: Partial<PrivateProfile> = {}): PrivateProfile {
     phone: "+5493511234567",
     dni: "35123456",
     phoneVerified: true,
+    emailVerified: false,
     photoUrl: null,
     kycStatus: KycStatus.NOT_STARTED,
     licenseKycStatus: KycStatus.NOT_STARTED,
@@ -185,16 +186,35 @@ describe("EditProfileScreen (MOVO-135)", () => {
     expect(router.push).toHaveBeenCalledWith("/profile/change-email");
   });
 
-  // El teléfono es el único con verificación real (`phoneVerified`); el email no
-  // tiene concepto de verificación en el sistema, así que no lleva insignia.
-  it("muestra la insignia de verificado solo en el teléfono", async () => {
-    const { getByTestId, queryAllByText } = await render(<EditProfileScreen />);
+  // Teléfono y email tienen verificación real (`phoneVerified`/`emailVerified`,
+  // MOVO-139) — ambos pueden mostrar la insignia lima.
+  it("muestra la insignia de verificado en el teléfono, y el CTA de verificar en el email sin verificar", async () => {
+    const { getByTestId } = await render(<EditProfileScreen />);
 
     expect(within(getByTestId("edit-profile-phone-row")).getByText("Verificado")).toBeTruthy();
     expect(
       within(getByTestId("edit-profile-email-row")).queryByText("Verificado"),
     ).toBeNull();
-    expect(queryAllByText("Verificar para cambiar")).toHaveLength(0);
+    expect(within(getByTestId("edit-profile-email-row")).getByText("Verificar")).toBeTruthy();
+  });
+
+  it("con el email ya verificado, muestra la insignia y no el CTA", async () => {
+    mockProfileQuery(baseProfile({ emailVerified: true }));
+    const { getByTestId } = await render(<EditProfileScreen />);
+
+    expect(within(getByTestId("edit-profile-email-row")).getByText("Verificado")).toBeTruthy();
+    expect(
+      within(getByTestId("edit-profile-email-row")).queryByText("Verificar"),
+    ).toBeNull();
+  });
+
+  it("tocar el CTA de verificar email navega a /profile/verify-email sin disparar el cambio de email", async () => {
+    const { getByTestId } = await render(<EditProfileScreen />);
+
+    await press(getByTestId("edit-profile-email-row-verify"));
+
+    expect(router.push).toHaveBeenCalledWith("/profile/verify-email");
+    expect(router.push).not.toHaveBeenCalledWith("/profile/change-email");
   });
 
   it("sin teléfono verificado no muestra la insignia", async () => {

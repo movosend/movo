@@ -272,6 +272,10 @@ export default function EditProfileScreen() {
               iconColor={colors.fg3}
               chevronColor={colors.fg3}
               isLast
+              verified={profile.emailVerified}
+              onVerifyPress={
+                profile.emailVerified ? undefined : () => router.push("/profile/verify-email")
+              }
             />
           </View>
           <Text className="font-sans text-[12px] text-fg-3">
@@ -313,6 +317,7 @@ function ContactRow({
   chevronColor,
   isLast,
   verified = false,
+  onVerifyPress,
 }: {
   testID: string;
   Icon: typeof Phone;
@@ -322,10 +327,13 @@ function ContactRow({
   iconColor: string;
   chevronColor: string;
   isLast: boolean;
-  /** Solo el teléfono tiene verificación real (`phoneVerified`). El email no lleva
-   * insignia: el proyecto no tiene forma de verificarlo, así que cualquier chip ahí
-   * sería una afirmación falsa o un pendiente sin salida. */
+  /** Teléfono (`phoneVerified`) y email (`emailVerified`, MOVO-139) tienen
+   * verificación real. */
   verified?: boolean;
+  /** Solo el email la ofrece hoy: tocarlo navega al CTA de verificación (MOVO-139)
+   * en vez de al cambio, sin competir con `onPress` de la fila. `undefined` cuando
+   * ya está verificado, así no se muestra nada. */
+  onVerifyPress?: () => void;
 }) {
   return (
     <Pressable
@@ -346,6 +354,16 @@ function ContactRow({
             Verificado
           </Text>
         </View>
+      ) : onVerifyPress ? (
+        <Pressable
+          testID={`${testID}-verify`}
+          onPress={onVerifyPress}
+          className="rounded-full border border-border px-2.5 py-1"
+        >
+          <Text className="font-sans-semibold text-[10px] uppercase tracking-wide text-fg-2">
+            Verificar
+          </Text>
+        </Pressable>
       ) : null}
       <ChevronRight size={18} strokeWidth={1.8} color={chevronColor} />
     </Pressable>

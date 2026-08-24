@@ -102,7 +102,8 @@ export function useVerifyPhoneChange() {
   });
 }
 
-/** Paso 1 del cambio de email — el OTP viaja al teléfono actual, no al email nuevo. */
+/** Paso 1 del cambio de email — el OTP viaja al email nuevo (MOVO-139), no toca la
+ * cache: todavía no cambió nada. */
 export function useRequestEmailChange() {
   return useMutation<OtpRequestResponse, unknown, string>({
     mutationFn: (email) => usersClient.requestEmailChange(email),
@@ -114,6 +115,24 @@ export function useVerifyEmailChange() {
   const onProfileUpdated = useProfileMutationSuccess();
   return useMutation<PrivateProfile, unknown, OtpVerifyInput>({
     mutationFn: (body) => usersClient.verifyEmailChange(body),
+    onSuccess: onProfileUpdated,
+  });
+}
+
+/** Paso 1 de verificar el email ACTUAL (MOVO-139) — CTA de la pantalla de perfil
+ * para cuentas sin verificar. No toca la cache: todavía no cambió nada. */
+export function useRequestEmailVerification() {
+  return useMutation<OtpRequestResponse, unknown, void>({
+    mutationFn: () => usersClient.requestEmailVerification(),
+  });
+}
+
+/** Paso 2 de verificar el email actual: solo marca `emailVerified`, el email en sí
+ * no cambia. */
+export function useVerifyEmailVerification() {
+  const onProfileUpdated = useProfileMutationSuccess();
+  return useMutation<PrivateProfile, unknown, OtpVerifyInput>({
+    mutationFn: (body) => usersClient.verifyEmailVerification(body),
     onSuccess: onProfileUpdated,
   });
 }

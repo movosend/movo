@@ -514,12 +514,12 @@ Ajustes pedidos durante la implementación (feedback del usuario, ya aplicados):
   `Alert.alert` de descarte y el listener de `beforeRemove` que lo cubría. AC a actualizar
   en Linear.
 - **Insignia de verificado en lugar del texto "Verificar para cambiar"**: chip lime
-  `Verificado` **solo en la fila del teléfono**. El email no lleva ninguno a propósito —
-  no existe concepto de verificación de email en todo el sistema (sin columna
-  `email_verified` ni `EmailProvider`; por eso el OTP del cambio de email va al teléfono),
-  así que un chip verde ahí sería falso y uno gris de "sin verificar" sería un pendiente
-  que el usuario no puede resolver. Obligó a exponer `phoneVerified` en `PrivateProfile`,
-  mismo movimiento que el DNI.
+  `Verificado`, originalmente **solo en la fila del teléfono** — en el momento de esta
+  US no existía ningún concepto de verificación de email en el sistema (sin columna
+  `email_verified` ni `EmailProvider`; por eso el OTP del cambio de email iba al
+  teléfono), así que un chip verde ahí habría sido falso. Cerrado por MOVO-139, ver
+  abajo. Obligó a exponer `phoneVerified` en `PrivateProfile`, mismo movimiento que el
+  DNI.
 
 Tests: `edit-profile-screen.test.tsx`, `change-phone-screen.test.tsx`,
 `change-email-screen.test.tsx`, `otp-input.test.tsx`, `use-otp-cooldown.test.ts`,
@@ -532,6 +532,37 @@ Gotcha del entorno de tests (no de la implementación): `render`/`renderHook` de
 `await act(async () => ...)` deja trabajo de React pendiente que rompe el render del test
 **siguiente**, no el propio: un test que pasa aislado y falla en la suite completa es casi
 siempre eso.
+
+**Cierre del email (MOVO-139, backend ya en `develop`): insignia y CTA de verificar
+email.** Con `EmailProvider`/`emailVerified` ya reales (ver `services/
+movo-svc-users/CLAUDE.md` y `shared/movo-shared/CLAUDE.md`), la fila de email en
+`edit.tsx` deja de estar coja: muestra el mismo chip lime `Verificado` que el teléfono
+cuando `profile.emailVerified` es `true`, y un chip outline `Verificar` cuando no —
+para las cuentas creadas antes de este ticket, que quedaron todas en `false` por
+backfill natural.
+
+- **`onVerifyPress` en `ContactRow`, no otro componente**: el chip `Verificar` vive
+  adentro de la misma fila que ya navega a `change-email` al tocarla — nested
+  `Pressable`s (RN resuelve el touch al componente más específico, sin bubbling tipo
+  DOM) evita que tocar el chip también dispare la navegación a cambiar email.
+- **`app/(app)/profile/verify-email.tsx` nueva, hermana de `change-email.tsx` pero
+  sin paso de input**: el target del OTP es el email que la cuenta ya tiene (AC1/AC2
+  de MOVO-139 del lado backend), así que el paso 1 es directo "Enviar código" en vez
+  de pedir una dirección — dos etapas (`"intro" | "otp"`) en vez de tres. Reusa
+  `OtpStep`/`useOtpCooldown`/`otpRef` con el mismo criterio que `change-phone.tsx`/
+  `change-email.tsx` (422 vencido vuelve al paso 1, 401 se reintenta en el mismo paso).
+- **`change-email.tsx` corregido para MOVO-139**: el OTP del cambio de email ahora
+  va al email **nuevo** (ya no al teléfono actual) — se sacó el aviso `change-email-
+  sms-notice` y el copy de ambos pasos pasó a nombrar la dirección nueva, no el
+  teléfono.
+- **`useRequestEmailVerification`/`useVerifyEmailVerification` nuevos** en
+  `use-profile.ts`, mismo criterio que sus pares de teléfono/cambio de email (`setQueryData`
+  con el `PrivateProfile` completo que devuelve el backend, no `invalidateQueries`).
+
+Tests nuevos: `verify-email-screen.test.tsx`; casos agregados a
+`edit-profile-screen.test.tsx` (insignia/CTA de email en ambos estados, tocar el CTA
+navega a `verify-email` sin disparar `change-email`), `change-email-screen.test.tsx`
+(copy actualizado al email nuevo) y `users-client.test.ts`.
 
 ### MOVO-136 — Pantalla "Cuenta y seguridad": cambio de contraseña y baja de cuenta
 
