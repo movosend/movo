@@ -11,6 +11,7 @@ import errorHandlerPlugin from "./plugins/error-handler";
 import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-sweep";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
+import ratingsRoutes, { internalRatingsRoutes, RatingsRoutesOptions } from "./modules/ratings/ratings.routes";
 import accountDeletionRoutes from "./modules/account-deletion/account-deletion.routes";
 import { UsersClient } from "./adapters/users-client";
 import { StorageProvider } from "./adapters/storage-provider";
@@ -110,10 +111,23 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   };
   app.register(shipmentsRoutes, shipmentsRouteOpts);
 
+  // MOVO-146: montado con el mismo prefix "/shipments" que shipmentsRoutes -- rutas
+  // "/shipments/:id/ratings"/"/shipments/:id/ratings/:rateeId", dominio propio (tabla
+  // ratings) por eso vive en su propio módulo.
+  const ratingsRouteOpts: RatingsRoutesOptions = {
+    prefix: "/shipments",
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+  };
+  app.register(ratingsRoutes, ratingsRouteOpts);
+
   // MOVO-134: consultado por movo-svc-users antes de aplicar una baja de cuenta.
   // Interno -- no se declara en gateway/src/config/routes-map.ts (mismo criterio que
   // /internal/notifications de movo-svc-users, MOVO-106).
   app.register(accountDeletionRoutes, { prefix: "/internal/account-deletion" });
+
+  // MOVO-146 AC10: consultado por movo-svc-users para el agregado/últimas
+  // calificaciones del perfil (MOVO-25). Interno, mismo criterio que accountDeletionRoutes.
+  app.register(internalRatingsRoutes, { prefix: "/internal" });
 
   return app;
 }

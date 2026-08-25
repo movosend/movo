@@ -4,6 +4,7 @@ import { ApiError, ApiErrorCode } from "@movo/shared";
 import { randomUUID } from "node:crypto";
 import { InsufficientCreationPhotosError, InvalidShipmentTransitionError } from "../domain/shipment-state-machine";
 import { ShipmentConcurrentModificationError } from "../repositories/shipment-repository";
+import { DuplicateRatingError } from "../repositories/rating-repository";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -61,6 +62,18 @@ export default fp(async (app: FastifyInstance) => {
     // de dejarlo caer al 500 genérico de abajo.
     if (error instanceof ShipmentConcurrentModificationError) {
       const apiError = new ApiError(409, "SHIPMENT_CONCURRENT_MODIFICATION", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    // MOVO-146 AC2/AC5: un POST repetido sobre el mismo par (shipmentId, raterId,
+    // rateeId) choca con el constraint único de base -- 409 con código propio en vez
+    // de un 500 genérico, mismo patrón que ShipmentConcurrentModificationError.
+    if (error instanceof DuplicateRatingError) {
+      const apiError = new ApiError(409, "SHIPMENT_RATING_ALREADY_EXISTS", error.message);
       reply.code(apiError.statusCode).send({
         ...apiError.toJSON(),
         requestId,
