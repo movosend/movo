@@ -68,17 +68,10 @@ export function getServiceRoutes(env: {
       prefix: "/shipments",
       upstream: env.SHIPMENTS_SERVICE_URL,
     },
-    // MOVO-144: POST /offers/:id/accept y /reject viven en movo-svc-shipments bajo
-    // un prefijo propio (no anidado en /shipments), mismo criterio que
-    // /kyc, /geocode, /addresses y /places con movo-svc-users.
-    {
-      prefix: "/offers",
-      upstream: env.SHIPMENTS_SERVICE_URL,
-    },
-
-    // offers (MOVO-145): prefijo propio, no anidado bajo /shipments -- mismo criterio
-    // que /addresses (MOVO-119). Protegido por defecto (no está en publicRoutes), el
-    // carrierId sale del x-user-id que ya inyecta este gateway.
+    // MOVO-144/145: POST /offers/:id/accept, /reject y GET /offers/mine viven en
+    // movo-svc-shipments bajo un prefijo propio (no anidado en /shipments), mismo
+    // criterio que /kyc, /geocode, /addresses y /places con movo-svc-users. Protegido
+    // por defecto (no está en publicRoutes).
     {
       prefix: "/offers",
       upstream: env.SHIPMENTS_SERVICE_URL,
