@@ -82,7 +82,7 @@ export function ProfileKycStatusBanner({ status, onPrimaryAction, testID }: Prof
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           onPrimaryAction();
         }}
-        className="self-start rounded-full bg-fg px-4 py-2"
+        className="self-end rounded-full bg-fg px-4 py-2"
       >
         <Text className="font-sans-semibold text-[13px] text-bg">{primaryLabel}</Text>
       </Pressable>

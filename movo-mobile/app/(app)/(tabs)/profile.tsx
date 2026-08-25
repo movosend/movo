@@ -1,4 +1,4 @@
-import { UserRole } from '@movo/shared/dist/types/user';
+import { KycStatus, UserRole } from '@movo/shared/dist/types/user';
 import { Pencil } from 'lucide-react-native';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
@@ -7,13 +7,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ProfileAvatar } from '../../../components/profile/profile-avatar';
 import { ProfileBadges } from '../../../components/profile/profile-badges';
 import { ProfileErrorState } from '../../../components/profile/profile-error-state';
-import { ProfileKycStatusBanner } from '../../../components/profile/profile-kyc-status-banner';
 import { ProfileLicenseStatusBanner } from '../../../components/profile/profile-license-status-banner';
 import { ProfileLogoutButton } from '../../../components/profile/profile-logout-button';
 import { ProfileSettingsSection } from '../../../components/profile/profile-settings-section';
 import { ProfileSkeleton } from '../../../components/profile/profile-skeleton';
 import { ProfileStatsRow } from '../../../components/profile/profile-stats-row';
-import { ProfileVerifiedBadge } from '../../../components/profile/profile-verified-badge';
 import { useAuth } from '../../../src/hooks/use-auth';
 import { useThemeColors } from '../../../src/hooks/use-theme-colors';
 import { useMyProfile } from '../../../src/hooks/use-profile';
@@ -62,9 +60,12 @@ export default function ProfileScreen() {
             <Text testID="profile-full-name" className="font-sans-semibold text-h2 text-fg">
               {displayName}
             </Text>
-            {data.badges.includes('kyc_verified') && (
-              <ProfileVerifiedBadge testID="profile-verified-badge" />
-            )}
+            <ProfileBadges
+              testID="profile-badges"
+              kycVerified={data.badges.includes('kyc_verified') || data.kycStatus === KycStatus.APPROVED}
+              licenseVerified={data.badges.includes('license_verified') || data.licenseKycStatus === KycStatus.APPROVED}
+              showLicense={data.roles.includes(UserRole.CARRIER) || data.badges.includes('license_verified')}
+            />
           </View>
           {/* AC1 de MOVO-135: la edición del perfil se alcanza en un tap desde acá,
               no desde la lista de Configuración (ahí vive "Cuenta y seguridad",
@@ -78,12 +79,6 @@ export default function ProfileScreen() {
             <Pencil size={15} color={colors.fg2} strokeWidth={1.8} />
           </Pressable>
         </View>
-
-        <ProfileKycStatusBanner
-          testID="profile-kyc-banner"
-          status={data.kycStatus}
-          onPrimaryAction={() => router.push('/kyc')}
-        />
 
         {data.roles.includes(UserRole.CARRIER) && (
           <ProfileLicenseStatusBanner
@@ -102,11 +97,6 @@ export default function ProfileScreen() {
           testID="profile-stats-row"
           transactionCounts={data.transactionCounts}
           reputationScore={data.reputationScore}
-        />
-
-        <ProfileBadges
-          testID="profile-badges"
-          badges={data.badges.filter((badge) => badge !== 'kyc_verified')}
         />
 
         <ProfileSettingsSection testID="profile-settings-section" />
