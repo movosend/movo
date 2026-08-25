@@ -48,5 +48,12 @@ export function createTwilioSmsProvider(config: TwilioSmsProviderConfig): SmsPro
         body: buildOtpMessage(code),
       });
     },
+    async sendText(toE164: string, message: string): Promise<void> {
+      await client.messages.create({
+        to: toTwilioRecipient(toE164),
+        from: config.fromNumber,
+        body: message,
+      });
+    },
   };
 }

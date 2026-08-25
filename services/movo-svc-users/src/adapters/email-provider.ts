@@ -153,6 +153,28 @@ export function buildEmailChangedNotice(newEmail: string): EmailMessage {
 }
 
 /**
+ * MOVO-140 (AC13 de recuperación de contraseña): aviso enviado a los canales
+ * verificados de la cuenta al completar un cambio de contraseña -- sin importar si el
+ * email fue el canal usado para recuperarla. Genérico (no recibe la contraseña ni
+ * ningún dato sensible), a diferencia de `buildEmailChangedNotice`, que sí muestra la
+ * dirección nueva porque el email mismo es el dato que cambió.
+ */
+export function buildPasswordChangedNotice(): EmailMessage {
+  const text =
+    "La contraseña de tu cuenta de Movo se cambió recién. " +
+    "Si no fuiste vos, escribinos cuanto antes: alguien podría tener acceso a tu cuenta.";
+  const html = wrapHtml(
+    "Cambiaste tu contraseña",
+    "Si no fuiste vos, revisá tu cuenta cuanto antes.",
+    [
+      `<p style="margin:0 0 16px;font-size:15px;line-height:22px;color:${INK_700};">La contraseña de tu cuenta de Movo se cambió recién.</p>`,
+      `<p style="margin:0;font-size:15px;line-height:22px;color:${INK_700};">Si no fuiste vos, escribinos cuanto antes: alguien podría tener acceso a tu cuenta.</p>`,
+    ].join("")
+  );
+  return { subject: "Cambiaste la contraseña de tu cuenta de Movo", text, html };
+}
+
+/**
  * `maskEmail()` no enmascara el dominio (se muestra tal cual, solo el local-part se
  * oculta) y viaja interpolado directo en el HTML del mail — hay que escaparlo antes:
  * un dominio con metacaracteres HTML no es válido en DNS/SMTP y Resend no lo

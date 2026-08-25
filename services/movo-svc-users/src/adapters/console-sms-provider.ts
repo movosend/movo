@@ -12,5 +12,8 @@ export function createConsoleSmsProvider(): SmsProvider {
     async send(toE164: string, code: string): Promise<void> {
       console.log(`[ConsoleSmsProvider] Para ${toE164}: ${buildOtpMessage(code)}`);
     },
+    async sendText(toE164: string, message: string): Promise<void> {
+      console.log(`[ConsoleSmsProvider] Para ${toE164}: ${message}`);
+    },
   };
 }
