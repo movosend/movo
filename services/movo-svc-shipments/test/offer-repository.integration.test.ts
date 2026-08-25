@@ -283,6 +283,15 @@ describe("offer-repository (Postgres)", () => {
       expect(reloadedB?.status).toBe(OfferStatus.SUPERSEDED);
       expect(reloadedC?.status).toBe(OfferStatus.SUPERSEDED);
 
+      // Hallazgo de review (PR #105): `acceptOffer()` devuelve las ofertas
+      // superadas directo de la misma transacción, sin que el caller necesite
+      // un `listByShipment` aparte.
+      expect(result.superseded).toHaveLength(2);
+      expect(result.superseded.map((s) => s.id).sort()).toEqual([offerB.id, offerC.id].sort());
+      expect(result.superseded.map((s) => s.carrierId).sort()).toEqual(
+        [offerB.carrierId, offerC.carrierId].sort()
+      );
+
       const shipment = await shipmentRepo.findById(shipmentId);
       expect(shipment?.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
       expect(shipment?.carrierId).toBe(offerA.carrierId);

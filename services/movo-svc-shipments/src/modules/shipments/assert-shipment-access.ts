@@ -28,3 +28,27 @@ export function assertIsReceiver(shipment: Shipment, callerId: string): void {
     throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el receptor designado puede aceptar o rechazar este envío.");
   }
 }
+
+/**
+ * AC1 de MOVO-144: solo el emisor del envío o un admin pueden ver la lista de
+ * ofertas — a diferencia de `assertShipmentAccess`, el receptor NO tiene acceso acá
+ * (no participa de la negociación de ofertas).
+ */
+export function assertIsSenderOrAdmin(shipment: Shipment, callerId: string, callerRoles: UserRole[]): void {
+  const isSender = callerId === shipment.senderId;
+  const isAdmin = callerRoles.includes(UserRole.ADMIN);
+  if (!isSender && !isAdmin) {
+    throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el emisor del envío puede ver sus ofertas.");
+  }
+}
+
+/**
+ * AC6 de MOVO-144: solo el emisor del envío puede aceptar o rechazar una oferta —
+ * estrictamente, sin admin, mismo criterio que `assertIsReceiver` (acción de
+ * negocio, no lectura).
+ */
+export function assertIsSender(shipment: Shipment, callerId: string): void {
+  if (callerId !== shipment.senderId) {
+    throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el emisor del envío puede aceptar o rechazar una oferta.");
+  }
+}

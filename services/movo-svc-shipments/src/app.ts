@@ -11,7 +11,7 @@ import errorHandlerPlugin from "./plugins/error-handler";
 import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-sweep";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
-import offersRoutes from "./modules/offers/offers.routes";
+import offersRoutes, { OffersRoutesOptions } from "./modules/offers/offers.routes";
 import ratingsRoutes, { internalRatingsRoutes, RatingsRoutesOptions } from "./modules/ratings/ratings.routes";
 import accountDeletionRoutes from "./modules/account-deletion/account-deletion.routes";
 import { UsersClient } from "./adapters/users-client";
@@ -112,10 +112,13 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   };
   app.register(shipmentsRoutes, shipmentsRouteOpts);
 
-  // MOVO-145: primer endpoint HTTP de ofertas del servicio (MOVO-102 solo entregó
-  // dominio/repositorio) -- prefijo propio, no anidado bajo /shipments, mismo criterio
-  // que /addresses en el gateway.
-  app.register(offersRoutes, { prefix: "/offers" });
+  // MOVO-144/145: prefijo propio, no anidado bajo /shipments, mismo criterio que
+  // /addresses en el gateway.
+  const offersRouteOpts: OffersRoutesOptions = {
+    prefix: "/offers",
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+  };
+  app.register(offersRoutes, offersRouteOpts);
 
   // MOVO-146: montado con el mismo prefix "/shipments" que shipmentsRoutes -- rutas
   // "/shipments/:id/ratings"/"/shipments/:id/ratings/:rateeId", dominio propio (tabla

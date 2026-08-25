@@ -1,5 +1,5 @@
 // Autocontenido a propósito (no importa de otros *.schema.ts) — mismo criterio que
-// shipments.schema.ts / movo-svc-users: cada schema no comparte definiciones entre sí.
+// shipments.schema.ts: cada schema no comparte definiciones entre sí.
 
 // Alineado 1:1 con OfferStatus de @movo/shared (MOVO-102) — agregar un valor nuevo
 // ahí obliga a actualizar esta lista también.
@@ -18,6 +18,42 @@ const offerShipmentContextResponse = {
 };
 
 const offerResponse = {
+  type: "object",
+  required: [
+    "id",
+    "shipmentId",
+    "carrierId",
+    "priceOffered",
+    "offeredDate",
+    "message",
+    "carrierRatingAtOffer",
+    "carrierNameAtOffer",
+    "status",
+    "expiresAt",
+    "createdAt",
+    "respondedAt",
+  ],
+  properties: {
+    id: { type: "string" },
+    shipmentId: { type: "string" },
+    carrierId: { type: "string" },
+    priceOffered: { type: "number" },
+    offeredDate: { type: "string", format: "date-time" },
+    message: { type: ["string", "null"] },
+    carrierRatingAtOffer: { type: ["number", "null"] },
+    carrierNameAtOffer: { type: ["string", "null"] },
+    status: { type: "string" },
+    expiresAt: { type: ["string", "null"], format: "date-time" },
+    createdAt: { type: "string", format: "date-time" },
+    respondedAt: { type: ["string", "null"], format: "date-time" },
+  },
+};
+
+// MOVO-145 (GET /offers/mine): a diferencia de `offerResponse` (accept/reject, sin
+// contexto de envío), acá `offeredDate` sale ya formateado como date-only (mismo gotcha
+// de timezone que `offerShipmentContextResponse.pickupDate`) y suma el contexto mínimo
+// del envío resuelto en la misma query (AC4/AC5).
+const myOfferResponse = {
   type: "object",
   required: [
     "id",
@@ -70,10 +106,18 @@ export const offersSchemas = {
     type: "object",
     required: ["items", "page", "limit", "total"],
     properties: {
-      items: { type: "array", items: offerResponse },
+      items: { type: "array", items: myOfferResponse },
       page: { type: "integer" },
       limit: { type: "integer" },
       total: { type: "integer" },
+    },
+  },
+
+  offerIdParam: {
+    type: "object",
+    required: ["id"],
+    properties: {
+      id: { type: "string", format: "uuid" },
     },
   },
 
