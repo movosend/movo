@@ -516,6 +516,65 @@ de `svc-users` (MOVO-134): si el `unlink` fallara, expira solo por TTL.
 `profile-photos/*` (bucket entero, sin condición de prefijo). No hacía falta ningún
 `terraform apply` ni cambio manual de IAM para este ticket.
 
+### MOVO-144 — GET /shipments/:id/offers y aceptación/rechazo de oferta por el emisor (`svc-shipments`)
+
+Capa HTTP sobre el dominio que ya había entregado MOVO-102 (`offer-repository.ts`,
+sin conectar a HTTP hasta ahora): `GET /shipments/:id/offers` (en
+`shipments.routes.ts`/`.service.ts`) y el módulo nuevo `src/modules/offers/`
+(`POST /offers/:id/accept`, `POST /offers/:id/reject`). Es el endpoint que cierra el
+eslabón "el emisor elige un transportista" (MOVO-17) — acepta deja el envío en
+`assignment_pending` **con** `carrierId`, nunca en `assigned` (esa transición la cierra
+el hold de fondos de MOVO-12, fuera de este ticket).
+
+Decisiones clave:
+- **Autorización asimétrica entre lectura y escritura**: el listado usa
+  `assertIsSenderOrAdmin` (emisor+admin, el receptor no participa de la negociación de
+  ofertas — 403), mientras que accept/reject usan `assertIsSender`, estricto y sin
+  admin (mismo criterio que `assertIsReceiver` de MOVO-129: acción de negocio, no
+  lectura). Ambos helpers nuevos en `assert-shipment-access.ts`, junto a los que ya
+  existían.
+- **`listShipmentOffers` vive en `shipments.service.ts`, no en el módulo `offers`**:
+  la ruta cuelga de `/shipments/:id/offers` (mismo prefijo que el resto de las rutas
+  de lectura de un envío — `/:id/events`, `/:id/photos`), así que reusa el
+  `offerRepository` que `shipments.service.ts` ya recibía opcionalmente desde MOVO-108
+  (antes solo para `cancelShipment`). Sort local en memoria (`price` asc default,
+  `rating` desc con nulls siempre al final, `createdAt` asc) — con los snapshots ya
+  guardados por MOVO-102 no hace falta ORDER BY en SQL ni llamar a `svc-users`.
+- **4 códigos de error nuevos en `@movo/shared`** (`OFFER_NOT_FOUND`,
+  `SHIPMENT_NOT_AVAILABLE_FOR_ASSIGNMENT`, `OFFER_CONCURRENT_MODIFICATION`,
+  `OFFER_INVALID_TRANSITION`) para traducir a HTTP los errores de dominio de
+  `offer-repository.ts`/`offer-state-machine.ts` que MOVO-102 ya lanzaba pero que
+  nunca habían llegado a `error-handler.ts` por no existir todavía la capa HTTP.
+- **`offers.routes.ts` bajo prefijo `/offers` propio, no anidado en `/shipments`**
+  (`POST /offers/:id/accept` y `/reject`, no `POST /shipments/:id/offers/:offerId/...`)
+  — sigue el shape del contrato tal como lo pide el AC del ticket. Requirió agregar una
+  entrada nueva a `gateway/src/config/routes-map.ts#getServiceRoutes()` (mismo
+  `SHIPMENTS_SERVICE_URL`, mismo criterio que `/kyc`/`/geocode`/`/addresses`/`/places`
+  con `svc-users`): el gateway rutea por prefijo explícito, sin catch-all, así que sin
+  esa entrada `/api/v1/offers/*` no se proxea.
+- **Notificaciones (AC9) sin extender `notifications-client.ts`**: ya es genérico
+  (`sendPush({ userId, title, body, data })` desde MOVO-108/129) — `offers.service.ts`
+  solo arma tres payloads nuevos (`offer_accepted` al ganador, `offer_superseded` a
+  cada oferta desplazada por el mismo `acceptOffer()`, `offer_rejected` al rechazado),
+  todos fire-and-forget con try/catch, mismo patrón que
+  `dispatchReceiverDecisionPush`.
+- **AC10 (`carrierId` en `GET /shipments/:id`) ya estaba resuelto desde MOVO-80/102**:
+  la columna y el mapeo (`shipment-repository.ts`/`shipments.schema.ts`) ya existían,
+  sin necesidad de tocarlos.
+
+Tests: `test/offers-accept-reject.integration.test.ts` (nuevo, 13 casos: aceptación
+feliz con verificación de `assignment_pending`+`carrierId`+ofertas `superseded`,
+oferta vencida → 409 `OFFER_INVALID_TRANSITION`, doble aceptación concurrente
+(`Promise.allSettled`) → una gana y la otra 409, rechazo puntual con el envío
+persistiendo `published`, reoferta tras rechazo, autorización 403/401/404) y
+`test/shipments-offers-list.integration.test.ts` (nuevo, 9 casos: autorización,
+sort por precio/rating con nulls al final, filtro vigentes vs `includeResolved`).
+Suite completa del servicio 268/268, `tsc --noEmit` y `eslint` limpios. Confirmado
+además que el Swagger generado (`app.swagger()`) expone los 3 paths nuevos.
+
+Pendiente / fuera de alcance: negociación encadenada y cualquier UI de mobile
+(MOVO-150, bloqueado por este ticket).
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

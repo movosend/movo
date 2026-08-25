@@ -27,6 +27,15 @@ esto, un JWT stateless (ADR-004) seguía siendo válido hasta sus 60 minutos de 
 aunque la sesión ya estuviera revocada del lado de `svc-users`. Ver detalle completo
 en `services/movo-svc-users/CLAUDE.md` (MOVO-134, fixes de review).
 
+### MOVO-144 — Proxy de `/offers` (`svc-shipments`)
+
+Se sumó la entrada `/offers` a `config/routes-map.ts#getServiceRoutes()` (mismo
+`SHIPMENTS_SERVICE_URL` que `/shipments`, protegido por defecto sin tocar
+`getPublicRoutes()`) para proxear `POST /offers/:id/accept` y `POST /offers/:id/reject`
+de `svc-shipments` — viven bajo un prefijo propio, no anidados en `/shipments`. Mismo
+criterio que MOVO-119 de abajo. Detalle completo de la US en
+`services/movo-svc-shipments/CLAUDE.md`.
+
 ### MOVO-119 — Proxy de `/addresses` (`svc-users`)
 
 Se sumó la entrada `/addresses` a `config/routes-map.ts#getServiceRoutes()` (protegido

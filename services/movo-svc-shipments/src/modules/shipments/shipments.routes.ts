@@ -12,6 +12,8 @@ import { createPricingClient, PricingClient } from "../../adapters/pricing-clien
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
 import { Shipment, ShipmentEvent } from "../../models/shipment";
+import { Offer } from "../../models/offer";
+import { ListShipmentOffersQuery, ListShipmentOffersSort } from "./shipments.service";
 
 export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -56,6 +58,16 @@ function toShipmentDto(shipment: Shipment) {
     receiverConfirmationDeadline: shipment.receiverConfirmationDeadline
       ? shipment.receiverConfirmationDeadline.toISOString()
       : null,
+  };
+}
+
+function toOfferDto(offer: Offer) {
+  return {
+    ...offer,
+    offeredDate: offer.offeredDate.toISOString(),
+    expiresAt: offer.expiresAt ? offer.expiresAt.toISOString() : null,
+    createdAt: offer.createdAt.toISOString(),
+    respondedAt: offer.respondedAt ? offer.respondedAt.toISOString() : null,
   };
 }
 
@@ -325,6 +337,43 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const { id } = request.params as { id: string };
       const events = await service.getShipmentEvents(id, callerId, callerRoles);
       return events.map(toShipmentEventDto);
+    }
+  );
+
+  app.get(
+    "/:id/offers",
+    {
+      schema: {
+        summary: "Ofertas de un envío",
+        description:
+          "AC1-AC5 de MOVO-144: lista las ofertas de un envío para que el emisor elija " +
+          "un transportista. Solo el emisor o un admin -- el receptor y los transportistas " +
+          "reciben 403. Por defecto solo devuelve ofertas vigentes (pending no vencidas); " +
+          "?includeResolved=true suma el historial de ofertas terminales. Orden por precio " +
+          "ascendente por defecto (?sort=price|rating|createdAt).",
+        tags: ["shipments", "offers"],
+        params: shipmentsSchemas.shipmentIdParam,
+        querystring: shipmentsSchemas.listShipmentOffersQuery,
+        response: {
+          200: shipmentsSchemas.listShipmentOffersResponse,
+          400: shipmentsSchemas.errorResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const callerRoles = getUserRolesFromHeader(request);
+      const { id } = request.params as { id: string };
+      const { sort, includeResolved } = request.query as {
+        sort?: ListShipmentOffersSort;
+        includeResolved?: boolean;
+      };
+      const query: ListShipmentOffersQuery = { sort, includeResolved };
+      const offers = await service.listShipmentOffers(id, callerId, callerRoles, query);
+      return offers.map(toOfferDto);
     }
   );
 

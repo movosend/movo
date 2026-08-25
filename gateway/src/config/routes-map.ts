@@ -68,6 +68,13 @@ export function getServiceRoutes(env: {
       prefix: "/shipments",
       upstream: env.SHIPMENTS_SERVICE_URL,
     },
+    // MOVO-144: POST /offers/:id/accept y /reject viven en movo-svc-shipments bajo
+    // un prefijo propio (no anidado en /shipments), mismo criterio que
+    // /kyc, /geocode, /addresses y /places con movo-svc-users.
+    {
+      prefix: "/offers",
+      upstream: env.SHIPMENTS_SERVICE_URL,
+    },
 
     // payments service (fuera de alcance este sprint, ver MOVO-68: solo
     // svc-users y svc-shipments están vivos. Descomentar cuando el servicio

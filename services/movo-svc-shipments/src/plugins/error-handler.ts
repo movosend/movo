@@ -4,6 +4,12 @@ import { ApiError, ApiErrorCode } from "@movo/shared";
 import { randomUUID } from "node:crypto";
 import { InsufficientCreationPhotosError, InvalidShipmentTransitionError } from "../domain/shipment-state-machine";
 import { ShipmentConcurrentModificationError } from "../repositories/shipment-repository";
+import { InvalidOfferTransitionError } from "../domain/offer-state-machine";
+import {
+  OfferNotFoundError,
+  ShipmentNotAvailableForAssignmentError,
+  OfferConcurrentModificationError,
+} from "../repositories/offer-repository";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -61,6 +67,49 @@ export default fp(async (app: FastifyInstance) => {
     // de dejarlo caer al 500 genérico de abajo.
     if (error instanceof ShipmentConcurrentModificationError) {
       const apiError = new ApiError(409, "SHIPMENT_CONCURRENT_MODIFICATION", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    // MOVO-144: la oferta referenciada por :id no existe.
+    if (error instanceof OfferNotFoundError) {
+      const apiError = new ApiError(404, "OFFER_NOT_FOUND", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    // MOVO-144: acceptOffer() perdió el compare-and-swap sobre shipment.status —
+    // otra oferta ya fue aceptada o el envío cambió de estado por otra vía (AC9).
+    if (error instanceof ShipmentNotAvailableForAssignmentError) {
+      const apiError = new ApiError(409, "SHIPMENT_NOT_AVAILABLE_FOR_ASSIGNMENT", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    // MOVO-144: compare-and-swap perdido sobre la oferta misma (accept/reject
+    // concurrente con otro accept/reject/withdraw sobre la misma fila).
+    if (error instanceof OfferConcurrentModificationError) {
+      const apiError = new ApiError(409, "OFFER_CONCURRENT_MODIFICATION", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    // MOVO-144: transición de oferta inválida (ej. aceptar/rechazar una oferta ya
+    // vencida o ya resuelta).
+    if (error instanceof InvalidOfferTransitionError) {
+      const apiError = new ApiError(409, "OFFER_INVALID_TRANSITION", error.message);
       reply.code(apiError.statusCode).send({
         ...apiError.toJSON(),
         requestId,
