@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -566,6 +567,16 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
     setAccessToken(null);
     setErrorBanner(null);
   }, []);
+
+  const authStatus = useAuthStore((s) => s.status);
+  const prevAuthStatusRef = useRef(authStatus);
+
+  useEffect(() => {
+    if (prevAuthStatusRef.current === "authenticated" && authStatus === "unauthenticated") {
+      void resetRegistration();
+    }
+    prevAuthStatusRef.current = authStatus;
+  }, [authStatus, resetRegistration]);
 
   const value = useMemo<RegistrationContextValue>(
     () => ({

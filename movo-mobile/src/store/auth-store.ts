@@ -67,6 +67,9 @@ async function clearPersistedSession(): Promise<void> {
     secureStore.deleteItem(SECURE_STORE_KEYS.sessionRefreshToken),
     secureStore.deleteItem(SECURE_STORE_KEYS.sessionUser),
     secureStore.deleteItem(SECURE_STORE_KEYS.sessionExpiresAt),
+    secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationUserId),
+    secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationAccessToken),
+    secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationRefreshToken),
   ]);
 }
 
