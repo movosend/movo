@@ -5,6 +5,7 @@ import {
   formatPickupWindowLabel,
   formatReceiverConfirmationDeadline,
   formatShipmentPrice,
+  formatTimeHHMM,
   receiverConfirmationStatus,
   remainingLifecycleSteps,
   shipmentActorLabel,
@@ -26,6 +27,15 @@ describe("shipmentStatusLabel", () => {
     expect(shipmentStatusLabel(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("Rechazado");
     expect(shipmentStatusLabel(ShipmentStatus.ASSIGNMENT_PENDING)).toBe("Sin asignar");
     expect(shipmentStatusLabel(ShipmentStatus.ASSIGNED)).toBe("Asignado");
+  });
+
+  it("distingue el rol en awaiting_receiver_confirmation si se especifica isReceiver (MOVO-132)", () => {
+    expect(
+      shipmentStatusLabel(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, { isReceiver: true }),
+    ).toBe("Requiere tu confirmación");
+    expect(
+      shipmentStatusLabel(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, { isReceiver: false }),
+    ).toBe("Esperando al receptor");
   });
 });
 
@@ -70,9 +80,14 @@ describe("receiverConfirmationStatus", () => {
     expect(receiverConfirmationStatus(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("rejected");
   });
 
-  it("mapea cualquier estado posterior a confirmed", () => {
+  it("mapea estados posteriores de progreso a confirmed", () => {
     expect(receiverConfirmationStatus(ShipmentStatus.PUBLISHED)).toBe("confirmed");
     expect(receiverConfirmationStatus(ShipmentStatus.DELIVERED)).toBe("confirmed");
+  });
+
+  it("devuelve undefined para estados cancelados o en disputa (evita mostrar 'aceptado' si se canceló)", () => {
+    expect(receiverConfirmationStatus(ShipmentStatus.CANCELLED)).toBeUndefined();
+    expect(receiverConfirmationStatus(ShipmentStatus.DISPUTED)).toBeUndefined();
   });
 });
 
@@ -117,9 +132,24 @@ describe("shortAddressLabel", () => {
   });
 });
 
+describe("formatTimeHHMM", () => {
+  it("recorta los segundos si vienen en formato HH:MM:SS", () => {
+    expect(formatTimeHHMM("09:00:00")).toBe("09:00");
+    expect(formatTimeHHMM("18:30:45")).toBe("18:30");
+  });
+
+  it("mantiene el formato si ya viene como HH:MM", () => {
+    expect(formatTimeHHMM("09:00")).toBe("09:00");
+  });
+});
+
 describe("formatPickupWindowLabel", () => {
   it("arma el rango horario legible", () => {
     expect(formatPickupWindowLabel("09:00", "12:00")).toBe("09:00 a 12:00");
+  });
+
+  it("normaliza horas con segundos a HH:MM", () => {
+    expect(formatPickupWindowLabel("09:00:00", "12:00:00")).toBe("09:00 a 12:00");
   });
 });
 
@@ -141,6 +171,19 @@ describe("shipmentEventTitle", () => {
     expect(shipmentEventTitle(ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe(
       "El receptor rechazó el envío",
     );
+  });
+
+  it("personaliza con el nombre del receptor cuando está disponible", () => {
+    expect(
+      shipmentEventTitle(ShipmentStatus.PUBLISHED, ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, {
+        receiverName: "Lucas",
+      }),
+    ).toBe("Lucas aceptó el envío");
+    expect(
+      shipmentEventTitle(ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, {
+        receiverName: "Lucas",
+      }),
+    ).toBe("Lucas rechazó el envío");
   });
 });
 
@@ -179,6 +222,10 @@ describe("shipmentActorLabel", () => {
     expect(shipmentActorLabel("carrier-1", parties, "otro")).toBe("El transportista");
   });
 
+  it("muestra el nombre del receptor si está disponible", () => {
+    expect(shipmentActorLabel("receiver-1", parties, "otro", { receiverName: "Lucas" })).toBe("Lucas");
+  });
+
   it("no muestra actor en una transición sin persona detrás", () => {
     expect(shipmentActorLabel(null, parties, "sender-1")).toBeNull();
   });
@@ -214,6 +261,28 @@ describe("shipmentPendingStepLabel", () => {
     expect(shipmentPendingStepLabel(ShipmentStatus.PUBLISHED)).toBe("Aceptación del receptor");
     expect(shipmentPendingStepLabel(ShipmentStatus.IN_TRANSIT)).toBe("Retiro del paquete");
     expect(shipmentPendingStepLabel(ShipmentStatus.DELIVERED)).toBe("Entrega al receptor");
+  });
+
+  it("personaliza los pasos futuros con el nombre del receptor o en segunda persona para el receptor", () => {
+    expect(shipmentPendingStepLabel(ShipmentStatus.PUBLISHED, { receiverName: "Lucas" })).toBe("Aceptación de Lucas");
+    expect(shipmentPendingStepLabel(ShipmentStatus.DELIVERED, { receiverName: "Lucas" })).toBe("Entrega a Lucas");
+    expect(shipmentPendingStepLabel(ShipmentStatus.PUBLISHED, { isReceiver: true })).toBe("Tu confirmación");
+    expect(shipmentPendingStepLabel(ShipmentStatus.DELIVERED, { isReceiver: true })).toBe("Entrega del paquete");
+  });
+});
+
+describe("formatPickupWindowLabel", () => {
+  it("formatea el rango eliminando segundos", () => {
+    expect(formatPickupWindowLabel("09:00:00", "12:00:00")).toBe("09:00 a 12:00");
+  });
+
+  it("devuelve string vacío si ambos extremos están vacíos", () => {
+    expect(formatPickupWindowLabel("", "")).toBe("");
+  });
+
+  it("usa placeholder guión si falta solo un extremo", () => {
+    expect(formatPickupWindowLabel("09:00", "")).toBe("09:00 a —");
+    expect(formatPickupWindowLabel("", "12:00")).toBe("— a 12:00");
   });
 });
 

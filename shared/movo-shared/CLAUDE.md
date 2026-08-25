@@ -24,6 +24,26 @@ interno del backend. El backend (`services/movo-svc-users/src/models/address.ts`
 se migró a importar este tipo — fuera de alcance de MOVO-121 (mobile-only), su modelo
 local ya coincide estructuralmente.
 
+### MOVO-135 — `dni` y `phoneVerified` incorporados a `PrivateProfile`
+
+`src/types/user-profile.ts`. El campo estaba excluido a propósito desde MOVO-77
+(review de PR #55) junto con `phoneVerified`/`birthdate`, con la razón anotada en el
+propio comentario del tipo: quedaba afuera *"hasta confirmar con quien implemente
+MOVO-31 (editar datos personales) si hacen falta"*. MOVO-135 es esa confirmación — la
+pantalla de editar perfil lo muestra como dato de solo lectura junto al nombre.
+
+- Tipado como **`string | null`**, no `string`: `User.dni` es opcional en el schema de
+  Prisma, así que las cuentas creadas antes de que el registro lo pidiera no lo tienen.
+- Sigue **sin ser editable por ninguna vía**: `patchProfileBody` de `svc-users` solo
+  acepta `firstName`/`lastName`, y mandar `dni` es 400. Con KYC aprobado quedó validado
+  contra el documento por Didit; sin KYC todavía no hay flujo que permita corregirlo.
+- `phoneVerified` y `birthdate` siguen afuera — esta US no los necesitó.
+- **`phoneVerified` entró en el mismo movimiento**, por la insignia de verificado de la
+  fila del teléfono. Ojo con el nombre: habla **solo del teléfono**. No existe
+  `emailVerified` ni columna equivalente en la DB — el sistema no tiene forma de verificar
+  un email (sin `EmailProvider`, ver MOVO-133), y por eso el OTP del cambio de email viaja
+  al teléfono. No construir una insignia de "email verificado" sobre este campo.
+
 ### MOVO-139 — `PrivateProfile.emailVerified`
 
 Campo nuevo en el wire contract de `GET /users/me` (`src/types/user-profile.ts`): el

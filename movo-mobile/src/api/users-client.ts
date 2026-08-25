@@ -25,6 +25,33 @@ export interface ConfirmPhotoResponse {
   photoUrl: string;
 }
 
+/** Body de `PATCH /users/me` (MOVO-133). El backend rechaza con 400 cualquier clave
+ * fuera de estas dos, y también un body vacío (`minProperties: 1`). */
+export interface UpdateProfileInput {
+  firstName?: string;
+  lastName?: string;
+}
+
+/**
+ * Respuesta del paso 1 de los cambios verificados de teléfono/email (MOVO-133), y
+ * también de la verificación del email actual (MOVO-139) — mismo shape, mismo motor
+ * de OTP.
+ *
+ * `sent: false` significa que el backend reusó un OTP todavía activo dentro de su
+ * cooldown en vez de mandar un código nuevo — la UI no debe prometer "te acabamos de
+ * enviar un código" en ese caso.
+ */
+export interface OtpRequestResponse {
+  otpId: string;
+  cooldownSeconds: number;
+  sent: boolean;
+}
+
+export interface OtpVerifyInput {
+  otpId: string;
+  code: string;
+}
+
 export interface ChangePasswordInput {
   currentPassword: string;
   newPassword: string;
@@ -72,6 +99,79 @@ export const usersClient = {
   /** Borra la foto de perfil propia (S3 + DB) de forma idempotente. */
   deletePhoto(): Promise<void> {
     return httpClient.delete<void>("/users/me/photo");
+  },
+
+  /**
+   * Actualización parcial de nombre/apellido (`PATCH /users/me`, MOVO-133).
+   * Devuelve el `PrivateProfile` completo, no una proyección — por eso los hooks
+   * pueden sembrar la cache con la respuesta en vez de refetchear.
+   *
+   * `409 PROFILE_NAME_LOCKED_BY_KYC` si el KYC de identidad ya está aprobado: el
+   * nombre quedó validado contra el documento por Didit y deja de ser editable. La
+   * UI deshabilita los campos antes de llegar a ese error (AC3 de MOVO-135), así que
+   * el 409 es la red de seguridad, no el camino esperado. Reenviar el mismo nombre
+   * NO cuenta como cambio y no dispara el 409.
+   */
+  updateProfile(body: UpdateProfileInput): Promise<PrivateProfile> {
+    return httpClient.patch<PrivateProfile>("/users/me", body);
+  },
+
+  /**
+   * Paso 1 del cambio de teléfono: manda un OTP al número NUEVO (prueba de posesión).
+   * `409 PHONE_ALREADY_IN_USE` si es de otra cuenta, `400` si es el que ya tiene.
+   *
+   * Protegida por JWT, a diferencia de `POST /auth/send-otp` (pública) que usa el
+   * registro. El reenvío, en cambio, sí reusa `authClient.resendOtp(otpId)`.
+   */
+  requestPhoneChange(phone: string): Promise<OtpRequestResponse> {
+    return httpClient.post<OtpRequestResponse>("/users/me/phone/change/otp", { phone });
+  },
+
+  /**
+   * Paso 2 del cambio de teléfono. Como el target del OTP ES el teléfono nuevo,
+   * verificarlo prueba la posesión y persiste `phone` + `phoneVerified` en el mismo
+   * UPDATE. `401 AUTH_OTP_INVALID` (código malo o reusado), `422 AUTH_OTP_EXPIRED`
+   * (vencido o demasiados intentos), `409 PHONE_ALREADY_IN_USE` si la colisión
+   * aparece recién acá (carrera entre los dos pasos).
+   */
+  verifyPhoneChange(body: OtpVerifyInput): Promise<PrivateProfile> {
+    return httpClient.post<PrivateProfile>("/users/me/phone/change/verify", body);
+  },
+
+  /**
+   * Paso 1 del cambio de email. **El OTP va al email NUEVO** (MOVO-139, corrige el
+   * criterio original de MOVO-133 que lo mandaba al teléfono actual por no existir
+   * ningún `EmailProvider` todavía) — es lo que prueba propiedad de la dirección
+   * nueva. `409 EMAIL_ALREADY_IN_USE` es case-insensitive, `400` si es el mismo email
+   * que ya tiene.
+   */
+  requestEmailChange(email: string): Promise<OtpRequestResponse> {
+    return httpClient.post<OtpRequestResponse>("/users/me/email/change/otp", { email });
+  },
+
+  /**
+   * Paso 2 del cambio de email. Como el target del OTP ES el email nuevo, verificarlo
+   * persiste `email` + `emailVerified` en el mismo UPDATE (MOVO-139). Dispara un
+   * aviso al email anterior (best-effort, del lado del backend). No revoca sesiones
+   * (el email no es credencial de sesión y el titular ya está autenticado).
+   */
+  verifyEmailChange(body: OtpVerifyInput): Promise<PrivateProfile> {
+    return httpClient.post<PrivateProfile>("/users/me/email/change/verify", body);
+  },
+
+  /**
+   * Verificar el email ACTUAL de la cuenta (MOVO-139, CTA de la pantalla de perfil
+   * para cuentas creadas antes de que este flujo existiera). Sin body: el target del
+   * OTP es el email que la cuenta ya tiene. `400` si ya está verificado.
+   */
+  requestEmailVerification(): Promise<OtpRequestResponse> {
+    return httpClient.post<OtpRequestResponse>("/users/me/email/verify/otp", {});
+  },
+
+  /** Paso 2 de la verificación del email actual: persiste `emailVerified: true`. No
+   * cambia el email en sí, a diferencia de `verifyEmailChange`. */
+  verifyEmailVerification(body: OtpVerifyInput): Promise<PrivateProfile> {
+    return httpClient.post<PrivateProfile>("/users/me/email/verify/confirm", body);
   },
 
   /**

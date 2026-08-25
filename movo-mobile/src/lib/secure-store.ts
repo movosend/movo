@@ -55,3 +55,19 @@ export const SECURE_STORE_KEYS = {
    * reusarlo evita registrar un token nuevo por cada logout/login del mismo aparato. */
   pushDeviceId: "movo.push.deviceId",
 } as const;
+
+/**
+ * Borra las 3 keys `pendingRegistration*` juntas. Los tres callers (`auth-store.ts`,
+ * `use-registration.tsx#resetRegistration` y el catch del resume-effect) necesitan
+ * limpiar exactamente el mismo trío — centralizado acá para que agregar una key nueva
+ * a esta familia no dependa de actualizar los tres call sites a mano.
+ */
+export function deletePendingRegistrationKeys(
+  store: Pick<typeof secureStore, "deleteItem"> = secureStore,
+): Promise<void[]> {
+  return Promise.all([
+    store.deleteItem(SECURE_STORE_KEYS.pendingRegistrationUserId),
+    store.deleteItem(SECURE_STORE_KEYS.pendingRegistrationAccessToken),
+    store.deleteItem(SECURE_STORE_KEYS.pendingRegistrationRefreshToken),
+  ]);
+}

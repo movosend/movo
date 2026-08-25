@@ -12,19 +12,22 @@ const TONE_BADGE_CLASS: Record<"success" | "warning" | "danger" | "info" | "neut
 
 export interface ShipmentStatusBadgeProps {
   status: ShipmentStatus;
+  isReceiver?: boolean;
   testID?: string;
 }
 
 /** Extraído de `[id].tsx`/`recent-shipments-section.tsx` (duplicaban el mismo mapeo
  * tono→clase, MOVO-127) — único lugar que traduce `shipmentStatusTone` a clases de
  * NativeWind. */
-export function ShipmentStatusBadge({ status, testID }: ShipmentStatusBadgeProps) {
+export function ShipmentStatusBadge({ status, isReceiver, testID }: ShipmentStatusBadgeProps) {
   const tone = shipmentStatusTone(status);
   const [badgeBg, badgeText] = TONE_BADGE_CLASS[tone].split(" ");
 
   return (
     <View testID={testID} className={`rounded-full px-3 py-1.5 ${badgeBg}`}>
-      <Text className={`font-sans-medium text-[12px] ${badgeText}`}>{shipmentStatusLabel(status)}</Text>
+      <Text className={`font-sans-medium text-[12px] ${badgeText}`}>
+        {shipmentStatusLabel(status, { isReceiver })}
+      </Text>
     </View>
   );
 }

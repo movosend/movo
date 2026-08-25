@@ -15,6 +15,29 @@ jest.mock("../src/hooks/use-shipments", () => ({
   useRecentShipments: () => mockUseRecentShipments(),
 }));
 
+jest.mock("../src/hooks/use-profile", () => ({
+  usePublicProfile: (userId: string) => ({
+    data: {
+      id: userId,
+      fullName: userId === "user-1" ? "Pedro Emisor" : "Tomás Olmos",
+      photoUrl: null,
+      isVerified: true,
+      badges: [],
+      transactionCounts: { asSender: 0, asCarrier: 0 },
+      reputationScore: null,
+    },
+    isLoading: false,
+    isError: false,
+  }),
+}));
+
+jest.mock("../src/store/auth-store", () => ({
+  useAuthStore: (selector?: (state: { user: { userId: string } | null }) => unknown) => {
+    const state = { user: { userId: "user-1" } };
+    return typeof selector === "function" ? selector(state) : state;
+  },
+}));
+
 function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
   return {
     id: "shipment-1",
@@ -88,12 +111,19 @@ describe("RecentShipmentsSection", () => {
     expect(getByText("Todavía no hiciste ningún envío.")).toBeTruthy();
   });
 
-  it("lista los envíos recientes con su dirección de entrega y estado", async () => {
+  it("lista los envíos recientes con su destinatario/remitente y estado", async () => {
     mockUseRecentShipments.mockReturnValue({
       isLoading: false,
       isError: false,
       data: {
-        items: [shipment({ id: "s1", status: ShipmentStatus.IN_TRANSIT, agreedPriceArs: 5200 })],
+        items: [
+          shipment({
+            id: "s1",
+            status: ShipmentStatus.IN_TRANSIT,
+            senderId: "user-1",
+            receiverId: "user-2",
+          }),
+        ],
         page: 1,
         limit: 3,
         total: 1,
@@ -103,9 +133,8 @@ describe("RecentShipmentsSection", () => {
 
     const { getByText } = await render(<RecentShipmentsSection testID="section" />);
 
-    expect(getByText("Bv. San Juan 500, Córdoba")).toBeTruthy();
+    expect(getByText("Envío a Tomás")).toBeTruthy();
     expect(getByText("En camino")).toBeTruthy();
-    expect(getByText("$5.200")).toBeTruthy();
   });
 
   it("navega al detalle del envío al tocar una fila (MOVO-127)", async () => {

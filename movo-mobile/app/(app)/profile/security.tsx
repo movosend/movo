@@ -55,7 +55,7 @@ export default function AccountSecurityScreen() {
         <View className="overflow-hidden rounded-[10px] border border-border bg-bg-sub">
           <Pressable
             testID="security-change-password"
-            onPress={() => router.push("/profile/change-password")}
+            onPress={() => router.push("/profile/change-password" as any)}
             className="flex-row items-center gap-3 px-4 py-4"
           >
             <KeyRound size={18} strokeWidth={1.8} color={colors.fg3} />
@@ -75,7 +75,7 @@ export default function AccountSecurityScreen() {
         <View className="overflow-hidden rounded-[10px] border border-danger-300 bg-bg-sub">
           <Pressable
             testID="security-delete-account"
-            onPress={() => router.push("/profile/delete-account")}
+            onPress={() => router.push("/profile/delete-account" as any)}
             className="flex-row items-center gap-3 px-4 py-4"
           >
             {/* `danger-500` de tailwind.config.js: la paleta de estado es fija, no

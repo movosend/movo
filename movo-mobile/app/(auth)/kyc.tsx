@@ -186,17 +186,26 @@ export default function KycScreen() {
   const isDark = colorScheme === "dark";
   const registration = useRegistration();
   const authStatus = useAuthStore((s) => s.status);
+  const authUser = useAuthStore((s) => s.user);
   const {
-    kycStatus,
+    kycStatus: registrationKycStatus,
     loading,
     errorBanner,
     createKycSession,
     refreshKycStatus,
   } = registration;
+
+  // Si se llega desde el wizard de registro, `registration.kycStatus` tiene prioridad.
+  // Si se llega desde "Mi perfil" (usuario autenticado), `registration.kycStatus` es null
+  // y se lee el estado actual desde `authStore`.
+  const kycStatus = registrationKycStatus ?? authUser?.kycStatus ?? null;
+
   const [phase, setPhase] = useState<"intro" | "connecting" | "result">(
-    "intro",
+    () => (kycStatus && kycStatusToResultKind(kycStatus) ? "result" : "intro"),
   );
-  const [resultKind, setResultKind] = useState<ResultKind | null>(null);
+  const [resultKind, setResultKind] = useState<ResultKind | null>(
+    () => (kycStatus ? kycStatusToResultKind(kycStatus) : null),
+  );
   const [refreshing, setRefreshing] = useState(false);
   // Evita que el refresh automático de abajo se repita en cada cambio de `kycStatus`
   // durante el mismo montaje (el propio refresh cambia `kycStatus`, lo que retriggerea
@@ -207,6 +216,12 @@ export default function KycScreen() {
   // Reanudable (AC7): si venimos de un registro en curso (o de un login a una cuenta
   // existente, MOVO-76) con un kycStatus ya distinto de "not_started", saltamos
   // directo al resultado en vez de mostrar la intro de nuevo.
+  //
+  // NOTA: el estado inicial de `phase`/`resultKind` ya se deriva de `kycStatus` en el
+  // `useState` de arriba — este efecto cubre únicamente los cambios posteriores
+  // (ej: `refreshKycStatus` devuelve un estado distinto al que había al montar). Sin
+  // esta distinción, el efecto re-seteaba phase/resultKind al mismo valor en cada
+  // render y no cumplía ningún rol útil para el caso de montaje inicial.
   //
   // Caso real que motivó el auto-refresh: un usuario quedó en `manual_review`, un
   // operador lo aprobó manualmente en la consola de Didit (webhook entregado, según la

@@ -199,4 +199,115 @@ describe("usersClient", () => {
       ),
     ).rejects.toThrow(/HTTP 403/);
   });
+
+  // MOVO-135 / backend MOVO-133: edición de perfil y cambios verificados.
+  it("updateProfile hace PATCH /users/me solo con nombre y apellido", async () => {
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: { patch: jest.fn().mockResolvedValue({ id: "u-1" }) },
+    }));
+    const { usersClient } = require("../src/api/users-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    await usersClient.updateProfile({ firstName: "Ana", lastName: "Diaz" });
+
+    expect(httpClient.patch).toHaveBeenCalledWith("/users/me", {
+      firstName: "Ana",
+      lastName: "Diaz",
+    });
+  });
+
+  it("requestPhoneChange hace POST /users/me/phone/change/otp con el teléfono nuevo", async () => {
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: {
+        post: jest.fn().mockResolvedValue({ otpId: "otp-1", cooldownSeconds: 60, sent: true }),
+      },
+    }));
+    const { usersClient } = require("../src/api/users-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    const result = await usersClient.requestPhoneChange("+5493511234567");
+
+    expect(httpClient.post).toHaveBeenCalledWith("/users/me/phone/change/otp", {
+      phone: "+5493511234567",
+    });
+    expect(result.sent).toBe(true);
+  });
+
+  it("verifyPhoneChange hace POST /users/me/phone/change/verify con otpId y código", async () => {
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: { post: jest.fn().mockResolvedValue({ id: "u-1" }) },
+    }));
+    const { usersClient } = require("../src/api/users-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    await usersClient.verifyPhoneChange({ otpId: "otp-1", code: "123456" });
+
+    expect(httpClient.post).toHaveBeenCalledWith("/users/me/phone/change/verify", {
+      otpId: "otp-1",
+      code: "123456",
+    });
+  });
+
+  it("requestEmailChange hace POST /users/me/email/change/otp con el email nuevo", async () => {
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: {
+        post: jest.fn().mockResolvedValue({ otpId: "otp-2", cooldownSeconds: 60, sent: false }),
+      },
+    }));
+    const { usersClient } = require("../src/api/users-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    const result = await usersClient.requestEmailChange("nuevo@gmail.com");
+
+    expect(httpClient.post).toHaveBeenCalledWith("/users/me/email/change/otp", {
+      email: "nuevo@gmail.com",
+    });
+    // `sent:false` = se reusó un OTP activo, no se mandó un SMS nuevo.
+    expect(result.sent).toBe(false);
+  });
+
+  it("verifyEmailChange hace POST /users/me/email/change/verify", async () => {
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: { post: jest.fn().mockResolvedValue({ id: "u-1" }) },
+    }));
+    const { usersClient } = require("../src/api/users-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    await usersClient.verifyEmailChange({ otpId: "otp-2", code: "654321" });
+
+    expect(httpClient.post).toHaveBeenCalledWith("/users/me/email/change/verify", {
+      otpId: "otp-2",
+      code: "654321",
+    });
+  });
+
+  it("requestEmailVerification hace POST /users/me/email/verify/otp sin body", async () => {
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: {
+        post: jest.fn().mockResolvedValue({ otpId: "otp-3", cooldownSeconds: 60, sent: true }),
+      },
+    }));
+    const { usersClient } = require("../src/api/users-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    const result = await usersClient.requestEmailVerification();
+
+    expect(httpClient.post).toHaveBeenCalledWith("/users/me/email/verify/otp", {});
+    expect(result.otpId).toBe("otp-3");
+  });
+
+  it("verifyEmailVerification hace POST /users/me/email/verify/confirm", async () => {
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: { post: jest.fn().mockResolvedValue({ id: "u-1", emailVerified: true }) },
+    }));
+    const { usersClient } = require("../src/api/users-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    await usersClient.verifyEmailVerification({ otpId: "otp-3", code: "111222" });
+
+    expect(httpClient.post).toHaveBeenCalledWith("/users/me/email/verify/confirm", {
+      otpId: "otp-3",
+      code: "111222",
+    });
+  });
 });

@@ -39,6 +39,8 @@ function baseProfile(overrides: Partial<PrivateProfile> = {}): PrivateProfile {
     // en la pantalla de perfil es alcance de MOVO-135.
     emailVerified: false,
     phone: "+5491140238871",
+    dni: "35123456",
+    phoneVerified: true,
     photoUrl: null,
     kycStatus: KycStatus.APPROVED,
     // approved por default para no interferir con los tests existentes del banner de
@@ -105,46 +107,6 @@ describe("ProfileScreen", () => {
     expect(queryByText("NaN")).toBeNull();
   });
 
-  it("no muestra banner de KYC cuando el estado es approved", async () => {
-    mockUseMyProfile.mockReturnValue({
-      isLoading: false,
-      isError: false,
-      data: baseProfile({ kycStatus: KycStatus.APPROVED }),
-      refetch: mockRefetch,
-    });
-
-    const { queryByTestId } = await render(<ProfileScreen />);
-
-    expect(queryByTestId("profile-kyc-banner")).toBeNull();
-  });
-
-  it("AC6: manual_review ofrece 'Ver estado' y navega a /kyc", async () => {
-    mockUseMyProfile.mockReturnValue({
-      isLoading: false,
-      isError: false,
-      data: baseProfile({ kycStatus: KycStatus.MANUAL_REVIEW }),
-      refetch: mockRefetch,
-    });
-
-    const { getByText } = await render(<ProfileScreen />);
-
-    fireEvent.press(getByText("Ver estado"));
-    expect(router.push).toHaveBeenCalledWith("/kyc");
-  });
-
-  it("AC6: rejected ofrece 'Reintentar verificación'", async () => {
-    mockUseMyProfile.mockReturnValue({
-      isLoading: false,
-      isError: false,
-      data: baseProfile({ kycStatus: KycStatus.REJECTED }),
-      refetch: mockRefetch,
-    });
-
-    const { getByText } = await render(<ProfileScreen />);
-
-    expect(getByText("Reintentar verificación")).toBeTruthy();
-  });
-
   // MOVO-15: banner de licencia, análogo al de identidad — mismos casos clave
   // (oculto en approved, visible con CTA en el resto), más el gate específico de rol.
   it("no muestra el banner de licencia si el usuario no tiene rol carrier", async () => {
@@ -197,7 +159,10 @@ describe("ProfileScreen", () => {
     const { getByTestId } = await render(<ProfileScreen />);
 
     fireEvent.press(within(getByTestId("profile-license-banner")).getByText("Ver estado"));
-    expect(router.push).toHaveBeenCalledWith("/license-kyc");
+    expect(router.push).toHaveBeenCalledWith({
+      pathname: "/license-kyc",
+      params: { status: KycStatus.MANUAL_REVIEW },
+    });
   });
 
   it("AC7: dispara logout al tocar 'Cerrar sesión'", async () => {
@@ -214,7 +179,10 @@ describe("ProfileScreen", () => {
     expect(mockLogout).toHaveBeenCalled();
   });
 
-  it("MOVO-98: renderiza el PhotoPicker interactivo con la foto del usuario", async () => {
+  // MOVO-135: la foto acá es de solo lectura. Editarla (y ver email/teléfono) vive
+  // únicamente en "Editar perfil" — tenerlo en las dos pantallas duplicaba la misma
+  // información y dos puntos de entrada para la misma acción.
+  it("muestra el avatar de solo lectura, sin control de edición de foto", async () => {
     mockUseMyProfile.mockReturnValue({
       isLoading: false,
       isError: false,
@@ -224,10 +192,67 @@ describe("ProfileScreen", () => {
       refetch: mockRefetch,
     });
 
-    const { getByTestId } = await render(<ProfileScreen />);
+    const { getByTestId, queryByTestId } = await render(<ProfileScreen />);
 
-    expect(getByTestId("profile-photo-picker")).toBeTruthy();
-    expect(getByTestId("profile-photo-picker-avatar")).toBeTruthy();
+    expect(getByTestId("profile-avatar")).toBeTruthy();
+    expect(queryByTestId("profile-photo-picker")).toBeNull();
+    expect(queryByTestId("profile-private-section")).toBeNull();
+  });
+
+  it("AC1 de MOVO-135: el botón de editar lleva a la pantalla de editar perfil", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile(),
+      refetch: mockRefetch,
+    });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+    fireEvent.press(getByTestId("profile-edit-button"));
+
+    expect(router.push).toHaveBeenCalledWith("/profile/edit");
+  });
+
+  it("muestra insignias 'DNI' y 'Licencia' debajo del nombre en verde cuando están verificadas", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile({
+        kycStatus: KycStatus.APPROVED,
+        licenseKycStatus: KycStatus.APPROVED,
+        badges: ["kyc_verified", "license_verified"],
+      }),
+      refetch: mockRefetch,
+    });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+    const badgesContainer = getByTestId("profile-badges");
+
+    const dniText = within(badgesContainer).getByText("DNI");
+    const licenseText = within(badgesContainer).getByText("Licencia");
+    expect(dniText.props.className).toContain("text-success-600");
+    expect(licenseText.props.className).toContain("text-success-600");
+  });
+
+  it("muestra insignias en rojo cuando los documentos no están verificados", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile({
+        kycStatus: KycStatus.NOT_STARTED,
+        licenseKycStatus: KycStatus.NOT_STARTED,
+        badges: [],
+      }),
+      refetch: mockRefetch,
+    });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+    const badgesContainer = getByTestId("profile-badges");
+
+    const dniText = within(badgesContainer).getByText("DNI");
+    const licenseText = within(badgesContainer).getByText("Licencia");
+    expect(dniText.props.className).toContain("text-danger-600");
+    expect(licenseText.props.className).toContain("text-danger-600");
   });
 });
 

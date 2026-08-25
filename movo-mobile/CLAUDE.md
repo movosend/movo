@@ -439,12 +439,146 @@ Perspectiva del receptor sobre la pantalla de detalle de envío (`app/(app)/ship
 
 - **Detección dinámica de rol en `shipments/[id].tsx`**: compara `useAuthStore().user?.userId` con `shipment.receiverId` / `shipment.senderId`. Mirando como receptor, la sección de contraparte titula "Emisor" y muestra el perfil público de `shipment.senderId` (foto, nombre, insignia de verificado, reputación) mediante `CounterpartCard` + `usePublicProfile`, omitiendo el badge de confirmación (solo aplica cuando la contraparte es el receptor).
 - **`ReceiverActionsBar` nueva (`components/shipments/receiver-actions-bar.tsx`)**: barra de acciones fija al pie, mostrada únicamente cuando el usuario es el receptor y el envío está en `AWAITING_RECEIVER_CONFIRMATION`.
-  - **Aceptar envío**: CTA primaria con acento Signal Lime (`bg-lime-500`, texto oscuro), pide confirmación con diálogo nativo `Alert.alert` y ejecuta `POST /shipments/:id/accept`.
-  - **Rechazar**: botón secundario/destructivo que abre modal de confirmación con advertencia de irreversibilidad y campo opcional para motivo (`reason`, máx 500 caracteres, `POST /shipments/:id/reject`).
+  - **Aceptar envío**: CTA primaria con acento Signal Lime (`bg-lime-500`, texto oscuro), pide confirmación mediante un modal propio in-app (mismo diseño que el de rechazo) y ejecuta `POST /shipments/:id/accept`.
+  - **Rechazar**: botón secundario/destructivo que abre modal in-app de confirmación con advertencia de irreversibilidad y campo opcional para motivo (`reason`, máx 500 caracteres, `POST /shipments/:id/reject`).
   - **Deadline de confirmación**: calcula y muestra el tiempo restante en horas ("Te quedan 36 h para confirmar", "Te queda 1 h para confirmar") con formateo puro (`formatReceiverConfirmationDeadline` en `src/lib/shipment-format.ts`), degradando silenciosamente si no viene o ya expiró.
   - **Bloqueo de doble tap y feedback de errores**: deshabilita ambos botones con spinners durante mutación en vuelo. Mapea `ApiError.statusCode` a mensajes específicos (409 → "Este envío ya no se puede confirmar" + refetch del detalle; 403 → "No sos el destinatario de este envío"; banner genérico para el resto).
 - **Mutaciones en `use-shipments.ts`**: `useAcceptShipment` y `useRejectShipment` (`POST /shipments/:id/accept` y `/reject` en `shipments-client.ts`) invalidan queries `["shipments", "mine"]`, `["shipments", "mine", "recent"]`, `["shipments", "mine", "list"]` y `["shipments", "detail", id]` actualizando la cache para reflejar el estado sin salir de la pantalla.
 
+### MOVO-135 — Pantalla "Editar perfil" con cambio verificado de teléfono y email
+
+Frontend de MOVO-31 sobre los endpoints de MOVO-133. Ruta nueva `app/(app)/profile/edit.tsx`
+más dos sub-flujos hermanos (`change-phone.tsx`, `change-email.tsx`), con entrada desde un
+botón de lápiz en el header de la tab de perfil (no desde Configuración — ahí vive "Cuenta y
+seguridad", MOVO-136).
+
+Decisiones clave:
+- **Nada de botón Guardar: todo se persiste solo.** La foto al elegirla (`PhotoPicker` de
+  MOVO-98, reusado tal cual), y nombre/apellido **al salir del campo** (`onBlur`, no por
+  tecla — sería un PATCH por carácter). Solo sale la request si el valor cambió de verdad
+  contra el perfil cargado, así entrar y salir de un campo sin tocarlo no genera tráfico ni
+  arriesga el 409 `PROFILE_NAME_LOCKED_BY_KYC`. Si el guardado falla, el campo se revierte
+  al valor persistido: dejar en pantalla un texto que el backend rechazó haría creer que
+  quedó guardado.
+- **Teléfono y email no son inputs**: son filas navegables con chevron hacia su sub-flujo
+  de OTP. Un input que parece editable y después no guarda sería mentirle al usuario —
+  cambiarlos exige probar posesión.
+- **El paso de OTP se extrajo del wizard de registro en vez de duplicarse**:
+  `components/ui/otp-input.tsx` (6 casillas, paste de iOS, backspace, foco),
+  `src/hooks/use-otp-cooldown.ts` y `components/ui/otp-step.tsx` (la sección visual
+  completa). `app/(auth)/register.tsx` los consume — perdió ~100 líneas netas y quedó una
+  sola implementación en el repo. Los `testID` `register-otp-*` se preservaron vía
+  `testIDPrefix`, así `use-registration.test.tsx` siguió pasando sin tocarse (fue la red de
+  seguridad de la migración). De paso se corrigió el contador, que estaba hardcodeado como
+  `00:${padStart(2)}` y mostraba "00:120" con cualquier cooldown de más de 99 segundos;
+  `formatCooldown` ahora saca los minutos del valor real.
+- **`SuccessBanner` nuevo** (`components/ui/success-banner.tsx`), espejo de `ErrorBanner`:
+  el AC2 pide "confirmación visual" y el repo no tenía ningún patrón para el éxito (las
+  mutaciones se confirmaban solas cerrando la pantalla, y `Alert.alert` nunca se usó para
+  eso). A diferencia de `ErrorBanner` —persistente a propósito— este se auto-oculta a los
+  3s: una confirmación fija se lee como estado permanente de la pantalla. Sin librería de
+  toast, que era una dependencia nueva injustificable por un banner.
+- **`setQueryData` en vez de `invalidateQueries`** en las mutaciones de `use-profile.ts`:
+  los tres endpoints de escritura devuelven el `PrivateProfile` completo, así que refetchear
+  sería una request de más y dejaría la tab de perfil con el dato viejo durante ese viaje.
+  Sincronizan además `fullName` en el store de sesión (`auth-store.ts#updateFullName`, nuevo,
+  hermano de `updateKycStatus`) — vive persistido en secure-store y `home.tsx` lo usa como
+  fallback del saludo, así que sin eso el nombre viejo sobrevivía hasta el próximo login.
+- **El OTP de cambio de email va al teléfono actual, no al email nuevo** (no hay
+  `EmailProvider` en el proyecto, ver MOVO-133). La pantalla lo dice dos veces —en un aviso
+  antes de pedirlo y en el copy del paso del código— porque recibir un SMS al cambiar el
+  email, sin explicación, es desconcertante.
+- **`422 AUTH_OTP_EXPIRED` se trata distinto de `401 AUTH_OTP_INVALID`**: el código
+  incorrecto se reintenta en el mismo paso (se limpia el input y se vuelve a enfocar); el
+  vencido devuelve al paso 1, porque tipear de nuevo no lo arregla, hace falta pedir uno
+  nuevo. El ticket solo mencionaba el 401.
+- **`TextField` ganó `disabled`**: hasta ahora `editable={false}` no cambiaba nada
+  visualmente. Necesario para el bloqueo por KYC (AC3) — el usuario tiene que ver que no se
+  puede editar antes de intentarlo, no chocarse con un 409 `PROFILE_NAME_LOCKED_BY_KYC`.
+
+Ajustes pedidos durante la implementación (feedback del usuario, ya aplicados):
+- **La tab de perfil dejó de tener el lápiz de editar foto y la sección "Tus datos
+  personales"**: ambas cosas viven ahora solo en "Editar perfil". `profile.tsx` usa
+  `ProfileAvatar` (solo lectura) en vez de `PhotoPicker`, y ya no monta
+  `ProfilePrivateSection` — tenerlo en las dos pantallas duplicaba la misma información y
+  dos puntos de entrada para la misma acción.
+- **DNI visible y de solo lectura** en el formulario, junto al nombre. Requirió agregarlo a
+  `PrivateProfile` (ver `shared/movo-shared/CLAUDE.md` y el de `svc-users`): estaba excluido
+  a propósito desde MOVO-77 "hasta confirmar con quien implemente MOVO-31 si hace falta", y
+  esta US es esa confirmación. Nunca editable, con candado y copy explicando por qué.
+- **Se eliminó el botón Guardar** a pedido del usuario, con razón: gobernaba solo dos campos
+  (la foto ya se guardaba sola y teléfono/email tienen su propio flujo) y con KYC aprobado
+  quedaba deshabilitado de forma permanente. Pasó a guardado al blur, descripto arriba.
+  **Esto deja sin efecto el AC8 del ticket** ("salir con cambios sin guardar pide
+  confirmación"): sin botón no existe un estado "sin guardar", así que se sacaron el
+  `Alert.alert` de descarte y el listener de `beforeRemove` que lo cubría. AC a actualizar
+  en Linear.
+- **Insignia de verificado en lugar del texto "Verificar para cambiar"**: chip lime
+  `Verificado`, originalmente **solo en la fila del teléfono** — en el momento de esta
+  US no existía ningún concepto de verificación de email en el sistema (sin columna
+  `email_verified` ni `EmailProvider`; por eso el OTP del cambio de email iba al
+  teléfono), así que un chip verde ahí habría sido falso. Cerrado por MOVO-139, ver
+  abajo. Obligó a exponer `phoneVerified` en `PrivateProfile`, mismo movimiento que el
+  DNI.
+
+Tests: `edit-profile-screen.test.tsx`, `change-phone-screen.test.tsx`,
+`change-email-screen.test.tsx`, `otp-input.test.tsx`, `use-otp-cooldown.test.ts`,
+`success-banner.test.tsx`, más casos en `users-client.test.ts` y `profile.test.tsx`.
+57 suites / 396 tests en `movo-mobile`, `tsc --noEmit` limpio.
+
+Gotcha del entorno de tests (no de la implementación): `render`/`renderHook` de RNTL son
+**asíncronos** en este setup (React 19 concurrente) — sin `await` devuelven una promesa y
+`getByTestId` "no es una función". Y un `fireEvent.press` sin envolver en
+`await act(async () => ...)` deja trabajo de React pendiente que rompe el render del test
+**siguiente**, no el propio: un test que pasa aislado y falla en la suite completa es casi
+siempre eso.
+
+**Cierre del email (MOVO-139, backend ya en `develop`): insignia y CTA de verificar
+email.** Con `EmailProvider`/`emailVerified` ya reales (ver `services/
+movo-svc-users/CLAUDE.md` y `shared/movo-shared/CLAUDE.md`), la fila de email en
+`edit.tsx` deja de estar coja: muestra el mismo chip lime `Verificado` que el teléfono
+cuando `profile.emailVerified` es `true`, y un chip outline `Verificar` cuando no —
+para las cuentas creadas antes de este ticket, que quedaron todas en `false` por
+backfill natural.
+
+- **`onVerifyPress` en `ContactRow`, no otro componente**: el chip `Verificar` vive
+  adentro de la misma fila que ya navega a `change-email` al tocarla — nested
+  `Pressable`s (RN resuelve el touch al componente más específico, sin bubbling tipo
+  DOM) evita que tocar el chip también dispare la navegación a cambiar email.
+- **`app/(app)/profile/verify-email.tsx` nueva, hermana de `change-email.tsx` pero
+  sin paso de input**: el target del OTP es el email que la cuenta ya tiene (AC1/AC2
+  de MOVO-139 del lado backend), así que el paso 1 es directo "Enviar código" en vez
+  de pedir una dirección — dos etapas (`"intro" | "otp"`) en vez de tres. Reusa
+  `OtpStep`/`useOtpCooldown`/`otpRef` con el mismo criterio que `change-phone.tsx`/
+  `change-email.tsx` (422 vencido vuelve al paso 1, 401 se reintenta en el mismo paso).
+- **`change-email.tsx` corregido para MOVO-139**: el OTP del cambio de email ahora
+  va al email **nuevo** (ya no al teléfono actual) — se sacó el aviso `change-email-
+  sms-notice` y el copy de ambos pasos pasó a nombrar la dirección nueva, no el
+  teléfono.
+- **`useRequestEmailVerification`/`useVerifyEmailVerification` nuevos** en
+  `use-profile.ts`, mismo criterio que sus pares de teléfono/cambio de email (`setQueryData`
+  con el `PrivateProfile` completo que devuelve el backend, no `invalidateQueries`).
+
+Tests nuevos: `verify-email-screen.test.tsx`; casos agregados a
+`edit-profile-screen.test.tsx` (insignia/CTA de email en ambos estados, tocar el CTA
+navega a `verify-email` sin disparar `change-email`), `change-email-screen.test.tsx`
+(copy actualizado al email nuevo) y `users-client.test.ts`.
+
+### MOVO-132 — Envíos que recibo: distinción de rol en el listado y entrada desde la notificación push (`movo-mobile`)
+
+Completa el camino por el que el receptor llega a la pantalla de confirmación (AC1, AC2 y AC4 de MOVO-16), resolviendo la distinción de rol en tarjetas y la navegación desde notificaciones push.
+
+- **Distinción de rol en tarjetas y filas (`ShipmentCard` y `ShipmentRow`)**:
+  - Resuelve `isReceiver` comparando síncronamente `useAuthStore().user?.userId === shipment.receiverId`.
+  - Muestra un tag visual de rol: *"Recibís"* (`bg-info-100 text-info-700`) y *"Enviás"* (`bg-bg-mute text-fg-2`).
+  - **Badge contextual según rol (`ShipmentStatusBadge`)**: en `AWAITING_RECEIVER_CONFIRMATION`, muestra *"Requiere tu confirmación"* para el receptor (con deadline restante `formatReceiverConfirmationDeadline` si aplica) y *"Esperando al receptor"* para el emisor.
+- **Filtro de Rol en "Mis Envíos" (`app/(app)/shipments/index.tsx`)**:
+  - Suma la sección **"Rol"** a `ShipmentsFilterSheet` con pills: `Todos` / `Enviados` / `Recibidos` (100% client-side).
+  - **Prioridad en la cima**: en la pestaña "En curso", los envíos recibidos en `AWAITING_RECEIVER_CONFIRMATION` se ordenan primero para destacar la acción pendiente requerida.
+- **Navegación desde Push Notifications (`use-push-notifications.ts`)**:
+  - Tocar una notificación con `data.type === "shipment"` navega directo a `/shipments/:id` (cierra el pendiente que MOVO-107 dejó documentado).
+  - Soporta **cold start**: `Notifications.getLastNotificationResponseAsync()` resuelve la notificación inicial una vez restaurada la sesión autenticada.
+  
 ### MOVO-136 — Pantalla "Cuenta y seguridad": cambio de contraseña y baja de cuenta
 
 Convierte el primer ítem de Perfil → Configuración (`profile-settings-section.tsx`,
@@ -700,12 +834,6 @@ desliza).
   módulo — usa el banner nativo del SO incluso con la app abierta. No hay ningún
   banner auto-dismiss reusable en el repo (`ErrorBanner` es persistente a propósito),
   así que construir uno hubiera sido alcance extra no pedido por el AC.
-- **AC6 (navegar al detalle de un envío) queda parcialmente resuelto a propósito**: el
-  listener (`addNotificationResponseReceivedListener`) parsea `data.type === 'shipment'`
-  y deja el punto de extensión documentado en el propio código, pero no navega a
-  ningún lado real — no existe ninguna pantalla de envíos todavía (MOVO-83+, sin
-  arrancar). Decisión tomada con el usuario: mejor dejar el parseo listo y sin acción
-  que inventar un destino (`/home`) que no es el real.
 - **`httpClient` no exponía `delete`** (`HttpMethod` ya incluía `"DELETE"` pero el
   objeto exportado no lo usaba) — se agregó `httpClient.delete<T>(path, body, headers)`,
   mismo shape que `post`/`patch`, porque el contrato de MOVO-106 manda `{ deviceId }`
@@ -738,3 +866,24 @@ desliza).
   Android no genera el ícono/sonido de notificación en el build nativo). Sin cambios
   en `.env.example` — el push token de Expo no requiere ningún secret del lado
   cliente, a diferencia de las keys de Google Maps.
+
+### MOVO-113 — Paquete de fixes por bugs en UI y rediseño de Actividad Reciente (`movo-mobile`)
+
+Resuelve el paquete completo de bugs de navegación/KYC y aplica el rediseño de la sección de Actividad Reciente en Inicio (Home).
+
+1. **Rediseño Actividad Reciente (Home)**:
+   - Header del card: Label izquierdo + dot verde lima (`bg-lime-500`) con contador de pedidos activos (se oculta automáticamente cuando es 0).
+   - Acceso a "Mis Envíos": Fila independiente debajo del card (`ViewAllShipmentsLink`, layout 1-a) con fondo `bg-sub`, borde y chevron.
+   - Filas de envíos (`ShipmentRow`, layout 1-b): Iconos de caja con flechas direccionales superpuestas con contorno exterior limpio (↑ lima `#C6F24A` con outline oscuro para emisor, ↓ negra `colors.fg1` para receptor) + timestamp relativo secundario (`formatShipmentRowTime`).
+
+2. **Bugs corregidos**:
+   - **Bug 1 (Bucle post-KYC onboarding)**: En `profile-photo.tsx#handleFinish()`, se garantiza la actualización incondicional a `KycStatus.APPROVED` en `authStore` antes de llamar `resetRegistration()`, eliminando condiciones de carrera con los guards de navegación.
+   - **Bug 2 (Reinicio de KYC desde Perfil)**: En `app/(auth)/kyc.tsx` y `auth-client.ts`, se unificó la lectura de `kycStatus` cayendo al estado de `authStore` cuando el contexto efímero de registro no está activo, permitiendo consultar el estado real y operar con la sesión autenticada.
+   - **Bug 3 (Flash de interfaz de DIDIT)**: En `kyc.tsx` y `license-kyc.tsx`, `phase` y `resultKind` se derivan inmediatamente en `useState` a partir del status existente/params de ruta, eliminando el frame transitorio de la pantalla de intro.
+   - **Bug 4 (GO_BACK error en login)**: En `login.tsx` (y `register.tsx`), se evalúa `router.canGoBack()` para ejecutar `router.back()` con la animación nativa estándar cuando hay historial previo, o caer a `router.replace('/')` de forma segura.
+   - **Bug 5 (Aceptado en cancelados)**: En `shipment-format.ts`, `receiverConfirmationStatus()` retorna `undefined` ante estados `CANCELLED` y `DISPUTED`, evitando mostrar la pill "Aceptó el envío" en pedidos cancelados por timeout o expiración.
+   - **Bug 6 (Banner de KYC en navbar de Home)**: En `home.tsx`, el banner informativo de KYC se movió fuera del `SafeAreaView` del navbar superior al inicio del `ScrollView`, manteniendo el header limpio con solo el saludo.
+   - **Bug 7 (Estado residual al cerrar sesión)**: En `auth-store.ts` y `use-registration.tsx`, `clearSession` elimina las claves `pendingRegistration*` de `secureStore` y resetea el contexto en memoria al pasar a `unauthenticated`, evitando que la bienvenida muestre "Continuar verificación".
+   - **Bug 8 (Unificación de insignias de verificación en Perfil)**: En `profile.tsx` y `profile-badges.tsx`, se retiró el banner redundante de KYC y se unificaron las insignias de `DNI` y `Licencia` debajo del nombre del usuario (verde `#1F9760` si verificado, rojo `#C22F35` si no verificado, sin fondo de badge).
+
+Tests: 64 suites pasadas / 490 tests totales en verde.

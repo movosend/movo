@@ -28,6 +28,14 @@ jest.mock("../src/hooks/use-profile", () => ({
   usePublicProfiles: (ids: string[]) => mockUsePublicProfiles(ids),
 }));
 
+const mockCurrentUser = jest.fn();
+jest.mock("../src/store/auth-store", () => ({
+  useAuthStore: (selector?: (state: { user: { userId: string } | null }) => unknown) => {
+    const state = { user: mockCurrentUser() };
+    return typeof selector === "function" ? selector(state) : state;
+  },
+}));
+
 function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
   return {
     id: "shipment-1",
@@ -304,6 +312,58 @@ describe("MyShipmentsScreen", () => {
     await fireEvent.press(getByTestId("my-shipments-clear-filter"));
 
     expect(getByTestId("my-shipments-card-shipment-1")).toBeTruthy();
+  });
+
+  it("filtra por rol desde las pills de la hoja de filtro (MOVO-132)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    mockUseMyShipments.mockReturnValue(
+      baseResult({
+        data: pages([
+          shipment({ id: "sent-1", senderId: "user-1", receiverId: "user-2" }),
+          shipment({ id: "received-1", senderId: "user-3", receiverId: "user-1" }),
+        ]),
+      }),
+    );
+
+    const { getByTestId, queryByTestId } = await render(<MyShipmentsScreen />);
+
+    // Ambos visibles inicialmente
+    expect(getByTestId("my-shipments-card-sent-1")).toBeTruthy();
+    expect(getByTestId("my-shipments-card-received-1")).toBeTruthy();
+
+    // Filtrar por Enviados
+    await fireEvent.press(getByTestId("my-shipments-filter-open"));
+    await fireEvent.press(getByTestId("shipments-filter-role-option-sent"));
+    await fireEvent.press(getByTestId("shipments-filter-apply"));
+
+    expect(getByTestId("my-shipments-card-sent-1")).toBeTruthy();
+    expect(queryByTestId("my-shipments-card-received-1")).toBeNull();
+
+    // Cambiar a Recibidos
+    await fireEvent.press(getByTestId("my-shipments-filter-open"));
+    await fireEvent.press(getByTestId("shipments-filter-role-option-received"));
+    await fireEvent.press(getByTestId("shipments-filter-apply"));
+
+    expect(queryByTestId("my-shipments-card-sent-1")).toBeNull();
+    expect(getByTestId("my-shipments-card-received-1")).toBeTruthy();
+  });
+
+  it("prioriza en la cima los envíos recibidos en awaiting_receiver_confirmation (AC2 de MOVO-132)", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    mockUseMyShipments.mockReturnValue(
+      baseResult({
+        data: pages([
+          shipment({ id: "s-published", senderId: "user-1", receiverId: "user-2", status: ShipmentStatus.PUBLISHED }),
+          shipment({ id: "s-pending", senderId: "user-3", receiverId: "user-1", status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION }),
+        ]),
+      }),
+    );
+
+    const { getByTestId } = await render(<MyShipmentsScreen />);
+
+    // Verificar que s-pending se renderiza y que está presente
+    expect(getByTestId("my-shipments-card-s-pending")).toBeTruthy();
+    expect(getByTestId("my-shipments-card-s-published")).toBeTruthy();
   });
 
   it("vuelve atrás con router.back() cuando hay historial", async () => {

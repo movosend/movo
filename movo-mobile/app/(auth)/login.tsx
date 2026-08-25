@@ -80,7 +80,13 @@ export default function LoginScreen() {
     <SafeAreaView className="flex-1 bg-bg" edges={['top', 'bottom']}>
       <View className="flex-row items-center px-5 pb-3.5 pt-1.5">
         <Pressable
-          onPress={() => router.back()}
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/");
+            }
+          }}
           className="h-8 w-8 items-center justify-center rounded-full bg-bg-mute"
           testID="login-back"
         >

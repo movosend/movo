@@ -112,12 +112,16 @@ export default function ProfilePhotoScreen() {
       }
       setSessionError(false);
 
-      // Aseguramos que el estado local de KYC quede en APPROVED
-      if (authState.user && authState.user.kycStatus !== KycStatus.APPROVED) {
-        await authState.updateKycStatus(KycStatus.APPROVED);
-      }
+      // Garantizamos APPROVED en el store ANTES de limpiar el contexto de registro.
+      // Sin este orden, `resetRegistration()` setea kycStatus=null en el contexto, lo
+      // que puede triggerear el useEffect de index.tsx que lee el kycStatus del store
+      // antes de que updateKycStatus haya propagado — causando el bucle hacia /kyc.
+      // Se llama siempre sin condicional: incluso si el store ya lo tiene correcto, el
+      // costo es mínimo y elimina cualquier race condition.
+      await authState.updateKycStatus(KycStatus.APPROVED);
 
-      // Limpia el estado de registro pendiente de secure-store (AC9)
+      // Limpia el estado de registro pendiente de secure-store (AC9) — recién después
+      // de que el store está en estado final correcto.
       await resetRegistration();
 
       // Navega al área autenticada

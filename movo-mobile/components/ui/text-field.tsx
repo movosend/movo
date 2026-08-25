@@ -9,6 +9,13 @@ interface TextFieldProps extends TextInputProps {
   containerClassName?: string;
   rightElement?: ReactNode;
   leftElement?: ReactNode;
+  /**
+   * Campo bloqueado: además de `editable={false}` (que por sí solo no cambia nada
+   * visualmente), lo pinta como inerte. Nace en MOVO-135 para el nombre/apellido
+   * bloqueados por KYC aprobado (`PROFILE_NAME_LOCKED_BY_KYC`): el usuario tiene que
+   * ver que no se puede editar antes de intentarlo, no chocarse con un 409.
+   */
+  disabled?: boolean;
 }
 
 export const TextField = forwardRef<TextInput, TextFieldProps>(
@@ -20,6 +27,7 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(
       containerClassName,
       rightElement,
       leftElement,
+      disabled = false,
       ...inputProps
     },
     ref,
@@ -38,10 +46,15 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(
             // `TextInput` de una sola línea no reparte ese espacio extra arriba/abajo del
             // glifo como sí lo hace `Text`, lo agrega entero arriba. `text-[15px]` sin
             // lineHeight propio deja que la altura de línea nativa centre bien el texto.
-            className={`w-full rounded-md border border-border-strong py-3 font-sans text-[15px] text-fg ${
-              rightElement ? "pr-11" : "pr-3.5"
-            } ${leftElement ? "pl-[78px]" : "pl-3.5"}`}
+            className={`w-full rounded-md border py-3 font-sans text-[15px] ${
+              disabled
+                ? "border-border bg-bg-mute text-fg-3"
+                : "border-border-strong text-fg"
+            } ${rightElement ? "pr-11" : "pr-3.5"} ${
+              leftElement ? "pl-[78px]" : "pl-3.5"
+            }`}
             textAlignVertical="center"
+            editable={!disabled}
             {...inputProps}
             style={[{ includeFontPadding: false }, inputProps.style]}
           />

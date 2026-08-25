@@ -90,8 +90,10 @@ function fakeRepository(overrides: Partial<ShipmentRepository> = {}): ShipmentRe
     listEvents: vi.fn(),
     addPhoto: vi.fn(),
     listPhotos: vi.fn(),
+    existsPhotoByS3Key: vi.fn().mockResolvedValue(false),
     listByUser: vi.fn(),
     findExpiredAwaitingConfirmation: vi.fn().mockResolvedValue([]),
+    hasActiveShipmentsForUser: vi.fn().mockResolvedValue({ hasActiveDispute: false, hasActiveShipments: false }),
     ...overrides,
   };
 }
@@ -312,6 +314,27 @@ describe("shipments.service — createShipment", () => {
     const deadline: number = callArg.receiverConfirmationDeadline.getTime();
     expect(deadline).toBeGreaterThanOrEqual(before + 24 * 3600 * 1000);
     expect(deadline).toBeLessThanOrEqual(after + 24 * 3600 * 1000);
+  });
+
+  it("envía push al receptor con el nombre del emisor al crear el envío (MOVO-108 / MOVO-132)", async () => {
+    const repository = fakeRepository();
+    const usersClient = createFakeUsersClient({
+      "sender-id": fakePublicProfile({ id: "sender-id", fullName: "Lucas Romero", isVerified: true }),
+      "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
+    });
+    const fakeNotifications = createFakeNotificationsClient();
+    const service = createShipmentsService(repository, usersClient, fakeNotifications);
+
+    await service.createShipment(baseInput);
+
+    expect(fakeNotifications.sendPush).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "receiver-id",
+        title: "Tenés un envío nuevo para confirmar",
+        body: expect.stringContaining("Lucas Romero te envió un paquete"),
+        data: expect.objectContaining({ type: "shipment" }),
+      })
+    );
   });
 
   it("asigna receiverConfirmationDeadline = cierre de ventana de retiro cuando es anterior al timeout (MOVO-130 fix)", async () => {

@@ -3,7 +3,7 @@ import type { KycStatus, UserRole } from "@movo/shared/dist/types/user";
 import { authClient } from "../api/auth-client";
 import { registerAuthHooks } from "../api/http-client";
 import type { SessionResponse } from "../api/session-types";
-import { SECURE_STORE_KEYS, secureStore } from "../lib/secure-store";
+import { SECURE_STORE_KEYS, deletePendingRegistrationKeys, secureStore } from "../lib/secure-store";
 import { unregisterCurrentDevice } from "../lib/push-registration";
 
 export interface SessionUser {
@@ -32,6 +32,9 @@ interface AuthState {
   setSession: (session: SessionResponse) => Promise<void>;
   /** Actualiza el estado de KYC del usuario en memoria y en secure-store. */
   updateKycStatus: (kycStatus: KycStatus) => Promise<void>;
+  /** Actualiza el nombre mostrado del usuario en memoria y en secure-store
+   * (MOVO-135: el perfil pasó a ser editable, `fullName` ya no es inmutable). */
+  updateFullName: (fullName: string) => Promise<void>;
   /** Limpia sesión local (secure-store + estado) sin llamar al backend — usado tanto
    * por un refresh fallido (AC6) como internamente por `logout()`. */
   clearSession: () => Promise<void>;
@@ -64,6 +67,7 @@ async function clearPersistedSession(): Promise<void> {
     secureStore.deleteItem(SECURE_STORE_KEYS.sessionRefreshToken),
     secureStore.deleteItem(SECURE_STORE_KEYS.sessionUser),
     secureStore.deleteItem(SECURE_STORE_KEYS.sessionExpiresAt),
+    deletePendingRegistrationKeys(secureStore),
   ]);
 }
 
@@ -90,6 +94,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const currentUser = get().user;
     if (!currentUser) return;
     const updatedUser: SessionUser = { ...currentUser, kycStatus };
+    await secureStore.setItem(SECURE_STORE_KEYS.sessionUser, JSON.stringify(updatedUser));
+    set({ user: updatedUser });
+  },
+
+  async updateFullName(fullName: string) {
+    const currentUser = get().user;
+    if (!currentUser || currentUser.fullName === fullName) return;
+    const updatedUser: SessionUser = { ...currentUser, fullName };
     await secureStore.setItem(SECURE_STORE_KEYS.sessionUser, JSON.stringify(updatedUser));
     set({ user: updatedUser });
   },

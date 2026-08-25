@@ -31,7 +31,7 @@ export function ProfileSettingsSection({ testID }: { testID?: string }) {
   const colors = useThemeColors();
 
   const settingsItems: SettingsItem[] = [
-    { label: "Cuenta y seguridad", Icon: Shield, onPress: () => router.push("/profile/security") },
+    { label: "Cuenta y seguridad", Icon: Shield, onPress: () => router.push("/profile/security" as any) },
     { label: "Notificaciones", Icon: Bell },
     { label: "Pagos y cobros", Icon: Wallet },
     { label: "Direcciones guardadas", Icon: MapPin, onPress: () => router.push("/addresses") },

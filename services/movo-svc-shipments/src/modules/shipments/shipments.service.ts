@@ -294,11 +294,24 @@ export function createShipmentsService(
       // (no fire-and-forget): no hay razón de negocio para no esperar el intento antes
       // de responder, a diferencia de accept/reject donde la latencia extra no aporta.
       if (notificationsClient) {
+        let senderName = "Un usuario";
+        try {
+          const senderProfile = await usersClient.findPublicProfile(input.senderId, input.senderId);
+          if (senderProfile?.fullName) {
+            senderName = senderProfile.fullName;
+          }
+        } catch (err) {
+          logger?.warn(
+            { err, event: "sender_profile_lookup_for_push_failed", senderId: input.senderId },
+            "No se pudo obtener el perfil del emisor para el copy del push; usando fallback"
+          );
+        }
+
         try {
           await notificationsClient.sendPush({
             userId: created.receiverId,
             title: "Tenés un envío nuevo para confirmar",
-            body: "Alguien te agregó como receptor de un envío. Revisalo en la app.",
+            body: `${senderName} te envió un paquete. Tocá para revisar y confirmar el envío.`,
             data: { type: "shipment", shipmentId: created.id },
           });
         } catch (err) {

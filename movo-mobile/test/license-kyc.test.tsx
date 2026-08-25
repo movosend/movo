@@ -6,6 +6,7 @@ import LicenseKycScreen from "../app/(app)/license-kyc";
 
 jest.mock("expo-router", () => ({
   router: { back: jest.fn(), replace: jest.fn(), push: jest.fn() },
+  useLocalSearchParams: () => ({}),
 }));
 
 const mockStartVerification = jest.fn();

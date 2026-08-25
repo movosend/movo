@@ -9,7 +9,6 @@ import {
   Lock,
   type LucideIcon,
   MapPin,
-  MessageSquare,
   Pencil,
   UserRound,
 } from "lucide-react-native";
@@ -31,10 +30,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../../components/auth/primary-button";
 import { WizardHeader } from "../../components/auth/wizard-header";
 import { ErrorBanner } from "../../components/ui/error-banner";
+import { OTP_LENGTH, type OtpInputHandle } from "../../components/ui/otp-input";
+import { OtpStep } from "../../components/ui/otp-step";
 import { PasswordStrengthMeter } from "../../components/ui/password-strength-meter";
 import { SelectField } from "../../components/ui/select-field";
 import { TextField } from "../../components/ui/text-field";
 import { movoMapStyleDark, movoMapStyleLight } from "../../src/constants/map-style";
+import { useOtpCooldown } from "../../src/hooks/use-otp-cooldown";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { capitalizeName } from "../../src/lib/profile-format";
 import {
@@ -66,8 +68,6 @@ import {
  * `lat`/`long` final viaja en el `address` de `POST /auth/register`
  * (`users.address` del DER, MOVO-73).
  */
-
-const OTP_LENGTH = 6;
 
 // Orden de foco esperado dentro de cada paso cuando iOS/Android autocompletan
 // varios campos de un tirón (Contactos / Direcciones guardadas): se usa para
@@ -103,20 +103,14 @@ export default function RegisterScreen() {
   } = registration;
   const [step, setStep] = useState<Step>(0);
   const [showPassword, setShowPassword] = useState(false);
-  const [otpDigits, setOtpDigits] = useState<string[]>(Array(OTP_LENGTH).fill(""));
-  const [otpSecondsLeft, setOtpSecondsLeft] = useState(0);
-  const otpInputRefs = useRef<Array<TextInput | null>>([]);
+  const [otpCode, setOtpCode] = useState("");
+  const { secondsLeft: otpSecondsLeft, start: startOtpCooldown } = useOtpCooldown();
+  const otpInputRef = useRef<OtpInputHandle | null>(null);
 
   const fieldRefs = useRef<Partial<Record<FieldName, TextInput | null>>>({});
   const activeFieldRef = useRef<FieldName | null>(null);
   const autofillIndexRef = useRef(-1);
   const autofillDismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (otpSecondsLeft <= 0) return;
-    const timer = setInterval(() => setOtpSecondsLeft((s) => Math.max(0, s - 1)), 1000);
-    return () => clearInterval(timer);
-  }, [otpSecondsLeft]);
 
   useEffect(() => {
     // Cada paso arranca su propio seguimiento de autocompletado.
@@ -164,7 +158,11 @@ export default function RegisterScreen() {
 
   function goBack() {
     if (step === 0) {
-      router.back();
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/");
+      }
       return;
     }
     // Simétrico al salto hacia adelante en goNext (step 3): si el teléfono ya está
@@ -176,53 +174,13 @@ export default function RegisterScreen() {
     goToStep((step - 1) as Step);
   }
 
-  function onOtpDigitChange(index: number, value: string) {
-    const digits = value.replace(/\D/g, "");
-
-    // El autocompletado de SMS en iOS puede entregar el código completo
-    // (no un solo dígito) al campo que tenía el foco antes de que
-    // `maxLength` lo trunque — se distribuye entre las casillas restantes
-    // en vez de asumir que `value` es siempre un único carácter.
-    if (digits.length > 1) {
-      setOtpDigits((prev) => {
-        const next = [...prev];
-        for (let i = 0; i < digits.length && index + i < OTP_LENGTH; i++) {
-          next[index + i] = digits[i];
-        }
-        return next;
-      });
-      const lastFilled = Math.min(index + digits.length, OTP_LENGTH) - 1;
-      otpInputRefs.current[lastFilled]?.focus();
-      if (lastFilled === OTP_LENGTH - 1) Keyboard.dismiss();
-      return;
-    }
-
-    const digit = digits.slice(-1);
-    setOtpDigits((prev) => {
-      const next = [...prev];
-      next[index] = digit;
-      return next;
-    });
-    if (digit && index < OTP_LENGTH - 1) {
-      otpInputRefs.current[index + 1]?.focus();
-    } else if (digit && index === OTP_LENGTH - 1) {
-      Keyboard.dismiss();
-    }
-  }
-
-  function onOtpKeyPress(index: number, key: string) {
-    if (key === "Backspace" && !otpDigits[index] && index > 0) {
-      otpInputRefs.current[index - 1]?.focus();
-    }
-  }
-
   async function handleResendOtp() {
     if (otpSecondsLeft > 0 || loading) return;
     const result = await registration.resendOtp();
     if (!result.ok) return;
-    setOtpDigits(Array(OTP_LENGTH).fill(""));
-    setOtpSecondsLeft(result.cooldownSeconds);
-    otpInputRefs.current[0]?.focus();
+    setOtpCode("");
+    startOtpCooldown(result.cooldownSeconds);
+    otpInputRef.current?.focusFirst();
   }
 
   async function goNext() {
@@ -251,13 +209,12 @@ export default function RegisterScreen() {
       }
       const result = await registration.sendOtp();
       if (!result.ok) return;
-      setOtpDigits(Array(OTP_LENGTH).fill(""));
-      setOtpSecondsLeft(result.cooldownSeconds);
+      setOtpCode("");
+      startOtpCooldown(result.cooldownSeconds);
       goToStep(4);
     } else if (step === 4) {
-      const code = otpDigits.join("");
-      if (code.length < OTP_LENGTH) return;
-      const result = await registration.verifyPhoneOtp(code);
+      if (otpCode.length < OTP_LENGTH) return;
+      const result = await registration.verifyPhoneOtp(otpCode);
       if (!result.ok) return;
       goToStep(5);
     } else if (step === 5) {
@@ -604,55 +561,21 @@ export default function RegisterScreen() {
         )}
 
         {step === 4 && (
-          <View>
-            <StepIcon icon={MessageSquare} />
-            <Text className="mb-1.5 font-sans-semibold text-title text-fg">
-              Verificá tu teléfono
-            </Text>
-            <Text className="mb-5 font-sans text-body text-fg-2">
-              Te enviamos un código de 6 dígitos por SMS al{" "}
-              <Text className="font-sans-semibold text-fg">+54 {fields.phone}</Text>.
-            </Text>
-
-            <Text className="mb-1.5 font-sans-medium text-[12px] text-fg-2">
-              Código de verificación
-            </Text>
-            <View className="flex-row gap-2">
-              {otpDigits.map((digit, index) => (
-                <TextInput
-                  key={index}
-                  testID={`register-otp-input-${index}`}
-                  ref={(el) => {
-                    otpInputRefs.current[index] = el;
-                  }}
-                  value={digit}
-                  onChangeText={(v) => onOtpDigitChange(index, v)}
-                  onKeyPress={({ nativeEvent }) => onOtpKeyPress(index, nativeEvent.key)}
-                  keyboardType="number-pad"
-                  autoComplete={index === 0 ? "sms-otp" : "off"}
-                  textContentType="oneTimeCode"
-                  returnKeyType="done"
-                  className="h-14 flex-1 rounded-lg border border-border-strong text-center font-sans-semibold text-[22px] text-fg"
-                />
-              ))}
-            </View>
-
-            <View className="mt-5 flex-row items-center justify-between">
-              {otpSecondsLeft <= 0 ? (
-                <Text
-                  testID="register-otp-resend"
-                  onPress={handleResendOtp}
-                  className="font-sans-semibold text-[13px] text-fg underline"
-                >
-                  Reenviar código
-                </Text>
-              ) : (
-                <Text testID="register-otp-resend-cooldown" className="font-sans text-[13px] text-fg-3">
-                  Reenviar código en 00:{String(otpSecondsLeft).padStart(2, "0")}
-                </Text>
-              )}
-            </View>
-          </View>
+          <OtpStep
+            ref={otpInputRef}
+            testIDPrefix="register-otp"
+            title="Verificá tu teléfono"
+            description={
+              <>
+                Te enviamos un código de 6 dígitos por SMS al{" "}
+                <Text className="font-sans-semibold text-fg">+54 {fields.phone}</Text>.
+              </>
+            }
+            code={otpCode}
+            onChangeCode={setOtpCode}
+            onResend={handleResendOtp}
+            secondsLeft={otpSecondsLeft}
+          />
         )}
 
         {step === 5 && (
@@ -803,7 +726,7 @@ export default function RegisterScreen() {
         disabled={
           loading ||
           (step === 3 && (latitude === null || longitude === null)) ||
-          (step === 4 && otpDigits.some((d) => !d))
+          (step === 4 && otpCode.length < OTP_LENGTH)
         }
       />
     </SafeAreaView>

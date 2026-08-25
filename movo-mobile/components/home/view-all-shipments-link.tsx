@@ -5,17 +5,12 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useRecentShipments } from "../../src/hooks/use-shipments";
 
 /**
- * Acceso a "Mis Envíos" (MOVO-127), sección propia debajo de `RecentShipmentsSection`
- * — no un footer dentro de esa card. Feedback post-QA: una primera versión lo puso
- * como botón/card secundario y luego como link al pie de la card de actividad
- * reciente; ambas competían visualmente con `HomeSendCta` o quedaban "adentro" de un
- * bloque que no era su lugar. Acá es una fila de ancho completo, su propia sección
- * (sin fondo de acento ni sombra) — la única acción con peso visual de la pantalla
- * sigue siendo la CTA de enviar.
+ * Acceso a "Mis Envíos" — sección propia debajo de `RecentShipmentsSection`, diseño 1-a:
+ * fila de ancho completo con borde y fondo `bg-sub`, texto "Ver todos mis envíos" + chevron.
+ * Solo se muestra si hay al menos un envío (no tiene sentido "ver todos" sobre una lista vacía).
  *
- * Reusa `useRecentShipments()` — mismo query key que `RecentShipmentsSection`, TanStack
- * Query dedupe la request, no pega dos veces a la API. Solo se muestra si hay al menos
- * un envío (no tiene sentido "ver todos" sobre una lista vacía).
+ * Reutiliza `useRecentShipments()` — mismo query key que `RecentShipmentsSection`, TanStack
+ * Query deduplica la request, no pega dos veces a la API.
  */
 export function ViewAllShipmentsLink({ testID }: { testID?: string }) {
   const colors = useThemeColors();
