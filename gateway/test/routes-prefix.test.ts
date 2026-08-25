@@ -334,4 +334,54 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
       expect(sixth.statusCode).toBe(429);
     });
   });
+
+  describe("Rutas de recuperación de contraseña (MOVO-140, AC14)", () => {
+    it.each([
+      ["/api/v1/auth/forgot-password", "/auth/forgot-password", { identifier: "3511234567" }],
+      ["/api/v1/auth/verify-reset-otp", "/auth/verify-reset-otp", { otpId: "00000000-0000-4000-8000-000000000001", code: "123456" }],
+      ["/api/v1/auth/reset-password", "/auth/reset-password", { passwordResetToken: "tok", newPassword: "Password1" }],
+    ])("%s es pública (sin token) y llega al upstream con el path exacto preservado", async (url, upstreamPath, payload) => {
+      const response = await app.inject({ method: "POST", url, payload });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedUrl).toBe(upstreamPath);
+    });
+
+    it.each([
+      "/api/v1/auth/forgot-password",
+      "/api/v1/auth/verify-reset-otp",
+      "/api/v1/auth/reset-password",
+    ])("%s: permite 5 intentos por IP y bloquea el 6to con 429 (rate limit propio, no el general)", async (url) => {
+      const testIp = `10.5.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`;
+
+      for (let i = 0; i < 5; i++) {
+        const response = await app.inject({
+          method: "POST",
+          url,
+          headers: { "x-forwarded-for": testIp },
+          payload: {},
+        });
+        expect(response.statusCode).toBe(200);
+      }
+
+      const sixth = await app.inject({
+        method: "POST",
+        url,
+        headers: { "x-forwarded-for": testIp },
+        payload: {},
+      });
+
+      expect(sixth.statusCode).toBe(429);
+    });
+
+    it("un path que sólo comparte prefijo (/auth/forgot-password-x) no matchea la ruta pública (exige auth)", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/forgot-password-x",
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(401);
+    });
+  });
 });
