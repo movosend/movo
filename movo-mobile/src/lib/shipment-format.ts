@@ -383,7 +383,7 @@ export function formatShipmentRowTime(
   if (Number.isNaN(ref.getTime())) return "";
 
   const diffMs = now.getTime() - ref.getTime();
-  const diffMin = Math.floor(diffMs / 60_000);
+  const diffMin = Math.max(0, Math.floor(diffMs / 60_000));
 
   if (diffMin < 60) return `hace ${diffMin} min`;
 
