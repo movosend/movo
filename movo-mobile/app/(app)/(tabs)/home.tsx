@@ -70,20 +70,20 @@ export default function AuthenticatedHomeScreen() {
           <Text testID="app-home-welcome" className="font-sans-semibold text-title text-fg">
             Hola{firstName ? `, ${firstName}` : ''}
           </Text>
-
-          {bannerText && BannerIcon ? (
-            <View
-              testID="app-home-kyc-banner"
-              className="mt-4 flex-row items-start gap-2.5 rounded-[10px] border border-warning-300 bg-warning-100 px-3.5 py-3"
-            >
-              <BannerIcon size={18} color={bannerIconColor} strokeWidth={1.8} />
-              <Text className="flex-1 font-sans text-[13px] text-ink-950">{bannerText}</Text>
-            </View>
-          ) : null}
         </View>
       </SafeAreaView>
 
       <ScrollView contentContainerClassName="px-6 pb-32 pt-6" showsVerticalScrollIndicator={false}>
+        {bannerText && BannerIcon ? (
+          <View
+            testID="app-home-kyc-banner"
+            className="mb-6 flex-row items-start gap-2.5 rounded-[10px] border border-warning-300 bg-warning-100 px-3.5 py-3"
+          >
+            <BannerIcon size={18} color={bannerIconColor} strokeWidth={1.8} />
+            <Text className="flex-1 font-sans text-[13px] text-ink-950">{bannerText}</Text>
+          </View>
+        ) : null}
+
         <HomeSendCta testID="app-home-send-cta" kycStatus={currentKycStatus} />
 
         <RecentShipmentsSection testID="app-home-recent-shipments" />

@@ -77,9 +77,14 @@ export function shipmentLifecycleStage(status: ShipmentStatus): "ongoing" | "pas
  * `rejected_by_receiver` son los únicos dos estados donde el receptor todavía no dio
  * el visto bueno; cualquier estado posterior (`published` en adelante) implica que ya
  * confirmó, porque no hay transición posible sin pasar por esa confirmación. */
-export function receiverConfirmationStatus(status: ShipmentStatus): "pending" | "confirmed" | "rejected" {
+export function receiverConfirmationStatus(
+  status: ShipmentStatus,
+): "pending" | "confirmed" | "rejected" | undefined {
   if (status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION) return "pending";
   if (status === ShipmentStatus.REJECTED_BY_RECEIVER) return "rejected";
+  if (status === ShipmentStatus.CANCELLED || status === ShipmentStatus.DISPUTED) {
+    return undefined;
+  }
   return "confirmed";
 }
 
@@ -349,3 +354,54 @@ export function formatReceiverConfirmationDeadline(
   return `Te quedan ${hours} h para confirmar`;
 }
 
+/**
+ * Texto de tiempo secundario para cada fila en la sección "Actividad reciente" (diseño 1-b).
+ *
+ * Lógica por caso:
+ * - `IN_TRANSIT`: "llega HH:MM" usando `pickupTimeWindowEnd` — lo que le importa al usuario
+ *   en ese estado es cuándo llega, no cuándo cambió el estado.
+ * - < 60 min desde `lastStatusChangedAt` (o `createdAt` como fallback): "hace N min".
+ * - Entre 1 h y 24 h: "hace N h".
+ * - Ayer (en la zona local del dispositivo): "ayer, HH:MM".
+ * - Más antiguo: fecha corta "D MMM" en español.
+ *
+ * Devuelve `""` ante fechas inválidas — el caller puede omitir el elemento de texto.
+ */
+export function formatShipmentRowTime(
+  shipment: Pick<
+    import("../api/shipments-client").ShipmentSummary,
+    "status" | "pickupTimeWindowEnd" | "lastStatusChangedAt" | "createdAt"
+  >,
+  now: Date = new Date(),
+): string {
+  if (shipment.status === ShipmentStatus.IN_TRANSIT && shipment.pickupTimeWindowEnd) {
+    return `llega ${formatTimeHHMM(shipment.pickupTimeWindowEnd)}`;
+  }
+
+  const referenceIso = shipment.lastStatusChangedAt ?? shipment.createdAt;
+  const ref = new Date(referenceIso);
+  if (Number.isNaN(ref.getTime())) return "";
+
+  const diffMs = now.getTime() - ref.getTime();
+  const diffMin = Math.max(0, Math.floor(diffMs / 60_000));
+
+  if (diffMin < 60) return `hace ${diffMin} min`;
+
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `hace ${diffH} h`;
+
+  // ¿Es ayer en la zona local del dispositivo?
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (
+    ref.getDate() === yesterday.getDate() &&
+    ref.getMonth() === yesterday.getMonth() &&
+    ref.getFullYear() === yesterday.getFullYear()
+  ) {
+    const hh = String(ref.getHours()).padStart(2, "0");
+    const mm = String(ref.getMinutes()).padStart(2, "0");
+    return `ayer, ${hh}:${mm}`;
+  }
+
+  return ref.toLocaleDateString("es-AR", { day: "numeric", month: "short" });
+}

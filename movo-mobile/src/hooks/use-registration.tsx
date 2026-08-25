@@ -6,13 +6,14 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { authClient } from "../api/auth-client";
 import { friendlyErrorMessage } from "../lib/error-messages";
 import { isPasswordValid } from "../lib/password-policy";
-import { SECURE_STORE_KEYS, secureStore } from "../lib/secure-store";
+import { SECURE_STORE_KEYS, deletePendingRegistrationKeys, secureStore } from "../lib/secure-store";
 import { useAuthStore } from "../store/auth-store";
 
 export const PROVINCES = [
@@ -312,11 +313,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       } catch {
         // El userId/token guardado ya no es válido (cuenta eliminada, o access token
         // vencido sin refresh disponible todavía) — se limpia y se arranca de cero.
-        await Promise.all([
-          secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationUserId),
-          secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationAccessToken),
-          secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationRefreshToken),
-        ]);
+        await deletePendingRegistrationKeys(secureStore);
       } finally {
         if (!cancelled) setResumeChecked(true);
       }
@@ -495,11 +492,12 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createKycSession = useCallback(async (): Promise<{ ok: boolean; sessionToken?: string }> => {
-    if (!accessToken) return { ok: false };
+    const authState = useAuthStore.getState();
+    if (!accessToken && authState.status !== "authenticated") return { ok: false };
     setLoading(true);
     setErrorBanner(null);
     try {
-      const response = await authClient.createKycSession(accessToken);
+      const response = await authClient.createKycSession(accessToken ?? undefined);
       return { ok: true, sessionToken: response.sessionToken };
     } catch (err) {
       setErrorBanner(friendlyErrorMessage(err, "No pudimos iniciar la verificación. Intentá de nuevo."));
@@ -510,12 +508,13 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
   }, [accessToken]);
 
   const refreshKycStatus = useCallback(async () => {
-    if (!accessToken) return;
+    const authState = useAuthStore.getState();
+    if (!accessToken && authState.status !== "authenticated") return;
     try {
-      const response = await authClient.getKycStatus(accessToken);
+      const response = await authClient.getKycStatus(accessToken ?? undefined);
       setKycStatus(response.status);
       setManualReviewReason(response.manualReviewReason);
-      const authUser = useAuthStore.getState().user;
+      const authUser = authState.user;
       if (authUser && authUser.kycStatus !== response.status) {
         await useAuthStore.getState().updateKycStatus(response.status);
       }
@@ -545,11 +544,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
   );
 
   const resetRegistration = useCallback(async () => {
-    await Promise.all([
-      secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationUserId),
-      secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationAccessToken),
-      secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationRefreshToken),
-    ]);
+    await deletePendingRegistrationKeys(secureStore);
     setFields(EMPTY_FIELDS);
     setTouched({});
     setUserId(null);
@@ -564,6 +559,16 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
     setAccessToken(null);
     setErrorBanner(null);
   }, []);
+
+  const authStatus = useAuthStore((s) => s.status);
+  const prevAuthStatusRef = useRef(authStatus);
+
+  useEffect(() => {
+    if (prevAuthStatusRef.current === "authenticated" && authStatus === "unauthenticated") {
+      void resetRegistration();
+    }
+    prevAuthStatusRef.current = authStatus;
+  }, [authStatus, resetRegistration]);
 
   const value = useMemo<RegistrationContextValue>(
     () => ({

@@ -2,24 +2,28 @@ import { ActivityIndicator, Text, View } from "react-native";
 import { PackageX, WifiOff } from "lucide-react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useRecentShipments } from "../../src/hooks/use-shipments";
+import { shipmentLifecycleStage } from "../../src/lib/shipment-format";
 import { ShipmentRow } from "../shipments/shipment-row";
 import { GradientBorderCard } from "../ui/gradient-border-card";
 
 /**
  * Sección "Actividad reciente" de Inicio (MOVO-83): vista previa de los últimos 3
- * envíos propios (`GET /shipments/mine`, MOVO-80 backend — ya Done aunque el wizard de
- * creación todavía no exista, así que hoy esta sección arranca siempre en el estado
- * vacío para cualquier usuario real, y eso es esperado).
+ * envíos propios (`GET /shipments/mine`, MOVO-80 backend).
  *
- * Mismo lenguaje visual "chrome" que `ProfileStatsRow` (`GradientBorderCard`
- * compartido) — no es una lista nueva de la nada, es la misma familia de card que ya
- * usa el perfil. El acceso al listado completo ("Mis Envíos") vive fuera de esta card,
- * en `ViewAllShipmentsLink` (MOVO-127, feedback post-QA: separarlo de acá para no
- * competir con el resto del contenido de la card).
+ * Diseño 1-a: encabezado con label izquierdo, contador de activos con dot verde al
+ * centro (oculto si hay 0 activos), y link "Ver todos" a la derecha integrado en el
+ * mismo card — reemplaza al componente externo `ViewAllShipmentsLink` (MOVO-127).
+ *
+ * Diseño 1-b para cada fila: `ShipmentRow` con icono direccional, timestamp secundario
+ * y pill de estado.
  */
 export function RecentShipmentsSection({ testID }: { testID?: string }) {
   const colors = useThemeColors();
   const { data, isLoading, isError, refetch } = useRecentShipments();
+
+  const activeCount = data
+    ? data.items.filter((s) => shipmentLifecycleStage(s.status) === "ongoing").length
+    : 0;
 
   return (
     <GradientBorderCard
@@ -37,10 +41,25 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
       }}
     >
       <View style={{ padding: 14 }}>
-        <Text className="mb-1 font-sans-medium text-caption uppercase text-fg-3">
-          Actividad reciente
-        </Text>
+        {/* ── Encabezado 1-a ── */}
+        <View className="mb-3 flex-row items-center justify-between">
+          {/* Label izquierdo */}
+          <Text className="font-sans-medium text-caption uppercase text-fg-3">
+            Actividad reciente
+          </Text>
 
+          {/* Contador de activos (solo si hay al menos 1) */}
+          {activeCount > 0 ? (
+            <View className="flex-row items-center gap-1.5">
+              <View className="h-1.5 w-1.5 rounded-full bg-lime-500" />
+              <Text className="font-sans-medium text-caption uppercase text-fg-2">
+                {activeCount} {activeCount === 1 ? "activo" : "activos"}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        {/* ── Contenido ── */}
         {isLoading ? (
           <View className="items-center justify-center py-8">
             <ActivityIndicator color={colors.fg3} />
@@ -78,3 +97,4 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
     </GradientBorderCard>
   );
 }
+

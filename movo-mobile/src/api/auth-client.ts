@@ -145,14 +145,22 @@ export const authClient = {
     return httpClient.post<GeocodeAddressResponse>("/geocode", payload);
   },
 
-  /** Protegida desde PR #51 (MOVO-72) — el `userId` se deriva del `accessToken`, no
-   * viaja como parámetro. */
-  createKycSession(accessToken: string): Promise<CreateKycSessionResponse> {
-    return httpClient.post<CreateKycSessionResponse>("/kyc/session", undefined, authHeader(accessToken));
+  /** Protegida desde PR #51 (MOVO-72) — el `userId` se deriva del `accessToken`.
+   * Si no se provee `accessToken` explícito, el interceptor de `http-client.ts` lo adjunta desde la sesión activa. */
+  createKycSession(accessToken?: string): Promise<CreateKycSessionResponse> {
+    return httpClient.post<CreateKycSessionResponse>(
+      "/kyc/session",
+      undefined,
+      accessToken ? authHeader(accessToken) : undefined,
+    );
   },
 
-  getKycStatus(accessToken: string): Promise<KycStatusResponse> {
-    return httpClient.get<KycStatusResponse>("/kyc/status", undefined, authHeader(accessToken));
+  getKycStatus(accessToken?: string): Promise<KycStatusResponse> {
+    return httpClient.get<KycStatusResponse>(
+      "/kyc/status",
+      undefined,
+      accessToken ? authHeader(accessToken) : undefined,
+    );
   },
 
   /**

@@ -80,9 +80,14 @@ describe("receiverConfirmationStatus", () => {
     expect(receiverConfirmationStatus(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("rejected");
   });
 
-  it("mapea cualquier estado posterior a confirmed", () => {
+  it("mapea estados posteriores de progreso a confirmed", () => {
     expect(receiverConfirmationStatus(ShipmentStatus.PUBLISHED)).toBe("confirmed");
     expect(receiverConfirmationStatus(ShipmentStatus.DELIVERED)).toBe("confirmed");
+  });
+
+  it("devuelve undefined para estados cancelados o en disputa (evita mostrar 'aceptado' si se canceló)", () => {
+    expect(receiverConfirmationStatus(ShipmentStatus.CANCELLED)).toBeUndefined();
+    expect(receiverConfirmationStatus(ShipmentStatus.DISPUTED)).toBeUndefined();
   });
 });
 

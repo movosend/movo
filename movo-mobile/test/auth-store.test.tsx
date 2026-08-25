@@ -180,6 +180,10 @@ describe("auth-store", () => {
     expect(authClient.logout).toHaveBeenCalledWith("refresh_2", "access_2");
     expect(useAuthStore.getState().status).toBe("unauthenticated");
     expect(useAuthStore.getState().user).toBeNull();
+    const SecureStore = require("expo-secure-store");
+    expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith(SECURE_STORE_KEYS.pendingRegistrationUserId);
+    expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith(SECURE_STORE_KEYS.pendingRegistrationAccessToken);
+    expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith(SECURE_STORE_KEYS.pendingRegistrationRefreshToken);
   });
 
   it("logout() limpia la sesión local aunque la llamada de red falle", async () => {
