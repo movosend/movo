@@ -882,5 +882,8 @@ Resuelve el paquete completo de bugs de navegación/KYC y aplica el rediseño de
    - **Bug 3 (Flash de interfaz de DIDIT)**: En `kyc.tsx` y `license-kyc.tsx`, `phase` y `resultKind` se derivan inmediatamente en `useState` a partir del status existente/params de ruta, eliminando el frame transitorio de la pantalla de intro.
    - **Bug 4 (GO_BACK error en login)**: En `login.tsx` (y `register.tsx`), se evalúa `router.canGoBack()` para ejecutar `router.back()` con la animación nativa estándar cuando hay historial previo, o caer a `router.replace('/')` de forma segura.
    - **Bug 5 (Aceptado en cancelados)**: En `shipment-format.ts`, `receiverConfirmationStatus()` retorna `undefined` ante estados `CANCELLED` y `DISPUTED`, evitando mostrar la pill "Aceptó el envío" en pedidos cancelados por timeout o expiración.
+   - **Bug 6 (Banner de KYC en navbar de Home)**: En `home.tsx`, el banner informativo de KYC se movió fuera del `SafeAreaView` del navbar superior al inicio del `ScrollView`, manteniendo el header limpio con solo el saludo.
+   - **Bug 7 (Estado residual al cerrar sesión)**: En `auth-store.ts` y `use-registration.tsx`, `clearSession` elimina las claves `pendingRegistration*` de `secureStore` y resetea el contexto en memoria al pasar a `unauthenticated`, evitando que la bienvenida muestre "Continuar verificación".
+   - **Bug 8 (Unificación de insignias de verificación en Perfil)**: En `profile.tsx` y `profile-badges.tsx`, se retiró el banner redundante de KYC y se unificaron las insignias de `DNI` y `Licencia` debajo del nombre del usuario (verde `#1F9760` si verificado, rojo `#C22F35` si no verificado, sin fondo de badge).
 
-Tests: 64 suites pasadas / 491 tests totales en verde.
+Tests: 64 suites pasadas / 490 tests totales en verde.
