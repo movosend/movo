@@ -64,23 +64,23 @@ export function ShipmentRow({
         <View
           style={{
             position: "absolute",
-            bottom: -3,
-            right: -3,
+            bottom: -2,
+            right: -2,
             alignItems: "center",
             justifyContent: "center",
           }}
         >
           {/* Contorno exterior de la flecha */}
           <ArrowIcon
-            size={18}
-            strokeWidth={6.0}
+            size={15}
+            strokeWidth={4.2}
             color={outlineColor}
             style={{ position: "absolute" }}
           />
           {/* Flecha principal */}
           <ArrowIcon
-            size={18}
-            strokeWidth={3.4}
+            size={15}
+            strokeWidth={2.4}
             color={arrowColor}
           />
         </View>
