@@ -54,7 +54,12 @@ export type ApiErrorCode =
   | "OFFER_NOT_FOUND"
   | "SHIPMENT_NOT_AVAILABLE_FOR_ASSIGNMENT"
   | "OFFER_CONCURRENT_MODIFICATION"
-  | "OFFER_INVALID_TRANSITION";
+  | "OFFER_INVALID_TRANSITION"
+  | "SHIPMENT_NOT_DELIVERED"
+  | "SHIPMENT_RATING_DISPUTE_ACTIVE"
+  | "SHIPMENT_RATING_WINDOW_EXPIRED"
+  | "SHIPMENT_RATING_ALREADY_EXISTS"
+  | "SHIPMENT_RATING_NOT_FOUND";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

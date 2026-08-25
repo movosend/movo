@@ -575,6 +575,70 @@ además que el Swagger generado (`app.swagger()`) expone los 3 paths nuevos.
 Pendiente / fuera de alcance: negociación encadenada y cualquier UI de mobile
 (MOVO-150, bloqueado por este ticket).
 
+Fixes de review (PR #105, JcBordino4, antes de mergear): `listShipmentOffers` ya no
+lista ofertas `pending` de un envío que dejó de estar `published`/`assignment_pending`
+(ej. cancelado) como vigentes/accionables — filtra también por `shipment.status`, no
+solo por el status de la oferta (`includeResolved=true` las sigue mostrando en el
+historial). `offerRepository.acceptOffer()` devuelve las ofertas `superseded`
+(`id`+`carrierId`) directo de la misma transacción, así `offers.service.ts` ya no hace
+un `listByShipment` completo aparte solo para saber a quién notificar el AC9.
+`toOfferDto` (duplicado entre `offers.routes.ts` y `shipments.routes.ts`) extraído a
+`offer.dto.ts`. Del lado mobile, `use-push-notifications.ts` reconoce también
+`offer_accepted`/`offer_superseded`/`offer_rejected` (antes solo `shipment`) — tocar
+esas pushes navegaba a un dead-end.
+
+### MOVO-146 — Schema de Rating y endpoint de calificación post-entrega (`svc-shipments`)
+
+Backend de MOVO-22 (calificaciones): persiste en `shipments.ratings` (no en
+`svc-users`, que es donde se MUESTRA la reputación) porque autorizar un alta necesita
+saber quién participó del envío y si ya está `delivered` — dato que solo tiene este
+servicio (detalle en el comentario del ticket en Linear). Módulo nuevo
+`src/modules/ratings/`: `POST`/`PATCH /shipments/:id/ratings(/:rateeId)`,
+`GET /shipments/:id/ratings`, `GET /internal/users/:id/ratings/recent` (interno, para
+el agregado de MOVO-25, todavía sin arrancar del lado de `svc-users`).
+
+Decisiones clave:
+- **Ventana de 72hs (AC8) y freeze por disputa (AC9) sin columna nueva**
+  (`src/domain/rating-window.ts`): el instante de entrada/salida de `disputed` ya
+  está en `shipment_events` (MOVO-104) — el tiempo total pasado en disputa se
+  reconstruye recorriendo el historial en cada request, mismo criterio de evaluación
+  perezosa que `expired` en ofertas (MOVO-102) o `receiverConfirmationDeadline`
+  (MOVO-130). Hoy `disputed` no tiene salida modelada (`shipment-state-machine.ts`,
+  MOVO-105) así que el freeze siempre resuelve a 0 en la práctica — queda listo para
+  cuando esa transición exista, sin tener que revisitar el cálculo.
+- **PATCH interpretado como `/shipments/:id/ratings/:rateeId`** (rateeId en el path):
+  el AC5 solo pide "editar vía PATCH sobre la misma fila" sin fijar la forma —
+  raterId sale siempre del caller, rateeId identifica la fila junto con shipmentId,
+  sin duplicar el campo en path+body.
+- **Unicidad (AC2) 100% en la base** (`ratings_shipment_rater_ratee_key`), traducida a
+  409 `SHIPMENT_RATING_ALREADY_EXISTS` en `error-handler.ts` — mismo patrón que
+  `ShipmentConcurrentModificationError`/`InsufficientCreationPhotosError`.
+- **`GET /shipments/:id/ratings` habilita a admin además de las partes** (extensión
+  sobre el AC6 literal, "para sus participantes" — confirmada con el equipo, comentario
+  en Linear), con una función de autorización local a `ratings.service.ts` en vez de
+  reusar `assertShipmentAccess` — ese helper no conoce `carrierId` como parte legítima,
+  y acá el transportista sí es parte de una calificación.
+- **Migración (`20260825203000_create_ratings_table`) generada con
+  `prisma migrate diff` schema-a-schema**, aplicada y verificada con
+  `prisma migrate deploy` contra Postgres real (`infra/docker-compose.yml`, levantado
+  para esta US).
+
+Tests: `test/rating-window.test.ts` (dominio puro, incluye acumulación de dos
+disputas separadas), `test/ratings-service.test.ts` (mocks — alta, edición, listado,
+los 3 casos de 403, los tres 409 de estado, propagación de `DuplicateRatingError`),
+`test/ratings.integration.test.ts` (Postgres real — cubre el DoD del ticket: alta
+feliz, no entregado, calificador/calificado ajenos, autocalificación, doble alta,
+score fuera de rango, ventana vencida, disputa activa, PATCH, listado, endpoint
+interno). Suite completa del servicio: 284/284 (25 archivos), corrida contra
+Postgres/Redis reales — `modules/ratings` 100% statements / 97.22% branches (única
+rama sin cubrir: `createRating` sin `notificationsClient` inyectado, camino
+inalcanzable en producción ya que `ratings.routes.ts` siempre construye uno por
+default). `tsc --noEmit` y `eslint` limpios (`src` y `shared/movo-shared`).
+
+Pendiente / fuera de alcance: consumo real desde `svc-users` (MOVO-25, agregado
+ponderado + lectura de este endpoint interno) y desde el mobile (MOVO-153, bloqueado
+por este ticket) — ninguno de los dos arrancó todavía.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

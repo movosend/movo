@@ -10,6 +10,7 @@ import {
   ShipmentNotAvailableForAssignmentError,
   OfferConcurrentModificationError,
 } from "../repositories/offer-repository";
+import { DuplicateRatingError } from "../repositories/rating-repository";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -110,6 +111,18 @@ export default fp(async (app: FastifyInstance) => {
     // vencida o ya resuelta).
     if (error instanceof InvalidOfferTransitionError) {
       const apiError = new ApiError(409, "OFFER_INVALID_TRANSITION", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    // MOVO-146 AC2/AC5: un POST repetido sobre el mismo par (shipmentId, raterId,
+    // rateeId) choca con el constraint único de base -- 409 con código propio en vez
+    // de un 500 genérico, mismo patrón que ShipmentConcurrentModificationError.
+    if (error instanceof DuplicateRatingError) {
+      const apiError = new ApiError(409, "SHIPMENT_RATING_ALREADY_EXISTS", error.message);
       reply.code(apiError.statusCode).send({
         ...apiError.toJSON(),
         requestId,
