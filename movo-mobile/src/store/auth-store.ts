@@ -3,7 +3,7 @@ import type { KycStatus, UserRole } from "@movo/shared/dist/types/user";
 import { authClient } from "../api/auth-client";
 import { registerAuthHooks } from "../api/http-client";
 import type { SessionResponse } from "../api/session-types";
-import { SECURE_STORE_KEYS, secureStore } from "../lib/secure-store";
+import { SECURE_STORE_KEYS, deletePendingRegistrationKeys, secureStore } from "../lib/secure-store";
 import { unregisterCurrentDevice } from "../lib/push-registration";
 
 export interface SessionUser {
@@ -67,9 +67,7 @@ async function clearPersistedSession(): Promise<void> {
     secureStore.deleteItem(SECURE_STORE_KEYS.sessionRefreshToken),
     secureStore.deleteItem(SECURE_STORE_KEYS.sessionUser),
     secureStore.deleteItem(SECURE_STORE_KEYS.sessionExpiresAt),
-    secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationUserId),
-    secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationAccessToken),
-    secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationRefreshToken),
+    deletePendingRegistrationKeys(secureStore),
   ]);
 }
 

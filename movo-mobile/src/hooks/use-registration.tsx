@@ -13,7 +13,7 @@ import {
 import { authClient } from "../api/auth-client";
 import { friendlyErrorMessage } from "../lib/error-messages";
 import { isPasswordValid } from "../lib/password-policy";
-import { SECURE_STORE_KEYS, secureStore } from "../lib/secure-store";
+import { SECURE_STORE_KEYS, deletePendingRegistrationKeys, secureStore } from "../lib/secure-store";
 import { useAuthStore } from "../store/auth-store";
 
 export const PROVINCES = [
@@ -313,11 +313,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       } catch {
         // El userId/token guardado ya no es válido (cuenta eliminada, o access token
         // vencido sin refresh disponible todavía) — se limpia y se arranca de cero.
-        await Promise.all([
-          secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationUserId),
-          secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationAccessToken),
-          secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationRefreshToken),
-        ]);
+        await deletePendingRegistrationKeys(secureStore);
       } finally {
         if (!cancelled) setResumeChecked(true);
       }
@@ -548,11 +544,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
   );
 
   const resetRegistration = useCallback(async () => {
-    await Promise.all([
-      secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationUserId),
-      secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationAccessToken),
-      secureStore.deleteItem(SECURE_STORE_KEYS.pendingRegistrationRefreshToken),
-    ]);
+    await deletePendingRegistrationKeys(secureStore);
     setFields(EMPTY_FIELDS);
     setTouched({});
     setUserId(null);
