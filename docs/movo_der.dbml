@@ -92,6 +92,13 @@ enum package_type_enum {
   fragile_item
 }
 
+// MOVO-146: rol del calificado dentro de ese envío en particular
+enum rating_role_enum {
+  sender
+  carrier
+  receiver
+}
+
 // MOVO-104 AC6: set canónico de 9 estados acordado en MOVO-79, ya vigente
 // como ShipmentStatus en @movo/shared y como shipments.shipment_status_enum.
 // Reemplaza el "status varchar (pendiente)" que tenía el Miro original en
@@ -270,16 +277,7 @@ Table users.user_roles {
   }
 }
 
-Table users.rating {
-  id uuid [pk]
-  shipment_id uuid [ref: > users.shipment_ref.id, note: 'referencia liviana a shipments.shipments']
-  rater_id uuid [ref: > users.user.id]
-  rated_id uuid [ref: > users.user.id]
-  role_context varchar
-  score int
-  comment text
-  created_at timestamp
-}
+// MOVO-146: Table users.rating se movió a shipments.ratings (ver schema shipments)
 
 Table users.kyc_verification {
   id uuid [pk]
@@ -382,19 +380,21 @@ Table shipments.shipments {
   delivery_address varchar
   delivery_lat decimal [note: 'numeric(9,6), AC8 de MOVO-104']
   delivery_lng decimal [note: 'numeric(9,6), AC8 de MOVO-104']
-  pickup_date date
+  pickup_date date [note: 'Implementación actual: fecha fija única. Pendiente migración a rango pickup_date_from / pickup_date_to']
   pickup_time_window_start time
   pickup_time_window_end time
-  suggested_price_ars decimal [note: 'numeric, nunca float (AC8)']
+  suggested_price_ars decimal [null, note: 'numeric, nunca float (AC8) — nullable desde MOVO-82 para fallback cuando pricing falla']
+  calculation_method varchar [null, note: 'MOVO-82: versión del algoritmo de pricing (ej. euclidean_linear_v1)']
   agreed_price_ars decimal [null]
   payment_method varchar [null, note: 'tipado como enum en el Miro original pero sin valores definidos — se deja texto libre a propósito, no se inventan valores']
   status shipment_status_enum
   last_status_changed_at timestamp [null]
   delivered_at timestamp [null]
+  receiver_confirmation_deadline timestamp [null, note: 'MOVO-130: deadline de confirmación del receptor (48h)']
   created_at timestamp
   updated_at timestamp [note: 'mantenida por trigger de Postgres, no por código de aplicación (mismo patrón que users.users)']
 
-  Note: 'La oferta (Offer) vive dentro de este schema. El módulo de pricing-logistics es stateless y sólo calcula, no persiste nada acá.'
+  Note: 'La oferta (Offer) vive dentro de este schema. El módulo de pricing-logistics es stateless y sólo calcula, no persiste nada acá (ADR-019).'
 }
 
 Table shipments.tracking_position {
@@ -404,7 +404,13 @@ Table shipments.tracking_position {
   lng decimal
   recorded_at timestamp
 
-  Note: 'La posición en tiempo real del conductor vive en Redis; esta tabla persiste el dato cada N tiempo definido (no es la fuente en vivo). Todavía sin ticket de implementación.'
+  Note: '''
+    Decisión de diseño pendiente: El DER original y ADR-005 contemplaban streaming
+    periódico vía WebSockets/Socket.io y persistencia en Redis. En MOVO-57 se acordó
+    la transición hacia un modelo bajo demanda (tipo "Find My") con push silencioso
+    al transportista e indicador de antigüedad. Queda pendiente armonizar ADR-005,
+    documentación de contenedores y esta tabla al refinar la épica de tracking (EP-04).
+  '''
 }
 
 // MOVO-104 AC4: implementada como shipments.shipment_photos (reemplaza a
@@ -417,6 +423,10 @@ Table shipments.shipment_photos {
   stage photo_stage_enum
   s3_key varchar
   created_at timestamp
+
+  indexes {
+    (shipment_id, s3_key) [unique, name: 'shipment_photos_shipment_id_s3_key_key', note: 'MOVO-81: idempotencia al confirmar fotos']
+  }
 }
 
 Table shipments.custody_transfer_event {
@@ -459,6 +469,27 @@ Table shipments.offers {
   responded_at timestamp [null]
 
   Note: 'Implementada en MOVO-102 (hermano de MOVO-79/104/105 para la entidad Offer). Índice único parcial sobre (shipment_id, carrier_id) filtrado a status pending (AC7): un transportista no puede tener más de una oferta activa por envío, pero un rechazo/retiro previo no bloquea una oferta nueva.'
+}
+
+// MOVO-146: calificación post-entrega de una parte del envío hacia otra. Persiste en
+// shipments (no en users, que es donde se MUESTRA la reputación) porque autorizar un
+// alta requiere saber quién participó del envío y si ya está delivered — datos que
+// solo tiene este servicio. users lee el agregado por endpoint HTTP interno.
+Table shipments.ratings {
+  id uuid [pk]
+  shipment_id uuid [ref: > shipments.shipments.id]
+  rater_id uuid [ref: > shipments.user_ref.id, note: 'sin FK real (ADR-003)']
+  ratee_id uuid [ref: > shipments.user_ref.id, note: 'sin FK real (ADR-003)']
+  role rating_role_enum [note: 'rol del calificado dentro de este envío en particular (sender, carrier, receiver)']
+  score int [note: '1..5']
+  comment text [null]
+  created_at timestamp
+
+  indexes {
+    (shipment_id, rater_id, ratee_id) [unique, name: 'ratings_shipment_rater_ratee_key']
+    ratee_id
+    shipment_id
+  }
 }
 
 // MOVO-104 AC3: implementada como shipments.shipment_events (reemplaza a
