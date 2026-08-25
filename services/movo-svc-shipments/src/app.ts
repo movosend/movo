@@ -10,6 +10,7 @@ import authPlugin from "./plugins/auth";
 import errorHandlerPlugin from "./plugins/error-handler";
 import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-sweep";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
+import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import offersRoutes, { OffersRoutesOptions } from "./modules/offers/offers.routes";
 import ratingsRoutes, { internalRatingsRoutes, RatingsRoutesOptions } from "./modules/ratings/ratings.routes";
 import accountDeletionRoutes from "./modules/account-deletion/account-deletion.routes";
