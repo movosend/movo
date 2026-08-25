@@ -42,18 +42,15 @@ export function ShipmentRow({
 
   const relativeTime = formatShipmentRowTime(shipment);
 
-  // Emisor → fondo oscuro (ink-950 con borde sutil), ícono caja blanco nítido, mini-flecha lima de marca.
-  // Receptor → fondo bg-mute con borde, ícono caja de alto contraste (fg2), mini-flecha fg1 con fondo sólido.
+  // Emisor → fondo oscuro, ícono caja blanco nítido, flecha lima con contorno oscuro.
+  // Receptor → fondo claro con borde sutil, ícono caja negro/fg1, flecha negra/fg1 con contorno claro.
   const iconBg = isReceiver
     ? "bg-bg-mute border border-border"
-    : "bg-ink-950 dark:bg-ink-900 border border-border-strong";
-  const packageColor = isReceiver ? colors.fg2 : "#FFFFFF";
+    : "bg-ink-950 dark:bg-ink-900";
+  const packageColor = isReceiver ? colors.fg1 : "#FFFFFF";
   const arrowColor = isReceiver ? colors.fg1 : "#C6F24A";
+  const outlineColor = isReceiver ? colors.bg : "#0A0A0B";
   const ArrowIcon = isReceiver ? ArrowDown : ArrowUp;
-
-  // Fondo y borde sólidos para que la mini-flecha tenga un recorte limpio sobre el círculo principal
-  const badgeBg = isReceiver ? colors.bg : "#0A0A0B";
-  const badgeBorder = isReceiver ? colors.fg3 + "33" : "#C6F24A44";
 
   return (
     <Pressable
@@ -61,25 +58,31 @@ export function ShipmentRow({
       onPress={() => router.push(`/shipments/${shipment.id}`)}
       className={`flex-row items-center gap-3 py-3 ${isFirst ? "" : "border-t border-border"}`}
     >
-      {/* Icono de caja con mini-flecha direccional superpuesta con alto contraste */}
-      <View className={`relative h-10 w-10 items-center justify-center rounded-full ${iconBg}`}>
-        <Package size={18} strokeWidth={2} color={packageColor} />
+      {/* Icono de caja con flecha direccional con contorno (sin círculo de fondo) */}
+      <View className={`relative h-11 w-11 items-center justify-center rounded-full ${iconBg}`}>
+        <Package size={20} strokeWidth={1.9} color={packageColor} />
         <View
           style={{
             position: "absolute",
-            bottom: -1,
-            right: -1,
-            width: 16,
-            height: 16,
-            borderRadius: 8,
-            borderWidth: 1.5,
-            borderColor: badgeBorder,
-            backgroundColor: badgeBg,
+            bottom: -3,
+            right: -3,
             alignItems: "center",
             justifyContent: "center",
           }}
         >
-          <ArrowIcon size={9} strokeWidth={2.8} color={arrowColor} />
+          {/* Contorno exterior de la flecha */}
+          <ArrowIcon
+            size={18}
+            strokeWidth={6.0}
+            color={outlineColor}
+            style={{ position: "absolute" }}
+          />
+          {/* Flecha principal */}
+          <ArrowIcon
+            size={18}
+            strokeWidth={3.4}
+            color={arrowColor}
+          />
         </View>
       </View>
 
