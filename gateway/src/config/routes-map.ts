@@ -69,6 +69,14 @@ export function getServiceRoutes(env: {
       upstream: env.SHIPMENTS_SERVICE_URL,
     },
 
+    // offers (MOVO-145): prefijo propio, no anidado bajo /shipments -- mismo criterio
+    // que /addresses (MOVO-119). Protegido por defecto (no está en publicRoutes), el
+    // carrierId sale del x-user-id que ya inyecta este gateway.
+    {
+      prefix: "/offers",
+      upstream: env.SHIPMENTS_SERVICE_URL,
+    },
+
     // payments service (fuera de alcance este sprint, ver MOVO-68: solo
     // svc-users y svc-shipments están vivos. Descomentar cuando el servicio
     // esté listo para proxear)
