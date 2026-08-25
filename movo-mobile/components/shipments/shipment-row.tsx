@@ -42,15 +42,18 @@ export function ShipmentRow({
 
   const relativeTime = formatShipmentRowTime(shipment);
 
-  // Emisor → fondo oscuro (`ink-950` siempre, no temático), ícono caja blanco, mini-flecha lima de marca.
-  // Receptor → fondo `bg-mute` temático, ícono caja fg3, mini-flecha fg1 (negro en light, blanco en dark).
-  // `colors.fg1` es el patrón del proyecto para íconos que deben contrastar con la superficie principal
-  // en ambos temas — en light = #0A0A0B, en dark = #FFFFFF (ver use-theme-colors.ts).
-  const iconBg = isReceiver ? "bg-bg-mute" : "bg-ink-950";
-  const packageColor = isReceiver ? colors.fg3 : "#FFFFFF";
+  // Emisor → fondo oscuro (ink-950 con borde sutil), ícono caja blanco nítido, mini-flecha lima de marca.
+  // Receptor → fondo bg-mute con borde, ícono caja de alto contraste (fg2), mini-flecha fg1 con fondo sólido.
+  const iconBg = isReceiver
+    ? "bg-bg-mute border border-border"
+    : "bg-ink-950 dark:bg-ink-900 border border-border-strong";
+  const packageColor = isReceiver ? colors.fg2 : "#FFFFFF";
   const arrowColor = isReceiver ? colors.fg1 : "#C6F24A";
-  const arrowBadgeBg = isReceiver ? `${colors.fg1}14` : "#C6F24A22";
   const ArrowIcon = isReceiver ? ArrowDown : ArrowUp;
+
+  // Fondo y borde sólidos para que la mini-flecha tenga un recorte limpio sobre el círculo principal
+  const badgeBg = isReceiver ? colors.bg : "#0A0A0B";
+  const badgeBorder = isReceiver ? colors.fg3 + "33" : "#C6F24A44";
 
   return (
     <Pressable
@@ -58,23 +61,25 @@ export function ShipmentRow({
       onPress={() => router.push(`/shipments/${shipment.id}`)}
       className={`flex-row items-center gap-3 py-3 ${isFirst ? "" : "border-t border-border"}`}
     >
-      {/* Icono de caja con mini-flecha direccional superpuesta */}
+      {/* Icono de caja con mini-flecha direccional superpuesta con alto contraste */}
       <View className={`relative h-10 w-10 items-center justify-center rounded-full ${iconBg}`}>
-        <Package size={17} strokeWidth={1.8} color={packageColor} />
+        <Package size={18} strokeWidth={2} color={packageColor} />
         <View
           style={{
             position: "absolute",
-            bottom: 0,
-            right: 0,
-            width: 14,
-            height: 14,
-            borderRadius: 7,
-            backgroundColor: arrowBadgeBg,
+            bottom: -1,
+            right: -1,
+            width: 16,
+            height: 16,
+            borderRadius: 8,
+            borderWidth: 1.5,
+            borderColor: badgeBorder,
+            backgroundColor: badgeBg,
             alignItems: "center",
             justifyContent: "center",
           }}
         >
-          <ArrowIcon size={9} strokeWidth={2.5} color={arrowColor} />
+          <ArrowIcon size={9} strokeWidth={2.8} color={arrowColor} />
         </View>
       </View>
 
