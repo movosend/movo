@@ -60,6 +60,18 @@ enum PhotoStage {
   @@schema("shipments")
 }
 
+// MOVO-146: rol del calificado dentro de ESE envío en particular (no un rol de cuenta
+// como `UserRole` de @movo/shared — el mismo usuario puede calificar/ser calificado
+// como sender en un envío y como carrier en otro).
+enum RatingRole {
+  sender
+  carrier
+  receiver
+
+  @@map("rating_role_enum")
+  @@schema("shipments")
+}
+
 // MOVO-102 AC5: 6 estados, ya vigente como `OfferStatus` en @movo/shared y
 // consumido por offer-state-machine.ts. `expired` es un estado DERIVADO
 // (AC11, perezoso, sin scheduler): ningún código de este servicio ejecuta
@@ -84,7 +96,7 @@ enum OfferStatus {
 // DER — se agregan ahora para no migrar de nuevo pronto cuando lleguen las
 // US de asignación (MOVO-79 EP-03) y pagos (EP-05).
 model Shipment {
-  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   // Referencias lógicas a users.users, sin FK real (AC5, ADR-003).
   senderId   String  @map("sender_id") @db.Uuid
   receiverId String  @map("receiver_id") @db.Uuid
@@ -106,9 +118,9 @@ model Shipment {
   deliveryLat     Decimal @map("delivery_lat") @db.Decimal(9, 6)
   deliveryLng     Decimal @map("delivery_lng") @db.Decimal(9, 6)
 
-  pickupDate             DateTime @map("pickup_date") @db.Date
-  pickupTimeWindowStart  DateTime @map("pickup_time_window_start") @db.Time
-  pickupTimeWindowEnd    DateTime @map("pickup_time_window_end") @db.Time
+  pickupDate            DateTime @map("pickup_date") @db.Date
+  pickupTimeWindowStart DateTime @map("pickup_time_window_start") @db.Time
+  pickupTimeWindowEnd   DateTime @map("pickup_time_window_end") @db.Time
 
   // MOVO-82: nullable = "precio a estimar" (AC6), cuando movo-svc-pricing-logistics no
   // respondió o faltaban datos al crear el envío. Nunca se recalcula (AC8).
@@ -121,12 +133,12 @@ model Shipment {
   // texto libre a propósito, no se inventan valores que nadie definió.
   paymentMethod     String?  @map("payment_method")
 
-  status               ShipmentStatus @default(awaiting_receiver_confirmation)
-  lastStatusChangedAt  DateTime?      @map("last_status_changed_at") @db.Timestamptz
-  deliveredAt          DateTime?      @map("delivered_at") @db.Timestamptz
+  status                       ShipmentStatus @default(awaiting_receiver_confirmation)
+  lastStatusChangedAt          DateTime?      @map("last_status_changed_at") @db.Timestamptz
+  deliveredAt                  DateTime?      @map("delivered_at") @db.Timestamptz
   // MOVO-130 AC1: deadline de confirmación del receptor (createdAt + RECEIVER_CONFIRMATION_TIMEOUT_HOURS).
   // Nullable para envíos preexistentes sin backfill.
-  receiverConfirmationDeadline DateTime? @map("receiver_confirmation_deadline") @db.Timestamptz
+  receiverConfirmationDeadline DateTime?      @map("receiver_confirmation_deadline") @db.Timestamptz
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   // Mantenida por trigger de Postgres (shipments.update_updated_at_column()),
@@ -134,9 +146,10 @@ model Shipment {
   // pise en cada write, redundante con el trigger pero consistente.
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  events ShipmentEvent[]
-  photos ShipmentPhoto[]
-  offers Offer[]
+  events  ShipmentEvent[]
+  photos  ShipmentPhoto[]
+  offers  Offer[]
+  ratings Rating[]
 
   @@index([senderId], map: "shipments_sender_id_idx")
   @@index([receiverId], map: "shipments_receiver_id_idx")
@@ -159,9 +172,9 @@ model ShipmentEvent {
   // Referencia lógica (sender/receiver/carrier/admin), sin FK — nullable
   // porque una transición futura disparada por el sistema (ej. timeout) puede
   // no tener actor humano.
-  actorId String? @map("actor_id") @db.Uuid
-  reason  String?
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  actorId    String?         @map("actor_id") @db.Uuid
+  reason     String?
+  createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
@@ -219,11 +232,11 @@ model Offer {
   carrierRatingAtOffer Decimal? @map("carrier_rating_at_offer") @db.Decimal
   carrierNameAtOffer   String?  @map("carrier_name_at_offer")
 
-  status OfferStatus @default(pending)
+  status      OfferStatus @default(pending)
   // AC2: sostiene la expiración perezosa (AC11).
-  expiresAt   DateTime? @map("expires_at") @db.Timestamptz
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  respondedAt DateTime? @map("responded_at") @db.Timestamptz
+  expiresAt   DateTime?   @map("expires_at") @db.Timestamptz
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  respondedAt DateTime?   @map("responded_at") @db.Timestamptz
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
@@ -231,5 +244,40 @@ model Offer {
   @@index([carrierId], map: "offers_carrier_id_idx")
   @@index([status], map: "offers_status_idx")
   @@map("offers")
+  @@schema("shipments")
+}
+
+// MOVO-146: calificación post-entrega de una parte del envío hacia otra. Persiste en
+// `svc-shipments` (no en `svc-users`, que es donde se MUESTRA la reputación) porque
+// autorizar un alta requiere saber quién participó del envío y si ya está `delivered`
+// -- dato que solo tiene este servicio. `svc-users` lee el agregado por HTTP interno
+// (AC10 de abajo), nunca las filas.
+model Rating {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId String @map("shipment_id") @db.Uuid
+  // Referencias lógicas a users.users, sin FK real (mismo criterio que
+  // Shipment.senderId/receiverId/carrierId, ADR-003).
+  raterId    String @map("rater_id") @db.Uuid
+  rateeId    String @map("ratee_id") @db.Uuid
+
+  // Rol del CALIFICADO dentro de este envío en particular -- no un rol de cuenta.
+  role RatingRole
+
+  // AC4: entero 1..5, sin medias estrellas -- validado en el schema de la ruta
+  // (@movo/shared no define un enum acá, es un número simple).
+  score   Int
+  comment String? @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  // AC2: unicidad a nivel de constraint de base -- una sola calificación por par y por
+  // envío, idempotente ante un doble submit del cliente. La edición (PATCH) reusa esta
+  // misma fila, nunca crea una segunda.
+  @@unique([shipmentId, raterId, rateeId], map: "ratings_shipment_rater_ratee_key")
+  @@index([rateeId], map: "ratings_ratee_id_idx")
+  @@index([shipmentId], map: "ratings_shipment_id_idx")
+  @@map("ratings")
   @@schema("shipments")
 }
