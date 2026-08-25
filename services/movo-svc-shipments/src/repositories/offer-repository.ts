@@ -1,5 +1,5 @@
 import { OfferStatus, ShipmentStatus } from "@movo/shared";
-import { PrismaClient, Offer as OfferRow } from "../generated/prisma/client";
+import { Prisma, PrismaClient, Offer as OfferRow, Shipment as ShipmentRow } from "../generated/prisma/client";
 import { INITIAL_OFFER_STATUS, transition } from "../domain/offer-state-machine";
 import { transition as transitionShipmentStatus } from "../domain/shipment-state-machine";
 import {
@@ -7,6 +7,7 @@ import {
   CreateOfferInput,
   parseOfferStatus,
   deriveEffectiveOfferStatus,
+  OfferWithShipmentContext,
 } from "../models/offer";
 
 function sameDay(a: Date, b: Date): boolean {
@@ -34,6 +35,39 @@ function mapOffer(row: OfferRow): Offer {
     createdAt: row.createdAt,
     respondedAt: row.respondedAt,
   };
+}
+
+function mapOfferWithShipment(row: OfferRow & { shipment: ShipmentRow }): OfferWithShipmentContext {
+  return {
+    ...mapOffer(row),
+    shipment: {
+      id: row.shipment.id,
+      status: row.shipment.status as ShipmentStatus,
+      pickupAddress: row.shipment.pickupAddress,
+      pickupDate: row.shipment.pickupDate,
+      deliveryAddress: row.shipment.deliveryAddress,
+    },
+  };
+}
+
+/**
+ * MOVO-145 (AC2/AC3): traduce un filtro de estado EFECTIVO a un WHERE de Postgres —
+ * necesario porque el conteo de paginación tiene que salir de la base, no de un
+ * post-filtro en memoria sobre `deriveEffectiveOfferStatus`. `expired` no es un valor
+ * de columna real (AC11): mapea a `pending` con `expiresAt` vencido. `pending` en sí
+ * excluye lo que ya venció, para no contarlo dos veces bajo estados distintos.
+ */
+function offerStatusWhere(status: OfferStatus | undefined, now: Date): Prisma.OfferWhereInput {
+  if (status === undefined) {
+    return {};
+  }
+  if (status === OfferStatus.EXPIRED) {
+    return { status: OfferStatus.PENDING, expiresAt: { lt: now } };
+  }
+  if (status === OfferStatus.PENDING) {
+    return { status: OfferStatus.PENDING, OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] };
+  }
+  return { status };
 }
 
 export class OfferNotFoundError extends Error {
@@ -157,6 +191,17 @@ export interface OfferRepository {
    * concurrente ya la modificó).
    */
   acceptOffer(id: string, actorId: string | null): Promise<{ offer: Offer; shipmentId: string }>;
+  /**
+   * MOVO-145 (AC1-AC4): ofertas propias del transportista, más recientes primero, con
+   * el contexto mínimo del envío resuelto en la misma query (`include`, nunca N+1).
+   * `status` filtra por el valor EFECTIVO (`offerStatusWhere`) — sin filtro, todas.
+   */
+  listByCarrier(
+    carrierId: string,
+    page: number,
+    limit: number,
+    status?: OfferStatus
+  ): Promise<{ items: OfferWithShipmentContext[]; total: number }>;
 }
 
 export function createOfferRepository(db: PrismaClient): OfferRepository {
@@ -312,6 +357,26 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
 
         return { offer: mapOffer(accepted), shipmentId: current.shipmentId };
       });
+    },
+
+    async listByCarrier(
+      carrierId: string,
+      page: number,
+      limit: number,
+      status?: OfferStatus
+    ): Promise<{ items: OfferWithShipmentContext[]; total: number }> {
+      const where: Prisma.OfferWhereInput = { carrierId, ...offerStatusWhere(status, new Date()) };
+      const [rows, total] = await Promise.all([
+        db.offer.findMany({
+          where,
+          include: { shipment: true },
+          orderBy: { createdAt: "desc" },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        db.offer.count({ where }),
+      ]);
+      return { items: rows.map(mapOfferWithShipment), total };
     },
   };
 }
