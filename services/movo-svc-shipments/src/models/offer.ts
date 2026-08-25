@@ -1,4 +1,4 @@
-import { OfferStatus } from "@movo/shared";
+import { OfferStatus, ShipmentStatus } from "@movo/shared";
 import { InvalidEnumValueError } from "./shipment";
 
 /**
@@ -20,6 +20,24 @@ export interface Offer {
   expiresAt: Date | null;
   createdAt: Date;
   respondedAt: Date | null;
+}
+
+/**
+ * MOVO-145: contexto mínimo del envío embebido en cada ítem de `GET /offers/mine`
+ * (AC4) — resuelto con un `include` de Prisma en la misma query del repositorio,
+ * nunca con una llamada por ítem. Subconjunto de `Shipment` (`./shipment.ts`), no el
+ * modelo completo: solo lo que la lista necesita para entenderse sin abrir el detalle.
+ */
+export interface OfferShipmentContext {
+  id: string;
+  status: ShipmentStatus;
+  pickupAddress: string;
+  pickupDate: Date;
+  deliveryAddress: string;
+}
+
+export interface OfferWithShipmentContext extends Offer {
+  shipment: OfferShipmentContext;
 }
 
 export interface CreateOfferInput {

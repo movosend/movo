@@ -639,6 +639,36 @@ Pendiente / fuera de alcance: consumo real desde `svc-users` (MOVO-25, agregado
 ponderado + lectura de este endpoint interno) y desde el mobile (MOVO-153, bloqueado
 por este ticket) — ninguno de los dos arrancó todavía.
 
+### MOVO-145 — `GET /offers/mine`: listado de ofertas propias del transportista (`svc-shipments`)
+
+Primer endpoint HTTP de ofertas del servicio (`src/modules/offers/`, nuevo) — hasta
+ahora MOVO-102 solo había entregado dominio/repositorio, sin capa HTTP (ver nota de
+MOVO-108 arriba). `offer-repository.ts#listByCarrier()` es el único método nuevo del
+repositorio.
+
+Decisiones clave:
+- **Filtro de `?status=` traducido a WHERE de Postgres, no post-filtro en memoria**
+  (`offerStatusWhere()`): el conteo de paginación tiene que salir de la base. `expired`
+  no es un valor de columna real (AC11) — mapea a `status='pending' AND expiresAt <
+  now`; `pending` en sí excluye lo ya vencido para no contarlo dos veces. El resto de
+  los estados es igualdad directa.
+- **Contexto de envío con `include` de Prisma en la misma query** (AC4): `Offer.shipment`
+  ya existía como relación desde MOVO-102, no hizo falta tocar el schema. Un ítem
+  `accepted` expone el `status` real del envío embebido (AC5, ej. `assignment_pending`),
+  sin lógica especial — es la misma fila que trae el `include`.
+- **Gateway wireado en el mismo PR** (`gateway/src/config/routes-map.ts`, prefijo
+  `/offers` → `SHIPMENTS_SERVICE_URL`) aunque no estaba en el alcance de archivos del
+  ticket: sin esto el endpoint quedaba inalcanzable por el único entrypoint público.
+  Mismo criterio que `/addresses` de MOVO-119. Protegido por defecto, `carrierId` sale
+  del `x-user-id` inyectado por el gateway, nunca de un query param (AC1).
+- **`offeredDate`/`shipment.pickupDate` con el mismo fix de timezone que `toShipmentDto`**
+  (MOVO-80): columnas `@db.Date` ancladas a UTC, formateadas a string recortado en el
+  DTO de la ruta en vez de dejar que el serializador `format: "date"` les reste el
+  offset del proceso.
+
+Pendiente / fuera de alcance: creación y retiro de ofertas (`POST`/`DELETE`, MOVO-23,
+todavía en Backlog) — este ticket es solo el lado de lectura.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

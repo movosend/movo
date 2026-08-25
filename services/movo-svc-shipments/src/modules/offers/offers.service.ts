@@ -1,9 +1,9 @@
-import { ApiError } from "@movo/shared";
+import { ApiError, OfferStatus } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { NotificationsClient } from "../../adapters/notifications-client";
-import { Offer } from "../../models/offer";
+import { Offer, OfferWithShipmentContext } from "../../models/offer";
 import { assertIsSender } from "../shipments/assert-shipment-access";
 
 type OffersServiceLogger =
@@ -42,6 +42,13 @@ async function dispatchOfferPush(
   }
 }
 
+export interface ListMyOffersResult {
+  items: OfferWithShipmentContext[];
+  page: number;
+  limit: number;
+  total: number;
+}
+
 export function createOffersService(
   offerRepository: OfferRepository,
   shipmentRepository: ShipmentRepository,
@@ -49,6 +56,17 @@ export function createOffersService(
   logger?: OffersServiceLogger
 ) {
   return {
+    /** MOVO-145 (AC1-AC5): ofertas propias del transportista autenticado. */
+    async listMyOffers(
+      carrierId: string,
+      page: number,
+      limit: number,
+      status?: OfferStatus
+    ): Promise<ListMyOffersResult> {
+      const { items, total } = await offerRepository.listByCarrier(carrierId, page, limit, status);
+      return { items, page, limit, total };
+    },
+
     /**
      * AC6/AC7 de MOVO-144: delega en `offerRepository.acceptOffer()` (MOVO-102),
      * que ya resuelve todo el dominio (transacción atómica, bloqueo optimista,

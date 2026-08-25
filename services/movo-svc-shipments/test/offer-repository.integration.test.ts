@@ -418,4 +418,148 @@ describe("offer-repository (Postgres)", () => {
       expect([OfferStatus.ACCEPTED, OfferStatus.REJECTED]).toContain(final?.status);
     });
   });
+
+  describe("listByCarrier (MOVO-145)", () => {
+    it("AC1: lista solo las ofertas propias -- otro transportista no ve nada del primero", async () => {
+      const shipmentId = await createPublishedShipment();
+      const carrierA = randomUUID();
+      const carrierB = randomUUID();
+      await repo.create(baseOfferInput({ shipmentId, carrierId: carrierA }));
+      await repo.create(baseOfferInput({ shipmentId, carrierId: carrierB }));
+
+      const resultA = await repo.listByCarrier(carrierA, 1, 20);
+      expect(resultA.total).toBe(1);
+      expect(resultA.items).toHaveLength(1);
+      expect(resultA.items[0].carrierId).toBe(carrierA);
+    });
+
+    it("sin filtro devuelve todas las ofertas propias, más recientes primero", async () => {
+      const shipmentId = await createPublishedShipment();
+      const carrierId = randomUUID();
+      const first = await repo.create(baseOfferInput({ shipmentId, carrierId }));
+      const shipmentId2 = await createPublishedShipment();
+      const second = await repo.create(baseOfferInput({ shipmentId: shipmentId2, carrierId }));
+
+      const result = await repo.listByCarrier(carrierId, 1, 20);
+      expect(result.total).toBe(2);
+      expect(result.items.map((o) => o.id)).toEqual([second.id, first.id]);
+    });
+
+    it("AC3: filtra por status EFECTIVO -- una pending vencida sale como expired sin tocar la fila, y no aparece bajo pending", async () => {
+      const shipmentId = await createPublishedShipment();
+      const carrierId = randomUUID();
+      const vigente = await repo.create(baseOfferInput({ shipmentId, carrierId }));
+      const shipmentId2 = await createPublishedShipment();
+      const vencida = await repo.create(
+        baseOfferInput({ shipmentId: shipmentId2, carrierId, expiresAt: new Date(Date.now() - 60_000) }),
+      );
+
+      const pendingResult = await repo.listByCarrier(carrierId, 1, 20, OfferStatus.PENDING);
+      expect(pendingResult.total).toBe(1);
+      expect(pendingResult.items[0].id).toBe(vigente.id);
+
+      const expiredResult = await repo.listByCarrier(carrierId, 1, 20, OfferStatus.EXPIRED);
+      expect(expiredResult.total).toBe(1);
+      expect(expiredResult.items[0].id).toBe(vencida.id);
+      expect(expiredResult.items[0].status).toBe(OfferStatus.EXPIRED);
+
+      // La fila en base sigue siendo 'pending' -- expired es puramente derivado (AC11).
+      const raw = await app.db.offer.findUnique({ where: { id: vencida.id } });
+      expect(raw?.status).toBe("pending");
+    });
+
+    it("DoD: filtra por cada uno de los 6 estados efectivos", async () => {
+      const carrierId = randomUUID();
+
+      const shipmentRejected = await createPublishedShipment();
+      const rejected = await repo.create(baseOfferInput({ shipmentId: shipmentRejected, carrierId }));
+      await repo.reject(rejected.id);
+
+      const shipmentWithdrawn = await createPublishedShipment();
+      const withdrawn = await repo.create(baseOfferInput({ shipmentId: shipmentWithdrawn, carrierId }));
+      await repo.withdraw(withdrawn.id);
+
+      const shipmentAccept = await createPublishedShipment();
+      const accepted = await repo.create(baseOfferInput({ shipmentId: shipmentAccept, carrierId }));
+      await repo.acceptOffer(accepted.id, null);
+
+      // superseded: la oferta de `carrierId` queda pisada cuando el emisor acepta la
+      // de OTRO transportista sobre el mismo envío (AC8 de MOVO-102) -- no puede ser el
+      // mismo carrierId que la aceptada, el índice único parcial de AC7 rechaza dos
+      // ofertas pending del mismo transportista sobre el mismo envío.
+      const shipmentSuperseded = await createPublishedShipment();
+      const superseded = await repo.create(baseOfferInput({ shipmentId: shipmentSuperseded, carrierId }));
+      const winningOffer = await repo.create(baseOfferInput({ shipmentId: shipmentSuperseded }));
+      await repo.acceptOffer(winningOffer.id, null);
+
+      const shipmentPending = await createPublishedShipment();
+      const pending = await repo.create(baseOfferInput({ shipmentId: shipmentPending, carrierId }));
+
+      const shipmentExpired = await createPublishedShipment();
+      const expired = await repo.create(
+        baseOfferInput({ shipmentId: shipmentExpired, carrierId, expiresAt: new Date(Date.now() - 60_000) }),
+      );
+
+      const cases: [OfferStatus, string][] = [
+        [OfferStatus.PENDING, pending.id],
+        [OfferStatus.ACCEPTED, accepted.id],
+        [OfferStatus.REJECTED, rejected.id],
+        [OfferStatus.WITHDRAWN, withdrawn.id],
+        [OfferStatus.EXPIRED, expired.id],
+        [OfferStatus.SUPERSEDED, superseded.id],
+      ];
+
+      for (const [status, expectedId] of cases) {
+        const result = await repo.listByCarrier(carrierId, 1, 20, status);
+        expect(result.total, `status=${status}`).toBe(1);
+        expect(result.items[0].id, `status=${status}`).toBe(expectedId);
+        expect(result.items[0].status, `status=${status}`).toBe(status);
+      }
+
+      const all = await repo.listByCarrier(carrierId, 1, 20);
+      expect(all.total).toBe(6);
+    });
+
+    it("pagina correctamente", async () => {
+      const carrierId = randomUUID();
+      for (let i = 0; i < 3; i++) {
+        const shipmentId = await createPublishedShipment();
+        await repo.create(baseOfferInput({ shipmentId, carrierId }));
+      }
+
+      const page1 = await repo.listByCarrier(carrierId, 1, 2);
+      const page2 = await repo.listByCarrier(carrierId, 2, 2);
+
+      expect(page1.total).toBe(3);
+      expect(page1.items).toHaveLength(2);
+      expect(page2.items).toHaveLength(1);
+      const ids = [...page1.items, ...page2.items].map((o) => o.id);
+      expect(new Set(ids).size).toBe(3);
+    });
+
+    it("AC4: trae el contexto mínimo del envío resuelto en la misma query", async () => {
+      const shipmentId = await createPublishedShipment();
+      const carrierId = randomUUID();
+      await repo.create(baseOfferInput({ shipmentId, carrierId }));
+
+      const result = await repo.listByCarrier(carrierId, 1, 20);
+      expect(result.items[0].shipment).toMatchObject({
+        id: shipmentId,
+        pickupAddress: baseShipmentInput.pickupAddress,
+        deliveryAddress: baseShipmentInput.deliveryAddress,
+      });
+      expect(result.items[0].shipment.pickupDate.toISOString()).toBe(PICKUP_DATE.toISOString());
+    });
+
+    it("AC5: una oferta accepted expone el status real del envío (assignment_pending), no published", async () => {
+      const shipmentId = await createPublishedShipment();
+      const carrierId = randomUUID();
+      const offer = await repo.create(baseOfferInput({ shipmentId, carrierId }));
+      await repo.acceptOffer(offer.id, null);
+
+      const result = await repo.listByCarrier(carrierId, 1, 20);
+      expect(result.items[0].status).toBe(OfferStatus.ACCEPTED);
+      expect(result.items[0].shipment.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
+    });
+  });
 });
