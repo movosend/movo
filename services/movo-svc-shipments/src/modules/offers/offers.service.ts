@@ -1,4 +1,4 @@
-import { ApiError, OfferStatus } from "@movo/shared";
+import { ApiError } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
@@ -69,7 +69,7 @@ export function createOffersService(
 
       assertIsSender(shipment, callerId);
 
-      const { offer: accepted, shipmentId } = await offerRepository.acceptOffer(offerId, callerId);
+      const { offer: accepted, shipmentId, superseded } = await offerRepository.acceptOffer(offerId, callerId);
 
       // AC9: best-effort, fire-and-forget -- la transacción de acceptOffer() ya
       // commiteó, un fallo de entrega no revierte la asignación.
@@ -82,31 +82,21 @@ export function createOffersService(
         type: "offer_accepted",
       });
 
-      void (async () => {
-        try {
-          const siblings = await offerRepository.listByShipment(shipmentId);
-          const superseded = siblings.filter(
-            (sibling) => sibling.id !== accepted.id && sibling.status === OfferStatus.SUPERSEDED
-          );
-          await Promise.all(
-            superseded.map((sibling) =>
-              dispatchOfferPush(notificationsClient, logger, {
-                carrierId: sibling.carrierId,
-                title: "Tu oferta ya no está disponible",
-                body: "El emisor eligió otra oferta para este envío.",
-                shipmentId,
-                offerId: sibling.id,
-                type: "offer_superseded",
-              })
-            )
-          );
-        } catch (err) {
-          logger?.warn(
-            { err, event: "notification_dispatch_failed", shipmentId },
-            "No se pudo notificar a los transportistas superados sobre la asignación"
-          );
-        }
-      })();
+      // `acceptOffer()` ya devuelve las ofertas superadas directo de la misma
+      // transacción (hallazgo de review, PR #105) -- evita un `listByShipment`
+      // completo aparte solo para reconstruir a quién notificar.
+      void Promise.all(
+        superseded.map((sibling) =>
+          dispatchOfferPush(notificationsClient, logger, {
+            carrierId: sibling.carrierId,
+            title: "Tu oferta ya no está disponible",
+            body: "El emisor eligió otra oferta para este envío.",
+            shipmentId,
+            offerId: sibling.id,
+            type: "offer_superseded",
+          })
+        )
+      );
 
       return accepted;
     },

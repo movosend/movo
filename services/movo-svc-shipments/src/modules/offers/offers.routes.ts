@@ -5,22 +5,12 @@ import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
-import { Offer } from "../../models/offer";
+import { toOfferDto } from "./offer.dto";
 
 export interface OffersRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración -- mismo criterio que
    * `ShipmentsRoutesOptions.notificationsClient`. */
   notificationsClient?: NotificationsClient;
-}
-
-function toOfferDto(offer: Offer) {
-  return {
-    ...offer,
-    offeredDate: offer.offeredDate.toISOString(),
-    expiresAt: offer.expiresAt ? offer.expiresAt.toISOString() : null,
-    createdAt: offer.createdAt.toISOString(),
-    respondedAt: offer.respondedAt ? offer.respondedAt.toISOString() : null,
-  };
 }
 
 export default async function offersRoutes(app: FastifyInstance, opts: OffersRoutesOptions) {

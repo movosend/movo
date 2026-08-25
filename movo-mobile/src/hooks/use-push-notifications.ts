@@ -21,8 +21,21 @@ Notifications.setNotificationHandler({
   }),
 });
 
+/**
+ * MOVO-144: las pushes de decisión de oferta (`offer_accepted`/`offer_superseded`/
+ * `offer_rejected`, `offers.service.ts` en `svc-shipments`) llevan `shipmentId` con
+ * el mismo shape que las de `shipment` (MOVO-107/132) — tocarlas navega al mismo
+ * detalle de envío hasta que exista una pantalla propia de oferta (MOVO-150).
+ */
+const NAVIGABLE_NOTIFICATION_TYPES: readonly string[] = [
+  "shipment",
+  "offer_accepted",
+  "offer_superseded",
+  "offer_rejected",
+];
+
 interface ShipmentNotificationData {
-  type: "shipment";
+  type: string;
   shipmentId: string;
 }
 
@@ -30,7 +43,7 @@ function isShipmentNotificationData(data: unknown): data is ShipmentNotification
   return (
     typeof data === "object" &&
     data !== null &&
-    (data as { type?: unknown }).type === "shipment" &&
+    NAVIGABLE_NOTIFICATION_TYPES.includes((data as { type?: unknown }).type as string) &&
     typeof (data as { shipmentId?: unknown }).shipmentId === "string"
   );
 }

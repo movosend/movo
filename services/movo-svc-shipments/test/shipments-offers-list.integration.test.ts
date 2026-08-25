@@ -203,6 +203,30 @@ describe("GET /shipments/:id/offers (Postgres)", () => {
     expect(withResolved.json()).toHaveLength(2);
   });
 
+  it("una oferta pending de un envío ya cancelado no aparece como vigente, pero sí con ?includeResolved=true (hallazgo de review PR #105)", async () => {
+    const shipmentId = await createPublishedShipment();
+    const pending = await offerRepo.create(baseOfferInput({ shipmentId, priceOffered: 100 }));
+    // `cancelShipment` solo notifica a los transportistas, nunca transiciona las
+    // filas de `offers` -- la oferta sigue `pending` en base pese a que el envío
+    // ya no acepta asignaciones (ver shipments.service.ts#cancelShipment).
+    await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.CANCELLED, senderId, "cancelado por el emisor");
+
+    const defaultResponse = await app.inject({
+      method: "GET",
+      url: `/shipments/${shipmentId}/offers`,
+      headers: { "x-user-id": senderId },
+    });
+    expect(defaultResponse.json()).toHaveLength(0);
+
+    const withResolved = await app.inject({
+      method: "GET",
+      url: `/shipments/${shipmentId}/offers?includeResolved=true`,
+      headers: { "x-user-id": senderId },
+    });
+    expect(withResolved.json()).toHaveLength(1);
+    expect(withResolved.json()[0].id).toBe(pending.id);
+  });
+
   it("responde 404 para un envío inexistente", async () => {
     const response = await app.inject({
       method: "GET",

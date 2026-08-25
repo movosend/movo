@@ -156,7 +156,14 @@ export interface OfferRepository {
    * (lanza `OfferConcurrentModificationError` si un `withdraw`/`reject`
    * concurrente ya la modificó).
    */
-  acceptOffer(id: string, actorId: string | null): Promise<{ offer: Offer; shipmentId: string }>;
+  acceptOffer(
+    id: string,
+    actorId: string | null,
+  ): Promise<{
+    offer: Offer;
+    shipmentId: string;
+    superseded: Array<{ id: string; carrierId: string }>;
+  }>;
 }
 
 export function createOfferRepository(db: PrismaClient): OfferRepository {
@@ -213,7 +220,14 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
       return applyTerminalTransition(db, id, OfferStatus.REJECTED, /* setRespondedAt */ true);
     },
 
-    async acceptOffer(id: string, actorId: string | null): Promise<{ offer: Offer; shipmentId: string }> {
+    async acceptOffer(
+      id: string,
+      actorId: string | null,
+    ): Promise<{
+      offer: Offer;
+      shipmentId: string;
+      superseded: Array<{ id: string; carrierId: string }>;
+    }> {
       return db.$transaction(async (tx) => {
         const current = await tx.offer.findUnique({ where: { id } });
         if (!current) {
@@ -300,17 +314,26 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         // superseded. Excluye las que ya vencieron lógicamente (expiresAt
         // pasado) para que sigan reportando 'expired' en lectura, no
         // 'superseded' — una condición más en el WHERE, sin costo real.
+        const supersededWhere = {
+          shipmentId: current.shipmentId,
+          status: OfferStatus.PENDING,
+          id: { not: id },
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        };
+        // `carrierId` se lee ANTES del `updateMany` (que no devuelve filas) --
+        // hallazgo de review (PR #105): evita que el caller (offers.service.ts,
+        // AC9) tenga que hacer un `listByShipment` completo aparte solo para
+        // saber a quién notificar.
+        const superseded = await tx.offer.findMany({
+          where: supersededWhere,
+          select: { id: true, carrierId: true },
+        });
         await tx.offer.updateMany({
-          where: {
-            shipmentId: current.shipmentId,
-            status: OfferStatus.PENDING,
-            id: { not: id },
-            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-          },
+          where: supersededWhere,
           data: { status: OfferStatus.SUPERSEDED, respondedAt: now },
         });
 
-        return { offer: mapOffer(accepted), shipmentId: current.shipmentId };
+        return { offer: mapOffer(accepted), shipmentId: current.shipmentId, superseded };
       });
     },
   };

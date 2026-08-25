@@ -407,9 +407,17 @@ export function createShipmentsService(
       }
 
       const offers = await offerRepository.listByShipment(shipmentId);
+      // El emisor puede cancelar/el envío puede dejar de aceptar ofertas sin que
+      // `cancelShipment` toque las filas de `offers` (solo notifica, ver
+      // shipments.service.ts#cancelShipment) — filtrar acá por las ofertas
+      // `pending` de un envío que ya no está `published`/`assignment_pending`
+      // evita listarlas como vigentes/accionables cuando `POST /offers/:id/accept`
+      // ya respondería 409 SHIPMENT_NOT_AVAILABLE_FOR_ASSIGNMENT.
+      const shipmentAcceptsOffers =
+        shipment.status === ShipmentStatus.PUBLISHED || shipment.status === ShipmentStatus.ASSIGNMENT_PENDING;
       const filtered = query.includeResolved
         ? offers
-        : offers.filter((offer) => offer.status === OfferStatus.PENDING);
+        : offers.filter((offer) => offer.status === OfferStatus.PENDING && shipmentAcceptsOffers);
 
       return sortOffers(filtered, query.sort ?? "price");
     },

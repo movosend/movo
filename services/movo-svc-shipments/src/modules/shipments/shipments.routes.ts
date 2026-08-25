@@ -12,8 +12,8 @@ import { createPricingClient, PricingClient } from "../../adapters/pricing-clien
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
 import { Shipment, ShipmentEvent } from "../../models/shipment";
-import { Offer } from "../../models/offer";
 import { ListShipmentOffersQuery, ListShipmentOffersSort } from "./shipments.service";
+import { toOfferDto } from "../offers/offer.dto";
 
 export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -58,16 +58,6 @@ function toShipmentDto(shipment: Shipment) {
     receiverConfirmationDeadline: shipment.receiverConfirmationDeadline
       ? shipment.receiverConfirmationDeadline.toISOString()
       : null,
-  };
-}
-
-function toOfferDto(offer: Offer) {
-  return {
-    ...offer,
-    offeredDate: offer.offeredDate.toISOString(),
-    expiresAt: offer.expiresAt ? offer.expiresAt.toISOString() : null,
-    createdAt: offer.createdAt.toISOString(),
-    respondedAt: offer.respondedAt ? offer.respondedAt.toISOString() : null,
   };
 }
 
