@@ -6,7 +6,15 @@ import { UsersClient } from "../../adapters/users-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
 import { PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
-import { assertIsReceiver, assertShipmentAccess } from "./assert-shipment-access";
+import { Offer } from "../../models/offer";
+import { assertIsReceiver, assertIsSenderOrAdmin, assertShipmentAccess } from "./assert-shipment-access";
+
+export type ListShipmentOffersSort = "price" | "rating" | "createdAt";
+
+export interface ListShipmentOffersQuery {
+  sort?: ListShipmentOffersSort;
+  includeResolved?: boolean;
+}
 
 export interface CreateShipmentServiceInput {
   senderId: string;
@@ -94,6 +102,34 @@ function toRealInstant(anchoredDate: Date): Date {
  * `@db.Time` del repositorio (ver shipment-repository.integration.test.ts). */
 function toEpochTime(timeStr: string): Date {
   return new Date(`1970-01-01T${normalizeTime(timeStr)}.000Z`);
+}
+
+/**
+ * AC4 de MOVO-144: `price` asc por defecto (más barata primero), `rating` desc
+ * (mejor reputación primero) y `createdAt` asc (ofertas más viejas primero,
+ * consistente con el orden de `createdAt` que ya usa `listByShipment`). Los
+ * ratings nulos (transportista sin reseñas todavía) quedan siempre al final,
+ * sin importar la dirección del sort — un `null` no es "el peor rating", es
+ * la ausencia de uno.
+ */
+function sortOffers(offers: Offer[], sort: ListShipmentOffersSort): Offer[] {
+  const sorted = [...offers];
+  switch (sort) {
+    case "rating":
+      sorted.sort((a, b) => {
+        if (a.carrierRatingAtOffer === null) return b.carrierRatingAtOffer === null ? 0 : 1;
+        if (b.carrierRatingAtOffer === null) return -1;
+        return b.carrierRatingAtOffer - a.carrierRatingAtOffer;
+      });
+      return sorted;
+    case "createdAt":
+      sorted.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      return sorted;
+    case "price":
+    default:
+      sorted.sort((a, b) => a.priceOffered - b.priceOffered);
+      return sorted;
+  }
 }
 
 interface ReceiverDecisionPushParams {
@@ -343,6 +379,47 @@ export function createShipmentsService(
 
       assertShipmentAccess(shipment, callerId, callerRoles);
       return repository.listEvents(shipmentId);
+    },
+
+    /**
+     * AC1-AC5 de MOVO-144: lista las ofertas de un envío para el emisor. Usa
+     * exclusivamente los snapshots ya guardados en la oferta
+     * (`carrierNameAtOffer`/`carrierRatingAtOffer`, MOVO-102) — sin llamar a
+     * `svc-users` por cada ítem (AC3). Por defecto solo devuelve ofertas
+     * vigentes (`pending` efectivo, post expiración perezosa); `includeResolved`
+     * suma las terminales (AC5).
+     */
+    async listShipmentOffers(
+      shipmentId: string,
+      callerId: string,
+      callerRoles: UserRole[],
+      query: ListShipmentOffersQuery = {}
+    ): Promise<Offer[]> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+
+      assertIsSenderOrAdmin(shipment, callerId, callerRoles);
+
+      if (!offerRepository) {
+        throw new Error("listShipmentOffers requiere offerRepository (ShipmentsServiceOptions).");
+      }
+
+      const offers = await offerRepository.listByShipment(shipmentId);
+      // El emisor puede cancelar/el envío puede dejar de aceptar ofertas sin que
+      // `cancelShipment` toque las filas de `offers` (solo notifica, ver
+      // shipments.service.ts#cancelShipment) — filtrar acá por las ofertas
+      // `pending` de un envío que ya no está `published`/`assignment_pending`
+      // evita listarlas como vigentes/accionables cuando `POST /offers/:id/accept`
+      // ya respondería 409 SHIPMENT_NOT_AVAILABLE_FOR_ASSIGNMENT.
+      const shipmentAcceptsOffers =
+        shipment.status === ShipmentStatus.PUBLISHED || shipment.status === ShipmentStatus.ASSIGNMENT_PENDING;
+      const filtered = query.includeResolved
+        ? offers
+        : offers.filter((offer) => offer.status === OfferStatus.PENDING && shipmentAcceptsOffers);
+
+      return sortOffers(filtered, query.sort ?? "price");
     },
 
     async acceptShipment(shipmentId: string, callerId: string): Promise<Shipment> {

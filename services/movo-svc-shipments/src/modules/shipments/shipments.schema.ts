@@ -100,6 +100,40 @@ const shipmentResponse = {
   },
 };
 
+const OFFER_SORT_VALUES = ["price", "rating", "createdAt"];
+
+const offerResponse = {
+  type: "object",
+  required: [
+    "id",
+    "shipmentId",
+    "carrierId",
+    "priceOffered",
+    "offeredDate",
+    "message",
+    "carrierRatingAtOffer",
+    "carrierNameAtOffer",
+    "status",
+    "expiresAt",
+    "createdAt",
+    "respondedAt",
+  ],
+  properties: {
+    id: { type: "string" },
+    shipmentId: { type: "string" },
+    carrierId: { type: "string" },
+    priceOffered: { type: "number" },
+    offeredDate: { type: "string", format: "date-time" },
+    message: { type: ["string", "null"] },
+    carrierRatingAtOffer: { type: ["number", "null"] },
+    carrierNameAtOffer: { type: ["string", "null"] },
+    status: { type: "string" },
+    expiresAt: { type: ["string", "null"], format: "date-time" },
+    createdAt: { type: "string", format: "date-time" },
+    respondedAt: { type: ["string", "null"], format: "date-time" },
+  },
+};
+
 const shipmentEventResponse = {
   type: "object",
   required: ["id", "shipmentId", "fromStatus", "toStatus", "actorId", "reason", "createdAt"],
@@ -295,6 +329,21 @@ export const shipmentsSchemas = {
   shipmentEventsResponse: {
     type: "array",
     items: shipmentEventResponse,
+  },
+
+  offerResponse,
+
+  listShipmentOffersQuery: {
+    type: "object",
+    properties: {
+      sort: { type: "string", enum: OFFER_SORT_VALUES, default: "price" },
+      includeResolved: { type: "boolean", default: false },
+    },
+  },
+
+  listShipmentOffersResponse: {
+    type: "array",
+    items: offerResponse,
   },
 
   errorResponse: {
