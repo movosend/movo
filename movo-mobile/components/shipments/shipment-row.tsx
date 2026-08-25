@@ -42,11 +42,14 @@ export function ShipmentRow({
 
   const relativeTime = formatShipmentRowTime(shipment);
 
-  // Emisor → fondo oscuro, ícono caja blanco, mini-flecha lima de marca.
-  // Receptor → fondo muted, ícono caja fg3, mini-flecha negra.
+  // Emisor → fondo oscuro (`ink-950` siempre, no temático), ícono caja blanco, mini-flecha lima de marca.
+  // Receptor → fondo `bg-mute` temático, ícono caja fg3, mini-flecha fg1 (negro en light, blanco en dark).
+  // `colors.fg1` es el patrón del proyecto para íconos que deben contrastar con la superficie principal
+  // en ambos temas — en light = #0A0A0B, en dark = #FFFFFF (ver use-theme-colors.ts).
   const iconBg = isReceiver ? "bg-bg-mute" : "bg-ink-950";
   const packageColor = isReceiver ? colors.fg3 : "#FFFFFF";
-  const arrowColor = isReceiver ? "#0A0A0B" : "#C6F24A";
+  const arrowColor = isReceiver ? colors.fg1 : "#C6F24A";
+  const arrowBadgeBg = isReceiver ? `${colors.fg1}14` : "#C6F24A22";
   const ArrowIcon = isReceiver ? ArrowDown : ArrowUp;
 
   return (
@@ -66,7 +69,7 @@ export function ShipmentRow({
             width: 14,
             height: 14,
             borderRadius: 7,
-            backgroundColor: isReceiver ? "#00000014" : "#C6F24A22",
+            backgroundColor: arrowBadgeBg,
             alignItems: "center",
             justifyContent: "center",
           }}
