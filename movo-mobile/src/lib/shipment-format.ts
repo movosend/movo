@@ -77,9 +77,14 @@ export function shipmentLifecycleStage(status: ShipmentStatus): "ongoing" | "pas
  * `rejected_by_receiver` son los únicos dos estados donde el receptor todavía no dio
  * el visto bueno; cualquier estado posterior (`published` en adelante) implica que ya
  * confirmó, porque no hay transición posible sin pasar por esa confirmación. */
-export function receiverConfirmationStatus(status: ShipmentStatus): "pending" | "confirmed" | "rejected" {
+export function receiverConfirmationStatus(
+  status: ShipmentStatus,
+): "pending" | "confirmed" | "rejected" | undefined {
   if (status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION) return "pending";
   if (status === ShipmentStatus.REJECTED_BY_RECEIVER) return "rejected";
+  if (status === ShipmentStatus.CANCELLED || status === ShipmentStatus.DISPUTED) {
+    return undefined;
+  }
   return "confirmed";
 }
 

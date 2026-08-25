@@ -186,13 +186,20 @@ export default function KycScreen() {
   const isDark = colorScheme === "dark";
   const registration = useRegistration();
   const authStatus = useAuthStore((s) => s.status);
+  const authUser = useAuthStore((s) => s.user);
   const {
-    kycStatus,
+    kycStatus: registrationKycStatus,
     loading,
     errorBanner,
     createKycSession,
     refreshKycStatus,
   } = registration;
+
+  // Si se llega desde el wizard de registro, `registration.kycStatus` tiene prioridad.
+  // Si se llega desde "Mi perfil" (usuario autenticado), `registration.kycStatus` es null
+  // y se lee el estado actual desde `authStore`.
+  const kycStatus = registrationKycStatus ?? authUser?.kycStatus ?? null;
+
   const [phase, setPhase] = useState<"intro" | "connecting" | "result">(
     () => (kycStatus && kycStatusToResultKind(kycStatus) ? "result" : "intro"),
   );

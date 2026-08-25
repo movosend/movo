@@ -199,7 +199,10 @@ describe("ProfileScreen", () => {
     const { getByTestId } = await render(<ProfileScreen />);
 
     fireEvent.press(within(getByTestId("profile-license-banner")).getByText("Ver estado"));
-    expect(router.push).toHaveBeenCalledWith("/license-kyc");
+    expect(router.push).toHaveBeenCalledWith({
+      pathname: "/license-kyc",
+      params: { status: KycStatus.MANUAL_REVIEW },
+    });
   });
 
   it("AC7: dispara logout al tocar 'Cerrar sesión'", async () => {

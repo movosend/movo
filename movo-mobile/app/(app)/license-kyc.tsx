@@ -4,7 +4,7 @@ import type {
   VerificationErrorType,
   VerificationResult,
 } from "@didit-protocol/sdk-react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import {
   CameraOff,
   ShieldAlert,
@@ -162,8 +162,16 @@ export default function LicenseKycScreen() {
   const colors = useThemeColors();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
-  const [phase, setPhase] = useState<"intro" | "connecting" | "result">("intro");
-  const [resultKind, setResultKind] = useState<ResultKind | null>(null);
+  const params = useLocalSearchParams<{ status?: string }>();
+  const initialLicenseStatus = (params.status as KycStatus) || null;
+  const initialKind = initialLicenseStatus ? kycStatusToResultKind(initialLicenseStatus) : null;
+
+  const [phase, setPhase] = useState<"intro" | "connecting" | "result">(
+    () => (initialKind ? "result" : "intro"),
+  );
+  const [resultKind, setResultKind] = useState<ResultKind | null>(
+    () => initialKind,
+  );
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);

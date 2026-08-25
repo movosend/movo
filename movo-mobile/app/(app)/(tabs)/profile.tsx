@@ -89,7 +89,12 @@ export default function ProfileScreen() {
           <ProfileLicenseStatusBanner
             testID="profile-license-banner"
             status={data.licenseKycStatus}
-            onPrimaryAction={() => router.push('/license-kyc')}
+            onPrimaryAction={() =>
+              router.push({
+                pathname: '/license-kyc',
+                params: { status: data.licenseKycStatus },
+              })
+            }
           />
         )}
 

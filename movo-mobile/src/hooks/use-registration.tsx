@@ -495,11 +495,12 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createKycSession = useCallback(async (): Promise<{ ok: boolean; sessionToken?: string }> => {
-    if (!accessToken) return { ok: false };
+    const authState = useAuthStore.getState();
+    if (!accessToken && authState.status !== "authenticated") return { ok: false };
     setLoading(true);
     setErrorBanner(null);
     try {
-      const response = await authClient.createKycSession(accessToken);
+      const response = await authClient.createKycSession(accessToken ?? undefined);
       return { ok: true, sessionToken: response.sessionToken };
     } catch (err) {
       setErrorBanner(friendlyErrorMessage(err, "No pudimos iniciar la verificación. Intentá de nuevo."));
@@ -510,12 +511,13 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
   }, [accessToken]);
 
   const refreshKycStatus = useCallback(async () => {
-    if (!accessToken) return;
+    const authState = useAuthStore.getState();
+    if (!accessToken && authState.status !== "authenticated") return;
     try {
-      const response = await authClient.getKycStatus(accessToken);
+      const response = await authClient.getKycStatus(accessToken ?? undefined);
       setKycStatus(response.status);
       setManualReviewReason(response.manualReviewReason);
-      const authUser = useAuthStore.getState().user;
+      const authUser = authState.user;
       if (authUser && authUser.kycStatus !== response.status) {
         await useAuthStore.getState().updateKycStatus(response.status);
       }
