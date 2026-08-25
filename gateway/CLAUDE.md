@@ -44,6 +44,13 @@ autenticada podía disparar del orden de 200 SMS/min variando el teléfono en ca
 request bajo el límite general. Detalle completo en
 `services/movo-svc-users/CLAUDE.md` (MOVO-133, fixes de review).
 
+### MOVO-145 — Proxy de `/offers` (`svc-shipments`)
+
+Se sumó la entrada `/offers` a `config/routes-map.ts#getServiceRoutes()` (protegido
+por defecto) para proxear `GET /offers/mine`, primer endpoint HTTP de ofertas de
+`svc-shipments`. Detalle completo de la US en
+`services/movo-svc-shipments/CLAUDE.md`.
+
 ### MOVO-139 — Rate limit para la verificación de email
 
 `getRateLimitOverrides()` suma `POST /users/me/email/verify/otp` (5/15min), alineado
