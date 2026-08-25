@@ -866,3 +866,21 @@ desliza).
   Android no genera el ícono/sonido de notificación en el build nativo). Sin cambios
   en `.env.example` — el push token de Expo no requiere ningún secret del lado
   cliente, a diferencia de las keys de Google Maps.
+
+### MOVO-113 — Paquete de fixes por bugs en UI y rediseño de Actividad Reciente (`movo-mobile`)
+
+Resuelve el paquete completo de bugs de navegación/KYC y aplica el rediseño de la sección de Actividad Reciente en Inicio (Home).
+
+1. **Rediseño Actividad Reciente (Home)**:
+   - Header del card: Label izquierdo + dot verde lima (`bg-lime-500`) con contador de pedidos activos (se oculta automáticamente cuando es 0).
+   - Acceso a "Mis Envíos": Fila independiente debajo del card (`ViewAllShipmentsLink`, layout 1-a) con fondo `bg-sub`, borde y chevron.
+   - Filas de envíos (`ShipmentRow`, layout 1-b): Iconos de caja con flechas direccionales superpuestas con contorno exterior limpio (↑ lima `#C6F24A` con outline oscuro para emisor, ↓ negra `colors.fg1` para receptor) + timestamp relativo secundario (`formatShipmentRowTime`).
+
+2. **Bugs corregidos**:
+   - **Bug 1 (Bucle post-KYC onboarding)**: En `profile-photo.tsx#handleFinish()`, se garantiza la actualización incondicional a `KycStatus.APPROVED` en `authStore` antes de llamar `resetRegistration()`, eliminando condiciones de carrera con los guards de navegación.
+   - **Bug 2 (Reinicio de KYC desde Perfil)**: En `app/(auth)/kyc.tsx` y `auth-client.ts`, se unificó la lectura de `kycStatus` cayendo al estado de `authStore` cuando el contexto efímero de registro no está activo, permitiendo consultar el estado real y operar con la sesión autenticada.
+   - **Bug 3 (Flash de interfaz de DIDIT)**: En `kyc.tsx` y `license-kyc.tsx`, `phase` y `resultKind` se derivan inmediatamente en `useState` a partir del status existente/params de ruta, eliminando el frame transitorio de la pantalla de intro.
+   - **Bug 4 (GO_BACK error en login)**: En `login.tsx` (y `register.tsx`), se evalúa `router.canGoBack()` para ejecutar `router.back()` con la animación nativa estándar cuando hay historial previo, o caer a `router.replace('/')` de forma segura.
+   - **Bug 5 (Aceptado en cancelados)**: En `shipment-format.ts`, `receiverConfirmationStatus()` retorna `undefined` ante estados `CANCELLED` y `DISPUTED`, evitando mostrar la pill "Aceptó el envío" en pedidos cancelados por timeout o expiración.
+
+Tests: 64 suites pasadas / 491 tests totales en verde.
