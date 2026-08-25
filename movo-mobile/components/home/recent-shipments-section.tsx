@@ -1,5 +1,4 @@
-import { router } from "expo-router";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
 import { PackageX, WifiOff } from "lucide-react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useRecentShipments } from "../../src/hooks/use-shipments";
@@ -25,8 +24,6 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
   const activeCount = data
     ? data.items.filter((s) => shipmentLifecycleStage(s.status) === "ongoing").length
     : 0;
-
-  const hasShipments = !isLoading && !isError && data && data.items.length > 0;
 
   return (
     <GradientBorderCard
@@ -54,18 +51,11 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
           {/* Contador de activos (solo si hay al menos 1) */}
           {activeCount > 0 ? (
             <View className="flex-row items-center gap-1.5">
-              <View className="h-1.5 w-1.5 rounded-full bg-success-500" />
+              <View className="h-1.5 w-1.5 rounded-full bg-lime-500" />
               <Text className="font-sans-medium text-caption uppercase text-fg-2">
                 {activeCount} {activeCount === 1 ? "activo" : "activos"}
               </Text>
             </View>
-          ) : null}
-
-          {/* Link "Ver todos" (solo cuando hay envíos) */}
-          {hasShipments ? (
-            <Pressable onPress={() => router.push("/shipments")}>
-              <Text className="font-sans-medium text-small text-fg-2">Ver todos</Text>
-            </Pressable>
           ) : null}
         </View>
 

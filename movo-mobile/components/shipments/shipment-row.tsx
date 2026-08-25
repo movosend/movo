@@ -42,9 +42,11 @@ export function ShipmentRow({
 
   const relativeTime = formatShipmentRowTime(shipment);
 
-  // Emisor → fondo oscuro, ícono blanco. Receptor → fondo muted, ícono fg3.
+  // Emisor → fondo oscuro, ícono caja blanco, mini-flecha lima de marca.
+  // Receptor → fondo muted, ícono caja fg3, mini-flecha negra.
   const iconBg = isReceiver ? "bg-bg-mute" : "bg-ink-950";
-  const iconColor = isReceiver ? colors.fg3 : "#FFFFFF";
+  const packageColor = isReceiver ? colors.fg3 : "#FFFFFF";
+  const arrowColor = isReceiver ? "#0A0A0B" : "#C6F24A";
   const ArrowIcon = isReceiver ? ArrowDown : ArrowUp;
 
   return (
@@ -55,7 +57,7 @@ export function ShipmentRow({
     >
       {/* Icono de caja con mini-flecha direccional superpuesta */}
       <View className={`relative h-10 w-10 items-center justify-center rounded-full ${iconBg}`}>
-        <Package size={17} strokeWidth={1.8} color={iconColor} />
+        <Package size={17} strokeWidth={1.8} color={packageColor} />
         <View
           style={{
             position: "absolute",
@@ -64,12 +66,12 @@ export function ShipmentRow({
             width: 14,
             height: 14,
             borderRadius: 7,
-            backgroundColor: isReceiver ? colors.fg3 + "22" : "#FFFFFF22",
+            backgroundColor: isReceiver ? "#00000014" : "#C6F24A22",
             alignItems: "center",
             justifyContent: "center",
           }}
         >
-          <ArrowIcon size={9} strokeWidth={2.5} color={iconColor} />
+          <ArrowIcon size={9} strokeWidth={2.5} color={arrowColor} />
         </View>
       </View>
 
