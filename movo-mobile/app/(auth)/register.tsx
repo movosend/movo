@@ -158,7 +158,11 @@ export default function RegisterScreen() {
 
   function goBack() {
     if (step === 0) {
-      router.back();
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/");
+      }
       return;
     }
     // Simétrico al salto hacia adelante en goNext (step 3): si el teléfono ya está
