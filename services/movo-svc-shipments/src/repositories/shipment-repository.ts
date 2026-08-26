@@ -125,6 +125,17 @@ export interface ShipmentRepository {
    * cancelando, necesita a un admin).
    */
   hasActiveShipmentsForUser(userId: string): Promise<{ hasActiveDispute: boolean; hasActiveShipments: boolean }>;
+  /**
+   * MOVO-147 AC3/AC6: envíos completados (`delivered`) de un usuario como emisor y
+   * como transportista -- lo que hoy `svc-users` devuelve hardcodeado en
+   * `{ asSender: 0, asCarrier: 0 }` (`placeholderTransactionCounts()`). Dos `COUNT()`
+   * independientes en vez de un `groupBy`: `senderId`/`carrierId` son columnas
+   * distintas de la misma fila, no un único campo agrupable, así que un `groupBy` no
+   * aplica acá -- lo que sí exige AC6 (resolverlo con un agregado, nunca trayendo los
+   * envíos del usuario a memoria para contarlos en JS) se cumple igual con las dos
+   * queries de `COUNT`.
+   */
+  countCompletedTransactions(userId: string): Promise<{ asSender: number; asCarrier: number }>;
 }
 
 export class ShipmentNotFoundError extends Error {
@@ -358,6 +369,14 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         hasActiveDispute: rows.some((r) => r.status === ShipmentStatus.DISPUTED),
         hasActiveShipments: rows.some((r) => r.status !== ShipmentStatus.DISPUTED),
       };
+    },
+
+    async countCompletedTransactions(userId: string): Promise<{ asSender: number; asCarrier: number }> {
+      const [asSender, asCarrier] = await Promise.all([
+        db.shipment.count({ where: { senderId: userId, status: ShipmentStatus.DELIVERED } }),
+        db.shipment.count({ where: { carrierId: userId, status: ShipmentStatus.DELIVERED } }),
+      ]);
+      return { asSender, asCarrier };
     },
   };
 }

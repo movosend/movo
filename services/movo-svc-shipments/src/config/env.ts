@@ -16,6 +16,8 @@ export interface EnvConfig {
   ORPHAN_PHOTO_RETENTION_HOURS: number;
   ORPHAN_PHOTO_SWEEP_INTERVAL_MINUTES: number;
   ORPHAN_PHOTO_SWEEP_ENABLED?: boolean;
+  REPUTATION_CONFIDENCE_CONSTANT: number;
+  REPUTATION_DECAY_HALF_LIFE_DAYS: number;
 }
 
 export const envSchema = {
@@ -69,6 +71,15 @@ export const envSchema = {
     // MOVO-124: flag para habilitar/deshabilitar el barrido (útil en test/CI), mismo
     // criterio que RECEIVER_CONFIRMATION_SWEEP_ENABLED.
     ORPHAN_PHOTO_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-147: constante de confianza `C` del shrinkage bayesiano del score de
+    // reputación (domain/reputation.ts) -- con pocas calificaciones el score tiende a
+    // la media global de la plataforma, no a la media (a veces extrema) de la propia
+    // persona. Parámetro del modelo, no incrustado en el código, para poder mostrar su
+    // efecto en la defensa del TFG.
+    REPUTATION_CONFIDENCE_CONSTANT: { type: "number", default: 5 },
+    // MOVO-147: semivida en días del decaimiento temporal de cada calificación --
+    // una racha vieja no sostiene (ni condena) a alguien que hoy trabaja distinto.
+    REPUTATION_DECAY_HALF_LIFE_DAYS: { type: "number", default: 180 },
   },
 };
 
