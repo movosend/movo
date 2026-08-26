@@ -188,6 +188,29 @@ export function getPublicRoutes(): PublicRoute[] {
       path: "/places/details",
       rateLimit: { max: 30, timeWindow: "15 minutes" },
     },
+
+    // recuperación de contraseña (MOVO-140): públicas por necesidad -- el usuario
+    // todavía no tiene sesión, es justo lo que está recuperando. Mismo límite
+    // estricto que /auth/login (AC14 del ticket): evita que el endpoint sea una
+    // fuente gratis de SMS/mails contra terceros (riesgo R10 del plan de proyecto).
+    // Match exacto por método+path, no por prefijo (AC14) -- cada uno con su propio
+    // keyGenerator vía `routeKey` en routes/index.ts, mismo fix que el bug de
+    // namespace compartido de MOVO-72.
+    {
+      method: "POST",
+      path: "/auth/forgot-password",
+      rateLimit: { max: 5, timeWindow: "15 minutes" },
+    },
+    {
+      method: "POST",
+      path: "/auth/verify-reset-otp",
+      rateLimit: { max: 5, timeWindow: "15 minutes" },
+    },
+    {
+      method: "POST",
+      path: "/auth/reset-password",
+      rateLimit: { max: 5, timeWindow: "15 minutes" },
+    },
   ];
 }
 

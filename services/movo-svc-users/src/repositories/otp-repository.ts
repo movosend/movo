@@ -21,6 +21,13 @@ function parseChannel(raw: string | undefined): OtpChannel {
   return raw === "email" ? "email" : DEFAULT_OTP_CHANNEL;
 }
 
+/** Registros sin el campo `isDecoy` (anteriores a MOVO-140, o cualquier flujo que
+ * nunca pase el parámetro) se leen como "no es señuelo" -- ningún flujo previo a esta
+ * US generaba señuelos. */
+function parseIsDecoy(raw: string | undefined): boolean {
+  return raw === "1";
+}
+
 export interface OtpRecord {
   otpId: string;
   target: string;
@@ -46,6 +53,17 @@ export interface OtpRecord {
    * `pendingEmail` (el email candidato del flujo `email-change`).
    */
   meta: Record<string, string>;
+  /**
+   * MOVO-140 (AC2/AC3 de recuperación de contraseña): `true` si este registro es un
+   * señuelo -- generado para un identificador no elegible (no existe, banned/deleted,
+   * o email sin verificar), con un código que nunca sale por ningún canal. Se persiste
+   * en el propio registro, no en un flag del caller, por el mismo motivo que `channel`
+   * (MOVO-139): `resendOtp(otpId)` solo recibe el otpId y no puede recalcular
+   * elegibilidad, así que `otp-service.ts#deliver` necesita poder leerlo del registro
+   * para no entregar nada en un reenvío sobre un señuelo (si esto se olvida, el
+   * reenvío se vuelve un oráculo de enumeración por la puerta de atrás).
+   */
+  isDecoy: boolean;
 }
 
 export interface OtpRepository {
@@ -55,7 +73,8 @@ export interface OtpRepository {
     target: string,
     codeHash: string,
     channel: OtpChannel,
-    meta?: Record<string, string>
+    meta?: Record<string, string>,
+    isDecoy?: boolean
   ): Promise<{ otpId: string }>;
   findById(otpId: string): Promise<OtpRecord | null>;
   findActiveIdByTarget(flow: string, target: string): Promise<string | null>;
@@ -119,7 +138,8 @@ export function createOtpRepository(redis: Redis): OtpRepository {
       target: string,
       codeHash: string,
       channel: OtpChannel,
-      meta: Record<string, string> = {}
+      meta: Record<string, string> = {},
+      isDecoy = false
     ): Promise<{ otpId: string }> {
       if (!isValidId(flow)) {
         throw new Error("flow is required and cannot contain colons");
@@ -149,6 +169,7 @@ export function createOtpRepository(redis: Redis): OtpRepository {
         flow,
         channel,
         meta: JSON.stringify(meta),
+        isDecoy: isDecoy ? "1" : "0",
       });
       await redis.expire(otpKey(otpId), OTP_TTL_SECONDS);
       await redis.set(targetKey(flow, target), otpId, "EX", OTP_TTL_SECONDS);
@@ -176,6 +197,7 @@ export function createOtpRepository(redis: Redis): OtpRepository {
         flow: data.flow,
         channel: parseChannel(data.channel),
         meta: parseMeta(data.meta),
+        isDecoy: parseIsDecoy(data.isDecoy),
       };
     },
 

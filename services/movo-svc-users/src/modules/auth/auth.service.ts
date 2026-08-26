@@ -171,10 +171,15 @@ export function createAuthService(
   phoneVerificationService: Pick<
     PhoneVerificationService,
     "consumePhoneVerificationToken" | "releasePhoneVerificationToken"
-  >
+  >,
+  // MOVO-140 (fix de review, Pedro): opcional -- si el caller ya tiene una instancia
+  // (ej. auth.routes.ts, que también la necesita para passwordResetService), se
+  // reusa en vez de crear una segunda sobre el mismo `redis`. `SessionRepository` no
+  // guarda estado propio (es un wrapper fino sobre Redis), así que dos instancias no
+  // son un bug -- esto es dedupe, no un fix de correctness.
+  sessionRepository: SessionRepository = createSessionRepository(redis)
 ) {
   const repository = createUserRepository(db);
-  const sessionRepository = createSessionRepository(redis);
 
   return {
     async register(input: RegisterUserInput): Promise<RegisterUserResult> {

@@ -62,3 +62,12 @@ request bajo el límite general. Detalle completo en
 con los dos endpoints de cambio de arriba -- ahora manda mails reales por Resend
 (ADR-017): la cuota del free tier y la reputación del dominio son el recurso a
 proteger. Detalle completo en `services/movo-svc-users/CLAUDE.md` (MOVO-139).
+
+### MOVO-140 — Rutas públicas de recuperación de contraseña
+
+`getPublicRoutes()` suma `POST /auth/forgot-password`, `/auth/verify-reset-otp` y
+`/auth/reset-password` -- públicas por necesidad (el usuario todavía no tiene
+sesión), match exacto por método+path (no por prefijo), mismo rate limit estricto
+que `/auth/login` (5/15min c/u, `keyGenerator` propio por ruta vía el mecanismo ya
+existente de `routes/index.ts`) para que no sean una fuente gratis de SMS/mails
+contra terceros. Detalle completo en `services/movo-svc-users/CLAUDE.md` (MOVO-140).

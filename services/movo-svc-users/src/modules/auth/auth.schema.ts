@@ -1,3 +1,18 @@
+// MOVO-140 (AC1/AC10): extraídos para que `forgotPasswordBody.identifier` y
+// `resetPasswordBody.newPassword` compartan exactamente el mismo formato que
+// `registerBody.email`/`.phone`/`.password` -- una sola fuente de verdad para la
+// política de contraseñas y el formato de email/teléfono, en vez de dos definiciones
+// que puedan divergir (a diferencia de `users.schema.ts#changePasswordBody`, MOVO-134,
+// que las duplica a propósito por ser un módulo distinto -- acá vive en el mismo
+// archivo, no hay razón para no compartirlas).
+const EMAIL_PATTERN = "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$";
+const PHONE_PATTERN = "^(\\+?54)?9?\\d{10}$";
+const PASSWORD_SCHEMA = {
+  type: "string",
+  minLength: 8,
+  pattern: "^(?=.*[A-Za-z])(?=.*\\d).{8,}$",
+} as const;
+
 export const authSchemas = {
   registerBody: {
     type: "object",
@@ -17,18 +32,14 @@ export const authSchemas = {
       },
       email: {
         type: "string",
-        pattern: "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+        pattern: EMAIL_PATTERN,
       },
       phone: {
         type: "string",
         // Formato argentino: +54 opcional, 9 opcional (móvil), 10 dígitos (AC2).
-        pattern: "^(\\+?54)?9?\\d{10}$",
+        pattern: PHONE_PATTERN,
       },
-      password: {
-        type: "string",
-        minLength: 8,
-        pattern: "^(?=.*[A-Za-z])(?=.*\\d).{8,}$",
-      },
+      password: PASSWORD_SCHEMA,
       // MOVO-72: emitido por POST /auth/verify-otp (MOVO-71). Se consume acá (single-use)
       // para setear phoneVerified=true — sin esto, AC2 de MOVO-72 (KYC exige teléfono
       // verificado) es imposible de cumplir de punta a punta.
@@ -96,7 +107,7 @@ export const authSchemas = {
       phone: {
         type: "string",
         // Formato argentino: +54 opcional, 9 opcional (móvil), 10 dígitos.
-        pattern: "^(\\+?54)?9?\\d{10}$",
+        pattern: PHONE_PATTERN,
       },
       password: {
         type: "string",
@@ -199,7 +210,7 @@ export const authSchemas = {
       // Mismo patrón que registerBody.phone (AC2 de MOVO-70): +54 opcional, 9 opcional, 10 dígitos.
       phone: {
         type: "string",
-        pattern: "^(\\+?54)?9?\\d{10}$",
+        pattern: PHONE_PATTERN,
       },
     },
   },
@@ -245,6 +256,60 @@ export const authSchemas = {
     properties: {
       resentAt: { type: "string", format: "date-time" },
       cooldownSeconds: { type: "integer", minimum: 0 },
+    },
+  },
+
+  // MOVO-140 (AC1): un solo campo, canal inferido por formato -- si no matchea ni el
+  // patrón de email ni el de teléfono, AJV rechaza con 400 antes de llegar al service
+  // (la letra del AC: "un identificador que no matchee ninguno de los dos formatos es
+  // un 400 de validación de schema, no un señuelo").
+  forgotPasswordBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["identifier"],
+    properties: {
+      identifier: {
+        type: "string",
+        anyOf: [{ pattern: EMAIL_PATTERN }, { pattern: PHONE_PATTERN }],
+      },
+    },
+  },
+  // AC2/AC5: mismo shape exista o no la cuenta (señuelo), `channel` se deriva del
+  // identificador que escribió el usuario, no de la cuenta -- no filtra nada.
+  forgotPasswordResponse: {
+    type: "object",
+    required: ["otpId", "cooldownSeconds", "channel"],
+    properties: {
+      otpId: { type: "string", format: "uuid" },
+      cooldownSeconds: { type: "integer", minimum: 0 },
+      channel: { type: "string", enum: ["sms", "email"] },
+    },
+  },
+  // Mismo shape que verifyOtpBody -- el contrato de OTP no cambia por flujo.
+  verifyResetOtpBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["otpId", "code"],
+    properties: {
+      otpId: { type: "string", format: "uuid" },
+      code: { type: "string", pattern: "^\\d{6}$" },
+    },
+  },
+  verifyResetOtpResponse: {
+    type: "object",
+    required: ["passwordResetToken"],
+    properties: {
+      passwordResetToken: { type: "string" },
+    },
+  },
+  resetPasswordBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["passwordResetToken", "newPassword"],
+    properties: {
+      passwordResetToken: { type: "string" },
+      // AC10: misma política que registerBody.password -- una sola fuente de verdad.
+      newPassword: PASSWORD_SCHEMA,
     },
   },
 };

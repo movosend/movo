@@ -13,26 +13,30 @@ export interface TelegramSmsProviderConfig {
  * para el usuario final): el destinatario acá es el grupo de devs, no quien pidió el
  * OTP. No usar en `prod` — ahí sigue `TwilioSmsProvider`.
  */
+async function postToTelegram(config: TelegramSmsProviderConfig, text: string, errorContext: string): Promise<void> {
+  const response = await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: config.chatId, text }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`TelegramSmsProvider: fallo al ${errorContext} (status ${response.status})`);
+  }
+
+  const body = (await response.json()) as { ok: boolean; description?: string };
+  if (!body.ok) {
+    throw new Error(`TelegramSmsProvider: fallo al ${errorContext} (${body.description ?? "sin descripción"})`);
+  }
+}
+
 export function createTelegramSmsProvider(config: TelegramSmsProviderConfig): SmsProvider {
   return {
     async send(toE164: string, code: string): Promise<void> {
-      const response = await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: config.chatId,
-          text: `El teléfono ${toE164} solicitó un OTP, es el siguiente: ${code}`,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`TelegramSmsProvider: fallo al enviar OTP (status ${response.status})`);
-      }
-
-      const body = (await response.json()) as { ok: boolean; description?: string };
-      if (!body.ok) {
-        throw new Error(`TelegramSmsProvider: fallo al enviar OTP (${body.description ?? "sin descripción"})`);
-      }
+      await postToTelegram(config, `El teléfono ${toE164} solicitó un OTP, es el siguiente: ${code}`, "enviar OTP");
+    },
+    async sendText(toE164: string, message: string): Promise<void> {
+      await postToTelegram(config, `Aviso para ${toE164}: ${message}`, "enviar aviso");
     },
   };
 }
