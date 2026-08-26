@@ -261,12 +261,14 @@ sección solo lista lo transversal (infra, credenciales, decisiones cross-servic
   (`SMS_PROVIDER=telegram`, solo dev), `STORAGE_PROVIDER=s3` + bucket/region de MOVO-97,
   Resend (`EMAIL_PROVIDER=resend` + `RESEND_API_KEY`/`EMAIL_FROM`, ADR-017).
 - **Terraform de `movo-infra`**: bucket de fotos de perfil (MOVO-97/ADR-016) aplicado
-  en dev, `terraform apply` de prod pendiente. Pendiente también el dominio de envío de
-  mails (MOVO-139/ADR-017): el dominio `mail.movosend.app` ya está verificado en Resend
-  y con DKIM/SPF/MX de bounces resueltos, pero **falta el registro DMARC**
-  (`_dmarc.movosend.app`, arrancar en `p=none`) — su ausencia es lo que manda los mails
-  a no deseados en Outlook. Falta además portar a Terraform los registros que se
-  cargaron a mano en Cloudflare, y (opcional) un prefijo `brand/*` público en el bucket
-  de dev si se quiere usar el PNG del logo en los mails.
+  en dev, `terraform apply` de prod pendiente. El dominio de envío de mails
+  (MOVO-139/ADR-017) ya está verificado en Resend con DKIM/SPF/MX de bounces **y
+  DMARC** (`_dmarc.movosend.app`, `p=none`) resueltos — verificado con `dig`, ver
+  `services/movo-svc-users/CLAUDE.md` (MOVO-139). Sigue llegando a spam en Outlook
+  igual: con la autenticación completa y alineada, eso ya es reputación de dominio
+  nuevo sin historial de envíos, no un gap de DNS — mejora con volumen/tiempo, no con
+  otro registro. Falta portar a Terraform los registros que se cargaron a mano en
+  Cloudflare (incluido el DMARC), y (opcional) un prefijo `brand/*` público en el
+  bucket de dev si se quiere usar el PNG del logo en los mails.
 - **ADRs con desarrollo completo pendiente de pegar en Drive** (solo tienen el resumen
   de una línea en la tabla de arriba): 012, 013, 014, 015, 016, 017, 018, 019.
