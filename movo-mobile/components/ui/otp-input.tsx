@@ -19,6 +19,13 @@ export interface OtpInputProps {
   editable?: boolean;
   /** Cada casilla queda como `${testIDPrefix}-${index}`. */
   testIDPrefix?: string;
+  /**
+   * `autoComplete` de la primera casilla (MOVO-141): el autofill de SMS de iOS/Android
+   * solo tiene sentido cuando el código viajó por SMS. `"sms-otp"` por defecto —
+   * ningún caller existente (registro, cambio de teléfono/email) manda un código por
+   * otro canal.
+   */
+  firstBoxAutoComplete?: "sms-otp" | "off";
 }
 
 /**
@@ -40,6 +47,7 @@ export const OtpInput = forwardRef<OtpInputHandle, OtpInputProps>(function OtpIn
     autoFocus = false,
     editable = true,
     testIDPrefix = "otp-input",
+    firstBoxAutoComplete = "sms-otp",
   },
   ref,
 ) {
@@ -108,7 +116,7 @@ export const OtpInput = forwardRef<OtpInputHandle, OtpInputProps>(function OtpIn
           onChangeText={(v) => onDigitChange(index, v)}
           onKeyPress={({ nativeEvent }) => onKeyPress(index, nativeEvent.key)}
           keyboardType="number-pad"
-          autoComplete={index === 0 ? "sms-otp" : "off"}
+          autoComplete={index === 0 ? firstBoxAutoComplete : "off"}
           textContentType="oneTimeCode"
           returnKeyType="done"
           className={`h-14 flex-1 rounded-lg border border-border-strong text-center font-sans-semibold text-[22px] ${
