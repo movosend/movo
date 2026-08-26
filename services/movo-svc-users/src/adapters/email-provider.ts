@@ -68,9 +68,30 @@ function wordmark(): string {
  * sin uno explícito, el cliente agarra el primer texto del cuerpo (en un OTP, terminaba
  * mostrando el código en la lista de mails, a la vista de cualquiera que mire la
  * pantalla). Se oculta con el combo estándar de tamaño 0 + `display:none`.
+ *
+ * **`color-scheme`/`supported-color-schemes`** (reportado por el usuario: en dark mode
+ * de iOS Mail el mail se veía con colores invertidos/raros): sin un documento HTML
+ * completo con estas dos meta etiquetas, Apple Mail (y Outlook.com) asumen que el mail
+ * no declaró soporte de tema y le aplican su propio "smart dark mode" — invierte o
+ * reescribe colores que ya son explícitos acá (fondo negro del header, texto lime sobre
+ * negro del código) pensando que está oscureciendo un mail pensado para claro, y el
+ * resultado es un mosaico de colores que no coincide con ningún tema real. Declarar
+ * `content="light"` en las dos le dice al cliente "este mail ya está diseñado, no lo
+ * toques" — soportado ampliamente (a diferencia de un `<style>` en el head, que Gmail
+ * descarta) porque son meta tags, no reglas de CSS.
  */
 function wrapHtml(title: string, preheader: string, bodyHtml: string): string {
   return [
+    `<!doctype html>`,
+    `<html lang="es">`,
+    `<head>`,
+    `<meta charset="utf-8">`,
+    `<meta name="viewport" content="width=device-width, initial-scale=1">`,
+    `<meta name="color-scheme" content="light">`,
+    `<meta name="supported-color-schemes" content="light">`,
+    `<title>${escapeHtml(title)}</title>`,
+    `</head>`,
+    `<body style="margin:0;padding:0;">`,
     `<div style="margin:0;padding:0;background-color:${INK_100};font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">`,
     `<div style="display:none;font-size:0;line-height:0;max-height:0;overflow:hidden;opacity:0;">${preheader}</div>`,
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="${INK_100}" style="background-color:${INK_100};padding:32px 16px;">`,
@@ -90,6 +111,8 @@ function wrapHtml(title: string, preheader: string, bodyHtml: string): string {
     `<p style="margin:0;font-size:12px;line-height:18px;color:${INK_500};">Este es un mensaje automático de Movo. No respondas a esta dirección.</p>`,
     `</td></tr></table>`,
     `</td></tr></table></div>`,
+    `</body>`,
+    `</html>`,
   ].join("");
 }
 

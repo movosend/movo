@@ -20,6 +20,8 @@ export interface OtpStepProps {
   /** Prefijo de los `testID`: casillas `${testIDPrefix}-input-${i}`, reenvío
    * `${testIDPrefix}-resend`, contador `${testIDPrefix}-resend-cooldown`. */
   testIDPrefix: string;
+  /** Ver `OtpInputProps.firstBoxAutoComplete` (MOVO-141). */
+  firstBoxAutoComplete?: "sms-otp" | "off";
 }
 
 /**
@@ -44,6 +46,7 @@ export const OtpStep = forwardRef<OtpInputHandle, OtpStepProps>(function OtpStep
     editable = true,
     autoFocus = false,
     testIDPrefix,
+    firstBoxAutoComplete,
   },
   ref,
 ) {
@@ -66,6 +69,7 @@ export const OtpStep = forwardRef<OtpInputHandle, OtpStepProps>(function OtpStep
         editable={editable}
         autoFocus={autoFocus}
         testIDPrefix={`${testIDPrefix}-input`}
+        firstBoxAutoComplete={firstBoxAutoComplete}
       />
 
       <View className="mt-5 flex-row items-center justify-between">

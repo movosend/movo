@@ -57,6 +57,17 @@ export interface ResendOtpResponse {
   cooldownSeconds: number;
 }
 
+/** MOVO-140: el canal se infiere en el backend por el formato del identificador. */
+export interface ForgotPasswordResponse {
+  otpId: string;
+  cooldownSeconds: number;
+  channel: "sms" | "email";
+}
+
+export interface VerifyResetOtpResponse {
+  passwordResetToken: string;
+}
+
 export interface CreateKycSessionResponse {
   sessionId: string;
   /** Token que recibe el SDK nativo de Didit (`startVerification`). */
@@ -137,6 +148,23 @@ export const authClient = {
 
   resendOtp(otpId: string): Promise<ResendOtpResponse> {
     return httpClient.post<ResendOtpResponse>("/auth/resend-otp", { otpId });
+  },
+
+  /**
+   * Recuperación de contraseña (MOVO-140/141). Las 3 rutas son públicas —el usuario
+   * todavía no tiene sesión, es justo lo que está recuperando. El reenvío del OTP
+   * reusa `resendOtp` de arriba, no tiene un endpoint propio.
+   */
+  forgotPassword(identifier: string): Promise<ForgotPasswordResponse> {
+    return httpClient.post<ForgotPasswordResponse>("/auth/forgot-password", { identifier });
+  },
+
+  verifyResetOtp(otpId: string, code: string): Promise<VerifyResetOtpResponse> {
+    return httpClient.post<VerifyResetOtpResponse>("/auth/verify-reset-otp", { otpId, code });
+  },
+
+  resetPassword(passwordResetToken: string, newPassword: string): Promise<void> {
+    return httpClient.post<void>("/auth/reset-password", { passwordResetToken, newPassword });
   },
 
   /** Paso de mapa del wizard (MOVO-73): centra el pin inicial a partir de la

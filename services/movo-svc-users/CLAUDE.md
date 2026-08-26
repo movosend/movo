@@ -476,10 +476,28 @@ cayó en la carpeta de no deseados de Outlook):
 - `preheader` explícito: sin uno, la bandeja muestra el primer texto del cuerpo — en el
   mail de OTP eso ponía el código en la lista de mensajes, a la vista de cualquiera que
   mirara la pantalla.
-- **Falta el registro DMARC** (`_dmarc.movosend.app`): verificado con `dig` que DKIM,
-  SPF y el MX de bounces están, pero DMARC no existe en ninguno de los dos niveles. Es
-  la causa principal del filtrado en Outlook/SmartScreen, que además castiga a un
-  dominio recién creado sin historial de envíos. Pendiente en `movo-infra`.
+- **DMARC agregado en `_dmarc.movosend.app`** (`p=none`, `rua=mailto:dmarc@movosend.app`)
+  desde la nota anterior de esta entrada (que decía que faltaba) — verificado con `dig`
+  que DKIM (`resend._domainkey.mail.movosend.app`), SPF (`send.mail.movosend.app`, vía
+  `include:amazonses.com`) y ahora DMARC están los tres presentes y alineados (dominio
+  organizacional `movosend.app` cubre `mail.movosend.app` por el fallback estándar de
+  DMARC, no hace falta un registro específico en el subdominio). Con la autenticación
+  completa, el filtrado que sigue viendo Outlook es consistente con reputación de un
+  dominio recién verificado sin historial de envíos (algo que Microsoft castiga
+  agresivamente incluso con SPF/DKIM/DMARC en verde) — no un problema de configuración
+  de DNS. Mejora con volumen/tiempo de envío real y con destinatarios marcando "No es
+  spam"; subir la política a `p=quarantine` más adelante ayuda al monitoreo pero no
+  acelera esto.
+- **Fix de colores invertidos en dark mode (iOS Mail), reportado por el usuario**:
+  `wrapHtml()` mandaba solo un fragmento (`<div>...</div>`) sin `<html>/<head>` — sin un
+  documento completo con `<meta name="color-scheme" content="light">` y
+  `<meta name="supported-color-schemes" content="light">`, Apple Mail (y Outlook.com)
+  asumen que el mail no declaró soporte de tema y le aplican su "smart dark mode":
+  reescribe/invierte colores que ya eran explícitos acá (fondo negro del header, texto
+  lime sobre negro del código), produciendo el mosaico raro reportado. Se envuelve todo
+  en `<!doctype html><html><head>...</head><body>...` con esas dos meta tags —
+  deliberadamente meta tags y no un `<style>` en el head (que Gmail descarta, ver
+  comentario de cabecera de `wrapHtml`).
 
 Tests: `test/users.email-verification.integration.test.ts` (18 casos, Postgres+Redis
 reales, captor de `EmailProvider` con el mismo patrón que el de SMS) + los casos de

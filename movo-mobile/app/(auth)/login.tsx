@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { ChevronLeft, Eye, EyeOff, Lock } from 'lucide-react-native';
 import { useState } from 'react';
 import {
@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PrimaryButton } from '../../components/auth/primary-button';
 import { ErrorBanner } from '../../components/ui/error-banner';
+import { SuccessBanner } from '../../components/ui/success-banner';
 import { TextField } from '../../components/ui/text-field';
 import { ApiError } from '@movo/shared/dist/errors/api-error';
 import { KycStatus } from '@movo/shared/dist/types/user';
@@ -29,12 +30,14 @@ import { useAuthStore } from '../../src/store/auth-store';
 export default function LoginScreen() {
   const colors = useThemeColors();
   const registration = useRegistration();
+  const { passwordReset } = useLocalSearchParams<{ passwordReset?: string }>();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [touched, setTouched] = useState<{ phone?: boolean; password?: boolean }>({});
   const [loading, setLoading] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
+  const [showResetSuccess, setShowResetSuccess] = useState(passwordReset === '1');
 
   const phoneError = !phone.trim()
     ? 'Ingresá tu teléfono'
@@ -110,6 +113,11 @@ export default function LoginScreen() {
             Ingresá con tu teléfono y contraseña para seguir enviando y llevando paquetes.
           </Text>
 
+          <SuccessBanner
+            testID="login-reset-success-banner"
+            message={showResetSuccess ? 'Contraseña actualizada. Iniciá sesión con tu nueva contraseña.' : null}
+            onDismiss={() => setShowResetSuccess(false)}
+          />
           <ErrorBanner testID="login-error-banner" message={errorBanner} />
 
           <TextField
@@ -163,12 +171,15 @@ export default function LoginScreen() {
             }
           />
 
-          <Text
+          <Pressable
             testID="login-forgot-password"
-            className="mt-2.5 text-right font-sans text-[13px] text-fg-3"
+            onPress={() => router.push('/forgot-password')}
+            className="mt-2.5 items-end"
           >
-            Recuperar contraseña (próximamente)
-          </Text>
+            <Text className="font-sans text-[13px] text-fg-3 underline">
+              ¿Olvidaste tu contraseña?
+            </Text>
+          </Pressable>
 
           <View className="h-6" />
         </ScrollView>

@@ -823,6 +823,54 @@ desliza).
   sincrónicamente) — ningún test depende de los valores animados en sí (`opacity`/
   `translateY`), solo de qué contenido está montado.
 
+### MOVO-141 — Wizard "¿Olvidaste tu contraseña?" (mobile, backend MOVO-140)
+
+Activa el link inerte de `login.tsx` ("Recuperar contraseña (próximamente)") y agrega
+`app/(auth)/forgot-password.tsx`: wizard de 3 pasos (identificador → OTP → contraseña
+nueva) sobre el contrato de `POST /auth/forgot-password`/`verify-reset-otp`/
+`reset-password` (MOVO-140, `PR #108`, ya en `develop`).
+
+- **El AC3 del ticket (extraer la grilla de OTP de `register.tsx`) ya no aplicaba**:
+  esa extracción se hizo en MOVO-135 (`components/ui/otp-input.tsx`/`otp-step.tsx` +
+  `src/hooks/use-otp-cooldown.ts`). Esta US solo reusa esos componentes compartidos,
+  igual que `change-phone.tsx`/`change-email.tsx`/`verify-email.tsx`.
+- **`src/hooks/use-password-reset.tsx` es un hook plano, no un `Context`** como
+  `use-registration.tsx`: el flujo entero vive y muere en una sola pantalla, sin
+  resumibilidad entre sesiones que justifique un Provider. Mismo *shape* de acciones
+  (`async () => {ok, ...}` + `errorBanner` compartido) para no repetir `try/catch` en
+  el screen.
+- **`OtpInput`/`OtpStep` ganaron `firstBoxAutoComplete`** (default `"sms-otp"`,
+  compatible con todos los callers existentes): el AC4 pide que el canal `"email"` no
+  dispare el autofill de SMS en la primera casilla — antes estaba hardcodeado.
+- **Un código vencido (`422 AUTH_OTP_EXPIRED`) vuelve al paso 0**, uno incorrecto
+  (`401 AUTH_OTP_INVALID`) se reintenta en el mismo paso — mismo criterio que
+  `change-phone.tsx`/`change-email.tsx` (MOVO-135).
+- **AC7 (token de reset vencido/usado)**: en vez de una segunda `PrimaryButton`
+  secundaria (patrón inexistente en el repo), el botón único del paso 3 cambia su
+  label/acción a "Volver a empezar" cuando `resetPassword` devuelve `401
+  AUTH_OTP_INVALID` sobre el `passwordResetToken` — reinicia el hook y vuelve al
+  paso 0.
+- **`login.tsx` gana su primer aviso de éxito post-navegación**: `router.replace`
+  manda `{ passwordReset: "1" }` como param, y `login.tsx` lo lee con
+  `useLocalSearchParams` para mostrar `SuccessBanner` (MOVO-136, ya existente) — no
+  había ningún mecanismo de éxito post-navegación en esa pantalla todavía.
+- Sin selector de canal en el paso 1 (AC2) y copy que nunca afirma que la cuenta
+  existe (AC5): la misma frase "si el dato corresponde a una cuenta de Movo" para los
+  dos canales, solo cambia "por SMS"/"a tu email".
+
+Tests nuevos: `test/forgot-password-screen.test.tsx` (los 3 pasos, copy/autofill por
+canal, código incorrecto vs. vencido, reinicio ante token vencido, navegación final
+sin sesión), `test/login-screen.test.tsx` (nuevo — no existía ningún test de esta
+pantalla; cubre el link y el `SuccessBanner`), casos agregados a
+`test/otp-input.test.tsx` (`firstBoxAutoComplete`). 67 suites / 511 tests en
+`movo-mobile`, `tsc --noEmit` limpio (aparte del ruido preexistente y no relacionado
+de `.expo/types/router.d.ts`, gitignoreado — se regenera al levantar el dev server).
+
+Pendiente / fuera de alcance: `.env.example` sin cambios (no hay env vars nuevas del
+lado mobile); probado contra `svc-users` real de punta a punta con
+`SMS_PROVIDER=console`/`EMAIL_PROVIDER=console` queda para QA manual, no verificable
+en este entorno.
+
 ### Pendientes de este paquete
 
 - **`eas init`/development build real en dispositivo**: pendiente para probar de

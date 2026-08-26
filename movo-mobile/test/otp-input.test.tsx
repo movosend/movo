@@ -63,4 +63,17 @@ describe("OtpInput", () => {
     );
     expect(getByTestId("otp-0").props.editable).toBe(false);
   });
+
+  it("usa sms-otp en la primera casilla por defecto (registro, cambio de teléfono/email)", async () => {
+    const { getByTestId } = await render(<Harness />);
+    expect(getByTestId("otp-0").props.autoComplete).toBe("sms-otp");
+    expect(getByTestId("otp-1").props.autoComplete).toBe("off");
+  });
+
+  it("MOVO-141: permite desactivar el autofill de SMS en la primera casilla (canal email)", async () => {
+    const { getByTestId } = await render(
+      <OtpInput value="" onChange={jest.fn()} testIDPrefix="otp" firstBoxAutoComplete="off" />,
+    );
+    expect(getByTestId("otp-0").props.autoComplete).toBe("off");
+  });
 });
