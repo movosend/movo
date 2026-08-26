@@ -69,7 +69,7 @@ describe("offer-repository (Postgres)", () => {
 
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
-    process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://user:password@localhost:5432/movo";
+    process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
     app = buildApp();
     await app.ready();
