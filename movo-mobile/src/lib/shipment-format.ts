@@ -385,6 +385,7 @@ export function formatShipmentRowTime(
   const diffMs = now.getTime() - ref.getTime();
   const diffMin = Math.max(0, Math.floor(diffMs / 60_000));
 
+  if (diffMin <= 1) return "Recién";
   if (diffMin < 60) return `hace ${diffMin} min`;
 
   const diffH = Math.floor(diffMin / 60);
