@@ -101,12 +101,15 @@ export default function ShipmentDetailScreen() {
   const showSenderActions = isSender && shipment !== undefined && canCancelShipment(shipment.status);
 
   const pickupDateLabel = shipment ? formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate : null;
-  // Banner de ofertas: solo tiene sentido mientras el envío sigue abierto a ofertas
-  // (publicado, sin transportista todavía) — un envío ya asignado, cancelado, o
-  // pendiente de que el receptor confirme, no debería sugerir "todavía no tenés
-  // ofertas" como si pudiera recibir alguna en cualquier momento.
+
+  // Banner de ofertas: solo tiene sentido para el emisor mientras el envío sigue
+  // abierto a ofertas (publicado, sin transportista todavía) — el receptor no
+  // participa de la negociación de ofertas (AC1 de MOVO-144, 403 en backend).
   const showOffersBanner =
-    shipment !== undefined && !shipment.carrierId && receiverConfirmationStatus(shipment.status) === "confirmed";
+    isSender &&
+    shipment !== undefined &&
+    !shipment.carrierId &&
+    receiverConfirmationStatus(shipment.status) === "confirmed";
 
   // `router.back()` (no `replace`) — esta pantalla siempre se llega empujando una
   // ruta nueva (fila de "Actividad reciente", MOVO-127), así que hay historial para
@@ -240,7 +243,9 @@ export default function ShipmentDetailScreen() {
                 <PackageCard shipment={shipment} testID="shipment-detail-package" />
               </View>
 
-              {showOffersBanner ? <OffersBanner testID="shipment-detail-offers" /> : null}
+              {showOffersBanner ? (
+                <OffersBanner shipmentId={shipment.id} testID="shipment-detail-offers" />
+              ) : null}
 
               <View>
                 <Eyebrow>{isReceiver ? "Emisor" : "Receptor"}</Eyebrow>
