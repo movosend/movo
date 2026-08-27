@@ -32,6 +32,10 @@ jest.mock("../src/hooks/use-shipments", () => ({
   useCancelShipment: () => mockCancelMutation,
 }));
 
+jest.mock("../src/hooks/use-offers", () => ({
+  useShipmentOffers: () => ({ data: [], isLoading: false }),
+}));
+
 const mockCurrentUser = jest.fn();
 jest.mock("../src/store/auth-store", () => ({
   useAuthStore: (selector?: (state: { user: { userId: string } | null }) => unknown) => {

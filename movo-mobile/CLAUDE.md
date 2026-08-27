@@ -935,3 +935,23 @@ Resuelve el paquete completo de bugs de navegación/KYC y aplica el rediseño de
    - **Bug 8 (Unificación de insignias de verificación en Perfil)**: En `profile.tsx` y `profile-badges.tsx`, se retiró el banner redundante de KYC y se unificaron las insignias de `DNI` y `Licencia` debajo del nombre del usuario (verde `#1F9760` si verificado, rojo `#C22F35` si no verificado, sin fondo de badge).
 
 Tests: 64 suites pasadas / 490 tests totales en verde.
+
+### MOVO-150 — Ofertas recibidas: listado, comparación y elección del transportista (`movo-mobile`)
+
+Frontend de MOVO-17 sobre los endpoints de MOVO-144: el emisor consulta las ofertas recibidas sobre su envío publicado, las compara ordenadas por precio o reputación, visualiza el perfil del transportista y confirma la elección o el rechazo de ofertas puntuales.
+
+- **Punto de acceso en detalle de envío (`OffersBanner`, MOVO-127)**: actualizado para consumir `useShipmentOffers`, mostrando el contador visible *"Ofertas recibidas (N)"* con pill lima interactiva y navegación a `app/(app)/shipments/[id]/offers.tsx`.
+- **Pantalla de ofertas (`app/(app)/shipments/[id]/offers.tsx`)**:
+  - Control de ordenamiento segmentado: *"Menor precio"* (`sort=price`, default) vs. *"Mejor reputación"* (`sort=rating`).
+  - Tarjeta de oferta (`components/shipments/offer-card.tsx`): precio formateado (`formatPriceArs`), fecha de viaje, mensaje opcional, nombre y reputación (`formatReputationScore`, muestra *"Sin calificaciones"* ante ausencia de ratings reales).
+  - Consulta de perfil del transportista (`components/shipments/carrier-profile-sheet.tsx`): Bottom Sheet animado (`useSheetAnimation`) con `ProfileAvatar`, `ProfileBadges` y `ProfileStatsRow`.
+  - Flujo de elección con confirmación (`ChooseOfferModal`): advierte que las demás ofertas quedan descartadas y el transportista queda seleccionado.
+  - Modal de éxito con copy honesto (`ChooseOfferSuccessModal`): refleja que el envío quedó en `assignment_pending` a la espera de la confirmación del pago (MOVO-12), sin prometer falsamente que el envío ya está confirmado.
+  - Rechazo puntual de ofertas (`RejectOfferModal`): permite rechazar una oferta puntual manteniendo el envío publicado para recibir nuevas propuestas.
+  - Manejo de concurrencia 409: captura conflictos por asignación concurrente u ofertas expiradas, explicando que la propuesta ya no está disponible y disparando el refetch automático de ofertas y detalle.
+- **Cliente y hooks (`src/api/offers-client.ts` / `src/hooks/use-offers.ts`)**:
+  - `listShipmentOffers` (`GET /shipments/:id/offers`), `acceptOffer` (`POST /offers/:id/accept`) y `rejectOffer` (`POST /offers/:id/reject`).
+  - Mutaciones con invalidación de queries de detalle de envío, ofertas y listados de inicio.
+
+Tests: `test/offers-client.test.ts`, `test/offer-card.test.tsx`, `test/offers-banner.test.tsx`, `test/offers-screen.test.tsx`. 70 suites / 530 tests en verde.
+
