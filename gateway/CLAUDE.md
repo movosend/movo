@@ -27,14 +27,17 @@ esto, un JWT stateless (ADR-004) seguía siendo válido hasta sus 60 minutos de 
 aunque la sesión ya estuviera revocada del lado de `svc-users`. Ver detalle completo
 en `services/movo-svc-users/CLAUDE.md` (MOVO-134, fixes de review).
 
-### MOVO-144 — Proxy de `/offers` (`svc-shipments`)
+### MOVO-144/145 — Proxy de `/offers` (`svc-shipments`)
 
 Se sumó la entrada `/offers` a `config/routes-map.ts#getServiceRoutes()` (mismo
 `SHIPMENTS_SERVICE_URL` que `/shipments`, protegido por defecto sin tocar
-`getPublicRoutes()`) para proxear `POST /offers/:id/accept` y `POST /offers/:id/reject`
-de `svc-shipments` — viven bajo un prefijo propio, no anidados en `/shipments`. Mismo
-criterio que MOVO-119 de abajo. Detalle completo de la US en
-`services/movo-svc-shipments/CLAUDE.md`.
+`getPublicRoutes()`) para proxear `POST /offers/:id/accept`, `POST /offers/:id/reject`
+(MOVO-144) y `GET /offers/mine` (MOVO-145) de `svc-shipments` — viven bajo un prefijo
+propio, no anidados en `/shipments`. Mismo criterio que MOVO-119 de abajo. Ambas US
+agregaron esta misma entrada en paralelo sobre ramas distintas; al mergear quedó
+una sola (duplicado detectado por el arranque de Fastify fallando en CI con
+`Method '[...]' already declared for route '/api/v1/offers'`, no por el merge en sí).
+Detalle completo de cada US en `services/movo-svc-shipments/CLAUDE.md`.
 
 ### MOVO-119 — Proxy de `/addresses` (`svc-users`)
 
@@ -59,3 +62,12 @@ request bajo el límite general. Detalle completo en
 con los dos endpoints de cambio de arriba -- ahora manda mails reales por Resend
 (ADR-017): la cuota del free tier y la reputación del dominio son el recurso a
 proteger. Detalle completo en `services/movo-svc-users/CLAUDE.md` (MOVO-139).
+
+### MOVO-140 — Rutas públicas de recuperación de contraseña
+
+`getPublicRoutes()` suma `POST /auth/forgot-password`, `/auth/verify-reset-otp` y
+`/auth/reset-password` -- públicas por necesidad (el usuario todavía no tiene
+sesión), match exacto por método+path (no por prefijo), mismo rate limit estricto
+que `/auth/login` (5/15min c/u, `keyGenerator` propio por ruta vía el mecanismo ya
+existente de `routes/index.ts`) para que no sean una fuente gratis de SMS/mails
+contra terceros. Detalle completo en `services/movo-svc-users/CLAUDE.md` (MOVO-140).

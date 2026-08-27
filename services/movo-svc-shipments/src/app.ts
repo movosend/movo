@@ -112,6 +112,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   };
   app.register(shipmentsRoutes, shipmentsRouteOpts);
 
+  // MOVO-144/145: prefijo propio, no anidado bajo /shipments, mismo criterio que
+  // /addresses en el gateway.
   const offersRouteOpts: OffersRoutesOptions = {
     prefix: "/offers",
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),

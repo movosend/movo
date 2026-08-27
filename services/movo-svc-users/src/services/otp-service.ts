@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 import { hash, verify } from "@node-rs/argon2";
 import { ApiError } from "@movo/shared";
 import { OtpRepository, OTP_MAX_ATTEMPTS, OtpChannel } from "../repositories/otp-repository";
@@ -11,6 +12,19 @@ import { buildOtpEmail, EmailProvider } from "../adapters/email-provider";
 const ARGON2ID = 2;
 
 export const OTP_RESEND_COOLDOWN_SECONDS = 60; // AC5
+
+/**
+ * MOVO-140 (fix de review, Pedro): el hash Argon2id del código ya es idéntico en el
+ * camino señuelo y en el real (AC4), pero eso no alcanza -- `deliver()` hace una
+ * llamada de red real a un proveedor externo (Twilio/Resend, ADR-012/017) solo en el
+ * camino real, y esa espera de red domina por completo al hash. Sin esto, un
+ * atacante mide el tiempo de respuesta de POST /auth/forgot-password y distingue el
+ * señuelo del real por la ausencia de esa latencia. No es un constant-time perfecto
+ * (la latencia real de un proveedor externo varía), pero cierra la diferencia obvia
+ * "cero espera vs. una llamada de red" reportada en la review -- mismo espíritu que
+ * el DUMMY_HASH de login() (MOVO-74), que tampoco es perfectamente constante.
+ */
+const DECOY_DELIVER_DELAY_MS = 200;
 
 const OTP_INVALID_OR_EXPIRED_MESSAGE = "El código ingresado es inválido o venció.";
 
@@ -49,7 +63,8 @@ export interface OtpService {
     flow: string,
     target: string,
     meta?: Record<string, string>,
-    channel?: OtpChannel
+    channel?: OtpChannel,
+    isDecoy?: boolean
   ): Promise<{ otpId: string; cooldownSeconds: number; sent: boolean }>;
   verifyOtp(otpId: string, code: string, flow: string): Promise<{ target: string; meta: Record<string, string> }>;
   resendOtp(otpId: string): Promise<{ resentAt: string; cooldownSeconds: number }>;
@@ -80,7 +95,8 @@ export function createOtpService(otpRepository: OtpRepository, providers: OtpCha
       flow: string,
       target: string,
       meta: Record<string, string> = {},
-      channel: OtpChannel = "sms"
+      channel: OtpChannel = "sms",
+      isDecoy = false
     ) {
       // Dentro del cooldown de un OTP ya activo para este (flow, target), no se manda
       // un código nuevo ni se pisa el otpId — se devuelve el mismo otpId + cooldown
@@ -105,12 +121,25 @@ export function createOtpService(otpRepository: OtpRepository, providers: OtpCha
         }
       }
 
+      // MOVO-140 (AC4, señuelo anti-enumeración): el código se genera y se hashea con
+      // Argon2id SIEMPRE, señuelo o no -- ese hash es el costo dominante de esta
+      // función, así que la latencia queda indistinguible entre los dos caminos. Lo
+      // único que cambia con `isDecoy` es que `deliver()` no se llama: el código nunca
+      // sale por ningún canal.
       const code = generateNumericCode();
       const codeHash = await hash(code, { algorithm: ARGON2ID });
-      const { otpId } = await otpRepository.create(flow, target, codeHash, channel, meta);
-      await deliver(channel, target, code);
+      const { otpId } = await otpRepository.create(flow, target, codeHash, channel, meta, isDecoy);
+      if (!isDecoy) {
+        await deliver(channel, target, code);
+      } else {
+        // Nunca se llama a un proveedor real para un señuelo (costaría dinero real y
+        // podría terminar notificando a una cuenta baneada/con email sin verificar de
+        // que alguien está probando su identificador) -- en su lugar se espera un
+        // tiempo comparable al de esa llamada de red, ver DECOY_DELIVER_DELAY_MS.
+        await sleep(DECOY_DELIVER_DELAY_MS);
+      }
 
-      return { otpId, cooldownSeconds: OTP_RESEND_COOLDOWN_SECONDS, sent: true };
+      return { otpId, cooldownSeconds: OTP_RESEND_COOLDOWN_SECONDS, sent: !isDecoy };
     },
 
     async verifyOtp(otpId: string, code: string, flow: string) {
@@ -166,8 +195,14 @@ export function createOtpService(otpRepository: OtpRepository, providers: OtpCha
       const codeHash = await hash(code, { algorithm: ARGON2ID });
       await otpRepository.rotateCode(otpId, codeHash);
       // El canal sale del registro, no del caller: `POST /auth/resend-otp` solo manda
-      // el otpId (AC7 de MOVO-139).
-      await deliver(record.channel, record.target, code);
+      // el otpId (AC7 de MOVO-139). MOVO-140 (AC3): un señuelo también rota el hash
+      // (mismo costo, mismo cooldown) pero nunca se entrega -- sin este chequeo, el
+      // reenvío es un oráculo de enumeración por la puerta de atrás.
+      if (!record.isDecoy) {
+        await deliver(record.channel, record.target, code);
+      } else {
+        await sleep(DECOY_DELIVER_DELAY_MS);
+      }
 
       return { resentAt: new Date().toISOString(), cooldownSeconds: OTP_RESEND_COOLDOWN_SECONDS };
     },

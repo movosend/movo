@@ -10,6 +10,7 @@ function createCaptorSmsProvider() {
     async send(toE164: string, code: string): Promise<void> {
       sentCodes.set(toE164, code);
     },
+    async sendText(): Promise<void> {},
   };
   return { provider, sentCodes };
 }

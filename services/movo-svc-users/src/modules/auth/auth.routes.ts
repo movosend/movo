@@ -7,6 +7,8 @@ import { createOtpService } from "../../services/otp-service";
 import { createSmsProvider, SmsProvider } from "../../adapters/sms-provider";
 import { createEmailProvider, EmailProvider } from "../../adapters/email-provider";
 import { createPhoneVerificationService } from "./phone-verification.service";
+import { createSessionRepository } from "../../repositories/session-repository";
+import { createPasswordResetService } from "./password-reset.service";
 
 export interface AuthRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests — evita depender de logs de consola para leer el código
@@ -34,6 +36,20 @@ interface RefreshBody {
   refreshToken: string;
 }
 
+interface ForgotPasswordBody {
+  identifier: string;
+}
+
+interface VerifyResetOtpBody {
+  otpId: string;
+  code: string;
+}
+
+interface ResetPasswordBody {
+  passwordResetToken: string;
+  newPassword: string;
+}
+
 export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesOptions) {
   const smsProvider = opts.smsProvider ?? createSmsProvider(app.config);
   const emailProvider = opts.emailProvider ?? createEmailProvider(app.config);
@@ -41,7 +57,22 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
   const otpService = createOtpService(otpRepository, { sms: smsProvider, email: emailProvider });
   const phoneVerificationService = createPhoneVerificationService(otpService, app.redis, app.config.JWT_SECRET);
 
-  const service = createAuthService(app.db, app.redis, phoneVerificationService);
+  // Una sola instancia, compartida con passwordResetService (fix de review, Pedro) --
+  // SessionRepository no guarda estado propio, así que crear una segunda sobre el
+  // mismo Redis solo era trabajo de más, no un bug.
+  const sessionRepository = createSessionRepository(app.redis);
+  const service = createAuthService(app.db, app.redis, phoneVerificationService, sessionRepository);
+
+  const passwordResetService = createPasswordResetService(
+    app.db,
+    app.redis,
+    sessionRepository,
+    otpService,
+    smsProvider,
+    emailProvider,
+    app.config.JWT_SECRET,
+    app.log
+  );
 
   app.post<{ Body: RegisterUserInput }>(
     "/register",
@@ -249,6 +280,85 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
         throw new ApiError(401, "AUTH_TOKEN_INVALID", "Missing or invalid authorization header");
       }
       await service.logoutAll(userId);
+      reply.code(204);
+      return null;
+    }
+  );
+
+  app.post<{ Body: ForgotPasswordBody }>(
+    "/forgot-password",
+    {
+      schema: {
+        summary: "Iniciar recuperación de contraseña",
+        description:
+          "Recibe un identificador (email o teléfono, el canal se infiere por el " +
+          "formato) y manda un OTP. La respuesta es siempre 200 con el mismo shape, " +
+          "exista o no la cuenta (AC2 de MOVO-140) -- no revela si el identificador " +
+          "está registrado.",
+        tags: ["auth"],
+        body: authSchemas.forgotPasswordBody,
+        response: {
+          200: authSchemas.forgotPasswordResponse,
+          400: authSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest<{ Body: ForgotPasswordBody }>, reply: FastifyReply) => {
+      const result = await passwordResetService.forgotPassword(request.body.identifier);
+      reply.code(200);
+      return result;
+    }
+  );
+
+  app.post<{ Body: VerifyResetOtpBody }>(
+    "/verify-reset-otp",
+    {
+      schema: {
+        summary: "Verificar el OTP de recuperación de contraseña",
+        description:
+          "Valida el código contra el otpId de /auth/forgot-password. Si es correcto, " +
+          "devuelve un passwordResetToken de 15 minutos y un solo uso para pasar en " +
+          "el body de POST /auth/reset-password -- distinto del phoneVerificationToken " +
+          "de MOVO-71 (propósitos distintos a propósito, AC8).",
+        tags: ["auth"],
+        body: authSchemas.verifyResetOtpBody,
+        response: {
+          200: authSchemas.verifyResetOtpResponse,
+          400: authSchemas.errorResponse,
+          401: authSchemas.errorResponse,
+          422: authSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest<{ Body: VerifyResetOtpBody }>, reply: FastifyReply) => {
+      const result = await passwordResetService.verifyResetOtp(request.body.otpId, request.body.code);
+      reply.code(200);
+      return result;
+    }
+  );
+
+  app.post<{ Body: ResetPasswordBody }>(
+    "/reset-password",
+    {
+      schema: {
+        summary: "Completar la recuperación de contraseña",
+        description:
+          "Recibe el passwordResetToken vigente y la contraseña nueva. Marca el token " +
+          "como usado de forma atómica, persiste el hash y revoca todas las sesiones " +
+          "activas del usuario en todos los dispositivos (AC12). Manda un aviso de " +
+          "contraseña cambiada por todos los canales verificados de la cuenta (AC13).",
+        tags: ["auth"],
+        body: authSchemas.resetPasswordBody,
+        response: {
+          204: { type: "null" },
+          400: authSchemas.errorResponse,
+          401: authSchemas.errorResponse,
+          403: authSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest<{ Body: ResetPasswordBody }>, reply: FastifyReply) => {
+      await passwordResetService.resetPassword(request.body.passwordResetToken, request.body.newPassword);
       reply.code(204);
       return null;
     }

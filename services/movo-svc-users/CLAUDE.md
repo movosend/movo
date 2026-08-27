@@ -476,10 +476,28 @@ cayó en la carpeta de no deseados de Outlook):
 - `preheader` explícito: sin uno, la bandeja muestra el primer texto del cuerpo — en el
   mail de OTP eso ponía el código en la lista de mensajes, a la vista de cualquiera que
   mirara la pantalla.
-- **Falta el registro DMARC** (`_dmarc.movosend.app`): verificado con `dig` que DKIM,
-  SPF y el MX de bounces están, pero DMARC no existe en ninguno de los dos niveles. Es
-  la causa principal del filtrado en Outlook/SmartScreen, que además castiga a un
-  dominio recién creado sin historial de envíos. Pendiente en `movo-infra`.
+- **DMARC agregado en `_dmarc.movosend.app`** (`p=none`, `rua=mailto:dmarc@movosend.app`)
+  desde la nota anterior de esta entrada (que decía que faltaba) — verificado con `dig`
+  que DKIM (`resend._domainkey.mail.movosend.app`), SPF (`send.mail.movosend.app`, vía
+  `include:amazonses.com`) y ahora DMARC están los tres presentes y alineados (dominio
+  organizacional `movosend.app` cubre `mail.movosend.app` por el fallback estándar de
+  DMARC, no hace falta un registro específico en el subdominio). Con la autenticación
+  completa, el filtrado que sigue viendo Outlook es consistente con reputación de un
+  dominio recién verificado sin historial de envíos (algo que Microsoft castiga
+  agresivamente incluso con SPF/DKIM/DMARC en verde) — no un problema de configuración
+  de DNS. Mejora con volumen/tiempo de envío real y con destinatarios marcando "No es
+  spam"; subir la política a `p=quarantine` más adelante ayuda al monitoreo pero no
+  acelera esto.
+- **Fix de colores invertidos en dark mode (iOS Mail), reportado por el usuario**:
+  `wrapHtml()` mandaba solo un fragmento (`<div>...</div>`) sin `<html>/<head>` — sin un
+  documento completo con `<meta name="color-scheme" content="light">` y
+  `<meta name="supported-color-schemes" content="light">`, Apple Mail (y Outlook.com)
+  asumen que el mail no declaró soporte de tema y le aplican su "smart dark mode":
+  reescribe/invierte colores que ya eran explícitos acá (fondo negro del header, texto
+  lime sobre negro del código), produciendo el mosaico raro reportado. Se envuelve todo
+  en `<!doctype html><html><head>...</head><body>...` con esas dos meta tags —
+  deliberadamente meta tags y no un `<style>` en el head (que Gmail descarta, ver
+  comentario de cabecera de `wrapHtml`).
 
 Tests: `test/users.email-verification.integration.test.ts` (18 casos, Postgres+Redis
 reales, captor de `EmailProvider` con el mismo patrón que el de SMS) + los casos de
@@ -490,6 +508,93 @@ Pendiente / fuera de alcance: UI mobile (insignia + CTA, se suman a MOVO-135, qu
 este ticket); verificación obligatoria en el registro (MOVO-7); recuperación de
 contraseña por email (MOVO-64); mover el `EmailProvider` a `shared/` (nace acá, se
 evalúa al haber un segundo consumidor real).
+
+### MOVO-140 — Recuperación de contraseña: OTP por SMS o email, señuelo anti-enumeración
+
+`POST /auth/forgot-password`, `/auth/verify-reset-otp`, `/auth/reset-password` en
+`src/modules/auth/` (nuevo `password-reset.service.ts`) + 3 rutas públicas con rate
+limit propio en `gateway/src/config/routes-map.ts` (ver `gateway/CLAUDE.md`). Cierra
+MOVO-64 junto con MOVO-71/MOVO-139 (base de OTP por SMS/email) y MOVO-134 (patrón de
+revocación de sesiones al cambiar contraseña).
+
+Decisiones clave:
+- **Señuelo anti-enumeración persistido en el propio registro de Redis**:
+  `otp-repository.ts#OtpRecord.isDecoy` (booleano, igual criterio que `channel` de
+  MOVO-139) — `otp-service.ts#generateOtp`/`resendOtp` generan y hashean el código
+  igual que un OTP real (mismo costo de Argon2id, misma latencia) pero saltean
+  `deliver()`. Sin el flag en el registro, `resendOtp(otpId)` —genérico, solo recibe
+  el otpId— no tiene forma de saber que no debe entregar nada, y el reenvío se
+  vuelve un oráculo de enumeración por la puerta de atrás.
+- **La consulta a la DB en `forgotPassword` se hace siempre, antes de decidir
+  señuelo o no** (mismo criterio que el `DUMMY_HASH` de `login()`, MOVO-74): sin
+  esto, el camino señuelo sería más rápido y la latencia delataría qué
+  identificadores están registrados.
+- **`SmsProvider` ganó `sendText(toE164, message)`**, separado de `send(toE164,
+  code)`: ese último es específico de OTP (cada implementación arma
+  `buildOtpMessage(code)` internamente), así que no servía para un aviso de texto
+  libre como "tu contraseña cambió". `EmailProvider.send()` no necesitó cambios —
+  ya recibía el contenido armado por el caller.
+- **`passwordResetToken` es un JWT propio** (`purpose: "password_reset"`, `sub`=
+  userId, 15min TTL, single-use vía `SET NX` en Redis), copiado del patrón de
+  `phoneVerificationToken` (MOVO-71) pero deliberadamente no reusado: son propósitos
+  distintos (uno registra una cuenta nueva, el otro cambia la contraseña de una
+  existente).
+- **No se rechaza que la contraseña nueva sea igual a la anterior** (a diferencia
+  de `POST /users/me/password`, MOVO-134): acá el usuario llegó porque no la
+  recordaba, bloquearlo si acertó la vieja es fricción sin ganancia de seguridad —
+  decisión explícita del ticket, no un olvido.
+- **`newPassword`/`registerBody.password` comparten el mismo objeto de schema**
+  (`PASSWORD_SCHEMA` en `auth.schema.ts`, igual que `EMAIL_PATTERN`/`PHONE_PATTERN`):
+  a diferencia de `users.schema.ts#changePasswordBody` (MOVO-134, duplicado a
+  propósito por vivir en otro módulo), acá las dos definiciones viven en el mismo
+  archivo, así que se comparte el objeto en vez de duplicarlo.
+- **Aviso de contraseña cambiada revoca sesiones antes de mandarse, y es
+  best-effort**: mismo orden y mismo criterio que el aviso al email anterior de
+  MOVO-139 — un fallo de entrega no revierte el cambio de contraseña ni cambia el
+  204, se loguea y sigue.
+
+Tests: `test/auth.password-reset.integration.test.ts` (23 casos, Postgres+Redis
+reales) cubriendo los dos canales, el señuelo en sus cuatro variantes (inexistente,
+`emailVerified:false`, `banned`, `deleted`), el reenvío sobre un otpId señuelo, los
+casos de error del OTP y del token, y que el refresh token previo quede muerto tras
+el reset. 45/45 suites, 433/433 tests en `movo-svc-users`; 5/5 suites, 49/49 tests en
+`gateway`. `tsc --noEmit` y `eslint` limpios en ambos paquetes. Probado a mano de
+punta a punta con `SMS_PROVIDER=console`/`EMAIL_PROVIDER=console` (flujo feliz y
+señuelo).
+
+**Fixes de review sobre la implementación inicial (Pedro):**
+- **Timing side-channel real en el señuelo** (Alto): `otp-service.ts#deliver()` hace
+  una llamada de red real a Twilio/Resend solo en el camino real -- el hash Argon2id
+  del código (AC4) ya era idéntico en los dos caminos, pero eso no alcanzaba: la
+  espera de red domina por completo al hash, así que un atacante podía medir el
+  tiempo de respuesta de `forgot-password` para distinguir el señuelo del real.
+  Se agregó `DECOY_DELIVER_DELAY_MS` (200ms): el camino señuelo espera ese tiempo en
+  vez de llamar al proveedor real (no se lo puede llamar de verdad -- costaría
+  dinero y podría notificar a una cuenta baneada de que alguien está probando su
+  identificador). No es constant-time perfecto (la latencia real de un proveedor
+  externo varía), cierra la diferencia obvia reportada. Acotado a `isDecoy=true`
+  (nunca se ejecuta para register/phone-change/email-verify, que nunca pasan ese
+  flag), así que no afecta la latencia de ningún otro flujo de OTP.
+- **`resetPassword()` no revalidaba el estado de la cuenta** (Alto): el
+  `passwordResetToken` se emite con el estado de la cuenta al momento del OTP, pero
+  nada impedía que quedara baneada/eliminada durante su TTL de 15min --
+  `updatePassword()` no chequea `status`, solo hace el UPDATE por id, así que el
+  cambio se persistía igual. Se agregó el mismo chequeo que `login()`/`refresh()`
+  (MOVO-74/75): usuario inexistente -> 401 genérico, baneado/eliminado -> 403
+  `ACCOUNT_SUSPENDED` (nuevo código de respuesta para este endpoint, ya existente en
+  `@movo/shared`).
+- **`SessionRepository` duplicado** (menor, simplificación): `createAuthService`
+  creaba su propia instancia interna además de la que `auth.routes.ts` ya armaba
+  para `passwordResetService` -- sin bug real (el repositorio no tiene estado
+  propio), pero trabajo de más. `createAuthService` ahora acepta un
+  `sessionRepository` opcional (default `createSessionRepository(redis)` si no se
+  pasa, no rompe los dos call sites de test que lo instancian sin ese argumento);
+  `auth.routes.ts` crea una sola instancia y la comparte.
+- El cuarto hallazgo de la review (`sendText` requerido rompiendo ~10 tests) ya
+  estaba resuelto en el momento de la review -- los 10 fixtures de `SmsProvider` en
+  `test/` ya lo implementaban desde la primera versión de este PR.
+
+Pendiente / fuera de alcance: consumo desde `movo-mobile` (ticket aparte).
 
 ### Pendientes de este servicio
 

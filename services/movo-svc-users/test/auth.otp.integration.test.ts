@@ -13,6 +13,7 @@ function createCaptorSmsProvider() {
       sentCodes.set(toE164, code);
       sendCalls.push({ to: toE164, code });
     },
+    async sendText(): Promise<void> {},
   };
   return { provider, sentCodes, sendCalls };
 }
