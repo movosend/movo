@@ -307,4 +307,76 @@ describe("Calificaciones post-entrega — /shipments/:id/ratings (Postgres) — 
     expect(body).toHaveLength(1);
     expect(body[0]).toMatchObject({ rateeId: receiverId, score: 4, comment: "buena onda" });
   });
+
+  describe("MOVO-147: GET /internal/users/:id/reputation", () => {
+    it("sin calificaciones -- reputationScore null, isNewProfile true, transactionCounts en 0", async () => {
+      const strangerId = randomUUID();
+
+      const response = await app.inject({ method: "GET", url: `/internal/users/${strangerId}/reputation` });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        reputationScore: null,
+        ratingCount: 0,
+        isNewProfile: true,
+        asSender: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+        asCarrier: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+        transactionCounts: { asSender: 0, asCarrier: 0 },
+      });
+    });
+
+    it("AC2: con menos de 3 calificaciones, isNewProfile es true pero el score no es null", async () => {
+      const shipmentId = await createDeliveredShipment();
+      await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/ratings`,
+        headers: { "x-user-id": receiverId },
+        payload: { rateeId: senderId, score: 5 },
+      });
+
+      const response = await app.inject({ method: "GET", url: `/internal/users/${senderId}/reputation` });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.ratingCount).toBe(1);
+      expect(body.isNewProfile).toBe(true);
+      expect(body.reputationScore).not.toBeNull();
+    });
+
+    it("AC2/AC3: con 3 calificaciones isNewProfile pasa a false, sin contaminar un rol nunca calificado", async () => {
+      for (let i = 0; i < 3; i += 1) {
+        const shipmentId = await createDeliveredShipment();
+        await app.inject({
+          method: "POST",
+          url: `/shipments/${shipmentId}/ratings`,
+          headers: { "x-user-id": receiverId },
+          payload: { rateeId: senderId, score: 4 },
+        });
+      }
+
+      const response = await app.inject({ method: "GET", url: `/internal/users/${senderId}/reputation` });
+      const body = response.json();
+
+      expect(body.ratingCount).toBe(3);
+      expect(body.isNewProfile).toBe(false);
+      expect(body.asSender).toEqual({ reputationScore: body.reputationScore, ratingCount: 3, isNewProfile: false });
+      // senderId nunca fue calificado en rol carrier en este fixture -- ese bucket
+      // queda intacto ("sin calificaciones"), no contaminado por las 3 de arriba.
+      expect(body.asCarrier).toEqual({ reputationScore: null, ratingCount: 0, isNewProfile: true });
+    });
+
+    it("AC3/AC6: transactionCounts cuenta solo envíos delivered, separado por rol", async () => {
+      const delivered1 = await createDeliveredShipment();
+      await assignCarrier(delivered1);
+      const delivered2 = await createDeliveredShipment();
+      await assignCarrier(delivered2);
+      await createNonDeliveredShipment(); // no debe contar -- no está delivered
+
+      const senderResponse = await app.inject({ method: "GET", url: `/internal/users/${senderId}/reputation` });
+      expect(senderResponse.json().transactionCounts).toEqual({ asSender: 2, asCarrier: 0 });
+
+      const carrierResponse = await app.inject({ method: "GET", url: `/internal/users/${carrierId}/reputation` });
+      expect(carrierResponse.json().transactionCounts).toEqual({ asSender: 0, asCarrier: 2 });
+    });
+  });
 });

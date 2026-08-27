@@ -127,15 +127,18 @@ export default async function ratingsRoutes(app: FastifyInstance, opts: RatingsR
 }
 
 /**
- * MOVO-146 AC10: consultado por `movo-svc-users` para el agregado/últimas
- * calificaciones del perfil (MOVO-25). Interno -- no pasa por el gateway, mismo
- * criterio que `/internal/account-deletion` (MOVO-134) y `/internal/notifications` de
- * `movo-svc-users` (MOVO-106).
+ * MOVO-146 AC10 / MOVO-147 AC3-AC4: consultado por `movo-svc-users` para el agregado
+ * ponderado de reputación y las últimas calificaciones del perfil (MOVO-25). Interno --
+ * no pasa por el gateway, mismo criterio que `/internal/account-deletion` (MOVO-134) y
+ * `/internal/notifications` de `movo-svc-users` (MOVO-106).
  */
 export async function internalRatingsRoutes(app: FastifyInstance, _opts: FastifyPluginOptions) {
   const shipmentRepository = createShipmentRepository(app.db);
   const ratingRepository = createRatingRepository(app.db);
-  const service = createRatingsService(shipmentRepository, ratingRepository);
+  const service = createRatingsService(shipmentRepository, ratingRepository, undefined, undefined, {
+    confidenceConstant: app.config.REPUTATION_CONFIDENCE_CONSTANT,
+    decayHalfLifeDays: app.config.REPUTATION_DECAY_HALF_LIFE_DAYS,
+  });
 
   app.get(
     "/users/:userId/ratings/recent",
@@ -152,6 +155,21 @@ export async function internalRatingsRoutes(app: FastifyInstance, _opts: Fastify
       const { limit } = request.query as { limit: number };
       const ratings = await service.listRecentRatingsForUser(userId, limit);
       return ratings.map(toRatingDto);
+    },
+  );
+
+  app.get(
+    "/users/:id/reputation",
+    {
+      schema: {
+        hide: true,
+        params: ratingsSchemas.reputationUserIdParam,
+        response: { 200: ratingsSchemas.reputationResponse },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const { id } = request.params as { id: string };
+      return service.getReputationSummary(id);
     },
   );
 }

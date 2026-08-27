@@ -639,6 +639,71 @@ Pendiente / fuera de alcance: consumo real desde `svc-users` (MOVO-25, agregado
 ponderado + lectura de este endpoint interno) y desde el mobile (MOVO-153, bloqueado
 por este ticket) — ninguno de los dos arrancó todavía.
 
+### MOVO-147 — Score de reputación ponderado y endpoint interno de agregado (`svc-shipments`)
+
+Backend del cálculo de MOVO-25: `src/domain/reputation.ts` (nuevo, función pura sobre
+una lista de `{score, createdAt}`, mismo criterio que `shipment-state-machine.ts`) +
+`GET /internal/users/:id/reputation` (`ratings.routes.ts`/`ratings.schema.ts`, mismo
+módulo interno de MOVO-146). Combina shrinkage bayesiano hacia la media global de la
+plataforma (`C=5`, env `REPUTATION_CONFIDENCE_CONSTANT`) con decaimiento temporal
+(semivida 180 días, env `REPUTATION_DECAY_HALF_LIFE_DAYS`) reemplazando `n`/`Σscores`
+de la fórmula de shrinkage por su versión ponderada por el peso de decaimiento de cada
+calificación.
+
+Decisiones clave:
+- **`reputationScore` nunca es el único campo que viaja**: `computeReputationScore`
+  siempre devuelve `{ reputationScore, ratingCount, isNewProfile }` -- `reputationScore`
+  es `null` solo con cero calificaciones (AC2), pero `isNewProfile` (`ratingCount < 3`,
+  `MIN_RATINGS_FOR_ESTABLISHED_PROFILE`) viaja igual con 1 o 2 calificaciones, donde el
+  score ya existe pero la decisión de mostrarlo ("Perfil nuevo" o no) es de
+  presentación, no del motor.
+- **`asSender`/`asCarrier` son el MISMO cálculo restringido por `role`** (el rol del
+  CALIFICADO en cada envío puntual, `models/rating.ts` de MOVO-146, no un rol de
+  cuenta) -- tres llamadas a la misma función pura sobre subconjuntos filtrados del
+  array de calificaciones del usuario, no tres fórmulas distintas. Las calificaciones
+  en rol `receiver` entran al global pero no tienen desglose propio (AC3 solo pide
+  sender/carrier, la reputación que importa al elegir una oferta).
+- **AC6 (agregado vía query, no trayendo filas a memoria) resuelto distinto según qué
+  se necesita**: `transactionCounts` (envíos `delivered` como sender/carrier, lo que
+  hoy `svc-users` hardcodea en `placeholderTransactionCounts()`) usa dos `COUNT()`
+  independientes (`shipment-repository.ts#countCompletedTransactions` -- `senderId`/
+  `carrierId` son columnas distintas de la misma fila, no agrupables con un único
+  `groupBy`); la media global `m` usa un único `AVG()` sobre TODA la tabla `ratings`
+  (`rating-repository.ts#getGlobalAverageScore`, salteado si el usuario no tiene
+  ninguna calificación propia). El decaimiento, en cambio, SÍ trae filas a memoria --
+  pero acotadas a un único `rateeId` (`listForReputation`, nunca la tabla completa),
+  porque necesita `createdAt` por fila y AC1 pide que sea una función pura testeable al
+  detalle; replicar la fórmula de decaimiento en SQL habría duplicado la lógica de
+  negocio en dos lugares. Elección explícita, documentada acá tal como pide el AC.
+- **`ratings.service.ts#getReputationSummary` recibe `reputationConfig` opcional en la
+  construcción** (`{confidenceConstant, decayHalfLifeDays}`, mismo criterio que
+  `receiverConfirmationTimeoutHours` de `shipments.service.ts`), con default igual al
+  de `envSchema` -- red de seguridad para callers que no pasan por `ratings.routes.ts`
+  (tests, y el futuro `offers.service.ts` de MOVO-23), nunca una segunda fuente de
+  verdad para el valor real de `C`/semivida.
+- **AC5 (creación de oferta lee el agregado LOCALMENTE) queda listo pero sin
+  conectar**: MOVO-23 ("crear una oferta") sigue sin implementar del lado HTTP
+  (`offer-repository.ts#create` existe desde MOVO-102, sin ruta) -- `getReputationSummary`
+  ya es una función de servicio importable directo (mismo proceso, misma DB), lista
+  para que ese ticket futuro la llame al snapshotear `carrierRatingAtOffer` sin HTTP
+  contra sí mismo.
+
+Tests: `test/reputation.test.ts` (dominio puro -- sin calificaciones, una sola de 5 con
+`C=5` lejos de 5.0, muchas consistentes convergen a la media real, vieja pesa menos que
+reciente, `isNewProfile` en los dos umbrales, redondeo a un decimal), casos nuevos en
+`test/ratings-service.test.ts` (desglose por rol sin mezclar, `transactionCounts`
+pasa-through, default de `reputationConfig`) y en `test/ratings.integration.test.ts`
+(Postgres real: sin calificaciones, `isNewProfile` en los dos umbrales, rol nunca
+calificado sin contaminar, `transactionCounts` solo cuenta `delivered`). Suite completa
+del servicio: 324/324 (28 archivos). `tsc --noEmit` y `eslint` limpios en los archivos
+tocados por este ticket (los 14 errores de `no-explicit-any` que reporta `eslint` sobre
+`test/orphan-photo-sweep.test.ts`/`test/receiver-confirmation-sweep.test.ts` son
+preexistentes, no de este PR).
+
+Pendiente / fuera de alcance: consumo real desde `svc-users` (MOVO-152, perfil con
+reputación y contadores reales -- bloqueado por este ticket, sin arrancar) y desde
+MOVO-23 (ver arriba).
+
 ### MOVO-145 — `GET /offers/mine`: listado de ofertas propias del transportista (`svc-shipments`)
 
 Primer endpoint HTTP de ofertas del servicio (`src/modules/offers/`, nuevo) — hasta

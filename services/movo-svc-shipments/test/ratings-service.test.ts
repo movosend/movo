@@ -65,6 +65,7 @@ function fakeShipmentRepository(overrides: Partial<ShipmentRepository> = {}): Sh
     listByUser: vi.fn(),
     findExpiredAwaitingConfirmation: vi.fn(),
     hasActiveShipmentsForUser: vi.fn(),
+    countCompletedTransactions: vi.fn().mockResolvedValue({ asSender: 0, asCarrier: 0 }),
     ...overrides,
   };
 }
@@ -296,5 +297,77 @@ describe("ratings.service — listShipmentRatings (MOVO-146 AC6)", () => {
       statusCode: 403,
       code: "AUTH_FORBIDDEN",
     });
+  });
+});
+
+describe("ratings.service — getReputationSummary (MOVO-147 AC3)", () => {
+  const REPUTATION_CONFIG = { confidenceConstant: 5, decayHalfLifeDays: 180 };
+
+  it("sin calificaciones -- null, ratingCount 0, isNewProfile true, sin pisar transactionCounts", async () => {
+    const ratingRepository = createFakeRatingRepository();
+    const shipmentRepository = fakeShipmentRepository({
+      countCompletedTransactions: vi.fn().mockResolvedValue({ asSender: 3, asCarrier: 1 }),
+    });
+    const service = createRatingsService(shipmentRepository, ratingRepository, undefined, undefined, REPUTATION_CONFIG);
+
+    const summary = await service.getReputationSummary(RECEIVER_ID);
+
+    expect(summary).toEqual({
+      reputationScore: null,
+      ratingCount: 0,
+      isNewProfile: true,
+      asSender: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+      asCarrier: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+      transactionCounts: { asSender: 3, asCarrier: 1 },
+    });
+    // AC6: sin calificaciones propias no hay nada que shrinkear hacia `m` -- no vale la
+    // pena pagar el agregado SQL de la media global.
+    expect(ratingRepository.getGlobalAverageScore).not.toHaveBeenCalled();
+  });
+
+  it("AC3: el desglose por rol no mezcla calificaciones de sender con las de carrier", async () => {
+    const ratingRepository = createFakeRatingRepository({
+      listForReputation: vi.fn().mockResolvedValue([
+        { score: 5, createdAt: new Date(), role: RatingRole.sender },
+        { score: 1, createdAt: new Date(), role: RatingRole.carrier },
+      ]),
+      getGlobalAverageScore: vi.fn().mockResolvedValue(3),
+    });
+    const service = createRatingsService(fakeShipmentRepository(), ratingRepository, undefined, undefined, REPUTATION_CONFIG);
+
+    const summary = await service.getReputationSummary(RECEIVER_ID);
+
+    expect(summary.ratingCount).toBe(2);
+    expect(summary.asSender.ratingCount).toBe(1);
+    expect(summary.asCarrier.ratingCount).toBe(1);
+    // La de 5 (sender) empuja su bucket para arriba, la de 1 (carrier) para abajo --
+    // si se mezclaran, ambos buckets darían el mismo valor.
+    expect(summary.asSender.reputationScore).toBeGreaterThan(summary.asCarrier.reputationScore as number);
+  });
+
+  it("propaga transactionCounts del shipmentRepository sin tocarlo", async () => {
+    const shipmentRepository = fakeShipmentRepository({
+      countCompletedTransactions: vi.fn().mockResolvedValue({ asSender: 12, asCarrier: 7 }),
+    });
+    const service = createRatingsService(shipmentRepository, createFakeRatingRepository(), undefined, undefined, REPUTATION_CONFIG);
+
+    const summary = await service.getReputationSummary(RECEIVER_ID);
+
+    expect(summary.transactionCounts).toEqual({ asSender: 12, asCarrier: 7 });
+  });
+
+  it("sin reputationConfig inyectado, usa el mismo default que envSchema (C=5, semivida=180)", async () => {
+    const ratingRepository = createFakeRatingRepository({
+      listForReputation: vi.fn().mockResolvedValue([{ score: 5, createdAt: new Date(), role: RatingRole.sender }]),
+      getGlobalAverageScore: vi.fn().mockResolvedValue(3),
+    });
+    // Sin 5to argumento -- mismo criterio que el resto de los tests de este archivo,
+    // que tampoco pasan reputationConfig hoy.
+    const service = createRatingsService(fakeShipmentRepository(), ratingRepository);
+
+    const summary = await service.getReputationSummary(RECEIVER_ID);
+
+    // (5*3 + 5) / (5 + 1) = 20/6 = 3.33... -> 3.3
+    expect(summary.reputationScore).toBe(3.3);
   });
 });

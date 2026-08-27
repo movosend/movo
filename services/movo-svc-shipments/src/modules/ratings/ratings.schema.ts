@@ -29,6 +29,38 @@ const ratingResponse = {
   },
 };
 
+// MOVO-147 AC3: "el mismo cálculo restringido al rol" -- asSender/asCarrier tienen la
+// misma forma que el resultado global, cada uno con su propio ratingCount/isNewProfile.
+const reputationBreakdown = {
+  type: "object",
+  required: ["reputationScore", "ratingCount", "isNewProfile"],
+  properties: {
+    reputationScore: { type: ["number", "null"] },
+    ratingCount: { type: "integer" },
+    isNewProfile: { type: "boolean" },
+  },
+};
+
+const reputationResponse = {
+  type: "object",
+  required: ["reputationScore", "ratingCount", "isNewProfile", "asSender", "asCarrier", "transactionCounts"],
+  properties: {
+    reputationScore: { type: ["number", "null"] },
+    ratingCount: { type: "integer" },
+    isNewProfile: { type: "boolean" },
+    asSender: reputationBreakdown,
+    asCarrier: reputationBreakdown,
+    transactionCounts: {
+      type: "object",
+      required: ["asSender", "asCarrier"],
+      properties: {
+        asSender: { type: "integer" },
+        asCarrier: { type: "integer" },
+      },
+    },
+  },
+};
+
 export const ratingsSchemas = {
   shipmentIdParam: {
     type: "object",
@@ -52,6 +84,16 @@ export const ratingsSchemas = {
     required: ["userId"],
     properties: {
       userId: { type: "string", format: "uuid" },
+    },
+  },
+
+  // MOVO-147: mismo recurso lógico que `userIdParam` de arriba, pero con `id` en vez de
+  // `userId` -- el contrato del ticket fija el path como `/internal/users/:id/reputation`.
+  reputationUserIdParam: {
+    type: "object",
+    required: ["id"],
+    properties: {
+      id: { type: "string", format: "uuid" },
     },
   },
 
@@ -89,6 +131,8 @@ export const ratingsSchemas = {
     type: "array",
     items: ratingResponse,
   },
+
+  reputationResponse,
 
   errorResponse: {
     type: "object",

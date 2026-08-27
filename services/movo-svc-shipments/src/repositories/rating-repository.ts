@@ -1,5 +1,17 @@
 import { PrismaClient, Rating as RatingRow } from "../generated/prisma/client";
-import { Rating, CreateRatingInput, parseRatingRole } from "../models/rating";
+import { Rating, CreateRatingInput, RatingRole, parseRatingRole } from "../models/rating";
+
+/**
+ * MOVO-147: proyección mínima para el cálculo de reputación -- estructuralmente un
+ * superset de `RatingForReputation` (`domain/reputation.ts`, solo `score`/`createdAt`),
+ * con `role` sumado para que `ratings.service.ts` arme los tres buckets (global/
+ * asSender/asCarrier) sin una segunda query.
+ */
+export interface RatingRowForReputation {
+  score: number;
+  createdAt: Date;
+  role: RatingRole;
+}
 
 function mapRating(row: RatingRow): Rating {
   return {
@@ -50,6 +62,25 @@ export interface RatingRepository {
   listByShipment(shipmentId: string): Promise<Rating[]>;
   /** AC10: últimas `limit` calificaciones RECIBIDAS por un usuario, más reciente primero. */
   listRecentByRatee(rateeId: string, limit: number): Promise<Rating[]>;
+  /**
+   * MOVO-147 AC1/AC6: proyección mínima (`score`/`createdAt`/`role`) de TODAS las
+   * calificaciones recibidas por `rateeId`, para que `reputation.ts` aplique
+   * shrinkage+decaimiento. Acotado a un único usuario (no es "traer toda la tabla
+   * `ratings` a memoria", eso es justo lo que AC6 prohíbe) -- el decaimiento necesita
+   * `createdAt` por fila, así que no se resuelve como un agregado SQL puro; el
+   * `ratingCount`/desglose por rol de la respuesta sale de este mismo array
+   * (`.length`/`.filter`), sin una segunda query de conteo.
+   */
+  listForReputation(rateeId: string): Promise<RatingRowForReputation[]>;
+  /**
+   * MOVO-147 AC1: `m`, la media global de calificaciones de la plataforma -- un solo
+   * `AVG` en SQL (AC6: nunca se traen todas las filas de `ratings` de todos los
+   * usuarios a JS solo para promediarlas). Solo se llama cuando el `rateeId` en
+   * cuestión ya tiene alguna calificación propia (`ratings.service.ts`), así que la
+   * tabla nunca puede estar vacía en ese momento -- el fallback a 0 es defensivo, no
+   * alcanzable en producción.
+   */
+  getGlobalAverageScore(): Promise<number>;
 }
 
 export function createRatingRepository(db: PrismaClient): RatingRepository {
@@ -108,6 +139,19 @@ export function createRatingRepository(db: PrismaClient): RatingRepository {
         take: limit,
       });
       return rows.map(mapRating);
+    },
+
+    async listForReputation(rateeId: string): Promise<RatingRowForReputation[]> {
+      const rows = await db.rating.findMany({
+        where: { rateeId },
+        select: { score: true, createdAt: true, role: true },
+      });
+      return rows.map((row) => ({ ...row, role: parseRatingRole(row.role) }));
+    },
+
+    async getGlobalAverageScore(): Promise<number> {
+      const result = await db.rating.aggregate({ _avg: { score: true } });
+      return result._avg.score ?? 0;
     },
   };
 }

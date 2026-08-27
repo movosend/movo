@@ -6,6 +6,7 @@ import { NotificationsClient } from "../../adapters/notifications-client";
 import { Shipment, ShipmentEvent } from "../../models/shipment";
 import { Rating, RatingRole } from "../../models/rating";
 import { isRatingWindowOpen } from "../../domain/rating-window";
+import { computeReputationScore, ReputationResult } from "../../domain/reputation";
 
 export interface CreateRatingServiceInput {
   shipmentId: string;
@@ -21,6 +22,27 @@ export interface UpdateRatingServiceInput {
   rateeId: string;
   score: number;
   comment?: string;
+}
+
+/** MOVO-147: `C`/semivida del score de reputación -- ver `domain/reputation.ts`. */
+export interface ReputationServiceConfig {
+  confidenceConstant: number;
+  decayHalfLifeDays: number;
+}
+
+/** Mismos valores que el default de `envSchema` (`config/env.ts`) -- red de
+ * seguridad para callers que no inyectan `reputationConfig` explícito (tests, y
+ * cualquier construcción de `createRatingsService` que no pase por
+ * `ratings.routes.ts`), nunca una segunda fuente de verdad para el valor real. */
+const DEFAULT_REPUTATION_CONFIG: ReputationServiceConfig = {
+  confidenceConstant: 5,
+  decayHalfLifeDays: 180,
+};
+
+export interface ReputationSummary extends ReputationResult {
+  asSender: ReputationResult;
+  asCarrier: ReputationResult;
+  transactionCounts: { asSender: number; asCarrier: number };
 }
 
 type ServiceLogger =
@@ -88,6 +110,7 @@ export function createRatingsService(
   ratingRepository: RatingRepository,
   notificationsClient?: NotificationsClient,
   logger?: ServiceLogger,
+  reputationConfig: ReputationServiceConfig = DEFAULT_REPUTATION_CONFIG,
 ) {
   return {
     async createRating(input: CreateRatingServiceInput): Promise<Rating> {
@@ -173,6 +196,50 @@ export function createRatingsService(
     /** AC10: consumido por el endpoint interno que lee `movo-svc-users`. */
     async listRecentRatingsForUser(userId: string, limit: number): Promise<Rating[]> {
       return ratingRepository.listRecentByRatee(userId, limit);
+    },
+
+    /**
+     * MOVO-147 AC3: agregado ponderado de reputación de `userId` -- consumido hoy por
+     * `GET /internal/users/:id/reputation` (`ratings.routes.ts`) y pensado para que
+     * MOVO-23 (creación de oferta, todavía sin implementar) lo llame LOCALMENTE
+     * (mismo servicio, misma DB) al snapshotear `carrierRatingAtOffer` -- AC5, sin
+     * HTTP contra sí mismo.
+     */
+    async getReputationSummary(userId: string): Promise<ReputationSummary> {
+      const [ratings, transactionCounts] = await Promise.all([
+        ratingRepository.listForReputation(userId),
+        shipmentRepository.countCompletedTransactions(userId),
+      ]);
+
+      // AC6: `m` sale de un único agregado SQL (`AVG` sobre TODA la tabla `ratings`,
+      // ver rating-repository.ts) -- distinto de `ratings` de arriba, acotado a este
+      // `userId`. Se salta la query si esta persona no tiene ninguna calificación
+      // propia (nada que shrinkear hacia `m` en ese caso).
+      const globalAverageScore = ratings.length > 0 ? await ratingRepository.getGlobalAverageScore() : 0;
+
+      const params = {
+        confidenceConstant: reputationConfig.confidenceConstant,
+        decayHalfLifeDays: reputationConfig.decayHalfLifeDays,
+        globalAverageScore,
+      };
+
+      // AC3: "asSender"/"asCarrier" son el MISMO cálculo (`computeReputationScore`,
+      // AC1) restringido a las calificaciones recibidas en ese rol -- `role` acá es el
+      // rol del CALIFICADO en cada envío puntual (models/rating.ts), no un rol de
+      // cuenta. Las calificaciones como `receiver` entran al global pero no tienen
+      // desglose propio -- AC3 solo pide sender/carrier porque es la reputación de
+      // transportista la que importa al elegir una oferta (MOVO-17/23).
+      const global = computeReputationScore(ratings, params);
+      const asSender = computeReputationScore(
+        ratings.filter((r) => r.role === RatingRole.sender),
+        params,
+      );
+      const asCarrier = computeReputationScore(
+        ratings.filter((r) => r.role === RatingRole.carrier),
+        params,
+      );
+
+      return { ...global, asSender, asCarrier, transactionCounts };
     },
   };
 }
