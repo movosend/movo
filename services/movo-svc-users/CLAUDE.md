@@ -404,6 +404,41 @@ Redis (`photoConfirmationLockKey()` en `users.service.ts`) que se disputan
 confirmación tardía podía terminar en `photoUrl` persistido apuntando a un objeto ya
 borrado por el sweep, sin error visible.
 
+### MOVO-115 — Race condition (TOCTOU) en `confirmPhoto()`/`deletePhoto()`
+
+Cierra la ventana de carrera documentada como aceptada desde MOVO-97 (PR #62,
+tmvergara): `confirmPhoto()`/`deletePhoto()` leían `photoUrl` con `findById()` y recién
+después escribían con un `update` aparte — dos llamadas casi simultáneas para el mismo
+usuario con objectKeys B y C distintos (ej. reintento del cliente tras timeout) podían
+leer las dos la misma foto A vigente, y el objeto que "perdía" la carrera (B, si C se
+escribía después) quedaba huérfano en S3 para siempre, sin que nadie lo borrara. Distinto
+del TOCTOU de MOVO-124 (ese era `confirmPhoto()` contra el sweep sobre la MISMA key; este
+es `confirmPhoto()`/`deletePhoto()` entre sí, con dos keys distintas — el lock de Redis
+de MOVO-124, keyeado por `objectKey`, no protege este caso).
+
+- **`user-repository.ts#swapPhotoUrl()` nuevo, reemplaza `updatePhotoUrl()`**: mismo
+  mecanismo de row-lock que `offer-repository.ts#acceptOffer`/
+  `shipment-repository.ts#updateStatus` (MOVO-102/MOVO-118, ver
+  `services/movo-svc-shipments/CLAUDE.md`) — `updateMany({where: {id, photoUrl:
+  current}, ...})` bajo READ COMMITTED. A diferencia de esos dos casos, acá no hay una
+  transición inválida que rechazar (cualquier `photoUrl` nuevo es válido), así que en vez
+  de lanzar un error de concurrencia el método reintenta hasta ganar el compare-and-swap
+  (tope de 10 intentos, defensivo). Devuelve `{ user, previousPhotoUrl }` donde
+  `previousPhotoUrl` es siempre el valor que ESE swap realmente pisó, nunca uno leído por
+  el caller fuera de la operación atómica.
+- **`confirmPhoto()`/`deletePhoto()` ya no deciden qué borrar sobre un `photoUrl` leído
+  por adelantado**: el objeto a borrar sale de `previousPhotoUrl` del propio swap. El
+  `findById()` inicial sigue existiendo en los dos (chequeo de existencia del usuario /
+  atajo de `deletePhoto` para no escribir cuando no hay foto), pero ya no participa en la
+  decisión de qué borrar.
+
+Tests: `test/user-repository.integration.test.ts#swapPhotoUrl` (3 casos, incluye dos
+swaps concurrentes con `Promise.all` verificando que el `previousPhotoUrl` del que pierde
+la carrera es el valor que el otro escribió, nunca el original) +
+`test/users.photo.integration.test.ts` sumó el caso end-to-end del escenario del ticket
+(dos `PUT /users/me/photo` concurrentes con objectKeys B/C distintos, ninguno queda
+huérfano en S3). Suite completa 437/437, `tsc --noEmit` y `eslint` limpios.
+
 ### MOVO-139 — `EmailProvider` (Resend) y verificación de email por OTP (ADR-017)
 
 Primer canal de email del proyecto. Cierra la limitación que MOVO-133/MOVO-134 dejaron
