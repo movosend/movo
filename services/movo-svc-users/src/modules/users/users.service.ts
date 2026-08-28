@@ -260,8 +260,13 @@ export function createUsersService(
 
       try {
         // `headObject` y `findById` son independientes entre sí — se piden en paralelo
-        // para no pagar dos round-trips en serie en cada confirmación.
-        const [head, user] = await Promise.all([storageProvider.headObject(objectKey), repository.findById(userId)]);
+        // para no pagar dos round-trips en serie en cada confirmación. `findById` acá
+        // es solo el chequeo de existencia del usuario -- el `photoUrl` de este read no
+        // se usa para decidir qué borrar (ver MOVO-115 más abajo).
+        const [head, existingUser] = await Promise.all([
+          storageProvider.headObject(objectKey),
+          repository.findById(userId),
+        ]);
         if (!head.exists) {
           throw new ApiError(422, "PHOTO_OBJECT_NOT_FOUND", "La imagen no existe en el storage.");
         }
@@ -273,13 +278,19 @@ export function createUsersService(
           assertValidPhotoConstraints(head.contentType, head.contentLength);
         }
 
-        if (!user) {
+        if (!existingUser) {
           throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
         }
 
         const photoUrl = storageProvider.getPublicUrl(objectKey);
-        const updated = await repository.updatePhotoUrl(userId, photoUrl);
-        if (!updated) {
+        // MOVO-115: swap atómico -- `previousPhotoUrl` es el valor que este swap
+        // realmente pisó, no `existingUser.photoUrl` (leído antes de tomar el lock de
+        // la fila). Con dos `PUT /users/me/photo` casi simultáneos (ej. reintento del
+        // cliente tras timeout) con objectKeys B y C distintos, ambos leyendo la misma
+        // foto A vigente, un `photoUrl` capturado fuera del swap dejaba huérfano en S3
+        // el objeto que el otro call sí llegó a persistir (nadie lo borraba nunca).
+        const swapped = await repository.swapPhotoUrl(userId, photoUrl);
+        if (!swapped) {
           throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
         }
 
@@ -300,8 +311,9 @@ export function createUsersService(
         // es la buena, un fallo de borrado es basura huérfana, no un error para el
         // usuario. `previousKey !== objectKey` cubre el caso (raro pero posible) de
         // confirmar dos veces la misma key.
-        if (user.photoUrl) {
-          const previousKey = storageProvider.getKeyFromUrl(user.photoUrl);
+        const { previousPhotoUrl } = swapped;
+        if (previousPhotoUrl) {
+          const previousKey = storageProvider.getKeyFromUrl(previousPhotoUrl);
           if (previousKey && previousKey !== objectKey) {
             try {
               await storageProvider.deleteObject(previousKey);
@@ -325,17 +337,31 @@ export function createUsersService(
 
     /** AC7: idempotente — sin foto previa también responde éxito. */
     async deletePhoto(userId: string): Promise<void> {
-      const user = await repository.findById(userId);
-      if (!user) {
+      const existingUser = await repository.findById(userId);
+      if (!existingUser) {
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
       }
-      if (!user.photoUrl) {
+      if (!existingUser.photoUrl) {
+        // Atajo: sin foto acá, no hay nada que un swap pudiera necesitar revalidar --
+        // se evita el UPDATE de por medio en el caso común (sin foto).
         return;
       }
 
-      const key = storageProvider.getKeyFromUrl(user.photoUrl);
-      await repository.updatePhotoUrl(userId, null);
+      // MOVO-115: swap atómico, mismo motivo que confirmPhoto() -- la key a borrar es
+      // la que este swap realmente pisó (`previousPhotoUrl`), no `existingUser.photoUrl`
+      // leído antes del lock de la fila. Cierra el mismo escenario de objeto huérfano
+      // cuando este DELETE corre casi al mismo tiempo que un PUT de reemplazo.
+      const swapped = await repository.swapPhotoUrl(userId, null);
+      if (!swapped) {
+        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
 
+      const { previousPhotoUrl } = swapped;
+      if (!previousPhotoUrl) {
+        return;
+      }
+
+      const key = storageProvider.getKeyFromUrl(previousPhotoUrl);
       if (key) {
         try {
           await storageProvider.deleteObject(key);
