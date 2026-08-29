@@ -16,6 +16,7 @@ import {
   shipmentStatusLabel,
   shipmentStatusTone,
   shortAddressLabel,
+  formatShipmentRowTime,
 } from "../src/lib/shipment-format";
 
 describe("shipmentStatusLabel", () => {
@@ -316,6 +317,34 @@ describe("formatReceiverConfirmationDeadline", () => {
     const deadline = "2026-08-20T12:30:00.000Z";
     const now = new Date("2026-08-20T12:00:00.000Z"); // 30 min -> 1 h
     expect(formatReceiverConfirmationDeadline(deadline, now)).toBe("Te queda 1 h para confirmar");
+  });
+});
+
+describe("formatShipmentRowTime", () => {
+  it("devuelve 'Recién' si el envío fue creado hace 0 o 1 minuto", () => {
+    const now = new Date("2026-08-20T12:01:30.000Z");
+    expect(
+      formatShipmentRowTime(
+        { status: ShipmentStatus.PUBLISHED, createdAt: "2026-08-20T12:01:30.000Z", lastStatusChangedAt: null },
+        now
+      )
+    ).toBe("Recién");
+    expect(
+      formatShipmentRowTime(
+        { status: ShipmentStatus.PUBLISHED, createdAt: "2026-08-20T12:00:30.000Z", lastStatusChangedAt: null },
+        now
+      )
+    ).toBe("Recién");
+  });
+
+  it("devuelve 'hace X min' si el envío fue creado hace 2 a 59 minutos", () => {
+    const now = new Date("2026-08-20T12:30:00.000Z");
+    expect(
+      formatShipmentRowTime(
+        { status: ShipmentStatus.PUBLISHED, createdAt: "2026-08-20T12:25:00.000Z", lastStatusChangedAt: null },
+        now
+      )
+    ).toBe("hace 5 min");
   });
 });
 
