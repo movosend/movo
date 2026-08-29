@@ -95,12 +95,36 @@ function toRadians(degrees: number): number {
  * (AC2), el Haversine de la query SQL solo afina sobre lo que sobrevive al rango.
  * `Math.max(cos, 1e-6)` es defensa en profundidad para latitudes cerca del polo (no
  * aplica en la práctica a Argentina) -- sin esto, `lngDelta` podría dividir por ~0.
+ * Usado tal cual en el modo SIN destino (círculo alrededor de un solo punto); el modo
+ * CON destino usa `corridorBoundingBox` (ver abajo).
  */
 function boundingBox(lat: number, lng: number, radiusKm: number) {
   const clampedLat = Math.max(-90, Math.min(90, lat));
   const latDelta = radiusKm / 111.32;
   const lngDelta = radiusKm / (111.32 * Math.max(Math.cos(toRadians(clampedLat)), 1e-6));
   return { latMin: lat - latDelta, latMax: lat + latDelta, lngMin: lng - lngDelta, lngMax: lng + lngDelta };
+}
+
+/**
+ * MOVO-142 (fix, corredor de MOVO-50 -- ver comentario de `haversineSegmentDistanceKm`):
+ * bounding box que contiene TODO el corredor origen→destino ensanchado `radiusKm` para
+ * cada lado, no un círculo alrededor de un único punto. Se arma con el rectángulo que
+ * encierra ambos extremos y se lo ensancha -- más laxo que un rectángulo orientado al
+ * segmento (deja pasar algunas filas de más que el Haversine de la query filtra
+ * después), pero simple y correcto: nunca excluye un punto real del corredor. Mismo
+ * `pickupBox`/`deliveryBox` para las dos columnas -- en este modo ambos extremos del
+ * envío se miden contra el mismo corredor, no contra dos puntos distintos.
+ */
+function corridorBoundingBox(originLat: number, originLng: number, destinationLat: number, destinationLng: number, radiusKm: number) {
+  const midLat = Math.max(-90, Math.min(90, (originLat + destinationLat) / 2));
+  const latDelta = radiusKm / 111.32;
+  const lngDelta = radiusKm / (111.32 * Math.max(Math.cos(toRadians(midLat)), 1e-6));
+  return {
+    latMin: Math.min(originLat, destinationLat) - latDelta,
+    latMax: Math.max(originLat, destinationLat) + latDelta,
+    lngMin: Math.min(originLng, destinationLng) - lngDelta,
+    lngMax: Math.max(originLng, destinationLng) + lngDelta,
+  };
 }
 
 /**
@@ -135,6 +159,57 @@ function haversineColumnToColumnKm(lat1Col: Prisma.Sql, lng1Col: Prisma.Sql, lat
       power(sin(radians(${lng2Col} - ${lng1Col}) / 2), 2)
     ))
   )`;
+}
+
+/**
+ * MOVO-142 (fix, corredor -- ver docs/or-tools/vrptw-spike-report.md, MOVO-50):
+ * distancia perpendicular de una columna (pickup_lat/lng o delivery_lat/lng) al
+ * SEGMENTO origen→destino del trayecto del transportista, con clamp a los extremos
+ * (`GREATEST`/`LEAST`) -- un punto "antes" del origen o "después" del destino mide
+ * contra el extremo más cercano, no contra la recta infinita.
+ *
+ * Reemplaza al AND de dos círculos independientes (`pickup` cerca del origen Y
+ * `delivery` cerca del destino) de la primera versión: ese diseño dejaba afuera un
+ * envío con retiro/entrega en el MEDIO del trayecto (ej. Oncativo entre Córdoba y
+ * Villa María, el caso de estudio del spike) aunque encajara perfecto en el viaje --
+ * ni el retiro ni la entrega quedaban cerca de ninguno de los dos extremos. Esta
+ * fórmula es la misma que ya existía en `docs/or-tools/vrptw_prototype.py
+ * #point_to_segment_distance_km` (CA6 de la spike, "prefiltro geométrico de
+ * corredor"), portada a SQL en vez de reinventar el concepto.
+ *
+ * Proyección equirrectangular centrada en el punto medio del segmento -- origen y
+ * destino son constantes del request (no de la fila), así que `kx`/`ky`/`bx`/`by` se
+ * precalculan en JS; solo la posición de la columna (`px`/`py`) es SQL real. `ky =
+ * 110.574` (no el `111.32` que usa `boundingBox`/`corridorBoundingBox`): mismo valor
+ * que el prototipo Python, la aproximación ecuatorial más precisa para un grado de
+ * latitud -- se mantiene igual acá para no reinterpretar la fórmula original.
+ */
+function haversineSegmentDistanceKm(
+  originLat: number,
+  originLng: number,
+  destinationLat: number,
+  destinationLng: number,
+  latCol: Prisma.Sql,
+  lngCol: Prisma.Sql
+): Prisma.Sql {
+  const midLatRad = toRadians((originLat + destinationLat) / 2);
+  const kx = 111.32 * Math.cos(midLatRad);
+  const ky = 110.574;
+  const bx = (destinationLng - originLng) * kx;
+  const by = (destinationLat - originLat) * ky;
+  const ab2 = bx * bx + by * by;
+
+  const px = Prisma.sql`((${lngCol} - ${originLng}) * ${kx})`;
+  const py = Prisma.sql`((${latCol} - ${originLat}) * ${ky})`;
+
+  if (ab2 === 0) {
+    // Origen y destino coinciden (trayecto degenerado) -- distancia punto a punto
+    // contra el origen, mismo caso límite que contempla el prototipo Python.
+    return Prisma.sql`sqrt(power(${px}, 2) + power(${py}, 2))`;
+  }
+
+  const t = Prisma.sql`GREATEST(0, LEAST(1, ((${px}) * ${bx} + (${py}) * ${by}) / ${ab2}))`;
+  return Prisma.sql`sqrt(power((${px}) - ((${t}) * ${bx}), 2) + power((${py}) - ((${t}) * ${by}), 2))`;
 }
 
 /**
@@ -525,18 +600,32 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       limit: number;
     }): Promise<{ items: AvailableShipment[]; total: number }> {
       const hasDestination = params.destinationLat !== undefined && params.destinationLng !== undefined;
-      const pickupBox = boundingBox(params.originLat, params.originLng, params.radiusKm);
-      const deliveryBox = hasDestination ? boundingBox(params.destinationLat!, params.destinationLng!, params.radiusKm) : null;
+
+      // MOVO-142 (fix, corredor de MOVO-50): sin destino, círculo alrededor del origen
+      // (AC1 original, "cerca mío"). Con destino, el MISMO rectángulo-corredor para
+      // pickup_lat/lng y delivery_lat/lng -- los dos extremos del envío se miden contra
+      // el trayecto completo, no cada uno contra un punto distinto (ver
+      // `corridorBoundingBox`/`haversineSegmentDistanceKm`).
+      const pickupBox = hasDestination
+        ? corridorBoundingBox(params.originLat, params.originLng, params.destinationLat!, params.destinationLng!, params.radiusKm)
+        : boundingBox(params.originLat, params.originLng, params.radiusKm);
+      const deliveryBox = hasDestination ? pickupBox : null;
       const where = availableShipmentsWhereSql({ callerId: params.excludeUserId, pickupBox, deliveryBox });
 
-      const pickupDistance = haversinePointToColumnKm(params.originLat, params.originLng, Prisma.sql`pickup_lat`, Prisma.sql`pickup_lng`);
+      // Sin destino: Haversine punto-a-punto contra el origen (círculo). Con destino:
+      // distancia perpendicular al segmento origen→destino (corredor) -- ver el
+      // comentario de `haversineSegmentDistanceKm` sobre por qué esto reemplazó al AND
+      // de dos círculos independientes.
+      const pickupDistance = hasDestination
+        ? haversineSegmentDistanceKm(params.originLat, params.originLng, params.destinationLat!, params.destinationLng!, Prisma.sql`pickup_lat`, Prisma.sql`pickup_lng`)
+        : haversinePointToColumnKm(params.originLat, params.originLng, Prisma.sql`pickup_lat`, Prisma.sql`pickup_lng`);
       // Sin destino, `delivery_distance_km` es NULL -- no hay nada contra qué medir la
       // entrega (AC1 original: el caller no tiene un viaje planificado, solo quiere ver
       // envíos cerca de donde está). `NULL::float8` explícito para que el tipo de
       // columna sea consistente entre las dos ramas del `UNION` implícito de Postgres
       // al resolver el tipo de la expresión.
       const deliveryDistance = hasDestination
-        ? haversinePointToColumnKm(params.destinationLat!, params.destinationLng!, Prisma.sql`delivery_lat`, Prisma.sql`delivery_lng`)
+        ? haversineSegmentDistanceKm(params.originLat, params.originLng, params.destinationLat!, params.destinationLng!, Prisma.sql`delivery_lat`, Prisma.sql`delivery_lng`)
         : Prisma.sql`NULL::float8`;
       const shipmentDistance = haversineColumnToColumnKm(Prisma.sql`pickup_lat`, Prisma.sql`pickup_lng`, Prisma.sql`delivery_lat`, Prisma.sql`delivery_lng`);
 

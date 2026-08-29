@@ -211,10 +211,12 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "MOVO-142: originLat/Lng (obligatorio) es de dónde parte el transportista -- " +
           "sin más, devuelve envíos published con el retiro dentro de radiusKm de ahí. " +
           "destinationLat/Lng es OPCIONAL (los dos juntos, o ninguno): si el " +
-          "transportista tiene un viaje planificado, suma el AND del lado de la " +
-          "entrega (dentro de radiusKm del destino) y el orden pasa a ser la suma de " +
-          "ambas distancias -- sin destino, se ordena solo por la distancia al " +
-          "retiro. urgent viaja en la respuesta pero no altera el orden. " +
+          "transportista tiene un viaje planificado, filtra por CORREDOR -- retiro y " +
+          "entrega dentro de radiusKm del segmento origen→destino (no de cada punto " +
+          "por separado, para no dejar afuera un envío en el medio del trayecto) -- y " +
+          "el orden pasa a ser la suma de ambas distancias al corredor. Sin destino, " +
+          "se ordena solo por la distancia al retiro. urgent viaja en la respuesta " +
+          "pero no altera el orden. " +
           "maxDistanceKm (opcional, sin default) tapea la distancia PROPIA " +
           "retiro→entrega del envío, sin relación con el trayecto del caller. " +
           "Excluye los envíos propios del caller (sender o receiver). Requiere rol " +
