@@ -593,6 +593,38 @@ describe("shipments.service — listAvailableShipments (MOVO-142)", () => {
     expect(repository.listAvailable).not.toHaveBeenCalled();
   });
 
+  it("rechaza destinationLat sin destinationLng (o viceversa) con 400, antes de tocar KYC/repositorio", async () => {
+    const repository = fakeRepository();
+    const usersClient = createFakeUsersClient({
+      "carrier-id": fakePublicProfile({ id: "carrier-id", isVerified: true }),
+    });
+    const service = createTestShipmentsService(repository, usersClient);
+
+    await expect(
+      service.listAvailableShipments("carrier-id", [UserRole.CARRIER], { ...query, destinationLng: undefined })
+    ).rejects.toMatchObject({ statusCode: 400, code: "VALIDATION_FAILED" });
+    expect(repository.listAvailable).not.toHaveBeenCalled();
+  });
+
+  it("sin destino: pasa originLat/Lng al repositorio sin destinationLat/Lng", async () => {
+    const repository = fakeRepository({
+      listAvailable: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    });
+    const usersClient = createFakeUsersClient({
+      "carrier-id": fakePublicProfile({ id: "carrier-id", isVerified: true }),
+    });
+    const service = createTestShipmentsService(repository, usersClient);
+    const { destinationLat, destinationLng, ...queryWithoutDestination } = query;
+    void destinationLat;
+    void destinationLng;
+
+    await service.listAvailableShipments("carrier-id", [UserRole.CARRIER], queryWithoutDestination);
+
+    expect(repository.listAvailable).toHaveBeenCalledWith(
+      expect.objectContaining({ destinationLat: undefined, destinationLng: undefined })
+    );
+  });
+
   it("marca hasMyOffer combinando el resultado del repositorio con las ofertas pending del caller", async () => {
     const available = { ...fakeShipment({ id: "shipment-1" }), pickupDistanceKm: 1, deliveryDistanceKm: 1, distanceKm: 2 };
     const repository = fakeRepository({

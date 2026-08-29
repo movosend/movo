@@ -81,6 +81,21 @@ describe("GET /shipments/available (Postgres, MOVO-142)", () => {
     });
   }
 
+  /** A diferencia de requestAvailable, no manda destinationLat/Lng -- para probar el
+   * caso AC1 original (el caller no tiene un viaje planificado). */
+  async function requestAvailableWithoutDestination(userId: string, overrides: Record<string, unknown> = {}) {
+    const query = new URLSearchParams({
+      originLat: String(ORIGIN_LAT),
+      originLng: String(ORIGIN_LNG),
+      ...Object.fromEntries(Object.entries(overrides).map(([k, v]) => [k, String(v)])),
+    });
+    return app.inject({
+      method: "GET",
+      url: `/shipments/available?${query.toString()}`,
+      headers: { "x-user-id": userId, "x-user-roles": "carrier" },
+    });
+  }
+
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
     process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
@@ -241,7 +256,7 @@ describe("GET /shipments/available (Postgres, MOVO-142)", () => {
       expect(response.json().error.code).toBe("VALIDATION_FAILED");
     });
 
-    it("faltan originLat/originLng/destinationLat/destinationLng -> 400 VALIDATION_FAILED", async () => {
+    it("faltan originLat/originLng (los únicos obligatorios) -> 400 VALIDATION_FAILED", async () => {
       const response = await app.inject({
         method: "GET",
         url: "/shipments/available",
@@ -249,6 +264,55 @@ describe("GET /shipments/available (Postgres, MOVO-142)", () => {
       });
       expect(response.statusCode).toBe(400);
       expect(response.json().error.code).toBe("VALIDATION_FAILED");
+    });
+
+    it("destinationLat sin destinationLng (o viceversa) -> 400 VALIDATION_FAILED", async () => {
+      const response = await requestAvailableWithoutDestination(verifiedCarrierId, { destinationLat: DESTINATION_LAT });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe("VALIDATION_FAILED");
+    });
+  });
+
+  // MOVO-142 (corrección de diseño): el destino es opcional -- el transportista no
+  // tiene por qué tener un viaje planificado para ver envíos cerca suyo (AC1
+  // original).
+  describe("sin destino (AC1 original: solo cerca del origen)", () => {
+    it("200 sin mandar destinationLat/Lng -- filtra por cercanía del retiro al origen únicamente", async () => {
+      const shipment = await createPublishedShipment();
+      const response = await requestAvailableWithoutDestination(verifiedCarrierId);
+
+      expect(response.statusCode).toBe(200);
+      const ids = response.json().items.map((i: { id: string }) => i.id);
+      expect(ids).toEqual([shipment.id]);
+    });
+
+    it("deliveryDistanceKm es null y distanceKm coincide con pickupDistanceKm", async () => {
+      await createPublishedShipment();
+      const response = await requestAvailableWithoutDestination(verifiedCarrierId);
+
+      const item = response.json().items[0];
+      expect(item.deliveryDistanceKm).toBeNull();
+      expect(item.distanceKm).toBe(item.pickupDistanceKm);
+    });
+
+    it("un envío con retiro lejos del origen no aparece, aunque su entrega esté cerca de cualquier punto", async () => {
+      const near = await createPublishedShipment();
+      const far = await createPublishedShipment({ pickupLat: ORIGIN_LAT - 0.5, pickupLng: ORIGIN_LNG });
+
+      const response = await requestAvailableWithoutDestination(verifiedCarrierId);
+
+      const ids = response.json().items.map((i: { id: string }) => i.id);
+      expect(ids).toEqual([near.id]);
+      expect(ids).not.toContain(far.id);
+    });
+
+    it("hasMyOffer sigue funcionando igual sin destino", async () => {
+      const shipment = await createPublishedShipment();
+      await offerRepo.create(baseOfferInput({ shipmentId: shipment.id, carrierId: verifiedCarrierId }));
+
+      const response = await requestAvailableWithoutDestination(verifiedCarrierId);
+
+      expect(response.json().items[0].hasMyOffer).toBe(true);
     });
   });
 });

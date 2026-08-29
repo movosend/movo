@@ -651,5 +651,45 @@ describe("shipment-repository (Postgres)", () => {
       expect(typeof items[0].weightKg).toBe("number");
       expect(typeof items[0].suggestedPriceArs).toBe("number");
     });
+
+    // MOVO-142 (corrección de diseño): destinationLat/Lng son opcionales -- el
+    // transportista no tiene por qué tener un viaje planificado (AC1 original).
+    it("sin destino: filtra/ordena solo por la cercanía del retiro al origen, deliveryDistanceKm queda null", async () => {
+      const near = await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        // deliberadamente lejos de cualquier "destino" -- sin destino no debería
+        // importar para nada dónde cae la entrega.
+        deliveryLat: originLat - 20 / KM_PER_DEGREE_LAT,
+        deliveryLng: originLng,
+      });
+      const middle = await createPublished({
+        pickupLat: originLat - 2 / KM_PER_DEGREE_LAT,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+      const far = await createPublished({
+        pickupLat: originLat - 0.5, // ~55km, fuera de cualquier radio razonable
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+
+      const { items, total } = await repo.listAvailable({
+        originLat,
+        originLng,
+        radiusKm: 5,
+        excludeUserId: randomUUID(),
+        page: 1,
+        limit: 20,
+      });
+
+      expect(items.map((i) => i.id)).toEqual([near.id, middle.id]);
+      expect(items.map((i) => i.id)).not.toContain(far.id);
+      expect(total).toBe(2);
+      expect(items[0].deliveryDistanceKm).toBeNull();
+      expect(items[0].distanceKm).toBe(items[0].pickupDistanceKm);
+    });
   });
 });
