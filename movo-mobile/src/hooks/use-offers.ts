@@ -6,7 +6,8 @@ import {
 } from "../api/offers-client";
 
 export function shipmentOffersQueryKey(shipmentId: string | undefined, params?: ListShipmentOffersParams) {
-  return ["shipments", shipmentId, "offers", params] as const;
+  const normalizedParams: ListShipmentOffersParams = { sort: "price", ...params };
+  return ["shipments", shipmentId, "offers", normalizedParams] as const;
 }
 
 export function useShipmentOffers(
@@ -14,9 +15,10 @@ export function useShipmentOffers(
   params?: ListShipmentOffersParams,
   options?: { enabled?: boolean }
 ) {
+  const effectiveParams: ListShipmentOffersParams = { sort: "price", ...params };
   return useQuery({
-    queryKey: shipmentOffersQueryKey(shipmentId, params),
-    queryFn: () => offersClient.listShipmentOffers(shipmentId!, params),
+    queryKey: shipmentOffersQueryKey(shipmentId, effectiveParams),
+    queryFn: () => offersClient.listShipmentOffers(shipmentId!, effectiveParams),
     enabled: (options?.enabled ?? true) && !!shipmentId,
   });
 }

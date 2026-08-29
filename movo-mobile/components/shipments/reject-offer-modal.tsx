@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from "react-native-safe-area-context";
@@ -32,10 +33,16 @@ export function RejectOfferModal({
 }: RejectOfferModalProps) {
   const { isMounted, backdropStyle, sheetStyle } = useSheetAnimation(visible);
 
-  if (!offer) return null;
+  const lastOfferRef = useRef<OfferSummary | null>(offer);
+  if (offer) {
+    lastOfferRef.current = offer;
+  }
+  const currentOffer = offer ?? lastOfferRef.current;
 
-  const carrierName = offer.carrierNameAtOffer || "este transportista";
-  const formattedPrice = formatPriceArs(offer.priceOffered);
+  if (!isMounted || !currentOffer) return null;
+
+  const carrierName = currentOffer.carrierNameAtOffer || "este transportista";
+  const formattedPrice = formatPriceArs(currentOffer.priceOffered);
 
   return (
     <Modal

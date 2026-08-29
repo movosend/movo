@@ -67,7 +67,6 @@ export default function ShipmentOffersScreen() {
   const [offerToReject, setOfferToReject] = useState<OfferSummary | null>(null);
   const [acceptedOfferCarrierName, setAcceptedOfferCarrierName] = useState<string | null>(null);
   const [isSuccessModalVisible, setIsSuccessModalVisible] = useState(false);
-  const [generalErrorMessage, setGeneralErrorMessage] = useState<string | null>(null);
   const [acceptErrorMessage, setAcceptErrorMessage] = useState<string | null>(null);
   const [rejectErrorMessage, setRejectErrorMessage] = useState<string | null>(null);
 
@@ -99,7 +98,6 @@ export default function ShipmentOffersScreen() {
 
   const handlePromptAccept = (offer: OfferSummary) => {
     setAcceptErrorMessage(null);
-    setGeneralErrorMessage(null);
     setOfferToAccept(offer);
   };
 
@@ -129,7 +127,6 @@ export default function ShipmentOffersScreen() {
 
   const handlePromptReject = (offer: OfferSummary) => {
     setRejectErrorMessage(null);
-    setGeneralErrorMessage(null);
     setOfferToReject(offer);
   };
 
@@ -265,10 +262,6 @@ export default function ShipmentOffersScreen() {
             />
           }
         >
-          {generalErrorMessage ? (
-            <ErrorBanner testID="offers-general-error" message={generalErrorMessage} />
-          ) : null}
-
           {offers && offers.length === 0 ? (
             <View testID="offers-empty-state" className="items-center py-16 px-6 gap-3">
               <View className="h-16 w-16 items-center justify-center rounded-2xl bg-bg-mute mb-2">

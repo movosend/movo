@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { X } from "lucide-react-native";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
@@ -31,7 +32,13 @@ export function CarrierProfileSheet({
 }: CarrierProfileSheetProps) {
   const colors = useThemeColors();
   const { isMounted, backdropStyle, sheetStyle } = useSheetAnimation(visible);
-  const { data: profile, isLoading, isError } = usePublicProfile(carrierId ?? undefined);
+
+  const lastCarrierIdRef = useRef<string | null>(carrierId);
+  if (carrierId) {
+    lastCarrierIdRef.current = carrierId;
+  }
+  const effectiveCarrierId = carrierId ?? lastCarrierIdRef.current;
+  const { data: profile, isLoading, isError } = usePublicProfile(effectiveCarrierId ?? undefined);
 
   return (
     <Modal

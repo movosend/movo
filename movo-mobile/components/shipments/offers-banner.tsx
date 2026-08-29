@@ -17,7 +17,7 @@ export interface OffersBannerProps {
  */
 export function OffersBanner({ shipmentId, offersCount, testID }: OffersBannerProps) {
   const colors = useThemeColors();
-  const { data: offers } = useShipmentOffers(shipmentId, undefined, {
+  const { data: offers } = useShipmentOffers(shipmentId, { sort: "price" }, {
     enabled: offersCount === undefined && !!shipmentId,
   });
 
