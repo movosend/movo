@@ -138,24 +138,32 @@ function haversineColumnToColumnKm(lat1Col: Prisma.Sql, lng1Col: Prisma.Sql, lat
 }
 
 /**
- * MOVO-142: `WHERE` compartido entre la query de datos y la de conteo de
- * `listAvailable` -- mismo espíritu que `offerStatusWhere()` en
+ * MOVO-142 (fix de diseño): el destino es OPCIONAL -- el transportista no tiene por
+ * qué tener un viaje planificado para ver envíos cerca suyo (AC1 original). Sin
+ * destino, el filtro/orden se resuelve solo contra el retiro (origen); con destino, se
+ * suma el AND del lado de la entrega. `WHERE` compartido entre la query de datos y la
+ * de conteo de `listAvailable` -- mismo espíritu que `offerStatusWhere()` en
  * `offer-repository.ts`, única fuente de verdad de un WHERE reusado dos veces, para
  * que nunca diverjan entre sí.
  */
 function availableShipmentsWhereSql(params: {
   callerId: string;
   pickupBox: { latMin: number; latMax: number; lngMin: number; lngMax: number };
-  deliveryBox: { latMin: number; latMax: number; lngMin: number; lngMax: number };
+  deliveryBox: { latMin: number; latMax: number; lngMin: number; lngMax: number } | null;
 }): Prisma.Sql {
+  const deliveryBoxFilter = params.deliveryBox
+    ? Prisma.sql`
+      AND delivery_lat BETWEEN ${params.deliveryBox.latMin} AND ${params.deliveryBox.latMax}
+      AND delivery_lng BETWEEN ${params.deliveryBox.lngMin} AND ${params.deliveryBox.lngMax}
+    `
+    : Prisma.empty;
   return Prisma.sql`
     status = 'published'
       AND sender_id <> ${params.callerId}::uuid
       AND receiver_id <> ${params.callerId}::uuid
       AND pickup_lat BETWEEN ${params.pickupBox.latMin} AND ${params.pickupBox.latMax}
       AND pickup_lng BETWEEN ${params.pickupBox.lngMin} AND ${params.pickupBox.lngMax}
-      AND delivery_lat BETWEEN ${params.deliveryBox.latMin} AND ${params.deliveryBox.latMax}
-      AND delivery_lng BETWEEN ${params.deliveryBox.lngMin} AND ${params.deliveryBox.lngMax}
+      ${deliveryBoxFilter}
   `;
 }
 
@@ -189,7 +197,7 @@ interface AvailableShipmentRow {
   status: string;
   created_at: Date;
   pickup_distance_km: string;
-  delivery_distance_km: string;
+  delivery_distance_km: string | null;
   distance_km: string;
 }
 
@@ -217,7 +225,7 @@ function mapAvailableShipmentRow(row: AvailableShipmentRow): AvailableShipment {
     status: parseShipmentStatus(row.status, "status"),
     createdAt: row.created_at,
     pickupDistanceKm: Number(row.pickup_distance_km),
-    deliveryDistanceKm: Number(row.delivery_distance_km),
+    deliveryDistanceKm: row.delivery_distance_km !== null ? Number(row.delivery_distance_km) : null,
     distanceKm: Number(row.distance_km),
   };
 }
@@ -253,19 +261,22 @@ export interface ShipmentRepository {
    */
   listByUser(userId: string, page: number, limit: number): Promise<{ items: Shipment[]; total: number }>;
   /**
-   * MOVO-142: envíos `published` que encajan en el trayecto del transportista (AND:
-   * pickup dentro de `radiusKm` del origen Y delivery dentro de `radiusKm` del
-   * destino), excluyendo los propios del caller (sender o receiver).
+   * MOVO-142: envíos `published` cerca del origen del caller (AC1 original -- no hace
+   * falta tener un viaje planificado). `destinationLat`/`destinationLng` son
+   * OPCIONALES: si se mandan los dos, se suma el AND del lado de la entrega (pickup
+   * dentro de `radiusKm` del origen Y delivery dentro de `radiusKm` del destino,
+   * pensado para "qué encaja en mi trayecto"); si no, el filtro/orden es solo contra
+   * el retiro. Excluye los envíos propios del caller (sender o receiver).
    * `maxDistanceKm` (opcional) tapea la distancia propia pickup→delivery del envío,
-   * sin relación con el trayecto del caller. Orden por `distanceKm` (suma de las dos
-   * distancias parciales) ascendente. Paginado con el mismo contrato que
+   * sin relación con el trayecto del caller. Orden por `distanceKm` (pickup, más
+   * delivery si hay destino) ascendente. Paginado con el mismo contrato que
    * `listByUser`.
    */
   listAvailable(params: {
     originLat: number;
     originLng: number;
-    destinationLat: number;
-    destinationLng: number;
+    destinationLat?: number;
+    destinationLng?: number;
     radiusKm: number;
     maxDistanceKm?: number;
     excludeUserId: string;
@@ -505,20 +516,28 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
     async listAvailable(params: {
       originLat: number;
       originLng: number;
-      destinationLat: number;
-      destinationLng: number;
+      destinationLat?: number;
+      destinationLng?: number;
       radiusKm: number;
       maxDistanceKm?: number;
       excludeUserId: string;
       page: number;
       limit: number;
     }): Promise<{ items: AvailableShipment[]; total: number }> {
+      const hasDestination = params.destinationLat !== undefined && params.destinationLng !== undefined;
       const pickupBox = boundingBox(params.originLat, params.originLng, params.radiusKm);
-      const deliveryBox = boundingBox(params.destinationLat, params.destinationLng, params.radiusKm);
+      const deliveryBox = hasDestination ? boundingBox(params.destinationLat!, params.destinationLng!, params.radiusKm) : null;
       const where = availableShipmentsWhereSql({ callerId: params.excludeUserId, pickupBox, deliveryBox });
 
       const pickupDistance = haversinePointToColumnKm(params.originLat, params.originLng, Prisma.sql`pickup_lat`, Prisma.sql`pickup_lng`);
-      const deliveryDistance = haversinePointToColumnKm(params.destinationLat, params.destinationLng, Prisma.sql`delivery_lat`, Prisma.sql`delivery_lng`);
+      // Sin destino, `delivery_distance_km` es NULL -- no hay nada contra qué medir la
+      // entrega (AC1 original: el caller no tiene un viaje planificado, solo quiere ver
+      // envíos cerca de donde está). `NULL::float8` explícito para que el tipo de
+      // columna sea consistente entre las dos ramas del `UNION` implícito de Postgres
+      // al resolver el tipo de la expresión.
+      const deliveryDistance = hasDestination
+        ? haversinePointToColumnKm(params.destinationLat!, params.destinationLng!, Prisma.sql`delivery_lat`, Prisma.sql`delivery_lng`)
+        : Prisma.sql`NULL::float8`;
       const shipmentDistance = haversineColumnToColumnKm(Prisma.sql`pickup_lat`, Prisma.sql`pickup_lng`, Prisma.sql`delivery_lat`, Prisma.sql`delivery_lng`);
 
       // AC (refinamiento): tope opcional sobre la distancia PROPIA del envío
@@ -526,6 +545,8 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       // no se manda no filtra por esto.
       const maxDistanceFilter =
         params.maxDistanceKm !== undefined ? Prisma.sql`AND shipment_distance_km <= ${params.maxDistanceKm}` : Prisma.empty;
+      // El AND del lado de la entrega solo aplica si el caller mandó destino.
+      const deliveryDistanceFilter = hasDestination ? Prisma.sql`AND delivery_distance_km <= ${params.radiusKm}` : Prisma.empty;
 
       const skip = (params.page - 1) * params.limit;
 
@@ -547,10 +568,10 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             FROM shipments.shipments
             WHERE ${where}
           )
-          SELECT *, (pickup_distance_km + delivery_distance_km) AS distance_km
+          SELECT *, (pickup_distance_km + COALESCE(delivery_distance_km, 0)) AS distance_km
           FROM candidates
           WHERE pickup_distance_km <= ${params.radiusKm}
-            AND delivery_distance_km <= ${params.radiusKm}
+            ${deliveryDistanceFilter}
             ${maxDistanceFilter}
           ORDER BY distance_km ASC
           LIMIT ${params.limit} OFFSET ${skip}
@@ -567,7 +588,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           SELECT COUNT(*)::bigint AS count
           FROM candidates
           WHERE pickup_distance_km <= ${params.radiusKm}
-            AND delivery_distance_km <= ${params.radiusKm}
+            ${deliveryDistanceFilter}
             ${maxDistanceFilter}
         `,
       ]);

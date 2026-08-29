@@ -156,8 +156,9 @@ const availableShipmentResponse = {
     status: { type: "string" },
     // Distancia (Haversine) del retiro al originLat/Lng y de la entrega al
     // destinationLat/Lng del transportista, más la suma (distanceKm, clave de orden).
+    // deliveryDistanceKm es null cuando el caller no mandó destino.
     pickupDistanceKm: { type: "number" },
-    deliveryDistanceKm: { type: "number" },
+    deliveryDistanceKm: { type: ["number", "null"] },
     distanceKm: { type: "number" },
     hasMyOffer: { type: "boolean" },
     createdAt: { type: "string", format: "date-time" },
@@ -313,12 +314,17 @@ export const shipmentsSchemas = {
 
   // MOVO-142: mismo naming que routeQuery (originLat/originLng/destinationLat/
   // destinationLng) por consistencia -- acá representan el trayecto del transportista,
-  // no un origen/destino de ruteo. radiusKm comparte el mismo tope duro (200) que
-  // impide que la query degenere en un full scan; maxDistanceKm es la distancia PROPIA
-  // del envío (retiro→entrega), sin default -- si no se manda, no filtra por eso.
+  // no un origen/destino de ruteo. Solo origin* es obligatorio (AC1 original: el
+  // caller no tiene por qué tener un viaje planificado, "cerca mío" alcanza) --
+  // destination* es opcional, mandar uno sin el otro es 400 (validado en el service,
+  // no acá: AJV no tiene una forma limpia de expresar "ambos o ninguno" sin
+  // dependentRequired/if-then, y esta es la única query del schema que lo necesita).
+  // radiusKm comparte el mismo tope duro (200) que impide que la query degenere en un
+  // full scan; maxDistanceKm es la distancia PROPIA del envío (retiro→entrega), sin
+  // default -- si no se manda, no filtra por eso.
   listAvailableQuery: {
     type: "object",
-    required: ["originLat", "originLng", "destinationLat", "destinationLng"],
+    required: ["originLat", "originLng"],
     properties: {
       originLat: { type: "number", minimum: -90, maximum: 90 },
       originLng: { type: "number", minimum: -180, maximum: 180 },

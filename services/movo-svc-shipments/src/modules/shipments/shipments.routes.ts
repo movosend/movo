@@ -206,13 +206,15 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
     "/available",
     {
       schema: {
-        summary: "Envíos disponibles en mi trayecto (descubrimiento del transportista)",
+        summary: "Envíos disponibles cerca mío (descubrimiento del transportista)",
         description:
-          "MOVO-142: el transportista manda su propio origen y destino de viaje " +
-          "(originLat/Lng, destinationLat/Lng) -- un envío published aparece solo si " +
-          "su retiro cae dentro de radiusKm del origen Y su entrega dentro de " +
-          "radiusKm del destino (AND). Orden por la suma de ambas distancias " +
-          "ascendente (urgent viaja en la respuesta pero no altera el orden). " +
+          "MOVO-142: originLat/Lng (obligatorio) es de dónde parte el transportista -- " +
+          "sin más, devuelve envíos published con el retiro dentro de radiusKm de ahí. " +
+          "destinationLat/Lng es OPCIONAL (los dos juntos, o ninguno): si el " +
+          "transportista tiene un viaje planificado, suma el AND del lado de la " +
+          "entrega (dentro de radiusKm del destino) y el orden pasa a ser la suma de " +
+          "ambas distancias -- sin destino, se ordena solo por la distancia al " +
+          "retiro. urgent viaja en la respuesta pero no altera el orden. " +
           "maxDistanceKm (opcional, sin default) tapea la distancia PROPIA " +
           "retiro→entrega del envío, sin relación con el trayecto del caller. " +
           "Excluye los envíos propios del caller (sender o receiver). Requiere rol " +
@@ -237,8 +239,8 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         request.query as {
           originLat: number;
           originLng: number;
-          destinationLat: number;
-          destinationLng: number;
+          destinationLat?: number;
+          destinationLng?: number;
           radiusKm: number;
           maxDistanceKm?: number;
           page: number;

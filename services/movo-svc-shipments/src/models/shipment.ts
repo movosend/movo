@@ -78,11 +78,15 @@ export interface AvailableShipment {
   calculationMethod: string | null;
   status: ShipmentStatus;
   createdAt: Date;
-  /** Distancia (Haversine) del retiro del envío al `originLat`/`originLng` del caller. */
+  /** Distancia (Haversine) del retiro del envío al `originLat`/`originLng` del caller
+   * -- siempre presente, `originLat`/`originLng` son obligatorios. */
   pickupDistanceKm: number;
-  /** Distancia (Haversine) de la entrega del envío al `destinationLat`/`destinationLng` del caller. */
-  deliveryDistanceKm: number;
-  /** `pickupDistanceKm + deliveryDistanceKm` -- clave de orden (AC3). */
+  /** Distancia (Haversine) de la entrega del envío al `destinationLat`/`destinationLng`
+   * del caller. `null` cuando el caller no mandó destino -- no tiene un viaje
+   * planificado, solo quiere ver envíos cerca de donde está (AC1 original). */
+  deliveryDistanceKm: number | null;
+  /** `pickupDistanceKm + (deliveryDistanceKm ?? 0)` -- clave de orden (AC3). Sin
+   * destino, coincide exactamente con `pickupDistanceKm`. */
   distanceKm: number;
 }
 

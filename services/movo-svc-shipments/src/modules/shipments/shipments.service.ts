@@ -48,8 +48,11 @@ export interface ListMineResult {
 export interface ListAvailableShipmentsQuery {
   originLat: number;
   originLng: number;
-  destinationLat: number;
-  destinationLng: number;
+  /** Opcionales -- sin destino, el filtro/orden es solo contra la cercanía del
+   * retiro al origen (AC1 original: el caller no tiene por qué tener un viaje
+   * planificado). Ambos o ninguno: mandar uno solo es un 400. */
+  destinationLat?: number;
+  destinationLng?: number;
   radiusKm: number;
   maxDistanceKm?: number;
   page: number;
@@ -585,6 +588,16 @@ export function createShipmentsService(
     ): Promise<ListAvailableResult> {
       if (!offerRepository) {
         throw new Error("listAvailableShipments requiere offerRepository (ShipmentsServiceOptions).");
+      }
+      // El destino es opcional, pero es un par -- mandar uno sin el otro no tiene
+      // forma de resolverse (ni bounding box ni Haversine de un solo lado). Chequeo
+      // más barato primero, sin I/O, antes del gate de KYC.
+      if ((query.destinationLat !== undefined) !== (query.destinationLng !== undefined)) {
+        throw new ApiError(
+          400,
+          "VALIDATION_FAILED",
+          "destinationLat y destinationLng van juntos: mandá los dos o ninguno."
+        );
       }
       await assertVerifiedCarrier(usersClient, callerId, callerRoles);
 
