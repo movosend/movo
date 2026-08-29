@@ -734,6 +734,73 @@ Decisiones clave:
 Pendiente / fuera de alcance: creación y retiro de ofertas (`POST`/`DELETE`, MOVO-23,
 todavía en Backlog) — este ticket es solo el lado de lectura.
 
+### MOVO-142 — `GET /shipments/available`: descubrimiento por trayecto + apertura de `GET /shipments/:id` (`svc-shipments`)
+
+Primer ticket del eslabón de asignación (EP-03) — hasta ahora ningún transportista
+podía ver un envío `published`. `GET /shipments/available` filtra por geografía
+(bounding box + Haversine, sin PostGIS) y amplía `getShipmentDetail()` para que un
+transportista verificado pueda abrir lo que descubrió.
+
+Decisiones clave:
+- **Refinamiento de un punto a trayecto (acordado con el equipo sobre la marcha,
+  encima del refinamiento ciudad/provincia→radio que ya traía el ticket)**: el AC1
+  literal pedía un solo `lat`/`lng`. Se cambió a `originLat`/`originLng`/
+  `destinationLat`/`destinationLng` (mismo naming que `routeQuery` de MOVO-123) porque
+  el transportista tiene su propio trayecto — un envío aparece solo si su retiro cae
+  dentro de `radiusKm` del origen **y** su entrega dentro de `radiusKm` del destino
+  (AND). Orden por la suma de ambas distancias parciales (`distanceKm`) ascendente —
+  `urgent` viaja en la respuesta pero no la altera (AC3). `maxDistanceKm` (opcional,
+  sin default) tapea la distancia PROPIA retiro→entrega del envío, sin relación con el
+  trayecto del caller — evita que aparezca un paquete que implique un tramo largo
+  aunque el retiro quede cerca.
+- **Gating (AC6) sin tocar `@movo/shared`**: `PublicProfile` no tiene `roles` (solo
+  `PrivateProfile`, el propio usuario). En vez de agregarlo o sumar un método a
+  `UsersClient`, el rol `carrier` sale de `getUserRolesFromHeader(request)` (ya
+  inyectado por el gateway desde el JWT del caller) y el KYC de `usersClient.
+  findPublicProfile(callerId, callerId).isVerified` — mismo patrón que ya usaba
+  `createShipment` para el receptor, apuntado al propio caller. Deliberadamente
+  **nunca** exige licencia de conducir (MOVO-15): insignia de confianza, no permiso de
+  acceso. Código nuevo `CARRIER_NOT_VERIFIED` en `@movo/shared`.
+- **Primer `$queryRaw` con lógica de dominio real del monorepo** (`shipment-repository.ts
+  #listAvailable`) — hasta ahora solo `SELECT 1` en healthchecks. Distinto del
+  precedente de MOVO-118 (que descartó SQL crudo para *locking* transaccional,
+  resuelto con compare-and-swap): acá el motivo es trigonometría de dos puntos que
+  Prisma no puede expresar, no concurrencia. Dos índices compuestos nuevos
+  (`shipments_status_pickup_lat_lng_idx`/`..._delivery_lat_lng_idx`, migración escrita
+  a mano — sin shadow database configurada en este entorno para generar el diff) — a
+  diferencia de MOVO-130, que había descartado un índice compuesto por bajo volumen,
+  acá el AC2 lo pide explícito.
+- **`hasMyOffer` (AC5) interpretado como oferta `pending` efectiva**, no cualquier
+  oferta histórica — reusa `offerStatusWhere()` (expiración perezosa, MOVO-145) vía
+  `offer-repository.ts#listPendingOfferedShipmentIds()`, batch sobre la página ya
+  resuelta (sin N+1). Una oferta `withdrawn`/`rejected`/vencida no cuenta.
+- **AC8 ampliado sobre la letra del ticket**: además de "transportista verificado ve un
+  `published` ajeno", se agregó que el `carrierId` ya asignado vea su propio envío en
+  **cualquier** estado — gap real que no existía (`assertShipmentAccess` nunca conoció
+  `carrierId`). Reimplementado inline en `getShipmentDetail()`, sin tocar
+  `assert-shipment-access.ts` (compartido con `/events`/`photos.service.ts`, fuera de
+  alcance de este ticket, y necesita I/O async que ese helper síncrono no puede
+  intercalar antes del 403 final).
+- **Proyección propia `AvailableShipment`** (`models/shipment.ts`), no `Shipment` +
+  omitir campos en el DTO: sin `senderId`/`receiverId`/`carrierId`/precio
+  acordado/pago (AC9), la ausencia de esos campos en el tipo mismo es lo que garantiza
+  que nunca se filtren por accidente.
+
+Tests: `test/shipments-available.integration.test.ts` (nuevo, 15 casos: gating,
+exclusión de propios, AC9 positivo/negativo, `hasMyOffer` en sus 4 variantes,
+paginación, validación) + `test/shipment-repository.integration.test.ts` ampliado (9
+casos de `listAvailable`: solo `published`, exclusión de propios, AND real, radio
+límite, orden por suma, `maxDistanceKm`, paginación, tipos numéricos de `$queryRaw`) +
+`test/shipments-detail.integration.test.ts` ampliado (5 casos de AC8) +
+`test/shipment-service.test.ts` ampliado (8 casos unitarios de `getShipmentDetail`/
+`listAvailableShipments` con repos fake). Suite completa 30/30 suites, 374/374 tests.
+`tsc --noEmit` y `eslint` limpios. Confirmado que `app.swagger()` expone
+`/shipments/available`.
+
+Pendiente / fuera de alcance: UI mobile (MOVO-148, bloqueado por este ticket); el
+wraparound de longitud en ±180° del bounding box queda sin resolver (irrelevante para
+Argentina).
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
