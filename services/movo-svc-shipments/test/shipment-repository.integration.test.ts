@@ -691,5 +691,50 @@ describe("shipment-repository (Postgres)", () => {
       expect(items[0].deliveryDistanceKm).toBeNull();
       expect(items[0].distanceKm).toBe(items[0].pickupDistanceKm);
     });
+
+    // MOVO-142 (fix, corredor de MOVO-50 -- docs/or-tools/vrptw-spike-report.md): la
+    // primera versión de este método filtraba con dos círculos independientes (pickup
+    // cerca del origen Y delivery cerca del destino), que dejaba afuera un envío
+    // retirado/entregado en el MEDIO del trayecto aunque encajara perfecto en el
+    // viaje -- exactamente el caso Oncativo del spike (Córdoba->Villa María). Este
+    // test reproduce ese escenario con coordenadas sintéticas y falla si alguien
+    // vuelve a ese diseño.
+    it("con destino: un envío en el MEDIO de un trayecto largo aparece (prefiltro de corredor, no dos círculos)", async () => {
+      // Origen y destino a la misma latitud, separados 1° de longitud (~95km a esta
+      // latitud) -- un trayecto largo, a diferencia del par cercano (~1km) que usa el
+      // resto de los tests de este describe.
+      const longOriginLat = -31.0;
+      const longOriginLng = -64.0;
+      const longDestinationLat = -31.0;
+      const longDestinationLng = -63.0;
+
+      // Retiro y entrega justo en el medio del trayecto -- a ~47km de CADA extremo
+      // (fuera de cualquier radiusKm razonable si se midiera contra los dos puntos
+      // por separado), pero sobre la línea que los une.
+      const inTheMiddle = await createPublished({
+        pickupLat: -31.0,
+        pickupLng: -63.5,
+        deliveryLat: -31.0,
+        deliveryLng: -63.49,
+      });
+
+      const { items } = await repo.listAvailable({
+        originLat: longOriginLat,
+        originLng: longOriginLng,
+        destinationLat: longDestinationLat,
+        destinationLng: longDestinationLng,
+        radiusKm: 10,
+        excludeUserId: randomUUID(),
+        page: 1,
+        limit: 20,
+      });
+
+      expect(items.map((i) => i.id)).toEqual([inTheMiddle.id]);
+      // Control: la distancia a CADA extremo por separado (lo que medía el diseño
+      // viejo) es ~47km, muy por fuera de radiusKm=10 -- si el prefiltro fuera el AND
+      // de dos círculos, este envío no aparecería en absoluto.
+      expect(items[0].pickupDistanceKm).toBeLessThan(10);
+      expect(items[0].deliveryDistanceKm).toBeLessThan(10);
+    });
   });
 });

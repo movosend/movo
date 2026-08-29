@@ -315,4 +315,39 @@ describe("GET /shipments/available (Postgres, MOVO-142)", () => {
       expect(response.json().items[0].hasMyOffer).toBe(true);
     });
   });
+
+  // MOVO-142 (fix, corredor de MOVO-50 -- docs/or-tools/vrptw-spike-report.md):
+  // regresión end-to-end del mismo caso probado a nivel repositorio -- con la primera
+  // versión (AND de dos círculos), un envío retirado/entregado en el medio de un
+  // trayecto largo quedaba afuera del listado aunque encajara perfecto en el viaje.
+  describe("con destino: prefiltro de corredor (no dos círculos independientes)", () => {
+    it("un envío en el medio de un trayecto largo aparece, aunque esté lejos de los dos extremos por separado", async () => {
+      // Origen y destino a ~95km entre sí (misma latitud, 1° de longitud de
+      // diferencia) -- a diferencia del par cercano (~1km) que usa el resto de los
+      // tests de este archivo.
+      const longOriginLat = -31.0;
+      const longOriginLng = -64.0;
+      const longDestinationLat = -31.0;
+      const longDestinationLng = -63.0;
+
+      const inTheMiddle = await createPublishedShipment({
+        pickupLat: -31.0,
+        pickupLng: -63.5,
+        deliveryLat: -31.0,
+        deliveryLng: -63.49,
+      });
+
+      const response = await app.inject({
+        method: "GET",
+        url:
+          `/shipments/available?originLat=${longOriginLat}&originLng=${longOriginLng}` +
+          `&destinationLat=${longDestinationLat}&destinationLng=${longDestinationLng}&radiusKm=10`,
+        headers: { "x-user-id": verifiedCarrierId, "x-user-roles": "carrier" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const ids = response.json().items.map((i: { id: string }) => i.id);
+      expect(ids).toEqual([inTheMiddle.id]);
+    });
+  });
 });
