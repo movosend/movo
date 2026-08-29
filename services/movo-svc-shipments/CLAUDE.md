@@ -755,14 +755,30 @@ Decisiones clave:
   solo, validado en el service — AJV no expresa "ambos o ninguno" limpio sin
   `dependentRequired`/`if`-`then`, y es el único query del schema que lo necesita). Sin
   destino: filtra/ordena solo por la cercanía del retiro al origen,
-  `deliveryDistanceKm` viaja `null` y `distanceKm === pickupDistanceKm`. Con destino: se
-  suma el AND del lado de la entrega (retiro dentro de `radiusKm` del origen **y**
-  entrega dentro de `radiusKm` del destino) y el orden pasa a ser la suma de ambas
-  distancias parciales — `urgent` viaja en la respuesta pero nunca altera el orden
-  (AC3). `maxDistanceKm` (opcional, sin default, aplica en los dos modos) tapea la
-  distancia PROPIA retiro→entrega del envío, sin relación con el trayecto del caller —
-  evita que aparezca un paquete que implique un tramo largo aunque el retiro quede
-  cerca.
+  `deliveryDistanceKm` viaja `null` y `distanceKm === pickupDistanceKm`. `maxDistanceKm`
+  (opcional, sin default, aplica en los dos modos) tapea la distancia PROPIA
+  retiro→entrega del envío, sin relación con el trayecto del caller.
+- **Tercera vuelta de corrección — con destino, prefiltro de CORREDOR, no un AND de dos
+  círculos independientes**: la implementación inicial de "con destino" filtraba
+  `pickup` dentro de `radiusKm` del origen **y** `delivery` dentro de `radiusKm` del
+  destino, cada uno contra su propio punto. El usuario señaló que ya existía una spike
+  del equipo con el diseño correcto para esto:
+  `docs/or-tools/vrptw-spike-report.md`/`vrptw_prototype.py` (MOVO-50, preparación
+  técnica de MOVO-18/MOVO-10) — su prefiltro geométrico (CA6) mide la distancia
+  perpendicular de cada punto al SEGMENTO origen→destino, no a los dos extremos por
+  separado. El AND de dos círculos dejaba afuera un envío retirado/entregado en el
+  MEDIO de un trayecto largo (el caso de estudio del spike es Oncativo, entre Córdoba y
+  Villa María) aunque encajara perfecto en el viaje — ni el retiro ni la entrega quedan
+  cerca de ningún extremo, solo cerca de la línea que los une.
+  `haversineSegmentDistanceKm()` (`shipment-repository.ts`) porta la fórmula del
+  prototipo Python (proyección equirrectangular centrada en el punto medio del
+  segmento, clamp a los extremos con `GREATEST`/`LEAST`) a SQL — mismas constantes
+  (`ky=110.574`, distinto del `111.32` que usa el `boundingBox` del modo sin destino,
+  para no reinterpretar la fórmula original). `corridorBoundingBox()` reemplaza los dos
+  círculos independientes por un único rectángulo que encierra el segmento completo
+  ensanchado `radiusKm` — más laxo que un rectángulo orientado al segmento, pero simple
+  y nunca excluye un punto real del corredor (el Haversine de la query filtra el resto).
+  El orden (suma de ambas distancias) y el resto del contrato no cambiaron.
 - **Gating (AC6) sin tocar `@movo/shared`**: `PublicProfile` no tiene `roles` (solo
   `PrivateProfile`, el propio usuario). En vez de agregarlo o sumar un método a
   `UsersClient`, el rol `carrier` sale de `getUserRolesFromHeader(request)` (ya
@@ -796,13 +812,15 @@ Decisiones clave:
   acordado/pago (AC9), la ausencia de esos campos en el tipo mismo es lo que garantiza
   que nunca se filtren por accidente.
 
-Tests: `test/shipments-available.integration.test.ts` (20 casos: gating, exclusión de
+Tests: `test/shipments-available.integration.test.ts` (21 casos: gating, exclusión de
 propios, AC9 positivo/negativo, `hasMyOffer` en sus 4 variantes, paginación,
-validación, y 4 casos dedicados al modo sin destino) + `shipment-repository.
-integration.test.ts` ampliado (10 casos de `listAvailable`, incluido el modo sin
-destino) + `shipments-detail.integration.test.ts` ampliado (5 casos de AC8) +
+validación, 4 casos dedicados al modo sin destino, y la regresión end-to-end del
+corredor) + `shipment-repository.integration.test.ts` ampliado (11 casos de
+`listAvailable`, incluido el modo sin destino y el caso "envío en el medio de un
+trayecto largo" que reproduce exactamente por qué el AND de dos círculos no servía) +
+`shipments-detail.integration.test.ts` ampliado (5 casos de AC8) +
 `shipment-service.test.ts` ampliado (10 casos unitarios, incluida la validación
-"ambos o ninguno"). Suite completa 30/30 suites, 382/382 tests. `tsc --noEmit` y
+"ambos o ninguno"). Suite completa 30/30 suites, 384/384 tests. `tsc --noEmit` y
 `eslint` limpios. Confirmado que `app.swagger()` expone `/shipments/available`.
 
 Pendiente / fuera de alcance: UI mobile (MOVO-148, bloqueado por este ticket); el
