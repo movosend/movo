@@ -1,16 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
+import { ShipmentStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
-import { CreateShipmentInput, PackageType } from "../src/models/shipment";
-import { createFakeUsersClient } from "./fake-users-client";
+import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
+import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
 
 describe("GET /shipments/:id (Postgres)", () => {
   let app: FastifyInstance;
   let repo: ShipmentRepository;
   const senderId = randomUUID();
   const receiverId = randomUUID();
+  // MOVO-142 (AC8): perfiles fijos registrados en el fake UsersClient de todo el
+  // archivo (buildApp se instancia una sola vez en beforeAll) -- un carrier verificado
+  // y uno sin verificar, reusados en los tests de apertura de descubrimiento.
+  const verifiedCarrierId = randomUUID();
+  const unverifiedCarrierId = randomUUID();
 
   const baseInput: CreateShipmentInput = {
     senderId,
@@ -37,7 +43,12 @@ describe("GET /shipments/:id (Postgres)", () => {
     process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 
-    app = buildApp({ usersClient: createFakeUsersClient({}) });
+    app = buildApp({
+      usersClient: createFakeUsersClient({
+        [verifiedCarrierId]: fakePublicProfile({ id: verifiedCarrierId, isVerified: true }),
+        [unverifiedCarrierId]: fakePublicProfile({ id: unverifiedCarrierId, isVerified: false }),
+      }),
+    });
     await app.ready();
     repo = createShipmentRepository(app.db);
   });
@@ -49,6 +60,13 @@ describe("GET /shipments/:id (Postgres)", () => {
   beforeEach(async () => {
     await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
   });
+
+  /** AC6 de MOVO-81 -- precondición para publicar, no forma parte del gate bajo
+   * prueba acá (mismo criterio que shipment-repository.integration.test.ts). */
+  async function addTwoCreationPhotos(shipmentId: string): Promise<void> {
+    await repo.addPhoto(shipmentId, PhotoStage.creation, `shipments/${shipmentId}/creation/${randomUUID()}.jpg`);
+    await repo.addPhoto(shipmentId, PhotoStage.creation, `shipments/${shipmentId}/creation/${randomUUID()}.jpg`);
+  }
 
   it("el emisor puede ver el detalle", async () => {
     const shipment = await repo.create(baseInput);
@@ -101,5 +119,87 @@ describe("GET /shipments/:id (Postgres)", () => {
       headers: { "x-user-id": senderId },
     });
     expect(response.statusCode).toBe(404);
+  });
+
+  // MOVO-142 (AC8): apertura de visibilidad para el transportista.
+  describe("apertura para el transportista (MOVO-142)", () => {
+    it("un transportista verificado ve el detalle de un published ajeno", async () => {
+      const shipment = await repo.create(baseInput);
+      await addTwoCreationPhotos(shipment.id);
+      await repo.updateStatus(shipment.id, ShipmentStatus.PUBLISHED, receiverId);
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipment.id}`,
+        headers: { "x-user-id": verifiedCarrierId, "x-user-roles": "carrier" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().id).toBe(shipment.id);
+    });
+
+    it("un transportista verificado NO ve un envío assignment_pending ajeno (403 se mantiene)", async () => {
+      const shipment = await repo.create(baseInput);
+      await addTwoCreationPhotos(shipment.id);
+      await repo.updateStatus(shipment.id, ShipmentStatus.PUBLISHED, receiverId);
+      await repo.updateStatus(shipment.id, ShipmentStatus.ASSIGNMENT_PENDING, randomUUID());
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipment.id}`,
+        headers: { "x-user-id": verifiedCarrierId, "x-user-roles": "carrier" },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.code).toBe("AUTH_FORBIDDEN");
+    });
+
+    it("el carrierId ya asignado ve su propio envío en cualquier estado no-published", async () => {
+      const shipment = await repo.create(baseInput);
+      await addTwoCreationPhotos(shipment.id);
+      await repo.updateStatus(shipment.id, ShipmentStatus.PUBLISHED, receiverId);
+      await repo.updateStatus(shipment.id, ShipmentStatus.ASSIGNMENT_PENDING, verifiedCarrierId);
+      await app.db.shipment.update({ where: { id: shipment.id }, data: { carrierId: verifiedCarrierId } });
+      await repo.updateStatus(shipment.id, ShipmentStatus.ASSIGNED, verifiedCarrierId);
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipment.id}`,
+        headers: { "x-user-id": verifiedCarrierId, "x-user-roles": "carrier" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().id).toBe(shipment.id);
+    });
+
+    it("un transportista sin verificar recibe 403 CARRIER_NOT_VERIFIED (no AUTH_FORBIDDEN) sobre un published ajeno", async () => {
+      const shipment = await repo.create(baseInput);
+      await addTwoCreationPhotos(shipment.id);
+      await repo.updateStatus(shipment.id, ShipmentStatus.PUBLISHED, receiverId);
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipment.id}`,
+        headers: { "x-user-id": unverifiedCarrierId, "x-user-roles": "carrier" },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.code).toBe("CARRIER_NOT_VERIFIED");
+    });
+
+    it("un usuario sin rol carrier recibe 403 CARRIER_NOT_VERIFIED sobre un published ajeno", async () => {
+      const shipment = await repo.create(baseInput);
+      await addTwoCreationPhotos(shipment.id);
+      await repo.updateStatus(shipment.id, ShipmentStatus.PUBLISHED, receiverId);
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipment.id}`,
+        headers: { "x-user-id": verifiedCarrierId },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.code).toBe("CARRIER_NOT_VERIFIED");
+    });
   });
 });

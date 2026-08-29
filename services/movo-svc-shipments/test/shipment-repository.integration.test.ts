@@ -341,4 +341,315 @@ describe("shipment-repository (Postgres)", () => {
       expect(result).toHaveLength(1);
     });
   });
+
+  describe("listAvailable (MOVO-142)", () => {
+    // Mismo par pickup/delivery de baseInput -- ~1.04km entre sí (comentario de
+    // MOVO-126 en shipments.service.ts).
+    const originLat = -31.4201;
+    const originLng = -64.1888;
+    const destinationLat = -31.4135;
+    const destinationLng = -64.1811;
+    const KM_PER_DEGREE_LAT = 111.32;
+
+    async function createPublished(overrides: Partial<CreateShipmentInput> = {}) {
+      const shipment = await repo.create({ ...baseInput, ...overrides });
+      await addTwoCreationPhotos(shipment.id);
+      return repo.updateStatus(shipment.id, ShipmentStatus.PUBLISHED, shipment.senderId);
+    }
+
+    it("solo devuelve envíos published", async () => {
+      const published = await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+      const draft = await repo.create({
+        ...baseInput,
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+
+      const { items } = await repo.listAvailable({
+        originLat,
+        originLng,
+        destinationLat,
+        destinationLng,
+        radiusKm: 5,
+        excludeUserId: randomUUID(),
+        page: 1,
+        limit: 20,
+      });
+
+      expect(items.map((i) => i.id)).toEqual([published.id]);
+      expect(items.map((i) => i.id)).not.toContain(draft.id);
+    });
+
+    it("excluye los envíos propios del caller (sender o receiver)", async () => {
+      const callerId = randomUUID();
+      const ownAsSender = await createPublished({
+        senderId: callerId,
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+      const ownAsReceiver = await createPublished({
+        receiverId: callerId,
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+      const foreign = await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+
+      const { items } = await repo.listAvailable({
+        originLat,
+        originLng,
+        destinationLat,
+        destinationLng,
+        radiusKm: 5,
+        excludeUserId: callerId,
+        page: 1,
+        limit: 20,
+      });
+
+      expect(items.map((i) => i.id)).toEqual([foreign.id]);
+      expect(items.map((i) => i.id)).not.toContain(ownAsSender.id);
+      expect(items.map((i) => i.id)).not.toContain(ownAsReceiver.id);
+    });
+
+    it("AND real: pickup cerca del origen pero delivery lejos del destino no aparece (y viceversa)", async () => {
+      const farLat = originLat - 0.5; // ~55km, bien fuera de cualquier radio razonable
+      const matches = await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+      const pickupFar = await createPublished({
+        pickupLat: farLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+      const deliveryFar = await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: farLat,
+        deliveryLng: destinationLng,
+      });
+
+      const { items } = await repo.listAvailable({
+        originLat,
+        originLng,
+        destinationLat,
+        destinationLng,
+        radiusKm: 5,
+        excludeUserId: randomUUID(),
+        page: 1,
+        limit: 20,
+      });
+
+      const ids = items.map((i) => i.id);
+      expect(ids).toEqual([matches.id]);
+      expect(ids).not.toContain(pickupFar.id);
+      expect(ids).not.toContain(deliveryFar.id);
+    });
+
+    it("radio: pickup justo dentro del radio aparece, justo fuera no", async () => {
+      const radiusKm = 5;
+      const insideLat = originLat - 4.5 / KM_PER_DEGREE_LAT; // ~4.5km
+      const outsideLat = originLat - 5.5 / KM_PER_DEGREE_LAT; // ~5.5km
+      const inside = await createPublished({
+        pickupLat: insideLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+      const outside = await createPublished({
+        pickupLat: outsideLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+
+      const { items } = await repo.listAvailable({
+        originLat,
+        originLng,
+        destinationLat,
+        destinationLng,
+        radiusKm,
+        excludeUserId: randomUUID(),
+        page: 1,
+        limit: 20,
+      });
+
+      const ids = items.map((i) => i.id);
+      expect(ids).toContain(inside.id);
+      expect(ids).not.toContain(outside.id);
+    });
+
+    it("ordena por distanceKm ascendente (suma de las dos distancias parciales) -- urgent no altera el orden", async () => {
+      const far = await createPublished({
+        urgent: true, // el más urgente, pero también el más lejos -- no tiene que salir primero
+        pickupLat: originLat - 4 / KM_PER_DEGREE_LAT,
+        pickupLng: originLng,
+        deliveryLat: destinationLat - 4 / KM_PER_DEGREE_LAT,
+        deliveryLng: destinationLng,
+      });
+      const near = await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+      const middle = await createPublished({
+        pickupLat: originLat - 2 / KM_PER_DEGREE_LAT,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+
+      const { items } = await repo.listAvailable({
+        originLat,
+        originLng,
+        destinationLat,
+        destinationLng,
+        radiusKm: 10,
+        excludeUserId: randomUUID(),
+        page: 1,
+        limit: 20,
+      });
+
+      expect(items.map((i) => i.id)).toEqual([near.id, middle.id, far.id]);
+      expect(items[0].distanceKm).toBeLessThan(items[1].distanceKm);
+      expect(items[1].distanceKm).toBeLessThan(items[2].distanceKm);
+    });
+
+    it("maxDistanceKm (opcional) tapea la distancia PROPIA retiro→entrega del envío, sin relación con el trayecto del caller", async () => {
+      // Origen y destino separados ~15km -- un envío puede tener pickup cerca del
+      // origen y delivery cerca del destino (AND satisfecho) con un tramo propio
+      // corto o largo según dónde caiga cada extremo.
+      const farLat = originLat - 15 / KM_PER_DEGREE_LAT;
+      const shortLeg = await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: originLat, // mismo punto que el pickup -- tramo propio ~0km
+        deliveryLng: originLng,
+      });
+      const longLeg = await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: farLat, // ~15km del pickup
+        deliveryLng: originLng,
+      });
+
+      const withCap = await repo.listAvailable({
+        originLat,
+        originLng,
+        destinationLat: farLat,
+        destinationLng: originLng,
+        radiusKm: 20,
+        maxDistanceKm: 5,
+        excludeUserId: randomUUID(),
+        page: 1,
+        limit: 20,
+      });
+      expect(withCap.items.map((i) => i.id)).toEqual([shortLeg.id]);
+
+      const withoutCap = await repo.listAvailable({
+        originLat,
+        originLng,
+        destinationLat: farLat,
+        destinationLng: originLng,
+        radiusKm: 20,
+        excludeUserId: randomUUID(),
+        page: 1,
+        limit: 20,
+      });
+      expect(withoutCap.items.map((i) => i.id).sort()).toEqual([shortLeg.id, longLeg.id].sort());
+    });
+
+    it("pagina con el mismo contrato {items, page, limit, total} que listByUser", async () => {
+      const a = await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+      const b = await createPublished({
+        pickupLat: originLat - 1 / KM_PER_DEGREE_LAT,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+      const c = await createPublished({
+        pickupLat: originLat - 2 / KM_PER_DEGREE_LAT,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+
+      const page1 = await repo.listAvailable({
+        originLat,
+        originLng,
+        destinationLat,
+        destinationLng,
+        radiusKm: 10,
+        excludeUserId: randomUUID(),
+        page: 1,
+        limit: 2,
+      });
+      expect(page1.items.map((i) => i.id)).toEqual([a.id, b.id]);
+      expect(page1.total).toBe(3);
+
+      const page2 = await repo.listAvailable({
+        originLat,
+        originLng,
+        destinationLat,
+        destinationLng,
+        radiusKm: 10,
+        excludeUserId: randomUUID(),
+        page: 2,
+        limit: 2,
+      });
+      expect(page2.items.map((i) => i.id)).toEqual([c.id]);
+      expect(page2.total).toBe(3);
+    });
+
+    it("devuelve number (no string/bigint) en los campos numéricos -- trampa de $queryRaw sobre Decimal/COUNT", async () => {
+      await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+
+      const { items, total } = await repo.listAvailable({
+        originLat,
+        originLng,
+        destinationLat,
+        destinationLng,
+        radiusKm: 5,
+        excludeUserId: randomUUID(),
+        page: 1,
+        limit: 20,
+      });
+
+      expect(typeof total).toBe("number");
+      expect(typeof items[0].distanceKm).toBe("number");
+      expect(typeof items[0].pickupDistanceKm).toBe("number");
+      expect(typeof items[0].deliveryDistanceKm).toBe("number");
+      expect(typeof items[0].weightKg).toBe("number");
+      expect(typeof items[0].suggestedPriceArs).toBe("number");
+    });
+  });
 });
