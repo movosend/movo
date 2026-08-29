@@ -742,17 +742,27 @@ podía ver un envío `published`. `GET /shipments/available` filtra por geograf�
 transportista verificado pueda abrir lo que descubrió.
 
 Decisiones clave:
-- **Refinamiento de un punto a trayecto (acordado con el equipo sobre la marcha,
-  encima del refinamiento ciudad/provincia→radio que ya traía el ticket)**: el AC1
-  literal pedía un solo `lat`/`lng`. Se cambió a `originLat`/`originLng`/
-  `destinationLat`/`destinationLng` (mismo naming que `routeQuery` de MOVO-123) porque
-  el transportista tiene su propio trayecto — un envío aparece solo si su retiro cae
-  dentro de `radiusKm` del origen **y** su entrega dentro de `radiusKm` del destino
-  (AND). Orden por la suma de ambas distancias parciales (`distanceKm`) ascendente —
-  `urgent` viaja en la respuesta pero no la altera (AC3). `maxDistanceKm` (opcional,
-  sin default) tapea la distancia PROPIA retiro→entrega del envío, sin relación con el
-  trayecto del caller — evita que aparezca un paquete que implique un tramo largo
-  aunque el retiro quede cerca.
+- **Refinamiento de un punto a trayecto OPCIONAL (dos vueltas de corrección con el
+  usuario sobre la marcha, encima del refinamiento ciudad/provincia→radio que ya traía
+  el ticket)**: el AC1 literal pedía un solo `lat`/`lng`. Primera vuelta: se cambió a
+  `originLat`/`originLng`/`destinationLat`/`destinationLng` (mismo naming que
+  `routeQuery` de MOVO-123) para que el transportista pudiera filtrar por su propio
+  trayecto. Segunda vuelta (corrección): **el destino no puede ser obligatorio** — el
+  transportista no siempre tiene un viaje planificado, y en ese caso igual tiene que
+  ver los envíos cerca suyo (la letra original del AC1). Diseño final: `originLat`/
+  `originLng` obligatorios (de dónde parte); `destinationLat`/`destinationLng`
+  opcionales, **los dos juntos o ninguno** (400 `VALIDATION_FAILED` si se manda uno
+  solo, validado en el service — AJV no expresa "ambos o ninguno" limpio sin
+  `dependentRequired`/`if`-`then`, y es el único query del schema que lo necesita). Sin
+  destino: filtra/ordena solo por la cercanía del retiro al origen,
+  `deliveryDistanceKm` viaja `null` y `distanceKm === pickupDistanceKm`. Con destino: se
+  suma el AND del lado de la entrega (retiro dentro de `radiusKm` del origen **y**
+  entrega dentro de `radiusKm` del destino) y el orden pasa a ser la suma de ambas
+  distancias parciales — `urgent` viaja en la respuesta pero nunca altera el orden
+  (AC3). `maxDistanceKm` (opcional, sin default, aplica en los dos modos) tapea la
+  distancia PROPIA retiro→entrega del envío, sin relación con el trayecto del caller —
+  evita que aparezca un paquete que implique un tramo largo aunque el retiro quede
+  cerca.
 - **Gating (AC6) sin tocar `@movo/shared`**: `PublicProfile` no tiene `roles` (solo
   `PrivateProfile`, el propio usuario). En vez de agregarlo o sumar un método a
   `UsersClient`, el rol `carrier` sale de `getUserRolesFromHeader(request)` (ya
@@ -786,16 +796,14 @@ Decisiones clave:
   acordado/pago (AC9), la ausencia de esos campos en el tipo mismo es lo que garantiza
   que nunca se filtren por accidente.
 
-Tests: `test/shipments-available.integration.test.ts` (nuevo, 15 casos: gating,
-exclusión de propios, AC9 positivo/negativo, `hasMyOffer` en sus 4 variantes,
-paginación, validación) + `test/shipment-repository.integration.test.ts` ampliado (9
-casos de `listAvailable`: solo `published`, exclusión de propios, AND real, radio
-límite, orden por suma, `maxDistanceKm`, paginación, tipos numéricos de `$queryRaw`) +
-`test/shipments-detail.integration.test.ts` ampliado (5 casos de AC8) +
-`test/shipment-service.test.ts` ampliado (8 casos unitarios de `getShipmentDetail`/
-`listAvailableShipments` con repos fake). Suite completa 30/30 suites, 374/374 tests.
-`tsc --noEmit` y `eslint` limpios. Confirmado que `app.swagger()` expone
-`/shipments/available`.
+Tests: `test/shipments-available.integration.test.ts` (20 casos: gating, exclusión de
+propios, AC9 positivo/negativo, `hasMyOffer` en sus 4 variantes, paginación,
+validación, y 4 casos dedicados al modo sin destino) + `shipment-repository.
+integration.test.ts` ampliado (10 casos de `listAvailable`, incluido el modo sin
+destino) + `shipments-detail.integration.test.ts` ampliado (5 casos de AC8) +
+`shipment-service.test.ts` ampliado (10 casos unitarios, incluida la validación
+"ambos o ninguno"). Suite completa 30/30 suites, 382/382 tests. `tsc --noEmit` y
+`eslint` limpios. Confirmado que `app.swagger()` expone `/shipments/available`.
 
 Pendiente / fuera de alcance: UI mobile (MOVO-148, bloqueado por este ticket); el
 wraparound de longitud en ±180° del bounding box queda sin resolver (irrelevante para
