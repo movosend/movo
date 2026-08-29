@@ -11,7 +11,7 @@ import { createNotificationsClient, NotificationsClient } from "../../adapters/n
 import { createPricingClient, PricingClient } from "../../adapters/pricing-client";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
-import { Shipment, ShipmentEvent } from "../../models/shipment";
+import { AvailableShipment, Shipment, ShipmentEvent } from "../../models/shipment";
 import { ListShipmentOffersQuery, ListShipmentOffersSort } from "./shipments.service";
 import { toOfferDto } from "../offers/offer.dto";
 
@@ -58,6 +58,20 @@ function toShipmentDto(shipment: Shipment) {
     receiverConfirmationDeadline: shipment.receiverConfirmationDeadline
       ? shipment.receiverConfirmationDeadline.toISOString()
       : null,
+  };
+}
+
+/** Mismo fix de formato UTC que toShipmentDto (ver su comentario) -- no se reusa esa
+ * función porque su input es Shipment completo, no AvailableShipment (MOVO-142,
+ * AC9: sin senderId/receiverId). No se extrae a un archivo shipments.dto.ts propio a
+ * diferencia de toOfferDto (MOVO-144, compartida entre dos route files): esta función
+ * solo la usa esta ruta. */
+function toAvailableShipmentDto(item: AvailableShipment & { hasMyOffer: boolean }) {
+  return {
+    ...item,
+    pickupDate: item.pickupDate.toISOString().slice(0, 10),
+    pickupTimeWindowStart: item.pickupTimeWindowStart.toISOString().slice(11, 19),
+    pickupTimeWindowEnd: item.pickupTimeWindowEnd.toISOString().slice(11, 19),
   };
 }
 
@@ -186,14 +200,74 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
     }
   );
 
+  // Ruta estática — mismo criterio que "/mine"/"/route": se registra antes de "/:id"
+  // por claridad, aunque find-my-way ya prioriza segmentos estáticos.
+  app.get(
+    "/available",
+    {
+      schema: {
+        summary: "Envíos disponibles en mi trayecto (descubrimiento del transportista)",
+        description:
+          "MOVO-142: el transportista manda su propio origen y destino de viaje " +
+          "(originLat/Lng, destinationLat/Lng) -- un envío published aparece solo si " +
+          "su retiro cae dentro de radiusKm del origen Y su entrega dentro de " +
+          "radiusKm del destino (AND). Orden por la suma de ambas distancias " +
+          "ascendente (urgent viaja en la respuesta pero no altera el orden). " +
+          "maxDistanceKm (opcional, sin default) tapea la distancia PROPIA " +
+          "retiro→entrega del envío, sin relación con el trayecto del caller. " +
+          "Excluye los envíos propios del caller (sender o receiver). Requiere rol " +
+          "carrier + KYC de identidad aprobado (403 CARRIER_NOT_VERIFIED -- nunca " +
+          "licencia de conducir, que es insignia de confianza, no permiso de acceso). " +
+          "hasMyOffer marca los envíos donde el caller ya tiene una oferta pending.",
+        tags: ["shipments"],
+        querystring: shipmentsSchemas.listAvailableQuery,
+        response: {
+          200: shipmentsSchemas.listAvailableResponse,
+          400: shipmentsSchemas.errorResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          502: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const callerRoles = getUserRolesFromHeader(request);
+      const { originLat, originLng, destinationLat, destinationLng, radiusKm, maxDistanceKm, page, limit } =
+        request.query as {
+          originLat: number;
+          originLng: number;
+          destinationLat: number;
+          destinationLng: number;
+          radiusKm: number;
+          maxDistanceKm?: number;
+          page: number;
+          limit: number;
+        };
+      const result = await service.listAvailableShipments(callerId, callerRoles, {
+        originLat,
+        originLng,
+        destinationLat,
+        destinationLng,
+        radiusKm,
+        maxDistanceKm,
+        page,
+        limit,
+      });
+      return { ...result, items: result.items.map(toAvailableShipmentDto) };
+    }
+  );
+
   app.get(
     "/:id",
     {
       schema: {
         summary: "Detalle de un envío",
         description:
-          "AC8 de MOVO-80: accesible únicamente para el emisor, el receptor o un admin. " +
-          "Un usuario ajeno recibe 403, nunca 404 con datos filtrados.",
+          "AC8 de MOVO-80: accesible para el emisor, el receptor, un admin, o (MOVO-142) " +
+          "el carrier ya asignado (cualquier estado) o un transportista verificado " +
+          "cuando el envío está published (apertura de descubrimiento). Un usuario " +
+          "ajeno recibe 403, nunca 404 con datos filtrados.",
         tags: ["shipments"],
         params: shipmentsSchemas.shipmentIdParam,
         response: {
@@ -202,6 +276,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           401: shipmentsSchemas.errorResponse,
           403: shipmentsSchemas.errorResponse,
           404: shipmentsSchemas.errorResponse,
+          502: shipmentsSchemas.errorResponse,
         },
       },
     },

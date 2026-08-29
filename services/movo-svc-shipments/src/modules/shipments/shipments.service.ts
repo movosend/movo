@@ -5,7 +5,7 @@ import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
-import { PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
+import { AvailableShipment, PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
 import { Offer } from "../../models/offer";
 import { assertIsReceiver, assertIsSenderOrAdmin, assertShipmentAccess } from "./assert-shipment-access";
 
@@ -40,6 +40,24 @@ export interface CreateShipmentServiceInput {
 
 export interface ListMineResult {
   items: Shipment[];
+  page: number;
+  limit: number;
+  total: number;
+}
+
+export interface ListAvailableShipmentsQuery {
+  originLat: number;
+  originLng: number;
+  destinationLat: number;
+  destinationLng: number;
+  radiusKm: number;
+  maxDistanceKm?: number;
+  page: number;
+  limit: number;
+}
+
+export interface ListAvailableResult {
+  items: Array<AvailableShipment & { hasMyOffer: boolean }>;
   page: number;
   limit: number;
   total: number;
@@ -102,6 +120,29 @@ function toRealInstant(anchoredDate: Date): Date {
  * `@db.Time` del repositorio (ver shipment-repository.integration.test.ts). */
 function toEpochTime(timeStr: string): Date {
   return new Date(`1970-01-01T${normalizeTime(timeStr)}.000Z`);
+}
+
+/**
+ * MOVO-142 (AC6): gate de "transportista verificado" para `GET /shipments/available` y
+ * la apertura de `getShipmentDetail` (AC8). El rol sale del propio header
+ * `x-user-roles` (inyectado por el gateway desde el JWT del caller, ADR-010) — no hace
+ * falta ninguna llamada a `svc-users` para eso. El KYC de identidad se resuelve con
+ * `PublicProfile.isVerified` (`usersClient.findPublicProfile(callerId, callerId)`,
+ * mismo campo/patrón que ya usa `createShipment` para el receptor) — `isVerified` ya ES
+ * `kycStatusIdentity===approved` del lado de `svc-users`. Deliberadamente NO exige
+ * licencia de conducir (MOVO-15): es una insignia de confianza, no un permiso de
+ * acceso -- alguien sin auto puede llevar un paquete en micro/tren/avión igual.
+ * Chequeo del rol primero (sin I/O) antes de la llamada de red, mismo criterio de
+ * "más barato primero" que AC4 de `createShipment`.
+ */
+async function assertVerifiedCarrier(usersClient: UsersClient, callerId: string, callerRoles: UserRole[]): Promise<void> {
+  if (!callerRoles.includes(UserRole.CARRIER)) {
+    throw new ApiError(403, "CARRIER_NOT_VERIFIED", "Necesitás ser transportista para ver este contenido.");
+  }
+  const profile = await usersClient.findPublicProfile(callerId, callerId);
+  if (!profile || !profile.isVerified) {
+    throw new ApiError(403, "CARRIER_NOT_VERIFIED", "Necesitás tener tu identidad verificada para transportar.");
+  }
 }
 
 /**
@@ -361,14 +402,40 @@ export function createShipmentsService(
       return created;
     },
 
+    /**
+     * AC8 de MOVO-142: amplía la visibilidad de `assertShipmentAccess` (emisor/
+     * receptor/admin) con dos casos nuevos, reimplementados acá en vez de tocar ese
+     * helper (compartido con `getShipmentEvents`/`photos.service.ts`, fuera del
+     * alcance de este ticket, y necesita I/O async que ese helper síncrono no puede
+     * intercalar antes del 403 final):
+     * - El `carrierId` ya asignado ve su propio envío en cualquier estado (gap real,
+     *   `assertShipmentAccess` nunca conoció `carrierId`).
+     * - Un transportista verificado (rol `carrier` + KYC de identidad aprobado) ve un
+     *   envío `published` ajeno -- la apertura de descubrimiento que necesita
+     *   `GET /shipments/available`. Fuera de `published`, el 403 original se mantiene.
+     */
     async getShipmentDetail(shipmentId: string, callerId: string, callerRoles: UserRole[]): Promise<Shipment> {
       const shipment = await repository.findById(shipmentId);
       if (!shipment) {
         throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
       }
 
-      assertShipmentAccess(shipment, callerId, callerRoles);
-      return shipment;
+      if (callerId === shipment.carrierId) {
+        return shipment;
+      }
+
+      const isParty = callerId === shipment.senderId || callerId === shipment.receiverId;
+      const isAdmin = callerRoles.includes(UserRole.ADMIN);
+      if (isParty || isAdmin) {
+        return shipment;
+      }
+
+      if (shipment.status === ShipmentStatus.PUBLISHED) {
+        await assertVerifiedCarrier(usersClient, callerId, callerRoles);
+        return shipment;
+      }
+
+      throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver este envío.");
     },
 
     async getShipmentEvents(shipmentId: string, callerId: string, callerRoles: UserRole[]): Promise<ShipmentEvent[]> {
@@ -503,6 +570,46 @@ export function createShipmentsService(
     async listMyShipments(userId: string, page: number, limit: number): Promise<ListMineResult> {
       const { items, total } = await repository.listByUser(userId, page, limit);
       return { items, page, limit, total };
+    },
+
+    /**
+     * MOVO-142: descubrimiento del transportista. Gate primero (AC6, sin gastar la
+     * query geográfica si el caller ni siquiera es carrier verificado), después el
+     * filtro de radio/AND sobre el trayecto (`repository.listAvailable`), y por
+     * último `hasMyOffer` en batch sobre la página ya resuelta (AC5, sin N+1).
+     */
+    async listAvailableShipments(
+      callerId: string,
+      callerRoles: UserRole[],
+      query: ListAvailableShipmentsQuery
+    ): Promise<ListAvailableResult> {
+      if (!offerRepository) {
+        throw new Error("listAvailableShipments requiere offerRepository (ShipmentsServiceOptions).");
+      }
+      await assertVerifiedCarrier(usersClient, callerId, callerRoles);
+
+      const { items, total } = await repository.listAvailable({
+        originLat: query.originLat,
+        originLng: query.originLng,
+        destinationLat: query.destinationLat,
+        destinationLng: query.destinationLng,
+        radiusKm: query.radiusKm,
+        maxDistanceKm: query.maxDistanceKm,
+        excludeUserId: callerId,
+        page: query.page,
+        limit: query.limit,
+      });
+      const offeredIds = await offerRepository.listPendingOfferedShipmentIds(
+        callerId,
+        items.map((item) => item.id)
+      );
+
+      return {
+        items: items.map((item) => ({ ...item, hasMyOffer: offeredIds.has(item.id) })),
+        page: query.page,
+        limit: query.limit,
+        total,
+      };
     },
 
     /**

@@ -100,6 +100,70 @@ const shipmentResponse = {
   },
 };
 
+// MOVO-142 (AC9): proyección de GET /shipments/available -- deliberadamente sin
+// senderId/receiverId/carrierId/agreedPriceArs/paymentMethod/lastStatusChangedAt/
+// deliveredAt/receiverConfirmationDeadline/updatedAt (datos personales o ruido
+// operativo irrelevante para quien está descubriendo envíos).
+const availableShipmentResponse = {
+  type: "object",
+  required: [
+    "id",
+    "packageType",
+    "weightKg",
+    "lengthCm",
+    "widthCm",
+    "heightCm",
+    "description",
+    "urgent",
+    "pickupAddress",
+    "pickupLat",
+    "pickupLng",
+    "deliveryAddress",
+    "deliveryLat",
+    "deliveryLng",
+    "pickupDate",
+    "pickupTimeWindowStart",
+    "pickupTimeWindowEnd",
+    "suggestedPriceArs",
+    "calculationMethod",
+    "status",
+    "pickupDistanceKm",
+    "deliveryDistanceKm",
+    "distanceKm",
+    "hasMyOffer",
+    "createdAt",
+  ],
+  properties: {
+    id: { type: "string" },
+    packageType: { type: "string", enum: PACKAGE_TYPE_VALUES },
+    weightKg: { type: "number" },
+    lengthCm: { type: "number" },
+    widthCm: { type: "number" },
+    heightCm: { type: "number" },
+    description: { type: ["string", "null"] },
+    urgent: { type: "boolean" },
+    pickupAddress: { type: "string" },
+    pickupLat: { type: "number" },
+    pickupLng: { type: "number" },
+    deliveryAddress: { type: "string" },
+    deliveryLat: { type: "number" },
+    deliveryLng: { type: "number" },
+    pickupDate: { type: "string", format: "date" },
+    pickupTimeWindowStart: { type: "string", format: "time" },
+    pickupTimeWindowEnd: { type: "string", format: "time" },
+    suggestedPriceArs: { type: ["number", "null"] },
+    calculationMethod: { type: ["string", "null"] },
+    status: { type: "string" },
+    // Distancia (Haversine) del retiro al originLat/Lng y de la entrega al
+    // destinationLat/Lng del transportista, más la suma (distanceKm, clave de orden).
+    pickupDistanceKm: { type: "number" },
+    deliveryDistanceKm: { type: "number" },
+    distanceKm: { type: "number" },
+    hasMyOffer: { type: "boolean" },
+    createdAt: { type: "string", format: "date-time" },
+  },
+};
+
 const OFFER_SORT_VALUES = ["price", "rating", "createdAt"];
 
 const offerResponse = {
@@ -241,6 +305,39 @@ export const shipmentsSchemas = {
     required: ["items", "page", "limit", "total"],
     properties: {
       items: { type: "array", items: shipmentResponse },
+      page: { type: "integer" },
+      limit: { type: "integer" },
+      total: { type: "integer" },
+    },
+  },
+
+  // MOVO-142: mismo naming que routeQuery (originLat/originLng/destinationLat/
+  // destinationLng) por consistencia -- acá representan el trayecto del transportista,
+  // no un origen/destino de ruteo. radiusKm comparte el mismo tope duro (200) que
+  // impide que la query degenere en un full scan; maxDistanceKm es la distancia PROPIA
+  // del envío (retiro→entrega), sin default -- si no se manda, no filtra por eso.
+  listAvailableQuery: {
+    type: "object",
+    required: ["originLat", "originLng", "destinationLat", "destinationLng"],
+    properties: {
+      originLat: { type: "number", minimum: -90, maximum: 90 },
+      originLng: { type: "number", minimum: -180, maximum: 180 },
+      destinationLat: { type: "number", minimum: -90, maximum: 90 },
+      destinationLng: { type: "number", minimum: -180, maximum: 180 },
+      radiusKm: { type: "number", minimum: 1, maximum: 200, default: 50 },
+      maxDistanceKm: { type: "number", minimum: 0.1 },
+      page: { type: "integer", minimum: 1, default: 1 },
+      limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
+    },
+  },
+
+  availableShipmentResponse,
+
+  listAvailableResponse: {
+    type: "object",
+    required: ["items", "page", "limit", "total"],
+    properties: {
+      items: { type: "array", items: availableShipmentResponse },
       page: { type: "integer" },
       limit: { type: "integer" },
       total: { type: "integer" },

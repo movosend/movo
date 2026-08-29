@@ -209,6 +209,13 @@ export interface OfferRepository {
     limit: number,
     status?: OfferStatus
   ): Promise<{ items: OfferWithShipmentContext[]; total: number }>;
+  /**
+   * MOVO-142 (AC5): shipmentIds del set dado donde `carrierId` tiene una oferta con
+   * status EFECTIVO `pending` (reusa `offerStatusWhere` -- no cuenta
+   * withdrawn/rejected/expired). Batch para el `hasMyOffer` de
+   * `GET /shipments/available`, sin N+1 sobre la página de resultados.
+   */
+  listPendingOfferedShipmentIds(carrierId: string, shipmentIds: string[]): Promise<Set<string>>;
 }
 
 export function createOfferRepository(db: PrismaClient): OfferRepository {
@@ -400,6 +407,17 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         db.offer.count({ where }),
       ]);
       return { items: rows.map(mapOfferWithShipment), total };
+    },
+
+    async listPendingOfferedShipmentIds(carrierId: string, shipmentIds: string[]): Promise<Set<string>> {
+      if (shipmentIds.length === 0) {
+        return new Set();
+      }
+      const rows = await db.offer.findMany({
+        where: { carrierId, shipmentId: { in: shipmentIds }, ...offerStatusWhere(OfferStatus.PENDING, new Date()) },
+        select: { shipmentId: true },
+      });
+      return new Set(rows.map((r) => r.shipmentId));
     },
   };
 }

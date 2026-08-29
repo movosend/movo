@@ -1,5 +1,5 @@
 import { ShipmentStatus } from "@movo/shared";
-import { PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
+import { Prisma, PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
 import {
   INITIAL_SHIPMENT_STATUS,
   InsufficientCreationPhotosError,
@@ -10,7 +10,9 @@ import {
   Shipment,
   ShipmentEvent,
   ShipmentPhoto,
+  AvailableShipment,
   CreateShipmentInput,
+  PackageType,
   PhotoStage,
   parseShipmentStatus,
 } from "../models/shipment";
@@ -81,6 +83,145 @@ function mapPhoto(row: ShipmentPhotoRow): ShipmentPhoto {
   };
 }
 
+const EARTH_RADIUS_KM = 6371;
+
+function toRadians(degrees: number): number {
+  return (degrees * Math.PI) / 180;
+}
+
+/**
+ * MOVO-142: bounding box en JS antes de la query -- descarta la mayoría de las filas
+ * vía los índices `shipments_status_pickup_lat_lng_idx`/`..._delivery_lat_lng_idx`
+ * (AC2), el Haversine de la query SQL solo afina sobre lo que sobrevive al rango.
+ * `Math.max(cos, 1e-6)` es defensa en profundidad para latitudes cerca del polo (no
+ * aplica en la práctica a Argentina) -- sin esto, `lngDelta` podría dividir por ~0.
+ */
+function boundingBox(lat: number, lng: number, radiusKm: number) {
+  const clampedLat = Math.max(-90, Math.min(90, lat));
+  const latDelta = radiusKm / 111.32;
+  const lngDelta = radiusKm / (111.32 * Math.max(Math.cos(toRadians(clampedLat)), 1e-6));
+  return { latMin: lat - latDelta, latMax: lat + latDelta, lngMin: lng - lngDelta, lngMax: lng + lngDelta };
+}
+
+/**
+ * MOVO-142: primer `$queryRaw` con lógica de dominio del monorepo (hasta ahora solo
+ * `SELECT 1` en healthchecks) -- Haversine entre un punto fijo (origen/destino del
+ * transportista) y una columna de la fila (pickup_lat/lng o delivery_lat/lng). Misma
+ * fórmula que `haversineKm()` de `shipments.service.ts` (EARTH_RADIUS_KM=6371),
+ * reescrita en SQL porque Prisma no puede expresar trigonometría. Building block
+ * parametrizado (tagged template de Prisma, nunca `$queryRawUnsafe`) -- el nombre de
+ * columna SIEMPRE viaja como `Prisma.sql` interno (literal fijo de este archivo, nunca
+ * interpolación de un valor externo), los valores del caller (`lat`/`lng`) sí van
+ * parametrizados por el tag.
+ */
+function haversinePointToColumnKm(lat: number, lng: number, latCol: Prisma.Sql, lngCol: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`(
+    ${EARTH_RADIUS_KM} * 2 * asin(sqrt(
+      power(sin(radians(${latCol} - ${lat}) / 2), 2) +
+      cos(radians(${lat})) * cos(radians(${latCol})) *
+      power(sin(radians(${lngCol} - ${lng}) / 2), 2)
+    ))
+  )`;
+}
+
+/** MOVO-142 (`maxDistanceKm`): misma fórmula que `haversinePointToColumnKm`, pero entre
+ * dos PARES de columnas de la misma fila (pickup vs delivery del propio envío) en vez
+ * de un punto fijo del caller contra una columna. */
+function haversineColumnToColumnKm(lat1Col: Prisma.Sql, lng1Col: Prisma.Sql, lat2Col: Prisma.Sql, lng2Col: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`(
+    ${EARTH_RADIUS_KM} * 2 * asin(sqrt(
+      power(sin(radians(${lat2Col} - ${lat1Col}) / 2), 2) +
+      cos(radians(${lat1Col})) * cos(radians(${lat2Col})) *
+      power(sin(radians(${lng2Col} - ${lng1Col}) / 2), 2)
+    ))
+  )`;
+}
+
+/**
+ * MOVO-142: `WHERE` compartido entre la query de datos y la de conteo de
+ * `listAvailable` -- mismo espíritu que `offerStatusWhere()` en
+ * `offer-repository.ts`, única fuente de verdad de un WHERE reusado dos veces, para
+ * que nunca diverjan entre sí.
+ */
+function availableShipmentsWhereSql(params: {
+  callerId: string;
+  pickupBox: { latMin: number; latMax: number; lngMin: number; lngMax: number };
+  deliveryBox: { latMin: number; latMax: number; lngMin: number; lngMax: number };
+}): Prisma.Sql {
+  return Prisma.sql`
+    status = 'published'
+      AND sender_id <> ${params.callerId}::uuid
+      AND receiver_id <> ${params.callerId}::uuid
+      AND pickup_lat BETWEEN ${params.pickupBox.latMin} AND ${params.pickupBox.latMax}
+      AND pickup_lng BETWEEN ${params.pickupBox.lngMin} AND ${params.pickupBox.lngMax}
+      AND delivery_lat BETWEEN ${params.deliveryBox.latMin} AND ${params.deliveryBox.latMax}
+      AND delivery_lng BETWEEN ${params.deliveryBox.lngMin} AND ${params.deliveryBox.lngMax}
+  `;
+}
+
+/**
+ * Fila cruda de `$queryRaw` -- a diferencia de `db.shipment.findMany()`, Prisma NO
+ * aplica acá el mapeo `@map` (columnas en `snake_case` reales de Postgres) ni convierte
+ * `numeric`/`decimal` a `Prisma.Decimal`: el driver `pg` los devuelve como `string` para
+ * no perder precisión con floats. `timestamp`/`timestamptz`/`date` sí vuelven como
+ * `Date` (parser default de `pg`).
+ */
+interface AvailableShipmentRow {
+  id: string;
+  package_type: PackageType;
+  weight_kg: string;
+  length_cm: string;
+  width_cm: string;
+  height_cm: string;
+  description: string | null;
+  urgent: boolean;
+  pickup_address: string;
+  pickup_lat: string;
+  pickup_lng: string;
+  delivery_address: string;
+  delivery_lat: string;
+  delivery_lng: string;
+  pickup_date: Date;
+  pickup_time_window_start: Date;
+  pickup_time_window_end: Date;
+  suggested_price_ars: string | null;
+  calculation_method: string | null;
+  status: string;
+  created_at: Date;
+  pickup_distance_km: string;
+  delivery_distance_km: string;
+  distance_km: string;
+}
+
+function mapAvailableShipmentRow(row: AvailableShipmentRow): AvailableShipment {
+  return {
+    id: row.id,
+    packageType: row.package_type,
+    weightKg: Number(row.weight_kg),
+    lengthCm: Number(row.length_cm),
+    widthCm: Number(row.width_cm),
+    heightCm: Number(row.height_cm),
+    description: row.description,
+    urgent: row.urgent,
+    pickupAddress: row.pickup_address,
+    pickupLat: Number(row.pickup_lat),
+    pickupLng: Number(row.pickup_lng),
+    deliveryAddress: row.delivery_address,
+    deliveryLat: Number(row.delivery_lat),
+    deliveryLng: Number(row.delivery_lng),
+    pickupDate: row.pickup_date,
+    pickupTimeWindowStart: row.pickup_time_window_start,
+    pickupTimeWindowEnd: row.pickup_time_window_end,
+    suggestedPriceArs: row.suggested_price_ars !== null ? Number(row.suggested_price_ars) : null,
+    calculationMethod: row.calculation_method,
+    status: parseShipmentStatus(row.status, "status"),
+    createdAt: row.created_at,
+    pickupDistanceKm: Number(row.pickup_distance_km),
+    deliveryDistanceKm: Number(row.delivery_distance_km),
+    distanceKm: Number(row.distance_km),
+  };
+}
+
 export interface ShipmentRepository {
   create(input: CreateShipmentInput): Promise<Shipment>;
   findById(id: string): Promise<Shipment | null>;
@@ -111,6 +252,26 @@ export interface ShipmentRepository {
    * primero.
    */
   listByUser(userId: string, page: number, limit: number): Promise<{ items: Shipment[]; total: number }>;
+  /**
+   * MOVO-142: envíos `published` que encajan en el trayecto del transportista (AND:
+   * pickup dentro de `radiusKm` del origen Y delivery dentro de `radiusKm` del
+   * destino), excluyendo los propios del caller (sender o receiver).
+   * `maxDistanceKm` (opcional) tapea la distancia propia pickup→delivery del envío,
+   * sin relación con el trayecto del caller. Orden por `distanceKm` (suma de las dos
+   * distancias parciales) ascendente. Paginado con el mismo contrato que
+   * `listByUser`.
+   */
+  listAvailable(params: {
+    originLat: number;
+    originLng: number;
+    destinationLat: number;
+    destinationLng: number;
+    radiusKm: number;
+    maxDistanceKm?: number;
+    excludeUserId: string;
+    page: number;
+    limit: number;
+  }): Promise<{ items: AvailableShipment[]; total: number }>;
   /**
    * MOVO-130 AC3: Envíos en awaiting_receiver_confirmation cuya deadline ya venció.
    * Lote acotado ordenado por deadline ascendente.
@@ -339,6 +500,79 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         db.shipment.count({ where }),
       ]);
       return { items: rows.map(mapShipment), total };
+    },
+
+    async listAvailable(params: {
+      originLat: number;
+      originLng: number;
+      destinationLat: number;
+      destinationLng: number;
+      radiusKm: number;
+      maxDistanceKm?: number;
+      excludeUserId: string;
+      page: number;
+      limit: number;
+    }): Promise<{ items: AvailableShipment[]; total: number }> {
+      const pickupBox = boundingBox(params.originLat, params.originLng, params.radiusKm);
+      const deliveryBox = boundingBox(params.destinationLat, params.destinationLng, params.radiusKm);
+      const where = availableShipmentsWhereSql({ callerId: params.excludeUserId, pickupBox, deliveryBox });
+
+      const pickupDistance = haversinePointToColumnKm(params.originLat, params.originLng, Prisma.sql`pickup_lat`, Prisma.sql`pickup_lng`);
+      const deliveryDistance = haversinePointToColumnKm(params.destinationLat, params.destinationLng, Prisma.sql`delivery_lat`, Prisma.sql`delivery_lng`);
+      const shipmentDistance = haversineColumnToColumnKm(Prisma.sql`pickup_lat`, Prisma.sql`pickup_lng`, Prisma.sql`delivery_lat`, Prisma.sql`delivery_lng`);
+
+      // AC (refinamiento): tope opcional sobre la distancia PROPIA del envío
+      // (pickup→delivery), sin relación con el trayecto del caller -- sin default, si
+      // no se manda no filtra por esto.
+      const maxDistanceFilter =
+        params.maxDistanceKm !== undefined ? Prisma.sql`AND shipment_distance_km <= ${params.maxDistanceKm}` : Prisma.empty;
+
+      const skip = (params.page - 1) * params.limit;
+
+      // Dos queries separadas (no `COUNT(*) OVER()`) para que `total` sea siempre
+      // exacto incluso con una página vacía (un OFFSET más allá del último resultado
+      // no debe perder el conteo real) -- mismo contrato que `listByUser`.
+      const [rows, countRows] = await Promise.all([
+        db.$queryRaw<AvailableShipmentRow[]>`
+          WITH candidates AS (
+            SELECT
+              id, package_type, weight_kg, length_cm, width_cm, height_cm, description,
+              urgent, pickup_address, pickup_lat, pickup_lng, delivery_address,
+              delivery_lat, delivery_lng, pickup_date, pickup_time_window_start,
+              pickup_time_window_end, suggested_price_ars, calculation_method, status,
+              created_at,
+              ${pickupDistance} AS pickup_distance_km,
+              ${deliveryDistance} AS delivery_distance_km,
+              ${shipmentDistance} AS shipment_distance_km
+            FROM shipments.shipments
+            WHERE ${where}
+          )
+          SELECT *, (pickup_distance_km + delivery_distance_km) AS distance_km
+          FROM candidates
+          WHERE pickup_distance_km <= ${params.radiusKm}
+            AND delivery_distance_km <= ${params.radiusKm}
+            ${maxDistanceFilter}
+          ORDER BY distance_km ASC
+          LIMIT ${params.limit} OFFSET ${skip}
+        `,
+        db.$queryRaw<{ count: bigint }[]>`
+          WITH candidates AS (
+            SELECT
+              ${pickupDistance} AS pickup_distance_km,
+              ${deliveryDistance} AS delivery_distance_km,
+              ${shipmentDistance} AS shipment_distance_km
+            FROM shipments.shipments
+            WHERE ${where}
+          )
+          SELECT COUNT(*)::bigint AS count
+          FROM candidates
+          WHERE pickup_distance_km <= ${params.radiusKm}
+            AND delivery_distance_km <= ${params.radiusKm}
+            ${maxDistanceFilter}
+        `,
+      ]);
+
+      return { items: rows.map(mapAvailableShipmentRow), total: Number(countRows[0]?.count ?? 0) };
     },
 
     async findExpiredAwaitingConfirmation(deadline: Date, limit: number): Promise<Shipment[]> {
