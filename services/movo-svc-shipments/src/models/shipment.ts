@@ -49,6 +49,47 @@ export interface Shipment {
   updatedAt: Date;
 }
 
+/**
+ * MOVO-142 (AC9): proyección de `GET /shipments/available` -- deliberadamente sin
+ * `senderId`/`receiverId`/`carrierId` ni datos de precio acordado/pago (irrelevantes
+ * antes de asignar), a diferencia de `Shipment`. La ausencia de esos campos en el tipo
+ * es lo que garantiza que nunca se filtren por accidente al DTO de ruta, en vez de
+ * depender de que el mapeo "se acuerde" de omitirlos.
+ */
+export interface AvailableShipment {
+  id: string;
+  packageType: PackageType;
+  weightKg: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  description: string | null;
+  urgent: boolean;
+  pickupAddress: string;
+  pickupLat: number;
+  pickupLng: number;
+  deliveryAddress: string;
+  deliveryLat: number;
+  deliveryLng: number;
+  pickupDate: Date;
+  pickupTimeWindowStart: Date;
+  pickupTimeWindowEnd: Date;
+  suggestedPriceArs: number | null;
+  calculationMethod: string | null;
+  status: ShipmentStatus;
+  createdAt: Date;
+  /** Distancia (Haversine) del retiro del envío al `originLat`/`originLng` del caller
+   * -- siempre presente, `originLat`/`originLng` son obligatorios. */
+  pickupDistanceKm: number;
+  /** Distancia (Haversine) de la entrega del envío al `destinationLat`/`destinationLng`
+   * del caller. `null` cuando el caller no mandó destino -- no tiene un viaje
+   * planificado, solo quiere ver envíos cerca de donde está (AC1 original). */
+  deliveryDistanceKm: number | null;
+  /** `pickupDistanceKm + (deliveryDistanceKm ?? 0)` -- clave de orden (AC3). Sin
+   * destino, coincide exactamente con `pickupDistanceKm`. */
+  distanceKm: number;
+}
+
 export interface CreateShipmentInput {
   senderId: string;
   receiverId: string;

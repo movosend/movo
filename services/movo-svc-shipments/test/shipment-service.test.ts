@@ -92,6 +92,7 @@ function fakeRepository(overrides: Partial<ShipmentRepository> = {}): ShipmentRe
     listPhotos: vi.fn(),
     existsPhotoByS3Key: vi.fn().mockResolvedValue(false),
     listByUser: vi.fn(),
+    listAvailable: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     findExpiredAwaitingConfirmation: vi.fn().mockResolvedValue([]),
     hasActiveShipmentsForUser: vi.fn().mockResolvedValue({ hasActiveDispute: false, hasActiveShipments: false }),
     countCompletedTransactions: vi.fn().mockResolvedValue({ asSender: 0, asCarrier: 0 }),
@@ -490,6 +491,160 @@ describe("shipments.service — getShipmentDetail", () => {
       statusCode: 404,
       code: "NOT_FOUND",
     });
+  });
+
+  // MOVO-142 (AC8): apertura de visibilidad para el transportista.
+  it("el carrierId ya asignado ve su propio envío en cualquier estado no-published", async () => {
+    const shipment = fakeShipment({
+      senderId: "sender-id",
+      receiverId: "receiver-id",
+      carrierId: "carrier-id",
+      status: ShipmentStatus.ASSIGNED,
+    });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.getShipmentDetail(shipment.id, "carrier-id", [])).resolves.toBe(shipment);
+  });
+
+  it("un transportista verificado ve un envío published ajeno", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id", status: ShipmentStatus.PUBLISHED });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const usersClient = createFakeUsersClient({
+      "carrier-id": fakePublicProfile({ id: "carrier-id", isVerified: true }),
+    });
+    const service = createTestShipmentsService(repository, usersClient);
+
+    await expect(
+      service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER])
+    ).resolves.toBe(shipment);
+  });
+
+  it("un transportista verificado NO ve un envío assignment_pending ajeno (403 se mantiene)", async () => {
+    const shipment = fakeShipment({
+      senderId: "sender-id",
+      receiverId: "receiver-id",
+      status: ShipmentStatus.ASSIGNMENT_PENDING,
+    });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const usersClient = createFakeUsersClient({
+      "carrier-id": fakePublicProfile({ id: "carrier-id", isVerified: true }),
+    });
+    const service = createTestShipmentsService(repository, usersClient);
+
+    await expect(
+      service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER])
+    ).rejects.toMatchObject({ statusCode: 403, code: "AUTH_FORBIDDEN" });
+  });
+
+  it("un transportista sin rol carrier recibe 403 CARRIER_NOT_VERIFIED (no AUTH_FORBIDDEN) sobre un published ajeno", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id", status: ShipmentStatus.PUBLISHED });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.getShipmentDetail(shipment.id, "stranger-id", [])).rejects.toMatchObject({
+      statusCode: 403,
+      code: "CARRIER_NOT_VERIFIED",
+    });
+  });
+
+  it("un transportista con rol carrier pero sin KYC aprobado recibe 403 CARRIER_NOT_VERIFIED sobre un published ajeno", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id", status: ShipmentStatus.PUBLISHED });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const usersClient = createFakeUsersClient({
+      "carrier-id": fakePublicProfile({ id: "carrier-id", isVerified: false }),
+    });
+    const service = createTestShipmentsService(repository, usersClient);
+
+    await expect(
+      service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER])
+    ).rejects.toMatchObject({ statusCode: 403, code: "CARRIER_NOT_VERIFIED" });
+  });
+});
+
+describe("shipments.service — listAvailableShipments (MOVO-142)", () => {
+  const query = {
+    originLat: -31.4201,
+    originLng: -64.1888,
+    destinationLat: -31.4135,
+    destinationLng: -64.1811,
+    radiusKm: 50,
+    page: 1,
+    limit: 20,
+  };
+
+  it("tira si no se inyectó offerRepository", async () => {
+    const repository = fakeRepository();
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.listAvailableShipments("carrier-id", [UserRole.CARRIER], query)).rejects.toThrow(
+      "listAvailableShipments requiere offerRepository"
+    );
+  });
+
+  it("rechaza sin rol carrier antes de tocar el repositorio (chequeo más barato primero)", async () => {
+    const repository = fakeRepository();
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}));
+
+    await expect(service.listAvailableShipments("stranger-id", [], query)).rejects.toMatchObject({
+      statusCode: 403,
+      code: "CARRIER_NOT_VERIFIED",
+    });
+    expect(repository.listAvailable).not.toHaveBeenCalled();
+  });
+
+  it("rechaza destinationLat sin destinationLng (o viceversa) con 400, antes de tocar KYC/repositorio", async () => {
+    const repository = fakeRepository();
+    const usersClient = createFakeUsersClient({
+      "carrier-id": fakePublicProfile({ id: "carrier-id", isVerified: true }),
+    });
+    const service = createTestShipmentsService(repository, usersClient);
+
+    await expect(
+      service.listAvailableShipments("carrier-id", [UserRole.CARRIER], { ...query, destinationLng: undefined })
+    ).rejects.toMatchObject({ statusCode: 400, code: "VALIDATION_FAILED" });
+    expect(repository.listAvailable).not.toHaveBeenCalled();
+  });
+
+  it("sin destino: pasa originLat/Lng al repositorio sin destinationLat/Lng", async () => {
+    const repository = fakeRepository({
+      listAvailable: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    });
+    const usersClient = createFakeUsersClient({
+      "carrier-id": fakePublicProfile({ id: "carrier-id", isVerified: true }),
+    });
+    const service = createTestShipmentsService(repository, usersClient);
+    const { destinationLat, destinationLng, ...queryWithoutDestination } = query;
+    void destinationLat;
+    void destinationLng;
+
+    await service.listAvailableShipments("carrier-id", [UserRole.CARRIER], queryWithoutDestination);
+
+    expect(repository.listAvailable).toHaveBeenCalledWith(
+      expect.objectContaining({ destinationLat: undefined, destinationLng: undefined })
+    );
+  });
+
+  it("marca hasMyOffer combinando el resultado del repositorio con las ofertas pending del caller", async () => {
+    const available = { ...fakeShipment({ id: "shipment-1" }), pickupDistanceKm: 1, deliveryDistanceKm: 1, distanceKm: 2 };
+    const repository = fakeRepository({
+      listAvailable: vi.fn().mockResolvedValue({ items: [available], total: 1 }),
+    });
+    const offerRepository = createFakeOfferRepository({
+      listPendingOfferedShipmentIds: vi.fn().mockResolvedValue(new Set(["shipment-1"])),
+    });
+    const usersClient = createFakeUsersClient({
+      "carrier-id": fakePublicProfile({ id: "carrier-id", isVerified: true }),
+    });
+    const service = createShipmentsService(repository, usersClient, undefined, undefined, { offerRepository });
+
+    const result = await service.listAvailableShipments("carrier-id", [UserRole.CARRIER], query);
+
+    expect(result.items[0].hasMyOffer).toBe(true);
+    expect(result.total).toBe(1);
+    expect(result.page).toBe(1);
+    expect(result.limit).toBe(20);
+    expect(offerRepository.listPendingOfferedShipmentIds).toHaveBeenCalledWith("carrier-id", ["shipment-1"]);
   });
 });
 

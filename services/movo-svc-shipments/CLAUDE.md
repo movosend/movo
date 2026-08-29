@@ -734,6 +734,99 @@ Decisiones clave:
 Pendiente / fuera de alcance: creación y retiro de ofertas (`POST`/`DELETE`, MOVO-23,
 todavía en Backlog) — este ticket es solo el lado de lectura.
 
+### MOVO-142 — `GET /shipments/available`: descubrimiento por trayecto + apertura de `GET /shipments/:id` (`svc-shipments`)
+
+Primer ticket del eslabón de asignación (EP-03) — hasta ahora ningún transportista
+podía ver un envío `published`. `GET /shipments/available` filtra por geografía
+(bounding box + Haversine, sin PostGIS) y amplía `getShipmentDetail()` para que un
+transportista verificado pueda abrir lo que descubrió.
+
+Decisiones clave:
+- **Refinamiento de un punto a trayecto OPCIONAL (dos vueltas de corrección con el
+  usuario sobre la marcha, encima del refinamiento ciudad/provincia→radio que ya traía
+  el ticket)**: el AC1 literal pedía un solo `lat`/`lng`. Primera vuelta: se cambió a
+  `originLat`/`originLng`/`destinationLat`/`destinationLng` (mismo naming que
+  `routeQuery` de MOVO-123) para que el transportista pudiera filtrar por su propio
+  trayecto. Segunda vuelta (corrección): **el destino no puede ser obligatorio** — el
+  transportista no siempre tiene un viaje planificado, y en ese caso igual tiene que
+  ver los envíos cerca suyo (la letra original del AC1). Diseño final: `originLat`/
+  `originLng` obligatorios (de dónde parte); `destinationLat`/`destinationLng`
+  opcionales, **los dos juntos o ninguno** (400 `VALIDATION_FAILED` si se manda uno
+  solo, validado en el service — AJV no expresa "ambos o ninguno" limpio sin
+  `dependentRequired`/`if`-`then`, y es el único query del schema que lo necesita). Sin
+  destino: filtra/ordena solo por la cercanía del retiro al origen,
+  `deliveryDistanceKm` viaja `null` y `distanceKm === pickupDistanceKm`. `maxDistanceKm`
+  (opcional, sin default, aplica en los dos modos) tapea la distancia PROPIA
+  retiro→entrega del envío, sin relación con el trayecto del caller.
+- **Tercera vuelta de corrección — con destino, prefiltro de CORREDOR, no un AND de dos
+  círculos independientes**: la implementación inicial de "con destino" filtraba
+  `pickup` dentro de `radiusKm` del origen **y** `delivery` dentro de `radiusKm` del
+  destino, cada uno contra su propio punto. El usuario señaló que ya existía una spike
+  del equipo con el diseño correcto para esto:
+  `docs/or-tools/vrptw-spike-report.md`/`vrptw_prototype.py` (MOVO-50, preparación
+  técnica de MOVO-18/MOVO-10) — su prefiltro geométrico (CA6) mide la distancia
+  perpendicular de cada punto al SEGMENTO origen→destino, no a los dos extremos por
+  separado. El AND de dos círculos dejaba afuera un envío retirado/entregado en el
+  MEDIO de un trayecto largo (el caso de estudio del spike es Oncativo, entre Córdoba y
+  Villa María) aunque encajara perfecto en el viaje — ni el retiro ni la entrega quedan
+  cerca de ningún extremo, solo cerca de la línea que los une.
+  `haversineSegmentDistanceKm()` (`shipment-repository.ts`) porta la fórmula del
+  prototipo Python (proyección equirrectangular centrada en el punto medio del
+  segmento, clamp a los extremos con `GREATEST`/`LEAST`) a SQL — mismas constantes
+  (`ky=110.574`, distinto del `111.32` que usa el `boundingBox` del modo sin destino,
+  para no reinterpretar la fórmula original). `corridorBoundingBox()` reemplaza los dos
+  círculos independientes por un único rectángulo que encierra el segmento completo
+  ensanchado `radiusKm` — más laxo que un rectángulo orientado al segmento, pero simple
+  y nunca excluye un punto real del corredor (el Haversine de la query filtra el resto).
+  El orden (suma de ambas distancias) y el resto del contrato no cambiaron.
+- **Gating (AC6) sin tocar `@movo/shared`**: `PublicProfile` no tiene `roles` (solo
+  `PrivateProfile`, el propio usuario). En vez de agregarlo o sumar un método a
+  `UsersClient`, el rol `carrier` sale de `getUserRolesFromHeader(request)` (ya
+  inyectado por el gateway desde el JWT del caller) y el KYC de `usersClient.
+  findPublicProfile(callerId, callerId).isVerified` — mismo patrón que ya usaba
+  `createShipment` para el receptor, apuntado al propio caller. Deliberadamente
+  **nunca** exige licencia de conducir (MOVO-15): insignia de confianza, no permiso de
+  acceso. Código nuevo `CARRIER_NOT_VERIFIED` en `@movo/shared`.
+- **Primer `$queryRaw` con lógica de dominio real del monorepo** (`shipment-repository.ts
+  #listAvailable`) — hasta ahora solo `SELECT 1` en healthchecks. Distinto del
+  precedente de MOVO-118 (que descartó SQL crudo para *locking* transaccional,
+  resuelto con compare-and-swap): acá el motivo es trigonometría de dos puntos que
+  Prisma no puede expresar, no concurrencia. Dos índices compuestos nuevos
+  (`shipments_status_pickup_lat_lng_idx`/`..._delivery_lat_lng_idx`, migración escrita
+  a mano — sin shadow database configurada en este entorno para generar el diff) — a
+  diferencia de MOVO-130, que había descartado un índice compuesto por bajo volumen,
+  acá el AC2 lo pide explícito.
+- **`hasMyOffer` (AC5) interpretado como oferta `pending` efectiva**, no cualquier
+  oferta histórica — reusa `offerStatusWhere()` (expiración perezosa, MOVO-145) vía
+  `offer-repository.ts#listPendingOfferedShipmentIds()`, batch sobre la página ya
+  resuelta (sin N+1). Una oferta `withdrawn`/`rejected`/vencida no cuenta.
+- **AC8 ampliado sobre la letra del ticket**: además de "transportista verificado ve un
+  `published` ajeno", se agregó que el `carrierId` ya asignado vea su propio envío en
+  **cualquier** estado — gap real que no existía (`assertShipmentAccess` nunca conoció
+  `carrierId`). Reimplementado inline en `getShipmentDetail()`, sin tocar
+  `assert-shipment-access.ts` (compartido con `/events`/`photos.service.ts`, fuera de
+  alcance de este ticket, y necesita I/O async que ese helper síncrono no puede
+  intercalar antes del 403 final).
+- **Proyección propia `AvailableShipment`** (`models/shipment.ts`), no `Shipment` +
+  omitir campos en el DTO: sin `senderId`/`receiverId`/`carrierId`/precio
+  acordado/pago (AC9), la ausencia de esos campos en el tipo mismo es lo que garantiza
+  que nunca se filtren por accidente.
+
+Tests: `test/shipments-available.integration.test.ts` (21 casos: gating, exclusión de
+propios, AC9 positivo/negativo, `hasMyOffer` en sus 4 variantes, paginación,
+validación, 4 casos dedicados al modo sin destino, y la regresión end-to-end del
+corredor) + `shipment-repository.integration.test.ts` ampliado (11 casos de
+`listAvailable`, incluido el modo sin destino y el caso "envío en el medio de un
+trayecto largo" que reproduce exactamente por qué el AND de dos círculos no servía) +
+`shipments-detail.integration.test.ts` ampliado (5 casos de AC8) +
+`shipment-service.test.ts` ampliado (10 casos unitarios, incluida la validación
+"ambos o ninguno"). Suite completa 30/30 suites, 384/384 tests. `tsc --noEmit` y
+`eslint` limpios. Confirmado que `app.swagger()` expone `/shipments/available`.
+
+Pendiente / fuera de alcance: UI mobile (MOVO-148, bloqueado por este ticket); el
+wraparound de longitud en ±180° del bounding box queda sin resolver (irrelevante para
+Argentina).
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

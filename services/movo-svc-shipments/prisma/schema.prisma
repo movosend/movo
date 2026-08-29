@@ -156,6 +156,15 @@ model Shipment {
   @@index([carrierId], map: "shipments_carrier_id_idx")
   @@index([status], map: "shipments_status_idx")
   @@index([pickupDate], map: "shipments_pickup_date_idx")
+  // MOVO-142: bounding box de GET /shipments/available (status='published' + rango de
+  // pickup_lat/pickup_lng contra el origen del transportista, delivery_lat/delivery_lng
+  // contra su destino -- refinamiento sobre el AC1 original, que pedía un solo punto de
+  // referencia; el equipo decidió que el filtro real es "cerca de mi ruta" -- origen Y
+  // destino, no un único punto) -- MOVO-130 había descartado un índice compuesto por
+  // bajo volumen, pero acá el AC2 del ticket lo pide explícito ("aprovecha índice") y
+  // el costo es bajo.
+  @@index([status, pickupLat, pickupLng], map: "shipments_status_pickup_lat_lng_idx")
+  @@index([status, deliveryLat, deliveryLng], map: "shipments_status_delivery_lat_lng_idx")
   @@map("shipments")
   @@schema("shipments")
 }
