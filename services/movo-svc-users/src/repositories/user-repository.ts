@@ -15,7 +15,17 @@ export interface UserRepository {
   create(input: CreateUserInput): Promise<User>;
   updateKycStatusIdentity(id: string, status: KycStatus): Promise<User | null>;
   updateKycStatusLicense(id: string, status: KycStatus): Promise<User | null>;
-  updatePhotoUrl(id: string, photoUrl: string | null): Promise<User | null>;
+  /**
+   * MOVO-115: swap atómico de `photo_url` -- lee el valor vigente y lo compara-y-
+   * reemplaza en la misma operación (compare-and-swap con reintento si otro
+   * `swapPhotoUrl` concurrente ganó la carrera entre medio), así el `previousPhotoUrl`
+   * devuelto es siempre el valor que este swap realmente pisó, nunca uno leído por
+   * fuera de la función. Reemplaza al viejo `updatePhotoUrl` (find-then-update en dos
+   * pasos separados en el caller, sin garantía de que el valor leído siguiera vigente
+   * al escribir -- ver el ticket) -- `confirmPhoto()`/`deletePhoto()` son sus únicos
+   * dos callers. Devuelve `null` si el usuario no existe.
+   */
+  swapPhotoUrl(id: string, photoUrl: string | null): Promise<{ user: User; previousPhotoUrl: string | null } | null>;
   /**
    * MOVO-124: ¿esta `photoUrl` sigue vigente en `users.photo_url`? Fuente de verdad
    * del sweep de fotos huérfanas -- el tracking de "pendiente" vive en Redis (best-
@@ -263,20 +273,40 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
       }
     },
 
-    async updatePhotoUrl(id: string, photoUrl: string | null): Promise<User | null> {
-      try {
-        const row = await db.user.update({
-          where: { id },
-          data: { photoUrl },
-          include: { roles: true },
-        });
-        return toDomainUser(row);
-      } catch (error) {
-        if (isRecordNotFoundError(error)) {
+    async swapPhotoUrl(
+      id: string,
+      photoUrl: string | null
+    ): Promise<{ user: User; previousPhotoUrl: string | null } | null> {
+      // MOVO-115: mismo mecanismo de row-lock que offer-repository.ts#acceptOffer /
+      // shipment-repository.ts#updateStatus (MOVO-102/MOVO-118) -- bajo READ
+      // COMMITTED, el `updateMany` toma un lock exclusivo de fila; si otro
+      // `swapPhotoUrl` concurrente ganó la carrera entre el `findUnique` y este
+      // `updateMany`, el WHERE se reevalúa contra el dato ya commiteado (EvalPlanQual)
+      // y `count` da 0. A diferencia de esos dos casos no hay una transición inválida
+      // que rechazar acá -- cualquier `photoUrl` nuevo es válido -- así que en vez de
+      // lanzar un error de concurrencia se reintenta hasta ganar, para que
+      // `previousPhotoUrl` sea siempre el valor que este swap realmente pisó (nunca el
+      // que leyó una llamada concurrente que ya perdió la carrera). Tope de reintentos
+      // como defensa en profundidad: solo se agotaría con una tasa de escritura sobre
+      // la misma fila que este endpoint no genera (siempre el propio usuario, nunca un
+      // fan-in de terceros).
+      const MAX_ATTEMPTS = 10;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        const current = await db.user.findUnique({ where: { id }, include: { roles: true } });
+        if (!current) {
           return null;
         }
-        throw error;
+        const result = await db.user.updateMany({
+          where: { id, photoUrl: current.photoUrl },
+          data: { photoUrl },
+        });
+        if (result.count === 1) {
+          return { user: toDomainUser({ ...current, photoUrl }), previousPhotoUrl: current.photoUrl };
+        }
       }
+      throw new Error(
+        `swapPhotoUrl: no se pudo aplicar el compare-and-swap para el usuario '${id}' tras ${MAX_ATTEMPTS} intentos`
+      );
     },
 
     async existsByPhotoUrl(photoUrl: string): Promise<boolean> {

@@ -203,6 +203,72 @@ describe("Foto de perfil: POST /users/me/photo/upload-url, PUT /users/me/photo, 
       const newHead = await storage.headObject(secondKey);
       expect(newHead.exists).toBe(true);
     });
+
+    it("MOVO-115: dos PUT concurrentes con objectKeys distintos no dejan al perdedor huérfano en S3", async () => {
+      const user = await repo.create(buildInput());
+
+      const firstUploadUrl = await requestUploadUrl(user.id);
+      const { objectKey: firstKey } = JSON.parse(firstUploadUrl.body);
+      storage.__simulateUpload(firstKey, { contentType: "image/jpeg", contentLength: 1024 });
+      const firstConfirm = await app.inject({
+        method: "PUT",
+        url: "/users/me/photo",
+        headers: { "x-user-id": user.id },
+        payload: { objectKey: firstKey },
+      });
+      expect(firstConfirm.statusCode).toBe(200);
+
+      // Escenario del ticket: reintento del cliente tras timeout, dos objectKeys
+      // distintos (B y C) casi simultáneos -- ambos parten de la misma foto A vigente.
+      const secondUploadUrl = await requestUploadUrl(user.id);
+      const { objectKey: secondKey } = JSON.parse(secondUploadUrl.body);
+      storage.__simulateUpload(secondKey, { contentType: "image/jpeg", contentLength: 2048 });
+
+      const thirdUploadUrl = await requestUploadUrl(user.id);
+      const { objectKey: thirdKey } = JSON.parse(thirdUploadUrl.body);
+      storage.__simulateUpload(thirdKey, { contentType: "image/jpeg", contentLength: 4096 });
+
+      const [secondConfirm, thirdConfirm] = await Promise.all([
+        app.inject({
+          method: "PUT",
+          url: "/users/me/photo",
+          headers: { "x-user-id": user.id },
+          payload: { objectKey: secondKey },
+        }),
+        app.inject({
+          method: "PUT",
+          url: "/users/me/photo",
+          headers: { "x-user-id": user.id },
+          payload: { objectKey: thirdKey },
+        }),
+      ]);
+
+      expect(secondConfirm.statusCode).toBe(200);
+      expect(thirdConfirm.statusCode).toBe(200);
+
+      const profileResponse = await app.inject({
+        method: "GET",
+        url: "/users/me",
+        headers: { "x-user-id": user.id },
+      });
+      const finalPhotoUrl = JSON.parse(profileResponse.body).photoUrl;
+      const winningKey = [secondKey, thirdKey].find((k) => storage.getPublicUrl(k) === finalPhotoUrl);
+      expect(winningKey).toBeDefined();
+      const losingKey = winningKey === secondKey ? thirdKey : secondKey;
+
+      // El objeto que "perdió" la carrera (no quedó persistido en photo_url) tiene que
+      // haber sido borrado igual -- sin el fix, este es exactamente el objeto que
+      // quedaba huérfano para siempre en S3 (bug del ticket).
+      const losingHead = await storage.headObject(losingKey);
+      expect(losingHead.exists).toBe(false);
+      const winningHead = await storage.headObject(winningKey as string);
+      expect(winningHead.exists).toBe(true);
+
+      // La foto original (A) también se borró -- ninguna de las dos confirmaciones
+      // pierde de vista el reemplazo real.
+      const firstHead = await storage.headObject(firstKey);
+      expect(firstHead.exists).toBe(false);
+    });
   });
 
   describe("DELETE /users/me/photo", () => {

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
+import { randomUUID } from "node:crypto";
 import { UserRole, KycStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createUserRepository, UserRepository } from "../src/repositories/user-repository";
@@ -191,6 +192,63 @@ describe("user-repository (Postgres)", () => {
       expect(await repo.count()).toBe(0);
       await repo.create(baseInput);
       expect(await repo.count()).toBe(1);
+    });
+  });
+
+  describe("swapPhotoUrl", () => {
+    it("devuelve previousPhotoUrl=null la primera vez y el valor real pisado en el siguiente swap", async () => {
+      const created = await repo.create(baseInput);
+
+      const first = await repo.swapPhotoUrl(created.id, "https://bucket.test/A.jpg");
+      expect(first?.previousPhotoUrl).toBeNull();
+      expect(first?.user.photoUrl).toBe("https://bucket.test/A.jpg");
+
+      const second = await repo.swapPhotoUrl(created.id, "https://bucket.test/B.jpg");
+      expect(second?.previousPhotoUrl).toBe("https://bucket.test/A.jpg");
+      expect(second?.user.photoUrl).toBe("https://bucket.test/B.jpg");
+
+      const reloaded = await repo.findById(created.id);
+      expect(reloaded?.photoUrl).toBe("https://bucket.test/B.jpg");
+    });
+
+    it("devuelve null si el usuario no existe", async () => {
+      const result = await repo.swapPhotoUrl(randomUUID(), "https://bucket.test/A.jpg");
+      expect(result).toBeNull();
+    });
+
+    it("MOVO-115: dos swaps concurrentes desde el mismo valor nunca pierden el previousPhotoUrl real (compare-and-swap con reintento)", async () => {
+      const created = await repo.create(baseInput);
+      await repo.swapPhotoUrl(created.id, "https://bucket.test/A.jpg");
+
+      // Escenario del ticket: dos PUT /users/me/photo casi simultáneos (reintento del
+      // cliente tras timeout) con objectKeys B y C, ambos leyendo photoUrl=A vigente.
+      // Sin el compare-and-swap, los dos podían devolver previousPhotoUrl="A" (el valor
+      // leído fuera de la escritura), y el caller borraba A dos veces sin que nadie
+      // borrara nunca el que "perdió" la carrera entre B y C.
+      const [swapB, swapC] = await Promise.all([
+        repo.swapPhotoUrl(created.id, "https://bucket.test/B.jpg"),
+        repo.swapPhotoUrl(created.id, "https://bucket.test/C.jpg"),
+      ]);
+
+      // Exactamente uno de los dos vio "A" como el valor que realmente pisó -- el que
+      // tomó el row-lock primero. El otro, tras reintentar, vio el valor que el primero
+      // recién escribió (nunca "A" de nuevo).
+      const previousValues = [swapB?.previousPhotoUrl, swapC?.previousPhotoUrl];
+      expect(previousValues.filter((v) => v === "https://bucket.test/A.jpg")).toHaveLength(1);
+
+      const reloaded = await repo.findById(created.id);
+      const winnerUrl = reloaded?.photoUrl;
+      expect([swapB?.user.photoUrl, swapC?.user.photoUrl]).toContain(winnerUrl);
+
+      // El swap que se ejecutó segundo (el que NO vio "A") tiene que haber visto como
+      // `previousPhotoUrl` exactamente el valor que el otro escribió -- esa es la
+      // garantía central del fix: el objeto a borrar es siempre el que el swap
+      // realmente pisó, así que un caller que borre `previousPhotoUrl` en cada swap
+      // nunca deja huérfano el objeto perdedor de la carrera.
+      const loser = swapB?.previousPhotoUrl === "https://bucket.test/A.jpg" ? swapC : swapB;
+      const winner = loser === swapB ? swapC : swapB;
+      expect(loser?.previousPhotoUrl).toBe(winner?.user.photoUrl);
+      expect(reloaded?.photoUrl).toBe(loser?.user.photoUrl);
     });
   });
 });
