@@ -272,3 +272,10 @@ sección solo lista lo transversal (infra, credenciales, decisiones cross-servic
   bucket de dev si se quiere usar el PNG del logo en los mails.
 - **ADRs con desarrollo completo pendiente de pegar en Drive** (solo tienen el resumen
   de una línea en la tabla de arriba): 012, 013, 014, 015, 016, 017, 018, 019.
+- **`MP_TRANSACTION_FEE_RATE` sin confirmar** (MOVO-143,
+  `shared/movo-shared/src/config/commission.ts`): placeholder (0.0499) hasta tener el
+  valor real del contrato/homologación con MercadoPago. `MOVO_COMMISSION_RATE` (15%,
+  comisión de Movo) sí está confirmado. Candidato a ADR corto (primera config de
+  negocio compartida vía `@movo/shared` en vez de por `envSchema` de un servicio) —
+  todavía no escrito, ver `services/movo-svc-shipments/CLAUDE.md` (MOVO-143) y
+  `shared/movo-shared/CLAUDE.md` para el detalle de la decisión.
