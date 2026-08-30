@@ -33,3 +33,7 @@ export type {
 export type { Address, CreateAddressInput, UpdateAddressInput } from "./types/address";
 export { PriceCalculationMethod } from "./types/pricing";
 export type { QuoteRequest, QuoteResponse, PriceBreakdownItem } from "./types/pricing";
+
+// commission
+export { getCommissionConfig, computeOfferGrossPrice, __resetCommissionConfigForTests } from "./config/commission";
+export type { CommissionConfig, OfferGrossPriceBreakdown } from "./config/commission";
