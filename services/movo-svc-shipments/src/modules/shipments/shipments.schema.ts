@@ -199,6 +199,22 @@ const offerResponse = {
   },
 };
 
+/**
+ * MOVO-143 (AC6): además de los campos de `offerResponse`, desglosa el NETO que
+ * ingresó el transportista y la comisión de Movo ya calculados en el servidor --
+ * `priceOffered` sigue siendo el BRUTO (lo que ve el emisor, mismo campo que ya
+ * exponía `offerResponse`).
+ */
+const createOfferResponse = {
+  type: "object",
+  required: [...offerResponse.required, "priceNetArs", "commissionAmountArs"],
+  properties: {
+    ...offerResponse.properties,
+    priceNetArs: { type: "number" },
+    commissionAmountArs: { type: "number" },
+  },
+};
+
 const shipmentEventResponse = {
   type: "object",
   required: ["id", "shipmentId", "fromStatus", "toStatus", "actorId", "reason", "createdAt"],
@@ -448,6 +464,26 @@ export const shipmentsSchemas = {
     type: "array",
     items: offerResponse,
   },
+
+  /**
+   * MOVO-143 (AC1/AC6): `priceOfferedArs` es el NETO que el transportista quiere
+   * cobrar -- el servidor calcula el bruto, nunca al revés. Nombre de campo tal
+   * como lo fija el AC1 del ticket, aunque semánticamente sea "neto ingresado" y no
+   * el precio final ofertado (ver `createOfferResponse.priceNetArs` para el mismo
+   * valor sin ambigüedad).
+   */
+  createOfferBody: {
+    type: "object",
+    required: ["priceOfferedArs", "offeredDate"],
+    properties: {
+      priceOfferedArs: { type: "number", exclusiveMinimum: 0 },
+      offeredDate: { type: "string", format: "date" },
+      message: { type: "string", maxLength: 500 },
+    },
+    additionalProperties: false,
+  },
+
+  createOfferResponse,
 
   errorResponse: {
     type: "object",
