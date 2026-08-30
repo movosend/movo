@@ -129,4 +129,33 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
       return toOfferDto(offer);
     }
   );
+
+  app.post(
+    "/:id/withdraw",
+    {
+      schema: {
+        summary: "Retirar una oferta propia (transportista)",
+        description:
+          "AC8 de MOVO-143: retira una oferta propia en pending -> withdrawn. Sobre " +
+          "una oferta ajena, 403. Sobre una ya resuelta (aceptada, rechazada, vencida " +
+          "o ya retirada) o modificada concurrentemente (ej. el emisor aceptó otra " +
+          "oferta del mismo envío mientras tanto), 409.",
+        tags: ["offers"],
+        params: offersSchemas.offerIdParam,
+        response: {
+          200: offersSchemas.offerResponse,
+          401: offersSchemas.errorResponse,
+          403: offersSchemas.errorResponse,
+          404: offersSchemas.errorResponse,
+          409: offersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      const offer = await service.withdrawOffer(id, callerId);
+      return toOfferDto(offer);
+    }
+  );
 }
