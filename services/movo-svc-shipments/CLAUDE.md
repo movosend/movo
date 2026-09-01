@@ -833,6 +833,81 @@ Pendiente / fuera de alcance: UI mobile (MOVO-148, bloqueado por este ticket); e
 wraparound de longitud en ±180° del bounding box queda sin resolver (irrelevante para
 Argentina).
 
+### MOVO-143 — `POST /shipments/:id/offers` y `POST /offers/:id/withdraw` (`svc-shipments`)
+
+Cierra el ciclo de vida HTTP de una oferta que MOVO-144/145 dejaron a medio construir
+sobre el dominio de MOVO-102: el transportista ahora puede crearla y retirarla, no
+solo verla/aceptarla/rechazarla. `POST /:id/offers` nuevo en `shipments.routes.ts`/
+`.service.ts` (cuelga de `/shipments`, mismo criterio que `GET /:id/offers` de
+MOVO-144); `POST /:id/withdraw` nuevo en el módulo `offers/` junto a `accept`/`reject`.
+Sin cambios en el gateway — el prefijo `/offers` ya estaba mapeado desde MOVO-145.
+
+Decisiones clave:
+- **Comisión de Movo (AC6) movida a `@movo/shared`, no al `envSchema` de este
+  servicio**: es la primera config de negocio (no solo de auth) que cruza el barrel —
+  `shared/movo-shared/src/config/commission.ts` (`getCommissionConfig()`,
+  `computeOfferGrossPrice()`) sigue el mismo patrón lazy+memoizado que
+  `auth/config.ts#getJwtConfig()` (`MOVO_COMMISSION_RATE`/`MP_TRANSACTION_FEE_RATE`
+  leídas de `process.env` directo, no de `app.config`). Decisión del equipo, no solo
+  técnica: la comisión de Movo (**15%, confirmado**) y el fee de MercadoPago por
+  operar la transacción (Auth & Capture/Marketplace Split) son parámetros
+  transversales que `movo-svc-payments` (split real) y `movo-svc-admin`
+  (estadísticas) van a necesitar más adelante — centralizarlos evita que cada
+  servicio reinvente el número. Mismo motivo por el que no van en `envSchema` de
+  ningún servicio en particular (como `JWT_SECRET` sí lo hace) — `MP_TRANSACTION_FEE_RATE`
+  es un **placeholder** (0.0499), pendiente de confirmar con el contrato/homologación
+  real de MP.
+- **`mpTransactionFeeRate` se define pero NO se descuenta en esta US**: el AC6 del
+  ticket solo pide neto→bruto con la comisión de Movo (lo que paga el emisor). El fee
+  de MP se cobra en el split/captura real, que hoy no existe (`movo-svc-payments`
+  sigue siendo un esqueleto) — la config queda lista y disponible para cuando ese
+  ticket la necesite, sin tener que rediseñar de dónde sale el número.
+- **Snapshot del transportista (AC7) con dos fuentes distintas**: `carrierNameAtOffer`
+  vía `usersClient.findPublicProfile` (cross-servicio, mismo patrón que el snapshot de
+  receptor de `createShipment`); `carrierRatingAtOffer` vía
+  `ratingsService.getReputationSummary(carrierId).asCarrier.reputationScore` — llamada
+  **local** (misma DB/proceso, sin HTTP contra sí mismo), tal como quedó documentado
+  como plan en MOVO-147. Inyectado en `ShipmentsServiceOptions` como
+  `getCarrierReputationScore` (callback), no importando `ratings.service.ts` directo
+  adentro de `shipments.service.ts`, para no acoplar ese servicio a la construcción
+  completa de `RatingsService` (repositorio + config de reputación) — la arma
+  `shipments.routes.ts`, que ya tiene todo lo necesario. Puede resolver `null`
+  (transportista sin calificaciones todavía) sin bloquear la oferta.
+- **`priceOfferedArs` en el body es semánticamente el NETO**, tal como lo fija AC1 del
+  ticket (nombre de campo literal, aunque ambiguo) — el servidor nunca lo persiste tal
+  cual, siempre lo pasa por `computeOfferGrossPrice()` antes de guardar
+  `Offer.priceOffered` (el bruto). La respuesta desglosa `priceNetArs`/
+  `commissionAmountArs`/`priceOffered` (bruto) para que la UI muestre el desglose sin
+  recalcular.
+- **AC3 (ni emisor ni receptor pueden ofertar) nuevo helper
+  `assertIsNotShipmentParty`** en `assert-shipment-access.ts`, junto al resto.
+- **Dos códigos de error nuevos mapeados en `error-handler.ts`** que MOVO-102 ya
+  lanzaba desde el repositorio pero que hasta ahora nunca se habían ejercitado por
+  HTTP: `OfferDateOutOfRangeError` → 422 `OFFER_DATE_OUT_OF_RANGE` (AC5),
+  `DuplicateActiveOfferError` → 409 `OFFER_DUPLICATE_ACTIVE` (AC4). Más
+  `SHIPMENT_NOT_AVAILABLE_FOR_OFFER` (409, envío no `published`) — deliberadamente
+  distinto de `SHIPMENT_NOT_AVAILABLE_FOR_ASSIGNMENT` (ese es el error del lado de
+  `acceptOffer`, semánticamente otro caso).
+- **`withdrawOffer` sin notificación push**: el AC8 no la pide (a diferencia de
+  `acceptOffer`/`rejectOffer`, MOVO-144).
+
+Tests: `test/shipments-offers-create.integration.test.ts` (12 casos: creación feliz con
+verificación del desglose neto/comisión/bruto y de la push al emisor, gating rol+KYC,
+envío no `published`, emisor/receptor ofertando sobre su propio envío, oferta
+duplicada activa, re-oferta tras rechazo, fecha fuera de rango, rating `null` sin
+calificaciones, precio ≤0, envío inexistente) y `test/offers-withdraw.integration.test.ts`
+(4 casos: retiro feliz, oferta ajena, oferta ya aceptada, oferta inexistente). Suite
+completa del servicio 32/32 archivos, 400+16 tests. `tsc --noEmit` y `eslint` limpios
+en los archivos de esta US (los 14 errores de `no-explicit-any` que reporta `eslint`
+sobre `orphan-photo-sweep.test.ts`/`receiver-confirmation-sweep.test.ts` son
+preexistentes, no de este PR). Confirmado que `app.swagger()` expone
+`/shipments/{id}/offers` y `/offers/{id}/withdraw`.
+
+Pendiente / fuera de alcance: valor real de `MP_TRANSACTION_FEE_RATE` (placeholder,
+pendiente de confirmar con MP); tope máximo de precio de una oferta (no lo pide
+ningún AC, sin definir todavía); consumo real del fee de MP desde `movo-svc-payments`
+(split real, sigue siendo un esqueleto) y desde estadísticas de `movo-svc-admin`.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

@@ -52,3 +52,13 @@ export function assertIsSender(shipment: Shipment, callerId: string): void {
     throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el emisor del envío puede aceptar o rechazar una oferta.");
   }
 }
+
+/**
+ * AC3 de MOVO-143: ni el emisor ni el receptor de un envío pueden ofertar sobre su
+ * propio envío -- la negociación es entre el emisor y transportistas terceros.
+ */
+export function assertIsNotShipmentParty(shipment: Shipment, callerId: string): void {
+  if (callerId === shipment.senderId || callerId === shipment.receiverId) {
+    throw new ApiError(403, "AUTH_FORBIDDEN", "No podés ofertar sobre tu propio envío.");
+  }
+}

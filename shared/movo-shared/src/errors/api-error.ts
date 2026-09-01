@@ -60,7 +60,10 @@ export type ApiErrorCode =
   | "SHIPMENT_RATING_WINDOW_EXPIRED"
   | "SHIPMENT_RATING_ALREADY_EXISTS"
   | "SHIPMENT_RATING_NOT_FOUND"
-  | "CARRIER_NOT_VERIFIED";
+  | "CARRIER_NOT_VERIFIED"
+  | "SHIPMENT_NOT_AVAILABLE_FOR_OFFER"
+  | "OFFER_DATE_OUT_OF_RANGE"
+  | "OFFER_DUPLICATE_ACTIVE";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {
