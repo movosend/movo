@@ -7,6 +7,7 @@ import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
 import { createTripRepository, TripRepository } from "../../repositories/trip-repository";
 import { createShipmentRepository, ShipmentRepository } from "../../repositories/shipment-repository";
+import { createOfferRepository, OfferRepository } from "../../repositories/offer-repository";
 import { AvailableShipment } from "../../models/shipment";
 import { toTripDto } from "./trip.dto";
 
@@ -14,6 +15,7 @@ export interface TripsRoutesOptions extends FastifyPluginOptions {
   usersClient?: UsersClient;
   tripRepository?: TripRepository;
   shipmentRepository?: ShipmentRepository;
+  offerRepository?: OfferRepository;
   service?: TripsService;
 }
 
@@ -40,7 +42,7 @@ interface UpdateTripBody {
   status?: TripStatus;
 }
 
-function toAvailableShipmentDto(item: AvailableShipment & { hasMyOffer?: boolean }) {
+function toAvailableShipmentDto(item: AvailableShipment & { hasMyOffer: boolean }) {
   return {
     ...item,
     pickupDate: item.pickupDate instanceof Date ? item.pickupDate.toISOString().slice(0, 10) : item.pickupDate,
@@ -60,6 +62,7 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
   const tripRepository = opts.tripRepository ?? createTripRepository(app.db);
   const shipmentRepository = opts.shipmentRepository ?? createShipmentRepository(app.db);
+  const offerRepository = opts.offerRepository ?? createOfferRepository(app.db);
   const defaultMaxDetourKm = app.config.TRIP_DEFAULT_MAX_DETOUR_KM ?? 15;
 
   const service =
@@ -67,6 +70,7 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
     createTripsService({
       tripRepository,
       shipmentRepository,
+      offerRepository,
       usersClient,
       defaultMaxDetourKm,
     });

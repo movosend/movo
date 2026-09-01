@@ -3,8 +3,10 @@ import { UserRole } from "@movo/shared";
 import { createTripsService } from "../src/modules/trips/trips.service";
 import { TripRepository, TripNotFoundError, TripHasAcceptedPackagesError } from "../src/repositories/trip-repository";
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
+import { OfferRepository } from "../src/repositories/offer-repository";
 import { UsersClient } from "../src/adapters/users-client";
 import { Trip, TripStatus } from "../src/models/trip";
+import { createFakeOfferRepository } from "./fake-offer-repository";
 
 const CARRIER_ID = "carrier-123";
 const OTHER_USER_ID = "other-user-456";
@@ -32,7 +34,18 @@ function fakeTrip(overrides: Partial<Trip> = {}): Trip {
 describe("TripsService (MOVO-161)", () => {
   let tripRepo: TripRepository;
   let shipmentRepo: ShipmentRepository;
+  let offerRepo: OfferRepository;
   let usersClient: UsersClient;
+
+  function buildService() {
+    return createTripsService({
+      tripRepository: tripRepo,
+      shipmentRepository: shipmentRepo,
+      offerRepository: offerRepo,
+      usersClient,
+      defaultMaxDetourKm: 15,
+    });
+  }
 
   beforeEach(() => {
     tripRepo = {
@@ -57,6 +70,8 @@ describe("TripsService (MOVO-161)", () => {
       checkActiveDisputesForUser: vi.fn(),
     };
 
+    offerRepo = createFakeOfferRepository();
+
     usersClient = {
       findPublicProfile: vi.fn().mockResolvedValue({
         id: CARRIER_ID,
@@ -70,12 +85,7 @@ describe("TripsService (MOVO-161)", () => {
 
   describe("createTrip", () => {
     it("falla con 403 CARRIER_NOT_VERIFIED si el usuario no tiene rol CARRIER", async () => {
-      const service = createTripsService({
-        tripRepository: tripRepo,
-        shipmentRepository: shipmentRepo,
-        usersClient,
-        defaultMaxDetourKm: 15,
-      });
+      const service = buildService();
 
       await expect(
         service.createTrip({
@@ -107,12 +117,7 @@ describe("TripsService (MOVO-161)", () => {
         createdAt: "2026-01-01T00:00:00Z",
       });
 
-      const service = createTripsService({
-        tripRepository: tripRepo,
-        shipmentRepository: shipmentRepo,
-        usersClient,
-        defaultMaxDetourKm: 15,
-      });
+      const service = buildService();
 
       await expect(
         service.createTrip({
@@ -136,12 +141,7 @@ describe("TripsService (MOVO-161)", () => {
     });
 
     it("falla con 400 TRIP_DEPARTURE_IN_PAST si la fecha de salida es en el pasado", async () => {
-      const service = createTripsService({
-        tripRepository: tripRepo,
-        shipmentRepository: shipmentRepo,
-        usersClient,
-        defaultMaxDetourKm: 15,
-      });
+      const service = buildService();
 
       await expect(
         service.createTrip({
@@ -165,12 +165,7 @@ describe("TripsService (MOVO-161)", () => {
     });
 
     it("falla con 400 TRIP_ORIGIN_DESTINATION_TOO_CLOSE si origen y destino están a menos de 100 metros", async () => {
-      const service = createTripsService({
-        tripRepository: tripRepo,
-        shipmentRepository: shipmentRepo,
-        usersClient,
-        defaultMaxDetourKm: 15,
-      });
+      const service = buildService();
 
       await expect(
         service.createTrip({
@@ -194,12 +189,7 @@ describe("TripsService (MOVO-161)", () => {
     });
 
     it("crea el viaje exitosamente con datos válidos", async () => {
-      const service = createTripsService({
-        tripRepository: tripRepo,
-        shipmentRepository: shipmentRepo,
-        usersClient,
-        defaultMaxDetourKm: 15,
-      });
+      const service = buildService();
 
       const departureAt = new Date(Date.now() + 100000);
       const trip = await service.createTrip({
@@ -234,12 +224,7 @@ describe("TripsService (MOVO-161)", () => {
 
   describe("getTrip", () => {
     it("falla con 404 TRIP_NOT_FOUND si el viaje no existe", async () => {
-      const service = createTripsService({
-        tripRepository: tripRepo,
-        shipmentRepository: shipmentRepo,
-        usersClient,
-        defaultMaxDetourKm: 15,
-      });
+      const service = buildService();
 
       await expect(
         service.getTrip({
@@ -254,12 +239,7 @@ describe("TripsService (MOVO-161)", () => {
     });
 
     it("falla con 403 AUTH_FORBIDDEN si el usuario no es el dueño ni admin", async () => {
-      const service = createTripsService({
-        tripRepository: tripRepo,
-        shipmentRepository: shipmentRepo,
-        usersClient,
-        defaultMaxDetourKm: 15,
-      });
+      const service = buildService();
 
       await expect(
         service.getTrip({
@@ -274,12 +254,7 @@ describe("TripsService (MOVO-161)", () => {
     });
 
     it("devuelve el viaje con hasAcceptedPackages: false si no tiene ofertas aceptadas", async () => {
-      const service = createTripsService({
-        tripRepository: tripRepo,
-        shipmentRepository: shipmentRepo,
-        usersClient,
-        defaultMaxDetourKm: 15,
-      });
+      const service = buildService();
 
       const result = await service.getTrip({
         tripId: TRIP_ID,
@@ -294,12 +269,7 @@ describe("TripsService (MOVO-161)", () => {
     it("devuelve el viaje con hasAcceptedPackages: true si tiene ofertas aceptadas", async () => {
       (tripRepo.countAcceptedOffers as any).mockResolvedValue(2);
 
-      const service = createTripsService({
-        tripRepository: tripRepo,
-        shipmentRepository: shipmentRepo,
-        usersClient,
-        defaultMaxDetourKm: 15,
-      });
+      const service = buildService();
 
       const result = await service.getTrip({
         tripId: TRIP_ID,
@@ -311,12 +281,7 @@ describe("TripsService (MOVO-161)", () => {
     });
 
     it("permite ver el viaje a un ADMIN aunque no sea el dueño", async () => {
-      const service = createTripsService({
-        tripRepository: tripRepo,
-        shipmentRepository: shipmentRepo,
-        usersClient,
-        defaultMaxDetourKm: 15,
-      });
+      const service = buildService();
 
       const result = await service.getTrip({
         tripId: TRIP_ID,
@@ -332,12 +297,7 @@ describe("TripsService (MOVO-161)", () => {
     it("falla con 409 TRIP_HAS_ACCEPTED_PACKAGES si el viaje ya tiene paquetes aceptados", async () => {
       (tripRepo.countAcceptedOffers as any).mockResolvedValue(1);
 
-      const service = createTripsService({
-        tripRepository: tripRepo,
-        shipmentRepository: shipmentRepo,
-        usersClient,
-        defaultMaxDetourKm: 15,
-      });
+      const service = buildService();
 
       await expect(
         service.updateTrip({
@@ -353,12 +313,7 @@ describe("TripsService (MOVO-161)", () => {
     });
 
     it("actualiza el viaje si no tiene paquetes aceptados", async () => {
-      const service = createTripsService({
-        tripRepository: tripRepo,
-        shipmentRepository: shipmentRepo,
-        usersClient,
-        defaultMaxDetourKm: 15,
-      });
+      const service = buildService();
 
       const updated = await service.updateTrip({
         tripId: TRIP_ID,
@@ -376,12 +331,7 @@ describe("TripsService (MOVO-161)", () => {
     it("falla con 409 TRIP_HAS_ACCEPTED_PACKAGES si el viaje tiene paquetes aceptados", async () => {
       (tripRepo.countAcceptedOffers as any).mockResolvedValue(1);
 
-      const service = createTripsService({
-        tripRepository: tripRepo,
-        shipmentRepository: shipmentRepo,
-        usersClient,
-        defaultMaxDetourKm: 15,
-      });
+      const service = buildService();
 
       await expect(
         service.deleteTrip({
@@ -396,12 +346,7 @@ describe("TripsService (MOVO-161)", () => {
     });
 
     it("elimina el viaje exitosamente si no tiene paquetes aceptados", async () => {
-      const service = createTripsService({
-        tripRepository: tripRepo,
-        shipmentRepository: shipmentRepo,
-        usersClient,
-        defaultMaxDetourKm: 15,
-      });
+      const service = buildService();
 
       await service.deleteTrip({
         tripId: TRIP_ID,
@@ -415,12 +360,7 @@ describe("TripsService (MOVO-161)", () => {
 
   describe("getTripMatches", () => {
     it("llama a shipmentRepository.listAvailable con el corredor y radio por defecto", async () => {
-      const service = createTripsService({
-        tripRepository: tripRepo,
-        shipmentRepository: shipmentRepo,
-        usersClient,
-        defaultMaxDetourKm: 15,
-      });
+      const service = buildService();
 
       const result = await service.getTripMatches({
         tripId: TRIP_ID,
@@ -445,12 +385,7 @@ describe("TripsService (MOVO-161)", () => {
     });
 
     it("respeta el radio de desvío custom si es provisto", async () => {
-      const service = createTripsService({
-        tripRepository: tripRepo,
-        shipmentRepository: shipmentRepo,
-        usersClient,
-        defaultMaxDetourKm: 15,
-      });
+      const service = buildService();
 
       const result = await service.getTripMatches({
         tripId: TRIP_ID,
@@ -469,6 +404,133 @@ describe("TripsService (MOVO-161)", () => {
         }),
       );
       expect(result.radiusKm).toBe(25);
+    });
+
+    it("calcula hasMyOffer: true cuando el transportista ya ofertó al envío, y false cuando no", async () => {
+      const fakeItem1 = { id: "shipment-1" } as any;
+      const fakeItem2 = { id: "shipment-2" } as any;
+      (shipmentRepo.listAvailable as any).mockResolvedValue({
+        items: [fakeItem1, fakeItem2],
+        total: 2,
+      });
+      (offerRepo.listPendingOfferedShipmentIds as any).mockResolvedValue(new Set(["shipment-1"]));
+
+      const service = buildService();
+
+      const result = await service.getTripMatches({
+        tripId: TRIP_ID,
+        callerId: CARRIER_ID,
+        callerRoles: [UserRole.CARRIER],
+        page: 1,
+        limit: 20,
+      });
+
+      expect(offerRepo.listPendingOfferedShipmentIds).toHaveBeenCalledWith(CARRIER_ID, [
+        "shipment-1",
+        "shipment-2",
+      ]);
+      expect(result.items).toHaveLength(2);
+      expect(result.items[0].hasMyOffer).toBe(true);
+      expect(result.items[1].hasMyOffer).toBe(false);
+    });
+
+    it("falla con 404 TRIP_NOT_FOUND si el viaje no existe", async () => {
+      const service = buildService();
+
+      await expect(
+        service.getTripMatches({
+          tripId: "non-existent",
+          callerId: CARRIER_ID,
+          callerRoles: [UserRole.CARRIER],
+          page: 1,
+          limit: 20,
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 404,
+        code: "TRIP_NOT_FOUND",
+      });
+    });
+
+    it("falla con 403 AUTH_FORBIDDEN si el usuario no es el dueño ni admin", async () => {
+      const service = buildService();
+
+      await expect(
+        service.getTripMatches({
+          tripId: TRIP_ID,
+          callerId: OTHER_USER_ID,
+          callerRoles: [UserRole.CARRIER],
+          page: 1,
+          limit: 20,
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        code: "AUTH_FORBIDDEN",
+      });
+    });
+
+    it("falla con 403 CARRIER_NOT_VERIFIED si el transportista no tiene rol CARRIER", async () => {
+      const service = buildService();
+
+      await expect(
+        service.getTripMatches({
+          tripId: TRIP_ID,
+          callerId: CARRIER_ID,
+          callerRoles: [UserRole.SENDER],
+          page: 1,
+          limit: 20,
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        code: "CARRIER_NOT_VERIFIED",
+      });
+    });
+
+    it("falla con 403 CARRIER_NOT_VERIFIED si el transportista no tiene KYC aprobado", async () => {
+      (usersClient.findPublicProfile as any).mockResolvedValue({
+        id: CARRIER_ID,
+        fullName: "Test Carrier",
+        profilePhotoUrl: null,
+        isVerified: false,
+        createdAt: "2026-01-01T00:00:00Z",
+      });
+
+      const service = buildService();
+
+      await expect(
+        service.getTripMatches({
+          tripId: TRIP_ID,
+          callerId: CARRIER_ID,
+          callerRoles: [UserRole.CARRIER],
+          page: 1,
+          limit: 20,
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        code: "CARRIER_NOT_VERIFIED",
+      });
+    });
+
+    it("permite a un ADMIN consultar los matches de un viaje ajeno sin rol CARRIER ni KYC", async () => {
+      const service = buildService();
+
+      const result = await service.getTripMatches({
+        tripId: TRIP_ID,
+        callerId: OTHER_USER_ID,
+        callerRoles: [UserRole.ADMIN],
+        page: 1,
+        limit: 20,
+      });
+
+      expect(result.tripId).toBe(TRIP_ID);
+      expect(shipmentRepo.listAvailable).toHaveBeenCalledWith(
+        expect.objectContaining({
+          excludeUserId: CARRIER_ID,
+        }),
+      );
+      expect(offerRepo.listPendingOfferedShipmentIds).toHaveBeenCalledWith(
+        CARRIER_ID,
+        expect.any(Array),
+      );
     });
   });
 });

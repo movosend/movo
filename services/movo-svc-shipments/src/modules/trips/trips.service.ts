@@ -1,6 +1,7 @@
 import { ApiError, UserRole } from "@movo/shared";
 import { TripRepository, TripNotFoundError, TripHasAcceptedPackagesError } from "../../repositories/trip-repository";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
+import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { Trip, TripStatus, CreateTripInput, UpdateTripInput, TripWithAcceptedPackages } from "../../models/trip";
 import { AvailableShipment } from "../../models/shipment";
@@ -46,7 +47,14 @@ export interface TripsService {
     radiusKm?: number;
     page: number;
     limit: number;
-  }): Promise<{ items: AvailableShipment[]; total: number; page: number; limit: number; tripId: string; radiusKm: number }>;
+  }): Promise<{
+    items: Array<AvailableShipment & { hasMyOffer: boolean }>;
+    total: number;
+    page: number;
+    limit: number;
+    tripId: string;
+    radiusKm: number;
+  }>;
 }
 
 async function assertVerifiedCarrier(usersClient: UsersClient, callerId: string, callerRoles: UserRole[]): Promise<void> {
@@ -76,10 +84,11 @@ function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number):
 export function createTripsService(deps: {
   tripRepository: TripRepository;
   shipmentRepository: ShipmentRepository;
+  offerRepository: OfferRepository;
   usersClient: UsersClient;
   defaultMaxDetourKm: number;
 }): TripsService {
-  const { tripRepository, shipmentRepository, usersClient, defaultMaxDetourKm } = deps;
+  const { tripRepository, shipmentRepository, offerRepository, usersClient, defaultMaxDetourKm } = deps;
 
   return {
     async createTrip({ callerId, callerRoles, input }) {
@@ -220,8 +229,6 @@ export function createTripsService(deps: {
     },
 
     async getTripMatches({ tripId, callerId, callerRoles, radiusKm, page, limit }) {
-      await assertVerifiedCarrier(usersClient, callerId, callerRoles);
-
       const trip = await tripRepository.findById(tripId);
       if (!trip) {
         throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
@@ -232,6 +239,10 @@ export function createTripsService(deps: {
         throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver los matches de este viaje.");
       }
 
+      if (!isAdmin) {
+        await assertVerifiedCarrier(usersClient, callerId, callerRoles);
+      }
+
       const effectiveRadiusKm = radiusKm ?? defaultMaxDetourKm;
 
       const { items, total } = await shipmentRepository.listAvailable({
@@ -240,13 +251,18 @@ export function createTripsService(deps: {
         destinationLat: trip.destinationLat,
         destinationLng: trip.destinationLng,
         radiusKm: effectiveRadiusKm,
-        excludeUserId: callerId,
+        excludeUserId: trip.carrierId,
         page,
         limit,
       });
 
+      const offeredIds = await offerRepository.listPendingOfferedShipmentIds(
+        trip.carrierId,
+        items.map((item) => item.id),
+      );
+
       return {
-        items,
+        items: items.map((item) => ({ ...item, hasMyOffer: offeredIds.has(item.id) })),
         total,
         page,
         limit,

@@ -197,4 +197,60 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
       limit: 20,
     });
   });
+
+  it("GET /:id/matches serializa ítems con hasMyOffer y formatea fechas", async () => {
+    const mockAvailableItem = {
+      id: "33333333-3333-3333-3333-333333333333",
+      packageType: "caja",
+      weightKg: 2.5,
+      lengthCm: 30,
+      widthCm: 20,
+      heightCm: 15,
+      description: "Documentos",
+      urgent: false,
+      pickupAddress: "Córdoba",
+      pickupLat: -31.42,
+      pickupLng: -64.18,
+      deliveryAddress: "Villa María",
+      deliveryLat: -32.4,
+      deliveryLng: -63.24,
+      pickupDate: new Date("2030-01-01T00:00:00.000Z"),
+      pickupTimeWindowStart: new Date("1970-01-01T09:00:00.000Z"),
+      pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
+      suggestedPriceArs: 2500,
+      status: "pending_carrier",
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      distanceKm: 140,
+      pickupDistanceKm: 1.2,
+      deliveryDistanceKm: 2.5,
+      hasMyOffer: true,
+    };
+
+    (service.getTripMatches as any).mockResolvedValue({
+      items: [mockAvailableItem],
+      total: 1,
+      page: 1,
+      limit: 20,
+      tripId: TRIP_ID,
+      radiusKm: 20,
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/${TRIP_ID}/matches?radiusKm=20`,
+      headers: {
+        "x-user-id": CARRIER_ID,
+        "x-user-roles": "carrier",
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0].id).toBe("33333333-3333-3333-3333-333333333333");
+    expect(body.items[0].hasMyOffer).toBe(true);
+    expect(body.items[0].pickupDate).toBe("2030-01-01");
+    expect(body.items[0].pickupTimeWindowStart).toBe("09:00:00");
+    expect(body.items[0].pickupTimeWindowEnd).toBe("12:00:00");
+  });
 });
