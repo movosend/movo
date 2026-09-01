@@ -132,6 +132,10 @@ services:
       - EMAIL_PROVIDER=${EMAIL_PROVIDER:-console}
       - RESEND_API_KEY=${RESEND_API_KEY}
       - EMAIL_FROM=${EMAIL_FROM}
+      # MOVO-152: TTL en segundos de la caché de reputación en Redis -- no es un
+      # `*_PROVIDER`/enum (no hace falta `:-` para el gotcha de var vacía documentado
+      # arriba), pero se lista igual para poder ajustarlo sin rebuild de imagen.
+      - REPUTATION_CACHE_TTL_SECONDS=${REPUTATION_CACHE_TTL_SECONDS:-60}
     depends_on:
       - postgres
       - redis

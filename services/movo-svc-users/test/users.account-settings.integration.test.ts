@@ -28,6 +28,18 @@ function createFakeShipmentsClient() {
     async hasActiveShipments(userId: string): Promise<ActiveShipmentsResult> {
       return responses.get(userId) ?? { hasActiveDispute: false, hasActiveShipments: false };
     },
+    // MOVO-152: este suite no ejercita reputación -- lanzar acá es el mismo camino
+    // que "svc-shipments caído" (AC3), así que cualquier composición de perfil que
+    // este fake dispare de rebote sigue cayendo a `reputationScore: null` + ceros,
+    // sin que este archivo necesite saber nada de reputación.
+    async findReputation() {
+      throw new Error("findReputation no implementado en este fake (MOVO-152, fuera de alcance de esta suite)");
+    },
+    async findRecentRatingComments() {
+      throw new Error(
+        "findRecentRatingComments no implementado en este fake (MOVO-152, fuera de alcance de esta suite)"
+      );
+    },
   };
   return {
     client,

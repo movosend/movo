@@ -39,7 +39,8 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
     app.redis,
     shipmentsClient,
     otpService,
-    emailProvider
+    emailProvider,
+    app.config.REPUTATION_CACHE_TTL_SECONDS
   );
 
   app.get(

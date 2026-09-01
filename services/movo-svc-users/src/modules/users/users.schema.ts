@@ -28,6 +28,44 @@ const transactionCounts = {
   },
 };
 
+// MOVO-152 AC2: mismo shape que `reputationBreakdown` en ratings.schema.ts de
+// svc-shipments (el objeto que devuelve `computeReputationScore` para el global y
+// para cada desglose por rol) -- duplicado acá por el criterio "autocontenido" de
+// arriba, no importado del otro servicio.
+const reputationBreakdown = {
+  type: "object",
+  required: ["reputationScore", "ratingCount", "isNewProfile"],
+  properties: {
+    reputationScore: { type: ["number", "null"] },
+    ratingCount: { type: "integer" },
+    isNewProfile: { type: "boolean" },
+  },
+};
+
+const recentRatingComment = {
+  type: "object",
+  required: ["id", "raterId", "score", "comment", "createdAt"],
+  properties: {
+    id: { type: "string" },
+    raterId: { type: "string" },
+    score: { type: "integer" },
+    comment: { type: ["string", "null"] },
+    createdAt: { type: "string", format: "date-time" },
+  },
+};
+
+// MOVO-152 AC2: campos del desglose por rol + comentarios recientes, agregados al
+// contrato del perfil público (`GET /users/:id`, `GET /users/search`) -- nunca a
+// `privateProfileResponse` (el AC lo pide solo para el perfil público).
+const publicProfileExtras = {
+  ratingCount: { type: "integer" },
+  isNewProfile: { type: "boolean" },
+  asSender: reputationBreakdown,
+  asCarrier: reputationBreakdown,
+  recentRatingComments: { type: "array", items: recentRatingComment },
+};
+const PUBLIC_PROFILE_EXTRA_REQUIRED = ["ratingCount", "isNewProfile", "asSender", "asCarrier", "recentRatingComments"];
+
 export const usersSchemas = {
   usersCountResponse: {
     type: "object",
@@ -97,7 +135,16 @@ export const usersSchemas = {
 
   publicProfileResponse: {
     type: "object",
-    required: ["id", "fullName", "photoUrl", "isVerified", "badges", "transactionCounts", "reputationScore"],
+    required: [
+      "id",
+      "fullName",
+      "photoUrl",
+      "isVerified",
+      "badges",
+      "transactionCounts",
+      "reputationScore",
+      ...PUBLIC_PROFILE_EXTRA_REQUIRED,
+    ],
     properties: {
       id: { type: "string" },
       fullName: { type: "string" },
@@ -106,14 +153,26 @@ export const usersSchemas = {
       badges: { type: "array", items: { type: "string", enum: PROFILE_BADGE_VALUES } },
       transactionCounts,
       reputationScore: { type: ["number", "null"] },
+      ...publicProfileExtras,
     },
   },
 
+  // MOVO-152 AC2: mismo shape que `publicProfileResponse`, `recentRatingComments`
+  // siempre viaja vacío acá (composición liviana, ver `searchUsers` en users.service.ts).
   searchResponse: {
     type: "array",
     items: {
       type: "object",
-      required: ["id", "fullName", "photoUrl", "isVerified", "badges", "transactionCounts", "reputationScore"],
+      required: [
+        "id",
+        "fullName",
+        "photoUrl",
+        "isVerified",
+        "badges",
+        "transactionCounts",
+        "reputationScore",
+        ...PUBLIC_PROFILE_EXTRA_REQUIRED,
+      ],
       properties: {
         id: { type: "string" },
         fullName: { type: "string" },
@@ -122,6 +181,7 @@ export const usersSchemas = {
         badges: { type: "array", items: { type: "string", enum: PROFILE_BADGE_VALUES } },
         transactionCounts,
         reputationScore: { type: ["number", "null"] },
+        ...publicProfileExtras,
       },
     },
   },

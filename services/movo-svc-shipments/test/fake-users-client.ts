@@ -22,6 +22,14 @@ export function fakePublicProfile(overrides: Partial<PublicProfile> & { id: stri
     badges: ["kyc_verified"],
     transactionCounts: { asSender: 0, asCarrier: 0 },
     reputationScore: null,
+    // MOVO-152: campos nuevos de PublicProfile -- este servicio no ejercita reputación
+    // real (eso vive en svc-users), así que el fake queda en el mismo estado "sin
+    // datos" que ya usaban reputationScore/transactionCounts arriba.
+    ratingCount: 0,
+    isNewProfile: true,
+    asSender: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+    asCarrier: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+    recentRatingComments: [],
     ...overrides,
   };
 }
