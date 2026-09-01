@@ -827,6 +827,44 @@ Pendiente / fuera de alcance: UI mobile (MOVO-148, bloqueado por este ticket); e
 wraparound de longitud en ±180° del bounding box queda sin resolver (irrelevante para
 Argentina).
 
+### MOVO-161 — `CRUD de Viaje declarado + matching de paquetes compatibles por radio de desvío` (`svc-shipments`)
+
+Habilita a un transportista con rol `CARRIER` y verificación KYC aprobada a declarar
+sus viajes planeados futuros, administrarlos ("Mis viajes", MOVO-162) y consultar el feed
+de paquetes compatibles reutilizando el prefiltro geométrico de corredor de MOVO-50
+(`haversineSegmentDistanceKm` + `corridorBoundingBox` ya presentes en `shipment-repository.ts`).
+
+Decisiones clave:
+- **Entidad `Trip` en Postgres (esquema `shipments.trips`) + enum `trip_status_enum`**:
+  Aunque `MOVO-142` permitía búsquedas efímeras al vuelo sin persistencia, la US MOVO-18
+  y la pantalla "Mis viajes" (MOVO-162) exigen persistir los viajes futuros declarados
+  por el transportista. Se modeló además la relación opcional `trip_id` en `shipments.offers`.
+  Migración SQL creada en `prisma/migrations/20260831210000_create_trips_table`.
+- **Reglas de negocio de edición y cancelación (AC3 y AC4 de MOVO-18)**:
+  Un viaje solo puede editarse (`PATCH /trips/:id`) o eliminarse (`DELETE /trips/:id`)
+  mientras no tenga paquetes aceptados (`countAcceptedOffers(tripId) === 0`). Si tiene
+  paquetes aceptados, devuelve HTTP 409 con `TRIP_HAS_ACCEPTED_PACKAGES`.
+- **Radio de desvío al corredor configurable (regla de 3 lugares de env vars)**:
+  `TRIP_DEFAULT_MAX_DETOUR_KM` configurado con default `15` (alineado a spike MOVO-50 CA6)
+  en:
+  1. `.env.example`
+  2. `src/config/env.ts` (`envSchema`)
+  3. `infra/docker-compose.yml`
+  Adicionalmente, `GET /trips/:id/matches` admite el query param opcional `?radiusKm=`.
+- **Mapeo en el API Gateway**:
+  Se agregó el prefijo `/trips` en `gateway/src/config/routes-map.ts` apuntando a
+  `SHIPMENTS_SERVICE_URL` como ruta protegida (requiere JWT).
+
+Endpoints expuestos:
+- `POST /trips`: declara un nuevo viaje futuro. Valida rol `carrier`, KYC aprobado, fecha futura y distancia origen-destino $\ge$ 100m.
+- `GET /trips`: lista paginada de viajes del transportista con flag `hasAcceptedPackages`.
+- `GET /trips/:id`: detalle de un viaje propio (o admin).
+- `PATCH /trips/:id`: actualización de datos (409 si ya tiene paquetes aceptados).
+- `DELETE /trips/:id`: eliminación de viaje (409 si ya tiene paquetes aceptados).
+- `GET /trips/:id/matches`: feed de envíos `published` dentro del radio de desvío al corredor del viaje.
+
+Tests: `test/trips-service.test.ts` (16 casos unitarios de servicio y validaciones) + `test/trips.routes.test.ts` (7 casos de integración HTTP Fastify con schemas y error-handler).
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

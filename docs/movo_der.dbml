@@ -137,6 +137,13 @@ enum offer_status_enum {
   superseded
 }
 
+// MOVO-161: estado del viaje declarado por el transportista
+enum trip_status_enum {
+  active
+  cancelled
+  completed
+}
+
 enum transaction_payment_method_enum {
   TARJETA
   EFECTIVO
@@ -463,6 +470,7 @@ Table shipments.offers {
   message varchar [null, note: 'mensaje opcional del transportista (AC2, MOVO-23). Límite de caracteres es de negocio/UI, no del schema']
   carrier_rating_at_offer decimal [null, note: 'snapshot del transportista al ofertar (AC2), evita N+1 al listar (MOVO-17). Envejece con el tiempo, trade-off aceptado']
   carrier_name_at_offer varchar [null, note: 'snapshot del transportista al ofertar (AC2). Snapshot de vehículo pendiente: no hay entidad de vehículo diseñada todavía']
+  trip_id uuid [null, ref: > shipments.trips.id, note: 'MOVO-161: viaje declarado asociado opcional']
   status offer_status_enum
   expires_at timestamp [null, note: 'sostiene la expiración perezosa (AC11): sin scheduler, se evalúa en cada lectura']
   created_at timestamp
@@ -505,6 +513,32 @@ Table shipments.shipment_events {
   actor_id uuid [null, ref: > shipments.user_ref.id, note: 'sin FK real (ADR-003); nullable para transiciones futuras disparadas por el sistema']
   reason varchar [null]
   created_at timestamp
+}
+
+// MOVO-161: Viaje declarado por el transportista para matching geométrico de
+// paquetes compatibles por corredor (MOVO-50) y gestión de rutas ("Mis viajes", MOVO-18/162).
+Table shipments.trips {
+  id uuid [pk]
+  carrier_id uuid [ref: > shipments.user_ref.id, note: 'referencia lógica, sin FK real (ADR-003)']
+  origin_address varchar
+  origin_lat decimal [note: 'numeric(9,6)']
+  origin_lng decimal [note: 'numeric(9,6)']
+  destination_address varchar
+  destination_lat decimal [note: 'numeric(9,6)']
+  destination_lng decimal [note: 'numeric(9,6)']
+  departure_at timestamp [note: 'timestamptz, fecha y hora de salida planeada']
+  vehicle_type varchar [note: 'auto, moto, utilitario, camion, etc.']
+  status trip_status_enum [default: 'active']
+  created_at timestamp
+  updated_at timestamp [note: 'mantenida por trigger update_updated_at_column']
+
+  indexes {
+    carrier_id
+    status
+    departure_at
+  }
+
+  Note: 'Permite al transportista declarar viajes futuros, visualizar paquetes en corredor y alimentar el solver de rutas VRPTW.'
 }
 
 // --- stub de referencia liviana (shipments) ---
