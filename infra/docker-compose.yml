@@ -168,6 +168,8 @@ services:
       # MOVO-147: constantes del score de reputación ponderado (domain/reputation.ts).
       - REPUTATION_CONFIDENCE_CONSTANT=${REPUTATION_CONFIDENCE_CONSTANT:-5}
       - REPUTATION_DECAY_HALF_LIFE_DAYS=${REPUTATION_DECAY_HALF_LIFE_DAYS:-180}
+      # MOVO-161: radio de desvío ortogonal al corredor del viaje declarado (km).
+      - TRIP_DEFAULT_MAX_DETOUR_KM=${TRIP_DEFAULT_MAX_DETOUR_KM:-15}
       # MOVO-143: comisión de Movo (confirmada, 15%) + fee de MercadoPago (placeholder,
       # pendiente de confirmar) -- leídas por @movo/shared, no por el envSchema propio
       # de este servicio (ver shared/movo-shared/src/config/commission.ts).
