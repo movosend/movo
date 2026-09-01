@@ -90,6 +90,16 @@ enum OfferStatus {
   @@schema("shipments")
 }
 
+// MOVO-161: estado del viaje declarado por el transportista
+enum TripStatus {
+  active
+  cancelled
+  completed
+
+  @@map("trip_status_enum")
+  @@schema("shipments")
+}
+
 // MOVO-104 AC2 + superset acordado con el usuario del DER original
 // (docs/movo_der.dbml): carrier_id/urgent/agreedPriceArs/paymentMethod/
 // deliveredAt/lastStatusChangedAt no estaban en el AC literal pero sí en el
@@ -240,6 +250,7 @@ model Offer {
   // vehículo diseñada todavía en users.users/DER — pendiente explícito.
   carrierRatingAtOffer Decimal? @map("carrier_rating_at_offer") @db.Decimal
   carrierNameAtOffer   String?  @map("carrier_name_at_offer")
+  tripId               String?  @map("trip_id") @db.Uuid
 
   status      OfferStatus @default(pending)
   // AC2: sostiene la expiración perezosa (AC11).
@@ -248,9 +259,11 @@ model Offer {
   respondedAt DateTime?   @map("responded_at") @db.Timestamptz
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  trip     Trip?    @relation(fields: [tripId], references: [id], onDelete: SetNull)
 
   @@index([shipmentId], map: "offers_shipment_id_idx")
   @@index([carrierId], map: "offers_carrier_id_idx")
+  @@index([tripId], map: "offers_trip_id_idx")
   @@index([status], map: "offers_status_idx")
   @@map("offers")
   @@schema("shipments")
@@ -290,3 +303,32 @@ model Rating {
   @@map("ratings")
   @@schema("shipments")
 }
+
+// MOVO-161: viaje declarado por el transportista para matching geométrico de
+// paquetes compatibles por corredor (MOVO-50) y gestión de rutas ("Mis viajes", MOVO-18/162).
+model Trip {
+  id                 String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Referencia lógica a users.users, sin FK real (ADR-003).
+  carrierId          String     @map("carrier_id") @db.Uuid
+  originAddress      String     @map("origin_address")
+  originLat          Decimal    @map("origin_lat") @db.Decimal(9, 6)
+  originLng          Decimal    @map("origin_lng") @db.Decimal(9, 6)
+  destinationAddress String     @map("destination_address")
+  destinationLat     Decimal    @map("destination_lat") @db.Decimal(9, 6)
+  destinationLng     Decimal    @map("destination_lng") @db.Decimal(9, 6)
+  departureAt        DateTime   @map("departure_at") @db.Timestamptz
+  vehicleType        String     @map("vehicle_type")
+  status             TripStatus @default(active)
+
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  offers             Offer[]
+
+  @@index([carrierId], map: "trips_carrier_id_idx")
+  @@index([status], map: "trips_status_idx")
+  @@index([departureAt], map: "trips_departure_at_idx")
+  @@map("trips")
+  @@schema("shipments")
+}
+
