@@ -48,6 +48,13 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   ACCOUNT_DELETION_IN_PROGRESS: "Ya hay una baja en curso para tu cuenta. Esperá unos segundos.",
   SHIPMENTS_SERVICE_UNAVAILABLE:
     "No pudimos verificar si tenés envíos en curso. Intentá de nuevo en unos minutos.",
+  // Calificaciones post-entrega (MOVO-153 / backend MOVO-146).
+  SHIPMENT_NOT_DELIVERED: "El envío todavía no fue entregado.",
+  SHIPMENT_RATING_DISPUTE_ACTIVE:
+    "El envío tiene una disputa activa. Vas a poder calificar cuando se resuelva la disputa.",
+  SHIPMENT_RATING_WINDOW_EXPIRED: "El plazo de 72 horas para calificar este envío ya terminó.",
+  SHIPMENT_RATING_ALREADY_EXISTS: "Ya calificaste a esta persona en este envío.",
+  SHIPMENT_RATING_NOT_FOUND: "No se encontró una calificación previa para editar.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",
   RATE_LIMIT_EXCEEDED: "Hiciste demasiados intentos. Esperá un momento y volvé a intentar.",

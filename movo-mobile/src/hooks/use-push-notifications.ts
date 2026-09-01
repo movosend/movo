@@ -32,6 +32,7 @@ const NAVIGABLE_NOTIFICATION_TYPES: readonly string[] = [
   "offer_accepted",
   "offer_superseded",
   "offer_rejected",
+  "rating_received",
 ];
 
 interface ShipmentNotificationData {
