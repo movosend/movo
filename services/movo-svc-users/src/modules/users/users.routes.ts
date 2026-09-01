@@ -541,4 +541,32 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
       reply.code(204);
     },
   );
+
+  app.post(
+    "/me/device-key",
+    {
+      schema: {
+        summary: "Registrar/rotar la clave pública del dispositivo",
+        description:
+          "AC2/AC5 de MOVO-157: registra la clave pública del par asimétrico generado " +
+          "client-side (la privada nunca viaja, AC1) -- prerrequisito del handshake " +
+          "criptográfico de MOVO-6/158. Un registro nuevo reemplaza al anterior: solo " +
+          "una clave vigente por usuario, sin necesidad de un endpoint de borrado.",
+        tags: ["users"],
+        body: usersSchemas.registerDeviceKeyBody,
+        response: {
+          200: usersSchemas.registerDeviceKeyResponse,
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      const { publicKey } = request.body as { publicKey: string };
+      const { registeredAt } = await service.registerDeviceKey(userId, publicKey);
+      return { registeredAt: registeredAt.toISOString() };
+    },
+  );
 }

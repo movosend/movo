@@ -6,6 +6,7 @@ import { AccountStatus, ApiError, KycStatus, RecentRatingComment } from "@movo/s
 import { PrismaClient } from "../../generated/prisma/client";
 import { createUserRepository } from "../../repositories/user-repository";
 import { createPushTokenRepository } from "../../repositories/push-token-repository";
+import { createDeviceKeyRepository } from "../../repositories/device-key-repository";
 import { createSessionRepository } from "../../repositories/session-repository";
 import {
   PrivateProfile,
@@ -180,6 +181,7 @@ export function createUsersService(
 ) {
   const repository = createUserRepository(db);
   const pushTokenRepository = createPushTokenRepository(db);
+  const deviceKeyRepository = createDeviceKeyRepository(db);
   const sessionRepository = createSessionRepository(redis);
 
   /**
@@ -498,6 +500,23 @@ export function createUsersService(
     /** AC3: idempotente — sin token previo para ese dispositivo, no-op (204 igual). */
     async unregisterPushToken(userId: string, deviceId: string): Promise<void> {
       await pushTokenRepository.deleteByDeviceId(userId, deviceId);
+    },
+
+    /**
+     * MOVO-157 AC2/AC5: registra o rota la clave pública del dispositivo del usuario
+     * autenticado. La clave privada del par nunca llega acá (AC1, se genera
+     * client-side) -- este servicio solo persiste la pública. `deviceKeyRepository`
+     * hace upsert por `userId` (único), así que rotar es implícitamente invalidar la
+     * anterior: nunca queda más de una fila vigente por usuario (sin
+     * multi-dispositivo, fuera de alcance del TFG).
+     */
+    async registerDeviceKey(userId: string, publicKey: string): Promise<{ registeredAt: Date }> {
+      const user = await repository.findById(userId);
+      if (!user) {
+        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
+      const deviceKey = await deviceKeyRepository.upsert(userId, publicKey);
+      return { registeredAt: deviceKey.updatedAt };
     },
 
     /**

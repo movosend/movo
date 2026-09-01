@@ -21,6 +21,7 @@ import notificationsRoutes, {
   NotificationsRoutesOptions,
 } from "./modules/notifications/notifications.routes";
 import addressesRoutes from "./modules/addresses/addresses.routes";
+import deviceKeysRoutes from "./modules/device-keys/device-keys.routes";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import { SmsProvider } from "./adapters/sms-provider";
 import { EmailProvider } from "./adapters/email-provider";
@@ -146,6 +147,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // MOVO-119: prefijo propio (no anidado bajo /users), mismo criterio que /kyc y
   // /geocode -- recurso con identidad propia aunque comparta este mismo servicio.
   app.register(addressesRoutes, { prefix: "/addresses" });
+
+  // MOVO-157 AC3/AC4: interno, mismo criterio que /internal/notifications de arriba --
+  // no se declara en gateway/src/config/routes-map.ts, así que el gateway no lo proxea.
+  app.register(deviceKeysRoutes, { prefix: "/internal" });
 
   return app;
 }
