@@ -658,3 +658,74 @@ declara como `["string", "null"]` y `boolean`, ambos requeridos. El tipo compart
 No se tocó ningún endpoint de escritura: `patchProfileBody` sigue aceptando solo
 `firstName`/`lastName`, así que mandar `dni` en el `PATCH /users/me` es 400
 `VALIDATION_FAILED` igual que antes. El DNI se expone, no se edita.
+
+### MOVO-152 — Perfil con reputación y contadores de transacciones reales
+
+Reemplaza los placeholders de `models/user-profile.ts` (`reputationScore: null` y
+`placeholderTransactionCounts()` fijo) por datos reales, leídos del agregado ponderado
+de `movo-svc-shipments` (`GET /internal/users/:id/reputation`, MOVO-147) y de las
+últimas calificaciones (`GET /internal/users/:id/ratings/recent`, MOVO-146 AC10) —
+primera dependencia real entre estos dos endpoints internos, hasta ahora sin conectar.
+
+Decisiones clave:
+- **Nueva llamada nunca lanza hacia el caller** (AC3): `shipments-client.ts` ganó
+  `findReputation`/`findRecentRatingComments`, y ambos SÍ lanzan ante cualquier falla
+  (red, timeout, no-ok) — es `users.service.ts#resolveReputationSummary`/
+  `resolveRecentRatingComments` quien atrapa, loguea (`reputation_fetch_failed`) y cae
+  a `NO_REPUTATION`/`[]`. Mismo criterio de "el cliente lanza, el caller decide" que ya
+  usaba `hasActiveShipments` (MOVO-134), a diferencia de `pricing-client.ts` de
+  `svc-shipments` (que resuelve el fallback él mismo) — acá el fallback vive en el
+  service porque hay dos llamadas independientes (reputación + comentarios) con
+  distinto criterio de "cuándo pedirlas".
+- **Timeout más corto que `hasActiveShipments`** (`REPUTATION_REQUEST_TIMEOUT_MS =
+  3000` vs 5000): mismo motivo que `pricing-client.ts` — degradar a "sin reputación" es
+  gratis, no vale la pena hacer esperar la apertura de un perfil tanto tiempo.
+- **`toPrivateProfile`/`toPublicProfile` (`models/user-profile.ts`) pasan a ser
+  funciones puras que reciben el resultado ya resuelto**, sin I/O propia — el fetch +
+  caché vive en `users.service.ts#composePrivateProfile`/`composePublicProfile`,
+  llamado desde los 6 sitios que devuelven un perfil (`getPrivateProfile`,
+  `getPublicProfile`, `searchUsers`, y los 4 endpoints de escritura que devuelven
+  `PrivateProfile` tras mutar otro campo).
+- **AC2 solo se agregó a `PublicProfile`, no a `PrivateProfile`** (letra del ticket:
+  "se agrega al contrato del perfil público"): el desglose `asSender`/`asCarrier`,
+  `isNewProfile` y `recentRatingComments` viven únicamente en `GET /users/:id` y
+  `GET /users/search`. `PrivateProfile` (`GET /users/me`) sigue con el shape plano que
+  ya tenía (`reputationScore`/`transactionCounts`), ahora con datos reales.
+- **`recentRatingComments` viaja vacío desde `searchUsers`** (composición liviana,
+  AC2: "no arrastra diez textos" en un listado de hasta 20 resultados) pero el
+  desglose por rol SÍ se resuelve para cada resultado — sale del mismo
+  `resolveReputationSummary` cacheado que ya se paga por `reputationScore`/
+  `transactionCounts` (ya requeridos en el contrato desde MOVO-77), sin llamada extra.
+- **Caché en Redis por usuario** (`reputation:cache:{userId}`, TTL
+  `REPUTATION_CACHE_TTL_SECONDS`, default 60s) **solo del agregado de reputación**, no
+  de los comentarios recientes (esa query ya es liviana — 10 filas por su propio
+  índice, y solo se paga al componer un perfil completo). **El fallback nunca se
+  cachea**: si `svc-shipments` está caído, la siguiente apertura de perfil reintenta en
+  vez de esperar el TTL completo para recuperarse (verificado con test dedicado).
+  Invalidación puramente por TTL (AC6), sin mecanismo explícito desde `svc-shipments` —
+  decisión de producto documentada en el ticket: una calificación puede tardar hasta
+  60s en reflejarse, costo aceptado.
+- **Env var nueva tocada en los 3 lugares de siempre**: `REPUTATION_CACHE_TTL_SECONDS`
+  en `env.ts`/`.env.example`/`infra/docker-compose.yml` — no es un `*_PROVIDER`, pero
+  se agregó igual a Compose para poder ajustar el TTL sin rebuild de imagen.
+
+Tests: `test/users.reputation.integration.test.ts` (nuevo, `ShipmentsClient` fake
+inyectado vía `buildApp({ shipmentsClient })`, mismo patrón que MOVO-134) — perfil con
+reputación real, perfil con el servicio caído en `GET /users/me` y `GET /users/:id`
+(cae a `null`/ceros sin romper), desglose por rol e `isNewProfile` en `GET /users/:id`,
+`GET /users/search` sin pedir comentarios, hit/miss de caché, TTL positivo acotado al
+configurado, y que un fallo no se cachea (recuperación inmediata en la siguiente
+lectura). `test/adapters/shipments-client.test.ts` (nuevo, fetch mockeado) cubre el
+cliente HTTP real de los dos métodos nuevos (URL/método/query, mapeo de
+`findRecentRatingComments` a solo los campos del contrato, propagación de errores) —
+de paso sumó cobertura a `hasActiveShipments`, que no tenía un test unitario dedicado
+hasta ahora. Suite completa 456/456 tests (47 archivos) en `movo-svc-users`, 384/384
+en `movo-svc-shipments` (sin cambios de producción ahí, solo `fakePublicProfile()` de
+test actualizado con los campos nuevos de `PublicProfile`). `tsc --noEmit` y `eslint`
+limpios en los tres paquetes tocados (`shared/movo-shared`, `movo-svc-users`,
+`movo-svc-shipments`).
+
+Pendiente / fuera de alcance: consumo desde `movo-mobile` (MOVO-154, bloqueado por
+este ticket); mover `ReputationBreakdown`/`RecentRatingComment` fuera de
+`shipments-client.ts` si algún otro servicio Node llega a necesitarlos (hoy solo se
+usan acá, ya viven en `@movo/shared`).

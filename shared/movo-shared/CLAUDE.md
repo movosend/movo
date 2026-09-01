@@ -67,6 +67,22 @@ siendo un esqueleto). `MOVO_COMMISSION_RATE` confirmado en 15%;
 `MP_TRANSACTION_FEE_RATE` es un placeholder pendiente de confirmar con el contrato
 real de MP.
 
+### MOVO-152 — `ReputationBreakdown`/`RecentRatingComment` y `PublicProfile` extendido
+
+`src/types/user-profile.ts` — dos tipos nuevos consumidos por `movo-svc-users`
+(`src/adapters/shipments-client.ts`), wire contract de los endpoints internos de
+`movo-svc-shipments` que ya existían desde MOVO-146/147 sin un consumidor real:
+`ReputationBreakdown` (`reputationScore`/`ratingCount`/`isNewProfile`, misma forma que
+`ReputationResult` interno de `svc-shipments`) y `RecentRatingComment` (proyección
+mínima de `Rating` -- `id`/`raterId`/`score`/`comment`/`createdAt`, sin `shipmentId`/
+`rateeId`/`role`).
+
+`PublicProfile` sumó `ratingCount`/`isNewProfile`/`asSender`/`asCarrier`/
+`recentRatingComments` — **solo esta proyección**, no `PrivateProfile` (el AC del
+ticket dice explícitamente "se agrega al contrato del perfil público"). Cualquier
+literal `PublicProfile` construido a mano (tests/fakes) necesita ahora esos 5 campos —
+tocó `services/movo-svc-shipments/test/fake-users-client.ts#fakePublicProfile()`.
+
 ### MOVO-82 — `QuoteRequest`/`QuoteResponse`/`PriceCalculationMethod`
 
 `src/types/pricing.ts` — wire contract de `POST /quote`

@@ -29,6 +29,8 @@ export type {
   TransactionCounts,
   PrivateProfile,
   PublicProfile,
+  ReputationBreakdown,
+  RecentRatingComment,
 } from "./types/user-profile";
 export type { Address, CreateAddressInput, UpdateAddressInput } from "./types/address";
 export { PriceCalculationMethod } from "./types/pricing";
