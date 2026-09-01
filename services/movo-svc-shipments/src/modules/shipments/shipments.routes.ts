@@ -11,8 +11,10 @@ import { createNotificationsClient, NotificationsClient } from "../../adapters/n
 import { createPricingClient, PricingClient } from "../../adapters/pricing-client";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
+import { createRatingRepository } from "../../repositories/rating-repository";
+import { createRatingsService } from "../ratings/ratings.service";
 import { AvailableShipment, Shipment, ShipmentEvent } from "../../models/shipment";
-import { ListShipmentOffersQuery, ListShipmentOffersSort } from "./shipments.service";
+import { CreateOfferForShipmentResult, ListShipmentOffersQuery, ListShipmentOffersSort } from "./shipments.service";
 import { toOfferDto } from "../offers/offer.dto";
 
 export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
@@ -95,10 +97,23 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   const pricingClient = opts.pricingClient ?? createPricingClient(app.config);
   const repository = createShipmentRepository(app.db);
   const offerRepository = createOfferRepository(app.db);
+  // MOVO-143 AC7: mismo criterio documentado en MOVO-147 -- getReputationSummary() se
+  // llama LOCAL (misma DB/proceso, sin HTTP contra sí mismo) para snapshotear
+  // carrierRatingAtOffer. Se construye acá un ratingsService propio (en vez de
+  // reusar uno inyectado) porque este módulo no tiene otro motivo para depender de
+  // `ratings.routes.ts`.
+  const ratingsService = createRatingsService(repository, createRatingRepository(app.db), undefined, app.log, {
+    confidenceConstant: app.config.REPUTATION_CONFIDENCE_CONSTANT,
+    decayHalfLifeDays: app.config.REPUTATION_DECAY_HALF_LIFE_DAYS,
+  });
   const service = createShipmentsService(repository, usersClient, notificationsClient, app.log, {
     receiverConfirmationTimeoutHours: app.config.RECEIVER_CONFIRMATION_TIMEOUT_HOURS,
     offerRepository,
     pricingClient,
+    getCarrierReputationScore: async (carrierId: string) => {
+      const summary = await ratingsService.getReputationSummary(carrierId);
+      return summary.asCarrier.reputationScore;
+    },
   });
   const photosService = createPhotosService(repository, storageProvider, app.redis, app.log);
 
@@ -443,6 +458,58 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const query: ListShipmentOffersQuery = { sort, includeResolved };
       const offers = await service.listShipmentOffers(id, callerId, callerRoles, query);
       return offers.map(toOfferDto);
+    }
+  );
+
+  app.post(
+    "/:id/offers",
+    {
+      schema: {
+        summary: "Ofertar sobre un envío",
+        description:
+          "AC1-AC7/AC9 de MOVO-143: el transportista oferta un precio sobre un envío " +
+          "published. Requiere rol carrier + KYC de identidad aprobado (403 " +
+          "CARRIER_NOT_VERIFIED), sin exigir licencia de conducir (AC2, insignia de " +
+          "confianza, no permiso de acceso). Ni el emisor ni el receptor pueden ofertar " +
+          "sobre su propio envío (403 AUTH_FORBIDDEN, AC3). `priceOfferedArs` es el " +
+          "NETO que quiere cobrar el transportista -- el servidor calcula el bruto con " +
+          "la comisión de Movo (AC6, @movo/shared#computeOfferGrossPrice) y devuelve el " +
+          "desglose neto/comisión/bruto. 409 si el envío no está published o si ya " +
+          "existe una oferta activa del mismo transportista (AC4); 422 si offeredDate " +
+          "no coincide con la fecha de retiro del envío (AC5).",
+        tags: ["shipments", "offers"],
+        params: shipmentsSchemas.shipmentIdParam,
+        body: shipmentsSchemas.createOfferBody,
+        response: {
+          201: shipmentsSchemas.createOfferResponse,
+          400: shipmentsSchemas.errorResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+          409: shipmentsSchemas.errorResponse,
+          422: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const carrierId = requireUserIdFromHeader(request);
+      const callerRoles = getUserRolesFromHeader(request);
+      const { id } = request.params as { id: string };
+      const { priceOfferedArs, offeredDate, message } = request.body as {
+        priceOfferedArs: number;
+        offeredDate: string;
+        message?: string;
+      };
+      const offer: CreateOfferForShipmentResult = await service.createOfferForShipment({
+        shipmentId: id,
+        carrierId,
+        callerRoles,
+        priceNetArs: priceOfferedArs,
+        offeredDate,
+        message,
+      });
+      reply.code(201);
+      return toOfferDto(offer);
     }
   );
 

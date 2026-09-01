@@ -10,13 +10,43 @@ import { AccountStatus, KycStatus, UserRole } from "./user";
 export type ProfileBadge = "kyc_verified" | "license_verified";
 
 /**
- * Contadores de transacciones por rol. Sin tablas de envíos todavía (MOVO-25) — el
- * contrato queda fijo con ceros para que el móvil no necesite cambios cuando el dato
- * exista de verdad (AC6).
+ * Contadores de transacciones por rol -- envíos `delivered` como emisor/transportista
+ * (MOVO-152, wired a `GET /internal/users/:id/reputation` de `svc-shipments`/MOVO-147).
  */
 export interface TransactionCounts {
   asSender: number;
   asCarrier: number;
+}
+
+/**
+ * MOVO-152: score de reputación ponderado (shrinkage bayesiano + decaimiento temporal,
+ * ver `services/movo-svc-shipments/src/domain/reputation.ts`) restringido a un
+ * subconjunto de calificaciones -- misma forma que usa internamente `svc-shipments`
+ * para el resultado global y para `asSender`/`asCarrier`. `reputationScore` es `null`
+ * únicamente sin ninguna calificación (nunca `0` -- un cero es una nota pésima, no
+ * ausencia de datos). `isNewProfile` (menos de 3 calificaciones) es una decisión de
+ * presentación: el perfil muestra "Perfil nuevo" en vez del score, pero el cálculo
+ * viaja siempre.
+ */
+export interface ReputationBreakdown {
+  reputationScore: number | null;
+  ratingCount: number;
+  isNewProfile: boolean;
+}
+
+/**
+ * MOVO-152 AC2: una de las últimas 10 calificaciones recibidas por el usuario, leídas
+ * de `GET /internal/users/:id/ratings/recent` (`svc-shipments`, MOVO-146 AC10) al
+ * componer un perfil completo. `raterId` viaja crudo -- resolverlo a un perfil (nombre/
+ * foto de quien calificó) queda para quien consuma este tipo (ej. el mobile de
+ * MOVO-154), no es responsabilidad de `svc-users` acá.
+ */
+export interface RecentRatingComment {
+  id: string;
+  raterId: string;
+  score: number;
+  comment: string | null;
+  createdAt: string;
 }
 
 /**
@@ -73,6 +103,15 @@ export interface PrivateProfile {
  * Proyección pública de cualquier usuario (`GET /users/:id`, MOVO-77 AC2). Tipo
  * separado a propósito (no un `Omit`/flag sobre `PrivateProfile`, AC3): nunca puede
  * tener `email`/`phone`/`accountStatus` porque esos campos no existen en este tipo.
+ *
+ * MOVO-152 AC2 sumó el desglose por rol (`asSender`/`asCarrier` -- la reputación que
+ * importa al elegir una oferta es la de transportista), `isNewProfile` y los
+ * comentarios recientes -- solo a esta proyección, no a `PrivateProfile` (ver el AC:
+ * "se agrega al contrato del perfil público"). `recentRatingComments` viaja vacío en
+ * `GET /users/search` (composición liviana, sin la llamada extra a `ratings/recent`
+ * por cada resultado) y poblado en `GET /users/:id` (perfil completo) -- el tipo no
+ * distingue los dos casos, es una decisión de qué datos pedir al componer, no del wire
+ * contract.
  */
 export interface PublicProfile {
   id: string;
@@ -82,4 +121,9 @@ export interface PublicProfile {
   badges: ProfileBadge[];
   transactionCounts: TransactionCounts;
   reputationScore: number | null;
+  ratingCount: number;
+  isNewProfile: boolean;
+  asSender: ReputationBreakdown;
+  asCarrier: ReputationBreakdown;
+  recentRatingComments: RecentRatingComment[];
 }

@@ -132,6 +132,10 @@ services:
       - EMAIL_PROVIDER=${EMAIL_PROVIDER:-console}
       - RESEND_API_KEY=${RESEND_API_KEY}
       - EMAIL_FROM=${EMAIL_FROM}
+      # MOVO-152: TTL en segundos de la caché de reputación en Redis -- no es un
+      # `*_PROVIDER`/enum (no hace falta `:-` para el gotcha de var vacía documentado
+      # arriba), pero se lista igual para poder ajustarlo sin rebuild de imagen.
+      - REPUTATION_CACHE_TTL_SECONDS=${REPUTATION_CACHE_TTL_SECONDS:-60}
     depends_on:
       - postgres
       - redis
@@ -166,6 +170,11 @@ services:
       - REPUTATION_DECAY_HALF_LIFE_DAYS=${REPUTATION_DECAY_HALF_LIFE_DAYS:-180}
       # MOVO-161: radio de desvío ortogonal al corredor del viaje declarado (km).
       - TRIP_DEFAULT_MAX_DETOUR_KM=${TRIP_DEFAULT_MAX_DETOUR_KM:-15}
+      # MOVO-143: comisión de Movo (confirmada, 15%) + fee de MercadoPago (placeholder,
+      # pendiente de confirmar) -- leídas por @movo/shared, no por el envSchema propio
+      # de este servicio (ver shared/movo-shared/src/config/commission.ts).
+      - MOVO_COMMISSION_RATE=${MOVO_COMMISSION_RATE:-0.15}
+      - MP_TRANSACTION_FEE_RATE=${MP_TRANSACTION_FEE_RATE:-0.0499}
       # MOVO-82: el default de código (http://movo-svc-pricing-logistics:8000) ya
       # coincide con el nombre del servicio en movo-net, mismo criterio que
       # USERS_SERVICE_URL -- no hace falta setearlo acá.

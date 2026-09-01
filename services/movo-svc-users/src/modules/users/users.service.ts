@@ -2,16 +2,23 @@ import { randomUUID } from "node:crypto";
 import { FastifyBaseLogger } from "fastify";
 import { hash, verify } from "@node-rs/argon2";
 import Redis from "ioredis";
-import { AccountStatus, ApiError, KycStatus } from "@movo/shared";
+import { AccountStatus, ApiError, KycStatus, RecentRatingComment } from "@movo/shared";
 import { PrismaClient } from "../../generated/prisma/client";
 import { createUserRepository } from "../../repositories/user-repository";
 import { createPushTokenRepository } from "../../repositories/push-token-repository";
 import { createSessionRepository } from "../../repositories/session-repository";
-import { PrivateProfile, PublicProfile, toPrivateProfile, toPublicProfile } from "../../models/user-profile";
-import { UserConflictError } from "../../models/user";
+import {
+  PrivateProfile,
+  PublicProfile,
+  NO_REPUTATION,
+  NO_TRANSACTION_COUNTS,
+  toPrivateProfile,
+  toPublicProfile,
+} from "../../models/user-profile";
+import { UserConflictError, User } from "../../models/user";
 import { StorageProvider } from "../../adapters/storage-provider";
 import { PushPlatform } from "../../models/push-token";
-import { ShipmentsClient } from "../../adapters/shipments-client";
+import { ShipmentsClient, UserReputationSummary } from "../../adapters/shipments-client";
 import { issueSession, LoginUserResult, normalizePhoneToE164Ar } from "../auth/auth.service";
 import { OtpService } from "../../services/otp-service";
 import { buildEmailChangedNotice, EmailProvider } from "../../adapters/email-provider";
@@ -144,6 +151,23 @@ export interface UpdateProfileInput {
   lastName?: string;
 }
 
+// MOVO-152 AC2: "las últimas 10 calificaciones" -- mismo valor que el default de
+// `recentRatingsQuery` en ratings.schema.ts de svc-shipments, pasado acá explícito en
+// vez de depender de ese default (esta llamada es interna, no pasa por AJV).
+const RECENT_RATING_COMMENTS_LIMIT = 10;
+
+// MOVO-152 AC5: mismo valor que el default de `envSchema` (`config/env.ts`) -- red de
+// seguridad para callers que no pasan por `users.routes.ts` (tests, principalmente),
+// nunca una segunda fuente de verdad para el TTL real.
+const DEFAULT_REPUTATION_CACHE_TTL_SECONDS = 60;
+
+/** MOVO-152 AC5: el agregado por usuario, cacheado en Redis (no las últimas
+ * calificaciones -- esas solo se piden al componer un perfil completo, ver AC2, y su
+ * query ya es liviana: 10 filas por su propio índice). */
+export function reputationCacheKey(userId: string): string {
+  return `reputation:cache:${userId}`;
+}
+
 export function createUsersService(
   db: PrismaClient,
   storageProvider: StorageProvider,
@@ -151,11 +175,86 @@ export function createUsersService(
   redis: Redis,
   shipmentsClient: ShipmentsClient,
   otpService: OtpService,
-  emailProvider: EmailProvider
+  emailProvider: EmailProvider,
+  reputationCacheTtlSeconds: number = DEFAULT_REPUTATION_CACHE_TTL_SECONDS
 ) {
   const repository = createUserRepository(db);
   const pushTokenRepository = createPushTokenRepository(db);
   const sessionRepository = createSessionRepository(redis);
+
+  /**
+   * MOVO-152 AC3/AC5: agregado de reputación de `userId`, leído de Redis primero (TTL
+   * `reputationCacheTtlSeconds`, arranca en 60s) y de `svc-shipments` en un miss.
+   * **Nunca lanza** -- cualquier falla (Redis o `svc-shipments`) se loguea y resuelve
+   * a `null`, que los callers de abajo tratan igual que "sin calificaciones" (AC3: el
+   * perfil nunca falla por la reputación). No se cachea el fallback: si `svc-shipments`
+   * está caído, la próxima apertura de perfil reintenta en vez de esperar el TTL
+   * completo para recuperarse.
+   */
+  async function resolveReputationSummary(userId: string): Promise<UserReputationSummary | null> {
+    const cacheKey = reputationCacheKey(userId);
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        return JSON.parse(cached) as UserReputationSummary;
+      }
+    } catch (error) {
+      logger.warn(
+        { userId, event: "reputation_cache_read_failed", error: (error as Error).message },
+        "No se pudo leer el agregado de reputación cacheado en Redis"
+      );
+    }
+
+    let summary: UserReputationSummary;
+    try {
+      summary = await shipmentsClient.findReputation(userId);
+    } catch (error) {
+      logger.warn(
+        { userId, event: "reputation_fetch_failed", error: (error as Error).message },
+        "No se pudo obtener el agregado de reputación de svc-shipments"
+      );
+      return null;
+    }
+
+    try {
+      await redis.set(cacheKey, JSON.stringify(summary), "EX", reputationCacheTtlSeconds);
+    } catch (error) {
+      logger.warn(
+        { userId, event: "reputation_cache_write_failed", error: (error as Error).message },
+        "No se pudo cachear el agregado de reputación en Redis"
+      );
+    }
+    return summary;
+  }
+
+  /** MOVO-152 AC2: solo se llama al componer un perfil completo (`getPublicProfile`),
+   * nunca desde `searchUsers` -- ver el comentario de `PublicProfile.recentRatingComments`
+   * en `@movo/shared`. Mismo criterio de "nunca lanza" que `resolveReputationSummary`. */
+  async function resolveRecentRatingComments(userId: string): Promise<RecentRatingComment[]> {
+    try {
+      return await shipmentsClient.findRecentRatingComments(userId, RECENT_RATING_COMMENTS_LIMIT);
+    } catch (error) {
+      logger.warn(
+        { userId, event: "reputation_recent_comments_fetch_failed", error: (error as Error).message },
+        "No se pudieron obtener las calificaciones recientes de svc-shipments"
+      );
+      return [];
+    }
+  }
+
+  async function composePrivateProfile(user: User): Promise<PrivateProfile> {
+    const summary = await resolveReputationSummary(user.id);
+    return toPrivateProfile(user, summary ?? NO_REPUTATION, summary?.transactionCounts ?? NO_TRANSACTION_COUNTS);
+  }
+
+  async function composePublicProfile(user: User, includeComments: boolean): Promise<PublicProfile> {
+    const [summary, recentRatingComments] = await Promise.all([
+      resolveReputationSummary(user.id),
+      includeComments ? resolveRecentRatingComments(user.id) : Promise.resolve<RecentRatingComment[]>([]),
+    ]);
+    const reputation = summary ?? { ...NO_REPUTATION, asSender: NO_REPUTATION, asCarrier: NO_REPUTATION };
+    return toPublicProfile(user, reputation, summary?.transactionCounts ?? NO_TRANSACTION_COUNTS, recentRatingComments);
+  }
 
   return {
     async getUsersCount(): Promise<number> {
@@ -167,19 +266,21 @@ export function createUsersService(
       if (!user) {
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
       }
-      return toPrivateProfile(user);
+      return composePrivateProfile(user);
     },
 
     /** AC3 de MOVO-80: búsqueda de receptor por nombre completo. Devuelve la
      * proyección pública -- nunca expone email/teléfono como criterio de búsqueda ni
-     * como resultado, evita habilitar enumeración de usuarios. */
+     * como resultado, evita habilitar enumeración de usuarios. MOVO-152 AC2: sin
+     * comentarios recientes -- composición liviana, no arrastra diez textos por cada
+     * uno de hasta 20 resultados. */
     async searchUsers(query: string, callerId: string): Promise<PublicProfile[]> {
       const trimmed = query.trim();
       if (trimmed.length < 2) {
         throw new ApiError(400, "VALIDATION_FAILED", "El término de búsqueda debe tener al menos 2 caracteres.");
       }
       const users = await repository.search(trimmed, callerId, 20);
-      return users.map(toPublicProfile);
+      return Promise.all(users.map((user) => composePublicProfile(user, false)));
     },
 
     async getPublicProfile(id: string): Promise<PublicProfile> {
@@ -199,7 +300,8 @@ export function createUsersService(
       if (!user || user.status === AccountStatus.DELETED) {
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
       }
-      return toPublicProfile(user);
+      // MOVO-152 AC2: perfil completo -- sí pide los comentarios recientes.
+      return composePublicProfile(user, true);
     },
 
     /** AC1/AC2/AC3: emite la presigned URL de subida. El `objectKey` lo genera el
@@ -260,8 +362,13 @@ export function createUsersService(
 
       try {
         // `headObject` y `findById` son independientes entre sí — se piden en paralelo
-        // para no pagar dos round-trips en serie en cada confirmación.
-        const [head, user] = await Promise.all([storageProvider.headObject(objectKey), repository.findById(userId)]);
+        // para no pagar dos round-trips en serie en cada confirmación. `findById` acá
+        // es solo el chequeo de existencia del usuario -- el `photoUrl` de este read no
+        // se usa para decidir qué borrar (ver MOVO-115 más abajo).
+        const [head, existingUser] = await Promise.all([
+          storageProvider.headObject(objectKey),
+          repository.findById(userId),
+        ]);
         if (!head.exists) {
           throw new ApiError(422, "PHOTO_OBJECT_NOT_FOUND", "La imagen no existe en el storage.");
         }
@@ -273,13 +380,19 @@ export function createUsersService(
           assertValidPhotoConstraints(head.contentType, head.contentLength);
         }
 
-        if (!user) {
+        if (!existingUser) {
           throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
         }
 
         const photoUrl = storageProvider.getPublicUrl(objectKey);
-        const updated = await repository.updatePhotoUrl(userId, photoUrl);
-        if (!updated) {
+        // MOVO-115: swap atómico -- `previousPhotoUrl` es el valor que este swap
+        // realmente pisó, no `existingUser.photoUrl` (leído antes de tomar el lock de
+        // la fila). Con dos `PUT /users/me/photo` casi simultáneos (ej. reintento del
+        // cliente tras timeout) con objectKeys B y C distintos, ambos leyendo la misma
+        // foto A vigente, un `photoUrl` capturado fuera del swap dejaba huérfano en S3
+        // el objeto que el otro call sí llegó a persistir (nadie lo borraba nunca).
+        const swapped = await repository.swapPhotoUrl(userId, photoUrl);
+        if (!swapped) {
           throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
         }
 
@@ -300,8 +413,9 @@ export function createUsersService(
         // es la buena, un fallo de borrado es basura huérfana, no un error para el
         // usuario. `previousKey !== objectKey` cubre el caso (raro pero posible) de
         // confirmar dos veces la misma key.
-        if (user.photoUrl) {
-          const previousKey = storageProvider.getKeyFromUrl(user.photoUrl);
+        const { previousPhotoUrl } = swapped;
+        if (previousPhotoUrl) {
+          const previousKey = storageProvider.getKeyFromUrl(previousPhotoUrl);
           if (previousKey && previousKey !== objectKey) {
             try {
               await storageProvider.deleteObject(previousKey);
@@ -325,17 +439,31 @@ export function createUsersService(
 
     /** AC7: idempotente — sin foto previa también responde éxito. */
     async deletePhoto(userId: string): Promise<void> {
-      const user = await repository.findById(userId);
-      if (!user) {
+      const existingUser = await repository.findById(userId);
+      if (!existingUser) {
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
       }
-      if (!user.photoUrl) {
+      if (!existingUser.photoUrl) {
+        // Atajo: sin foto acá, no hay nada que un swap pudiera necesitar revalidar --
+        // se evita el UPDATE de por medio en el caso común (sin foto).
         return;
       }
 
-      const key = storageProvider.getKeyFromUrl(user.photoUrl);
-      await repository.updatePhotoUrl(userId, null);
+      // MOVO-115: swap atómico, mismo motivo que confirmPhoto() -- la key a borrar es
+      // la que este swap realmente pisó (`previousPhotoUrl`), no `existingUser.photoUrl`
+      // leído antes del lock de la fila. Cierra el mismo escenario de objeto huérfano
+      // cuando este DELETE corre casi al mismo tiempo que un PUT de reemplazo.
+      const swapped = await repository.swapPhotoUrl(userId, null);
+      if (!swapped) {
+        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
 
+      const { previousPhotoUrl } = swapped;
+      if (!previousPhotoUrl) {
+        return;
+      }
+
+      const key = storageProvider.getKeyFromUrl(previousPhotoUrl);
       if (key) {
         try {
           await storageProvider.deleteObject(key);
@@ -539,7 +667,7 @@ export function createUsersService(
       if (!updated) {
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
       }
-      return toPrivateProfile(updated);
+      return composePrivateProfile(updated);
     },
 
     /**
@@ -583,7 +711,7 @@ export function createUsersService(
         if (!updated) {
           throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
         }
-        return toPrivateProfile(updated);
+        return composePrivateProfile(updated);
       } catch (err) {
         // AC5: el teléfono pudo quedar tomado por otra cuenta entre el paso 1 y este
         // UPDATE (carrera de unicidad) -- capturado acá, nunca un 500.
@@ -637,7 +765,7 @@ export function createUsersService(
       if (!updated) {
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
       }
-      return toPrivateProfile(updated);
+      return composePrivateProfile(updated);
     },
 
     /**
@@ -726,7 +854,7 @@ export function createUsersService(
           throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
         }
         await notifyPreviousEmailOfChange(user.email, pendingEmail);
-        return toPrivateProfile(updated);
+        return composePrivateProfile(updated);
       } catch (err) {
         if (err instanceof UserConflictError) {
           throw new ApiError(409, "EMAIL_ALREADY_IN_USE", EMAIL_ALREADY_IN_USE_MESSAGE);

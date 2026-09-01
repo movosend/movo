@@ -9,6 +9,9 @@ import {
   OfferNotFoundError,
   ShipmentNotAvailableForAssignmentError,
   OfferConcurrentModificationError,
+  OfferDateOutOfRangeError,
+  DuplicateActiveOfferError,
+  OfferShipmentNotFoundError,
 } from "../repositories/offer-repository";
 import { DuplicateRatingError } from "../repositories/rating-repository";
 import { TripNotFoundError, TripHasAcceptedPackagesError } from "../repositories/trip-repository";
@@ -112,6 +115,41 @@ export default fp(async (app: FastifyInstance) => {
     // vencida o ya resuelta).
     if (error instanceof InvalidOfferTransitionError) {
       const apiError = new ApiError(409, "OFFER_INVALID_TRANSITION", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    // MOVO-143 AC5: offeredDate no coincide con la fecha de retiro del envío -- 422
+    // explícito, no un 409 (no es un conflicto de estado, es un dato de entrada inválido).
+    if (error instanceof OfferDateOutOfRangeError) {
+      const apiError = new ApiError(422, "OFFER_DATE_OUT_OF_RANGE", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    // MOVO-143 AC4: el transportista ya tiene una oferta activa sobre este envío
+    // (índice único parcial de la base, ver offer-repository.ts).
+    if (error instanceof DuplicateActiveOfferError) {
+      const apiError = new ApiError(409, "OFFER_DUPLICATE_ACTIVE", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    // MOVO-143: el shipmentId referenciado por POST /shipments/:id/offers no existe --
+    // en la práctica inalcanzable (el service ya resuelve el envío antes de llamar a
+    // offerRepository.create), pero mapeado igual que el resto de los errores de
+    // dominio de este repositorio en vez de caer al 500 genérico.
+    if (error instanceof OfferShipmentNotFoundError) {
+      const apiError = new ApiError(404, "NOT_FOUND", error.message);
       reply.code(apiError.statusCode).send({
         ...apiError.toJSON(),
         requestId,

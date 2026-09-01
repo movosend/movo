@@ -150,5 +150,26 @@ export function createOffersService(
 
       return rejected;
     },
+
+    /**
+     * AC8 de MOVO-143: el transportista retira su propia oferta `pending`. Solo
+     * resuelve autorización (dueño de la oferta) — `offerRepository.withdraw()` ya
+     * hace el compare-and-swap y valida la transición vía `offer-state-machine.ts`
+     * (409 `OFFER_INVALID_TRANSITION` sobre una ya resuelta/vencida, 409
+     * `OFFER_CONCURRENT_MODIFICATION` sobre el caso concurrente, ambos ya mapeados en
+     * `error-handler.ts` desde MOVO-144). Sin notificación push -- no la pide el AC.
+     */
+    async withdrawOffer(offerId: string, callerId: string): Promise<Offer> {
+      const offer = await offerRepository.findById(offerId);
+      if (!offer) {
+        throw new ApiError(404, "OFFER_NOT_FOUND", "No existe una oferta con ese id.");
+      }
+
+      if (offer.carrierId !== callerId) {
+        throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el transportista dueño de la oferta puede retirarla.");
+      }
+
+      return offerRepository.withdraw(offerId);
+    },
   };
 }
