@@ -3,6 +3,7 @@ import { TripRepository, TripNotFoundError, TripHasAcceptedPackagesError } from 
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { Trip, TripStatus, CreateTripInput, UpdateTripInput, TripWithAcceptedPackages } from "../../models/trip";
+import { AvailableShipment } from "../../models/shipment";
 
 export interface TripsService {
   createTrip(params: {
@@ -45,7 +46,7 @@ export interface TripsService {
     radiusKm?: number;
     page: number;
     limit: number;
-  }): Promise<{ items: any[]; total: number; page: number; limit: number; tripId: string; radiusKm: number }>;
+  }): Promise<{ items: AvailableShipment[]; total: number; page: number; limit: number; tripId: string; radiusKm: number }>;
 }
 
 async function assertVerifiedCarrier(usersClient: UsersClient, callerId: string, callerRoles: UserRole[]): Promise<void> {

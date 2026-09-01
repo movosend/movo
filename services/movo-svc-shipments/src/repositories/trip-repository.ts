@@ -1,4 +1,4 @@
-import { PrismaClient, Trip as TripRow } from "../generated/prisma/client";
+import { PrismaClient } from "../generated/prisma/client";
 import { TripStatus } from "@movo/shared";
 import {
   Trip,

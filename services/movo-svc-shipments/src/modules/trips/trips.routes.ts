@@ -7,6 +7,7 @@ import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
 import { createTripRepository, TripRepository } from "../../repositories/trip-repository";
 import { createShipmentRepository, ShipmentRepository } from "../../repositories/shipment-repository";
+import { AvailableShipment } from "../../models/shipment";
 import { toTripDto } from "./trip.dto";
 
 export interface TripsRoutesOptions extends FastifyPluginOptions {
@@ -16,7 +17,30 @@ export interface TripsRoutesOptions extends FastifyPluginOptions {
   service?: TripsService;
 }
 
-function toAvailableShipmentDto(item: any) {
+interface CreateTripBody {
+  originAddress: string;
+  originLat: number;
+  originLng: number;
+  destinationAddress: string;
+  destinationLat: number;
+  destinationLng: number;
+  departureAt: string;
+  vehicleType: string;
+}
+
+interface UpdateTripBody {
+  originAddress?: string;
+  originLat?: number;
+  originLng?: number;
+  destinationAddress?: string;
+  destinationLat?: number;
+  destinationLng?: number;
+  departureAt?: string;
+  vehicleType?: string;
+  status?: TripStatus;
+}
+
+function toAvailableShipmentDto(item: AvailableShipment & { hasMyOffer?: boolean }) {
   return {
     ...item,
     pickupDate: item.pickupDate instanceof Date ? item.pickupDate.toISOString().slice(0, 10) : item.pickupDate,
@@ -64,7 +88,7 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
     async (request: FastifyRequest, reply: FastifyReply) => {
       const callerId = requireUserIdFromHeader(request);
       const callerRoles = getUserRolesFromHeader(request);
-      const body = request.body as any;
+      const body = request.body as CreateTripBody;
 
       const trip = await service.createTrip({
         callerId,
@@ -164,7 +188,7 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
       const callerId = requireUserIdFromHeader(request);
       const callerRoles = getUserRolesFromHeader(request);
       const { id } = request.params as { id: string };
-      const body = request.body as any;
+      const body = request.body as UpdateTripBody;
 
       const trip = await service.updateTrip({
         tripId: id,
