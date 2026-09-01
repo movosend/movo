@@ -700,9 +700,15 @@ tocados por este ticket (los 14 errores de `no-explicit-any` que reporta `eslint
 `test/orphan-photo-sweep.test.ts`/`test/receiver-confirmation-sweep.test.ts` son
 preexistentes, no de este PR).
 
-Pendiente / fuera de alcance: consumo real desde `svc-users` (MOVO-152, perfil con
-reputación y contadores reales -- bloqueado por este ticket, sin arrancar) y desde
-MOVO-23 (ver arriba).
+Pendiente / fuera de alcance: consumo real desde MOVO-23 (ver arriba). El consumo desde
+`svc-users` (MOVO-152, perfil con reputación y contadores reales) ya se implementó del
+lado de `svc-users` -- ver `services/movo-svc-users/CLAUDE.md` -- sin tocar código de
+este servicio (los dos endpoints internos que consume, `GET /internal/users/:id/
+reputation` de acá y `GET /internal/users/:id/ratings/recent` de MOVO-146, ya existían
+tal cual). Único cambio de este lado: `test/fake-users-client.ts#fakePublicProfile()`
+se actualizó con los campos nuevos de `PublicProfile` (`@movo/shared`) para seguir
+compilando -- `svc-shipments` no ejercita reputación real, ese fake queda en el mismo
+estado "sin datos" que ya usaba.
 
 ### MOVO-145 — `GET /offers/mine`: listado de ofertas propias del transportista (`svc-shipments`)
 

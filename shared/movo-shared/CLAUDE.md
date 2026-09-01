@@ -52,6 +52,22 @@ contacto. Lo consume la pantalla de perfil del mobile para la insignia y el CTA 
 verificación (MOVO-135). Es obligatorio, no opcional: el backend siempre lo devuelve, y
 un `boolean | undefined` obligaría a cada consumidor a decidir qué significa la ausencia.
 
+### MOVO-152 — `ReputationBreakdown`/`RecentRatingComment` y `PublicProfile` extendido
+
+`src/types/user-profile.ts` — dos tipos nuevos consumidos por `movo-svc-users`
+(`src/adapters/shipments-client.ts`), wire contract de los endpoints internos de
+`movo-svc-shipments` que ya existían desde MOVO-146/147 sin un consumidor real:
+`ReputationBreakdown` (`reputationScore`/`ratingCount`/`isNewProfile`, misma forma que
+`ReputationResult` interno de `svc-shipments`) y `RecentRatingComment` (proyección
+mínima de `Rating` -- `id`/`raterId`/`score`/`comment`/`createdAt`, sin `shipmentId`/
+`rateeId`/`role`).
+
+`PublicProfile` sumó `ratingCount`/`isNewProfile`/`asSender`/`asCarrier`/
+`recentRatingComments` — **solo esta proyección**, no `PrivateProfile` (el AC del
+ticket dice explícitamente "se agrega al contrato del perfil público"). Cualquier
+literal `PublicProfile` construido a mano (tests/fakes) necesita ahora esos 5 campos —
+tocó `services/movo-svc-shipments/test/fake-users-client.ts#fakePublicProfile()`.
+
 ### MOVO-82 — `QuoteRequest`/`QuoteResponse`/`PriceCalculationMethod`
 
 `src/types/pricing.ts` — wire contract de `POST /quote`
