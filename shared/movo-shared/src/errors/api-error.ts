@@ -61,7 +61,14 @@ export type ApiErrorCode =
   | "SHIPMENT_RATING_ALREADY_EXISTS"
   | "SHIPMENT_RATING_NOT_FOUND"
   | "CARRIER_NOT_VERIFIED"
-  | "DEVICE_KEY_NOT_FOUND";
+  | "DEVICE_KEY_NOT_FOUND"
+  | "TRIP_NOT_FOUND"
+  | "TRIP_HAS_ACCEPTED_PACKAGES"
+  | "TRIP_ORIGIN_DESTINATION_TOO_CLOSE"
+  | "TRIP_DEPARTURE_IN_PAST"
+  | "SHIPMENT_NOT_AVAILABLE_FOR_OFFER"
+  | "OFFER_DATE_OUT_OF_RANGE"
+  | "OFFER_DUPLICATE_ACTIVE";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

@@ -13,6 +13,7 @@ import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import offersRoutes, { OffersRoutesOptions } from "./modules/offers/offers.routes";
 import ratingsRoutes, { internalRatingsRoutes, RatingsRoutesOptions } from "./modules/ratings/ratings.routes";
+import tripsRoutes, { TripsRoutesOptions } from "./modules/trips/trips.routes";
 import accountDeletionRoutes from "./modules/account-deletion/account-deletion.routes";
 import { UsersClient } from "./adapters/users-client";
 import { StorageProvider } from "./adapters/storage-provider";
@@ -128,6 +129,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
   };
   app.register(ratingsRoutes, ratingsRouteOpts);
+
+  // MOVO-161: viajes declarados por el transportista para matching geométrico de paquetes
+  // compatibles por corredor ("Mis viajes", MOVO-18/162).
+  const tripsRouteOpts: TripsRoutesOptions = {
+    prefix: "/trips",
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+  };
+  app.register(tripsRoutes, tripsRouteOpts);
 
   // MOVO-134: consultado por movo-svc-users antes de aplicar una baja de cuenta.
   // Interno -- no se declara en gateway/src/config/routes-map.ts (mismo criterio que

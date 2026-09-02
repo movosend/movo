@@ -1,4 +1,4 @@
-import { ApiError, OfferStatus, ShipmentStatus, UserRole } from "@movo/shared";
+import { ApiError, OfferStatus, ShipmentStatus, UserRole, computeOfferGrossPrice } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
@@ -7,7 +7,50 @@ import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
 import { AvailableShipment, PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
 import { Offer } from "../../models/offer";
-import { assertIsReceiver, assertIsSenderOrAdmin, assertShipmentAccess } from "./assert-shipment-access";
+import {
+  assertIsNotShipmentParty,
+  assertIsReceiver,
+  assertIsSenderOrAdmin,
+  assertShipmentAccess,
+} from "./assert-shipment-access";
+
+type ShipmentsServiceLogger =
+  | FastifyBaseLogger
+  | { info?: (obj: unknown, msg?: string) => void; warn: (obj: unknown, msg?: string) => void; error?: (obj: unknown, msg?: string) => void };
+
+interface NewOfferPushParams {
+  senderId: string;
+  carrierName: string | null;
+  shipmentId: string;
+  offerId: string;
+}
+
+/** AC9 de MOVO-143: push al emisor cuando recibe una oferta nueva, mismo patrón
+ * try/catch + `logger?.warn` que `dispatchOfferPush` en `offers.service.ts` (MOVO-144)
+ * -- no se extrae a un helper compartido porque el payload difiere (acá el
+ * destinatario es el emisor, no el transportista). */
+async function dispatchNewOfferPush(
+  notificationsClient: NotificationsClient | undefined,
+  logger: ShipmentsServiceLogger | undefined,
+  params: NewOfferPushParams
+): Promise<void> {
+  if (!notificationsClient) {
+    return;
+  }
+  try {
+    await notificationsClient.sendPush({
+      userId: params.senderId,
+      title: "Nueva oferta en tu envío",
+      body: params.carrierName ? `${params.carrierName} ofertó por tu envío.` : "Recibiste una nueva oferta.",
+      data: { type: "offer_created", shipmentId: params.shipmentId, offerId: params.offerId },
+    });
+  } catch (err) {
+    logger?.warn(
+      { err, event: "notification_dispatch_failed", shipmentId: params.shipmentId, offerId: params.offerId },
+      "No se pudo enviar la push de oferta nueva"
+    );
+  }
+}
 
 export type ListShipmentOffersSort = "price" | "rating" | "createdAt";
 
@@ -57,6 +100,22 @@ export interface ListAvailableShipmentsQuery {
   maxDistanceKm?: number;
   page: number;
   limit: number;
+}
+
+export interface CreateOfferForShipmentInput {
+  shipmentId: string;
+  carrierId: string;
+  callerRoles: UserRole[];
+  /** NETO que el transportista quiere cobrar (AC6) -- el servidor calcula el bruto. */
+  priceNetArs: number;
+  /** "YYYY-MM-DD", tiene que coincidir con `shipment.pickupDate` (AC5). */
+  offeredDate: string;
+  message?: string;
+}
+
+export interface CreateOfferForShipmentResult extends Offer {
+  priceNetArs: number;
+  commissionAmountArs: number;
 }
 
 export interface ListAvailableResult {
@@ -245,6 +304,16 @@ export interface ShipmentsServiceOptions {
    * de MOVO-130. Sin cliente inyectado, `createShipment` degrada directo a "precio a
    * estimar" (mismo resultado que si el cliente estuviera pero fallara, AC6). */
   pricingClient?: PricingClient;
+  /**
+   * Requerido solo para `createOfferForShipment` (MOVO-143, AC7): resuelve
+   * `carrierRatingAtOffer` sin HTTP contra sí mismo -- criterio documentado en
+   * MOVO-147 (`ratings.service.ts#getReputationSummary` es una llamada local, misma
+   * DB/proceso). Inyectado como callback en vez de importar `ratings.service.ts`
+   * directo acá para no acoplar este servicio a la construcción completa de
+   * `RatingsService` (repositorio + config de reputación), que ya arma
+   * `shipments.routes.ts`.
+   */
+  getCarrierReputationScore?: (carrierId: string) => Promise<number | null>;
 }
 
 export function createShipmentsService(
@@ -257,6 +326,7 @@ export function createShipmentsService(
   const timeoutHours = opts.receiverConfirmationTimeoutHours ?? 48;
   const offerRepository = opts.offerRepository;
   const pricingClient = opts.pricingClient;
+  const getCarrierReputationScore = opts.getCarrierReputationScore;
 
   return {
     async createShipment(input: CreateShipmentServiceInput): Promise<Shipment> {
@@ -490,6 +560,81 @@ export function createShipmentsService(
         : offers.filter((offer) => offer.status === OfferStatus.PENDING && shipmentAcceptsOffers);
 
       return sortOffers(filtered, query.sort ?? "price");
+    },
+
+    /**
+     * MOVO-143 (AC1-AC7/AC9): el transportista oferta un precio sobre un envío
+     * `published`. Chequeo de rol primero (sin I/O, AC2), después el envío (AC1),
+     * después que el caller no sea parte del envío (AC3) — mismo orden "más barato
+     * primero" que el resto del servicio. `offer-repository.ts#create()` ya valida
+     * `offeredDate` contra `pickupDate` (AC5, `OfferDateOutOfRangeError` -> 422) y la
+     * duplicidad de oferta activa (AC4, `DuplicateActiveOfferError` -> 409) — no se
+     * reimplementa acá.
+     */
+    async createOfferForShipment(input: CreateOfferForShipmentInput): Promise<CreateOfferForShipmentResult> {
+      if (!offerRepository) {
+        throw new Error("createOfferForShipment requiere offerRepository (ShipmentsServiceOptions).");
+      }
+
+      await assertVerifiedCarrier(usersClient, input.carrierId, input.callerRoles);
+
+      const shipment = await repository.findById(input.shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+
+      // AC1: solo se puede ofertar sobre un envío published.
+      if (shipment.status !== ShipmentStatus.PUBLISHED) {
+        throw new ApiError(
+          409,
+          "SHIPMENT_NOT_AVAILABLE_FOR_OFFER",
+          "El envío no está disponible para recibir ofertas."
+        );
+      }
+
+      assertIsNotShipmentParty(shipment, input.carrierId);
+
+      if (input.priceNetArs <= 0) {
+        throw new ApiError(422, "VALIDATION_FAILED", "El precio ofertado tiene que ser mayor a 0.");
+      }
+
+      // AC6: el transportista ingresa el NETO, el servidor calcula el BRUTO -- nunca
+      // al revés. `computeOfferGrossPrice` es una función pura de `@movo/shared`
+      // (misma tasa que usará el split real de movo-svc-payments más adelante, ver
+      // shared/movo-shared/src/config/commission.ts).
+      const { netArs, commissionAmountArs, grossArs } = computeOfferGrossPrice(input.priceNetArs);
+
+      // AC7: snapshot del transportista. El nombre sigue el mismo criterio
+      // cross-servicio que ya usa `createShipment` para el receptor
+      // (`usersClient.findPublicProfile`); el rating sigue el criterio documentado en
+      // MOVO-147 -- llamada LOCAL (misma DB/proceso) vía `getCarrierReputationScore`,
+      // sin HTTP contra sí mismo. Puede resolver `null` (agregado sin calificaciones
+      // todavía) -- no bloquea la creación de la oferta.
+      const [carrierProfile, carrierRatingAtOffer] = await Promise.all([
+        usersClient.findPublicProfile(input.carrierId, input.carrierId),
+        getCarrierReputationScore ? getCarrierReputationScore(input.carrierId) : Promise.resolve(null),
+      ]);
+
+      const offer = await offerRepository.create({
+        shipmentId: input.shipmentId,
+        carrierId: input.carrierId,
+        priceOffered: grossArs,
+        offeredDate: new Date(`${input.offeredDate}T00:00:00.000Z`),
+        message: input.message,
+        carrierNameAtOffer: carrierProfile?.fullName ?? null,
+        carrierRatingAtOffer,
+      });
+
+      // AC9: best-effort, fire-and-forget -- un fallo de la notificación no revierte
+      // la creación de la oferta (que ya commiteó arriba).
+      void dispatchNewOfferPush(notificationsClient, logger, {
+        senderId: shipment.senderId,
+        carrierName: offer.carrierNameAtOffer,
+        shipmentId: shipment.id,
+        offerId: offer.id,
+      });
+
+      return { ...offer, priceNetArs: netArs, commissionAmountArs };
     },
 
     async acceptShipment(shipmentId: string, callerId: string): Promise<Shipment> {
