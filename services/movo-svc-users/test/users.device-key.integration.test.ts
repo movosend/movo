@@ -206,6 +206,21 @@ describe("Clave pública de dispositivo: POST /users/me/device-key, GET /interna
       expect(response.statusCode).toBe(404);
       expect(JSON.parse(response.body).error.code).toBe("USER_NOT_FOUND");
     });
+
+    // MOVO-157 (review de PedroYorlano, PR #119): librerías de WebCrypto/React
+    // Native suelen exportar en base64url (`-`/`_`, sin padding), no base64 estándar.
+    it("acepta una clave en base64url (`-`/`_`, sin padding)", async () => {
+      const user = await repo.create(buildInput());
+      const base64UrlKey = "BBl2s3IuDMHrIsvHYXjRvbb-jTs6VwSivJXTMbo6BvKsELdJUV1kX3IEXXQtMFo1P_DGMjr1RQhrTKu7yAYPk8Y";
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/users/me/device-key",
+        headers: { "x-user-id": user.id },
+        payload: { publicKey: base64UrlKey },
+      });
+      expect(response.statusCode).toBe(200);
+    });
   });
 
   describe("GET /internal/users/:id/device-key", () => {

@@ -11,10 +11,13 @@ const MAX_PHOTO_CONTENT_LENGTH_BYTES = 5 * 1024 * 1024;
 // MOVO-106 AC1: mismos valores que PushPlatform en models/push-token.ts — duplicados
 // acá por el mismo criterio de "autocontenido" de arriba.
 const PUSH_PLATFORM_VALUES = ["ios", "android"];
-// MOVO-157 AC2: base64 estándar (con relleno `=` opcional) de una clave pública EC --
-// generosa en longitud (2048) para no atarse a un tamaño de clave/curva específico,
-// el par se genera client-side y este servicio nunca lo interpreta, solo lo persiste.
-const DEVICE_PUBLIC_KEY_PATTERN = "^[A-Za-z0-9+/]+=*$";
+// MOVO-157 AC2: base64 estándar O base64url (con relleno `=` opcional) de una clave
+// pública EC -- las libs de WebCrypto/React Native del lado mobile suelen exportar en
+// base64url (`-`/`_`, sin padding), así que se acepta el alfabeto de las dos variantes
+// en vez de forzar al cliente a reconvertir. Generosa en longitud (2048) para no
+// atarse a un tamaño de clave/curva específico, el par se genera client-side y este
+// servicio nunca lo interpreta, solo lo persiste.
+const DEVICE_PUBLIC_KEY_PATTERN = "^[A-Za-z0-9+/_-]+=*$";
 const MAX_DEVICE_PUBLIC_KEY_LENGTH = 2048;
 // MOVO-133: mismo espíritu que registerBody.fullName de auth.schema.ts (no vacío, sin
 // ser solo espacios) adaptado a un campo individual -- no se importa el de
