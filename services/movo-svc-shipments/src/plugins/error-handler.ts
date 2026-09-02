@@ -14,6 +14,7 @@ import {
   OfferShipmentNotFoundError,
 } from "../repositories/offer-repository";
 import { DuplicateRatingError } from "../repositories/rating-repository";
+import { TripNotFoundError, TripHasAcceptedPackagesError } from "../repositories/trip-repository";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -161,6 +162,24 @@ export default fp(async (app: FastifyInstance) => {
     // de un 500 genérico, mismo patrón que ShipmentConcurrentModificationError.
     if (error instanceof DuplicateRatingError) {
       const apiError = new ApiError(409, "SHIPMENT_RATING_ALREADY_EXISTS", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    if (error instanceof TripNotFoundError) {
+      const apiError = new ApiError(404, "TRIP_NOT_FOUND", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    if (error instanceof TripHasAcceptedPackagesError) {
+      const apiError = new ApiError(409, "TRIP_HAS_ACCEPTED_PACKAGES", error.message);
       reply.code(apiError.statusCode).send({
         ...apiError.toJSON(),
         requestId,

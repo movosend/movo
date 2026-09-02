@@ -86,6 +86,25 @@ enum PushPlatform {
   @@schema("users")
 }
 
+// MOVO-157: par de claves asimétricas por dispositivo, prerrequisito del handshake
+// criptográfico de MOVO-6 (implementado en `svc-shipments`, ticket hermano MOVO-158).
+// Solo se persiste la clave PÚBLICA -- la privada nunca sale del dispositivo (AC1).
+// `userId` único (mismo patrón que `DriversLicense`): sin multi-dispositivo por
+// usuario (fuera de alcance del TFG), así que rotar la clave es un upsert sobre la
+// misma fila -- no hace falta borrar la anterior a mano, invalidarla es implícito
+// (AC5) porque nunca queda más de una fila por usuario.
+model DeviceKey {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @unique(map: "device_keys_user_id_key") @map("user_id") @db.Uuid
+  publicKey String   @map("public_key")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("device_keys")
+  @@schema("users")
+}
+
 model User {
   id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email             String        @unique(map: "users_email_key")
@@ -116,6 +135,7 @@ model User {
   addresses         Address[]
   pushTokens        PushToken[]
   driversLicense    DriversLicense?
+  deviceKey         DeviceKey?
 
   // users_email_lower_idx (índice único funcional sobre LOWER(email)) no tiene
   // equivalente declarable en schema.prisma (Prisma no modela expression indexes).

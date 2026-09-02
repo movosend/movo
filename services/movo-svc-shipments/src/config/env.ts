@@ -18,6 +18,7 @@ export interface EnvConfig {
   ORPHAN_PHOTO_SWEEP_ENABLED?: boolean;
   REPUTATION_CONFIDENCE_CONSTANT: number;
   REPUTATION_DECAY_HALF_LIFE_DAYS: number;
+  TRIP_DEFAULT_MAX_DETOUR_KM: number;
 }
 
 export const envSchema = {
@@ -80,6 +81,8 @@ export const envSchema = {
     // MOVO-147: semivida en días del decaimiento temporal de cada calificación --
     // una racha vieja no sostiene (ni condena) a alguien que hoy trabaja distinto.
     REPUTATION_DECAY_HALF_LIFE_DAYS: { type: "number", default: 180 },
+    // MOVO-161: radio de desvío ortogonal máximo por defecto al corredor del viaje declarado (km)
+    TRIP_DEFAULT_MAX_DETOUR_KM: { type: "number", default: 15 },
   },
 };
 

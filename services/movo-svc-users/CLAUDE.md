@@ -729,3 +729,65 @@ Pendiente / fuera de alcance: consumo desde `movo-mobile` (MOVO-154, bloqueado p
 este ticket); mover `ReputationBreakdown`/`RecentRatingComment` fuera de
 `shipments-client.ts` si algún otro servicio Node llega a necesitarlos (hoy solo se
 usan acá, ya viven en `@movo/shared`).
+
+### MOVO-157 — Registro de clave pública por dispositivo (`svc-users`)
+
+Prerrequisito del handshake criptográfico de MOVO-6 (implementado del lado de
+`svc-shipments` en el ticket hermano MOVO-158, todavía sin arrancar): este servicio
+solo registra/rota la clave PÚBLICA del par asimétrico que cada dispositivo genera
+client-side (AC1, la privada nunca viaja) y la expone a `svc-shipments` para validar
+firmas. `POST /users/me/device-key` (`users.routes.ts`/`.service.ts`, mismo módulo que
+`push-token`, no uno propio — mismo criterio de "concern por-dispositivo del usuario
+propio" que MOVO-106) y `GET /internal/users/:id/device-key` (módulo nuevo
+`src/modules/device-keys/`, interno, mismo patrón que `/internal/notifications` de
+MOVO-106: no se declara en `gateway/src/config/routes-map.ts`, así que el gateway no lo
+proxea).
+
+Decisiones clave:
+- **Tabla propia `users.device_keys` con `user_id` único**, no una columna en `users.users`
+  (el ticket ofrecía las dos opciones) — mismo patrón que `DriversLicense` (MOVO-15):
+  una fila reemplazable por usuario. Rotar la clave (AC5) es un `upsert` por `userId`
+  sobre esa única fila — sin multi-dispositivo (fuera de alcance del TFG, letra
+  explícita del ticket), invalidar la anterior es implícito: nunca existe una segunda
+  fila que pudiera quedar vigente por error.
+- **Migración escrita a mano, no `prisma migrate dev`**: el Postgres local de dev es
+  compartido entre servicios (ADR-003) y ya tenía aplicadas migraciones de
+  `movo-svc-shipments` que no figuran en `prisma/migrations/` de este paquete —
+  `migrate dev` pedía resetear el schema `users` completo. Se generó el DDL con
+  `prisma migrate diff --from-config-datasource --to-schema=prisma/schema.prisma`
+  (solo lectura) y se armó la carpeta de migración a mano con únicamente el `CREATE
+  TABLE`/índice/FK de `device_keys` — el diff completo traía además drift preexistente
+  no relacionado (tipos `TEXT` vs `VARCHAR`, un `DROP DEFAULT` en `drivers_license`)
+  que no correspondía a este ticket. Aplicada con `prisma migrate deploy` (no
+  destructivo). Mismo criterio de fondo que la nota de `movo-svc-shipments/CLAUDE.md`
+  sobre `prisma migrate diff --from-empty` contra el Postgres compartido de dev.
+- **`publicKey` viaja como string, sin decodificar/validar la curva**: el servicio
+  nunca interpreta el contenido (AC2, "formato estándar, p. ej. base64 de una clave
+  EC") — valida forma (`^[A-Za-z0-9+/]+=*$`, `maxLength: 2048`, generoso para no atarse
+  a un tamaño de clave/curva específico) pero no que decodifique a una clave EC válida.
+  Esa validación real (¿la firma verifica contra esta clave?) es del handshake en sí
+  (MOVO-158), no del registro.
+- **404 `DEVICE_KEY_NOT_FOUND` (código nuevo en `@movo/shared`) explícito en el
+  endpoint interno (AC4)**, distinto de `USER_NOT_FOUND` — `svc-shipments` necesita
+  distinguir "el usuario no existe" (no debería pasar, ya lo validó antes) de "existe
+  pero no tiene clave todavía" (caso de negocio esperado: no puede iniciar/confirmar un
+  handshake).
+- **Sin endpoint de borrado**: el ticket no lo pide (AC5 solo exige que un registro
+  nuevo invalide al anterior) y el upsert ya lo resuelve — un DELETE explícito
+  dejaría al usuario sin ninguna clave, un estado sin ningún flujo que lo maneje del
+  lado del handshake.
+
+Tests: `test/users.device-key.integration.test.ts` (nuevo, Postgres real — registro,
+rotación con verificación de una sola fila vigente, aislamiento entre usuarios, 401 sin
+`x-user-id`, 404 `USER_NOT_FOUND` con un `x-user-id` de un usuario inexistente, 400 con
+`publicKey` vacío/no-base64/ausente, el endpoint interno con clave registrada y su 404
+`DEVICE_KEY_NOT_FOUND` explícito sin clave, y que no se documenta en la Swagger
+pública). Suite completa 467/467 tests (48 archivos). `tsc --noEmit` y `eslint` limpios
+en `shared/movo-shared` y `movo-svc-users`; `tsc --noEmit` verificado además en
+`gateway`/`movo-svc-shipments` (consumidores de `@movo/shared`) sin romper nada.
+
+Pendiente / fuera de alcance: la lógica del handshake en sí y su consumo de
+`GET /internal/users/:id/device-key` (MOVO-158, ticket hermano en `svc-shipments`,
+todavía sin arrancar); UI de generación de claves en mobile (se resuelve dentro de las
+pantallas de handshake, fuera de alcance explícito del ticket); multi-dispositivo por
+usuario (fuera de alcance explícito del ticket).

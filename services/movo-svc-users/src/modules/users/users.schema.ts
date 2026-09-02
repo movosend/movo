@@ -11,6 +11,14 @@ const MAX_PHOTO_CONTENT_LENGTH_BYTES = 5 * 1024 * 1024;
 // MOVO-106 AC1: mismos valores que PushPlatform en models/push-token.ts — duplicados
 // acá por el mismo criterio de "autocontenido" de arriba.
 const PUSH_PLATFORM_VALUES = ["ios", "android"];
+// MOVO-157 AC2: base64 estándar O base64url (con relleno `=` opcional) de una clave
+// pública EC -- las libs de WebCrypto/React Native del lado mobile suelen exportar en
+// base64url (`-`/`_`, sin padding), así que se acepta el alfabeto de las dos variantes
+// en vez de forzar al cliente a reconvertir. Generosa en longitud (2048) para no
+// atarse a un tamaño de clave/curva específico, el par se genera client-side y este
+// servicio nunca lo interpreta, solo lo persiste.
+const DEVICE_PUBLIC_KEY_PATTERN = "^[A-Za-z0-9+/_-]+=*$";
+const MAX_DEVICE_PUBLIC_KEY_LENGTH = 2048;
 // MOVO-133: mismo espíritu que registerBody.fullName de auth.schema.ts (no vacío, sin
 // ser solo espacios) adaptado a un campo individual -- no se importa el de
 // auth.schema.ts a propósito, mismo criterio "autocontenido" de arriba.
@@ -342,6 +350,30 @@ export const usersSchemas = {
     properties: {
       otpId: { type: "string", format: "uuid" },
       code: { type: "string", pattern: "^\\d{6}$" },
+    },
+  },
+
+  // MOVO-157 AC2/AC5: registro/rotación de la clave pública del dispositivo del
+  // usuario autenticado -- ver DEVICE_PUBLIC_KEY_PATTERN arriba.
+  registerDeviceKeyBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["publicKey"],
+    properties: {
+      publicKey: {
+        type: "string",
+        minLength: 1,
+        maxLength: MAX_DEVICE_PUBLIC_KEY_LENGTH,
+        pattern: DEVICE_PUBLIC_KEY_PATTERN,
+      },
+    },
+  },
+
+  registerDeviceKeyResponse: {
+    type: "object",
+    required: ["registeredAt"],
+    properties: {
+      registeredAt: { type: "string", format: "date-time" },
     },
   },
 

@@ -76,6 +76,12 @@ export function getServiceRoutes(env: {
       prefix: "/offers",
       upstream: env.SHIPMENTS_SERVICE_URL,
     },
+    // MOVO-161: viajes declarados por transportistas para matching de paquetes ("Mis viajes").
+    // Protegido por defecto (no está en publicRoutes).
+    {
+      prefix: "/trips",
+      upstream: env.SHIPMENTS_SERVICE_URL,
+    },
 
     // payments service (fuera de alcance este sprint, ver MOVO-68: solo
     // svc-users y svc-shipments están vivos. Descomentar cuando el servicio
