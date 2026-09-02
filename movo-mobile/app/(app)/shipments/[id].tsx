@@ -25,8 +25,6 @@ import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
 import { useShipmentRatings } from "../../../src/hooks/use-ratings";
 import { useShipment } from "../../../src/hooks/use-shipments";
-import type { Rating } from "../../../src/api/ratings-client";
-import type { ShipmentSummary } from "../../../src/api/shipments-client";
 import {
   canCancelShipment,
   formatPickupDateLabel,
@@ -88,8 +86,7 @@ export default function ShipmentDetailScreen() {
   const [ratingTarget, setRatingTarget] = useState<RatingTarget | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const activeUserId =
-    currentUser?.userId ?? shipment?.senderId ?? "";
+  const activeUserId = currentUser?.userId ?? "";
 
   const isReceiver = shipment !== undefined && currentUser?.userId === shipment.receiverId;
 

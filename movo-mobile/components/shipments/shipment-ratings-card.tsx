@@ -1,4 +1,4 @@
-import { AlertCircle, Clock, Star } from "lucide-react-native";
+import { AlertCircle, Clock } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { AvatarImage } from "../ui/avatar-image";
