@@ -631,6 +631,11 @@ export function createUsersService(
           // a diferencia de `users`.
           await tx.driversLicense.deleteMany({ where: { userId } });
           await tx.kycVerification.deleteMany({ where: { userId } });
+          // MOVO-157 / MOVO-39: mismo motivo que arriba -- `onDelete: Cascade` de
+          // `device_keys` nunca dispara porque la fila de `users` sobrevive a
+          // propósito. Sin este borrado, el endpoint interno de svc-shipments seguía
+          // resolviendo la clave pública de un dispositivo de un usuario ya eliminado.
+          await tx.deviceKey.deleteMany({ where: { userId } });
         });
 
         await sessionRepository.revokeAllForUser(userId);

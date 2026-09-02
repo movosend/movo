@@ -389,6 +389,27 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
       expect(await app.db.driversLicense.findMany({ where: { userId } })).toEqual([]);
     });
 
+    // MOVO-157 (review de PedroYorlano, PR #119): igual motivo que el test de
+    // arriba -- `onDelete: Cascade` de device_keys nunca dispara porque la fila de
+    // users sobrevive a propósito, así que hay que borrarla a mano en la transacción.
+    it("borra la clave pública de dispositivo al dar de baja la cuenta (MOVO-157/MOVO-39)", async () => {
+      const { userId } = await registerFixtureUser();
+
+      await app.db.deviceKey.create({
+        data: { userId, publicKey: "dGVzdC1wdWJsaWMta2V5" },
+      });
+
+      const response = await app.inject({
+        method: "DELETE",
+        url: "/users/me",
+        headers: { "x-user-id": userId },
+        payload: { password: "Password1" },
+      });
+      expect(response.statusCode).toBe(204);
+
+      expect(await app.db.deviceKey.findMany({ where: { userId } })).toEqual([]);
+    });
+
     it("AC4: borra la foto de perfil de S3 al dar de baja la cuenta", async () => {
       const { userId } = await registerFixtureUser();
 
