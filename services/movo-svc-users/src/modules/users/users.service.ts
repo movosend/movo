@@ -512,7 +512,7 @@ export function createUsersService(
      */
     async registerDeviceKey(userId: string, publicKey: string): Promise<{ registeredAt: Date }> {
       const user = await repository.findById(userId);
-      if (!user) {
+      if (!user || user.status === AccountStatus.DELETED) {
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
       }
       const deviceKey = await deviceKeyRepository.upsert(userId, publicKey);

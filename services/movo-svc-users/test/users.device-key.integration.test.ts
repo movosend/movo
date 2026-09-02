@@ -189,6 +189,23 @@ describe("Clave pública de dispositivo: POST /users/me/device-key, GET /interna
       });
       expect(response.statusCode).toBe(400);
     });
+
+    // MOVO-157 (review de PedroYorlano, PR #119): sin este chequeo, un x-user-id de
+    // una cuenta ya eliminada (pero todavía existente en la fila, ver deleteAccount)
+    // podía seguir registrando/rotando una clave de dispositivo.
+    it("404 USER_NOT_FOUND con un x-user-id de una cuenta eliminada (deleted)", async () => {
+      const user = await repo.create(buildInput());
+      await app.db.user.update({ where: { id: user.id }, data: { status: "deleted" } });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/users/me/device-key",
+        headers: { "x-user-id": user.id },
+        payload: { publicKey: SAMPLE_PUBLIC_KEY_A },
+      });
+      expect(response.statusCode).toBe(404);
+      expect(JSON.parse(response.body).error.code).toBe("USER_NOT_FOUND");
+    });
   });
 
   describe("GET /internal/users/:id/device-key", () => {
