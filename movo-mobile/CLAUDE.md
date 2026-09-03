@@ -955,3 +955,28 @@ Frontend de MOVO-17 sobre los endpoints de MOVO-144: el emisor consulta las ofer
 
 Tests: `test/offers-client.test.ts`, `test/offer-card.test.tsx`, `test/offers-banner.test.tsx`, `test/offers-screen.test.tsx`. 70 suites / 530 tests en verde.
 
+### MOVO-153 — Calificación post-entrega de la contraparte (`movo-mobile`)
+
+Frontend de calificación y reputación sobre los endpoints de MOVO-146: permite a las partes intervinientes de un envío entregado (`DELIVERED`) calificar y editar su calificación dentro de una ventana de 72 horas.
+
+- **Regla de negocio de interacción física (ajuste sobre el texto inicial del ticket)**:
+  - A diferencia de la descripción original de la US (*"el emisor califica a transportista y receptor..."*), se determinó que solo se califica ante interacción física directa:
+    - **Emisor**: Califica únicamente al transportista (quien retira el paquete).
+    - **Receptor**: Califica únicamente al transportista (quien entrega el paquete).
+    - **Transportista**: Califica a ambas partes (al emisor por el retiro y al receptor por la entrega).
+    - Emisor y receptor no se califican entre sí al no tener contacto directo.
+- **Componentes UI**:
+  - **`components/ui/star-rating-input.tsx`**: Selector de 1 a 5 estrellas interactivo y de solo lectura con accesibilidad (`role="radio"` / `accessibilityLabel`), touch targets amplios con `hitSlop` y animaciones táctiles.
+  - **`components/shipments/rating-sheet.tsx`**: Bottom sheet animado (`useSheetAnimation`) que muestra avatar y nombre de la contraparte, selector de estrellas, etiqueta cualitativa ("Regular", "Muy buena", "Excelente"), campo de texto para comentario opcional (máx 500 caracteres con contador), botón de envío o guardado de edición, y banner de error ante fallas del servidor.
+  - **`components/shipments/shipment-ratings-card.tsx`**: Sección en la tab de detalles del envío entregado. Resuelve contrapartes según rol logueado, calcula la expiración de la ventana de 72 horas desde `deliveredAt`, muestra advertencia si el envío está en disputa (`status === DISPUTED`), y provee botones de "Calificar" o "Editar".
+  - **`components/shipments/timeline-section.tsx`**: Renderiza las calificaciones recibidas y emitidas en la línea de tiempo del envío cuando está entregado.
+  - **`app/(app)/shipments/[id].tsx`**: Integración en pantalla de detalle al final de la pestaña, mostrando la sección de calificaciones ante estado `DELIVERED` y banner de éxito (`SuccessBanner`) al registrar o editar calificaciones.
+- **Cliente y hooks (`src/api/ratings-client.ts` / `src/hooks/use-ratings.ts`)**:
+  - `createRating` (`POST /shipments/:id/ratings`), `updateRating` (`PATCH /shipments/:id/ratings/:rateeId`), `listShipmentRatings` (`GET /shipments/:id/ratings`).
+  - React Query invalidation sobre `["shipments", "ratings", shipmentId]` y detalle del envío.
+- **Traducciones y Push (`error-messages.ts` / `use-push-notifications.ts`)**:
+  - Mapeo amigable de errores: `SHIPMENT_RATING_WINDOW_EXPIRED`, `SHIPMENT_RATING_DISPUTE_ACTIVE`, `SHIPMENT_RATING_ALREADY_EXISTS`, etc.
+  - Soporte para navegación push con `rating_received`.
+
+Tests: `test/ratings-client.test.ts`, `test/star-rating-input.test.tsx`, `test/rating-sheet.test.tsx`, `test/shipment-ratings-card.test.tsx`, actualizados `test/timeline-section.test.tsx` y `test/shipment-detail-screen.test.tsx`.
+

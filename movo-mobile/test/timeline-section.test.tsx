@@ -13,6 +13,11 @@ jest.mock("../src/hooks/use-profile", () => ({
   usePublicProfile: (id: string) => mockUsePublicProfile(id),
 }));
 
+const mockUseShipmentRatings = jest.fn();
+jest.mock("../src/hooks/use-ratings", () => ({
+  useShipmentRatings: (...args: unknown[]) => mockUseShipmentRatings(...args),
+}));
+
 const mockUser = jest.fn();
 jest.mock("../src/store/auth-store", () => ({
   useAuthStore: (selector: (state: { user: { userId: string } | null }) => unknown) =>
@@ -43,6 +48,7 @@ describe("TimelineSection", () => {
     jest.clearAllMocks();
     mockUser.mockReturnValue({ userId: "sender-1" });
     mockUsePublicProfile.mockReturnValue({ data: { id: "receiver-1", fullName: "Lucas Romero" } });
+    mockUseShipmentRatings.mockReturnValue({ data: [] });
   });
 
   it("muestra el skeleton mientras carga", async () => {
@@ -220,5 +226,45 @@ describe("TimelineSection", () => {
     expect(getByText("Aceptaste el envío")).toBeTruthy();
     expect(getByText("Vos")).toBeTruthy();
     expect(queryByText("Lucas aceptó el envío")).toBeNull();
+  });
+
+  it("muestra las calificaciones realizadas en la línea de tiempo", async () => {
+    mockUseShipmentEvents.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+      data: [
+        event({
+          id: "event-1",
+          toStatus: ShipmentStatus.DELIVERED,
+        }),
+      ],
+    });
+    mockUseShipmentRatings.mockReturnValue({
+      data: [
+        {
+          id: "r-1",
+          shipmentId: "shipment-1",
+          raterId: "sender-1",
+          rateeId: "carrier-1",
+          role: "carrier",
+          score: 5,
+          comment: "Llegó todo en perfecto estado",
+          createdAt: "2026-09-01T14:00:00.000Z",
+        },
+      ],
+    });
+    mockUsePublicProfile.mockImplementation((id: string) => ({
+      data: {
+        id,
+        fullName: id === "carrier-1" ? "Marta Conductora" : "Lucas Romero",
+      },
+    }));
+
+    const { getByTestId, getByText } = await renderTimeline();
+
+    expect(getByTestId("timeline-ratings-section")).toBeTruthy();
+    expect(getByText("Calificaciones (1)")).toBeTruthy();
+    expect(getByText('"Llegó todo en perfecto estado"')).toBeTruthy();
   });
 });

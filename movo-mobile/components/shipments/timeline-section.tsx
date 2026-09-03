@@ -16,8 +16,11 @@ import { ScrollView, Text, View } from "react-native";
 import { ShipmentStatus as Status } from "@movo/shared/dist/types/shipment";
 import type { ShipmentEvent } from "../../src/api/shipments-client";
 import { usePublicProfile } from "../../src/hooks/use-profile";
+import { useShipmentRatings } from "../../src/hooks/use-ratings";
 import { useShipmentEvents } from "../../src/hooks/use-shipments";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import type { Rating } from "../../src/api/ratings-client";
+import { StarRatingInput } from "../ui/star-rating-input";
 import { getFirstName } from "../../src/lib/profile-format";
 import { useAuthStore } from "../../src/store/auth-store";
 import {
@@ -220,6 +223,65 @@ function PendingStepRow({
   );
 }
 
+function TimelineRatingCard({
+  rating,
+  parties,
+  currentUserId,
+  testID,
+}: {
+  rating: Rating;
+  parties: { senderId: string; receiverId: string; carrierId: string | null };
+  currentUserId: string | null;
+  testID?: string;
+}) {
+  const { data: raterProfile } = usePublicProfile(rating.raterId);
+  const { data: rateeProfile } = usePublicProfile(rating.rateeId);
+
+  const isRaterMe = currentUserId === rating.raterId;
+  const isRateeMe = currentUserId === rating.rateeId;
+
+  const raterName = isRaterMe ? "Vos" : (raterProfile?.fullName ?? "Usuario");
+  const rateeName = isRateeMe ? "vos" : (rateeProfile?.fullName ?? "usuario");
+
+  const roleLabelMap: Record<string, string> = {
+    sender: "Emisor",
+    carrier: "Transportista",
+    receiver: "Receptor",
+  };
+  const roleLabel = roleLabelMap[rating.role] ?? "";
+
+  return (
+    <View
+      testID={testID}
+      className="rounded-2xl border border-border bg-bg-mute p-3.5 gap-2"
+    >
+      <View className="flex-row items-center justify-between">
+        <View className="flex-row items-center gap-2 flex-1 pr-2">
+          <StarRatingInput score={rating.score} readOnly size={15} gap={3} />
+          <Text className="font-sans-semibold text-[13px] text-fg">
+            {rating.score} / 5
+          </Text>
+        </View>
+        <Text className="font-sans text-[11px] text-fg-3">
+          {formatEventTimestamp(rating.createdAt)}
+        </Text>
+      </View>
+
+      <Text className="font-sans text-[13px] text-fg-2">
+        <Text className="font-sans-medium text-fg">{raterName}</Text> calificó a{" "}
+        <Text className="font-sans-medium text-fg">{rateeName}</Text>
+        {roleLabel ? ` (${roleLabel})` : ""}
+      </Text>
+
+      {rating.comment ? (
+        <Text className="font-sans text-[13px] text-fg-2 italic leading-4 pl-1">
+          "{rating.comment}"
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 /**
  * Línea de tiempo del detalle de envío (AC6 de MOVO-127), ahora sí contra datos
  * reales: consume `GET /shipments/:id/events` (MOVO-128, mergeado a `develop`) en vez
@@ -231,6 +293,7 @@ function PendingStepRow({
  */
 export function TimelineSection({ shipmentId, parties, testID }: TimelineSectionProps) {
   const { data: events, isLoading, isError, refetch } = useShipmentEvents(shipmentId);
+  const { data: ratings } = useShipmentRatings(shipmentId);
   const { data: receiverProfile } = usePublicProfile(parties.receiverId);
   const currentUserId = useAuthStore((state) => state.user?.userId ?? null);
   const isReceiver = Boolean(currentUserId && currentUserId === parties.receiverId);
@@ -280,7 +343,7 @@ export function TimelineSection({ shipmentId, parties, testID }: TimelineSection
           key={event.id}
           event={event}
           isCurrent={index === events.length - 1}
-          isLast={index === events.length - 1 && pendingSteps.length === 0}
+          isLast={index === events.length - 1 && pendingSteps.length === 0 && (!ratings || ratings.length === 0)}
           parties={parties}
           currentUserId={currentUserId}
           receiverFirstName={receiverFirstName}
@@ -291,11 +354,27 @@ export function TimelineSection({ shipmentId, parties, testID }: TimelineSection
         <PendingStepRow
           key={status}
           status={status}
-          isLast={index === pendingSteps.length - 1}
+          isLast={index === pendingSteps.length - 1 && (!ratings || ratings.length === 0)}
           receiverFirstName={receiverFirstName}
           isReceiver={isReceiver}
         />
       ))}
+      {ratings && ratings.length > 0 ? (
+        <View testID="timeline-ratings-section" className="mt-5 pt-4 border-t border-border gap-3">
+          <Text className="font-sans-medium text-caption uppercase text-fg-3">
+            Calificaciones ({ratings.length})
+          </Text>
+          {ratings.map((rating) => (
+            <TimelineRatingCard
+              key={rating.id}
+              rating={rating}
+              parties={parties}
+              currentUserId={currentUserId}
+              testID={`timeline-rating-${rating.id}`}
+            />
+          ))}
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
