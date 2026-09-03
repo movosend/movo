@@ -34,6 +34,7 @@ function mapOffer(row: OfferRow): Offer {
     expiresAt: row.expiresAt,
     createdAt: row.createdAt,
     respondedAt: row.respondedAt,
+    tripId: row.tripId,
   };
 }
 
@@ -241,6 +242,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
               expiresAt: input.expiresAt ?? null,
               carrierRatingAtOffer: input.carrierRatingAtOffer ?? null,
               carrierNameAtOffer: input.carrierNameAtOffer ?? null,
+              tripId: input.tripId ?? null,
               status: INITIAL_OFFER_STATUS,
             },
           });

@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { FastifyInstance } from "fastify";
-import { ShipmentStatus } from "@movo/shared";
+import { ShipmentStatus, TripStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { createOfferRepository, OfferRepository } from "../src/repositories/offer-repository";
+import { createTripRepository, TripRepository } from "../src/repositories/trip-repository";
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
+import { CreateTripInput } from "../src/models/trip";
 import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
 import { createFakeNotificationsClient } from "./fake-notifications-client";
 import { NotificationsClient } from "../src/adapters/notifications-client";
@@ -17,6 +19,7 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
   let app: FastifyInstance;
   let shipmentRepo: ShipmentRepository;
   let offerRepo: OfferRepository;
+  let tripRepo: TripRepository;
   let notificationsClient: NotificationsClient;
 
   const senderId = randomUUID();
@@ -92,7 +95,23 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
     await app.ready();
     shipmentRepo = createShipmentRepository(app.db);
     offerRepo = createOfferRepository(app.db);
+    tripRepo = createTripRepository(app.db);
   });
+
+  function baseTripInput(overrides: Partial<CreateTripInput> = {}): CreateTripInput {
+    return {
+      carrierId: verifiedCarrierId,
+      originAddress: "Av. Colón 1234, Córdoba",
+      originLat: -31.4201,
+      originLng: -64.1888,
+      destinationAddress: "Av. San Martín 100, Villa María",
+      destinationLat: -32.4104,
+      destinationLng: -63.2404,
+      departureAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      vehicleType: "auto",
+      ...overrides,
+    };
+  }
 
   afterAll(async () => {
     await app.close();
@@ -100,8 +119,10 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    // CASCADE también vacía shipments.offers (FK a shipments.shipments).
+    // CASCADE también vacía shipments.offers (FK a shipments.shipments). shipments.trips
+    // no tiene FK hacia shipments, se trunca aparte (MOVO-162: tests de tripId).
     await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.trips RESTART IDENTITY CASCADE");
   });
 
   it("AC1/AC6/AC9: crea la oferta con el bruto calculado, desglosa neto/comisión/bruto y notifica al emisor", async () => {
@@ -205,5 +226,62 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
   it("404 NOT_FOUND sobre un envío inexistente", async () => {
     const response = await requestCreateOffer(randomUUID(), verifiedCarrierId);
     expect(response.statusCode).toBe(404);
+  });
+
+  describe("MOVO-162: tripId opcional", () => {
+    it("crea la oferta con el tripId de un viaje propio y activo", async () => {
+      const shipment = await createPublishedShipment();
+      const trip = await tripRepo.create(baseTripInput());
+
+      const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { tripId: trip.id });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json().tripId).toBe(trip.id);
+      const persisted = await offerRepo.findById(response.json().id);
+      expect(persisted?.tripId).toBe(trip.id);
+    });
+
+    it("sin tripId, la oferta queda con tripId null (caso general, sin regresión)", async () => {
+      const shipment = await createPublishedShipment();
+      const response = await requestCreateOffer(shipment.id, verifiedCarrierId);
+      expect(response.statusCode).toBe(201);
+      expect(response.json().tripId).toBeNull();
+    });
+
+    it("404 TRIP_NOT_FOUND si el tripId no existe", async () => {
+      const shipment = await createPublishedShipment();
+      const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { tripId: randomUUID() });
+      expect(response.statusCode).toBe(404);
+      expect(response.json().error.code).toBe("TRIP_NOT_FOUND");
+    });
+
+    it("403 AUTH_FORBIDDEN si el tripId es de otro transportista", async () => {
+      const shipment = await createPublishedShipment();
+      const otherCarrierId = randomUUID();
+      const trip = await tripRepo.create(baseTripInput({ carrierId: otherCarrierId }));
+
+      const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { tripId: trip.id });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.code).toBe("AUTH_FORBIDDEN");
+    });
+
+    it("409 TRIP_NOT_ACTIVE si el viaje ya está cancelado", async () => {
+      const shipment = await createPublishedShipment();
+      const trip = await tripRepo.create(baseTripInput());
+      await tripRepo.update(trip.id, { status: TripStatus.CANCELLED });
+
+      const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { tripId: trip.id });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error.code).toBe("TRIP_NOT_ACTIVE");
+    });
+
+    it("no persiste nada si la validación de tripId falla (rollback completo)", async () => {
+      const shipment = await createPublishedShipment();
+      const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { tripId: randomUUID() });
+      expect(response.statusCode).toBe(404);
+      expect(await offerRepo.listByShipment(shipment.id)).toHaveLength(0);
+    });
   });
 });

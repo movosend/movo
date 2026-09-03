@@ -11,6 +11,7 @@ import { createNotificationsClient, NotificationsClient } from "../../adapters/n
 import { createPricingClient, PricingClient } from "../../adapters/pricing-client";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
+import { createTripRepository, TripRepository } from "../../repositories/trip-repository";
 import { createRatingRepository } from "../../repositories/rating-repository";
 import { createRatingsService } from "../ratings/ratings.service";
 import { AvailableShipment, Shipment, ShipmentEvent } from "../../models/shipment";
@@ -36,6 +37,8 @@ export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
    * `movo-svc-pricing-logistics` real levantado (MOVO-82), mismo criterio que
    * `usersClient`. */
   pricingClient?: PricingClient;
+  /** Override solo para tests de integración — mismo criterio que `usersClient`. */
+  tripRepository?: TripRepository;
 }
 
 type CreateShipmentBody = Omit<CreateShipmentServiceInput, "senderId">;
@@ -97,6 +100,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   const pricingClient = opts.pricingClient ?? createPricingClient(app.config);
   const repository = createShipmentRepository(app.db);
   const offerRepository = createOfferRepository(app.db);
+  const tripRepository = opts.tripRepository ?? createTripRepository(app.db);
   // MOVO-143 AC7: mismo criterio documentado en MOVO-147 -- getReputationSummary() se
   // llama LOCAL (misma DB/proceso, sin HTTP contra sí mismo) para snapshotear
   // carrierRatingAtOffer. Se construye acá un ratingsService propio (en vez de
@@ -110,6 +114,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
     receiverConfirmationTimeoutHours: app.config.RECEIVER_CONFIRMATION_TIMEOUT_HOURS,
     offerRepository,
     pricingClient,
+    tripRepository,
     getCarrierReputationScore: async (carrierId: string) => {
       const summary = await ratingsService.getReputationSummary(carrierId);
       return summary.asCarrier.reputationScore;
@@ -495,10 +500,11 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const carrierId = requireUserIdFromHeader(request);
       const callerRoles = getUserRolesFromHeader(request);
       const { id } = request.params as { id: string };
-      const { priceOfferedArs, offeredDate, message } = request.body as {
+      const { priceOfferedArs, offeredDate, message, tripId } = request.body as {
         priceOfferedArs: number;
         offeredDate: string;
         message?: string;
+        tripId?: string;
       };
       const offer: CreateOfferForShipmentResult = await service.createOfferForShipment({
         shipmentId: id,
@@ -507,6 +513,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         priceNetArs: priceOfferedArs,
         offeredDate,
         message,
+        tripId,
       });
       reply.code(201);
       return toOfferDto(offer);

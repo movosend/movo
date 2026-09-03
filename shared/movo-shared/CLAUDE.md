@@ -92,3 +92,11 @@ creación de envío del mobile (MOVO-83). `PriceCalculationMethod` (hoy solo
 `EUCLIDEAN_LINEAR_V1`) identifica la versión del algoritmo que calculó el precio —
 reemplazar la implementación provisoria por el motor real no requiere migrar este
 contrato, solo agregar un valor nuevo al enum.
+
+### MOVO-162 — `TRIP_NOT_ACTIVE`
+
+Código nuevo en `ApiErrorCode` (`errors/api-error.ts`), consumido por
+`movo-svc-shipments#createOfferForShipment` al validar el `tripId` opcional de
+`POST /shipments/:id/offers` — 409 cuando el viaje referenciado ya no está `active`
+(cancelado/completado). Ver `services/movo-svc-shipments/CLAUDE.md` (entrada de
+MOVO-161) para el detalle completo.

@@ -880,13 +880,28 @@ el envío. `trip-repository.ts` ahora excluye ofertas cuyo envío esté `cancell
 (`ACCEPTED_OFFER_FILTER`, mismo criterio ya aplicado en `listShipmentOffers` de
 MOVO-144) — no toca `offer-state-machine.ts` (`accepted` sigue siendo terminal por
 diseño). Test nuevo: `test/trip-repository.integration.test.ts` (Postgres real).
-**Gap real encontrado en el camino, sin resolver (fuera de alcance de MOVO-162)**:
-nada en el código escribe `Offer.tripId` — ni `createOfferForShipment` acepta ese campo
-en el body ni existe todavía ninguna pantalla mobile para que un transportista cree una
-oferta. El fix de arriba deja la query correcta para cuando eso se cablee (candidato:
-la sub-issue "vista de paquetes compatibles con el viaje" que MOVO-162 excluye
-explícitamente), pero hoy `hasAcceptedPackages` nunca es `true` a través del producto
-real.
+**Gap real encontrado en el camino, cerrado en el mismo PR (fuera del alcance de
+archivos original de MOVO-162, decisión tomada con el usuario)**: nada en el código
+escribía `Offer.tripId` — revisando MOVO-149 (creación de oferta) y MOVO-163 (feed
+filtrado por viaje) en Linear, ninguna de las dos sub-issues de MOVO-18 contempla ese
+campo en su propio AC, así que ni siquiera construyéndolas iba a cablearse. Se agregó
+`tripId` opcional a `POST /shipments/:id/offers` (`shipments.schema.ts`/
+`.routes.ts`/`.service.ts#createOfferForShipment`, `offer-repository.ts#create`,
+`models/offer.ts`, `offers.schema.ts`/`shipments.schema.ts` para exponerlo en las
+respuestas). Validación antes de persistir: el viaje existe (404
+`TRIP_NOT_FOUND`), es del mismo transportista (403 `AUTH_FORBIDDEN`) y sigue `active`
+(409 `TRIP_NOT_ACTIVE`, código nuevo en `@movo/shared`) — sin esto cualquier caller
+podría taggear una oferta con el viaje de otro transportista o uno ya cancelado.
+**Deliberadamente no valida geometría** (que el envío caiga dentro del corredor del
+viaje): decisión de producto todavía sin tomar en ningún ticket, y sin consumidor real
+que la ejercite (MOVO-149, la pantalla de "hacer una oferta", ni siquiera existe en
+mobile todavía) no vale la pena adivinar el radio/semántica esperada — queda como
+alcance acotado explícito, no como olvido. `TripRepository` se inyecta en
+`ShipmentsServiceOptions` (mismo patrón lazy que `offerRepository`/`pricingClient`),
+requerido solo cuando el caller manda `tripId`. Tests nuevos en
+`shipments-offers-create.integration.test.ts` (6 casos: feliz con tripId, sin tripId
+sin regresión, viaje inexistente, viaje ajeno, viaje cancelado, rollback completo ante
+falla de validación).
 
 ### MOVO-143 — `POST /shipments/:id/offers` y `POST /offers/:id/withdraw` (`svc-shipments`)
 
