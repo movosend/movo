@@ -36,6 +36,12 @@ jest.mock("../src/hooks/use-offers", () => ({
   useShipmentOffers: () => ({ data: [], isLoading: false }),
 }));
 
+jest.mock("../src/hooks/use-ratings", () => ({
+  useShipmentRatings: () => ({ data: [], refetch: jest.fn() }),
+  useCreateRating: () => ({ mutateAsync: jest.fn(), isPending: false }),
+  useUpdateRating: () => ({ mutateAsync: jest.fn(), isPending: false }),
+}));
+
 const mockCurrentUser = jest.fn();
 jest.mock("../src/store/auth-store", () => ({
   useAuthStore: (selector?: (state: { user: { userId: string } | null }) => unknown) => {

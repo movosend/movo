@@ -9,17 +9,21 @@ import { AcceptSuccessModal } from "../../../components/shipments/accept-success
 import { CounterpartCard } from "../../../components/shipments/counterpart-card";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
 import { PackageCard } from "../../../components/shipments/package-card";
+import { RatingSheet, type RatingTarget } from "../../../components/shipments/rating-sheet";
 import { ReceiverActionsBar } from "../../../components/shipments/receiver-actions-bar";
 import { SenderActionsBar } from "../../../components/shipments/sender-actions-bar";
 import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
+import { ShipmentRatingsCard } from "../../../components/shipments/shipment-ratings-card";
 import { ShipmentStatusBadge } from "../../../components/shipments/status-badge";
 import { TimelineSection } from "../../../components/shipments/timeline-section";
 import { RouteMapCard } from "../../../components/send/route-map-card";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { GridPattern } from "../../../components/ui/grid-pattern";
+import { SuccessBanner } from "../../../components/ui/success-banner";
 import { useAuthStore } from "../../../src/store/auth-store";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
+import { useShipmentRatings } from "../../../src/hooks/use-ratings";
 import { useShipment } from "../../../src/hooks/use-shipments";
 import {
   canCancelShipment,
@@ -35,7 +39,13 @@ function Eyebrow({ children }: { children: ReactNode }) {
   return <Text className="mb-1.5 font-sans-medium text-caption uppercase text-fg-3">{children}</Text>;
 }
 
-function ShipmentDetailError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+function ShipmentDetailError({
+  error,
+  onRetry,
+}: {
+  error: unknown;
+  onRetry: () => void;
+}) {
   const message =
     error instanceof ApiError && error.statusCode === 403
       ? "Este envío no te pertenece."
@@ -44,11 +54,11 @@ function ShipmentDetailError({ error, onRetry }: { error: unknown; onRetry: () =
         : "No pudimos cargar este envío.";
 
   return (
-    <View className="px-5 pt-2">
+    <View className="px-5 pt-2 gap-3">
       <ErrorBanner testID="shipment-detail-error" message={message} />
-      <Text onPress={onRetry} className="mt-3 font-sans-medium text-small text-fg">
-        Reintentar
-      </Text>
+      <Pressable onPress={onRetry} className="self-start rounded-lg bg-bg-mute px-3 py-1.5">
+        <Text className="font-sans-medium text-small text-fg">Reintentar</Text>
+      </Pressable>
     </View>
   );
 }
@@ -59,16 +69,8 @@ const TABS: [DetailTab, string][] = [
 ];
 
 /**
- * Detalle de un envío propio (MOVO-127) — reemplaza el placeholder mínimo de
- * MOVO-83. Referencia visual: "02 · Detalle del pedido" del proyecto de Claude
- * Design "Movo Mobile Main Views". A diferencia de la primera versión de este
- * ticket, se mantienen las tabs Detalles/Línea de tiempo del mock (la de línea de
- * tiempo ya consume el historial real de `GET /shipments/:id/events`, MOVO-128) y
- * el banner de ofertas (`OffersBanner`, siempre en estado vacío hasta MOVO-17). El
- * mapa de ruta reusa `RouteMapCard` (mismo componente animado del paso de resumen del
- * wizard de envío, MOVO-83/123) en vez de la card estática del mock. El botón de
- * cancelar del emisor (MOVO-29, `SenderActionsBar`) vive en el header, no al pie —
- * ver su propia entrada en CLAUDE.md.
+ * Detalle de un envío propio (MOVO-127) con soporte para calificaciones
+ * post-entrega (MOVO-153).
  */
 export default function ShipmentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -78,13 +80,22 @@ export default function ShipmentDetailScreen() {
   const [tab, setTab] = useState<DetailTab>("detalle");
   const [isAcceptSuccessVisible, setIsAcceptSuccessVisible] = useState(false);
 
+  const { data: ratings, refetch: refetchRatings } = useShipmentRatings(
+    shipment?.status === ShipmentStatus.DELIVERED ? shipment.id : undefined
+  );
+  const [ratingTarget, setRatingTarget] = useState<RatingTarget | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const activeUserId = currentUser?.userId ?? "";
+
   const isReceiver = shipment !== undefined && currentUser?.userId === shipment.receiverId;
 
   // Si el deadline ya venció, el receptor no puede actuar aunque el barrido todavía
   // no haya cancelado el envío — la deadline manda sobre el reloj del job (MOVO-130 AC5).
   // El hook re-renderiza al vencer, así que las acciones desaparecen solas con la
   // pantalla abierta, sin depender de un refetch.
-  const isDeadlineExpired = useDeadlineExpired(shipment?.receiverConfirmationDeadline) && isReceiver;
+  const isDeadlineExpired =
+    useDeadlineExpired(shipment?.receiverConfirmationDeadline) && isReceiver;
 
   const showReceiverActions =
     isReceiver &&
@@ -98,9 +109,12 @@ export default function ShipmentDetailScreen() {
     isDeadlineExpired;
 
   const isSender = shipment !== undefined && currentUser?.userId === shipment.senderId;
-  const showSenderActions = isSender && shipment !== undefined && canCancelShipment(shipment.status);
+  const showSenderActions =
+    isSender && shipment !== undefined && canCancelShipment(shipment.status);
 
-  const pickupDateLabel = shipment ? formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate : null;
+  const pickupDateLabel = shipment
+    ? formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate
+    : null;
 
   // Banner de ofertas: solo tiene sentido para el emisor mientras el envío sigue
   // abierto a ofertas (publicado, sin transportista todavía) — el receptor no
@@ -125,6 +139,16 @@ export default function ShipmentDetailScreen() {
     }
   };
 
+  const handleRatingSuccess = () => {
+    setSuccessMessage(
+      ratingTarget?.existingRating
+        ? "¡Calificación actualizada con éxito!"
+        : "¡Calificación publicada con éxito!"
+    );
+    setRatingTarget(null);
+    void refetchRatings();
+  };
+
   if (isLoading) {
     return <ShipmentDetailSkeleton testID="shipment-detail-skeleton" />;
   }
@@ -147,7 +171,10 @@ export default function ShipmentDetailScreen() {
             </Text>
           ) : null}
         </View>
-        {shipment ? <ShipmentStatusBadge status={shipment.status} isReceiver={isReceiver} /> : null}
+
+        {shipment ? (
+          <ShipmentStatusBadge status={shipment.status} isReceiver={isReceiver} />
+        ) : null}
         {showSenderActions && shipment ? (
           <SenderActionsBar
             shipmentId={shipment.id}
@@ -161,6 +188,15 @@ export default function ShipmentDetailScreen() {
         <ShipmentDetailError error={error} onRetry={() => refetch()} />
       ) : (
         <View className="flex-1">
+          {successMessage ? (
+            <View className="px-5 pt-2 pb-1">
+              <SuccessBanner
+                message={successMessage}
+                onDismiss={() => setSuccessMessage(null)}
+                testID="shipment-detail-success-banner"
+              />
+            </View>
+          ) : null}
           <View className="flex-row border-b border-border bg-bg px-5">
             {(["detalle", "timeline"] as const).map((t) => (
               <Pressable
@@ -182,26 +218,14 @@ export default function ShipmentDetailScreen() {
             ))}
           </View>
 
-          {showExpiredBanner ? (
-            <View
-              testID="shipment-detail-expired-banner"
-              className="mx-5 mt-3 rounded-xl border border-danger-200 bg-danger-50 px-4 py-3"
-            >
-              <Text className="font-sans-semibold text-small text-danger-700">
-                El plazo para confirmar este envío ya venció
-              </Text>
-              <Text className="mt-0.5 font-sans text-caption text-danger-600">
-                No podés aceptar ni rechazar este envío. Será cancelado automáticamente en breve.
-              </Text>
-            </View>
-          ) : null}
-
           {tab === "detalle" ? (
-            <ScrollView className="flex-1" contentContainerClassName="gap-5 px-5 pb-6 pt-4">
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerClassName="px-5 pt-4 pb-8 gap-4"
+            >
               <View>
                 <Eyebrow>Ruta</Eyebrow>
                 <RouteMapCard
-                  testID="shipment-detail-route-map"
                   pickup={{
                     address: shipment.pickupAddress,
                     lat: shipment.pickupLat,
@@ -212,28 +236,43 @@ export default function ShipmentDetailScreen() {
                     lat: shipment.deliveryLat,
                     lng: shipment.deliveryLng,
                   }}
+                  testID="shipment-detail-route-map"
                 />
               </View>
 
+              {showExpiredBanner ? (
+                <View
+                  testID="shipment-detail-expired-banner"
+                  className="flex-row items-center gap-2 rounded-xl border border-warning-200 bg-warning-50 px-3.5 py-3"
+                >
+                  <Clock size={16} color="#A97714" strokeWidth={2} />
+                  <Text className="flex-1 font-sans text-small text-warning-800">
+                    El plazo de 24 horas para aceptar o rechazar este envío ya venció.
+                  </Text>
+                </View>
+              ) : null}
+
               <View className="flex-row gap-3">
-                <View className="relative flex-1 overflow-hidden rounded-[10px] bg-bg-mute px-3.5 py-3.5">
-                  <GridPattern />
-                  <View className="mb-2 flex-row items-center gap-1.5">
-                    <Clock size={14} color={colors.fg2} />
-                    <Text className="font-sans text-[11px] text-fg-3">Retiro</Text>
+                <View className="flex-1 rounded-[10px] bg-bg-mute px-3.5 py-3.5">
+                  <View className="mb-1">
+                    <Eyebrow>Retiro programado</Eyebrow>
                   </View>
                   <Text className="font-sans-semibold text-[13px] text-fg">{pickupDateLabel}</Text>
                   <Text className="mt-0.5 font-sans text-[12px] text-fg-2">
-                    {formatTimeHHMM(shipment.pickupTimeWindowStart)} – {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
+                    {formatTimeHHMM(shipment.pickupTimeWindowStart)} –{" "}
+                    {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
                   </Text>
                 </View>
                 <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
                   <GridPattern />
-                  <Text className="mb-1 font-sans text-[11px] text-ink-950/50">
+                  <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
                     {shipment.agreedPriceArs !== null ? "Precio acordado" : "Costo aproximado"}
                   </Text>
                   <Text className="font-sans-semibold text-[20px] text-ink-950">
-                    {formatShipmentPrice(shipment.agreedPriceArs, shipment.suggestedPriceArs)}
+                    {formatShipmentPrice(
+                      shipment.agreedPriceArs,
+                      shipment.suggestedPriceArs
+                    )}
                   </Text>
                 </View>
               </View>
@@ -258,10 +297,27 @@ export default function ShipmentDetailScreen() {
                 />
               </View>
 
-              {shipment.carrierId ? (
+              {shipment.carrierId && shipment.status !== ShipmentStatus.DELIVERED ? (
                 <View>
                   <Eyebrow>Transportista</Eyebrow>
-                  <CounterpartCard userId={shipment.carrierId} testID="shipment-detail-carrier" />
+                  <CounterpartCard
+                    userId={shipment.carrierId}
+                    testID="shipment-detail-carrier"
+                  />
+                </View>
+              ) : null}
+
+              {/* Sección de calificaciones post-entrega (MOVO-153) */}
+              {shipment.status === ShipmentStatus.DELIVERED ? (
+                <View>
+                  <Eyebrow>Calificaciones</Eyebrow>
+                  <ShipmentRatingsCard
+                    shipment={shipment}
+                    currentUserId={activeUserId}
+                    ratings={ratings}
+                    onRate={(target) => setRatingTarget(target)}
+                    testID="shipment-detail-ratings"
+                  />
                 </View>
               ) : null}
             </ScrollView>
@@ -295,6 +351,15 @@ export default function ShipmentDetailScreen() {
               setIsAcceptSuccessVisible(false);
               void refetch();
             }}
+          />
+
+          <RatingSheet
+            shipmentId={shipment?.id ?? ""}
+            target={ratingTarget}
+            visible={!!ratingTarget}
+            onClose={() => setRatingTarget(null)}
+            onSuccess={handleRatingSuccess}
+            testID="shipment-rating-sheet"
           />
         </View>
       )}
