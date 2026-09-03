@@ -1,12 +1,14 @@
+import { router } from 'expo-router';
 import { Truck } from 'lucide-react-native';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useThemeColors } from '../../../src/hooks/use-theme-colors';
 
 /**
- * Placeholder del tab "Transportar" (MOVO-78) — sienta la navegación de 3 tabs de
- * punta a punta; la funcionalidad real de transporte es una épica futura, sin
- * tickets todavía.
+ * Tab "Transportar" (MOVO-78 sentó la navegación de 3 tabs; MOVO-162 agrega el primer
+ * punto de entrada real). Mismo criterio de alcance acotado que MOVO-83 con "Enviar"
+ * (`app/(app)/send.tsx`): solo el CTA hacia "Mis viajes", sin rediseñar el tab entero —
+ * eso queda para cuando existan más features de transportista (ver CLAUDE.md).
  */
 export default function TransportScreen() {
   const colors = useThemeColors();
@@ -19,10 +21,20 @@ export default function TransportScreen() {
       <Text testID="transport-title" className="mb-2 text-center font-sans-semibold text-h2 text-fg">
         Transportar
       </Text>
-      <Text className="text-center font-sans text-body text-fg-2">
-        Estamos construyendo esta sección. Pronto vas a poder ofrecerte como
-        transportista y aceptar envíos.
+      <Text className="mb-6 text-center font-sans text-body text-fg-2">
+        Declará tus viajes planeados para que otros usuarios encuentren paquetes
+        compatibles con tu ruta.
       </Text>
+      <Pressable
+        testID="transport-my-trips-cta"
+        // `as any`: ruta nueva de MOVO-162 todavía no reflejada en
+        // `.expo/types/router.d.ts` (gitignoreado, se regenera al levantar el dev
+        // server) — mismo criterio ya usado en `profile-settings-section.tsx`.
+        onPress={() => router.push('/carrier/trips' as any)}
+        className="flex-row items-center gap-2 rounded-full bg-fg px-5 py-3.5"
+      >
+        <Text className="font-sans-semibold text-body text-bg">Mis viajes</Text>
+      </Pressable>
     </SafeAreaView>
   );
 }

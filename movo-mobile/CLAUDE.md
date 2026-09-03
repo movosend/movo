@@ -955,3 +955,60 @@ Frontend de MOVO-17 sobre los endpoints de MOVO-144: el emisor consulta las ofer
 
 Tests: `test/offers-client.test.ts`, `test/offer-card.test.tsx`, `test/offers-banner.test.tsx`, `test/offers-screen.test.tsx`. 70 suites / 530 tests en verde.
 
+### MOVO-162 — "Mis viajes": declarar/editar/cancelar viaje (`movo-mobile`)
+
+Frontend del CRUD de `/trips` (`movo-svc-shipments`, MOVO-161, ya Done/mergeado):
+`src/api/trips-client.ts` + `src/hooks/use-trips.ts` (mismo patrón que
+`shipments-client.ts`/`use-shipments.ts` — una sola página con `limit: 50` en vez de
+scroll infinito, el AC no pide paginación). `app/(app)/carrier/trips/index.tsx`
+("Mis viajes", modelada sobre `addresses.tsx`), `new.tsx`/`[id]/edit.tsx` (mismo
+`TripForm` compartido, `components/trips/trip-form.tsx`). Punto de entrada nuevo en
+el tab "Transportar" (`app/(app)/(tabs)/transport.tsx`, hasta ahora un placeholder
+puro de MOVO-78) — mismo criterio de alcance acotado que MOVO-83 con "Enviar": solo
+el CTA hacia "Mis viajes", sin rediseñar el tab entero.
+
+Decisiones clave:
+- **Origen/destino reusan `AddressField`** (`components/send/address-field.tsx`,
+  MOVO-83/121) tal cual — ya estaba desacoplado del store del wizard, así que no hizo
+  falta tocarlo.
+- **`DepartureDateTimePicker` nuevo** (`components/trips/departure-date-time-picker.tsx`):
+  `TimeWindowPicker` no servía (da fecha + una de 3 franjas fijas, pensado para la
+  ventana de retiro de un envío) — `departureAt` necesita un instante único real.
+  Mismo patrón nativo (Android imperativo/iOS inline), pero con dos filas (fecha +
+  hora) combinadas en un único `Date`, sin el gotcha de timezone que sí tiene
+  `pickupDate` (acá se trabaja con instantes reales de punta a punta, el backend
+  también espera `date-time` ISO completo).
+- **`vehicleType` acotado a una lista fija con `SelectField`** (`["Auto", "Camioneta",
+  "Moto", "Camión"]`, valor = label tal cual) aunque el backend lo acepta como string
+  libre — evita pedirle al usuario texto libre para un dato que en la práctica tiene
+  pocas opciones reales.
+- **AC4 (bloqueo por paquetes aceptados) sin deep-link a los envíos concretos**: no
+  existe ningún endpoint que liste qué envíos están ligados a un viaje (`Offer.tripId`
+  sin cablear todavía, ver el fix de backend abajo) — la card bloqueada y la pantalla
+  de editar muestran mensaje explicativo, sin botón que prometa una salida que no
+  existe. `[id]/edit.tsx` revalida `hasAcceptedPackages` con `useTrip(id)` al cargar
+  (defensa contra una carrera real: la lista ya desactualizada cuando se tocó
+  "Editar").
+- **Gap real encontrado y corregido en el backend en el camino** (`services/
+  movo-svc-shipments`, commit separado): `trip-repository.ts` contaba cualquier
+  oferta `accepted` sin mirar si el envío al que apunta seguía vivo — un viaje
+  quedaba bloqueado para siempre aunque el emisor cancelara el envío asociado. Ver
+  `services/movo-svc-shipments/CLAUDE.md` (entrada de MOVO-161) para el detalle
+  completo, incluido el gap más grande encontrado en el camino: **nada en el código
+  escribe `Offer.tripId` todavía** (ni el body de `POST /shipments/:id/offers` lo
+  acepta, ni existe ninguna pantalla mobile de "hacer una oferta") — así que
+  `hasAcceptedPackages` nunca es `true` a través del producto real hoy. Documentado
+  como pendiente, candidato natural para cuando se implemente la sub-issue "vista de
+  paquetes compatibles con el viaje" que este mismo ticket excluye de su alcance.
+
+Tests: `test/trips-client.test.ts`, `test/trip-form.test.tsx`,
+`test/departure-date-time-picker.test.tsx`, `test/my-trips-screen.test.tsx`,
+`test/new-trip-screen.test.tsx`, `test/edit-trip-screen.test.tsx`,
+`test/transport-screen.test.tsx`. 84 suites / 605 tests en verde, `tsc --noEmit`
+limpio (aparte del ruido preexistente y no relacionado de `test/shipment-format.test.ts`).
+
+Pendiente / fuera de alcance: vista de paquetes compatibles con el viaje (sub-issue
+hermano, explícito en el ticket); pantalla de "hacer una oferta" del lado
+transportista (no existe en ningún lado del mobile todavía, ver el gap de `tripId`
+arriba).
+
