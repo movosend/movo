@@ -871,6 +871,23 @@ Endpoints expuestos:
 
 Tests: `test/trips-service.test.ts` (16 casos unitarios de servicio y validaciones) + `test/trips.routes.test.ts` (7 casos de integración HTTP Fastify con schemas y error-handler).
 
+**Fix posterior (MOVO-162, mobile, encontrado al planificar "Mis viajes"):**
+`countAcceptedOffers`/`update`/`delete`/`listByCarrier` contaban cualquier `Offer`
+`accepted` con el `tripId` del viaje, sin mirar el envío al que apunta esa oferta —
+`cancelShipment` (MOVO-108) nunca toca la fila de `Offer` al cancelar, así que un viaje
+quedaba bloqueado (`hasAcceptedPackages: true`) para siempre aunque el emisor cancelara
+el envío. `trip-repository.ts` ahora excluye ofertas cuyo envío esté `cancelled`
+(`ACCEPTED_OFFER_FILTER`, mismo criterio ya aplicado en `listShipmentOffers` de
+MOVO-144) — no toca `offer-state-machine.ts` (`accepted` sigue siendo terminal por
+diseño). Test nuevo: `test/trip-repository.integration.test.ts` (Postgres real).
+**Gap real encontrado en el camino, sin resolver (fuera de alcance de MOVO-162)**:
+nada en el código escribe `Offer.tripId` — ni `createOfferForShipment` acepta ese campo
+en el body ni existe todavía ninguna pantalla mobile para que un transportista cree una
+oferta. El fix de arriba deja la query correcta para cuando eso se cablee (candidato:
+la sub-issue "vista de paquetes compatibles con el viaje" que MOVO-162 excluye
+explícitamente), pero hoy `hasAcceptedPackages` nunca es `true` a través del producto
+real.
+
 ### MOVO-143 — `POST /shipments/:id/offers` y `POST /offers/:id/withdraw` (`svc-shipments`)
 
 Cierra el ciclo de vida HTTP de una oferta que MOVO-144/145 dejaron a medio construir
