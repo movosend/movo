@@ -386,3 +386,102 @@ cuentas/apps a ciegas.
    (tenemos el JSON completo del request/response para pegar tal cual) — con dos
    hipótesis de cuenta específica ya descartadas (esta sesión), este es ahora el
    siguiente paso más señalado.
+
+## Sesión 2026-08-14 → 2026-08-20 — hilo con soporte de Mercado Pago
+
+Se reprodujo el 2034 una vez más con una app propia de Tomás (`client_id
+2511208387832416`, creada desde su cuenta real de developer — confirmado por él —,
+`certification_status: "not_certified"`), vendedor de prueba conectado por OAuth (`user_id 2991764998`,
+`test_token: true` → access_token `TEST-`, respuesta sin `live_mode`) y pagador
+`test_user_4715592661702347785@testuser.com`. Traza completa en `run.log`; correlation
+id del intento: `14-08-2026T12:18:35UTC;552c1e69-b6d4-40ef-9dec-6a6906d987ef`.
+Corrección enviada a soporte: los tres correlation ids del ticket original
+(`SUPPORT-TICKET-2034.txt`) son de la app del colega (`8234694293391791`), no de esta.
+
+Estado del hilo:
+
+- Les planteamos que el `application_fee` de Payments API no tiene destinatario
+  configurable — lo cobra la cuenta dueña de la app — así que si esa app debe vivir en
+  una cuenta real (como nos confirmaron), la operación siempre mezcla una cuenta real
+  con vendedor y pagador de prueba: exactamente la condición que su tabla de errores
+  describe para 145/2034. También les dijimos que no existe forma de pedir el "modelo
+  Marketplace explícito" que mencionaron (no está en el wizard, ni en la config de la
+  app, ni por API — `POST /applications` y `PUT /applications/{id}` responden 403 —, ni
+  como parámetro de `create_application` en su propio MCP).
+- **Respuesta de soporte (2026-08-20): confirman el análisis** — el `application_fee`
+  se acredita siempre a la cuenta dueña de la aplicación, no es configurable, y si esa
+  cuenta debe ser real entonces efectivamente hay una combinación real + prueba en la
+  misma operación. **Escalaron el caso al equipo de producto de Marketplace/OAuth** y
+  pidieron el request completo.
+- Redactado en `SUPPORT-REPLY-REQUEST-COMPLETO.txt` (pendiente de enviar): los tres
+  requests de la secuencia (OAuth → card_token → payment) con headers y bodies tal
+  cual, secretos redactados, más la tabla de variantes ya descartadas y las dos
+  preguntas abiertas — (a) qué combinación de cuentas soporta el sandbox para
+  `application_fee`, y (b) la distinción "pagador" vs "comprador" que usaron en su
+  mensaje anterior y no nos quedó clara (en nuestro request el único dato del lado que
+  paga es `payer.email` + el `card_token`).
+
+Mientras tanto la conclusión operativa no cambió: **el split con `application_fee` no
+está confirmado en sandbox**, y si el equipo de producto responde que no es probable
+ahí, se documenta como limitación conocida (con el hold/`capture:false` sí verificado)
+en vez de seguir iterando combinaciones de cuentas.
+
+## Sesión 2026-08-21 → 2026-09-03 — seguimiento del hilo, escalado a producto de Marketplace/OAuth
+
+Se envió `SUPPORT-REPLY-REQUEST-COMPLETO.txt` (21/08): traza completa de los 3 pasos
+(OAuth → card_token → payment) con secretos redactados, más las dos preguntas abiertas.
+Soporte confirmó que el flujo está bien armado en todos los pasos.
+
+Cronología del hilo:
+
+- **21/08 (Sofía, 12:58)**: confirma que el flujo es correcto, reitera que el caso
+  sigue elevado al equipo de producto de Marketplace/OAuth para que digan si existe
+  combinación soportada en sandbox para `capture:false` + `application_fee`.
+- **26/08 (Tomi)**: pide novedades. **27/08 (Sofía, 14:44)**: sigue escalado desde el
+  21/08, sin confirmación formal todavía; pide no repetir pruebas, "ya tenemos todo lo
+  necesario de tu lado".
+- **29/08 (Tomi)**: aviso automático de MP pidiendo responder para no cerrar el
+  ticket. **31/08 (Sofía)**: confirman que fue un mensaje automático, piden disculpas,
+  el ticket sigue activo.
+- **01/09 (Sofía, 15:14)**: primer avance real — **el 2034 no es exclusivo de esta
+  integración**, lo están viendo en varias integraciones marketplace en sandbox con
+  vendedor conectado por OAuth. Ya descartaron como causa: `application_fee` (aparece
+  igual sin mandarlo), `capture` (pasa con `true` y `false`), el endpoint (falla en
+  `POST /v1/payments` y en Orders API), y cuenta/app puntual (se reprodujo con
+  distintas apps y cuentas, Vendedor e Integrador). Suman también la observación de que
+  Orders API sí permite hold+captura pero no admite comisión para `type: "online"`.
+- **01/09 (Sofía, 15:30)**: mensaje siguiente, más genérico/templado — pide re-validar
+  los mismos tres puntos que ya habían confirmado el 21/08 (comprador distinto del
+  vendedor, `access_token` del vendedor, no mezclar `capture:false` con
+  `application_fee` sin el modelo habilitado) y vuelve a pedir el request completo y
+  los emails de prueba, como si no hubiera leído el hilo previo. **Se interpretó como
+  una respuesta templada** (probablemente otro agente de soporte retomando el
+  ticket sin historial completo), no como un pedido genuino de repetir el
+  troubleshooting desde cero.
+- **Respuesta enviada (03/09)**: en vez de discutir si hace falta re-validar, se le
+  reenvió el request completo (ya lo tenían, pero se resumió de nuevo para no
+  depender de que busquen el mensaje del 21/08) más los emails de prueba — ningún
+  dato sensible nuevo (`client_secret`, número de tarjeta y CVV siguen redactados; el
+  `access_token` completo se sigue ofreciendo por canal aparte si hace falta, es de
+  prueba). Se sumó una pregunta nueva, no hecha antes: **cómo se confirma que la
+  cuenta real dueña de la aplicación está habilitada para el modelo Marketplace**,
+  dado que la app tiene `certification_status: "not_certified"` — si existe algún paso
+  de homologación/activación pendiente de nuestro lado o del de MP más allá de lo ya
+  probado. Texto completo en `SUPPORT-REPLY-2026-09-03.txt`.
+
+**Estado al 2026-09-03**: caso sigue escalado con el equipo de producto de
+Marketplace/OAuth. Soporte ya reconoce el 2034 como un problema más amplio del
+ambiente de sandbox para marketplace (no específico de esta integración), lo cual
+respalda la hipótesis original (aplicación en cuenta real + vendedor/pagador de
+prueba). Sin confirmación formal todavía sobre las tres preguntas abiertas: (a) qué
+combinación de cuentas soporta `application_fee` en sandbox, (b) distinción
+pagador/comprador, (c) habilitación de Marketplace en la cuenta real. La conclusión
+operativa no cambió: el split vía `application_fee` sigue sin confirmarse en sandbox;
+si de acá no sale nada, se documenta como limitación conocida del ambiente de pruebas
+(con el hold/`capture:false` sí verificado sin split) en vez de seguir iterando.
+
+**Para la próxima vez que haya que responder en este hilo**: no hace falta repetir la
+traza ni re-probar nada de este lado salvo que soporte pida explícitamente una prueba
+nueva y puntual — el diagnóstico ya está confirmado dos veces por ellos mismos. Si
+llega otra respuesta genérica/templada, señalar el historial ya confirmado (21/08,
+01/09 15:14) en vez de re-litigar la configuración básica.
