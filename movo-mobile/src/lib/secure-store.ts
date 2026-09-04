@@ -54,6 +54,10 @@ export const SECURE_STORE_KEYS = {
    * `DELETE /users/me/push-token` en el próximo login desde el mismo dispositivo, y
    * reusarlo evita registrar un token nuevo por cada logout/login del mismo aparato. */
   pushDeviceId: "movo.push.deviceId",
+  /** Radio (km) elegido en el selector del tab "Transportar" (MOVO-148, AC3) — una
+   * preferencia de UI sin nada sensible, reusa este wrapper genérico en vez de sumar
+   * una dependencia nueva (tipo AsyncStorage) solo para esto. */
+  transportRadiusKm: "movo.transportRadiusKm",
 } as const;
 
 /**

@@ -364,6 +364,22 @@ export interface ShipmentRepository {
    */
   findExpiredAwaitingConfirmation(deadline: Date, limit: number): Promise<Shipment[]>;
   /**
+   * Candidatos a expirar del barrido de envíos `published` sin retirar (corrección
+   * directa sobre un bug reportado: `GET /shipments/available` seguía devolviendo
+   * envíos cuya ventana de retiro ya había pasado, sin ticket propio). A diferencia de
+   * `findExpiredAwaitingConfirmation` (que compara contra una columna `@db.Timestamptz`
+   * real con un simple `lte`), acá no hay ningún instante real que Prisma pueda
+   * comparar: `pickupDate`/`pickupTimeWindowEnd` son `@db.Date`/`@db.Time` ancladas
+   * (reloj de pared argentino, ver `domain/pickup-window.ts`), así que esta query trae
+   * los `published` más próximos a vencer (orden ascendente por fecha/hora de retiro)
+   * y el filtro real de "¿ya venció?" lo hace el caller con `isPickupWindowExpired()`
+   * en JS -- mismo criterio que el resto del dominio (`reputation.ts`/`rating-window.ts`)
+   * de mantener la lógica de negocio en funciones puras, no replicada en SQL. Como un
+   * envío vencido siempre tiene fecha de retiro más antigua que uno vigente, ordenar
+   * ascendente garantiza que los vencidos queden siempre al frente del batch.
+   */
+  findPotentiallyExpiredPublished(limit: number): Promise<Shipment[]>;
+  /**
    * MOVO-134: soporte del endpoint interno de baja de cuenta de `svc-users` -- ¿el
    * usuario (como sender, receiver o carrier) tiene algún envío en un estado no
    * terminal? Separa `disputed` del resto (`awaiting_receiver_confirmation`,
@@ -695,6 +711,15 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         },
         take: limit,
         orderBy: { receiverConfirmationDeadline: "asc" },
+      });
+      return rows.map(mapShipment);
+    },
+
+    async findPotentiallyExpiredPublished(limit: number): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: { status: ShipmentStatus.PUBLISHED },
+        take: limit,
+        orderBy: [{ pickupDate: "asc" }, { pickupTimeWindowEnd: "asc" }],
       });
       return rows.map(mapShipment);
     },

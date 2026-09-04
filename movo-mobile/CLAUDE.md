@@ -1037,3 +1037,59 @@ Frontend de calificación y reputación sobre los endpoints de MOVO-146: permite
 
 Tests: `test/ratings-client.test.ts`, `test/star-rating-input.test.tsx`, `test/rating-sheet.test.tsx`, `test/shipment-ratings-card.test.tsx`, actualizados `test/timeline-section.test.tsx` y `test/shipment-detail-screen.test.tsx`.
 
+### MOVO-148 — Tab Transportar: listado de envíos disponibles cerca (`movo-mobile`)
+
+Reemplaza el placeholder de `app/(app)/(tabs)/transport.tsx` (MOVO-78) por el listado
+real de `GET /shipments/available` (MOVO-142, ya en `develop`): radio configurable
+(10/25/50/100km, persistido), cascada de origen GPS → dirección default → selector
+manual, gating explícito por KYC de identidad (`403 CARRIER_NOT_VERIFIED`), badge de
+`hasMyOffer`, paginado con scroll infinito + pull-to-refresh (mismo patrón que "Mis
+Envíos", MOVO-127).
+
+- **`src/hooks/use-transport-origin.ts` nuevo**: resuelve el origen con la cascada del
+  AC2 — GPS (`useMyLocation`, ya existente) → dirección default de `useAddresses()`
+  (`Address.isDefault`) → `needsManualPick` para que la pantalla abra
+  `AddressSearchSheet` (el mismo selector del wizard de envío, ya desacoplado en
+  MOVO-121). Una selección manual siempre gana sobre GPS/default, así el mismo
+  mecanismo sirve también para "Cambiar ubicación" en el header, sin estado aparte.
+- **AC9 (abrir el detalle desde una card) resuelto con una pantalla propia, extraída a
+  MOVO-166**: la primera versión reusaba `shipments/[id].tsx` (detalle de emisor/
+  receptor), pero esa pantalla solo conoce esos dos roles — un transportista caía en
+  la rama "no soy receptor, debo ser emisor" y veía "Receptor" en vez de "Emisor", más
+  el banner de ofertas con copy del emisor. Se separó a `app/(app)/transport/[id].tsx`
+  (MOVO-166, branch propia) en vez de sumar un tercer rol a la pantalla compartida.
+- **Distancia total del viaje en la card** (pedido explícito del usuario tras revisar
+  el resultado): `haversineDistanceKm`/`formatTripDistanceKm` nuevas en
+  `shipment-format.ts` para una aproximación en línea recta client-side — evita
+  pegarle a la Google Routes API por cada card de un listado (cuota/costo, ADR-015).
+  La distancia real por calle en el detalle (`formatRouteDistanceKm`) queda del lado
+  de MOVO-166, que sí puede reusar la ruta que `RouteMapCard` ya pide para el mapa.
+- **Bug encontrado por el usuario probando en dispositivo, corregido en backend**:
+  `GET /shipments/available` seguía devolviendo envíos con la ventana de retiro ya
+  vencida (sin sweep de expiración para `published`, a diferencia de la confirmación
+  del receptor). `isPickupWindowExpired()` nueva en `shipment-format.ts` filtra esos
+  ítems client-side sobre las páginas ya cargadas (mismo criterio ya aceptado en "Mis
+  Envíos" para filtros sobre datos paginados) — mitigación inmediata mientras el fix de
+  fondo (barrido nuevo en `movo-svc-shipments`, ver su CLAUDE.md) hace lo mismo del
+  lado del servidor.
+- **`zoneLabelFromAddress()` (`shipment-format.ts`) con dos fuentes distintas según el
+  origen**: para GPS/manual, hereda de un `formattedAddress` de Google (heurística
+  sobre comas, best-effort — `/geocode/reverse` no devuelve componentes
+  estructurados); para una dirección guardada, usa directo el campo `city` de
+  `Address` (estructurado) en vez de aplicarle la misma heurística a `Address.label`
+  (texto libre del usuario, a veces literalmente la calle) — bug encontrado en device,
+  el label no tiene la forma de una dirección completa.
+- Radio persistido con el wrapper genérico `secureStore` ya existente (`src/lib/
+  secure-store.ts`, key `movo.transportRadiusKm`) — se evitó sumar una dependencia
+  nueva (tipo AsyncStorage) para una sola preferencia de UI no sensible.
+
+Tests nuevos: `test/transport-screen.test.tsx`, `test/available-shipment-card.test.tsx`,
+`test/use-transport-origin.test.ts`, `test/use-transport-radius.test.ts`,
+`test/is-pickup-window-expired.test.ts`. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: el detalle del envío al tocar una card (AC9) y "hacer una
+oferta" quedaron en MOVO-166/MOVO-149 respectivamente, branches separadas; badge
+`hasMyOffer` sin poder probarse a mano de punta a punta hasta que MOVO-149 exista
+(cubierto solo por test unitario contra el shape de la respuesta); no probado en
+device con una cuenta sin KYC de identidad aprobado (estado de gating) ni con más de
+una página de resultados (paginación/scroll infinito).

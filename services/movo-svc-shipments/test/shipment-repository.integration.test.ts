@@ -342,6 +342,39 @@ describe("shipment-repository (Postgres)", () => {
     });
   });
 
+  describe("findPotentiallyExpiredPublished (corrección de bug reportado, sin ticket propio)", () => {
+    async function createPublished(overrides: Partial<CreateShipmentInput> = {}) {
+      const created = await repo.create({ ...baseInput, ...overrides });
+      await addTwoCreationPhotos(created.id);
+      return repo.updateStatus(created.id, ShipmentStatus.PUBLISHED, randomUUID());
+    }
+
+    it("trae solo envíos published, ordenados por fecha/hora de retiro ascendente", async () => {
+      const older = await createPublished({
+        pickupDate: new Date("2026-08-20T00:00:00.000Z"),
+        pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
+      });
+      const newer = await createPublished({
+        pickupDate: new Date("2026-08-25T00:00:00.000Z"),
+        pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
+      });
+      // No published: no debe aparecer aunque tenga la fecha de retiro más vieja de todas.
+      await repo.create({ ...baseInput, pickupDate: new Date("2026-01-01T00:00:00.000Z") });
+
+      const result = await repo.findPotentiallyExpiredPublished(10);
+
+      expect(result.map((s) => s.id)).toEqual([older.id, newer.id]);
+    });
+
+    it("respeta el límite de elementos (limit)", async () => {
+      await createPublished({ pickupDate: new Date("2026-08-20T00:00:00.000Z") });
+      await createPublished({ pickupDate: new Date("2026-08-21T00:00:00.000Z") });
+
+      const result = await repo.findPotentiallyExpiredPublished(1);
+      expect(result).toHaveLength(1);
+    });
+  });
+
   describe("listAvailable (MOVO-142)", () => {
     // Mismo par pickup/delivery de baseInput -- ~1.04km entre sí (comentario de
     // MOVO-126 en shipments.service.ts).

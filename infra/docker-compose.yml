@@ -175,6 +175,10 @@ services:
       # de este servicio (ver shared/movo-shared/src/config/commission.ts).
       - MOVO_COMMISSION_RATE=${MOVO_COMMISSION_RATE:-0.15}
       - MP_TRANSACTION_FEE_RATE=${MP_TRANSACTION_FEE_RATE:-0.0499}
+      # Corrección sobre bug reportado: barrido que cancela envíos published con
+      # retiro vencido (sin ticket propio, ver CLAUDE.md de svc-shipments).
+      - PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES=${PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES:-15}
+      - PICKUP_EXPIRY_SWEEP_ENABLED=${PICKUP_EXPIRY_SWEEP_ENABLED:-true}
       # MOVO-82: el default de código (http://movo-svc-pricing-logistics:8000) ya
       # coincide con el nombre del servicio en movo-net, mismo criterio que
       # USERS_SERVICE_URL -- no hace falta setearlo acá.

@@ -978,6 +978,57 @@ pendiente de confirmar con MP); tope máximo de precio de una oferta (no lo pide
 ningún AC, sin definir todavía); consumo real del fee de MP desde `movo-svc-payments`
 (split real, sigue siendo un esqueleto) y desde estadísticas de `movo-svc-admin`.
 
+### Barrido de envíos `published` con retiro vencido (bug reportado desde MOVO-148, sin ticket propio)
+
+`GET /shipments/available` seguía devolviendo como disponibles envíos cuya ventana de
+retiro ya había pasado (reportado por el usuario probando el tab "Transportar" del
+mobile) — MOVO-142 nunca contempló que un `published` sin tomar por nadie debía dejar
+de ofrecerse una vez vencida su franja. Sin sweep de expiración, a diferencia de la
+confirmación del receptor (MOVO-130).
+
+- **Nuevo `src/domain/pickup-window.ts`** (`pickupWindowEndInstant`/
+  `isPickupWindowExpired`): mismo cálculo que `combineDateAndTime`/`toRealInstant` de
+  `shipments.service.ts` (offset fijo de Argentina, UTC-3), pero operando sobre los
+  `Date` ya persistidos (`Shipment.pickupDate`/`pickupTimeWindowEnd`, columnas
+  `@db.Date`/`@db.Time` ancladas) en vez de parsear strings del body de un request.
+- **`shipment-repository.ts#findPotentiallyExpiredPublished(limit)`**: trae los
+  `published` ordenados por fecha/hora de retiro ascendente — no puede filtrar "¿ya
+  venció?" en la propia query (no hay ningún instante real que Prisma pueda comparar
+  con un simple `lte`, a diferencia de `findExpiredAwaitingConfirmation` contra
+  `receiverConfirmationDeadline`), así que el filtro real corre en JS con
+  `isPickupWindowExpired()` sobre el batch ya traído. Como un envío vencido siempre
+  tiene fecha de retiro más vieja que uno vigente, el orden ascendente garantiza que
+  los vencidos queden al frente del batch.
+- **`shipments.service.ts#expireOverduePublishedShipments()`**: mismo esqueleto que
+  `expireOverdueShipments` (MOVO-130) — cancela con `actorId: null` y el reason "Nadie
+  retiró el paquete dentro de la ventana de retiro publicada", notifica al emisor
+  best-effort (`dispatchPickupExpiredPush`, mismo `type: "shipment_cancelled"` que la
+  cancelación por timeout del receptor — el resultado de negocio es el mismo). Un
+  candidato del batch que resulta no estar vencido (todavía puede pasar, ver arriba)
+  se ignora sin contar como error.
+- **`src/plugins/pickup-expiry-sweep.ts`**: copia estructural de
+  `receiver-confirmation-sweep.ts` (`setInterval` + lock distribuido en Redis,
+  `PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES`/`_ENABLED`, default 15min/true). Registrado en
+  `app.ts` con su propio override (`pickupExpirySweepEnabled`) para tests/CI.
+- **Sin filtro en tiempo real en la query de `GET /shipments/available`** (documentado
+  en el comentario de `isPickupWindowExpired`): solo el barrido corrige el dato de
+  fondo, con hasta `PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES` de rezago — se evaluó sumar
+  el mismo chequeo a la query en vivo, pero hubiera requerido replicar en SQL la
+  cuenta del offset de Argentina que el resto del dominio mantiene deliberadamente en
+  JS (mismo criterio que `reputation.ts`/`rating-window.ts`), y el mobile (MOVO-148) ya
+  filtra client-side sobre la lista paginada — la ventana de rezago del barrido nunca
+  llega a mostrarse al usuario.
+
+Tests: `test/pickup-window.test.ts` (dominio puro), `test/pickup-expiry-sweep.test.ts`
+(mismo patrón que `receiver-confirmation-sweep.test.ts` — comparte sus mismos 6
+`no-explicit-any` de `eslint`, ya documentados como deuda preexistente de ese patrón de
+test), casos nuevos en `shipment-service.test.ts` (cancela vencidos, ignora un
+candidato todavía vigente sin contarlo como error, sigue el lote si uno falla) y en
+`shipment-repository.integration.test.ts` (orden ascendente, `limit`) — estos últimos
+no se pudieron correr en este entorno por no tener Postgres/Docker disponibles, quedan
+a validar contra CI o un Postgres local. `tsc --noEmit` y `eslint` limpios en el resto
+de los archivos tocados.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

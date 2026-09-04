@@ -6,6 +6,13 @@ interface LatLng {
   lng: number;
 }
 
+/** Radio por defecto del tab "Transportar" (MOVO-148, AC3) — coincide con el default
+ * del propio backend (`radiusKm`, `shipments.schema.ts`), pero se declara acá también
+ * porque el mobile lo necesita antes de la primera llamada (para pre-poblar el
+ * selector de pills sin esperar a la respuesta del servidor). */
+export const DEFAULT_TRANSPORT_RADIUS_KM = 50;
+export const TRANSPORT_RADIUS_OPTIONS_KM = [10, 25, 50, 100] as const;
+
 /**
  * Últimos envíos propios para la sección "Actividad reciente" de Inicio (MOVO-83).
  * `limit: 3` — la home solo necesita una vista previa, no el listado completo (ese
@@ -42,6 +49,42 @@ export function useMyShipments(limit = 20) {
     initialPageParam: 1,
     getNextPageParam: (lastPage) =>
       lastPage.page * lastPage.limit < lastPage.total ? lastPage.page + 1 : undefined,
+  });
+}
+
+/**
+ * Listado paginado de envíos disponibles cerca del transportista (`GET
+ * /shipments/available`, MOVO-142) para el tab "Transportar" (MOVO-148) —
+ * `useInfiniteQuery`, mismo criterio que `useMyShipments`. `enabled` solo con un
+ * origen ya resuelto (GPS/dirección default/manual, ver `use-transport-origin.ts`):
+ * sin `originLat`/`originLng` el backend responde 400.
+ *
+ * Se devuelve `error` (no solo `isError`) para que la pantalla distinga
+ * `403 CARRIER_NOT_VERIFIED` (estado de gating con CTA a KYC) de cualquier otro
+ * fallo (red/500, banner genérico con reintentar) — mismo criterio que la
+ * distinción 403/404 que ya usa `useShipment` en el detalle (MOVO-127).
+ */
+export function useAvailableShipments(
+  origin: LatLng | null,
+  radiusKm: number,
+  destination?: LatLng | null,
+  limit = 20,
+) {
+  return useInfiniteQuery({
+    queryKey: ["shipments", "available", origin, destination ?? null, radiusKm],
+    queryFn: ({ pageParam }) =>
+      shipmentsClient.listAvailable({
+        originLat: origin!.lat,
+        originLng: origin!.lng,
+        ...(destination ? { destinationLat: destination.lat, destinationLng: destination.lng } : {}),
+        radiusKm,
+        page: pageParam,
+        limit,
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.page * lastPage.limit < lastPage.total ? lastPage.page + 1 : undefined,
+    enabled: origin !== null,
   });
 }
 

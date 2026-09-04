@@ -7,6 +7,7 @@ import { UsersClient } from "../../adapters/users-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
 import { AvailableShipment, PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
+import { isPickupWindowExpired } from "../../domain/pickup-window";
 import { Offer } from "../../models/offer";
 import {
   assertIsNotShipmentParty,
@@ -294,6 +295,30 @@ async function dispatchReceiverTimeoutPush(
     logger?.warn(
       { err, event: "notification_dispatch_failed", shipmentId: shipment.id },
       "No se pudo enviar la push de cancelación por timeout al emisor"
+    );
+  }
+}
+
+/** Aviso al emisor cuando el barrido cancela su envío `published` por vencimiento de
+ * la ventana de retiro — mismo patrón que `dispatchReceiverTimeoutPush` (best-effort,
+ * nunca revienta el barrido), `type: "shipment_cancelled"` porque el resultado de
+ * negocio es el mismo (el envío terminó cancelado), sin importar el motivo. */
+async function dispatchPickupExpiredPush(
+  notificationsClient: NotificationsClient,
+  logger: FastifyBaseLogger | { info?: (obj: unknown, msg?: string) => void; warn: (obj: unknown, msg?: string) => void; error: (obj: unknown, msg?: string) => void } | undefined,
+  shipment: Shipment
+): Promise<void> {
+  try {
+    await notificationsClient.sendPush({
+      userId: shipment.senderId,
+      title: "Envío cancelado",
+      body: "Tu envío se canceló: ningún transportista lo retiró dentro de la ventana publicada",
+      data: { shipmentId: shipment.id, type: "shipment_cancelled" },
+    });
+  } catch (err) {
+    logger?.warn(
+      { err, event: "notification_dispatch_failed", shipmentId: shipment.id },
+      "No se pudo enviar la push de cancelación por vencimiento de retiro al emisor"
     );
   }
 }
@@ -919,6 +944,65 @@ export function createShipmentsService(
             errorsCount,
           },
           `Barrido de confirmación de receptor finalizado: ${expiredCount} expirados, ${errorsCount} fallos`
+        );
+      }
+
+      return { expiredCount, errorsCount };
+    },
+
+    /**
+     * Barrido periódico de envíos `published` cuya ventana de retiro venció sin que
+     * ningún transportista lo tomara — corrección directa sobre un bug reportado
+     * (`GET /shipments/available` los seguía devolviendo como disponibles, sin ticket
+     * propio, ver CLAUDE.md). Mismo esqueleto que `expireOverdueShipments` (MOVO-130):
+     * lote acotado, cancela con `actorId: null`, notifica al emisor best-effort. La
+     * diferencia está en `repository.findPotentiallyExpiredPublished()`, que no puede
+     * filtrar "ya venció" en la propia query (ver el comentario de esa interfaz) —
+     * acá se filtra con `isPickupWindowExpired()` antes de tocar nada, así que un
+     * `published` todavía vigente que entró en el batch (por estar entre los primeros
+     * `batchSize` ordenados por fecha de retiro) simplemente se ignora, sin contar
+     * como error.
+     */
+    async expireOverduePublishedShipments(batchSize = 100): Promise<{ expiredCount: number; errorsCount: number }> {
+      const now = new Date();
+      const candidates = await repository.findPotentiallyExpiredPublished(batchSize);
+      const overdueShipments = candidates.filter((shipment) =>
+        isPickupWindowExpired(shipment.pickupDate, shipment.pickupTimeWindowEnd, now)
+      );
+      let expiredCount = 0;
+      let errorsCount = 0;
+
+      for (const shipment of overdueShipments) {
+        try {
+          await repository.updateStatus(
+            shipment.id,
+            ShipmentStatus.CANCELLED,
+            null,
+            "Nadie retiró el paquete dentro de la ventana de retiro publicada"
+          );
+          expiredCount++;
+
+          if (notificationsClient) {
+            void dispatchPickupExpiredPush(notificationsClient, logger, shipment);
+          }
+        } catch (err) {
+          errorsCount++;
+          logger?.error(
+            { err, shipmentId: shipment.id, event: "pickup_expiry_sweep_error" },
+            "Error al cancelar envío publicado con retiro vencido en barrido"
+          );
+        }
+      }
+
+      if (overdueShipments.length > 0) {
+        logger?.info(
+          {
+            event: "pickup_expiry_sweep",
+            totalFound: overdueShipments.length,
+            expiredCount,
+            errorsCount,
+          },
+          `Barrido de retiro vencido finalizado: ${expiredCount} expirados, ${errorsCount} fallos`
         );
       }
 

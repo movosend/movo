@@ -1,4 +1,5 @@
 import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import type { PackageType } from "../store/shipment-wizard-store";
 import { httpClient } from "./http-client";
 
 /**
@@ -135,11 +136,85 @@ export interface ShipmentEvent {
   createdAt: string;
 }
 
+/**
+ * DTO de `GET /shipments/available` (`availableShipmentResponse` en
+ * `shipments.schema.ts`, `movo-svc-shipments`, MOVO-142) — proyección deliberadamente
+ * más chica que `ShipmentSummary` (sin `senderId`/`carrierId`/`agreedPriceArs`/etc.,
+ * ver el comentario del propio schema del backend): un transportista que todavía no
+ * tiene el envío asignado no debería ver esos datos. `deliveryDistanceKm` es `null`
+ * si el caller no mandó destino (modo "solo cerca mío", sin viaje planificado).
+ */
+export interface AvailableShipment {
+  id: string;
+  packageType: PackageType;
+  weightKg: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  description: string | null;
+  urgent: boolean;
+  pickupAddress: string;
+  pickupLat: number;
+  pickupLng: number;
+  deliveryAddress: string;
+  deliveryLat: number;
+  deliveryLng: number;
+  pickupDate: string;
+  pickupTimeWindowStart: string;
+  pickupTimeWindowEnd: string;
+  suggestedPriceArs: number | null;
+  calculationMethod: string | null;
+  status: ShipmentStatus;
+  pickupDistanceKm: number;
+  deliveryDistanceKm: number | null;
+  distanceKm: number;
+  hasMyOffer: boolean;
+  createdAt: string;
+}
+
+/** `destinationLat`/`destinationLng` viajan juntos o ninguno (400 del backend si se
+ * manda solo uno, MOVO-142) — no expresable en el tipo sin un union incómodo para los
+ * callers, se documenta acá en vez de en el schema del request. */
+export interface ListAvailableParams {
+  originLat: number;
+  originLng: number;
+  destinationLat?: number;
+  destinationLng?: number;
+  radiusKm?: number;
+  maxDistanceKm?: number;
+  page?: number;
+  limit?: number;
+}
+
+export interface ListAvailableResponse {
+  items: AvailableShipment[];
+  page: number;
+  limit: number;
+  total: number;
+}
+
 export const shipmentsClient = {
   /** Protegida — `httpClient` adjunta `Authorization` automáticamente vía el
    * interceptor de sesión (MOVO-76). */
   listMine(params?: { page?: number; limit?: number }): Promise<ListMineResponse> {
     return httpClient.get<ListMineResponse>("/shipments/mine", params);
+  },
+
+  /** `GET /shipments/available` (MOVO-142) — descubrimiento por radio geográfico (y
+   * opcionalmente por corredor origen→destino) para el tab "Transportar" (MOVO-148).
+   * Requiere rol `carrier` + KYC de identidad aprobado (403 `CARRIER_NOT_VERIFIED`
+   * si no, nunca por falta de licencia de conducir). */
+  listAvailable(params: ListAvailableParams): Promise<ListAvailableResponse> {
+    return httpClient.get<ListAvailableResponse>("/shipments/available", {
+      originLat: params.originLat,
+      originLng: params.originLng,
+      destinationLat: params.destinationLat,
+      destinationLng: params.destinationLng,
+      radiusKm: params.radiusKm,
+      maxDistanceKm: params.maxDistanceKm,
+      page: params.page,
+      limit: params.limit,
+    });
   },
 
   create(body: CreateShipmentInput): Promise<ShipmentSummary> {
