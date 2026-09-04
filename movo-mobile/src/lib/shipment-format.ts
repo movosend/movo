@@ -300,6 +300,76 @@ export function shipmentActorLabel(
   return "Equipo Movo";
 }
 
+const EARTH_RADIUS_KM = 6371;
+
+/** Distancia en línea recta ("a vuelo de pájaro", fórmula de Haversine) entre dos
+ * coordenadas — no la distancia real por calle. Se usa para la distancia total del
+ * viaje de un envío (retiro → entrega) en el tab "Transportar" (MOVO-148, feedback
+ * post-implementación) sin pegarle a Google Routes API por cada card de un listado:
+ * esa API tiene cuota diaria dura y costo por elemento (ADR-015), y no se justifica
+ * gastarla en un número aproximado para decidir si vale la pena abrir el detalle. La
+ * ruta real por calle (`GET /shipments/route`, MOVO-123) sigue siendo la fuente para
+ * cuando de verdad hace falta precisión (mapa del wizard, resumen de un envío propio). */
+export function haversineDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return EARTH_RADIUS_KM * c;
+}
+
+/** Con el signo `~` explícito — a diferencia de `pickupDistanceKm` (que el backend ya
+ * calculó como distancia real del corredor, MOVO-142), esta es una aproximación en
+ * línea recta calculada en el cliente, nunca hay que darla a entender como exacta. */
+export function formatTripDistanceKm(distanceKm: number): string {
+  return `~${distanceKm.toFixed(1)} km`;
+}
+
+/**
+ * Un envío `published` lo sigue siendo para siempre si ningún transportista lo toma
+ * — `GET /shipments/available` (MOVO-142) no filtra por fecha de retiro vencida, ni
+ * hay un sweep que lo expire (a diferencia del de confirmación del receptor,
+ * MOVO-130). Mitigación client-side en el tab "Transportar" (MOVO-148, bug
+ * reportado por el usuario: envíos con retiro ya pasado seguían apareciendo como
+ * disponibles) — mismo criterio ya aceptado en "Mis Envíos" para filtrar sobre las
+ * páginas ya cargadas sin tocar la paginación del servidor (ver
+ * `app/(app)/shipments/index.tsx`). La corrección de fondo (filtro en la query o un
+ * sweep de expiración real) es un ticket de backend aparte, no más lógica acá.
+ */
+export function isPickupWindowExpired(
+  pickupDate: string,
+  pickupTimeWindowEnd: string,
+  now: Date = new Date(),
+): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(pickupDate)) return false;
+  const [year, month, day] = pickupDate.split("-").map(Number);
+  const match = pickupTimeWindowEnd.match(/^(\d{1,2}):(\d{2})/);
+  const [hour, minute] = match ? [Number(match[1]), Number(match[2])] : [23, 59];
+  const windowEnd = new Date(year, month - 1, day, hour, minute);
+  return windowEnd.getTime() < now.getTime();
+}
+
+/** Nombre corto de zona a partir de una dirección formateada por Google ("Envíos
+ * cerca de Córdoba", MOVO-148 AC2) — heurística best-effort: `/geocode/reverse`
+ * (MOVO-125) solo devuelve `formattedAddress` como string, sin componentes
+ * estructurados (ver `services/movo-svc-users/CLAUDE.md`), así que no hay un campo de
+ * "ciudad" real para leer. Toma el penúltimo segmento separado por coma (el formato
+ * típico de Google en Argentina termina en ", Argentina") y le saca un prefijo de
+ * código postal pegado ("X5000 Córdoba" → "Córdoba"). Si la dirección no tiene al
+ * menos dos segmentos (un string corto, o ya un fallback tipo "Ubicación actual"),
+ * devuelve la dirección completa tal cual — nunca inventa un nombre de zona vacío. */
+export function zoneLabelFromAddress(address: string): string {
+  const segments = address
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (segments.length < 2) return address;
+  const candidate = segments[segments.length - 2];
+  return candidate.replace(/^[A-Za-z]\d{3,4}[A-Za-z]{0,3}\s+/, "").trim() || address;
+}
+
 /** Recorta una dirección completa a su primer segmento, antes de la primera coma —
  * "Av. Colón 1234, Córdoba" → "Av. Colón 1234" (MOVO-127, card de `ShipmentCard`). El
  * modelo no tiene un campo de barrio separado, así que la calle es el identificador
