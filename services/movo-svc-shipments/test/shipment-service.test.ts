@@ -94,6 +94,7 @@ function fakeRepository(overrides: Partial<ShipmentRepository> = {}): ShipmentRe
     listByUser: vi.fn(),
     listAvailable: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     findExpiredAwaitingConfirmation: vi.fn().mockResolvedValue([]),
+    findPotentiallyExpiredPublished: vi.fn().mockResolvedValue([]),
     hasActiveShipmentsForUser: vi.fn().mockResolvedValue({ hasActiveDispute: false, hasActiveShipments: false }),
     countCompletedTransactions: vi.fn().mockResolvedValue({ asSender: 0, asCarrier: 0 }),
     ...overrides,
@@ -1104,6 +1105,108 @@ describe("shipments.service — expireOverdueShipments (MOVO-130)", () => {
     expect(result.expiredCount).toBe(1);
     expect(result.errorsCount).toBe(1);
     expect(repository.updateStatus).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("shipments.service — expireOverduePublishedShipments (corrección de bug reportado, sin ticket propio)", () => {
+  it("cancela los envíos published con la ventana de retiro vencida y notifica al emisor", async () => {
+    const now = new Date("2026-09-03T12:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    const expired = fakeShipment({
+      id: "s-1",
+      senderId: "sender-1",
+      status: ShipmentStatus.PUBLISHED,
+      pickupDate: new Date("2026-08-30T00:00:00.000Z"),
+      pickupTimeWindowEnd: new Date("1970-01-01T22:00:00.000Z"),
+    });
+    const repository = fakeRepository({
+      findPotentiallyExpiredPublished: vi.fn().mockResolvedValue([expired]),
+      updateStatus: vi.fn().mockResolvedValue(fakeShipment()),
+    });
+    const notificationsClient = createFakeNotificationsClient();
+    const service = createShipmentsService(repository, createFakeUsersClient({}), notificationsClient);
+
+    const result = await service.expireOverduePublishedShipments(50);
+
+    expect(result.expiredCount).toBe(1);
+    expect(result.errorsCount).toBe(0);
+    expect(repository.findPotentiallyExpiredPublished).toHaveBeenCalledWith(50);
+    expect(repository.updateStatus).toHaveBeenCalledWith(
+      "s-1",
+      ShipmentStatus.CANCELLED,
+      null,
+      "Nadie retiró el paquete dentro de la ventana de retiro publicada"
+    );
+    await vi.waitFor(() => {
+      expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+        userId: "sender-1",
+        title: "Envío cancelado",
+        body: "Tu envío se canceló: ningún transportista lo retiró dentro de la ventana publicada",
+        data: { shipmentId: "s-1", type: "shipment_cancelled" },
+      });
+    });
+
+    vi.useRealTimers();
+  });
+
+  it("ignora sin contarlo como error un candidato del batch que todavía no venció", async () => {
+    const now = new Date("2026-09-03T12:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    const stillValid = fakeShipment({
+      id: "s-vigente",
+      status: ShipmentStatus.PUBLISHED,
+      pickupDate: new Date("2026-09-10T00:00:00.000Z"),
+      pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
+    });
+    const repository = fakeRepository({
+      findPotentiallyExpiredPublished: vi.fn().mockResolvedValue([stillValid]),
+      updateStatus: vi.fn().mockResolvedValue(fakeShipment()),
+    });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    const result = await service.expireOverduePublishedShipments();
+
+    expect(result.expiredCount).toBe(0);
+    expect(result.errorsCount).toBe(0);
+    expect(repository.updateStatus).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
+
+  it("continúa cancelando el resto del lote si falla uno solo", async () => {
+    const now = new Date("2026-09-03T12:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    const expired1 = fakeShipment({
+      id: "s-1",
+      status: ShipmentStatus.PUBLISHED,
+      pickupDate: new Date("2026-08-30T00:00:00.000Z"),
+      pickupTimeWindowEnd: new Date("1970-01-01T22:00:00.000Z"),
+    });
+    const expired2 = fakeShipment({
+      id: "s-2",
+      status: ShipmentStatus.PUBLISHED,
+      pickupDate: new Date("2026-08-31T00:00:00.000Z"),
+      pickupTimeWindowEnd: new Date("1970-01-01T22:00:00.000Z"),
+    });
+    const repository = fakeRepository({
+      findPotentiallyExpiredPublished: vi.fn().mockResolvedValue([expired1, expired2]),
+      updateStatus: vi.fn().mockRejectedValueOnce(new Error("DB error")).mockResolvedValueOnce(fakeShipment()),
+    });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    const result = await service.expireOverduePublishedShipments();
+
+    expect(result.expiredCount).toBe(1);
+    expect(result.errorsCount).toBe(1);
+    expect(repository.updateStatus).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
   });
 });
 
