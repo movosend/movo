@@ -65,6 +65,10 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   SHIPMENT_RATING_WINDOW_EXPIRED: "El plazo de 72 horas para calificar este envío ya terminó.",
   SHIPMENT_RATING_ALREADY_EXISTS: "Ya calificaste a esta persona en este envío.",
   SHIPMENT_RATING_NOT_FOUND: "No se encontró una calificación previa para editar.",
+  // Creación de oferta (MOVO-149 / backend MOVO-143).
+  SHIPMENT_NOT_AVAILABLE_FOR_OFFER: "Este envío ya no está disponible para ofertar.",
+  OFFER_DUPLICATE_ACTIVE: "Ya tenés una oferta activa sobre este envío.",
+  OFFER_DATE_OUT_OF_RANGE: "La fecha del viaje tiene que coincidir con la fecha de retiro del envío.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",
   RATE_LIMIT_EXCEEDED: "Hiciste demasiados intentos. Esperá un momento y volvé a intentar.",

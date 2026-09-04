@@ -5,6 +5,8 @@ build/
 .next/
 .expo/
 *.log
+ios/
+android/
 
 # Python (movo-svc-pricing-logistics)
 __pycache__/

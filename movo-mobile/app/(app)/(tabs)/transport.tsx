@@ -1,5 +1,5 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { MapPin, PackageX, ShieldAlert } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, Text, View } from "react-native";
@@ -9,6 +9,7 @@ import { AddressSearchSheet } from "../../../components/send/address-search-shee
 import { AvailableShipmentCard } from "../../../components/transport/available-shipment-card";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { SkeletonBlock as Block } from "../../../components/ui/skeleton-block";
+import { SuccessBanner } from "../../../components/ui/success-banner";
 import { useAddresses } from "../../../src/hooks/use-addresses";
 import { TRANSPORT_RADIUS_OPTIONS_KM, useAvailableShipments } from "../../../src/hooks/use-shipments";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
@@ -62,10 +63,18 @@ function RadiusPillRow({
  */
 export default function TransportScreen() {
   const colors = useThemeColors();
+  const { offerCreated } = useLocalSearchParams<{ offerCreated?: string }>();
+  const [showOfferCreatedSuccess, setShowOfferCreatedSuccess] = useState(offerCreated === "1");
   const { origin, resolving, needsManualPick, setManualSelection } = useTransportOrigin();
   const { radiusKm, setRadiusKm } = useTransportRadius();
   const { data: savedAddresses } = useAddresses();
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  useEffect(() => {
+    if (offerCreated === "1") {
+      setShowOfferCreatedSuccess(true);
+    }
+  }, [offerCreated]);
 
   const {
     data,
@@ -141,6 +150,16 @@ export default function TransportScreen() {
           </View>
         ) : null}
       </View>
+
+      {showOfferCreatedSuccess ? (
+        <View className="px-5 pt-2">
+          <SuccessBanner
+            testID="transport-offer-created-success"
+            message="¡Oferta enviada! Ya podés verla reflejada en el envío."
+            onDismiss={() => setShowOfferCreatedSuccess(false)}
+          />
+        </View>
+      ) : null}
 
       {origin ? <RadiusPillRow radiusKm={radiusKm} onChange={setRadiusKm} /> : null}
 
