@@ -216,6 +216,40 @@ describe("TransportScreen", () => {
     expect(queryByTestId("transport-card-vencido")).toBeNull();
   });
 
+  it("una página entera vencida con más páginas disponibles cascadea a la próxima en vez de mostrar el estado vacío", async () => {
+    mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+    const fetchNextPage = jest.fn();
+    mockUseAvailableShipments.mockReturnValue(
+      baseAvailableResult({
+        data: pages([availableShipment({ id: "vencido", pickupDate: "2020-01-01", pickupTimeWindowEnd: "12:00" })]),
+        hasNextPage: true,
+        fetchNextPage,
+      }),
+    );
+
+    const { queryByText } = await render(<TransportScreen />);
+
+    expect(fetchNextPage).toHaveBeenCalled();
+    expect(queryByText("No hay envíos disponibles en este radio.")).toBeNull();
+  });
+
+  it("una página entera vencida sin más páginas disponibles cae al estado vacío, sin cascadear", async () => {
+    mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+    const fetchNextPage = jest.fn();
+    mockUseAvailableShipments.mockReturnValue(
+      baseAvailableResult({
+        data: pages([availableShipment({ id: "vencido", pickupDate: "2020-01-01", pickupTimeWindowEnd: "12:00" })]),
+        hasNextPage: false,
+        fetchNextPage,
+      }),
+    );
+
+    const { getByText } = await render(<TransportScreen />);
+
+    expect(fetchNextPage).not.toHaveBeenCalled();
+    expect(getByText("No hay envíos disponibles en este radio.")).toBeTruthy();
+  });
+
   it("marca los envíos donde ya ofertó sin ocultarlos", async () => {
     mockUseTransportOrigin.mockReturnValue(baseOriginResult());
     mockUseAvailableShipments.mockReturnValue(

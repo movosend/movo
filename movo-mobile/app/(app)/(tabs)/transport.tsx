@@ -91,6 +91,16 @@ export default function TransportScreen() {
     (item) => !isPickupWindowExpired(item.pickupDate, item.pickupTimeWindowEnd),
   );
 
+  // Si una página entera vino con todos sus ítems vencidos, el filtro de arriba
+  // puede dejar `items` vacío aunque el servidor todavía tenga más páginas — sin
+  // esto se mostraría el estado vacío pudiendo haber envíos vigentes más adelante.
+  const shouldCascadeNextPage = origin !== null && !isLoading && !isError && items.length === 0 && hasNextPage;
+  useEffect(() => {
+    if (shouldCascadeNextPage && !isFetchingNextPage) {
+      void fetchNextPage();
+    }
+  }, [shouldCascadeNextPage, isFetchingNextPage, fetchNextPage]);
+
   const currentRadiusIndex = TRANSPORT_RADIUS_OPTIONS_KM.indexOf(
     radiusKm as (typeof TRANSPORT_RADIUS_OPTIONS_KM)[number],
   );
@@ -150,6 +160,8 @@ export default function TransportScreen() {
             Reintentar
           </Text>
         </View>
+      ) : shouldCascadeNextPage ? (
+        <TransportListSkeleton />
       ) : origin !== null && items.length === 0 ? (
         <View className="items-center gap-2 px-5 py-10">
           <PackageX size={22} strokeWidth={1.8} color={colors.fg3} />
