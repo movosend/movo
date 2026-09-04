@@ -19,6 +19,8 @@ export interface EnvConfig {
   REPUTATION_CONFIDENCE_CONSTANT: number;
   REPUTATION_DECAY_HALF_LIFE_DAYS: number;
   TRIP_DEFAULT_MAX_DETOUR_KM: number;
+  PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES: number;
+  PICKUP_EXPIRY_SWEEP_ENABLED?: boolean;
 }
 
 export const envSchema = {
@@ -83,6 +85,11 @@ export const envSchema = {
     REPUTATION_DECAY_HALF_LIFE_DAYS: { type: "number", default: 180 },
     // MOVO-161: radio de desvío ortogonal máximo por defecto al corredor del viaje declarado (km)
     TRIP_DEFAULT_MAX_DETOUR_KM: { type: "number", default: 15 },
+    // Corrección directa sobre un bug reportado (sin ticket propio): barrido que cancela
+    // envíos `published` cuya ventana de retiro venció sin que nadie los tomara —
+    // mismo criterio que RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES/_ENABLED (MOVO-130).
+    PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
+    PICKUP_EXPIRY_SWEEP_ENABLED: { type: "boolean", default: true },
   },
 };
 

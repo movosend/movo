@@ -10,6 +10,7 @@ import authPlugin from "./plugins/auth";
 import errorHandlerPlugin from "./plugins/error-handler";
 import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-sweep";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
+import pickupExpirySweepPlugin from "./plugins/pickup-expiry-sweep";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import offersRoutes, { OffersRoutesOptions } from "./modules/offers/offers.routes";
 import ratingsRoutes, { internalRatingsRoutes, RatingsRoutesOptions } from "./modules/ratings/ratings.routes";
@@ -43,6 +44,8 @@ export interface BuildAppOptions {
   sweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de fotos huérfanas en background (MOVO-124). */
   orphanPhotoSweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el sweep de retiro vencido en background. */
+  pickupExpirySweepEnabled?: boolean;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -99,6 +102,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(orphanPhotoSweepPlugin, {
     ...(opts.storageProvider ? { storageProvider: opts.storageProvider } : {}),
     ...(opts.orphanPhotoSweepEnabled !== undefined ? { enabled: opts.orphanPhotoSweepEnabled } : {}),
+  });
+  app.register(pickupExpirySweepPlugin, {
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.pickupExpirySweepEnabled !== undefined ? { enabled: opts.pickupExpirySweepEnabled } : {}),
   });
 
   app.get("/health", async () => ({ status: "ok" }));
