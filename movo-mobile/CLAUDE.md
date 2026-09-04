@@ -1036,3 +1036,39 @@ oferta" quedaron en MOVO-166/MOVO-149 respectivamente, branches separadas; badge
 (cubierto solo por test unitario contra el shape de la respuesta); no probado en
 device con una cuenta sin KYC de identidad aprobado (estado de gating) ni con más de
 una página de resultados (paginación/scroll infinito).
+
+### MOVO-166 — Detalle del envío disponible para el transportista, solo lectura (`movo-mobile`)
+
+Extraído de MOVO-149 (refinamiento: ese ticket queda enfocado solo en la acción de
+ofertar) — construido sobre la branch de MOVO-148 (AC9: tocar una card del tab
+Transportar necesitaba algún destino).
+
+- **Pantalla nueva `app/(app)/transport/[id].tsx`, separada de `shipments/[id].tsx`**
+  (esa es la vista de emisor/receptor, MOVO-127/131 — solo conoce esos dos roles). Un
+  transportista que descubre un envío ajeno no es ninguno de los dos; reusar esa
+  pantalla lo trataba como si fuera el emisor (mostraba "Receptor" en vez de "Emisor",
+  y el banner de ofertas con copy "Aún no tenés ofertas" pensado para quien espera que
+  le oferten). La pantalla nueva muestra siempre **Emisor y Receptor**, en ese orden
+  fijo — sin cálculo de rol, a esta ruta solo se llega desde afuera del envío — y sin
+  ninguna acción de escritura (ni aceptar/rechazar/cancelar/ofertar): "hacer una
+  oferta" es MOVO-149, que se apoya en esta pantalla.
+- **Distancia real por calle** (`formatRouteDistanceKm`, `route.distanceMeters`): la
+  pantalla ya pide `GET /shipments/route` para dibujar el mapa (`RouteMapCard` usa
+  `useShipmentRoute` internamente, MOVO-123) — se llama al mismo hook una segunda vez
+  acá arriba con los mismos `pickup`/`delivery`, TanStack Query dedupea por query key
+  así que no dispara un segundo request. Mientras la ruta no resolvió o falla, cae a
+  la aproximación en línea recta de MOVO-148 (`formatTripDistanceKm`).
+- **Errores con copy propio, no el de `shipments/[id].tsx`**: `403` → "Este envío ya
+  no está disponible" (cambió de estado entre que se listó y se abrió la card — no
+  "no te pertenece", que asume que el caller es parte del envío), `404` → "Este envío
+  no existe".
+- Reusa tal cual (sin cambios) `RouteMapCard`, `PackageCard`, `CounterpartCard`,
+  `ShipmentStatusBadge`, `ShipmentDetailSkeleton` del detalle existente.
+
+Tests nuevos: `test/transport-detail-screen.test.tsx` (skeleton, error 403/404 con el
+copy específico, Emisor y Receptor, distancia real vs. aproximación). `tsc --noEmit`
+limpio (aparte del error preexistente y no relacionado de `test/shipment-format.test.ts`
+en `develop`, ver MOVO-148).
+
+Pendiente / fuera de alcance: "hacer una oferta" (MOVO-149, que ahora depende de esta
+pantalla); no probado en device (branch separada de MOVO-148, a integrar).

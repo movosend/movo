@@ -45,10 +45,7 @@ export function AvailableShipmentCard({ shipment, testID }: AvailableShipmentCar
   return (
     <Pressable
       testID={testID}
-      // `/transport/[id]` se extrajo a MOVO-166 (branch propia, ver movo-mobile/CLAUDE.md
-      // MOVO-148) — no existe todavía en esta branch, así que Expo Router no puede tipar
-      // la ruta acá. El cast se saca solo cuando MOVO-166 se mergea encima de esta branch.
-      onPress={() => router.push(`/transport/${shipment.id}` as never)}
+      onPress={() => router.push(`/transport/${shipment.id}`)}
       className="gap-3.5 rounded-[16px] border border-border bg-bg-sub p-4"
     >
       <View className="flex-row items-center justify-between gap-2">

@@ -327,6 +327,13 @@ export function formatTripDistanceKm(distanceKm: number): string {
   return `~${distanceKm.toFixed(1)} km`;
 }
 
+/** Distancia real por calle (`GET /shipments/route`, MOVO-123 — Google Routes API,
+ * método `Compute Routes`) en metros, formateada en km. Sin el `~` de
+ * `formatTripDistanceKm`: esta sí es una medición real, no una aproximación. */
+export function formatRouteDistanceKm(distanceMeters: number): string {
+  return `${(distanceMeters / 1000).toFixed(1)} km`;
+}
+
 /**
  * Un envío `published` lo sigue siendo para siempre si ningún transportista lo toma
  * — `GET /shipments/available` (MOVO-142) no filtra por fecha de retiro vencida, ni
