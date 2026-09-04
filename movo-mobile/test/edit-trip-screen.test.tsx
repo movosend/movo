@@ -91,6 +91,20 @@ describe("EditTripScreen", () => {
     expect(queryByTestId("tf-stub-submit")).toBeNull();
   });
 
+  it("hallazgo de review (PR #120): muestra el mensaje bloqueado si el viaje ya no está activo", async () => {
+    mockUseTrip.mockReturnValue({
+      data: { ...TRIP, status: TripStatus.CANCELLED },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId, queryByTestId } = await render(<EditTripScreen />);
+
+    expect(getByTestId("edit-trip-not-active")).toBeTruthy();
+    expect(queryByTestId("tf-stub-submit")).toBeNull();
+  });
+
   it("llama a la mutación con id + input del form y vuelve atrás al éxito", async () => {
     mockCanGoBack.mockReturnValue(true);
     mockUseTrip.mockReturnValue({ data: TRIP, isLoading: false, isError: false, refetch: jest.fn() });

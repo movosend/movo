@@ -7,7 +7,7 @@ import { TripForm } from "../../../../../components/trips/trip-form";
 import { useTrip, useUpdateTrip } from "../../../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../../../src/lib/error-messages";
-import type { CreateTripInput } from "../../../../../src/api/trips-client";
+import { TripStatus, type CreateTripInput } from "../../../../../src/api/trips-client";
 
 const UPDATE_ERROR_FALLBACK = "No pudimos guardar los cambios. Probá de nuevo.";
 
@@ -85,6 +85,21 @@ export default function EditTripScreen() {
           </Text>
           <Text className="text-center font-sans text-small text-fg-2">
             No se puede modificar ni cancelar directamente.
+          </Text>
+        </View>
+      ) : trip.status !== TripStatus.ACTIVE ? (
+        // Hallazgo de review (PR #120): un viaje `cancelled`/`completed` no debería
+        // mostrar el formulario editable — mismo criterio que el bloqueo de arriba,
+        // solo que acá la razón es el estado del viaje, no paquetes aceptados.
+        <View className="flex-1 items-center justify-center gap-2 px-8">
+          <Text
+            testID="edit-trip-not-active"
+            className="text-center font-sans-medium text-body text-fg"
+          >
+            Este viaje ya no está activo
+          </Text>
+          <Text className="text-center font-sans text-small text-fg-2">
+            No se puede modificar un viaje que ya no está activo.
           </Text>
         </View>
       ) : (

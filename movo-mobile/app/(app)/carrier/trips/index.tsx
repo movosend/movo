@@ -1,13 +1,16 @@
 import { router } from "expo-router";
 import { ChevronLeft, MapPinOff, WifiOff } from "lucide-react-native";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TripCard } from "../../../../components/trips/trip-card";
 import { PrimaryButton } from "../../../../components/auth/primary-button";
 import { SkeletonBlock } from "../../../../components/ui/skeleton-block";
 import { useDeleteTrip, useMyTrips } from "../../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
+import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
 import type { TripWithAcceptedPackages } from "../../../../src/api/trips-client";
+
+const DELETE_ERROR_FALLBACK = "No pudimos cancelar el viaje. Probá de nuevo.";
 
 function TripsListSkeleton() {
   return (
@@ -28,7 +31,7 @@ function TripsListSkeleton() {
  */
 export default function MyTripsScreen() {
   const colors = useThemeColors();
-  const { data, isLoading, isError, refetch } = useMyTrips();
+  const { data, isLoading, isError, isRefetching, refetch } = useMyTrips();
   const deleteTrip = useDeleteTrip();
 
   const handleBack = () => {
@@ -48,7 +51,11 @@ export default function MyTripsScreen() {
         {
           text: "Cancelar viaje",
           style: "destructive",
-          onPress: () => deleteTrip.mutate(trip.id),
+          onPress: () =>
+            deleteTrip.mutate(trip.id, {
+              onError: (err) =>
+                Alert.alert("Error", friendlyErrorMessage(err, DELETE_ERROR_FALLBACK)),
+            }),
         },
       ],
     );
@@ -106,7 +113,17 @@ export default function MyTripsScreen() {
           </Pressable>
         </View>
       ) : (
-        <ScrollView className="flex-1 px-5" contentContainerStyle={{ gap: 12, paddingBottom: 24 }}>
+        <ScrollView
+          className="flex-1 px-5"
+          contentContainerStyle={{ gap: 12, paddingBottom: 24 }}
+          refreshControl={
+            <RefreshControl
+              testID="my-trips-refresh"
+              refreshing={isRefetching}
+              onRefresh={() => refetch()}
+            />
+          }
+        >
           {trips.map((trip) => (
             <TripCard
               key={trip.id}

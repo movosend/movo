@@ -43,6 +43,7 @@ const TRIP_A: TripWithAcceptedPackages = {
 };
 
 const TRIP_BLOCKED: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-2", hasAcceptedPackages: true };
+const TRIP_CANCELLED: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-3", status: TripStatus.CANCELLED };
 
 describe("MyTripsScreen", () => {
   beforeEach(() => {
@@ -104,6 +105,20 @@ describe("MyTripsScreen", () => {
     expect(queryByTestId(`my-trips-card-${TRIP_BLOCKED.id}-delete`)).toBeNull();
   });
 
+  it("hallazgo de review (PR #120): un viaje cancelado (sin paquetes aceptados) tampoco expone editar/eliminar", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [TRIP_CANCELLED], page: 1, limit: 50, total: 1 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { queryByTestId } = await render(<MyTripsScreen />);
+
+    expect(queryByTestId(`my-trips-card-${TRIP_CANCELLED.id}-edit`)).toBeNull();
+    expect(queryByTestId(`my-trips-card-${TRIP_CANCELLED.id}-delete`)).toBeNull();
+  });
+
   it("navega a editar al tocar el ícono de lápiz de un viaje sin paquetes aceptados", async () => {
     mockUseMyTrips.mockReturnValue({
       data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
@@ -134,8 +149,35 @@ describe("MyTripsScreen", () => {
     fireEvent.press(getByTestId(`my-trips-card-${TRIP_A.id}-delete`));
 
     expect(alertSpy).toHaveBeenCalled();
-    expect(mockDeleteMutate).toHaveBeenCalledWith(TRIP_A.id);
+    expect(mockDeleteMutate).toHaveBeenCalledWith(TRIP_A.id, expect.objectContaining({ onError: expect.any(Function) }));
     alertSpy.mockRestore();
+  });
+
+  it("hallazgo de review (PR #120): muestra un Alert de error si la mutación de cancelar falla", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+    mockDeleteMutate.mockImplementation((_id: string, { onError }: any) =>
+      onError(new Error("network error")),
+    );
+    const confirmAlertSpy = jest
+      .spyOn(Alert, "alert")
+      .mockImplementationOnce((_t, _m, buttons) => {
+        const confirm = buttons?.find((b) => b.style === "destructive");
+        confirm?.onPress?.();
+      });
+
+    const { getByTestId } = await render(<MyTripsScreen />);
+    fireEvent.press(getByTestId(`my-trips-card-${TRIP_A.id}-delete`));
+
+    expect(confirmAlertSpy).toHaveBeenCalledWith(
+      "Error",
+      "No pudimos cancelar el viaje. Probá de nuevo.",
+    );
+    confirmAlertSpy.mockRestore();
   });
 
   it("no cancela si se descarta la confirmación", async () => {

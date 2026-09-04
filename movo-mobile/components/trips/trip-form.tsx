@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { PrimaryButton } from "../auth/primary-button";
 import { ErrorBanner } from "../ui/error-banner";
 import { SelectField } from "../ui/select-field";
@@ -89,7 +89,12 @@ export function TripForm({
 
   return (
     <View testID={testID} className="flex-1">
-      <View className="flex-1 gap-5 px-5 pt-4">
+      <ScrollView
+        className="flex-1 px-5"
+        contentContainerClassName="gap-5 pt-4 pb-8"
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <ErrorBanner testID={testID ? `${testID}-error` : undefined} message={error} />
 
         <View className="gap-3">
@@ -147,7 +152,7 @@ export function TripForm({
           onChange={setVehicleType}
           placeholder="Elegí un vehículo"
         />
-      </View>
+      </ScrollView>
 
       <PrimaryButton
         testID={testID ? `${testID}-submit` : undefined}

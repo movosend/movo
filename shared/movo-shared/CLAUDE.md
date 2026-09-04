@@ -100,3 +100,13 @@ Código nuevo en `ApiErrorCode` (`errors/api-error.ts`), consumido por
 `POST /shipments/:id/offers` — 409 cuando el viaje referenciado ya no está `active`
 (cancelado/completado). Ver `services/movo-svc-shipments/CLAUDE.md` (entrada de
 MOVO-161) para el detalle completo.
+
+**Gotcha de build local (review PR #120, Pedro Yorlano)**: los servicios Node
+consumen `dist/*.d.ts` de este paquete (`"types": "dist/index.d.ts"` en
+`package.json`), nunca `src/` directo — agregar un `ApiErrorCode` nuevo acá y
+correr `tsc --noEmit` en `movo-svc-shipments`/otro consumidor **sin antes** correr
+`npm run build` en `shared/movo-shared` falla con `Argument of type "X" is not
+assignable to parameter of type 'ApiErrorCode'`, porque el `dist/` local sigue
+reflejando el código viejo (`dist/` está gitignoreado, no se reconstruye solo). Si
+tocás este paquete, siempre `npm run build` acá antes de tipar contra el cambio
+desde otro workspace.

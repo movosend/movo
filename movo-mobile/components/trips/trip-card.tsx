@@ -3,7 +3,7 @@ import { Pressable, Text, View } from "react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { shortAddressLabel } from "../../src/lib/shipment-format";
 import { formatDepartureLabel, tripStatusLabel, tripStatusTone } from "../../src/lib/trip-format";
-import type { TripWithAcceptedPackages } from "../../src/api/trips-client";
+import { TripStatus, type TripWithAcceptedPackages } from "../../src/api/trips-client";
 
 const TONE_BADGE_CLASS: Record<"success" | "warning" | "danger" | "info" | "neutral", string> = {
   success: "bg-success-100 text-success-700",
@@ -25,7 +25,11 @@ interface TripCardProps {
  * `hasAcceptedPackages`, no se exponen los íconos de editar/eliminar — se reemplazan
  * por un badge + texto explicativo, mismo criterio de "no ofrecer una acción que el
  * backend va a rechazar con 409" que ya usa `SenderActionsBar`/`ReceiverActionsBar`
- * (MOVO-29/MOVO-131) para sus propios gates de estado.
+ * (MOVO-29/MOVO-131) para sus propios gates de estado. Mismo criterio para un viaje
+ * `cancelled`/`completed` sin paquetes aceptados (hallazgo de review, PR #120): tampoco
+ * tiene sentido ofrecer editar/eliminar un viaje que ya no está `active` — el backend
+ * lo rechazaría igual (`update`/`delete` no filtran por status, pero no hay ninguna
+ * transición de vuelta a `active` que la edición pudiera tener sentido de completar).
  */
 export function TripCard({ trip, onEdit, onDelete, testID }: TripCardProps) {
   const colors = useThemeColors();
@@ -76,7 +80,7 @@ export function TripCard({ trip, onEdit, onDelete, testID }: TripCardProps) {
             directamente.
           </Text>
         </View>
-      ) : (
+      ) : trip.status === TripStatus.ACTIVE ? (
         <View className="flex-row justify-end gap-2 border-t border-border pt-3">
           <Pressable
             testID={testID ? `${testID}-edit` : undefined}
@@ -95,7 +99,7 @@ export function TripCard({ trip, onEdit, onDelete, testID }: TripCardProps) {
             <Trash2 size={15} color={colors.fg2} strokeWidth={1.8} />
           </Pressable>
         </View>
-      )}
+      ) : null}
     </View>
   );
 }
