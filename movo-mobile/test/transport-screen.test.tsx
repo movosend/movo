@@ -115,6 +115,17 @@ describe("TransportScreen", () => {
 
   afterEach(() => jest.clearAllMocks());
 
+  it("navega a 'Mis viajes' al tocar el botón del header (MOVO-162)", async () => {
+    mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+    mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+
+    const { getByTestId } = await render(<TransportScreen />);
+
+    fireEvent.press(getByTestId("transport-my-trips-cta"));
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/carrier/trips");
+  });
+
   it("lista los envíos disponibles", async () => {
     mockUseTransportOrigin.mockReturnValue(baseOriginResult());
     mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([availableShipment()]) }));

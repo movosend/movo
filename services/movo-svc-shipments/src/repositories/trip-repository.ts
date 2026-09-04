@@ -1,5 +1,5 @@
 import { PrismaClient } from "../generated/prisma/client";
-import { TripStatus } from "@movo/shared";
+import { ShipmentStatus, TripStatus } from "@movo/shared";
 import {
   Trip,
   CreateTripInput,
@@ -7,6 +7,21 @@ import {
   TripWithAcceptedPackages,
   mapTrip,
 } from "../models/trip";
+
+/**
+ * Fragmento de filtro de "oferta que bloquea el viaje" — una oferta `accepted` cuyo
+ * envío ya está `cancelled` NO cuenta como paquete aceptado (fix, MOVO-162): sin este
+ * filtro, `cancelShipment` (`shipments.service.ts`) nunca toca la fila de `Offer` al
+ * cancelar (queda `accepted` para siempre, apuntando a un envío muerto) y el viaje
+ * quedaba bloqueado sin salida aunque el emisor cancelara el envío. Mismo criterio que
+ * ya se aplicó una vez en `listShipmentOffers` (MOVO-144, PR #105): filtrar también por
+ * `shipment.status`, no solo por el status de la oferta. Deliberadamente solo excluye
+ * `CANCELLED` — un envío `disputed`/`delivered` sí representa un paquete aceptado real.
+ */
+const ACCEPTED_OFFER_FILTER = {
+  status: "accepted",
+  shipment: { status: { not: ShipmentStatus.CANCELLED } },
+} as const;
 
 export class TripNotFoundError extends Error {
   constructor(public readonly id: string) {
@@ -65,7 +80,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       return db.offer.count({
         where: {
           tripId,
-          status: "accepted",
+          ...ACCEPTED_OFFER_FILTER,
         },
       });
     },
@@ -91,7 +106,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
             _count: {
               select: {
                 offers: {
-                  where: { status: "accepted" },
+                  where: ACCEPTED_OFFER_FILTER,
                 },
               },
             },
@@ -115,7 +130,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       }
 
       const acceptedCount = await db.offer.count({
-        where: { tripId: id, status: "accepted" },
+        where: { tripId: id, ...ACCEPTED_OFFER_FILTER },
       });
       if (acceptedCount > 0) {
         throw new TripHasAcceptedPackagesError(id);
@@ -146,7 +161,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       }
 
       const acceptedCount = await db.offer.count({
-        where: { tripId: id, status: "accepted" },
+        where: { tripId: id, ...ACCEPTED_OFFER_FILTER },
       });
       if (acceptedCount > 0) {
         throw new TripHasAcceptedPackagesError(id);

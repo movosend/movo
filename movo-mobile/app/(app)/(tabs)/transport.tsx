@@ -57,6 +57,8 @@ function RadiusPillRow({
  * Tab "Transportar" (MOVO-148) — reemplaza el placeholder de MOVO-78. Lista los
  * envíos disponibles cerca del transportista (`GET /shipments/available`, MOVO-142),
  * ordenados por distancia, con radio configurable y persistido.
+ *
+ * MOVO-162 agrega el acceso a "Mis viajes" en el header junto al título.
  */
 export default function TransportScreen() {
   const colors = useThemeColors();
@@ -111,7 +113,18 @@ export default function TransportScreen() {
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
       <View className="px-5 pb-1 pt-2">
-        <Text className="font-sans-semibold text-title text-fg">Transportar</Text>
+        <View className="flex-row items-center justify-between">
+          <Text className="font-sans-semibold text-title text-fg">Transportar</Text>
+          <Pressable
+            testID="transport-my-trips-cta"
+            // `as any`: ruta de MOVO-162, ver el comentario de `profile-settings-section.tsx`.
+            onPress={() => router.push("/carrier/trips" as any)}
+            hitSlop={8}
+            className="rounded-full bg-bg-mute px-3.5 py-1.5"
+          >
+            <Text className="font-sans-medium text-[13px] text-fg">Mis viajes</Text>
+          </Pressable>
+        </View>
         {origin ? (
           <View className="mt-1 flex-row items-center gap-1.5">
             <MapPin size={13} strokeWidth={1.8} color={colors.fg3} />

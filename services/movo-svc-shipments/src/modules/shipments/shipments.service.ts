@@ -1,7 +1,8 @@
-import { ApiError, OfferStatus, ShipmentStatus, UserRole, computeOfferGrossPrice } from "@movo/shared";
+import { ApiError, OfferStatus, ShipmentStatus, TripStatus, UserRole, computeOfferGrossPrice } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
+import { TripRepository } from "../../repositories/trip-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
@@ -112,6 +113,10 @@ export interface CreateOfferForShipmentInput {
   /** "YYYY-MM-DD", tiene que coincidir con `shipment.pickupDate` (AC5). */
   offeredDate: string;
   message?: string;
+  /** MOVO-162: viaje declarado (activo, del propio `carrierId`) del que esta oferta
+   * forma parte -- opcional, la mayoría de las ofertas no vienen de un viaje
+   * declarado (MOVO-142, descubrimiento libre). */
+  tripId?: string;
 }
 
 export interface CreateOfferForShipmentResult extends Offer {
@@ -339,6 +344,10 @@ export interface ShipmentsServiceOptions {
    * `shipments.routes.ts`.
    */
   getCarrierReputationScore?: (carrierId: string) => Promise<number | null>;
+  /** Requerido solo para `createOfferForShipment` cuando el caller manda `tripId`
+   * (MOVO-162) -- valida que el viaje exista, sea del mismo transportista y siga
+   * `active` antes de dejar que la oferta lo referencie. */
+  tripRepository?: TripRepository;
 }
 
 export function createShipmentsService(
@@ -352,6 +361,7 @@ export function createShipmentsService(
   const offerRepository = opts.offerRepository;
   const pricingClient = opts.pricingClient;
   const getCarrierReputationScore = opts.getCarrierReputationScore;
+  const tripRepository = opts.tripRepository;
 
   return {
     async createShipment(input: CreateShipmentServiceInput): Promise<Shipment> {
@@ -623,6 +633,31 @@ export function createShipmentsService(
         throw new ApiError(422, "VALIDATION_FAILED", "El precio ofertado tiene que ser mayor a 0.");
       }
 
+      // MOVO-162: tripId opcional -- valida que el viaje exista, sea del mismo
+      // transportista y siga activo antes de dejar que la oferta lo referencie. Sin
+      // este chequeo, cualquier caller podría taggear la oferta con el viaje de otro
+      // transportista o uno ya cancelado, y Trip.hasAcceptedPackages
+      // (trip-repository.ts) perdería sentido. Deliberadamente NO valida que el envío
+      // caiga geométricamente dentro del corredor del viaje -- todavía no hay ningún
+      // consumidor real que dispare este campo (MOVO-163/MOVO-149 no lo contemplan en
+      // su AC), así que esa validación queda para cuando exista ese flujo y se sepa
+      // qué radio/semántica espera.
+      if (input.tripId) {
+        if (!tripRepository) {
+          throw new Error("createOfferForShipment requiere tripRepository (ShipmentsServiceOptions) para validar tripId.");
+        }
+        const trip = await tripRepository.findById(input.tripId);
+        if (!trip) {
+          throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${input.tripId}' no existe.`);
+        }
+        if (trip.carrierId !== input.carrierId) {
+          throw new ApiError(403, "AUTH_FORBIDDEN", "No podés ofertar en nombre de un viaje que no es tuyo.");
+        }
+        if (trip.status !== TripStatus.ACTIVE) {
+          throw new ApiError(409, "TRIP_NOT_ACTIVE", "Solo podés ofertar desde un viaje activo.");
+        }
+      }
+
       // AC6: el transportista ingresa el NETO, el servidor calcula el BRUTO -- nunca
       // al revés. `computeOfferGrossPrice` es una función pura de `@movo/shared`
       // (misma tasa que usará el split real de movo-svc-payments más adelante, ver
@@ -646,6 +681,7 @@ export function createShipmentsService(
         priceOffered: grossArs,
         offeredDate: new Date(`${input.offeredDate}T00:00:00.000Z`),
         message: input.message,
+        tripId: input.tripId ?? null,
         carrierNameAtOffer: carrierProfile?.fullName ?? null,
         carrierRatingAtOffer,
       });

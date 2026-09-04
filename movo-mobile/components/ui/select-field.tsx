@@ -1,6 +1,7 @@
 import { ChevronDown, Check } from "lucide-react-native";
 import { useState } from "react";
 import {
+  Dimensions,
   FlatList,
   Modal,
   Pressable,
@@ -12,6 +13,17 @@ import Animated from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useSheetAnimation } from "../../src/hooks/use-sheet-animation";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+
+// Tope en píxeles, no `max-h-[70%]` (Tailwind/NativeWind): con un ancestro de alto
+// `auto` en el medio (`Animated.View` de `useSheetAnimation`, sin altura propia hasta
+// que mide su contenido), un `maxHeight` en porcentaje no actúa como tope real sobre
+// Android — Yoga lo resuelve contra el ancestro definido más cercano (la hoja entera,
+// pantalla completa) en vez de tratarlo como límite superior del contenido. El
+// síntoma, reproducido en dispositivo (MOVO-162): con pocas opciones (4, tipo de
+// vehículo) la hoja igual ocupaba ~70% de la pantalla, dejando un espacio en blanco
+// debajo de la última opción en vez de encogerse a su contenido. En píxeles fijos
+// Yoga no tiene ambigüedad que resolver.
+const MAX_SHEET_HEIGHT = Dimensions.get("window").height * 0.7;
 
 interface SelectFieldProps {
   label: string;
@@ -79,7 +91,10 @@ export function SelectField({
           </Animated.View>
           <View className="flex-1 justify-end" pointerEvents="box-none">
             <Animated.View style={sheetStyle}>
-              <View className="max-h-[70%] rounded-t-2xl bg-bg">
+              <View
+                style={{ maxHeight: MAX_SHEET_HEIGHT }}
+                className="rounded-t-2xl bg-bg"
+              >
                 <SafeAreaView edges={["bottom"]}>
                   <View className="items-center border-b border-border-strong px-5 py-3.5">
                     <Text className="font-sans-medium text-[14px] text-fg">
@@ -87,6 +102,7 @@ export function SelectField({
                     </Text>
                   </View>
                   <FlatList
+                    style={{ flexGrow: 0 }}
                     data={options}
                     keyExtractor={(item) => item}
                     renderItem={({ item }) => (

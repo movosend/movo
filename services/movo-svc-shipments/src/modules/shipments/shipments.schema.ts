@@ -182,6 +182,7 @@ const offerResponse = {
     "expiresAt",
     "createdAt",
     "respondedAt",
+    "tripId",
   ],
   properties: {
     id: { type: "string" },
@@ -196,6 +197,8 @@ const offerResponse = {
     expiresAt: { type: ["string", "null"], format: "date-time" },
     createdAt: { type: "string", format: "date-time" },
     respondedAt: { type: ["string", "null"], format: "date-time" },
+    // MOVO-162: viaje declarado del que esta oferta forma parte, si corresponde.
+    tripId: { type: ["string", "null"] },
   },
 };
 
@@ -479,6 +482,8 @@ export const shipmentsSchemas = {
       priceOfferedArs: { type: "number", exclusiveMinimum: 0 },
       offeredDate: { type: "string", format: "date" },
       message: { type: "string", maxLength: 500 },
+      // MOVO-162: viaje declarado (activo, propio) del que esta oferta forma parte.
+      tripId: { type: "string", format: "uuid" },
     },
     additionalProperties: false,
   },

@@ -32,6 +32,7 @@ const offerResponse = {
     "expiresAt",
     "createdAt",
     "respondedAt",
+    "tripId",
   ],
   properties: {
     id: { type: "string" },
@@ -46,6 +47,8 @@ const offerResponse = {
     expiresAt: { type: ["string", "null"], format: "date-time" },
     createdAt: { type: "string", format: "date-time" },
     respondedAt: { type: ["string", "null"], format: "date-time" },
+    // MOVO-162: viaje declarado del que esta oferta forma parte, si corresponde.
+    tripId: { type: ["string", "null"] },
   },
 };
 
@@ -69,6 +72,7 @@ const myOfferResponse = {
     "createdAt",
     "respondedAt",
     "shipment",
+    "tripId",
   ],
   properties: {
     id: { type: "string" },
@@ -87,6 +91,8 @@ const myOfferResponse = {
     // AC4/AC5: contexto mínimo del envío, incluye su status real (ej. "assignment_pending"
     // cuando esta oferta es la que ganó, AC5).
     shipment: offerShipmentContextResponse,
+    // MOVO-162: viaje declarado del que esta oferta forma parte, si corresponde.
+    tripId: { type: ["string", "null"] },
   },
 };
 

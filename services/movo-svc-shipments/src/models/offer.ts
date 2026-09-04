@@ -20,6 +20,12 @@ export interface Offer {
   expiresAt: Date | null;
   createdAt: Date;
   respondedAt: Date | null;
+  /** MOVO-162: viaje declarado (`shipments.trips`) del que esta oferta forma parte,
+   * si el transportista ofertó desde ese contexto -- `null` en el caso general (la
+   * mayoría de las ofertas no vienen de un viaje declarado, ver MOVO-142). Único dato
+   * que le permite a `Trip.hasAcceptedPackages` (`trip-repository.ts`) saber a cuál de
+   * los viajes de un transportista pertenece una oferta aceptada. */
+  tripId: string | null;
 }
 
 /**
@@ -52,6 +58,10 @@ export interface CreateOfferInput {
   expiresAt?: Date | null;
   carrierRatingAtOffer?: number | null;
   carrierNameAtOffer?: string | null;
+  /** MOVO-162: id de un viaje `active` del propio `carrierId` -- validado por
+   * `shipments.service.ts#createOfferForShipment` antes de llegar acá (existencia,
+   * pertenencia, estado), no por el repositorio. */
+  tripId?: string | null;
 }
 
 const OFFER_STATUS_VALUES: ReadonlySet<string> = new Set(Object.values(OfferStatus));
