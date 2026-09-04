@@ -325,13 +325,23 @@ describe("formatShipmentRowTime", () => {
     const now = new Date("2026-08-20T12:01:30.000Z");
     expect(
       formatShipmentRowTime(
-        { status: ShipmentStatus.PUBLISHED, createdAt: "2026-08-20T12:01:30.000Z", lastStatusChangedAt: null },
+        {
+          status: ShipmentStatus.PUBLISHED,
+          createdAt: "2026-08-20T12:01:30.000Z",
+          lastStatusChangedAt: null,
+          pickupTimeWindowEnd: "12:00:00",
+        },
         now
       )
     ).toBe("Recién");
     expect(
       formatShipmentRowTime(
-        { status: ShipmentStatus.PUBLISHED, createdAt: "2026-08-20T12:00:30.000Z", lastStatusChangedAt: null },
+        {
+          status: ShipmentStatus.PUBLISHED,
+          createdAt: "2026-08-20T12:00:30.000Z",
+          lastStatusChangedAt: null,
+          pickupTimeWindowEnd: "12:00:00",
+        },
         now
       )
     ).toBe("Recién");
@@ -341,7 +351,12 @@ describe("formatShipmentRowTime", () => {
     const now = new Date("2026-08-20T12:30:00.000Z");
     expect(
       formatShipmentRowTime(
-        { status: ShipmentStatus.PUBLISHED, createdAt: "2026-08-20T12:25:00.000Z", lastStatusChangedAt: null },
+        {
+          status: ShipmentStatus.PUBLISHED,
+          createdAt: "2026-08-20T12:25:00.000Z",
+          lastStatusChangedAt: null,
+          pickupTimeWindowEnd: "12:00:00",
+        },
         now
       )
     ).toBe("hace 5 min");
