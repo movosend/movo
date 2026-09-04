@@ -485,3 +485,57 @@ traza ni re-probar nada de este lado salvo que soporte pida explícitamente una 
 nueva y puntual — el diagnóstico ya está confirmado dos veces por ellos mismos. Si
 llega otra respuesta genérica/templada, señalar el historial ya confirmado (21/08,
 01/09 15:14) en vez de re-litigar la configuración básica.
+
+## Sesión 2026-09-04 — nueva respuesta de soporte (dos causas puntuales), repetición de la prueba, ambas descartadas
+
+Soporte respondió con una línea de troubleshooting distinta a la de Sofía (01/09):
+propusieron dos causas de configuración de cuenta puntuales a descartar antes de seguir
+—no parece tener en cuenta lo ya confirmado el 01/09 (que el 2034 es un problema más
+amplio del sandbox, no de cuenta/app puntual)—:
+
+1. `payer.email` con dominio `@testuser.com` podría disparar el 2034 por sí solo.
+2. La app usada para el OAuth Connect debe estar creada por (ser propiedad de) una de
+   las cuentas de prueba del escenario (Integrator/Marketplace, Vendedor o Comprador),
+   no por una cuenta real de developer — señalada como "la causa raíz más frecuente".
+
+Sobre el punto 2: repasando el `.env` de este spike, ya había un intento anterior
+(13/08) que había llegado a la misma conclusión por su cuenta y había creado la app
+`7550835762771398` desde la cuenta de prueba Integrador (`user_id 3609549431`) — pero
+ese intento quedó a medio terminar: `MP_APP_CLIENT_ID`/`MP_APP_CLIENT_SECRET` en el
+`.env` habían quedado desalineados (eran los de la app personal de Tomás,
+`2511208387832416`, no los de `7550835762771398`), así que ninguna prueba con esa app
+se había llegado a correr realmente con las credenciales correctas juntas. Se corrigió
+el `.env` (los 4 valores de la app ahora son consistentes) y se relevantó un túnel
+cloudflared nuevo para el redirect URI.
+
+**Corrección para soporte**: el User ID `3612155467` que mencionaron como posible
+cuenta Marketplace no es esa cuenta — es el Vendedor de la prueba de Orders API (ver
+comentario del `.env`, integración separada). La cuenta Integrador real es `3609549431`.
+
+Con la app y el email corregidos, se repitió el flujo completo (OAuth Connect con
+`test_token:true` → tokenizar tarjeta con la Public Key de esa app → `POST
+/v1/payments` con `capture:false` + `application_fee`):
+
+- **Prueba 1** (capture:false + application_fee, igual que siempre): **HTTP 400,
+  2034** de nuevo. Correlation id `04-09-2026T19:00:19UTC;502e1425-adde-4897-9c72-
+  689792fd1b11`.
+- **Prueba 2** (mismo pago pero SIN `capture:false` — captura inmediata, para aislar si
+  el 2034 depende de la combinación con el hold): **HTTP 400, 2034 otra vez, mismo
+  error exacto**. Correlation id `04-09-2026T19:02:12UTC;abd12a9c-8262-442f-80fe-
+  639a3b24894e`.
+
+**Conclusión**: las dos causas propuestas en este mensaje quedan descartadas — ni el
+owner de la app ni el dominio del email eran el problema, y la Prueba 2 muestra que ni
+siquiera hace falta `capture:false` para que aparezca el 2034: alcanza con
+`application_fee` solo. Esto es consistente con lo que Sofía ya había confirmado el
+01/09 (problema más amplio del ambiente de sandbox, no de cuenta/app/capture puntual) —
+la respuesta de este mensaje parece no haber tenido en cuenta ese hallazgo previo.
+
+Respuesta enviada a soporte con ambas pruebas y la corrección del User ID:
+`SUPPORT-REPLY-2026-09-04.txt`.
+
+**Estado al 2026-09-04**: sin causa de configuración de cuenta que quede por probar de
+este lado. Si soporte no aporta una causa nueva y distinta a partir de esta respuesta,
+se cierra la investigación y se documenta `application_fee` (con o sin hold) como
+**limitación conocida no soportada en el sandbox de MP** para este TFG — no seguir
+iterando combinaciones de cuentas.
