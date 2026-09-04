@@ -54,15 +54,18 @@ describe("NewTripScreen", () => {
     mockUseCreateTrip.mockReturnValue({ mutate: mockCreateTripMutate, isPending: false });
   });
 
-  it("llama a la mutación con el input del form y vuelve atrás al éxito", async () => {
-    mockCanGoBack.mockReturnValue(true);
+  it("llama a la mutación con el input del form y navega a Mis viajes con la confirmación de éxito", async () => {
     mockCreateTripMutate.mockImplementation((_input, { onSuccess }: any) => onSuccess());
 
     const { getByTestId } = await render(<NewTripScreen />);
     fireEvent.press(getByTestId("tf-stub-submit"));
 
     expect(mockCreateTripMutate).toHaveBeenCalledWith(FAKE_INPUT, expect.any(Object));
-    expect(mockRouterBack).toHaveBeenCalled();
+    expect(mockRouterReplace).toHaveBeenCalledWith({
+      pathname: "/carrier/trips",
+      params: { created: "1" },
+    });
+    expect(mockRouterBack).not.toHaveBeenCalled();
   });
 
   it("muestra el mensaje amigable de CARRIER_NOT_VERIFIED ante un 403", async () => {
@@ -82,12 +85,11 @@ describe("NewTripScreen", () => {
     );
   });
 
-  it("reemplaza al listado si no hay historial al volver", async () => {
+  it("el botón de back del header reemplaza al listado si no hay historial", async () => {
     mockCanGoBack.mockReturnValue(false);
-    mockCreateTripMutate.mockImplementation((_input, { onSuccess }: any) => onSuccess());
 
     const { getByTestId } = await render(<NewTripScreen />);
-    fireEvent.press(getByTestId("tf-stub-submit"));
+    fireEvent.press(getByTestId("new-trip-back"));
 
     expect(mockRouterReplace).toHaveBeenCalledWith("/carrier/trips");
   });

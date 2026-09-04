@@ -12,7 +12,7 @@ export function tripStatusLabel(status: TripStatus): string {
 
 export function tripStatusTone(
   status: TripStatus,
-): "success" | "warning" | "danger" | "info" | "neutral" {
+): "success" | "warning" | "danger" | "lime" | "neutral" {
   switch (status) {
     case TripStatus.COMPLETED:
       return "success";
@@ -20,7 +20,10 @@ export function tripStatusTone(
       return "danger";
     case TripStatus.ACTIVE:
     default:
-      return "info";
+      // Acento de marca (lima) para el estado principal/activo — feedback de UI post-
+      // implementación: el tono "info" (azul) no es parte de la paleta de acento de
+      // Movo, se pidió reemplazarlo por el lima característico.
+      return "lime";
   }
 }
 

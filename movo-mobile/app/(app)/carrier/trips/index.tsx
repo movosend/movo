@@ -1,10 +1,12 @@
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { ChevronLeft, MapPinOff, WifiOff } from "lucide-react-native";
+import { useState } from "react";
 import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TripCard } from "../../../../components/trips/trip-card";
 import { PrimaryButton } from "../../../../components/auth/primary-button";
 import { SkeletonBlock } from "../../../../components/ui/skeleton-block";
+import { SuccessBanner } from "../../../../components/ui/success-banner";
 import { useDeleteTrip, useMyTrips } from "../../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
@@ -31,8 +33,10 @@ function TripsListSkeleton() {
  */
 export default function MyTripsScreen() {
   const colors = useThemeColors();
+  const { created } = useLocalSearchParams<{ created?: string }>();
   const { data, isLoading, isError, isRefetching, refetch } = useMyTrips();
   const deleteTrip = useDeleteTrip();
+  const [showCreatedSuccess, setShowCreatedSuccess] = useState(created === "1");
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -77,9 +81,17 @@ export default function MyTripsScreen() {
         <Text className="font-sans-semibold text-h3 text-fg">Mis viajes</Text>
       </View>
       <Text className="px-5 pb-4 font-sans text-[13px] text-fg-3">
-        Declará los viajes que tenés planeados para que otros usuarios encuentren
-        paquetes compatibles con tu ruta.
+        Declará los viajes que tenés planeados para encontrar paquetes compatibles
+        con tu ruta.
       </Text>
+
+      <View className="px-5">
+        <SuccessBanner
+          testID="my-trips-created-success"
+          message={showCreatedSuccess ? "¡Viaje declarado!" : null}
+          onDismiss={() => setShowCreatedSuccess(false)}
+        />
+      </View>
 
       {isLoading ? (
         <TripsListSkeleton />

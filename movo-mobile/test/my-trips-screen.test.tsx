@@ -7,6 +7,7 @@ const mockRouterBack = jest.fn();
 const mockRouterReplace = jest.fn();
 const mockRouterPush = jest.fn();
 const mockCanGoBack = jest.fn();
+const mockUseLocalSearchParams = jest.fn(() => ({}) as { created?: string });
 
 jest.mock("expo-router", () => ({
   router: {
@@ -15,6 +16,7 @@ jest.mock("expo-router", () => ({
     push: (...args: unknown[]) => mockRouterPush(...args),
     canGoBack: () => mockCanGoBack(),
   },
+  useLocalSearchParams: () => mockUseLocalSearchParams(),
 }));
 
 const mockUseMyTrips = jest.fn();
@@ -48,6 +50,10 @@ const TRIP_CANCELLED: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-3", stat
 describe("MyTripsScreen", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // `mockReturnValue` no se limpia con `clearAllMocks` (solo mockClear/mockReset lo
+    // hacen) — sin este reset explícito, un test que llama `mockReturnValue({created:
+    // "1"})` deja el valor pisado para el resto de la suite.
+    mockUseLocalSearchParams.mockReturnValue({});
   });
 
   it("muestra el skeleton mientras carga", async () => {
@@ -56,6 +62,34 @@ describe("MyTripsScreen", () => {
     const { queryByTestId } = await render(<MyTripsScreen />);
 
     expect(queryByTestId("my-trips-add")).toBeNull();
+  });
+
+  it("muestra la confirmación de éxito al volver de declarar un viaje (?created=1)", async () => {
+    mockUseLocalSearchParams.mockReturnValue({ created: "1" });
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId, getByText } = await render(<MyTripsScreen />);
+
+    expect(getByTestId("my-trips-created-success")).toBeTruthy();
+    expect(getByText("¡Viaje declarado!")).toBeTruthy();
+  });
+
+  it("no muestra la confirmación de éxito sin el param created", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { queryByTestId } = await render(<MyTripsScreen />);
+
+    expect(queryByTestId("my-trips-created-success")).toBeNull();
   });
 
   it("muestra el estado de error con reintento", async () => {

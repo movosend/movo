@@ -29,7 +29,13 @@ export default function NewTripScreen() {
   const handleSubmit = (input: CreateTripInput) => {
     setError(null);
     createTrip.mutate(input, {
-      onSuccess: () => handleBack(),
+      // Reemplaza (no `back()`) para garantizar que el flag de éxito llegue a "Mis
+      // viajes" — mismo patrón que `forgot-password.tsx` → `login.tsx` (AC de
+      // confirmación visual). De paso evita dejar el formulario ya enviado en el
+      // stack para un swipe-back accidental.
+      // `as any`: ruta nueva de MOVO-162, ver el comentario de `transport.tsx`.
+      onSuccess: () =>
+        router.replace({ pathname: "/carrier/trips", params: { created: "1" } } as any),
       onError: (err) => setError(friendlyErrorMessage(err, CREATE_ERROR_FALLBACK)),
     });
   };

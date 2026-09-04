@@ -1,15 +1,17 @@
-import { ArrowRight, Pencil, Trash2, Truck } from "lucide-react-native";
+import { ArrowRight, Clock, Pencil, Trash2, Truck } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { shortAddressLabel } from "../../src/lib/shipment-format";
 import { formatDepartureLabel, tripStatusLabel, tripStatusTone } from "../../src/lib/trip-format";
 import { TripStatus, type TripWithAcceptedPackages } from "../../src/api/trips-client";
 
-const TONE_BADGE_CLASS: Record<"success" | "warning" | "danger" | "info" | "neutral", string> = {
+const TONE_BADGE_CLASS: Record<"success" | "warning" | "danger" | "lime" | "neutral", string> = {
   success: "bg-success-100 text-success-700",
   warning: "bg-warning-100 text-warning-700",
   danger: "bg-danger-100 text-danger-700",
-  info: "bg-info-100 text-info-700",
+  // Acento de marca — feedback de UI: el estado "Activo" usa el lima característico
+  // de Movo en vez del azul semántico genérico ("info").
+  lime: "bg-lime-200 text-ink-950",
   neutral: "bg-bg-mute text-fg-2",
 };
 
@@ -63,10 +65,6 @@ export function TripCard({ trip, onEdit, onDelete, testID }: TripCardProps) {
         </Text>
       </View>
 
-      <Text className="font-sans text-[12px] text-fg-3">
-        Salida: {formatDepartureLabel(trip.departureAt)}
-      </Text>
-
       {trip.hasAcceptedPackages ? (
         <View className="gap-1.5 rounded-[10px] bg-bg-mute px-3.5 py-3">
           <Text
@@ -80,26 +78,38 @@ export function TripCard({ trip, onEdit, onDelete, testID }: TripCardProps) {
             directamente.
           </Text>
         </View>
-      ) : trip.status === TripStatus.ACTIVE ? (
-        <View className="flex-row justify-end gap-2 border-t border-border pt-3">
-          <Pressable
-            testID={testID ? `${testID}-edit` : undefined}
-            onPress={onEdit}
-            hitSlop={8}
-            className="h-9 w-9 items-center justify-center rounded-full bg-bg-mute"
-          >
-            <Pencil size={15} color={colors.fg2} strokeWidth={1.8} />
-          </Pressable>
-          <Pressable
-            testID={testID ? `${testID}-delete` : undefined}
-            onPress={onDelete}
-            hitSlop={8}
-            className="h-9 w-9 items-center justify-center rounded-full bg-bg-mute"
-          >
-            <Trash2 size={15} color={colors.fg2} strokeWidth={1.8} />
-          </Pressable>
-        </View>
       ) : null}
+
+      <View className="flex-row items-center justify-between border-t border-border pt-3">
+        <View className="flex-row items-center gap-1.5">
+          <Clock size={14} color={colors.fg1} strokeWidth={1.8} />
+          <Text className="font-sans-medium text-[13px] text-fg">
+            Salida: {formatDepartureLabel(trip.departureAt)}
+          </Text>
+        </View>
+        {!trip.hasAcceptedPackages && trip.status === TripStatus.ACTIVE ? (
+          <View className="flex-row items-center gap-2.5">
+            <Pressable
+              testID={testID ? `${testID}-edit` : undefined}
+              onPress={onEdit}
+              hitSlop={8}
+              accessibilityLabel="Editar viaje"
+              className="rounded-full border border-border-strong bg-bg p-2"
+            >
+              <Pencil size={14} color={colors.fg1} strokeWidth={1.8} />
+            </Pressable>
+            <Pressable
+              testID={testID ? `${testID}-delete` : undefined}
+              onPress={onDelete}
+              hitSlop={8}
+              accessibilityLabel="Eliminar viaje"
+              className="rounded-full bg-fg p-2"
+            >
+              <Trash2 size={14} color={colors.bg} strokeWidth={1.8} />
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
     </View>
   );
 }
