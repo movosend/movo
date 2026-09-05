@@ -16,6 +16,10 @@ export interface ShipmentRatingsCardProps {
   ratings: Rating[] | undefined;
   isLoadingRatings?: boolean;
   onRate: (target: RatingTarget) => void;
+  /** Abre el perfil público de la contraparte (MOVO-154) al tocar avatar/nombre —
+   * acción distinta de calificar, por eso no comparte `Pressable` con el botón
+   * "Calificar"/"Editar". */
+  onViewProfile?: (userId: string) => void;
   testID?: string;
 }
 
@@ -67,6 +71,7 @@ function CounterpartyRatingRow({
   isExpired,
   isInDispute,
   onRate,
+  onViewProfile,
   testID,
 }: {
   counterparty: CounterpartyInfo;
@@ -74,6 +79,7 @@ function CounterpartyRatingRow({
   isExpired: boolean;
   isInDispute: boolean;
   onRate: (target: RatingTarget) => void;
+  onViewProfile?: (userId: string) => void;
   testID?: string;
 }) {
   const colors = useThemeColors();
@@ -116,7 +122,14 @@ function CounterpartyRatingRow({
     >
       {/* User info */}
       <View className="flex-row items-center justify-between">
-        <View className="flex-row items-center gap-3 flex-1 pr-2">
+        <Pressable
+          testID={testID ? `${testID}-profile-${counterparty.userId}` : `rating-row-profile-${counterparty.userId}`}
+          onPress={onViewProfile ? () => onViewProfile(counterparty.userId) : undefined}
+          disabled={!onViewProfile}
+          accessibilityRole={onViewProfile ? "button" : undefined}
+          accessibilityLabel={onViewProfile ? `Ver perfil de ${fullName}` : undefined}
+          className={`flex-row items-center gap-3 flex-1 pr-2 ${onViewProfile ? "active:opacity-75" : ""}`}
+        >
           <AvatarImage fullName={fullName} photoUrl={profile?.photoUrl ?? null} size={40} />
           <View className="flex-1">
             <Text
@@ -130,7 +143,7 @@ function CounterpartyRatingRow({
               {counterparty.roleLabel}
             </Text>
           </View>
-        </View>
+        </Pressable>
 
         {/* Action button */}
         {!hasRated && !isExpired && !isInDispute ? (
@@ -224,6 +237,7 @@ export function ShipmentRatingsCard({
   currentUserId,
   ratings,
   onRate,
+  onViewProfile,
   testID,
 }: ShipmentRatingsCardProps) {
   const counterparties = resolveCounterparties(shipment, currentUserId);
@@ -246,6 +260,7 @@ export function ShipmentRatingsCard({
             isExpired={isExpired}
             isInDispute={isInDispute}
             onRate={onRate}
+            onViewProfile={onViewProfile}
             testID={testID}
           />
         );

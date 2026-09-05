@@ -11,6 +11,7 @@ jest.mock("expo-router", () => ({
 const mockLogout = jest.fn();
 const mockRefetch = jest.fn();
 const mockUseMyProfile = jest.fn();
+const mockUsePublicProfile = jest.fn();
 const mockInvalidateQueries = jest.fn();
 
 jest.mock("@tanstack/react-query", () => ({
@@ -26,6 +27,7 @@ jest.mock("../src/hooks/use-auth", () => ({
 
 jest.mock("../src/hooks/use-profile", () => ({
   useMyProfile: () => mockUseMyProfile(),
+  usePublicProfile: () => mockUsePublicProfile(),
 }));
 
 function baseProfile(overrides: Partial<PrivateProfile> = {}): PrivateProfile {
@@ -59,6 +61,12 @@ function baseProfile(overrides: Partial<PrivateProfile> = {}): PrivateProfile {
 // MOVO-78: pantalla de perfil propio — loading/error/estados de KYC/logout.
 describe("ProfileScreen", () => {
   afterEach(() => jest.clearAllMocks());
+
+  beforeEach(() => {
+    // Desglose de reputación (MOVO-154) — degrada a "sin sección" en los tests que no
+    // lo ejercitan explícitamente, mismo criterio que la pantalla real ante un fallo.
+    mockUsePublicProfile.mockReturnValue({ data: undefined, isLoading: false, isError: false });
+  });
 
   it("muestra el skeleton mientras carga (AC8)", async () => {
     mockUseMyProfile.mockReturnValue({
@@ -253,6 +261,60 @@ describe("ProfileScreen", () => {
     const licenseText = within(badgesContainer).getByText("Licencia");
     expect(dniText.props.className).toContain("text-danger-600");
     expect(licenseText.props.className).toContain("text-danger-600");
+  });
+
+  // MOVO-154: desglose de reputación por rol + comentarios recientes en el perfil
+  // propio, alimentado por `usePublicProfile(myId)` — `PrivateProfile` no trae esos
+  // campos (ver `use-profile.ts`).
+  it("muestra el desglose de reputación por rol cuando el perfil público resuelve", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile(),
+      refetch: mockRefetch,
+    });
+    mockUsePublicProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: {
+        id: "user-1",
+        fullName: "Martina Zurita",
+        photoUrl: null,
+        isVerified: true,
+        badges: ["kyc_verified"],
+        transactionCounts: { asSender: 0, asCarrier: 0 },
+        reputationScore: 4.7,
+        ratingCount: 9,
+        isNewProfile: false,
+        asSender: { reputationScore: 4.5, ratingCount: 4, isNewProfile: false },
+        asCarrier: { reputationScore: null, ratingCount: 2, isNewProfile: true },
+        recentRatingComments: [
+          { id: "r1", raterId: "u2", score: 5, comment: "Todo perfecto", createdAt: "2026-08-01T00:00:00.000Z" },
+        ],
+      },
+    });
+
+    const { getByText, getByTestId } = await render(<ProfileScreen />);
+
+    expect(getByTestId("profile-reputation-detail")).toBeTruthy();
+    expect(getByText("Como emisor")).toBeTruthy();
+    expect(getByText("Como transportista")).toBeTruthy();
+    expect(getByText("Perfil nuevo")).toBeTruthy();
+    expect(getByText("Todo perfecto")).toBeTruthy();
+  });
+
+  it("no muestra la sección de reputación si el perfil público todavía no resolvió (degrada sin romper)", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile(),
+      refetch: mockRefetch,
+    });
+    mockUsePublicProfile.mockReturnValue({ isLoading: true, isError: false, data: undefined });
+
+    const { queryByTestId } = await render(<ProfileScreen />);
+
+    expect(queryByTestId("profile-reputation-detail")).toBeNull();
   });
 });
 

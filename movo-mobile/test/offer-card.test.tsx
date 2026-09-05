@@ -61,6 +61,24 @@ describe("OfferCard", () => {
     expect(getByText("4.8")).toBeTruthy();
   });
 
+  // MOVO-154, AC7: mismo `StarRatingInput` en modo lectura que el resto de la app,
+  // no una representación aparte.
+  it("muestra el score con el StarRatingInput en modo lectura, no un ícono estático", async () => {
+    const offerWithRating: OfferSummary = { ...mockOffer, carrierRatingAtOffer: 4.8 };
+
+    const { getByTestId } = await render(
+      <OfferCard
+        offer={offerWithRating}
+        onAccept={mockOnAccept}
+        onReject={mockOnReject}
+        onViewProfile={mockOnViewProfile}
+      />
+    );
+
+    const star5 = getByTestId("star-5");
+    expect(star5.props.accessibilityState.disabled).toBe(true);
+  });
+
   it("llama a onViewProfile al presionar la cabecera del transportista", async () => {
     const { getByTestId } = await render(
       <OfferCard

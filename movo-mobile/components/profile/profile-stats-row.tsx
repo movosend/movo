@@ -12,6 +12,9 @@ import { GradientBorderCard } from "../ui/gradient-border-card";
 export interface ProfileStatsRowProps {
   transactionCounts: TransactionCounts;
   reputationScore: number | null;
+  /** Menos de 3 transacciones calificadas (MOVO-154, AC5) — reemplaza el número por
+   * "Perfil nuevo", umbral resuelto por el backend, nunca reimplementado acá. */
+  isNewProfile?: boolean;
   testID?: string;
 }
 
@@ -19,13 +22,18 @@ export interface ProfileStatsRowProps {
  * crudo — siempre pasa por `profile-format.ts` para que el estado en cero (el que va
  * a estar activo en la Sprint Review) se vea intencional. Props compatibles con
  * `PublicProfile` (mismos 2 campos existen ahí). */
-export function ProfileStatsRow({ transactionCounts, reputationScore, testID }: ProfileStatsRowProps) {
+export function ProfileStatsRow({
+  transactionCounts,
+  reputationScore,
+  isNewProfile,
+  testID,
+}: ProfileStatsRowProps) {
   const colors = useThemeColors();
 
   const stats = [
     { key: "shipments", Icon: Package, text: formatShipmentCount(transactionCounts.asSender) },
     { key: "trips", Icon: Truck, text: formatTripCount(transactionCounts.asCarrier) },
-    { key: "score", Icon: Star, text: formatReputationScore(reputationScore) },
+    { key: "score", Icon: Star, text: formatReputationScore(reputationScore, isNewProfile) },
   ];
 
   return (

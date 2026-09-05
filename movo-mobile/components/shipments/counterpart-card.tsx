@@ -1,14 +1,18 @@
 import {
   CheckCircle2,
+  ChevronRight,
   Clock,
   XCircle,
   type LucideIcon,
 } from "lucide-react-native";
-import { Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { AvatarImage } from "../ui/avatar-image";
 import { SkeletonBlock } from "../ui/skeleton-block";
+import { StarRatingInput } from "../ui/star-rating-input";
 import { ProfileVerifiedBadge } from "../profile/profile-verified-badge";
 import { usePublicProfile } from "../../src/hooks/use-profile";
+import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { formatReputationScore } from "../../src/lib/profile-format";
 
 export type ReceiverConfirmationStatus = "pending" | "confirmed" | "rejected";
 
@@ -44,6 +48,9 @@ export interface CounterpartCardProps {
    * `REJECTED_BY_RECEIVER`/cualquier otro estado posterior), esta card no conoce el
    * enum de estados del envío. `undefined` (emisor o transportista) no muestra badge. */
   receiverConfirmation?: ReceiverConfirmationStatus;
+  /** Abre el perfil público de esta contraparte (MOVO-154) — sin esta prop la card
+   * se comporta como antes (`View` no tocable), nunca se fuerza. */
+  onPress?: () => void;
   /** Etiqueta de la sección ("Emisor"/"Receptor"/"Transportista") — la card no la muestra, la
    * pinta el caller vía `Eyebrow` (mismo patrón que `RouteMapCard`/`PackageCard`, cada
    * card es solo el contenido, el título de sección vive afuera). */
@@ -54,14 +61,18 @@ export interface CounterpartCardProps {
  * Card de contraparte del envío (AC7 de MOVO-127, MOVO-131) — reusada para el receptor
  * (`shipment.receiverId`), el emisor (`shipment.senderId`, cuando el usuario es el
  * receptor) y el transportista (`shipment.carrierId`, cuando existe).
- * Sin rating: `reputationScore` de `PublicProfile` es siempre `null` hoy (MOVO-25
- * pendiente), mostrar un "★ —" vacío sería peor que no mostrar nada.
+ * Reputación real desde MOVO-152/154 — antes `reputationScore` de `PublicProfile`
+ * era siempre `null`, así que no se mostraba nada; ahora se muestra siempre en el
+ * mismo estado que el resto de la app (`formatReputationScore`, "Sin calificaciones"/
+ * "Perfil nuevo" nunca en blanco ni en cero).
  */
 export function CounterpartCard({
   userId,
   receiverConfirmation,
+  onPress,
   testID,
 }: CounterpartCardProps) {
+  const colors = useThemeColors();
   const { data: profile, isLoading, isError } = usePublicProfile(userId);
 
   if (isLoading) {
@@ -100,9 +111,13 @@ export function CounterpartCard({
     : [];
 
   return (
-    <View
+    <Pressable
       testID={testID}
-      className="flex-row items-center gap-3 rounded-[14px] border border-border bg-bg px-4 py-3.5"
+      onPress={onPress}
+      disabled={!onPress}
+      accessibilityRole={onPress ? "button" : undefined}
+      accessibilityLabel={onPress ? `Ver perfil de ${profile.fullName}` : undefined}
+      className={`flex-row items-center gap-3 rounded-[14px] border border-border bg-bg px-4 py-3.5 ${onPress ? "active:opacity-75" : ""}`}
     >
       <AvatarImage
         fullName={profile.fullName}
@@ -114,6 +129,12 @@ export function CounterpartCard({
           {profile.fullName}
         </Text>
         {profile.isVerified ? <ProfileVerifiedBadge /> : null}
+        <View className="mt-1 flex-row items-center gap-1.5">
+          <StarRatingInput score={profile.reputationScore ?? 0} readOnly size={11} gap={1} />
+          <Text className="font-sans text-[11px] text-fg-3">
+            {formatReputationScore(profile.reputationScore, profile.isNewProfile)}
+          </Text>
+        </View>
       </View>
       {confirmation ? (
         <View
@@ -129,6 +150,7 @@ export function CounterpartCard({
           </Text>
         </View>
       ) : null}
-    </View>
+      {onPress ? <ChevronRight size={18} color={colors.fg3} strokeWidth={2} /> : null}
+    </Pressable>
   );
 }
