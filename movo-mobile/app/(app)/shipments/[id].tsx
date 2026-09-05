@@ -23,6 +23,7 @@ import { SuccessBanner } from "../../../components/ui/success-banner";
 import { useAuthStore } from "../../../src/store/auth-store";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
+import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useShipmentRatings } from "../../../src/hooks/use-ratings";
 import { useShipment } from "../../../src/hooks/use-shipments";
 import {
@@ -91,6 +92,13 @@ export default function ShipmentDetailScreen() {
   const activeUserId = currentUser?.userId ?? "";
 
   const isReceiver = shipment !== undefined && currentUser?.userId === shipment.receiverId;
+
+  // Mismo query key que `CounterpartCard` (`usePublicProfile`, MOVO-154) — TanStack
+  // Query dedupea, así que esto no dispara un segundo request cuando esa card ya trajo
+  // el perfil del emisor. Solo se usa para nombrar al emisor en el sheet de rechazo
+  // de `ReceiverActionsBar` (variante 2a del diseño de "Confirmación de envío").
+  const { data: senderProfile } = usePublicProfile(isReceiver ? shipment?.senderId : undefined);
+  const senderFirstName = senderProfile?.fullName?.split(" ")[0];
 
   // Si el deadline ya venció, el receptor no puede actuar aunque el barrido todavía
   // no haya cancelado el envío — la deadline manda sobre el reloj del job (MOVO-130 AC5).
@@ -346,6 +354,8 @@ export default function ShipmentDetailScreen() {
             <ReceiverActionsBar
               shipmentId={shipment.id}
               receiverConfirmationDeadline={shipment.receiverConfirmationDeadline}
+              shipmentCreatedAt={shipment.createdAt}
+              senderFirstName={senderFirstName}
               onRefetch={() => refetch()}
               onAcceptSuccess={() => setIsAcceptSuccessVisible(true)}
               testID="shipment-detail-receiver-actions"

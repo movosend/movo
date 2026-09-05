@@ -432,6 +432,35 @@ export function formatReceiverConfirmationDeadline(
 }
 
 /**
+ * Fracción de tiempo RESTANTE (1 = recién creado, 0 = deadline ya vencido) para la
+ * barra de progreso del slider de confirmación del receptor (MOVO-154, diseño de
+ * Claude Design "Confirmación de envío"). El total de la ventana sale de
+ * `deadlineIso - createdAtIso` (no de un valor fijo como `RECEIVER_CONFIRMATION_
+ * TIMEOUT_HOURS`, `svc-shipments`): la deadline real puede haberse acortado contra el
+ * cierre de la ventana de retiro (ver `shipments.service.ts#createShipment`), así que
+ * reconstruir el total a partir de las dos fechas persistidas es la única forma de que
+ * la barra sea consistente con `formatReceiverConfirmationDeadline`.
+ * Devuelve `null` ante fechas inválidas o una ventana total <= 0 (degrada silenciosamente,
+ * el caller simplemente no pinta la barra).
+ */
+export function receiverConfirmationRemainingFraction(
+  createdAtIso: string | null | undefined,
+  deadlineIso: string | null | undefined,
+  now: Date = new Date(),
+): number | null {
+  if (!createdAtIso || !deadlineIso) return null;
+  const createdAtMs = new Date(createdAtIso).getTime();
+  const deadlineMs = new Date(deadlineIso).getTime();
+  if (Number.isNaN(createdAtMs) || Number.isNaN(deadlineMs)) return null;
+
+  const totalMs = deadlineMs - createdAtMs;
+  if (totalMs <= 0) return null;
+
+  const remainingMs = deadlineMs - now.getTime();
+  return Math.max(0, Math.min(1, remainingMs / totalMs));
+}
+
+/**
  * Texto de tiempo secundario para cada fila en la sección "Actividad reciente" (diseño 1-b).
  *
  * Lógica por caso:

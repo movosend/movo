@@ -4,6 +4,7 @@ import {
   formatEventTimestamp,
   formatPickupWindowLabel,
   formatReceiverConfirmationDeadline,
+  receiverConfirmationRemainingFraction,
   formatShipmentPrice,
   formatTimeHHMM,
   receiverConfirmationStatus,
@@ -317,6 +318,54 @@ describe("formatReceiverConfirmationDeadline", () => {
     const deadline = "2026-08-20T12:30:00.000Z";
     const now = new Date("2026-08-20T12:00:00.000Z"); // 30 min -> 1 h
     expect(formatReceiverConfirmationDeadline(deadline, now)).toBe("Te queda 1 h para confirmar");
+  });
+});
+
+describe("receiverConfirmationRemainingFraction", () => {
+  it("devuelve null si falta createdAt o deadline", () => {
+    expect(
+      receiverConfirmationRemainingFraction(null, "2026-08-22T00:00:00.000Z"),
+    ).toBeNull();
+    expect(
+      receiverConfirmationRemainingFraction("2026-08-20T00:00:00.000Z", undefined),
+    ).toBeNull();
+  });
+
+  it("devuelve null ante fechas inválidas o ventana total <= 0", () => {
+    expect(
+      receiverConfirmationRemainingFraction("fecha-invalida", "2026-08-22T00:00:00.000Z"),
+    ).toBeNull();
+    // deadline anterior a createdAt -> ventana total negativa
+    expect(
+      receiverConfirmationRemainingFraction(
+        "2026-08-22T00:00:00.000Z",
+        "2026-08-20T00:00:00.000Z",
+      ),
+    ).toBeNull();
+  });
+
+  it("devuelve 1 recién creado y 0 justo al vencer, sin pasarse de esos límites", () => {
+    const createdAt = "2026-08-20T00:00:00.000Z";
+    const deadline = "2026-08-22T00:00:00.000Z"; // ventana de 48 h
+
+    expect(receiverConfirmationRemainingFraction(createdAt, deadline, new Date(createdAt))).toBe(1);
+    expect(receiverConfirmationRemainingFraction(createdAt, deadline, new Date(deadline))).toBe(0);
+    // mucho después del deadline -> clampeado a 0, nunca negativo
+    expect(
+      receiverConfirmationRemainingFraction(
+        createdAt,
+        deadline,
+        new Date("2026-08-25T00:00:00.000Z"),
+      ),
+    ).toBe(0);
+  });
+
+  it("calcula la fracción intermedia proporcional al tiempo restante", () => {
+    const createdAt = "2026-08-20T00:00:00.000Z";
+    const deadline = "2026-08-22T00:00:00.000Z"; // ventana de 48 h
+    const now = new Date("2026-08-21T12:00:00.000Z"); // 12 h restantes de 48 h
+
+    expect(receiverConfirmationRemainingFraction(createdAt, deadline, now)).toBeCloseTo(0.25);
   });
 });
 
