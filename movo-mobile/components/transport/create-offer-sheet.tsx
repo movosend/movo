@@ -82,13 +82,15 @@ export function CreateOfferSheet({
   }, [visible, shipment.suggestedPriceArs, shipment.pickupDate]);
 
   const handlePriceChange = (text: string) => {
-    // Si contiene separador decimal (, o .), permitimos como máximo 2 decimales
-    const parts = text.split(/[.,]/);
+    // Formato es-AR (mismo que `formatPriceArs`/`toLocaleString("es-AR")`): "." es
+    // separador de miles y se ignora, "," es el único separador decimal. Sin esto,
+    // "5.000" (cinco mil) se leía como "5.00" (cinco pesos) sin ningún error.
+    let sanitized = text.replace(/\./g, "");
+    const parts = sanitized.split(",");
     if (parts.length === 2 && parts[1].length > 2) {
-      const separator = text.includes(",") ? "," : ".";
-      text = `${parts[0]}${separator}${parts[1].slice(0, 2)}`;
+      sanitized = `${parts[0]},${parts[1].slice(0, 2)}`;
     }
-    setPriceNetArs(text);
+    setPriceNetArs(sanitized);
   };
 
   const getPriceValidation = (value: string): {
@@ -101,12 +103,12 @@ export function CreateOfferSheet({
       return { isValid: false, numericValue: 0 };
     }
 
-    // Estado transitorio mientras tipea la coma o el punto (ej: "50," o "50.")
-    if (/^\d+[.,]$/.test(trimmed)) {
+    // Estado transitorio mientras tipea la coma decimal (ej: "50,")
+    if (/^\d+,$/.test(trimmed)) {
       return { isValid: false, numericValue: 0 };
     }
 
-    const isValidFormat = /^\d+(?:[.,]\d{1,2})?$/.test(trimmed);
+    const isValidFormat = /^\d+(?:,\d{1,2})?$/.test(trimmed);
     if (!isValidFormat) {
       return {
         error: "Ingresá un monto válido",

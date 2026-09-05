@@ -72,7 +72,11 @@ export default function TransportShipmentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useThemeColors();
   const { data: shipment, isLoading, isError, error, refetch } = useShipment(id);
-  const { data: myOffers } = useMyOffers({ status: OfferStatus.PENDING });
+  // `limit: 50` es el máximo que acepta el backend (`offers.schema.ts`, default 20) —
+  // sin un filtro por `shipmentId` del lado del servidor, esto es lo más que se puede
+  // acotar el riesgo de no encontrar una oferta pendiente existente si el transportista
+  // tiene más ofertas activas que el límite de una sola página.
+  const { data: myOffers } = useMyOffers({ status: OfferStatus.PENDING, limit: 50 });
   const withdrawOffer = useWithdrawOffer(id);
 
   const [sheetOpen, setSheetOpen] = useState(false);

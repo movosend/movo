@@ -1,3 +1,4 @@
+import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   offersClient,
@@ -7,6 +8,7 @@ import {
   type ListShipmentOffersParams,
   type OfferSummary,
 } from "../api/offers-client";
+import type { ListAvailableResponse } from "../api/shipments-client";
 
 export function shipmentOffersQueryKey(shipmentId: string | undefined, params?: ListShipmentOffersParams) {
   const normalizedParams: ListShipmentOffersParams = { sort: "price", ...params };
@@ -80,6 +82,32 @@ export function myOffersQueryKey(params?: ListMyOffersParams) {
 }
 
 /**
+ * Parchea `hasMyOffer` en las páginas ya cacheadas de `["shipments", "available"]`,
+ * compartido por `useCreateOffer`/`useWithdrawOffer` (antes duplicado con solo el
+ * booleano distinto). No dispara ningún request — la invalidación de la query queda
+ * a cargo del caller.
+ */
+function patchAvailableShipmentOffer(
+  queryClient: QueryClient,
+  shipmentId: string,
+  hasMyOffer: boolean
+) {
+  queryClient.setQueriesData<InfiniteData<ListAvailableResponse>>(
+    { queryKey: ["shipments", "available"] },
+    (old) => {
+      if (!old) return old;
+      return {
+        ...old,
+        pages: old.pages.map((page) => ({
+          ...page,
+          items: page.items.map((item) => (item.id === shipmentId ? { ...item, hasMyOffer } : item)),
+        })),
+      };
+    }
+  );
+}
+
+/**
  * `GET /offers/mine` (MOVO-145 / MOVO-149)
  * Lista las ofertas realizadas por el transportista autenticado.
  */
@@ -113,25 +141,13 @@ export function useCreateOffer(
   return useMutation({
     mutationFn: (data: CreateOfferRequest) => offersClient.createOffer(shipmentId, data),
     onSuccess: (data) => {
-      // Marcamos inmediatamente hasMyOffer en las listas cacheadas de disponibles
-      queryClient.setQueriesData(
-        { queryKey: ["shipments", "available"] },
-        (old: any) => {
-          if (!old || !old.pages) return old;
-          return {
-            ...old,
-            pages: old.pages.map((page: any) => ({
-              ...page,
-              items: page.items.map((item: any) =>
-                item.id === shipmentId ? { ...item, hasMyOffer: true } : item
-              ),
-            })),
-          };
-        }
-      );
+      // Marcamos inmediatamente hasMyOffer en las listas cacheadas de disponibles —
+      // sin invalidar esa misma query después: el parche ya deja la card correcta,
+      // invalidarla forzaría un refetch de red de todas las páginas ya cargadas para
+      // un estado que ya estaba bien.
+      patchAvailableShipmentOffer(queryClient, shipmentId, true);
 
       void queryClient.invalidateQueries({ queryKey: ["offers", "mine"] });
-      void queryClient.invalidateQueries({ queryKey: ["shipments", "available"] });
       void queryClient.invalidateQueries({ queryKey: ["shipments", "detail", shipmentId] });
 
       options?.onSuccess?.(data);
@@ -163,26 +179,13 @@ export function useWithdrawOffer(
     onSuccess: (data) => {
       const targetShipmentId = shipmentId ?? data.shipmentId;
       if (targetShipmentId) {
-        queryClient.setQueriesData(
-          { queryKey: ["shipments", "available"] },
-          (old: any) => {
-            if (!old || !old.pages) return old;
-            return {
-              ...old,
-              pages: old.pages.map((page: any) => ({
-                ...page,
-                items: page.items.map((item: any) =>
-                  item.id === targetShipmentId ? { ...item, hasMyOffer: false } : item
-                ),
-              })),
-            };
-          }
-        );
+        // Mismo criterio que `useCreateOffer`: el parche optimista ya deja la card
+        // correcta, sin necesidad de invalidar `["shipments", "available"]` después.
+        patchAvailableShipmentOffer(queryClient, targetShipmentId, false);
         void queryClient.invalidateQueries({ queryKey: ["shipments", "detail", targetShipmentId] });
       }
 
       void queryClient.invalidateQueries({ queryKey: ["offers", "mine"] });
-      void queryClient.invalidateQueries({ queryKey: ["shipments", "available"] });
 
       options?.onSuccess?.(data);
     },
