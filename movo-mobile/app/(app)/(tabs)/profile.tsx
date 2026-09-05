@@ -9,10 +9,9 @@ import { ProfileBadges } from '../../../components/profile/profile-badges';
 import { ProfileErrorState } from '../../../components/profile/profile-error-state';
 import { ProfileLicenseStatusBanner } from '../../../components/profile/profile-license-status-banner';
 import { ProfileLogoutButton } from '../../../components/profile/profile-logout-button';
+import { ProfileActivityCard } from '../../../components/profile/profile-activity-card';
 import { ProfileSettingsSection } from '../../../components/profile/profile-settings-section';
 import { ProfileSkeleton } from '../../../components/profile/profile-skeleton';
-import { ProfileStatsRow } from '../../../components/profile/profile-stats-row';
-import { ReputationDetail } from '../../../components/profile/reputation-detail';
 import { useAuth } from '../../../src/hooks/use-auth';
 import { useThemeColors } from '../../../src/hooks/use-theme-colors';
 import { useMyProfile, usePublicProfile } from '../../../src/hooks/use-profile';
@@ -100,23 +99,22 @@ export default function ProfileScreen() {
           />
         )}
 
-        <ProfileStatsRow
-          testID="profile-stats-row"
+        <ProfileActivityCard
+          testID="profile-activity-card"
           transactionCounts={data.transactionCounts}
           reputationScore={data.reputationScore}
           isNewProfile={publicProfile?.isNewProfile}
+          reputation={
+            publicProfile
+              ? {
+                  asSender: publicProfile.asSender,
+                  asCarrier: publicProfile.asCarrier,
+                  recentRatingComments: publicProfile.recentRatingComments,
+                }
+              : undefined
+          }
+          onViewAllRatings={() => router.push('/profile/ratings')}
         />
-
-        {publicProfile ? (
-          <View className="mb-6">
-            <ReputationDetail
-              testID="profile-reputation-detail"
-              asSender={publicProfile.asSender}
-              asCarrier={publicProfile.asCarrier}
-              recentRatingComments={publicProfile.recentRatingComments}
-            />
-          </View>
-        ) : null}
 
         <ProfileSettingsSection testID="profile-settings-section" />
 

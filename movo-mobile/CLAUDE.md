@@ -1284,3 +1284,55 @@ Pendiente / fuera de alcance: las 6 issues de backend (MOVO-170 a MOVO-175) en s
 cada una en su propia rama; pantalla "Ver todas las calificaciones" paginada (el
 link se omitió del todo en vez de dejarlo inerte, depende del endpoint paginado de
 MOVO-170); no probado en device.
+
+### MOVO-154 (rediseño post-feedback) — reputación y comentarios integrados a "Tu actividad" en el perfil propio
+
+Feedback directo del usuario sobre la implementación original de MOVO-154 en el
+perfil PROPIO (`app/(app)/(tabs)/profile.tsx`, distinto del perfil público de
+MOVO-176): la sección quedaba "espantosa", sin integrar a la interfaz, con los
+comentarios como una lista apilada con separadores que "va a crecer infinitamente"
+a medida que lleguen calificaciones. Iterado primero como mockups en un canvas de
+Claude Design (2 estados + la pantalla de destino) para validar el layout antes de
+tocar código.
+
+- **`ProfileStatsRow` + `ReputationDetail` (MOVO-154 original) borrados y
+  reemplazados por `components/profile/profile-activity-card.tsx`**: una sola
+  `GradientBorderCard` — antes eran dos cards "chrome" apiladas y visualmente
+  desconectadas. Adentro: las 3 mini-cards de "Tu actividad" sin cambios, un
+  divisor, y la reputación (toggle de rol si `transactionCounts.asSender>0` y
+  `asCarrier>0` — mismo criterio que `ReputationCard` de MOVO-176, no el
+  desglose siempre-visible de las 2 filas que tenía la versión vieja) + score
+  grande y estrellas. Ninguno de los dos componentes viejos se usaba fuera de
+  esta pantalla, así que el reemplazo no tocó ningún otro consumidor.
+- **Comentarios: carrusel horizontal con peek (no una lista vertical)**: hasta
+  10 `ReputationCommentCard` (nuevo, `components/profile/`, reusado también en
+  la pantalla de destino) con el texto truncado a 3 líneas, más `dots` de
+  paginación calculados en `onMomentumScrollEnd` (mismo patrón de índice por
+  `contentOffset.x` que `PhotoViewerModal`, MOVO-127). El límite real contra
+  "crece infinito" no es visual únicamente: `recentRatingComments` ya viene
+  acotado a 10 desde el backend (MOVO-152) y el resto vive en una pantalla
+  aparte, no en scroll infinito del perfil.
+- **`app/(app)/profile/ratings.tsx` (nuevo)**: destino de "Ver todas" — link
+  lime chico con chevron, mismo lenguaje que el resto de la app, sin el botón
+  ancho "Ver todas las calificaciones (N)" que probó primero el mockup (el
+  usuario pidió sacarlo por redundante: dos CTAs para la misma acción en la
+  misma card). Reusa `usePublicProfile(myId)` con la MISMA query key que ya
+  pobló `profile.tsx` — TanStack Query dedupea, cero requests de más. Sin
+  toggle de rol acá (a diferencia del mockup): `recentRatingComments` no viene
+  separado por rol en `PublicProfile` (es una lista global), así que un filtro
+  ahí sería un falso affordance sobre un dato que no existe.
+- Esto deja parcialmente resuelto el pendiente de MOVO-176 ("pantalla 'Ver
+  todas las calificaciones' paginada, se omitió del todo") — existe la
+  pantalla, pero sigue mostrando como mucho los mismos 10 que ya trae
+  `PublicProfile`, no pagina de verdad hasta que el backend lo haga
+  (MOVO-170).
+
+Tests: `profile-activity-card.test.tsx`, `reputation-comment-card.test.tsx`,
+`profile-ratings-screen.test.tsx` (nuevos), `reputation-detail.test.tsx`
+borrado, casos actualizados en `profile.test.tsx` (testIDs nuevos
+`profile-activity-card`/`profile-activity-card-reputation`, más un caso para
+"Ver todas"). 97/97 suites, 697/697 tests. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: no probado en device (el carrusel se valida por
+`onMomentumScrollEnd` en test, no por gesto real); paginación real de
+`ratings.tsx` depende de MOVO-170.

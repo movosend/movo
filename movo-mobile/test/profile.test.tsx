@@ -105,11 +105,11 @@ describe("ProfileScreen", () => {
     });
 
     const { getByTestId, queryByText } = await render(<ProfileScreen />);
-    const statsRow = getByTestId("profile-stats-row");
+    const activityCard = getByTestId("profile-activity-card");
 
-    expect(within(statsRow).getByText("Sin envíos aún")).toBeTruthy();
-    expect(within(statsRow).getByText("Sin viajes aún")).toBeTruthy();
-    expect(within(statsRow).getByText("Sin calificaciones")).toBeTruthy();
+    expect(within(activityCard).getByText("Sin envíos aún")).toBeTruthy();
+    expect(within(activityCard).getByText("Sin viajes aún")).toBeTruthy();
+    expect(within(activityCard).getByText("Sin calificaciones")).toBeTruthy();
     expect(queryByText("0")).toBeNull();
     expect(queryByText("null")).toBeNull();
     expect(queryByText("NaN")).toBeNull();
@@ -270,7 +270,7 @@ describe("ProfileScreen", () => {
     mockUseMyProfile.mockReturnValue({
       isLoading: false,
       isError: false,
-      data: baseProfile(),
+      data: baseProfile({ transactionCounts: { asSender: 4, asCarrier: 2 } }),
       refetch: mockRefetch,
     });
     mockUsePublicProfile.mockReturnValue({
@@ -282,7 +282,7 @@ describe("ProfileScreen", () => {
         photoUrl: null,
         isVerified: true,
         badges: ["kyc_verified"],
-        transactionCounts: { asSender: 0, asCarrier: 0 },
+        transactionCounts: { asSender: 4, asCarrier: 2 },
         reputationScore: 4.7,
         ratingCount: 9,
         isNewProfile: false,
@@ -296,7 +296,7 @@ describe("ProfileScreen", () => {
 
     const { getByText, getByTestId } = await render(<ProfileScreen />);
 
-    expect(getByTestId("profile-reputation-detail")).toBeTruthy();
+    expect(getByTestId("profile-activity-card-reputation")).toBeTruthy();
     expect(getByText("Como emisor")).toBeTruthy();
     expect(getByText("Como transportista")).toBeTruthy();
     expect(getByText("Perfil nuevo")).toBeTruthy();
@@ -314,7 +314,41 @@ describe("ProfileScreen", () => {
 
     const { queryByTestId } = await render(<ProfileScreen />);
 
-    expect(queryByTestId("profile-reputation-detail")).toBeNull();
+    expect(queryByTestId("profile-activity-card-reputation")).toBeNull();
+  });
+
+  it("'Ver todas' navega a /profile/ratings cuando hay comentarios", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile(),
+      refetch: mockRefetch,
+    });
+    mockUsePublicProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: {
+        id: "user-1",
+        fullName: "Martina Zurita",
+        photoUrl: null,
+        isVerified: true,
+        badges: ["kyc_verified"],
+        transactionCounts: { asSender: 3, asCarrier: 0 },
+        reputationScore: 4.7,
+        ratingCount: 9,
+        isNewProfile: false,
+        asSender: { reputationScore: 4.7, ratingCount: 9, isNewProfile: false },
+        asCarrier: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+        recentRatingComments: [
+          { id: "r1", raterId: "u2", score: 5, comment: "Todo perfecto", createdAt: "2026-08-01T00:00:00.000Z" },
+        ],
+      },
+    });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+    fireEvent.press(getByTestId("profile-activity-card-view-all"));
+
+    expect(router.push).toHaveBeenCalledWith("/profile/ratings");
   });
 });
 
