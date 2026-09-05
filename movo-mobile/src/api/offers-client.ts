@@ -21,12 +21,59 @@ export interface OfferSummary {
   expiresAt: string | null;
   createdAt: string;
   respondedAt: string | null;
+  tripId?: string | null;
 }
 
 export interface ListShipmentOffersParams {
   [key: string]: string | number | boolean | undefined;
   sort?: OfferSortOption;
   includeResolved?: boolean;
+}
+
+/**
+ * Body de `POST /shipments/:id/offers` (MOVO-143 / MOVO-149).
+ * `priceOfferedArs` es el monto NETO que el transportista quiere cobrar.
+ */
+export interface CreateOfferRequest {
+  priceOfferedArs: number;
+  offeredDate: string;
+  message?: string;
+  tripId?: string;
+}
+
+/**
+ * DTO devuelto por `POST /shipments/:id/offers` (MOVO-143 / MOVO-149).
+ * Desglosa neto, comisión y bruto calculados por el servidor.
+ */
+export interface CreateOfferResponse extends OfferSummary {
+  priceNetArs: number;
+  commissionAmountArs: number;
+}
+
+export interface MyOfferShipmentContext {
+  id: string;
+  status: string;
+  pickupAddress: string;
+  pickupDate: string;
+  deliveryAddress: string;
+}
+
+export interface MyOfferSummary extends OfferSummary {
+  shipment: MyOfferShipmentContext;
+}
+
+export interface ListMyOffersParams {
+  [key: string]: string | number | boolean | undefined;
+  status?: OfferStatus | `${OfferStatus}`;
+  page?: number;
+  limit?: number;
+}
+
+export interface ListMyOffersResponse {
+  items: MyOfferSummary[];
+  page: number;
+  limit: number;
+  total: number;
 }
 
 export const offersClient = {
@@ -54,5 +101,30 @@ export const offersClient = {
    */
   rejectOffer(offerId: string): Promise<OfferSummary> {
     return httpClient.post<OfferSummary>(`/offers/${offerId}/reject`);
+  },
+
+  /**
+   * `POST /shipments/:id/offers` (MOVO-143 / MOVO-149)
+   * El transportista oferta sobre un envío publicado indicando el neto que quiere cobrar.
+   * El servidor calcula la comisión y el bruto.
+   */
+  createOffer(shipmentId: string, data: CreateOfferRequest): Promise<CreateOfferResponse> {
+    return httpClient.post<CreateOfferResponse>(`/shipments/${shipmentId}/offers`, data);
+  },
+
+  /**
+   * `POST /offers/:id/withdraw` (MOVO-143 / MOVO-149)
+   * El transportista retira su oferta activa en pending -> withdrawn.
+   */
+  withdrawOffer(offerId: string): Promise<OfferSummary> {
+    return httpClient.post<OfferSummary>(`/offers/${offerId}/withdraw`);
+  },
+
+  /**
+   * `GET /offers/mine` (MOVO-145 / MOVO-149)
+   * Lista paginada de las ofertas del transportista autenticado.
+   */
+  listMyOffers(params?: ListMyOffersParams): Promise<ListMyOffersResponse> {
+    return httpClient.get<ListMyOffersResponse>("/offers/mine", params);
   },
 };

@@ -5,8 +5,10 @@ import type { AvailableShipment } from "../src/api/shipments-client";
 import TransportScreen from "../app/(app)/(tabs)/transport";
 
 const mockRouterPush = jest.fn();
+let mockLocalSearchParams: Record<string, string> = {};
 jest.mock("expo-router", () => ({
   router: { push: (...args: unknown[]) => mockRouterPush(...args) },
+  useLocalSearchParams: () => mockLocalSearchParams,
 }));
 
 const mockUseAvailableShipments = jest.fn();
@@ -110,6 +112,7 @@ function baseOriginResult(overrides: Record<string, unknown> = {}) {
 
 describe("TransportScreen", () => {
   beforeEach(() => {
+    mockLocalSearchParams = {};
     mockUseTransportRadius.mockReturnValue({ radiusKm: 50, setRadiusKm: mockSetRadiusKm });
   });
 
@@ -296,5 +299,18 @@ describe("TransportScreen", () => {
     await fireEvent.press(getByTestId("transport-radius-100"));
 
     expect(mockSetRadiusKm).toHaveBeenCalledWith(100);
+  });
+
+  it("muestra el banner de confirmación cuando vuelve con offerCreated=1 (MOVO-149)", async () => {
+    mockLocalSearchParams = { offerCreated: "1" };
+    mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+    mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([availableShipment()]) }));
+
+    const { getByTestId } = await render(<TransportScreen />);
+
+    expect(getByTestId("transport-offer-created-success")).toBeTruthy();
+    expect(getByTestId("transport-offer-created-success")).toHaveTextContent(
+      "¡Oferta enviada! Ya podés verla reflejada en el envío."
+    );
   });
 });
