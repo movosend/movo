@@ -45,3 +45,23 @@ export enum AccountStatus {
   BANNED = "banned",
   DELETED = "deleted",
 }
+
+/**
+ * Motivo de un reporte de usuario (MOVO-175, todavía sin backend — el mobile ya
+ * tipa el modal de reportar contra este enum). Se agregan valores al final, nunca
+ * se renombra uno existente (mismo criterio que `KycStatus`).
+ */
+export enum ReportReason {
+  HARASSMENT = "harassment",
+  NO_SHOW = "no_show",
+  DAMAGED_PACKAGE = "damaged_package",
+  PAYMENT_ISSUE = "payment_issue",
+  OTHER = "other",
+}
+
+/** Estado de revisión de un reporte de usuario (MOVO-175, todavía sin backend). */
+export enum ReportStatus {
+  PENDING = "pending",
+  REVIEWED = "reviewed",
+  DISMISSED = "dismissed",
+}

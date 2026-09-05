@@ -32,6 +32,33 @@ export interface ReputationBreakdown {
   reputationScore: number | null;
   ratingCount: number;
   isNewProfile: boolean;
+  /**
+   * Promedio por sub-categoría (puntualidad/cuidado/comunicación del transportista;
+   * paquete listo/dirección clara/comunicación del emisor) — MOVO-173, todavía sin
+   * backend. `undefined` en cualquier respuesta actual; los consumidores (mobile)
+   * ocultan la fila de barras entera mientras no llegue, nunca la rellenan con ceros.
+   */
+  categories?: ReputationCategoryScore[];
+  /**
+   * Subconjunto de las stats de uso del rediseño de perfil que es calculable con
+   * datos que ya existen (MOVO-170) — "recorridos"/"a tiempo"/"responde en X" quedan
+   * afuera a propósito, ver esa issue. `undefined` hasta que el backend lo resuelva.
+   */
+  usageStats?: UsageStats;
+}
+
+/** MOVO-173 (calificación por categorías, sin backend todavía). */
+export interface ReputationCategoryScore {
+  key: string;
+  label: string;
+  score: number;
+}
+
+/** MOVO-170 (enriquecimiento de perfil, sin backend todavía). */
+export interface UsageStats {
+  delivered: number;
+  cancelled: number;
+  avgPackageWeightKg: number | null;
 }
 
 /**
@@ -44,6 +71,12 @@ export interface ReputationBreakdown {
 export interface RecentRatingComment {
   id: string;
   raterId: string;
+  /**
+   * Nombre de quien calificó (MOVO-170, todavía sin backend — hoy siempre
+   * `undefined`, el `raterId` viaja anónimo de cara al calificado). Cuando llegue,
+   * es una decisión de producto ya tomada, no solo técnica — ver esa issue.
+   */
+  raterName?: string;
   score: number;
   comment: string | null;
   createdAt: string;
@@ -97,6 +130,17 @@ export interface PrivateProfile {
   badges: ProfileBadge[];
   transactionCounts: TransactionCounts;
   reputationScore: number | null;
+  /** Bio de texto libre (MOVO-171, todavía sin backend) — `undefined` hasta que
+   * exista la columna; una vez agregada, `string | null` (nunca cargada todavía). */
+  bio?: string | null;
+}
+
+/** MOVO-172 (ficha de vehículo del transportista, todavía sin backend). */
+export interface VehicleProfile {
+  brand: string;
+  model: string;
+  cargoCapacityLabel: string;
+  licensePlate: string;
 }
 
 /**
@@ -126,4 +170,15 @@ export interface PublicProfile {
   asSender: ReputationBreakdown;
   asCarrier: ReputationBreakdown;
   recentRatingComments: RecentRatingComment[];
+  /** MOVO-170, todavía sin backend — `undefined` hasta que se exponga. */
+  memberSince?: string;
+  /** MOVO-170, todavía sin backend — mismos booleanos que ya expone
+   * `PrivateProfile`, sin filtrar el teléfono/email real. */
+  phoneVerified?: boolean;
+  emailVerified?: boolean;
+  /** MOVO-171, todavía sin backend. */
+  bio?: string | null;
+  /** MOVO-172, todavía sin backend — `null`/`undefined` si no es transportista o
+   * no cargó ficha de vehículo. */
+  vehicle?: VehicleProfile | null;
 }
