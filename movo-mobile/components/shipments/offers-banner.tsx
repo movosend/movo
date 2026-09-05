@@ -37,7 +37,7 @@ export function OffersBanner({ shipmentId, offersCount, testID }: OffersBannerPr
       disabled={!shipmentId}
       className={`flex-row items-center gap-3 rounded-[12px] px-4 py-3.5 border ${
         hasOffers
-          ? "border-primary/30 bg-bg-mute active:bg-bg-mute/80"
+          ? "border-fg/30 bg-bg-mute active:bg-bg-mute/80"
           : "border-transparent bg-bg-mute active:opacity-80"
       }`}
       accessibilityRole="button"
@@ -45,7 +45,7 @@ export function OffersBanner({ shipmentId, offersCount, testID }: OffersBannerPr
     >
       <View
         className={`h-[42px] w-[42px] items-center justify-center rounded-[10px] ${
-          hasOffers ? "bg-primary/15" : "bg-fg/10"
+          hasOffers ? "bg-fg/15" : "bg-fg/10"
         }`}
       >
         <Inbox size={18} color={hasOffers ? colors.fg1 : colors.fg3} strokeWidth={1.8} />

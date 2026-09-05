@@ -223,7 +223,7 @@ export function RatingSheet({
                           Comentario (opcional)
                         </Text>
                         <Pressable onPress={() => Keyboard.dismiss()} hitSlop={8}>
-                          <Text className="font-sans-medium text-caption text-primary">
+                          <Text className="font-sans-medium text-caption text-fg">
                             Listo
                           </Text>
                         </Pressable>

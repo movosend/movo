@@ -214,12 +214,12 @@ export default function ShipmentDetailScreen() {
                 testID={`shipment-detail-tab-${t}`}
                 onPress={() => setTab(t)}
                 className={`mr-6 pb-2.5 pt-2 ${
-                  tab === t ? "border-b-2 border-primary" : "border-b-2 border-transparent"
+                  tab === t ? "border-b-2 border-fg" : "border-b-2 border-transparent"
                 }`}
               >
                 <Text
                   className={`font-sans-medium text-small ${
-                    tab === t ? "text-primary" : "text-fg-3"
+                    tab === t ? "text-fg" : "text-fg-3"
                   }`}
                 >
                   {t === "detalle" ? "Detalle" : "Línea de tiempo"}
