@@ -112,6 +112,7 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 | 017 | Resend como proveedor de email (MOVO-139), detrás de una interfaz `EmailProvider` con el molde de ADR-012: implementación de consola como default de dev/test/CI, Resend real vía `EMAIL_PROVIDER=resend`. Elegido sobre AWS SES porque salir del sandbox de SES exige aprobación manual de AWS con tiempos impredecibles, y el free tier de Resend (3k mails/mes) cubre de sobra el TFG | Un proveedor externo más del que depender; el dominio de envío necesita SPF/DKIM propios (un `terraform apply` en `movo-infra`, el DNS ya se maneja por Cloudflare) y la cuenta queda sin verificar hasta la demo, igual que Twilio/Didit |
 | 018 | Precio sugerido de un envío (MOVO-82): contrato `POST /quote` en `movo-svc-pricing-logistics` con una implementación provisoria versionada explícitamente (`calculationMethod: euclidean_linear_v1` — distancia euclidiana + peso + factor de tipo de paquete, coeficientes en config), en vez de bloquear la creación de envíos hasta tener el motor real (demanda + combustible + Google Routes API) | Precio inexacto hasta que el motor real reemplace `euclidean_linear_v1`; el contrato ya queda versionado para ese reemplazo sin migrar a los consumidores (`movo-svc-shipments`, futuro wizard mobile de MOVO-83) |
 | 019 | `movo-svc-pricing-logistics` stateless (sin base de datos propia ni esquema en Postgres); la entidad `Offer` vive en el esquema `shipments` | Acoplamiento de `shipments` con la lógica de ofertas a cambio de atomicidad transaccional (evita 2PC/Sagas distribuidas entre servicios) |
+| 020 | Handshake de custodia (MOVO-158) firma con ECDSA P-256/SHA-256 vía WebCrypto, formato de firma IEEE P1363 (raw r‖s, no DER) — la clave privada nunca sale del dispositivo (MOVO-157/158/159) | Primera criptografía asimétrica del repo, sin precedente propio a reusar; firma en formato no-DER es una convención propia del proyecto (mobile tiene que hablar el mismo formato, no un estándar externo verificable por terceros) |
 
 ## Convenciones de código
 
@@ -271,7 +272,7 @@ sección solo lista lo transversal (infra, credenciales, decisiones cross-servic
   Cloudflare (incluido el DMARC), y (opcional) un prefijo `brand/*` público en el
   bucket de dev si se quiere usar el PNG del logo en los mails.
 - **ADRs con desarrollo completo pendiente de pegar en Drive** (solo tienen el resumen
-  de una línea en la tabla de arriba): 012, 013, 014, 015, 016, 017, 018, 019.
+  de una línea en la tabla de arriba): 012, 013, 014, 015, 016, 017, 018, 019, 020.
 - **`MP_TRANSACTION_FEE_RATE` sin confirmar** (MOVO-143,
   `shared/movo-shared/src/config/commission.ts`): placeholder (0.0499) hasta tener el
   valor real del contrato/homologación con MercadoPago. `MOVO_COMMISSION_RATE` (15%,
