@@ -1,6 +1,13 @@
 import { ApiError, ReputationBreakdown, RecentRatingComment, TransactionCounts } from "@movo/shared";
 
 /**
+ * MOVO-170: `svc-shipments` no conoce nombres de usuario -- devuelve `raterId` crudo.
+ * `raterName` se resuelve local en `users.service.ts` (batch lookup contra la propia
+ * tabla de usuarios), nunca acá.
+ */
+export type RawRecentRatingComment = Omit<RecentRatingComment, "raterName">;
+
+/**
  * MOVO-152: forma de `GET /internal/users/:id/reputation` (`svc-shipments`, MOVO-147)
  * -- global + desglose por rol + contadores de transacciones reales.
  */
@@ -38,8 +45,18 @@ export interface ShipmentsClient {
    * criterio de "lanza y el caller decide" que `findReputation` -- se piden aparte
    * porque solo hacen falta al componer un perfil completo (AC2), no en cada lectura
    * liviana (ej. `GET /users/search`).
+   *
+   * MOVO-170: paginado (`cursor` opcional, `nextCursor` en la respuesta) -- el
+   * endpoint de `svc-shipments` cambió de forma en el mismo ticket (antes un array
+   * plano). Único consumidor de este cliente además de la composición de perfil (que
+   * sigue pidiendo solo la primera página) es `GET /users/:id/ratings` ("ver todas las
+   * calificaciones", MOVO-176).
    */
-  findRecentRatingComments(userId: string, limit: number): Promise<RecentRatingComment[]>;
+  findRecentRatingComments(
+    userId: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<{ items: RawRecentRatingComment[]; nextCursor: string | null }>;
 }
 
 export interface ShipmentsClientConfig {
@@ -102,22 +119,30 @@ export function createShipmentsClient(config: ShipmentsClientConfig): ShipmentsC
       return (await response.json()) as UserReputationSummary;
     },
 
-    async findRecentRatingComments(userId: string, limit: number): Promise<RecentRatingComment[]> {
+    async findRecentRatingComments(
+      userId: string,
+      limit: number,
+      cursor?: string,
+    ): Promise<{ items: RawRecentRatingComment[]; nextCursor: string | null }> {
+      const cursorParam = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
       const response = await fetch(
-        `${config.SHIPMENTS_SERVICE_URL}/internal/users/${encodeURIComponent(userId)}/ratings/recent?limit=${limit}`,
+        `${config.SHIPMENTS_SERVICE_URL}/internal/users/${encodeURIComponent(userId)}/ratings/recent?limit=${limit}${cursorParam}`,
         { method: "GET", signal: AbortSignal.timeout(REPUTATION_REQUEST_TIMEOUT_MS) }
       );
       if (!response.ok) {
         throw new Error(`El servicio de envíos devolvió status ${response.status} al pedir las calificaciones recientes.`);
       }
-      const rows = (await response.json()) as RatingApiResponse[];
-      return rows.map((row) => ({
-        id: row.id,
-        raterId: row.raterId,
-        score: row.score,
-        comment: row.comment,
-        createdAt: row.createdAt,
-      }));
+      const body = (await response.json()) as { items: RatingApiResponse[]; nextCursor: string | null };
+      return {
+        items: body.items.map((row) => ({
+          id: row.id,
+          raterId: row.raterId,
+          score: row.score,
+          comment: row.comment,
+          createdAt: row.createdAt,
+        })),
+        nextCursor: body.nextCursor,
+      };
     },
   };
 }

@@ -412,6 +412,36 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
     },
   );
 
+  app.get(
+    "/:id/ratings",
+    {
+      schema: {
+        summary: "Calificaciones recibidas por un usuario (paginado)",
+        description:
+          "MOVO-170: 'ver todas las calificaciones' del rediseño de perfil (MOVO-176) " +
+          "-- a diferencia de las 10 que ya trae GET /:id, esto pagina con cursor " +
+          "(keyset sobre createdAt/id, más reciente primero). Mismo criterio de " +
+          "existencia que el perfil público (404 USER_NOT_FOUND trata `deleted` como " +
+          "'no existe'). Ruta protegida; requiere autenticación pero no usa el userId " +
+          "propio del caller.",
+        tags: ["users"],
+        params: usersSchemas.userIdParam,
+        querystring: usersSchemas.ratingsQuery,
+        response: {
+          200: usersSchemas.ratingsListResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      const { limit, cursor } = request.query as { limit: number; cursor?: string };
+      return service.listUserRatings(id, limit, cursor);
+    },
+  );
+
   app.post(
     "/me/photo/upload-url",
     {

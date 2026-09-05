@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
-import { RecentRatingComment, UserRole } from "@movo/shared";
+import { UserRole } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { reputationCacheKey } from "../src/modules/users/users.service";
-import { ShipmentsClient, UserReputationSummary } from "../src/adapters/shipments-client";
+import { ShipmentsClient, UserReputationSummary, RawRecentRatingComment } from "../src/adapters/shipments-client";
 import { createUserRepository, UserRepository } from "../src/repositories/user-repository";
 import { CreateUserInput } from "../src/models/user";
 
@@ -21,7 +21,7 @@ interface ActiveShipmentsResult {
  */
 function createFakeShipmentsClient() {
   const reputationResponses = new Map<string, UserReputationSummary>();
-  const commentsResponses = new Map<string, RecentRatingComment[]>();
+  const commentsResponses = new Map<string, RawRecentRatingComment[]>();
   const failingReputationUserIds = new Set<string>();
   let reputationCallCount = 0;
   let commentsCallCount = 0;
@@ -41,9 +41,11 @@ function createFakeShipmentsClient() {
       }
       return summary;
     },
-    async findRecentRatingComments(userId: string): Promise<RecentRatingComment[]> {
+    async findRecentRatingComments(
+      userId: string,
+    ): Promise<{ items: RawRecentRatingComment[]; nextCursor: string | null }> {
       commentsCallCount += 1;
-      return commentsResponses.get(userId) ?? [];
+      return { items: commentsResponses.get(userId) ?? [], nextCursor: null };
     },
   };
 
@@ -56,7 +58,7 @@ function createFakeShipmentsClient() {
       failingReputationUserIds.delete(userId);
       reputationResponses.set(userId, summary);
     },
-    setComments(userId: string, comments: RecentRatingComment[]) {
+    setComments(userId: string, comments: RawRecentRatingComment[]) {
       commentsResponses.set(userId, comments);
     },
     setFailing(userId: string) {
@@ -179,6 +181,46 @@ describe("Reputación real en el perfil (MOVO-152)", () => {
       expect(body.asCarrier).toEqual({ reputationScore: 4.8, ratingCount: 7, isNewProfile: false });
       expect(body.recentRatingComments).toHaveLength(1);
       expect(body.recentRatingComments[0]).toMatchObject({ raterId: rater, score: 5, comment: "Excelente transportista" });
+      // MOVO-170: `rater` es un UUID al azar, sin fila real en `users.users` -- cae al
+      // label genérico en vez de romper el batch de nombres.
+      expect(body.recentRatingComments[0].raterName).toBe("Usuario de Movo");
+    });
+
+    it("MOVO-170: resuelve raterName contra la tabla local cuando el rater es un usuario real", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput({ firstName: "Juan", lastName: "Perez" }));
+      const rater = await repo.create(buildInput({ firstName: "Ana", lastName: "Gomez" }));
+      fake.setReputation(target.id, buildSummary());
+      fake.setComments(target.id, [
+        { id: randomUUID(), raterId: rater.id, score: 5, comment: null, createdAt: new Date().toISOString() },
+      ]);
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/users/${target.id}`,
+        headers: { "x-user-id": caller.id },
+      });
+
+      expect(JSON.parse(response.body).recentRatingComments[0].raterName).toBe("Ana Gomez");
+    });
+
+    it("MOVO-170: memberSince/phoneVerified/emailVerified viajan en el perfil público", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput());
+      fake.setReputation(target.id, buildSummary());
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/users/${target.id}`,
+        headers: { "x-user-id": caller.id },
+      });
+
+      const body = JSON.parse(response.body);
+      expect(body.memberSince).toEqual(expect.any(String));
+      // `buildInput()` default: phoneVerified true (MOVO-71), emailVerified false (sin
+      // EmailProvider hasta MOVO-139 -- este fixture nunca lo verifica).
+      expect(body.phoneVerified).toBe(true);
+      expect(body.emailVerified).toBe(false);
     });
 
     it("AC2: isNewProfile en true con menos de 3 calificaciones -- el score igual viaja", async () => {
@@ -295,6 +337,42 @@ describe("Reputación real en el perfil (MOVO-152)", () => {
       const recovered = await app.inject({ method: "GET", url: "/users/me", headers: { "x-user-id": user.id } });
       expect(JSON.parse(recovered.body).reputationScore).toBe(3.9);
       expect(fake.getReputationCallCount()).toBe(callsBefore + 2);
+    });
+  });
+
+  describe("GET /users/:id/ratings (MOVO-170)", () => {
+    it("devuelve items con raterName resuelto y propaga nextCursor", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput());
+      const rater = await repo.create(buildInput({ firstName: "Ana", lastName: "Gomez" }));
+      fake.setComments(target.id, [
+        { id: randomUUID(), raterId: rater.id, score: 5, comment: null, createdAt: new Date().toISOString() },
+      ]);
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/users/${target.id}/ratings`,
+        headers: { "x-user-id": caller.id },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0].raterName).toBe("Ana Gomez");
+      expect(body.nextCursor).toBeNull();
+    });
+
+    it("404 USER_NOT_FOUND con un id inexistente", async () => {
+      const caller = await repo.create(buildInput());
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/users/${randomUUID()}/ratings`,
+        headers: { "x-user-id": caller.id },
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(JSON.parse(response.body).error.code).toBe("USER_NOT_FOUND");
     });
   });
 });
