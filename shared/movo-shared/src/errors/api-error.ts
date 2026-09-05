@@ -69,7 +69,12 @@ export type ApiErrorCode =
   | "TRIP_NOT_ACTIVE"
   | "SHIPMENT_NOT_AVAILABLE_FOR_OFFER"
   | "OFFER_DATE_OUT_OF_RANGE"
-  | "OFFER_DUPLICATE_ACTIVE";
+  | "OFFER_DUPLICATE_ACTIVE"
+  | "HANDSHAKE_QR_EXPIRED"
+  | "HANDSHAKE_DISTANCE_EXCEEDED"
+  | "HANDSHAKE_INVALID_SIGNATURE"
+  | "HANDSHAKE_CEDENTE_KEY_MISSING"
+  | "HANDSHAKE_INVALID_SHIPMENT_STATE";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {
