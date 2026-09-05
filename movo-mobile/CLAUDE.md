@@ -1336,3 +1336,31 @@ borrado, casos actualizados en `profile.test.tsx` (testIDs nuevos
 Pendiente / fuera de alcance: no probado en device (el carrusel se valida por
 `onMomentumScrollEnd` en test, no por gesto real); paginación real de
 `ratings.tsx` depende de MOVO-170.
+
+### MOVO-15 (rediseño post-feedback) — banner de licencia como progreso "Perfil verificado X/2"
+
+Feedback directo del usuario sobre `ProfileLicenseStatusBanner` (perfil propio,
+CARRIER): "no me gusta lo que tenemos", con una referencia visual concreta —
+card neutra con título "Perfil verificado", fracción de progreso, barra de dos
+segmentos, texto y un CTA primario lime + "Después" secundario.
+
+- **Se sacó el ícono y el tono warning/danger/neutral por estado**
+  (`kyc-status-ui.ts` ya no se usa acá) — los 5 estados no-aprobados
+  (`NOT_STARTED`/`PENDING`/`MANUAL_REVIEW`/`REJECTED`/`EXPIRED`) comparten
+  ahora la misma card neutra (`border-border`/`bg-bg-sub`), solo cambia el
+  texto y la label del CTA. `kyc-status-ui.ts` lo siguen usando el banner de
+  identidad de `home.tsx`, `kyc.tsx` y el badge de perfil — no se tocó nada de
+  eso.
+- **Progreso fijo `1/2`**: cuando este banner se muestra, la identidad ya está
+  aprobada por construcción (`roles` solo gana `CARRIER` al cerrar el
+  onboarding en `profile-photo.tsx`, que exige KYC de identidad `approved`) —
+  no hay ningún caso real de `0/2` que contemplar, así que no hace falta leer
+  `kycStatus` acá, solo `licenseKycStatus`.
+- **"Después" oculta la card con estado local (`useState`), sin persistencia**
+  — decisión explícita del usuario: es un recordatorio de baja fricción, no un
+  dismiss permanente. Vuelve a aparecer al reentrar a la pantalla de Perfil.
+
+Tests: `profile-license-status-banner.test.tsx` (nuevo). 98/98 suites,
+703/703 tests. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: no probado en device.
