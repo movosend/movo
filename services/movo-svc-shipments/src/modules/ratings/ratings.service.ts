@@ -39,9 +39,17 @@ const DEFAULT_REPUTATION_CONFIG: ReputationServiceConfig = {
   decayHalfLifeDays: 180,
 };
 
+/** MOVO-170: subconjunto de estadísticas de uso calculable con datos ya persistidos,
+ * agregado por rol (ver `shipment-repository.ts#getUsageStatsByRole`). */
+export interface UsageStats {
+  delivered: number;
+  cancelled: number;
+  avgPackageWeightKg: number | null;
+}
+
 export interface ReputationSummary extends ReputationResult {
-  asSender: ReputationResult;
-  asCarrier: ReputationResult;
+  asSender: ReputationResult & { usageStats: UsageStats };
+  asCarrier: ReputationResult & { usageStats: UsageStats };
   transactionCounts: { asSender: number; asCarrier: number };
 }
 
@@ -193,9 +201,19 @@ export function createRatingsService(
       return ratingRepository.listByShipment(shipmentId);
     },
 
-    /** AC10: consumido por el endpoint interno que lee `movo-svc-users`. */
-    async listRecentRatingsForUser(userId: string, limit: number): Promise<Rating[]> {
-      return ratingRepository.listRecentByRatee(userId, limit);
+    /**
+     * AC10: consumido por el endpoint interno que lee `movo-svc-users`. MOVO-170 lo
+     * paginó (`cursor` opcional) -- sin cursor es la primera página, mismo
+     * comportamiento que antes de esta US para la composición del perfil (límite 10).
+     * También sirve a `GET /users/:id/ratings` ("ver todas las calificaciones",
+     * MOVO-176) pidiendo páginas siguientes con el `nextCursor` de la anterior.
+     */
+    async listRecentRatingsForUser(
+      userId: string,
+      limit: number,
+      cursor?: string,
+    ): Promise<{ items: Rating[]; nextCursor: string | null }> {
+      return ratingRepository.listRecentByRateePaginated(userId, limit, cursor);
     },
 
     /**
@@ -206,9 +224,10 @@ export function createRatingsService(
      * HTTP contra sí mismo.
      */
     async getReputationSummary(userId: string): Promise<ReputationSummary> {
-      const [ratings, transactionCounts] = await Promise.all([
+      const [ratings, transactionCounts, usageStatsByRole] = await Promise.all([
         ratingRepository.listForReputation(userId),
         shipmentRepository.countCompletedTransactions(userId),
+        shipmentRepository.getUsageStatsByRole(userId),
       ]);
 
       // AC6: `m` sale de un único agregado SQL (`AVG` sobre TODA la tabla `ratings`,
@@ -239,7 +258,18 @@ export function createRatingsService(
         params,
       );
 
-      return { ...global, asSender, asCarrier, transactionCounts };
+      return {
+        ...global,
+        asSender: {
+          ...asSender,
+          usageStats: { delivered: transactionCounts.asSender, ...usageStatsByRole.asSender },
+        },
+        asCarrier: {
+          ...asCarrier,
+          usageStats: { delivered: transactionCounts.asCarrier, ...usageStatsByRole.asCarrier },
+        },
+        transactionCounts,
+      };
     },
   };
 }

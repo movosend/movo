@@ -145,16 +145,20 @@ export async function internalRatingsRoutes(app: FastifyInstance, _opts: Fastify
     {
       schema: {
         hide: true,
+        description:
+          "MOVO-170: paginado (`{items, nextCursor}`) desde que sumó `cursor` opcional -- " +
+          "antes devolvía un array plano. Único consumidor es `svc-users`, actualizado en " +
+          "el mismo ticket.",
         params: ratingsSchemas.userIdParam,
         querystring: ratingsSchemas.recentRatingsQuery,
-        response: { 200: ratingsSchemas.listRatingsResponse },
+        response: { 200: ratingsSchemas.recentRatingsPageResponse },
       },
     },
     async (request: FastifyRequest) => {
       const { userId } = request.params as { userId: string };
-      const { limit } = request.query as { limit: number };
-      const ratings = await service.listRecentRatingsForUser(userId, limit);
-      return ratings.map(toRatingDto);
+      const { limit, cursor } = request.query as { limit: number; cursor?: string };
+      const { items, nextCursor } = await service.listRecentRatingsForUser(userId, limit, cursor);
+      return { items: items.map(toRatingDto), nextCursor };
     },
   );
 
