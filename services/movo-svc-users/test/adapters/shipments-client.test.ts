@@ -98,42 +98,58 @@ describe("ShipmentsClient (adapter concreto)", () => {
     });
   });
 
-  describe("findRecentRatingComments (MOVO-152 AC2)", () => {
+  describe("findRecentRatingComments (MOVO-152 AC2, paginado desde MOVO-170)", () => {
     it("pega GET a /internal/users/:id/ratings/recent?limit= y mapea solo los campos del contrato", async () => {
       fetchMock.mockResolvedValue({
         ok: true,
-        json: async () => [
-          {
-            id: "rating-1",
-            shipmentId: "shipment-1",
-            raterId: "rater-1",
-            rateeId: "user-1",
-            role: "sender",
-            score: 5,
-            comment: "Todo perfecto",
-            createdAt: "2026-08-01T00:00:00.000Z",
-          },
-        ],
+        json: async () => ({
+          items: [
+            {
+              id: "rating-1",
+              shipmentId: "shipment-1",
+              raterId: "rater-1",
+              rateeId: "user-1",
+              role: "sender",
+              score: 5,
+              comment: "Todo perfecto",
+              createdAt: "2026-08-01T00:00:00.000Z",
+            },
+          ],
+          nextCursor: null,
+        }),
       });
 
       const result = await client.findRecentRatingComments("user-1", 10);
 
       const [url] = fetchMock.mock.calls[0];
       expect(url).toBe("http://svc-shipments.test/internal/users/user-1/ratings/recent?limit=10");
-      expect(result).toEqual([
-        { id: "rating-1", raterId: "rater-1", score: 5, comment: "Todo perfecto", createdAt: "2026-08-01T00:00:00.000Z" },
-      ]);
+      expect(result).toEqual({
+        items: [
+          { id: "rating-1", raterId: "rater-1", score: 5, comment: "Todo perfecto", createdAt: "2026-08-01T00:00:00.000Z" },
+        ],
+        nextCursor: null,
+      });
       // Nunca filtra shipmentId/rateeId/role -- confirma que el mapeo los descarta.
-      expect(result[0]).not.toHaveProperty("shipmentId");
-      expect(result[0]).not.toHaveProperty("role");
+      expect(result.items[0]).not.toHaveProperty("shipmentId");
+      expect(result.items[0]).not.toHaveProperty("role");
     });
 
-    it("devuelve [] pasa a través solo si el body ya viene vacío -- no swallowea errores", async () => {
-      fetchMock.mockResolvedValue({ ok: true, json: async () => [] });
+    it("MOVO-170: manda cursor en la query cuando se pasa, y propaga el nextCursor de la respuesta", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ items: [], nextCursor: "abc123" }) });
+
+      const result = await client.findRecentRatingComments("user-1", 10, "prev-cursor");
+
+      const [url] = fetchMock.mock.calls[0];
+      expect(url).toBe("http://svc-shipments.test/internal/users/user-1/ratings/recent?limit=10&cursor=prev-cursor");
+      expect(result.nextCursor).toBe("abc123");
+    });
+
+    it("devuelve items vacío pasa a través solo si el body ya viene vacío -- no swallowea errores", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ items: [], nextCursor: null }) });
 
       const result = await client.findRecentRatingComments("user-1", 10);
 
-      expect(result).toEqual([]);
+      expect(result).toEqual({ items: [], nextCursor: null });
     });
 
     it("lanza ante una respuesta no-ok, mismo criterio que findReputation", async () => {

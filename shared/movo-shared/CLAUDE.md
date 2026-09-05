@@ -110,3 +110,23 @@ assignable to parameter of type 'ApiErrorCode'`, porque el `dist/` local sigue
 reflejando el código viejo (`dist/` está gitignoreado, no se reconstruye solo). Si
 tocás este paquete, siempre `npm run build` acá antes de tipar contra el cambio
 desde otro workspace.
+
+### MOVO-170 — `PublicProfile`/`ReputationBreakdown`/`RecentRatingComment` extendidos, `SharedHistory` nuevo
+
+Enriquecimiento de perfil con datos ya persistidos (`movo-svc-users`/
+`movo-svc-shipments`, ver sus `CLAUDE.md`). Todos los campos son aditivos — no rompen
+consumidores existentes.
+
+- **`PublicProfile`** sumó `memberSince: string` (ISO), `phoneVerified: boolean`,
+  `emailVerified: boolean` — ya existían en `PrivateProfile`, solo faltaba exponerlos
+  acá (sin filtrar el teléfono/email reales, mismo criterio que `isVerified`).
+- **`ReputationBreakdown`** sumó `usageStats?: { delivered, cancelled,
+  avgPackageWeightKg }` — opcional: el fallback `NO_REPUTATION` de
+  `movo-svc-users` no lo trae, y no hace falta un objeto con ceros disfrazando
+  "sin datos".
+- **`RecentRatingComment`** sumó `raterName: string` (no opcional, siempre resuelto
+  por `movo-svc-users` antes de responder) — decisión de producto confirmada con el
+  usuario: el calificador deja de ser anónimo de cara al calificado.
+- **`SharedHistory` nuevo** (`types/shipment.ts`, junto a `ShipmentStatus`):
+  `{ sharedShipmentCount, lastSharedAt, allDelivered }`, wire contract de
+  `GET /shipments/history-with/:userId` (`movo-svc-shipments`).

@@ -1029,6 +1029,53 @@ no se pudieron correr en este entorno por no tener Postgres/Docker disponibles, 
 a validar contra CI o un Postgres local. `tsc --noEmit` y `eslint` limpios en el resto
 de los archivos tocados.
 
+### MOVO-170 — Enriquecimiento de perfil: usageStats por rol, historial compartido, ratings paginados (`svc-shipments`)
+
+Lado `svc-shipments` de la exposición de datos ya persistidos para el rediseño de
+perfil de `movo-mobile` (MOVO-176). Sin migraciones — todo se calcula sobre columnas
+existentes (`Shipment.weightKg`, `status`, `createdAt`).
+
+- **`usageStats` (delivered/cancelled/avgPackageWeightKg) se sumó DENTRO de
+  `asSender`/`asCarrier` de `GET /internal/users/:id/reputation`**, no como endpoint
+  nuevo — `ratings.service.ts#getReputationSummary` ya calculaba
+  `transactionCounts.asSender/asCarrier` (delivered por rol); solo hacía falta un
+  método nuevo (`shipment-repository.ts#getUsageStatsByRole`, cancelled + `avg(weightKg)`
+  por rol) para completar el trío sin una segunda llamada cross-servicio.
+  `avgPackageWeightKg` es sobre TODOS los envíos del usuario en ese rol, no solo los
+  entregados — no hay AC que pida acotarlo, y "peso promedio de lo que mueve" es más
+  informativo que "peso promedio de lo entregado".
+- **`GET /shipments/history-with/:userId` nuevo** (`shipments.routes.ts`, junto a
+  `/mine`/`/route`/`/available`): historial compartido entre el viewer (`x-user-id`) y
+  otro usuario, sin importar el rol de cada uno (emisor/receptor/transportista) en
+  cada envío — un `findMany` con OR cubriendo las 3 combinaciones de rol posibles
+  entre dos personas, `allDelivered` calculado en JS (necesita saber si TODAS las
+  filas son `delivered`, no un conteo).
+- **`GET /internal/users/:userId/ratings/recent` pasó a paginado** (`{items,
+  nextCursor}`, antes un array plano) — primer precedente de cursor pagination del
+  repo (toda la paginación existente es offset/page-based). Keyset simple sobre
+  `(createdAt, id)` desc, cursor opaco = base64 de `createdAt|id`
+  (`rating-repository.ts#listRecentByRateePaginated`, reemplaza al
+  `listRecentByRatee` no paginado de MOVO-146 — único consumidor). Rompe el contrato
+  interno anterior a propósito: es un endpoint `hide:true` sin proxear por el gateway,
+  y su único consumidor (`svc-users`) se actualizó en el mismo ticket.
+- **`raterName` NO se resuelve acá**: `svc-shipments` no conoce nombres de usuario —
+  sigue devolviendo `raterId` crudo, la resolución (batch lookup local) vive del lado
+  de `svc-users` (ver su CLAUDE.md). Decisión de producto confirmada con el usuario:
+  el calificador deja de ser anónimo de cara al calificado.
+
+Tests: `test/shipments-history-with.integration.test.ts` (nuevo, Postgres real — los 3
+combos de rol, `allDelivered` con historial mixto, sin historial), casos nuevos en
+`test/ratings.integration.test.ts` (usageStats en la respuesta de reputación,
+paginación de `ratings/recent` con cursor), `test/ratings-service.test.ts` (usageStats
+combina `transactionCounts` con el nuevo `getUsageStatsByRole`). Suite completa
+463/463 tests (38 archivos), `tsc --noEmit` limpio. `fake-users-client.ts` actualizado
+con los campos nuevos de `PublicProfile` (mismo ajuste que documentó MOVO-152/147 —
+sin lógica nueva de este lado, solo compilar).
+
+Pendiente / fuera de alcance: consumo desde `movo-mobile` (MOVO-176, sub-issue
+hermana); "recorridos totales" (km) y métricas de puntualidad, explícitamente
+excluidas del ticket por falta de definición de producto.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

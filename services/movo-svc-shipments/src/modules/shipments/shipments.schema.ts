@@ -390,6 +390,25 @@ export const shipmentsSchemas = {
     },
   },
 
+  // MOVO-170
+  historyWithUserIdParam: {
+    type: "object",
+    required: ["userId"],
+    properties: {
+      userId: { type: "string", format: "uuid" },
+    },
+  },
+
+  sharedHistoryResponse: {
+    type: "object",
+    required: ["sharedShipmentCount", "lastSharedAt", "allDelivered"],
+    properties: {
+      sharedShipmentCount: { type: "integer" },
+      lastSharedAt: { type: ["string", "null"], format: "date-time" },
+      allDelivered: { type: "boolean" },
+    },
+  },
+
   presignPhotoBody: {
     type: "object",
     required: ["stage", "contentType", "contentLength"],

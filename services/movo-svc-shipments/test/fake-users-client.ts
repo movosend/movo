@@ -27,9 +27,24 @@ export function fakePublicProfile(overrides: Partial<PublicProfile> & { id: stri
     // datos" que ya usaban reputationScore/transactionCounts arriba.
     ratingCount: 0,
     isNewProfile: true,
-    asSender: { reputationScore: null, ratingCount: 0, isNewProfile: true },
-    asCarrier: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+    asSender: {
+      reputationScore: null,
+      ratingCount: 0,
+      isNewProfile: true,
+      usageStats: { delivered: 0, cancelled: 0, avgPackageWeightKg: null },
+    },
+    asCarrier: {
+      reputationScore: null,
+      ratingCount: 0,
+      isNewProfile: true,
+      usageStats: { delivered: 0, cancelled: 0, avgPackageWeightKg: null },
+    },
     recentRatingComments: [],
+    // MOVO-170: campos nuevos de PublicProfile -- mismo criterio que arriba, este
+    // servicio no ejercita ninguno de los tres de verdad.
+    memberSince: new Date("2030-01-01T00:00:00.000Z").toISOString(),
+    phoneVerified: false,
+    emailVerified: false,
     ...overrides,
   };
 }

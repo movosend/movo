@@ -40,6 +40,21 @@ const transactionCounts = {
 // svc-shipments (el objeto que devuelve `computeReputationScore` para el global y
 // para cada desglose por rol) -- duplicado acá por el criterio "autocontenido" de
 // arriba, no importado del otro servicio.
+// MOVO-170: subconjunto de estadísticas de uso calculable con datos ya persistidos --
+// mismo shape que `usageStats` de `reputationBreakdown` en ratings.schema.ts de
+// svc-shipments. Opcional (no en `required` de `reputationBreakdown`): `svc-shipments`
+// nunca lo omite hoy, pero el fallback `NO_REPUTATION` de `users.service.ts` (cuando
+// ese servicio no responde) sí lo hace.
+const usageStats = {
+  type: "object",
+  required: ["delivered", "cancelled", "avgPackageWeightKg"],
+  properties: {
+    delivered: { type: "integer" },
+    cancelled: { type: "integer" },
+    avgPackageWeightKg: { type: ["number", "null"] },
+  },
+};
+
 const reputationBreakdown = {
   type: "object",
   required: ["reputationScore", "ratingCount", "isNewProfile"],
@@ -47,15 +62,19 @@ const reputationBreakdown = {
     reputationScore: { type: ["number", "null"] },
     ratingCount: { type: "integer" },
     isNewProfile: { type: "boolean" },
+    usageStats,
   },
 };
 
+// MOVO-170: `raterName` resuelto local (batch lookup, ver users.service.ts) -- nunca
+// crudo desde svc-shipments, que no conoce nombres de usuario.
 const recentRatingComment = {
   type: "object",
-  required: ["id", "raterId", "score", "comment", "createdAt"],
+  required: ["id", "raterId", "raterName", "score", "comment", "createdAt"],
   properties: {
     id: { type: "string" },
     raterId: { type: "string" },
+    raterName: { type: "string" },
     score: { type: "integer" },
     comment: { type: ["string", "null"] },
     createdAt: { type: "string", format: "date-time" },
@@ -64,15 +83,29 @@ const recentRatingComment = {
 
 // MOVO-152 AC2: campos del desglose por rol + comentarios recientes, agregados al
 // contrato del perfil público (`GET /users/:id`, `GET /users/search`) -- nunca a
-// `privateProfileResponse` (el AC lo pide solo para el perfil público).
+// `privateProfileResponse` (el AC lo pide solo para el perfil público). MOVO-170 sumó
+// memberSince/phoneVerified/emailVerified acá -- a diferencia de recentRatingComments,
+// SÍ viajan en `GET /users/search` (no piden I/O extra, ver @movo/shared).
 const publicProfileExtras = {
   ratingCount: { type: "integer" },
   isNewProfile: { type: "boolean" },
   asSender: reputationBreakdown,
   asCarrier: reputationBreakdown,
   recentRatingComments: { type: "array", items: recentRatingComment },
+  memberSince: { type: "string", format: "date-time" },
+  phoneVerified: { type: "boolean" },
+  emailVerified: { type: "boolean" },
 };
-const PUBLIC_PROFILE_EXTRA_REQUIRED = ["ratingCount", "isNewProfile", "asSender", "asCarrier", "recentRatingComments"];
+const PUBLIC_PROFILE_EXTRA_REQUIRED = [
+  "ratingCount",
+  "isNewProfile",
+  "asSender",
+  "asCarrier",
+  "recentRatingComments",
+  "memberSince",
+  "phoneVerified",
+  "emailVerified",
+];
 
 export const usersSchemas = {
   usersCountResponse: {
@@ -191,6 +224,26 @@ export const usersSchemas = {
         reputationScore: { type: ["number", "null"] },
         ...publicProfileExtras,
       },
+    },
+  },
+
+  // MOVO-170: "ver todas las calificaciones" (`GET /users/:id/ratings`) -- keyset
+  // pagination, sin convención de cursor previa en el repo (ver
+  // ratings.schema.ts#recentRatingsQuery de svc-shipments, mismo criterio).
+  ratingsQuery: {
+    type: "object",
+    properties: {
+      limit: { type: "integer", minimum: 1, maximum: 50, default: 10 },
+      cursor: { type: "string" },
+    },
+  },
+
+  ratingsListResponse: {
+    type: "object",
+    required: ["items", "nextCursor"],
+    properties: {
+      items: { type: "array", items: recentRatingComment },
+      nextCursor: { type: ["string", "null"] },
     },
   },
 

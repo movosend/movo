@@ -97,6 +97,11 @@ function fakeRepository(overrides: Partial<ShipmentRepository> = {}): ShipmentRe
     findPotentiallyExpiredPublished: vi.fn().mockResolvedValue([]),
     hasActiveShipmentsForUser: vi.fn().mockResolvedValue({ hasActiveDispute: false, hasActiveShipments: false }),
     countCompletedTransactions: vi.fn().mockResolvedValue({ asSender: 0, asCarrier: 0 }),
+    getUsageStatsByRole: vi.fn().mockResolvedValue({
+      asSender: { cancelled: 0, avgPackageWeightKg: null },
+      asCarrier: { cancelled: 0, avgPackageWeightKg: null },
+    }),
+    getSharedHistory: vi.fn().mockResolvedValue({ sharedShipmentCount: 0, lastSharedAt: null, allDelivered: false }),
     ...overrides,
   };
 }
