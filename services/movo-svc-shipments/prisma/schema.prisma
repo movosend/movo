@@ -90,6 +90,16 @@ enum OfferStatus {
   @@schema("shipments")
 }
 
+// MOVO-158: etapa de custodia del handshake criptográfico -- pickup (emisor cede al
+// transportista) o delivery (transportista cede al receptor).
+enum HandshakeStage {
+  pickup
+  delivery
+
+  @@map("handshake_stage_enum")
+  @@schema("shipments")
+}
+
 // MOVO-161: estado del viaje declarado por el transportista
 enum TripStatus {
   active
@@ -156,10 +166,11 @@ model Shipment {
   // pise en cada write, redundante con el trigger pero consistente.
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  events  ShipmentEvent[]
-  photos  ShipmentPhoto[]
-  offers  Offer[]
-  ratings Rating[]
+  events          ShipmentEvent[]
+  photos          ShipmentPhoto[]
+  offers          Offer[]
+  ratings         Rating[]
+  handshakeEvents HandshakeEvent[]
 
   @@index([senderId], map: "shipments_sender_id_idx")
   @@index([receiverId], map: "shipments_receiver_id_idx")
@@ -301,6 +312,45 @@ model Rating {
   @@index([rateeId], map: "ratings_ratee_id_idx")
   @@index([shipmentId], map: "ratings_shipment_id_idx")
   @@map("ratings")
+  @@schema("shipments")
+}
+
+// MOVO-158 AC3: log append-only de handshakes de custodia CONFIRMADOS -- nunca se
+// actualiza ni se borra una fila, mismo criterio que ShipmentEvent (sin trigger de DB,
+// por convención de repositorio: HandshakeRepository nunca expone update/delete). El
+// estado PENDIENTE entre /generate y /confirm (nonce + GPS del cedente, TTL 15s) vive
+// en Redis, no acá -- ver handshake.service.ts. Reemplaza el placeholder
+// shipments.custody_transfer_event del DER original (docs/movo_der.dbml, "todavía sin
+// ticket de implementación") con los campos que este ticket realmente persiste --
+// signature/previous_event_hash/event_type/result del placeholder quedan
+// deliberadamente afuera (ver CLAUDE.md), no son parte del AC3.
+model HandshakeEvent {
+  id         String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId String         @map("shipment_id") @db.Uuid
+  stage      HandshakeStage
+
+  // actor_id = quien confirma la custodia (llama a /confirm); counterparty_id = quien
+  // generó el QR (el cedente, llamó a /generate). Mismo criterio que actor_id en
+  // shipment_events: quien efectivamente ejecutó la acción que generó el evento.
+  actorId        String @map("actor_id") @db.Uuid
+  counterpartyId String @map("counterparty_id") @db.Uuid
+
+  // SHA-256 hex del nonce -- nunca se persiste el nonce en texto plano, ya cumplió su
+  // función de un solo uso en Redis antes de llegar acá.
+  nonceHash String @map("nonce_hash")
+
+  counterpartyLat Decimal @map("counterparty_lat") @db.Decimal(9, 6)
+  counterpartyLng Decimal @map("counterparty_lng") @db.Decimal(9, 6)
+  actorLat        Decimal @map("actor_lat") @db.Decimal(9, 6)
+  actorLng        Decimal @map("actor_lng") @db.Decimal(9, 6)
+  distanceM       Decimal @map("distance_m") @db.Decimal(8, 2)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId], map: "handshake_events_shipment_id_idx")
+  @@map("handshake_events")
   @@schema("shipments")
 }
 

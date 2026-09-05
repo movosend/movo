@@ -62,3 +62,14 @@ export function assertIsNotShipmentParty(shipment: Shipment, callerId: string): 
     throw new ApiError(403, "AUTH_FORBIDDEN", "No podés ofertar sobre tu propio envío.");
   }
 }
+
+/**
+ * AC6 de MOVO-158: solo el transportista asignado puede confirmar el retiro de
+ * custodia o iniciar la entrega -- ningún helper existente (todos pensados para
+ * sender/receiver/admin) conocía `carrierId` como parte legítima de una acción.
+ */
+export function assertIsCarrier(shipment: Shipment, callerId: string): void {
+  if (!shipment.carrierId || callerId !== shipment.carrierId) {
+    throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el transportista asignado puede realizar esta acción.");
+  }
+}

@@ -8,6 +8,7 @@ import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
 import { AvailableShipment, PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
 import { isPickupWindowExpired } from "../../domain/pickup-window";
+import { haversineKm } from "../../domain/geo";
 import { Offer } from "../../models/offer";
 import {
   assertIsNotShipmentParty,
@@ -131,31 +132,12 @@ export interface ListAvailableResult {
   total: number;
 }
 
-const EARTH_RADIUS_KM = 6371;
-
 // MOVO-126: retiro y entrega a menos de 100m se tratan como la misma ubicación —
 // umbral chico a propósito (mismo criterio que el rechazo duro de
 // SHIPMENT_RECEIVER_IS_SENDER, un caso que nunca tiene sentido de negocio), no
 // pensado para descartar casos legítimos como "de mi depto a la portería del mismo
 // edificio".
 const MIN_PICKUP_DELIVERY_DISTANCE_KM = 0.1;
-
-function toRadians(degrees: number): number {
-  return (degrees * Math.PI) / 180;
-}
-
-// MOVO-82: ya no alimenta `suggestedPriceArs` (ahora lo calcula
-// movo-svc-pricing-logistics con su propia fórmula de distancia euclidiana, ver
-// pricing-client.ts) -- se mantiene standalone solo para la validación de umbral de
-// MOVO-126 de abajo.
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const dLat = toRadians(lat2 - lat1);
-  const dLng = toRadians(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLng / 2) ** 2;
-  return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 /** "HH:MM" -> "HH:MM:00"; "HH:MM:SS" queda igual. */
 function normalizeTime(time: string): string {
