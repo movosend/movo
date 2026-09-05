@@ -1129,3 +1129,158 @@ en `develop`, ver MOVO-148).
 
 Pendiente / fuera de alcance: "hacer una oferta" (MOVO-149, que ahora depende de esta
 pantalla); no probado en device (branch separada de MOVO-148, a integrar).
+
+### MOVO-154 — Reputación visible: perfil propio, perfil público y tarjetas de oferta
+
+Frontend de MOVO-25 sobre los campos que MOVO-152 (`svc-users`, ya Done) agregó a
+`PublicProfile`: desglose por rol (`asSender`/`asCarrier`, cada uno con
+`reputationScore`/`ratingCount`/`isNewProfile`) y `recentRatingComments`.
+`PrivateProfile` (`GET /users/me`) sigue sin esos campos — solo el score/contadores
+planos que ya tenía.
+
+Alcance ampliado más allá de los 3 archivos que listaba el ticket: mientras se
+armaba el plan surgió que **ninguna tarjeta de contraparte del detalle de envío era
+tocable** — `CounterpartCard` (`shipments/[id].tsx`, `transport/[id].tsx`) era un
+`View` sin `onPress`, escrita antes de que MOVO-152 diera reputación real. Se
+extendió el ticket para que esas cards, y el bloque de calificaciones, abran el
+mismo visor de perfil que ya usaba `offer-card.tsx`.
+
+- **`CarrierProfileSheet` generalizado a `PublicProfileSheet`**
+  (`components/shipments/carrier-profile-sheet.tsx` → `components/profile/
+  public-profile-sheet.tsx`, prop `carrierId` → `userId`): ya era, de hecho, el único
+  visor de perfil público de la app (avatar + badges + `ProfileStatsRow` en una
+  bottom sheet), solo estaba atado al flujo de ofertas. Título del header pasa a
+  **"Perfil" genérico siempre** (decisión explícita, sin condicional por rol) — se
+  reusa desde 3 contextos (oferta de transportista, emisor, receptor de un envío).
+- **`components/profile/reputation-detail.tsx` (nuevo)**: componente presentacional
+  puro, sin fetch propio — desglose "Como emisor"/"Como transportista" (score + `n`
+  de calificaciones vía `StarRatingInput readOnly` + `formatReputationScore`/
+  `formatRatingCount` nuevos en `profile-format.ts`), línea explicativa fija del
+  cálculo (AC8) y lista de hasta 10 `recentRatingComments` con `formatRatingDate`
+  nuevo (`Intl.DateTimeFormat("es-AR", ...)`, mismo patrón que `shipment-format.ts`).
+  Se renderiza siempre inline debajo de `ProfileStatsRow` — nunca detrás de una
+  pantalla o sheet aparte, el AC8 solo pide que la explicación sea "accesible desde
+  el perfil", no un flujo de navegación nuevo.
+- **`formatReputationScore` gana un segundo parámetro opcional `isNewProfile`**
+  (retrocompatible): con `true` devuelve `"Perfil nuevo"` sin importar el score,
+  reemplazando el número en todos los lugares que lo pasan (`ProfileStatsRow`,
+  `CounterpartCard`, `ReputationDetail`) — el umbral de 3 transacciones lo resuelve
+  el backend, nunca se reimplementa acá (AC5).
+- **`CounterpartCard` gana `onPress` opcional** (envuelve el contenido en
+  `Pressable` con `ChevronRight` si viene, se comporta igual que antes si no) y
+  muestra el score inline (`StarRatingInput readOnly` + texto) — el comentario
+  viejo que decía "reputationScore siempre null hoy" ya no aplicaba desde MOVO-152.
+  Los 4 render sites (`shipments/[id].tsx` ×2, `transport/[id].tsx` ×2) pasan
+  `onPress` abriendo un único `PublicProfileSheet` por pantalla (mismo patrón de
+  "una sheet, múltiples triggers" que ya usaba `RatingSheet` en esa misma pantalla).
+- **`CounterpartyRatingRow`** (dentro de `shipment-ratings-card.tsx`) separa el tap
+  de "ver perfil" (nuevo `onViewProfile`, sobre el bloque avatar+nombre) del botón
+  "Calificar"/"Editar" — son acciones distintas, nunca comparten `Pressable`.
+  `shipments/[id].tsx` conecta `onViewProfile` al mismo estado/sheet de arriba, sin
+  instanciar una segunda sheet.
+- **`offer-card.tsx` (AC7)**: el ícono de estrella estático + texto se reemplazó por
+  `StarRatingInput readOnly` — mismo componente en modo lectura que pide el AC, no
+  dos representaciones distintas del mismo dato. `OfferSummary.carrierRatingAtOffer`
+  es un snapshot histórico sin flag de `isNewProfile` propio, así que la tarjeta de
+  oferta no muestra "Perfil nuevo" — limitación aceptada, no bloquea el resto.
+- **Perfil propio (`app/(app)/(tabs)/profile.tsx`)**: como `PrivateProfile` no trae
+  desglose/comentarios, la pantalla suma `usePublicProfile(data.id)` en paralelo a
+  `useMyProfile()` solo para alimentar `ReputationDetail` — verificado que
+  `GET /users/:id` (`services/movo-svc-users/src/modules/users/users.routes.ts`) no
+  distingue self-lookup de cualquier otro, así que no hizo falta tocar backend. Esa
+  segunda query degrada sola (sin sección de reputación) si falla o sigue cargando,
+  sin bloquear el resto del perfil.
+
+Tests nuevos: `test/reputation-detail.test.tsx`. Casos agregados a
+`test/counterpart-card.test.tsx` (tap abre sheet, score real/"Perfil nuevo"/"Sin
+calificaciones"), `test/offer-card.test.tsx` (StarRatingInput en modo lectura),
+`test/profile.test.tsx` (desglose por rol, degradación sin la segunda query),
+`test/shipment-ratings-card.test.tsx` (`onViewProfile` separado de `onRate`),
+`test/shipment-detail-screen.test.tsx` y `test/transport-detail-screen.test.tsx`
+(tap en `CounterpartCard` abre la sheet). Fixtures de `PublicProfile` en
+`test/offers-screen.test.tsx`/`shipment-detail-screen.test.tsx`/
+`transport-detail-screen.test.tsx` actualizados con los campos nuevos de MOVO-152
+(sin eso, `ReputationDetail` rompía al desestructurar `recentRatingComments`
+`undefined`). 87/87 suites, 641/641 tests. `tsc --noEmit` limpio (aparte del ruido
+preexistente y no relacionado de `available-shipment-card.tsx`, típed routes
+gitignoreadas).
+
+Pendiente / fuera de alcance: no probado en device; sin `title` contextual en
+`PublicProfileSheet` (decisión explícita, "Perfil" genérico); DoD manual del ticket
+(Sprint Review con datos reales de reputación) no verificable en este entorno.
+
+### MOVO-176 — Rediseño de pantalla de perfil (prototipo Claude Design): sheet → pantalla completa
+
+A partir de un prototipo armado con Claude Design ("Rediseño ficha de perfil
+usuario"), reemplaza la bottom sheet chica de MOVO-154 (`PublicProfileSheet`,
+borrada) por una pantalla completa (`app/(app)/profile/[id].tsx`) mucho más rica.
+El prototipo traía datos que no existen en ningún lado del backend — se relevó con
+el usuario qué construir y se abrieron 6 issues nuevas de Linear (MOVO-170 a
+MOVO-175, sub-issues de MOVO-25) con el contrato propuesto para cada una. Esta US
+deja **todo el frontend listo ya**, tipado contra esos contratos como campos
+opcionales — cada sección nueva se oculta sola si el campo no llega en la
+respuesta, así la pantalla no se rompe hoy y se completa sola a medida que cada
+backend aterriza.
+
+- **`PublicProfileSheet` → `app/(app)/profile/[id].tsx`**: los 3 puntos de entrada
+  que abrían la sheet (`CounterpartCard` en `shipments/[id].tsx` y
+  `transport/[id].tsx`, `offer-card.tsx` vía `offers.tsx`,
+  `shipment-ratings-card.tsx`) pasan a `router.push('/profile/${userId}')`. El menú
+  de reportar/bloquear se oculta en el perfil propio (`profile.id ===
+  currentUserId`).
+- **`components/profile/reputation-card.tsx` (nuevo)**: reemplaza el stacking
+  siempre-visible de `ReputationDetail` (que sigue tal cual en el perfil PROPIO,
+  `(tabs)/profile.tsx`) por un toggle "Como transportista"/"Como emisor" — oculto
+  si la persona no tiene transacciones reales en ambos roles
+  (`transactionCounts`, `PublicProfile` no expone `roles`, eso es privado). El rol
+  activo se comparte con `usage-stats-grid.tsx` (ambos viven en la pantalla, no
+  duplican el toggle). Barras de categoría (`breakdown.categories`, MOVO-173)
+  solo se pintan si existen.
+- **`components/profile/verification-chips.tsx` (nuevo)**: a propósito **no**
+  desglosa identidad en "DNI"/"Selfie" por separado como sugiere el prototipo — el
+  KYC es un único resultado pass/fail por tipo, mostrar sub-pasos aparentaría una
+  precisión que el sistema no tiene. Teléfono/email solo aparecen si
+  `PublicProfile.phoneVerified`/`emailVerified` existen (MOVO-170).
+- **`components/profile/usage-stats-grid.tsx`, `vehicle-card.tsx`,
+  `mutual-connections-row.tsx` (nuevos)**: cada uno oculta su sección entera si el
+  campo correspondiente (`usageStats`/`vehicle`/conexiones mutuas) no viene —
+  nunca rellenan con ceros ni ocultan a medias.
+- **`components/profile/profile-actions-menu.tsx` (nuevo, MOVO-175)**: reusa el
+  patrón exacto de `MenuView` de `sender-actions-bar.tsx` (MOVO-29) para
+  "Reportar"/"Bloquear", modal de motivo con las 5 opciones de `ReportReason`
+  (`@movo/shared`, nuevo) + detalle opcional, y `Alert.alert` nativo como último
+  paso de la confirmación de bloqueo (mismo criterio que la baja de cuenta,
+  MOVO-136). Las mutaciones (`use-moderation.ts`) pegan contra endpoints que
+  todavía no existen (MOVO-175) — quedan listas, van a fallar hasta que esa issue
+  aterrice.
+- **`TextField` ganó soporte de `multiline`** (antes solo una línea) para la bio
+  (MOVO-171) — sin componente nuevo, alcanzaba con no aplicar el centrado
+  vertical de una sola línea cuando `multiline` está presente.
+- **Bio y ficha de vehículo en `app/(app)/profile/edit.tsx`**: bio con el mismo
+  patrón de guardado-al-`onBlur` que nombre/apellido (MOVO-171); fila navegable
+  "Ficha de vehículo" (solo para `UserRole.CARRIER`) hacia `app/(app)/
+  vehicle-info.tsx` (nuevo, MOVO-172) — formulario atómico con botón Guardar (a
+  diferencia de `edit.tsx`, las 4 piezas del vehículo solo tienen sentido juntas).
+- **Excluido a propósito: CTA "Mensajear a {nombre}"** del prototipo. Ya existe
+  MOVO-26 en el backlog para chat, pero su propio AC dice que no funciona "sin una
+  transacción activa en común" — el prototipo lo ofrecía desde cualquier perfil,
+  contradiciendo ese alcance ya definido. No se agregó el botón.
+- **`shared/movo-shared`**: todos los campos nuevos son opcionales/nullable con un
+  comentario `// Pendiente: issue N` — ningún consumidor existente de
+  `PublicProfile`/`PrivateProfile`/`ReputationBreakdown` se rompió.
+
+Tests nuevos: `reputation-card`, `usage-stats-grid`, `vehicle-card`,
+`verification-chips`, `mutual-connections-row`, `profile-actions-menu`,
+`profile-detail-screen`, `vehicle-info-screen` (todos `.test.tsx`), más casos
+agregados a `edit-profile-screen.test.tsx` (bio, fila de vehículo),
+`offers-screen.test.tsx`/`shipment-detail-screen.test.tsx`/
+`transport-detail-screen.test.tsx` (navegación a la pantalla nueva en vez de abrir
+la sheet vieja). 95/95 suites, 681/681 tests. `tsc --noEmit` limpio (los 4 errores
+de rutas tipadas nuevas eran caché de `.expo/types/router.d.ts`, gitignoreado —
+se regeneran al levantar el dev server, verificado corriendo `expo start`
+brevemente).
+
+Pendiente / fuera de alcance: las 6 issues de backend (MOVO-170 a MOVO-175) en sí,
+cada una en su propia rama; pantalla "Ver todas las calificaciones" paginada (el
+link se omitió del todo en vez de dejarlo inerte, depende del endpoint paginado de
+MOVO-170); no probado en device.
