@@ -109,6 +109,17 @@ export function useShipment(id: string | undefined) {
   });
 }
 
+/** Historial compartido con otro usuario (MOVO-170, todavía sin backend en
+ * `svc-shipments`) para el rediseño de perfil — falla independiente del resto de
+ * la pantalla, mismo criterio que `useShipmentPhotos`/`useShipmentEvents`. */
+export function useSharedHistory(userId: string | undefined) {
+  return useQuery({
+    queryKey: ["shipments", "history-with", userId],
+    queryFn: () => shipmentsClient.getHistoryWith(userId!),
+    enabled: !!userId,
+  });
+}
+
 /** Fotos de evidencia del paquete (`GET /shipments/:id/photos`, MOVO-81) para la card
  * de paquete del detalle de envío (MOVO-127) — falla independiente del resto de la
  * pantalla, nunca bloquea el detalle principal. */

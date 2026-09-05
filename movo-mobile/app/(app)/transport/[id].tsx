@@ -69,6 +69,8 @@ export default function TransportShipmentDetailScreen() {
   const colors = useThemeColors();
   const { data: shipment, isLoading, isError, error, refetch } = useShipment(id);
 
+  const openProfile = (userId: string) => router.push(`/profile/${userId}`);
+
   const pickupDateLabel = shipment ? formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate : null;
   const tripDistanceKm = shipment
     ? haversineDistanceKm(shipment.pickupLat, shipment.pickupLng, shipment.deliveryLat, shipment.deliveryLng)
@@ -165,7 +167,11 @@ export default function TransportShipmentDetailScreen() {
 
           <View>
             <Eyebrow>Emisor</Eyebrow>
-            <CounterpartCard userId={shipment.senderId} testID="transport-detail-sender" />
+            <CounterpartCard
+              userId={shipment.senderId}
+              onPress={() => openProfile(shipment.senderId)}
+              testID="transport-detail-sender"
+            />
           </View>
 
           <View>
@@ -173,6 +179,7 @@ export default function TransportShipmentDetailScreen() {
             <CounterpartCard
               userId={shipment.receiverId}
               receiverConfirmation={receiverConfirmationStatus(shipment.status)}
+              onPress={() => openProfile(shipment.receiverId)}
               testID="transport-detail-receiver"
             />
           </View>

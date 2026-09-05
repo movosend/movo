@@ -26,10 +26,18 @@ export interface ConfirmPhotoResponse {
 }
 
 /** Body de `PATCH /users/me` (MOVO-133). El backend rechaza con 400 cualquier clave
- * fuera de estas dos, y también un body vacío (`minProperties: 1`). */
+ * fuera de estas — `bio` es MOVO-171, todavía sin backend (el schema real hoy
+ * solo acepta `firstName`/`lastName`, mandar `bio` es 400 hasta que exista). */
 export interface UpdateProfileInput {
   firstName?: string;
   lastName?: string;
+  bio?: string;
+}
+
+/** MOVO-174, todavía sin backend. */
+export interface MutualConnections {
+  totalCount: number;
+  sampleFirstNames: string[];
 }
 
 /**
@@ -84,6 +92,13 @@ export const usersClient = {
    * caller. `q` debe tener al menos 2 caracteres (el backend lo exige). */
   search(q: string): Promise<PublicProfile[]> {
     return httpClient.get<PublicProfile[]>("/users/search", { q });
+  },
+
+  /** `GET /users/:id/mutual-connections` (MOVO-174, todavía sin implementar en
+   * `svc-users` — ver esa issue para el contrato propuesto, incluida la decisión
+   * de privacidad pendiente sobre `sampleFirstNames`). */
+  getMutualConnections(id: string): Promise<MutualConnections> {
+    return httpClient.get<MutualConnections>(`/users/${id}/mutual-connections`);
   },
 
   /** Pide presigned URL para subir foto a S3 (MOVO-97/98, ADR-007). */

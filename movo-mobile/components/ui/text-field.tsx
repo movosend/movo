@@ -33,6 +33,11 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(
     ref,
   ) {
     const colors = useThemeColors();
+    // `multiline` (bio de MOVO-171) no puede compartir el centrado vertical de una
+    // sola línea: `textAlignVertical="center"` en Android empuja todo el texto al
+    // medio del box en vez de arrancar arriba, y el `includeFontPadding:false` de
+    // abajo existe solo para el descentrado de una línea en iOS, no aplica acá.
+    const isMultiline = !!inputProps.multiline;
 
     return (
       <View className={containerClassName ?? "mb-3.5 gap-1.5"}>
@@ -46,17 +51,19 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(
             // `TextInput` de una sola línea no reparte ese espacio extra arriba/abajo del
             // glifo como sí lo hace `Text`, lo agrega entero arriba. `text-[15px]` sin
             // lineHeight propio deja que la altura de línea nativa centre bien el texto.
-            className={`w-full rounded-md border py-3 font-sans text-[15px] ${
+            className={`w-full rounded-md border font-sans text-[15px] ${
+              isMultiline ? "min-h-[92px] py-3" : "py-3"
+            } ${
               disabled
                 ? "border-border bg-bg-mute text-fg-3"
                 : "border-border-strong text-fg"
             } ${rightElement ? "pr-11" : "pr-3.5"} ${
               leftElement ? "pl-[78px]" : "pl-3.5"
             }`}
-            textAlignVertical="center"
+            textAlignVertical={isMultiline ? "top" : "center"}
             editable={!disabled}
             {...inputProps}
-            style={[{ includeFontPadding: false }, inputProps.style]}
+            style={[isMultiline ? null : { includeFontPadding: false }, inputProps.style]}
           />
           {leftElement ? (
             <View className="pointer-events-none absolute left-3.5">

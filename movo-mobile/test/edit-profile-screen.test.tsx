@@ -243,4 +243,43 @@ describe("EditProfileScreen (MOVO-135)", () => {
     fireEvent.press(getByTestId("edit-profile-retry"));
     expect(refetch).toHaveBeenCalled();
   });
+
+  // MOVO-171 (bio editable), todavía sin backend real — mismo patrón de
+  // guardado-al-blur que nombre/apellido.
+  it("guarda la bio al salir del campo, vacío incluido", async () => {
+    const { getByTestId } = await render(<EditProfileScreen />);
+
+    await typeIn(getByTestId("edit-profile-bio"), "Voy a la facu por Colón todos los días.");
+    await blur(getByTestId("edit-profile-bio"));
+
+    expect(mutateAsync).toHaveBeenCalledWith({ bio: "Voy a la facu por Colón todos los días." });
+  });
+
+  it("no manda nada si la bio no cambió", async () => {
+    const { getByTestId } = await render(<EditProfileScreen />);
+    await blur(getByTestId("edit-profile-bio"));
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  // MOVO-172 (ficha de vehículo), todavía sin backend — la fila solo aparece para
+  // transportistas.
+  it("no muestra la fila de ficha de vehículo si el usuario no es transportista", async () => {
+    const { queryByTestId } = await render(<EditProfileScreen />);
+    expect(queryByTestId("edit-profile-vehicle-row")).toBeNull();
+  });
+
+  it("muestra la fila de ficha de vehículo y navega a /vehicle-info para un transportista", async () => {
+    mockUseMyProfile.mockReturnValue({
+      data: baseProfile({ roles: [UserRole.SENDER, UserRole.CARRIER] }),
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<EditProfileScreen />);
+    fireEvent.press(getByTestId("edit-profile-vehicle-row"));
+
+    expect(router.push).toHaveBeenCalledWith("/vehicle-info");
+  });
 });

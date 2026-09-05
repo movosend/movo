@@ -1,18 +1,20 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { render } from "@testing-library/react-native";
+import { fireEvent, render } from "@testing-library/react-native";
 import type { RouteResult, ShipmentSummary } from "../src/api/shipments-client";
 import TransportShipmentDetailScreen from "../app/(app)/transport/[id]";
 import { formatTripDistanceKm, haversineDistanceKm } from "../src/lib/shipment-format";
 
 const mockRouterReplace = jest.fn();
 const mockRouterBack = jest.fn();
+const mockRouterPush = jest.fn();
 const mockCanGoBack = jest.fn();
 
 jest.mock("expo-router", () => ({
   router: {
     replace: (...args: unknown[]) => mockRouterReplace(...args),
     back: (...args: unknown[]) => mockRouterBack(...args),
+    push: (...args: unknown[]) => mockRouterPush(...args),
     canGoBack: () => mockCanGoBack(),
   },
   useLocalSearchParams: () => ({ id: "shipment-1" }),
@@ -41,6 +43,11 @@ jest.mock("../src/hooks/use-profile", () => ({
       badges: ["kyc_verified"],
       transactionCounts: { asSender: 0, asCarrier: 0 },
       reputationScore: null,
+      ratingCount: 0,
+      isNewProfile: true,
+      asSender: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+      asCarrier: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+      recentRatingComments: [],
     },
     isLoading: false,
     isError: false,
@@ -138,7 +145,23 @@ describe("TransportShipmentDetailScreen", () => {
     expect(getByTestId("transport-detail-sender")).toBeTruthy();
     expect(getByText("Receptor")).toBeTruthy();
     expect(getByTestId("transport-detail-receiver")).toBeTruthy();
-    expect(queryByText("Aún no tenés ofertas")).toBeNull();
+  });
+
+  // MOVO-154: tocar la card de emisor/receptor abre el perfil público en una sheet.
+  // MOVO-176: la sheet chica de MOVO-154 se reemplazó por una pantalla completa.
+  it("tocar la card del emisor navega a la pantalla de perfil público", async () => {
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment(),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<TransportShipmentDetailScreen />);
+
+    await fireEvent.press(getByTestId("transport-detail-sender"));
+    expect(mockRouterPush).toHaveBeenCalledWith("/profile/user-1");
   });
 
   it("mientras no hay ruta real, muestra la aproximación en línea recta", async () => {

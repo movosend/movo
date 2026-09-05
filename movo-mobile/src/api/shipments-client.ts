@@ -280,4 +280,19 @@ export const shipmentsClient = {
   cancel(shipmentId: string, body?: { reason?: string }): Promise<ShipmentSummary> {
     return httpClient.post<ShipmentSummary>(`/shipments/${shipmentId}/cancel`, body ?? {});
   },
+
+  /** `GET /shipments/history-with/:userId` (MOVO-170, todavía sin implementar en
+   * `svc-shipments` — ver esa issue para el contrato propuesto). Historial
+   * compartido entre el usuario autenticado y `userId`, para el rediseño de
+   * perfil. */
+  getHistoryWith(userId: string): Promise<SharedHistory> {
+    return httpClient.get<SharedHistory>(`/shipments/history-with/${userId}`);
+  },
 };
+
+/** MOVO-170, todavía sin backend. */
+export interface SharedHistory {
+  sharedShipmentCount: number;
+  lastSharedAt: string | null;
+  allDelivered: boolean;
+}

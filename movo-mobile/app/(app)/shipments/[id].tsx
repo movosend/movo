@@ -86,6 +86,8 @@ export default function ShipmentDetailScreen() {
   const [ratingTarget, setRatingTarget] = useState<RatingTarget | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  const openProfile = (userId: string) => router.push(`/profile/${userId}`);
+
   const activeUserId = currentUser?.userId ?? "";
 
   const isReceiver = shipment !== undefined && currentUser?.userId === shipment.receiverId;
@@ -293,6 +295,9 @@ export default function ShipmentDetailScreen() {
                   receiverConfirmation={
                     isReceiver ? undefined : receiverConfirmationStatus(shipment.status)
                   }
+                  onPress={() =>
+                    openProfile(isReceiver ? shipment.senderId : shipment.receiverId)
+                  }
                   testID={isReceiver ? "shipment-detail-sender" : "shipment-detail-receiver"}
                 />
               </View>
@@ -302,6 +307,7 @@ export default function ShipmentDetailScreen() {
                   <Eyebrow>Transportista</Eyebrow>
                   <CounterpartCard
                     userId={shipment.carrierId}
+                    onPress={() => shipment.carrierId && openProfile(shipment.carrierId)}
                     testID="shipment-detail-carrier"
                   />
                 </View>
@@ -316,6 +322,7 @@ export default function ShipmentDetailScreen() {
                     currentUserId={activeUserId}
                     ratings={ratings}
                     onRate={(target) => setRatingTarget(target)}
+                    onViewProfile={openProfile}
                     testID="shipment-detail-ratings"
                   />
                 </View>
@@ -361,6 +368,7 @@ export default function ShipmentDetailScreen() {
             onSuccess={handleRatingSuccess}
             testID="shipment-rating-sheet"
           />
+
         </View>
       )}
     </SafeAreaView>

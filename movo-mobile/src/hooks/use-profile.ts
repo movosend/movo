@@ -136,3 +136,14 @@ export function useVerifyEmailVerification() {
     onSuccess: onProfileUpdated,
   });
 }
+
+/** Conexiones mutuas con otro usuario (MOVO-174, todavía sin backend en
+ * `svc-users`) para el rediseño de perfil — falla/carga independiente del resto
+ * de la pantalla, mismo criterio que `useSharedHistory`. */
+export function useMutualConnections(id: string | undefined) {
+  return useQuery({
+    queryKey: ["profile", "mutual-connections", id],
+    queryFn: () => usersClient.getMutualConnections(id!),
+    enabled: !!id,
+  });
+}

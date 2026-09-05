@@ -87,6 +87,11 @@ describe("ShipmentOffersScreen", () => {
         badges: ["kyc_verified"],
         transactionCounts: { asSender: 0, asCarrier: 15 },
         reputationScore: 4.9,
+        ratingCount: 15,
+        isNewProfile: false,
+        asSender: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+        asCarrier: { reputationScore: 4.9, ratingCount: 15, isNewProfile: false },
+        recentRatingComments: [],
       },
       isLoading: false,
       isError: false,
@@ -194,7 +199,8 @@ describe("ShipmentOffersScreen", () => {
     expect(mockUseShipmentOffers).toHaveBeenCalledWith("ship-1", { sort: "price" });
   });
 
-  it("abre el sheet de perfil del transportista al tocar su cabecera", async () => {
+  // MOVO-176: la sheet chica de MOVO-154 se reemplazó por una pantalla completa.
+  it("navega a la pantalla de perfil del transportista al tocar su cabecera", async () => {
     mockUseShipmentOffers.mockReturnValue({
       data: [sampleOffer1],
       isLoading: false,
@@ -203,13 +209,13 @@ describe("ShipmentOffersScreen", () => {
       isRefetching: false,
     });
 
-    const { getByTestId, getByText } = await render(<ShipmentOffersScreen />);
+    const { getByTestId } = await render(<ShipmentOffersScreen />);
 
     await act(async () => {
       fireEvent.press(getByTestId("offer-card-off-1-carrier-pressable"));
     });
 
-    expect(getByText("Perfil del transportista")).toBeTruthy();
+    expect(router.push).toHaveBeenCalledWith(`/profile/${sampleOffer1.carrierId}`);
   });
 
   it("flujo completo de elección de oferta con confirmación y éxito", async () => {
