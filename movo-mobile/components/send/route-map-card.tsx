@@ -4,7 +4,13 @@ import { Pressable, Text, View } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
 import Animated, { processColor, useAnimatedProps, useFrameCallback, useSharedValue } from "react-native-reanimated";
 import { useColorScheme } from "nativewind";
-import { movoMapStyleDark, movoMapStyleLight } from "../../src/constants/map-style";
+import {
+  MAP_EDGE_BLEED,
+  MAP_GEOMETRY_COLOR_DARK,
+  MAP_GEOMETRY_COLOR_LIGHT,
+  movoMapStyleDark,
+  movoMapStyleLight,
+} from "../../src/constants/map-style";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useShipmentRoute } from "../../src/hooks/use-shipments";
 import { hexToRgba } from "../../src/lib/color";
@@ -95,6 +101,7 @@ export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardP
   const { colorScheme } = useColorScheme();
   const colors = useThemeColors();
   const mapRef = useRef<MapView>(null);
+  const mapBackgroundColor = colorScheme === "dark" ? MAP_GEOMETRY_COLOR_DARK : MAP_GEOMETRY_COLOR_LIGHT;
 
   const { data: route } = useShipmentRoute(
     pickup ? { lat: pickup.lat, lng: pickup.lng } : null,
@@ -194,13 +201,22 @@ export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardP
 
   return (
     <View testID={testID} className="overflow-hidden rounded-[14px] border border-border">
-      <View style={{ height: MAP_HEIGHT }}>
+      <View style={{ height: MAP_HEIGHT, backgroundColor: mapBackgroundColor }}>
         <MapView
           ref={mapRef}
           testID={testID ? `${testID}-map` : undefined}
           provider={PROVIDER_GOOGLE}
           customMapStyle={colorScheme === "dark" ? movoMapStyleDark : movoMapStyleLight}
-          style={{ flex: 1 }}
+          // Insets negativos en vez de `flex: 1`: el borde propio de la view nativa
+          // (línea blanca de 1px) cae fuera del recorte del contenedor. Ver
+          // `MAP_EDGE_BLEED`.
+          style={{
+            position: "absolute",
+            top: -MAP_EDGE_BLEED,
+            bottom: -MAP_EDGE_BLEED,
+            left: -MAP_EDGE_BLEED,
+            right: -MAP_EDGE_BLEED,
+          }}
           initialRegion={{
             latitude: (pickup.lat + delivery.lat) / 2,
             longitude: (pickup.lng + delivery.lng) / 2,

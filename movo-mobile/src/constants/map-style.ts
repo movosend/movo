@@ -38,3 +38,33 @@ export const movoMapStyleDark = [
   { featureType: "transit", stylers: [{ visibility: "off" }] },
   { featureType: "water", elementType: "geometry", stylers: [{ color: "#0A0A0B" }] },
 ];
+
+/**
+ * Color de geometría base de cada estilo (el `elementType: "geometry"` de arriba).
+ * Se usa como `backgroundColor` del contenedor del mapa para que, mientras la view
+ * nativa todavía no pintó nada, el hueco tenga el color del mapa y no el del fondo
+ * de la pantalla.
+ */
+export const MAP_GEOMETRY_COLOR_LIGHT = "#F8F8FA";
+export const MAP_GEOMETRY_COLOR_DARK = "#111113";
+
+/**
+ * Sangrado del `MapView` respecto del contenedor que lo recorta
+ * (`overflow-hidden` + `borderRadius`), en dp.
+ *
+ * La view nativa de Google Maps pinta su última fila de píxeles con su propio fondo
+ * (`#F8F9FA`, gris-blanco) porque la superficie que renderiza queda una fracción de
+ * píxel corta respecto de su frame. Eso se veía como una línea blanca de 1px físico
+ * pegada al borde inferior de la card del mapa — invisible en tema claro (ese fondo
+ * coincide casi exacto con `#F8F8FA`, la geometría del estilo claro) y muy notoria en
+ * oscuro.
+ *
+ * No se puede tapar con un `backgroundColor`: lo pinta la propia view nativa, así que
+ * cualquier fondo queda detrás. La solución es que ese borde propio del mapa caiga
+ * **fuera** del recorte — se estira el `MapView` unos dp más allá del contenedor con
+ * insets negativos y la máscara del contenedor se come el artefacto.
+ *
+ * Se aplica a los 4 lados (no solo abajo) para cubrir el mismo artefacto en cualquier
+ * borde; el desplazamiento del centro visible es despreciable a esta escala.
+ */
+export const MAP_EDGE_BLEED = 2;

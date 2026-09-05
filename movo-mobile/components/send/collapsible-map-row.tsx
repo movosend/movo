@@ -4,7 +4,13 @@ import { Pressable, Text, View } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "react-native-maps";
 import { useColorScheme } from "nativewind";
 import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
-import { movoMapStyleDark, movoMapStyleLight } from "../../src/constants/map-style";
+import {
+  MAP_EDGE_BLEED,
+  MAP_GEOMETRY_COLOR_DARK,
+  MAP_GEOMETRY_COLOR_LIGHT,
+  movoMapStyleDark,
+  movoMapStyleLight,
+} from "../../src/constants/map-style";
 
 const ANIMATION_MS = 250;
 
@@ -94,12 +100,25 @@ export function CollapsibleMapRow({
       )}
 
       {mounted ? (
-        <Animated.View className="h-80 overflow-hidden rounded-[10px]" style={animatedStyle}>
+        <Animated.View
+          className="h-80 overflow-hidden rounded-[10px]"
+          style={[
+            animatedStyle,
+            { backgroundColor: colorScheme === "dark" ? MAP_GEOMETRY_COLOR_DARK : MAP_GEOMETRY_COLOR_LIGHT },
+          ]}
+        >
           <MapView
             testID={testID ? `${testID}-map` : undefined}
             provider={PROVIDER_GOOGLE}
             customMapStyle={colorScheme === "dark" ? movoMapStyleDark : movoMapStyleLight}
-            style={{ flex: 1 }}
+            // Ver `MAP_EDGE_BLEED`: saca el borde propio de la view nativa fuera del recorte.
+            style={{
+              position: "absolute",
+              top: -MAP_EDGE_BLEED,
+              bottom: -MAP_EDGE_BLEED,
+              left: -MAP_EDGE_BLEED,
+              right: -MAP_EDGE_BLEED,
+            }}
             initialRegion={
               draftLat !== null && draftLng !== null
                 ? { latitude: draftLat, longitude: draftLng, latitudeDelta: 0.01, longitudeDelta: 0.01 }
