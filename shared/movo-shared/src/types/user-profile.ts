@@ -32,6 +32,19 @@ export interface ReputationBreakdown {
   reputationScore: number | null;
   ratingCount: number;
   isNewProfile: boolean;
+  /**
+   * MOVO-170: subconjunto de estadísticas de uso calculable con datos ya
+   * persistidos (sin inventar dominio nuevo -- "recorridos totales"/puntualidad
+   * quedaron explícitamente fuera del ticket, sin definición de producto).
+   * Opcional a propósito: `GET /users/search` no lo compone (evita pagar el
+   * aggregate de `svc-shipments` por cada fila de una búsqueda), solo el perfil
+   * completo (`GET /users/:id`) lo trae.
+   */
+  usageStats?: {
+    delivered: number;
+    cancelled: number;
+    avgPackageWeightKg: number | null;
+  };
 }
 
 /**
@@ -40,10 +53,17 @@ export interface ReputationBreakdown {
  * componer un perfil completo. `raterId` viaja crudo -- resolverlo a un perfil (nombre/
  * foto de quien calificó) queda para quien consuma este tipo (ej. el mobile de
  * MOVO-154), no es responsabilidad de `svc-users` acá.
+ *
+ * MOVO-170 sumó `raterName`: decisión de producto confirmada (el calificador deja de
+ * ser anónimo de cara al calificado, mismo criterio que apps de reputación tipo
+ * Uber/Airbnb) -- a diferencia de `raterId`, esto sí lo resuelve `svc-users` (batch
+ * lookup local, `raterId` es siempre un usuario del propio servicio). Cae a un label
+ * genérico si la cuenta del calificador ya no existe (derecho de supresión, MOVO-39).
  */
 export interface RecentRatingComment {
   id: string;
   raterId: string;
+  raterName: string;
   score: number;
   comment: string | null;
   createdAt: string;
@@ -112,6 +132,15 @@ export interface PrivateProfile {
  * por cada resultado) y poblado en `GET /users/:id` (perfil completo) -- el tipo no
  * distingue los dos casos, es una decisión de qué datos pedir al componer, no del wire
  * contract.
+ *
+ * MOVO-170 sumó `memberSince`/`phoneVerified`/`emailVerified` (ya existían en
+ * `PrivateProfile`, solo faltaba exponerlos acá -- sin filtrar el teléfono/email
+ * reales, mismo criterio que `isVerified`) y `usageStats` dentro de `asSender`/
+ * `asCarrier` (ver `ReputationBreakdown`). A diferencia de `recentRatingComments`,
+ * los cuatro viajan también en `GET /users/search`: no piden I/O extra (los tres
+ * primeros salen de la fila de `User` ya cargada; `usageStats` viaja en el mismo
+ * agregado de reputación que `reputationScore`/`transactionCounts`, ya obligatorios
+ * en este contrato desde MOVO-152).
  */
 export interface PublicProfile {
   id: string;
@@ -126,4 +155,8 @@ export interface PublicProfile {
   asSender: ReputationBreakdown;
   asCarrier: ReputationBreakdown;
   recentRatingComments: RecentRatingComment[];
+  /** ISO date, de `User.createdAt`. */
+  memberSince: string;
+  phoneVerified: boolean;
+  emailVerified: boolean;
 }

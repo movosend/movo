@@ -60,8 +60,6 @@ export interface RatingRepository {
   findByPair(shipmentId: string, raterId: string, rateeId: string): Promise<Rating | null>;
   /** AC6: calificaciones de un envío, para que sus participantes vean a quién ya calificaron. */
   listByShipment(shipmentId: string): Promise<Rating[]>;
-  /** AC10: últimas `limit` calificaciones RECIBIDAS por un usuario, más reciente primero. */
-  listRecentByRatee(rateeId: string, limit: number): Promise<Rating[]>;
   /**
    * MOVO-147 AC1/AC6: proyección mínima (`score`/`createdAt`/`role`) de TODAS las
    * calificaciones recibidas por `rateeId`, para que `reputation.ts` aplique
@@ -81,6 +79,35 @@ export interface RatingRepository {
    * alcanzable en producción.
    */
   getGlobalAverageScore(): Promise<number>;
+  /**
+   * MOVO-170: últimas calificaciones RECIBIDAS por un usuario, más reciente primero,
+   * paginadas -- reemplaza al `listRecentByRatee` no paginado de MOVO-146 (AC10, único
+   * consumidor). Sin `cursor` es la primera página (composición del perfil, límite
+   * 10); con `cursor`, sirve además a `GET /users/:id/ratings` de `svc-users` ("ver
+   * todas las calificaciones", MOVO-176). Sin convención de cursor previa en el repo:
+   * keyset simple sobre `(createdAt, id)` desc, cursor opaco = base64 de
+   * `${createdAt.toISOString()}|${id}` -- evita el drift de offset/page-based ante
+   * inserciones concurrentes entre páginas.
+   */
+  listRecentByRateePaginated(
+    rateeId: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<{ items: Rating[]; nextCursor: string | null }>;
+}
+
+interface RatingCursor {
+  createdAt: Date;
+  id: string;
+}
+
+function encodeRatingCursor(rating: Rating): string {
+  return Buffer.from(`${rating.createdAt.toISOString()}|${rating.id}`, "utf8").toString("base64");
+}
+
+function decodeRatingCursor(cursor: string): RatingCursor {
+  const [createdAtRaw, id] = Buffer.from(cursor, "base64").toString("utf8").split("|");
+  return { createdAt: new Date(createdAtRaw), id };
 }
 
 export function createRatingRepository(db: PrismaClient): RatingRepository {
@@ -132,13 +159,31 @@ export function createRatingRepository(db: PrismaClient): RatingRepository {
       return rows.map(mapRating);
     },
 
-    async listRecentByRatee(rateeId: string, limit: number): Promise<Rating[]> {
+    async listRecentByRateePaginated(
+      rateeId: string,
+      limit: number,
+      cursor?: string,
+    ): Promise<{ items: Rating[]; nextCursor: string | null }> {
+      const cursorFilter = cursor ? decodeRatingCursor(cursor) : null;
       const rows = await db.rating.findMany({
-        where: { rateeId },
-        orderBy: { createdAt: "desc" },
-        take: limit,
+        where: {
+          rateeId,
+          ...(cursorFilter
+            ? {
+                OR: [
+                  { createdAt: { lt: cursorFilter.createdAt } },
+                  { createdAt: cursorFilter.createdAt, id: { lt: cursorFilter.id } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        // Pide una de más para saber si hay próxima página sin una segunda query.
+        take: limit + 1,
       });
-      return rows.map(mapRating);
+      const items = rows.slice(0, limit).map(mapRating);
+      const hasMore = rows.length > limit;
+      return { items, nextCursor: hasMore ? encodeRatingCursor(items[items.length - 1]) : null };
     },
 
     async listForReputation(rateeId: string): Promise<RatingRowForReputation[]> {
