@@ -1325,7 +1325,13 @@ tocar código.
   todas las calificaciones' paginada, se omitió del todo") — existe la
   pantalla, pero sigue mostrando como mucho los mismos 10 que ya trae
   `PublicProfile`, no pagina de verdad hasta que el backend lo haga
-  (MOVO-170).
+  (MOVO-170). **Sigue siendo solo del perfil propio** (`usePublicProfile(myId)`
+  hardcodeado) — el `app/(app)/profile/[id]/reviews.tsx` genérico que pedía el
+  alcance original de MOVO-176 (para el perfil de CUALQUIER usuario, no solo el
+  propio) nunca se construyó, ni siquiera oculto: no hay backend paginado real
+  (confirmado, `GET /internal/users/:id/ratings/recent` en `svc-shipments` solo
+  acepta `limit`, sin `page`/`cursor`) ni ningún link roto en su lugar. Pendiente
+  real cuando MOVO-170 exponga paginación de verdad.
 
 Tests: `profile-activity-card.test.tsx`, `reputation-comment-card.test.tsx`,
 `profile-ratings-screen.test.tsx` (nuevos), `reputation-detail.test.tsx`
