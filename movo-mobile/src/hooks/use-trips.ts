@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   tripsClient,
   type Trip,
@@ -50,6 +50,25 @@ export function useUpdateTrip() {
       queryClient.invalidateQueries({ queryKey: TRIPS_LIST_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ["trips", "detail", id] });
     },
+  });
+}
+
+/**
+ * Envíos compatibles con un viaje declarado (`GET /trips/:id/matches`, MOVO-161) para
+ * el feed filtrado del tab Transportar (MOVO-163) — `useInfiniteQuery`, calcado de
+ * `useAvailableShipments` (`use-shipments.ts`). Sin selector de radio en la UI todavía
+ * (MOVO-163, decisión de alcance): `radiusKm` se omite y el servidor aplica su
+ * default (`TRIP_DEFAULT_MAX_DETOUR_KM`).
+ */
+export function useTripMatches(tripId: string | undefined, radiusKm?: number, limit = 20) {
+  return useInfiniteQuery({
+    queryKey: ["trips", "matches", tripId, radiusKm ?? null],
+    queryFn: ({ pageParam }) =>
+      tripsClient.getMatches(tripId!, { radiusKm, page: pageParam, limit }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.page * lastPage.limit < lastPage.total ? lastPage.page + 1 : undefined,
+    enabled: !!tripId,
   });
 }
 
