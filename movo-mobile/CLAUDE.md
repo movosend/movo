@@ -1129,3 +1129,22 @@ en `develop`, ver MOVO-148).
 
 Pendiente / fuera de alcance: "hacer una oferta" (MOVO-149, que ahora depende de esta
 pantalla); no probado en device (branch separada de MOVO-148, a integrar).
+
+### MOVO-149 — Detalle del envío disponible y creación de la oferta (`movo-mobile`)
+
+Frontend de MOVO-23: el transportista abre un envío disponible y oferta un precio neto a cobrar, o retira una oferta activa previa. Bloqueado por MOVO-143 (backend `POST /shipments/:id/offers` y retiro) y apoyado sobre la pantalla de detalle `app/(app)/transport/[id].tsx` (MOVO-166).
+
+- **Hoja de creación de oferta (`components/transport/create-offer-sheet.tsx`)**:
+  - Prellenado del monto neto que el transportista quiere cobrar a partir del `suggestedPriceArs` del envío (editable) y fecha del viaje con la fecha de retiro.
+  - Lo que se envía al servidor es el neto (`priceOfferedArs`), el backend calcula y persiste el bruto con su comisión (AC2/AC3 de la US). Desglose devuelto por la API (`priceNetArs`, `commissionAmountArs`, `priceOffered`) mostrado en pantalla de éxito sin recalcular comisiones en el cliente.
+  - Validación de monto: soporte para coma `,` y punto `.`, límite estricto de hasta 2 posiciones decimales desde el ingreso, y borde rojo (`border-danger-500`) con icono X (`#E5484D`) y mensaje *"Ingresá un monto válido"* ante entradas no numéricas, múltiples comas o `<= 0`.
+  - Mapeo de errores de negocio vía `src/lib/error-messages.ts`: 409 (`SHIPMENT_NOT_AVAILABLE_FOR_OFFER`), 409 (`OFFER_DUPLICATE_ACTIVE`), 422 (`OFFER_DATE_OUT_OF_RANGE`) y 403 (`CARRIER_NOT_VERIFIED`, falta KYC de identidad con CTA directo a `/kyc`).
+- **Integración en detalle de transportista (`app/(app)/transport/[id].tsx`)**:
+  - Detección de oferta activa vía `useMyOffers({ status: OfferStatus.PENDING })`: si ya existe, muestra la card *"Tu oferta activa"* con monto, fecha y mensaje enviado, y reemplaza la acción por *"Retirar oferta"* con confirmación modal (`Alert.alert`).
+- **Listado y confirmación (`app/(app)/(tabs)/transport.tsx`)**:
+  - Al ofertar exitosamente, navega al listado con `offerCreated=1` mostrando un `SuccessBanner`.
+  - Actualización optimista de cache en `useCreateOffer` y `useWithdrawOffer`: marca inmediatamente `hasMyOffer: true/false` sobre la query `["shipments", "available"]`, reflejando el badge *"Ya ofertaste"* en la card sin recargar a mano.
+- **Cliente de ofertas y hooks**: `src/api/offers-client.ts` (`createOffer`, `withdrawOffer`, `listMyOffers`) y `src/hooks/use-offers.ts` (`useCreateOffer`, `useWithdrawOffer`, `useMyOffers`).
+
+Tests nuevos y actualizados: `test/create-offer-sheet.test.tsx` (apertura con prellenado, envío exitoso, desglose de respuesta, errores 409/422/403 KYC, validación con icono X y límite de 2 decimales), `test/transport-detail-screen.test.tsx` (card de oferta activa previa y flujo de retiro con confirmación), `test/transport-screen.test.tsx` (banner de éxito y actualización de badge), `test/offers-client.test.ts`. 87/87 suites pasadas, 643/643 tests en `movo-mobile`. `tsc --noEmit` limpio.
+

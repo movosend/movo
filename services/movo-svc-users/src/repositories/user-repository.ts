@@ -5,7 +5,7 @@ import {
   KycStatus as PrismaKycStatus,
   AccountStatus as PrismaAccountStatus,
 } from "../generated/prisma/client";
-import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus, parseAccountStatus } from "../models/user";
+import { User, CreateUserInput, UserConflictError, parseUserRole, parseKycStatus, parseAccountStatus, fullName } from "../models/user";
 
 export interface UserRepository {
   count(): Promise<number>;
@@ -81,6 +81,16 @@ export interface UserRepository {
    * `svc-shipments`, la integridad referencial del historial tiene que sobrevivir).
    */
   anonymizeAndDelete(id: string): Promise<User | null>;
+  /**
+   * MOVO-170: batch lookup para resolver `raterName` sobre `RecentRatingComment` --
+   * los `raterId` de `svc-shipments` son siempre usuarios de este mismo servicio, así
+   * que se resuelve local (sin llamada cross-servicio). Sin `findById` en loop: una
+   * sola query para todas las calificaciones de una página. Un id que no matchea
+   * ninguna fila (cuenta dada de baja, MOVO-134 no borra físicamente pero el caller
+   * igual necesita cubrir el caso de un id que nunca existió) queda afuera del mapa --
+   * el caller decide el fallback.
+   */
+  findNamesByIds(ids: string[]): Promise<Map<string, string>>;
 }
 
 type UserWithRoles = Prisma.UserGetPayload<{ include: { roles: true } }>;
@@ -469,6 +479,17 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         }
         throw error;
       }
+    },
+
+    async findNamesByIds(ids: string[]): Promise<Map<string, string>> {
+      if (ids.length === 0) {
+        return new Map();
+      }
+      const rows = await db.user.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, firstName: true, lastName: true },
+      });
+      return new Map(rows.map((row) => [row.id, fullName(row)]));
     },
   };
 }

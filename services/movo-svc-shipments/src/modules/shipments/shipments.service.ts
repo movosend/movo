@@ -990,5 +990,18 @@ export function createShipmentsService(
 
       return { expiredCount, errorsCount };
     },
+
+    /**
+     * MOVO-170: historial de envíos compartido entre el viewer y otro usuario
+     * cualquiera, sin importar el rol de cada uno -- `GET /shipments/history-with/:userId`.
+     * Sin autorización adicional más allá de estar autenticado (a diferencia de
+     * `getShipmentDetail`): no expone ningún envío puntual, solo un agregado.
+     */
+    async getSharedHistory(
+      viewerId: string,
+      otherUserId: string
+    ): Promise<{ sharedShipmentCount: number; lastSharedAt: Date | null; allDelivered: boolean }> {
+      return repository.getSharedHistory(viewerId, otherUserId);
+    },
   };
 }

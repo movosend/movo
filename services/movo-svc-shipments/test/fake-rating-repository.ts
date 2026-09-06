@@ -11,7 +11,7 @@ export function createFakeRatingRepository(overrides: Partial<RatingRepository> 
     update: vi.fn(),
     findByPair: vi.fn().mockResolvedValue(null),
     listByShipment: vi.fn().mockResolvedValue([]),
-    listRecentByRatee: vi.fn().mockResolvedValue([]),
+    listRecentByRateePaginated: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     listForReputation: vi.fn().mockResolvedValue([]),
     getGlobalAverageScore: vi.fn().mockResolvedValue(0),
     ...overrides,

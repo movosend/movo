@@ -19,7 +19,7 @@ import {
 import { UserConflictError, User } from "../../models/user";
 import { StorageProvider } from "../../adapters/storage-provider";
 import { PushPlatform } from "../../models/push-token";
-import { ShipmentsClient, UserReputationSummary } from "../../adapters/shipments-client";
+import { ShipmentsClient, UserReputationSummary, RawRecentRatingComment } from "../../adapters/shipments-client";
 import { issueSession, LoginUserResult, normalizePhoneToE164Ar } from "../auth/auth.service";
 import { OtpService } from "../../services/otp-service";
 import { buildEmailChangedNotice, EmailProvider } from "../../adapters/email-provider";
@@ -229,18 +229,39 @@ export function createUsersService(
     return summary;
   }
 
+  /** MOVO-170: `raterId` -> nombre completo, resuelto local (batch, sin llamada
+   * cross-servicio -- los raters son siempre usuarios de este mismo servicio). Un
+   * `raterId` que no resuelve (cuenta dada de baja, MOVO-134 anonimiza pero no borra
+   * la fila -- así que en la práctica esto cubre más bien un id que nunca existió o
+   * quedó huérfano) cae a un label genérico en vez de romper el batch entero. */
+  async function enrichWithRaterNames(rows: RawRecentRatingComment[]): Promise<RecentRatingComment[]> {
+    if (rows.length === 0) {
+      return [];
+    }
+    const raterIds = [...new Set(rows.map((r) => r.raterId))];
+    const names = await repository.findNamesByIds(raterIds);
+    return rows.map((row) => ({ ...row, raterName: names.get(row.raterId) ?? "Usuario de Movo" }));
+  }
+
   /** MOVO-152 AC2: solo se llama al componer un perfil completo (`getPublicProfile`),
    * nunca desde `searchUsers` -- ver el comentario de `PublicProfile.recentRatingComments`
-   * en `@movo/shared`. Mismo criterio de "nunca lanza" que `resolveReputationSummary`. */
-  async function resolveRecentRatingComments(userId: string): Promise<RecentRatingComment[]> {
+   * en `@movo/shared`. Mismo criterio de "nunca lanza" que `resolveReputationSummary`.
+   * MOVO-170 sumó `raterName` acá, y una variante paginada (`GET /users/:id/ratings`,
+   * "ver todas las calificaciones") para cuando el caller manda `cursor`. */
+  async function resolveRecentRatingComments(
+    userId: string,
+    limit: number = RECENT_RATING_COMMENTS_LIMIT,
+    cursor?: string,
+  ): Promise<{ items: RecentRatingComment[]; nextCursor: string | null }> {
     try {
-      return await shipmentsClient.findRecentRatingComments(userId, RECENT_RATING_COMMENTS_LIMIT);
+      const { items, nextCursor } = await shipmentsClient.findRecentRatingComments(userId, limit, cursor);
+      return { items: await enrichWithRaterNames(items), nextCursor };
     } catch (error) {
       logger.warn(
         { userId, event: "reputation_recent_comments_fetch_failed", error: (error as Error).message },
         "No se pudieron obtener las calificaciones recientes de svc-shipments"
       );
-      return [];
+      return { items: [], nextCursor: null };
     }
   }
 
@@ -250,10 +271,13 @@ export function createUsersService(
   }
 
   async function composePublicProfile(user: User, includeComments: boolean): Promise<PublicProfile> {
-    const [summary, recentRatingComments] = await Promise.all([
+    const [summary, recentRatingCommentsPage] = await Promise.all([
       resolveReputationSummary(user.id),
-      includeComments ? resolveRecentRatingComments(user.id) : Promise.resolve<RecentRatingComment[]>([]),
+      includeComments
+        ? resolveRecentRatingComments(user.id)
+        : Promise.resolve<{ items: RecentRatingComment[]; nextCursor: string | null }>({ items: [], nextCursor: null }),
     ]);
+    const recentRatingComments = recentRatingCommentsPage.items;
     const reputation = summary ?? { ...NO_REPUTATION, asSender: NO_REPUTATION, asCarrier: NO_REPUTATION };
     return toPublicProfile(user, reputation, summary?.transactionCounts ?? NO_TRANSACTION_COUNTS, recentRatingComments);
   }
@@ -304,6 +328,27 @@ export function createUsersService(
       }
       // MOVO-152 AC2: perfil completo -- sí pide los comentarios recientes.
       return composePublicProfile(user, true);
+    },
+
+    /**
+     * MOVO-170: "ver todas las calificaciones" del rediseño de perfil (MOVO-176) --
+     * mismo criterio de existencia que `getPublicProfile` (404 `USER_NOT_FOUND` trata
+     * `deleted` como "no existe"). A diferencia de `getPublicProfile`, acá SÍ propaga
+     * un fallo de `svc-shipments` como error explícito en vez de degradar a página
+     * vacía: este endpoint no tiene ningún otro dato que mostrar si la lista falla, no
+     * es un campo más de un perfil que igual tiene el resto de la información.
+     */
+    async listUserRatings(
+      id: string,
+      limit: number,
+      cursor?: string,
+    ): Promise<{ items: RecentRatingComment[]; nextCursor: string | null }> {
+      const user = await repository.findById(id);
+      if (!user || user.status === AccountStatus.DELETED) {
+        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
+      const { items, nextCursor } = await shipmentsClient.findRecentRatingComments(id, limit, cursor);
+      return { items: await enrichWithRaterNames(items), nextCursor };
     },
 
     /** AC1/AC2/AC3: emite la presigned URL de subida. El `objectKey` lo genera el

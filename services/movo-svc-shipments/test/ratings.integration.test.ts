@@ -304,8 +304,40 @@ describe("Calificaciones post-entrega — /shipments/:id/ratings (Postgres) — 
 
     expect(response.statusCode).toBe(200);
     const body = response.json();
-    expect(body).toHaveLength(1);
-    expect(body[0]).toMatchObject({ rateeId: receiverId, score: 4, comment: "buena onda" });
+    // MOVO-170: paginado (`{items, nextCursor}`), antes un array plano.
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]).toMatchObject({ rateeId: receiverId, score: 4, comment: "buena onda" });
+    expect(body.nextCursor).toBeNull();
+  });
+
+  it("MOVO-170: pagina con cursor -- segunda página trae el resto, nextCursor null al agotarse", async () => {
+    for (let i = 0; i < 3; i += 1) {
+      const shipmentId = await createDeliveredShipment();
+      await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/ratings`,
+        headers: { "x-user-id": senderId },
+        payload: { rateeId: receiverId, score: 4 },
+      });
+    }
+
+    const firstPage = await app.inject({
+      method: "GET",
+      url: `/internal/users/${receiverId}/ratings/recent?limit=2`,
+    });
+    expect(firstPage.json().items).toHaveLength(2);
+    expect(firstPage.json().nextCursor).not.toBeNull();
+
+    const secondPage = await app.inject({
+      method: "GET",
+      url: `/internal/users/${receiverId}/ratings/recent?limit=2&cursor=${encodeURIComponent(firstPage.json().nextCursor)}`,
+    });
+    expect(secondPage.json().items).toHaveLength(1);
+    expect(secondPage.json().nextCursor).toBeNull();
+
+    const firstPageIds = firstPage.json().items.map((r: { id: string }) => r.id);
+    const secondPageIds = secondPage.json().items.map((r: { id: string }) => r.id);
+    expect(new Set([...firstPageIds, ...secondPageIds]).size).toBe(3);
   });
 
   describe("MOVO-147: GET /internal/users/:id/reputation", () => {
@@ -315,12 +347,13 @@ describe("Calificaciones post-entrega — /shipments/:id/ratings (Postgres) — 
       const response = await app.inject({ method: "GET", url: `/internal/users/${strangerId}/reputation` });
 
       expect(response.statusCode).toBe(200);
+      const noUsage = { delivered: 0, cancelled: 0, avgPackageWeightKg: null };
       expect(response.json()).toEqual({
         reputationScore: null,
         ratingCount: 0,
         isNewProfile: true,
-        asSender: { reputationScore: null, ratingCount: 0, isNewProfile: true },
-        asCarrier: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+        asSender: { reputationScore: null, ratingCount: 0, isNewProfile: true, usageStats: noUsage },
+        asCarrier: { reputationScore: null, ratingCount: 0, isNewProfile: true, usageStats: noUsage },
         transactionCounts: { asSender: 0, asCarrier: 0 },
       });
     });
@@ -359,10 +392,23 @@ describe("Calificaciones post-entrega — /shipments/:id/ratings (Postgres) — 
 
       expect(body.ratingCount).toBe(3);
       expect(body.isNewProfile).toBe(false);
-      expect(body.asSender).toEqual({ reputationScore: body.reputationScore, ratingCount: 3, isNewProfile: false });
+      // MOVO-170: las 3 calificaciones se hicieron sobre 3 envíos delivered creados con
+      // senderId como sender (baseShipmentInput.weightKg fijo en 2.5) -- usageStats
+      // refleja ese fixture, no las calificaciones en sí.
+      expect(body.asSender).toEqual({
+        reputationScore: body.reputationScore,
+        ratingCount: 3,
+        isNewProfile: false,
+        usageStats: { delivered: 3, cancelled: 0, avgPackageWeightKg: 2.5 },
+      });
       // senderId nunca fue calificado en rol carrier en este fixture -- ese bucket
       // queda intacto ("sin calificaciones"), no contaminado por las 3 de arriba.
-      expect(body.asCarrier).toEqual({ reputationScore: null, ratingCount: 0, isNewProfile: true });
+      expect(body.asCarrier).toEqual({
+        reputationScore: null,
+        ratingCount: 0,
+        isNewProfile: true,
+        usageStats: { delivered: 0, cancelled: 0, avgPackageWeightKg: null },
+      });
     });
 
     it("AC3/AC6: transactionCounts cuenta solo envíos delivered, separado por rol", async () => {

@@ -19,3 +19,17 @@ export enum ShipmentStatus {
   CANCELLED = "cancelled",
   DISPUTED = "disputed",
 }
+
+/**
+ * MOVO-170: historial de envíos compartido entre el usuario autenticado (viewer) y
+ * otro usuario cualquiera, sin importar en qué rol haya participado cada uno
+ * (emisor/receptor/transportista) en cada envío — wire contract de
+ * `GET /shipments/history-with/:userId` (`movo-svc-shipments`). `lastSharedAt` es
+ * `null` únicamente sin ningún envío en común. `allDelivered` es `false` también sin
+ * historial (`sharedShipmentCount: 0`) — no hay "todos entregados" sin envíos.
+ */
+export interface SharedHistory {
+  sharedShipmentCount: number;
+  lastSharedAt: string | null;
+  allDelivered: boolean;
+}

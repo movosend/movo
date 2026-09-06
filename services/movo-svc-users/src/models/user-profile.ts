@@ -94,5 +94,10 @@ export function toPublicProfile(
     asSender: reputation.asSender,
     asCarrier: reputation.asCarrier,
     recentRatingComments,
+    // MOVO-170: sin I/O nueva -- vienen directo de la fila de `User` ya cargada, sin
+    // filtrar el teléfono/email reales (mismo criterio que `isVerified`).
+    memberSince: user.createdAt.toISOString(),
+    phoneVerified: user.phoneVerified,
+    emailVerified: user.emailVerified,
   };
 }

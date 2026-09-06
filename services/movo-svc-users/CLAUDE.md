@@ -730,6 +730,56 @@ este ticket); mover `ReputationBreakdown`/`RecentRatingComment` fuera de
 `shipments-client.ts` si algún otro servicio Node llega a necesitarlos (hoy solo se
 usan acá, ya viven en `@movo/shared`).
 
+### MOVO-170 — Enriquecimiento de perfil: antigüedad, verificaciones públicas, raterName, ratings paginados (`svc-users`)
+
+Expone datos ya persistidos que el rediseño de perfil de `movo-mobile` (MOVO-176) ya
+tenía tipado/renderizado oculto — sin inventar dominio nuevo. Lado `svc-shipments`
+(usageStats por rol, historial compartido, paginación del endpoint interno de
+ratings) documentado en su propio `CLAUDE.md`.
+
+Decisiones clave:
+- **`memberSince`/`phoneVerified`/`emailVerified` en `PublicProfile` sin I/O nueva**:
+  los tres salen directo de la fila de `User` ya cargada (`models/user-profile.ts
+  #toPublicProfile`) — a diferencia de `recentRatingComments`, viajan también en
+  `GET /users/search` (no piden ninguna llamada extra a `svc-shipments`, solo
+  `usageStats` depende de esa llamada, y esa llamada YA se hacía para
+  `reputationScore`/`transactionCounts` desde MOVO-152).
+- **Decisión de producto confirmada con el usuario: `raterName` SE expone**
+  (`RecentRatingComment.raterName`, `@movo/shared`) — el calificador deja de ser
+  anónimo de cara al calificado, mismo criterio que apps de reputación tipo
+  Uber/Airbnb. Resuelto **local** (`user-repository.ts#findNamesByIds`, batch lookup
+  por `raterId`, sin llamada cross-servicio -- los raters son siempre usuarios de este
+  mismo servicio) en `users.service.ts#enrichWithRaterNames`, nunca en
+  `shipments-client.ts` (que no conoce nombres). Un `raterId` sin fila real (cuenta
+  dada de baja) cae a `"Usuario de Movo"` en vez de romper el batch.
+- **`GET /users/:id/ratings?cursor=` nuevo** ("ver todas las calificaciones",
+  MOVO-176) — a diferencia de `getPublicProfile`, que degrada a `[]`/`null` si
+  `svc-shipments` falla (AC3 de MOVO-152: el resto del perfil no debe caerse por
+  esto), este endpoint SÍ propaga el error: no tiene ningún otro dato que mostrar si
+  la lista de calificaciones falla, no es un campo más de un perfil que igual
+  funciona sin él.
+- **`ShipmentsClient.findRecentRatingComments` cambió de forma** (antes
+  `Promise<RecentRatingComment[]>`, ahora `Promise<{items: RawRecentRatingComment[],
+  nextCursor}>`, con `cursor` opcional) — sigue el endpoint interno paginado de
+  `svc-shipments` (mismo ticket). `RawRecentRatingComment` (`Omit<RecentRatingComment,
+  "raterName">`) es el tipo real que devuelve ese cliente: `raterName` no existe
+  todavía en ese punto, se agrega recién en `enrichWithRaterNames`.
+
+Tests: `test/users.reputation.integration.test.ts` ampliado (raterName resuelto y su
+fallback genérico, memberSince/phoneVerified/emailVerified en el perfil público,
+`GET /users/:id/ratings` feliz y 404), `test/adapters/shipments-client.test.ts`
+ampliado (nuevo shape paginado, cursor en la query). Suite completa 475/475 tests (48
+archivos) en `movo-svc-users`, 463/463 en `movo-svc-shipments`, 49/49 en `gateway`.
+`tsc --noEmit` limpio en los 4 paquetes tocados (`shared/movo-shared`,
+`movo-svc-users`, `movo-svc-shipments`, `gateway`). Sin cambios en el gateway: `/users`
+y `/shipments` ya eran prefijos proxeados genéricamente, las rutas nuevas caen ahí
+solas.
+
+Pendiente / fuera de alcance: consumo desde `movo-mobile` (MOVO-176, sub-issue
+hermana, ya tiene los hooks escritos contra este contrato); "recorridos totales" (km)
+y métricas de puntualidad/tiempo de respuesta, explícitamente excluidas del ticket por
+falta de definición de producto — ver detalle en `services/movo-svc-shipments/CLAUDE.md`.
+
 ### MOVO-157 — Registro de clave pública por dispositivo (`svc-users`)
 
 Prerrequisito del handshake criptográfico de MOVO-6 (implementado del lado de
