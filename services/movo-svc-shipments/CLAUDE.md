@@ -1202,6 +1202,57 @@ Pendiente / fuera de alcance: consumo desde `movo-mobile` (MOVO-176, sub-issue
 hermana); "recorridos totales" (km) y métricas de puntualidad, explícitamente
 excluidas del ticket por falta de definición de producto.
 
+### MOVO-180 — Contrato de backend: entrega estimada en la oferta (`svc-shipments`)
+
+Sección 1 del ticket (la 2, `offersSummary`, ya se había adelantado sobre MOVO-177 --
+ver el comentario de actualización en Linear). `Offer`/`Shipment` suman
+`estimatedDeliveryDate`/`estimatedDeliveryTimeWindowStart`/`estimatedDeliveryTimeWindowEnd`
+(migración `20260906180000_add_estimated_delivery_window`), expuestos en
+`createOfferBody`, `offerResponse`/`createOfferResponse`/`myOfferResponse` y
+`shipmentResponse`. Se copian del ganador al `Shipment` al aceptar la oferta
+(`offer-repository.ts#acceptOffer`, mismo `updateMany` que ya setea `carrierId`).
+
+Decisiones clave:
+- **Discrepancia encontrada contra la letra del ticket**: el ticket describe
+  `app/(app)/transport/[id]/offer.tsx` ya recolectando estos campos en una sección "A
+  qué hora entregás (estimado)" y solo omitiéndolos del body. Ese archivo no existe --
+  MOVO-149 (la US que de verdad implementó "hacer una oferta" en mobile) terminó en un
+  diseño distinto y más simple (`components/transport/create-offer-sheet.tsx`, una
+  hoja modal sin ningún campo de entrega estimada). El texto del ticket describe el
+  mockup/plan de MOVO-177, no lo que MOVO-149 mergeó. Documentado acá porque cambia el
+  cálculo de riesgo de la siguiente decisión.
+- **Los tres campos son opcionales al ofertar, no obligatorios** (la pregunta abierta
+  del ticket): dado que el mobile actual no los recolecta en absoluto (punto anterior),
+  volverlos obligatorios habría roto `POST /shipments/:id/offers` para el único cliente
+  real que existe hoy. Quedan both-or-neither (422 `VALIDATION_FAILED` si se manda
+  parte de los tres), `estimatedDeliveryTimeWindowEnd` > `Start`, y
+  `estimatedDeliveryDate >= offeredDate` -- las tres validaciones sincrónicas, antes de
+  cualquier I/O, en `shipments.service.ts#createOfferForShipment`.
+- **Horario como `String @db.VarChar(8)`, no `@db.Time`**: a diferencia de
+  `pickupTimeWindowStart/End` (`Shipment`), que sufren el gotcha de timezone-anclaje
+  documentado en MOVO-80 (`@db.Time`/`@db.Date` ancladas a UTC, necesitan
+  `toISOString().slice(...)` manual en cada DTO para no correrse con el offset del
+  proceso), acá un `"HH:MM:SS"` de pared se persiste y se lee tal cual, sin ningún
+  tratamiento especial -- decisión tomada al escribir el schema de Prisma de este
+  ticket, no heredada de ningún patrón previo (`estimatedDeliveryDate` sí sigue siendo
+  `@db.Date`, mismo tratamiento que `offeredDate`/`pickupDate`).
+- **Mobile fuera de alcance de este PR**: sin UI real que recolecte estos campos
+  (punto de arriba), no hay nada que cablear del lado de `movo-mobile` todavía --
+  queda para cuando exista un ticket de UI para esto (ninguno todavía en Backlog).
+
+Tests: `test/shipments-offers-create.integration.test.ts` (6 casos nuevos: sin los
+tres campos, con los tres, validación both-or-neither, franja invertida, entrega
+anterior al retiro, caso límite mismo día) y `test/offers-accept-reject.integration.test.ts`
+(3 casos nuevos: propagación al aceptar, ganadora sin declarar entrega estimada, ida y
+vuelta completa por HTTP verificando el formato date-only de `GET /shipments/:id`).
+Suite completa del servicio 471/471 tests (38 archivos), `tsc --noEmit` y `eslint`
+limpios. Confirmado que `app.swagger()` expone los campos nuevos en
+`POST /shipments/{id}/offers`.
+
+Pendiente / fuera de alcance: UI mobile de entrega estimada (sin ticket todavía);
+"ofertas actuales" (sección 2 del ticket) ya resuelta antes de este PR, ver el
+comentario de actualización de MOVO-180 en Linear.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

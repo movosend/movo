@@ -284,4 +284,75 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
       expect(await offerRepo.listByShipment(shipment.id)).toHaveLength(0);
     });
   });
+
+  describe("MOVO-180: entrega estimada opcional", () => {
+    it("sin los tres campos, la oferta queda con entrega estimada null (caso general, sin regresión)", async () => {
+      const shipment = await createPublishedShipment();
+      const response = await requestCreateOffer(shipment.id, verifiedCarrierId);
+      expect(response.statusCode).toBe(201);
+      expect(response.json().estimatedDeliveryDate).toBeNull();
+      expect(response.json().estimatedDeliveryTimeWindowStart).toBeNull();
+      expect(response.json().estimatedDeliveryTimeWindowEnd).toBeNull();
+    });
+
+    it("con los tres campos, los persiste y los devuelve en la respuesta", async () => {
+      const shipment = await createPublishedShipment();
+      const response = await requestCreateOffer(shipment.id, verifiedCarrierId, {
+        estimatedDeliveryDate: "2030-01-02",
+        estimatedDeliveryTimeWindowStart: "15:00",
+        estimatedDeliveryTimeWindowEnd: "19:00",
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json().estimatedDeliveryDate).toBe("2030-01-02");
+      expect(response.json().estimatedDeliveryTimeWindowStart).toBe("15:00:00");
+      expect(response.json().estimatedDeliveryTimeWindowEnd).toBe("19:00:00");
+
+      const persisted = await offerRepo.findById(response.json().id);
+      expect(persisted?.estimatedDeliveryTimeWindowStart).toBe("15:00:00");
+      expect(persisted?.estimatedDeliveryTimeWindowEnd).toBe("19:00:00");
+    });
+
+    it("422 VALIDATION_FAILED si solo se manda parte de los tres campos (both-or-neither)", async () => {
+      const shipment = await createPublishedShipment();
+      const response = await requestCreateOffer(shipment.id, verifiedCarrierId, {
+        estimatedDeliveryDate: "2030-01-02",
+      });
+      expect(response.statusCode).toBe(422);
+      expect(response.json().error.code).toBe("VALIDATION_FAILED");
+    });
+
+    it("422 VALIDATION_FAILED si la franja de entrega termina antes (o igual) de empezar", async () => {
+      const shipment = await createPublishedShipment();
+      const response = await requestCreateOffer(shipment.id, verifiedCarrierId, {
+        estimatedDeliveryDate: "2030-01-02",
+        estimatedDeliveryTimeWindowStart: "19:00",
+        estimatedDeliveryTimeWindowEnd: "15:00",
+      });
+      expect(response.statusCode).toBe(422);
+      expect(response.json().error.code).toBe("VALIDATION_FAILED");
+    });
+
+    it("422 VALIDATION_FAILED si la entrega estimada es anterior a la fecha de retiro ofertada", async () => {
+      const shipment = await createPublishedShipment();
+      const response = await requestCreateOffer(shipment.id, verifiedCarrierId, {
+        offeredDate: PICKUP_DATE_STR,
+        estimatedDeliveryDate: "2029-12-31",
+        estimatedDeliveryTimeWindowStart: "15:00",
+        estimatedDeliveryTimeWindowEnd: "19:00",
+      });
+      expect(response.statusCode).toBe(422);
+      expect(response.json().error.code).toBe("VALIDATION_FAILED");
+    });
+
+    it("acepta la entrega estimada el mismo día que el retiro (caso límite válido)", async () => {
+      const shipment = await createPublishedShipment();
+      const response = await requestCreateOffer(shipment.id, verifiedCarrierId, {
+        estimatedDeliveryDate: PICKUP_DATE_STR,
+        estimatedDeliveryTimeWindowStart: "15:00",
+        estimatedDeliveryTimeWindowEnd: "19:00",
+      });
+      expect(response.statusCode).toBe(201);
+    });
+  });
 });

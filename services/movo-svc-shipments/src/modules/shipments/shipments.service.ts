@@ -118,6 +118,14 @@ export interface CreateOfferForShipmentInput {
    * forma parte -- opcional, la mayoría de las ofertas no vienen de un viaje
    * declarado (MOVO-142, descubrimiento libre). */
   tripId?: string;
+  /** MOVO-180: entrega estimada (día + franja) -- opcional (el mobile todavía no la
+   * recolecta), los tres both-or-neither, `estimatedDeliveryTimeWindowEnd` >
+   * `estimatedDeliveryTimeWindowStart`, y `estimatedDeliveryDate` >= `offeredDate` (no
+   * tiene sentido entregar antes de retirar). "YYYY-MM-DD". */
+  estimatedDeliveryDate?: string;
+  /** "HH:MM" o "HH:MM:SS". */
+  estimatedDeliveryTimeWindowStart?: string;
+  estimatedDeliveryTimeWindowEnd?: string;
 }
 
 export interface CreateOfferForShipmentResult extends Offer {
@@ -170,6 +178,15 @@ function toRealInstant(anchoredDate: Date): Date {
  * `@db.Time` del repositorio (ver shipment-repository.integration.test.ts). */
 function toEpochTime(timeStr: string): Date {
   return new Date(`1970-01-01T${normalizeTime(timeStr)}.000Z`);
+}
+
+/** Ancla un `"YYYY-MM-DD"` a medianoche UTC — mismo valor de calendario que
+ * persisten las columnas `@db.Date` (pickupDate/offeredDate/estimatedDeliveryDate).
+ * Un solo lugar para este anclaje: el historial de MOVO-80 mostró que repetirlo
+ * inline en cada call site deja el próximo fix de zona horaria escondido en varios
+ * literales casi idénticos. */
+function anchorDateUtc(dateStr: string): Date {
+  return new Date(`${dateStr}T00:00:00.000Z`);
 }
 
 /**
@@ -447,7 +464,7 @@ export function createShipmentsService(
         deliveryAddress: input.deliveryAddress,
         deliveryLat: input.deliveryLat,
         deliveryLng: input.deliveryLng,
-        pickupDate: new Date(`${input.pickupDate}T00:00:00.000Z`),
+        pickupDate: anchorDateUtc(input.pickupDate),
         pickupTimeWindowStart: toEpochTime(input.pickupTimeWindowStart),
         pickupTimeWindowEnd: toEpochTime(input.pickupTimeWindowEnd),
         suggestedPriceArs: quote.suggestedPriceArs,
@@ -615,6 +632,59 @@ export function createShipmentsService(
         throw new ApiError(422, "VALIDATION_FAILED", "El precio ofertado tiene que ser mayor a 0.");
       }
 
+      // MOVO-180: los tres campos de entrega estimada son opcionales (el mobile
+      // todavía no los recolecta), pero both-or-neither -- mandar uno o dos sin el
+      // resto es un estado ambiguo. Validación puramente sincrónica, antes de
+      // cualquier I/O (mismo criterio "más barato primero" que el resto del método).
+      const hasEstimatedDelivery =
+        input.estimatedDeliveryDate !== undefined ||
+        input.estimatedDeliveryTimeWindowStart !== undefined ||
+        input.estimatedDeliveryTimeWindowEnd !== undefined;
+      let estimatedDeliveryDate: Date | null = null;
+      let estimatedDeliveryTimeWindowStart: string | null = null;
+      let estimatedDeliveryTimeWindowEnd: string | null = null;
+      if (hasEstimatedDelivery) {
+        if (
+          input.estimatedDeliveryDate === undefined ||
+          input.estimatedDeliveryTimeWindowStart === undefined ||
+          input.estimatedDeliveryTimeWindowEnd === undefined
+        ) {
+          throw new ApiError(
+            422,
+            "VALIDATION_FAILED",
+            "La entrega estimada requiere fecha y franja horaria completas, o ninguna de las tres."
+          );
+        }
+        // Mismo criterio que la franja de retiro (AC6 más arriba): comparar los
+        // objetos `Date` combinados, no los strings de horario normalizados.
+        const estimatedWindowStartAt = combineDateAndTime(
+          input.estimatedDeliveryDate,
+          input.estimatedDeliveryTimeWindowStart
+        );
+        const estimatedWindowEndAt = combineDateAndTime(
+          input.estimatedDeliveryDate,
+          input.estimatedDeliveryTimeWindowEnd
+        );
+        if (estimatedWindowEndAt <= estimatedWindowStartAt) {
+          throw new ApiError(
+            422,
+            "VALIDATION_FAILED",
+            "La franja de entrega estimada tiene que terminar después de empezar."
+          );
+        }
+        estimatedDeliveryDate = anchorDateUtc(input.estimatedDeliveryDate);
+        const offeredDateAnchored = anchorDateUtc(input.offeredDate);
+        if (estimatedDeliveryDate.getTime() < offeredDateAnchored.getTime()) {
+          throw new ApiError(
+            422,
+            "VALIDATION_FAILED",
+            "La entrega estimada no puede ser anterior a la fecha de retiro ofertada."
+          );
+        }
+        estimatedDeliveryTimeWindowStart = normalizeTime(input.estimatedDeliveryTimeWindowStart);
+        estimatedDeliveryTimeWindowEnd = normalizeTime(input.estimatedDeliveryTimeWindowEnd);
+      }
+
       // MOVO-162: tripId opcional -- valida que el viaje exista, sea del mismo
       // transportista y siga activo antes de dejar que la oferta lo referencie. Sin
       // este chequeo, cualquier caller podría taggear la oferta con el viaje de otro
@@ -661,11 +731,14 @@ export function createShipmentsService(
         shipmentId: input.shipmentId,
         carrierId: input.carrierId,
         priceOffered: grossArs,
-        offeredDate: new Date(`${input.offeredDate}T00:00:00.000Z`),
+        offeredDate: anchorDateUtc(input.offeredDate),
         message: input.message,
         tripId: input.tripId ?? null,
         carrierNameAtOffer: carrierProfile?.fullName ?? null,
         carrierRatingAtOffer,
+        estimatedDeliveryDate,
+        estimatedDeliveryTimeWindowStart,
+        estimatedDeliveryTimeWindowEnd,
       });
 
       // AC9: best-effort, fire-and-forget -- un fallo de la notificación no revierte

@@ -5,6 +5,10 @@
 // ahí obliga a actualizar esta lista también.
 const OFFER_STATUS_VALUES = ["pending", "accepted", "rejected", "withdrawn", "expired", "superseded"];
 
+// "HH:MM" o "HH:MM:SS", sin offset — mismo patrón que TIME_PATTERN en
+// shipments.schema.ts (autocontenido a propósito, no se importa de ahí).
+const TIME_PATTERN = "^([01]\\d|2[0-3]):[0-5]\\d(:[0-5]\\d)?$";
+
 const offerShipmentContextResponse = {
   type: "object",
   required: ["id", "status", "pickupAddress", "pickupDate", "deliveryAddress"],
@@ -33,6 +37,9 @@ const offerResponse = {
     "createdAt",
     "respondedAt",
     "tripId",
+    "estimatedDeliveryDate",
+    "estimatedDeliveryTimeWindowStart",
+    "estimatedDeliveryTimeWindowEnd",
   ],
   properties: {
     id: { type: "string" },
@@ -49,6 +56,11 @@ const offerResponse = {
     respondedAt: { type: ["string", "null"], format: "date-time" },
     // MOVO-162: viaje declarado del que esta oferta forma parte, si corresponde.
     tripId: { type: ["string", "null"] },
+    // MOVO-180: entrega estimada (día + franja), opcional al ofertar -- date-only
+    // (@db.Date), mismo criterio que myOfferResponse/shipmentResponse.
+    estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
+    estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
+    estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
   },
 };
 
@@ -73,6 +85,9 @@ const myOfferResponse = {
     "respondedAt",
     "shipment",
     "tripId",
+    "estimatedDeliveryDate",
+    "estimatedDeliveryTimeWindowStart",
+    "estimatedDeliveryTimeWindowEnd",
   ],
   properties: {
     id: { type: "string" },
@@ -93,6 +108,11 @@ const myOfferResponse = {
     shipment: offerShipmentContextResponse,
     // MOVO-162: viaje declarado del que esta oferta forma parte, si corresponde.
     tripId: { type: ["string", "null"] },
+    // MOVO-180: mismo gotcha de timezone que offeredDate -- date-only, formateado a
+    // mano en toMyOfferDto (offers.routes.ts), nunca por el serializador "date".
+    estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
+    estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
+    estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
   },
 };
 

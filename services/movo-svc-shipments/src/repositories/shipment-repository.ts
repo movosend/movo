@@ -49,6 +49,9 @@ function mapShipment(row: ShipmentRow): Shipment {
     receiverConfirmationDeadline: row.receiverConfirmationDeadline,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    estimatedDeliveryDate: row.estimatedDeliveryDate,
+    estimatedDeliveryTimeWindowStart: row.estimatedDeliveryTimeWindowStart,
+    estimatedDeliveryTimeWindowEnd: row.estimatedDeliveryTimeWindowEnd,
   };
 }
 
