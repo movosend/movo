@@ -3,8 +3,17 @@ import { View, type LayoutChangeEvent } from "react-native";
 import Svg, { Defs, Path, Pattern, Rect } from "react-native-svg";
 
 const GRID_SIZE = 22;
-const GRID_COLOR = "#0A0A0B";
-const GRID_OPACITY = 0.08;
+const DEFAULT_GRID_COLOR = "#0A0A0B";
+const DEFAULT_GRID_OPACITY = 0.08;
+
+export interface GridPatternProps {
+  /** Color de las líneas — default pensado para cards claras (`bg-bg-mute`/
+   * `bg-lime-*`). Un card oscuro de chrome fijo (`#0A0A0B`, ver
+   * `transport/[id].tsx`) necesita líneas claras para que se vean, mismo criterio que
+   * el mockup original (`rgba(255,255,255,.06)` sobre fondo negro). */
+  color?: string;
+  opacity?: number;
+}
 
 /**
  * Grilla decorativa sutil (mockup de `PricePreviewCard`, MOVO-83) — mismo criterio de
@@ -19,7 +28,7 @@ const GRID_OPACITY = 0.08;
  * dimensiones numéricas) dejaba el patrón un poco corto contra el borde derecho/
  * inferior del card (react-native-svg no resuelve bien esos porcentajes ahí).
  */
-export function GridPattern() {
+export function GridPattern({ color = DEFAULT_GRID_COLOR, opacity = DEFAULT_GRID_OPACITY }: GridPatternProps = {}) {
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   const handleLayout = (event: LayoutChangeEvent) => {
@@ -39,10 +48,10 @@ export function GridPattern() {
             <Pattern id="grid-pattern-cell" patternUnits="userSpaceOnUse" width={GRID_SIZE} height={GRID_SIZE}>
               <Path
                 d={`M ${GRID_SIZE} 0 L 0 0 0 ${GRID_SIZE}`}
-                stroke={GRID_COLOR}
+                stroke={color}
                 strokeWidth={1}
                 fill="none"
-                opacity={GRID_OPACITY}
+                opacity={opacity}
               />
             </Pattern>
           </Defs>

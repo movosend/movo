@@ -10,12 +10,14 @@ import { formatTripDistanceKm, haversineDistanceKm } from "../src/lib/shipment-f
 
 const mockRouterReplace = jest.fn();
 const mockRouterBack = jest.fn();
+const mockRouterPush = jest.fn();
 const mockCanGoBack = jest.fn();
 
 jest.mock("expo-router", () => ({
   router: {
     replace: (...args: unknown[]) => mockRouterReplace(...args),
     back: (...args: unknown[]) => mockRouterBack(...args),
+    push: (...args: unknown[]) => mockRouterPush(...args),
     canGoBack: () => mockCanGoBack(),
   },
   useLocalSearchParams: () => ({ id: "shipment-1" }),
@@ -41,21 +43,28 @@ jest.mock("../src/hooks/use-offers", () => ({
   }),
 }));
 
-jest.mock("../components/transport/create-offer-sheet", () => {
-  const { View } = require("react-native");
-  return {
-    CreateOfferSheet: (props: { visible: boolean; testID?: string }) =>
-      props.visible ? <View testID={props.testID ?? "transport-create-offer-sheet"} /> : null,
-  };
-});
-
 jest.mock("../components/send/route-map-card", () => {
   const { View } = require("react-native");
   return { RouteMapCard: (props: { testID?: string }) => <View testID={props.testID} /> };
 });
 
-jest.mock("../src/hooks/use-profile", () => ({
-  usePublicProfile: (userId: string) => ({
+interface MockPublicProfileResult {
+  data: {
+    id: string;
+    fullName: string;
+    photoUrl: string | null;
+    isVerified: boolean;
+    badges: string[];
+    transactionCounts: { asSender: number; asCarrier: number };
+    reputationScore: number | null;
+    ratingCount: number;
+  };
+  isLoading: boolean;
+  isError: boolean;
+}
+
+function defaultPublicProfileImpl(userId: string): MockPublicProfileResult {
+  return {
     data: {
       id: userId,
       fullName: "Pedro Emisor",
@@ -64,10 +73,15 @@ jest.mock("../src/hooks/use-profile", () => ({
       badges: ["kyc_verified"],
       transactionCounts: { asSender: 0, asCarrier: 0 },
       reputationScore: null,
+      ratingCount: 0,
     },
     isLoading: false,
     isError: false,
-  }),
+  };
+}
+const mockUsePublicProfile = jest.fn(defaultPublicProfileImpl);
+jest.mock("../src/hooks/use-profile", () => ({
+  usePublicProfile: (userId: string) => mockUsePublicProfile(userId),
 }));
 
 function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
@@ -109,7 +123,14 @@ describe("TransportShipmentDetailScreen", () => {
     mockCanGoBack.mockReturnValue(true);
     mockUseMyOffers.mockReturnValue({ data: { items: [] } });
   });
-  afterEach(() => jest.clearAllMocks());
+  afterEach(() => {
+    jest.clearAllMocks();
+    // `clearAllMocks` no deshace un `.mockImplementation` seteado a mano (solo limpia
+    // calls/instances/results) -- sin esto, el override de un test con múltiples
+    // perfiles distintos (ver el test de "Con quién tratás") quedaría pisando el
+    // default para todos los tests que corren después en este archivo.
+    mockUsePublicProfile.mockImplementation(defaultPublicProfileImpl);
+  });
 
   it("muestra el skeleton mientras el fetch está pendiente", async () => {
     mockUseShipment.mockReturnValue({ isLoading: true, isError: false, data: undefined, error: null, refetch: jest.fn() });
@@ -149,7 +170,7 @@ describe("TransportShipmentDetailScreen", () => {
     expect(getByText("Este envío no existe.")).toBeTruthy();
   });
 
-  it("muestra tanto Emisor como Receptor, sin el banner de ofertas del emisor", async () => {
+  it("muestra la card única 'Con quién tratás' con emisor y receptor, sin el banner de ofertas del emisor", async () => {
     mockUseShipment.mockReturnValue({
       isLoading: false,
       isError: false,
@@ -160,9 +181,8 @@ describe("TransportShipmentDetailScreen", () => {
 
     const { getByText, getByTestId, queryByText } = await render(<TransportShipmentDetailScreen />);
 
-    expect(getByText("Emisor")).toBeTruthy();
+    expect(getByText("Con quién tratás")).toBeTruthy();
     expect(getByTestId("transport-detail-sender")).toBeTruthy();
-    expect(getByText("Receptor")).toBeTruthy();
     expect(getByTestId("transport-detail-receiver")).toBeTruthy();
     expect(queryByText("Aún no tenés ofertas")).toBeNull();
   });
@@ -191,8 +211,111 @@ describe("TransportShipmentDetailScreen", () => {
     expect(getByTestId("transport-detail-trip-distance").props.children).toBe("12.3 km de viaje");
   });
 
+  it("MOVO-177 (fix de negocio): 'Te queda si ofertás el sugerido' convierte bruto→neto, no muestra el bruto crudo", async () => {
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      // suggestedPriceArs (4500) es BRUTO -- el neto real si se oferta a ese precio
+      // es 4500 / 1.15 = 3913,04, nunca 4500 tal cual (ese fue el bug).
+      data: shipment({ suggestedPriceArs: 4500 }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByText } = await render(<TransportShipmentDetailScreen />);
+
+    // El bruto (4500) sigue apareciendo como referencia ("Sobre una oferta de
+    // $4.500") -- lo que no puede pasar es que ESE número aparezca como "Te queda".
+    expect(getByText("$3.913,04")).toBeTruthy();
+    expect(getByText("$4.500")).toBeTruthy();
+  });
+
+  it("MOVO-180: la card de precio sugerido muestra el conteo/mínimo real de ofertas cuando existen", async () => {
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({ offersSummary: { count: 3, minPriceNetArs: 1900 } }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByText } = await render(<TransportShipmentDetailScreen />);
+
+    expect(getByText("3 · desde $1.900")).toBeTruthy();
+  });
+
+  it("MOVO-180: sin ofertas todavía, la subcard muestra un estado vacío en vez de inventar un número", async () => {
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({ offersSummary: null }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByText } = await render(<TransportShipmentDetailScreen />);
+
+    expect(getByText("Sin ofertas todavía")).toBeTruthy();
+  });
+
+  it("MOVO-177 (feedback de UI): la sección Recorrido muestra retiro y entrega con dirección, zona y horario", async () => {
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({
+        pickupAddress: "Paul Dirac 7777, Argüello, Córdoba",
+        deliveryAddress: "Las Mulitas 7565, Villa Belgrano, Córdoba",
+      }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByText } = await render(<TransportShipmentDetailScreen />);
+
+    expect(getByText("Paul Dirac 7777")).toBeTruthy();
+    expect(getByText("Argüello")).toBeTruthy();
+    expect(getByText("Las Mulitas 7565")).toBeTruthy();
+    expect(getByText("Villa Belgrano")).toBeTruthy();
+    expect(getByText("Sin horario fijo · lo definís vos en la oferta")).toBeTruthy();
+  });
+
+  it("MOVO-177 (feedback de UI): 'Con quién tratás' muestra rol, identidad verificada + reputación, y el estado de confirmación del receptor", async () => {
+    mockUsePublicProfile.mockImplementation((userId: string): MockPublicProfileResult => ({
+      data: {
+        id: userId,
+        fullName: userId === "user-1" ? "Pedro Yorlano" : "Lolo Yorlano",
+        photoUrl: null,
+        isVerified: userId === "user-1",
+        badges: [],
+        transactionCounts: { asSender: 0, asCarrier: 0 },
+        reputationScore: userId === "user-1" ? 4.9 : null,
+        ratingCount: userId === "user-1" ? 34 : 0,
+      },
+      isLoading: false,
+      isError: false,
+    }));
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({ status: ShipmentStatus.PUBLISHED }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByText } = await render(<TransportShipmentDetailScreen />);
+
+    expect(getByText(/Pedro Yorlano/)).toBeTruthy();
+    expect(getByText("· emisor")).toBeTruthy();
+    expect(getByText("Identidad verificada · 4,9 en 34 envíos")).toBeTruthy();
+    expect(getByText(/Lolo Yorlano/)).toBeTruthy();
+    expect(getByText("· recibe")).toBeTruthy();
+    // `PUBLISHED` implica que el receptor ya confirmó (esa es la transición que lo
+    // publica) -- `receiverConfirmationStatus` mapea a "confirmed" acá.
+    expect(getByText("Ya aceptó recibir el paquete")).toBeTruthy();
+  });
+
   describe("Acción de ofertar y retirar oferta (MOVO-149)", () => {
-    it("sin oferta activa previa, muestra el botón 'Hacer una oferta' y al tocarlo abre la hoja", async () => {
+    it("sin oferta activa previa, muestra el botón 'Hacer una oferta' y al tocarlo navega a la pantalla de creación", async () => {
       mockUseShipment.mockReturnValue({ isLoading: false, isError: false, data: shipment(), error: null, refetch: jest.fn() });
       mockUseMyOffers.mockReturnValue({ data: { items: [] } });
 
@@ -203,12 +326,11 @@ describe("TransportShipmentDetailScreen", () => {
       expect(queryByTestId("transport-active-offer-card")).toBeNull();
       expect(queryByTestId("transport-withdraw-offer-cta")).toBeNull();
 
-      // Al presionar abre la hoja
       await act(async () => {
         fireEvent.press(createCta);
       });
 
-      expect(getByTestId("transport-create-offer-sheet")).toBeTruthy();
+      expect(mockRouterPush).toHaveBeenCalledWith("/(app)/transport/shipment-1/offer");
     });
 
     it("si ya tiene una oferta activa, muestra la card con sus datos y cambia la acción a 'Retirar oferta'", async () => {
@@ -238,6 +360,72 @@ describe("TransportShipmentDetailScreen", () => {
 
       const withdrawCta = getByTestId("transport-withdraw-offer-cta");
       expect(withdrawCta).toHaveTextContent("Retirar oferta");
+    });
+
+    it("con una oferta activa que propuso otro día/horario, 'Retirás' muestra lo confirmado en la oferta, no lo pedido por el emisor", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        // El envío pide 2026-08-20 09:00-12:00 (default de `shipment()`).
+        data: shipment(),
+        error: null,
+        refetch: jest.fn(),
+      });
+      mockUseMyOffers.mockReturnValue({
+        data: {
+          items: [
+            {
+              id: "offer-active-1",
+              shipmentId: "shipment-1",
+              carrierId: "carrier-1",
+              priceOffered: 7500,
+              // La oferta propuso otro día y franja.
+              offeredDate: "2026-08-21",
+              offeredPickupTimeWindowStart: "15:00",
+              offeredPickupTimeWindowEnd: "19:00",
+              message: null,
+              status: OfferStatus.PENDING,
+            },
+          ],
+        },
+      });
+
+      const { getByText, queryByText } = await render(<TransportShipmentDetailScreen />);
+
+      expect(getByText(/15:00–19:00/)).toBeTruthy();
+      // No debería quedar dando vueltas el horario original del envío.
+      expect(queryByText(/09:00–12:00/)).toBeNull();
+    });
+
+    it("con una oferta activa que aceptó la franja del emisor tal cual (sin franja propia), 'Retirás' cae al horario del envío", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment(),
+        error: null,
+        refetch: jest.fn(),
+      });
+      mockUseMyOffers.mockReturnValue({
+        data: {
+          items: [
+            {
+              id: "offer-active-1",
+              shipmentId: "shipment-1",
+              carrierId: "carrier-1",
+              priceOffered: 7500,
+              offeredDate: "2026-08-20",
+              offeredPickupTimeWindowStart: null,
+              offeredPickupTimeWindowEnd: null,
+              message: null,
+              status: OfferStatus.PENDING,
+            },
+          ],
+        },
+      });
+
+      const { getByText } = await render(<TransportShipmentDetailScreen />);
+
+      expect(getByText(/09:00–12:00/)).toBeTruthy();
     });
 
     it("presionar 'Retirar oferta' pide confirmación con Alert.alert y al confirmar retira la oferta", async () => {

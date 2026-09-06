@@ -14,6 +14,11 @@ export interface OfferSummary {
   carrierId: string;
   priceOffered: number;
   offeredDate: string;
+  /** MOVO-177: franja horaria alternativa de retiro ("HH:mm"), solo si el transportista
+   * propuso un día/horario distinto al pedido — null cuando la oferta usa la ventana del
+   * envío tal cual. */
+  offeredPickupTimeWindowStart: string | null;
+  offeredPickupTimeWindowEnd: string | null;
   message: string | null;
   carrierRatingAtOffer: number | null;
   carrierNameAtOffer: string | null;
@@ -37,6 +42,10 @@ export interface ListShipmentOffersParams {
 export interface CreateOfferRequest {
   priceOfferedArs: number;
   offeredDate: string;
+  /** MOVO-177: solo cuando se propone un día/horario de retiro distinto al pedido por
+   * el emisor — both o ninguno. */
+  offeredPickupTimeWindowStart?: string;
+  offeredPickupTimeWindowEnd?: string;
   message?: string;
   tripId?: string;
 }
