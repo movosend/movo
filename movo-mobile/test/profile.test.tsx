@@ -52,6 +52,7 @@ function baseProfile(overrides: Partial<PrivateProfile> = {}): PrivateProfile {
     badges: ["kyc_verified"],
     transactionCounts: { asSender: 0, asCarrier: 0 },
     reputationScore: null,
+    bio: null,
     ...overrides,
   };
 }
@@ -197,6 +198,30 @@ describe("ProfileScreen", () => {
     expect(getByTestId("profile-avatar")).toBeTruthy();
     expect(queryByTestId("profile-photo-picker")).toBeNull();
     expect(queryByTestId("profile-private-section")).toBeNull();
+  });
+
+  it("MOVO-171: muestra la bio cuando el perfil la tiene", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile({ bio: "Transportista de confianza en Córdoba." }),
+      refetch: mockRefetch,
+    });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+    expect(getByTestId("profile-bio").props.children).toBe("Transportista de confianza en Córdoba.");
+  });
+
+  it("MOVO-171: oculta la bio (sin placeholder) cuando el perfil no la tiene", async () => {
+    mockUseMyProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseProfile({ bio: null }),
+      refetch: mockRefetch,
+    });
+
+    const { queryByTestId } = await render(<ProfileScreen />);
+    expect(queryByTestId("profile-bio")).toBeNull();
   });
 
   it("AC1 de MOVO-135: el botón de editar lleva a la pantalla de editar perfil", async () => {

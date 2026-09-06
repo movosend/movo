@@ -17,6 +17,7 @@ import { ProfileSkeleton } from "../../../components/profile/profile-skeleton";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { SuccessBanner } from "../../../components/ui/success-banner";
 import { TextField } from "../../../components/ui/text-field";
+import { TextareaField } from "../../../components/ui/textarea-field";
 import { useKeyboardScroll } from "../../../src/hooks/use-keyboard-scroll";
 import {
   MY_PROFILE_QUERY_KEY,
@@ -32,6 +33,9 @@ import { capitalizeName, formatPhoneDisplay } from "../../../src/lib/profile-for
  * caracteres, sin espacios en los bordes. Se valida acá para que el usuario vea el
  * error en el campo y no como un 400 genérico. */
 const NAME_MAX_LENGTH = 80;
+
+/** Mismo largo que `bio` en `patchProfileBody` de `movo-svc-users` (MOVO-171). */
+const BIO_MAX_LENGTH = 280;
 
 function nameError(value: string, label: string): string {
   const trimmed = value.trim();
@@ -61,9 +65,11 @@ export default function EditProfileScreen() {
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<{ firstName: string; lastName: string }>({
+  const [bio, setBio] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ firstName: string; lastName: string; bio: string }>({
     firstName: "",
     lastName: "",
+    bio: "",
   });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -75,7 +81,8 @@ export default function EditProfileScreen() {
     if (!profile) return;
     setFirstName(profile.firstName);
     setLastName(profile.lastName);
-  }, [profile?.firstName, profile?.lastName]); // eslint-disable-line react-hooks/exhaustive-deps
+    setBio(profile.bio ?? "");
+  }, [profile?.firstName, profile?.lastName, profile?.bio]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isNameLockedByKyc = profile?.kycStatus === KycStatus.APPROVED;
 
@@ -120,6 +127,37 @@ export default function EditProfileScreen() {
       // rechazó haría creer que quedó guardado.
       if (field === "firstName") setFirstName(profile.firstName);
       else setLastName(profile.lastName);
+      setErrorMessage(
+        friendlyErrorMessage(err, "No pudimos guardar tus cambios. Intentá de nuevo."),
+      );
+    }
+  }
+
+  /**
+   * Espejo simplificado de `saveField()`: sin lock de KYC (bio queda siempre
+   * editable). Trim client-side antes de comparar/validar, evita requests
+   * innecesarios por espacios -- el servidor vuelve a trimear y convierte `""` a
+   * `null` de forma independiente, así que acá no hace falta replicar esa conversión.
+   */
+  async function saveBio(rawValue: string) {
+    if (!profile) return;
+
+    const value = rawValue.trim();
+    if (value.length > BIO_MAX_LENGTH) {
+      setFieldErrors((prev) => ({ ...prev, bio: `Máximo ${BIO_MAX_LENGTH} caracteres.` }));
+      return;
+    }
+    setFieldErrors((prev) => ({ ...prev, bio: "" }));
+
+    const persisted = (profile.bio ?? "").trim();
+    if (value === persisted) return;
+
+    setErrorMessage(null);
+    try {
+      await updateProfile.mutateAsync({ bio: value });
+      setSuccessMessage("Guardamos tus cambios.");
+    } catch (err) {
+      setBio(profile.bio ?? "");
       setErrorMessage(
         friendlyErrorMessage(err, "No pudimos guardar tus cambios. Intentá de nuevo."),
       );
@@ -214,6 +252,17 @@ export default function EditProfileScreen() {
             disabled={isNameLockedByKyc}
             autoCapitalize="words"
             maxLength={NAME_MAX_LENGTH}
+          />
+
+          <TextareaField
+            testID="edit-profile-bio"
+            label="Bio"
+            value={bio}
+            onChangeText={setBio}
+            onBlur={() => void saveBio(bio)}
+            error={fieldErrors.bio}
+            maxLength={BIO_MAX_LENGTH}
+            placeholder="Contá algo sobre vos..."
           />
 
           <View

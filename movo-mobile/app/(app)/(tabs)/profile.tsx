@@ -80,6 +80,15 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
 
+        {/* MOVO-171: oculto por completo (sin placeholder tipo "No registrado")
+            cuando `bio` es null -- divergencia deliberada del patrón de DNI, el
+            ticket pide ocultar, no mostrar un fallback. */}
+        {data.bio ? (
+          <Text testID="profile-bio" className="mb-6 font-sans text-body text-fg-2">
+            {data.bio}
+          </Text>
+        ) : null}
+
         {data.roles.includes(UserRole.CARRIER) && (
           <ProfileLicenseStatusBanner
             testID="profile-license-banner"

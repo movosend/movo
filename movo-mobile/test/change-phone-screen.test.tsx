@@ -42,6 +42,7 @@ function baseProfile(): PrivateProfile {
     badges: [],
     transactionCounts: { asSender: 0, asCarrier: 0 },
     reputationScore: null,
+    bio: null,
   };
 }
 

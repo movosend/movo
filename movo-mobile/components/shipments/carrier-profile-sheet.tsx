@@ -116,6 +116,14 @@ export function CarrierProfileSheet({
                       </View>
                     </View>
 
+                    {/* MOVO-171: mismo criterio que el perfil propio -- oculto por
+                        completo si no hay bio, sin placeholder. */}
+                    {profile.bio ? (
+                      <Text testID="carrier-profile-bio" className="font-sans text-small text-fg-2">
+                        {profile.bio}
+                      </Text>
+                    ) : null}
+
                     {/* Stats */}
                     <ProfileStatsRow
                       transactionCounts={profile.transactionCounts}

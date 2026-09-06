@@ -50,6 +50,7 @@ function baseProfile(overrides: Partial<PrivateProfile> = {}): PrivateProfile {
     badges: [],
     transactionCounts: { asSender: 0, asCarrier: 0 },
     reputationScore: null,
+    bio: null,
     ...overrides,
   };
 }
@@ -100,6 +101,53 @@ describe("EditProfileScreen (MOVO-135)", () => {
     const { getByTestId } = await render(<EditProfileScreen />);
     expect(getByTestId("edit-profile-first-name").props.value).toBe("Martina");
     expect(getByTestId("edit-profile-last-name").props.value).toBe("Zurita");
+    expect(getByTestId("edit-profile-bio-input").props.value).toBe("");
+  });
+
+  describe("MOVO-171: bio", () => {
+    it("siembra el campo desde profile.bio", async () => {
+      mockProfileQuery(baseProfile({ bio: "Transportista de confianza." }));
+      const { getByTestId } = await render(<EditProfileScreen />);
+      expect(getByTestId("edit-profile-bio-input").props.value).toBe("Transportista de confianza.");
+    });
+
+    it("guarda al salir del campo cuando cambió", async () => {
+      const { getByTestId, queryByTestId } = await render(<EditProfileScreen />);
+
+      await typeIn(getByTestId("edit-profile-bio-input"), "Manejo hace 10 años.");
+      await blur(getByTestId("edit-profile-bio-input"));
+
+      expect(mutateAsync).toHaveBeenCalledWith({ bio: "Manejo hace 10 años." });
+      expect(queryByTestId("edit-profile-success")).toBeTruthy();
+    });
+
+    it("no manda nada si no se tocó el campo", async () => {
+      const { getByTestId } = await render(<EditProfileScreen />);
+      await blur(getByTestId("edit-profile-bio-input"));
+      expect(mutateAsync).not.toHaveBeenCalled();
+    });
+
+    it("más de 280 caracteres bloquea la mutación y muestra el error", async () => {
+      const { getByTestId } = await render(<EditProfileScreen />);
+
+      await typeIn(getByTestId("edit-profile-bio-input"), "a".repeat(281));
+      await blur(getByTestId("edit-profile-bio-input"));
+
+      expect(mutateAsync).not.toHaveBeenCalled();
+      expect(getByTestId("edit-profile-bio-error")).toBeTruthy();
+    });
+
+    it("si el guardado falla revierte al valor persistido", async () => {
+      mutateAsync.mockRejectedValue(new Error("boom"));
+      mockProfileQuery(baseProfile({ bio: "Bio original" }));
+      const { getByTestId, queryByTestId } = await render(<EditProfileScreen />);
+
+      await typeIn(getByTestId("edit-profile-bio-input"), "Bio nueva");
+      await blur(getByTestId("edit-profile-bio-input"));
+
+      expect(queryByTestId("edit-profile-error")).toBeTruthy();
+      expect(getByTestId("edit-profile-bio-input").props.value).toBe("Bio original");
+    });
   });
 
   it("AC2: guarda al salir del campo y muestra la confirmación visual", async () => {

@@ -25,11 +25,12 @@ export interface ConfirmPhotoResponse {
   photoUrl: string;
 }
 
-/** Body de `PATCH /users/me` (MOVO-133). El backend rechaza con 400 cualquier clave
- * fuera de estas dos, y también un body vacío (`minProperties: 1`). */
+/** Body de `PATCH /users/me` (MOVO-133, MOVO-171 sumó `bio`). El backend rechaza con
+ * 400 cualquier clave fuera de estas, y también un body vacío (`minProperties: 1`). */
 export interface UpdateProfileInput {
   firstName?: string;
   lastName?: string;
+  bio?: string | null;
 }
 
 /**
