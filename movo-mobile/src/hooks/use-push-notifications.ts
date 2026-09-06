@@ -27,7 +27,7 @@ Notifications.setNotificationHandler({
  * el mismo shape que las de `shipment` (MOVO-107/132) — tocarlas navega al mismo
  * detalle de envío hasta que exista una pantalla propia de oferta (MOVO-150).
  */
-const NAVIGABLE_NOTIFICATION_TYPES: readonly string[] = [
+const SHIPMENT_NOTIFICATION_TYPES: readonly string[] = [
   "shipment",
   "offer_accepted",
   "offer_superseded",
@@ -35,18 +35,38 @@ const NAVIGABLE_NOTIFICATION_TYPES: readonly string[] = [
   "rating_received",
 ];
 
-interface ShipmentNotificationData {
-  type: string;
-  shipmentId: string;
-}
+/**
+ * MOVO-163 (extensión de alcance): payload de `svc-shipments` (MOVO-179, trigger de
+ * push al publicarse un envío compatible con un viaje `active`) — el mobile se
+ * programa contra este contrato aunque MOVO-179 todavía no esté mergeado. `tripId` es
+ * lo que hace falta para abrir el feed filtrado (MOVO-163); `shipmentId` viaja en el
+ * payload pero no se usa todavía (no hay forma de resaltar una card puntual del
+ * feed) — simplificación aceptada, no alcance no pedido.
+ */
+const TRIP_MATCH_NOTIFICATION_TYPE = "trip_match";
 
-function isShipmentNotificationData(data: unknown): data is ShipmentNotificationData {
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    NAVIGABLE_NOTIFICATION_TYPES.includes((data as { type?: unknown }).type as string) &&
-    typeof (data as { shipmentId?: unknown }).shipmentId === "string"
-  );
+/**
+ * Resuelve a qué ruta navegar según el tipo de notificación, o `null` si no es
+ * navegable / le falta el dato necesario. Generaliza el `isShipmentNotificationData`
+ * de antes (que asumía que todo tipo navegable tenía `shipmentId` y navegaba a
+ * `/shipments/:id`) para sumar `trip_match`, sin tocar el comportamiento de los tipos
+ * ya soportados.
+ */
+function resolveNotificationRoute(data: unknown): string | null {
+  if (typeof data !== "object" || data === null) return null;
+  const type = (data as { type?: unknown }).type;
+
+  if (typeof type === "string" && SHIPMENT_NOTIFICATION_TYPES.includes(type)) {
+    const shipmentId = (data as { shipmentId?: unknown }).shipmentId;
+    return typeof shipmentId === "string" ? `/shipments/${shipmentId}` : null;
+  }
+
+  if (type === TRIP_MATCH_NOTIFICATION_TYPE) {
+    const tripId = (data as { tripId?: unknown }).tripId;
+    return typeof tripId === "string" ? `/(tabs)/transport?tripId=${tripId}` : null;
+  }
+
+  return null;
 }
 
 /**
@@ -57,7 +77,8 @@ function isShipmentNotificationData(data: unknown): data is ShipmentNotification
  *
  * AC5 / AC6 de MOVO-132: al tocar la notificación (en foreground, background o cold start),
  * navega directo a `/shipments/:id` donde el receptor puede ver el detalle y las
- * acciones de confirmación (MOVO-131).
+ * acciones de confirmación (MOVO-131). MOVO-163 suma `trip_match`, que en cambio abre
+ * el feed filtrado por viaje (`resolveNotificationRoute`).
  */
 export function usePushNotifications(): void {
   const sessionStatus = useAuthStore((s) => s.status);
@@ -92,15 +113,18 @@ export function usePushNotifications(): void {
     void Notifications.getLastNotificationResponseAsync().then((response) => {
       if (!response) return;
       const data = response.notification?.request?.content?.data;
-      if (!isShipmentNotificationData(data)) return;
+      const route = resolveNotificationRoute(data);
+      if (!route) return;
 
       const responseId =
-        response.notification?.request?.identifier ||
-        `${data.shipmentId}-${response.notification?.date ?? Date.now()}`;
+        response.notification?.request?.identifier || `${route}-${response.notification?.date ?? Date.now()}`;
       if (handledResponseIdsRef.current.has(responseId)) return;
       handledResponseIdsRef.current.add(responseId);
 
-      router.push(`/shipments/${data.shipmentId}`);
+      // `as any`: `route` es un string armado en runtime (dos formas posibles), no un
+      // literal de ruta tipado — mismo criterio que el resto del repo para rutas que
+      // expo-router no puede tipar de antemano.
+      router.push(route as any);
     });
   }, [sessionStatus, isNavigatorMounted]);
 
@@ -108,15 +132,18 @@ export function usePushNotifications(): void {
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification?.request?.content?.data;
-      if (!isShipmentNotificationData(data)) return;
+      const route = resolveNotificationRoute(data);
+      if (!route) return;
 
       const responseId =
-        response.notification?.request?.identifier ||
-        `${data.shipmentId}-${response.notification?.date ?? Date.now()}`;
+        response.notification?.request?.identifier || `${route}-${response.notification?.date ?? Date.now()}`;
       if (handledResponseIdsRef.current.has(responseId)) return;
       handledResponseIdsRef.current.add(responseId);
 
-      router.push(`/shipments/${data.shipmentId}`);
+      // `as any`: `route` es un string armado en runtime (dos formas posibles), no un
+      // literal de ruta tipado — mismo criterio que el resto del repo para rutas que
+      // expo-router no puede tipar de antemano.
+      router.push(route as any);
     });
     return () => subscription.remove();
   }, []);
