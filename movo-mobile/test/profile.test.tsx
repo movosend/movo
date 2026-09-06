@@ -54,6 +54,7 @@ function baseProfile(overrides: Partial<PrivateProfile> = {}): PrivateProfile {
     badges: ["kyc_verified"],
     transactionCounts: { asSender: 0, asCarrier: 0 },
     reputationScore: null,
+    bio: null,
     ...overrides,
   };
 }
