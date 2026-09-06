@@ -68,6 +68,12 @@ function toShipmentDto(shipment: Shipment | ShipmentDetailResult) {
     receiverConfirmationDeadline: shipment.receiverConfirmationDeadline
       ? shipment.receiverConfirmationDeadline.toISOString()
       : null,
+    // MOVO-180: mismo gotcha de timezone que pickupDate (@db.Date anclada a UTC) --
+    // estimatedDeliveryTimeWindowStart/End no lo necesitan, se persisten como string
+    // simple (ver schema.prisma).
+    estimatedDeliveryDate: shipment.estimatedDeliveryDate
+      ? shipment.estimatedDeliveryDate.toISOString().slice(0, 10)
+      : null,
   };
 }
 
@@ -542,6 +548,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         offeredPickupTimeWindowEnd,
         message,
         tripId,
+        estimatedDeliveryDate,
+        estimatedDeliveryTimeWindowStart,
+        estimatedDeliveryTimeWindowEnd,
       } = request.body as {
         priceOfferedArs: number;
         offeredDate: string;
@@ -549,6 +558,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         offeredPickupTimeWindowEnd?: string;
         message?: string;
         tripId?: string;
+        estimatedDeliveryDate?: string;
+        estimatedDeliveryTimeWindowStart?: string;
+        estimatedDeliveryTimeWindowEnd?: string;
       };
       const offer: CreateOfferForShipmentResult = await service.createOfferForShipment({
         shipmentId: id,
@@ -560,6 +572,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         offeredPickupTimeWindowEnd,
         message,
         tripId,
+        estimatedDeliveryDate,
+        estimatedDeliveryTimeWindowStart,
+        estimatedDeliveryTimeWindowEnd,
       });
       reply.code(201);
       return toOfferDto(offer);

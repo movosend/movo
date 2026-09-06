@@ -48,6 +48,9 @@ function mapOffer(row: OfferRow): Offer {
     createdAt: row.createdAt,
     respondedAt: row.respondedAt,
     tripId: row.tripId,
+    estimatedDeliveryDate: row.estimatedDeliveryDate,
+    estimatedDeliveryTimeWindowStart: row.estimatedDeliveryTimeWindowStart,
+    estimatedDeliveryTimeWindowEnd: row.estimatedDeliveryTimeWindowEnd,
   };
 }
 
@@ -254,6 +257,9 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
               carrierRatingAtOffer: input.carrierRatingAtOffer ?? null,
               carrierNameAtOffer: input.carrierNameAtOffer ?? null,
               tripId: input.tripId ?? null,
+              estimatedDeliveryDate: input.estimatedDeliveryDate ?? null,
+              estimatedDeliveryTimeWindowStart: input.estimatedDeliveryTimeWindowStart ?? null,
+              estimatedDeliveryTimeWindowEnd: input.estimatedDeliveryTimeWindowEnd ?? null,
               status: INITIAL_OFFER_STATUS,
             },
           });
@@ -343,6 +349,12 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
             // las US de asignación de EP-03). No está en el AC8 literal,
             // documentado como superset explícito.
             carrierId: current.carrierId,
+            // MOVO-180: mismo criterio que carrierId -- el receptor necesita ver la
+            // entrega estimada en el detalle del envío, no solo en el histórico de la
+            // oferta. Quedan null si la oferta ganadora nunca los declaró (opcionales).
+            estimatedDeliveryDate: current.estimatedDeliveryDate,
+            estimatedDeliveryTimeWindowStart: current.estimatedDeliveryTimeWindowStart,
+            estimatedDeliveryTimeWindowEnd: current.estimatedDeliveryTimeWindowEnd,
             lastStatusChangedAt: new Date(),
           },
         });

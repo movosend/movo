@@ -62,6 +62,9 @@ const shipmentResponse = {
     "receiverConfirmationDeadline",
     "createdAt",
     "updatedAt",
+    "estimatedDeliveryDate",
+    "estimatedDeliveryTimeWindowStart",
+    "estimatedDeliveryTimeWindowEnd",
   ],
   properties: {
     id: { type: "string" },
@@ -107,6 +110,11 @@ const shipmentResponse = {
         minPriceNetArs: { type: "number" },
       },
     },
+    // MOVO-180: entrega estimada de la oferta ganadora, null hasta que el envío tenga
+    // una aceptada (o si esa oferta nunca la declaró -- es opcional al ofertar).
+    estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
+    estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
+    estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
   },
 };
 
@@ -195,6 +203,9 @@ const offerResponse = {
     "createdAt",
     "respondedAt",
     "tripId",
+    "estimatedDeliveryDate",
+    "estimatedDeliveryTimeWindowStart",
+    "estimatedDeliveryTimeWindowEnd",
   ],
   properties: {
     id: { type: "string" },
@@ -214,6 +225,14 @@ const offerResponse = {
     respondedAt: { type: ["string", "null"], format: "date-time" },
     // MOVO-162: viaje declarado del que esta oferta forma parte, si corresponde.
     tripId: { type: ["string", "null"] },
+    // MOVO-180: opcional al ofertar -- date-only (@db.Date), no "date-time" como
+    // offeredDate en esta misma respuesta: toOfferDto (offer.dto.ts) lo formatea
+    // ya recortado (slice(0, 10)), mismo criterio que myOfferResponse/shipmentResponse
+    // (feedback de review: el valor no puede salir con dos formatos distintos según
+    // el endpoint).
+    estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
+    estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
+    estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
   },
 };
 
@@ -523,6 +542,13 @@ export const shipmentsSchemas = {
       message: { type: "string", maxLength: 500 },
       // MOVO-162: viaje declarado (activo, propio) del que esta oferta forma parte.
       tripId: { type: "string", format: "uuid" },
+      // MOVO-180: entrega estimada (día + franja) -- opcional, both-or-neither
+      // validado en shipments.service.ts (AJV no expresa esa condición limpio sin
+      // dependentRequired/if-then, mismo criterio que originLat/destinationLat en
+      // listAvailableQuery).
+      estimatedDeliveryDate: { type: "string", format: "date" },
+      estimatedDeliveryTimeWindowStart: { type: "string", pattern: TIME_PATTERN },
+      estimatedDeliveryTimeWindowEnd: { type: "string", pattern: TIME_PATTERN },
     },
     additionalProperties: false,
   },

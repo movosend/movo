@@ -144,6 +144,7 @@ export const usersSchemas = {
       "badges",
       "transactionCounts",
       "reputationScore",
+      "bio",
     ],
     properties: {
       id: { type: "string" },
@@ -163,6 +164,7 @@ export const usersSchemas = {
       badges: { type: "array", items: { type: "string", enum: PROFILE_BADGE_VALUES } },
       transactionCounts,
       reputationScore: { type: ["number", "null"] },
+      bio: { type: ["string", "null"] },
     },
   },
 
@@ -174,6 +176,9 @@ export const usersSchemas = {
     },
   },
 
+  // MOVO-171: `bio` va acá, no en `publicProfileExtras` -- decisión de producto de
+  // que bio viaje solo en el perfil individual (`GET /users/:id`), nunca en
+  // `GET /users/search`, que reusa ese objeto compartido (ver `searchResponse`).
   publicProfileResponse: {
     type: "object",
     required: [
@@ -184,6 +189,7 @@ export const usersSchemas = {
       "badges",
       "transactionCounts",
       "reputationScore",
+      "bio",
       ...PUBLIC_PROFILE_EXTRA_REQUIRED,
     ],
     properties: {
@@ -194,6 +200,7 @@ export const usersSchemas = {
       badges: { type: "array", items: { type: "string", enum: PROFILE_BADGE_VALUES } },
       transactionCounts,
       reputationScore: { type: ["number", "null"] },
+      bio: { type: ["string", "null"] },
       ...publicProfileExtras,
     },
   },
@@ -359,6 +366,9 @@ export const usersSchemas = {
     properties: {
       firstName: { type: "string", minLength: 1, maxLength: 80, pattern: NAME_FIELD_PATTERN },
       lastName: { type: "string", minLength: 1, maxLength: 80, pattern: NAME_FIELD_PATTERN },
+      // MOVO-171: sin minLength (para que "" pase validación y el servicio la
+      // convierta a null) ni pattern (prosa libre, a diferencia de NAME_FIELD_PATTERN).
+      bio: { type: "string", maxLength: 280 },
     },
   },
 

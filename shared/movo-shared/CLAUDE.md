@@ -130,3 +130,14 @@ consumidores existentes.
 - **`SharedHistory` nuevo** (`types/shipment.ts`, junto a `ShipmentStatus`):
   `{ sharedShipmentCount, lastSharedAt, allDelivered }`, wire contract de
   `GET /shipments/history-with/:userId` (`movo-svc-shipments`).
+
+### MOVO-171 — `PrivateProfile.bio`/`PublicProfile.bio`
+
+`src/types/user-profile.ts` — `bio: string | null`, campo **requerido** (no opcional)
+en ambos tipos, backend en `movo-svc-users` (ver su `CLAUDE.md`). A diferencia de
+MOVO-152/170, este campo sí rompe la compilación de cualquier literal `PublicProfile`/
+`PrivateProfile` construido a mano sin `bio` — tocó
+`services/movo-svc-shipments/test/fake-users-client.ts#fakePublicProfile()` (agregado
+`bio: null` al fake, mismo criterio que el resto de los campos que ese servicio no
+ejercita de verdad). El mobile tiene su propio ajuste pendiente en otra rama
+(MOVO-154/176), fuera del alcance de esta PR.

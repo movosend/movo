@@ -1029,6 +1029,132 @@ no se pudieron correr en este entorno por no tener Postgres/Docker disponibles, 
 a validar contra CI o un Postgres local. `tsc --noEmit` y `eslint` limpios en el resto
 de los archivos tocados.
 
+### MOVO-158 — Handshake criptográfico: QR dinámico, firma/proximidad GPS, transición de estado
+
+Core del Cryptographic Handshake (MOVO-6): confirma el cambio de custodia (emisor→
+transportista en el retiro, transportista→receptor en la entrega) combinando una
+firma asimétrica del dispositivo con una validación de proximidad GPS, sin depender
+de confianza ciega. Consume el endpoint interno ya implementado por el sub-issue
+hermano `GET /internal/users/:id/device-key` (MOVO-157, `svc-users`, Done antes de
+arrancar este ticket — no hizo falta ningún mock). Módulo nuevo
+`src/modules/handshake/` (`handshake.routes.ts`/`.schema.ts`/`.service.ts`, prefix
+`/shipments` compartido con `shipmentsRoutes`/`ratingsRoutes`, sin cambios en
+`gateway/src/config/routes-map.ts`) + `src/repositories/handshake-repository.ts` +
+`src/domain/handshake-crypto.ts`.
+
+Decisiones clave:
+- **`POST /:id/handshake/generate` nunca firma nada**: el AC1 del ticket describe el
+  endpoint "firmando con la clave privada del cedente", pero esa clave nunca sale del
+  dispositivo (garantía de MOVO-157) — el backend no puede firmar. En su lugar, crea y
+  persiste el nonce (Redis, TTL 15s) junto a las coordenadas GPS del cedente, y
+  devuelve el string canónico exacto (`{shipmentId}:{stage}:{nonce}`) para que el
+  mobile (MOVO-159, bloqueado por este ticket) lo firme client-side y arme el QR. Es
+  la única lectura coherente con el resto del diseño, no una interpretación libre.
+- **`stage` se infiere del `status` del envío, nunca lo manda el cliente**
+  (`inferHandshakeStage`, `handshake.service.ts`): `assigned` es la única etapa de
+  retiro pendiente (cedente=emisor), `in_transit` la única de entrega pendiente
+  (cedente=transportista) — así resuelve de paso el gating de actor de AC6. Cualquier
+  otro estado es 409 `HANDSHAKE_INVALID_SHIPMENT_STATE`.
+- **ADR-020 (primera criptografía asimétrica del repo)**: ECDSA P-256/SHA-256 vía
+  `node:crypto`'s `webcrypto.subtle` (no la API legacy `crypto.verify`), clave pública
+  en formato `raw` (punto EC sin comprimir, mismo shape que ya asumía el test de
+  MOVO-157) y firma en IEEE P1363 (raw r‖s, no DER) — formato nativo de
+  `subtle.sign`/`verify`, evita reencodear en un extremo y mantiene consistencia con
+  el lado mobile (previsiblemente también WebCrypto). `verifyHandshakeSignature`
+  nunca lanza — clave/firma malformada de un dispositivo ajeno se trata como firma
+  inválida (422), nunca 500.
+- **Estado pendiente (nonce + GPS del cedente) en Redis, no en Postgres**: clave
+  `handshake:pending:{shipmentId}:{stage}`, `SET ... PX 15000`. Un solo `SET` da TTL-
+  expiry (AC5, 410) y "nuevo nonce invalida el anterior" (AC5) gratis por overwrite —
+  `handshake_events` es (AC3) un log de eventos ya *confirmados*, no puede duplicar
+  ese rol.
+- **Commit atómico vía `handshakeRepository.confirmAndPersist()`, no
+  `shipment-repository.ts#updateStatus()`**: mismo motivo que
+  `offer-repository.ts#acceptOffer` (MOVO-102/MOVO-118) — ese método abre su propia
+  `$transaction`, no anidable con el insert de `handshake_events`. La transacción
+  única hace, en orden: `transition()` (defensa en profundidad contra el grafo
+  canónico), el mismo CAS `updateMany({where:{id,status:from}})` que `updateStatus`
+  (reusa la `ShipmentConcurrentModificationError` ya existente, sin wiring nuevo en
+  `error-handler.ts`), el insert en `shipment_events` (mantiene `/shipments/:id/events`
+  completo) y el insert en `handshake_events`. La garantía real de exclusión mutua
+  contra una confirmación concurrente es este CAS de Postgres, no la lectura de Redis
+  (que solo resuelve el caso normal de nonce vencido/superado) — verificado con un
+  test de dos `/confirm` corriendo en paralelo con el mismo nonce válido.
+- **`actor_id`/`counterparty_id` de `handshake_events`**: `actor_id` es quien confirma
+  (llamó a `/confirm`, el receptor de la custodia); `counterparty_id` es quien generó
+  el QR (el cedente) — mismo criterio que `actor_id` en `shipment_events` (quien
+  ejecutó la acción). `nonce_hash` (sha256 hex) nunca guarda el nonce en claro, ya
+  cumplió su función de un solo uso en Redis.
+- **`FundsReleaseNotifier` (AC7, molde ADR-012/017)**: la liberación de fondos real
+  (captura/split de Mercado Pago) queda deliberadamente fuera de este ticket —
+  bloqueada por el caso de soporte escalado con MP — detrás de una interfaz con
+  no-op/log en dev-test (`FUNDS_RELEASE_NOTIFIER=console`, único valor hoy). Dispara
+  **solo** en la transición a `delivered` (nada se libera en el retiro), fire-and-
+  forget, nunca bloquea la respuesta de `/confirm`.
+- **`haversineKm` extraído a `src/domain/geo.ts`** (antes vivía duplicada dentro de
+  `shipments.service.ts`, MOVO-126): AC4 necesita el mismo cálculo de distancia para
+  el umbral de 100m del handshake — se reusa en vez de triplicarlo, sin cambio de
+  comportamiento en el uso existente.
+- **`GET /internal/users/:id/device-key` (MOVO-157) consumido sin header `x-user-id`**:
+  nuevo método `findDeviceKey()` en la interfaz `UsersClient` existente (no un adapter
+  nuevo, mismo servicio destino) — a diferencia de `findPublicProfile`, ese endpoint
+  interno no pasa por el gateway y no espera ningún header de autenticación
+  (perimetral, mismo criterio que `notifications-client.ts`).
+- **5 códigos nuevos en `@movo/shared`**: `HANDSHAKE_QR_EXPIRED` (410, AC5),
+  `HANDSHAKE_DISTANCE_EXCEEDED` (422, AC4), `HANDSHAKE_INVALID_SIGNATURE` (422, sin
+  código explícito en el ticket, mismo criterio 422 que el de distancia),
+  `HANDSHAKE_CEDENTE_KEY_MISSING` (409, precondición de un tercero — mismo criterio
+  que `TRIP_NOT_ACTIVE`/`SHIPMENT_NOT_AVAILABLE_FOR_ASSIGNMENT`, no el `404
+  DEVICE_KEY_NOT_FOUND` de MOVO-157: ese código ya está atado a un 404 en otro
+  endpoint), `HANDSHAKE_INVALID_SHIPMENT_STATE` (409). **410 es la primera vez que se
+  usa este status en el repo** (el resto de "estado vencido" del proyecto usa 409,
+  ej. `SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED`) — mandato explícito del AC5 del
+  ticket, no una inconsistencia a corregir.
+- **DER actualizado**: `shipments.handshake_events` reemplaza el placeholder
+  `shipments.custody_transfer_event` de `docs/movo_der.dbml` (sin ticket hasta ahora)
+  con las columnas que este ticket realmente persiste — `signature`/
+  `previous_event_hash`/`event_type`/`result` del placeholder quedan deliberadamente
+  afuera (no forman parte del AC3, un futuro ticket podría sumarlos sin romper nada
+  vía `ALTER TABLE`). De paso se agregó `users.device_keys` (MOVO-157), que nunca
+  había llegado a este archivo.
+
+**Bug real encontrado corriendo el test de concurrencia contra Postgres real (no por
+`app.inject()` mockeado)**: `confirmHandshake` resolvía originalmente el `stage`
+releyendo `shipment.status` en vivo, igual que `/generate`. Con dos `/confirm`
+concurrentes sobre el mismo nonce, el perdedor podía leer el envío DESPUÉS de que el
+ganador ya había commiteado la transición (`assigned`→`in_transit`) — resolvía
+`stage: "delivery"` en vez de `"pickup"`, exigía `assertIsReceiver` en vez de
+`assertIsCarrier`, y el transportista (actor correcto) recibía un 403 en vez de
+409/410. Corregido guardando el `stage` DENTRO del desafío pendiente de Redis (fijado
+al momento de `/generate`, nunca releído) — `confirmHandshake` ya no llama a
+`inferHandshakeStage()` en absoluto, esa función quedó exclusiva de `/generate`. Como
+consecuencia, la clave de Redis pasó de `handshake:pending:{shipmentId}:{stage}` a
+`handshake:pending:{shipmentId}` (el `stage` vive en el valor, no en la clave — un
+envío nunca tiene más de un desafío legítimamente pendiente a la vez) y el chequeo
+409 `HANDSHAKE_INVALID_SHIPMENT_STATE` quedó exclusivo de `/generate` (en `/confirm`
+era, sin saberlo, la misma fuente de la carrera). Test de regresión dedicado en
+`handshake-service.test.ts` (mockeado, sin Postgres) que fija exactamente este
+escenario, además del test de concurrencia real contra Postgres.
+
+Tests: `test/geo.test.ts` (extracción de `haversineKm`, regresión), `test/handshake-
+crypto.test.ts` (keypair P-256 efímero real vía WebCrypto — firma válida/tampering de
+payload/firma de otra clave/clave o firma malformada, nunca lanza), `test/handshake-
+service.test.ts` (mocks — TTL, las 4 combinaciones de 403 actor×stage con un QR real
+ya generado, 409 clave faltante, 422 firma/distancia, ambas direcciones de transición
+con roles correctos, `FundsReleaseNotifier` solo en delivery, y el test de regresión
+del bug de arriba), `test/handshake.integration.test.ts` (Postgres+Redis reales,
+`app.inject()` — flujo completo generate→confirm de pickup y delivery, la matriz de
+errores, y el test de concurrencia de dos `/confirm` en paralelo con el mismo nonce).
+**Corrida contra Postgres/Redis reales (Docker) verificada**: suite completa del
+servicio 41/41 archivos, 501/501 tests — el test de concurrencia se corrió 5 veces
+seguidas sin flakiness tras el fix. `tsc --noEmit`, `npm run build` y `npm run lint`
+limpios.
+
+Pendiente / fuera de alcance: integración real de liberación de fondos con Mercado
+Pago (AC7, bloqueada por el caso de soporte escalado); generación de claves y su UI
+en mobile (MOVO-159/160, ambas bloqueadas por este ticket — el contrato que define
+este ticket, canonicalPayload + formato de firma IEEE P1363, es lo que esas dos
+historias tienen que implementar del lado del dispositivo).
 ### MOVO-170 — Enriquecimiento de perfil: usageStats por rol, historial compartido, ratings paginados (`svc-shipments`)
 
 Lado `svc-shipments` de la exposición de datos ya persistidos para el rediseño de
@@ -1124,6 +1250,57 @@ de backend nuevo (columnas de `Offer`, propagación a `Shipment` al aceptar) sin
 construir todavía. Documentado en detalle en **MOVO-180** (Urgent, mismo ciclo) — el
 mobile (`movo-mobile/CLAUDE.md`) ya tiene esa UI construida contra el contrato
 propuesto, sin mandarlo todavía al servidor.
+
+### MOVO-180 — Contrato de backend: entrega estimada en la oferta (`svc-shipments`)
+
+Sección 1 del ticket (la 2, `offersSummary`, ya se había adelantado sobre MOVO-177 --
+ver el comentario de actualización en Linear). `Offer`/`Shipment` suman
+`estimatedDeliveryDate`/`estimatedDeliveryTimeWindowStart`/`estimatedDeliveryTimeWindowEnd`
+(migración `20260906180000_add_estimated_delivery_window`), expuestos en
+`createOfferBody`, `offerResponse`/`createOfferResponse`/`myOfferResponse` y
+`shipmentResponse`. Se copian del ganador al `Shipment` al aceptar la oferta
+(`offer-repository.ts#acceptOffer`, mismo `updateMany` que ya setea `carrierId`).
+
+Decisiones clave:
+- **Discrepancia encontrada contra la letra del ticket**: el ticket describe
+  `app/(app)/transport/[id]/offer.tsx` ya recolectando estos campos en una sección "A
+  qué hora entregás (estimado)" y solo omitiéndolos del body. Ese archivo no existe --
+  MOVO-149 (la US que de verdad implementó "hacer una oferta" en mobile) terminó en un
+  diseño distinto y más simple (`components/transport/create-offer-sheet.tsx`, una
+  hoja modal sin ningún campo de entrega estimada). El texto del ticket describe el
+  mockup/plan de MOVO-177, no lo que MOVO-149 mergeó. Documentado acá porque cambia el
+  cálculo de riesgo de la siguiente decisión.
+- **Los tres campos son opcionales al ofertar, no obligatorios** (la pregunta abierta
+  del ticket): dado que el mobile actual no los recolecta en absoluto (punto anterior),
+  volverlos obligatorios habría roto `POST /shipments/:id/offers` para el único cliente
+  real que existe hoy. Quedan both-or-neither (422 `VALIDATION_FAILED` si se manda
+  parte de los tres), `estimatedDeliveryTimeWindowEnd` > `Start`, y
+  `estimatedDeliveryDate >= offeredDate` -- las tres validaciones sincrónicas, antes de
+  cualquier I/O, en `shipments.service.ts#createOfferForShipment`.
+- **Horario como `String @db.VarChar(8)`, no `@db.Time`**: a diferencia de
+  `pickupTimeWindowStart/End` (`Shipment`), que sufren el gotcha de timezone-anclaje
+  documentado en MOVO-80 (`@db.Time`/`@db.Date` ancladas a UTC, necesitan
+  `toISOString().slice(...)` manual en cada DTO para no correrse con el offset del
+  proceso), acá un `"HH:MM:SS"` de pared se persiste y se lee tal cual, sin ningún
+  tratamiento especial -- decisión tomada al escribir el schema de Prisma de este
+  ticket, no heredada de ningún patrón previo (`estimatedDeliveryDate` sí sigue siendo
+  `@db.Date`, mismo tratamiento que `offeredDate`/`pickupDate`).
+- **Mobile fuera de alcance de este PR**: sin UI real que recolecte estos campos
+  (punto de arriba), no hay nada que cablear del lado de `movo-mobile` todavía --
+  queda para cuando exista un ticket de UI para esto (ninguno todavía en Backlog).
+
+Tests: `test/shipments-offers-create.integration.test.ts` (6 casos nuevos: sin los
+tres campos, con los tres, validación both-or-neither, franja invertida, entrega
+anterior al retiro, caso límite mismo día) y `test/offers-accept-reject.integration.test.ts`
+(3 casos nuevos: propagación al aceptar, ganadora sin declarar entrega estimada, ida y
+vuelta completa por HTTP verificando el formato date-only de `GET /shipments/:id`).
+Suite completa del servicio 471/471 tests (38 archivos), `tsc --noEmit` y `eslint`
+limpios. Confirmado que `app.swagger()` expone los campos nuevos en
+`POST /shipments/{id}/offers`.
+
+Pendiente / fuera de alcance: UI mobile de entrega estimada (sin ticket todavía);
+"ofertas actuales" (sección 2 del ticket) ya resuelta antes de este PR, ver el
+comentario de actualización de MOVO-180 en Linear.
 
 ### Pendientes de este servicio
 

@@ -124,6 +124,64 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
       });
     });
 
+    it("MOVO-180: propaga la entrega estimada de la oferta ganadora al envío, sin tocarla en las perdedoras", async () => {
+      const shipmentId = await createPublishedShipment();
+      const winner = await offerRepo.create(
+        baseOfferInput({
+          shipmentId,
+          priceOffered: 4000,
+          estimatedDeliveryDate: new Date("2026-08-21T00:00:00.000Z"),
+          estimatedDeliveryTimeWindowStart: "15:00:00",
+          estimatedDeliveryTimeWindowEnd: "19:00:00",
+        })
+      );
+      const loser = await offerRepo.create(baseOfferInput({ shipmentId, priceOffered: 4500 }));
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/offers/${winner.id}/accept`,
+        headers: { "x-user-id": senderId },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const updatedShipment = await shipmentRepo.findById(shipmentId);
+      expect(updatedShipment?.estimatedDeliveryDate?.toISOString()).toBe("2026-08-21T00:00:00.000Z");
+      expect(updatedShipment?.estimatedDeliveryTimeWindowStart).toBe("15:00:00");
+      expect(updatedShipment?.estimatedDeliveryTimeWindowEnd).toBe("19:00:00");
+
+      const updatedLoser = await offerRepo.findById(loser.id);
+      expect(updatedLoser?.estimatedDeliveryDate).toBeNull();
+
+      // Ida y vuelta completa por HTTP: confirma que el DTO de GET /shipments/:id
+      // (toShipmentDto) formatea estimatedDeliveryDate como date-only, sin el
+      // corrimiento de timezone del gotcha de asDate (ver shipments.routes.ts).
+      const detail = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}`,
+        headers: { "x-user-id": senderId },
+      });
+      expect(detail.json().estimatedDeliveryDate).toBe("2026-08-21");
+      expect(detail.json().estimatedDeliveryTimeWindowStart).toBe("15:00:00");
+      expect(detail.json().estimatedDeliveryTimeWindowEnd).toBe("19:00:00");
+    });
+
+    it("MOVO-180: si la oferta ganadora nunca declaró entrega estimada, el envío queda con los tres campos null", async () => {
+      const shipmentId = await createPublishedShipment();
+      const winner = await offerRepo.create(baseOfferInput({ shipmentId, priceOffered: 4000 }));
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/offers/${winner.id}/accept`,
+        headers: { "x-user-id": senderId },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const updatedShipment = await shipmentRepo.findById(shipmentId);
+      expect(updatedShipment?.estimatedDeliveryDate).toBeNull();
+      expect(updatedShipment?.estimatedDeliveryTimeWindowStart).toBeNull();
+      expect(updatedShipment?.estimatedDeliveryTimeWindowEnd).toBeNull();
+    });
+
     it("falla con 409 al aceptar una oferta vencida", async () => {
       const shipmentId = await createPublishedShipment();
       const expired = await offerRepo.create(

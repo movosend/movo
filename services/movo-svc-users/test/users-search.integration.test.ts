@@ -124,6 +124,21 @@ describe("GET /users/search (MOVO-80)", () => {
     expect(result).toHaveProperty("isVerified");
   });
 
+  it("MOVO-171: nunca incluye bio, aunque el usuario la haya completado", async () => {
+    const caller = await repo.create(buildInput());
+    const target = await repo.create(buildInput({ firstName: "Alena", lastName: "Ariza2" }));
+    await repo.updateProfile(target.id, { bio: "No debería aparecer en la búsqueda" });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/users/search?q=Alena",
+      headers: { "x-user-id": caller.id },
+    });
+
+    const [result] = response.json();
+    expect(result).not.toHaveProperty("bio");
+  });
+
   it("excluye usuarios con baja lógica (status deleted), mismo criterio que GET /users/:id", async () => {
     const caller = await repo.create(buildInput());
     const deletedUser = await repo.create(buildInput({ firstName: "Marina", lastName: "Soft-Deleted" }));
