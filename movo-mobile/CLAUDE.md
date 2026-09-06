@@ -1148,3 +1148,87 @@ Frontend de MOVO-23: el transportista abre un envío disponible y oferta un prec
 
 Tests nuevos y actualizados: `test/create-offer-sheet.test.tsx` (apertura con prellenado, envío exitoso, desglose de respuesta, errores 409/422/403 KYC, validación con icono X y límite de 2 decimales), `test/transport-detail-screen.test.tsx` (card de oferta activa previa y flujo de retiro con confirmación), `test/transport-screen.test.tsx` (banner de éxito y actualización de badge), `test/offers-client.test.ts`. 87/87 suites pasadas, 643/643 tests en `movo-mobile`. `tsc --noEmit` limpio.
 
+### MOVO-163 — Feed de paquetes compatibles con el viaje declarado (`movo-mobile`)
+
+Extiende el tab Transportar (MOVO-148) con un filtro por viaje declarado, sobre el
+matching geométrico de MOVO-161 (`GET /trips/:id/matches`, ya Done). **Corrección
+sobre el ticket original**: el path `app/(app)/carrier/feed.tsx` que mencionaba nunca
+existió — el feed real a extender es `app/(app)/(tabs)/transport.tsx` (MOVO-148/162).
+
+- **`transport.tsx` pasa a tener dos modos según `?tripId=`** (desde "Mis viajes"):
+  sin `tripId`, exactamente el comportamiento de MOVO-148 (`useAvailableShipments`,
+  GPS/radio); con `tripId`, fuente `useTripMatches` nueva (`use-trips.ts`, mismo
+  patrón `useInfiniteQuery` que su par), sin selector de radio ni cascada de
+  origen/GPS — decisión de alcance acordada con el usuario, el AC no pedía un
+  selector de radio para este modo. Header propio ("Filtrado por viaje: X → Y · Ver
+  todos") reemplaza la fila de zona/radio; el resto (skeleton, gating KYC, error,
+  `AvailableShipmentCard`, paginación, pull-to-refresh) se reusa sin tocar.
+- **`useTransportOrigin` ganó un parámetro `enabled`**: sin esto, entrar al feed
+  filtrado por viaje disparaba igual el pedido de permiso de GPS (el hook llamaba a
+  `resolveCurrentLocation()` en un efecto sin condición) — el modo viaje no depende en
+  absoluto de la ubicación del usuario.
+- **`TripCard` (`components/trips/`) gana un `onPress`**: toda la card es pressable
+  (abre el feed filtrado), editar/eliminar quedan como `Pressable`s anidados sin
+  bubbling — mismo criterio que `ContactRow` (MOVO-139).
+- **Reparto de tipos**: `TripMatchesParams`/`TripMatchesResponse` se declararon como
+  `type` (no `interface`) en `trips-client.ts` — un `interface` sin index signature no
+  es asignable al parámetro `Record<string, ...>` de `httpClient.get`, mismo gotcha
+  que ya evita el resto de los métodos del archivo con tipos anónimos/`type`.
+
+**Extensión de alcance acordada con el usuario durante el refinamiento (AC6/AC7 del
+ticket, no en la redacción original)**: comportamiento "tipo Uber" — avisar de
+paquetes nuevos compatibles con un viaje activo sin que el transportista tenga que
+abrir el feed a mano.
+
+- **AC6, foreground (100% mobile)**: `use-active-trip-match-alert.ts` (nuevo) vigila
+  el primer viaje `active` de `useMyTrips()` con un polling propio (`AppState` +
+  `setInterval`, no `refetchInterval` de React Query — el repo no tiene
+  `focusManager` de RN configurado). Siembra la primera respuesta sin alertar (nunca
+  avisa por el historial ya existente al abrir la app), detecta ids nuevos entre
+  polls, y se pausa en background/reanuda con un refetch inmediato al volver a
+  foreground. `TripMatchAlertBanner` (nuevo, `components/trips/`) es el primer overlay
+  global del repo — a diferencia de `SuccessBanner`/`ErrorBanner` (siempre embebidos
+  en una pantalla), este tiene que verse sin importar dónde esté el usuario, montado
+  como hermano superpuesto del `<Stack>` en `app/(app)/_layout.tsx`. Mismo lenguaje
+  "glassy" (`BlurView`) que `FloatingTabBar` (MOVO-78).
+- **AC7, background (deep-link mobile, contrato acordado con `MOVO-179`)**:
+  `use-push-notifications.ts` generaliza `isShipmentNotificationData`/
+  `NAVIGABLE_NOTIFICATION_TYPES` (que asumían que todo tipo navegable tenía
+  `shipmentId` y navegaba a `/shipments/:id`) a un `resolveNotificationRoute(data)`
+  por tipo, sumando `trip_match` → abre el feed filtrado por `tripId`. El mobile se
+  programó contra el payload ya acordado (`{ type: "trip_match", tripId, shipmentId }`)
+  sin esperar el merge de `MOVO-179` — mismo criterio que MOVO-108 permitió con
+  MOVO-106. `shipmentId` viaja en el payload pero no se usa todavía (no hay forma de
+  resaltar una card puntual del feed) — simplificación aceptada, no alcance no pedido.
+- **`MOVO-179`** (`[svc-shipments] Push notification al publicarse un envío
+  compatible con un viaje declarado`) se creó como sub-issue nuevo bajo MOVO-18,
+  bloqueante de MOVO-163 — el disparo real del backend (detectar el match al
+  transicionar un envío a `published` y notificar) queda pendiente ahí, no es parte de
+  este ticket mobile.
+- Simplificación aceptada: con más de un viaje `active` simultáneo, la alerta de AC6
+  solo vigila el primero que devuelve `useMyTrips()` — sin selector de "cuál viaje".
+
+Tests nuevos: `test/use-active-trip-match-alert.test.ts` (siembra sin alertar, match
+nuevo entre polls, `dismiss()`, reset al cambiar de viaje activo, pausa/resume con
+`AppState`), `test/trip-match-alert-banner.test.tsx` (render condicional,
+singular/plural, tap navega y descarta, X descarta sin navegar, auto-dismiss a los
+8s), casos nuevos en `test/transport-screen.test.tsx` (modo filtrado por viaje
+completo), `test/my-trips-screen.test.tsx` (tap de card navega, editar no dispara
+también la navegación), `test/use-push-notifications.test.tsx` (`trip_match` con y
+sin `tripId`, cold start). 89/89 suites, 665/665 tests en `movo-mobile`. `tsc
+--noEmit` limpio (el ruido preexistente de `TRIP_NOT_ACTIVE` en `error-messages.ts`
+era un `dist/` desactualizado de `@movo/shared` sin rebuildear — corregido con `npm
+run build` ahí, no es parte del código de este ticket).
+
+Pendiente / fuera de alcance: **DoD de prueba manual sin correr todavía** (un viaje
+con matches y uno sin matches, el aviso de AC6 apareciendo en otra pantalla, el
+deep-link de AC7 con un payload mockeado) — mismo estado que quedó documentado en
+MOVO-148/166 ("no probado en device"), pendiente de una pasada en simulador/dispositivo
+contra `svc-shipments` real con datos sembrados a mano (sin script de seed en el
+repo). AC7 no puede probarse de punta a punta hasta que `MOVO-179` exista. Cobertura
+de `useTripMatches` baja en el reporte (el módulo se mockea entero en los tests de
+pantalla) — mismo patrón ya aceptado para `useAvailableShipments`/`useMyShipments`,
+ninguna de esas hooks tiene tampoco un test dedicado; evaluado con el usuario y
+descartado sumar uno para no romper la convención existente por una cobertura
+incidental.
+
