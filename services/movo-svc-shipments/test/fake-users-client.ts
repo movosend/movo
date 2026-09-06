@@ -54,6 +54,8 @@ export function fakePublicProfile(overrides: Partial<PublicProfile> & { id: stri
     memberSince: new Date("2030-01-01T00:00:00.000Z").toISOString(),
     phoneVerified: false,
     emailVerified: false,
+    // MOVO-171: idem, sin bio real en este fake.
+    bio: null,
     ...overrides,
   };
 }

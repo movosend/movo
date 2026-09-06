@@ -117,6 +117,12 @@ export interface PrivateProfile {
   badges: ProfileBadge[];
   transactionCounts: TransactionCounts;
   reputationScore: number | null;
+  /**
+   * MOVO-171: bio de texto libre del perfil. `null` para las cuentas que nunca la
+   * completaron o la vaciaron -- `""` nunca se persiste, `users.service.ts` la
+   * resuelve a `null` antes de escribir.
+   */
+  bio: string | null;
 }
 
 /**
@@ -159,4 +165,12 @@ export interface PublicProfile {
   memberSince: string;
   phoneVerified: boolean;
   emailVerified: boolean;
+  /**
+   * MOVO-171: bio de texto libre. Viaja en `GET /users/:id`, pero **nunca** en
+   * `GET /users/search` -- decisión de producto, no una limitación técnica; el
+   * endpoint de búsqueda descarta este campo a nivel de schema Fastify aunque el
+   * objeto compuesto en el servidor lo traiga poblado (mismo `PublicProfile`
+   * reusado por las dos rutas).
+   */
+  bio: string | null;
 }

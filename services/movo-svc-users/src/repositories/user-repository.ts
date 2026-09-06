@@ -39,7 +39,10 @@ export interface UserRepository {
    * El caller (`users.service.ts#updateProfile`) nunca llama con los dos `undefined`
    * (el schema de `PATCH /users/me` exige `minProperties:1`).
    */
-  updateProfile(id: string, input: { firstName?: string; lastName?: string }): Promise<User | null>;
+  updateProfile(
+    id: string,
+    input: { firstName?: string; lastName?: string; bio?: string | null }
+  ): Promise<User | null>;
   /**
    * MOVO-133: persiste `phone` + `phoneVerified=true` en el mismo UPDATE -- se llama
    * solo después de que el OTP al teléfono nuevo ya probó posesión. Lanza
@@ -110,6 +113,7 @@ function toDomainUser(row: UserWithRoles): User {
     lastName: row.lastName,
     passwordHash: row.passwordHash,
     dni: row.dni,
+    bio: row.bio,
     phoneVerified: row.phoneVerified,
     emailVerified: row.emailVerified,
     emailVerifiedAt: row.emailVerifiedAt,
@@ -324,13 +328,17 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
       return row !== null;
     },
 
-    async updateProfile(id: string, input: { firstName?: string; lastName?: string }): Promise<User | null> {
+    async updateProfile(
+      id: string,
+      input: { firstName?: string; lastName?: string; bio?: string | null }
+    ): Promise<User | null> {
       try {
         const row = await db.user.update({
           where: { id },
           data: {
             ...(input.firstName !== undefined ? { firstName: input.firstName } : {}),
             ...(input.lastName !== undefined ? { lastName: input.lastName } : {}),
+            ...(input.bio !== undefined ? { bio: input.bio } : {}),
           },
           include: { roles: true },
         });

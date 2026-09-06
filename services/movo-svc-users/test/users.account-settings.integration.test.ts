@@ -74,7 +74,7 @@ describe("Cambio de contraseña y baja de cuenta (MOVO-134)", () => {
 
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
-    process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
+    process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo_local_pw@localhost:5432/movo";
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
     captor = createCaptorSmsProvider();
     shipmentsFake = createFakeShipmentsClient();
