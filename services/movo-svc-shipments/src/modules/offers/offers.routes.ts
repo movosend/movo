@@ -25,6 +25,10 @@ function toMyOfferDto(offer: OfferWithShipmentContext) {
   return {
     ...offer,
     offeredDate: offer.offeredDate.toISOString().slice(0, 10),
+    // MOVO-180: mismo gotcha de timezone que offeredDate.
+    estimatedDeliveryDate: offer.estimatedDeliveryDate
+      ? offer.estimatedDeliveryDate.toISOString().slice(0, 10)
+      : null,
     shipment: {
       ...offer.shipment,
       pickupDate: offer.shipment.pickupDate.toISOString().slice(0, 10),

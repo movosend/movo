@@ -143,6 +143,14 @@ model Shipment {
   // texto libre a propósito, no se inventan valores que nadie definió.
   paymentMethod     String?  @map("payment_method")
 
+  // MOVO-180: entrega estimada (día + franja horaria) de la oferta ganadora,
+  // copiada acá al aceptarla (offer-repository.ts#acceptOffer) -- mismo criterio que
+  // agreedPriceArs/carrierId, que ya se setean en ese mismo UPDATE. Null hasta que el
+  // envío tenga una oferta aceptada; los tres son nullable en Offer también, ver ahí.
+  estimatedDeliveryDate            DateTime? @map("estimated_delivery_date") @db.Date
+  estimatedDeliveryTimeWindowStart String?   @map("estimated_delivery_time_window_start") @db.VarChar(8)
+  estimatedDeliveryTimeWindowEnd   String?   @map("estimated_delivery_time_window_end") @db.VarChar(8)
+
   status                       ShipmentStatus @default(awaiting_receiver_confirmation)
   lastStatusChangedAt          DateTime?      @map("last_status_changed_at") @db.Timestamptz
   deliveredAt                  DateTime?      @map("delivered_at") @db.Timestamptz
@@ -251,6 +259,17 @@ model Offer {
   carrierRatingAtOffer Decimal? @map("carrier_rating_at_offer") @db.Decimal
   carrierNameAtOffer   String?  @map("carrier_name_at_offer")
   tripId               String?  @map("trip_id") @db.Uuid
+
+  // MOVO-180: entrega estimada (día + franja horaria) declarada por el transportista
+  // al ofertar -- opcional, complementa offeredDate (que es de RETIRO, no de entrega).
+  // El horario se persiste como String (no @db.Time) para no heredar el gotcha de
+  // timezone-anclaje que sí aplica a columnas @db.Date/@db.Time (ver CLAUDE.md,
+  // MOVO-80): un "HH:MM:SS" de pared no necesita ese tratamiento, se guarda y se lee
+  // tal cual. estimatedDeliveryDate sigue siendo @db.Date (mismo patrón que
+  // offeredDate/pickupDate) porque sí es una fecha de calendario real.
+  estimatedDeliveryDate            DateTime? @map("estimated_delivery_date") @db.Date
+  estimatedDeliveryTimeWindowStart String?   @map("estimated_delivery_time_window_start") @db.VarChar(8)
+  estimatedDeliveryTimeWindowEnd   String?   @map("estimated_delivery_time_window_end") @db.VarChar(8)
 
   status      OfferStatus @default(pending)
   // AC2: sostiene la expiración perezosa (AC11).

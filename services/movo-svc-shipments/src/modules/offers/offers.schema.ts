@@ -33,6 +33,9 @@ const offerResponse = {
     "createdAt",
     "respondedAt",
     "tripId",
+    "estimatedDeliveryDate",
+    "estimatedDeliveryTimeWindowStart",
+    "estimatedDeliveryTimeWindowEnd",
   ],
   properties: {
     id: { type: "string" },
@@ -49,6 +52,10 @@ const offerResponse = {
     respondedAt: { type: ["string", "null"], format: "date-time" },
     // MOVO-162: viaje declarado del que esta oferta forma parte, si corresponde.
     tripId: { type: ["string", "null"] },
+    // MOVO-180: entrega estimada (día + franja), opcional al ofertar.
+    estimatedDeliveryDate: { type: ["string", "null"], format: "date-time" },
+    estimatedDeliveryTimeWindowStart: { type: ["string", "null"] },
+    estimatedDeliveryTimeWindowEnd: { type: ["string", "null"] },
   },
 };
 
@@ -73,6 +80,9 @@ const myOfferResponse = {
     "respondedAt",
     "shipment",
     "tripId",
+    "estimatedDeliveryDate",
+    "estimatedDeliveryTimeWindowStart",
+    "estimatedDeliveryTimeWindowEnd",
   ],
   properties: {
     id: { type: "string" },
@@ -93,6 +103,11 @@ const myOfferResponse = {
     shipment: offerShipmentContextResponse,
     // MOVO-162: viaje declarado del que esta oferta forma parte, si corresponde.
     tripId: { type: ["string", "null"] },
+    // MOVO-180: mismo gotcha de timezone que offeredDate -- date-only, formateado a
+    // mano en toMyOfferDto (offers.routes.ts), nunca por el serializador "date".
+    estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
+    estimatedDeliveryTimeWindowStart: { type: ["string", "null"] },
+    estimatedDeliveryTimeWindowEnd: { type: ["string", "null"] },
   },
 };
 
