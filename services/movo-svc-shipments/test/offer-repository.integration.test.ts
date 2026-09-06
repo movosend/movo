@@ -119,15 +119,44 @@ describe("offer-repository (Postgres)", () => {
       ).rejects.toThrow(OfferShipmentNotFoundError);
     });
 
-    it("lanza OfferDateOutOfRangeError si offeredDate no coincide con pickupDate del envío (AC10) y no persiste nada", async () => {
+    it("lanza OfferDateOutOfRangeError si offeredDate es anterior a pickupDate del envío (AC10) y no persiste nada", async () => {
       const shipmentId = await createPublishedShipment();
-      const otroDia = new Date("2026-08-21T00:00:00.000Z");
+      const antesDelRetiro = new Date("2026-08-19T00:00:00.000Z");
 
-      await expect(repo.create(baseOfferInput({ shipmentId, offeredDate: otroDia }))).rejects.toThrow(
+      await expect(repo.create(baseOfferInput({ shipmentId, offeredDate: antesDelRetiro }))).rejects.toThrow(
         OfferDateOutOfRangeError,
       );
 
       expect(await repo.listByShipment(shipmentId)).toHaveLength(0);
+    });
+
+    it("lanza OfferDateOutOfRangeError si offeredDate supera el máximo de 3 días después de pickupDate (MOVO-177)", async () => {
+      const shipmentId = await createPublishedShipment();
+      const masDeTresDiasDespues = new Date("2026-08-24T00:00:00.000Z");
+
+      await expect(
+        repo.create(baseOfferInput({ shipmentId, offeredDate: masDeTresDiasDespues })),
+      ).rejects.toThrow(OfferDateOutOfRangeError);
+
+      expect(await repo.listByShipment(shipmentId)).toHaveLength(0);
+    });
+
+    it("MOVO-177: acepta offeredDate hasta 3 días después de pickupDate, con franja horaria propuesta", async () => {
+      const shipmentId = await createPublishedShipment();
+      const tresDiasDespues = new Date("2026-08-23T00:00:00.000Z");
+
+      const created = await repo.create(
+        baseOfferInput({
+          shipmentId,
+          offeredDate: tresDiasDespues,
+          offeredPickupTimeWindowStart: "15:00",
+          offeredPickupTimeWindowEnd: "19:00",
+        }),
+      );
+
+      expect(created.offeredDate).toEqual(tresDiasDespues);
+      expect(created.offeredPickupTimeWindowStart).toBe("15:00");
+      expect(created.offeredPickupTimeWindowEnd).toBe("19:00");
     });
 
     it("AC7: rechaza una segunda oferta pending del mismo transportista sobre el mismo envío", async () => {

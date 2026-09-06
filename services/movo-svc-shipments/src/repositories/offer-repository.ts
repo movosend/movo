@@ -10,12 +10,23 @@ import {
   OfferWithShipmentContext,
 } from "../models/offer";
 
-function sameDay(a: Date, b: Date): boolean {
-  return (
-    a.getUTCFullYear() === b.getUTCFullYear() &&
-    a.getUTCMonth() === b.getUTCMonth() &&
-    a.getUTCDate() === b.getUTCDate()
-  );
+/** MOVO-177: el transportista puede proponer retirar hasta 3 días después de la
+ * fecha pedida por el emisor (nunca antes -- el paquete recién está listo desde ese
+ * día). Constante propia del repositorio: es la única regla de negocio que consume
+ * este rango, no amerita vivir en `@movo/shared` todavía. */
+const OFFER_DATE_MAX_FORWARD_OFFSET_DAYS = 3;
+
+function utcDateOnly(d: Date): number {
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+/** AC10 relajado por MOVO-177: `offeredDate` puede coincidir con `pickupDate` o caer
+ * hasta `OFFER_DATE_MAX_FORWARD_OFFSET_DAYS` días después (nunca antes). */
+function isWithinOfferDateRange(offeredDate: Date, pickupDate: Date): boolean {
+  const offeredDay = utcDateOnly(offeredDate);
+  const pickupDay = utcDateOnly(pickupDate);
+  const maxDay = pickupDay + OFFER_DATE_MAX_FORWARD_OFFSET_DAYS * 24 * 60 * 60 * 1000;
+  return offeredDay >= pickupDay && offeredDay <= maxDay;
 }
 
 function mapOffer(row: OfferRow): Offer {
@@ -26,6 +37,8 @@ function mapOffer(row: OfferRow): Offer {
     carrierId: row.carrierId,
     priceOffered: row.priceOffered.toNumber(),
     offeredDate: row.offeredDate,
+    offeredPickupTimeWindowStart: row.offeredPickupTimeWindowStart,
+    offeredPickupTimeWindowEnd: row.offeredPickupTimeWindowEnd,
     message: row.message,
     carrierRatingAtOffer: row.carrierRatingAtOffer ? row.carrierRatingAtOffer.toNumber() : null,
     carrierNameAtOffer: row.carrierNameAtOffer,
@@ -86,15 +99,11 @@ export class OfferShipmentNotFoundError extends Error {
 }
 
 /**
- * AC10: `offered_date` tiene que caer dentro de la ventana de retiro del
- * envío. El AC habla de un rango `pickup_date_start`—`pickup_date_end`, pero
- * el `Shipment` real (MOVO-104) solo tiene una fecha de retiro (`pickupDate`)
- * más una ventana horaria sin fecha (`pickupTimeWindowStart/End`, @db.Time) —
- * ese rango de dos fechas nunca existió ni en el DER. Se interpreta acá como
- * el caso degenerado de un rango de un solo día: `offeredDate` debe coincidir
- * con `shipment.pickupDate`. El nombre del error se deja genérico
- * (`OutOfRange`, no `Mismatch`) por si en el futuro se reintroduce un rango
- * real de varios días.
+ * AC10, relajado por MOVO-177: `offeredDate` tiene que caer entre `pickupDate` y
+ * `pickupDate + OFFER_DATE_MAX_FORWARD_OFFSET_DAYS` días (`isWithinOfferDateRange`).
+ * Hasta MOVO-177 exigía coincidencia exacta (`sameDay`) -- probado en dispositivo
+ * (MOVO-149/MOVO-177), un transportista real casi siempre quiere correr el retiro
+ * unos días, nunca antes de lo que pidió el emisor.
  */
 export class OfferDateOutOfRangeError extends Error {
   constructor(
@@ -227,7 +236,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         if (!shipment) {
           throw new OfferShipmentNotFoundError(input.shipmentId);
         }
-        if (!sameDay(input.offeredDate, shipment.pickupDate)) {
+        if (!isWithinOfferDateRange(input.offeredDate, shipment.pickupDate)) {
           throw new OfferDateOutOfRangeError(input.offeredDate, input.shipmentId);
         }
 
@@ -238,6 +247,8 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
               carrierId: input.carrierId,
               priceOffered: input.priceOffered,
               offeredDate: input.offeredDate,
+              offeredPickupTimeWindowStart: input.offeredPickupTimeWindowStart ?? null,
+              offeredPickupTimeWindowEnd: input.offeredPickupTimeWindowEnd ?? null,
               message: input.message,
               expiresAt: input.expiresAt ?? null,
               carrierRatingAtOffer: input.carrierRatingAtOffer ?? null,

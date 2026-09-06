@@ -69,7 +69,8 @@ export type ApiErrorCode =
   | "TRIP_NOT_ACTIVE"
   | "SHIPMENT_NOT_AVAILABLE_FOR_OFFER"
   | "OFFER_DATE_OUT_OF_RANGE"
-  | "OFFER_DUPLICATE_ACTIVE";
+  | "OFFER_DUPLICATE_ACTIVE"
+  | "OFFER_PICKUP_WINDOW_INVALID";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

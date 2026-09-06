@@ -1,4 +1,12 @@
-import { ApiError, OfferStatus, ShipmentStatus, TripStatus, UserRole, computeOfferGrossPrice } from "@movo/shared";
+import {
+  ApiError,
+  OfferStatus,
+  ShipmentStatus,
+  TripStatus,
+  UserRole,
+  computeOfferGrossPrice,
+  getCommissionConfig,
+} from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
@@ -110,8 +118,13 @@ export interface CreateOfferForShipmentInput {
   callerRoles: UserRole[];
   /** NETO que el transportista quiere cobrar (AC6) -- el servidor calcula el bruto. */
   priceNetArs: number;
-  /** "YYYY-MM-DD", tiene que coincidir con `shipment.pickupDate` (AC5). */
+  /** "YYYY-MM-DD" -- MOVO-177: ya no exige coincidencia exacta con `shipment.pickupDate`
+   * (AC5 original), acepta hasta `OFFER_DATE_MAX_FORWARD_OFFSET_DAYS` días después. */
   offeredDate: string;
+  /** MOVO-177: franja horaria alternativa de retiro ("HH:MM"), solo cuando el
+   * transportista propone un día/horario distinto al pedido -- both o ninguno. */
+  offeredPickupTimeWindowStart?: string;
+  offeredPickupTimeWindowEnd?: string;
   message?: string;
   /** MOVO-162: viaje declarado (activo, del propio `carrierId`) del que esta oferta
    * forma parte -- opcional, la mayoría de las ofertas no vienen de un viaje
@@ -123,6 +136,25 @@ export interface CreateOfferForShipmentResult extends Offer {
   priceNetArs: number;
   commissionAmountArs: number;
 }
+
+/**
+ * MOVO-180 (adelantado): agregado de las ofertas vigentes de un envío, para que un
+ * transportista que todavía no ofertó sepa contra quién compite -- SIN exponer
+ * identidad de los competidores (nombre/id/rating), a diferencia de
+ * `listShipmentOffers` (`GET /shipments/:id/offers`, restringido al emisor/admin,
+ * `assertIsSenderOrAdmin`). `null` si el envío no tiene ninguna oferta pending
+ * vigente.
+ */
+export interface ShipmentOffersSummary {
+  count: number;
+  /** NETO más bajo entre las ofertas vigentes (lo que el otro transportista pidió
+   * cobrar) -- se deriva del `priceOffered` (bruto, lo único que persiste `Offer`)
+   * con la misma tasa de comisión que `computeOfferGrossPrice`, nunca un valor
+   * guardado aparte. */
+  minPriceNetArs: number;
+}
+
+export type ShipmentDetailResult = Shipment & { offersSummary?: ShipmentOffersSummary | null };
 
 export interface ListAvailableResult {
   items: Array<AvailableShipment & { hasMyOffer: boolean }>;
@@ -211,6 +243,26 @@ async function assertVerifiedCarrier(usersClient: UsersClient, callerId: string,
   if (!profile || !profile.isVerified) {
     throw new ApiError(403, "CARRIER_NOT_VERIFIED", "Necesitás tener tu identidad verificada para transportar.");
   }
+}
+
+/**
+ * MOVO-180 (adelantado): agregado sin identidad para la apertura de descubrimiento de
+ * un transportista (`getShipmentDetail`). Reusa `offerRepository.listByShipment` en vez
+ * de un método de repositorio nuevo -- un envío tiene pocas ofertas activas, no
+ * amerita otra query dedicada solo para el conteo/mínimo.
+ */
+async function computeOffersSummaryForCarrier(
+  offerRepository: OfferRepository,
+  shipmentId: string
+): Promise<ShipmentOffersSummary | null> {
+  const offers = await offerRepository.listByShipment(shipmentId);
+  const pending = offers.filter((offer) => offer.status === OfferStatus.PENDING);
+  if (pending.length === 0) return null;
+
+  const rate = getCommissionConfig().movoCommissionRate;
+  const minGrossArs = Math.min(...pending.map((offer) => offer.priceOffered));
+  const minPriceNetArs = Math.round((minGrossArs / (1 + rate)) * 100) / 100;
+  return { count: pending.length, minPriceNetArs };
 }
 
 /**
@@ -522,7 +574,11 @@ export function createShipmentsService(
      *   envío `published` ajeno -- la apertura de descubrimiento que necesita
      *   `GET /shipments/available`. Fuera de `published`, el 403 original se mantiene.
      */
-    async getShipmentDetail(shipmentId: string, callerId: string, callerRoles: UserRole[]): Promise<Shipment> {
+    async getShipmentDetail(
+      shipmentId: string,
+      callerId: string,
+      callerRoles: UserRole[]
+    ): Promise<ShipmentDetailResult> {
       const shipment = await repository.findById(shipmentId);
       if (!shipment) {
         throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
@@ -540,7 +596,13 @@ export function createShipmentsService(
 
       if (shipment.status === ShipmentStatus.PUBLISHED) {
         await assertVerifiedCarrier(usersClient, callerId, callerRoles);
-        return shipment;
+        // MOVO-180 (adelantado): agregado de ofertas vigentes para el transportista
+        // que está evaluando ofertar -- nunca bloquea la apertura del detalle si
+        // falla o si el servicio corre sin `offerRepository` (algún test aislado).
+        const offersSummary = offerRepository
+          ? await computeOffersSummaryForCarrier(offerRepository, shipmentId)
+          : null;
+        return { ...shipment, offersSummary };
       }
 
       throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver este envío.");
@@ -633,6 +695,31 @@ export function createShipmentsService(
         throw new ApiError(422, "VALIDATION_FAILED", "El precio ofertado tiene que ser mayor a 0.");
       }
 
+      // MOVO-177: la franja horaria alternativa de retiro es both-or-neither -- un
+      // solo campo presente es un estado a medio construir que el cliente nunca
+      // debería poder mandar, así que se lo trata como error de validación en vez de
+      // interpretar cuál de los dos "vale".
+      const hasOfferedPickupWindowStart = input.offeredPickupTimeWindowStart !== undefined;
+      const hasOfferedPickupWindowEnd = input.offeredPickupTimeWindowEnd !== undefined;
+      if (hasOfferedPickupWindowStart !== hasOfferedPickupWindowEnd) {
+        throw new ApiError(
+          422,
+          "VALIDATION_FAILED",
+          "La franja horaria de retiro propuesta requiere both inicio y fin, o ninguno."
+        );
+      }
+      if (hasOfferedPickupWindowStart && hasOfferedPickupWindowEnd) {
+        const offeredWindowStartAt = combineDateAndTime(input.offeredDate, input.offeredPickupTimeWindowStart!);
+        const offeredWindowEndAt = combineDateAndTime(input.offeredDate, input.offeredPickupTimeWindowEnd!);
+        if (offeredWindowEndAt <= offeredWindowStartAt) {
+          throw new ApiError(
+            422,
+            "OFFER_PICKUP_WINDOW_INVALID",
+            "El fin de la franja de retiro propuesta debe ser posterior al inicio."
+          );
+        }
+      }
+
       // MOVO-162: tripId opcional -- valida que el viaje exista, sea del mismo
       // transportista y siga activo antes de dejar que la oferta lo referencie. Sin
       // este chequeo, cualquier caller podría taggear la oferta con el viaje de otro
@@ -680,6 +767,8 @@ export function createShipmentsService(
         carrierId: input.carrierId,
         priceOffered: grossArs,
         offeredDate: new Date(`${input.offeredDate}T00:00:00.000Z`),
+        offeredPickupTimeWindowStart: input.offeredPickupTimeWindowStart ?? null,
+        offeredPickupTimeWindowEnd: input.offeredPickupTimeWindowEnd ?? null,
         message: input.message,
         tripId: input.tripId ?? null,
         carrierNameAtOffer: carrierProfile?.fullName ?? null,

@@ -239,6 +239,13 @@ model Offer {
   // solo se persiste.
   priceOffered Decimal  @map("price_offered") @db.Decimal
   offeredDate  DateTime @map("offered_date") @db.Date
+  // MOVO-177: franja horaria alternativa de retiro, solo cuando el transportista
+  // propone un día/horario distinto al pedido por el emisor (`offeredDate` distinto de
+  // `shipment.pickupDate`) — null significa "usa la ventana del envío tal cual"
+  // (`shipment.pickupTimeWindowStart/End`). Ambos o ninguno (validado en el servicio,
+  // no acá — mismo criterio que el resto de las reglas de negocio de Offer).
+  offeredPickupTimeWindowStart String? @map("offered_pickup_time_window_start") @db.VarChar(8)
+  offeredPickupTimeWindowEnd   String? @map("offered_pickup_time_window_end") @db.VarChar(8)
   // AC2: mensaje opcional del transportista. El límite de caracteres es de
   // negocio/UI, no se valida en el schema.
   message      String?  @db.Text

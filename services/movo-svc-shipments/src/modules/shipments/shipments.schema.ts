@@ -97,6 +97,16 @@ const shipmentResponse = {
     receiverConfirmationDeadline: { type: ["string", "null"], format: "date-time" },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
+    // MOVO-180 (adelantado): solo presente en `GET /shipments/:id` cuando el caller es
+    // un transportista ajeno viendo un envío `published` -- agregado sin identidad de
+    // los competidores, `null`/ausente si no hay ninguna oferta vigente.
+    offersSummary: {
+      type: ["object", "null"],
+      properties: {
+        count: { type: "integer" },
+        minPriceNetArs: { type: "number" },
+      },
+    },
   },
 };
 
@@ -175,6 +185,8 @@ const offerResponse = {
     "carrierId",
     "priceOffered",
     "offeredDate",
+    "offeredPickupTimeWindowStart",
+    "offeredPickupTimeWindowEnd",
     "message",
     "carrierRatingAtOffer",
     "carrierNameAtOffer",
@@ -190,6 +202,9 @@ const offerResponse = {
     carrierId: { type: "string" },
     priceOffered: { type: "number" },
     offeredDate: { type: "string", format: "date-time" },
+    // MOVO-177: null cuando la oferta usa la ventana del envío tal cual.
+    offeredPickupTimeWindowStart: { type: ["string", "null"] },
+    offeredPickupTimeWindowEnd: { type: ["string", "null"] },
     message: { type: ["string", "null"] },
     carrierRatingAtOffer: { type: ["number", "null"] },
     carrierNameAtOffer: { type: ["string", "null"] },
@@ -500,6 +515,11 @@ export const shipmentsSchemas = {
     properties: {
       priceOfferedArs: { type: "number", exclusiveMinimum: 0 },
       offeredDate: { type: "string", format: "date" },
+      // MOVO-177: solo cuando el transportista propone un día/horario de retiro
+      // distinto al pedido por el emisor -- both o ninguno (validado en el servicio,
+      // AJV no expresa bien una dependencia condicional de a pares acá).
+      offeredPickupTimeWindowStart: { type: "string", pattern: TIME_PATTERN },
+      offeredPickupTimeWindowEnd: { type: "string", pattern: TIME_PATTERN },
       message: { type: "string", maxLength: 500 },
       // MOVO-162: viaje declarado (activo, propio) del que esta oferta forma parte.
       tripId: { type: "string", format: "uuid" },

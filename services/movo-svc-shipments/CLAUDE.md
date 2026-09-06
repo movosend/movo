@@ -1076,6 +1076,55 @@ Pendiente / fuera de alcance: consumo desde `movo-mobile` (MOVO-176, sub-issue
 hermana); "recorridos totales" (km) y métricas de puntualidad, explícitamente
 excluidas del ticket por falta de definición de producto.
 
+### MOVO-177 — Fecha/hora de retiro alternativa en la oferta (`svc-shipments`)
+
+El transportista ahora puede proponer un día/horario de retiro distinto al pedido por
+el emisor, en vez de exigir coincidencia exacta (limitación que el propio ticket de
+planificación MOVO-177 identificó como real de backend, no solo de mobile).
+
+- **`sameDay()` reemplazado por `isWithinOfferDateRange()`** (`offer-repository.ts`):
+  `offeredDate` ahora acepta desde `shipment.pickupDate` hasta
+  `OFFER_DATE_MAX_FORWARD_OFFSET_DAYS` (3) días después — nunca antes (el paquete
+  recién está listo desde el día pedido). Mismo error de dominio
+  (`OfferDateOutOfRangeError` -> 422 `OFFER_DATE_OUT_OF_RANGE`), solo cambió el rango
+  que valida.
+- **`Offer.offeredPickupTimeWindowStart/End` nuevas** (migración
+  `20260906180000_add_offer_pickup_time_window_override`, ambas `VARCHAR(8)`
+  nullable): franja horaria alternativa, solo presente cuando el transportista
+  propone un día/horario distinto — `null` significa "usa la ventana del envío tal
+  cual". Both-or-neither validado en `shipments.service.ts#createOfferForShipment`
+  (`VALIDATION_FAILED` si viene solo uno de los dos, `OFFER_PICKUP_WINDOW_INVALID` ->
+  422 nuevo en `@movo/shared#ApiErrorCode` si `end <= start`).
+  Expuestas en `offerResponse`/`createOfferResponse`/`myOfferResponse`.
+- El límite de 3 días es una constante propia de `offer-repository.ts`, no de
+  `@movo/shared` — es la única regla de negocio que lo consume por ahora.
+
+Tests: 2 casos actualizados (`offer-repository.integration.test.ts`,
+`shipments-offers-create.integration.test.ts` — el rango ya no rechaza "un día
+después") + 5 casos nuevos (rango excedido, franja horaria válida, both-or-neither,
+`end <= start`). Suite completa 469/469, `tsc --noEmit` limpio.
+
+**Adelantado el mismo día (feedback de UI sobre el mockup, MOVO-180 sección 2):**
+`GET /shipments/:id` ahora expone `offersSummary: { count, minPriceNetArs } | null`
+cuando el caller es un transportista ajeno viendo un envío `published`
+(`computeOffersSummaryForCarrier`, `shipments.service.ts#getShipmentDetail`) —
+conteo + neto mínimo de las ofertas `pending` vigentes, derivado del `priceOffered`
+(bruto, único valor persistido) con la misma tasa que `computeOfferGrossPrice`,
+deliberadamente SIN identidad de los competidores (nombre/id/rating). `null` si no
+recibió ninguna oferta activa todavía. Reusa `offerRepository.listByShipment` en vez
+de un método de repositorio nuevo — pocas ofertas por envío, no amerita otra query.
+No se tocó `GET /shipments/available` (listado): ninguna pantalla real lo pedía ahí
+todavía. Tests: `shipment-service.test.ts` (agregado excluye ofertas no-`pending`),
+`shipments-detail.integration.test.ts` (Postgres real, incluye assert de que la
+respuesta nunca contiene el id del competidor).
+
+Pendiente / fuera de alcance: entrega estimada (día/franja) para el transportista —
+evaluada durante esta misma US contra el mockup de MOVO-177, pero requiere contrato
+de backend nuevo (columnas de `Offer`, propagación a `Shipment` al aceptar) sin
+construir todavía. Documentado en detalle en **MOVO-180** (Urgent, mismo ciclo) — el
+mobile (`movo-mobile/CLAUDE.md`) ya tiene esa UI construida contra el contrato
+propuesto, sin mandarlo todavía al servidor.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

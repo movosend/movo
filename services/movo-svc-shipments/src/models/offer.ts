@@ -13,6 +13,11 @@ export interface Offer {
   carrierId: string;
   priceOffered: number;
   offeredDate: Date;
+  /** MOVO-177: franja horaria alternativa de retiro, solo cuando `offeredDate` es
+   * distinto de `shipment.pickupDate` -- null significa "usa la ventana del envío tal
+   * cual" (`shipment.pickupTimeWindowStart/End`). */
+  offeredPickupTimeWindowStart: string | null;
+  offeredPickupTimeWindowEnd: string | null;
   message: string | null;
   carrierRatingAtOffer: number | null;
   carrierNameAtOffer: string | null;
@@ -54,6 +59,8 @@ export interface CreateOfferInput {
   carrierId: string;
   priceOffered: number;
   offeredDate: Date;
+  offeredPickupTimeWindowStart?: string | null;
+  offeredPickupTimeWindowEnd?: string | null;
   message?: string;
   expiresAt?: Date | null;
   carrierRatingAtOffer?: number | null;

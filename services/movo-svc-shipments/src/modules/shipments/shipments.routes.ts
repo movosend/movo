@@ -15,7 +15,12 @@ import { createTripRepository, TripRepository } from "../../repositories/trip-re
 import { createRatingRepository } from "../../repositories/rating-repository";
 import { createRatingsService } from "../ratings/ratings.service";
 import { AvailableShipment, Shipment, ShipmentEvent } from "../../models/shipment";
-import { CreateOfferForShipmentResult, ListShipmentOffersQuery, ListShipmentOffersSort } from "./shipments.service";
+import {
+  CreateOfferForShipmentResult,
+  ListShipmentOffersQuery,
+  ListShipmentOffersSort,
+  ShipmentDetailResult,
+} from "./shipments.service";
 import { toOfferDto } from "../offers/offer.dto";
 
 export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
@@ -54,7 +59,7 @@ type CreateShipmentBody = Omit<CreateShipmentServiceInput, "senderId">;
  * salía como "06:00"). Se convierten acá a string ya formateado -- `asDate`/`asTime`
  * dejan pasar un string tal cual, sin tocarlo.
  */
-function toShipmentDto(shipment: Shipment) {
+function toShipmentDto(shipment: Shipment | ShipmentDetailResult) {
   return {
     ...shipment,
     pickupDate: shipment.pickupDate.toISOString().slice(0, 10),
@@ -530,9 +535,18 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const carrierId = requireUserIdFromHeader(request);
       const callerRoles = getUserRolesFromHeader(request);
       const { id } = request.params as { id: string };
-      const { priceOfferedArs, offeredDate, message, tripId } = request.body as {
+      const {
+        priceOfferedArs,
+        offeredDate,
+        offeredPickupTimeWindowStart,
+        offeredPickupTimeWindowEnd,
+        message,
+        tripId,
+      } = request.body as {
         priceOfferedArs: number;
         offeredDate: string;
+        offeredPickupTimeWindowStart?: string;
+        offeredPickupTimeWindowEnd?: string;
         message?: string;
         tripId?: string;
       };
@@ -542,6 +556,8 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         callerRoles,
         priceNetArs: priceOfferedArs,
         offeredDate,
+        offeredPickupTimeWindowStart,
+        offeredPickupTimeWindowEnd,
         message,
         tripId,
       });
