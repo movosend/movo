@@ -14,6 +14,14 @@ jest.mock("expo-router", () => {
   };
 });
 
+// MOVO-163: `TripMatchAlertBanner` hace polling real vía `useMyTrips`/`useQuery` —
+// stub liviano, este test cubre el guard de navegación, no el aviso de matches
+// (ver `test/trip-match-alert-banner.test.tsx`).
+jest.mock("../components/trips/trip-match-alert-banner", () => {
+  const { Text } = require("react-native");
+  return { TripMatchAlertBanner: () => <Text testID="app-guard-alert-banner-stub">stub</Text> };
+});
+
 describe("app/(app)/_layout — guard de navegación (AC9)", () => {
   afterEach(() => jest.clearAllMocks());
 

@@ -135,6 +135,47 @@ describe("usePushNotifications", () => {
     expect(mockRouterPush).toHaveBeenCalledTimes(1);
   });
 
+  it("MOVO-163: tocar una notificación trip_match navega al feed filtrado por tripId", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (response: unknown) => void;
+    listener({
+      notification: { request: { content: { data: { type: "trip_match", tripId: "trip_1", shipmentId: "shp_1" } } } },
+    });
+
+    expect(mockRouterPush).toHaveBeenCalledWith({ pathname: "/(app)/(tabs)/transport", params: { tripId: "trip_1" } });
+  });
+
+  it("MOVO-163: un trip_match sin tripId en el payload no navega", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (response: unknown) => void;
+    listener({
+      notification: { request: { content: { data: { type: "trip_match", shipmentId: "shp_1" } } } },
+    });
+
+    expect(mockRouterPush).not.toHaveBeenCalled();
+  });
+
+  it("MOVO-163: cold start con notificación trip_match navega al feed filtrado", async () => {
+    mockGetLastNotificationResponseAsync.mockResolvedValue({
+      notification: {
+        request: { identifier: "notif_trip", content: { data: { type: "trip_match", tripId: "trip_cold" } } },
+      },
+    });
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockUseRootNavigationState.mockReturnValue({ key: "root" });
+
+    await renderHook(() => usePushNotifications());
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockRouterPush).toHaveBeenCalledWith({ pathname: "/(app)/(tabs)/transport", params: { tripId: "trip_cold" } });
+  });
+
   it("limpia el listener de notificaciones al desmontar", async () => {
     mockUseAuthStore.mockImplementation((selector) => selector({ status: "unauthenticated" }));
 

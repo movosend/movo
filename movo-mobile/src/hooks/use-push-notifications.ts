@@ -27,7 +27,7 @@ Notifications.setNotificationHandler({
  * el mismo shape que las de `shipment` (MOVO-107/132) — tocarlas navega al mismo
  * detalle de envío hasta que exista una pantalla propia de oferta (MOVO-150).
  */
-const NAVIGABLE_NOTIFICATION_TYPES: readonly string[] = [
+const SHIPMENT_NOTIFICATION_TYPES: readonly string[] = [
   "shipment",
   "offer_accepted",
   "offer_superseded",
@@ -35,18 +35,75 @@ const NAVIGABLE_NOTIFICATION_TYPES: readonly string[] = [
   "rating_received",
 ];
 
-interface ShipmentNotificationData {
-  type: string;
-  shipmentId: string;
+/**
+ * MOVO-163 (extensión de alcance): payload de `svc-shipments` (MOVO-179, trigger de
+ * push al publicarse un envío compatible con un viaje `active`) — el mobile se
+ * programa contra este contrato aunque MOVO-179 todavía no esté mergeado. `tripId` es
+ * lo que hace falta para abrir el feed filtrado (MOVO-163); `shipmentId` viaja en el
+ * payload pero no se usa todavía (no hay forma de resaltar una card puntual del
+ * feed) — simplificación aceptada, no alcance no pedido.
+ */
+const TRIP_MATCH_NOTIFICATION_TYPE = "trip_match";
+
+/** Las dos formas de ruta que puede devolver `resolveNotificationRoute` — un `href`
+ * de solo path para los tipos que no llevan query params, o la forma objeto de
+ * expo-router para los que sí (evita concatenar/interpolar el query string a mano,
+ * que no encodea valores especiales). */
+type NotificationRoute = string | { pathname: string; params: Record<string, string> };
+
+/**
+ * Resuelve a qué ruta navegar según el tipo de notificación, o `null` si no es
+ * navegable / le falta el dato necesario. Generaliza el `isShipmentNotificationData`
+ * de antes (que asumía que todo tipo navegable tenía `shipmentId` y navegaba a
+ * `/shipments/:id`) para sumar `trip_match`, sin tocar el comportamiento de los tipos
+ * ya soportados.
+ */
+function resolveNotificationRoute(data: unknown): NotificationRoute | null {
+  if (typeof data !== "object" || data === null) return null;
+  const type = (data as { type?: unknown }).type;
+
+  if (typeof type === "string" && SHIPMENT_NOTIFICATION_TYPES.includes(type)) {
+    const shipmentId = (data as { shipmentId?: unknown }).shipmentId;
+    return typeof shipmentId === "string" ? `/shipments/${shipmentId}` : null;
+  }
+
+  if (type === TRIP_MATCH_NOTIFICATION_TYPE) {
+    const tripId = (data as { tripId?: unknown }).tripId;
+    // Forma objeto, no `` `/(app)/(tabs)/transport?tripId=${tripId}` `` — mismo
+    // criterio que `carrier/trips/index.tsx` para esta misma ruta: un `tripId` con
+    // un carácter que necesite URL-encoding rompería el query string armado a mano.
+    return typeof tripId === "string" ? { pathname: "/(app)/(tabs)/transport", params: { tripId } } : null;
+  }
+
+  return null;
 }
 
-function isShipmentNotificationData(data: unknown): data is ShipmentNotificationData {
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    NAVIGABLE_NOTIFICATION_TYPES.includes((data as { type?: unknown }).type as string) &&
-    typeof (data as { shipmentId?: unknown }).shipmentId === "string"
-  );
+function notificationRouteKey(route: NotificationRoute): string {
+  return typeof route === "string" ? route : `${route.pathname}?${new URLSearchParams(route.params).toString()}`;
+}
+
+/**
+ * Navega a la ruta resuelta de una notificación, con dedup por `responseId` — antes
+ * duplicado tal cual entre el manejo de cold start y el de foreground/background.
+ */
+function handleNotificationResponse(
+  response: Notifications.NotificationResponse,
+  handledResponseIds: Set<string>,
+): void {
+  const data = response.notification?.request?.content?.data;
+  const route = resolveNotificationRoute(data);
+  if (!route) return;
+
+  const responseId =
+    response.notification?.request?.identifier ||
+    `${notificationRouteKey(route)}-${response.notification?.date ?? Date.now()}`;
+  if (handledResponseIds.has(responseId)) return;
+  handledResponseIds.add(responseId);
+
+  // `as any`: `route` es una unión de dos formas armadas en runtime, no un literal
+  // de ruta tipado — mismo criterio que el resto del repo para rutas que
+  // expo-router no puede tipar de antemano.
+  router.push(route as any);
 }
 
 /**
@@ -57,7 +114,8 @@ function isShipmentNotificationData(data: unknown): data is ShipmentNotification
  *
  * AC5 / AC6 de MOVO-132: al tocar la notificación (en foreground, background o cold start),
  * navega directo a `/shipments/:id` donde el receptor puede ver el detalle y las
- * acciones de confirmación (MOVO-131).
+ * acciones de confirmación (MOVO-131). MOVO-163 suma `trip_match`, que en cambio abre
+ * el feed filtrado por viaje (`resolveNotificationRoute`).
  */
 export function usePushNotifications(): void {
   const sessionStatus = useAuthStore((s) => s.status);
@@ -91,32 +149,14 @@ export function usePushNotifications(): void {
 
     void Notifications.getLastNotificationResponseAsync().then((response) => {
       if (!response) return;
-      const data = response.notification?.request?.content?.data;
-      if (!isShipmentNotificationData(data)) return;
-
-      const responseId =
-        response.notification?.request?.identifier ||
-        `${data.shipmentId}-${response.notification?.date ?? Date.now()}`;
-      if (handledResponseIdsRef.current.has(responseId)) return;
-      handledResponseIdsRef.current.add(responseId);
-
-      router.push(`/shipments/${data.shipmentId}`);
+      handleNotificationResponse(response, handledResponseIdsRef.current);
     });
   }, [sessionStatus, isNavigatorMounted]);
 
   // Manejo de interacción con notificación recibida en foreground / background
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification?.request?.content?.data;
-      if (!isShipmentNotificationData(data)) return;
-
-      const responseId =
-        response.notification?.request?.identifier ||
-        `${data.shipmentId}-${response.notification?.date ?? Date.now()}`;
-      if (handledResponseIdsRef.current.has(responseId)) return;
-      handledResponseIdsRef.current.add(responseId);
-
-      router.push(`/shipments/${data.shipmentId}`);
+      handleNotificationResponse(response, handledResponseIdsRef.current);
     });
     return () => subscription.remove();
   }, []);

@@ -2,14 +2,30 @@ import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { fireEvent, render } from "@testing-library/react-native";
 import type { AvailableShipment } from "../src/api/shipments-client";
+import { TripStatus, type TripWithAcceptedPackages } from "../src/api/trips-client";
 import TransportScreen from "../app/(app)/(tabs)/transport";
 
 const mockRouterPush = jest.fn();
+const mockRouterReplace = jest.fn();
 let mockLocalSearchParams: Record<string, string> = {};
 jest.mock("expo-router", () => ({
-  router: { push: (...args: unknown[]) => mockRouterPush(...args) },
+  router: {
+    push: (...args: unknown[]) => mockRouterPush(...args),
+    replace: (...args: unknown[]) => mockRouterReplace(...args),
+  },
   useLocalSearchParams: () => mockLocalSearchParams,
 }));
+
+const mockUseTrip = jest.fn();
+const mockUseTripMatches = jest.fn();
+jest.mock("../src/hooks/use-trips", () => {
+  const actual = jest.requireActual("../src/hooks/use-trips");
+  return {
+    ...actual,
+    useTrip: (...args: unknown[]) => mockUseTrip(...args),
+    useTripMatches: (...args: unknown[]) => mockUseTripMatches(...args),
+  };
+});
 
 const mockUseAvailableShipments = jest.fn();
 jest.mock("../src/hooks/use-shipments", () => {
@@ -110,10 +126,30 @@ function baseOriginResult(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const TRIP_A: TripWithAcceptedPackages = {
+  id: "trip-1",
+  carrierId: "carrier-1",
+  originAddress: "Av. Colón 1234, Córdoba",
+  originLat: -31.4201,
+  originLng: -64.1888,
+  destinationAddress: "Av. San Martín 100, Villa María",
+  destinationLat: -32.4104,
+  destinationLng: -63.2404,
+  departureAt: "2026-09-10T12:00:00.000Z",
+  vehicleType: "Auto",
+  status: TripStatus.ACTIVE,
+  createdAt: "2026-09-03T12:00:00.000Z",
+  updatedAt: "2026-09-03T12:00:00.000Z",
+  hasAcceptedPackages: false,
+};
+
 describe("TransportScreen", () => {
   beforeEach(() => {
     mockLocalSearchParams = {};
     mockUseTransportRadius.mockReturnValue({ radiusKm: 50, setRadiusKm: mockSetRadiusKm });
+    // Modo genérico por default — los tests de modo viaje pisan esto con `tripId`.
+    mockUseTrip.mockReturnValue({ data: undefined, isLoading: false });
+    mockUseTripMatches.mockReturnValue(baseAvailableResult());
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -312,5 +348,87 @@ describe("TransportScreen", () => {
     expect(getByTestId("transport-offer-created-success")).toHaveTextContent(
       "¡Oferta enviada! Ya podés verla reflejada en el envío."
     );
+  });
+
+  describe("modo filtrado por viaje (MOVO-163, ?tripId=)", () => {
+    beforeEach(() => {
+      mockLocalSearchParams = { tripId: TRIP_A.id };
+      // El origen/GPS no aplica en modo viaje — `useTransportOrigin` sigue mockeado
+      // (jest.mock ignora el argumento `enabled`), se lo deja en su default neutro.
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult({ origin: null, resolving: false, needsManualPick: false }));
+    });
+
+    it("usa GET /trips/:id/matches como fuente y muestra el header de filtro (AC1/AC2)", async () => {
+      mockUseTrip.mockReturnValue({ data: TRIP_A, isLoading: false });
+      mockUseTripMatches.mockReturnValue(baseAvailableResult({ data: pages([availableShipment()]) }));
+
+      const { getByTestId, getByText } = await render(<TransportScreen />);
+
+      expect(getByText("Filtrado por viaje: Av. Colón 1234 → Av. San Martín 100")).toBeTruthy();
+      expect(getByTestId("transport-card-available-1")).toBeTruthy();
+    });
+
+    it("estado vacío específico: 'Ningún paquete compatible con este viaje todavía' (AC4)", async () => {
+      mockUseTrip.mockReturnValue({ data: TRIP_A, isLoading: false });
+      mockUseTripMatches.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+
+      const { getByText, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByText("Ningún paquete compatible con este viaje todavía.")).toBeTruthy();
+      // Sin selector de radio en este modo, "ampliar radio" no aplica acá.
+      expect(queryByTestId("transport-expand-radius")).toBeNull();
+    });
+
+    it("'Ver todos' vuelve al feed genérico sin el filtro", async () => {
+      mockUseTrip.mockReturnValue({ data: TRIP_A, isLoading: false });
+      mockUseTripMatches.mockReturnValue(baseAvailableResult({ data: pages([availableShipment()]) }));
+
+      const { getByTestId } = await render(<TransportScreen />);
+      fireEvent.press(getByTestId("transport-clear-trip-filter"));
+
+      expect(mockRouterReplace).toHaveBeenCalledWith("/(app)/(tabs)/transport");
+    });
+
+    it("gating por KYC de identidad también aplica al error de matches", async () => {
+      mockUseTrip.mockReturnValue({ data: TRIP_A, isLoading: false });
+      mockUseTripMatches.mockReturnValue(
+        baseAvailableResult({
+          isError: true,
+          error: new ApiError(403, "CARRIER_NOT_VERIFIED", "Necesitás tu identidad verificada."),
+        }),
+      );
+
+      const { getByText } = await render(<TransportScreen />);
+
+      expect(getByText("Verificá tu identidad para transportar")).toBeTruthy();
+    });
+
+    it("muestra error con reintentar si falla useTrip, sin depender de useTripMatches (AC2)", async () => {
+      const refetchTrip = jest.fn();
+      mockUseTrip.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: new ApiError(404, "TRIP_NOT_FOUND", "Este viaje no existe."),
+        refetch: refetchTrip,
+      });
+      mockUseTripMatches.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+
+      const { getByTestId, getByText } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-trip-error")).toBeTruthy();
+      fireEvent.press(getByText("Reintentar"));
+      expect(refetchTrip).toHaveBeenCalledTimes(1);
+    });
+
+    it("sin radio/origen ni selector manual en este modo", async () => {
+      mockUseTrip.mockReturnValue({ data: TRIP_A, isLoading: false });
+      mockUseTripMatches.mockReturnValue(baseAvailableResult({ data: pages([availableShipment()]) }));
+
+      const { queryByTestId } = await render(<TransportScreen />);
+
+      expect(queryByTestId("transport-radius-50")).toBeNull();
+      expect(queryByTestId("transport-zone-label")).toBeNull();
+    });
   });
 });
