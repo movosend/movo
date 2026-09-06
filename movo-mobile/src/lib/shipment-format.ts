@@ -334,6 +334,20 @@ export function formatRouteDistanceKm(distanceMeters: number): string {
   return `${(distanceMeters / 1000).toFixed(1)} km`;
 }
 
+/** Duración estimada de la ruta real (`GET /shipments/route`), redondeada al minuto. */
+export function formatDurationMin(durationSeconds: number): string {
+  return `${Math.round(durationSeconds / 60)} min`;
+}
+
+/** Distancia entre la ubicación del transportista y el punto de retiro (MOVO-166/177,
+ * feedback de UI) — la misma aproximación en línea recta que ya calcula el backend
+ * para `AvailableShipment.pickupDistanceKm` (`GET /shipments/available`, MOVO-142),
+ * reusada acá tal cual llega por navegación desde la card del listado en vez de
+ * volver a pedir GPS en esta pantalla (el detalle es de solo lectura, MOVO-166). */
+export function formatPickupDistanceFromMeKm(distanceKm: number): string {
+  return `Retiro a ${distanceKm.toFixed(1)} km de vos`;
+}
+
 /**
  * Un envío `published` lo sigue siendo para siempre si ningún transportista lo toma
  * — `GET /shipments/available` (MOVO-142) no filtra por fecha de retiro vencida, ni

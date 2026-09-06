@@ -3,7 +3,13 @@ import { OfferStatus } from "@movo/shared/dist/types/offer";
 import { getCommissionConfig } from "@movo/shared/dist/config/commission";
 import { router, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
-import { ChevronDown, ChevronLeft, Clock, Route } from "lucide-react-native";
+import {
+  ChevronDown,
+  ChevronLeft,
+  Clock,
+  MapPin,
+  Route,
+} from "lucide-react-native";
 import { useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
@@ -34,7 +40,9 @@ import {
   useShipmentRoute,
 } from "../../../src/hooks/use-shipments";
 import {
+  formatDurationMin,
   formatPickupDateLabel,
+  formatPickupDistanceFromMeKm,
   formatPriceArs,
   formatRouteDistanceKm,
   formatTimeHHMM,
@@ -185,7 +193,10 @@ function TransportDetailError({
  * - La acción principal cambia a "Retirar oferta" con confirmación.
  */
 export default function TransportShipmentDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, pickupDistanceKm: pickupDistanceKmParam } = useLocalSearchParams<{
+    id: string;
+    pickupDistanceKm?: string;
+  }>();
   const colors = useThemeColors();
   const {
     data: shipment,
@@ -238,6 +249,15 @@ export default function TransportShipmentDetailScreen() {
         shipment.deliveryLat,
         shipment.deliveryLng,
       )
+    : null;
+  // Solo llega cuando se entra desde la card del listado de "Transportar" (MOVO-148) —
+  // el backend ya la calculó ahí contra el origen elegido en ese momento
+  // (`AvailableShipment.pickupDistanceKm`, GET /shipments/available). Sin ese origen a
+  // mano acá (deep link desde una push notification, por ejemplo), el badge
+  // simplemente no se muestra en vez de volver a pedir GPS en una pantalla de solo
+  // lectura (MOVO-166).
+  const pickupDistanceKm = pickupDistanceKmParam
+    ? Number(pickupDistanceKmParam)
     : null;
   // MOVO-177 (fix de negocio, mismo bug que se corrigió en `transport/[id]/offer.tsx`):
   // `shipment.suggestedPriceArs` es BRUTO (el precio que vio el emisor al crear el
@@ -408,16 +428,29 @@ export default function TransportShipmentDetailScreen() {
                   lng: shipment.deliveryLng,
                 }}
               />
-              <View className="mt-2 flex-row items-center gap-1.5">
-                <Route size={13} strokeWidth={1.8} color={colors.fg3} />
-                <Text
-                  testID="transport-detail-trip-distance"
-                  className="font-sans text-caption text-fg-3"
-                >
-                  {route
-                    ? `${formatRouteDistanceKm(route.distanceMeters)} de viaje`
-                    : `${formatTripDistanceKm(tripDistanceKm!)} de viaje (aprox.)`}
-                </Text>
+              <View className="mt-2 flex-row flex-wrap gap-2">
+                <View className="flex-row items-center gap-1.5 rounded-full bg-bg-mute px-3 py-1.5">
+                  <Route size={13} strokeWidth={1.8} color={colors.fg2} />
+                  <Text
+                    testID="transport-detail-trip-distance"
+                    className="font-sans-medium text-[12px] text-fg-2"
+                  >
+                    {route
+                      ? `${formatRouteDistanceKm(route.distanceMeters)} · ${formatDurationMin(route.durationSeconds)} de viaje`
+                      : `${formatTripDistanceKm(tripDistanceKm!)} de viaje (aprox.)`}
+                  </Text>
+                </View>
+                {pickupDistanceKm !== null ? (
+                  <View className="flex-row items-center gap-1.5 rounded-full bg-bg-mute px-3 py-1.5">
+                    <MapPin size={13} strokeWidth={1.8} color={colors.fg2} />
+                    <Text
+                      testID="transport-detail-pickup-distance"
+                      className="font-sans-medium text-[12px] text-fg-2"
+                    >
+                      {formatPickupDistanceFromMeKm(pickupDistanceKm)}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             </View>
 

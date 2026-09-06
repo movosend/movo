@@ -12,6 +12,10 @@ const mockRouterReplace = jest.fn();
 const mockRouterBack = jest.fn();
 const mockRouterPush = jest.fn();
 const mockCanGoBack = jest.fn();
+const mockUseLocalSearchParams = jest.fn<
+  { id: string; pickupDistanceKm?: string },
+  []
+>(() => ({ id: "shipment-1" }));
 
 jest.mock("expo-router", () => ({
   router: {
@@ -20,7 +24,7 @@ jest.mock("expo-router", () => ({
     push: (...args: unknown[]) => mockRouterPush(...args),
     canGoBack: () => mockCanGoBack(),
   },
-  useLocalSearchParams: () => ({ id: "shipment-1" }),
+  useLocalSearchParams: () => mockUseLocalSearchParams(),
 }));
 
 const mockUseShipment = jest.fn();
@@ -208,7 +212,28 @@ describe("TransportShipmentDetailScreen", () => {
 
     const { getByTestId } = await render(<TransportShipmentDetailScreen />);
 
-    expect(getByTestId("transport-detail-trip-distance").props.children).toBe("12.3 km de viaje");
+    expect(getByTestId("transport-detail-trip-distance").props.children).toBe(
+      "12.3 km · 15 min de viaje",
+    );
+  });
+
+  it("sin pickupDistanceKm en los params (deep link sin origen), no muestra el badge de distancia al retiro", async () => {
+    mockUseShipment.mockReturnValue({ isLoading: false, isError: false, data: shipment(), error: null, refetch: jest.fn() });
+
+    const { queryByTestId } = await render(<TransportShipmentDetailScreen />);
+
+    expect(queryByTestId("transport-detail-pickup-distance")).toBeNull();
+  });
+
+  it("con pickupDistanceKm en los params (venido de la card del listado), muestra el badge de distancia al retiro", async () => {
+    mockUseLocalSearchParams.mockReturnValue({ id: "shipment-1", pickupDistanceKm: "1.8" });
+    mockUseShipment.mockReturnValue({ isLoading: false, isError: false, data: shipment(), error: null, refetch: jest.fn() });
+
+    const { getByTestId } = await render(<TransportShipmentDetailScreen />);
+
+    expect(getByTestId("transport-detail-pickup-distance").props.children).toBe(
+      "Retiro a 1.8 km de vos",
+    );
   });
 
   it("MOVO-177 (fix de negocio): 'Te queda si ofertás el sugerido' convierte bruto→neto, no muestra el bruto crudo", async () => {
