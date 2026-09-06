@@ -106,32 +106,40 @@ export function SlideToConfirm({
   }, [loading, translateX]);
 
   const thumbStyle = useAnimatedStyle(() => ({
+    width: THUMB_SIZE,
+    height: THUMB_SIZE,
     transform: [{ translateX: translateX.value }],
   }));
+  // `opacity` en 0 hasta que el dedo se mueve de verdad (no solo un umbral chico —
+  // en reposo exacto, `translateX.value === 0`): así, en reposo, no queda ningún
+  // pixel de este relleno visible detrás del thumb pase lo que pase con el ancho
+  // relativo de ambos -- el thumb (mismas dimensiones exactas, `THUMB_SIZE`) es lo
+  // único que se ve hasta que arranca el gesto.
   const fillStyle = useAnimatedStyle(() => ({
     width: translateX.value + THUMB_SIZE,
+    opacity: translateX.value > 0 ? 1 : 0,
   }));
 
   return (
     <View
       testID={testID}
       onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}
-      className={`h-16 justify-center overflow-hidden rounded-lg border border-border-strong bg-bg-mute p-2 ${
+      className={`h-16 justify-center overflow-hidden rounded-lg bg-fg p-2 ${
         disabled ? "opacity-50" : ""
       }`}
     >
       <Animated.View
         pointerEvents="none"
         style={fillStyle}
-        className="absolute bottom-2 left-2 top-2 rounded-md bg-lime-500/20"
+        className="absolute bottom-2 left-2 top-2 rounded-lg bg-lime-500/20"
       />
       <View pointerEvents="none" className="absolute inset-0 items-center justify-center">
-        <Text className="font-sans-semibold text-body text-fg-2">{label}</Text>
+        <Text className="font-sans-semibold text-body text-bg">{label}</Text>
       </View>
       <GestureDetector gesture={pan}>
         <Animated.View
           style={thumbStyle}
-          className="h-12 w-12 items-center justify-center rounded-lg bg-lime-500"
+          className="items-center justify-center rounded-lg bg-lime-500"
         >
           {loading ? (
             <ActivityIndicator color="#0A0A0B" />
