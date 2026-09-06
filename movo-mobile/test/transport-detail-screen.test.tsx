@@ -1,6 +1,9 @@
+
 import { ApiError } from "@movo/shared/dist/errors/api-error";
+import { OfferStatus } from "@movo/shared/dist/types/offer";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { fireEvent, render } from "@testing-library/react-native";
+import { act, fireEvent, render } from "@testing-library/react-native";
+import { Alert } from "react-native";
 import type { RouteResult, ShipmentSummary } from "../src/api/shipments-client";
 import TransportShipmentDetailScreen from "../app/(app)/transport/[id]";
 import { formatTripDistanceKm, haversineDistanceKm } from "../src/lib/shipment-format";
@@ -27,6 +30,26 @@ jest.mock("../src/hooks/use-shipments", () => ({
   useShipmentPhotos: () => ({ data: [], isLoading: false }),
   useShipmentRoute: () => mockUseShipmentRoute(),
 }));
+
+const mockUseMyOffers = jest.fn();
+const mockMutateWithdraw = jest.fn();
+let mockWithdrawPending = false;
+
+jest.mock("../src/hooks/use-offers", () => ({
+  useMyOffers: () => mockUseMyOffers(),
+  useWithdrawOffer: () => ({
+    mutate: mockMutateWithdraw,
+    isPending: mockWithdrawPending,
+  }),
+}));
+
+jest.mock("../components/transport/create-offer-sheet", () => {
+  const { View } = require("react-native");
+  return {
+    CreateOfferSheet: (props: { visible: boolean; testID?: string }) =>
+      props.visible ? <View testID={props.testID ?? "transport-create-offer-sheet"} /> : null,
+  };
+});
 
 jest.mock("../components/send/route-map-card", () => {
   const { View } = require("react-native");
@@ -89,7 +112,10 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
 }
 
 describe("TransportShipmentDetailScreen", () => {
-  beforeEach(() => mockCanGoBack.mockReturnValue(true));
+  beforeEach(() => {
+    mockCanGoBack.mockReturnValue(true);
+    mockUseMyOffers.mockReturnValue({ data: { items: [] } });
+  });
   afterEach(() => jest.clearAllMocks());
 
   it("muestra el skeleton mientras el fetch está pendiente", async () => {
@@ -186,5 +212,104 @@ describe("TransportShipmentDetailScreen", () => {
     const { getByTestId } = await render(<TransportShipmentDetailScreen />);
 
     expect(getByTestId("transport-detail-trip-distance").props.children).toBe("12.3 km de viaje");
+  });
+
+  describe("Acción de ofertar y retirar oferta (MOVO-149)", () => {
+    it("sin oferta activa previa, muestra el botón 'Hacer una oferta' y al tocarlo abre la hoja", async () => {
+      mockUseShipment.mockReturnValue({ isLoading: false, isError: false, data: shipment(), error: null, refetch: jest.fn() });
+      mockUseMyOffers.mockReturnValue({ data: { items: [] } });
+
+      const { getByTestId, queryByTestId } = await render(<TransportShipmentDetailScreen />);
+
+      const createCta = getByTestId("transport-create-offer-cta");
+      expect(createCta).toHaveTextContent("Hacer una oferta");
+      expect(queryByTestId("transport-active-offer-card")).toBeNull();
+      expect(queryByTestId("transport-withdraw-offer-cta")).toBeNull();
+
+      // Al presionar abre la hoja
+      await act(async () => {
+        fireEvent.press(createCta);
+      });
+
+      expect(getByTestId("transport-create-offer-sheet")).toBeTruthy();
+    });
+
+    it("si ya tiene una oferta activa, muestra la card con sus datos y cambia la acción a 'Retirar oferta'", async () => {
+      mockUseShipment.mockReturnValue({ isLoading: false, isError: false, data: shipment(), error: null, refetch: jest.fn() });
+      mockUseMyOffers.mockReturnValue({
+        data: {
+          items: [
+            {
+              id: "offer-active-1",
+              shipmentId: "shipment-1",
+              carrierId: "carrier-1",
+              priceOffered: 7500,
+              offeredDate: "2026-08-20",
+              message: "Llego puntual en camioneta",
+              status: OfferStatus.PENDING,
+            },
+          ],
+        },
+      });
+
+      const { getByTestId, queryByTestId } = await render(<TransportShipmentDetailScreen />);
+
+      expect(queryByTestId("transport-create-offer-cta")).toBeNull();
+      expect(getByTestId("transport-active-offer-card")).toBeTruthy();
+      expect(getByTestId("transport-active-offer-price")).toHaveTextContent("$7.500");
+      expect(getByTestId("transport-active-offer-message")).toHaveTextContent("Llego puntual en camioneta");
+
+      const withdrawCta = getByTestId("transport-withdraw-offer-cta");
+      expect(withdrawCta).toHaveTextContent("Retirar oferta");
+    });
+
+    it("presionar 'Retirar oferta' pide confirmación con Alert.alert y al confirmar retira la oferta", async () => {
+      const alertSpy = jest.spyOn(Alert, "alert");
+      mockUseShipment.mockReturnValue({ isLoading: false, isError: false, data: shipment(), error: null, refetch: jest.fn() });
+      mockUseMyOffers.mockReturnValue({
+        data: {
+          items: [
+            {
+              id: "offer-active-1",
+              shipmentId: "shipment-1",
+              carrierId: "carrier-1",
+              priceOffered: 7500,
+              offeredDate: "2026-08-20",
+              message: null,
+              status: OfferStatus.PENDING,
+            },
+          ],
+        },
+      });
+
+      mockMutateWithdraw.mockImplementation((_offerId, callbacks) => {
+        callbacks?.onSuccess?.();
+      });
+
+      const { getByTestId } = await render(<TransportShipmentDetailScreen />);
+
+      const withdrawCta = getByTestId("transport-withdraw-offer-cta");
+      await act(async () => {
+        fireEvent.press(withdrawCta);
+      });
+
+      expect(alertSpy).toHaveBeenCalledWith(
+        "¿Retirar oferta?",
+        expect.stringContaining("¿Estás seguro de que querés retirar tu oferta?"),
+        expect.any(Array)
+      );
+
+      // Simular confirmación en el alert
+      const buttons = alertSpy.mock.calls.at(-1)?.[2] as Array<{ text: string; onPress?: () => void }>;
+      const confirmBtn = buttons.find((b) => b.text === "Retirar");
+      expect(confirmBtn).toBeTruthy();
+
+      await act(async () => {
+        confirmBtn?.onPress?.();
+      });
+
+      expect(mockMutateWithdraw).toHaveBeenCalledWith("offer-active-1", expect.any(Object));
+      expect(getByTestId("transport-withdraw-success")).toBeTruthy();
+    });
   });
 });

@@ -13,8 +13,9 @@ export interface ReputationCommentCardProps {
   testID?: string;
 }
 
-/** `raterId` viaja anónimo hoy (`raterName` es MOVO-170, todavía sin backend) — el
- * fallback nunca inventa un nombre. */
+/** `raterName` viaja siempre resuelto por `svc-users` (MOVO-170) — el fallback
+ * solo cubre una cuenta de calificador ya borrada (derecho de supresión, MOVO-39),
+ * nunca un dato ausente. */
 export function ReputationCommentCard({
   comment,
   variant = "carousel",

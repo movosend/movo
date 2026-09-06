@@ -66,6 +66,11 @@ function fakeShipmentRepository(overrides: Partial<ShipmentRepository> = {}): Sh
     findExpiredAwaitingConfirmation: vi.fn(),
     hasActiveShipmentsForUser: vi.fn(),
     countCompletedTransactions: vi.fn().mockResolvedValue({ asSender: 0, asCarrier: 0 }),
+    getUsageStatsByRole: vi.fn().mockResolvedValue({
+      asSender: { cancelled: 0, avgPackageWeightKg: null },
+      asCarrier: { cancelled: 0, avgPackageWeightKg: null },
+    }),
+    getSharedHistory: vi.fn().mockResolvedValue({ sharedShipmentCount: 0, lastSharedAt: null, allDelivered: false }),
     ...overrides,
   };
 }
@@ -316,8 +321,18 @@ describe("ratings.service — getReputationSummary (MOVO-147 AC3)", () => {
       reputationScore: null,
       ratingCount: 0,
       isNewProfile: true,
-      asSender: { reputationScore: null, ratingCount: 0, isNewProfile: true },
-      asCarrier: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+      asSender: {
+        reputationScore: null,
+        ratingCount: 0,
+        isNewProfile: true,
+        usageStats: { delivered: 3, cancelled: 0, avgPackageWeightKg: null },
+      },
+      asCarrier: {
+        reputationScore: null,
+        ratingCount: 0,
+        isNewProfile: true,
+        usageStats: { delivered: 1, cancelled: 0, avgPackageWeightKg: null },
+      },
       transactionCounts: { asSender: 3, asCarrier: 1 },
     });
     // AC6: sin calificaciones propias no hay nada que shrinkear hacia `m` -- no vale la
@@ -354,6 +369,22 @@ describe("ratings.service — getReputationSummary (MOVO-147 AC3)", () => {
     const summary = await service.getReputationSummary(RECEIVER_ID);
 
     expect(summary.transactionCounts).toEqual({ asSender: 12, asCarrier: 7 });
+  });
+
+  it("MOVO-170: usageStats combina delivered (transactionCounts) con cancelled/avgPackageWeightKg por rol", async () => {
+    const shipmentRepository = fakeShipmentRepository({
+      countCompletedTransactions: vi.fn().mockResolvedValue({ asSender: 12, asCarrier: 7 }),
+      getUsageStatsByRole: vi.fn().mockResolvedValue({
+        asSender: { cancelled: 2, avgPackageWeightKg: 3.5 },
+        asCarrier: { cancelled: 1, avgPackageWeightKg: null },
+      }),
+    });
+    const service = createRatingsService(shipmentRepository, createFakeRatingRepository(), undefined, undefined, REPUTATION_CONFIG);
+
+    const summary = await service.getReputationSummary(RECEIVER_ID);
+
+    expect(summary.asSender.usageStats).toEqual({ delivered: 12, cancelled: 2, avgPackageWeightKg: 3.5 });
+    expect(summary.asCarrier.usageStats).toEqual({ delivered: 7, cancelled: 1, avgPackageWeightKg: null });
   });
 
   it("sin reputationConfig inyectado, usa el mismo default que envSchema (C=5, semivida=180)", async () => {

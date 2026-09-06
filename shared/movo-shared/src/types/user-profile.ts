@@ -41,8 +41,11 @@ export interface ReputationBreakdown {
   categories?: ReputationCategoryScore[];
   /**
    * Subconjunto de las stats de uso del rediseño de perfil que es calculable con
-   * datos que ya existen (MOVO-170) — "recorridos"/"a tiempo"/"responde en X" quedan
-   * afuera a propósito, ver esa issue. `undefined` hasta que el backend lo resuelva.
+   * datos ya persistidos (MOVO-170, real) -- "recorridos totales"/puntualidad
+   * quedaron explícitamente fuera del ticket, sin definición de producto. Opcional
+   * a propósito: `GET /users/search` no lo compone (evita pagar el aggregate de
+   * `svc-shipments` por cada fila de una búsqueda), solo el perfil completo
+   * (`GET /users/:id`) lo trae.
    */
   usageStats?: UsageStats;
 }
@@ -54,7 +57,7 @@ export interface ReputationCategoryScore {
   score: number;
 }
 
-/** MOVO-170 (enriquecimiento de perfil, sin backend todavía). */
+/** MOVO-170. */
 export interface UsageStats {
   delivered: number;
   cancelled: number;
@@ -67,16 +70,17 @@ export interface UsageStats {
  * componer un perfil completo. `raterId` viaja crudo -- resolverlo a un perfil (nombre/
  * foto de quien calificó) queda para quien consuma este tipo (ej. el mobile de
  * MOVO-154), no es responsabilidad de `svc-users` acá.
+ *
+ * MOVO-170 sumó `raterName`: decisión de producto confirmada (el calificador deja de
+ * ser anónimo de cara al calificado, mismo criterio que apps de reputación tipo
+ * Uber/Airbnb) -- a diferencia de `raterId`, esto sí lo resuelve `svc-users` (batch
+ * lookup local, `raterId` es siempre un usuario del propio servicio). Cae a un label
+ * genérico si la cuenta del calificador ya no existe (derecho de supresión, MOVO-39).
  */
 export interface RecentRatingComment {
   id: string;
   raterId: string;
-  /**
-   * Nombre de quien calificó (MOVO-170, todavía sin backend — hoy siempre
-   * `undefined`, el `raterId` viaja anónimo de cara al calificado). Cuando llegue,
-   * es una decisión de producto ya tomada, no solo técnica — ver esa issue.
-   */
-  raterName?: string;
+  raterName: string;
   score: number;
   comment: string | null;
   createdAt: string;
@@ -156,6 +160,15 @@ export interface VehicleProfile {
  * por cada resultado) y poblado en `GET /users/:id` (perfil completo) -- el tipo no
  * distingue los dos casos, es una decisión de qué datos pedir al componer, no del wire
  * contract.
+ *
+ * MOVO-170 sumó `memberSince`/`phoneVerified`/`emailVerified` (ya existían en
+ * `PrivateProfile`, solo faltaba exponerlos acá -- sin filtrar el teléfono/email
+ * reales, mismo criterio que `isVerified`) y `usageStats` dentro de `asSender`/
+ * `asCarrier` (ver `ReputationBreakdown`). A diferencia de `recentRatingComments`,
+ * los cuatro viajan también en `GET /users/search`: no piden I/O extra (los tres
+ * primeros salen de la fila de `User` ya cargada; `usageStats` viaja en el mismo
+ * agregado de reputación que `reputationScore`/`transactionCounts`, ya obligatorios
+ * en este contrato desde MOVO-152).
  */
 export interface PublicProfile {
   id: string;
@@ -170,12 +183,10 @@ export interface PublicProfile {
   asSender: ReputationBreakdown;
   asCarrier: ReputationBreakdown;
   recentRatingComments: RecentRatingComment[];
-  /** MOVO-170, todavía sin backend — `undefined` hasta que se exponga. */
-  memberSince?: string;
-  /** MOVO-170, todavía sin backend — mismos booleanos que ya expone
-   * `PrivateProfile`, sin filtrar el teléfono/email real. */
-  phoneVerified?: boolean;
-  emailVerified?: boolean;
+  /** ISO date, de `User.createdAt`. */
+  memberSince: string;
+  phoneVerified: boolean;
+  emailVerified: boolean;
   /** MOVO-171, todavía sin backend. */
   bio?: string | null;
   /** MOVO-172, todavía sin backend — `null`/`undefined` si no es transportista o

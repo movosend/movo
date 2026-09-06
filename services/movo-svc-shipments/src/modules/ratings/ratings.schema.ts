@@ -29,15 +29,29 @@ const ratingResponse = {
   },
 };
 
+// MOVO-170: subconjunto de estadísticas de uso calculable con datos ya persistidos,
+// agregado por rol -- ver shipment-repository.ts#getUsageStatsByRole.
+const usageStats = {
+  type: "object",
+  required: ["delivered", "cancelled", "avgPackageWeightKg"],
+  properties: {
+    delivered: { type: "integer" },
+    cancelled: { type: "integer" },
+    avgPackageWeightKg: { type: ["number", "null"] },
+  },
+};
+
 // MOVO-147 AC3: "el mismo cálculo restringido al rol" -- asSender/asCarrier tienen la
 // misma forma que el resultado global, cada uno con su propio ratingCount/isNewProfile.
+// MOVO-170 sumó `usageStats`, exclusivo del desglose por rol (no del global).
 const reputationBreakdown = {
   type: "object",
-  required: ["reputationScore", "ratingCount", "isNewProfile"],
+  required: ["reputationScore", "ratingCount", "isNewProfile", "usageStats"],
   properties: {
     reputationScore: { type: ["number", "null"] },
     ratingCount: { type: "integer" },
     isNewProfile: { type: "boolean" },
+    usageStats,
   },
 };
 
@@ -122,6 +136,8 @@ export const ratingsSchemas = {
     type: "object",
     properties: {
       limit: { type: "integer", minimum: 1, maximum: MAX_RECENT_RATINGS_LIMIT, default: DEFAULT_RECENT_RATINGS_LIMIT },
+      // MOVO-170: cursor opaco (base64 de `createdAt|id`) para "ver todas las calificaciones".
+      cursor: { type: "string" },
     },
   },
 
@@ -130,6 +146,16 @@ export const ratingsSchemas = {
   listRatingsResponse: {
     type: "array",
     items: ratingResponse,
+  },
+
+  // MOVO-170
+  recentRatingsPageResponse: {
+    type: "object",
+    required: ["items", "nextCursor"],
+    properties: {
+      items: { type: "array", items: ratingResponse },
+      nextCursor: { type: ["string", "null"] },
+    },
   },
 
   reputationResponse,

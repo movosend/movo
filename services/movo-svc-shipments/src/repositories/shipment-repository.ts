@@ -399,6 +399,28 @@ export interface ShipmentRepository {
    * queries de `COUNT`.
    */
   countCompletedTransactions(userId: string): Promise<{ asSender: number; asCarrier: number }>;
+  /**
+   * MOVO-170: subconjunto de `usageStats` que `countCompletedTransactions` no cubre
+   * (cancelados, peso promedio) -- separado en vez de extender ese método para no
+   * tocar un contrato ya usado por `getReputationSummary`/tests existentes.
+   * `avgPackageWeightKg` es sobre TODOS los envíos del usuario en ese rol, no solo los
+   * entregados -- "peso promedio de lo que mueve", no hay ningún AC que pida acotarlo.
+   */
+  getUsageStatsByRole(userId: string): Promise<{
+    asSender: { cancelled: number; avgPackageWeightKg: number | null };
+    asCarrier: { cancelled: number; avgPackageWeightKg: number | null };
+  }>;
+  /**
+   * MOVO-170: historial de envíos compartido entre `viewerId` y `otherId`, sin
+   * importar en qué rol haya participado cada uno (emisor/receptor/transportista) --
+   * un único `count()`/lectura con OR cubriendo las 3 combinaciones posibles entre dos
+   * personas. `allDelivered` necesita saber si TODAS las filas son `delivered`, no un
+   * conteo, así que trae `status`/`createdAt` en vez de combinar varios `aggregate()`.
+   */
+  getSharedHistory(
+    viewerId: string,
+    otherId: string,
+  ): Promise<{ sharedShipmentCount: number; lastSharedAt: Date | null; allDelivered: boolean }>;
 }
 
 export class ShipmentNotFoundError extends Error {
@@ -746,6 +768,46 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         db.shipment.count({ where: { carrierId: userId, status: ShipmentStatus.DELIVERED } }),
       ]);
       return { asSender, asCarrier };
+    },
+
+    async getUsageStatsByRole(userId: string) {
+      const [cancelledAsSender, cancelledAsCarrier, avgAsSender, avgAsCarrier] = await Promise.all([
+        db.shipment.count({ where: { senderId: userId, status: ShipmentStatus.CANCELLED } }),
+        db.shipment.count({ where: { carrierId: userId, status: ShipmentStatus.CANCELLED } }),
+        db.shipment.aggregate({ where: { senderId: userId }, _avg: { weightKg: true } }),
+        db.shipment.aggregate({ where: { carrierId: userId }, _avg: { weightKg: true } }),
+      ]);
+      return {
+        asSender: {
+          cancelled: cancelledAsSender,
+          avgPackageWeightKg: avgAsSender._avg.weightKg ? avgAsSender._avg.weightKg.toNumber() : null,
+        },
+        asCarrier: {
+          cancelled: cancelledAsCarrier,
+          avgPackageWeightKg: avgAsCarrier._avg.weightKg ? avgAsCarrier._avg.weightKg.toNumber() : null,
+        },
+      };
+    },
+
+    async getSharedHistory(viewerId: string, otherId: string) {
+      const rows = await db.shipment.findMany({
+        where: {
+          OR: [
+            { senderId: viewerId, OR: [{ receiverId: otherId }, { carrierId: otherId }] },
+            { receiverId: viewerId, OR: [{ senderId: otherId }, { carrierId: otherId }] },
+            { carrierId: viewerId, OR: [{ senderId: otherId }, { receiverId: otherId }] },
+          ],
+        },
+        select: { status: true, createdAt: true },
+      });
+      if (rows.length === 0) {
+        return { sharedShipmentCount: 0, lastSharedAt: null, allDelivered: false };
+      }
+      return {
+        sharedShipmentCount: rows.length,
+        lastSharedAt: rows.reduce((max, r) => (r.createdAt > max ? r.createdAt : max), rows[0].createdAt),
+        allDelivered: rows.every((r) => r.status === ShipmentStatus.DELIVERED),
+      };
     },
   };
 }

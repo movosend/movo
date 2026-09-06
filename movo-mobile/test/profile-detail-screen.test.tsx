@@ -59,6 +59,9 @@ function baseProfile(overrides: Partial<PublicProfile> = {}): PublicProfile {
     asSender: { reputationScore: null, ratingCount: 0, isNewProfile: true },
     asCarrier: { reputationScore: 4.9, ratingCount: 5, isNewProfile: false },
     recentRatingComments: [],
+    memberSince: "2026-01-01T00:00:00.000Z",
+    phoneVerified: true,
+    emailVerified: true,
     ...overrides,
   };
 }
@@ -140,11 +143,18 @@ describe("PublicProfileScreen", () => {
     expect(getByTestId("profile-detail-actions")).toBeTruthy();
   });
 
-  it("muestra 'Un usuario de Movo' cuando el comentario no trae raterName (MOVO-170, todavía sin backend)", async () => {
+  it("muestra el label genérico que resuelve el backend para un calificador con cuenta borrada (MOVO-39)", async () => {
     mockUsePublicProfile.mockReturnValue({
       data: baseProfile({
         recentRatingComments: [
-          { id: "r1", raterId: "u9", score: 5, comment: "Excelente", createdAt: "2026-08-01T00:00:00.000Z" },
+          {
+            id: "r1",
+            raterId: "u9",
+            raterName: "Un usuario de Movo",
+            score: 5,
+            comment: "Excelente",
+            createdAt: "2026-08-01T00:00:00.000Z",
+          },
         ],
       }),
       isLoading: false,

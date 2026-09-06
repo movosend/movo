@@ -6,6 +6,7 @@ function comment(overrides: Partial<RecentRatingComment> = {}): RecentRatingComm
   return {
     id: "r1",
     raterId: "u2",
+    raterName: "Un usuario de Movo",
     score: 5,
     comment: "Todo perfecto",
     createdAt: "2026-08-01T00:00:00.000Z",
@@ -14,7 +15,7 @@ function comment(overrides: Partial<RecentRatingComment> = {}): RecentRatingComm
 }
 
 describe("ReputationCommentCard", () => {
-  it("cae a 'Un usuario de Movo' cuando raterName no vino (MOVO-170, sin backend todavía)", async () => {
+  it("muestra el label genérico que resuelve el backend para un calificador con cuenta borrada (MOVO-39)", async () => {
     const { getByText } = await render(<ReputationCommentCard comment={comment()} />);
     expect(getByText("Un usuario de Movo")).toBeTruthy();
   });

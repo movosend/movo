@@ -10,6 +10,7 @@ function comment(overrides: Partial<RecentRatingComment> = {}): RecentRatingComm
   return {
     id: "r1",
     raterId: "u2",
+    raterName: "Un usuario de Movo",
     score: 5,
     comment: "Todo perfecto",
     createdAt: "2026-08-01T00:00:00.000Z",

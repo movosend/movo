@@ -282,6 +282,36 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
     }
   );
 
+  // Ruta estática de dos segmentos ("/history-with/:userId") — no colisiona con
+  // "/:id" (un solo segmento), pero se registra antes por el mismo criterio de
+  // prolijidad que "/mine"/"/route"/"/available".
+  app.get(
+    "/history-with/:userId",
+    {
+      schema: {
+        summary: "Historial de envíos compartido con otro usuario",
+        description:
+          "MOVO-170: cuántos envíos tuvo el caller en común con userId, sin importar " +
+          "el rol de cada uno (emisor/receptor/transportista) en cada envío -- " +
+          "consumido por el rediseño de perfil del mobile (MOVO-176) para mostrar " +
+          "'ya viajaron/enviaron juntos N veces'. lastSharedAt es null únicamente sin " +
+          "ningún envío en común; allDelivered es false también en ese caso.",
+        tags: ["shipments"],
+        params: shipmentsSchemas.historyWithUserIdParam,
+        response: {
+          200: shipmentsSchemas.sharedHistoryResponse,
+          401: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const viewerId = requireUserIdFromHeader(request);
+      const { userId } = request.params as { userId: string };
+      const result = await service.getSharedHistory(viewerId, userId);
+      return { ...result, lastSharedAt: result.lastSharedAt ? result.lastSharedAt.toISOString() : null };
+    }
+  );
+
   app.get(
     "/:id",
     {

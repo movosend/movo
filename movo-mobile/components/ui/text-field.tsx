@@ -56,7 +56,9 @@ export const TextField = forwardRef<TextInput, TextFieldProps>(
             } ${
               disabled
                 ? "border-border bg-bg-mute text-fg-3"
-                : "border-border-strong text-fg"
+                : error
+                  ? "border-danger-500 text-fg"
+                  : "border-border-strong text-fg"
             } ${rightElement ? "pr-11" : "pr-3.5"} ${
               leftElement ? "pl-[78px]" : "pl-3.5"
             }`}
