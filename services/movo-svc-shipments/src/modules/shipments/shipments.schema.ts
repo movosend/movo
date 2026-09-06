@@ -210,10 +210,12 @@ const offerResponse = {
     respondedAt: { type: ["string", "null"], format: "date-time" },
     // MOVO-162: viaje declarado del que esta oferta forma parte, si corresponde.
     tripId: { type: ["string", "null"] },
-    // MOVO-180: opcional al ofertar -- toOfferDto (offer.dto.ts) formatea igual que
-    // offeredDate (ISO completo, sin el slice de toShipmentDto: acá el format es
-    // "date-time", no "date", así que no sufre el gotcha de asDate).
-    estimatedDeliveryDate: { type: ["string", "null"], format: "date-time" },
+    // MOVO-180: opcional al ofertar -- date-only (@db.Date), no "date-time" como
+    // offeredDate en esta misma respuesta: toOfferDto (offer.dto.ts) lo formatea
+    // ya recortado (slice(0, 10)), mismo criterio que myOfferResponse/shipmentResponse
+    // (feedback de review: el valor no puede salir con dos formatos distintos según
+    // el endpoint).
+    estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
     estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
     estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
   },

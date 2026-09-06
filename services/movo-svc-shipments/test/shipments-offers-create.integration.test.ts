@@ -304,7 +304,7 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
       });
 
       expect(response.statusCode).toBe(201);
-      expect(response.json().estimatedDeliveryDate).toBe("2030-01-02T00:00:00.000Z");
+      expect(response.json().estimatedDeliveryDate).toBe("2030-01-02");
       expect(response.json().estimatedDeliveryTimeWindowStart).toBe("15:00:00");
       expect(response.json().estimatedDeliveryTimeWindowEnd).toBe("19:00:00");
 

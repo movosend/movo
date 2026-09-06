@@ -198,6 +198,15 @@ function toEpochTime(timeStr: string): Date {
   return new Date(`1970-01-01T${normalizeTime(timeStr)}.000Z`);
 }
 
+/** Ancla un `"YYYY-MM-DD"` a medianoche UTC — mismo valor de calendario que
+ * persisten las columnas `@db.Date` (pickupDate/offeredDate/estimatedDeliveryDate).
+ * Un solo lugar para este anclaje: el historial de MOVO-80 mostró que repetirlo
+ * inline en cada call site deja el próximo fix de zona horaria escondido en varios
+ * literales casi idénticos. */
+function anchorDateUtc(dateStr: string): Date {
+  return new Date(`${dateStr}T00:00:00.000Z`);
+}
+
 /**
  * MOVO-142 (AC6): gate de "transportista verificado" para `GET /shipments/available` y
  * la apertura de `getShipmentDetail` (AC8). El rol sale del propio header
@@ -473,7 +482,7 @@ export function createShipmentsService(
         deliveryAddress: input.deliveryAddress,
         deliveryLat: input.deliveryLat,
         deliveryLng: input.deliveryLng,
-        pickupDate: new Date(`${input.pickupDate}T00:00:00.000Z`),
+        pickupDate: anchorDateUtc(input.pickupDate),
         pickupTimeWindowStart: toEpochTime(input.pickupTimeWindowStart),
         pickupTimeWindowEnd: toEpochTime(input.pickupTimeWindowEnd),
         suggestedPriceArs: quote.suggestedPriceArs,
@@ -664,18 +673,25 @@ export function createShipmentsService(
             "La entrega estimada requiere fecha y franja horaria completas, o ninguna de las tres."
           );
         }
-        if (
-          normalizeTime(input.estimatedDeliveryTimeWindowEnd) <=
-          normalizeTime(input.estimatedDeliveryTimeWindowStart)
-        ) {
+        // Mismo criterio que la franja de retiro (AC6 más arriba): comparar los
+        // objetos `Date` combinados, no los strings de horario normalizados.
+        const estimatedWindowStartAt = combineDateAndTime(
+          input.estimatedDeliveryDate,
+          input.estimatedDeliveryTimeWindowStart
+        );
+        const estimatedWindowEndAt = combineDateAndTime(
+          input.estimatedDeliveryDate,
+          input.estimatedDeliveryTimeWindowEnd
+        );
+        if (estimatedWindowEndAt <= estimatedWindowStartAt) {
           throw new ApiError(
             422,
             "VALIDATION_FAILED",
             "La franja de entrega estimada tiene que terminar después de empezar."
           );
         }
-        estimatedDeliveryDate = new Date(`${input.estimatedDeliveryDate}T00:00:00.000Z`);
-        const offeredDateAnchored = new Date(`${input.offeredDate}T00:00:00.000Z`);
+        estimatedDeliveryDate = anchorDateUtc(input.estimatedDeliveryDate);
+        const offeredDateAnchored = anchorDateUtc(input.offeredDate);
         if (estimatedDeliveryDate.getTime() < offeredDateAnchored.getTime()) {
           throw new ApiError(
             422,
@@ -733,7 +749,7 @@ export function createShipmentsService(
         shipmentId: input.shipmentId,
         carrierId: input.carrierId,
         priceOffered: grossArs,
-        offeredDate: new Date(`${input.offeredDate}T00:00:00.000Z`),
+        offeredDate: anchorDateUtc(input.offeredDate),
         message: input.message,
         tripId: input.tripId ?? null,
         carrierNameAtOffer: carrierProfile?.fullName ?? null,
