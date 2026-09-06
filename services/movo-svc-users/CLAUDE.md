@@ -841,3 +841,41 @@ Pendiente / fuera de alcance: la lógica del handshake en sí y su consumo de
 todavía sin arrancar); UI de generación de claves en mobile (se resuelve dentro de las
 pantallas de handshake, fuera de alcance explícito del ticket); multi-dispositivo por
 usuario (fuera de alcance explícito del ticket).
+
+### MOVO-171 — `bio` editable del perfil
+
+Columna nullable `bio` en `users.users` (sin backfill, migración a mano en
+`prisma/migrations/20260906125059_add_bio_movo_171/`), expuesta en `PrivateProfile`/
+`PublicProfile` (`@movo/shared`, ver su `CLAUDE.md`) y editable vía
+`PATCH /users/me` (`users.routes.ts`/`.service.ts`).
+
+Decisiones clave:
+- **Requerido, no opcional, en el wire contract** (`bio: string | null`) — a diferencia
+  de otros campos que se fueron agregando de a poco (MOVO-135/152/170), acá se optó por
+  no dejar un estado intermedio "puede no venir": todo perfil lo trae, `null` es el
+  valor explícito de "sin completar", nunca ausencia del campo.
+- **Excluida de `GET /users/search`** a nivel de schema Fastify (`usersSchemas`, no en
+  `publicProfileExtras`) — decisión de producto, no limitación técnica: el objeto que
+  compone el servidor para esa ruta ya trae `bio` poblada (mismo `PublicProfile`
+  reusado por las dos rutas), el schema de respuesta simplemente la descarta.
+- **Editable sin importar el KYC** — a diferencia de `firstName`/`lastName` (bloqueados
+  por `PROFILE_NAME_LOCKED_BY_KYC` una vez validados contra el documento), `bio` no
+  tiene ninguna validación documental que proteger.
+- **`""` nunca se persiste**: `users.service.ts` resuelve el trim a `null` antes de
+  escribir, en un solo lugar (no en el repositorio) para no duplicar la regla.
+- **Bug preexistente corregido de paso**: el `preValidation` de `PATCH /users/me` tenía
+  el whitelist de campos permitidos (`firstName`/`lastName`) hardcodeado por fuera del
+  schema AJV — agregar `bio` al schema no alcanzaba, seguía devolviendo 400
+  `VALIDATION_FAILED` hasta sumarla también a ese `Set` a mano.
+
+Review de PR #133 (Alena Ariza) marcó que el campo requerido rompe la compilación de
+consumidores que construyen `PublicProfile`/`PrivateProfile` a mano sin `bio` —
+corregido en `movo-svc-shipments` (`test/fake-users-client.ts`, agregado `bio: null` al
+fake). El ajuste equivalente del lado `movo-mobile` se resuelve en la rama de
+MOVO-154/176, fuera del alcance de esta PR.
+
+Tests: `test/users.profile-edit.integration.test.ts` (editar/vaciar/no tocar bio,
+`""` → `null`, 400 por `maxLength`/tipo, editable con KYC aprobado),
+`test/users.profile.integration.test.ts` y `test/users-search.integration.test.ts`
+(bio presente en `GET /users/me`/`GET /users/:id`, ausente en `GET /users/search`).
+`tsc --noEmit` limpio en `shared`/`movo-svc-users`/`movo-svc-shipments`.
