@@ -9,10 +9,20 @@ jest.mock("@tanstack/react-query", () => ({
 
 const mockUseMyTrips = jest.fn();
 jest.mock("../src/hooks/use-trips", () => ({
-  useMyTrips: () => mockUseMyTrips(),
+  useMyTrips: (...args: unknown[]) => mockUseMyTrips(...args),
 }));
 
+const mockUseAuthStore = jest.fn();
+jest.mock("../src/store/auth-store", () => ({
+  useAuthStore: (selector: (s: unknown) => unknown) => mockUseAuthStore(selector),
+}));
+
+import { UserRole } from "@movo/shared/dist/types/user";
 import { useActiveTripMatchAlert } from "../src/hooks/use-active-trip-match-alert";
+
+function authState(roles: UserRole[] = [UserRole.CARRIER]) {
+  return { user: { roles } };
+}
 
 // Debe coincidir con `TRIP_MATCH_STARTUP_DELAY_MS` (no exportado por el hook, mismo
 // criterio que el resto del archivo con `TRIP_MATCH_SNOOZE_MS`/el intervalo de poll).
@@ -73,6 +83,8 @@ describe("useActiveTripMatchAlert", () => {
     });
     Object.defineProperty(AppState, "currentState", { value: "active", configurable: true });
     mockUseQuery.mockReturnValue({ data: undefined, refetch: jest.fn(), dataUpdatedAt: 0 });
+    // Transportista por default — los tests de gate por rol lo pisan explícitamente.
+    mockUseAuthStore.mockImplementation((selector) => selector(authState()));
   });
 
   afterEach(() => {
@@ -187,6 +199,61 @@ describe("useActiveTripMatchAlert", () => {
     mockUseQuery.mockReturnValue({ data: stableData, refetch, dataUpdatedAt: 3_000 });
     await rerender({});
     expect(result.current.alert).toEqual({ tripId: "trip-1", shipments: [match("a")] });
+  });
+
+  it("un poll con el mismo set de pendientes conserva la misma referencia de alert (no resetea el carrusel)", async () => {
+    mockUseMyTrips.mockReturnValue({ data: { items: [trip()], page: 1, limit: 50, total: 1 } });
+    const refetch = jest.fn();
+    // Misma referencia de `data` en los dos polls, solo `dataUpdatedAt` avanza (poll
+    // real sin cambios) — regresión real: `setAlert` disparaba una referencia nueva
+    // en cada poll con matches pendientes, sin importar si el set cambió, reseteando
+    // el `carouselIndex` de `TripMatchAlertBanner` (su efecto sobre `[alert]`) aunque
+    // el usuario hubiera deslizado a otro ítem.
+    const stableData = matchesResult([match("a"), match("b")], refetch, 1_000).data;
+    mockUseQuery.mockReturnValue({ data: stableData, refetch, dataUpdatedAt: 1_000 });
+
+    const { result, rerender } = await renderHook(() => useActiveTripMatchAlert());
+    await skipStartupDelay();
+    const firstAlert = result.current.alert;
+    expect(firstAlert).not.toBeNull();
+
+    mockUseQuery.mockReturnValue({ data: stableData, refetch, dataUpdatedAt: 2_000 });
+    await rerender({});
+
+    expect(result.current.alert).toBe(firstAlert);
+  });
+
+  it("un poll donde cambió el set de pendientes sí genera una referencia nueva de alert", async () => {
+    mockUseMyTrips.mockReturnValue({ data: { items: [trip()], page: 1, limit: 50, total: 1 } });
+    mockUseQuery.mockReturnValue(matchesResult([match("a"), match("b")]));
+
+    const { result, rerender } = await renderHook(() => useActiveTripMatchAlert());
+    await skipStartupDelay();
+    const firstAlert = result.current.alert;
+
+    mockUseQuery.mockReturnValue(matchesResult([match("a", true), match("b")]));
+    await rerender({});
+
+    expect(result.current.alert).not.toBe(firstAlert);
+    expect(result.current.alert).toEqual({ tripId: "trip-1", shipments: [match("b")] });
+  });
+
+  it("solo consulta GET /trips (useMyTrips) si el usuario tiene rol de transportista", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector(authState([])));
+    mockUseMyTrips.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 } });
+
+    await renderHook(() => useActiveTripMatchAlert());
+
+    expect(mockUseMyTrips).toHaveBeenCalledWith(false);
+  });
+
+  it("con rol de transportista, useMyTrips se llama habilitado", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector(authState([UserRole.CARRIER])));
+    mockUseMyTrips.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 } });
+
+    await renderHook(() => useActiveTripMatchAlert());
+
+    expect(mockUseMyTrips).toHaveBeenCalledWith(true);
   });
 
   it("al reabrir la app (hook remontado de cero), un match pendiente ya existente alerta de entrada tras su propio delay de arranque", async () => {

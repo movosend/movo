@@ -72,10 +72,14 @@ function RadiusPillRow({
 export default function TransportScreen() {
   const colors = useThemeColors();
   const { offerCreated, tripId } = useLocalSearchParams<{ offerCreated?: string; tripId?: string }>();
+  // Único punto que deriva el modo de `tripId` — el resto de los flags (isReady,
+  // isInitialLoading, canExpandRadius, showOriginSkeleton, JSX) lo consumen a él en
+  // vez de re-chequear `tripId`/`!tripId` cada uno por su cuenta.
+  const isTripMode = Boolean(tripId);
   const [showOfferCreatedSuccess, setShowOfferCreatedSuccess] = useState(offerCreated === "1");
-  const { origin, resolving, needsManualPick, setManualSelection } = useTransportOrigin(!tripId);
+  const { origin, resolving, needsManualPick, setManualSelection } = useTransportOrigin(!isTripMode);
   const { radiusKm, setRadiusKm } = useTransportRadius();
-  const { data: savedAddresses } = useAddresses(!tripId);
+  const { data: savedAddresses } = useAddresses(!isTripMode);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
@@ -103,7 +107,7 @@ export default function TransportScreen() {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = tripId ? matchesQuery : availableQuery;
+  } = isTripMode ? matchesQuery : availableQuery;
 
   // AC2: sin GPS ni dirección default, el selector manual se abre solo — sigue
   // pudiéndose reabrir después a mano con "Cambiar" (mismo estado, `pickerOpen`).
@@ -121,7 +125,7 @@ export default function TransportScreen() {
   // "Listo para mostrar datos": en modo viaje depende de que el detalle del viaje ya
   // resolvió (para el header de AC2); en modo genérico, del origen (GPS/default/
   // manual) — reemplaza el `origin !== null` que antes gateaba todo el render.
-  const isReady = tripId ? !!trip : origin !== null;
+  const isReady = isTripMode ? !!trip : origin !== null;
 
   // Si una página entera vino con todos sus ítems vencidos, el filtro de arriba
   // puede dejar `items` vacío aunque el servidor todavía tenga más páginas — sin
@@ -138,10 +142,10 @@ export default function TransportScreen() {
   );
   // Sin selector de radio en modo viaje (MOVO-163) — "ampliar radio" no aplica.
   const canExpandRadius =
-    !tripId && currentRadiusIndex >= 0 && currentRadiusIndex < TRANSPORT_RADIUS_OPTIONS_KM.length - 1;
+    !isTripMode && currentRadiusIndex >= 0 && currentRadiusIndex < TRANSPORT_RADIUS_OPTIONS_KM.length - 1;
 
-  const showOriginSkeleton = !tripId && (resolving || (origin === null && !needsManualPick));
-  const isInitialLoading = tripId
+  const showOriginSkeleton = !isTripMode && (resolving || (origin === null && !needsManualPick));
+  const isInitialLoading = isTripMode
     ? isTripLoading || (isReady && isLoading)
     : showOriginSkeleton || (isReady && isLoading);
 
@@ -160,7 +164,7 @@ export default function TransportScreen() {
             <Text className="font-sans-medium text-[13px] text-fg">Mis viajes</Text>
           </Pressable>
         </View>
-        {!tripId && origin ? (
+        {!isTripMode && origin ? (
           <View className="mt-1 flex-row items-center gap-1.5">
             <MapPin size={13} strokeWidth={1.8} color={colors.fg3} />
             <Text testID="transport-zone-label" className="flex-1 font-sans text-small text-fg-2" numberOfLines={1}>
@@ -175,7 +179,7 @@ export default function TransportScreen() {
             </Text>
           </View>
         ) : null}
-        {tripId && trip ? (
+        {isTripMode && trip ? (
           <View className="mt-1 flex-row items-center gap-1.5">
             <MapPin size={13} strokeWidth={1.8} color={colors.fg3} />
             <Text testID="transport-trip-filter-label" className="flex-1 font-sans text-small text-fg-2" numberOfLines={1}>
@@ -202,11 +206,11 @@ export default function TransportScreen() {
         </View>
       ) : null}
 
-      {!tripId && origin ? <RadiusPillRow radiusKm={radiusKm} onChange={setRadiusKm} /> : null}
+      {!isTripMode && origin ? <RadiusPillRow radiusKm={radiusKm} onChange={setRadiusKm} /> : null}
 
       {isInitialLoading ? (
         <TransportListSkeleton />
-      ) : tripId && isTripError ? (
+      ) : isTripMode && isTripError ? (
         <View className="px-5 pt-2">
           <ErrorBanner
             testID="transport-trip-error"
@@ -249,7 +253,7 @@ export default function TransportScreen() {
         <View className="items-center gap-2 px-5 py-10">
           <PackageX size={22} strokeWidth={1.8} color={colors.fg3} />
           <Text className="text-center font-sans text-small text-fg-2">
-            {tripId
+            {isTripMode
               ? "Ningún paquete compatible con este viaje todavía."
               : "No hay envíos disponibles en este radio."}
           </Text>

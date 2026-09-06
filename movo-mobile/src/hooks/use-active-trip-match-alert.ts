@@ -1,8 +1,10 @@
+import { UserRole } from "@movo/shared/dist/types/user";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import type { AvailableShipment } from "../api/shipments-client";
 import { tripsClient, TripStatus } from "../api/trips-client";
+import { useAuthStore } from "../store/auth-store";
 import { useMyTrips } from "./use-trips";
 
 const TRIP_MATCH_POLL_INTERVAL_MS = 30_000;
@@ -28,6 +30,14 @@ const TRIP_MATCH_STARTUP_DELAY_MS = 10_000;
 export interface TripMatchAlert {
   tripId: string;
   shipments: AvailableShipment[];
+}
+
+/** Mismo conjunto de ids pendientes, sin importar el orden — usado para no generar
+ * una referencia de `TripMatchAlert` nueva cuando un poll no cambió nada real. */
+function samePendingIds(a: AvailableShipment[], b: AvailableShipment[]): boolean {
+  if (a.length !== b.length) return false;
+  const bIds = new Set(b.map((item) => item.id));
+  return a.every((item) => bIds.has(item.id));
 }
 
 /**
@@ -65,7 +75,14 @@ export interface TripMatchAlert {
  *   es más predecible y evita gastar batería sin la app en primer plano.
  */
 export function useActiveTripMatchAlert() {
-  const { data: tripsData } = useMyTrips();
+  // Gate por rol (MOVO-163, fix): este hook vive montado globalmente para cualquier
+  // usuario autenticado (`_layout.tsx`) — sin esto, un emisor sin rol de
+  // transportista dispara igual `GET /trips`, condenado a un 403
+  // `CARRIER_NOT_VERIFIED`. No cubre el otro caso de ese mismo 403 (transportista
+  // sin identidad verificada, campo que no vive en el JWT/`auth-store`) — para ese
+  // caso queda `retry: false` en `useMyTrips` como mitigación.
+  const isCarrier = useAuthStore((s) => s.user?.roles.includes(UserRole.CARRIER) ?? false);
+  const { data: tripsData } = useMyTrips(isCarrier);
   const activeTrip = (tripsData?.items ?? []).find((trip) => trip.status === TripStatus.ACTIVE) ?? null;
   const activeTripId = activeTrip?.id ?? null;
 
@@ -110,13 +127,26 @@ export function useActiveTripMatchAlert() {
     }
     if (Date.now() < dismissedUntilRef.current) return;
 
-    setAlert({ tripId: activeTripId, shipments: pending });
     // `matchesQuery.dataUpdatedAt` (no solo `matchesQuery.data`) porque TanStack Query
     // aplica structural sharing: un poll que devuelve el mismo contenido conserva la
     // misma referencia de `data`, así que este efecto nunca volvería a correr después
     // del snooze si solo dependiera de `data` — `dataUpdatedAt` cambia en cada
     // resolución exitosa, con o sin cambios, y es lo que permite que el aviso
     // reaparezca pasado `TRIP_MATCH_SNOOZE_MS` con el mismo envío todavía pendiente.
+    //
+    // Pero por eso mismo `pending` es un array nuevo en cada poll aunque su
+    // contenido no haya cambiado — sin este chequeo, `setAlert` dispararía una
+    // referencia nueva de `alert` cada 30s con algún match pendiente, reseteando
+    // el carrusel de `TripMatchAlertBanner` (su `useEffect` sobre `[alert]`) aunque
+    // el usuario lo haya deslizado a otro ítem, desincronizando el índice mostrado
+    // del ítem realmente visible. Si el set de pendientes (por id) es el mismo que
+    // el de la alerta actual, se conserva la referencia anterior.
+    setAlert((prev) => {
+      if (prev && prev.tripId === activeTripId && samePendingIds(prev.shipments, pending)) {
+        return prev;
+      }
+      return { tripId: activeTripId, shipments: pending };
+    });
   }, [activeTripId, matchesQuery.data, matchesQuery.dataUpdatedAt, startupDelayElapsed]);
 
   useEffect(() => {

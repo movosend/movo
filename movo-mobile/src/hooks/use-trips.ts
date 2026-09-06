@@ -13,11 +13,21 @@ const TRIPS_LIST_QUERY_KEY = ["trips", "mine", "list"];
  * "Mis viajes" (MOVO-162): una sola página con `limit` generoso en vez de scroll
  * infinito (mismo criterio de simplicidad que `useAddresses` — el AC no pide
  * paginación y el volumen esperado de viajes de un transportista no la justifica).
+ *
+ * `enabled` (MOVO-163): `useActiveTripMatchAlert` monta este hook globalmente para
+ * cualquier usuario autenticado, no solo transportistas — sin gate, un emisor o un
+ * transportista sin KYC dispara igual `GET /trips`, condenado a un 403
+ * `CARRIER_NOT_VERIFIED` (`assertVerifiedCarrier`). `retry: false` porque ese 403 es
+ * un estado esperado, no una falla transitoria — sin esto, el default de 3 reintentos
+ * de TanStack Query dispara la misma request 3 veces por sesión para la mayoría de
+ * los usuarios, para una feature que nunca les aplica.
  */
-export function useMyTrips() {
+export function useMyTrips(enabled = true) {
   return useQuery({
     queryKey: TRIPS_LIST_QUERY_KEY,
     queryFn: () => tripsClient.list({ page: 1, limit: 50 }),
+    enabled,
+    retry: false,
   });
 }
 
