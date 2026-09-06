@@ -783,7 +783,9 @@ falta de definición de producto — ver detalle en `services/movo-svc-shipments
 ### MOVO-157 — Registro de clave pública por dispositivo (`svc-users`)
 
 Prerrequisito del handshake criptográfico de MOVO-6 (implementado del lado de
-`svc-shipments` en el ticket hermano MOVO-158, todavía sin arrancar): este servicio
+`svc-shipments` en el ticket hermano MOVO-158 — ver
+`services/movo-svc-shipments/CLAUDE.md`, consumió este endpoint interno sin
+necesitar ningún mock): este servicio
 solo registra/rota la clave PÚBLICA del par asimétrico que cada dispositivo genera
 client-side (AC1, la privada nunca viaja) y la expone a `svc-shipments` para validar
 firmas. `POST /users/me/device-key` (`users.routes.ts`/`.service.ts`, mismo módulo que
@@ -879,3 +881,8 @@ Tests: `test/users.profile-edit.integration.test.ts` (editar/vaciar/no tocar bio
 `test/users.profile.integration.test.ts` y `test/users-search.integration.test.ts`
 (bio presente en `GET /users/me`/`GET /users/:id`, ausente en `GET /users/search`).
 `tsc --noEmit` limpio en `shared`/`movo-svc-users`/`movo-svc-shipments`.
+Pendiente / fuera de alcance: UI de generación de claves en mobile (se resuelve
+dentro de las pantallas de handshake, MOVO-159/160, fuera de alcance explícito del
+ticket); multi-dispositivo por usuario (fuera de alcance explícito del ticket). La
+lógica del handshake en sí y su consumo de `GET /internal/users/:id/device-key` ya
+se implementó -- ver MOVO-158 en `services/movo-svc-shipments/CLAUDE.md`.
