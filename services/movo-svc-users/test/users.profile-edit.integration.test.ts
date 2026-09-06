@@ -240,6 +240,148 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
 
       expect(response.statusCode).toBe(200);
     });
+
+    describe("MOVO-171: bio", () => {
+      it("alta de bio (null -> texto) se persiste", async () => {
+        const user = await repo.create(buildInput());
+
+        const response = await app.inject({
+          method: "PATCH",
+          url: "/users/me",
+          headers: { "x-user-id": user.id },
+          payload: { bio: "Transportista frecuente en la ruta Córdoba-Rosario." },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(JSON.parse(response.body).bio).toBe("Transportista frecuente en la ruta Córdoba-Rosario.");
+
+        const reloaded = await repo.findById(user.id);
+        expect(reloaded?.bio).toBe("Transportista frecuente en la ruta Córdoba-Rosario.");
+      });
+
+      it("edición de una bio existente la reemplaza", async () => {
+        const user = await repo.create(buildInput());
+        await repo.updateProfile(user.id, { bio: "Bio original" });
+
+        const response = await app.inject({
+          method: "PATCH",
+          url: "/users/me",
+          headers: { "x-user-id": user.id },
+          payload: { bio: "Bio nueva" },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(JSON.parse(response.body).bio).toBe("Bio nueva");
+      });
+
+      it('bio: "" sobre una bio existente -> 200, bio: null', async () => {
+        const user = await repo.create(buildInput());
+        await repo.updateProfile(user.id, { bio: "Bio original" });
+
+        const response = await app.inject({
+          method: "PATCH",
+          url: "/users/me",
+          headers: { "x-user-id": user.id },
+          payload: { bio: "" },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(JSON.parse(response.body).bio).toBeNull();
+
+        const reloaded = await repo.findById(user.id);
+        expect(reloaded?.bio).toBeNull();
+      });
+
+      it('bio: "   " (solo espacios) -> 200, bio: null (prueba el trim antes del null-check)', async () => {
+        const user = await repo.create(buildInput());
+
+        const response = await app.inject({
+          method: "PATCH",
+          url: "/users/me",
+          headers: { "x-user-id": user.id },
+          payload: { bio: "   " },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(JSON.parse(response.body).bio).toBeNull();
+      });
+
+      it("bio de 281 caracteres -> 400 VALIDATION_FAILED, sin mutación en DB", async () => {
+        const user = await repo.create(buildInput());
+
+        const response = await app.inject({
+          method: "PATCH",
+          url: "/users/me",
+          headers: { "x-user-id": user.id },
+          payload: { bio: "a".repeat(281) },
+        });
+
+        expect(response.statusCode).toBe(400);
+        expect(JSON.parse(response.body).error.code).toBe("VALIDATION_FAILED");
+
+        const reloaded = await repo.findById(user.id);
+        expect(reloaded?.bio).toBeNull();
+      });
+
+      it("bio de exactamente 280 caracteres sí se acepta (límite inclusivo)", async () => {
+        const user = await repo.create(buildInput());
+
+        const response = await app.inject({
+          method: "PATCH",
+          url: "/users/me",
+          headers: { "x-user-id": user.id },
+          payload: { bio: "a".repeat(280) },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(JSON.parse(response.body).bio).toBe("a".repeat(280));
+      });
+
+      it("un update parcial de otro campo (firstName) no toca la bio existente", async () => {
+        const user = await repo.create(buildInput());
+        await repo.updateProfile(user.id, { bio: "Bio que no debería cambiar" });
+
+        const response = await app.inject({
+          method: "PATCH",
+          url: "/users/me",
+          headers: { "x-user-id": user.id },
+          payload: { firstName: "Otro" },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(JSON.parse(response.body).bio).toBe("Bio que no debería cambiar");
+      });
+
+      it("con kycStatusIdentity=APPROVED, editar bio no tira 409 (el lock de nombre no alcanza a bio)", async () => {
+        const user = await repo.create(buildInput());
+        await repo.updateKycStatusIdentity(user.id, KycStatus.APPROVED);
+
+        const response = await app.inject({
+          method: "PATCH",
+          url: "/users/me",
+          headers: { "x-user-id": user.id },
+          payload: { bio: "Puedo editar mi bio igual" },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(JSON.parse(response.body).bio).toBe("Puedo editar mi bio igual");
+      });
+
+      it("regresión de contrato: GET /users/me incluye bio en el body", async () => {
+        const user = await repo.create(buildInput());
+
+        const response = await app.inject({
+          method: "GET",
+          url: "/users/me",
+          headers: { "x-user-id": user.id },
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = JSON.parse(response.body);
+        expect(body).toHaveProperty("bio");
+        expect(body.bio).toBeNull();
+      });
+    });
   });
 
   describe("Cambio de teléfono (POST /users/me/phone/change/otp y /verify)", () => {

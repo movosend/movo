@@ -64,6 +64,7 @@ export function toPrivateProfile(
     badges: computeBadges(user),
     transactionCounts,
     reputationScore: reputation.reputationScore,
+    bio: user.bio,
   };
 }
 
@@ -99,5 +100,6 @@ export function toPublicProfile(
     memberSince: user.createdAt.toISOString(),
     phoneVerified: user.phoneVerified,
     emailVerified: user.emailVerified,
+    bio: user.bio,
   };
 }

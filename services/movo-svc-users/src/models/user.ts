@@ -15,6 +15,9 @@ export interface User {
   lastName: string;
   passwordHash: string;
   dni: string | null;
+  /** MOVO-171: bio de texto libre del perfil. `""` nunca se persiste, solo `null` o
+   * texto no vacío (resuelto en `users.service.ts#updateProfile`). */
+  bio: string | null;
   phoneVerified: boolean;
   /** MOVO-139: el usuario probó posesión del email vía OTP (`/users/me/email/verify/*`
    * o el paso 2 de cambio de email). Precondición de MOVO-64. */
@@ -62,6 +65,7 @@ export function toPublicUser(user: User): PublicUser {
     firstName: user.firstName,
     lastName: user.lastName,
     dni: user.dni,
+    bio: user.bio,
     phoneVerified: user.phoneVerified,
     emailVerified: user.emailVerified,
     emailVerifiedAt: user.emailVerifiedAt,
@@ -120,6 +124,7 @@ export interface UserRow {
   last_name: string;
   password_hash: string;
   dni: string | null;
+  bio: string | null;
   phone_verified: boolean;
   email_verified: boolean;
   email_verified_at: Date | null;
@@ -189,6 +194,7 @@ export function mapRowToUser(row: UserRow, roles: string[]): User {
     lastName: row.last_name,
     passwordHash: row.password_hash,
     dni: row.dni,
+    bio: row.bio,
     phoneVerified: row.phone_verified,
     emailVerified: row.email_verified,
     emailVerifiedAt: row.email_verified_at,
