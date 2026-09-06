@@ -555,7 +555,9 @@ export default function CreateOfferScreen() {
     error instanceof ApiError && error.code === "CARRIER_NOT_VERIFIED";
   const canContinueToPickup = netArs > 0;
   const canSubmit =
-    netArs > 0 && (dateMode === "requested" || pickupSlotIndex !== null);
+    netArs > 0 &&
+    (dateMode === "requested" || pickupSlotIndex !== null) &&
+    deliverySlotIndex !== null;
 
   const handleBack = () => {
     // El botón de volver del header retrocede un paso del formulario antes de
@@ -1083,7 +1085,7 @@ export default function CreateOfferScreen() {
               <View>
                 <TextField
                   testID="create-offer-message-input"
-                  label="Mensaje para el emisor (opcional)"
+                  label="Mensaje para el emisor (recomendado)"
                   placeholder="Ej: Salgo por la mañana, tengo espacio disponible en el baúl."
                   value={message}
                   onChangeText={setMessage}

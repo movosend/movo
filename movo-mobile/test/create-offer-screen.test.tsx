@@ -107,10 +107,16 @@ describe("CreateOfferScreen (MOVO-177)", () => {
   });
 
   /** El formulario se partió en 2 pasos (precio / retiro) -- los tests que ejercitan
-   * el paso 2 (fecha, mensaje, submit) primero tienen que avanzar tocando "Continuar". */
+   * el paso 2 (fecha, mensaje, submit) primero tienen que avanzar tocando "Continuar".
+   * También elige una franja de entrega estimada -- es requerida para habilitar el
+   * submit (sin esto, "Deslizá para confirmar" queda deshabilitado) y no es lo que
+   * ejercitan la mayoría de estos tests. */
   async function goToPickupStep(getByTestId: Awaited<ReturnType<typeof render>>["getByTestId"]) {
     await act(async () => {
       fireEvent.press(getByTestId("create-offer-continue"));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId("create-offer-delivery-slot-0"));
     });
   }
 
@@ -320,6 +326,41 @@ describe("CreateOfferScreen (MOVO-177)", () => {
     setTimeoutSpy.mockRestore();
 
     expect(mockRouterReplace).toHaveBeenCalledWith("/(app)/transport/shipment-1");
+  });
+
+  it("sin franja de entrega estimada elegida, el submit queda deshabilitado", async () => {
+    mockMutateAsync.mockResolvedValue({
+      id: "offer-1",
+      shipmentId: "shipment-1",
+      priceOffered: 5175,
+      priceNetArs: 4500,
+      commissionAmountArs: 675,
+      offeredDate: "2026-08-20T00:00:00.000Z",
+      offeredPickupTimeWindowStart: null,
+      offeredPickupTimeWindowEnd: null,
+      message: null,
+      status: "pending",
+    });
+    const { getByTestId } = await render(<CreateOfferScreen />);
+
+    // Solo "Continuar" (paso 1) -- sin tocar "A qué hora entregás", `goToPickupStep`
+    // no se usa acá a propósito.
+    await act(async () => {
+      fireEvent.press(getByTestId("create-offer-continue"));
+    });
+
+    await act(async () => {
+      fireEvent.press(getByTestId("create-offer-submit"));
+    });
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.press(getByTestId("create-offer-delivery-slot-1"));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId("create-offer-submit"));
+    });
+    expect(mockMutateAsync).toHaveBeenCalled();
   });
 
   it("al proponer otro día/horario, exige elegir una franja antes de habilitar el envío y la manda en el body", async () => {
