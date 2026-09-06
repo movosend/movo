@@ -1177,20 +1177,56 @@ existió — el feed real a extender es `app/(app)/(tabs)/transport.tsx` (MOVO-1
 
 **Extensión de alcance acordada con el usuario durante el refinamiento (AC6/AC7 del
 ticket, no en la redacción original)**: comportamiento "tipo Uber" — avisar de
-paquetes nuevos compatibles con un viaje activo sin que el transportista tenga que
-abrir el feed a mano.
+paquetes compatibles con un viaje activo sin que el transportista tenga que abrir el
+feed a mano. AC6 pasó por varias rondas de feedback viéndolo corrido en simulador
+antes de asentarse; acá solo el estado final (el historial completo de iteraciones
+vive en el PR, no acá).
 
 - **AC6, foreground (100% mobile)**: `use-active-trip-match-alert.ts` (nuevo) vigila
   el primer viaje `active` de `useMyTrips()` con un polling propio (`AppState` +
   `setInterval`, no `refetchInterval` de React Query — el repo no tiene
-  `focusManager` de RN configurado). Siembra la primera respuesta sin alertar (nunca
-  avisa por el historial ya existente al abrir la app), detecta ids nuevos entre
-  polls, y se pausa en background/reanuda con un refetch inmediato al volver a
-  foreground. `TripMatchAlertBanner` (nuevo, `components/trips/`) es el primer overlay
-  global del repo — a diferencia de `SuccessBanner`/`ErrorBanner` (siempre embebidos
-  en una pantalla), este tiene que verse sin importar dónde esté el usuario, montado
-  como hermano superpuesto del `<Stack>` en `app/(app)/_layout.tsx`. Mismo lenguaje
-  "glassy" (`BlurView`) que `FloatingTabBar` (MOVO-78).
+  `focusManager` de RN configurado), pausado en background y con un refetch
+  inmediato al volver a foreground. Expone **todos** los matches pendientes
+  (`hasMyOffer: false`) del viaje vigilado, no uno solo (`TripMatchAlert.shipments:
+  AvailableShipment[]`) — vuelve a alertar ya en la primera respuesta si hay algo
+  pendiente (a propósito: no siembra en silencio), y tras un `dismiss()` el aviso
+  completo queda pospuesto 5 min (un solo timestamp por viaje, no por envío) antes de
+  poder reaparecer — tanto por ese snooze como por relanzar la app (el snooze vive en
+  memoria, se resetea solo). Un envío deja de listarse cuando `hasMyOffer` pasa a
+  `true` o deja de venir en la respuesta. **Delay de arranque de 10s** (feedback:
+  "que no sea tan agresivo"): el primer aviso de cada sesión no puede mostrarse hasta
+  que pasen `TRIP_MATCH_STARTUP_DELAY_MS` desde que se monta el hook (una vez por
+  apertura de la app, no reinicia con cambios de viaje activo) — no retrasa el
+  polling en sí ni el snooze tras un descarte.
+- **`TripMatchAlertBanner`** (nuevo, `components/trips/`) es el primer overlay global
+  del repo — a diferencia de `SuccessBanner`/`ErrorBanner` (embebidos en una
+  pantalla), tiene que verse sin importar dónde esté el usuario: montado como
+  hermano superpuesto del `<Stack>` en `app/(app)/_layout.tsx`, dentro de un `Modal`
+  transparente + `useSheetAnimation` (mismo patrón que `ReceiverActionsBar`,
+  MOVO-131) con un backdrop propio que blurrea y oscurece toda la pantalla de atrás
+  — una v1 sin `Modal` (un `View` absoluto sin backdrop) dejaba el contenido de la
+  pantalla de atrás sangrando alrededor de la card, muy amontonado. Con más de un
+  match pendiente, se recorren con un carrusel horizontal swipeable (mismo patrón de
+  `FlatList` paginado que `PhotoViewerModal`, MOVO-127 — `pagingEnabled` +
+  `getItemLayout` + `onMomentumScrollEnd`, contador "N/M"), reusando
+  `AvailableShipmentCard` tal cual (AC3) en vez de duplicar esa UI. Sin botones
+  "Aceptar"/"Rechazar" (una versión intermedia los tuvo y se sacaron): decidir un
+  envío sigue siendo, como en el resto de la app, entrar a su detalle y ofertar ahí
+  (MOVO-149) — el botón "Ver envío" navega ahí mismo, solo hace más obvia la acción
+  de tocar la card. Se oculta (sin descartar el `alert`) mientras se está viendo el
+  detalle de un envío (`/transport/:id`, vía `usePathname()`) — reaparece solo al
+  volver a cualquier otra pantalla, sin re-consultar el backend.
+- **`AvailableShipmentCard` ganó dos props, `bare` e `interactive`** (ambos default
+  igual al comportamiento previo, sin tocar su uso en `transport.tsx`/AC9 de
+  MOVO-148): `bare` saca su propio borde/fondo (dentro del aviso se leía como una
+  "card dentro de otra card", feedback del usuario, "la card de adentro se ve
+  rara" — un separador `border-t` entre el header y el carrusel cumple ese rol una
+  sola vez); `interactive={false}` hace que tocarla no navegue a ningún lado —
+  pedido explícito del usuario, el detalle solo se ve apretando "Ver envío"
+  (tocar la card competía con el gesto de swipe del carrusel). "Ver envío" lleva el
+  mismo efecto de press que el resto de los botones "principales" del repo
+  (`PrimaryButton`, `ReceiverActionsBar`): `active:opacity-80` +
+  `Haptics.impactAsync(ImpactFeedbackStyle.Light)`.
 - **AC7, background (deep-link mobile, contrato acordado con `MOVO-179`)**:
   `use-push-notifications.ts` generaliza `isShipmentNotificationData`/
   `NAVIGABLE_NOTIFICATION_TYPES` (que asumían que todo tipo navegable tenía
@@ -1205,20 +1241,29 @@ abrir el feed a mano.
   bloqueante de MOVO-163 — el disparo real del backend (detectar el match al
   transicionar un envío a `published` y notificar) queda pendiente ahí, no es parte de
   este ticket mobile.
-- Simplificación aceptada: con más de un viaje `active` simultáneo, la alerta de AC6
-  solo vigila el primero que devuelve `useMyTrips()` — sin selector de "cuál viaje".
+- Simplificaciones aceptadas: con más de un viaje `active` simultáneo, la alerta de
+  AC6 solo vigila el primero que devuelve `useMyTrips()` — sin selector de "cuál
+  viaje". `?autoOffer=1` en `transport/[id].tsx` (abrir `CreateOfferSheet` sola al
+  llegar) se agregó y se revirtió en el camino — quedó sin caller una vez sacados los
+  botones Aceptar/Rechazar del aviso, no tenía sentido dejarlo como código muerto.
 
-Tests nuevos: `test/use-active-trip-match-alert.test.ts` (siembra sin alertar, match
-nuevo entre polls, `dismiss()`, reset al cambiar de viaje activo, pausa/resume con
-`AppState`), `test/trip-match-alert-banner.test.tsx` (render condicional,
-singular/plural, tap navega y descarta, X descarta sin navegar, auto-dismiss a los
-8s), casos nuevos en `test/transport-screen.test.tsx` (modo filtrado por viaje
-completo), `test/my-trips-screen.test.tsx` (tap de card navega, editar no dispara
-también la navegación), `test/use-push-notifications.test.tsx` (`trip_match` con y
-sin `tripId`, cold start). 89/89 suites, 665/665 tests en `movo-mobile`. `tsc
---noEmit` limpio (el ruido preexistente de `TRIP_NOT_ACTIVE` en `error-messages.ts`
-era un `dist/` desactualizado de `@movo/shared` sin rebuildear — corregido con `npm
-run build` ahí, no es parte del código de este ticket).
+Tests: `test/use-active-trip-match-alert.test.ts` (alerta ya en la primera
+respuesta, excluye `hasMyOffer: true`, desaparece si deja de estar pendiente,
+`dismiss()`/snooze de 5 min, reaparece al "relanzar" — hook remontado de cero —,
+reset del snooze al cambiar de viaje activo, pausa/resume con `AppState`),
+`test/trip-match-alert-banner.test.tsx` (render condicional, singular/plural +
+contador N/M, carrusel con una `AvailableShipmentCard` por match, X/backdrop
+descartan, oculto mientras `pathname` es `/transport/:id`), casos nuevos en
+`test/transport-screen.test.tsx` (modo filtrado por viaje completo),
+`test/my-trips-screen.test.tsx` (tap de card navega, editar no dispara también la
+navegación), `test/use-push-notifications.test.tsx` (`trip_match` con y sin
+`tripId`, cold start), y del carrusel/puntos de página en el propio
+`trip-match-alert-banner.test.tsx`, y un caso nuevo en
+`available-shipment-card.test.tsx` (`interactive={false}` no navega). 89/89 suites,
+674/674 tests en `movo-mobile`. `tsc --noEmit`
+limpio (el ruido preexistente de `TRIP_NOT_ACTIVE` en `error-messages.ts` era un
+`dist/` desactualizado de `@movo/shared` sin rebuildear — corregido con `npm run
+build` ahí, no es parte del código de este ticket).
 
 Pendiente / fuera de alcance: **DoD de prueba manual sin correr todavía** (un viaje
 con matches y uno sin matches, el aviso de AC6 apareciendo en otra pantalla, el
