@@ -145,7 +145,7 @@ describe("usePushNotifications", () => {
       notification: { request: { content: { data: { type: "trip_match", tripId: "trip_1", shipmentId: "shp_1" } } } },
     });
 
-    expect(mockRouterPush).toHaveBeenCalledWith("/(tabs)/transport?tripId=trip_1");
+    expect(mockRouterPush).toHaveBeenCalledWith("/(app)/(tabs)/transport?tripId=trip_1");
   });
 
   it("MOVO-163: un trip_match sin tripId en el payload no navega", async () => {
@@ -173,7 +173,7 @@ describe("usePushNotifications", () => {
     await renderHook(() => usePushNotifications());
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(mockRouterPush).toHaveBeenCalledWith("/(tabs)/transport?tripId=trip_cold");
+    expect(mockRouterPush).toHaveBeenCalledWith("/(app)/(tabs)/transport?tripId=trip_cold");
   });
 
   it("limpia el listener de notificaciones al desmontar", async () => {

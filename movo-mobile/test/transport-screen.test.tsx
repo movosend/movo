@@ -403,6 +403,24 @@ describe("TransportScreen", () => {
       expect(getByText("Verificá tu identidad para transportar")).toBeTruthy();
     });
 
+    it("muestra error con reintentar si falla useTrip, sin depender de useTripMatches (AC2)", async () => {
+      const refetchTrip = jest.fn();
+      mockUseTrip.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: new ApiError(404, "TRIP_NOT_FOUND", "Este viaje no existe."),
+        refetch: refetchTrip,
+      });
+      mockUseTripMatches.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+
+      const { getByTestId, getByText } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-trip-error")).toBeTruthy();
+      fireEvent.press(getByText("Reintentar"));
+      expect(refetchTrip).toHaveBeenCalledTimes(1);
+    });
+
     it("sin radio/origen ni selector manual en este modo", async () => {
       mockUseTrip.mockReturnValue({ data: TRIP_A, isLoading: false });
       mockUseTripMatches.mockReturnValue(baseAvailableResult({ data: pages([availableShipment()]) }));

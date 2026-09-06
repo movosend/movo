@@ -48,8 +48,16 @@ function match(id: string, hasMyOffer = false) {
   return { id, hasMyOffer };
 }
 
-function matchesResult(items: Array<{ id: string; hasMyOffer: boolean }>, refetch = jest.fn()) {
-  return { data: { items, page: 1, limit: 5, total: items.length, tripId: "trip-1", radiusKm: 15 }, refetch };
+function matchesResult(
+  items: Array<{ id: string; hasMyOffer: boolean }>,
+  refetch = jest.fn(),
+  dataUpdatedAt = 0,
+) {
+  return {
+    data: { items, page: 1, limit: 5, total: items.length, tripId: "trip-1", radiusKm: 15 },
+    refetch,
+    dataUpdatedAt,
+  };
 }
 
 describe("useActiveTripMatchAlert", () => {
@@ -64,7 +72,7 @@ describe("useActiveTripMatchAlert", () => {
       return { remove: jest.fn() } as any;
     });
     Object.defineProperty(AppState, "currentState", { value: "active", configurable: true });
-    mockUseQuery.mockReturnValue({ data: undefined, refetch: jest.fn() });
+    mockUseQuery.mockReturnValue({ data: undefined, refetch: jest.fn(), dataUpdatedAt: 0 });
   });
 
   afterEach(() => {
@@ -151,7 +159,14 @@ describe("useActiveTripMatchAlert", () => {
 
   it("tras descartar, el aviso completo queda pospuesto hasta que pase el snooze (5 min)", async () => {
     mockUseMyTrips.mockReturnValue({ data: { items: [trip()], page: 1, limit: 50, total: 1 } });
-    mockUseQuery.mockReturnValue(matchesResult([match("a")]));
+    const refetch = jest.fn();
+    // Misma referencia de `data` en los tres polls (structural sharing real de
+    // TanStack Query: un poll cuyo contenido no cambió conserva el mismo objeto) —
+    // solo `dataUpdatedAt` avanza, como en un poll real. Regresión real: el efecto de
+    // detección dependía únicamente de `matchesQuery.data`, así que con la misma
+    // referencia nunca volvía a evaluarse después del snooze.
+    const stableData = matchesResult([match("a")], refetch, 1_000).data;
+    mockUseQuery.mockReturnValue({ data: stableData, refetch, dataUpdatedAt: 1_000 });
 
     const { result, rerender } = await renderHook(() => useActiveTripMatchAlert());
     await skipStartupDelay();
@@ -160,18 +175,16 @@ describe("useActiveTripMatchAlert", () => {
     });
 
     // Un poll a los 30s, todavía dentro de la ventana de 5 min de snooze: no reaparece.
-    // Nueva referencia de `data` en cada mock (simula un poll real) — el efecto de
-    // detección solo reacciona a cambios de `matchesQuery.data`.
     jest.advanceTimersByTime(30_000);
-    mockUseQuery.mockReturnValue(matchesResult([match("a")]));
+    mockUseQuery.mockReturnValue({ data: stableData, refetch, dataUpdatedAt: 2_000 });
     await rerender({});
     expect(result.current.alert).toBeNull();
 
     // Pasado el snooze completo (5 min desde el dismiss): el mismo envío, todavía
     // pendiente, puede volver a aparecer — pedido explícito del usuario ("que cada
-    // cierto tiempo vuelva a aparecer").
+    // cierto tiempo vuelva a aparecer") — con la MISMA referencia de `data` de antes.
     jest.advanceTimersByTime(5 * 60_000);
-    mockUseQuery.mockReturnValue(matchesResult([match("a")]));
+    mockUseQuery.mockReturnValue({ data: stableData, refetch, dataUpdatedAt: 3_000 });
     await rerender({});
     expect(result.current.alert).toEqual({ tripId: "trip-1", shipments: [match("a")] });
   });

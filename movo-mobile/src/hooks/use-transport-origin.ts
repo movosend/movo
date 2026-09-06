@@ -38,7 +38,7 @@ export interface TransportOrigin {
  */
 export function useTransportOrigin(enabled = true) {
   const { resolveCurrentLocation } = useMyLocation();
-  const addressesQuery = useAddresses();
+  const addressesQuery = useAddresses(enabled);
   const [gpsAttempted, setGpsAttempted] = useState(false);
   const [gpsResult, setGpsResult] = useState<AddressSelection | null>(null);
   const [manualOrigin, setManualOrigin] = useState<TransportOrigin | null>(null);

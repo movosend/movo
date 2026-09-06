@@ -75,7 +75,7 @@ export default function TransportScreen() {
   const [showOfferCreatedSuccess, setShowOfferCreatedSuccess] = useState(offerCreated === "1");
   const { origin, resolving, needsManualPick, setManualSelection } = useTransportOrigin(!tripId);
   const { radiusKm, setRadiusKm } = useTransportRadius();
-  const { data: savedAddresses } = useAddresses();
+  const { data: savedAddresses } = useAddresses(!tripId);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
@@ -84,7 +84,13 @@ export default function TransportScreen() {
     }
   }, [offerCreated]);
 
-  const { data: trip, isLoading: isTripLoading } = useTrip(tripId);
+  const {
+    data: trip,
+    isLoading: isTripLoading,
+    isError: isTripError,
+    error: tripError,
+    refetch: refetchTrip,
+  } = useTrip(tripId);
   const availableQuery = useAvailableShipments(origin, radiusKm);
   const matchesQuery = useTripMatches(tripId);
   const {
@@ -200,6 +206,16 @@ export default function TransportScreen() {
 
       {isInitialLoading ? (
         <TransportListSkeleton />
+      ) : tripId && isTripError ? (
+        <View className="px-5 pt-2">
+          <ErrorBanner
+            testID="transport-trip-error"
+            message={friendlyErrorMessage(tripError, "No pudimos cargar el viaje.")}
+          />
+          <Text onPress={() => refetchTrip()} className="font-sans-medium text-small text-fg">
+            Reintentar
+          </Text>
+        </View>
       ) : isGatedByKyc ? (
         <View className="items-center gap-2 px-8 py-10">
           <ShieldAlert size={22} strokeWidth={1.8} color={colors.fg3} />

@@ -63,7 +63,7 @@ function resolveNotificationRoute(data: unknown): string | null {
 
   if (type === TRIP_MATCH_NOTIFICATION_TYPE) {
     const tripId = (data as { tripId?: unknown }).tripId;
-    return typeof tripId === "string" ? `/(tabs)/transport?tripId=${tripId}` : null;
+    return typeof tripId === "string" ? `/(app)/(tabs)/transport?tripId=${tripId}` : null;
   }
 
   return null;

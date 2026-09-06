@@ -111,7 +111,13 @@ export function useActiveTripMatchAlert() {
     if (Date.now() < dismissedUntilRef.current) return;
 
     setAlert({ tripId: activeTripId, shipments: pending });
-  }, [activeTripId, matchesQuery.data, startupDelayElapsed]);
+    // `matchesQuery.dataUpdatedAt` (no solo `matchesQuery.data`) porque TanStack Query
+    // aplica structural sharing: un poll que devuelve el mismo contenido conserva la
+    // misma referencia de `data`, así que este efecto nunca volvería a correr después
+    // del snooze si solo dependiera de `data` — `dataUpdatedAt` cambia en cada
+    // resolución exitosa, con o sin cambios, y es lo que permite que el aviso
+    // reaparezca pasado `TRIP_MATCH_SNOOZE_MS` con el mismo envío todavía pendiente.
+  }, [activeTripId, matchesQuery.data, matchesQuery.dataUpdatedAt, startupDelayElapsed]);
 
   useEffect(() => {
     if (!activeTripId) return;

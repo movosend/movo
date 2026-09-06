@@ -8,7 +8,7 @@ jest.mock("../src/hooks/use-my-location", () => ({
 
 const mockUseAddresses = jest.fn();
 jest.mock("../src/hooks/use-addresses", () => ({
-  useAddresses: () => mockUseAddresses(),
+  useAddresses: (...args: unknown[]) => mockUseAddresses(...args),
 }));
 
 describe("useTransportOrigin", () => {
@@ -89,5 +89,17 @@ describe("useTransportOrigin", () => {
     });
 
     expect(result.current.origin).toEqual({ lat: -31.5, lng: -64.3, address: "Elegida a mano", source: "map-pin" });
+  });
+
+  it("con enabled=false (feed filtrado por viaje, MOVO-163), no dispara GPS ni habilita la query de direcciones", async () => {
+    mockUseAddresses.mockReturnValue({ data: undefined, isLoading: false });
+
+    const { result } = await renderHook(() => useTransportOrigin(false));
+
+    expect(mockResolveCurrentLocation).not.toHaveBeenCalled();
+    expect(mockUseAddresses).toHaveBeenCalledWith(false);
+    expect(result.current.origin).toBeNull();
+    expect(result.current.resolving).toBe(false);
+    expect(result.current.needsManualPick).toBe(false);
   });
 });
