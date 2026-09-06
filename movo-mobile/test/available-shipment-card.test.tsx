@@ -48,7 +48,9 @@ describe("AvailableShipmentCard", () => {
 
     await fireEvent.press(getByTestId("card"));
 
-    expect(mockRouterPush).toHaveBeenCalledWith("/transport/available-1");
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      "/transport/available-1?pickupDistanceKm=3.2",
+    );
   });
 
   it("muestra la distancia total del viaje en línea recta (Haversine)", async () => {

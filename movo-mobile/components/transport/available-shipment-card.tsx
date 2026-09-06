@@ -45,7 +45,11 @@ export function AvailableShipmentCard({ shipment, testID }: AvailableShipmentCar
   return (
     <Pressable
       testID={testID}
-      onPress={() => router.push(`/transport/${shipment.id}`)}
+      onPress={() =>
+        router.push(
+          `/transport/${shipment.id}?pickupDistanceKm=${shipment.pickupDistanceKm}`,
+        )
+      }
       className="gap-3.5 rounded-[16px] border border-border bg-bg-sub p-4"
     >
       <View className="flex-row items-center justify-between gap-2">

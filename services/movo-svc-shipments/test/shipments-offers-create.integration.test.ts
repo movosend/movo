@@ -203,11 +203,51 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
     expect(second.json().id).not.toBe(first.json().id);
   });
 
-  it("AC5: 422 OFFER_DATE_OUT_OF_RANGE si offeredDate no coincide con la fecha de retiro del envío", async () => {
+  it("AC5: 422 OFFER_DATE_OUT_OF_RANGE si offeredDate es anterior a la fecha de retiro del envío", async () => {
     const shipment = await createPublishedShipment();
-    const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { offeredDate: "2030-01-02" });
+    const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { offeredDate: "2029-12-31" });
     expect(response.statusCode).toBe(422);
     expect(response.json().error.code).toBe("OFFER_DATE_OUT_OF_RANGE");
+  });
+
+  it("422 OFFER_DATE_OUT_OF_RANGE si offeredDate supera el máximo de 3 días después del retiro (MOVO-177)", async () => {
+    const shipment = await createPublishedShipment();
+    const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { offeredDate: "2030-01-05" });
+    expect(response.statusCode).toBe(422);
+    expect(response.json().error.code).toBe("OFFER_DATE_OUT_OF_RANGE");
+  });
+
+  it("MOVO-177: 201 con offeredDate hasta 3 días después del retiro y franja horaria propuesta", async () => {
+    const shipment = await createPublishedShipment();
+    const response = await requestCreateOffer(shipment.id, verifiedCarrierId, {
+      offeredDate: "2030-01-03",
+      offeredPickupTimeWindowStart: "15:00",
+      offeredPickupTimeWindowEnd: "19:00",
+    });
+    expect(response.statusCode).toBe(201);
+    expect(response.json().offeredPickupTimeWindowStart).toBe("15:00");
+    expect(response.json().offeredPickupTimeWindowEnd).toBe("19:00");
+  });
+
+  it("422 VALIDATION_FAILED si solo se manda un extremo de la franja horaria propuesta", async () => {
+    const shipment = await createPublishedShipment();
+    const response = await requestCreateOffer(shipment.id, verifiedCarrierId, {
+      offeredDate: "2030-01-02",
+      offeredPickupTimeWindowStart: "15:00",
+    });
+    expect(response.statusCode).toBe(422);
+    expect(response.json().error.code).toBe("VALIDATION_FAILED");
+  });
+
+  it("422 OFFER_PICKUP_WINDOW_INVALID si la franja horaria propuesta termina antes de empezar", async () => {
+    const shipment = await createPublishedShipment();
+    const response = await requestCreateOffer(shipment.id, verifiedCarrierId, {
+      offeredDate: "2030-01-02",
+      offeredPickupTimeWindowStart: "19:00",
+      offeredPickupTimeWindowEnd: "15:00",
+    });
+    expect(response.statusCode).toBe(422);
+    expect(response.json().error.code).toBe("OFFER_PICKUP_WINDOW_INVALID");
   });
 
   it("AC7: carrierRatingAtOffer queda null si el transportista todavía no tiene calificaciones", async () => {
