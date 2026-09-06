@@ -482,6 +482,67 @@ describe("handshake.service", () => {
       );
     });
 
+    it("410 HANDSHAKE_QR_EXPIRED si el nonce fue invalidado por un /generate concurrente mientras esta confirmación estaba en curso (race de nonce)", async () => {
+      // Regresión del hallazgo de code review (PR #131, tmvergara): entre la lectura
+      // inicial de Redis y el CAS final hay trabajo de latencia variable (red a
+      // svc-users + verificación WebCrypto). Si el cedente invalida este nonce
+      // llamando de nuevo a /generate DURANTE ese lapso (overwrite del mismo key,
+      // AC5), un /confirm en vuelo con el nonce viejo no debe completar la
+      // transición -- el status del envío no cambia con un /generate, así que el CAS
+      // de Postgres no detectaría esta carrera por sí solo.
+      const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED });
+      const redis = createFakeRedis();
+      const { nonce, signature } = await seedPendingChallenge(
+        redis,
+        shipment.id,
+        "pickup",
+        shipment.senderId,
+        -31.42,
+        -64.18
+      );
+      const handshakeRepository = fakeHandshakeRepository();
+      const usersClient = {
+        findPublicProfile: vi.fn(),
+        async findDeviceKey() {
+          // Simula el /generate concurrente que corre mientras esta llamada a
+          // findDeviceKey (parte de la ventana de latencia) todavía está en vuelo.
+          await redis.set(
+            `handshake:pending:${shipment.id}`,
+            JSON.stringify({
+              stage: "pickup",
+              nonce: "nonce-nuevo-del-generate-concurrente",
+              cedenteId: shipment.senderId,
+              cedenteLat: -31.42,
+              cedenteLng: -64.18,
+            }),
+            "PX",
+            15000
+          );
+          return { publicKey: publicKeyB64, registeredAt: new Date().toISOString() };
+        },
+      };
+      const service = createHandshakeService(
+        fakeShipmentRepository({ findById: vi.fn().mockResolvedValue(shipment) }),
+        handshakeRepository,
+        usersClient,
+        redis,
+        createFakeFundsReleaseNotifier()
+      );
+
+      await expect(
+        service.confirmHandshake({
+          shipmentId: shipment.id,
+          callerId: shipment.carrierId as string,
+          nonce,
+          signature,
+          lat: -31.42,
+          lng: -64.18,
+        })
+      ).rejects.toMatchObject({ statusCode: 410, code: "HANDSHAKE_QR_EXPIRED" });
+
+      expect(handshakeRepository.confirmAndPersist).not.toHaveBeenCalled();
+    });
+
     it("409 HANDSHAKE_CEDENTE_KEY_MISSING si el cedente no tiene clave de dispositivo registrada", async () => {
       const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED });
       const redis = createFakeRedis();

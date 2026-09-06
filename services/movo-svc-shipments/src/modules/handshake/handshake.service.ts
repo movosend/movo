@@ -127,7 +127,7 @@ export function createHandshakeService(
 
       const stage = inferHandshakeStage(shipment.status);
       if (stage === "pickup") {
-        assertIsSender(shipment, input.callerId);
+        assertIsSender(shipment, input.callerId, "Solo el emisor del envío puede generar el código de handshake de retiro.");
       } else {
         assertIsCarrier(shipment, input.callerId);
       }
@@ -159,10 +159,15 @@ export function createHandshakeService(
     /**
      * AC2-AC7 de MOVO-158: valida TTL, firma y proximidad GPS; si las tres pasan,
      * transiciona el envío y persiste el evento inmutable (`handshakeRepository
-     * .confirmAndPersist`, atómico). La garantía real de exclusión mutua contra una
-     * confirmación concurrente es el CAS de Postgres dentro de ese método, no la
-     * lectura de Redis de acá (que solo resuelve el caso normal de nonce vencido/
-     * superado, ver `ShipmentConcurrentModificationError`).
+     * .confirmAndPersist`, atómico). La garantía real de exclusión mutua contra dos
+     * confirmaciones concurrentes CON EL MISMO nonce es el CAS de Postgres dentro de
+     * ese método (`ShipmentConcurrentModificationError`). Eso NO cubre el caso de un
+     * nonce que el cedente invalidó a mitad de la request (llamando de nuevo a
+     * `/generate` mientras esta confirmación seguía en curso, resolviendo
+     * `findDeviceKey`/verificando la firma) -- el status del envío no cambia con un
+     * `/generate`, así que el CAS no lo detectaría. Por eso, justo antes de armar
+     * `from`/`to` para el CAS, se relee Redis y se revalida que el nonce siga siendo
+     * el vigente (410 si no) -- ver el comentario puntual en el cuerpo del método.
      *
      * El `stage` se toma del desafío pendiente (fijado al momento de `/generate`),
      * NUNCA de una relectura de `shipment.status` acá -- hallazgo real corriendo el
@@ -201,7 +206,7 @@ export function createHandshakeService(
       if (stage === "pickup") {
         assertIsCarrier(shipment, input.callerId);
       } else {
-        assertIsReceiver(shipment, input.callerId);
+        assertIsReceiver(shipment, input.callerId, "Solo el receptor designado puede confirmar el handshake de entrega.");
       }
 
       const deviceKey = await usersClient.findDeviceKey(pending.cedenteId);
@@ -228,6 +233,23 @@ export function createHandshakeService(
           "HANDSHAKE_DISTANCE_EXCEEDED",
           `Estás a ${Math.round(distanceM)}m de quien generó el código -- tenés que estar a ` +
             `${HANDSHAKE_MAX_DISTANCE_METERS}m o menos.`
+        );
+      }
+
+      // Re-chequeo de nonce vigente justo antes del CAS: entre la lectura de Redis de
+      // arriba y este punto pasó trabajo de latencia variable (red a `svc-users` +
+      // verificación WebCrypto) durante el cual el cedente pudo invalidar este nonce
+      // llamando de nuevo a `/generate` (nonce nuevo pisa al viejo por overwrite,
+      // AC5). Sin este chequeo, esta llamada en vuelo con el nonce viejo terminaría
+      // igual transicionando el envío -- el status no cambió, así que el CAS de
+      // Postgres de más abajo no lo hubiera detectado.
+      const stillPendingRaw = await redis.get(key);
+      const stillPending = stillPendingRaw ? (JSON.parse(stillPendingRaw) as PendingHandshakeChallenge) : null;
+      if (!stillPending || stillPending.nonce !== pending.nonce) {
+        throw new ApiError(
+          410,
+          "HANDSHAKE_QR_EXPIRED",
+          "El código QR venció o ya no es válido -- pedile a quien lo generó que cree uno nuevo."
         );
       }
 

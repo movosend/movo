@@ -1,6 +1,5 @@
 import { webcrypto } from "node:crypto";
-
-export type HandshakeStage = "pickup" | "delivery";
+import { HandshakeStage } from "../models/handshake";
 
 /**
  * TTL del QR dinámico (AC1/AC5 de MOVO-158) — el cedente puede pedir uno nuevo en
@@ -25,8 +24,7 @@ export function buildHandshakeCanonicalPayload(shipmentId: string, stage: Handsh
  * MOVO-157 acepta tanto base64 estándar como base64url (`^[A-Za-z0-9+/_-]+=*$`) para
  * `publicKey` -- normaliza a base64 estándar antes de decodificar, así la firma/clave
  * llegan en cualquiera de los dos formatos sin que el caller tenga que adivinar cuál.
- */
-/**
+ *
  * Devuelve un `ArrayBuffer` propio (no una vista sobre el buffer interno de Node) --
  * `BufferSource` de los tipos DOM que usa WebCrypto exige `ArrayBuffer`, y un
  * `Buffer` tipa como `Uint8Array<ArrayBufferLike>` (podría ser un `SharedArrayBuffer`
