@@ -18,12 +18,23 @@ jest.mock("expo-router", () => ({
 
 const mockUseTrip = jest.fn();
 const mockUseTripMatches = jest.fn();
+const mockUseMyTrips = jest.fn();
 jest.mock("../src/hooks/use-trips", () => {
   const actual = jest.requireActual("../src/hooks/use-trips");
   return {
     ...actual,
     useTrip: (...args: unknown[]) => mockUseTrip(...args),
     useTripMatches: (...args: unknown[]) => mockUseTripMatches(...args),
+    useMyTrips: (...args: unknown[]) => mockUseMyTrips(...args),
+  };
+});
+
+const mockUseMyOffers = jest.fn();
+jest.mock("../src/hooks/use-offers", () => {
+  const actual = jest.requireActual("../src/hooks/use-offers");
+  return {
+    ...actual,
+    useMyOffers: (...args: unknown[]) => mockUseMyOffers(...args),
   };
 });
 
@@ -150,6 +161,10 @@ describe("TransportScreen", () => {
     // Modo genérico por default — los tests de modo viaje pisan esto con `tripId`.
     mockUseTrip.mockReturnValue({ data: undefined, isLoading: false });
     mockUseTripMatches.mockReturnValue(baseAvailableResult());
+    // Sin viajes/ofertas por default — sin esto no hay "on-trip" que mergear ni
+    // contadores que mostrar en los accesos (MOVO-183).
+    mockUseMyTrips.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 } });
+    mockUseMyOffers.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 } });
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -180,7 +195,7 @@ describe("TransportScreen", () => {
 
     const { getByText, getByTestId } = await render(<TransportScreen />);
 
-    expect(getByText("No hay envíos disponibles en este radio.")).toBeTruthy();
+    expect(getByText("Todo tranquilo en 50 km")).toBeTruthy();
     expect(getByTestId("transport-expand-radius")).toBeTruthy();
   });
 
@@ -280,7 +295,7 @@ describe("TransportScreen", () => {
     const { queryByText } = await render(<TransportScreen />);
 
     expect(fetchNextPage).toHaveBeenCalled();
-    expect(queryByText("No hay envíos disponibles en este radio.")).toBeNull();
+    expect(queryByText("Todo tranquilo en 50 km")).toBeNull();
   });
 
   it("una página entera vencida sin más páginas disponibles cae al estado vacío, sin cascadear", async () => {
@@ -297,7 +312,7 @@ describe("TransportScreen", () => {
     const { getByText } = await render(<TransportScreen />);
 
     expect(fetchNextPage).not.toHaveBeenCalled();
-    expect(getByText("No hay envíos disponibles en este radio.")).toBeTruthy();
+    expect(getByText("Todo tranquilo en 50 km")).toBeTruthy();
   });
 
   it("marca los envíos donde ya ofertó sin ocultarlos", async () => {
@@ -322,8 +337,8 @@ describe("TransportScreen", () => {
 
     const { getByText, queryByText } = await render(<TransportScreen />);
 
-    expect(getByText("Envíos cerca de Córdoba")).toBeTruthy();
-    expect(queryByText("Envíos cerca de Juan Del Campillo 367")).toBeNull();
+    expect(getByText("Córdoba")).toBeTruthy();
+    expect(queryByText("Juan Del Campillo 367")).toBeNull();
   });
 
   it("cambiar el radio dispara una nueva consulta con el radio nuevo", async () => {
@@ -415,7 +430,177 @@ describe("TransportScreen", () => {
       const { queryByTestId } = await render(<TransportScreen />);
 
       expect(queryByTestId("transport-radius-50")).toBeNull();
-      expect(queryByTestId("transport-zone-label")).toBeNull();
+      expect(queryByTestId("transport-zone-chip")).toBeNull();
+    });
+  });
+
+  describe("rediseño MOVO-183", () => {
+    it("muestra los accesos con contador de Mis viajes y Mis ofertas", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+      mockUseMyTrips.mockReturnValue({
+        data: { items: [TRIP_A, { ...TRIP_A, id: "trip-2", status: TripStatus.COMPLETED }], page: 1, limit: 50, total: 2 },
+      });
+      mockUseMyOffers.mockReturnValue({
+        data: {
+          items: [
+            { id: "o1", status: "pending" },
+            { id: "o2", status: "accepted" },
+          ],
+          page: 1,
+          limit: 50,
+          total: 2,
+        },
+      });
+
+      const { getByText, getByTestId } = await render(<TransportScreen />);
+
+      expect(getByText("1 activo · 2 declarados")).toBeTruthy();
+      expect(getByText("1 pendiente · 1 aceptada")).toBeTruthy();
+      // Punto de atención (lime) solo cuando hay al menos una oferta aceptada.
+      expect(getByTestId("transport-my-offers-attention-dot")).toBeTruthy();
+    });
+
+    it("el acceso 'Mis ofertas' navega a /carrier/offers", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+
+      const { getByTestId } = await render(<TransportScreen />);
+
+      fireEvent.press(getByTestId("transport-my-offers-cta"));
+
+      expect(mockRouterPush).toHaveBeenCalledWith("/carrier/offers");
+    });
+
+    it("el chip de zona abre el mismo selector de dirección que antes usaba 'Cambiar'", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+
+      const { getByTestId } = await render(<TransportScreen />);
+
+      await fireEvent.press(getByTestId("transport-zone-chip"));
+
+      expect(getByTestId("transport-address-picker-stub-select")).toBeTruthy();
+    });
+
+    it("filtra por tipo de paquete desde la hoja de filtros", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(
+        baseAvailableResult({
+          data: pages([
+            availableShipment({ id: "doc", packageType: "letter_document" }),
+            availableShipment({ id: "std", packageType: "standard_package" }),
+          ]),
+        }),
+      );
+
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-card-doc")).toBeTruthy();
+      expect(getByTestId("transport-card-std")).toBeTruthy();
+
+      await fireEvent.press(getByTestId("transport-open-filters"));
+      await fireEvent.press(getByTestId("transport-filters-type-letter_document"));
+      await fireEvent.press(getByTestId("transport-filters-apply"));
+
+      expect(getByTestId("transport-card-doc")).toBeTruthy();
+      expect(queryByTestId("transport-card-std")).toBeNull();
+      expect(getByTestId("transport-filter-count-badge")).toBeTruthy();
+    });
+
+    it("oculta los envíos ya ofertados con el toggle de la hoja de filtros", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(
+        baseAvailableResult({
+          data: pages([
+            availableShipment({ id: "offered", hasMyOffer: true }),
+            availableShipment({ id: "not-offered", hasMyOffer: false }),
+          ]),
+        }),
+      );
+
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-card-offered")).toBeTruthy();
+      expect(getByTestId("transport-card-not-offered")).toBeTruthy();
+
+      await fireEvent.press(getByTestId("transport-open-filters"));
+      await fireEvent.press(getByTestId("transport-filters-hide-offered"));
+      await fireEvent.press(getByTestId("transport-filters-apply"));
+
+      expect(queryByTestId("transport-card-offered")).toBeNull();
+      expect(getByTestId("transport-card-not-offered")).toBeTruthy();
+      expect(getByTestId("transport-filter-count-badge")).toBeTruthy();
+    });
+
+    it("fusiona el desvío de un viaje activo declarado en la card (aproximación client-side)", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      // Envío cuyo retiro está prácticamente sobre el origen del viaje declarado —
+      // desvío ~0, bien por debajo de ON_TRIP_MAX_DETOUR_KM.
+      mockUseAvailableShipments.mockReturnValue(
+        baseAvailableResult({
+          data: pages([availableShipment({ id: "on-trip", pickupLat: TRIP_A.originLat, pickupLng: TRIP_A.originLng })]),
+        }),
+      );
+      mockUseMyTrips.mockReturnValue({ data: { items: [TRIP_A], page: 1, limit: 50, total: 1 } });
+
+      const { getByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-card-on-trip-detour")).toBeTruthy();
+    });
+
+    it("muestra el conteo de resultados y ordena por desvío/pago/próximo al ciclar", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(
+        baseAvailableResult({
+          data: pages([
+            availableShipment({ id: "cheap", suggestedPriceArs: 1000, pickupDate: "2026-09-20" }),
+            availableShipment({ id: "pricey", suggestedPriceArs: 9000, pickupDate: "2026-09-11" }),
+          ]),
+        }),
+      );
+
+      const { getByText, getByTestId } = await render(<TransportScreen />);
+
+      expect(getByText("2 envíos en 50 km")).toBeTruthy();
+      expect(getByText("Menos desvío")).toBeTruthy();
+
+      await fireEvent.press(getByTestId("transport-sort-cycle"));
+      expect(getByText("Mejor pago")).toBeTruthy();
+
+      await fireEvent.press(getByTestId("transport-sort-cycle"));
+      expect(getByText("Más próximo")).toBeTruthy();
+
+      await fireEvent.press(getByTestId("transport-sort-cycle"));
+      expect(getByText("Menos desvío")).toBeTruthy();
+    });
+
+    it("sin resultados, no muestra la fila de conteo/orden", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+
+      const { queryByTestId } = await render(<TransportScreen />);
+
+      expect(queryByTestId("transport-results-label")).toBeNull();
+    });
+
+    it("estado vacío con filtros: copy y botón 'Limpiar filtros'", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(
+        baseAvailableResult({ data: pages([availableShipment({ id: "std", packageType: "standard_package" })]) }),
+      );
+
+      const { getByTestId, getByText } = await render(<TransportScreen />);
+
+      await fireEvent.press(getByTestId("transport-open-filters"));
+      await fireEvent.press(getByTestId("transport-filters-type-letter_document"));
+      await fireEvent.press(getByTestId("transport-filters-apply"));
+
+      expect(getByText("Nada con estos filtros")).toBeTruthy();
+      expect(getByText("Con los filtros que pusiste no hay nada. Probá sacando alguno o mirá más lejos.")).toBeTruthy();
+
+      await fireEvent.press(getByTestId("transport-clear-filters"));
+      expect(getByTestId("transport-card-std")).toBeTruthy();
     });
   });
 });

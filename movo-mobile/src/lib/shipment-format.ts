@@ -327,6 +327,50 @@ export function formatTripDistanceKm(distanceKm: number): string {
   return `~${distanceKm.toFixed(1)} km`;
 }
 
+/** Ruta declarada de un viaje propio (`origin`/`destination`), lo mínimo que necesita
+ * `computeOnTripDetour` — no el `Trip`/`TripWithAcceptedPackages` completo, para poder
+ * testear la geometría sin construir un fixture con todos los campos del modelo. */
+export interface TripRoute {
+  originLat: number;
+  originLng: number;
+  destinationLat: number;
+  destinationLng: number;
+}
+
+/**
+ * "¿Este envío me queda de paso en alguno de mis viajes declarados?" (MOVO-183,
+ * prototipo de Claude Design) — sin un endpoint de backend que cruce el feed general
+ * de disponibles contra los viajes activos (a diferencia de `GET /trips/:id/matches`,
+ * que sí hace ese cruce pero para UN solo viaje a la vez), esto es una aproximación
+ * 100% client-side sobre datos que la pantalla ya tiene cargados (`useMyTrips` +
+ * `useAvailableShipments`).
+ *
+ * "Desvío" se define como el km de MÁS que hay que recorrer por desviarse a buscar el
+ * paquete, no la distancia perpendicular a la línea recta del viaje: `(origen→retiro)
+ * + (retiro→destino) − (origen→destino)`. Es la misma unidad que el copy le promete al
+ * usuario ("+0,8 km de desvío" — cuánto más largo se hace SU viaje, no qué tan lejos
+ * está el punto de la recta ideal) y por construcción es siempre `>= 0` (desigualdad
+ * triangular). Devuelve el viaje con el desvío MENOR entre todos los recibidos (el que
+ * más "de paso" le queda), o `null` si ninguno entra dentro de `maxDetourKm`.
+ */
+export function computeOnTripDetour<T extends TripRoute>(
+  shipment: { pickupLat: number; pickupLng: number },
+  trips: T[],
+  maxDetourKm: number,
+): { trip: T; detourKm: number } | null {
+  let best: { trip: T; detourKm: number } | null = null;
+  for (const trip of trips) {
+    const direct = haversineDistanceKm(trip.originLat, trip.originLng, trip.destinationLat, trip.destinationLng);
+    const viaPickup =
+      haversineDistanceKm(trip.originLat, trip.originLng, shipment.pickupLat, shipment.pickupLng) +
+      haversineDistanceKm(shipment.pickupLat, shipment.pickupLng, trip.destinationLat, trip.destinationLng);
+    const detourKm = Math.max(0, viaPickup - direct);
+    if (detourKm > maxDetourKm) continue;
+    if (!best || detourKm < best.detourKm) best = { trip, detourKm };
+  }
+  return best;
+}
+
 /** Distancia real por calle (`GET /shipments/route`, MOVO-123 — Google Routes API,
  * método `Compute Routes`) en metros, formateada en km. Sin el `~` de
  * `formatTripDistanceKm`: esta sí es una medición real, no una aproximación. */
