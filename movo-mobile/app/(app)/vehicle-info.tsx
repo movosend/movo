@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { ChevronLeft, WifiOff } from "lucide-react-native";
+import { ChevronLeft } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -18,12 +18,15 @@ import { friendlyErrorMessage } from "../../src/lib/error-messages";
  * implementar — el submit va a fallar contra un endpoint que hoy no existe, ver
  * esa issue para el contrato propuesto). Formulario atómico con botón Guardar
  * (no guardado al blur como `edit.tsx`): las 4 piezas del vehículo solo tienen
- * sentido juntas, no una a una.
+ * sentido juntas, no una a una. El error de `GET /users/me/vehicle` no bloquea
+ * la pantalla (mismo criterio que usage-stats-grid/vehicle-card/
+ * mutual-connections-row, MOVO-176): se ignora y se muestra el formulario
+ * vacío, solo el submit puede mostrar un error real.
  */
 export default function VehicleInfoScreen() {
   const colors = useThemeColors();
   const { scrollRef, onScroll } = useKeyboardScroll();
-  const { data: vehicle, isLoading, isError, refetch } = useMyVehicle();
+  const { data: vehicle, isLoading } = useMyVehicle();
   const upsertVehicle = useUpsertVehicle({
     onSuccess: () => setSuccessMessage("Guardamos tu vehículo."),
   });
@@ -79,94 +82,78 @@ export default function VehicleInfoScreen() {
         <Text className="font-sans-semibold text-h3 text-fg">Ficha de vehículo</Text>
       </View>
 
-      {isError ? (
-        <View className="flex-1 items-center justify-center gap-2 px-8">
-          <WifiOff size={22} strokeWidth={1.8} color={colors.fg3} />
-          <Text className="text-center font-sans text-body text-fg-2">
-            No pudimos cargar tu vehículo.
-          </Text>
-          <Text
-            testID="vehicle-info-retry"
-            onPress={() => refetch()}
-            className="font-sans-medium text-small text-fg"
-          >
-            Reintentar
-          </Text>
-        </View>
-      ) : (
-        <KeyboardAvoidingView
-          className="flex-1"
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 16 : 0}
+      <KeyboardAvoidingView
+        className="flex-1"
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 16 : 0}
+      >
+        <ScrollView
+          ref={scrollRef}
+          testID="vehicle-info-content"
+          className="flex-1 px-5"
+          contentContainerClassName="pb-8 pt-2"
+          keyboardShouldPersistTaps="handled"
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={false}
         >
-          <ScrollView
-            ref={scrollRef}
-            testID="vehicle-info-content"
-            className="flex-1 px-5"
-            contentContainerClassName="pb-8 pt-2"
-            keyboardShouldPersistTaps="handled"
-            onScroll={onScroll}
-            scrollEventThrottle={16}
-            showsVerticalScrollIndicator={false}
-          >
-            <SuccessBanner
-              testID="vehicle-info-success"
-              message={successMessage}
-              onDismiss={() => setSuccessMessage(null)}
-            />
-            <ErrorBanner testID="vehicle-info-error" message={errorMessage} />
-
-            <Text className="mb-4 font-sans text-[13px] leading-[18px] text-fg-3">
-              Esta ficha se muestra en tu perfil público: quien recibe su paquete
-              puede verificar el vehículo antes de entregártelo.
-            </Text>
-
-            <TextField
-              testID="vehicle-info-brand"
-              label="Marca"
-              placeholder="Ej: Renault"
-              value={brand}
-              onChangeText={setBrand}
-              autoCapitalize="words"
-              maxLength={40}
-            />
-            <TextField
-              testID="vehicle-info-model"
-              label="Modelo"
-              placeholder="Ej: Sandero blanco"
-              value={model}
-              onChangeText={setModel}
-              autoCapitalize="words"
-              maxLength={40}
-            />
-            <TextField
-              testID="vehicle-info-cargo-capacity"
-              label="Capacidad de carga"
-              placeholder="Ej: Baúl mediano · hasta 15 kg"
-              value={cargoCapacityLabel}
-              onChangeText={setCargoCapacityLabel}
-              maxLength={60}
-            />
-            <TextField
-              testID="vehicle-info-license-plate"
-              label="Patente"
-              placeholder="Ej: AB 123 CD"
-              value={licensePlate}
-              onChangeText={setLicensePlate}
-              autoCapitalize="characters"
-              maxLength={10}
-            />
-          </ScrollView>
-
-          <PrimaryButton
-            testID="vehicle-info-submit"
-            label="Guardar vehículo"
-            onPress={() => void handleSubmit()}
-            disabled={!canSubmit}
-            loading={upsertVehicle.isPending}
+          <SuccessBanner
+            testID="vehicle-info-success"
+            message={successMessage}
+            onDismiss={() => setSuccessMessage(null)}
           />
-        </KeyboardAvoidingView>
-      )}
+          <ErrorBanner testID="vehicle-info-error" message={errorMessage} />
+
+          <Text className="mb-4 font-sans text-[13px] leading-[18px] text-fg-3">
+            Esta ficha se muestra en tu perfil público: quien recibe su paquete
+            puede verificar el vehículo antes de entregártelo.
+          </Text>
+
+          <TextField
+            testID="vehicle-info-brand"
+            label="Marca"
+            placeholder="Ej: Renault"
+            value={brand}
+            onChangeText={setBrand}
+            autoCapitalize="words"
+            maxLength={40}
+          />
+          <TextField
+            testID="vehicle-info-model"
+            label="Modelo"
+            placeholder="Ej: Sandero blanco"
+            value={model}
+            onChangeText={setModel}
+            autoCapitalize="words"
+            maxLength={40}
+          />
+          <TextField
+            testID="vehicle-info-cargo-capacity"
+            label="Capacidad de carga"
+            placeholder="Ej: Baúl mediano · hasta 15 kg"
+            value={cargoCapacityLabel}
+            onChangeText={setCargoCapacityLabel}
+            maxLength={60}
+          />
+          <TextField
+            testID="vehicle-info-license-plate"
+            label="Patente"
+            placeholder="Ej: AB 123 CD"
+            value={licensePlate}
+            onChangeText={setLicensePlate}
+            autoCapitalize="characters"
+            maxLength={10}
+          />
+        </ScrollView>
+
+        <PrimaryButton
+          testID="vehicle-info-submit"
+          label="Guardar vehículo"
+          onPress={() => void handleSubmit()}
+          disabled={!canSubmit}
+          loading={upsertVehicle.isPending}
+        />
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { Check, ChevronLeft, ShieldCheck } from "lucide-react-native";
 import { useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MutualConnectionsRow } from "../../../components/profile/mutual-connections-row";
 import { ProfileActionsMenu } from "../../../components/profile/profile-actions-menu";
@@ -108,13 +108,14 @@ export default function PublicProfileScreen() {
     return (
       <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
         <View className="flex-row items-center gap-3 px-5 pb-3.5 pt-1.5">
-          <View
+          <Pressable
             testID="profile-detail-back"
-            onTouchEnd={handleBack}
+            onPress={handleBack}
+            accessibilityRole="button"
             className="h-8 w-8 items-center justify-center rounded-full bg-bg-mute"
           >
             <ChevronLeft size={18} color={colors.fg1} strokeWidth={2} />
-          </View>
+          </Pressable>
         </View>
         <View className="flex-1 items-center justify-center px-8">
           <Text
@@ -136,13 +137,14 @@ export default function PublicProfileScreen() {
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
       <View className="flex-row items-center gap-3 px-5 pb-3.5 pt-1.5">
-        <View
+        <Pressable
           testID="profile-detail-back"
-          onTouchEnd={handleBack}
+          onPress={handleBack}
+          accessibilityRole="button"
           className="h-8 w-8 items-center justify-center rounded-full bg-bg-mute"
         >
           <ChevronLeft size={18} color={colors.fg1} strokeWidth={2} />
-        </View>
+        </Pressable>
         <Text
           className="flex-1 text-center font-sans-semibold text-h3 text-fg"
           numberOfLines={1}

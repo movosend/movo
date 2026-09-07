@@ -78,13 +78,12 @@ describe("VehicleInfoScreen (MOVO-172, todavía sin backend real)", () => {
     expect(getByTestId("vehicle-info-license-plate").props.value).toBe("AB123CD");
   });
 
-  it("muestra el estado de error con reintentar", async () => {
-    const refetch = jest.fn();
-    mockUseMyVehicle.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch });
+  it("muestra el formulario vacío en vez de bloquear la pantalla si el GET falla (endpoint MOVO-172 sin backend real)", async () => {
+    mockUseMyVehicle.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch: jest.fn() });
 
     const { getByTestId } = await render(<VehicleInfoScreen />);
-    fireEvent.press(getByTestId("vehicle-info-retry"));
 
-    expect(refetch).toHaveBeenCalled();
+    expect(getByTestId("vehicle-info-content")).toBeTruthy();
+    expect(getByTestId("vehicle-info-submit").props.accessibilityState.disabled).toBe(true);
   });
 });
