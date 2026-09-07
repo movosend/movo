@@ -17,6 +17,9 @@ describe("GET /shipments/:id (Postgres)", () => {
   // y uno sin verificar, reusados en los tests de apertura de descubrimiento.
   const verifiedCarrierId = randomUUID();
   const unverifiedCarrierId = randomUUID();
+  // MOVO-180 (adelantado): un segundo transportista verificado para ofertar sin ser
+  // el mismo que después consulta el agregado de "ofertas actuales".
+  const otherVerifiedCarrierId = randomUUID();
 
   const baseInput: CreateShipmentInput = {
     senderId,
@@ -47,6 +50,7 @@ describe("GET /shipments/:id (Postgres)", () => {
       usersClient: createFakeUsersClient({
         [verifiedCarrierId]: fakePublicProfile({ id: verifiedCarrierId, isVerified: true }),
         [unverifiedCarrierId]: fakePublicProfile({ id: unverifiedCarrierId, isVerified: false }),
+        [otherVerifiedCarrierId]: fakePublicProfile({ id: otherVerifiedCarrierId, isVerified: true }),
       }),
     });
     await app.ready();
@@ -136,6 +140,32 @@ describe("GET /shipments/:id (Postgres)", () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json().id).toBe(shipment.id);
+      // Sin ofertas todavía -- MOVO-180 (adelantado).
+      expect(response.json().offersSummary).toBeNull();
+    });
+
+    it("MOVO-180: expone el agregado de ofertas vigentes (conteo + neto mínimo, sin identidad)", async () => {
+      const shipment = await repo.create(baseInput);
+      await addTwoCreationPhotos(shipment.id);
+      await repo.updateStatus(shipment.id, ShipmentStatus.PUBLISHED, receiverId);
+
+      await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/offers`,
+        headers: { "x-user-id": otherVerifiedCarrierId, "x-user-roles": "carrier" },
+        payload: { priceOfferedArs: 2000, offeredDate: "2030-01-01" },
+      });
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipment.id}`,
+        headers: { "x-user-id": verifiedCarrierId, "x-user-roles": "carrier" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().offersSummary).toEqual({ count: 1, minPriceNetArs: 2000 });
+      // El agregado nunca expone quién ofertó.
+      expect(JSON.stringify(response.json().offersSummary)).not.toContain(otherVerifiedCarrierId);
     });
 
     it("un transportista verificado NO ve un envío assignment_pending ajeno (403 se mantiene)", async () => {

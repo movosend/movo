@@ -56,7 +56,14 @@ export function AvailableShipmentCard({ shipment, testID, bare = false, interact
   return (
     <Pressable
       testID={testID}
-      onPress={interactive ? () => router.push(`/transport/${shipment.id}`) : undefined}
+      onPress={
+        interactive
+          ? () =>
+              router.push(
+                `/transport/${shipment.id}?pickupDistanceKm=${shipment.pickupDistanceKm}`,
+              )
+          : undefined
+      }
       disabled={!interactive}
       className={`gap-3.5 rounded-[16px] p-4 ${bare ? "" : "border border-border bg-bg-sub"}`}
     >

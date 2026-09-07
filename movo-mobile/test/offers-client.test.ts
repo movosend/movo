@@ -20,6 +20,8 @@ describe("offersClient", () => {
     carrierId: "carrier-1",
     priceOffered: 15000,
     offeredDate: "2026-09-01T10:00:00.000Z",
+    offeredPickupTimeWindowStart: null,
+    offeredPickupTimeWindowEnd: null,
     message: "Llego en horario",
     carrierRatingAtOffer: 4.8,
     carrierNameAtOffer: "Carlos Transportista",

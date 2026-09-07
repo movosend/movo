@@ -9,7 +9,6 @@ import { AddressSearchSheet } from "../../../components/send/address-search-shee
 import { AvailableShipmentCard } from "../../../components/transport/available-shipment-card";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { SkeletonBlock as Block } from "../../../components/ui/skeleton-block";
-import { SuccessBanner } from "../../../components/ui/success-banner";
 import { useAddresses } from "../../../src/hooks/use-addresses";
 import { TRANSPORT_RADIUS_OPTIONS_KM, useAvailableShipments } from "../../../src/hooks/use-shipments";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
@@ -71,22 +70,15 @@ function RadiusPillRow({
  */
 export default function TransportScreen() {
   const colors = useThemeColors();
-  const { offerCreated, tripId } = useLocalSearchParams<{ offerCreated?: string; tripId?: string }>();
+  const { tripId } = useLocalSearchParams<{ tripId?: string }>();
   // Único punto que deriva el modo de `tripId` — el resto de los flags (isReady,
   // isInitialLoading, canExpandRadius, showOriginSkeleton, JSX) lo consumen a él en
   // vez de re-chequear `tripId`/`!tripId` cada uno por su cuenta.
   const isTripMode = Boolean(tripId);
-  const [showOfferCreatedSuccess, setShowOfferCreatedSuccess] = useState(offerCreated === "1");
   const { origin, resolving, needsManualPick, setManualSelection } = useTransportOrigin(!isTripMode);
   const { radiusKm, setRadiusKm } = useTransportRadius();
   const { data: savedAddresses } = useAddresses(!isTripMode);
   const [pickerOpen, setPickerOpen] = useState(false);
-
-  useEffect(() => {
-    if (offerCreated === "1") {
-      setShowOfferCreatedSuccess(true);
-    }
-  }, [offerCreated]);
 
   const {
     data: trip,
@@ -195,16 +187,6 @@ export default function TransportScreen() {
           </View>
         ) : null}
       </View>
-
-      {showOfferCreatedSuccess ? (
-        <View className="px-5 pt-2">
-          <SuccessBanner
-            testID="transport-offer-created-success"
-            message="¡Oferta enviada! Ya podés verla reflejada en el envío."
-            onDismiss={() => setShowOfferCreatedSuccess(false)}
-          />
-        </View>
-      ) : null}
 
       {!isTripMode && origin ? <RadiusPillRow radiusKm={radiusKm} onChange={setRadiusKm} /> : null}
 

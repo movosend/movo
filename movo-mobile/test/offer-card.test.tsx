@@ -10,6 +10,8 @@ describe("OfferCard", () => {
     carrierId: "carrier-789",
     priceOffered: 15000,
     offeredDate: "2026-09-01T10:00:00.000Z",
+    offeredPickupTimeWindowStart: null,
+    offeredPickupTimeWindowEnd: null,
     message: "Puedo retirar mañana por la mañana.",
     carrierRatingAtOffer: null,
     carrierNameAtOffer: "Rodrigo Transportista",

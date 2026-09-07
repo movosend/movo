@@ -38,6 +38,10 @@ export interface ShipmentSummary {
   receiverConfirmationDeadline?: string | null;
   createdAt: string;
   updatedAt: string;
+  /** MOVO-180 (adelantado): solo presente en `GET /shipments/:id` cuando el caller es
+   * un transportista ajeno viendo un envío `published` — agregado de ofertas vigentes
+   * sin identidad de los competidores, `null` si no hay ninguna. */
+  offersSummary?: { count: number; minPriceNetArs: number } | null;
 }
 
 export interface ListMineResponse {

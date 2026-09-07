@@ -871,6 +871,314 @@ lado mobile); probado contra `svc-users` real de punta a punta con
 `SMS_PROVIDER=console`/`EMAIL_PROVIDER=console` queda para QA manual, no verificable
 en este entorno.
 
+### MOVO-177 — Rediseño de creación de oferta del transportista: pantalla completa, desglose en tiempo real, fecha/horario alternativo (`movo-mobile`)
+
+Implementación sobre un mockup de Claude Design ("Transportista - Envío y Oferta")
+que resuelve los 3 puntos que dejó abiertos el ticket de planificación homónimo
+(surgido de probar MOVO-149 en dispositivo).
+
+- **`CreateOfferSheet` (bottom sheet) reemplazada por pantalla completa**
+  (`app/(app)/transport/[id]/offer.tsx`, ruta hermana de `transport/[id].tsx` — mismo
+  patrón de convivencia `[id].tsx` + `[id]/algo.tsx` que ya usa `shipments/[id]`):
+  ofertar es una transacción de plata real entre dos partes, no una confirmación
+  puntual como cancelar/rechazar. Monto ingresado con un numpad propio (no el teclado
+  nativo), chips rápidos (Sugerido/−10%/+10%) y comparación visual contra el precio
+  sugerido.
+- **Desglose neto/comisión/bruto en tiempo real mientras se tipea**, importando
+  `computeOfferGrossPrice`/`getCommissionConfig` directo de
+  `@movo/shared/dist/config/commission` — la propuesta que evaluó el propio ticket de
+  planificación (bruto = neto de una función pura, misma tasa que ya usa el backend)
+  en vez de duplicar `MOVO_COMMISSION_RATE` a mano en mobile. El monto final que
+  persiste sigue siendo el que devuelve la respuesta del servidor, este es solo un
+  preview.
+- **Línea de "Procesamiento del pago" mostrada como estimado, nunca restada de "Te
+  queda"**: `MP_TRANSACTION_FEE_RATE` sigue sin confirmar y `movo-svc-payments` no
+  tiene split real todavía — el transportista de hecho recibe el neto completo que
+  tipeó, así que "Te queda" es exactamente ese número, con una nota aclarando que el
+  estimado de MP es solo contexto.
+- **Fecha/horario de retiro alternativo** (bloqueado hasta el cambio de backend del
+  mismo ticket, ver `services/movo-svc-shipments/CLAUDE.md` MOVO-177): "Como lo pidió
+  el emisor" (default) vs. "Proponer otro día u horario" — day chips (0 a +3 días) +
+  4 franjas fijas (`08:00–12:00`/`12:00–15:00`/`15:00–19:00`/`19:00–22:00`), enviados
+  como `offeredPickupTimeWindowStart/End` solo en el segundo modo.
+- **Entrega estimada (día/franja) construida solo en el cliente, sin backend
+  todavía**: sección completa e interactiva ("A qué hora entregás (estimado)"), pero
+  los valores NO viajan en el body de `POST /shipments/:id/offers` — el schema del
+  backend (`additionalProperties: false`) los rechazaría con 400 si se mandaran. El
+  contrato propuesto para dejar de ser un preview local quedó documentado en
+  **MOVO-180** (Urgent, mismo ciclo que MOVO-177).
+- **`transport/[id].tsx` (detalle del envío, vista transportista)**: la card lima de
+  "Costo aproximado" se reemplazó por la card oscura del mockup ("Te queda si ofertás
+  el sugerido", mismo `computeOfferGrossPrice` que la pantalla de oferta) + `$/km`
+  sobre la distancia real de la ruta. El CTA "Hacer una oferta" pasa de abrir un sheet
+  a `router.push` a la pantalla nueva.
+- **"Ofertas actuales" (conteo + mínimo) del mockup, omitida a propósito**: requiere
+  un endpoint nuevo (`GET /shipments/:id/offers` hoy está restringido al emisor) —
+  documentado en MOVO-180 en vez de inventar un número falso o exponer datos que el
+  backend no entrega hoy.
+
+Tests nuevos: `test/create-offer-screen.test.tsx` (preview en tiempo real, chips
+rápidos, numpad, envío con fecha pedida, envío con fecha/franja alternativa —
+bloqueado sin franja elegida, error de KYC, error genérico). `test/create-offer-sheet.test.tsx`
+eliminado junto con el componente que reemplaza. Ajustes en
+`test/transport-detail-screen.test.tsx` (navegación en vez de sheet). 639/639 tests
+en verde, `tsc --noEmit` limpio.
+
+**Ajuste post-feedback (mismo día): la card de precio sugerido no coincidía con el
+mockup.** Tres bugs reales de la primera versión, no solo gusto estético:
+- **`GridPattern` invisible**: el color fijo del componente (`#0A0A0B`, pensado para
+  las OTRAS cards claras del repo) quedaba negro-sobre-negro en esta card, que
+  siempre es oscura. `GridPattern` ganó props opcionales `color`/`opacity`
+  (default sin cambios, retrocompatible) — acá se usa con líneas blancas.
+- **Bajo contraste de verdad, no solo percibido**: la card usaba `bg-fg`/`text-fg-2`/
+  `text-fg-3` (tokens semánticos que se INVIERTEN en dark mode — `bg-fg` es blanco en
+  dark). Sobre una card que el mockup diseñó siempre oscura, eso significaba texto
+  gris oscuro sobre negro (ilegible) y, en dark mode, la card entera se habría vuelto
+  blanca. Reemplazado por la escala fija `ink`/`paper` (`bg-ink-950`, `text-ink-300`/
+  `text-ink-400`, `text-paper`) — mismo criterio que ya usa `PrimaryButton
+  variant="lime"` (`text-ink-950` fijo, nunca invertido) para un chrome que se ve
+  igual sin importar el tema.
+- **Subcards de "Ofertas actuales" y "$ por km" faltantes**: la primera versión las
+  había omitido a propósito por falta de dato real (`GET /shipments/:id/offers` está
+  restringido al emisor) — resuelto adelantando esa parte de MOVO-180 (ver
+  `services/movo-svc-shipments/CLAUDE.md`, entrada de MOVO-177): `ShipmentSummary`
+  mobile suma `offersSummary?: { count, minPriceNetArs } | null`, consumido acá con
+  fallback explícito ("Sin ofertas todavía") en vez de un número inventado cuando es
+  `null`.
+- Espaciado corregido: padding de la card `px-4 py-4` → `px-5 py-5`, tamaño del monto
+  `36px` → `40px`, gaps entre secciones ajustados para que respiren más parecido al
+  mockup.
+
+Tests nuevos: 2 casos en `test/transport-detail-screen.test.tsx` (conteo/mínimo real
+vs. estado vacío). 641/641 tests en verde.
+
+**Segunda ronda de feedback (mismo día): la sección de retiro no se parecía en nada
+al prototipo.** La versión original era una card suelta de `bg-bg-mute` con solo
+fecha/hora de retiro — el mockup en cambio define una card "Recorrido" completa con
+retiro Y entrega, iconografía de itinerario (cuadrado para el origen, círculo para el
+destino, conectados por una línea punteada vertical) y un chip de horario por parada.
+Reemplazada por esa card completa:
+- **Cuadrado (`Retirás`) + línea punteada (`border-l border-dashed`, zero-width) +
+  círculo (`Entregás`)**, mismo lenguaje visual que el riel de `TimelineSection`
+  (MOVO-127) pero para un itinerario de 2 paradas fijas, no una línea de tiempo de N
+  eventos.
+- **Dirección + zona reales, no inventadas**: `shortAddressLabel`/
+  `zoneLabelFromAddress` (ambas ya existentes en `shipment-format.ts`, MOVO-127/148)
+  separan "Paul Dirac 7777" de "Argüello" a partir del único campo real
+  (`pickupAddress`/`deliveryAddress`, string con comas) — el modelo no tiene un campo
+  de piso/timbre separado, así que esa parte del mockup (**"4.º piso, tocar timbre
+  B"**) no se replicó por no ser un dato real.
+- **Chip de horario de retiro** con la fecha/franja real del envío (`pickupDateLabel`
+  + `pickupTimeWindowStart/End`, ya existentes). **Chip de entrega** con el mismo
+  copy honesto que ya usaba el paso de "Cuándo entregás" del wizard: "Sin horario
+  fijo · lo definís vos en la oferta" — sigue siendo cierto hoy (no hay entrega
+  estimada real, ver MOVO-180 sección 1).
+
+Test nuevo: 1 caso en `test/transport-detail-screen.test.tsx` (retiro y entrega con
+dirección/zona/horario). 642/642 tests en verde, `tsc --noEmit` limpio.
+
+**Tercera ronda (mismo día): la card estaba apretada y el radio no coincidía con el
+resto de la pantalla.** `rounded-md` (~6px) reemplazado por `rounded-[14px]` — mismo
+radio que `RouteMapCard`/`PackageCard`/`CounterpartCard`, las otras cards de esta
+misma pantalla. Padding de cada fila subido (`px-3.5`→`px-4`, `pb-3`/`pt-3.5`→
+`pb-5`/`pt-5`) y el bloque de texto ganó `gap-1` propio en vez de que cada línea
+pusiera su propio `mt-*` suelto — más aire entre eyebrow/dirección/zona/chip.
+
+**Cuarta ronda (mismo día): la línea punteada tenía que terminar en una flecha
+tocando el círculo de "Entregás".** Requería más que agregar un ícono — con dos
+`<View>` de fila separadas (una por parada), la línea vivía dentro de la fila de
+"Retirás" y se cortaba en el padding entre ambas filas, lejos del círculo de la
+fila de abajo. Se colapsó a **una sola fila** con una única columna de itinerario
+compartida (cuadrado → línea punteada `flex-1` → `ChevronDown` → círculo, los 4
+hijos de la misma columna flex) y una columna de texto con los dos bloques
+apilados (`gap-5`) al lado — al ser la columna de ítems un solo `flex` estirado
+por toda la fila, la flecha queda pegada al círculo sin importar cuánto mida el
+bloque de texto de "Retirás" (chip con foto adicional, mensaje más largo, etc.).
+
+**Quinta ronda (mismo día): esa columna única se pasó de rosca** — al ser un solo
+`flex-row` para las DOS paradas, la columna de ítems se estiraba (`alignItems:
+stretch`) hasta el alto de TODO el bloque de texto (Retirás + gap + Entregás
+completo, chip incluido), así que el punto de "Entregás" terminaba pegado al final
+de la card entera, no a la altura de su propio título. Vuelta a **dos filas
+independientes** (cada ícono estira solo con su propio bloque de texto, alineado
+correctamente) — pero el espacio ENTRE ambas filas pasó a ser el `pb-5` del bloque
+de texto de "Retirás" (padding, no un `gap` del contenedor): al sumar al alto
+renderizado de esa fila, la columna de ícono de esa fila se estira esos mismos 20px
+de más por el mismo `alignItems: stretch`, y la línea punteada (`flex-1`) los
+rellena — termina exactamente donde arranca la fila de "Entregás", sin hueco y sin
+desalinear nada.
+
+**Sexta ronda (mismo día): "Con quién tratás" — unificar emisor y receptor en una
+sola card.** Reemplaza las dos secciones separadas ("Emisor"/"Receptor", cada una su
+propio `CounterpartCard` con borde propio) por una única card con dos filas
+(`PartyRow`, nuevo, local a este archivo) separadas por un divisor de 1px, mismo
+lenguaje que el mockup:
+- **Nombre + rol inline** ("Pedro Yorlano · emisor") en vez del nombre solo con el
+  rol como título de sección aparte.
+- **Emisor**: si está verificado, `ProfileVerifiedBadge` (ya existente) ganó un prop
+  `suffix` opcional para sumar la reputación ("Identidad verificada · 4,9 en 34
+  envíos") sin duplicar el ícono/texto base en otro componente — antes ese dato no se
+  mostraba en ningún lado de esta pantalla porque el comentario legado de
+  `CounterpartCard` decía "reputationScore es siempre null" (cierto hasta MOVO-170/
+  MOVO-147, que ya lo completan del lado de `svc-users`; el comentario había quedado
+  desactualizado).
+- **Receptor**: en vez del chip de color de `CounterpartCard`, texto plano bajo el
+  nombre — un chip por fila iba a competir visualmente con el badge de identidad
+  verificada de la fila del emisor en la misma card. Copy propio (`RECEIVER_
+  CONFIRMATION_TEXT`, local) distinto al de `CounterpartCard` ("Ya aceptó recibir el
+  paquete" en vez de "Aceptó el envío") — mismo criterio, pantalla distinta.
+- `CounterpartCard` no se tocó ni se eliminó — sigue siendo lo que usa
+  `shipments/[id].tsx` (vista emisor/receptor, MOVO-127/131), que si tiene layouts
+  separados por sección tiene sentido para ese contexto.
+
+Tests: 1 caso nuevo en `test/transport-detail-screen.test.tsx` (rol inline,
+verificado+reputación, estado de confirmación del receptor) + ajuste del caso
+existente que buscaba los eyebrows "Emisor"/"Receptor" (ya no existen). 643/643 tests
+en verde, `tsc --noEmit` limpio.
+
+### Fix de negocio (mismo día): el campo de monto de la oferta funcionaba al revés
+
+El equipo aclaró que el campo "¿Cuánto pedís por el viaje?" siempre se pensó como el
+**bruto** que se le cobra al emisor, no como el neto que se lleva el transportista
+(al revés de como se había implementado en MOVO-149/MOVO-177 originalmente, AC6 de
+MOVO-143). Esto además destapó un bug real: `shipment.suggestedPriceArs` YA es bruto
+(el mismo precio sugerido que ve el emisor al crear el envío, MOVO-82/ADR-018) — la
+pantalla de oferta lo prefillaba y lo trataba como si fuera neto, y la card "Te queda
+si ofertás el sugerido" del detalle (`transport/[id].tsx`) le sumaba una SEGUNDA
+comisión encima del bruto, mostrando un número inflado y falso.
+
+- **`app/(app)/transport/[id]/offer.tsx` gana un toggle bruto/neto** (`amountMode`,
+  default `"gross"`): "Quiero cobrar" (bruto, lo que el emisor paga) vs. "Quiero que
+  me paguen" (neto, lo que le queda al transportista). El cálculo es bidireccional —
+  en modo neto se reusa `computeOfferGrossPrice` (`@movo/shared`) tal cual antes; en
+  modo bruto se resuelve la inversa acá mismo (`neto = bruto / (1 + tasa)`), porque
+  `@movo/shared` solo expone el sentido neto→bruto. El backend
+  (`POST /shipments/:id/offers`) sigue esperando siempre el NETO en
+  `priceOfferedArs` — sin cambios de contrato, la conversión pasa a ser 100%
+  responsabilidad del cliente antes de mandar la request.
+- **Cambiar de modo convierte el monto tipeado, no lo resetea a cero** — al tocar el
+  toggle, el monto se recalcula al equivalente exacto en el modo nuevo (usando los
+  valores ya derivados del modo anterior), para que la transacción real no cambie
+  solo por reencuadrar cómo se lee el número.
+- **Comparación "vs. sugerido" corregida para comparar unidades iguales**: antes
+  comparaba el neto tipeado contra el bruto sugerido (manzanas con naranjas). Ahora
+  `suggestedGross`/`suggestedNet` se derivan una vez y se elige cuál usar según
+  `amountMode`, así la comparación siempre es bruto-contra-bruto o neto-contra-neto.
+- **`transport/[id].tsx` ("Te queda si ofertás el sugerido"), mismo fix**:
+  `computeOfferGrossPrice(shipment.suggestedPriceArs)` reemplazado por la conversión
+  correcta bruto→neto (`suggestedNetIfOffered`). El número que se ve ahí ahora es
+  más bajo que el sugerido (como corresponde a la comisión de Movo), no un bruto
+  inflado con doble comisión.
+
+Tests: 2 casos nuevos en `test/create-offer-screen.test.tsx` (default bruto con
+desglose correcto, toggle preserva el valor real de la transacción al convertir) +
+ajuste de 2 casos existentes que asumían neto por default. 1 caso nuevo en
+`test/transport-detail-screen.test.tsx` (bruto→neto en la card del detalle, no el
+bruto crudo). 645/645 tests en verde, `tsc --noEmit` limpio.
+
+**Ajuste post-feedback (mismo día): chips "Sugerido"/"−10%"/"+10%" repartidos en todo
+el ancho.** `Chip` (local a este archivo, reusado también por los chips de día/franja
+horaria) ganó un prop `fill` opcional (default `false`, sin cambios para esos otros
+usos que varían en cantidad/largo de label) — con `fill`, el chip pasa de `flex-none`
+(ajustado al contenido) a `flex-1` y centra el texto, así los tres chips de monto se
+reparten el ancho completo de la fila en partes iguales.
+
+**Ajuste post-feedback (mismo día): formulario partido en 2 pasos.** La pantalla
+completa (monto + desglose + fecha de retiro + entrega estimada + mensaje) en un solo
+scroll quedaba demasiado larga. Se partió en `formStep: 1 | 2` (estado local, no un
+`phase` nuevo — sigue siendo la misma fase "form" de siempre):
+- **Paso 1** ("Monto de tu oferta" + toggle bruto/neto + "Cómo se reparte"): botón
+  inferior "Continuar" (`canContinueToPickup = netArs > 0`), reemplaza al submit real
+  mientras `formStep === 1`.
+- **Paso 2** ("Cuándo retirás" + "A qué hora entregás (estimado)" + "Lo que va a ver
+  el emisor" + mensaje): el banner de error/KYC se movió acá (antes vivía arriba de
+  todo el formulario) — solo puede aparecer tras un submit fallido, que solo puede
+  pasar en este paso.
+- **El back del header retrocede un paso antes de salir de la pantalla** (mismo
+  criterio que el resto de la app: nunca dos "volver" con comportamiento distinto) —
+  en paso 2 vuelve al paso 1; recién en paso 1 hace `router.back()` de verdad.
+- **Indicador de progreso**: 2 segmentos fijos (no una barra continua — son
+  exactamente 2 pasos, nunca una cantidad variable) + "Paso N de 2" en el header.
+- El `ScrollView` gana un `ref` y vuelve a scroll 0 en cada cambio de paso — sin esto,
+  si el transportista había bajado bastante en el paso 1, el paso 2 arrancaría a
+  mitad de camino mostrando contenido que nunca vio desde el principio.
+
+Tests: 2 casos nuevos en `test/create-offer-screen.test.tsx` (navegación entre pasos,
+"Continuar" deshabilitado sin monto) + ajuste de los 4 casos existentes que ejercitan
+contenido del paso 2 (ahora primero avanzan tocando "Continuar"). 647/647 tests en
+verde, `tsc --noEmit` limpio.
+
+**Ajuste post-feedback (mismo día): más aire en el paso 1.** Con menos contenido por
+pantalla (ahora un solo paso corto), los espaciados ajustados que tenían sentido en
+la pantalla larga original se sentían apretados. Subidos: gap entre secciones del
+`ScrollView` (`gap-6`→`gap-8`), padding del box de monto (`py-4`→`py-5`) y de las
+filas de la card "Cómo se reparte" (`py-3`→`py-4`, `gap-2`→`gap-3`), y los márgenes
+entre el toggle/caption/box/chips (`mb-3`/`mb-2.5`/`mt-2.5`→`mb-4`/`mt-3`/`mt-4`).
+
+**Fix urgente (mismo día), revertido y corregido en la misma pasada**: se probó
+reemplazar el teclado numérico dibujado a mano (`NumericKeypad`) por un `TextInput`
+nativo (`keyboardType="number-pad"`), pero el usuario lo rechazó explícitamente
+("quedó MUY mal... dejemos el teclado dibujado que quedaba bien") — el look del
+teclado custom SÍ era el que se quería, el bug real era otro. Se volvió a
+`NumericKeypad`/`KEYPAD_KEYS`/`padOpen`/el ícono `Delete` tal cual estaban, sin
+tocar el diseño visual.
+
+**El bug real (el único fix que sí quedó) era el prefill, no el teclado**: el
+`useEffect` que completa el monto con `suggestedPriceArs` tenía `amount` en su array
+de deps (`if (shipment && !amount) { setAmount(...) }`) — cada vez que el
+transportista borraba el campo entero (con el numpad) para escribir un monto propio
+desde cero, `amount` pasaba a `""`, el efecto se disparaba de nuevo, y lo volvía a
+completar con el sugerido en el próximo render. Reemplazado por un `useRef`
+(`didPrefillAmount`) que solo permite el prefill una vez, sin volver a dispararse
+nunca más pase lo que pase con `amount` — este es el que se mantuvo, funciona igual
+con el teclado dibujado que con cualquier otro input.
+
+Tests: los del numpad original quedaron como estaban (`create-offer-amount-trigger`,
+`create-offer-key-*`); el caso de regresión del bug de prefill se reescribió para
+usarlo con el numpad (borrar los 4 dígitos de "4500" con `create-offer-key-del` y
+verificar que no se auto-completa) en vez de `fireEvent.changeText`. 648/648 tests en
+verde, `tsc --noEmit` limpio.
+
+**Segundo fix urgente (mismo día): el toggle bruto/neto perdía centavos/pesos en
+cada ida y vuelta.** `handleAmountModeChange` reescribía el monto tipeado con
+`Math.round(...)` de la conversión al otro modo CADA VEZ que se tocaba el toggle —
+ida y vuelta entre tabs (incluso sin escribir nada nuevo) iba redondeando en cadena,
+así que "Te queda" en el botón "Continuar" cambiaba solo. Rediseñado con un
+**ancla** (`anchor: { raw, mode }`, un solo `useState`) que separa "qué tipeó el
+usuario y en qué modo" de "qué tab está mirando ahora mismo" (`amountMode`):
+- **Cambiar de tab (`handleAmountModeChange`) ya NO toca el ancla** — solo cambia
+  `amountMode`. Bruto y neto siempre se recalculan desde el mismo `anchor.raw`
+  original (nunca desde una proyección redondeada anterior), así que ida y vuelta
+  entre tabs sin editar nada es perfectamente estable, sin perder un centavo.
+- **`displayedAmount`** (lo que se ve en el trigger/teclado) proyecta el ancla al tab
+  activo cuando no coinciden — esa proyección SÍ es un entero redondeado (hace falta
+  para poder seguir editándola con el numpad), pero es solo para mostrar: el "Te
+  queda" real (`netArs`) sigue siendo el valor preciso derivado del ancla, no de esa
+  proyección.
+- **Editar (teclado o chips) después de mirar una proyección la "adopta" como nuevo
+  ancla** en ese momento, recién ahí — no antes de que el usuario realmente toque
+  algo.
+
+**Bug extra encontrado escribiendo el test del numpad** (no reportado por el
+usuario, pero real): los handlers de dígito/borrado leían `anchor` por closure en
+vez de con la forma funcional de `setState` — una ráfaga de varios `fireEvent.press`
+seguidos sin re-render de por medio (4 borrados + 3 dígitos en el test) perdía los
+primeros toques, porque cada handler de la ráfaga leía el mismo `anchor` obsoleto
+del render en que se creó. Los tres handlers (`editAmount`/`handleAmountDigit`/
+`handleAmountDelete`/`scaleAmount`) pasaron a la forma funcional
+(`setAnchor((prev) => ...)`), con `projectAmount` (función pura, sin estado) para
+poder proyectar bruto↔neto desde DENTRO de ese callback sin depender de `netArs`/
+`grossArs` del render actual.
+
+Tests: 2 casos nuevos (ida y vuelta de tab sin editar no pierde precisión; editar
+después de cambiar de tab adopta la proyección redondeada) + el caso del numpad
+verifica de paso que la ráfaga de taps ya no pierde los primeros. 649/649 tests en
+verde, `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: entrega estimada real (MOVO-180, sección 1 sigue
+abierta); prueba en dispositivo físico del numpad/chips/card (no verificable en este
+entorno).
+
 ### Pendientes de este paquete
 
 - **`eas init`/development build real en dispositivo**: pendiente para probar de
