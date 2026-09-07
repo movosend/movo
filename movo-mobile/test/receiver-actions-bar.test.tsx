@@ -25,7 +25,7 @@ describe("ReceiverActionsBar", () => {
     mockRejectState = { isPending: false };
   });
 
-  it("renderiza los botones de aceptar y rechazar", async () => {
+  it("renderiza el botón de aceptar y el botón de rechazar", async () => {
     const { getByText, getByTestId } = await render(
       <ReceiverActionsBar shipmentId="shipment-1" testID="actions" />,
     );
@@ -33,7 +33,6 @@ describe("ReceiverActionsBar", () => {
     expect(getByTestId("actions-accept-button")).toBeTruthy();
     expect(getByTestId("actions-reject-button")).toBeTruthy();
     expect(getByText("Aceptar envío")).toBeTruthy();
-    expect(getByText("Rechazar")).toBeTruthy();
   });
 
   it("muestra el tiempo restante cuando receiverConfirmationDeadline está presente", async () => {
@@ -63,7 +62,35 @@ describe("ReceiverActionsBar", () => {
     expect(queryByTestId("actions-deadline")).toBeNull();
   });
 
-  it("al tocar 'Aceptar envío' abre el modal de confirmación in-app, confirma y muestra pantalla de éxito", async () => {
+  it("muestra la barra de progreso cuando createdAt y la deadline están presentes", async () => {
+    const createdAt = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
+    const deadline = new Date(Date.now() + 44 * 60 * 60 * 1000).toISOString();
+    const { getByTestId } = await render(
+      <ReceiverActionsBar
+        shipmentId="shipment-1"
+        shipmentCreatedAt={createdAt}
+        receiverConfirmationDeadline={deadline}
+        testID="actions"
+      />,
+    );
+
+    expect(getByTestId("actions-deadline-progress")).toBeTruthy();
+  });
+
+  it("no muestra la barra de progreso si falta createdAt", async () => {
+    const deadline = new Date(Date.now() + 44 * 60 * 60 * 1000).toISOString();
+    const { queryByTestId } = await render(
+      <ReceiverActionsBar
+        shipmentId="shipment-1"
+        receiverConfirmationDeadline={deadline}
+        testID="actions"
+      />,
+    );
+
+    expect(queryByTestId("actions-deadline-progress")).toBeNull();
+  });
+
+  it("al tocar 'Aceptar envío' abre el sheet de confirmación, confirma y muestra pantalla de éxito", async () => {
     const mockRefetch = jest.fn();
     mockMutateAccept.mockResolvedValueOnce({ id: "shipment-1", status: "published" });
 
@@ -78,7 +105,9 @@ describe("ReceiverActionsBar", () => {
 
     await fireEvent.press(getByTestId("actions-accept-confirm-button"));
 
-    expect(mockMutateAccept).toHaveBeenCalledWith({ id: "shipment-1" });
+    await waitFor(() => {
+      expect(mockMutateAccept).toHaveBeenCalledWith({ id: "shipment-1" });
+    });
     expect(getByTestId("actions-success-modal")).toBeTruthy();
     expect(getByText("Envío aceptado")).toBeTruthy();
 
@@ -86,40 +115,55 @@ describe("ReceiverActionsBar", () => {
     expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 
-  it("al tocar 'Rechazar' abre el modal de confirmación con campo de motivo opcional", async () => {
-    const { getByTestId, queryByTestId } = await render(
+  it("al tocar el botón de rechazar abre el sheet con las chips de motivo (sin campo de texto libre)", async () => {
+    const { getByTestId, queryByTestId, getByText } = await render(
       <ReceiverActionsBar shipmentId="shipment-1" testID="actions" />,
     );
 
     // Al inicio el modal no está visible
-    expect(queryByTestId("actions-reject-reason-input")).toBeNull();
+    expect(queryByTestId("actions-reject-reason-chips")).toBeNull();
 
     await fireEvent.press(getByTestId("actions-reject-button"));
 
-    // Modal se abre
+    // Modal se abre — 4 chips fijas, calcadas del diseño (variante 2a), sin input libre
     expect(getByTestId("actions-reject-modal")).toBeTruthy();
-    expect(getByTestId("actions-reject-reason-input")).toBeTruthy();
+    expect(getByTestId("actions-reject-reason-chips")).toBeTruthy();
+    expect(getByText("No espero este paquete")).toBeTruthy();
+    expect(getByText("El horario no me sirve")).toBeTruthy();
+    expect(getByText("No conozco al emisor")).toBeTruthy();
+    expect(getByText("Otro motivo")).toBeTruthy();
     expect(getByTestId("actions-reject-confirm-button")).toBeTruthy();
   });
 
-  it("al confirmar rechazo con motivo, llama a mutateAsync con reason", async () => {
+  it("usa el nombre real del emisor en la chip y en el subtítulo cuando está disponible", async () => {
+    const { getByTestId, getByText } = await render(
+      <ReceiverActionsBar shipmentId="shipment-1" senderFirstName="Pedro" testID="actions" />,
+    );
+
+    await fireEvent.press(getByTestId("actions-reject-button"));
+
+    expect(getByText("No conozco a Pedro")).toBeTruthy();
+    expect(getByText("Le avisamos a Pedro y le buscamos otro viajero.")).toBeTruthy();
+  });
+
+  it("al seleccionar una chip y confirmar, llama a mutateAsync con esa chip como reason", async () => {
     mockMutateReject.mockResolvedValueOnce({ id: "shipment-1", status: "rejected_by_receiver" });
 
-    const { getByTestId } = await render(
+    const { getByTestId, getByText } = await render(
       <ReceiverActionsBar shipmentId="shipment-1" testID="actions" />,
     );
 
     await fireEvent.press(getByTestId("actions-reject-button"));
-    await fireEvent.changeText(getByTestId("actions-reject-reason-input"), "No solicité este envío");
+    await fireEvent.press(getByText("El horario no me sirve"));
     await fireEvent.press(getByTestId("actions-reject-confirm-button"));
 
     expect(mockMutateReject).toHaveBeenCalledWith({
       id: "shipment-1",
-      reason: "No solicité este envío",
+      reason: "El horario no me sirve",
     });
   });
 
-  it("al confirmar rechazo con motivo vacío, llama a mutateAsync con reason undefined", async () => {
+  it("al confirmar rechazo sin elegir ninguna chip, llama a mutateAsync con reason undefined", async () => {
     mockMutateReject.mockResolvedValueOnce({ id: "shipment-1", status: "rejected_by_receiver" });
 
     const { getByTestId } = await render(

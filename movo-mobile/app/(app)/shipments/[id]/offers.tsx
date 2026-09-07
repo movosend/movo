@@ -11,7 +11,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { CarrierProfileSheet } from "../../../../components/shipments/carrier-profile-sheet";
 import { ChooseOfferModal } from "../../../../components/shipments/choose-offer-modal";
 import { ChooseOfferSuccessModal } from "../../../../components/shipments/choose-offer-success-modal";
 import { OfferCard } from "../../../../components/shipments/offer-card";
@@ -62,7 +61,6 @@ export default function ShipmentOffersScreen() {
   const colors = useThemeColors();
 
   const [sort, setSort] = useState<OfferSortOption>("price");
-  const [selectedCarrierId, setSelectedCarrierId] = useState<string | null>(null);
   const [offerToAccept, setOfferToAccept] = useState<OfferSummary | null>(null);
   const [offerToReject, setOfferToReject] = useState<OfferSummary | null>(null);
   const [acceptedOfferCarrierName, setAcceptedOfferCarrierName] = useState<string | null>(null);
@@ -93,7 +91,7 @@ export default function ShipmentOffersScreen() {
   };
 
   const handleOpenCarrierProfile = (carrierId: string) => {
-    setSelectedCarrierId(carrierId);
+    router.push(`/profile/${carrierId}`);
   };
 
   const handlePromptAccept = (offer: OfferSummary) => {
@@ -290,14 +288,6 @@ export default function ShipmentOffersScreen() {
           )}
         </ScrollView>
       )}
-
-      {/* Carrier Profile Bottom Sheet */}
-      <CarrierProfileSheet
-        carrierId={selectedCarrierId}
-        visible={!!selectedCarrierId}
-        onClose={() => setSelectedCarrierId(null)}
-        testID="carrier-profile-sheet"
-      />
 
       {/* Choose Offer Confirmation Modal */}
       <ChooseOfferModal

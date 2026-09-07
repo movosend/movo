@@ -1,6 +1,6 @@
-import { KycStatus } from "@movo/shared/dist/types/user";
+import { KycStatus, UserRole } from "@movo/shared/dist/types/user";
 import { router } from "expo-router";
-import { ChevronLeft, ChevronRight, IdCard, Lock, Mail, Phone, WifiOff } from "lucide-react-native";
+import { ChevronLeft, ChevronRight, IdCard, Lock, Mail, Phone, Truck, WifiOff } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -40,6 +40,11 @@ function nameError(value: string, label: string): string {
   return "";
 }
 
+/** MOVO-171 (bio editable), todavía sin backend — `PATCH /users/me` real hoy solo
+ * acepta `firstName`/`lastName`, así que esto va a 400 hasta que esa issue exista.
+ * A diferencia del nombre, vacío es válido (borra la bio). */
+const BIO_MAX_LENGTH = 280;
+
 /**
  * "Editar perfil" (MOVO-135, frontend de MOVO-31 sobre los endpoints de MOVO-133).
  * Vive en `app/(app)/profile/`, hermana de las pantallas de "Cuenta y seguridad"
@@ -61,9 +66,11 @@ export default function EditProfileScreen() {
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<{ firstName: string; lastName: string }>({
+  const [bio, setBio] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ firstName: string; lastName: string; bio: string }>({
     firstName: "",
     lastName: "",
+    bio: "",
   });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -75,7 +82,8 @@ export default function EditProfileScreen() {
     if (!profile) return;
     setFirstName(profile.firstName);
     setLastName(profile.lastName);
-  }, [profile?.firstName, profile?.lastName]); // eslint-disable-line react-hooks/exhaustive-deps
+    setBio(profile.bio ?? "");
+  }, [profile?.firstName, profile?.lastName, profile?.bio]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isNameLockedByKyc = profile?.kycStatus === KycStatus.APPROVED;
 
@@ -120,6 +128,32 @@ export default function EditProfileScreen() {
       // rechazó haría creer que quedó guardado.
       if (field === "firstName") setFirstName(profile.firstName);
       else setLastName(profile.lastName);
+      setErrorMessage(
+        friendlyErrorMessage(err, "No pudimos guardar tus cambios. Intentá de nuevo."),
+      );
+    }
+  }
+
+  /** Mismo patrón que `saveField`, pero vacío es válido (borra la bio) y el
+   * `maxLength` ya lo hace cumplir el `TextField` — acá solo queda no mandar
+   * request si no cambió nada. */
+  async function saveBio(rawValue: string) {
+    if (!profile) return;
+    const value = rawValue.trim();
+    if (value.length > BIO_MAX_LENGTH) {
+      setFieldErrors((prev) => ({ ...prev, bio: `Máximo ${BIO_MAX_LENGTH} caracteres` }));
+      return;
+    }
+    setFieldErrors((prev) => ({ ...prev, bio: "" }));
+
+    if (value === (profile.bio ?? "").trim()) return;
+
+    setErrorMessage(null);
+    try {
+      await updateProfile.mutateAsync({ bio: value });
+      setSuccessMessage("Guardamos tus cambios.");
+    } catch (err) {
+      setBio(profile.bio ?? "");
       setErrorMessage(
         friendlyErrorMessage(err, "No pudimos guardar tus cambios. Intentá de nuevo."),
       );
@@ -216,6 +250,19 @@ export default function EditProfileScreen() {
             maxLength={NAME_MAX_LENGTH}
           />
 
+          <TextField
+            testID="edit-profile-bio"
+            label="Bio"
+            placeholder="Contá algo breve sobre vos (opcional)"
+            value={bio}
+            onChangeText={setBio}
+            onBlur={() => void saveBio(bio)}
+            error={fieldErrors.bio}
+            multiline
+            numberOfLines={4}
+            maxLength={BIO_MAX_LENGTH}
+          />
+
           <View
             testID="edit-profile-dni"
             className="mb-3.5 gap-1.5"
@@ -278,9 +325,29 @@ export default function EditProfileScreen() {
               }
             />
           </View>
-          <Text className="font-sans text-[12px] text-fg-3">
+          <Text className="mb-5 font-sans text-[12px] text-fg-3">
             Cambiar tu teléfono o tu email necesita verificación por código.
           </Text>
+
+          {profile.roles.includes(UserRole.CARRIER) ? (
+            <>
+              <Text className="mb-2.5 font-sans-semibold text-caption uppercase text-fg-3">
+                Vehículo
+              </Text>
+              <View className="mb-3 overflow-hidden rounded-[10px] border border-border bg-bg-sub">
+                <ContactRow
+                  testID="edit-profile-vehicle-row"
+                  Icon={Truck}
+                  label="Ficha de vehículo"
+                  value="Modelo, capacidad y patente"
+                  onPress={() => router.push("/vehicle-info")}
+                  iconColor={colors.fg3}
+                  chevronColor={colors.fg3}
+                  isLast
+                />
+              </View>
+            </>
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

@@ -1,6 +1,7 @@
-import { Calendar, ChevronRight, MessageSquare, Star } from "lucide-react-native";
+import { Calendar, ChevronRight, MessageSquare } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import { ProfileAvatar } from "../profile/profile-avatar";
+import { StarRatingInput } from "../ui/star-rating-input";
 import type { OfferSummary } from "../../src/api/offers-client";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { formatReputationScore } from "../../src/lib/profile-format";
@@ -59,8 +60,8 @@ export function OfferCard({
             <ChevronRight size={14} color={colors.fg3} />
           </View>
 
-          <View className="flex-row items-center gap-1 mt-0.5">
-            <Star size={12} color="#F5B93A" fill="#F5B93A" />
+          <View className="flex-row items-center gap-1.5 mt-0.5">
+            <StarRatingInput score={offer.carrierRatingAtOffer ?? 0} readOnly size={12} gap={1.5} />
             <Text
               testID={testID ? `${testID}-reputation` : `offer-card-${offer.id}-reputation`}
               className="font-sans text-[12px] text-fg-3"

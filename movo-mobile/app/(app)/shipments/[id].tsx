@@ -23,6 +23,7 @@ import { SuccessBanner } from "../../../components/ui/success-banner";
 import { useAuthStore } from "../../../src/store/auth-store";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
+import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useShipmentRatings } from "../../../src/hooks/use-ratings";
 import { useShipment } from "../../../src/hooks/use-shipments";
 import {
@@ -86,9 +87,18 @@ export default function ShipmentDetailScreen() {
   const [ratingTarget, setRatingTarget] = useState<RatingTarget | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  const openProfile = (userId: string) => router.push(`/profile/${userId}`);
+
   const activeUserId = currentUser?.userId ?? "";
 
   const isReceiver = shipment !== undefined && currentUser?.userId === shipment.receiverId;
+
+  // Mismo query key que `CounterpartCard` (`usePublicProfile`, MOVO-154) — TanStack
+  // Query dedupea, así que esto no dispara un segundo request cuando esa card ya trajo
+  // el perfil del emisor. Solo se usa para nombrar al emisor en el sheet de rechazo
+  // de `ReceiverActionsBar` (variante 2a del diseño de "Confirmación de envío").
+  const { data: senderProfile } = usePublicProfile(isReceiver ? shipment?.senderId : undefined);
+  const senderFirstName = senderProfile?.fullName?.split(" ")[0];
 
   // Si el deadline ya venció, el receptor no puede actuar aunque el barrido todavía
   // no haya cancelado el envío — la deadline manda sobre el reloj del job (MOVO-130 AC5).
@@ -204,12 +214,12 @@ export default function ShipmentDetailScreen() {
                 testID={`shipment-detail-tab-${t}`}
                 onPress={() => setTab(t)}
                 className={`mr-6 pb-2.5 pt-2 ${
-                  tab === t ? "border-b-2 border-primary" : "border-b-2 border-transparent"
+                  tab === t ? "border-b-2 border-fg" : "border-b-2 border-transparent"
                 }`}
               >
                 <Text
                   className={`font-sans-medium text-small ${
-                    tab === t ? "text-primary" : "text-fg-3"
+                    tab === t ? "text-fg" : "text-fg-3"
                   }`}
                 >
                   {t === "detalle" ? "Detalle" : "Línea de tiempo"}
@@ -293,6 +303,9 @@ export default function ShipmentDetailScreen() {
                   receiverConfirmation={
                     isReceiver ? undefined : receiverConfirmationStatus(shipment.status)
                   }
+                  onPress={() =>
+                    openProfile(isReceiver ? shipment.senderId : shipment.receiverId)
+                  }
                   testID={isReceiver ? "shipment-detail-sender" : "shipment-detail-receiver"}
                 />
               </View>
@@ -302,6 +315,7 @@ export default function ShipmentDetailScreen() {
                   <Eyebrow>Transportista</Eyebrow>
                   <CounterpartCard
                     userId={shipment.carrierId}
+                    onPress={() => shipment.carrierId && openProfile(shipment.carrierId)}
                     testID="shipment-detail-carrier"
                   />
                 </View>
@@ -316,6 +330,7 @@ export default function ShipmentDetailScreen() {
                     currentUserId={activeUserId}
                     ratings={ratings}
                     onRate={(target) => setRatingTarget(target)}
+                    onViewProfile={openProfile}
                     testID="shipment-detail-ratings"
                   />
                 </View>
@@ -339,6 +354,8 @@ export default function ShipmentDetailScreen() {
             <ReceiverActionsBar
               shipmentId={shipment.id}
               receiverConfirmationDeadline={shipment.receiverConfirmationDeadline}
+              shipmentCreatedAt={shipment.createdAt}
+              senderFirstName={senderFirstName}
               onRefetch={() => refetch()}
               onAcceptSuccess={() => setIsAcceptSuccessVisible(true)}
               testID="shipment-detail-receiver-actions"
@@ -361,6 +378,7 @@ export default function ShipmentDetailScreen() {
             onSuccess={handleRatingSuccess}
             testID="shipment-rating-sheet"
           />
+
         </View>
       )}
     </SafeAreaView>

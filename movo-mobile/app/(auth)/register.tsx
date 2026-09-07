@@ -35,7 +35,13 @@ import { OtpStep } from "../../components/ui/otp-step";
 import { PasswordStrengthMeter } from "../../components/ui/password-strength-meter";
 import { SelectField } from "../../components/ui/select-field";
 import { TextField } from "../../components/ui/text-field";
-import { movoMapStyleDark, movoMapStyleLight } from "../../src/constants/map-style";
+import {
+  MAP_EDGE_BLEED,
+  MAP_GEOMETRY_COLOR_DARK,
+  MAP_GEOMETRY_COLOR_LIGHT,
+  movoMapStyleDark,
+  movoMapStyleLight,
+} from "../../src/constants/map-style";
 import { useOtpCooldown } from "../../src/hooks/use-otp-cooldown";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { capitalizeName } from "../../src/lib/profile-format";
@@ -508,12 +514,22 @@ export default function RegisterScreen() {
             <Text className="mb-5 font-sans text-body text-fg-2">
               Arrastrá el pin hasta el punto exacto de tu dirección.
             </Text>
-            <View className="relative h-80 overflow-hidden rounded-[10px]">
+            <View
+              className="relative h-80 overflow-hidden rounded-[10px]"
+              style={{ backgroundColor: colorScheme === "dark" ? MAP_GEOMETRY_COLOR_DARK : MAP_GEOMETRY_COLOR_LIGHT }}
+            >
               <MapView
                 testID="register-map"
                 provider={PROVIDER_GOOGLE}
                 customMapStyle={colorScheme === "dark" ? movoMapStyleDark : movoMapStyleLight}
-                style={{ flex: 1 }}
+                // Ver `MAP_EDGE_BLEED`: saca el borde propio de la view nativa fuera del recorte.
+                style={{
+                  position: "absolute",
+                  top: -MAP_EDGE_BLEED,
+                  bottom: -MAP_EDGE_BLEED,
+                  left: -MAP_EDGE_BLEED,
+                  right: -MAP_EDGE_BLEED,
+                }}
                 initialRegion={
                   latitude !== null && longitude !== null
                     ? { latitude, longitude, latitudeDelta: 0.01, longitudeDelta: 0.01 }

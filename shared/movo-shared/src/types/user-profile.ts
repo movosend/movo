@@ -33,18 +33,35 @@ export interface ReputationBreakdown {
   ratingCount: number;
   isNewProfile: boolean;
   /**
-   * MOVO-170: subconjunto de estadísticas de uso calculable con datos ya
-   * persistidos (sin inventar dominio nuevo -- "recorridos totales"/puntualidad
-   * quedaron explícitamente fuera del ticket, sin definición de producto).
-   * Opcional a propósito: `GET /users/search` no lo compone (evita pagar el
-   * aggregate de `svc-shipments` por cada fila de una búsqueda), solo el perfil
-   * completo (`GET /users/:id`) lo trae.
+   * Promedio por sub-categoría (puntualidad/cuidado/comunicación del transportista;
+   * paquete listo/dirección clara/comunicación del emisor) — MOVO-173, todavía sin
+   * backend. `undefined` en cualquier respuesta actual; los consumidores (mobile)
+   * ocultan la fila de barras entera mientras no llegue, nunca la rellenan con ceros.
    */
-  usageStats?: {
-    delivered: number;
-    cancelled: number;
-    avgPackageWeightKg: number | null;
-  };
+  categories?: ReputationCategoryScore[];
+  /**
+   * Subconjunto de las stats de uso del rediseño de perfil que es calculable con
+   * datos ya persistidos (MOVO-170, real) -- "recorridos totales"/puntualidad
+   * quedaron explícitamente fuera del ticket, sin definición de producto. Opcional
+   * a propósito: `GET /users/search` no lo compone (evita pagar el aggregate de
+   * `svc-shipments` por cada fila de una búsqueda), solo el perfil completo
+   * (`GET /users/:id`) lo trae.
+   */
+  usageStats?: UsageStats;
+}
+
+/** MOVO-173 (calificación por categorías, sin backend todavía). */
+export interface ReputationCategoryScore {
+  key: string;
+  label: string;
+  score: number;
+}
+
+/** MOVO-170. */
+export interface UsageStats {
+  delivered: number;
+  cancelled: number;
+  avgPackageWeightKg: number | null;
 }
 
 /**
@@ -125,6 +142,14 @@ export interface PrivateProfile {
   bio: string | null;
 }
 
+/** MOVO-172 (ficha de vehículo del transportista, todavía sin backend). */
+export interface VehicleProfile {
+  brand: string;
+  model: string;
+  cargoCapacityLabel: string;
+  licensePlate: string;
+}
+
 /**
  * Proyección pública de cualquier usuario (`GET /users/:id`, MOVO-77 AC2). Tipo
  * separado a propósito (no un `Omit`/flag sobre `PrivateProfile`, AC3): nunca puede
@@ -173,4 +198,7 @@ export interface PublicProfile {
    * reusado por las dos rutas).
    */
   bio: string | null;
+  /** MOVO-172, todavía sin backend — `null`/`undefined` si no es transportista o
+   * no cargó ficha de vehículo. */
+  vehicle?: VehicleProfile | null;
 }

@@ -62,6 +62,10 @@ interface MockPublicProfileResult {
     transactionCounts: { asSender: number; asCarrier: number };
     reputationScore: number | null;
     ratingCount: number;
+    isNewProfile: boolean;
+    asSender: { reputationScore: number | null; ratingCount: number; isNewProfile: boolean };
+    asCarrier: { reputationScore: number | null; ratingCount: number; isNewProfile: boolean };
+    recentRatingComments: unknown[];
   };
   isLoading: boolean;
   isError: boolean;
@@ -78,6 +82,10 @@ function defaultPublicProfileImpl(userId: string): MockPublicProfileResult {
       transactionCounts: { asSender: 0, asCarrier: 0 },
       reputationScore: null,
       ratingCount: 0,
+      isNewProfile: true,
+      asSender: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+      asCarrier: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+      recentRatingComments: [],
     },
     isLoading: false,
     isError: false,
@@ -188,7 +196,23 @@ describe("TransportShipmentDetailScreen", () => {
     expect(getByText("Con quién tratás")).toBeTruthy();
     expect(getByTestId("transport-detail-sender")).toBeTruthy();
     expect(getByTestId("transport-detail-receiver")).toBeTruthy();
-    expect(queryByText("Aún no tenés ofertas")).toBeNull();
+  });
+
+  // MOVO-154: tocar la card de emisor/receptor abre el perfil público en una sheet.
+  // MOVO-176: la sheet chica de MOVO-154 se reemplazó por una pantalla completa.
+  it("tocar la card del emisor navega a la pantalla de perfil público", async () => {
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment(),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<TransportShipmentDetailScreen />);
+
+    await fireEvent.press(getByTestId("transport-detail-sender"));
+    expect(mockRouterPush).toHaveBeenCalledWith("/profile/user-1");
   });
 
   it("mientras no hay ruta real, muestra la aproximación en línea recta", async () => {
@@ -315,6 +339,10 @@ describe("TransportShipmentDetailScreen", () => {
         transactionCounts: { asSender: 0, asCarrier: 0 },
         reputationScore: userId === "user-1" ? 4.9 : null,
         ratingCount: userId === "user-1" ? 34 : 0,
+        isNewProfile: false,
+        asSender: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+        asCarrier: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+        recentRatingComments: [],
       },
       isLoading: false,
       isError: false,

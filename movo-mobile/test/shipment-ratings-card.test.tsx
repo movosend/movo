@@ -150,6 +150,43 @@ describe("ShipmentRatingsCard", () => {
     );
   });
 
+  // MOVO-154: tocar avatar/nombre abre el perfil de la contraparte — acción distinta
+  // de calificar, no debe compartir handler con el botón Calificar/Editar.
+  it("tocar avatar/nombre llama a onViewProfile, no a onRate", async () => {
+    const handleRate = jest.fn();
+    const handleViewProfile = jest.fn();
+
+    const { getByTestId } = await render(
+      <ShipmentRatingsCard
+        shipment={baseShipment}
+        currentUserId="carrier-1"
+        ratings={[]}
+        onRate={handleRate}
+        onViewProfile={handleViewProfile}
+      />
+    );
+
+    await fireEvent.press(getByTestId("rating-row-profile-sender-1"));
+
+    expect(handleViewProfile).toHaveBeenCalledWith("sender-1");
+    expect(handleRate).not.toHaveBeenCalled();
+  });
+
+  it("sin `onViewProfile`, el bloque de avatar/nombre no es tocable", async () => {
+    const handleRate = jest.fn();
+
+    const { getByTestId } = await render(
+      <ShipmentRatingsCard
+        shipment={baseShipment}
+        currentUserId="carrier-1"
+        ratings={[]}
+        onRate={handleRate}
+      />
+    );
+
+    expect(getByTestId("rating-row-profile-sender-1").props.accessibilityRole).toBeUndefined();
+  });
+
   it("muestra advertencia cuando el envío está en disputa", async () => {
     const disputedShipment: ShipmentSummary = {
       ...baseShipment,

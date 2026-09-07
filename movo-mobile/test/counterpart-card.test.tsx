@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react-native";
+import { fireEvent, render } from "@testing-library/react-native";
 import { CounterpartCard } from "../components/shipments/counterpart-card";
 
 const mockUsePublicProfile = jest.fn();
@@ -131,6 +131,95 @@ describe("CounterpartCard", () => {
     expect(queryByText("Aceptó el envío")).toBeNull();
     expect(queryByText("Pend. de aceptar")).toBeNull();
     expect(queryByText("Rechazó el envío")).toBeNull();
+  });
+
+  // MOVO-154: acceso al perfil de la contraparte desde el detalle de envío.
+  it("dispara `onPress` al tocar la card cuando se pasa la prop (MOVO-154)", async () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: {
+        id: "user-2",
+        fullName: "Marta González",
+        photoUrl: null,
+        isVerified: true,
+        badges: [],
+        transactionCounts: { asSender: 0, asCarrier: 0 },
+        reputationScore: 4.6,
+        isNewProfile: false,
+      },
+      isLoading: false,
+      isError: false,
+    });
+    const onPress = jest.fn();
+
+    const { getByTestId } = await render(
+      <CounterpartCard userId="user-2" onPress={onPress} testID="counterpart" />
+    );
+    fireEvent.press(getByTestId("counterpart"));
+
+    expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it("no es tocable cuando no se pasa `onPress`", async () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: {
+        id: "user-2",
+        fullName: "Marta González",
+        photoUrl: null,
+        isVerified: true,
+        badges: [],
+        transactionCounts: { asSender: 0, asCarrier: 0 },
+        reputationScore: 4.6,
+        isNewProfile: false,
+      },
+      isLoading: false,
+      isError: false,
+    });
+
+    const { getByTestId } = await render(<CounterpartCard userId="user-2" testID="counterpart" />);
+
+    expect(getByTestId("counterpart").props.accessibilityRole).toBeUndefined();
+  });
+
+  it("muestra el score real y 'Perfil nuevo' con menos de 3 calificaciones (MOVO-154, AC5)", async () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: {
+        id: "user-2",
+        fullName: "Marta González",
+        photoUrl: null,
+        isVerified: false,
+        badges: [],
+        transactionCounts: { asSender: 0, asCarrier: 0 },
+        reputationScore: 4.2,
+        isNewProfile: true,
+      },
+      isLoading: false,
+      isError: false,
+    });
+
+    const { getByText } = await render(<CounterpartCard userId="user-2" />);
+
+    expect(getByText("Perfil nuevo")).toBeTruthy();
+  });
+
+  it("muestra 'Sin calificaciones' cuando no hay reputación (MOVO-154, AC4)", async () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: {
+        id: "user-2",
+        fullName: "Marta González",
+        photoUrl: null,
+        isVerified: false,
+        badges: [],
+        transactionCounts: { asSender: 0, asCarrier: 0 },
+        reputationScore: null,
+        isNewProfile: false,
+      },
+      isLoading: false,
+      isError: false,
+    });
+
+    const { getByText } = await render(<CounterpartCard userId="user-2" />);
+
+    expect(getByText("Sin calificaciones")).toBeTruthy();
   });
 });
 

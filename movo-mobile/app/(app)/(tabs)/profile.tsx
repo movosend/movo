@@ -9,12 +9,12 @@ import { ProfileBadges } from '../../../components/profile/profile-badges';
 import { ProfileErrorState } from '../../../components/profile/profile-error-state';
 import { ProfileLicenseStatusBanner } from '../../../components/profile/profile-license-status-banner';
 import { ProfileLogoutButton } from '../../../components/profile/profile-logout-button';
+import { ProfileActivityCard } from '../../../components/profile/profile-activity-card';
 import { ProfileSettingsSection } from '../../../components/profile/profile-settings-section';
 import { ProfileSkeleton } from '../../../components/profile/profile-skeleton';
-import { ProfileStatsRow } from '../../../components/profile/profile-stats-row';
 import { useAuth } from '../../../src/hooks/use-auth';
 import { useThemeColors } from '../../../src/hooks/use-theme-colors';
-import { useMyProfile } from '../../../src/hooks/use-profile';
+import { useMyProfile, usePublicProfile } from '../../../src/hooks/use-profile';
 import { friendlyErrorMessage } from '../../../src/lib/error-messages';
 import { capitalizeName } from '../../../src/lib/profile-format';
 
@@ -27,6 +27,12 @@ export default function ProfileScreen() {
   const colors = useThemeColors();
   const { logout } = useAuth();
   const { data, isLoading, isError, error, refetch } = useMyProfile();
+  // Desglose/comentarios de reputación (MOVO-154, AC2/AC3/AC5/AC6) no viven en
+  // `PrivateProfile` (MOVO-152: solo `PublicProfile` los tiene) — se resuelven con
+  // una segunda query, propia y degradable, sin bloquear el resto del perfil si
+  // falla. `GET /users/:id` no distingue self-lookup de cualquier otro (verificado
+  // en `users.routes.ts`), así que no hace falta un endpoint nuevo.
+  const { data: publicProfile } = usePublicProfile(data?.id);
 
   if (isLoading) return <ProfileSkeleton testID="profile-skeleton" />;
 
@@ -93,10 +99,21 @@ export default function ProfileScreen() {
           />
         )}
 
-        <ProfileStatsRow
-          testID="profile-stats-row"
+        <ProfileActivityCard
+          testID="profile-activity-card"
           transactionCounts={data.transactionCounts}
           reputationScore={data.reputationScore}
+          isNewProfile={publicProfile?.isNewProfile}
+          reputation={
+            publicProfile
+              ? {
+                  asSender: publicProfile.asSender,
+                  asCarrier: publicProfile.asCarrier,
+                  recentRatingComments: publicProfile.recentRatingComments,
+                }
+              : undefined
+          }
+          onViewAllRatings={() => router.push('/profile/ratings')}
         />
 
         <ProfileSettingsSection testID="profile-settings-section" />

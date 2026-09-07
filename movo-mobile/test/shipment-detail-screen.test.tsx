@@ -6,12 +6,14 @@ import ShipmentDetailScreen from "../app/(app)/shipments/[id]";
 
 const mockRouterReplace = jest.fn();
 const mockRouterBack = jest.fn();
+const mockRouterPush = jest.fn();
 const mockCanGoBack = jest.fn();
 
 jest.mock("expo-router", () => ({
   router: {
     replace: (...args: unknown[]) => mockRouterReplace(...args),
     back: (...args: unknown[]) => mockRouterBack(...args),
+    push: (...args: unknown[]) => mockRouterPush(...args),
     canGoBack: () => mockCanGoBack(),
   },
   useLocalSearchParams: () => ({ id: "shipment-1" }),
@@ -69,6 +71,11 @@ jest.mock("../src/hooks/use-profile", () => ({
       badges: ["kyc_verified"],
       transactionCounts: { asSender: 0, asCarrier: 0 },
       reputationScore: null,
+      ratingCount: 0,
+      isNewProfile: true,
+      asSender: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+      asCarrier: { reputationScore: null, ratingCount: 0, isNewProfile: true },
+      recentRatingComments: [],
     },
     isLoading: false,
     isError: false,
@@ -177,6 +184,22 @@ describe("ShipmentDetailScreen", () => {
     expect(getByTestId("shipment-detail-sender-actions")).toBeTruthy();
     // Feedback post-QA: sin CTA de "Volver a Inicio" al pie de la pantalla.
     expect(queryByText("Volver a Inicio")).toBeNull();
+  });
+
+  // MOVO-176: la sheet chica de MOVO-154 se reemplazó por una pantalla completa.
+  it("tocar la card del receptor navega a la pantalla de perfil público", async () => {
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment(),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+    await fireEvent.press(getByTestId("shipment-detail-receiver"));
+    expect(mockRouterPush).toHaveBeenCalledWith("/profile/receiver-1");
   });
 
   it("mirando como receptor, muestra la card del emisor como contraparte (AC1/AC3 de MOVO-131)", async () => {

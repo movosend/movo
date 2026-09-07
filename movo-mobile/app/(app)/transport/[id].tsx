@@ -89,11 +89,13 @@ function PartyRow({
   userId,
   roleLabel,
   receiverConfirmation,
+  onPress,
   testID,
 }: {
   userId: string;
   roleLabel: string;
   receiverConfirmation?: ReceiverConfirmationStatus;
+  onPress?: () => void;
   testID?: string;
 }) {
   const { data: profile, isLoading, isError } = usePublicProfile(userId);
@@ -121,7 +123,12 @@ function PartyRow({
   }
 
   return (
-    <View testID={testID} className="flex-row gap-3 px-4 py-3.5">
+    <Pressable
+      testID={testID}
+      onPress={onPress}
+      disabled={!onPress}
+      className="flex-row gap-3 px-4 py-3.5"
+    >
       <AvatarImage
         fullName={profile.fullName}
         photoUrl={profile.photoUrl}
@@ -140,7 +147,7 @@ function PartyRow({
           <ProfileVerifiedBadge suffix={reputationSuffix(profile)} />
         ) : null}
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -220,6 +227,8 @@ export default function TransportShipmentDetailScreen() {
   const myActiveOffer = myOffers?.items.find(
     (offer) => offer.shipmentId === id,
   );
+
+  const openProfile = (userId: string) => router.push(`/profile/${userId}`);
 
   const pickupDateLabel = shipment
     ? (formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate)
@@ -587,6 +596,7 @@ export default function TransportShipmentDetailScreen() {
                 <PartyRow
                   userId={shipment.senderId}
                   roleLabel="emisor"
+                  onPress={() => openProfile(shipment.senderId)}
                   testID="transport-detail-sender"
                 />
                 <View className="h-px bg-border" />
@@ -596,6 +606,7 @@ export default function TransportShipmentDetailScreen() {
                   receiverConfirmation={receiverConfirmationStatus(
                     shipment.status,
                   )}
+                  onPress={() => openProfile(shipment.receiverId)}
                   testID="transport-detail-receiver"
                 />
               </View>

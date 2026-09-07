@@ -24,10 +24,37 @@ export function formatTripCount(count: number | null | undefined): string {
 }
 
 /** Nunca "0 estrellas" — comunica algo distinto (y peor) que "todavía no hay
- * calificaciones". */
-export function formatReputationScore(score: number | null | undefined): string {
+ * calificaciones". Con `isNewProfile` (MOVO-154, AC5) el número queda oculto detrás
+ * de "Perfil nuevo" con menos de 3 transacciones calificadas, sin importar el score
+ * que haya calculado el backend — el umbral no se reimplementa acá, solo se respeta
+ * el flag que ya viene resuelto. */
+export function formatReputationScore(
+  score: number | null | undefined,
+  isNewProfile?: boolean,
+): string {
+  if (isNewProfile) return "Perfil nuevo";
   if (score === null || score === undefined || Number.isNaN(score)) return "Sin calificaciones";
   return score.toFixed(1);
+}
+
+/** "Sobre cuántas calificaciones" (MOVO-154, AC3) — mostrar el score sin el `n` es lo
+ * que hace que un promedio simple engañe. "" si no hay dato, nunca "0
+ * calificaciones" (ambiguo con "sin calificaciones"). */
+export function formatRatingCount(count: number | null | undefined): string {
+  if (isMissing(count) || count === 0) return "";
+  return count === 1 ? "1 calificación" : `${count} calificaciones`;
+}
+
+const RATING_DATE_FORMATTER = new Intl.DateTimeFormat("es-AR", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+/** Fecha de un comentario de calificación (MOVO-154, AC6) — mismo patrón de
+ * `Intl.DateTimeFormat("es-AR", ...)` que `shipment-format.ts`/`trip-format.ts`. */
+export function formatRatingDate(createdAt: string): string {
+  return RATING_DATE_FORMATTER.format(new Date(createdAt));
 }
 
 /** Nombre propio o compuesto ("Ana-Maria") a Title Case — nunca se confía en cómo
