@@ -1,11 +1,12 @@
 import { BlurView } from "expo-blur";
 import type { BottomTabBarProps } from "expo-router/build/react-navigation/bottom-tabs";
+import { LinearGradient } from "expo-linear-gradient";
 import { useColorScheme } from "nativewind";
 import { Platform, View } from "react-native";
 import { TAB_BAR_ITEMS } from "./tab-config";
 import { TabBarButton } from "./tab-bar-button";
 
-const HORIZONTAL_MARGIN = 20;
+const HORIZONTAL_MARGIN = 32;
 const BOTTOM_MARGIN = 12;
 const BAR_HEIGHT = 60;
 const BAR_RADIUS = BAR_HEIGHT / 2;
@@ -58,10 +59,10 @@ export function FloatingTabBar({ state, navigation, insets }: BottomTabBarProps)
         style={{
           borderRadius: BAR_RADIUS,
           shadowColor: "#000",
-          shadowOffset: { width: 0, height: 8 },
-          shadowOpacity: isDark ? 0.45 : 0.12,
-          shadowRadius: 20,
-          elevation: 12,
+          shadowOffset: { width: 0, height: 11 },
+          shadowOpacity: isDark ? 0.6 : 0.26,
+          shadowRadius: 26,
+          elevation: 18,
         }}
       >
         <View
@@ -86,6 +87,27 @@ export function FloatingTabBar({ state, navigation, insets }: BottomTabBarProps)
             }
             blurMethod={Platform.OS === "android" ? "dimezisBlurView" : "none"}
             style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+          />
+          {/*
+           * Reflejo especular: franja de luz sobre la mitad superior de la pill,
+           * como si una fuente de luz cenital rebotara en una superficie de vidrio.
+           */}
+          <LinearGradient
+            pointerEvents="none"
+            colors={
+              isDark
+                ? ["rgba(255,255,255,0.16)", "rgba(255,255,255,0)"]
+                : ["rgba(255,255,255,0.85)", "rgba(255,255,255,0)"]
+            }
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              height: BAR_HEIGHT * 0.55,
+            }}
           />
           {/*
            * Capa de tinte sutil sobre el blur: aporta contraste consistente entre
