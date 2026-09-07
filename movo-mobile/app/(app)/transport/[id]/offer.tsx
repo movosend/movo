@@ -1,8 +1,5 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
-import {
-  computeOfferGrossPrice,
-  getCommissionConfig,
-} from "@movo/shared/dist/config/commission";
+import { computeOfferGrossPrice } from "@movo/shared/dist/config/commission";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
@@ -32,6 +29,10 @@ import { TextField } from "../../../../components/ui/text-field";
 import type { CreateOfferResponse } from "../../../../src/api/offers-client";
 import { useCreateOffer } from "../../../../src/hooks/use-offers";
 import { usePublicProfile } from "../../../../src/hooks/use-profile";
+import {
+  getClientCommissionRate,
+  getClientMpTransactionFeeRate,
+} from "../../../../src/lib/commission-config";
 import { useShipment } from "../../../../src/hooks/use-shipments";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
@@ -316,10 +317,13 @@ function OfferSuccessOverlay({
  * respuesta del servidor, no este preview.
  *
  * Desglose neto/comisión de Movo en tiempo real mientras se tipea, usando
- * `computeOfferGrossPrice`/`getCommissionConfig` de `@movo/shared` directamente (mismo
- * criterio que ya usa `movo-svc-shipments` -- una sola fuente de la tasa de comisión,
- * nunca duplicada, aunque la fórmula bruto→neto de "gross" mode es la inversa, resuelta
- * acá porque `@movo/shared` solo expone el sentido neto→bruto).
+ * `computeOfferGrossPrice` de `@movo/shared` con la tasa que resuelve
+ * `getClientCommissionRate()` (`src/lib/commission-config.ts`, fix de review PR #136):
+ * `getCommissionConfig()` de `@movo/shared` lee `MOVO_COMMISSION_RATE` sin el prefijo
+ * `EXPO_PUBLIC_`, así que en el bundle de Expo esa var nunca llega y siempre caía al
+ * default hardcodeado, ignorando en silencio cualquier tasa distinta configurada en el
+ * ambiente. La fórmula bruto→neto de "gross" mode es la inversa, resuelta acá porque
+ * `@movo/shared` solo expone el sentido neto→bruto.
  *
  * La línea de "Procesamiento del pago" es un ESTIMADO (`MP_TRANSACTION_FEE_RATE`
  * todavía sin confirmar, `movo-svc-payments` no tiene split real) -- se muestra como
@@ -410,7 +414,7 @@ export default function CreateOfferScreen() {
     }
   }, [shipment]);
 
-  const commissionRate = getCommissionConfig().movoCommissionRate;
+  const commissionRate = getClientCommissionRate();
   const rawAmountNumber = parseInt(anchor.raw || "0", 10) || 0;
 
   // Bidireccional, siempre derivado del ANCLA (`anchor`), nunca del tab actualmente
@@ -454,9 +458,7 @@ export default function CreateOfferScreen() {
       : Math.round(amountMode === "net" ? netArs : grossArs);
 
   const mpFeeEstimate = useMemo(
-    () =>
-      Math.round(netArs * getCommissionConfig().mpTransactionFeeRate * 100) /
-      100,
+    () => Math.round(netArs * getClientMpTransactionFeeRate() * 100) / 100,
     [netArs],
   );
   const commissionPctLabel = `${Math.round(commissionRate * 100)}%`;
@@ -875,11 +877,6 @@ export default function CreateOfferScreen() {
                     </Text>
                   </View>
                 </View>
-                {/* <Text className="mt-1.5 font-sans text-caption text-fg-3">
-            El procesamiento de pago es un estimado (todavía no confirmado con
-            MercadoPago) y hoy no se descuenta de nada real — el monto que
-            cobrás es exactamente el neto de arriba.
-          </Text> */}
               </View>
             </>
           ) : (

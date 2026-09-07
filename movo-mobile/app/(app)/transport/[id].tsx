@@ -1,6 +1,5 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { OfferStatus } from "@movo/shared/dist/types/offer";
-import { getCommissionConfig } from "@movo/shared/dist/config/commission";
 import { router, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -35,6 +34,7 @@ import { SuccessBanner } from "../../../components/ui/success-banner";
 import { useMyOffers, useWithdrawOffer } from "../../../src/hooks/use-offers";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
+import { getClientCommissionRate } from "../../../src/lib/commission-config";
 import {
   useShipment,
   useShipmentRoute,
@@ -265,12 +265,11 @@ export default function TransportShipmentDetailScreen() {
   // NETO de entrada) le sumaba una segunda comisión encima y mostraba el bruto crudo
   // como si fuera "lo que te queda". La conversión correcta es la inversa: neto =
   // bruto / (1 + tasa).
-  const commissionRate = getCommissionConfig().movoCommissionRate;
+  const commissionRate = getClientCommissionRate();
   const suggestedNetIfOffered = shipment
     ? Math.round((shipment.suggestedPriceArs / (1 + commissionRate)) * 100) /
       100
     : null;
-  const commissionPctLabel = `${Math.round(commissionRate * 100)}%`;
   // `RouteMapCard` de abajo ya pide esta misma ruta (mismos pickup/delivery) para
   // dibujar el mapa — TanStack Query dedupea por query key, así que pedirla acá de
   // nuevo no dispara un segundo request a la Google Routes API, solo comparte la
@@ -490,14 +489,16 @@ export default function TransportShipmentDetailScreen() {
                       : "Sin ofertas todavía"}
                   </Text>
                 </View>
-                {tripDistanceKm && suggestedNetIfOffered !== null ? (
+                {tripDistanceKm != null && suggestedNetIfOffered !== null ? (
                   <View className="flex-1 rounded-md border border-white/10 bg-white/[0.06] px-3 py-2.5">
                     <Text className="font-sans text-[11px] text-ink-400">
                       $ por km
                     </Text>
                     <Text className="mt-0.5 font-sans-semibold text-[14px] text-paper">
                       {formatPriceArs(
-                        Math.round(suggestedNetIfOffered / tripDistanceKm),
+                        tripDistanceKm > 0
+                          ? Math.round(suggestedNetIfOffered / tripDistanceKm)
+                          : 0,
                       )}
                       /km
                     </Text>

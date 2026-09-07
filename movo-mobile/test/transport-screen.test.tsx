@@ -300,17 +300,4 @@ describe("TransportScreen", () => {
 
     expect(mockSetRadiusKm).toHaveBeenCalledWith(100);
   });
-
-  it("muestra el banner de confirmación cuando vuelve con offerCreated=1 (MOVO-149)", async () => {
-    mockLocalSearchParams = { offerCreated: "1" };
-    mockUseTransportOrigin.mockReturnValue(baseOriginResult());
-    mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([availableShipment()]) }));
-
-    const { getByTestId } = await render(<TransportScreen />);
-
-    expect(getByTestId("transport-offer-created-success")).toBeTruthy();
-    expect(getByTestId("transport-offer-created-success")).toHaveTextContent(
-      "¡Oferta enviada! Ya podés verla reflejada en el envío."
-    );
-  });
 });
