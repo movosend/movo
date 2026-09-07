@@ -51,6 +51,16 @@ describe("AvailableShipmentCard", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/transport/available-1");
   });
 
+  it("MOVO-163: con interactive={false} (TripMatchAlertBanner), tocarla no navega", async () => {
+    const { getByTestId } = await render(
+      <AvailableShipmentCard shipment={availableShipment()} interactive={false} testID="card" />,
+    );
+
+    await fireEvent.press(getByTestId("card"));
+
+    expect(mockRouterPush).not.toHaveBeenCalled();
+  });
+
   it("muestra la distancia total del viaje en línea recta (Haversine)", async () => {
     const pickup = { lat: -31.4201, lng: -64.1888 };
     const delivery = { lat: -31.4241, lng: -64.4978 }; // Córdoba a Villa Carlos Paz

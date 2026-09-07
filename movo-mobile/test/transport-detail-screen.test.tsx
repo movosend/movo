@@ -11,7 +11,6 @@ import { formatTripDistanceKm, haversineDistanceKm } from "../src/lib/shipment-f
 const mockRouterReplace = jest.fn();
 const mockRouterBack = jest.fn();
 const mockCanGoBack = jest.fn();
-
 jest.mock("expo-router", () => ({
   router: {
     replace: (...args: unknown[]) => mockRouterReplace(...args),

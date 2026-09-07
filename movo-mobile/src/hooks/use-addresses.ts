@@ -14,11 +14,12 @@ const ADDRESSES_QUERY_KEY = ["addresses", "mine"];
  * query falla — los callers (p.ej. el paso de direcciones del wizard) deben tratar
  * `isError`/lista vacía como "sin direcciones guardadas", nunca romper la pantalla.
  */
-export function useAddresses() {
+export function useAddresses(enabled = true) {
   return useQuery({
     queryKey: ADDRESSES_QUERY_KEY,
     queryFn: () => addressesClient.list(),
     retry: false,
+    enabled,
   });
 }
 

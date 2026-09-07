@@ -16,6 +16,17 @@ import {
 export interface AvailableShipmentCardProps {
   shipment: AvailableShipment;
   testID?: string;
+  /** Sin borde/fondo propio (MOVO-163, `TripMatchAlertBanner`): dentro de una card ya
+   * enmarcada (el aviso global tiene su propio borde lima + fondo), el marco propio
+   * de esta card se leía como una "card dentro de otra card" — un doble recuadro
+   * redundante, no dos superficies distintas de verdad. Default `false`: el feed de
+   * MOVO-148 (`transport.tsx`) sí necesita distinguirse del fondo de la pantalla. */
+  bare?: boolean;
+  /** `false` (MOVO-163, `TripMatchAlertBanner`): la card no navega al tocarla — en
+   * ese contexto el detalle se ve solo apretando el botón "Ver envío" explícito, no
+   * tocando la card en sí. Default `true`: el feed de MOVO-148 sí navega al tocarla
+   * (AC9 de esa US). */
+  interactive?: boolean;
 }
 
 /** Distancia al punto de retiro formateada para la card (MOVO-148, AC1) — siempre un
@@ -31,7 +42,7 @@ function formatDistanceKm(distanceKm: number): string {
  * badge de estado/rol (acá todos los envíos están `published` y sin contraparte
  * asignada) — en su lugar, distancia al retiro y las marcas `urgent`/`hasMyOffer`.
  */
-export function AvailableShipmentCard({ shipment, testID }: AvailableShipmentCardProps) {
+export function AvailableShipmentCard({ shipment, testID, bare = false, interactive = true }: AvailableShipmentCardProps) {
   const colors = useThemeColors();
   const pickupDateLabel = formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate;
   const windowLabel = formatPickupWindowLabel(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd);
@@ -45,8 +56,9 @@ export function AvailableShipmentCard({ shipment, testID }: AvailableShipmentCar
   return (
     <Pressable
       testID={testID}
-      onPress={() => router.push(`/transport/${shipment.id}`)}
-      className="gap-3.5 rounded-[16px] border border-border bg-bg-sub p-4"
+      onPress={interactive ? () => router.push(`/transport/${shipment.id}`) : undefined}
+      disabled={!interactive}
+      className={`gap-3.5 rounded-[16px] p-4 ${bare ? "" : "border border-border bg-bg-sub"}`}
     >
       <View className="flex-row items-center justify-between gap-2">
         <View className="flex-row items-center gap-1.5">

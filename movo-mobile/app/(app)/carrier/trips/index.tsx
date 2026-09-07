@@ -144,6 +144,12 @@ export default function MyTripsScreen() {
               // `as any`: ruta nueva de MOVO-162, ver el comentario de `transport.tsx`.
               onEdit={() => router.push(`/carrier/trips/${trip.id}/edit` as any)}
               onDelete={() => handleDelete(trip)}
+              // MOVO-163: tocar la card abre el feed filtrado por este viaje. Objeto
+              // `{ pathname, params }` (no un string armado a mano) — mismo patrón ya
+              // usado por `transport/[id].tsx` para navegar a esta ruta con params.
+              onPress={() =>
+                router.push({ pathname: "/(app)/(tabs)/transport", params: { tripId: trip.id } })
+              }
             />
           ))}
         </ScrollView>

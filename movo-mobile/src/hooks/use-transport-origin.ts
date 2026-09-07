@@ -30,15 +30,21 @@ export interface TransportOrigin {
  * intento de geolocalización corre una única vez al montar (`resolveCurrentLocation`
  * nunca lanza, ver `use-my-location.ts`), y mientras tanto se espera a que la query
  * de direcciones asiente antes de decidir si hace falta el selector manual.
+ *
+ * `enabled` (MOVO-163): el feed filtrado por viaje no depende de la ubicación del
+ * usuario (el filtro es por el corredor del viaje, no por cercanía) — con
+ * `enabled: false` no se dispara el pedido de permiso de GPS ni la cascada, y
+ * `origin`/`resolving`/`needsManualPick` quedan en su estado neutro.
  */
-export function useTransportOrigin() {
+export function useTransportOrigin(enabled = true) {
   const { resolveCurrentLocation } = useMyLocation();
-  const addressesQuery = useAddresses();
+  const addressesQuery = useAddresses(enabled);
   const [gpsAttempted, setGpsAttempted] = useState(false);
   const [gpsResult, setGpsResult] = useState<AddressSelection | null>(null);
   const [manualOrigin, setManualOrigin] = useState<TransportOrigin | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     resolveCurrentLocation().then((result) => {
       if (cancelled) return;
@@ -49,7 +55,7 @@ export function useTransportOrigin() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [enabled]);
 
   // `retry:false` en `useAddresses()` (MOVO-119) — un error ahí ya significa "sin
   // direcciones guardadas, no reintentar", así que cuenta como asentada igual que un
@@ -70,10 +76,10 @@ export function useTransportOrigin() {
       }
     : null;
 
-  const origin = manualOrigin ?? gpsOrigin ?? (gpsAttempted ? savedOrigin : null);
+  const origin = enabled ? manualOrigin ?? gpsOrigin ?? (gpsAttempted ? savedOrigin : null) : null;
 
-  const resolving = !gpsAttempted || (gpsOrigin === null && !addressesSettled);
-  const needsManualPick = !resolving && origin === null;
+  const resolving = enabled && (!gpsAttempted || (gpsOrigin === null && !addressesSettled));
+  const needsManualPick = enabled && !resolving && origin === null;
 
   const setManualSelection = useCallback((selection: AddressSelection) => {
     setManualOrigin({ lat: selection.lat, lng: selection.lng, address: selection.address, source: selection.source });
