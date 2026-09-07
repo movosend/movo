@@ -547,6 +547,46 @@ describe("shipments.service — getShipmentDetail", () => {
     expect(result.offersSummary).toEqual({ count: 2, minPriceNetArs: 1739.13 });
   });
 
+  // Fix de review, PR #136: computeOffersSummaryForCarrier no excluía la oferta
+  // propia del callerId -- un transportista con oferta pendiente que reabre el
+  // detalle se contaba a sí mismo como competencia.
+  it("MOVO-180: el agregado de ofertas excluye la oferta propia del transportista que consulta", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id", status: ShipmentStatus.PUBLISHED });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const usersClient = createFakeUsersClient({
+      "carrier-id": fakePublicProfile({ id: "carrier-id", isVerified: true }),
+    });
+    const offerRepository = createFakeOfferRepository({
+      listByShipment: vi.fn().mockResolvedValue([
+        fakeOffer({ shipmentId: shipment.id, carrierId: "carrier-id", priceOffered: 1000 }),
+        fakeOffer({ shipmentId: shipment.id, carrierId: "other-carrier-1", priceOffered: 2000 }),
+      ]),
+    });
+    const service = createTestShipmentsService(repository, usersClient, offerRepository);
+
+    const result = await service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER]);
+
+    expect(result.offersSummary).toEqual({ count: 1, minPriceNetArs: 1739.13 });
+  });
+
+  it("MOVO-180: el agregado resuelve a null si la única oferta pendiente es la propia", async () => {
+    const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id", status: ShipmentStatus.PUBLISHED });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const usersClient = createFakeUsersClient({
+      "carrier-id": fakePublicProfile({ id: "carrier-id", isVerified: true }),
+    });
+    const offerRepository = createFakeOfferRepository({
+      listByShipment: vi.fn().mockResolvedValue([
+        fakeOffer({ shipmentId: shipment.id, carrierId: "carrier-id", priceOffered: 1000 }),
+      ]),
+    });
+    const service = createTestShipmentsService(repository, usersClient, offerRepository);
+
+    const result = await service.getShipmentDetail(shipment.id, "carrier-id", [UserRole.CARRIER]);
+
+    expect(result.offersSummary).toBeNull();
+  });
+
   it("un transportista verificado NO ve un envío assignment_pending ajeno (403 se mantiene)", async () => {
     const shipment = fakeShipment({
       senderId: "sender-id",

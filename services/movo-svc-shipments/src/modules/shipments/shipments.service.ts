@@ -248,14 +248,17 @@ async function assertVerifiedCarrier(usersClient: UsersClient, callerId: string,
  * MOVO-180 (adelantado): agregado sin identidad para la apertura de descubrimiento de
  * un transportista (`getShipmentDetail`). Reusa `offerRepository.listByShipment` en vez
  * de un método de repositorio nuevo -- un envío tiene pocas ofertas activas, no
- * amerita otra query dedicada solo para el conteo/mínimo.
+ * amerita otra query dedicada solo para el conteo/mínimo. Excluye la oferta propia del
+ * `callerId` (fix de review, PR #136): sin esto, un transportista con oferta pendiente
+ * que reabre el detalle se cuenta a sí mismo como competencia.
  */
 async function computeOffersSummaryForCarrier(
   offerRepository: OfferRepository,
-  shipmentId: string
+  shipmentId: string,
+  callerId: string
 ): Promise<ShipmentOffersSummary | null> {
   const offers = await offerRepository.listByShipment(shipmentId);
-  const pending = offers.filter((offer) => offer.status === OfferStatus.PENDING);
+  const pending = offers.filter((offer) => offer.status === OfferStatus.PENDING && offer.carrierId !== callerId);
   if (pending.length === 0) return null;
 
   const rate = getCommissionConfig().movoCommissionRate;
@@ -599,7 +602,7 @@ export function createShipmentsService(
         // que está evaluando ofertar -- nunca bloquea la apertura del detalle si
         // falla o si el servicio corre sin `offerRepository` (algún test aislado).
         const offersSummary = offerRepository
-          ? await computeOffersSummaryForCarrier(offerRepository, shipmentId)
+          ? await computeOffersSummaryForCarrier(offerRepository, shipmentId, callerId)
           : null;
         return { ...shipment, offersSummary };
       }
