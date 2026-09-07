@@ -16,11 +16,13 @@ import offersRoutes, { OffersRoutesOptions } from "./modules/offers/offers.route
 import ratingsRoutes, { internalRatingsRoutes, RatingsRoutesOptions } from "./modules/ratings/ratings.routes";
 import tripsRoutes, { TripsRoutesOptions } from "./modules/trips/trips.routes";
 import accountDeletionRoutes from "./modules/account-deletion/account-deletion.routes";
+import handshakeRoutes, { HandshakeRoutesOptions } from "./modules/handshake/handshake.routes";
 import { UsersClient } from "./adapters/users-client";
 import { StorageProvider } from "./adapters/storage-provider";
 import { RoutesProvider } from "./adapters/routes-provider";
 import { NotificationsClient } from "./adapters/notifications-client";
 import { PricingClient } from "./adapters/pricing-client";
+import { FundsReleaseNotifier } from "./adapters/funds-release-notifier";
 
 export interface BuildAppOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -46,6 +48,9 @@ export interface BuildAppOptions {
   orphanPhotoSweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de retiro vencido en background. */
   pickupExpirySweepEnabled?: boolean;
+  /** Override solo para tests de integración -- evita depender de una integración
+   * real de liberación de fondos (MOVO-158, fuera de alcance de este ticket). */
+  fundsReleaseNotifier?: FundsReleaseNotifier;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -154,6 +159,15 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // MOVO-146 AC10: consultado por movo-svc-users para el agregado/últimas
   // calificaciones del perfil (MOVO-25). Interno, mismo criterio que accountDeletionRoutes.
   app.register(internalRatingsRoutes, { prefix: "/internal" });
+
+  // MOVO-158: core del handshake criptográfico -- mismo prefix "/shipments" que
+  // shipmentsRoutes/ratingsRoutes, dominio propio (tabla append-only handshake_events).
+  const handshakeRouteOpts: HandshakeRoutesOptions = {
+    prefix: "/shipments",
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.fundsReleaseNotifier ? { fundsReleaseNotifier: opts.fundsReleaseNotifier } : {}),
+  };
+  app.register(handshakeRoutes, handshakeRouteOpts);
 
   return app;
 }

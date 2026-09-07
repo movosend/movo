@@ -15,7 +15,12 @@ import { createTripRepository, TripRepository } from "../../repositories/trip-re
 import { createRatingRepository } from "../../repositories/rating-repository";
 import { createRatingsService } from "../ratings/ratings.service";
 import { AvailableShipment, Shipment, ShipmentEvent } from "../../models/shipment";
-import { CreateOfferForShipmentResult, ListShipmentOffersQuery, ListShipmentOffersSort } from "./shipments.service";
+import {
+  CreateOfferForShipmentResult,
+  ListShipmentOffersQuery,
+  ListShipmentOffersSort,
+  ShipmentDetailResult,
+} from "./shipments.service";
 import { toOfferDto } from "../offers/offer.dto";
 
 export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
@@ -54,7 +59,7 @@ type CreateShipmentBody = Omit<CreateShipmentServiceInput, "senderId">;
  * salía como "06:00"). Se convierten acá a string ya formateado -- `asDate`/`asTime`
  * dejan pasar un string tal cual, sin tocarlo.
  */
-function toShipmentDto(shipment: Shipment) {
+function toShipmentDto(shipment: Shipment | ShipmentDetailResult) {
   return {
     ...shipment,
     pickupDate: shipment.pickupDate.toISOString().slice(0, 10),
@@ -62,6 +67,12 @@ function toShipmentDto(shipment: Shipment) {
     pickupTimeWindowEnd: shipment.pickupTimeWindowEnd.toISOString().slice(11, 19),
     receiverConfirmationDeadline: shipment.receiverConfirmationDeadline
       ? shipment.receiverConfirmationDeadline.toISOString()
+      : null,
+    // MOVO-180: mismo gotcha de timezone que pickupDate (@db.Date anclada a UTC) --
+    // estimatedDeliveryTimeWindowStart/End no lo necesitan, se persisten como string
+    // simple (ver schema.prisma).
+    estimatedDeliveryDate: shipment.estimatedDeliveryDate
+      ? shipment.estimatedDeliveryDate.toISOString().slice(0, 10)
       : null,
   };
 }
@@ -530,11 +541,26 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const carrierId = requireUserIdFromHeader(request);
       const callerRoles = getUserRolesFromHeader(request);
       const { id } = request.params as { id: string };
-      const { priceOfferedArs, offeredDate, message, tripId } = request.body as {
+      const {
+        priceOfferedArs,
+        offeredDate,
+        offeredPickupTimeWindowStart,
+        offeredPickupTimeWindowEnd,
+        message,
+        tripId,
+        estimatedDeliveryDate,
+        estimatedDeliveryTimeWindowStart,
+        estimatedDeliveryTimeWindowEnd,
+      } = request.body as {
         priceOfferedArs: number;
         offeredDate: string;
+        offeredPickupTimeWindowStart?: string;
+        offeredPickupTimeWindowEnd?: string;
         message?: string;
         tripId?: string;
+        estimatedDeliveryDate?: string;
+        estimatedDeliveryTimeWindowStart?: string;
+        estimatedDeliveryTimeWindowEnd?: string;
       };
       const offer: CreateOfferForShipmentResult = await service.createOfferForShipment({
         shipmentId: id,
@@ -542,8 +568,13 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         callerRoles,
         priceNetArs: priceOfferedArs,
         offeredDate,
+        offeredPickupTimeWindowStart,
+        offeredPickupTimeWindowEnd,
         message,
         tripId,
+        estimatedDeliveryDate,
+        estimatedDeliveryTimeWindowStart,
+        estimatedDeliveryTimeWindowEnd,
       });
       reply.code(201);
       return toOfferDto(offer);

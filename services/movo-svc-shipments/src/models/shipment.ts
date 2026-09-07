@@ -47,6 +47,13 @@ export interface Shipment {
   receiverConfirmationDeadline: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  /** MOVO-180: entrega estimada (día + franja) de la oferta ganadora, copiada acá al
+   * aceptarla (`offer-repository.ts#acceptOffer`) -- `null` hasta ese momento, mismo
+   * criterio que `agreedPriceArs`/`carrierId`. */
+  estimatedDeliveryDate: Date | null;
+  /** "HH:MM:SS", string simple sin anclaje de timezone (ver `Offer.estimatedDeliveryTimeWindowStart`). */
+  estimatedDeliveryTimeWindowStart: string | null;
+  estimatedDeliveryTimeWindowEnd: string | null;
 }
 
 /**

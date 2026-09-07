@@ -13,6 +13,11 @@ export interface Offer {
   carrierId: string;
   priceOffered: number;
   offeredDate: Date;
+  /** MOVO-177: franja horaria alternativa de retiro, solo cuando `offeredDate` es
+   * distinto de `shipment.pickupDate` -- null significa "usa la ventana del envío tal
+   * cual" (`shipment.pickupTimeWindowStart/End`). */
+  offeredPickupTimeWindowStart: string | null;
+  offeredPickupTimeWindowEnd: string | null;
   message: string | null;
   carrierRatingAtOffer: number | null;
   carrierNameAtOffer: string | null;
@@ -26,6 +31,15 @@ export interface Offer {
    * que le permite a `Trip.hasAcceptedPackages` (`trip-repository.ts`) saber a cuál de
    * los viajes de un transportista pertenece una oferta aceptada. */
   tripId: string | null;
+  /** MOVO-180: entrega estimada (día + franja) declarada por el transportista al
+   * ofertar -- opcional (mobile todavía no la recolecta), los tres both-or-neither
+   * (validado en `shipments.service.ts#createOfferForShipment`, no acá). Se propaga a
+   * `Shipment` al aceptar la oferta (`acceptOffer`). */
+  estimatedDeliveryDate: Date | null;
+  /** "HH:MM:SS", string simple sin anclaje de timezone (ver el comentario del campo en
+   * `schema.prisma`). */
+  estimatedDeliveryTimeWindowStart: string | null;
+  estimatedDeliveryTimeWindowEnd: string | null;
 }
 
 /**
@@ -54,6 +68,8 @@ export interface CreateOfferInput {
   carrierId: string;
   priceOffered: number;
   offeredDate: Date;
+  offeredPickupTimeWindowStart?: string | null;
+  offeredPickupTimeWindowEnd?: string | null;
   message?: string;
   expiresAt?: Date | null;
   carrierRatingAtOffer?: number | null;
@@ -62,6 +78,12 @@ export interface CreateOfferInput {
    * `shipments.service.ts#createOfferForShipment` antes de llegar acá (existencia,
    * pertenencia, estado), no por el repositorio. */
   tripId?: string | null;
+  /** MOVO-180: los tres validados both-or-neither, end>start y >= offeredDate por
+   * `shipments.service.ts#createOfferForShipment` antes de llegar acá -- el
+   * repositorio los persiste tal cual, sin revalidar. */
+  estimatedDeliveryDate?: Date | null;
+  estimatedDeliveryTimeWindowStart?: string | null;
+  estimatedDeliveryTimeWindowEnd?: string | null;
 }
 
 const OFFER_STATUS_VALUES: ReadonlySet<string> = new Set(Object.values(OfferStatus));

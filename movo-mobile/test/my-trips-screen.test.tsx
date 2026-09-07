@@ -167,6 +167,40 @@ describe("MyTripsScreen", () => {
     expect(mockRouterPush).toHaveBeenCalledWith(`/carrier/trips/${TRIP_A.id}/edit`);
   });
 
+  it("MOVO-163: tocar la card navega al feed filtrado por ese viaje", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<MyTripsScreen />);
+    fireEvent.press(getByTestId(`my-trips-card-${TRIP_A.id}`));
+
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      pathname: "/(app)/(tabs)/transport",
+      params: { tripId: TRIP_A.id },
+    });
+  });
+
+  it("MOVO-163: tocar editar no dispara también la navegación de la card", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<MyTripsScreen />);
+    fireEvent.press(getByTestId(`my-trips-card-${TRIP_A.id}-edit`));
+
+    expect(mockRouterPush).toHaveBeenCalledWith(`/carrier/trips/${TRIP_A.id}/edit`);
+    expect(mockRouterPush).not.toHaveBeenCalledWith(
+      expect.objectContaining({ pathname: "/(app)/(tabs)/transport" }),
+    );
+  });
+
   it("pide confirmación antes de cancelar y ejecuta la mutación al confirmar", async () => {
     mockUseMyTrips.mockReturnValue({
       data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },

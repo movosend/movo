@@ -113,6 +113,9 @@ model User {
   lastName          String        @map("last_name")
   passwordHash      String        @map("password_hash")
   dni               String?
+  // MOVO-171: bio de texto libre del perfil, nullable sin backfill -- "" nunca se
+  // persiste, se resuelve a null en users.service.ts.
+  bio               String?
   phoneVerified     Boolean       @default(false) @map("phone_verified")
   // MOVO-139: el email pasa a ser un dato verificado (precondición de MOVO-64,
   // recuperación de contraseña por email) y no solo un dato de contacto.

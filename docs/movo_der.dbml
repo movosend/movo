@@ -144,6 +144,12 @@ enum trip_status_enum {
   completed
 }
 
+// MOVO-158: etapa de custodia del handshake criptográfico.
+enum handshake_stage_enum {
+  pickup
+  delivery
+}
+
 enum transaction_payment_method_enum {
   TARJETA
   EFECTIVO
@@ -341,6 +347,19 @@ Table users.push_token {
   Note: 'índice único (user_id, device_id) -- un dispositivo tiene un solo token vigente por usuario'
 }
 
+// MOVO-157: par de claves asimétricas del cryptographic handshake (MOVO-6) -- la
+// clave PRIVADA se genera client-side y nunca sale del dispositivo ni viaja acá,
+// solo se registra la pública para que movo-svc-shipments valide firmas (MOVO-158).
+// Una sola fila por usuario (sin multi-dispositivo, fuera de alcance del TFG):
+// rotar la clave es un upsert sobre esta misma fila, no una fila nueva.
+Table users.device_keys {
+  id uuid [pk]
+  user_id uuid [ref: > users.user.id, unique]
+  public_key varchar [note: 'base64/base64url, formato/curva sin validar acá (MOVO-158 valida la firma)']
+  created_at timestamp
+  updated_at timestamp
+}
+
 Table users.payment_method {
   id uuid [pk]
   user_id uuid [ref: > users.user.id]
@@ -436,24 +455,28 @@ Table shipments.shipment_photos {
   }
 }
 
-Table shipments.custody_transfer_event {
+// MOVO-158: implementada como shipments.handshake_events -- reemplaza el placeholder
+// shipments.custody_transfer_event de arriba (mismo criterio que shipments.offer ->
+// shipments.offers, MOVO-102). Log append-only de handshakes CONFIRMADOS únicamente
+// (AC3) -- el estado pendiente entre /generate y /confirm, con TTL de 15s, vive en
+// Redis, no en Postgres. Recorta el superset especulativo del placeholder original
+// (event_type/result -- sin valores definidos, este ticket no los necesitó porque
+// solo persiste éxitos, un fallo nunca llega a escribir nada--, signature y
+// previous_event_hash/hashing encadenado -- no forman parte del AC3, quedan
+// deliberadamente afuera, ver CLAUDE.md de movo-svc-shipments).
+Table shipments.handshake_events {
   id uuid [pk]
   shipment_id uuid [ref: > shipments.shipments.id]
-  event_type varchar [note: 'enum sin valores definidos en el DER original (pendiente)']
-  ceding_user_id uuid
-  receiving_user_id uuid
-  nonce_hash varchar
-  signature varchar
-  previous_event_hash varchar
-  ceding_gps_lat decimal
-  ceding_gps_lng decimal
-  receiving_gps_lat decimal
-  receiving_gps_lng decimal
-  distance_meters decimal
-  result varchar [note: 'enum sin valores definidos en el DER original (pendiente)']
+  stage handshake_stage_enum
+  actor_id uuid [note: 'quien confirma la custodia (llamó a /confirm)']
+  counterparty_id uuid [note: 'quien generó el QR -- el cedente (llamó a /generate)']
+  nonce_hash varchar [note: 'sha256 hex -- el nonce en claro nunca se persiste']
+  counterparty_lat decimal
+  counterparty_lng decimal
+  actor_lat decimal
+  actor_lng decimal
+  distance_m decimal
   created_at timestamp
-
-  Note: 'Log append-only con hashing encadenado (previous_event_hash referencia al evento anterior). Todavía sin ticket de implementación.'
 }
 
 // MOVO-102: implementada. Plural (shipments.offers), mismo criterio que

@@ -150,6 +150,7 @@ export interface RegisterPushTokenInput {
 export interface UpdateProfileInput {
   firstName?: string;
   lastName?: string;
+  bio?: string | null;
 }
 
 // MOVO-152 AC2: "las últimas 10 calificaciones" -- mismo valor que el default de
@@ -732,7 +733,20 @@ export function createUsersService(
         );
       }
 
-      const updated = await repository.updateProfile(userId, input);
+      // MOVO-171: bio queda siempre editable, sin importar el KYC -- `nameChanged`
+      // arriba solo compara firstName/lastName. "" nunca se persiste, se resuelve a
+      // null acá (no en el repositorio, para que quede en un solo lugar).
+      const bio =
+        input.bio === undefined || input.bio === null
+          ? input.bio
+          : input.bio.trim() === ""
+            ? null
+            : input.bio.trim();
+
+      const updated = await repository.updateProfile(userId, {
+        ...input,
+        ...(input.bio !== undefined ? { bio } : {}),
+      });
       if (!updated) {
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
       }

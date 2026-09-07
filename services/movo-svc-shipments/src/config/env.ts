@@ -21,6 +21,7 @@ export interface EnvConfig {
   TRIP_DEFAULT_MAX_DETOUR_KM: number;
   PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES: number;
   PICKUP_EXPIRY_SWEEP_ENABLED?: boolean;
+  FUNDS_RELEASE_NOTIFIER: "console";
 }
 
 export const envSchema = {
@@ -90,6 +91,11 @@ export const envSchema = {
     // mismo criterio que RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES/_ENABLED (MOVO-130).
     PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
     PICKUP_EXPIRY_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-158 (AC7, ADR-012/017 mold): liberación de fondos real (captura/split de
+    // MercadoPago) queda deliberadamente fuera de este ticket -- único valor hoy es
+    // "console" (default, no-op/log). El switch existe para no rediseñar el punto de
+    // extensión cuando la integración real de pagos se destrabe.
+    FUNDS_RELEASE_NOTIFIER: { type: "string", enum: ["console"], default: "console" },
   },
 };
 

@@ -22,10 +22,16 @@ export function assertShipmentAccess(
 /**
  * Chequea que el usuario sea estrictamente el receptor designado del envío (MOVO-129).
  * A diferencia de `assertShipmentAccess`, ni el emisor ni el admin pueden aceptar o rechazar.
+ * `forbiddenMessage` default pensado para MOVO-129 (accept/reject) -- otros callers
+ * (ej. el handshake de entrega, MOVO-158) pasan un mensaje propio de su acción.
  */
-export function assertIsReceiver(shipment: Shipment, callerId: string): void {
+export function assertIsReceiver(
+  shipment: Shipment,
+  callerId: string,
+  forbiddenMessage = "Solo el receptor designado puede aceptar o rechazar este envío."
+): void {
   if (callerId !== shipment.receiverId) {
-    throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el receptor designado puede aceptar o rechazar este envío.");
+    throw new ApiError(403, "AUTH_FORBIDDEN", forbiddenMessage);
   }
 }
 
@@ -45,11 +51,17 @@ export function assertIsSenderOrAdmin(shipment: Shipment, callerId: string, call
 /**
  * AC6 de MOVO-144: solo el emisor del envío puede aceptar o rechazar una oferta —
  * estrictamente, sin admin, mismo criterio que `assertIsReceiver` (acción de
- * negocio, no lectura).
+ * negocio, no lectura). `forbiddenMessage` default pensado para MOVO-144
+ * (accept/reject oferta) -- otros callers (ej. el handshake de retiro, MOVO-158)
+ * pasan un mensaje propio de su acción.
  */
-export function assertIsSender(shipment: Shipment, callerId: string): void {
+export function assertIsSender(
+  shipment: Shipment,
+  callerId: string,
+  forbiddenMessage = "Solo el emisor del envío puede aceptar o rechazar una oferta."
+): void {
   if (callerId !== shipment.senderId) {
-    throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el emisor del envío puede aceptar o rechazar una oferta.");
+    throw new ApiError(403, "AUTH_FORBIDDEN", forbiddenMessage);
   }
 }
 
@@ -60,5 +72,16 @@ export function assertIsSender(shipment: Shipment, callerId: string): void {
 export function assertIsNotShipmentParty(shipment: Shipment, callerId: string): void {
   if (callerId === shipment.senderId || callerId === shipment.receiverId) {
     throw new ApiError(403, "AUTH_FORBIDDEN", "No podés ofertar sobre tu propio envío.");
+  }
+}
+
+/**
+ * AC6 de MOVO-158: solo el transportista asignado puede confirmar el retiro de
+ * custodia o iniciar la entrega -- ningún helper existente (todos pensados para
+ * sender/receiver/admin) conocía `carrierId` como parte legítima de una acción.
+ */
+export function assertIsCarrier(shipment: Shipment, callerId: string): void {
+  if (!shipment.carrierId || callerId !== shipment.carrierId) {
+    throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el transportista asignado puede realizar esta acción.");
   }
 }

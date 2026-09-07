@@ -195,6 +195,35 @@ describe("GET /users/me y GET /users/:id (MOVO-77)", () => {
       expect(body.badges).toEqual([]);
     });
 
+    it("MOVO-171: incluye bio cuando el usuario la completó", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput());
+      await repo.updateProfile(target.id, { bio: "Manejo hace 10 años, siempre disponible fines de semana." });
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/users/${target.id}`,
+        headers: { "x-user-id": caller.id },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body).bio).toBe("Manejo hace 10 años, siempre disponible fines de semana.");
+    });
+
+    it("MOVO-171: bio es null cuando el usuario nunca la completó", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput());
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/users/${target.id}`,
+        headers: { "x-user-id": caller.id },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body).bio).toBeNull();
+    });
+
     it("devuelve 404 USER_NOT_FOUND para un id inexistente", async () => {
       const caller = await repo.create(buildInput());
 

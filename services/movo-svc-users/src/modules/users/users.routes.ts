@@ -150,20 +150,23 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
       // del servicio.
       preValidation: async (request: FastifyRequest) => {
         const body = request.body as Record<string, unknown> | undefined;
-        const allowedKeys = new Set(["firstName", "lastName"]);
+        // MOVO-171: bio sumada al whitelist -- viaja por esta misma vía (sin lock
+        // de KYC, a diferencia de firstName/lastName).
+        const allowedKeys = new Set(["firstName", "lastName", "bio"]);
         if (body && Object.keys(body).some((key) => !allowedKeys.has(key))) {
-          throw new ApiError(400, "VALIDATION_FAILED", "Solo se puede editar firstName/lastName por esta vía.");
+          throw new ApiError(400, "VALIDATION_FAILED", "Solo se puede editar firstName/lastName/bio por esta vía.");
         }
       },
       schema: {
         summary: "Actualizar datos personales propios",
         description:
-          "AC1/AC2/AC3 de MOVO-133: actualización parcial de nombre/apellido. " +
-          "Mandar email/phone/photoUrl/kycStatus/roles/accountStatus es 400 " +
-          "VALIDATION_FAILED (esos campos no se editan acá). Body vacío `{}` " +
+          "AC1/AC2/AC3 de MOVO-133: actualización parcial de nombre/apellido/bio " +
+          "(MOVO-171). Mandar email/phone/photoUrl/kycStatus/roles/accountStatus es " +
+          "400 VALIDATION_FAILED (esos campos no se editan acá). Body vacío `{}` " +
           "también es 400 (`minProperties:1`). Bloqueado con 409 " +
           "PROFILE_NAME_LOCKED_BY_KYC si el KYC de identidad ya está aprobado -- " +
-          "el nombre quedó validado contra el documento por Didit (MOVO-72).",
+          "el nombre quedó validado contra el documento por Didit (MOVO-72). Bio " +
+          "queda siempre editable, sin importar el KYC.",
         tags: ["users"],
         body: usersSchemas.patchProfileBody,
         response: {

@@ -48,7 +48,19 @@ describe("AvailableShipmentCard", () => {
 
     await fireEvent.press(getByTestId("card"));
 
-    expect(mockRouterPush).toHaveBeenCalledWith("/transport/available-1");
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      "/transport/available-1?pickupDistanceKm=3.2",
+    );
+  });
+
+  it("MOVO-163: con interactive={false} (TripMatchAlertBanner), tocarla no navega", async () => {
+    const { getByTestId } = await render(
+      <AvailableShipmentCard shipment={availableShipment()} interactive={false} testID="card" />,
+    );
+
+    await fireEvent.press(getByTestId("card"));
+
+    expect(mockRouterPush).not.toHaveBeenCalled();
   });
 
   it("muestra la distancia total del viaje en línea recta (Haversine)", async () => {

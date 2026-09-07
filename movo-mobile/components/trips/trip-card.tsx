@@ -19,6 +19,7 @@ interface TripCardProps {
   trip: TripWithAcceptedPackages;
   onEdit: () => void;
   onDelete: () => void;
+  onPress?: () => void;
   testID?: string;
 }
 
@@ -32,15 +33,22 @@ interface TripCardProps {
  * tiene sentido ofrecer editar/eliminar un viaje que ya no está `active` — el backend
  * lo rechazaría igual (`update`/`delete` no filtran por status, pero no hay ninguna
  * transición de vuelta a `active` que la edición pudiera tener sentido de completar).
+ *
+ * `onPress` (MOVO-163) abre el feed de paquetes compatibles con este viaje — toda la
+ * card es pressable, con editar/eliminar como `Pressable`s anidados (RN resuelve el
+ * touch al más específico, sin bubbling tipo DOM) para que tocar esos íconos no
+ * dispare también la navegación, mismo patrón que `ContactRow` (MOVO-139).
  */
-export function TripCard({ trip, onEdit, onDelete, testID }: TripCardProps) {
+export function TripCard({ trip, onEdit, onDelete, onPress, testID }: TripCardProps) {
   const colors = useThemeColors();
   const tone = tripStatusTone(trip.status);
   const [badgeBg, badgeText] = TONE_BADGE_CLASS[tone].split(" ");
 
   return (
-    <View
+    <Pressable
       testID={testID}
+      onPress={onPress}
+      disabled={!onPress}
       className="gap-3 rounded-[14px] border border-border-strong bg-bg p-4"
     >
       <View className="flex-row items-center justify-between">
@@ -110,6 +118,6 @@ export function TripCard({ trip, onEdit, onDelete, testID }: TripCardProps) {
           </View>
         ) : null}
       </View>
-    </View>
+    </Pressable>
   );
 }
