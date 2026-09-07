@@ -1,5 +1,5 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { MapPin, PackageX, ShieldAlert } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, Text, View } from "react-native";
@@ -14,8 +14,9 @@ import { TRANSPORT_RADIUS_OPTIONS_KM, useAvailableShipments } from "../../../src
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useTransportOrigin } from "../../../src/hooks/use-transport-origin";
 import { useTransportRadius } from "../../../src/hooks/use-transport-radius";
+import { useTrip, useTripMatches } from "../../../src/hooks/use-trips";
 import { friendlyErrorMessage } from "../../../src/lib/error-messages";
-import { isPickupWindowExpired, zoneLabelFromAddress } from "../../../src/lib/shipment-format";
+import { isPickupWindowExpired, shortAddressLabel, zoneLabelFromAddress } from "../../../src/lib/shipment-format";
 
 function TransportListSkeleton() {
   return (
@@ -59,14 +60,35 @@ function RadiusPillRow({
  * ordenados por distancia, con radio configurable y persistido.
  *
  * MOVO-162 agrega el acceso a "Mis viajes" en el header junto al título.
+ *
+ * MOVO-163: con `?tripId=` en la URL (desde "Mis viajes", MOVO-162), esta misma
+ * pantalla pasa a modo "filtrado por viaje" — fuente de datos `GET /trips/:id/matches`
+ * en vez de `/shipments/available`, sin selector de radio/origen/GPS (el filtro es por
+ * el corredor del viaje, no por cercanía al usuario). Reusa tal cual el resto de la
+ * UI (skeleton, error/gating KYC, `FlatList` con `AvailableShipmentCard`,
+ * pull-to-refresh/scroll infinito) — no se duplica la pantalla.
  */
 export default function TransportScreen() {
   const colors = useThemeColors();
-  const { origin, resolving, needsManualPick, setManualSelection } = useTransportOrigin();
+  const { tripId } = useLocalSearchParams<{ tripId?: string }>();
+  // Único punto que deriva el modo de `tripId` — el resto de los flags (isReady,
+  // isInitialLoading, canExpandRadius, showOriginSkeleton, JSX) lo consumen a él en
+  // vez de re-chequear `tripId`/`!tripId` cada uno por su cuenta.
+  const isTripMode = Boolean(tripId);
+  const { origin, resolving, needsManualPick, setManualSelection } = useTransportOrigin(!isTripMode);
   const { radiusKm, setRadiusKm } = useTransportRadius();
-  const { data: savedAddresses } = useAddresses();
+  const { data: savedAddresses } = useAddresses(!isTripMode);
   const [pickerOpen, setPickerOpen] = useState(false);
 
+  const {
+    data: trip,
+    isLoading: isTripLoading,
+    isError: isTripError,
+    error: tripError,
+    refetch: refetchTrip,
+  } = useTrip(tripId);
+  const availableQuery = useAvailableShipments(origin, radiusKm);
+  const matchesQuery = useTripMatches(tripId);
   const {
     data,
     isLoading,
@@ -77,7 +99,7 @@ export default function TransportScreen() {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = useAvailableShipments(origin, radiusKm);
+  } = isTripMode ? matchesQuery : availableQuery;
 
   // AC2: sin GPS ni dirección default, el selector manual se abre solo — sigue
   // pudiéndose reabrir después a mano con "Cambiar" (mismo estado, `pickerOpen`).
@@ -87,16 +109,20 @@ export default function TransportScreen() {
 
   const isGatedByKyc = isError && error instanceof ApiError && error.code === "CARRIER_NOT_VERIFIED";
   // Filtro client-side de envíos con la ventana de retiro ya vencida — el backend
-  // no los excluye (ver `isPickupWindowExpired`). Sobre las páginas ya cargadas,
-  // sin tocar `hasNextPage`/paginación del servidor.
+  // no los excluye (ver `isPickupWindowExpired`), en ninguno de los dos modos.
   const items = (data?.pages.flatMap((page) => page.items) ?? []).filter(
     (item) => !isPickupWindowExpired(item.pickupDate, item.pickupTimeWindowEnd),
   );
 
+  // "Listo para mostrar datos": en modo viaje depende de que el detalle del viaje ya
+  // resolvió (para el header de AC2); en modo genérico, del origen (GPS/default/
+  // manual) — reemplaza el `origin !== null` que antes gateaba todo el render.
+  const isReady = isTripMode ? !!trip : origin !== null;
+
   // Si una página entera vino con todos sus ítems vencidos, el filtro de arriba
   // puede dejar `items` vacío aunque el servidor todavía tenga más páginas — sin
   // esto se mostraría el estado vacío pudiendo haber envíos vigentes más adelante.
-  const shouldCascadeNextPage = origin !== null && !isLoading && !isError && items.length === 0 && hasNextPage;
+  const shouldCascadeNextPage = isReady && !isLoading && !isError && items.length === 0 && hasNextPage;
   useEffect(() => {
     if (shouldCascadeNextPage && !isFetchingNextPage) {
       void fetchNextPage();
@@ -106,9 +132,14 @@ export default function TransportScreen() {
   const currentRadiusIndex = TRANSPORT_RADIUS_OPTIONS_KM.indexOf(
     radiusKm as (typeof TRANSPORT_RADIUS_OPTIONS_KM)[number],
   );
-  const canExpandRadius = currentRadiusIndex >= 0 && currentRadiusIndex < TRANSPORT_RADIUS_OPTIONS_KM.length - 1;
+  // Sin selector de radio en modo viaje (MOVO-163) — "ampliar radio" no aplica.
+  const canExpandRadius =
+    !isTripMode && currentRadiusIndex >= 0 && currentRadiusIndex < TRANSPORT_RADIUS_OPTIONS_KM.length - 1;
 
-  const showOriginSkeleton = resolving || (origin === null && !needsManualPick);
+  const showOriginSkeleton = !isTripMode && (resolving || (origin === null && !needsManualPick));
+  const isInitialLoading = isTripMode
+    ? isTripLoading || (isReady && isLoading)
+    : showOriginSkeleton || (isReady && isLoading);
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
@@ -125,7 +156,7 @@ export default function TransportScreen() {
             <Text className="font-sans-medium text-[13px] text-fg">Mis viajes</Text>
           </Pressable>
         </View>
-        {origin ? (
+        {!isTripMode && origin ? (
           <View className="mt-1 flex-row items-center gap-1.5">
             <MapPin size={13} strokeWidth={1.8} color={colors.fg3} />
             <Text testID="transport-zone-label" className="flex-1 font-sans text-small text-fg-2" numberOfLines={1}>
@@ -140,12 +171,37 @@ export default function TransportScreen() {
             </Text>
           </View>
         ) : null}
+        {isTripMode && trip ? (
+          <View className="mt-1 flex-row items-center gap-1.5">
+            <MapPin size={13} strokeWidth={1.8} color={colors.fg3} />
+            <Text testID="transport-trip-filter-label" className="flex-1 font-sans text-small text-fg-2" numberOfLines={1}>
+              Filtrado por viaje: {shortAddressLabel(trip.originAddress)} → {shortAddressLabel(trip.destinationAddress)}
+            </Text>
+            <Text
+              testID="transport-clear-trip-filter"
+              onPress={() => router.replace("/(app)/(tabs)/transport")}
+              className="font-sans-medium text-small text-fg"
+            >
+              Ver todos
+            </Text>
+          </View>
+        ) : null}
       </View>
 
-      {origin ? <RadiusPillRow radiusKm={radiusKm} onChange={setRadiusKm} /> : null}
+      {!isTripMode && origin ? <RadiusPillRow radiusKm={radiusKm} onChange={setRadiusKm} /> : null}
 
-      {showOriginSkeleton || (origin !== null && isLoading) ? (
+      {isInitialLoading ? (
         <TransportListSkeleton />
+      ) : isTripMode && isTripError ? (
+        <View className="px-5 pt-2">
+          <ErrorBanner
+            testID="transport-trip-error"
+            message={friendlyErrorMessage(tripError, "No pudimos cargar el viaje.")}
+          />
+          <Text onPress={() => refetchTrip()} className="font-sans-medium text-small text-fg">
+            Reintentar
+          </Text>
+        </View>
       ) : isGatedByKyc ? (
         <View className="items-center gap-2 px-8 py-10">
           <ShieldAlert size={22} strokeWidth={1.8} color={colors.fg3} />
@@ -175,10 +231,14 @@ export default function TransportScreen() {
         </View>
       ) : shouldCascadeNextPage ? (
         <TransportListSkeleton />
-      ) : origin !== null && items.length === 0 ? (
+      ) : isReady && items.length === 0 ? (
         <View className="items-center gap-2 px-5 py-10">
           <PackageX size={22} strokeWidth={1.8} color={colors.fg3} />
-          <Text className="text-center font-sans text-small text-fg-2">No hay envíos disponibles en este radio.</Text>
+          <Text className="text-center font-sans text-small text-fg-2">
+            {isTripMode
+              ? "Ningún paquete compatible con este viaje todavía."
+              : "No hay envíos disponibles en este radio."}
+          </Text>
           {canExpandRadius ? (
             <Text
               testID="transport-expand-radius"
@@ -189,7 +249,7 @@ export default function TransportScreen() {
             </Text>
           ) : null}
         </View>
-      ) : origin !== null ? (
+      ) : isReady ? (
         <FlatList
           testID="transport-list"
           data={items}

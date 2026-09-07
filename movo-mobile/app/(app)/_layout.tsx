@@ -1,4 +1,6 @@
 import { Redirect, Stack } from 'expo-router';
+import { View } from 'react-native';
+import { TripMatchAlertBanner } from '../../components/trips/trip-match-alert-banner';
 import { useAuthStore } from '../../src/store/auth-store';
 
 /**
@@ -7,6 +9,11 @@ import { useAuthStore } from '../../src/store/auth-store';
  * pantalla. `status === "checking"` no debería llegar a renderizarse acá — el splash
  * de `app/_layout.tsx` ya tapa toda la app hasta que `restoreSession()` resuelve — pero
  * se cubre igual de forma defensiva.
+ *
+ * `TripMatchAlertBanner` (MOVO-163) vive acá, hermano superpuesto del `<Stack>`, en
+ * vez de en una pantalla puntual — es el único lugar común a toda la app
+ * autenticada, y el aviso tiene que verse sin importar en qué pantalla esté el
+ * usuario.
  */
 export default function AuthenticatedLayout() {
   const status = useAuthStore((s) => s.status);
@@ -15,5 +22,10 @@ export default function AuthenticatedLayout() {
     return <Redirect href="/login" />;
   }
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <View style={{ flex: 1 }}>
+      <Stack screenOptions={{ headerShown: false }} />
+      <TripMatchAlertBanner />
+    </View>
+  );
 }
