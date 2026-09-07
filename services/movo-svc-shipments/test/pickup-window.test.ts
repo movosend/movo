@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isPickupWindowExpired, pickupWindowEndInstant } from "../src/domain/pickup-window";
+import { isPickupWindowExpired, pickupWindowEndInstant, toArgentinaCalendarDate } from "../src/domain/pickup-window";
 
 describe("pickupWindowEndInstant", () => {
   it("suma el offset de Argentina (UTC-3) al reloj de pared anclado", () => {
@@ -44,5 +44,27 @@ describe("isPickupWindowExpired", () => {
     const now = new Date("2026-09-03T15:00:01.000Z");
 
     expect(isPickupWindowExpired(pickupDate, pickupTimeWindowEnd, now)).toBe(true);
+  });
+});
+
+describe("toArgentinaCalendarDate", () => {
+  it("resta el offset de Argentina antes de leer el día calendario", () => {
+    // 01:30 UTC del 9 sept es 22:30 del 8 sept en Argentina (UTC-3).
+    expect(toArgentinaCalendarDate(new Date("2026-09-09T01:30:00.000Z")).toISOString()).toBe(
+      "2026-09-08T00:00:00.000Z",
+    );
+  });
+
+  it("un instante bien entrado en el día UTC no cruza de día en Argentina", () => {
+    expect(toArgentinaCalendarDate(new Date("2026-09-09T13:00:00.000Z")).toISOString()).toBe(
+      "2026-09-09T00:00:00.000Z",
+    );
+  });
+
+  it("es la inversa de anclar pickupDate a medianoche y sumarle el offset (pickupWindowEndInstant)", () => {
+    const pickupDate = new Date("2026-09-03T00:00:00.000Z");
+    const instant = pickupWindowEndInstant(pickupDate, new Date("1970-01-01T00:00:00.000Z"));
+
+    expect(toArgentinaCalendarDate(instant).toISOString()).toBe(pickupDate.toISOString());
   });
 });

@@ -40,3 +40,17 @@ export function pickupWindowEndInstant(pickupDate: Date, pickupTimeWindowEnd: Da
 export function isPickupWindowExpired(pickupDate: Date, pickupTimeWindowEnd: Date, now: Date = new Date()): boolean {
   return pickupWindowEndInstant(pickupDate, pickupTimeWindowEnd) < now;
 }
+
+/**
+ * Inversa de `pickupWindowEndInstant`: dado un instante real (UTC, ej.
+ * `Trip.departureAt`), la fecha de calendario en Argentina como un `Date` anclado
+ * (Y/M/D en UTC a medianoche) -- mismo formato "reloj de pared etiquetado como UTC"
+ * que `Shipment.pickupDate` (`@db.Date`), para poder comparar ambos directamente en
+ * SQL con una simple igualdad de columna `date`. Usado por el matching envío↔viaje
+ * (`trips.service.ts#getTripMatches`, bug encontrado en producción -- MOVO-163 nunca
+ * filtraba por fecha, solo por geografía).
+ */
+export function toArgentinaCalendarDate(instant: Date): Date {
+  const local = new Date(instant.getTime() - ARGENTINA_UTC_OFFSET_HOURS * 60 * 60 * 1000);
+  return new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()));
+}

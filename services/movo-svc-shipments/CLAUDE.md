@@ -1302,6 +1302,36 @@ Pendiente / fuera de alcance: UI mobile de entrega estimada (sin ticket todavía
 "ofertas actuales" (sección 2 del ticket) ya resuelta antes de este PR, ver el
 comentario de actualización de MOVO-180 en Linear.
 
+### Bug reportado en producción — feed de matching envío↔viaje sin filtro de fecha (MOVO-163, sin ticket propio)
+
+`GET /trips/:id/matches` (MOVO-161/163) recomendaba envíos cuya ventana de retiro no
+tenía ninguna relación con la fecha del viaje declarado (ej. viaje el 8/9, envío
+recomendado con ventana el 27/9) — el filtro de MOVO-163 siempre fue puramente
+geométrico (corredor + radio de desvío de MOVO-50), `trip.departureAt` nunca se usaba
+para nada. El único filtro de fecha existente, `isPickupWindowExpired` (cliente
+mobile y barrido del backend), compara contra el reloj real (`now`), no contra el
+viaje — no cubre este caso.
+
+- **Criterio elegido: mismo día calendario** (no ventana horaria exacta ni tolerancia
+  configurable) — decisión de producto tomada con el usuario al reportar el bug.
+  `pickup_date` coincide con el día de `trip.departureAt` en huso horario argentino.
+- **`domain/pickup-window.ts#toArgentinaCalendarDate(instant)`** nueva, inversa de
+  `pickupWindowEndInstant`: dado un instante real (`trip.departureAt`, `@db.Timestamptz`),
+  devuelve el día calendario argentino anclado a medianoche UTC — mismo formato que
+  `Shipment.pickupDate` (`@db.Date`), comparable por igualdad directa en SQL.
+- **`shipmentRepository.listAvailable` gana un `pickupDate` opcional**, incorporado a
+  `availableShipmentsWhereSql` (única fuente del `WHERE` compartido entre datos y
+  conteo, MOVO-142). Deliberadamente opcional: el modo genérico "cerca mío" de
+  MOVO-142 (`GET /shipments/available`, sin viaje de por medio) no lo manda y sigue
+  sin filtrar por fecha — solo `trips.service.ts#getTripMatches` lo pasa.
+
+Tests: `pickup-window.test.ts` (3 casos nuevos de `toArgentinaCalendarDate`, incluido
+el cruce de día UTC↔Argentina), `trips-service.test.ts` (caso dedicado a ese mismo
+cruce de día contra el mock de `listAvailable`), `shipment-repository.integration.test.ts`
+(2 casos nuevos: filtra con `pickupDate`, no filtra sin él). Los tests de integración
+contra Postgres real no se pudieron correr en este entorno (sin Docker/Postgres
+disponible) — quedan a validar contra CI.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

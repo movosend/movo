@@ -7,6 +7,7 @@ import { OfferRepository } from "../src/repositories/offer-repository";
 import { UsersClient } from "../src/adapters/users-client";
 import { Trip, TripStatus } from "../src/models/trip";
 import { createFakeOfferRepository } from "./fake-offer-repository";
+import { toArgentinaCalendarDate } from "../src/domain/pickup-window";
 
 const CARRIER_ID = "carrier-123";
 const OTHER_USER_ID = "other-user-456";
@@ -47,10 +48,13 @@ describe("TripsService (MOVO-161)", () => {
     });
   }
 
+  let trip: Trip;
+
   beforeEach(() => {
+    trip = fakeTrip();
     tripRepo = {
       create: vi.fn().mockImplementation(async (input) => fakeTrip(input)),
-      findById: vi.fn().mockImplementation(async (id) => (id === TRIP_ID ? fakeTrip() : null)),
+      findById: vi.fn().mockImplementation(async (id) => (id === TRIP_ID ? trip : null)),
       countAcceptedOffers: vi.fn().mockResolvedValue(0),
       listByCarrier: vi.fn().mockResolvedValue({ items: [fakeTrip()], total: 1 }),
       update: vi.fn().mockImplementation(async (id, input) => fakeTrip({ id, ...input })),
@@ -376,12 +380,35 @@ describe("TripsService (MOVO-161)", () => {
         destinationLat: -32.4075,
         destinationLng: -63.2402,
         radiusKm: 15,
+        pickupDate: toArgentinaCalendarDate(trip.departureAt),
         excludeUserId: CARRIER_ID,
         page: 1,
         limit: 20,
       });
       expect(result.radiusKm).toBe(15);
       expect(result.tripId).toBe(TRIP_ID);
+    });
+
+    it("filtra por el día calendario argentino de departureAt, no por el día UTC crudo (bug reportado en producción)", async () => {
+      // 01:30 UTC del 9 sept es 22:30 del 8 sept en Argentina (UTC-3) -- si se comparara
+      // el día UTC crudo, el filtro pediría el 9 sept en vez del 8, y un envío con
+      // ventana el 8 sept quedaría afuera por error.
+      trip.departureAt = new Date("2026-09-09T01:30:00.000Z");
+      const service = buildService();
+
+      await service.getTripMatches({
+        tripId: TRIP_ID,
+        callerId: CARRIER_ID,
+        callerRoles: [UserRole.CARRIER],
+        page: 1,
+        limit: 20,
+      });
+
+      expect(shipmentRepo.listAvailable).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pickupDate: new Date("2026-09-08T00:00:00.000Z"),
+        }),
+      );
     });
 
     it("respeta el radio de desvío custom si es provisto", async () => {

@@ -5,6 +5,7 @@ import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { Trip, TripStatus, CreateTripInput, UpdateTripInput, TripWithAcceptedPackages } from "../../models/trip";
 import { AvailableShipment } from "../../models/shipment";
+import { toArgentinaCalendarDate } from "../../domain/pickup-window";
 
 export interface TripsService {
   createTrip(params: {
@@ -245,12 +246,16 @@ export function createTripsService(deps: {
 
       const effectiveRadiusKm = radiusKm ?? defaultMaxDetourKm;
 
+      // Bug reportado en producción: el feed mostraba envíos con ventana de retiro sin
+      // ninguna relación con la fecha del viaje (MOVO-163 nunca filtraba por fecha,
+      // solo por geografía). Exige mismo día calendario argentino que `departureAt`.
       const { items, total } = await shipmentRepository.listAvailable({
         originLat: trip.originLat,
         originLng: trip.originLng,
         destinationLat: trip.destinationLat,
         destinationLng: trip.destinationLng,
         radiusKm: effectiveRadiusKm,
+        pickupDate: toArgentinaCalendarDate(trip.departureAt),
         excludeUserId: trip.carrierId,
         page,
         limit,

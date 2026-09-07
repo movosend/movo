@@ -228,6 +228,7 @@ function availableShipmentsWhereSql(params: {
   callerId: string;
   pickupBox: { latMin: number; latMax: number; lngMin: number; lngMax: number };
   deliveryBox: { latMin: number; latMax: number; lngMin: number; lngMax: number } | null;
+  pickupDate: Date | null;
 }): Prisma.Sql {
   const deliveryBoxFilter = params.deliveryBox
     ? Prisma.sql`
@@ -235,6 +236,12 @@ function availableShipmentsWhereSql(params: {
       AND delivery_lng BETWEEN ${params.deliveryBox.lngMin} AND ${params.deliveryBox.lngMax}
     `
     : Prisma.empty;
+  // Bug reportado en producción (matching envío↔viaje, MOVO-163): sin `pickupDate`
+  // (modo genérico "cerca mío" de MOVO-142), no filtra por fecha -- con `pickupDate`
+  // (modo viaje, `trips.service.ts#getTripMatches`), exige mismo día calendario
+  // argentino que `trip.departureAt` (ver `toArgentinaCalendarDate`). `pickup_date` es
+  // `@db.Date`, comparable por igualdad directa contra el `Date` ya anclado.
+  const pickupDateFilter = params.pickupDate ? Prisma.sql`AND pickup_date = ${params.pickupDate}::date` : Prisma.empty;
   return Prisma.sql`
     status = 'published'
       AND sender_id <> ${params.callerId}::uuid
@@ -242,6 +249,7 @@ function availableShipmentsWhereSql(params: {
       AND pickup_lat BETWEEN ${params.pickupBox.latMin} AND ${params.pickupBox.latMax}
       AND pickup_lng BETWEEN ${params.pickupBox.lngMin} AND ${params.pickupBox.lngMax}
       ${deliveryBoxFilter}
+      ${pickupDateFilter}
   `;
 }
 
@@ -349,6 +357,12 @@ export interface ShipmentRepository {
    * sin relación con el trayecto del caller. Orden por `distanceKm` (pickup, más
    * delivery si hay destino) ascendente. Paginado con el mismo contrato que
    * `listByUser`.
+   * `pickupDate` (opcional, bug fix sobre MOVO-163): exige que `pickup_date` coincida
+   * exactamente con la fecha dada (día calendario argentino, ver
+   * `toArgentinaCalendarDate` en `domain/pickup-window.ts`) -- lo usa
+   * `trips.service.ts#getTripMatches` para no ofrecer envíos con una ventana de
+   * retiro que no tiene relación con el día del viaje. El modo genérico "cerca mío"
+   * de MOVO-142 no lo manda, y sigue sin filtrar por fecha.
    */
   listAvailable(params: {
     originLat: number;
@@ -357,6 +371,7 @@ export interface ShipmentRepository {
     destinationLng?: number;
     radiusKm: number;
     maxDistanceKm?: number;
+    pickupDate?: Date;
     excludeUserId: string;
     page: number;
     limit: number;
@@ -636,6 +651,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       destinationLng?: number;
       radiusKm: number;
       maxDistanceKm?: number;
+      pickupDate?: Date;
       excludeUserId: string;
       page: number;
       limit: number;
@@ -651,7 +667,12 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         ? corridorBoundingBox(params.originLat, params.originLng, params.destinationLat!, params.destinationLng!, params.radiusKm)
         : boundingBox(params.originLat, params.originLng, params.radiusKm);
       const deliveryBox = hasDestination ? pickupBox : null;
-      const where = availableShipmentsWhereSql({ callerId: params.excludeUserId, pickupBox, deliveryBox });
+      const where = availableShipmentsWhereSql({
+        callerId: params.excludeUserId,
+        pickupBox,
+        deliveryBox,
+        pickupDate: params.pickupDate ?? null,
+      });
 
       // Sin destino: Haversine punto-a-punto contra el origen (círculo). Con destino:
       // distancia perpendicular al segmento origen→destino (corredor) -- ver el
