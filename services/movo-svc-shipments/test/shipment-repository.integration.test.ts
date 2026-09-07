@@ -769,5 +769,73 @@ describe("shipment-repository (Postgres)", () => {
       expect(items[0].pickupDistanceKm).toBeLessThan(10);
       expect(items[0].deliveryDistanceKm).toBeLessThan(10);
     });
+
+    // Bug reportado en producción (matching envío↔viaje, MOVO-163): el feed
+    // recomendaba envíos con ventana de retiro sin ninguna relación con la fecha del
+    // viaje declarado -- este método nunca filtraba por `pickup_date`. `pickupDate` es
+    // opcional a propósito: el modo genérico "cerca mío" (MOVO-142) sigue sin
+    // filtrar por fecha, solo `trips.service.ts#getTripMatches` lo manda.
+    it("pickupDate (opcional): solo devuelve envíos cuya ventana de retiro coincide con el día dado", async () => {
+      const matchingDay = await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+        pickupDate: new Date("2026-09-08T00:00:00.000Z"),
+      });
+      const otherDay = await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+        pickupDate: new Date("2026-09-27T00:00:00.000Z"),
+      });
+
+      const { items, total } = await repo.listAvailable({
+        originLat,
+        originLng,
+        destinationLat,
+        destinationLng,
+        radiusKm: 5,
+        pickupDate: new Date("2026-09-08T00:00:00.000Z"),
+        excludeUserId: randomUUID(),
+        page: 1,
+        limit: 20,
+      });
+
+      expect(items.map((i) => i.id)).toEqual([matchingDay.id]);
+      expect(items.map((i) => i.id)).not.toContain(otherDay.id);
+      expect(total).toBe(1);
+    });
+
+    it("sin pickupDate: no filtra por fecha (comportamiento genérico de MOVO-142 sin cambios)", async () => {
+      const day1 = await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+        pickupDate: new Date("2026-09-08T00:00:00.000Z"),
+      });
+      const day2 = await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+        pickupDate: new Date("2026-09-27T00:00:00.000Z"),
+      });
+
+      const { items } = await repo.listAvailable({
+        originLat,
+        originLng,
+        destinationLat,
+        destinationLng,
+        radiusKm: 5,
+        excludeUserId: randomUUID(),
+        page: 1,
+        limit: 20,
+      });
+
+      expect(items.map((i) => i.id).sort()).toEqual([day1.id, day2.id].sort());
+    });
   });
 });
