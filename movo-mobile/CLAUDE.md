@@ -1179,6 +1179,90 @@ Pendiente / fuera de alcance: entrega estimada real (MOVO-180, sección 1 sigue
 abierta); prueba en dispositivo físico del numpad/chips/card (no verificable en este
 entorno).
 
+### MOVO-183 — Rediseño del tab "Transportar": header, accesos, filtros y card
+
+Implementación fiel al prototipo de Claude Design ("Transportista - Transportar")
+sobre `app/(app)/(tabs)/transport.tsx` (MOVO-148/162/163) y
+`components/transport/available-shipment-card.tsx`.
+
+- **Header mínimo**: título + chip de zona (`transport-zone-chip`) que abre el mismo
+  `AddressSearchSheet` que antes disparaba el link "Cambiar" (sin componente nuevo —
+  ese sheet ya cubre GPS + guardadas + búsqueda, superset de lo que pedía el
+  prototipo), compacto (ancho al contenido, `numberOfLines={1}`) en vez de ocupar una
+  franja fija de la fila. Sin la línea "Envíos cerca de X" debajo — el prototipo no la
+  tiene, y duplicaba lo que ya dice el chip (feedback de usuario tras la primera
+  pasada).
+- **Fila de resultados + orden** (`ResultsSortRow`, dentro de `transport.tsx`, sin
+  archivo propio): entre el radio/filtros y la lista, "`N` envíos en `R` km" a la
+  izquierda y un control de orden cíclico a la derecha (`transport-sort-cycle` —
+  "Menos desvío" → "Mejor pago" → "Más próximo" → vuelta al primero), como en el
+  prototipo (`cycleSort`/cycla `sortLabel`). Faltaba en la primera pasada del
+  rediseño. "Menos desvío" ordena por `detourKm` de `computeOnTripDetour` (los sin
+  match van al final); "Mejor pago" por `suggestedPriceArs` descendente; "Más
+  próximo" por `pickupDate`+`pickupTimeWindowStart` ascendente (ambos ya vienen como
+  string `YYYY-MM-DD`/`HH:MM`, comparables con `localeCompare`). Solo en el feed
+  genérico — en modo `?tripId=` no se muestra, mismo criterio que el resto de los
+  controles nuevos de esta US.
+- **Dos accesos con contador** (`components/transport/transport-access-cards.tsx`):
+  "Mis viajes" (activos/declarados, `useMyTrips`) y "Mis ofertas" (pendientes/
+  aceptadas, `useMyOffers`, con punto lime cuando hay al menos una `accepted`) — el
+  tab bar de abajo (`(tabs)/_layout.tsx`) no se tocó, sigue siendo el punto de
+  navegación de Inicio/Transportar/Mi perfil únicamente.
+- **Radio + botón de filtros con badge**: el resto de los controles (antes ausentes)
+  viven en `components/transport/transport-filters-sheet.tsx` — tipo de paquete
+  (multi), pago mínimo y peso máximo (single), y "Solo lo que me queda de paso"
+  (`onlyOnTrip`, solo visible si hay al menos un viaje `active` declarado). Los 4
+  son **100% client-side** sobre las páginas ya cargadas (`GET /shipments/available`/
+  `GET /trips/:id/matches` no aceptan ninguno como parámetro) — mismo criterio ya
+  aceptado en "Mis Envíos" (MOVO-113).
+- **`computeOnTripDetour` nuevo** (`shipment-format.ts`): sin un endpoint que cruce
+  el feed general de disponibles contra TODOS los viajes activos del transportista
+  (a diferencia de `GET /trips/:id/matches`, que sí cruza pero contra UN viaje), la
+  franja "Te queda de paso en Casa → Trabajo · +0,8 km de desvío" del prototipo se
+  resuelve 100% client-side con datos que la pantalla ya tenía cargados (`useMyTrips`
+  + el feed de disponibles). "Desvío" se define como km de MÁS por desviarse
+  (`origen→retiro + retiro→destino − origen→destino`, siempre `>= 0`), no distancia
+  perpendicular a la ruta — es la métrica que el copy le promete al usuario. Umbral
+  fijo `ON_TRIP_MAX_DETOUR_KM = 2` (constante, no configurable por el usuario — en el
+  prototipo era un control del propio editor de diseño, no un control de producto).
+  Solo aplica en el feed genérico: en modo `?tripId=` ya está filtrado contra UN
+  corredor, una segunda franja de desvío ahí sería redundante.
+- **Card rediseñada** (`available-shipment-card.tsx`): ruta origen→destino apilada
+  sobre un timeline vertical (antes horizontal con un separador), franja de desvío
+  reemplazando la línea "~X km de viaje" cuando hay match on-trip, precio más
+  prominente (`19px`, antes `14px`) con caption "precio sugerido" debajo. El badge
+  "Te aceptaron" del prototipo **no se implementó**: un envío `accepted` deja de
+  aparecer en `GET /shipments/available` en cuanto se asigna (dato de mock
+  del prototipo, no un caso real de este feed) — mostrarlo habría sido un estado
+  que nunca ocurre en producción.
+- **"Mis ofertas" resumen nuevo** (`app/(app)/carrier/offers/index.tsx`): el propio
+  prototipo describe esta pantalla como "el puente" hacia la pantalla completa
+  (ranking/reparto/edición de precio, MOVO-151, todavía sin construir) — se
+  implementó tal cual ese alcance, con datos 100% reales de `GET /offers/mine`
+  (`useMyOffers`, ya existente desde MOVO-149): hero "En juego" (suma de `pending`)
+  / "Confirmado" (suma de `accepted`) y una lista "Requieren algo tuyo" limitada a
+  ofertas `accepted` (no hay ranking de posición real disponible acá — ese dato vive
+  en `GET /shipments/:id/offers`, restringido al emisor — así que no se simuló "estás
+  4to de 5" como hacía el mock). El botón "Abrir Mis ofertas completo" muestra un
+  `Alert.alert` ("Muy pronto") en vez de navegar — decisión explícita del usuario
+  para no adelantar MOVO-151 en este ticket.
+- **Toggle "Activo/Pausado" de "Mis viajes", omitido del todo** (decisión explícita
+  del usuario): hoy los viajes son de un solo uso (se declaran y se cancelan/
+  completan, sin repetición) — un estado "pausado" no tiene nada que pausar todavía.
+  Queda para cuando se declare la US de viajes recurrentes; `app/(app)/carrier/
+  trips/index.tsx` (MOVO-162) no se tocó.
+
+Tests: casos nuevos en `test/transport-screen.test.tsx` (accesos con contador,
+navegación a `/carrier/offers`, chip de zona, filtro por tipo de paquete, merge de
+detour on-trip, conteo de resultados y ciclo de orden), `test/shipment-format.test.ts`
+(`computeOnTripDetour`), `test/my-offers-summary-screen.test.tsx` (nuevo).
+`available-shipment-card.test.tsx` sin cambios — todos sus casos pasan tal cual contra
+el layout nuevo. 102/102 suites, 784/784 tests en `movo-mobile`. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: no probado en device; `ON_TRIP_MAX_DETOUR_KM` es una
+aproximación geométrica sin validar contra el comportamiento real esperado por el
+usuario en campo; MOVO-151 (pantalla completa de Mis ofertas) sigue sin construir.
+
 ### Pendientes de este paquete
 
 - **`eas init`/development build real en dispositivo**: pendiente para probar de

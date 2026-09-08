@@ -1,6 +1,7 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import {
   canCancelShipment,
+  computeOnTripDetour,
   formatEventTimestamp,
   formatPickupWindowLabel,
   formatReceiverConfirmationDeadline,
@@ -412,3 +413,37 @@ describe("formatShipmentRowTime", () => {
   });
 });
 
+
+describe("computeOnTripDetour", () => {
+  const TRIP = { originLat: -31.42, originLng: -64.19, destinationLat: -31.4, destinationLng: -64.15 };
+
+  it("null sin viajes declarados", () => {
+    expect(computeOnTripDetour({ pickupLat: -31.41, pickupLng: -64.18 }, [], 2)).toBeNull();
+  });
+
+  it("un retiro sobre el origen del viaje tiene desvío ~0", () => {
+    const result = computeOnTripDetour(
+      { pickupLat: TRIP.originLat, pickupLng: TRIP.originLng },
+      [TRIP],
+      2,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.detourKm).toBeCloseTo(0, 1);
+    expect(result!.trip).toBe(TRIP);
+  });
+
+  it("un retiro lejos de la ruta queda afuera del umbral de desvío", () => {
+    const result = computeOnTripDetour({ pickupLat: -32.5, pickupLng: -63.0 }, [TRIP], 2);
+    expect(result).toBeNull();
+  });
+
+  it("con varios viajes, devuelve el de menor desvío", () => {
+    const farTrip = { originLat: -33, originLng: -65, destinationLat: -33.1, destinationLng: -65.1 };
+    const result = computeOnTripDetour(
+      { pickupLat: TRIP.originLat, pickupLng: TRIP.originLng },
+      [farTrip, TRIP],
+      50,
+    );
+    expect(result!.trip).toBe(TRIP);
+  });
+});
