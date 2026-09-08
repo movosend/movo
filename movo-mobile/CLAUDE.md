@@ -1281,11 +1281,15 @@ por ese endpoint.
   `pickupDate` del lado del envío — un viaje se descarta de la comparación si su
   `departureAt` no cae en el mismo día calendario argentino que el `pickupDate` del
   envío, antes de calcular ninguna geometría.
-- **`tripDepartureCalendarDate()` (nueva, local al archivo)** replica
-  `toArgentinaCalendarDate` del backend a mano (offset fijo `UTC-3`, sin DST) en vez
-  de importarla — no hay import cruzado entre `movo-mobile` y
-  `movo-svc-shipments`, mismo criterio que el resto de las utilidades de fecha del
-  archivo (`formatPickupDateLabel`).
+- **`toArgentinaCalendarDateString` de `@movo/shared`** (no una reimplementación
+  local) resuelve la conversión — el mismo día que se escribió este fix se unificó
+  con el cálculo equivalente que ya existía en el backend
+  (`movo-svc-shipments/src/domain/pickup-window.ts#toArgentinaCalendarDate`), extraído
+  a `shared/movo-shared/src/utils/argentina-date.ts` (ver su `CLAUDE.md`) para que
+  las dos mitades de MOVO-163 (esta franja y `GET /trips/:id/matches`) compartan una
+  sola implementación del offset de Argentina en vez de mantener dos a mano en
+  sincronía. Import por subpath, mismo criterio que el resto del archivo
+  (`@movo/shared/dist/utils/argentina-date`).
 
 Tests nuevos en `test/shipment-format.test.ts` (`computeOnTripDetour`): fecha
 distinta del envío descarta un viaje con geometría de paso; un `departureAt` de

@@ -141,3 +141,14 @@ MOVO-152/170, este campo sí rompe la compilación de cualquier literal `PublicP
 `bio: null` al fake, mismo criterio que el resto de los campos que ese servicio no
 ejercita de verdad). El mobile tiene su propio ajuste pendiente en otra rama
 (MOVO-154/176), fuera del alcance de esta PR.
+
+### `toArgentinaCalendarDateString` (sin ticket propio — refactor de unificación)
+
+`src/utils/argentina-date.ts` — primera utilidad de `@movo/shared` sin relación con
+auth/tipos/comisión: la cuenta pura "instante real → día calendario argentino
+(`YYYY-MM-DD`)", extraída de `movo-svc-shipments/src/domain/pickup-window.ts` tras
+encontrar la misma lógica reimplementada a mano en `movo-mobile` (bug de MOVO-183, la
+franja "de paso" del tab Transportar no filtraba por fecha). El backend sigue
+envolviendo el resultado en el `Date` anclado que necesita para comparar contra
+columnas `@db.Date` en SQL; mobile la consume tal cual. Sin dependencias de Node —
+función pura sobre `Date`/`string`, segura también en React Native.

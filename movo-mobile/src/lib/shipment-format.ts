@@ -1,4 +1,5 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import { toArgentinaCalendarDateString } from "@movo/shared/dist/utils/argentina-date";
 
 /** Etiqueta en español de cada estado del ciclo de vida (`shipment-state-machine.ts`
  * en `movo-svc-shipments`, MOVO-105) — un valor nuevo en el enum obliga a decidir acá
@@ -339,23 +340,6 @@ export interface TripRoute {
   departureAt: string;
 }
 
-// Sin DST — mismo criterio que `ARGENTINA_UTC_OFFSET_HOURS` de `movo-svc-shipments`
-// (`domain/pickup-window.ts`), la app opera solo en Argentina.
-const ARGENTINA_UTC_OFFSET_HOURS = 3;
-
-/** `departureAt` (instante real, con offset) al día calendario argentino en formato
- * `"YYYY-MM-DD"` — misma conversión que `toArgentinaCalendarDate` del backend
- * (`GET /trips/:id/matches`, MOVO-161), para poder comparar contra `pickupDate` del
- * envío (que ya viaja en ese formato, sin hora). */
-function tripDepartureCalendarDate(departureAt: string): string {
-  const instant = new Date(departureAt);
-  const local = new Date(instant.getTime() - ARGENTINA_UTC_OFFSET_HOURS * 60 * 60 * 1000);
-  const year = local.getUTCFullYear();
-  const month = String(local.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(local.getUTCDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 /**
  * "¿Este envío me queda de paso en alguno de mis viajes declarados?" (MOVO-183,
  * prototipo de Claude Design) — sin un endpoint de backend que cruce el feed general
@@ -376,8 +360,11 @@ function tripDepartureCalendarDate(departureAt: string): string {
  * calendario argentino que el `pickupDate` del envío (bug reportado por el usuario:
  * la franja "de paso" aparecía en envíos de cualquier fecha, sin relación con cuándo
  * es el viaje) — mismo filtro de fecha que ya aplica `GET /trips/:id/matches` del
- * lado del backend para la notificación push (AC6/AC7 de MOVO-163), acá replicado
+ * lado del backend para la notificación push (AC6/AC7 de MOVO-163), acá corrido
  * client-side porque este cruce corre contra TODOS los viajes activos, no uno solo.
+ * `toArgentinaCalendarDateString` (`@movo/shared`) es la misma función que usa el
+ * backend para ese filtro — una sola implementación del cálculo, no dos mantenidas
+ * a mano en sincronía.
  */
 export function computeOnTripDetour<T extends TripRoute>(
   shipment: { pickupLat: number; pickupLng: number; pickupDate: string },
@@ -386,7 +373,7 @@ export function computeOnTripDetour<T extends TripRoute>(
 ): { trip: T; detourKm: number } | null {
   let best: { trip: T; detourKm: number } | null = null;
   for (const trip of trips) {
-    if (tripDepartureCalendarDate(trip.departureAt) !== shipment.pickupDate) continue;
+    if (toArgentinaCalendarDateString(trip.departureAt) !== shipment.pickupDate) continue;
     const direct = haversineDistanceKm(trip.originLat, trip.originLng, trip.destinationLat, trip.destinationLng);
     const viaPickup =
       haversineDistanceKm(trip.originLat, trip.originLng, shipment.pickupLat, shipment.pickupLng) +
