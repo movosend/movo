@@ -1,4 +1,5 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import { toArgentinaCalendarDateString } from "@movo/shared/dist/utils/argentina-date";
 
 /** Etiqueta en español de cada estado del ciclo de vida (`shipment-state-machine.ts`
  * en `movo-svc-shipments`, MOVO-105) — un valor nuevo en el enum obliga a decidir acá
@@ -327,14 +328,16 @@ export function formatTripDistanceKm(distanceKm: number): string {
   return `~${distanceKm.toFixed(1)} km`;
 }
 
-/** Ruta declarada de un viaje propio (`origin`/`destination`), lo mínimo que necesita
- * `computeOnTripDetour` — no el `Trip`/`TripWithAcceptedPackages` completo, para poder
- * testear la geometría sin construir un fixture con todos los campos del modelo. */
+/** Ruta declarada de un viaje propio (`origin`/`destination`/`departureAt`), lo mínimo
+ * que necesita `computeOnTripDetour` — no el `Trip`/`TripWithAcceptedPackages`
+ * completo, para poder testear la geometría sin construir un fixture con todos los
+ * campos del modelo. */
 export interface TripRoute {
   originLat: number;
   originLng: number;
   destinationLat: number;
   destinationLng: number;
+  departureAt: string;
 }
 
 /**
@@ -352,14 +355,25 @@ export interface TripRoute {
  * está el punto de la recta ideal) y por construcción es siempre `>= 0` (desigualdad
  * triangular). Devuelve el viaje con el desvío MENOR entre todos los recibidos (el que
  * más "de paso" le queda), o `null` si ninguno entra dentro de `maxDetourKm`.
+ *
+ * Un viaje solo entra en la comparación si su `departureAt` cae el mismo día
+ * calendario argentino que el `pickupDate` del envío (bug reportado por el usuario:
+ * la franja "de paso" aparecía en envíos de cualquier fecha, sin relación con cuándo
+ * es el viaje) — mismo filtro de fecha que ya aplica `GET /trips/:id/matches` del
+ * lado del backend para la notificación push (AC6/AC7 de MOVO-163), acá corrido
+ * client-side porque este cruce corre contra TODOS los viajes activos, no uno solo.
+ * `toArgentinaCalendarDateString` (`@movo/shared`) es la misma función que usa el
+ * backend para ese filtro — una sola implementación del cálculo, no dos mantenidas
+ * a mano en sincronía.
  */
 export function computeOnTripDetour<T extends TripRoute>(
-  shipment: { pickupLat: number; pickupLng: number },
+  shipment: { pickupLat: number; pickupLng: number; pickupDate: string },
   trips: T[],
   maxDetourKm: number,
 ): { trip: T; detourKm: number } | null {
   let best: { trip: T; detourKm: number } | null = null;
   for (const trip of trips) {
+    if (toArgentinaCalendarDateString(trip.departureAt) !== shipment.pickupDate) continue;
     const direct = haversineDistanceKm(trip.originLat, trip.originLng, trip.destinationLat, trip.destinationLng);
     const viaPickup =
       haversineDistanceKm(trip.originLat, trip.originLng, shipment.pickupLat, shipment.pickupLng) +

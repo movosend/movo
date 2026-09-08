@@ -1263,6 +1263,39 @@ Pendiente / fuera de alcance: no probado en device; `ON_TRIP_MAX_DETOUR_KM` es u
 aproximación geométrica sin validar contra el comportamiento real esperado por el
 usuario en campo; MOVO-151 (pantalla completa de Mis ofertas) sigue sin construir.
 
+### Fix post-release (MOVO-183): la franja "Te queda de paso" ignoraba la fecha del viaje
+
+Bug reportado por el usuario probando en dispositivo: la franja de desvío del tab
+Transportar aparecía sobre envíos de cualquier fecha, sin relación con el
+`departureAt` del viaje declarado (ej. viaje el 9/9, franja mostrada sobre envíos del
+19/9 y 30/9) — `computeOnTripDetour` (`shipment-format.ts`) nunca comparaba fechas,
+solo geometría (`TripRoute` no tenía ni siquiera un campo de fecha). Contraste con la
+otra mitad de MOVO-163 (alerta en foreground vía `GET /trips/:id/matches`): ese
+endpoint sí exige mismo día calendario argentino entre `pickupDate` del envío y
+`departureAt` del viaje (`toArgentinaCalendarDate`, ver
+`services/movo-svc-shipments/CLAUDE.md`) — el gap era específico de esta
+aproximación 100% client-side, que corre contra TODOS los viajes activos y no pasa
+por ese endpoint.
+
+- **`TripRoute` gana `departureAt: string`** y `computeOnTripDetour` exige también
+  `pickupDate` del lado del envío — un viaje se descarta de la comparación si su
+  `departureAt` no cae en el mismo día calendario argentino que el `pickupDate` del
+  envío, antes de calcular ninguna geometría.
+- **`toArgentinaCalendarDateString` de `@movo/shared`** (no una reimplementación
+  local) resuelve la conversión — el mismo día que se escribió este fix se unificó
+  con el cálculo equivalente que ya existía en el backend
+  (`movo-svc-shipments/src/domain/pickup-window.ts#toArgentinaCalendarDate`), extraído
+  a `shared/movo-shared/src/utils/argentina-date.ts` (ver su `CLAUDE.md`) para que
+  las dos mitades de MOVO-163 (esta franja y `GET /trips/:id/matches`) compartan una
+  sola implementación del offset de Argentina en vez de mantener dos a mano en
+  sincronía. Import por subpath, mismo criterio que el resto del archivo
+  (`@movo/shared/dist/utils/argentina-date`).
+
+Tests nuevos en `test/shipment-format.test.ts` (`computeOnTripDetour`): fecha
+distinta del envío descarta un viaje con geometría de paso; un `departureAt` de
+madrugada UTC que cae la noche anterior en Argentina sigue matcheando el día
+correcto. `tsc --noEmit` limpio.
+
 ### Pendientes de este paquete
 
 - **`eas init`/development build real en dispositivo**: pendiente para probar de

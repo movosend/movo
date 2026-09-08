@@ -1,3 +1,5 @@
+import { toArgentinaCalendarDateString } from "@movo/shared";
+
 // La app opera solo en Argentina (mismo criterio que `ARGENTINA_UTC_OFFSET_HOURS` en
 // `shipments.service.ts`) — sin DST, por lo que el offset es constante.
 const ARGENTINA_UTC_OFFSET_HOURS = 3;
@@ -49,8 +51,13 @@ export function isPickupWindowExpired(pickupDate: Date, pickupTimeWindowEnd: Dat
  * SQL con una simple igualdad de columna `date`. Usado por el matching envío↔viaje
  * (`trips.service.ts#getTripMatches`, bug encontrado en producción -- MOVO-163 nunca
  * filtraba por fecha, solo por geografía).
+ *
+ * El cálculo del día calendario en sí vive en `@movo/shared#toArgentinaCalendarDateString`
+ * (compartido con `movo-mobile`, que necesita la misma cuenta client-side para la
+ * franja "de paso" del tab Transportar) -- acá solo se envuelve en el `Date` anclado
+ * que el resto de este dominio espera para comparar contra columnas `@db.Date`.
  */
 export function toArgentinaCalendarDate(instant: Date): Date {
-  const local = new Date(instant.getTime() - ARGENTINA_UTC_OFFSET_HOURS * 60 * 60 * 1000);
-  return new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()));
+  const [year, month, day] = toArgentinaCalendarDateString(instant).split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
 }

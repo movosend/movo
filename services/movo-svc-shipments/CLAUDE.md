@@ -1332,6 +1332,16 @@ cruce de día contra el mock de `listAvailable`), `shipment-repository.integrati
 contra Postgres real no se pudieron correr en este entorno (sin Docker/Postgres
 disponible) — quedan a validar contra CI.
 
+**Unificación posterior (sin ticket propio, encontrada al corregir el mismo bug del
+lado mobile — MOVO-183, `movo-mobile/CLAUDE.md`)**: `movo-mobile` necesitaba la misma
+cuenta de día calendario argentino para su propia franja "de paso" client-side
+(`computeOnTripDetour`, sin backend que cruce el feed completo contra todos los
+viajes activos — ver más abajo) y la había reimplementado a mano. El cálculo puro se
+extrajo a `@movo/shared#toArgentinaCalendarDateString` (`(instant: Date | string) =>
+"YYYY-MM-DD"`, ver `shared/movo-shared/CLAUDE.md`); `toArgentinaCalendarDate` de este
+servicio ahora es un wrapper de una línea sobre esa función compartida, solo
+reconstruye el `Date` anclado que necesita para comparar contra `@db.Date` en SQL.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

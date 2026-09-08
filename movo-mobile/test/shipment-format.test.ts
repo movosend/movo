@@ -415,15 +415,24 @@ describe("formatShipmentRowTime", () => {
 
 
 describe("computeOnTripDetour", () => {
-  const TRIP = { originLat: -31.42, originLng: -64.19, destinationLat: -31.4, destinationLng: -64.15 };
+  const TRIP = {
+    originLat: -31.42,
+    originLng: -64.19,
+    destinationLat: -31.4,
+    destinationLng: -64.15,
+    departureAt: "2026-09-09T13:00:00.000Z",
+  };
+  const SAME_DAY_PICKUP = "2026-09-09";
 
   it("null sin viajes declarados", () => {
-    expect(computeOnTripDetour({ pickupLat: -31.41, pickupLng: -64.18 }, [], 2)).toBeNull();
+    expect(
+      computeOnTripDetour({ pickupLat: -31.41, pickupLng: -64.18, pickupDate: SAME_DAY_PICKUP }, [], 2),
+    ).toBeNull();
   });
 
   it("un retiro sobre el origen del viaje tiene desvío ~0", () => {
     const result = computeOnTripDetour(
-      { pickupLat: TRIP.originLat, pickupLng: TRIP.originLng },
+      { pickupLat: TRIP.originLat, pickupLng: TRIP.originLng, pickupDate: SAME_DAY_PICKUP },
       [TRIP],
       2,
     );
@@ -433,17 +442,47 @@ describe("computeOnTripDetour", () => {
   });
 
   it("un retiro lejos de la ruta queda afuera del umbral de desvío", () => {
-    const result = computeOnTripDetour({ pickupLat: -32.5, pickupLng: -63.0 }, [TRIP], 2);
+    const result = computeOnTripDetour(
+      { pickupLat: -32.5, pickupLng: -63.0, pickupDate: SAME_DAY_PICKUP },
+      [TRIP],
+      2,
+    );
     expect(result).toBeNull();
   });
 
   it("con varios viajes, devuelve el de menor desvío", () => {
-    const farTrip = { originLat: -33, originLng: -65, destinationLat: -33.1, destinationLng: -65.1 };
+    const farTrip = {
+      originLat: -33,
+      originLng: -65,
+      destinationLat: -33.1,
+      destinationLng: -65.1,
+      departureAt: "2026-09-09T13:00:00.000Z",
+    };
     const result = computeOnTripDetour(
-      { pickupLat: TRIP.originLat, pickupLng: TRIP.originLng },
+      { pickupLat: TRIP.originLat, pickupLng: TRIP.originLng, pickupDate: SAME_DAY_PICKUP },
       [farTrip, TRIP],
       50,
     );
     expect(result!.trip).toBe(TRIP);
+  });
+
+  it("un viaje con geometría de paso pero fecha distinta a la del envío queda afuera", () => {
+    const result = computeOnTripDetour(
+      { pickupLat: TRIP.originLat, pickupLng: TRIP.originLng, pickupDate: "2026-09-19" },
+      [TRIP],
+      2,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("respeta el día calendario argentino, no el día UTC de `departureAt`", () => {
+    // 2026-09-10T02:00:00Z (madrugada UTC) es 2026-09-09 23:00 en Argentina (UTC-3).
+    const lateNightTrip = { ...TRIP, departureAt: "2026-09-10T02:00:00.000Z" };
+    const result = computeOnTripDetour(
+      { pickupLat: TRIP.originLat, pickupLng: TRIP.originLng, pickupDate: SAME_DAY_PICKUP },
+      [lateNightTrip],
+      2,
+    );
+    expect(result).not.toBeNull();
   });
 });

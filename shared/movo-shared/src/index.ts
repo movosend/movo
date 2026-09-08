@@ -41,3 +41,6 @@ export type { QuoteRequest, QuoteResponse, PriceBreakdownItem } from "./types/pr
 // commission
 export { getCommissionConfig, computeOfferGrossPrice, __resetCommissionConfigForTests } from "./config/commission";
 export type { CommissionConfig, OfferGrossPriceBreakdown } from "./config/commission";
+
+// utils
+export { toArgentinaCalendarDateString } from "./utils/argentina-date";
