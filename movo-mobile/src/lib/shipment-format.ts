@@ -327,14 +327,33 @@ export function formatTripDistanceKm(distanceKm: number): string {
   return `~${distanceKm.toFixed(1)} km`;
 }
 
-/** Ruta declarada de un viaje propio (`origin`/`destination`), lo mínimo que necesita
- * `computeOnTripDetour` — no el `Trip`/`TripWithAcceptedPackages` completo, para poder
- * testear la geometría sin construir un fixture con todos los campos del modelo. */
+/** Ruta declarada de un viaje propio (`origin`/`destination`/`departureAt`), lo mínimo
+ * que necesita `computeOnTripDetour` — no el `Trip`/`TripWithAcceptedPackages`
+ * completo, para poder testear la geometría sin construir un fixture con todos los
+ * campos del modelo. */
 export interface TripRoute {
   originLat: number;
   originLng: number;
   destinationLat: number;
   destinationLng: number;
+  departureAt: string;
+}
+
+// Sin DST — mismo criterio que `ARGENTINA_UTC_OFFSET_HOURS` de `movo-svc-shipments`
+// (`domain/pickup-window.ts`), la app opera solo en Argentina.
+const ARGENTINA_UTC_OFFSET_HOURS = 3;
+
+/** `departureAt` (instante real, con offset) al día calendario argentino en formato
+ * `"YYYY-MM-DD"` — misma conversión que `toArgentinaCalendarDate` del backend
+ * (`GET /trips/:id/matches`, MOVO-161), para poder comparar contra `pickupDate` del
+ * envío (que ya viaja en ese formato, sin hora). */
+function tripDepartureCalendarDate(departureAt: string): string {
+  const instant = new Date(departureAt);
+  const local = new Date(instant.getTime() - ARGENTINA_UTC_OFFSET_HOURS * 60 * 60 * 1000);
+  const year = local.getUTCFullYear();
+  const month = String(local.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(local.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 /**
@@ -352,14 +371,22 @@ export interface TripRoute {
  * está el punto de la recta ideal) y por construcción es siempre `>= 0` (desigualdad
  * triangular). Devuelve el viaje con el desvío MENOR entre todos los recibidos (el que
  * más "de paso" le queda), o `null` si ninguno entra dentro de `maxDetourKm`.
+ *
+ * Un viaje solo entra en la comparación si su `departureAt` cae el mismo día
+ * calendario argentino que el `pickupDate` del envío (bug reportado por el usuario:
+ * la franja "de paso" aparecía en envíos de cualquier fecha, sin relación con cuándo
+ * es el viaje) — mismo filtro de fecha que ya aplica `GET /trips/:id/matches` del
+ * lado del backend para la notificación push (AC6/AC7 de MOVO-163), acá replicado
+ * client-side porque este cruce corre contra TODOS los viajes activos, no uno solo.
  */
 export function computeOnTripDetour<T extends TripRoute>(
-  shipment: { pickupLat: number; pickupLng: number },
+  shipment: { pickupLat: number; pickupLng: number; pickupDate: string },
   trips: T[],
   maxDetourKm: number,
 ): { trip: T; detourKm: number } | null {
   let best: { trip: T; detourKm: number } | null = null;
   for (const trip of trips) {
+    if (tripDepartureCalendarDate(trip.departureAt) !== shipment.pickupDate) continue;
     const direct = haversineDistanceKm(trip.originLat, trip.originLng, trip.destinationLat, trip.destinationLng);
     const viaPickup =
       haversineDistanceKm(trip.originLat, trip.originLng, shipment.pickupLat, shipment.pickupLng) +
