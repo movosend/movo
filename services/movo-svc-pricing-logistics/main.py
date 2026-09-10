@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.routers.optimize import router as optimize_router
 from app.routers.quote import router as quote_router
 
 app = FastAPI(title="movo-svc-pricing-logistics", version="0.1.0")
@@ -11,3 +12,4 @@ def health() -> dict[str, str]:
 
 
 app.include_router(quote_router)
+app.include_router(optimize_router)
