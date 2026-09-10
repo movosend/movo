@@ -61,7 +61,40 @@ a mano — más 1 caso de validación 422). 100% de cobertura sobre `main.py`+`a
 `ruff`/`mypy` limpios.
 
 Pendiente / fuera de alcance: el motor real (demanda + precio de combustible +
-Google Routes API, VRPTW en producción) sigue sin implementar — hueco de backlog
-señalado explícitamente por el propio ticket MOVO-82, cubierto ahora por MOVO-138
-(sin refinar todavía). ADR-018 (resumen en `CLAUDE.md` raíz) pendiente de pegar
-completo en Drive.
+Google Routes API) sigue sin implementar — hueco de backlog señalado explícitamente
+por el propio ticket MOVO-82, cubierto ahora por MOVO-138 (sin refinar todavía).
+ADR-018 (resumen en `CLAUDE.md` raíz) pendiente de pegar completo en Drive.
+
+### MOVO-205 — `POST /optimize/route`: Endpoint de optimización VRPTW multi-envío (ADR-013 / ADR-015)
+
+Lleva el prototipo de la Spike MOVO-50 a producción con Google OR-Tools (`ortools==9.15.6755`).
+Optimiza la secuencia de paradas de un transportista con múltiples envíos activos o
+candidatos, imponiendo precedencia estricta (retiro antes de entrega) y reporte de retrasos
+sobre ventanas horarias.
+
+Decisiones clave y refinamiento (10/09/2026):
+- **Abstracción `RoutesProvider` (`app/services/routes_provider.py`)**: implementa
+  `MockRoutesProvider` (Haversine + velocidad promedio configurable `ROUTING_AVG_SPEED_KMH=40.0`,
+  por default en dev/test/CI sin costo de API keys) y `GoogleRoutesProvider`
+  (Google Routes API `Compute Route Matrix`, tier Basic, activable con `ROUTES_PROVIDER=google`
+  y `GOOGLE_MAPS_API_KEY`).
+- **Orden Canónico de Waypoints**: al consultar la matriz de distancias/tiempos y modelar
+  el solver, los waypoints se ordenan como `[salida, pickups..., dropoffs..., llegada]`.
+  Garantiza índices determinísticos y predecibles para el mapeo de precedencias.
+- **Política Estricta No-Fallback**: si el solver no encuentra solución factible o la
+  API de Google falla, se devuelve un error HTTP explícito (`422 Unprocessable Entity`
+  o `502 Bad Gateway`) en lugar de soluciones silenciosamente degradadas que desinformen
+  al transportista.
+- **Tolerancia y Holgura Temporal**: holgura (*slack*) de 120 minutos (2 horas) configurada
+  en la dimensión de tiempo de OR-Tools. Las cotas superiores de ventana horaria se modelan
+  como suaves con penalización (`SetCumulVarSoftUpperBound`), marcando `outsideTimeWindow: true`
+  en cada parada que llegue tarde para advertir al transportista sin fallar con 500.
+- **Open Routing**: si no se declara destino final (`finalLocation: null`), se utiliza un
+  nodo dummy de costo 0 para que OR-Tools determine libremente la última parada óptima.
+- **Tipos TypeScript compartidos (`shared/movo-shared/src/types/routing.ts`)**: exportados
+  en `@movo/shared` para el consumo directo en `movo-svc-shipments` (MOVO-206) y `movo-mobile`
+  (MOVO-10/MOVO-207).
+
+Tests: `tests/test_optimize.py` (multi-envío 3 pedidos, envío único, envío in_transit solo
+entrega, paradas fuera de ventana horaria, validación No-Fallback con error 502/422, mock de
+GoogleRoutesProvider y validación Pydantic).
