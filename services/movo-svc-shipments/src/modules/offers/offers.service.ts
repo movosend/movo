@@ -1,9 +1,9 @@
-import { ApiError, OfferStatus } from "@movo/shared";
+import { ApiError, OfferStatus, ShipmentStatus, getCommissionConfig } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { NotificationsClient } from "../../adapters/notifications-client";
-import { Offer, OfferWithShipmentContext } from "../../models/offer";
+import { Offer, OfferCompetitiveRank, OfferWithShipmentContext } from "../../models/offer";
 import { assertIsSender } from "../shipments/assert-shipment-access";
 
 type OffersServiceLogger =
@@ -49,6 +49,37 @@ export interface ListMyOffersResult {
   total: number;
 }
 
+/** MOVO-188 (AC3): mismo criterio de conversión bruto->neto que
+ * `computeOffersSummaryForCarrier` en shipments.service.ts (MOVO-180). */
+function toNetArs(grossArs: number, rate: number): number {
+  return Math.round((grossArs / (1 + rate)) * 100) / 100;
+}
+
+/**
+ * MOVO-188 (AC2/AC3): ubica la oferta propia dentro de `pendingOffers` (ya ordenado
+ * por `priceOffered` bruto ascendente por el repositorio) y convierte el piso/techo a
+ * neto. `pendingOffers` siempre incluye la oferta propia (viene de la misma query que
+ * la trajo como `pending`) -- si no aparece, es una carrera entre la lectura de
+ * `listByCarrier` y este batch (ej. se aceptó/retiró justo en el medio); se degrada a
+ * `null` en vez de reportar una posición inventada.
+ */
+function buildCompetitiveRank(
+  offerId: string,
+  pendingOffers: Array<{ id: string; priceOffered: number }>,
+  commissionRate: number
+): OfferCompetitiveRank | null {
+  const rank = pendingOffers.findIndex((offer) => offer.id === offerId) + 1;
+  if (rank === 0) {
+    return null;
+  }
+  return {
+    rank,
+    total: pendingOffers.length,
+    lowestPriceNetArs: toNetArs(pendingOffers[0].priceOffered, commissionRate),
+    highestPriceNetArs: toNetArs(pendingOffers[pendingOffers.length - 1].priceOffered, commissionRate),
+  };
+}
+
 export function createOffersService(
   offerRepository: OfferRepository,
   shipmentRepository: ShipmentRepository,
@@ -56,7 +87,15 @@ export function createOffersService(
   logger?: OffersServiceLogger
 ) {
   return {
-    /** MOVO-145 (AC1-AC5): ofertas propias del transportista autenticado. */
+    /**
+     * MOVO-145 (AC1-AC5): ofertas propias del transportista autenticado.
+     *
+     * MOVO-188 (AC1/AC2/AC5): suma `competitiveRank` a cada ítem `pending` cuyo envío
+     * sigue `published` -- una oferta puede seguir `pending` en base sobre un envío ya
+     * cancelado (`cancelShipment` no toca las filas de `offers`, solo notifica, ver
+     * shipments.service.ts) y ese caso no compite contra nadie. Resuelto en batch: una
+     * sola query sobre los `shipmentId` distintos de la página, nunca una por ítem.
+     */
     async listMyOffers(
       carrierId: string,
       page: number,
@@ -64,7 +103,29 @@ export function createOffersService(
       status?: OfferStatus
     ): Promise<ListMyOffersResult> {
       const { items, total } = await offerRepository.listByCarrier(carrierId, page, limit, status);
-      return { items, page, limit, total };
+
+      const rankableShipmentIds = [
+        ...new Set(
+          items
+            .filter((item) => item.status === OfferStatus.PENDING && item.shipment.status === ShipmentStatus.PUBLISHED)
+            .map((item) => item.shipmentId)
+        ),
+      ];
+      const pendingByShipment =
+        rankableShipmentIds.length > 0
+          ? await offerRepository.listPendingOffersByShipmentIds(rankableShipmentIds)
+          : new Map<string, Array<{ id: string; priceOffered: number }>>();
+      const commissionRate = getCommissionConfig().movoCommissionRate;
+
+      const itemsWithRank = items.map((item) => ({
+        ...item,
+        competitiveRank:
+          item.status === OfferStatus.PENDING && item.shipment.status === ShipmentStatus.PUBLISHED
+            ? buildCompetitiveRank(item.id, pendingByShipment.get(item.shipmentId) ?? [], commissionRate)
+            : null,
+      }));
+
+      return { items: itemsWithRank, page, limit, total };
     },
 
     /**

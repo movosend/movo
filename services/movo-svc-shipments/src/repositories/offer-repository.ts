@@ -64,6 +64,10 @@ function mapOfferWithShipment(row: OfferRow & { shipment: ShipmentRow }): OfferW
       pickupDate: row.shipment.pickupDate,
       deliveryAddress: row.shipment.deliveryAddress,
     },
+    // MOVO-188: resuelto aparte por `offers.service.ts` (batch sobre la página, ver
+    // `listPendingOffersByShipmentIds`) -- nunca acá, para no convertir esto en una
+    // query por fila.
+    competitiveRank: null,
   };
 }
 
@@ -229,6 +233,15 @@ export interface OfferRepository {
    * `GET /shipments/available`, sin N+1 sobre la página de resultados.
    */
   listPendingOfferedShipmentIds(carrierId: string, shipmentIds: string[]): Promise<Set<string>>;
+  /**
+   * MOVO-188 (AC1-AC3/AC5): ofertas `pending` efectivas de cada envío dado, ordenadas
+   * por `priceOffered` (bruto) ascendente -- el caller (`offers.service.ts#listMyOffers`)
+   * ubica ahí la posición de la oferta propia y convierte a neto. Una sola query batch
+   * sobre todos los `shipmentId` de la página (AC5), nunca una por ítem.
+   */
+  listPendingOffersByShipmentIds(
+    shipmentIds: string[]
+  ): Promise<Map<string, Array<{ id: string; priceOffered: number }>>>;
 }
 
 export function createOfferRepository(db: PrismaClient): OfferRepository {
@@ -443,6 +456,29 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         select: { shipmentId: true },
       });
       return new Set(rows.map((r) => r.shipmentId));
+    },
+
+    async listPendingOffersByShipmentIds(
+      shipmentIds: string[]
+    ): Promise<Map<string, Array<{ id: string; priceOffered: number }>>> {
+      const map = new Map<string, Array<{ id: string; priceOffered: number }>>();
+      if (shipmentIds.length === 0) {
+        return map;
+      }
+      const rows = await db.offer.findMany({
+        where: { shipmentId: { in: shipmentIds }, ...offerStatusWhere(OfferStatus.PENDING, new Date()) },
+        select: { id: true, shipmentId: true, priceOffered: true },
+        // orderBy compuesto: agrupa por priceOffered ascendente dentro de cada
+        // shipmentId sin depender de un segundo `sort` en JS -- Prisma preserva el
+        // orden relativo de `priceOffered` al agrupar acá abajo por `shipmentId`.
+        orderBy: { priceOffered: "asc" },
+      });
+      for (const row of rows) {
+        const list = map.get(row.shipmentId) ?? [];
+        list.push({ id: row.id, priceOffered: row.priceOffered.toNumber() });
+        map.set(row.shipmentId, list);
+      }
+      return map;
     },
   };
 }
