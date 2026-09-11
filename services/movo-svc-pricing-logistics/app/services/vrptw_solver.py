@@ -151,7 +151,7 @@ class VRPTWSolver:
             canonical_waypoints.append(Coordinates(lat=d.lat, lng=d.lng))
 
         has_final_location = request.final_location is not None
-        if has_final_location:
+        if request.final_location is not None:
             canonical_waypoints.append(request.final_location)
 
         # Consultar la matriz de distancias y tiempos vía RoutesProvider
@@ -229,7 +229,7 @@ class VRPTWSolver:
             curr_id += 1
 
         # Si no hay destino final declarado, agregamos un nodo dummy final con costo 0 (ruta abierta)
-        if has_final_location:
+        if request.final_location is not None:
             internal_nodes.append(
                 InternalNode(
                     node_id=curr_id,
@@ -268,10 +268,10 @@ class VRPTWSolver:
             )
             end_node_id = dummy_node_id
             # Extender matrices con fila/columna dummy de costo 0 desde cualquier nodo
-            for row in dist_matrix:
-                row.append(0.0)
-            for row in time_matrix:
-                row.append(0)
+            for d_row in dist_matrix:
+                d_row.append(0.0)
+            for t_row in time_matrix:
+                t_row.append(0)
             dist_matrix.append([0.0] * (dummy_node_id + 1))
             time_matrix.append([0] * (dummy_node_id + 1))
 
@@ -381,6 +381,7 @@ class VRPTWSolver:
             node = internal_nodes[node_id]
 
             if node.stop_type is not None:
+                assert node.shipment_id is not None
                 arr_min = solution.Min(time_dimension.CumulVar(index))
                 dep_min = arr_min + node.service_time_min
 

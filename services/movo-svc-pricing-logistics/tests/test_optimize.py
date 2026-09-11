@@ -1,11 +1,18 @@
 from unittest.mock import MagicMock, patch
+import pytest
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.models.optimize import Coordinates
 from app.services.routes_provider import GoogleRoutesProvider, RoutesProviderError
 from main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def force_mock_routes_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "routes_provider", "mock")
 
 
 def test_optimize_empty_stops() -> None:
