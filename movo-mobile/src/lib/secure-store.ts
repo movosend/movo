@@ -58,6 +58,13 @@ export const SECURE_STORE_KEYS = {
    * preferencia de UI sin nada sensible, reusa este wrapper genérico en vez de sumar
    * una dependencia nueva (tipo AsyncStorage) solo para esto. */
   transportRadiusKm: "movo.transportRadiusKm",
+  /** Clave privada ECDSA P-256 del dispositivo para el handshake criptográfico
+   * (MOVO-195, ADR-020) — generada una sola vez por `src/crypto/keypair.ts`, nunca en
+   * `AsyncStorage` ni en estado de React (AC2). Mismo criterio que `pushDeviceId`:
+   * identifica al DISPOSITIVO, no a la sesión — **sobrevive** a `clearSession()`/
+   * `logout()`, así que si otro usuario loguea en el mismo teléfono reusa la misma
+   * clave física y solo registra su propia pública contra `POST /users/me/device-key`. */
+  handshakeDevicePrivateKey: "movo.handshake.devicePrivateKey",
 } as const;
 
 /**
