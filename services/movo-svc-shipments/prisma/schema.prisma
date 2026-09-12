@@ -30,19 +30,21 @@ enum PackageType {
   @@schema("shipments")
 }
 
-// MOVO-104 AC6: set canónico de 9 estados acordado en MOVO-79, ya vigente
-// como `ShipmentStatus` en @movo/shared y consumido por
-// shipment-state-machine.ts (MOVO-105). Este enum de Postgres es su
-// contraparte 1:1 — cualquier valor nuevo se agrega primero en
-// @movo/shared, después acá, nunca al revés.
+// MOVO-104 AC6: set canónico de 9 estados acordado en MOVO-79 (extendido a 11
+// por MOVO-208: assigned_unfunded/completed), ya vigente como `ShipmentStatus`
+// en @movo/shared y consumido por shipment-state-machine.ts (MOVO-105). Este
+// enum de Postgres es su contraparte 1:1 — cualquier valor nuevo se agrega
+// primero en @movo/shared, después acá, nunca al revés.
 enum ShipmentStatus {
   awaiting_receiver_confirmation
   rejected_by_receiver
   published
   assignment_pending
+  assigned_unfunded
   assigned
   in_transit
   delivered
+  completed
   cancelled
   disputed
 
