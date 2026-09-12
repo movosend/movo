@@ -295,6 +295,12 @@ model Offer {
   createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz
   respondedAt DateTime?   @map("responded_at") @db.Timestamptz
 
+  // MOVO-189: instante en que el EMISOR vio esta oferta por primera vez (nunca "última
+  // vez", ver deriveEffectiveOfferStatus/AC1) -- se completa con un updateMany
+  // best-effort al listar (shipments.service.ts#listShipmentOffers), nunca se pisa una
+  // vez seteado ni sigue actualizándose tras resolverse la oferta (AC4).
+  viewedAtBySender DateTime? @map("viewed_at_by_sender") @db.Timestamptz
+
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
   trip     Trip?    @relation(fields: [tripId], references: [id], onDelete: SetNull)
 

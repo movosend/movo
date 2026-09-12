@@ -40,6 +40,10 @@ export interface Offer {
    * `schema.prisma`). */
   estimatedDeliveryTimeWindowStart: string | null;
   estimatedDeliveryTimeWindowEnd: string | null;
+  /** MOVO-189: instante en que el emisor vio esta oferta por primera vez -- `null`
+   * hasta la próxima lectura de `GET /shipments/:id/offers` que la marque (best-effort,
+   * ver `shipments.service.ts#listShipmentOffers`). Nunca se pisa una vez seteado. */
+  viewedAtBySender: Date | null;
 }
 
 /**

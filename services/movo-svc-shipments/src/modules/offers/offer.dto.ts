@@ -15,6 +15,8 @@ export function toOfferDto(offer: Offer) {
     expiresAt: offer.expiresAt ? offer.expiresAt.toISOString() : null,
     createdAt: offer.createdAt.toISOString(),
     respondedAt: offer.respondedAt ? offer.respondedAt.toISOString() : null,
+    // MOVO-189: instante crudo, sin traducir a copy ("Vista hace 40 min") -- eso es de UI.
+    viewedAtBySender: offer.viewedAtBySender ? offer.viewedAtBySender.toISOString() : null,
     // MOVO-180: a diferencia de offeredDate (acá expuesto como "date-time"),
     // estimatedDeliveryDate se formatea date-only en TODOS los endpoints que lo
     // exponen (toMyOfferDto/toShipmentDto incluidos) -- es un valor de calendario
