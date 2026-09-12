@@ -30,6 +30,8 @@ def test_optimize_empty_stops() -> None:
     assert data["totalDistanceKm"] == 0.0
     assert data["totalDurationMinutes"] == 0.0
     assert data["status"] == "EMPTY"
+    assert data["disclaimer"] == "Ruta sin paradas asignadas."
+
 
 
 def test_optimize_single_shipment_precedence() -> None:

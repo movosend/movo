@@ -15,7 +15,12 @@ from app.models.optimize import (
     RouteStopOutput,
     StopType,
 )
-from app.services.routes_provider import DistanceMatrixResult, RoutesProvider, get_routes_provider
+from app.services.routes_provider import (
+    DistanceMatrixResult,
+    MockRoutesProvider,
+    RoutesProvider,
+    get_routes_provider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,20 +113,14 @@ class VRPTWSolver:
     def optimize(self, request: OptimizeRouteRequest) -> OptimizeRouteResponse:
         # Caso 1: Ruta vacía (0 paradas)
         if not request.stops:
-            disclaimer = (
-                "Ruta sin paradas asignadas."
-                if self.provider.__class__.__name__ == "MockRoutesProvider"
-                else "Ruta sin paradas asignadas."
-            )
+            is_mock = isinstance(self.provider, MockRoutesProvider)
             return OptimizeRouteResponse(
                 stops=[],
                 total_distance_km=0.0,
                 total_duration_minutes=0.0,
                 status=OptimizationStatus.EMPTY,
-                calculation_method="haversine_vrptw_v1"
-                if self.provider.__class__.__name__ == "MockRoutesProvider"
-                else "google_routes_vrptw_v1",
-                disclaimer=disclaimer,
+                calculation_method="haversine_vrptw_v1" if is_mock else "google_routes_vrptw_v1",
+                disclaimer="Ruta sin paradas asignadas.",
             )
 
         # Determinar base timestamp de partida
@@ -295,10 +294,12 @@ class VRPTWSolver:
             transit_callback_index,
             slack_min,
             horizon_min,
-            False,
+            True,  # fix_start_cumul_to_zero=True: ancla el inicio en t=0 (departure_time)
             "Time",
         )
         time_dimension = routing.GetDimensionOrDie("Time")
+        # Fijar explícitamente el inicio en 0 para evitar desfasaje de los ETAs devueltos
+        time_dimension.CumulVar(routing.Start(0)).SetRange(0, 0)
 
         # Configurar ventanas horarias en la dimensión de tiempo
         for node in internal_nodes:

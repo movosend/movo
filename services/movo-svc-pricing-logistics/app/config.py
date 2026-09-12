@@ -70,12 +70,7 @@ class Settings(BaseSettings):
             "ROUTING_DEFAULT_SERVICE_TIME_MINUTES", "routing_default_service_time_minutes"
         ),
     )
-    routing_max_corridor_deviation_km: float = Field(
-        default=15.0,
-        validation_alias=AliasChoices(
-            "ROUTING_MAX_CORRIDOR_DEVIATION_KM", "routing_max_corridor_deviation_km"
-        ),
-    )
+
 
 
 settings = Settings()
