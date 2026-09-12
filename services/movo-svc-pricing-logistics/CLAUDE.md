@@ -98,3 +98,32 @@ Decisiones clave y refinamiento (10/09/2026):
 Tests: `tests/test_optimize.py` (multi-envío 3 pedidos, envío único, envío in_transit solo
 entrega, paradas fuera de ventana horaria, validación No-Fallback con error 502/422, mock de
 GoogleRoutesProvider y validación Pydantic).
+
+### MOVO-217 — Setup de OR-Tools, cliente Redis y RoutesProvider
+
+Completa la base de infraestructura y servicios de optimización y ruteo para
+`movo-svc-pricing-logistics` iniciada en MOVO-205.
+
+Decisiones clave y alcance:
+- **Cliente Redis asíncrono (`app/services/redis_client.py`)**: implementa conexión
+  con `redis.asyncio` usando `settings.redis_url` (`REDIS_URL`), con decodificación de
+  respuestas en texto (`decode_responses=True`). Provee funciones de ciclo de vida
+  (`init_redis_client`, `close_redis_client`), acceso global (`get_redis_client`) y
+  diagnóstico (`ping_redis`).
+- **Ciclo de vida en FastAPI (`main.py`)**: migrado al context manager `lifespan`
+  (estándar moderno de FastAPI) para inicializar y cerrar la conexión con Redis ordenadamente.
+- **Endpoint `/health`**: reporta el estado general (`status: ok`) y, si `REDIS_URL` está
+  configurada, reporta la conectividad con Redis (`redis: connected` o `disconnected`)
+  sin fallar ni interrumpir la disponibilidad del servicio.
+- **Limpieza de Infraestructura (`infra/docker-compose.yml`)**: conforme a la arquitectura
+  stateless del servicio (ADR-019), se removieron la variable `DATABASE_URL` y la
+  dependencia `depends_on: postgres` para `movo-svc-pricing-logistics`, manteniendo
+  únicamente `REDIS_URL` y `redis`.
+- **Base previa de MOVO-205**: las dependencias (`ortools==9.15.6755`, `redis==5.2.1`,
+  `httpx==0.28.1`), la abstracción `RoutesProvider` (Mock determinístico y Google Routes API)
+  y la política estricta de *No-Fallback* (502 / 422) ya formaban parte de `develop`.
+
+Tests: `tests/test_redis.py` (inicialización con y sin URL, manejo de excepciones en conexión
+y ping, cierre de recursos, y verificación en `/health`). 100% de cobertura en `redis_client.py`.
+Suite completa en verde (19/19 tests, 89% de cobertura total). `ruff` y `mypy` limpios.
+
