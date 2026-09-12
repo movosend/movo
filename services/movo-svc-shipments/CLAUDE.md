@@ -1460,6 +1460,62 @@ neto 1000, comisión 150 con la tasa 15% default). Suite completa del servicio
 545/545. `tsc --noEmit` y `eslint` limpios en los archivos de esta US. Confirmado que
 `app.swagger()` expone los campos nuevos en los 4 endpoints.
 
+### MOVO-187 — Snapshot de identidad y confianza del emisor visible al transportista
+
+Agrega `senderNameAtOffer`/`senderVerifiedAtOffer`/`senderRatingAtOffer` a `Offer` —
+snapshot del **emisor** al momento de ofertar, simétrico al que `MOVO-102`/`143` ya
+resuelven para el transportista (`carrierNameAtOffer`/`carrierRatingAtOffer`). Mismo
+criterio ya elegido para ese caso: snapshot congelado, no lectura en vivo (consistente
+con el resto de `Offer`, es el dato correcto para una disputa futura, evita una llamada
+cross-servicio extra en cada `GET /offers/mine`). AC4 (conteo de envíos, "34 envíos"
+del mockup) no suma ninguna columna ni query nueva — reusa `transactionCounts.asSender`
+que `PublicProfile`/`GET /users/:id` ya expone (MOVO-152/170); el mobile lo resuelve
+por su cuenta.
+
+- **Resuelto en `createOfferForShipment` en el mismo momento que el snapshot del
+  transportista**: `usersClient.findPublicProfile(shipment.senderId, shipment.senderId)`
+  para nombre/verificación, `getSenderReputationScore(shipment.senderId)` (callback
+  nuevo en `ShipmentsServiceOptions`, mismo molde que `getCarrierReputationScore` —
+  `getReputationSummary(senderId).asSender.reputationScore`, llamada LOCAL sin HTTP,
+  wireada en `shipments.routes.ts` reusando la misma instancia de `ratingsService`)
+  para la calificación.
+- **Hallazgo real, corregido en el mismo cambio**: el AC3 del ticket asumía que el
+  snapshot del transportista (`MOVO-143`) ya toleraba un fallo de `usersClient` sin
+  bloquear la oferta ("los campos quedan null, igual que carrierRatingAtOffer puede
+  serlo") — el código real no lo hacía: `usersClient.findPublicProfile` para el
+  transportista no tenía ningún `try/catch`, así que un `usersClient` caído SÍ
+  bloqueaba la creación de la oferta, contra lo que el propio comentario de esa línea
+  ya decía. Se agregó `resolveSnapshotProfile()` (mismo patrón try/catch+`logger?.warn`
+  que `createShipment` ya usa para el nombre del emisor en el copy del push) y se
+  aplicó a **ambos** snapshots — no solo al nuevo del emisor, también al del
+  transportista que arrastraba el gap desde `MOVO-143`. Decisión tomada con el usuario:
+  se corrigen los dos juntos, no solo el archivo/alcance literal del ticket, para no
+  dejar una asimetría real (un mismo tipo de fallo bloqueando la oferta por un lado y
+  no por el otro).
+- **Los 3 campos son nullable** (igual que sus pares de `carrier*AtOffer`): cualquier
+  fallo de `usersClient`, perfil no encontrado, o ausencia de calificaciones previas
+  degrada a `null`, nunca bloquea la creación de la oferta (AC3).
+- **Migración a mano** (`prisma/migrations/20260912210000_add_sender_snapshot_to_offers/`),
+  mismo patrón `ALTER TABLE ... ADD COLUMN` que el resto de las columnas de `Offer`
+  agregadas incrementalmente (MOVO-177/180).
+
+Tests: `test/offer-repository.integration.test.ts` (round-trip del snapshot y su
+default `null`), `test/shipments-offers-create.integration.test.ts` (emisor
+verificado/no verificado, con una calificación previa vía seed directo de `Rating`, y
+el test de regresión del hallazgo: un `usersClient` que falla para transportista Y
+emisor no bloquea la creación — los 4 campos de snapshot quedan `null`, con una `app`
+propia para no afectar el resto del describe), `test/offers-mine.integration.test.ts`
+(expone los 3 campos nuevos). Suite completa del servicio 537/553 (los 16 que fallan
+son el mismo bug preexistente de credenciales de `offers-mine.integration.test.ts` ya
+documentado en `MOVO-208`, sin relación con este ticket — verificado aparte con un rol
+temporal de Postgres, ver ese mismo procedimiento). `tsc --noEmit`, `npm run build` y
+`eslint` limpios. Confirmado que `app.swagger()` expone los 3 campos nuevos en
+`POST /shipments/:id/offers` y `GET /offers/mine`.
+
+Pendiente / fuera de alcance: `GET /offers/:id` (MOVO-190, bloqueado por este ticket)
+todavía no existe — cuando se implemente, reusa el mismo `Offer`/`toOfferDto`, sin
+trabajo adicional; DER actualizado (`docs/movo_der.dbml`, tabla `shipments.offers`).
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
