@@ -4,9 +4,8 @@ import { httpClient } from "./http-client";
 export type UpsertVehicleInput = VehicleProfile;
 
 /**
- * Ficha de vehículo del transportista (MOVO-172, `svc-users` todavía sin
- * implementar — pega contra un endpoint que hoy no existe, ver esa issue para el
- * contrato propuesto). Mismo patrón cliente que `ratings-client.ts`.
+ * Ficha de vehículo del transportista (MOVO-172, `svc-users`: `PUT`/
+ * `GET /users/me/vehicle`). Mismo patrón cliente que `ratings-client.ts`.
  */
 export const vehicleClient = {
   /** `GET /users/me/vehicle` */
