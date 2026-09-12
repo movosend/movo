@@ -1,6 +1,8 @@
+import asyncio
 import json
 import logging
 from datetime import datetime
+from typing import Any
 
 from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 from redis.asyncio import Redis
@@ -11,6 +13,7 @@ from app.models.evaluate import (
     CandidatePackage,
     EvaluateCandidatesRequest,
     EvaluateCandidatesResponse,
+    TripContext,
 )
 from app.models.optimize import Coordinates
 from app.services.redis_client import get_redis_client
@@ -83,9 +86,9 @@ class CandidateEvaluator:
         origin_coord = Coordinates(lat=trip.origin_lat, lng=trip.origin_lng)
         dest_coord = Coordinates(lat=trip.destination_lat, lng=trip.destination_lng)
 
-        # 1. Cálculo de trayecto directo (Origen -> Destino)
-        direct_matrix: DistanceMatrixResult = self.routes_provider.compute_matrix(
-            [origin_coord, dest_coord]
+        # 1. Cálculo de trayecto directo (Origen -> Destino) en threadpool para no bloquear el loop
+        direct_matrix: DistanceMatrixResult = await asyncio.to_thread(
+            self.routes_provider.compute_matrix, [origin_coord, dest_coord]
         )
         direct_distance_km = round(direct_matrix.dist_matrix_km[0][1], 2)
         direct_duration_minutes = direct_matrix.time_matrix_min[0][1]
@@ -131,7 +134,7 @@ class CandidateEvaluator:
                 except Exception as e:
                     logger.warning(f"Fallo al consultar cache Redis para clave {cache_key}: {e}")
 
-            # 2.2 Cache MISS: Resolver circuito de 4 nodos con OR-Tools
+            # 2.2 Cache MISS: Resolver circuito de 4 nodos (OR-Tools se ejecuta en threadpool)
             evaluation = await self._solve_candidate(
                 trip=trip,
                 candidate=candidate,
@@ -144,7 +147,7 @@ class CandidateEvaluator:
             )
             evaluations.append(evaluation)
 
-        is_mock = self.routes_provider.compute_matrix([]).provider_name == "haversine_mock"
+        is_mock = direct_matrix.provider_name == "haversine_mock"
         calc_method = "haversine_vrptw_v1" if is_mock else "google_routes_vrptw_v1"
 
         return EvaluateCandidatesResponse(
@@ -156,7 +159,7 @@ class CandidateEvaluator:
 
     async def _solve_candidate(
         self,
-        trip,
+        trip: TripContext,
         candidate: CandidatePackage,
         origin_coord: Coordinates,
         dest_coord: Coordinates,
@@ -165,7 +168,42 @@ class CandidateEvaluator:
         direct_duration_minutes: int,
         cache_key: str,
     ) -> CandidateEvaluation:
-        """Modela y resuelve el problema de 4 nodos (Origen -> Pickup -> Dropoff -> Destino)."""
+        """Modela y resuelve el candidato delegando la computación pesada (OR-Tools + matriz) a threadpool."""
+        eval_result, solution_data = await asyncio.to_thread(
+            self._solve_candidate_sync,
+            trip=trip,
+            candidate=candidate,
+            origin_coord=origin_coord,
+            dest_coord=dest_coord,
+            base_dt=base_dt,
+            direct_distance_km=direct_distance_km,
+            direct_duration_minutes=direct_duration_minutes,
+        )
+
+        # Persistir en Redis de forma asíncrona si es factible
+        if solution_data is not None and self.redis is not None:
+            try:
+                await self.redis.set(
+                    cache_key,
+                    json.dumps(solution_data),
+                    ex=settings.routing_cache_ttl_seconds,
+                )
+            except Exception as e:
+                logger.warning(f"Error al escribir en Redis clave {cache_key}: {e}")
+
+        return eval_result
+
+    def _solve_candidate_sync(
+        self,
+        trip: TripContext,
+        candidate: CandidatePackage,
+        origin_coord: Coordinates,
+        dest_coord: Coordinates,
+        base_dt: datetime,
+        direct_distance_km: float,
+        direct_duration_minutes: int,
+    ) -> tuple[CandidateEvaluation, dict[str, Any] | None]:
+        """Cálculo sincrónico CPU-bound e I/O-bound (OR-Tools y matriz de rutas)."""
         pickup_coord = Coordinates(lat=candidate.pickup_lat, lng=candidate.pickup_lng)
         dropoff_coord = Coordinates(lat=candidate.dropoff_lat, lng=candidate.dropoff_lng)
 
@@ -225,7 +263,7 @@ class CandidateEvaluator:
         if (p_end_min is not None and p_end_min + slack_min < 0) or (
             d_end_min is not None and d_end_min + slack_min < 0
         ):
-            return CandidateEvaluation(candidate_id=candidate.id, feasible=False)
+            return CandidateEvaluation(candidate_id=candidate.id, feasible=False), None
 
         self._apply_time_window(time_dim, p_idx, p_start_min, p_end_min, slack_min)
         self._apply_time_window(time_dim, d_idx, d_start_min, d_end_min, slack_min)
@@ -239,7 +277,7 @@ class CandidateEvaluator:
 
         solution = routing.SolveWithParameters(search_params)
         if solution is None:
-            return CandidateEvaluation(candidate_id=candidate.id, feasible=False)
+            return CandidateEvaluation(candidate_id=candidate.id, feasible=False), None
 
         # Recorrer la ruta resuelta: 0 -> 1 -> 2 -> 3
         total_dist_km = (
@@ -253,34 +291,24 @@ class CandidateEvaluator:
         detour_distance_km = max(0.0, round(total_distance_km - direct_distance_km, 2))
         detour_duration_minutes = max(0, total_duration_minutes - direct_duration_minutes)
 
-        # Persistir en Redis con TTL de 30 minutos
-        if self.redis is not None:
-            try:
-                solution_data = {
-                    "tripId": trip.id,
-                    "candidateId": candidate.id,
-                    "feasible": True,
-                    "detourDistanceKm": detour_distance_km,
-                    "detourDurationMinutes": detour_duration_minutes,
-                    "totalDistanceKm": total_distance_km,
-                    "totalDurationMinutes": total_duration_minutes,
-                    "stops": [
-                        {"stopOrder": 0, "type": "origin", "lat": trip.origin_lat, "lng": trip.origin_lng},
-                        {"stopOrder": 1, "type": "pickup", "shipmentId": candidate.id, "lat": candidate.pickup_lat, "lng": candidate.pickup_lng},
-                        {"stopOrder": 2, "type": "dropoff", "shipmentId": candidate.id, "lat": candidate.dropoff_lat, "lng": candidate.dropoff_lng},
-                        {"stopOrder": 3, "type": "destination", "lat": trip.destination_lat, "lng": trip.destination_lng},
-                    ],
-                    "calculatedAt": datetime.now().isoformat(),
-                }
-                await self.redis.set(
-                    cache_key,
-                    json.dumps(solution_data),
-                    ex=settings.routing_cache_ttl_seconds,
-                )
-            except Exception as e:
-                logger.warning(f"Error al escribir en Redis clave {cache_key}: {e}")
+        solution_data = {
+            "tripId": trip.id,
+            "candidateId": candidate.id,
+            "feasible": True,
+            "detourDistanceKm": detour_distance_km,
+            "detourDurationMinutes": detour_duration_minutes,
+            "totalDistanceKm": total_distance_km,
+            "totalDurationMinutes": total_duration_minutes,
+            "stops": [
+                {"stopOrder": 0, "type": "origin", "lat": trip.origin_lat, "lng": trip.origin_lng},
+                {"stopOrder": 1, "type": "pickup", "shipmentId": candidate.id, "lat": candidate.pickup_lat, "lng": candidate.pickup_lng},
+                {"stopOrder": 2, "type": "dropoff", "shipmentId": candidate.id, "lat": candidate.dropoff_lat, "lng": candidate.dropoff_lng},
+                {"stopOrder": 3, "type": "destination", "lat": trip.destination_lat, "lng": trip.destination_lng},
+            ],
+            "calculatedAt": datetime.now().isoformat(),
+        }
 
-        return CandidateEvaluation(
+        eval_result = CandidateEvaluation(
             candidate_id=candidate.id,
             feasible=True,
             detour_distance_km=detour_distance_km,
@@ -288,6 +316,8 @@ class CandidateEvaluator:
             total_distance_km=total_distance_km,
             total_duration_minutes=total_duration_minutes,
         )
+
+        return eval_result, solution_data
 
     def _apply_time_window(
         self,
