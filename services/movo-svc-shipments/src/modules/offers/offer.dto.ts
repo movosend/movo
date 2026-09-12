@@ -1,8 +1,16 @@
+import { decomposeOfferGrossPrice } from "@movo/shared";
 import { Offer } from "../../models/offer";
 
 export function toOfferDto(offer: Offer) {
+  // MOVO-186: desglose neto/comisión a partir del bruto persistido
+  // (`priceOffered`), con la tasa de comisión VIGENTE al momento de la lectura --
+  // no la que regía cuando se creó la oferta (mismo criterio ya usado por
+  // `computeOffersSummaryForCarrier` en shipments.service.ts, AC1 de MOVO-186).
+  const { netArs, commissionAmountArs } = decomposeOfferGrossPrice(offer.priceOffered);
   return {
     ...offer,
+    priceNetArs: netArs,
+    commissionAmountArs,
     offeredDate: offer.offeredDate.toISOString(),
     expiresAt: offer.expiresAt ? offer.expiresAt.toISOString() : null,
     createdAt: offer.createdAt.toISOString(),
