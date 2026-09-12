@@ -2,6 +2,7 @@ import { OfferStatus, ShipmentStatus } from "@movo/shared";
 import { Prisma, PrismaClient, Offer as OfferRow, Shipment as ShipmentRow } from "../generated/prisma/client";
 import { INITIAL_OFFER_STATUS, transition } from "../domain/offer-state-machine";
 import { transition as transitionShipmentStatus } from "../domain/shipment-state-machine";
+import { haversineKm } from "../domain/geo";
 import {
   Offer,
   CreateOfferInput,
@@ -76,6 +77,20 @@ function mapOfferWithShipment(
       pickupAddress: row.shipment.pickupAddress,
       pickupDate: row.shipment.pickupDate,
       deliveryAddress: row.shipment.deliveryAddress,
+      // MOVO-185: mismo criterio de proyección mínima que AvailableShipment (MOVO-142)
+      // -- solo la distancia derivada, nunca lat/lng crudos.
+      distanceKm:
+        Math.round(
+          haversineKm(
+            row.shipment.pickupLat.toNumber(),
+            row.shipment.pickupLng.toNumber(),
+            row.shipment.deliveryLat.toNumber(),
+            row.shipment.deliveryLng.toNumber()
+          ) * 10
+        ) / 10,
+      packageType: row.shipment.packageType,
+      weightKg: row.shipment.weightKg.toNumber(),
+      description: row.shipment.description,
     },
     // MOVO-188: resuelto aparte por `offers.service.ts` (batch sobre la página, ver
     // `listPendingOffersByShipmentIds`) -- nunca acá, para no convertir esto en una
