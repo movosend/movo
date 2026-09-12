@@ -59,8 +59,8 @@ describe("offer-repository (Postgres)", () => {
   /** Bypasea la máquina de estados de Shipment a propósito: es fixture de test, no flujo
    * de negocio. Las 2 fotos de creation son para satisfacer el gate de AC6 de MOVO-81
    * (mínimo para poder publicar) -- no son el objeto bajo prueba en este archivo. */
-  async function createPublishedShipment(): Promise<string> {
-    const created = await shipmentRepo.create(baseShipmentInput);
+  async function createPublishedShipment(overrides: Partial<CreateShipmentInput> = {}): Promise<string> {
+    const created = await shipmentRepo.create({ ...baseShipmentInput, ...overrides });
     await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
     await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
     const published = await shipmentRepo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null);
@@ -576,8 +576,31 @@ describe("offer-repository (Postgres)", () => {
         id: shipmentId,
         pickupAddress: baseShipmentInput.pickupAddress,
         deliveryAddress: baseShipmentInput.deliveryAddress,
+        packageType: baseShipmentInput.packageType,
+        weightKg: baseShipmentInput.weightKg,
+        description: baseShipmentInput.description,
       });
       expect(result.items[0].shipment.pickupDate.toISOString()).toBe(PICKUP_DATE.toISOString());
+    });
+
+    it("MOVO-185 AC1: distanceKm sale calculado con Haversine sobre pickup/delivery, redondeado a 1 decimal", async () => {
+      // Mismo caso de referencia que geo.test.ts: Plaza San Martín -> Nueva Córdoba.
+      const shipmentId = await createPublishedShipment({
+        pickupLat: -31.4201,
+        pickupLng: -64.1888,
+        deliveryLat: -31.4353,
+        deliveryLng: -64.1858,
+      });
+      const carrierId = randomUUID();
+      await repo.create(baseOfferInput({ shipmentId, carrierId }));
+
+      const result = await repo.listByCarrier(carrierId, 1, 20);
+      expect(result.items[0].shipment.distanceKm).toBeGreaterThan(1.6);
+      expect(result.items[0].shipment.distanceKm).toBeLessThan(1.8);
+      // Redondeado a 1 decimal -- nunca más de un dígito después de la coma.
+      expect(result.items[0].shipment.distanceKm).toBe(
+        Math.round(result.items[0].shipment.distanceKm * 10) / 10,
+      );
     });
 
     it("AC5: una oferta accepted expone el status real del envío (assignment_pending), no published", async () => {

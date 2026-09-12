@@ -5,19 +5,39 @@
 // ahí obliga a actualizar esta lista también.
 const OFFER_STATUS_VALUES = ["pending", "accepted", "rejected", "withdrawn", "expired", "superseded"];
 
+// Alineado 1:1 con el enum `PackageType` de Prisma (MOVO-185) — mismo criterio
+// autocontenido que PACKAGE_TYPE_VALUES en shipments.schema.ts, sin importar de ahí.
+const PACKAGE_TYPE_VALUES = ["letter_document", "standard_package", "fragile_item"];
+
 // "HH:MM" o "HH:MM:SS", sin offset — mismo patrón que TIME_PATTERN en
 // shipments.schema.ts (autocontenido a propósito, no se importa de ahí).
 const TIME_PATTERN = "^([01]\\d|2[0-3]):[0-5]\\d(:[0-5]\\d)?$";
 
 const offerShipmentContextResponse = {
   type: "object",
-  required: ["id", "status", "pickupAddress", "pickupDate", "deliveryAddress"],
+  required: [
+    "id",
+    "status",
+    "pickupAddress",
+    "pickupDate",
+    "deliveryAddress",
+    "distanceKm",
+    "packageType",
+    "weightKg",
+    "description",
+  ],
   properties: {
     id: { type: "string" },
     status: { type: "string" },
     pickupAddress: { type: "string" },
     pickupDate: { type: "string", format: "date" },
     deliveryAddress: { type: "string" },
+    // MOVO-185: distancia Haversine pickup->delivery, redondeada a 1 decimal --
+    // nunca lat/lng crudos (ningún consumidor los pide todavía).
+    distanceKm: { type: "number" },
+    packageType: { type: "string", enum: PACKAGE_TYPE_VALUES },
+    weightKg: { type: "number" },
+    description: { type: ["string", "null"] },
   },
 };
 

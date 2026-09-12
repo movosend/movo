@@ -1405,6 +1405,30 @@ demás). Suite completa del servicio verificada contra Postgres/Redis reales:
 534/538 (los 4 que fallan son de `handshake.integration.test.ts`, preexistentes en la
 rama antes de este fix, no relacionados). `tsc --noEmit` limpio.
 
+### MOVO-185 — Contexto enriquecido de envío en `GET /offers/mine` (distancia y resumen del paquete)
+
+`OfferShipmentContext` (`models/offer.ts`) suma `distanceKm` (Haversine pickup→delivery,
+redondeado a 1 decimal, `domain/geo.ts#haversineKm` reusado sin duplicar) y el resumen
+del paquete (`packageType`, `weightKg`, `description`) para el mockup de "Mis ofertas"
+(MOVO-151/182). Ampliación de proyección pura: `offer-repository.ts#mapOfferWithShipment`
+ya tenía todas las columnas disponibles vía el `include: { shipment: true }` de
+MOVO-145, solo hacía falta mapearlas — sin tocar el `select`/`include` en sí.
+
+- **Sin lat/lng crudos en la respuesta (AC1)**: mismo criterio de proyección mínima que
+  `AvailableShipment` (MOVO-142) — solo la distancia ya calculada viaja, ningún
+  consumidor pide las coordenadas todavía.
+- **`OfferShipmentContext` es el único lugar de verdad (AC3)**: `GET /offers/:id`
+  (MOVO-190, bloqueado por este ticket) va a reusarlo tal cual, sin trabajo adicional.
+- Sin migraciones (AC4): todos los campos ya existían en `Shipment`.
+
+Tests: caso dedicado con las mismas coordenadas de referencia que `geo.test.ts` (Plaza
+San Martín → Nueva Córdoba) en `offer-repository.integration.test.ts`, más los campos
+nuevos sumados a los casos ya existentes de `AC4` en ese archivo y en
+`offers-mine.integration.test.ts` (incluye assert de que `pickupLat`/`pickupLng` nunca
+viajan). Suite completa del servicio 542/542 tests (42 archivos). `tsc --noEmit` y
+`eslint` limpios. Confirmado que `app.swagger()` expone los 4 campos nuevos en
+`GET /offers/mine`.
+
 ### MOVO-186 — Desglose neto/comisión en todas las respuestas de oferta
 
 `GET /offers/mine`, `POST /offers/:id/accept`, `/reject` y `/withdraw` ahora devuelven

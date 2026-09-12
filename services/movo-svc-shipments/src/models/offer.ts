@@ -1,5 +1,5 @@
 import { OfferStatus, ShipmentStatus } from "@movo/shared";
-import { InvalidEnumValueError } from "./shipment";
+import { InvalidEnumValueError, PackageType } from "./shipment";
 
 /**
  * Modelo de dominio de una oferta. `status` es el valor EFECTIVO (AC11): la
@@ -47,6 +47,12 @@ export interface Offer {
  * (AC4) — resuelto con un `include` de Prisma en la misma query del repositorio,
  * nunca con una llamada por ítem. Subconjunto de `Shipment` (`./shipment.ts`), no el
  * modelo completo: solo lo que la lista necesita para entenderse sin abrir el detalle.
+ *
+ * MOVO-185: sumó `distanceKm`/`packageType`/`weightKg`/`description` para el mockup de
+ * "Mis ofertas" (subtítulo con km, resumen del paquete en el detalle) — mismo criterio
+ * de proyección mínima que `AvailableShipment` (MOVO-142): `distanceKm` ya viaja
+ * calculado (Haversine sobre pickup/delivery), nunca lat/lng crudos, porque ningún otro
+ * consumidor los pide.
  */
 export interface OfferShipmentContext {
   id: string;
@@ -54,6 +60,10 @@ export interface OfferShipmentContext {
   pickupAddress: string;
   pickupDate: Date;
   deliveryAddress: string;
+  distanceKm: number;
+  packageType: PackageType;
+  weightKg: number;
+  description: string | null;
 }
 
 /**

@@ -226,7 +226,6 @@ services:
     restart: unless-stopped
     logging: *default-logging
     environment:
-      - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       # MOVO-205: proveedor de rutas (mock para desarrollo local/CI, google para staging/demo)
       - ROUTES_PROVIDER=${ROUTES_PROVIDER:-mock}
@@ -236,7 +235,6 @@ services:
       - ROUTING_TIME_SLACK_MINUTES=${ROUTING_TIME_SLACK_MINUTES:-120}
       - ROUTING_DEFAULT_SERVICE_TIME_MINUTES=${ROUTING_DEFAULT_SERVICE_TIME_MINUTES:-10}
     depends_on:
-      - postgres
       - redis
     networks:
       - movo-net
