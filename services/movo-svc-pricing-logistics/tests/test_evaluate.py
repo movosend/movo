@@ -116,6 +116,7 @@ def test_evaluate_candidates_cache_hit_and_miss() -> None:
         mock_redis.set.assert_awaited_once()
         cache_key = f"route_solution:{BASE_TRIP['id']}:cand-cached"
         assert mock_redis.set.call_args[0][0] == cache_key
+        assert mock_redis.set.call_args[1]["ex"] == 86400
 
     # 2. Cache Hit: redis.get devuelve la solución previa
     cached_solution = {
@@ -142,6 +143,8 @@ def test_evaluate_candidates_cache_hit_and_miss() -> None:
         assert ev2["detourDurationMinutes"] == 12
         # El solver de OR-Tools no debe haber sido llamado porque se sirvió de cache
         mock_solver.assert_not_called()
+        # Sliding expiration: se refrescó el TTL al consultarlo
+        mock_redis.expire.assert_awaited_once_with(cache_key, 86400)
 
 
 def test_evaluate_candidates_max_limit_validation() -> None:

@@ -22,8 +22,6 @@ from app.services.routes_provider import (
 
 logger = logging.getLogger(__name__)
 
-CACHE_TTL_SECONDS = 1800  # 30 minutos (Spike MOVO-50 CA7)
-
 
 def parse_time_window_minutes(
     val: str | datetime | int | float | None, base_dt: datetime
@@ -111,6 +109,14 @@ class CandidateEvaluator:
                     cached_raw = await self.redis.get(cache_key)
                     if cached_raw:
                         cached_data = json.loads(cached_raw)
+                        # Sliding expiration: refrescar el TTL al ser consultado
+                        try:
+                            await self.redis.expire(
+                                cache_key, settings.routing_cache_ttl_seconds
+                            )
+                        except Exception as exp_err:
+                            logger.debug("Fallo al refrescar TTL de cache: %s", exp_err)
+
                         evaluations.append(
                             CandidateEvaluation(
                                 candidate_id=candidate.id,
@@ -266,7 +272,11 @@ class CandidateEvaluator:
                     ],
                     "calculatedAt": datetime.now().isoformat(),
                 }
-                await self.redis.set(cache_key, json.dumps(solution_data), ex=CACHE_TTL_SECONDS)
+                await self.redis.set(
+                    cache_key,
+                    json.dumps(solution_data),
+                    ex=settings.routing_cache_ttl_seconds,
+                )
             except Exception as e:
                 logger.warning(f"Error al escribir en Redis clave {cache_key}: {e}")
 
