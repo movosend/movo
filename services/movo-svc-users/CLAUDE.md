@@ -886,3 +886,51 @@ dentro de las pantallas de handshake, MOVO-159/160, fuera de alcance explícito 
 ticket); multi-dispositivo por usuario (fuera de alcance explícito del ticket). La
 lógica del handshake en sí y su consumo de `GET /internal/users/:id/device-key` ya
 se implementó -- ver MOVO-158 en `services/movo-svc-shipments/CLAUDE.md`.
+
+### MOVO-172 — Ficha de vehículo del transportista
+
+Backend del contrato que `movo-mobile` ya había construido por adelantado en MOVO-176
+(cliente/hook/pantalla/card, todos contra un endpoint que hasta ahora no existía):
+tabla nueva `users.vehicle_profiles` (mismo patrón que `DeviceKey`, MOVO-157 —
+`userId` único, upsert reemplaza la fila anterior, sin multi-vehículo) y `PUT`/
+`GET /users/me/vehicle` en `users.routes.ts`/`.service.ts` (sin módulo propio, mismo
+criterio que `device-key`: concern self-service bajo `/me`).
+
+Decisiones clave:
+- **`GET /me/vehicle` devuelve `null` en vez de 404 cuando no hay ficha cargada** — a
+  diferencia de `registerDeviceKey` (que no tiene endpoint de lectura propio, solo el
+  interno de `svc-shipments`), acá "sin vehículo" es un estado esperado de un GET
+  self-service, no un error. El contrato lo fija el propio cliente mobile ya
+  construido (`vehicleClient.getMyVehicle(): Promise<VehicleProfile | null>`).
+- **`PUT /me/vehicle` devuelve el objeto completo, no un ack** (a diferencia de
+  `registerDeviceKey`, que devuelve `{registeredAt}`) — mismo motivo, el contrato ya
+  estaba fijado del lado mobile.
+- **`PublicProfile.vehicle` sigue el mismo patrón que `bio` (MOVO-171)**: vive en
+  `publicProfileResponse`, no en `publicProfileExtras`, así que se expone en
+  `GET /users/:id` pero se descarta a nivel de schema AJV en `GET /users/search` —
+  transparencia de seguridad para quien entrega su paquete, no un dato de listado.
+- **La query de `vehicle_profiles` en `composePublicProfile` se resuelve siempre**,
+  incluso para `GET /users/search` donde el campo se termina descartando — decisión
+  explícita (confirmada con el usuario) de priorizar consistencia con el trade-off ya
+  aceptado para `bio` en vez de agregar un flag `includeVehicle` para evitar esa query
+  extra evitable.
+- **Tipo de dominio del repo (`vehicle-repository.ts`) con nombre `VehicleProfile`,
+  distinto del `VehicleProfile` de `@movo/shared`** (solo los 4 campos de negocio, sin
+  `id`/timestamps) — `users.service.ts` importa el de `@movo/shared` con alias
+  (`SharedVehicleProfile`) para evitar la ambigüedad en el único archivo donde
+  conviven los dos.
+
+Tests: `test/users.vehicle.integration.test.ts` (17 casos — alta, rotación/upsert
+sin duplicar fila, aislamiento entre usuarios, `GET` sin ficha devuelve `null` no 404,
+401/404 en ambos endpoints, 400 de validación, y el caso explícito del DoD: perfil
+público con y sin vehículo cargado, más `GET /users/search` sin la clave `vehicle`).
+504/504 tests (49 archivos) en `movo-svc-users`. `tsc --noEmit`/`eslint` limpios en
+`movo-svc-users`, `tsc --noEmit` limpio en `gateway`/`movo-svc-shipments` (consumidores
+de `@movo/shared`, el campo nuevo es opcional y no rompe ningún fake existente).
+Del lado `movo-mobile`, se agregó el único test que faltaba (`vehicle-client.test.ts`
+— el resto ya existía desde MOVO-176); DER (`docs/movo_der.dbml`) actualizado con
+`users.vehicle_profiles`.
+
+Pendiente / fuera de alcance: prueba manual de punta a punta (cargar la ficha desde
+`vehicle-info.tsx` y verla en el perfil público de otro usuario) no verificable en
+este entorno.

@@ -360,6 +360,22 @@ Table users.device_keys {
   updated_at timestamp
 }
 
+// MOVO-172: ficha de vehículo del transportista, mostrada en el perfil público
+// (PublicProfile.vehicle) para que quien entrega su paquete pueda verificarlo antes
+// de subirlo. Una sola fila por usuario, sin multi-vehículo (fuera de alcance del
+// TFG): cargar una ficha nueva es un upsert sobre esta misma fila, mismo criterio
+// que users.device_keys.
+Table users.vehicle_profiles {
+  id uuid [pk]
+  user_id uuid [ref: > users.user.id, unique]
+  brand varchar
+  model varchar
+  cargo_capacity_label varchar [note: 'texto libre, ej. "Baúl mediano · hasta 15 kg"']
+  license_plate varchar
+  created_at timestamp
+  updated_at timestamp
+}
+
 Table users.payment_method {
   id uuid [pk]
   user_id uuid [ref: > users.user.id]
