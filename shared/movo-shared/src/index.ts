@@ -33,6 +33,7 @@ export type {
   PublicProfile,
   ReputationBreakdown,
   RecentRatingComment,
+  VehicleProfile,
 } from "./types/user-profile";
 export type { Address, CreateAddressInput, UpdateAddressInput } from "./types/address";
 export { PriceCalculationMethod } from "./types/pricing";
