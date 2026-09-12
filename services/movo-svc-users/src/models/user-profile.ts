@@ -6,6 +6,7 @@ import {
   type RecentRatingComment,
   type ReputationBreakdown,
   type TransactionCounts,
+  type VehicleProfile,
 } from "@movo/shared";
 import { User, fullName } from "./user";
 
@@ -80,7 +81,8 @@ export function toPublicProfile(
   user: User,
   reputation: ReputationBreakdown & { asSender: ReputationBreakdown; asCarrier: ReputationBreakdown },
   transactionCounts: TransactionCounts,
-  recentRatingComments: RecentRatingComment[]
+  recentRatingComments: RecentRatingComment[],
+  vehicle: VehicleProfile | null
 ): PublicProfile {
   return {
     id: user.id,
@@ -101,5 +103,8 @@ export function toPublicProfile(
     phoneVerified: user.phoneVerified,
     emailVerified: user.emailVerified,
     bio: user.bio,
+    // MOVO-172: `vehicle` viene resuelto por el caller (`composePublicProfile`), sin
+    // I/O acá -- esta función sigue siendo pura.
+    vehicle,
   };
 }

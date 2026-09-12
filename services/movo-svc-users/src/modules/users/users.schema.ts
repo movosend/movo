@@ -107,6 +107,19 @@ const PUBLIC_PROFILE_EXTRA_REQUIRED = [
   "emailVerified",
 ];
 
+// MOVO-172: shape de la ficha de vehículo del transportista, reusado en
+// `vehicleResponse` (PUT/GET /me/vehicle) y en `publicProfileResponse.vehicle`.
+const vehicleProfileObject = {
+  type: "object",
+  required: ["brand", "model", "cargoCapacityLabel", "licensePlate"],
+  properties: {
+    brand: { type: "string" },
+    model: { type: "string" },
+    cargoCapacityLabel: { type: "string" },
+    licensePlate: { type: "string" },
+  },
+};
+
 export const usersSchemas = {
   usersCountResponse: {
     type: "object",
@@ -179,6 +192,10 @@ export const usersSchemas = {
   // MOVO-171: `bio` va acá, no en `publicProfileExtras` -- decisión de producto de
   // que bio viaje solo en el perfil individual (`GET /users/:id`), nunca en
   // `GET /users/search`, que reusa ese objeto compartido (ver `searchResponse`).
+  // MOVO-172: `vehicle` sigue el mismo criterio -- transparencia de seguridad para
+  // quien entrega su paquete (ver el perfil individual del transportista), no un
+  // dato de listado de búsqueda. No va en `required`: es `null`/ausente para
+  // quienes no son transportista o todavía no cargaron ficha.
   publicProfileResponse: {
     type: "object",
     required: [
@@ -201,6 +218,7 @@ export const usersSchemas = {
       transactionCounts,
       reputationScore: { type: ["number", "null"] },
       bio: { type: ["string", "null"] },
+      vehicle: { oneOf: [{ type: "null" }, vehicleProfileObject] },
       ...publicProfileExtras,
     },
   },
@@ -438,6 +456,31 @@ export const usersSchemas = {
     properties: {
       registeredAt: { type: "string", format: "date-time" },
     },
+  },
+
+  // MOVO-172: alta/rotación de la ficha de vehículo del transportista autenticado --
+  // mismo criterio de upsert que registerDeviceKeyBody (MOVO-157): un PUT nuevo
+  // reemplaza la fila anterior, sin endpoint de borrado ni multi-vehículo.
+  // `cargoCapacityLabel`/`licensePlate` son texto libre a propósito (sin `pattern`),
+  // mismo criterio que `bio` en MOVO-171.
+  upsertVehicleBody: {
+    type: "object",
+    additionalProperties: false,
+    required: ["brand", "model", "cargoCapacityLabel", "licensePlate"],
+    properties: {
+      brand: { type: "string", minLength: 1, maxLength: 60 },
+      model: { type: "string", minLength: 1, maxLength: 60 },
+      cargoCapacityLabel: { type: "string", minLength: 1, maxLength: 120 },
+      licensePlate: { type: "string", minLength: 1, maxLength: 20 },
+    },
+  },
+
+  vehicleResponse: vehicleProfileObject,
+
+  // GET /users/me/vehicle: `null` es el estado esperado "todavía sin ficha
+  // cargada" -- a diferencia de registerDeviceKeyResponse, no es un 404.
+  vehicleOrNullResponse: {
+    oneOf: [{ type: "null" }, vehicleProfileObject],
   },
 
   errorResponse: {
