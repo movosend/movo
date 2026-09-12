@@ -70,6 +70,12 @@ class Settings(BaseSettings):
             "ROUTING_DEFAULT_SERVICE_TIME_MINUTES", "routing_default_service_time_minutes"
         ),
     )
+    routing_cache_ttl_seconds: int = Field(
+        default=86400,
+        validation_alias=AliasChoices(
+            "ROUTING_CACHE_TTL_SECONDS", "routing_cache_ttl_seconds"
+        ),
+    )
 
 
 
