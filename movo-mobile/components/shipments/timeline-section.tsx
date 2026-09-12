@@ -1,6 +1,8 @@
 import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import {
   AlertTriangle,
+  BadgeCheck,
+  CircleDollarSign,
   CircleSlash,
   Clock,
   Megaphone,
@@ -40,9 +42,13 @@ const EVENT_ICON: Record<ShipmentStatus, LucideIcon> = {
   [Status.REJECTED_BY_RECEIVER]: CircleSlash,
   [Status.PUBLISHED]: Megaphone,
   [Status.ASSIGNMENT_PENDING]: Search,
+  // MOVO-208: asignado, hold de fondos todavía sin crear (retiro lejano).
+  [Status.ASSIGNED_UNFUNDED]: CircleDollarSign,
   [Status.ASSIGNED]: UserCheck,
   [Status.IN_TRANSIT]: Truck,
   [Status.DELIVERED]: PackageCheck,
+  // MOVO-208: entregado y pago liberado (MOVO-212) -- inalcanzable hasta esa historia.
+  [Status.COMPLETED]: BadgeCheck,
   [Status.CANCELLED]: XCircle,
   [Status.DISPUTED]: AlertTriangle,
 };
