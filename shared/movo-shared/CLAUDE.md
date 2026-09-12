@@ -187,3 +187,15 @@ franja "de paso" del tab Transportar no filtraba por fecha). El backend sigue
 envolviendo el resultado en el `Date` anclado que necesita para comparar contra
 columnas `@db.Date` en SQL; mobile la consume tal cual. Sin dependencias de Node —
 función pura sobre `Date`/`string`, segura también en React Native.
+
+### MOVO-208 — `ShipmentStatus` extendido a 11 valores
+
+`src/types/shipment.ts` suma `ASSIGNED_UNFUNDED = "assigned_unfunded"` (entre
+`ASSIGNMENT_PENDING` y `ASSIGNED`, refleja el flujo: ruta alternativa cuando el retiro
+es lejano y el hold de fondos de MOVO-12 todavía no se creó) y
+`COMPLETED = "completed"` (después de `DELIVERED`, entregado Y pago liberado —
+MOVO-212). Set canónico de MOVO-79/MOVO-105 pasa de 9 a 11 — actualizado en el mismo PR
+que el enum de Postgres (`movo-svc-shipments/prisma/schema.prisma`) y la máquina de
+estados, conforme obliga el AC6 de MOVO-79. Ver `services/movo-svc-shipments/CLAUDE.md`
+(entrada de MOVO-208) para el detalle completo y ADR-021 (`CLAUDE.md` raíz) para el
+razonamiento.
