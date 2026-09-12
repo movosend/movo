@@ -5,6 +5,7 @@ import {
   TripStatus,
   UserRole,
   computeOfferGrossPrice,
+  computeNetFromGross,
   getCommissionConfig,
 } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
@@ -263,7 +264,7 @@ async function computeOffersSummaryForCarrier(
 
   const rate = getCommissionConfig().movoCommissionRate;
   const minGrossArs = Math.min(...pending.map((offer) => offer.priceOffered));
-  const minPriceNetArs = Math.round((minGrossArs / (1 + rate)) * 100) / 100;
+  const minPriceNetArs = computeNetFromGross(minGrossArs, rate);
   return { count: pending.length, minPriceNetArs };
 }
 
