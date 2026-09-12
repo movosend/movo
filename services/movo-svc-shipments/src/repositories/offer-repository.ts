@@ -29,7 +29,17 @@ function isWithinOfferDateRange(offeredDate: Date, pickupDate: Date): boolean {
   return offeredDay >= pickupDay && offeredDay <= maxDay;
 }
 
-function mapOffer(row: OfferRow): Offer {
+/**
+ * `now` opcional (default `new Date()`) -- MOVO-188 (fix de review, PR #142):
+ * `listMyOffers` (`offers.service.ts`) necesita que el status EFECTIVO acá y el
+ * `WHERE` de `listPendingOffersByShipmentIds` evalúen la expiración contra el MISMO
+ * instante, o una oferta que vence justo en el medio de los dos `new Date()`
+ * independientes podía leerse `pending` acá y ya no aparecer en el batch de
+ * competidores -- `buildCompetitiveRank` la degradaba a `null` sin necesidad. Cada
+ * caller que no pasa `now` explícito (el resto del repositorio, sin este problema)
+ * sigue con un default equivalente al comportamiento anterior.
+ */
+function mapOffer(row: OfferRow, now: Date = new Date()): Offer {
   const rawStatus = parseOfferStatus(row.status);
   return {
     id: row.id,
@@ -43,7 +53,7 @@ function mapOffer(row: OfferRow): Offer {
     carrierRatingAtOffer: row.carrierRatingAtOffer ? row.carrierRatingAtOffer.toNumber() : null,
     carrierNameAtOffer: row.carrierNameAtOffer,
     // AC11: expiración perezosa aplicada en TODA lectura, nunca el status crudo de la fila.
-    status: deriveEffectiveOfferStatus(rawStatus, row.expiresAt),
+    status: deriveEffectiveOfferStatus(rawStatus, row.expiresAt, now),
     expiresAt: row.expiresAt,
     createdAt: row.createdAt,
     respondedAt: row.respondedAt,
@@ -54,9 +64,12 @@ function mapOffer(row: OfferRow): Offer {
   };
 }
 
-function mapOfferWithShipment(row: OfferRow & { shipment: ShipmentRow }): OfferWithShipmentContext {
+function mapOfferWithShipment(
+  row: OfferRow & { shipment: ShipmentRow },
+  now: Date = new Date()
+): OfferWithShipmentContext {
   return {
-    ...mapOffer(row),
+    ...mapOffer(row, now),
     shipment: {
       id: row.shipment.id,
       status: row.shipment.status as ShipmentStatus,
@@ -224,7 +237,11 @@ export interface OfferRepository {
     carrierId: string,
     page: number,
     limit: number,
-    status?: OfferStatus
+    status?: OfferStatus,
+    /** MOVO-188: ver el comentario de `mapOffer` -- pasado explícito por
+     * `listMyOffers` para compartir el mismo instante con
+     * `listPendingOffersByShipmentIds`. */
+    now?: Date
   ): Promise<{ items: OfferWithShipmentContext[]; total: number }>;
   /**
    * MOVO-142 (AC5): shipmentIds del set dado donde `carrierId` tiene una oferta con
@@ -236,12 +253,17 @@ export interface OfferRepository {
   /**
    * MOVO-188 (AC1-AC3/AC5): ofertas `pending` efectivas de cada envío dado, ordenadas
    * por `priceOffered` (bruto) ascendente -- el caller (`offers.service.ts#listMyOffers`)
-   * ubica ahí la posición de la oferta propia y convierte a neto. Una sola query batch
-   * sobre todos los `shipmentId` de la página (AC5), nunca una por ítem.
+   * ubica ahí la posición de la oferta propia, resuelve el desempate (reputación /
+   * envíos entregados / antigüedad de la oferta) y convierte piso/techo a neto. Una
+   * sola query batch sobre todos los `shipmentId` de la página (AC5), nunca una por
+   * ítem. `carrierId`/`createdAt` viajan para que el caller pueda desempatar sin una
+   * segunda vuelta a la base. `now` opcional: ver el comentario de `mapOffer` sobre
+   * por qué `listMyOffers` pasa el mismo instante acá y en `listByCarrier`.
    */
   listPendingOffersByShipmentIds(
-    shipmentIds: string[]
-  ): Promise<Map<string, Array<{ id: string; priceOffered: number }>>>;
+    shipmentIds: string[],
+    now?: Date
+  ): Promise<Map<string, Array<{ id: string; carrierId: string; priceOffered: number; createdAt: Date }>>>;
 }
 
 export function createOfferRepository(db: PrismaClient): OfferRepository {
@@ -293,7 +315,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
 
     async listByShipment(shipmentId: string): Promise<Offer[]> {
       const rows = await db.offer.findMany({ where: { shipmentId }, orderBy: { createdAt: "asc" } });
-      return rows.map(mapOffer);
+      return rows.map((row) => mapOffer(row));
     },
 
     async withdraw(id: string): Promise<Offer> {
@@ -431,9 +453,10 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
       carrierId: string,
       page: number,
       limit: number,
-      status?: OfferStatus
+      status?: OfferStatus,
+      now: Date = new Date()
     ): Promise<{ items: OfferWithShipmentContext[]; total: number }> {
-      const where: Prisma.OfferWhereInput = { carrierId, ...offerStatusWhere(status, new Date()) };
+      const where: Prisma.OfferWhereInput = { carrierId, ...offerStatusWhere(status, now) };
       const [rows, total] = await Promise.all([
         db.offer.findMany({
           where,
@@ -444,7 +467,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         }),
         db.offer.count({ where }),
       ]);
-      return { items: rows.map(mapOfferWithShipment), total };
+      return { items: rows.map((row) => mapOfferWithShipment(row, now)), total };
     },
 
     async listPendingOfferedShipmentIds(carrierId: string, shipmentIds: string[]): Promise<Set<string>> {
@@ -459,23 +482,25 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
     },
 
     async listPendingOffersByShipmentIds(
-      shipmentIds: string[]
-    ): Promise<Map<string, Array<{ id: string; priceOffered: number }>>> {
-      const map = new Map<string, Array<{ id: string; priceOffered: number }>>();
+      shipmentIds: string[],
+      now: Date = new Date()
+    ): Promise<Map<string, Array<{ id: string; carrierId: string; priceOffered: number; createdAt: Date }>>> {
+      const map = new Map<string, Array<{ id: string; carrierId: string; priceOffered: number; createdAt: Date }>>();
       if (shipmentIds.length === 0) {
         return map;
       }
       const rows = await db.offer.findMany({
-        where: { shipmentId: { in: shipmentIds }, ...offerStatusWhere(OfferStatus.PENDING, new Date()) },
-        select: { id: true, shipmentId: true, priceOffered: true },
-        // orderBy compuesto: agrupa por priceOffered ascendente dentro de cada
-        // shipmentId sin depender de un segundo `sort` en JS -- Prisma preserva el
-        // orden relativo de `priceOffered` al agrupar acá abajo por `shipmentId`.
-        orderBy: { priceOffered: "asc" },
+        where: { shipmentId: { in: shipmentIds }, ...offerStatusWhere(OfferStatus.PENDING, now) },
+        select: { id: true, shipmentId: true, carrierId: true, priceOffered: true, createdAt: true },
+        // Orden base determinístico (precio, luego antigüedad, luego id) -- el
+        // desempate real por reputación/envíos entregados de MOVO-188 se resuelve en
+        // `offers.service.ts` (necesita datos de otro repositorio), este orden es solo
+        // el piso antes de esa segunda pasada.
+        orderBy: [{ priceOffered: "asc" }, { createdAt: "asc" }, { id: "asc" }],
       });
       for (const row of rows) {
         const list = map.get(row.shipmentId) ?? [];
-        list.push({ id: row.id, priceOffered: row.priceOffered.toNumber() });
+        list.push({ id: row.id, carrierId: row.carrierId, priceOffered: row.priceOffered.toNumber(), createdAt: row.createdAt });
         map.set(row.shipmentId, list);
       }
       return map;

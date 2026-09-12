@@ -271,5 +271,36 @@ export function createRatingsService(
         transactionCounts,
       };
     },
+
+    /**
+     * MOVO-188: variante batch de `getReputationSummary` acotada al score `asCarrier`
+     * -- para desempatar `competitiveRank` (`offers.service.ts#listMyOffers`) entre
+     * varios transportistas que ofertaron el mismo precio en el mismo envío, sin
+     * llamar a `getReputationSummary` una vez por competidor (reintroduciría el N+1
+     * que el resto de MOVO-188 evita). Dos queries en total sin importar cuántos
+     * `carrierId` se pidan: `listForReputationByRateeIds` (batch) +
+     * `getGlobalAverageScore` (un único `AVG`, se reusa igual para todos -- es la
+     * media de TODA la plataforma en este instante, no depende del carrier).
+     */
+    async getCarrierReputationScoresBatch(carrierIds: string[]): Promise<Map<string, number | null>> {
+      const result = new Map<string, number | null>();
+      if (carrierIds.length === 0) {
+        return result;
+      }
+      const [ratingsByCarrier, globalAverageScore] = await Promise.all([
+        ratingRepository.listForReputationByRateeIds(carrierIds),
+        ratingRepository.getGlobalAverageScore(),
+      ]);
+      const params = {
+        confidenceConstant: reputationConfig.confidenceConstant,
+        decayHalfLifeDays: reputationConfig.decayHalfLifeDays,
+        globalAverageScore,
+      };
+      for (const carrierId of carrierIds) {
+        const asCarrierRatings = (ratingsByCarrier.get(carrierId) ?? []).filter((r) => r.role === RatingRole.carrier);
+        result.set(carrierId, computeReputationScore(asCarrierRatings, params).reputationScore);
+      }
+      return result;
+    },
   };
 }

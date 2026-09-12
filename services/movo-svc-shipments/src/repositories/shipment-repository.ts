@@ -418,6 +418,15 @@ export interface ShipmentRepository {
    */
   countCompletedTransactions(userId: string): Promise<{ asSender: number; asCarrier: number }>;
   /**
+   * MOVO-188: variante batch de `countCompletedTransactions` (solo el lado `asCarrier`)
+   * -- un único `groupBy` sobre TODOS los `carrierId` dados, para el desempate por
+   * cantidad de envíos entregados de `competitiveRank` (`offers.service.ts`). Evita un
+   * `countCompletedTransactions` por competidor (N+1), mismo criterio que el resto de
+   * MOVO-188. `carrierId` sin entrada en el resultado del `groupBy` (cero entregados)
+   * no aparece en el Map -- el caller trata "ausente" como 0.
+   */
+  countDeliveredAsCarrierByIds(carrierIds: string[]): Promise<Map<string, number>>;
+  /**
    * MOVO-170: subconjunto de `usageStats` que `countCompletedTransactions` no cubre
    * (cancelados, peso promedio) -- separado en vez de extender ese método para no
    * tocar un contrato ya usado por `getReputationSummary`/tests existentes.
@@ -792,6 +801,24 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         db.shipment.count({ where: { carrierId: userId, status: ShipmentStatus.DELIVERED } }),
       ]);
       return { asSender, asCarrier };
+    },
+
+    async countDeliveredAsCarrierByIds(carrierIds: string[]): Promise<Map<string, number>> {
+      const map = new Map<string, number>();
+      if (carrierIds.length === 0) {
+        return map;
+      }
+      const rows = await db.shipment.groupBy({
+        by: ["carrierId"],
+        where: { carrierId: { in: carrierIds }, status: ShipmentStatus.DELIVERED },
+        _count: { _all: true },
+      });
+      for (const row of rows) {
+        if (row.carrierId) {
+          map.set(row.carrierId, row._count._all);
+        }
+      }
+      return map;
     },
 
     async getUsageStatsByRole(userId: string) {
