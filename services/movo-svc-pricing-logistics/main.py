@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import settings
+from app.routers.evaluate import router as evaluate_router
 from app.routers.optimize import router as optimize_router
 from app.routers.quote import router as quote_router
 from app.services.redis_client import close_redis_client, init_redis_client, ping_redis
@@ -34,3 +35,4 @@ async def health() -> dict[str, str]:
 
 app.include_router(quote_router)
 app.include_router(optimize_router)
+app.include_router(evaluate_router)
