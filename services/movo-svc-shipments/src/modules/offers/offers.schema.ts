@@ -48,6 +48,8 @@ const offerResponse = {
     "shipmentId",
     "carrierId",
     "priceOffered",
+    "priceNetArs",
+    "commissionAmountArs",
     "offeredDate",
     "offeredPickupTimeWindowStart",
     "offeredPickupTimeWindowEnd",
@@ -68,6 +70,11 @@ const offerResponse = {
     shipmentId: { type: "string" },
     carrierId: { type: "string" },
     priceOffered: { type: "number" },
+    // MOVO-186: desglose derivado de priceOffered (bruto) con la tasa de comisión
+    // vigente AL MOMENTO DE LA LECTURA, no la que regía al ofertar -- mismo criterio
+    // que offersSummary/competitiveRank (MOVO-180/188).
+    priceNetArs: { type: "number" },
+    commissionAmountArs: { type: "number" },
     offeredDate: { type: "string", format: "date-time" },
     // MOVO-177: null cuando la oferta usa la ventana del envío tal cual.
     offeredPickupTimeWindowStart: { type: ["string", "null"] },
@@ -113,6 +120,8 @@ const myOfferResponse = {
     "shipmentId",
     "carrierId",
     "priceOffered",
+    "priceNetArs",
+    "commissionAmountArs",
     "offeredDate",
     "offeredPickupTimeWindowStart",
     "offeredPickupTimeWindowEnd",
@@ -135,6 +144,9 @@ const myOfferResponse = {
     shipmentId: { type: "string" },
     carrierId: { type: "string" },
     priceOffered: { type: "number" },
+    // MOVO-186: mismo criterio que offerResponse -- ver el comentario de ahí.
+    priceNetArs: { type: "number" },
+    commissionAmountArs: { type: "number" },
     offeredDate: { type: "string", format: "date" },
     offeredPickupTimeWindowStart: { type: ["string", "null"] },
     offeredPickupTimeWindowEnd: { type: ["string", "null"] },

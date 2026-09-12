@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
-import { OfferStatus } from "@movo/shared";
+import { OfferStatus, decomposeOfferGrossPrice } from "@movo/shared";
 import { createOffersService } from "./offers.service";
 import { offersSchemas } from "./offers.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
@@ -24,8 +24,13 @@ export interface OffersRoutesOptions extends FastifyPluginOptions {
  * serializador `format: "date"` de fast-json-stringify les reste el offset del proceso.
  */
 function toMyOfferDto(offer: OfferWithShipmentContext) {
+  // MOVO-186: mismo desglose neto/comisión que toOfferDto (offer.dto.ts), tasa
+  // vigente al leer -- ver el comentario de ahí.
+  const { netArs, commissionAmountArs } = decomposeOfferGrossPrice(offer.priceOffered);
   return {
     ...offer,
+    priceNetArs: netArs,
+    commissionAmountArs,
     offeredDate: offer.offeredDate.toISOString().slice(0, 10),
     // MOVO-180: mismo gotcha de timezone que offeredDate.
     estimatedDeliveryDate: offer.estimatedDeliveryDate

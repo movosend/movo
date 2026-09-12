@@ -94,6 +94,24 @@ describe("GET /offers/mine (Postgres)", () => {
     expect(body.items[0].carrierId).toBe(carrierA);
   });
 
+  it("MOVO-186: cada ítem desglosa priceNetArs/commissionAmountArs a partir de priceOffered (bruto), tasa 15% default", async () => {
+    const carrierId = randomUUID();
+    const shipmentId = await createPublishedShipment();
+    await offerRepo.create(baseOfferInput({ shipmentId, carrierId, priceOffered: 1150 }));
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/offers/mine",
+      headers: { "x-user-id": carrierId },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const item = response.json().items[0];
+    expect(item.priceOffered).toBe(1150);
+    expect(item.priceNetArs).toBe(1000);
+    expect(item.commissionAmountArs).toBe(150);
+  });
+
   it("ignora cualquier carrierId mandado por query param -- siempre usa el del header", async () => {
     const shipmentId = await createPublishedShipment();
     const carrierA = randomUUID();

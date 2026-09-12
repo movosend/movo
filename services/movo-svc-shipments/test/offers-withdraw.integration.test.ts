@@ -98,6 +98,19 @@ describe("POST /offers/:id/withdraw (Postgres, MOVO-143)", () => {
     expect(persisted?.status).toBe("withdrawn");
   });
 
+  it("MOVO-186: la respuesta desglosa priceNetArs/commissionAmountArs a partir de priceOffered (bruto), tasa 15% default", async () => {
+    const shipmentId = await createPublishedShipment();
+    const offer = await offerRepo.create(baseOfferInput({ shipmentId, priceOffered: 1150 }));
+
+    const response = await requestWithdraw(offer.id, carrierId);
+
+    expect(response.statusCode).toBe(200);
+    const data = response.json();
+    expect(data.priceOffered).toBe(1150);
+    expect(data.priceNetArs).toBe(1000);
+    expect(data.commissionAmountArs).toBe(150);
+  });
+
   it("AC8: 403 AUTH_FORBIDDEN si quien retira no es el dueño de la oferta", async () => {
     const shipmentId = await createPublishedShipment();
     const offer = await offerRepo.create(baseOfferInput({ shipmentId }));

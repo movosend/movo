@@ -1429,6 +1429,37 @@ viajan). Suite completa del servicio 542/542 tests (42 archivos). `tsc --noEmit`
 `eslint` limpios. Confirmado que `app.swagger()` expone los 4 campos nuevos en
 `GET /offers/mine`.
 
+### MOVO-186 — Desglose neto/comisión en todas las respuestas de oferta
+
+`GET /offers/mine`, `POST /offers/:id/accept`, `/reject` y `/withdraw` ahora devuelven
+`priceNetArs`/`commissionAmountArs` junto a `priceOffered` (bruto) — hasta ahora solo
+`POST /shipments/:id/offers` (MOVO-143) exponía el desglose, obligando al cliente a
+recalcular la comisión a mano en el resto de las pantallas que tocan una oferta
+(mockup de MOVO-151/182).
+
+- **Un solo lugar de verdad, ya centralizado desde MOVO-188**: `decomposeOfferGrossPrice()`
+  nueva en `@movo/shared` (ver su `CLAUDE.md`) — `offer.dto.ts#toOfferDto` (accept/
+  reject/withdraw) y `offers.routes.ts#toMyOfferDto` (`/mine`) la llaman cada uno sobre
+  su propio `offer.priceOffered`, sin reimplementar la resta bruto-neto.
+  `computeOffersSummaryForCarrier` (MOVO-180) no se tocó -- ya usaba
+  `computeNetFromGross` desde el fix de review de MOVO-188, y solo necesita el neto,
+  no el desglose completo.
+- **Tasa vigente AL MOMENTO DE LA LECTURA, no la que regía al ofertar (AC1)**: mismo
+  criterio ya documentado para `computeOffersSummaryForCarrier`/`competitiveRank` — el
+  desglose se recalcula en cada respuesta con `getCommissionConfig()` actual, la
+  comisión histórica de la oferta no se persiste en ningún lado.
+- **`toMyOfferDto` se dejó en `offers.routes.ts`, no se movió a `offer.dto.ts`**
+  (aunque el ticket lo sugería): ya hace su propio formateo de fechas ahí (gotcha de
+  timezone de columnas `@db.Date`) y moverlo no aportaba nada — solo se le sumó el
+  desglose en el lugar donde ya vivía.
+
+Tests: 4 casos nuevos (uno por endpoint) en `offers-mine.integration.test.ts`,
+`offers-accept-reject.integration.test.ts` (accept y reject) y
+`offers-withdraw.integration.test.ts`, contra un `priceOffered` conocido (1150 ->
+neto 1000, comisión 150 con la tasa 15% default). Suite completa del servicio
+545/545. `tsc --noEmit` y `eslint` limpios en los archivos de esta US. Confirmado que
+`app.swagger()` expone los campos nuevos en los 4 endpoints.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

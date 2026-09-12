@@ -77,6 +77,21 @@ mismo `Math.round((gross/(1+rate))*100)/100` por separado — un cambio futuro d
 redondeo/fórmula en un lado sin el otro las habría dejado inconsistentes para el mismo
 envío. Mismo criterio de centralización que `computeOfferGrossPrice` (MOVO-143).
 
+### MOVO-186 — `decomposeOfferGrossPrice`
+
+`src/config/commission.ts` suma `decomposeOfferGrossPrice(grossArs, rate?)`, que
+devuelve el desglose completo `{netArs, commissionAmountArs, grossArs}` a partir del
+BRUTO ya persistido — reusa `computeNetFromGross` (MOVO-188) para el neto y deriva
+`commissionAmountArs` restando contra el bruto ya redondeado (no con su propia
+fórmula), para que `netArs + commissionAmountArs === grossArs` se mantenga incluso en
+los bordes de redondeo. Consumido por `movo-svc-shipments` (`offer.dto.ts`/
+`offers.routes.ts`) para exponer `priceNetArs`/`commissionAmountArs` en las 4
+respuestas de oferta que antes solo devolvían el bruto (`GET /offers/mine`,
+accept/reject/withdraw) — hasta ahora solo `POST /shipments/:id/offers` los exponía
+(MOVO-143). Test unitario dedicado nuevo, `test/commission.test.ts` (no existía
+ninguno hasta esta US, pese a que `computeOfferGrossPrice`/`computeNetFromGross` ya
+llevaban dos US sin cobertura propia en `shared`).
+
 ### MOVO-152 — `ReputationBreakdown`/`RecentRatingComment` y `PublicProfile` extendido
 
 `src/types/user-profile.ts` — dos tipos nuevos consumidos por `movo-svc-users`
