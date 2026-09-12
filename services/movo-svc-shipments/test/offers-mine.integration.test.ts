@@ -112,6 +112,32 @@ describe("GET /offers/mine (Postgres)", () => {
     expect(item.commissionAmountArs).toBe(150);
   });
 
+  it("MOVO-187: expone el snapshot del emisor (senderNameAtOffer/senderVerifiedAtOffer/senderRatingAtOffer)", async () => {
+    const carrierId = randomUUID();
+    const shipmentId = await createPublishedShipment();
+    await offerRepo.create(
+      baseOfferInput({
+        shipmentId,
+        carrierId,
+        senderNameAtOffer: "María Emisora",
+        senderVerifiedAtOffer: true,
+        senderRatingAtOffer: 4.9,
+      }),
+    );
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/offers/mine",
+      headers: { "x-user-id": carrierId },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const item = response.json().items[0];
+    expect(item.senderNameAtOffer).toBe("María Emisora");
+    expect(item.senderVerifiedAtOffer).toBe(true);
+    expect(item.senderRatingAtOffer).toBe(4.9);
+  });
+
   it("ignora cualquier carrierId mandado por query param -- siempre usa el del header", async () => {
     const shipmentId = await createPublishedShipment();
     const carrierA = randomUUID();
