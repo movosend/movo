@@ -37,6 +37,14 @@ export type {
 export type { Address, CreateAddressInput, UpdateAddressInput } from "./types/address";
 export { PriceCalculationMethod } from "./types/pricing";
 export type { QuoteRequest, QuoteResponse, PriceBreakdownItem } from "./types/pricing";
+export { OptimizationStatus } from "./types/routing";
+export type {
+  RouteStopType,
+  RouteStopInput,
+  OptimizeRouteRequest,
+  RouteStopOutput,
+  OptimizeRouteResponse,
+} from "./types/routing";
 
 // commission
 export { getCommissionConfig, computeOfferGrossPrice, __resetCommissionConfigForTests } from "./config/commission";

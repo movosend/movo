@@ -227,8 +227,17 @@ services:
     logging: *default-logging
     environment:
       - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      # MOVO-205: proveedor de rutas (mock para desarrollo local/CI, google para staging/demo)
+      - ROUTES_PROVIDER=${ROUTES_PROVIDER:-mock}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      - ROUTING_TIME_LIMIT_SECONDS=${ROUTING_TIME_LIMIT_SECONDS:-1.0}
+      - ROUTING_AVG_SPEED_KMH=${ROUTING_AVG_SPEED_KMH:-40.0}
+      - ROUTING_TIME_SLACK_MINUTES=${ROUTING_TIME_SLACK_MINUTES:-120}
+      - ROUTING_DEFAULT_SERVICE_TIME_MINUTES=${ROUTING_DEFAULT_SERVICE_TIME_MINUTES:-10}
     depends_on:
       - postgres
+      - redis
     networks:
       - movo-net
 
