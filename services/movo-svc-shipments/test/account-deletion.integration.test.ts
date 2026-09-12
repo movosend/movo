@@ -96,6 +96,15 @@ describe("GET /internal/account-deletion/users/:userId/active-shipments (MOVO-13
     expect(body).toEqual({ hasActiveDispute: false, hasActiveShipments: true });
   });
 
+  it("MOVO-208: envío assigned_unfunded -> cuenta como activo (transportista comprometido, hold todavía sin crear)", async () => {
+    const senderId = randomUUID();
+    const created = await repo.create({ ...baseInput, senderId });
+    await forceStatus(created.id, ShipmentStatus.ASSIGNED_UNFUNDED);
+
+    const { body } = await query(senderId);
+    expect(body).toEqual({ hasActiveDispute: false, hasActiveShipments: true });
+  });
+
   it("envío in_transit -> cuenta como hasActiveShipments (sin transición de cancelación, decisión de refinamiento)", async () => {
     const senderId = randomUUID();
     const created = await repo.create({ ...baseInput, senderId });
@@ -126,7 +135,12 @@ describe("GET /internal/account-deletion/users/:userId/active-shipments (MOVO-13
     expect(body).toEqual({ hasActiveDispute: true, hasActiveShipments: true });
   });
 
-  it.each([ShipmentStatus.DELIVERED, ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.CANCELLED])(
+  it.each([
+    ShipmentStatus.DELIVERED,
+    ShipmentStatus.COMPLETED,
+    ShipmentStatus.REJECTED_BY_RECEIVER,
+    ShipmentStatus.CANCELLED,
+  ])(
     "envío en estado terminal %s -> no cuenta como activo",
     async (status) => {
       const senderId = randomUUID();
