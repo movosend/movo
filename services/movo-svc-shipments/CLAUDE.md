@@ -1342,6 +1342,31 @@ extrajo a `@movo/shared#toArgentinaCalendarDateString` (`(instant: Date | string
 servicio ahora es un wrapper de una línea sobre esa función compartida, solo
 reconstruye el `Date` anclado que necesita para comparar contra `@db.Date` en SQL.
 
+### MOVO-188 — Ranking competitivo de la oferta propia (posición, mínimo y máximo)
+
+`GET /offers/mine` (MOVO-145) suma `competitiveRank: { rank, total, lowestPriceNetArs,
+highestPriceNetArs } | null` a cada ítem, para el aviso "Quedaste 4.º de 5" del mockup
+de MOVO-151/182. `null` si la oferta no está `pending` o si su envío ya no acepta
+ofertas.
+
+Decisiones clave:
+- **Batch, no por ítem (AC5)**: `offer-repository.ts#listPendingOffersByShipmentIds`
+  trae, en una sola query, las ofertas `pending` efectivas de todos los `shipmentId`
+  distintos de la página, ordenadas por `priceOffered` (bruto) ascendente.
+  `offers.service.ts#listMyOffers` ubica ahí la posición de cada oferta propia y
+  convierte piso/techo a neto — mismo criterio de conversión que
+  `computeOffersSummaryForCarrier` (MOVO-180, `shipments.service.ts`).
+- **"El envío ya no acepta ofertas" es un caso real, no defensivo**: `cancelShipment`
+  no toca las filas de `offers` (solo notifica, ver MOVO-108 más arriba), así que una
+  oferta puede seguir `pending` en base sobre un envío ya `cancelled`. El ranking se
+  computa solo si, además de `pending`, `shipment.status === published` — si no, `null`
+  sin consultar competidores para ese envío.
+- **Sin identidad de los competidores (AC4)**: mismo criterio que `offersSummary`
+  (MOVO-180) — agregado puro (posición/piso/techo), nunca quién más ofertó.
+- **`GET /offers/:id` (MOVO-190, AC6) no expone el campo todavía**: ese endpoint no
+  existe en este servicio — MOVO-190 lo suma reusando el mismo
+  `listPendingOffersByShipmentIds`.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
