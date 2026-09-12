@@ -1,6 +1,12 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
 import { ApiError } from "@movo/shared";
-import { createUsersService, PhotoUploadUrlInput, RegisterPushTokenInput, UpdateProfileInput } from "./users.service";
+import {
+  createUsersService,
+  PhotoUploadUrlInput,
+  RegisterPushTokenInput,
+  UpdateProfileInput,
+  UpsertVehicleInput,
+} from "./users.service";
 import { usersSchemas } from "./users.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
@@ -600,6 +606,51 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
       const { publicKey } = request.body as { publicKey: string };
       const { registeredAt } = await service.registerDeviceKey(userId, publicKey);
       return { registeredAt: registeredAt.toISOString() };
+    },
+  );
+
+  app.put(
+    "/me/vehicle",
+    {
+      schema: {
+        summary: "Registrar/actualizar la ficha de vehículo del transportista",
+        description:
+          "MOVO-172: upsert de la ficha de vehículo -- mismo criterio que " +
+          "POST /me/device-key (MOVO-157): un PUT nuevo reemplaza la fila anterior, " +
+          "sin endpoint de borrado ni multi-vehículo.",
+        tags: ["users"],
+        body: usersSchemas.upsertVehicleBody,
+        response: {
+          200: usersSchemas.vehicleResponse,
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      return service.upsertVehicle(userId, request.body as UpsertVehicleInput);
+    },
+  );
+
+  app.get(
+    "/me/vehicle",
+    {
+      schema: {
+        summary: "Obtener la ficha de vehículo del transportista autenticado",
+        description: "MOVO-172: `null` si el usuario todavía no cargó ficha -- estado esperado, no un error.",
+        tags: ["users"],
+        response: {
+          200: usersSchemas.vehicleOrNullResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      return service.getVehicle(userId);
     },
   );
 }

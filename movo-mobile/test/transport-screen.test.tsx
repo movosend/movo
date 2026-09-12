@@ -75,6 +75,21 @@ jest.mock("../components/send/address-search-sheet", () => {
   };
 });
 
+// Bomba de tiempo evitada a propósito: `isPickupWindowExpired` (MOVO-148) filtra
+// client-side cualquier envío cuya ventana de retiro ya pasó contra `new Date()`
+// real -- una fecha de fixture hardcodeada queda "vencida" tarde o temprano y hace
+// fallar la suite sin que nadie haya tocado el código (bug real encontrado en CI: el
+// fixture usaba "2026-09-10", que dejó de ser futuro el mismo día que se escribió
+// este comentario). `DEFAULT_PICKUP_DATE` siempre es un puñado de días después de
+// "hoy" en el momento en que corre el test.
+function daysFromNowDateString(days: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+const DEFAULT_PICKUP_DATE = daysFromNowDateString(5);
+
 function availableShipment(overrides: Partial<AvailableShipment> = {}): AvailableShipment {
   return {
     id: "available-1",
@@ -91,7 +106,7 @@ function availableShipment(overrides: Partial<AvailableShipment> = {}): Availabl
     deliveryAddress: "Bv. San Juan 500, Córdoba",
     deliveryLat: -31.41,
     deliveryLng: -64.19,
-    pickupDate: "2026-09-10",
+    pickupDate: DEFAULT_PICKUP_DATE,
     pickupTimeWindowStart: "09:00",
     pickupTimeWindowEnd: "12:00",
     suggestedPriceArs: 4500,
@@ -146,7 +161,9 @@ const TRIP_A: TripWithAcceptedPackages = {
   destinationAddress: "Av. San Martín 100, Villa María",
   destinationLat: -32.4104,
   destinationLng: -63.2404,
-  departureAt: "2026-09-10T12:00:00.000Z",
+  // Mismo día calendario argentino que DEFAULT_PICKUP_DATE (requisito real de
+  // computeOnTripDetour, MOVO-183) -- no un timestamp hardcodeado aparte.
+  departureAt: `${DEFAULT_PICKUP_DATE}T12:00:00.000Z`,
   vehicleType: "Auto",
   status: TripStatus.ACTIVE,
   createdAt: "2026-09-03T12:00:00.000Z",
@@ -554,8 +571,8 @@ describe("TransportScreen", () => {
       mockUseAvailableShipments.mockReturnValue(
         baseAvailableResult({
           data: pages([
-            availableShipment({ id: "cheap", suggestedPriceArs: 1000, pickupDate: "2026-09-20" }),
-            availableShipment({ id: "pricey", suggestedPriceArs: 9000, pickupDate: "2026-09-11" }),
+            availableShipment({ id: "cheap", suggestedPriceArs: 1000, pickupDate: daysFromNowDateString(14) }),
+            availableShipment({ id: "pricey", suggestedPriceArs: 9000, pickupDate: daysFromNowDateString(3) }),
           ]),
         }),
       );

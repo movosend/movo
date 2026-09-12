@@ -152,6 +152,16 @@ MOVO-152/170, este campo sí rompe la compilación de cualquier literal `PublicP
 ejercita de verdad). El mobile tiene su propio ajuste pendiente en otra rama
 (MOVO-154/176), fuera del alcance de esta PR.
 
+### MOVO-172 — `VehicleProfile` exportado desde el barrel raíz
+
+`src/types/user-profile.ts` ya tenía el tipo (`VehicleProfile: {brand, model,
+cargoCapacityLabel, licensePlate}`) y `PublicProfile.vehicle?: VehicleProfile | null`
+definidos desde antes (preparación de MOVO-176), pero `VehicleProfile` no estaba en el
+export type del barrel (`src/index.ts`) — el backend de `movo-svc-users` (esta US)
+necesitaba importarlo para tipar `toPublicProfile`. Campo aditivo, no rompe ningún
+literal `PublicProfile` construido a mano (opcional, a diferencia de `bio` en
+MOVO-171).
+
 ### `toArgentinaCalendarDateString` (sin ticket propio — refactor de unificación)
 
 `src/utils/argentina-date.ts` — primera utilidad de `@movo/shared` sin relación con

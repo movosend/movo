@@ -142,7 +142,8 @@ export interface PrivateProfile {
   bio: string | null;
 }
 
-/** MOVO-172 (ficha de vehículo del transportista, todavía sin backend). */
+/** MOVO-172: ficha de vehículo del transportista, `movo-svc-users` (`PUT`/
+ * `GET /users/me/vehicle`). */
 export interface VehicleProfile {
   brand: string;
   model: string;
@@ -198,7 +199,8 @@ export interface PublicProfile {
    * reusado por las dos rutas).
    */
   bio: string | null;
-  /** MOVO-172, todavía sin backend — `null`/`undefined` si no es transportista o
-   * no cargó ficha de vehículo. */
+  /** MOVO-172: `null`/`undefined` si no es transportista o todavía no cargó ficha
+   * de vehículo. Igual que `bio`, viaja en `GET /users/:id` pero se descarta a
+   * nivel de schema en `GET /users/search`. */
   vehicle?: VehicleProfile | null;
 }

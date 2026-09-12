@@ -2,11 +2,18 @@ import { randomUUID } from "node:crypto";
 import { FastifyBaseLogger } from "fastify";
 import { hash, verify } from "@node-rs/argon2";
 import Redis from "ioredis";
-import { AccountStatus, ApiError, KycStatus, RecentRatingComment } from "@movo/shared";
+import {
+  AccountStatus,
+  ApiError,
+  KycStatus,
+  RecentRatingComment,
+  VehicleProfile as SharedVehicleProfile,
+} from "@movo/shared";
 import { PrismaClient } from "../../generated/prisma/client";
 import { createUserRepository } from "../../repositories/user-repository";
 import { createPushTokenRepository } from "../../repositories/push-token-repository";
 import { createDeviceKeyRepository } from "../../repositories/device-key-repository";
+import { createVehicleProfileRepository } from "../../repositories/vehicle-repository";
 import { createSessionRepository } from "../../repositories/session-repository";
 import {
   PrivateProfile,
@@ -153,6 +160,27 @@ export interface UpdateProfileInput {
   bio?: string | null;
 }
 
+export interface UpsertVehicleInput {
+  brand: string;
+  model: string;
+  cargoCapacityLabel: string;
+  licensePlate: string;
+}
+
+function toSharedVehicleProfile(vehicle: {
+  brand: string;
+  model: string;
+  cargoCapacityLabel: string;
+  licensePlate: string;
+}): SharedVehicleProfile {
+  return {
+    brand: vehicle.brand,
+    model: vehicle.model,
+    cargoCapacityLabel: vehicle.cargoCapacityLabel,
+    licensePlate: vehicle.licensePlate,
+  };
+}
+
 // MOVO-152 AC2: "las últimas 10 calificaciones" -- mismo valor que el default de
 // `recentRatingsQuery` en ratings.schema.ts de svc-shipments, pasado acá explícito en
 // vez de depender de ese default (esta llamada es interna, no pasa por AJV).
@@ -183,6 +211,7 @@ export function createUsersService(
   const repository = createUserRepository(db);
   const pushTokenRepository = createPushTokenRepository(db);
   const deviceKeyRepository = createDeviceKeyRepository(db);
+  const vehicleProfileRepository = createVehicleProfileRepository(db);
   const sessionRepository = createSessionRepository(redis);
 
   /**
@@ -272,15 +301,26 @@ export function createUsersService(
   }
 
   async function composePublicProfile(user: User, includeComments: boolean): Promise<PublicProfile> {
-    const [summary, recentRatingCommentsPage] = await Promise.all([
+    const [summary, recentRatingCommentsPage, vehicle] = await Promise.all([
       resolveReputationSummary(user.id),
       includeComments
         ? resolveRecentRatingComments(user.id)
         : Promise.resolve<{ items: RecentRatingComment[]; nextCursor: string | null }>({ items: [], nextCursor: null }),
+      // MOVO-172: se resuelve siempre, incluso para `searchUsers` (donde el schema de
+      // `GET /users/search` termina descartando el campo) -- mismo trade-off ya
+      // aceptado para `bio` en MOVO-171, se prioriza consistencia con ese patrón
+      // sobre evitar esta query extra.
+      vehicleProfileRepository.findByUserId(user.id),
     ]);
     const recentRatingComments = recentRatingCommentsPage.items;
     const reputation = summary ?? { ...NO_REPUTATION, asSender: NO_REPUTATION, asCarrier: NO_REPUTATION };
-    return toPublicProfile(user, reputation, summary?.transactionCounts ?? NO_TRANSACTION_COUNTS, recentRatingComments);
+    return toPublicProfile(
+      user,
+      reputation,
+      summary?.transactionCounts ?? NO_TRANSACTION_COUNTS,
+      recentRatingComments,
+      vehicle ? toSharedVehicleProfile(vehicle) : null
+    );
   }
 
   return {
@@ -563,6 +603,36 @@ export function createUsersService(
       }
       const deviceKey = await deviceKeyRepository.upsert(userId, publicKey);
       return { registeredAt: deviceKey.updatedAt };
+    },
+
+    /**
+     * MOVO-172: alta/rotación de la ficha de vehículo del transportista autenticado.
+     * Mismo criterio de existencia que registerDeviceKey (404 USER_NOT_FOUND si no
+     * existe o está DELETED). A diferencia de registerDeviceKey, devuelve el objeto
+     * completo (no un ack) -- así lo fija el cliente mobile ya construido contra
+     * este contrato (MOVO-176).
+     */
+    async upsertVehicle(userId: string, input: UpsertVehicleInput): Promise<SharedVehicleProfile> {
+      const user = await repository.findById(userId);
+      if (!user || user.status === AccountStatus.DELETED) {
+        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
+      const vehicle = await vehicleProfileRepository.upsert(userId, input);
+      return toSharedVehicleProfile(vehicle);
+    },
+
+    /**
+     * MOVO-172: `null` si el usuario autenticado todavía no cargó ficha de
+     * vehículo -- estado esperado de un GET, no un error (a diferencia de
+     * registerDeviceKey/registerPushToken, que sí son 404 si el usuario no existe).
+     */
+    async getVehicle(userId: string): Promise<SharedVehicleProfile | null> {
+      const user = await repository.findById(userId);
+      if (!user || user.status === AccountStatus.DELETED) {
+        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
+      const vehicle = await vehicleProfileRepository.findByUserId(userId);
+      return vehicle ? toSharedVehicleProfile(vehicle) : null;
     },
 
     /**

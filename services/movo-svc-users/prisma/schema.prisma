@@ -105,6 +105,26 @@ model DeviceKey {
   @@schema("users")
 }
 
+// MOVO-172: ficha de vehículo del transportista, mostrada en el perfil público
+// (`PublicProfile.vehicle`) para que quien entrega su paquete pueda verificar el
+// vehículo antes de subirlo. `userId` único (mismo patrón que `DeviceKey`): sin
+// multi-vehículo por ahora, cargar una ficha nueva es un upsert sobre esta misma
+// fila.
+model VehicleProfile {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String   @unique(map: "vehicle_profiles_user_id_key") @map("user_id") @db.Uuid
+  brand              String
+  model              String
+  cargoCapacityLabel String   @map("cargo_capacity_label")
+  licensePlate       String   @map("license_plate")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("vehicle_profiles")
+  @@schema("users")
+}
+
 model User {
   id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email             String        @unique(map: "users_email_key")
@@ -139,6 +159,7 @@ model User {
   pushTokens        PushToken[]
   driversLicense    DriversLicense?
   deviceKey         DeviceKey?
+  vehicleProfile    VehicleProfile?
 
   // users_email_lower_idx (índice único funcional sobre LOWER(email)) no tiene
   // equivalente declarable en schema.prisma (Prisma no modela expression indexes).
