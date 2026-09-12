@@ -67,6 +67,16 @@ siendo un esqueleto). `MOVO_COMMISSION_RATE` confirmado en 15%;
 `MP_TRANSACTION_FEE_RATE` es un placeholder pendiente de confirmar con el contrato
 real de MP.
 
+### MOVO-188 (fix de review, PR #142) — `computeNetFromGross`
+
+`src/config/commission.ts` suma `computeNetFromGross(grossArs, rate?)`, inversa de
+`computeOfferGrossPrice`. Reemplaza dos copias inline idénticas
+(`offers.service.ts#toNetArs` en `movo-svc-shipments`, y
+`shipments.service.ts#computeOffersSummaryForCarrier` desde MOVO-180) que hacían el
+mismo `Math.round((gross/(1+rate))*100)/100` por separado — un cambio futuro de
+redondeo/fórmula en un lado sin el otro las habría dejado inconsistentes para el mismo
+envío. Mismo criterio de centralización que `computeOfferGrossPrice` (MOVO-143).
+
 ### MOVO-152 — `ReputationBreakdown`/`RecentRatingComment` y `PublicProfile` extendido
 
 `src/types/user-profile.ts` — dos tipos nuevos consumidos por `movo-svc-users`

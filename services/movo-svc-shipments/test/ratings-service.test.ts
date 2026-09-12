@@ -66,6 +66,7 @@ function fakeShipmentRepository(overrides: Partial<ShipmentRepository> = {}): Sh
     findExpiredAwaitingConfirmation: vi.fn(),
     hasActiveShipmentsForUser: vi.fn(),
     countCompletedTransactions: vi.fn().mockResolvedValue({ asSender: 0, asCarrier: 0 }),
+    countDeliveredAsCarrierByIds: vi.fn().mockResolvedValue(new Map()),
     getUsageStatsByRole: vi.fn().mockResolvedValue({
       asSender: { cancelled: 0, avgPackageWeightKg: null },
       asCarrier: { cancelled: 0, avgPackageWeightKg: null },

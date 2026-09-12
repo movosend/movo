@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { FastifyInstance } from "fastify";
 import { OfferStatus, ShipmentStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
@@ -203,5 +203,177 @@ describe("GET /offers/mine (Postgres)", () => {
   it("responde 401 sin x-user-id", async () => {
     const response = await app.inject({ method: "GET", url: "/offers/mine" });
     expect(response.statusCode).toBe(401);
+  });
+
+  describe("MOVO-188: competitiveRank", () => {
+    it("AC1-AC3: 3 transportistas ofertando el mismo envío ven su propio rank correcto", async () => {
+      const shipmentId = await createPublishedShipment();
+      const carrierLow = randomUUID();
+      const carrierMid = randomUUID();
+      const carrierHigh = randomUUID();
+      // Brutos elegidos para que el neto (rate 0.15 default) dé exacto: /1.15.
+      await offerRepo.create(baseOfferInput({ shipmentId, carrierId: carrierLow, priceOffered: 4600 }));
+      await offerRepo.create(baseOfferInput({ shipmentId, carrierId: carrierMid, priceOffered: 5750 }));
+      await offerRepo.create(baseOfferInput({ shipmentId, carrierId: carrierHigh, priceOffered: 6900 }));
+
+      const [lowRes, midRes, highRes] = await Promise.all(
+        [carrierLow, carrierMid, carrierHigh].map((carrierId) =>
+          app.inject({ method: "GET", url: "/offers/mine", headers: { "x-user-id": carrierId } })
+        )
+      );
+
+      const expectedBounds = { total: 3, lowestPriceNetArs: 4000, highestPriceNetArs: 6000 };
+      expect(lowRes.json().items[0].competitiveRank).toEqual({ rank: 1, ...expectedBounds });
+      expect(midRes.json().items[0].competitiveRank).toEqual({ rank: 2, ...expectedBounds });
+      expect(highRes.json().items[0].competitiveRank).toEqual({ rank: 3, ...expectedBounds });
+    });
+
+    it("una oferta accepted/rejected/expired/withdrawn/superseded expone competitiveRank: null", async () => {
+      const carrierAccepted = randomUUID();
+      const shipmentAccepted = await createPublishedShipment();
+      const accepted = await offerRepo.create(baseOfferInput({ shipmentId: shipmentAccepted, carrierId: carrierAccepted }));
+      await offerRepo.acceptOffer(accepted.id, null);
+
+      const carrierRejected = randomUUID();
+      const shipmentRejected = await createPublishedShipment();
+      const rejected = await offerRepo.create(baseOfferInput({ shipmentId: shipmentRejected, carrierId: carrierRejected }));
+      await offerRepo.reject(rejected.id);
+
+      const carrierExpired = randomUUID();
+      const shipmentExpired = await createPublishedShipment();
+      await offerRepo.create(
+        baseOfferInput({ shipmentId: shipmentExpired, carrierId: carrierExpired, expiresAt: new Date(Date.now() - 60_000) }),
+      );
+
+      const carrierWithdrawn = randomUUID();
+      const shipmentWithdrawn = await createPublishedShipment();
+      const withdrawn = await offerRepo.create(baseOfferInput({ shipmentId: shipmentWithdrawn, carrierId: carrierWithdrawn }));
+      await offerRepo.withdraw(withdrawn.id);
+
+      const carrierSuperseded = randomUUID();
+      const shipmentSuperseded = await createPublishedShipment();
+      await offerRepo.create(baseOfferInput({ shipmentId: shipmentSuperseded, carrierId: carrierSuperseded }));
+      const winningOffer = await offerRepo.create(baseOfferInput({ shipmentId: shipmentSuperseded, carrierId: randomUUID() }));
+      await offerRepo.acceptOffer(winningOffer.id, null);
+
+      for (const carrierId of [carrierAccepted, carrierRejected, carrierExpired, carrierWithdrawn, carrierSuperseded]) {
+        const response = await app.inject({
+          method: "GET",
+          url: "/offers/mine",
+          headers: { "x-user-id": carrierId },
+        });
+        expect(response.json().items[0].competitiveRank).toBeNull();
+      }
+    });
+
+    it("una oferta pending sobre un envío ya cancelado (que no toca las ofertas) expone competitiveRank: null", async () => {
+      const shipmentId = await createPublishedShipment();
+      const carrierId = randomUUID();
+      await offerRepo.create(baseOfferInput({ shipmentId, carrierId }));
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.CANCELLED, null);
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/offers/mine",
+        headers: { "x-user-id": carrierId },
+      });
+
+      const item = response.json().items[0];
+      expect(item.status).toBe(OfferStatus.PENDING);
+      expect(item.shipment.status).toBe(ShipmentStatus.CANCELLED);
+      expect(item.competitiveRank).toBeNull();
+    });
+
+    it("AC5: resuelve el ranking de varios envíos en una sola query batch, sin N+1", async () => {
+      const carrierId = randomUUID();
+      for (let i = 0; i < 3; i++) {
+        const shipmentId = await createPublishedShipment();
+        await offerRepo.create(baseOfferInput({ shipmentId, carrierId }));
+        // Otro competidor en el mismo envío -- si no hubiera nadie más, no habría
+        // nada nuevo que ir a buscar en la query batch para ese shipmentId.
+        await offerRepo.create(baseOfferInput({ shipmentId, carrierId: randomUUID() }));
+      }
+
+      const findManySpy = vi.spyOn(app.db.offer, "findMany");
+      const response = await app.inject({
+        method: "GET",
+        url: "/offers/mine?limit=10",
+        headers: { "x-user-id": carrierId },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().items).toHaveLength(3);
+      // Una query para listByCarrier (los ítems) + una para el batch de
+      // competitiveRank -- nunca una por shipmentId (serían 4 con N+1 acá).
+      expect(findManySpy).toHaveBeenCalledTimes(2);
+      findManySpy.mockRestore();
+    });
+
+    describe("fix de review (PR #142): desempate a igual priceOffered", () => {
+      it("gana quien tiene mejor reputación asCarrier", async () => {
+        const shipmentId = await createPublishedShipment();
+        const carrierBetterRated = randomUUID();
+        const carrierWorseRated = randomUUID();
+        await offerRepo.create(baseOfferInput({ shipmentId, carrierId: carrierBetterRated, priceOffered: 5000 }));
+        await offerRepo.create(baseOfferInput({ shipmentId, carrierId: carrierWorseRated, priceOffered: 5000 }));
+
+        // Envío de contexto solo para satisfacer la FK de `Rating.shipmentId` -- no
+        // importa que estos carriers no hayan participado de verdad, es un fixture.
+        const ratingContextShipment = await createPublishedShipment();
+        await app.db.rating.create({
+          data: { shipmentId: ratingContextShipment, raterId: randomUUID(), rateeId: carrierBetterRated, role: "carrier", score: 5 },
+        });
+        await app.db.rating.create({
+          data: { shipmentId: ratingContextShipment, raterId: randomUUID(), rateeId: carrierWorseRated, role: "carrier", score: 1 },
+        });
+
+        const [betterRes, worseRes] = await Promise.all([
+          app.inject({ method: "GET", url: "/offers/mine", headers: { "x-user-id": carrierBetterRated } }),
+          app.inject({ method: "GET", url: "/offers/mine", headers: { "x-user-id": carrierWorseRated } }),
+        ]);
+
+        expect(betterRes.json().items[0].competitiveRank.rank).toBe(1);
+        expect(worseRes.json().items[0].competitiveRank.rank).toBe(2);
+      });
+
+      it("a igual reputación (sin calificaciones), gana quien entregó más envíos como transportista", async () => {
+        const shipmentId = await createPublishedShipment();
+        const carrierWithHistory = randomUUID();
+        const carrierWithoutHistory = randomUUID();
+        await offerRepo.create(baseOfferInput({ shipmentId, carrierId: carrierWithHistory, priceOffered: 5000 }));
+        await offerRepo.create(baseOfferInput({ shipmentId, carrierId: carrierWithoutHistory, priceOffered: 5000 }));
+
+        const deliveredShipment = await createPublishedShipment();
+        await app.db.shipment.update({
+          where: { id: deliveredShipment },
+          data: { status: ShipmentStatus.DELIVERED, carrierId: carrierWithHistory },
+        });
+
+        const [withHistoryRes, withoutHistoryRes] = await Promise.all([
+          app.inject({ method: "GET", url: "/offers/mine", headers: { "x-user-id": carrierWithHistory } }),
+          app.inject({ method: "GET", url: "/offers/mine", headers: { "x-user-id": carrierWithoutHistory } }),
+        ]);
+
+        expect(withHistoryRes.json().items[0].competitiveRank.rank).toBe(1);
+        expect(withoutHistoryRes.json().items[0].competitiveRank.rank).toBe(2);
+      });
+
+      it("a igual reputación y envíos entregados, gana la oferta más antigua (piso determinístico, ya no depende del orden de Postgres)", async () => {
+        const shipmentId = await createPublishedShipment();
+        const earlierCarrier = randomUUID();
+        const laterCarrier = randomUUID();
+        await offerRepo.create(baseOfferInput({ shipmentId, carrierId: earlierCarrier, priceOffered: 5000 }));
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        await offerRepo.create(baseOfferInput({ shipmentId, carrierId: laterCarrier, priceOffered: 5000 }));
+
+        const [earlierRes, laterRes] = await Promise.all([
+          app.inject({ method: "GET", url: "/offers/mine", headers: { "x-user-id": earlierCarrier } }),
+          app.inject({ method: "GET", url: "/offers/mine", headers: { "x-user-id": laterCarrier } }),
+        ]);
+
+        expect(earlierRes.json().items[0].competitiveRank.rank).toBe(1);
+        expect(laterRes.json().items[0].competitiveRank.rank).toBe(2);
+      });
+    });
   });
 });

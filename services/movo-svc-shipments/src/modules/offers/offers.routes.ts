@@ -6,6 +6,8 @@ import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
+import { createRatingRepository } from "../../repositories/rating-repository";
+import { createRatingsService } from "../ratings/ratings.service";
 import { OfferWithShipmentContext } from "../../models/offer";
 import { toOfferDto } from "./offer.dto";
 
@@ -40,7 +42,22 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
   const offerRepository = createOfferRepository(app.db);
   const shipmentRepository = createShipmentRepository(app.db);
-  const service = createOffersService(offerRepository, shipmentRepository, notificationsClient, app.log);
+  // MOVO-188: batch de reputación `asCarrier` para el desempate de `competitiveRank`
+  // -- mismo criterio que `getCarrierReputationScore` de `shipments.routes.ts`
+  // (MOVO-143): se arma un `ratingsService` propio acá en vez de que
+  // `offers.service.ts` importe `ratings.service.ts` directo, para no acoplar ese
+  // servicio a la construcción completa de `RatingsService`.
+  const ratingsService = createRatingsService(shipmentRepository, createRatingRepository(app.db), undefined, app.log, {
+    confidenceConstant: app.config.REPUTATION_CONFIDENCE_CONSTANT,
+    decayHalfLifeDays: app.config.REPUTATION_DECAY_HALF_LIFE_DAYS,
+  });
+  const service = createOffersService(
+    offerRepository,
+    shipmentRepository,
+    notificationsClient,
+    app.log,
+    ratingsService.getCarrierReputationScoresBatch
+  );
 
   app.get(
     "/mine",

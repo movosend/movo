@@ -1342,6 +1342,69 @@ extrajo a `@movo/shared#toArgentinaCalendarDateString` (`(instant: Date | string
 servicio ahora es un wrapper de una línea sobre esa función compartida, solo
 reconstruye el `Date` anclado que necesita para comparar contra `@db.Date` en SQL.
 
+### MOVO-188 — Ranking competitivo de la oferta propia (posición, mínimo y máximo)
+
+`GET /offers/mine` (MOVO-145) suma `competitiveRank: { rank, total, lowestPriceNetArs,
+highestPriceNetArs } | null` a cada ítem, para el aviso "Quedaste 4.º de 5" del mockup
+de MOVO-151/182. `null` si la oferta no está `pending` o si su envío ya no acepta
+ofertas.
+
+Decisiones clave:
+- **Batch, no por ítem (AC5)**: `offer-repository.ts#listPendingOffersByShipmentIds`
+  trae, en una sola query, las ofertas `pending` efectivas de todos los `shipmentId`
+  distintos de la página, ordenadas por `priceOffered` (bruto) ascendente.
+  `offers.service.ts#listMyOffers` ubica ahí la posición de cada oferta propia y
+  convierte piso/techo a neto — mismo criterio de conversión que
+  `computeOffersSummaryForCarrier` (MOVO-180, `shipments.service.ts`).
+- **"El envío ya no acepta ofertas" es un caso real, no defensivo**: `cancelShipment`
+  no toca las filas de `offers` (solo notifica, ver MOVO-108 más arriba), así que una
+  oferta puede seguir `pending` en base sobre un envío ya `cancelled`. El ranking se
+  computa solo si, además de `pending`, `shipment.status === published` — si no, `null`
+  sin consultar competidores para ese envío.
+- **Sin identidad de los competidores (AC4)**: mismo criterio que `offersSummary`
+  (MOVO-180) — agregado puro (posición/piso/techo), nunca quién más ofertó.
+- **`GET /offers/:id` (MOVO-190, AC6) no expone el campo todavía**: ese endpoint no
+  existe en este servicio — MOVO-190 lo suma reusando el mismo
+  `listPendingOffersByShipmentIds`.
+
+**Fixes de review (PR #142, antes de mergear) — desempate a igual `priceOffered`**:
+en ARS es común que varias ofertas coincidan centavo a centavo — un `orderBy:
+priceOffered` sin más no garantiza qué fila queda primero entre iguales (Postgres no
+promete orden estable ahí), así que el `rank` podía cambiar solo entre dos llamadas
+sin que nada cambiara en la realidad. Se agregó una cascada de desempate (decisión de
+producto, no pedida por ningún AC de MOVO-188): a igual precio, gana quien tiene
+mejor reputación `asCarrier` (MOVO-147); a igual reputación, quien entregó más envíos
+como transportista (`shipment-repository.ts#countDeliveredAsCarrierByIds`, `groupBy`
+nuevo); a igual todo eso, quien ofertó primero (`createdAt`); el `id` es el piso
+final. Ambos criterios nuevos se resuelven en batch sobre los `carrierId` únicos que
+compiten en la página completa (`ratings.service.ts#getCarrierReputationScoresBatch`,
+nuevo — requirió `rating-repository.ts#listForReputationByRateeIds` batch, mismo
+criterio N+1 que el resto de MOVO-188) — como mucho dos queries MÁS para toda la
+página, nunca una por competidor. `getCarrierReputationScores` se inyecta en
+`createOffersService` igual que `getCarrierReputationScore` (MOVO-143,
+`shipments.service.ts`): un `ratingsService` propio armado en `offers.routes.ts`, sin
+que `offers.service.ts` importe `ratings.service.ts` directo.
+
+Segundo fix del mismo review, no relacionado al desempate: `listByCarrier`
+(`offer-repository.ts`) y `listPendingOffersByShipmentIds` evaluaban la expiración
+perezosa (AC11) contra dos `new Date()` independientes -- una oferta que vencía justo
+en el medio de los dos podía leerse `pending` en una función y ya no aparecer en la
+otra, degradando `competitiveRank` a `null` sin necesidad. `listMyOffers` ahora crea
+un único `now` y lo pasa explícito a ambas llamadas.
+
+Tercer fix: `toNetArs` (conversión bruto→neto) estaba duplicada inline en
+`offers.service.ts` y en `shipments.service.ts#computeOffersSummaryForCarrier`
+(MOVO-180) — extraída a `computeNetFromGross()` en
+`shared/movo-shared/src/config/commission.ts` (inversa de `computeOfferGrossPrice`),
+mismo criterio de centralización que ese archivo ya usa. Las dos llamadas ahora
+reusan la misma función.
+
+Tests nuevos: 3 casos en `offers-mine.integration.test.ts` (reputación desempata,
+envíos entregados desempata a igual reputación, `createdAt` desempata a igual todo lo
+demás). Suite completa del servicio verificada contra Postgres/Redis reales:
+534/538 (los 4 que fallan son de `handshake.integration.test.ts`, preexistentes en la
+rama antes de este fix, no relacionados). `tsc --noEmit` limpio.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

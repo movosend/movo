@@ -56,8 +56,22 @@ export interface OfferShipmentContext {
   deliveryAddress: string;
 }
 
+/**
+ * MOVO-188: posición de la oferta propia entre las `pending` efectivas del mismo
+ * envío (AC1-AC3), sin identidad de los competidores (AC4) -- agregado, no un
+ * listado. `null` cuando no aplica: la oferta no está `pending` o el envío ya no
+ * acepta ofertas (ver `offers.service.ts#listMyOffers`).
+ */
+export interface OfferCompetitiveRank {
+  rank: number;
+  total: number;
+  lowestPriceNetArs: number;
+  highestPriceNetArs: number;
+}
+
 export interface OfferWithShipmentContext extends Offer {
   shipment: OfferShipmentContext;
+  competitiveRank: OfferCompetitiveRank | null;
 }
 
 export interface CreateOfferInput {

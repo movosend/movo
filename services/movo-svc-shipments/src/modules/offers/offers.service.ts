@@ -1,10 +1,24 @@
-import { ApiError, OfferStatus } from "@movo/shared";
+import { ApiError, OfferStatus, ShipmentStatus, computeNetFromGross, getCommissionConfig } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { NotificationsClient } from "../../adapters/notifications-client";
-import { Offer, OfferWithShipmentContext } from "../../models/offer";
+import { Offer, OfferCompetitiveRank, OfferWithShipmentContext } from "../../models/offer";
 import { assertIsSender } from "../shipments/assert-shipment-access";
+
+/** MOVO-188: batch de reputación `asCarrier` (`ratings.service.ts#getCarrierReputationScoresBatch`)
+ * inyectado por `offers.routes.ts` -- mismo criterio de callback local (sin HTTP contra
+ * sí mismo) que `ShipmentsServiceOptions.getCarrierReputationScore` (MOVO-143), pero en
+ * versión batch: acá se necesita el score de TODOS los carriers que compiten en la
+ * página a la vez, no de uno solo. */
+export type GetCarrierReputationScores = (carrierIds: string[]) => Promise<Map<string, number | null>>;
+
+interface CompetingOffer {
+  id: string;
+  carrierId: string;
+  priceOffered: number;
+  createdAt: Date;
+}
 
 type OffersServiceLogger =
   | FastifyBaseLogger
@@ -49,22 +63,147 @@ export interface ListMyOffersResult {
   total: number;
 }
 
+/**
+ * MOVO-188 (fix de review, PR #142): con precios en ARS es COMÚN que varias ofertas
+ * coincidan centavo a centavo (redondeo a valores "de punta" tipo 5000/5500) -- un
+ * `orderBy: priceOffered` solo no alcanza, Postgres no garantiza qué fila queda
+ * primero entre iguales, así que el `rank` podía cambiar solo entre dos llamadas sin
+ * que nada cambiara en la realidad. Cascada de desempate (decisión de producto, no
+ * pedida por ningún AC de MOVO-188): a igual precio, gana quien tiene mejor
+ * reputación `asCarrier` (MOVO-147) -- información real para decidir, no solo orden
+ * estable; a igual reputación, quien entregó más envíos como transportista (más
+ * historial verificable); a igual todo eso, quien ofertó primero (`createdAt`); el
+ * `id` es el piso final, solo para que el orden sea 100% determinístico incluso en el
+ * caso de laboratorio de dos ofertas idénticas en todo menos el id.
+ *
+ * `reputationScore`/`deliveredCount` ausentes (competidor sin datos) valen lo mínimo
+ * posible -- no benefician a nadie por que falte su dato, nunca ganan un desempate
+ * real por default.
+ */
+function compareCompetingOffers(
+  a: CompetingOffer,
+  b: CompetingOffer,
+  reputationByCarrier: Map<string, number | null>,
+  deliveredCountByCarrier: Map<string, number>
+): number {
+  if (a.priceOffered !== b.priceOffered) {
+    return a.priceOffered - b.priceOffered;
+  }
+  const reputationA = reputationByCarrier.get(a.carrierId) ?? -Infinity;
+  const reputationB = reputationByCarrier.get(b.carrierId) ?? -Infinity;
+  if (reputationA !== reputationB) {
+    return reputationB - reputationA;
+  }
+  const deliveredA = deliveredCountByCarrier.get(a.carrierId) ?? 0;
+  const deliveredB = deliveredCountByCarrier.get(b.carrierId) ?? 0;
+  if (deliveredA !== deliveredB) {
+    return deliveredB - deliveredA;
+  }
+  if (a.createdAt.getTime() !== b.createdAt.getTime()) {
+    return a.createdAt.getTime() - b.createdAt.getTime();
+  }
+  return a.id.localeCompare(b.id);
+}
+
+/**
+ * MOVO-188 (AC2/AC3): ubica la oferta propia dentro de `rankedOffers` (ya resuelto el
+ * desempate completo por el caller) y convierte el piso/techo a neto. `rankedOffers`
+ * siempre incluye la oferta propia (viene de la misma query que la trajo como
+ * `pending`) -- si no aparece, es una carrera entre la lectura de `listByCarrier` y
+ * este batch (ej. se aceptó/retiró justo en el medio); se degrada a `null` en vez de
+ * reportar una posición inventada.
+ */
+function buildCompetitiveRank(
+  offerId: string,
+  rankedOffers: CompetingOffer[],
+  commissionRate: number
+): OfferCompetitiveRank | null {
+  const rank = rankedOffers.findIndex((offer) => offer.id === offerId) + 1;
+  if (rank === 0) {
+    return null;
+  }
+  const priceOffers = rankedOffers.map((offer) => offer.priceOffered);
+  return {
+    rank,
+    total: rankedOffers.length,
+    lowestPriceNetArs: computeNetFromGross(Math.min(...priceOffers), commissionRate),
+    highestPriceNetArs: computeNetFromGross(Math.max(...priceOffers), commissionRate),
+  };
+}
+
+function isRankableOffer(item: OfferWithShipmentContext): boolean {
+  return item.status === OfferStatus.PENDING && item.shipment.status === ShipmentStatus.PUBLISHED;
+}
+
 export function createOffersService(
   offerRepository: OfferRepository,
   shipmentRepository: ShipmentRepository,
   notificationsClient?: NotificationsClient,
-  logger?: OffersServiceLogger
+  logger?: OffersServiceLogger,
+  /** MOVO-188: opcional -- sin inyectar (tests que no lo necesitan), el desempate
+   * salta directo al criterio de envíos entregados/antigüedad, nunca rompe. */
+  getCarrierReputationScores?: GetCarrierReputationScores
 ) {
   return {
-    /** MOVO-145 (AC1-AC5): ofertas propias del transportista autenticado. */
+    /**
+     * MOVO-145 (AC1-AC5): ofertas propias del transportista autenticado.
+     *
+     * MOVO-188 (AC1/AC2/AC5): suma `competitiveRank` a cada ítem `pending` cuyo envío
+     * sigue `published` -- una oferta puede seguir `pending` en base sobre un envío ya
+     * cancelado (`cancelShipment` no toca las filas de `offers`, solo notifica, ver
+     * shipments.service.ts) y ese caso no compite contra nadie. Resuelto en batch: una
+     * sola query sobre los `shipmentId` distintos de la página, nunca una por ítem --
+     * el desempate (reputación/envíos entregados) agrega como mucho dos queries MÁS
+     * en total para toda la página (batch sobre los `carrierId` únicos que compiten),
+     * nunca una por competidor.
+     */
     async listMyOffers(
       carrierId: string,
       page: number,
       limit: number,
       status?: OfferStatus
     ): Promise<ListMyOffersResult> {
-      const { items, total } = await offerRepository.listByCarrier(carrierId, page, limit, status);
-      return { items, page, limit, total };
+      // Mismo instante para las dos queries de abajo -- ver el comentario de
+      // `mapOffer` en offer-repository.ts sobre la carrera de MOVO-188 que esto evita.
+      const now = new Date();
+      const { items, total } = await offerRepository.listByCarrier(carrierId, page, limit, status, now);
+
+      const rankableShipmentIds = [...new Set(items.filter(isRankableOffer).map((item) => item.shipmentId))];
+      const pendingByShipmentRaw =
+        rankableShipmentIds.length > 0
+          ? await offerRepository.listPendingOffersByShipmentIds(rankableShipmentIds, now)
+          : new Map<string, CompetingOffer[]>();
+
+      const competingCarrierIds = [
+        ...new Set([...pendingByShipmentRaw.values()].flat().map((offer) => offer.carrierId)),
+      ];
+      const [reputationByCarrier, deliveredCountByCarrier] =
+        competingCarrierIds.length > 0
+          ? await Promise.all([
+              getCarrierReputationScores
+                ? getCarrierReputationScores(competingCarrierIds)
+                : Promise.resolve(new Map<string, number | null>()),
+              shipmentRepository.countDeliveredAsCarrierByIds(competingCarrierIds),
+            ])
+          : [new Map<string, number | null>(), new Map<string, number>()];
+
+      const pendingByShipment = new Map(
+        [...pendingByShipmentRaw.entries()].map(([shipmentId, offers]) => [
+          shipmentId,
+          [...offers].sort((a, b) => compareCompetingOffers(a, b, reputationByCarrier, deliveredCountByCarrier)),
+        ])
+      );
+
+      const commissionRate = getCommissionConfig().movoCommissionRate;
+
+      const itemsWithRank = items.map((item) => ({
+        ...item,
+        competitiveRank: isRankableOffer(item)
+          ? buildCompetitiveRank(item.id, pendingByShipment.get(item.shipmentId) ?? [], commissionRate)
+          : null,
+      }));
+
+      return { items: itemsWithRank, page, limit, total };
     },
 
     /**

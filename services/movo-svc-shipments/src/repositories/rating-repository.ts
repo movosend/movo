@@ -71,6 +71,15 @@ export interface RatingRepository {
    */
   listForReputation(rateeId: string): Promise<RatingRowForReputation[]>;
   /**
+   * MOVO-188: variante batch de `listForReputation` -- todas las calificaciones
+   * recibidas por CUALQUIERA de los `rateeId` dados, en una sola query agrupada en
+   * memoria por `rateeId`. Para el desempate por reputación de `competitiveRank`
+   * (`offers.service.ts`), que necesita el score de N transportistas competidores a
+   * la vez sin volver a caer en un `listForReputation` por carrier (mismo criterio
+   * N+1 que el resto de MOVO-188).
+   */
+  listForReputationByRateeIds(rateeIds: string[]): Promise<Map<string, RatingRowForReputation[]>>;
+  /**
    * MOVO-147 AC1: `m`, la media global de calificaciones de la plataforma -- un solo
    * `AVG` en SQL (AC6: nunca se traen todas las filas de `ratings` de todos los
    * usuarios a JS solo para promediarlas). Solo se llama cuando el `rateeId` en
@@ -192,6 +201,23 @@ export function createRatingRepository(db: PrismaClient): RatingRepository {
         select: { score: true, createdAt: true, role: true },
       });
       return rows.map((row) => ({ ...row, role: parseRatingRole(row.role) }));
+    },
+
+    async listForReputationByRateeIds(rateeIds: string[]): Promise<Map<string, RatingRowForReputation[]>> {
+      const map = new Map<string, RatingRowForReputation[]>();
+      if (rateeIds.length === 0) {
+        return map;
+      }
+      const rows = await db.rating.findMany({
+        where: { rateeId: { in: rateeIds } },
+        select: { rateeId: true, score: true, createdAt: true, role: true },
+      });
+      for (const row of rows) {
+        const list = map.get(row.rateeId) ?? [];
+        list.push({ score: row.score, createdAt: row.createdAt, role: parseRatingRole(row.role) });
+        map.set(row.rateeId, list);
+      }
+      return map;
     },
 
     async getGlobalAverageScore(): Promise<number> {

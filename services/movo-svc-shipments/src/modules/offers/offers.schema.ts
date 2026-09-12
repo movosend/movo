@@ -69,6 +69,19 @@ const offerResponse = {
   },
 };
 
+// MOVO-188 (AC1-AC4): agregado, deliberadamente sin identidad de los competidores.
+// `null` si la oferta no está pending o su envío ya no acepta ofertas.
+const competitiveRankResponse = {
+  type: ["object", "null"],
+  required: ["rank", "total", "lowestPriceNetArs", "highestPriceNetArs"],
+  properties: {
+    rank: { type: "integer" },
+    total: { type: "integer" },
+    lowestPriceNetArs: { type: "number" },
+    highestPriceNetArs: { type: "number" },
+  },
+};
+
 // MOVO-145 (GET /offers/mine): a diferencia de `offerResponse` (accept/reject, sin
 // contexto de envío), acá `offeredDate` sale ya formateado como date-only (mismo gotcha
 // de timezone que `offerShipmentContextResponse.pickupDate`) y suma el contexto mínimo
@@ -95,6 +108,7 @@ const myOfferResponse = {
     "estimatedDeliveryDate",
     "estimatedDeliveryTimeWindowStart",
     "estimatedDeliveryTimeWindowEnd",
+    "competitiveRank",
   ],
   properties: {
     id: { type: "string" },
@@ -122,6 +136,7 @@ const myOfferResponse = {
     estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
     estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
     estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
+    competitiveRank: competitiveRankResponse,
   },
 };
 

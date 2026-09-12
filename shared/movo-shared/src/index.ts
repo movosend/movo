@@ -47,7 +47,12 @@ export type {
 } from "./types/routing";
 
 // commission
-export { getCommissionConfig, computeOfferGrossPrice, __resetCommissionConfigForTests } from "./config/commission";
+export {
+  getCommissionConfig,
+  computeOfferGrossPrice,
+  computeNetFromGross,
+  __resetCommissionConfigForTests,
+} from "./config/commission";
 export type { CommissionConfig, OfferGrossPriceBreakdown } from "./config/commission";
 
 // utils

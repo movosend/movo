@@ -62,6 +62,22 @@ export function computeOfferGrossPrice(
   return { netArs, commissionAmountArs, grossArs };
 }
 
+/**
+ * Inversa de `computeOfferGrossPrice`: dado el BRUTO ya persistido (`Offer.priceOffered`),
+ * el neto que le queda al transportista. MOVO-188 (fix de review, PR #142): antes vivía
+ * duplicada como `toNetArs` en `offers.service.ts` y, ya desde MOVO-180, inline en
+ * `shipments.service.ts#computeOffersSummaryForCarrier` -- centralizada acá (mismo
+ * criterio que `computeOfferGrossPrice`) para que un cambio futuro de redondeo/fórmula
+ * no dependa de actualizar las dos copias a mano. Redondeado a 2 decimales, mismo
+ * criterio que el resto de los montos en ARS.
+ */
+export function computeNetFromGross(
+  grossArs: number,
+  rate: number = getCommissionConfig().movoCommissionRate,
+): number {
+  return Math.round((grossArs / (1 + rate)) * 100) / 100;
+}
+
 /** Solo para tests: resetea la config memoizada entre casos. */
 export function __resetCommissionConfigForTests(): void {
   cached = undefined;
