@@ -153,8 +153,15 @@ describe("GET /offers/mine (Postgres)", () => {
       status: ShipmentStatus.PUBLISHED,
       pickupAddress: baseShipmentInput.pickupAddress,
       deliveryAddress: baseShipmentInput.deliveryAddress,
+      // MOVO-185: resumen del paquete, sin lat/lng crudos.
+      packageType: baseShipmentInput.packageType,
+      weightKg: baseShipmentInput.weightKg,
+      description: null,
     });
     expect(item.shipment.pickupDate).toBe("2026-08-20");
+    expect(typeof item.shipment.distanceKm).toBe("number");
+    expect(item.shipment.pickupLat).toBeUndefined();
+    expect(item.shipment.pickupLng).toBeUndefined();
   });
 
   it("AC5: una oferta accepted expone el status real del envío (assignment_pending)", async () => {
