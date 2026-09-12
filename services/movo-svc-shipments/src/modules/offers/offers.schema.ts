@@ -56,6 +56,9 @@ const offerResponse = {
     "message",
     "carrierRatingAtOffer",
     "carrierNameAtOffer",
+    "senderNameAtOffer",
+    "senderVerifiedAtOffer",
+    "senderRatingAtOffer",
     "status",
     "expiresAt",
     "createdAt",
@@ -82,6 +85,11 @@ const offerResponse = {
     message: { type: ["string", "null"] },
     carrierRatingAtOffer: { type: ["number", "null"] },
     carrierNameAtOffer: { type: ["string", "null"] },
+    // MOVO-187: snapshot simétrico del emisor -- ver el comentario del mismo campo en
+    // el modelo de dominio (models/offer.ts).
+    senderNameAtOffer: { type: ["string", "null"] },
+    senderVerifiedAtOffer: { type: ["boolean", "null"] },
+    senderRatingAtOffer: { type: ["number", "null"] },
     status: { type: "string" },
     expiresAt: { type: ["string", "null"], format: "date-time" },
     createdAt: { type: "string", format: "date-time" },
@@ -128,6 +136,9 @@ const myOfferResponse = {
     "message",
     "carrierRatingAtOffer",
     "carrierNameAtOffer",
+    "senderNameAtOffer",
+    "senderVerifiedAtOffer",
+    "senderRatingAtOffer",
     "status",
     "expiresAt",
     "createdAt",
@@ -153,6 +164,11 @@ const myOfferResponse = {
     message: { type: ["string", "null"] },
     carrierRatingAtOffer: { type: ["number", "null"] },
     carrierNameAtOffer: { type: ["string", "null"] },
+    // MOVO-187: snapshot simétrico del emisor -- ver el comentario del mismo campo en
+    // el modelo de dominio (models/offer.ts).
+    senderNameAtOffer: { type: ["string", "null"] },
+    senderVerifiedAtOffer: { type: ["boolean", "null"] },
+    senderRatingAtOffer: { type: ["number", "null"] },
     // AC2: valor EFECTIVO (deriveEffectiveOfferStatus ya aplicado, incluye "expired").
     status: { type: "string", enum: OFFER_STATUS_VALUES },
     expiresAt: { type: ["string", "null"], format: "date-time" },
