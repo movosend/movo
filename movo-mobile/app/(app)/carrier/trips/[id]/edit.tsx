@@ -117,7 +117,6 @@ export default function EditTripScreen() {
               source: "map-pin",
             },
             departureAt: new Date(trip.departureAt),
-            vehicleType: trip.vehicleType,
           }}
           onSubmit={handleSubmit}
         />

@@ -41,7 +41,22 @@ describe("DepartureDateTimePicker", () => {
     mockAndroidOpen.mockClear();
   });
 
-  it("en iOS, cambiar la fecha conserva la hora ya elegida", async () => {
+  it("en iOS, todo el pill de fecha abre la hoja — no solo una porción chica", async () => {
+    Object.defineProperty(Platform, "OS", { value: "ios", configurable: true });
+    const onChange = jest.fn();
+
+    const { getByTestId, queryByTestId } = await render(
+      <DepartureDateTimePicker testID="departure" value={BASE_VALUE} onChange={onChange} />,
+    );
+
+    // Antes de abrir, el picker real no está montado (solo se monta con la hoja abierta).
+    expect(queryByTestId("departure-sheet-picker")).toBeNull();
+
+    await fireEvent.press(getByTestId("departure-date"));
+    expect(getByTestId("departure-sheet-picker")).toBeTruthy();
+  });
+
+  it("en iOS, cambiar la fecha en la hoja conserva la hora ya elegida", async () => {
     Object.defineProperty(Platform, "OS", { value: "ios", configurable: true });
     const onChange = jest.fn();
 
@@ -49,7 +64,8 @@ describe("DepartureDateTimePicker", () => {
       <DepartureDateTimePicker testID="departure" value={BASE_VALUE} onChange={onChange} />,
     );
 
-    fireEvent.press(getByTestId("departure-date"));
+    await fireEvent.press(getByTestId("departure-date"));
+    await fireEvent.press(getByTestId("departure-sheet-picker"));
 
     const result = onChange.mock.calls[0][0] as Date;
     expect(result.getFullYear()).toBe(2026);
@@ -60,7 +76,7 @@ describe("DepartureDateTimePicker", () => {
     expect(result.getMinutes()).toBe(0);
   });
 
-  it("en iOS, cambiar la hora conserva la fecha ya elegida", async () => {
+  it("en iOS, cambiar la hora en la hoja conserva la fecha ya elegida", async () => {
     Object.defineProperty(Platform, "OS", { value: "ios", configurable: true });
     const onChange = jest.fn();
 
@@ -68,7 +84,8 @@ describe("DepartureDateTimePicker", () => {
       <DepartureDateTimePicker testID="departure" value={BASE_VALUE} onChange={onChange} />,
     );
 
-    fireEvent.press(getByTestId("departure-time"));
+    await fireEvent.press(getByTestId("departure-time"));
+    await fireEvent.press(getByTestId("departure-sheet-picker"));
 
     const result = onChange.mock.calls[0][0] as Date;
     expect(result.getFullYear()).toBe(2026);
@@ -76,6 +93,24 @@ describe("DepartureDateTimePicker", () => {
     expect(result.getDate()).toBe(10);
     expect(result.getHours()).toBe(15);
     expect(result.getMinutes()).toBe(30);
+  });
+
+  it("en iOS, 'Listo' y tocar el fondo cierran la hoja", async () => {
+    Object.defineProperty(Platform, "OS", { value: "ios", configurable: true });
+
+    const { getByTestId, queryByTestId } = await render(
+      <DepartureDateTimePicker testID="departure" value={BASE_VALUE} onChange={jest.fn()} />,
+    );
+
+    await fireEvent.press(getByTestId("departure-date"));
+    expect(getByTestId("departure-sheet-picker")).toBeTruthy();
+
+    await fireEvent.press(getByTestId("departure-sheet-done"));
+    expect(queryByTestId("departure-sheet-picker")).toBeNull();
+
+    await fireEvent.press(getByTestId("departure-time"));
+    await fireEvent.press(getByTestId("departure-sheet-backdrop"));
+    expect(queryByTestId("departure-sheet-picker")).toBeNull();
   });
 
   it("en Android abre el diálogo nativo de fecha con la fecha mínima de hoy", async () => {
