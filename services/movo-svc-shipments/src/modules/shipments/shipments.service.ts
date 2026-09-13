@@ -703,6 +703,21 @@ export function createShipmentsService(
         throw new Error("listShipmentOffers requiere offerRepository (ShipmentsServiceOptions).");
       }
 
+      // MOVO-189 (AC1/AC3): "vio la oferta" es una acción del EMISOR, no de un admin
+      // que entra a auditar -- solo se marca cuando el caller es el emisor real.
+      // Best-effort: un fallo acá nunca bloquea la respuesta 200 con las ofertas
+      // (mismo criterio que las notificaciones push no bloqueantes).
+      if (callerId === shipment.senderId) {
+        try {
+          await offerRepository.markPendingOffersViewedBySender(shipmentId);
+        } catch (err) {
+          logger?.warn(
+            { err, event: "offer_viewed_mark_failed", shipmentId },
+            "No se pudo marcar las ofertas como vistas por el emisor"
+          );
+        }
+      }
+
       const offers = await offerRepository.listByShipment(shipmentId);
       // El emisor puede cancelar/el envío puede dejar de aceptar ofertas sin que
       // `cancelShipment` toque las filas de `offers` (solo notifica, ver

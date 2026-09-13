@@ -20,6 +20,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { Stack } from 'expo-router';
 import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useDeviceKeyBootstrap } from '../src/hooks/use-device-key-bootstrap';
 import { usePushNotifications } from '../src/hooks/use-push-notifications';
 import { RegistrationProvider } from '../src/hooks/use-registration';
 import { loadApiOverride } from '../src/lib/api-override';
@@ -67,6 +68,13 @@ export default function RootLayout() {
   // sesión autenticada (login o `restoreSession()` de arriba). No participa de
   // `appReady`/el splash — corre en paralelo, nunca es un muro (AC1).
   usePushNotifications();
+
+  // MOVO-195: genera (u obtiene) el par de claves del handshake y registra la pública
+  // al detectar sesión autenticada — mismo criterio que `usePushNotifications`, no
+  // participa de `appReady`. El `status`/`retry()` que devuelve son para que una
+  // pantalla futura de handshake (MOVO-159/160) pueda gatear su entrada; este layout
+  // no los consume todavía.
+  useDeviceKeyBootstrap();
 
   useEffect(() => {
     if (appReady) {

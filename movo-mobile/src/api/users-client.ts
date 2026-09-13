@@ -65,6 +65,12 @@ export interface ChangePasswordInput {
   newPassword: string;
 }
 
+/** Respuesta de `POST /users/me/device-key` (MOVO-157) — registra/rota la clave
+ * pública del dispositivo para el handshake criptográfico (MOVO-195, ADR-020). */
+export interface RegisterDeviceKeyResponse {
+  registeredAt: string;
+}
+
 /**
  * `PrivateProfile` viene de `@movo/shared` (MOVO-78, migrado desde
  * `services/movo-svc-users/src/models/user-profile.ts` para no duplicar el wire
@@ -114,6 +120,18 @@ export const usersClient = {
   /** Borra la foto de perfil propia (S3 + DB) de forma idempotente. */
   deletePhoto(): Promise<void> {
     return httpClient.delete<void>("/users/me/photo");
+  },
+
+  /**
+   * Registra/rota la clave pública del dispositivo para el handshake criptográfico
+   * (`POST /users/me/device-key`, MOVO-157/MOVO-195). `publicKey` va en formato `raw`
+   * sin comprimir, base64 (`src/crypto/keypair.ts`) — el backend nunca valida la
+   * curva acá, solo forma; la validación real ocurre al verificar una firma
+   * (`svc-shipments`/MOVO-158). Rotar invalida la clave anterior: una sola vigente
+   * por usuario, sin soporte multi-dispositivo (decisión ya tomada en MOVO-157).
+   */
+  registerDeviceKey(publicKey: string): Promise<RegisterDeviceKeyResponse> {
+    return httpClient.post<RegisterDeviceKeyResponse>("/users/me/device-key", { publicKey });
   },
 
   /**

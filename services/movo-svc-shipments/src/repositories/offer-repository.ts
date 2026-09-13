@@ -65,6 +65,7 @@ function mapOffer(row: OfferRow, now: Date = new Date()): Offer {
     estimatedDeliveryDate: row.estimatedDeliveryDate,
     estimatedDeliveryTimeWindowStart: row.estimatedDeliveryTimeWindowStart,
     estimatedDeliveryTimeWindowEnd: row.estimatedDeliveryTimeWindowEnd,
+    viewedAtBySender: row.viewedAtBySender,
   };
 }
 
@@ -216,6 +217,14 @@ export interface OfferRepository {
   findById(id: string): Promise<Offer | null>;
   listByShipment(shipmentId: string): Promise<Offer[]>;
   /**
+   * MOVO-189 (AC1/AC3): marca `viewedAtBySender = now` en las ofertas `pending`
+   * EFECTIVAS (reusa `offerStatusWhere`, excluye las lógicamente vencidas -- ver AC11)
+   * del envío que todavía no tenían valor. Un solo `updateMany`, sin condicionar por
+   * fila individual -- no pisa lo ya seteado (`viewedAtBySender: null` en el `WHERE`)
+   * ni toca ofertas ya resueltas (`accepted`/`rejected`/etc., AC4).
+   */
+  markPendingOffersViewedBySender(shipmentId: string, now?: Date): Promise<void>;
+  /**
    * AC6: el transportista retira su propia oferta antes de que el emisor
    * responda. El `UPDATE` es compare-and-swap contra el `status` leído —
    * lanza `OfferConcurrentModificationError` si otra operación (típicamente
@@ -337,6 +346,13 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
     async listByShipment(shipmentId: string): Promise<Offer[]> {
       const rows = await db.offer.findMany({ where: { shipmentId }, orderBy: { createdAt: "asc" } });
       return rows.map((row) => mapOffer(row));
+    },
+
+    async markPendingOffersViewedBySender(shipmentId: string, now: Date = new Date()): Promise<void> {
+      await db.offer.updateMany({
+        where: { shipmentId, viewedAtBySender: null, ...offerStatusWhere(OfferStatus.PENDING, now) },
+        data: { viewedAtBySender: now },
+      });
     },
 
     async withdraw(id: string): Promise<Offer> {

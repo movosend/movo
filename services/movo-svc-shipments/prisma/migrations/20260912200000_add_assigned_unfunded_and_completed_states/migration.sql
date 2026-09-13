@@ -1,0 +1,51 @@
+-- MOVO-208: extensión del set canónico de 9 a 11 estados (ADR-021).
+-- assigned_unfunded: transportista asignado, sin hold de fondos todavía (retiro
+-- lejano, decisión de arquitectura del hold de MOVO-12, "opción B"). Se inserta
+-- entre assignment_pending y assigned porque refleja su lugar en el flujo: es una
+-- ruta ALTERNATIVA a assignment_pending->assigned, no un paso adicional de esa
+-- misma ruta.
+-- completed: entrega confirmada Y pago liberado/capturado (MOVO-212, hoy sin
+-- disparar). Se inserta después de delivered, del que siempre depende.
+--
+-- Postgres 16 (infra/docker-compose.yml) soporta BEFORE/AFTER en ADD VALUE y permite
+-- ejecutarlo dentro de una transacción normal siempre que el valor nuevo no se use en
+-- la MISMA transacción -- no es el caso acá (solo se agregan los valores, no se
+-- insertan filas), así que esta migración corre igual que cualquier otra.
+ALTER TYPE "shipments"."shipment_status_enum" ADD VALUE 'assigned_unfunded' AFTER 'assignment_pending';
+ALTER TYPE "shipments"."shipment_status_enum" ADD VALUE 'completed' AFTER 'delivered';
+
+-- Reversibilidad (AC1 de MOVO-208): Postgres no soporta `ALTER TYPE ... DROP VALUE`
+-- nativo, y no hay precedente de rollback de un `ADD VALUE` en ningún otro servicio de
+-- este monorepo. Si hiciera falta revertir esta migración y NINGUNA fila usa todavía
+-- 'assigned_unfunded'/'completed' (el `USING` de abajo fallaría si alguna los usa),
+-- el camino es recrear el tipo sin esos dos valores:
+--
+--   BEGIN;
+--   CREATE TYPE "shipments"."shipment_status_enum_old" AS ENUM (
+--     'awaiting_receiver_confirmation', 'rejected_by_receiver', 'published',
+--     'assignment_pending', 'assigned', 'in_transit', 'delivered', 'cancelled',
+--     'disputed'
+--   );
+--   -- El DEFAULT de `shipments.status` no se puede castear automáticamente al tipo
+--   -- nuevo (verificado corriendo este camino contra Postgres real) -- se saca antes
+--   -- del ALTER TYPE y se repone al final, ya apuntando al tipo renombrado.
+--   ALTER TABLE "shipments"."shipments" ALTER COLUMN "status" DROP DEFAULT;
+--   ALTER TABLE "shipments"."shipments"
+--     ALTER COLUMN "status" TYPE "shipments"."shipment_status_enum_old"
+--     USING "status"::text::"shipments"."shipment_status_enum_old";
+--   ALTER TABLE "shipments"."shipment_events"
+--     ALTER COLUMN "from_status" TYPE "shipments"."shipment_status_enum_old"
+--     USING "from_status"::text::"shipments"."shipment_status_enum_old",
+--     ALTER COLUMN "to_status" TYPE "shipments"."shipment_status_enum_old"
+--     USING "to_status"::text::"shipments"."shipment_status_enum_old";
+--   DROP TYPE "shipments"."shipment_status_enum";
+--   ALTER TYPE "shipments"."shipment_status_enum_old" RENAME TO "shipment_status_enum";
+--   ALTER TABLE "shipments"."shipments"
+--     ALTER COLUMN "status" SET DEFAULT 'awaiting_receiver_confirmation'::"shipments"."shipment_status_enum";
+--   COMMIT;
+--
+-- Verificado como SQL válido en `test/migration-reversibility.integration.test.ts`
+-- (corre este mismo camino dentro de una transacción que nunca se commitea, contra
+-- Postgres real, y confirma que el enum vuelve a sus 9 valores originales) -- el
+-- primer intento sin el DROP/SET DEFAULT falló con "default for column status cannot
+-- be cast automatically", hallazgo real del test, no algo previsto de antemano.

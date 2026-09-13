@@ -12,14 +12,19 @@ const VALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
   [ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, ShipmentStatus.REJECTED_BY_RECEIVER],
   [ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, ShipmentStatus.CANCELLED],
   [ShipmentStatus.PUBLISHED, ShipmentStatus.ASSIGNMENT_PENDING],
+  [ShipmentStatus.PUBLISHED, ShipmentStatus.ASSIGNED_UNFUNDED],
   [ShipmentStatus.PUBLISHED, ShipmentStatus.CANCELLED],
   [ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.PUBLISHED],
   [ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.ASSIGNED],
   [ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.CANCELLED],
+  [ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.ASSIGNED],
+  [ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.PUBLISHED],
+  [ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.CANCELLED],
   [ShipmentStatus.ASSIGNED, ShipmentStatus.IN_TRANSIT],
   [ShipmentStatus.ASSIGNED, ShipmentStatus.CANCELLED],
   [ShipmentStatus.IN_TRANSIT, ShipmentStatus.DELIVERED],
   [ShipmentStatus.IN_TRANSIT, ShipmentStatus.DISPUTED],
+  [ShipmentStatus.DELIVERED, ShipmentStatus.COMPLETED],
   [ShipmentStatus.DELIVERED, ShipmentStatus.DISPUTED],
 ];
 
@@ -37,6 +42,14 @@ const INVALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
   [ShipmentStatus.DELIVERED, ShipmentStatus.IN_TRANSIT],
   // no-op: quedarse en el mismo estado no es una transición
   [ShipmentStatus.PUBLISHED, ShipmentStatus.PUBLISHED],
+  // AC2 de MOVO-208: un envío sin hold confirmado no puede retirarse -- tiene
+  // que pasar por `assigned` primero, nunca directo a `in_transit`.
+  [ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.IN_TRANSIT],
+  // reversa de assigned -> assigned_unfunded (no existe, assigned nunca vuelve atrás)
+  [ShipmentStatus.ASSIGNED, ShipmentStatus.ASSIGNED_UNFUNDED],
+  // `completed` es terminal (MOVO-208): ni reversa ni ninguna salida
+  [ShipmentStatus.COMPLETED, ShipmentStatus.DELIVERED],
+  [ShipmentStatus.COMPLETED, ShipmentStatus.DISPUTED],
 ];
 
 describe("shipment-state-machine", () => {
@@ -70,7 +83,12 @@ describe("shipment-state-machine", () => {
   });
 
   it("todo estado no terminal tiene al menos una transición válida definida en el DTE", () => {
-    const terminal = [ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.CANCELLED, ShipmentStatus.DISPUTED];
+    const terminal = [
+      ShipmentStatus.REJECTED_BY_RECEIVER,
+      ShipmentStatus.CANCELLED,
+      ShipmentStatus.DISPUTED,
+      ShipmentStatus.COMPLETED,
+    ];
     const nonTerminal = Object.values(ShipmentStatus).filter((status) => !terminal.includes(status));
 
     for (const status of nonTerminal) {
