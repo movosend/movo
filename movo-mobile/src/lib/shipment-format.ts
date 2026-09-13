@@ -24,6 +24,17 @@ const STATUS_LABEL: Record<ShipmentStatus, string> = {
   [ShipmentStatus.DISPUTED]: "En disputa",
 };
 
+/** Estados en los que el envío ya tiene entrega física confirmada (`deliveredAt`
+ * seteado) — el gate para pedir/mostrar calificaciones (MOVO-153) y para dejar de
+ * considerar activo al transportista asignado, sin importar si el pago ya se liberó
+ * (`completed`, MOVO-208/212) o todavía no (`delivered`). Espejo mobile de
+ * `FULFILLED_SHIPMENT_STATUSES` (`shipment-state-machine.ts`, `svc-shipments`) — no se
+ * importa de ahí porque mobile y backend son builds separados sin ese módulo compartido. */
+export const FULFILLED_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.DELIVERED,
+  ShipmentStatus.COMPLETED,
+];
+
 export function shipmentStatusLabel(
   status: ShipmentStatus,
   options?: { isReceiver?: boolean },
