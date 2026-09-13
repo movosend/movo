@@ -186,8 +186,12 @@ const patchOfferBody = {
   properties: {
     priceOfferedArs: { type: "number", exclusiveMinimum: 0 },
     offeredDate: { type: "string", format: "date" },
-    offeredPickupTimeWindowStart: { type: "string", pattern: TIME_PATTERN },
-    offeredPickupTimeWindowEnd: { type: "string", pattern: TIME_PATTERN },
+    // ["string", "null"], no solo "string": null es el valor documentado en
+    // UpdateOfferInput (models/offer.ts) para volver a "usa la ventana del envío tal
+    // cual" -- sin el tipo null acá, ese caso quedaba inalcanzable por HTTP (bug de
+    // review, PR #152), rechazado con un 400 de AJV antes de llegar a offers.service.ts.
+    offeredPickupTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
+    offeredPickupTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
   },
   additionalProperties: false,
 };

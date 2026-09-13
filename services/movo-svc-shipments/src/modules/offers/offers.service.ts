@@ -27,8 +27,10 @@ import { anchorDateUtc, combineDateAndTime, normalizeTime } from "../shipments/s
 export interface PatchOfferInput {
   priceOfferedArs?: number;
   offeredDate?: string;
-  offeredPickupTimeWindowStart?: string;
-  offeredPickupTimeWindowEnd?: string;
+  // `null` es un valor válido acá (no solo ausente): resetea la franja propuesta a
+  // "usa la ventana del envío tal cual" (`UpdateOfferInput`, models/offer.ts).
+  offeredPickupTimeWindowStart?: string | null;
+  offeredPickupTimeWindowEnd?: string | null;
 }
 
 /** MOVO-188: batch de reputación `asCarrier` (`ratings.service.ts#getCarrierReputationScoresBatch`)
@@ -360,7 +362,9 @@ export function createOffersService(
 
       // Mismo criterio "both-or-neither" que AC6 de MOVO-143/177: mandar un solo
       // extremo de la franja es un estado a medio construir, nunca una edición
-      // parcial válida de "solo el inicio" o "solo el fin".
+      // parcial válida de "solo el inicio" o "solo el fin". `null` cuenta como
+      // "presente" acá (a diferencia de `undefined`) -- es el valor que resetea la
+      // franja a la ventana del envío.
       const hasWindowStart = patch.offeredPickupTimeWindowStart !== undefined;
       const hasWindowEnd = patch.offeredPickupTimeWindowEnd !== undefined;
       if (hasWindowStart !== hasWindowEnd) {
@@ -370,18 +374,37 @@ export function createOffersService(
           "La franja horaria de retiro propuesta requiere both inicio y fin, o ninguno."
         );
       }
+      // Ambos null: reset explícito, sin validar rango horario (no hay franja que
+      // validar). Ambos string: validar como antes. Mixto (uno null, otro string) no
+      // es un estado representable -- mismo error que "solo un extremo".
       if (hasWindowStart && hasWindowEnd) {
-        // La franja se valida contra el `offeredDate` EFECTIVO -- el nuevo si el
-        // patch también lo cambia, el ya persistido si no.
-        const effectiveOfferedDateStr = patch.offeredDate ?? offer.offeredDate.toISOString().slice(0, 10);
-        const windowStartAt = combineDateAndTime(effectiveOfferedDateStr, patch.offeredPickupTimeWindowStart!);
-        const windowEndAt = combineDateAndTime(effectiveOfferedDateStr, patch.offeredPickupTimeWindowEnd!);
-        if (windowEndAt <= windowStartAt) {
+        const bothNull = patch.offeredPickupTimeWindowStart === null && patch.offeredPickupTimeWindowEnd === null;
+        const bothStrings =
+          typeof patch.offeredPickupTimeWindowStart === "string" &&
+          typeof patch.offeredPickupTimeWindowEnd === "string";
+        if (!bothNull && !bothStrings) {
           throw new ApiError(
             422,
-            "OFFER_PICKUP_WINDOW_INVALID",
-            "El fin de la franja de retiro propuesta debe ser posterior al inicio."
+            "VALIDATION_FAILED",
+            "La franja horaria de retiro propuesta requiere both inicio y fin, o ninguno."
           );
+        }
+        if (bothStrings) {
+          // La franja se valida contra el `offeredDate` EFECTIVO -- el nuevo si el
+          // patch también lo cambia, el ya persistido si no.
+          const effectiveOfferedDateStr = patch.offeredDate ?? offer.offeredDate.toISOString().slice(0, 10);
+          const windowStartAt = combineDateAndTime(
+            effectiveOfferedDateStr,
+            patch.offeredPickupTimeWindowStart as string
+          );
+          const windowEndAt = combineDateAndTime(effectiveOfferedDateStr, patch.offeredPickupTimeWindowEnd as string);
+          if (windowEndAt <= windowStartAt) {
+            throw new ApiError(
+              422,
+              "OFFER_PICKUP_WINDOW_INVALID",
+              "El fin de la franja de retiro propuesta debe ser posterior al inicio."
+            );
+          }
         }
       }
 
@@ -389,8 +412,16 @@ export function createOffersService(
         priceOffered:
           patch.priceOfferedArs !== undefined ? computeOfferGrossPrice(patch.priceOfferedArs).grossArs : undefined,
         offeredDate: patch.offeredDate !== undefined ? anchorDateUtc(patch.offeredDate) : undefined,
-        offeredPickupTimeWindowStart: hasWindowStart ? normalizeTime(patch.offeredPickupTimeWindowStart!) : undefined,
-        offeredPickupTimeWindowEnd: hasWindowEnd ? normalizeTime(patch.offeredPickupTimeWindowEnd!) : undefined,
+        offeredPickupTimeWindowStart: hasWindowStart
+          ? patch.offeredPickupTimeWindowStart === null
+            ? null
+            : normalizeTime(patch.offeredPickupTimeWindowStart as string)
+          : undefined,
+        offeredPickupTimeWindowEnd: hasWindowEnd
+          ? patch.offeredPickupTimeWindowEnd === null
+            ? null
+            : normalizeTime(patch.offeredPickupTimeWindowEnd as string)
+          : undefined,
       });
     },
   };
