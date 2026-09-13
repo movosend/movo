@@ -12,6 +12,7 @@ import {
   DuplicateActiveOfferError,
   ShipmentNotAvailableForAssignmentError,
   OfferConcurrentModificationError,
+  OfferNotEditableError,
 } from "../src/repositories/offer-repository";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { CreateOfferInput } from "../src/models/offer";
@@ -225,6 +226,114 @@ describe("offer-repository (Postgres)", () => {
       const created = await repo.create(baseOfferInput({ shipmentId, expiresAt: enElFuturo }));
 
       expect((await repo.findById(created.id))?.status).toBe(OfferStatus.PENDING);
+    });
+  });
+
+  describe("update (MOVO-181)", () => {
+    it("AC1/AC3: aplica precio/fecha/franja horaria editados, sin tocar createdAt/expiresAt/status", async () => {
+      const shipmentId = await createPublishedShipment();
+      const created = await repo.create(baseOfferInput({ shipmentId }));
+
+      const updated = await repo.update(created.id, {
+        priceOffered: 7000,
+        offeredDate: new Date(PICKUP_DATE.getTime() + 24 * 60 * 60 * 1000),
+        offeredPickupTimeWindowStart: "10:00:00",
+        offeredPickupTimeWindowEnd: "13:00:00",
+      });
+
+      expect(updated.priceOffered).toBe(7000);
+      expect(updated.offeredDate.toISOString().slice(0, 10)).toBe(
+        new Date(PICKUP_DATE.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      );
+      expect(updated.offeredPickupTimeWindowStart).toBe("10:00:00");
+      expect(updated.offeredPickupTimeWindowEnd).toBe("13:00:00");
+      expect(updated.status).toBe(OfferStatus.PENDING);
+      expect(updated.createdAt.getTime()).toBe(created.createdAt.getTime());
+
+      const persisted = await repo.findById(created.id);
+      expect(persisted?.priceOffered).toBe(7000);
+      expect(persisted?.offeredPickupTimeWindowStart).toBe("10:00:00");
+    });
+
+    it("AC1: un patch parcial (solo precio) no toca offeredDate ni la franja horaria", async () => {
+      const shipmentId = await createPublishedShipment();
+      const created = await repo.create(
+        baseOfferInput({ shipmentId, offeredPickupTimeWindowStart: "09:00:00", offeredPickupTimeWindowEnd: "12:00:00" }),
+      );
+
+      const updated = await repo.update(created.id, { priceOffered: 8000 });
+
+      expect(updated.priceOffered).toBe(8000);
+      expect(updated.offeredDate.getTime()).toBe(created.offeredDate.getTime());
+      expect(updated.offeredPickupTimeWindowStart).toBe("09:00:00");
+      expect(updated.offeredPickupTimeWindowEnd).toBe("12:00:00");
+    });
+
+    it("AC3: OfferDateOutOfRangeError si el offeredDate editado sale del rango permitido", async () => {
+      const shipmentId = await createPublishedShipment();
+      const created = await repo.create(baseOfferInput({ shipmentId }));
+
+      await expect(
+        repo.update(created.id, { offeredDate: new Date(PICKUP_DATE.getTime() - 24 * 60 * 60 * 1000) }),
+      ).rejects.toThrow(OfferDateOutOfRangeError);
+
+      // Rollback completo -- el patch no se aplicó parcialmente.
+      expect((await repo.findById(created.id))?.offeredDate.getTime()).toBe(PICKUP_DATE.getTime());
+    });
+
+    it("AC2: OfferNotEditableError sobre una oferta ya aceptada", async () => {
+      const shipmentId = await createPublishedShipment();
+      const created = await repo.create(baseOfferInput({ shipmentId }));
+      await repo.acceptOffer(created.id, randomUUID());
+
+      await expect(repo.update(created.id, { priceOffered: 9999 })).rejects.toThrow(OfferNotEditableError);
+    });
+
+    it("AC2: OfferNotEditableError sobre una pending vencida (expired por lectura, sin UPDATE físico)", async () => {
+      const shipmentId = await createPublishedShipment();
+      const vencida = new Date(Date.now() - 60_000);
+      const created = await repo.create(baseOfferInput({ shipmentId, expiresAt: vencida }));
+
+      await expect(repo.update(created.id, { priceOffered: 9999 })).rejects.toThrow(OfferNotEditableError);
+    });
+
+    it("lanza OfferNotFoundError si el id no existe", async () => {
+      await expect(repo.update("00000000-0000-0000-0000-000000000000", { priceOffered: 5000 })).rejects.toThrow(
+        OfferNotFoundError,
+      );
+    });
+
+    it("compare-and-swap real: update() concurrente con un withdraw() sobre la misma oferta — uno gana, el otro falla sin pisar el resultado", async () => {
+      const shipmentId = await createPublishedShipment();
+      const created = await repo.create(baseOfferInput({ shipmentId }));
+
+      // Precalienta el pool de conexiones -- mismo motivo que el resto de los tests
+      // de concurrencia de este archivo (AC9 de acceptOffer más abajo).
+      await Promise.all([app.db.$queryRawUnsafe("SELECT 1"), app.db.$queryRawUnsafe("SELECT 1")]);
+
+      const [resUpdate, resWithdraw] = await Promise.allSettled([
+        repo.update(created.id, { priceOffered: 9000 }),
+        repo.withdraw(created.id),
+      ]);
+
+      const results = [resUpdate, resWithdraw];
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      const rejected = results.filter((r) => r.status === "rejected");
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(OfferConcurrentModificationError);
+
+      const final = await repo.findById(created.id);
+      if (resWithdraw.status === "fulfilled") {
+        // withdraw ganó: el precio nunca debió cambiar.
+        expect(final?.status).toBe(OfferStatus.WITHDRAWN);
+        expect(final?.priceOffered).toBe(5000);
+      } else {
+        // update ganó: sigue pending con el precio nuevo.
+        expect(final?.status).toBe(OfferStatus.PENDING);
+        expect(final?.priceOffered).toBe(9000);
+      }
     });
   });
 
