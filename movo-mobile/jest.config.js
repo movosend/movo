@@ -17,7 +17,10 @@ module.exports = {
     "\\.mjs$": "babel-jest",
   },
   transformIgnorePatterns: [
-    "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|expo-router|@react-navigation/.*|react-navigation|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|standard-navigation|expo-modules-core|lucide-react-native)",
+    // `@noble/curves`/`@noble/hashes` (MOVO-195) se publican como ESM puro
+    // (`"type": "module"`, sin build CJS) — sin sumarlos acá, Jest los deja sin
+    // transformar y falla al hacer `require()` de sintaxis `import`/`export`.
+    "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|expo-router|@react-navigation/.*|react-navigation|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|standard-navigation|expo-modules-core|lucide-react-native|@noble/.*)",
   ],
   moduleNameMapper: {
     "\\.css$": "<rootDir>/test/mocks/style-mock.js",
