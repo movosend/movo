@@ -1667,6 +1667,47 @@ se tocó).
 > **Referencias**: `MOVO-208` (este ticket), `MOVO-12` (decisión de arquitectura del
 > hold), `MOVO-210` (saga de asignación), `MOVO-212` (captura y split), `MOVO-79`/
 > `MOVO-105` (set canónico original).
+**Gap encontrado después, al trabajar MOVO-189 (sin corregir, fuera de alcance de esa
+US)**: `GET /shipments/:id/offers` usa su propio `offerResponse` en
+`shipments.schema.ts` (autocontenido, no importa de `offers.schema.ts`) que nunca sumó
+`priceNetArs`/`commissionAmountArs` -- pese a que el título de esta US dice "todas las
+respuestas de oferta", ese endpoint sigue sirviendo solo el bruto (fast-json-stringify
+descarta en silencio cualquier campo que `toOfferDto` agregue pero el schema no
+declare). No tiene test que lo hubiera detectado (`shipments-offers-list.integration.test.ts`
+no verifica esos dos campos). Pendiente: sumarlos ahí también.
+
+### MOVO-189 — Tracking de "vista" del emisor sobre una oferta recibida
+
+Backend puro del mockup "Transportista - Mis Ofertas" (MOVO-151/182): sumó
+`viewedAtBySender: Date | null` a `Offer` (migración
+`20260912190000_add_offer_viewed_at_by_sender`), expuesto crudo (sin traducir a copy,
+eso es de UI) en los 5 endpoints que devuelven una oferta (`GET /shipments/:id/offers`,
+`GET /offers/mine`, accept/reject/withdraw).
+
+Decisiones clave:
+- **Opción (a) del refinamiento**: cualquier `GET /shipments/:id/offers` marca como
+  vistas las `pending` efectivas del envío (no expiradas -- reusa `offerStatusWhere`,
+  MOVO-102/188) que todavía tuvieran `viewedAtBySender: null`. Un solo `updateMany`
+  nuevo (`offer-repository.ts#markPendingOffersViewedBySender`), corrido antes de
+  `listByShipment` para que la misma respuesta ya refleje el valor recién seteado.
+- **Solo cuenta si el caller es el EMISOR real, no un admin auditando** (AC1 habla
+  específicamente de "el emisor vio"): `listShipmentOffers` compara
+  `callerId === shipment.senderId` antes de marcar, aunque `assertIsSenderOrAdmin` deje
+  pasar a ambos por igual.
+- **Best-effort, mismo criterio que las notificaciones push**: `try/catch` +
+  `logger?.warn` alrededor del `updateMany` -- un fallo ahí nunca bloquea la respuesta
+  200 con las ofertas.
+- **`GET /offers/:id` (mencionado en el AC2 del ticket) no existe todavía** -- es
+  MOVO-190, bloqueado por esta US. El campo ya viaja en el modelo/DTO compartido para
+  que ese ticket lo herede sin tocar nada acá.
+
+Tests nuevos en `shipments-offers-list.integration.test.ts` (primera lectura marca,
+segunda no pisa; oferta creada después de la primera lectura aparece `null` hasta la
+próxima; un admin que lista no marca nada; una oferta ya `rejected` conserva el valor
+que tenía al resolverse) y uno en `offers-mine.integration.test.ts` (expone el campo,
+pasa de `null` a seteado tras la lectura del emisor). Suite completa del servicio
+551/551, `tsc --noEmit` y `eslint` limpios. Confirmado que `app.swagger()` expone el
+campo nuevo en los 5 endpoints. DER (`docs/movo_der.dbml`) actualizado con la columna.
 
 ### Pendientes de este servicio
 

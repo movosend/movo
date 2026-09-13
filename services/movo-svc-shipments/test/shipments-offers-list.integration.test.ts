@@ -227,6 +227,92 @@ describe("GET /shipments/:id/offers (Postgres)", () => {
     expect(withResolved.json()[0].id).toBe(pending.id);
   });
 
+  it("MOVO-189 (AC1): la primera lectura del emisor marca viewedAtBySender, la segunda no lo cambia", async () => {
+    const shipmentId = await createPublishedShipment();
+    const offer = await offerRepo.create(baseOfferInput({ shipmentId }));
+
+    const first = await app.inject({
+      method: "GET",
+      url: `/shipments/${shipmentId}/offers`,
+      headers: { "x-user-id": senderId },
+    });
+    expect(first.json()[0].viewedAtBySender).not.toBeNull();
+
+    const afterFirstRead = await offerRepo.findById(offer.id);
+    const viewedAtFirstRead = afterFirstRead?.viewedAtBySender?.getTime();
+
+    const second = await app.inject({
+      method: "GET",
+      url: `/shipments/${shipmentId}/offers`,
+      headers: { "x-user-id": senderId },
+    });
+    expect(second.json()[0].viewedAtBySender).toBe(first.json()[0].viewedAtBySender);
+
+    const afterSecondRead = await offerRepo.findById(offer.id);
+    expect(afterSecondRead?.viewedAtBySender?.getTime()).toBe(viewedAtFirstRead);
+  });
+
+  it("MOVO-189 (AC1): una oferta creada después de la primera lectura aparece null hasta la próxima", async () => {
+    const shipmentId = await createPublishedShipment();
+    await offerRepo.create(baseOfferInput({ shipmentId, priceOffered: 1000 }));
+
+    await app.inject({
+      method: "GET",
+      url: `/shipments/${shipmentId}/offers`,
+      headers: { "x-user-id": senderId },
+    });
+
+    const lateOffer = await offerRepo.create(baseOfferInput({ shipmentId, priceOffered: 2000 }));
+    const stillUnread = await offerRepo.findById(lateOffer.id);
+    expect(stillUnread?.viewedAtBySender).toBeNull();
+
+    const nextRead = await app.inject({
+      method: "GET",
+      url: `/shipments/${shipmentId}/offers`,
+      headers: { "x-user-id": senderId },
+    });
+    const lateItem = nextRead.json().find((item: { id: string }) => item.id === lateOffer.id);
+    expect(lateItem.viewedAtBySender).not.toBeNull();
+  });
+
+  it("MOVO-189 (AC3): un admin que ve la lista no marca la oferta como vista por el emisor", async () => {
+    const shipmentId = await createPublishedShipment();
+    const offer = await offerRepo.create(baseOfferInput({ shipmentId }));
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/shipments/${shipmentId}/offers`,
+      headers: { "x-user-id": randomUUID(), "x-user-roles": "admin" },
+    });
+    expect(response.json()[0].viewedAtBySender).toBeNull();
+
+    const stored = await offerRepo.findById(offer.id);
+    expect(stored?.viewedAtBySender).toBeNull();
+  });
+
+  it("MOVO-189 (AC4): una oferta ya resuelta conserva el viewedAtBySender que tenía al resolverse", async () => {
+    const shipmentId = await createPublishedShipment();
+    const toReject = await offerRepo.create(baseOfferInput({ shipmentId, priceOffered: 1000 }));
+
+    await app.inject({
+      method: "GET",
+      url: `/shipments/${shipmentId}/offers`,
+      headers: { "x-user-id": senderId },
+    });
+    const viewedAt = (await offerRepo.findById(toReject.id))?.viewedAtBySender?.getTime();
+    expect(viewedAt).toBeDefined();
+
+    await offerRepo.reject(toReject.id);
+
+    const afterResolution = await app.inject({
+      method: "GET",
+      url: `/shipments/${shipmentId}/offers?includeResolved=true`,
+      headers: { "x-user-id": senderId },
+    });
+    const rejectedItem = afterResolution.json().find((item: { id: string }) => item.id === toReject.id);
+    expect(new Date(rejectedItem.viewedAtBySender).getTime()).toBe(viewedAt);
+  });
+
   it("responde 404 para un envío inexistente", async () => {
     const response = await app.inject({
       method: "GET",
