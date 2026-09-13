@@ -43,3 +43,50 @@ export interface SharedHistory {
   lastSharedAt: string | null;
   allDelivered: boolean;
 }
+
+/**
+ * Subconjunto "activo" de `ShipmentStatus` para `GET /shipments/sending|transporting|
+ * receiving` (MOVO-192): transportista ya comprometido con el envío, hasta la entrega
+ * (exclusive). Ni `published`/`assignment_pending` (sin compromiso firme de un
+ * transportista todavía) ni ningún estado terminal caen en este subconjunto.
+ */
+export type ActiveShipmentStatus = ShipmentStatus.ASSIGNED_UNFUNDED | ShipmentStatus.ASSIGNED | ShipmentStatus.IN_TRANSIT;
+
+/**
+ * Nombre e iniciales de la contraparte relevante para el rol consultado (AC5 de
+ * MOVO-192) — nunca el id crudo ni datos de contacto, mismo criterio de exposición
+ * mínima que `Offer.carrierNameAtOffer`.
+ */
+export interface ActiveShipmentCounterparty {
+  name: string;
+  initials: string;
+}
+
+/**
+ * Wire contract de `GET /shipments/sending` / `GET /shipments/transporting` /
+ * `GET /shipments/receiving` (`movo-svc-shipments`, MOVO-192) — DTO de resumen
+ * deliberadamente sin `senderId`/`receiverId`/`carrierId` ni datos de contacto (AC5):
+ * el rol ya lo fija el endpoint consultado, y la identidad de la contraparte viaja
+ * resuelta en `counterparty`, no como id crudo. Sin paginación (fuera de alcance del
+ * ticket) y sin ningún campo de ETA/proximidad — esa señal es tracking en vivo
+ * (MOVO-203/MOVO-11), todavía sin empezar. `isToday`/`pickupWindowExpired` los calcula
+ * siempre el backend (AC6), nunca el cliente, para que el badge sea consistente entre
+ * dispositivos con reloj o zona horaria distintos. `agreedPriceArs` es `number | null`
+ * (no solo `number`, a diferencia del contrato propuesto en el comentario del ticket
+ * de Linear): la columna real sigue siendo nullable y ningún flujo la puebla todavía
+ * al aceptar una oferta (gap preexistente, ver `services/movo-svc-shipments/CLAUDE.md`
+ * — MOVO-192).
+ */
+export interface ActiveShipmentSummary {
+  id: string;
+  status: ActiveShipmentStatus;
+  pickupDate: string;
+  pickupTimeWindowStart: string;
+  pickupTimeWindowEnd: string;
+  pickupAddress: string;
+  deliveryAddress: string;
+  agreedPriceArs: number | null;
+  counterparty: ActiveShipmentCounterparty;
+  isToday: boolean;
+  pickupWindowExpired: boolean;
+}
