@@ -271,6 +271,33 @@ async function resolveSnapshotProfile(
 }
 
 /**
+ * Mismo criterio que `resolveSnapshotProfile`, pero para el rating LOCAL
+ * (`getCarrierReputationScore`/`getSenderReputationScore`, MOVO-147/187) -- un fallo
+ * de `ratingsService.getReputationSummary` (ej. error de DB) tampoco debe bloquear la
+ * creación de la oferta, igual que un fallo de `usersClient`. Sin este wrapper, un
+ * rechazo acá tiraba abajo el `Promise.all` completo (incluidos los dos snapshots de
+ * perfil ya resueltos), contradiciendo el comentario de `createOfferForShipment` y el
+ * AC3 de MOVO-187 (señalado en review de PR #150).
+ */
+async function resolveSnapshotRating(
+  getScore: ((userId: string) => Promise<number | null>) | undefined,
+  userId: string,
+  role: "transportista" | "emisor",
+  logger?: ShipmentsServiceLogger
+): Promise<number | null> {
+  if (!getScore) return null;
+  try {
+    return await getScore(userId);
+  } catch (err) {
+    logger?.warn(
+      { err, event: "offer_snapshot_rating_lookup_failed", userId, role },
+      `No se pudo resolver la reputación del ${role} para el snapshot de la oferta`
+    );
+    return null;
+  }
+}
+
+/**
  * MOVO-180 (adelantado): agregado sin identidad para la apertura de descubrimiento de
  * un transportista (`getShipmentDetail`). Reusa `offerRepository.listByShipment` en vez
  * de un método de repositorio nuevo -- un envío tiene pocas ofertas activas, no
@@ -847,15 +874,18 @@ export function createShipmentsService(
       // transportista no tenía este resguardo: un `usersClient` caído sí bloqueaba la
       // creación pese a lo que ya documentaba este mismo comentario). El rating de
       // cada uno sigue el criterio de MOVO-147 -- llamada LOCAL (misma DB/proceso) vía
-      // `getCarrierReputationScore`/`getSenderReputationScore`, sin HTTP contra sí
-      // mismo. Cualquiera de los 4 valores puede resolver `null` (perfil no
-      // encontrado, sin calificaciones todavía, o fallo tolerado) -- nunca bloquea la
-      // creación de la oferta.
+      // `getCarrierReputationScore`/`getSenderReputationScore`, envuelto en
+      // `resolveSnapshotRating` (mismo try/catch+log que `resolveSnapshotProfile`,
+      // sin esto un error de DB dentro de `getReputationSummary` rechazaba el
+      // `Promise.all` completo y bloqueaba la oferta -- fix de review, PR #150).
+      // Cualquiera de los 4 valores puede resolver `null` (perfil no encontrado, sin
+      // calificaciones todavía, o fallo tolerado) -- nunca bloquea la creación de la
+      // oferta.
       const [carrierProfile, carrierRatingAtOffer, senderProfile, senderRatingAtOffer] = await Promise.all([
         resolveSnapshotProfile(usersClient, input.carrierId, "transportista", logger),
-        getCarrierReputationScore ? getCarrierReputationScore(input.carrierId) : Promise.resolve(null),
+        resolveSnapshotRating(getCarrierReputationScore, input.carrierId, "transportista", logger),
         resolveSnapshotProfile(usersClient, shipment.senderId, "emisor", logger),
-        getSenderReputationScore ? getSenderReputationScore(shipment.senderId) : Promise.resolve(null),
+        resolveSnapshotRating(getSenderReputationScore, shipment.senderId, "emisor", logger),
       ]);
 
       const offer = await offerRepository.create({
