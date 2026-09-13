@@ -47,11 +47,20 @@ export class InsufficientCreationPhotosError extends Error {
  * el issue de Linear). Única fuente de verdad: cualquier cambio acá debe
  * reflejarse primero en el diagrama, no al revés (AC4).
  *
- * `rejected_by_receiver`, `cancelled` y `disputed` no tienen salida en este
- * módulo — los dos primeros son terminales por diseño (MOVO-79); la
- * resolución de una disputa (a cargo de un admin, MOVO-30/MOVO-32) todavía
- * no tiene ticket que defina a qué estado vuelve, así que no se modela acá
- * una transición inventada.
+ * `rejected_by_receiver`, `cancelled`, `disputed` y `completed` no tienen
+ * salida en este módulo — los tres primeros son terminales por diseño
+ * (MOVO-79/MOVO-208; la resolución de una disputa, a cargo de un admin
+ * MOVO-30/MOVO-32, todavía no tiene ticket que defina a qué estado vuelve,
+ * así que no se modela acá una transición inventada); `completed` es
+ * terminal por definición (MOVO-208: entrega confirmada Y pago liberado, no
+ * hay nada después).
+ *
+ * `assigned_unfunded` (MOVO-208, decisión de arquitectura del hold de
+ * MOVO-12 "opción B"): ruta ALTERNATIVA a `assignment_pending` cuando el
+ * retiro es a más de N días — el emisor acepta una oferta y se valida el
+ * método de pago, pero el hold recién se programa a T-24h del retiro. Nunca
+ * sale hacia `in_transit` directo (AC2 de MOVO-208): un envío sin hold
+ * confirmado no puede retirarse, tiene que pasar por `assigned` primero.
  */
 const VALID_TRANSITIONS: Readonly<Record<ShipmentStatus, ReadonlySet<ShipmentStatus>>> = {
   [ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION]: new Set([
@@ -60,13 +69,19 @@ const VALID_TRANSITIONS: Readonly<Record<ShipmentStatus, ReadonlySet<ShipmentSta
     ShipmentStatus.CANCELLED, // emisor cancela (MOVO-29)
   ]),
   [ShipmentStatus.PUBLISHED]: new Set([
-    ShipmentStatus.ASSIGNMENT_PENDING, // emisor acepta oferta
+    ShipmentStatus.ASSIGNMENT_PENDING, // emisor acepta oferta, retiro cercano
+    ShipmentStatus.ASSIGNED_UNFUNDED, // emisor acepta oferta, retiro lejano (MOVO-208/MOVO-210)
     ShipmentStatus.CANCELLED, // emisor cancela (MOVO-29)
   ]),
   [ShipmentStatus.ASSIGNMENT_PENDING]: new Set([
     ShipmentStatus.PUBLISHED, // hold de fondos falla/timeout: vuelve a la saga
     ShipmentStatus.ASSIGNED, // fondos reservados
     ShipmentStatus.CANCELLED, // emisor cancela (MOVO-29)
+  ]),
+  [ShipmentStatus.ASSIGNED_UNFUNDED]: new Set([
+    ShipmentStatus.ASSIGNED, // hold programado a T-24h exitoso (MOVO-210)
+    ShipmentStatus.PUBLISHED, // hold programado fallido: vuelve a la saga (MOVO-210)
+    ShipmentStatus.CANCELLED, // emisor cancela -- sin hold que liberar todavía
   ]),
   [ShipmentStatus.ASSIGNED]: new Set([
     ShipmentStatus.IN_TRANSIT, // retiro confirmado (handshake, MOVO-6)
@@ -77,12 +92,27 @@ const VALID_TRANSITIONS: Readonly<Record<ShipmentStatus, ReadonlySet<ShipmentSta
     ShipmentStatus.DISPUTED, // reclamo en tránsito (MOVO-30)
   ]),
   [ShipmentStatus.DELIVERED]: new Set([
+    ShipmentStatus.COMPLETED, // captura y split de MP confirmados (MOVO-212)
     ShipmentStatus.DISPUTED, // reclamo post-entrega (MOVO-30)
   ]),
+  [ShipmentStatus.COMPLETED]: new Set(),
   [ShipmentStatus.REJECTED_BY_RECEIVER]: new Set(),
   [ShipmentStatus.CANCELLED]: new Set(),
   [ShipmentStatus.DISPUTED]: new Set(),
 };
+
+/**
+ * "El envío llegó a destino", más allá de si el pago ya se liberó o no
+ * (MOVO-208): `completed` es una consecuencia posterior a `delivered`, no un
+ * estado alternativo. Agrupación reusada por consultas que hoy comparan
+ * `status === DELIVERED` a secas y que, sin este ajuste, dejarían de contar
+ * un envío en cuanto `MOVO-212` empiece a moverlo a `completed` (reputación,
+ * historial compartido, gate de calificación, baja de cuenta).
+ */
+export const FULFILLED_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.DELIVERED,
+  ShipmentStatus.COMPLETED,
+];
 
 /** Solo lectura — no muta el estado, es para consultas (ej. habilitar/deshabilitar una acción en UI). */
 export function canTransition(from: ShipmentStatus, to: ShipmentStatus): boolean {

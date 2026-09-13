@@ -182,6 +182,23 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
       expect(updatedShipment?.estimatedDeliveryTimeWindowEnd).toBeNull();
     });
 
+    it("MOVO-186: la respuesta desglosa priceNetArs/commissionAmountArs a partir de priceOffered (bruto), tasa 15% default", async () => {
+      const shipmentId = await createPublishedShipment();
+      const winner = await offerRepo.create(baseOfferInput({ shipmentId, priceOffered: 1150 }));
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/offers/${winner.id}/accept`,
+        headers: { "x-user-id": senderId },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const data = response.json();
+      expect(data.priceOffered).toBe(1150);
+      expect(data.priceNetArs).toBe(1000);
+      expect(data.commissionAmountArs).toBe(150);
+    });
+
     it("falla con 409 al aceptar una oferta vencida", async () => {
       const shipmentId = await createPublishedShipment();
       const expired = await offerRepo.create(
@@ -291,6 +308,23 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
           data: { type: "offer_rejected", shipmentId, offerId: offer.id },
         });
       });
+    });
+
+    it("MOVO-186: la respuesta desglosa priceNetArs/commissionAmountArs a partir de priceOffered (bruto), tasa 15% default", async () => {
+      const shipmentId = await createPublishedShipment();
+      const offer = await offerRepo.create(baseOfferInput({ shipmentId, priceOffered: 1150 }));
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/offers/${offer.id}/reject`,
+        headers: { "x-user-id": senderId },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const data = response.json();
+      expect(data.priceOffered).toBe(1150);
+      expect(data.priceNetArs).toBe(1000);
+      expect(data.commissionAmountArs).toBe(150);
     });
 
     it("el mismo transportista puede volver a ofertar tras un rechazo (AC8, fila nueva)", async () => {

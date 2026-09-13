@@ -78,6 +78,24 @@ export function computeNetFromGross(
   return Math.round((grossArs / (1 + rate)) * 100) / 100;
 }
 
+/**
+ * MOVO-186: desglose completo (neto/comisión/bruto) a partir del BRUTO ya persistido
+ * (`Offer.priceOffered`), para las respuestas de oferta que hoy solo exponen ese bruto
+ * (`offerResponse`/`myOfferResponse` en `movo-svc-shipments`). Reusa
+ * `computeNetFromGross` para el neto -- `commissionAmountArs` sale de la resta contra
+ * el bruto (ya redondeado) en vez de recalcularlo con su propia fórmula, para que los
+ * tres valores sean siempre consistentes entre sí (`netArs + commissionAmountArs ===
+ * grossArs`) incluso en los bordes de redondeo.
+ */
+export function decomposeOfferGrossPrice(
+  grossArs: number,
+  rate: number = getCommissionConfig().movoCommissionRate,
+): OfferGrossPriceBreakdown {
+  const netArs = computeNetFromGross(grossArs, rate);
+  const commissionAmountArs = Math.round((grossArs - netArs) * 100) / 100;
+  return { netArs, commissionAmountArs, grossArs };
+}
+
 /** Solo para tests: resetea la config memoizada entre casos. */
 export function __resetCommissionConfigForTests(): void {
   cached = undefined;

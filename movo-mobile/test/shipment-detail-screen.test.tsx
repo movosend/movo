@@ -384,6 +384,34 @@ describe("ShipmentDetailScreen", () => {
     expect(getByTestId("shipment-detail-carrier")).toBeTruthy();
   });
 
+  it("oculta la card de transportista en completed, igual que en delivered (MOVO-208)", async () => {
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({ carrierId: "carrier-1", status: ShipmentStatus.COMPLETED }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-carrier")).toBeNull();
+  });
+
+  it("muestra la sección de calificaciones en completed, igual que en delivered (MOVO-208)", async () => {
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({ carrierId: "carrier-1", status: ShipmentStatus.COMPLETED }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-ratings")).toBeTruthy();
+  });
+
   it("cambia a la tab de línea de tiempo al tocarla, mostrando el historial (MOVO-128)", async () => {
     mockUseShipment.mockReturnValue({
       isLoading: false,

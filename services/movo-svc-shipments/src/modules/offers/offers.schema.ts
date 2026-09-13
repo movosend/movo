@@ -5,19 +5,39 @@
 // ahí obliga a actualizar esta lista también.
 const OFFER_STATUS_VALUES = ["pending", "accepted", "rejected", "withdrawn", "expired", "superseded"];
 
+// Alineado 1:1 con el enum `PackageType` de Prisma (MOVO-185) — mismo criterio
+// autocontenido que PACKAGE_TYPE_VALUES en shipments.schema.ts, sin importar de ahí.
+const PACKAGE_TYPE_VALUES = ["letter_document", "standard_package", "fragile_item"];
+
 // "HH:MM" o "HH:MM:SS", sin offset — mismo patrón que TIME_PATTERN en
 // shipments.schema.ts (autocontenido a propósito, no se importa de ahí).
 const TIME_PATTERN = "^([01]\\d|2[0-3]):[0-5]\\d(:[0-5]\\d)?$";
 
 const offerShipmentContextResponse = {
   type: "object",
-  required: ["id", "status", "pickupAddress", "pickupDate", "deliveryAddress"],
+  required: [
+    "id",
+    "status",
+    "pickupAddress",
+    "pickupDate",
+    "deliveryAddress",
+    "distanceKm",
+    "packageType",
+    "weightKg",
+    "description",
+  ],
   properties: {
     id: { type: "string" },
     status: { type: "string" },
     pickupAddress: { type: "string" },
     pickupDate: { type: "string", format: "date" },
     deliveryAddress: { type: "string" },
+    // MOVO-185: distancia Haversine pickup->delivery, redondeada a 1 decimal --
+    // nunca lat/lng crudos (ningún consumidor los pide todavía).
+    distanceKm: { type: "number" },
+    packageType: { type: "string", enum: PACKAGE_TYPE_VALUES },
+    weightKg: { type: "number" },
+    description: { type: ["string", "null"] },
   },
 };
 
@@ -28,6 +48,8 @@ const offerResponse = {
     "shipmentId",
     "carrierId",
     "priceOffered",
+    "priceNetArs",
+    "commissionAmountArs",
     "offeredDate",
     "offeredPickupTimeWindowStart",
     "offeredPickupTimeWindowEnd",
@@ -42,12 +64,18 @@ const offerResponse = {
     "estimatedDeliveryDate",
     "estimatedDeliveryTimeWindowStart",
     "estimatedDeliveryTimeWindowEnd",
+    "viewedAtBySender",
   ],
   properties: {
     id: { type: "string" },
     shipmentId: { type: "string" },
     carrierId: { type: "string" },
     priceOffered: { type: "number" },
+    // MOVO-186: desglose derivado de priceOffered (bruto) con la tasa de comisión
+    // vigente AL MOMENTO DE LA LECTURA, no la que regía al ofertar -- mismo criterio
+    // que offersSummary/competitiveRank (MOVO-180/188).
+    priceNetArs: { type: "number" },
+    commissionAmountArs: { type: "number" },
     offeredDate: { type: "string", format: "date-time" },
     // MOVO-177: null cuando la oferta usa la ventana del envío tal cual.
     offeredPickupTimeWindowStart: { type: ["string", "null"] },
@@ -66,6 +94,9 @@ const offerResponse = {
     estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
     estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
     estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
+    // MOVO-189: instante crudo en que el EMISOR vio esta oferta por primera vez -- la
+    // traducción a copy ("Vista hace 40 min"/"Todavía no la vio") es de UI (mobile).
+    viewedAtBySender: { type: ["string", "null"], format: "date-time" },
   },
 };
 
@@ -93,6 +124,8 @@ const myOfferResponse = {
     "shipmentId",
     "carrierId",
     "priceOffered",
+    "priceNetArs",
+    "commissionAmountArs",
     "offeredDate",
     "offeredPickupTimeWindowStart",
     "offeredPickupTimeWindowEnd",
@@ -109,12 +142,16 @@ const myOfferResponse = {
     "estimatedDeliveryTimeWindowStart",
     "estimatedDeliveryTimeWindowEnd",
     "competitiveRank",
+    "viewedAtBySender",
   ],
   properties: {
     id: { type: "string" },
     shipmentId: { type: "string" },
     carrierId: { type: "string" },
     priceOffered: { type: "number" },
+    // MOVO-186: mismo criterio que offerResponse -- ver el comentario de ahí.
+    priceNetArs: { type: "number" },
+    commissionAmountArs: { type: "number" },
     offeredDate: { type: "string", format: "date" },
     offeredPickupTimeWindowStart: { type: ["string", "null"] },
     offeredPickupTimeWindowEnd: { type: ["string", "null"] },
@@ -137,6 +174,8 @@ const myOfferResponse = {
     estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
     estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
     competitiveRank: competitiveRankResponse,
+    // MOVO-189: mismo criterio que offerResponse -- instante crudo, sin copy.
+    viewedAtBySender: { type: ["string", "null"], format: "date-time" },
   },
 };
 

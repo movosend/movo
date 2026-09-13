@@ -1,12 +1,22 @@
+import { decomposeOfferGrossPrice } from "@movo/shared";
 import { Offer } from "../../models/offer";
 
 export function toOfferDto(offer: Offer) {
+  // MOVO-186: desglose neto/comisión a partir del bruto persistido
+  // (`priceOffered`), con la tasa de comisión VIGENTE al momento de la lectura --
+  // no la que regía cuando se creó la oferta (mismo criterio ya usado por
+  // `computeOffersSummaryForCarrier` en shipments.service.ts, AC1 de MOVO-186).
+  const { netArs, commissionAmountArs } = decomposeOfferGrossPrice(offer.priceOffered);
   return {
     ...offer,
+    priceNetArs: netArs,
+    commissionAmountArs,
     offeredDate: offer.offeredDate.toISOString(),
     expiresAt: offer.expiresAt ? offer.expiresAt.toISOString() : null,
     createdAt: offer.createdAt.toISOString(),
     respondedAt: offer.respondedAt ? offer.respondedAt.toISOString() : null,
+    // MOVO-189: instante crudo, sin traducir a copy ("Vista hace 40 min") -- eso es de UI.
+    viewedAtBySender: offer.viewedAtBySender ? offer.viewedAtBySender.toISOString() : null,
     // MOVO-180: a diferencia de offeredDate (acá expuesto como "date-time"),
     // estimatedDeliveryDate se formatea date-only en TODOS los endpoints que lo
     // exponen (toMyOfferDto/toShipmentDto incluidos) -- es un valor de calendario

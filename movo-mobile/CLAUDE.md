@@ -2137,3 +2137,114 @@ Tests actualizados: `use-attention-tasks.test.ts`, `attention-section.test.tsx`,
 `home.test.tsx`, `home-operativo-gallery-screen.test.tsx`;
 `receiver-actions-bar.test.tsx` sin cambios (verificado que sigue pasando tal cual
 tras la extracción). 109/109 suites, 835/835 tests. `tsc --noEmit` limpio.
+
+### MOVO-195 — Par de claves en el dispositivo: generación, SecureStore y firma del nonce (`movo-mobile`)
+
+Primer código de criptografía asimétrica del lado mobile — cierra el hueco que
+`MOVO-157` (`svc-users`, registro de clave pública) y `MOVO-158` (`svc-shipments`,
+validación de firma/GPS) habían dejado sin cubrir: ninguno de los dos implementaba
+quién genera el par de claves ni quién firma. Bloqueaba a `MOVO-159`/`MOVO-160`.
+
+- **Sigue ADR-020 tal cual, no reabre el algoritmo**: el propio ticket dejaba el
+  algoritmo "a definir, recomendado Ed25519" (AC3), pero eso ya estaba resuelto al
+  implementarse `MOVO-158` — ECDSA P-256/SHA-256, clave pública en formato `raw` sin
+  comprimir (65 bytes), firma IEEE P1363 (raw r‖s, 64 bytes). Usar Ed25519 habría
+  hecho que el backend rechazara toda firma con 422.
+- **`@noble/curves` (`@noble/curves/nist.js`, export `p256`)** en vez de
+  `react-native-quick-crypto` o una clave no-exportable en Keychain/Keystore nativo
+  (las tres opciones evaluadas con el usuario) — JS puro, sin módulo nativo, sin dev
+  client/rebuild. `p256.sign(msg, priv)` con sus defaults (`prehash: true`,
+  `format: "compact"`) ya hashea con SHA-256 y devuelve directo los 64 bytes r‖s —
+  no hace falta hashear a mano ni reencodear nada para que calce con
+  `webcrypto.subtle.verify` del backend. Verificado con un test que reproduce
+  exactamente esa llamada (`test/signing.test.ts`, corre en Jest/Node vía
+  `require("node:crypto").webcrypto`) — la forma más fuerte de probar compatibilidad
+  byte a byte sin levantar `svc-shipments` real.
+- **`src/crypto/keypair.ts`/`signing.ts`/`bytes.ts` (nuevos)**: `getOrCreateDeviceKeyPair()`
+  mismo patrón "generar una vez, persistir en `expo-secure-store`, reusar" que
+  `getOrCreateDeviceId()` (MOVO-107) — cubre AC5 (dispositivo nuevo) y AC6 (clave
+  perdida por reinstalación) con el mismo camino, sin distinguir los dos casos: si no
+  hay nada persistido, se genera. Los 32 bytes de la privada salen de
+  `Crypto.getRandomBytesAsync` (`expo-crypto`, ya instalado) en vez de
+  `p256.utils.randomSecretKey()` directo — mismo motivo que ya documentó MOVO-107
+  para el `deviceId` (evita depender de que `globalThis.crypto.getRandomValues` esté
+  poblado en Hermes). `bytes.ts` usa `atob`/`btoa` (ya usados en `src/lib/jwt.ts`) en
+  vez de sumar un polyfill de `Buffer` — el repo no tenía ninguno instalado.
+- **`SECURE_STORE_KEYS.handshakeDevicePrivateKey` sobrevive a `clearSession()`/logout**,
+  mismo criterio que `pushDeviceId`: identifica al dispositivo, no a la sesión — si
+  otra cuenta loguea en el mismo teléfono, reusa la misma clave física y registra su
+  propia pública en su propio primer login.
+- **AC5 respondido sin ticket de backend nuevo**: "verificar que el modelo de MOVO-157
+  soporta múltiples claves por dispositivo/usuario" — no lo soporta, a propósito
+  (`MOVO-157` ya excluyó explícitamente multi-dispositivo del alcance del TFG). Login
+  en un dispositivo nuevo simplemente rota la clave pública vigente vía el mismo
+  `POST /users/me/device-key` — el dispositivo viejo queda con una firma que el
+  backend ya no puede validar, comportamiento esperado y ya aceptado en MOVO-157.
+- **`src/hooks/use-device-key-bootstrap.ts` (nuevo)**, montado en `app/_layout.tsx`
+  junto a `usePushNotifications()`: mismo patrón de guard con `useRef` (dispara una
+  vez por transición a `sessionStatus === "authenticated"`, se resetea al
+  des-autenticar). A diferencia del registro de push (best-effort silencioso para
+  siempre), el AC7 exige que un fallo sea detectable — expone
+  `status: "idle"|"pending"|"ready"|"error"` + `retry()`. El consumo real de ese
+  estado para bloquear la entrada a la pantalla de handshake es de `MOVO-159`
+  (fuera de este ticket); acá solo queda el primitivo listo.
+- **`jest.config.js`**: `@noble/curves`/`@noble/hashes` se publican como ESM puro
+  (`"type": "module"`, sin build CJS) — sumados a `transformIgnorePatterns` o Jest
+  fallaba al hacer `require()` de sintaxis `import`/`export` sin transformar.
+
+Tests: `test/keypair.test.ts` (genera y persiste si no hay nada, reusa lo persistido,
+formato de la pública de 65 bytes, reintenta si el candidato random no es un escalar
+válido), `test/signing.test.ts` (firma válida contra la verificación exacta del
+backend, 64 bytes, protección contra replay entre payloads distintos, la privada
+nunca aparece en el resultado), `test/use-device-key-bootstrap.test.ts` (dispara una
+vez por login, vuelve a intentar tras logout/login, expone `"error"` sin crashear,
+`retry()` recupera a `"ready"`, vuelve a `"idle"` al des-autenticar),
+`test/device-key-secrecy.test.ts` (DoD explícito del ticket — la privada no es
+recuperable desde `AsyncStorage` ni aparece en el estado de la app: como el repo no
+tiene `@react-native-async-storage/async-storage` instalado en absoluto, la prueba
+más fuerte posible es confirmar que el paquete ni siquiera es una dependencia
+resoluble, más que `useDeviceKeyBootstrap()` solo expone `status`/`retry()` hacia
+afuera y que `expo-secure-store` es la única vía de persistencia real). 107/107 suites
+(807/807 tests) en `movo-mobile`, `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: pantallas de QR/escaneo (`MOVO-159`/`MOVO-160`, que van
+a consumir `signHandshakeNonce()` y, si hace falta, gatear su entrada con el `status`
+de `useDeviceKeyBootstrap`); prueba en dispositivo físico iOS y Android (Keychain vs.
+Keystore real) y el ciclo completo generar→registrar→firmar→confirmar contra
+`svc-shipments` real — no verificable en este entorno; rotación periódica de claves.
+
+### MOVO-208 (backend, `svc-shipments`) — ajustes mobile por la extensión del set canónico
+
+Ticket dueño en `services/movo-svc-shipments/CLAUDE.md` — acá solo el lado mobile,
+tocado porque `ShipmentStatus` (importado de `@movo/shared`) pasó de 9 a 11 valores y
+dos mapas exhaustivos ya existentes no compilaban sin las claves nuevas.
+
+- **`src/lib/shipment-format.ts`**: `STATUS_LABEL` suma `ASSIGNED_UNFUNDED: "Fondos
+  pendientes"` / `COMPLETED: "Completado"` (obligatorio, `Record<ShipmentStatus,
+  string>` exhaustivo — no compilaba sin esto). `shipmentStatusTone` suma
+  `ASSIGNED_UNFUNDED → "warning"` (mismo bucket que "espera algo antes de seguir") y
+  `COMPLETED → "success"`. `shipmentLifecycleStage` suma `COMPLETED` a `"past"`.
+  `HAPPY_PATH` suma `COMPLETED` al final de `DELIVERED` (relación 1:1 sin ambigüedad,
+  `remainingLifecycleSteps`/`shipmentPendingStepLabel` ganan un caso para el paso
+  "Liberación del pago"). **`ASSIGNED_UNFUNDED` no se agrega a `HAPPY_PATH`**: es una
+  rama alternativa a `assignment_pending` (un envío pasa por una u otra, nunca las
+  dos), y ese array modela un único camino lineal — insertarlo ahí habría roto la
+  proyección de pasos de la rama existente. Un envío en `assigned_unfunded` queda sin
+  pasos proyectados (mismo tratamiento que un estado de excepción), decisión de
+  producto pendiente para cuando `MOVO-210` exista.
+- **`components/shipments/timeline-section.tsx`**: `EVENT_ICON` (`Record<ShipmentStatus,
+  LucideIcon>`, también exhaustivo) suma `CircleDollarSign` para `ASSIGNED_UNFUNDED` y
+  `BadgeCheck` para `COMPLETED`.
+- **`app/(app)/shipments/index.tsx`**: `STAGE_STATUSES` (array a mano, no exhaustivo —
+  gap real encontrado explorando el código, sin ningún mecanismo que fuerce a tocarlo
+  al extender el enum) suma `ASSIGNED_UNFUNDED` a `ongoing` y `COMPLETED` a `past`, para
+  que ambos aparezcan como opción del filtro de estado de "Mis Envíos".
+- **`canCancelShipment` deliberadamente sin tocar**: el backend
+  (`shipments.service.ts#cancelShipment`) todavía no acepta cancelar desde
+  `assigned_unfunded` (eso es `MOVO-210`) — agregar el botón acá mostraría una acción
+  que el servidor rechazaría hoy.
+
+Tests: casos nuevos en `test/shipment-format.test.ts` para `shipmentStatusLabel`/
+`shipmentStatusTone`/`shipmentLifecycleStage`/`shipmentEventTitle`/
+`shipmentPendingStepLabel`/`remainingLifecycleSteps` con los 2 estados nuevos. 103/103
+suites, 796/796 tests. `tsc --noEmit` limpio.

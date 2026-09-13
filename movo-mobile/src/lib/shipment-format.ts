@@ -10,12 +10,30 @@ const STATUS_LABEL: Record<ShipmentStatus, string> = {
   [ShipmentStatus.REJECTED_BY_RECEIVER]: "Rechazado",
   [ShipmentStatus.PUBLISHED]: "Publicado",
   [ShipmentStatus.ASSIGNMENT_PENDING]: "Sin asignar",
+  // MOVO-208: transportista ya asignado, pero el hold de fondos todavía no se creó
+  // (retiro a más de N días, MOVO-12 opción B) -- distinto de "Asignado" (`ASSIGNED`),
+  // que sí implica fondos reservados.
+  [ShipmentStatus.ASSIGNED_UNFUNDED]: "Fondos pendientes",
   [ShipmentStatus.ASSIGNED]: "Asignado",
   [ShipmentStatus.IN_TRANSIT]: "En camino",
   [ShipmentStatus.DELIVERED]: "Entregado",
+  // MOVO-208: entregado Y pago liberado (MOVO-212) -- todavía inalcanzable en
+  // producción hasta que esa historia dispare la transición.
+  [ShipmentStatus.COMPLETED]: "Completado",
   [ShipmentStatus.CANCELLED]: "Cancelado",
   [ShipmentStatus.DISPUTED]: "En disputa",
 };
+
+/** Estados en los que el envío ya tiene entrega física confirmada (`deliveredAt`
+ * seteado) — el gate para pedir/mostrar calificaciones (MOVO-153) y para dejar de
+ * considerar activo al transportista asignado, sin importar si el pago ya se liberó
+ * (`completed`, MOVO-208/212) o todavía no (`delivered`). Espejo mobile de
+ * `FULFILLED_SHIPMENT_STATUSES` (`shipment-state-machine.ts`, `svc-shipments`) — no se
+ * importa de ahí porque mobile y backend son builds separados sin ese módulo compartido. */
+export const FULFILLED_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.DELIVERED,
+  ShipmentStatus.COMPLETED,
+];
 
 export function shipmentStatusLabel(
   status: ShipmentStatus,
@@ -41,12 +59,14 @@ export function shipmentStatusTone(
 ): "success" | "warning" | "danger" | "info" | "neutral" {
   switch (status) {
     case ShipmentStatus.DELIVERED:
+    case ShipmentStatus.COMPLETED:
       return "success";
     case ShipmentStatus.CANCELLED:
     case ShipmentStatus.REJECTED_BY_RECEIVER:
       return "danger";
     case ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION:
     case ShipmentStatus.DISPUTED:
+    case ShipmentStatus.ASSIGNED_UNFUNDED:
       return "warning";
     case ShipmentStatus.ASSIGNMENT_PENDING:
     case ShipmentStatus.ASSIGNED:
@@ -65,6 +85,7 @@ export function shipmentStatusTone(
 export function shipmentLifecycleStage(status: ShipmentStatus): "ongoing" | "past" {
   switch (status) {
     case ShipmentStatus.DELIVERED:
+    case ShipmentStatus.COMPLETED:
     case ShipmentStatus.CANCELLED:
     case ShipmentStatus.REJECTED_BY_RECEIVER:
       return "past";
@@ -173,12 +194,16 @@ export function shipmentEventTitle(
       return "Publicado para transportistas";
     case ShipmentStatus.ASSIGNMENT_PENDING:
       return "Buscando transportista";
+    case ShipmentStatus.ASSIGNED_UNFUNDED:
+      return "Transportista asignado -- fondos aún no reservados";
     case ShipmentStatus.ASSIGNED:
       return "Transportista asignado";
     case ShipmentStatus.IN_TRANSIT:
       return "El paquete salió en camino";
     case ShipmentStatus.DELIVERED:
       return "Paquete entregado";
+    case ShipmentStatus.COMPLETED:
+      return "Pago liberado, envío cerrado";
     case ShipmentStatus.CANCELLED:
       return "Envío cancelado";
     case ShipmentStatus.DISPUTED:
@@ -210,7 +235,15 @@ export function shipmentEventDetail(
  * incidentes. Los estados terminales por excepción (`cancelled`,
  * `rejected_by_receiver`, `disputed`) quedan afuera a propósito: no son "el próximo
  * paso" de nada, son salidas. `assignment_pending` sí entra — es un estado que el
- * usuario efectivamente ve mientras se reservan los fondos, no un detalle interno. */
+ * usuario efectivamente ve mientras se reservan los fondos, no un detalle interno.
+ *
+ * `completed` (MOVO-208) se agrega al final de `delivered`, relación 1:1 sin
+ * ambigüedad. `assigned_unfunded` (MOVO-208) **no** se agrega: es una rama
+ * ALTERNATIVA a `assignment_pending` (un envío pasa por una u otra, nunca ambas), y
+ * este array modela un único camino lineal — insertarlo rompería
+ * `remainingLifecycleSteps` para la rama existente. Un envío en `assigned_unfunded`
+ * queda sin pasos proyectados (mismo tratamiento que un estado de excepción) hasta
+ * que haya una decisión de producto sobre cómo representar dos ramas paralelas acá. */
 const HAPPY_PATH: readonly ShipmentStatus[] = [
   ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
   ShipmentStatus.PUBLISHED,
@@ -218,6 +251,7 @@ const HAPPY_PATH: readonly ShipmentStatus[] = [
   ShipmentStatus.ASSIGNED,
   ShipmentStatus.IN_TRANSIT,
   ShipmentStatus.DELIVERED,
+  ShipmentStatus.COMPLETED,
 ];
 
 /**
@@ -259,6 +293,8 @@ export function shipmentPendingStepLabel(
     case ShipmentStatus.DELIVERED:
       if (options?.isReceiver) return "Entrega del paquete";
       return receiver ? `Entrega a ${receiver}` : "Entrega al receptor";
+    case ShipmentStatus.COMPLETED:
+      return "Liberación del pago";
     default:
       return shipmentStatusLabel(status, { isReceiver: options?.isReceiver });
   }

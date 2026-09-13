@@ -54,12 +54,18 @@ const STAGE_STATUSES: Record<LifecycleStage, ShipmentStatus[]> = {
     ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
     ShipmentStatus.PUBLISHED,
     ShipmentStatus.ASSIGNMENT_PENDING,
+    // MOVO-208: transportista asignado, hold de fondos todavía sin crear (retiro
+    // lejano) -- tan "en curso" como assignment_pending/assigned.
+    ShipmentStatus.ASSIGNED_UNFUNDED,
     ShipmentStatus.ASSIGNED,
     ShipmentStatus.IN_TRANSIT,
     ShipmentStatus.DISPUTED,
   ],
   past: [
     ShipmentStatus.DELIVERED,
+    // MOVO-208: entregado y pago liberado (MOVO-212) -- consecuencia posterior de
+    // delivered, mismo tab que su terminal.
+    ShipmentStatus.COMPLETED,
     ShipmentStatus.CANCELLED,
     ShipmentStatus.REJECTED_BY_RECEIVER,
   ],

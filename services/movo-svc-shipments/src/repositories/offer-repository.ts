@@ -2,6 +2,7 @@ import { OfferStatus, ShipmentStatus } from "@movo/shared";
 import { Prisma, PrismaClient, Offer as OfferRow, Shipment as ShipmentRow } from "../generated/prisma/client";
 import { INITIAL_OFFER_STATUS, transition } from "../domain/offer-state-machine";
 import { transition as transitionShipmentStatus } from "../domain/shipment-state-machine";
+import { haversineKm } from "../domain/geo";
 import {
   Offer,
   CreateOfferInput,
@@ -61,6 +62,7 @@ function mapOffer(row: OfferRow, now: Date = new Date()): Offer {
     estimatedDeliveryDate: row.estimatedDeliveryDate,
     estimatedDeliveryTimeWindowStart: row.estimatedDeliveryTimeWindowStart,
     estimatedDeliveryTimeWindowEnd: row.estimatedDeliveryTimeWindowEnd,
+    viewedAtBySender: row.viewedAtBySender,
   };
 }
 
@@ -76,6 +78,20 @@ function mapOfferWithShipment(
       pickupAddress: row.shipment.pickupAddress,
       pickupDate: row.shipment.pickupDate,
       deliveryAddress: row.shipment.deliveryAddress,
+      // MOVO-185: mismo criterio de proyección mínima que AvailableShipment (MOVO-142)
+      // -- solo la distancia derivada, nunca lat/lng crudos.
+      distanceKm:
+        Math.round(
+          haversineKm(
+            row.shipment.pickupLat.toNumber(),
+            row.shipment.pickupLng.toNumber(),
+            row.shipment.deliveryLat.toNumber(),
+            row.shipment.deliveryLng.toNumber()
+          ) * 10
+        ) / 10,
+      packageType: row.shipment.packageType,
+      weightKg: row.shipment.weightKg.toNumber(),
+      description: row.shipment.description,
     },
     // MOVO-188: resuelto aparte por `offers.service.ts` (batch sobre la página, ver
     // `listPendingOffersByShipmentIds`) -- nunca acá, para no convertir esto en una
@@ -198,6 +214,14 @@ export interface OfferRepository {
   findById(id: string): Promise<Offer | null>;
   listByShipment(shipmentId: string): Promise<Offer[]>;
   /**
+   * MOVO-189 (AC1/AC3): marca `viewedAtBySender = now` en las ofertas `pending`
+   * EFECTIVAS (reusa `offerStatusWhere`, excluye las lógicamente vencidas -- ver AC11)
+   * del envío que todavía no tenían valor. Un solo `updateMany`, sin condicionar por
+   * fila individual -- no pisa lo ya seteado (`viewedAtBySender: null` en el `WHERE`)
+   * ni toca ofertas ya resueltas (`accepted`/`rejected`/etc., AC4).
+   */
+  markPendingOffersViewedBySender(shipmentId: string, now?: Date): Promise<void>;
+  /**
    * AC6: el transportista retira su propia oferta antes de que el emisor
    * responda. El `UPDATE` es compare-and-swap contra el `status` leído —
    * lanza `OfferConcurrentModificationError` si otra operación (típicamente
@@ -316,6 +340,13 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
     async listByShipment(shipmentId: string): Promise<Offer[]> {
       const rows = await db.offer.findMany({ where: { shipmentId }, orderBy: { createdAt: "asc" } });
       return rows.map((row) => mapOffer(row));
+    },
+
+    async markPendingOffersViewedBySender(shipmentId: string, now: Date = new Date()): Promise<void> {
+      await db.offer.updateMany({
+        where: { shipmentId, viewedAtBySender: null, ...offerStatusWhere(OfferStatus.PENDING, now) },
+        data: { viewedAtBySender: now },
+      });
     },
 
     async withdraw(id: string): Promise<Offer> {

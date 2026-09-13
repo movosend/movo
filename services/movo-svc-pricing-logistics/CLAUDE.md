@@ -98,3 +98,66 @@ Decisiones clave y refinamiento (10/09/2026):
 Tests: `tests/test_optimize.py` (multi-envío 3 pedidos, envío único, envío in_transit solo
 entrega, paradas fuera de ventana horaria, validación No-Fallback con error 502/422, mock de
 GoogleRoutesProvider y validación Pydantic).
+
+### MOVO-217 — Setup de OR-Tools, cliente Redis y RoutesProvider
+
+Completa la base de infraestructura y servicios de optimización y ruteo para
+`movo-svc-pricing-logistics` iniciada en MOVO-205.
+
+Decisiones clave y alcance:
+- **Cliente Redis asíncrono (`app/services/redis_client.py`)**: implementa conexión
+  con `redis.asyncio` usando `settings.redis_url` (`REDIS_URL`), con decodificación de
+  respuestas en texto (`decode_responses=True`). Provee funciones de ciclo de vida
+  (`init_redis_client`, `close_redis_client`), acceso global (`get_redis_client`) y
+  diagnóstico (`ping_redis`).
+- **Ciclo de vida en FastAPI (`main.py`)**: migrado al context manager `lifespan`
+  (estándar moderno de FastAPI) para inicializar y cerrar la conexión con Redis ordenadamente.
+- **Endpoint `/health`**: reporta el estado general (`status: ok`) y, si `REDIS_URL` está
+  configurada, reporta la conectividad con Redis (`redis: connected` o `disconnected`)
+  sin fallar ni interrumpir la disponibilidad del servicio.
+- **Limpieza de Infraestructura (`infra/docker-compose.yml`)**: conforme a la arquitectura
+  stateless del servicio (ADR-019), se removieron la variable `DATABASE_URL` y la
+  dependencia `depends_on: postgres` para `movo-svc-pricing-logistics`, manteniendo
+  únicamente `REDIS_URL` y `redis`.
+- **Base previa de MOVO-205**: las dependencias (`ortools==9.15.6755`, `redis==5.2.1`,
+  `httpx==0.28.1`), la abstracción `RoutesProvider` (Mock determinístico y Google Routes API)
+  y la política estricta de *No-Fallback* (502 / 422) ya formaban parte de `develop`.
+
+Tests: `tests/test_redis.py` (inicialización con y sin URL, manejo de excepciones en conexión
+y ping, cierre de recursos, y verificación en `/health`). 100% de cobertura en `redis_client.py`.
+Suite completa en verde (19/19 tests, 89% de cobertura total). `ruff` y `mypy` limpios.
+
+### MOVO-218 — `POST /routes/evaluate-candidates`: Evaluación de candidatos con cache en Redis
+
+Endpoint interno para evaluar el desvío marginal (km y minutos adicionales) que
+implicaría para un transportista sumar un paquete a su viaje planificado, consumido
+desde `movo-svc-shipments` (MOVO-219) para alimentar el feed de matches (`GET /trips/:id/matches`).
+
+Decisiones clave y alcance:
+- **Estrategia Cache-First en Redis (`app/services/candidate_evaluator.py`)**:
+  Antes de correr OR-Tools, se consulta la clave `route_solution:{tripId}:{candidateId}`.
+  Si existe (Cache HIT), se devuelve la métrica directamente evitando recomputar.
+  Si no existe (Cache MISS), se modela el circuito de 4 nodos, se calcula el desvío y se
+  persiste en Redis con TTL de 30 minutos (1800 seg) solo si la solución es factible.
+- **Modelado de 4 nodos en OR-Tools**:
+  `[0: Origen, 1: Pickup, 2: Dropoff, 3: Destino]` con precedencia dura (Pickup antes
+  que Dropoff) y holgura de 120 minutos (`settings.routing_time_slack_minutes`). Si la
+  ventana horaria ya expiró o excede el slack, se marca `feasible: False`.
+- **Desvío marginal exacto**:
+  `detourDistanceKm = max(0.0, round(totalDistanceKm - directDistanceKm, 2))`
+  `detourDurationMinutes = max(0, totalDurationMinutes - directDurationMinutes)`.
+- **Límite de escalabilidad (< 500 ms SLA)**:
+  `candidates` acotado a un máximo de 25 paquetes por request vía validación Pydantic
+  (`max_length=25`), respondiendo HTTP 422 si se supera.
+- **Respuesta liviana**:
+  Devuelve las métricas resumen (`detourDistanceKm`, `detourDurationMinutes`, etc.) y
+  `feasible: bool`. Las paradas completas quedan almacenadas en Redis para consumo puntual.
+- **Política No-Fallback**:
+  Si el proveedor de rutas (Google) falla o supera cuota, propaga HTTP 502/503.
+
+Tests: `tests/test_evaluate.py` (candidatos vacíos, candidato factible con desvío,
+inviabilidad por ventana horaria vencida, Cache Hit vs Cache Miss en Redis, límite de 25
+candidatos 422 y propagación de error 502). Suite completa en verde (26/26 tests, 88%
+cobertura total). `ruff` y `mypy` limpios.
+
+

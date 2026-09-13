@@ -94,6 +94,55 @@ describe("GET /offers/mine (Postgres)", () => {
     expect(body.items[0].carrierId).toBe(carrierA);
   });
 
+  it("MOVO-186: cada ítem desglosa priceNetArs/commissionAmountArs a partir de priceOffered (bruto), tasa 15% default", async () => {
+    const carrierId = randomUUID();
+    const shipmentId = await createPublishedShipment();
+    await offerRepo.create(baseOfferInput({ shipmentId, carrierId, priceOffered: 1150 }));
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/offers/mine",
+      headers: { "x-user-id": carrierId },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const item = response.json().items[0];
+    expect(item.priceOffered).toBe(1150);
+    expect(item.priceNetArs).toBe(1000);
+    expect(item.commissionAmountArs).toBe(150);
+  });
+
+  it("MOVO-189: expone viewedAtBySender -- null hasta que el emisor lea sus ofertas", async () => {
+    const carrierId = randomUUID();
+    const senderId = randomUUID();
+    const shipmentId = await shipmentRepo.create({ ...baseShipmentInput, senderId }).then(async (created) => {
+      await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+      await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+      return (await shipmentRepo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null)).id;
+    });
+    await offerRepo.create(baseOfferInput({ shipmentId, carrierId }));
+
+    const beforeSenderRead = await app.inject({
+      method: "GET",
+      url: "/offers/mine",
+      headers: { "x-user-id": carrierId },
+    });
+    expect(beforeSenderRead.json().items[0].viewedAtBySender).toBeNull();
+
+    await app.inject({
+      method: "GET",
+      url: `/shipments/${shipmentId}/offers`,
+      headers: { "x-user-id": senderId },
+    });
+
+    const afterSenderRead = await app.inject({
+      method: "GET",
+      url: "/offers/mine",
+      headers: { "x-user-id": carrierId },
+    });
+    expect(afterSenderRead.json().items[0].viewedAtBySender).not.toBeNull();
+  });
+
   it("ignora cualquier carrierId mandado por query param -- siempre usa el del header", async () => {
     const shipmentId = await createPublishedShipment();
     const carrierA = randomUUID();
@@ -153,8 +202,15 @@ describe("GET /offers/mine (Postgres)", () => {
       status: ShipmentStatus.PUBLISHED,
       pickupAddress: baseShipmentInput.pickupAddress,
       deliveryAddress: baseShipmentInput.deliveryAddress,
+      // MOVO-185: resumen del paquete, sin lat/lng crudos.
+      packageType: baseShipmentInput.packageType,
+      weightKg: baseShipmentInput.weightKg,
+      description: null,
     });
     expect(item.shipment.pickupDate).toBe("2026-08-20");
+    expect(typeof item.shipment.distanceKm).toBe("number");
+    expect(item.shipment.pickupLat).toBeUndefined();
+    expect(item.shipment.pickupLng).toBeUndefined();
   });
 
   it("AC5: una oferta accepted expone el status real del envío (assignment_pending)", async () => {
