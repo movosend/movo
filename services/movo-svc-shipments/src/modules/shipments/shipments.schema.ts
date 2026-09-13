@@ -206,6 +206,7 @@ const offerResponse = {
     "estimatedDeliveryDate",
     "estimatedDeliveryTimeWindowStart",
     "estimatedDeliveryTimeWindowEnd",
+    "viewedAtBySender",
   ],
   properties: {
     id: { type: "string" },
@@ -233,6 +234,8 @@ const offerResponse = {
     estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
     estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
     estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
+    // MOVO-189: instante crudo en que el emisor vio esta oferta por primera vez.
+    viewedAtBySender: { type: ["string", "null"], format: "date-time" },
   },
 };
 

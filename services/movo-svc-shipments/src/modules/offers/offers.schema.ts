@@ -64,6 +64,7 @@ const offerResponse = {
     "estimatedDeliveryDate",
     "estimatedDeliveryTimeWindowStart",
     "estimatedDeliveryTimeWindowEnd",
+    "viewedAtBySender",
   ],
   properties: {
     id: { type: "string" },
@@ -93,6 +94,9 @@ const offerResponse = {
     estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
     estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
     estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
+    // MOVO-189: instante crudo en que el EMISOR vio esta oferta por primera vez -- la
+    // traducción a copy ("Vista hace 40 min"/"Todavía no la vio") es de UI (mobile).
+    viewedAtBySender: { type: ["string", "null"], format: "date-time" },
   },
 };
 
@@ -138,6 +142,7 @@ const myOfferResponse = {
     "estimatedDeliveryTimeWindowStart",
     "estimatedDeliveryTimeWindowEnd",
     "competitiveRank",
+    "viewedAtBySender",
   ],
   properties: {
     id: { type: "string" },
@@ -169,6 +174,8 @@ const myOfferResponse = {
     estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
     estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
     competitiveRank: competitiveRankResponse,
+    // MOVO-189: mismo criterio que offerResponse -- instante crudo, sin copy.
+    viewedAtBySender: { type: ["string", "null"], format: "date-time" },
   },
 };
 
