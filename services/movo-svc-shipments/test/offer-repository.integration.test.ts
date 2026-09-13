@@ -328,7 +328,7 @@ describe("offer-repository (Postgres)", () => {
       );
     });
 
-    it("compare-and-swap real: update() concurrente con un withdraw() sobre la misma oferta — uno gana, el otro falla sin pisar el resultado", async () => {
+    it("compare-and-swap real: update() concurrente con un withdraw() sobre la misma oferta nunca pisa el resultado, aunque no son mutuamente excluyentes", async () => {
       const shipmentId = await createPublishedShipment();
       const created = await repo.create(baseOfferInput({ shipmentId }));
 
@@ -341,23 +341,32 @@ describe("offer-repository (Postgres)", () => {
         repo.withdraw(created.id),
       ]);
 
-      const results = [resUpdate, resWithdraw];
-      const fulfilled = results.filter((r) => r.status === "fulfilled");
-      const rejected = results.filter((r) => r.status === "rejected");
-
-      expect(fulfilled).toHaveLength(1);
-      expect(rejected).toHaveLength(1);
-      expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(OfferConcurrentModificationError);
+      // A diferencia de dos operaciones que SÍ compiten por `status` (ej. dos
+      // `withdraw()`, o `acceptOffer()` vs. `withdraw()`), `update()` nunca escribe
+      // `status` -- así que `withdraw()` jamás pierde esta carrera puntual: su propio
+      // CAS (`status: current.status`) sigue siendo válido la corra como la corra,
+      // exista o no un `update()` intercalado. Lo único no determinístico es si el
+      // `update()` llega a commitear ANTES de que `withdraw()` lo haga (ambos
+      // aplican, en ese orden, un resultado igual de válido que si hubieran corrido
+      // en serie) o DESPUÉS (pierde con `OfferConcurrentModificationError`, porque
+      // para entonces `withdraw()` ya movió `status` fuera de `pending`). "Uno gana,
+      // el otro pierde siempre" no es una garantía real de este mecanismo -- lo que
+      // sí es real, y lo que este test verifica, es que ningún resultado fulfilled
+      // se pierde jamás en el estado final.
+      expect(resWithdraw.status).toBe("fulfilled");
 
       const final = await repo.findById(created.id);
-      if (resWithdraw.status === "fulfilled") {
-        // withdraw ganó: el precio nunca debió cambiar.
-        expect(final?.status).toBe(OfferStatus.WITHDRAWN);
-        expect(final?.priceOffered).toBe(5000);
-      } else {
-        // update ganó: sigue pending con el precio nuevo.
-        expect(final?.status).toBe(OfferStatus.PENDING);
+      expect(final?.status).toBe(OfferStatus.WITHDRAWN);
+
+      if (resUpdate.status === "fulfilled") {
+        // update() alcanzó a commitear antes que withdraw() -- ambos efectos
+        // sobreviven en el resultado final.
         expect(final?.priceOffered).toBe(9000);
+      } else {
+        // withdraw() commiteó primero -- update() perdió el CAS contra el status ya
+        // cambiado, sin pisar nada.
+        expect(resUpdate.reason).toBeInstanceOf(OfferConcurrentModificationError);
+        expect(final?.priceOffered).toBe(5000);
       }
     });
   });
