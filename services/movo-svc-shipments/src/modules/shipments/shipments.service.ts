@@ -180,13 +180,16 @@ export interface ListAvailableResult {
 // edificio".
 const MIN_PICKUP_DELIVERY_DISTANCE_KM = 0.1;
 
-/** "HH:MM" -> "HH:MM:00"; "HH:MM:SS" queda igual. */
-function normalizeTime(time: string): string {
+/** "HH:MM" -> "HH:MM:00"; "HH:MM:SS" queda igual.
+ * Exportada: `offers.service.ts#updateOffer` (MOVO-181) revalida la franja horaria
+ * propuesta con el mismo criterio que `createOfferForShipment`, sin duplicarlo. */
+export function normalizeTime(time: string): string {
   return time.length === 5 ? `${time}:00` : time;
 }
 
-/** Fecha+hora real (para comparar contra "ahora" y validar la franja). */
-function combineDateAndTime(dateStr: string, timeStr: string): Date {
+/** Fecha+hora real (para comparar contra "ahora" y validar la franja).
+ * Exportada: mismo motivo que `normalizeTime`. */
+export function combineDateAndTime(dateStr: string, timeStr: string): Date {
   return new Date(`${dateStr}T${normalizeTime(timeStr)}.000Z`);
 }
 
@@ -217,8 +220,9 @@ function toEpochTime(timeStr: string): Date {
  * persisten las columnas `@db.Date` (pickupDate/offeredDate/estimatedDeliveryDate).
  * Un solo lugar para este anclaje: el historial de MOVO-80 mostró que repetirlo
  * inline en cada call site deja el próximo fix de zona horaria escondido en varios
- * literales casi idénticos. */
-function anchorDateUtc(dateStr: string): Date {
+ * literales casi idénticos.
+ * Exportada: mismo motivo que `normalizeTime`/`combineDateAndTime` (MOVO-181). */
+export function anchorDateUtc(dateStr: string): Date {
   return new Date(`${dateStr}T00:00:00.000Z`);
 }
 

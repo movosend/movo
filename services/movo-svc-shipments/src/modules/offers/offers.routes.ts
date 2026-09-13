@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
 import { OfferStatus, decomposeOfferGrossPrice } from "@movo/shared";
-import { createOffersService } from "./offers.service";
+import { createOffersService, PatchOfferInput } from "./offers.service";
 import { offersSchemas } from "./offers.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
@@ -152,6 +152,42 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
       const callerId = requireUserIdFromHeader(request);
       const { id } = request.params as { id: string };
       const offer = await service.rejectOffer(id, callerId);
+      return toOfferDto(offer);
+    }
+  );
+
+  app.patch(
+    "/:id",
+    {
+      schema: {
+        summary: "Modificar una oferta propia (transportista)",
+        description:
+          "AC1-AC3 de MOVO-181: modifica precio y/o fecha/franja de retiro propuestos " +
+          "de una oferta propia -- no resetea createdAt ni extiende expiresAt. Solo " +
+          "aplica sobre el estado EFECTIVO pending (409 OFFER_NOT_EDITABLE si ya no lo " +
+          "está, incluida una pending en base pero expired por lectura). Mismas " +
+          "validaciones que POST /shipments/:id/offers para offeredDate (422 " +
+          "OFFER_DATE_OUT_OF_RANGE) y la franja horaria propuesta (both-or-neither, " +
+          "422 OFFER_PICKUP_WINDOW_INVALID).",
+        tags: ["offers"],
+        params: offersSchemas.offerIdParam,
+        body: offersSchemas.patchOfferBody,
+        response: {
+          200: offersSchemas.offerResponse,
+          400: offersSchemas.errorResponse,
+          401: offersSchemas.errorResponse,
+          403: offersSchemas.errorResponse,
+          404: offersSchemas.errorResponse,
+          409: offersSchemas.errorResponse,
+          422: offersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      const patch = request.body as PatchOfferInput;
+      const offer = await service.updateOffer(id, callerId, patch);
       return toOfferDto(offer);
     }
   );

@@ -172,6 +172,26 @@ const myOfferResponse = {
   },
 };
 
+/**
+ * MOVO-181 (AC1/AC3): los 3 campos editables de una oferta `pending`, mismas
+ * validaciones de forma que `createOfferBody` (shipments.schema.ts) para
+ * `offeredDate`/las franjas -- both-or-neither de la franja horaria se valida en el
+ * servicio (AJV no expresa bien esa dependencia condicional de a pares, mismo
+ * criterio ya documentado ahí). `minProperties: 1`: un PATCH sin ningún campo no es
+ * una edición válida.
+ */
+const patchOfferBody = {
+  type: "object",
+  minProperties: 1,
+  properties: {
+    priceOfferedArs: { type: "number", exclusiveMinimum: 0 },
+    offeredDate: { type: "string", format: "date" },
+    offeredPickupTimeWindowStart: { type: "string", pattern: TIME_PATTERN },
+    offeredPickupTimeWindowEnd: { type: "string", pattern: TIME_PATTERN },
+  },
+  additionalProperties: false,
+};
+
 export const offersSchemas = {
   listMineQuery: {
     type: "object",
@@ -183,6 +203,8 @@ export const offersSchemas = {
   },
 
   offerResponse,
+
+  patchOfferBody,
 
   listMineResponse: {
     type: "object",
