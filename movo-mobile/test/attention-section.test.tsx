@@ -15,6 +15,12 @@ jest.mock("../src/hooks/use-shipments", () => ({
   useRejectShipment: () => ({ mutateAsync: mockMutateReject, isPending: false }),
 }));
 
+const mockRouterPush = jest.fn();
+
+jest.mock("expo-router", () => ({
+  router: { push: (...args: unknown[]) => mockRouterPush(...args) },
+}));
+
 describe("AttentionSection (MOVO-193)", () => {
   afterEach(() => jest.clearAllMocks());
 
@@ -100,5 +106,45 @@ describe("AttentionSection (MOVO-193)", () => {
 
     await fireEvent.press(getByTestId("attention-task-t3"));
     expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it("el modal de éxito de aceptar sobrevive a que la tarea desaparezca tras el refetch (regresión de review)", async () => {
+    mockMutateAccept.mockResolvedValue({ id: "shipment-1", status: "published" });
+    mockUseAttentionTasks.mockReturnValue({
+      tasks: [
+        {
+          kind: "confirm",
+          id: "t2",
+          shipmentId: "shipment-1",
+          senderFirstName: "Julia",
+          title: "Julia te quiere enviar un paquete",
+          meta: "Recibís en Av. Rivadavia 5400 · vence en 22 h",
+          onPress: jest.fn(),
+        },
+      ],
+      isLoading: false,
+    });
+
+    const { getByTestId, queryByTestId, rerender } = await render(
+      <AttentionSection testID="attention" />,
+    );
+
+    await fireEvent.press(getByTestId("attention-task-t2-primary"));
+    await fireEvent.press(getByTestId("attention-task-t2-accept-confirm-button"));
+
+    expect(getByTestId("attention-accept-success-modal")).toBeTruthy();
+
+    // El accept invalidó ["shipments","mine"]: la tarea ya no vuelve en el próximo
+    // refetch, así que `AttentionConfirmCard` se desmonta — el modal, montado en
+    // `AttentionTaskList` (el padre), tiene que sobrevivir a eso.
+    mockUseAttentionTasks.mockReturnValue({ tasks: [], isLoading: false });
+    await rerender(<AttentionSection testID="attention" />);
+
+    expect(getByTestId("attention-accept-success-modal").props.visible).toBe(true);
+
+    await fireEvent.press(getByTestId("attention-accept-success-modal-view-button"));
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-1");
+    expect(queryByTestId("attention-accept-success-modal")).toBeNull();
   });
 });

@@ -17,12 +17,21 @@ import { ErrorBanner } from "../ui/error-banner";
  * navega al detalle (`task.onPress`); los botones abren
  * `ShipmentConfirmationSheets` — el mismo componente que dispara `ReceiverActionsBar`
  * (MOVO-131/154) — vía `ref`, sin duplicar el sheet ni sus mutaciones.
+ *
+ * `onAcceptSuccess` viaja hasta `AttentionTaskList` (bug de review, fix post-merge):
+ * aceptar invalida `["shipments","mine"]`, lo que hace que esta card deje de listarse
+ * en cuanto vuelve el refetch — sin levantar el modal de éxito a un padre que
+ * sobreviva a ese desmonte (mismo criterio que `AcceptSuccessModal` en
+ * `shipments/[id].tsx`), la pantalla "Envío aceptado" se cerraba sola apenas
+ * terminaba el refetch en background, antes de que el usuario la cerrara a mano.
  */
 export function AttentionConfirmCard({
   task,
+  onAcceptSuccess,
   testID,
 }: {
   task: AttentionConfirmTask;
+  onAcceptSuccess?: () => void;
   testID?: string;
 }) {
   const colors = useThemeColors();
@@ -95,6 +104,7 @@ export function AttentionConfirmCard({
         senderFirstName={task.senderFirstName}
         acceptMutation={acceptMutation}
         rejectMutation={rejectMutation}
+        onAcceptSuccess={onAcceptSuccess}
         onError={setErrorMessage}
         testID={testID}
       />
