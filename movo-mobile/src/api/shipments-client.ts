@@ -197,6 +197,31 @@ export interface ListAvailableResponse {
   total: number;
 }
 
+/**
+ * DTO propuesto para `GET /shipments/sending` / `GET /shipments/transporting` /
+ * `GET /shipments/receiving` (MOVO-192, todavía sin implementar en `movo-svc-shipments`
+ * — Todo, bloqueante de MOVO-193). Contrato comentado en el ticket de Linear antes de
+ * que se codee: camelCase (consistente con `ShipmentSummary`, a diferencia del
+ * snake_case en que está redactado el AC del ticket) y **sin** ningún campo de
+ * ETA/proximidad — esa señal es tracking en vivo (MOVO-203/MOVO-11), sin empezar y
+ * fuera del AC4/AC6 de MOVO-192. `status` es el subconjunto "activo" que define el
+ * AC4 de MOVO-192 (incluye `assigned_unfunded`, agregado por MOVO-208, también Todo).
+ * `isToday`/`pickupWindowExpired` los calcula el backend (AC6), nunca el cliente.
+ */
+export interface ActiveShipmentSummary {
+  id: string;
+  status: "assigned_unfunded" | "assigned" | "in_transit";
+  pickupDate: string;
+  pickupTimeWindowStart: string;
+  pickupTimeWindowEnd: string;
+  pickupAddress: string;
+  deliveryAddress: string;
+  agreedPriceArs: number;
+  counterparty: { name: string; initials: string };
+  isToday: boolean;
+  pickupWindowExpired: boolean;
+}
+
 export const shipmentsClient = {
   /** Protegida — `httpClient` adjunta `Authorization` automáticamente vía el
    * interceptor de sesión (MOVO-76). */
@@ -283,6 +308,20 @@ export const shipmentsClient = {
    * `published` o `assignment_pending`. */
   cancel(shipmentId: string, body?: { reason?: string }): Promise<ShipmentSummary> {
     return httpClient.post<ShipmentSummary>(`/shipments/${shipmentId}/cancel`, body ?? {});
+  },
+
+  /** `GET /shipments/sending` (MOVO-192, todavía sin backend — ver `ActiveShipmentSummary`).
+   * Envíos activos donde el usuario autenticado es el emisor, para la sección "Estoy
+   * enviando" del home operativo (MOVO-193). */
+  getSending(): Promise<ActiveShipmentSummary[]> {
+    return httpClient.get<ActiveShipmentSummary[]>("/shipments/sending");
+  },
+
+  /** `GET /shipments/receiving` (MOVO-192, todavía sin backend — ver
+   * `ActiveShipmentSummary`). Envíos activos donde el usuario autenticado es el
+   * receptor, para la sección "Voy a recibir" del home operativo (MOVO-193). */
+  getReceiving(): Promise<ActiveShipmentSummary[]> {
+    return httpClient.get<ActiveShipmentSummary[]>("/shipments/receiving");
   },
 
   /** `GET /shipments/history-with/:userId` (MOVO-170, todavía sin implementar en

@@ -1942,3 +1942,75 @@ pantalla) — mismo patrón ya aceptado para `useAvailableShipments`/`useMyShipm
 ninguna de esas hooks tiene tampoco un test dedicado; evaluado con el usuario y
 descartado sumar uno para no romper la convención existente por una cobertura
 incidental.
+
+### MOVO-193 (fase 1) — Home operativo: envíos activos por rol y "Requiere tu atención"
+
+Frontend de `MOVO-191`, implementado contra un mock de `MOVO-192` (backend Todo, se
+dejó comentario con el contrato propuesto en Linear). `home.tsx` suma, sobre un
+prototipo de Claude Design: `RoleSection`/`ActiveShipmentCard` ("Estoy enviando"/"Voy
+a recibir", `use-active-shipments.ts` + `ActiveShipmentSummary` en
+`shipments-client.ts`) y `AttentionSection` ("Requiere tu atención",
+`use-attention-tasks.ts`, derivado 100% de `GET /shipments/mine` sin fabricar datos).
+
+- **Sin estado "llegando"/ETA de proximidad** (el prototipo lo tenía) — requiere
+  tracking en vivo (MOVO-203/MOVO-11), fuera del contrato de MOVO-192.
+- **"Estoy transportando" queda para una fase 2** de esta misma US: layout distinto
+  (card de viaje agregado, no una card por envío — ver prototipo "Viaje del
+  transportista"), depende de MOVO-206.
+- **"Requiere tu atención" solo cubre dos casos reales** (receptor con envío
+  `awaiting_receiver_confirmation`, emisor con `rejected_by_receiver`) — "ofertas
+  nuevas" y "calificaciones pendientes" quedaron afuera por falta de backend
+  (N+1 el primero, sin endpoint el segundo — se abrió `MOVO-222` para éste).
+- Los CTA de la matriz del AC5 (`activeShipmentCta` en `active-shipment-format.ts`)
+  muestran un aviso "Muy pronto" en vez de navegar: `MOVO-159`/`MOVO-160` (pantallas
+  de handshake) siguen en Todo, mismo criterio que MOVO-183.
+
+Tests nuevos: `active-shipment-format.test.ts`, `active-shipment-card.test.tsx`,
+`role-section.test.tsx`, `attention-section.test.tsx`, `use-attention-tasks.test.ts`,
+casos agregados a `home.test.tsx`. 108/108 suites, 813/813 tests. `tsc --noEmit`
+limpio.
+
+Pendiente / fuera de alcance: fase 2 (transportista); `MOVO-222`; no probado en
+device; sin mock local en runtime para desarrollar contra la app corriendo de punta a
+punta mientras `MOVO-192` no exista (solo mockeado en tests).
+
+**Ajuste de fidelidad visual (mismo día, pedido explícito del usuario: "quiero que la
+UI quede exactamente igual" al prototipo).** `active-shipment-card.tsx` rehecho como
+réplica 1:1 de la estructura de la live card del `.dc.html` (antes era una versión
+simplificada con los tokens genéricos del repo): encabezado con precio en
+`font-mono-semibold` + contraparte, pill de estado, **stepper de 4 pasos fijos**
+(Retiro/En camino/Llegando/Entrega, iconos `MapPin`/`Route`/`Package`/`Flag` de
+`lucide-react-native`, ya usados en otras pantallas) y franja de retiro/entrega en dos
+columnas.
+
+- **Solo 2 skins, no las 4 del prototipo**: "chrome"/"titanio"/"lime"/"ink" eran una
+  exploración de tonos del propio diseño, no estados de negocio — se usa "chrome" (el
+  default del prototipo) para `assigned`/`in_transit` y "papel" (`proximo` en el
+  prototipo) para `assigned_unfunded`. Colores fuera de la escala de tokens del repo
+  (los del `skin()` del prototipo, ej. `rgba(10,10,11,0.14)`) quedan como constantes
+  locales del componente (`CHROME`), documentado en el comentario del archivo.
+- **El stepper nunca marca "Llegando" como paso actual** (`activeShipmentStepIndex`,
+  `active-shipment-format.ts`): sin tracking en vivo (MOVO-203/MOVO-11) no hay señal
+  de proximidad — `in_transit` avanza solo hasta "En camino".
+- **`activeShipmentFooterText` nueva**: la frase de la fila inferior (junto al CTA
+  cuando existe) se genera con datos reales (rol, nombre de la contraparte, estado),
+  nunca un horario/ETA inventado.
+
+Tests: casos nuevos en `active-shipment-format.test.ts`
+(`activeShipmentFooterText`/`activeShipmentStepIndex`); `active-shipment-card.test.tsx`
+sin cambios de aserciones (sigue verificando contraparte/estado/CTA/badges, ahora
+sobre el layout nuevo). 108/108 suites, 817/817 tests. `tsc --noEmit` limpio.
+
+**Segundo ajuste (mismo día, feedback del usuario): el precio como headline "no
+sirve".** El primer intento de reemplazar el `#MOVO-4821` mockeado había usado el
+precio acordado (`agreedPriceArs`) como headline mono — el usuario lo rechazó y
+pidió volver a algo tipo código/ID. `activeShipmentDisplayCode` (nueva,
+`active-shipment-format.ts`) deriva un `#MOVO-XXXXX` determinístico de los últimos 5
+caracteres alfanuméricos del `id` real del envío (UUID) — visualmente igual al mock,
+sin inventar un correlativo que el backend no persiste ni mostrar precio en el lugar
+del código. Solo para mostrar: nunca se usa para identificar el envío contra el
+backend, eso sigue siendo `shipment.id` completo.
+
+Tests: `activeShipmentDisplayCode` en `active-shipment-format.test.ts`
+(determinístico, dos ids distintos dan códigos distintos). 108/108 suites, 820/820
+tests. `tsc --noEmit` limpio.

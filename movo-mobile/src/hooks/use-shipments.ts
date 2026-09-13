@@ -25,6 +25,19 @@ export function useRecentShipments() {
   });
 }
 
+/**
+ * Fuente para "Requiere tu atención" del home operativo (MOVO-193) — página de 20
+ * envíos propios, suficiente para detectar tareas pendientes sin paginar. Query key
+ * propia (no comparte cache con el preview de 3 ni con el listado infinito de "Mis
+ * Envíos") porque el límite es distinto.
+ */
+export function useAttentionSourceShipments() {
+  return useQuery({
+    queryKey: ["shipments", "mine", "attention"],
+    queryFn: () => shipmentsClient.listMine({ page: 1, limit: 20 }),
+  });
+}
+
 /** Crea un envío (wizard de MOVO-83). Invalida el preview de "Envíos recientes" de
  * Inicio y el listado completo de "Mis Envíos" (MOVO-127) para que el envío nuevo
  * aparezca en ambos sin esperar un refetch manual. */
