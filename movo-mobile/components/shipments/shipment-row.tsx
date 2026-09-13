@@ -5,16 +5,16 @@ import type { ShipmentSummary } from "../../src/api/shipments-client";
 import { usePublicProfile } from "../../src/hooks/use-profile";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { getFirstName } from "../../src/lib/profile-format";
-import { formatShipmentRowTime } from "../../src/lib/shipment-format";
+import { formatShipmentRowTime, shipmentStatusLabel } from "../../src/lib/shipment-format";
 import { useAuthStore } from "../../src/store/auth-store";
-import { ShipmentStatusBadge } from "./status-badge";
 
 /**
- * Fila de envío usada por `RecentShipmentsSection` (preview de Home, MOVO-83).
+ * Fila de envío usada por `RecentShipmentsSection` (preview de Home, formato lista, MOVO-113).
  *
- * Diseño 1-b: icono de caja con mini-flecha direccional superpuesta (↑ emisor / ↓ receptor),
- * fondo oscuro para saliente y claro para entrante, título en semibold, timestamp
- * secundario debajo del nombre, y pill de estado alineada a la derecha.
+ * Icono de caja con mini-flecha direccional superpuesta (↑ emisor / ↓ receptor), fondo
+ * oscuro para saliente y claro para entrante, título en semibold, timestamp secundario
+ * debajo del nombre, y estado como texto plano alineado a la derecha (sin pill) — mismo
+ * lenguaje que la fila de una lista nativa, no una card por ítem.
  */
 export function ShipmentRow({
   shipment,
@@ -98,8 +98,10 @@ export function ShipmentRow({
         ) : null}
       </View>
 
-      {/* Pill de estado */}
-      <ShipmentStatusBadge status={shipment.status} isReceiver={isReceiver} />
+      {/* Estado como texto plano, sin pill */}
+      <Text className="ml-2 font-sans text-small text-fg-2">
+        {shipmentStatusLabel(shipment.status, { isReceiver })}
+      </Text>
     </Pressable>
   );
 }

@@ -8,7 +8,6 @@ import { AttentionSection } from '../../../components/home/attention-section';
 import { HomeSendCta } from '../../../components/home/home-send-cta';
 import { RecentShipmentsSection } from '../../../components/home/recent-shipments-section';
 import { RoleSection } from '../../../components/home/role-section';
-import { ViewAllShipmentsLink } from '../../../components/home/view-all-shipments-link';
 import { useReceivingShipments, useSendingShipments } from '../../../src/hooks/use-active-shipments';
 import { useAuth } from '../../../src/hooks/use-auth';
 import { useMyProfile } from '../../../src/hooks/use-profile';
@@ -135,7 +134,6 @@ export default function AuthenticatedHomeScreen() {
         <AttentionSection testID="app-home-attention" />
 
         <RecentShipmentsSection testID="app-home-recent-shipments" />
-        <ViewAllShipmentsLink testID="app-home-view-all-shipments" />
       </ScrollView>
     </View>
   );

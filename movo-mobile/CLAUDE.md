@@ -1361,6 +1361,19 @@ Resuelve el paquete completo de bugs de navegación/KYC y aplica el rediseño de
 
 Tests: 64 suites pasadas / 490 tests totales en verde.
 
+**Fusión posterior con mockup de referencia (mismo ticket, pedido explícito del
+usuario): Actividad Reciente pasa de card a lista.** Se saca el `GradientBorderCard`
+(chrome/sombra) de `recent-shipments-section.tsx` — queda un `View` plano con label +
+línea divisoria fina (`h-px bg-border`) en vez de contenedor con borde/sombra. Se
+mantienen los iconos propios (`ShipmentRow`: caja + flecha direccional superpuesta),
+pero el estado pasa de pill (`ShipmentStatusBadge`) a texto plano alineado a la
+derecha, como en el mockup. `ViewAllShipmentsLink` deja de ser una sección aparte
+debajo (con su propio borde/fondo `bg-sub`) y pasa a ser el último ítem de la misma
+lista, separado por el mismo `border-t` que el resto de las filas — confirmado
+explícitamente con el usuario porque contradecía una decisión ya tomada 2 veces antes
+("no competir con la card de Enviar"): con la card fuera, ya no hay chrome con el que
+competir, así que la objeción original ya no aplicaba.
+
 ### MOVO-150 — Ofertas recibidas: listado, comparación y elección del transportista (`movo-mobile`)
 
 Frontend de MOVO-17 sobre los endpoints de MOVO-144: el emisor consulta las ofertas recibidas sobre su envío publicado, las compara ordenadas por precio o reputación, visualiza el perfil del transportista y confirma la elección o el rechazo de ofertas puntuales.
