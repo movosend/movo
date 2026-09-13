@@ -1,7 +1,9 @@
 import { KycStatus } from '@movo/shared/dist/types/user';
+import { router } from 'expo-router';
 import { useEffect } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ProfileAvatar } from '../../../components/profile/profile-avatar';
 import { AttentionSection } from '../../../components/home/attention-section';
 import { HomeSendCta } from '../../../components/home/home-send-cta';
 import { RecentShipmentsSection } from '../../../components/home/recent-shipments-section';
@@ -16,7 +18,7 @@ import {
   kycStatusIcon,
   kycStatusTone,
 } from '../../../src/lib/kyc-status-ui';
-import { capitalizeName, getFirstName } from '../../../src/lib/profile-format';
+import { capitalizeName, formatGreetingDateLabel, getFirstName } from '../../../src/lib/profile-format';
 import { useAuthStore } from '../../../src/store/auth-store';
 
 /**
@@ -75,14 +77,32 @@ export default function AuthenticatedHomeScreen() {
   // y que resuelva `useMyProfile()`: la sesión de login/refresh (`SessionResponse`,
   // `auth-store.ts`) nunca trajo `firstName` separado, solo `fullName`.
   const firstName = profile?.firstName ? capitalizeName(profile.firstName) : getFirstName(user?.fullName);
+  const fullName = profile?.fullName ? capitalizeName(profile.fullName) : capitalizeName(user?.fullName);
+  const dateLabel = formatGreetingDateLabel(new Date());
 
   return (
     <View className="flex-1 bg-bg">
       <SafeAreaView className="border-b border-border bg-bg-sub" edges={['top']}>
-        <View className="px-6 pb-4 pt-3">
-          <Text testID="app-home-welcome" className="font-sans-semibold text-title text-fg">
-            Hola{firstName ? `, ${firstName}` : ''}
-          </Text>
+        <View className="flex-row items-center justify-between px-6 pb-4 pt-3">
+          <View className="flex-1 pr-4">
+            <Text
+              testID="app-home-date"
+              className="font-sans text-[12px] tracking-wider text-fg-3"
+            >
+              {dateLabel}
+            </Text>
+            <Text testID="app-home-welcome" className="font-sans-semibold text-title text-fg">
+              Hola{firstName ? `, ${firstName}` : ''}
+            </Text>
+          </View>
+          <Pressable
+            testID="app-home-avatar"
+            onPress={() => router.push('/profile')}
+            accessibilityRole="button"
+            accessibilityLabel="Ir a Mi perfil"
+          >
+            <ProfileAvatar fullName={fullName} photoUrl={profile?.photoUrl ?? null} size={44} />
+          </Pressable>
         </View>
       </SafeAreaView>
 

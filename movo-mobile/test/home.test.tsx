@@ -1,5 +1,6 @@
 import { KycStatus } from "@movo/shared/dist/types/user";
-import { render } from "@testing-library/react-native";
+import { fireEvent, render } from "@testing-library/react-native";
+import { router } from "expo-router";
 import AuthenticatedHomeScreen from "../app/(app)/(tabs)/home";
 
 jest.mock("expo-router", () => ({
@@ -68,6 +69,16 @@ describe("AuthenticatedHomeScreen", () => {
     expect(getByTestId("app-home-welcome")).toHaveTextContent("Hola, Martina");
     expect(getByTestId("app-home-send-cta")).toBeTruthy();
     expect(getByText("Coordiná un envío con un transportista verificado")).toBeTruthy();
+  });
+
+  it("muestra la fecha del día y navega a Mi perfil al tocar el avatar", async () => {
+    const { getByTestId } = await render(<AuthenticatedHomeScreen />);
+
+    expect(getByTestId("app-home-date")).toBeTruthy();
+
+    fireEvent.press(getByTestId("app-home-avatar"));
+
+    expect(router.push).toHaveBeenCalledWith("/profile");
   });
 
   it("muestra la sección de actividad reciente", async () => {

@@ -1,5 +1,6 @@
 import {
   capitalizeName,
+  formatGreetingDateLabel,
   formatReputationScore,
   formatShipmentCount,
   formatTripCount,
@@ -21,6 +22,15 @@ describe("profile-format", () => {
       [3, "3 envíos"],
     ])("formatShipmentCount(%p) === %p", (input, expected) => {
       expect(formatShipmentCount(input)).toBe(expected);
+    });
+  });
+
+  describe("formatGreetingDateLabel", () => {
+    it("formatea el día en mayúsculas, sin año, estilo eyebrow del header de Inicio", () => {
+      // Lunes 8 de septiembre de 2025 (UTC-3, dentro del mismo día en Argentina).
+      const date = new Date("2025-09-08T12:00:00-03:00");
+
+      expect(formatGreetingDateLabel(date)).toBe("LUNES, 8 DE SEPTIEMBRE");
     });
   });
 
