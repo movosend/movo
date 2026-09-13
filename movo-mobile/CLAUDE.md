@@ -2014,3 +2014,28 @@ backend, eso sigue siendo `shipment.id` completo.
 Tests: `activeShipmentDisplayCode` en `active-shipment-format.test.ts`
 (determinístico, dos ids distintos dan códigos distintos). 108/108 suites, 820/820
 tests. `tsc --noEmit` limpio.
+
+**Galería de dev del home operativo (mismo día, pedido del usuario)**: sin MOVO-192
+(backend) es imposible llegar a la mayoría de estos estados a mano. `app/
+dev-home-operativo.tsx` → `components/dev/HomeOperativoGalleryScreen.tsx` (mismo
+patrón que `/dev-tokens`/`/dev-connection`, sin link desde la app — se navega
+escribiendo la URL en el dev client), fixtures en `src/dev/home-operativo-fixtures.ts`.
+
+- **Reusa los componentes reales** (`RoleSection`, `HomeSendCta`,
+  `AttentionTaskList`), no los reimplementa — cero riesgo de que la galería se
+  desincronice del home real.
+- **`AttentionSection` se partió en dos** (`AttentionTaskList`, presentacional puro +
+  `AttentionSection`, wrapper que llama a `useAttentionTasks()`): la galería necesitaba
+  pasarle tareas fixture sin pasar por el hook real (que pega contra
+  `GET /shipments/mine`).
+- **Un fixture por cada combinación relevante del AC5** (assigned_unfunded/assigned/
+  in_transit × "Hoy"/"Ventana vencida"), no un solo ejemplo feliz — toggle "Con
+  datos"/"Sin envíos activos" para ver también el caso vacío (AC2/AC9).
+- **`RecentShipmentsSection`/`ViewAllShipmentsLink` (MOVO-83/113) no se replican**: son
+  hook-driven sin forma de inyectarles fixtures y no son parte de lo que construyó
+  esta US — nota explícita en la pantalla en vez de fingir datos o dejar un error de
+  red silencioso.
+
+Tests: `home-operativo-gallery-screen.test.tsx` (con datos, sin datos, CTA visible) —
+primer test de un screen de `components/dev/` en el repo (los otros dos no tenían).
+109/109 suites, 823/823 tests. `tsc --noEmit` limpio.

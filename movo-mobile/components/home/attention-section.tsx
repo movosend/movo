@@ -1,13 +1,14 @@
 import { Pressable, Text, View } from "react-native";
+import type { AttentionTask } from "../../src/hooks/use-attention-tasks";
 import { useAttentionTasks } from "../../src/hooks/use-attention-tasks";
 
 /**
- * "Requiere tu atención" (MOVO-193): interacciones que dependen de otra persona, no
- * del estado propio del envío en curso — ver `use-attention-tasks.ts` para qué se
- * deriva hoy y qué queda pendiente de un endpoint nuevo. Sin tareas, no se renderiza.
+ * Parte presentacional de "Requiere tu atención" (MOVO-193) — separada de
+ * `AttentionSection` para poder reusarla desde `app/dev-home-operativo.tsx` (galería
+ * de estados) con tareas fixture, sin duplicar el markup ni pasar por el hook real.
+ * Sin tareas, no se renderiza.
  */
-export function AttentionSection({ testID }: { testID?: string }) {
-  const { tasks } = useAttentionTasks();
+export function AttentionTaskList({ tasks, testID }: { tasks: AttentionTask[]; testID?: string }) {
   if (tasks.length === 0) return null;
 
   return (
@@ -39,4 +40,14 @@ export function AttentionSection({ testID }: { testID?: string }) {
       ))}
     </View>
   );
+}
+
+/**
+ * "Requiere tu atención" (MOVO-193): interacciones que dependen de otra persona, no
+ * del estado propio del envío en curso — ver `use-attention-tasks.ts` para qué se
+ * deriva hoy y qué queda pendiente de un endpoint nuevo.
+ */
+export function AttentionSection({ testID }: { testID?: string }) {
+  const { tasks } = useAttentionTasks();
+  return <AttentionTaskList tasks={tasks} testID={testID} />;
 }

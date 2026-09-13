@@ -290,6 +290,13 @@ export default function DevTokensScreen() {
         <Link href="/dev-connection" className="font-sans text-small text-fg-3 underline" testID="dev-tokens-go-connection">
           Ver conexión al backend →
         </Link>
+        <Link
+          href="/dev-home-operativo"
+          className="mt-2 font-sans text-small text-fg-3 underline"
+          testID="dev-tokens-go-home-operativo"
+        >
+          Ver galería de home operativo (MOVO-193) →
+        </Link>
       </ScrollView>
     </View>
   );
