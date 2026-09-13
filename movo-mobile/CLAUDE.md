@@ -1296,6 +1296,104 @@ distinta del envío descarta un viaje con geometría de paso; un `departureAt` d
 madrugada UTC que cae la noche anterior en Argentina sigue matcheando el día
 correcto. `tsc --noEmit` limpio.
 
+### MOVO-223 — Rediseño de la ficha/selector de auto y su integración con declarar viaje
+
+Implementación fiel a un prototipo interactivo de Claude Design ("Ficha de vehículo")
+sobre el atomic-form de MOVO-172 (`app/(app)/vehicle-info.tsx`), que reemplaza la
+carga 100% libre de marca/modelo/capacidad por un selector con catálogo argentino y
+volumen estándar por modelo, más la integración con "Declarar viaje" (MOVO-162).
+
+- **Catálogo estático en el mobile, decisión tomada con el usuario**: no existe
+  ningún catálogo de referencia en ningún servicio del monorepo hoy, y el volumen de
+  datos (10 marcas, ~50 modelos) es chico y cambia poco — no justifica una
+  tabla/endpoint nuevo en `movo-svc-users` para un ticket de 2 puntos. **El backend
+  no necesitó ningún cambio**: `VehicleProfile` (`brand`/`model`/`cargoCapacityLabel`/
+  `licensePlate`, todos `string`) ya era compatible con lo que pide MOVO-223 — el
+  mobile simplemente le manda ahora valores que salen del catálogo
+  (`src/data/vehicle-catalog.ts`) en vez de texto libre del usuario.
+  `cargoCapacityLabel` sigue siendo el único campo persistido para el volumen (no
+  hay columna de tier); al recargar una ficha, `tierFromLabel`/`draftFromVehicle`
+  reconstruyen el tier/segmento matcheando contra el catálogo, con fallback a un
+  tier "?" para fichas viejas de MOVO-172 con texto libre que no matchea nada.
+- **Pantalla rehecha como wizard de pasos** (`empty → brand → model/manual → plate →
+  view/edit`), reemplazando el formulario atómico de 4 campos — sigue siendo el mismo
+  archivo (`vehicle-info.tsx`), no una ruta nueva. `PlateInput`/`TierPicker`/
+  `BrandAvatar` nuevos en `components/vehicle/`; `src/lib/plate-format.ts` (puro,
+  testeado aparte) para detección/máscara/validación Mercosur vs. formato anterior.
+- **"Eliminar vehículo" del mockup, omitido a propósito**: no existe ningún
+  `DELETE /users/me/vehicle` en `movo-svc-users` (solo `GET`/`PUT` upsert de
+  MOVO-172) — mismo criterio que el resto del repo de no exponer una acción que el
+  backend siempre va a rechazar o que no tiene a dónde ir. Si se necesita en el
+  futuro, es un ticket de backend aparte.
+- **Logos de marca reales** (`src/lib/vehicle-brand-icons.ts`, `assets/car-brands/`):
+  el mockup en sí usa un círculo con iniciales (`BrandAvatar`), no logos — el usuario
+  aportó los PNG (con canal alfa real) para las 19 marcas del catálogo final. Metro no
+  soporta `require()` con rutas dinámicas, así que cada logo tiene su propia línea
+  explícita en el mapa — sumar una marca nueva implica agregar el archivo (slug en
+  minúsculas sin tildes, guiones se conservan) y esa línea; sin entrada, `BrandAvatar`
+  cae sola a las iniciales, nunca rompe.
+- **Catálogo ampliado post-review del usuario** (`src/data/vehicle-catalog.ts`): de 10
+  a 19 marcas y de 5 a 6 tiers (`XXXL` nuevo, para furgones grandes tipo Sprinter/
+  Master/Ducato) — cubre además parque usado además de 0km (ACARA) y utilitarios de
+  carga. Mismo *shape* de datos, sin tocar ningún tipo/helper. El único ajuste de
+  código que forzó fue de UI: los badges de tier eran cuadrados de ancho fijo (`w-*`,
+  pensados para ids de 2-3 caracteres) — con `XXXL` (4 caracteres) se cortaban.
+  Cambiados a `min-w-*` + padding horizontal en los 5 lugares donde aparecen
+  (`TierPicker`, badge de modelo, los dos badges de "Volumen de carga" de la ficha, el
+  badge de la card de "Declarar viaje").
+- **Esquinas cuadradas en cards con franja de color + bloque debajo** (bug de RN, no
+  del diseño): un `View` con `overflow-hidden` + esquinas redondeadas no siempre
+  recorta bien el fondo sólido de un hijo interno (más frecuente en Android) — la
+  esquina del bloque de arriba/abajo se ve cuadrada en vez de seguir la curva del
+  contenedor. Se corrigió redondeando cada bloque interno explícitamente (radio del
+  contenedor menos el grosor del borde) en los 3 lugares con esa estructura: la card
+  "Seleccionado automáticamente" de Declarar viaje, la card oscura "Vehículo
+  verificado" de la ficha, y el recuadro de "Volumen de carga" (con su estado
+  expandido/colapsado).
+- **Integración con "Declarar viaje" (`components/trips/trip-form.tsx`, AC4)**: el
+  `SelectField` fijo de `vehicleType` (`["Auto","Camioneta","Moto","Camión"]`,
+  MOVO-162) se reemplazó por la ficha de vehículo real vía `useMyVehicle()` — con
+  auto registrado, una card "Seleccionado automáticamente" (marca+modelo+patente+
+  tier); sin auto, un cartel "Necesitás una ficha de vehículo" que navega directo a
+  `/vehicle-info` (mismo criterio de "no prometer una salida que no existe" ya
+  documentado en MOVO-162 AC4). `vehicleType` que viaja a
+  `POST/PATCH /trips` pasa a ser `"${brand} ${model}"` derivado del vehículo, ya no
+  texto elegido a mano — sigue siendo un `string` libre del lado del backend, sin
+  cambios de contrato. `isValid` del formulario ahora exige también `!!vehicle`.
+  `TripFormInitialValues` perdió el campo `vehicleType` (ya no aplica, con un solo
+  auto por usuario el valor siempre sale de la ficha, nunca del viaje que se edita).
+  La card de "Seleccionado automáticamente" suma el `BrandAvatar` (logo/iniciales de
+  la marca) junto al badge de tier, a pedido del usuario — antes solo mostraba texto.
+- **Selector de fecha/hora de salida de `DepartureDateTimePicker`, reescrito**: la
+  primera versión de este ticket seguía el patrón ya existente en el repo
+  (`TimeWindowPicker`) de `display="compact"` de iOS inline junto a un label propio —
+  pero acá van dos campos lado a lado a mitad de fila, y el ancho mínimo intrínseco
+  del widget nativo no se achica lo suficiente ahí (quedaba superpuesto/cortado con el
+  ícono+texto, "no se ven bien"). Un segundo intento lo puso invisible
+  (`opacity` chico) superpuesto sobre un pill propio — mejoraba lo visual, pero el
+  área que ese control nativo reconoce como toque es su propio tamaño intrínseco
+  (chico, centrado), no el `100%` del `style` absoluto que lo envolvía, así que solo
+  una porción chica del pill abría el selector. La versión final abandona el widget
+  compacto inline: el `Pressable` de todo el pill (mismo criterio que ya usa Android)
+  abre una hoja inferior (mismo patrón `Modal`+`useSheetAnimation` que
+  `select-field.tsx`) con un `DateTimePicker` `display="spinner"` real, visible y
+  centrado adentro, más botón "Listo". Android no se tocó en ninguna vuelta (el
+  diálogo imperativo ya usaba el pill entero como área de toque, sin este problema).
+- **Texto explicativo agregado en "Declarar viaje"** (`new.tsx`, pedido del usuario):
+  una línea debajo del header explicando para qué sirve declarar un viaje, mismo
+  estilo que ya usa "Mis viajes" para su propia explicación.
+
+Tests nuevos: `test/plate-format.test.ts` (detección de formato, máscara posición por
+posición, validación completa), casos reescritos en `test/vehicle-info-screen.test.tsx`
+(flujo completo por catálogo, búsqueda de marca, carga manual, errores de patente,
+ficha ya registrada, edición), en `test/trip-form.test.tsx` (auto-selección desde la
+ficha, cartel de registro sin vehículo) y en `test/departure-date-time-picker.test.tsx`
+(reescrito para el flujo de hoja inferior en iOS). 104/104 suites, 806/806 tests en
+`movo-mobile`. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: no probado en device; `DELETE /users/me/vehicle` (si se
+decide ofrecer "eliminar vehículo" de verdad) queda como ticket de backend aparte.
+
 ### Pendientes de este paquete
 
 - **`eas init`/development build real en dispositivo**: pendiente para probar de
