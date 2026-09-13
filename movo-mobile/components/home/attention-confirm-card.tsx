@@ -45,7 +45,7 @@ export function AttentionConfirmCard({
   };
 
   return (
-    <View className="gap-3 rounded-[16px] border border-border bg-bg-sub p-4">
+    <View className="gap-3 rounded-[16px] border border-border bg-bg p-4">
       <Pressable testID={testID} onPress={task.onPress} className="flex-row items-center gap-3">
         <View className="h-11 w-11 items-center justify-center rounded-full bg-bg-mute">
           <Inbox size={20} color={colors.fg2} strokeWidth={1.8} />

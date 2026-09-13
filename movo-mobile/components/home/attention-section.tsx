@@ -11,7 +11,7 @@ function AttentionInfoCard({ task, testID }: { task: AttentionInfoTask; testID?:
     <Pressable
       testID={testID}
       onPress={task.onPress}
-      className="flex-row items-center gap-3 rounded-[16px] border border-border bg-bg-sub p-4"
+      className="flex-row items-center gap-3 rounded-[16px] border border-border bg-bg p-4"
     >
       <View className="h-11 w-11 items-center justify-center rounded-full bg-bg-mute">
         <XCircle size={20} color={colors.fg2} strokeWidth={1.8} />
