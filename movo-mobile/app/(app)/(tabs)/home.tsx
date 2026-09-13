@@ -1,10 +1,14 @@
 import { KycStatus } from '@movo/shared/dist/types/user';
+import { router } from 'expo-router';
 import { useEffect } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ProfileAvatar } from '../../../components/profile/profile-avatar';
+import { AttentionSection } from '../../../components/home/attention-section';
 import { HomeSendCta } from '../../../components/home/home-send-cta';
 import { RecentShipmentsSection } from '../../../components/home/recent-shipments-section';
-import { ViewAllShipmentsLink } from '../../../components/home/view-all-shipments-link';
+import { RoleSection } from '../../../components/home/role-section';
+import { useReceivingShipments, useSendingShipments } from '../../../src/hooks/use-active-shipments';
 import { useAuth } from '../../../src/hooks/use-auth';
 import { useMyProfile } from '../../../src/hooks/use-profile';
 import { useThemeColors } from '../../../src/hooks/use-theme-colors';
@@ -13,7 +17,7 @@ import {
   kycStatusIcon,
   kycStatusTone,
 } from '../../../src/lib/kyc-status-ui';
-import { capitalizeName, getFirstName } from '../../../src/lib/profile-format';
+import { capitalizeName, formatGreetingDateLabel, getFirstName } from '../../../src/lib/profile-format';
 import { useAuthStore } from '../../../src/store/auth-store';
 
 /**
@@ -21,10 +25,18 @@ import { useAuthStore } from '../../../src/store/auth-store';
  * tipo navbar nativo (fondo `bg-sub` propio + separador, distinto del `bg` del
  * contenido scrolleable — jerarquía visual, no un `ScrollView` uniforme de punta a
  * punta) con saludo (solo primer nombre — el completo queda para Perfil, que tiene más
- * espacio) + banner de KYC, y debajo CTA primaria "Enviar un paquete" y actividad
- * reciente de envíos propios. El wizard de creación en sí (`/send`) es un ticket
- * aparte — acá solo se resuelve el punto de entrada, bloqueado hasta que el KYC de
- * identidad esté aprobado (mismo criterio que ya usaba el banner).
+ * espacio) + banner de KYC, y debajo: envíos activos por rol (MOVO-193), CTA primaria
+ * "Enviar un paquete", tareas pendientes ("Requiere tu atención", MOVO-193) y
+ * actividad reciente de envíos propios. El wizard de creación en sí (`/send`) es un
+ * ticket aparte — acá solo se resuelve el punto de entrada, bloqueado hasta que el
+ * KYC de identidad esté aprobado (mismo criterio que ya usaba el banner).
+ *
+ * MOVO-193: "Estoy enviando"/"Voy a recibir" (`RoleSection`) consumen `GET
+ * /shipments/sending`/`/receiving` (MOVO-192, todavía sin backend — ver
+ * `ActiveShipmentSummary` en `shipments-client.ts`); mientras no exista, esas
+ * queries fallan y las secciones no se renderizan. "Estoy transportando" queda para
+ * una fase 2 de esta misma US (layout distinto, card de viaje agregado, depende de
+ * MOVO-206).
  */
 const KYC_BANNER_TEXT: Partial<Record<KycStatus, string>> = {
   [KycStatus.NOT_STARTED]: 'Todavía no verificaste tu identidad. Mientras tanto, tu acceso está restringido.',
@@ -41,6 +53,8 @@ export default function AuthenticatedHomeScreen() {
   const { user } = useAuth();
   const { data: profile } = useMyProfile();
   const colors = useThemeColors();
+  const { data: sending } = useSendingShipments();
+  const { data: receiving } = useReceivingShipments();
 
   // El perfil fresco del backend prevalece sobre el snapshot estático del login
   const currentKycStatus = profile?.kycStatus ?? user?.kycStatus;
@@ -62,14 +76,32 @@ export default function AuthenticatedHomeScreen() {
   // y que resuelva `useMyProfile()`: la sesión de login/refresh (`SessionResponse`,
   // `auth-store.ts`) nunca trajo `firstName` separado, solo `fullName`.
   const firstName = profile?.firstName ? capitalizeName(profile.firstName) : getFirstName(user?.fullName);
+  const fullName = profile?.fullName ? capitalizeName(profile.fullName) : capitalizeName(user?.fullName);
+  const dateLabel = formatGreetingDateLabel(new Date());
 
   return (
     <View className="flex-1 bg-bg">
       <SafeAreaView className="border-b border-border bg-bg-sub" edges={['top']}>
-        <View className="px-6 pb-4 pt-3">
-          <Text testID="app-home-welcome" className="font-sans-semibold text-title text-fg">
-            Hola{firstName ? `, ${firstName}` : ''}
-          </Text>
+        <View className="flex-row items-center justify-between px-6 pb-4 pt-3">
+          <View className="flex-1 pr-4">
+            <Text
+              testID="app-home-date"
+              className="font-sans text-[12px] tracking-wider text-fg-3"
+            >
+              {dateLabel}
+            </Text>
+            <Text testID="app-home-welcome" className="font-sans-semibold text-title text-fg">
+              Hola{firstName ? `, ${firstName}` : ''}
+            </Text>
+          </View>
+          <Pressable
+            testID="app-home-avatar"
+            onPress={() => router.push('/profile')}
+            accessibilityRole="button"
+            accessibilityLabel="Ir a Mi perfil"
+          >
+            <ProfileAvatar fullName={fullName} photoUrl={profile?.photoUrl ?? null} size={44} />
+          </Pressable>
         </View>
       </SafeAreaView>
 
@@ -84,10 +116,24 @@ export default function AuthenticatedHomeScreen() {
           </View>
         ) : null}
 
+        <RoleSection
+          testID="app-home-sending"
+          title="Estoy enviando"
+          role="sending"
+          shipments={sending ?? []}
+        />
+        <RoleSection
+          testID="app-home-receiving"
+          title="Voy a recibir"
+          role="receiving"
+          shipments={receiving ?? []}
+        />
+
         <HomeSendCta testID="app-home-send-cta" kycStatus={currentKycStatus} />
 
+        <AttentionSection testID="app-home-attention" />
+
         <RecentShipmentsSection testID="app-home-recent-shipments" />
-        <ViewAllShipmentsLink testID="app-home-view-all-shipments" />
       </ScrollView>
     </View>
   );

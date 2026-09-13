@@ -539,6 +539,26 @@ export function formatReceiverConfirmationDeadline(
   return `Te quedan ${hours} h para confirmar`;
 }
 
+/** Versión corta de `formatReceiverConfirmationDeadline` ("vence en N h") para
+ * espacios densos donde no entra la frase completa, como la card de "Requiere tu
+ * atención" de Inicio (MOVO-193). */
+export function receiverConfirmationDeadlineShortLabel(
+  deadlineIso: string | null | undefined,
+  now: Date = new Date(),
+): string | null {
+  if (!deadlineIso) return null;
+  const deadlineDate = new Date(deadlineIso);
+  const timeMs = deadlineDate.getTime();
+  if (Number.isNaN(timeMs)) return null;
+
+  const diffMs = timeMs - now.getTime();
+  if (diffMs <= 0) return null;
+
+  const hours = Math.ceil(diffMs / (1000 * 60 * 60));
+  if (hours <= 0) return null;
+  return `vence en ${hours} h`;
+}
+
 /**
  * Fracción de tiempo RESTANTE (1 = recién creado, 0 = deadline ya vencido) para la
  * barra de progreso del slider de confirmación del receptor (MOVO-154, diseño de

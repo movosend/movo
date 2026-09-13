@@ -1361,6 +1361,19 @@ Resuelve el paquete completo de bugs de navegación/KYC y aplica el rediseño de
 
 Tests: 64 suites pasadas / 490 tests totales en verde.
 
+**Fusión posterior con mockup de referencia (mismo ticket, pedido explícito del
+usuario): Actividad Reciente pasa de card a lista.** Se saca el `GradientBorderCard`
+(chrome/sombra) de `recent-shipments-section.tsx` — queda un `View` plano con label +
+línea divisoria fina (`h-px bg-border`) en vez de contenedor con borde/sombra. Se
+mantienen los iconos propios (`ShipmentRow`: caja + flecha direccional superpuesta),
+pero el estado pasa de pill (`ShipmentStatusBadge`) a texto plano alineado a la
+derecha, como en el mockup. `ViewAllShipmentsLink` deja de ser una sección aparte
+debajo (con su propio borde/fondo `bg-sub`) y pasa a ser el último ítem de la misma
+lista, separado por el mismo `border-t` que el resto de las filas — confirmado
+explícitamente con el usuario porque contradecía una decisión ya tomada 2 veces antes
+("no competir con la card de Enviar"): con la card fuera, ya no hay chrome con el que
+competir, así que la objeción original ya no aplicaba.
+
 ### MOVO-150 — Ofertas recibidas: listado, comparación y elección del transportista (`movo-mobile`)
 
 Frontend de MOVO-17 sobre los endpoints de MOVO-144: el emisor consulta las ofertas recibidas sobre su envío publicado, las compara ordenadas por precio o reputación, visualiza el perfil del transportista y confirma la elección o el rechazo de ofertas puntuales.
@@ -1942,6 +1955,188 @@ pantalla) — mismo patrón ya aceptado para `useAvailableShipments`/`useMyShipm
 ninguna de esas hooks tiene tampoco un test dedicado; evaluado con el usuario y
 descartado sumar uno para no romper la convención existente por una cobertura
 incidental.
+
+### MOVO-193 (fase 1) — Home operativo: envíos activos por rol y "Requiere tu atención"
+
+Frontend de `MOVO-191`, implementado contra un mock de `MOVO-192` (backend Todo, se
+dejó comentario con el contrato propuesto en Linear). `home.tsx` suma, sobre un
+prototipo de Claude Design: `RoleSection`/`ActiveShipmentCard` ("Estoy enviando"/"Voy
+a recibir", `use-active-shipments.ts` + `ActiveShipmentSummary` en
+`shipments-client.ts`) y `AttentionSection` ("Requiere tu atención",
+`use-attention-tasks.ts`, derivado 100% de `GET /shipments/mine` sin fabricar datos).
+
+- **Sin estado "llegando"/ETA de proximidad** (el prototipo lo tenía) — requiere
+  tracking en vivo (MOVO-203/MOVO-11), fuera del contrato de MOVO-192.
+- **"Estoy transportando" queda para una fase 2** de esta misma US: layout distinto
+  (card de viaje agregado, no una card por envío — ver prototipo "Viaje del
+  transportista"), depende de MOVO-206.
+- **"Requiere tu atención" solo cubre dos casos reales** (receptor con envío
+  `awaiting_receiver_confirmation`, emisor con `rejected_by_receiver`) — "ofertas
+  nuevas" y "calificaciones pendientes" quedaron afuera por falta de backend
+  (N+1 el primero, sin endpoint el segundo — se abrió `MOVO-222` para éste).
+- Los CTA de la matriz del AC5 (`activeShipmentCta` en `active-shipment-format.ts`)
+  muestran un aviso "Muy pronto" en vez de navegar: `MOVO-159`/`MOVO-160` (pantallas
+  de handshake) siguen en Todo, mismo criterio que MOVO-183.
+
+Tests nuevos: `active-shipment-format.test.ts`, `active-shipment-card.test.tsx`,
+`role-section.test.tsx`, `attention-section.test.tsx`, `use-attention-tasks.test.ts`,
+casos agregados a `home.test.tsx`. 108/108 suites, 813/813 tests. `tsc --noEmit`
+limpio.
+
+Pendiente / fuera de alcance: fase 2 (transportista); `MOVO-222`; no probado en
+device; sin mock local en runtime para desarrollar contra la app corriendo de punta a
+punta mientras `MOVO-192` no exista (solo mockeado en tests).
+
+**Ajuste de fidelidad visual (mismo día, pedido explícito del usuario: "quiero que la
+UI quede exactamente igual" al prototipo).** `active-shipment-card.tsx` rehecho como
+réplica 1:1 de la estructura de la live card del `.dc.html` (antes era una versión
+simplificada con los tokens genéricos del repo): encabezado con precio en
+`font-mono-semibold` + contraparte, pill de estado, **stepper de 4 pasos fijos**
+(Retiro/En camino/Llegando/Entrega, iconos `MapPin`/`Route`/`Package`/`Flag` de
+`lucide-react-native`, ya usados en otras pantallas) y franja de retiro/entrega en dos
+columnas.
+
+- **Solo 2 skins, no las 4 del prototipo**: "chrome"/"titanio"/"lime"/"ink" eran una
+  exploración de tonos del propio diseño, no estados de negocio — se usa "chrome" (el
+  default del prototipo) para `assigned`/`in_transit` y "papel" (`proximo` en el
+  prototipo) para `assigned_unfunded`. Colores fuera de la escala de tokens del repo
+  (los del `skin()` del prototipo, ej. `rgba(10,10,11,0.14)`) quedan como constantes
+  locales del componente (`CHROME`), documentado en el comentario del archivo.
+- **El stepper nunca marca "Llegando" como paso actual** (`activeShipmentStepIndex`,
+  `active-shipment-format.ts`): sin tracking en vivo (MOVO-203/MOVO-11) no hay señal
+  de proximidad — `in_transit` avanza solo hasta "En camino".
+- **`activeShipmentFooterText` nueva**: la frase de la fila inferior (junto al CTA
+  cuando existe) se genera con datos reales (rol, nombre de la contraparte, estado),
+  nunca un horario/ETA inventado.
+
+Tests: casos nuevos en `active-shipment-format.test.ts`
+(`activeShipmentFooterText`/`activeShipmentStepIndex`); `active-shipment-card.test.tsx`
+sin cambios de aserciones (sigue verificando contraparte/estado/CTA/badges, ahora
+sobre el layout nuevo). 108/108 suites, 817/817 tests. `tsc --noEmit` limpio.
+
+**Segundo ajuste (mismo día, feedback del usuario): el precio como headline "no
+sirve".** El primer intento de reemplazar el `#MOVO-4821` mockeado había usado el
+precio acordado (`agreedPriceArs`) como headline mono — el usuario lo rechazó y
+pidió volver a algo tipo código/ID. `activeShipmentDisplayCode` (nueva,
+`active-shipment-format.ts`) deriva un `#MOVO-XXXXX` determinístico de los últimos 5
+caracteres alfanuméricos del `id` real del envío (UUID) — visualmente igual al mock,
+sin inventar un correlativo que el backend no persiste ni mostrar precio en el lugar
+del código. Solo para mostrar: nunca se usa para identificar el envío contra el
+backend, eso sigue siendo `shipment.id` completo.
+
+Tests: `activeShipmentDisplayCode` en `active-shipment-format.test.ts`
+(determinístico, dos ids distintos dan códigos distintos). 108/108 suites, 820/820
+tests. `tsc --noEmit` limpio.
+
+**Galería de dev del home operativo (mismo día, pedido del usuario)**: sin MOVO-192
+(backend) es imposible llegar a la mayoría de estos estados a mano. `app/
+dev-home-operativo.tsx` → `components/dev/HomeOperativoGalleryScreen.tsx` (mismo
+patrón que `/dev-tokens`/`/dev-connection`, sin link desde la app — se navega
+escribiendo la URL en el dev client), fixtures en `src/dev/home-operativo-fixtures.ts`.
+
+- **Reusa los componentes reales** (`RoleSection`, `HomeSendCta`,
+  `AttentionTaskList`), no los reimplementa — cero riesgo de que la galería se
+  desincronice del home real.
+- **`AttentionSection` se partió en dos** (`AttentionTaskList`, presentacional puro +
+  `AttentionSection`, wrapper que llama a `useAttentionTasks()`): la galería necesitaba
+  pasarle tareas fixture sin pasar por el hook real (que pega contra
+  `GET /shipments/mine`).
+- **Un fixture por cada combinación relevante del AC5** (assigned_unfunded/assigned/
+  in_transit × "Hoy"/"Ventana vencida"), no un solo ejemplo feliz — toggle "Con
+  datos"/"Sin envíos activos" para ver también el caso vacío (AC2/AC9).
+- **`RecentShipmentsSection`/`ViewAllShipmentsLink` (MOVO-83/113) no se replican**: son
+  hook-driven sin forma de inyectarles fixtures y no son parte de lo que construyó
+  esta US — nota explícita en la pantalla en vez de fingir datos o dejar un error de
+  red silencioso.
+
+Tests: `home-operativo-gallery-screen.test.tsx` (con datos, sin datos, CTA visible) —
+primer test de un screen de `components/dev/` en el repo (los otros dos no tenían).
+109/109 suites, 823/823 tests. `tsc --noEmit` limpio.
+
+**Fixes de fidelidad visual encontrados con la galería (mismo día, feedback del
+usuario mirando `/dev-home-operativo` en device):**
+
+- **Código del encabezado no era numérico**: `activeShipmentDisplayCode` sacaba los
+  últimos 5 caracteres alfanuméricos del `id` (podían salir letras, ej. `#MOVO-EDHOY`
+  con un fixture sin dígitos) — el mock siempre usa `#MOVO-4821` numérico. Ahora saca
+  solo dígitos (`id.replace(/\D/g, "")`) y rellena con ceros a la izquierda si el
+  `id` no tiene 5. Los fixtures de la galería (`home-operativo-fixtures.ts`)
+  ganaron un sufijo numérico en el `id` — sin dígitos, todos mostraban el mismo
+  `#MOVO-00000`.
+- **La card metálica (`assigned`/`in_transit`) no se veía elevada**: la sombra estaba
+  declarada pero `GradientBorderCard` no tenía ningún `backgroundColor` propio (solo
+  el gradiente) — en iOS, una vista sin fondo opaco no calcula sombra. Se agregó
+  `backgroundColor` explícito (cubierto por el gradiente, invisible) al mismo style
+  que ya traía la sombra.
+- **La línea del stepper se superponía a los íconos**: la barra conectora vivía
+  DENTRO de la columna del paso siguiente con un offset negativo (`left:-50%`, truco
+  de CSS del mock) — en React Native el orden de pintado entre hermanos es por
+  posición en el árbol, no por capas de "elementos posicionados" como en CSS, así que
+  la barra de la columna N+1 pintaba ENCIMA del nodo de la columna N en vez de quedar
+  detrás. Reestructurado para que nodo y barra sean hermanos directos en flujo normal
+  (`Fragment` alternando `<bar flex:1>`/`<nodo ancho fijo>`), sin overlap posible
+  estructuralmente, sin importar orden de pintado.
+- **Retiro/Entrega no se veían alineados**: la fila usaba `items-end` (alinear por
+  abajo) — como "Entrega" tiene una línea menos que "Retiro" (sin dato de horario de
+  entrega en el contrato de MOVO-192, que solo trae ventana de retiro), alinear por
+  abajo dejaba el domicilio de "Entrega" pegado contra la fila de horario de
+  "Retiro" en vez de contra su propio eyebrow. Cambiado a `items-start`.
+
+Tests: sin cambios de aserciones (los tests ya verificaban contenido, no posición
+exacta) — `active-shipment-format.test.ts` sigue cubriendo `activeShipmentDisplayCode`
+con el mismo caso (el UUID de ejemplo ya solo tenía dígitos coincidentes en el
+sufijo). 109/109 suites, 823/823 tests. `tsc --noEmit` limpio.
+
+**Rediseño de "Requiere tu atención" (mismo día, feedback del usuario mirando la
+sección real): sin ícono/formato de card y sin acción inline.** `AttentionTaskList`
+(`attention-section.tsx`) suma ícono en círculo por tipo de tarea (`Inbox`/`XCircle`
+de lucide, mismo lenguaje que `HomeSendCta`) y separa `onPress` (navega al detalle,
+toda la card salvo los botones) de la acción de cada botón — la tarea de
+confirmación (`awaiting_receiver_confirmation`) gana botones reales
+"Rechazar"/"Aceptar" que resuelven la acción sin salir de Inicio. El título usa el
+nombre real del emisor (`usePublicProfiles(senderId)`, "Julia te quiere enviar un
+paquete") en vez del genérico "Tenés un envío para confirmar" (fallback mientras el
+perfil no cargó). `receiverConfirmationDeadlineShortLabel` nueva en
+`shipment-format.ts` ("vence en N h") para el `meta` denso de la card. La tarea de
+`rejected_by_receiver` sigue con un solo botón ("Ver envío"), sin cambios de
+comportamiento.
+
+**Segunda vuelta, mismo día (feedback explícito del usuario): "para el aceptar o
+rechazar deberíamos usar el sheet específico que se diseñó para esa función, que se
+usa desde la página de detalle"** — la primera versión resolvía la confirmación con
+un `Alert.alert` genérico; se descartó por completo a favor de reusar el sheet real.
+
+- **`ShipmentConfirmationSheets` nuevo** (`components/shipments/
+  shipment-confirmation-sheets.tsx`), extraído 1:1 de `ReceiverActionsBar`
+  (MOVO-131/154): los tres modales (confirmar aceptación, éxito a pantalla completa,
+  motivos de rechazo) y sus animaciones, sin trigger propio — expone
+  `openAccept`/`openReject` vía `ref` (`ShipmentConfirmationSheetsHandle`). Las
+  mutaciones (`useAcceptShipment`/`useRejectShipment`) viajan como props en vez de
+  llamarse adentro: el caller es dueño de un solo `isPending` para deshabilitar sus
+  propios botones, y el error resuelto se reporta por `onError` en vez de que el
+  componente pinte su propio banner (cada contexto decide dónde mostrarlo).
+  `ReceiverActionsBar` quedó reducido a sus botones/deadline/`ErrorBanner` propios +
+  un `ref` a este componente — mismo comportamiento exacto, mismos testIDs,
+  `receiver-actions-bar.test.tsx` sigue pasando sin tocarse.
+- **`AttentionConfirmCard` nuevo** (`components/home/attention-confirm-card.tsx`):
+  la card de la tarea de confirmación en Inicio, con sus propias instancias de
+  `useAcceptShipment`/`useRejectShipment` y un `ShipmentConfirmationSheets` propio —
+  tocar Rechazar/Aceptar abre el sheet real (mismo look que el detalle), tocar el
+  resto de la card navega ahí. `AttentionTask` pasó a discriminated union
+  (`AttentionInfoTask | AttentionConfirmTask`, `use-attention-tasks.ts`): la tarea de
+  confirmación ya no lleva `onPrimary`/`onSecondary` (el hook dejó de resolver la
+  mutación, eso es responsabilidad de la card), solo los datos crudos
+  (`shipmentId`, `senderFirstName`, `title`, `meta`, `onPress`) que la card necesita.
+- **Galería de dev** (`home-operativo-fixtures.ts`) actualizada al nuevo shape;
+  necesitó mockear `useAcceptShipment`/`useRejectShipment` en su test porque
+  `AttentionConfirmCard` ahora usa mutaciones reales de TanStack Query (la galería
+  vive bajo el `_layout` real con `QueryClientProvider` en la app, pero no en el
+  render aislado del test).
+
+Tests actualizados: `use-attention-tasks.test.ts`, `attention-section.test.tsx`,
+`home.test.tsx`, `home-operativo-gallery-screen.test.tsx`;
+`receiver-actions-bar.test.tsx` sin cambios (verificado que sigue pasando tal cual
+tras la extracción). 109/109 suites, 835/835 tests. `tsc --noEmit` limpio.
 
 ### MOVO-195 — Par de claves en el dispositivo: generación, SecureStore y firma del nonce (`movo-mobile`)
 

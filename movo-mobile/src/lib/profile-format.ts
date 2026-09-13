@@ -79,6 +79,18 @@ export function capitalizeName(name: string | null | undefined): string {
     .join(" ");
 }
 
+const GREETING_DATE_FORMATTER = new Intl.DateTimeFormat("es-AR", {
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+});
+
+/** Fecha del eyebrow del header de Inicio ("LUNES 8 DE SEPTIEMBRE") — mismo patrón de
+ * `Intl.DateTimeFormat("es-AR", ...)` que el resto del archivo, todo mayúsculas. */
+export function formatGreetingDateLabel(date: Date): string {
+  return GREETING_DATE_FORMATTER.format(date).toLocaleUpperCase("es-AR");
+}
+
 /** Primer nombre para saludos cortos (home) — el nombre completo se reserva para
  * lugares con más espacio (perfil). "" si no hay nombre real. */
 export function getFirstName(fullName: string | null | undefined): string {
