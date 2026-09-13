@@ -27,6 +27,7 @@ import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useShipmentRatings } from "../../../src/hooks/use-ratings";
 import { useShipment } from "../../../src/hooks/use-shipments";
 import {
+  FULFILLED_SHIPMENT_STATUSES,
   canCancelShipment,
   formatPickupDateLabel,
   formatShipmentPrice,
@@ -82,7 +83,7 @@ export default function ShipmentDetailScreen() {
   const [isAcceptSuccessVisible, setIsAcceptSuccessVisible] = useState(false);
 
   const { data: ratings, refetch: refetchRatings } = useShipmentRatings(
-    shipment?.status === ShipmentStatus.DELIVERED ? shipment.id : undefined
+    shipment && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? shipment.id : undefined
   );
   const [ratingTarget, setRatingTarget] = useState<RatingTarget | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -310,7 +311,7 @@ export default function ShipmentDetailScreen() {
                 />
               </View>
 
-              {shipment.carrierId && shipment.status !== ShipmentStatus.DELIVERED ? (
+              {shipment.carrierId && !FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? (
                 <View>
                   <Eyebrow>Transportista</Eyebrow>
                   <CounterpartCard
@@ -322,7 +323,7 @@ export default function ShipmentDetailScreen() {
               ) : null}
 
               {/* Sección de calificaciones post-entrega (MOVO-153) */}
-              {shipment.status === ShipmentStatus.DELIVERED ? (
+              {FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? (
                 <View>
                   <Eyebrow>Calificaciones</Eyebrow>
                   <ShipmentRatingsCard

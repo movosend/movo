@@ -32,6 +32,11 @@ describe("shipmentStatusLabel", () => {
     expect(shipmentStatusLabel(ShipmentStatus.ASSIGNED)).toBe("Asignado");
   });
 
+  it("MOVO-208: traduce los estados nuevos (assigned_unfunded/completed)", () => {
+    expect(shipmentStatusLabel(ShipmentStatus.ASSIGNED_UNFUNDED)).toBe("Fondos pendientes");
+    expect(shipmentStatusLabel(ShipmentStatus.COMPLETED)).toBe("Completado");
+  });
+
   it("distingue el rol en awaiting_receiver_confirmation si se especifica isReceiver (MOVO-132)", () => {
     expect(
       shipmentStatusLabel(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, { isReceiver: true }),
@@ -43,8 +48,13 @@ describe("shipmentStatusLabel", () => {
 });
 
 describe("shipmentStatusTone", () => {
-  it("mapea delivered a success", () => {
+  it("mapea delivered/completed a success", () => {
     expect(shipmentStatusTone(ShipmentStatus.DELIVERED)).toBe("success");
+    expect(shipmentStatusTone(ShipmentStatus.COMPLETED)).toBe("success");
+  });
+
+  it("MOVO-208: mapea assigned_unfunded (esperando que se cree el hold) a warning", () => {
+    expect(shipmentStatusTone(ShipmentStatus.ASSIGNED_UNFUNDED)).toBe("warning");
   });
 
   it("mapea cancelled/rejected (terminales fallidos) a danger", () => {
@@ -112,16 +122,18 @@ describe("canCancelShipment", () => {
 });
 
 describe("shipmentLifecycleStage", () => {
-  it("agrupa entregado/cancelado/rechazado como pasados", () => {
+  it("agrupa entregado/completado/cancelado/rechazado como pasados", () => {
     expect(shipmentLifecycleStage(ShipmentStatus.DELIVERED)).toBe("past");
+    expect(shipmentLifecycleStage(ShipmentStatus.COMPLETED)).toBe("past");
     expect(shipmentLifecycleStage(ShipmentStatus.CANCELLED)).toBe("past");
     expect(shipmentLifecycleStage(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("past");
   });
 
-  it("agrupa el resto, incluido disputado, como en curso", () => {
+  it("agrupa el resto, incluido disputado y assigned_unfunded, como en curso", () => {
     expect(shipmentLifecycleStage(ShipmentStatus.PUBLISHED)).toBe("ongoing");
     expect(shipmentLifecycleStage(ShipmentStatus.IN_TRANSIT)).toBe("ongoing");
     expect(shipmentLifecycleStage(ShipmentStatus.DISPUTED)).toBe("ongoing");
+    expect(shipmentLifecycleStage(ShipmentStatus.ASSIGNED_UNFUNDED)).toBe("ongoing");
   });
 });
 
@@ -173,6 +185,15 @@ describe("shipmentEventTitle", () => {
     );
     expect(shipmentEventTitle(ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe(
       "El receptor rechazó el envío",
+    );
+  });
+
+  it("MOVO-208: títulos narrativos de los estados nuevos", () => {
+    expect(shipmentEventTitle(ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.PUBLISHED)).toBe(
+      "Transportista asignado -- fondos aún no reservados",
+    );
+    expect(shipmentEventTitle(ShipmentStatus.COMPLETED, ShipmentStatus.DELIVERED)).toBe(
+      "Pago liberado, envío cerrado",
     );
   });
 
@@ -245,11 +266,20 @@ describe("remainingLifecycleSteps", () => {
       ShipmentStatus.ASSIGNED,
       ShipmentStatus.IN_TRANSIT,
       ShipmentStatus.DELIVERED,
+      ShipmentStatus.COMPLETED,
     ]);
   });
 
-  it("no devuelve nada en el estado final del camino feliz", () => {
-    expect(remainingLifecycleSteps(ShipmentStatus.DELIVERED)).toEqual([]);
+  it("MOVO-208: delivered todavía proyecta completed (pago liberado) como próximo paso", () => {
+    expect(remainingLifecycleSteps(ShipmentStatus.DELIVERED)).toEqual([ShipmentStatus.COMPLETED]);
+  });
+
+  it("no devuelve nada en el estado final del camino feliz (completed)", () => {
+    expect(remainingLifecycleSteps(ShipmentStatus.COMPLETED)).toEqual([]);
+  });
+
+  it("MOVO-208: un envío assigned_unfunded no proyecta pasos (rama alternativa, sin decisión de producto todavía)", () => {
+    expect(remainingLifecycleSteps(ShipmentStatus.ASSIGNED_UNFUNDED)).toEqual([]);
   });
 
   it("no devuelve nada para un envío que salió del camino feliz", () => {
@@ -271,6 +301,10 @@ describe("shipmentPendingStepLabel", () => {
     expect(shipmentPendingStepLabel(ShipmentStatus.DELIVERED, { receiverName: "Lucas" })).toBe("Entrega a Lucas");
     expect(shipmentPendingStepLabel(ShipmentStatus.PUBLISHED, { isReceiver: true })).toBe("Tu confirmación");
     expect(shipmentPendingStepLabel(ShipmentStatus.DELIVERED, { isReceiver: true })).toBe("Entrega del paquete");
+  });
+
+  it("MOVO-208: nombra la liberación del pago como el paso pendiente tras la entrega", () => {
+    expect(shipmentPendingStepLabel(ShipmentStatus.COMPLETED)).toBe("Liberación del pago");
   });
 });
 

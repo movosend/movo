@@ -123,6 +123,21 @@ describe("Calificaciones post-entrega — /shipments/:id/ratings (Postgres) — 
     );
   });
 
+  it("MOVO-208: un envío completed (entregado Y pagado) también puede calificarse, no solo delivered", async () => {
+    const shipmentId = await createDeliveredShipment();
+    await assignCarrier(shipmentId);
+    await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.COMPLETED, null);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/shipments/${shipmentId}/ratings`,
+      headers: { "x-user-id": senderId },
+      payload: { rateeId: receiverId, score: 5, comment: "Todo perfecto" },
+    });
+
+    expect(response.statusCode).toBe(201);
+  });
+
   it("AC3: envío no entregado → rechazo (409 SHIPMENT_NOT_DELIVERED)", async () => {
     const shipmentId = await createNonDeliveredShipment();
 
@@ -423,6 +438,17 @@ describe("Calificaciones post-entrega — /shipments/:id/ratings (Postgres) — 
 
       const carrierResponse = await app.inject({ method: "GET", url: `/internal/users/${carrierId}/reputation` });
       expect(carrierResponse.json().transactionCounts).toEqual({ asSender: 0, asCarrier: 2 });
+    });
+
+    it("MOVO-208: transactionCounts también cuenta envíos completed, igual que delivered", async () => {
+      const delivered = await createDeliveredShipment();
+      await assignCarrier(delivered);
+      const completed = await createDeliveredShipment();
+      await assignCarrier(completed);
+      await shipmentRepo.updateStatus(completed, ShipmentStatus.COMPLETED, null);
+
+      const senderResponse = await app.inject({ method: "GET", url: `/internal/users/${senderId}/reputation` });
+      expect(senderResponse.json().transactionCounts).toEqual({ asSender: 2, asCarrier: 0 });
     });
   });
 });

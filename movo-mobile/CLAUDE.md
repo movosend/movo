@@ -2017,3 +2017,39 @@ a consumir `signHandshakeNonce()` y, si hace falta, gatear su entrada con el `st
 de `useDeviceKeyBootstrap`); prueba en dispositivo físico iOS y Android (Keychain vs.
 Keystore real) y el ciclo completo generar→registrar→firmar→confirmar contra
 `svc-shipments` real — no verificable en este entorno; rotación periódica de claves.
+
+### MOVO-208 (backend, `svc-shipments`) — ajustes mobile por la extensión del set canónico
+
+Ticket dueño en `services/movo-svc-shipments/CLAUDE.md` — acá solo el lado mobile,
+tocado porque `ShipmentStatus` (importado de `@movo/shared`) pasó de 9 a 11 valores y
+dos mapas exhaustivos ya existentes no compilaban sin las claves nuevas.
+
+- **`src/lib/shipment-format.ts`**: `STATUS_LABEL` suma `ASSIGNED_UNFUNDED: "Fondos
+  pendientes"` / `COMPLETED: "Completado"` (obligatorio, `Record<ShipmentStatus,
+  string>` exhaustivo — no compilaba sin esto). `shipmentStatusTone` suma
+  `ASSIGNED_UNFUNDED → "warning"` (mismo bucket que "espera algo antes de seguir") y
+  `COMPLETED → "success"`. `shipmentLifecycleStage` suma `COMPLETED` a `"past"`.
+  `HAPPY_PATH` suma `COMPLETED` al final de `DELIVERED` (relación 1:1 sin ambigüedad,
+  `remainingLifecycleSteps`/`shipmentPendingStepLabel` ganan un caso para el paso
+  "Liberación del pago"). **`ASSIGNED_UNFUNDED` no se agrega a `HAPPY_PATH`**: es una
+  rama alternativa a `assignment_pending` (un envío pasa por una u otra, nunca las
+  dos), y ese array modela un único camino lineal — insertarlo ahí habría roto la
+  proyección de pasos de la rama existente. Un envío en `assigned_unfunded` queda sin
+  pasos proyectados (mismo tratamiento que un estado de excepción), decisión de
+  producto pendiente para cuando `MOVO-210` exista.
+- **`components/shipments/timeline-section.tsx`**: `EVENT_ICON` (`Record<ShipmentStatus,
+  LucideIcon>`, también exhaustivo) suma `CircleDollarSign` para `ASSIGNED_UNFUNDED` y
+  `BadgeCheck` para `COMPLETED`.
+- **`app/(app)/shipments/index.tsx`**: `STAGE_STATUSES` (array a mano, no exhaustivo —
+  gap real encontrado explorando el código, sin ningún mecanismo que fuerce a tocarlo
+  al extender el enum) suma `ASSIGNED_UNFUNDED` a `ongoing` y `COMPLETED` a `past`, para
+  que ambos aparezcan como opción del filtro de estado de "Mis Envíos".
+- **`canCancelShipment` deliberadamente sin tocar**: el backend
+  (`shipments.service.ts#cancelShipment`) todavía no acepta cancelar desde
+  `assigned_unfunded` (eso es `MOVO-210`) — agregar el botón acá mostraría una acción
+  que el servidor rechazaría hoy.
+
+Tests: casos nuevos en `test/shipment-format.test.ts` para `shipmentStatusLabel`/
+`shipmentStatusTone`/`shipmentLifecycleStage`/`shipmentEventTitle`/
+`shipmentPendingStepLabel`/`remainingLifecycleSteps` con los 2 estados nuevos. 103/103
+suites, 796/796 tests. `tsc --noEmit` limpio.

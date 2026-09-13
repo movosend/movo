@@ -99,18 +99,20 @@ enum rating_role_enum {
   receiver
 }
 
-// MOVO-104 AC6: set canónico de 9 estados acordado en MOVO-79, ya vigente
-// como ShipmentStatus en @movo/shared y como shipments.shipment_status_enum.
-// Reemplaza el "status varchar (pendiente)" que tenía el Miro original en
-// shipment/offer/shipment_status_history.
+// MOVO-104 AC6: set canónico de 9 estados acordado en MOVO-79 (extendido a 11 por
+// MOVO-208: assigned_unfunded/completed, ver ADR-021), ya vigente como ShipmentStatus
+// en @movo/shared y como shipments.shipment_status_enum. Reemplaza el "status varchar
+// (pendiente)" que tenía el Miro original en shipment/offer/shipment_status_history.
 enum shipment_status_enum {
   awaiting_receiver_confirmation
   rejected_by_receiver
   published
   assignment_pending
+  assigned_unfunded
   assigned
   in_transit
   delivered
+  completed
   cancelled
   disputed
 }

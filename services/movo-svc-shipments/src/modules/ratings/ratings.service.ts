@@ -7,6 +7,7 @@ import { Shipment, ShipmentEvent } from "../../models/shipment";
 import { Rating, RatingRole } from "../../models/rating";
 import { isRatingWindowOpen } from "../../domain/rating-window";
 import { computeReputationScore, ReputationResult } from "../../domain/reputation";
+import { FULFILLED_SHIPMENT_STATUSES } from "../../domain/shipment-state-machine";
 
 export interface CreateRatingServiceInput {
   shipmentId: string;
@@ -101,7 +102,11 @@ function assertRatingWindowAllowsWrite(shipment: Shipment, events: ShipmentEvent
       "El envío tiene una disputa activa -- no se puede calificar hasta que se resuelva.",
     );
   }
-  if (shipment.status !== ShipmentStatus.DELIVERED || !shipment.deliveredAt) {
+  // MOVO-208: `completed` (entregado Y pago liberado) también puede calificarse -- es
+  // una consecuencia posterior de `delivered`, no un estado que deba cerrar la ventana
+  // de calificación. `deliveredAt` sigue siendo la referencia real de la ventana de
+  // 72h en los dos casos: no se toca al pasar a `completed` (MOVO-212).
+  if (!FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) || !shipment.deliveredAt) {
     throw new ApiError(409, "SHIPMENT_NOT_DELIVERED", "El envío todavía no fue entregado.");
   }
   if (!isRatingWindowOpen(shipment.deliveredAt, events, now)) {
