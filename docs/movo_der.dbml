@@ -511,6 +511,9 @@ Table shipments.offers {
   message varchar [null, note: 'mensaje opcional del transportista (AC2, MOVO-23). Límite de caracteres es de negocio/UI, no del schema']
   carrier_rating_at_offer decimal [null, note: 'snapshot del transportista al ofertar (AC2), evita N+1 al listar (MOVO-17). Envejece con el tiempo, trade-off aceptado']
   carrier_name_at_offer varchar [null, note: 'snapshot del transportista al ofertar (AC2). Snapshot de vehículo pendiente: no hay entidad de vehículo diseñada todavía']
+  sender_name_at_offer varchar [null, note: 'MOVO-187: snapshot simétrico del EMISOR al ofertar']
+  sender_verified_at_offer boolean [null, note: 'MOVO-187: isVerified (KYC de identidad) del emisor al ofertar']
+  sender_rating_at_offer decimal [null, note: 'MOVO-187: reputación asSender del emisor al ofertar']
   trip_id uuid [null, ref: > shipments.trips.id, note: 'MOVO-161: viaje declarado asociado opcional']
   status offer_status_enum
   expires_at timestamp [null, note: 'sostiene la expiración perezosa (AC11): sin scheduler, se evalúa en cada lectura']

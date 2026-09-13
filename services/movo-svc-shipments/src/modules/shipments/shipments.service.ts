@@ -246,6 +246,58 @@ async function assertVerifiedCarrier(usersClient: UsersClient, callerId: string,
 }
 
 /**
+ * AC3 de MOVO-187: resuelve el perfil público de una de las partes de una oferta
+ * (transportista o emisor) para snapshotear nombre/verificación al momento de
+ * ofertar -- un fallo de `usersClient` no bloquea la creación de la oferta, mismo
+ * patrón try/catch+log que `createShipment` ya usa para el nombre del emisor en el
+ * copy del push (más arriba en este archivo). `role` es solo para el log, nunca
+ * afecta el resultado.
+ */
+async function resolveSnapshotProfile(
+  usersClient: UsersClient,
+  userId: string,
+  role: "transportista" | "emisor",
+  logger?: ShipmentsServiceLogger
+) {
+  try {
+    return await usersClient.findPublicProfile(userId, userId);
+  } catch (err) {
+    logger?.warn(
+      { err, event: "offer_snapshot_profile_lookup_failed", userId, role },
+      `No se pudo resolver el perfil del ${role} para el snapshot de la oferta`
+    );
+    return null;
+  }
+}
+
+/**
+ * Mismo criterio que `resolveSnapshotProfile`, pero para el rating LOCAL
+ * (`getCarrierReputationScore`/`getSenderReputationScore`, MOVO-147/187) -- un fallo
+ * de `ratingsService.getReputationSummary` (ej. error de DB) tampoco debe bloquear la
+ * creación de la oferta, igual que un fallo de `usersClient`. Sin este wrapper, un
+ * rechazo acá tiraba abajo el `Promise.all` completo (incluidos los dos snapshots de
+ * perfil ya resueltos), contradiciendo el comentario de `createOfferForShipment` y el
+ * AC3 de MOVO-187 (señalado en review de PR #150).
+ */
+async function resolveSnapshotRating(
+  getScore: ((userId: string) => Promise<number | null>) | undefined,
+  userId: string,
+  role: "transportista" | "emisor",
+  logger?: ShipmentsServiceLogger
+): Promise<number | null> {
+  if (!getScore) return null;
+  try {
+    return await getScore(userId);
+  } catch (err) {
+    logger?.warn(
+      { err, event: "offer_snapshot_rating_lookup_failed", userId, role },
+      `No se pudo resolver la reputación del ${role} para el snapshot de la oferta`
+    );
+    return null;
+  }
+}
+
+/**
  * MOVO-180 (adelantado): agregado sin identidad para la apertura de descubrimiento de
  * un transportista (`getShipmentDetail`). Reusa `offerRepository.listByShipment` en vez
  * de un método de repositorio nuevo -- un envío tiene pocas ofertas activas, no
@@ -399,6 +451,10 @@ export interface ShipmentsServiceOptions {
    * `shipments.routes.ts`.
    */
   getCarrierReputationScore?: (carrierId: string) => Promise<number | null>;
+  /** Requerido solo para `createOfferForShipment` (MOVO-187): equivalente de
+   * `getCarrierReputationScore` para `senderRatingAtOffer` (`getReputationSummary
+   * (senderId).asSender.reputationScore`), misma llamada local sin HTTP. */
+  getSenderReputationScore?: (senderId: string) => Promise<number | null>;
   /** Requerido solo para `createOfferForShipment` cuando el caller manda `tripId`
    * (MOVO-162) -- valida que el viaje exista, sea del mismo transportista y siga
    * `active` antes de dejar que la oferta lo referencie. */
@@ -416,6 +472,7 @@ export function createShipmentsService(
   const offerRepository = opts.offerRepository;
   const pricingClient = opts.pricingClient;
   const getCarrierReputationScore = opts.getCarrierReputationScore;
+  const getSenderReputationScore = opts.getSenderReputationScore;
   const tripRepository = opts.tripRepository;
 
   return {
@@ -822,15 +879,28 @@ export function createShipmentsService(
       // shared/movo-shared/src/config/commission.ts).
       const { netArs, commissionAmountArs, grossArs } = computeOfferGrossPrice(input.priceNetArs);
 
-      // AC7: snapshot del transportista. El nombre sigue el mismo criterio
-      // cross-servicio que ya usa `createShipment` para el receptor
-      // (`usersClient.findPublicProfile`); el rating sigue el criterio documentado en
-      // MOVO-147 -- llamada LOCAL (misma DB/proceso) vía `getCarrierReputationScore`,
-      // sin HTTP contra sí mismo. Puede resolver `null` (agregado sin calificaciones
-      // todavía) -- no bloquea la creación de la oferta.
-      const [carrierProfile, carrierRatingAtOffer] = await Promise.all([
-        usersClient.findPublicProfile(input.carrierId, input.carrierId),
-        getCarrierReputationScore ? getCarrierReputationScore(input.carrierId) : Promise.resolve(null),
+      // AC7 de MOVO-143 / AC1 de MOVO-187: snapshot del transportista y del emisor,
+      // resueltos en paralelo. El nombre/verificación de cada uno sigue el mismo
+      // criterio cross-servicio que ya usa `createShipment` para el receptor
+      // (`usersClient.findPublicProfile`), envuelto en `resolveSnapshotProfile` (AC3
+      // de MOVO-187: un fallo de `usersClient` no bloquea la creación de la oferta,
+      // mismo patrón try/catch+log ya usado más arriba en `createShipment` para el
+      // nombre del emisor en el copy del push -- ANTES de este ticket, el snapshot del
+      // transportista no tenía este resguardo: un `usersClient` caído sí bloqueaba la
+      // creación pese a lo que ya documentaba este mismo comentario). El rating de
+      // cada uno sigue el criterio de MOVO-147 -- llamada LOCAL (misma DB/proceso) vía
+      // `getCarrierReputationScore`/`getSenderReputationScore`, envuelto en
+      // `resolveSnapshotRating` (mismo try/catch+log que `resolveSnapshotProfile`,
+      // sin esto un error de DB dentro de `getReputationSummary` rechazaba el
+      // `Promise.all` completo y bloqueaba la oferta -- fix de review, PR #150).
+      // Cualquiera de los 4 valores puede resolver `null` (perfil no encontrado, sin
+      // calificaciones todavía, o fallo tolerado) -- nunca bloquea la creación de la
+      // oferta.
+      const [carrierProfile, carrierRatingAtOffer, senderProfile, senderRatingAtOffer] = await Promise.all([
+        resolveSnapshotProfile(usersClient, input.carrierId, "transportista", logger),
+        resolveSnapshotRating(getCarrierReputationScore, input.carrierId, "transportista", logger),
+        resolveSnapshotProfile(usersClient, shipment.senderId, "emisor", logger),
+        resolveSnapshotRating(getSenderReputationScore, shipment.senderId, "emisor", logger),
       ]);
 
       const offer = await offerRepository.create({
@@ -844,6 +914,9 @@ export function createShipmentsService(
         tripId: input.tripId ?? null,
         carrierNameAtOffer: carrierProfile?.fullName ?? null,
         carrierRatingAtOffer,
+        senderNameAtOffer: senderProfile?.fullName ?? null,
+        senderVerifiedAtOffer: senderProfile?.isVerified ?? null,
+        senderRatingAtOffer,
         estimatedDeliveryDate,
         estimatedDeliveryTimeWindowStart,
         estimatedDeliveryTimeWindowEnd,

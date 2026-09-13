@@ -130,6 +130,12 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const summary = await ratingsService.getReputationSummary(carrierId);
       return summary.asCarrier.reputationScore;
     },
+    // MOVO-187: equivalente para el snapshot del emisor -- misma instancia de
+    // ratingsService de arriba, sin construir una segunda.
+    getSenderReputationScore: async (senderId: string) => {
+      const summary = await ratingsService.getReputationSummary(senderId);
+      return summary.asSender.reputationScore;
+    },
   });
   const photosService = createPhotosService(repository, storageProvider, app.redis, app.log);
 

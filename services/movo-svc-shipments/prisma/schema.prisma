@@ -258,18 +258,18 @@ model Offer {
   // AC3: numeric, nunca float. Precio BRUTO (lo que paga el emisor, incluye
   // comisión Movo) — el cálculo neto/bruto es de UI/servicio (MOVO-23), acá
   // solo se persiste.
-  priceOffered Decimal  @map("price_offered") @db.Decimal
-  offeredDate  DateTime @map("offered_date") @db.Date
+  priceOffered                 Decimal  @map("price_offered") @db.Decimal
+  offeredDate                  DateTime @map("offered_date") @db.Date
   // MOVO-177: franja horaria alternativa de retiro, solo cuando el transportista
   // propone un día/horario distinto al pedido por el emisor (`offeredDate` distinto de
   // `shipment.pickupDate`) — null significa "usa la ventana del envío tal cual"
   // (`shipment.pickupTimeWindowStart/End`). Ambos o ninguno (validado en el servicio,
   // no acá — mismo criterio que el resto de las reglas de negocio de Offer).
-  offeredPickupTimeWindowStart String? @map("offered_pickup_time_window_start") @db.VarChar(8)
-  offeredPickupTimeWindowEnd   String? @map("offered_pickup_time_window_end") @db.VarChar(8)
+  offeredPickupTimeWindowStart String?  @map("offered_pickup_time_window_start") @db.VarChar(8)
+  offeredPickupTimeWindowEnd   String?  @map("offered_pickup_time_window_end") @db.VarChar(8)
   // AC2: mensaje opcional del transportista. El límite de caracteres es de
   // negocio/UI, no se valida en el schema.
-  message      String?  @db.Text
+  message                      String?  @db.Text
 
   // AC2: snapshot del transportista al momento de ofertar, evita el N+1 al
   // listar (MOVO-17) y es el dato correcto para una disputa futura ("qué
@@ -278,7 +278,15 @@ model Offer {
   // vehículo diseñada todavía en users.users/DER — pendiente explícito.
   carrierRatingAtOffer Decimal? @map("carrier_rating_at_offer") @db.Decimal
   carrierNameAtOffer   String?  @map("carrier_name_at_offer")
-  tripId               String?  @map("trip_id") @db.Uuid
+
+  // MOVO-187: snapshot simétrico del EMISOR al momento de ofertar -- mismo criterio
+  // que el snapshot del transportista de arriba (congelado, no lectura en vivo).
+  // Los tres son nullable: un fallo de usersClient al resolver el perfil no bloquea
+  // la creación de la oferta (AC3), igual que carrierNameAtOffer/carrierRatingAtOffer.
+  senderNameAtOffer     String?  @map("sender_name_at_offer")
+  senderVerifiedAtOffer Boolean? @map("sender_verified_at_offer")
+  senderRatingAtOffer   Decimal? @map("sender_rating_at_offer") @db.Decimal
+  tripId                String?  @map("trip_id") @db.Uuid
 
   // MOVO-180: entrega estimada (día + franja horaria) declarada por el transportista
   // al ofertar -- opcional, complementa offeredDate (que es de RETIRO, no de entrega).
@@ -404,10 +412,10 @@ model Trip {
   vehicleType        String     @map("vehicle_type")
   status             TripStatus @default(active)
 
-  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  offers             Offer[]
+  offers Offer[]
 
   @@index([carrierId], map: "trips_carrier_id_idx")
   @@index([status], map: "trips_status_idx")
@@ -415,4 +423,3 @@ model Trip {
   @@map("trips")
   @@schema("shipments")
 }
-
