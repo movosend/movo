@@ -1,6 +1,7 @@
 import { ShipmentStatus } from "@movo/shared";
 import { Prisma, PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
 import {
+  FULFILLED_SHIPMENT_STATUSES,
   INITIAL_SHIPMENT_STATUS,
   InsufficientCreationPhotosError,
   MIN_CREATION_PHOTOS_TO_PUBLISH,
@@ -784,7 +785,18 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         where: {
           OR: [{ senderId: userId }, { receiverId: userId }, { carrierId: userId }],
           status: {
-            notIn: [ShipmentStatus.DELIVERED, ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.CANCELLED],
+            // MOVO-208: `completed` es tan "no activo" como `delivered` (es su
+            // consecuencia posterior, nunca un estado alternativo) -- sin esto, un
+            // envío `completed` bloquearía la baja de cuenta para siempre en cuanto
+            // MOVO-212 empiece a moverlos ahí. `assigned_unfunded` sigue contando
+            // como activo por default (no está en esta lista): tiene transportista
+            // comprometido aunque el hold todavía no exista.
+            notIn: [
+              ShipmentStatus.DELIVERED,
+              ShipmentStatus.COMPLETED,
+              ShipmentStatus.REJECTED_BY_RECEIVER,
+              ShipmentStatus.CANCELLED,
+            ],
           },
         },
         select: { status: true },
@@ -796,9 +808,12 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
     },
 
     async countCompletedTransactions(userId: string): Promise<{ asSender: number; asCarrier: number }> {
+      // MOVO-208: `completed` cuenta igual que `delivered` -- es su consecuencia
+      // posterior (entregado Y pagado), no un resultado distinto de "transacción
+      // completada" a los efectos de reputación.
       const [asSender, asCarrier] = await Promise.all([
-        db.shipment.count({ where: { senderId: userId, status: ShipmentStatus.DELIVERED } }),
-        db.shipment.count({ where: { carrierId: userId, status: ShipmentStatus.DELIVERED } }),
+        db.shipment.count({ where: { senderId: userId, status: { in: [...FULFILLED_SHIPMENT_STATUSES] } } }),
+        db.shipment.count({ where: { carrierId: userId, status: { in: [...FULFILLED_SHIPMENT_STATUSES] } } }),
       ]);
       return { asSender, asCarrier };
     },
@@ -808,9 +823,12 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       if (carrierIds.length === 0) {
         return map;
       }
+      // MOVO-208: mismo criterio que countCompletedTransactions -- completed no debe
+      // dejar de contar para el desempate de ranking (MOVO-188) solo porque el pago ya
+      // se liberó.
       const rows = await db.shipment.groupBy({
         by: ["carrierId"],
-        where: { carrierId: { in: carrierIds }, status: ShipmentStatus.DELIVERED },
+        where: { carrierId: { in: carrierIds }, status: { in: [...FULFILLED_SHIPMENT_STATUSES] } },
         _count: { _all: true },
       });
       for (const row of rows) {
@@ -857,7 +875,13 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return {
         sharedShipmentCount: rows.length,
         lastSharedAt: rows.reduce((max, r) => (r.createdAt > max ? r.createdAt : max), rows[0].createdAt),
-        allDelivered: rows.every((r) => r.status === ShipmentStatus.DELIVERED),
+        // MOVO-208: un envío `completed` sí llegó a destino -- `allDelivered` no debe
+        // volverse `false` solo porque el pago de ESE envío ya se liberó. `===`, no
+        // `FULFILLED_SHIPMENT_STATUSES.includes(r.status)`: `r.status` acá es el tipo
+        // de enum generado por Prisma (string literal), no el enum de `@movo/shared`.
+        allDelivered: rows.every(
+          (r) => r.status === ShipmentStatus.DELIVERED || r.status === ShipmentStatus.COMPLETED,
+        ),
       };
     },
   };

@@ -36,6 +36,9 @@ function toMyOfferDto(offer: OfferWithShipmentContext) {
     estimatedDeliveryDate: offer.estimatedDeliveryDate
       ? offer.estimatedDeliveryDate.toISOString().slice(0, 10)
       : null,
+    // MOVO-189: instante real (@db.Timestamptz), no una columna @db.Date -- sin el
+    // gotcha de timezone de arriba, se serializa completo.
+    viewedAtBySender: offer.viewedAtBySender ? offer.viewedAtBySender.toISOString() : null,
     shipment: {
       ...offer.shipment,
       pickupDate: offer.shipment.pickupDate.toISOString().slice(0, 10),

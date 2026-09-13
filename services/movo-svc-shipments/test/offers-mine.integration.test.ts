@@ -112,6 +112,63 @@ describe("GET /offers/mine (Postgres)", () => {
     expect(item.commissionAmountArs).toBe(150);
   });
 
+  it("MOVO-187: expone el snapshot del emisor (senderNameAtOffer/senderVerifiedAtOffer/senderRatingAtOffer)", async () => {
+    const carrierId = randomUUID();
+    const shipmentId = await createPublishedShipment();
+    await offerRepo.create(
+      baseOfferInput({
+        shipmentId,
+        carrierId,
+        senderNameAtOffer: "María Emisora",
+        senderVerifiedAtOffer: true,
+        senderRatingAtOffer: 4.9,
+      }),
+    );
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/offers/mine",
+      headers: { "x-user-id": carrierId },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const item = response.json().items[0];
+    expect(item.senderNameAtOffer).toBe("María Emisora");
+    expect(item.senderVerifiedAtOffer).toBe(true);
+    expect(item.senderRatingAtOffer).toBe(4.9);
+  });
+
+  it("MOVO-189: expone viewedAtBySender -- null hasta que el emisor lea sus ofertas", async () => {
+    const carrierId = randomUUID();
+    const senderId = randomUUID();
+    const shipmentId = await shipmentRepo.create({ ...baseShipmentInput, senderId }).then(async (created) => {
+      await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+      await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+      return (await shipmentRepo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null)).id;
+    });
+    await offerRepo.create(baseOfferInput({ shipmentId, carrierId }));
+
+    const beforeSenderRead = await app.inject({
+      method: "GET",
+      url: "/offers/mine",
+      headers: { "x-user-id": carrierId },
+    });
+    expect(beforeSenderRead.json().items[0].viewedAtBySender).toBeNull();
+
+    await app.inject({
+      method: "GET",
+      url: `/shipments/${shipmentId}/offers`,
+      headers: { "x-user-id": senderId },
+    });
+
+    const afterSenderRead = await app.inject({
+      method: "GET",
+      url: "/offers/mine",
+      headers: { "x-user-id": carrierId },
+    });
+    expect(afterSenderRead.json().items[0].viewedAtBySender).not.toBeNull();
+  });
+
   it("ignora cualquier carrierId mandado por query param -- siempre usa el del header", async () => {
     const shipmentId = await createPublishedShipment();
     const carrierA = randomUUID();

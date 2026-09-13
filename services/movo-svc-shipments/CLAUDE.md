@@ -1492,10 +1492,23 @@ Decisiones clave:
   mapeado desde MOVO-144). Ojo: dos `PATCH` concurrentes entre sí NUNCA compiten por
   este mecanismo (ninguno toca `status`), así que ambos pueden aplicar — el 409 solo
   aparece contra una operación que sí cambia `status`.
-- **Fila devuelta reconstruida a mano, no vía `mapOffer()`**: a diferencia de
-  `acceptOffer`/`applyTerminalTransition` (que nunca tocan `priceOffered`), acá el
-  precio puede cambiar y `mapOffer()` espera un `Decimal` de Prisma en esa columna
-  (`row.priceOffered.toNumber()`) — `patch.priceOffered` ya llega como `number` plano.
+- **Fila releída vía `mapOffer()` tras el `UPDATE`** (no reconstruida a mano — fix de
+  review, PR #152: la versión original armaba el `Offer` devuelto campo por campo y
+  quedaba desactualizada cada vez que se agregaba una columna nueva, ej. rompía `tsc`
+  contra `develop` en cuanto MOVO-187/189 sumaron sus propios campos). `update()` hace
+  un `findUniqueOrThrow` extra dentro de la misma transacción antes de mapear — costo
+  aceptable acá (PATCH puntual, no un hot path), a diferencia de `acceptOffer`/
+  `applyTerminalTransition`, que sí evitan la relectura por volumen de llamadas
+  concurrentes.
+- **La franja horaria propuesta admite `null` explícito en el body del PATCH** (fix de
+  review, PR #152): `patchOfferBody` solo aceptaba `string` para
+  `offeredPickupTimeWindowStart/End`, así que el reset a "usa la ventana del envío tal
+  cual" que este mismo párrafo ya documentaba como soportado por `UpdateOfferInput`
+  era en realidad inalcanzable por HTTP (400 de AJV antes de llegar a
+  `offers.service.ts`). `PatchOfferInput`/`updateOffer()` distinguen ahora los tres
+  casos: ambos ausentes (no tocar), ambos `string` (nueva franja, validada como
+  antes) y ambos `null` (reset, sin validar rango horario) — un solo extremo, o un
+  extremo `null` y el otro `string`, siguen rechazados.
 - **No extiende `expiresAt` ni resetea `createdAt`** (pregunta abierta del ticket,
   resuelta a favor de la opción más simple): sigue siendo la misma oferta con el mismo
   plazo, solo cambian los campos que el transportista corrigió.
@@ -1519,6 +1532,311 @@ password desincronizada de `.env`/`docker-compose` — mismo fix, `ALTER ROLE mo
 PASSWORD 'movo'` (no toca datos) — y le faltaban 3 migraciones ya mergeadas a `develop`
 (`create_handshake_events_table`, `add_estimated_delivery_window`,
 `add_offer_pickup_time_window_override`), aplicadas con `prisma migrate deploy`.
+
+### MOVO-187 — Snapshot de identidad y confianza del emisor visible al transportista
+
+Agrega `senderNameAtOffer`/`senderVerifiedAtOffer`/`senderRatingAtOffer` a `Offer` —
+snapshot del **emisor** al momento de ofertar, simétrico al que `MOVO-102`/`143` ya
+resuelven para el transportista (`carrierNameAtOffer`/`carrierRatingAtOffer`). Mismo
+criterio ya elegido para ese caso: snapshot congelado, no lectura en vivo (consistente
+con el resto de `Offer`, es el dato correcto para una disputa futura, evita una llamada
+cross-servicio extra en cada `GET /offers/mine`). AC4 (conteo de envíos, "34 envíos"
+del mockup) no suma ninguna columna ni query nueva — reusa `transactionCounts.asSender`
+que `PublicProfile`/`GET /users/:id` ya expone (MOVO-152/170); el mobile lo resuelve
+por su cuenta.
+
+- **Resuelto en `createOfferForShipment` en el mismo momento que el snapshot del
+  transportista**: `usersClient.findPublicProfile(shipment.senderId, shipment.senderId)`
+  para nombre/verificación, `getSenderReputationScore(shipment.senderId)` (callback
+  nuevo en `ShipmentsServiceOptions`, mismo molde que `getCarrierReputationScore` —
+  `getReputationSummary(senderId).asSender.reputationScore`, llamada LOCAL sin HTTP,
+  wireada en `shipments.routes.ts` reusando la misma instancia de `ratingsService`)
+  para la calificación.
+- **Hallazgo real, corregido en el mismo cambio**: el AC3 del ticket asumía que el
+  snapshot del transportista (`MOVO-143`) ya toleraba un fallo de `usersClient` sin
+  bloquear la oferta ("los campos quedan null, igual que carrierRatingAtOffer puede
+  serlo") — el código real no lo hacía: `usersClient.findPublicProfile` para el
+  transportista no tenía ningún `try/catch`, así que un `usersClient` caído SÍ
+  bloqueaba la creación de la oferta, contra lo que el propio comentario de esa línea
+  ya decía. Se agregó `resolveSnapshotProfile()` (mismo patrón try/catch+`logger?.warn`
+  que `createShipment` ya usa para el nombre del emisor en el copy del push) y se
+  aplicó a **ambos** snapshots — no solo al nuevo del emisor, también al del
+  transportista que arrastraba el gap desde `MOVO-143`. Decisión tomada con el usuario:
+  se corrigen los dos juntos, no solo el archivo/alcance literal del ticket, para no
+  dejar una asimetría real (un mismo tipo de fallo bloqueando la oferta por un lado y
+  no por el otro).
+- **Los 3 campos son nullable** (igual que sus pares de `carrier*AtOffer`): cualquier
+  fallo de `usersClient`, perfil no encontrado, o ausencia de calificaciones previas
+  degrada a `null`, nunca bloquea la creación de la oferta (AC3).
+- **Migración a mano** (`prisma/migrations/20260912210000_add_sender_snapshot_to_offers/`),
+  mismo patrón `ALTER TABLE ... ADD COLUMN` que el resto de las columnas de `Offer`
+  agregadas incrementalmente (MOVO-177/180).
+
+Tests: `test/offer-repository.integration.test.ts` (round-trip del snapshot y su
+default `null`), `test/shipments-offers-create.integration.test.ts` (emisor
+verificado/no verificado, con una calificación previa vía seed directo de `Rating`, y
+el test de regresión del hallazgo: un `usersClient` que falla para transportista Y
+emisor no bloquea la creación — los 4 campos de snapshot quedan `null`, con una `app`
+propia para no afectar el resto del describe), `test/offers-mine.integration.test.ts`
+(expone los 3 campos nuevos). Suite completa del servicio 537/553 (los 16 que fallan
+son el mismo bug preexistente de credenciales de `offers-mine.integration.test.ts` ya
+documentado en `MOVO-208`, sin relación con este ticket — verificado aparte con un rol
+temporal de Postgres, ver ese mismo procedimiento). `tsc --noEmit`, `npm run build` y
+`eslint` limpios. Confirmado que `app.swagger()` expone los 3 campos nuevos en
+`POST /shipments/:id/offers` y `GET /offers/mine`.
+
+Pendiente / fuera de alcance: `GET /offers/:id` (MOVO-190, bloqueado por este ticket)
+todavía no existe — cuando se implemente, reusa el mismo `Offer`/`toOfferDto`, sin
+trabajo adicional; DER actualizado (`docs/movo_der.dbml`, tabla `shipments.offers`).
+
+### MOVO-208 — Extensión del set canónico de estados: `assigned_unfunded` y `completed`
+
+Agrega dos estados al set canónico de `ShipmentStatus` (MOVO-79, cerrado en 9 desde
+MOVO-105) — el enum pasa a 11 valores, en `@movo/shared` + Postgres + la máquina de
+estados, en el mismo PR, conforme obliga el AC6 de `MOVO-79`. Sin disparo real todavía:
+`MOVO-210` (saga de asignación) dispara las transiciones de `assigned_unfunded`,
+`MOVO-212` (captura y split) dispara `delivered → completed` — ambos bloqueados por
+Mercado Pago. Ver ADR-021 (`CLAUDE.md` raíz) para el razonamiento completo.
+
+- **`assigned_unfunded`** (decisión de arquitectura del hold de `MOVO-12` "opción B"):
+  transportista asignado y método de pago validado, pero sin hold creado — el retiro es
+  a más de N días y el hold recién se programa a T-24h. Se inserta en
+  `shipment-state-machine.ts#VALID_TRANSITIONS` como rama ALTERNATIVA a
+  `assignment_pending` desde `published` (no un paso adicional de esa misma ruta):
+  `published → assigned_unfunded → {assigned, published, cancelled}`. **Nunca sale
+  hacia `in_transit` directo** (AC2 del ticket) — un envío sin hold confirmado no puede
+  retirarse, tiene que pasar por `assigned` primero.
+- **`completed`**: entrega confirmada Y pago liberado — terminal, sin salidas, entra
+  solo desde `delivered → completed`. Es una consecuencia POSTERIOR de `delivered`, no
+  un resultado alternativo — decisión que gobierna todo lo de abajo.
+- **Migración escrita a mano** (`prisma/migrations/
+  20260912200000_add_assigned_unfunded_and_completed_states/`, mismo patrón que
+  `svc-users` en `20260805235652_add_kyc_verification_movo_72`): dos `ALTER TYPE ...
+  ADD VALUE ... AFTER ...` (Postgres 16 soporta `BEFORE`/`AFTER` y permite correrlo
+  dentro de una transacción normal si el valor nuevo no se usa en la misma transacción).
+  **Reversibilidad (AC1)**: Postgres no soporta `DROP VALUE` nativo — el camino
+  documentado como comentario en la propia migración recrea el tipo sin los 2 valores
+  nuevos (`CREATE TYPE ..._old` + `ALTER TABLE ... USING ...` + `DROP TYPE` + `RENAME
+  TYPE`). Hallazgo real escribiendo el test de reversibilidad: el `DEFAULT` de
+  `shipments.status` (`awaiting_receiver_confirmation`) no castea automático al tipo
+  nuevo — hay que `DROP DEFAULT` antes del `ALTER COLUMN ... TYPE` y `SET DEFAULT` de
+  nuevo al final, contra el tipo ya renombrado. Verificado en
+  `test/migration-reversibility.integration.test.ts`, que corre ese camino completo
+  dentro de una transacción de Prisma que nunca se commitea (lanza un sentinel al
+  final) — prueba el SQL contra Postgres real sin tocar la base de dev.
+- **Alcance ampliado, confirmado con el usuario**: 4 lugares que comparaban
+  `status === DELIVERED` a secas en features ya shippeadas se corrigieron para tratar
+  `completed` como equivalente — sin esto, se habrían roto silenciosamente recién
+  cuando `MOVO-212` empezara a mover envíos reales a `completed` (no ahora, pero sí un
+  bug latente sobre código ya en producción). Nuevo export
+  `FULFILLED_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [DELIVERED, COMPLETED]` en
+  `shipment-state-machine.ts`, reusado en:
+  - `shipment-repository.ts#hasActiveShipmentsForUser` (MOVO-134, baja de cuenta): el
+    `notIn` de "no activo" suma `COMPLETED` junto a `DELIVERED`/`REJECTED_BY_RECEIVER`/
+    `CANCELLED` — sin esto, un envío `completed` bloquearía la baja de cuenta para
+    siempre. `ASSIGNED_UNFUNDED` sigue contando como activo por default, correctamente
+    (no se agregó a ningún lado).
+  - `countCompletedTransactions`/`countDeliveredAsCarrierByIds` (MOVO-147 reputación,
+    MOVO-188 desempate de ranking): `status: DELIVERED` → `status: { in:
+    FULFILLED_SHIPMENT_STATUSES }`.
+  - `getSharedHistory#allDelivered` (MOVO-170): un envío `completed` también cuenta
+    como "llegó a destino". Comparación con `===` explícito (`r.status ===
+    ShipmentStatus.DELIVERED || r.status === ShipmentStatus.COMPLETED`), no
+    `.includes()` sobre el array — `r.status` acá es el enum generado por Prisma
+    (string literal), no el enum de `@movo/shared`, así que `Array.includes()` no
+    tipa contra él aunque `===` sí (comparación con overlap de literales).
+  - `ratings.service.ts#assertRatingWindowAllowsWrite` (MOVO-146/153, gate de
+    calificación): pasa de exigir `status === DELIVERED` exacto a `!FULFILLED_
+    SHIPMENT_STATUSES.includes(shipment.status)` — sin esto, nadie podría calificar un
+    envío una vez que llega a `completed`. `deliveredAt` sigue siendo la referencia real
+    de la ventana de 72hs en los dos casos, no se toca al transicionar a `completed`.
+- **Deliberadamente NO tocado** (depende de decisiones de `MOVO-210`/backend, no de
+  este ticket): `shipments.service.ts` (gate HTTP de cancelación, sigue bloqueando
+  `assigned` con 409 y no conoce `assigned_unfunded` — la máquina de estados ya permite
+  `assigned_unfunded → cancelled`, pero conectar el endpoint real es trabajo de
+  `MOVO-210`); `trip-repository.ts#ACCEPTED_OFFER_FILTER` (ya excluye solo `CANCELLED`,
+  así que `completed`/`assigned_unfunded` quedan incluidos por default correctamente,
+  sin tocar nada); `movo-mobile#canCancelShipment` (mismo motivo que el gate HTTP: no
+  tiene sentido ofrecer un botón que el backend today rechazaría).
+- **Mobile** (`movo-mobile/src/lib/shipment-format.ts`, `components/shipments/
+  timeline-section.tsx`, `app/(app)/shipments/index.tsx`): obligatorio por AC6 del
+  propio ticket (verificar que MOVO-128/MOVO-27 rendericen los estados nuevos con
+  etiqueta legible) y porque `STATUS_LABEL`/`EVENT_ICON` son `Record<ShipmentStatus,
+  ...>` exhaustivos — no compilan sin las 2 claves nuevas. `HAPPY_PATH` suma `completed`
+  al final de `delivered` (relación 1:1 sin ambigüedad); **no** suma `assigned_unfunded`
+  — es una rama alternativa a `assignment_pending`, insertarla en el array lineal
+  rompería `remainingLifecycleSteps` de la rama existente, queda documentado como
+  decisión de producto pendiente. Ver `movo-mobile/CLAUDE.md` para el detalle.
+- **`MOVO-192`/`MOVO-206`** (los otros dos endpoints que el AC6 pide verificar) **no
+  existen todavía como código** (ambos en estado `Todo`) — sus propios ACs ya
+  referencian `assigned_unfunded`/`completed` explícitamente, así que quedan listos
+  para consumir el enum extendido cuando se implementen; no había nada que romper hoy.
+- **`delivery_failed` evaluado y descartado** (decisión explícita del ticket, no un
+  olvido): 5 preguntas de negocio sin responder (hold, reversión a `published`, quién
+  declara la falla, si es lo mismo que `disputed`, qué pasa con el paquete físico) — ver
+  la nota dedicada en `docs/shipments/state-diagram.md`.
+- **DTE/DER actualizados**: `docs/shipments/state-diagram.md` (Mermaid, 11
+  estados/18 transiciones, nota de `delivery_failed`) y `docs/movo_der.dbml`.
+
+Tests: `test/shipment-state-machine.test.ts` (5 transiciones válidas + 4 inválidas
+nuevas, incluida `assigned_unfunded → in_transit` del AC2, y `completed` sumado al
+array de estados terminales del test de "todo estado no terminal tiene salida"),
+`test/migration-reversibility.integration.test.ts` (nuevo, contra Postgres real),
+`test/account-deletion.integration.test.ts` (caso `assigned_unfunded` activo +
+`completed` sumado al `it.each` de terminales), `test/shipments-history-with.
+integration.test.ts` (un envío `completed` cuenta como `allDelivered: true`),
+`test/ratings.integration.test.ts` (calificar un envío `completed` funciona igual que
+uno `delivered`; `transactionCounts` cuenta `completed` igual que `delivered`).
+Verificado también manualmente contra `offers-mine.integration.test.ts` (cubre
+`countDeliveredAsCarrierByIds`) con un rol Postgres temporal — ese archivo tiene un bug
+preexistente sin relación (credenciales hardcodeadas `user:password` en vez de
+`movo:movo`, `ec0c7973`, `ldalmagro1`, 2026-08-25) que le impide correr en este entorno
+tal como está: no se tocó, es de otro ticket. Suite completa del servicio: 547/562 (los
+15 que fallan son ese mismo archivo, por el bug preexistente, no por este cambio).
+`tsc --noEmit` limpio en `svc-shipments` y `movo-mobile`.
+
+Pendiente / fuera de alcance: disparo real de las transiciones (`MOVO-210`/`MOVO-212`,
+bloqueados por Mercado Pago); `delivery_failed` (evaluado y descartado, ver arriba);
+gate HTTP de cancelación desde `assigned_unfunded` y botón de cancelar en mobile para
+ese estado (dependen de `MOVO-210`); ADR-021 redactado en `CLAUDE.md` raíz, pendiente
+de que el usuario lo publique en Drive (decisión explícita, no un olvido); bug
+preexistente de credenciales en `offers-mine.integration.test.ts` (de otro ticket, no
+se tocó).
+
+#### ADR-021 completo (texto para pegar en Drive, `[Movo] 004 - Sprint 0.md`)
+
+> **ADR-021 — Extensión del set canónico de `ShipmentStatus`: `assigned_unfunded` y `completed`**
+>
+> **Contexto**
+>
+> `MOVO-79` (criterio 6) cerró el set canónico de `ShipmentStatus` en 9 valores, con una
+> regla explícita: agregar un valor obliga a actualizar, en el mismo PR, el enum de la
+> migración, `ShipmentStatus` de `@movo/shared` y el AC3 de `MOVO-19`. Este ADR
+> documenta por qué se reabre esa decisión (`MOVO-208`) y qué se agrega.
+>
+> Dos motivos distintos, detectados al refinar el hold de fondos (`MOVO-12`):
+>
+> 1. **La decisión de arquitectura del hold (`MOVO-12`, "opción B")**: la reserva de
+>    Mercado Pago caduca en 5 a 7 días. Si el hold se crea en la aceptación de la
+>    oferta (como hacía `assignment_pending` hasta ahora) y el retiro real ocurre
+>    varios días después, la reserva puede morir antes de que el paquete se mueva —
+>    esto rompe el caso normal de la plataforma (transportistas que planifican viajes
+>    con anticipación), no un caso borde. La opción B ancla el hold cerca del retiro:
+>    con retiro cercano, se reserva en la aceptación (`assignment_pending`, sin
+>    cambios); con retiro lejano, se valida el método de pago pero **no se crea
+>    reserva todavía**, y un job la crea a T-24h de la ventana de retiro. Ese estado
+>    intermedio — transportista asignado, sin hold — no tiene representación en el set
+>    canónico actual: `assigned` está definido como "hold confirmado, transportista
+>    asignado" y ese significado no se puede estirar para cubrir "sin hold".
+> 2. **`delivered` como único estado final del camino feliz**: después de la entrega
+>    todavía falta capturar el pago (`MOVO-13`) y calificar (`MOVO-22`). No hay forma de
+>    distinguir un envío entregado y cobrado de uno entregado y pendiente de cobro, ni
+>    de saber cuándo un envío está realmente cerrado.
+>
+> **Decisión**
+>
+> Se agregan dos estados, el set canónico pasa de 9 a 11:
+>
+> | Estado | Significado | Entradas | Salidas |
+> | -- | -- | -- | -- |
+> | `assigned_unfunded` | Transportista asignado y método de pago validado, pero sin hold creado todavía. El retiro es a más de N días. | `published → assigned_unfunded` | `→ assigned` (hold programado exitoso), `→ published` (hold programado fallido), `→ cancelled` |
+> | `completed` | Entrega confirmada, pago liberado y proceso cerrado. Terminal. | `delivered → completed` | Ninguna. Terminal |
+>
+> `assigned_unfunded` nunca transiciona a `in_transit` directo: un envío sin hold
+> confirmado no puede retirarse, tiene que pasar por `assigned` primero — es la
+> salvaguarda concreta que impide retirar un paquete sin fondos reservados.
+>
+> Ninguna de las dos transiciones se dispara todavía: `MOVO-210` (saga de asignación)
+> dispara las de `assigned_unfunded`, `MOVO-212` (captura y split) dispara
+> `delivered → completed`. Ambos bloqueados por Mercado Pago (caso de soporte
+> escalado, sandbox con error en `application_fee` + Auth & Capture). Este ADR y su
+> implementación (`MOVO-208`) dejan las transiciones disponibles y probadas en la
+> máquina de estados, sin esperar a que MP se destrabe — mismo criterio ya aplicado en
+> `MOVO-158` con `FundsReleaseNotifier`.
+>
+> **Nombre de `assigned_unfunded`**: elegido por consistencia con el estilo del enum
+> existente (snake_case descriptivo) y porque deja explícito que el transportista **sí**
+> está asignado, lo que falta son los fondos. Alternativas descartadas:
+> `awaiting_funds_hold` (no comunica que ya hay transportista asignado) y
+> `pending_funds` (ambiguo respecto de `assignment_pending`, el estado ya existente).
+>
+> **`delivery_failed`: evaluado y descartado explícitamente**
+>
+> No se agrega. Hoy no tiene transiciones de salida definidas y sería un estado al que
+> se puede entrar sin saber cómo salir — peor que no tenerlo. Preguntas sin responder
+> antes de poder agregarlo:
+>
+> - ¿Qué pasa con el hold de fondos? ¿Se libera, se reembolsa al emisor, se paga
+>   parcialmente al transportista por el traslado hecho?
+> - ¿El envío vuelve a `published` para que otro transportista lo tome, o queda
+>   cerrado?
+> - ¿Quién puede declarar la falla: el transportista, el receptor, un admin, o un
+>   timeout automático?
+> - ¿Se diferencia de `disputed`, o una entrega fallida **es** una disputa?
+> - ¿Qué pasa con el paquete físicamente, que sigue en manos del transportista?
+>
+> Queda registrado como el hueco más importante del camino de excepción del proyecto,
+> con impacto concreto en `MOVO-199` (si el receptor no aparece, el envío queda en
+> `in_transit` indefinidamente y el transportista se queda con el paquete sin salida en
+> el sistema). Se resuelve con los estados existentes mientras tanto (`cancelled` con
+> `reason`, o `disputed`).
+>
+> **Trade-off aceptado**
+>
+> La máquina de estados ya permite un camino (`assigned_unfunded`, y la transición a
+> `completed`) que ningún endpoint HTTP dispara todavía — documentado explícitamente
+> como "disponible y probado, no disparado" en vez de dejarlo implícito. El riesgo es
+> bajo porque el propio bloqueo de Mercado Pago hace que sea imposible alcanzar estos
+> estados en producción hasta que `MOVO-210`/`MOVO-212` existan; el riesgo real que sí
+> se mitigó en el camino es que otras 4 features ya shippeadas (baja de cuenta,
+> reputación, historial compartido, calificaciones) que asumían `delivered` como único
+> estado post-entrega quedaron corregidas para tratar `completed` como equivalente,
+> antes de que `MOVO-212` pudiera exponer ese bug en producción.
+>
+> **Referencias**: `MOVO-208` (este ticket), `MOVO-12` (decisión de arquitectura del
+> hold), `MOVO-210` (saga de asignación), `MOVO-212` (captura y split), `MOVO-79`/
+> `MOVO-105` (set canónico original).
+**Gap encontrado después, al trabajar MOVO-189 (sin corregir, fuera de alcance de esa
+US)**: `GET /shipments/:id/offers` usa su propio `offerResponse` en
+`shipments.schema.ts` (autocontenido, no importa de `offers.schema.ts`) que nunca sumó
+`priceNetArs`/`commissionAmountArs` -- pese a que el título de esta US dice "todas las
+respuestas de oferta", ese endpoint sigue sirviendo solo el bruto (fast-json-stringify
+descarta en silencio cualquier campo que `toOfferDto` agregue pero el schema no
+declare). No tiene test que lo hubiera detectado (`shipments-offers-list.integration.test.ts`
+no verifica esos dos campos). Pendiente: sumarlos ahí también.
+
+### MOVO-189 — Tracking de "vista" del emisor sobre una oferta recibida
+
+Backend puro del mockup "Transportista - Mis Ofertas" (MOVO-151/182): sumó
+`viewedAtBySender: Date | null` a `Offer` (migración
+`20260912190000_add_offer_viewed_at_by_sender`), expuesto crudo (sin traducir a copy,
+eso es de UI) en los 5 endpoints que devuelven una oferta (`GET /shipments/:id/offers`,
+`GET /offers/mine`, accept/reject/withdraw).
+
+Decisiones clave:
+- **Opción (a) del refinamiento**: cualquier `GET /shipments/:id/offers` marca como
+  vistas las `pending` efectivas del envío (no expiradas -- reusa `offerStatusWhere`,
+  MOVO-102/188) que todavía tuvieran `viewedAtBySender: null`. Un solo `updateMany`
+  nuevo (`offer-repository.ts#markPendingOffersViewedBySender`), corrido antes de
+  `listByShipment` para que la misma respuesta ya refleje el valor recién seteado.
+- **Solo cuenta si el caller es el EMISOR real, no un admin auditando** (AC1 habla
+  específicamente de "el emisor vio"): `listShipmentOffers` compara
+  `callerId === shipment.senderId` antes de marcar, aunque `assertIsSenderOrAdmin` deje
+  pasar a ambos por igual.
+- **Best-effort, mismo criterio que las notificaciones push**: `try/catch` +
+  `logger?.warn` alrededor del `updateMany` -- un fallo ahí nunca bloquea la respuesta
+  200 con las ofertas.
+- **`GET /offers/:id` (mencionado en el AC2 del ticket) no existe todavía** -- es
+  MOVO-190, bloqueado por esta US. El campo ya viaja en el modelo/DTO compartido para
+  que ese ticket lo herede sin tocar nada acá.
+
+Tests nuevos en `shipments-offers-list.integration.test.ts` (primera lectura marca,
+segunda no pisa; oferta creada después de la primera lectura aparece `null` hasta la
+próxima; un admin que lista no marca nada; una oferta ya `rejected` conserva el valor
+que tenía al resolverse) y uno en `offers-mine.integration.test.ts` (expone el campo,
+pasa de `null` a seteado tras la lectura del emisor). Suite completa del servicio
+551/551, `tsc --noEmit` y `eslint` limpios. Confirmado que `app.swagger()` expone el
+campo nuevo en los 5 endpoints. DER (`docs/movo_der.dbml`) actualizado con la columna.
 
 ### Pendientes de este servicio
 

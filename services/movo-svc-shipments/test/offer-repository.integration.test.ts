@@ -114,6 +114,31 @@ describe("offer-repository (Postgres)", () => {
       expect(offer.carrierNameAtOffer).toBe("Juan Pérez");
     });
 
+    it("MOVO-187: persiste el snapshot del emisor, simétrico al del transportista", async () => {
+      const shipmentId = await createPublishedShipment();
+      const offer = await repo.create(
+        baseOfferInput({
+          shipmentId,
+          senderNameAtOffer: "María Emisora",
+          senderVerifiedAtOffer: true,
+          senderRatingAtOffer: 4.9,
+        }),
+      );
+
+      expect(offer.senderNameAtOffer).toBe("María Emisora");
+      expect(offer.senderVerifiedAtOffer).toBe(true);
+      expect(offer.senderRatingAtOffer).toBe(4.9);
+    });
+
+    it("MOVO-187: los 3 campos del emisor son null por default, igual que los del transportista", async () => {
+      const shipmentId = await createPublishedShipment();
+      const offer = await repo.create(baseOfferInput({ shipmentId }));
+
+      expect(offer.senderNameAtOffer).toBeNull();
+      expect(offer.senderVerifiedAtOffer).toBeNull();
+      expect(offer.senderRatingAtOffer).toBeNull();
+    });
+
     it("lanza OfferShipmentNotFoundError si el envío no existe", async () => {
       await expect(
         repo.create(baseOfferInput({ shipmentId: "00000000-0000-0000-0000-000000000000" })),

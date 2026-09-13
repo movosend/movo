@@ -119,6 +119,21 @@ describe("GET /shipments/history-with/:userId (Postgres)", () => {
     expect(mixedResponse.json()).toMatchObject({ sharedShipmentCount: 2, allDelivered: false });
   });
 
+  it("MOVO-208: un envío completed también cuenta como allDelivered=true -- es consecuencia de delivered, no un resultado distinto", async () => {
+    const completed = await repo.create(baseInput);
+    await repo.addPhoto(completed.id, PhotoStage.creation, `shipments/${completed.id}/creation/${randomUUID()}.jpg`);
+    await repo.addPhoto(completed.id, PhotoStage.creation, `shipments/${completed.id}/creation/${randomUUID()}.jpg`);
+    await repo.updateStatus(completed.id, ShipmentStatus.PUBLISHED, null);
+    await repo.updateStatus(completed.id, ShipmentStatus.ASSIGNMENT_PENDING, null);
+    await repo.updateStatus(completed.id, ShipmentStatus.ASSIGNED, null);
+    await repo.updateStatus(completed.id, ShipmentStatus.IN_TRANSIT, null);
+    await repo.updateStatus(completed.id, ShipmentStatus.DELIVERED, null);
+    await repo.updateStatus(completed.id, ShipmentStatus.COMPLETED, null);
+
+    const response = await request(viewerId, otherId);
+    expect(response.json()).toMatchObject({ sharedShipmentCount: 1, allDelivered: true });
+  });
+
   it("401 sin x-user-id", async () => {
     const response = await app.inject({ method: "GET", url: `/shipments/history-with/${otherId}` });
     expect(response.statusCode).toBe(401);

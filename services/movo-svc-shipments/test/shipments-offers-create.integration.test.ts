@@ -26,6 +26,10 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
   const receiverId = randomUUID();
   const verifiedCarrierId = randomUUID();
   const unverifiedCarrierId = randomUUID();
+  // MOVO-187: emisor no verificado, para probar senderVerifiedAtOffer: false --
+  // `senderId` (arriba) ya está verificado y lo usan decenas de tests existentes de
+  // este archivo, no se toca.
+  const unverifiedSenderId = randomUUID();
 
   function baseShipmentInput(overrides: Partial<CreateShipmentInput> = {}): CreateShipmentInput {
     return {
@@ -86,8 +90,9 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
       usersClient: createFakeUsersClient({
         [verifiedCarrierId]: fakePublicProfile({ id: verifiedCarrierId, fullName: "Juan Transportista", isVerified: true }),
         [unverifiedCarrierId]: fakePublicProfile({ id: unverifiedCarrierId, isVerified: false }),
-        [senderId]: fakePublicProfile({ id: senderId, isVerified: true }),
+        [senderId]: fakePublicProfile({ id: senderId, fullName: "María Emisora", isVerified: true }),
         [receiverId]: fakePublicProfile({ id: receiverId, isVerified: true }),
+        [unverifiedSenderId]: fakePublicProfile({ id: unverifiedSenderId, isVerified: false }),
       }),
       notificationsClient,
       sweepEnabled: false,
@@ -255,6 +260,92 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
     const response = await requestCreateOffer(shipment.id, verifiedCarrierId);
     expect(response.statusCode).toBe(201);
     expect(response.json().carrierRatingAtOffer).toBeNull();
+  });
+
+  it("MOVO-187 AC1: snapshotea nombre/verificación del emisor al crear la oferta", async () => {
+    const shipment = await createPublishedShipment();
+    const response = await requestCreateOffer(shipment.id, verifiedCarrierId);
+
+    expect(response.statusCode).toBe(201);
+    const body = response.json();
+    expect(body.senderNameAtOffer).toBe("María Emisora");
+    expect(body.senderVerifiedAtOffer).toBe(true);
+    expect(body.senderRatingAtOffer).toBeNull();
+  });
+
+  it("MOVO-187: senderVerifiedAtOffer es false si el emisor no tiene KYC de identidad aprobado", async () => {
+    const shipment = await createPublishedShipment({ senderId: unverifiedSenderId });
+    const response = await requestCreateOffer(shipment.id, verifiedCarrierId);
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().senderVerifiedAtOffer).toBe(false);
+  });
+
+  it("MOVO-187: senderRatingAtOffer refleja una calificación previa del emisor (asSender)", async () => {
+    const shipment = await createPublishedShipment();
+    // Seed directo de la fila -- no hace falta el ciclo completo de entrega/rating
+    // real para probar que el snapshot LEE lo que ya existe, mismo criterio pragmático
+    // que el resto de los fixtures de este archivo.
+    await app.db.rating.create({
+      data: { shipmentId: shipment.id, raterId: randomUUID(), rateeId: senderId, role: "sender", score: 5 },
+    });
+
+    const response = await requestCreateOffer(shipment.id, verifiedCarrierId);
+
+    expect(response.statusCode).toBe(201);
+    expect(typeof response.json().senderRatingAtOffer).toBe("number");
+  });
+
+  it("MOVO-187 AC3: un usersClient que falla no bloquea la creación -- los 4 campos de snapshot (transportista y emisor) quedan null", async () => {
+    const carrierId = randomUUID();
+    // La primera llamada (assertVerifiedCarrier, el gate de KYC del transportista)
+    // tiene que resolver OK para poder llegar al snapshot -- de ahí en adelante
+    // (snapshot del transportista y del emisor, en ese orden) todo falla, incluido el
+    // hallazgo de este ticket: antes de este fix, el snapshot del transportista NO
+    // toleraba esto.
+    const findPublicProfile = vi
+      .fn()
+      .mockResolvedValueOnce(fakePublicProfile({ id: carrierId, isVerified: true }))
+      .mockRejectedValue(new Error("usersClient caído"));
+
+    const failingApp = buildApp({
+      usersClient: { findPublicProfile, findDeviceKey: vi.fn().mockResolvedValue(null) },
+      sweepEnabled: false,
+    });
+    await failingApp.ready();
+
+    try {
+      const failingShipmentRepo = createShipmentRepository(failingApp.db);
+      const created = await failingShipmentRepo.create(baseShipmentInput());
+      await failingShipmentRepo.addPhoto(
+        created.id,
+        PhotoStage.creation,
+        `shipments/${created.id}/creation/${randomUUID()}.jpg`,
+      );
+      await failingShipmentRepo.addPhoto(
+        created.id,
+        PhotoStage.creation,
+        `shipments/${created.id}/creation/${randomUUID()}.jpg`,
+      );
+      const shipment = await failingShipmentRepo.updateStatus(created.id, ShipmentStatus.PUBLISHED, created.senderId);
+
+      const response = await failingApp.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/offers`,
+        headers: { "x-user-id": carrierId, "x-user-roles": "carrier" },
+        payload: { priceOfferedArs: 5000, offeredDate: PICKUP_DATE_STR },
+      });
+
+      expect(response.statusCode).toBe(201);
+      const body = response.json();
+      expect(body.carrierNameAtOffer).toBeNull();
+      expect(body.carrierRatingAtOffer).toBeNull();
+      expect(body.senderNameAtOffer).toBeNull();
+      expect(body.senderVerifiedAtOffer).toBeNull();
+      expect(body.senderRatingAtOffer).toBeNull();
+    } finally {
+      await failingApp.close();
+    }
   });
 
   it("400 VALIDATION_FAILED con precio ofertado <= 0", async () => {

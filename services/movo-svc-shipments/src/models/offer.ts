@@ -21,6 +21,14 @@ export interface Offer {
   message: string | null;
   carrierRatingAtOffer: number | null;
   carrierNameAtOffer: string | null;
+  /** MOVO-187: snapshot simétrico del EMISOR al momento de ofertar -- mismo criterio
+   * que el snapshot del transportista de arriba (congelado, no lectura en vivo).
+   * `senderVerifiedAtOffer` es su `isVerified` de KYC de identidad, no un boolean de
+   * negocio propio de `Offer`. Los tres son nullable: un fallo al resolver el perfil
+   * del emisor no bloquea la creación de la oferta (AC3 de MOVO-187). */
+  senderNameAtOffer: string | null;
+  senderVerifiedAtOffer: boolean | null;
+  senderRatingAtOffer: number | null;
   status: OfferStatus;
   expiresAt: Date | null;
   createdAt: Date;
@@ -40,6 +48,10 @@ export interface Offer {
    * `schema.prisma`). */
   estimatedDeliveryTimeWindowStart: string | null;
   estimatedDeliveryTimeWindowEnd: string | null;
+  /** MOVO-189: instante en que el emisor vio esta oferta por primera vez -- `null`
+   * hasta la próxima lectura de `GET /shipments/:id/offers` que la marque (best-effort,
+   * ver `shipments.service.ts#listShipmentOffers`). Nunca se pisa una vez seteado. */
+  viewedAtBySender: Date | null;
 }
 
 /**
@@ -98,6 +110,9 @@ export interface CreateOfferInput {
   expiresAt?: Date | null;
   carrierRatingAtOffer?: number | null;
   carrierNameAtOffer?: string | null;
+  senderNameAtOffer?: string | null;
+  senderVerifiedAtOffer?: boolean | null;
+  senderRatingAtOffer?: number | null;
   /** MOVO-162: id de un viaje `active` del propio `carrierId` -- validado por
    * `shipments.service.ts#createOfferForShipment` antes de llegar acá (existencia,
    * pertenencia, estado), no por el repositorio. */

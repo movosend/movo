@@ -1396,3 +1396,48 @@ describe("shipments.service — cancelShipment (MOVO-29/MOVO-108)", () => {
     await expect(service.cancelShipment(shipment.id, "sender-id")).resolves.toBe(cancelled);
   });
 });
+
+describe("shipments.service — createOfferForShipment (MOVO-187/PR #150)", () => {
+  it("un getCarrierReputationScore/getSenderReputationScore que rechaza no bloquea la creación de la oferta (AC3)", async () => {
+    const shipment = fakeShipment({
+      id: "shipment-id",
+      senderId: "sender-id",
+      status: ShipmentStatus.PUBLISHED,
+    });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const usersClient = createFakeUsersClient({
+      "carrier-id": fakePublicProfile({ id: "carrier-id", fullName: "Transportista", isVerified: true }),
+      "sender-id": fakePublicProfile({ id: "sender-id", fullName: "Emisor", isVerified: true }),
+    });
+    const offerRepository = createFakeOfferRepository({
+      create: vi.fn().mockResolvedValue(
+        fakeOffer({
+          shipmentId: shipment.id,
+          carrierId: "carrier-id",
+          priceOffered: 5750,
+          carrierRatingAtOffer: null,
+          senderRatingAtOffer: null,
+        })
+      ),
+    });
+    const service = createShipmentsService(repository, usersClient, undefined, undefined, {
+      offerRepository,
+      getCarrierReputationScore: vi.fn().mockRejectedValue(new Error("DB caída")),
+      getSenderReputationScore: vi.fn().mockRejectedValue(new Error("DB caída")),
+    });
+
+    const result = await service.createOfferForShipment({
+      shipmentId: shipment.id,
+      carrierId: "carrier-id",
+      callerRoles: [UserRole.CARRIER],
+      priceNetArs: 5000,
+      offeredDate: "2030-01-01",
+    });
+
+    expect(result.carrierRatingAtOffer).toBeNull();
+    expect(result.senderRatingAtOffer).toBeNull();
+    expect(offerRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ carrierRatingAtOffer: null, senderRatingAtOffer: null })
+    );
+  });
+});

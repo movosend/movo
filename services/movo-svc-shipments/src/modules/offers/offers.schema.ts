@@ -56,6 +56,9 @@ const offerResponse = {
     "message",
     "carrierRatingAtOffer",
     "carrierNameAtOffer",
+    "senderNameAtOffer",
+    "senderVerifiedAtOffer",
+    "senderRatingAtOffer",
     "status",
     "expiresAt",
     "createdAt",
@@ -64,6 +67,7 @@ const offerResponse = {
     "estimatedDeliveryDate",
     "estimatedDeliveryTimeWindowStart",
     "estimatedDeliveryTimeWindowEnd",
+    "viewedAtBySender",
   ],
   properties: {
     id: { type: "string" },
@@ -82,6 +86,11 @@ const offerResponse = {
     message: { type: ["string", "null"] },
     carrierRatingAtOffer: { type: ["number", "null"] },
     carrierNameAtOffer: { type: ["string", "null"] },
+    // MOVO-187: snapshot simétrico del emisor -- ver el comentario del mismo campo en
+    // el modelo de dominio (models/offer.ts).
+    senderNameAtOffer: { type: ["string", "null"] },
+    senderVerifiedAtOffer: { type: ["boolean", "null"] },
+    senderRatingAtOffer: { type: ["number", "null"] },
     status: { type: "string" },
     expiresAt: { type: ["string", "null"], format: "date-time" },
     createdAt: { type: "string", format: "date-time" },
@@ -93,6 +102,9 @@ const offerResponse = {
     estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
     estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
     estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
+    // MOVO-189: instante crudo en que el EMISOR vio esta oferta por primera vez -- la
+    // traducción a copy ("Vista hace 40 min"/"Todavía no la vio") es de UI (mobile).
+    viewedAtBySender: { type: ["string", "null"], format: "date-time" },
   },
 };
 
@@ -128,6 +140,9 @@ const myOfferResponse = {
     "message",
     "carrierRatingAtOffer",
     "carrierNameAtOffer",
+    "senderNameAtOffer",
+    "senderVerifiedAtOffer",
+    "senderRatingAtOffer",
     "status",
     "expiresAt",
     "createdAt",
@@ -138,6 +153,7 @@ const myOfferResponse = {
     "estimatedDeliveryTimeWindowStart",
     "estimatedDeliveryTimeWindowEnd",
     "competitiveRank",
+    "viewedAtBySender",
   ],
   properties: {
     id: { type: "string" },
@@ -153,6 +169,11 @@ const myOfferResponse = {
     message: { type: ["string", "null"] },
     carrierRatingAtOffer: { type: ["number", "null"] },
     carrierNameAtOffer: { type: ["string", "null"] },
+    // MOVO-187: snapshot simétrico del emisor -- ver el comentario del mismo campo en
+    // el modelo de dominio (models/offer.ts).
+    senderNameAtOffer: { type: ["string", "null"] },
+    senderVerifiedAtOffer: { type: ["boolean", "null"] },
+    senderRatingAtOffer: { type: ["number", "null"] },
     // AC2: valor EFECTIVO (deriveEffectiveOfferStatus ya aplicado, incluye "expired").
     status: { type: "string", enum: OFFER_STATUS_VALUES },
     expiresAt: { type: ["string", "null"], format: "date-time" },
@@ -169,6 +190,8 @@ const myOfferResponse = {
     estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
     estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
     competitiveRank: competitiveRankResponse,
+    // MOVO-189: mismo criterio que offerResponse -- instante crudo, sin copy.
+    viewedAtBySender: { type: ["string", "null"], format: "date-time" },
   },
 };
 
