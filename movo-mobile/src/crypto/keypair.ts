@@ -13,6 +13,19 @@ export interface DeviceKeyPair {
 }
 
 /**
+ * Single-flight: sin esto, dos llamadas concurrentes que arrancan antes de que exista
+ * una clave persistida podían generar y persistir cada una la suya (gana el último
+ * `setItem`), dejando a la primera firmando en memoria con una clave que no es la que
+ * terminó persistida/registrada (feedback de review de PR #148 -- hoy no se puede
+ * disparar porque `useDeviceKeyBootstrap` ya serializa sus propias llamadas, pero
+ * `signHandshakeNonce()` es pública y MOVO-159/160 van a llamarla sin ese resguardo).
+ * Se resetea a `null` en el `finally` así una llamada posterior (ya con la clave
+ * persistida) toma el camino corto de lectura sin quedar atada para siempre a la
+ * primera promesa.
+ */
+let pendingKeyPair: Promise<DeviceKeyPair> | null = null;
+
+/**
  * Par de claves ECDSA P-256 del dispositivo para el handshake criptográfico
  * (MOVO-195, ADR-020). Mismo patrón que `getOrCreateDeviceId()`
  * (`src/lib/device-id.ts`, MOVO-107): si no hay privada persistida se genera una
@@ -24,9 +37,19 @@ export interface DeviceKeyPair {
  * (`signing.ts`) -- nunca se loguea, nunca viaja a ningún estado de React/Zustand.
  */
 export async function getOrCreateDeviceKeyPair(): Promise<DeviceKeyPair> {
-  const existing = await secureStore.getItem(SECURE_STORE_KEYS.handshakeDevicePrivateKey);
-  const privateKey = existing ? base64ToBytes(existing) : await generateAndPersistPrivateKey();
-  return { privateKey, publicKeyBase64: bytesToBase64(p256.getPublicKey(privateKey, false)) };
+  if (pendingKeyPair) return pendingKeyPair;
+
+  pendingKeyPair = (async () => {
+    const existing = await secureStore.getItem(SECURE_STORE_KEYS.handshakeDevicePrivateKey);
+    const privateKey = existing ? base64ToBytes(existing) : await generateAndPersistPrivateKey();
+    return { privateKey, publicKeyBase64: bytesToBase64(p256.getPublicKey(privateKey, false)) };
+  })();
+
+  try {
+    return await pendingKeyPair;
+  } finally {
+    pendingKeyPair = null;
+  }
 }
 
 /**

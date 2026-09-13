@@ -83,4 +83,23 @@ describe("getOrCreateDeviceKeyPair", () => {
     expect(publicKeyBase64).toBe(FIXTURE_PUBLIC_KEY_B64);
     expect(Crypto.getRandomBytesAsync).toHaveBeenCalledTimes(2);
   });
+
+  it("dos llamadas concurrentes sin clave persistida generan una sola clave (single-flight, fix de review de PR #148)", async () => {
+    const SecureStore = require("expo-secure-store");
+    (SecureStore.getItemAsync as jest.Mock).mockResolvedValue(null);
+    const Crypto = require("expo-crypto");
+    (Crypto.getRandomBytesAsync as jest.Mock).mockResolvedValue(base64ToBytes(FIXTURE_PRIVATE_KEY_B64));
+
+    const { getOrCreateDeviceKeyPair } = require("../src/crypto/keypair");
+    const [first, second] = await Promise.all([
+      getOrCreateDeviceKeyPair(),
+      getOrCreateDeviceKeyPair(),
+    ]);
+
+    expect(first.publicKeyBase64).toBe(FIXTURE_PUBLIC_KEY_B64);
+    expect(second.publicKeyBase64).toBe(FIXTURE_PUBLIC_KEY_B64);
+    expect(Array.from(first.privateKey)).toEqual(Array.from(second.privateKey));
+    expect(Crypto.getRandomBytesAsync).toHaveBeenCalledTimes(1);
+    expect(SecureStore.setItemAsync).toHaveBeenCalledTimes(1);
+  });
 });
