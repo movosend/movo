@@ -4,6 +4,7 @@ import { useAttentionTasks } from "../src/hooks/use-attention-tasks";
 
 const mockUseAttentionSourceShipments = jest.fn();
 const mockPush = jest.fn();
+const mockUsePublicProfiles = jest.fn();
 
 jest.mock("expo-router", () => ({
   router: { push: (...args: unknown[]) => mockPush(...args) },
@@ -11,6 +12,10 @@ jest.mock("expo-router", () => ({
 
 jest.mock("../src/hooks/use-shipments", () => ({
   useAttentionSourceShipments: () => mockUseAttentionSourceShipments(),
+}));
+
+jest.mock("../src/hooks/use-profile", () => ({
+  usePublicProfiles: (ids: string[]) => mockUsePublicProfiles(ids),
 }));
 
 jest.mock("../src/store/auth-store", () => ({
@@ -31,6 +36,10 @@ function shipment(overrides: Record<string, unknown>) {
 }
 
 describe("useAttentionTasks (MOVO-193)", () => {
+  beforeEach(() => {
+    mockUsePublicProfiles.mockReturnValue([]);
+  });
+
   afterEach(() => jest.clearAllMocks());
 
   it("sin datos, no arma ninguna tarea", async () => {
@@ -47,6 +56,7 @@ describe("useAttentionTasks (MOVO-193)", () => {
         items: [
           shipment({
             id: "s1",
+            senderId: "sender-1",
             receiverId: "me",
             status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
           }),
@@ -58,9 +68,39 @@ describe("useAttentionTasks (MOVO-193)", () => {
     const { result } = await renderHook(() => useAttentionTasks());
 
     expect(result.current.tasks).toHaveLength(1);
-    expect(result.current.tasks[0].title).toBe("Tenés un envío para confirmar");
-    result.current.tasks[0].onPrimary();
+    expect(mockUsePublicProfiles).toHaveBeenCalledWith(["sender-1"]);
+    const task = result.current.tasks[0];
+    expect(task.kind).toBe("confirm");
+    expect(task.title).toBe("Tenés un envío para confirmar");
+    if (task.kind !== "confirm") throw new Error("expected confirm task");
+    expect(task.shipmentId).toBe("s1");
+
+    task.onPress();
     expect(mockPush).toHaveBeenCalledWith("/shipments/s1");
+  });
+
+  it("usa el primer nombre real del emisor en el título cuando el perfil ya cargó", async () => {
+    mockUsePublicProfiles.mockReturnValue([{ data: { fullName: "Julia Fernández" } }]);
+    mockUseAttentionSourceShipments.mockReturnValue({
+      data: {
+        items: [
+          shipment({
+            id: "s1",
+            senderId: "sender-1",
+            receiverId: "me",
+            status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+          }),
+        ],
+      },
+      isLoading: false,
+    });
+
+    const { result } = await renderHook(() => useAttentionTasks());
+    const task = result.current.tasks[0];
+    if (task.kind !== "confirm") throw new Error("expected confirm task");
+
+    expect(task.title).toBe("Julia te quiere enviar un paquete");
+    expect(task.senderFirstName).toBe("Julia");
   });
 
   it("arma una tarea de receptor rechazado si el usuario es el emisor", async () => {
@@ -80,7 +120,9 @@ describe("useAttentionTasks (MOVO-193)", () => {
     const { result } = await renderHook(() => useAttentionTasks());
 
     expect(result.current.tasks).toHaveLength(1);
-    expect(result.current.tasks[0].title).toBe("El receptor rechazó tu envío");
+    const task = result.current.tasks[0];
+    expect(task.kind).toBe("info");
+    expect(task.title).toBe("El receptor rechazó tu envío");
   });
 
   it("ignora envíos donde el usuario no es la parte relevante para ese estado", async () => {

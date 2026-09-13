@@ -2073,3 +2073,54 @@ Tests: sin cambios de aserciones (los tests ya verificaban contenido, no posici�
 exacta) — `active-shipment-format.test.ts` sigue cubriendo `activeShipmentDisplayCode`
 con el mismo caso (el UUID de ejemplo ya solo tenía dígitos coincidentes en el
 sufijo). 109/109 suites, 823/823 tests. `tsc --noEmit` limpio.
+
+**Rediseño de "Requiere tu atención" (mismo día, feedback del usuario mirando la
+sección real): sin ícono/formato de card y sin acción inline.** `AttentionTaskList`
+(`attention-section.tsx`) suma ícono en círculo por tipo de tarea (`Inbox`/`XCircle`
+de lucide, mismo lenguaje que `HomeSendCta`) y separa `onPress` (navega al detalle,
+toda la card salvo los botones) de la acción de cada botón — la tarea de
+confirmación (`awaiting_receiver_confirmation`) gana botones reales
+"Rechazar"/"Aceptar" que resuelven la acción sin salir de Inicio. El título usa el
+nombre real del emisor (`usePublicProfiles(senderId)`, "Julia te quiere enviar un
+paquete") en vez del genérico "Tenés un envío para confirmar" (fallback mientras el
+perfil no cargó). `receiverConfirmationDeadlineShortLabel` nueva en
+`shipment-format.ts` ("vence en N h") para el `meta` denso de la card. La tarea de
+`rejected_by_receiver` sigue con un solo botón ("Ver envío"), sin cambios de
+comportamiento.
+
+**Segunda vuelta, mismo día (feedback explícito del usuario): "para el aceptar o
+rechazar deberíamos usar el sheet específico que se diseñó para esa función, que se
+usa desde la página de detalle"** — la primera versión resolvía la confirmación con
+un `Alert.alert` genérico; se descartó por completo a favor de reusar el sheet real.
+
+- **`ShipmentConfirmationSheets` nuevo** (`components/shipments/
+  shipment-confirmation-sheets.tsx`), extraído 1:1 de `ReceiverActionsBar`
+  (MOVO-131/154): los tres modales (confirmar aceptación, éxito a pantalla completa,
+  motivos de rechazo) y sus animaciones, sin trigger propio — expone
+  `openAccept`/`openReject` vía `ref` (`ShipmentConfirmationSheetsHandle`). Las
+  mutaciones (`useAcceptShipment`/`useRejectShipment`) viajan como props en vez de
+  llamarse adentro: el caller es dueño de un solo `isPending` para deshabilitar sus
+  propios botones, y el error resuelto se reporta por `onError` en vez de que el
+  componente pinte su propio banner (cada contexto decide dónde mostrarlo).
+  `ReceiverActionsBar` quedó reducido a sus botones/deadline/`ErrorBanner` propios +
+  un `ref` a este componente — mismo comportamiento exacto, mismos testIDs,
+  `receiver-actions-bar.test.tsx` sigue pasando sin tocarse.
+- **`AttentionConfirmCard` nuevo** (`components/home/attention-confirm-card.tsx`):
+  la card de la tarea de confirmación en Inicio, con sus propias instancias de
+  `useAcceptShipment`/`useRejectShipment` y un `ShipmentConfirmationSheets` propio —
+  tocar Rechazar/Aceptar abre el sheet real (mismo look que el detalle), tocar el
+  resto de la card navega ahí. `AttentionTask` pasó a discriminated union
+  (`AttentionInfoTask | AttentionConfirmTask`, `use-attention-tasks.ts`): la tarea de
+  confirmación ya no lleva `onPrimary`/`onSecondary` (el hook dejó de resolver la
+  mutación, eso es responsabilidad de la card), solo los datos crudos
+  (`shipmentId`, `senderFirstName`, `title`, `meta`, `onPress`) que la card necesita.
+- **Galería de dev** (`home-operativo-fixtures.ts`) actualizada al nuevo shape;
+  necesitó mockear `useAcceptShipment`/`useRejectShipment` en su test porque
+  `AttentionConfirmCard` ahora usa mutaciones reales de TanStack Query (la galería
+  vive bajo el `_layout` real con `QueryClientProvider` en la app, pero no en el
+  render aislado del test).
+
+Tests actualizados: `use-attention-tasks.test.ts`, `attention-section.test.tsx`,
+`home.test.tsx`, `home-operativo-gallery-screen.test.tsx`;
+`receiver-actions-bar.test.tsx` sin cambios (verificado que sigue pasando tal cual
+tras la extracción). 109/109 suites, 835/835 tests. `tsc --noEmit` limpio.

@@ -124,16 +124,20 @@ export const MOCK_RECEIVING_SHIPMENTS: ActiveShipmentSummary[] = [
 
 export const MOCK_ATTENTION_TASKS: AttentionTask[] = [
   {
+    kind: "confirm",
     id: "dev-task-confirm",
-    title: "Tenés un envío para confirmar",
-    meta: "Av. Rivadavia 5400, Buenos Aires",
-    primaryLabel: "Revisar",
-    onPrimary: () => {},
+    shipmentId: "dev-shipment-confirm",
+    senderFirstName: "Julia",
+    title: "Julia te quiere enviar un paquete",
+    meta: "Recibís en Av. Rivadavia 5400 · vence en 22 h",
+    onPress: () => {},
   },
   {
+    kind: "info",
     id: "dev-task-rejected",
     title: "El receptor rechazó tu envío",
     meta: "Vélez Sarsfield 200, Córdoba",
+    onPress: () => {},
     primaryLabel: "Ver envío",
     onPrimary: () => {},
   },

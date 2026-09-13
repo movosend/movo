@@ -148,9 +148,11 @@ describe("AuthenticatedHomeScreen", () => {
     mockUseAttentionTasks.mockReturnValue({
       tasks: [
         {
+          kind: "info",
           id: "rejected-s1",
           title: "El receptor rechazó tu envío",
           meta: "San Martín 450",
+          onPress: jest.fn(),
           primaryLabel: "Ver envío",
           onPrimary: jest.fn(),
         },

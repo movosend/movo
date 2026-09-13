@@ -11,6 +11,15 @@ jest.mock("expo-router", () => {
   };
 });
 
+// `AttentionConfirmCard` (MOVO-193) usa `useAcceptShipment`/`useRejectShipment`
+// (TanStack Query), que necesitan un `QueryClientProvider` real — la galería de dev
+// no lo trae (vive bajo el `_layout` de la app, ausente en este render aislado), así
+// que se mockean igual que en el resto de las pantallas que ejercitan esos hooks.
+jest.mock("../src/hooks/use-shipments", () => ({
+  useAcceptShipment: () => ({ mutateAsync: jest.fn(), isPending: false }),
+  useRejectShipment: () => ({ mutateAsync: jest.fn(), isPending: false }),
+}));
+
 // Galería de dev (MOVO-193): sin tests en el resto de `components/dev/`
 // (dev-tokens/dev-connection), pero acá sí hay comportamiento real (el toggle) que
 // vale la pena cubrir con un smoke test — que las 3 piezas se vean con datos y que
@@ -23,7 +32,7 @@ describe("HomeOperativoGalleryScreen", () => {
     expect(getByTestId("dev-home-receiving")).toBeTruthy();
     expect(getByTestId("dev-home-attention")).toBeTruthy();
     expect(getByText("Nicolás Vera")).toBeTruthy();
-    expect(getByText("Tenés un envío para confirmar")).toBeTruthy();
+    expect(getByText("Julia te quiere enviar un paquete")).toBeTruthy();
   });
 
   it("al tocar 'Sin envíos activos', las 3 secciones dejan de renderizarse", async () => {
