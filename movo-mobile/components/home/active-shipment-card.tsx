@@ -1,4 +1,5 @@
 import { Flag, MapPin, Package, Route } from "lucide-react-native";
+import { Fragment } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 import type { ActiveShipmentSummary } from "../../src/api/shipments-client";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -109,7 +110,10 @@ export function ActiveShipmentCard({
         </View>
       ) : null}
 
-      {/* ── Stepper de 4 pasos fijos ── */}
+      {/* ── Stepper de 4 pasos fijos — nodos y barras son hermanos en flujo normal
+          (nunca superpuestos): la barra vive en el espacio ENTRE dos columnas de
+          nodo, no dentro de una columna con offset negativo, para no depender del
+          orden de pintado entre hermanos como sí importa en RN. ── */}
       <View className="flex-row items-start pb-0.5 pt-5">
         {ACTIVE_SHIPMENT_STEPS.map((label, index) => {
           const Icon = STEP_ICONS[index];
@@ -134,38 +138,35 @@ export function ActiveShipmentCard({
           const labelColor = index <= activeIndex ? "#0A0A0B" : isUnfunded ? "#A8A8B0" : CHROME.labelFuture;
 
           return (
-            <View key={label} className="relative flex-1 items-center gap-2">
+            <Fragment key={label}>
               {index > 0 ? (
-                <View
-                  style={{
-                    position: "absolute",
-                    top: 18.5,
-                    left: "-50%",
-                    right: "50%",
-                    height: 3,
-                    borderRadius: 999,
-                    backgroundColor: barColor,
-                  }}
-                />
+                <View style={{ flex: 1, height: 3, marginTop: 17.5, borderRadius: 999, backgroundColor: barColor }} />
               ) : null}
-              <View
-                style={[{ width: 38, height: 38, borderRadius: 999, alignItems: "center", justifyContent: "center" }, nodeStyle]}
-              >
-                <Icon size={17} strokeWidth={2} color={iconColor} />
+              <View className="items-center gap-2">
+                <View
+                  style={[{ width: 38, height: 38, borderRadius: 999, alignItems: "center", justifyContent: "center" }, nodeStyle]}
+                >
+                  <Icon size={17} strokeWidth={2} color={iconColor} />
+                </View>
+                <Text
+                  numberOfLines={1}
+                  style={{ color: labelColor }}
+                  className={`text-[11.5px] ${current ? "font-sans-semibold" : "font-sans-medium"}`}
+                >
+                  {label}
+                </Text>
               </View>
-              <Text
-                style={{ color: labelColor }}
-                className={`text-[11.5px] ${current ? "font-sans-semibold" : "font-sans-medium"}`}
-              >
-                {label}
-              </Text>
-            </View>
+            </Fragment>
           );
         })}
       </View>
 
-      {/* ── Retiro / Entrega, dos columnas ── */}
-      <View className="flex-row items-end justify-between gap-3 pt-5">
+      {/* ── Retiro / Entrega, dos columnas — alineadas arriba: sin dato de horario
+          de entrega en el contrato (AC5 de MOVO-192 solo trae ventana de retiro),
+          la columna "Entrega" tiene una línea menos que "Retiro" — alinear por abajo
+          (como antes) dejaba el domicilio de entrega pegado contra el horario de
+          retiro en vez de contra su propio eyebrow/domicilio. ── */}
+      <View className="flex-row items-start justify-between gap-3 pt-5">
         <View className="min-w-0 flex-1 gap-0.5">
           <Text className="font-sans-semibold text-caption uppercase text-fg-3">Retiro</Text>
           <Text numberOfLines={1} className="font-sans-semibold text-small text-fg">
@@ -206,7 +207,19 @@ export function ActiveShipmentCard({
 
   if (isUnfunded) {
     return (
-      <View testID={testID} className="mb-3 rounded-[22px] bg-bg-sub" style={{ borderWidth: 1, borderColor: "#E2E2E7" }}>
+      <View
+        testID={testID}
+        className="mb-3 rounded-[22px] bg-bg-sub"
+        style={{
+          borderWidth: 1,
+          borderColor: "#E2E2E7",
+          shadowColor: "#0A0A0B",
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 2,
+          elevation: 1,
+        }}
+      >
         {content}
       </View>
     );
@@ -221,11 +234,16 @@ export function ActiveShipmentCard({
       borderWidth={1}
       style={{
         marginBottom: 12,
+        // `backgroundColor` explícito, no solo el gradiente: sin esto, iOS no
+        // encuentra una forma opaca de la que calcular la sombra y no la dibuja —
+        // el bug reportado ("la card metálica no se ve elevada"). El color no se ve
+        // (el gradiente lo cubre por completo), solo habilita la sombra.
+        backgroundColor: CHROME.fill[0],
         shadowColor: colors.chromeShadow,
-        shadowOffset: { width: 0, height: 8 },
+        shadowOffset: { width: 0, height: 10 },
         shadowOpacity: 1,
-        shadowRadius: 16,
-        elevation: 4,
+        shadowRadius: 20,
+        elevation: 6,
       }}
     >
       {content}

@@ -17,16 +17,18 @@ export function activeShipmentStatusLabel(status: ActiveShipmentSummary["status"
 
 /**
  * Código corto para el encabezado de la card (headline mono, "Home operativo
- * v2.dc.html" mockeaba `#MOVO-4821`) — no existe ningún código de referencia real en
- * el backend (ni en `ShipmentSummary` ni en el contrato propuesto de MOVO-192), así
- * que se deriva del `id` (UUID) real del envío en vez de mostrar precio o inventar un
- * correlativo que el backend no persiste. Determinístico (mismo envío → mismo
- * código siempre), solo para mostrar — nunca se usa para buscar ni identificar el
- * envío contra el backend, eso sigue siendo `shipment.id` completo.
+ * v2.dc.html" mockeaba `#MOVO-4821`, siempre numérico) — no existe ningún código de
+ * referencia real en el backend (ni en `ShipmentSummary` ni en el contrato propuesto
+ * de MOVO-192), así que se deriva del `id` (UUID) real del envío en vez de mostrar
+ * precio o inventar un correlativo que el backend no persiste. Solo los dígitos del
+ * `id`, los últimos 5 (rellenando con ceros a la izquierda si el `id` no tiene
+ * suficientes) — nunca letras, para que se lea igual que el mock. Determinístico
+ * (mismo envío → mismo código siempre) y solo para mostrar: nunca se usa para buscar
+ * ni identificar el envío contra el backend, eso sigue siendo `shipment.id` completo.
  */
 export function activeShipmentDisplayCode(id: string): string {
-  const alnum = id.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-  const suffix = alnum.slice(-5) || "00000";
+  const digits = id.replace(/\D/g, "");
+  const suffix = digits.slice(-5).padStart(5, "0");
   return `#MOVO-${suffix}`;
 }
 

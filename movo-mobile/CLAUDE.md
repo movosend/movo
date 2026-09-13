@@ -2039,3 +2039,37 @@ escribiendo la URL en el dev client), fixtures en `src/dev/home-operativo-fixtur
 Tests: `home-operativo-gallery-screen.test.tsx` (con datos, sin datos, CTA visible) —
 primer test de un screen de `components/dev/` en el repo (los otros dos no tenían).
 109/109 suites, 823/823 tests. `tsc --noEmit` limpio.
+
+**Fixes de fidelidad visual encontrados con la galería (mismo día, feedback del
+usuario mirando `/dev-home-operativo` en device):**
+
+- **Código del encabezado no era numérico**: `activeShipmentDisplayCode` sacaba los
+  últimos 5 caracteres alfanuméricos del `id` (podían salir letras, ej. `#MOVO-EDHOY`
+  con un fixture sin dígitos) — el mock siempre usa `#MOVO-4821` numérico. Ahora saca
+  solo dígitos (`id.replace(/\D/g, "")`) y rellena con ceros a la izquierda si el
+  `id` no tiene 5. Los fixtures de la galería (`home-operativo-fixtures.ts`)
+  ganaron un sufijo numérico en el `id` — sin dígitos, todos mostraban el mismo
+  `#MOVO-00000`.
+- **La card metálica (`assigned`/`in_transit`) no se veía elevada**: la sombra estaba
+  declarada pero `GradientBorderCard` no tenía ningún `backgroundColor` propio (solo
+  el gradiente) — en iOS, una vista sin fondo opaco no calcula sombra. Se agregó
+  `backgroundColor` explícito (cubierto por el gradiente, invisible) al mismo style
+  que ya traía la sombra.
+- **La línea del stepper se superponía a los íconos**: la barra conectora vivía
+  DENTRO de la columna del paso siguiente con un offset negativo (`left:-50%`, truco
+  de CSS del mock) — en React Native el orden de pintado entre hermanos es por
+  posición en el árbol, no por capas de "elementos posicionados" como en CSS, así que
+  la barra de la columna N+1 pintaba ENCIMA del nodo de la columna N en vez de quedar
+  detrás. Reestructurado para que nodo y barra sean hermanos directos en flujo normal
+  (`Fragment` alternando `<bar flex:1>`/`<nodo ancho fijo>`), sin overlap posible
+  estructuralmente, sin importar orden de pintado.
+- **Retiro/Entrega no se veían alineados**: la fila usaba `items-end` (alinear por
+  abajo) — como "Entrega" tiene una línea menos que "Retiro" (sin dato de horario de
+  entrega en el contrato de MOVO-192, que solo trae ventana de retiro), alinear por
+  abajo dejaba el domicilio de "Entrega" pegado contra la fila de horario de
+  "Retiro" en vez de contra su propio eyebrow. Cambiado a `items-start`.
+
+Tests: sin cambios de aserciones (los tests ya verificaban contenido, no posición
+exacta) — `active-shipment-format.test.ts` sigue cubriendo `activeShipmentDisplayCode`
+con el mismo caso (el UUID de ejemplo ya solo tenía dígitos coincidentes en el
+sufijo). 109/109 suites, 823/823 tests. `tsc --noEmit` limpio.

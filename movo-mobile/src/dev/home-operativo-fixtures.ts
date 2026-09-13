@@ -6,11 +6,15 @@ import type { AttentionTask } from "../hooks/use-attention-tasks";
  * (MOVO-193), para verlo entero de una sola vez mientras MOVO-192 (backend real de
  * `/shipments/sending`/`/receiving`) sigue Todo. Un ítem por cada combinación
  * relevante de estado/badges de la matriz del AC5, no solo un ejemplo feliz.
+ *
+ * Los `id` llevan un sufijo numérico a propósito: `activeShipmentDisplayCode`
+ * deriva el código del encabezado de los dígitos del `id` — sin ninguno, todos los
+ * fixtures mostrarían el mismo `#MOVO-00000`.
  */
 
 export const MOCK_SENDING_SHIPMENTS: ActiveShipmentSummary[] = [
   {
-    id: "dev-sending-unfunded",
+    id: "dev-sending-unfunded-48213",
     status: "assigned_unfunded",
     pickupDate: "2026-09-20",
     pickupTimeWindowStart: "09:00",
@@ -23,7 +27,7 @@ export const MOCK_SENDING_SHIPMENTS: ActiveShipmentSummary[] = [
     pickupWindowExpired: false,
   },
   {
-    id: "dev-sending-assigned-hoy",
+    id: "dev-sending-assigned-hoy-51302",
     status: "assigned",
     pickupDate: "2026-09-13",
     pickupTimeWindowStart: "14:00",
@@ -36,7 +40,7 @@ export const MOCK_SENDING_SHIPMENTS: ActiveShipmentSummary[] = [
     pickupWindowExpired: false,
   },
   {
-    id: "dev-sending-assigned-vencido",
+    id: "dev-sending-assigned-vencido-39871",
     status: "assigned",
     pickupDate: "2026-09-11",
     pickupTimeWindowStart: "09:00",
@@ -49,7 +53,7 @@ export const MOCK_SENDING_SHIPMENTS: ActiveShipmentSummary[] = [
     pickupWindowExpired: true,
   },
   {
-    id: "dev-sending-in-transit",
+    id: "dev-sending-in-transit-60214",
     status: "in_transit",
     pickupDate: "2026-09-13",
     pickupTimeWindowStart: "09:00",
@@ -65,7 +69,7 @@ export const MOCK_SENDING_SHIPMENTS: ActiveShipmentSummary[] = [
 
 export const MOCK_RECEIVING_SHIPMENTS: ActiveShipmentSummary[] = [
   {
-    id: "dev-receiving-unfunded",
+    id: "dev-receiving-unfunded-77042",
     status: "assigned_unfunded",
     pickupDate: "2026-09-22",
     pickupTimeWindowStart: "10:00",
@@ -78,7 +82,7 @@ export const MOCK_RECEIVING_SHIPMENTS: ActiveShipmentSummary[] = [
     pickupWindowExpired: false,
   },
   {
-    id: "dev-receiving-assigned",
+    id: "dev-receiving-assigned-88530",
     status: "assigned",
     pickupDate: "2026-09-16",
     pickupTimeWindowStart: "09:00",
@@ -91,7 +95,7 @@ export const MOCK_RECEIVING_SHIPMENTS: ActiveShipmentSummary[] = [
     pickupWindowExpired: false,
   },
   {
-    id: "dev-receiving-in-transit-hoy",
+    id: "dev-receiving-in-transit-hoy-91007",
     status: "in_transit",
     pickupDate: "2026-09-13",
     pickupTimeWindowStart: "16:00",
@@ -104,7 +108,7 @@ export const MOCK_RECEIVING_SHIPMENTS: ActiveShipmentSummary[] = [
     pickupWindowExpired: false,
   },
   {
-    id: "dev-receiving-in-transit-vencido",
+    id: "dev-receiving-in-transit-vencido-25164",
     status: "in_transit",
     pickupDate: "2026-09-10",
     pickupTimeWindowStart: "09:00",
