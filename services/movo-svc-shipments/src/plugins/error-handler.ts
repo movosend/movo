@@ -12,6 +12,7 @@ import {
   OfferDateOutOfRangeError,
   DuplicateActiveOfferError,
   OfferShipmentNotFoundError,
+  OfferNotEditableError,
 } from "../repositories/offer-repository";
 import { DuplicateRatingError } from "../repositories/rating-repository";
 import { TripNotFoundError, TripHasAcceptedPackagesError } from "../repositories/trip-repository";
@@ -115,6 +116,17 @@ export default fp(async (app: FastifyInstance) => {
     // vencida o ya resuelta).
     if (error instanceof InvalidOfferTransitionError) {
       const apiError = new ApiError(409, "OFFER_INVALID_TRANSITION", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    // MOVO-181 AC2: la oferta ya no está pending (efectivo) -- no se puede modificar
+    // una ya resuelta/vencida ni una en su camino hacia resolverse.
+    if (error instanceof OfferNotEditableError) {
+      const apiError = new ApiError(409, "OFFER_NOT_EDITABLE", error.message);
       reply.code(apiError.statusCode).send({
         ...apiError.toJSON(),
         requestId,

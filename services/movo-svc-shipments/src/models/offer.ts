@@ -125,6 +125,20 @@ export interface CreateOfferInput {
   estimatedDeliveryTimeWindowEnd?: string | null;
 }
 
+/**
+ * MOVO-181: subconjunto editable de `Offer` vía `PATCH /offers/:id`. Cada campo
+ * `undefined` significa "no tocar" (semántica de PATCH parcial) — para limpiar
+ * `offeredPickupTimeWindowStart/End` de vuelta a "usa la ventana del envío tal cual"
+ * hay que mandar ambos explícitamente en `null` (both-or-neither, mismo criterio que
+ * la creación, validado en `shipments.service.ts`/`offers.service.ts`, no acá).
+ */
+export interface UpdateOfferInput {
+  priceOffered?: number;
+  offeredDate?: Date;
+  offeredPickupTimeWindowStart?: string | null;
+  offeredPickupTimeWindowEnd?: string | null;
+}
+
 const OFFER_STATUS_VALUES: ReadonlySet<string> = new Set(Object.values(OfferStatus));
 
 /**

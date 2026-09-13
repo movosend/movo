@@ -6,6 +6,7 @@ import { haversineKm } from "../domain/geo";
 import {
   Offer,
   CreateOfferInput,
+  UpdateOfferInput,
   parseOfferStatus,
   deriveEffectiveOfferStatus,
   OfferWithShipmentContext,
@@ -203,6 +204,23 @@ export class OfferConcurrentModificationError extends Error {
   }
 }
 
+/**
+ * MOVO-181 (AC2): solo se puede modificar una oferta cuyo estado EFECTIVO
+ * (`deriveEffectiveOfferStatus`) es `pending` — no es una transición de estado (el
+ * `status` de la fila no cambia), así que no se modela en `offer-state-machine.ts`
+ * junto a accept/reject/withdraw: es una precondición sobre `update()`, no una arista
+ * del grafo.
+ */
+export class OfferNotEditableError extends Error {
+  constructor(
+    public readonly id: string,
+    public readonly status: OfferStatus,
+  ) {
+    super(`La oferta '${id}' no se puede modificar en su estado actual ('${status}')`);
+    this.name = "OfferNotEditableError";
+  }
+}
+
 function isPendingOfferConflict(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -231,6 +249,18 @@ export interface OfferRepository {
    * `acceptOffer` marcándola `superseded`) ya escribió sobre la fila.
    */
   withdraw(id: string): Promise<Offer>;
+  /**
+   * MOVO-181 (AC1-AC3): el transportista modifica precio y/o fecha/franja de retiro
+   * propuestos de su propia oferta `pending` — no toca `status`/`createdAt`/`expiresAt`,
+   * sigue siendo la misma fila. Solo aplica sobre el estado EFECTIVO `pending`
+   * (`OfferNotEditableError` si no, incluida una `pending` en base pero `expired` por
+   * lectura); si `offeredDate` cambia, se revalida contra `shipment.pickupDate` con el
+   * mismo rango que `create()` (`OfferDateOutOfRangeError`). Compare-and-swap contra
+   * `status` (no contra los campos editables): protege contra un accept/reject/withdraw
+   * concurrente sobre la misma fila mientras se aplica el patch
+   * (`OfferConcurrentModificationError`), mismo criterio que `applyTerminalTransition`.
+   */
+  update(id: string, patch: UpdateOfferInput): Promise<Offer>;
   /**
    * AC6: el emisor rechaza explícitamente — el transportista puede volver a
    * ofertar (fila nueva). Mismo compare-and-swap que `withdraw`.
@@ -357,6 +387,65 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
 
     async withdraw(id: string): Promise<Offer> {
       return applyTerminalTransition(db, id, OfferStatus.WITHDRAWN, /* setRespondedAt */ false);
+    },
+
+    async update(id: string, patch: UpdateOfferInput): Promise<Offer> {
+      return db.$transaction(async (tx) => {
+        const current = await tx.offer.findUnique({ where: { id }, include: { shipment: true } });
+        if (!current) {
+          throw new OfferNotFoundError(id);
+        }
+
+        // AC2: mismo criterio de expiración perezosa que accept/reject/withdraw --
+        // una pending vencida en base pero no persistida como tal no es editable.
+        const effectiveStatus = deriveEffectiveOfferStatus(parseOfferStatus(current.status), current.expiresAt);
+        if (effectiveStatus !== OfferStatus.PENDING) {
+          throw new OfferNotEditableError(id, effectiveStatus);
+        }
+
+        // AC3: mismo rango que create() -- offeredDate solo se revalida si el patch
+        // efectivamente lo cambia, nunca contra el valor ya persistido (que ya era
+        // válido cuando se creó/modificó la oferta la última vez).
+        if (patch.offeredDate !== undefined && !isWithinOfferDateRange(patch.offeredDate, current.shipment.pickupDate)) {
+          throw new OfferDateOutOfRangeError(patch.offeredDate, current.shipmentId);
+        }
+
+        const data: Prisma.OfferUpdateInput = {};
+        if (patch.priceOffered !== undefined) {
+          data.priceOffered = patch.priceOffered;
+        }
+        if (patch.offeredDate !== undefined) {
+          data.offeredDate = patch.offeredDate;
+        }
+        if (patch.offeredPickupTimeWindowStart !== undefined) {
+          data.offeredPickupTimeWindowStart = patch.offeredPickupTimeWindowStart;
+        }
+        if (patch.offeredPickupTimeWindowEnd !== undefined) {
+          data.offeredPickupTimeWindowEnd = patch.offeredPickupTimeWindowEnd;
+        }
+
+        // Compare-and-swap contra `status` (no contra los campos editables en sí) --
+        // mismo mecanismo que `applyTerminalTransition`: si un accept/reject/withdraw
+        // concurrente ya escribió sobre esta fila entre el findUnique de arriba y este
+        // UPDATE, `count` da 0 en vez de aplicar el patch sobre una oferta que ya dejó
+        // de ser pending.
+        const result = await tx.offer.updateMany({ where: { id, status: current.status }, data });
+        if (result.count === 0) {
+          throw new OfferConcurrentModificationError(id);
+        }
+
+        // Releída vía mapOffer() en vez de reconstruida a mano: `updateMany` no
+        // devuelve la fila, y reconstruir el objeto a mano acá quedaba desactualizado
+        // cada vez que se agregaba un campo nuevo a `Offer` (bug de review, PR #152 --
+        // este `return` no incluía viewedAtBySender/senderNameAtOffer/etc. de
+        // MOVO-189, rompía `tsc` contra develop). Un SELECT extra dentro de la misma
+        // transacción es aceptable acá (a diferencia de `acceptOffer`/
+        // `applyTerminalTransition`, que evitan la relectura por volumen de llamadas
+        // concurrentes) -- PATCH es una operación puntual del transportista, no un
+        // hot path.
+        const updated = await tx.offer.findUniqueOrThrow({ where: { id } });
+        return mapOffer(updated);
+      });
     },
 
     async reject(id: string): Promise<Offer> {

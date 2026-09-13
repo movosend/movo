@@ -1460,6 +1460,79 @@ neto 1000, comisión 150 con la tasa 15% default). Suite completa del servicio
 545/545. `tsc --noEmit` y `eslint` limpios en los archivos de esta US. Confirmado que
 `app.swagger()` expone los campos nuevos en los 4 endpoints.
 
+### MOVO-181 — `PATCH /offers/:id`: modificar una oferta `pending` (precio y/o fecha/franja de retiro)
+
+Cierra el hueco que dejó `offer-state-machine.ts` (MOVO-102): no había forma de
+corregir una oferta sin retirarla y crear una nueva, perdiendo el hilo con el emisor.
+`PATCH /offers/:id` nuevo en `offers.routes.ts`/`.schema.ts`/`.service.ts`;
+`offerRepository.update()` nuevo en `offer-repository.ts`.
+
+Decisiones clave:
+- **No es una transición de `offer-state-machine.ts`**: `status` no cambia (sigue
+  `pending`), así que la precondición "solo sobre una oferta efectivamente `pending`"
+  se resuelve como un chequeo propio (`OfferNotEditableError` -> 409
+  `OFFER_NOT_EDITABLE`, código nuevo en `@movo/shared`), no como una arista más del
+  grafo de MOVO-102.
+- **PATCH parcial real**: cada uno de los 3 campos editables (`priceOfferedArs`,
+  `offeredDate`, la franja horaria propuesta) es independiente — mandar solo el precio
+  no toca fecha/franja. La franja sigue siendo both-or-neither (mismo criterio que
+  `POST /shipments/:id/offers`, MOVO-177), validada contra el `offeredDate` EFECTIVO
+  (el nuevo si el patch también lo cambia, el ya persistido si no).
+- **Mismas validaciones que la creación, reusadas, no reimplementadas**:
+  `combineDateAndTime`/`normalizeTime`/`anchorDateUtc` de `shipments.service.ts` se
+  exportaron (antes privadas) para que `offers.service.ts#updateOffer` valide la
+  franja horaria con el mismo criterio exacto que `createOfferForShipment`. El rango
+  de `offeredDate` contra `pickupDate` reusa `isWithinOfferDateRange`/
+  `OFFER_DATE_MAX_FORWARD_OFFSET_DAYS`, ya privados en `offer-repository.ts` desde
+  MOVO-177 — `update()` vive en el mismo archivo, sin exportarlos.
+- **Compare-and-swap contra `status`, no contra los campos editables**: mismo
+  mecanismo que `applyTerminalTransition` — si un accept/reject/withdraw concurrente ya
+  escribió sobre la fila entre la lectura y el `UPDATE` de `update()`, `count` da 0 y
+  lanza `OfferConcurrentModificationError` (409 `OFFER_CONCURRENT_MODIFICATION`, ya
+  mapeado desde MOVO-144). Ojo: dos `PATCH` concurrentes entre sí NUNCA compiten por
+  este mecanismo (ninguno toca `status`), así que ambos pueden aplicar — el 409 solo
+  aparece contra una operación que sí cambia `status`.
+- **Fila releída vía `mapOffer()` tras el `UPDATE`** (no reconstruida a mano — fix de
+  review, PR #152: la versión original armaba el `Offer` devuelto campo por campo y
+  quedaba desactualizada cada vez que se agregaba una columna nueva, ej. rompía `tsc`
+  contra `develop` en cuanto MOVO-187/189 sumaron sus propios campos). `update()` hace
+  un `findUniqueOrThrow` extra dentro de la misma transacción antes de mapear — costo
+  aceptable acá (PATCH puntual, no un hot path), a diferencia de `acceptOffer`/
+  `applyTerminalTransition`, que sí evitan la relectura por volumen de llamadas
+  concurrentes.
+- **La franja horaria propuesta admite `null` explícito en el body del PATCH** (fix de
+  review, PR #152): `patchOfferBody` solo aceptaba `string` para
+  `offeredPickupTimeWindowStart/End`, así que el reset a "usa la ventana del envío tal
+  cual" que este mismo párrafo ya documentaba como soportado por `UpdateOfferInput`
+  era en realidad inalcanzable por HTTP (400 de AJV antes de llegar a
+  `offers.service.ts`). `PatchOfferInput`/`updateOffer()` distinguen ahora los tres
+  casos: ambos ausentes (no tocar), ambos `string` (nueva franja, validada como
+  antes) y ambos `null` (reset, sin validar rango horario) — un solo extremo, o un
+  extremo `null` y el otro `string`, siguen rechazados.
+- **No extiende `expiresAt` ni resetea `createdAt`** (pregunta abierta del ticket,
+  resuelta a favor de la opción más simple): sigue siendo la misma oferta con el mismo
+  plazo, solo cambian los campos que el transportista corrigió.
+- **No hizo falta tocar el gateway**: el prefijo `/offers` ya proxea method-agnostic
+  desde MOVO-145, sin filtrar por verbo HTTP.
+
+Tests: `offer-repository.integration.test.ts` (7 casos nuevos: patch completo,
+patch parcial sin tocar los campos no incluidos, rango de fecha inválido con rollback
+completo, no editable sobre `accepted` y sobre `pending` vencida/`expired`, oferta
+inexistente, compare-and-swap real `update()` vs `withdraw()` concurrentes) +
+`offers-update.integration.test.ts` nuevo (13 casos vía HTTP: desglose neto/comisión
+en la respuesta, fecha+franja juntas, `createdAt`/`expiresAt` intactos, 403 ajena, 404,
+409 sobre `accepted` y sobre vencida, 422 rango de fecha, 422 ambos-o-ninguno de la
+franja, 422 fin≤inicio, 400 precio≤0 (AJV, `exclusiveMinimum`), 400 body vacío
+(`minProperties: 1`), 409 concurrente contra un `withdraw` en paralelo). Suite completa
+del servicio 566/566 (43 archivos), corrida contra Postgres/Redis reales. `tsc --noEmit`
+y `eslint` limpios. Confirmado que `app.swagger()` expone `PATCH /offers/{id}`.
+**Gotcha de entorno encontrado al correr la suite en esta máquina** (mismo síntoma que
+documentó MOVO-108, causa distinta): el volumen de Postgres tenía el rol `movo` con una
+password desincronizada de `.env`/`docker-compose` — mismo fix, `ALTER ROLE movo WITH
+PASSWORD 'movo'` (no toca datos) — y le faltaban 3 migraciones ya mergeadas a `develop`
+(`create_handshake_events_table`, `add_estimated_delivery_window`,
+`add_offer_pickup_time_window_override`), aplicadas con `prisma migrate deploy`.
+
 ### MOVO-187 — Snapshot de identidad y confianza del emisor visible al transportista
 
 Agrega `senderNameAtOffer`/`senderVerifiedAtOffer`/`senderRatingAtOffer` a `Offer` —

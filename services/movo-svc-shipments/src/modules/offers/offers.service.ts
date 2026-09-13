@@ -1,10 +1,37 @@
-import { ApiError, OfferStatus, ShipmentStatus, computeNetFromGross, getCommissionConfig } from "@movo/shared";
+import {
+  ApiError,
+  OfferStatus,
+  ShipmentStatus,
+  computeNetFromGross,
+  computeOfferGrossPrice,
+  getCommissionConfig,
+} from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { Offer, OfferCompetitiveRank, OfferWithShipmentContext } from "../../models/offer";
 import { assertIsSender } from "../shipments/assert-shipment-access";
+// MOVO-181: reusa las mismas conversiones de fecha/hora que `createOfferForShipment`
+// (MOVO-143/177) en vez de duplicarlas -- ver el comentario de export en
+// shipments.service.ts.
+import { anchorDateUtc, combineDateAndTime, normalizeTime } from "../shipments/shipments.service";
+
+/**
+ * MOVO-181 (AC1/AC3): subset editable vía `PATCH /offers/:id`, tal como llega del
+ * body HTTP -- `offeredDate`/las dos franjas son strings sin parsear todavía (mismo
+ * shape que `CreateOfferForShipmentInput` en shipments.service.ts), no el
+ * `UpdateOfferInput` del repositorio (que ya espera `Date`/valores normalizados). Cada
+ * campo ausente (`undefined`) significa "no tocar" -- semántica de PATCH parcial.
+ */
+export interface PatchOfferInput {
+  priceOfferedArs?: number;
+  offeredDate?: string;
+  // `null` es un valor válido acá (no solo ausente): resetea la franja propuesta a
+  // "usa la ventana del envío tal cual" (`UpdateOfferInput`, models/offer.ts).
+  offeredPickupTimeWindowStart?: string | null;
+  offeredPickupTimeWindowEnd?: string | null;
+}
 
 /** MOVO-188: batch de reputación `asCarrier` (`ratings.service.ts#getCarrierReputationScoresBatch`)
  * inyectado por `offers.routes.ts` -- mismo criterio de callback local (sin HTTP contra
@@ -309,6 +336,93 @@ export function createOffersService(
       }
 
       return offerRepository.withdraw(offerId);
+    },
+
+    /**
+     * MOVO-181 (AC1-AC3): el transportista modifica precio y/o fecha/franja de retiro
+     * propuestos de su propia oferta `pending`. Resuelve autorización y las mismas
+     * validaciones sincrónicas que `createOfferForShipment` (MOVO-143/177) antes de
+     * cualquier I/O -- `offerRepository.update()` (MOVO-181) resuelve la precondición
+     * de estado efectivo, la revalidación de rango de `offeredDate` contra
+     * `pickupDate` y el compare-and-swap contra un accept/reject/withdraw concurrente.
+     */
+    async updateOffer(offerId: string, callerId: string, patch: PatchOfferInput): Promise<Offer> {
+      const offer = await offerRepository.findById(offerId);
+      if (!offer) {
+        throw new ApiError(404, "OFFER_NOT_FOUND", "No existe una oferta con ese id.");
+      }
+
+      if (offer.carrierId !== callerId) {
+        throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el transportista dueño de la oferta puede modificarla.");
+      }
+
+      if (patch.priceOfferedArs !== undefined && patch.priceOfferedArs <= 0) {
+        throw new ApiError(422, "VALIDATION_FAILED", "El precio ofertado tiene que ser mayor a 0.");
+      }
+
+      // Mismo criterio "both-or-neither" que AC6 de MOVO-143/177: mandar un solo
+      // extremo de la franja es un estado a medio construir, nunca una edición
+      // parcial válida de "solo el inicio" o "solo el fin". `null` cuenta como
+      // "presente" acá (a diferencia de `undefined`) -- es el valor que resetea la
+      // franja a la ventana del envío.
+      const hasWindowStart = patch.offeredPickupTimeWindowStart !== undefined;
+      const hasWindowEnd = patch.offeredPickupTimeWindowEnd !== undefined;
+      if (hasWindowStart !== hasWindowEnd) {
+        throw new ApiError(
+          422,
+          "VALIDATION_FAILED",
+          "La franja horaria de retiro propuesta requiere both inicio y fin, o ninguno."
+        );
+      }
+      // Ambos null: reset explícito, sin validar rango horario (no hay franja que
+      // validar). Ambos string: validar como antes. Mixto (uno null, otro string) no
+      // es un estado representable -- mismo error que "solo un extremo".
+      if (hasWindowStart && hasWindowEnd) {
+        const bothNull = patch.offeredPickupTimeWindowStart === null && patch.offeredPickupTimeWindowEnd === null;
+        const bothStrings =
+          typeof patch.offeredPickupTimeWindowStart === "string" &&
+          typeof patch.offeredPickupTimeWindowEnd === "string";
+        if (!bothNull && !bothStrings) {
+          throw new ApiError(
+            422,
+            "VALIDATION_FAILED",
+            "La franja horaria de retiro propuesta requiere both inicio y fin, o ninguno."
+          );
+        }
+        if (bothStrings) {
+          // La franja se valida contra el `offeredDate` EFECTIVO -- el nuevo si el
+          // patch también lo cambia, el ya persistido si no.
+          const effectiveOfferedDateStr = patch.offeredDate ?? offer.offeredDate.toISOString().slice(0, 10);
+          const windowStartAt = combineDateAndTime(
+            effectiveOfferedDateStr,
+            patch.offeredPickupTimeWindowStart as string
+          );
+          const windowEndAt = combineDateAndTime(effectiveOfferedDateStr, patch.offeredPickupTimeWindowEnd as string);
+          if (windowEndAt <= windowStartAt) {
+            throw new ApiError(
+              422,
+              "OFFER_PICKUP_WINDOW_INVALID",
+              "El fin de la franja de retiro propuesta debe ser posterior al inicio."
+            );
+          }
+        }
+      }
+
+      return offerRepository.update(offerId, {
+        priceOffered:
+          patch.priceOfferedArs !== undefined ? computeOfferGrossPrice(patch.priceOfferedArs).grossArs : undefined,
+        offeredDate: patch.offeredDate !== undefined ? anchorDateUtc(patch.offeredDate) : undefined,
+        offeredPickupTimeWindowStart: hasWindowStart
+          ? patch.offeredPickupTimeWindowStart === null
+            ? null
+            : normalizeTime(patch.offeredPickupTimeWindowStart as string)
+          : undefined,
+        offeredPickupTimeWindowEnd: hasWindowEnd
+          ? patch.offeredPickupTimeWindowEnd === null
+            ? null
+            : normalizeTime(patch.offeredPickupTimeWindowEnd as string)
+          : undefined,
+      });
     },
   };
 }
