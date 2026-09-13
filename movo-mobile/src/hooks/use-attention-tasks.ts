@@ -99,8 +99,8 @@ export function useAttentionTasks() {
             ? `${senderFirstName} te quiere enviar un paquete`
             : "Tenés un envío para confirmar",
           meta: deadlineLabel
-            ? `Recibís en ${shortAddressLabel(shipment.pickupAddress)} · ${deadlineLabel}`
-            : `Recibís en ${shortAddressLabel(shipment.pickupAddress)}`,
+            ? `Recibís en ${shortAddressLabel(shipment.deliveryAddress)} · ${deadlineLabel}`
+            : `Recibís en ${shortAddressLabel(shipment.deliveryAddress)}`,
           onPress: () => router.push(`/shipments/${shipment.id}`),
         });
       }

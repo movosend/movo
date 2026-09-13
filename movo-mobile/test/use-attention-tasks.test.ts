@@ -74,6 +74,8 @@ describe("useAttentionTasks (MOVO-193)", () => {
     expect(task.title).toBe("Tenés un envío para confirmar");
     if (task.kind !== "confirm") throw new Error("expected confirm task");
     expect(task.shipmentId).toBe("s1");
+    expect(task.meta).toContain("San Martín 450");
+    expect(task.meta).not.toContain("Córdoba 1200");
 
     task.onPress();
     expect(mockPush).toHaveBeenCalledWith("/shipments/s1");
