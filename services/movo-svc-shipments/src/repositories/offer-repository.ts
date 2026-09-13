@@ -412,37 +412,17 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           throw new OfferConcurrentModificationError(id);
         }
 
-        // Reconstruida a mano, no vía mapOffer(): `priceOffered` puede haber cambiado
-        // acá (a diferencia de acceptOffer/applyTerminalTransition, que nunca lo
-        // tocan) -- mapOffer espera un `Decimal` de Prisma en esa columna
-        // (`row.priceOffered.toNumber()`), y `patch.priceOffered` ya llega como
-        // `number` plano desde `offers.service.ts`.
-        return {
-          id: current.id,
-          shipmentId: current.shipmentId,
-          carrierId: current.carrierId,
-          priceOffered: patch.priceOffered ?? current.priceOffered.toNumber(),
-          offeredDate: patch.offeredDate ?? current.offeredDate,
-          offeredPickupTimeWindowStart:
-            patch.offeredPickupTimeWindowStart !== undefined
-              ? patch.offeredPickupTimeWindowStart
-              : current.offeredPickupTimeWindowStart,
-          offeredPickupTimeWindowEnd:
-            patch.offeredPickupTimeWindowEnd !== undefined
-              ? patch.offeredPickupTimeWindowEnd
-              : current.offeredPickupTimeWindowEnd,
-          message: current.message,
-          carrierRatingAtOffer: current.carrierRatingAtOffer ? current.carrierRatingAtOffer.toNumber() : null,
-          carrierNameAtOffer: current.carrierNameAtOffer,
-          status: effectiveStatus,
-          expiresAt: current.expiresAt,
-          createdAt: current.createdAt,
-          respondedAt: current.respondedAt,
-          tripId: current.tripId,
-          estimatedDeliveryDate: current.estimatedDeliveryDate,
-          estimatedDeliveryTimeWindowStart: current.estimatedDeliveryTimeWindowStart,
-          estimatedDeliveryTimeWindowEnd: current.estimatedDeliveryTimeWindowEnd,
-        };
+        // Releída vía mapOffer() en vez de reconstruida a mano: `updateMany` no
+        // devuelve la fila, y reconstruir el objeto a mano acá quedaba desactualizado
+        // cada vez que se agregaba un campo nuevo a `Offer` (bug de review, PR #152 --
+        // este `return` no incluía viewedAtBySender/senderNameAtOffer/etc. de
+        // MOVO-189, rompía `tsc` contra develop). Un SELECT extra dentro de la misma
+        // transacción es aceptable acá (a diferencia de `acceptOffer`/
+        // `applyTerminalTransition`, que evitan la relectura por volumen de llamadas
+        // concurrentes) -- PATCH es una operación puntual del transportista, no un
+        // hot path.
+        const updated = await tx.offer.findUniqueOrThrow({ where: { id } });
+        return mapOffer(updated);
       });
     },
 
