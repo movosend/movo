@@ -41,8 +41,8 @@ describe("ActiveShipmentCard (MOVO-193)", () => {
     expect(getByText("Los fondos se reservan antes del retiro.")).toBeTruthy();
   });
 
-  it("muestra los badges 'Hoy' y 'Ventana vencida' según los flags del backend", async () => {
-    const { getByText } = await render(
+  it("isToday mueve 'hoy' al subtítulo en vez de un chip aparte, y muestra el chip 'Ventana vencida'", async () => {
+    const { getByText, queryByText } = await render(
       <ActiveShipmentCard
         shipment={makeShipment({ isToday: true, pickupWindowExpired: true })}
         role="sending"
@@ -50,7 +50,8 @@ describe("ActiveShipmentCard (MOVO-193)", () => {
       />,
     );
 
-    expect(getByText("Hoy")).toBeTruthy();
+    expect(getByText("Lucía Gómez retira hoy")).toBeTruthy();
+    expect(queryByText("Hoy")).toBeNull();
     expect(getByText("Ventana vencida")).toBeTruthy();
   });
 
@@ -65,5 +66,44 @@ describe("ActiveShipmentCard (MOVO-193)", () => {
 
     expect(alertSpy).toHaveBeenCalledWith("Muy pronto", expect.stringContaining("MOVO-160"));
     alertSpy.mockRestore();
+  });
+
+  it("emisor + in_transit muestra el CTA 'Ver en el mapa'", async () => {
+    const { getByText, getByTestId } = await render(
+      <ActiveShipmentCard shipment={makeShipment({ status: "in_transit" })} role="sending" testID="card" />,
+    );
+
+    expect(getByTestId("card-cta")).toBeTruthy();
+    expect(getByText("Ver en el mapa")).toBeTruthy();
+  });
+
+  it("el nodo pulsante ('En camino' actual) no lleva elevation — en Android tapaba por completo el halo detrás", async () => {
+    const { toJSON } = await render(
+      <ActiveShipmentCard shipment={makeShipment({ status: "in_transit" })} role="sending" testID="card" />,
+    );
+
+    function findAll(node: any, predicate: (n: any) => boolean, acc: any[] = []): any[] {
+      if (!node || typeof node !== "object") return acc;
+      if (predicate(node)) acc.push(node);
+      const children = Array.isArray(node.children) ? node.children : [];
+      for (const child of children) findAll(child, predicate, acc);
+      return acc;
+    }
+
+    const flatStyle = (style: unknown): Record<string, unknown> =>
+      Array.isArray(style)
+        ? (Object.assign({}, ...style.filter(Boolean).map(flatStyle)) as Record<string, unknown>)
+        : ((style as Record<string, unknown>) ?? {});
+
+    // El nodo "actual" opaco: círculo blanco de 38x38 con el ícono adentro.
+    const currentNodes = findAll(toJSON(), (n) => {
+      const s = flatStyle(n.props?.style);
+      return s.backgroundColor === "#FFFFFF" && s.width === 38 && s.height === 38 && s.borderRadius === 999;
+    });
+
+    expect(currentNodes.length).toBeGreaterThan(0);
+    for (const node of currentNodes) {
+      expect(flatStyle(node.props.style).elevation).toBeUndefined();
+    }
   });
 });

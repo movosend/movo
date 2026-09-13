@@ -1,6 +1,7 @@
 import { Flag, MapPin, Package, Route } from "lucide-react-native";
-import { Fragment } from "react";
+import { Fragment, useEffect } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import type { ActiveShipmentSummary } from "../../src/api/shipments-client";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import {
@@ -10,6 +11,7 @@ import {
   activeShipmentFooterText,
   activeShipmentStatusLabel,
   activeShipmentStepIndex,
+  activeShipmentSubtitle,
   type ActiveShipmentRole,
 } from "../../src/lib/active-shipment-format";
 import { formatPickupWindowLabel, shortAddressLabel } from "../../src/lib/shipment-format";
@@ -17,17 +19,47 @@ import { GradientBorderCard } from "../ui/gradient-border-card";
 
 const STEP_ICONS = [MapPin, Route, Package, Flag];
 
-/** Colores fuera de la escala de tokens del repo, tomados 1:1 del `skin()` de "Home
- * operativo v2.dc.html" (Claude Design) — el resto de la card sí usa los tokens
- * (`ink`/`lime`/`bg-mute`/`border`) de `tailwind.config.js`. */
-const CHROME = {
-  fill: ["#F2F2F2", "#D8D8D8", "#C2C2C2"] as [string, string, string],
-  border: ["#FFFFFF", "#C7C7CE"] as [string, string],
-  stepFutureBg: "rgba(255,255,255,0.55)",
-  stepFutureIcon: "#4A4A52",
-  labelFuture: "#3F3F46",
-  barFuture: "rgba(10,10,11,0.18)",
-};
+const STEP_NODE_SIZE = 38;
+/** Ancho explícito del label de cada paso, mayor al de la columna (`STEP_NODE_SIZE`)
+ * — suficiente para que "En camino"/"Llegando" (los más largos de los 4) entren en
+ * una sola línea sin truncarse. Ver el comentario junto al `Text` que lo usa. */
+const STEP_LABEL_WIDTH = 76;
+const PULSE_DURATION_MS = 1400;
+
+/** Halo detrás del nodo "En camino" mientras es el paso actual (`in_transit`) — el
+ * único paso de esta fase que representa una acción realmente en curso (Retiro
+ * "actual" es solo "todavía no salió", no algo pasando ahora). Efecto de "radar"
+ * (crece y se desvanece en loop), no un simple parpadeo de opacidad: transmite
+ * mejor "envío en movimiento" que el pulso 0.5↔1 que ya usa `SkeletonBlock` para
+ * loading, que es un caso semántico distinto. */
+function PulsingStepRing({ color }: { color: string }) {
+  const progress = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = withRepeat(withTiming(1, { duration: PULSE_DURATION_MS, easing: Easing.out(Easing.ease) }), -1, false);
+  }, [progress]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: (1 - progress.value) * 0.45,
+    transform: [{ scale: 1 + progress.value * 0.7 }],
+  }));
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        {
+          position: "absolute",
+          width: STEP_NODE_SIZE,
+          height: STEP_NODE_SIZE,
+          borderRadius: 999,
+          backgroundColor: color,
+        },
+        animatedStyle,
+      ]}
+    />
+  );
+}
 
 /**
  * Card de un envío activo del home operativo (MOVO-193) — réplica 1:1 de la
@@ -76,37 +108,39 @@ export function ActiveShipmentCard({
           <Text className="font-mono-semibold text-[25px] text-fg" numberOfLines={1}>
             {activeShipmentDisplayCode(shipment.id)}
           </Text>
-          <Text numberOfLines={1} className="font-sans-medium text-small text-fg-2">
-            {shipment.counterparty.name}
+          <Text className="font-sans-medium text-small text-fg-2">
+            {activeShipmentSubtitle(shipment)}
           </Text>
         </View>
         <View
-          className="flex-none flex-row items-center gap-1.5 self-start rounded-full px-3"
-          style={{ height: 31, backgroundColor: isUnfunded ? "#F1F1F3" : "rgba(255,255,255,0.70)" }}
+          // El pill del estado en la card "flat" (`assigned_unfunded`) apenas se
+          // distinguía del fondo (`bg-bg-mute` sobre `bg-bg-sub`, casi el mismo tono
+          // — feedback del usuario, "el pill actual no se diferencia del fondo, es
+          // muy clarito") — un borde explícito lo separa sin depender del contraste
+          // de relleno, que en dark mode es igual de parecido entre ambos tokens.
+          className={`flex-none flex-row items-center gap-1.5 self-start rounded-full border px-3 ${isUnfunded ? "border-border-strong bg-bg-mute" : "border-transparent"}`}
+          style={{ height: 31, backgroundColor: isUnfunded ? undefined : colors.activeCardPillBg }}
         >
           {shipment.status === "in_transit" ? (
-            <View className="h-1.5 w-1.5 rounded-full bg-ink-950" />
+            <View className="h-1.5 w-1.5 rounded-full bg-fg" />
           ) : null}
           <Text className="font-sans-semibold text-caption text-fg">
-            {activeShipmentStatusLabel(shipment.status)}
+            {activeShipmentStatusLabel(shipment)}
           </Text>
         </View>
       </View>
 
-      {shipment.isToday || shipment.pickupWindowExpired ? (
+      {/* El chip "Hoy" suelto se reemplazó por el subtítulo del encabezado
+          ("Nicolás Vera retira hoy"/"retira mañana", `activeShipmentSubtitle`) —
+          feedback del usuario. "Ventana vencida" sigue siendo un chip aparte: no
+          hay una palabra corta tipo "hoy"/"mañana" para meterla en la misma frase. */}
+      {shipment.pickupWindowExpired ? (
         <View className="flex-row flex-wrap gap-1.5 pt-1.5">
-          {shipment.isToday ? (
-            <View className="rounded-full bg-lime-500 px-2.5 py-1">
-              <Text className="font-sans-semibold text-caption uppercase text-ink-950">Hoy</Text>
-            </View>
-          ) : null}
-          {shipment.pickupWindowExpired ? (
-            <View className="rounded-full bg-danger-500 px-2.5 py-1">
-              <Text className="font-sans-semibold text-caption uppercase text-paper">
-                Ventana vencida
-              </Text>
-            </View>
-          ) : null}
+          <View className="rounded-full bg-danger-500 px-2.5 py-1">
+            <Text className="font-sans-semibold text-caption uppercase text-paper">
+              Ventana vencida
+            </Text>
+          </View>
         </View>
       ) : null}
 
@@ -119,38 +153,76 @@ export function ActiveShipmentCard({
           const Icon = STEP_ICONS[index];
           const done = index < activeIndex;
           const current = index === activeIndex;
+          const pulsing = current && index === 1;
+          // `done`/`current` son un par blanco+negro FIJO (nunca invertido con el
+          // tema) — el nodo "actual" siempre es un círculo blanco con ícono negro,
+          // así que su contraste interno no depende de si la card de alrededor es
+          // clara u oscura. El resto (nodo "hecho" y el color de barra/label de los
+          // pasos ya alcanzados) sí necesita adaptarse: en la card oscura, "#0A0A0B"
+          // fijo se volvía invisible contra un fondo casi del mismo tono (bug
+          // reportado por el usuario, sin variante de dark mode hasta este fix).
+          //
+          // El nodo "actual" con sombra/`elevation` nunca convive con `pulsing`:
+          // Android promueve una view con `elevation` a su propia capa compuesta y
+          // la reordena por encima de sus hermanas sin `elevation` propia, sin
+          // importar el orden real del árbol — tapaba por completo el halo pulsante
+          // (un sibling absoluto detrás, sin `elevation`), no solo donde se
+          // superponen literalmente (bug reportado por el usuario: "no hay ningún
+          // halo, ni estático ni animado"). El halo de por sí es mucho más
+          // elocuente que esa sombra chica, así que acá se saca directamente.
           const nodeStyle = done
-            ? { backgroundColor: "#0A0A0B" }
+            ? { backgroundColor: colors.fg1 }
             : current
               ? isUnfunded
                 ? { backgroundColor: "#FFFFFF", borderWidth: 2, borderColor: "#0A0A0B" }
-                : {
-                    backgroundColor: "#FFFFFF",
-                    shadowColor: colors.chromeShadow,
-                    shadowOffset: { width: 0, height: 1 },
-                    shadowOpacity: 1,
-                    shadowRadius: 3,
-                    elevation: 2,
-                  }
-              : { backgroundColor: isUnfunded ? "#F1F1F3" : CHROME.stepFutureBg };
-          const iconColor = done ? "#FFFFFF" : current ? "#0A0A0B" : isUnfunded ? "#B4B4BC" : CHROME.stepFutureIcon;
-          const barColor = index <= activeIndex ? "#0A0A0B" : isUnfunded ? "#E6E6EA" : CHROME.barFuture;
-          const labelColor = index <= activeIndex ? "#0A0A0B" : isUnfunded ? "#A8A8B0" : CHROME.labelFuture;
+                : pulsing
+                  ? { backgroundColor: "#FFFFFF" }
+                  : {
+                      backgroundColor: "#FFFFFF",
+                      shadowColor: colors.chromeShadow,
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 1,
+                      shadowRadius: 3,
+                      elevation: 2,
+                    }
+              : { backgroundColor: isUnfunded ? colors.bgMute : colors.activeCardStepFutureBg };
+          const iconColor = done ? colors.bg : current ? "#0A0A0B" : colors.fg3;
+          const barColor = index <= activeIndex ? colors.fg1 : colors.borderStrong;
+          const labelColor = index <= activeIndex ? colors.fg1 : colors.fg3;
 
           return (
             <Fragment key={label}>
               {index > 0 ? (
                 <View style={{ flex: 1, height: 3, marginTop: 17.5, borderRadius: 999, backgroundColor: barColor }} />
               ) : null}
-              <View className="items-center gap-2">
-                <View
-                  style={[{ width: 38, height: 38, borderRadius: 999, alignItems: "center", justifyContent: "center" }, nodeStyle]}
-                >
-                  <Icon size={17} strokeWidth={2} color={iconColor} />
+              {/* Columna de ancho FIJO (igual al círculo, no al contenido) — si el
+                  label mide más que el ícono, un ancho automático corre el círculo
+                  del borde de la columna y la barra conectora (que sí llega hasta
+                  ese borde) queda con un hueco visible antes de tocarlo. El círculo
+                  queda siempre pegado a la barra gracias a este ancho fijo. */}
+              <View style={{ width: STEP_NODE_SIZE, alignItems: "center", gap: 8 }}>
+                <View style={{ width: STEP_NODE_SIZE, height: STEP_NODE_SIZE, alignItems: "center", justifyContent: "center" }}>
+                  {pulsing ? <PulsingStepRing color={colors.fg1} /> : null}
+                  <View
+                    style={[
+                      { width: STEP_NODE_SIZE, height: STEP_NODE_SIZE, borderRadius: 999, alignItems: "center", justifyContent: "center" },
+                      nodeStyle,
+                    ]}
+                  >
+                    <Icon size={17} strokeWidth={2} color={iconColor} />
+                  </View>
                 </View>
+                {/* Ancho explícito (no `flexShrink`, que solo afecta el eje
+                    principal — vertical acá, ya que la columna es `flexDirection:
+                    "column"` por default): sin un ancho propio, Yoga mide este
+                    `Text` acotado al ancho de la columna (38px, el del ícono) y lo
+                    trunca con "…" — "En camino"/"Llegando" no entran ahí. Con un
+                    ancho fijo más generoso, Yoga deja de recortarlo a su medida y
+                    lo centra desbordando la columna angosta, sin afectar el resto
+                    del layout (la columna sigue midiendo 38px para la barra). */}
                 <Text
                   numberOfLines={1}
-                  style={{ color: labelColor }}
+                  style={{ color: labelColor, width: STEP_LABEL_WIDTH, textAlign: "center" }}
                   className={`text-[11.5px] ${current ? "font-sans-semibold" : "font-sans-medium"}`}
                 >
                   {label}
@@ -186,19 +258,23 @@ export function ActiveShipmentCard({
 
       {/* ── Fila inferior: texto + acción ── */}
       <View
-        className="flex-row items-center gap-3 pt-4"
-        style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: isUnfunded ? "#EDEDF0" : "rgba(10,10,11,0.14)" }}
+        className={`flex-row items-center gap-3 pt-4 ${isUnfunded ? "border-t border-border" : ""}`}
+        style={{ marginTop: 12, borderTopWidth: isUnfunded ? undefined : 1, borderTopColor: isUnfunded ? undefined : colors.activeCardFooterBorder }}
       >
-        <Text numberOfLines={1} className="flex-1 font-sans-medium text-small text-fg-2">
+        <Text className="flex-1 font-sans-medium text-small text-fg-2">
           {activeShipmentFooterText(role, shipment)}
         </Text>
         {cta ? (
           <Pressable
             testID={testID ? `${testID}-cta` : undefined}
             onPress={handleCta}
-            className="h-[38px] flex-none items-center justify-center rounded-full bg-lime-500 px-4"
+            className={`h-[38px] flex-none items-center justify-center rounded-full px-4 ${cta.variant === "secondary" ? "bg-fg" : "bg-lime-500"}`}
           >
-            <Text className="font-sans-semibold text-small text-ink-950">{cta.label}</Text>
+            <Text
+              className={`font-sans-semibold text-small ${cta.variant === "secondary" ? "text-bg" : "text-ink-950"}`}
+            >
+              {cta.label}
+            </Text>
           </Pressable>
         ) : null}
       </View>
@@ -209,11 +285,9 @@ export function ActiveShipmentCard({
     return (
       <View
         testID={testID}
-        className="mb-3 rounded-[22px] bg-bg-sub"
+        className="mb-3 rounded-[22px] border border-border bg-bg-sub"
         style={{
-          borderWidth: 1,
-          borderColor: "#E2E2E7",
-          shadowColor: "#0A0A0B",
+          shadowColor: colors.chromeShadow,
           shadowOffset: { width: 0, height: 1 },
           shadowOpacity: 0.05,
           shadowRadius: 2,
@@ -226,27 +300,40 @@ export function ActiveShipmentCard({
   }
 
   return (
-    <GradientBorderCard
-      testID={testID}
-      fillColors={CHROME.fill}
-      borderColors={CHROME.border}
-      borderRadius={22}
-      borderWidth={1}
+    // La sombra vive en este `View` de afuera, NUNCA en el `style` de
+    // `GradientBorderCard` (probado: subir alfa/radio/offset ahí no cambiaba nada
+    // en pantalla) — su borde exterior es un `<LinearGradient>` de
+    // `expo-linear-gradient`, y esa librería fija `masksToBounds = true` en la
+    // capa raíz de su vista nativa en iOS (`LinearGradientLayer.swift`, siempre,
+    // no depende de `borderRadius`/`overflow`). Una capa con `masksToBounds` no
+    // puede dibujar su propia sombra fuera de sus bordes recortados — cualquier
+    // `shadow*` puesto ahí queda invisible sin importar el valor. Un `View` común
+    // no tiene esa restricción.
+    <View
       style={{
         marginBottom: 12,
-        // `backgroundColor` explícito, no solo el gradiente: sin esto, iOS no
-        // encuentra una forma opaca de la que calcular la sombra y no la dibuja —
-        // el bug reportado ("la card metálica no se ve elevada"). El color no se ve
-        // (el gradiente lo cubre por completo), solo habilita la sombra.
-        backgroundColor: CHROME.fill[0],
-        shadowColor: colors.chromeShadow,
-        shadowOffset: { width: 0, height: 10 },
+        borderRadius: 22,
+        backgroundColor: colors.chromeGradient[0],
+        shadowColor: colors.activeCardShadow,
+        shadowOffset: { width: 0, height: 6 },
         shadowOpacity: 1,
-        shadowRadius: 20,
-        elevation: 6,
+        shadowRadius: 10,
+        // Android dibuja la sombra de `elevation` con su propio algoritmo,
+        // bastante menos sensible al alfa de `shadowColor` que iOS — bajar
+        // solo el alfa (ver `activeCardShadow`) no alcanzaba ahí. 14 se sentía
+        // "MUY fuerte" en varias rondas de feedback.
+        elevation: 4,
       }}
     >
-      {content}
-    </GradientBorderCard>
+      <GradientBorderCard
+        testID={testID}
+        fillColors={colors.chromeGradient}
+        borderColors={colors.chromeBorderGradient}
+        borderRadius={22}
+        borderWidth={1}
+      >
+        {content}
+      </GradientBorderCard>
+    </View>
   );
 }
