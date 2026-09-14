@@ -116,9 +116,14 @@ más alto estándar de cuidado, y así los tratamos nosotros también.
   revisión manual) y metadatos asociados (fecha, tipo de verificación) — no
   almacena una copia propia de las imágenes biométricas más allá de lo que el
   flujo de verificación requiera de forma transitoria.
-- Pedimos tu **consentimiento explícito y diferenciado** para este tratamiento
-  antes de iniciar el flujo de KYC, separado del consentimiento general de
-  registro — podés revisarlo en el paso de KYC del onboarding.
+- Tu consentimiento para este tratamiento queda comprendido en la aceptación
+  general de esta Política y de los Términos y Condiciones al registrarte
+  (checkbox de "Leí y acepto los Términos y la Política de Privacidad" del
+  registro). **Un consentimiento explícito y diferenciado, pedido
+  puntualmente antes de iniciar el flujo de KYC** (en vez de cubierto por el
+  checkbox general de registro), es la implementación deseable dado que se
+  trata de un dato sensible — está identificado como trabajo pendiente,
+  todavía no implementado en el producto.
 - Si tu verificación es rechazada o expira sin completarse, podés reintentarla;
   los intentos previos no exitosos no te habilitan a operar como Transportista
   y son reemplazados por el intento vigente.
@@ -159,8 +164,8 @@ privacidad y medidas de seguridad:
 | **Amazon Web Services (AWS)** | Fotos de perfil y de paquetes; datos de cuenta y de la aplicación         | Alojamiento de la aplicación y almacenamiento de archivos                                       |
 | **Cloudflare**                | Resolución DNS del tráfico hacia nuestros servidores                      | Enrutamiento y protección básica de red                                                         |
 | **Vercel**                    | Código y tráfico de nuestros sitios web                                   | Alojamiento de los frontends web                                                                |
-| **Google Analytics**          | Datos de navegación en nuestros sitios web (ver sección 11)               | Analítica de uso del sitio                                                                      |
-| **Microsoft Clarity**         | Datos de navegación e interacción en nuestros sitios web (ver sección 11) | Analítica de uso del sitio                                                                      |
+| **Google Analytics** _(candidata, no integrada)_  | Datos de navegación en nuestros sitios web, si se integra (ver sección 11)               | Analítica de uso del sitio                                                                      |
+| **Microsoft Clarity** _(candidata, no integrada)_ | Datos de navegación e interacción en nuestros sitios web, si se integra (ver sección 11) | Analítica de uso del sitio                                                                      |
 
 No transferimos tus datos a ningún otro tercero salvo que la ley nos obligue
 (por ejemplo, un requerimiento judicial) o que vos lo autorices expresamente.
@@ -213,12 +218,21 @@ datos se anonimiza, pero el registro del envío en sí puede persistir mientras
 la otra parte lo necesite como antecedente (por ejemplo, para sostener su
 propia calificación o una disputa en curso).
 
+**Nota sobre registros incompletos**: si nunca terminás de registrarte
+(por ejemplo, verificás el teléfono por OTP pero abandonás el flujo antes de
+crear la cuenta, o iniciás el KYC de Transportista y no lo completás), los
+datos ya cargados hasta ese punto quedan sujetos a los mismos plazos y
+mecanismos de esta tabla — hoy no existe una purga automática diferenciada
+para registros incompletos, es trabajo pendiente (ver el mismo estado de
+MOVO-230 más abajo).
+
 El proceso automático que hace cumplir estos plazos (purga del resultado de
-KYC vencido, purga/anonimización del historial de envíos vencido) está
-trackeado como trabajo pendiente en MOVO-230 — el compromiso de plazos de
-esta tabla es real, pero su cumplimiento automático todavía no está
-implementado. Mientras esa issue no cierre, cualquier pedido de supresión
-fuera de estos plazos se atiende igual de forma manual ante un reclamo
+KYC vencido, purga/anonimización del historial de envíos vencido, y de
+registros incompletos) está trackeado como trabajo pendiente en MOVO-230 — el
+compromiso de plazos de esta tabla es real, pero su cumplimiento automático
+todavía no está implementado. Mientras esa issue no cierre, cualquier pedido
+de supresión fuera de estos plazos se atiende igual de forma manual ante un
+reclamo
 concreto (sección 8).
 
 ## 8. Tus derechos (ARCO) y cómo ejercerlos
@@ -280,20 +294,27 @@ adoptadas.
 
 ## 11. Cookies y tecnologías similares
 
-Nuestros sitios web usan las siguientes herramientas de analítica de
-terceros:
+Si nuestros sitios web (\`movo-admin\`, sitio institucional) incorporan
+herramientas de analítica de terceros, estas serían las candidatas — a la
+fecha de esta versión, **ninguna de las dos está integrada todavía en
+\`movo-admin\`** (no verificado en el repo del sitio institucional, que es un
+repo separado sin relación funcional):
 
 | Herramienta           | Qué hace                                                                                                          | Datos que recolecta                                                                                                                                             |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Google Analytics**  | Mide visitas, páginas vistas y comportamiento agregado de navegación                                              | Identificador de cookie, dirección IP (truncada según configuración de Google), dispositivo/navegador, páginas visitadas                                        |
 | **Microsoft Clarity** | Genera mapas de calor y grabaciones de sesión de la navegación en el sitio, para entender cómo se usa la interfaz | Interacciones en pantalla (clics, scroll, movimiento del mouse), dispositivo/navegador, páginas visitadas — enmascara automáticamente campos de texto sensibles |
 
-Ninguna de las dos herramientas se usa para identificarte individualmente ni
-para publicidad de terceros — el objetivo es exclusivamente entender y
-mejorar el uso de nuestros sitios. Podés rechazar estas cookies desde la
-configuración de tu navegador, o instalar el complemento de exclusión de
-Google Analytics ([tools.google.com/dlpage/gaoptout](https://tools.google.com/dlpage/gaoptout)). Estas
-herramientas no se usan en la aplicación móvil.
+Si en el futuro se integra alguna, ninguna se usaría para identificarte
+individualmente ni para publicidad de terceros — el objetivo sería
+exclusivamente entender y mejorar el uso de nuestros sitios, y esta sección
+se actualizaría para reflejar la integración real (herramienta efectivamente
+instalada, no solo evaluada) antes de considerarse vigente. Podés rechazar
+cookies desde la configuración de tu navegador, o instalar el complemento de
+exclusión de Google Analytics
+([tools.google.com/dlpage/gaoptout](https://tools.google.com/dlpage/gaoptout))
+si alguna vez se activa. Estas herramientas no se usan en la aplicación
+móvil.
 
 La aplicación móvil no usa cookies (no es un entorno de navegador), pero sí
 utiliza almacenamiento seguro local de tu dispositivo para tu sesión y tu
