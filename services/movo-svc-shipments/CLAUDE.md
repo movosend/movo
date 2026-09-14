@@ -1838,6 +1838,28 @@ pasa de `null` a seteado tras la lectura del emisor). Suite completa del servici
 551/551, `tsc --noEmit` y `eslint` limpios. Confirmado que `app.swagger()` expone el
 campo nuevo en los 5 endpoints. DER (`docs/movo_der.dbml`) actualizado con la columna.
 
+### MOVO-219 — Integración de desvío marginal en el feed de viajes (`GET /trips/:id/matches`)
+
+Integración entre `svc-shipments` y `svc-pricing-logistics` para enriquecer y ordenar los envíos disponibles que hacen match con un viaje registrado por un transportista:
+
+- **Adapter `PricingLogisticsClient`** (`src/adapters/pricing-logistics-client.ts`):
+  - Consume `POST /routes/evaluate-candidates` del servicio de ruteo y precios con timeout estricto de 1000 ms (`AbortSignal.timeout(1000)`).
+  - Cumple política *No-Fallback* (ADR-021): si el servicio de ruteo falla o agota el timeout, lanza `ApiError` 503 `ROUTING_SERVICE_UNAVAILABLE` o 502 `ROUTING_SERVICE_ERROR`, propagado directamente al cliente HTTP sin inventar estimaciones o falsear métricas de desvío.
+  - Códigos de error incorporados en `ApiErrorCode` de `@movo/shared`.
+- **Pipeline de evaluación en `trips.service.ts` (`getTripMatches`)**:
+  - Prefiltro geométrico/temporal en base de datos: corredor $\le 15$ km y misma fecha calendario de Argentina.
+  - Retorno temprano si la consulta previa arroja 0 candidatos (evita llamadas de red innecesarias a `svc-pricing-logistics`).
+  - Consulta a `pricingLogisticsClient.evaluateCandidates`, descarte de resultados inviables (`feasible === false`), enriquecimiento con `detourDistanceKm` y `detourDurationMinutes`, y ordenamiento ascendente por `detourDistanceKm`.
+- **Contratos y DTOs (`trips.schema.ts`, `models/shipment.ts`, `trips.routes.ts`)**:
+  - `MatchedShipment extends AvailableShipment` con `detourDistanceKm: number` y `detourDurationMinutes: number`.
+  - `availableShipmentResponse` en Fastify Swagger actualizado con validación estricta de ambos campos obligatorios.
+  - `pricingLogisticsClient` requerido en `TripsServiceDeps` (no opcional), garantizando evaluación No-Fallback consistente.
+  - Fail-safe estricto: candidatos no evaluados o sin métricas en la respuesta de ruteo se descartan, nunca se asumen viables ni con desvío cero.
+  - Preservación del conteo `total` del prefiltro de base de datos para cálculo consistente de paginación.
+  - Protección ante JSON malformado en `PricingLogisticsClient` mapeado a `502 ROUTING_SERVICE_ERROR`.
+
+Tests: 6 tests unitarios en `test/pricing-logistics-client.test.ts`, 5 tests nuevos en `test/trips-service.test.ts` y 2 tests en `test/trips.routes.test.ts`. 139/139 tests unitarios pasando limpios, `tsc --noEmit` y `npm run lint` sin errores ni warnings.
+
 ### MOVO-192 — Endpoints de envíos activos por rol (`/sending`, `/transporting`, `/receiving`)
 
 Backend de `MOVO-191`/`MOVO-193` (home operativo del mobile, ya implementado contra un

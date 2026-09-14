@@ -76,7 +76,9 @@ export type ApiErrorCode =
   | "HANDSHAKE_DISTANCE_EXCEEDED"
   | "HANDSHAKE_INVALID_SIGNATURE"
   | "HANDSHAKE_CEDENTE_KEY_MISSING"
-  | "HANDSHAKE_INVALID_SHIPMENT_STATE";
+  | "HANDSHAKE_INVALID_SHIPMENT_STATE"
+  | "ROUTING_SERVICE_ERROR"
+  | "ROUTING_SERVICE_UNAVAILABLE";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {
