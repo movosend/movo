@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { UserRole } from "@movo/shared";
+import { ApiError, UserRole } from "@movo/shared";
 import { createTripsService } from "../src/modules/trips/trips.service";
-import { TripRepository, TripNotFoundError, TripHasAcceptedPackagesError } from "../src/repositories/trip-repository";
+import { TripRepository } from "../src/repositories/trip-repository";
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
 import { OfferRepository } from "../src/repositories/offer-repository";
 import { UsersClient } from "../src/adapters/users-client";
+import { PricingLogisticsClient } from "../src/adapters/pricing-logistics-client";
 import { Trip, TripStatus } from "../src/models/trip";
 import { createFakeOfferRepository } from "./fake-offer-repository";
 import { toArgentinaCalendarDate } from "../src/domain/pickup-window";
@@ -32,19 +33,22 @@ function fakeTrip(overrides: Partial<Trip> = {}): Trip {
   };
 }
 
-describe("TripsService (MOVO-161)", () => {
+describe("TripsService (MOVO-161 / MOVO-219)", () => {
   let tripRepo: TripRepository;
   let shipmentRepo: ShipmentRepository;
   let offerRepo: OfferRepository;
   let usersClient: UsersClient;
+  let pricingLogisticsClient: PricingLogisticsClient;
 
-  function buildService() {
+  function buildService(overrides: Partial<Parameters<typeof createTripsService>[0]> = {}) {
     return createTripsService({
       tripRepository: tripRepo,
       shipmentRepository: shipmentRepo,
       offerRepository: offerRepo,
       usersClient,
+      pricingLogisticsClient,
       defaultMaxDetourKm: 15,
+      ...overrides,
     });
   }
 
@@ -84,6 +88,20 @@ describe("TripsService (MOVO-161)", () => {
         isVerified: true,
         createdAt: "2026-01-01T00:00:00Z",
       }),
+    };
+
+    pricingLogisticsClient = {
+      evaluateCandidates: vi.fn().mockImplementation(async (input) => ({
+        directDistanceKm: 145,
+        directDurationMinutes: 110,
+        evaluations: input.candidates.map((c: any) => ({
+          candidateId: c.id,
+          feasible: true,
+          detourDistanceKm: 5,
+          detourDurationMinutes: 10,
+        })),
+        calculationMethod: "haversine_vrptw_v1",
+      })),
     };
   });
 
@@ -558,6 +576,186 @@ describe("TripsService (MOVO-161)", () => {
         CARRIER_ID,
         expect.any(Array),
       );
+    });
+
+    it("si el prefiltro no devuelve candidatos, retorna lista vacía inmediatamente sin llamar a svc-pricing-logistics (MOVO-219)", async () => {
+      (shipmentRepo.listAvailable as any).mockResolvedValue({
+        items: [],
+        total: 0,
+      });
+
+      const service = buildService();
+
+      const result = await service.getTripMatches({
+        tripId: TRIP_ID,
+        callerId: CARRIER_ID,
+        callerRoles: [UserRole.CARRIER],
+        page: 1,
+        limit: 20,
+      });
+
+      expect(result.items).toEqual([]);
+      expect(result.total).toBe(0);
+      expect(pricingLogisticsClient.evaluateCandidates).not.toHaveBeenCalled();
+    });
+
+    it("enriquece los paquetes compatibles con detourDistanceKm/detourDurationMinutes y ordena por menor desvío ascendente (MOVO-219)", async () => {
+      const itemA = { id: "shipment-A", pickupLat: -31.5, pickupLng: -64.0, deliveryLat: -32.1, deliveryLng: -63.5 } as any;
+      const itemB = { id: "shipment-B", pickupLat: -31.6, pickupLng: -63.9, deliveryLat: -32.2, deliveryLng: -63.4 } as any;
+      const itemC = { id: "shipment-C", pickupLat: -31.7, pickupLng: -63.8, deliveryLat: -32.3, deliveryLng: -63.3 } as any;
+
+      (shipmentRepo.listAvailable as any).mockResolvedValue({
+        items: [itemA, itemB, itemC],
+        total: 3,
+      });
+
+      (pricingLogisticsClient.evaluateCandidates as any).mockResolvedValue({
+        directDistanceKm: 145,
+        directDurationMinutes: 110,
+        evaluations: [
+          { candidateId: "shipment-A", feasible: true, detourDistanceKm: 18.2, detourDurationMinutes: 25 },
+          { candidateId: "shipment-B", feasible: true, detourDistanceKm: 4.1, detourDurationMinutes: 7 },
+          { candidateId: "shipment-C", feasible: true, detourDistanceKm: 11.0, detourDurationMinutes: 15 },
+        ],
+        calculationMethod: "haversine_vrptw_v1",
+      });
+
+      const service = buildService();
+
+      const result = await service.getTripMatches({
+        tripId: TRIP_ID,
+        callerId: CARRIER_ID,
+        callerRoles: [UserRole.CARRIER],
+        page: 1,
+        limit: 20,
+      });
+
+      expect(pricingLogisticsClient.evaluateCandidates).toHaveBeenCalledWith({
+        trip: expect.objectContaining({
+          id: TRIP_ID,
+          originLat: trip.originLat,
+          originLng: trip.originLng,
+          destinationLat: trip.destinationLat,
+          destinationLng: trip.destinationLng,
+        }),
+        candidates: expect.arrayContaining([
+          expect.objectContaining({ id: "shipment-A" }),
+          expect.objectContaining({ id: "shipment-B" }),
+          expect.objectContaining({ id: "shipment-C" }),
+        ]),
+      });
+
+      expect(result.items).toHaveLength(3);
+      // Orden ascendente por menor desvío: B (4.1 km) -> C (11.0 km) -> A (18.2 km)
+      expect(result.items[0].id).toBe("shipment-B");
+      expect(result.items[0].detourDistanceKm).toBe(4.1);
+      expect(result.items[0].detourDurationMinutes).toBe(7);
+
+      expect(result.items[1].id).toBe("shipment-C");
+      expect(result.items[1].detourDistanceKm).toBe(11.0);
+      expect(result.items[1].detourDurationMinutes).toBe(15);
+
+      expect(result.items[2].id).toBe("shipment-A");
+      expect(result.items[2].detourDistanceKm).toBe(18.2);
+      expect(result.items[2].detourDurationMinutes).toBe(25);
+    });
+
+    it("descarta candidatos con feasible: false calculados por OR-Tools (MOVO-219)", async () => {
+      const itemFeasible = { id: "shipment-ok" } as any;
+      const itemInfeasible = { id: "shipment-late" } as any;
+
+      (shipmentRepo.listAvailable as any).mockResolvedValue({
+        items: [itemFeasible, itemInfeasible],
+        total: 2,
+      });
+
+      (pricingLogisticsClient.evaluateCandidates as any).mockResolvedValue({
+        directDistanceKm: 145,
+        directDurationMinutes: 110,
+        evaluations: [
+          { candidateId: "shipment-ok", feasible: true, detourDistanceKm: 6.0, detourDurationMinutes: 8 },
+          { candidateId: "shipment-late", feasible: false, detourDistanceKm: null, detourDurationMinutes: null },
+        ],
+        calculationMethod: "haversine_vrptw_v1",
+      });
+
+      const service = buildService();
+
+      const result = await service.getTripMatches({
+        tripId: TRIP_ID,
+        callerId: CARRIER_ID,
+        callerRoles: [UserRole.CARRIER],
+        page: 1,
+        limit: 20,
+      });
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].id).toBe("shipment-ok");
+      expect(result.total).toBe(2);
+    });
+
+    it("fail-safe No-Fallback: descarta candidatos omitidos en la evaluación sin asumir factibilidad ni desvío 0 (MOVO-219)", async () => {
+      const itemWithEval = { id: "shipment-with-eval" } as any;
+      const itemOmitted = { id: "shipment-missing-from-eval" } as any;
+
+      (shipmentRepo.listAvailable as any).mockResolvedValue({
+        items: [itemWithEval, itemOmitted],
+        total: 50,
+      });
+
+      (pricingLogisticsClient.evaluateCandidates as any).mockResolvedValue({
+        directDistanceKm: 145,
+        directDurationMinutes: 110,
+        evaluations: [
+          // Solo se incluye shipment-with-eval, shipment-missing-from-eval se omite
+          { candidateId: "shipment-with-eval", feasible: true, detourDistanceKm: 5.5, detourDurationMinutes: 8 },
+        ],
+        calculationMethod: "haversine_vrptw_v1",
+      });
+
+      const service = buildService();
+
+      const result = await service.getTripMatches({
+        tripId: TRIP_ID,
+        callerId: CARRIER_ID,
+        callerRoles: [UserRole.CARRIER],
+        page: 1,
+        limit: 20,
+      });
+
+      // El omitido NO debe entrar al feed ni asumirse con 0 km de desvío
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].id).toBe("shipment-with-eval");
+      expect(result.items[0].detourDistanceKm).toBe(5.5);
+      // El total de la paginación refleja la cantidad real en DB (50)
+      expect(result.total).toBe(50);
+    });
+
+    it("política No-Fallback: si svc-pricing-logistics falla (502/503), propaga el error (MOVO-219)", async () => {
+      const item = { id: "shipment-1" } as any;
+      (shipmentRepo.listAvailable as any).mockResolvedValue({
+        items: [item],
+        total: 1,
+      });
+
+      (pricingLogisticsClient.evaluateCandidates as any).mockRejectedValue(
+        new ApiError(502, "ROUTING_SERVICE_ERROR", "Error en proveedor de rutas")
+      );
+
+      const service = buildService();
+
+      await expect(
+        service.getTripMatches({
+          tripId: TRIP_ID,
+          callerId: CARRIER_ID,
+          callerRoles: [UserRole.CARRIER],
+          page: 1,
+          limit: 20,
+        })
+      ).rejects.toMatchObject({
+        statusCode: 502,
+        code: "ROUTING_SERVICE_ERROR",
+      });
     });
   });
 });

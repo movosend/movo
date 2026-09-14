@@ -8,14 +8,19 @@ import { createUsersClient, UsersClient } from "../../adapters/users-client";
 import { createTripRepository, TripRepository } from "../../repositories/trip-repository";
 import { createShipmentRepository, ShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository, OfferRepository } from "../../repositories/offer-repository";
-import { AvailableShipment } from "../../models/shipment";
+import { MatchedShipment } from "../../models/shipment";
 import { toTripDto } from "./trip.dto";
+import {
+  createPricingLogisticsClient,
+  PricingLogisticsClient,
+} from "../../adapters/pricing-logistics-client";
 
 export interface TripsRoutesOptions extends FastifyPluginOptions {
   usersClient?: UsersClient;
   tripRepository?: TripRepository;
   shipmentRepository?: ShipmentRepository;
   offerRepository?: OfferRepository;
+  pricingLogisticsClient?: PricingLogisticsClient;
   service?: TripsService;
 }
 
@@ -42,9 +47,11 @@ interface UpdateTripBody {
   status?: TripStatus;
 }
 
-function toAvailableShipmentDto(item: AvailableShipment & { hasMyOffer: boolean }) {
+function toAvailableShipmentDto(item: MatchedShipment) {
   return {
     ...item,
+    detourDistanceKm: item.detourDistanceKm ?? 0,
+    detourDurationMinutes: item.detourDurationMinutes ?? 0,
     pickupDate: item.pickupDate instanceof Date ? item.pickupDate.toISOString().slice(0, 10) : item.pickupDate,
     pickupTimeWindowStart:
       item.pickupTimeWindowStart instanceof Date
@@ -63,6 +70,11 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
   const tripRepository = opts.tripRepository ?? createTripRepository(app.db);
   const shipmentRepository = opts.shipmentRepository ?? createShipmentRepository(app.db);
   const offerRepository = opts.offerRepository ?? createOfferRepository(app.db);
+  const pricingLogisticsClient =
+    opts.pricingLogisticsClient ??
+    createPricingLogisticsClient({
+      PRICING_SERVICE_URL: app.config.PRICING_SERVICE_URL,
+    });
   const defaultMaxDetourKm = app.config.TRIP_DEFAULT_MAX_DETOUR_KM ?? 15;
 
   const service =
@@ -72,6 +84,7 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
       shipmentRepository,
       offerRepository,
       usersClient,
+      pricingLogisticsClient,
       defaultMaxDetourKm,
     });
 
