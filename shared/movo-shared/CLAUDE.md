@@ -188,6 +188,21 @@ envolviendo el resultado en el `Date` anclado que necesita para comparar contra
 columnas `@db.Date` en SQL; mobile la consume tal cual. Sin dependencias de Node —
 función pura sobre `Date`/`string`, segura también en React Native.
 
+### MOVO-192 — `ActiveShipmentSummary`/`ActiveShipmentStatus`/`ActiveShipmentCounterparty`
+
+`src/types/shipment.ts` — wire contract de `GET /shipments/sending|transporting|
+receiving` (`movo-svc-shipments`), primer tipo de este paquete que nace directamente
+del contrato que el equipo mobile había dejado comentado en Linear (camelCase, no el
+snake_case literal del AC) mientras implementaba `MOVO-193` contra un mock, en vez de
+nacer del lado del backend. `ActiveShipmentStatus` acota `ShipmentStatus` a los 3
+valores "activos" (`assigned_unfunded`/`assigned`/`in_transit`) en vez de reusar el
+enum completo — mismo criterio que otros subconjuntos con nombre propio del proyecto.
+`agreedPriceArs: number | null` (no solo `number`, a diferencia del mock de mobile): la
+columna real sigue nullable y ningún flujo la puebla todavía al aceptar una oferta (ver
+`services/movo-svc-shipments/CLAUDE.md`, MOVO-192, sección de pendientes). El mobile
+sigue con su propia copia local del tipo (`shipments-client.ts`) — migrarla a importar
+desde acá queda pendiente, fuera de alcance de este ticket (100% backend).
+
 ### MOVO-228 — `LEGAL_DOCUMENT_VERSIONS`, `PrivateProfile` extendido, `LEGAL_DOCUMENT_VERSION_MISMATCH`
 
 `src/config/legal.ts` (nuevo, mismo patrón que `config/commission.ts` — primera config

@@ -1,6 +1,8 @@
 import {
+  ActiveShipmentStatus,
   ApiError,
   OfferStatus,
+  PublicProfile,
   ShipmentStatus,
   TripStatus,
   UserRole,
@@ -18,6 +20,13 @@ import { PricingClient } from "../../adapters/pricing-client";
 import { AvailableShipment, PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
 import { isPickupWindowExpired } from "../../domain/pickup-window";
 import { haversineKm } from "../../domain/geo";
+import {
+  ActiveShipmentRole,
+  getInitials,
+  isActiveShipmentPickupWindowExpired,
+  isShipmentPickupToday,
+  resolveActiveShipmentCounterpartyId,
+} from "../../domain/active-shipment";
 import { Offer } from "../../models/offer";
 import {
   assertIsNotShipmentParty,
@@ -172,6 +181,42 @@ export interface ListAvailableResult {
   limit: number;
   total: number;
 }
+
+/**
+ * MOVO-192: resultado interno de `listActiveShipments` -- fechas/horas siguen siendo
+ * `Date` acá (mismo criterio que `Shipment`), la ruta las formatea a string con
+ * `toActiveShipmentDto` (mismo fix de timezone que `toShipmentDto`, ver su comentario
+ * en `shipments.routes.ts`). `status` se acota a `ActiveShipmentStatus` (no todo
+ * `ShipmentStatus`) porque `repository.listActiveShipments` ya filtra por
+ * `ACTIVE_SHIPMENT_STATUSES` -- el cast en el mapeo documenta esa garantía, no la
+ * reimplementa.
+ */
+export interface ActiveShipmentResult {
+  id: string;
+  status: ActiveShipmentStatus;
+  pickupDate: Date;
+  pickupTimeWindowStart: Date;
+  pickupTimeWindowEnd: Date;
+  pickupAddress: string;
+  deliveryAddress: string;
+  agreedPriceArs: number | null;
+  counterparty: { name: string; initials: string };
+  isToday: boolean;
+  pickupWindowExpired: boolean;
+}
+
+const ACTIVE_SHIPMENT_ROLE_TO_COLUMN: Record<ActiveShipmentRole, "senderId" | "carrierId" | "receiverId"> = {
+  sending: "senderId",
+  transporting: "carrierId",
+  receiving: "receiverId",
+};
+
+// Fallback cuando `usersClient.findPublicProfile` de la contraparte falla o devuelve
+// null -- no debería pasar en la práctica (la contraparte es siempre alguien que ya
+// participó de una asignación real), pero un fallo de red no puede tirar abajo la
+// lista completa de envíos activos del caller (mismo criterio best-effort que
+// `resolveSnapshotProfile`/`dispatchReceiverDecisionPush` más arriba en este archivo).
+const UNKNOWN_COUNTERPARTY_NAME = "Usuario de Movo";
 
 // MOVO-126: retiro y entrega a menos de 100m se tratan como la misma ubicación —
 // umbral chico a propósito (mismo criterio que el rechazo duro de
@@ -1260,6 +1305,71 @@ export function createShipmentsService(
       otherUserId: string
     ): Promise<{ sharedShipmentCount: number; lastSharedAt: Date | null; allDelivered: boolean }> {
       return repository.getSharedHistory(viewerId, otherUserId);
+    },
+
+    /**
+     * MOVO-192: envíos activos del caller en un rol (`GET /shipments/sending|
+     * transporting|receiving`). El rol sale siempre del endpoint consultado, nunca de
+     * un parámetro del caller (AC8) -- por eso esta firma ni siquiera acepta un
+     * `userId` de otra persona. Sin autorización adicional más allá de estar
+     * autenticado (a diferencia de `getShipmentDetail`): la query de
+     * `repository.listActiveShipments` ya está acotada a filas donde `callerId`
+     * participa, así que no hay nada que autorizar aparte.
+     */
+    async listActiveShipments(role: ActiveShipmentRole, callerId: string): Promise<ActiveShipmentResult[]> {
+      const shipments = await repository.listActiveShipments(ACTIVE_SHIPMENT_ROLE_TO_COLUMN[role], callerId);
+      if (shipments.length === 0) {
+        return [];
+      }
+
+      // Dedup antes de llamar a usersClient: varios envíos activos del mismo caller
+      // pueden compartir la misma contraparte (ej. dos envíos con el mismo
+      // transportista) -- un solo findPublicProfile por id único, no uno por ítem.
+      const counterpartyIds = new Set(shipments.map((shipment) => resolveActiveShipmentCounterpartyId(role, shipment)));
+      const profileById = new Map<string, PublicProfile | null>();
+      await Promise.all(
+        Array.from(counterpartyIds).map(async (counterpartyId) => {
+          try {
+            profileById.set(counterpartyId, await usersClient.findPublicProfile(counterpartyId, callerId));
+          } catch (err) {
+            logger?.warn(
+              { err, event: "active_shipment_counterparty_lookup_failed", counterpartyId },
+              "No se pudo resolver el perfil de la contraparte de un envío activo"
+            );
+            profileById.set(counterpartyId, null);
+          }
+        })
+      );
+
+      const now = new Date();
+      return shipments.map((shipment) => {
+        // Garantizado por `ACTIVE_SHIPMENT_STATUSES` -- `repository.listActiveShipments`
+        // ya filtró por ese subconjunto antes de llegar acá.
+        const status = shipment.status as ActiveShipmentStatus;
+        const counterpartyId = resolveActiveShipmentCounterpartyId(role, shipment);
+        const counterpartyProfile = profileById.get(counterpartyId) ?? null;
+        return {
+          id: shipment.id,
+          status,
+          pickupDate: shipment.pickupDate,
+          pickupTimeWindowStart: shipment.pickupTimeWindowStart,
+          pickupTimeWindowEnd: shipment.pickupTimeWindowEnd,
+          pickupAddress: shipment.pickupAddress,
+          deliveryAddress: shipment.deliveryAddress,
+          agreedPriceArs: shipment.agreedPriceArs,
+          counterparty: {
+            name: counterpartyProfile?.fullName ?? UNKNOWN_COUNTERPARTY_NAME,
+            initials: getInitials(counterpartyProfile?.fullName),
+          },
+          isToday: isShipmentPickupToday(shipment.pickupDate, now),
+          pickupWindowExpired: isActiveShipmentPickupWindowExpired(
+            status,
+            shipment.pickupDate,
+            shipment.pickupTimeWindowEnd,
+            now
+          ),
+        };
+      });
     },
   };
 }

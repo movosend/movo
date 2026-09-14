@@ -262,6 +262,50 @@ const createOfferResponse = {
   },
 };
 
+// MOVO-192: subconjunto "activo" de ShipmentStatus (ver ACTIVE_SHIPMENT_STATUSES en
+// shipment-state-machine.ts) -- el único que puede aparecer en la respuesta de
+// GET /shipments/sending|transporting|receiving.
+const ACTIVE_SHIPMENT_STATUS_VALUES = ["assigned_unfunded", "assigned", "in_transit"];
+
+const activeShipmentSummaryResponse = {
+  type: "object",
+  required: [
+    "id",
+    "status",
+    "pickupDate",
+    "pickupTimeWindowStart",
+    "pickupTimeWindowEnd",
+    "pickupAddress",
+    "deliveryAddress",
+    "agreedPriceArs",
+    "counterparty",
+    "isToday",
+    "pickupWindowExpired",
+  ],
+  properties: {
+    id: { type: "string" },
+    status: { type: "string", enum: ACTIVE_SHIPMENT_STATUS_VALUES },
+    pickupDate: { type: "string", format: "date" },
+    pickupTimeWindowStart: { type: "string", format: "time" },
+    pickupTimeWindowEnd: { type: "string", format: "time" },
+    pickupAddress: { type: "string" },
+    deliveryAddress: { type: "string" },
+    // MOVO-192 (gap documentado en @movo/shared#ActiveShipmentSummary): sigue nullable
+    // en la práctica -- ningún flujo persiste este campo todavía al aceptar una oferta.
+    agreedPriceArs: { type: ["number", "null"] },
+    counterparty: {
+      type: "object",
+      required: ["name", "initials"],
+      properties: {
+        name: { type: "string" },
+        initials: { type: "string" },
+      },
+    },
+    isToday: { type: "boolean" },
+    pickupWindowExpired: { type: "boolean" },
+  },
+};
+
 const shipmentEventResponse = {
   type: "object",
   required: ["id", "shipmentId", "fromStatus", "toStatus", "actorId", "reason", "createdAt"],
@@ -411,6 +455,13 @@ export const shipmentsSchemas = {
       limit: { type: "integer" },
       total: { type: "integer" },
     },
+  },
+
+  activeShipmentSummaryResponse,
+
+  listActiveShipmentsResponse: {
+    type: "array",
+    items: activeShipmentSummaryResponse,
   },
 
   routeQuery: {
