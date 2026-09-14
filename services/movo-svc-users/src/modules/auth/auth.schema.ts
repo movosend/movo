@@ -17,7 +17,19 @@ export const authSchemas = {
   registerBody: {
     type: "object",
     additionalProperties: false,
-    required: ["fullName", "email", "phone", "password", "phoneVerificationToken", "dni", "address"],
+    required: [
+      "fullName",
+      "email",
+      "phone",
+      "password",
+      "phoneVerificationToken",
+      "dni",
+      "address",
+      "termsAccepted",
+      "termsVersion",
+      "privacyAccepted",
+      "privacyVersion",
+    ],
     properties: {
       fullName: {
         type: "string",
@@ -68,6 +80,16 @@ export const authSchemas = {
           long: { type: "number" },
         },
       },
+      // MOVO-228: checkbox obligatorio del wizard (`register.tsx`, paso de revisión) —
+      // `const: true` rechaza con 400 tanto `false` como cualquier valor que no sea
+      // literalmente `true`, así que no hace falta un chequeo aparte en el service para
+      // el caso "mandó el campo pero sin tildar". La versión aceptada la valida
+      // `auth.service.ts#register()` contra `LEGAL_DOCUMENT_VERSIONS`
+      // (`@movo/shared`) -- acá solo se exige que sea un string no vacío.
+      termsAccepted: { const: true },
+      termsVersion: { type: "string", minLength: 1 },
+      privacyAccepted: { const: true },
+      privacyVersion: { type: "string", minLength: 1 },
     },
   },
   // Mismo shape que loginResponse (revisión de PR #51, tmvergara): register() pasa a

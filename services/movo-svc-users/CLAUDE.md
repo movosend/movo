@@ -631,6 +631,81 @@ señuelo).
 
 Pendiente / fuera de alcance: consumo desde `movo-mobile` (ticket aparte).
 
+### MOVO-228 — "Firma electrónica" de aceptación de Términos/Privacidad al registrarse
+
+Cierra el pendiente que MOVO-224 (`movo-mobile`, pantallas de Legal) había dejado
+documentado: el registro solo mostraba texto informativo ("al continuar aceptás..."),
+sin checkbox ni registro de cuándo/qué versión se aceptó. Ahora `POST /auth/register`
+exige la aceptación explícita y la persiste.
+
+Decisiones clave:
+- **`termsAccepted`/`privacyAccepted` con `const: true` en el schema** (`auth.schema.ts`)
+  — rechaza con 400 tanto `false` como cualquier valor que no sea literalmente `true`,
+  sin necesitar un chequeo aparte en el service para "mandó el campo pero sin tildar".
+- **Versión validada contra `LEGAL_DOCUMENT_VERSIONS` (`@movo/shared`) ANTES de
+  consumir el `phoneVerificationToken`** (`auth.service.ts#register`, 422
+  `LEGAL_DOCUMENT_VERSION_MISMATCH`): una app desactualizada que manda una versión
+  vieja de los documentos no debe quemarle el OTP al usuario por un error que no es
+  suyo — mismo criterio de orden que ya usaba la validación de conflicto de datos.
+- **Columnas nullable sin backfill** (`terms_accepted_at`/`terms_version`/
+  `privacy_accepted_at`/`privacy_version` en `users.users`, migración
+  `20260913220000_add_legal_acceptance_movo_228`): las cuentas existentes nunca
+  aceptaron explícitamente nada, no hay forma honesta de reconstruir esa fecha
+  retroactivamente — mismo criterio que `dni`/`bio` (MOVO-73/171).
+- **Términos y Privacidad se trackean por separado**, no como una sola aceptación
+  combinada: son documentos independientes que pueden cambiar en momentos distintos
+  (decisión confirmada con el usuario).
+
+Tests nuevos en `test/auth.register.integration.test.ts` (persiste fecha+versión,
+rechaza `termsAccepted:false`/sin `privacyAccepted`, 422 por versión vieja de cada
+documento, y que el 422 NO quema el `phoneVerificationToken` — el mismo token con la
+versión corregida completa el registro). Los fixtures de registro de otros
+integration tests (`auth.login`/`auth.logout`/`auth.refresh`/`users.account-settings`/
+`auth.password-reset`/`kyc.license`/`kyc.session`) se actualizaron para incluir los 4
+campos nuevos, ahora requeridos por el schema. 49/49 suites, 509/509 tests.
+`tsc --noEmit`/`eslint` limpios.
+
+**Gotcha de entorno local encontrado en el camino (no relacionado al ticket)**: el
+Postgres local (`infra-postgres-1`) tenía un password distinto al de `.env` —
+`POSTGRES_PASSWORD` de la imagen oficial solo aplica en el `initdb` inicial, así que
+un `.env` cambiado después de la primera vez que se levantó el volumen no lo
+rotaba. Sincronizado con `ALTER USER movo WITH PASSWORD ...` (sin tocar datos) para
+poder correr la suite completa contra el Postgres real desde el host.
+
+### MOVO-229 — `POST /users/me/legal-acceptance`: re-aceptación post-registro
+
+Extiende MOVO-228 (checkbox obligatorio en el registro) al caso de una cuenta ya
+existente cuya versión aceptada de Términos y/o Privacidad quedó vieja (se publicó
+una versión nueva), o que nunca los aceptó explícitamente por haberse registrado
+antes de MOVO-228.
+
+- **`termsVersion`/`privacyVersion` viajan por separado y son ambos opcionales**
+  (`minProperties: 1` — al menos uno) — mandar solo uno no toca el otro. Reusa
+  `LEGAL_DOCUMENT_VERSIONS`/`LEGAL_DOCUMENT_VERSION_MISMATCH` (`@movo/shared`,
+  MOVO-228) para la validación, mismo criterio que `POST /auth/register`.
+- **`user-repository.ts#updateLegalAcceptance`**: mismo patrón que `updateProfile`
+  (update parcial con spreads condicionales por campo `!== undefined`) — cada par
+  fecha/versión se persiste de forma independiente.
+- **Re-aceptar simplemente pisa la fecha** (no hay historial de aceptaciones
+  previas) — una cuenta que ya había aceptado una versión vieja y ahora acepta la
+  vigente termina con `termsAcceptedAt` = ahora, `termsVersion` = la nueva; no queda
+  ningún rastro de la aceptación anterior más allá de los logs.
+- **Devuelve el `PrivateProfile` completo** (mismo criterio que `PATCH /users/me`
+  desde MOVO-133) — el mobile lo siembra directo en la cache con `setQueryData`, sin
+  refetch.
+- **Sin `preValidation` de whitelist de campos** (a diferencia de `PATCH /users/me`,
+  MOVO-133) — mismo criterio que la mayoría de los otros endpoints del archivo, que
+  tampoco lo tienen; esa decisión de convención (`removeAdditional` de AJV silencia
+  campos de más en vez de rechazarlos) sigue pendiente en general, no se resuelve acá.
+
+Tests: 10 casos nuevos en `test/users.profile-edit.integration.test.ts` (aceptación
+independiente de cada documento, ambos juntos, re-aceptar actualiza la fecha, 422 por
+versión vieja de cada uno, 400 con body vacío, 401 sin header, 404 usuario
+inexistente). 49/49 suites, 518/518 tests. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: consumo desde `movo-mobile` documentado en su propio
+`CLAUDE.md`; sin historial de aceptaciones previas (solo se persiste la última).
+
 ### Pendientes de este servicio
 
 - **Credenciales reales sin cargar** en AWS Secrets Manager (dev y prod) — el código

@@ -7,7 +7,7 @@ function makeShipment(overrides: Partial<ActiveShipmentSummary> = {}): ActiveShi
   return {
     id: "s1",
     status: "assigned",
-    pickupDate: "2026-09-15",
+    pickupDate: "2026-01-15",
     pickupTimeWindowStart: "09:00",
     pickupTimeWindowEnd: "12:00",
     pickupAddress: "Córdoba 1200, Córdoba",

@@ -20,13 +20,32 @@ import * as SplashScreen from 'expo-splash-screen';
 import { Stack } from 'expo-router';
 import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { LegalEntrySheet } from '../components/legal/legal-entry-sheet';
 import { useDeviceKeyBootstrap } from '../src/hooks/use-device-key-bootstrap';
+import { useLegalAcceptanceEntry } from '../src/hooks/use-legal-acceptance-entry';
 import { usePushNotifications } from '../src/hooks/use-push-notifications';
 import { RegistrationProvider } from '../src/hooks/use-registration';
 import { loadApiOverride } from '../src/lib/api-override';
 import { useAuthStore } from '../src/store/auth-store';
 
 SplashScreen.preventAutoHideAsync();
+
+/**
+ * MOVO-229 depende de `useMyProfile()` (React Query) — tiene que vivir DENTRO del
+ * árbol de `QueryClientProvider`, no en el propio `RootLayout` (que es quien lo
+ * define: su cuerpo de función no es descendiente de su propio JSX de salida).
+ */
+function LegalAcceptanceEntryMount() {
+  const entry = useLegalAcceptanceEntry();
+  return (
+    <LegalEntrySheet
+      visible={entry.visible}
+      copy={entry.copy}
+      onReview={entry.onReview}
+      onDismiss={entry.onDismiss}
+    />
+  );
+}
 
 export default function RootLayout() {
   const { colorScheme } = useColorScheme();
@@ -99,6 +118,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <RegistrationProvider>
+          <LegalAcceptanceEntryMount />
           <View onLayout={onLayout} className="flex-1 bg-bg">
             <Stack screenOptions={{ headerShown: false }} />
             <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />

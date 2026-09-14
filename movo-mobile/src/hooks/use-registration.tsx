@@ -1,5 +1,6 @@
 import { KycStatus } from "@movo/shared/dist/types/user";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
+import { LEGAL_DOCUMENT_VERSIONS } from "@movo/shared/dist/config/legal";
 import {
   createContext,
   useCallback,
@@ -225,6 +226,11 @@ interface RegistrationContextValue {
   errorBanner: string | null;
   clearErrorBanner: () => void;
 
+  // MOVO-228: checkbox obligatorio del último paso — "firma electrónica" de
+  // aceptación de Términos y Privacidad, persistida por el backend al registrarse.
+  acceptedLegal: boolean;
+  setAcceptedLegal: (value: boolean) => void;
+
   /** true mientras se está resolviendo si hay un registro pendiente al abrir la app (AC7). */
   resumeChecked: boolean;
   hasPendingRegistration: boolean;
@@ -271,6 +277,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
   const [verifiedPhone, setVerifiedPhone] = useState<string | null>(null);
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
+  const [acceptedLegal, setAcceptedLegal] = useState(false);
   // Tokens de sesión que emite `register()` (PR #51 de MOVO-72) — necesarios para el
   // header `Authorization` de /kyc/session y /kyc/status, protegidas desde ese mismo
   // cambio. `refreshToken` no se consume acá a propósito — ver comentario de la
@@ -359,6 +366,14 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       setErrorBanner("Confirmá la ubicación en el mapa antes de continuar.");
       return { ok: false };
     }
+    // Defensa en profundidad: el botón de `register.tsx` ya queda deshabilitado sin
+    // esto tildado, pero `submitRegistration` es parte de la API pública del contexto
+    // y no debería poder crear una cuenta sin la aceptación explícita bajo ninguna
+    // circunstancia.
+    if (!acceptedLegal) {
+      setErrorBanner("Tenés que aceptar los Términos y la Política de Privacidad para continuar.");
+      return { ok: false };
+    }
     setLoading(true);
     setErrorBanner(null);
     try {
@@ -378,6 +393,10 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
           lat: latitude,
           long: longitude,
         },
+        termsAccepted: true,
+        termsVersion: LEGAL_DOCUMENT_VERSIONS.terms,
+        privacyAccepted: true,
+        privacyVersion: LEGAL_DOCUMENT_VERSIONS.privacy,
         phoneVerificationToken: phoneVerificationToken ?? "",
       });
       setUserId(response.userId);
@@ -411,7 +430,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [fields, phoneVerificationToken, latitude, longitude]);
+  }, [fields, phoneVerificationToken, latitude, longitude, acceptedLegal]);
 
   const sendOtp = useCallback(async (): Promise<{ ok: boolean; cooldownSeconds: number }> => {
     setLoading(true);
@@ -558,6 +577,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
     setLongitude(null);
     setAccessToken(null);
     setErrorBanner(null);
+    setAcceptedLegal(false);
   }, []);
 
   const authStatus = useAuthStore((s) => s.status);
@@ -587,6 +607,8 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       loading,
       errorBanner,
       clearErrorBanner,
+      acceptedLegal,
+      setAcceptedLegal,
       resumeChecked,
       hasPendingRegistration: Boolean(userId),
       sendOtp,
@@ -616,6 +638,7 @@ export function RegistrationProvider({ children }: { children: ReactNode }) {
       loading,
       errorBanner,
       clearErrorBanner,
+      acceptedLegal,
       resumeChecked,
       sendOtp,
       verifyPhoneOtp,

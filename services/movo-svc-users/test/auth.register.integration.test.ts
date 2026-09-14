@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
+import { LEGAL_DOCUMENT_VERSIONS } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { SmsProvider } from "../src/adapters/sms-provider";
 
@@ -33,6 +34,10 @@ describe("POST /auth/register", () => {
       lat: -31.4201,
       long: -64.1888,
     },
+    termsAccepted: true,
+    termsVersion: LEGAL_DOCUMENT_VERSIONS.terms,
+    privacyAccepted: true,
+    privacyVersion: LEGAL_DOCUMENT_VERSIONS.privacy,
   };
 
   beforeAll(async () => {
@@ -359,5 +364,73 @@ describe("POST /auth/register", () => {
 
     expect(response.statusCode).toBe(400);
     expect(JSON.parse(response.body).error.code).toBe("VALIDATION_FAILED");
+  });
+
+  it("MOVO-228: persiste la aceptación de Términos y Privacidad (fecha + versión) al registrarse", async () => {
+    const response = await register();
+    const { userId } = JSON.parse(response.body) as { userId: string };
+
+    const userRow = await app.db.user.findUnique({ where: { id: userId } });
+    expect(userRow?.termsVersion).toBe(LEGAL_DOCUMENT_VERSIONS.terms);
+    expect(userRow?.privacyVersion).toBe(LEGAL_DOCUMENT_VERSIONS.privacy);
+    expect(userRow?.termsAcceptedAt).toBeInstanceOf(Date);
+    expect(userRow?.privacyAcceptedAt).toBeInstanceOf(Date);
+  });
+
+  it("MOVO-228: rechaza el registro con termsAccepted:false con 400 VALIDATION_FAILED", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: { ...basePayload, termsAccepted: false, phoneVerificationToken: "irrelevante" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).error.code).toBe("VALIDATION_FAILED");
+  });
+
+  it("MOVO-228: rechaza el registro sin privacyAccepted con 400 VALIDATION_FAILED", async () => {
+    const { privacyAccepted, ...payloadWithoutPrivacyAccepted } = basePayload;
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: { ...payloadWithoutPrivacyAccepted, phoneVerificationToken: "irrelevante" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).error.code).toBe("VALIDATION_FAILED");
+  });
+
+  it("MOVO-228: rechaza una versión de Términos desactualizada con 422 LEGAL_DOCUMENT_VERSION_MISMATCH, sin consumir el OTP", async () => {
+    const phoneVerificationToken = await getPhoneVerificationToken(basePayload.phone, "+5493511234567");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: { ...basePayload, termsVersion: "2020-01-01", phoneVerificationToken },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(JSON.parse(response.body).error.code).toBe("LEGAL_DOCUMENT_VERSION_MISMATCH");
+
+    // El OTP no debería haberse quemado: el mismo token, con la versión corregida,
+    // tiene que poder completar el registro.
+    const retry = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: { ...basePayload, phoneVerificationToken },
+    });
+    expect(retry.statusCode).toBe(201);
+  });
+
+  it("MOVO-228: rechaza una versión de Privacidad desactualizada con 422 LEGAL_DOCUMENT_VERSION_MISMATCH", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/register",
+      payload: { ...basePayload, privacyVersion: "2020-01-01", phoneVerificationToken: "irrelevante" },
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(JSON.parse(response.body).error.code).toBe("LEGAL_DOCUMENT_VERSION_MISMATCH");
   });
 });

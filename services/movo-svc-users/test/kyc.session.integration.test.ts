@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
+import { LEGAL_DOCUMENT_VERSIONS } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { SmsProvider } from "../src/adapters/sms-provider";
 import { DiditClient, DiditSessionDecision } from "../src/adapters/didit-client";
@@ -126,6 +127,10 @@ describe("POST /kyc/session (MOVO-72)", () => {
           lat: -31.4201,
           long: -64.1888,
         },
+        termsAccepted: true,
+        termsVersion: LEGAL_DOCUMENT_VERSIONS.terms,
+        privacyAccepted: true,
+        privacyVersion: LEGAL_DOCUMENT_VERSIONS.privacy,
       },
     });
     const { userId } = JSON.parse(register.body) as { userId: string };

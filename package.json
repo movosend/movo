@@ -1,6 +1,10 @@
 {
   "name": "movo",
   "private": true,
+  "scripts": {
+    "sync:legal": "tsx scripts/sync-legal-docs.ts",
+    "sync:legal:check": "tsx scripts/sync-legal-docs.ts --check"
+  },
   "workspaces": [
     "shared/movo-shared",
     "services/movo-svc-admin",

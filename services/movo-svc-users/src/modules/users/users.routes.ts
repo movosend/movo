@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
 import { ApiError } from "@movo/shared";
 import {
+  AcceptLegalDocumentsInput,
   createUsersService,
   PhotoUploadUrlInput,
   RegisterPushTokenInput,
@@ -188,6 +189,35 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
       const userId = requireUserIdFromHeader(request);
       const body = request.body as UpdateProfileInput;
       return service.updateProfile(userId, body);
+    },
+  );
+
+  app.post(
+    "/me/legal-acceptance",
+    {
+      schema: {
+        summary: "Re-aceptar Términos y/o Política de Privacidad",
+        description:
+          "MOVO-229: para una cuenta cuya versión aceptada de Términos y/o " +
+          "Privacidad quedó vieja (o que nunca los aceptó explícitamente, por " +
+          "haberse registrado antes de MOVO-228). `termsVersion`/`privacyVersion` " +
+          "viajan por separado -- mandar uno no toca el otro. 422 " +
+          "LEGAL_DOCUMENT_VERSION_MISMATCH si la versión mandada no es la vigente.",
+        tags: ["users"],
+        body: usersSchemas.acceptLegalDocumentsBody,
+        response: {
+          200: usersSchemas.privateProfileResponse,
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+          422: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const userId = requireUserIdFromHeader(request);
+      const body = request.body as AcceptLegalDocumentsInput;
+      return service.acceptLegalDocuments(userId, body);
     },
   );
 

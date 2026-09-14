@@ -9,6 +9,7 @@ import {
   AccountStatus,
   signAccessToken,
   signRefreshToken,
+  LEGAL_DOCUMENT_VERSIONS,
 } from "@movo/shared";
 import { createUserRepository } from "../../repositories/user-repository";
 import { createSessionRepository, SessionRepository } from "../../repositories/session-repository";
@@ -40,6 +41,13 @@ export interface RegisterUserInput {
   // del wizard) -- ver auth.schema.ts#registerBody.
   dni: string;
   address: CreateUserAddressInput;
+  // MOVO-228: "firma electrónica" — el schema (`auth.schema.ts`) ya exige que los dos
+  // `*Accepted` sean literalmente `true`; acá se valida que la versión aceptada sea
+  // la vigente (`LEGAL_DOCUMENT_VERSIONS`) antes de tocar la DB.
+  termsAccepted: true;
+  termsVersion: string;
+  privacyAccepted: true;
+  privacyVersion: string;
 }
 
 export interface LoginUserInput {
@@ -183,6 +191,20 @@ export function createAuthService(
 
   return {
     async register(input: RegisterUserInput): Promise<RegisterUserResult> {
+      // MOVO-228: se valida ANTES de consumir el phoneVerificationToken (más abajo) —
+      // una app desactualizada que manda una versión vieja de Términos/Privacidad no
+      // debe quemar el OTP del usuario por un error que no es suyo.
+      if (
+        input.termsVersion !== LEGAL_DOCUMENT_VERSIONS.terms ||
+        input.privacyVersion !== LEGAL_DOCUMENT_VERSIONS.privacy
+      ) {
+        throw new ApiError(
+          422,
+          "LEGAL_DOCUMENT_VERSION_MISMATCH",
+          "Los Términos y Condiciones o la Política de Privacidad cambiaron. Actualizá la app y volvé a revisarlos."
+        );
+      }
+
       const email = input.email.trim().toLowerCase();
       const phone = normalizePhoneToE164Ar(input.phone);
       const { firstName, lastName } = splitFullName(input.fullName);
@@ -209,6 +231,10 @@ export function createAuthService(
           lastName,
           passwordHash,
           dni: input.dni,
+          termsAcceptedAt: new Date(),
+          termsVersion: input.termsVersion,
+          privacyAcceptedAt: new Date(),
+          privacyVersion: input.privacyVersion,
           phoneVerified: true,
           roles: DEFAULT_USER_ROLES,
           address: input.address,

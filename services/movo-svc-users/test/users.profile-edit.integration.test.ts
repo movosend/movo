@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
-import { UserRole, KycStatus } from "@movo/shared";
+import { UserRole, KycStatus, LEGAL_DOCUMENT_VERSIONS } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createUserRepository, UserRepository } from "../src/repositories/user-repository";
 import { CreateUserInput } from "../src/models/user";
@@ -381,6 +381,152 @@ describe("PATCH /users/me y cambio verificado de teléfono/email (MOVO-133)", ()
         expect(body).toHaveProperty("bio");
         expect(body.bio).toBeNull();
       });
+    });
+  });
+
+  describe("POST /users/me/legal-acceptance (MOVO-229)", () => {
+    it("acepta la versión vigente de Términos, sin tocar Privacidad", async () => {
+      const user = await repo.create(buildInput());
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/users/me/legal-acceptance",
+        headers: { "x-user-id": user.id },
+        payload: { termsVersion: LEGAL_DOCUMENT_VERSIONS.terms },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.termsVersion).toBe(LEGAL_DOCUMENT_VERSIONS.terms);
+      expect(body.termsAcceptedAt).toEqual(expect.any(String));
+      expect(body.privacyVersion).toBeNull();
+      expect(body.privacyAcceptedAt).toBeNull();
+    });
+
+    it("acepta la versión vigente de Privacidad, sin tocar Términos", async () => {
+      const user = await repo.create(buildInput());
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/users/me/legal-acceptance",
+        headers: { "x-user-id": user.id },
+        payload: { privacyVersion: LEGAL_DOCUMENT_VERSIONS.privacy },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.privacyVersion).toBe(LEGAL_DOCUMENT_VERSIONS.privacy);
+      expect(body.privacyAcceptedAt).toEqual(expect.any(String));
+      expect(body.termsVersion).toBeNull();
+      expect(body.termsAcceptedAt).toBeNull();
+    });
+
+    it("acepta los dos documentos en una sola request", async () => {
+      const user = await repo.create(buildInput());
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/users/me/legal-acceptance",
+        headers: { "x-user-id": user.id },
+        payload: {
+          termsVersion: LEGAL_DOCUMENT_VERSIONS.terms,
+          privacyVersion: LEGAL_DOCUMENT_VERSIONS.privacy,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.termsVersion).toBe(LEGAL_DOCUMENT_VERSIONS.terms);
+      expect(body.privacyVersion).toBe(LEGAL_DOCUMENT_VERSIONS.privacy);
+    });
+
+    it("re-aceptar actualiza la fecha (una cuenta que ya lo había aceptado antes)", async () => {
+      const user = await repo.create(
+        buildInput({
+          termsAcceptedAt: new Date("2020-01-01T00:00:00.000Z"),
+          termsVersion: "2020-01-01",
+        }),
+      );
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/users/me/legal-acceptance",
+        headers: { "x-user-id": user.id },
+        payload: { termsVersion: LEGAL_DOCUMENT_VERSIONS.terms },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.termsVersion).toBe(LEGAL_DOCUMENT_VERSIONS.terms);
+      expect(new Date(body.termsAcceptedAt).getUTCFullYear()).toBeGreaterThan(2020);
+    });
+
+    it("422 LEGAL_DOCUMENT_VERSION_MISMATCH con una versión de Términos vieja", async () => {
+      const user = await repo.create(buildInput());
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/users/me/legal-acceptance",
+        headers: { "x-user-id": user.id },
+        payload: { termsVersion: "2020-01-01" },
+      });
+
+      expect(response.statusCode).toBe(422);
+      expect(JSON.parse(response.body).error.code).toBe("LEGAL_DOCUMENT_VERSION_MISMATCH");
+
+      const reloaded = await repo.findById(user.id);
+      expect(reloaded?.termsVersion).toBeNull();
+    });
+
+    it("422 LEGAL_DOCUMENT_VERSION_MISMATCH con una versión de Privacidad vieja", async () => {
+      const user = await repo.create(buildInput());
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/users/me/legal-acceptance",
+        headers: { "x-user-id": user.id },
+        payload: { privacyVersion: "2020-01-01" },
+      });
+
+      expect(response.statusCode).toBe(422);
+      expect(JSON.parse(response.body).error.code).toBe("LEGAL_DOCUMENT_VERSION_MISMATCH");
+    });
+
+    it("body vacío {} -> 400 (nada que aceptar)", async () => {
+      const user = await repo.create(buildInput());
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/users/me/legal-acceptance",
+        headers: { "x-user-id": user.id },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body).error.code).toBe("VALIDATION_FAILED");
+    });
+
+    it("devuelve 401 AUTH_TOKEN_INVALID sin header x-user-id", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/users/me/legal-acceptance",
+        payload: { termsVersion: LEGAL_DOCUMENT_VERSIONS.terms },
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body).error.code).toBe("AUTH_TOKEN_INVALID");
+    });
+
+    it("devuelve 404 USER_NOT_FOUND con un x-user-id de un usuario inexistente", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/users/me/legal-acceptance",
+        headers: { "x-user-id": randomUUID() },
+        payload: { termsVersion: LEGAL_DOCUMENT_VERSIONS.terms },
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(JSON.parse(response.body).error.code).toBe("USER_NOT_FOUND");
     });
   });
 

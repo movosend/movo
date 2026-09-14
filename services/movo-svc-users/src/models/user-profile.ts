@@ -66,6 +66,10 @@ export function toPrivateProfile(
     transactionCounts,
     reputationScore: reputation.reputationScore,
     bio: user.bio,
+    termsAcceptedAt: user.termsAcceptedAt?.toISOString() ?? null,
+    termsVersion: user.termsVersion,
+    privacyAcceptedAt: user.privacyAcceptedAt?.toISOString() ?? null,
+    privacyVersion: user.privacyVersion,
   };
 }
 

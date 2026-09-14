@@ -34,6 +34,12 @@ export interface UpdateProfileInput {
   bio?: string;
 }
 
+/** MOVO-229: al menos uno de los dos — el backend rechaza `{}` con 400. */
+export interface AcceptLegalDocumentsInput {
+  termsVersion?: string;
+  privacyVersion?: string;
+}
+
 /** MOVO-174, todavía sin backend. */
 export interface MutualConnections {
   totalCount: number;
@@ -147,6 +153,12 @@ export const usersClient = {
    */
   updateProfile(body: UpdateProfileInput): Promise<PrivateProfile> {
     return httpClient.patch<PrivateProfile>("/users/me", body);
+  },
+
+  /** MOVO-229: re-aceptación post-registro de Términos y/o Privacidad — una cuenta
+   * cuya versión aceptada quedó vieja, o que nunca los aceptó explícitamente. */
+  acceptLegalDocuments(body: AcceptLegalDocumentsInput): Promise<PrivateProfile> {
+    return httpClient.post<PrivateProfile>("/users/me/legal-acceptance", body);
   },
 
   /**
