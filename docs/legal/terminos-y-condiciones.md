@@ -1,7 +1,7 @@
 # Términos y Condiciones de Uso de MOVO
 
 **Versión**: 0.1 (borrador de trabajo)
-**Última actualización**: 2026-09-13
+**Última actualización**: 2026-09-14
 **Vigencia**: aún no publicada / no vigente
 
 > ## ⚠️ Aviso académico — leer antes de usar este documento
@@ -221,6 +221,12 @@ Al aceptar una oferta, se perfecciona un contrato de transporte de cosas
 entre el Emisor y el Transportista, regido por el Código Civil y Comercial de
 la Nación, del cual **MOVO no es parte** (sección 3). MOVO actúa como
 facilitador tecnológico de ese acuerdo y como procesador del pago asociado.
+
+Publicar un Envío y hacer u ofertar sobre él no requieren un consentimiento
+adicional al de estos Términos: al aceptar este documento, el Emisor y el
+Transportista ya reconocen que esas acciones dentro de la plataforma generan
+las obligaciones de la sección 5 y perfeccionan, al aceptarse una oferta, el
+contrato de transporte descripto en este artículo.
 
 ## 9. Ejecución del envío: retiro, tránsito, handshake y entrega
 
