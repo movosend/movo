@@ -18,6 +18,14 @@ export interface User {
   /** MOVO-171: bio de texto libre del perfil. `""` nunca se persiste, solo `null` o
    * texto no vacío (resuelto en `users.service.ts#updateProfile`). */
   bio: string | null;
+  // MOVO-228: "firma electrónica" de aceptación de Términos/Privacidad al
+  // registrarse. `null` solo para cuentas creadas antes de que el registro lo
+  // exigiera -- toda cuenta nueva los trae siempre los cuatro juntos (ver
+  // `CreateUserInput` más abajo, no son opcionales ahí).
+  termsAcceptedAt: Date | null;
+  termsVersion: string | null;
+  privacyAcceptedAt: Date | null;
+  privacyVersion: string | null;
   phoneVerified: boolean;
   /** MOVO-139: el usuario probó posesión del email vía OTP (`/users/me/email/verify/*`
    * o el paso 2 de cambio de email). Precondición de MOVO-64. */
@@ -66,6 +74,10 @@ export function toPublicUser(user: User): PublicUser {
     lastName: user.lastName,
     dni: user.dni,
     bio: user.bio,
+    termsAcceptedAt: user.termsAcceptedAt,
+    termsVersion: user.termsVersion,
+    privacyAcceptedAt: user.privacyAcceptedAt,
+    privacyVersion: user.privacyVersion,
     phoneVerified: user.phoneVerified,
     emailVerified: user.emailVerified,
     emailVerifiedAt: user.emailVerifiedAt,
@@ -107,6 +119,12 @@ export interface CreateUserInput {
   dni?: string;
   birthdate?: Date | null;
   roles: UserRole[];
+  // MOVO-228: siempre los cuatro juntos, nunca parcial -- `auth.service.ts#register()`
+  // ya validó la versión contra `LEGAL_DOCUMENT_VERSIONS` antes de llegar acá.
+  termsAcceptedAt: Date;
+  termsVersion: string;
+  privacyAcceptedAt: Date;
+  privacyVersion: string;
   // MOVO-72: register() ahora exige phoneVerificationToken (MOVO-71) y lo consume antes
   // de crear la cuenta — el usuario se persiste ya con el teléfono verificado.
   phoneVerified: boolean;
@@ -125,6 +143,10 @@ export interface UserRow {
   password_hash: string;
   dni: string | null;
   bio: string | null;
+  terms_accepted_at: Date | null;
+  terms_version: string | null;
+  privacy_accepted_at: Date | null;
+  privacy_version: string | null;
   phone_verified: boolean;
   email_verified: boolean;
   email_verified_at: Date | null;
@@ -195,6 +217,10 @@ export function mapRowToUser(row: UserRow, roles: string[]): User {
     passwordHash: row.password_hash,
     dni: row.dni,
     bio: row.bio,
+    termsAcceptedAt: row.terms_accepted_at,
+    termsVersion: row.terms_version,
+    privacyAcceptedAt: row.privacy_accepted_at,
+    privacyVersion: row.privacy_version,
     phoneVerified: row.phone_verified,
     emailVerified: row.email_verified,
     emailVerifiedAt: row.email_verified_at,

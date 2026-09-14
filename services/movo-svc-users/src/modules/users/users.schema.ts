@@ -158,6 +158,10 @@ export const usersSchemas = {
       "transactionCounts",
       "reputationScore",
       "bio",
+      "termsAcceptedAt",
+      "termsVersion",
+      "privacyAcceptedAt",
+      "privacyVersion",
     ],
     properties: {
       id: { type: "string" },
@@ -178,6 +182,11 @@ export const usersSchemas = {
       transactionCounts,
       reputationScore: { type: ["number", "null"] },
       bio: { type: ["string", "null"] },
+      // MOVO-228: "firma electrónica" — ver PrivateProfile en @movo/shared.
+      termsAcceptedAt: { type: ["string", "null"], format: "date-time" },
+      termsVersion: { type: ["string", "null"] },
+      privacyAcceptedAt: { type: ["string", "null"], format: "date-time" },
+      privacyVersion: { type: ["string", "null"] },
     },
   },
 
@@ -387,6 +396,19 @@ export const usersSchemas = {
       // MOVO-171: sin minLength (para que "" pase validación y el servicio la
       // convierta a null) ni pattern (prosa libre, a diferencia de NAME_FIELD_PATTERN).
       bio: { type: "string", maxLength: 280 },
+    },
+  },
+
+  // MOVO-229: re-aceptación post-registro. `minProperties: 1` -- mandar el body vacío
+  // no tiene ningún efecto útil, mismo criterio que `patchProfileBody`. Los dos
+  // pueden viajar juntos (re-aceptar ambos a la vez) o por separado.
+  acceptLegalDocumentsBody: {
+    type: "object",
+    additionalProperties: false,
+    minProperties: 1,
+    properties: {
+      termsVersion: { type: "string", minLength: 1 },
+      privacyVersion: { type: "string", minLength: 1 },
     },
   },
 

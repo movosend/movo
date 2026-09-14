@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
-import { verifyAccessToken, KycStatus, UserRole } from "@movo/shared";
+import { verifyAccessToken, KycStatus, UserRole, LEGAL_DOCUMENT_VERSIONS } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { SmsProvider } from "../src/adapters/sms-provider";
 
@@ -34,6 +34,10 @@ describe("POST /auth/login", () => {
       lat: -31.4201,
       long: -64.1888,
     },
+    termsAccepted: true,
+    termsVersion: LEGAL_DOCUMENT_VERSIONS.terms,
+    privacyAccepted: true,
+    privacyVersion: LEGAL_DOCUMENT_VERSIONS.privacy,
   };
 
   beforeAll(async () => {
