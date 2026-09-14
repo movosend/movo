@@ -1,5 +1,9 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
-import { createShipmentsService, CreateShipmentServiceInput } from "./shipments.service";
+import {
+  createShipmentsService,
+  CreateShipmentServiceInput,
+  ShipmentsService,
+} from "./shipments.service";
 import { createPhotosService, ConfirmPhotoInput, PresignPhotoInput } from "./photos.service";
 import { shipmentsSchemas } from "./shipments.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
@@ -9,6 +13,10 @@ import { createStorageProvider, StorageProvider } from "../../adapters/storage-p
 import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-provider";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { createPricingClient, PricingClient } from "../../adapters/pricing-client";
+import {
+  createPricingLogisticsClient,
+  PricingLogisticsClient,
+} from "../../adapters/pricing-logistics-client";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
 import { createTripRepository, TripRepository } from "../../repositories/trip-repository";
@@ -46,6 +54,10 @@ export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
   pricingClient?: PricingClient;
   /** Override solo para tests de integración — mismo criterio que `usersClient`. */
   tripRepository?: TripRepository;
+  /** Requerido para `GET /shipments/my-route` (MOVO-206) — solver VRPTW. */
+  pricingLogisticsClient?: PricingLogisticsClient;
+  /** Override solo para tests — inyecta el servicio completo. */
+  service?: ShipmentsService;
 }
 
 type CreateShipmentBody = Omit<CreateShipmentServiceInput, "senderId">;
@@ -124,6 +136,8 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config);
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
   const pricingClient = opts.pricingClient ?? createPricingClient(app.config);
+  const pricingLogisticsClient =
+    opts.pricingLogisticsClient ?? createPricingLogisticsClient(app.config);
   const repository = createShipmentRepository(app.db);
   const offerRepository = createOfferRepository(app.db);
   const tripRepository = opts.tripRepository ?? createTripRepository(app.db);
@@ -136,11 +150,14 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
     confidenceConstant: app.config.REPUTATION_CONFIDENCE_CONSTANT,
     decayHalfLifeDays: app.config.REPUTATION_DECAY_HALF_LIFE_DAYS,
   });
-  const service = createShipmentsService(repository, usersClient, notificationsClient, app.log, {
-    receiverConfirmationTimeoutHours: app.config.RECEIVER_CONFIRMATION_TIMEOUT_HOURS,
-    offerRepository,
-    pricingClient,
-    tripRepository,
+  const service =
+    opts.service ??
+    createShipmentsService(repository, usersClient, notificationsClient, app.log, {
+      receiverConfirmationTimeoutHours: app.config.RECEIVER_CONFIRMATION_TIMEOUT_HOURS,
+      offerRepository,
+      pricingClient,
+      pricingLogisticsClient,
+      tripRepository,
     getCarrierReputationScore: async (carrierId: string) => {
       const summary = await ratingsService.getReputationSummary(carrierId);
       return summary.asCarrier.reputationScore;
@@ -249,6 +266,33 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         origin: { lat: originLat, lng: originLng },
         destination: { lat: destinationLat, lng: destinationLng },
       });
+    }
+  );
+
+  // MOVO-206: Ruta diaria optimizada del transportista (OR-Tools multi-parada).
+  // Registrada antes de "/:id" para evitar ser tratada como parámetro dinámico.
+  app.get(
+    "/my-route",
+    {
+      schema: {
+        summary: "Ruta optimizada multi-parada del transportista autenticado (MOVO-206)",
+        description:
+          "Devuelve la lista ordenada de paradas activas del transportista autenticado con ETAs, " +
+          "tiempos estimados y advertencias de ventana horaria, utilizando el solver VRPTW de OR-Tools. " +
+          "Si el optimizador falla o no está disponible, degrada a un orden heurístico por defecto (AC6).",
+        tags: ["shipments"],
+        querystring: shipmentsSchemas.myRouteQuery,
+        response: {
+          200: shipmentsSchemas.myRouteResponse,
+          401: shipmentsSchemas.errorResponse,
+          422: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const carrierId = requireUserIdFromHeader(request);
+      const { lat, lng } = request.query as { lat: number; lng: number };
+      return service.getMyRoute(carrierId, { lat, lng });
     }
   );
 
