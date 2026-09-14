@@ -1,6 +1,7 @@
 import { ShipmentStatus } from "@movo/shared";
 import { Prisma, PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
 import {
+  ACTIVE_SHIPMENT_STATUSES,
   FULFILLED_SHIPMENT_STATUSES,
   INITIAL_SHIPMENT_STATUS,
   InsufficientCreationPhotosError,
@@ -449,6 +450,14 @@ export interface ShipmentRepository {
     viewerId: string,
     otherId: string,
   ): Promise<{ sharedShipmentCount: number; lastSharedAt: Date | null; allDelivered: boolean }>;
+  /**
+   * MOVO-192: envíos activos (`ACTIVE_SHIPMENT_STATUSES`) donde `userId` participa en
+   * el rol de columna dado (`senderId`/`carrierId`/`receiverId` -- no los nombres de
+   * endpoint `sending`/`transporting`/`receiving`, resueltos por el caller). Sin
+   * paginación (fuera de alcance del ticket, AC de MOVO-192). Orden por `pickupDate`
+   * ascendente y, dentro del mismo día, por `pickupTimeWindowStart` ascendente (AC7).
+   */
+  listActiveShipments(role: "senderId" | "carrierId" | "receiverId", userId: string): Promise<Shipment[]>;
 }
 
 export class ShipmentNotFoundError extends Error {
@@ -883,6 +892,14 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           (r) => r.status === ShipmentStatus.DELIVERED || r.status === ShipmentStatus.COMPLETED,
         ),
       };
+    },
+
+    async listActiveShipments(role: "senderId" | "carrierId" | "receiverId", userId: string): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: { [role]: userId, status: { in: [...ACTIVE_SHIPMENT_STATUSES] } },
+        orderBy: [{ pickupDate: "asc" }, { pickupTimeWindowStart: "asc" }],
+      });
+      return rows.map(mapShipment);
     },
   };
 }

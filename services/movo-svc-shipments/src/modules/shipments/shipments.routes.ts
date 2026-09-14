@@ -16,11 +16,13 @@ import { createRatingRepository } from "../../repositories/rating-repository";
 import { createRatingsService } from "../ratings/ratings.service";
 import { AvailableShipment, Shipment, ShipmentEvent } from "../../models/shipment";
 import {
+  ActiveShipmentResult,
   CreateOfferForShipmentResult,
   ListShipmentOffersQuery,
   ListShipmentOffersSort,
   ShipmentDetailResult,
 } from "./shipments.service";
+import { ActiveShipmentRole } from "../../domain/active-shipment";
 import { toOfferDto } from "../offers/offer.dto";
 
 export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
@@ -83,6 +85,19 @@ function toShipmentDto(shipment: Shipment | ShipmentDetailResult) {
  * diferencia de toOfferDto (MOVO-144, compartida entre dos route files): esta función
  * solo la usa esta ruta. */
 function toAvailableShipmentDto(item: AvailableShipment & { hasMyOffer: boolean }) {
+  return {
+    ...item,
+    pickupDate: item.pickupDate.toISOString().slice(0, 10),
+    pickupTimeWindowStart: item.pickupTimeWindowStart.toISOString().slice(11, 19),
+    pickupTimeWindowEnd: item.pickupTimeWindowEnd.toISOString().slice(11, 19),
+  };
+}
+
+/** Mismo fix de formato UTC que toShipmentDto (ver su comentario): pickupDate/
+ * pickupTimeWindowStart/pickupTimeWindowEnd se convierten a string ya formateado antes
+ * de llegar al serializador -- `pickupWindowExpired`/`isToday` ya se calcularon en el
+ * servicio contra los `Date` reales, así que reformatear acá no afecta esas cuentas. */
+function toActiveShipmentDto(item: ActiveShipmentResult) {
   return {
     ...item,
     pickupDate: item.pickupDate.toISOString().slice(0, 10),
@@ -327,6 +342,67 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const result = await service.getSharedHistory(viewerId, userId);
       return { ...result, lastSharedAt: result.lastSharedAt ? result.lastSharedAt.toISOString() : null };
     }
+  );
+
+  // Rutas estáticas ("/sending"/"/transporting"/"/receiving") -- mismo criterio que
+  // "/mine"/"/route"/"/available"/"/history-with/:userId": se registran antes de
+  // "/:id" por prolijidad, aunque find-my-way ya prioriza segmentos estáticos.
+  function registerActiveShipmentsRoute(path: string, role: ActiveShipmentRole, summary: string, description: string) {
+    app.get(
+      path,
+      {
+        schema: {
+          summary,
+          description,
+          tags: ["shipments"],
+          response: {
+            200: shipmentsSchemas.listActiveShipmentsResponse,
+            401: shipmentsSchemas.errorResponse,
+          },
+        },
+      },
+      async (request: FastifyRequest) => {
+        const callerId = requireUserIdFromHeader(request);
+        const items = await service.listActiveShipments(role, callerId);
+        return items.map(toActiveShipmentDto);
+      }
+    );
+  }
+
+  registerActiveShipmentsRoute(
+    "/sending",
+    "sending",
+    "Envíos activos donde soy emisor",
+    "AC1/AC4 de MOVO-192: envíos con transportista ya asignado (assigned_unfunded, " +
+      "assigned, in_transit) donde el usuario autenticado es el emisor -- para la " +
+      "sección 'Estoy enviando' del home operativo (MOVO-193). La contraparte es " +
+      "siempre el transportista asignado. Lista vacía (200) si no tiene ninguno, " +
+      "nunca 404. Orden por pickup_date y, dentro del mismo día, por la hora de " +
+      "inicio de la ventana de retiro, ambos ascendente."
+  );
+
+  registerActiveShipmentsRoute(
+    "/transporting",
+    "transporting",
+    "Envíos activos donde soy transportista",
+    "AC2/AC4 de MOVO-192: envíos con transportista ya asignado donde el usuario " +
+      "autenticado es el transportista -- para la sección 'Estoy transportando' del " +
+      "home operativo (MOVO-193, fase 2). La contraparte es el emisor mientras el " +
+      "paquete todavía no salió (assigned_unfunded/assigned, la próxima acción es " +
+      "retirarlo) y pasa a ser el receptor una vez en camino (in_transit, la próxima " +
+      "acción es entregarlo). Lista vacía (200) si no tiene ninguno, nunca 404. " +
+      "Mismo orden que /sending."
+  );
+
+  registerActiveShipmentsRoute(
+    "/receiving",
+    "receiving",
+    "Envíos activos donde soy receptor",
+    "AC3/AC4 de MOVO-192: envíos con transportista ya asignado donde el usuario " +
+      "autenticado es el receptor -- para la sección 'Voy a recibir' del home " +
+      "operativo (MOVO-193). La contraparte es siempre el transportista asignado " +
+      "(con quien el receptor coordina la entrega). Lista vacía (200) si no tiene " +
+      "ninguno, nunca 404. Mismo orden que /sending."
   );
 
   app.get(

@@ -114,6 +114,20 @@ export const FULFILLED_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
   ShipmentStatus.COMPLETED,
 ];
 
+/**
+ * MOVO-192: envíos con transportista ya comprometido, hasta la entrega (exclusive) —
+ * el emisor, el transportista y el receptor tienen una acción de custodia pendiente
+ * hoy sobre este envío. Ni `published`/`assignment_pending` (todavía sin compromiso
+ * firme de un transportista) ni ningún estado terminal caen acá. Fuente de verdad del
+ * filtro de `GET /shipments/sending|transporting|receiving`
+ * (`shipments.service.ts#listActiveShipments`).
+ */
+export const ACTIVE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.ASSIGNED_UNFUNDED,
+  ShipmentStatus.ASSIGNED,
+  ShipmentStatus.IN_TRANSIT,
+];
+
 /** Solo lectura — no muta el estado, es para consultas (ej. habilitar/deshabilitar una acción en UI). */
 export function canTransition(from: ShipmentStatus, to: ShipmentStatus): boolean {
   return VALID_TRANSITIONS[from].has(to);
