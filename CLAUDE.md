@@ -253,6 +253,51 @@ sección solo lista lo transversal (infra, credenciales, decisiones cross-servic
 - `shared/movo-shared/CLAUDE.md`
 - `movo-mobile/CLAUDE.md`
 
+### Legal y compliance: Términos y Condiciones, Política de Privacidad (MOVO-224)
+
+Primeros borradores de `docs/legal/terminos-y-condiciones.md` y
+`docs/legal/politica-privacidad.md` (base legal argentina: Ley 25.326, CCyCN
+contrato de transporte de cosas, Ley 24.240), con aviso académico explícito y
+`[A COMPLETAR]` donde falta un dato real (fee de MP, mecánica de penalidad).
+Documentos nuevos también subidos a Drive (`[Movo] NNN - Términos y
+Condiciones`/`Política de Privacidad`) por el equipo. Decisiones no obvias:
+
+- **Postura de responsabilidad deliberadamente agresiva** (TyC sección 13):
+  MOVO se deslinda de pérdida/daño/robo del paquete en tránsito, atribuyendo
+  esa responsabilidad exclusivamente al Transportista vía el contrato de
+  transporte de cosas (CCyCN Arts. 1280-1318), en vez de fijar un tope
+  monetario atado al valor declarado del envío. Es la postura que menos
+  expone a MOVO en el texto, pero la que un tribunal tiene más margen para
+  considerar abusiva frente a un Emisor-consumidor (Ley 24.240), dado que
+  MOVO sí interviene en cobro, precio y disputas — riesgo documentado
+  explícitamente en el propio documento, pendiente de validación por un
+  abogado matriculado antes de cualquier lanzamiento real.
+- **No inscripción ante el Registro Nacional de Bases de Datos (AAIP, Art. 21
+  Ley 25.326)** mientras MOVO opere solo como proyecto académico sin
+  producción real — riesgo regulatorio aceptado explícitamente, a revertir si
+  MOVO pasa a operar con usuarios reales.
+- **Derecho de arrepentimiento (Ley 24.240) declarado no aplicable** una vez
+  aceptada una oferta, por encuadrar en la excepción del Art. 34 (servicio ya
+  en ejecución con consentimiento expreso) — la protección equivalente es la
+  cancelación sin cargo antes de aceptar una oferta (sección 10 del TyC).
+- **Consentimiento diferenciado de KYC (dato biométrico/sensible) todavía no
+  implementado como paso propio**: hoy queda cubierto por el checkbox general
+  de Términos+Privacidad del registro (`movo-mobile`), no por un consentimiento
+  puntual antes de iniciar el flujo de KYC — brecha documentada como pendiente
+  en la propia Política de Privacidad (sección 3) en vez de quedar implícita.
+  Mismo criterio aplicado a Google Analytics/Microsoft Clarity en la sección
+  de cookies: listados como candidatas, no como herramientas ya integradas,
+  porque no se verificó su integración real en `movo-admin` (institucional es
+  repo separado).
+- Registro/checkbox de aceptación, versionado (`LEGAL_DOCUMENT_VERSIONS`),
+  persistencia de aceptación en `svc-users` y gate de re-aceptación: ver
+  entradas de MOVO-224 en `shared/movo-shared/CLAUDE.md`,
+  `services/movo-svc-users/CLAUDE.md` y `movo-mobile/CLAUDE.md`.
+- Pendiente fuera de esta issue: footer con links legales en `movo-admin`
+  (no existe todavía), purga automática de registros incompletos/KYC vencido
+  (MOVO-230), y moderación de calificaciones (TyC sección 12) sin UI de
+  reporte/edición todavía.
+
 ### Automatización de sync de documentos legales (`scripts/sync-legal-docs.ts`)
 
 Cierra el pendiente de sync manual que MOVO-224/228 (`movo-mobile`) habían dejado
