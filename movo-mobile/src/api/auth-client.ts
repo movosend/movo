@@ -32,6 +32,15 @@ export interface RegisterRequest {
   address: RegisterAddress;
   /** Prueba de que `phone` ya pasó el OTP — ver `verifyOtp`. */
   phoneVerificationToken: string;
+  // MOVO-228: "firma electrónica" — el checkbox del último paso del wizard exige
+  // `true` literal (el backend lo valida con `const: true`, ver auth.schema.ts de
+  // movo-svc-users), y la versión tiene que ser la vigente
+  // (`LEGAL_DOCUMENT_VERSIONS`, @movo/shared) o el backend responde 422
+  // LEGAL_DOCUMENT_VERSION_MISMATCH.
+  termsAccepted: true;
+  termsVersion: string;
+  privacyAccepted: true;
+  privacyVersion: string;
 }
 
 /** Mismo shape que `LoginResponse` — register() autentica igual que login() (PR #51). */

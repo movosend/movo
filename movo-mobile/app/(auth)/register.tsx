@@ -1,5 +1,6 @@
 import { router } from "expo-router";
 import {
+  Check,
   CircleCheck,
   ClipboardCheck,
   Eye,
@@ -16,7 +17,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   Keyboard,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -106,6 +106,8 @@ export default function RegisterScreen() {
     latitude,
     longitude,
     confirmLocation,
+    acceptedLegal,
+    setAcceptedLegal,
   } = registration;
   const [step, setStep] = useState<Step>(0);
   const [showPassword, setShowPassword] = useState(false);
@@ -702,25 +704,40 @@ export default function RegisterScreen() {
                 last
               />
             </View>
-            <Text className="font-sans text-[11px] text-fg-3">
-              Al crear tu cuenta en Movo aceptás los{" "}
-              <Text
-                testID="register-terms-link"
-                onPress={() => Linking.openURL("https://movosend.app/tyc")}
-                className="text-fg underline"
+            <Pressable
+              testID="register-accept-legal"
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: acceptedLegal }}
+              onPress={() => setAcceptedLegal(!acceptedLegal)}
+              className="flex-row items-start gap-3 rounded-[10px] border border-border bg-bg-sub px-3.5 py-3"
+            >
+              <View
+                className={`mt-0.5 h-5 w-5 items-center justify-center rounded border ${
+                  acceptedLegal ? "border-lime-500 bg-lime-500" : "border-border bg-bg"
+                }`}
               >
-                Términos
-              </Text>{" "}
-              y la{" "}
-              <Text
-                testID="register-privacy-link"
-                onPress={() => Linking.openURL("https://movosend.app/privacy")}
-                className="text-fg underline"
-              >
-                Política de Privacidad
+                {acceptedLegal ? <Check size={13} color="#0A0A0B" strokeWidth={3} /> : null}
+              </View>
+              <Text className="flex-1 font-sans text-[12px] leading-4 text-fg-3">
+                Leí y acepto los{" "}
+                <Text
+                  testID="register-terms-link"
+                  onPress={() => router.push("/legal-terms" as any)}
+                  className="text-fg underline"
+                >
+                  Términos y Condiciones
+                </Text>{" "}
+                y la{" "}
+                <Text
+                  testID="register-privacy-link"
+                  onPress={() => router.push("/legal-privacy" as any)}
+                  className="text-fg underline"
+                >
+                  Política de Privacidad
+                </Text>{" "}
+                de Movo.
               </Text>
-              .
-            </Text>
+            </Pressable>
           </View>
         )}
 
@@ -742,7 +759,8 @@ export default function RegisterScreen() {
         disabled={
           loading ||
           (step === 3 && (latitude === null || longitude === null)) ||
-          (step === 4 && otpCode.length < OTP_LENGTH)
+          (step === 4 && otpCode.length < OTP_LENGTH) ||
+          (step === 6 && !acceptedLegal)
         }
       />
     </SafeAreaView>

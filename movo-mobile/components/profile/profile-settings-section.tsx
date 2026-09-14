@@ -10,7 +10,9 @@ import {
   type LucideIcon,
 } from "lucide-react-native";
 import { Alert, Pressable, Text, View } from "react-native";
+import { useMyProfile } from "../../src/hooks/use-profile";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { hasPendingLegalAcceptance } from "../../src/lib/legal-acceptance";
 
 interface SettingsItem {
   label: string;
@@ -24,11 +26,13 @@ interface SettingsItem {
  * ítems que todavía no tienen pantalla propia quedan deshabilitados visualmente con
  * el mismo `Alert.alert("Próximamente", ...)` de siempre (sin traer una librería de
  * toast nueva solo para este caso). "Direcciones guardadas" fue el primero en tener
- * pantalla real (MOVO-121) y "Cuenta y seguridad" el segundo (MOVO-136) — a
- * diferencia del resto, no llevan `opacity-60`.
+ * pantalla real (MOVO-121), "Cuenta y seguridad" el segundo (MOVO-136) y "Legal"
+ * el tercero (MOVO-224) — a diferencia del resto, no llevan `opacity-60`.
  */
 export function ProfileSettingsSection({ testID }: { testID?: string }) {
   const colors = useThemeColors();
+  const { data: profile } = useMyProfile();
+  const legalPending = hasPendingLegalAcceptance(profile);
 
   const settingsItems: SettingsItem[] = [
     { label: "Cuenta y seguridad", Icon: Shield, onPress: () => router.push("/profile/security" as any) },
@@ -36,7 +40,7 @@ export function ProfileSettingsSection({ testID }: { testID?: string }) {
     { label: "Pagos y cobros", Icon: Wallet },
     { label: "Direcciones guardadas", Icon: MapPin, onPress: () => router.push("/addresses") },
     { label: "Ayuda y soporte", Icon: HelpCircle },
-    { label: "Legal", Icon: FileText },
+    { label: "Legal", Icon: FileText, onPress: () => router.push("/profile/legal" as any) },
   ];
 
   return (
@@ -58,7 +62,12 @@ export function ProfileSettingsSection({ testID }: { testID?: string }) {
             }`}
           >
             <Icon size={18} strokeWidth={1.8} color={colors.fg3} />
-            <Text className="flex-1 font-sans text-[15px] text-fg">{label}</Text>
+            <View className="flex-1 flex-row items-center gap-1.5">
+              <Text className="font-sans text-[15px] text-fg">{label}</Text>
+              {label === "Legal" && legalPending ? (
+                <View testID="profile-settings-legal-pending-dot" className="h-[7px] w-[7px] rounded-full bg-warning-500" />
+              ) : null}
+            </View>
             <ChevronRight size={18} strokeWidth={1.8} color={colors.fg3} />
           </Pressable>
         ))}
