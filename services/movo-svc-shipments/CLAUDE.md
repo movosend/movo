@@ -1860,6 +1860,87 @@ Integración entre `svc-shipments` y `svc-pricing-logistics` para enriquecer y o
 
 Tests: 6 tests unitarios en `test/pricing-logistics-client.test.ts`, 5 tests nuevos en `test/trips-service.test.ts` y 2 tests en `test/trips.routes.test.ts`. 139/139 tests unitarios pasando limpios, `tsc --noEmit` y `npm run lint` sin errores ni warnings.
 
+### MOVO-192 — Endpoints de envíos activos por rol (`/sending`, `/transporting`, `/receiving`)
+
+Backend de `MOVO-191`/`MOVO-193` (home operativo del mobile, ya implementado contra un
+mock del contrato). Tres endpoints nuevos en `shipments.routes.ts`
+(`registerActiveShipmentsRoute`, un solo registrador parametrizado por rol en vez de
+tres bloques casi idénticos): `GET /shipments/sending|transporting|receiving`, cada uno
+devuelve los envíos "activos" (`ACTIVE_SHIPMENT_STATUSES` nuevo en
+`shipment-state-machine.ts` — `assigned_unfunded`/`assigned`/`in_transit`, MOVO-208 ya
+mergeado) donde el caller participa en el rol correspondiente. Sin paginación (fuera de
+alcance del AC).
+
+Decisiones clave:
+- **Contrato tomado tal cual lo dejó comentado el equipo mobile en Linear** (camelCase,
+  no el snake_case literal del AC5; `counterparty` como objeto `{name, initials}`) en
+  vez de renegociarlo — `movo-mobile/src/api/shipments-client.ts#ActiveShipmentSummary`
+  ya lo consume así desde `MOVO-193`. El tipo se movió a `@movo/shared`
+  (`types/shipment.ts#ActiveShipmentSummary`/`ActiveShipmentStatus`/
+  `ActiveShipmentCounterparty`), como pedía el propio comentario del ticket — el mobile
+  sigue con su copia local hasta que migre a importarlo desde ahí (fuera de alcance de
+  este ticket, que es 100% backend).
+- **`agreedPriceArs` quedó `number | null`, no `number`** (el tipo que mobile había
+  mockeado): la columna real (`shipments.agreed_price_ars`) sigue nullable y **ningún
+  flujo la puebla todavía** — `offer-repository.ts#acceptOffer` fija `carrierId`/
+  `estimatedDeliveryDate` al pasar a `assignment_pending` pero nunca `agreedPriceArs`
+  (gap preexistente, anterior a esta US, sin ticket propio). En la práctica un envío
+  activo siempre responde `agreedPriceArs: null` hoy — documentado explícitamente en
+  vez de mentir con un `number` que el backend no puede garantizar.
+- **"Contraparte relevante" (AC5) resuelta contra la matriz de acción contextual del
+  AC4 de `MOVO-191`, no un campo fijo por rol** (`domain/active-shipment.ts
+  #resolveActiveShipmentCounterpartyId`): `sending`/`receiving` siempre ven al
+  transportista asignado (con quien coordinan retiro/entrega); `transporting` ve al
+  emisor mientras el paquete no salió (`assigned_unfunded`/`assigned`, la próxima
+  acción es retirarlo) y pasa a ver al receptor una vez `in_transit` (la próxima acción
+  es entregarlo) — es el único de los tres roles donde la contraparte no es fija.
+  Decisión propia (no estaba en ningún AC literal), justificada en el comentario de la
+  función.
+- **`isToday`/`pickupWindowExpired` (AC6) como funciones puras nuevas**
+  (`domain/active-shipment.ts#isShipmentPickupToday`/`isActiveShipmentPickupWindowExpired`),
+  reusando `toArgentinaCalendarDateString` (`@movo/shared`) e `isPickupWindowExpired`
+  (`pickup-window.ts`, MOVO-142) en vez de reimplementar el cálculo. `pickupWindowExpired`
+  es siempre `false` en `in_transit` sin importar la fecha: un envío ya retirado no
+  tiene ventana de retiro pendiente (AC6 lo pide explícito: "y el envío SIGUE en
+  `assigned`/`assigned_unfunded`").
+- **`getInitials` duplicada a propósito** (mismo algoritmo que
+  `movo-mobile/src/lib/profile-format.ts#getInitials`, primera letra del primer y del
+  último término): no hay ningún módulo de formato de texto compartido entre Node y
+  React Native en `@movo/shared` hoy, y esta única función no ameritaba crear uno.
+- **`usersClient.findPublicProfile` deduplicado por contraparte, no uno por ítem**:
+  varios envíos activos del mismo caller pueden compartir la misma contraparte (mismo
+  transportista en dos envíos, por ejemplo) — `listActiveShipments` arma un `Set` de
+  ids únicos antes de resolver perfiles. Un fallo de red en esa resolución no tira la
+  lista completa (try/catch + fallback `"Usuario de Movo"`/`"?"`, mismo criterio
+  best-effort que `resolveSnapshotProfile`).
+- **AC10 (índice sobre `carrier_id`) ya existía**: `shipments_carrier_id_idx` se
+  agregó en una migración anterior (`20260828210000_add_shipments_status_lat_lng_indexes`
+  o previa) — verificado en `prisma/schema.prisma`, sin necesidad de migración nueva.
+- **Autorización (AC8) sin capa adicional**: a diferencia de `getShipmentDetail`, acá
+  no hace falta ningún chequeo de acceso más allá de JWT válido — la query del
+  repositorio (`shipment-repository.ts#listActiveShipments`) ya filtra por
+  `senderId`/`carrierId`/`receiverId === callerId`, así que no hay ninguna fila ajena
+  que autorizar o rechazar.
+
+Tests: `test/active-shipment.test.ts` (unitario, dominio puro — bordes de medianoche
+argentina de `isShipmentPickupToday`, `pickupWindowExpired` por estado,
+`resolveActiveShipmentCounterpartyId` en los 3 roles incluyendo el cambio de
+contraparte de `transporting` en `in_transit`, `getInitials`) y
+`test/shipments-active.integration.test.ts` (Postgres real — un usuario emisor de un
+envío y transportista de otro aparece en ambos endpoints y no en el tercero,
+`assigned_unfunded` cuenta como activo, `published`/`assignment_pending` no cuentan,
+autorización, lista vacía 200, orden por `pickupDate`+`pickupTimeWindowStart`, los tres
+casos de contraparte, DTO sin ids crudos). Suite completa del servicio 626/626 (1 fallo
+intermitente en un archivo no relacionado, `shipments-offers-create.integration.test.ts`,
+reproducido también en aislado antes de este cambio — timeout de conexión bajo carga de
+toda la suite corriendo junta, no una regresión). `tsc --noEmit` y `eslint` limpios.
+Confirmado que `app.swagger()` expone los 3 paths nuevos.
+
+Pendiente / fuera de alcance: paginación (explícitamente fuera del AC); mobile
+consumiendo el endpoint real en vez de su mock (`MOVO-193` ya está Done contra el mock,
+migrar es un ajuste de esa rama, no de este ticket); "Estoy transportando" en el home
+(fase 2 de `MOVO-193`, todavía no llama a `GET /shipments/transporting`).
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
@@ -1868,3 +1949,10 @@ Tests: 6 tests unitarios en `test/pricing-logistics-client.test.ts`, 5 tests nue
 - **Liberación del hold de MercadoPago al cancelar (MOVO-29) y cancelación con
   penalización desde `assigned`**: bloqueadas por `svc-payments`, que hoy no tiene
   holds/capture reales — ver MOVO-108 arriba.
+- **`agreedPriceArs` nunca se persiste al aceptar una oferta** (encontrado al
+  implementar MOVO-192): `offer-repository.ts#acceptOffer` fija `carrierId`/
+  `estimatedDeliveryDate*` al pasar a `assignment_pending`, pero no
+  `agreedPriceArs` — la columna queda `null` en todo envío activo hoy, aunque el
+  precio final ya está implícito en la oferta ganadora (`priceOffered`). Sin ticket
+  propio; candidato natural para cuando se retome `MOVO-210` (saga de asignación),
+  que de todos modos va a tocar esa misma transición.

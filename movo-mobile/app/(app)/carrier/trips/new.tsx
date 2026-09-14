@@ -35,8 +35,12 @@ export default function NewTripScreen() {
       // stack para un swipe-back accidental.
       // `as any`: ruta nueva de MOVO-162, ver el comentario de `transport.tsx`.
       onSuccess: () =>
-        router.replace({ pathname: "/carrier/trips", params: { created: "1" } } as any),
-      onError: (err) => setError(friendlyErrorMessage(err, CREATE_ERROR_FALLBACK)),
+        router.replace({
+          pathname: "/carrier/trips",
+          params: { created: "1" },
+        } as any),
+      onError: (err) =>
+        setError(friendlyErrorMessage(err, CREATE_ERROR_FALLBACK)),
     });
   };
 
@@ -50,8 +54,15 @@ export default function NewTripScreen() {
         >
           <ChevronLeft size={18} color={colors.fg1} strokeWidth={2} />
         </Pressable>
-        <Text className="font-sans-semibold text-h3 text-fg">Declarar viaje</Text>
+        <Text className="font-sans-semibold text-h3 text-fg">
+          Declarar viaje
+        </Text>
       </View>
+      <Text className="px-5 pb-4 mt-2 font-sans text-[13px] text-fg-3">
+        Contanos cuándo y por dónde vas a viajar, de esta forma te avisamos
+        apenas haya un paquete que te quede de paso en tu ruta, y podés ofertar
+        por él.
+      </Text>
 
       <TripForm
         testID="new-trip-form"
