@@ -188,6 +188,29 @@ envolviendo el resultado en el `Date` anclado que necesita para comparar contra
 columnas `@db.Date` en SQL; mobile la consume tal cual. Sin dependencias de Node —
 función pura sobre `Date`/`string`, segura también en React Native.
 
+### MOVO-228 — `LEGAL_DOCUMENT_VERSIONS`, `PrivateProfile` extendido, `LEGAL_DOCUMENT_VERSION_MISMATCH`
+
+`src/config/legal.ts` (nuevo, mismo patrón que `config/commission.ts` — primera config
+de negocio no relacionada a auth/comisiones): `LEGAL_DOCUMENT_VERSIONS = { terms,
+privacy }`, fuente única de verdad de qué versión de cada documento legal es la
+vigente hoy — `movo-svc-users` la valida contra lo que manda el registro,
+`movo-mobile` la manda y la usa para saber si mostrarle al usuario que hay una
+versión nueva. El valor es la fecha de "Última actualización" del propio `.md`
+(`docs/legal/`). **Ya no se bumpea a mano acá**: `npm run sync:legal`
+(`scripts/sync-legal-docs.ts`, raíz del repo) lo regenera junto con las copias `.ts`
+de `movo-mobile` a partir del `.md` — ver la entrada transversal "Automatización de
+sync de documentos legales" en el `CLAUDE.md` raíz.
+
+`PrivateProfile` sumó `termsAcceptedAt`/`termsVersion`/`privacyAcceptedAt`/
+`privacyVersion` (los cuatro `string | null` — `null` solo para cuentas creadas antes
+de este ticket, sin backfill retroactivo) — la "firma electrónica" que se muestra en
+Perfil → Legal (`movo-mobile`). Campo aditivo requerido: rompe cualquier literal
+`PrivateProfile` construido a mano sin los cuatro (mismo criterio que `bio`,
+MOVO-171) — tocó varios fixtures de test en `movo-svc-users`/`movo-mobile`.
+
+`ApiErrorCode` sumó `LEGAL_DOCUMENT_VERSION_MISMATCH` — la app mandó una versión
+vieja de Términos/Privacidad al registrarse (app desactualizada).
+
 ### MOVO-208 — `ShipmentStatus` extendido a 11 valores
 
 `src/types/shipment.ts` suma `ASSIGNED_UNFUNDED = "assigned_unfunded"` (entre

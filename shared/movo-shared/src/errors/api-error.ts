@@ -76,7 +76,11 @@ export type ApiErrorCode =
   | "HANDSHAKE_DISTANCE_EXCEEDED"
   | "HANDSHAKE_INVALID_SIGNATURE"
   | "HANDSHAKE_CEDENTE_KEY_MISSING"
-  | "HANDSHAKE_INVALID_SHIPMENT_STATE";
+  | "HANDSHAKE_INVALID_SHIPMENT_STATE"
+  // MOVO-228: la app mandó una versión de Términos/Privacidad distinta a la vigente
+  // (`LEGAL_DOCUMENT_VERSIONS`, config/legal.ts) -- app desactualizada, el usuario
+  // tiene que revisar y aceptar el contenido actual antes de poder registrarse.
+  | "LEGAL_DOCUMENT_VERSION_MISMATCH";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

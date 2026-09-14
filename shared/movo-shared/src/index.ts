@@ -57,5 +57,9 @@ export {
 } from "./config/commission";
 export type { CommissionConfig, OfferGrossPriceBreakdown } from "./config/commission";
 
+// legal (MOVO-228)
+export { LEGAL_DOCUMENT_VERSIONS } from "./config/legal";
+export type { LegalDocumentKind } from "./config/legal";
+
 // utils
 export { toArgentinaCalendarDateString } from "./utils/argentina-date";

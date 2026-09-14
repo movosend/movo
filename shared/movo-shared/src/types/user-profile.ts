@@ -140,6 +140,20 @@ export interface PrivateProfile {
    * resuelve a `null` antes de escribir.
    */
   bio: string | null;
+  /**
+   * MOVO-228: registro de aceptación de los Términos y Condiciones y la Política de
+   * Privacidad al momento del registro -- la "firma electrónica" que se muestra en
+   * Perfil → Legal (`movo-mobile`). `null` para cuentas creadas antes de que el
+   * registro exigiera este checkbox (no se hace backfill retroactivo: no hay forma
+   * honesta de reconstruir cuándo esas cuentas "aceptaron" algo que ni siquiera se
+   * les pidió explícitamente). Términos y Privacidad se trackean por separado
+   * (fecha + versión cada uno, `LEGAL_DOCUMENT_VERSIONS` en `config/legal.ts`) porque
+   * son documentos independientes que pueden cambiar en momentos distintos.
+   */
+  termsAcceptedAt: string | null;
+  termsVersion: string | null;
+  privacyAcceptedAt: string | null;
+  privacyVersion: string | null;
 }
 
 /** MOVO-172: ficha de vehículo del transportista, `movo-svc-users` (`PUT`/
