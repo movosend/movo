@@ -1838,6 +1838,24 @@ pasa de `null` a seteado tras la lectura del emisor). Suite completa del servici
 551/551, `tsc --noEmit` y `eslint` limpios. Confirmado que `app.swagger()` expone el
 campo nuevo en los 5 endpoints. DER (`docs/movo_der.dbml`) actualizado con la columna.
 
+### MOVO-219 — Integración de desvío marginal en el feed de viajes (`GET /trips/:id/matches`)
+
+Integración entre `svc-shipments` y `svc-pricing-logistics` para enriquecer y ordenar los envíos disponibles que hacen match con un viaje registrado por un transportista:
+
+- **Adapter `PricingLogisticsClient`** (`src/adapters/pricing-logistics-client.ts`):
+  - Consume `POST /routes/evaluate-candidates` del servicio de ruteo y precios con timeout estricto de 1000 ms (`AbortSignal.timeout(1000)`).
+  - Cumple política *No-Fallback* (ADR-021): si el servicio de ruteo falla o agota el timeout, lanza `ApiError` 503 `ROUTING_SERVICE_UNAVAILABLE` o 502 `ROUTING_SERVICE_ERROR`, propagado directamente al cliente HTTP sin inventar estimaciones o falsear métricas de desvío.
+  - Códigos de error incorporados en `ApiErrorCode` de `@movo/shared`.
+- **Pipeline de evaluación en `trips.service.ts` (`getTripMatches`)**:
+  - Prefiltro geométrico/temporal en base de datos: corredor $\le 15$ km y misma fecha calendario de Argentina.
+  - Retorno temprano si la consulta previa arroja 0 candidatos (evita llamadas de red innecesarias a `svc-pricing-logistics`).
+  - Consulta a `pricingLogisticsClient.evaluateCandidates`, descarte de resultados inviables (`feasible === false`), enriquecimiento con `detourDistanceKm` y `detourDurationMinutes`, y ordenamiento ascendente por `detourDistanceKm`.
+- **Contratos y DTOs (`trips.schema.ts`, `models/shipment.ts`, `trips.routes.ts`)**:
+  - `MatchedShipment extends AvailableShipment` con `detourDistanceKm: number` y `detourDurationMinutes: number`.
+  - `availableShipmentResponse` en Fastify Swagger actualizado con validación estricta de ambos campos obligatorios.
+
+Tests: 5 tests unitarios en `test/pricing-logistics-client.test.ts`, 4 tests nuevos en `test/trips-service.test.ts` y 2 tests en `test/trips.routes.test.ts`. 137/137 tests unitarios pasando limpios, `tsc --noEmit` y `npm run lint` sin errores ni warnings.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
