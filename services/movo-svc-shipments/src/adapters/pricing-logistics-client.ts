@@ -99,7 +99,16 @@ export function createPricingLogisticsClient(
         );
       }
 
-      const data = (await response.json()) as EvaluateCandidatesResult;
+      let data: EvaluateCandidatesResult;
+      try {
+        data = (await response.json()) as EvaluateCandidatesResult;
+      } catch {
+        throw new ApiError(
+          502,
+          "ROUTING_SERVICE_ERROR",
+          "Respuesta inválida o malformada del servicio de ruteo."
+        );
+      }
       return data;
     },
   };

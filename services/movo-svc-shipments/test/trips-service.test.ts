@@ -691,7 +691,44 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
 
       expect(result.items).toHaveLength(1);
       expect(result.items[0].id).toBe("shipment-ok");
-      expect(result.total).toBe(1);
+      expect(result.total).toBe(2);
+    });
+
+    it("fail-safe No-Fallback: descarta candidatos omitidos en la evaluación sin asumir factibilidad ni desvío 0 (MOVO-219)", async () => {
+      const itemWithEval = { id: "shipment-with-eval" } as any;
+      const itemOmitted = { id: "shipment-missing-from-eval" } as any;
+
+      (shipmentRepo.listAvailable as any).mockResolvedValue({
+        items: [itemWithEval, itemOmitted],
+        total: 50,
+      });
+
+      (pricingLogisticsClient.evaluateCandidates as any).mockResolvedValue({
+        directDistanceKm: 145,
+        directDurationMinutes: 110,
+        evaluations: [
+          // Solo se incluye shipment-with-eval, shipment-missing-from-eval se omite
+          { candidateId: "shipment-with-eval", feasible: true, detourDistanceKm: 5.5, detourDurationMinutes: 8 },
+        ],
+        calculationMethod: "haversine_vrptw_v1",
+      });
+
+      const service = buildService();
+
+      const result = await service.getTripMatches({
+        tripId: TRIP_ID,
+        callerId: CARRIER_ID,
+        callerRoles: [UserRole.CARRIER],
+        page: 1,
+        limit: 20,
+      });
+
+      // El omitido NO debe entrar al feed ni asumirse con 0 km de desvío
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].id).toBe("shipment-with-eval");
+      expect(result.items[0].detourDistanceKm).toBe(5.5);
+      // El total de la paginación refleja la cantidad real en DB (50)
+      expect(result.total).toBe(50);
     });
 
     it("política No-Fallback: si svc-pricing-logistics falla (502/503), propaga el error (MOVO-219)", async () => {

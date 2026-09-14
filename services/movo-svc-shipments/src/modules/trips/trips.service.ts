@@ -89,7 +89,7 @@ export function createTripsService(deps: {
   offerRepository: OfferRepository;
   usersClient: UsersClient;
   defaultMaxDetourKm: number;
-  pricingLogisticsClient?: PricingLogisticsClient;
+  pricingLogisticsClient: PricingLogisticsClient;
 }): TripsService {
   const { tripRepository, shipmentRepository, offerRepository, usersClient, defaultMaxDetourKm, pricingLogisticsClient } = deps;
 
@@ -249,7 +249,7 @@ export function createTripsService(deps: {
       const effectiveRadiusKm = radiusKm ?? defaultMaxDetourKm;
 
       // 1. Prefiltro geométrico (corredor <= 15 km y fecha calendario argentina)
-      const { items } = await shipmentRepository.listAvailable({
+      const { items, total } = await shipmentRepository.listAvailable({
         originLat: trip.originLat,
         originLng: trip.originLng,
         destinationLat: trip.destinationLat,
@@ -279,62 +279,66 @@ export function createTripsService(deps: {
       }
 
       // 3. Evaluar candidatos con svc-pricing-logistics (MOVO-219)
+      const evalResult = await pricingLogisticsClient.evaluateCandidates({
+        trip: {
+          id: trip.id,
+          originLat: trip.originLat,
+          originLng: trip.originLng,
+          destinationLat: trip.destinationLat,
+          destinationLng: trip.destinationLng,
+          departureAt: trip.departureAt.toISOString(),
+        },
+        candidates: items.map((item) => ({
+          id: item.id,
+          pickupLat: item.pickupLat,
+          pickupLng: item.pickupLng,
+          dropoffLat: item.deliveryLat,
+          dropoffLng: item.deliveryLng,
+          pickupWindowStart:
+            item.pickupTimeWindowStart instanceof Date
+              ? item.pickupTimeWindowStart.toISOString()
+              : typeof item.pickupTimeWindowStart === "string"
+                ? item.pickupTimeWindowStart
+                : undefined,
+          pickupWindowEnd:
+            item.pickupTimeWindowEnd instanceof Date
+              ? item.pickupTimeWindowEnd.toISOString()
+              : typeof item.pickupTimeWindowEnd === "string"
+                ? item.pickupTimeWindowEnd
+                : undefined,
+        })),
+      });
+
       const evaluationsMap = new Map<
         string,
         { detourDistanceKm: number; detourDurationMinutes: number; feasible: boolean }
       >();
 
-      if (pricingLogisticsClient) {
-        const evalResult = await pricingLogisticsClient.evaluateCandidates({
-          trip: {
-            id: trip.id,
-            originLat: trip.originLat,
-            originLng: trip.originLng,
-            destinationLat: trip.destinationLat,
-            destinationLng: trip.destinationLng,
-            departureAt: trip.departureAt.toISOString(),
-          },
-          candidates: items.map((item) => ({
-            id: item.id,
-            pickupLat: item.pickupLat,
-            pickupLng: item.pickupLng,
-            dropoffLat: item.deliveryLat,
-            dropoffLng: item.deliveryLng,
-            pickupWindowStart:
-              item.pickupTimeWindowStart instanceof Date
-                ? item.pickupTimeWindowStart.toISOString()
-                : typeof item.pickupTimeWindowStart === "string"
-                  ? item.pickupTimeWindowStart
-                  : undefined,
-            pickupWindowEnd:
-              item.pickupTimeWindowEnd instanceof Date
-                ? item.pickupTimeWindowEnd.toISOString()
-                : typeof item.pickupTimeWindowEnd === "string"
-                  ? item.pickupTimeWindowEnd
-                  : undefined,
-          })),
-        });
-
-        for (const ev of evalResult.evaluations) {
+      for (const ev of evalResult.evaluations) {
+        if (
+          ev.feasible &&
+          typeof ev.detourDistanceKm === "number" &&
+          typeof ev.detourDurationMinutes === "number"
+        ) {
           evaluationsMap.set(ev.candidateId, {
-            detourDistanceKm: ev.detourDistanceKm ?? 0,
-            detourDurationMinutes: ev.detourDurationMinutes ?? 0,
-            feasible: ev.feasible,
+            detourDistanceKm: ev.detourDistanceKm,
+            detourDurationMinutes: ev.detourDurationMinutes,
+            feasible: true,
           });
         }
       }
 
       // 4. Filtrar candidatos factibles y enriquecer con métricas de desvío
+      // Fail-safe (No-Fallback ADR-021): solo se incluyen candidatos con evaluación factible explícita
       const matchedItems: MatchedShipment[] = [];
       for (const item of items) {
         const ev = evaluationsMap.get(item.id);
-        const isFeasible = ev ? ev.feasible : true;
-        if (isFeasible) {
+        if (ev && ev.feasible) {
           matchedItems.push({
             ...item,
             hasMyOffer: offeredIds.has(item.id),
-            detourDistanceKm: ev?.detourDistanceKm ?? 0,
-            detourDurationMinutes: ev?.detourDurationMinutes ?? 0,
+            detourDistanceKm: ev.detourDistanceKm,
+            detourDurationMinutes: ev.detourDurationMinutes,
           });
         }
       }
@@ -344,7 +348,7 @@ export function createTripsService(deps: {
 
       return {
         items: matchedItems,
-        total: matchedItems.length,
+        total,
         page,
         limit,
         tripId: trip.id,

@@ -1853,8 +1853,12 @@ Integración entre `svc-shipments` y `svc-pricing-logistics` para enriquecer y o
 - **Contratos y DTOs (`trips.schema.ts`, `models/shipment.ts`, `trips.routes.ts`)**:
   - `MatchedShipment extends AvailableShipment` con `detourDistanceKm: number` y `detourDurationMinutes: number`.
   - `availableShipmentResponse` en Fastify Swagger actualizado con validación estricta de ambos campos obligatorios.
+  - `pricingLogisticsClient` requerido en `TripsServiceDeps` (no opcional), garantizando evaluación No-Fallback consistente.
+  - Fail-safe estricto: candidatos no evaluados o sin métricas en la respuesta de ruteo se descartan, nunca se asumen viables ni con desvío cero.
+  - Preservación del conteo `total` del prefiltro de base de datos para cálculo consistente de paginación.
+  - Protección ante JSON malformado en `PricingLogisticsClient` mapeado a `502 ROUTING_SERVICE_ERROR`.
 
-Tests: 5 tests unitarios en `test/pricing-logistics-client.test.ts`, 4 tests nuevos en `test/trips-service.test.ts` y 2 tests en `test/trips.routes.test.ts`. 137/137 tests unitarios pasando limpios, `tsc --noEmit` y `npm run lint` sin errores ni warnings.
+Tests: 6 tests unitarios en `test/pricing-logistics-client.test.ts`, 5 tests nuevos en `test/trips-service.test.ts` y 2 tests en `test/trips.routes.test.ts`. 139/139 tests unitarios pasando limpios, `tsc --noEmit` y `npm run lint` sin errores ni warnings.
 
 ### Pendientes de este servicio
 

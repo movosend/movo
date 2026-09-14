@@ -118,4 +118,18 @@ describe("PricingLogisticsClient (MOVO-219)", () => {
       code: "ROUTING_SERVICE_ERROR",
     });
   });
+
+  it("lanza ApiError 502 ROUTING_SERVICE_ERROR si el body JSON es inválido o malformado", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockRejectedValue(new SyntaxError("Unexpected token in JSON")),
+    } as unknown as Response);
+
+    await expect(client.evaluateCandidates(sampleInput)).rejects.toMatchObject({
+      statusCode: 502,
+      code: "ROUTING_SERVICE_ERROR",
+      message: "Respuesta inválida o malformada del servicio de ruteo.",
+    });
+  });
 });
