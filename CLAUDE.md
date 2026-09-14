@@ -253,6 +253,37 @@ sección solo lista lo transversal (infra, credenciales, decisiones cross-servic
 - `shared/movo-shared/CLAUDE.md`
 - `movo-mobile/CLAUDE.md`
 
+### Automatización de sync de documentos legales (`scripts/sync-legal-docs.ts`)
+
+Cierra el pendiente de sync manual que MOVO-224/228 (`movo-mobile`) habían dejado
+documentado: `docs/legal/*.md` (fuente redactada, pensada para lectura en Drive/
+GitHub) se copiaba a mano a `movo-mobile/src/content/legal/*.ts` (empaquetado como
+`string` — Metro no soporta importar `.md` sin transformer custom) y la fecha de
+`LEGAL_DOCUMENT_VERSIONS` (`shared/movo-shared/src/config/legal.ts`, ADR implícito
+de MOVO-228) se bumpeaba también a mano en sincronía con el `.md`. Tres lugares a
+mantener alineados sin ningún mecanismo que lo forzara — mismo tipo de gap que ya
+costó dos veces con env vars olvidadas (ver "Git, commits y PRs" más arriba).
+
+- **`npm run sync:legal`** (raíz del repo, `tsx scripts/sync-legal-docs.ts`)
+  regenera los 3 archivos a partir de `docs/legal/*.md`: las dos copias `.ts` de
+  `movo-mobile` (contenido completo, escapado para template literal) y
+  `LEGAL_DOCUMENT_VERSIONS` en `@movo/shared`, tomando la fecha de la línea
+  **"Última actualización"** del propio `.md`. **`npm run sync:legal:check`**
+  (mismo script con `--check`) no escribe nada, solo falla si algo quedó
+  desincronizado — pensado para correr en CI o antes de un commit.
+- **Decisión de diseño clave: la fecha de versión NUNCA se deriva de un hash/diff
+  del contenido, se respeta la que el equipo escribió a mano en "Última
+  actualización"** — un typo o una corrección de redacción menor en el `.md` no
+  debería forzar re-aceptación a toda la base de usuarios (MOVO-229 dispara el
+  gate de re-aceptación apenas la versión persistida de una cuenta quede vieja).
+  El flujo real para publicar un cambio legal: editar el `.md`, bumpear a mano su
+  línea de "Última actualización", correr `npm run sync:legal`, commitear los 3
+  archivos regenerados juntos.
+- Sin hook de pre-commit todavía (el repo no tiene Husky configurado pese a que
+  la sección de convenciones de código lo menciona — gap preexistente, no
+  introducido acá) — la propagación depende hoy de correr el script a mano o de
+  agregarlo como paso de CI, todavía no hecho.
+
 ### Pendientes transversales
 
 - **Credenciales reales sin cargar** en AWS Secrets Manager (dev y prod) — el código
