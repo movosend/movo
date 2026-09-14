@@ -1941,6 +1941,44 @@ consumiendo el endpoint real en vez de su mock (`MOVO-193` ya está Done contra 
 migrar es un ajuste de esa rama, no de este ticket); "Estoy transportando" en el home
 (fase 2 de `MOVO-193`, todavía no llama a `GET /shipments/transporting`).
 
+### MOVO-206 — Agregación de paradas del transportista y contrato con pricing-logistics (`GET /shipments/my-route`)
+
+Endpoint `GET /shipments/my-route` en `shipments.routes.ts`: agrega las paradas activas
+del transportista autenticado y consulta el solver VRPTW multi-parada de
+`movo-svc-pricing-logistics` (`POST /optimize/route`, MOVO-205). Base operativa para la
+pantalla mobile del mapa y recorrido de entrega (MOVO-10 / MOVO-207).
+
+Decisiones clave:
+- **Cálculo on-demand sin persistencia (AC7 / AC9):** A diferencia de la Spike MOVO-50
+  (donde se planteó una `solution_cache` para la aceptación puntual de una oferta en el
+  feed), acá se calcula en tiempo real a partir de la posición GPS actual del
+  transportista (`lat`, `lng`). Al completarse o cancelarse una parada (AC3 de MOVO-10 /
+  MOVO-207), el recálculo natural excluye las paradas completadas de inmediato, sin
+  requerir invalidación distribuida de caché. OR-Tools resuelve 2-10 paradas en <15ms.
+- **Composición de paradas (AC2):**
+  - `assigned`: aporta 2 paradas (`pickup` y `delivery`).
+  - `in_transit`: aporta 1 parada (solo `delivery`, ya retirado).
+  - `assigned_unfunded`: no aporta paradas (retiro a más de N días, no ejecutable hoy).
+  - `delivered` / `completed`: no aportan paradas.
+- **Degradación heurística resiliente (AC6):** Si `movo-svc-pricing-logistics` falla
+  (502, 503, timeout de 1000ms), no se responde error 500 al transportista: se devuelve
+  la lista de paradas ordenada heurísticamente (retiros antes que entregas, y dentro de
+  cada grupo por ventana horaria de inicio) con `optimized: false` y disclaimer visible.
+- **Ruta vacía limpia (AC4):** Si el transportista no tiene paradas activas, responde 200
+  con `stops: []`, `totalDistanceKm: 0`, `totalDurationMinutes: 0`, `optimized: true`
+  sin llamar a OR-Tools.
+- **Autorización estricta (AC8):** Solo el transportista autenticado (`x-user-id` del
+  JWT) obtiene su propia ruta. No se acepta `carrierId` por parámetro.
+- **Contratos tipados en `@movo/shared`:** `CarrierRoute` y `CarrierRouteStop`
+  exportados en `types/routing.ts` para consumo coordinado entre backend y mobile.
+
+Tests: `test/carrier-route.test.ts` (9 tests unitarios puros de dominio),
+`test/pricing-logistics-client.test.ts` (10 tests del adapter, incluyendo `optimizeRoute`
+con timeouts y errores 502/503), `test/shipments-my-route.service.test.ts` (4 tests de
+servicio), `test/shipments-my-route.routes.test.ts` (5 tests de endpoints HTTP). Total:
+28 tests nuevos, 127/127 unitarios de shipments pasando limpios, `tsc --noEmit` y `npm run lint`
+100% en verde.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
