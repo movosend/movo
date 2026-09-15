@@ -2606,6 +2606,30 @@ de CI para build/submit automático — el equipo venía usando development buil
 tiempo, pero siempre generados con el CLI local (`expo run:ios`/`expo run:android`),
 nunca con EAS.
 
+**Checklist: push notifications reales en development builds locales (`expo run:ios
+--device` / `expo run:android`)**. Con `bundleIdentifier`/`package` fijos (MOVO-232)
+y el Apple Developer Team pago ya operativo, un build local queda funcionalmente
+igual a uno de EAS para push si cada dev/máquina/dispositivo tiene, una sola vez:
+
+1. **Alta en el Apple Developer Team pago** (developer.apple.com → People, rol
+   Developer alcanza) — sin esto Xcode no puede firmar contra ese team.
+2. **Xcode → target → Signing & Capabilities**: elegir ese Team pago (nunca
+   "Personal Team") + "Automatically manage signing". La capability de Push ya está
+   habilitada a nivel de App ID (`com.movosend.movomobile`, se hizo una vez vía
+   `eas credentials`) — Xcode la sincroniza sola al provisioning profile.
+3. **`ENABLE_PUSH_NOTIFICATIONS=true` en el `.env.local` de cada dev** (gitignored,
+   no confundir con `eas.json#build.development`, que solo aplica a builds de EAS
+   Cloud). Sin esto, `app.config.js` saca el plugin `expo-notifications` y borra el
+   entitlement `aps-environment` al hacer prebuild.
+4. **Android: `google-services.json`** bajado de Firebase Console (proyecto
+   "movosend") y pegado en la raíz de `movo-mobile/` (gitignored).
+
+**No se repite en cada build** — es configuración persistente (archivo, cuenta,
+provisioning profile). Se vuelve a hacer solo si: se borra/regenera `ios/` desde
+cero (`rm -rf ios/`, `expo prebuild --clean` — ahí Xcode "olvida" el Team elegido),
+se usa una máquina nueva, se prueba con un dispositivo físico nuevo (hay que
+registrar su UDID en el Team), o se suma un dev nuevo al equipo.
+
 ### MOVO-208 (backend, `svc-shipments`) — ajustes mobile por la extensión del set canónico
 
 Ticket dueño en `services/movo-svc-shipments/CLAUDE.md` — acá solo el lado mobile,
