@@ -58,15 +58,18 @@ module.exports = {
     ios: {
       icon: "./assets/ios-icon.icon",
       supportsTablet: true,
-      // Identificador fijo real (MOVO-232) — antes variaba por developer
-      // (`com.movosend.movomobile.$USER`) para que cada uno tuviera su propio bundle
-      // id en local y no chocara provisioning profiles con un Personal Team gratis de
-      // Apple. `IOS_BUNDLE_ID` se mantiene como override opcional para ese caso de uso
-      // (development builds 100% locales, `expo run:ios`); un build de EAS Cloud
-      // (`eas.json`, perfiles `preview`/`production`) fija este identificador real vía
-      // esa misma env var, necesario para que TestFlight/App Store vean siempre el
-      // mismo bundle id.
-      bundleIdentifier: process.env.IOS_BUNDLE_ID ?? "com.movosend.movomobile",
+      // Identificador fijo real, siempre (MOVO-232) — antes variaba por developer
+      // (`com.movosend.movomobile.$USER`, con un override `IOS_BUNDLE_ID` opcional)
+      // para que cada uno tuviera su propio bundle id en local y no chocara
+      // provisioning profiles con un Personal Team gratis de Apple. Con todo el
+      // equipo firmando ahora contra el mismo Apple Developer Team pago (ver Xcode →
+      // Signing & Capabilities en cada máquina, `eas credentials` ya generó el
+      // certificado/provisioning profile de ese App ID), ese problema ya no existe —
+      // y el equipo quiere justamente lo contrario, que todo build (local o EAS) sea
+      // indistinguible. Sin override por env var a propósito: un `IOS_BUNDLE_ID`
+      // suelto en el `.env.local` de alguien (leftover de antes de MOVO-232) volvería
+      // a partir el bundle id en silencio.
+      bundleIdentifier: "com.movosend.movomobile",
       infoPlist: {
         NSCameraUsageDescription:
           "Movo necesita la cámara para tomar tu foto de perfil y verificar tu identidad durante el registro.",
