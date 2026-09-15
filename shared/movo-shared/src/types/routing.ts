@@ -58,3 +58,20 @@ export interface OptimizeRouteResponse {
   calculationMethod: string;
   disclaimer: string;
 }
+
+/**
+ * Parada secuenciada en la ruta del transportista para `GET /shipments/my-route` (MOVO-206).
+ */
+export interface CarrierRouteStop extends RouteStopOutput {}
+
+/**
+ * Hoja de ruta diaria optimizada del transportista (MOVO-206).
+ */
+export interface CarrierRoute {
+  stops: CarrierRouteStop[];
+  totalDistanceKm: number;
+  totalDurationMinutes: number;
+  optimized: boolean;
+  disclaimer: string | null;
+}
+
