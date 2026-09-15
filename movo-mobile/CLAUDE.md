@@ -2549,6 +2549,27 @@ su propio archivo fue lo que efectivamente lo resolvió. Casos actualizados en
 Pendiente / fuera de alcance: sin historial de aceptaciones previas (backend, ver su
 CLAUDE.md); no probado en device.
 
+### MOVO-232 — Identificadores fijos de app store (`android.package` / `ios.bundleIdentifier`)
+
+Primer paso para habilitar EAS Build/Submit y push notifications reales de punta a
+punta, ahora que el Apple Developer Program ya está pago. `android.package` pasa del
+placeholder de scaffold `com.anonymous.movomobile` al identificador real y fijo
+`com.movosend.movomobile`; `ios.bundleIdentifier` pasa de variar por developer
+(`com.movosend.movomobile.$USER`, pensado para no chocar provisioning profiles entre
+Personal Teams gratis de Apple) a ese mismo identificador fijo, con `IOS_BUNDLE_ID`
+como override opcional que sigue sirviendo para development builds 100% locales
+(`expo run:ios`). `eas.json` fija `IOS_BUNDLE_ID=com.movosend.movomobile` en los
+perfiles `preview`/`production` para que un build de EAS Cloud no dependa de `$USER`.
+Verificado con `npx expo config --type public` (`bundleIdentifier`/`package`
+resuelven al valor fijo).
+
+Pendiente / fuera de alcance de este ticket (siguientes pasos del roadmap de push/EAS):
+`PUSH_PROVIDER=expo` en dev, `ENABLE_PUSH_NOTIFICATIONS=true` + primer
+`eas build --profile development` de validación end-to-end en dispositivo físico
+(cierra el DoD manual pendiente de MOVO-107), y el primer workflow de CI para
+build/submit automático — el equipo veía usando development builds hace tiempo, pero
+siempre generados con el CLI local (`expo run:ios`/`expo run:android`), nunca con EAS.
+
 ### MOVO-208 (backend, `svc-shipments`) — ajustes mobile por la extensión del set canónico
 
 Ticket dueño en `services/movo-svc-shipments/CLAUDE.md` — acá solo el lado mobile,

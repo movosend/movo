@@ -58,9 +58,15 @@ module.exports = {
     ios: {
       icon: "./assets/ios-icon.icon",
       supportsTablet: true,
-      bundleIdentifier:
-        process.env.IOS_BUNDLE_ID ??
-        `com.movosend.movomobile.${process.env.USER ?? "dev"}`,
+      // Identificador fijo real (MOVO-232) — antes variaba por developer
+      // (`com.movosend.movomobile.$USER`) para que cada uno tuviera su propio bundle
+      // id en local y no chocara provisioning profiles con un Personal Team gratis de
+      // Apple. `IOS_BUNDLE_ID` se mantiene como override opcional para ese caso de uso
+      // (development builds 100% locales, `expo run:ios`); un build de EAS Cloud
+      // (`eas.json`, perfiles `preview`/`production`) fija este identificador real vía
+      // esa misma env var, necesario para que TestFlight/App Store vean siempre el
+      // mismo bundle id.
+      bundleIdentifier: process.env.IOS_BUNDLE_ID ?? "com.movosend.movomobile",
       infoPlist: {
         NSCameraUsageDescription:
           "Movo necesita la cámara para tomar tu foto de perfil y verificar tu identidad durante el registro.",
@@ -90,7 +96,11 @@ module.exports = {
         monochromeImage: "./assets/android-icon-monochrome.png",
       },
       predictiveBackGestureEnabled: false,
-      package: "com.anonymous.movomobile",
+      // MOVO-232: reemplaza el placeholder de scaffold `com.anonymous.movomobile` —
+      // identificador fijo real, mismo criterio que `ios.bundleIdentifier` de arriba
+      // (no cambia por developer/build, Play no permite cambiarlo después del primer
+      // release).
+      package: "com.movosend.movomobile",
       permissions: ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"],
     },
     web: {

@@ -14,13 +14,15 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api-dev.movosend.app"
+        "EXPO_PUBLIC_API_URL": "https://api-dev.movosend.app",
+        "IOS_BUNDLE_ID": "com.movosend.movomobile"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.movosend.app"
+        "EXPO_PUBLIC_API_URL": "https://api.movosend.app",
+        "IOS_BUNDLE_ID": "com.movosend.movomobile"
       }
     }
   },
