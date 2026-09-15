@@ -8,7 +8,8 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api-dev.movosend.app"
+        "EXPO_PUBLIC_API_URL": "https://api-dev.movosend.app",
+        "ENABLE_PUSH_NOTIFICATIONS": "true"
       }
     },
     "preview": {

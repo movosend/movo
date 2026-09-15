@@ -2563,12 +2563,30 @@ perfiles `preview`/`production` para que un build de EAS Cloud no dependa de `$U
 Verificado con `npx expo config --type public` (`bundleIdentifier`/`package`
 resuelven al valor fijo).
 
-Pendiente / fuera de alcance de este ticket (siguientes pasos del roadmap de push/EAS):
-`PUSH_PROVIDER=expo` en dev, `ENABLE_PUSH_NOTIFICATIONS=true` + primer
-`eas build --profile development` de validación end-to-end en dispositivo físico
-(cierra el DoD manual pendiente de MOVO-107), y el primer workflow de CI para
-build/submit automático — el equipo veía usando development builds hace tiempo, pero
-siempre generados con el CLI local (`expo run:ios`/`expo run:android`), nunca con EAS.
+**Avance post-merge de este ticket (mismo hilo de trabajo): credenciales de EAS y
+`ENABLE_PUSH_NOTIFICATIONS`.** `PUSH_PROVIDER=expo` ya cargado en
+`movo/dev/app-secrets` (AWS Secrets Manager) — el próximo deploy de `svc-users` a dev
+manda push reales. Credenciales de EAS configuradas para ambas plataformas vía
+`eas credentials` (iOS: App ID + certificado + provisioning profile + APNs Push Key,
+autenticado con una App Store Connect API Key — Admin — en vez de Apple ID/contraseña,
+respaldada en el secret `movo/mobile/apple-asc-api-key`, MOVO-232; Android: FCM V1).
+`eas.json` gana `ENABLE_PUSH_NOTIFICATIONS: "true"` en el perfil `development`
+(verificado con `npx expo config` que activa el plugin `expo-notifications`).
+
+**Gotcha real encontrado en el camino, sin relación con el código del repo**: la
+versión global de `eas-cli` estaba desactualizada (`21.8.0`) y esa versión tiene un
+bug conocido (`iTunes service key is empty` al generar/validar la Push Key,
+[expo/eas-cli#4392](https://github.com/expo/eas-cli/issues/4392)) — se resuelve
+actualizando a `eas-cli@24.6.0`+ (fix confirmado en `24.4.1`). No es nada a ajustar en
+este repo, documentado acá solo para que el próximo que corra `eas credentials` no
+pierda tiempo si le vuelve a pasar.
+
+Pendiente / fuera de alcance de este ticket (siguientes pasos del roadmap de
+push/EAS): primer `eas build --profile development` + instalación en dispositivo
+físico para validar push de punta a punta (cierra el DoD manual pendiente de
+MOVO-107), y el primer workflow de CI para build/submit automático — el equipo venía
+usando development builds hace tiempo, pero siempre generados con el CLI local
+(`expo run:ios`/`expo run:android`), nunca con EAS.
 
 ### MOVO-208 (backend, `svc-shipments`) — ajustes mobile por la extensión del set canónico
 
