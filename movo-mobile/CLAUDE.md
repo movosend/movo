@@ -2581,12 +2581,30 @@ actualizando a `eas-cli@24.6.0`+ (fix confirmado en `24.4.1`). No es nada a ajus
 este repo, documentado acá solo para que el próximo que corra `eas credentials` no
 pierda tiempo si le vuelve a pasar.
 
+**Segundo avance (mismo hilo): `google-services.json` para push real en Android.**
+Gap encontrado en el camino, sin relación con lo hecho hasta acá: desde la migración
+de Expo a FCM v1, Android necesita este archivo (identifica la app ante el proyecto
+de Firebase "movosend", package `com.movosend.movomobile`) además del service account
+ya cargado en `eas credentials` — sin él, Android no recibe push ni en build de EAS ni
+local. `app.config.js` suma `android.googleServicesFile:
+process.env.GOOGLE_SERVICES_JSON ?? "./google-services.json"`. El archivo en sí
+**no se trackea en git** (`.gitignore`, mismo criterio que los `.p8`/`.p12` de iOS) —
+cada developer lo baja de Firebase Console y lo pega en la raíz de `movo-mobile/`
+para builds locales; para EAS Cloud se subió como variable de entorno de tipo
+**file** (`eas env:set development --name GOOGLE_SERVICES_JSON --type file
+--visibility sensitive`, mismo mecanismo ya usado ahí para
+`GOOGLE_MAPS_ANDROID_API_KEY`/`GOOGLE_MAPS_IOS_API_KEY` — no confundir con el bloque
+`env` de `eas.json`, es un feature separado de EAS que se resuelve solo por
+convención de nombre del build profile). Verificado con `npx expo config` y
+`tsc --noEmit`.
+
 Pendiente / fuera de alcance de este ticket (siguientes pasos del roadmap de
-push/EAS): primer `eas build --profile development` + instalación en dispositivo
-físico para validar push de punta a punta (cierra el DoD manual pendiente de
-MOVO-107), y el primer workflow de CI para build/submit automático — el equipo venía
-usando development builds hace tiempo, pero siempre generados con el CLI local
-(`expo run:ios`/`expo run:android`), nunca con EAS.
+push/EAS): primer `eas build --profile development` (iOS y Android) + instalación en
+dispositivo físico para validar push de punta a punta (cierra el DoD manual
+pendiente de MOVO-107) — deliberadamente no disparado todavía, y el primer workflow
+de CI para build/submit automático — el equipo venía usando development builds hace
+tiempo, pero siempre generados con el CLI local (`expo run:ios`/`expo run:android`),
+nunca con EAS.
 
 ### MOVO-208 (backend, `svc-shipments`) — ajustes mobile por la extensión del set canónico
 

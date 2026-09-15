@@ -101,6 +101,16 @@ module.exports = {
       // (no cambia por developer/build, Play no permite cambiarlo después del primer
       // release).
       package: "com.movosend.movomobile",
+      // Requerido por la migración de Expo a FCM v1 para push notifications reales en
+      // Android (independiente del ENABLE_PUSH_NOTIFICATIONS de iOS más arriba — FCM
+      // no tiene el mismo problema de provisioning con team gratis, así que no está
+      // gateado). Identifica la app ante Firebase (proyecto "movosend", package
+      // com.movosend.movomobile) — sin este archivo, Android nunca recibe push, ni en
+      // build de EAS ni en uno local (`expo run:android`). El JSON en sí no se trackea
+      // en git (`.gitignore`, mismo criterio que los `.p8`/`.p12` de iOS) — cada
+      // developer lo baja de Firebase Console y lo pega acá; en EAS Cloud se resuelve
+      // vía el secret de archivo `GOOGLE_SERVICES_JSON` (ver eas.json).
+      googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? "./google-services.json",
       permissions: ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"],
     },
     web: {
