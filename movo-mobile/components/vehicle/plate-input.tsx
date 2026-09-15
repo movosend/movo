@@ -1,4 +1,5 @@
-import { Text, TextInput, View } from "react-native";
+import { useRef } from "react";
+import { Pressable, Text, TextInput, View } from "react-native";
 import { plateGroups, plateLength, type PlateFormat } from "../../src/lib/plate-format";
 
 interface PlateInputProps {
@@ -10,10 +11,17 @@ interface PlateInputProps {
 
 /**
  * Casilleros de patente estilo chapa (mockup MOVO-223): un `TextInput`
- * invisible superpuesto capta el toque/teclado y el input real de texto —
- * los casilleros son puramente visuales, dibujados a partir de `value`.
+ * invisible capta el teclado y el valor real — los casilleros son puramente
+ * visuales, dibujados a partir de `value`. El toque se resuelve con un
+ * `Pressable` que envuelve toda la caja y enfoca el input por `ref`
+ * (`inputRef.current?.focus()`), en vez de depender de que el toque caiga
+ * justo sobre el `TextInput` superpuesto — con el contenedor de alto
+ * automático (sin `height` fijo), un `TextInput absolute` dimensionado con
+ * `h-full`/`w-full` puede terminar colapsado a 0×0 y quedar imposible de
+ * tocar (bug reportado: el campo no dejaba escribir ni abría el teclado).
  */
 export function PlateInput({ value, format, onChangeText, testID }: PlateInputProps) {
+  const inputRef = useRef<TextInput>(null);
   const groups = plateGroups(format);
   const total = plateLength(format);
   const cells: { ch: string; active: boolean; filled: boolean; marginRight: number }[] = [];
@@ -31,7 +39,10 @@ export function PlateInput({ value, format, onChangeText, testID }: PlateInputPr
   });
 
   return (
-    <View className="relative rounded-[10px] border-[1.5px] border-ink-950/[0.08] bg-ink-50 p-3.5">
+    <Pressable
+      className="relative rounded-[10px] border-[1.5px] border-ink-950/[0.08] bg-ink-50 p-3.5"
+      onPress={() => inputRef.current?.focus()}
+    >
       <View className="flex-row items-center justify-center gap-1.5">
         {cells.map((cell, idx) => (
           <View
@@ -46,6 +57,7 @@ export function PlateInput({ value, format, onChangeText, testID }: PlateInputPr
         ))}
       </View>
       <TextInput
+        ref={inputRef}
         testID={testID}
         value={value}
         onChangeText={(raw) => onChangeText(raw)}
@@ -54,8 +66,9 @@ export function PlateInput({ value, format, onChangeText, testID }: PlateInputPr
         autoCorrect={false}
         spellCheck={false}
         maxLength={total}
-        className="absolute inset-0 h-full w-full opacity-0"
+        pointerEvents="none"
+        className="absolute inset-0 opacity-0"
       />
-    </View>
+    </Pressable>
   );
 }
