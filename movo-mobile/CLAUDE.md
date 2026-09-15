@@ -2549,6 +2549,87 @@ su propio archivo fue lo que efectivamente lo resolvió. Casos actualizados en
 Pendiente / fuera de alcance: sin historial de aceptaciones previas (backend, ver su
 CLAUDE.md); no probado en device.
 
+### MOVO-232 — Identificadores fijos de app store (`android.package` / `ios.bundleIdentifier`)
+
+Primer paso para habilitar EAS Build/Submit y push notifications reales de punta a
+punta, ahora que el Apple Developer Program ya está pago. `android.package` pasa del
+placeholder de scaffold `com.anonymous.movomobile` al identificador real y fijo
+`com.movosend.movomobile`; `ios.bundleIdentifier` pasa de variar por developer
+(`com.movosend.movomobile.$USER`, pensado para no chocar provisioning profiles entre
+Personal Teams gratis de Apple) a ese mismo identificador fijo, con `IOS_BUNDLE_ID`
+como override opcional que sigue sirviendo para development builds 100% locales
+(`expo run:ios`). `eas.json` fija `IOS_BUNDLE_ID=com.movosend.movomobile` en los
+perfiles `preview`/`production` para que un build de EAS Cloud no dependa de `$USER`.
+Verificado con `npx expo config --type public` (`bundleIdentifier`/`package`
+resuelven al valor fijo).
+
+**Avance post-merge de este ticket (mismo hilo de trabajo): credenciales de EAS y
+`ENABLE_PUSH_NOTIFICATIONS`.** `PUSH_PROVIDER=expo` ya cargado en
+`movo/dev/app-secrets` (AWS Secrets Manager) — el próximo deploy de `svc-users` a dev
+manda push reales. Credenciales de EAS configuradas para ambas plataformas vía
+`eas credentials` (iOS: App ID + certificado + provisioning profile + APNs Push Key,
+autenticado con una App Store Connect API Key — Admin — en vez de Apple ID/contraseña,
+respaldada en el secret `movo/mobile/apple-asc-api-key`, MOVO-232; Android: FCM V1).
+`eas.json` gana `ENABLE_PUSH_NOTIFICATIONS: "true"` en el perfil `development`
+(verificado con `npx expo config` que activa el plugin `expo-notifications`).
+
+**Gotcha real encontrado en el camino, sin relación con el código del repo**: la
+versión global de `eas-cli` estaba desactualizada (`21.8.0`) y esa versión tiene un
+bug conocido (`iTunes service key is empty` al generar/validar la Push Key,
+[expo/eas-cli#4392](https://github.com/expo/eas-cli/issues/4392)) — se resuelve
+actualizando a `eas-cli@24.6.0`+ (fix confirmado en `24.4.1`). No es nada a ajustar en
+este repo, documentado acá solo para que el próximo que corra `eas credentials` no
+pierda tiempo si le vuelve a pasar.
+
+**Segundo avance (mismo hilo): `google-services.json` para push real en Android.**
+Gap encontrado en el camino, sin relación con lo hecho hasta acá: desde la migración
+de Expo a FCM v1, Android necesita este archivo (identifica la app ante el proyecto
+de Firebase "movosend", package `com.movosend.movomobile`) además del service account
+ya cargado en `eas credentials` — sin él, Android no recibe push ni en build de EAS ni
+local. `app.config.js` suma `android.googleServicesFile:
+process.env.GOOGLE_SERVICES_JSON ?? "./google-services.json"`. El archivo en sí
+**no se trackea en git** (`.gitignore`, mismo criterio que los `.p8`/`.p12` de iOS) —
+cada developer lo baja de Firebase Console y lo pega en la raíz de `movo-mobile/`
+para builds locales; para EAS Cloud se subió como variable de entorno de tipo
+**file** (`eas env:set development --name GOOGLE_SERVICES_JSON --type file
+--visibility sensitive`, mismo mecanismo ya usado ahí para
+`GOOGLE_MAPS_ANDROID_API_KEY`/`GOOGLE_MAPS_IOS_API_KEY` — no confundir con el bloque
+`env` de `eas.json`, es un feature separado de EAS que se resuelve solo por
+convención de nombre del build profile). Verificado con `npx expo config` y
+`tsc --noEmit`.
+
+Pendiente / fuera de alcance de este ticket (siguientes pasos del roadmap de
+push/EAS): primer `eas build --profile development` (iOS y Android) + instalación en
+dispositivo físico para validar push de punta a punta (cierra el DoD manual
+pendiente de MOVO-107) — deliberadamente no disparado todavía, y el primer workflow
+de CI para build/submit automático — el equipo venía usando development builds hace
+tiempo, pero siempre generados con el CLI local (`expo run:ios`/`expo run:android`),
+nunca con EAS.
+
+**Checklist: push notifications reales en development builds locales (`expo run:ios
+--device` / `expo run:android`)**. Con `bundleIdentifier`/`package` fijos (MOVO-232)
+y el Apple Developer Team pago ya operativo, un build local queda funcionalmente
+igual a uno de EAS para push si cada dev/máquina/dispositivo tiene, una sola vez:
+
+1. **Alta en el Apple Developer Team pago** (developer.apple.com → People, rol
+   Developer alcanza) — sin esto Xcode no puede firmar contra ese team.
+2. **Xcode → target → Signing & Capabilities**: elegir ese Team pago (nunca
+   "Personal Team") + "Automatically manage signing". La capability de Push ya está
+   habilitada a nivel de App ID (`com.movosend.movomobile`, se hizo una vez vía
+   `eas credentials`) — Xcode la sincroniza sola al provisioning profile.
+3. **`ENABLE_PUSH_NOTIFICATIONS=true` en el `.env.local` de cada dev** (gitignored,
+   no confundir con `eas.json#build.development`, que solo aplica a builds de EAS
+   Cloud). Sin esto, `app.config.js` saca el plugin `expo-notifications` y borra el
+   entitlement `aps-environment` al hacer prebuild.
+4. **Android: `google-services.json`** bajado de Firebase Console (proyecto
+   "movosend") y pegado en la raíz de `movo-mobile/` (gitignored).
+
+**No se repite en cada build** — es configuración persistente (archivo, cuenta,
+provisioning profile). Se vuelve a hacer solo si: se borra/regenera `ios/` desde
+cero (`rm -rf ios/`, `expo prebuild --clean` — ahí Xcode "olvida" el Team elegido),
+se usa una máquina nueva, se prueba con un dispositivo físico nuevo (hay que
+registrar su UDID en el Team), o se suma un dev nuevo al equipo.
+
 ### MOVO-208 (backend, `svc-shipments`) — ajustes mobile por la extensión del set canónico
 
 Ticket dueño en `services/movo-svc-shipments/CLAUDE.md` — acá solo el lado mobile,
