@@ -343,6 +343,13 @@ export interface ShipmentRepository {
    */
   existsPhotoByS3Key(s3Key: string): Promise<boolean>;
   /**
+   * MOVO-196: fotos CONFIRMADAS (fila real en `shipment_photos`, nunca un presign
+   * pendiente sin confirmar) de una etapa puntual de un envío -- fuente de la
+   * precondición de evidencia mínima antes de handshake (AC1/AC2/AC7) y del tope
+   * máximo por etapa (AC8).
+   */
+  countPhotosByStage(shipmentId: string, stage: PhotoStage): Promise<number>;
+  /**
    * Envíos donde el usuario participa como sender o como receiver (AC9 de MOVO-80 —
    * todavía no hay rol de "carrier" asignado en este sprint). Paginado, más reciente
    * primero.
@@ -647,6 +654,10 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
     async existsPhotoByS3Key(s3Key: string): Promise<boolean> {
       const row = await db.shipmentPhoto.findFirst({ where: { s3Key }, select: { id: true } });
       return row !== null;
+    },
+
+    async countPhotosByStage(shipmentId: string, stage: PhotoStage): Promise<number> {
+      return db.shipmentPhoto.count({ where: { shipmentId, stage } });
     },
 
     async listByUser(userId: string, page: number, limit: number): Promise<{ items: Shipment[]; total: number }> {

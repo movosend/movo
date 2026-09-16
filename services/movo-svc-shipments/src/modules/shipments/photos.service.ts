@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { FastifyBaseLogger } from "fastify";
 import type Redis from "ioredis";
-import { ApiError, UserRole } from "@movo/shared";
+import { ApiError, ShipmentStatus, UserRole } from "@movo/shared";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { StorageProvider } from "../../adapters/storage-provider";
-import { PhotoStage } from "../../models/shipment";
-import { assertShipmentAccess } from "./assert-shipment-access";
+import { Shipment, PhotoStage } from "../../models/shipment";
+import { MAX_EVIDENCE_PHOTOS_PER_STAGE, MIN_EVIDENCE_PHOTOS_PER_STAGE } from "../../domain/evidence-photos";
+import { assertIsCarrier, assertShipmentAccess } from "./assert-shipment-access";
 
 /** MOVO-124: sorted set de Redis con las keys de S3 pendientes de confirmar (score =
  * timestamp del presign). Es solo un candidato-list para el sweep de fotos huérfanas
@@ -60,6 +61,32 @@ export interface PhotoUrlDto {
   createdAt: Date;
 }
 
+/** AC6 de MOVO-196: `stage` es `null` cuando el envío no está en un estado con
+ * handshake pendiente (ni retiro ni entrega por confirmar) -- no hay evidencia
+ * "relevante" que chequear, así que `satisfied` resuelve `true` sin consultar nada. */
+export interface EvidenceStatusDto {
+  stage: Extract<PhotoStage, "pickup" | "delivery"> | null;
+  satisfied: boolean;
+  photoCount: number;
+  minRequired: number;
+  maxAllowed: number;
+}
+
+/**
+ * AC5 de MOVO-196: `creation` sigue siendo del emisor (MOVO-81, sin cambios);
+ * `pickup`/`delivery` son evidencia del transportista asignado -- ni el emisor ni el
+ * receptor pueden registrarla, sin importar si hoy son parte del envío por otro motivo.
+ */
+function assertCanRegisterPhoto(shipment: Shipment, callerId: string, stage: PhotoStage): void {
+  if (stage === PhotoStage.creation) {
+    if (callerId !== shipment.senderId) {
+      throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el emisor puede registrar esta foto.");
+    }
+    return;
+  }
+  assertIsCarrier(shipment, callerId);
+}
+
 function assertValidPhotoConstraints(contentType: string, contentLength: number): void {
   if (contentType !== ALLOWED_PHOTO_CONTENT_TYPE) {
     throw new ApiError(400, "VALIDATION_FAILED", "Tipo de imagen no permitido.");
@@ -76,9 +103,9 @@ export function createPhotosService(
   logger: FastifyBaseLogger
 ) {
   return {
-    /** AC1/AC2/AC3: solo el emisor puede pedir presign para la etapa `creation` (única
-     * etapa que autoriza esta US -- pickup/delivery quedan para MOVO-21). El objectKey
-     * lo genera siempre el servidor, nunca uno propuesto por el cliente. */
+    /** AC1/AC2/AC3 de MOVO-81, AC5 de MOVO-196: el emisor pide presign para `creation`;
+     * el transportista asignado, para `pickup`/`delivery`. El objectKey lo genera
+     * siempre el servidor, nunca uno propuesto por el cliente. */
     async getPhotoUploadUrl(
       shipmentId: string,
       callerId: string,
@@ -88,9 +115,7 @@ export function createPhotosService(
       if (!shipment) {
         throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
       }
-      if (callerId !== shipment.senderId) {
-        throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el emisor puede solicitar la subida de esta foto.");
-      }
+      assertCanRegisterPhoto(shipment, callerId, input.stage);
       assertValidPhotoConstraints(input.contentType, input.contentLength);
 
       const s3Key = `shipments/${shipmentId}/${input.stage}/${randomUUID()}.jpg`;
@@ -116,9 +141,11 @@ export function createPhotosService(
       return { uploadUrl, s3Key, expiresIn };
     },
 
-    /** AC4/AC5: verifica contra S3 (HEAD real) que el objeto exista antes de registrarlo
-     * -- sin esto, el cliente podría confirmar fotos que nunca subió y el criterio de
-     * evidencia obligatoria quedaría vacío. */
+    /** AC4/AC5 de MOVO-81: verifica contra S3 (HEAD real) que el objeto exista antes de
+     * registrarlo -- sin esto, el cliente podría confirmar fotos que nunca subió y el
+     * criterio de evidencia obligatoria quedaría vacío. AC5/AC8 de MOVO-196: autoriza
+     * por etapa (emisor para `creation`, transportista asignado para `pickup`/
+     * `delivery`) y tapea en `MAX_EVIDENCE_PHOTOS_PER_STAGE` las dos últimas. */
     async confirmPhoto(
       shipmentId: string,
       callerId: string,
@@ -128,13 +155,26 @@ export function createPhotosService(
       if (!shipment) {
         throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
       }
-      if (callerId !== shipment.senderId) {
-        throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el emisor puede confirmar esta foto.");
-      }
+      assertCanRegisterPhoto(shipment, callerId, input.stage);
 
       const expectedPrefix = `shipments/${shipmentId}/${input.stage}/`;
       if (!input.s3Key.startsWith(expectedPrefix)) {
         throw new ApiError(403, "PHOTO_FORBIDDEN_KEY", "La imagen no pertenece a este envío/etapa.");
+      }
+
+      // AC8 de MOVO-196: chequeado ANTES de tomar el lock/pegarle a S3 (abajo) -- sin
+      // sentido pagar esa I/O si la etapa ya está en el tope. Solo aplica a
+      // pickup/delivery (evidencia de handshake); `creation` sigue sin tope propio
+      // (MOVO-81 solo le puso un mínimo, para publicar).
+      if (input.stage !== PhotoStage.creation) {
+        const existingCount = await repository.countPhotosByStage(shipmentId, input.stage);
+        if (existingCount >= MAX_EVIDENCE_PHOTOS_PER_STAGE) {
+          throw new ApiError(
+            422,
+            "PHOTO_STAGE_LIMIT_EXCEEDED",
+            `Ya se cargó el máximo de ${MAX_EVIDENCE_PHOTOS_PER_STAGE} fotos para la etapa '${input.stage}'.`
+          );
+        }
       }
 
       // Fix de review (PR #96): toma el mismo lock que usa el sweep de fotos huérfanas
@@ -210,6 +250,54 @@ export function createPhotosService(
           return { id: photo.id, stage: photo.stage, url, expiresIn, createdAt: photo.createdAt };
         })
       );
+    },
+
+    /** AC6 de MOVO-196: para que el wizard del mobile habilite/deshabilite el paso
+     * siguiente sin tener que intentar el handshake y fallar. `stage` sale del
+     * `status` actual del envío -- `assigned` implica retiro pendiente (evidencia
+     * `pickup`), `in_transit` implica entrega pendiente (evidencia `delivery`);
+     * cualquier otro estado no tiene handshake pendiente, así que no hay nada que
+     * exigir (`stage: null`, `satisfied: true`). Autorización propia (no
+     * `assertShipmentAccess`): además de emisor/receptor/admin, el transportista
+     * asignado también necesita consultarlo -- mismo criterio inline que el AC8 de
+     * MOVO-142 en `getShipmentDetail`, ese helper compartido no conoce `carrierId`. */
+    async getEvidenceStatus(shipmentId: string, callerId: string, callerRoles: UserRole[]): Promise<EvidenceStatusDto> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+
+      const isParty = callerId === shipment.senderId || callerId === shipment.receiverId || callerId === shipment.carrierId;
+      const isAdmin = callerRoles.includes(UserRole.ADMIN);
+      if (!isParty && !isAdmin) {
+        throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver el estado de evidencia de este envío.");
+      }
+
+      const stage: Extract<PhotoStage, "pickup" | "delivery"> | null =
+        shipment.status === ShipmentStatus.ASSIGNED
+          ? PhotoStage.pickup
+          : shipment.status === ShipmentStatus.IN_TRANSIT
+            ? PhotoStage.delivery
+            : null;
+
+      if (!stage) {
+        return {
+          stage: null,
+          satisfied: true,
+          photoCount: 0,
+          minRequired: MIN_EVIDENCE_PHOTOS_PER_STAGE,
+          maxAllowed: MAX_EVIDENCE_PHOTOS_PER_STAGE,
+        };
+      }
+
+      const photoCount = await repository.countPhotosByStage(shipmentId, stage);
+      return {
+        stage,
+        satisfied: photoCount >= MIN_EVIDENCE_PHOTOS_PER_STAGE,
+        photoCount,
+        minRequired: MIN_EVIDENCE_PHOTOS_PER_STAGE,
+        maxAllowed: MAX_EVIDENCE_PHOTOS_PER_STAGE,
+      };
     },
   };
 }
