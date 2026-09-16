@@ -1,6 +1,7 @@
 import {
   ActiveShipmentStatus,
   ApiError,
+  CarrierRoute,
   OfferStatus,
   PublicProfile,
   ShipmentStatus,
@@ -17,9 +18,16 @@ import { TripRepository } from "../../repositories/trip-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
+import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
 import { AvailableShipment, PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
 import { isPickupWindowExpired } from "../../domain/pickup-window";
 import { haversineKm } from "../../domain/geo";
+import {
+  aggregateCarrierStops,
+  buildDegradedRoute,
+  buildEmptyRoute,
+  mapOptimizedRoute,
+} from "../../domain/carrier-route";
 import {
   ActiveShipmentRole,
   getInitials,
@@ -508,7 +516,11 @@ export interface ShipmentsServiceOptions {
    * (MOVO-162) -- valida que el viaje exista, sea del mismo transportista y siga
    * `active` antes de dejar que la oferta lo referencie. */
   tripRepository?: TripRepository;
+  /** Requerido para `getMyRoute` (MOVO-206) -- solver de optimización VRPTW. */
+  pricingLogisticsClient?: PricingLogisticsClient;
 }
+
+export type ShipmentsService = ReturnType<typeof createShipmentsService>;
 
 export function createShipmentsService(
   repository: ShipmentRepository,
@@ -520,6 +532,7 @@ export function createShipmentsService(
   const timeoutHours = opts.receiverConfirmationTimeoutHours ?? 48;
   const offerRepository = opts.offerRepository;
   const pricingClient = opts.pricingClient;
+  const pricingLogisticsClient = opts.pricingLogisticsClient;
   const getCarrierReputationScore = opts.getCarrierReputationScore;
   const getSenderReputationScore = opts.getSenderReputationScore;
   const tripRepository = opts.tripRepository;
@@ -1370,6 +1383,51 @@ export function createShipmentsService(
           ),
         };
       });
+    },
+
+    /**
+     * MOVO-206: Ruta optimizada multi-parada del transportista autenticado (`GET /shipments/my-route`).
+     * - Consulta envíos activos del transportista.
+     * - Agrega paradas (pickup y delivery para `assigned`, solo delivery para `in_transit`).
+     * - Si no hay paradas: devuelve ruta vacía (200, AC4).
+     * - Llama a OR-Tools vía `pricingLogisticsClient.optimizeRoute` (AC5).
+     * - Si el solver falla: aplica degradación heurística con `optimized: false` (AC6).
+     * - On-demand, sin persistencia en BD (AC7, AC9).
+     */
+    async getMyRoute(carrierId: string, location: { lat: number; lng: number }): Promise<CarrierRoute> {
+      // 1. Envíos activos del transportista (aprovecha query de MOVO-192)
+      const shipments = await repository.listActiveShipments("carrierId", carrierId);
+
+      // 2. Composición de paradas (AC2)
+      const stops = aggregateCarrierStops(shipments);
+
+      // 3. Si no hay paradas activas, ruta vacía (AC4)
+      if (stops.length === 0) {
+        return buildEmptyRoute();
+      }
+
+      // 4. Invocación a pricing-logistics con fallback de degradación heurística (AC6)
+      if (!pricingLogisticsClient) {
+        logger?.warn(
+          { event: "my_route_solver_missing", carrierId },
+          "pricingLogisticsClient no inyectado -- retornando ruta degradada"
+        );
+        return buildDegradedRoute(stops);
+      }
+
+      try {
+        const result = await pricingLogisticsClient.optimizeRoute({
+          carrierLocation: { lat: location.lat, lng: location.lng },
+          stops,
+        });
+        return mapOptimizedRoute(result);
+      } catch (err) {
+        logger?.warn(
+          { err, event: "my_route_solver_failed", carrierId },
+          "Fallo al invocar el optimizador de rutas -- aplicando degradación heurística (AC6)"
+        );
+        return buildDegradedRoute(stops);
+      }
     },
   };
 }

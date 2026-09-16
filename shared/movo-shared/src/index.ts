@@ -40,11 +40,14 @@ export { PriceCalculationMethod } from "./types/pricing";
 export type { QuoteRequest, QuoteResponse, PriceBreakdownItem } from "./types/pricing";
 export { OptimizationStatus } from "./types/routing";
 export type {
+  Coordinates,
   RouteStopType,
   RouteStopInput,
   OptimizeRouteRequest,
   RouteStopOutput,
   OptimizeRouteResponse,
+  CarrierRouteStop,
+  CarrierRoute,
 } from "./types/routing";
 
 // commission

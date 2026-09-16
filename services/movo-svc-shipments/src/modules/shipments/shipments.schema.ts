@@ -651,4 +651,54 @@ export const shipmentsSchemas = {
       requestId: { type: "string" },
     },
   },
+
+  // MOVO-206: ruta optimizada del transportista
+  myRouteQuery: {
+    type: "object",
+    required: ["lat", "lng"],
+    properties: {
+      lat: { type: "number", minimum: -90, maximum: 90 },
+      lng: { type: "number", minimum: -180, maximum: 180 },
+    },
+  },
+
+  myRouteResponse: {
+    type: "object",
+    required: ["stops", "totalDistanceKm", "totalDurationMinutes", "optimized", "disclaimer"],
+    properties: {
+      stops: {
+        type: "array",
+        items: {
+          type: "object",
+          required: [
+            "stopOrder",
+            "shipmentId",
+            "type",
+            "lat",
+            "lng",
+            "estimatedArrivalMinutes",
+            "outsideTimeWindow",
+          ],
+          properties: {
+            stopOrder: { type: "integer" },
+            shipmentId: { type: "string", format: "uuid" },
+            type: { type: "string", enum: ["pickup", "delivery"] },
+            address: { type: ["string", "null"] },
+            lat: { type: "number" },
+            lng: { type: "number" },
+            estimatedArrivalMinutes: { type: "number" },
+            estimatedArrivalAt: { type: ["string", "null"] },
+            estimatedDepartureAt: { type: ["string", "null"] },
+            timeWindowStart: { type: ["string", "null"] },
+            timeWindowEnd: { type: ["string", "null"] },
+            outsideTimeWindow: { type: "boolean" },
+          },
+        },
+      },
+      totalDistanceKm: { type: "number" },
+      totalDurationMinutes: { type: "number" },
+      optimized: { type: "boolean" },
+      disclaimer: { type: ["string", "null"] },
+    },
+  },
 };

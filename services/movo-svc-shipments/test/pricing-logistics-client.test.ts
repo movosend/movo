@@ -132,4 +132,94 @@ describe("PricingLogisticsClient (MOVO-219)", () => {
       message: "Respuesta inválida o malformada del servicio de ruteo.",
     });
   });
+
+  describe("optimizeRoute (MOVO-206)", () => {
+    const sampleOptimizeInput = {
+      carrierLocation: { lat: -31.4167, lng: -64.1833 },
+      stops: [
+        {
+          shipmentId: "ship-1",
+          type: "pickup" as const,
+          lat: -31.42,
+          lng: -64.18,
+        },
+      ],
+    };
+
+    const sampleOptimizeResponse = {
+      stops: [
+        {
+          stopOrder: 0,
+          shipmentId: "ship-1",
+          type: "pickup" as const,
+          lat: -31.42,
+          lng: -64.18,
+          estimatedArrivalMinutes: 5.0,
+          outsideTimeWindow: false,
+        },
+      ],
+      totalDistanceKm: 2.5,
+      totalDurationMinutes: 10.0,
+      status: "OPTIMAL" as const,
+      calculationMethod: "haversine_vrptw_v1",
+      disclaimer: "Estimación geométrica",
+    };
+
+    it("llama exitosamente a POST /optimize/route y retorna la respuesta", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue(sampleOptimizeResponse),
+      } as unknown as Response);
+
+      const result = await client.optimizeRoute(sampleOptimizeInput);
+
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "http://pricing-service:8000/optimize/route",
+        expect.objectContaining({
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(sampleOptimizeInput),
+        })
+      );
+      expect(result).toEqual(sampleOptimizeResponse);
+    });
+
+    it("lanza ApiError 503 ROUTING_SERVICE_UNAVAILABLE ante timeout", async () => {
+      const timeoutError = new Error("The operation was aborted due to timeout");
+      timeoutError.name = "TimeoutError";
+      globalThis.fetch = vi.fn().mockRejectedValue(timeoutError);
+
+      await expect(client.optimizeRoute(sampleOptimizeInput)).rejects.toMatchObject({
+        statusCode: 503,
+        code: "ROUTING_SERVICE_UNAVAILABLE",
+      });
+    });
+
+    it("lanza ApiError 502 ROUTING_SERVICE_ERROR ante error HTTP 500 / 502", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+      } as Response);
+
+      await expect(client.optimizeRoute(sampleOptimizeInput)).rejects.toMatchObject({
+        statusCode: 502,
+        code: "ROUTING_SERVICE_ERROR",
+      });
+    });
+
+    it("lanza ApiError 502 ROUTING_SERVICE_ERROR si el body JSON es inválido", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockRejectedValue(new SyntaxError("invalid json")),
+      } as unknown as Response);
+
+      await expect(client.optimizeRoute(sampleOptimizeInput)).rejects.toMatchObject({
+        statusCode: 502,
+        code: "ROUTING_SERVICE_ERROR",
+      });
+    });
+  });
 });
+
