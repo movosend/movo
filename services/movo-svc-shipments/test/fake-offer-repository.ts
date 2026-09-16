@@ -13,6 +13,7 @@ export function createFakeOfferRepository(overrides: Partial<OfferRepository> = 
   return {
     create: vi.fn(),
     findById: vi.fn(),
+    findByIdWithShipmentContext: vi.fn(),
     listByShipment: vi.fn().mockResolvedValue([]),
     withdraw: vi.fn(),
     update: vi.fn(),

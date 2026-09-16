@@ -231,6 +231,12 @@ export const offersSchemas = {
 
   offerResponse,
 
+  // MOVO-190: mismo shape que un ítem de `listMineResponse` -- alias directo, sin
+  // duplicar la definición (evita repetir el gap ya documentado de
+  // shipments.schema.ts#offerResponse, que quedó sin priceNetArs/commissionAmountArs
+  // por no reusar el shape correcto).
+  offerDetailResponse: myOfferResponse,
+
   patchOfferBody,
 
   listMineResponse: {
