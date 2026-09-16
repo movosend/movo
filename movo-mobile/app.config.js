@@ -58,9 +58,18 @@ module.exports = {
     ios: {
       icon: "./assets/ios-icon.icon",
       supportsTablet: true,
-      bundleIdentifier:
-        process.env.IOS_BUNDLE_ID ??
-        `com.movosend.movomobile.${process.env.USER ?? "dev"}`,
+      // Identificador fijo real, siempre (MOVO-232) — antes variaba por developer
+      // (`com.movosend.movomobile.$USER`, con un override `IOS_BUNDLE_ID` opcional)
+      // para que cada uno tuviera su propio bundle id en local y no chocara
+      // provisioning profiles con un Personal Team gratis de Apple. Con todo el
+      // equipo firmando ahora contra el mismo Apple Developer Team pago (ver Xcode →
+      // Signing & Capabilities en cada máquina, `eas credentials` ya generó el
+      // certificado/provisioning profile de ese App ID), ese problema ya no existe —
+      // y el equipo quiere justamente lo contrario, que todo build (local o EAS) sea
+      // indistinguible. Sin override por env var a propósito: un `IOS_BUNDLE_ID`
+      // suelto en el `.env.local` de alguien (leftover de antes de MOVO-232) volvería
+      // a partir el bundle id en silencio.
+      bundleIdentifier: "com.movosend.movomobile",
       infoPlist: {
         NSCameraUsageDescription:
           "Movo necesita la cámara para tomar tu foto de perfil y verificar tu identidad durante el registro.",
@@ -90,7 +99,21 @@ module.exports = {
         monochromeImage: "./assets/android-icon-monochrome.png",
       },
       predictiveBackGestureEnabled: false,
-      package: "com.anonymous.movomobile",
+      // MOVO-232: reemplaza el placeholder de scaffold `com.anonymous.movomobile` —
+      // identificador fijo real, mismo criterio que `ios.bundleIdentifier` de arriba
+      // (no cambia por developer/build, Play no permite cambiarlo después del primer
+      // release).
+      package: "com.movosend.movomobile",
+      // Requerido por la migración de Expo a FCM v1 para push notifications reales en
+      // Android (independiente del ENABLE_PUSH_NOTIFICATIONS de iOS más arriba — FCM
+      // no tiene el mismo problema de provisioning con team gratis, así que no está
+      // gateado). Identifica la app ante Firebase (proyecto "movosend", package
+      // com.movosend.movomobile) — sin este archivo, Android nunca recibe push, ni en
+      // build de EAS ni en uno local (`expo run:android`). El JSON en sí no se trackea
+      // en git (`.gitignore`, mismo criterio que los `.p8`/`.p12` de iOS) — cada
+      // developer lo baja de Firebase Console y lo pega acá; en EAS Cloud se resuelve
+      // vía el secret de archivo `GOOGLE_SERVICES_JSON` (ver eas.json).
+      googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? "./google-services.json",
       permissions: ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"],
     },
     web: {
