@@ -2034,6 +2034,48 @@ Pendiente / fuera de alcance: consumo real desde `movo-mobile`
 (`use-attention-tasks.ts`, MOVO-193) -- ese ticket ya documentó el gap apuntando acá,
 migrar la sección "Requiere tu atención" a usar este endpoint queda para cuando se
 retome ese lado.
+### MOVO-190 — `GET /offers/:id`: detalle de una oferta propia (`svc-shipments`)
+
+Cierra la cadena de contrato que dejaron abierta MOVO-185/186/187/188/189: hasta
+ahora el transportista solo podía ver el contexto enriquecido de una oferta
+dentro del listado paginado (`GET /offers/mine`) o en la respuesta "recién
+mutada" de accept/reject/withdraw (sin `shipment`/`competitiveRank`) — no había
+forma de "abrir" una oferta puntual desde la lista para el detalle de MOVO-182.
+`GET /offers/:id` nuevo en `offers.routes.ts`, mismo shape que un ítem de
+`myOfferResponse` (`offersSchemas.offerDetailResponse`, alias directo de
+`myOfferResponse` — sin tercer schema parcial).
+
+Decisiones clave:
+- **Autorización trivial, no `assertIsSender*`**: "propia" = `offer.carrierId ===
+  callerId` (mismo chequeo ya usado por `withdrawOffer`/`updateOffer`) — 404
+  `OFFER_NOT_FOUND` si no existe, 403 `AUTH_FORBIDDEN` si es de otro
+  transportista. Los helpers `assertIsSender`/`assertIsSenderOrAdmin` de
+  `shipments.routes.ts` son para el emisor mirando ofertas ajenas, no aplican
+  acá.
+- **`findByIdWithShipmentContext(id, now?)` nuevo en `offer-repository.ts`**:
+  mismo `include: { shipment: true }` + `mapOfferWithShipment` que
+  `listByCarrier`, para una sola fila — evita duplicar la proyección de
+  `OfferShipmentContext`.
+- **`competitiveRank` para un solo ítem sin duplicar el batch**: la lógica que
+  antes vivía inline en `listMyOffers` (armado de competidores, desempate,
+  piso/techo) se extrajo a `attachCompetitiveRanks(items, now, ...)` en
+  `offers.service.ts` — `listMyOffers` la llama con la página completa,
+  `getOfferDetail` con `[offer]`. Mismo `now` compartido entre la lectura de la
+  oferta y el batch de competidores (criterio anti-carrera ya fijado por el fix
+  de review de MOVO-188).
+- **`viewedAtBySender` nunca se marca desde este endpoint**: ese campo significa
+  "el emisor vio la oferta" (MOVO-189) y se marca solo desde
+  `GET /shipments/:id/offers` cuando el caller es el emisor real — acá viaja de
+  solo lectura, tal cual persistido.
+- **Sin cambios en el gateway**: el prefijo `/offers` ya proxea method-agnostic
+  desde MOVO-145/181.
+
+Tests: `test/offers-detail.integration.test.ts` nuevo (7 casos contra Postgres
+real: detalle feliz con todos los campos, 403 ajena, 404 inexistente, pending
+vencida reportada `expired` sin tocar la fila, `competitiveRank: null` sobre
+envío cancelado y sobre oferta `accepted`, 401 sin `x-user-id`). Suite completa
+del servicio 667/667 (51 archivos). `tsc --noEmit` y `eslint` limpios.
+Confirmado que `app.swagger()` expone `GET /offers/{id}`.
 
 ### Pendientes de este servicio
 
