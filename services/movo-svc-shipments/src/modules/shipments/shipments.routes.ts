@@ -28,6 +28,7 @@ import {
   CreateOfferForShipmentResult,
   ListShipmentOffersQuery,
   ListShipmentOffersSort,
+  PendingRatingResult,
   ShipmentDetailResult,
 } from "./shipments.service";
 import { ActiveShipmentRole } from "../../domain/active-shipment";
@@ -118,6 +119,16 @@ function toActiveShipmentDto(item: ActiveShipmentResult) {
   };
 }
 
+/** MOVO-222: `deliveredAt` ya es un instante real (`@db.Timestamptz`, no anclado como
+ * `pickupDate`) -- `.toISOString()` directo, sin el ajuste de offset que sí necesitan
+ * `pickupDate`/`pickupTimeWindowStart`/`pickupTimeWindowEnd` en `toShipmentDto`. */
+function toPendingRatingShipmentDto(item: PendingRatingResult) {
+  return {
+    ...item,
+    deliveredAt: item.deliveredAt.toISOString(),
+  };
+}
+
 function toShipmentEventDto(event: ShipmentEvent) {
   return {
     id: event.id,
@@ -141,12 +152,16 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   const repository = createShipmentRepository(app.db);
   const offerRepository = createOfferRepository(app.db);
   const tripRepository = opts.tripRepository ?? createTripRepository(app.db);
+  // MOVO-222: instancia compartida -- también la usa `listPendingRatings` (vía
+  // `ShipmentsServiceOptions.ratingRepository`) para saber qué ya calificó el caller,
+  // sin construir un segundo repositorio.
+  const ratingRepository = createRatingRepository(app.db);
   // MOVO-143 AC7: mismo criterio documentado en MOVO-147 -- getReputationSummary() se
   // llama LOCAL (misma DB/proceso, sin HTTP contra sí mismo) para snapshotear
   // carrierRatingAtOffer. Se construye acá un ratingsService propio (en vez de
   // reusar uno inyectado) porque este módulo no tiene otro motivo para depender de
   // `ratings.routes.ts`.
-  const ratingsService = createRatingsService(repository, createRatingRepository(app.db), undefined, app.log, {
+  const ratingsService = createRatingsService(repository, ratingRepository, undefined, app.log, {
     confidenceConstant: app.config.REPUTATION_CONFIDENCE_CONSTANT,
     decayHalfLifeDays: app.config.REPUTATION_DECAY_HALF_LIFE_DAYS,
   });
@@ -158,6 +173,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       pricingClient,
       pricingLogisticsClient,
       tripRepository,
+      ratingRepository,
     getCarrierReputationScore: async (carrierId: string) => {
       const summary = await ratingsService.getReputationSummary(carrierId);
       return summary.asCarrier.reputationScore;
@@ -447,6 +463,35 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       "operativo (MOVO-193). La contraparte es siempre el transportista asignado " +
       "(con quien el receptor coordina la entrega). Lista vacía (200) si no tiene " +
       "ninguno, nunca 404. Mismo orden que /sending."
+  );
+
+  // Ruta estática ("/pending-ratings") -- mismo criterio que "/mine"/"/sending"/etc:
+  // se registra antes de "/:id" por prolijidad.
+  app.get(
+    "/pending-ratings",
+    {
+      schema: {
+        summary: "Envíos con calificaciones pendientes de dar",
+        description:
+          "MOVO-222: envíos delivered/completed donde el usuario autenticado (en " +
+          "cualquier rol -- emisor, receptor o transportista) todavía tiene, dentro " +
+          "de la ventana de 72hs de MOVO-146, alguna contraparte sin calificar según " +
+          "la regla de interacción física ya definida en MOVO-153 (emisor/receptor " +
+          "califican solo al transportista; el transportista califica a ambos). Solo " +
+          "se listan envíos con algo pendiente -- pendingRatingFor nunca viaja vacío " +
+          "acá. Sin paginación, lista vacía (200) si no hay ninguno.",
+        tags: ["shipments"],
+        response: {
+          200: shipmentsSchemas.listPendingRatingsResponse,
+          401: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const items = await service.listPendingRatings(callerId);
+      return items.map(toPendingRatingShipmentDto);
+    }
   );
 
   app.get(

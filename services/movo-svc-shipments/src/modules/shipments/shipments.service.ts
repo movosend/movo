@@ -15,11 +15,13 @@ import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { TripRepository } from "../../repositories/trip-repository";
+import { RatingRepository } from "../../repositories/rating-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
 import { AvailableShipment, PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
+import { RatingRole } from "../../models/rating";
 import { isPickupWindowExpired } from "../../domain/pickup-window";
 import { haversineKm } from "../../domain/geo";
 import {
@@ -35,6 +37,8 @@ import {
   isShipmentPickupToday,
   resolveActiveShipmentCounterpartyId,
 } from "../../domain/active-shipment";
+import { computePendingRatingFor } from "../../domain/pending-rating";
+import { RATING_WINDOW_HOURS } from "../../domain/rating-window";
 import { Offer } from "../../models/offer";
 import {
   assertIsNotShipmentParty,
@@ -218,6 +222,24 @@ const ACTIVE_SHIPMENT_ROLE_TO_COLUMN: Record<ActiveShipmentRole, "senderId" | "c
   transporting: "carrierId",
   receiving: "receiverId",
 };
+
+/**
+ * MOVO-222: resultado interno de `listPendingRatings` -- `deliveredAt` sigue siendo
+ * `Date` acá (mismo criterio que `Shipment`/`ActiveShipmentResult`), la ruta lo
+ * formatea a string. `status` se acota a los dos valores "fulfilled" porque
+ * `repository.findPendingRatingCandidates` ya filtró por
+ * `FULFILLED_SHIPMENT_STATUSES` -- el cast en el mapeo documenta esa garantía, no la
+ * reimplementa.
+ */
+export interface PendingRatingResult {
+  id: string;
+  status: ShipmentStatus.DELIVERED | ShipmentStatus.COMPLETED;
+  deliveredAt: Date;
+  senderId: string;
+  receiverId: string;
+  carrierId: string;
+  pendingRatingFor: RatingRole[];
+}
 
 // Fallback cuando `usersClient.findPublicProfile` de la contraparte falla o devuelve
 // null -- no debería pasar en la práctica (la contraparte es siempre alguien que ya
@@ -518,6 +540,13 @@ export interface ShipmentsServiceOptions {
   tripRepository?: TripRepository;
   /** Requerido para `getMyRoute` (MOVO-206) -- solver de optimización VRPTW. */
   pricingLogisticsClient?: PricingLogisticsClient;
+  /**
+   * Requerido solo para `listPendingRatings` (MOVO-222) -- resuelve qué calificaciones
+   * ya hizo el caller (`listByRaterForShipments`). Sin repositorio inyectado degrada a
+   * lista vacía, mismo criterio best-effort que `pricingClient` en `createShipment`:
+   * varios tests existentes construyen el servicio sin pasar todas las opciones.
+   */
+  ratingRepository?: RatingRepository;
 }
 
 export type ShipmentsService = ReturnType<typeof createShipmentsService>;
@@ -536,6 +565,7 @@ export function createShipmentsService(
   const getCarrierReputationScore = opts.getCarrierReputationScore;
   const getSenderReputationScore = opts.getSenderReputationScore;
   const tripRepository = opts.tripRepository;
+  const ratingRepository = opts.ratingRepository;
 
   return {
     async createShipment(input: CreateShipmentServiceInput): Promise<Shipment> {
@@ -1428,6 +1458,60 @@ export function createShipmentsService(
         );
         return buildDegradedRoute(stops);
       }
+    },
+
+    /**
+     * MOVO-222: envíos `delivered`/`completed` de `callerId` (en cualquier rol --
+     * emisor, receptor o transportista) donde todavía le falta calificar a alguna
+     * contraparte dentro de la ventana de 72hs. Solo se devuelven ítems con algo
+     * pendiente (AC del ticket: `pendingRatingFor` nunca viaja vacío acá).
+     */
+    async listPendingRatings(callerId: string): Promise<PendingRatingResult[]> {
+      if (!ratingRepository) {
+        return [];
+      }
+
+      const deliveredSince = new Date(Date.now() - RATING_WINDOW_HOURS * 60 * 60 * 1000);
+      const candidates = await repository.findPendingRatingCandidates(callerId, deliveredSince);
+      if (candidates.length === 0) {
+        return [];
+      }
+
+      const myRatings = await ratingRepository.listByRaterForShipments(
+        callerId,
+        candidates.map((shipment) => shipment.id)
+      );
+      const ratedRolesByShipment = new Map<string, Set<RatingRole>>();
+      for (const rating of myRatings) {
+        const roles = ratedRolesByShipment.get(rating.shipmentId) ?? new Set<RatingRole>();
+        roles.add(rating.role);
+        ratedRolesByShipment.set(rating.shipmentId, roles);
+      }
+
+      const results: PendingRatingResult[] = [];
+      for (const shipment of candidates) {
+        const events = await repository.listEvents(shipment.id);
+        const alreadyRated = ratedRolesByShipment.get(shipment.id) ?? new Set<RatingRole>();
+        const pendingRatingFor = computePendingRatingFor(shipment, events, callerId, alreadyRated);
+        if (pendingRatingFor.length === 0) {
+          continue;
+        }
+        results.push({
+          id: shipment.id,
+          // Garantizado por `FULFILLED_SHIPMENT_STATUSES` -- `findPendingRatingCandidates`
+          // ya filtró por ese subconjunto antes de llegar acá.
+          status: shipment.status as ShipmentStatus.DELIVERED | ShipmentStatus.COMPLETED,
+          // Garantizado por `computePendingRatingFor` (nunca deja pasar sin `deliveredAt`).
+          deliveredAt: shipment.deliveredAt as Date,
+          senderId: shipment.senderId,
+          receiverId: shipment.receiverId,
+          // Garantizado no-nulo: `delivered`/`completed` solo se alcanza después de
+          // `in_transit`, que ya requiere `carrierId` asignado.
+          carrierId: shipment.carrierId as string,
+          pendingRatingFor,
+        });
+      }
+      return results;
     },
   };
 }

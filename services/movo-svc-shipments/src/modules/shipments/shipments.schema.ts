@@ -306,6 +306,34 @@ const activeShipmentSummaryResponse = {
   },
 };
 
+// MOVO-222: mismos 3 valores que `RatingRole` (`models/rating.ts`, enum Prisma) y
+// `@movo/shared#RatingRole`.
+const RATING_ROLE_VALUES = ["sender", "carrier", "receiver"];
+
+// MOVO-222: único subconjunto de `status` que puede aparecer en la respuesta de
+// GET /shipments/pending-ratings -- `findPendingRatingCandidates` ya filtra por
+// FULFILLED_SHIPMENT_STATUSES antes de llegar acá.
+const PENDING_RATING_STATUS_VALUES = ["delivered", "completed"];
+
+const pendingRatingShipmentResponse = {
+  type: "object",
+  required: ["id", "status", "deliveredAt", "senderId", "receiverId", "carrierId", "pendingRatingFor"],
+  properties: {
+    id: { type: "string" },
+    status: { type: "string", enum: PENDING_RATING_STATUS_VALUES },
+    deliveredAt: { type: "string", format: "date-time" },
+    senderId: { type: "string" },
+    receiverId: { type: "string" },
+    carrierId: { type: "string" },
+    // Nunca vacío -- el servicio solo devuelve ítems con algo pendiente de calificar.
+    pendingRatingFor: {
+      type: "array",
+      items: { type: "string", enum: RATING_ROLE_VALUES },
+      minItems: 1,
+    },
+  },
+};
+
 const shipmentEventResponse = {
   type: "object",
   required: ["id", "shipmentId", "fromStatus", "toStatus", "actorId", "reason", "createdAt"],
@@ -462,6 +490,16 @@ export const shipmentsSchemas = {
   listActiveShipmentsResponse: {
     type: "array",
     items: activeShipmentSummaryResponse,
+  },
+
+  pendingRatingShipmentResponse,
+
+  // MOVO-222: sin paginación (mismo criterio que listActiveShipmentsResponse) -- el
+  // volumen realista (envíos entregados en las últimas 72hs con algo pendiente) nunca
+  // es grande.
+  listPendingRatingsResponse: {
+    type: "array",
+    items: pendingRatingShipmentResponse,
   },
 
   routeQuery: {

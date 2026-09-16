@@ -458,6 +458,19 @@ export interface ShipmentRepository {
    * ascendente y, dentro del mismo día, por `pickupTimeWindowStart` ascendente (AC7).
    */
   listActiveShipments(role: "senderId" | "carrierId" | "receiverId", userId: string): Promise<Shipment[]>;
+  /**
+   * MOVO-222: candidatos a calificar todavía pendientes de `userId` — `delivered`/
+   * `completed` donde participa en CUALQUIER rol (`senderId`/`receiverId`/
+   * `carrierId`), a diferencia de `listByUser` (`/mine`), que nunca incluyó
+   * `carrierId` (gap desde MOVO-80 — "no hay asignación automática este sprint" en
+   * ese momento). Es justamente el rol que este método necesita cubrir para el caso
+   * "transportista con 2 contrapartes" del DoD del ticket. `deliveredSince` acota en
+   * SQL a la ventana de 72hs de `rating-window.ts` (evita traer a memoria envíos
+   * entregados hace meses que ya no pueden calificarse) — el filtro fino (freeze por
+   * disputa, ya calificado) lo hace el caller en JS (`computePendingRatingFor`),
+   * mismo criterio que el resto del dominio de no replicar esa lógica en SQL.
+   */
+  findPendingRatingCandidates(userId: string, deliveredSince: Date): Promise<Shipment[]>;
 }
 
 export class ShipmentNotFoundError extends Error {
@@ -898,6 +911,18 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       const rows = await db.shipment.findMany({
         where: { [role]: userId, status: { in: [...ACTIVE_SHIPMENT_STATUSES] } },
         orderBy: [{ pickupDate: "asc" }, { pickupTimeWindowStart: "asc" }],
+      });
+      return rows.map(mapShipment);
+    },
+
+    async findPendingRatingCandidates(userId: string, deliveredSince: Date): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: {
+          OR: [{ senderId: userId }, { receiverId: userId }, { carrierId: userId }],
+          status: { in: [...FULFILLED_SHIPMENT_STATUSES] },
+          deliveredAt: { gte: deliveredSince },
+        },
+        orderBy: { deliveredAt: "desc" },
       });
       return rows.map(mapShipment);
     },
