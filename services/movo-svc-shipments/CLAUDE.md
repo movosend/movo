@@ -1941,6 +1941,67 @@ consumiendo el endpoint real en vez de su mock (`MOVO-193` ya está Done contra 
 migrar es un ajuste de esa rama, no de este ticket); "Estoy transportando" en el home
 (fase 2 de `MOVO-193`, todavía no llama a `GET /shipments/transporting`).
 
+### MOVO-196 — Exigir evidencia fotográfica del stage antes de permitir el handshake
+
+Cierra el hueco que dejaba MOVO-158: el handshake de retiro/entrega se podía confirmar
+sin una sola foto. Sin migración — `PhotoStage.pickup`/`.delivery` ya existían en el
+enum desde MOVO-104, sin habilitar hasta ahora en el contrato HTTP ni en ninguna regla
+de negocio.
+
+Decisiones clave:
+- **El ticket pedía `src/repositories/shipment-photo-repository.ts` (no existe)**: la
+  consulta nueva (`countPhotosByStage`) se agregó a `shipment-repository.ts`, junto a
+  `addPhoto`/`listPhotos`/`existsPhotoByS3Key` — este servicio nunca tuvo un
+  repositorio de fotos separado (MOVO-81).
+- **`PHOTO_STAGE_VALUES` en `shipments.schema.ts` solo tenía `"creation"`** pese a que
+  el dominio (`PhotoStage`, `addPhoto`) ya era genérico por stage desde MOVO-104 — el
+  propio comentario del archivo ya anticipaba este ticket como el que sumaría
+  `pickup`/`delivery` ahí. Sin este cambio, AJV rechazaba con 400 cualquier
+  `stage: pickup|delivery` antes de llegar a la capa de autorización.
+- **`MIN_EVIDENCE_PHOTOS_PER_STAGE`/`MAX_EVIDENCE_PHOTOS_PER_STAGE`** (`domain/
+  evidence-photos.ts`, nuevo, 1 y 5): constantes nombradas, no un literal embebido —
+  mismo criterio que `MIN_CREATION_PHOTOS_TO_PUBLISH` (MOVO-81) para la misma frase del
+  AC ("no hardcodeada en el flujo"). Distinto módulo porque es una regla de negocio
+  distinta (gatea el handshake, no `-> published`) sin relación con `creation`.
+- **AC5 corrige un gap real, no solo agrega uno nuevo**: `photos.service.ts` nunca
+  restringía `presign`/`confirm` por `stage` — solo exigía `callerId === senderId` sin
+  importar qué etapa se mandara, así que el emisor ya podía (sin que nada lo evitara)
+  presignar `stage: pickup`, y el transportista no podía subir nada en absoluto.
+  `assertCanRegisterPhoto()` (nuevo, `photos.service.ts`) resuelve los dos: `creation`
+  sigue siendo del emisor, `pickup`/`delivery` pasan a `assertIsCarrier` (mismo helper
+  que ya usaba el handshake, MOVO-158).
+- **Orden de validación del handshake (AC3)**: el chequeo de evidencia se insertó en
+  `confirmHandshake` DESPUÉS de la autorización (`assertIsCarrier`/`assertIsReceiver`)
+  pero ANTES de `findDeviceKey`/verificación de firma/distancia — evita pagar la
+  llamada a `svc-users` y el WebCrypto verify en un intento que de todas formas iba a
+  fallar. `stage` sigue viniendo del desafío pendiente de Redis, nunca de
+  `shipment.status` (no se tocó esa parte, sigue siendo la fuente de verdad fijada por
+  el fix de concurrencia de MOVO-158).
+- **AC8 (tope de 5) sin código de error dado por el ticket**: se agregó
+  `PHOTO_STAGE_LIMIT_EXCEEDED` (422), familia `PHOTO_*` existente. Solo aplica a
+  `pickup`/`delivery` — `creation` no tiene tope propio (MOVO-81 solo le puso mínimo).
+- **`GET /:id/evidence-status` (AC6) con autorización propia, no `assertShipmentAccess`**:
+  el transportista asignado también necesita consultarlo antes de intentar el
+  handshake, y ese helper compartido no conoce `carrierId` — mismo criterio inline que
+  ya usó el AC8 de MOVO-142 en `getShipmentDetail`. `stage: null` (con
+  `satisfied: true`) para cualquier estado del envío sin handshake pendiente.
+
+Tests: 2 casos nuevos en `handshake-service.test.ts` (los dos códigos de rechazo +
+assert de que `findDeviceKey` nunca se llama cuando falta evidencia), 5 casos nuevos en
+`handshake.integration.test.ts` (sin evidencia en retiro/entrega, una foto solo
+presignada-nunca-confirmada no cuenta, reintento exitoso con el mismo nonce tras
+agregar la evidencia) + 4 casos nuevos de `GET /:id/evidence-status`, 6 casos nuevos en
+`photos.integration.test.ts` (autorización por etapa en las dos direcciones, tope de 5
+en `pickup`). Los fixtures compartidos de retiro/entrega de `handshake.integration.test.ts`
+ahora seedean evidencia por default (`withPickupEvidence`/`withDeliveryEvidence`,
+default `true`) para no romper los tests preexistentes que no son sobre MOVO-196. Suite
+completa del servicio 657/657 (47 archivos), corrida contra Postgres/Redis reales.
+`tsc --noEmit` y `eslint` limpios en los archivos de esta US. Confirmado que
+`app.swagger()` expone `/shipments/{id}/evidence-status`.
+
+Pendiente / fuera de alcance (explícito del ticket): comparación automática
+creation↔pickup para detectar daños (visión por computadora, a registrar como historia
+futura); visibilidad agrupada de fotos por stage para emisor/receptor/admin (MOVO-194).
 ### MOVO-206 — Agregación de paradas del transportista y contrato con pricing-logistics (`GET /shipments/my-route`)
 
 Endpoint `GET /shipments/my-route` en `shipments.routes.ts`: agrega las paradas activas

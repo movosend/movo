@@ -7,6 +7,7 @@ import { ShipmentRepository } from "../src/repositories/shipment-repository";
 import { HandshakeEvent } from "../src/models/handshake";
 import { Shipment, PackageType } from "../src/models/shipment";
 import { buildHandshakeCanonicalPayload } from "../src/domain/handshake-crypto";
+import { MIN_EVIDENCE_PHOTOS_PER_STAGE } from "../src/domain/evidence-photos";
 import { createFakeUsersClient } from "./fake-users-client";
 import { createFakeFundsReleaseNotifier } from "./fake-funds-release-notifier";
 
@@ -89,6 +90,10 @@ function fakeShipmentRepository(overrides: Partial<ShipmentRepository> = {}): Sh
     addPhoto: vi.fn(),
     listPhotos: vi.fn(),
     existsPhotoByS3Key: vi.fn(),
+    // Default: hay evidencia de sobra -- los tests que no son sobre MOVO-196
+    // (firma/distancia/CAS/etc.) no tienen que preocuparse por fotos. Los tests de
+    // evidencia de abajo pisan esto explícitamente con 0.
+    countPhotosByStage: vi.fn().mockResolvedValue(MIN_EVIDENCE_PHOTOS_PER_STAGE),
     listByUser: vi.fn(),
     listAvailable: vi.fn(),
     findExpiredAwaitingConfirmation: vi.fn(),
@@ -539,6 +544,92 @@ describe("handshake.service", () => {
           lng: -64.18,
         })
       ).rejects.toMatchObject({ statusCode: 410, code: "HANDSHAKE_QR_EXPIRED" });
+
+      expect(handshakeRepository.confirmAndPersist).not.toHaveBeenCalled();
+    });
+
+    it("422 PICKUP_EVIDENCE_MISSING si no hay evidencia confirmada de la etapa de retiro (MOVO-196)", async () => {
+      const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED });
+      const redis = createFakeRedis();
+      const { nonce, signature } = await seedPendingChallenge(
+        redis,
+        shipment.id,
+        "pickup",
+        shipment.senderId,
+        -31.4201,
+        -64.1888
+      );
+      const handshakeRepository = fakeHandshakeRepository();
+      const baseUsersClient = createFakeUsersClient({}, {
+        [shipment.senderId]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() },
+      });
+      const usersClient = { ...baseUsersClient, findDeviceKey: vi.fn(baseUsersClient.findDeviceKey) };
+      const service = createHandshakeService(
+        fakeShipmentRepository({
+          findById: vi.fn().mockResolvedValue(shipment),
+          countPhotosByStage: vi.fn().mockResolvedValue(0),
+        }),
+        handshakeRepository,
+        usersClient,
+        redis,
+        createFakeFundsReleaseNotifier()
+      );
+
+      await expect(
+        service.confirmHandshake({
+          shipmentId: shipment.id,
+          callerId: shipment.carrierId as string,
+          nonce,
+          signature,
+          lat: -31.4201,
+          lng: -64.1888,
+        })
+      ).rejects.toMatchObject({ statusCode: 422, code: "PICKUP_EVIDENCE_MISSING" });
+
+      // AC3: no se paga el costo de las validaciones criptográficas (deviceKey/firma)
+      // en un intento que de todas formas iba a fallar por falta de evidencia.
+      expect(usersClient.findDeviceKey).not.toHaveBeenCalled();
+      // Tampoco se toca la transición ni se consume el nonce -- reintentable dentro
+      // del mismo TTL apenas exista la evidencia.
+      expect(handshakeRepository.confirmAndPersist).not.toHaveBeenCalled();
+      expect(redis.store.has(`handshake:pending:${shipment.id}`)).toBe(true);
+    });
+
+    it("422 DELIVERY_EVIDENCE_MISSING si no hay evidencia confirmada de la etapa de entrega (MOVO-196)", async () => {
+      const shipment = fakeShipment({ status: ShipmentStatus.IN_TRANSIT });
+      const redis = createFakeRedis();
+      const { nonce, signature } = await seedPendingChallenge(
+        redis,
+        shipment.id,
+        "delivery",
+        shipment.carrierId as string,
+        -31.4353,
+        -64.1858
+      );
+      const handshakeRepository = fakeHandshakeRepository();
+      const service = createHandshakeService(
+        fakeShipmentRepository({
+          findById: vi.fn().mockResolvedValue(shipment),
+          countPhotosByStage: vi.fn().mockResolvedValue(0),
+        }),
+        handshakeRepository,
+        createFakeUsersClient({}, {
+          [shipment.carrierId as string]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() },
+        }),
+        redis,
+        createFakeFundsReleaseNotifier()
+      );
+
+      await expect(
+        service.confirmHandshake({
+          shipmentId: shipment.id,
+          callerId: shipment.receiverId,
+          nonce,
+          signature,
+          lat: -31.4353,
+          lng: -64.1858,
+        })
+      ).rejects.toMatchObject({ statusCode: 422, code: "DELIVERY_EVIDENCE_MISSING" });
 
       expect(handshakeRepository.confirmAndPersist).not.toHaveBeenCalled();
     });
