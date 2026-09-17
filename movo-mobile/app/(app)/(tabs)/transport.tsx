@@ -8,6 +8,7 @@ import {
   MapPin,
   PackageX,
   Radar,
+  Route,
   ShieldAlert,
   SlidersHorizontal,
 } from "lucide-react-native";
@@ -88,9 +89,8 @@ function RadiusAndFiltersRow({
       <Pressable
         testID="transport-open-filters"
         onPress={onOpenFilters}
-        className={`h-[34px] w-[34px] items-center justify-center rounded-full ${
-          filterCount > 0 ? "bg-fg" : "bg-bg-mute"
-        }`}
+        className={`h-[34px] w-[34px] items-center justify-center rounded-full ${filterCount > 0 ? "bg-fg" : "bg-bg-mute"
+          }`}
       >
         <SlidersHorizontal size={16} strokeWidth={1.8} color={filterCount > 0 ? colors.bg : colors.fg1} />
         {filterCount > 0 ? (
@@ -348,13 +348,32 @@ export default function TransportScreen() {
       </View>
 
       {!isTripMode ? (
-        <TransportAccessCards
-          tripsMeta={tripsMeta}
-          offersMeta={offersMeta}
-          offersNeedAttention={acceptedOffersCount > 0}
-          onPressTrips={() => router.push("/carrier/trips" as any)}
-          onPressOffers={() => router.push("/carrier/offers" as any)}
-        />
+        <>
+          <Pressable
+            testID="transport-my-route-cta"
+            onPress={() => router.push("/route" as any)}
+            className="mx-5 mb-3 flex-row items-center justify-between rounded-[10px] border border-border bg-bg-sub p-3.5"
+          >
+            <View className="flex-row items-center gap-3">
+              <View className="h-8 w-8 items-center justify-center rounded-full bg-lime-500/15">
+                <Route size={17} strokeWidth={2} color="#2BB673" />
+              </View>
+              <View>
+                <Text className="font-sans-semibold text-[14px] text-fg">Mi ruta de hoy</Text>
+                <Text className="font-sans text-[11.5px] text-fg-3">Mapa y paradas optimizadas</Text>
+              </View>
+            </View>
+            <ArrowRight size={15} strokeWidth={1.8} color={colors.fg2} />
+          </Pressable>
+
+          <TransportAccessCards
+            tripsMeta={tripsMeta}
+            offersMeta={offersMeta}
+            offersNeedAttention={acceptedOffersCount > 0}
+            onPressTrips={() => router.push("/carrier/trips" as any)}
+            onPressOffers={() => router.push("/carrier/offers" as any)}
+          />
+        </>
       ) : null}
 
       {!isTripMode && origin ? (
@@ -480,9 +499,9 @@ export default function TransportScreen() {
               detour={
                 detour
                   ? {
-                      onTrip: `${shortAddressLabel(detour.trip.originAddress)} → ${shortAddressLabel(detour.trip.destinationAddress)}`,
-                      detourKm: detour.detourKm,
-                    }
+                    onTrip: `${shortAddressLabel(detour.trip.originAddress)} → ${shortAddressLabel(detour.trip.destinationAddress)}`,
+                    detourKm: detour.detourKm,
+                  }
                   : null
               }
             />

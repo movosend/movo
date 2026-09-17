@@ -2584,3 +2584,16 @@ Tests: casos nuevos en `test/shipment-format.test.ts` para `shipmentStatusLabel`
 `shipmentStatusTone`/`shipmentLifecycleStage`/`shipmentEventTitle`/
 `shipmentPendingStepLabel`/`remainingLifecycleSteps` con los 2 estados nuevos. 103/103
 suites, 796/796 tests. `tsc --noEmit` limpio.
+
+### MOVO-207 — Mapa de ruta optimizada multi-parada, paradas ordenadas, ETA y recálculo
+
+Pantalla completa de itinerario y mapa de ruta optimizada para el transportista (`app/(app)/route/index.tsx`), consumiendo `GET /shipments/my-route` (MOVO-206) y el solver VRPTW. Acceso desde la pestaña Transportar (`app/(app)/(tabs)/transport.tsx`, "Mi ruta de hoy").
+
+- **`components/route/route-map.tsx` (nuevo)**: mapa Google Maps con marcadores numerados según orden del algoritmo (AC2), diferenciación visual círculo negro con borde lima para retiros y verde lima para entregas (AC3), posición actual del transportista y punto de origen con tooltips contextuales, y botones flotantes complementarios "Centrar" y "Ver ruta completa".
+- **`components/route/stop-list.tsx` (nuevo)**: sheet inferior sincronizado (AC4) que inicia en vista compacta (30% de pantalla) destacando la parada activa con sus CTAs de acción ("Ver envío" / "Retirar"/"Entregar paquete"), y expande fluidamente el listado completo con `LayoutAnimation`. Paradas fuera de ventana horaria destacadas en rojo con badge (AC5). Aviso de degradación heurística discreto cuando `optimized: false` (AC6).
+- **`src/hooks/use-optimized-route.ts` (nuevo)**: maneja carga, errores, obtención de GPS foreground estricta sin coordenadas inventadas (AC8), y recálculo automático al volver a la pantalla tras completar una parada en un wizard vía `useFocusEffect` (AC7).
+- **ETA como estimación (AC11)**: todos los tiempos estimados se formatean explícitamente con copy "aprox." (`formatEstimatedArrival`).
+- **Modo Demo para desarrollo (`__DEV__`)**: accesible desde el estado vacío ("Sin paradas asignadas"), error o sin GPS en builds de desarrollo, permitiendo visualizar la ruta completa con polilínea trazada (Córdoba → Las Mulitas → Oncativo → Villa María) e interactuar con el flujo sin tener que generar manualmente viajes con estados complejos en base de datos. Los mocks en `shipmentsClient.getById` quedan estrictamente aislados detrás de `__DEV__`.
+
+Tests: `test/route-screen.test.tsx` (montaje, estados de carga, vacío, sin GPS, error y demo), `test/route-components.test.tsx` (unitarios de `StopList` y `RouteMap`, AC2-AC6, AC11), `test/use-optimized-route.test.ts` (hook, focus effect, GPS y errores), y `test/transport-screen.test.tsx` (acceso a /route). 126/126 suites y 954/954 tests pasando limpios en `movo-mobile`. `tsc --noEmit` sin errores.
+
