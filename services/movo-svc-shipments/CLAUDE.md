@@ -2040,6 +2040,96 @@ servicio), `test/shipments-my-route.routes.test.ts` (5 tests de endpoints HTTP).
 28 tests nuevos, 127/127 unitarios de shipments pasando limpios, `tsc --noEmit` y `npm run lint`
 100% en verde.
 
+### MOVO-222 — `GET /shipments/pending-ratings`: envíos con calificaciones pendientes de dar
+
+Cierra el gap que `use-attention-tasks.ts` (mobile, MOVO-193) había dejado documentado
+en su propio comentario: no existía ningún endpoint que listara, para el usuario
+autenticado, los envíos entregados donde todavía falta calificar a una contraparte
+(`ratings-client.ts` solo permite crear/leer una calificación puntual). Endpoint nuevo
+`GET /shipments/pending-ratings` (`shipments.routes.ts`/`.service.ts`/`.schema.ts`) +
+dominio puro nuevo `src/domain/pending-rating.ts`.
+
+Decisiones clave:
+- **Endpoint dedicado, no un campo en `GET /shipments/mine`** (la alternativa que el
+  propio ticket dejaba planteada) — decisión tomada con el usuario. `/mine` nunca
+  incluyó envíos donde el usuario es solo `carrierId` (gap desde MOVO-80), y el DoD del
+  ticket pide explícitamente el caso "transportista con 2 contrapartes" — ampliar el
+  filtro de `/mine` para cubrirlo habría cambiado la paginación/orden de 3 pantallas
+  mobile ya existentes (`RecentShipmentsSection`, "Mis Envíos", `use-attention-tasks.ts`)
+  fuera del alcance de este ticket (100% backend). `shipmentRepository.
+  findPendingRatingCandidates()` (nuevo) escanea sender+receiver+carrier, a diferencia
+  de `listByUser()` (`/mine`).
+- **Regla de "interacción física" de MOVO-153 reproducida del lado del backend por
+  primera vez** (`pending-rating.ts#expectedRateeRoles`): emisor y receptor solo
+  califican al transportista, el transportista califica a ambos. `ratings.service.ts`
+  (MOVO-146) nunca impuso este pareo -- deja que cualquier parte califique a cualquier
+  otra -- así que sin esta función el flag hubiera podido sugerir, ej., que el emisor
+  tiene pendiente calificar al receptor, algo que el mobile nunca ofrece.
+- **Solo se listan envíos con algo pendiente** (`pendingRatingFor` nunca viaja vacío en
+  un ítem) -- el servicio filtra server-side en vez de forzar a cada consumidor a
+  chequear el largo del array, mismo motivo por el que se descartó el campo en `/mine`
+  ("no cargar el endpoint con un dato que la mayoría no necesita").
+- **`RatingRole`/`PendingRatingShipment` migrados a `@movo/shared`** (primera vez que
+  `RatingRole` cruza el barrel compartido -- antes vivía duplicado como enum Prisma en
+  el backend y como literal propio en `movo-mobile/ratings-client.ts`).
+- **`rating-repository.ts#listByRaterForShipments`** (batch, mismo criterio N+1 que
+  `listForReputationByRateeIds` de MOVO-188) resuelve qué ya calificó el caller sin una
+  query por candidato.
+- Sin paginación (mismo criterio que MOVO-192): el volumen realista (envíos entregados
+  en las últimas 72hs con algo pendiente) nunca es grande.
+
+Tests: `test/pending-rating.test.ts` (dominio puro -- las 3 reglas de pareo, ventana
+vencida, disputa, `completed` también calificable, ajeno al envío),
+`test/shipments-pending-ratings.service.test.ts` (mocks -- wiring del servicio, ventana
+de candidatos, filtrado de ítems sin nada pendiente),
+`test/shipments-pending-ratings.integration.test.ts` (Postgres real -- los 3 casos
+límite del DoD: ventana vencida, ya calificado, transportista calificado parcialmente
+con 2 contrapartes; más un test de regresión explícito confirmando que el mismo envío
+NO aparece para el transportista en `GET /shipments/mine`, la razón real del endpoint
+dedicado). Suite completa del servicio verificada contra Postgres/Redis reales: 673
+tests pasan (las 17 fallas de `offers-mine.integration.test.ts` son el bug preexistente
+de credenciales ya documentado en MOVO-208, sin relación con este ticket). `tsc --noEmit`
+y `eslint` limpios. Confirmado que `app.swagger()` expone `/shipments/pending-ratings`.
+
+Pendiente / fuera de alcance: consumo real desde `movo-mobile`
+(`use-attention-tasks.ts`, MOVO-193) -- ese ticket ya documentó el gap apuntando acá,
+migrar la sección "Requiere tu atención" a usar este endpoint queda para cuando se
+retome ese lado.
+
+**Correcciones de review (mismo PR, antes de merge):**
+- **Prefiltro SQL con margen sobre el freeze de disputa**: `findPendingRatingCandidates`
+  cortaba en SQL a las `RATING_WINDOW_HOURS` (72hs) a secas, ignorando que
+  `isRatingWindowOpen` puede extender la ventana real por tiempo en `disputed`
+  (MOVO-146 AC9) -- un candidato con freeze quedaba descartado antes de llegar al
+  chequeo fino. Inalcanzable hoy porque `disputed` no tiene transición de salida
+  modelada, pero se hubiera vuelto un bug real y silencioso apenas exista resolución
+  de disputas. Fix: nuevo `MAX_DISPUTE_FREEZE_HOURS` (`rating-window.ts`, margen
+  práctico de 30 días) sumado al prefiltro -- el filtro exacto sigue en
+  `isRatingWindowOpen` por candidato, esto solo evita que el prefiltro sea más
+  estricto que esa verdad. Test de regresión en la integración simulando el freeze
+  con eventos insertados directo contra la tabla (mismo criterio que
+  `deliveredHoursAgo` para simular estados que la state machine actual no alcanza
+  sola).
+- **`listEvents` en paralelo**: `listPendingRatings` traía los eventos de cada
+  candidato en un `for` secuencial -- un round-trip por candidato -- mientras el
+  lookup de ratings ya estaba batcheado. Ahora `Promise.all` junto con
+  `listByRaterForShipments`.
+- **`ratingDeadline` en el wire contract** (`PendingRatingShipment`): antes solo
+  viajaba `deliveredAt`, forzando a cualquier cliente a recomputar 72hs a mano --
+  imposible de hacer bien porque el freeze de disputa extiende la ventana de forma
+  variable. Ahora se expone el deadline absoluto ya resuelto por
+  `computeRatingWindowDeadline`, mismo criterio que
+  `ActiveShipmentSummary.receiverConfirmationDeadline`.
+- **Guarda explícita en vez de cast ciego para `carrierId`**: la columna es nullable
+  en el schema; el mapeo asumía por invariante del state machine que nunca lo sería
+  en un envío `delivered`/`completed`. Ahora se valida en runtime y se omite (con
+  `logger.warn`) el ítem si la invariante alguna vez se rompiera, en vez de arriesgar
+  un 500 de serialización para toda la lista.
+- **`RatingRole` desduplicado también del lado de `movo-mobile`**:
+  `src/api/ratings-client.ts` reexporta el tipo desde `@movo/shared` en vez de
+  mantener su propio literal -- de las 3 copias que señalaba el comentario original
+  (Prisma, shared, mobile) quedan 2 unificadas.
+
 ### MOVO-190 — `GET /offers/:id`: detalle de una oferta propia (`svc-shipments`)
 
 Cierra la cadena de contrato que dejaron abierta MOVO-185/186/187/188/189: hasta
