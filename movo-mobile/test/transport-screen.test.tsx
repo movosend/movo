@@ -373,18 +373,25 @@ describe("TransportScreen", () => {
     expect(getByText("Todo tranquilo en 50 km")).toBeTruthy();
   });
 
-  it("saca del feed principal los envíos donde ya ofertó -- se consultan desde 'Mis ofertas'", async () => {
+  it("un envío ya ofertado se muestra con el precio de la oferta (gris) e indicador de estado, no el sugerido", async () => {
     mockUseTransportOrigin.mockReturnValue(baseOriginResult());
     mockUseAvailableShipments.mockReturnValue(
       baseAvailableResult({ data: pages([availableShipment({ id: "offered-1", hasMyOffer: true })]) }),
     );
     mockUseMyOffers.mockReturnValue({
-      data: { items: [myOfferSummary({ id: "o1", status: "pending" })], page: 1, limit: 50, total: 1 },
+      data: {
+        items: [myOfferSummary({ id: "o1", status: "pending", shipmentId: "offered-1", priceOffered: 3100 })],
+        page: 1,
+        limit: 50,
+        total: 1,
+      },
     });
 
-    const { queryByTestId } = await render(<TransportScreen />);
+    const { getByTestId } = await render(<TransportScreen />);
 
-    expect(queryByTestId("transport-card-offered-1")).toBeNull();
+    expect(getByTestId("transport-card-offered-1")).toBeTruthy();
+    expect(getByTestId("transport-card-offered-1-my-offer-price")).toHaveTextContent("$3.100tu oferta");
+    expect(getByTestId("transport-card-offered-1-offer-status")).toHaveTextContent("Pendiente");
   });
 
   it("con origen de dirección guardada, la zona sale del campo city, no del label de la dirección", async () => {
@@ -565,7 +572,7 @@ describe("TransportScreen", () => {
       expect(getByTestId("transport-filter-count-badge")).toBeTruthy();
     });
 
-    it("los envíos ya ofertados no aparecen en el feed principal, con o sin filtros (se consultan desde 'Mis ofertas')", async () => {
+    it("los envíos ya ofertados quedan en la misma lista, siempre al final", async () => {
       mockUseTransportOrigin.mockReturnValue(baseOriginResult());
       mockUseAvailableShipments.mockReturnValue(
         baseAvailableResult({
@@ -576,10 +583,15 @@ describe("TransportScreen", () => {
         }),
       );
 
-      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+      const { getByTestId, queryByTestId, getAllByTestId } = await render(<TransportScreen />);
 
-      expect(queryByTestId("transport-card-offered")).toBeNull();
+      expect(getByTestId("transport-card-offered")).toBeTruthy();
       expect(getByTestId("transport-card-not-offered")).toBeTruthy();
+      // "not-offered" primero pese a que "offered" fue el primero en la respuesta del
+      // servidor -- el ítem con oferta propia siempre se manda al final del orden.
+      const testIds = getAllByTestId(/^transport-card-(offered|not-offered)$/).map((el) => el.props.testID);
+      expect(testIds).toEqual(["transport-card-not-offered", "transport-card-offered"]);
+      expect(queryByTestId("transport-card-offered-my-offer-price")).toBeNull();
     });
 
     it("fusiona el desvío de un viaje activo declarado en la card (aproximación client-side)", async () => {

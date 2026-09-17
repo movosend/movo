@@ -28,6 +28,7 @@ import {
 } from "../../../components/transport/transport-filters-sheet";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { SkeletonBlock as Block } from "../../../components/ui/skeleton-block";
+import type { MyOfferSummary } from "../../../src/api/offers-client";
 import type { AvailableShipment } from "../../../src/api/shipments-client";
 import { useAddresses } from "../../../src/hooks/use-addresses";
 import { useMyOffers } from "../../../src/hooks/use-offers";
@@ -294,23 +295,35 @@ export default function TransportScreen() {
       })),
     [unexpiredItems, activeTrips, isTripMode],
   );
-  // Los envíos donde ya se ofertó se sacan del feed principal -- se consultan desde
-  // "Mis ofertas" (acceso ya existente en el header, MOVO-149/183), sin una sección
-  // aparte acá (evaluada y descartada, redundante con esa pantalla). Solo en el feed
-  // genérico: en modo viaje (`GET /trips/:id/matches`) no se toca nada, ahí se sigue
-  // mostrando con el pill de `AvailableShipmentCard` (alcance sin cambios).
-  const feedEligibleItems = useMemo(
-    () => (isTripMode ? itemsWithDetour : itemsWithDetour.filter(({ item }) => !item.hasMyOffer)),
-    [itemsWithDetour, isTripMode],
-  );
+  const offers = myOffersData?.items ?? [];
+  // Un envío puede tener más de una oferta propia en el historial (ej. retiró una y
+  // ofertó de nuevo) -- se prioriza la aceptada sobre cualquier otra, y entre iguales
+  // se queda con la última encontrada (el orden real de `GET /offers/mine` no está
+  // garantizado, no importa cuál pendiente/vencida se muestre).
+  const offersByShipmentId = useMemo(() => {
+    const map = new Map<string, MyOfferSummary>();
+    for (const offer of offers) {
+      const existing = map.get(offer.shipmentId);
+      if (!existing || existing.status !== OfferStatus.ACCEPTED) {
+        map.set(offer.shipmentId, offer);
+      }
+    }
+    return map;
+  }, [offers]);
+  // Los envíos donde ya se ofertó ya no se sacan del feed -- pedido explícito del
+  // usuario (antes vivían solo en "Mis ofertas", MOVO-149/183): se muestran en la
+  // MISMA lista, siempre al final (`sortedItems` abajo hace el split), con el pill de
+  // precio en gris (no el sugerido) y un indicador de si la oferta fue aceptada.
   const filteredItems = useMemo(
-    () => applyTransportFilters(feedEligibleItems, filters),
-    [feedEligibleItems, filters],
+    () => applyTransportFilters(itemsWithDetour, filters),
+    [itemsWithDetour, filters],
   );
-  const sortedItems = useMemo(
-    () => (isTripMode ? filteredItems : sortTransportItems(filteredItems, sortMode)),
-    [filteredItems, sortMode, isTripMode],
-  );
+  const sortedItems = useMemo(() => {
+    if (isTripMode) return filteredItems;
+    const withoutOffer = filteredItems.filter(({ item }) => !item.hasMyOffer);
+    const withOffer = filteredItems.filter(({ item }) => item.hasMyOffer);
+    return [...sortTransportItems(withoutOffer, sortMode), ...sortTransportItems(withOffer, sortMode)];
+  }, [filteredItems, sortMode, isTripMode]);
   const filterCount = transportFilterCount(filters);
   const showOnlyOnTripToggle = !isTripMode && activeTrips.length > 0;
 
@@ -346,7 +359,6 @@ export default function TransportScreen() {
 
   const trips = myTripsData?.items ?? [];
   const tripsMeta = `${activeTrips.length} ${activeTrips.length === 1 ? "activo" : "activos"} · ${trips.length} ${trips.length === 1 ? "declarado" : "declarados"}`;
-  const offers = myOffersData?.items ?? [];
   const pendingOffersCount = offers.filter((o) => o.status === OfferStatus.PENDING).length;
   const acceptedOffersCount = offers.filter((o) => o.status === OfferStatus.ACCEPTED).length;
   const offersMeta = `${pendingOffersCount} ${pendingOffersCount === 1 ? "pendiente" : "pendientes"} · ${acceptedOffersCount} ${acceptedOffersCount === 1 ? "aceptada" : "aceptadas"}`;
@@ -542,6 +554,7 @@ export default function TransportScreen() {
                 shipment={item}
                 testID={`transport-card-${item.id}`}
                 detour={detour ? { detourKm: detour.detourKm } : null}
+                myOffer={offersByShipmentId.get(item.id) ?? null}
               />
             )
           }
@@ -581,7 +594,7 @@ export default function TransportScreen() {
         onClose={() => setFiltersOpen(false)}
         applied={filters}
         showOnlyOnTrip={showOnlyOnTripToggle}
-        matchCount={(draft) => applyTransportFilters(feedEligibleItems, draft).length}
+        matchCount={(draft) => applyTransportFilters(itemsWithDetour, draft).length}
         onApply={setFilters}
       />
     </SafeAreaView>
