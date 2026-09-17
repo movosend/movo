@@ -29,6 +29,18 @@ export function photoConfirmationLockKey(s3Key: string): string {
 }
 export const PHOTO_CONFIRMATION_LOCK_TTL_MS = 5_000;
 
+/** Fix de review (PR #161): lock por (shipmentId, stage) que cierra el TOCTOU entre
+ * `countPhotosByStage()` y el `addPhoto()` de AC8 -- el lock de arriba es por s3Key
+ * (único por foto), así que dos `confirmPhoto()` concurrentes con distinto s3Key para
+ * la misma etapa podían leer el mismo conteo (<5) antes de que ninguno insertara y
+ * terminar superando `MAX_EVIDENCE_PHOTOS_PER_STAGE`. TTL corto, misma familia que el
+ * lock de arriba: la sección crítica que cubre (un COUNT + un INSERT) es igual de
+ * rápida. */
+export function photoStageCountLockKey(shipmentId: string, stage: PhotoStage): string {
+  return `locks:photo-stage-count:shipments:${shipmentId}:${stage}`;
+}
+export const PHOTO_STAGE_COUNT_LOCK_TTL_MS = 5_000;
+
 /** AC10 de MOVO-81: convención de key `shipments/{shipmentId}/{stage}/{uuid}.jpg`.
  * A diferencia del whitelist de 3 tipos de MOVO-97 (foto de perfil), acá el AC10 fija
  * la extensión en `.jpg` -- consistente con la guía del ticket de comprimir a JPEG en
@@ -162,21 +174,6 @@ export function createPhotosService(
         throw new ApiError(403, "PHOTO_FORBIDDEN_KEY", "La imagen no pertenece a este envío/etapa.");
       }
 
-      // AC8 de MOVO-196: chequeado ANTES de tomar el lock/pegarle a S3 (abajo) -- sin
-      // sentido pagar esa I/O si la etapa ya está en el tope. Solo aplica a
-      // pickup/delivery (evidencia de handshake); `creation` sigue sin tope propio
-      // (MOVO-81 solo le puso un mínimo, para publicar).
-      if (input.stage !== PhotoStage.creation) {
-        const existingCount = await repository.countPhotosByStage(shipmentId, input.stage);
-        if (existingCount >= MAX_EVIDENCE_PHOTOS_PER_STAGE) {
-          throw new ApiError(
-            422,
-            "PHOTO_STAGE_LIMIT_EXCEEDED",
-            `Ya se cargó el máximo de ${MAX_EVIDENCE_PHOTOS_PER_STAGE} fotos para la etapa '${input.stage}'.`
-          );
-        }
-      }
-
       // Fix de review (PR #96): toma el mismo lock que usa el sweep de fotos huérfanas
       // para esta key antes de tocar S3/Postgres -- cierra la ventana de TOCTOU entre
       // "el sweep decide borrar" y "confirmPhoto termina de commitear la fila" (ver el
@@ -193,7 +190,40 @@ export function createPhotosService(
         );
       }
 
+      // Fix de review (PR #161): lock propio por (shipmentId, stage) alrededor del
+      // chequeo de AC8 -- el lock de arriba es por s3Key (único por foto), así que no
+      // sirve para serializar el COUNT+INSERT contra OTRA confirmación concurrente de
+      // la misma etapa (distinto s3Key). Sin este lock, dos confirmaciones a la vez
+      // podían leer el mismo `countPhotosByStage` (<5) antes de que ninguna insertara
+      // y terminar superando `MAX_EVIDENCE_PHOTOS_PER_STAGE`. No aplica a `creation`
+      // (sin tope propio, MOVO-81).
+      const stageLockKey = input.stage !== PhotoStage.creation ? photoStageCountLockKey(shipmentId, input.stage) : null;
+      if (stageLockKey) {
+        const stageLockAcquired = await redis.set(stageLockKey, "1", "PX", PHOTO_STAGE_COUNT_LOCK_TTL_MS, "NX");
+        if (stageLockAcquired !== "OK") {
+          await redis.unlink(lockKey);
+          throw new ApiError(
+            409,
+            "PHOTO_CONFIRMATION_IN_PROGRESS",
+            "Hay una verificación en curso para esta etapa, reintentá en unos segundos."
+          );
+        }
+      }
+
       try {
+        // AC8 de MOVO-196: dentro del lock de etapa para que el conteo y el insert de
+        // abajo sean atómicos entre sí frente a otra confirmación concurrente.
+        if (input.stage !== PhotoStage.creation) {
+          const existingCount = await repository.countPhotosByStage(shipmentId, input.stage);
+          if (existingCount >= MAX_EVIDENCE_PHOTOS_PER_STAGE) {
+            throw new ApiError(
+              422,
+              "PHOTO_STAGE_LIMIT_EXCEEDED",
+              `Ya se cargó el máximo de ${MAX_EVIDENCE_PHOTOS_PER_STAGE} fotos para la etapa '${input.stage}'.`
+            );
+          }
+        }
+
         const head = await storageProvider.headObject(input.s3Key);
         if (!head.exists) {
           throw new ApiError(422, "PHOTO_OBJECT_NOT_FOUND", "La imagen no existe en el storage.");
@@ -228,9 +258,12 @@ export function createPhotosService(
       } finally {
         // Mismo criterio que `account-deletion-lock` en `svc-users`: si el `unlink`
         // llegara a fallar, el lock igual expira solo por TTL
-        // (PHOTO_CONFIRMATION_LOCK_TTL_MS), no bloquea al mismo s3Key más que unos
-        // segundos.
+        // (PHOTO_CONFIRMATION_LOCK_TTL_MS/PHOTO_STAGE_COUNT_LOCK_TTL_MS), no bloquea
+        // más que unos segundos.
         await redis.unlink(lockKey);
+        if (stageLockKey) {
+          await redis.unlink(stageLockKey);
+        }
       }
     },
 
