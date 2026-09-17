@@ -102,9 +102,11 @@ function SectionLabel({ children }: { children: string }) {
  * -- banner de estado, card de dinero, ranking competitivo, desglose, itinerario,
  * snapshot del emisor, historial, y acciones condicionadas al estado efectivo.
  *
- * Único punto de entrada conectado en esta US: la card "Tu oferta activa" de
- * `transport/[id].tsx`. El listado completo "Mis ofertas" (segundo entry point del
- * ticket original, MOVO-151) todavía no existe -- se conecta cuando se construya.
+ * Dos puntos de entrada conectados: la card "Tu oferta activa" de
+ * `transport/[id].tsx`, y cada fila de "Todas tus ofertas" en el bridge "Mis
+ * ofertas" (`carrier/offers/index.tsx`, MOVO-183) -- el listado completo con
+ * ranking/reparto del ticket original (MOVO-151) sigue sin construirse, pero ya
+ * hay un camino real hasta acá desde los dos lugares que el ticket pedía.
  *
  * Acciones secundarias ("Modificar fecha y horario"/"Retirar oferta") viven en un
  * menú nativo en el header (mismo `MenuView` de `SenderActionsBar`, MOVO-29) en vez
@@ -120,6 +122,13 @@ function SectionLabel({ children }: { children: string }) {
  * (`MyOfferShipmentContext.pickupTimeWindowStart/End`, agregado en el backend para
  * esto) y lo señala explícitamente como coincidencia o diferencia -- ese
  * contraste es el dato nuevo que esta sección aporta, no la ruta.
+ *
+ * Mismo criterio para el "resumen del paquete" del AC1 original: se decidió NO
+ * repetirlo acá -- el transportista ya lo vio completo (tipo, peso, fotos) en el
+ * detalle del envío (`PackageCard`, `transport/[id].tsx`) antes de ofertar, y esta
+ * pantalla es exclusivamente sobre SU oferta (plata, fechas, estado, ranking), no
+ * un segundo detalle de envío. Repetirlo acá sería redundante con esa pantalla
+ * anterior, igual que las direcciones de arriba.
  */
 export default function OfferDetailScreen() {
   const { id: offerId } = useLocalSearchParams<{ id: string }>();
