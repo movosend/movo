@@ -126,6 +126,7 @@ function toPendingRatingShipmentDto(item: PendingRatingResult) {
   return {
     ...item,
     deliveredAt: item.deliveredAt.toISOString(),
+    ratingDeadline: item.ratingDeadline.toISOString(),
   };
 }
 

@@ -3,7 +3,11 @@ import { ShipmentStatus } from "@movo/shared";
 import { createShipmentsService } from "../src/modules/shipments/shipments.service";
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
 import { RatingRepository } from "../src/repositories/rating-repository";
-import { RATING_WINDOW_HOURS } from "../src/domain/rating-window";
+import {
+  RATING_WINDOW_HOURS,
+  MAX_DISPUTE_FREEZE_HOURS,
+  computeRatingWindowDeadline,
+} from "../src/domain/rating-window";
 import { Shipment, ShipmentEvent, PackageType } from "../src/models/shipment";
 import { RatingRole } from "../src/models/rating";
 import { fakeRating } from "./fake-rating-repository";
@@ -77,7 +81,7 @@ describe("shipments.service — listPendingRatings (MOVO-222)", () => {
     expect(listByRaterForShipments).not.toHaveBeenCalled();
   });
 
-  it("acota la ventana de candidatos a las últimas RATING_WINDOW_HOURS", async () => {
+  it("acota la ventana de candidatos con margen de MAX_DISPUTE_FREEZE_HOURS sobre RATING_WINDOW_HOURS (bug de review: antes cortaba justo en las 72hs y descartaba candidatos con freeze de disputa)", async () => {
     vi.useFakeTimers();
     const now = new Date("2030-02-01T12:00:00.000Z");
     vi.setSystemTime(now);
@@ -89,7 +93,9 @@ describe("shipments.service — listPendingRatings (MOVO-222)", () => {
 
     await service.listPendingRatings(SENDER_ID);
 
-    const expectedSince = new Date(now.getTime() - RATING_WINDOW_HOURS * 60 * 60 * 1000);
+    const expectedSince = new Date(
+      now.getTime() - (RATING_WINDOW_HOURS + MAX_DISPUTE_FREEZE_HOURS) * 60 * 60 * 1000
+    );
     expect(findPendingRatingCandidates).toHaveBeenCalledWith(SENDER_ID, expectedSince);
   });
 
@@ -117,12 +123,30 @@ describe("shipments.service — listPendingRatings (MOVO-222)", () => {
       id: "pending-shipment",
       status: ShipmentStatus.DELIVERED,
       deliveredAt: pending.deliveredAt,
+      ratingDeadline: computeRatingWindowDeadline(pending.deliveredAt as Date, []),
       senderId: SENDER_ID,
       receiverId: RECEIVER_ID,
       carrierId: CARRIER_ID,
       pendingRatingFor: [RatingRole.carrier],
     });
     expect(listByRaterForShipments).toHaveBeenCalledWith(SENDER_ID, ["pending-shipment", "already-rated-shipment"]);
+    // MOVO-222 (corregido en review): en paralelo, no un round-trip secuencial por candidato.
+    expect(listEvents).toHaveBeenCalledTimes(2);
+  });
+
+  it("descarta (con warning) un candidato fulfilled sin carrierId en vez de romper la lista con un cast ciego", async () => {
+    const broken = fakeShipment({ id: "no-carrier", carrierId: null as unknown as string });
+    const findPendingRatingCandidates = vi.fn().mockResolvedValue([broken]);
+    const listEvents = vi.fn().mockResolvedValue([] as ShipmentEvent[]);
+    const repository = { findPendingRatingCandidates, listEvents } as unknown as ShipmentRepository;
+    const ratingRepository = { listByRaterForShipments: vi.fn().mockResolvedValue([]) } as unknown as RatingRepository;
+    const warn = vi.fn();
+
+    const service = createShipmentsService(repository, {} as any, undefined, { warn } as any, { ratingRepository });
+    const result = await service.listPendingRatings(SENDER_ID);
+
+    expect(result).toEqual([]);
+    expect(warn).toHaveBeenCalled();
   });
 
   it("DoD: transportista con 2 contrapartes calificado parcialmente -- solo la que falta queda pendiente", async () => {

@@ -235,6 +235,13 @@ vieja de Términos/Privacidad al registrarse (app desactualizada).
 compartido — antes vivía duplicado como enum Prisma en `movo-svc-shipments/src/models/
 rating.ts` (MOVO-146) y como literal propio en `movo-mobile/src/api/ratings-client.ts`
 (MOVO-153), sin unificar porque ningún wire contract lo había necesitado hasta ahora.
+**Corrección de review (mismo PR):** `ratings-client.ts` ahora reexporta `RatingRole`
+desde acá en vez de mantener el literal propio — de las 3 copias quedan 2 (esta y el
+enum Prisma del backend, que sigue siendo la fuente de verdad del lado de Postgres).
+`PendingRatingShipment` también suma `ratingDeadline` (deadline absoluto, no solo
+`deliveredAt`) — el cliente no puede recomputar la ventana de 72hs a mano porque un
+freeze de disputa la extiende de forma variable, mismo criterio que
+`ActiveShipmentSummary.receiverConfirmationDeadline`.
 
 ### MOVO-208 — `ShipmentStatus` extendido a 11 valores
 

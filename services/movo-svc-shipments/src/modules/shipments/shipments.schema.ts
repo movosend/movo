@@ -317,11 +317,24 @@ const PENDING_RATING_STATUS_VALUES = ["delivered", "completed"];
 
 const pendingRatingShipmentResponse = {
   type: "object",
-  required: ["id", "status", "deliveredAt", "senderId", "receiverId", "carrierId", "pendingRatingFor"],
+  required: [
+    "id",
+    "status",
+    "deliveredAt",
+    "ratingDeadline",
+    "senderId",
+    "receiverId",
+    "carrierId",
+    "pendingRatingFor",
+  ],
   properties: {
     id: { type: "string" },
     status: { type: "string", enum: PENDING_RATING_STATUS_VALUES },
     deliveredAt: { type: "string", format: "date-time" },
+    // MOVO-222 (corregido en review): instante absoluto ya calculado
+    // (`computeRatingWindowDeadline`, incluye freeze de disputa) -- el cliente no
+    // recalcula 72hs a mano, mismo criterio que `receiverConfirmationDeadline`.
+    ratingDeadline: { type: "string", format: "date-time" },
     senderId: { type: "string" },
     receiverId: { type: "string" },
     carrierId: { type: "string" },

@@ -465,10 +465,15 @@ export interface ShipmentRepository {
    * `carrierId` (gap desde MOVO-80 — "no hay asignación automática este sprint" en
    * ese momento). Es justamente el rol que este método necesita cubrir para el caso
    * "transportista con 2 contrapartes" del DoD del ticket. `deliveredSince` acota en
-   * SQL a la ventana de 72hs de `rating-window.ts` (evita traer a memoria envíos
-   * entregados hace meses que ya no pueden calificarse) — el filtro fino (freeze por
-   * disputa, ya calificado) lo hace el caller en JS (`computePendingRatingFor`),
-   * mismo criterio que el resto del dominio de no replicar esa lógica en SQL.
+   * SQL a la ventana de 72hs de `rating-window.ts` MÁS `MAX_DISPUTE_FREEZE_HOURS` de
+   * margen (evita traer a memoria envíos entregados hace meses que ya no pueden
+   * calificarse, sin descartar de entrada uno cuya ventana real todavía esté abierta
+   * por un freeze de disputa) — el filtro exacto (freeze real, ya calificado) lo hace
+   * el caller en JS (`computePendingRatingFor`/`isRatingWindowOpen`), mismo criterio
+   * que el resto del dominio de no replicar esa lógica en SQL. Este prefiltro es
+   * deliberadamente más laxo que la ventana real: nunca debe excluir a mano un
+   * candidato que el chequeo fino todavía consideraría vigente (bug corregido en
+   * review — antes usaba `RATING_WINDOW_HOURS` a secas acá).
    */
   findPendingRatingCandidates(userId: string, deliveredSince: Date): Promise<Shipment[]>;
 }
