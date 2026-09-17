@@ -18,7 +18,6 @@ import type { PublicProfile } from "@movo/shared/dist/types/user-profile";
 import type { ReceiverConfirmationStatus } from "../../../components/shipments/counterpart-card";
 import { PackageCard } from "../../../components/shipments/package-card";
 import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
-import { ShipmentStatusBadge } from "../../../components/shipments/status-badge";
 import { RouteMapCard } from "../../../components/send/route-map-card";
 import { ProfileVerifiedBadge } from "../../../components/profile/profile-verified-badge";
 import { AvatarImage } from "../../../components/ui/avatar-image";
@@ -222,15 +221,20 @@ export default function TransportShipmentDetailScreen() {
   } = useShipment(id);
   // `limit: 50` es el máximo que acepta el backend (`offers.schema.ts`, default 20) —
   // sin un filtro por `shipmentId` del lado del servidor, esto es lo más que se puede
-  // acotar el riesgo de no encontrar una oferta pendiente existente si el transportista
-  // tiene más ofertas activas que el límite de una sola página.
-  const { data: myOffers } = useMyOffers({
-    status: OfferStatus.PENDING,
-    limit: 50,
-  });
+  // acotar el riesgo de no encontrar una oferta pendiente/aceptada existente si el
+  // transportista tiene más ofertas activas que el límite de una sola página. Sin
+  // filtro de `status`: además de la `pending` (para "Tu oferta activa"), hace falta
+  // poder encontrar la propia `accepted` una vez que el envío ya se asignó -- esa
+  // oferta es la única fuente de la fecha/franja de retiro REALMENTE confirmada
+  // cuando el transportista propuso un día distinto al pedido por el emisor
+  // (`shipment.pickupDate` nunca se actualiza al aceptar, ver `offer-repository.ts`).
+  const { data: myOffers } = useMyOffers({ limit: 50 });
 
   const myActiveOffer = myOffers?.items.find(
-    (offer) => offer.shipmentId === id,
+    (offer) => offer.shipmentId === id && offer.status === OfferStatus.PENDING,
+  );
+  const myAcceptedOffer = myOffers?.items.find(
+    (offer) => offer.shipmentId === id && offer.status === OfferStatus.ACCEPTED,
   );
 
   const currentUser = useAuthStore((state) => state.user);
@@ -248,22 +252,24 @@ export default function TransportShipmentDetailScreen() {
   const pickupDateLabel = shipment
     ? (formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate)
     : null;
-  // Si ya existe una oferta propia, "Retirás" muestra lo que esa oferta confirmó
-  // (`offeredDate`/`offeredPickupTimeWindow*`), no lo que pidió originalmente el
-  // emisor -- son distintos apenas el transportista propuso otro día/horario
-  // (`dateMode === "other"` de `offer.tsx`). La franja queda `null` en la oferta
-  // cuando el transportista aceptó la del emisor tal cual, así que cae al valor del
-  // envío en ese caso.
-  const effectivePickupDateLabel = myActiveOffer
-    ? (formatPickupDateLabel(myActiveOffer.offeredDate) ??
-      myActiveOffer.offeredDate)
+  // Si ya existe una oferta propia (pendiente o, tras la asignación, la aceptada),
+  // "Retirás" muestra lo que esa oferta confirmó (`offeredDate`/
+  // `offeredPickupTimeWindow*`), no lo que pidió originalmente el emisor -- son
+  // distintos apenas el transportista propuso otro día/horario (`dateMode ===
+  // "other"` de `offer.tsx`). La franja queda `null` en la oferta cuando el
+  // transportista aceptó la del emisor tal cual, así que cae al valor del envío en
+  // ese caso.
+  const myConfirmedOffer = myActiveOffer ?? myAcceptedOffer;
+  const effectivePickupDateLabel = myConfirmedOffer
+    ? (formatPickupDateLabel(myConfirmedOffer.offeredDate) ??
+      myConfirmedOffer.offeredDate)
     : pickupDateLabel;
   const effectivePickupTimeWindowStart =
-    myActiveOffer?.offeredPickupTimeWindowStart ??
+    myConfirmedOffer?.offeredPickupTimeWindowStart ??
     shipment?.pickupTimeWindowStart ??
     null;
   const effectivePickupTimeWindowEnd =
-    myActiveOffer?.offeredPickupTimeWindowEnd ??
+    myConfirmedOffer?.offeredPickupTimeWindowEnd ??
     shipment?.pickupTimeWindowEnd ??
     null;
   const tripDistanceKm = shipment
@@ -414,12 +420,23 @@ export default function TransportShipmentDetailScreen() {
                 testID="transport-assigned-to-me-card"
                 className="rounded-[14px] border border-lime-500/50 bg-lime-100 p-4 dark:border-lime-500/30 dark:bg-lime-500/[0.14]"
               >
-                <View className="flex-row items-center justify-between gap-2">
-                  <Text className="font-sans-semibold text-small text-lime-800 dark:text-lime-300">
-                    Te eligieron para este envío
-                  </Text>
-                  <ShipmentStatusBadge status={shipment.status} />
-                </View>
+                <Text className="font-sans-semibold text-small text-lime-800 dark:text-lime-300">
+                  Te eligieron para este envío
+                </Text>
+                {/* No reusa `ShipmentStatusBadge`/`shipmentStatusLabel` (pensado para
+                    el punto de vista del emisor/receptor) -- "Sin asignar" es el label
+                    de `assignment_pending`, y acá el envío YA está asignado a mí, así
+                    que ese pill contradecía al título de arriba. En su lugar, un texto
+                    explicando el próximo paso concreto: cuándo arranca el viaje. */}
+                <Text
+                  testID="transport-assigned-to-me-detail"
+                  className="mt-1.5 font-sans text-[13px] leading-[19px] text-lime-800/80 dark:text-lime-200/80"
+                >
+                  El viaje arranca el {effectivePickupDateLabel}, entre las{" "}
+                  {formatTimeHHMM(effectivePickupTimeWindowStart)} y las{" "}
+                  {formatTimeHHMM(effectivePickupTimeWindowEnd)} h. Ese día retirás el
+                  paquete y arrancás el viaje hasta la entrega.
+                </Text>
               </View>
             ) : null}
 

@@ -404,6 +404,49 @@ describe("TransportShipmentDetailScreen", () => {
       expect(queryByTestId("transport-active-offer-card")).toBeNull();
       expect(queryByText("Te queda si ofertás el sugerido")).toBeNull();
       expect(getByTestId("transport-assigned-to-me-card")).toHaveTextContent(/Te eligieron para este envío/);
+      // Sin pill de estado genérico ("Sin asignar" de `assignment_pending`, pensado
+      // para el punto de vista del emisor -- confundía acá, donde el envío YA está
+      // asignado a mí). En su lugar, el próximo paso concreto con la fecha/franja
+      // pedida por el emisor (sin oferta -- ni pending ni accepted -- con día
+      // alternativo en este caso).
+      expect(queryByText(/Sin asignar/)).toBeNull();
+      expect(getByTestId("transport-assigned-to-me-detail")).toHaveTextContent(
+        "El viaje arranca el jue, 20 de agosto, entre las 09:00 y las 12:00 h. Ese día retirás el paquete y arrancás el viaje hasta la entrega.",
+      );
+    });
+
+    it("si me asignaron el envío y mi oferta ganadora propuso otro día/horario, el detalle muestra lo confirmado por la oferta, no lo pedido por el emisor", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        // El envío pide 2026-08-20 09:00-12:00 (default de `shipment()`).
+        data: shipment({ carrierId: "carrier-me", status: ShipmentStatus.ASSIGNMENT_PENDING }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      mockUseMyOffers.mockReturnValue({
+        data: {
+          items: [
+            {
+              id: "offer-accepted-1",
+              shipmentId: "shipment-1",
+              carrierId: "carrier-me",
+              priceOffered: 7500,
+              offeredDate: "2026-08-21",
+              offeredPickupTimeWindowStart: "15:00",
+              offeredPickupTimeWindowEnd: "19:00",
+              message: null,
+              status: OfferStatus.ACCEPTED,
+            },
+          ],
+        },
+      });
+
+      const { getByTestId } = await render(<TransportShipmentDetailScreen />);
+
+      expect(getByTestId("transport-assigned-to-me-detail")).toHaveTextContent(
+        "El viaje arranca el vie, 21 de agosto, entre las 15:00 y las 19:00 h. Ese día retirás el paquete y arrancás el viaje hasta la entrega.",
+      );
     });
 
     it("si el envío se asignó a OTRO transportista, sigue mostrando el CTA de ofertar normal (no soy yo)", async () => {
