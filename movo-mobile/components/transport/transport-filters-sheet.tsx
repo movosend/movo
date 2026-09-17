@@ -1,4 +1,4 @@
-import { EyeOff, Route, X, type LucideIcon } from "lucide-react-native";
+import { Route, X, type LucideIcon } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
@@ -13,7 +13,6 @@ export const ON_TRIP_MAX_DETOUR_KM = 2;
 
 export interface TransportFilters {
   onlyOnTrip: boolean;
-  hideOffered: boolean;
   types: PackageType[];
   minPayArs: number;
   maxWeightKg: number;
@@ -21,7 +20,6 @@ export interface TransportFilters {
 
 export const DEFAULT_TRANSPORT_FILTERS: TransportFilters = {
   onlyOnTrip: false,
-  hideOffered: false,
   types: [],
   minPayArs: 0,
   maxWeightKg: 0,
@@ -30,7 +28,6 @@ export const DEFAULT_TRANSPORT_FILTERS: TransportFilters = {
 export function transportFilterCount(filters: TransportFilters): number {
   return (
     (filters.onlyOnTrip ? 1 : 0) +
-    (filters.hideOffered ? 1 : 0) +
     (filters.types.length > 0 ? 1 : 0) +
     (filters.minPayArs > 0 ? 1 : 0) +
     (filters.maxWeightKg > 0 ? 1 : 0)
@@ -211,14 +208,6 @@ export function TransportFiltersSheet({
                     onToggle={() => setDraft((prev) => ({ ...prev, onlyOnTrip: !prev.onlyOnTrip }))}
                   />
                 ) : null}
-                <ToggleRow
-                  testID="transport-filters-hide-offered"
-                  icon={EyeOff}
-                  title="Ocultar ya ofertados"
-                  subtitle="Sacá de la lista los envíos en los que ya hiciste una oferta"
-                  value={draft.hideOffered}
-                  onToggle={() => setDraft((prev) => ({ ...prev, hideOffered: !prev.hideOffered }))}
-                />
               </View>
 
               <Text className="mb-3.5 mt-7 font-sans-semibold text-caption uppercase text-fg-2">Tipo de paquete</Text>
