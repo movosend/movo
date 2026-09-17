@@ -42,6 +42,11 @@ function toMyOfferDto(offer: OfferWithShipmentContext) {
     shipment: {
       ...offer.shipment,
       pickupDate: offer.shipment.pickupDate.toISOString().slice(0, 10),
+      // Mismo gotcha de timezone que pickupDate -- `@db.Time` ancladas a UTC, se
+      // formatean a mano en vez de dejar que el serializador `format: "time"` les
+      // reste el offset del proceso.
+      pickupTimeWindowStart: offer.shipment.pickupTimeWindowStart.toISOString().slice(11, 19),
+      pickupTimeWindowEnd: offer.shipment.pickupTimeWindowEnd.toISOString().slice(11, 19),
     },
   };
 }
