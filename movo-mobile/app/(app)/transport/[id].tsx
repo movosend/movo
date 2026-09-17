@@ -2,6 +2,7 @@ import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { OfferStatus } from "@movo/shared/dist/types/offer";
 import { router, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
+import { useColorScheme } from "nativewind";
 import {
   ChevronDown,
   ChevronLeft,
@@ -17,7 +18,6 @@ import type { PublicProfile } from "@movo/shared/dist/types/user-profile";
 import type { ReceiverConfirmationStatus } from "../../../components/shipments/counterpart-card";
 import { PackageCard } from "../../../components/shipments/package-card";
 import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
-import { ShipmentStatusBadge } from "../../../components/shipments/status-badge";
 import { RouteMapCard } from "../../../components/send/route-map-card";
 import { ProfileVerifiedBadge } from "../../../components/profile/profile-verified-badge";
 import { AvatarImage } from "../../../components/ui/avatar-image";
@@ -189,8 +189,8 @@ function TransportDetailError({
  *   MOVO-149).
  *
  * Si el transportista ya tiene una oferta activa:
- * - Muestra la card con los datos de su oferta.
- * - La acción principal cambia a "Retirar oferta" con confirmación.
+ * - Muestra la card "Tu oferta activa" (único punto de entrada al detalle de la
+ *   oferta, `carrier/offers/[id].tsx`) -- sin barra inferior duplicada.
  */
 export default function TransportShipmentDetailScreen() {
   const { id, pickupDistanceKm: pickupDistanceKmParam } = useLocalSearchParams<{
@@ -198,6 +198,13 @@ export default function TransportShipmentDetailScreen() {
     pickupDistanceKm?: string;
   }>();
   const colors = useThemeColors();
+  const { colorScheme } = useColorScheme();
+  // lime-600 (light) / lime-400 (dark, `tailwind.config.js`) -- mismos tonos de lime
+  // que ya usa el resto del repo como acento de texto/ícono sobre fondo claro
+  // (`profile-license-status-banner.tsx`, "#9FC72E") y sobre fondo oscuro
+  // (`bg-lime-400` en estados activos) — `lime-500` (el brand puro, muy claro) no
+  // tiene contraste suficiente para un ícono fino en ninguno de los dos temas.
+  const activeOfferAccentColor = colorScheme === "dark" ? "#D6F771" : "#9FC72E";
   const {
     data: shipment,
     isLoading,
@@ -316,7 +323,6 @@ export default function TransportShipmentDetailScreen() {
             </Text>
           ) : null}
         </View>
-        {shipment ? <ShipmentStatusBadge status={shipment.status} /> : null}
       </View>
 
       {isError || !shipment ? (
@@ -331,17 +337,24 @@ export default function TransportShipmentDetailScreen() {
               <Pressable
                 testID="transport-active-offer-card"
                 onPress={openOfferDetail}
-                className="rounded-[12px] border border-info-200 bg-info-100/50 p-4"
+                style={{
+                  shadowColor: colors.chromeShadow,
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 1,
+                  shadowRadius: 6,
+                  elevation: 3,
+                }}
+                className="rounded-[14px] border border-lime-500/50 bg-lime-100 p-4 dark:border-lime-500/30 dark:bg-lime-500/[0.14]"
               >
                 <View className="mb-2 flex-row items-center justify-between">
                   <View className="flex-row items-center gap-1.5">
-                    <Clock size={14} color="#1F52D6" />
-                    <Text className="font-sans-semibold text-small text-info-700">
+                    <Clock size={14} color={activeOfferAccentColor} />
+                    <Text className="font-sans-semibold text-small text-lime-800 dark:text-lime-300">
                       Tu oferta activa
                     </Text>
                   </View>
-                  <View className="rounded-md bg-info-200 px-2 py-0.5">
-                    <Text className="font-sans-medium text-[11px] text-info-700">
+                  <View className="rounded-md bg-lime-200 px-2 py-0.5 dark:bg-lime-500/25">
+                    <Text className="font-sans-medium text-[11px] text-lime-800 dark:text-lime-200">
                       Pendiente
                     </Text>
                   </View>
@@ -371,11 +384,11 @@ export default function TransportShipmentDetailScreen() {
                     </Text>
                   </View>
                 </View>
-                <View className="mt-2.5 flex-row items-center justify-between border-t border-info-200/60 pt-2.5">
-                  <Text className="font-sans-medium text-small text-info-700">
+                <View className="mt-2.5 flex-row items-center justify-between border-t border-lime-300/60 pt-2.5 dark:border-lime-400/20">
+                  <Text className="font-sans-medium text-small text-lime-800 dark:text-lime-300">
                     Ver detalle
                   </Text>
-                  <ChevronRight size={16} color="#1F52D6" />
+                  <ChevronRight size={16} color={activeOfferAccentColor} />
                 </View>
               </Pressable>
             ) : null}
@@ -421,11 +434,17 @@ export default function TransportShipmentDetailScreen() {
               </View>
             </View>
 
-            {/* Card "chrome": siempre oscura, sin importar el tema (mismo criterio que el
+            {/* Oculta si ya hay una oferta activa: "cuánto te queda si ofertás el
+                sugerido" deja de tener sentido una vez que ya se hizo una oferta
+                (con un monto propio, no necesariamente el sugerido) — mostrar las
+                dos cards a la vez es contradictorio, la card de arriba ("Tu oferta
+                activa") ya cubre ese lugar. */}
+            {myActiveOffer ? null : (
+            /* Card "chrome": siempre oscura, sin importar el tema (mismo criterio que el
                 texto oscuro fijo de PrimaryButton variant="lime" — usa la escala `ink`/
                 `paper`, fija, nunca los tokens semánticos `fg`/`bg` que se invierten en
                 dark mode). `GridPattern` con líneas claras porque el fondo es oscuro por
-                construcción, no `bg-fg` (que en dark mode es blanco). */}
+                construcción, no `bg-fg` (que en dark mode es blanco). */
             <View className="relative overflow-hidden rounded-[16px] bg-ink-950 px-5 py-5">
               <GridPattern color="#FFFFFF" opacity={0.06} />
               <Text className="font-sans-medium text-[11px] uppercase tracking-wide text-ink-300">
@@ -474,6 +493,7 @@ export default function TransportShipmentDetailScreen() {
                 ) : null}
               </View>
             </View>
+            )}
 
             <View>
               <Eyebrow>Recorrido</Eyebrow>
@@ -572,38 +592,32 @@ export default function TransportShipmentDetailScreen() {
             </View>
           </ScrollView>
 
-          <View style={{ position: "relative" }}>
-            {/* Sombra SOLO en el borde superior -- la barra vive fuera del
-                `ScrollView`, sin esto se pierde contra el contenido al hacer scroll
-                detrás. Degradado en vez de `shadowOffset`/`elevation`: `elevation`
-                de Android proyecta sombra en todo el contorno de la vista (se veía
-                también abajo, feedback de diseño), y esto queda arriba de la barra,
-                nunca adentro de ella. */}
-            <LinearGradient
-              pointerEvents="none"
-              colors={["transparent", colors.chromeShadow]}
-              locations={[0, 1]}
-              style={{
-                position: "absolute",
-                left: 0,
-                right: 0,
-                top: -24,
-                height: 24,
-                opacity: 0.5,
-              }}
-            />
-            <View className="border-t border-border bg-bg px-5 pb-6 pt-3.5">
-              {myActiveOffer ? (
-                <Pressable
-                  testID="transport-view-offer-cta"
-                  onPress={openOfferDetail}
-                  className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-fg py-3.5"
-                >
-                  <Text className="font-sans-semibold text-body text-bg">
-                    Ver mi oferta
-                  </Text>
-                </Pressable>
-              ) : (
+          {/* Sin oferta activa: barra fija con la acción principal de ofertar. Con
+              oferta activa, la card "Tu oferta activa" de arriba ya es el único
+              punto de entrada al detalle -- una barra inferior duplicaría esa
+              navegación (pedido explícito de no tener dos entradas al mismo lugar). */}
+          {myActiveOffer ? null : (
+            <View style={{ position: "relative" }}>
+              {/* Sombra SOLO en el borde superior -- la barra vive fuera del
+                  `ScrollView`, sin esto se pierde contra el contenido al hacer scroll
+                  detrás. Degradado en vez de `shadowOffset`/`elevation`: `elevation`
+                  de Android proyecta sombra en todo el contorno de la vista (se veía
+                  también abajo, feedback de diseño), y esto queda arriba de la barra,
+                  nunca adentro de ella. */}
+              <LinearGradient
+                pointerEvents="none"
+                colors={["transparent", colors.chromeShadow]}
+                locations={[0, 1]}
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  top: -24,
+                  height: 24,
+                  opacity: 0.5,
+                }}
+              />
+              <View className="border-t border-border bg-bg px-5 pb-6 pt-3.5">
                 <Pressable
                   testID="transport-create-offer-cta"
                   onPress={() =>
@@ -615,9 +629,9 @@ export default function TransportShipmentDetailScreen() {
                     Hacer una oferta
                   </Text>
                 </Pressable>
-              )}
+              </View>
             </View>
-          </View>
+          )}
         </View>
       )}
     </SafeAreaView>

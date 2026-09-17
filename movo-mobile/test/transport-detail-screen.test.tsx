@@ -398,22 +398,47 @@ describe("TransportShipmentDetailScreen", () => {
 
       const { getByTestId, queryByTestId } = await render(<TransportShipmentDetailScreen />);
 
+      // Sin barra inferior duplicada: la card "Tu oferta activa" es el único punto
+      // de entrada al detalle de la oferta.
       expect(queryByTestId("transport-create-offer-cta")).toBeNull();
+      expect(queryByTestId("transport-view-offer-cta")).toBeNull();
       expect(getByTestId("transport-active-offer-card")).toBeTruthy();
       expect(getByTestId("transport-active-offer-price")).toHaveTextContent("$7.500");
-
-      const viewOfferCta = getByTestId("transport-view-offer-cta");
-      expect(viewOfferCta).toHaveTextContent("Ver mi oferta");
-
-      await act(async () => {
-        fireEvent.press(viewOfferCta);
-      });
-      expect(mockRouterPush).toHaveBeenCalledWith("/(app)/carrier/offers/offer-active-1");
 
       await act(async () => {
         fireEvent.press(getByTestId("transport-active-offer-card"));
       });
       expect(mockRouterPush).toHaveBeenCalledWith("/(app)/carrier/offers/offer-active-1");
+    });
+
+    it("con una oferta activa, oculta la card 'Te queda si ofertás el sugerido' -- ya no tiene sentido con una oferta propia hecha", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ suggestedPriceArs: 4500 }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      mockUseMyOffers.mockReturnValue({
+        data: {
+          items: [
+            {
+              id: "offer-active-1",
+              shipmentId: "shipment-1",
+              carrierId: "carrier-1",
+              priceOffered: 7500,
+              offeredDate: "2026-08-20",
+              message: null,
+              status: OfferStatus.PENDING,
+            },
+          ],
+        },
+      });
+
+      const { getByTestId, queryByText } = await render(<TransportShipmentDetailScreen />);
+
+      expect(getByTestId("transport-active-offer-card")).toBeTruthy();
+      expect(queryByText("Te queda si ofertás el sugerido")).toBeNull();
     });
 
     it("con una oferta activa que propuso otro día/horario, 'Retirás' muestra lo confirmado en la oferta, no lo pedido por el emisor", async () => {
