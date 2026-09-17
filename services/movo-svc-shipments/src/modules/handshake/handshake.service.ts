@@ -5,12 +5,14 @@ import { HandshakeRepository } from "../../repositories/handshake-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { FundsReleaseNotifier } from "../../adapters/funds-release-notifier";
 import { HandshakeStage } from "../../models/handshake";
+import { PhotoStage } from "../../models/shipment";
 import {
   HANDSHAKE_QR_TTL_SECONDS,
   buildHandshakeCanonicalPayload,
   verifyHandshakeSignature,
 } from "../../domain/handshake-crypto";
 import { HANDSHAKE_MAX_DISTANCE_METERS, haversineKm } from "../../domain/geo";
+import { MIN_EVIDENCE_PHOTOS_PER_STAGE } from "../../domain/evidence-photos";
 import { assertIsCarrier, assertIsReceiver, assertIsSender } from "../shipments/assert-shipment-access";
 
 type HandshakeServiceLogger =
@@ -159,7 +161,14 @@ export function createHandshakeService(
     /**
      * AC2-AC7 de MOVO-158: valida TTL, firma y proximidad GPS; si las tres pasan,
      * transiciona el envío y persiste el evento inmutable (`handshakeRepository
-     * .confirmAndPersist`, atómico). La garantía real de exclusión mutua contra dos
+     * .confirmAndPersist`, atómico). AC1-AC3 de MOVO-196: también exige al menos una
+     * foto de evidencia CONFIRMADA de la etapa correspondiente (`shipment_photos`,
+     * `stage` pickup/delivery) -- 422 `PICKUP_EVIDENCE_MISSING`/
+     * `DELIVERY_EVIDENCE_MISSING`, chequeado después de la autorización pero antes de
+     * las validaciones criptográficas (deviceKey/firma/distancia) para no pagar ese
+     * costo en un intento que de todas formas va a fallar.
+     *
+     * La garantía real de exclusión mutua contra dos
      * confirmaciones concurrentes CON EL MISMO nonce es el CAS de Postgres dentro de
      * ese método (`ShipmentConcurrentModificationError`). Eso NO cubre el caso de un
      * nonce que el cedente invalidó a mitad de la request (llamando de nuevo a
@@ -207,6 +216,25 @@ export function createHandshakeService(
         assertIsCarrier(shipment, input.callerId);
       } else {
         assertIsReceiver(shipment, input.callerId, "Solo el receptor designado puede confirmar el handshake de entrega.");
+      }
+
+      // AC1/AC2/AC3 de MOVO-196: se chequea acá, DESPUÉS de la autorización pero ANTES
+      // de las validaciones criptográficas (deviceKey/firma/distancia) -- si falta
+      // evidencia, este intento va a fallar de todas formas, así que no vale la pena
+      // pagar la llamada de red a `svc-users` ni la verificación WebCrypto. Ninguno de
+      // los pasos de este método borra el nonce antes del commit final, así que esto
+      // nunca "consume" el intento -- reintentable dentro del mismo TTL apenas exista
+      // la evidencia. `stage` sale del desafío pendiente (nunca de `shipment.status`,
+      // ver el comentario de arriba sobre la carrera de MOVO-158), así que el conteo
+      // de evidencia siempre corresponde a la etapa realmente en curso.
+      const evidenceStage = stage === "pickup" ? PhotoStage.pickup : PhotoStage.delivery;
+      const evidencePhotoCount = await shipmentRepository.countPhotosByStage(input.shipmentId, evidenceStage);
+      if (evidencePhotoCount < MIN_EVIDENCE_PHOTOS_PER_STAGE) {
+        throw new ApiError(
+          422,
+          stage === "pickup" ? "PICKUP_EVIDENCE_MISSING" : "DELIVERY_EVIDENCE_MISSING",
+          `Hace falta al menos ${MIN_EVIDENCE_PHOTOS_PER_STAGE} foto(s) de evidencia de ${stage} antes de confirmar el handshake.`
+        );
       }
 
       const deviceKey = await usersClient.findDeviceKey(pending.cedenteId);

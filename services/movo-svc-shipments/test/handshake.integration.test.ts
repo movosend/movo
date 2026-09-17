@@ -68,8 +68,14 @@ describe("Handshake criptográfico — /shipments/:id/handshake (Postgres + Redi
    * de estados vía repositorio -- no hay ningún flujo real que hoy llegue a `assigned`
    * (el hold de fondos de MOVO-12 sigue sin implementar), mismo criterio de fixture que
    * `ratings.integration.test.ts#createDeliveredShipment`. Las 2 fotos de creation
-   * satisfacen el gate de AC6 de MOVO-81 para llegar a `published`. */
-  async function createAssignedShipment(overrides: Partial<CreateShipmentInput> = {}): Promise<string> {
+   * satisfacen el gate de AC6 de MOVO-81 para llegar a `published`. `withPickupEvidence`
+   * (MOVO-196, default true): la mayoría de los tests de este archivo confirman el
+   * handshake de retiro y no son sobre evidencia -- los tests dedicados de MOVO-196
+   * pasan `false` para dejar el envío sin evidencia de pickup a propósito. */
+  async function createAssignedShipment(
+    overrides: Partial<CreateShipmentInput> = {},
+    withPickupEvidence = true
+  ): Promise<string> {
     const created = await shipmentRepo.create({ ...baseShipmentInput, ...overrides });
     await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
     await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
@@ -77,12 +83,20 @@ describe("Handshake criptográfico — /shipments/:id/handshake (Postgres + Redi
     await shipmentRepo.updateStatus(created.id, ShipmentStatus.ASSIGNMENT_PENDING, null);
     await app.db.shipment.update({ where: { id: created.id }, data: { carrierId } });
     await shipmentRepo.updateStatus(created.id, ShipmentStatus.ASSIGNED, null);
+    if (withPickupEvidence) {
+      await shipmentRepo.addPhoto(created.id, PhotoStage.pickup, `shipments/${created.id}/pickup/${randomUUID()}.jpg`);
+    }
     return created.id;
   }
 
-  async function createInTransitShipment(): Promise<string> {
-    const id = await createAssignedShipment();
+  /** `withDeliveryEvidence` (MOVO-196, default true): mismo criterio que
+   * `withPickupEvidence` de arriba, para los tests de entrega. */
+  async function createInTransitShipment(withDeliveryEvidence = true): Promise<string> {
+    const id = await createAssignedShipment({}, true);
     await shipmentRepo.updateStatus(id, ShipmentStatus.IN_TRANSIT, carrierId);
+    if (withDeliveryEvidence) {
+      await shipmentRepo.addPhoto(id, PhotoStage.delivery, `shipments/${id}/delivery/${randomUUID()}.jpg`);
+    }
     return id;
   }
 
@@ -452,6 +466,195 @@ describe("Handshake criptográfico — /shipments/:id/handshake (Postgres + Redi
       });
 
       expect(response.statusCode).toBe(403);
+    });
+  });
+
+  describe("Evidencia fotográfica obligatoria antes del handshake — MOVO-196", () => {
+    it("422 PICKUP_EVIDENCE_MISSING si se confirma el retiro sin ninguna foto de evidencia", async () => {
+      const shipmentId = await createAssignedShipment({}, false);
+      const generateResponse = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/handshake/generate`,
+        headers: { "x-user-id": senderId },
+        payload: { lat: -31.4201, lng: -64.1888 },
+      });
+      const { nonce, canonicalPayload } = generateResponse.json();
+      const signature = await sign(senderKeyPair.privateKey, canonicalPayload);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/handshake/confirm`,
+        headers: { "x-user-id": carrierId },
+        payload: { nonce, signature, lat: -31.4201, lng: -64.1888 },
+      });
+
+      expect(response.statusCode).toBe(422);
+      expect(response.json().error.code).toBe("PICKUP_EVIDENCE_MISSING");
+
+      const shipment = await shipmentRepo.findById(shipmentId);
+      expect(shipment?.status).toBe(ShipmentStatus.ASSIGNED);
+    });
+
+    it("una foto solo presignada (nunca confirmada) NO satisface la evidencia de retiro", async () => {
+      const shipmentId = await createAssignedShipment({}, false);
+
+      const presignResponse = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/photos/presign`,
+        headers: { "x-user-id": carrierId },
+        payload: { stage: "pickup", contentType: "image/jpeg", contentLength: 1024 },
+      });
+      expect(presignResponse.statusCode).toBe(200);
+      // A propósito nunca se llama a /photos/confirm -- no hay fila en shipment_photos.
+
+      const generateResponse = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/handshake/generate`,
+        headers: { "x-user-id": senderId },
+        payload: { lat: -31.4201, lng: -64.1888 },
+      });
+      const { nonce, canonicalPayload } = generateResponse.json();
+      const signature = await sign(senderKeyPair.privateKey, canonicalPayload);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/handshake/confirm`,
+        headers: { "x-user-id": carrierId },
+        payload: { nonce, signature, lat: -31.4201, lng: -64.1888 },
+      });
+
+      expect(response.statusCode).toBe(422);
+      expect(response.json().error.code).toBe("PICKUP_EVIDENCE_MISSING");
+    });
+
+    it("un intento sin evidencia NO invalida el nonce vigente -- reintentable dentro del mismo TTL apenas exista la evidencia", async () => {
+      const shipmentId = await createAssignedShipment({}, false);
+      const generateResponse = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/handshake/generate`,
+        headers: { "x-user-id": senderId },
+        payload: { lat: -31.4201, lng: -64.1888 },
+      });
+      const { nonce, canonicalPayload } = generateResponse.json();
+      const signature = await sign(senderKeyPair.privateKey, canonicalPayload);
+
+      const firstAttempt = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/handshake/confirm`,
+        headers: { "x-user-id": carrierId },
+        payload: { nonce, signature, lat: -31.4201, lng: -64.1888 },
+      });
+      expect(firstAttempt.statusCode).toBe(422);
+      expect(firstAttempt.json().error.code).toBe("PICKUP_EVIDENCE_MISSING");
+
+      await shipmentRepo.addPhoto(shipmentId, PhotoStage.pickup, `shipments/${shipmentId}/pickup/${randomUUID()}.jpg`);
+
+      // Mismo nonce, sin volver a generar -- prueba de que el intento fallido de arriba
+      // no lo consumió.
+      const retry = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/handshake/confirm`,
+        headers: { "x-user-id": carrierId },
+        payload: { nonce, signature, lat: -31.4201, lng: -64.1888 },
+      });
+      expect(retry.statusCode).toBe(200);
+      expect(retry.json().status).toBe("in_transit");
+    });
+
+    it("422 DELIVERY_EVIDENCE_MISSING si se confirma la entrega sin ninguna foto de evidencia", async () => {
+      const shipmentId = await createInTransitShipment(false);
+      const generateResponse = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/handshake/generate`,
+        headers: { "x-user-id": carrierId },
+        payload: { lat: -31.4135, lng: -64.1811 },
+      });
+      const { nonce, canonicalPayload } = generateResponse.json();
+      const signature = await sign(carrierKeyPair.privateKey, canonicalPayload);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/handshake/confirm`,
+        headers: { "x-user-id": receiverId },
+        payload: { nonce, signature, lat: -31.4135, lng: -64.1811 },
+      });
+
+      expect(response.statusCode).toBe(422);
+      expect(response.json().error.code).toBe("DELIVERY_EVIDENCE_MISSING");
+
+      const shipment = await shipmentRepo.findById(shipmentId);
+      expect(shipment?.status).toBe(ShipmentStatus.IN_TRANSIT);
+    });
+  });
+
+  describe("GET /shipments/:id/evidence-status — MOVO-196", () => {
+    it("assigned -> stage pickup, satisfied false sin evidencia y true con evidencia", async () => {
+      const shipmentId = await createAssignedShipment({}, false);
+
+      const before = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}/evidence-status`,
+        headers: { "x-user-id": carrierId },
+      });
+      expect(before.statusCode).toBe(200);
+      expect(before.json()).toMatchObject({ stage: "pickup", satisfied: false, photoCount: 0, minRequired: 1, maxAllowed: 5 });
+
+      await shipmentRepo.addPhoto(shipmentId, PhotoStage.pickup, `shipments/${shipmentId}/pickup/${randomUUID()}.jpg`);
+
+      const after = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}/evidence-status`,
+        headers: { "x-user-id": carrierId },
+      });
+      expect(after.json()).toMatchObject({ stage: "pickup", satisfied: true, photoCount: 1 });
+    });
+
+    it("in_transit -> stage delivery", async () => {
+      const shipmentId = await createInTransitShipment(false);
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}/evidence-status`,
+        headers: { "x-user-id": senderId },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ stage: "delivery", satisfied: false, photoCount: 0 });
+    });
+
+    it("published -> sin stage relevante, satisfied true", async () => {
+      const created = await shipmentRepo.create(baseShipmentInput);
+      await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+      await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+      await shipmentRepo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null);
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${created.id}/evidence-status`,
+        headers: { "x-user-id": senderId },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ stage: null, satisfied: true, photoCount: 0 });
+    });
+
+    it("403 para un caller ajeno (ni sender/receiver/carrier/admin)", async () => {
+      const shipmentId = await createAssignedShipment({}, false);
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}/evidence-status`,
+        headers: { "x-user-id": randomUUID() },
+      });
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.code).toBe("AUTH_FORBIDDEN");
+    });
+
+    it("404 para un envío inexistente", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${randomUUID()}/evidence-status`,
+        headers: { "x-user-id": senderId },
+      });
+      expect(response.statusCode).toBe(404);
     });
   });
 });
