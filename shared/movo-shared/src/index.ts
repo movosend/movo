@@ -23,7 +23,14 @@ export type { ApiErrorCode, SerializedApiError } from "./errors/api-error";
 // types
 export { UserRole, KycStatus, AccountStatus } from "./types/user";
 export { ShipmentStatus } from "./types/shipment";
-export type { SharedHistory } from "./types/shipment";
+export type {
+  SharedHistory,
+  ActiveShipmentStatus,
+  ActiveShipmentCounterparty,
+  ActiveShipmentSummary,
+  RatingRole,
+  PendingRatingShipment,
+} from "./types/shipment";
 export { OfferStatus } from "./types/offer";
 export { TripStatus } from "./types/trip";
 export type {
@@ -40,11 +47,14 @@ export { PriceCalculationMethod } from "./types/pricing";
 export type { QuoteRequest, QuoteResponse, PriceBreakdownItem } from "./types/pricing";
 export { OptimizationStatus } from "./types/routing";
 export type {
+  Coordinates,
   RouteStopType,
   RouteStopInput,
   OptimizeRouteRequest,
   RouteStopOutput,
   OptimizeRouteResponse,
+  CarrierRouteStop,
+  CarrierRoute,
 } from "./types/routing";
 
 // commission
@@ -56,6 +66,10 @@ export {
   __resetCommissionConfigForTests,
 } from "./config/commission";
 export type { CommissionConfig, OfferGrossPriceBreakdown } from "./config/commission";
+
+// legal (MOVO-228)
+export { LEGAL_DOCUMENT_VERSIONS } from "./config/legal";
+export type { LegalDocumentKind } from "./config/legal";
 
 // utils
 export { toArgentinaCalendarDateString } from "./utils/argentina-date";

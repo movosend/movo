@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import errorHandlerPlugin from "../src/plugins/error-handler";
 import tripsRoutes from "../src/modules/trips/trips.routes";
 import { TripsService } from "../src/modules/trips/trips.service";
-import { TripStatus } from "@movo/shared";
+import { ApiError, TripStatus } from "@movo/shared";
 
 const CARRIER_ID = "11111111-1111-1111-1111-111111111111";
 const TRIP_ID = "22222222-2222-2222-2222-222222222222";
@@ -224,6 +224,8 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
       pickupDistanceKm: 1.2,
       deliveryDistanceKm: 2.5,
       hasMyOffer: true,
+      detourDistanceKm: 7.5,
+      detourDurationMinutes: 12,
     };
 
     (service.getTripMatches as any).mockResolvedValue({
@@ -249,8 +251,29 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
     expect(body.items).toHaveLength(1);
     expect(body.items[0].id).toBe("33333333-3333-3333-3333-333333333333");
     expect(body.items[0].hasMyOffer).toBe(true);
+    expect(body.items[0].detourDistanceKm).toBe(7.5);
+    expect(body.items[0].detourDurationMinutes).toBe(12);
     expect(body.items[0].pickupDate).toBe("2030-01-01");
     expect(body.items[0].pickupTimeWindowStart).toBe("09:00:00");
     expect(body.items[0].pickupTimeWindowEnd).toBe("12:00:00");
+  });
+
+  it("GET /:id/matches propaga 502 ante falla del servicio de ruteo (No-Fallback)", async () => {
+    (service.getTripMatches as any).mockRejectedValue(
+      new ApiError(502, "ROUTING_SERVICE_ERROR", "Falla en servicio de ruteo")
+    );
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/${TRIP_ID}/matches?radiusKm=20`,
+      headers: {
+        "x-user-id": CARRIER_ID,
+        "x-user-roles": "carrier",
+      },
+    });
+
+    expect(res.statusCode).toBe(502);
+    const body = res.json();
+    expect(body.error.code).toBe("ROUTING_SERVICE_ERROR");
   });
 });

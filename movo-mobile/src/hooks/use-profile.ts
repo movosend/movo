@@ -2,6 +2,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import type { PrivateProfile } from "@movo/shared/dist/types/user-profile";
 import {
   usersClient,
+  type AcceptLegalDocumentsInput,
   type OtpRequestResponse,
   type OtpVerifyInput,
   type UpdateProfileInput,
@@ -82,6 +83,19 @@ export function useUpdateProfile() {
   const onProfileUpdated = useProfileMutationSuccess();
   return useMutation<PrivateProfile, unknown, UpdateProfileInput>({
     mutationFn: (body) => usersClient.updateProfile(body),
+    onSuccess: onProfileUpdated,
+  });
+}
+
+/** MOVO-229: re-aceptación post-registro de Términos y/o Privacidad — la pantalla de
+ * cada documento manda solo la versión de ESE documento (`termsVersion` o
+ * `privacyVersion`), nunca ambas juntas salvo que el usuario esté aceptando las dos
+ * en la misma visita. `setQueryData` con el `PrivateProfile` completo que devuelve
+ * el backend, mismo criterio que el resto de las mutaciones de este archivo. */
+export function useAcceptLegalDocuments() {
+  const onProfileUpdated = useProfileMutationSuccess();
+  return useMutation<PrivateProfile, unknown, AcceptLegalDocumentsInput>({
+    mutationFn: (body) => usersClient.acceptLegalDocuments(body),
     onSuccess: onProfileUpdated,
   });
 }

@@ -15,6 +15,7 @@ export function createFakeRatingRepository(overrides: Partial<RatingRepository> 
     listForReputation: vi.fn().mockResolvedValue([]),
     listForReputationByRateeIds: vi.fn().mockResolvedValue(new Map()),
     getGlobalAverageScore: vi.fn().mockResolvedValue(0),
+    listByRaterForShipments: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
 }

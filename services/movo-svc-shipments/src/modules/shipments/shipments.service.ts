@@ -1,6 +1,9 @@
 import {
+  ActiveShipmentStatus,
   ApiError,
+  CarrierRoute,
   OfferStatus,
+  PublicProfile,
   ShipmentStatus,
   TripStatus,
   UserRole,
@@ -12,12 +15,34 @@ import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { TripRepository } from "../../repositories/trip-repository";
+import { RatingRepository } from "../../repositories/rating-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
+import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
 import { AvailableShipment, PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
+import { RatingRole } from "../../models/rating";
 import { isPickupWindowExpired } from "../../domain/pickup-window";
 import { haversineKm } from "../../domain/geo";
+import {
+  aggregateCarrierStops,
+  buildDegradedRoute,
+  buildEmptyRoute,
+  mapOptimizedRoute,
+} from "../../domain/carrier-route";
+import {
+  ActiveShipmentRole,
+  getInitials,
+  isActiveShipmentPickupWindowExpired,
+  isShipmentPickupToday,
+  resolveActiveShipmentCounterpartyId,
+} from "../../domain/active-shipment";
+import { computePendingRatingFor } from "../../domain/pending-rating";
+import {
+  RATING_WINDOW_HOURS,
+  MAX_DISPUTE_FREEZE_HOURS,
+  computeRatingWindowDeadline,
+} from "../../domain/rating-window";
 import { Offer } from "../../models/offer";
 import {
   assertIsNotShipmentParty,
@@ -172,6 +197,61 @@ export interface ListAvailableResult {
   limit: number;
   total: number;
 }
+
+/**
+ * MOVO-192: resultado interno de `listActiveShipments` -- fechas/horas siguen siendo
+ * `Date` acá (mismo criterio que `Shipment`), la ruta las formatea a string con
+ * `toActiveShipmentDto` (mismo fix de timezone que `toShipmentDto`, ver su comentario
+ * en `shipments.routes.ts`). `status` se acota a `ActiveShipmentStatus` (no todo
+ * `ShipmentStatus`) porque `repository.listActiveShipments` ya filtra por
+ * `ACTIVE_SHIPMENT_STATUSES` -- el cast en el mapeo documenta esa garantía, no la
+ * reimplementa.
+ */
+export interface ActiveShipmentResult {
+  id: string;
+  status: ActiveShipmentStatus;
+  pickupDate: Date;
+  pickupTimeWindowStart: Date;
+  pickupTimeWindowEnd: Date;
+  pickupAddress: string;
+  deliveryAddress: string;
+  agreedPriceArs: number | null;
+  counterparty: { name: string; initials: string };
+  isToday: boolean;
+  pickupWindowExpired: boolean;
+}
+
+const ACTIVE_SHIPMENT_ROLE_TO_COLUMN: Record<ActiveShipmentRole, "senderId" | "carrierId" | "receiverId"> = {
+  sending: "senderId",
+  transporting: "carrierId",
+  receiving: "receiverId",
+};
+
+/**
+ * MOVO-222: resultado interno de `listPendingRatings` -- `deliveredAt` sigue siendo
+ * `Date` acá (mismo criterio que `Shipment`/`ActiveShipmentResult`), la ruta lo
+ * formatea a string. `status` se acota a los dos valores "fulfilled" porque
+ * `repository.findPendingRatingCandidates` ya filtró por
+ * `FULFILLED_SHIPMENT_STATUSES` -- el cast en el mapeo documenta esa garantía, no la
+ * reimplementa.
+ */
+export interface PendingRatingResult {
+  id: string;
+  status: ShipmentStatus.DELIVERED | ShipmentStatus.COMPLETED;
+  deliveredAt: Date;
+  ratingDeadline: Date;
+  senderId: string;
+  receiverId: string;
+  carrierId: string;
+  pendingRatingFor: RatingRole[];
+}
+
+// Fallback cuando `usersClient.findPublicProfile` de la contraparte falla o devuelve
+// null -- no debería pasar en la práctica (la contraparte es siempre alguien que ya
+// participó de una asignación real), pero un fallo de red no puede tirar abajo la
+// lista completa de envíos activos del caller (mismo criterio best-effort que
+// `resolveSnapshotProfile`/`dispatchReceiverDecisionPush` más arriba en este archivo).
+const UNKNOWN_COUNTERPARTY_NAME = "Usuario de Movo";
 
 // MOVO-126: retiro y entrega a menos de 100m se tratan como la misma ubicación —
 // umbral chico a propósito (mismo criterio que el rechazo duro de
@@ -463,7 +543,18 @@ export interface ShipmentsServiceOptions {
    * (MOVO-162) -- valida que el viaje exista, sea del mismo transportista y siga
    * `active` antes de dejar que la oferta lo referencie. */
   tripRepository?: TripRepository;
+  /** Requerido para `getMyRoute` (MOVO-206) -- solver de optimización VRPTW. */
+  pricingLogisticsClient?: PricingLogisticsClient;
+  /**
+   * Requerido solo para `listPendingRatings` (MOVO-222) -- resuelve qué calificaciones
+   * ya hizo el caller (`listByRaterForShipments`). Sin repositorio inyectado degrada a
+   * lista vacía, mismo criterio best-effort que `pricingClient` en `createShipment`:
+   * varios tests existentes construyen el servicio sin pasar todas las opciones.
+   */
+  ratingRepository?: RatingRepository;
 }
+
+export type ShipmentsService = ReturnType<typeof createShipmentsService>;
 
 export function createShipmentsService(
   repository: ShipmentRepository,
@@ -475,9 +566,11 @@ export function createShipmentsService(
   const timeoutHours = opts.receiverConfirmationTimeoutHours ?? 48;
   const offerRepository = opts.offerRepository;
   const pricingClient = opts.pricingClient;
+  const pricingLogisticsClient = opts.pricingLogisticsClient;
   const getCarrierReputationScore = opts.getCarrierReputationScore;
   const getSenderReputationScore = opts.getSenderReputationScore;
   const tripRepository = opts.tripRepository;
+  const ratingRepository = opts.ratingRepository;
 
   return {
     async createShipment(input: CreateShipmentServiceInput): Promise<Shipment> {
@@ -1260,6 +1353,194 @@ export function createShipmentsService(
       otherUserId: string
     ): Promise<{ sharedShipmentCount: number; lastSharedAt: Date | null; allDelivered: boolean }> {
       return repository.getSharedHistory(viewerId, otherUserId);
+    },
+
+    /**
+     * MOVO-192: envíos activos del caller en un rol (`GET /shipments/sending|
+     * transporting|receiving`). El rol sale siempre del endpoint consultado, nunca de
+     * un parámetro del caller (AC8) -- por eso esta firma ni siquiera acepta un
+     * `userId` de otra persona. Sin autorización adicional más allá de estar
+     * autenticado (a diferencia de `getShipmentDetail`): la query de
+     * `repository.listActiveShipments` ya está acotada a filas donde `callerId`
+     * participa, así que no hay nada que autorizar aparte.
+     */
+    async listActiveShipments(role: ActiveShipmentRole, callerId: string): Promise<ActiveShipmentResult[]> {
+      const shipments = await repository.listActiveShipments(ACTIVE_SHIPMENT_ROLE_TO_COLUMN[role], callerId);
+      if (shipments.length === 0) {
+        return [];
+      }
+
+      // Dedup antes de llamar a usersClient: varios envíos activos del mismo caller
+      // pueden compartir la misma contraparte (ej. dos envíos con el mismo
+      // transportista) -- un solo findPublicProfile por id único, no uno por ítem.
+      const counterpartyIds = new Set(shipments.map((shipment) => resolveActiveShipmentCounterpartyId(role, shipment)));
+      const profileById = new Map<string, PublicProfile | null>();
+      await Promise.all(
+        Array.from(counterpartyIds).map(async (counterpartyId) => {
+          try {
+            profileById.set(counterpartyId, await usersClient.findPublicProfile(counterpartyId, callerId));
+          } catch (err) {
+            logger?.warn(
+              { err, event: "active_shipment_counterparty_lookup_failed", counterpartyId },
+              "No se pudo resolver el perfil de la contraparte de un envío activo"
+            );
+            profileById.set(counterpartyId, null);
+          }
+        })
+      );
+
+      const now = new Date();
+      return shipments.map((shipment) => {
+        // Garantizado por `ACTIVE_SHIPMENT_STATUSES` -- `repository.listActiveShipments`
+        // ya filtró por ese subconjunto antes de llegar acá.
+        const status = shipment.status as ActiveShipmentStatus;
+        const counterpartyId = resolveActiveShipmentCounterpartyId(role, shipment);
+        const counterpartyProfile = profileById.get(counterpartyId) ?? null;
+        return {
+          id: shipment.id,
+          status,
+          pickupDate: shipment.pickupDate,
+          pickupTimeWindowStart: shipment.pickupTimeWindowStart,
+          pickupTimeWindowEnd: shipment.pickupTimeWindowEnd,
+          pickupAddress: shipment.pickupAddress,
+          deliveryAddress: shipment.deliveryAddress,
+          agreedPriceArs: shipment.agreedPriceArs,
+          counterparty: {
+            name: counterpartyProfile?.fullName ?? UNKNOWN_COUNTERPARTY_NAME,
+            initials: getInitials(counterpartyProfile?.fullName),
+          },
+          isToday: isShipmentPickupToday(shipment.pickupDate, now),
+          pickupWindowExpired: isActiveShipmentPickupWindowExpired(
+            status,
+            shipment.pickupDate,
+            shipment.pickupTimeWindowEnd,
+            now
+          ),
+        };
+      });
+    },
+
+    /**
+     * MOVO-206: Ruta optimizada multi-parada del transportista autenticado (`GET /shipments/my-route`).
+     * - Consulta envíos activos del transportista.
+     * - Agrega paradas (pickup y delivery para `assigned`, solo delivery para `in_transit`).
+     * - Si no hay paradas: devuelve ruta vacía (200, AC4).
+     * - Llama a OR-Tools vía `pricingLogisticsClient.optimizeRoute` (AC5).
+     * - Si el solver falla: aplica degradación heurística con `optimized: false` (AC6).
+     * - On-demand, sin persistencia en BD (AC7, AC9).
+     */
+    async getMyRoute(carrierId: string, location: { lat: number; lng: number }): Promise<CarrierRoute> {
+      // 1. Envíos activos del transportista (aprovecha query de MOVO-192)
+      const shipments = await repository.listActiveShipments("carrierId", carrierId);
+
+      // 2. Composición de paradas (AC2)
+      const stops = aggregateCarrierStops(shipments);
+
+      // 3. Si no hay paradas activas, ruta vacía (AC4)
+      if (stops.length === 0) {
+        return buildEmptyRoute();
+      }
+
+      // 4. Invocación a pricing-logistics con fallback de degradación heurística (AC6)
+      if (!pricingLogisticsClient) {
+        logger?.warn(
+          { event: "my_route_solver_missing", carrierId },
+          "pricingLogisticsClient no inyectado -- retornando ruta degradada"
+        );
+        return buildDegradedRoute(stops);
+      }
+
+      try {
+        const result = await pricingLogisticsClient.optimizeRoute({
+          carrierLocation: { lat: location.lat, lng: location.lng },
+          stops,
+        });
+        return mapOptimizedRoute(result);
+      } catch (err) {
+        logger?.warn(
+          { err, event: "my_route_solver_failed", carrierId },
+          "Fallo al invocar el optimizador de rutas -- aplicando degradación heurística (AC6)"
+        );
+        return buildDegradedRoute(stops);
+      }
+    },
+
+    /**
+     * MOVO-222: envíos `delivered`/`completed` de `callerId` (en cualquier rol --
+     * emisor, receptor o transportista) donde todavía le falta calificar a alguna
+     * contraparte dentro de la ventana de 72hs. Solo se devuelven ítems con algo
+     * pendiente (AC del ticket: `pendingRatingFor` nunca viaja vacío acá).
+     */
+    async listPendingRatings(callerId: string): Promise<PendingRatingResult[]> {
+      if (!ratingRepository) {
+        return [];
+      }
+
+      // MOVO-222 (corregido en review): el prefiltro SQL suma `MAX_DISPUTE_FREEZE_HOURS`
+      // de margen sobre `RATING_WINDOW_HOURS` -- antes cortaba a secas en las 72hs y
+      // podía descartar en la propia query un candidato cuya ventana real (extendida
+      // por un freeze de disputa) `isRatingWindowOpen` todavía consideraría abierta.
+      const deliveredSince = new Date(
+        Date.now() - (RATING_WINDOW_HOURS + MAX_DISPUTE_FREEZE_HOURS) * 60 * 60 * 1000
+      );
+      const candidates = await repository.findPendingRatingCandidates(callerId, deliveredSince);
+      if (candidates.length === 0) {
+        return [];
+      }
+
+      const [myRatings, eventsByShipment] = await Promise.all([
+        ratingRepository.listByRaterForShipments(
+          callerId,
+          candidates.map((shipment) => shipment.id)
+        ),
+        // MOVO-222 (corregido en review): en paralelo -- antes se traía en un `for`
+        // secuencial, un round-trip a la DB por candidato, mismo N+1 que este método ya
+        // evita explícitamente para `listByRaterForShipments`.
+        Promise.all(candidates.map((shipment) => repository.listEvents(shipment.id))),
+      ]);
+      const ratedRolesByShipment = new Map<string, Set<RatingRole>>();
+      for (const rating of myRatings) {
+        const roles = ratedRolesByShipment.get(rating.shipmentId) ?? new Set<RatingRole>();
+        roles.add(rating.role);
+        ratedRolesByShipment.set(rating.shipmentId, roles);
+      }
+
+      const results: PendingRatingResult[] = [];
+      candidates.forEach((shipment, index) => {
+        // `carrierId` es nullable en el schema, pero `delivered`/`completed` solo se
+        // alcanza después de `in_transit`, que ya requiere `carrierId` asignado --
+        // guarda explícita en vez de un cast ciego: si esta invariante del state
+        // machine se rompiera alguna vez, se descarta el ítem (con warning) en vez de
+        // tirar un 500 de serialización para el resto de la lista.
+        if (!shipment.carrierId) {
+          logger?.warn(
+            { shipmentId: shipment.id, status: shipment.status },
+            "listPendingRatings: envío fulfilled sin carrierId, se omite"
+          );
+          return;
+        }
+
+        const events = eventsByShipment[index] ?? [];
+        const alreadyRated = ratedRolesByShipment.get(shipment.id) ?? new Set<RatingRole>();
+        const pendingRatingFor = computePendingRatingFor(shipment, events, callerId, alreadyRated);
+        if (pendingRatingFor.length === 0) {
+          return;
+        }
+        results.push({
+          id: shipment.id,
+          // Garantizado por `FULFILLED_SHIPMENT_STATUSES` -- `findPendingRatingCandidates`
+          // ya filtró por ese subconjunto antes de llegar acá.
+          status: shipment.status as ShipmentStatus.DELIVERED | ShipmentStatus.COMPLETED,
+          // Garantizado por `computePendingRatingFor` (nunca deja pasar sin `deliveredAt`).
+          deliveredAt: shipment.deliveredAt as Date,
+          ratingDeadline: computeRatingWindowDeadline(shipment.deliveredAt as Date, events),
+          senderId: shipment.senderId,
+          receiverId: shipment.receiverId,
+          carrierId: shipment.carrierId,
+          pendingRatingFor,
+        });
+      });
+      return results;
     },
   };
 }

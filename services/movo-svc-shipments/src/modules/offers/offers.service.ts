@@ -162,6 +162,55 @@ function isRankableOffer(item: OfferWithShipmentContext): boolean {
   return item.status === OfferStatus.PENDING && item.shipment.status === ShipmentStatus.PUBLISHED;
 }
 
+/**
+ * MOVO-190: extraído del cuerpo de `listMyOffers` (antes inline) para que
+ * `getOfferDetail` pueda resolver `competitiveRank` de una sola oferta sin
+ * duplicar el batch/desempate -- mismo criterio de "un único `now`" que el resto
+ * del módulo (MOVO-188): el caller lo comparte con la lectura de la(s) oferta(s)
+ * para no correr el riesgo de carrera de expiración entre dos `new Date()`
+ * independientes.
+ */
+async function attachCompetitiveRanks(
+  items: OfferWithShipmentContext[],
+  now: Date,
+  offerRepository: OfferRepository,
+  shipmentRepository: ShipmentRepository,
+  getCarrierReputationScores?: GetCarrierReputationScores
+): Promise<OfferWithShipmentContext[]> {
+  const rankableShipmentIds = [...new Set(items.filter(isRankableOffer).map((item) => item.shipmentId))];
+  const pendingByShipmentRaw =
+    rankableShipmentIds.length > 0
+      ? await offerRepository.listPendingOffersByShipmentIds(rankableShipmentIds, now)
+      : new Map<string, CompetingOffer[]>();
+
+  const competingCarrierIds = [...new Set([...pendingByShipmentRaw.values()].flat().map((offer) => offer.carrierId))];
+  const [reputationByCarrier, deliveredCountByCarrier] =
+    competingCarrierIds.length > 0
+      ? await Promise.all([
+          getCarrierReputationScores
+            ? getCarrierReputationScores(competingCarrierIds)
+            : Promise.resolve(new Map<string, number | null>()),
+          shipmentRepository.countDeliveredAsCarrierByIds(competingCarrierIds),
+        ])
+      : [new Map<string, number | null>(), new Map<string, number>()];
+
+  const pendingByShipment = new Map(
+    [...pendingByShipmentRaw.entries()].map(([shipmentId, offers]) => [
+      shipmentId,
+      [...offers].sort((a, b) => compareCompetingOffers(a, b, reputationByCarrier, deliveredCountByCarrier)),
+    ])
+  );
+
+  const commissionRate = getCommissionConfig().movoCommissionRate;
+
+  return items.map((item) => ({
+    ...item,
+    competitiveRank: isRankableOffer(item)
+      ? buildCompetitiveRank(item.id, pendingByShipment.get(item.shipmentId) ?? [], commissionRate)
+      : null,
+  }));
+}
+
 export function createOffersService(
   offerRepository: OfferRepository,
   shipmentRepository: ShipmentRepository,
@@ -195,42 +244,47 @@ export function createOffersService(
       const now = new Date();
       const { items, total } = await offerRepository.listByCarrier(carrierId, page, limit, status, now);
 
-      const rankableShipmentIds = [...new Set(items.filter(isRankableOffer).map((item) => item.shipmentId))];
-      const pendingByShipmentRaw =
-        rankableShipmentIds.length > 0
-          ? await offerRepository.listPendingOffersByShipmentIds(rankableShipmentIds, now)
-          : new Map<string, CompetingOffer[]>();
-
-      const competingCarrierIds = [
-        ...new Set([...pendingByShipmentRaw.values()].flat().map((offer) => offer.carrierId)),
-      ];
-      const [reputationByCarrier, deliveredCountByCarrier] =
-        competingCarrierIds.length > 0
-          ? await Promise.all([
-              getCarrierReputationScores
-                ? getCarrierReputationScores(competingCarrierIds)
-                : Promise.resolve(new Map<string, number | null>()),
-              shipmentRepository.countDeliveredAsCarrierByIds(competingCarrierIds),
-            ])
-          : [new Map<string, number | null>(), new Map<string, number>()];
-
-      const pendingByShipment = new Map(
-        [...pendingByShipmentRaw.entries()].map(([shipmentId, offers]) => [
-          shipmentId,
-          [...offers].sort((a, b) => compareCompetingOffers(a, b, reputationByCarrier, deliveredCountByCarrier)),
-        ])
+      const itemsWithRank = await attachCompetitiveRanks(
+        items,
+        now,
+        offerRepository,
+        shipmentRepository,
+        getCarrierReputationScores
       );
 
-      const commissionRate = getCommissionConfig().movoCommissionRate;
-
-      const itemsWithRank = items.map((item) => ({
-        ...item,
-        competitiveRank: isRankableOffer(item)
-          ? buildCompetitiveRank(item.id, pendingByShipment.get(item.shipmentId) ?? [], commissionRate)
-          : null,
-      }));
-
       return { items: itemsWithRank, page, limit, total };
+    },
+
+    /**
+     * MOVO-190: detalle completo de una oferta propia -- mismo shape que un ítem de
+     * `listMyOffers` (incluye `shipment`/`competitiveRank`/`viewedAtBySender`), para
+     * que el mobile (MOVO-182) pueda "abrir" una oferta puntual desde la lista sin un
+     * segundo contrato. Autorización trivial (dueño = `carrierId === callerId`),
+     * mismo criterio que `withdrawOffer`/`updateOffer` -- no es el emisor mirando
+     * ofertas ajenas (`assertIsSender*` de shipments), acá el dueño es siempre el
+     * transportista. `viewedAtBySender` NUNCA se marca desde acá: ese campo es "el
+     * EMISOR vio la oferta" (MOVO-189), se marca solo desde
+     * `GET /shipments/:id/offers` cuando el caller es el emisor real.
+     */
+    async getOfferDetail(offerId: string, callerId: string): Promise<OfferWithShipmentContext> {
+      const now = new Date();
+      const offer = await offerRepository.findByIdWithShipmentContext(offerId, now);
+      if (!offer) {
+        throw new ApiError(404, "OFFER_NOT_FOUND", "No existe una oferta con ese id.");
+      }
+
+      if (offer.carrierId !== callerId) {
+        throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el transportista dueño de la oferta puede verla.");
+      }
+
+      const [withRank] = await attachCompetitiveRanks(
+        [offer],
+        now,
+        offerRepository,
+        shipmentRepository,
+        getCarrierReputationScores
+      );
+      return withRank;
     },
 
     /**

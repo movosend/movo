@@ -1296,6 +1296,104 @@ distinta del envío descarta un viaje con geometría de paso; un `departureAt` d
 madrugada UTC que cae la noche anterior en Argentina sigue matcheando el día
 correcto. `tsc --noEmit` limpio.
 
+### MOVO-223 — Rediseño de la ficha/selector de auto y su integración con declarar viaje
+
+Implementación fiel a un prototipo interactivo de Claude Design ("Ficha de vehículo")
+sobre el atomic-form de MOVO-172 (`app/(app)/vehicle-info.tsx`), que reemplaza la
+carga 100% libre de marca/modelo/capacidad por un selector con catálogo argentino y
+volumen estándar por modelo, más la integración con "Declarar viaje" (MOVO-162).
+
+- **Catálogo estático en el mobile, decisión tomada con el usuario**: no existe
+  ningún catálogo de referencia en ningún servicio del monorepo hoy, y el volumen de
+  datos (10 marcas, ~50 modelos) es chico y cambia poco — no justifica una
+  tabla/endpoint nuevo en `movo-svc-users` para un ticket de 2 puntos. **El backend
+  no necesitó ningún cambio**: `VehicleProfile` (`brand`/`model`/`cargoCapacityLabel`/
+  `licensePlate`, todos `string`) ya era compatible con lo que pide MOVO-223 — el
+  mobile simplemente le manda ahora valores que salen del catálogo
+  (`src/data/vehicle-catalog.ts`) en vez de texto libre del usuario.
+  `cargoCapacityLabel` sigue siendo el único campo persistido para el volumen (no
+  hay columna de tier); al recargar una ficha, `tierFromLabel`/`draftFromVehicle`
+  reconstruyen el tier/segmento matcheando contra el catálogo, con fallback a un
+  tier "?" para fichas viejas de MOVO-172 con texto libre que no matchea nada.
+- **Pantalla rehecha como wizard de pasos** (`empty → brand → model/manual → plate →
+  view/edit`), reemplazando el formulario atómico de 4 campos — sigue siendo el mismo
+  archivo (`vehicle-info.tsx`), no una ruta nueva. `PlateInput`/`TierPicker`/
+  `BrandAvatar` nuevos en `components/vehicle/`; `src/lib/plate-format.ts` (puro,
+  testeado aparte) para detección/máscara/validación Mercosur vs. formato anterior.
+- **"Eliminar vehículo" del mockup, omitido a propósito**: no existe ningún
+  `DELETE /users/me/vehicle` en `movo-svc-users` (solo `GET`/`PUT` upsert de
+  MOVO-172) — mismo criterio que el resto del repo de no exponer una acción que el
+  backend siempre va a rechazar o que no tiene a dónde ir. Si se necesita en el
+  futuro, es un ticket de backend aparte.
+- **Logos de marca reales** (`src/lib/vehicle-brand-icons.ts`, `assets/car-brands/`):
+  el mockup en sí usa un círculo con iniciales (`BrandAvatar`), no logos — el usuario
+  aportó los PNG (con canal alfa real) para las 19 marcas del catálogo final. Metro no
+  soporta `require()` con rutas dinámicas, así que cada logo tiene su propia línea
+  explícita en el mapa — sumar una marca nueva implica agregar el archivo (slug en
+  minúsculas sin tildes, guiones se conservan) y esa línea; sin entrada, `BrandAvatar`
+  cae sola a las iniciales, nunca rompe.
+- **Catálogo ampliado post-review del usuario** (`src/data/vehicle-catalog.ts`): de 10
+  a 19 marcas y de 5 a 6 tiers (`XXXL` nuevo, para furgones grandes tipo Sprinter/
+  Master/Ducato) — cubre además parque usado además de 0km (ACARA) y utilitarios de
+  carga. Mismo *shape* de datos, sin tocar ningún tipo/helper. El único ajuste de
+  código que forzó fue de UI: los badges de tier eran cuadrados de ancho fijo (`w-*`,
+  pensados para ids de 2-3 caracteres) — con `XXXL` (4 caracteres) se cortaban.
+  Cambiados a `min-w-*` + padding horizontal en los 5 lugares donde aparecen
+  (`TierPicker`, badge de modelo, los dos badges de "Volumen de carga" de la ficha, el
+  badge de la card de "Declarar viaje").
+- **Esquinas cuadradas en cards con franja de color + bloque debajo** (bug de RN, no
+  del diseño): un `View` con `overflow-hidden` + esquinas redondeadas no siempre
+  recorta bien el fondo sólido de un hijo interno (más frecuente en Android) — la
+  esquina del bloque de arriba/abajo se ve cuadrada en vez de seguir la curva del
+  contenedor. Se corrigió redondeando cada bloque interno explícitamente (radio del
+  contenedor menos el grosor del borde) en los 3 lugares con esa estructura: la card
+  "Seleccionado automáticamente" de Declarar viaje, la card oscura "Vehículo
+  verificado" de la ficha, y el recuadro de "Volumen de carga" (con su estado
+  expandido/colapsado).
+- **Integración con "Declarar viaje" (`components/trips/trip-form.tsx`, AC4)**: el
+  `SelectField` fijo de `vehicleType` (`["Auto","Camioneta","Moto","Camión"]`,
+  MOVO-162) se reemplazó por la ficha de vehículo real vía `useMyVehicle()` — con
+  auto registrado, una card "Seleccionado automáticamente" (marca+modelo+patente+
+  tier); sin auto, un cartel "Necesitás una ficha de vehículo" que navega directo a
+  `/vehicle-info` (mismo criterio de "no prometer una salida que no existe" ya
+  documentado en MOVO-162 AC4). `vehicleType` que viaja a
+  `POST/PATCH /trips` pasa a ser `"${brand} ${model}"` derivado del vehículo, ya no
+  texto elegido a mano — sigue siendo un `string` libre del lado del backend, sin
+  cambios de contrato. `isValid` del formulario ahora exige también `!!vehicle`.
+  `TripFormInitialValues` perdió el campo `vehicleType` (ya no aplica, con un solo
+  auto por usuario el valor siempre sale de la ficha, nunca del viaje que se edita).
+  La card de "Seleccionado automáticamente" suma el `BrandAvatar` (logo/iniciales de
+  la marca) junto al badge de tier, a pedido del usuario — antes solo mostraba texto.
+- **Selector de fecha/hora de salida de `DepartureDateTimePicker`, reescrito**: la
+  primera versión de este ticket seguía el patrón ya existente en el repo
+  (`TimeWindowPicker`) de `display="compact"` de iOS inline junto a un label propio —
+  pero acá van dos campos lado a lado a mitad de fila, y el ancho mínimo intrínseco
+  del widget nativo no se achica lo suficiente ahí (quedaba superpuesto/cortado con el
+  ícono+texto, "no se ven bien"). Un segundo intento lo puso invisible
+  (`opacity` chico) superpuesto sobre un pill propio — mejoraba lo visual, pero el
+  área que ese control nativo reconoce como toque es su propio tamaño intrínseco
+  (chico, centrado), no el `100%` del `style` absoluto que lo envolvía, así que solo
+  una porción chica del pill abría el selector. La versión final abandona el widget
+  compacto inline: el `Pressable` de todo el pill (mismo criterio que ya usa Android)
+  abre una hoja inferior (mismo patrón `Modal`+`useSheetAnimation` que
+  `select-field.tsx`) con un `DateTimePicker` `display="spinner"` real, visible y
+  centrado adentro, más botón "Listo". Android no se tocó en ninguna vuelta (el
+  diálogo imperativo ya usaba el pill entero como área de toque, sin este problema).
+- **Texto explicativo agregado en "Declarar viaje"** (`new.tsx`, pedido del usuario):
+  una línea debajo del header explicando para qué sirve declarar un viaje, mismo
+  estilo que ya usa "Mis viajes" para su propia explicación.
+
+Tests nuevos: `test/plate-format.test.ts` (detección de formato, máscara posición por
+posición, validación completa), casos reescritos en `test/vehicle-info-screen.test.tsx`
+(flujo completo por catálogo, búsqueda de marca, carga manual, errores de patente,
+ficha ya registrada, edición), en `test/trip-form.test.tsx` (auto-selección desde la
+ficha, cartel de registro sin vehículo) y en `test/departure-date-time-picker.test.tsx`
+(reescrito para el flujo de hoja inferior en iOS). 104/104 suites, 806/806 tests en
+`movo-mobile`. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: no probado en device; `DELETE /users/me/vehicle` (si se
+decide ofrecer "eliminar vehículo" de verdad) queda como ticket de backend aparte.
+
 ### Pendientes de este paquete
 
 - **`eas init`/development build real en dispositivo**: pendiente para probar de
@@ -2213,6 +2311,324 @@ de `useDeviceKeyBootstrap`); prueba en dispositivo físico iOS y Android (Keycha
 Keystore real) y el ciclo completo generar→registrar→firmar→confirmar contra
 `svc-shipments` real — no verificable en este entorno; rotación periódica de claves.
 
+### MOVO-224 — Pantallas de Legal en Perfil: Términos y Condiciones y Política de Privacidad
+
+Reemplaza el placeholder "Legal" de Perfil → Configuración
+(`profile-settings-section.tsx`, MOVO-78) por un hub real
+(`app/(app)/profile/legal/index.tsx`, mismo patrón hub→detalle que
+`security.tsx`, MOVO-136) con dos pantallas de solo lectura: Términos y
+Condiciones y Política de Privacidad, sobre el contenido redactado en
+`docs/legal/` (borradores de trabajo, ver el aviso académico dentro de cada
+documento).
+
+- **Sin librería de markdown nueva**: `components/legal/markdown-lite.tsx` es
+  un parser/render acotado a la sintaxis que realmente usan esos dos
+  documentos (encabezados, párrafos, listas con guión/numeradas, blockquote,
+  tablas, `---`) — no un markdown genérico. Las tablas del origen (2-4
+  columnas) se re-interpretan como tarjetas apiladas "columna: valor" en vez
+  de una tabla ancha con scroll horizontal, ilegible en un teléfono.
+- **`src/content/legal/*.ts` es una copia** del contenido de
+  `docs/legal/politica-privacidad.md`/`terminos-y-condiciones.md`, empaquetada
+  como `string` — Metro no soporta importar `.md` como texto sin un
+  transformer custom, que no se justifica para contenido que cambia con poca
+  frecuencia. **Generada por `npm run sync:legal` (`scripts/sync-legal-docs.ts`,
+  raíz del repo), no a mano** — ver la entrada "Automatización de sync de
+  documentos legales" más abajo (sin ticket propio, tooling agregado después
+  de esta US para cerrar el pendiente de sync manual que quedaba documentado
+  acá).
+- El blockquote del "Aviso académico" (primer bloque de ambos documentos) se
+  renderiza como un callout `warning` (mismo tono que el resto de la app usa
+  para "esperando algo"/atención), no como texto plano — es la parte más
+  importante de leer de todo el documento en esta etapa del proyecto.
+
+Tests nuevos: `test/markdown-lite.test.tsx` (parser), `test/legal-hub-screen.test.tsx`,
+`test/legal-document-screens.test.tsx`; caso agregado a
+`test/profile-settings-section.test.tsx`. 117/117 suites, 899/899 tests.
+`tsc --noEmit` limpio.
+
+**Segunda pasada (mismo día, feedback de usuario): renderizado más rico + índice
+funcional + enlaces reales.**
+
+- **Bloque de metadata del encabezado (`**Versión**`/`**Última actualización**`/
+  `**Vigencia**`) pasa a un bloque `"meta"` propio del parser**, detectado solo
+  al principio del documento (para no confundirlo con una intro en negrita de
+  un párrafo normal, patrón que sí se repite más abajo, ej. "**Estado
+  actual**: ..."). Se renderiza como una tarjeta chica de filas
+  etiqueta/valor, no como el párrafo pegoteado que salía antes (el markdown
+  fuente no tiene línea en blanco entre esas 3 líneas, así que sin este caso
+  especial cualquier renderer las junta en un solo párrafo — es el
+  comportamiento correcto de CommonMark, no un bug del parser).
+- **Índice funcional sin tocar la sintaxis del markdown fuente**: cada
+  encabezado y cada ítem del índice (una lista numerada común, sin sintaxis de
+  enlace) se pasan por la misma función `slugify()` — si coinciden, el ítem se
+  vuelve tocable. Evita escribir anclas `#slug` a mano en el índice (que se
+  desincronizarían solas si un título de sección cambia).
+- **Soporte de enlaces `[texto](url)`** en `renderInline` — antes no existía,
+  por eso "Ver también: [Política de Privacidad](...)" se veía como texto
+  crudo con corchetes. La itálica (`*texto*`, usada solo para envolver esa
+  misma línea completa) se resuelve ANTES del split genérico y de forma
+  recursiva: si entrara como una alternativa más del regex de split, su
+  patrón codicioso se comía el enlace anidado entero como texto plano antes
+  de que el enlace pudiera matchear — ese era el bug real detrás de "el
+  enlace no funciona".
+- **`LegalDocumentScreen` pasa a dueño del `ScrollView` y de los offsets de
+  cada encabezado** (`onHeadingLayout`, poblado por `MarkdownLite` en cada
+  `View` de encabezado) — al tocar un ítem del índice, hace
+  `scrollTo({ y: offset })`. También resuelve ahí las otras dos clases de
+  enlace: `mailto:`/URL externa vía `Linking.openURL`, y referencia cruzada al
+  otro documento (`./politica-privacidad.md`/`./terminos-y-condiciones.md`)
+  vía `router.push` a la pantalla hermana — nunca un enlace muerto.
+- `docs/legal/*.md` actualizados en el origen: los emails pasan de
+  `` **`email`** `` a `[email](mailto:email)`, y el link de exclusión de
+  Google Analytics pasa de código en línea a un link real — las copias en
+  `src/content/legal/*.ts` se regeneraron desde ahí.
+
+Tests nuevos: casos agregados a `markdown-lite.test.tsx` (bloque meta, enlaces,
+itálica de línea completa sin tragarse el link anidado, índice tocable,
+`onHeadingLayout`) y a `legal-document-screens.test.tsx` (navegación cruzada
+entre documentos, `mailto:` real, smoke test del índice). 117/117 suites,
+911/911 tests. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: pantallas de `movo-institucional` (a hacer en base
+a los mismos documentos, en una US aparte); checkbox de aceptación explícita en
+el wizard de registro y su versionado (qué versión aceptó cada usuario y
+cuándo) — el hub de Legal de esta US es de consulta libre, no un gate de
+onboarding; el contenido en sí sigue siendo un borrador (ver
+`[A COMPLETAR]` pendientes en `docs/legal/`, trackeados en MOVO-225/226/227);
+no probado en device (el scroll a ancla depende del `ScrollView` real, que en
+el entorno de test no expone `scrollTo` de forma mockeable — cubierto solo
+como smoke test de que no rompe, la lógica de cálculo de offset/slug sí está
+100% cubierta a nivel de `MarkdownLite`).
+
+**Tercera pasada (mismo día, feedback de usuario: contraste en dark mode +
+color de los enlaces):**
+
+- **Callout del aviso académico**: el texto pasó de `text-warning-700` a
+  `text-ink-950` (fijo, no theme-aware) — mismo criterio que `ErrorBanner`/
+  `SuccessBanner` (texto oscuro fijo sobre fondo pastel `warning-100`/`-300`,
+  que también es fijo en los dos temas). `warning-700` sobre `warning-100`
+  tenía contraste real más débil que `ink-950`, y encima el bloque quedaba
+  "flotando" con un tono que no calzaba con el resto de una pantalla oscura.
+- **Enlaces de negro/blanco en vez de azul**: `text-info-700` (azul fijo)
+  reemplazado por `text-fg` (theme-aware: negro en claro, blanco en oscuro) +
+  `underline`, tanto para `[texto](url)` como para los ítems tocables del
+  índice — pedido explícito del usuario, no le gustaba el azul de link
+  "genérico de internet".
+- Direcciones de contacto de ambos documentos unificadas a
+  `privacy@mail.movosend.app` (antes `terminos-y-condiciones.md` tenía
+  `legal@movosend.app`, un dominio distinto al que ya usaba
+  `politica-privacidad.md`) — pedido explícito del usuario, "dejemos privacy@
+  en todos lados".
+
+Test actualizado: `legal-document-screens.test.tsx` (el caso de `mailto:` pasa
+a esperar `privacy@mail.movosend.app`). 117/117 suites, 911/911 tests.
+`tsc --noEmit` limpio.
+
+### MOVO-228 — Checkbox obligatorio de aceptación legal en el registro + "firma electrónica" en Perfil → Legal
+
+Cierra el pendiente documentado en la entrada de MOVO-224 de más arriba: el registro
+solo tenía un texto informativo ("al continuar aceptás...") sin checkbox ni
+versionado. Ahora el último paso del wizard exige un tilde explícito, y el hub de
+Legal muestra cuándo (y qué versión de) cada documento aceptó la cuenta.
+
+- **`register.tsx` (paso de revisión)**: el texto pasivo se reemplazó por un checkbox
+  real (`register-accept-legal`, mismo patrón visual que el "reconocimiento explícito"
+  de `delete-account.tsx`, MOVO-136, pero en tono lime en vez de danger — acá no es
+  una acción destructiva). El botón "Crear cuenta" queda deshabilitado sin tildarlo.
+  Los links de "Términos"/"Política de Privacidad" dejaron de apuntar a
+  `https://movosend.app/tyc`/`.../privacy` (un sitio externo) y ahora navegan a las
+  pantallas reales de la app.
+- **`app/(auth)/legal-terms.tsx`/`legal-privacy.tsx` (nuevos)**: espejos de
+  `app/(app)/profile/legal/terms.tsx`/`privacy.tsx` bajo `(auth)` — el checkbox del
+  registro necesita poder abrir el documento completo ANTES de que exista una sesión,
+  y las rutas de `(app)/profile/legal/` están bloqueadas por el guard de sesión de
+  `(app)/_layout.tsx`. Mismo componente compartido (`LegalDocumentScreen`) y mismo
+  contenido — dos rutas, no dos documentos.
+- **`use-registration.tsx` gana `acceptedLegal`/`setAcceptedLegal`**: `submitRegistration`
+  valida `acceptedLegal` como defensa en profundidad (el botón ya lo impide, pero la
+  función es parte de la API pública del contexto) y manda `termsAccepted:true`/
+  `termsVersion`/`privacyAccepted:true`/`privacyVersion` al backend, con la versión
+  sacada de `LEGAL_DOCUMENT_VERSIONS` (`@movo/shared`) — **gotcha real encontrado
+  escribiendo el test**: el primer intento no incluía `acceptedLegal` en el array de
+  dependencias del `useCallback` de `submitRegistration`, así que la función seguía
+  leyendo `false` por clausura vieja aunque el estado ya fuera `true`.
+- **`LEGAL_DOCUMENT_VERSION_MISMATCH` mapeado** en `error-messages.ts` — pasa solo si
+  el usuario tiene una versión desactualizada de la app instalada.
+- **Perfil → Legal (`app/(app)/profile/legal/index.tsx`) suma la sección "Firma
+  electrónica"**: lee `termsAcceptedAt`/`termsVersion`/`privacyAcceptedAt`/
+  `privacyVersion` de `useMyProfile()` (dato real persistido por el backend, no
+  calculado en el cliente). Una cuenta creada antes de este ticket muestra "Sin
+  registro (cuenta creada antes de este control)" en vez de inventar una fecha.
+
+Tests nuevos: `test/auth-legal-screens.test.tsx` (las dos pantallas espejo bajo
+`(auth)`); casos agregados a `use-registration.test.tsx` (no registra sin el
+checkbox, y los 3 tests de registro exitoso ahora tildan `acceptedLegal` primero) y a
+`legal-hub-screen.test.tsx` (firma electrónica con datos reales y con cuenta sin
+registro — mockea `use-profile`, la pantalla ahora depende de `useMyProfile()`).
+Fixtures de `PrivateProfile` actualizados en `change-email/phone-screen`,
+`edit-profile-screen`, `profile.test.tsx`, `verify-email-screen` (campo requerido
+nuevo). 118/118 suites, 916/916 tests. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: sin test de UI dedicado para `register.tsx` en sí (el
+repo no tenía ningún precedente de testear esa pantalla completa — solo el hook
+`use-registration.tsx` — armar esa infraestructura de mocks, sobre todo de
+`react-native-maps`, quedó fuera de alcance de este ticket); no probado en device.
+
+### MOVO-229 — Gate al abrir la app + sheet de lectura/aceptación por documento en Perfil → Legal
+
+Extiende MOVO-228 (checkbox obligatorio en el registro) al caso de una cuenta ya
+autenticada cuya versión aceptada de Términos y/o Privacidad quedó vieja, o que nunca
+los aceptó explícitamente (registrada antes de MOVO-228). Implementado en dos
+pasadas: una primera con `Alert.alert` + navegación a rutas propias, **reemplazada
+por completo el mismo día** sobre un prototipo interactivo de Claude Design
+("Rediseño página Legal con estados de firma", leído vía `DesignSync`) que pedía un
+sheet custom en vez del `Alert` nativo y un hub más claro con badges de estado — la
+entrada de abajo describe solo el estado final.
+
+- **`src/lib/legal-acceptance.ts`**: estado de 3 vías por documento
+  (`"up_to_date" | "pending" | "update_required"`, no un booleano — "nunca se
+  aceptó nada" y "se aceptó una versión que ya quedó vieja" son casos con copy
+  distinto, mismo criterio que `metaFor()`/`buildDocs()` del prototipo) +
+  `legalAcceptanceMeta()` (badge/firma/CTA por estado) + `legalEntrySheetCopy()`
+  (título/cuerpo del sheet de entrada, distingue "Antes de empezar" de "Actualizamos
+  nuestros documentos legales" según si hay algún `pending` sin ningún
+  `update_required` de por medio).
+- **`use-legal-document-links.ts` (nuevo)**: extraído de la primera versión de
+  `legal-document-screen.tsx` — ancla del índice + `mailto:`/externo + referencia
+  cruzada al otro documento, con el "a dónde va la referencia cruzada" inyectado por
+  el caller (`onCrossDocument`) en vez de hardcodeado, para poder reusarlo tanto en
+  pantalla completa (navega) como en el sheet (cambia de documento sin salir).
+- **`components/legal/legal-document-sheet.tsx` (nuevo)** reemplaza la navegación a
+  `/profile/legal/terms`/`privacy` (rutas borradas): sheet inferior con el documento
+  completo + botón de aceptar al pie (`useAcceptLegalDocuments`), fiel al prototipo
+  (`showDocModal`). **"Ver también" cambia de documento SIN cerrar el sheet**
+  (`kind` es estado local del sheet, no la ruta) — evita reabrir el problema que ya
+  resuelven las pantallas de `(auth)` (una referencia cruzada al hub autenticado
+  quedaría detrás del guard de sesión) y no rompe la sensación de "sigo leyendo un
+  documento legal" con una transición de navegación completa en el medio. Al
+  cambiar de documento se resetea scroll y anclas del índice.
+- **`components/legal/legal-entry-sheet.tsx` (nuevo)** reemplaza el `Alert.alert` —
+  mismo patrón `Modal`+`useSheetAnimation` que el resto de los sheets del repo
+  (`ReceiverActionsBar`, MOVO-131). Sigue siendo **no bloqueante** (decisión ya
+  confirmada): "Ahora no" solo cierra el sheet.
+- **`use-legal-acceptance-entry.ts`** (antes `use-legal-acceptance-guard.ts`) pasa
+  de disparar un efecto imperativo (`Alert.alert` + `useRef` de "ya se mostró") a
+  exponer `{ visible, copy, onReview, onDismiss }` — `visible` es 100% derivado
+  (`anyPending && !dismissed`, sin `useRef`), porque ahora es un elemento de UI
+  persistente controlado por estado, no un disparo puntual. Montado en
+  `app/_layout.tsx` vía `LegalAcceptanceEntryMount` — mismo gotcha ya documentado
+  (depende de `useMyProfile()`/React Query, tiene que vivir DENTRO del árbol de
+  `QueryClientProvider`, nunca en el cuerpo de `RootLayout`, que es quien lo define).
+- **Perfil → Legal (`profile/legal/index.tsx`), rediseño completo**: de una lista
+  con navegación a rutas propias pasa a dos tarjetas (ícono en círculo, badge "Al
+  día"/"Pendiente"/"Nueva versión", la firma electrónica real como texto, y un
+  botón que abre `LegalDocumentSheet` — nunca navega). El estado del sheet
+  (`openDoc: LegalDocumentKind | null`) vive en el hub, no en el sheet, para poder
+  controlar su animación de cierre igual que cualquier otro sheet del repo.
+- **`profile-settings-section.tsx`**: la fila "Legal" suma un punto `warning-500`
+  (`hasPendingLegalAcceptance`) — mismo lenguaje que el `anyPending` del prototipo
+  en su lista de Ajustes. Es el reemplazo elegido para el "volver a mostrar el
+  aviso" del prototipo (un link en su pantalla de Ajustes demo): en la app real ya
+  existe un camino permanente a Legal desde Perfil, así que un link para "reabrir"
+  el sheet de entrada específicamente no suma nada — se descartó a propósito.
+
+Tests: `test/legal-acceptance.test.ts` (estado de 3 vías + meta + copy del sheet de
+entrada), `test/use-legal-document-links.ts` cubierto indirectamente vía
+`test/legal-document-sheet.test.tsx` (aceptar con la versión correcta, error de la
+mutación, "Ver también" cambia de documento sin navegar, cerrar), `test/legal-entry-
+sheet.test.tsx` (componente puro), `test/use-legal-acceptance-entry.test.ts` (estado
+derivado, sin sesión, sin perfil todavía) — **`onDismiss`/`onReview` viven cada uno
+en su propio archivo** (`-dismiss.test.ts`/`-review.test.ts`): un
+`act(async () => ...)` que dispara `setState` deja el entorno de act roto para
+CUALQUIER test que corra después en el mismo módulo, sin importar cuál acción se
+llame ni el orden — reproducido y no resuelto con `waitFor`/reordenar, aislarlos en
+su propio archivo fue lo que efectivamente lo resolvió. Casos actualizados en
+`legal-hub-screen.test.tsx`/`profile-settings-section.test.tsx`. 123/123 suites,
+935/935 tests. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: sin historial de aceptaciones previas (backend, ver su
+CLAUDE.md); no probado en device.
+
+### MOVO-232 — Identificadores fijos de app store (`android.package` / `ios.bundleIdentifier`)
+
+Primer paso para habilitar EAS Build/Submit y push notifications reales de punta a
+punta, ahora que el Apple Developer Program ya está pago. `android.package` pasa del
+placeholder de scaffold `com.anonymous.movomobile` al identificador real y fijo
+`com.movosend.movomobile`; `ios.bundleIdentifier` pasa de variar por developer
+(`com.movosend.movomobile.$USER`, pensado para no chocar provisioning profiles entre
+Personal Teams gratis de Apple) a ese mismo identificador fijo, con `IOS_BUNDLE_ID`
+como override opcional que sigue sirviendo para development builds 100% locales
+(`expo run:ios`). `eas.json` fija `IOS_BUNDLE_ID=com.movosend.movomobile` en los
+perfiles `preview`/`production` para que un build de EAS Cloud no dependa de `$USER`.
+Verificado con `npx expo config --type public` (`bundleIdentifier`/`package`
+resuelven al valor fijo).
+
+**Avance post-merge de este ticket (mismo hilo de trabajo): credenciales de EAS y
+`ENABLE_PUSH_NOTIFICATIONS`.** `PUSH_PROVIDER=expo` ya cargado en
+`movo/dev/app-secrets` (AWS Secrets Manager) — el próximo deploy de `svc-users` a dev
+manda push reales. Credenciales de EAS configuradas para ambas plataformas vía
+`eas credentials` (iOS: App ID + certificado + provisioning profile + APNs Push Key,
+autenticado con una App Store Connect API Key — Admin — en vez de Apple ID/contraseña,
+respaldada en el secret `movo/mobile/apple-asc-api-key`, MOVO-232; Android: FCM V1).
+`eas.json` gana `ENABLE_PUSH_NOTIFICATIONS: "true"` en el perfil `development`
+(verificado con `npx expo config` que activa el plugin `expo-notifications`).
+
+**Gotcha real encontrado en el camino, sin relación con el código del repo**: la
+versión global de `eas-cli` estaba desactualizada (`21.8.0`) y esa versión tiene un
+bug conocido (`iTunes service key is empty` al generar/validar la Push Key,
+[expo/eas-cli#4392](https://github.com/expo/eas-cli/issues/4392)) — se resuelve
+actualizando a `eas-cli@24.6.0`+ (fix confirmado en `24.4.1`). No es nada a ajustar en
+este repo, documentado acá solo para que el próximo que corra `eas credentials` no
+pierda tiempo si le vuelve a pasar.
+
+**Segundo avance (mismo hilo): `google-services.json` para push real en Android.**
+Gap encontrado en el camino, sin relación con lo hecho hasta acá: desde la migración
+de Expo a FCM v1, Android necesita este archivo (identifica la app ante el proyecto
+de Firebase "movosend", package `com.movosend.movomobile`) además del service account
+ya cargado en `eas credentials` — sin él, Android no recibe push ni en build de EAS ni
+local. `app.config.js` suma `android.googleServicesFile:
+process.env.GOOGLE_SERVICES_JSON ?? "./google-services.json"`. El archivo en sí
+**no se trackea en git** (`.gitignore`, mismo criterio que los `.p8`/`.p12` de iOS) —
+cada developer lo baja de Firebase Console y lo pega en la raíz de `movo-mobile/`
+para builds locales; para EAS Cloud se subió como variable de entorno de tipo
+**file** (`eas env:set development --name GOOGLE_SERVICES_JSON --type file
+--visibility sensitive`, mismo mecanismo ya usado ahí para
+`GOOGLE_MAPS_ANDROID_API_KEY`/`GOOGLE_MAPS_IOS_API_KEY` — no confundir con el bloque
+`env` de `eas.json`, es un feature separado de EAS que se resuelve solo por
+convención de nombre del build profile). Verificado con `npx expo config` y
+`tsc --noEmit`.
+
+Pendiente / fuera de alcance de este ticket (siguientes pasos del roadmap de
+push/EAS): primer `eas build --profile development` (iOS y Android) + instalación en
+dispositivo físico para validar push de punta a punta (cierra el DoD manual
+pendiente de MOVO-107) — deliberadamente no disparado todavía, y el primer workflow
+de CI para build/submit automático — el equipo venía usando development builds hace
+tiempo, pero siempre generados con el CLI local (`expo run:ios`/`expo run:android`),
+nunca con EAS.
+
+**Checklist: push notifications reales en development builds locales (`expo run:ios
+--device` / `expo run:android`)**. Con `bundleIdentifier`/`package` fijos (MOVO-232)
+y el Apple Developer Team pago ya operativo, un build local queda funcionalmente
+igual a uno de EAS para push si cada dev/máquina/dispositivo tiene, una sola vez:
+
+1. **Alta en el Apple Developer Team pago** (developer.apple.com → People, rol
+   Developer alcanza) — sin esto Xcode no puede firmar contra ese team.
+2. **Xcode → target → Signing & Capabilities**: elegir ese Team pago (nunca
+   "Personal Team") + "Automatically manage signing". La capability de Push ya está
+   habilitada a nivel de App ID (`com.movosend.movomobile`, se hizo una vez vía
+   `eas credentials`) — Xcode la sincroniza sola al provisioning profile.
+3. **`ENABLE_PUSH_NOTIFICATIONS=true` en el `.env.local` de cada dev** (gitignored,
+   no confundir con `eas.json#build.development`, que solo aplica a builds de EAS
+   Cloud). Sin esto, `app.config.js` saca el plugin `expo-notifications` y borra el
+   entitlement `aps-environment` al hacer prebuild.
+4. **Android: `google-services.json`** bajado de Firebase Console (proyecto
+   "movosend") y pegado en la raíz de `movo-mobile/` (gitignored).
+
+**No se repite en cada build** — es configuración persistente (archivo, cuenta,
+provisioning profile). Se vuelve a hacer solo si: se borra/regenera `ios/` desde
+cero (`rm -rf ios/`, `expo prebuild --clean` — ahí Xcode "olvida" el Team elegido),
+se usa una máquina nueva, se prueba con un dispositivo físico nuevo (hay que
+registrar su UDID en el Team), o se suma un dev nuevo al equipo.
 ### MOVO-160 — Escaneo de QR y confirmación con GPS (receptor de custodia)
 
 Lado que **recibe** la custodia (transportista en el retiro, receptor en la entrega)

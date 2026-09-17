@@ -70,6 +70,8 @@ const availableShipmentResponse = {
     "pickupDistanceKm",
     "deliveryDistanceKm",
     "hasMyOffer",
+    "detourDistanceKm",
+    "detourDurationMinutes",
   ],
   properties: {
     id: { type: "string" },
@@ -96,6 +98,8 @@ const availableShipmentResponse = {
     pickupDistanceKm: { type: "number" },
     deliveryDistanceKm: { type: ["number", "null"] },
     hasMyOffer: { type: "boolean" },
+    detourDistanceKm: { type: "number" },
+    detourDurationMinutes: { type: "integer" },
   },
 };
 

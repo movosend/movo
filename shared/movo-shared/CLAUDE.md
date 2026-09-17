@@ -188,6 +188,61 @@ envolviendo el resultado en el `Date` anclado que necesita para comparar contra
 columnas `@db.Date` en SQL; mobile la consume tal cual. Sin dependencias de Node —
 función pura sobre `Date`/`string`, segura también en React Native.
 
+### MOVO-192 — `ActiveShipmentSummary`/`ActiveShipmentStatus`/`ActiveShipmentCounterparty`
+
+`src/types/shipment.ts` — wire contract de `GET /shipments/sending|transporting|
+receiving` (`movo-svc-shipments`), primer tipo de este paquete que nace directamente
+del contrato que el equipo mobile había dejado comentado en Linear (camelCase, no el
+snake_case literal del AC) mientras implementaba `MOVO-193` contra un mock, en vez de
+nacer del lado del backend. `ActiveShipmentStatus` acota `ShipmentStatus` a los 3
+valores "activos" (`assigned_unfunded`/`assigned`/`in_transit`) en vez de reusar el
+enum completo — mismo criterio que otros subconjuntos con nombre propio del proyecto.
+`agreedPriceArs: number | null` (no solo `number`, a diferencia del mock de mobile): la
+columna real sigue nullable y ningún flujo la puebla todavía al aceptar una oferta (ver
+`services/movo-svc-shipments/CLAUDE.md`, MOVO-192, sección de pendientes). El mobile
+sigue con su propia copia local del tipo (`shipments-client.ts`) — migrarla a importar
+desde acá queda pendiente, fuera de alcance de este ticket (100% backend).
+
+### MOVO-228 — `LEGAL_DOCUMENT_VERSIONS`, `PrivateProfile` extendido, `LEGAL_DOCUMENT_VERSION_MISMATCH`
+
+`src/config/legal.ts` (nuevo, mismo patrón que `config/commission.ts` — primera config
+de negocio no relacionada a auth/comisiones): `LEGAL_DOCUMENT_VERSIONS = { terms,
+privacy }`, fuente única de verdad de qué versión de cada documento legal es la
+vigente hoy — `movo-svc-users` la valida contra lo que manda el registro,
+`movo-mobile` la manda y la usa para saber si mostrarle al usuario que hay una
+versión nueva. El valor es la fecha de "Última actualización" del propio `.md`
+(`docs/legal/`). **Ya no se bumpea a mano acá**: `npm run sync:legal`
+(`scripts/sync-legal-docs.ts`, raíz del repo) lo regenera junto con las copias `.ts`
+de `movo-mobile` a partir del `.md` — ver la entrada transversal "Automatización de
+sync de documentos legales" en el `CLAUDE.md` raíz.
+
+`PrivateProfile` sumó `termsAcceptedAt`/`termsVersion`/`privacyAcceptedAt`/
+`privacyVersion` (los cuatro `string | null` — `null` solo para cuentas creadas antes
+de este ticket, sin backfill retroactivo) — la "firma electrónica" que se muestra en
+Perfil → Legal (`movo-mobile`). Campo aditivo requerido: rompe cualquier literal
+`PrivateProfile` construido a mano sin los cuatro (mismo criterio que `bio`,
+MOVO-171) — tocó varios fixtures de test en `movo-svc-users`/`movo-mobile`.
+
+`ApiErrorCode` sumó `LEGAL_DOCUMENT_VERSION_MISMATCH` — la app mandó una versión
+vieja de Términos/Privacidad al registrarse (app desactualizada).
+
+### MOVO-222 — `RatingRole`/`PendingRatingShipment`
+
+`src/types/shipment.ts` — wire contract de `GET /shipments/pending-ratings`
+(`movo-svc-shipments`, endpoint nuevo, no un campo en `ShipmentSummary`/`/mine` — ver
+`services/movo-svc-shipments/CLAUDE.md` para la decisión completa). `RatingRole`
+(`"sender" | "carrier" | "receiver"`) es la primera vez que este tipo cruza el barrel
+compartido — antes vivía duplicado como enum Prisma en `movo-svc-shipments/src/models/
+rating.ts` (MOVO-146) y como literal propio en `movo-mobile/src/api/ratings-client.ts`
+(MOVO-153), sin unificar porque ningún wire contract lo había necesitado hasta ahora.
+**Corrección de review (mismo PR):** `ratings-client.ts` ahora reexporta `RatingRole`
+desde acá en vez de mantener el literal propio — de las 3 copias quedan 2 (esta y el
+enum Prisma del backend, que sigue siendo la fuente de verdad del lado de Postgres).
+`PendingRatingShipment` también suma `ratingDeadline` (deadline absoluto, no solo
+`deliveredAt`) — el cliente no puede recomputar la ventana de 72hs a mano porque un
+freeze de disputa la extiende de forma variable, mismo criterio que
+`ActiveShipmentSummary.receiverConfirmationDeadline`.
+
 ### MOVO-208 — `ShipmentStatus` extendido a 11 valores
 
 `src/types/shipment.ts` suma `ASSIGNED_UNFUNDED = "assigned_unfunded"` (entre

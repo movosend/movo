@@ -1,5 +1,9 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
-import { createShipmentsService, CreateShipmentServiceInput } from "./shipments.service";
+import {
+  createShipmentsService,
+  CreateShipmentServiceInput,
+  ShipmentsService,
+} from "./shipments.service";
 import { createPhotosService, ConfirmPhotoInput, PresignPhotoInput } from "./photos.service";
 import { shipmentsSchemas } from "./shipments.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
@@ -9,6 +13,10 @@ import { createStorageProvider, StorageProvider } from "../../adapters/storage-p
 import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-provider";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { createPricingClient, PricingClient } from "../../adapters/pricing-client";
+import {
+  createPricingLogisticsClient,
+  PricingLogisticsClient,
+} from "../../adapters/pricing-logistics-client";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
 import { createTripRepository, TripRepository } from "../../repositories/trip-repository";
@@ -16,11 +24,14 @@ import { createRatingRepository } from "../../repositories/rating-repository";
 import { createRatingsService } from "../ratings/ratings.service";
 import { AvailableShipment, Shipment, ShipmentEvent } from "../../models/shipment";
 import {
+  ActiveShipmentResult,
   CreateOfferForShipmentResult,
   ListShipmentOffersQuery,
   ListShipmentOffersSort,
+  PendingRatingResult,
   ShipmentDetailResult,
 } from "./shipments.service";
+import { ActiveShipmentRole } from "../../domain/active-shipment";
 import { toOfferDto } from "../offers/offer.dto";
 
 export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
@@ -44,6 +55,10 @@ export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
   pricingClient?: PricingClient;
   /** Override solo para tests de integración — mismo criterio que `usersClient`. */
   tripRepository?: TripRepository;
+  /** Requerido para `GET /shipments/my-route` (MOVO-206) — solver VRPTW. */
+  pricingLogisticsClient?: PricingLogisticsClient;
+  /** Override solo para tests — inyecta el servicio completo. */
+  service?: ShipmentsService;
 }
 
 type CreateShipmentBody = Omit<CreateShipmentServiceInput, "senderId">;
@@ -91,6 +106,30 @@ function toAvailableShipmentDto(item: AvailableShipment & { hasMyOffer: boolean 
   };
 }
 
+/** Mismo fix de formato UTC que toShipmentDto (ver su comentario): pickupDate/
+ * pickupTimeWindowStart/pickupTimeWindowEnd se convierten a string ya formateado antes
+ * de llegar al serializador -- `pickupWindowExpired`/`isToday` ya se calcularon en el
+ * servicio contra los `Date` reales, así que reformatear acá no afecta esas cuentas. */
+function toActiveShipmentDto(item: ActiveShipmentResult) {
+  return {
+    ...item,
+    pickupDate: item.pickupDate.toISOString().slice(0, 10),
+    pickupTimeWindowStart: item.pickupTimeWindowStart.toISOString().slice(11, 19),
+    pickupTimeWindowEnd: item.pickupTimeWindowEnd.toISOString().slice(11, 19),
+  };
+}
+
+/** MOVO-222: `deliveredAt` ya es un instante real (`@db.Timestamptz`, no anclado como
+ * `pickupDate`) -- `.toISOString()` directo, sin el ajuste de offset que sí necesitan
+ * `pickupDate`/`pickupTimeWindowStart`/`pickupTimeWindowEnd` en `toShipmentDto`. */
+function toPendingRatingShipmentDto(item: PendingRatingResult) {
+  return {
+    ...item,
+    deliveredAt: item.deliveredAt.toISOString(),
+    ratingDeadline: item.ratingDeadline.toISOString(),
+  };
+}
+
 function toShipmentEventDto(event: ShipmentEvent) {
   return {
     id: event.id,
@@ -109,23 +148,33 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config);
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
   const pricingClient = opts.pricingClient ?? createPricingClient(app.config);
+  const pricingLogisticsClient =
+    opts.pricingLogisticsClient ?? createPricingLogisticsClient(app.config);
   const repository = createShipmentRepository(app.db);
   const offerRepository = createOfferRepository(app.db);
   const tripRepository = opts.tripRepository ?? createTripRepository(app.db);
+  // MOVO-222: instancia compartida -- también la usa `listPendingRatings` (vía
+  // `ShipmentsServiceOptions.ratingRepository`) para saber qué ya calificó el caller,
+  // sin construir un segundo repositorio.
+  const ratingRepository = createRatingRepository(app.db);
   // MOVO-143 AC7: mismo criterio documentado en MOVO-147 -- getReputationSummary() se
   // llama LOCAL (misma DB/proceso, sin HTTP contra sí mismo) para snapshotear
   // carrierRatingAtOffer. Se construye acá un ratingsService propio (en vez de
   // reusar uno inyectado) porque este módulo no tiene otro motivo para depender de
   // `ratings.routes.ts`.
-  const ratingsService = createRatingsService(repository, createRatingRepository(app.db), undefined, app.log, {
+  const ratingsService = createRatingsService(repository, ratingRepository, undefined, app.log, {
     confidenceConstant: app.config.REPUTATION_CONFIDENCE_CONSTANT,
     decayHalfLifeDays: app.config.REPUTATION_DECAY_HALF_LIFE_DAYS,
   });
-  const service = createShipmentsService(repository, usersClient, notificationsClient, app.log, {
-    receiverConfirmationTimeoutHours: app.config.RECEIVER_CONFIRMATION_TIMEOUT_HOURS,
-    offerRepository,
-    pricingClient,
-    tripRepository,
+  const service =
+    opts.service ??
+    createShipmentsService(repository, usersClient, notificationsClient, app.log, {
+      receiverConfirmationTimeoutHours: app.config.RECEIVER_CONFIRMATION_TIMEOUT_HOURS,
+      offerRepository,
+      pricingClient,
+      pricingLogisticsClient,
+      tripRepository,
+      ratingRepository,
     getCarrierReputationScore: async (carrierId: string) => {
       const summary = await ratingsService.getReputationSummary(carrierId);
       return summary.asCarrier.reputationScore;
@@ -237,6 +286,33 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
     }
   );
 
+  // MOVO-206: Ruta diaria optimizada del transportista (OR-Tools multi-parada).
+  // Registrada antes de "/:id" para evitar ser tratada como parámetro dinámico.
+  app.get(
+    "/my-route",
+    {
+      schema: {
+        summary: "Ruta optimizada multi-parada del transportista autenticado (MOVO-206)",
+        description:
+          "Devuelve la lista ordenada de paradas activas del transportista autenticado con ETAs, " +
+          "tiempos estimados y advertencias de ventana horaria, utilizando el solver VRPTW de OR-Tools. " +
+          "Si el optimizador falla o no está disponible, degrada a un orden heurístico por defecto (AC6).",
+        tags: ["shipments"],
+        querystring: shipmentsSchemas.myRouteQuery,
+        response: {
+          200: shipmentsSchemas.myRouteResponse,
+          401: shipmentsSchemas.errorResponse,
+          422: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const carrierId = requireUserIdFromHeader(request);
+      const { lat, lng } = request.query as { lat: number; lng: number };
+      return service.getMyRoute(carrierId, { lat, lng });
+    }
+  );
+
   // Ruta estática — mismo criterio que "/mine"/"/route": se registra antes de "/:id"
   // por claridad, aunque find-my-way ya prioriza segmentos estáticos.
   app.get(
@@ -329,6 +405,96 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
     }
   );
 
+  // Rutas estáticas ("/sending"/"/transporting"/"/receiving") -- mismo criterio que
+  // "/mine"/"/route"/"/available"/"/history-with/:userId": se registran antes de
+  // "/:id" por prolijidad, aunque find-my-way ya prioriza segmentos estáticos.
+  function registerActiveShipmentsRoute(path: string, role: ActiveShipmentRole, summary: string, description: string) {
+    app.get(
+      path,
+      {
+        schema: {
+          summary,
+          description,
+          tags: ["shipments"],
+          response: {
+            200: shipmentsSchemas.listActiveShipmentsResponse,
+            401: shipmentsSchemas.errorResponse,
+          },
+        },
+      },
+      async (request: FastifyRequest) => {
+        const callerId = requireUserIdFromHeader(request);
+        const items = await service.listActiveShipments(role, callerId);
+        return items.map(toActiveShipmentDto);
+      }
+    );
+  }
+
+  registerActiveShipmentsRoute(
+    "/sending",
+    "sending",
+    "Envíos activos donde soy emisor",
+    "AC1/AC4 de MOVO-192: envíos con transportista ya asignado (assigned_unfunded, " +
+      "assigned, in_transit) donde el usuario autenticado es el emisor -- para la " +
+      "sección 'Estoy enviando' del home operativo (MOVO-193). La contraparte es " +
+      "siempre el transportista asignado. Lista vacía (200) si no tiene ninguno, " +
+      "nunca 404. Orden por pickup_date y, dentro del mismo día, por la hora de " +
+      "inicio de la ventana de retiro, ambos ascendente."
+  );
+
+  registerActiveShipmentsRoute(
+    "/transporting",
+    "transporting",
+    "Envíos activos donde soy transportista",
+    "AC2/AC4 de MOVO-192: envíos con transportista ya asignado donde el usuario " +
+      "autenticado es el transportista -- para la sección 'Estoy transportando' del " +
+      "home operativo (MOVO-193, fase 2). La contraparte es el emisor mientras el " +
+      "paquete todavía no salió (assigned_unfunded/assigned, la próxima acción es " +
+      "retirarlo) y pasa a ser el receptor una vez en camino (in_transit, la próxima " +
+      "acción es entregarlo). Lista vacía (200) si no tiene ninguno, nunca 404. " +
+      "Mismo orden que /sending."
+  );
+
+  registerActiveShipmentsRoute(
+    "/receiving",
+    "receiving",
+    "Envíos activos donde soy receptor",
+    "AC3/AC4 de MOVO-192: envíos con transportista ya asignado donde el usuario " +
+      "autenticado es el receptor -- para la sección 'Voy a recibir' del home " +
+      "operativo (MOVO-193). La contraparte es siempre el transportista asignado " +
+      "(con quien el receptor coordina la entrega). Lista vacía (200) si no tiene " +
+      "ninguno, nunca 404. Mismo orden que /sending."
+  );
+
+  // Ruta estática ("/pending-ratings") -- mismo criterio que "/mine"/"/sending"/etc:
+  // se registra antes de "/:id" por prolijidad.
+  app.get(
+    "/pending-ratings",
+    {
+      schema: {
+        summary: "Envíos con calificaciones pendientes de dar",
+        description:
+          "MOVO-222: envíos delivered/completed donde el usuario autenticado (en " +
+          "cualquier rol -- emisor, receptor o transportista) todavía tiene, dentro " +
+          "de la ventana de 72hs de MOVO-146, alguna contraparte sin calificar según " +
+          "la regla de interacción física ya definida en MOVO-153 (emisor/receptor " +
+          "califican solo al transportista; el transportista califica a ambos). Solo " +
+          "se listan envíos con algo pendiente -- pendingRatingFor nunca viaja vacío " +
+          "acá. Sin paginación, lista vacía (200) si no hay ninguno.",
+        tags: ["shipments"],
+        response: {
+          200: shipmentsSchemas.listPendingRatingsResponse,
+          401: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const items = await service.listPendingRatings(callerId);
+      return items.map(toPendingRatingShipmentDto);
+    }
+  );
+
   app.get(
     "/:id",
     {
@@ -368,9 +534,10 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         description:
           "AC1/AC2/AC3 de MOVO-81: devuelve una presigned URL de PUT a S3 (TTL 5 " +
           "minutos) para el tipo/tamaño declarados -- ambos quedan firmados dentro de " +
-          "la URL, no solo validados acá. Solo el emisor puede pedirla, y solo para la " +
-          "etapa creation. El s3Key lo genera el servidor bajo shipments/{id}/{stage}/, " +
-          "nunca uno propuesto por el cliente.",
+          "la URL, no solo validados acá. AC5 de MOVO-196: el emisor pide presign para " +
+          "la etapa creation; el transportista asignado, para pickup/delivery (403 para " +
+          "cualquier otro actor en cualquiera de las tres etapas). El s3Key lo genera el " +
+          "servidor bajo shipments/{id}/{stage}/, nunca uno propuesto por el cliente.",
         tags: ["shipments"],
         params: shipmentsSchemas.shipmentIdParam,
         body: shipmentsSchemas.presignPhotoBody,
@@ -399,7 +566,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         description:
           "AC4/AC5 de MOVO-81: verifica contra S3 (HEAD) que el objeto exista antes de " +
           "registrarlo en shipment_photos -- sin esto, el cliente podría confirmar " +
-          "fotos que nunca subió.",
+          "fotos que nunca subió. AC5/AC8 de MOVO-196: mismo criterio de autorización " +
+          "por etapa que /photos/presign, y rechaza con 422 PHOTO_STAGE_LIMIT_EXCEEDED " +
+          "si la etapa pickup/delivery ya tiene el máximo de fotos confirmadas.",
         tags: ["shipments"],
         params: shipmentsSchemas.shipmentIdParam,
         body: shipmentsSchemas.confirmPhotoBody,
@@ -444,6 +613,37 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const callerRoles = getUserRolesFromHeader(request);
       const { id } = request.params as { id: string };
       return photosService.listPhotoUrls(id, callerId, callerRoles);
+    }
+  );
+
+  app.get(
+    "/:id/evidence-status",
+    {
+      schema: {
+        summary: "Estado de la evidencia fotográfica del stage vigente",
+        description:
+          "AC6 de MOVO-196: devuelve, para el stage relevante según el estado actual del " +
+          "envío (assigned -> pickup, in_transit -> delivery, cualquier otro -> ninguno), " +
+          "si la evidencia mínima está cargada y cuántas fotos hay confirmadas -- pensado " +
+          "para que el wizard del mobile habilite o deshabilite el paso siguiente sin " +
+          "tener que intentar el handshake y fallar con PICKUP_EVIDENCE_MISSING/ " +
+          "DELIVERY_EVIDENCE_MISSING. Accesible para emisor, receptor, transportista " +
+          "asignado o admin.",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        response: {
+          200: shipmentsSchemas.evidenceStatusResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const callerRoles = getUserRolesFromHeader(request);
+      const { id } = request.params as { id: string };
+      return photosService.getEvidenceStatus(id, callerId, callerRoles);
     }
   );
 

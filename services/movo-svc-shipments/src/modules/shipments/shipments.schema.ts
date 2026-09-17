@@ -17,11 +17,16 @@ const DIMENSION_CM_MAX = 150;
 // simple sin zona horaria.
 const TIME_PATTERN = "^([01]\\d|2[0-3]):[0-5]\\d(:[0-5]\\d)?$";
 
-// MOVO-81: solo "creation" es una etapa válida en el contrato por ahora -- pickup/
-// delivery (MOVO-21) suman valores acá y un caso de autorización en
-// `photos.service.ts`, sin tocar el resto. El dominio (`PhotoStage`, `addPhoto`) ya es
-// genérico por stage desde MOVO-104.
-const PHOTO_STAGE_VALUES = ["creation"];
+// MOVO-81/MOVO-196: "creation" (emisor) más "pickup"/"delivery" (evidencia del
+// transportista asignado antes del handshake, MOVO-158) -- el dominio (`PhotoStage`,
+// `addPhoto`) ya era genérico por stage desde MOVO-104, solo faltaba habilitarlos acá
+// y la autorización por stage en `photos.service.ts#assertCanRegisterPhoto`.
+const PHOTO_STAGE_VALUES = ["creation", "pickup", "delivery"];
+
+// MOVO-196: subconjunto de PHOTO_STAGE_VALUES con handshake pendiente -- el único
+// `stage` que puede devolver GET /:id/evidence-status (`null` para cualquier otro
+// estado del envío, sin handshake en curso).
+const EVIDENCE_PHOTO_STAGE_VALUES = ["pickup", "delivery"];
 
 // AC10: convención de key `.jpg` -- duplicado en `photos.service.ts`
 // (`ALLOWED_PHOTO_CONTENT_TYPE`/`MAX_PHOTO_CONTENT_LENGTH_BYTES`), mismo criterio que
@@ -262,6 +267,91 @@ const createOfferResponse = {
   },
 };
 
+// MOVO-192: subconjunto "activo" de ShipmentStatus (ver ACTIVE_SHIPMENT_STATUSES en
+// shipment-state-machine.ts) -- el único que puede aparecer en la respuesta de
+// GET /shipments/sending|transporting|receiving.
+const ACTIVE_SHIPMENT_STATUS_VALUES = ["assigned_unfunded", "assigned", "in_transit"];
+
+const activeShipmentSummaryResponse = {
+  type: "object",
+  required: [
+    "id",
+    "status",
+    "pickupDate",
+    "pickupTimeWindowStart",
+    "pickupTimeWindowEnd",
+    "pickupAddress",
+    "deliveryAddress",
+    "agreedPriceArs",
+    "counterparty",
+    "isToday",
+    "pickupWindowExpired",
+  ],
+  properties: {
+    id: { type: "string" },
+    status: { type: "string", enum: ACTIVE_SHIPMENT_STATUS_VALUES },
+    pickupDate: { type: "string", format: "date" },
+    pickupTimeWindowStart: { type: "string", format: "time" },
+    pickupTimeWindowEnd: { type: "string", format: "time" },
+    pickupAddress: { type: "string" },
+    deliveryAddress: { type: "string" },
+    // MOVO-192 (gap documentado en @movo/shared#ActiveShipmentSummary): sigue nullable
+    // en la práctica -- ningún flujo persiste este campo todavía al aceptar una oferta.
+    agreedPriceArs: { type: ["number", "null"] },
+    counterparty: {
+      type: "object",
+      required: ["name", "initials"],
+      properties: {
+        name: { type: "string" },
+        initials: { type: "string" },
+      },
+    },
+    isToday: { type: "boolean" },
+    pickupWindowExpired: { type: "boolean" },
+  },
+};
+
+// MOVO-222: mismos 3 valores que `RatingRole` (`models/rating.ts`, enum Prisma) y
+// `@movo/shared#RatingRole`.
+const RATING_ROLE_VALUES = ["sender", "carrier", "receiver"];
+
+// MOVO-222: único subconjunto de `status` que puede aparecer en la respuesta de
+// GET /shipments/pending-ratings -- `findPendingRatingCandidates` ya filtra por
+// FULFILLED_SHIPMENT_STATUSES antes de llegar acá.
+const PENDING_RATING_STATUS_VALUES = ["delivered", "completed"];
+
+const pendingRatingShipmentResponse = {
+  type: "object",
+  required: [
+    "id",
+    "status",
+    "deliveredAt",
+    "ratingDeadline",
+    "senderId",
+    "receiverId",
+    "carrierId",
+    "pendingRatingFor",
+  ],
+  properties: {
+    id: { type: "string" },
+    status: { type: "string", enum: PENDING_RATING_STATUS_VALUES },
+    deliveredAt: { type: "string", format: "date-time" },
+    // MOVO-222 (corregido en review): instante absoluto ya calculado
+    // (`computeRatingWindowDeadline`, incluye freeze de disputa) -- el cliente no
+    // recalcula 72hs a mano, mismo criterio que `receiverConfirmationDeadline`.
+    ratingDeadline: { type: "string", format: "date-time" },
+    senderId: { type: "string" },
+    receiverId: { type: "string" },
+    carrierId: { type: "string" },
+    // Nunca vacío -- el servicio solo devuelve ítems con algo pendiente de calificar.
+    pendingRatingFor: {
+      type: "array",
+      items: { type: "string", enum: RATING_ROLE_VALUES },
+      minItems: 1,
+    },
+  },
+};
+
 const shipmentEventResponse = {
   type: "object",
   required: ["id", "shipmentId", "fromStatus", "toStatus", "actorId", "reason", "createdAt"],
@@ -413,6 +503,23 @@ export const shipmentsSchemas = {
     },
   },
 
+  activeShipmentSummaryResponse,
+
+  listActiveShipmentsResponse: {
+    type: "array",
+    items: activeShipmentSummaryResponse,
+  },
+
+  pendingRatingShipmentResponse,
+
+  // MOVO-222: sin paginación (mismo criterio que listActiveShipmentsResponse) -- el
+  // volumen realista (envíos entregados en las últimas 72hs con algo pendiente) nunca
+  // es grande.
+  listPendingRatingsResponse: {
+    type: "array",
+    items: pendingRatingShipmentResponse,
+  },
+
   routeQuery: {
     type: "object",
     required: ["originLat", "originLng", "destinationLat", "destinationLng"],
@@ -509,6 +616,20 @@ export const shipmentsSchemas = {
     },
   },
 
+  // MOVO-196 (AC6): `stage: null` cuando el envío no tiene handshake pendiente --
+  // `satisfied`/`photoCount` igual viajan (`true`/`0`), no hay nada que exigir.
+  evidenceStatusResponse: {
+    type: "object",
+    required: ["stage", "satisfied", "photoCount", "minRequired", "maxAllowed"],
+    properties: {
+      stage: { type: ["string", "null"], enum: [...EVIDENCE_PHOTO_STAGE_VALUES, null] },
+      satisfied: { type: "boolean" },
+      photoCount: { type: "integer" },
+      minRequired: { type: "integer" },
+      maxAllowed: { type: "integer" },
+    },
+  },
+
   shipmentEventResponse,
 
   shipmentEventsResponse: {
@@ -579,6 +700,56 @@ export const shipmentsSchemas = {
         },
       },
       requestId: { type: "string" },
+    },
+  },
+
+  // MOVO-206: ruta optimizada del transportista
+  myRouteQuery: {
+    type: "object",
+    required: ["lat", "lng"],
+    properties: {
+      lat: { type: "number", minimum: -90, maximum: 90 },
+      lng: { type: "number", minimum: -180, maximum: 180 },
+    },
+  },
+
+  myRouteResponse: {
+    type: "object",
+    required: ["stops", "totalDistanceKm", "totalDurationMinutes", "optimized", "disclaimer"],
+    properties: {
+      stops: {
+        type: "array",
+        items: {
+          type: "object",
+          required: [
+            "stopOrder",
+            "shipmentId",
+            "type",
+            "lat",
+            "lng",
+            "estimatedArrivalMinutes",
+            "outsideTimeWindow",
+          ],
+          properties: {
+            stopOrder: { type: "integer" },
+            shipmentId: { type: "string", format: "uuid" },
+            type: { type: "string", enum: ["pickup", "delivery"] },
+            address: { type: ["string", "null"] },
+            lat: { type: "number" },
+            lng: { type: "number" },
+            estimatedArrivalMinutes: { type: "number" },
+            estimatedArrivalAt: { type: ["string", "null"] },
+            estimatedDepartureAt: { type: ["string", "null"] },
+            timeWindowStart: { type: ["string", "null"] },
+            timeWindowEnd: { type: ["string", "null"] },
+            outsideTimeWindow: { type: "boolean" },
+          },
+        },
+      },
+      totalDistanceKm: { type: "number" },
+      totalDurationMinutes: { type: "number" },
+      optimized: { type: "boolean" },
+      disclaimer: { type: ["string", "null"] },
     },
   },
 };

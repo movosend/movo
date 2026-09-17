@@ -6,6 +6,7 @@ import {
   AccountStatus,
   ApiError,
   KycStatus,
+  LEGAL_DOCUMENT_VERSIONS,
   RecentRatingComment,
   VehicleProfile as SharedVehicleProfile,
 } from "@movo/shared";
@@ -158,6 +159,13 @@ export interface UpdateProfileInput {
   firstName?: string;
   lastName?: string;
   bio?: string | null;
+}
+
+/** MOVO-229: al menos una de las dos, nunca ambas ausentes (`users.schema.ts` lo
+ * exige con `minProperties: 1`). */
+export interface AcceptLegalDocumentsInput {
+  termsVersion?: string;
+  privacyVersion?: string;
 }
 
 export interface UpsertVehicleInput {
@@ -816,6 +824,42 @@ export function createUsersService(
       const updated = await repository.updateProfile(userId, {
         ...input,
         ...(input.bio !== undefined ? { bio } : {}),
+      });
+      if (!updated) {
+        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
+      return composePrivateProfile(updated);
+    },
+
+    /**
+     * MOVO-229: re-aceptación post-registro de Términos y/o Privacidad — una cuenta
+     * ya existente cuya versión aceptada quedó vieja (o que nunca los aceptó
+     * explícitamente, por haberse registrado antes de MOVO-228). Cada documento se
+     * valida y persiste de forma independiente: mandar solo `termsVersion` no toca
+     * nada de Privacidad, y viceversa.
+     */
+    async acceptLegalDocuments(userId: string, input: AcceptLegalDocumentsInput): Promise<PrivateProfile> {
+      if (input.termsVersion !== undefined && input.termsVersion !== LEGAL_DOCUMENT_VERSIONS.terms) {
+        throw new ApiError(
+          422,
+          "LEGAL_DOCUMENT_VERSION_MISMATCH",
+          "Los Términos y Condiciones cambiaron. Actualizá la app y volvé a revisarlos."
+        );
+      }
+      if (input.privacyVersion !== undefined && input.privacyVersion !== LEGAL_DOCUMENT_VERSIONS.privacy) {
+        throw new ApiError(
+          422,
+          "LEGAL_DOCUMENT_VERSION_MISMATCH",
+          "La Política de Privacidad cambió. Actualizá la app y volvé a revisarla."
+        );
+      }
+
+      const now = new Date();
+      const updated = await repository.updateLegalAcceptance(userId, {
+        ...(input.termsVersion !== undefined ? { termsAcceptedAt: now, termsVersion: input.termsVersion } : {}),
+        ...(input.privacyVersion !== undefined
+          ? { privacyAcceptedAt: now, privacyVersion: input.privacyVersion }
+          : {}),
       });
       if (!updated) {
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");

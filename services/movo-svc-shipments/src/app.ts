@@ -22,6 +22,7 @@ import { StorageProvider } from "./adapters/storage-provider";
 import { RoutesProvider } from "./adapters/routes-provider";
 import { NotificationsClient } from "./adapters/notifications-client";
 import { PricingClient } from "./adapters/pricing-client";
+import { PricingLogisticsClient } from "./adapters/pricing-logistics-client";
 import { FundsReleaseNotifier } from "./adapters/funds-release-notifier";
 
 export interface BuildAppOptions {
@@ -51,6 +52,8 @@ export interface BuildAppOptions {
   /** Override solo para tests de integración -- evita depender de una integración
    * real de liberación de fondos (MOVO-158, fuera de alcance de este ticket). */
   fundsReleaseNotifier?: FundsReleaseNotifier;
+  /** Override solo para tests de integración -- cliente de pricing-logistics (MOVO-206 / MOVO-219). */
+  pricingLogisticsClient?: PricingLogisticsClient;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -123,6 +126,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.routesProvider ? { routesProvider: opts.routesProvider } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.pricingClient ? { pricingClient: opts.pricingClient } : {}),
+    ...(opts.pricingLogisticsClient ? { pricingLogisticsClient: opts.pricingLogisticsClient } : {}),
   };
   app.register(shipmentsRoutes, shipmentsRouteOpts);
 
@@ -148,6 +152,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const tripsRouteOpts: TripsRoutesOptions = {
     prefix: "/trips",
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.pricingLogisticsClient ? { pricingLogisticsClient: opts.pricingLogisticsClient } : {}),
   };
   app.register(tripsRoutes, tripsRouteOpts);
 

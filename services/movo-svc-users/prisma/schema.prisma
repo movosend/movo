@@ -136,6 +136,13 @@ model User {
   // MOVO-171: bio de texto libre del perfil, nullable sin backfill -- "" nunca se
   // persiste, se resuelve a null en users.service.ts.
   bio               String?
+  // MOVO-228: "firma electrónica" de aceptación al registrarse. Nullable porque las
+  // cuentas creadas antes de este ticket nunca lo aceptaron explícitamente -- no hay
+  // backfill retroactivo posible ni deseable acá.
+  termsAcceptedAt   DateTime?     @map("terms_accepted_at") @db.Timestamptz
+  termsVersion      String?       @map("terms_version")
+  privacyAcceptedAt DateTime?     @map("privacy_accepted_at") @db.Timestamptz
+  privacyVersion    String?       @map("privacy_version")
   phoneVerified     Boolean       @default(false) @map("phone_verified")
   // MOVO-139: el email pasa a ser un dato verificado (precondición de MOVO-64,
   // recuperación de contraseña por email) y no solo un dato de contacto.

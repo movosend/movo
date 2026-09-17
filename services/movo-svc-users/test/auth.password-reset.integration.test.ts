@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import jwt from "jsonwebtoken";
+import { LEGAL_DOCUMENT_VERSIONS } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { SmsProvider } from "../src/adapters/sms-provider";
 import { EmailBody, EmailProvider } from "../src/adapters/email-provider";
@@ -62,6 +63,10 @@ describe("Recuperación de contraseña por OTP (MOVO-140)", () => {
         lat: -31.4201,
         long: -64.1888,
       },
+      termsAccepted: true,
+      termsVersion: LEGAL_DOCUMENT_VERSIONS.terms,
+      privacyAccepted: true,
+      privacyVersion: LEGAL_DOCUMENT_VERSIONS.privacy,
       ...overrides,
     };
   }

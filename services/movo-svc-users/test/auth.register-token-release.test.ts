@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Redis } from "ioredis";
+import { LEGAL_DOCUMENT_VERSIONS } from "@movo/shared";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { createAuthService } from "../src/modules/auth/auth.service";
 import { UserConflictError } from "../src/models/user";
@@ -55,6 +56,10 @@ const REGISTER_INPUT = {
     lat: -31.4201,
     long: -64.1888,
   },
+  termsAccepted: true as const,
+  termsVersion: LEGAL_DOCUMENT_VERSIONS.terms,
+  privacyAccepted: true as const,
+  privacyVersion: LEGAL_DOCUMENT_VERSIONS.privacy,
 };
 
 describe("register() — liberación del phoneVerificationToken (revisión PR #52)", () => {

@@ -103,6 +103,14 @@ export interface RatingRepository {
     limit: number,
     cursor?: string,
   ): Promise<{ items: Rating[]; nextCursor: string | null }>;
+  /**
+   * MOVO-222: TODAS las calificaciones que `raterId` ya hizo, acotadas a los
+   * `shipmentId` dados — batch en vez de un `findByPair` por candidato (mismo
+   * criterio N+1 que `listForReputationByRateeIds`, MOVO-188). Consumido por
+   * `GET /shipments/pending-ratings` para saber, de una sola query, a qué
+   * contrapartes ya calificó el caller dentro del set de envíos candidatos.
+   */
+  listByRaterForShipments(raterId: string, shipmentIds: string[]): Promise<Rating[]>;
 }
 
 interface RatingCursor {
@@ -223,6 +231,16 @@ export function createRatingRepository(db: PrismaClient): RatingRepository {
     async getGlobalAverageScore(): Promise<number> {
       const result = await db.rating.aggregate({ _avg: { score: true } });
       return result._avg.score ?? 0;
+    },
+
+    async listByRaterForShipments(raterId: string, shipmentIds: string[]): Promise<Rating[]> {
+      if (shipmentIds.length === 0) {
+        return [];
+      }
+      const rows = await db.rating.findMany({
+        where: { raterId, shipmentId: { in: shipmentIds } },
+      });
+      return rows.map(mapRating);
     },
   };
 }

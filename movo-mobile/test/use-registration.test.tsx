@@ -153,6 +153,8 @@ describe("RegistrationProvider", () => {
     );
     getCtx().confirmLocation(-31.4201, -64.1888);
     await waitFor(() => expect(getCtx().latitude).toBe(-31.4201));
+    getCtx().setAcceptedLegal(true);
+    await waitFor(() => expect(getCtx().acceptedLegal).toBe(true));
 
     let response: { ok: boolean } | undefined;
     await waitFor(async () => {
@@ -173,6 +175,19 @@ describe("RegistrationProvider", () => {
     expect(authClient.register).not.toHaveBeenCalled();
   });
 
+  it("MOVO-228: no registra sin haber tildado la aceptación de Términos/Privacidad", async () => {
+    const { getCtx } = await renderRegistration();
+    await waitFor(() => expect(getCtx().resumeChecked).toBe(true));
+    getCtx().confirmLocation(-31.4201, -64.1888);
+    await waitFor(() => expect(getCtx().latitude).toBe(-31.4201));
+
+    const response = await getCtx().submitRegistration();
+
+    expect(response).toEqual({ ok: false });
+    expect(authClient.register).not.toHaveBeenCalled();
+    await waitFor(() => expect(getCtx().errorBanner).toMatch(/términos.*privacidad/i));
+  });
+
   it("mapea el error 409 de email duplicado al campo email, sin alert genérico", async () => {
     (authClient.register as jest.Mock).mockRejectedValue(
       new ApiError(409, "USER_EMAIL_ALREADY_EXISTS", "Este email ya está registrado."),
@@ -182,6 +197,8 @@ describe("RegistrationProvider", () => {
     await waitFor(() => expect(getCtx().resumeChecked).toBe(true));
     getCtx().confirmLocation(-31.4201, -64.1888);
     await waitFor(() => expect(getCtx().latitude).toBe(-31.4201));
+    getCtx().setAcceptedLegal(true);
+    await waitFor(() => expect(getCtx().acceptedLegal).toBe(true));
 
     let response: { ok: boolean } | undefined;
     response = await getCtx().submitRegistration();
@@ -207,6 +224,8 @@ describe("RegistrationProvider", () => {
     getCtx().confirmLocation(-31.4201, -64.1888);
     await waitFor(() => expect(getCtx().latitude).toBe(-31.4201));
     await waitFor(() => expect(getCtx().fields.phone).toBe(BASE_FIELDS.phone));
+    getCtx().setAcceptedLegal(true);
+    await waitFor(() => expect(getCtx().acceptedLegal).toBe(true));
 
     let sendResult: { ok: boolean; cooldownSeconds: number } | undefined;
     await waitFor(async () => {

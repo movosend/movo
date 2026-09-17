@@ -97,6 +97,16 @@ export interface AvailableShipment {
   distanceKm: number;
 }
 
+/**
+ * Proyección de un envío compatible con el viaje declarado de un transportista
+ * enriquecido con desvío marginal exacto por OR-Tools (MOVO-219).
+ */
+export interface MatchedShipment extends AvailableShipment {
+  hasMyOffer: boolean;
+  detourDistanceKm: number;
+  detourDurationMinutes: number;
+}
+
 export interface CreateShipmentInput {
   senderId: string;
   receiverId: string;

@@ -26,6 +26,9 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   USER_NOT_FOUND: "No se encontró el usuario.",
   USER_EMAIL_ALREADY_EXISTS: "El email ya se encuentra registrado.",
   USER_PHONE_ALREADY_EXISTS: "El teléfono ya se encuentra registrado.",
+  // MOVO-228: la app manda una versión de Términos/Privacidad vieja — pasa solo si
+  // el usuario tiene una versión desactualizada de la app instalada.
+  LEGAL_DOCUMENT_VERSION_MISMATCH: "Actualizá la app para ver la versión más reciente de los Términos y la Política de Privacidad.",
   SHIPMENT_RECEIVER_IS_SENDER: "No podés elegirte a vos mismo como receptor.",
   SHIPMENT_RECEIVER_KYC_NOT_APPROVED: "El receptor todavía no tiene su identidad verificada.",
   SHIPMENT_PICKUP_WINDOW_IN_PAST: "Elegí una fecha y horario de retiro que todavía no haya pasado.",

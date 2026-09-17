@@ -14,6 +14,7 @@ describe("Fotos del paquete (MOVO-81, Postgres)", () => {
   let storageProvider: MockStorageProvider;
   const senderId = randomUUID();
   const receiverId = randomUUID();
+  const carrierId = randomUUID();
 
   const baseInput: CreateShipmentInput = {
     senderId,
@@ -287,6 +288,134 @@ describe("Fotos del paquete (MOVO-81, Postgres)", () => {
       });
 
       expect(response.statusCode).toBe(404);
+    });
+  });
+
+  describe("AC5 de MOVO-196: autorización por etapa (pickup/delivery = transportista asignado)", () => {
+    async function assignCarrier(shipmentId: string): Promise<void> {
+      await app.db.shipment.update({ where: { id: shipmentId }, data: { carrierId } });
+    }
+
+    it.each(["pickup", "delivery"])("el emisor recibe 403 al pedir presign de %s", async (stage) => {
+      const shipment = await repo.create(baseInput);
+      await assignCarrier(shipment.id);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/photos/presign`,
+        headers: { "x-user-id": senderId },
+        payload: { stage, contentType: "image/jpeg", contentLength: 500_000 },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.code).toBe("AUTH_FORBIDDEN");
+    });
+
+    it.each(["pickup", "delivery"])("el receptor recibe 403 al pedir presign de %s", async (stage) => {
+      const shipment = await repo.create(baseInput);
+      await assignCarrier(shipment.id);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/photos/presign`,
+        headers: { "x-user-id": receiverId },
+        payload: { stage, contentType: "image/jpeg", contentLength: 500_000 },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.code).toBe("AUTH_FORBIDDEN");
+    });
+
+    it.each(["pickup", "delivery"])("el transportista asignado puede presignar y confirmar una foto de %s", async (stage) => {
+      const shipment = await repo.create(baseInput);
+      await assignCarrier(shipment.id);
+
+      const presign = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/photos/presign`,
+        headers: { "x-user-id": carrierId },
+        payload: { stage, contentType: "image/jpeg", contentLength: 500_000 },
+      });
+      expect(presign.statusCode).toBe(200);
+      const { s3Key } = presign.json();
+      storageProvider.__simulateUpload(s3Key, { contentType: "image/jpeg", contentLength: 500_000 });
+
+      const confirm = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/photos/confirm`,
+        headers: { "x-user-id": carrierId },
+        payload: { s3Key, stage },
+      });
+      expect(confirm.statusCode).toBe(200);
+      expect(confirm.json().stage).toBe(stage);
+    });
+
+    it("el emisor sigue pudiendo registrar fotos de creation sin que el cambio de AC5 lo afecte", async () => {
+      const shipment = await repo.create(baseInput);
+      await assignCarrier(shipment.id);
+
+      const presign = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/photos/presign`,
+        headers: { "x-user-id": senderId },
+        payload: { stage: "creation", contentType: "image/jpeg", contentLength: 500_000 },
+      });
+      expect(presign.statusCode).toBe(200);
+    });
+
+    it("un transportista NO asignado a este envío recibe 403 al pedir presign de pickup", async () => {
+      const shipment = await repo.create(baseInput);
+      await assignCarrier(shipment.id);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipment.id}/photos/presign`,
+        headers: { "x-user-id": randomUUID() },
+        payload: { stage: "pickup", contentType: "image/jpeg", contentLength: 500_000 },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.code).toBe("AUTH_FORBIDDEN");
+    });
+  });
+
+  describe("AC8 de MOVO-196: máximo 5 fotos confirmadas por etapa de evidencia", () => {
+    async function assignCarrier(shipmentId: string): Promise<void> {
+      await app.db.shipment.update({ where: { id: shipmentId }, data: { carrierId } });
+    }
+
+    async function confirmPickupPhoto(shipmentId: string) {
+      const presign = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/photos/presign`,
+        headers: { "x-user-id": carrierId },
+        payload: { stage: "pickup", contentType: "image/jpeg", contentLength: 500_000 },
+      });
+      const { s3Key } = presign.json();
+      storageProvider.__simulateUpload(s3Key, { contentType: "image/jpeg", contentLength: 500_000 });
+      return app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/photos/confirm`,
+        headers: { "x-user-id": carrierId },
+        payload: { s3Key, stage: "pickup" },
+      });
+    }
+
+    it("confirma hasta 5 fotos de pickup, la 6ta responde 422 PHOTO_STAGE_LIMIT_EXCEEDED", async () => {
+      const shipment = await repo.create(baseInput);
+      await assignCarrier(shipment.id);
+
+      for (let i = 0; i < 5; i++) {
+        const response = await confirmPickupPhoto(shipment.id);
+        expect(response.statusCode).toBe(200);
+      }
+
+      const sixth = await confirmPickupPhoto(shipment.id);
+      expect(sixth.statusCode).toBe(422);
+      expect(sixth.json().error.code).toBe("PHOTO_STAGE_LIMIT_EXCEEDED");
+
+      const photos = await repo.listPhotos(shipment.id);
+      expect(photos).toHaveLength(5);
     });
   });
 });

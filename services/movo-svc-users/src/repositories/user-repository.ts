@@ -44,6 +44,19 @@ export interface UserRepository {
     input: { firstName?: string; lastName?: string; bio?: string | null }
   ): Promise<User | null>;
   /**
+   * MOVO-229: cada par fecha/versión se actualiza de forma independiente -- mandar
+   * solo `termsVersion` no toca nada de `privacyAcceptedAt`/`privacyVersion`.
+   */
+  updateLegalAcceptance(
+    id: string,
+    input: {
+      termsAcceptedAt?: Date;
+      termsVersion?: string;
+      privacyAcceptedAt?: Date;
+      privacyVersion?: string;
+    }
+  ): Promise<User | null>;
+  /**
    * MOVO-133: persiste `phone` + `phoneVerified=true` en el mismo UPDATE -- se llama
    * solo después de que el OTP al teléfono nuevo ya probó posesión. Lanza
    * `UserConflictError("phone")` si `users_phone_key` rechaza el valor (carrera de
@@ -114,6 +127,10 @@ function toDomainUser(row: UserWithRoles): User {
     passwordHash: row.passwordHash,
     dni: row.dni,
     bio: row.bio,
+    termsAcceptedAt: row.termsAcceptedAt,
+    termsVersion: row.termsVersion,
+    privacyAcceptedAt: row.privacyAcceptedAt,
+    privacyVersion: row.privacyVersion,
     phoneVerified: row.phoneVerified,
     emailVerified: row.emailVerified,
     emailVerifiedAt: row.emailVerifiedAt,
@@ -214,6 +231,10 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
             passwordHash: input.passwordHash,
             dni: input.dni ?? null,
             birthdate: input.birthdate ?? null,
+            termsAcceptedAt: input.termsAcceptedAt,
+            termsVersion: input.termsVersion,
+            privacyAcceptedAt: input.privacyAcceptedAt,
+            privacyVersion: input.privacyVersion,
             phoneVerified: input.phoneVerified,
             roles: {
               create: input.roles.map((role) => ({ role: role as unknown as PrismaUserRole })),
@@ -339,6 +360,39 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
             ...(input.firstName !== undefined ? { firstName: input.firstName } : {}),
             ...(input.lastName !== undefined ? { lastName: input.lastName } : {}),
             ...(input.bio !== undefined ? { bio: input.bio } : {}),
+          },
+          include: { roles: true },
+        });
+        return toDomainUser(row);
+      } catch (error) {
+        if (isRecordNotFoundError(error)) {
+          return null;
+        }
+        throw error;
+      }
+    },
+
+    // MOVO-229: acepta Términos y/o Privacidad después del registro (versión nueva
+    // publicada, o una cuenta vieja que nunca los aceptó explícitamente). Cada par
+    // fecha/versión se actualiza de forma independiente -- mandar solo `termsVersion`
+    // no toca `privacyAcceptedAt`/`privacyVersion` para nada.
+    async updateLegalAcceptance(
+      id: string,
+      input: {
+        termsAcceptedAt?: Date;
+        termsVersion?: string;
+        privacyAcceptedAt?: Date;
+        privacyVersion?: string;
+      }
+    ): Promise<User | null> {
+      try {
+        const row = await db.user.update({
+          where: { id },
+          data: {
+            ...(input.termsAcceptedAt !== undefined ? { termsAcceptedAt: input.termsAcceptedAt } : {}),
+            ...(input.termsVersion !== undefined ? { termsVersion: input.termsVersion } : {}),
+            ...(input.privacyAcceptedAt !== undefined ? { privacyAcceptedAt: input.privacyAcceptedAt } : {}),
+            ...(input.privacyVersion !== undefined ? { privacyVersion: input.privacyVersion } : {}),
           },
           include: { roles: true },
         });
