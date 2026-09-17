@@ -699,7 +699,16 @@ export default function OfferDetailScreen() {
       </ScrollView>
 
       {/* Acciones (AC2/AC3/AC4/AC5/AC6) */}
-      <View className="border-t border-border bg-bg px-5 pb-6 pt-3.5">
+      <View
+        className="border-t border-border bg-bg px-5 pb-6 pt-3.5"
+        style={{
+          shadowColor: "#000",
+          shadowOpacity: 0.08,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: -4 },
+          elevation: 8,
+        }}
+      >
         {canModify ? (
           <Pressable
             testID="offer-detail-change-price-cta"
