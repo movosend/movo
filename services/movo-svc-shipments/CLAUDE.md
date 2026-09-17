@@ -1971,13 +1971,17 @@ Decisiones clave:
   JWT) obtiene su propia ruta. No se acepta `carrierId` por parámetro.
 - **Contratos tipados en `@movo/shared`:** `CarrierRoute` y `CarrierRouteStop`
   exportados en `types/routing.ts` para consumo coordinado entre backend y mobile.
+- **Serialización de ventanas de retiro con timezone real (`formatPickupInstant`):**
+  `pickupDate` (@db.Date) y `pickupTimeWindow*` (@db.Time) se anclan en UTC sumando el offset
+  argentino (+3h UTC), evitando que viajen con fecha base 1970 a `svc-pricing-logistics`
+  lo que invalidaba falsamente candidatos en el evaluador de factibilidad.
 
 Tests: `test/carrier-route.test.ts` (9 tests unitarios puros de dominio),
 `test/pricing-logistics-client.test.ts` (10 tests del adapter, incluyendo `optimizeRoute`
 con timeouts y errores 502/503), `test/shipments-my-route.service.test.ts` (4 tests de
-servicio), `test/shipments-my-route.routes.test.ts` (5 tests de endpoints HTTP). Total:
-28 tests nuevos, 127/127 unitarios de shipments pasando limpios, `tsc --noEmit` y `npm run lint`
-100% en verde.
+servicio), `test/shipments-my-route.routes.test.ts` (5 tests de endpoints HTTP), más test
+en `test/pickup-window.test.ts` y `test/trips-service.test.ts`. Total:
+129/129 unitarios de shipments pasando limpios, `tsc --noEmit` y `npm run lint` 100% en verde.
 
 ### Pendientes de este servicio
 

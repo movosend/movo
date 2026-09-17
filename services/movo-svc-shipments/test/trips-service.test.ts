@@ -757,5 +757,56 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
         code: "ROUTING_SERVICE_ERROR",
       });
     });
+
+    it("serializa pickupWindowStart y pickupWindowEnd combinando pickupDate con la hora de ventana en UTC real (+3h ART)", async () => {
+      const item = {
+        id: "shipment-window-test",
+        pickupLat: -31.42,
+        pickupLng: -64.18,
+        deliveryLat: -31.91,
+        deliveryLng: -63.68,
+        pickupDate: new Date("2026-09-17T00:00:00.000Z"),
+        pickupTimeWindowStart: new Date("1970-01-01T09:00:00.000Z"),
+        pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
+      } as any;
+
+      (shipmentRepo.listAvailable as any).mockResolvedValue({
+        items: [item],
+        total: 1,
+      });
+
+      (pricingLogisticsClient.evaluateCandidates as any).mockResolvedValue({
+        directDistanceKm: 145,
+        directDurationMinutes: 110,
+        evaluations: [
+          { candidateId: "shipment-window-test", feasible: true, detourDistanceKm: 2.0, detourDurationMinutes: 5 },
+        ],
+        calculationMethod: "haversine_vrptw_v1",
+      });
+
+      const service = buildService();
+
+      await service.getTripMatches({
+        tripId: TRIP_ID,
+        callerId: CARRIER_ID,
+        callerRoles: [UserRole.CARRIER],
+        page: 1,
+        limit: 20,
+      });
+
+      // 09:00 y 12:00 ART deben viajar como 12:00:00.000Z y 15:00:00.000Z del 17 de sept de 2026
+      // NUNCA como "1970-01-01T..." que causaría que el evaluador lo marque como inviable
+      expect(pricingLogisticsClient.evaluateCandidates).toHaveBeenCalledWith(
+        expect.objectContaining({
+          candidates: [
+            expect.objectContaining({
+              id: "shipment-window-test",
+              pickupWindowStart: "2026-09-17T12:00:00.000Z",
+              pickupWindowEnd: "2026-09-17T15:00:00.000Z",
+            }),
+          ],
+        })
+      );
+    });
   });
 });
