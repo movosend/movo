@@ -5,19 +5,13 @@ import { LinearGradient } from "expo-linear-gradient";
 import {
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   Clock,
   MapPin,
   Route,
 } from "lucide-react-native";
-import { useState, type ReactNode } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
+import { type ReactNode } from "react";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { PublicProfile } from "@movo/shared/dist/types/user-profile";
 import type { ReceiverConfirmationStatus } from "../../../components/shipments/counterpart-card";
@@ -30,8 +24,7 @@ import { AvatarImage } from "../../../components/ui/avatar-image";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { GridPattern } from "../../../components/ui/grid-pattern";
 import { SkeletonBlock } from "../../../components/ui/skeleton-block";
-import { SuccessBanner } from "../../../components/ui/success-banner";
-import { useMyOffers, useWithdrawOffer } from "../../../src/hooks/use-offers";
+import { useMyOffers } from "../../../src/hooks/use-offers";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { getClientCommissionRate } from "../../../src/lib/commission-config";
@@ -220,9 +213,6 @@ export default function TransportShipmentDetailScreen() {
     status: OfferStatus.PENDING,
     limit: 50,
   });
-  const withdrawOffer = useWithdrawOffer(id);
-
-  const [withdrawSuccess, setWithdrawSuccess] = useState(false);
 
   const myActiveOffer = myOffers?.items.find(
     (offer) => offer.shipmentId === id,
@@ -297,26 +287,9 @@ export default function TransportShipmentDetailScreen() {
     }
   };
 
-  const handleWithdraw = () => {
+  const openOfferDetail = () => {
     if (!myActiveOffer) return;
-    Alert.alert(
-      "¿Retirar oferta?",
-      "¿Estás seguro de que querés retirar tu oferta? Vas a poder volver a ofertar si el envío sigue disponible.",
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Retirar",
-          style: "destructive",
-          onPress: () => {
-            withdrawOffer.mutate(myActiveOffer.id, {
-              onSuccess: () => {
-                setWithdrawSuccess(true);
-              },
-            });
-          },
-        },
-      ],
-    );
+    router.push(`/(app)/carrier/offers/${myActiveOffer.id}`);
   };
 
   if (isLoading) {
@@ -354,17 +327,10 @@ export default function TransportShipmentDetailScreen() {
             className="flex-1"
             contentContainerClassName="gap-5 px-5 pb-6 pt-4"
           >
-            {withdrawSuccess ? (
-              <SuccessBanner
-                testID="transport-withdraw-success"
-                message="Tu oferta fue retirada."
-                onDismiss={() => setWithdrawSuccess(false)}
-              />
-            ) : null}
-
             {myActiveOffer ? (
-              <View
+              <Pressable
                 testID="transport-active-offer-card"
+                onPress={openOfferDetail}
                 className="rounded-[12px] border border-info-200 bg-info-100/50 p-4"
               >
                 <View className="mb-2 flex-row items-center justify-between">
@@ -404,21 +370,14 @@ export default function TransportShipmentDetailScreen() {
                         myActiveOffer.offeredDate}
                     </Text>
                   </View>
-                  {myActiveOffer.message ? (
-                    <View className="mt-1 border-t border-info-200/60 pt-2">
-                      <Text className="font-sans text-[11px] text-fg-3">
-                        Mensaje enviado:
-                      </Text>
-                      <Text
-                        testID="transport-active-offer-message"
-                        className="mt-0.5 font-sans text-small text-fg"
-                      >
-                        {myActiveOffer.message}
-                      </Text>
-                    </View>
-                  ) : null}
                 </View>
-              </View>
+                <View className="mt-2.5 flex-row items-center justify-between border-t border-info-200/60 pt-2.5">
+                  <Text className="font-sans-medium text-small text-info-700">
+                    Ver detalle
+                  </Text>
+                  <ChevronRight size={16} color="#1F52D6" />
+                </View>
+              </Pressable>
             ) : null}
 
             <View>
@@ -636,16 +595,12 @@ export default function TransportShipmentDetailScreen() {
             <View className="border-t border-border bg-bg px-5 pb-6 pt-3.5">
               {myActiveOffer ? (
                 <Pressable
-                  testID="transport-withdraw-offer-cta"
-                  onPress={handleWithdraw}
-                  disabled={withdrawOffer.isPending}
-                  className="w-full flex-row items-center justify-center gap-2 rounded-lg border border-danger-300 bg-danger-100 py-3.5"
+                  testID="transport-view-offer-cta"
+                  onPress={openOfferDetail}
+                  className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-fg py-3.5"
                 >
-                  {withdrawOffer.isPending ? (
-                    <ActivityIndicator color="#C22F35" />
-                  ) : null}
-                  <Text className="font-sans-semibold text-body text-danger-700">
-                    Retirar oferta
+                  <Text className="font-sans-semibold text-body text-bg">
+                    Ver mi oferta
                   </Text>
                 </Pressable>
               ) : (
