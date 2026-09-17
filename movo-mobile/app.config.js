@@ -63,7 +63,7 @@ module.exports = {
         `com.movosend.movomobile.${process.env.USER ?? "dev"}`,
       infoPlist: {
         NSCameraUsageDescription:
-          "Movo necesita la cámara para tomar tu foto de perfil y verificar tu identidad durante el registro.",
+          "Movo necesita la cámara para tomar tu foto de perfil, verificar tu identidad durante el registro y escanear el código de confirmación de retiro/entrega.",
         NSMicrophoneUsageDescription:
           "Movo necesita el micrófono para grabar el video de verificación de vida durante la verificación de identidad con Didit.",
         NSPhotoLibraryUsageDescription:
@@ -119,6 +119,15 @@ module.exports = {
         {
           locationWhenInUsePermission:
             "Movo usa tu ubicación para ayudarte a marcar el punto exacto de una dirección en el mapa, durante el registro y al crear un envío.",
+        },
+      ],
+      // Sin `cameraPermission` propio acá — el `NSCameraUsageDescription` ya cubre
+      // este uso (arriba, `ios.infoPlist`), mismo criterio que MOVO-160 solo necesita
+      // habilitar el escaneo de barcodes/QR, no pedir un permiso de cámara nuevo.
+      [
+        "expo-camera",
+        {
+          barcodeScannerEnabled: true,
         },
       ],
       "expo-font",

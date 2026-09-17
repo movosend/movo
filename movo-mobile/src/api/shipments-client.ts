@@ -222,6 +222,46 @@ export interface ActiveShipmentSummary {
   pickupWindowExpired: boolean;
 }
 
+/**
+ * `POST /shipments/:id/handshake/generate` (`handshake.schema.ts`, MOVO-158, Done) —
+ * lo llama el CEDENTE de la custodia (emisor en el retiro, transportista en la
+ * entrega). Agregado ahora como harness de prueba de MOVO-160 (`/dev-handshake`,
+ * sin backend real de generación de QR todavía del lado de la UI) — `MOVO-159` va a
+ * reusar este mismo método para su pantalla real, no hace falta que lo reescriba.
+ */
+export interface GenerateHandshakeResult {
+  shipmentId: string;
+  stage: "pickup" | "delivery";
+  nonce: string;
+  canonicalPayload: string;
+  expiresAt: string;
+  ttlSeconds: number;
+}
+
+/**
+ * Body de `POST /shipments/:id/handshake/confirm` (`confirmHandshakeBody` en
+ * `handshake.schema.ts`, `movo-svc-shipments`, MOVO-158, Done). Lo llama quien
+ * **recibe** la custodia (MOVO-160) — `nonce`/`signature` salen tal cual del QR
+ * escaneado (generado y firmado del lado del cedente, MOVO-159/MOVO-195); este lado
+ * nunca firma nada, solo agrega sus propias coordenadas GPS.
+ */
+export interface ConfirmHandshakeInput {
+  nonce: string;
+  signature: string;
+  lat: number;
+  lng: number;
+}
+
+/** `confirmHandshakeResponse` (`handshake.schema.ts`). */
+export interface ConfirmHandshakeResult {
+  shipmentId: string;
+  stage: "pickup" | "delivery";
+  previousStatus: ShipmentStatus;
+  status: ShipmentStatus;
+  distanceM: number;
+  confirmedAt: string;
+}
+
 export const shipmentsClient = {
   /** Protegida — `httpClient` adjunta `Authorization` automáticamente vía el
    * interceptor de sesión (MOVO-76). */
@@ -330,6 +370,17 @@ export const shipmentsClient = {
    * perfil. */
   getHistoryWith(userId: string): Promise<SharedHistory> {
     return httpClient.get<SharedHistory>(`/shipments/history-with/${userId}`);
+  },
+
+  /** `POST /shipments/:id/handshake/generate` (MOVO-158, Done) — ver
+   * `GenerateHandshakeResult`. */
+  generateHandshake(shipmentId: string, input: { lat: number; lng: number }): Promise<GenerateHandshakeResult> {
+    return httpClient.post<GenerateHandshakeResult>(`/shipments/${shipmentId}/handshake/generate`, input);
+  },
+
+  /** `POST /shipments/:id/handshake/confirm` (MOVO-158, Done) — MOVO-160. */
+  confirmHandshake(shipmentId: string, input: ConfirmHandshakeInput): Promise<ConfirmHandshakeResult> {
+    return httpClient.post<ConfirmHandshakeResult>(`/shipments/${shipmentId}/handshake/confirm`, input);
   },
 };
 

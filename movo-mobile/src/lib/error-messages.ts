@@ -69,6 +69,13 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   SHIPMENT_NOT_AVAILABLE_FOR_OFFER: "Este envío ya no está disponible para ofertar.",
   OFFER_DUPLICATE_ACTIVE: "Ya tenés una oferta activa sobre este envío.",
   OFFER_DATE_OUT_OF_RANGE: "La fecha del viaje tiene que coincidir con la fecha de retiro del envío.",
+  // Handshake criptográfico: escaneo del receptor de custodia (MOVO-160 / backend MOVO-158, Done).
+  HANDSHAKE_QR_EXPIRED: "Este código venció. Pedile a la otra persona que genere uno nuevo.",
+  HANDSHAKE_DISTANCE_EXCEEDED: "Estás a más de 100 m del punto. Acercate e intentá de nuevo.",
+  HANDSHAKE_INVALID_SIGNATURE: "Este código no es válido. Pedile a la otra persona que genere uno nuevo.",
+  HANDSHAKE_CEDENTE_KEY_MISSING:
+    "La otra persona todavía no puede confirmar la transferencia desde su dispositivo. Pedile que actualice la app.",
+  HANDSHAKE_INVALID_SHIPMENT_STATE: "Este envío ya no está en un estado que permita confirmar esto.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",
   RATE_LIMIT_EXCEEDED: "Hiciste demasiados intentos. Esperá un momento y volvé a intentar.",
