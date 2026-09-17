@@ -125,7 +125,12 @@ function pages(items: AvailableShipment[]) {
   return { pages: [{ items, page: 1, limit: 20, total: items.length }] };
 }
 
-function myOfferSummary(overrides: { id: string; status: "pending" | "accepted" } & Record<string, unknown>) {
+function myOfferSummary(
+  overrides: {
+    id: string;
+    status: "pending" | "accepted" | "rejected" | "withdrawn" | "expired" | "superseded";
+  } & Record<string, unknown>,
+) {
   return {
     shipmentId: `shipment-${overrides.id}`,
     carrierId: "carrier-1",
@@ -392,6 +397,31 @@ describe("TransportScreen", () => {
     expect(getByTestId("transport-card-offered-1")).toBeTruthy();
     expect(getByTestId("transport-card-offered-1-my-offer-price")).toHaveTextContent("$3.100tu oferta");
     expect(getByTestId("transport-card-offered-1-offer-status")).toHaveTextContent("Pendiente");
+  });
+
+  it("bug real: una oferta retirada del historial no se muestra como si siguiera vigente", async () => {
+    // `hasMyOffer` (calculado por el backend) es `false` acá -- ya no hay ninguna
+    // oferta activa sobre este envío -- pero `GET /offers/mine` sigue devolviendo la
+    // retirada en el historial. El envío debería verse como cualquier otro disponible,
+    // sin el pill gris ni el chip de estado.
+    mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+    mockUseAvailableShipments.mockReturnValue(
+      baseAvailableResult({ data: pages([availableShipment({ id: "shipment-1", hasMyOffer: false })]) }),
+    );
+    mockUseMyOffers.mockReturnValue({
+      data: {
+        items: [myOfferSummary({ id: "o1", status: "withdrawn", shipmentId: "shipment-1" })],
+        page: 1,
+        limit: 50,
+        total: 1,
+      },
+    });
+
+    const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+    expect(getByTestId("transport-card-shipment-1")).toBeTruthy();
+    expect(queryByTestId("transport-card-shipment-1-my-offer-price")).toBeNull();
+    expect(queryByTestId("transport-card-shipment-1-offer-status")).toBeNull();
   });
 
   it("con origen de dirección guardada, la zona sale del campo city, no del label de la dirección", async () => {

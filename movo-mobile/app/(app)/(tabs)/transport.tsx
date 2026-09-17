@@ -296,13 +296,15 @@ export default function TransportScreen() {
     [unexpiredItems, activeTrips, isTripMode],
   );
   const offers = myOffersData?.items ?? [];
-  // Un envío puede tener más de una oferta propia en el historial (ej. retiró una y
-  // ofertó de nuevo) -- se prioriza la aceptada sobre cualquier otra, y entre iguales
-  // se queda con la última encontrada (el orden real de `GET /offers/mine` no está
-  // garantizado, no importa cuál pendiente/vencida se muestre).
+  // `GET /offers/mine` trae TODO el historial (incluidas retiradas/rechazadas/
+  // vencidas/superadas, ver "Todas tus ofertas" en carrier/offers/index.tsx) -- acá
+  // solo interesan las activas. Un envío puede tener más de una oferta propia en el
+  // historial (ej. retiró una y ofertó de nuevo); entre las activas se prioriza la
+  // aceptada sobre la pendiente.
   const offersByShipmentId = useMemo(() => {
     const map = new Map<string, MyOfferSummary>();
     for (const offer of offers) {
+      if (offer.status !== OfferStatus.PENDING && offer.status !== OfferStatus.ACCEPTED) continue;
       const existing = map.get(offer.shipmentId);
       if (!existing || existing.status !== OfferStatus.ACCEPTED) {
         map.set(offer.shipmentId, offer);
@@ -554,7 +556,10 @@ export default function TransportScreen() {
                 shipment={item}
                 testID={`transport-card-${item.id}`}
                 detour={detour ? { detourKm: detour.detourKm } : null}
-                myOffer={offersByShipmentId.get(item.id) ?? null}
+                // Gateado por `item.hasMyOffer` (calculado por el backend, no por
+                // este cache local) -- evita mostrar una oferta ya retirada/
+                // rechazada/vencida que igual siga en el historial de `useMyOffers`.
+                myOffer={item.hasMyOffer ? offersByShipmentId.get(item.id) ?? null : null}
               />
             )
           }
