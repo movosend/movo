@@ -39,6 +39,14 @@ jest.mock("../src/hooks/use-offers", () => ({
   useMyOffers: () => mockUseMyOffers(),
 }));
 
+const mockCurrentUser = jest.fn(() => ({ userId: "carrier-me" }));
+jest.mock("../src/store/auth-store", () => ({
+  useAuthStore: (selector?: (state: { user: { userId: string } | null }) => unknown) => {
+    const state = { user: mockCurrentUser() };
+    return typeof selector === "function" ? selector(state) : state;
+  },
+}));
+
 jest.mock("../components/send/route-map-card", () => {
   const { View } = require("react-native");
   return { RouteMapCard: (props: { testID?: string }) => <View testID={props.testID} /> };
@@ -376,6 +384,42 @@ describe("TransportShipmentDetailScreen", () => {
       });
 
       expect(mockRouterPush).toHaveBeenCalledWith("/(app)/transport/shipment-1/offer");
+    });
+
+    it("si ya me asignaron este envío (mi oferta fue aceptada), oculta 'Hacer una oferta' y 'Te queda si ofertás el sugerido', y muestra 'Te eligieron para este envío'", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "carrier-me", status: ShipmentStatus.ASSIGNMENT_PENDING, suggestedPriceArs: 4500 }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      // La oferta ya pasó a `accepted` -- deja de aparecer entre las `pending` de
+      // `myOffers` (mismo comportamiento real de `useMyOffers`).
+      mockUseMyOffers.mockReturnValue({ data: { items: [] } });
+
+      const { getByTestId, queryByTestId, queryByText } = await render(<TransportShipmentDetailScreen />);
+
+      expect(queryByTestId("transport-create-offer-cta")).toBeNull();
+      expect(queryByTestId("transport-active-offer-card")).toBeNull();
+      expect(queryByText("Te queda si ofertás el sugerido")).toBeNull();
+      expect(getByTestId("transport-assigned-to-me-card")).toHaveTextContent(/Te eligieron para este envío/);
+    });
+
+    it("si el envío se asignó a OTRO transportista, sigue mostrando el CTA de ofertar normal (no soy yo)", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "otro-transportista", status: ShipmentStatus.ASSIGNMENT_PENDING }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      mockUseMyOffers.mockReturnValue({ data: { items: [] } });
+
+      const { queryByTestId } = await render(<TransportShipmentDetailScreen />);
+
+      expect(queryByTestId("transport-assigned-to-me-card")).toBeNull();
+      expect(queryByTestId("transport-create-offer-cta")).toBeTruthy();
     });
 
     it("si ya tiene una oferta activa, muestra la card con sus datos y navega al detalle de la oferta (MOVO-182)", async () => {

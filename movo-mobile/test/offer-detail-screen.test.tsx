@@ -310,7 +310,7 @@ describe("OfferDetailScreen (MOVO-182)", () => {
     expect(queryByTestId("offer-detail-withdraw-modal-backdrop")).toBeNull();
   });
 
-  it("oferta accepted: sin acciones de pending, CTA 'Ir al viaje' navega al envío", async () => {
+  it("oferta accepted: sin acciones de pending, CTA 'Ver detalle del envío' navega al envío", async () => {
     mockUseOfferDetail.mockReturnValue({
       isLoading: false,
       isError: false,

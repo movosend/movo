@@ -18,6 +18,7 @@ import type { PublicProfile } from "@movo/shared/dist/types/user-profile";
 import type { ReceiverConfirmationStatus } from "../../../components/shipments/counterpart-card";
 import { PackageCard } from "../../../components/shipments/package-card";
 import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
+import { ShipmentStatusBadge } from "../../../components/shipments/status-badge";
 import { RouteMapCard } from "../../../components/send/route-map-card";
 import { ProfileVerifiedBadge } from "../../../components/profile/profile-verified-badge";
 import { AvatarImage } from "../../../components/ui/avatar-image";
@@ -28,6 +29,7 @@ import { useMyOffers } from "../../../src/hooks/use-offers";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { getClientCommissionRate } from "../../../src/lib/commission-config";
+import { useAuthStore } from "../../../src/store/auth-store";
 import {
   useShipment,
   useShipmentRoute,
@@ -191,6 +193,12 @@ function TransportDetailError({
  * Si el transportista ya tiene una oferta activa:
  * - Muestra la card "Tu oferta activa" (único punto de entrada al detalle de la
  *   oferta, `carrier/offers/[id].tsx`) -- sin barra inferior duplicada.
+ *
+ * Si el envío ya se asignó a este transportista (`shipment.carrierId` propio --
+ * la oferta pasó de `pending` a `accepted`, ya no aparece en `myActiveOffer`):
+ * - Card "Te eligieron para este envío" en vez de "Tu oferta activa".
+ * - Sin card de "cuánto te queda si ofertás el sugerido" ni CTA de ofertar --
+ *   el envío ya no acepta ofertas nuevas.
  */
 export default function TransportShipmentDetailScreen() {
   const { id, pickupDistanceKm: pickupDistanceKmParam } = useLocalSearchParams<{
@@ -224,6 +232,16 @@ export default function TransportShipmentDetailScreen() {
   const myActiveOffer = myOffers?.items.find(
     (offer) => offer.shipmentId === id,
   );
+
+  const currentUser = useAuthStore((state) => state.user);
+  // El emisor ya eligió mi oferta y el envío se confirmó con `carrierId` seteado a
+  // mí -- ofertar de nuevo ya no es posible (el envío dejó de estar `published`) ni
+  // tiene sentido mostrar "cuánto te queda si ofertás el sugerido", así que tanto
+  // esa card como el CTA de ofertar se ocultan. Distinto de `myActiveOffer` (que solo
+  // mira ofertas `pending` propias): esta condición cubre el momento en que la mía
+  // ya pasó a `accepted` y dejó de aparecer ahí.
+  const isAssignedToMe =
+    !!currentUser?.userId && shipment?.carrierId === currentUser.userId;
 
   const openProfile = (userId: string) => router.push(`/profile/${userId}`);
 
@@ -391,6 +409,18 @@ export default function TransportShipmentDetailScreen() {
                   <ChevronRight size={16} color={activeOfferAccentColor} />
                 </View>
               </Pressable>
+            ) : isAssignedToMe ? (
+              <View
+                testID="transport-assigned-to-me-card"
+                className="rounded-[14px] border border-lime-500/50 bg-lime-100 p-4 dark:border-lime-500/30 dark:bg-lime-500/[0.14]"
+              >
+                <View className="flex-row items-center justify-between gap-2">
+                  <Text className="font-sans-semibold text-small text-lime-800 dark:text-lime-300">
+                    Te eligieron para este envío
+                  </Text>
+                  <ShipmentStatusBadge status={shipment.status} />
+                </View>
+              </View>
             ) : null}
 
             <View>
@@ -438,8 +468,10 @@ export default function TransportShipmentDetailScreen() {
                 sugerido" deja de tener sentido una vez que ya se hizo una oferta
                 (con un monto propio, no necesariamente el sugerido) — mostrar las
                 dos cards a la vez es contradictorio, la card de arriba ("Tu oferta
-                activa") ya cubre ese lugar. */}
-            {myActiveOffer ? null : (
+                activa") ya cubre ese lugar. También oculta si ya me asignaron este
+                envío (mi oferta fue la elegida) — no tiene sentido simular "si
+                ofertás" sobre un envío que ya no acepta ofertas. */}
+            {myActiveOffer || isAssignedToMe ? null : (
             /* Card "chrome": siempre oscura, sin importar el tema (mismo criterio que el
                 texto oscuro fijo de PrimaryButton variant="lime" — usa la escala `ink`/
                 `paper`, fija, nunca los tokens semánticos `fg`/`bg` que se invierten en
@@ -595,8 +627,10 @@ export default function TransportShipmentDetailScreen() {
           {/* Sin oferta activa: barra fija con la acción principal de ofertar. Con
               oferta activa, la card "Tu oferta activa" de arriba ya es el único
               punto de entrada al detalle -- una barra inferior duplicaría esa
-              navegación (pedido explícito de no tener dos entradas al mismo lugar). */}
-          {myActiveOffer ? null : (
+              navegación (pedido explícito de no tener dos entradas al mismo lugar).
+              Asignado a mí: no hay ninguna acción de ofertar posible, el CTA
+              desaparece sin reemplazo -- mismo criterio que la card de arriba. */}
+          {myActiveOffer || isAssignedToMe ? null : (
             <View style={{ position: "relative" }}>
               {/* Sombra SOLO en el borde superior -- la barra vive fuera del
                   `ScrollView`, sin esto se pierde contra el contenido al hacer scroll

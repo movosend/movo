@@ -684,7 +684,7 @@ export default function OfferDetailScreen() {
             onPress={handleGoToShipment}
             className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-fg py-3.5"
           >
-            <Text className="font-sans-semibold text-body text-bg">Ir al viaje</Text>
+            <Text className="font-sans-semibold text-body text-bg">Ver detalle del envío</Text>
           </Pressable>
         ) : (
           <Pressable
