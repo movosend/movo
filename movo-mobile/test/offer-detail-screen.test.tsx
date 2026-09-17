@@ -348,5 +348,37 @@ describe("OfferDetailScreen (MOVO-182)", () => {
     expect(queryByTestId("offer-detail-withdraw-cta")).toBeNull();
     expect(queryByTestId("offer-detail-go-to-shipment-cta")).toBeNull();
     expect(getByTestId("offer-detail-see-similar-cta")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(getByTestId("offer-detail-menu-action-view-shipment"));
+    });
+    expect(mockRouterPush).toHaveBeenCalledWith("/(app)/transport/shipment-1");
+  });
+
+  it("oferta pending: el menú de más acciones también ofrece ver el detalle del envío", async () => {
+    mockUseOfferDetail.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseOffer({ status: OfferStatus.PENDING }),
+    });
+
+    const { getByTestId } = await render(<OfferDetailScreen />);
+
+    await act(async () => {
+      fireEvent.press(getByTestId("offer-detail-menu-action-view-shipment"));
+    });
+    expect(mockRouterPush).toHaveBeenCalledWith("/(app)/transport/shipment-1");
+  });
+
+  it("oferta accepted: sin menú de más acciones (el CTA primario ya lleva al envío)", async () => {
+    mockUseOfferDetail.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: baseOffer({ status: OfferStatus.ACCEPTED, respondedAt: "2026-09-18T09:00:00.000Z" }),
+    });
+
+    const { queryByTestId } = await render(<OfferDetailScreen />);
+
+    expect(queryByTestId("offer-detail-menu")).toBeNull();
   });
 });

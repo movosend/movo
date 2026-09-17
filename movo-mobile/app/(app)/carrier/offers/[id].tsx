@@ -328,7 +328,7 @@ export default function OfferDetailScreen() {
             {shortAddressLabel(shipment.deliveryAddress)}
           </Text>
         </View>
-        {canModify ? (
+        {status !== OfferStatus.ACCEPTED ? (
           <View
             testID="offer-detail-menu-wrapper"
             pointerEvents={withdrawOffer.isPending ? "none" : "auto"}
@@ -347,28 +347,51 @@ export default function OfferDetailScreen() {
                   handleModifyDateAndWindow();
                 } else if (nativeEvent.event === "withdraw-offer") {
                   openWithdrawModal();
+                } else if (nativeEvent.event === "view-shipment") {
+                  handleGoToShipment();
                 }
               }}
               actions={[
+                ...(canModify
+                  ? [
+                      {
+                        id: "modify-date",
+                        title: "Modificar fecha y horario",
+                        image: Platform.select({
+                          ios: "calendar",
+                          android: "ic_menu_edit",
+                        }),
+                        // Sin `imageColor` explícito el ícono queda sin tinte
+                        // (invisible en la práctica) -- mismo gotcha ya
+                        // documentado en `profile-actions-menu.tsx`.
+                        imageColor: colors.fg1,
+                      },
+                    ]
+                  : []),
                 {
-                  id: "modify-date",
-                  title: "Modificar fecha y horario",
+                  id: "view-shipment",
+                  title: "Ver detalle del envío",
                   image: Platform.select({
-                    ios: "calendar",
-                    android: "ic_menu_edit",
+                    ios: "shippingbox",
+                    android: "ic_menu_view",
                   }),
+                  imageColor: colors.fg1,
                 },
-                {
-                  id: "withdraw-offer",
-                  title: "Retirar oferta",
-                  titleColor: "#E5484D",
-                  attributes: { destructive: true },
-                  image: Platform.select({
-                    ios: "trash",
-                    android: "ic_menu_delete",
-                  }),
-                  imageColor: "#E5484D",
-                },
+                ...(canModify
+                  ? [
+                      {
+                        id: "withdraw-offer",
+                        title: "Retirar oferta",
+                        titleColor: "#E5484D",
+                        attributes: { destructive: true },
+                        image: Platform.select({
+                          ios: "trash",
+                          android: "ic_menu_delete",
+                        }),
+                        imageColor: "#E5484D",
+                      },
+                    ]
+                  : []),
               ]}
             >
               <View
