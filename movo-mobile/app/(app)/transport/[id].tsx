@@ -1,5 +1,6 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { OfferStatus } from "@movo/shared/dist/types/offer";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -34,6 +35,7 @@ import { SuccessBanner } from "../../../components/ui/success-banner";
 import { useMyOffers, useWithdrawOffer } from "../../../src/hooks/use-offers";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
+import { useAuthStore } from "../../../src/store/auth-store";
 import { getClientCommissionRate } from "../../../src/lib/commission-config";
 import {
   useShipment,
@@ -221,8 +223,18 @@ export default function TransportShipmentDetailScreen() {
     limit: 50,
   });
   const withdrawOffer = useWithdrawOffer(id);
+  const currentUserId = useAuthStore((s) => s.user?.userId);
 
   const [withdrawSuccess, setWithdrawSuccess] = useState(false);
+
+  // Botón de dev (sin equivalente de producción todavía, ver `use-pickup-wizard.ts`
+  // MOVO-198): mismas dos condiciones que el gate del wizard de retiro ("ready"),
+  // para no ofrecer un atajo que el propio wizard va a rechazar igual.
+  const canDevAccessPickupWizard =
+    __DEV__ &&
+    !!shipment &&
+    shipment.carrierId === currentUserId &&
+    shipment.status === ShipmentStatus.ASSIGNED;
 
   const myActiveOffer = myOffers?.items.find(
     (offer) => offer.shipmentId === id,
@@ -633,7 +645,20 @@ export default function TransportShipmentDetailScreen() {
                 opacity: 0.5,
               }}
             />
-            <View className="border-t border-border bg-bg px-5 pb-6 pt-3.5">
+            <View className="border-t border-border bg-bg px-5 pb-6 pt-3.5 gap-2.5">
+              {canDevAccessPickupWizard ? (
+                <Pressable
+                  testID="transport-dev-pickup-wizard-cta"
+                  onPress={() =>
+                    router.push(`/(app)/shipments/${shipment.id}/pickup`)
+                  }
+                  className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-[#1F52D6] py-3.5"
+                >
+                  <Text className="font-sans-semibold text-body text-white">
+                    [DEV] Probar wizard de retiro
+                  </Text>
+                </Pressable>
+              ) : null}
               {myActiveOffer ? (
                 <Pressable
                   testID="transport-withdraw-offer-cta"
