@@ -65,7 +65,7 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, []);
+  }, [tripId]);
 
   // AC7: Refrescar la ruta automáticamente al ganar foco (ej: al volver de completar una parada)
   useFocusEffect(
