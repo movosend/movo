@@ -5,6 +5,22 @@ import { toArgentinaCalendarDateString } from "@movo/shared";
 const ARGENTINA_UTC_OFFSET_HOURS = 3;
 
 /**
+ * Combina la fecha de retiro (@db.Date) y una hora de ventana (@db.Time)
+ * en un instante real UTC (Date).
+ */
+export function pickupWindowInstant(pickupDate: Date, timeWindow: Date): Date {
+  const anchored = Date.UTC(
+    pickupDate.getUTCFullYear(),
+    pickupDate.getUTCMonth(),
+    pickupDate.getUTCDate(),
+    timeWindow.getUTCHours(),
+    timeWindow.getUTCMinutes(),
+    timeWindow.getUTCSeconds(),
+  );
+  return new Date(anchored + ARGENTINA_UTC_OFFSET_HOURS * 60 * 60 * 1000);
+}
+
+/**
  * Instante real (UTC) en el que cierra la ventana de retiro de un envío, a partir de
  * los valores tal como los devuelve Prisma (`Shipment.pickupDate` @db.Date,
  * `Shipment.pickupTimeWindowEnd` @db.Time) — cada uno anclado por separado (reloj de
@@ -17,15 +33,15 @@ const ARGENTINA_UTC_OFFSET_HOURS = 3;
  * (MOVO-142+, sin ticket propio — corrección directa sobre un bug reportado).
  */
 export function pickupWindowEndInstant(pickupDate: Date, pickupTimeWindowEnd: Date): Date {
-  const anchored = Date.UTC(
-    pickupDate.getUTCFullYear(),
-    pickupDate.getUTCMonth(),
-    pickupDate.getUTCDate(),
-    pickupTimeWindowEnd.getUTCHours(),
-    pickupTimeWindowEnd.getUTCMinutes(),
-    pickupTimeWindowEnd.getUTCSeconds(),
-  );
-  return new Date(anchored + ARGENTINA_UTC_OFFSET_HOURS * 60 * 60 * 1000);
+  return pickupWindowInstant(pickupDate, pickupTimeWindowEnd);
+}
+
+/**
+ * Combina la fecha y hora de retiro en un instante real UTC en formato ISO 8601.
+ * Mismo criterio que `pickupWindowEndInstant`.
+ */
+export function formatPickupInstant(pickupDate: Date, timeWindow: Date): string {
+  return pickupWindowInstant(pickupDate, timeWindow).toISOString();
 }
 
 /**

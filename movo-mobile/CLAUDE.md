@@ -2731,3 +2731,18 @@ Pendiente / fuera de alcance (igual que el propio ticket): orquestación de wiza
 ver fotos cargadas desde el detalle de envío (`MOVO-194`). No probado en dispositivo
 físico ni los tres caminos de permiso reales — pendiente del DoD, no verificable en
 este entorno (mismo criterio que MOVO-195/MOVO-107).
+
+### MOVO-207 — Mapa de ruta optimizada multi-parada, paradas ordenadas, ETA y recálculo
+
+Pantalla completa de itinerario y mapa de ruta optimizada para el transportista (`app/(app)/route/index.tsx`), consumiendo `GET /shipments/my-route` (MOVO-206) y el solver VRPTW. Acceso desde la pestaña Transportar (`app/(app)/(tabs)/transport.tsx`, "Mi ruta de hoy").
+
+- **`components/route/route-map.tsx` (nuevo)**: mapa Google Maps con marcadores numerados según orden del algoritmo (AC2), diferenciación visual coherente con Claude Design (cuadrado con borde blanco para retiros, círculo con borde blanco para entregas, fondo negro con número blanco, rojo ante demora fuera de ventana AC5). Ubicación actual del transportista (punto verde lima con borde blanco) y origen del viaje (círculo blanco con punto interior).
+- **Controles flotantes estilo Google Maps & Stitch**: botón individual conmutado que alterna entre "Centrar" (seguimiento continuo del conductor) y "Ver ruta" (visión completa del recorrido), botón "Abrir en Maps" con deep link externo (Google Maps / Apple Maps) y feedback toast situado debajo de la isla superior.
+- **`components/route/stop-list.tsx` (nuevo)**: sheet inferior con header fijo y scrollview interno para las paradas. Soporte táctil y de arrastre continuo (`PanResponder` nativo suave con físicas de resorte) desde el drag handle superior pill y header, respondiendo a toques y arrastre sin interferencias de scroll.
+- **`src/hooks/use-optimized-route.ts` (nuevo)**: maneja carga, errores, obtención de GPS foreground estricta sin coordenadas inventadas (AC8), y recálculo automático al volver a la pantalla tras completar una parada en un wizard vía `useFocusEffect` (AC7).
+- **ETA como estimación (AC11)**: todos los tiempos estimados se formatean explícitamente con copy "aprox." (`formatEstimatedArrival`).
+- **Modo Demo para desarrollo (`__DEV__`)**: accesible desde el estado vacío ("Sin paradas asignadas"), error o sin GPS en builds de desarrollo, permitiendo visualizar la ruta completa con polilínea trazada (Córdoba → Las Mulitas → Oncativo → Villa María) e interactuar con el flujo sin tener que generar manualmente viajes con estados complejos en base de datos. Los mocks en `shipmentsClient.getById` quedan estrictamente aislados detrás de `__DEV__`.
+
+- **Compatibilidad con MOVO-235 (`tripId`)**: `shipmentsClient.getMyRoute(coords, tripId?)` y `useOptimizedRoute(tripId?)` preparados para aceptar opcionalmente un `tripId` (por parámetro y por query param en `/route?tripId=...`), manteniendo retrocompatibilidad total si no se envía.
+
+Tests: `test/route-screen.test.tsx` (montaje, estados de carga, vacío, sin GPS, error y demo), `test/route-components.test.tsx` (unitarios de `StopList` y `RouteMap`, AC2-AC6, AC11, controles y drag handle), `test/use-optimized-route.test.ts` (hook, focus effect, GPS y errores), y `test/transport-screen.test.tsx` (acceso a /route). 129/129 suites y 977/977 tests pasando limpios en `movo-mobile`. `tsc --noEmit` sin errores.

@@ -11,7 +11,7 @@ const MapView = React.forwardRef(function MapView(props, ref) {
     fitToCoordinates: () => {},
     animateToRegion: () => {},
   }));
-  return React.createElement(View, { testID: props.testID }, props.children);
+  return React.createElement(View, props, props.children);
 });
 
 function Marker(props) {
@@ -22,10 +22,15 @@ function Polyline(props) {
   return React.createElement(View, { testID: props.testID });
 }
 
+function Callout(props) {
+  return React.createElement(View, { testID: props.testID }, props.children);
+}
+
 module.exports = {
   __esModule: true,
   default: MapView,
   Marker,
   Polyline,
+  Callout,
   PROVIDER_GOOGLE: "google",
 };
