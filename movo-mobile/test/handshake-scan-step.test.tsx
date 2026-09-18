@@ -185,6 +185,45 @@ describe("HandshakeScanStep", () => {
     }
   });
 
+  it.each(["PICKUP_EVIDENCE_MISSING", "DELIVERY_EVIDENCE_MISSING"])(
+    "%s sin onEvidenceMissing muestra el banner genérico como cualquier otro error",
+    async (code) => {
+      (getCurrentLocation as jest.Mock).mockResolvedValue({ granted: true, lat: -31.4, lng: -64.2 });
+      (shipmentsClient.confirmHandshake as jest.Mock).mockRejectedValue(new ApiError(422, code as any, "err"));
+
+      const { getByTestId } = await render(
+        <HandshakeScanStep shipmentId="shipment-1" onConfirmed={mockOnConfirmed} />,
+      );
+
+      await triggerScan(getByTestId, JSON.stringify(validPayload));
+
+      await waitFor(() => expect(getByTestId("handshake-scan-error")).toBeTruthy());
+      expect(getByTestId("handshake-scan-dismiss")).toBeTruthy();
+    },
+  );
+
+  it.each(["PICKUP_EVIDENCE_MISSING", "DELIVERY_EVIDENCE_MISSING"])(
+    "%s con onEvidenceMissing lo llama en vez de mostrar el banner (MOVO-198 AC9)",
+    async (code) => {
+      (getCurrentLocation as jest.Mock).mockResolvedValue({ granted: true, lat: -31.4, lng: -64.2 });
+      (shipmentsClient.confirmHandshake as jest.Mock).mockRejectedValue(new ApiError(422, code as any, "err"));
+      const mockOnEvidenceMissing = jest.fn();
+
+      const { getByTestId, queryByTestId } = await render(
+        <HandshakeScanStep
+          shipmentId="shipment-1"
+          onConfirmed={mockOnConfirmed}
+          onEvidenceMissing={mockOnEvidenceMissing}
+        />,
+      );
+
+      await triggerScan(getByTestId, JSON.stringify(validPayload));
+
+      await waitFor(() => expect(mockOnEvidenceMissing).toHaveBeenCalledTimes(1));
+      expect(queryByTestId("handshake-scan-error")).toBeNull();
+    },
+  );
+
   it("HANDSHAKE_DISTANCE_EXCEEDED: reintentar reenvía el mismo nonce/signature con GPS nuevo", async () => {
     (getCurrentLocation as jest.Mock)
       .mockResolvedValueOnce({ granted: true, lat: -31.4, lng: -64.2 })

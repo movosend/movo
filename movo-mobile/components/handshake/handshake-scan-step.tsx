@@ -14,6 +14,13 @@ import { TextField } from "../ui/text-field";
 interface HandshakeScanStepProps {
   shipmentId: string;
   onConfirmed: (result: ConfirmHandshakeResult) => void;
+  /** MOVO-198 AC9: si el backend igual rechaza por falta de evidencia (caso
+   * defensivo -- no debería pasar si el wizard gatea bien la navegación al paso de
+   * escaneo), el wizard contenedor vuelve al paso de evidencia en vez de dejar que
+   * el usuario reintente escanear en un loop sin salida. Sin esta prop (la ruta
+   * standalone de MOVO-160, `DevHandshakeScreen`) el código sigue cayendo al banner
+   * genérico de siempre, comportamiento sin cambios. */
+  onEvidenceMissing?: () => void;
   testID?: string;
 }
 
@@ -54,7 +61,7 @@ function parseScannedPayload(raw: string): ScannedQrPayload | null {
  * cedente (MOVO-159 + `signHandshakeNonce()` de MOVO-195) — acá solo se relee lo
  * escaneado y se agrega la posición GPS propia.
  */
-export function HandshakeScanStep({ shipmentId, onConfirmed, testID }: HandshakeScanStepProps) {
+export function HandshakeScanStep({ shipmentId, onConfirmed, onEvidenceMissing, testID }: HandshakeScanStepProps) {
   const [permission, requestPermission] = useCameraPermissions();
   const [isConfirming, setIsConfirming] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -91,6 +98,12 @@ export function HandshakeScanStep({ shipmentId, onConfirmed, testID }: Handshake
       setCanRetrySameScan(false);
       onConfirmed(result);
     } catch (err) {
+      const isEvidenceMissing =
+        err instanceof ApiError && (err.code === "PICKUP_EVIDENCE_MISSING" || err.code === "DELIVERY_EVIDENCE_MISSING");
+      if (isEvidenceMissing && onEvidenceMissing) {
+        onEvidenceMissing();
+        return;
+      }
       const isDistanceExceeded = err instanceof ApiError && err.code === "HANDSHAKE_DISTANCE_EXCEEDED";
       retryablePayloadRef.current = isDistanceExceeded ? payload : null;
       setCanRetrySameScan(isDistanceExceeded);

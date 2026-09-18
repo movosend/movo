@@ -2832,3 +2832,87 @@ Pendiente / fuera de alcance (igual que el propio ticket): orquestación de wiza
 ver fotos cargadas desde el detalle de envío (`MOVO-194`). No probado en dispositivo
 físico ni los tres caminos de permiso reales — pendiente del DoD, no verificable en
 este entorno (mismo criterio que MOVO-195/MOVO-107).
+
+### MOVO-198 — Wizard de retiro del transportista: evidencia, escaneo de QR y confirmación
+
+Contenedor con estado que encadena los pasos que hasta ahora vivían sueltos (o ni
+existían): resumen del retiro → evidencia (`MOVO-197`) → escaneo del QR (`MOVO-160`)
+→ confirmación. Primera vez que el transportista puede transicionar un envío
+`assigned → in_transit` desde la app. Ruta nueva de 4 pasos bajo `app/(app)/
+shipments/[id]/pickup/` (`_layout.tsx` + `index.tsx`/`evidence.tsx`/`scan.tsx`/
+`success.tsx`), `src/hooks/use-pickup-wizard.ts` (gate) y
+`src/hooks/use-pickup-proximity-check.ts` (AC4).
+
+- **MOVO-160 (escaneo/confirmación) no se construyó de nuevo: se recuperó de un
+  `git stash` abandonado** que tenía el trabajo completo como archivos *untracked*
+  nunca commiteados (`components/handshake/handshake-scan-step.tsx`/
+  `handshake-confirmation-result.tsx`, ruta standalone, harness `/dev-handshake`,
+  3 suites de test) — el diff normal del stash solo mostraba 7 archivos de
+  "plumbing" (cliente HTTP, `error-messages.ts`, `expo-camera`), el resto vivía en
+  el tercer padre del commit de stash (el que usa `git stash -u` para lo
+  untracked). Recuperado con `git stash branch` desde esa base exacta, rebaseado
+  contra `develop` actual (PR #166) — sin ese hallazgo, este ticket hubiera
+  reimplementado desde cero un componente que ya estaba terminado y probado.
+- **Gate del wizard (AC1) resuelto en `use-pickup-wizard.ts`, consumido por
+  `_layout.tsx` antes de renderizar el `<Stack>` de los 4 pasos**: `assigned` es el
+  único estado real ("ready"). `assigned_unfunded` explica que el hold de fondos
+  todavía no se creó (MOVO-208/ADR-021), en vez de un error genérico — es el caso
+  que el propio AC1 pide cubrir explícitamente. `in_transit` (el handshake ya se
+  confirmó, reingreso idempotente tras cerrar la app justo después de escanear)
+  muestra "ya confirmaste este retiro" en vez de reabrir el escaneo. Cualquier otro
+  estado, o un caller que no es el `carrierId` asignado, cae a un mensaje de
+  bloqueo genérico con vuelta atrás. **Sin CTA real todavía** (depende del mapa de
+  seguimiento de MOVO-207, en desarrollo por Pedro) — el AC1 pide un deep link para
+  poder probar el flujo, que es literal: la ruta existe y funciona navegando a
+  mano, sin ningún botón nuevo cableado en Home ni en `transport/[id].tsx`.
+- **`HandshakeScanStep` (MOVO-160) ganó un único prop nuevo, `onEvidenceMissing`**
+  (opcional, retrocompatible con la ruta standalone y `DevHandshakeScreen`, que
+  siguen sin pasarlo): antes, un rechazo defensivo por
+  `PICKUP_EVIDENCE_MISSING`/`DELIVERY_EVIDENCE_MISSING` (AC9 — no debería pasar si
+  el gate de abajo funciona, pero el flujo tiene que degradar bien) cae al banner
+  genérico sin salida. Con el prop, el wizard invalida `evidence-status` y vuelve
+  al paso de evidencia en vez de dejar al usuario reintentando un escaneo que
+  siempre va a fallar por el mismo motivo.
+- **AC3 (paso de escaneo no accesible sin evidencia) resuelto en `scan.tsx` mismo**:
+  consulta `useEvidenceStatus` (mismo query key que el paso de evidencia y que
+  `EvidenceCaptureStep`, TanStack Query dedupea) y hace `<Redirect>` a `evidence` si
+  todavía no está satisfecha — cubre tanto un salto directo por URL como el caso
+  defensivo de arriba.
+- **AC7 (reingreso con evidencia ya cargada salta al escaneo) resuelto en el propio
+  botón "Continuar" del paso 1**, no en el `_layout`: consulta el mismo
+  `evidence-status` y decide `evidence` o `scan` como siguiente ruta — sin esto,
+  cada reingreso obligaría a pasar por la pantalla de fotos aunque ya estén
+  confirmadas.
+- **AC4 (validación de proximidad, 150m) es un chequeo distinto del que ya hace el
+  handshake en sí** (100m entre emisor y transportista al momento de escanear,
+  MOVO-158/160): acá se compara la posición actual del transportista contra
+  `shipment.pickupLat/Lng` (la dirección del envío, estática), antes de dejarlo
+  avanzar del paso 1 — `usePickupProximityCheck` (nuevo,
+  `haversineDistanceKm` ya existente) bloquea "Continuar" hasta resolver
+  `within_range`, con reintento manual ante `out_of_range`/`denied`/`error` (lectura
+  literal del AC, "para asegurar que...").
+- **AC6 (avisar que hay que pedirle el QR al emisor) es copy fijo, siempre visible
+  en el paso 1**, no un tooltip descartable — el propio ticket lo señala como "la
+  fricción más previsible del flujo".
+- **Resultado del handshake pasado a `success.tsx` vía un `Context` acotado al
+  `_layout`** (`usePickupResult`, `_layout.tsx`), no por query params: expo-router
+  no serializa bien un objeto completo, y las dos pantallas viven siempre bajo el
+  mismo layout. Un reingreso directo a `success` sin haber confirmado en esta
+  sesión (el `Context` no sobrevive a cerrar la app) degrada a un mensaje simple con
+  botón al detalle, en vez de romper.
+- **AC10 (el detalle refleja `in_transit` sin depender de un refetch en el aire)**:
+  el botón de `success.tsx` invalida `["shipments","detail",id]` antes de navegar.
+- Fuera de alcance (igual que el propio ticket): las pantallas de evidencia/escaneo
+  en sí (`MOVO-197`/`MOVO-160`, montadas tal cual); generación del QR del emisor
+  (`MOVO-159`, todavía sin construir, asignada a Pedro — bloquea la prueba real de
+  punta a punta con dos dispositivos); wizard de entrega (`MOVO-199`, ticket
+  hermano).
+
+Tests nuevos: `use-pickup-wizard.test.ts`, `use-pickup-proximity-check.test.ts`,
+`pickup-wizard-screens.test.tsx` (gate del `_layout` + los 4 pasos), casos nuevos en
+`handshake-scan-step.test.tsx` para `onEvidenceMissing`. 132/132 suites, 1014/1014
+tests. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: DoD de dos dispositivos reales (bloqueado por
+`MOVO-159`) y prueba en dispositivo físico de cámara/GPS — no verificables en este
+entorno.
