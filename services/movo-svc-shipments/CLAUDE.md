@@ -2190,8 +2190,17 @@ sin ingesta real de GPS. Probada de punta a punta contra un servidor TCP real (n
 problema de timing propio al enviar un mensaje inmediatamente después del upgrade,
 sin relación con el código de la ruta) con los 4 caminos: sin token (cierre `4001`),
 usuario ajeno al envío (`4003`), envío inexistente (`4004`), y el push real al
-emisor autorizado. Instrucciones para correrla: `docs/tracking-poc/README.md`
-(raíz del repo).
+emisor autorizado — primero con un repositorio fake, después repetido contra un envío
+real insertado en Postgres (Docker). Instrucciones para correrla:
+`docs/tracking-poc/README.md` (raíz del repo).
+
+Suite completa del servicio corrida contra Postgres/Redis reales (Docker):
+719/719 tests, 54/54 archivos. En el camino se encontró y corrigió un bug preexistente
+sin relación con esta US: `offers-detail.integration.test.ts` y
+`offers-mine.integration.test.ts` usaban el placeholder literal de `.env.example`
+(`postgresql://user:password@...`) como fallback de `DATABASE_URL` en vez de
+`movo:movo` (el resto de los tests de integración) — fallaban con
+`password authentication failed` al correr sin la env var ya seteada en el shell.
 
 ### Pendientes de este servicio
 

@@ -323,15 +323,22 @@ tecnologías, impacto en infra, esbozo de auth/autorización).
   pasa a "suscripción por WebSocket, cuando MOVO-201 esté disponible" — ese reemplazo
   de polling se hace en los tickets de implementación de MOVO-159/MOVO-199, no en este
   spike.
-- **AC3 (infra) aplicado**: `infra/nginx/templates/default.conf.template` suma un
-  `map $http_upgrade $connection_upgrade` (patrón estándar de nginx para servir HTTP y
-  WS desde el mismo `location`, sin forzar `Connection: upgrade` en requests normales)
-  + `proxy_set_header Upgrade/Connection` + `proxy_read_timeout` de 30s a 3600s. Sin
-  probar contra un deploy real ni una conexión de larga duración todavía (no hay forma
-  de correr `nginx -t` ni Docker en este entorno) — validarlo es parte del DoD
-  pendiente antes de que MOVO-201 dependa de esto en producción. El timeout subido
-  aplica a TODO el `location /` (no solo a rutas WS, que todavía no existen como tales
-  del lado del gateway) — trade-off documentado inline en el archivo.
+- **AC3 (infra) aplicado y validado localmente**: `infra/nginx/templates/
+  default.conf.template` suma un `map $http_upgrade $connection_upgrade` (patrón
+  estándar de nginx para servir HTTP y WS desde el mismo `location`, sin forzar
+  `Connection: upgrade` en requests normales) + `proxy_set_header Upgrade/Connection` +
+  `proxy_read_timeout` de 30s a 3600s. Validado con el stack local real
+  (`infra/docker-compose.local.yml`, nginx real con cert self-signed, no mockeado):
+  arranca sin errores con el template nuevo (equivalente a `nginx -t`, que este entorno
+  no tenía disponible antes), el tráfico normal sigue funcionando
+  (`curl https://localhost:8443/health` → 200), y un WebSocket real de punta a punta
+  (TLS en nginx → upgrade reenviado → JWT validado → mensaje recibido) funciona
+  apuntando nginx directo a `svc-shipments` (prueba temporal, revertida — el gateway
+  real hoy responde 404 a ese path porque `@fastify/http-proxy` no reenvía upgrades de
+  protocolo, confirmando que el hueco es MOVO-201, no nginx). El timeout subido aplica
+  a TODO el `location /` (no solo a rutas WS, que todavía no existen como tales del
+  lado del gateway) — trade-off documentado inline en el archivo. Sin probar contra un
+  deploy real en dev/prod (EC2) todavía.
 - **Pendiente de este ticket**: estimación informada de los tickets de implementación
   de MOVO-11/MOVO-201 (identificados, sin horas concretas todavía).
 
@@ -393,11 +400,11 @@ costó dos veces con env vars olvidadas (ver "Git, commits y PRs" más arriba).
   misma carpeta de Drive que el Sprint 0) porque esta sesión no tuvo forma de editar el
   contenido del doc de Sprint 0 directamente — falta que alguien lo pegue en la sección
   de ADRs y borre el doc aparte.
-- **Nginx con soporte de upgrade WebSocket aplicado, sin probar contra un deploy real**
-  (MOVO-200/ADR-022, AC3 del spike) — ver la entrada de MOVO-200 arriba para el
-  detalle. Falta la validación contra una conexión de larga duración en dev/prod real,
-  y confirmar que 3600s de `proxy_read_timeout` es el valor correcto una vez que
-  MOVO-201 defina si el canal necesita heartbeat propio.
+- **Nginx con soporte de upgrade WebSocket aplicado y validado en local, sin probar
+  contra un deploy real en EC2** (MOVO-200/ADR-022, AC3 del spike) — ver la entrada de
+  MOVO-200 arriba para el detalle de la validación local. Falta la prueba contra
+  dev/prod real y confirmar que 3600s de `proxy_read_timeout` es el valor correcto una
+  vez que MOVO-201 defina si el canal necesita heartbeat propio.
 - **`MP_TRANSACTION_FEE_RATE` sin confirmar** (MOVO-143,
   `shared/movo-shared/src/config/commission.ts`): placeholder (0.0499) hasta tener el
   valor real del contrato/homologación con MercadoPago. `MOVO_COMMISSION_RATE` (15%,
