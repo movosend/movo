@@ -49,4 +49,31 @@ describe("shipmentsClient", () => {
 
     expect(httpClient.post).toHaveBeenCalledWith("/shipments/shipment-1/reject", {});
   });
+
+  it("getEvidenceStatus hace GET /shipments/:id/evidence-status (MOVO-196/197)", async () => {
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: {
+        get: jest.fn().mockResolvedValue({
+          stage: "pickup",
+          satisfied: false,
+          photoCount: 0,
+          minRequired: 1,
+          maxAllowed: 5,
+        }),
+      },
+    }));
+    const { shipmentsClient } = require("../src/api/shipments-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    const result = await shipmentsClient.getEvidenceStatus("shipment-1");
+
+    expect(httpClient.get).toHaveBeenCalledWith("/shipments/shipment-1/evidence-status");
+    expect(result).toEqual({
+      stage: "pickup",
+      satisfied: false,
+      photoCount: 0,
+      minRequired: 1,
+      maxAllowed: 5,
+    });
+  });
 });

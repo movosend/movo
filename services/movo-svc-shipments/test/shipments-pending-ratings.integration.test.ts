@@ -134,6 +134,12 @@ describe("GET /shipments/pending-ratings (Postgres)", () => {
       pendingRatingFor: ["carrier"],
     });
     expect(items[0].deliveredAt).not.toBeNull();
+    // MOVO-222 (corregido en review): deadline absoluto ya resuelto por el backend,
+    // no un timestamp crudo que el cliente tenga que sumarle 72hs a mano.
+    expect(items[0].ratingDeadline).not.toBeNull();
+    expect(new Date(items[0].ratingDeadline).getTime()).toBeGreaterThan(
+      new Date(items[0].deliveredAt).getTime(),
+    );
   });
 
   it("receptor con algo pendiente -- pendingRatingFor: [carrier]", async () => {
@@ -167,6 +173,41 @@ describe("GET /shipments/pending-ratings (Postgres)", () => {
     const response = await request(senderId);
 
     expect(response.json()).toEqual([]);
+  });
+
+  it("bug de review: prefiltro SQL no descarta un candidato con freeze de disputa que extendió la ventana más allá de las 72hs crudas", async () => {
+    // Entregado hace 80hs -- pasadas las 72hs crudas, pero con 20hs de freeze de
+    // disputa (10h -> 30h desde la entrega) la ventana real cierra a las 92hs, todavía
+    // abierta. `disputed` no tiene transición de salida modelada hoy
+    // (shipment-state-machine.ts), así que los eventos se insertan directo contra la
+    // tabla -- mismo criterio que `deliveredHoursAgo` más arriba para simular un
+    // estado que la máquina de estados actual no permite alcanzar por sí sola.
+    const shipmentId = await createDeliveredShipment({ deliveredHoursAgo: 80 });
+    const shipment = await app.db.shipment.findUniqueOrThrow({ where: { id: shipmentId } });
+    const deliveredAt = shipment.deliveredAt as Date;
+    await app.db.shipmentEvent.create({
+      data: {
+        shipmentId,
+        fromStatus: ShipmentStatus.DELIVERED,
+        toStatus: ShipmentStatus.DISPUTED,
+        createdAt: new Date(deliveredAt.getTime() + 10 * 60 * 60 * 1000),
+      },
+    });
+    await app.db.shipmentEvent.create({
+      data: {
+        shipmentId,
+        fromStatus: ShipmentStatus.DISPUTED,
+        toStatus: ShipmentStatus.DELIVERED,
+        createdAt: new Date(deliveredAt.getTime() + 30 * 60 * 60 * 1000),
+      },
+    });
+
+    const response = await request(senderId);
+
+    expect(response.statusCode).toBe(200);
+    const items = response.json();
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ id: shipmentId, pendingRatingFor: ["carrier"] });
   });
 
   it("DoD: transportista con 2 contrapartes calificado PARCIALMENTE -- solo la que falta queda pendiente", async () => {

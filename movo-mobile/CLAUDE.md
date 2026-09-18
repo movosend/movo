@@ -2688,3 +2688,69 @@ Tests: casos nuevos en `test/shipment-format.test.ts` para `shipmentStatusLabel`
 `shipmentStatusTone`/`shipmentLifecycleStage`/`shipmentEventTitle`/
 `shipmentPendingStepLabel`/`remainingLifecycleSteps` con los 2 estados nuevos. 103/103
 suites, 796/796 tests. `tsc --noEmit` limpio.
+
+### MOVO-197 — Step reusable de captura de evidencia fotográfica (retiro y entrega)
+
+Frontend de `MOVO-21`, bloqueado por `MOVO-196` (backend, Done). Componente que van a
+montar los dos wizards del transportista todavía sin arrancar (`MOVO-198` retiro,
+`MOVO-199` entrega) — no orquesta navegación, solo expone si la evidencia mínima está
+satisfecha.
+
+- **`components/evidence/evidence-capture-step.tsx`** (props `{ shipmentId, stage:
+  "pickup" | "delivery", onValidityChange? }`) + **`photo-thumbnail.tsx`** nuevos, en
+  vez de generalizar `photos-step.tsx`/`photo-slot.tsx` (MOVO-83) — esos están
+  acoplados al store Zustand del wizard de creación y a subida diferida al submit.
+  Acá el `shipmentId` ya existe de entrada, así que **cada foto sube su propio ciclo
+  completo apenas se toma** (`src/hooks/use-evidence-photos.ts`,
+  capturar→comprimir→presign→PUT→confirm), no al final — permite progreso por foto
+  (AC4) y que abandonar el wizard después de subir no pierda nada (`MOVO-198` AC5).
+- **`ShipmentPhotoStage` ampliado de `"creation"` a `"creation" | "pickup" |
+  "delivery"`** (`shipments-client.ts`, y el mismo ensanche en
+  `PhotoUploadProvider`/`real-photo-upload-provider.ts`) — el backend ya soportaba
+  los tres valores, solo el tipo del cliente estaba angostado a la carga del emisor.
+- **`useEvidenceStatus(shipmentId)` nuevo en `use-shipments.ts`** (`GET
+  /shipments/:id/evidence-status`, MOVO-196 AC6) — única fuente de mínimo/máximo/
+  satisfecho, nunca hardcodeados en el cliente. Misma query key la puede consultar el
+  wizard contenedor por su cuenta para gatear su propio paso siguiente sin duplicar
+  la request (AC3 de MOVO-198/199, "consulta, no asume").
+- **AC2 (denegación permanente de permiso de cámara) — patrón nuevo en el repo**:
+  `takePhotoWithCamera` (`photo-utils.ts`) ganó `canAskAgain`/`unavailable` en su
+  retorno (aditivo, no rompe a `photos-step.tsx`/`photo-picker.tsx`, que lo ignoran).
+  El step distingue "denegado, reintentar en el momento" de "denegado para siempre,
+  ir a Ajustes" — ninguno de los dos consumidores previos lo hacía.
+- **AC3 (cámara no disponible) sin fallback a galería**: `launchCameraAsync` tirando
+  (simulador/dispositivo sin cámara) se captura como `unavailable: true` — banner
+  persistente, nunca se ofrece `pickPhotoFromGallery` como alternativa (a propósito,
+  a diferencia de la foto de perfil).
+- **AC7 recortado, confirmado explícitamente con el usuario**: no existe `DELETE` de
+  fotos en `movo-svc-shipments` (confirmado contra el código de MOVO-196, no solo el
+  ticket). "Eliminar antes de avanzar" aplica solo a fotos que **todavía no se
+  confirmaron** (en cola, subiendo, en error) — una foto ya confirmada contra S3/DB
+  queda fija, sin botón de borrado. No se abrió ticket de backend nuevo para esto.
+- **Gap de diseño documentado, no un bug**: `GET /shipments/:id/photos` (MOVO-81) no
+  incluye al transportista en su autorización (emisor/receptor/admin), así que el
+  step no puede traer preview de fotos confirmadas en una sesión anterior al
+  remontarse — solo trackea localmente lo capturado en el montaje actual.
+  `evidence-status.photoCount` sigue siendo la fuente autoritativa del conteo total;
+  la diferencia contra lo capturado en sesión se renderiza como celda "Confirmada"
+  sin imagen, para que el grid cuadre con el máximo real sin mentir sobre qué hay.
+- Traducciones nuevas en `error-messages.ts`: `PHOTO_STAGE_LIMIT_EXCEEDED`,
+  `PHOTO_CONFIRMATION_IN_PROGRESS`, `PICKUP_EVIDENCE_MISSING`,
+  `DELIVERY_EVIDENCE_MISSING` (los dos últimos los tira el handshake de MOVO-158/196,
+  no los endpoints de fotos — el step nunca debería disparar esos dos si `evidence-
+  status` gatea bien el paso siguiente, pero el mensaje ya está listo si igual pasa).
+
+Tests nuevos: `use-evidence-photos.test.tsx` (los tres caminos de permiso, cámara no
+disponible, fallo de red con retry sin perder fotos ya confirmadas, no-borrado de
+confirmadas), `photo-thumbnail.test.tsx`, `evidence-capture-step.test.tsx` (mínimo/
+máximo nunca hardcodeados, `onValidityChange` según `satisfied`, alert de permiso
+correcto según `canAskAgain`), caso nuevo en `shipments-client.test.ts`. 126/126
+suites, 953/953 tests. `tsc --noEmit` limpio (de paso, se detectó y corrigió que el
+`dist/` local de `@movo/shared` estaba desactualizado — `RatingRole` existía en su
+`src/` pero no en el build, rompiendo `tsc` de forma no relacionada a esta US).
+
+Pendiente / fuera de alcance (igual que el propio ticket): orquestación de wizard
+(`MOVO-198`/`MOVO-199`), validación de negocio de evidencia (ya la hizo `MOVO-196`),
+ver fotos cargadas desde el detalle de envío (`MOVO-194`). No probado en dispositivo
+físico ni los tres caminos de permiso reales — pendiente del DoD, no verificable en
+este entorno (mismo criterio que MOVO-195/MOVO-107).

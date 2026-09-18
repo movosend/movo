@@ -1,4 +1,4 @@
-import { shipmentsClient } from "../api/shipments-client";
+import { shipmentsClient, type ShipmentPhotoStage } from "../api/shipments-client";
 import { uploadBlobToPresignedUrl } from "../lib/s3-upload";
 import type { PhotoUploadProvider, RequestUploadUrlResult } from "./photo-upload-provider";
 
@@ -10,7 +10,7 @@ import type { PhotoUploadProvider, RequestUploadUrlResult } from "./photo-upload
  */
 async function requestUploadUrl(
   shipmentId: string,
-  stage: "creation",
+  stage: ShipmentPhotoStage,
   contentType: string,
   contentLength: number,
 ): Promise<RequestUploadUrlResult> {
@@ -30,7 +30,7 @@ async function uploadToUrl(
   await uploadBlobToPresignedUrl(uploadUrl, blob, contentType, onProgress);
 }
 
-async function confirmUpload(shipmentId: string, s3Key: string, stage: "creation"): Promise<void> {
+async function confirmUpload(shipmentId: string, s3Key: string, stage: ShipmentPhotoStage): Promise<void> {
   await shipmentsClient.confirmPhoto(shipmentId, { s3Key, stage });
 }
 
