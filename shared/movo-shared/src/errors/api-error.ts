@@ -66,6 +66,10 @@ export type ApiErrorCode =
   | "TRIP_HAS_ACCEPTED_PACKAGES"
   | "TRIP_ORIGIN_DESTINATION_TOO_CLOSE"
   | "TRIP_DEPARTURE_IN_PAST"
+  // MOVO-221: código histórico de MOVO-162, dejado de usar al ampliar el chequeo de
+  // `createOfferForShipment` para aceptar tripId de un viaje `declared` (antes exigía
+  // `active` a secas) -- nunca se elimina un valor del contrato de wire, ver el
+  // comentario de arriba. Reemplazado por `TRIP_NOT_AVAILABLE`.
   | "TRIP_NOT_ACTIVE"
   | "SHIPMENT_NOT_AVAILABLE_FOR_OFFER"
   | "OFFER_DATE_OUT_OF_RANGE"
@@ -79,6 +83,10 @@ export type ApiErrorCode =
   | "HANDSHAKE_INVALID_SHIPMENT_STATE"
   | "ROUTING_SERVICE_ERROR"
   | "ROUTING_SERVICE_UNAVAILABLE"
+  // MOVO-221: rediseño de estados de viaje (declared/active/completed).
+  | "TRIP_NOT_DECLARED"
+  | "TRIP_ALREADY_HAS_ACTIVE_TRIP"
+  | "TRIP_NOT_AVAILABLE"
   // MOVO-228: la app mandó una versión de Términos/Privacidad distinta a la vigente
   // (`LEGAL_DOCUMENT_VERSIONS`, config/legal.ts) -- app desactualizada, el usuario
   // tiene que revisar y aceptar el contenido actual antes de poder registrarse.
