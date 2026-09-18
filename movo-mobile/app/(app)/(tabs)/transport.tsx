@@ -17,6 +17,7 @@ import { FlatList } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AddressSearchSheet } from "../../../components/send/address-search-sheet";
 import { AvailableShipmentCard } from "../../../components/transport/available-shipment-card";
+import { AvailableShipmentRow } from "../../../components/transport/available-shipment-row";
 import { TransportAccessCards } from "../../../components/transport/transport-access-cards";
 import {
   DEFAULT_TRANSPORT_FILTERS,
@@ -27,6 +28,7 @@ import {
 } from "../../../components/transport/transport-filters-sheet";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { SkeletonBlock as Block } from "../../../components/ui/skeleton-block";
+import type { MyOfferSummary } from "../../../src/api/offers-client";
 import type { AvailableShipment } from "../../../src/api/shipments-client";
 import { useAddresses } from "../../../src/hooks/use-addresses";
 import { useMyOffers } from "../../../src/hooks/use-offers";
@@ -44,11 +46,44 @@ import {
   zoneLabelFromAddress,
 } from "../../../src/lib/shipment-format";
 
-function TransportListSkeleton() {
+/** Skeleton del modo filtrado por viaje (MOVO-163) -- sigue usando `AvailableShipmentCard`
+ * (card individual, sin tocar), así que el placeholder mantiene su forma de bloque
+ * redondeado. */
+function TransportCardSkeleton() {
   return (
     <View className="gap-3 px-5 pt-2">
       {[0, 1, 2, 3].map((i) => (
         <Block key={i} className="h-[132px] rounded-[16px]" />
+      ))}
+    </View>
+  );
+}
+
+/** Skeleton del feed genérico (rediseño MOVO-183, lista sin cards) -- mismo layout
+ * que `AvailableShipmentRow` (eyebrow chico, título, subtítulo, divisor entre filas y
+ * el pill de precio a la derecha), no bloques redondeados sueltos: el placeholder
+ * anterior (heredado de cuando el feed usaba `AvailableShipmentCard`) prometía cards
+ * que ya no se renderizan, y el salto entre "lo que se ve cargando" y "lo que aparece"
+ * quedaba raro (feedback de usuario). */
+function TransportRowSkeleton() {
+  return (
+    <View className="px-5 pt-2">
+      {[0, 1, 2, 3, 4].map((i) => (
+        <View
+          key={i}
+          className={`flex-row items-stretch justify-between gap-3 py-[18px] ${
+            i === 0 ? "" : "border-t border-border"
+          }`}
+        >
+          <View className="flex-1 gap-2 pr-2">
+            <Block className="h-[13px] w-14 rounded-full" />
+            <Block className="h-[19px] w-32 rounded-md" />
+            <Block className="h-[13px] w-44 rounded-md" />
+          </View>
+          <View className="justify-center">
+            <Block className="h-[48px] w-[78px] rounded-[12px]" />
+          </View>
+        </View>
       ))}
     </View>
   );
@@ -165,7 +200,6 @@ function applyTransportFilters<T>(
 ) {
   return itemsWithDetour.filter(({ item, detour }) => {
     if (filters.onlyOnTrip && !detour) return false;
-    if (filters.hideOffered && item.hasMyOffer) return false;
     if (filters.types.length > 0 && !filters.types.includes(item.packageType)) return false;
     if (filters.minPayArs > 0 && (item.suggestedPriceArs ?? 0) < filters.minPayArs) return false;
     if (filters.maxWeightKg > 0 && item.weightKg > filters.maxWeightKg) return false;
@@ -261,11 +295,37 @@ export default function TransportScreen() {
       })),
     [unexpiredItems, activeTrips, isTripMode],
   );
-  const filteredItems = useMemo(() => applyTransportFilters(itemsWithDetour, filters), [itemsWithDetour, filters]);
-  const sortedItems = useMemo(
-    () => (isTripMode ? filteredItems : sortTransportItems(filteredItems, sortMode)),
-    [filteredItems, sortMode, isTripMode],
+  const offers = myOffersData?.items ?? [];
+  // `GET /offers/mine` trae TODO el historial (incluidas retiradas/rechazadas/
+  // vencidas/superadas, ver "Todas tus ofertas" en carrier/offers/index.tsx) -- acá
+  // solo interesan las activas. Un envío puede tener más de una oferta propia en el
+  // historial (ej. retiró una y ofertó de nuevo); entre las activas se prioriza la
+  // aceptada sobre la pendiente.
+  const offersByShipmentId = useMemo(() => {
+    const map = new Map<string, MyOfferSummary>();
+    for (const offer of offers) {
+      if (offer.status !== OfferStatus.PENDING && offer.status !== OfferStatus.ACCEPTED) continue;
+      const existing = map.get(offer.shipmentId);
+      if (!existing || existing.status !== OfferStatus.ACCEPTED) {
+        map.set(offer.shipmentId, offer);
+      }
+    }
+    return map;
+  }, [offers]);
+  // Los envíos donde ya se ofertó ya no se sacan del feed -- pedido explícito del
+  // usuario (antes vivían solo en "Mis ofertas", MOVO-149/183): se muestran en la
+  // MISMA lista, siempre al final (`sortedItems` abajo hace el split), con el pill de
+  // precio en gris (no el sugerido) y un indicador de si la oferta fue aceptada.
+  const filteredItems = useMemo(
+    () => applyTransportFilters(itemsWithDetour, filters),
+    [itemsWithDetour, filters],
   );
+  const sortedItems = useMemo(() => {
+    if (isTripMode) return filteredItems;
+    const withoutOffer = filteredItems.filter(({ item }) => !item.hasMyOffer);
+    const withOffer = filteredItems.filter(({ item }) => item.hasMyOffer);
+    return [...sortTransportItems(withoutOffer, sortMode), ...sortTransportItems(withOffer, sortMode)];
+  }, [filteredItems, sortMode, isTripMode]);
   const filterCount = transportFilterCount(filters);
   const showOnlyOnTripToggle = !isTripMode && activeTrips.length > 0;
 
@@ -301,7 +361,6 @@ export default function TransportScreen() {
 
   const trips = myTripsData?.items ?? [];
   const tripsMeta = `${activeTrips.length} ${activeTrips.length === 1 ? "activo" : "activos"} · ${trips.length} ${trips.length === 1 ? "declarado" : "declarados"}`;
-  const offers = myOffersData?.items ?? [];
   const pendingOffersCount = offers.filter((o) => o.status === OfferStatus.PENDING).length;
   const acceptedOffersCount = offers.filter((o) => o.status === OfferStatus.ACCEPTED).length;
   const offersMeta = `${pendingOffersCount} ${pendingOffersCount === 1 ? "pendiente" : "pendientes"} · ${acceptedOffersCount} ${acceptedOffersCount === 1 ? "aceptada" : "aceptadas"}`;
@@ -367,7 +426,7 @@ export default function TransportScreen() {
       ) : null}
 
       {isInitialLoading ? (
-        <TransportListSkeleton />
+        isTripMode ? <TransportCardSkeleton /> : <TransportRowSkeleton />
       ) : isTripMode && isTripError ? (
         <View className="px-5 pt-2">
           <ErrorBanner
@@ -406,7 +465,7 @@ export default function TransportScreen() {
           </Text>
         </View>
       ) : shouldCascadeNextPage ? (
-        <TransportListSkeleton />
+        isTripMode ? <TransportCardSkeleton /> : <TransportRowSkeleton />
       ) : isReady && sortedItems.length === 0 ? (
         isTripMode ? (
           <View className="items-center gap-2 px-5 py-10">
@@ -458,7 +517,12 @@ export default function TransportScreen() {
           testID="transport-list"
           data={sortedItems}
           keyExtractor={({ item }) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, gap: 12 }}
+          contentContainerStyle={
+            isTripMode
+              ? { paddingHorizontal: 20, paddingBottom: 24, gap: 12 }
+              : { paddingHorizontal: 20, paddingBottom: 24 }
+          }
+          ItemSeparatorComponent={isTripMode ? undefined : () => <View className="h-px bg-border" />}
           ListHeaderComponent={
             !isTripMode ? (
               <ResultsSortRow
@@ -473,20 +537,32 @@ export default function TransportScreen() {
               />
             ) : null
           }
-          renderItem={({ item: { item, detour } }) => (
-            <AvailableShipmentCard
-              shipment={item}
-              testID={`transport-card-${item.id}`}
-              detour={
-                detour
-                  ? {
-                      onTrip: `${shortAddressLabel(detour.trip.originAddress)} → ${shortAddressLabel(detour.trip.destinationAddress)}`,
-                      detourKm: detour.detourKm,
-                    }
-                  : null
-              }
-            />
-          )}
+          renderItem={({ item: { item, detour } }) =>
+            isTripMode ? (
+              <AvailableShipmentCard
+                shipment={item}
+                testID={`transport-card-${item.id}`}
+                detour={
+                  detour
+                    ? {
+                        onTrip: `${shortAddressLabel(detour.trip.originAddress)} → ${shortAddressLabel(detour.trip.destinationAddress)}`,
+                        detourKm: detour.detourKm,
+                      }
+                    : null
+                }
+              />
+            ) : (
+              <AvailableShipmentRow
+                shipment={item}
+                testID={`transport-card-${item.id}`}
+                detour={detour ? { detourKm: detour.detourKm } : null}
+                // Gateado por `item.hasMyOffer` (calculado por el backend, no por
+                // este cache local) -- evita mostrar una oferta ya retirada/
+                // rechazada/vencida que igual siga en el historial de `useMyOffers`.
+                myOffer={item.hasMyOffer ? offersByShipmentId.get(item.id) ?? null : null}
+              />
+            )
+          }
           onEndReachedThreshold={0.4}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) {
