@@ -1,16 +1,17 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Dimensions,
-  LayoutAnimation,
+  PanResponder,
   Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   Text,
-  UIManager,
   View,
 } from "react-native";
+import * as Haptics from "expo-haptics";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { useColorScheme } from "nativewind";
@@ -30,19 +31,13 @@ import { StopList } from "../../../components/route/stop-list";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { decodePolyline } from "../../../src/lib/polyline";
 
-if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
-// Punto de partida declarado del transportista (Claude Design originPin)
-const DEMO_ORIGIN = { lat: -31.3533, lng: -64.2562 }; // Las Mulitas 7565, Córdoba
+// Punto de partida declarado del transportista (Claude Design originPin en calle Blas Pascal / Las Mulitas, Córdoba)
+const DEMO_ORIGIN = { lat: -31.3533, lng: -64.2562 };
 
 // Posición actual en movimiento en ruta entre origen y parada 1 (Claude Design courierDot)
 const DEMO_CARRIER_LOCATION = { lat: -31.3850, lng: -64.2250 }; // Autovía / RN 9
 
-// Alto fijo en px para el contenedor del mapa en vista normal (70 % de la ventana).
-// Deja como máximo un 30 % para el listado de paradas en la vista dividida.
-const COLLAPSED_MAP_HEIGHT = Math.round(Dimensions.get("window").height * 0.70);
+const SCREEN_HEIGHT = Dimensions.get("window").height;
 
 /** Polilínea codificada real del trazado vial Córdoba → Las Mulitas → Oncativo → Villa María (RN 9 / Autopista) */
 const DEMO_POLYLINE =
@@ -114,6 +109,10 @@ export default function OptimizedRouteScreen() {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
 
+  // Alturas dinámicas para el bottom sheet fluido
+  const EXPANDED_HEIGHT = Math.round(SCREEN_HEIGHT - (topInset + 64));
+  const COLLAPSED_HEIGHT = Math.max(Math.round(SCREEN_HEIGHT * 0.32), 260);
+
   const [demoMode, setDemoMode] = useState(false);
   const {
     route,
@@ -132,16 +131,88 @@ export default function OptimizedRouteScreen() {
   const [focusTrigger, setFocusTrigger] = useState<number>(0);
   const [isListExpanded, setIsListExpanded] = useState(false);
 
-  const handleToggleExpand = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setIsListExpanded((prev) => !prev);
-  };
+  // Animación continua y control por arrastre (PanResponder) del Bottom Sheet
+  const sheetHeightAnim = useRef(new Animated.Value(COLLAPSED_HEIGHT)).current;
+  const isExpandedRef = useRef(isListExpanded);
+  isExpandedRef.current = isListExpanded;
+  const currentHeightRef = useRef(COLLAPSED_HEIGHT);
+  const dragStartHeightRef = useRef(COLLAPSED_HEIGHT);
 
-  const expandedMapHeight = Math.max(
-    Math.round(Dimensions.get("window").height * 0.12),
-    topInset + 72
+  useEffect(() => {
+    const id = sheetHeightAnim.addListener(({ value }) => {
+      currentHeightRef.current = value;
+    });
+    return () => {
+      sheetHeightAnim.removeListener(id);
+    };
+  }, [sheetHeightAnim]);
+
+  const animateTo = useCallback(
+    (toHeight: number, expandState: boolean) => {
+      setIsListExpanded(expandState);
+      try {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch {}
+      Animated.spring(sheetHeightAnim, {
+        toValue: toHeight,
+        tension: 65,
+        friction: 11,
+        useNativeDriver: false,
+      }).start();
+    },
+    [sheetHeightAnim]
   );
-  const currentMapHeight = isListExpanded ? expandedMapHeight : COLLAPSED_MAP_HEIGHT;
+
+  const handleToggleExpand = useCallback(() => {
+    const nextState = !isExpandedRef.current;
+    animateTo(nextState ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT, nextState);
+  }, [EXPANDED_HEIGHT, COLLAPSED_HEIGHT, animateTo]);
+
+  // Gestos de arrastre desde el borde superior / handle del Bottom Sheet
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          return Math.abs(gestureState.dy) > 3;
+        },
+        onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+          return Math.abs(gestureState.dy) > 3;
+        },
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: () => {
+          sheetHeightAnim.stopAnimation();
+          dragStartHeightRef.current = currentHeightRef.current;
+        },
+        onPanResponderMove: (_, gestureState) => {
+          // Arrastrar hacia arriba (dy < 0) agranda la altura del sheet
+          const newHeight = dragStartHeightRef.current - gestureState.dy;
+          const clamped = Math.min(Math.max(newHeight, COLLAPSED_HEIGHT - 30), EXPANDED_HEIGHT + 30);
+          sheetHeightAnim.setValue(clamped);
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          const movedUp = gestureState.dy < -25 || gestureState.vy < -0.25;
+          const movedDown = gestureState.dy > 25 || gestureState.vy > 0.25;
+
+          let shouldExpand = isExpandedRef.current;
+          if (!isExpandedRef.current && movedUp) {
+            shouldExpand = true;
+          } else if (isExpandedRef.current && movedDown) {
+            shouldExpand = false;
+          } else {
+            const midpoint = (COLLAPSED_HEIGHT + EXPANDED_HEIGHT) / 2;
+            shouldExpand = currentHeightRef.current > midpoint;
+          }
+
+          animateTo(shouldExpand ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT, shouldExpand);
+        },
+        onPanResponderTerminate: () => {
+          animateTo(isExpandedRef.current ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT, isExpandedRef.current);
+        },
+      }),
+    [COLLAPSED_HEIGHT, EXPANDED_HEIGHT, animateTo, sheetHeightAnim]
+  );
 
   // Determinar si hay un viaje activo válido con paradas asignadas
   const hasActiveTrip =
@@ -245,10 +316,16 @@ export default function OptimizedRouteScreen() {
             )}
           </View>
 
-          {/* Mitad superior: Mapa con paradas, origen y controles */}
+          {/* Fondo completo: Mapa interactivo que no se redimensiona para evitar parpadeos nativos */}
           <View
-            style={{ height: currentMapHeight }}
-            className="border-b border-border bg-bg-mute overflow-hidden"
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+            }}
+            className="bg-bg-mute overflow-hidden"
           >
             <RouteMap
               carrierLocation={displayLocation}
@@ -261,28 +338,45 @@ export default function OptimizedRouteScreen() {
               onResetFocus={handleResetFocus}
               focusTrigger={focusTrigger}
               topOffset={topInset + 70}
+              bottomOffset={COLLAPSED_HEIGHT}
               showControls={!isListExpanded}
             />
           </View>
 
-          {/* Bottom sheet: Vista de paradas que se agranda fluidamente y ocupa la mayor parte de la pantalla */}
-          <View className="flex-1 -mt-3 rounded-t-[24px] border-t border-border bg-bg shadow-xl overflow-hidden">
-            <ScrollView
-              className="flex-1"
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ flexGrow: 1 }}
-            >
-              <StopList
-                route={displayRoute}
-                selectedStopOrder={selectedStopOrder}
-                activeStopOrder={activeStop?.stopOrder ?? 1}
-                onSelectStop={handleSelectStop}
-                onPressShipment={handlePressShipment}
-                isExpanded={isListExpanded}
-                onToggleExpand={handleToggleExpand}
-              />
-            </ScrollView>
-          </View>
+          {/* Bottom sheet fluido deslizable desde el borde superior */}
+          <Animated.View
+            testID="route-bottom-sheet"
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: sheetHeightAnim,
+              zIndex: 30,
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              borderTopWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.bg,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: -6 },
+              shadowOpacity: 0.14,
+              shadowRadius: 18,
+              elevation: 12,
+              overflow: "hidden",
+            }}
+          >
+            <StopList
+              route={displayRoute}
+              selectedStopOrder={selectedStopOrder}
+              activeStopOrder={activeStop?.stopOrder ?? 1}
+              onSelectStop={handleSelectStop}
+              onPressShipment={handlePressShipment}
+              isExpanded={isListExpanded}
+              onToggleExpand={handleToggleExpand}
+              panHandlers={panResponder.panHandlers}
+            />
+          </Animated.View>
         </View>
       ) : (
         /* 2. VISTA CUANDO NO HAY VIAJE ACTIVO (Carga, Error, GPS Denegado o Sin Paradas): Header estándar sobrio */

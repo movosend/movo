@@ -1,5 +1,5 @@
 import React from "react";
-import { render, fireEvent } from "@testing-library/react-native";
+import { render, fireEvent, act } from "@testing-library/react-native";
 import OptimizedRouteScreen from "../app/(app)/route/index";
 import { useOptimizedRoute } from "../src/hooks/use-optimized-route";
 import { router } from "expo-router";
@@ -169,11 +169,14 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
 
     // Mapa y controles
     expect(getByTestId("route-mapview")).toBeTruthy();
+    expect(getByTestId("route-bottom-sheet")).toBeTruthy();
     expect(getByTestId("stop-row-1")).toBeTruthy();
     expect(getByText("Centro Córdoba")).toBeTruthy();
 
     // Expandir itinerario para ver la siguiente parada
-    await fireEvent.press(getByTestId("stop-list-toggle-sheet"));
+    await act(async () => {
+      fireEvent.press(getByTestId("stop-list-toggle-sheet"));
+    });
     expect(getByTestId("stop-row-2")).toBeTruthy();
     expect(getByText("Nueva Córdoba")).toBeTruthy();
 
@@ -203,7 +206,9 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
     const demoButton = getByTestId("route-demo-button");
     expect(demoButton).toBeTruthy();
 
-    await fireEvent.press(demoButton);
+    await act(async () => {
+      fireEvent.press(demoButton);
+    });
     expect(getByTestId("route-floating-island")).toBeTruthy();
     expect(getByTestId("route-mapview")).toBeTruthy();
     expect(getByTestId("route-exit-demo-button")).toBeTruthy();

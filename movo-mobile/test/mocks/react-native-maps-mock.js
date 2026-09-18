@@ -11,7 +11,7 @@ const MapView = React.forwardRef(function MapView(props, ref) {
     fitToCoordinates: () => {},
     animateToRegion: () => {},
   }));
-  return React.createElement(View, { testID: props.testID }, props.children);
+  return React.createElement(View, props, props.children);
 });
 
 function Marker(props) {

@@ -6,7 +6,8 @@ import {
   ChevronRight,
   ChevronUp,
 } from "lucide-react-native";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
+import { useColorScheme } from "nativewind";
 import type { CarrierRoute, CarrierRouteStop } from "@movo/shared/dist/types/routing";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 
@@ -18,6 +19,7 @@ interface StopListProps {
   onPressShipment?: (shipmentId: string) => void;
   isExpanded?: boolean;
   onToggleExpand?: () => void;
+  panHandlers?: any;
   testID?: string;
 }
 
@@ -95,9 +97,12 @@ export function StopList({
   onPressShipment,
   isExpanded,
   onToggleExpand,
+  panHandlers,
   testID = "carrier-stop-list",
 }: StopListProps) {
   const colors = useThemeColors();
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === "dark";
   const { stops, totalDistanceKm, totalDurationMinutes, optimized, disclaimer } = route;
 
   const [internalExpanded, setInternalExpanded] = useState(false);
@@ -145,21 +150,33 @@ export function StopList({
 
   return (
     <View testID={testID} className="flex-1 bg-bg px-4 pb-8 pt-1">
-      {/* Header interactivo con toggle de lista completa en pantalla completa o vista dividida */}
-      <Pressable
-        testID="stop-list-toggle-sheet"
-        onPress={handleToggle}
-        className="items-center pb-2.5 pt-0.5"
-        accessibilityRole="button"
-        accessibilityLabel={
-          expanded ? "Ver mapa" : `Ver todas las ${stops.length} paradas`
-        }
-      >
-        {/* Handle superior centrado */}
-        <View
-          style={{ backgroundColor: colors.border }}
-          className="h-1 w-10 rounded-full mb-2.5"
-        />
+      {/* Header interactivo con toggle de lista completa y soporte de arrastre para bottom sheet */}
+      <View {...(panHandlers ?? {})}>
+        <Pressable
+          testID="stop-list-toggle-sheet"
+          onPress={handleToggle}
+          className="items-center pb-2.5 pt-0.5"
+          accessibilityRole="button"
+          accessibilityLabel={
+            expanded ? "Ver mapa" : `Ver todas las ${stops.length} paradas`
+          }
+        >
+          {/* Handle superior centrado para arrastrar el sheet ("ese coso") */}
+          <View
+            testID="stop-list-drag-handle"
+            className="w-full items-center pt-1 pb-2.5"
+          >
+            <View
+              style={{
+                width: 48,
+                height: 5,
+                borderRadius: 999,
+                backgroundColor: isDark
+                  ? "rgba(255, 255, 255, 0.28)"
+                  : "rgba(10, 10, 11, 0.20)",
+              }}
+            />
+          </View>
 
         {/* Barra de cabecera con título dinámico y botón de toggle */}
         <View className="w-full flex-row items-center justify-between border-b border-border pb-3">
@@ -203,6 +220,14 @@ export function StopList({
           </View>
         </View>
       </Pressable>
+      </View>
+
+      <ScrollView
+        className="flex-1"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 28 }}
+        nestedScrollEnabled
+      >
 
       {/* Banner de ruta no optimizada (AC6) */}
       {!optimized && (
@@ -233,16 +258,17 @@ export function StopList({
           const windowText = formatTimeWindow(stop.timeWindowStart, stop.timeWindowEnd);
           const etaText = formatEstimatedArrival(stop);
 
-          // Claude Design:
-          // Retiro: Cuadrado redondeado (radius 8), fondo #0A0A0B, número blanco
-          // Entrega: Círculo (radius 999), fondo #C6F24A, número negro
-          // Tarde: Fondo #E5484D, número blanco
-          let chipBg = isPickup ? "#0A0A0B" : "#C6F24A";
-          let chipBorderColor = isPickup ? "#C6F24A" : "transparent";
-          let chipTextColor = isPickup ? "#FFFFFF" : "#0A0A0B";
+          // Coherencia visual con los nodos del mapa (route-map.tsx):
+          // Todos los nodos tienen fondo #0A0A0B (negro), número #FFFFFF (blanco) y borde blanco sencillo.
+          // Retiro: Cuadrado redondeado (radius 8)
+          // Entrega: Círculo (radius 999)
+          // Demora (isLate): Fondo #E5484D (rojo alerta)
+          let chipBg = "#0A0A0B";
+          let chipBorderColor = "#FFFFFF";
+          let chipTextColor = "#FFFFFF";
           if (isLate) {
             chipBg = "#E5484D";
-            chipBorderColor = "transparent";
+            chipBorderColor = "#FFFFFF";
             chipTextColor = "#FFFFFF";
           }
 
@@ -275,14 +301,15 @@ export function StopList({
               }}
             >
               <View className="flex-row items-start gap-3">
-                {/* Chip numérico circular (Retiro = negro con borde lima, Entrega = verde lima) */}
+                {/* Chip numérico: cuadrado para retiro, círculo para entrega (coherente con el mapa) */}
                 <View
                   style={{
                     backgroundColor: chipBg,
                     borderColor: chipBorderColor,
-                    borderWidth: isPickup ? 1.5 : 0,
-                    borderRadius: 999,
+                    borderWidth: 1.5,
+                    borderRadius: isPickup ? 8 : 999,
                   }}
+                  testID={`stop-chip-${stop.stopOrder}`}
                   className="h-7 w-7 flex-none items-center justify-center"
                 >
                   <Text
@@ -438,6 +465,7 @@ export function StopList({
           </Text>
         </View>
       )}
+      </ScrollView>
     </View>
   );
 }

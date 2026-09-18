@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Linking, Pressable, Text, View } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
 import { useColorScheme } from "nativewind";
-import { Crosshair, X, ZoomOut } from "lucide-react-native";
+import * as Haptics from "expo-haptics";
+import { ArrowUpRight, Crosshair, Map, X } from "lucide-react-native";
 import type { CarrierRouteStop } from "@movo/shared/dist/types/routing";
 import {
   movoMapStyleDark,
@@ -21,6 +22,7 @@ interface RouteMapProps {
   onResetFocus?: () => void;
   focusTrigger?: number;
   topOffset?: number;
+  bottomOffset?: number;
   showControls?: boolean;
   testID?: string;
 }
@@ -47,17 +49,21 @@ export function RouteMap({
   onResetFocus,
   focusTrigger,
   topOffset,
+  bottomOffset,
   showControls = true,
   testID = "carrier-route-map",
 }: RouteMapProps) {
   const mapRef = useRef<MapView>(null);
   const isMapReady = useRef(false);
-  // Estado complementario: si el mapa está enfocado en una parada/transportista (muestra "Ver ruta completa") o en vista general (muestra "Centrar")
-  const [isFocused, setIsFocused] = useState<boolean>(() => {
-    return selectedStopOrder != null && selectedStopOrder > 1;
-  });
+  // Modo seguimiento continuo del conductor estilo Google Maps:
+  // - false (estado natural): muestra el botón "Centrar"
+  // - true (centrado siguiendo al transportista): muestra el botón "Ver ruta"
+  const [isTrackingCourier, setIsTrackingCourier] = useState<boolean>(false);
   const [activeTooltip, setActiveTooltip] = useState<"origin" | "courier" | null>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showMapsToast, setShowMapsToast] = useState(false);
+  const mapsToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mapsNavigationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -87,8 +93,51 @@ export function RouteMap({
       if (tooltipTimeoutRef.current) {
         clearTimeout(tooltipTimeoutRef.current);
       }
+      if (mapsToastTimeoutRef.current) {
+        clearTimeout(mapsToastTimeoutRef.current);
+      }
+      if (mapsNavigationTimeoutRef.current) {
+        clearTimeout(mapsNavigationTimeoutRef.current);
+      }
     };
   }, []);
+
+  // Interactividad de Screen 1 para "Abrir en Maps": toast feedback + geo deeplink
+  const handleOpenExternalMaps = () => {
+    try {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+
+    setShowMapsToast(true);
+    if (mapsToastTimeoutRef.current) {
+      clearTimeout(mapsToastTimeoutRef.current);
+    }
+    mapsToastTimeoutRef.current = setTimeout(() => {
+      setShowMapsToast(false);
+    }, 2400);
+
+    const targetStop =
+      stops.find((s) => s.stopOrder === (activeStopOrder ?? 1)) ??
+      (selectedStopOrder != null ? stops.find((s) => s.stopOrder === selectedStopOrder) : null) ??
+      stops[0];
+
+    const destination = targetStop
+      ? `${targetStop.lat},${targetStop.lng}`
+      : "";
+
+    const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+      destination
+    )}&travelmode=driving`;
+
+    if (mapsNavigationTimeoutRef.current) {
+      clearTimeout(mapsNavigationTimeoutRef.current);
+    }
+    mapsNavigationTimeoutRef.current = setTimeout(() => {
+      Linking.openURL(mapsUrl).catch((err) => {
+        console.warn("[Movo Navigation] No se pudo abrir la navegación externa:", err);
+      });
+    }, 400);
+  };
 
   // Coordenadas de referencia: origen declarado + posición actual + paradas
   const routePoints: LatLng[] = useMemo(() => {
@@ -124,14 +173,13 @@ export function RouteMap({
 
   // Animación suave de cámara (1000ms) a una parada para evitar saltos bruscos
   const animateToStop = (stop: CarrierRouteStop, duration = 1000) => {
-    setIsFocused(true);
     if (!isMapReady.current) return;
     mapRef.current?.animateToRegion(
       {
-        latitude: stop.lat,
+        latitude: stop.lat - 0.0035,
         longitude: stop.lng,
-        latitudeDelta: 0.025,
-        longitudeDelta: 0.025,
+        latitudeDelta: 0.022,
+        longitudeDelta: 0.022,
       },
       duration
     );
@@ -140,10 +188,9 @@ export function RouteMap({
   // Animación suave para centrar en la ubicación del transportista
   const animateToCourier = (duration = 1000) => {
     if (!carrierLocation || !isMapReady.current) return;
-    setIsFocused(true);
     mapRef.current?.animateToRegion(
       {
-        latitude: carrierLocation.lat,
+        latitude: carrierLocation.lat - 0.003,
         longitude: carrierLocation.lng,
         latitudeDelta: 0.02,
         longitudeDelta: 0.02,
@@ -152,15 +199,30 @@ export function RouteMap({
     );
   };
 
-  // Al presionar un marcador en el mapa
+  // Seguimiento continuo de la ubicación del transportista (estilo Google Maps)
+  useEffect(() => {
+    if (isTrackingCourier && carrierLocation && isMapReady.current) {
+      mapRef.current?.animateToRegion(
+        {
+          latitude: carrierLocation.lat - 0.003,
+          longitude: carrierLocation.lng,
+          latitudeDelta: 0.02,
+          longitudeDelta: 0.02,
+        },
+        800
+      );
+    }
+  }, [carrierLocation?.lat, carrierLocation?.lng, isTrackingCourier]);
+
+  // Al presionar un marcador en el mapa, desactiva el seguimiento continuo del chofer
   const handleMarkerPress = (stop: CarrierRouteStop) => {
     setActiveTooltip(null);
+    setIsTrackingCourier(false);
     // Si activeStopOrder está definido y la parada tocada es futura, respetar la regla de Claude Design (aviso sin salto)
     if (activeStopOrder != null && stop.stopOrder !== activeStopOrder) {
       onSelectStop?.(stop);
       return;
     }
-    setIsFocused(true);
     animateToStop(stop, 1000);
     onSelectStop?.(stop);
   };
@@ -172,10 +234,29 @@ export function RouteMap({
     }
     const stop = stops.find((s) => s.stopOrder === selectedStopOrder);
     if (stop) {
-      setIsFocused(true);
+      setIsTrackingCourier(false);
       animateToStop(stop, 1000);
     }
   }, [focusTrigger]);
+
+  const handleCenterPress = () => {
+    setIsTrackingCourier(true);
+    setActiveTooltip(null);
+    if (carrierLocation) {
+      animateToCourier(1000);
+    } else if (stops.length > 0) {
+      animateToStop(stops[0], 1000);
+    }
+  };
+
+  const handleOverviewPress = () => {
+    setIsTrackingCourier(false);
+    setActiveTooltip(null);
+    if (initialRegion) {
+      mapRef.current?.animateToRegion(initialRegion, 1000);
+    }
+    onResetFocus?.();
+  };
 
   // Región inicial centrada en el bounding box real del recorrido para evitar saltos globales
   const initialRegion = useMemo(() => {
@@ -225,6 +306,10 @@ export function RouteMap({
           isMapReady.current = true;
         }}
         onPress={() => setActiveTooltip(null)}
+        onPanDrag={() => {
+          setIsTrackingCourier(false);
+          setActiveTooltip(null);
+        }}
       >
         {/* Trazado de ruta conectando las paradas */}
         {coordinatesToDraw.length > 1 && (
@@ -267,7 +352,7 @@ export function RouteMap({
                 borderRadius: 999,
                 backgroundColor: "#FFFFFF",
                 borderColor: "#0A0A0B",
-                borderWidth: 2.5,
+                borderWidth: 3,
                 alignItems: "center",
                 justifyContent: "center",
               }}
@@ -284,7 +369,7 @@ export function RouteMap({
           </Marker>
         )}
 
-        {/* Marcador de la posición actual del transportista (Claude Design courierDot) */}
+        {/* Marcador de la posición actual del transportista (Claude Design courierDot: punto verde lima con borde blanco) */}
         {carrierLocation && (
           <Marker
             testID="carrier-current-location-marker"
@@ -298,48 +383,42 @@ export function RouteMap({
           >
             <View
               style={{
-                width: 22,
-                height: 22,
+                width: 20,
+                height: 20,
                 borderRadius: 999,
                 backgroundColor: "#C6F24A",
-                borderColor: "#0A0A0B",
-                borderWidth: 2.5,
+                borderColor: "#FFFFFF",
+                borderWidth: 3,
                 alignItems: "center",
                 justifyContent: "center",
               }}
-            >
-              <View
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: 999,
-                  backgroundColor: "#0A0A0B",
-                }}
-              />
-            </View>
+            />
           </Marker>
         )}
 
-        {/* Marcadores de paradas ordenadas (círculos limpios sin artefactos de fondo gris ni sombras CALayer) */}
+        {/* Marcadores de paradas ordenadas: Cuadrados para retiros y Círculos para entregas (Claude Design mapPinStyle) */}
         {stops.map((stop) => {
           const isSelected = selectedStopOrder === stop.stopOrder;
           const isPickup = stop.type === "pickup";
           const isLate = stop.outsideTimeWindow;
 
-          // Claude Design y solicitud del usuario:
-          // Retiro: Círculo fondo #0A0A0B (negro), borde #C6F24A (verde lima), texto blanco
-          // Entrega: Círculo fondo #C6F24A (verde lima), borde #FFFFFF (blanco), texto negro
-          // Tarde: Círculo fondo #E5484D (rojo), borde #FFFFFF (blanco), texto blanco
-          let pinBg = isPickup ? "#0A0A0B" : "#C6F24A";
-          let pinBorderColor = isPickup ? "#C6F24A" : "#FFFFFF";
-          let pinTextColor = isPickup ? "#FFFFFF" : "#0A0A0B";
+          // Claude Design mapPinStyle:
+          // Todos los nodos de parada tienen fondo #0A0A0B (negro) y número blanco #FFFFFF.
+          // Retiro: Cuadrado redondeado (radius 9) con borde blanco sencillo
+          // Entrega: Círculo (radius 999) con borde blanco sencillo
+          // Borde: 3px blanco #FFFFFF sencillo
+          // Demora (isLate): Fondo #E5484D (rojo alerta)
+          let pinBg = "#0A0A0B";
+          let pinBorderColor = "#FFFFFF";
+          let pinTextColor = "#FFFFFF";
           if (isLate) {
             pinBg = "#E5484D";
             pinBorderColor = "#FFFFFF";
             pinTextColor = "#FFFFFF";
           }
 
-          const pinSize = isSelected ? 34 : 28;
+          const pinSize = 28;
+          const pinRadius = isPickup ? 8 : 999;
 
           return (
             <Marker
@@ -354,7 +433,7 @@ export function RouteMap({
                 style={{
                   width: pinSize,
                   height: pinSize,
-                  borderRadius: 999,
+                  borderRadius: pinRadius,
                   backgroundColor: pinBg,
                   borderColor: pinBorderColor,
                   borderWidth: 2.5,
@@ -365,7 +444,7 @@ export function RouteMap({
                 <Text
                   style={{
                     color: pinTextColor,
-                    fontSize: isSelected ? 13 : 11.5,
+                    fontSize: 12,
                   }}
                   className="font-sans-bold"
                 >
@@ -426,71 +505,217 @@ export function RouteMap({
         </View>
       )}
 
-      {/* Controles flotantes sobre el mapa: botones complementarios (Centrar <-> Ver ruta completa) */}
+      {/* Toast Feedback de navegación externa (Screen 1 Interactivity) posicionado justo debajo de la isla flotante */}
+      {showMapsToast && (
+        <View
+          testID="route-navigation-toast"
+          style={{
+            position: "absolute",
+            top: topOffset ?? 16,
+            alignSelf: "center",
+            zIndex: 40,
+            backgroundColor: isDark ? "rgba(17, 17, 19, 0.94)" : "rgba(255, 255, 255, 0.94)",
+            borderColor: isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(10, 10, 11, 0.08)",
+            borderWidth: 1,
+            borderRadius: 9999,
+            paddingHorizontal: 16,
+            paddingVertical: 9,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: isDark ? 0.25 : 0.12,
+            shadowRadius: 10,
+            elevation: 6,
+          }}
+        >
+          <View
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: 4,
+              backgroundColor: "#C6F24A",
+            }}
+          />
+          <Text
+            style={{
+              fontSize: 12,
+              fontWeight: "600",
+              color: isDark ? "#FFFFFF" : "#0A0A0B",
+            }}
+          >
+            Iniciando navegación con Google Maps...
+          </Text>
+        </View>
+      )}
+
+      {/* Control flotante individual alterno sobre el mapa ("Centrar" <-> "Ver ruta") estilo Google Maps */}
       {showControls && (
         <View
           style={{
             position: "absolute",
-            right: 16,
+            right: 14,
             top: topOffset ?? 16,
             zIndex: 20,
           }}
         >
-          {isFocused ? (
+          {isTrackingCourier ? (
             <Pressable
               testID="route-map-reset-zoom"
-              onPress={() => {
-                setIsFocused(false);
-                setActiveTooltip(null);
-                if (initialRegion) {
-                  mapRef.current?.animateToRegion(initialRegion, 1000);
-                }
-                onResetFocus?.();
-              }}
-              className="h-9 flex-row items-center gap-1.5 rounded-full border px-3.5 shadow-sm"
-              style={{
-                backgroundColor: isDark ? "rgba(17, 17, 19, 0.94)" : "rgba(255, 255, 255, 0.94)",
-                borderColor: isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(10, 10, 11, 0.10)",
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.12,
-                shadowRadius: 4,
-                elevation: 4,
-              }}
+              onPress={handleOverviewPress}
               accessibilityRole="button"
-              accessibilityLabel="Ver recorrido completo"
+              accessibilityLabel="Ver ruta completa"
             >
-              <ZoomOut size={14} color={colors.fg1} />
-              <Text className="font-sans-medium text-[12px] text-fg">Ver ruta completa</Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  paddingHorizontal: 14,
+                  paddingVertical: 9,
+                  borderRadius: 16,
+                  backgroundColor: isDark ? "#18181B" : "#FFFFFF",
+                  borderWidth: 1,
+                  borderColor: isDark ? "rgba(255, 255, 255, 0.15)" : "#E4E4E7",
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.12,
+                  shadowRadius: 10,
+                  elevation: 6,
+                }}
+              >
+                <Map
+                  size={15}
+                  color={isDark ? "#FFFFFF" : "#0A0A0B"}
+                  strokeWidth={2.2}
+                />
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: "700",
+                    color: isDark ? "#FFFFFF" : "#0A0A0B",
+                  }}
+                >
+                  Ver ruta
+                </Text>
+              </View>
             </Pressable>
           ) : (
             <Pressable
               testID="route-map-recenter"
-              onPress={() => {
-                setIsFocused(true);
-                if (carrierLocation) {
-                  animateToCourier(1000);
-                } else if (stops.length > 0) {
-                  animateToStop(stops[0], 1000);
-                }
-              }}
-              className="h-9 flex-row items-center gap-1.5 rounded-full border px-3.5 shadow-sm"
-              style={{
-                backgroundColor: isDark ? "rgba(17, 17, 19, 0.94)" : "rgba(255, 255, 255, 0.94)",
-                borderColor: isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(10, 10, 11, 0.10)",
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.12,
-                shadowRadius: 4,
-                elevation: 4,
-              }}
+              onPress={handleCenterPress}
               accessibilityRole="button"
               accessibilityLabel="Centrar en mi ubicación"
             >
-              <Crosshair size={14} color={colors.fg1} />
-              <Text className="font-sans-medium text-[12px] text-fg">Centrar</Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  paddingHorizontal: 14,
+                  paddingVertical: 9,
+                  borderRadius: 16,
+                  backgroundColor: isDark ? "#18181B" : "#FFFFFF",
+                  borderWidth: 1,
+                  borderColor: isDark ? "rgba(255, 255, 255, 0.15)" : "#E4E4E7",
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.12,
+                  shadowRadius: 10,
+                  elevation: 6,
+                }}
+              >
+                <Crosshair
+                  size={15}
+                  color={isDark ? "#FFFFFF" : "#0A0A0B"}
+                  strokeWidth={2.2}
+                />
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: "700",
+                    color: isDark ? "#FFFFFF" : "#0A0A0B",
+                  }}
+                >
+                  Centrar
+                </Text>
+              </View>
             </Pressable>
           )}
+        </View>
+      )}
+
+      {/* Botón flotante "Abrir en Maps" (Visual Screen 2 + Interactividad Screen 1) */}
+      {showControls && stops.length > 0 && (
+        <View
+          style={{
+            position: "absolute",
+            right: 14,
+            bottom: (bottomOffset ?? 270) + 16,
+            zIndex: 25,
+          }}
+        >
+          <Pressable
+            testID="route-map-open-maps"
+            onPress={handleOpenExternalMaps}
+            accessibilityRole="button"
+            accessibilityLabel="Abrir en Maps para navegación paso a paso"
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                borderRadius: 16,
+                backgroundColor: isDark ? "#18181B" : "#FFFFFF",
+                borderWidth: 1,
+                borderColor: isDark ? "rgba(255, 255, 255, 0.15)" : "#E4E4E7",
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.12,
+                shadowRadius: 10,
+                elevation: 6,
+              }}
+            >
+              <View
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 8,
+                  backgroundColor: "#0A0A0B",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <ArrowUpRight size={14} color="#FFFFFF" strokeWidth={2.5} />
+              </View>
+              <View style={{ justifyContent: "center" }}>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    fontWeight: "800",
+                    lineHeight: 14,
+                    color: isDark ? "#FFFFFF" : "#0A0A0B",
+                  }}
+                >
+                  Abrir en Maps
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 9,
+                    fontWeight: "500",
+                    lineHeight: 12,
+                    color: isDark ? "#A1A1AA" : "#71717A",
+                  }}
+                >
+                  GPS paso a paso
+                </Text>
+              </View>
+            </View>
+          </Pressable>
         </View>
       )}
     </View>
