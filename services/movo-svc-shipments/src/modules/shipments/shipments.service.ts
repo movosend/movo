@@ -941,14 +941,24 @@ export function createShipmentsService(
       }
 
       // MOVO-162: tripId opcional -- valida que el viaje exista, sea del mismo
-      // transportista y siga activo antes de dejar que la oferta lo referencie. Sin
-      // este chequeo, cualquier caller podría taggear la oferta con el viaje de otro
-      // transportista o uno ya cancelado, y Trip.hasAcceptedPackages
+      // transportista y siga disponible antes de dejar que la oferta lo referencie.
+      // Sin este chequeo, cualquier caller podría taggear la oferta con el viaje de
+      // otro transportista o uno ya cancelado, y Trip.hasAcceptedPackages
       // (trip-repository.ts) perdería sentido. Deliberadamente NO valida que el envío
       // caiga geométricamente dentro del corredor del viaje -- todavía no hay ningún
       // consumidor real que dispare este campo (MOVO-163/MOVO-149 no lo contemplan en
       // su AC), así que esa validación queda para cuando exista ese flujo y se sepa
       // qué radio/semántica espera.
+      //
+      // MOVO-221: el chequeo original exigía `trip.status === ACTIVE` a secas -- con
+      // el rediseño de estados de viaje (declared/active/completed), una oferta se
+      // hace normalmente mientras el viaje todavía está `declared` (antes de que el
+      // transportista lo arranque, `POST /trips/:id/start`), así que restringir a
+      // `active` habría bloqueado el caso normal. Se amplía a "vivo" (declared o
+      // active), rechazando solo cancelled/completed -- mismo criterio ya aplicado al
+      // gating de `GET /trips/:id/matches` (`trips.service.ts`). `TRIP_NOT_ACTIVE`
+      // nunca se renombra (contrato de wire, `@movo/shared`) -- queda sin uso, el
+      // reemplazo es el código nuevo `TRIP_NOT_AVAILABLE`.
       if (input.tripId) {
         if (!tripRepository) {
           throw new Error("createOfferForShipment requiere tripRepository (ShipmentsServiceOptions) para validar tripId.");
@@ -960,8 +970,12 @@ export function createShipmentsService(
         if (trip.carrierId !== input.carrierId) {
           throw new ApiError(403, "AUTH_FORBIDDEN", "No podés ofertar en nombre de un viaje que no es tuyo.");
         }
-        if (trip.status !== TripStatus.ACTIVE) {
-          throw new ApiError(409, "TRIP_NOT_ACTIVE", "Solo podés ofertar desde un viaje activo.");
+        if (trip.status !== TripStatus.DECLARED && trip.status !== TripStatus.ACTIVE) {
+          throw new ApiError(
+            409,
+            "TRIP_NOT_AVAILABLE",
+            `El viaje '${input.tripId}' no admite nuevas ofertas en su estado actual ('${trip.status}').`,
+          );
         }
       }
 
