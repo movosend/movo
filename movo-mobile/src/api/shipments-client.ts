@@ -391,10 +391,12 @@ export const shipmentsClient = {
     return httpClient.get<SharedHistory>(`/shipments/history-with/${userId}`);
   },
 
-  /** `GET /shipments/my-route?lat=...&lng=...` (MOVO-206 / MOVO-207).
-   * Ruta optimizada multi-parada del transportista autenticado con solver VRPTW. */
-  getMyRoute(coords: { lat: number; lng: number }): Promise<CarrierRoute> {
-    return httpClient.get<CarrierRoute>(`/shipments/my-route?lat=${coords.lat}&lng=${coords.lng}`);
+  /** `GET /shipments/my-route?lat=...&lng=...` (MOVO-206 / MOVO-207 / MOVO-235).
+   * Ruta optimizada multi-parada del transportista autenticado con solver VRPTW.
+   * Acepta opcionalmente `tripId` para acotar la ruta al viaje iniciado (MOVO-235). */
+  getMyRoute(coords: { lat: number; lng: number }, tripId?: string): Promise<CarrierRoute> {
+    const tripQuery = tripId ? `&tripId=${encodeURIComponent(tripId)}` : "";
+    return httpClient.get<CarrierRoute>(`/shipments/my-route?lat=${coords.lat}&lng=${coords.lng}${tripQuery}`);
   },
 };
 

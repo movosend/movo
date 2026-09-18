@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useColorScheme } from "nativewind";
 import {
   ArrowLeft,
@@ -113,6 +113,7 @@ export default function OptimizedRouteScreen() {
   const EXPANDED_HEIGHT = Math.round(SCREEN_HEIGHT - (topInset + 64));
   const COLLAPSED_HEIGHT = Math.max(Math.round(SCREEN_HEIGHT * 0.32), 260);
 
+  const { tripId } = useLocalSearchParams<{ tripId?: string }>();
   const [demoMode, setDemoMode] = useState(false);
   const {
     route,
@@ -122,7 +123,7 @@ export default function OptimizedRouteScreen() {
     gpsPermissionDenied,
     error,
     refetch,
-  } = useOptimizedRoute();
+  } = useOptimizedRoute(tripId);
 
   const displayRoute = demoMode ? DEMO_ROUTE : route;
   const displayLocation = demoMode ? DEMO_CARRIER_LOCATION : carrierLocation;

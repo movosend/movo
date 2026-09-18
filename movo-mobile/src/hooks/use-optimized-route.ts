@@ -25,7 +25,7 @@ export interface UseOptimizedRouteResult {
  * garantizando que si el transportista completó o canceló una parada en un wizard,
  * al regresar a la vista de ruta las paradas restantes se actualicen de inmediato.
  */
-export function useOptimizedRoute(): UseOptimizedRouteResult {
+export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
   const [route, setRoute] = useState<CarrierRoute | null>(null);
   const [carrierLocation, setCarrierLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -55,7 +55,9 @@ export function useOptimizedRoute(): UseOptimizedRouteResult {
       const coords = { lat: locResult.lat, lng: locResult.lng };
       setCarrierLocation(coords);
 
-      const result = await shipmentsClient.getMyRoute(coords);
+      const result = tripId
+        ? await shipmentsClient.getMyRoute(coords, tripId)
+        : await shipmentsClient.getMyRoute(coords);
       setRoute(result);
     } catch (err: unknown) {
       setError(friendlyErrorMessage(err, "No pudimos calcular tu ruta optimizada. Intentá de nuevo."));
