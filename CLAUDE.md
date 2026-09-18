@@ -323,11 +323,17 @@ tecnologías, impacto en infra, esbozo de auth/autorización).
   pasa a "suscripción por WebSocket, cuando MOVO-201 esté disponible" — ese reemplazo
   de polling se hace en los tickets de implementación de MOVO-159/MOVO-199, no en este
   spike.
-- **Pendiente de este ticket** (ver también "Pendientes transversales"): cambios de
-  `infra/nginx/templates/default.conf.template` (headers Upgrade/Connection + subir
-  `proxy_read_timeout`, sin aplicar ni probar todavía); estimación informada de los
-  tickets de implementación de MOVO-11/MOVO-201 (identificados, sin horas concretas
-  todavía).
+- **AC3 (infra) aplicado**: `infra/nginx/templates/default.conf.template` suma un
+  `map $http_upgrade $connection_upgrade` (patrón estándar de nginx para servir HTTP y
+  WS desde el mismo `location`, sin forzar `Connection: upgrade` en requests normales)
+  + `proxy_set_header Upgrade/Connection` + `proxy_read_timeout` de 30s a 3600s. Sin
+  probar contra un deploy real ni una conexión de larga duración todavía (no hay forma
+  de correr `nginx -t` ni Docker en este entorno) — validarlo es parte del DoD
+  pendiente antes de que MOVO-201 dependa de esto en producción. El timeout subido
+  aplica a TODO el `location /` (no solo a rutas WS, que todavía no existen como tales
+  del lado del gateway) — trade-off documentado inline en el archivo.
+- **Pendiente de este ticket**: estimación informada de los tickets de implementación
+  de MOVO-11/MOVO-201 (identificados, sin horas concretas todavía).
 
 ### Automatización de sync de documentos legales (`scripts/sync-legal-docs.ts`)
 
@@ -387,12 +393,11 @@ costó dos veces con env vars olvidadas (ver "Git, commits y PRs" más arriba).
   misma carpeta de Drive que el Sprint 0) porque esta sesión no tuvo forma de editar el
   contenido del doc de Sprint 0 directamente — falta que alguien lo pegue en la sección
   de ADRs y borre el doc aparte.
-- **Nginx sin soporte de upgrade WebSocket** (MOVO-200/ADR-022, AC3 del spike):
-  `infra/nginx/templates/default.conf.template` no reenvía los headers
-  `Upgrade`/`Connection` y tiene `proxy_read_timeout 30s` — un canal WS que funciona en
-  local se corta en producción por esto. Cambio identificado, sin aplicar ni probar
-  contra una conexión de larga duración todavía; bloquea que MOVO-201 (implementación
-  real del canal) funcione de punta a punta en prod.
+- **Nginx con soporte de upgrade WebSocket aplicado, sin probar contra un deploy real**
+  (MOVO-200/ADR-022, AC3 del spike) — ver la entrada de MOVO-200 arriba para el
+  detalle. Falta la validación contra una conexión de larga duración en dev/prod real,
+  y confirmar que 3600s de `proxy_read_timeout` es el valor correcto una vez que
+  MOVO-201 defina si el canal necesita heartbeat propio.
 - **`MP_TRANSACTION_FEE_RATE` sin confirmar** (MOVO-143,
   `shared/movo-shared/src/config/commission.ts`): placeholder (0.0499) hasta tener el
   valor real del contrato/homologación con MercadoPago. `MOVO_COMMISSION_RATE` (15%,
