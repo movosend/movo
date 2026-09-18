@@ -2549,6 +2549,87 @@ su propio archivo fue lo que efectivamente lo resolvió. Casos actualizados en
 Pendiente / fuera de alcance: sin historial de aceptaciones previas (backend, ver su
 CLAUDE.md); no probado en device.
 
+### MOVO-232 — Identificadores fijos de app store (`android.package` / `ios.bundleIdentifier`)
+
+Primer paso para habilitar EAS Build/Submit y push notifications reales de punta a
+punta, ahora que el Apple Developer Program ya está pago. `android.package` pasa del
+placeholder de scaffold `com.anonymous.movomobile` al identificador real y fijo
+`com.movosend.movomobile`; `ios.bundleIdentifier` pasa de variar por developer
+(`com.movosend.movomobile.$USER`, pensado para no chocar provisioning profiles entre
+Personal Teams gratis de Apple) a ese mismo identificador fijo, con `IOS_BUNDLE_ID`
+como override opcional que sigue sirviendo para development builds 100% locales
+(`expo run:ios`). `eas.json` fija `IOS_BUNDLE_ID=com.movosend.movomobile` en los
+perfiles `preview`/`production` para que un build de EAS Cloud no dependa de `$USER`.
+Verificado con `npx expo config --type public` (`bundleIdentifier`/`package`
+resuelven al valor fijo).
+
+**Avance post-merge de este ticket (mismo hilo de trabajo): credenciales de EAS y
+`ENABLE_PUSH_NOTIFICATIONS`.** `PUSH_PROVIDER=expo` ya cargado en
+`movo/dev/app-secrets` (AWS Secrets Manager) — el próximo deploy de `svc-users` a dev
+manda push reales. Credenciales de EAS configuradas para ambas plataformas vía
+`eas credentials` (iOS: App ID + certificado + provisioning profile + APNs Push Key,
+autenticado con una App Store Connect API Key — Admin — en vez de Apple ID/contraseña,
+respaldada en el secret `movo/mobile/apple-asc-api-key`, MOVO-232; Android: FCM V1).
+`eas.json` gana `ENABLE_PUSH_NOTIFICATIONS: "true"` en el perfil `development`
+(verificado con `npx expo config` que activa el plugin `expo-notifications`).
+
+**Gotcha real encontrado en el camino, sin relación con el código del repo**: la
+versión global de `eas-cli` estaba desactualizada (`21.8.0`) y esa versión tiene un
+bug conocido (`iTunes service key is empty` al generar/validar la Push Key,
+[expo/eas-cli#4392](https://github.com/expo/eas-cli/issues/4392)) — se resuelve
+actualizando a `eas-cli@24.6.0`+ (fix confirmado en `24.4.1`). No es nada a ajustar en
+este repo, documentado acá solo para que el próximo que corra `eas credentials` no
+pierda tiempo si le vuelve a pasar.
+
+**Segundo avance (mismo hilo): `google-services.json` para push real en Android.**
+Gap encontrado en el camino, sin relación con lo hecho hasta acá: desde la migración
+de Expo a FCM v1, Android necesita este archivo (identifica la app ante el proyecto
+de Firebase "movosend", package `com.movosend.movomobile`) además del service account
+ya cargado en `eas credentials` — sin él, Android no recibe push ni en build de EAS ni
+local. `app.config.js` suma `android.googleServicesFile:
+process.env.GOOGLE_SERVICES_JSON ?? "./google-services.json"`. El archivo en sí
+**no se trackea en git** (`.gitignore`, mismo criterio que los `.p8`/`.p12` de iOS) —
+cada developer lo baja de Firebase Console y lo pega en la raíz de `movo-mobile/`
+para builds locales; para EAS Cloud se subió como variable de entorno de tipo
+**file** (`eas env:set development --name GOOGLE_SERVICES_JSON --type file
+--visibility sensitive`, mismo mecanismo ya usado ahí para
+`GOOGLE_MAPS_ANDROID_API_KEY`/`GOOGLE_MAPS_IOS_API_KEY` — no confundir con el bloque
+`env` de `eas.json`, es un feature separado de EAS que se resuelve solo por
+convención de nombre del build profile). Verificado con `npx expo config` y
+`tsc --noEmit`.
+
+Pendiente / fuera de alcance de este ticket (siguientes pasos del roadmap de
+push/EAS): primer `eas build --profile development` (iOS y Android) + instalación en
+dispositivo físico para validar push de punta a punta (cierra el DoD manual
+pendiente de MOVO-107) — deliberadamente no disparado todavía, y el primer workflow
+de CI para build/submit automático — el equipo venía usando development builds hace
+tiempo, pero siempre generados con el CLI local (`expo run:ios`/`expo run:android`),
+nunca con EAS.
+
+**Checklist: push notifications reales en development builds locales (`expo run:ios
+--device` / `expo run:android`)**. Con `bundleIdentifier`/`package` fijos (MOVO-232)
+y el Apple Developer Team pago ya operativo, un build local queda funcionalmente
+igual a uno de EAS para push si cada dev/máquina/dispositivo tiene, una sola vez:
+
+1. **Alta en el Apple Developer Team pago** (developer.apple.com → People, rol
+   Developer alcanza) — sin esto Xcode no puede firmar contra ese team.
+2. **Xcode → target → Signing & Capabilities**: elegir ese Team pago (nunca
+   "Personal Team") + "Automatically manage signing". La capability de Push ya está
+   habilitada a nivel de App ID (`com.movosend.movomobile`, se hizo una vez vía
+   `eas credentials`) — Xcode la sincroniza sola al provisioning profile.
+3. **`ENABLE_PUSH_NOTIFICATIONS=true` en el `.env.local` de cada dev** (gitignored,
+   no confundir con `eas.json#build.development`, que solo aplica a builds de EAS
+   Cloud). Sin esto, `app.config.js` saca el plugin `expo-notifications` y borra el
+   entitlement `aps-environment` al hacer prebuild.
+4. **Android: `google-services.json`** bajado de Firebase Console (proyecto
+   "movosend") y pegado en la raíz de `movo-mobile/` (gitignored).
+
+**No se repite en cada build** — es configuración persistente (archivo, cuenta,
+provisioning profile). Se vuelve a hacer solo si: se borra/regenera `ios/` desde
+cero (`rm -rf ios/`, `expo prebuild --clean` — ahí Xcode "olvida" el Team elegido),
+se usa una máquina nueva, se prueba con un dispositivo físico nuevo (hay que
+registrar su UDID en el Team), o se suma un dev nuevo al equipo.
+
 ### MOVO-208 (backend, `svc-shipments`) — ajustes mobile por la extensión del set canónico
 
 Ticket dueño en `services/movo-svc-shipments/CLAUDE.md` — acá solo el lado mobile,
@@ -2585,15 +2666,81 @@ Tests: casos nuevos en `test/shipment-format.test.ts` para `shipmentStatusLabel`
 `shipmentPendingStepLabel`/`remainingLifecycleSteps` con los 2 estados nuevos. 103/103
 suites, 796/796 tests. `tsc --noEmit` limpio.
 
+### MOVO-197 — Step reusable de captura de evidencia fotográfica (retiro y entrega)
+
+Frontend de `MOVO-21`, bloqueado por `MOVO-196` (backend, Done). Componente que van a
+montar los dos wizards del transportista todavía sin arrancar (`MOVO-198` retiro,
+`MOVO-199` entrega) — no orquesta navegación, solo expone si la evidencia mínima está
+satisfecha.
+
+- **`components/evidence/evidence-capture-step.tsx`** (props `{ shipmentId, stage:
+  "pickup" | "delivery", onValidityChange? }`) + **`photo-thumbnail.tsx`** nuevos, en
+  vez de generalizar `photos-step.tsx`/`photo-slot.tsx` (MOVO-83) — esos están
+  acoplados al store Zustand del wizard de creación y a subida diferida al submit.
+  Acá el `shipmentId` ya existe de entrada, así que **cada foto sube su propio ciclo
+  completo apenas se toma** (`src/hooks/use-evidence-photos.ts`,
+  capturar→comprimir→presign→PUT→confirm), no al final — permite progreso por foto
+  (AC4) y que abandonar el wizard después de subir no pierda nada (`MOVO-198` AC5).
+- **`ShipmentPhotoStage` ampliado de `"creation"` a `"creation" | "pickup" |
+  "delivery"`** (`shipments-client.ts`, y el mismo ensanche en
+  `PhotoUploadProvider`/`real-photo-upload-provider.ts`) — el backend ya soportaba
+  los tres valores, solo el tipo del cliente estaba angostado a la carga del emisor.
+- **`useEvidenceStatus(shipmentId)` nuevo en `use-shipments.ts`** (`GET
+  /shipments/:id/evidence-status`, MOVO-196 AC6) — única fuente de mínimo/máximo/
+  satisfecho, nunca hardcodeados en el cliente. Misma query key la puede consultar el
+  wizard contenedor por su cuenta para gatear su propio paso siguiente sin duplicar
+  la request (AC3 de MOVO-198/199, "consulta, no asume").
+- **AC2 (denegación permanente de permiso de cámara) — patrón nuevo en el repo**:
+  `takePhotoWithCamera` (`photo-utils.ts`) ganó `canAskAgain`/`unavailable` en su
+  retorno (aditivo, no rompe a `photos-step.tsx`/`photo-picker.tsx`, que lo ignoran).
+  El step distingue "denegado, reintentar en el momento" de "denegado para siempre,
+  ir a Ajustes" — ninguno de los dos consumidores previos lo hacía.
+- **AC3 (cámara no disponible) sin fallback a galería**: `launchCameraAsync` tirando
+  (simulador/dispositivo sin cámara) se captura como `unavailable: true` — banner
+  persistente, nunca se ofrece `pickPhotoFromGallery` como alternativa (a propósito,
+  a diferencia de la foto de perfil).
+- **AC7 recortado, confirmado explícitamente con el usuario**: no existe `DELETE` de
+  fotos en `movo-svc-shipments` (confirmado contra el código de MOVO-196, no solo el
+  ticket). "Eliminar antes de avanzar" aplica solo a fotos que **todavía no se
+  confirmaron** (en cola, subiendo, en error) — una foto ya confirmada contra S3/DB
+  queda fija, sin botón de borrado. No se abrió ticket de backend nuevo para esto.
+- **Gap de diseño documentado, no un bug**: `GET /shipments/:id/photos` (MOVO-81) no
+  incluye al transportista en su autorización (emisor/receptor/admin), así que el
+  step no puede traer preview de fotos confirmadas en una sesión anterior al
+  remontarse — solo trackea localmente lo capturado en el montaje actual.
+  `evidence-status.photoCount` sigue siendo la fuente autoritativa del conteo total;
+  la diferencia contra lo capturado en sesión se renderiza como celda "Confirmada"
+  sin imagen, para que el grid cuadre con el máximo real sin mentir sobre qué hay.
+- Traducciones nuevas en `error-messages.ts`: `PHOTO_STAGE_LIMIT_EXCEEDED`,
+  `PHOTO_CONFIRMATION_IN_PROGRESS`, `PICKUP_EVIDENCE_MISSING`,
+  `DELIVERY_EVIDENCE_MISSING` (los dos últimos los tira el handshake de MOVO-158/196,
+  no los endpoints de fotos — el step nunca debería disparar esos dos si `evidence-
+  status` gatea bien el paso siguiente, pero el mensaje ya está listo si igual pasa).
+
+Tests nuevos: `use-evidence-photos.test.tsx` (los tres caminos de permiso, cámara no
+disponible, fallo de red con retry sin perder fotos ya confirmadas, no-borrado de
+confirmadas), `photo-thumbnail.test.tsx`, `evidence-capture-step.test.tsx` (mínimo/
+máximo nunca hardcodeados, `onValidityChange` según `satisfied`, alert de permiso
+correcto según `canAskAgain`), caso nuevo en `shipments-client.test.ts`. 126/126
+suites, 953/953 tests. `tsc --noEmit` limpio (de paso, se detectó y corrigió que el
+`dist/` local de `@movo/shared` estaba desactualizado — `RatingRole` existía en su
+`src/` pero no en el build, rompiendo `tsc` de forma no relacionada a esta US).
+
+Pendiente / fuera de alcance (igual que el propio ticket): orquestación de wizard
+(`MOVO-198`/`MOVO-199`), validación de negocio de evidencia (ya la hizo `MOVO-196`),
+ver fotos cargadas desde el detalle de envío (`MOVO-194`). No probado en dispositivo
+físico ni los tres caminos de permiso reales — pendiente del DoD, no verificable en
+este entorno (mismo criterio que MOVO-195/MOVO-107).
+
 ### MOVO-207 — Mapa de ruta optimizada multi-parada, paradas ordenadas, ETA y recálculo
 
 Pantalla completa de itinerario y mapa de ruta optimizada para el transportista (`app/(app)/route/index.tsx`), consumiendo `GET /shipments/my-route` (MOVO-206) y el solver VRPTW. Acceso desde la pestaña Transportar (`app/(app)/(tabs)/transport.tsx`, "Mi ruta de hoy").
 
-- **`components/route/route-map.tsx` (nuevo)**: mapa Google Maps con marcadores numerados según orden del algoritmo (AC2), diferenciación visual círculo negro con borde lima para retiros y verde lima para entregas (AC3), posición actual del transportista y punto de origen con tooltips contextuales, y botones flotantes complementarios "Centrar" y "Ver ruta completa".
-- **`components/route/stop-list.tsx` (nuevo)**: sheet inferior sincronizado (AC4) que inicia en vista compacta (30% de pantalla) destacando la parada activa con sus CTAs de acción ("Ver envío" / "Retirar"/"Entregar paquete"), y expande fluidamente el listado completo con `LayoutAnimation`. Paradas fuera de ventana horaria destacadas en rojo con badge (AC5). Aviso de degradación heurística discreto cuando `optimized: false` (AC6).
+- **`components/route/route-map.tsx` (nuevo)**: mapa Google Maps con marcadores numerados según orden del algoritmo (AC2), diferenciación visual coherente con Claude Design (cuadrado con borde blanco para retiros, círculo con borde blanco para entregas, fondo negro con número blanco, rojo ante demora fuera de ventana AC5). Ubicación actual del transportista (punto verde lima con borde blanco) y origen del viaje (círculo blanco con punto interior).
+- **Controles flotantes estilo Google Maps & Stitch**: botón individual conmutado que alterna entre "Centrar" (seguimiento continuo del conductor) y "Ver ruta" (visión completa del recorrido), botón "Abrir en Maps" con deep link externo (Google Maps / Apple Maps) y feedback toast situado debajo de la isla superior.
+- **`components/route/stop-list.tsx` (nuevo)**: sheet inferior con header fijo y scrollview interno para las paradas. Soporte táctil y de arrastre continuo (`PanResponder` nativo suave con físicas de resorte) desde el drag handle superior pill y header, respondiendo a toques y arrastre sin interferencias de scroll.
 - **`src/hooks/use-optimized-route.ts` (nuevo)**: maneja carga, errores, obtención de GPS foreground estricta sin coordenadas inventadas (AC8), y recálculo automático al volver a la pantalla tras completar una parada en un wizard vía `useFocusEffect` (AC7).
 - **ETA como estimación (AC11)**: todos los tiempos estimados se formatean explícitamente con copy "aprox." (`formatEstimatedArrival`).
 - **Modo Demo para desarrollo (`__DEV__`)**: accesible desde el estado vacío ("Sin paradas asignadas"), error o sin GPS en builds de desarrollo, permitiendo visualizar la ruta completa con polilínea trazada (Córdoba → Las Mulitas → Oncativo → Villa María) e interactuar con el flujo sin tener que generar manualmente viajes con estados complejos en base de datos. Los mocks en `shipmentsClient.getById` quedan estrictamente aislados detrás de `__DEV__`.
 
-Tests: `test/route-screen.test.tsx` (montaje, estados de carga, vacío, sin GPS, error y demo), `test/route-components.test.tsx` (unitarios de `StopList` y `RouteMap`, AC2-AC6, AC11), `test/use-optimized-route.test.ts` (hook, focus effect, GPS y errores), y `test/transport-screen.test.tsx` (acceso a /route). 126/126 suites y 954/954 tests pasando limpios en `movo-mobile`. `tsc --noEmit` sin errores.
-
+Tests: `test/route-screen.test.tsx` (montaje, estados de carga, vacío, sin GPS, error y demo), `test/route-components.test.tsx` (unitarios de `StopList` y `RouteMap`, AC2-AC6, AC11, controles y drag handle), `test/use-optimized-route.test.ts` (hook, focus effect, GPS y errores), y `test/transport-screen.test.tsx` (acceso a /route). 129/129 suites y 970/970 tests pasando limpios en `movo-mobile`. `tsc --noEmit` sin errores.

@@ -233,6 +233,16 @@ function isPendingOfferConflict(error: unknown): boolean {
 export interface OfferRepository {
   create(input: CreateOfferInput): Promise<Offer>;
   findById(id: string): Promise<Offer | null>;
+  /**
+   * MOVO-190: mismo contexto enriquecido de envío que `listByCarrier` (`include:
+   * { shipment: true }` + `mapOfferWithShipment`), para una sola fila -- el
+   * `GET /offers/:id` reusa el mismo shape que un ítem de `GET /offers/mine` sin
+   * duplicar la proyección. `now` opcional, mismo criterio que el resto del
+   * repositorio (MOVO-188): el caller lo pasa explícito para compartirlo con el
+   * batch de competidores del ranking y evitar la carrera de expiración entre dos
+   * `new Date()` independientes.
+   */
+  findByIdWithShipmentContext(id: string, now?: Date): Promise<OfferWithShipmentContext | null>;
   listByShipment(shipmentId: string): Promise<Offer[]>;
   /**
    * MOVO-189 (AC1/AC3): marca `viewedAtBySender = now` en las ofertas `pending`
@@ -371,6 +381,11 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
     async findById(id: string): Promise<Offer | null> {
       const row = await db.offer.findUnique({ where: { id } });
       return row ? mapOffer(row) : null;
+    },
+
+    async findByIdWithShipmentContext(id: string, now: Date = new Date()): Promise<OfferWithShipmentContext | null> {
+      const row = await db.offer.findUnique({ where: { id }, include: { shipment: true } });
+      return row ? mapOfferWithShipment(row, now) : null;
     },
 
     async listByShipment(shipmentId: string): Promise<Offer[]> {

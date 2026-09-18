@@ -1,6 +1,10 @@
 import { httpClient } from "./http-client";
+/** MOVO-222: reexportado desde `@movo/shared` en vez de mantener un literal propio --
+ * antes vivía duplicado acá y como enum Prisma en `movo-svc-shipments`, sin unificar
+ * hasta que `RatingRole` cruzó el barrel compartido. */
+import type { RatingRole } from "@movo/shared/dist/types/shipment";
 
-export type RatingRole = "sender" | "carrier" | "receiver";
+export type { RatingRole };
 
 /**
  * DTO tal cual lo devuelve `POST /shipments/:id/ratings`, `PATCH /shipments/:id/ratings/:rateeId`

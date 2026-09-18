@@ -85,9 +85,11 @@ export interface RouteResult {
   durationSeconds: number;
 }
 
-/** Único stage soportado por el contrato hoy (`presignPhotoBody`/`confirmPhotoBody`
- * en `shipments.schema.ts`, MOVO-81) — pickup/delivery quedan para MOVO-21. */
-export type ShipmentPhotoStage = "creation";
+/** Stages soportados por `presignPhotoBody`/`confirmPhotoBody` (`shipments.schema.ts`).
+ * `creation` lo registra el emisor durante el alta del envío (MOVO-81); `pickup`/
+ * `delivery` los registra el transportista asignado, exigidos por el handshake de
+ * MOVO-196 antes de poder confirmarlo (MOVO-197/198/199). */
+export type ShipmentPhotoStage = "creation" | "pickup" | "delivery";
 
 /** Body de `POST /shipments/:id/photos/presign` (MOVO-81) — `contentType`/
  * `contentLength` quedan firmados dentro de la presigned URL (no solo validados), el
@@ -124,6 +126,20 @@ export interface ShipmentPhoto {
   url: string;
   expiresIn: number;
   createdAt: string;
+}
+
+/** `GET /shipments/:id/evidence-status` (`evidenceStatusResponse` en
+ * `shipments.schema.ts`, MOVO-196 AC6) — `stage` lo infiere el backend del
+ * `shipment.status` actual (`assigned` → `pickup`, `in_transit` → `delivery`,
+ * cualquier otro → `null` con `satisfied: true`/`photoCount: 0`). `minRequired`/
+ * `maxAllowed` viajan siempre, incluso con `stage: null` — el cliente nunca los
+ * hardcodea (MOVO-197 AC5/AC6). */
+export interface EvidenceStatus {
+  stage: "pickup" | "delivery" | null;
+  satisfied: boolean;
+  photoCount: number;
+  minRequired: number;
+  maxAllowed: number;
 }
 
 /** Item de `GET /shipments/:id/events` (`shipmentEventResponse` en
@@ -316,6 +332,14 @@ export const shipmentsClient = {
    * envío (MOVO-127). */
   listPhotos(shipmentId: string): Promise<ShipmentPhoto[]> {
     return httpClient.get<ShipmentPhoto[]>(`/shipments/${shipmentId}/photos`);
+  },
+
+  /** `GET /shipments/:id/evidence-status` (MOVO-196 AC6) — accesible para emisor,
+   * receptor, transportista asignado o admin. Consumida por el step reusable de
+   * evidencia (MOVO-197) y por los wizards de retiro/entrega (MOVO-198/199) para
+   * gatear la navegación sin intentar el handshake y fallar. */
+  getEvidenceStatus(shipmentId: string): Promise<EvidenceStatus> {
+    return httpClient.get<EvidenceStatus>(`/shipments/${shipmentId}/evidence-status`);
   },
 
   /** `GET /shipments/:id/events` (MOVO-128) — mismo criterio de acceso que `getById`

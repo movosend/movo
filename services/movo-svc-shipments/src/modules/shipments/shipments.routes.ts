@@ -28,6 +28,7 @@ import {
   CreateOfferForShipmentResult,
   ListShipmentOffersQuery,
   ListShipmentOffersSort,
+  PendingRatingResult,
   ShipmentDetailResult,
 } from "./shipments.service";
 import { ActiveShipmentRole } from "../../domain/active-shipment";
@@ -118,6 +119,17 @@ function toActiveShipmentDto(item: ActiveShipmentResult) {
   };
 }
 
+/** MOVO-222: `deliveredAt` ya es un instante real (`@db.Timestamptz`, no anclado como
+ * `pickupDate`) -- `.toISOString()` directo, sin el ajuste de offset que sí necesitan
+ * `pickupDate`/`pickupTimeWindowStart`/`pickupTimeWindowEnd` en `toShipmentDto`. */
+function toPendingRatingShipmentDto(item: PendingRatingResult) {
+  return {
+    ...item,
+    deliveredAt: item.deliveredAt.toISOString(),
+    ratingDeadline: item.ratingDeadline.toISOString(),
+  };
+}
+
 function toShipmentEventDto(event: ShipmentEvent) {
   return {
     id: event.id,
@@ -141,12 +153,16 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   const repository = createShipmentRepository(app.db);
   const offerRepository = createOfferRepository(app.db);
   const tripRepository = opts.tripRepository ?? createTripRepository(app.db);
+  // MOVO-222: instancia compartida -- también la usa `listPendingRatings` (vía
+  // `ShipmentsServiceOptions.ratingRepository`) para saber qué ya calificó el caller,
+  // sin construir un segundo repositorio.
+  const ratingRepository = createRatingRepository(app.db);
   // MOVO-143 AC7: mismo criterio documentado en MOVO-147 -- getReputationSummary() se
   // llama LOCAL (misma DB/proceso, sin HTTP contra sí mismo) para snapshotear
   // carrierRatingAtOffer. Se construye acá un ratingsService propio (en vez de
   // reusar uno inyectado) porque este módulo no tiene otro motivo para depender de
   // `ratings.routes.ts`.
-  const ratingsService = createRatingsService(repository, createRatingRepository(app.db), undefined, app.log, {
+  const ratingsService = createRatingsService(repository, ratingRepository, undefined, app.log, {
     confidenceConstant: app.config.REPUTATION_CONFIDENCE_CONSTANT,
     decayHalfLifeDays: app.config.REPUTATION_DECAY_HALF_LIFE_DAYS,
   });
@@ -158,6 +174,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       pricingClient,
       pricingLogisticsClient,
       tripRepository,
+      ratingRepository,
     getCarrierReputationScore: async (carrierId: string) => {
       const summary = await ratingsService.getReputationSummary(carrierId);
       return summary.asCarrier.reputationScore;
@@ -449,6 +466,35 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       "ninguno, nunca 404. Mismo orden que /sending."
   );
 
+  // Ruta estática ("/pending-ratings") -- mismo criterio que "/mine"/"/sending"/etc:
+  // se registra antes de "/:id" por prolijidad.
+  app.get(
+    "/pending-ratings",
+    {
+      schema: {
+        summary: "Envíos con calificaciones pendientes de dar",
+        description:
+          "MOVO-222: envíos delivered/completed donde el usuario autenticado (en " +
+          "cualquier rol -- emisor, receptor o transportista) todavía tiene, dentro " +
+          "de la ventana de 72hs de MOVO-146, alguna contraparte sin calificar según " +
+          "la regla de interacción física ya definida en MOVO-153 (emisor/receptor " +
+          "califican solo al transportista; el transportista califica a ambos). Solo " +
+          "se listan envíos con algo pendiente -- pendingRatingFor nunca viaja vacío " +
+          "acá. Sin paginación, lista vacía (200) si no hay ninguno.",
+        tags: ["shipments"],
+        response: {
+          200: shipmentsSchemas.listPendingRatingsResponse,
+          401: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const items = await service.listPendingRatings(callerId);
+      return items.map(toPendingRatingShipmentDto);
+    }
+  );
+
   app.get(
     "/:id",
     {
@@ -488,9 +534,10 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         description:
           "AC1/AC2/AC3 de MOVO-81: devuelve una presigned URL de PUT a S3 (TTL 5 " +
           "minutos) para el tipo/tamaño declarados -- ambos quedan firmados dentro de " +
-          "la URL, no solo validados acá. Solo el emisor puede pedirla, y solo para la " +
-          "etapa creation. El s3Key lo genera el servidor bajo shipments/{id}/{stage}/, " +
-          "nunca uno propuesto por el cliente.",
+          "la URL, no solo validados acá. AC5 de MOVO-196: el emisor pide presign para " +
+          "la etapa creation; el transportista asignado, para pickup/delivery (403 para " +
+          "cualquier otro actor en cualquiera de las tres etapas). El s3Key lo genera el " +
+          "servidor bajo shipments/{id}/{stage}/, nunca uno propuesto por el cliente.",
         tags: ["shipments"],
         params: shipmentsSchemas.shipmentIdParam,
         body: shipmentsSchemas.presignPhotoBody,
@@ -519,7 +566,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         description:
           "AC4/AC5 de MOVO-81: verifica contra S3 (HEAD) que el objeto exista antes de " +
           "registrarlo en shipment_photos -- sin esto, el cliente podría confirmar " +
-          "fotos que nunca subió.",
+          "fotos que nunca subió. AC5/AC8 de MOVO-196: mismo criterio de autorización " +
+          "por etapa que /photos/presign, y rechaza con 422 PHOTO_STAGE_LIMIT_EXCEEDED " +
+          "si la etapa pickup/delivery ya tiene el máximo de fotos confirmadas.",
         tags: ["shipments"],
         params: shipmentsSchemas.shipmentIdParam,
         body: shipmentsSchemas.confirmPhotoBody,
@@ -564,6 +613,37 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const callerRoles = getUserRolesFromHeader(request);
       const { id } = request.params as { id: string };
       return photosService.listPhotoUrls(id, callerId, callerRoles);
+    }
+  );
+
+  app.get(
+    "/:id/evidence-status",
+    {
+      schema: {
+        summary: "Estado de la evidencia fotográfica del stage vigente",
+        description:
+          "AC6 de MOVO-196: devuelve, para el stage relevante según el estado actual del " +
+          "envío (assigned -> pickup, in_transit -> delivery, cualquier otro -> ninguno), " +
+          "si la evidencia mínima está cargada y cuántas fotos hay confirmadas -- pensado " +
+          "para que el wizard del mobile habilite o deshabilite el paso siguiente sin " +
+          "tener que intentar el handshake y fallar con PICKUP_EVIDENCE_MISSING/ " +
+          "DELIVERY_EVIDENCE_MISSING. Accesible para emisor, receptor, transportista " +
+          "asignado o admin.",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        response: {
+          200: shipmentsSchemas.evidenceStatusResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const callerRoles = getUserRolesFromHeader(request);
+      const { id } = request.params as { id: string };
+      return photosService.getEvidenceStatus(id, callerId, callerRoles);
     }
   );
 

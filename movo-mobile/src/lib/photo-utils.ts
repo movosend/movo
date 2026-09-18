@@ -98,19 +98,36 @@ export interface PickImageOptions {
  */
 export async function takePhotoWithCamera(
   options?: PickImageOptions,
-): Promise<{ cancelled: boolean; uri?: string; permissionDenied?: boolean }> {
+): Promise<{
+  cancelled: boolean;
+  uri?: string;
+  permissionDenied?: boolean;
+  /** `false` cuando el permiso está denegado de forma permanente (el SO ya no va a
+   * volver a preguntar) — distinción que necesita MOVO-197 AC2 para decidir entre
+   * reintentar pedir el permiso o mandar directo a los ajustes del sistema. Ausente
+   * si `permissionDenied` no es `true`. */
+  canAskAgain?: boolean;
+  /** `true` si el dispositivo no tiene cámara disponible (ej. simulador) — MOVO-197
+   * AC3 exige un error explícito acá, nunca ofrecer la galería como alternativa. */
+  unavailable?: boolean;
+}> {
   const permission = await ImagePicker.requestCameraPermissionsAsync();
   if (!permission.granted) {
-    return { cancelled: true, permissionDenied: true };
+    return { cancelled: true, permissionDenied: true, canAskAgain: permission.canAskAgain };
   }
 
   const allowsEditing = options?.allowsEditing ?? true;
-  const result = await ImagePicker.launchCameraAsync({
-    mediaTypes: ["images"],
-    allowsEditing,
-    ...(allowsEditing ? { aspect: [1, 1] as [number, number] } : {}),
-    quality: 1,
-  });
+  let result: ImagePicker.ImagePickerResult;
+  try {
+    result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ["images"],
+      allowsEditing,
+      ...(allowsEditing ? { aspect: [1, 1] as [number, number] } : {}),
+      quality: 1,
+    });
+  } catch {
+    return { cancelled: true, unavailable: true };
+  }
 
   if (result.canceled || !result.assets || result.assets.length === 0) {
     return { cancelled: true };

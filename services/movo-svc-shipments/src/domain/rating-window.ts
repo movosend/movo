@@ -5,6 +5,22 @@ import { ShipmentEvent } from "../models/shipment";
 export const RATING_WINDOW_HOURS = 72;
 
 /**
+ * MOVO-222: margen conservador que usa `findPendingRatingCandidates` (prefiltro SQL,
+ * `shipment-repository.ts`) por encima de `RATING_WINDOW_HOURS` para no descartar de
+ * entrada un envío cuya ventana real (post-freeze de disputa, ver
+ * `computeDisputeFrozenMs` abajo) todavía sigue abierta -- sin este margen, el
+ * prefiltro por `deliveredAt` cortaba antes de que `isRatingWindowOpen` (que sí
+ * conoce el freeze) llegara a evaluarlo. No hay un tope real de cuánto puede durar
+ * una disputa hoy (`disputed` todavía no tiene transición de salida en
+ * `shipment-state-machine.ts`), así que este valor es una cota práctica, no una regla
+ * de negocio: 30 días de disputa es un caso ya extremo para el alcance del TFG. El
+ * filtro exacto (con freeze real incluido) sigue haciéndose en `isRatingWindowOpen`
+ * sobre cada candidato -- este margen solo evita que el prefiltro sea más estricto
+ * que esa verdad.
+ */
+export const MAX_DISPUTE_FREEZE_HOURS = 24 * 30;
+
+/**
  * AC9: una disputa activa (`disputed`) congela el reloj de las 72hs -- si no, una
  * disputa larga se come la ventana entera y nadie puede calificar cuando se resuelve.
  * Sin columna nueva: el instante de entrada a disputa ya está guardado en

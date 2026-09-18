@@ -343,6 +343,13 @@ export interface ShipmentRepository {
    */
   existsPhotoByS3Key(s3Key: string): Promise<boolean>;
   /**
+   * MOVO-196: fotos CONFIRMADAS (fila real en `shipment_photos`, nunca un presign
+   * pendiente sin confirmar) de una etapa puntual de un envío -- fuente de la
+   * precondición de evidencia mínima antes de handshake (AC1/AC2/AC7) y del tope
+   * máximo por etapa (AC8).
+   */
+  countPhotosByStage(shipmentId: string, stage: PhotoStage): Promise<number>;
+  /**
    * Envíos donde el usuario participa como sender o como receiver (AC9 de MOVO-80 —
    * todavía no hay rol de "carrier" asignado en este sprint). Paginado, más reciente
    * primero.
@@ -458,6 +465,24 @@ export interface ShipmentRepository {
    * ascendente y, dentro del mismo día, por `pickupTimeWindowStart` ascendente (AC7).
    */
   listActiveShipments(role: "senderId" | "carrierId" | "receiverId", userId: string): Promise<Shipment[]>;
+  /**
+   * MOVO-222: candidatos a calificar todavía pendientes de `userId` — `delivered`/
+   * `completed` donde participa en CUALQUIER rol (`senderId`/`receiverId`/
+   * `carrierId`), a diferencia de `listByUser` (`/mine`), que nunca incluyó
+   * `carrierId` (gap desde MOVO-80 — "no hay asignación automática este sprint" en
+   * ese momento). Es justamente el rol que este método necesita cubrir para el caso
+   * "transportista con 2 contrapartes" del DoD del ticket. `deliveredSince` acota en
+   * SQL a la ventana de 72hs de `rating-window.ts` MÁS `MAX_DISPUTE_FREEZE_HOURS` de
+   * margen (evita traer a memoria envíos entregados hace meses que ya no pueden
+   * calificarse, sin descartar de entrada uno cuya ventana real todavía esté abierta
+   * por un freeze de disputa) — el filtro exacto (freeze real, ya calificado) lo hace
+   * el caller en JS (`computePendingRatingFor`/`isRatingWindowOpen`), mismo criterio
+   * que el resto del dominio de no replicar esa lógica en SQL. Este prefiltro es
+   * deliberadamente más laxo que la ventana real: nunca debe excluir a mano un
+   * candidato que el chequeo fino todavía consideraría vigente (bug corregido en
+   * review — antes usaba `RATING_WINDOW_HOURS` a secas acá).
+   */
+  findPendingRatingCandidates(userId: string, deliveredSince: Date): Promise<Shipment[]>;
 }
 
 export class ShipmentNotFoundError extends Error {
@@ -647,6 +672,10 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
     async existsPhotoByS3Key(s3Key: string): Promise<boolean> {
       const row = await db.shipmentPhoto.findFirst({ where: { s3Key }, select: { id: true } });
       return row !== null;
+    },
+
+    async countPhotosByStage(shipmentId: string, stage: PhotoStage): Promise<number> {
+      return db.shipmentPhoto.count({ where: { shipmentId, stage } });
     },
 
     async listByUser(userId: string, page: number, limit: number): Promise<{ items: Shipment[]; total: number }> {
@@ -898,6 +927,18 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       const rows = await db.shipment.findMany({
         where: { [role]: userId, status: { in: [...ACTIVE_SHIPMENT_STATUSES] } },
         orderBy: [{ pickupDate: "asc" }, { pickupTimeWindowStart: "asc" }],
+      });
+      return rows.map(mapShipment);
+    },
+
+    async findPendingRatingCandidates(userId: string, deliveredSince: Date): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: {
+          OR: [{ senderId: userId }, { receiverId: userId }, { carrierId: userId }],
+          status: { in: [...FULFILLED_SHIPMENT_STATUSES] },
+          deliveredAt: { gte: deliveredSince },
+        },
+        orderBy: { deliveredAt: "desc" },
       });
       return rows.map(mapShipment);
     },

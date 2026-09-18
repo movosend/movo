@@ -226,6 +226,23 @@ MOVO-171) — tocó varios fixtures de test en `movo-svc-users`/`movo-mobile`.
 `ApiErrorCode` sumó `LEGAL_DOCUMENT_VERSION_MISMATCH` — la app mandó una versión
 vieja de Términos/Privacidad al registrarse (app desactualizada).
 
+### MOVO-222 — `RatingRole`/`PendingRatingShipment`
+
+`src/types/shipment.ts` — wire contract de `GET /shipments/pending-ratings`
+(`movo-svc-shipments`, endpoint nuevo, no un campo en `ShipmentSummary`/`/mine` — ver
+`services/movo-svc-shipments/CLAUDE.md` para la decisión completa). `RatingRole`
+(`"sender" | "carrier" | "receiver"`) es la primera vez que este tipo cruza el barrel
+compartido — antes vivía duplicado como enum Prisma en `movo-svc-shipments/src/models/
+rating.ts` (MOVO-146) y como literal propio en `movo-mobile/src/api/ratings-client.ts`
+(MOVO-153), sin unificar porque ningún wire contract lo había necesitado hasta ahora.
+**Corrección de review (mismo PR):** `ratings-client.ts` ahora reexporta `RatingRole`
+desde acá en vez de mantener el literal propio — de las 3 copias quedan 2 (esta y el
+enum Prisma del backend, que sigue siendo la fuente de verdad del lado de Postgres).
+`PendingRatingShipment` también suma `ratingDeadline` (deadline absoluto, no solo
+`deliveredAt`) — el cliente no puede recomputar la ventana de 72hs a mano porque un
+freeze de disputa la extiende de forma variable, mismo criterio que
+`ActiveShipmentSummary.receiverConfirmationDeadline`.
+
 ### MOVO-208 — `ShipmentStatus` extendido a 11 valores
 
 `src/types/shipment.ts` suma `ASSIGNED_UNFUNDED = "assigned_unfunded"` (entre

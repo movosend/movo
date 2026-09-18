@@ -227,7 +227,7 @@ describe("PATCH /offers/:id (Postgres, MOVO-181)", () => {
     expect(response.statusCode).toBe(400);
   });
 
-  it("409 OFFER_CONCURRENT_MODIFICATION: un PATCH concurrente con un withdraw sobre la misma oferta -- uno gana, el otro falla", async () => {
+  it("PATCH concurrente con un withdraw sobre la misma oferta -- withdraw siempre gana, PATCH puede ganar o perder el CAS (test flaky corregido: no son mutuamente excluyentes)", async () => {
     const shipmentId = await createPublishedShipment();
     const offer = await offerRepo.create(baseOfferInput({ shipmentId }));
 
@@ -240,16 +240,32 @@ describe("PATCH /offers/:id (Postgres, MOVO-181)", () => {
       app.inject({ method: "POST", url: `/offers/${offer.id}/withdraw`, headers: { "x-user-id": carrierId } }),
     ]);
 
-    const statuses = [resPatch.statusCode, resWithdraw.statusCode].sort();
-    expect(statuses).toEqual([200, 409].sort());
+    // Bug de este test (no un timing flaky de infra -- confirmado fallando de forma
+    // determinística según el orden real de commit, ver CI): asumía que exactamente
+    // uno de los dos siempre pierde con 409, calcado del molde de "dos transiciones
+    // terminales" (ej. accept vs withdraw) donde ambos compiten por el mismo `status`.
+    // PATCH (`update()`) nunca escribe `status` -- su propio CAS lee `status:'pending'`
+    // pero jamás lo cambia, así que la precondición de `withdraw()` (`status:'pending'`)
+    // nunca se invalida por un PATCH, gane o pierda éste su carrera. `withdraw()` por
+    // lo tanto SIEMPRE resuelve 200 acá -- el mismo razonamiento que ya documenta,
+    // correctamente, `offer-repository.integration.test.ts#"compare-and-swap real:
+    // update() concurrente con un withdraw()..."` para el mismo par de operaciones un
+    // nivel más abajo (repositorio, sin pasar por HTTP). Lo no determinístico es
+    // únicamente si el `UPDATE` de PATCH llega a commitear antes que el de withdraw
+    // (los dos aplican, 200/200) o después (pierde el CAS contra el status ya
+    // cambiado, 409/200) -- nunca al revés.
+    expect(resWithdraw.statusCode).toBe(200);
+    expect([200, 409]).toContain(resPatch.statusCode);
 
     const final = await offerRepo.findById(offer.id);
-    if (resWithdraw.statusCode === 200) {
-      expect(final?.status).toBe("withdrawn");
-      expect(final?.priceOffered).toBe(1150);
-    } else {
-      expect(final?.status).toBe("pending");
+    expect(final?.status).toBe("withdrawn");
+    if (resPatch.statusCode === 200) {
+      // PATCH alcanzó a commitear antes que withdraw -- ambos efectos sobreviven.
       expect(final?.priceOffered).toBe(2300);
+    } else {
+      // withdraw commiteó primero -- PATCH perdió el CAS contra el status ya
+      // cambiado, sin pisar el precio original.
+      expect(final?.priceOffered).toBe(1150);
     }
   });
 });

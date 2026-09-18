@@ -17,11 +17,16 @@ const DIMENSION_CM_MAX = 150;
 // simple sin zona horaria.
 const TIME_PATTERN = "^([01]\\d|2[0-3]):[0-5]\\d(:[0-5]\\d)?$";
 
-// MOVO-81: solo "creation" es una etapa válida en el contrato por ahora -- pickup/
-// delivery (MOVO-21) suman valores acá y un caso de autorización en
-// `photos.service.ts`, sin tocar el resto. El dominio (`PhotoStage`, `addPhoto`) ya es
-// genérico por stage desde MOVO-104.
-const PHOTO_STAGE_VALUES = ["creation"];
+// MOVO-81/MOVO-196: "creation" (emisor) más "pickup"/"delivery" (evidencia del
+// transportista asignado antes del handshake, MOVO-158) -- el dominio (`PhotoStage`,
+// `addPhoto`) ya era genérico por stage desde MOVO-104, solo faltaba habilitarlos acá
+// y la autorización por stage en `photos.service.ts#assertCanRegisterPhoto`.
+const PHOTO_STAGE_VALUES = ["creation", "pickup", "delivery"];
+
+// MOVO-196: subconjunto de PHOTO_STAGE_VALUES con handshake pendiente -- el único
+// `stage` que puede devolver GET /:id/evidence-status (`null` para cualquier otro
+// estado del envío, sin handshake en curso).
+const EVIDENCE_PHOTO_STAGE_VALUES = ["pickup", "delivery"];
 
 // AC10: convención de key `.jpg` -- duplicado en `photos.service.ts`
 // (`ALLOWED_PHOTO_CONTENT_TYPE`/`MAX_PHOTO_CONTENT_LENGTH_BYTES`), mismo criterio que
@@ -306,6 +311,47 @@ const activeShipmentSummaryResponse = {
   },
 };
 
+// MOVO-222: mismos 3 valores que `RatingRole` (`models/rating.ts`, enum Prisma) y
+// `@movo/shared#RatingRole`.
+const RATING_ROLE_VALUES = ["sender", "carrier", "receiver"];
+
+// MOVO-222: único subconjunto de `status` que puede aparecer en la respuesta de
+// GET /shipments/pending-ratings -- `findPendingRatingCandidates` ya filtra por
+// FULFILLED_SHIPMENT_STATUSES antes de llegar acá.
+const PENDING_RATING_STATUS_VALUES = ["delivered", "completed"];
+
+const pendingRatingShipmentResponse = {
+  type: "object",
+  required: [
+    "id",
+    "status",
+    "deliveredAt",
+    "ratingDeadline",
+    "senderId",
+    "receiverId",
+    "carrierId",
+    "pendingRatingFor",
+  ],
+  properties: {
+    id: { type: "string" },
+    status: { type: "string", enum: PENDING_RATING_STATUS_VALUES },
+    deliveredAt: { type: "string", format: "date-time" },
+    // MOVO-222 (corregido en review): instante absoluto ya calculado
+    // (`computeRatingWindowDeadline`, incluye freeze de disputa) -- el cliente no
+    // recalcula 72hs a mano, mismo criterio que `receiverConfirmationDeadline`.
+    ratingDeadline: { type: "string", format: "date-time" },
+    senderId: { type: "string" },
+    receiverId: { type: "string" },
+    carrierId: { type: "string" },
+    // Nunca vacío -- el servicio solo devuelve ítems con algo pendiente de calificar.
+    pendingRatingFor: {
+      type: "array",
+      items: { type: "string", enum: RATING_ROLE_VALUES },
+      minItems: 1,
+    },
+  },
+};
+
 const shipmentEventResponse = {
   type: "object",
   required: ["id", "shipmentId", "fromStatus", "toStatus", "actorId", "reason", "createdAt"],
@@ -464,6 +510,16 @@ export const shipmentsSchemas = {
     items: activeShipmentSummaryResponse,
   },
 
+  pendingRatingShipmentResponse,
+
+  // MOVO-222: sin paginación (mismo criterio que listActiveShipmentsResponse) -- el
+  // volumen realista (envíos entregados en las últimas 72hs con algo pendiente) nunca
+  // es grande.
+  listPendingRatingsResponse: {
+    type: "array",
+    items: pendingRatingShipmentResponse,
+  },
+
   routeQuery: {
     type: "object",
     required: ["originLat", "originLng", "destinationLat", "destinationLng"],
@@ -557,6 +613,20 @@ export const shipmentsSchemas = {
         expiresIn: { type: "integer" },
         createdAt: { type: "string", format: "date-time" },
       },
+    },
+  },
+
+  // MOVO-196 (AC6): `stage: null` cuando el envío no tiene handshake pendiente --
+  // `satisfied`/`photoCount` igual viajan (`true`/`0`), no hay nada que exigir.
+  evidenceStatusResponse: {
+    type: "object",
+    required: ["stage", "satisfied", "photoCount", "minRequired", "maxAllowed"],
+    properties: {
+      stage: { type: ["string", "null"], enum: [...EVIDENCE_PHOTO_STAGE_VALUES, null] },
+      satisfied: { type: "boolean" },
+      photoCount: { type: "integer" },
+      minRequired: { type: "integer" },
+      maxAllowed: { type: "integer" },
     },
   },
 
