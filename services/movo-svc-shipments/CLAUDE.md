@@ -2173,6 +2173,26 @@ envío cancelado y sobre oferta `accepted`, 401 sin `x-user-id`). Suite completa
 del servicio 667/667 (51 archivos). `tsc --noEmit` y `eslint` limpios.
 Confirmado que `app.swagger()` expone `GET /offers/{id}`.
 
+### MOVO-200 — PoC del canal de tiempo real (`svc-shipments`)
+
+Decisión completa (WebSocket nativo, comparación de tecnologías, impacto en infra) en
+ADR-022, `CLAUDE.md` raíz. Acá solo el código de la PoC (AC5 del spike, no la
+implementación final — esa es MOVO-201): `src/plugins/websocket.ts` (registra
+`@fastify/websocket`) + `src/modules/tracking/tracking-poc.routes.ts`
+(`GET /shipments/:id/track`, WS). Valida el JWT con `verifyAccessToken` (`@movo/shared`)
+directo en el handshake de conexión, no con `x-user-*` (ADR-010) — esta PoC conecta
+directo al servicio, sin el proxy del gateway que MOVO-201 todavía no implementa.
+Autoriza por pertenencia al envío (`assertShipmentAccess`, más el `carrierId`
+asignado, que ese helper no conoce — mismo criterio que AC8 de MOVO-142) y empuja una
+única posición de muestra al conectar. Sin salas, sin difusión a más de un suscriptor,
+sin ingesta real de GPS. Probada de punta a punta contra un servidor TCP real (no
+`injectWS`/`app.inject` — el test double de `@fastify/websocket` para WS tiene un
+problema de timing propio al enviar un mensaje inmediatamente después del upgrade,
+sin relación con el código de la ruta) con los 4 caminos: sin token (cierre `4001`),
+usuario ajeno al envío (`4003`), envío inexistente (`4004`), y el push real al
+emisor autorizado. Instrucciones para correrla: `docs/tracking-poc/README.md`
+(raíz del repo).
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
