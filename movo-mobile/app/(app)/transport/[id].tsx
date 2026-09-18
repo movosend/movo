@@ -222,20 +222,21 @@ export default function TransportShipmentDetailScreen() {
   // `limit: 50` es el máximo que acepta el backend (`offers.schema.ts`, default 20) —
   // sin un filtro por `shipmentId` del lado del servidor, esto es lo más que se puede
   // acotar el riesgo de no encontrar una oferta pendiente/aceptada existente si el
-  // transportista tiene más ofertas activas que el límite de una sola página. Sin
-  // filtro de `status`: además de la `pending` (para "Tu oferta activa"), hace falta
-  // poder encontrar la propia `accepted` una vez que el envío ya se asignó -- esa
-  // oferta es la única fuente de la fecha/franja de retiro REALMENTE confirmada
-  // cuando el transportista propuso un día distinto al pedido por el emisor
-  // (`shipment.pickupDate` nunca se actualiza al aceptar, ver `offer-repository.ts`).
-  const { data: myOffers } = useMyOffers({ limit: 50 });
+  // transportista tiene más ofertas activas que el límite de una sola página.
+  // Dos queries, una por `status`, en vez de una sola sin filtro (feedback de
+  // review, PR #164): sin filtro, las 50 posiciones compiten contra TODO el
+  // historial del transportista (rechazadas/retiradas/vencidas/superadas), no solo
+  // contra lo que a esta pantalla le interesa -- para un transportista muy activo
+  // eso aumentaba el riesgo real de que la oferta de este envío quedara fuera de la
+  // página. La `accepted` hace falta además de la `pending` (para "Tu oferta
+  // activa") porque es la única fuente de la fecha/franja de retiro REALMENTE
+  // confirmada una vez que el envío ya se asignó (`shipment.pickupDate` nunca se
+  // actualiza al aceptar, ver `offer-repository.ts`).
+  const { data: myPendingOffers } = useMyOffers({ status: OfferStatus.PENDING, limit: 50 });
+  const { data: myAcceptedOffers } = useMyOffers({ status: OfferStatus.ACCEPTED, limit: 50 });
 
-  const myActiveOffer = myOffers?.items.find(
-    (offer) => offer.shipmentId === id && offer.status === OfferStatus.PENDING,
-  );
-  const myAcceptedOffer = myOffers?.items.find(
-    (offer) => offer.shipmentId === id && offer.status === OfferStatus.ACCEPTED,
-  );
+  const myActiveOffer = myPendingOffers?.items.find((offer) => offer.shipmentId === id);
+  const myAcceptedOffer = myAcceptedOffers?.items.find((offer) => offer.shipmentId === id);
 
   const currentUser = useAuthStore((state) => state.user);
   // El emisor ya eligió mi oferta y el envío se confirmó con `carrierId` seteado a

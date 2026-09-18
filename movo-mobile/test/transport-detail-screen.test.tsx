@@ -36,8 +36,20 @@ jest.mock("../src/hooks/use-shipments", () => ({
 
 const mockUseMyOffers = jest.fn();
 jest.mock("../src/hooks/use-offers", () => ({
-  useMyOffers: () => mockUseMyOffers(),
+  useMyOffers: (params?: { status?: string }) => mockUseMyOffers(params),
 }));
+
+/**
+ * El componente hace dos llamadas a `useMyOffers`, una por `status` (fix de review,
+ * PR #164 -- ver `app/(app)/transport/[id].tsx`) -- este helper reproduce ese
+ * filtro server-side sobre un único array de fixtures, así los tests siguen
+ * describiendo "las ofertas que existen" en vez de "qué devuelve cada llamada".
+ */
+function mockMyOffers(items: Array<{ status?: string; [key: string]: unknown }>) {
+  mockUseMyOffers.mockImplementation((params: { status?: string } = {}) => ({
+    data: { items: params.status ? items.filter((offer) => offer.status === params.status) : items },
+  }));
+}
 
 const mockCurrentUser = jest.fn(() => ({ userId: "carrier-me" }));
 jest.mock("../src/store/auth-store", () => ({
@@ -133,7 +145,7 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
 describe("TransportShipmentDetailScreen", () => {
   beforeEach(() => {
     mockCanGoBack.mockReturnValue(true);
-    mockUseMyOffers.mockReturnValue({ data: { items: [] } });
+    mockMyOffers([]);
   });
   afterEach(() => {
     jest.clearAllMocks();
@@ -370,7 +382,7 @@ describe("TransportShipmentDetailScreen", () => {
   describe("Acción de ofertar y retirar oferta (MOVO-149)", () => {
     it("sin oferta activa previa, muestra el botón 'Hacer una oferta' y al tocarlo navega a la pantalla de creación", async () => {
       mockUseShipment.mockReturnValue({ isLoading: false, isError: false, data: shipment(), error: null, refetch: jest.fn() });
-      mockUseMyOffers.mockReturnValue({ data: { items: [] } });
+      mockMyOffers([]);
 
       const { getByTestId, queryByTestId } = await render(<TransportShipmentDetailScreen />);
 
@@ -396,7 +408,7 @@ describe("TransportShipmentDetailScreen", () => {
       });
       // La oferta ya pasó a `accepted` -- deja de aparecer entre las `pending` de
       // `myOffers` (mismo comportamiento real de `useMyOffers`).
-      mockUseMyOffers.mockReturnValue({ data: { items: [] } });
+      mockMyOffers([]);
 
       const { getByTestId, queryByTestId, queryByText } = await render(<TransportShipmentDetailScreen />);
 
@@ -424,23 +436,19 @@ describe("TransportShipmentDetailScreen", () => {
         error: null,
         refetch: jest.fn(),
       });
-      mockUseMyOffers.mockReturnValue({
-        data: {
-          items: [
-            {
-              id: "offer-accepted-1",
-              shipmentId: "shipment-1",
-              carrierId: "carrier-me",
-              priceOffered: 7500,
-              offeredDate: "2026-08-21",
-              offeredPickupTimeWindowStart: "15:00",
-              offeredPickupTimeWindowEnd: "19:00",
-              message: null,
-              status: OfferStatus.ACCEPTED,
-            },
-          ],
+      mockMyOffers([
+        {
+          id: "offer-accepted-1",
+          shipmentId: "shipment-1",
+          carrierId: "carrier-me",
+          priceOffered: 7500,
+          offeredDate: "2026-08-21",
+          offeredPickupTimeWindowStart: "15:00",
+          offeredPickupTimeWindowEnd: "19:00",
+          message: null,
+          status: OfferStatus.ACCEPTED,
         },
-      });
+      ]);
 
       const { getByTestId } = await render(<TransportShipmentDetailScreen />);
 
@@ -457,7 +465,7 @@ describe("TransportShipmentDetailScreen", () => {
         error: null,
         refetch: jest.fn(),
       });
-      mockUseMyOffers.mockReturnValue({ data: { items: [] } });
+      mockMyOffers([]);
 
       const { queryByTestId } = await render(<TransportShipmentDetailScreen />);
 
@@ -467,21 +475,17 @@ describe("TransportShipmentDetailScreen", () => {
 
     it("si ya tiene una oferta activa, muestra la card con sus datos y navega al detalle de la oferta (MOVO-182)", async () => {
       mockUseShipment.mockReturnValue({ isLoading: false, isError: false, data: shipment(), error: null, refetch: jest.fn() });
-      mockUseMyOffers.mockReturnValue({
-        data: {
-          items: [
-            {
-              id: "offer-active-1",
-              shipmentId: "shipment-1",
-              carrierId: "carrier-1",
-              priceOffered: 7500,
-              offeredDate: "2026-08-20",
-              message: "Llego puntual en camioneta",
-              status: OfferStatus.PENDING,
-            },
-          ],
+      mockMyOffers([
+        {
+          id: "offer-active-1",
+          shipmentId: "shipment-1",
+          carrierId: "carrier-1",
+          priceOffered: 7500,
+          offeredDate: "2026-08-20",
+          message: "Llego puntual en camioneta",
+          status: OfferStatus.PENDING,
         },
-      });
+      ]);
 
       const { getByTestId, queryByTestId } = await render(<TransportShipmentDetailScreen />);
 
@@ -506,21 +510,17 @@ describe("TransportShipmentDetailScreen", () => {
         error: null,
         refetch: jest.fn(),
       });
-      mockUseMyOffers.mockReturnValue({
-        data: {
-          items: [
-            {
-              id: "offer-active-1",
-              shipmentId: "shipment-1",
-              carrierId: "carrier-1",
-              priceOffered: 7500,
-              offeredDate: "2026-08-20",
-              message: null,
-              status: OfferStatus.PENDING,
-            },
-          ],
+      mockMyOffers([
+        {
+          id: "offer-active-1",
+          shipmentId: "shipment-1",
+          carrierId: "carrier-1",
+          priceOffered: 7500,
+          offeredDate: "2026-08-20",
+          message: null,
+          status: OfferStatus.PENDING,
         },
-      });
+      ]);
 
       const { getByTestId, queryByText } = await render(<TransportShipmentDetailScreen />);
 
@@ -537,24 +537,20 @@ describe("TransportShipmentDetailScreen", () => {
         error: null,
         refetch: jest.fn(),
       });
-      mockUseMyOffers.mockReturnValue({
-        data: {
-          items: [
-            {
-              id: "offer-active-1",
-              shipmentId: "shipment-1",
-              carrierId: "carrier-1",
-              priceOffered: 7500,
-              // La oferta propuso otro día y franja.
-              offeredDate: "2026-08-21",
-              offeredPickupTimeWindowStart: "15:00",
-              offeredPickupTimeWindowEnd: "19:00",
-              message: null,
-              status: OfferStatus.PENDING,
-            },
-          ],
+      mockMyOffers([
+        {
+          id: "offer-active-1",
+          shipmentId: "shipment-1",
+          carrierId: "carrier-1",
+          priceOffered: 7500,
+          // La oferta propuso otro día y franja.
+          offeredDate: "2026-08-21",
+          offeredPickupTimeWindowStart: "15:00",
+          offeredPickupTimeWindowEnd: "19:00",
+          message: null,
+          status: OfferStatus.PENDING,
         },
-      });
+      ]);
 
       const { getByText, queryByText } = await render(<TransportShipmentDetailScreen />);
 
@@ -571,23 +567,19 @@ describe("TransportShipmentDetailScreen", () => {
         error: null,
         refetch: jest.fn(),
       });
-      mockUseMyOffers.mockReturnValue({
-        data: {
-          items: [
-            {
-              id: "offer-active-1",
-              shipmentId: "shipment-1",
-              carrierId: "carrier-1",
-              priceOffered: 7500,
-              offeredDate: "2026-08-20",
-              offeredPickupTimeWindowStart: null,
-              offeredPickupTimeWindowEnd: null,
-              message: null,
-              status: OfferStatus.PENDING,
-            },
-          ],
+      mockMyOffers([
+        {
+          id: "offer-active-1",
+          shipmentId: "shipment-1",
+          carrierId: "carrier-1",
+          priceOffered: 7500,
+          offeredDate: "2026-08-20",
+          offeredPickupTimeWindowStart: null,
+          offeredPickupTimeWindowEnd: null,
+          message: null,
+          status: OfferStatus.PENDING,
         },
-      });
+      ]);
 
       const { getByText } = await render(<TransportShipmentDetailScreen />);
 
