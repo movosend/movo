@@ -247,3 +247,13 @@ que el enum de Postgres (`movo-svc-shipments/prisma/schema.prisma`) y la máquin
 estados, conforme obliga el AC6 de MOVO-79. Ver `services/movo-svc-shipments/CLAUDE.md`
 (entrada de MOVO-208) para el detalle completo y ADR-021 (`CLAUDE.md` raíz) para el
 razonamiento.
+
+### MOVO-221 — `TripStatus` gana `declared`; `TRIP_NOT_DECLARED`/`TRIP_ALREADY_HAS_ACTIVE_TRIP`/`TRIP_NOT_AVAILABLE`
+
+`src/types/trip.ts` — `TripStatus.DECLARED` insertado antes de `ACTIVE`: pasa a ser el
+estado inicial real de un viaje declarado (`declared -> active -> completed`, un viaje
+ya no nace directo en `active`). Tres códigos nuevos en `ApiErrorCode`
+(`errors/api-error.ts`) para el endpoint `POST /trips/:id/start` y el chequeo ampliado
+de `tripId` en `POST /shipments/:id/offers` — `TRIP_NOT_ACTIVE` (MOVO-162) queda sin
+uso pero nunca se elimina (contrato de wire). Detalle completo en
+`services/movo-svc-shipments/CLAUDE.md` (entrada de MOVO-221).
