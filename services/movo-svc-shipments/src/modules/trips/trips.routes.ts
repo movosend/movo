@@ -86,6 +86,7 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
       usersClient,
       pricingLogisticsClient,
       defaultMaxDetourKm,
+      logger: app.log,
     });
 
   // POST /trips: declara un nuevo viaje
@@ -248,6 +249,36 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
       });
 
       return reply.code(204).send();
+    },
+  );
+
+  // POST /trips/:id/start: declared -> active (MOVO-221, máx 1 active por cuenta)
+  app.post(
+    "/:id/start",
+    {
+      schema: {
+        summary: "Iniciar viaje declarado (transportista)",
+        params: tripsSchemas.tripIdParam,
+        response: {
+          200: tripsSchemas.tripResponse,
+          403: tripsSchemas.errorResponse,
+          404: tripsSchemas.errorResponse,
+          409: tripsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const callerId = requireUserIdFromHeader(request);
+      const callerRoles = getUserRolesFromHeader(request);
+      const { id } = request.params as { id: string };
+
+      const trip = await service.startTrip({
+        tripId: id,
+        callerId,
+        callerRoles,
+      });
+
+      return reply.send(toTripDto(trip));
     },
   );
 

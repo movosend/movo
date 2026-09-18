@@ -2096,6 +2096,100 @@ Pendiente / fuera de alcance: consumo real desde `movo-mobile`
 migrar la sección "Requiere tu atención" a usar este endpoint queda para cuando se
 retome ese lado.
 
+### MOVO-221 — Rediseño de estados de viaje (declared/active/completed) + límite de 1 viaje activo por transportista
+
+`TripStatus` (`@movo/shared`) gana `declared`, insertado antes de `active` -- pasa a
+ser el estado inicial real de un viaje (`trip-repository.ts#create()`, antes nacía
+directo en `active` sin ningún paso explícito de "arrancar el viaje"). Endpoint nuevo
+`POST /trips/:id/start` (`declared -> active`). Dos migraciones separadas
+(`20260916140000_add_trip_status_declared` + `20260916140100_backfill_trip_declared_
+and_active_unique`) porque Postgres no permite usar un valor de enum recién agregado
+con `ADD VALUE` dentro de la misma transacción que lo agrega (mismo mecanismo ya
+documentado en MOVO-208) -- la segunda migración hace el backfill de datos (`active`
+preexistente -> `declared`, ningún viaje pudo "iniciarse" de verdad hasta ahora) y crea
+el índice único parcial `trips_carrier_active_unique` (`carrier_id) WHERE
+status='active'`, no representable en el DSL de Prisma (mismo patrón que
+`offers_shipment_carrier_pending_unique`, MOVO-102).
+
+Decisiones clave:
+- **`TripRepository.start()` es compare-and-swap + índice único parcial, no dos
+  chequeos separados**: `updateMany({where: {id, status: declared}})` (mismo patrón
+  CAS que `acceptOffer`/`updateStatus`, MOVO-102/118) protege contra doble-tap
+  concurrente sobre el MISMO viaje; el índice único parcial (atrapado como `P2002` ->
+  `TripAlreadyHasActiveTripError`) es la garantía real contra dos viajes DISTINTOS del
+  mismo transportista compitiendo por ser el único `active` -- verificado con un test
+  de concurrencia real (`Promise.allSettled` de dos `start()` en paralelo sobre dos
+  viajes `declared` del mismo `carrierId`, contra Postgres real, sin flakiness).
+  `update()` (PATCH) recibió el mismo catch de `P2002`: un `PATCH {status: active}` a
+  mano viola igual el límite si ya hay otro activo, sin necesidad de pasar por
+  `start()` -- la garantía vive en la base, no en un único punto de entrada HTTP.
+- **`TRIP_NOT_ACTIVE` (MOVO-162) nunca se renombra ni se elimina** (contrato de wire,
+  `@movo/shared`) pese a que el chequeo que lo lanzaba (`createOfferForShipment`,
+  `shipments.service.ts`) cambió de exigir `active` a secas a aceptar `declared` O
+  `active` -- una oferta se hace normalmente mientras el viaje todavía no arrancó.
+  Reemplazado por el código nuevo `TRIP_NOT_AVAILABLE` (409), que solo rechaza
+  `cancelled`/`completed`. Mismo criterio aplicado a `GET /trips/:id/matches`
+  (`trips.service.ts#getTripMatches`) -- **gap real cerrado de paso**: ese endpoint
+  nunca había chequeado `trip.status` en absoluto, así que un viaje `cancelled`/
+  `completed` seguía devolviendo matches indefinidamente.
+- **El warm-up del motor VRPTW en `/start` (AC2 del ticket) es fire-and-forget y
+  reusa `GET /shipments/my-route` (MOVO-206), no lo reimplementa**: dispara
+  `pricingLogisticsClient.optimizeRoute` con las paradas de TODOS los envíos activos
+  del transportista (`aggregateCarrierStops` + `listActiveShipments`, mismos
+  helpers que `getMyRoute`) usando el origen del viaje como proxy de posición --
+  nunca bloquea ni afecta la respuesta de `/start` (try/catch mudo + `logger?.warn`),
+  y el resultado se descarta (mismo criterio "on-demand sin persistencia" de
+  MOVO-206 AC7/AC9: no hay dónde guardarlo en `Trip`, y el mobile pide la ruta real
+  por separado con la posición GPS real en ese momento, más precisa que el origen
+  declarado). El ticket describía esto como "sin conectar a ningún flujo real
+  todavía" -- ya no es así desde MOVO-206, discrepancia documentada acá igual que
+  otros casos similares (MOVO-180) en vez de reimplementar por las dudas.
+- **Decisiones de las preguntas abiertas del ticket ("a definir en refinamiento"),
+  resueltas sin bloquear la implementación**: (1) un viaje `declared` se puede
+  iniciar en cualquier momento, sin relación con `departureAt` -- restringir a "solo
+  el día de" no lo pedía ningún AC y habría requerido definir semántica de timezone
+  antes de tener un caso de uso real; (2) `GET /trips/:id/matches` sigue funcionando
+  mientras el viaje está vivo (`declared` o `active`), no solo `declared` -- mismo
+  criterio "vivo vs. terminal" que el resto del rediseño; (3) del lado mobile, la
+  franja "de paso" (`computeOnTripDetour`) pasa a alimentarse de los viajes
+  `declared` (los N pendientes de iniciar), no `active` -- con el límite de 1 activo
+  por cuenta, cruzar contra `active` cubriría como mucho un solo viaje a la vez.
+- **`POST /trips/:id/start` autoriza dueño+admin** (mismo criterio que
+  `getTrip`/`updateTrip`/`deleteTrip`, no el más estricto de `assertIsSender` de
+  MOVO-129) -- ninguna razón real para excluir admin de una transición de estado
+  administrativa.
+- **Qué pasa con un viaje `declared` cuyo `departureAt` ya pasó y nadie lo inició**:
+  explícitamente fuera de alcance del ticket, sin sweep de expiración -- a diferencia
+  de la confirmación del receptor (MOVO-130) o el retiro vencido de un `published`
+  (bug de MOVO-148), acá no hay ningún AC que lo pida y la decisión de negocio
+  (¿se cancela solo? ¿queda "declarado vencido"?) sigue sin tomarse.
+- **Test de integración explícito pedido por el ticket** ("un envío no puede terminar
+  asociado a más de un viaje a la vez"): la garantía ya se cumplía sin cambios de
+  código (`Offer.tripId` vive en `Offer`, y `acceptOffer` -- MOVO-102/144 -- ya marca
+  `superseded` cualquier otra oferta `pending` del mismo envío al aceptar una, así que
+  solo puede existir una oferta `accepted` por envío) -- solo hacía falta el test que
+  lo fijara de punta a punta contra Postgres real, con dos transportistas y dos viajes
+  distintos ofertando sobre el mismo envío.
+- **DER actualizado** (`docs/movo_der.dbml`): `trip_status_enum` con el valor nuevo y
+  el default de `shipments.trips.status` documentado como `declared`.
+
+Tests: `test/trip-lifecycle.integration.test.ts` nuevo (Postgres real -- default
+`declared`, `start()` feliz/404/409×2, aislamiento por `carrierId`, el test de
+concurrencia de dos `start()` en paralelo, `update()` respeta el mismo límite, y el
+test de exclusividad envío↔viaje de arriba), casos nuevos en `trips-service.test.ts`
+(`startTrip` completo + gating de `getTripMatches`), `trips.routes.test.ts` (HTTP de
+`POST /:id/start`) y `shipments-offers-create.integration.test.ts` (`tripId` con viaje
+`declared`/`active`/`cancelled`/`completed`). Suite completa del servicio verificada
+contra Postgres/Redis reales: 54 archivos, 718/718 tests. `tsc --noEmit` y `eslint`
+limpios. Confirmado que `app.swagger()` expone `POST /trips/{id}/start`.
+
+Pendiente / fuera de alcance: disparo de `completed` (`delivered`-equivalente para
+viajes, sin ticket todavía -- ningún AC de MOVO-221 lo pedía, la máquina de estados de
+Trip no tiene hoy ninguna transición real hacia `completed` más allá de lo que ya
+permitía `PATCH`); expiración de un `declared` vencido (ver arriba, decisión de
+producto pendiente); mobile más allá del mini-fix de `transport.tsx` (no hay UI
+todavía para el botón "Iniciar viaje" en sí -- `POST /trips/:id/start` queda listo
+para que ese ticket lo consuma).
 **Correcciones de review (mismo PR, antes de merge):**
 - **Prefiltro SQL con margen sobre el freeze de disputa**: `findPendingRatingCandidates`
   cortaba en SQL a las `RATING_WINDOW_HOURS` (72hs) a secas, ignorando que

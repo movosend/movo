@@ -1394,6 +1394,29 @@ ficha, cartel de registro sin vehículo) y en `test/departure-date-time-picker.t
 Pendiente / fuera de alcance: no probado en device; `DELETE /users/me/vehicle` (si se
 decide ofrecer "eliminar vehículo" de verdad) queda como ticket de backend aparte.
 
+### MOVO-221 (mini-fix) — tab Transportar sigue el rediseño de estados de viaje
+
+Lado mobile del rediseño `declared/active/completed` de `svc-shipments` (ver su
+`CLAUDE.md`) — con el límite nuevo de 1 viaje `active` por cuenta, "N activos · M
+declarados" en el acceso "Mis viajes" (`transport.tsx`, MOVO-183) dejó de aportar
+nada (activos es siempre 0 o 1). `tripsMeta` pasa a mostrar solo la cuenta de
+`declared` (los pendientes de iniciar). `computeOnTripDetour`/`showOnlyOnTripToggle`
+(franja "de paso" y su toggle de filtro) se alimentan ahora de los viajes `declared`
+en vez de `active`, por el mismo motivo — son los `declared` (que siguen siendo N)
+los que describen "todos los trayectos que este transportista tiene pensados".
+`src/lib/trip-format.ts` (`tripStatusLabel`/`tripStatusTone`, usado en "Mis viajes")
+gana el caso `DECLARED` ("Declarado", tono `neutral`) — `ACTIVE` deja de compartir el
+lima de "estado principal" con `declared`, ahora significa específicamente "en curso".
+
+Sin botón "Iniciar viaje" todavía: `POST /trips/:id/start` (backend) no tiene ningún
+punto de entrada en la UI — fuera de alcance de este mini-fix, que es 100% el ajuste
+de `transport.tsx` que el ticket de backend dejaba pendiente.
+
+Tests: 2 casos nuevos en `test/transport-screen.test.tsx` (un viaje `active` no cuenta
+en `tripsMeta` ni aporta la franja de desvío — fijan explícitamente el cambio de
+comportamiento) + `TRIP_A` (fixture compartida del archivo) pasó a `declared` por
+default. `tsc --noEmit` limpio.
+
 ### Pendientes de este paquete
 
 - **`eas init`/development build real en dispositivo**: pendiente para probar de

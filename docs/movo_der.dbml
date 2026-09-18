@@ -140,7 +140,10 @@ enum offer_status_enum {
 }
 
 // MOVO-161: estado del viaje declarado por el transportista
+// MOVO-221: declared (default al crear) -> active (POST /trips/:id/start, máx 1 por
+// cuenta, índice único parcial trips_carrier_active_unique) -> completed.
 enum trip_status_enum {
+  declared
   active
   cancelled
   completed
@@ -573,7 +576,7 @@ Table shipments.trips {
   destination_lng decimal [note: 'numeric(9,6)']
   departure_at timestamp [note: 'timestamptz, fecha y hora de salida planeada']
   vehicle_type varchar [note: 'auto, moto, utilitario, camion, etc.']
-  status trip_status_enum [default: 'active']
+  status trip_status_enum [default: 'declared', note: 'MOVO-221: default pasó de active a declared']
   created_at timestamp
   updated_at timestamp [note: 'mantenida por trigger update_updated_at_column']
 

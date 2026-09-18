@@ -1,4 +1,5 @@
-const TRIP_STATUS_VALUES = ["active", "cancelled", "completed"];
+// MOVO-221: `declared` agregado como estado inicial real del ciclo de vida.
+const TRIP_STATUS_VALUES = ["declared", "active", "cancelled", "completed"];
 
 const tripResponse = {
   type: "object",
