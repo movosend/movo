@@ -2731,3 +2731,33 @@ Pendiente / fuera de alcance (igual que el propio ticket): orquestación de wiza
 ver fotos cargadas desde el detalle de envío (`MOVO-194`). No probado en dispositivo
 físico ni los tres caminos de permiso reales — pendiente del DoD, no verificable en
 este entorno (mismo criterio que MOVO-195/MOVO-107).
+
+### MOVO-159 — Pantalla de generación de QR con countdown (cedente de custodia) (`movo-mobile`)
+
+Implementación completa de la pantalla de transferencia de custodia física vía código QR dinámico para el cedente (emisor en retiro, transportista en entrega). Diseñada según el manual de marca de Movo y el artefacto de Claude Design (`viaje_del_transportista.dc.html`).
+
+- **Dependencia instalada**: `react-native-qrcode-svg@6.3.24` (renderizado de QR vectorial nativo en SVG).
+- **Cliente API (`src/api/shipments-client.ts`)**: `generateHandshake(shipmentId, { lat, lng })` conectando con `POST /shipments/:id/handshake/generate`.
+- **Hook `useHandshakeQr` (`src/hooks/use-handshake-qr.ts`)**:
+  - Gating con `useDeviceKeyBootstrap()` si el estado de la clave del dispositivo no es `"ready"`.
+  - Captura obligatoria de coordenadas GPS vía `getCurrentLocation()` para validar geofence de 100m.
+  - Firma client-side del payload canónico retornado por el backend utilizando `signHandshakeNonce` (MOVO-195).
+  - Ensamblado del payload JSON convenido con el receptor (`MOVO-160`): `{"shipmentId": "...", "nonce": "...", "signature": "..."}`.
+  - Contador regresivo de 15 segundos con recálculo contra timestamp objetivo (`Date.now()`), transición a color de advertencia (`#E5484D`) en los últimos 5 segundos, y estado de expiración a los 0 segundos con opacidad atenuada (0.2).
+  - Botón de regeneración manual para solicitar y firmar un nuevo nonce tras expirar.
+  - Polling a `shipmentsClient.getById(id)` cada 2.5 segundos para detectar el avance de estado cuando el receptor completa el escaneo (`IN_TRANSIT` para retiro, `DELIVERED`/`COMPLETED` para entrega), transicionando inmediatamente a `"confirmed"` (reemplazable por WebSocket en `MOVO-201`).
+- **Componentes (`components/handshake/`)**:
+  - `HandshakeQrCard`: Contenedor idéntico al prototipo con QR de 186×186, badge circular central de marca Movo, reloj monoespaciado (`00:15`), barra de progreso animada, overlay de expirado, y simulación en `__DEV__`.
+  - `HandshakeSuccessView`: Pantalla de éxito con badge circular de check (68×68), copy contextual ("Retiro confirmado" / "Entrega confirmada"), tarjeta de resumen de envío y estado, y botones para volver al envío o a Inicio. Dispara vibración háptica de éxito (`Haptics.notificationAsync`).
+  - `HandshakeDeviceKeyWarning`: Banner de advertencia si la clave criptográfica del dispositivo está pendiente o en error con botón de reintento.
+- **Pantalla y Navegación**:
+  - Ruta `app/(app)/shipments/[id]/handshake.tsx`: Resuelve automáticamente el rol del usuario autenticado (emisor entrega paquete al transportista → "pickup"; transportista entrega paquete al destinatario → "delivery") y el nombre de pila de la contraparte desde su perfil público.
+  - Botón de acceso contextual en `app/(app)/shipments/[id].tsx`: Botón inferior con estilo lime "Confirmar retiro" para el emisor en estado `ASSIGNED`, y "Confirmar entrega" para el transportista en estado `IN_TRANSIT`.
+- **Tests**:
+  - `test/use-handshake-qr.test.tsx` (6 tests: AC2 generación y firma, AC2/AC3 countdown/expiración, AC3 regeneración, AC4 polling de confirmación, AC5 GPS denegado y distancia excedida). Utiliza el patrón `Harness` con `render` para evitar el bug de `renderHook` de React 19 / RNTL 14.
+  - `test/handshake-qr-card.test.tsx` (5 tests: render normal, cuenta regresiva en rojo, overlay de expiración y botón de regenerar, estado de carga, errores).
+  - `test/handshake-success-view.test.tsx` (2 tests: variantes de retiro y entrega, navegación).
+  - `test/handshake-device-key-warning.test.tsx` (3 tests: ready, pending, error con reintento).
+  - `test/handshake-screen.test.tsx` (4 tests: resolución de rol emisor/transportista, advertencia de clave, transición a éxito).
+  - `test/shipment-detail-screen.test.tsx` (3 tests nuevos para el botón contextual).
+  - Suite completa: 132/132 suites, 1003/1003 tests pasando. `npx tsc --noEmit` sin errores.
