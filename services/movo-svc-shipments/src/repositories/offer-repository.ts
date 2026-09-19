@@ -81,6 +81,8 @@ function mapOfferWithShipment(
       status: row.shipment.status as ShipmentStatus,
       pickupAddress: row.shipment.pickupAddress,
       pickupDate: row.shipment.pickupDate,
+      pickupTimeWindowStart: row.shipment.pickupTimeWindowStart,
+      pickupTimeWindowEnd: row.shipment.pickupTimeWindowEnd,
       deliveryAddress: row.shipment.deliveryAddress,
       // MOVO-185: mismo criterio de proyección mínima que AvailableShipment (MOVO-142)
       // -- solo la distancia derivada, nunca lat/lng crudos.

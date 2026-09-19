@@ -3,36 +3,29 @@ import { OfferStatus } from "@movo/shared/dist/types/offer";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
+import { useColorScheme } from "nativewind";
 import {
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   Clock,
   MapPin,
   Route,
 } from "lucide-react-native";
-import { useState, type ReactNode } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
+import { type ReactNode } from "react";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { PublicProfile } from "@movo/shared/dist/types/user-profile";
 import type { ReceiverConfirmationStatus } from "../../../components/shipments/counterpart-card";
 import { PackageCard } from "../../../components/shipments/package-card";
 import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
-import { ShipmentStatusBadge } from "../../../components/shipments/status-badge";
 import { RouteMapCard } from "../../../components/send/route-map-card";
 import { ProfileVerifiedBadge } from "../../../components/profile/profile-verified-badge";
 import { AvatarImage } from "../../../components/ui/avatar-image";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { GridPattern } from "../../../components/ui/grid-pattern";
 import { SkeletonBlock } from "../../../components/ui/skeleton-block";
-import { SuccessBanner } from "../../../components/ui/success-banner";
-import { useMyOffers, useWithdrawOffer } from "../../../src/hooks/use-offers";
+import { useMyOffers } from "../../../src/hooks/use-offers";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useAuthStore } from "../../../src/store/auth-store";
@@ -198,8 +191,14 @@ function TransportDetailError({
  *   MOVO-149).
  *
  * Si el transportista ya tiene una oferta activa:
- * - Muestra la card con los datos de su oferta.
- * - La acción principal cambia a "Retirar oferta" con confirmación.
+ * - Muestra la card "Tu oferta activa" (único punto de entrada al detalle de la
+ *   oferta, `carrier/offers/[id].tsx`) -- sin barra inferior duplicada.
+ *
+ * Si el envío ya se asignó a este transportista (`shipment.carrierId` propio --
+ * la oferta pasó de `pending` a `accepted`, ya no aparece en `myActiveOffer`):
+ * - Card "Te eligieron para este envío" en vez de "Tu oferta activa".
+ * - Sin card de "cuánto te queda si ofertás el sugerido" ni CTA de ofertar --
+ *   el envío ya no acepta ofertas nuevas.
  */
 export default function TransportShipmentDetailScreen() {
   const { id, pickupDistanceKm: pickupDistanceKmParam } = useLocalSearchParams<{
@@ -207,6 +206,13 @@ export default function TransportShipmentDetailScreen() {
     pickupDistanceKm?: string;
   }>();
   const colors = useThemeColors();
+  const { colorScheme } = useColorScheme();
+  // lime-600 (light) / lime-400 (dark, `tailwind.config.js`) -- mismos tonos de lime
+  // que ya usa el resto del repo como acento de texto/ícono sobre fondo claro
+  // (`profile-license-status-banner.tsx`, "#9FC72E") y sobre fondo oscuro
+  // (`bg-lime-400` en estados activos) — `lime-500` (el brand puro, muy claro) no
+  // tiene contraste suficiente para un ícono fino en ninguno de los dos temas.
+  const activeOfferAccentColor = colorScheme === "dark" ? "#D6F771" : "#9FC72E";
   const {
     data: shipment,
     isLoading,
@@ -216,16 +222,23 @@ export default function TransportShipmentDetailScreen() {
   } = useShipment(id);
   // `limit: 50` es el máximo que acepta el backend (`offers.schema.ts`, default 20) —
   // sin un filtro por `shipmentId` del lado del servidor, esto es lo más que se puede
-  // acotar el riesgo de no encontrar una oferta pendiente existente si el transportista
-  // tiene más ofertas activas que el límite de una sola página.
-  const { data: myOffers } = useMyOffers({
-    status: OfferStatus.PENDING,
-    limit: 50,
-  });
-  const withdrawOffer = useWithdrawOffer(id);
+  // acotar el riesgo de no encontrar una oferta pendiente/aceptada existente si el
+  // transportista tiene más ofertas activas que el límite de una sola página.
+  // Dos queries, una por `status`, en vez de una sola sin filtro (feedback de
+  // review, PR #164): sin filtro, las 50 posiciones compiten contra TODO el
+  // historial del transportista (rechazadas/retiradas/vencidas/superadas), no solo
+  // contra lo que a esta pantalla le interesa -- para un transportista muy activo
+  // eso aumentaba el riesgo real de que la oferta de este envío quedara fuera de la
+  // página. La `accepted` hace falta además de la `pending` (para "Tu oferta
+  // activa") porque es la única fuente de la fecha/franja de retiro REALMENTE
+  // confirmada una vez que el envío ya se asignó (`shipment.pickupDate` nunca se
+  // actualiza al aceptar, ver `offer-repository.ts`).
+  const { data: myPendingOffers } = useMyOffers({ status: OfferStatus.PENDING, limit: 50 });
+  const { data: myAcceptedOffers } = useMyOffers({ status: OfferStatus.ACCEPTED, limit: 50 });
   const currentUserId = useAuthStore((s) => s.user?.userId);
 
-  const [withdrawSuccess, setWithdrawSuccess] = useState(false);
+  const myActiveOffer = myPendingOffers?.items.find((offer) => offer.shipmentId === id);
+  const myAcceptedOffer = myAcceptedOffers?.items.find((offer) => offer.shipmentId === id);
 
   // Botón de dev (sin equivalente de producción todavía, ver `use-pickup-wizard.ts`
   // MOVO-198): mismas dos condiciones que el gate del wizard de retiro ("ready"),
@@ -236,31 +249,39 @@ export default function TransportShipmentDetailScreen() {
     shipment.carrierId === currentUserId &&
     shipment.status === ShipmentStatus.ASSIGNED;
 
-  const myActiveOffer = myOffers?.items.find(
-    (offer) => offer.shipmentId === id,
-  );
+  const currentUser = useAuthStore((state) => state.user);
+  // El emisor ya eligió mi oferta y el envío se confirmó con `carrierId` seteado a
+  // mí -- ofertar de nuevo ya no es posible (el envío dejó de estar `published`) ni
+  // tiene sentido mostrar "cuánto te queda si ofertás el sugerido", así que tanto
+  // esa card como el CTA de ofertar se ocultan. Distinto de `myActiveOffer` (que solo
+  // mira ofertas `pending` propias): esta condición cubre el momento en que la mía
+  // ya pasó a `accepted` y dejó de aparecer ahí.
+  const isAssignedToMe =
+    !!currentUser?.userId && shipment?.carrierId === currentUser.userId;
 
   const openProfile = (userId: string) => router.push(`/profile/${userId}`);
 
   const pickupDateLabel = shipment
     ? (formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate)
     : null;
-  // Si ya existe una oferta propia, "Retirás" muestra lo que esa oferta confirmó
-  // (`offeredDate`/`offeredPickupTimeWindow*`), no lo que pidió originalmente el
-  // emisor -- son distintos apenas el transportista propuso otro día/horario
-  // (`dateMode === "other"` de `offer.tsx`). La franja queda `null` en la oferta
-  // cuando el transportista aceptó la del emisor tal cual, así que cae al valor del
-  // envío en ese caso.
-  const effectivePickupDateLabel = myActiveOffer
-    ? (formatPickupDateLabel(myActiveOffer.offeredDate) ??
-      myActiveOffer.offeredDate)
+  // Si ya existe una oferta propia (pendiente o, tras la asignación, la aceptada),
+  // "Retirás" muestra lo que esa oferta confirmó (`offeredDate`/
+  // `offeredPickupTimeWindow*`), no lo que pidió originalmente el emisor -- son
+  // distintos apenas el transportista propuso otro día/horario (`dateMode ===
+  // "other"` de `offer.tsx`). La franja queda `null` en la oferta cuando el
+  // transportista aceptó la del emisor tal cual, así que cae al valor del envío en
+  // ese caso.
+  const myConfirmedOffer = myActiveOffer ?? myAcceptedOffer;
+  const effectivePickupDateLabel = myConfirmedOffer
+    ? (formatPickupDateLabel(myConfirmedOffer.offeredDate) ??
+      myConfirmedOffer.offeredDate)
     : pickupDateLabel;
   const effectivePickupTimeWindowStart =
-    myActiveOffer?.offeredPickupTimeWindowStart ??
+    myConfirmedOffer?.offeredPickupTimeWindowStart ??
     shipment?.pickupTimeWindowStart ??
     null;
   const effectivePickupTimeWindowEnd =
-    myActiveOffer?.offeredPickupTimeWindowEnd ??
+    myConfirmedOffer?.offeredPickupTimeWindowEnd ??
     shipment?.pickupTimeWindowEnd ??
     null;
   const tripDistanceKm = shipment
@@ -309,26 +330,9 @@ export default function TransportShipmentDetailScreen() {
     }
   };
 
-  const handleWithdraw = () => {
+  const openOfferDetail = () => {
     if (!myActiveOffer) return;
-    Alert.alert(
-      "¿Retirar oferta?",
-      "¿Estás seguro de que querés retirar tu oferta? Vas a poder volver a ofertar si el envío sigue disponible.",
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Retirar",
-          style: "destructive",
-          onPress: () => {
-            withdrawOffer.mutate(myActiveOffer.id, {
-              onSuccess: () => {
-                setWithdrawSuccess(true);
-              },
-            });
-          },
-        },
-      ],
-    );
+    router.push(`/(app)/carrier/offers/${myActiveOffer.id}`);
   };
 
   if (isLoading) {
@@ -355,7 +359,6 @@ export default function TransportShipmentDetailScreen() {
             </Text>
           ) : null}
         </View>
-        {shipment ? <ShipmentStatusBadge status={shipment.status} /> : null}
       </View>
 
       {isError || !shipment ? (
@@ -366,28 +369,28 @@ export default function TransportShipmentDetailScreen() {
             className="flex-1"
             contentContainerClassName="gap-5 px-5 pb-6 pt-4"
           >
-            {withdrawSuccess ? (
-              <SuccessBanner
-                testID="transport-withdraw-success"
-                message="Tu oferta fue retirada."
-                onDismiss={() => setWithdrawSuccess(false)}
-              />
-            ) : null}
-
             {myActiveOffer ? (
-              <View
+              <Pressable
                 testID="transport-active-offer-card"
-                className="rounded-[12px] border border-info-200 bg-info-100/50 p-4"
+                onPress={openOfferDetail}
+                style={{
+                  shadowColor: colors.chromeShadow,
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 1,
+                  shadowRadius: 6,
+                  elevation: 3,
+                }}
+                className="rounded-[14px] border border-lime-500/50 bg-lime-100 p-4 dark:border-lime-500/30 dark:bg-lime-500/[0.14]"
               >
                 <View className="mb-2 flex-row items-center justify-between">
                   <View className="flex-row items-center gap-1.5">
-                    <Clock size={14} color="#1F52D6" />
-                    <Text className="font-sans-semibold text-small text-info-700">
+                    <Clock size={14} color={activeOfferAccentColor} />
+                    <Text className="font-sans-semibold text-small text-lime-800 dark:text-lime-300">
                       Tu oferta activa
                     </Text>
                   </View>
-                  <View className="rounded-md bg-info-200 px-2 py-0.5">
-                    <Text className="font-sans-medium text-[11px] text-info-700">
+                  <View className="rounded-md bg-lime-200 px-2 py-0.5 dark:bg-lime-500/25">
+                    <Text className="font-sans-medium text-[11px] text-lime-800 dark:text-lime-200">
                       Pendiente
                     </Text>
                   </View>
@@ -416,20 +419,36 @@ export default function TransportShipmentDetailScreen() {
                         myActiveOffer.offeredDate}
                     </Text>
                   </View>
-                  {myActiveOffer.message ? (
-                    <View className="mt-1 border-t border-info-200/60 pt-2">
-                      <Text className="font-sans text-[11px] text-fg-3">
-                        Mensaje enviado:
-                      </Text>
-                      <Text
-                        testID="transport-active-offer-message"
-                        className="mt-0.5 font-sans text-small text-fg"
-                      >
-                        {myActiveOffer.message}
-                      </Text>
-                    </View>
-                  ) : null}
                 </View>
+                <View className="mt-2.5 flex-row items-center justify-between border-t border-lime-300/60 pt-2.5 dark:border-lime-400/20">
+                  <Text className="font-sans-medium text-small text-lime-800 dark:text-lime-300">
+                    Ver detalle
+                  </Text>
+                  <ChevronRight size={16} color={activeOfferAccentColor} />
+                </View>
+              </Pressable>
+            ) : isAssignedToMe ? (
+              <View
+                testID="transport-assigned-to-me-card"
+                className="rounded-[14px] border border-lime-500/50 bg-lime-100 p-4 dark:border-lime-500/30 dark:bg-lime-500/[0.14]"
+              >
+                <Text className="font-sans-semibold text-small text-lime-800 dark:text-lime-300">
+                  Te eligieron para este envío
+                </Text>
+                {/* No reusa `ShipmentStatusBadge`/`shipmentStatusLabel` (pensado para
+                    el punto de vista del emisor/receptor) -- "Sin asignar" es el label
+                    de `assignment_pending`, y acá el envío YA está asignado a mí, así
+                    que ese pill contradecía al título de arriba. En su lugar, un texto
+                    explicando el próximo paso concreto: cuándo arranca el viaje. */}
+                <Text
+                  testID="transport-assigned-to-me-detail"
+                  className="mt-1.5 font-sans text-[13px] leading-[19px] text-lime-800/80 dark:text-lime-200/80"
+                >
+                  El viaje arranca el {effectivePickupDateLabel}, entre las{" "}
+                  {formatTimeHHMM(effectivePickupTimeWindowStart)} y las{" "}
+                  {formatTimeHHMM(effectivePickupTimeWindowEnd)} h. Ese día retirás el
+                  paquete y arrancás el viaje hasta la entrega.
+                </Text>
               </View>
             ) : null}
 
@@ -474,11 +493,19 @@ export default function TransportShipmentDetailScreen() {
               </View>
             </View>
 
-            {/* Card "chrome": siempre oscura, sin importar el tema (mismo criterio que el
+            {/* Oculta si ya hay una oferta activa: "cuánto te queda si ofertás el
+                sugerido" deja de tener sentido una vez que ya se hizo una oferta
+                (con un monto propio, no necesariamente el sugerido) — mostrar las
+                dos cards a la vez es contradictorio, la card de arriba ("Tu oferta
+                activa") ya cubre ese lugar. También oculta si ya me asignaron este
+                envío (mi oferta fue la elegida) — no tiene sentido simular "si
+                ofertás" sobre un envío que ya no acepta ofertas. */}
+            {myActiveOffer || isAssignedToMe ? null : (
+            /* Card "chrome": siempre oscura, sin importar el tema (mismo criterio que el
                 texto oscuro fijo de PrimaryButton variant="lime" — usa la escala `ink`/
                 `paper`, fija, nunca los tokens semánticos `fg`/`bg` que se invierten en
                 dark mode). `GridPattern` con líneas claras porque el fondo es oscuro por
-                construcción, no `bg-fg` (que en dark mode es blanco). */}
+                construcción, no `bg-fg` (que en dark mode es blanco). */
             <View className="relative overflow-hidden rounded-[16px] bg-ink-950 px-5 py-5">
               <GridPattern color="#FFFFFF" opacity={0.06} />
               <Text className="font-sans-medium text-[11px] uppercase tracking-wide text-ink-300">
@@ -527,6 +554,7 @@ export default function TransportShipmentDetailScreen() {
                 ) : null}
               </View>
             </View>
+            )}
 
             <View>
               <Eyebrow>Recorrido</Eyebrow>
@@ -625,69 +653,66 @@ export default function TransportShipmentDetailScreen() {
             </View>
           </ScrollView>
 
-          <View style={{ position: "relative" }}>
-            {/* Sombra SOLO en el borde superior -- la barra vive fuera del
-                `ScrollView`, sin esto se pierde contra el contenido al hacer scroll
-                detrás. Degradado en vez de `shadowOffset`/`elevation`: `elevation`
-                de Android proyecta sombra en todo el contorno de la vista (se veía
-                también abajo, feedback de diseño), y esto queda arriba de la barra,
-                nunca adentro de ella. */}
-            <LinearGradient
-              pointerEvents="none"
-              colors={["transparent", colors.chromeShadow]}
-              locations={[0, 1]}
-              style={{
-                position: "absolute",
-                left: 0,
-                right: 0,
-                top: -24,
-                height: 24,
-                opacity: 0.5,
-              }}
-            />
-            <View className="border-t border-border bg-bg px-5 pb-6 pt-3.5 gap-2.5">
-              {canDevAccessPickupWizard ? (
-                <Pressable
-                  testID="transport-dev-pickup-wizard-cta"
-                  onPress={() =>
-                    router.push(`/(app)/shipments/${shipment.id}/pickup`)
-                  }
-                  className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-[#1F52D6] py-3.5"
-                >
-                  <Text className="font-sans-semibold text-body text-white">
-                    [DEV] Probar wizard de retiro
-                  </Text>
-                </Pressable>
-              ) : null}
-              {myActiveOffer ? (
-                <Pressable
-                  testID="transport-withdraw-offer-cta"
-                  onPress={handleWithdraw}
-                  disabled={withdrawOffer.isPending}
-                  className="w-full flex-row items-center justify-center gap-2 rounded-lg border border-danger-300 bg-danger-100 py-3.5"
-                >
-                  {withdrawOffer.isPending ? (
-                    <ActivityIndicator color="#C22F35" />
-                  ) : null}
-                  <Text className="font-sans-semibold text-body text-danger-700">
-                    Retirar oferta
-                  </Text>
-                </Pressable>
-              ) : (
-                <Pressable
-                  testID="transport-create-offer-cta"
-                  onPress={() =>
-                    router.push(`/(app)/transport/${shipment.id}/offer`)
-                  }
-                  className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-fg py-3.5"
-                >
-                  <Text className="font-sans-semibold text-body text-bg">
-                    Hacer una oferta
-                  </Text>
-                </Pressable>
-              )}
+          {/* Sin oferta activa: barra fija con la acción principal de ofertar. Con
+              oferta activa, la card "Tu oferta activa" de arriba ya es el único
+              punto de entrada al detalle -- una barra inferior duplicaría esa
+              navegación (pedido explícito de no tener dos entradas al mismo lugar).
+              Asignado a mí: no hay ninguna acción de ofertar posible, el CTA
+              desaparece sin reemplazo -- mismo criterio que la card de arriba. El
+              botón de dev (MOVO-198) es la excepción: tiene que poder mostrarse
+              incluso con `isAssignedToMe` (es justo el caso al que apunta), así que
+              la barra entera se muestra si hay algo que renderizar adentro. */}
+          {canDevAccessPickupWizard || !(myActiveOffer || isAssignedToMe) ? (
+            <View style={{ position: "relative" }}>
+              {/* Sombra SOLO en el borde superior -- la barra vive fuera del
+                  `ScrollView`, sin esto se pierde contra el contenido al hacer scroll
+                  detrás. Degradado en vez de `shadowOffset`/`elevation`: `elevation`
+                  de Android proyecta sombra en todo el contorno de la vista (se veía
+                  también abajo, feedback de diseño), y esto queda arriba de la barra,
+                  nunca adentro de ella. */}
+              <LinearGradient
+                pointerEvents="none"
+                colors={["transparent", colors.chromeShadow]}
+                locations={[0, 1]}
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  top: -24,
+                  height: 24,
+                  opacity: 0.5,
+                }}
+              />
+              <View className="border-t border-border bg-bg px-5 pb-6 pt-3.5 gap-2.5">
+                {canDevAccessPickupWizard ? (
+                  <Pressable
+                    testID="transport-dev-pickup-wizard-cta"
+                    onPress={() =>
+                      router.push(`/(app)/shipments/${shipment.id}/pickup`)
+                    }
+                    className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-[#1F52D6] py-3.5"
+                  >
+                    <Text className="font-sans-semibold text-body text-white">
+                      [DEV] Probar wizard de retiro
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {myActiveOffer || isAssignedToMe ? null : (
+                  <Pressable
+                    testID="transport-create-offer-cta"
+                    onPress={() =>
+                      router.push(`/(app)/transport/${shipment.id}/offer`)
+                    }
+                    className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-fg py-3.5"
+                  >
+                    <Text className="font-sans-semibold text-body text-bg">
+                      Hacer una oferta
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
             </View>
-          </View>
+          ) : null}
         </View>
       )}
     </SafeAreaView>

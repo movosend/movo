@@ -3,7 +3,6 @@ import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { OfferStatus } from "@movo/shared/dist/types/offer";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { act, fireEvent, render } from "@testing-library/react-native";
-import { Alert } from "react-native";
 import type { RouteResult, ShipmentSummary } from "../src/api/shipments-client";
 import TransportShipmentDetailScreen from "../app/(app)/transport/[id]";
 import { formatTripDistanceKm, haversineDistanceKm } from "../src/lib/shipment-format";
@@ -36,15 +35,28 @@ jest.mock("../src/hooks/use-shipments", () => ({
 }));
 
 const mockUseMyOffers = jest.fn();
-const mockMutateWithdraw = jest.fn();
-let mockWithdrawPending = false;
-
 jest.mock("../src/hooks/use-offers", () => ({
-  useMyOffers: () => mockUseMyOffers(),
-  useWithdrawOffer: () => ({
-    mutate: mockMutateWithdraw,
-    isPending: mockWithdrawPending,
-  }),
+  useMyOffers: (params?: { status?: string }) => mockUseMyOffers(params),
+}));
+
+/**
+ * El componente hace dos llamadas a `useMyOffers`, una por `status` (fix de review,
+ * PR #164 -- ver `app/(app)/transport/[id].tsx`) -- este helper reproduce ese
+ * filtro server-side sobre un único array de fixtures, así los tests siguen
+ * describiendo "las ofertas que existen" en vez de "qué devuelve cada llamada".
+ */
+function mockMyOffers(items: Array<{ status?: string; [key: string]: unknown }>) {
+  mockUseMyOffers.mockImplementation((params: { status?: string } = {}) => ({
+    data: { items: params.status ? items.filter((offer) => offer.status === params.status) : items },
+  }));
+}
+
+const mockCurrentUser = jest.fn(() => ({ userId: "carrier-me" }));
+jest.mock("../src/store/auth-store", () => ({
+  useAuthStore: (selector?: (state: { user: { userId: string } | null }) => unknown) => {
+    const state = { user: mockCurrentUser() };
+    return typeof selector === "function" ? selector(state) : state;
+  },
 }));
 
 jest.mock("../components/send/route-map-card", () => {
@@ -133,7 +145,7 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
 describe("TransportShipmentDetailScreen", () => {
   beforeEach(() => {
     mockCanGoBack.mockReturnValue(true);
-    mockUseMyOffers.mockReturnValue({ data: { items: [] } });
+    mockMyOffers([]);
   });
   afterEach(() => {
     jest.clearAllMocks();
@@ -370,7 +382,7 @@ describe("TransportShipmentDetailScreen", () => {
   describe("Acción de ofertar y retirar oferta (MOVO-149)", () => {
     it("sin oferta activa previa, muestra el botón 'Hacer una oferta' y al tocarlo navega a la pantalla de creación", async () => {
       mockUseShipment.mockReturnValue({ isLoading: false, isError: false, data: shipment(), error: null, refetch: jest.fn() });
-      mockUseMyOffers.mockReturnValue({ data: { items: [] } });
+      mockMyOffers([]);
 
       const { getByTestId, queryByTestId } = await render(<TransportShipmentDetailScreen />);
 
@@ -386,33 +398,134 @@ describe("TransportShipmentDetailScreen", () => {
       expect(mockRouterPush).toHaveBeenCalledWith("/(app)/transport/shipment-1/offer");
     });
 
-    it("si ya tiene una oferta activa, muestra la card con sus datos y cambia la acción a 'Retirar oferta'", async () => {
-      mockUseShipment.mockReturnValue({ isLoading: false, isError: false, data: shipment(), error: null, refetch: jest.fn() });
-      mockUseMyOffers.mockReturnValue({
-        data: {
-          items: [
-            {
-              id: "offer-active-1",
-              shipmentId: "shipment-1",
-              carrierId: "carrier-1",
-              priceOffered: 7500,
-              offeredDate: "2026-08-20",
-              message: "Llego puntual en camioneta",
-              status: OfferStatus.PENDING,
-            },
-          ],
-        },
+    it("si ya me asignaron este envío (mi oferta fue aceptada), oculta 'Hacer una oferta' y 'Te queda si ofertás el sugerido', y muestra 'Te eligieron para este envío'", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "carrier-me", status: ShipmentStatus.ASSIGNMENT_PENDING, suggestedPriceArs: 4500 }),
+        error: null,
+        refetch: jest.fn(),
       });
+      // La oferta ya pasó a `accepted` -- deja de aparecer entre las `pending` de
+      // `myOffers` (mismo comportamiento real de `useMyOffers`).
+      mockMyOffers([]);
+
+      const { getByTestId, queryByTestId, queryByText } = await render(<TransportShipmentDetailScreen />);
+
+      expect(queryByTestId("transport-create-offer-cta")).toBeNull();
+      expect(queryByTestId("transport-active-offer-card")).toBeNull();
+      expect(queryByText("Te queda si ofertás el sugerido")).toBeNull();
+      expect(getByTestId("transport-assigned-to-me-card")).toHaveTextContent(/Te eligieron para este envío/);
+      // Sin pill de estado genérico ("Sin asignar" de `assignment_pending`, pensado
+      // para el punto de vista del emisor -- confundía acá, donde el envío YA está
+      // asignado a mí). En su lugar, el próximo paso concreto con la fecha/franja
+      // pedida por el emisor (sin oferta -- ni pending ni accepted -- con día
+      // alternativo en este caso).
+      expect(queryByText(/Sin asignar/)).toBeNull();
+      expect(getByTestId("transport-assigned-to-me-detail")).toHaveTextContent(
+        "El viaje arranca el jue, 20 de agosto, entre las 09:00 y las 12:00 h. Ese día retirás el paquete y arrancás el viaje hasta la entrega.",
+      );
+    });
+
+    it("si me asignaron el envío y mi oferta ganadora propuso otro día/horario, el detalle muestra lo confirmado por la oferta, no lo pedido por el emisor", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        // El envío pide 2026-08-20 09:00-12:00 (default de `shipment()`).
+        data: shipment({ carrierId: "carrier-me", status: ShipmentStatus.ASSIGNMENT_PENDING }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      mockMyOffers([
+        {
+          id: "offer-accepted-1",
+          shipmentId: "shipment-1",
+          carrierId: "carrier-me",
+          priceOffered: 7500,
+          offeredDate: "2026-08-21",
+          offeredPickupTimeWindowStart: "15:00",
+          offeredPickupTimeWindowEnd: "19:00",
+          message: null,
+          status: OfferStatus.ACCEPTED,
+        },
+      ]);
+
+      const { getByTestId } = await render(<TransportShipmentDetailScreen />);
+
+      expect(getByTestId("transport-assigned-to-me-detail")).toHaveTextContent(
+        "El viaje arranca el vie, 21 de agosto, entre las 15:00 y las 19:00 h. Ese día retirás el paquete y arrancás el viaje hasta la entrega.",
+      );
+    });
+
+    it("si el envío se asignó a OTRO transportista, sigue mostrando el CTA de ofertar normal (no soy yo)", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "otro-transportista", status: ShipmentStatus.ASSIGNMENT_PENDING }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      mockMyOffers([]);
+
+      const { queryByTestId } = await render(<TransportShipmentDetailScreen />);
+
+      expect(queryByTestId("transport-assigned-to-me-card")).toBeNull();
+      expect(queryByTestId("transport-create-offer-cta")).toBeTruthy();
+    });
+
+    it("si ya tiene una oferta activa, muestra la card con sus datos y navega al detalle de la oferta (MOVO-182)", async () => {
+      mockUseShipment.mockReturnValue({ isLoading: false, isError: false, data: shipment(), error: null, refetch: jest.fn() });
+      mockMyOffers([
+        {
+          id: "offer-active-1",
+          shipmentId: "shipment-1",
+          carrierId: "carrier-1",
+          priceOffered: 7500,
+          offeredDate: "2026-08-20",
+          message: "Llego puntual en camioneta",
+          status: OfferStatus.PENDING,
+        },
+      ]);
 
       const { getByTestId, queryByTestId } = await render(<TransportShipmentDetailScreen />);
 
+      // Sin barra inferior duplicada: la card "Tu oferta activa" es el único punto
+      // de entrada al detalle de la oferta.
       expect(queryByTestId("transport-create-offer-cta")).toBeNull();
+      expect(queryByTestId("transport-view-offer-cta")).toBeNull();
       expect(getByTestId("transport-active-offer-card")).toBeTruthy();
       expect(getByTestId("transport-active-offer-price")).toHaveTextContent("$7.500");
-      expect(getByTestId("transport-active-offer-message")).toHaveTextContent("Llego puntual en camioneta");
 
-      const withdrawCta = getByTestId("transport-withdraw-offer-cta");
-      expect(withdrawCta).toHaveTextContent("Retirar oferta");
+      await act(async () => {
+        fireEvent.press(getByTestId("transport-active-offer-card"));
+      });
+      expect(mockRouterPush).toHaveBeenCalledWith("/(app)/carrier/offers/offer-active-1");
+    });
+
+    it("con una oferta activa, oculta la card 'Te queda si ofertás el sugerido' -- ya no tiene sentido con una oferta propia hecha", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ suggestedPriceArs: 4500 }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      mockMyOffers([
+        {
+          id: "offer-active-1",
+          shipmentId: "shipment-1",
+          carrierId: "carrier-1",
+          priceOffered: 7500,
+          offeredDate: "2026-08-20",
+          message: null,
+          status: OfferStatus.PENDING,
+        },
+      ]);
+
+      const { getByTestId, queryByText } = await render(<TransportShipmentDetailScreen />);
+
+      expect(getByTestId("transport-active-offer-card")).toBeTruthy();
+      expect(queryByText("Te queda si ofertás el sugerido")).toBeNull();
     });
 
     it("con una oferta activa que propuso otro día/horario, 'Retirás' muestra lo confirmado en la oferta, no lo pedido por el emisor", async () => {
@@ -424,24 +537,20 @@ describe("TransportShipmentDetailScreen", () => {
         error: null,
         refetch: jest.fn(),
       });
-      mockUseMyOffers.mockReturnValue({
-        data: {
-          items: [
-            {
-              id: "offer-active-1",
-              shipmentId: "shipment-1",
-              carrierId: "carrier-1",
-              priceOffered: 7500,
-              // La oferta propuso otro día y franja.
-              offeredDate: "2026-08-21",
-              offeredPickupTimeWindowStart: "15:00",
-              offeredPickupTimeWindowEnd: "19:00",
-              message: null,
-              status: OfferStatus.PENDING,
-            },
-          ],
+      mockMyOffers([
+        {
+          id: "offer-active-1",
+          shipmentId: "shipment-1",
+          carrierId: "carrier-1",
+          priceOffered: 7500,
+          // La oferta propuso otro día y franja.
+          offeredDate: "2026-08-21",
+          offeredPickupTimeWindowStart: "15:00",
+          offeredPickupTimeWindowEnd: "19:00",
+          message: null,
+          status: OfferStatus.PENDING,
         },
-      });
+      ]);
 
       const { getByText, queryByText } = await render(<TransportShipmentDetailScreen />);
 
@@ -458,76 +567,28 @@ describe("TransportShipmentDetailScreen", () => {
         error: null,
         refetch: jest.fn(),
       });
-      mockUseMyOffers.mockReturnValue({
-        data: {
-          items: [
-            {
-              id: "offer-active-1",
-              shipmentId: "shipment-1",
-              carrierId: "carrier-1",
-              priceOffered: 7500,
-              offeredDate: "2026-08-20",
-              offeredPickupTimeWindowStart: null,
-              offeredPickupTimeWindowEnd: null,
-              message: null,
-              status: OfferStatus.PENDING,
-            },
-          ],
+      mockMyOffers([
+        {
+          id: "offer-active-1",
+          shipmentId: "shipment-1",
+          carrierId: "carrier-1",
+          priceOffered: 7500,
+          offeredDate: "2026-08-20",
+          offeredPickupTimeWindowStart: null,
+          offeredPickupTimeWindowEnd: null,
+          message: null,
+          status: OfferStatus.PENDING,
         },
-      });
+      ]);
 
       const { getByText } = await render(<TransportShipmentDetailScreen />);
 
       expect(getByText(/09:00–12:00/)).toBeTruthy();
     });
 
-    it("presionar 'Retirar oferta' pide confirmación con Alert.alert y al confirmar retira la oferta", async () => {
-      const alertSpy = jest.spyOn(Alert, "alert");
-      mockUseShipment.mockReturnValue({ isLoading: false, isError: false, data: shipment(), error: null, refetch: jest.fn() });
-      mockUseMyOffers.mockReturnValue({
-        data: {
-          items: [
-            {
-              id: "offer-active-1",
-              shipmentId: "shipment-1",
-              carrierId: "carrier-1",
-              priceOffered: 7500,
-              offeredDate: "2026-08-20",
-              message: null,
-              status: OfferStatus.PENDING,
-            },
-          ],
-        },
-      });
-
-      mockMutateWithdraw.mockImplementation((_offerId, callbacks) => {
-        callbacks?.onSuccess?.();
-      });
-
-      const { getByTestId } = await render(<TransportShipmentDetailScreen />);
-
-      const withdrawCta = getByTestId("transport-withdraw-offer-cta");
-      await act(async () => {
-        fireEvent.press(withdrawCta);
-      });
-
-      expect(alertSpy).toHaveBeenCalledWith(
-        "¿Retirar oferta?",
-        expect.stringContaining("¿Estás seguro de que querés retirar tu oferta?"),
-        expect.any(Array)
-      );
-
-      // Simular confirmación en el alert
-      const buttons = alertSpy.mock.calls.at(-1)?.[2] as Array<{ text: string; onPress?: () => void }>;
-      const confirmBtn = buttons.find((b) => b.text === "Retirar");
-      expect(confirmBtn).toBeTruthy();
-
-      await act(async () => {
-        confirmBtn?.onPress?.();
-      });
-
-      expect(mockMutateWithdraw).toHaveBeenCalledWith("offer-active-1", expect.any(Object));
-      expect(getByTestId("transport-withdraw-success")).toBeTruthy();
-    });
+    // "Retirar oferta" (con Alert.alert de confirmación) se movió a la pantalla de
+    // detalle de oferta (MOVO-182, `app/(app)/carrier/offers/[id].tsx`) -- este
+    // screen ya no resuelve esa acción inline, solo navega. Ver
+    // `test/offer-detail-screen.test.tsx`.
   });
 });

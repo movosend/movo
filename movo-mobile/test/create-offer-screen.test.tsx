@@ -8,6 +8,9 @@ const mockRouterBack = jest.fn();
 const mockRouterReplace = jest.fn();
 const mockRouterPush = jest.fn();
 const mockCanGoBack = jest.fn(() => true);
+// MOVO-182: sin `offerId` por default (modo creación, todos los tests existentes) --
+// los tests de modo edición lo sobreescriben.
+const mockUseLocalSearchParams = jest.fn(() => ({ id: "shipment-1" }) as { id: string; offerId?: string });
 
 jest.mock("expo-router", () => ({
   router: {
@@ -16,7 +19,7 @@ jest.mock("expo-router", () => ({
     push: (...args: unknown[]) => mockRouterPush(...args),
     canGoBack: () => mockCanGoBack(),
   },
-  useLocalSearchParams: () => ({ id: "shipment-1" }),
+  useLocalSearchParams: () => mockUseLocalSearchParams(),
 }));
 
 const mockUseShipment = jest.fn();
@@ -25,11 +28,23 @@ jest.mock("../src/hooks/use-shipments", () => ({
 }));
 
 const mockMutateAsync = jest.fn();
+const mockMutateUpdate = jest.fn();
 let mockIsPending = false;
+// MOVO-182: el modo edición de esta pantalla (offerId presente en los params) consulta
+// la oferta existente (`useOfferDetail`) y hace PATCH (`useUpdateOffer`) en vez de POST.
+const mockUseOfferDetail = jest.fn(() => ({ data: undefined as unknown }));
+let mockUpdatePending = false;
 jest.mock("../src/hooks/use-offers", () => ({
   useCreateOffer: () => ({
     mutateAsync: mockMutateAsync,
     isPending: mockIsPending,
+  }),
+  useOfferDetail: () => mockUseOfferDetail(),
+  useUpdateOffer: () => ({
+    mutateAsync: mockMutateUpdate,
+    isPending: mockUpdatePending,
+    isError: false,
+    error: null,
   }),
 }));
 
@@ -103,7 +118,10 @@ describe("CreateOfferScreen (MOVO-177)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockIsPending = false;
+    mockUpdatePending = false;
     mockUseShipment.mockReturnValue({ data: shipment() });
+    mockUseLocalSearchParams.mockReturnValue({ id: "shipment-1" });
+    mockUseOfferDetail.mockReturnValue({ data: undefined });
   });
 
   /** El formulario se partió en 2 pasos (precio / retiro) -- los tests que ejercitan
@@ -437,5 +455,87 @@ describe("CreateOfferScreen (MOVO-177)", () => {
     });
 
     expect(getByTestId("create-offer-error")).toBeTruthy();
+  });
+
+  describe("modo edición (MOVO-182, offerId presente en los params)", () => {
+    const existingOffer = {
+      id: "offer-1",
+      shipmentId: "shipment-1",
+      priceOffered: 8000,
+      offeredDate: "2026-08-20",
+      offeredPickupTimeWindowStart: null,
+      offeredPickupTimeWindowEnd: null,
+      message: "Mensaje que ya mandé",
+      estimatedDeliveryDate: "2026-08-20",
+      estimatedDeliveryTimeWindowStart: "08:00",
+      estimatedDeliveryTimeWindowEnd: "12:00",
+    };
+
+    beforeEach(() => {
+      mockUseLocalSearchParams.mockReturnValue({ id: "shipment-1", offerId: "offer-1" });
+      mockUseOfferDetail.mockReturnValue({ data: existingOffer });
+    });
+
+    it("arranca directo en el paso 2 (fecha/horario y notas) -- el precio se cambia desde 'Cambiar el precio', no acá", async () => {
+      const { getByTestId, queryByTestId } = await render(<CreateOfferScreen />);
+
+      // Prefill del monto ya corrió (sale de la oferta existente), pero el paso 1
+      // (edición de monto) nunca se muestra en este flujo.
+      expect(queryByTestId("create-offer-amount-trigger")).toBeNull();
+      expect(queryByTestId("create-offer-continue")).toBeNull();
+
+      expect(getByTestId("create-offer-message-input").props.value).toBe(
+        "Mensaje que ya mandé"
+      );
+      expect(getByTestId("create-offer-message-input").props.editable).toBe(false);
+      expect(getByTestId("create-offer-delivery-slot-0")).toBeTruthy();
+    });
+
+    it("el botón de volver del header sale directo de la pantalla (sin paso 1 al que retroceder)", async () => {
+      const { getByTestId } = await render(<CreateOfferScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByTestId("create-offer-back"));
+      });
+
+      expect(mockRouterBack).toHaveBeenCalled();
+    });
+
+    it("el submit dispara PATCH (useUpdateOffer), no POST (useCreateOffer)", async () => {
+      mockMutateUpdate.mockResolvedValue({
+        ...existingOffer,
+        priceNetArs: 6956.52,
+      });
+      // Mismo criterio que el test de éxito de creación: capturamos el `setTimeout`
+      // real de `OfferSuccessOverlay` en vez de dejarlo correr libre, así el test
+      // no deja timers pendientes que ensucien el siguiente.
+      const setTimeoutSpy = jest.spyOn(globalThis, "setTimeout");
+
+      const { getByTestId } = await render(<CreateOfferScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByTestId("create-offer-submit"));
+      });
+
+      expect(mockMutateUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          priceOfferedArs: expect.any(Number),
+          offeredDate: "2026-08-20",
+          offeredPickupTimeWindowStart: null,
+          offeredPickupTimeWindowEnd: null,
+        })
+      );
+      expect(mockMutateAsync).not.toHaveBeenCalled();
+
+      const autoReturnCall = (
+        setTimeoutSpy.mock.calls as Array<[(...args: unknown[]) => void, number]>
+      ).find(([, ms]) => ms === 2400);
+      await act(async () => {
+        autoReturnCall?.[0]();
+      });
+      expect(mockRouterReplace).toHaveBeenCalledWith(
+        "/(app)/carrier/offers/offer-1"
+      );
+    });
   });
 });

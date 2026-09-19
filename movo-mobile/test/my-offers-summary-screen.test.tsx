@@ -66,10 +66,10 @@ describe("MyOffersSummaryScreen (MOVO-183)", () => {
       refetch: jest.fn(),
     });
 
-    const { getByText } = await render(<MyOffersSummaryScreen />);
+    const { getByText, getByTestId } = await render(<MyOffersSummaryScreen />);
 
-    expect(getByText("$1.000")).toBeTruthy();
-    expect(getByText("$5.000")).toBeTruthy(); // 2000 + 3000 confirmado
+    expect(getByTestId("my-offers-pending-total")).toHaveTextContent("$1.000");
+    expect(getByTestId("my-offers-accepted-total")).toHaveTextContent("$5.000"); // 2000 + 3000 confirmado
     expect(getByText("1 sin respuesta")).toBeTruthy();
   });
 
@@ -87,6 +87,33 @@ describe("MyOffersSummaryScreen (MOVO-183)", () => {
     await fireEvent.press(getByTestId("my-offers-accepted-accepted-1"));
 
     expect(mockRouterPush).toHaveBeenCalledWith("/transport/shipment-1");
+  });
+
+  it("lista TODAS las ofertas propias, sin importar estado, y navega al detalle de la oferta", async () => {
+    mockUseMyOffers.mockReturnValue({
+      data: {
+        items: [
+          offer({ id: "p1", status: "pending", createdAt: "2026-09-01T10:00:00.000Z" }),
+          offer({ id: "r1", status: "rejected", createdAt: "2026-09-05T10:00:00.000Z" }),
+          offer({ id: "w1", status: "withdrawn", createdAt: "2026-09-03T10:00:00.000Z" }),
+        ],
+        page: 1,
+        limit: 50,
+        total: 3,
+      },
+      isLoading: false,
+      isError: false,
+      isRefetching: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByText, getByTestId } = await render(<MyOffersSummaryScreen />);
+
+    expect(getByText("Todas tus ofertas (3)")).toBeTruthy();
+
+    await fireEvent.press(getByTestId("my-offers-row-r1"));
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/carrier/offers/r1");
   });
 
   it("estado vacío sin ninguna oferta", async () => {

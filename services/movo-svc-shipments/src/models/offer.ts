@@ -71,6 +71,12 @@ export interface OfferShipmentContext {
   status: ShipmentStatus;
   pickupAddress: string;
   pickupDate: Date;
+  /** Ventana horaria de retiro PEDIDA POR EL EMISOR al crear el envío (AC de la
+   * pantalla de detalle de oferta del transportista, MOVO-182 seguimiento) --
+   * distinta de `Offer.offeredPickupTimeWindowStart/End` (lo que el transportista
+   * propuso). Se compara del lado del cliente para mostrar si coincide o no. */
+  pickupTimeWindowStart: Date;
+  pickupTimeWindowEnd: Date;
   deliveryAddress: string;
   distanceKm: number;
   packageType: PackageType;
