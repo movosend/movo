@@ -1,4 +1,5 @@
 import type { OfferStatus } from "@movo/shared/dist/types/offer";
+import type { PackageType } from "../store/shipment-wizard-store";
 import { httpClient } from "./http-client";
 
 export type OfferSortOption = "price" | "rating" | "createdAt";
@@ -22,6 +23,23 @@ export interface OfferSummary {
   message: string | null;
   carrierRatingAtOffer: number | null;
   carrierNameAtOffer: string | null;
+  /** MOVO-186: desglose derivado de `priceOffered` (bruto), calculado con la tasa
+   * de comisión vigente al momento de la lectura (no necesariamente la que regía
+   * al ofertar). */
+  priceNetArs: number;
+  commissionAmountArs: number;
+  /** MOVO-187: snapshot del emisor al momento de ofertar, simétrico al del
+   * transportista de arriba. */
+  senderNameAtOffer: string | null;
+  senderVerifiedAtOffer: boolean | null;
+  senderRatingAtOffer: number | null;
+  /** MOVO-180: entrega estimada opcional propuesta por el transportista. */
+  estimatedDeliveryDate: string | null;
+  estimatedDeliveryTimeWindowStart: string | null;
+  estimatedDeliveryTimeWindowEnd: string | null;
+  /** MOVO-189: instante crudo en que el emisor vio esta oferta por primera vez —
+   * la traducción a copy ("Vista hace 40 min") es responsabilidad de la UI. */
+  viewedAtBySender: string | null;
   status: OfferStatus;
   expiresAt: string | null;
   createdAt: string;
@@ -52,23 +70,42 @@ export interface CreateOfferRequest {
 
 /**
  * DTO devuelto por `POST /shipments/:id/offers` (MOVO-143 / MOVO-149).
- * Desglosa neto, comisión y bruto calculados por el servidor.
+ * `priceNetArs`/`commissionAmountArs` ya viven en `OfferSummary` (MOVO-186).
  */
-export interface CreateOfferResponse extends OfferSummary {
-  priceNetArs: number;
-  commissionAmountArs: number;
-}
+export type CreateOfferResponse = OfferSummary;
 
 export interface MyOfferShipmentContext {
   id: string;
   status: string;
   pickupAddress: string;
   pickupDate: string;
+  /** Ventana horaria de retiro PEDIDA POR EL EMISOR al crear el envío -- distinta de
+   * `offeredPickupTimeWindowStart/End` de la oferta (lo que el transportista
+   * propuso). Se usa para mostrar si la oferta coincide o difiere de lo pedido. */
+  pickupTimeWindowStart: string;
+  pickupTimeWindowEnd: string;
   deliveryAddress: string;
+  /** MOVO-185: distancia Haversine pickup->delivery, redondeada a 1 decimal. */
+  distanceKm: number;
+  packageType: PackageType;
+  weightKg: number;
+  description: string | null;
+}
+
+/**
+ * MOVO-188: posición de la oferta propia entre las `pending` del mismo envío —
+ * `null` si la oferta no está `pending` o el envío ya no acepta ofertas.
+ */
+export interface OfferCompetitiveRank {
+  rank: number;
+  total: number;
+  lowestPriceNetArs: number;
+  highestPriceNetArs: number;
 }
 
 export interface MyOfferSummary extends OfferSummary {
   shipment: MyOfferShipmentContext;
+  competitiveRank: OfferCompetitiveRank | null;
 }
 
 export interface ListMyOffersParams {
@@ -83,6 +120,19 @@ export interface ListMyOffersResponse {
   page: number;
   limit: number;
   total: number;
+}
+
+/**
+ * Body de `PATCH /offers/:id` (MOVO-181). Parcial — cualquier subconjunto de estos
+ * 4 campos editables. `offeredPickupTimeWindowStart/End: null` explícito resetea la
+ * franja alternativa (vuelve a "usa la ventana del envío tal cual"); omitir el campo
+ * no la toca.
+ */
+export interface UpdateOfferRequest {
+  priceOfferedArs?: number;
+  offeredDate?: string;
+  offeredPickupTimeWindowStart?: string | null;
+  offeredPickupTimeWindowEnd?: string | null;
 }
 
 export const offersClient = {
@@ -135,5 +185,24 @@ export const offersClient = {
    */
   listMyOffers(params?: ListMyOffersParams): Promise<ListMyOffersResponse> {
     return httpClient.get<ListMyOffersResponse>("/offers/mine", params);
+  },
+
+  /**
+   * `GET /offers/:id` (MOVO-190)
+   * Detalle completo de una oferta propia — mismo shape que un ítem de `listMyOffers`.
+   */
+  getOffer(offerId: string): Promise<MyOfferSummary> {
+    return httpClient.get<MyOfferSummary>(`/offers/${offerId}`);
+  },
+
+  /**
+   * `PATCH /offers/:id` (MOVO-181)
+   * Modifica una oferta propia en `pending` — precio y/o fecha/franja de retiro
+   * propuesta, parcial. A diferencia de `getOffer`/`listMyOffers`, el backend
+   * (`offers.routes.ts#updateOffer` -> `toOfferDto`) devuelve el `OfferSummary`
+   * plano, SIN `shipment`/`competitiveRank` -- mismo shape que accept/reject/withdraw.
+   */
+  updateOffer(offerId: string, data: UpdateOfferRequest): Promise<OfferSummary> {
+    return httpClient.patch<OfferSummary>(`/offers/${offerId}`, data);
   },
 };

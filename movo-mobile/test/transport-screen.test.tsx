@@ -125,6 +125,52 @@ function pages(items: AvailableShipment[]) {
   return { pages: [{ items, page: 1, limit: 20, total: items.length }] };
 }
 
+function myOfferSummary(
+  overrides: {
+    id: string;
+    status: "pending" | "accepted" | "rejected" | "withdrawn" | "expired" | "superseded";
+  } & Record<string, unknown>,
+) {
+  return {
+    shipmentId: `shipment-${overrides.id}`,
+    carrierId: "carrier-1",
+    priceOffered: 2400,
+    offeredDate: DEFAULT_PICKUP_DATE,
+    offeredPickupTimeWindowStart: null,
+    offeredPickupTimeWindowEnd: null,
+    message: null,
+    carrierRatingAtOffer: null,
+    carrierNameAtOffer: null,
+    priceNetArs: 2000,
+    commissionAmountArs: 400,
+    senderNameAtOffer: null,
+    senderVerifiedAtOffer: null,
+    senderRatingAtOffer: null,
+    estimatedDeliveryDate: null,
+    estimatedDeliveryTimeWindowStart: null,
+    estimatedDeliveryTimeWindowEnd: null,
+    viewedAtBySender: null,
+    expiresAt: null,
+    createdAt: "2026-09-01T10:00:00.000Z",
+    respondedAt: null,
+    shipment: {
+      id: `shipment-${overrides.id}`,
+      status: "assignment_pending",
+      pickupAddress: "Paul Dirac 7777, Córdoba",
+      pickupDate: DEFAULT_PICKUP_DATE,
+      pickupTimeWindowStart: "09:00",
+      pickupTimeWindowEnd: "12:00",
+      deliveryAddress: "Bv. San Juan 500, Córdoba",
+      distanceKm: 3,
+      packageType: "standard_package",
+      weightKg: 3,
+      description: null,
+    },
+    competitiveRank: null,
+    ...overrides,
+  };
+}
+
 function baseAvailableResult(overrides: Record<string, unknown> = {}) {
   return {
     data: undefined,
@@ -332,16 +378,50 @@ describe("TransportScreen", () => {
     expect(getByText("Todo tranquilo en 50 km")).toBeTruthy();
   });
 
-  it("marca los envíos donde ya ofertó sin ocultarlos", async () => {
+  it("un envío ya ofertado se muestra con el precio de la oferta (gris) e indicador de estado, no el sugerido", async () => {
     mockUseTransportOrigin.mockReturnValue(baseOriginResult());
     mockUseAvailableShipments.mockReturnValue(
       baseAvailableResult({ data: pages([availableShipment({ id: "offered-1", hasMyOffer: true })]) }),
     );
+    mockUseMyOffers.mockReturnValue({
+      data: {
+        items: [myOfferSummary({ id: "o1", status: "pending", shipmentId: "offered-1", priceOffered: 3100 })],
+        page: 1,
+        limit: 50,
+        total: 1,
+      },
+    });
 
     const { getByTestId } = await render(<TransportScreen />);
 
     expect(getByTestId("transport-card-offered-1")).toBeTruthy();
-    expect(getByTestId("transport-card-offered-1-has-offer")).toBeTruthy();
+    expect(getByTestId("transport-card-offered-1-my-offer-price")).toHaveTextContent("$3.100tu oferta");
+    expect(getByTestId("transport-card-offered-1-offer-status")).toHaveTextContent("Pendiente");
+  });
+
+  it("bug real: una oferta retirada del historial no se muestra como si siguiera vigente", async () => {
+    // `hasMyOffer` (calculado por el backend) es `false` acá -- ya no hay ninguna
+    // oferta activa sobre este envío -- pero `GET /offers/mine` sigue devolviendo la
+    // retirada en el historial. El envío debería verse como cualquier otro disponible,
+    // sin el pill gris ni el chip de estado.
+    mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+    mockUseAvailableShipments.mockReturnValue(
+      baseAvailableResult({ data: pages([availableShipment({ id: "shipment-1", hasMyOffer: false })]) }),
+    );
+    mockUseMyOffers.mockReturnValue({
+      data: {
+        items: [myOfferSummary({ id: "o1", status: "withdrawn", shipmentId: "shipment-1" })],
+        page: 1,
+        limit: 50,
+        total: 1,
+      },
+    });
+
+    const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+    expect(getByTestId("transport-card-shipment-1")).toBeTruthy();
+    expect(queryByTestId("transport-card-shipment-1-my-offer-price")).toBeNull();
+    expect(queryByTestId("transport-card-shipment-1-offer-status")).toBeNull();
   });
 
   it("con origen de dirección guardada, la zona sale del campo city, no del label de la dirección", async () => {
@@ -460,10 +540,7 @@ describe("TransportScreen", () => {
       });
       mockUseMyOffers.mockReturnValue({
         data: {
-          items: [
-            { id: "o1", status: "pending" },
-            { id: "o2", status: "accepted" },
-          ],
+          items: [myOfferSummary({ id: "o1", status: "pending" }), myOfferSummary({ id: "o2", status: "accepted" })],
           page: 1,
           limit: 50,
           total: 2,
@@ -525,7 +602,7 @@ describe("TransportScreen", () => {
       expect(getByTestId("transport-filter-count-badge")).toBeTruthy();
     });
 
-    it("oculta los envíos ya ofertados con el toggle de la hoja de filtros", async () => {
+    it("los envíos ya ofertados quedan en la misma lista, siempre al final", async () => {
       mockUseTransportOrigin.mockReturnValue(baseOriginResult());
       mockUseAvailableShipments.mockReturnValue(
         baseAvailableResult({
@@ -536,18 +613,15 @@ describe("TransportScreen", () => {
         }),
       );
 
-      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+      const { getByTestId, queryByTestId, getAllByTestId } = await render(<TransportScreen />);
 
       expect(getByTestId("transport-card-offered")).toBeTruthy();
       expect(getByTestId("transport-card-not-offered")).toBeTruthy();
-
-      await fireEvent.press(getByTestId("transport-open-filters"));
-      await fireEvent.press(getByTestId("transport-filters-hide-offered"));
-      await fireEvent.press(getByTestId("transport-filters-apply"));
-
-      expect(queryByTestId("transport-card-offered")).toBeNull();
-      expect(getByTestId("transport-card-not-offered")).toBeTruthy();
-      expect(getByTestId("transport-filter-count-badge")).toBeTruthy();
+      // "not-offered" primero pese a que "offered" fue el primero en la respuesta del
+      // servidor -- el ítem con oferta propia siempre se manda al final del orden.
+      const testIds = getAllByTestId(/^transport-card-(offered|not-offered)$/).map((el) => el.props.testID);
+      expect(testIds).toEqual(["transport-card-not-offered", "transport-card-offered"]);
+      expect(queryByTestId("transport-card-offered-my-offer-price")).toBeNull();
     });
 
     it("fusiona el desvío de un viaje activo declarado en la card (aproximación client-side)", async () => {
