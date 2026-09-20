@@ -50,6 +50,7 @@ import {
   assertIsSenderOrAdmin,
   assertShipmentAccess,
 } from "./assert-shipment-access";
+import { assertTripAccess } from "../trips/trip-access";
 
 type ShipmentsServiceLogger =
   | FastifyBaseLogger
@@ -972,9 +973,14 @@ export function createShipmentsService(
         if (!trip) {
           throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${input.tripId}' no existe.`);
         }
-        if (trip.carrierId !== input.carrierId) {
-          throw new ApiError(403, "AUTH_FORBIDDEN", "No podés ofertar en nombre de un viaje que no es tuyo.");
-        }
+        // allowAdmin: false -- a diferencia del resto de los usos de assertTripAccess,
+        // ofertar es una acción 100% self-service del transportista (input.carrierId
+        // siempre es el propio caller, nunca "en nombre de"); un admin no tiene ningún
+        // caso de uso legítimo para taggear la oferta de otro con este tripId.
+        assertTripAccess(trip, input.carrierId, input.callerRoles, {
+          allowAdmin: false,
+          forbiddenMessage: "No podés ofertar en nombre de un viaje que no es tuyo.",
+        });
         if (trip.status !== TripStatus.DECLARED && trip.status !== TripStatus.ACTIVE) {
           throw new ApiError(
             409,
@@ -1453,11 +1459,15 @@ export function createShipmentsService(
      * y descarta su resultado (no hay dónde persistirlo en `Trip`, mismo criterio
      * "on-demand sin persistencia" de MOVO-206 AC7/AC9), así que no hay ningún cache
      * real del que esta ruta pueda leer.
+     * Autorización vía `assertTripAccess` (`../trips/trip-access.ts`, admin incluido
+     * por default -- fix de review: la primera versión no aceptaba `callerRoles` y
+     * bloqueaba con 403 incluso a un administrador).
      */
     async getMyRoute(
       carrierId: string,
       location: { lat: number; lng: number },
       tripId?: string,
+      callerRoles: UserRole[] = [],
     ): Promise<CarrierRoute> {
       if (tripId) {
         if (!tripRepository) {
@@ -1467,15 +1477,18 @@ export function createShipmentsService(
         if (!trip) {
           throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
         }
-        if (trip.carrierId !== carrierId) {
-          throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver la ruta de este viaje.");
-        }
+        assertTripAccess(trip, carrierId, callerRoles, {
+          forbiddenMessage: "No tenés permiso para ver la ruta de este viaje.",
+        });
         if (trip.status !== TripStatus.ACTIVE) {
-          throw new ApiError(
-            409,
-            "TRIP_NOT_ACTIVE",
-            `El viaje '${tripId}' todavía no está iniciado (estado actual: '${trip.status}'). Iniciá el viaje antes de pedir su ruta.`,
-          );
+          // Fix de review: el mensaje anterior siempre decía "iniciá el viaje", pero
+          // este 409 también dispara para CANCELLED/COMPLETED -- confuso para un viaje
+          // que ya terminó y no va a "iniciarse" nunca.
+          const message =
+            trip.status === TripStatus.DECLARED
+              ? `El viaje '${tripId}' todavía no está iniciado (estado actual: '${trip.status}'). Iniciá el viaje antes de pedir su ruta.`
+              : `El viaje '${tripId}' ya no está en curso (estado actual: '${trip.status}').`;
+          throw new ApiError(409, "TRIP_NOT_ACTIVE", message);
         }
       }
 

@@ -314,8 +314,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
     },
     async (request: FastifyRequest) => {
       const carrierId = requireUserIdFromHeader(request);
+      const callerRoles = getUserRolesFromHeader(request);
       const { lat, lng, tripId } = request.query as { lat: number; lng: number; tripId?: string };
-      return service.getMyRoute(carrierId, { lat, lng }, tripId);
+      return service.getMyRoute(carrierId, { lat, lng }, tripId, callerRoles);
     }
   );
 
