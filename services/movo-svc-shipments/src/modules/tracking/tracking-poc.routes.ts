@@ -92,6 +92,13 @@ export default async function trackingPocRoutes(app: FastifyInstance, opts: Trac
       socket.on("close", () => {
         app.log.info({ shipmentId: request.params.id }, "tracking-poc: cliente desconectado");
       });
+
+      // Sin este listener, un corte abrupto de la conexión TCP (ej. ECONNRESET)
+      // mientras se envía data puede escalar a una excepción no capturada del
+      // EventEmitter.
+      socket.on("error", (err: Error) => {
+        app.log.warn({ err, shipmentId: request.params.id }, "tracking-poc: error de socket");
+      });
     }
   );
 }
