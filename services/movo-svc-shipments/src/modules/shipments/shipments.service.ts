@@ -51,6 +51,7 @@ import {
   assertIsSenderOrAdmin,
   assertShipmentAccess,
 } from "./assert-shipment-access";
+import { assertTripAccess } from "../trips/trip-access";
 
 type ShipmentsServiceLogger =
   | FastifyBaseLogger
@@ -1132,9 +1133,14 @@ export function createShipmentsService(
         if (!trip) {
           throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${input.tripId}' no existe.`);
         }
-        if (trip.carrierId !== input.carrierId) {
-          throw new ApiError(403, "AUTH_FORBIDDEN", "No podés ofertar en nombre de un viaje que no es tuyo.");
-        }
+        // allowAdmin: false -- a diferencia del resto de los usos de assertTripAccess,
+        // ofertar es una acción 100% self-service del transportista (input.carrierId
+        // siempre es el propio caller, nunca "en nombre de"); un admin no tiene ningún
+        // caso de uso legítimo para taggear la oferta de otro con este tripId.
+        assertTripAccess(trip, input.carrierId, input.callerRoles, {
+          allowAdmin: false,
+          forbiddenMessage: "No podés ofertar en nombre de un viaje que no es tuyo.",
+        });
         if (trip.status !== TripStatus.DECLARED && trip.status !== TripStatus.ACTIVE) {
           throw new ApiError(
             409,
@@ -1636,10 +1642,53 @@ export function createShipmentsService(
      * - Llama a OR-Tools vía `pricingLogisticsClient.optimizeRoute` (AC5).
      * - Si el solver falla: aplica degradación heurística con `optimized: false` (AC6).
      * - On-demand, sin persistencia en BD (AC7, AC9).
+     *
+     * MOVO-235: `tripId` opcional acota la ruta a las paradas de ESE viaje (en vez de
+     * todos los envíos activos del transportista) -- el mapa de MOVO-207 navega acá
+     * recién después de "Iniciar viaje", así que se exige `trip.status === active`
+     * (409 `TRIP_NOT_ACTIVE`, código que había quedado sin uso desde MOVO-221) en vez
+     * del criterio más laxo "declared o active" que usan `getTripMatches`/
+     * `createOfferForShipment`. AC5 del ticket (¿reusar la ruta que ya calculó
+     * `POST /trips/:id/start`?): no aplica -- el warm-up de `/start` es fire-and-forget
+     * y descarta su resultado (no hay dónde persistirlo en `Trip`, mismo criterio
+     * "on-demand sin persistencia" de MOVO-206 AC7/AC9), así que no hay ningún cache
+     * real del que esta ruta pueda leer.
+     * Autorización vía `assertTripAccess` (`../trips/trip-access.ts`, admin incluido
+     * por default -- fix de review: la primera versión no aceptaba `callerRoles` y
+     * bloqueaba con 403 incluso a un administrador).
      */
-    async getMyRoute(carrierId: string, location: { lat: number; lng: number }): Promise<CarrierRoute> {
-      // 1. Envíos activos del transportista (aprovecha query de MOVO-192)
-      const shipments = await repository.listActiveShipments("carrierId", carrierId);
+    async getMyRoute(
+      carrierId: string,
+      location: { lat: number; lng: number },
+      tripId?: string,
+      callerRoles: UserRole[] = [],
+    ): Promise<CarrierRoute> {
+      if (tripId) {
+        if (!tripRepository) {
+          throw new Error("getMyRoute requiere tripRepository (ShipmentsServiceOptions) para validar tripId.");
+        }
+        const trip = await tripRepository.findById(tripId);
+        if (!trip) {
+          throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
+        }
+        assertTripAccess(trip, carrierId, callerRoles, {
+          forbiddenMessage: "No tenés permiso para ver la ruta de este viaje.",
+        });
+        if (trip.status !== TripStatus.ACTIVE) {
+          // Fix de review: el mensaje anterior siempre decía "iniciá el viaje", pero
+          // este 409 también dispara para CANCELLED/COMPLETED -- confuso para un viaje
+          // que ya terminó y no va a "iniciarse" nunca.
+          const message =
+            trip.status === TripStatus.DECLARED
+              ? `El viaje '${tripId}' todavía no está iniciado (estado actual: '${trip.status}'). Iniciá el viaje antes de pedir su ruta.`
+              : `El viaje '${tripId}' ya no está en curso (estado actual: '${trip.status}').`;
+          throw new ApiError(409, "TRIP_NOT_ACTIVE", message);
+        }
+      }
+
+      // 1. Envíos activos del transportista (aprovecha query de MOVO-192), acotados al
+      // viaje si vino tripId (MOVO-235 AC1)
+      const shipments = await repository.listActiveShipments("carrierId", carrierId, tripId);
 
       // 2. Composición de paradas (AC2)
       const stops = aggregateCarrierStops(shipments);
