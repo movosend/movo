@@ -1,0 +1,17 @@
+-- MOVO-221: rediseño de estados de viaje (declared/active/completed) + límite de 1
+-- viaje activo por transportista.
+--
+-- `declared` pasa a ser el estado inicial real de un viaje (antes nacía directo en
+-- `active`, sin ningún paso explícito de "arrancar el viaje", ver POST /trips/:id/start
+-- en la migración siguiente). Se inserta BEFORE 'active' para reflejar su lugar real
+-- en el ciclo de vida (declared -> active -> completed).
+--
+-- Separada en su propia migración (no junto al backfill de la migración siguiente):
+-- Postgres no permite usar un valor de enum recién agregado con ADD VALUE dentro de la
+-- MISMA transacción que lo agrega (falla con "unsafe use of new value of enum type"),
+-- y Prisma corre cada migration.sql dentro de su propia transacción -- mismo mecanismo
+-- ya documentado en 20260912200000_add_assigned_unfunded_and_completed_states
+-- (MOVO-208) para shipment_status_enum. Acá además hay un UPDATE que SÍ usa el valor
+-- nuevo (backfill de filas 'active' -> 'declared'), así que el split en dos migraciones
+-- es obligatorio, no solo prolijidad.
+ALTER TYPE "shipments"."trip_status_enum" ADD VALUE 'declared' BEFORE 'active';

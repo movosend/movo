@@ -103,7 +103,10 @@ enum HandshakeStage {
 }
 
 // MOVO-161: estado del viaje declarado por el transportista
+// MOVO-221: declared (default al crear, antes era active directo) -> active
+// (POST /trips/:id/start, máx 1 por cuenta) -> completed. cancelled sin cambios.
 enum TripStatus {
+  declared
   active
   cancelled
   completed
@@ -410,7 +413,11 @@ model Trip {
   destinationLng     Decimal    @map("destination_lng") @db.Decimal(9, 6)
   departureAt        DateTime   @map("departure_at") @db.Timestamptz
   vehicleType        String     @map("vehicle_type")
-  status             TripStatus @default(active)
+  // MOVO-221: default pasa de active a declared. El índice único parcial que
+  // garantiza "máx 1 active por carrier_id" no es representable en el DSL de
+  // Prisma (mismo caso que offers_shipment_carrier_pending_unique, MOVO-102) --
+  // agregado a mano en la migración de backfill.
+  status             TripStatus @default(declared)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz

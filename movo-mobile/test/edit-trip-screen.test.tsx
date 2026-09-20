@@ -40,7 +40,10 @@ const TRIP: TripWithAcceptedPackages = {
   id: "trip-1",
   carrierId: "carrier-1",
   ...FAKE_INPUT,
-  status: TripStatus.ACTIVE,
+  // MOVO-221 (fix de review, PR #168): declared es el estado real de un viaje recién
+  // creado -- antes de este fix quedaba hardcodeado en ACTIVE y nunca ejercitaba el
+  // bug real (el form no se mostraba para un viaje declared, ver el test de abajo).
+  status: TripStatus.DECLARED,
   createdAt: "2026-09-03T12:00:00.000Z",
   updatedAt: "2026-09-03T12:00:00.000Z",
   hasAcceptedPackages: false,
@@ -103,6 +106,43 @@ describe("EditTripScreen", () => {
 
     expect(getByTestId("edit-trip-not-active")).toBeTruthy();
     expect(queryByTestId("tf-stub-submit")).toBeNull();
+  });
+
+  it("MOVO-221 (fix de review, PR #168): también bloquea un viaje completed", async () => {
+    mockUseTrip.mockReturnValue({
+      data: { ...TRIP, status: TripStatus.COMPLETED },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId, queryByTestId } = await render(<EditTripScreen />);
+
+    expect(getByTestId("edit-trip-not-active")).toBeTruthy();
+    expect(queryByTestId("tf-stub-submit")).toBeNull();
+  });
+
+  it("MOVO-221 (fix de review, PR #168): un viaje declared (recién creado) SÍ muestra el form editable", async () => {
+    mockUseTrip.mockReturnValue({ data: TRIP, isLoading: false, isError: false, refetch: jest.fn() });
+
+    const { getByTestId, queryByTestId } = await render(<EditTripScreen />);
+
+    expect(getByTestId("tf-stub-submit")).toBeTruthy();
+    expect(queryByTestId("edit-trip-not-active")).toBeNull();
+  });
+
+  it("MOVO-221 (fix de review, PR #168): un viaje active también muestra el form editable", async () => {
+    mockUseTrip.mockReturnValue({
+      data: { ...TRIP, status: TripStatus.ACTIVE },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId, queryByTestId } = await render(<EditTripScreen />);
+
+    expect(getByTestId("tf-stub-submit")).toBeTruthy();
+    expect(queryByTestId("edit-trip-not-active")).toBeNull();
   });
 
   it("llama a la mutación con id + input del form y vuelve atrás al éxito", async () => {
