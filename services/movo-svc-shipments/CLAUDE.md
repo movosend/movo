@@ -2396,6 +2396,69 @@ sin relación con esta US: `offers-detail.integration.test.ts` y
 `movo:movo` (el resto de los tests de integración) — fallaban con
 `password authentication failed` al correr sin la env var ya seteada en el shell.
 
+### MOVO-234 — Auto-crear `Trip` al aceptar una oferta sin viaje asociado
+
+Decisión de producto confirmada previamente (ver la descripción del ticket): ofertar
+sin viaje sigue sin fricción (no se le exige al transportista "declarar viaje" antes
+de ofertar), pero si la oferta ganadora no tenía `tripId`, `offerRepository.acceptOffer()`
+(`offer-repository.ts`) ahora crea un `Trip` `declared` a partir del propio envío y lo
+asocia a la oferta, todo dentro de la misma transacción atómica de la aceptación (AC1/
+AC2) — igual que si el transportista lo hubiera declarado a mano.
+
+Decisiones clave:
+- **`departureAt` = inicio de la ventana de retiro EFECTIVAMENTE acordada** (una de las
+  dos preguntas que el ticket dejaba explícitamente abiertas, resuelta con el usuario):
+  se prefirió el inicio de la franja horaria por sobre el mediodía genérico, mismo
+  criterio que ya usaba el dominio para el CIERRE de esa misma ventana
+  (`pickupWindowEndInstant`). `domain/pickup-window.ts#acceptedOfferPickupWindowStartInstant`
+  nueva (simétrica, misma base `anchorTimeOfDayToInstant` extraída para no duplicar el
+  anclaje UTC+offset Argentina) — usa `Offer.offeredDate`/`offeredPickupTimeWindowStart`
+  (lo que el transportista efectivamente propuso al ofertar, MOVO-177) por sobre
+  `Shipment.pickupDate`/`pickupTimeWindowStart` (lo pedido originalmente por el emisor)
+  cuando el transportista propuso una franja distinta.
+- **Placeholder de `vehicleType` = `"Vehículo sin especificar"`** (la otra pregunta
+  abierta del ticket, resuelta con el usuario): texto neutro, mismo tono que
+  `UNKNOWN_COUNTERPARTY_NAME`. `resolveAutoTripVehicleType()` (`offers.service.ts`)
+  resuelve `${vehicle.brand} ${vehicle.model}` desde `PublicProfile.vehicle` (MOVO-172,
+  mismo formato que usa `movo-mobile` al declarar un viaje a mano) si el transportista
+  tiene ficha cargada; degrada al placeholder ante cualquier fallo de `usersClient`, sin
+  bloquear jamás la aceptación (mismo patrón try/catch+`logger?.warn` que
+  `resolveSnapshotProfile`).
+- **Resolución de `usersClient` ANTES de la transacción de Postgres, nunca dentro**:
+  `acceptOffer()` de `offers.service.ts` resuelve `vehicleType` (I/O de red) antes de
+  llamar a `offerRepository.acceptOffer()`, que recién ahí abre la transacción — no se
+  puede intercalar una llamada HTTP dentro de una transacción de Postgres sin arriesgar
+  tenerla abierta el tiempo de un round-trip de red. `AutoTripDefaults` (nuevo,
+  `offer-repository.ts`) es el único dato que cruza esa frontera.
+- **Origen/destino del `Trip` = retiro/entrega del propio `Shipment`** (columnas ya
+  disponibles dentro de la transacción, sin I/O extra): se agregó un
+  `tx.shipment.findUniqueOrThrow` puntual (el repositorio hasta ahora solo tocaba
+  `shipment` vía `updateMany`, sin necesitar la fila completa) — costo aceptable, ocurre
+  como mucho una vez por aceptación, nunca en el hot path de otro `acceptOffer` que ya
+  tenía `tripId`.
+- **AC5 (asociar a un `Trip` `declared` compatible existente en vez de crear uno nuevo)
+  explícitamente NO implementado**: el propio ticket lo marca como optimización a
+  evaluar después, "crear siempre uno nuevo es un comportamiento correcto y más simple"
+  — no es un gap, es la primera versión tal como la pidió el AC.
+- **AC3 (aviso al transportista) vía `notificationsClient.sendPush` únicamente**:
+  `dispatchAutoTripCreatedPush()` nueva, mismo patrón fire-and-forget best-effort que el
+  resto de `offers.service.ts`. El copy/canal final (push vs. in-app) es
+  responsabilidad de `movo-mobile` (MOVO-236, bloqueado por este ticket) — acá solo se
+  dispara el trigger de backend, tal como el ticket delimita en su sección "Fuera de
+  alcance".
+
+Tests: `test/pickup-window.test.ts` (2 casos nuevos de `acceptedOfferPickupWindowStartInstant`
+— sin franja propuesta usa la del envío, con franja propuesta la reemplaza) y 5 casos
+nuevos en `test/offers-accept-reject.integration.test.ts` (Postgres real: crea el `Trip`
+con origen/destino/`departureAt` correctos y lo asocia a `Offer.tripId`, `departureAt`
+con franja propuesta de MOVO-177, no crea un `Trip` nuevo si la oferta ya tenía `tripId`,
+push `trip_auto_created` disparada, placeholder de `vehicleType` sin ficha de vehículo
+cargada). Suite completa del servicio verificada contra Postgres/Redis reales: 765/765
+(55 archivos). `tsc --noEmit` y `npm run lint` limpios.
+
+Pendiente / fuera de alcance: AC5 (fusión con un `Trip` `declared` compatible existente,
+ver arriba); UI del aviso in-app/push (MOVO-236).
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
