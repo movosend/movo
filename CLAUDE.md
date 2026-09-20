@@ -314,11 +314,11 @@ tecnologías, impacto en infra, esbozo de auth/autorización).
   `GET /shipments/:id/track` (WS) valida el JWT en el handshake
   (`verifyAccessToken`, mismo mecanismo que el gateway), autoriza por pertenencia al
   envío (`assertShipmentAccess` + `carrierId`) y empuja una posición de muestra.
-  Instrucciones para correrla: `docs/tracking-poc/README.md`. **No es la
-  implementación final** (esa es MOVO-201, ticket hermano bloqueado por este spike) —
-  conecta directo a `svc-shipments` sin pasar por el gateway, sin salas ni difusión a
-  múltiples suscriptores, sin ingesta real de GPS. Ver el aviso completo en los
-  comentarios de `tracking-poc.routes.ts`.
+  **No era la implementación final** — MOVO-201 (ticket hermano bloqueado por este
+  spike, ver su entrada más abajo) la reemplazó por completo: conectaba directo a
+  `svc-shipments` sin pasar por el gateway, sin salas ni difusión a múltiples
+  suscriptores, sin ingesta real de GPS. La doc de uso vive ahora en
+  `docs/tracking/README.md` (`docs/tracking-poc/` ya no existe).
 - **MOVO-159 AC4 resuelto**: el condicional "polling o suscripción si hay Socket.io"
   pasa a "suscripción por WebSocket, cuando MOVO-201 esté disponible" — ese reemplazo
   de polling se hace en los tickets de implementación de MOVO-159/MOVO-199, no en este
@@ -341,6 +341,28 @@ tecnologías, impacto en infra, esbozo de auth/autorización).
   deploy real en dev/prod (EC2) todavía.
 - **Pendiente de este ticket**: estimación informada de los tickets de implementación
   de MOVO-11/MOVO-201 (identificados, sin horas concretas todavía).
+
+### MOVO-201 — Canal de tiempo real: implementación real (gateway + `svc-shipments`)
+
+Reemplaza la PoC de MOVO-200 sobre la tecnología que fijó ADR-022. Detalle completo en
+`gateway/CLAUDE.md` y `services/movo-svc-shipments/CLAUDE.md` (ambos con entrada propia
+de MOVO-201) — acá solo lo transversal.
+
+- **El gateway ahora sí proxea el upgrade WS** (`config/routes-map.ts#ServiceRoute.
+  websocket`, solo en `/shipments`): `@fastify/http-proxy` lo maneja internamente sin
+  necesitar `@fastify/websocket` ahí, pero no reenvía `x-user-*` al upstream por default
+  en una conexión WS (solo `cookie`) — hubo que agregar un `wsClientOptions.
+  rewriteRequestHeaders` propio. Cierra el hueco que el spike de MOVO-200 había
+  confirmado (`@fastify/http-proxy` no reenviaba upgrades de protocolo en absoluto).
+- **Heartbeat ping/pong implementado** (cada 30s, `movo-svc-shipments`) — cierra el
+  pendiente transversal que había dejado MOVO-200 (ver abajo, la entrada vieja quedó
+  resuelta) y permitió bajar `proxy_read_timeout` de nginx de 3600s a 90s.
+- **Auth de browser (`movo-admin`/MOVO-33) queda diseñada, no implementada**: mecanismo
+  elegido, subprotocolo `Sec-WebSocket-Protocol` (no query param, por el riesgo de
+  logueo del JWT en nginx/Cloudflare) — sin consumidor real todavía (MOVO-33 no está
+  bloqueado por MOVO-201), así que no se implementó código sin usar.
+- **Sin verificar contra un deploy real en dev/prod (EC2)** — AC6 del ticket, mismo
+  pendiente que ya traía MOVO-200 para nginx; esta sesión no tuvo acceso a esa infra.
 
 ### Automatización de sync de documentos legales (`scripts/sync-legal-docs.ts`)
 
@@ -400,19 +422,17 @@ costó dos veces con env vars olvidadas (ver "Git, commits y PRs" más arriba).
   misma carpeta de Drive que el Sprint 0) porque esta sesión no tuvo forma de editar el
   contenido del doc de Sprint 0 directamente — falta que alguien lo pegue en la sección
   de ADRs y borre el doc aparte.
-- **Nginx con soporte de upgrade WebSocket aplicado y validado en local, sin probar
-  contra un deploy real en EC2** (MOVO-200/ADR-022, AC3 del spike) — ver la entrada de
-  MOVO-200 arriba para el detalle de la validación local. Falta la prueba contra
-  dev/prod real; `proxy_read_timeout` en 3600s es un valor de referencia inicial hasta
-  que MOVO-201 implemente un heartbeat ping/pong propio (recomendación de review,
-  comentario en MOVO-201/Linear) — con heartbeat, baja a 60-90s y de paso cubre el
-  timeout de inactividad de Cloudflare en modo Proxy (100s).
-- **Auth por header custom (`Authorization: Bearer`) de la PoC de MOVO-200 no sirve
-  para un cliente de navegador estándar** (`window.WebSocket` no permite headers
-  custom, a diferencia del `WebSocket` de React Native) — hace falta un mecanismo
-  alternativo (subprotocolo, query param efímero, o cookie `HttpOnly`) antes de que
-  MOVO-201 habilite el canal para `movo-admin`/MOVO-33. Recomendación de review,
-  comentario en MOVO-201/Linear.
+- **Nginx con soporte de upgrade WebSocket y heartbeat aplicados, sin probar contra un
+  deploy real en EC2** (MOVO-200/ADR-022 AC3 + MOVO-201) — ver la entrada de MOVO-201
+  arriba: el heartbeat ping/pong ya está implementado y `proxy_read_timeout` bajó de
+  3600s a 90s. Falta la prueba contra dev/prod real (AC6 de MOVO-201), sin acceso a esa
+  infra desde ninguna de las dos sesiones todavía.
+- **Auth por header custom (`Authorization: Bearer`) no sirve para un cliente de
+  navegador estándar** (`window.WebSocket` no permite headers custom, a diferencia del
+  `WebSocket` de React Native) — MOVO-201 dejó el mecanismo DISEÑADO (subprotocolo
+  `Sec-WebSocket-Protocol`, no query param) pero sin implementar, porque `movo-admin`/
+  MOVO-33 (el único consumidor que lo necesitaría) no está bloqueado por MOVO-201 y
+  todavía no lo pide. Implementar cuando ese ticket lo necesite, no antes.
 - **`MP_TRANSACTION_FEE_RATE` sin confirmar** (MOVO-143,
   `shared/movo-shared/src/config/commission.ts`): placeholder (0.0499) hasta tener el
   valor real del contrato/homologación con MercadoPago. `MOVO_COMMISSION_RATE` (15%,

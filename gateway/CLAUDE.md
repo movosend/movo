@@ -71,3 +71,32 @@ sesión), match exacto por método+path (no por prefijo), mismo rate limit estri
 que `/auth/login` (5/15min c/u, `keyGenerator` propio por ruta vía el mecanismo ya
 existente de `routes/index.ts`) para que no sean una fuente gratis de SMS/mails
 contra terceros. Detalle completo en `services/movo-svc-users/CLAUDE.md` (MOVO-140).
+
+### MOVO-201 — Proxy de WebSocket hacia `/shipments` (canal de tiempo real)
+
+`config/routes-map.ts#ServiceRoute` suma `websocket?: boolean`, seteado en la entrada
+`/shipments` (`GET /shipments/:id/track`, `movo-svc-shipments`). `@fastify/http-proxy`
+maneja el upgrade WS internamente al pasarle `{ websocket: true }` — no hace falta
+`@fastify/websocket` en el gateway.
+
+Decisión clave: `@fastify/http-proxy` no reenvía `x-user-*` al upstream en una conexión
+WS por default (su `wsClientOptions.rewriteRequestHeaders` de fábrica solo reenvía el
+header `cookie`) — sin esto, la request HTTP normal a `/shipments/*` llegaba con la
+identidad inyectada por el `preHandler` (ADR-010) pero el upgrade WS al mismo prefijo
+llegaba "anónimo". `routes/index.ts` agrega un `wsClientOptions.rewriteRequestHeaders`
+propio que reenvía `x-user-id`/`x-user-roles`/`x-kyc-status`/`x-request-id` leyendo
+`request.headers` — el MISMO objeto que ya mutó el `preHandler` de esa request, así que
+no hace falta duplicar la lógica de autenticación. Registrar el proxy pasó de una sola
+llamada a `app.register(httpProxy, {...})` por ruta a un `if/else` entre dos llamadas
+(una con `websocket: true`, otra sin): el tipo de `@fastify/http-proxy` es una unión
+discriminada por `websocket` (`true` vs `false | never`) que TypeScript no resuelve bien
+si esa propiedad llega de un spread condicional en un solo objeto en vez de estar
+escrita literal en cada llamada.
+
+Test nuevo `test/websocket-proxy.test.ts` (2 casos) — las suites existentes de
+`routes-prefix.test.ts` pegan contra un stub HTTP plano que nunca ejercita el upgrade;
+este test arma un upstream `ws` real y verifica de punta a punta que `x-user-id`/
+`x-user-roles`/`x-kyc-status` llegan inyectados (y que un `x-user-id` falsificado por el
+cliente no sobrevive). Suite completa del gateway: 51/51. Detalle completo del canal
+(autenticación en `svc-shipments`, cierre por estado, heartbeat) en
+`services/movo-svc-shipments/CLAUDE.md` (MOVO-201).

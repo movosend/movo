@@ -2285,8 +2285,9 @@ problema de timing propio al enviar un mensaje inmediatamente después del upgra
 sin relación con el código de la ruta) con los 4 caminos: sin token (cierre `4001`),
 usuario ajeno al envío (`4003`), envío inexistente (`4004`), y el push real al
 emisor autorizado — primero con un repositorio fake, después repetido contra un envío
-real insertado en Postgres (Docker). Instrucciones para correrla:
-`docs/tracking-poc/README.md` (raíz del repo).
+real insertado en Postgres (Docker). Instrucciones para correrla (histórico; MOVO-201
+reemplazó la PoC y movió la doc a `docs/tracking/README.md`):
+`docs/tracking-poc/README.md` (raíz del repo, ya no existe).
 
 Suite completa del servicio corrida contra Postgres/Redis reales (Docker):
 719/719 tests, 54/54 archivos. En el camino se encontró y corrigió un bug preexistente
@@ -2295,6 +2296,82 @@ sin relación con esta US: `offers-detail.integration.test.ts` y
 (`postgresql://user:password@...`) como fallback de `DATABASE_URL` en vez de
 `movo:movo` (el resto de los tests de integración) — fallaban con
 `password authentication failed` al correr sin la env var ya seteada en el shell.
+
+### MOVO-201 — Canal de tiempo real: implementación real (reemplaza la PoC de MOVO-200)
+
+Reemplaza `src/plugins/websocket.ts` y `src/modules/tracking/tracking-poc.routes.ts` de
+la PoC por la implementación real: `src/plugins/realtime.ts`, `src/services/
+realtime-authorizer.ts`, `src/modules/tracking/tracking.routes.ts` (renombrado, ya no
+"poc"), `src/realtime/shipment-status-events.ts`. `movo-api-gateway` también cambió —
+ver su `CLAUDE.md` (MOVO-201). Doc de uso: `docs/tracking/README.md` (antes
+`docs/tracking-poc/`).
+
+Decisiones clave:
+- **AC4 (cierre al llegar a un estado terminal) vía `EventEmitter` en proceso, no
+  polling**: `shipment-repository.ts#updateStatus()` (única vía de escritura de
+  `status`, MOVO-104) emite `shipment-status-events.ts#emitShipmentStatusChanged` justo
+  después de que la transacción confirma; `realtime.ts` escucha ese evento y cierra en
+  el acto (código WS `4009`) cualquier socket registrado para ese `shipmentId`. Cierra
+  también al conectar si el envío YA está en ese estado, no solo si lo alcanza estando
+  conectado. `TRACKING_CLOSED_STATUSES` (nuevo en `shipment-state-machine.ts`) es
+  `delivered`/`completed`/`cancelled`/`rejected_by_receiver`/`disputed` — no es lo mismo
+  que "terminal en el grafo" (`disputed` sí lo es; `delivered` no, pero corta tracking
+  igual, AC6 de MOVO-11). Verificado que `updateStatus()` es el único hook necesario:
+  `offer-repository.ts#acceptOffer()` escribe `status` directo sin pasar por acá, pero
+  nunca hacia un valor de `TRACKING_CLOSED_STATUSES`.
+- **`RealtimeRegistry` (`realtime.ts`) en memoria, sin distribución entre réplicas** —
+  mismo criterio que el `EventEmitter` de arriba: `svc-shipments` corre en una sola
+  instancia (ADR-006), no hace falta Redis pub/sub ni un message broker (ADR-001) para
+  esto. Agnóstico del tipo de mensaje (AC8): `shipmentId -> Set<socket>`, para que la
+  ingesta de posiciones (MOVO-202) y el chat (MOVO-26) lo reusen sin rediseñarlo.
+- **Ya no empuja una posición de muestra hardcodeada** (a diferencia de la PoC) — manda
+  `{type:"connected", shipmentId}` y queda esperando; la ingesta real (MOVO-202, ticket
+  hermano) es quien va a publicar sobre el mismo `RealtimeRegistry`.
+- **Heartbeat ping/pong cada 30s** (`HEARTBEAT_INTERVAL_MS`, `tracking.routes.ts`) —
+  recomendación de review sobre PR #170 (comentario en MOVO-201/Linear): mantiene la
+  conexión viva detrás de nginx/Cloudflare y termina el socket si un cliente deja de
+  responder. Constante hardcodeada, no env var — no depende del ambiente.
+  `infra/nginx/templates/default.conf.template` bajó `proxy_read_timeout` de 3600s
+  (valor de MOVO-200 sin heartbeat) a 90s ahora que existe.
+- **Auth de browser (`movo-admin`/MOVO-33) diseñada, no implementada**: el mecanismo
+  elegido para cuando haga falta es un subprotocolo (`Sec-WebSocket-Protocol`), no un
+  query param (`?token=...`, quedaría logueado en nginx/Cloudflare) — decisión tomada
+  ahora porque el review la pidió explícitamente, implementación diferida porque MOVO-33
+  no bloquea a MOVO-201 y todavía no tiene consumidor. El mobile (único consumidor real
+  hoy, MOVO-204) sigue usando `Authorization: Bearer` en el handshake, que RN sí soporta.
+- **Sigue validando el JWT en el propio servicio, no solo `x-user-*`** aunque ahora sí
+  hay proxy de gateway (a diferencia de la PoC): una conexión WS es de larga duración,
+  más que el TTL de cualquier chequeo hecho solo en el handshake HTTP de otra ruta.
+- **AC7 (logs y métricas mínimas) resuelto solo con logs estructurados**, sin un
+  endpoint/stack de métricas nuevo: el repo no tiene Prometheus/StatsD en ningún lado
+  (ADR-006, EC2+Docker Compose sin infra de monitoreo) y agregar uno para esta única
+  US sería sobre-ingeniería. `tracking.routes.ts`/`realtime.ts` loguean con `event`
+  estructurado (conexión aceptada/rechazada con motivo, cerrada por error o por cambio
+  de estado) y cada log de conexión/cierre incluye `activeConnections` — alcanza para
+  diagnosticar por `docker logs`/CloudWatch sin infra nueva. `RealtimeRegistry.
+  activeConnections()` queda como método público por si un futuro endpoint de salud
+  quiere exponerlo, pero no se creó ninguno en este ticket.
+
+Tests: `test/tracking.integration.test.ts` (nuevo, servidor TCP real vía `app.listen` +
+cliente `ws` real, mismo motivo que la PoC para no usar `injectWS`/`app.inject`) — los 3
+caminos de conexión del DoD (token propio acepta, token ajeno rechaza `4003`, sin token
+rechaza `4001`) más token malformado (también `4001`), envío inexistente (`4004`),
+transportista asignado acepta, envío ya `delivered` rechaza al conectar (`4009`), y el
+cierre automático de una conexión abierta al pasar a `delivered` (`4009`, AC4). El
+comportamiento del heartbeat (ping/pong, terminar sin pong) no tiene test automatizado
+propio — verificarlo requeriría manipular temporizadores reales de un socket TCP real,
+no vale la complejidad para este alcance; queda como verificación manual
+(`docs/tracking/README.md`). `vitest.config.ts` suma `src/services/**/*.ts` al
+`include` de cobertura -- `realtime-authorizer.ts` es lógica de auth real (mismo
+criterio que `adapters`/`repositories`), no un plugin de Fastify, y quedaba fuera del
+reporte pese a estar ejercitado por este mismo test. Suite completa del servicio:
+756/756 (56 archivos), 91.29% statements / 85.12% branches -- sin bajar respecto a la
+base de MOVO-200 (719/719 antes de esta US).
+
+Pendiente / fuera de alcance de MOVO-201: ingesta y persistencia real de posiciones GPS
+y emisión desde el mobile (MOVO-202, ticket hermano), chat (MOVO-26), auth de browser
+(diseñada arriba, sin implementar), y verificación contra un deploy real en dev/prod
+(AC6 del ticket) — sin acceso a esa infra desde esta sesión.
 
 ### Pendientes de este servicio
 

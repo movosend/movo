@@ -1,93 +1,112 @@
-# MOVO-200: PoC del canal de tiempo real (WebSocket nativo)
+# Canal de tiempo real (WebSocket nativo)
 
-> Prueba de concepto mínima exigida por el AC5 de [MOVO-200](https://linear.app/movosend/issue/MOVO-200), spike que decidió la tecnología del canal de tiempo real (ver **ADR-022**, `CLAUDE.md` raíz, y el documento de conclusiones del spike linkeado al issue en Linear). **No es la implementación final** — esa es [MOVO-201](https://linear.app/movosend/issue/MOVO-201) (ticket hermano, bloqueado por este spike), que agrega el proxy del gateway, salas por envío/difusión a múltiples suscriptores, e ingesta real de GPS.
+Implementación real de [MOVO-201](https://linear.app/movosend/issue/MOVO-201) sobre la
+tecnología que decidió el spike [MOVO-200](https://linear.app/movosend/issue/MOVO-200)
+(ver **ADR-022**, `CLAUDE.md` raíz). Reemplaza la PoC de MOVO-200 (antes
+`docs/tracking-poc/`) — esta carpeta documenta el canal tal como corre hoy, no un
+experimento.
 
-## Qué demuestra
+## Qué hace
 
-Un canal WebSocket nativo (`@fastify/websocket`) en `services/movo-svc-shipments` que:
+Un canal WebSocket nativo (`@fastify/websocket`) en `services/movo-svc-shipments`,
+detrás del proxy de `movo-api-gateway`, que:
 
-1. Valida el JWT de acceso (`Authorization: Bearer <token>`) en el momento del upgrade HTTP → WebSocket, con el mismo mecanismo (`verifyAccessToken` de `@movo/shared`) que usa el gateway hoy para requests HTTP normales.
-2. Autoriza la suscripción: solo el emisor, el receptor o el transportista asignado del envío (o un admin) puede conectarse a `/shipments/:id/track` — cualquier otro usuario autenticado recibe un cierre `4003`.
-3. Empuja un mensaje de posición de muestra al cliente ya conectado.
+1. Valida el JWT de acceso (`Authorization: Bearer <token>`) en el momento del upgrade
+   HTTP → WebSocket, con el mismo mecanismo (`verifyAccessToken` de `@movo/shared`) que
+   usa el gateway hoy para requests HTTP normales — `src/services/realtime-authorizer.ts`.
+2. Autoriza la suscripción: solo el emisor, el receptor, el transportista asignado o un
+   admin del envío puede conectarse a `/shipments/:id/track`. Cualquier otro usuario
+   autenticado recibe un cierre `4003`.
+3. Cierra la conexión — al conectar o mientras sigue abierta — apenas el envío llega a un
+   estado que corta el tracking (`delivered`, `completed`, `cancelled`,
+   `rejected_by_receiver`, `disputed`), código `4009`. AC6 de MOVO-11: la ubicación del
+   transportista no es visible una vez completado el handshake de entrega.
+4. Mantiene la conexión viva detrás de nginx/Cloudflare con un ping/pong de protocolo
+   cada 30s (`HEARTBEAT_INTERVAL_MS`) y termina el socket si un cliente deja de
+   responder.
+5. Registra cada conexión en `app.realtimeRegistry` (`src/plugins/realtime.ts`) — un
+   mapa en memoria `shipmentId -> sockets`, agnóstico del tipo de mensaje, para que la
+   ingesta de posiciones (MOVO-202) y futuros canales (chat, MOVO-26) lo reusen sin
+   rediseñarlo.
 
-Código: `services/movo-svc-shipments/src/plugins/websocket.ts` (registra el plugin) y `services/movo-svc-shipments/src/modules/tracking/tracking-poc.routes.ts` (la ruta, con el resto de las decisiones documentadas en los comentarios del archivo).
+Fuera de alcance de MOVO-201 (tickets hermanos): la ingesta y persistencia real de
+posiciones GPS (MOVO-202), la emisión desde el mobile, y el chat (MOVO-26).
 
-## Simplificaciones deliberadas (no son bugs)
+## Cómo probarlo en local
 
-- **Conecta directo a `svc-shipments`, sin pasar por el gateway.** El proxy de WebSocket del gateway es el alcance de MOVO-201. Por eso esta PoC valida el JWT ella misma en vez de confiar en `x-user-*` (ADR-010 asume que ese trust model arranca en el gateway).
-- **Sin salas ni difusión.** Autoriza una vez al conectar y empuja un único mensaje — no hay múltiples suscriptores por envío todavía.
-- **Sin ingesta real de GPS.** La posición que empuja es una constante (Córdoba Capital), no viene de ningún transportista real.
-- **Códigos de cierre WS "privados" (RFC 6455, ≥4000)** para distinguir el motivo del rechazo sin un status HTTP (no hay uno que rechazar — el upgrade ya se completó del lado de TCP antes de que el handler pueda validar): `4001` sin token / token inválido, `4003` sin permiso sobre el envío, `4004` envío inexistente.
-
-## Cómo correrla
-
-### 1. Levantar el servicio con sus dependencias reales
-
-Desde la raíz del repo (ver `README.md` para el setup completo si no lo tenés corriendo):
+### 1. Levantar el stack completo (gateway + svc-shipments + Postgres/Redis)
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d postgres redis
-cd services/movo-svc-shipments
-npm run dev
+docker compose -f infra/docker-compose.yml up -d
 ```
 
-Necesitás un `.env` local con al menos `DATABASE_URL`, `REDIS_URL` y `JWT_SECRET` (mismo `JWT_SECRET` que usa `movo-svc-users`/el gateway para emitir el token, ver `.env.example`).
+O corriendo `movo-svc-shipments` fuera de Docker para iterar más rápido (`npm run dev`
+en el servicio, con Postgres/Redis reales levantados vía compose) — en ese caso conectá
+directo al puerto del servicio en vez de al gateway.
 
 ### 2. Conseguir un `shipmentId` real y un access token
 
-Usá el flujo normal de la API (vía el gateway, puerto 3000 salvo que lo hayas cambiado):
-
 ```bash
-# Login para obtener un access token real
 curl -X POST http://localhost:3000/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"<tu usuario de dev>","password":"<...>"}'
-
-# Un envío donde ese usuario sea emisor/receptor/transportista -- por ejemplo,
-# el que ya tengas de punta a punta probando MOVO-80/MOVO-158, o creá uno nuevo
-# con POST /api/v1/shipments
 ```
 
-### 3. Conectar al canal
+Un envío donde ese usuario sea emisor/receptor/transportista (por ejemplo, el que ya
+tengas de punta a punta probando MOVO-80/MOVO-158, o creá uno nuevo con
+`POST /api/v1/shipments`).
 
-`svc-shipments` corre en el puerto que tenga configurado (`PORT`, default `3000` — **si corrés el gateway en el mismo puerto, cambiá uno de los dos** para probar la PoC en paralelo). Con [`wscat`](https://www.npmjs.com/package/wscat) instalado:
+### 3. Conectar al canal, a través del gateway
+
+Con [`wscat`](https://www.npmjs.com/package/wscat):
 
 ```bash
-wscat -c "ws://localhost:<PORT_SVC_SHIPMENTS>/shipments/<shipmentId>/track" \
+wscat -c "ws://localhost:3000/api/v1/shipments/<shipmentId>/track" \
   -H "Authorization: Bearer <accessToken>"
 ```
 
-O con un script de Node (usando el paquete `ws`, ya instalado como dependencia transitiva del servicio):
+Resultado esperado: un mensaje `{"type":"connected","shipmentId":"<shipmentId>"}` y la
+conexión se mantiene abierta (ping/pong cada 30s, invisible para `wscat`).
 
-```js
-const WebSocket = require("ws");
-const ws = new WebSocket("ws://localhost:<PORT_SVC_SHIPMENTS>/shipments/<shipmentId>/track", {
-  headers: { authorization: "Bearer <accessToken>" },
-});
-ws.on("message", (data) => console.log(JSON.parse(data.toString())));
-ws.on("close", (code, reason) => console.log("cerrado:", code, reason.toString()));
-```
+Probá también los caminos negativos: sin header `Authorization` (cierre `4001`), con el
+token de un usuario ajeno al envío (cierre `4003`), `shipmentId` inexistente (cierre
+`4004`), y un envío ya `delivered`/`cancelled`/etc. (cierre `4009` inmediato).
 
-Resultado esperado: un único mensaje
-
-```json
-{ "type": "position", "shipmentId": "<shipmentId>", "lat": -31.4201, "lng": -64.1888, "at": "<ISO timestamp>" }
-```
-
-Probá también el camino negativo: sin header `Authorization` (cierre `4001`), con el token de un usuario ajeno al envío (cierre `4003`), y con un `shipmentId` inexistente (cierre `4004`).
-
-### 4. Desde Expo (cliente real, no wscat)
-
-El `WebSocket` global de React Native (a diferencia del de un browser) acepta un tercer parámetro de opciones con `headers` custom — es la base de la decisión del ADR-022 ("sin fricción extra" para auth vía Authorization header, ver la comparación del spike):
+### 4. Desde Expo (cliente real, mobile)
 
 ```ts
-const ws = new WebSocket(`ws://<host>:<PORT_SVC_SHIPMENTS>/shipments/${shipmentId}/track`, undefined, {
+const ws = new WebSocket(`ws://<host>:3000/api/v1/shipments/${shipmentId}/track`, undefined, {
   headers: { Authorization: `Bearer ${accessToken}` },
 });
 ```
 
-Requiere un dev build (no Expo Go, que no soporta módulos nativos custom en general — para esta PoC en particular alcanza con el WebSocket global, pero se corrió contra un dev build real como pide el AC5 del ticket).
+El `WebSocket` global de React Native acepta headers custom en el handshake (a
+diferencia del de un browser estándar — ver la nota de auth para browser más abajo).
+Requiere un dev build, no Expo Go.
 
-## Impacto en infraestructura (AC3 del spike, ya aplicado)
+## Decisiones no obvias
 
-Esta PoC en sí se probó **sin pasar por nginx** (conexión directa al contenedor/proceso de `svc-shipments`) — el proxy del gateway hacia WebSocket sigue sin existir (MOVO-201). El riesgo que había identificado el spike -- nginx no reenvía los headers `Upgrade`/`Connection` y su `proxy_read_timeout` (30s) corta cualquier conexión persistente -- ya se corrigió en `infra/nginx/templates/default.conf.template` y se validó localmente contra el stack real (nginx real con cert self-signed, tráfico normal y un WebSocket de punta a punta apuntando nginx directo a `svc-shipments`; ver la entrada de MOVO-200 en el `CLAUDE.md` raíz para el detalle completo). Sin probar todavía contra un deploy real en dev/prod (EC2) — eso queda pendiente de MOVO-201.
+- **El JWT se valida en `svc-shipments`, no solo en el gateway**: aunque el gateway ya
+  proxea el upgrade con `x-user-*` inyectados (ver más abajo), la ruta sigue verificando
+  el JWT real. Una conexión WS es de larga duración — validar el token real en vez de
+  confiar en un header derivado en el momento del handshake HTTP de otra request es más
+  estricto, no redundante.
+- **El proxy del gateway (`@fastify/http-proxy`) no reenvía `x-user-*` por default en una
+  conexión WS** — su `rewriteRequestHeaders` de default solo reenvía `cookie`.
+  `gateway/src/routes/index.ts` agrega un `wsClientOptions.rewriteRequestHeaders` propio
+  que reenvía `x-user-id`/`x-user-roles`/`x-kyc-status`/`x-request-id`, los mismos que ya
+  inyecta el `preHandler` para HTTP normal (ADR-010). Sin esto, la request HTTP normal a
+  `/shipments/*` funcionaba con la identidad inyectada pero la conexión WS al mismo
+  prefijo llegaba "anónima" al servicio.
+- **Cierre por estado vía `EventEmitter` en proceso, no polling**: `shipment-repository.ts
+  #updateStatus()` (única vía de escritura de `status`, MOVO-104) emite un evento que
+  `realtime.ts` escucha para cerrar en el acto los sockets de ese envío — sin esperar a
+  que el cliente reconecte. Alcanza porque `svc-shipments` corre en una sola réplica
+  (ADR-006); no hay mecanismo cross-proceso (no hace falta un message broker, ADR-001).
+- **Auth para clientes de navegador (`movo-admin`/MOVO-33), diseñado y NO implementado
+  todavía**: el `WebSocket` nativo de un browser no permite headers custom, así que
+  `Authorization: Bearer` (lo que usa el mobile) no sirve ahí. El mecanismo elegido para
+  cuando haga falta es un subprotocolo (`Sec-WebSocket-Protocol`) que viaje el JWT — no
+  un query param (`?token=...`), porque una URL con el JWT queda logueada en los access
+  logs de nginx/Cloudflare. `movo-admin`/MOVO-33 no está bloqueado por MOVO-201; queda
+  pendiente para cuando ese ticket lo necesite.
