@@ -2367,6 +2367,34 @@ integration.test.ts` para no duplicar cobertura (decisión con el usuario). El d
 verificada contra Postgres/Redis reales tras el merge: 746/771 (los 25 que fallan son
 el bug preexistente de credenciales de `offers-mine`/`offers-detail.integration.test.ts`
 ya documentado en MOVO-208, sin relación con este PR).
+### MOVO-200 — PoC del canal de tiempo real (`svc-shipments`)
+
+Decisión completa (WebSocket nativo, comparación de tecnologías, impacto en infra) en
+ADR-022, `CLAUDE.md` raíz. Acá solo el código de la PoC (AC5 del spike, no la
+implementación final — esa es MOVO-201): `src/plugins/websocket.ts` (registra
+`@fastify/websocket`) + `src/modules/tracking/tracking-poc.routes.ts`
+(`GET /shipments/:id/track`, WS). Valida el JWT con `verifyAccessToken` (`@movo/shared`)
+directo en el handshake de conexión, no con `x-user-*` (ADR-010) — esta PoC conecta
+directo al servicio, sin el proxy del gateway que MOVO-201 todavía no implementa.
+Autoriza por pertenencia al envío (`assertShipmentAccess`, más el `carrierId`
+asignado, que ese helper no conoce — mismo criterio que AC8 de MOVO-142) y empuja una
+única posición de muestra al conectar. Sin salas, sin difusión a más de un suscriptor,
+sin ingesta real de GPS. Probada de punta a punta contra un servidor TCP real (no
+`injectWS`/`app.inject` — el test double de `@fastify/websocket` para WS tiene un
+problema de timing propio al enviar un mensaje inmediatamente después del upgrade,
+sin relación con el código de la ruta) con los 4 caminos: sin token (cierre `4001`),
+usuario ajeno al envío (`4003`), envío inexistente (`4004`), y el push real al
+emisor autorizado — primero con un repositorio fake, después repetido contra un envío
+real insertado en Postgres (Docker). Instrucciones para correrla:
+`docs/tracking-poc/README.md` (raíz del repo).
+
+Suite completa del servicio corrida contra Postgres/Redis reales (Docker):
+719/719 tests, 54/54 archivos. En el camino se encontró y corrigió un bug preexistente
+sin relación con esta US: `offers-detail.integration.test.ts` y
+`offers-mine.integration.test.ts` usaban el placeholder literal de `.env.example`
+(`postgresql://user:password@...`) como fallback de `DATABASE_URL` en vez de
+`movo:movo` (el resto de los tests de integración) — fallaban con
+`password authentication failed` al correr sin la env var ya seteada en el shell.
 
 ### Pendientes de este servicio
 
