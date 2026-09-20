@@ -14,7 +14,7 @@ const OFFER_STATUS_LABEL: Record<OfferStatus, string> = {
   [OfferStatus.ACCEPTED]: "Aceptada",
   [OfferStatus.REJECTED]: "Rechazada",
   [OfferStatus.WITHDRAWN]: "La retiraste",
-  [OfferStatus.EXPIRED]: "Venció",
+  [OfferStatus.EXPIRED]: "Venció antes de que respondieran",
   [OfferStatus.SUPERSEDED]: "El emisor eligió otra oferta",
 };
 

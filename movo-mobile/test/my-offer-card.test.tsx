@@ -57,12 +57,19 @@ describe("MyOfferCard (MOVO-151)", () => {
     expect(queryByText("$5.000")).toBeNull();
   });
 
-  it("el estado se explica con copy, nunca el enum crudo", async () => {
+  it.each([
+    ["pending", "Pendiente"],
+    ["accepted", "Aceptada"],
+    ["rejected", "Rechazada"],
+    ["withdrawn", "La retiraste"],
+    ["expired", "Venció antes de que respondieran"],
+    ["superseded", "El emisor eligió otra oferta"],
+  ] as const)("AC3: el estado %s se explica con copy, nunca el enum crudo (%s)", async (status, expectedLabel) => {
     const { getByText } = await render(
-      <MyOfferCard offer={offer({ status: "superseded" as MyOfferSummary["status"] })} testID="card" onPress={jest.fn()} />,
+      <MyOfferCard offer={offer({ status: status as MyOfferSummary["status"] })} testID="card" onPress={jest.fn()} />,
     );
 
-    expect(getByText("El emisor eligió otra oferta")).toBeTruthy();
+    expect(getByText(expectedLabel)).toBeTruthy();
   });
 
   it("sin aviso, no renderiza la franja de notice", async () => {
