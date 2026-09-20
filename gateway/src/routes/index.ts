@@ -1,4 +1,4 @@
-import { FastifyInstance } from "fastify";
+import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import httpProxy from "@fastify/http-proxy";
 import { EnvConfig } from "../config/env";
 import {
@@ -8,6 +8,32 @@ import {
   isPublicRoute,
   API_PREFIX,
 } from "../config/routes-map";
+
+/**
+ * MOVO-201: `@fastify/http-proxy` maneja el upgrade WebSocket sola (sin necesitar
+ * `@fastify/websocket` acá), pero su `rewriteRequestHeaders` de default solo reenvía el
+ * header `cookie` al upstream -- así que sin esto, `x-user-id`/`x-user-roles`/
+ * `x-kyc-status`/`x-request-id` (ya inyectados por el `preHandler` de más abajo sobre
+ * este mismo `request`, tanto para HTTP normal como para el upgrade) nunca llegan a
+ * `svc-shipments` en una conexión WS, aunque sí lleguen en cualquier request HTTP normal
+ * al mismo prefijo. `request.headers` en este punto es el MISMO objeto que ya mutó el
+ * `preHandler` (misma request, no una copia) -- por eso alcanza con leerlo de nuevo acá.
+ */
+const FORWARDED_IDENTITY_HEADERS = ["x-user-id", "x-user-roles", "x-kyc-status", "x-request-id"] as const;
+
+function rewriteWebSocketRequestHeaders(
+  headers: Record<string, string>,
+  request: FastifyRequest
+): Record<string, string> {
+  const rewritten = { ...headers };
+  for (const key of FORWARDED_IDENTITY_HEADERS) {
+    const value = request.headers[key];
+    if (typeof value === "string") {
+      rewritten[key] = value;
+    }
+  }
+  return rewritten;
+}
 
 // Sin fastify-plugin a propósito: este plugin no necesita exponer nada al
 // padre (a diferencia de auth.ts o rate-limit.ts), así que mantiene su
@@ -67,71 +93,99 @@ export default async function routesPlugin(
   }
 
   for (const route of serviceRoutes) {
-    await app.register(httpProxy, {
-      upstream: route.upstream,
-      prefix: route.prefix,
-      // Sin rewrite: el path que expone cada microservicio (ej. `/auth/register`
-      // en movo-svc-users) es el mismo que expone el gateway bajo `/api/v1`, ya que
-      // cada servicio también se publica directo en su puerto para debug local (ver
-      // README) y genera su propio Swagger documentando esos paths. `rewritePrefix:
-      // "/"` (como estaba antes) le sacaba el prefijo del módulo (`/auth`, `/users`)
-      // al reenviar — el upstream nunca lo esperó así, así que TODO endpoint de
-      // movo-svc-users devolvía 404 al pasar por acá (nadie lo detectó porque el
-      // test suite del gateway pega contra un stub que responde 200 a cualquier
-      // path, y el de movo-svc-users llama las rutas directo con `app.inject()`,
-      // sin gateway de por medio). `rewritePrefix: route.prefix` es un no-op
-      // intencional: matchea `prefix` y lo vuelve a poner igual, el path llega
-      // intacto al upstream.
-      rewritePrefix: route.prefix,
-      preHandler: async (request, reply) => {
-        // request.url incluye el prefijo /api/v1 con el que se registró este
-        // plugin; getPublicRoutes() declara los paths sin ese prefijo (son
-        // los mismos paths que describe el AC del ticket), así que hay que
-        // sacarlo antes de comparar.
-        const fullPath = request.url.split("?")[0];
-        const path = fullPath.startsWith(API_PREFIX)
-          ? fullPath.slice(API_PREFIX.length)
-          : fullPath;
-        const publicRoute = isPublicRoute(request.method, path);
+    const preHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+      // request.url incluye el prefijo /api/v1 con el que se registró este
+      // plugin; getPublicRoutes() declara los paths sin ese prefijo (son
+      // los mismos paths que describe el AC del ticket), así que hay que
+      // sacarlo antes de comparar.
+      const fullPath = request.url.split("?")[0];
+      const path = fullPath.startsWith(API_PREFIX)
+        ? fullPath.slice(API_PREFIX.length)
+        : fullPath;
+      const publicRoute = isPublicRoute(request.method, path);
 
-        // Rate limit: estricto si esta ruta puntual lo declara —pública (ej. login) o
-        // protegida (ej. /users/me/photo/upload-url, MOVO-97)—, general en cualquier
-        // otro caso. El lookup es independiente de si la ruta es pública: ver
-        // `rateLimitedRoutes` más arriba.
-        const strictLimiter = strictRateLimiters.get(`${request.method.toUpperCase()} ${path}`);
-        await (strictLimiter ?? generalLimiter).call(app, request, reply);
+      // Rate limit: estricto si esta ruta puntual lo declara —pública (ej. login) o
+      // protegida (ej. /users/me/photo/upload-url, MOVO-97)—, general en cualquier
+      // otro caso. El lookup es independiente de si la ruta es pública: ver
+      // `rateLimitedRoutes` más arriba.
+      const strictLimiter = strictRateLimiters.get(`${request.method.toUpperCase()} ${path}`);
+      await (strictLimiter ?? generalLimiter).call(app, request, reply);
 
-        if (publicRoute) {
-          // Ruta pública: solo limpiar headers falsificados y propagar request ID
-          Object.keys(request.headers).forEach((key) => {
-            if (key.toLowerCase().startsWith("x-user-")) {
-              delete request.headers[key];
-            }
-          });
-          request.headers["x-request-id"] = request.requestId;
-          return;
-        }
-
-        // Ruta protegida: autenticar, validar rol (si el prefijo lo exige), inyectar identidad
-        await app.authenticate(request, reply);
-
-        if (route.allowedRoles && route.allowedRoles.length > 0) {
-          await app.authorize(route.allowedRoles)(request, reply);
-        }
-
-        // Limpiar headers x-user-* del cliente (defensa en profundidad)
+      if (publicRoute) {
+        // Ruta pública: solo limpiar headers falsificados y propagar request ID
         Object.keys(request.headers).forEach((key) => {
           if (key.toLowerCase().startsWith("x-user-")) {
             delete request.headers[key];
           }
         });
-
-        // Inyectar identidad desde el token
-        request.headers["x-user-id"] = request.user!.sub;
-        request.headers["x-user-roles"] = request.user!.roles.join(",");
-        request.headers["x-kyc-status"] = request.user!.kycStatus;
         request.headers["x-request-id"] = request.requestId;
-      },
-    });
+        return;
+      }
+
+      // Ruta protegida: autenticar, validar rol (si el prefijo lo exige), inyectar identidad
+      await app.authenticate(request, reply);
+
+      if (route.allowedRoles && route.allowedRoles.length > 0) {
+        await app.authorize(route.allowedRoles)(request, reply);
+      }
+
+      // Limpiar headers x-user-* del cliente (defensa en profundidad)
+      Object.keys(request.headers).forEach((key) => {
+        if (key.toLowerCase().startsWith("x-user-")) {
+          delete request.headers[key];
+        }
+      });
+
+      // Inyectar identidad desde el token
+      request.headers["x-user-id"] = request.user!.sub;
+      request.headers["x-user-roles"] = request.user!.roles.join(",");
+      request.headers["x-kyc-status"] = request.user!.kycStatus;
+      request.headers["x-request-id"] = request.requestId;
+    };
+
+    // Sin rewrite: el path que expone cada microservicio (ej. `/auth/register`
+    // en movo-svc-users) es el mismo que expone el gateway bajo `/api/v1`, ya que
+    // cada servicio también se publica directo en su puerto para debug local (ver
+    // README) y genera su propio Swagger documentando esos paths. `rewritePrefix:
+    // "/"` (como estaba antes) le sacaba el prefijo del módulo (`/auth`, `/users`)
+    // al reenviar — el upstream nunca lo esperó así, así que TODO endpoint de
+    // movo-svc-users devolvía 404 al pasar por acá (nadie lo detectó porque el
+    // test suite del gateway pega contra un stub que responde 200 a cualquier
+    // path, y el de movo-svc-users llama las rutas directo con `app.inject()`,
+    // sin gateway de por medio). `rewritePrefix: route.prefix` es un no-op
+    // intencional: matchea `prefix` y lo vuelve a poner igual, el path llega
+    // intacto al upstream.
+    //
+    // MOVO-201: `websocket`/`wsClientOptions` solo se pasan cuando la ruta los pide
+    // (ver el comentario de `rewriteWebSocketRequestHeaders` más arriba) -- dos
+    // llamadas a `register` en vez de armar un solo objeto con spread condicional
+    // porque el tipo de `@fastify/http-proxy` es una unión discriminada por
+    // `websocket` (`true` vs `false | never`) que TypeScript no resuelve bien
+    // cuando esa propiedad llega de un spread condicional en vez de estar escrita
+    // literal en cada llamada.
+    if (route.websocket) {
+      await app.register(httpProxy, {
+        upstream: route.upstream,
+        prefix: route.prefix,
+        rewritePrefix: route.prefix,
+        websocket: true,
+        // Los types de @fastify/http-proxy (`wsClientOptions?: ClientOptions &
+        // {queryString}`) no declaran `rewriteRequestHeaders`, pese a que la
+        // implementación real sí lo lee (`this.wsClientOptions.rewriteRequestHeaders`
+        // en su código fuente, `node_modules/@fastify/http-proxy/index.js`) -- gap
+        // conocido de sus `.d.ts`, no error nuestro. `any` puntual y comentado,
+        // no en toda la opción de registro.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        wsClientOptions: { rewriteRequestHeaders: rewriteWebSocketRequestHeaders } as any,
+        preHandler,
+      });
+    } else {
+      await app.register(httpProxy, {
+        upstream: route.upstream,
+        prefix: route.prefix,
+        rewritePrefix: route.prefix,
+        preHandler,
+      });
+    }
   }
 }
