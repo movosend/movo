@@ -175,6 +175,10 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       pricingLogisticsClient,
       tripRepository,
       ratingRepository,
+      // MOVO-179: radio de desvío del matching inverso (dispatchTripMatchPushes en
+      // acceptShipment) -- mismo default (15) que ya usa trips.routes.ts para
+      // GET /trips/:id/matches, `Trip` no persiste un radiusKm propio.
+      tripMatchDetourRadiusKm: app.config.TRIP_DEFAULT_MAX_DETOUR_KM,
     getCarrierReputationScore: async (carrierId: string) => {
       const summary = await ratingsService.getReputationSummary(carrierId);
       return summary.asCarrier.reputationScore;
