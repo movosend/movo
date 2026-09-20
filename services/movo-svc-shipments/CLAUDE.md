@@ -2337,6 +2337,37 @@ no levantado en test, degradaría siempre a "no viable" — exactamente una push
 ninguna si `pricing-logistics` marca no viable, dedup por carrierId).
 `tsc --noEmit` y `eslint` limpios en los archivos de esta US.
 
+**Fix de review (PR #172, ldalmagro1, antes de mergear)**: `dispatchTripMatchPushes`
+no envolvía todo su cuerpo en try/catch, a diferencia del resto de los disparadores
+best-effort del archivo — un fallo de `tripRepository.findActiveTripsMatchingShipment`
+(la primera línea del cuerpo, error de Prisma/DB, timeout de conexión) se propagaba sin
+nadie que lo atrapara (unhandled promise rejection, `acceptShipment` llama a esta
+función fire-and-forget con `void`, sin `.catch()`), en vez del warning silencioso
+esperado. Corregido envolviendo el cuerpo completo (evento `trip_match_dispatch_failed`)
+— los try/catch internos por notificación individual (AC4, un fallo de un transportista
+no frena al resto) quedan sin tocar. Test de regresión nuevo en `shipment-service.test.ts`
+que simula el rechazo de `findActiveTripsMatchingShipment`.
+
+**Conflicto de merge contra `develop` (MOVO-221, mergeado antes que este PR) — resuelto
+en el mismo PR #172**: `TripRepository` recibió dos métodos nuevos en paralelo —
+`findActiveTripsMatchingShipment` (este ticket) y `start()` (MOVO-221, transición
+`declared -> active`) — conflicto trivial de dos-agregados, se conservaron ambos. El
+efecto real no trivial: `Trip.create()` pasó de nacer `active` (lo que este ticket
+asumía al escribirse) a nacer `declared` (MOVO-221) — los tests de matching/push de
+este ticket que dependían de un trip recién creado ya `active` necesitaron un `start()`
+explícito (helper `createActiveTrip()` nuevo en `trip-repository.integration.test.ts` y
+`shipments-accept-reject.integration.test.ts`). El caso "AC4: dos viajes `active` del
+mismo transportista" dejó de ser alcanzable vía la API real —
+`trips_carrier_active_unique` (MOVO-221) fuerza como máximo un `active` por carrier, un
+segundo `start()` lanza `TripAlreadyHasActiveTripError`, ya cubierto por
+`trip-lifecycle.integration.test.ts` — se retiró de `shipments-accept-reject.
+integration.test.ts` para no duplicar cobertura (decisión con el usuario). El dedup por
+`carrierId` en sí sigue probado a nivel unitario contra un `tripRepository` mockeado
+(`shipment-service.test.ts`), no sujeto a este constraint real. Suite completa
+verificada contra Postgres/Redis reales tras el merge: 746/771 (los 25 que fallan son
+el bug preexistente de credenciales de `offers-mine`/`offers-detail.integration.test.ts`
+ya documentado en MOVO-208, sin relación con este PR).
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
