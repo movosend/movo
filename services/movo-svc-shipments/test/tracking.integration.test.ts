@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, webcrypto } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import WebSocket from "ws";
@@ -7,6 +7,10 @@ import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
 import { TRACKING_STATUS_CLOSED_WS_CODE } from "../src/plugins/realtime";
+import { createFakeUsersClient } from "./fake-users-client";
+import { DeviceKey } from "../src/adapters/users-client";
+
+const { subtle } = webcrypto;
 
 /**
  * MOVO-201, DoD: los 3 caminos de conexión (token válido + envío propio -> acepta,
@@ -68,6 +72,28 @@ describe("GET /shipments/:id/track (WS)", () => {
     });
   }
 
+  /** Setup del handshake de entrega real (MOVO-158), reusado por el test de fix de
+   * review de abajo -- el transportista es el cedente en la entrega, necesita su
+   * device key registrada (`usersClient.findDeviceKey`) para que `/handshake/confirm`
+   * pueda verificar la firma. */
+  async function generateCarrierKeyPair(): Promise<CryptoKeyPair> {
+    return subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]) as Promise<CryptoKeyPair>;
+  }
+
+  async function exportDeviceKey(publicKey: CryptoKey): Promise<DeviceKey> {
+    const raw = await subtle.exportKey("raw", publicKey);
+    return { publicKey: Buffer.from(raw).toString("base64"), registeredAt: new Date().toISOString() };
+  }
+
+  async function signCanonicalPayload(privateKey: CryptoKey, canonicalPayload: string): Promise<string> {
+    const signature = await subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      privateKey,
+      new TextEncoder().encode(canonicalPayload)
+    );
+    return Buffer.from(signature).toString("base64");
+  }
+
   /** Recorre transiciones reales hasta `in_transit`, con transportista asignado --
    * estado desde el que tiene sentido estar mirando el tracking en producción. */
   async function createInTransitShipment(carrierId: string): Promise<string> {
@@ -82,11 +108,21 @@ describe("GET /shipments/:id/track (WS)", () => {
     return shipment.id;
   }
 
+  const handshakeCarrierId = randomUUID();
+  let handshakeCarrierKeyPair: CryptoKeyPair;
+
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
     process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
-    app = buildApp();
+
+    handshakeCarrierKeyPair = await generateCarrierKeyPair();
+    app = buildApp({
+      usersClient: createFakeUsersClient(
+        {},
+        { [handshakeCarrierId]: await exportDeviceKey(handshakeCarrierKeyPair.publicKey) }
+      ),
+    });
     await app.listen({ port: 0, host: "127.0.0.1" });
     const address = app.server.address();
     if (!address || typeof address === "string") {
@@ -176,6 +212,45 @@ describe("GET /shipments/:id/track (WS)", () => {
 
     const closed = waitForClose(ws);
     await repo.updateStatus(shipmentId, ShipmentStatus.DELIVERED, carrierId);
+
+    const { code } = await closed;
+    expect(code).toBe(TRACKING_STATUS_CLOSED_WS_CODE);
+  });
+
+  it("fix de review PR #174: cierra automáticamente al confirmarse la entrega vía el handshake real (no `repo.updateStatus`)", async () => {
+    const shipmentId = await createInTransitShipment(handshakeCarrierId);
+    await repo.addPhoto(
+      shipmentId,
+      PhotoStage.delivery,
+      `shipments/${shipmentId}/delivery/${randomUUID()}.jpg`
+    );
+    const shipment = await repo.findById(shipmentId);
+    if (!shipment) {
+      throw new Error("el envío recién creado no se encontró");
+    }
+
+    const ws = connect(shipmentId, issueToken(handshakeCarrierId));
+    await waitForMessage(ws);
+    const closed = waitForClose(ws);
+
+    const generateResponse = await app.inject({
+      method: "POST",
+      url: `/shipments/${shipmentId}/handshake/generate`,
+      headers: { "x-user-id": handshakeCarrierId },
+      payload: { lat: shipment.deliveryLat, lng: shipment.deliveryLng },
+    });
+    expect(generateResponse.statusCode).toBe(200);
+    const { nonce, canonicalPayload } = generateResponse.json();
+    const signature = await signCanonicalPayload(handshakeCarrierKeyPair.privateKey, canonicalPayload);
+
+    const confirmResponse = await app.inject({
+      method: "POST",
+      url: `/shipments/${shipmentId}/handshake/confirm`,
+      headers: { "x-user-id": shipment.receiverId },
+      payload: { nonce, signature, lat: shipment.deliveryLat, lng: shipment.deliveryLng },
+    });
+    expect(confirmResponse.statusCode).toBe(200);
+    expect(confirmResponse.json()).toMatchObject({ status: "delivered" });
 
     const { code } = await closed;
     expect(code).toBe(TRACKING_STATUS_CLOSED_WS_CODE);
