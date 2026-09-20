@@ -98,9 +98,15 @@ server {
         # normalmente más de unos segundos, así que el único efecto real
         # sobre el tráfico no-WS es que un backend colgado tarda más en
         # cortarse acá -- el timeout del cliente HTTP (o el propio del
-        # backend) sigue siendo la primera línea de defensa para eso. A
-        # ajustar con datos reales una vez que MOVO-201 defina si el canal
-        # necesita heartbeat propio.
+        # backend) sigue siendo la primera línea de defensa para eso.
+        # Como este location es único para todo /, 1h también aplica al
+        # tráfico REST normal -- un endpoint colgado tardaría hasta 1h en
+        # recibir un 504 de nginx en vez de cortarse antes. Mejor práctica
+        # para MOVO-201 (comentado en el issue de Linear): un heartbeat
+        # ping/pong cada 30-45s entre cliente y servidor resetea el timer de
+        # nginx y permite bajar este valor a 60-90s -- también resuelve el
+        # timeout de inactividad de Cloudflare en modo Proxy (100s) si
+        # Cloudflare queda delante de esta EC2.
         proxy_read_timeout 3600s;
         proxy_connect_timeout 5s;
     }
