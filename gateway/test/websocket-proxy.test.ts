@@ -92,6 +92,7 @@ describe("Proxy de WebSocket hacia /shipments (MOVO-201)", () => {
 
     expect(message).toEqual({ type: "connected" });
     expect(capturedUrl).toBe("/shipments/some-id/track");
+    expect(capturedHeaders["authorization"]).toBe(`Bearer ${token}`);
     expect(capturedHeaders["x-user-id"]).toBe("55555555-5555-5555-5555-555555555555");
     expect(capturedHeaders["x-user-roles"]).toBe("sender,carrier");
     expect(capturedHeaders["x-kyc-status"]).toBe(KycStatus.NOT_STARTED);

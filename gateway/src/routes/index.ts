@@ -18,8 +18,20 @@ import {
  * `svc-shipments` en una conexión WS, aunque sí lleguen en cualquier request HTTP normal
  * al mismo prefijo. `request.headers` en este punto es el MISMO objeto que ya mutó el
  * `preHandler` (misma request, no una copia) -- por eso alcanza con leerlo de nuevo acá.
+ *
+ * `authorization` va en esta misma lista (fix de review, PR #174): `rewriteRequestHeaders`
+ * de `@fastify/http-proxy` recibe `wsClientOptions.headers` (`{}` por default), no
+ * `request.headers` -- sin agregarlo acá, `authorizeRealtimeConnection` de `svc-shipments`
+ * (que solo lee `Authorization`, no cae a `x-user-*`) rechaza con `4001` toda conexión que
+ * pase por el gateway.
  */
-const FORWARDED_IDENTITY_HEADERS = ["x-user-id", "x-user-roles", "x-kyc-status", "x-request-id"] as const;
+const FORWARDED_IDENTITY_HEADERS = [
+  "authorization",
+  "x-user-id",
+  "x-user-roles",
+  "x-kyc-status",
+  "x-request-id",
+] as const;
 
 function rewriteWebSocketRequestHeaders(
   headers: Record<string, string>,
