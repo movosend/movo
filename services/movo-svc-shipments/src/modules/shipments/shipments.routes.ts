@@ -296,20 +296,26 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         description:
           "Devuelve la lista ordenada de paradas activas del transportista autenticado con ETAs, " +
           "tiempos estimados y advertencias de ventana horaria, utilizando el solver VRPTW de OR-Tools. " +
-          "Si el optimizador falla o no está disponible, degrada a un orden heurístico por defecto (AC6).",
+          "Si el optimizador falla o no está disponible, degrada a un orden heurístico por defecto (AC6). " +
+          "MOVO-235: con `tripId`, acota las paradas a los envíos de ESE viaje (en vez de todos los " +
+          "envíos activos del transportista) -- el viaje debe pertenecer al caller y estar `active` " +
+          "(409 TRIP_NOT_ACTIVE si sigue `declared`).",
         tags: ["shipments"],
         querystring: shipmentsSchemas.myRouteQuery,
         response: {
           200: shipmentsSchemas.myRouteResponse,
           401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+          409: shipmentsSchemas.errorResponse,
           422: shipmentsSchemas.errorResponse,
         },
       },
     },
     async (request: FastifyRequest) => {
       const carrierId = requireUserIdFromHeader(request);
-      const { lat, lng } = request.query as { lat: number; lng: number };
-      return service.getMyRoute(carrierId, { lat, lng });
+      const { lat, lng, tripId } = request.query as { lat: number; lng: number; tripId?: string };
+      return service.getMyRoute(carrierId, { lat, lng }, tripId);
     }
   );
 

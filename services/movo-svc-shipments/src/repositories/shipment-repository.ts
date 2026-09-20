@@ -463,8 +463,19 @@ export interface ShipmentRepository {
    * endpoint `sending`/`transporting`/`receiving`, resueltos por el caller). Sin
    * paginación (fuera de alcance del ticket, AC de MOVO-192). Orden por `pickupDate`
    * ascendente y, dentro del mismo día, por `pickupTimeWindowStart` ascendente (AC7).
+   *
+   * MOVO-235 (AC1): `tripId` opcional acota además a los envíos cuya `Offer`
+   * `accepted` tiene `tripId` = ese viaje -- el vínculo Shipment->Trip no es una
+   * columna propia, vive a través de la oferta ganadora (`Offer.tripId`,
+   * `Shipment.offers` ya declarado en el schema). Sin `tripId`, comportamiento
+   * idéntico al de MOVO-192/206 (AC2 de MOVO-235: no rompe ningún consumidor
+   * existente que llame sin el parámetro).
    */
-  listActiveShipments(role: "senderId" | "carrierId" | "receiverId", userId: string): Promise<Shipment[]>;
+  listActiveShipments(
+    role: "senderId" | "carrierId" | "receiverId",
+    userId: string,
+    tripId?: string,
+  ): Promise<Shipment[]>;
   /**
    * MOVO-222: candidatos a calificar todavía pendientes de `userId` — `delivered`/
    * `completed` donde participa en CUALQUIER rol (`senderId`/`receiverId`/
@@ -923,9 +934,17 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       };
     },
 
-    async listActiveShipments(role: "senderId" | "carrierId" | "receiverId", userId: string): Promise<Shipment[]> {
+    async listActiveShipments(
+      role: "senderId" | "carrierId" | "receiverId",
+      userId: string,
+      tripId?: string,
+    ): Promise<Shipment[]> {
       const rows = await db.shipment.findMany({
-        where: { [role]: userId, status: { in: [...ACTIVE_SHIPMENT_STATUSES] } },
+        where: {
+          [role]: userId,
+          status: { in: [...ACTIVE_SHIPMENT_STATUSES] },
+          ...(tripId ? { offers: { some: { tripId, status: "accepted" } } } : {}),
+        },
         orderBy: [{ pickupDate: "asc" }, { pickupTimeWindowStart: "asc" }],
       });
       return rows.map(mapShipment);
