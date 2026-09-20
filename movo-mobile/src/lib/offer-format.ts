@@ -1,4 +1,6 @@
 import { OfferStatus } from "@movo/shared/dist/types/offer";
+import type { OfferCompetitiveRank } from "../api/offers-client";
+import { formatPriceArs } from "./shipment-format";
 
 /**
  * Copy explicativo por estado EFECTIVO de una oferta (AC1 de MOVO-182, mismo criterio
@@ -128,6 +130,18 @@ export function formatSentAgo(createdAt: string, now: Date = new Date()): string
 /** "4.º" -- mismo formato que usaba el mockup para "Cómo venís". */
 export function ordinalLabel(rank: number): string {
   return `${rank}.º`;
+}
+
+/**
+ * "Quedaste 4.º de 5. Bajando a $X pasás al frente." (MOVO-151, sección "Requieren
+ * algo tuyo" de "Mis ofertas") -- aviso accionable para una oferta `pending` que no
+ * lidera el ranking competitivo (MOVO-188). `null` cuando ya lidera (`rank === 1`):
+ * ahí no hay ninguna acción que sugerirle, mismo criterio que la sección "Cómo venís"
+ * del detalle (`offer-detail-rank-section`), que tampoco sugiere bajar el precio.
+ */
+export function competitiveRankNotice(rank: OfferCompetitiveRank): string | null {
+  if (rank.rank === 1) return null;
+  return `Quedaste ${ordinalLabel(rank.rank)} de ${rank.total}. Bajando a ${formatPriceArs(rank.lowestPriceNetArs)} pasás al frente.`;
 }
 
 /**
