@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
-import { ShipmentStatus } from "@movo/shared";
+import { ShipmentStatus, TripStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createTripRepository, TripRepository, TripHasAcceptedPackagesError } from "../src/repositories/trip-repository";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
@@ -174,5 +174,136 @@ describe("trip-repository (Postgres) — hasAcceptedPackages ignora envíos canc
     await expect(tripRepo.delete(tripB.id)).resolves.toBeUndefined();
     // tripA sigue bloqueado -- no se vio afectado por operar sobre tripB.
     expect(await tripRepo.countAcceptedOffers(tripA.id)).toBe(1);
+  });
+});
+
+/**
+ * MOVO-179 (AC1): matching inverso -- dado un envío (retiro+entrega), qué viajes
+ * `active` lo tienen dentro de su corredor. Mismos casos límite que ya cubre el
+ * matching directo (`shipment-repository.integration.test.ts#listAvailable`,
+ * MOVO-142/161), en la dirección opuesta -- incluido el caso "Oncativo" (un punto en
+ * el MEDIO de un trayecto largo, no cerca de ningún extremo).
+ */
+describe("trip-repository (Postgres) — findActiveTripsMatchingShipment (MOVO-179)", () => {
+  let app: FastifyInstance;
+  let tripRepo: TripRepository;
+
+  // Trayecto largo Córdoba -> "Villa María" sintético, mismas coordenadas que el caso
+  // Oncativo de shipment-repository.integration.test.ts (~95km, misma latitud).
+  const originLat = -31.0;
+  const originLng = -64.0;
+  const destinationLat = -31.0;
+  const destinationLng = -63.0;
+
+  function baseTripInput(overrides: Partial<CreateTripInput> = {}): CreateTripInput {
+    return {
+      carrierId: randomUUID(),
+      originAddress: "Av. Colón 1234, Córdoba",
+      originLat,
+      originLng,
+      destinationAddress: "Av. San Martín 100, Villa María",
+      destinationLat,
+      destinationLng,
+      departureAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      vehicleType: "auto",
+      ...overrides,
+    };
+  }
+
+  beforeAll(async () => {
+    process.env.JWT_SECRET = "test-secret";
+    process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
+    process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+    app = buildApp();
+    await app.ready();
+    tripRepo = createTripRepository(app.db);
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(async () => {
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.trips RESTART IDENTITY CASCADE");
+  });
+
+  it("un viaje active matchea un envío en el MEDIO del corredor (ni cerca del origen ni del destino, caso Oncativo)", async () => {
+    const trip = await tripRepo.create(baseTripInput());
+
+    const matches = await tripRepo.findActiveTripsMatchingShipment({
+      pickupLat: -31.0,
+      pickupLng: -63.5,
+      deliveryLat: -31.0,
+      deliveryLng: -63.49,
+      excludeCarrierIds: [],
+      radiusKm: 10,
+    });
+
+    expect(matches.map((t) => t.id)).toEqual([trip.id]);
+  });
+
+  it("no matchea un envío fuera del radio de desvío del corredor", async () => {
+    await tripRepo.create(baseTripInput());
+
+    const matches = await tripRepo.findActiveTripsMatchingShipment({
+      pickupLat: -30.8, // ~22km perpendicular al corredor, fuera de radiusKm=10
+      pickupLng: -63.5,
+      deliveryLat: -30.8,
+      deliveryLng: -63.49,
+      excludeCarrierIds: [],
+      radiusKm: 10,
+    });
+
+    expect(matches).toEqual([]);
+  });
+
+  it("excluye viajes cancelled/completed aunque su corredor matchee", async () => {
+    const cancelled = await tripRepo.create(baseTripInput());
+    await tripRepo.update(cancelled.id, { status: TripStatus.CANCELLED });
+    const completed = await tripRepo.create(baseTripInput());
+    await tripRepo.update(completed.id, { status: TripStatus.COMPLETED });
+
+    const matches = await tripRepo.findActiveTripsMatchingShipment({
+      pickupLat: -31.0,
+      pickupLng: -63.5,
+      deliveryLat: -31.0,
+      deliveryLng: -63.49,
+      excludeCarrierIds: [],
+      radiusKm: 10,
+    });
+
+    expect(matches).toEqual([]);
+  });
+
+  it("excluye viajes de los carrierIds pasados en excludeCarrierIds (senderId/receiverId del envío)", async () => {
+    const excludedCarrierId = randomUUID();
+    await tripRepo.create(baseTripInput({ carrierId: excludedCarrierId }));
+    const otherCarrierTrip = await tripRepo.create(baseTripInput());
+
+    const matches = await tripRepo.findActiveTripsMatchingShipment({
+      pickupLat: -31.0,
+      pickupLng: -63.5,
+      deliveryLat: -31.0,
+      deliveryLng: -63.49,
+      excludeCarrierIds: [excludedCarrierId],
+      radiusKm: 10,
+    });
+
+    expect(matches.map((t) => t.id)).toEqual([otherCarrierTrip.id]);
+  });
+
+  it("requiere que TANTO el retiro como la entrega estén dentro del corredor", async () => {
+    await tripRepo.create(baseTripInput());
+
+    const matches = await tripRepo.findActiveTripsMatchingShipment({
+      pickupLat: -31.0,
+      pickupLng: -63.5, // dentro del corredor
+      deliveryLat: -30.8,
+      deliveryLng: -63.49, // ~22km perpendicular, fuera del corredor
+      excludeCarrierIds: [],
+      radiusKm: 10,
+    });
+
+    expect(matches).toEqual([]);
   });
 });

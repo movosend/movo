@@ -11,6 +11,8 @@ import { createFakeNotificationsClient } from "./fake-notifications-client";
 import { createFakeOfferRepository, fakeOffer } from "./fake-offer-repository";
 import { createFakePricingClient } from "./fake-pricing-client";
 import { PricingClient } from "../src/adapters/pricing-client";
+import { createFakeTripRepository, fakeTrip } from "./fake-trip-repository";
+import { createFakePricingLogisticsClient } from "./fake-pricing-logistics-client";
 
 /**
  * Wrapper de `createShipmentsService` para este archivo: los tests que no ejercitan
@@ -812,6 +814,261 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
         body: "María aceptó el envío, ya está publicado",
         data: { shipmentId: shipment.id, type: "shipment_accepted" },
       });
+    });
+  });
+
+  // MOVO-179: quinto disparador de push -- envíos compatibles con un viaje `active`
+  // declarado por otro transportista, disparado desde acceptShipment (AC1).
+  describe("MOVO-179: push de envío compatible con viaje al publicarse", () => {
+    it("notifica al transportista con un viaje active que matchea geométricamente Y es viable según pricing-logistics (AC1-AC3)", async () => {
+      const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+      const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.PUBLISHED });
+      const repository = fakeRepository({
+        findById: vi.fn().mockResolvedValue(shipment),
+        updateStatus: vi.fn().mockResolvedValue(updatedShipment),
+      });
+      const trip = fakeTrip({ id: "trip-1", carrierId: "carrier-1" });
+      const tripRepository = createFakeTripRepository({
+        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([trip]),
+      });
+      const pricingLogisticsClient = createFakePricingLogisticsClient();
+      const notificationsClient = createFakeNotificationsClient();
+      const service = createShipmentsService(repository, createFakeUsersClient({}), notificationsClient, undefined, {
+        tripRepository,
+        pricingLogisticsClient,
+        tripMatchDetourRadiusKm: 15,
+      });
+
+      await service.acceptShipment(shipment.id, "receiver-id");
+
+      expect(tripRepository.findActiveTripsMatchingShipment).toHaveBeenCalledWith({
+        pickupLat: shipment.pickupLat,
+        pickupLng: shipment.pickupLng,
+        deliveryLat: shipment.deliveryLat,
+        deliveryLng: shipment.deliveryLng,
+        excludeCarrierIds: [shipment.senderId, shipment.receiverId],
+        radiusKm: 15,
+      });
+      // Peter (comentario de Linear): solo se llama a pricing-logistics para los
+      // candidatos que YA pasaron el prefiltro geométrico, no para todo el universo
+      // de viajes active.
+      expect(pricingLogisticsClient.evaluateCandidates).toHaveBeenCalledWith(
+        expect.objectContaining({ trip: expect.objectContaining({ id: "trip-1" }) })
+      );
+      await vi.waitFor(() => {
+        expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+          userId: "carrier-1",
+          title: "Nuevo paquete compatible",
+          body: expect.stringContaining("Hay un envío compatible con tu viaje"),
+          data: { type: "trip_match", tripId: "trip-1", shipmentId: shipment.id },
+        });
+      });
+    });
+
+    it("no notifica un viaje que matchea geométricamente pero que pricing-logistics marca no viable", async () => {
+      const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+      const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.PUBLISHED });
+      const repository = fakeRepository({
+        findById: vi.fn().mockResolvedValue(shipment),
+        updateStatus: vi.fn().mockResolvedValue(updatedShipment),
+      });
+      const trip = fakeTrip({ id: "trip-1", carrierId: "carrier-1" });
+      const tripRepository = createFakeTripRepository({
+        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([trip]),
+      });
+      const pricingLogisticsClient = createFakePricingLogisticsClient({
+        evaluateCandidates: vi.fn().mockResolvedValue({
+          directDistanceKm: 10,
+          directDurationMinutes: 15,
+          calculationMethod: "or_tools_v1",
+          evaluations: [{ candidateId: shipment.id, feasible: false, detourDistanceKm: null, detourDurationMinutes: null }],
+        }),
+      });
+      const notificationsClient = createFakeNotificationsClient();
+      const service = createShipmentsService(repository, createFakeUsersClient({}), notificationsClient, undefined, {
+        tripRepository,
+        pricingLogisticsClient,
+        tripMatchDetourRadiusKm: 15,
+      });
+
+      await service.acceptShipment(shipment.id, "receiver-id");
+
+      const tripMatchCalls = (notificationsClient.sendPush as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([input]) => input.data?.type === "trip_match"
+      );
+      expect(tripMatchCalls).toHaveLength(0);
+    });
+
+    it("si pricing-logistics falla para un candidato, se descarta ese match sin notificar y sin lanzar (best-effort)", async () => {
+      const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+      const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.PUBLISHED });
+      const repository = fakeRepository({
+        findById: vi.fn().mockResolvedValue(shipment),
+        updateStatus: vi.fn().mockResolvedValue(updatedShipment),
+      });
+      const trip = fakeTrip({ id: "trip-1", carrierId: "carrier-1" });
+      const tripRepository = createFakeTripRepository({
+        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([trip]),
+      });
+      const pricingLogisticsClient = createFakePricingLogisticsClient({
+        evaluateCandidates: vi.fn().mockRejectedValue(new Error("Routing service down")),
+      });
+      const notificationsClient = createFakeNotificationsClient();
+      const service = createShipmentsService(repository, createFakeUsersClient({}), notificationsClient, undefined, {
+        tripRepository,
+        pricingLogisticsClient,
+        tripMatchDetourRadiusKm: 15,
+      });
+
+      const result = await service.acceptShipment(shipment.id, "receiver-id");
+
+      expect(result.status).toBe(ShipmentStatus.PUBLISHED);
+      const tripMatchCalls = (notificationsClient.sendPush as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([input]) => input.data?.type === "trip_match"
+      );
+      expect(tripMatchCalls).toHaveLength(0);
+    });
+
+    it("no notifica dos veces al mismo transportista si tiene más de un viaje viable que matchea (AC4, dedup por carrierId)", async () => {
+      const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+      const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.PUBLISHED });
+      const repository = fakeRepository({
+        findById: vi.fn().mockResolvedValue(shipment),
+        updateStatus: vi.fn().mockResolvedValue(updatedShipment),
+      });
+      const earlierTrip = fakeTrip({
+        id: "trip-early",
+        carrierId: "carrier-1",
+        departureAt: new Date("2030-01-01T08:00:00.000Z"),
+      });
+      const laterTrip = fakeTrip({
+        id: "trip-late",
+        carrierId: "carrier-1",
+        departureAt: new Date("2030-01-02T08:00:00.000Z"),
+      });
+      const tripRepository = createFakeTripRepository({
+        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([laterTrip, earlierTrip]),
+      });
+      const pricingLogisticsClient = createFakePricingLogisticsClient();
+      const notificationsClient = createFakeNotificationsClient();
+      const service = createShipmentsService(repository, createFakeUsersClient({}), notificationsClient, undefined, {
+        tripRepository,
+        pricingLogisticsClient,
+        tripMatchDetourRadiusKm: 15,
+      });
+
+      await service.acceptShipment(shipment.id, "receiver-id");
+
+      // `sendPush` también recibe el "Envío aceptado" al emisor (disparador
+      // preexistente de MOVO-129) -- se filtra por tipo para aislar solo las pushes
+      // de trip_match.
+      await vi.waitFor(() => {
+        const tripMatchCalls = (notificationsClient.sendPush as ReturnType<typeof vi.fn>).mock.calls.filter(
+          ([input]) => input.data?.type === "trip_match"
+        );
+        expect(tripMatchCalls).toHaveLength(1);
+      });
+      // Desempate: el viaje con departureAt más próximo (earlierTrip), no el primero
+      // devuelto por el repositorio.
+      expect(notificationsClient.sendPush).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { type: "trip_match", tripId: "trip-early", shipmentId: shipment.id } })
+      );
+    });
+
+    it("un fallo del servicio de notificaciones no bloquea la transición a published", async () => {
+      const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+      const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.PUBLISHED });
+      const repository = fakeRepository({
+        findById: vi.fn().mockResolvedValue(shipment),
+        updateStatus: vi.fn().mockResolvedValue(updatedShipment),
+      });
+      const tripRepository = createFakeTripRepository({
+        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([fakeTrip({ carrierId: "carrier-1" })]),
+      });
+      const pricingLogisticsClient = createFakePricingLogisticsClient();
+      const notificationsClient = createFakeNotificationsClient({
+        sendPush: vi.fn().mockRejectedValue(new Error("Push service down")),
+      });
+      const service = createShipmentsService(repository, createFakeUsersClient({}), notificationsClient, undefined, {
+        tripRepository,
+        pricingLogisticsClient,
+        tripMatchDetourRadiusKm: 15,
+      });
+
+      const result = await service.acceptShipment(shipment.id, "receiver-id");
+
+      expect(result.status).toBe(ShipmentStatus.PUBLISHED);
+    });
+
+    it("sin viajes que matcheen geométricamente, no llama a pricing-logistics ni dispara ninguna push de este tipo", async () => {
+      const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+      const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.PUBLISHED });
+      const repository = fakeRepository({
+        findById: vi.fn().mockResolvedValue(shipment),
+        updateStatus: vi.fn().mockResolvedValue(updatedShipment),
+      });
+      const tripRepository = createFakeTripRepository();
+      const pricingLogisticsClient = createFakePricingLogisticsClient();
+      const notificationsClient = createFakeNotificationsClient();
+      const service = createShipmentsService(repository, createFakeUsersClient({}), notificationsClient, undefined, {
+        tripRepository,
+        pricingLogisticsClient,
+        tripMatchDetourRadiusKm: 15,
+      });
+
+      await service.acceptShipment(shipment.id, "receiver-id");
+
+      expect(tripRepository.findActiveTripsMatchingShipment).toHaveBeenCalled();
+      expect(pricingLogisticsClient.evaluateCandidates).not.toHaveBeenCalled();
+      const tripMatchCalls = (notificationsClient.sendPush as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([input]) => input.data?.type === "trip_match"
+      );
+      expect(tripMatchCalls).toHaveLength(0);
+    });
+
+    it("sin tripMatchDetourRadiusKm configurado, no llama al matching inverso", async () => {
+      const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+      const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.PUBLISHED });
+      const repository = fakeRepository({
+        findById: vi.fn().mockResolvedValue(shipment),
+        updateStatus: vi.fn().mockResolvedValue(updatedShipment),
+      });
+      const tripRepository = createFakeTripRepository();
+      const service = createShipmentsService(
+        repository,
+        createFakeUsersClient({}),
+        createFakeNotificationsClient(),
+        undefined,
+        { tripRepository, pricingLogisticsClient: createFakePricingLogisticsClient() }
+      );
+
+      await service.acceptShipment(shipment.id, "receiver-id");
+
+      expect(tripRepository.findActiveTripsMatchingShipment).not.toHaveBeenCalled();
+    });
+
+    it("sin pricingLogisticsClient inyectado, no dispara ninguna push de este tipo (dependencia requerida)", async () => {
+      const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+      const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.PUBLISHED });
+      const repository = fakeRepository({
+        findById: vi.fn().mockResolvedValue(shipment),
+        updateStatus: vi.fn().mockResolvedValue(updatedShipment),
+      });
+      const tripRepository = createFakeTripRepository({
+        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([fakeTrip({ carrierId: "carrier-1" })]),
+      });
+      const notificationsClient = createFakeNotificationsClient();
+      const service = createShipmentsService(repository, createFakeUsersClient({}), notificationsClient, undefined, {
+        tripRepository,
+        tripMatchDetourRadiusKm: 15,
+      });
+
+      await service.acceptShipment(shipment.id, "receiver-id");
+
+      const tripMatchCalls = (notificationsClient.sendPush as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([input]) => input.data?.type === "trip_match"
+      );
+      expect(tripMatchCalls).toHaveLength(0);
     });
   });
 
