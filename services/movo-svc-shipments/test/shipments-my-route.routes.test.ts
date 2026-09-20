@@ -99,6 +99,7 @@ describe("GET /shipments/my-route (HTTP Routes & ACs)", () => {
       CARRIER_ID,
       { lat: -31.4167, lng: -64.1833 },
       undefined,
+      [],
     );
     const body = JSON.parse(res.body);
     expect(body).toEqual(sampleRoute);
@@ -117,6 +118,7 @@ describe("GET /shipments/my-route (HTTP Routes & ACs)", () => {
       CARRIER_ID,
       { lat: -31.4167, lng: -64.1833 },
       undefined,
+      [],
     );
   });
 
@@ -133,6 +135,24 @@ describe("GET /shipments/my-route (HTTP Routes & ACs)", () => {
       CARRIER_ID,
       { lat: -31.4167, lng: -64.1833 },
       tripId,
+      [],
+    );
+  });
+
+  it("MOVO-235 punto 2 de review: propaga x-user-roles (ej. admin) al servicio", async () => {
+    const tripId = "33333333-3333-3333-3333-333333333333";
+    const res = await app.inject({
+      method: "GET",
+      url: `/shipments/my-route?lat=-31.4167&lng=-64.1833&tripId=${tripId}`,
+      headers: { "x-user-id": CARRIER_ID, "x-user-roles": "admin" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockService.getMyRoute).toHaveBeenCalledWith(
+      CARRIER_ID,
+      { lat: -31.4167, lng: -64.1833 },
+      tripId,
+      ["admin"],
     );
   });
 

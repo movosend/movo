@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ShipmentStatus, TripStatus } from "@movo/shared";
+import { ShipmentStatus, TripStatus, UserRole } from "@movo/shared";
 import { createShipmentsService } from "../src/modules/shipments/shipments.service";
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
 import { TripRepository } from "../src/repositories/trip-repository";
@@ -271,24 +271,48 @@ describe("ShipmentsService.getMyRoute con tripId (MOVO-235)", () => {
     });
   });
 
-  it("AC4: 409 TRIP_NOT_ACTIVE si el viaje sigue declared", async () => {
+  it("AC4: 409 TRIP_NOT_ACTIVE si el viaje sigue declared, con mensaje de 'iniciá el viaje'", async () => {
     mockTripRepository.findById = vi.fn().mockResolvedValue(createMockTrip({ status: TripStatus.DECLARED }));
     const service = buildService();
 
     await expect(service.getMyRoute(CARRIER_ID, CARRIER_LOCATION, TRIP_ID)).rejects.toMatchObject({
       statusCode: 409,
       code: "TRIP_NOT_ACTIVE",
+      message: expect.stringContaining("Iniciá el viaje"),
     });
   });
 
-  it("AC4: 409 TRIP_NOT_ACTIVE si el viaje está cancelled/completed", async () => {
+  it("AC4 (fix review punto 1): 409 TRIP_NOT_ACTIVE si el viaje está completed, sin decir 'iniciá el viaje'", async () => {
     mockTripRepository.findById = vi.fn().mockResolvedValue(createMockTrip({ status: TripStatus.COMPLETED }));
     const service = buildService();
 
     await expect(service.getMyRoute(CARRIER_ID, CARRIER_LOCATION, TRIP_ID)).rejects.toMatchObject({
       statusCode: 409,
       code: "TRIP_NOT_ACTIVE",
+      message: expect.stringContaining("ya no está en curso"),
     });
+    const rejection = await service.getMyRoute(CARRIER_ID, CARRIER_LOCATION, TRIP_ID).catch((err) => err);
+    expect(rejection.message).not.toContain("Iniciá el viaje");
+  });
+
+  it("AC4 (fix review punto 1 y 6): 409 TRIP_NOT_ACTIVE si el viaje está cancelled, sin decir 'iniciá el viaje'", async () => {
+    mockTripRepository.findById = vi.fn().mockResolvedValue(createMockTrip({ status: TripStatus.CANCELLED }));
+    const service = buildService();
+
+    await expect(service.getMyRoute(CARRIER_ID, CARRIER_LOCATION, TRIP_ID)).rejects.toMatchObject({
+      statusCode: 409,
+      code: "TRIP_NOT_ACTIVE",
+      message: expect.stringContaining("ya no está en curso"),
+    });
+  });
+
+  it("fix review punto 2: un admin puede ver la ruta de un viaje de otro transportista", async () => {
+    mockTripRepository.findById = vi.fn().mockResolvedValue(createMockTrip({ carrierId: "otro-carrier" }));
+    const service = buildService();
+
+    await expect(
+      service.getMyRoute(CARRIER_ID, CARRIER_LOCATION, TRIP_ID, [UserRole.ADMIN]),
+    ).resolves.toBeDefined();
   });
 
   it("lanza si se pasa tripId sin haber inyectado tripRepository", async () => {
