@@ -2173,6 +2173,76 @@ envío cancelado y sobre oferta `accepted`, 401 sin `x-user-id`). Suite completa
 del servicio 667/667 (51 archivos). `tsc --noEmit` y `eslint` limpios.
 Confirmado que `app.swagger()` expone `GET /offers/{id}`.
 
+### MOVO-179 — Push notification al publicarse un envío compatible con un viaje declarado
+
+Quinto disparador de `notifications-client.ts` (los otros 4 son de MOVO-108/129):
+al transicionar un envío a `published` (`acceptShipment`), avisa a los
+transportistas con un viaje `active` cuyo corredor contiene tanto el retiro
+como la entrega del envío — matching inverso de MOVO-161/50 (dado un envío,
+qué viajes lo contienen; el matching directo ya existente es al revés: dado un
+viaje, qué envíos matchean).
+
+- **`src/domain/geo.ts#distanceToSegmentKm`**: port a JS de
+  `haversineSegmentDistanceKm` (`shipment-repository.ts`, hasta ahora solo en
+  SQL). Necesario porque acá el segmento (corredor del viaje) varía por CADA
+  fila candidata, no es fijo como en el matching directo — no se portó a
+  `$queryRaw` por ese motivo.
+- **`trip-repository.ts#findActiveTripsMatchingShipment`**: trae los `Trip`
+  `active` (excluyendo `carrierId` del propio sender/receiver del envío) y
+  filtra en memoria con `distanceToSegmentKm` contra ambos puntos del envío.
+  **Sin bounding-box/SQL de corredor** (a diferencia del matching directo) —
+  decisión deliberada por bajo volumen esperado de viajes `active`
+  simultáneos, mismo criterio que descartó un índice compuesto en MOVO-130.
+- **Sin `radiusKm` por viaje**: `Trip` nunca persistió ese campo (solo existe
+  como query param no persistido en `GET /trips/:id/matches`) — el trigger
+  usa siempre `TRIP_DEFAULT_MAX_DETOUR_KM` (`ShipmentsServiceOptions
+  .tripMatchDetourRadiusKm`, wireado en `shipments.routes.ts`).
+- **AC4 (de-duplicar por `carrierId`, no por `tripId`)**: si el mismo
+  transportista matchea con más de un viaje viable, se notifica una sola vez,
+  referenciando el viaje con `departureAt` más próximo — desempate propio, el
+  AC no fija el criterio.
+- **`shortAddress()` local a `shipments.service.ts`**: primer componente de
+  una dirección completa (antes de la primera coma) para el copy del push
+  (`{origenCorto} → {destinoCorto}`) — no había ningún helper de formato de
+  dirección reusable en el repo todavía.
+- **Segunda pasada, decisión de equipo (Peter, comentario de Linear)**: el AC1
+  literal pide "mismo criterio geométrico que MOVO-161", pero ese prefiltro
+  solo puede dar falsos positivos (un envío que en línea recta cae en el
+  corredor pero que la ruta real no hace viable) — exactamente lo que
+  `GET /trips/:id/matches` ya resuelve desde MOVO-219 consultando
+  `pricing-logistics`. Se sumó `evaluateTripMatchFeasibility()` (nuevo, mismo
+  archivo): sobre los candidatos que YA pasaron el prefiltro geométrico
+  (nunca sobre el universo completo de viajes `active`, para no gastar la
+  cuota de Google Routes en algo que ni siquiera pasaba el corredor), llama a
+  `pricingLogisticsClient.evaluateCandidates` (un viaje candidato por
+  llamada, ya que ese contrato está pensado "un viaje, muchos paquetes" y acá
+  es al revés) y solo notifica si `feasible: true`. **Política distinta a la
+  No-Fallback de MOVO-219**: si `pricing-logistics` falla para un candidato,
+  se trata como "no viable, no notifica" (logueado, nunca se propaga) en vez
+  de un 502/503 — tiene sentido acá porque es un disparador best-effort en
+  segundo plano (AC2), no una respuesta que el usuario está esperando en
+  pantalla. `pricingLogisticsClient` pasó a ser una dependencia requerida de
+  `dispatchTripMatchPushes` (ya viajaba opcional en `ShipmentsServiceOptions`
+  desde MOVO-206) — sin él, el trigger no dispara, mismo criterio que sin
+  `tripRepository`.
+
+Tests: `geo.test.ts` (casos de `distanceToSegmentKm`, incluido el caso
+Oncativo en la dirección opuesta al de `shipment-repository.integration.test.ts`),
+`trip-repository.integration.test.ts` (Postgres real — match dentro/fuera de
+radio, excluye `cancelled`/`completed`, excluye `excludeCarrierIds`, exige
+retiro Y entrega dentro del corredor), `shipment-service.test.ts` (mocks —
+dedup por carrierId con desempate por `departureAt`, no notifica un match
+geométrico que `pricing-logistics` marca no viable, un fallo de esa
+evaluación descarta el match sin lanzar, best-effort ante fallo de
+`notificationsClient`, no dispara sin `tripMatchDetourRadiusKm`/sin
+`pricingLogisticsClient`), `shipments-accept-reject.integration.test.ts`
+(HTTP end-to-end contra Postgres real, con un `pricingLogisticsClient` fake
+inyectado vía `buildApp` — sin él, la llamada real a `svc-pricing-logistics`,
+no levantado en test, degradaría siempre a "no viable" — exactamente una push
+`trip_match` con el payload esperado, ninguna si no hay match geométrico,
+ninguna si `pricing-logistics` marca no viable, dedup por carrierId).
+`tsc --noEmit` y `eslint` limpios en los archivos de esta US.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
