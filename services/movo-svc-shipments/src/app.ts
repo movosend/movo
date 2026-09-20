@@ -12,6 +12,7 @@ import errorHandlerPlugin from "./plugins/error-handler";
 import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-sweep";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import pickupExpirySweepPlugin from "./plugins/pickup-expiry-sweep";
+import carrierPositionPurgeSweepPlugin from "./plugins/carrier-position-purge-sweep";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import offersRoutes, { OffersRoutesOptions } from "./modules/offers/offers.routes";
 import ratingsRoutes, { internalRatingsRoutes, RatingsRoutesOptions } from "./modules/ratings/ratings.routes";
@@ -19,6 +20,7 @@ import tripsRoutes, { TripsRoutesOptions } from "./modules/trips/trips.routes";
 import accountDeletionRoutes from "./modules/account-deletion/account-deletion.routes";
 import handshakeRoutes, { HandshakeRoutesOptions } from "./modules/handshake/handshake.routes";
 import trackingRoutes, { TrackingRoutesOptions } from "./modules/tracking/tracking.routes";
+import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/positions.routes";
 import { ShipmentRepository } from "./repositories/shipment-repository";
 import { UsersClient } from "./adapters/users-client";
 import { StorageProvider } from "./adapters/storage-provider";
@@ -52,6 +54,9 @@ export interface BuildAppOptions {
   orphanPhotoSweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de retiro vencido en background. */
   pickupExpirySweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el sweep de purga de posiciones GPS en
+   * background (MOVO-202). */
+  carrierPositionPurgeSweepEnabled?: boolean;
   /** Override solo para tests de integración -- evita depender de una integración
    * real de liberación de fondos (MOVO-158, fuera de alcance de este ticket). */
   fundsReleaseNotifier?: FundsReleaseNotifier;
@@ -123,6 +128,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.pickupExpirySweepEnabled !== undefined ? { enabled: opts.pickupExpirySweepEnabled } : {}),
   });
+  app.register(carrierPositionPurgeSweepPlugin, {
+    ...(opts.carrierPositionPurgeSweepEnabled !== undefined
+      ? { enabled: opts.carrierPositionPurgeSweepEnabled }
+      : {}),
+  });
 
   app.get("/health", async () => ({ status: "ok" }));
 
@@ -189,6 +199,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
   };
   app.register(trackingRoutes, trackingRouteOpts);
+
+  // MOVO-202: ingesta de posiciones GPS -- mismo prefix "/shipments" que
+  // trackingRoutes (el canal de recepción que difunde lo que este módulo publica).
+  const positionsRouteOpts: PositionsRoutesOptions = {
+    prefix: "/shipments",
+    ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
+  };
+  app.register(positionsRoutes, positionsRouteOpts);
 
   return app;
 }

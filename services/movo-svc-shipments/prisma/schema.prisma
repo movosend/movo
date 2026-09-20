@@ -179,11 +179,12 @@ model Shipment {
   // pise en cada write, redundante con el trigger pero consistente.
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  events          ShipmentEvent[]
-  photos          ShipmentPhoto[]
-  offers          Offer[]
-  ratings         Rating[]
-  handshakeEvents HandshakeEvent[]
+  events           ShipmentEvent[]
+  photos           ShipmentPhoto[]
+  offers           Offer[]
+  ratings          Rating[]
+  handshakeEvents  HandshakeEvent[]
+  carrierPositions CarrierPosition[]
 
   @@index([senderId], map: "shipments_sender_id_idx")
   @@index([receiverId], map: "shipments_receiver_id_idx")
@@ -396,6 +397,37 @@ model HandshakeEvent {
 
   @@index([shipmentId], map: "handshake_events_shipment_id_idx")
   @@map("handshake_events")
+  @@schema("shipments")
+}
+
+// MOVO-202: traza de posiciones GPS del transportista durante un envío `in_transit`.
+// Append-only (AC9): ningún código de este servicio hace UPDATE de una fila ya
+// insertada, solo la purga periódica (`carrier-position-purge-sweep.ts`) borra --
+// retención acotada por `CARRIER_POSITION_RETENTION_DAYS` (ADR-023, ver CLAUDE.md).
+// Cadencia de ~45s: el descarte de reportes más frecuentes se decide en backend
+// (`position-repository.ts`, Redis), no confiando en el cliente -- solo una fila cada
+// ~45s llega hasta acá, aunque el mobile reporte más seguido.
+model CarrierPosition {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId String @map("shipment_id") @db.Uuid
+
+  lat Decimal @db.Decimal(9, 6)
+  lng Decimal @db.Decimal(9, 6)
+  // Precisión reportada por el dispositivo (metros) -- mismo formato que
+  // `HandshakeEvent.distanceM`.
+  accuracyM Decimal @map("accuracy_m") @db.Decimal(8, 2)
+
+  // Timestamp del DISPOSITIVO (AC1) -- puede ser anterior a `recordedAt` si el mobile
+  // encoló posiciones sin red y las mandó después; ahí es donde la diferencia importa.
+  capturedAt DateTime @map("captured_at") @db.Timestamptz
+  // Timestamp del SERVIDOR al persistir -- ancla real de la cadencia de ~45s y de la
+  // retención (AC6/AC8), nunca `capturedAt` (no confiable, viene del cliente).
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId, recordedAt], map: "carrier_positions_shipment_id_recorded_at_idx")
+  @@map("carrier_positions")
   @@schema("shipments")
 }
 
