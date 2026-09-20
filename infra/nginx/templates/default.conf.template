@@ -8,6 +8,18 @@
 # obvios antes de que lleguen al gateway.
 limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
 
+# MOVO-200/ADR-022: soporte de upgrade de protocolo HTTP -> WebSocket. El
+# header Connection tiene que ser "upgrade" SOLO cuando el cliente lo pide
+# (una request WS manda el header Upgrade); para cualquier otra request
+# normal, nginx debe seguir cerrando la conexión hacia el upstream como
+# hace hoy -- forzar "upgrade" siempre rompería el resto de la API. Este es
+# el patrón estándar recomendado por nginx para servir HTTP y WS desde el
+# mismo location.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
 server {
     listen 80;
     server_name ${API_DOMAIN};
@@ -68,7 +80,34 @@ server {
         # El gateway es el único que decide si una ruta requiere auth; acá
         # no reenviamos el header Authorization salvo que venga del cliente,
         # así que no hace falta tocar nada extra.
-        proxy_read_timeout 30s;
+
+        # MOVO-200/ADR-022: headers de upgrade para el canal de tiempo real
+        # (WebSocket nativo, MOVO-201) -- sin esto, un upgrade HTTP ->
+        # WebSocket nunca llega al gateway como tal. $http_upgrade viaja tal
+        # cual lo mandó el cliente (vacío en una request normal); Connection
+        # sale del map de arriba, nunca fijo en "upgrade".
+        proxy_set_header   Upgrade    $http_upgrade;
+        proxy_set_header   Connection $connection_upgrade;
+
+        # 30s alcanzaba cuando todo el tráfico era request/response corto.
+        # Una conexión de tracking/chat (MOVO-200/ADR-022) es de larga
+        # duración y sin ningún ping/pong propio todavía (fuera de alcance
+        # del spike) -- con 30s, nginx la cortaría por inactividad aunque el
+        # upgrade se haya completado bien. Subido a 1h como valor de
+        # referencia inicial: ningún endpoint REST del proyecto necesita
+        # normalmente más de unos segundos, así que el único efecto real
+        # sobre el tráfico no-WS es que un backend colgado tarda más en
+        # cortarse acá -- el timeout del cliente HTTP (o el propio del
+        # backend) sigue siendo la primera línea de defensa para eso.
+        # Como este location es único para todo /, 1h también aplica al
+        # tráfico REST normal -- un endpoint colgado tardaría hasta 1h en
+        # recibir un 504 de nginx en vez de cortarse antes. Mejor práctica
+        # para MOVO-201 (comentado en el issue de Linear): un heartbeat
+        # ping/pong cada 30-45s entre cliente y servidor resetea el timer de
+        # nginx y permite bajar este valor a 60-90s -- también resuelve el
+        # timeout de inactividad de Cloudflare en modo Proxy (100s) si
+        # Cloudflare queda delante de esta EC2.
+        proxy_read_timeout 3600s;
         proxy_connect_timeout 5s;
     }
 }
