@@ -20,6 +20,8 @@ const offerShipmentContextResponse = {
     "status",
     "pickupAddress",
     "pickupDate",
+    "pickupTimeWindowStart",
+    "pickupTimeWindowEnd",
     "deliveryAddress",
     "distanceKm",
     "packageType",
@@ -31,6 +33,10 @@ const offerShipmentContextResponse = {
     status: { type: "string" },
     pickupAddress: { type: "string" },
     pickupDate: { type: "string", format: "date" },
+    // Ventana horaria de retiro PEDIDA POR EL EMISOR (no la de la oferta) -- ver el
+    // comentario de `OfferShipmentContext` en `models/offer.ts`.
+    pickupTimeWindowStart: { type: "string", format: "time" },
+    pickupTimeWindowEnd: { type: "string", format: "time" },
     deliveryAddress: { type: "string" },
     // MOVO-185: distancia Haversine pickup->delivery, redondeada a 1 decimal --
     // nunca lat/lng crudos (ningún consumidor los pide todavía).
@@ -79,7 +85,12 @@ const offerResponse = {
     // que offersSummary/competitiveRank (MOVO-180/188).
     priceNetArs: { type: "number" },
     commissionAmountArs: { type: "number" },
-    offeredDate: { type: "string", format: "date-time" },
+    // Bug reportado por el usuario en la pantalla de detalle de oferta: `offeredDate`
+    // es `@db.Date` (mismo gotcha de timezone de MOVO-80/180) y `offer.dto.ts` ya lo
+    // formatea date-only (slice(0,10)) -- declararlo acá como "date-time" hacía que
+    // fast-json-stringify lo re-serializara como instante completo en vez de dejar
+    // pasar el string recortado tal cual (mismo criterio que estimatedDeliveryDate).
+    offeredDate: { type: "string", format: "date" },
     // MOVO-177: null cuando la oferta usa la ventana del envío tal cual.
     offeredPickupTimeWindowStart: { type: ["string", "null"] },
     offeredPickupTimeWindowEnd: { type: ["string", "null"] },

@@ -364,6 +364,42 @@ export function formatTripDistanceKm(distanceKm: number): string {
   return `~${distanceKm.toFixed(1)} km`;
 }
 
+/** "+0,8" — un decimal con coma, mismo criterio de localización que el resto de la
+ * app (nunca redondeado a entero: la diferencia entre 0,8 y 1,4 km importa para la
+ * decisión). Compartido por la card/fila de "Transportar" y su franja de desvío. */
+export function formatDetourKm(detourKm: number): string {
+  return detourKm.toFixed(1).replace(".", ",");
+}
+
+const PICKUP_DAY_WEEKDAYS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+const PICKUP_DAY_MONTHS = [
+  "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic",
+];
+
+/** Etiqueta relativa de la fecha de retiro para la fila de "Transportar" (MOVO-183,
+ * lista sin cards): "Hoy" / "Mañana" / "lun 21 sep" para el resto — nunca la fecha
+ * completa con año, que sobra a esta distancia (`formatPickupDateLabel` sigue siendo
+ * la que se usa en pantallas de detalle, donde sí importa la fecha completa). Mismo
+ * cuidado de zona horaria que el resto del archivo: `pickupDate` y "hoy" se comparan
+ * como strings `YYYY-MM-DD` vía `toArgentinaCalendarDateString`, nunca restando
+ * `Date`s directamente (correría el día en UTC-3). */
+export function formatPickupDayLabel(pickupDate: string, now: Date = new Date()): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(pickupDate)) return pickupDate;
+  const todayStr = toArgentinaCalendarDateString(now);
+  if (pickupDate === todayStr) return "Hoy";
+
+  // Aritmética en UTC sobre el string de calendario -- nunca crea un `Date` "local"
+  // (dependería de la zona horaria del dispositivo, no de la de Argentina).
+  const [ty, tm, td] = todayStr.split("-").map(Number);
+  const tomorrow = new Date(Date.UTC(ty, tm - 1, td + 1));
+  const tomorrowStr = `${tomorrow.getUTCFullYear()}-${String(tomorrow.getUTCMonth() + 1).padStart(2, "0")}-${String(tomorrow.getUTCDate()).padStart(2, "0")}`;
+  if (pickupDate === tomorrowStr) return "Mañana";
+
+  const [y, m, d] = pickupDate.split("-").map(Number);
+  const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return `${PICKUP_DAY_WEEKDAYS[weekday]} ${d} ${PICKUP_DAY_MONTHS[m - 1]}`;
+}
+
 /** Ruta declarada de un viaje propio (`origin`/`destination`/`departureAt`), lo mínimo
  * que necesita `computeOnTripDetour` — no el `Trip`/`TripWithAcceptedPackages`
  * completo, para poder testear la geometría sin construir un fixture con todos los

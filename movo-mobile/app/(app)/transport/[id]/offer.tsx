@@ -3,7 +3,7 @@ import { computeOfferGrossPrice } from "@movo/shared/dist/config/commission";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
-import { Check, ChevronLeft, Delete, ShieldAlert } from "lucide-react-native";
+import { Check, ChevronLeft, ShieldAlert } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
@@ -24,10 +24,18 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { ErrorBanner } from "../../../../components/ui/error-banner";
+import { NumericKeypad } from "../../../../components/ui/numeric-keypad";
 import { SlideToConfirm } from "../../../../components/ui/slide-to-confirm";
 import { TextField } from "../../../../components/ui/text-field";
-import type { CreateOfferResponse } from "../../../../src/api/offers-client";
-import { useCreateOffer } from "../../../../src/hooks/use-offers";
+import type {
+  CreateOfferResponse,
+  MyOfferSummary,
+} from "../../../../src/api/offers-client";
+import {
+  useCreateOffer,
+  useOfferDetail,
+  useUpdateOffer,
+} from "../../../../src/hooks/use-offers";
 import { usePublicProfile } from "../../../../src/hooks/use-profile";
 import {
   getClientCommissionRate,
@@ -100,48 +108,6 @@ function projectAmount(
   }
   // bruto -> neto = bruto / (1 + tasa), redondeado a centavos.
   return Math.round((amount / (1 + rate)) * 100) / 100;
-}
-
-const KEYPAD_KEYS = [
-  "1",
-  "2",
-  "3",
-  "4",
-  "5",
-  "6",
-  "7",
-  "8",
-  "9",
-  "00",
-  "0",
-  "⌫",
-];
-
-function NumericKeypad({
-  onDigit,
-  onDelete,
-}: {
-  onDigit: (d: string) => void;
-  onDelete: () => void;
-}) {
-  return (
-    <View className="flex-row flex-wrap gap-2 px-4 pb-6 pt-1">
-      {KEYPAD_KEYS.map((key) => (
-        <Pressable
-          key={key}
-          testID={`create-offer-key-${key === "⌫" ? "del" : key}`}
-          onPress={() => (key === "⌫" ? onDelete() : onDigit(key))}
-          className="h-12 flex-[1_0_30%] items-center justify-center rounded-md bg-bg-mute"
-        >
-          {key === "⌫" ? (
-            <Delete size={20} color="#0A0A0B" />
-          ) : (
-            <Text className="font-sans-medium text-[20px] text-fg">{key}</Text>
-          )}
-        </Pressable>
-      ))}
-    </View>
-  );
 }
 
 function Chip({
@@ -236,9 +202,11 @@ const SUCCESS_OVERLAY_DURATION_MS = 2400;
  * oferta"). */
 function OfferSuccessOverlay({
   netArs,
+  title = "Oferta enviada",
   onDone,
 }: {
   netArs: number;
+  title?: string;
   onDone: () => void;
 }) {
   const scale = useSharedValue(0);
@@ -290,7 +258,7 @@ function OfferSuccessOverlay({
           <Check size={32} color="#C6F24A" strokeWidth={3} />
         </View>
         <Text className="text-center font-sans-semibold text-[26px] text-ink-950">
-          Oferta enviada
+          {title}
         </Text>
         <Text
           testID="create-offer-success-net"
@@ -336,17 +304,32 @@ function OfferSuccessOverlay({
  * pura anticipación de lo que se va a mandar cuando el backend lo soporte.
  */
 export default function CreateOfferScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, offerId } = useLocalSearchParams<{
+    id: string;
+    /** MOVO-182: presente solo cuando se llega desde "Modificar fecha y horario" del
+     * detalle de oferta -- reusa esta misma pantalla en modo edición sobre una oferta
+     * `pending` existente, en vez de duplicar el formulario. */
+    offerId?: string;
+  }>();
+  const isEditMode = !!offerId;
   const colors = useThemeColors();
   const { data: shipment } = useShipment(id);
   const { data: senderProfile } = usePublicProfile(shipment?.senderId);
+  const { data: existingOffer } = useOfferDetail(offerId, {
+    enabled: isEditMode,
+  });
   const createOffer = useCreateOffer(id);
+  const updateOffer = useUpdateOffer(offerId ?? "");
 
   // MOVO-177 (feedback de UI): el formulario se partió en 2 pasos -- "precio" era
   // demasiado largo compartiendo pantalla con "cuándo retirás"/"entrega estimada"/
   // mensaje. `formStep` no es parte del `phase` de arriba (form/sending/sent): sigue
   // siendo la misma fase "form", solo cambia qué sección del formulario se ve.
-  const [formStep, setFormStep] = useState<1 | 2>(1);
+  // En modo edición se entra siempre desde "Modificar fecha y horario" del menú del
+  // detalle de oferta (único caller que manda `offerId`, ver el comentario de más
+  // arriba) -- el precio se cambia desde "Cambiar el precio" en esa misma pantalla,
+  // nunca desde acá, así que el paso 1 (monto) ni siquiera es parte de este flujo.
+  const [formStep, setFormStep] = useState<1 | 2>(isEditMode ? 2 : 1);
   const scrollRef = useRef<ScrollView>(null);
   // MOVO-177 (fix de negocio): el "ancla" real del monto -- los dígitos tal cual los
   // tipeó el transportista, más en QUÉ modo los tipeó. `amountMode` de abajo es solo
@@ -391,9 +374,9 @@ export default function CreateOfferScreen() {
   const [message, setMessage] = useState("");
   const [phase, setPhase] = useState<"form" | "sending" | "sent">("form");
   const [error, setError] = useState<unknown | null>(null);
-  const [createdOffer, setCreatedOffer] = useState<CreateOfferResponse | null>(
-    null,
-  );
+  const [createdOffer, setCreatedOffer] = useState<
+    CreateOfferResponse | MyOfferSummary | null
+  >(null);
 
   // Prefill UNA sola vez cuando el envío carga -- guardado con un ref, no
   // dependiente de `amount` en el array de deps. Antes dependía de `amount` para
@@ -401,18 +384,66 @@ export default function CreateOfferScreen() {
   // transportista borraba el campo entero (para escribir un monto propio desde
   // cero) el efecto lo volvía a completar con el sugerido en el próximo render --
   // el campo nunca se podía vaciar de verdad.
+  //
+  // En modo edición (MOVO-182), el prefill sale de la oferta existente
+  // (`existingOffer`), no del sugerido del envío -- distinto ref/efecto porque
+  // depende de una query distinta que carga en paralelo, no de `shipment`.
   const didPrefillAmount = useRef(false);
   useEffect(() => {
-    if (shipment && !didPrefillAmount.current) {
-      didPrefillAmount.current = true;
-      setAnchor({
-        raw: shipment.suggestedPriceArs
-          ? String(Math.round(shipment.suggestedPriceArs))
-          : "",
-        mode: "gross",
-      });
+    if (isEditMode || !shipment || didPrefillAmount.current) return;
+    didPrefillAmount.current = true;
+    setAnchor({
+      raw: shipment.suggestedPriceArs
+        ? String(Math.round(shipment.suggestedPriceArs))
+        : "",
+      mode: "gross",
+    });
+  }, [shipment, isEditMode]);
+
+  const didPrefillOffer = useRef(false);
+  useEffect(() => {
+    if (!isEditMode || !shipment || !existingOffer || didPrefillOffer.current) {
+      return;
     }
-  }, [shipment]);
+    didPrefillOffer.current = true;
+    setAnchor({ raw: String(Math.round(existingOffer.priceOffered)), mode: "gross" });
+
+    const hasAltWindow =
+      !!existingOffer.offeredPickupTimeWindowStart &&
+      !!existingOffer.offeredPickupTimeWindowEnd;
+    if (hasAltWindow) {
+      setDateMode("other");
+      const requested = parseDateOnly(shipment.pickupDate);
+      const offered = parseDateOnly(existingOffer.offeredDate);
+      const offsetMs = offered.getTime() - requested.getTime();
+      setDayOffset(Math.max(0, Math.round(offsetMs / (24 * 60 * 60 * 1000))));
+      const slotIndex = TIME_SLOTS.findIndex(
+        (slot) =>
+          slot.start === existingOffer.offeredPickupTimeWindowStart &&
+          slot.end === existingOffer.offeredPickupTimeWindowEnd,
+      );
+      if (slotIndex >= 0) setPickupSlotIndex(slotIndex);
+    }
+
+    if (existingOffer.estimatedDeliveryDate) {
+      const base = hasAltWindow
+        ? parseDateOnly(existingOffer.offeredDate)
+        : parseDateOnly(shipment.pickupDate);
+      const delivery = parseDateOnly(existingOffer.estimatedDeliveryDate);
+      const deliveryOffsetMs = delivery.getTime() - base.getTime();
+      setDeliveryDayOffset(
+        Math.max(0, Math.round(deliveryOffsetMs / (24 * 60 * 60 * 1000))),
+      );
+      const deliverySlot = TIME_SLOTS.findIndex(
+        (slot) =>
+          slot.start === existingOffer.estimatedDeliveryTimeWindowStart &&
+          slot.end === existingOffer.estimatedDeliveryTimeWindowEnd,
+      );
+      if (deliverySlot >= 0) setDeliverySlotIndex(deliverySlot);
+    }
+
+    if (existingOffer.message) setMessage(existingOffer.message);
+  }, [shipment, existingOffer, isEditMode]);
 
   const commissionRate = getClientCommissionRate();
   const rawAmountNumber = parseInt(anchor.raw || "0", 10) || 0;
@@ -565,8 +596,10 @@ export default function CreateOfferScreen() {
     // El botón de volver del header retrocede un paso del formulario antes de
     // abandonar la pantalla -- mismo criterio que el resto de la app (ver
     // `shipments/[id].tsx`): nunca hay dos formas de "volver" con comportamiento
-    // distinto (el header y algún botón propio del paso).
-    if (formStep === 2) {
+    // distinto (el header y algún botón propio del paso). En modo edición no hay
+    // paso 1 al que volver (ver el comentario de `formStep` más arriba), así que
+    // desde el paso 2 se sale directo de la pantalla.
+    if (formStep === 2 && !isEditMode) {
       setFormStep(1);
       return;
     }
@@ -595,19 +628,36 @@ export default function CreateOfferScreen() {
     setPhase("sending");
 
     try {
-      const data = await createOffer.mutateAsync({
-        priceOfferedArs: netArs,
-        offeredDate: effectivePickupDate,
-        offeredPickupTimeWindowStart:
-          dateMode === "other" && pickupSlotIndex !== null
-            ? TIME_SLOTS[pickupSlotIndex].start
-            : undefined,
-        offeredPickupTimeWindowEnd:
-          dateMode === "other" && pickupSlotIndex !== null
-            ? TIME_SLOTS[pickupSlotIndex].end
-            : undefined,
-        message: message.trim() || undefined,
-      });
+      // `PATCH /offers/:id` (MOVO-181) no acepta `message` -- el mensaje no es
+      // editable una vez ofertado, solo precio y fecha/franja de retiro. Enviar
+      // `null` explícito en la franja cuando se vuelve a "como lo pidió el emisor"
+      // resetea una alternativa propuesta antes (omitir el campo la dejaría intacta).
+      const data = isEditMode
+        ? await updateOffer.mutateAsync({
+            priceOfferedArs: netArs,
+            offeredDate: effectivePickupDate,
+            offeredPickupTimeWindowStart:
+              dateMode === "other" && pickupSlotIndex !== null
+                ? TIME_SLOTS[pickupSlotIndex].start
+                : null,
+            offeredPickupTimeWindowEnd:
+              dateMode === "other" && pickupSlotIndex !== null
+                ? TIME_SLOTS[pickupSlotIndex].end
+                : null,
+          })
+        : await createOffer.mutateAsync({
+            priceOfferedArs: netArs,
+            offeredDate: effectivePickupDate,
+            offeredPickupTimeWindowStart:
+              dateMode === "other" && pickupSlotIndex !== null
+                ? TIME_SLOTS[pickupSlotIndex].start
+                : undefined,
+            offeredPickupTimeWindowEnd:
+              dateMode === "other" && pickupSlotIndex !== null
+                ? TIME_SLOTS[pickupSlotIndex].end
+                : undefined,
+            message: message.trim() || undefined,
+          });
       setCreatedOffer(data);
       setPhase("sent");
     } catch (err) {
@@ -616,7 +666,7 @@ export default function CreateOfferScreen() {
     }
   };
 
-  if (!shipment) {
+  if (!shipment || (isEditMode && !existingOffer)) {
     return (
       <SafeAreaView
         className="flex-1 items-center justify-center bg-bg"
@@ -651,7 +701,14 @@ export default function CreateOfferScreen() {
     return (
       <OfferSuccessOverlay
         netArs={createdOffer.priceNetArs}
-        onDone={() => router.replace(`/(app)/transport/${id}`)}
+        title={isEditMode ? "Oferta actualizada" : "Oferta enviada"}
+        onDone={() =>
+          router.replace(
+            isEditMode
+              ? `/(app)/carrier/offers/${offerId}`
+              : `/(app)/transport/${id}`,
+          )
+        }
       />
     );
   }
@@ -667,7 +724,9 @@ export default function CreateOfferScreen() {
           <ChevronLeft size={18} color={colors.fg1} strokeWidth={2} />
         </Pressable>
         <View className="flex-1">
-          <Text className="font-sans-semibold text-h3 text-fg">Tu oferta</Text>
+          <Text className="font-sans-semibold text-h3 text-fg">
+            {isEditMode ? "Modificar oferta" : "Tu oferta"}
+          </Text>
           <Text
             className="mt-0.5 font-sans text-[11px] text-fg-3"
             numberOfLines={1}
@@ -676,20 +735,27 @@ export default function CreateOfferScreen() {
             {shortAddressLabel(shipment.deliveryAddress)}
           </Text>
         </View>
-        <Text className="font-sans-medium text-[11px] text-fg-3">
-          Paso {formStep} de 2
-        </Text>
+        {!isEditMode ? (
+          <Text className="font-sans-medium text-[11px] text-fg-3">
+            Paso {formStep} de 2
+          </Text>
+        ) : null}
       </View>
       {/* Indicador de progreso -- 2 segmentos, no una barra continua, porque son
-          exactamente 2 pasos fijos (precio / retiro), nunca una cantidad variable. */}
-      <View className="flex-row gap-1.5 px-5 pt-2.5">
-        <View
-          className={`h-1 flex-1 rounded-full ${formStep >= 1 ? "bg-fg" : "bg-bg-mute"}`}
-        />
-        <View
-          className={`h-1 flex-1 rounded-full ${formStep >= 2 ? "bg-fg" : "bg-bg-mute"}`}
-        />
-      </View>
+          exactamente 2 pasos fijos (precio / retiro), nunca una cantidad variable.
+          En modo edición no hay paso 1 alcanzable (ver `formStep` más arriba), así
+          que mostrar el progreso de un flujo de 2 pasos sería engañoso -- se oculta
+          entero. */}
+      {!isEditMode ? (
+        <View className="flex-row gap-1.5 px-5 pt-2.5">
+          <View
+            className={`h-1 flex-1 rounded-full ${formStep >= 1 ? "bg-fg" : "bg-bg-mute"}`}
+          />
+          <View
+            className={`h-1 flex-1 rounded-full ${formStep >= 2 ? "bg-fg" : "bg-bg-mute"}`}
+          />
+        </View>
+      ) : null}
 
       <KeyboardAvoidingView
         className="flex-1"
@@ -825,6 +891,7 @@ export default function CreateOfferScreen() {
                       // sugerido usa un `useRef` (`didPrefillAmount`) que solo corre una vez,
                       // así que vaciar el campo acá para escribir un monto propio nunca lo
                       // vuelve a completar solo (bug real reportado por el usuario).
+                      testIDPrefix="create-offer-key"
                       onDigit={handleAmountDigit}
                       onDelete={handleAmountDelete}
                     />
@@ -1082,7 +1149,11 @@ export default function CreateOfferScreen() {
               <View>
                 <TextField
                   testID="create-offer-message-input"
-                  label="Mensaje para el emisor (recomendado)"
+                  label={
+                    isEditMode
+                      ? "Mensaje enviado (no se puede modificar)"
+                      : "Mensaje para el emisor (recomendado)"
+                  }
                   placeholder="Ej: Salgo por la mañana, tengo espacio disponible en el baúl."
                   value={message}
                   onChangeText={setMessage}
@@ -1091,6 +1162,10 @@ export default function CreateOfferScreen() {
                   numberOfLines={3}
                   textAlignVertical="top"
                   containerClassName="gap-1.5"
+                  // `PATCH /offers/:id` (MOVO-181) no acepta `message` -- se muestra
+                  // de solo lectura en modo edición en vez de prometer un cambio que
+                  // el backend va a ignorar.
+                  disabled={isEditMode}
                 />
               </View>
             </>
@@ -1146,7 +1221,7 @@ export default function CreateOfferScreen() {
                   label="Deslizá para confirmar"
                   onConfirm={handleSubmit}
                   disabled={!canSubmit}
-                  loading={createOffer.isPending}
+                  loading={isEditMode ? updateOffer.isPending : createOffer.isPending}
                 />
               </View>
             )}

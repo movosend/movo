@@ -106,6 +106,10 @@ describe("GET /shipments/:id/offers (Postgres)", () => {
       carrierRatingAtOffer: 4.8,
       status: "pending",
     });
+    // MOVO-182 (feedback de review, PR #164): offeredDate sale como YYYY-MM-DD, no
+    // como instante completo -- mismo fix de schema que offers.schema.ts, este
+    // endpoint tiene su propio offerResponse autocontenido en shipments.schema.ts.
+    expect(items[0].offeredDate).toBe(PICKUP_DATE.toISOString().slice(0, 10));
   });
 
   it("el receptor recibe 403 (AC1)", async () => {

@@ -5,6 +5,7 @@ import { packageTypeLabel } from "../send/category-grid";
 import type { AvailableShipment } from "../../src/api/shipments-client";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import {
+  formatDetourKm,
   formatPickupDateLabel,
   formatPriceArs,
   formatTripDistanceKm,
@@ -37,13 +38,6 @@ export interface AvailableShipmentCardProps {
  * decidir si vale la pena ir a buscar el paquete). */
 function formatDistanceKm(distanceKm: number): string {
   return `a ${distanceKm.toFixed(1)} km`;
-}
-
-/** "+0,8" — un decimal con coma, mismo criterio de localización que el resto de la
- * card (nunca redondeado a entero para el desvío, que suele ser un número chico donde
- * la diferencia entre 0,8 y 1,4 km sí importa para la decisión). */
-function formatDetourKm(detourKm: number): string {
-  return detourKm.toFixed(1).replace(".", ",");
 }
 
 /**
