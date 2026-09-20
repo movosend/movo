@@ -1,6 +1,6 @@
 import React from "react";
 import { fireEvent, render } from "@testing-library/react-native";
-import { ShipmentStatus } from "@movo/shared";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import ShipmentHandshakeScreen from "../app/(app)/shipments/[id]/handshake";
 
 const mockRouterBack = jest.fn();

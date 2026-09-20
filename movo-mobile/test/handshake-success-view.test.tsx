@@ -1,7 +1,7 @@
 import React from "react";
 import { fireEvent, render } from "@testing-library/react-native";
 import { HandshakeSuccessView } from "../components/handshake/handshake-success-view";
-import { ShipmentStatus } from "@movo/shared";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import * as Haptics from "expo-haptics";
 
 jest.mock("expo-haptics", () => ({

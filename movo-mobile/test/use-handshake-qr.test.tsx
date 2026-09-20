@@ -1,7 +1,8 @@
 import React from "react";
 import { act, render, waitFor } from "@testing-library/react-native";
 import { Text } from "react-native";
-import { ApiError, ShipmentStatus } from "@movo/shared";
+import { ApiError } from "@movo/shared/dist/errors/api-error";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 
 const mockGetCurrentLocation = jest.fn();
 jest.mock("../src/lib/location", () => ({

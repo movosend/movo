@@ -2746,13 +2746,16 @@ Implementación completa de la pantalla de transferencia de custodia física ví
   - Contador regresivo de 15 segundos con recálculo contra timestamp objetivo (`Date.now()`), transición a color de advertencia (`#E5484D`) en los últimos 5 segundos, y estado de expiración a los 0 segundos con opacidad atenuada (0.2).
   - Botón de regeneración manual para solicitar y firmar un nuevo nonce tras expirar.
   - Polling a `shipmentsClient.getById(id)` cada 2.5 segundos para detectar el avance de estado cuando el receptor completa el escaneo (`IN_TRANSIT` para retiro, `DELIVERED`/`COMPLETED` para entrega), transicionando inmediatamente a `"confirmed"` (reemplazable por WebSocket en `MOVO-201`).
-- **Componentes (`components/handshake/`)**:
-  - `HandshakeQrCard`: Contenedor idéntico al prototipo con QR de 186×186, badge circular central de marca Movo, reloj monoespaciado (`00:15`), barra de progreso animada, overlay de expirado, y simulación en `__DEV__`.
-  - `HandshakeSuccessView`: Pantalla de éxito con badge circular de check (68×68), copy contextual ("Retiro confirmado" / "Entrega confirmada"), tarjeta de resumen de envío y estado, y botones para volver al envío o a Inicio. Dispara vibración háptica de éxito (`Haptics.notificationAsync`).
+- **Componentes (`components/handshake/` & `components/ui/`)**:
+  - `MovoIsotype` (`components/ui/movo-isotype.tsx`): Implementación vectorial nativa en SVG del isotipo oficial según el Manual de Marca (`#movo-logo-dark`, 5 círculos concéntricos de apertura y esquinas redondeadas al 20%).
+  - `HandshakeQrCard`: Contenedor idéntico al prototipo con QR de 186×186, isotipo oficial de Movo en el badge central (44×44), reloj monoespaciado (`00:15`), barra de progreso animada, overlay de expirado, y simulación en `__DEV__`.
+  - `HandshakeSuccessView`: Pantalla de éxito con badge circular de check (64×64), paleta contextual de marca (fondo oscuro con tilde lima para retiro; fondo lima con tilde oscuro para entrega), tipografía Inter centrada, tabla resumen de envío y estado, y botones de acción para volver al envío o a Inicio. Dispara vibración háptica de éxito (`Haptics.notificationAsync`).
   - `HandshakeDeviceKeyWarning`: Banner de advertencia si la clave criptográfica del dispositivo está pendiente o en error con botón de reintento.
 - **Pantalla y Navegación**:
   - Ruta `app/(app)/shipments/[id]/handshake.tsx`: Resuelve automáticamente el rol del usuario autenticado (emisor entrega paquete al transportista → "pickup"; transportista entrega paquete al destinatario → "delivery") y el nombre de pila de la contraparte desde su perfil público.
   - Botón de acceso contextual en `app/(app)/shipments/[id].tsx`: Botón inferior con estilo lime "Confirmar retiro" para el emisor en estado `ASSIGNED`, y "Confirmar entrega" para el transportista en estado `IN_TRANSIT`.
+  - Acceso a pantalla de desarrollo (`/dev-handshake`) consolidado en la pestaña de Perfil (`profile.tsx`), manteniendo la pantalla Home limpia.
+  - Imports de `@movo/shared` apuntando a subpaths específicos (`@movo/shared/dist/types/shipment`, `@movo/shared/dist/errors/api-error`) para prevenir fugas de librerías Node (`node:crypto`, `jsonwebtoken`) en el runtime nativo.
 - **Tests**:
   - `test/use-handshake-qr.test.tsx` (6 tests: AC2 generación y firma, AC2/AC3 countdown/expiración, AC3 regeneración, AC4 polling de confirmación, AC5 GPS denegado y distancia excedida). Utiliza el patrón `Harness` con `render` para evitar el bug de `renderHook` de React 19 / RNTL 14.
   - `test/handshake-qr-card.test.tsx` (5 tests: render normal, cuenta regresiva en rojo, overlay de expiración y botón de regenerar, estado de carga, errores).
