@@ -42,11 +42,21 @@ function samePendingIds(a: AvailableShipment[], b: AvailableShipment[]): boolean
 
 /**
  * MOVO-163 (extensión de alcance acordada con el usuario, "tipo Uber"): mientras el
- * transportista tiene un viaje `active` declarado y la app está en foreground, vigila
- * `GET /trips/:id/matches` con un polling propio y expone una alerta con los envíos
- * compatibles sobre los que todavía no ofertó (`hasMyOffer: false`). Pensado para un
- * aviso global (`TripMatchAlertBanner`, montado en `app/(app)/_layout.tsx`) — no
- * reemplaza a `useTripMatches` (el feed en sí, sin polling, MOVO-163 AC1-5).
+ * transportista tiene un viaje vigente (no `cancelled`/`completed`) y la app está en
+ * foreground, vigila `GET /trips/:id/matches` con un polling propio y expone una
+ * alerta con los envíos compatibles sobre los que todavía no ofertó
+ * (`hasMyOffer: false`). Pensado para un aviso global (`TripMatchAlertBanner`,
+ * montado en `app/(app)/_layout.tsx`) — no reemplaza a `useTripMatches` (el feed en
+ * sí, sin polling, MOVO-163 AC1-5).
+ *
+ * MOVO-221 (fix de review, PR #168): vigilaba estrictamente `TripStatus.ACTIVE`, que
+ * era el único estado no terminal antes del rediseño de estados de viaje. Con
+ * `declared` como estado inicial real y sin botón "Iniciar viaje" todavía en el
+ * mobile, ningún viaje llega nunca a `active` desde la app — el banner quedaba
+ * silenciosamente inactivo para siempre. Ahora vigila el primer viaje `declared` O
+ * `active` (mismo criterio "vivo vs. terminal" ya usado en `transport.tsx` para la
+ * franja "de paso"), así que sigue funcionando hoy (viajes `declared`) y va a seguir
+ * funcionando sin cambios cuando exista esa UI (viajes `active`).
  *
  * A diferencia de la primera versión (que solo alertaba una vez por envío nuevo y
  * nunca más), esta vigila permanentemente los matches **pendientes** — el aviso vuelve
@@ -65,8 +75,8 @@ function samePendingIds(a: AvailableShipment[], b: AvailableShipment[]): boolean
  * la primera aparición.
  *
  * Simplificaciones aceptadas:
- * - Con más de un viaje `active` simultáneo, solo se vigila el primero que devuelve
- *   `useMyTrips()` — sin selector de "cuál viaje vigilar".
+ * - Con más de un viaje `declared`/`active` simultáneo, solo se vigila el primero que
+ *   devuelve `useMyTrips()` — sin selector de "cuál viaje vigilar".
  * - El snooze vive en memoria (`useRef`), no persiste entre reinicios — que se
  *   resetee solo al relanzar la app es justamente el comportamiento pedido, no una
  *   limitación a documentar aparte.
@@ -83,8 +93,13 @@ export function useActiveTripMatchAlert() {
   // caso queda `retry: false` en `useMyTrips` como mitigación.
   const isCarrier = useAuthStore((s) => s.user?.roles.includes(UserRole.CARRIER) ?? false);
   const { data: tripsData } = useMyTrips(isCarrier);
-  const activeTrip = (tripsData?.items ?? []).find((trip) => trip.status === TripStatus.ACTIVE) ?? null;
-  const activeTripId = activeTrip?.id ?? null;
+  // MOVO-221 (fix de review, PR #168): declared o active, ver el comentario del
+  // archivo -- antes exigía ACTIVE a secas y nunca encontraba nada.
+  const watchedTrip =
+    (tripsData?.items ?? []).find(
+      (trip) => trip.status === TripStatus.DECLARED || trip.status === TripStatus.ACTIVE,
+    ) ?? null;
+  const watchedTripId = watchedTrip?.id ?? null;
 
   const dismissedUntilRef = useRef(0);
   const trackedTripIdRef = useRef<string | null>(null);
@@ -92,33 +107,33 @@ export function useActiveTripMatchAlert() {
   const [startupDelayElapsed, setStartupDelayElapsed] = useState(false);
 
   // Corre una sola vez por sesión (el hook vive montado en `_layout.tsx` mientras
-  // dure la app abierta) — no reinicia el timer si `activeTripId` cambia en el medio.
+  // dure la app abierta) — no reinicia el timer si `watchedTripId` cambia en el medio.
   useEffect(() => {
     const timeout = setTimeout(() => setStartupDelayElapsed(true), TRIP_MATCH_STARTUP_DELAY_MS);
     return () => clearTimeout(timeout);
   }, []);
 
   const matchesQuery = useQuery({
-    queryKey: ["trips", "matches", "alert-watch", activeTripId],
-    queryFn: () => tripsClient.getMatches(activeTripId!, { limit: TRIP_MATCH_ALERT_LIMIT }),
-    enabled: !!activeTripId,
+    queryKey: ["trips", "matches", "alert-watch", watchedTripId],
+    queryFn: () => tripsClient.getMatches(watchedTripId!, { limit: TRIP_MATCH_ALERT_LIMIT }),
+    enabled: !!watchedTripId,
   });
 
   const refetchRef = useRef(matchesQuery.refetch);
   refetchRef.current = matchesQuery.refetch;
 
-  // Reset al cambiar de viaje activo (o al perderlo) — un snooze de un viaje anterior
+  // Reset al cambiar de viaje vigilado (o al perderlo) — un snooze de un viaje anterior
   // no tiene sentido para otro.
   useEffect(() => {
-    if (trackedTripIdRef.current !== activeTripId) {
+    if (trackedTripIdRef.current !== watchedTripId) {
       dismissedUntilRef.current = 0;
-      trackedTripIdRef.current = activeTripId;
+      trackedTripIdRef.current = watchedTripId;
       setAlert(null);
     }
-  }, [activeTripId]);
+  }, [watchedTripId]);
 
   useEffect(() => {
-    if (!activeTripId || !matchesQuery.data || !startupDelayElapsed) return;
+    if (!watchedTripId || !matchesQuery.data || !startupDelayElapsed) return;
     const pending = matchesQuery.data.items.filter((item) => !item.hasMyOffer);
 
     if (pending.length === 0) {
@@ -142,15 +157,15 @@ export function useActiveTripMatchAlert() {
     // del ítem realmente visible. Si el set de pendientes (por id) es el mismo que
     // el de la alerta actual, se conserva la referencia anterior.
     setAlert((prev) => {
-      if (prev && prev.tripId === activeTripId && samePendingIds(prev.shipments, pending)) {
+      if (prev && prev.tripId === watchedTripId && samePendingIds(prev.shipments, pending)) {
         return prev;
       }
-      return { tripId: activeTripId, shipments: pending };
+      return { tripId: watchedTripId, shipments: pending };
     });
-  }, [activeTripId, matchesQuery.data, matchesQuery.dataUpdatedAt, startupDelayElapsed]);
+  }, [watchedTripId, matchesQuery.data, matchesQuery.dataUpdatedAt, startupDelayElapsed]);
 
   useEffect(() => {
-    if (!activeTripId) return;
+    if (!watchedTripId) return;
     let intervalId: ReturnType<typeof setInterval> | null = null;
 
     const startPolling = () => {
@@ -181,7 +196,7 @@ export function useActiveTripMatchAlert() {
       stopPolling();
       subscription.remove();
     };
-  }, [activeTripId]);
+  }, [watchedTripId]);
 
   return {
     alert,
