@@ -30,9 +30,15 @@ interface TripCardProps {
  * backend va a rechazar con 409" que ya usa `SenderActionsBar`/`ReceiverActionsBar`
  * (MOVO-29/MOVO-131) para sus propios gates de estado. Mismo criterio para un viaje
  * `cancelled`/`completed` sin paquetes aceptados (hallazgo de review, PR #120): tampoco
- * tiene sentido ofrecer editar/eliminar un viaje que ya no está `active` — el backend
+ * tiene sentido ofrecer editar/eliminar un viaje en un estado terminal — el backend
  * lo rechazaría igual (`update`/`delete` no filtran por status, pero no hay ninguna
- * transición de vuelta a `active` que la edición pudiera tener sentido de completar).
+ * transición de vuelta a `declared`/`active` que la edición pudiera tener sentido de
+ * completar). MOVO-221 (fix de review, PR #168): la condición original exigía
+ * `status === ACTIVE` a secas, heredada de cuando ese era el único estado no terminal
+ * — con `declared` como estado inicial real, esa condición ocultaba editar/eliminar
+ * para TODO viaje recién declarado. Se invierte a "no es un estado terminal" en vez
+ * de listar los no-terminales, para no tener que volver a tocar esto si se agrega un
+ * estado no terminal nuevo más adelante.
  *
  * `onPress` (MOVO-163) abre el feed de paquetes compatibles con este viaje — toda la
  * card es pressable, con editar/eliminar como `Pressable`s anidados (RN resuelve el
@@ -95,7 +101,9 @@ export function TripCard({ trip, onEdit, onDelete, onPress, testID }: TripCardPr
             Salida: {formatDepartureLabel(trip.departureAt)}
           </Text>
         </View>
-        {!trip.hasAcceptedPackages && trip.status === TripStatus.ACTIVE ? (
+        {!trip.hasAcceptedPackages &&
+        trip.status !== TripStatus.CANCELLED &&
+        trip.status !== TripStatus.COMPLETED ? (
           <View className="flex-row items-center gap-2.5">
             <Pressable
               testID={testID ? `${testID}-edit` : undefined}
