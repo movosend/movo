@@ -95,10 +95,11 @@ describe("GET /shipments/my-route (HTTP Routes & ACs)", () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(mockService.getMyRoute).toHaveBeenCalledWith(CARRIER_ID, {
-      lat: -31.4167,
-      lng: -64.1833,
-    });
+    expect(mockService.getMyRoute).toHaveBeenCalledWith(
+      CARRIER_ID,
+      { lat: -31.4167, lng: -64.1833 },
+      undefined,
+    );
     const body = JSON.parse(res.body);
     expect(body).toEqual(sampleRoute);
   });
@@ -112,9 +113,53 @@ describe("GET /shipments/my-route (HTTP Routes & ACs)", () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(mockService.getMyRoute).toHaveBeenCalledWith(CARRIER_ID, {
-      lat: -31.4167,
-      lng: -64.1833,
+    expect(mockService.getMyRoute).toHaveBeenCalledWith(
+      CARRIER_ID,
+      { lat: -31.4167, lng: -64.1833 },
+      undefined,
+    );
+  });
+
+  it("MOVO-235 AC1: propaga tripId de la query al servicio", async () => {
+    const tripId = "33333333-3333-3333-3333-333333333333";
+    const res = await app.inject({
+      method: "GET",
+      url: `/shipments/my-route?lat=-31.4167&lng=-64.1833&tripId=${tripId}`,
+      headers: { "x-user-id": CARRIER_ID },
     });
+
+    expect(res.statusCode).toBe(200);
+    expect(mockService.getMyRoute).toHaveBeenCalledWith(
+      CARRIER_ID,
+      { lat: -31.4167, lng: -64.1833 },
+      tripId,
+    );
+  });
+
+  it("MOVO-235: rechaza tripId con formato inválido (no uuid) con 400 VALIDATION_FAILED", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/shipments/my-route?lat=-31.4167&lng=-64.1833&tripId=not-a-uuid",
+      headers: { "x-user-id": CARRIER_ID },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(mockService.getMyRoute).not.toHaveBeenCalled();
+  });
+
+  it("MOVO-235 AC3/AC4: propaga el 409 TRIP_NOT_ACTIVE del servicio", async () => {
+    const { ApiError } = await import("@movo/shared");
+    mockService.getMyRoute = vi
+      .fn()
+      .mockRejectedValue(new ApiError(409, "TRIP_NOT_ACTIVE", "El viaje todavía no está iniciado."));
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/shipments/my-route?lat=-31.4167&lng=-64.1833&tripId=33333333-3333-3333-3333-333333333333",
+      headers: { "x-user-id": CARRIER_ID },
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body).error.code).toBe("TRIP_NOT_ACTIVE");
   });
 });

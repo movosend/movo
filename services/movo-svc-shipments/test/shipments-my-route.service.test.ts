@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ShipmentStatus } from "@movo/shared";
+import { ShipmentStatus, TripStatus } from "@movo/shared";
 import { createShipmentsService } from "../src/modules/shipments/shipments.service";
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
+import { TripRepository } from "../src/repositories/trip-repository";
 import { PricingLogisticsClient } from "../src/adapters/pricing-logistics-client";
 import { Shipment } from "../src/models/shipment";
+import { Trip } from "../src/models/trip";
 
 function createMockShipment(overrides: Partial<Shipment> = {}): Shipment {
   return {
@@ -100,7 +102,7 @@ describe("ShipmentsService.getMyRoute (MOVO-206)", () => {
 
     const route = await service.getMyRoute(CARRIER_ID, CARRIER_LOCATION);
 
-    expect(mockRepository.listActiveShipments).toHaveBeenCalledWith("carrierId", CARRIER_ID);
+    expect(mockRepository.listActiveShipments).toHaveBeenCalledWith("carrierId", CARRIER_ID, undefined);
     expect(mockPricingLogisticsClient.optimizeRoute).not.toHaveBeenCalled();
     expect(route).toEqual({
       stops: [],
@@ -178,5 +180,124 @@ describe("ShipmentsService.getMyRoute (MOVO-206)", () => {
 
     expect(route.optimized).toBe(false);
     expect(route.stops).toHaveLength(2);
+  });
+});
+
+function createMockTrip(overrides: Partial<Trip> = {}): Trip {
+  return {
+    id: "trip-1",
+    carrierId: "carrier-123",
+    originAddress: "Córdoba",
+    originLat: -31.4167,
+    originLng: -64.1833,
+    destinationAddress: "Villa María",
+    destinationLat: -32.4079,
+    destinationLng: -63.2402,
+    departureAt: new Date("2026-09-21T14:00:00.000Z"),
+    vehicleType: "car",
+    status: TripStatus.ACTIVE,
+    createdAt: new Date("2026-09-20T10:00:00.000Z"),
+    updatedAt: new Date("2026-09-20T10:00:00.000Z"),
+    ...overrides,
+  };
+}
+
+describe("ShipmentsService.getMyRoute con tripId (MOVO-235)", () => {
+  let mockRepository: Partial<ShipmentRepository>;
+  let mockTripRepository: Partial<TripRepository>;
+  let mockPricingLogisticsClient: PricingLogisticsClient;
+  const CARRIER_ID = "carrier-123";
+  const CARRIER_LOCATION = { lat: -31.4167, lng: -64.1833 };
+  const TRIP_ID = "trip-1";
+
+  beforeEach(() => {
+    mockRepository = { listActiveShipments: vi.fn().mockResolvedValue([]) };
+    mockTripRepository = { findById: vi.fn().mockResolvedValue(createMockTrip()) };
+    mockPricingLogisticsClient = {
+      evaluateCandidates: vi.fn(),
+      optimizeRoute: vi.fn().mockResolvedValue({
+        stops: [],
+        totalDistanceKm: 0,
+        totalDurationMinutes: 0,
+        status: "OPTIMAL",
+        calculationMethod: "haversine_vrptw_v1",
+        disclaimer: null,
+      }),
+    };
+  });
+
+  function buildService() {
+    return createShipmentsService(mockRepository as ShipmentRepository, {} as any, undefined, undefined, {
+      pricingLogisticsClient: mockPricingLogisticsClient,
+      tripRepository: mockTripRepository as TripRepository,
+    });
+  }
+
+  it("AC1: con tripId, propaga el filtro al repositorio", async () => {
+    const service = buildService();
+
+    await service.getMyRoute(CARRIER_ID, CARRIER_LOCATION, TRIP_ID);
+
+    expect(mockTripRepository.findById).toHaveBeenCalledWith(TRIP_ID);
+    expect(mockRepository.listActiveShipments).toHaveBeenCalledWith("carrierId", CARRIER_ID, TRIP_ID);
+  });
+
+  it("AC2: sin tripId, no consulta tripRepository y llama al repositorio sin acotar", async () => {
+    const service = buildService();
+
+    await service.getMyRoute(CARRIER_ID, CARRIER_LOCATION);
+
+    expect(mockTripRepository.findById).not.toHaveBeenCalled();
+    expect(mockRepository.listActiveShipments).toHaveBeenCalledWith("carrierId", CARRIER_ID, undefined);
+  });
+
+  it("AC3: 404 TRIP_NOT_FOUND si el viaje no existe", async () => {
+    mockTripRepository.findById = vi.fn().mockResolvedValue(null);
+    const service = buildService();
+
+    await expect(service.getMyRoute(CARRIER_ID, CARRIER_LOCATION, TRIP_ID)).rejects.toMatchObject({
+      statusCode: 404,
+      code: "TRIP_NOT_FOUND",
+    });
+  });
+
+  it("AC3: 403 AUTH_FORBIDDEN si el viaje es de otro transportista", async () => {
+    mockTripRepository.findById = vi.fn().mockResolvedValue(createMockTrip({ carrierId: "otro-carrier" }));
+    const service = buildService();
+
+    await expect(service.getMyRoute(CARRIER_ID, CARRIER_LOCATION, TRIP_ID)).rejects.toMatchObject({
+      statusCode: 403,
+      code: "AUTH_FORBIDDEN",
+    });
+  });
+
+  it("AC4: 409 TRIP_NOT_ACTIVE si el viaje sigue declared", async () => {
+    mockTripRepository.findById = vi.fn().mockResolvedValue(createMockTrip({ status: TripStatus.DECLARED }));
+    const service = buildService();
+
+    await expect(service.getMyRoute(CARRIER_ID, CARRIER_LOCATION, TRIP_ID)).rejects.toMatchObject({
+      statusCode: 409,
+      code: "TRIP_NOT_ACTIVE",
+    });
+  });
+
+  it("AC4: 409 TRIP_NOT_ACTIVE si el viaje está cancelled/completed", async () => {
+    mockTripRepository.findById = vi.fn().mockResolvedValue(createMockTrip({ status: TripStatus.COMPLETED }));
+    const service = buildService();
+
+    await expect(service.getMyRoute(CARRIER_ID, CARRIER_LOCATION, TRIP_ID)).rejects.toMatchObject({
+      statusCode: 409,
+      code: "TRIP_NOT_ACTIVE",
+    });
+  });
+
+  it("lanza si se pasa tripId sin haber inyectado tripRepository", async () => {
+    const service = createShipmentsService(mockRepository as ShipmentRepository, {} as any, undefined, undefined, {
+      pricingLogisticsClient: mockPricingLogisticsClient,
+    });
+
+    await expect(service.getMyRoute(CARRIER_ID, CARRIER_LOCATION, TRIP_ID)).rejects.toThrow(
+      /requiere tripRepository/,
+    );
   });
 });
