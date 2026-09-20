@@ -6,7 +6,14 @@ import {
   ChevronRight,
   ChevronUp,
 } from "lucide-react-native";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import {
+  GestureResponderHandlers,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 import { useColorScheme } from "nativewind";
 import type { CarrierRoute, CarrierRouteStop } from "@movo/shared/dist/types/routing";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -17,9 +24,12 @@ interface StopListProps {
   activeStopOrder?: number | null;
   onSelectStop?: (stop: CarrierRouteStop) => void;
   onPressShipment?: (shipmentId: string) => void;
+  onPressAction?: (stop: CarrierRouteStop) => void;
+  isRefreshing?: boolean;
+  onRefresh?: () => void;
   isExpanded?: boolean;
   onToggleExpand?: () => void;
-  panHandlers?: any;
+  panHandlers?: GestureResponderHandlers;
   testID?: string;
 }
 
@@ -95,6 +105,9 @@ export function StopList({
   activeStopOrder = 1,
   onSelectStop,
   onPressShipment,
+  onPressAction,
+  isRefreshing,
+  onRefresh,
   isExpanded,
   onToggleExpand,
   panHandlers,
@@ -227,6 +240,17 @@ export function StopList({
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 28 }}
         nestedScrollEnabled
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl
+              testID="stop-list-refresh-control"
+              refreshing={Boolean(isRefreshing)}
+              onRefresh={onRefresh}
+              tintColor="#C6F24A"
+              colors={["#C6F24A"]}
+            />
+          ) : undefined
+        }
       >
 
       {/* Banner de ruta no optimizada (AC6) */}
@@ -427,7 +451,9 @@ export function StopList({
                   <Pressable
                     testID={`stop-action-btn-${stop.stopOrder}`}
                     onPress={() => {
-                      if (onPressShipment) {
+                      if (onPressAction) {
+                        onPressAction(stop);
+                      } else if (onPressShipment) {
                         onPressShipment(stop.shipmentId);
                       }
                     }}

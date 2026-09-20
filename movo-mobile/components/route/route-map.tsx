@@ -27,7 +27,6 @@ interface RouteMapProps {
   testID?: string;
 }
 
-const EDGE_PADDING = { top: 40, right: 40, bottom: 40, left: 40 };
 
 /**
  * Mapa interactivo multi-parada del transportista (MOVO-207).
@@ -61,9 +60,8 @@ export function RouteMap({
   const [isTrackingCourier, setIsTrackingCourier] = useState<boolean>(false);
   const [activeTooltip, setActiveTooltip] = useState<"origin" | "courier" | null>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [showMapsToast, setShowMapsToast] = useState(false);
+  const [mapsToast, setMapsToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const mapsToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mapsNavigationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -96,25 +94,14 @@ export function RouteMap({
       if (mapsToastTimeoutRef.current) {
         clearTimeout(mapsToastTimeoutRef.current);
       }
-      if (mapsNavigationTimeoutRef.current) {
-        clearTimeout(mapsNavigationTimeoutRef.current);
-      }
     };
   }, []);
 
-  // Interactividad de Screen 1 para "Abrir en Maps": toast feedback + geo deeplink
+  // Interactividad para "Abrir en Maps": llamada directa con manejo de éxito y error
   const handleOpenExternalMaps = () => {
     try {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {}
-
-    setShowMapsToast(true);
-    if (mapsToastTimeoutRef.current) {
-      clearTimeout(mapsToastTimeoutRef.current);
-    }
-    mapsToastTimeoutRef.current = setTimeout(() => {
-      setShowMapsToast(false);
-    }, 2400);
+    } catch { }
 
     const targetStop =
       stops.find((s) => s.stopOrder === (activeStopOrder ?? 1)) ??
@@ -129,14 +116,32 @@ export function RouteMap({
       destination
     )}&travelmode=driving`;
 
-    if (mapsNavigationTimeoutRef.current) {
-      clearTimeout(mapsNavigationTimeoutRef.current);
-    }
-    mapsNavigationTimeoutRef.current = setTimeout(() => {
-      Linking.openURL(mapsUrl).catch((err) => {
+    Linking.openURL(mapsUrl)
+      .then(() => {
+        setMapsToast({
+          type: "success",
+          message: "Iniciando navegación con Google Maps...",
+        });
+        if (mapsToastTimeoutRef.current) {
+          clearTimeout(mapsToastTimeoutRef.current);
+        }
+        mapsToastTimeoutRef.current = setTimeout(() => {
+          setMapsToast(null);
+        }, 2400);
+      })
+      .catch((err) => {
         console.warn("[Movo Navigation] No se pudo abrir la navegación externa:", err);
+        setMapsToast({
+          type: "error",
+          message: "No se pudo abrir la navegación externa.",
+        });
+        if (mapsToastTimeoutRef.current) {
+          clearTimeout(mapsToastTimeoutRef.current);
+        }
+        mapsToastTimeoutRef.current = setTimeout(() => {
+          setMapsToast(null);
+        }, 3000);
       });
-    }, 400);
   };
 
   // Coordenadas de referencia: origen declarado + posición actual + paradas
@@ -171,15 +176,23 @@ export function RouteMap({
     return routePoints;
   }, [polylineCoordinates, routePoints]);
 
+  // Calcula el desplazamiento vertical de la cámara según la altura del bottom sheet (AC4 / Finding 5)
+  const getLatitudeOffset = (latDelta: number) => {
+    const effectiveBottom = bottomOffset ?? 260;
+    return (latDelta * effectiveBottom) / 1600;
+  };
+
   // Animación suave de cámara (1000ms) a una parada para evitar saltos bruscos
   const animateToStop = (stop: CarrierRouteStop, duration = 1000) => {
     if (!isMapReady.current) return;
+    const latDelta = 0.022;
+    const lngDelta = 0.022;
     mapRef.current?.animateToRegion(
       {
-        latitude: stop.lat - 0.0035,
+        latitude: stop.lat - getLatitudeOffset(latDelta),
         longitude: stop.lng,
-        latitudeDelta: 0.022,
-        longitudeDelta: 0.022,
+        latitudeDelta: latDelta,
+        longitudeDelta: lngDelta,
       },
       duration
     );
@@ -188,12 +201,14 @@ export function RouteMap({
   // Animación suave para centrar en la ubicación del transportista
   const animateToCourier = (duration = 1000) => {
     if (!carrierLocation || !isMapReady.current) return;
+    const latDelta = 0.02;
+    const lngDelta = 0.02;
     mapRef.current?.animateToRegion(
       {
-        latitude: carrierLocation.lat - 0.003,
+        latitude: carrierLocation.lat - getLatitudeOffset(latDelta),
         longitude: carrierLocation.lng,
-        latitudeDelta: 0.02,
-        longitudeDelta: 0.02,
+        latitudeDelta: latDelta,
+        longitudeDelta: lngDelta,
       },
       duration
     );
@@ -202,17 +217,19 @@ export function RouteMap({
   // Seguimiento continuo de la ubicación del transportista (estilo Google Maps)
   useEffect(() => {
     if (isTrackingCourier && carrierLocation && isMapReady.current) {
+      const latDelta = 0.02;
+      const lngDelta = 0.02;
       mapRef.current?.animateToRegion(
         {
-          latitude: carrierLocation.lat - 0.003,
+          latitude: carrierLocation.lat - getLatitudeOffset(latDelta),
           longitude: carrierLocation.lng,
-          latitudeDelta: 0.02,
-          longitudeDelta: 0.02,
+          latitudeDelta: latDelta,
+          longitudeDelta: lngDelta,
         },
         800
       );
     }
-  }, [carrierLocation?.lat, carrierLocation?.lng, isTrackingCourier]);
+  }, [carrierLocation?.lat, carrierLocation?.lng, isTrackingCourier, bottomOffset]);
 
   // Al presionar un marcador en el mapa, desactiva el seguimiento continuo del chofer
   const handleMarkerPress = (stop: CarrierRouteStop) => {
@@ -506,7 +523,7 @@ export function RouteMap({
       )}
 
       {/* Toast Feedback de navegación externa (Screen 1 Interactivity) posicionado justo debajo de la isla flotante */}
-      {showMapsToast && (
+      {mapsToast && (
         <View
           testID="route-navigation-toast"
           style={{
@@ -535,7 +552,7 @@ export function RouteMap({
               width: 8,
               height: 8,
               borderRadius: 4,
-              backgroundColor: "#C6F24A",
+              backgroundColor: mapsToast.type === "error" ? "#E5484D" : "#C6F24A",
             }}
           />
           <Text
@@ -545,7 +562,7 @@ export function RouteMap({
               color: isDark ? "#FFFFFF" : "#0A0A0B",
             }}
           >
-            Iniciando navegación con Google Maps...
+            {mapsToast.message}
           </Text>
         </View>
       )}

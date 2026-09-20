@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useFocusEffect } from "expo-router";
 import { getCurrentLocation } from "../lib/location";
 import { shipmentsClient, type CarrierRoute } from "../api/shipments-client";
@@ -32,8 +32,10 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [gpsPermissionDenied, setGpsPermissionDenied] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const requestSeqRef = useRef<number>(0);
 
   const fetchRoute = useCallback(async (isRefresh = false) => {
+    const requestId = ++requestSeqRef.current;
     if (isRefresh) {
       setIsRefreshing(true);
     } else {
@@ -43,6 +45,7 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
 
     try {
       const locResult = await getCurrentLocation();
+      if (requestId !== requestSeqRef.current) return;
       if (!locResult.granted) {
         setGpsPermissionDenied(true);
         setRoute(null);
@@ -58,12 +61,17 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
       const result = tripId
         ? await shipmentsClient.getMyRoute(coords, tripId)
         : await shipmentsClient.getMyRoute(coords);
+      if (requestId !== requestSeqRef.current) return;
       setRoute(result);
     } catch (err: unknown) {
+      if (requestId !== requestSeqRef.current) return;
+      setRoute(null);
       setError(friendlyErrorMessage(err, "No pudimos calcular tu ruta optimizada. Intentá de nuevo."));
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (requestId === requestSeqRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, [tripId]);
 
@@ -71,6 +79,10 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
   useFocusEffect(
     useCallback(() => {
       void fetchRoute();
+      return () => {
+        // Invalidar petición en vuelo si la pantalla pierde foco
+        requestSeqRef.current++;
+      };
     }, [fetchRoute])
   );
 

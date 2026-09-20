@@ -245,6 +245,17 @@ export default function OptimizedRouteScreen() {
     router.push(`/shipments/${shipmentId}`);
   };
 
+  const handlePressStopAction = (stop: CarrierRouteStop) => {
+    if (stop.shipmentId.startsWith("demo-")) {
+      return;
+    }
+    if (stop.type === "pickup") {
+      router.push(`/shipments/${stop.shipmentId}/pickup`);
+    } else {
+      router.push(`/shipments/${stop.shipmentId}/delivery`);
+    }
+  };
+
   const handleStartDemo = () => {
     setSelectedStopOrder(1);
     setDemoMode(true);
@@ -305,15 +316,31 @@ export default function OptimizedRouteScreen() {
                 <Text className="font-sans-medium text-[12px] text-fg">Salir demo</Text>
               </Pressable>
             ) : (
-              <Pressable
-                testID="route-back-button"
-                onPress={() => router.back()}
-                className="h-8 px-3 rounded-full border border-border bg-bg items-center justify-center flex-none"
-                accessibilityRole="button"
-                accessibilityLabel="Inicio"
-              >
-                <Text className="font-sans-medium text-[12px] text-fg">Inicio</Text>
-              </Pressable>
+              <View className="flex-row items-center gap-1.5 flex-none">
+                <Pressable
+                  testID="route-refresh-active-button"
+                  onPress={() => void refetch()}
+                  disabled={isLoading || isRefreshing}
+                  className="h-8 w-8 rounded-full border border-border bg-bg items-center justify-center"
+                  accessibilityRole="button"
+                  accessibilityLabel="Actualizar ruta"
+                >
+                  <RefreshCw
+                    size={14}
+                    color={colors.fg2}
+                    className={isRefreshing ? "animate-spin" : undefined}
+                  />
+                </Pressable>
+                <Pressable
+                  testID="route-back-button"
+                  onPress={() => router.back()}
+                  className="h-8 px-3 rounded-full border border-border bg-bg items-center justify-center flex-none"
+                  accessibilityRole="button"
+                  accessibilityLabel="Inicio"
+                >
+                  <Text className="font-sans-medium text-[12px] text-fg">Inicio</Text>
+                </Pressable>
+              </View>
             )}
           </View>
 
@@ -339,7 +366,7 @@ export default function OptimizedRouteScreen() {
               onResetFocus={handleResetFocus}
               focusTrigger={focusTrigger}
               topOffset={topInset + 70}
-              bottomOffset={COLLAPSED_HEIGHT}
+              bottomOffset={isListExpanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT}
               showControls={!isListExpanded}
             />
           </View>
@@ -373,6 +400,9 @@ export default function OptimizedRouteScreen() {
               activeStopOrder={activeStop?.stopOrder ?? 1}
               onSelectStop={handleSelectStop}
               onPressShipment={handlePressShipment}
+              onPressAction={handlePressStopAction}
+              isRefreshing={isRefreshing}
+              onRefresh={() => void refetch()}
               isExpanded={isListExpanded}
               onToggleExpand={handleToggleExpand}
               panHandlers={panResponder.panHandlers}

@@ -148,6 +148,25 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       expect(onPressShipment).toHaveBeenCalledWith("ship-101");
     });
 
+    it("AC9: al presionar el CTA principal de la parada activa dispara onPressAction", async () => {
+      const onPressAction = jest.fn();
+      const onPressShipment = jest.fn();
+
+      const { getByTestId } = await render(
+        <StopList
+          route={sampleRoute}
+          activeStopOrder={1}
+          onPressAction={onPressAction}
+          onPressShipment={onPressShipment}
+        />
+      );
+
+      await fireEvent.press(getByTestId("stop-action-btn-1"));
+      expect(onPressAction).toHaveBeenCalledTimes(1);
+      expect(onPressAction).toHaveBeenCalledWith(sampleRoute.stops[0]);
+      expect(onPressShipment).not.toHaveBeenCalled();
+    });
+
     it("renderiza correctamente cuando una parada está activa (activeStopOrder)", async () => {
       const { getByTestId } = await render(
         <StopList route={sampleRoute} activeStopOrder={1} />
@@ -389,26 +408,51 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       // Toast no visible al inicio
       expect(queryByTestId("route-navigation-toast")).toBeNull();
 
-      // Al presionar, muestra el toast y programa la apertura del deep link
+      // Al presionar, abre el enlace y muestra el toast de éxito
       await act(async () => {
         fireEvent.press(openMapsBtn);
-      });
-
-      expect(getByTestId("route-navigation-toast")).toBeTruthy();
-      expect(getByText("Iniciando navegación con Google Maps...")).toBeTruthy();
-
-      // Avanzar el retardo del deep link (400ms)
-      await act(async () => {
-        jest.advanceTimersByTime(450);
       });
 
       expect(openURLSpy).toHaveBeenCalledTimes(1);
       expect(openURLSpy.mock.calls[0][0]).toContain("https://www.google.com/maps/dir/");
       expect(openURLSpy.mock.calls[0][0]).toContain("-31.425"); // lat de parada 1
 
+      expect(getByTestId("route-navigation-toast")).toBeTruthy();
+      expect(getByText("Iniciando navegación con Google Maps...")).toBeTruthy();
+
       // Al expirar el tiempo del toast (2400ms), desaparece
       await act(async () => {
         jest.advanceTimersByTime(2500);
+      });
+      expect(queryByTestId("route-navigation-toast")).toBeNull();
+
+      openURLSpy.mockRestore();
+      jest.useRealTimers();
+    });
+
+    it("muestra feedback de error si el sistema no puede abrir la app de mapas externa", async () => {
+      jest.useFakeTimers();
+      const openURLSpy = jest.spyOn(Linking, "openURL").mockRejectedValueOnce(new Error("No app available"));
+
+      const { getByTestId, getByText, queryByTestId } = await render(
+        <RouteMap
+          carrierLocation={{ lat: -31.4167, lng: -64.1833 }}
+          stops={sampleRoute.stops}
+          activeStopOrder={1}
+        />
+      );
+
+      const openMapsBtn = getByTestId("route-map-open-maps");
+      await act(async () => {
+        fireEvent.press(openMapsBtn);
+      });
+
+      expect(openURLSpy).toHaveBeenCalledTimes(1);
+      expect(getByTestId("route-navigation-toast")).toBeTruthy();
+      expect(getByText("No se pudo abrir la navegación externa.")).toBeTruthy();
+
+      await act(async () => {
+        jest.advanceTimersByTime(3100);
       });
       expect(queryByTestId("route-navigation-toast")).toBeNull();
 

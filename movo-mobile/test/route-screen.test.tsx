@@ -184,6 +184,14 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
     // Botón de volver / Inicio en la isla flotante
     await fireEvent.press(getByTestId("route-back-button"));
     expect(mockRouterBack).toHaveBeenCalledTimes(1);
+
+    // Finding 7: Botón de refresco manual en la isla flotante cuando la ruta está activa
+    await fireEvent.press(getByTestId("route-refresh-active-button"));
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+
+    // Finding 1 / AC9: Al tocar "Retirar paquete" navega al wizard de retiro
+    await fireEvent.press(getByTestId("stop-action-btn-1"));
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/ship-1/pickup");
   });
 
   it("activa el recorrido demo al presionar el botón de prueba", async () => {

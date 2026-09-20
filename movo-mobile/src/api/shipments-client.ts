@@ -277,42 +277,8 @@ export const shipmentsClient = {
   },
 
   /** `GET /shipments/:id` (MOVO-80) — 403 si el envío es de otro usuario, nunca 404
-   * filtrado (el backend distingue "no existe" de "no es tuyo"). Para IDs que inicien
-   * con `demo-`, devuelve un objeto simulado coherente para permitir validar la navegación (MOVO-194/207). */
+   * filtrado (el backend distingue "no existe" de "no es tuyo"). */
   getById(id: string): Promise<ShipmentSummary> {
-    if (__DEV__ && id.startsWith("demo-")) {
-      return Promise.resolve({
-        id,
-        trackingCode: "MOV-DEMO-88",
-        senderId: "demo-sender-id",
-        receiverId: "demo-receiver-id",
-        carrierId: "demo-carrier-id",
-        packageType: "standard_package",
-        weightKg: 2.5,
-        lengthCm: 30,
-        widthCm: 20,
-        heightCm: 15,
-        description: "Repuestos electrónicos y documentación técnica",
-        urgent: false,
-        pickupAddress: "Las Mulitas 7565, Córdoba",
-        pickupLat: -31.3533,
-        pickupLng: -64.2562,
-        deliveryAddress: "San Martín 450, Oncativo",
-        deliveryLat: -31.9140,
-        deliveryLng: -63.6820,
-        pickupDate: new Date().toISOString().slice(0, 10),
-        pickupTimeWindowStart: "09:00",
-        pickupTimeWindowEnd: "12:00",
-        suggestedPriceArs: 14500,
-        agreedPriceArs: 14500,
-        paymentMethod: "mercadopago",
-        status: "in_transit" as ShipmentStatus,
-        lastStatusChangedAt: new Date().toISOString(),
-        deliveredAt: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-    }
     return httpClient.get<ShipmentSummary>(`/shipments/${id}`);
   },
 
@@ -395,8 +361,11 @@ export const shipmentsClient = {
    * Ruta optimizada multi-parada del transportista autenticado con solver VRPTW.
    * Acepta opcionalmente `tripId` para acotar la ruta al viaje iniciado (MOVO-235). */
   getMyRoute(coords: { lat: number; lng: number }, tripId?: string): Promise<CarrierRoute> {
-    const tripQuery = tripId ? `&tripId=${encodeURIComponent(tripId)}` : "";
-    return httpClient.get<CarrierRoute>(`/shipments/my-route?lat=${coords.lat}&lng=${coords.lng}${tripQuery}`);
+    return httpClient.get<CarrierRoute>("/shipments/my-route", {
+      lat: coords.lat,
+      lng: coords.lng,
+      tripId,
+    });
   },
 };
 

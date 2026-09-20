@@ -113,4 +113,60 @@ describe("useOptimizedRoute (MOVO-207)", () => {
 
     expect(shipmentsClient.getMyRoute).toHaveBeenCalledTimes(2);
   });
+
+  it("Finding 3: un refetch fallido limpia la ruta anterior y setea el error para no tener estado mixto", async () => {
+    (getCurrentLocation as jest.Mock).mockResolvedValue(mockCarrierLocation);
+    (shipmentsClient.getMyRoute as jest.Mock)
+      .mockResolvedValueOnce(mockRoute)
+      .mockRejectedValueOnce(new Error("Network drop"));
+
+    const { result } = await renderHook(() => useOptimizedRoute());
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.route).toEqual(mockRoute);
+    expect(result.current.error).toBeNull();
+
+    // Disparar refetch fallido
+    await act(async () => {
+      await result.current.refetch();
+    });
+
+    expect(result.current.error).toBeTruthy();
+    expect(result.current.route).toBeNull();
+  });
+
+  it("Finding 2: ignora respuestas desfasadas de llamadas solapadas o fuera de orden", async () => {
+    (getCurrentLocation as jest.Mock).mockResolvedValue(mockCarrierLocation);
+
+    let resolveFirst!: (value: CarrierRoute) => void;
+    const firstPromise = new Promise<CarrierRoute>((res) => {
+      resolveFirst = res;
+    });
+
+    const secondRoute: CarrierRoute = {
+      ...mockRoute,
+      totalDistanceKm: 15.0,
+    };
+
+    (shipmentsClient.getMyRoute as jest.Mock)
+      .mockReturnValueOnce(firstPromise)
+      .mockResolvedValueOnce(secondRoute);
+
+    const { result } = await renderHook(() => useOptimizedRoute());
+
+    // Iniciar refetch (segunda petición) antes de que termine la primera
+    await act(async () => {
+      await result.current.refetch();
+    });
+
+    expect(result.current.route).toEqual(secondRoute);
+
+    // Resolver la primera llamada (desfasada / obsoleta)
+    await act(async () => {
+      resolveFirst(mockRoute);
+    });
+
+    // La respuesta vieja NO debe sobreescribir los datos frescos de la segunda llamada
+    expect(result.current.route).toEqual(secondRoute);
+  });
 });
