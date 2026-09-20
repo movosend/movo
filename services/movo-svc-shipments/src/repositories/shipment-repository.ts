@@ -8,6 +8,7 @@ import {
   MIN_CREATION_PHOTOS_TO_PUBLISH,
   transition,
 } from "../domain/shipment-state-machine";
+import { emitShipmentStatusChanged } from "../realtime/shipment-status-events";
 import {
   Shipment,
   ShipmentEvent,
@@ -627,6 +628,10 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         // mismo criterio que `accepted` en offer-repository.ts#acceptOffer.
         return { ...current, status: to, lastStatusChangedAt: now, deliveredAt, updatedAt: now };
       });
+
+      // MOVO-201/AC4: recién después de que la transacción confirmó -- un rollback
+      // (ej. ShipmentConcurrentModificationError) no debe cerrar ningún socket.
+      emitShipmentStatusChanged({ shipmentId: id, to });
 
       return mapShipment(row);
     },
