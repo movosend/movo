@@ -2267,6 +2267,68 @@ envío cancelado y sobre oferta `accepted`, 401 sin `x-user-id`). Suite completa
 del servicio 667/667 (51 archivos). `tsc --noEmit` y `eslint` limpios.
 Confirmado que `app.swagger()` expone `GET /offers/{id}`.
 
+### MOVO-235 — `GET /shipments/my-route` acotado a un viaje activo (`tripId`)
+
+Antes de este ticket, `GET /shipments/my-route` (MOVO-206) siempre agregaba TODOS los
+envíos activos del transportista, sin relación con ningún `Trip` — decisión explícita
+de ese ticket, pero que dejaba de tener sentido apenas MOVO-221 introdujo el ciclo de
+vida real de viaje (`declared -> active -> completed`, 1 solo `active` por cuenta): el
+mapa de MOVO-207 necesita mostrar solo las paradas del viaje que se inició, no todos los
+envíos activos sin distinción. `GET /shipments/my-route` gana un query param `tripId`
+opcional.
+
+Decisiones clave:
+- **Sin `tripId`: comportamiento idéntico a MOVO-206 (AC2)** — `shipmentRepository.
+  listActiveShipments()` gana un 3er parámetro opcional que, sin valor, no cambia el
+  `where` original. Ningún consumidor existente (el warm-up de `POST /trips/:id/start`,
+  MOVO-221, y el endpoint de MOVO-192) se ve afectado.
+- **El vínculo Shipment -> Trip no es una columna propia** (AC1): pasa por la oferta
+  ganadora (`Shipment.offers` -> `Offer.tripId` + `status: accepted`, relación que ya
+  existía en el schema) — filtrar es sumar `offers: { some: { tripId, status:
+  "accepted" } }` al `where` de Prisma, sin migración nueva.
+- **AC4 (a definir en refinamiento en el ticket original): se exige `trip.status ===
+  active`, no el criterio más laxo "declared o active"** que usan `getTripMatches`/
+  `createOfferForShipment` — decisión tomada con el equipo: el mapa de MOVO-207 navega
+  acá recién después de tocar "Iniciar viaje", así que abrir la ruta de un viaje
+  `declared` no tiene ningún caso de uso real todavía. 409 con el código
+  `TRIP_NOT_ACTIVE`, que había quedado sin uso desde MOVO-221 (en ese momento se
+  reemplazó por el más laxo `TRIP_NOT_AVAILABLE`) — acá sí es exactamente la semántica
+  correcta.
+- **AC3 (autorización) reusa el mismo patrón ya establecido por `createOfferForShipment`
+  para validar un `tripId` ajeno**: `tripRepository.findById` -> 404 `TRIP_NOT_FOUND` si
+  no existe -> 403 `AUTH_FORBIDDEN` si `trip.carrierId !== callerId` -> validación de
+  estado. Nada nuevo en `error-handler.ts` (los 3 códigos ya estaban wireados).
+- **AC5 (¿reusar la ruta que ya calculó `POST /trips/:id/start`?) resuelto como "no
+  aplica", documentado explícitamente en el código** (mismo criterio que MOVO-206
+  AC9): el warm-up de `/start` es fire-and-forget y descarta su resultado (no hay
+  columna en `Trip` para persistirlo) — no existe ningún cache real del que esta ruta
+  pueda leer. El único cache Redis del dominio (`route_solution:{tripId}:{candidateId}`,
+  MOVO-218, TTL 30 min) es para matching de candidatos, no para la ruta agregada del
+  viaje.
+- **Gap de negocio encontrado en el camino, derivado a ticket propio (`MOVO-238`,
+  backlog)**: un viaje `declared` cuyo `departureAt` ya pasó sin ninguna oferta
+  `accepted` queda `declared` para siempre — `TripStatus` no tiene ningún valor
+  `expired` (ni columna ni derivado, a diferencia de `OfferStatus`) y no hay ningún
+  sweep para `Trip` (sí existen para otros dominios: MOVO-130, MOVO-124). No bloqueaba
+  a este ticket (con AC4 exigiendo `active`, un `declared` vencido simplemente sigue
+  devolviendo 409 para siempre, mismo resultado que un viaje que nunca arrancó), pero
+  quedaba mal dejarlo sin ticket.
+
+Tests: 6 casos nuevos en `test/shipments-my-route.service.test.ts` (filtra con
+`tripId`, sin `tripId` no toca `tripRepository`, 404/403/409, guard de
+`tripRepository` no inyectado) y 3 en `test/shipments-my-route.routes.test.ts`
+(propaga `tripId` de la query, 400 si no es uuid, 409 propagado). Suite completa del
+servicio verificada contra Postgres/Redis reales: 758/758 (55 archivos). `tsc --noEmit`
+y `npm run lint` limpios.
+
+Gotcha de entorno (no de esta implementación): el Postgres local no tenía corridas las
+últimas 5 migraciones (incluida `20260916140000_add_trip_status_declared` de MOVO-221)
+y el cliente Prisma generado localmente estaba desactualizado — cualquier verificación
+de este ticket contra la suite completa fallaba con "invalid input value for enum...
+'declared'" hasta correr `npx prisma generate` + `npx prisma migrate deploy` acá y
+`npm run build` en `shared/movo-shared` (dist también desactualizado). Sin relación con
+el código de este ticket, documentado por si el mismo gap aparece en otra máquina.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
