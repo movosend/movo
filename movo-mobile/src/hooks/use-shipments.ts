@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
-import { shipmentsClient, type CreateShipmentInput, type ShipmentSummary } from "../api/shipments-client";
+import { shipmentsClient, type CreateShipmentInput, type EvidenceStatus, type ShipmentSummary } from "../api/shipments-client";
 
 interface LatLng {
   lat: number;
@@ -152,6 +152,22 @@ export function useShipmentEvents(id: string | undefined) {
     queryKey: ["shipments", "events", id],
     queryFn: () => shipmentsClient.listEvents(id!),
     enabled: !!id,
+  });
+}
+
+/** Estado de evidencia fotográfica del stage vigente (`GET /shipments/:id/evidence-
+ * status`, MOVO-196 AC6) — consumida por el step reusable de captura (MOVO-197) y por
+ * los wizards de retiro/entrega (MOVO-198/199) para gatear su navegación sin intentar
+ * el handshake y fallar. Misma query key desde ambos lados: TanStack Query dedupe la
+ * request si los dos la piden a la vez. `refetchOnMount: "always"` porque este dato
+ * cambia con cada foto confirmada y el usuario puede volver a este paso más de una vez
+ * dentro del mismo wizard. */
+export function useEvidenceStatus(shipmentId: string | undefined) {
+  return useQuery<EvidenceStatus>({
+    queryKey: ["shipments", "detail", shipmentId, "evidence-status"],
+    queryFn: () => shipmentsClient.getEvidenceStatus(shipmentId!),
+    enabled: !!shipmentId,
+    refetchOnMount: "always",
   });
 }
 

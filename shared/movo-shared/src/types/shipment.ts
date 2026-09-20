@@ -122,11 +122,20 @@ export type RatingRole = "sender" | "carrier" | "receiver";
  * `RatingRole[] | null` que evaluó primero el ticket para `ShipmentSummary`. Sin
  * paginación (mismo criterio que MOVO-192): el volumen realista — envíos entregados
  * en las últimas 72hs con algo pendiente — nunca es grande.
+ *
+ * `ratingDeadline` es el instante absoluto ya calculado por
+ * `computeRatingWindowDeadline` (`movo-svc-shipments`, `deliveredAt` + 72hs
+ * extendidas por cualquier freeze de disputa, MOVO-146 AC9) — mismo criterio que
+ * `ActiveShipmentSummary.receiverConfirmationDeadline` (deadline resuelto en el
+ * servidor, nunca timestamp crudo). Necesario porque el cliente no puede recomputar
+ * el corte de 72hs a partir de solo `deliveredAt`: el freeze de disputa lo extiende
+ * de forma variable y esa lógica vive únicamente del lado del backend.
  */
 export interface PendingRatingShipment {
   id: string;
   status: ShipmentStatus.DELIVERED | ShipmentStatus.COMPLETED;
   deliveredAt: string;
+  ratingDeadline: string;
   senderId: string;
   receiverId: string;
   carrierId: string;

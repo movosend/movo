@@ -85,9 +85,14 @@ export default async function handshakeRoutes(app: FastifyInstance, opts: Handsh
       schema: {
         summary: "Confirmar el handshake de custodia escaneado",
         description:
-          "AC2-AC7 de MOVO-158: lo llama el receptor de la custodia (el transportista asignado en el " +
-          "retiro, el receptor en la entrega) con lo escaneado del QR (nonce + firma) y sus propias " +
-          "coordenadas GPS. Valida TTL (410 HANDSHAKE_QR_EXPIRED si venció o ya fue superado por un " +
+          "AC2-AC7 de MOVO-158, AC1-AC3 de MOVO-196: lo llama el receptor de la custodia (el " +
+          "transportista asignado en el retiro, el receptor en la entrega) con lo escaneado del QR " +
+          "(nonce + firma) y sus propias coordenadas GPS. Exige al menos una foto de evidencia " +
+          "CONFIRMADA (no solo un presign emitido) de la etapa correspondiente -- 422 " +
+          "PICKUP_EVIDENCE_MISSING / DELIVERY_EVIDENCE_MISSING, chequeado antes de las validaciones " +
+          "criptográficas de abajo para no pagar ese costo en un intento que de todas formas va a " +
+          "fallar (GET /:id/evidence-status permite consultar el estado sin intentar confirmar). " +
+          "Valida TTL (410 HANDSHAKE_QR_EXPIRED si venció o ya fue superado por un " +
           "QR más nuevo), firma contra la clave pública del cedente (422 HANDSHAKE_INVALID_SIGNATURE) " +
           "y distancia GPS contra el cedente, máximo 100m (422 HANDSHAKE_DISTANCE_EXCEEDED, no toca el " +
           "estado del envío -- reintentable dentro del mismo TTL). Si todo pasa, transiciona el envío " +

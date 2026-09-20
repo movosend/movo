@@ -97,6 +97,38 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
     }
   );
 
+  app.get(
+    "/:id",
+    {
+      schema: {
+        summary: "Detalle de una oferta propia (transportista)",
+        description:
+          "MOVO-190 (backend de MOVO-182): detalle completo de UNA oferta propia -- " +
+          "mismo shape que un ítem de GET /offers/mine (mismo DTO, sin duplicar el " +
+          "mapeo). Solo el carrierId dueño de la oferta puede verla (403 sobre una " +
+          "ajena, 404 si no existe, mismo criterio que POST /:id/withdraw). El status " +
+          "expuesto es el EFECTIVO (expired incluido) y competitiveRank/" +
+          "viewedAtBySender tienen la misma semántica que en el listado -- este " +
+          "endpoint nunca marca viewedAtBySender (eso es 'el emisor vio la oferta', " +
+          "MOVO-189, se marca desde GET /shipments/:id/offers).",
+        tags: ["offers"],
+        params: offersSchemas.offerIdParam,
+        response: {
+          200: offersSchemas.offerDetailResponse,
+          401: offersSchemas.errorResponse,
+          403: offersSchemas.errorResponse,
+          404: offersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const carrierId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      const offer = await service.getOfferDetail(id, carrierId);
+      return toMyOfferDto(offer);
+    }
+  );
+
   app.post(
     "/:id/accept",
     {

@@ -38,7 +38,11 @@ import {
   resolveActiveShipmentCounterpartyId,
 } from "../../domain/active-shipment";
 import { computePendingRatingFor } from "../../domain/pending-rating";
-import { RATING_WINDOW_HOURS } from "../../domain/rating-window";
+import {
+  RATING_WINDOW_HOURS,
+  MAX_DISPUTE_FREEZE_HOURS,
+  computeRatingWindowDeadline,
+} from "../../domain/rating-window";
 import { Offer } from "../../models/offer";
 import {
   assertIsNotShipmentParty,
@@ -235,6 +239,7 @@ export interface PendingRatingResult {
   id: string;
   status: ShipmentStatus.DELIVERED | ShipmentStatus.COMPLETED;
   deliveredAt: Date;
+  ratingDeadline: Date;
   senderId: string;
   receiverId: string;
   carrierId: string;
@@ -1485,16 +1490,28 @@ export function createShipmentsService(
         return [];
       }
 
-      const deliveredSince = new Date(Date.now() - RATING_WINDOW_HOURS * 60 * 60 * 1000);
+      // MOVO-222 (corregido en review): el prefiltro SQL suma `MAX_DISPUTE_FREEZE_HOURS`
+      // de margen sobre `RATING_WINDOW_HOURS` -- antes cortaba a secas en las 72hs y
+      // podía descartar en la propia query un candidato cuya ventana real (extendida
+      // por un freeze de disputa) `isRatingWindowOpen` todavía consideraría abierta.
+      const deliveredSince = new Date(
+        Date.now() - (RATING_WINDOW_HOURS + MAX_DISPUTE_FREEZE_HOURS) * 60 * 60 * 1000
+      );
       const candidates = await repository.findPendingRatingCandidates(callerId, deliveredSince);
       if (candidates.length === 0) {
         return [];
       }
 
-      const myRatings = await ratingRepository.listByRaterForShipments(
-        callerId,
-        candidates.map((shipment) => shipment.id)
-      );
+      const [myRatings, eventsByShipment] = await Promise.all([
+        ratingRepository.listByRaterForShipments(
+          callerId,
+          candidates.map((shipment) => shipment.id)
+        ),
+        // MOVO-222 (corregido en review): en paralelo -- antes se traía en un `for`
+        // secuencial, un round-trip a la DB por candidato, mismo N+1 que este método ya
+        // evita explícitamente para `listByRaterForShipments`.
+        Promise.all(candidates.map((shipment) => repository.listEvents(shipment.id))),
+      ]);
       const ratedRolesByShipment = new Map<string, Set<RatingRole>>();
       for (const rating of myRatings) {
         const roles = ratedRolesByShipment.get(rating.shipmentId) ?? new Set<RatingRole>();
@@ -1503,12 +1520,25 @@ export function createShipmentsService(
       }
 
       const results: PendingRatingResult[] = [];
-      for (const shipment of candidates) {
-        const events = await repository.listEvents(shipment.id);
+      candidates.forEach((shipment, index) => {
+        // `carrierId` es nullable en el schema, pero `delivered`/`completed` solo se
+        // alcanza después de `in_transit`, que ya requiere `carrierId` asignado --
+        // guarda explícita en vez de un cast ciego: si esta invariante del state
+        // machine se rompiera alguna vez, se descarta el ítem (con warning) en vez de
+        // tirar un 500 de serialización para el resto de la lista.
+        if (!shipment.carrierId) {
+          logger?.warn(
+            { shipmentId: shipment.id, status: shipment.status },
+            "listPendingRatings: envío fulfilled sin carrierId, se omite"
+          );
+          return;
+        }
+
+        const events = eventsByShipment[index] ?? [];
         const alreadyRated = ratedRolesByShipment.get(shipment.id) ?? new Set<RatingRole>();
         const pendingRatingFor = computePendingRatingFor(shipment, events, callerId, alreadyRated);
         if (pendingRatingFor.length === 0) {
-          continue;
+          return;
         }
         results.push({
           id: shipment.id,
@@ -1517,14 +1547,13 @@ export function createShipmentsService(
           status: shipment.status as ShipmentStatus.DELIVERED | ShipmentStatus.COMPLETED,
           // Garantizado por `computePendingRatingFor` (nunca deja pasar sin `deliveredAt`).
           deliveredAt: shipment.deliveredAt as Date,
+          ratingDeadline: computeRatingWindowDeadline(shipment.deliveredAt as Date, events),
           senderId: shipment.senderId,
           receiverId: shipment.receiverId,
-          // Garantizado no-nulo: `delivered`/`completed` solo se alcanza después de
-          // `in_transit`, que ya requiere `carrierId` asignado.
-          carrierId: shipment.carrierId as string,
+          carrierId: shipment.carrierId,
           pendingRatingFor,
         });
-      }
+      });
       return results;
     },
   };

@@ -1941,6 +1941,67 @@ consumiendo el endpoint real en vez de su mock (`MOVO-193` ya está Done contra 
 migrar es un ajuste de esa rama, no de este ticket); "Estoy transportando" en el home
 (fase 2 de `MOVO-193`, todavía no llama a `GET /shipments/transporting`).
 
+### MOVO-196 — Exigir evidencia fotográfica del stage antes de permitir el handshake
+
+Cierra el hueco que dejaba MOVO-158: el handshake de retiro/entrega se podía confirmar
+sin una sola foto. Sin migración — `PhotoStage.pickup`/`.delivery` ya existían en el
+enum desde MOVO-104, sin habilitar hasta ahora en el contrato HTTP ni en ninguna regla
+de negocio.
+
+Decisiones clave:
+- **El ticket pedía `src/repositories/shipment-photo-repository.ts` (no existe)**: la
+  consulta nueva (`countPhotosByStage`) se agregó a `shipment-repository.ts`, junto a
+  `addPhoto`/`listPhotos`/`existsPhotoByS3Key` — este servicio nunca tuvo un
+  repositorio de fotos separado (MOVO-81).
+- **`PHOTO_STAGE_VALUES` en `shipments.schema.ts` solo tenía `"creation"`** pese a que
+  el dominio (`PhotoStage`, `addPhoto`) ya era genérico por stage desde MOVO-104 — el
+  propio comentario del archivo ya anticipaba este ticket como el que sumaría
+  `pickup`/`delivery` ahí. Sin este cambio, AJV rechazaba con 400 cualquier
+  `stage: pickup|delivery` antes de llegar a la capa de autorización.
+- **`MIN_EVIDENCE_PHOTOS_PER_STAGE`/`MAX_EVIDENCE_PHOTOS_PER_STAGE`** (`domain/
+  evidence-photos.ts`, nuevo, 1 y 5): constantes nombradas, no un literal embebido —
+  mismo criterio que `MIN_CREATION_PHOTOS_TO_PUBLISH` (MOVO-81) para la misma frase del
+  AC ("no hardcodeada en el flujo"). Distinto módulo porque es una regla de negocio
+  distinta (gatea el handshake, no `-> published`) sin relación con `creation`.
+- **AC5 corrige un gap real, no solo agrega uno nuevo**: `photos.service.ts` nunca
+  restringía `presign`/`confirm` por `stage` — solo exigía `callerId === senderId` sin
+  importar qué etapa se mandara, así que el emisor ya podía (sin que nada lo evitara)
+  presignar `stage: pickup`, y el transportista no podía subir nada en absoluto.
+  `assertCanRegisterPhoto()` (nuevo, `photos.service.ts`) resuelve los dos: `creation`
+  sigue siendo del emisor, `pickup`/`delivery` pasan a `assertIsCarrier` (mismo helper
+  que ya usaba el handshake, MOVO-158).
+- **Orden de validación del handshake (AC3)**: el chequeo de evidencia se insertó en
+  `confirmHandshake` DESPUÉS de la autorización (`assertIsCarrier`/`assertIsReceiver`)
+  pero ANTES de `findDeviceKey`/verificación de firma/distancia — evita pagar la
+  llamada a `svc-users` y el WebCrypto verify en un intento que de todas formas iba a
+  fallar. `stage` sigue viniendo del desafío pendiente de Redis, nunca de
+  `shipment.status` (no se tocó esa parte, sigue siendo la fuente de verdad fijada por
+  el fix de concurrencia de MOVO-158).
+- **AC8 (tope de 5) sin código de error dado por el ticket**: se agregó
+  `PHOTO_STAGE_LIMIT_EXCEEDED` (422), familia `PHOTO_*` existente. Solo aplica a
+  `pickup`/`delivery` — `creation` no tiene tope propio (MOVO-81 solo le puso mínimo).
+- **`GET /:id/evidence-status` (AC6) con autorización propia, no `assertShipmentAccess`**:
+  el transportista asignado también necesita consultarlo antes de intentar el
+  handshake, y ese helper compartido no conoce `carrierId` — mismo criterio inline que
+  ya usó el AC8 de MOVO-142 en `getShipmentDetail`. `stage: null` (con
+  `satisfied: true`) para cualquier estado del envío sin handshake pendiente.
+
+Tests: 2 casos nuevos en `handshake-service.test.ts` (los dos códigos de rechazo +
+assert de que `findDeviceKey` nunca se llama cuando falta evidencia), 5 casos nuevos en
+`handshake.integration.test.ts` (sin evidencia en retiro/entrega, una foto solo
+presignada-nunca-confirmada no cuenta, reintento exitoso con el mismo nonce tras
+agregar la evidencia) + 4 casos nuevos de `GET /:id/evidence-status`, 6 casos nuevos en
+`photos.integration.test.ts` (autorización por etapa en las dos direcciones, tope de 5
+en `pickup`). Los fixtures compartidos de retiro/entrega de `handshake.integration.test.ts`
+ahora seedean evidencia por default (`withPickupEvidence`/`withDeliveryEvidence`,
+default `true`) para no romper los tests preexistentes que no son sobre MOVO-196. Suite
+completa del servicio 657/657 (47 archivos), corrida contra Postgres/Redis reales.
+`tsc --noEmit` y `eslint` limpios en los archivos de esta US. Confirmado que
+`app.swagger()` expone `/shipments/{id}/evidence-status`.
+
+Pendiente / fuera de alcance (explícito del ticket): comparación automática
+creation↔pickup para detectar daños (visión por computadora, a registrar como historia
+futura); visibilidad agrupada de fotos por stage para emisor/receptor/admin (MOVO-194).
 ### MOVO-206 — Agregación de paradas del transportista y contrato con pricing-logistics (`GET /shipments/my-route`)
 
 Endpoint `GET /shipments/my-route` en `shipments.routes.ts`: agrega las paradas activas
@@ -2129,6 +2190,82 @@ permitía `PATCH`); expiración de un `declared` vencido (ver arriba, decisión 
 producto pendiente); mobile más allá del mini-fix de `transport.tsx` (no hay UI
 todavía para el botón "Iniciar viaje" en sí -- `POST /trips/:id/start` queda listo
 para que ese ticket lo consuma).
+**Correcciones de review (mismo PR, antes de merge):**
+- **Prefiltro SQL con margen sobre el freeze de disputa**: `findPendingRatingCandidates`
+  cortaba en SQL a las `RATING_WINDOW_HOURS` (72hs) a secas, ignorando que
+  `isRatingWindowOpen` puede extender la ventana real por tiempo en `disputed`
+  (MOVO-146 AC9) -- un candidato con freeze quedaba descartado antes de llegar al
+  chequeo fino. Inalcanzable hoy porque `disputed` no tiene transición de salida
+  modelada, pero se hubiera vuelto un bug real y silencioso apenas exista resolución
+  de disputas. Fix: nuevo `MAX_DISPUTE_FREEZE_HOURS` (`rating-window.ts`, margen
+  práctico de 30 días) sumado al prefiltro -- el filtro exacto sigue en
+  `isRatingWindowOpen` por candidato, esto solo evita que el prefiltro sea más
+  estricto que esa verdad. Test de regresión en la integración simulando el freeze
+  con eventos insertados directo contra la tabla (mismo criterio que
+  `deliveredHoursAgo` para simular estados que la state machine actual no alcanza
+  sola).
+- **`listEvents` en paralelo**: `listPendingRatings` traía los eventos de cada
+  candidato en un `for` secuencial -- un round-trip por candidato -- mientras el
+  lookup de ratings ya estaba batcheado. Ahora `Promise.all` junto con
+  `listByRaterForShipments`.
+- **`ratingDeadline` en el wire contract** (`PendingRatingShipment`): antes solo
+  viajaba `deliveredAt`, forzando a cualquier cliente a recomputar 72hs a mano --
+  imposible de hacer bien porque el freeze de disputa extiende la ventana de forma
+  variable. Ahora se expone el deadline absoluto ya resuelto por
+  `computeRatingWindowDeadline`, mismo criterio que
+  `ActiveShipmentSummary.receiverConfirmationDeadline`.
+- **Guarda explícita en vez de cast ciego para `carrierId`**: la columna es nullable
+  en el schema; el mapeo asumía por invariante del state machine que nunca lo sería
+  en un envío `delivered`/`completed`. Ahora se valida en runtime y se omite (con
+  `logger.warn`) el ítem si la invariante alguna vez se rompiera, en vez de arriesgar
+  un 500 de serialización para toda la lista.
+- **`RatingRole` desduplicado también del lado de `movo-mobile`**:
+  `src/api/ratings-client.ts` reexporta el tipo desde `@movo/shared` en vez de
+  mantener su propio literal -- de las 3 copias que señalaba el comentario original
+  (Prisma, shared, mobile) quedan 2 unificadas.
+
+### MOVO-190 — `GET /offers/:id`: detalle de una oferta propia (`svc-shipments`)
+
+Cierra la cadena de contrato que dejaron abierta MOVO-185/186/187/188/189: hasta
+ahora el transportista solo podía ver el contexto enriquecido de una oferta
+dentro del listado paginado (`GET /offers/mine`) o en la respuesta "recién
+mutada" de accept/reject/withdraw (sin `shipment`/`competitiveRank`) — no había
+forma de "abrir" una oferta puntual desde la lista para el detalle de MOVO-182.
+`GET /offers/:id` nuevo en `offers.routes.ts`, mismo shape que un ítem de
+`myOfferResponse` (`offersSchemas.offerDetailResponse`, alias directo de
+`myOfferResponse` — sin tercer schema parcial).
+
+Decisiones clave:
+- **Autorización trivial, no `assertIsSender*`**: "propia" = `offer.carrierId ===
+  callerId` (mismo chequeo ya usado por `withdrawOffer`/`updateOffer`) — 404
+  `OFFER_NOT_FOUND` si no existe, 403 `AUTH_FORBIDDEN` si es de otro
+  transportista. Los helpers `assertIsSender`/`assertIsSenderOrAdmin` de
+  `shipments.routes.ts` son para el emisor mirando ofertas ajenas, no aplican
+  acá.
+- **`findByIdWithShipmentContext(id, now?)` nuevo en `offer-repository.ts`**:
+  mismo `include: { shipment: true }` + `mapOfferWithShipment` que
+  `listByCarrier`, para una sola fila — evita duplicar la proyección de
+  `OfferShipmentContext`.
+- **`competitiveRank` para un solo ítem sin duplicar el batch**: la lógica que
+  antes vivía inline en `listMyOffers` (armado de competidores, desempate,
+  piso/techo) se extrajo a `attachCompetitiveRanks(items, now, ...)` en
+  `offers.service.ts` — `listMyOffers` la llama con la página completa,
+  `getOfferDetail` con `[offer]`. Mismo `now` compartido entre la lectura de la
+  oferta y el batch de competidores (criterio anti-carrera ya fijado por el fix
+  de review de MOVO-188).
+- **`viewedAtBySender` nunca se marca desde este endpoint**: ese campo significa
+  "el emisor vio la oferta" (MOVO-189) y se marca solo desde
+  `GET /shipments/:id/offers` cuando el caller es el emisor real — acá viaja de
+  solo lectura, tal cual persistido.
+- **Sin cambios en el gateway**: el prefijo `/offers` ya proxea method-agnostic
+  desde MOVO-145/181.
+
+Tests: `test/offers-detail.integration.test.ts` nuevo (7 casos contra Postgres
+real: detalle feliz con todos los campos, 403 ajena, 404 inexistente, pending
+vencida reportada `expired` sin tocar la fila, `competitiveRank: null` sobre
+envío cancelado y sobre oferta `accepted`, 401 sin `x-user-id`). Suite completa
+del servicio 667/667 (51 archivos). `tsc --noEmit` y `eslint` limpios.
+Confirmado que `app.swagger()` expone `GET /offers/{id}`.
 
 ### Pendientes de este servicio
 
