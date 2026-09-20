@@ -2396,6 +2396,49 @@ sin relación con esta US: `offers-detail.integration.test.ts` y
 `movo:movo` (el resto de los tests de integración) — fallaban con
 `password authentication failed` al correr sin la env var ya seteada en el shell.
 
+### Bug reportado probando MOVO-151 en dispositivo — `Offer.expiresAt` nunca se completaba (sin ticket propio)
+
+`deriveEffectiveOfferStatus` (AC11 de MOVO-102, expiración perezosa de una oferta
+`pending`) es correcta, pero `expiresAt` quedaba `null` para SIEMPRE: nunca lo seteó
+ningún caller real. `createOfferForShipment` (`POST /shipments/:id/offers`, MOVO-143)
+armaba el `offerRepository.create({...})` sin ese campo, y el repositorio lo
+defaultea a `null` cuando falta — así que ninguna oferta creada por HTTP podía
+reportarse `expired` sin importar cuánto hubiera pasado la fecha de retiro. Los tests
+que sí cubren AC11 (`offer-repository.integration.test.ts`,
+`offers-mine.integration.test.ts`) nunca lo detectaron porque llaman al repositorio
+directo pasando `expiresAt` a mano — nadie probaba que el flujo HTTP real generara
+uno.
+
+- **`expiresAt` = cierre de la ventana de retiro EFECTIVA de la oferta**: la franja
+  propuesta si el transportista propuso una (MOVO-177), la del propio envío si no.
+  Reusa `pickupWindowEndInstant` (`domain/pickup-window.ts`, ya usado por el barrido
+  de `published` vencidos) en vez de reimplementar el ajuste de offset de Argentina
+  (UTC-3) una tercera vez. `toEpochTime` (antes privado de `shipments.service.ts`)
+  se exportó, mismo motivo/criterio que `anchorDateUtc`/`combineDateAndTime`/
+  `normalizeTime` (MOVO-181) — convierte la franja propuesta (string) a la misma
+  forma anclada que ya trae `Shipment.pickupTimeWindowEnd` (columna `@db.Time`).
+- **`PATCH /offers/:id` (MOVO-181) recibió el mismo fix, no solo la creación**:
+  cambiar `offeredDate` y/o la franja propuesta sin recomputar `expiresAt` habría
+  dejado la oferta venciendo contra una ventana vieja (antes o después de la
+  correcta según para qué lado se editó) — mismo bug, otro call site, cerrado en el
+  mismo cambio en vez de dejarlo como gap conocido. `UpdateOfferInput` ganó
+  `expiresAt?: Date` (`undefined` = no tocar, mismo criterio que el resto del PATCH
+  parcial); un patch de solo precio no dispara el fetch extra del envío que hace
+  falta para el fallback ("sin franja propuesta, usa la del envío").
+- **Encontrado por el usuario probando la pantalla de MOVO-151 en dispositivo**, no
+  por un test — una oferta con fecha de retiro del día anterior seguía apareciendo
+  "Pendiente" en "El resto" de Mis ofertas, contradiciendo el footer propio de esa
+  pantalla ("Las ofertas pendientes se cierran solas cuando pasa la fecha de
+  retiro").
+
+Tests nuevos: 2 casos en `shipments-offers-create.integration.test.ts` (ventana del
+envío sin franja propuesta, franja propuesta override), 2 en
+`offers-update.integration.test.ts` (cambiar `offeredDate` recomputa contra la nueva
+fecha, resetear la franja propuesta a `null` recomputa contra la ventana del envío en
+vez de la franja vieja). Suite completa del servicio 775/775 tests (55 archivos),
+contra Postgres/Redis reales. `tsc --noEmit` y `eslint` limpios en los archivos de
+este fix.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

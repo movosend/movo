@@ -135,6 +135,40 @@ describe("PATCH /offers/:id (Postgres, MOVO-181)", () => {
     expect(new Date(data.expiresAt).getTime()).toBe(expiresAt.getTime());
   });
 
+  it("bug real (sin ticket propio): cambiar offeredDate recomputa expiresAt contra la ventana del envío", async () => {
+    const shipmentId = await createPublishedShipment();
+    const offer = await offerRepo.create(baseOfferInput({ shipmentId }));
+    const newOfferedDate = new Date(PICKUP_DATE.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10); // 2026-08-21
+
+    const response = await requestPatch(offer.id, carrierId, { offeredDate: newOfferedDate });
+
+    expect(response.statusCode).toBe(200);
+    // Ventana del envío 09:00-12:00 hora argentina -> cierre real 15hs UTC del
+    // nuevo día ofertado, no del `PICKUP_DATE` original.
+    expect(response.json().expiresAt).toBe("2026-08-21T15:00:00.000Z");
+  });
+
+  it("bug real (sin ticket propio): resetear la franja propuesta a null recomputa expiresAt contra la ventana del envío, no la vieja franja propuesta", async () => {
+    const shipmentId = await createPublishedShipment();
+    const withCustomWindow = await offerRepo.create(baseOfferInput({ shipmentId }));
+    await offerRepo.update(withCustomWindow.id, {
+      offeredPickupTimeWindowStart: "15:00:00",
+      offeredPickupTimeWindowEnd: "19:00:00",
+      expiresAt: new Date("2030-01-01T00:00:00.000Z"), // bien lejos, simula la franja custom vieja
+    });
+
+    const response = await requestPatch(withCustomWindow.id, carrierId, {
+      offeredPickupTimeWindowStart: null,
+      offeredPickupTimeWindowEnd: null,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().offeredPickupTimeWindowEnd).toBeNull();
+    // Vuelve a la ventana del propio envío (12:00 hora argentina -> 15hs UTC),
+    // no a las 19:00 de la franja propuesta que se acaba de resetear.
+    expect(response.json().expiresAt).toBe("2026-08-20T15:00:00.000Z");
+  });
+
   it("403 AUTH_FORBIDDEN si quien modifica no es el dueño de la oferta", async () => {
     const shipmentId = await createPublishedShipment();
     const offer = await offerRepo.create(baseOfferInput({ shipmentId }));

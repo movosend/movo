@@ -440,6 +440,9 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         if (patch.offeredPickupTimeWindowEnd !== undefined) {
           data.offeredPickupTimeWindowEnd = patch.offeredPickupTimeWindowEnd;
         }
+        if (patch.expiresAt !== undefined) {
+          data.expiresAt = patch.expiresAt;
+        }
 
         // Compare-and-swap contra `status` (no contra los campos editables en sí) --
         // mismo mecanismo que `applyTerminalTransition`: si un accept/reject/withdraw

@@ -23,7 +23,7 @@ import { PricingClient } from "../../adapters/pricing-client";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
 import { AvailableShipment, PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
 import { RatingRole } from "../../models/rating";
-import { isPickupWindowExpired } from "../../domain/pickup-window";
+import { isPickupWindowExpired, pickupWindowEndInstant } from "../../domain/pickup-window";
 import { haversineKm } from "../../domain/geo";
 import {
   aggregateCarrierStops,
@@ -292,8 +292,12 @@ function toRealInstant(anchoredDate: Date): Date {
 }
 
 /** Hora sobre la fecha epoch 1970-01-01 — mismo formato que ya usan las columnas
- * `@db.Time` del repositorio (ver shipment-repository.integration.test.ts). */
-function toEpochTime(timeStr: string): Date {
+ * `@db.Time` del repositorio (ver shipment-repository.integration.test.ts).
+ * Exportada: mismo motivo que `normalizeTime`/`combineDateAndTime` (MOVO-181) —
+ * `offers.service.ts#updateOffer` la necesita para recomputar `expiresAt` (bug de
+ * `expiresAt` nunca seteado, sin ticket propio) a partir de la franja horaria
+ * propuesta, que llega como string, no como columna `@db.Time` ya anclada. */
+export function toEpochTime(timeStr: string): Date {
   return new Date(`1970-01-01T${normalizeTime(timeStr)}.000Z`);
 }
 
@@ -1170,6 +1174,25 @@ export function createShipmentsService(
         resolveSnapshotRating(getSenderReputationScore, shipment.senderId, "emisor", logger),
       ]);
 
+      // Bug real encontrado probando "Mis ofertas" en dispositivo (sin ticket
+      // propio): `expiresAt` nunca se completaba acá -- quedaba `null` para SIEMPRE
+      // (el repositorio lo defaultea a `null` cuando falta, `offer-repository.ts`),
+      // así que `deriveEffectiveOfferStatus` (AC11 de MOVO-102, expiración
+      // perezosa) nunca podía devolver `expired` sin importar cuánto hubiera pasado
+      // la fecha de retiro -- el footer "Las ofertas pendientes se cierran solas..."
+      // de MOVO-151 describía un comportamiento que este flujo nunca cableó. Vence
+      // cuando cierra la ventana de retiro EFECTIVA de la oferta (la franja
+      // propuesta si el transportista propuso una, `MOVO-177`; si no, la del envío
+      // tal cual) -- mismo cálculo (`pickupWindowEndInstant`) que ya usa el barrido
+      // de `published` vencidos para envíos, reusado tal cual en vez de duplicar el
+      // ajuste de offset de Argentina.
+      const effectiveOfferedDateAnchored = anchorDateUtc(input.offeredDate);
+      const effectiveWindowEndAnchored =
+        hasOfferedPickupWindowEnd && input.offeredPickupTimeWindowEnd
+          ? toEpochTime(input.offeredPickupTimeWindowEnd)
+          : shipment.pickupTimeWindowEnd;
+      const expiresAt = pickupWindowEndInstant(effectiveOfferedDateAnchored, effectiveWindowEndAnchored);
+
       const offer = await offerRepository.create({
         shipmentId: input.shipmentId,
         carrierId: input.carrierId,
@@ -1177,6 +1200,7 @@ export function createShipmentsService(
         offeredDate: anchorDateUtc(input.offeredDate),
         offeredPickupTimeWindowStart: input.offeredPickupTimeWindowStart ?? null,
         offeredPickupTimeWindowEnd: input.offeredPickupTimeWindowEnd ?? null,
+        expiresAt,
         message: input.message,
         tripId: input.tripId ?? null,
         carrierNameAtOffer: carrierProfile?.fullName ?? null,
