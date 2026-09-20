@@ -2801,6 +2801,27 @@ navegación AC5/AC6, ambos vacíos). 128/128 suites, 998/998 tests en `movo-mobi
 desactualizado de `@movo/shared` — no es parte del diff de esta US, build artifact
 gitignorado).
 
+**Cierre de la US (skill `cerrar-us`), dos gaps reales encontrados contra el
+texto literal del ticket, corregidos antes de cerrar:**
+
+- **AC3: `EXPIRED` no coincidía con el ejemplo literal del AC** ("venció antes de
+  que respondieran") — `offerStatusLabel` (`offer-format.ts`, no tocado por este
+  ticket hasta ahora) decía solo `"Venció"`. Corregido al texto exacto del AC.
+  `offerStatusBannerCopy` (detalle de oferta, MOVO-182) no se tocó: ya era
+  plenamente explicativo con título+subtítulo separados.
+- **DoD ("render de cada estado con su copy correspondiente") solo cubría
+  `pending`/`superseded`**: `my-offer-card.test.tsx` pasó a un `it.each` con los 6
+  estados. Suite final: 128/128 suites, 1003/1003 tests, `tsc --noEmit` limpio.
+- **AC2 ("tratamiento visual distinto" para los 6 estados), deviación aceptada,
+  no corregida**: `withdrawn`/`expired`/`superseded` comparten el mismo chip mute
+  (`bg-bg-mute`), solo distinto texto — únicamente pending/accepted/rejected
+  tienen color propio. Se decidió no rediseñar el chip para 3 estados "cerrados,
+  sin acción posible" con la misma US ya cerrada por lo demás; queda anotado como
+  posible ajuste visual menor, no un bug funcional (el texto sigue siendo
+  explicativo en los tres casos).
+- **AC1 (segmentador embebido en Transportar) confirmado como no aplicable**, ver
+  el punto de arriba — decisión ya tomada en MOVO-183, no de este ticket.
+
 Pendiente / fuera de alcance: no probado en dispositivo; el footer "Las ofertas
 pendientes se cierran solas..." del mockup solo se muestra en el tab Activas cuando
 hay al menos una `pending`, sin verificar contra el comportamiento real de expiración
