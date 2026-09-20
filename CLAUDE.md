@@ -403,8 +403,16 @@ costó dos veces con env vars olvidadas (ver "Git, commits y PRs" más arriba).
 - **Nginx con soporte de upgrade WebSocket aplicado y validado en local, sin probar
   contra un deploy real en EC2** (MOVO-200/ADR-022, AC3 del spike) — ver la entrada de
   MOVO-200 arriba para el detalle de la validación local. Falta la prueba contra
-  dev/prod real y confirmar que 3600s de `proxy_read_timeout` es el valor correcto una
-  vez que MOVO-201 defina si el canal necesita heartbeat propio.
+  dev/prod real; `proxy_read_timeout` en 3600s es un valor de referencia inicial hasta
+  que MOVO-201 implemente un heartbeat ping/pong propio (recomendación de review,
+  comentario en MOVO-201/Linear) — con heartbeat, baja a 60-90s y de paso cubre el
+  timeout de inactividad de Cloudflare en modo Proxy (100s).
+- **Auth por header custom (`Authorization: Bearer`) de la PoC de MOVO-200 no sirve
+  para un cliente de navegador estándar** (`window.WebSocket` no permite headers
+  custom, a diferencia del `WebSocket` de React Native) — hace falta un mecanismo
+  alternativo (subprotocolo, query param efímero, o cookie `HttpOnly`) antes de que
+  MOVO-201 habilite el canal para `movo-admin`/MOVO-33. Recomendación de review,
+  comentario en MOVO-201/Linear.
 - **`MP_TRANSACTION_FEE_RATE` sin confirmar** (MOVO-143,
   `shared/movo-shared/src/config/commission.ts`): placeholder (0.0499) hasta tener el
   valor real del contrato/homologación con MercadoPago. `MOVO_COMMISSION_RATE` (15%,
