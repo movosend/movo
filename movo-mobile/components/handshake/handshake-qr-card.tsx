@@ -10,6 +10,7 @@ import QRCode from "react-native-qrcode-svg";
 import { RefreshCw, AlertCircle } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { MovoIsotype } from "../ui/movo-isotype";
 
 export interface HandshakeQrCardProps {
   qrPayload: string | null;
@@ -111,11 +112,9 @@ export function HandshakeQrCard({
                 testID="handshake-qr-code"
               />
 
-              {/* Logo Central de Movo (Claude Design lines 453-457) */}
+              {/* Logo Central de Movo (Isotipo oficial del Manual de Marca) */}
               <View style={styles.centerLogoWrapper}>
-                <View style={styles.centerLogoCircle}>
-                  <View style={styles.centerLogoDot} />
-                </View>
+                <MovoIsotype size={28} variant="dark" testID="handshake-qr-center-logo" />
               </View>
             </>
           ) : (
@@ -265,20 +264,5 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
-  },
-  centerLogoCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 999,
-    borderWidth: 3,
-    borderColor: "#0A0A0B",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  centerLogoDot: {
-    width: 9,
-    height: 9,
-    borderRadius: 999,
-    backgroundColor: "#0A0A0B",
   },
 });
