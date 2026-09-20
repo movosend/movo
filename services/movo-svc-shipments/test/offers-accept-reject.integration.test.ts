@@ -54,9 +54,13 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
   }
 
   /** Mismo helper que offer-repository.integration.test.ts: bypasea la máquina de
-   * estados de Shipment a propósito, es fixture de test. */
-  async function createPublishedShipment(): Promise<string> {
-    const created = await shipmentRepo.create(baseShipmentInput);
+   * estados de Shipment a propósito, es fixture de test. `overrides` (MOVO-234, fix
+   * de review PR #176): los tests de `departureAt` exacto necesitan un `pickupDate`
+   * propio en el futuro (el `PICKUP_DATE` compartido del archivo queda en el pasado
+   * respecto de "ahora" en cuanto corre el test, y el clamp de `departureAt` a "ahora"
+   * pisaría el valor esperado). */
+  async function createPublishedShipment(overrides: Partial<CreateShipmentInput> = {}): Promise<string> {
+    const created = await shipmentRepo.create({ ...baseShipmentInput, ...overrides });
     await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
     await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
     const published = await shipmentRepo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null);
@@ -424,8 +428,15 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
     });
 
     it("crea un Trip declared a partir del envío (origen/destino/departureAt) y asocia Offer.tripId", async () => {
-      const shipmentId = await createPublishedShipment();
-      const offer = await offerRepo.create(baseOfferInput({ shipmentId, carrierId: carrierWithVehicleId }));
+      // Fix de review (PR #176): `pickupDate` propio en el futuro -- el clamp nuevo
+      // de `departureAt` a "ahora" (ver el test dedicado más abajo) pisaría el valor
+      // exacto que este test verifica si se usara el `PICKUP_DATE` compartido del
+      // archivo (2026-08-20, ya pasado respecto de "ahora" en cuanto corre el test).
+      const futurePickupDate = new Date("2030-01-01T00:00:00.000Z");
+      const shipmentId = await createPublishedShipment({ pickupDate: futurePickupDate });
+      const offer = await offerRepo.create(
+        baseOfferInput({ shipmentId, carrierId: carrierWithVehicleId, offeredDate: futurePickupDate })
+      );
 
       const response = await appWithVehicle.inject({
         method: "POST",
@@ -444,18 +455,18 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
       expect(trip?.originAddress).toBe(baseShipmentInput.pickupAddress);
       expect(trip?.destinationAddress).toBe(baseShipmentInput.deliveryAddress);
       expect(trip?.vehicleType).toBe("Toyota Hilux");
-      // offeredDate == pickupDate (2026-08-20), sin franja propuesta -> usa la ventana
-      // original del envío (09:00 ARG == 12:00 UTC, ver acceptedOfferPickupWindowStartInstant).
-      expect(trip?.departureAt.toISOString()).toBe("2026-08-20T12:00:00.000Z");
+      // offeredDate == pickupDate, sin franja propuesta -> usa la ventana original del
+      // envío (09:00 ARG == 12:00 UTC, ver acceptedOfferPickupWindowStartInstant).
+      expect(trip?.departureAt.toISOString()).toBe("2030-01-01T12:00:00.000Z");
     });
 
     it("usa la franja horaria propuesta por el transportista (MOVO-177) para departureAt, no la original del envío", async () => {
-      const shipmentId = await createPublishedShipment();
+      const shipmentId = await createPublishedShipment({ pickupDate: new Date("2030-01-01T00:00:00.000Z") });
       const offer = await offerRepo.create(
         baseOfferInput({
           shipmentId,
           carrierId: carrierWithVehicleId,
-          offeredDate: new Date("2026-08-22T00:00:00.000Z"),
+          offeredDate: new Date("2030-01-03T00:00:00.000Z"),
           offeredPickupTimeWindowStart: "14:30:00",
           offeredPickupTimeWindowEnd: "17:00:00",
         })
@@ -469,7 +480,7 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
 
       expect(response.statusCode).toBe(200);
       const trip = await tripRepo.findById(response.json().tripId);
-      expect(trip?.departureAt.toISOString()).toBe("2026-08-22T17:30:00.000Z");
+      expect(trip?.departureAt.toISOString()).toBe("2030-01-03T17:30:00.000Z");
     });
 
     it("no crea un Trip nuevo si la oferta ya venía asociada a un viaje (Offer.tripId preexistente)", async () => {
@@ -507,6 +518,68 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
 
       const { total } = await tripRepo.listByCarrier(ownCarrierId, 1, 50);
       expect(total).toBe(1);
+    });
+
+    it("fix de review (PR #176): resuelve el vehículo del transportista aunque la oferta ya tuviera tripId -- evita la carrera si el Trip se borra mientras la aceptación está en curso", async () => {
+      // Antes del fix, `offers.service.ts#acceptOffer` solo llamaba a
+      // `usersClient.findPublicProfile` cuando `offer.tripId` era `null` en la lectura
+      // previa a la transacción -- si el transportista borraba su `Trip` (permitido
+      // sobre una oferta todavía `pending`, `onDelete: SetNull`) justo mientras la
+      // aceptación estaba en curso, `current.tripId` podía llegar `null` DENTRO de la
+      // transacción sin que hubiera `autoTripDefaults` con qué crear un Trip
+      // compensatorio -- la oferta quedaba `accepted` sin viaje. El fix resuelve el
+      // vehículo SIEMPRE; este test fija que, incluso con `tripId` ya seteado, la
+      // llamada a `usersClient` se sigue haciendo.
+      const findPublicProfileSpy = vi.spyOn(usersClientWithVehicle, "findPublicProfile");
+      const existingTrip = await tripRepo.create({
+        carrierId: carrierWithVehicleId,
+        originAddress: "Origen declarado a mano",
+        originLat: -31.42,
+        originLng: -64.18,
+        destinationAddress: "Destino declarado a mano",
+        destinationLat: -31.41,
+        destinationLng: -64.17,
+        departureAt: new Date("2030-01-01T12:00:00.000Z"),
+        vehicleType: "Toyota Hilux",
+      });
+      const shipmentId = await createPublishedShipment();
+      const offer = await offerRepo.create(
+        baseOfferInput({ shipmentId, carrierId: carrierWithVehicleId, tripId: existingTrip.id })
+      );
+
+      const response = await appWithVehicle.inject({
+        method: "POST",
+        url: `/offers/${offer.id}/accept`,
+        headers: { "x-user-id": senderId },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().tripId).toBe(existingTrip.id);
+      expect(findPublicProfileSpy).toHaveBeenCalledWith(carrierWithVehicleId, carrierWithVehicleId);
+    });
+
+    it("fix de review (PR #176): si la ventana de retiro ya venció al momento de aceptar, el Trip auto-creado no queda con departureAt en el pasado", async () => {
+      // PICKUP_DATE (2026-08-20) del archivo ya quedó en el pasado respecto de "ahora"
+      // en cuanto corre este test -- exactamente el escenario real que el clamp tiene
+      // que cubrir (ventana de retiro vencida, el emisor tardó en aceptar, o el
+      // barrido de MOVO-148 todavía no corrió). Sin el fix, `departureAt` quedaba
+      // anclado a la fecha/hora ya pasada, violando el mismo invariante que
+      // `POST /trips` a mano exige (`TRIP_DEPARTURE_IN_PAST`).
+      const shipmentId = await createPublishedShipment();
+      const offer = await offerRepo.create(baseOfferInput({ shipmentId, carrierId: carrierWithVehicleId }));
+
+      const beforeAccept = new Date();
+      const response = await appWithVehicle.inject({
+        method: "POST",
+        url: `/offers/${offer.id}/accept`,
+        headers: { "x-user-id": senderId },
+      });
+      const afterAccept = new Date();
+
+      expect(response.statusCode).toBe(200);
+      const trip = await tripRepo.findById(response.json().tripId);
+      expect(trip?.departureAt.getTime()).toBeGreaterThanOrEqual(beforeAccept.getTime());
+      expect(trip?.departureAt.getTime()).toBeLessThanOrEqual(afterAccept.getTime());
     });
 
     it("notifica al transportista sobre el viaje auto-creado (AC3)", async () => {

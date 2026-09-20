@@ -1,4 +1,4 @@
-import { OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
+import { OfferStatus, ShipmentStatus } from "@movo/shared";
 import { Prisma, PrismaClient, Offer as OfferRow, Shipment as ShipmentRow } from "../generated/prisma/client";
 import { INITIAL_OFFER_STATUS, transition } from "../domain/offer-state-machine";
 import { transition as transitionShipmentStatus } from "../domain/shipment-state-machine";
@@ -12,7 +12,7 @@ import {
   deriveEffectiveOfferStatus,
   OfferWithShipmentContext,
 } from "../models/offer";
-import { Trip, mapTrip } from "../models/trip";
+import { Trip, buildTripCreateData, mapTrip } from "../models/trip";
 
 /** MOVO-177: el transportista puede proponer retirar hasta 3 días después de la
  * fecha pedida por el emisor (nunca antes -- el paquete recién está listo desde ese
@@ -302,15 +302,19 @@ export interface OfferRepository {
    * asignación). El `UPDATE` de la oferta en sí también es compare-and-swap
    * (lanza `OfferConcurrentModificationError` si un `withdraw`/`reject`
    * concurrente ya la modificó).
-   */
-  /**
+   *
    * MOVO-234 (AC1/AC2): si la oferta aceptada no tenía `tripId`, crea un `Trip`
    * `declared` para el transportista a partir del propio envío (origen/destino =
    * retiro/entrega, `departureAt` = inicio de la ventana de retiro EFECTIVAMENTE
-   * acordada) y asocia la oferta a ese viaje nuevo, todo dentro de la misma
-   * transacción atómica de la aceptación -- `autoCreatedTrip` en el resultado es
-   * `null` si la oferta ya venía con `tripId` o si el caller no pasó
-   * `autoTripDefaults` (ej. `usersClient` no inyectado en algún test aislado).
+   * acordada, nunca en el pasado -- ver el comentario de la implementación) y
+   * asocia la oferta a ese viaje nuevo, todo dentro de la misma transacción.
+   * `autoTripDefaults` SIEMPRE debería llegar resuelto desde `offers.service.ts`
+   * (fix de review, PR #176: antes se omitía cuando `Offer.tripId` no era `null`
+   * en una lectura previa a esta transacción, pero ese snapshot podía quedar
+   * obsoleto si el `Trip` se borraba mientras tanto, `onDelete: SetNull`) -- acá
+   * sigue siendo opcional solo por compatibilidad con tests que no lo necesitan.
+   * `autoCreatedTrip` en el resultado es `null` únicamente si la oferta, releída
+   * DENTRO de esta transacción, ya tenía `tripId`.
    */
   acceptOffer(
     id: string,
@@ -577,6 +581,12 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           },
         });
 
+        // Único `now` para todo el resto del método (movido acá, antes vivía
+        // declarado más abajo) -- MOVO-234 lo necesita ya para el clamp de
+        // `departureAt` de abajo, y el resto de los usos (`respondedAt`,
+        // `supersededWhere`) siguen compartiendo el mismo instante que antes.
+        const now = new Date();
+
         // MOVO-234 (AC1/AC2): la oferta ganadora no vino de un viaje declarado -- se
         // crea uno `declared` a partir del propio envío y se asocia acá mismo, dentro
         // de la transacción atómica de la aceptación (nunca en un paso aparte: AC2
@@ -588,29 +598,36 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         let autoCreatedTrip: Trip | null = null;
         if (current.tripId === null && autoTripDefaults) {
           const shipment = await tx.shipment.findUniqueOrThrow({ where: { id: current.shipmentId } });
-          const departureAt = acceptedOfferPickupWindowStartInstant(
+          const effectiveDepartureAt = acceptedOfferPickupWindowStartInstant(
             current.offeredDate,
             current.offeredPickupTimeWindowStart,
             shipment.pickupTimeWindowStart,
           );
+          // Fix de review (PR #176): la ventana de retiro puede haber vencido para
+          // cuando se acepta la oferta (el emisor tardó en decidir, o el barrido de
+          // MOVO-148 todavía no corrió -- hasta ~15min de rezago) -- sin este clamp,
+          // se creaba un `Trip` `declared` con `departureAt` ya en el pasado, algo
+          // que `POST /trips` a mano nunca permite (`TRIP_DEPARTURE_IN_PAST`). No
+          // bloquea la aceptación de la oferta por esto (ya es un caso de borde
+          // tolerado en otras partes del dominio) -- en vez de eso, ancla el viaje a
+          // "ahora" como aproximación razonable de cuándo arranca en la práctica.
+          const departureAt = effectiveDepartureAt > now ? effectiveDepartureAt : now;
           const tripRow = await tx.trip.create({
-            data: {
+            data: buildTripCreateData({
               carrierId: current.carrierId,
               originAddress: shipment.pickupAddress,
-              originLat: shipment.pickupLat,
-              originLng: shipment.pickupLng,
+              originLat: shipment.pickupLat.toNumber(),
+              originLng: shipment.pickupLng.toNumber(),
               destinationAddress: shipment.deliveryAddress,
-              destinationLat: shipment.deliveryLat,
-              destinationLng: shipment.deliveryLng,
+              destinationLat: shipment.deliveryLat.toNumber(),
+              destinationLng: shipment.deliveryLng.toNumber(),
               departureAt,
               vehicleType: autoTripDefaults.vehicleType,
-              status: TripStatus.DECLARED,
-            },
+            }),
           });
           autoCreatedTrip = mapTrip(tripRow);
         }
 
-        const now = new Date();
         // Mismo compare-and-swap que applyTerminalTransition (PR #70,
         // tmvergara): protege el caso simétrico — un withdraw/reject
         // concurrente sobre esta misma oferta, entre el findUnique de

@@ -378,15 +378,25 @@ export function createOffersService(
 
       assertIsSender(shipment, callerId);
 
-      // MOVO-234 (AC1): si la oferta no vino de un viaje declarado, se resuelve el
-      // vehículo del transportista ANTES de la transacción de aceptación -- I/O a
-      // `usersClient` no anidable dentro de la transacción de Postgres del
-      // repositorio. Best-effort (ver `resolveAutoTripVehicleType`): nunca bloquea
-      // la aceptación, en el peor caso el viaje auto-creado queda con el placeholder.
-      const autoTripDefaults =
-        offer.tripId === null
-          ? { vehicleType: await resolveAutoTripVehicleType(usersClient, offer.carrierId, logger) }
-          : undefined;
+      // MOVO-234 (AC1): se resuelve el vehículo del transportista ANTES de la
+      // transacción de aceptación -- I/O a `usersClient` no anidable dentro de la
+      // transacción de Postgres del repositorio. Best-effort (ver
+      // `resolveAutoTripVehicleType`): nunca bloquea la aceptación, en el peor caso
+      // el viaje auto-creado queda con el placeholder.
+      //
+      // Fix de review (PR #176): SIEMPRE se resuelve, sin importar si `offer.tripId`
+      // ya está seteado en esta lectura -- antes se omitía cuando no era `null`, pero
+      // ese snapshot podía quedar obsoleto para cuando la transacción de
+      // `offerRepository.acceptOffer()` relee la oferta: el transportista puede
+      // borrar su `Trip` mientras la aceptación está en curso (permitido sobre una
+      // oferta todavía `pending`, `onDelete: SetNull`), dejando `current.tripId` en
+      // `null` dentro de la transacción sin que este método lo supiera de antemano.
+      // Sin `autoTripDefaults` ya resuelto para ese caso, la oferta quedaba
+      // `accepted` con `tripId: null` y sin ningún `Trip` compensatorio -- rompía la
+      // garantía de AC1/AC2. El costo (una llamada de más a `usersClient` en el caso
+      // minoritario de una oferta que YA tenía viaje) es aceptable frente a esa
+      // garantía.
+      const autoTripDefaults = { vehicleType: await resolveAutoTripVehicleType(usersClient, offer.carrierId, logger) };
 
       const {
         offer: accepted,
