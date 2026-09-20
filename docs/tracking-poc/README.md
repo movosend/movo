@@ -88,6 +88,6 @@ const ws = new WebSocket(`ws://<host>:<PORT_SVC_SHIPMENTS>/shipments/${shipmentI
 
 Requiere un dev build (no Expo Go, que no soporta módulos nativos custom en general — para esta PoC en particular alcanza con el WebSocket global, pero se corrió contra un dev build real como pide el AC5 del ticket).
 
-## Impacto en infraestructura (AC3 del spike, sin aplicar todavía)
+## Impacto en infraestructura (AC3 del spike, ya aplicado)
 
-Esta PoC se probó **sin pasar por nginx** (conexión directa al contenedor/proceso de `svc-shipments`). El riesgo real identificado por el spike -- nginx no reenvía los headers `Upgrade`/`Connection` y su `proxy_read_timeout` (30s) corta cualquier conexión persistente -- sigue sin corregirse en `infra/nginx/templates/default.conf.template`. Queda como pendiente explícito del DoD de MOVO-200, a aplicar y probar contra una conexión de larga duración antes de que MOVO-201 dependa de él en producción.
+Esta PoC en sí se probó **sin pasar por nginx** (conexión directa al contenedor/proceso de `svc-shipments`) — el proxy del gateway hacia WebSocket sigue sin existir (MOVO-201). El riesgo que había identificado el spike -- nginx no reenvía los headers `Upgrade`/`Connection` y su `proxy_read_timeout` (30s) corta cualquier conexión persistente -- ya se corrigió en `infra/nginx/templates/default.conf.template` y se validó localmente contra el stack real (nginx real con cert self-signed, tráfico normal y un WebSocket de punta a punta apuntando nginx directo a `svc-shipments`; ver la entrada de MOVO-200 en el `CLAUDE.md` raíz para el detalle completo). Sin probar todavía contra un deploy real en dev/prod (EC2) — eso queda pendiente de MOVO-201.
