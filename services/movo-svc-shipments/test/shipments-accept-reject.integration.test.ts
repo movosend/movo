@@ -103,6 +103,17 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
     };
   }
 
+  /**
+   * MOVO-221 (merge posterior a MOVO-179): `tripRepo.create()` ahora nace `declared`,
+   * no `active` -- `findActiveTripsMatchingShipment` solo mira `active` (AC1), así que
+   * cada trip de este describe necesita pasar por `start()` explícito para seguir
+   * probando lo que dice probar, en vez de no-matchear por casualidad de status.
+   */
+  async function createActiveTrip(overrides: Partial<CreateTripInput> = {}) {
+    const trip = await tripRepo.create(baseTripInput(overrides));
+    return tripRepo.start(trip.id);
+  }
+
   describe("POST /shipments/:id/accept", () => {
     it("el receptor puede aceptar el envío (transiciona a published)", async () => {
       const shipment = await repo.create(baseInput);
@@ -314,7 +325,7 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
       it("dispara exactamente una push trip_match al transportista con un viaje active compatible", async () => {
         const shipment = await repo.create(baseInput);
         await addTwoCreationPhotos(shipment.id);
-        const trip = await tripRepo.create(baseTripInput());
+        const trip = await createActiveTrip();
 
         const response = await app.inject({
           method: "POST",
@@ -342,14 +353,12 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
         await addTwoCreationPhotos(shipment.id);
         // Viaje MUY lejos del retiro/entrega del envío -- fuera de cualquier radio de
         // desvío razonable.
-        await tripRepo.create(
-          baseTripInput({
-            originLat: baseInput.pickupLat - 5,
-            originLng: baseInput.pickupLng - 5,
-            destinationLat: baseInput.deliveryLat - 5,
-            destinationLng: baseInput.deliveryLng - 5,
-          })
-        );
+        await createActiveTrip({
+          originLat: baseInput.pickupLat - 5,
+          originLng: baseInput.pickupLng - 5,
+          destinationLat: baseInput.deliveryLat - 5,
+          destinationLng: baseInput.deliveryLng - 5,
+        });
 
         const response = await app.inject({
           method: "POST",
@@ -369,7 +378,7 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
       it("no dispara push si el viaje matchea geométricamente pero pricing-logistics lo marca no viable (decisión de equipo, Peter)", async () => {
         const shipment = await repo.create(baseInput);
         await addTwoCreationPhotos(shipment.id);
-        await tripRepo.create(baseTripInput());
+        await createActiveTrip();
         (pricingLogisticsClient.evaluateCandidates as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
           directDistanceKm: 10,
           directDurationMinutes: 15,
@@ -395,27 +404,16 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
         expect(tripMatchCalls).toHaveLength(0);
       });
 
-      it("no notifica dos veces al mismo transportista con dos viajes active compatibles (AC4)", async () => {
-        const shipment = await repo.create(baseInput);
-        await addTwoCreationPhotos(shipment.id);
-        const carrierId = randomUUID();
-        await tripRepo.create(baseTripInput({ carrierId }));
-        await tripRepo.create(baseTripInput({ carrierId }));
-
-        const response = await app.inject({
-          method: "POST",
-          url: `/shipments/${shipment.id}/accept`,
-          headers: { "x-user-id": receiverId },
-        });
-
-        expect(response.statusCode).toBe(200);
-        await vi.waitFor(() => {
-          const tripMatchCalls = (notificationsClient.sendPush as ReturnType<typeof vi.fn>).mock.calls.filter(
-            ([input]) => input.data?.type === "trip_match"
-          );
-          expect(tripMatchCalls).toHaveLength(1);
-        });
-      });
+      // MOVO-221 (merge posterior a MOVO-179, decisión con el usuario): el escenario
+      // original de AC4 -- un mismo transportista con DOS viajes `active` compatibles
+      // -- dejó de ser alcanzable vía la API real. `trips_carrier_active_unique` fuerza
+      // como máximo un `active` por carrier -- un segundo `start()` para el mismo
+      // carrier lanza `TripAlreadyHasActiveTripError`, ya cubierto en
+      // `trip-lifecycle.integration.test.ts` ("start() lanza TripAlreadyHasActiveTripError
+      // si el transportista ya tiene otro viaje active"), no duplicado acá. El dedup por
+      // `carrierId` de `dispatchTripMatchPushes` en sí sigue cubierto a nivel unitario
+      // contra un `tripRepository` mockeado (`shipment-service.test.ts`, "AC4, dedup por
+      // carrierId"), que no depende de este constraint real.
     });
   });
 

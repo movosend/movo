@@ -210,6 +210,18 @@ describe("trip-repository (Postgres) — findActiveTripsMatchingShipment (MOVO-1
     };
   }
 
+  /**
+   * MOVO-221 (merge posterior a MOVO-179): `tripRepo.create()` ahora nace `declared`,
+   * no `active` -- `findActiveTripsMatchingShipment` solo mira `active` (AC1), así que
+   * cada trip de este describe necesita pasar por `start()` explícito para seguir
+   * probando lo que dice probar, en vez de matchear/no-matchear por casualidad de
+   * status.
+   */
+  async function createActiveTrip(overrides: Partial<CreateTripInput> = {}) {
+    const trip = await tripRepo.create(baseTripInput(overrides));
+    return tripRepo.start(trip.id);
+  }
+
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
     process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
@@ -228,7 +240,7 @@ describe("trip-repository (Postgres) — findActiveTripsMatchingShipment (MOVO-1
   });
 
   it("un viaje active matchea un envío en el MEDIO del corredor (ni cerca del origen ni del destino, caso Oncativo)", async () => {
-    const trip = await tripRepo.create(baseTripInput());
+    const trip = await createActiveTrip();
 
     const matches = await tripRepo.findActiveTripsMatchingShipment({
       pickupLat: -31.0,
@@ -243,7 +255,7 @@ describe("trip-repository (Postgres) — findActiveTripsMatchingShipment (MOVO-1
   });
 
   it("no matchea un envío fuera del radio de desvío del corredor", async () => {
-    await tripRepo.create(baseTripInput());
+    await createActiveTrip();
 
     const matches = await tripRepo.findActiveTripsMatchingShipment({
       pickupLat: -30.8, // ~22km perpendicular al corredor, fuera de radiusKm=10
@@ -277,8 +289,8 @@ describe("trip-repository (Postgres) — findActiveTripsMatchingShipment (MOVO-1
 
   it("excluye viajes de los carrierIds pasados en excludeCarrierIds (senderId/receiverId del envío)", async () => {
     const excludedCarrierId = randomUUID();
-    await tripRepo.create(baseTripInput({ carrierId: excludedCarrierId }));
-    const otherCarrierTrip = await tripRepo.create(baseTripInput());
+    await createActiveTrip({ carrierId: excludedCarrierId });
+    const otherCarrierTrip = await createActiveTrip();
 
     const matches = await tripRepo.findActiveTripsMatchingShipment({
       pickupLat: -31.0,
@@ -293,7 +305,7 @@ describe("trip-repository (Postgres) — findActiveTripsMatchingShipment (MOVO-1
   });
 
   it("requiere que TANTO el retiro como la entrega estén dentro del corredor", async () => {
-    await tripRepo.create(baseTripInput());
+    await createActiveTrip();
 
     const matches = await tripRepo.findActiveTripsMatchingShipment({
       pickupLat: -31.0,
