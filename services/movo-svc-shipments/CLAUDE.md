@@ -2373,6 +2373,31 @@ y emisión desde el mobile (MOVO-202, ticket hermano), chat (MOVO-26), auth de b
 (diseñada arriba, sin implementar), y verificación contra un deploy real en dev/prod
 (AC6 del ticket) — sin acceso a esa infra desde esta sesión.
 
+**Fixes de review (PR #174, JcBordino4, antes de mergear) — dos críticos que rompían el
+ticket end-to-end**:
+- **La entrega vía handshake (MOVO-158) no cerraba el tracking**: `in_transit ->
+  delivered` se escribe en `handshake-repository.ts#confirmAndPersist` (su propio
+  `$transaction`, no pasa por `shipment-repository.ts#updateStatus()`), así que nunca
+  emitía `shipmentStatusChanged` — el comentario que decía "verificado que
+  `updateStatus()` es el único hook necesario" no contemplaba ese segundo escritor.
+  `confirmAndPersist` ahora emite también, después de que su propia transacción
+  confirma (mismo criterio anti-rollback que `updateStatus`). Test nuevo en
+  `tracking.integration.test.ts` que dispara el cierre por el flujo real
+  `/handshake/generate` + `/handshake/confirm` (con firma ECDSA real vía WebCrypto),
+  no por `repo.updateStatus(DELIVERED)` como hacía el test original.
+- **`authorization` no llegaba a través del gateway** (ver `gateway/CLAUDE.md`,
+  MOVO-201) — sin este fix, toda conexión de tracking que pasara por el gateway (en vez
+  de conectar directo al servicio, como hacen los tests de este archivo) cerraba con
+  `4001`.
+- Nit del mismo review: `ws` movido de `dependencies` a `devDependencies`
+  (`package.json`) — `src/` solo usa `import type { WebSocket } from "ws"`,
+  `@fastify/websocket` ya trae el runtime real; `ws` + `@types/ws` en dev alcanzan para
+  los tests (`tracking.integration.test.ts`/`websocket-proxy.test.ts` del gateway) sin
+  arriesgar un drift de versión con la que trae `@fastify/websocket`.
+
+Suite completa tras los fixes: 757/757 (56 archivos), corrida contra Postgres/Redis
+reales.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

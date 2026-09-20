@@ -84,19 +84,27 @@ WS por default (su `wsClientOptions.rewriteRequestHeaders` de fábrica solo reen
 header `cookie`) — sin esto, la request HTTP normal a `/shipments/*` llegaba con la
 identidad inyectada por el `preHandler` (ADR-010) pero el upgrade WS al mismo prefijo
 llegaba "anónimo". `routes/index.ts` agrega un `wsClientOptions.rewriteRequestHeaders`
-propio que reenvía `x-user-id`/`x-user-roles`/`x-kyc-status`/`x-request-id` leyendo
-`request.headers` — el MISMO objeto que ya mutó el `preHandler` de esa request, así que
-no hace falta duplicar la lógica de autenticación. Registrar el proxy pasó de una sola
-llamada a `app.register(httpProxy, {...})` por ruta a un `if/else` entre dos llamadas
-(una con `websocket: true`, otra sin): el tipo de `@fastify/http-proxy` es una unión
-discriminada por `websocket` (`true` vs `false | never`) que TypeScript no resuelve bien
-si esa propiedad llega de un spread condicional en un solo objeto en vez de estar
-escrita literal en cada llamada.
+propio que reenvía `authorization`/`x-user-id`/`x-user-roles`/`x-kyc-status`/
+`x-request-id` leyendo `request.headers` — el MISMO objeto que ya mutó el `preHandler`
+de esa request, así que no hace falta duplicar la lógica de autenticación. Registrar el
+proxy pasó de una sola llamada a `app.register(httpProxy, {...})` por ruta a un
+`if/else` entre dos llamadas (una con `websocket: true`, otra sin): el tipo de
+`@fastify/http-proxy` es una unión discriminada por `websocket` (`true` vs
+`false | never`) que TypeScript no resuelve bien si esa propiedad llega de un spread
+condicional en un solo objeto en vez de estar escrita literal en cada llamada.
 
 Test nuevo `test/websocket-proxy.test.ts` (2 casos) — las suites existentes de
 `routes-prefix.test.ts` pegan contra un stub HTTP plano que nunca ejercita el upgrade;
-este test arma un upstream `ws` real y verifica de punta a punta que `x-user-id`/
-`x-user-roles`/`x-kyc-status` llegan inyectados (y que un `x-user-id` falsificado por el
-cliente no sobrevive). Suite completa del gateway: 51/51. Detalle completo del canal
-(autenticación en `svc-shipments`, cierre por estado, heartbeat) en
+este test arma un upstream `ws` real y verifica de punta a punta que `authorization`/
+`x-user-id`/`x-user-roles`/`x-kyc-status` llegan inyectados (y que un `x-user-id`
+falsificado por el cliente no sobrevive). Suite completa del gateway: 51/51. Detalle
+completo del canal (autenticación en `svc-shipments`, cierre por estado, heartbeat) en
 `services/movo-svc-shipments/CLAUDE.md` (MOVO-201).
+
+**Fix de review (PR #174, JcBordino4, antes de mergear) — `authorization` faltaba en
+`FORWARDED_IDENTITY_HEADERS`**: la lista original solo tenía `x-user-*`/`x-request-id`
+(sin `authorization`), así que toda conexión de tracking que pasara por el gateway
+cerraba con `4001` — `authorizeRealtimeConnection` (`svc-shipments`) solo lee
+`Authorization: Bearer`, nunca cae a `x-user-*`. Reproducido por el reviewer con un
+Fastify + `@fastify/http-proxy` mínimo antes de encontrarlo en este repo. Test ampliado
+con el assert que pedía el review (`capturedHeaders["authorization"]`).
