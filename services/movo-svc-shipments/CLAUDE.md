@@ -2329,6 +2329,49 @@ de este ticket contra la suite completa fallaba con "invalid input value for enu
 `npm run build` en `shared/movo-shared` (dist también desactualizado). Sin relación con
 el código de este ticket, documentado por si el mismo gap aparece en otra máquina.
 
+**Fixes de review (PR #173, Alena1812, antes de mergear):**
+- **`assertTripAccess` nuevo** (`src/modules/trips/trip-access.ts`, mismo criterio que
+  `assertShipmentAccess` de `assert-shipment-access.ts`): el bloque "cargar viaje -> 404
+  -> 403 por dueño -> chequeo de estado" se repetía a mano 7 veces entre
+  `trips.service.ts` (getTrip/updateTrip/deleteTrip/startTrip/getTripMatches) y
+  `shipments.service.ts` (createOfferForShipment, getMyRoute) — la duplicación ya había
+  driftado: `getMyRoute` no tenía el bypass de admin que sí tenían `getTrip`/
+  `getTripMatches`, así que un Administrador se llevaba 403 al pedir la ruta de un
+  viaje ajeno. Nuevo helper centraliza SOLO la parte de autorización (`allowAdmin`
+  default `true`; `createOfferForShipment` lo usa con `allowAdmin: false` porque ahí
+  nunca hay caso de uso legítimo de que un admin oferte "en nombre de" otro
+  transportista) — la carga del viaje (`tripRepository.findById` + 404) se queda en
+  cada caller, mismo criterio que `assertShipmentAccess`.
+- **`getMyRoute` gana `callerRoles`** (4to parámetro, default `[]`) — `shipments.routes.ts`
+  lo resuelve con `getUserRolesFromHeader` (ya usado en el resto del archivo) y se lo
+  pasa al service.
+- **Mensaje del 409 `TRIP_NOT_ACTIVE` diferenciado por estado**: antes siempre decía
+  "Iniciá el viaje antes de pedir su ruta", pero ese mismo código dispara también para
+  `cancelled`/`completed` (nunca van a "iniciarse") — ahora un viaje `declared` recibe
+  el mensaje de "iniciá el viaje" y cualquier otro estado no-`active` recibe "ya no está
+  en curso".
+- **`OfferStatus.ACCEPTED` en vez del literal `"accepted"`** en el filtro de
+  `shipment-repository.ts#listActiveShipments` — inconsistente con el resto del
+  servicio, que siempre usa el enum de `@movo/shared`.
+- **Bug latente documentado, no corregido (no disparable todavía)**: el filtro
+  `offers.some({ tripId, status: accepted })` matchea cualquier oferta `accepted` con
+  ese `tripId`, incluida una vieja de un envío re-ofertado bajo otro viaje más
+  adelante. Hoy imposible (`offer-state-machine.ts` no modela ninguna salida de
+  `accepted`), deja de serlo apenas exista el revert de hold fallido (MOVO-210) —
+  comentario explícito en el código apuntando a ese ticket en vez de una solución
+  especulativa sin el diseño real de MOVO-210.
+- **Por qué el trip-scoping se queda en `ShipmentRepository` y no pasa a un
+  `TripRepository.listShipments()` propio** (sugerencia de review): habría significado
+  duplicar `ACTIVE_SHIPMENT_STATUSES`/`mapShipment`/el orden por `pickupDate` en
+  `trip-repository.ts`, o que `TripRepository` importe de `ShipmentRepository` —
+  dirección de dependencia que no existe hoy en ningún otro lado del servicio.
+  Documentado como decisión explícita (comentario en el propio método), no como punto
+  ignorado.
+- Tests nuevos: mensaje del 409 para `declared` vs. `cancelled`/`completed` (cubre el
+  caso `cancelled` que faltaba), bypass de admin en `getMyRoute`, propagación de
+  `x-user-roles` a nivel HTTP. Suite completa del servicio: 761/761 (55 archivos).
+  `tsc --noEmit` y `npm run lint` limpios.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
