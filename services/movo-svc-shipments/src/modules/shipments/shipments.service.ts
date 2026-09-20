@@ -578,58 +578,65 @@ async function dispatchTripMatchPushes(
     return;
   }
 
-  const geometricCandidates = await tripRepository.findActiveTripsMatchingShipment({
-    pickupLat: shipment.pickupLat,
-    pickupLng: shipment.pickupLng,
-    deliveryLat: shipment.deliveryLat,
-    deliveryLng: shipment.deliveryLng,
-    excludeCarrierIds: [shipment.senderId, shipment.receiverId],
-    radiusKm,
-  });
+  try {
+    const geometricCandidates = await tripRepository.findActiveTripsMatchingShipment({
+      pickupLat: shipment.pickupLat,
+      pickupLng: shipment.pickupLng,
+      deliveryLat: shipment.deliveryLat,
+      deliveryLng: shipment.deliveryLng,
+      excludeCarrierIds: [shipment.senderId, shipment.receiverId],
+      radiusKm,
+    });
 
-  if (geometricCandidates.length === 0) {
-    return;
-  }
-
-  const feasibility = await Promise.all(
-    geometricCandidates.map(async (trip) => ({
-      trip,
-      feasible: await evaluateTripMatchFeasibility(pricingLogisticsClient, trip, shipment, logger),
-    }))
-  );
-  const feasibleTrips = feasibility.filter((c) => c.feasible).map((c) => c.trip);
-
-  if (feasibleTrips.length === 0) {
-    return;
-  }
-
-  const sortedByDeparture = [...feasibleTrips].sort(
-    (a, b) => a.departureAt.getTime() - b.departureAt.getTime()
-  );
-  const tripByCarrierId = new Map<string, (typeof sortedByDeparture)[number]>();
-  for (const trip of sortedByDeparture) {
-    if (!tripByCarrierId.has(trip.carrierId)) {
-      tripByCarrierId.set(trip.carrierId, trip);
+    if (geometricCandidates.length === 0) {
+      return;
     }
-  }
 
-  await Promise.all(
-    [...tripByCarrierId.values()].map(async (trip) => {
-      try {
-        await notificationsClient.sendPush({
-          userId: trip.carrierId,
-          title: "Nuevo paquete compatible",
-          body: `Hay un envío compatible con tu viaje ${shortAddress(trip.originAddress)} → ${shortAddress(trip.destinationAddress)}`,
-          data: { type: "trip_match", tripId: trip.id, shipmentId: shipment.id },
-        });
-      } catch (err) {
-        logger?.warn(
-          { err, event: "notification_dispatch_failed", shipmentId: shipment.id, tripId: trip.id },
-          "No se pudo enviar la push de envío compatible con viaje"
-        );
+    const feasibility = await Promise.all(
+      geometricCandidates.map(async (trip) => ({
+        trip,
+        feasible: await evaluateTripMatchFeasibility(pricingLogisticsClient, trip, shipment, logger),
+      }))
+    );
+    const feasibleTrips = feasibility.filter((c) => c.feasible).map((c) => c.trip);
+
+    if (feasibleTrips.length === 0) {
+      return;
+    }
+
+    const sortedByDeparture = [...feasibleTrips].sort(
+      (a, b) => a.departureAt.getTime() - b.departureAt.getTime()
+    );
+    const tripByCarrierId = new Map<string, (typeof sortedByDeparture)[number]>();
+    for (const trip of sortedByDeparture) {
+      if (!tripByCarrierId.has(trip.carrierId)) {
+        tripByCarrierId.set(trip.carrierId, trip);
       }
-    })
-  );
+    }
+
+    await Promise.all(
+      [...tripByCarrierId.values()].map(async (trip) => {
+        try {
+          await notificationsClient.sendPush({
+            userId: trip.carrierId,
+            title: "Nuevo paquete compatible",
+            body: `Hay un envío compatible con tu viaje ${shortAddress(trip.originAddress)} → ${shortAddress(trip.destinationAddress)}`,
+            data: { type: "trip_match", tripId: trip.id, shipmentId: shipment.id },
+          });
+        } catch (err) {
+          logger?.warn(
+            { err, event: "notification_dispatch_failed", shipmentId: shipment.id, tripId: trip.id },
+            "No se pudo enviar la push de envío compatible con viaje"
+          );
+        }
+      })
+    );
+  } catch (err) {
+    logger?.warn(
+      { err, event: "trip_match_dispatch_failed", shipmentId: shipment.id },
+      "No se pudo evaluar/despachar las pushes de envío compatible con viaje"
+    );
+  }
 }
 
 /** Aviso al emisor cuando el barrido cancela su envío `published` por vencimiento de

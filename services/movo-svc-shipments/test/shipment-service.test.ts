@@ -1070,6 +1070,40 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       );
       expect(tripMatchCalls).toHaveLength(0);
     });
+
+    it("un fallo de tripRepository.findActiveTripsMatchingShipment no revienta el proceso (fix de review, Lucas — PR #172)", async () => {
+      const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+      const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.PUBLISHED });
+      const repository = fakeRepository({
+        findById: vi.fn().mockResolvedValue(shipment),
+        updateStatus: vi.fn().mockResolvedValue(updatedShipment),
+      });
+      const tripRepository = createFakeTripRepository({
+        findActiveTripsMatchingShipment: vi.fn().mockRejectedValue(new Error("Connection timeout")),
+      });
+      const pricingLogisticsClient = createFakePricingLogisticsClient();
+      const notificationsClient = createFakeNotificationsClient();
+      const logger = { warn: vi.fn() };
+      const service = createShipmentsService(repository, createFakeUsersClient({}), notificationsClient, logger, {
+        tripRepository,
+        pricingLogisticsClient,
+        tripMatchDetourRadiusKm: 15,
+      });
+
+      const result = await service.acceptShipment(shipment.id, "receiver-id");
+
+      expect(result.status).toBe(ShipmentStatus.PUBLISHED);
+      await vi.waitFor(() => {
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.objectContaining({ event: "trip_match_dispatch_failed", shipmentId: shipment.id }),
+          expect.any(String)
+        );
+      });
+      const tripMatchCalls = (notificationsClient.sendPush as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([input]) => input.data?.type === "trip_match"
+      );
+      expect(tripMatchCalls).toHaveLength(0);
+    });
   });
 
   it("el emisor recibe 403 al intentar aceptar", async () => {
