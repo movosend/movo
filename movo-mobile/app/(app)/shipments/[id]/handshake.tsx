@@ -19,7 +19,7 @@ import { HandshakeSuccessView } from "../../../../components/handshake/handshake
 import { HandshakeDeviceKeyWarning } from "../../../../components/handshake/handshake-device-key-warning";
 import { ErrorBanner } from "../../../../components/ui/error-banner";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
-import { ShipmentStatus } from "@movo/shared";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 
 export default function ShipmentHandshakeScreen() {
   const router = useRouter();

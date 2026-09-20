@@ -7,7 +7,7 @@ import * as Haptics from "expo-haptics";
 import { HandshakeQrCard } from "../handshake/handshake-qr-card";
 import { HandshakeSuccessView } from "../handshake/handshake-success-view";
 import { HandshakeDeviceKeyWarning } from "../handshake/handshake-device-key-warning";
-import { ShipmentStatus } from "@movo/shared";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { ShipmentSummary } from "../../src/api/shipments-client";
 
 export default function DevHandshakeScreen() {

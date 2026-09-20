@@ -8,7 +8,8 @@ import { signHandshakeNonce } from "../crypto/signing";
 import { useDeviceKeyBootstrap } from "./use-device-key-bootstrap";
 import { getCurrentLocation } from "../lib/location";
 import { friendlyErrorMessage } from "../lib/error-messages";
-import { ShipmentStatus, ApiError } from "@movo/shared";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import { ApiError } from "@movo/shared/dist/errors/api-error";
 
 export type HandshakeQrStatus =
   | "idle"
