@@ -8,6 +8,7 @@ import {
   mapTrip,
   parseTripStatus,
 } from "../models/trip";
+import { distanceToSegmentKm } from "../domain/geo";
 
 /**
  * Fragmento de filtro de "oferta que bloquea el viaje" — una oferta `accepted` cuyo
@@ -95,6 +96,7 @@ export interface TripRepository {
   ): Promise<{ items: TripWithAcceptedPackages[]; total: number }>;
   update(id: string, input: UpdateTripInput): Promise<Trip>;
   delete(id: string): Promise<void>;
+  findActiveTripsMatchingShipment(params: MatchShipmentParams): Promise<Trip[]>;
   /**
    * MOVO-221: única vía para transicionar `declared -> active`. Compare-and-swap
    * (`updateMany` condicionado por `status: declared`) -- si pierde la carrera contra
@@ -102,6 +104,17 @@ export interface TripRepository {
    * de "1 active por carrier", `TripAlreadyHasActiveTripError` (índice único parcial).
    */
   start(id: string): Promise<Trip>;
+}
+
+export interface MatchShipmentParams {
+  pickupLat: number;
+  pickupLng: number;
+  deliveryLat: number;
+  deliveryLng: number;
+  /** Viajes de estos carriers se descartan (senderId/receiverId del envío) -- mismo
+   * criterio de auto-exclusión que `GET /shipments/available` (MOVO-142). */
+  excludeCarrierIds: string[];
+  radiusKm: number;
 }
 
 export function createTripRepository(db: PrismaClient): TripRepository {
@@ -231,6 +244,51 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       }
 
       await db.trip.delete({ where: { id } });
+    },
+
+    /**
+     * MOVO-179: matching inverso de MOVO-161/50 -- dado un envío (retiro+entrega), qué
+     * viajes `active` de otros usuarios lo tienen dentro de su corredor (radio de
+     * desvío `radiusKm`, ± sobre el segmento origen→destino del viaje). A diferencia
+     * de `shipment-repository.ts#listAvailable` (matching directo: segmento FIJO del
+     * caller, filtrado en SQL sobre muchas filas de `shipments`), acá el segmento
+     * varía POR CADA `Trip` candidato -- se resuelve trayendo los viajes `active` (ya
+     * acotados por `trips_status_idx` + exclusión de carrier) y filtrando en memoria
+     * con `distanceToSegmentKm` (`domain/geo.ts`), sin portar el corredor a
+     * `$queryRaw`. Decisión deliberada, no una limitación: el volumen esperado de
+     * viajes `active` simultáneos es bajo (mismo criterio que descartó un índice
+     * compuesto en MOVO-130 por bajo volumen) -- si creciera, el candidato es un
+     * prefiltro `corridorBoundingBox` análogo al del matching directo.
+     */
+    async findActiveTripsMatchingShipment(params: MatchShipmentParams): Promise<Trip[]> {
+      const rows = await db.trip.findMany({
+        where: {
+          status: TripStatus.ACTIVE,
+          carrierId: { notIn: params.excludeCarrierIds },
+        },
+      });
+
+      return rows
+        .map(mapTrip)
+        .filter((trip) => {
+          const pickupDistanceKm = distanceToSegmentKm(
+            params.pickupLat,
+            params.pickupLng,
+            trip.originLat,
+            trip.originLng,
+            trip.destinationLat,
+            trip.destinationLng
+          );
+          const deliveryDistanceKm = distanceToSegmentKm(
+            params.deliveryLat,
+            params.deliveryLng,
+            trip.originLat,
+            trip.originLng,
+            trip.destinationLat,
+            trip.destinationLng
+          );
+          return pickupDistanceKm <= params.radiusKm && deliveryDistanceKm <= params.radiusKm;
+        });
     },
 
     async start(id: string): Promise<Trip> {
