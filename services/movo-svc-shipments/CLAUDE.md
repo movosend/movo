@@ -1662,6 +1662,11 @@ Decisiones clave:
   JWT) obtiene su propia ruta. No se acepta `carrierId` por parámetro.
 - **Contratos tipados en `@movo/shared`:** `CarrierRoute` y `CarrierRouteStop`
   exportados en `types/routing.ts` para consumo coordinado entre backend y mobile.
+- **Serialización de ventanas de retiro con timezone real (`formatPickupInstant`):**
+  `pickupDate` (@db.Date) y `pickupTimeWindow*` (@db.Time) se anclan en UTC sumando el offset
+  argentino (+3h UTC), evitando que viajen con fecha base 1970 a `svc-pricing-logistics`
+  lo que invalidaba falsamente candidatos en el evaluador de factibilidad.
+
 
 ### MOVO-222 — `GET /shipments/pending-ratings`: envíos con calificaciones pendientes de dar
 
@@ -1944,6 +1949,49 @@ sin relación con esta US: `offers-detail.integration.test.ts` y
 `movo:movo` (el resto de los tests de integración) — fallaban con
 `password authentication failed` al correr sin la env var ya seteada en el shell.
 
+### Bug reportado probando MOVO-151 en dispositivo — `Offer.expiresAt` nunca se completaba (sin ticket propio)
+
+`deriveEffectiveOfferStatus` (AC11 de MOVO-102, expiración perezosa de una oferta
+`pending`) es correcta, pero `expiresAt` quedaba `null` para SIEMPRE: nunca lo seteó
+ningún caller real. `createOfferForShipment` (`POST /shipments/:id/offers`, MOVO-143)
+armaba el `offerRepository.create({...})` sin ese campo, y el repositorio lo
+defaultea a `null` cuando falta — así que ninguna oferta creada por HTTP podía
+reportarse `expired` sin importar cuánto hubiera pasado la fecha de retiro. Los tests
+que sí cubren AC11 (`offer-repository.integration.test.ts`,
+`offers-mine.integration.test.ts`) nunca lo detectaron porque llaman al repositorio
+directo pasando `expiresAt` a mano — nadie probaba que el flujo HTTP real generara
+uno.
+
+- **`expiresAt` = cierre de la ventana de retiro EFECTIVA de la oferta**: la franja
+  propuesta si el transportista propuso una (MOVO-177), la del propio envío si no.
+  Una sola regla compartida, `offerExpiresAtInstant` (`domain/pickup-window.ts`, sobre
+  el mismo ajuste de offset de Argentina que ya usaba el barrido de `published`
+  vencidos), usada por la creación y por la edición — sin duplicar la derivación entre
+  `shipments.service.ts` y `offers.service.ts`.
+- **`PATCH /offers/:id` (MOVO-181) recibió el mismo fix, no solo la creación**:
+  cambiar `offeredDate` y/o la franja propuesta sin recomputar `expiresAt` habría
+  dejado la oferta venciendo contra una ventana vieja. Se recomputa **dentro de
+  `offerRepository.update`**, sobre la fila leída en la misma transacción, no en el
+  servicio: así el valor sale del mismo estado contra el que se hace el
+  compare-and-swap. Cuando el patch recomputa `expiresAt`, ese CAS cubre además
+  `offeredDate`/`offeredPickupTimeWindowStart/End` (no solo `status`): dos PATCH
+  concurrentes (uno cambia la fecha, otro la franja) ya no pueden dejar un `expiresAt`
+  derivado de una mezcla que nunca coexistió — el segundo en escribir recibe 409
+  `OFFER_CONCURRENT_MODIFICATION` (review de PR #177). Un patch de solo precio no
+  recomputa nada ni entra en ese conflicto.
+- **Encontrado por el usuario probando la pantalla de MOVO-151 en dispositivo**, no
+  por un test — una oferta con fecha de retiro del día anterior seguía apareciendo
+  "Pendiente" en "El resto" de Mis ofertas, contradiciendo el footer propio de esa
+  pantalla ("Las ofertas pendientes se cierran solas cuando pasa la fecha de
+  retiro").
+
+Tests nuevos: 2 casos en `shipments-offers-create.integration.test.ts` (ventana del
+envío sin franja propuesta, franja propuesta override), 2 en
+`offers-update.integration.test.ts` (cambiar `offeredDate` recomputa contra la nueva
+fecha, resetear la franja propuesta a `null` recomputa contra la ventana del envío en
+vez de la franja vieja). Suite completa del servicio 775/775 tests (55 archivos),
+contra Postgres/Redis reales. `tsc --noEmit` y `eslint` limpios en los archivos de
+este fix.
 ### MOVO-234 — Auto-crear `Trip` al aceptar una oferta sin viaje asociado
 
 Decisión de producto confirmada previamente (ver la descripción del ticket): ofertar

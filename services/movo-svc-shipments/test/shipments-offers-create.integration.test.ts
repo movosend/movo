@@ -234,6 +234,31 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
     expect(response.json().offeredPickupTimeWindowEnd).toBe("19:00");
   });
 
+  it("bug real (sin ticket propio): expiresAt se completa al crear -- antes quedaba null para siempre y la oferta nunca vencía sin importar cuánto pasara la fecha de retiro", async () => {
+    const shipment = await createPublishedShipment();
+    const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { offeredDate: PICKUP_DATE_STR });
+
+    expect(response.statusCode).toBe(201);
+    const persisted = await offerRepo.findById(response.json().id);
+    // Ventana del envío 09:00-12:00 (hora argentina, ancladas como UTC "de
+    // mentira") -- el cierre real, con el offset de Argentina (UTC-3), es las 15hs
+    // UTC del mismo día.
+    expect(persisted?.expiresAt?.toISOString()).toBe("2030-01-01T15:00:00.000Z");
+  });
+
+  it("MOVO-177: expiresAt usa la franja horaria propuesta, no la del envío, cuando el transportista propone una distinta", async () => {
+    const shipment = await createPublishedShipment();
+    const response = await requestCreateOffer(shipment.id, verifiedCarrierId, {
+      offeredDate: "2030-01-03",
+      offeredPickupTimeWindowStart: "15:00",
+      offeredPickupTimeWindowEnd: "19:00",
+    });
+
+    expect(response.statusCode).toBe(201);
+    const persisted = await offerRepo.findById(response.json().id);
+    expect(persisted?.expiresAt?.toISOString()).toBe("2030-01-03T22:00:00.000Z");
+  });
+
   it("422 VALIDATION_FAILED si solo se manda un extremo de la franja horaria propuesta", async () => {
     const shipment = await createPublishedShipment();
     const response = await requestCreateOffer(shipment.id, verifiedCarrierId, {

@@ -10,9 +10,11 @@ import { useColorScheme } from 'nativewind';
 const THEME_COLORS = {
   light: {
     bg: '#FFFFFF',
+    bgSub: '#F8F8FA',
     fg1: '#0A0A0B',
     fg2: '#3A3A40',
     fg3: '#5A5A62',
+    border: 'rgba(10, 10, 11, 0.08)',
     // Equivalente hex de `--color-bg-mute`/`--color-border-strong` — mismo
     // motivo que el resto del archivo, algún `style` inline (no className)
     // necesita el valor resuelto en vez de la variable CSS.
@@ -34,9 +36,11 @@ const THEME_COLORS = {
   },
   dark: {
     bg: '#0A0A0B',
+    bgSub: '#111113',
     fg1: '#FFFFFF',
     fg2: '#B4B4BC',
     fg3: '#8A8A93',
+    border: 'rgba(255, 255, 255, 0.1)',
     bgMute: '#1A1A1D',
     borderStrong: 'rgba(255, 255, 255, 0.18)',
     chromeGradient: ['#2E2E32', '#1E1E21', '#0F0F11'] as [string, string, string],

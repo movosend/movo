@@ -21,6 +21,8 @@ export function tripStatusTone(
       return "success";
     case TripStatus.CANCELLED:
       return "danger";
+    case TripStatus.DECLARED:
+      return "neutral";
     case TripStatus.ACTIVE:
       // Acento de marca (lima) para el estado principal/en curso — feedback de UI
       // post-implementación: el tono "info" (azul) no es parte de la paleta de acento

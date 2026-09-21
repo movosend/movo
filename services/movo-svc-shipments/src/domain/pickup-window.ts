@@ -28,6 +28,15 @@ function anchorTimeOfDayToInstant(date: Date, time: Date | string): Date {
 }
 
 /**
+ * Combina la fecha de retiro (@db.Date) y una hora de ventana (@db.Time)
+ * en un instante real UTC (Date). Delega en `anchorTimeOfDayToInstant` para
+ * no reimplementar la misma matemática de anclaje (eliminada en MOVO-234).
+ */
+export function pickupWindowInstant(pickupDate: Date, timeWindow: Date): Date {
+  return anchorTimeOfDayToInstant(pickupDate, timeWindow);
+}
+
+/**
  * Instante real (UTC) en el que cierra la ventana de retiro de un envío, a partir de
  * los valores tal como los devuelve Prisma (`Shipment.pickupDate` @db.Date,
  * `Shipment.pickupTimeWindowEnd` @db.Time) — cada uno anclado por separado (reloj de
@@ -41,6 +50,14 @@ function anchorTimeOfDayToInstant(date: Date, time: Date | string): Date {
  */
 export function pickupWindowEndInstant(pickupDate: Date, pickupTimeWindowEnd: Date): Date {
   return anchorTimeOfDayToInstant(pickupDate, pickupTimeWindowEnd);
+}
+
+/**
+ * Combina la fecha y hora de retiro en un instante real UTC en formato ISO 8601.
+ * Mismo criterio que `pickupWindowEndInstant`.
+ */
+export function formatPickupInstant(pickupDate: Date, timeWindow: Date): string {
+  return pickupWindowInstant(pickupDate, timeWindow).toISOString();
 }
 
 /**
@@ -61,6 +78,23 @@ export function acceptedOfferPickupWindowStartInstant(
   shipmentPickupTimeWindowStart: Date,
 ): Date {
   return anchorTimeOfDayToInstant(offeredDate, offeredPickupTimeWindowStart ?? shipmentPickupTimeWindowStart);
+}
+
+/**
+ * Instante real (UTC) en el que vence una oferta `pending` (`Offer.expiresAt`, AC11 de
+ * MOVO-102): cuando cierra la ventana de retiro EFECTIVA de la oferta -- el fin de la
+ * franja que el transportista propuso (MOVO-177, string "HH:MM[:SS]", `null` si no
+ * propuso una) o, si no, el de la ventana del envío tal cual. `offeredDate` (`@db.Date`
+ * anclado) ya es la fecha de retiro efectiva. Única fuente de esta regla: la usan
+ * tanto la creación de la oferta (`shipments.service.ts#createOfferForShipment`) como
+ * su edición (`offer-repository.ts#update`).
+ */
+export function offerExpiresAtInstant(
+  offeredDate: Date,
+  offeredPickupTimeWindowEnd: string | null,
+  shipmentPickupTimeWindowEnd: Date,
+): Date {
+  return anchorTimeOfDayToInstant(offeredDate, offeredPickupTimeWindowEnd ?? shipmentPickupTimeWindowEnd);
 }
 
 /**
