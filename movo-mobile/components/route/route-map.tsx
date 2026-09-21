@@ -74,7 +74,7 @@ export function RouteMap({
       setTracksViewChanges(false);
     }, 600);
     return () => clearTimeout(timer);
-  }, [selectedStopOrder, activeStopOrder]);
+  }, [selectedStopOrder, activeStopOrder, stops]);
 
   const handlePinPress = (type: "origin" | "courier") => {
     setActiveTooltip((prev) => (prev === type ? null : type));
@@ -104,8 +104,8 @@ export function RouteMap({
     } catch { }
 
     const targetStop =
-      stops.find((s) => s.stopOrder === (activeStopOrder ?? 1)) ??
       (selectedStopOrder != null ? stops.find((s) => s.stopOrder === selectedStopOrder) : null) ??
+      stops.find((s) => s.stopOrder === (activeStopOrder ?? 1)) ??
       stops[0];
 
     const destination = targetStop
@@ -419,23 +419,24 @@ export function RouteMap({
           const isPickup = stop.type === "pickup";
           const isLate = stop.outsideTimeWindow;
 
-          // Claude Design mapPinStyle:
+          // Claude Design mapPinStyle con highlight cuando está seleccionada (AC4):
           // Todos los nodos de parada tienen fondo #0A0A0B (negro) y número blanco #FFFFFF.
-          // Retiro: Cuadrado redondeado (radius 9) con borde blanco sencillo
-          // Entrega: Círculo (radius 999) con borde blanco sencillo
-          // Borde: 3px blanco #FFFFFF sencillo
+          // Retiro: Cuadrado redondeado (radius 8 / 10 si seleccionada)
+          // Entrega: Círculo (radius 999)
+          // Borde: 2.5px blanco #FFFFFF por defecto; 3.5px verde lima #C6F24A si está seleccionada
           // Demora (isLate): Fondo #E5484D (rojo alerta)
           let pinBg = "#0A0A0B";
-          let pinBorderColor = "#FFFFFF";
+          let pinBorderColor = isSelected ? "#C6F24A" : "#FFFFFF";
           let pinTextColor = "#FFFFFF";
           if (isLate) {
             pinBg = "#E5484D";
-            pinBorderColor = "#FFFFFF";
+            pinBorderColor = isSelected ? "#C6F24A" : "#FFFFFF";
             pinTextColor = "#FFFFFF";
           }
 
-          const pinSize = 28;
-          const pinRadius = isPickup ? 8 : 999;
+          const pinSize = isSelected ? 34 : 28;
+          const pinRadius = isPickup ? (isSelected ? 10 : 8) : 999;
+          const pinBorderWidth = isSelected ? 3.5 : 2.5;
 
           return (
             <Marker
@@ -453,15 +454,24 @@ export function RouteMap({
                   borderRadius: pinRadius,
                   backgroundColor: pinBg,
                   borderColor: pinBorderColor,
-                  borderWidth: 2.5,
+                  borderWidth: pinBorderWidth,
                   alignItems: "center",
                   justifyContent: "center",
+                  ...(isSelected
+                    ? {
+                      shadowColor: "#C6F24A",
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.4,
+                      shadowRadius: 6,
+                      elevation: 5,
+                    }
+                    : {}),
                 }}
               >
                 <Text
                   style={{
                     color: pinTextColor,
-                    fontSize: 12,
+                    fontSize: isSelected ? 13 : 12,
                   }}
                   className="font-sans-bold"
                 >

@@ -148,6 +148,20 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       expect(onPressShipment).toHaveBeenCalledWith("ship-101");
     });
 
+    it("aplica resaltado y accessibilityState.selected cuando la parada coincide con selectedStopOrder (AC4)", async () => {
+      const { getByTestId } = await render(
+        <StopList
+          route={sampleRoute}
+          activeStopOrder={1}
+          selectedStopOrder={2}
+          isExpanded={true}
+        />
+      );
+
+      expect(getByTestId("stop-row-2").props.accessibilityState.selected).toBe(true);
+      expect(getByTestId("stop-row-1").props.accessibilityState.selected).toBe(false);
+    });
+
     it("AC9: al presionar el CTA principal de la parada activa dispara onPressAction", async () => {
       const onPressAction = jest.fn();
       const onPressShipment = jest.fn();
@@ -458,6 +472,28 @@ describe("Componentes de Ruta (MOVO-207)", () => {
 
       openURLSpy.mockRestore();
       jest.useRealTimers();
+    });
+
+    it("prioriza selectedStopOrder sobre activeStopOrder al abrir navegación externa", async () => {
+      const openURLSpy = jest.spyOn(Linking, "openURL").mockImplementation(() => Promise.resolve());
+
+      const { getByTestId } = await render(
+        <RouteMap
+          carrierLocation={{ lat: -31.4167, lng: -64.1833 }}
+          stops={sampleRoute.stops}
+          activeStopOrder={1}
+          selectedStopOrder={2}
+        />
+      );
+
+      await act(async () => {
+        fireEvent.press(getByTestId("route-map-open-maps"));
+      });
+
+      expect(openURLSpy).toHaveBeenCalledTimes(1);
+      // Parada 2 lat es -31.9139 (San Martín 450)
+      expect(openURLSpy.mock.calls[0][0]).toContain("-31.9139");
+      openURLSpy.mockRestore();
     });
   });
 });

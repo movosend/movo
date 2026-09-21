@@ -307,15 +307,24 @@ export function StopList({
             <Pressable
               key={`${stop.shipmentId}-${stop.type}-${stop.stopOrder}`}
               testID={`stop-row-${stop.stopOrder}`}
+              accessibilityState={{ selected: isSelected }}
               onPress={() => handlePressStop(stop)}
               className="rounded-[12px] border p-3.5"
               style={{
-                backgroundColor: isActive ? colors.bg : colors.bgSub,
-                borderColor: isActive ? colors.fg1 : colors.border,
-                borderWidth: isActive ? 1.5 : 1,
-                ...(isActive
+                backgroundColor: isActive
+                  ? colors.bg
+                  : isSelected
+                    ? (isDark ? "rgba(198, 242, 74, 0.08)" : "rgba(198, 242, 74, 0.12)")
+                    : colors.bgSub,
+                borderColor: isActive
+                  ? colors.fg1
+                  : isSelected
+                    ? "#C6F24A"
+                    : colors.border,
+                borderWidth: isActive || isSelected ? 1.5 : 1,
+                ...((isActive || isSelected)
                   ? {
-                    shadowColor: "#000",
+                    shadowColor: isSelected ? "#C6F24A" : "#000",
                     shadowOffset: { width: 0, height: 4 },
                     shadowOpacity: 0.08,
                     shadowRadius: 10,
