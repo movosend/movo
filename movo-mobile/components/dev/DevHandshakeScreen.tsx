@@ -1,288 +1,251 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
-import { ArrowLeft, Play, Pause, RotateCcw, ShieldCheck, QrCode } from "lucide-react-native";
-import * as Haptics from "expo-haptics";
-import { HandshakeQrCard } from "../handshake/handshake-qr-card";
-import { HandshakeSuccessView } from "../handshake/handshake-success-view";
-import { HandshakeDeviceKeyWarning } from "../handshake/handshake-device-key-warning";
-import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import type { ShipmentSummary } from "../../src/api/shipments-client";
+import { HandshakeConfirmationResult } from "../handshake/handshake-confirmation-result";
+import { HandshakeScanStep } from "../handshake/handshake-scan-step";
+import type { ConfirmHandshakeResult, ShipmentSummary } from "../../src/api/shipments-client";
+import { shipmentsClient } from "../../src/api/shipments-client";
+import { signHandshakeNonce } from "../../src/crypto/signing";
+import { useAuthStore } from "../../src/store/auth-store";
+import { getCurrentLocation } from "../../src/lib/location";
+import { friendlyErrorMessage } from "../../src/lib/error-messages";
+import { shipmentStatusLabel, shortAddressLabel } from "../../src/lib/shipment-format";
+import { ErrorBanner } from "../ui/error-banner";
+import { PrimaryButton } from "../auth/primary-button";
+import { TextField } from "../ui/text-field";
 
-export default function DevHandshakeScreen() {
-  const router = useRouter();
+type MyRole = "sender" | "carrier" | "receiver" | "none";
+type Stage = "pickup" | "delivery" | null;
 
-  const [stage, setStage] = useState<"pickup" | "delivery">("pickup");
-  const [secondsLeft, setSecondsLeft] = useState<number>(15);
-  const [isRunning, setIsRunning] = useState<boolean>(true);
-  const [isConfirmed, setIsConfirmed] = useState<boolean>(false);
-  const [showKeyWarning, setShowKeyWarning] = useState<boolean>(false);
-  const [keyStatus, setKeyStatus] = useState<"pending" | "error">("error");
+function resolveRole(shipment: ShipmentSummary, currentUserId: string | null): MyRole {
+  if (!currentUserId) return "none";
+  if (shipment.senderId === currentUserId) return "sender";
+  if (shipment.carrierId === currentUserId) return "carrier";
+  if (shipment.receiverId === currentUserId) return "receiver";
+  return "none";
+}
 
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+function resolveStage(shipment: ShipmentSummary): Stage {
+  if (shipment.status === "assigned") return "pickup";
+  if (shipment.status === "in_transit") return "delivery";
+  return null;
+}
 
-  // Reloj regresivo en tiempo real
-  useEffect(() => {
-    if (isRunning && !isConfirmed && secondsLeft > 0) {
-      timerRef.current = setInterval(() => {
-        setSecondsLeft((prev) => {
-          if (prev <= 1) {
-            clearInterval(timerRef.current!);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View className="flex-row items-center justify-between gap-3 border-b border-border py-2.5">
+      <Text className="font-sans text-[12px] text-fg-3">{label}</Text>
+      <Text className="font-sans text-[13px] text-fg">{value}</Text>
+    </View>
+  );
+}
+
+/**
+ * Sección "generar QR de prueba" — hace lo que haría la pantalla real de `MOVO-159`
+ * (todavía sin construir): pide GPS, llama a `generate`, firma el `canonicalPayload`
+ * con la clave del dispositivo (`MOVO-195`) y arma el mismo JSON que espera
+ * `HandshakeScanStep` (`{shipmentId, nonce, signature}`). Solo tiene sentido cuando
+ * la cuenta logueada es el CEDENTE de la etapa pendiente — para probar de punta a
+ * punta con dos partes reales hace falta una segunda cuenta/dispositivo logueado
+ * como la contraparte, que pega el JSON generado acá en su propio paso de escaneo.
+ */
+function GenerateQrSection({ shipmentId }: { shipmentId: string }) {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [payloadJson, setPayloadJson] = useState<string | null>(null);
+  const [ttlSeconds, setTtlSeconds] = useState<number | null>(null);
+
+  async function handleGenerate() {
+    setIsGenerating(true);
+    setError(null);
+    setPayloadJson(null);
+    try {
+      const location = await getCurrentLocation();
+      if (!location.granted) {
+        setError("Necesitamos tu ubicación para generar el QR de prueba.");
+        return;
+      }
+      const generated = await shipmentsClient.generateHandshake(shipmentId, {
+        lat: location.lat,
+        lng: location.lng,
+      });
+      const signature = await signHandshakeNonce(generated.canonicalPayload);
+      setPayloadJson(JSON.stringify({ shipmentId: generated.shipmentId, nonce: generated.nonce, signature }));
+      setTtlSeconds(generated.ttlSeconds);
+    } catch (err) {
+      setError(friendlyErrorMessage(err, "No pudimos generar el QR de prueba."));
+    } finally {
+      setIsGenerating(false);
     }
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [isRunning, isConfirmed, secondsLeft]);
-
-  const resetCountdown = (startSecs = 15) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setSecondsLeft(startSecs);
-    setIsRunning(true);
-    setIsConfirmed(false);
-  };
-
-  const isExpired = secondsLeft <= 0;
-  const isExpiringSoon = secondsLeft <= 5 && secondsLeft > 0;
-  const progressPercent = Math.max(0, Math.min(100, (secondsLeft / 15) * 100));
-
-  const demoPayload = JSON.stringify({
-    shipmentId: "shp-demo-48213",
-    nonce: `nonce-live-${secondsLeft}`,
-    signature: "base64_device_signed_mock_signature_movo159",
-  });
-
-  const dummyShipment: ShipmentSummary = {
-    id: "shp-demo-48213-abcd",
-    senderId: "u-sender-1",
-    carrierId: "u-carrier-2",
-    receiverId: "u-receiver-3",
-    status: stage === "pickup" ? ShipmentStatus.IN_TRANSIT : ShipmentStatus.DELIVERED,
-    packageType: "standard_package",
-    weightKg: 2.5,
-    lengthCm: 25,
-    widthCm: 20,
-    heightCm: 15,
-    description: "Caja mediana de prueba",
-    urgent: false,
-    pickupAddress: "Av. Colón 1200, Córdoba",
-    pickupLat: -31.42,
-    pickupLng: -64.18,
-    deliveryAddress: "Bv. San Juan 450, Córdoba",
-    deliveryLat: -31.41,
-    deliveryLng: -64.19,
-    pickupDate: "2026-09-20",
-    pickupTimeWindowStart: "09:00",
-    pickupTimeWindowEnd: "12:00",
-    suggestedPriceArs: 4800,
-    agreedPriceArs: 5000,
-    paymentMethod: null,
-    lastStatusChangedAt: null,
-    deliveredAt: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  // Si está confirmado, mostrar pantalla de éxito
-  if (isConfirmed) {
-    return (
-      <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
-        <View className="flex-row items-center justify-between border-b border-border px-4 py-3">
-          <Pressable
-            onPress={() => setIsConfirmed(false)}
-            hitSlop={8}
-            className="flex-row items-center gap-1.5"
-          >
-            <ArrowLeft size={18} color="#0A0A0B" />
-            <Text className="font-sans-medium text-[13px] text-fg">Volver a los controles dev</Text>
-          </Pressable>
-          <View className="rounded-full bg-lime-100 px-2.5 py-0.5 dark:bg-lime-950/40">
-            <Text className="font-sans-semibold text-[10px] text-lime-800 dark:text-lime-300">
-              Éxito (Dev)
-            </Text>
-          </View>
-        </View>
-
-        <HandshakeSuccessView
-          shipment={dummyShipment}
-          stage={stage}
-          onBackToShipment={() => setIsConfirmed(false)}
-          onGoHome={() => router.back()}
-        />
-      </SafeAreaView>
-    );
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
-      {/* Header Dev */}
-      <View className="border-b border-border bg-bg-sub px-4 py-3">
-        <View className="flex-row items-center justify-between mb-2">
-          <Pressable onPress={() => router.back()} hitSlop={8} className="flex-row items-center gap-1.5">
-            <ArrowLeft size={20} color="#0A0A0B" />
-            <Text className="font-sans-medium text-[14px] text-fg">Volver</Text>
-          </Pressable>
-          <View className="flex-row items-center gap-1 rounded-full bg-lime-500/20 px-2.5 py-1">
-            <QrCode size={12} color="#4D7C0F" />
-            <Text className="font-sans-semibold text-[11px] text-lime-800 dark:text-lime-300">
-              MOVO-159 Preview
-            </Text>
-          </View>
-        </View>
-        <Text className="font-sans-semibold text-[16px] text-fg">
-          Generador de QR Handshake (Demo)
-        </Text>
-      </View>
-
-      <ScrollView contentContainerClassName="px-5 py-5 gap-5" keyboardShouldPersistTaps="handled">
-        {/* Panel de Control Interactivo de Dev */}
-        <View className="gap-3 rounded-xl border border-border bg-bg-elevated p-3.5 shadow-sm">
-          <Text className="font-sans-semibold text-[11px] uppercase tracking-wider text-fg-3">
-            Controles de prueba
+    <View className="gap-3 rounded-[10px] border border-border p-4">
+      <Text className="font-sans-semibold text-[13px] text-fg">Generar QR de prueba (cedente)</Text>
+      <Text className="font-sans text-[12px] text-fg-3">
+        Firma un nonce real con la clave de este dispositivo. Vence en 15s — copiá y pegalo en el paso de
+        escaneo (de esta misma pantalla en otra sesión, o de otro dispositivo) antes de que expire.
+      </Text>
+      <PrimaryButton
+        testID="dev-handshake-generate"
+        label="Generar y firmar"
+        loading={isGenerating}
+        onPress={handleGenerate}
+      />
+      <ErrorBanner testID="dev-handshake-generate-error" message={error} />
+      {payloadJson ? (
+        <View testID="dev-handshake-generated-payload" className="gap-1.5 rounded-[8px] bg-bg-mute p-3">
+          <Text className="font-sans text-[11px] text-fg-3">
+            JSON del QR (TTL {ttlSeconds}s) — tocá y mantené para copiar:
           </Text>
+          <Text selectable className="font-mono text-[12px] text-fg">
+            {payloadJson}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
-          {/* Selector de Etapa (Retiro vs Entrega) */}
-          <View className="flex-row gap-2">
+/**
+ * Pantalla de dev para probar MOVO-160 (escaneo + GPS + confirmación) contra el
+ * backend real, sin esperar a `MOVO-159` (la pantalla de generación de QR, todavía
+ * sin construir) — reusa `HandshakeScanStep`/`HandshakeConfirmationResult` tal cual
+ * son en producción, sin reimplementarlos. Ruta: `/dev-handshake`, sin link desde la
+ * app (mismo criterio que `/dev-tokens`/`/dev-connection`/`/dev-home-operativo`).
+ */
+export default function DevHandshakeScreen() {
+  const currentUserId = useAuthStore((state) => state.user?.userId ?? null);
+
+  const [myShipments, setMyShipments] = useState<ShipmentSummary[] | null>(null);
+  const [myShipmentsError, setMyShipmentsError] = useState<string | null>(null);
+
+  const [shipmentIdInput, setShipmentIdInput] = useState("");
+  const [shipment, setShipment] = useState<ShipmentSummary | null>(null);
+  const [isLoadingShipment, setIsLoadingShipment] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [confirmedResult, setConfirmedResult] = useState<ConfirmHandshakeResult | null>(null);
+
+  useEffect(() => {
+    shipmentsClient
+      .listMine({ limit: 20 })
+      .then((res) => setMyShipments(res.items))
+      .catch((err) => setMyShipmentsError(friendlyErrorMessage(err, "No pudimos cargar tus envíos.")));
+  }, []);
+
+  async function loadShipment(id: string) {
+    const trimmed = id.trim();
+    if (!trimmed) return;
+    setIsLoadingShipment(true);
+    setLoadError(null);
+    setShipment(null);
+    setConfirmedResult(null);
+    try {
+      const loaded = await shipmentsClient.getById(trimmed);
+      setShipment(loaded);
+      setShipmentIdInput(trimmed);
+    } catch (err) {
+      setLoadError(friendlyErrorMessage(err, "No pudimos cargar ese envío."));
+    } finally {
+      setIsLoadingShipment(false);
+    }
+  }
+
+  const role = shipment ? resolveRole(shipment, currentUserId) : "none";
+  const stage = shipment ? resolveStage(shipment) : null;
+
+  return (
+    <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
+      <ScrollView contentContainerClassName="gap-5 px-5 pb-10 pt-3" keyboardShouldPersistTaps="handled">
+        <Text className="font-sans-semibold text-title text-fg">Handshake — prueba (dev)</Text>
+        <Text className="font-sans text-[12px] text-fg-3">
+          Elegí un envío tuyo (como emisor) o pegá el ID de uno donde participes como transportista o
+          receptor, en {"assigned"} o {"in_transit"}. Sin ningún CTA de producción todavía —
+          `MOVO-198`/`MOVO-199`/`MOVO-193` fase 2 lo van a cablear cuando existan.
+        </Text>
+
+        <View className="gap-2">
+          <Text className="font-sans-medium text-[12px] text-fg-2">Tus envíos (como emisor)</Text>
+          <ErrorBanner testID="dev-handshake-mine-error" message={myShipmentsError} />
+          {myShipments === null && !myShipmentsError ? <ActivityIndicator /> : null}
+          {myShipments?.length === 0 ? (
+            <Text className="font-sans text-[12px] text-fg-3">No tenés envíos propios todavía.</Text>
+          ) : null}
+          {myShipments?.map((item) => (
             <Pressable
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setStage("pickup");
-              }}
-              className={`flex-1 items-center justify-center rounded-lg py-2 border ${stage === "pickup" ? "bg-ink-950 border-ink-950" : "bg-bg border-border"}`}
+              key={item.id}
+              testID={`dev-handshake-mine-${item.id}`}
+              onPress={() => void loadShipment(item.id)}
+              className={`gap-1 rounded-[8px] border p-3 ${
+                shipment?.id === item.id ? "border-fg" : "border-border"
+              }`}
             >
-              <Text
-                className={`font-sans-medium text-[12px] ${stage === "pickup" ? "text-paper" : "text-fg-2"}`}
-              >
-                1. Retiro (Emisor)
+              <Text className="font-sans-medium text-[13px] text-fg">{shipmentStatusLabel(item.status)}</Text>
+              <Text className="font-sans text-[12px] text-fg-3">
+                {shortAddressLabel(item.pickupAddress)} → {shortAddressLabel(item.deliveryAddress)}
               </Text>
             </Pressable>
-            <Pressable
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setStage("delivery");
-              }}
-              className={`flex-1 items-center justify-center rounded-lg py-2 border ${stage === "delivery" ? "bg-ink-950 border-ink-950" : "bg-bg border-border"}`}
-            >
-              <Text
-                className={`font-sans-medium text-[12px] ${stage === "delivery" ? "text-paper" : "text-fg-2"}`}
-              >
-                2. Entrega (Transportista)
-              </Text>
-            </Pressable>
-          </View>
-
-          {/* Salto rápido a estados del countdown */}
-          <View className="flex-row items-center gap-1.5 pt-1">
-            <Pressable
-              onPress={() => resetCountdown(15)}
-              className="flex-1 items-center justify-center rounded-md bg-bg-mute py-1.5 border border-border"
-            >
-              <Text className="font-sans text-[11px] text-fg">15s (Inicio)</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                setSecondsLeft(4);
-                setIsRunning(true);
-              }}
-              className="flex-1 items-center justify-center rounded-md bg-red-50 dark:bg-red-950/30 py-1.5 border border-red-200 dark:border-red-800"
-            >
-              <Text className="font-sans text-[11px] text-red-600 font-medium">4s (Rojo)</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                setSecondsLeft(0);
-                setIsRunning(false);
-              }}
-              className="flex-1 items-center justify-center rounded-md bg-neutral-200 dark:bg-neutral-800 py-1.5 border border-border"
-            >
-              <Text className="font-sans text-[11px] text-fg-2 font-medium">0s (Expirado)</Text>
-            </Pressable>
-          </View>
-
-          {/* Botones de Timer (Play, Pausa, Reset) */}
-          <View className="flex-row items-center gap-2 pt-1">
-            <Pressable
-              onPress={() => setIsRunning(!isRunning)}
-              className="flex-1 flex-row items-center justify-center gap-1.5 rounded-lg bg-bg py-2 border border-border"
-            >
-              {isRunning ? <Pause size={14} color="#0A0A0B" /> : <Play size={14} color="#0A0A0B" />}
-              <Text className="font-sans-medium text-[12px] text-fg">
-                {isRunning ? "Pausar reloj" : "Reanudar reloj"}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => resetCountdown(15)}
-              className="flex-1 flex-row items-center justify-center gap-1.5 rounded-lg bg-bg py-2 border border-border"
-            >
-              <RotateCcw size={14} color="#0A0A0B" />
-              <Text className="font-sans-medium text-[12px] text-fg">Reiniciar (15s)</Text>
-            </Pressable>
-          </View>
-
-          {/* Botón simular confirmación */}
-          <Pressable
-            onPress={() => {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              setIsConfirmed(true);
-            }}
-            className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-lime-500 py-2.5 active:opacity-85"
-          >
-            <ShieldCheck size={16} color="#0A0A0B" />
-            <Text className="font-sans-semibold text-[13px] text-ink-950">
-              Simular escaneo de receptor → Pantalla de Éxito
-            </Text>
-          </Pressable>
-
-          {/* Toggle de advertencia de clave */}
-          <Pressable
-            onPress={() => setShowKeyWarning(!showKeyWarning)}
-            className="pt-1 flex-row items-center justify-between"
-          >
-            <Text className="font-sans text-[11px] text-fg-3">
-              {showKeyWarning ? "Ocultar advertencia de clave" : "Probar advertencia de clave de dispositivo"}
-            </Text>
-            <Text className="font-sans-semibold text-[11px] text-lime-700 dark:text-lime-400">
-              {showKeyWarning ? "Activa" : "Inactiva"}
-            </Text>
-          </Pressable>
+          ))}
         </View>
 
-        {/* Advertencia de clave de dispositivo (si está activa) */}
-        {showKeyWarning ? (
-          <HandshakeDeviceKeyWarning
-            status={keyStatus}
-            onRetry={() => {
-              setKeyStatus("pending");
-              setTimeout(() => setKeyStatus("error"), 1500);
-            }}
+        <View className="gap-2">
+          <TextField
+            testID="dev-handshake-id-input"
+            label="O pegá un ID de envío"
+            value={shipmentIdInput}
+            onChangeText={setShipmentIdInput}
+            autoCapitalize="none"
+            placeholder="uuid del envío"
           />
-        ) : null}
+          <PrimaryButton
+            testID="dev-handshake-load"
+            label="Cargar envío"
+            loading={isLoadingShipment}
+            onPress={() => void loadShipment(shipmentIdInput)}
+          />
+          <ErrorBanner testID="dev-handshake-load-error" message={loadError} />
+        </View>
 
-        {/* Tarjeta de QR con countdown */}
-        <HandshakeQrCard
-          qrPayload={demoPayload}
-          secondsLeft={secondsLeft}
-          totalSeconds={15}
-          progressPercent={progressPercent}
-          isExpiringSoon={isExpiringSoon}
-          isExpired={isExpired}
-          isGenerating={false}
-          stage={stage}
-          counterpartName={stage === "pickup" ? "Lucas Conductor" : "Mariana Destinataria"}
-          onRegenerate={() => resetCountdown(15)}
-          onSimulateScan={() => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            setIsConfirmed(true);
-          }}
-        />
+        {shipment ? (
+          <View className="gap-4">
+            <View className="rounded-[10px] border border-border px-3.5">
+              <InfoRow label="Envío" value={shipment.id} />
+              <InfoRow label="Estado" value={shipmentStatusLabel(shipment.status)} />
+              <InfoRow
+                label="Tu rol acá"
+                value={
+                  role === "sender" ? "Emisor" : role === "carrier" ? "Transportista" : role === "receiver" ? "Receptor" : "Ninguno"
+                }
+              />
+              <InfoRow
+                label="Etapa pendiente"
+                value={stage === "pickup" ? "Retiro" : stage === "delivery" ? "Entrega" : "Ninguna (no aplica)"}
+              />
+            </View>
+
+            {!confirmedResult ? (
+              <>
+                <GenerateQrSection shipmentId={shipment.id} />
+
+                <View className="gap-2">
+                  <Text className="font-sans-semibold text-[13px] text-fg">Escanear / confirmar (receptor)</Text>
+                  <View className="h-[520px] overflow-hidden rounded-[14px]">
+                    <HandshakeScanStep
+                      testID="dev-handshake-scan-step"
+                      shipmentId={shipment.id}
+                      onConfirmed={setConfirmedResult}
+                    />
+                  </View>
+                </View>
+              </>
+            ) : (
+              <View className="h-[420px] overflow-hidden rounded-[14px] border border-border">
+                <HandshakeConfirmationResult testID="dev-handshake-confirmation-result" result={confirmedResult} />
+              </View>
+            )}
+          </View>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );

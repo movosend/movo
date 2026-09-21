@@ -2652,6 +2652,107 @@ provisioning profile). Se vuelve a hacer solo si: se borra/regenera `ios/` desde
 cero (`rm -rf ios/`, `expo prebuild --clean` — ahí Xcode "olvida" el Team elegido),
 se usa una máquina nueva, se prueba con un dispositivo físico nuevo (hay que
 registrar su UDID en el Team), o se suma un dev nuevo al equipo.
+### MOVO-160 — Escaneo de QR y confirmación con GPS (receptor de custodia)
+
+Lado que **recibe** la custodia (transportista en el retiro, receptor en la entrega)
+del handshake criptográfico (`MOVO-6`), contra el backend de `MOVO-158` (Done). El
+scanner nunca firma nada — la firma que viaja en el QR ya la generó el cedente
+(`MOVO-159`, todavía sin construir, con `signHandshakeNonce()` de `MOVO-195`); este
+lado solo relee lo escaneado y agrega sus propias coordenadas GPS.
+
+- **Entregado como componente + ruta standalone, sin cablear ningún CTA de
+  producción** (decisión tomada con el usuario): hoy no existe ningún punto de
+  entrada real — el CTA de Home para "Confirmar recepción" depende de `MOVO-192`
+  (sin backend) y el de retiro depende de la fase 2 del home (`MOVO-206`, sin
+  arrancar). `components/handshake/handshake-scan-step.tsx` (props
+  `{shipmentId, onConfirmed}`, sin conocer wizard/orquestación) y
+  `components/handshake/handshake-confirmation-result.tsx` quedan listos para que
+  `MOVO-198`/`MOVO-199` los monten como un paso más cuando existan.
+  `app/(app)/shipments/[id]/handshake-scan.tsx` es la ruta de prueba mientras tanto
+  (navegación directa).
+- **Formato del QR, definido acá por no estar en ningún ticket**: JSON
+  `{shipmentId, nonce, signature}` — lo mínimo que necesita `POST
+  /shipments/:id/handshake/confirm` (`{nonce, signature, lat, lng}` en el body, más
+  el `shipmentId` de la URL). Documentado en un comentario de MOVO-159 (Linear) para
+  que quien construya esa pantalla lo implemente igual del otro lado. `stage` no
+  viaja en el QR — el backend ya lo resuelve del lado de `/confirm`.
+- **`expo-camera` nuevo** (`CameraView`/`useCameraPermissions`, primer escaneo de
+  códigos del repo) — plugin agregado a `app.config.js` con
+  `barcodeScannerEnabled: true`, sin `cameraPermission` propio (el
+  `NSCameraUsageDescription` ya existente desde MOVO-98 alcanza, solo se amplió el
+  texto para mencionar el escaneo).
+- **GPS reusa `getCurrentLocation()` tal cual** (`src/lib/location.ts`, mismo patrón
+  que `use-my-location.ts`): si no hay permiso/no se puede obtener la posición, nunca
+  se llama a `confirm` con un dato inventado (AC3) — se corta antes con un error
+  explícito.
+- **`HANDSHAKE_DISTANCE_EXCEEDED` es el único error "reintentable sin re-escanear"**
+  (AC5): el componente guarda el último `{shipmentId, nonce, signature}` decodificado
+  y el botón "Reintentar" solo vuelve a leer el GPS y reenvía la misma confirmación
+  — el QR sigue vigente dentro de su TTL de 15s, no hace falta un código nuevo. El
+  resto de los códigos (`HANDSHAKE_QR_EXPIRED`/`_INVALID_SIGNATURE`/
+  `_CEDENTE_KEY_MISSING`/`_INVALID_SHIPMENT_STATE`, más un QR que no parsea como
+  JSON válido) ofrece "Volver a escanear", sin guardar el payload.
+- **Atajo de simulación de escaneo, solo `__DEV__`**: el DoD de dos-dispositivos-
+  reales no es alcanzable todavía (`MOVO-159`, el generador del QR, también sigue en
+  Todo) — un campo de texto para pegar el JSON a mano dispara el mismo camino que un
+  escaneo real, mismo criterio que el propio prototipo de Claude Design ("Simular
+  escaneo del receptor").
+- **Pantalla de éxito propia, sin navegar a `/shipments/:id`**: esa pantalla
+  (`MOVO-127`) solo sabe mostrar la perspectiva del emisor — le fallaría con 403 a un
+  transportista/receptor hasta que `MOVO-194` (extensión de roles del detalle,
+  todavía sin construir) exista. La ruta vuelve a Home en su lugar.
+
+**Grooming de Linear hecho en el camino** (pedido explícito del usuario, al revisar
+el árbol completo de dependencias de "fase 2 del home"): `MOVO-194` y `MOVO-199`
+—ya con AC/DoD completos, solo sin dueño— sumadas al Cycle 6 y asignadas a Tomás.
+`MOVO-207` se dejó con Pedro Yorlano a propósito (ya era suyo, no se reasignó).
+
+Tests: `test/handshake-scan-step.test.tsx` (los 3 permisos de cámara, QR no-JSON/
+incompleto, sin GPS, camino feliz, los 5 códigos de error con mensaje propio sin
+cerrar la cámara, reintento de `DISTANCE_EXCEEDED` con el mismo nonce, "volver a
+escanear" habilita un nuevo intento, atajo de simulación), `test/handshake-
+confirmation-result.test.tsx` (copy por `stage`), caso nuevo en
+`test/shipments-client.test.ts`. 115/115 suites, 881/881 tests. `tsc --noEmit`
+limpio (sin `eslint.config.js` en `movo-mobile` todavía, ver pendientes del
+paquete).
+
+Pendiente / fuera de alcance: cablear un CTA real (`MOVO-198`/`MOVO-199`/`MOVO-193`
+fase 2, todos sin arrancar); gating por rol en la ruta standalone (depende de
+`MOVO-194`).
+
+**`/dev-handshake` (mismo día, pedido del usuario): página de dev para probar esto
+contra el backend real sin esperar a `MOVO-159`.** Mismo criterio que `/dev-tokens`/
+`/dev-connection`/`/dev-home-operativo` — sin link desde la app, se navega
+escribiendo la URL. Reusa `HandshakeScanStep`/`HandshakeConfirmationResult` tal cual
+(cero fork).
+
+- **Elegir un envío**: lista los envíos propios (`listMine`, emisor) tocables, o un
+  campo para pegar cualquier ID — necesario para probar como transportista/receptor
+  de un envío que no es propio (esos roles no tienen ningún endpoint de listado
+  todavía, `MOVO-192` sigue Todo). Muestra el rol resuelto client-side y la etapa
+  pendiente (retiro/entrega) como información, sin gatear ninguna sección — el
+  backend es la única autoridad real de quién puede generar/confirmar.
+- **`shipmentsClient.generateHandshake()` nuevo** (`POST /shipments/:id/handshake/
+  generate`, MOVO-158, Done) — agregado ahora como parte del harness, pero es
+  simplemente el wrapper HTTP: `MOVO-159` lo va a reusar tal cual para su pantalla
+  real, no hace falta reescribirlo.
+- **"Generar QR de prueba"**: pide GPS (mismo `getCurrentLocation()` que el paso de
+  escaneo), llama a `generate`, firma el `canonicalPayload` con
+  `signHandshakeNonce()` (MOVO-195, ya existente) y arma el JSON exacto
+  `{shipmentId, nonce, signature}` que `HandshakeScanStep` espera — mostrado como
+  texto seleccionable (mantener presionado para copiar, sin sumar `expo-clipboard`
+  como dependencia nueva) para pegar en una segunda sesión/dispositivo logueado
+  como la contraparte real, dentro del TTL de 15s.
+- **Sin mock de ningún tipo**: todo pega contra `svc-shipments` real (`generate` y
+  `confirm`) — el único camino no genuino es que, sin `MOVO-159`, generar y escanear
+  hoy requiere dos pasadas manuales por esta misma pantalla (una por cuenta) en vez
+  de dos pantallas de producción distintas.
+
+Tests: `test/dev-handshake-screen.test.tsx` (selección de envío propio y por ID
+pegado, rol/etapa resueltos, generar QR pide GPS y firma antes de llamar a
+`generate`, sin GPS no llama a `generate`, confirmar desde el paso embebido llega a
+la pantalla de éxito), caso nuevo en `test/shipments-client.test.ts` para
+`generateHandshake`. 116/116 suites, 886/886 tests. `tsc --noEmit` limpio.
 
 ### MOVO-208 (backend, `svc-shipments`) — ajustes mobile por la extensión del set canónico
 
