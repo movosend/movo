@@ -417,20 +417,27 @@ el build no las tomaría. El profile `production` sigue intacto y sin ningún wo
 lo use — cuando se prenda la EC2 de prod, sumar un tag propio (ej. `prod-*`) con un
 guard contra `main`.
 
-Decisiones no obvias: `eas build --no-wait` (el job termina al encolar en vez de gastar
-minutos de runner esperando; a cambio el check de GitHub queda verde aunque el build
-falle después — el resultado real se mira en expo.dev). El workflow que corre es el del
+Decisiones no obvias: cada job **espera** a que EAS termine el build (sin `--no-wait`), así
+el check de GitHub refleja el resultado real. Cuesta ~15-25 min de runner por build más la
+cola de EAS, pero el repo es público (minutos gratis) — si pasara a privado, revisar esto.
+El development build corre en una matriz `ios`/`android` (dos jobs en paralelo,
+`fail-fast: false`). Workflow en Node 22, no 20 como el resto: `eas-cli` latest depende de
+paquetes que exigen Node >= 22. El workflow que corre es el del
 commit taggeado, así que tiene que estar mergeado antes de taggear. La versión de
 marketing (`version` de `app.config.js`) NO se deriva del tag — el número de build lo
 incrementa EAS (`autoIncrement`). El hook `eas-build-post-install` de `movo-mobile`
 buildea `@movo/shared` en el servidor de EAS (ver `movo-mobile/CLAUDE.md`).
 
-**Aviso en Telegram**: tras encolar, cada job manda al chat del equipo el link a la
-página del build (`TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`, secrets). Dice "encolado", no
-"terminó" — un aviso de fin de build necesitaría un intermediario que traduzca el webhook
-de EAS al formato de Telegram. Es `continue-on-error` y se omite sin los secrets: un
-aviso que falla nunca pone en rojo un build que sí se encoló. Los links se extraen del
-log de `eas build` con `grep` (no con `--json`, para no depender de su formato).
+**Aviso en Telegram** (`.github/scripts/notify-eas-build.sh`, secrets
+`TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` a nivel de repo, no de environment): al terminar
+cada job avisa al chat del equipo si el build quedó listo o falló, con la plataforma
+(iOS/Android) y el link a la página del build. Se hace desde el workflow y no con un
+webhook de EAS porque Telegram no entiende el payload del webhook: haría falta una
+función intermedia desplegada aparte. `if: always()` para avisar también los fallos;
+`continue-on-error` y se omite sin secrets, así que un aviso que falla nunca cambia el
+resultado del build. El link se saca del log de `eas build` con `grep` (no con `--json`,
+para no depender de su formato). El script acepta `DRY_RUN=1` para probar el mensaje sin
+enviarlo.
 
 **Dispositivos iOS del development build**: el perfil ad hoc lleva la lista de UDIDs
 adentro. Sumar un iPhone exige `eas device:create` y volver a correr a mano
@@ -441,9 +448,10 @@ al ser `--non-interactive`, no puede regenerarlo.
 Estado: el build de `staging` y su submit a TestFlight se probaron a mano (la App Store
 Connect API Key quedó guardada en EAS para el submit del CI; `ascAppId` fijo en
 `eas.json#submit.staging.ios`); `expo-dev-client` se agregó a `movo-mobile` porque el
-profile `development` lo necesita. Pendiente: secrets `TELEGRAM_BOT_TOKEN`/
-`TELEGRAM_CHAT_ID`; primer development build de Android a mano (EAS no genera el keystore
-en modo `--non-interactive`); y el workflow **sin verificar contra un tag real todavía**.
+profile `development` lo necesita. El primer development build de Android se corrió a mano
+(EAS no genera el keystore en modo `--non-interactive`). Un tag `dev-*` sobre la rama
+encoló los builds y el aviso de Telegram llegó. Pendiente de verificar: la versión que
+espera al build (matriz por plataforma), y un tag `v*` sobre `develop` (guard + TestFlight).
 
 ### Pendientes transversales
 
