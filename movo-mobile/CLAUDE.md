@@ -2975,3 +2975,52 @@ Implementación completa de la pantalla de transferencia de custodia física ví
   - `test/handshake-screen.test.tsx` (4 tests: resolución de rol emisor/transportista, advertencia de clave, transición a éxito).
   - `test/shipment-detail-screen.test.tsx` (3 tests nuevos para el botón contextual).
   - Suite completa: 132/132 suites, 1007/1007 tests pasando. `npx tsc --noEmit` sin errores.
+
+### MOVO-236 — Aviso de viaje auto-creado tras aceptar una oferta sin viaje asociado
+
+Frontend de MOVO-234 (backend, ya en `develop`): cuando se acepta una oferta sin
+`tripId`, el backend crea un `Trip` `declared` y dispara una push
+`{ type: "trip_auto_created", tripId }` (sin `shipmentId`) vía
+`dispatchAutoTripCreatedPush` en `offers.service.ts` — título/body ya vienen fijados
+por el backend, así que este ticket es routing + fallback in-app, no copy de la push.
+
+- **AC1 (push)**: `resolveNotificationRoute` (`use-push-notifications.ts`) generaliza
+  la rama de `trip_match` a `TRIP_ROUTE_NOTIFICATION_TYPES = ["trip_match",
+  "trip_auto_created"]` — mismo destino, `/(app)/(tabs)/transport?tripId=`. **No existe
+  una pantalla de "detalle de viaje"** pese a que el ticket la menciona (MOVO-162 solo
+  tiene lista/alta/edición) — el feed filtrado por `tripId` es lo más parecido a "ver
+  este viaje" que ya usa `TripCard.onPress`, mismo criterio que ya adoptó `trip_match`
+  (MOVO-163).
+- **AC2 (fallback in-app sin push)**: sin ningún flag de backend que distinga un `Trip`
+  auto-creado de uno declarado a mano (AC3 de MOVO-234), y sin ningún mecanismo previo
+  en el repo para detectar "mi oferta fue aceptada" fuera de la push (ni siquiera
+  `offer_accepted` lo tiene) — se resolvió con diffing local: `src/lib/seen-trips.ts`
+  persiste el set de `tripId`s vistos por dispositivo (`secureStore`, key
+  `carrierSeenTripIds` — **no** `AsyncStorage`, mismo criterio ya documentado en
+  `transportRadiusKm`, no amerita una dependencia nueva). "Mis viajes"
+  (`carrier/trips/index.tsx`) diffea en cada carga de `useMyTrips()` y muestra un
+  segundo `SuccessBanner` si aparece un `tripId` nuevo; la primera vez que corre en un
+  dispositivo siembra sin avisar (evita falsos positivos sobre viajes preexistentes).
+  `useCreateTrip` marca el id como visto en su propio `onSuccess`, antes de que la
+  pantalla llegue a diffear — así "Declarar viaje" (que ya tiene su propio aviso,
+  `?created=1`) nunca dispara también el banner de auto-creado para ese mismo viaje.
+  Simplificación aceptada: si ambos casos coinciden en la misma carga, `created=1`
+  tiene prioridad visual y el otro id se marca visto en silencio esa vez (edge case
+  raro, no amerita apilar dos banners).
+- **AC3**: no tocado — ya lo garantiza el propio `Trip` auto-creado del lado backend
+  (sin campo ni indicador visual distinto).
+
+Tests: `test/seen-trips.test.ts` (siembra inicial sin aviso, diff incremental,
+`markTripAsSeen` idempotente y previniendo el diff), `test/use-trips.test.ts` nuevo
+(`useCreateTrip` marca el id creado como visto), casos nuevos en
+`test/use-push-notifications.test.tsx` (`trip_auto_created` con/sin `tripId`) y
+`test/my-trips-screen.test.tsx` (banner simple/plural, sin viajes nuevos no muestra
+nada, prioridad de `created=1` sobre el banner de auto-creado). Suite completa
+verificada: 967/974 tests pasando, los 7 que fallan son preexistentes y no relacionados
+(`@noble/curves`, `@react-native-menu/menu`, `expo-camera`,
+`react-native-qrcode-svg` — módulos nativos no instalados en este checkout, mismo gap
+que ya reporta `tsc --noEmit`).
+
+Pendiente / fuera de alcance: copy final del push y del banner (placeholder razonable,
+mismo criterio que el resto del repo); auth de `movo-admin`/MOVO-33 no aplica acá (es
+mobile-only).
