@@ -2175,11 +2175,14 @@ Decisiones clave:
   o estado responde 403"), no una interpretación libre.
 - **Cadencia de ~45s (AC4) decidida en Redis, sin tocar Postgres en el camino
   caliente**: un hash `position:last:{shipmentId}` guarda la última posición conocida
-  (AC3, se pisa en CADA reporte) más `lastPersistedAt` (solo se pisa cuando efectivamente
-  se persiste). `reportPosition` compara `now - lastPersistedAt` contra
-  `CARRIER_POSITION_MIN_PERSIST_INTERVAL_MS` (45000, constante de dominio en
-  `position-service.ts`, no env var — es una regla de producto fija, no un parámetro
-  operativo) antes de decidir si llama a `positionRepository.create()`. La difusión
+  (AC3, se pisa en CADA reporte). La cadencia la gobierna un claim atómico aparte,
+  `SET position:cadence:{shipmentId} 1 PX <CARRIER_POSITION_MIN_PERSIST_INTERVAL_MS> NX`
+  (45000, constante de dominio en `position-service.ts`, no env var — es una regla de
+  producto fija, no un parámetro operativo): solo el reporte que gana el claim llama a
+  `positionRepository.create()`. Un `hget` + comparación + `hset` separados (primera
+  versión) dejaba pasar dos persistencias dentro de la misma ventana ante reportes
+  solapados (review de PR #178); el claim no se libera, expira solo por TTL, salvo si
+  `create()` falla (se hace `del` para no perder hasta ~45s de traza). La difusión
   (AC5) y la actualización de "última posición conocida" pasan siempre, sin importar
   si esta posición puntual se persiste.
 - **`PositionRedisClient`, interfaz angosta, no el cliente `ioredis` completo** —

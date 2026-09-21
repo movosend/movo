@@ -24,6 +24,12 @@ function lastKnownPositionKey(shipmentId: string): string {
   return `position:last:${shipmentId}`;
 }
 
+/** Claim de la ventana de cadencia (AC4): existe mientras dure el intervalo mínimo entre
+ * dos persistencias. Es la fuente de verdad de la cadencia -- ver `reportPosition`. */
+function persistCadenceKey(shipmentId: string): string {
+  return `position:cadence:${shipmentId}`;
+}
+
 export interface RealtimePublisher {
   broadcast(shipmentId: string, message: unknown): void;
 }
@@ -36,7 +42,8 @@ export interface RealtimePublisher {
  * la satisface estructuralmente sin ningún adapter.
  */
 export interface PositionRedisClient {
-  hget(key: string, field: string): Promise<string | null>;
+  set(key: string, value: string, mode: "PX", ttlMs: number, flag: "NX"): Promise<"OK" | null>;
+  del(key: string): Promise<number>;
   hset(key: string, fields: Record<string, string>): Promise<number>;
   expire(key: string, seconds: number): Promise<number>;
   hgetall(key: string): Promise<Record<string, string>>;
@@ -74,9 +81,10 @@ export function createPositionService(
      * AC1-AC5. Autorización estricta (AC2: solo el transportista asignado, solo
      * `in_transit`, 403 para cualquier otro actor o estado -- literal del ticket, no
      * el 409 que sería más habitual para "estado equivocado"). El descarte de
-     * cadencia (AC4) se decide contra `lastPersistedAt` en Redis, nunca confiando en
-     * que el cliente respete los ~45s -- la última posición conocida (AC3) y la
-     * difusión (AC5) pasan SIEMPRE, sin importar si esta posición puntual se persiste.
+     * cadencia (AC4) se decide en el backend con un claim atómico en Redis, nunca
+     * confiando en que el cliente respete los ~45s -- la última posición conocida (AC3)
+     * y la difusión (AC5) pasan SIEMPRE, sin importar si esta posición puntual se
+     * persiste.
      */
     async reportPosition(
       shipmentId: string,
@@ -99,35 +107,48 @@ export function createPositionService(
 
       const now = new Date();
       const key = lastKnownPositionKey(shipmentId);
-      const lastPersistedAtRaw = await redis.hget(key, "lastPersistedAt");
-      const lastPersistedAt = lastPersistedAtRaw ? new Date(lastPersistedAtRaw) : null;
-      const shouldPersist =
-        !lastPersistedAt || now.getTime() - lastPersistedAt.getTime() >= CARRIER_POSITION_MIN_PERSIST_INTERVAL_MS;
+
+      // Fix de review (PR #178): la decisión de cadencia es UN solo `SET ... PX <45s> NX`,
+      // no un `hget` + comparación + `hset` posterior -- con esos pasos separados, dos
+      // reportes solapados (ej. un retry del cliente ante un timeout) leían el mismo
+      // `lastPersistedAt` viejo y los dos persistían dentro de la misma ventana. Acá el
+      // TTL de la key ES la ventana: solo un reporte gana el claim, el resto cae a
+      // `persisted: false`. No es un lock alrededor de la escritura (que podría vencer a
+      // mitad de un `create` lento): el claim no se libera, sale solo al cumplirse el
+      // intervalo.
+      const cadenceKey = persistCadenceKey(shipmentId);
+      const claimed = await redis.set(cadenceKey, "1", "PX", CARRIER_POSITION_MIN_PERSIST_INTERVAL_MS, "NX");
+      const shouldPersist = claimed === "OK";
 
       if (shouldPersist) {
-        await positionRepository.create({
-          shipmentId,
-          lat: input.lat,
-          lng: input.lng,
-          accuracyM: input.accuracyM,
-          capturedAt: input.capturedAt,
-        });
+        try {
+          await positionRepository.create({
+            shipmentId,
+            lat: input.lat,
+            lng: input.lng,
+            accuracyM: input.accuracyM,
+            capturedAt: input.capturedAt,
+          });
+        } catch (err) {
+          // Si la escritura falló, no quedó nada persistido: se libera el claim para que
+          // el próximo reporte pueda reintentar en vez de perder hasta ~45s de traza.
+          // Best-effort -- si el `del` también falla, el claim expira solo por TTL.
+          await redis.del(cadenceKey).catch((delErr: unknown) => {
+            logger?.warn({ err: delErr, shipmentId }, "No se pudo liberar el claim de cadencia tras un create fallido");
+          });
+          throw err;
+        }
       }
 
       // AC3: la última posición conocida se actualiza SIEMPRE, independientemente de
-      // si esta se persistió -- `lastPersistedAt` solo se pisa cuando sí se persistió,
-      // es la única marca que gobierna la cadencia de arriba.
-      const hashUpdate: Record<string, string> = {
+      // si esta se persistió.
+      await redis.hset(key, {
         lat: String(input.lat),
         lng: String(input.lng),
         accuracyM: String(input.accuracyM),
         capturedAt: input.capturedAt.toISOString(),
         recordedAt: now.toISOString(),
-      };
-      if (shouldPersist) {
-        hashUpdate.lastPersistedAt = now.toISOString();
-      }
-      await redis.hset(key, hashUpdate);
+      });
       await redis.expire(key, LAST_KNOWN_POSITION_TTL_SECONDS);
 
       // AC5: se difunde cada posición recibida, sin esperar la persistencia.

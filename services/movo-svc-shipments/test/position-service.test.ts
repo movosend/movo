@@ -66,7 +66,20 @@ function fakePositionRepository(overrides: Partial<PositionRepository> = {}): Po
  * un Map en memoria en vez de mockear ioredis completo. */
 function createFakeRedis(): PositionRedisClient {
   const hashes = new Map<string, Record<string, string>>();
+  const strings = new Map<string, { value: string; expiresAt: number }>();
   return {
+    // `SET key value PX ttl NX`: atómico por construcción (sin `await` entre el chequeo
+    // y la escritura), igual que en Redis real. Expira contra `Date.now()`, así que
+    // respeta `vi.useFakeTimers()`.
+    async set(key, value, _mode, ttlMs, _flag) {
+      const existing = strings.get(key);
+      if (existing && existing.expiresAt > Date.now()) return null;
+      strings.set(key, { value, expiresAt: Date.now() + ttlMs });
+      return "OK";
+    },
+    async del(key) {
+      return strings.delete(key) ? 1 : 0;
+    },
     async hget(key, field) {
       return hashes.get(key)?.[field] ?? null;
     },
@@ -201,6 +214,43 @@ describe("position-service (MOVO-202)", () => {
         persisted: true,
       });
       expect(positionRepository.create).toHaveBeenCalledTimes(2);
+    });
+
+    it("reportes concurrentes dentro de la misma ventana persisten UNA sola vez (claim atómico de la cadencia)", async () => {
+      const positionRepository = fakePositionRepository();
+      const service = createPositionService(
+        fakeShipmentRepository(),
+        positionRepository,
+        createFakeRedis(),
+        fakeRealtime()
+      );
+
+      // Un retry del cliente ante un timeout, o dos requests que se superponen: ambos
+      // llegan antes de que cualquiera haya terminado.
+      const results = await Promise.all([
+        service.reportPosition("shipment-1", "carrier-1", basePosition),
+        service.reportPosition("shipment-1", "carrier-1", basePosition),
+        service.reportPosition("shipment-1", "carrier-1", basePosition),
+      ]);
+
+      expect(results.filter((r) => r.persisted)).toHaveLength(1);
+      expect(positionRepository.create).toHaveBeenCalledTimes(1);
+    });
+
+    it("si persistir falla, libera el claim para que el próximo reporte pueda reintentar", async () => {
+      const create = vi.fn().mockRejectedValueOnce(new Error("db caída")).mockResolvedValue({});
+      const service = createPositionService(
+        fakeShipmentRepository(),
+        fakePositionRepository({ create }),
+        createFakeRedis(),
+        fakeRealtime()
+      );
+
+      await expect(service.reportPosition("shipment-1", "carrier-1", basePosition)).rejects.toThrow("db caída");
+      await expect(service.reportPosition("shipment-1", "carrier-1", basePosition)).resolves.toEqual({
+        persisted: true,
+      });
+      expect(create).toHaveBeenCalledTimes(2);
     });
 
     it("AC3: la última posición conocida en Redis se actualiza SIEMPRE, aunque el reporte no se persista", async () => {
