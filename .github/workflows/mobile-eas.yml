@@ -2,7 +2,10 @@ name: Mobile EAS Build
 
 # Un tag de git dispara el build de movo-mobile en EAS Cloud:
 #   dev-*  -> development build (profile `development`, iOS + Android)
-#   v*     -> TestFlight (profile `production`, solo iOS, con submit automático)
+#   v*     -> TestFlight (profile `staging`, solo iOS, con submit automático).
+#             Apunta a api-dev.movosend.app: la EC2 de prod está apagada por costos.
+#             Cuando se prenda, sumar un tag propio (ej. `prod-*`) con el profile
+#             `production` y un guard contra main.
 #
 # El workflow que corre es el del commit taggeado, no el de `develop`/`main`: tiene
 # que estar mergeado antes de crear el tag.
@@ -70,16 +73,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # El guard de abajo necesita el historial de main.
+          # El guard de abajo necesita el historial de develop y main.
           fetch-depth: 0
 
-      # El profile `production` apunta a api.movosend.app: no se publica a
-      # TestFlight un build de un commit que no llegó a main.
-      - name: Verificar que el tag está en main
+      # TestFlight le llega a los testers: no se publica un build de un commit
+      # que no pasó por revisión (una rama feature sin mergear).
+      - name: Verificar que el tag está en develop o main
         working-directory: .
         run: |
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::El tag ${GITHUB_REF_NAME} apunta a un commit que no está en main. Mergeá a main antes de taggear un release."
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/develop \
+            && ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::El tag ${GITHUB_REF_NAME} apunta a un commit que no está en develop ni en main. Mergeá el PR antes de taggear."
             exit 1
           fi
 
@@ -100,5 +104,5 @@ jobs:
 
       # --auto-submit: EAS sube el .ipa a App Store Connect apenas termina el
       # build (el número de build lo incrementa `autoIncrement` de eas.json).
-      - name: Encolar build de producción + submit a TestFlight
-        run: eas build --platform ios --profile production --non-interactive --no-wait --auto-submit
+      - name: Encolar build de staging + submit a TestFlight
+        run: eas build --platform ios --profile staging --non-interactive --no-wait --auto-submit
