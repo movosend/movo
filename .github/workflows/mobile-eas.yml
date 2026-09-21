@@ -1,11 +1,16 @@
 name: Mobile EAS Build
 
 # Un tag de git dispara el build de movo-mobile en EAS Cloud:
-#   dev-*  -> development build (profile `development`, iOS + Android)
+#   dev-*  -> development build (profile `development`), un job por plataforma
+#             (iOS y Android en paralelo).
 #   v*     -> TestFlight (profile `staging`, solo iOS, con submit automático).
 #             Apunta a api-dev.movosend.app: la EC2 de prod está apagada por costos.
 #             Cuando se prenda, sumar un tag propio (ej. `prod-*`) con el profile
 #             `production` y un guard contra main.
+#
+# Cada job espera a que EAS termine el build y avisa por Telegram el resultado (listo o
+# falló) con el link a la página del build. El repo es público, así que los minutos de
+# runner que consume esa espera no se cobran.
 #
 # El workflow que corre es el del commit taggeado, no el de `develop`/`main`: tiene
 # que estar mergeado antes de crear el tag.
@@ -32,8 +37,15 @@ env:
 jobs:
   dev-build:
     if: startsWith(github.ref_name, 'dev-')
+    name: dev-build (${{ matrix.platform }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # El build tarda ~15-25 min, más la cola de EAS (plan gratuito: puede ser larga).
+    timeout-minutes: 90
+    strategy:
+      # Que falle un build no cancela el de la otra plataforma.
+      fail-fast: false
+      matrix:
+        platform: [ios, android]
     defaults:
       run:
         working-directory: movo-mobile
@@ -60,37 +72,34 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      # --no-wait: el job termina apenas EAS encola los builds (link en el log),
-      # en vez de gastar minutos de runner esperando. El resultado real del build
-      # se mira en expo.dev, no en este check.
-      - name: Encolar development build (iOS + Android)
+      # Sin --no-wait: el job espera al build. Si EAS lo da por fallido, `eas` sale con
+      # error y el job queda en rojo.
+      - name: Development build (${{ matrix.platform }})
         run: |
           set -o pipefail
-          eas build --platform all --profile development --non-interactive --no-wait 2>&1 | tee "$RUNNER_TEMP/eas-build.log"
+          eas build --platform ${{ matrix.platform }} --profile development --non-interactive 2>&1 | tee "$RUNNER_TEMP/eas-build.log"
 
-      # Un aviso que falla no tiene que poner en rojo un build que sí se encoló
-      # (continue-on-error), y sin los secrets de Telegram simplemente se omite.
+      # always(): también avisa si el build falló o si se cortó antes (ej. `npm ci`).
+      # continue-on-error: un aviso que falla no cambia el resultado del build.
       - name: Avisar en Telegram
+        if: always()
         continue-on-error: true
+        working-directory: .
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MODE: dev
+          PLATFORM: ${{ matrix.platform }}
           TAG: ${{ github.ref_name }}
-        run: |
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
-            echo "Sin secrets de Telegram: se omite el aviso."
-            exit 0
-          fi
-          links="$(grep -oE 'https://expo\.dev/accounts/[^ ]+/builds/[0-9a-f-]+' "$RUNNER_TEMP/eas-build.log" | sort -u)"
-          text="$(printf 'Development build encolado (%s)\n\n%s\n\nCuando termine, abrí el link desde tu iPhone o Android para instalarlo.' "$TAG" "$links")"
-          curl -sS --fail-with-body -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=${text}" > /dev/null
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          LOG_FILE: ${{ runner.temp }}/eas-build.log
+        run: .github/scripts/notify-eas-build.sh
 
   testflight:
     if: startsWith(github.ref_name, 'v')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: movo-mobile
@@ -128,24 +137,22 @@ jobs:
 
       # --auto-submit: EAS sube el .ipa a App Store Connect apenas termina el
       # build (el número de build lo incrementa `autoIncrement` de eas.json).
-      - name: Encolar build de staging + submit a TestFlight
+      - name: Build de staging + submit a TestFlight
         run: |
           set -o pipefail
-          eas build --platform ios --profile staging --non-interactive --no-wait --auto-submit 2>&1 | tee "$RUNNER_TEMP/eas-build.log"
+          eas build --platform ios --profile staging --non-interactive --auto-submit 2>&1 | tee "$RUNNER_TEMP/eas-build.log"
 
       - name: Avisar en Telegram
+        if: always()
         continue-on-error: true
+        working-directory: .
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MODE: testflight
+          PLATFORM: ios
           TAG: ${{ github.ref_name }}
-        run: |
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
-            echo "Sin secrets de Telegram: se omite el aviso."
-            exit 0
-          fi
-          links="$(grep -oE 'https://expo\.dev/accounts/[^ ]+/builds/[0-9a-f-]+' "$RUNNER_TEMP/eas-build.log" | sort -u)"
-          text="$(printf 'Build de TestFlight encolado (%s)\n\n%s\n\nCuando EAS termine, Apple lo procesa unos 10 minutos y llega a TestFlight.' "$TAG" "$links")"
-          curl -sS --fail-with-body -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=${text}" > /dev/null
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          LOG_FILE: ${{ runner.temp }}/eas-build.log
+        run: .github/scripts/notify-eas-build.sh
