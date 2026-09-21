@@ -425,10 +425,25 @@ marketing (`version` de `app.config.js`) NO se deriva del tag — el número de 
 incrementa EAS (`autoIncrement`). El hook `eas-build-post-install` de `movo-mobile`
 buildea `@movo/shared` en el servidor de EAS (ver `movo-mobile/CLAUDE.md`).
 
-Pendiente: secret `EXPO_TOKEN` (repo) sin cargar — el workflow no puede correr sin él;
-dispositivos iOS registrados (`eas device:create`) para el development build ad hoc; la
-app creada en App Store Connect. Si el primer submit pide `ascAppId`, agregarlo en
-`eas.json#submit.staging.ios`. Sin verificar contra un tag real todavía.
+**Aviso en Telegram**: tras encolar, cada job manda al chat del equipo el link a la
+página del build (`TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`, secrets). Dice "encolado", no
+"terminó" — un aviso de fin de build necesitaría un intermediario que traduzca el webhook
+de EAS al formato de Telegram. Es `continue-on-error` y se omite sin los secrets: un
+aviso que falla nunca pone en rojo un build que sí se encoló. Los links se extraen del
+log de `eas build` con `grep` (no con `--json`, para no depender de su formato).
+
+**Dispositivos iOS del development build**: el perfil ad hoc lleva la lista de UDIDs
+adentro. Sumar un iPhone exige `eas device:create` y volver a correr a mano
+`eas build -p ios --profile development` (login de Apple del titular, la cuenta es
+Individual) para regenerar el perfil; recién el siguiente tag `dev-*` lo incluye. El CI,
+al ser `--non-interactive`, no puede regenerarlo.
+
+Estado: el build de `staging` y su submit a TestFlight se probaron a mano (la App Store
+Connect API Key quedó guardada en EAS para el submit del CI; `ascAppId` fijo en
+`eas.json#submit.staging.ios`); `expo-dev-client` se agregó a `movo-mobile` porque el
+profile `development` lo necesita. Pendiente: secrets `TELEGRAM_BOT_TOKEN`/
+`TELEGRAM_CHAT_ID`; primer development build de Android a mano (EAS no genera el keystore
+en modo `--non-interactive`); y el workflow **sin verificar contra un tag real todavía**.
 
 ### Pendientes transversales
 
