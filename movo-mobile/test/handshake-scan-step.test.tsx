@@ -283,28 +283,4 @@ describe("HandshakeScanStep", () => {
 
     await waitFor(() => expect(mockOnConfirmed).toHaveBeenCalled());
   });
-
-  it("el atajo de simulación de escaneo (dev) dispara el mismo camino que un escaneo real", async () => {
-    (getCurrentLocation as jest.Mock).mockResolvedValue({ granted: true, lat: -31.4, lng: -64.2 });
-    (shipmentsClient.confirmHandshake as jest.Mock).mockResolvedValue({
-      shipmentId: "shipment-1",
-      stage: "pickup",
-      previousStatus: "assigned",
-      status: "in_transit",
-      distanceM: 3,
-      confirmedAt: "2026-09-13T10:15:00.000Z",
-    });
-
-    const { getByTestId } = await render(
-      <HandshakeScanStep shipmentId="shipment-1" onConfirmed={mockOnConfirmed} />,
-    );
-
-    fireEvent.changeText(getByTestId("handshake-scan-dev-input"), JSON.stringify(validPayload));
-    await waitFor(() => {
-      expect(getByTestId("handshake-scan-dev-input").props.value).toBe(JSON.stringify(validPayload));
-    });
-    await fireEvent.press(getByTestId("handshake-scan-dev-simulate"));
-
-    await waitFor(() => expect(mockOnConfirmed).toHaveBeenCalled());
-  });
 });

@@ -44,9 +44,18 @@ jest.mock("../components/handshake/handshake-confirmation-result", () => {
 // Mismo mock de `expo-camera` que `handshake-scan-step.test.tsx` — el componente
 // real vive adentro de esta pantalla de dev sin cambios.
 jest.mock("expo-camera", () => {
-  const { View } = require("react-native");
+  const { Pressable, View } = require("react-native");
   return {
-    CameraView: ({ testID, children }: any) => <View testID={testID}>{children}</View>,
+    CameraView: ({ testID, onBarcodeScanned }: any) => (
+      <View testID={testID}>
+        <Pressable
+          testID={`${testID}-scan-trigger`}
+          onPress={() =>
+            onBarcodeScanned?.({ data: JSON.stringify({ shipmentId: "shipment-1", nonce: "n1", signature: "s1" }) })
+          }
+        />
+      </View>
+    ),
     useCameraPermissions: () => [{ granted: true, canAskAgain: true }, jest.fn()],
   };
 });
@@ -160,16 +169,7 @@ describe("DevHandshakeScreen", () => {
     await fireEvent.press(getByTestId("dev-handshake-mine-shipment-1"));
     await waitFor(() => expect(getByTestId("dev-handshake-scan-step")).toBeTruthy());
 
-    fireEvent.changeText(
-      getByTestId("handshake-scan-dev-input"),
-      JSON.stringify({ shipmentId: "shipment-1", nonce: "n1", signature: "s1" }),
-    );
-    await waitFor(() =>
-      expect(getByTestId("handshake-scan-dev-input").props.value).toBe(
-        JSON.stringify({ shipmentId: "shipment-1", nonce: "n1", signature: "s1" }),
-      ),
-    );
-    await fireEvent.press(getByTestId("handshake-scan-dev-simulate"));
+    await fireEvent.press(getByTestId("handshake-camera-view-scan-trigger"));
 
     await waitFor(() => expect(getByTestId("dev-handshake-confirmation-result")).toBeTruthy());
     expect(getByText("confirmation:pickup")).toBeTruthy();

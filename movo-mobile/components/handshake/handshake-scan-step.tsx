@@ -1,15 +1,13 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { Camera as CameraIcon } from "lucide-react-native";
+import { AlertTriangle, Camera as CameraIcon } from "lucide-react-native";
 import { useRef, useState } from "react";
-import { Alert, Linking, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Linking, Pressable, Text, View } from "react-native";
 import type { ConfirmHandshakeResult } from "../../src/api/shipments-client";
 import { shipmentsClient } from "../../src/api/shipments-client";
 import { getCurrentLocation } from "../../src/lib/location";
 import { friendlyErrorMessage } from "../../src/lib/error-messages";
 import { PrimaryButton } from "../auth/primary-button";
-import { ErrorBanner } from "../ui/error-banner";
-import { TextField } from "../ui/text-field";
 
 interface HandshakeScanStepProps {
   shipmentId: string;
@@ -72,7 +70,6 @@ export function HandshakeScanStep({ shipmentId, onConfirmed, onEvidenceMissing, 
   const retryablePayloadRef = useRef<ScannedQrPayload | null>(null);
   const [canRetrySameScan, setCanRetrySameScan] = useState(false);
   const isProcessingRef = useRef(false);
-  const [devSimulatedInput, setDevSimulatedInput] = useState("");
 
   async function confirmWithPayload(payload: ScannedQrPayload) {
     setIsConfirming(true);
@@ -145,10 +142,6 @@ export function HandshakeScanStep({ shipmentId, onConfirmed, onEvidenceMissing, 
     void confirmWithPayload(payload);
   }
 
-  function handleSimulateScan() {
-    handleBarcodeScanned({ data: devSimulatedInput });
-  }
-
   if (!permission) {
     return <View testID={testID} className="flex-1 bg-ink-950" />;
   }
@@ -194,49 +187,52 @@ export function HandshakeScanStep({ shipmentId, onConfirmed, onEvidenceMissing, 
         style={{ flex: 1 }}
         barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
         onBarcodeScanned={isConfirming ? undefined : handleBarcodeScanned}
-      >
-        <View className="flex-1 items-center justify-center gap-5 px-8">
+      />
+
+      {/* Overlay como hermano absoluto de la cámara: `CameraView` no soporta children
+          (la vista nativa no los dibuja encima del preview). */}
+      <View pointerEvents="box-none" style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}>
+        <View pointerEvents="none" className="flex-1 items-center justify-center">
           <View className="h-44 w-44 rounded-2xl border-2 border-lime-500/70" />
-          <Text className="text-center font-sans text-[13px] text-white/70">
+          {/* Absoluto bajo el recuadro: el texto no desplaza el centro del recuadro. */}
+          <Text
+            className="absolute inset-x-8 text-center font-sans text-[13px] text-white/70"
+            style={{ top: "50%", marginTop: 88 + 20 }}
+          >
             {isConfirming ? "Confirmando…" : "Apuntá al código de la otra persona"}
           </Text>
         </View>
 
         {errorMessage ? (
-          <View className="absolute inset-x-4 top-14 gap-2">
-            <ErrorBanner testID="handshake-scan-error" message={errorMessage} />
-            {canRetrySameScan ? (
-              <PrimaryButton
-                testID="handshake-scan-retry"
-                label="Reintentar"
-                loading={isConfirming}
-                onPress={handleRetrySameScan}
-              />
-            ) : (
-              <PrimaryButton testID="handshake-scan-dismiss" label="Volver a escanear" onPress={handleDismissError} />
-            )}
+          <View
+            testID="handshake-scan-error"
+            className="absolute inset-x-0 bottom-0 gap-4 rounded-t-3xl bg-white px-5 pb-10 pt-5"
+          >
+            <View className="flex-row items-start gap-3">
+              <View className="h-9 w-9 items-center justify-center rounded-full bg-danger-500/10">
+                <AlertTriangle size={18} color="#E5484D" strokeWidth={2.4} />
+              </View>
+              <View className="flex-1 gap-0.5">
+                <Text className="font-sans-semibold text-body text-ink-950">
+                  {canRetrySameScan ? "Estás muy lejos" : "No pudimos confirmar"}
+                </Text>
+                <Text className="font-sans text-[13px] leading-[18px] text-ink-950/70">{errorMessage}</Text>
+              </View>
+            </View>
+            <Pressable
+              testID={canRetrySameScan ? "handshake-scan-retry" : "handshake-scan-dismiss"}
+              onPress={canRetrySameScan ? handleRetrySameScan : handleDismissError}
+              disabled={isConfirming}
+              className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-lime-500 py-3.5 active:opacity-80"
+            >
+              {isConfirming ? <ActivityIndicator color="#0A0A0B" /> : null}
+              <Text className="font-sans-semibold text-body text-ink-950">
+                {canRetrySameScan ? "Reintentar" : "Volver a escanear"}
+              </Text>
+            </Pressable>
           </View>
         ) : null}
-
-        {__DEV__ ? (
-          <View className="absolute inset-x-4 bottom-8 gap-2 rounded-[10px] bg-bg p-3">
-            <TextField
-              testID="handshake-scan-dev-input"
-              label="Simular escaneo (dev): pegar JSON del QR"
-              value={devSimulatedInput}
-              onChangeText={setDevSimulatedInput}
-              autoCapitalize="none"
-              multiline
-            />
-            <PrimaryButton
-              testID="handshake-scan-dev-simulate"
-              label="Simular escaneo"
-              disabled={!devSimulatedInput || isConfirming}
-              onPress={handleSimulateScan}
-            />
-          </View>
-        ) : null}
-      </CameraView>
+      </View>
     </View>
   );
 }
