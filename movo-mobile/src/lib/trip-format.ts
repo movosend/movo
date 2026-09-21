@@ -1,6 +1,7 @@
 import { TripStatus } from "../api/trips-client";
 
 const TRIP_STATUS_LABELS: Record<TripStatus, string> = {
+  [TripStatus.DECLARED]: "Declarado",
   [TripStatus.ACTIVE]: "Activo",
   [TripStatus.CANCELLED]: "Cancelado",
   [TripStatus.COMPLETED]: "Completado",
@@ -18,6 +19,8 @@ export function tripStatusTone(
       return "success";
     case TripStatus.CANCELLED:
       return "danger";
+    case TripStatus.DECLARED:
+      return "neutral";
     case TripStatus.ACTIVE:
     default:
       // Acento de marca (lima) para el estado principal/activo — feedback de UI post-

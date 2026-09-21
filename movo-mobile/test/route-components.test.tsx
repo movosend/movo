@@ -1,7 +1,7 @@
 import React from "react";
-import { Linking } from "react-native";
+import { Linking, RefreshControl } from "react-native";
 import { render, fireEvent, act } from "@testing-library/react-native";
-import { StopList } from "../components/route/stop-list";
+import { formatDuration, StopList } from "../components/route/stop-list";
 import { RouteMap } from "../components/route/route-map";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
 
@@ -75,9 +75,9 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       expect(getByText("San Martín 450")).toBeTruthy();
       expect(getByTestId("stop-row-3")).toBeTruthy();
 
-      // AC11: Formato de ETA aprox.
+      // AC11: Formato de ETA aprox. en horas y minutos (ej: +1h50min)
       expect(getByTestId("stop-eta-1").props.children).toMatch(/aprox/);
-      expect(getByTestId("stop-eta-3").props.children).toMatch(/\+110 min aprox/);
+      expect(getByTestId("stop-eta-3").props.children).toMatch(/\+1h50min aprox/);
     });
 
     it("renderiza el drag handle superior táctil para arrastrar o expandir", async () => {
@@ -121,30 +121,55 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       expect(getByText(/Ruta ordenada por defecto/)).toBeTruthy();
     });
 
-    it("muestra aviso toast al tocar una parada futura (orden estricto) y permite navegar a envío de la activa", async () => {
+    it("permite seleccionar cualquier parada, abre su detalle con 'Ver envío' y omite el botón de acción si no es la próxima", async () => {
       const onSelectStop = jest.fn();
       const onPressShipment = jest.fn();
 
-      const { getByTestId, getByText } = await render(
+      const { getByTestId, queryByTestId } = await render(
         <StopList
           route={sampleRoute}
           activeStopOrder={1}
+          selectedStopOrder={1}
           onSelectStop={onSelectStop}
           onPressShipment={onPressShipment}
+          isExpanded={true}
         />
       );
 
-      // Expandir lista para ver paradas futuras
-      await fireEvent.press(getByTestId("stop-list-toggle-sheet"));
+      // Por default la parada activa 1 está destacada y abierta (ambos botones)
+      expect(getByTestId("stop-shipment-link-1")).toBeTruthy();
+      expect(getByTestId("stop-action-btn-1")).toBeTruthy();
+      expect(queryByTestId("stop-shipment-link-2")).toBeNull();
+      expect(queryByTestId("stop-action-btn-2")).toBeNull();
 
-      // Tocar parada futura 2 dispara toast según regla de Claude Design
+      // Tocar parada futura 2 dispara onSelectStop
       await fireEvent.press(getByTestId("stop-row-2"));
-      expect(getByTestId("stop-list-toast")).toBeTruthy();
-      expect(getByText(/Primero completá la parada 1/)).toBeTruthy();
-      expect(onSelectStop).not.toHaveBeenCalled();
+      expect(onSelectStop).toHaveBeenCalledWith(sampleRoute.stops[1]);
+    });
 
-      // Tocar "Ver envío" en la parada activa 1
-      await fireEvent.press(getByTestId("stop-shipment-link-1"));
+    it("en paradas seleccionadas que no son la próxima solo renderiza 'Ver envío' (sin botón de retirar/entregar)", async () => {
+      const onPressShipment = jest.fn();
+
+      const { getByTestId, queryByTestId } = await render(
+        <StopList
+          route={sampleRoute}
+          activeStopOrder={1}
+          selectedStopOrder={2}
+          onPressShipment={onPressShipment}
+          isExpanded={true}
+        />
+      );
+
+      // Parada 2 está seleccionada: muestra "Ver envío" pero NO "Retirar paquete" ni "Entregar paquete"
+      expect(getByTestId("stop-shipment-link-2")).toBeTruthy();
+      expect(queryByTestId("stop-action-btn-2")).toBeNull();
+
+      // Parada 1 no está seleccionada: sus botones están cerrados
+      expect(queryByTestId("stop-shipment-link-1")).toBeNull();
+      expect(queryByTestId("stop-action-btn-1")).toBeNull();
+
+      // Navegación a ver envío funciona desde la parada 2
+      await fireEvent.press(getByTestId("stop-shipment-link-2"));
       expect(onPressShipment).toHaveBeenCalledWith("ship-101");
     });
 
@@ -195,38 +220,35 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       );
     });
 
-    it("renderiza chips coherentes con los nodos del mapa (retiro cuadrado, entrega círculo, fondo negro con borde blanco)", async () => {
+    it("renderiza chips coherentes con los nodos del mapa (retiro cuadrado, entrega círculo, fondo negro sin borde incompleto)", async () => {
       const { getByTestId } = await render(
         <StopList route={sampleRoute} isExpanded={true} />
       );
 
-      // Parada 1 (retiro): cuadrado redondeado (radius 8), fondo #0A0A0B, borde blanco
+      // Parada 1 (retiro): cuadrado redondeado (radius 8), fondo #0A0A0B
       const chip1 = getByTestId("stop-chip-1");
       expect(chip1.props.style).toEqual(
         expect.objectContaining({
           borderRadius: 8,
           backgroundColor: "#0A0A0B",
-          borderColor: "#FFFFFF",
         })
       );
 
-      // Parada 3 (entrega): círculo (radius 999), fondo #0A0A0B, borde blanco
+      // Parada 3 (entrega): círculo completo (radius 999), fondo #0A0A0B
       const chip3 = getByTestId("stop-chip-3");
       expect(chip3.props.style).toEqual(
         expect.objectContaining({
           borderRadius: 999,
           backgroundColor: "#0A0A0B",
-          borderColor: "#FFFFFF",
         })
       );
 
-      // Parada 2 (demora / retraso): círculo (radius 999), fondo #E5484D (rojo), borde blanco
+      // Parada 2 (demora / retraso): círculo completo (radius 999), fondo #E5484D (rojo)
       const chip2 = getByTestId("stop-chip-2");
       expect(chip2.props.style).toEqual(
         expect.objectContaining({
           borderRadius: 999,
           backgroundColor: "#E5484D",
-          borderColor: "#FFFFFF",
         })
       );
     });
@@ -474,7 +496,7 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       jest.useRealTimers();
     });
 
-    it("prioriza selectedStopOrder sobre activeStopOrder al abrir navegación externa", async () => {
+    it("abre en Google Maps el recorrido completo con todas las paradas secuenciadas mediante waypoints y destino final", async () => {
       const openURLSpy = jest.spyOn(Linking, "openURL").mockImplementation(() => Promise.resolve());
 
       const { getByTestId } = await render(
@@ -482,7 +504,6 @@ describe("Componentes de Ruta (MOVO-207)", () => {
           carrierLocation={{ lat: -31.4167, lng: -64.1833 }}
           stops={sampleRoute.stops}
           activeStopOrder={1}
-          selectedStopOrder={2}
         />
       );
 
@@ -491,9 +512,68 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       });
 
       expect(openURLSpy).toHaveBeenCalledTimes(1);
-      // Parada 2 lat es -31.9139 (San Martín 450)
-      expect(openURLSpy.mock.calls[0][0]).toContain("-31.9139");
+      const calledUrl = openURLSpy.mock.calls[0][0];
+
+      // Incluye origen con posición del transportista
+      expect(calledUrl).toContain("origin=-31.4167,-64.1833");
+      // Incluye parada 3 como destino final
+      expect(calledUrl).toContain("destination=-32.0416%2C-63.5698");
+      // Incluye paradas 1 y 2 como waypoints secuenciados intermedios
+      expect(calledUrl).toContain("waypoints=-31.425,-64.187%7C-31.9139,-63.6817");
+      expect(calledUrl).toContain("travelmode=driving");
+
       openURLSpy.mockRestore();
+    });
+
+    it("al presionar un marcador de parada en el mapa llama a onSelectStop para destacarla en el bottom sheet", async () => {
+      const onSelectStop = jest.fn();
+      const { getByTestId } = await render(
+        <RouteMap
+          carrierLocation={{ lat: -31.4167, lng: -64.1833 }}
+          stops={sampleRoute.stops}
+          activeStopOrder={1}
+          onSelectStop={onSelectStop}
+        />
+      );
+
+      await fireEvent.press(getByTestId("route-map-stop-2"));
+      expect(onSelectStop).toHaveBeenCalledWith(sampleRoute.stops[1]);
+    });
+  });
+
+  describe("Funciones auxiliares y formato de StopList", () => {
+    it("formatDuration formatea minutos en horas y minutos (ej: 115 min a 1h55min)", () => {
+      expect(formatDuration(115)).toBe("1h55min");
+      expect(formatDuration(45)).toBe("45 min");
+      expect(formatDuration(60)).toBe("1h");
+      expect(formatDuration(120)).toBe("2h");
+      expect(formatDuration(61)).toBe("1h1min");
+    });
+
+    it("configura el spinner de refresco del bottom sheet en color negro (#0A0A0B)", async () => {
+      const onRefresh = jest.fn();
+      const { toJSON } = await render(
+        <StopList route={sampleRoute} onRefresh={onRefresh} isRefreshing={false} />
+      );
+
+      const findNode = (node: any, type: string): any => {
+        if (!node) return null;
+        if (node.type === type) return node;
+        if (node.children) {
+          for (const c of node.children) {
+            const found = findNode(c, type);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+
+      const scrollViewNode = findNode(toJSON(), "RCTScrollView");
+      expect(scrollViewNode).toBeTruthy();
+      const refreshControlElement = scrollViewNode.props.refreshControl;
+      expect(refreshControlElement).toBeTruthy();
+      expect(refreshControlElement.props.tintColor).toBe("#0A0A0B");
+      expect(refreshControlElement.props.colors).toEqual(["#0A0A0B"]);
     });
   });
 });

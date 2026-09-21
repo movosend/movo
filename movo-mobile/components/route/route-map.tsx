@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Linking, Pressable, Text, View } from "react-native";
+import { Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
 import { useColorScheme } from "nativewind";
 import * as Haptics from "expo-haptics";
@@ -12,7 +12,7 @@ import {
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 
 interface RouteMapProps {
-  carrierLocation: { lat: number; lng: number } | null;
+  carrierLocation?: { lat: number; lng: number } | null;
   originLocation?: { lat: number; lng: number } | null;
   stops: CarrierRouteStop[];
   selectedStopOrder?: number | null;
@@ -83,7 +83,7 @@ export function RouteMap({
     }
     tooltipTimeoutRef.current = setTimeout(() => {
       setActiveTooltip(null);
-    }, 4500);
+    }, 4000);
   };
 
   useEffect(() => {
@@ -97,24 +97,43 @@ export function RouteMap({
     };
   }, []);
 
-  // Interactividad para "Abrir en Maps": llamada directa con manejo de éxito y error
+  // Al presionar el botón de navegación externa (Finding 3 / AC4 / Screen 1 Interactivity)
   const handleOpenExternalMaps = () => {
     try {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch { }
 
-    const targetStop =
-      (selectedStopOrder != null ? stops.find((s) => s.stopOrder === selectedStopOrder) : null) ??
-      stops.find((s) => s.stopOrder === (activeStopOrder ?? 1)) ??
-      stops[0];
+    // Paradas ordenadas según stopOrder para el recorrido secuenciado en Google Maps
+    const sortedStops = [...stops].sort((a, b) => a.stopOrder - b.stopOrder);
 
-    const destination = targetStop
-      ? `${targetStop.lat},${targetStop.lng}`
+    let destination = "-31.4201,-64.1888";
+    let waypointsParam = "";
+
+    if (sortedStops.length === 1) {
+      destination = `${sortedStops[0].lat},${sortedStops[0].lng}`;
+    } else if (sortedStops.length > 1) {
+      // La última parada es el destino final del itinerario
+      const finalStop = sortedStops[sortedStops.length - 1];
+      destination = `${finalStop.lat},${finalStop.lng}`;
+
+      // Todas las paradas anteriores son waypoints intermedios en orden
+      const intermediateStops = sortedStops.slice(0, -1);
+      // Google Maps soporta hasta 9 waypoints intermedios en URLs
+      waypointsParam = `&waypoints=${intermediateStops
+        .slice(0, 9)
+        .map((s) => `${s.lat},${s.lng}`)
+        .join("%7C")}`;
+    } else if (carrierLocation) {
+      destination = `${carrierLocation.lat},${carrierLocation.lng}`;
+    }
+
+    const originParam = carrierLocation
+      ? `&origin=${carrierLocation.lat},${carrierLocation.lng}`
       : "";
 
-    const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+    const mapsUrl = `https://www.google.com/maps/dir/?api=1${originParam}&destination=${encodeURIComponent(
       destination
-    )}&travelmode=driving`;
+    )}${waypointsParam}&travelmode=driving`;
 
     Linking.openURL(mapsUrl)
       .then(() => {
@@ -147,23 +166,25 @@ export function RouteMap({
   // Coordenadas de referencia: origen declarado + posición actual + paradas
   const routePoints: LatLng[] = useMemo(() => {
     const points: LatLng[] = [];
-    if (originLocation) {
+    if (originLocation && typeof originLocation.lat === "number" && !isNaN(originLocation.lat) && typeof originLocation.lng === "number" && !isNaN(originLocation.lng)) {
       points.push({
         latitude: originLocation.lat,
         longitude: originLocation.lng,
       });
     }
-    if (carrierLocation) {
+    if (carrierLocation && typeof carrierLocation.lat === "number" && !isNaN(carrierLocation.lat) && typeof carrierLocation.lng === "number" && !isNaN(carrierLocation.lng)) {
       points.push({
         latitude: carrierLocation.lat,
         longitude: carrierLocation.lng,
       });
     }
     for (const s of stops) {
-      points.push({
-        latitude: s.lat,
-        longitude: s.lng,
-      });
+      if (typeof s.lat === "number" && !isNaN(s.lat) && typeof s.lng === "number" && !isNaN(s.lng)) {
+        points.push({
+          latitude: s.lat,
+          longitude: s.lng,
+        });
+      }
     }
     return points;
   }, [originLocation, carrierLocation, stops]);
@@ -308,14 +329,14 @@ export function RouteMap({
   }, [routePoints]);
 
   return (
-    <View testID={testID} className="flex-1 relative">
+    <View testID={testID} style={StyleSheet.absoluteFill}>
       <MapView
         ref={mapRef}
         testID="route-mapview"
         provider={PROVIDER_GOOGLE}
         customMapStyle={isDark ? movoMapStyleDark : movoMapStyleLight}
         initialRegion={initialRegion}
-        style={{ width: "100%", height: "100%" }}
+        style={StyleSheet.absoluteFill}
         showsUserLocation={false}
         showsCompass={false}
         showsScale={false}

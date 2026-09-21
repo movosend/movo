@@ -34,6 +34,23 @@ interface StopListProps {
 }
 
 /**
+ * Formatea una duración en minutos al formato horario (ej: 115 -> "1h55min", 45 -> "45 min").
+ */
+export function formatDuration(minutes: number): string {
+  const rounded = Math.round(minutes);
+  if (rounded <= 0) return "0 min";
+  if (rounded < 60) {
+    return `${rounded} min`;
+  }
+  const hours = Math.floor(rounded / 60);
+  const remainingMinutes = rounded % 60;
+  if (remainingMinutes === 0) {
+    return `${hours}h`;
+  }
+  return `${hours}h${remainingMinutes}min`;
+}
+
+/**
  * Formatea el ETA estimado asegurando que se presente siempre como estimación (AC11: "aprox.").
  */
 export function formatEstimatedArrival(stop: CarrierRouteStop): string {
@@ -50,7 +67,7 @@ export function formatEstimatedArrival(stop: CarrierRouteStop): string {
     }
   }
   if (stop.estimatedArrivalMinutes > 0) {
-    return `+${Math.round(stop.estimatedArrivalMinutes)} min aprox.`;
+    return `+${formatDuration(stop.estimatedArrivalMinutes)} aprox.`;
   }
   return "Inmediato aprox.";
 }
@@ -148,13 +165,6 @@ export function StopList({
   }, []);
 
   const handlePressStop = (stop: CarrierRouteStop) => {
-    // Regla de Claude Design: Saltear una parada: Tocar una parada futura no abre nada: devuelve un aviso con la parada pendiente
-    if (activeStop && stop.stopOrder !== activeStop.stopOrder) {
-      showToast(
-        `Primero completá la parada ${activeStop.stopOrder}: ${activeStop.address || "Punto de retiro/entrega"}.`
-      );
-      return;
-    }
     onSelectStop?.(stop);
   };
 
@@ -205,7 +215,7 @@ export function StopList({
             <Text className="font-sans text-[12px] text-fg-3">
               {totalDistanceKm > 0 ? `${totalDistanceKm.toFixed(1)} km · ` : ""}
               {totalDurationMinutes > 0
-                ? `${Math.round(totalDurationMinutes)} min aprox.`
+                ? `${formatDuration(totalDurationMinutes)} aprox.`
                 : "Tiempo est. variable"}
             </Text>
           </View>
@@ -246,8 +256,8 @@ export function StopList({
               testID="stop-list-refresh-control"
               refreshing={Boolean(isRefreshing)}
               onRefresh={onRefresh}
-              tintColor="#C6F24A"
-              colors={["#C6F24A"]}
+              tintColor="#0A0A0B"
+              colors={["#0A0A0B"]}
             />
           ) : undefined
         }
@@ -275,8 +285,10 @@ export function StopList({
       {/* Items de paradas */}
       <View className="mt-3 gap-2.5">
         {stopsToDisplay.map((stop) => {
-          const isActive = activeStop && stop.stopOrder === activeStop.stopOrder;
-          const isSelected = selectedStopOrder === stop.stopOrder;
+          // La parada abierta y destacada es la seleccionada actualmente (por defecto la activa/próxima)
+          const currentHighlightedOrder = selectedStopOrder ?? activeStop?.stopOrder ?? 1;
+          const isHighlighted = stop.stopOrder === currentHighlightedOrder;
+          const isNext = Boolean(activeStop && stop.stopOrder === activeStop.stopOrder);
           const isPickup = stop.type === "pickup";
           const isLate = stop.outsideTimeWindow;
           const windowText = formatTimeWindow(stop.timeWindowStart, stop.timeWindowEnd);
@@ -307,26 +319,18 @@ export function StopList({
             <Pressable
               key={`${stop.shipmentId}-${stop.type}-${stop.stopOrder}`}
               testID={`stop-row-${stop.stopOrder}`}
-              accessibilityState={{ selected: isSelected }}
+              accessibilityState={{ selected: isHighlighted }}
               onPress={() => handlePressStop(stop)}
               className="rounded-[12px] border p-3.5"
               style={{
-                backgroundColor: isActive
-                  ? colors.bg
-                  : isSelected
-                    ? (isDark ? "rgba(198, 242, 74, 0.08)" : "rgba(198, 242, 74, 0.12)")
-                    : colors.bgSub,
-                borderColor: isActive
-                  ? colors.fg1
-                  : isSelected
-                    ? "#C6F24A"
-                    : colors.border,
-                borderWidth: isActive || isSelected ? 1.5 : 1,
-                ...((isActive || isSelected)
+                backgroundColor: isHighlighted ? colors.bg : colors.bgSub,
+                borderColor: isHighlighted ? colors.fg1 : colors.border,
+                borderWidth: isHighlighted ? 1.5 : 1,
+                ...(isHighlighted
                   ? {
-                    shadowColor: isSelected ? "#C6F24A" : "#000",
+                    shadowColor: "#000",
                     shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.08,
+                    shadowOpacity: isDark ? 0.3 : 0.08,
                     shadowRadius: 10,
                     elevation: 3,
                   }
@@ -334,12 +338,10 @@ export function StopList({
               }}
             >
               <View className="flex-row items-start gap-3">
-                {/* Chip numérico: cuadrado para retiro, círculo para entrega (coherente con el mapa) */}
+                {/* Chip numérico: cuadrado redondeado para retiro, círculo para entrega */}
                 <View
                   style={{
                     backgroundColor: chipBg,
-                    borderColor: chipBorderColor,
-                    borderWidth: 1.5,
                     borderRadius: isPickup ? 8 : 999,
                   }}
                   testID={`stop-chip-${stop.stopOrder}`}
@@ -373,7 +375,7 @@ export function StopList({
                           Fuera de ventana
                         </Text>
                       </View>
-                    ) : isActive ? (
+                    ) : isNext ? (
                       <View className="rounded-full bg-fg px-2 py-0.5">
                         <Text className="font-sans-semibold text-[9px] tracking-wider uppercase text-bg">
                           Próxima
@@ -419,28 +421,12 @@ export function StopList({
                       {windowText}
                     </Text>
                   )}
-                  {!isActive && onPressShipment && (
-                    <Pressable
-                      testID={`stop-shipment-link-${stop.stopOrder}`}
-                      hitSlop={8}
-                      onPress={(e) => {
-                        e.stopPropagation?.();
-                        onPressShipment(stop.shipmentId);
-                      }}
-                      className="mt-1 flex-row items-center gap-0.5 rounded border border-border bg-bg px-1.5 py-0.5"
-                      accessibilityRole="button"
-                      accessibilityLabel={`Ver detalle del envío ${stop.shipmentId}`}
-                    >
-                      <Text className="font-sans-medium text-[10.5px] text-fg-2">Ver</Text>
-                      <ChevronRight size={11} color="#8A8A93" />
-                    </Pressable>
-                  )}
                 </View>
               </View>
 
-              {/* Botonera expandida para la parada activa (Claude Design hasCta) */}
-              {isActive && (
-                <View className="mt-3 flex-row items-center gap-2 border-t border-border pt-2.5">
+              {/* Botonera expandida para el envío seleccionado/destacado */}
+              {isHighlighted && (
+                <View className="mt-3 flex-row items-center gap-2.5 border-t border-border pt-3">
                   {onPressShipment && (
                     <Pressable
                       testID={`stop-shipment-link-${stop.stopOrder}`}
@@ -448,33 +434,39 @@ export function StopList({
                         e.stopPropagation?.();
                         onPressShipment(stop.shipmentId);
                       }}
-                      className="h-9 px-3 rounded-lg border border-border bg-bg flex-row items-center justify-center gap-1"
+                      className={`h-11 rounded-[10px] border border-border bg-bg active:bg-bg-mute flex-row items-center justify-center gap-1.5 ${
+                        isNext ? "flex-1" : "w-full"
+                      }`}
                       accessibilityRole="button"
                       accessibilityLabel={`Ver detalle del envío ${stop.shipmentId}`}
                     >
-                      <Text className="font-sans-medium text-[12px] text-fg">Ver envío</Text>
-                      <ArrowUpRight size={13} color={colors.fg2} />
+                      <Text className="font-sans-medium text-[13.5px] text-fg">Ver envío</Text>
+                      <ArrowUpRight size={15} color={colors.fg2} />
                     </Pressable>
                   )}
 
-                  <Pressable
-                    testID={`stop-action-btn-${stop.stopOrder}`}
-                    onPress={() => {
-                      if (onPressAction) {
-                        onPressAction(stop);
-                      } else if (onPressShipment) {
-                        onPressShipment(stop.shipmentId);
-                      }
-                    }}
-                    className="flex-1 h-9 rounded-lg bg-lime-500 flex-row items-center justify-center gap-1.5"
-                    accessibilityRole="button"
-                    accessibilityLabel={isPickup ? "Retirar paquete" : "Entregar paquete"}
-                  >
-                    <Text className="font-sans-semibold text-[13px] text-ink-950">
-                      {isPickup ? "Retirar paquete" : "Entregar paquete"}
-                    </Text>
-                    <ChevronRight size={14} color="#0A0A0B" />
-                  </Pressable>
+                  {/* Botón de acción (Retirar/Entregar) solo disponible para la próxima parada activa */}
+                  {isNext && (
+                    <Pressable
+                      testID={`stop-action-btn-${stop.stopOrder}`}
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        if (onPressAction) {
+                          onPressAction(stop);
+                        } else if (onPressShipment) {
+                          onPressShipment(stop.shipmentId);
+                        }
+                      }}
+                      className="flex-1 h-11 rounded-[10px] bg-lime-500 active:bg-lime-400 flex-row items-center justify-center gap-1.5"
+                      accessibilityRole="button"
+                      accessibilityLabel={isPickup ? "Retirar paquete" : "Entregar paquete"}
+                    >
+                      <Text className="font-sans-semibold text-[13.5px] text-ink-950">
+                        {isPickup ? "Retirar paquete" : "Entregar paquete"}
+                      </Text>
+                      <ChevronRight size={15} color="#0A0A0B" />
+                    </Pressable>
+                  )}
                 </View>
               )}
             </Pressable>

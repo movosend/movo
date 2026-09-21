@@ -8,6 +8,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  StyleSheet,
   Text,
   View,
 } from "react-native";
@@ -346,13 +347,7 @@ export default function OptimizedRouteScreen() {
 
           {/* Fondo completo: Mapa interactivo que no se redimensiona para evitar parpadeos nativos */}
           <View
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-            }}
+            style={StyleSheet.absoluteFill}
             className="bg-bg-mute overflow-hidden"
           >
             <RouteMap
@@ -454,7 +449,7 @@ export default function OptimizedRouteScreen() {
           {/* Contenido según estado vacío o de carga */}
           {isLoading ? (
             <View testID="route-loading-state" className="flex-1 items-center justify-center gap-4 px-6">
-              <ActivityIndicator size="large" color="#C6F24A" />
+              <ActivityIndicator size="large" color="#0A0A0B" />
               <View className="items-center gap-1.5 text-center">
                 <Text className="font-sans-semibold text-[17px] text-fg">
                   Calculando la mejor ruta...
