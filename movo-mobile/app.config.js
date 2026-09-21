@@ -59,11 +59,24 @@ const SCENE_DELEGATE_SOURCE = `internal import Expo
 import UIKit
 
 // SceneDelegate requerido por iOS 18+ (UIScene lifecycle).
-// ExpoAppDelegate ya implementa UIWindowSceneDelegate internamente;
-// este archivo registra la clase para que el sistema pueda instanciarla
-// al leer UIApplicationSceneManifest en Info.plist.
-class SceneDelegate: ExpoAppDelegate {
-  // Toda la lógica de ciclo de vida la maneja ExpoReactNativeFactory.
+// IMPORTANTE: debe conformar UIWindowSceneDelegate directamente —
+// ExpoAppDelegate implementa UIApplicationDelegate, no UISceneDelegate.
+// En willConnectTo se reutiliza la UIWindow que AppDelegate ya creó vía
+// ExpoReactNativeFactory, asignándola a la nueva UIWindowScene.
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+  var window: UIWindow?
+
+  func scene(
+    _ scene: UIScene,
+    willConnectTo session: UISceneSession,
+    options connectionOptions: UIScene.ConnectionOptions
+  ) {
+    guard let windowScene = scene as? UIWindowScene,
+          let existingWindow = (UIApplication.shared.delegate as? AppDelegate)?.window
+    else { return }
+    existingWindow.windowScene = windowScene
+    self.window = existingWindow
+  }
 }
 `;
 
