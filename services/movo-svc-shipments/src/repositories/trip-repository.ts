@@ -5,6 +5,7 @@ import {
   CreateTripInput,
   UpdateTripInput,
   TripWithAcceptedPackages,
+  buildTripCreateData,
   mapTrip,
   parseTripStatus,
 } from "../models/trip";
@@ -120,20 +121,10 @@ export interface MatchShipmentParams {
 export function createTripRepository(db: PrismaClient): TripRepository {
   return {
     async create(input: CreateTripInput): Promise<Trip> {
-      const row = await db.trip.create({
-        data: {
-          carrierId: input.carrierId,
-          originAddress: input.originAddress,
-          originLat: input.originLat,
-          originLng: input.originLng,
-          destinationAddress: input.destinationAddress,
-          destinationLat: input.destinationLat,
-          destinationLng: input.destinationLng,
-          departureAt: input.departureAt,
-          vehicleType: input.vehicleType,
-          status: TripStatus.DECLARED,
-        },
-      });
+      // MOVO-234 (fix de review, PR #176): mapeo centralizado en `buildTripCreateData`
+      // -- ver su comentario en `models/trip.ts` -- reusado también por
+      // `offer-repository.ts#acceptOffer` para el `Trip` auto-creado.
+      const row = await db.trip.create({ data: buildTripCreateData(input) });
       return mapTrip(row);
     },
 

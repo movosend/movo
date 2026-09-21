@@ -142,6 +142,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const offersRouteOpts: OffersRoutesOptions = {
     prefix: "/offers",
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    // MOVO-234: resuelve la ficha de vehículo del transportista para el Trip
+    // auto-creado al aceptar una oferta sin viaje asociado.
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
   };
   app.register(offersRoutes, offersRouteOpts);
 
