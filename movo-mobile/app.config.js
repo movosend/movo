@@ -55,7 +55,7 @@ const withoutPushEntitlement = (config) =>
  * SceneDelegate referenciado ahí debe existir como archivo fuente compilable.
  * Sin este plugin el error "UIScene life cycle is required" persiste.
  */
-const SCENE_DELEGATE_SOURCE = `import Expo
+const SCENE_DELEGATE_SOURCE = `internal import Expo
 import UIKit
 
 // SceneDelegate requerido por iOS 18+ (UIScene lifecycle).
