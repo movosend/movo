@@ -35,7 +35,9 @@
 // la capability nativa. Los builds de EAS (`eas.json`) sí la necesitan real: seteá
 // `ENABLE_PUSH_NOTIFICATIONS=true` como EAS Environment Variable en los perfiles que
 // vayan a probar push de punta a punta, una vez que el team de Apple sea de pago.
-const { withEntitlementsPlist } = require("expo/config-plugins");
+const { withEntitlementsPlist, withDangerousMod, withXcodeProject } = require("expo/config-plugins");
+const fs = require("fs");
+const path = require("path");
 
 const PUSH_NOTIFICATIONS_ENABLED =
   process.env.ENABLE_PUSH_NOTIFICATIONS === "true";
@@ -45,6 +47,64 @@ const withoutPushEntitlement = (config) =>
     delete config.modResults["aps-environment"];
     return config;
   });
+
+/**
+ * MOVO-207 / iOS 18+: escribe SceneDelegate.swift en la carpeta ios/ y lo
+ * agrega al proyecto Xcode durante el prebuild. Expo genera el Info.plist con
+ * UIApplicationSceneManifest (declarado en ios.infoPlist abajo), pero el
+ * SceneDelegate referenciado ahí debe existir como archivo fuente compilable.
+ * Sin este plugin el error "UIScene life cycle is required" persiste.
+ */
+const SCENE_DELEGATE_SOURCE = `import Expo
+import UIKit
+
+// SceneDelegate requerido por iOS 18+ (UIScene lifecycle).
+// ExpoAppDelegate ya implementa UIWindowSceneDelegate internamente;
+// este archivo registra la clase para que el sistema pueda instanciarla
+// al leer UIApplicationSceneManifest en Info.plist.
+class SceneDelegate: ExpoAppDelegate {
+  // Toda la lógica de ciclo de vida la maneja ExpoReactNativeFactory.
+}
+`;
+
+const withSceneDelegate = (config) => {
+  // Paso 1: escribir el archivo Swift en ios/<AppName>/SceneDelegate.swift
+  config = withDangerousMod(config, [
+    "ios",
+    async (config) => {
+      const appName = config.modRequest.projectName;
+      const iosDir = path.join(config.modRequest.platformProjectRoot, appName);
+      const filePath = path.join(iosDir, "SceneDelegate.swift");
+      if (!fs.existsSync(filePath)) {
+        fs.writeFileSync(filePath, SCENE_DELEGATE_SOURCE, "utf8");
+      }
+      return config;
+    },
+  ]);
+
+  // Paso 2: agregar SceneDelegate.swift al proyecto Xcode (Sources build phase)
+  config = withXcodeProject(config, (config) => {
+    const project = config.modResults;
+    const appName = config.modRequest.projectName;
+    const groupName = appName;
+    const fileName = "SceneDelegate.swift";
+
+    // Evitar duplicados si el prebuild corre varias veces
+    const alreadyAdded = Object.values(project.pbxFileReferenceSection()).some(
+      (ref) => ref && ref.name === fileName
+    );
+    if (!alreadyAdded) {
+      project.addSourceFile(
+        `${appName}/${fileName}`,
+        { target: project.getFirstTarget().uuid },
+        groupName
+      );
+    }
+    return config;
+  });
+
+  return config;
+};
 
 module.exports = {
   expo: {
@@ -91,6 +151,21 @@ module.exports = {
         // la app y el backend estén en la misma red.
         NSAppTransportSecurity: {
           NSAllowsLocalNetworking: true,
+        },
+        // iOS 18+ requiere el ciclo de vida UIScene para apps compiladas con el SDK
+        // más reciente (error: "UIScene life cycle is required"). Se declara una sola
+        // escena de ventana (ApplicationSupportsMultipleScenes=false) apuntando al
+        // SceneDelegate.swift que delega a ExpoAppDelegate.
+        UIApplicationSceneManifest: {
+          UIApplicationSupportsMultipleScenes: false,
+          UISceneConfigurations: {
+            UIWindowSceneSessionRoleApplication: [
+              {
+                UISceneConfigurationName: "Default Configuration",
+                UISceneDelegateClassName: "$(PRODUCT_MODULE_NAME).SceneDelegate",
+              },
+            ],
+          },
         },
       },
     },
@@ -175,6 +250,8 @@ module.exports = {
         },
       ],
       ...(PUSH_NOTIFICATIONS_ENABLED ? [] : [withoutPushEntitlement]),
+      // iOS 18+: crea SceneDelegate.swift y lo registra en el proyecto Xcode
+      withSceneDelegate,
     ],
     experiments: {
       typedRoutes: true,
