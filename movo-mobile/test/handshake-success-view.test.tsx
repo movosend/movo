@@ -50,7 +50,7 @@ describe("HandshakeSuccessView (MOVO-159)", () => {
     expect(onHome).toHaveBeenCalledTimes(1);
   });
 
-  it("renderiza correctamente para la etapa de entrega (delivery)", async () => {
+  it("renderiza correctamente para la etapa de entrega (delivery) en estado DELIVERED", async () => {
     const deliveryShipment = {
       ...baseShipment,
       status: ShipmentStatus.DELIVERED,
@@ -66,6 +66,35 @@ describe("HandshakeSuccessView (MOVO-159)", () => {
     );
 
     expect(getByText("Entrega confirmada")).toBeTruthy();
+    expect(
+      getByText(
+        "El envío figura como entregado. Estamos procesando el pago; te avisamos cuando se acredite."
+      )
+    ).toBeTruthy();
+    expect(getByText("Entregado")).toBeTruthy();
+    expect(getByText("Entrega completada")).toBeTruthy();
+  });
+
+  it("renderiza correctamente para la etapa de entrega (delivery) cuando el pago ya fue acreditado (COMPLETED)", async () => {
+    const completedShipment = {
+      ...baseShipment,
+      status: ShipmentStatus.COMPLETED,
+    };
+
+    const { getByText } = await render(
+      <HandshakeSuccessView
+        shipment={completedShipment}
+        stage="delivery"
+        onBackToShipment={jest.fn()}
+        onGoHome={jest.fn()}
+      />
+    );
+
+    expect(getByText("Entrega confirmada")).toBeTruthy();
+    expect(
+      getByText("El envío figura como completado y el pago fue acreditado.")
+    ).toBeTruthy();
+    expect(getByText("Completado")).toBeTruthy();
     expect(getByText("Entrega completada")).toBeTruthy();
   });
 });

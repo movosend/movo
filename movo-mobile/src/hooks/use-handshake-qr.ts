@@ -128,11 +128,28 @@ export function useHandshakeQr({
       const ttl = generated.ttlSeconds || HANDSHAKE_QR_DEFAULT_TTL;
       setQrPayload(payloadString);
       setTotalSeconds(ttl);
-      setSecondsLeft(ttl);
+
+      // Iniciar cuenta regresiva usando el expiresAt autoritativo del backend
+      const parsedExpiresAt = generated.expiresAt
+        ? new Date(generated.expiresAt).getTime()
+        : NaN;
+      const expiryTimestamp = !isNaN(parsedExpiresAt)
+        ? parsedExpiresAt
+        : Date.now() + ttl * 1000;
+
+      const initialRemainingMs = expiryTimestamp - Date.now();
+      const initialRemainingSecs = Math.max(0, Math.min(ttl, Math.ceil(initialRemainingMs / 1000)));
+
+      setSecondsLeft(initialRemainingSecs);
+
+      if (initialRemainingSecs <= 0) {
+        handleExpiration();
+        return;
+      }
+
       setStatus("active");
 
-      // Iniciar cuenta regresiva (15s a 0s)
-      const expiryTimestamp = Date.now() + ttl * 1000;
+      // Iniciar cuenta regresiva sincronizada con el backend (15s a 0s)
       timerRef.current = setInterval(() => {
         const remainingMs = expiryTimestamp - Date.now();
         const remSecs = Math.max(0, Math.ceil(remainingMs / 1000));

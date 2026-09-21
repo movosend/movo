@@ -5,6 +5,7 @@ import * as Haptics from "expo-haptics";
 import { useColorScheme } from "nativewind";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { ShipmentSummary } from "../../src/api/shipments-client";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 
 export interface HandshakeSuccessViewProps {
   shipment: ShipmentSummary;
@@ -41,12 +42,15 @@ export function HandshakeSuccessView({
   const badgeBg = isPickup ? "#0A0A0B" : "#C6F24A";
   const badgeInk = isPickup ? "#C6F24A" : "#0A0A0B";
 
+  const isCompleted = !isPickup && shipment.status === ShipmentStatus.COMPLETED;
   const title = isPickup ? "Retiro confirmado" : "Entrega confirmada";
   const body = isPickup
     ? "Tenés la custodia del paquete. El envío pasó a en tránsito y el emisor ya recibió la notificación."
-    : "El envío figura como entregado. Estamos procesando el pago; te avisamos cuando se acredite.";
+    : isCompleted
+      ? "El envío figura como completado y el pago fue acreditado."
+      : "El envío figura como entregado. Estamos procesando el pago; te avisamos cuando se acredite.";
 
-  const statusValue = isPickup ? "En tránsito" : "Entregado";
+  const statusValue = isPickup ? "En tránsito" : isCompleted ? "Completado" : "Entregado";
   const stageValue = isPickup ? "Retiro completado" : "Entrega completada";
 
   return (

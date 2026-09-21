@@ -70,6 +70,7 @@ describe("useHandshakeQr (MOVO-159)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers();
+    jest.setSystemTime(new Date("2026-09-19T10:00:00.000Z"));
 
     mockUseDeviceKeyBootstrap.mockReturnValue({
       status: "ready",
@@ -175,7 +176,7 @@ describe("useHandshakeQr (MOVO-159)", () => {
       stage: "pickup",
       nonce: "nonce-renewed-789",
       canonicalPayload: `${shipmentId}:pickup:nonce-renewed-789`,
-      expiresAt: "2026-09-19T10:00:30.000Z",
+      expiresAt: "2026-09-19T10:00:30.500Z",
       ttlSeconds: 15,
     });
     mockSignHandshakeNonce.mockResolvedValueOnce("signature-renewed-mock");
@@ -251,5 +252,66 @@ describe("useHandshakeQr (MOVO-159)", () => {
     });
 
     expect(harness.current.error).toContain("100 m");
+  });
+
+  it("deriva expiryTimestamp del expiresAt autoritativo del backend respetando latencia de red", async () => {
+    // Si la llamada tardó 5s, el backend devolvió expiresAt con solo 10s restantes respecto a Date.now()
+    mockGenerateHandshake.mockResolvedValueOnce({
+      shipmentId,
+      stage: "pickup",
+      nonce: "nonce-latency",
+      canonicalPayload: `${shipmentId}:pickup:nonce-latency`,
+      expiresAt: "2026-09-19T10:00:10.000Z", // 10s desde 10:00:00
+      ttlSeconds: 15,
+    });
+
+    const harness = await renderHarness({ shipmentId, initialStage: "pickup" });
+
+    await waitFor(() => {
+      expect(harness.current.status).toBe("active");
+    });
+
+    expect(harness.current.secondsLeft).toBe(10);
+    expect(harness.current.totalSeconds).toBe(15);
+  });
+
+  it("expira inmediatamente si el expiresAt del backend ya venció en tránsito", async () => {
+    mockGenerateHandshake.mockResolvedValueOnce({
+      shipmentId,
+      stage: "pickup",
+      nonce: "nonce-expired-backend",
+      canonicalPayload: `${shipmentId}:pickup:nonce-expired-backend`,
+      expiresAt: "2026-09-19T09:59:59.000Z", // 1s en el pasado respecto a 10:00:00
+      ttlSeconds: 15,
+    });
+
+    const harness = await renderHarness({ shipmentId, initialStage: "pickup" });
+
+    await waitFor(() => {
+      expect(harness.current.status).toBe("expired");
+    });
+
+    expect(harness.current.secondsLeft).toBe(0);
+    expect(harness.current.isExpired).toBe(true);
+  });
+
+  it("utiliza fallback a Date.now() + ttl * 1000 si expiresAt es inválido o no está presente", async () => {
+    mockGenerateHandshake.mockResolvedValueOnce({
+      shipmentId,
+      stage: "pickup",
+      nonce: "nonce-no-expires",
+      canonicalPayload: `${shipmentId}:pickup:nonce-no-expires`,
+      expiresAt: "",
+      ttlSeconds: 12,
+    });
+
+    const harness = await renderHarness({ shipmentId, initialStage: "pickup" });
+
+    await waitFor(() => {
+      expect(harness.current.status).toBe("active");
+    });
+
+    expect(harness.current.secondsLeft).toBe(12);
+    expect(harness.current.totalSeconds).toBe(12);
   });
 });
