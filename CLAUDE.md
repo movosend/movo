@@ -396,6 +396,31 @@ costó dos veces con env vars olvidadas (ver "Git, commits y PRs" más arriba).
   introducido acá) — la propagación depende hoy de correr el script a mano o de
   agregarlo como paso de CI, todavía no hecho.
 
+### CI/CD mobile: build en EAS al crear un tag (`.github/workflows/mobile-eas.yml`)
+
+Primer workflow de build/submit de `movo-mobile` — hasta acá el CI/CD solo cubría
+backend (`ci-dev.yml`/`ci-prod.yml`). Un tag de git dispara el build en EAS Cloud:
+
+- **`dev-*`** (ej. `dev-2026-09-21`) → development build, profile `development`, iOS +
+  Android.
+- **`v*`** (ej. `v1.0.0`) → profile `production` solo iOS con `--auto-submit` a
+  TestFlight. Un guard previo falla el job si el commit taggeado no es ancestro de
+  `origin/main`: el profile `production` apunta a `api.movosend.app`, no se publica a
+  TestFlight un build de una rama sin mergear.
+
+Decisiones no obvias: `eas build --no-wait` (el job termina al encolar en vez de gastar
+minutos de runner esperando; a cambio el check de GitHub queda verde aunque el build
+falle después — el resultado real se mira en expo.dev). El workflow que corre es el del
+commit taggeado, así que tiene que estar mergeado antes de taggear. La versión de
+marketing (`version` de `app.config.js`) NO se deriva del tag — el número de build lo
+incrementa EAS (`autoIncrement`). El hook `eas-build-post-install` de `movo-mobile`
+buildea `@movo/shared` en el servidor de EAS (ver `movo-mobile/CLAUDE.md`).
+
+Pendiente: secret `EXPO_TOKEN` (repo) sin cargar — el workflow no puede correr sin él;
+dispositivos iOS registrados (`eas device:create`) para el development build ad hoc; la
+app creada en App Store Connect. Si el primer submit pide `ascAppId`, agregarlo en
+`eas.json#submit.production.ios`. Sin verificar contra un tag real todavía.
+
 ### Pendientes transversales
 
 - **Credenciales reales sin cargar** en AWS Secrets Manager (dev y prod) — el código

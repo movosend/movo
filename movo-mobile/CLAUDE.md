@@ -2624,10 +2624,16 @@ convención de nombre del build profile). Verificado con `npx expo config` y
 Pendiente / fuera de alcance de este ticket (siguientes pasos del roadmap de
 push/EAS): primer `eas build --profile development` (iOS y Android) + instalación en
 dispositivo físico para validar push de punta a punta (cierra el DoD manual
-pendiente de MOVO-107) — deliberadamente no disparado todavía, y el primer workflow
-de CI para build/submit automático — el equipo venía usando development builds hace
-tiempo, pero siempre generados con el CLI local (`expo run:ios`/`expo run:android`),
-nunca con EAS.
+pendiente de MOVO-107) — deliberadamente no disparado todavía. El workflow de CI para
+build/submit automático ya existe (`.github/workflows/mobile-eas.yml`, ver la entrada
+transversal en el `CLAUDE.md` raíz); el equipo venía generando los development builds
+siempre con el CLI local (`expo run:ios`/`expo run:android`), nunca con EAS.
+
+**Hook `eas-build-post-install` (`package.json`)**: EAS Cloud sube solo lo trackeado por
+git y hace `npm install` en la raíz del monorepo, pero `@movo/shared` resuelve a
+`dist/index.js` (gitignoreado) — sin este script, Metro no encuentra el paquete y el
+build falla. EAS lo corre solo tras el install, con cwd en `movo-mobile/`; mismo motivo
+por el que `pr-checks.yml` tiene su paso "Build @movo/shared" antes de los tests.
 
 **Checklist: push notifications reales en development builds locales (`expo run:ios
 --device` / `expo run:android`)**. Con `bundleIdentifier`/`package` fijos (MOVO-232)
