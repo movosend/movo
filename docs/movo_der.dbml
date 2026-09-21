@@ -500,6 +500,25 @@ Table shipments.handshake_events {
   created_at timestamp
 }
 
+// MOVO-202: traza de posiciones GPS del transportista durante un envío in_transit.
+// Append-only (AC9, solo la purga periódica borra) -- retención acotada por
+// CARRIER_POSITION_RETENTION_DAYS (ADR-023, ver CLAUDE.md de movo-svc-shipments):
+// evidencia para disputas (MOVO-30), no analítica ni perfilado. Un envío disputed
+// nunca es candidato a purga mientras siga en ese estado.
+Table shipments.carrier_positions {
+  id uuid [pk]
+  shipment_id uuid [ref: > shipments.shipments.id]
+  lat decimal
+  lng decimal
+  accuracy_m decimal [note: 'precisión reportada por el dispositivo, en metros']
+  captured_at timestamp [note: 'timestamp del DISPOSITIVO -- puede ser anterior a recorded_at si el mobile encoló posiciones sin red']
+  recorded_at timestamp [note: 'timestamp del SERVIDOR al persistir -- ancla real de la cadencia de ~45s y de la retención']
+
+  indexes {
+    (shipment_id, recorded_at)
+  }
+}
+
 // MOVO-102: implementada. Plural (shipments.offers), mismo criterio que
 // shipment -> shipments (MOVO-104). Una sola ronda de negociación (sin
 // contraoferta): el transportista oferta, el emisor acepta o rechaza — para

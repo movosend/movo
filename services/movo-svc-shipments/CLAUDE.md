@@ -2260,6 +2260,177 @@ el código de este ticket, documentado por si el mismo gap aparece en otra máqu
   `x-user-roles` a nivel HTTP. Suite completa del servicio: 761/761 (55 archivos).
   `tsc --noEmit` y `npm run lint` limpios.
 
+### MOVO-202 — Ingesta de posiciones del transportista: última posición en Redis, traza persistida cada ~45s y purga (ADR-023)
+
+Recepción, almacenamiento y difusión de la posición GPS del transportista durante
+`in_transit`. Tabla nueva `shipments.carrier_positions` (append-only, AC9),
+`src/repositories/position-repository.ts` + `src/services/position-service.ts` +
+módulo HTTP nuevo `src/modules/positions/`. Bloqueado por MOVO-201 (canal de tiempo
+real, ya Done) — reusa su `RealtimeRegistry` para difundir.
+
+Decisiones clave:
+- **Ingesta por `POST /shipments/:id/positions` (HTTP corriente), no un mensaje sobre
+  el WS de MOVO-201** — el AC1 del ticket dejaba la elección abierta. El consumidor
+  real (MOVO-203, emisión en foreground/background) va a reportar desde tareas de
+  background del SO, donde mantener un socket persistente vivo es frágil (el SO mata
+  conexiones en background mucho antes que tareas de red puntuales) — un POST corriente
+  es la vía robusta. El canal de MOVO-201 sigue siendo exclusivamente de RECEPCIÓN: el
+  mapa (MOVO-204) se suscribe ahí y recibe cada posición que este endpoint difunde
+  (`RealtimeRegistry.broadcast`, AC5, nuevo método — primer uso real del registro
+  agnóstico de tipo de mensaje que MOVO-201 dejó preparado sin ningún publisher
+  todavía).
+- **AC2 literal: 403, no 409, para un envío en el estado equivocado**
+  (`SHIPMENT_NOT_IN_TRANSIT`, código nuevo) — inusual (el resto del repo usa 409 para
+  "estado equivocado"), pero es lo que el ticket pide explícito ("cualquier otro actor
+  o estado responde 403"), no una interpretación libre.
+- **Cadencia de ~45s (AC4) decidida en Redis, sin tocar Postgres en el camino
+  caliente**: un hash `position:last:{shipmentId}` guarda la última posición conocida
+  (AC3, se pisa en CADA reporte). La cadencia la gobierna un claim atómico aparte,
+  `SET position:cadence:{shipmentId} 1 PX <CARRIER_POSITION_MIN_PERSIST_INTERVAL_MS> NX`
+  (45000, constante de dominio en `position-service.ts`, no env var — es una regla de
+  producto fija, no un parámetro operativo): solo el reporte que gana el claim llama a
+  `positionRepository.create()`. Un `hget` + comparación + `hset` separados (primera
+  versión) dejaba pasar dos persistencias dentro de la misma ventana ante reportes
+  solapados (review de PR #178); el claim no se libera, expira solo por TTL, salvo si
+  `create()` falla (se hace `del` para no perder hasta ~45s de traza). La difusión
+  (AC5) y la actualización de "última posición conocida" pasan siempre, sin importar
+  si esta posición puntual se persiste.
+- **`PositionRedisClient`, interfaz angosta, no el cliente `ioredis` completo** —
+  mismo criterio que `HandshakeRedisClient` de MOVO-158: los tests fakean un Map en
+  memoria en vez de mockear una librería entera. `app.redis` la satisface
+  estructuralmente sin ningún adapter.
+- **AC3 conectado hasta el mapa, no solo hasta Redis**: `tracking.routes.ts` (MOVO-201)
+  ahora, apenas registra un socket nuevo, lee la última posición conocida y la manda
+  (`{type:"position",...}`) ANTES de esperar el próximo reporte real — sin esto, AC3
+  ("es lo que consume el AC4 de MOVO-11") no tenía ningún camino real hasta un
+  suscriptor que se conecta después de que el transportista ya viene reportando. No
+  estaba en el file list original del ticket, pero sin este engranaje el dato en Redis
+  no le llega a nadie dentro del alcance de este ticket.
+- **`POSITION_PURGE_ELIGIBLE_STATUSES` (`shipment-state-machine.ts`) = mismo set que
+  `TRACKING_CLOSED_STATUSES` MENOS `disputed`**: un envío `disputed` nunca es candidato
+  a purga mientras siga en ese estado (decisión de negocio confirmada con el usuario —
+  ver ADR-023 abajo). El ancla de "cuándo cerró" es `Shipment.lastStatusChangedAt` (ya
+  existía, mantenida por `updateStatus()` desde MOVO-104/105) — si algún día se modela
+  una salida real de `disputed`, ese mismo timestamp pasa a marcar la resolución sin
+  tocar ningún código acá, cumpliendo "el plazo cuenta desde la resolución, no desde el
+  cierre original" sin lógica especial.
+- **Retención de 30 días (ADR-023), confirmada con el usuario en el momento de
+  refinar el ticket** (el propio ticket exigía definir N "junto con el equipo") —
+  `CARRIER_POSITION_RETENTION_DAYS`, sweep periódico
+  (`carrier-position-purge-sweep.ts`, mismo esqueleto `setInterval`+lock de Redis que
+  `pickup-expiry-sweep.ts`), intervalo default 60min (menos urgente que los sweeps
+  operativos de 15min — un rezago de hasta 1h sobre un plazo de 30 días no cambia nada).
+- **AC7 (supresión de cuenta alcanza las posiciones), best-effort, no bloqueante** —
+  confirmado con el usuario: `DELETE /internal/account-deletion/users/:userId/
+  carrier-positions` nuevo (mismo módulo que `active-shipments`, MOVO-134), borra TODAS
+  las posiciones donde el usuario fue transportista, sin importar retención (supresión
+  inmediata, distinta del ciclo normal). Llamado desde
+  `movo-svc-users#deleteAccount` DESPUÉS de la `$transaction` local (dos bases
+  distintas, no se puede componer en una transacción cross-servicio) — un fallo se
+  loguea (`carrier_positions_delete_failed`) pero nunca revierte ni bloquea una baja
+  que el resto ya completó, mismo criterio que el borrado best-effort de la foto de
+  perfil en el mismo método. El barrido periódico igual la alcanza más tarde si esto
+  falla, aunque no de inmediato. `shipments-client.ts` (`svc-users`) ganó
+  `deleteCarrierPositions`, mismo patrón "el cliente lanza, el caller decide" que
+  `findReputation`.
+- **`accuracyM` requerido, no nullable** — el AC1 lo lista como parte de los 5 campos
+  a reportar, tratado igual que `lat`/`lng`, no como opcional.
+
+Tests: `test/position-service.test.ts` (unitario -- autorización de los 3 roles +
+todos los estados no-`in_transit`, cadencia de ~45s reportando cada 5s del DoD,
+última posición conocida siempre actualizada, difusión de cada reporte, purga y
+supresión delegando en el repositorio), `test/position-repository.integration.test.ts`
+(Postgres real -- create con timestamps encolados, purga respeta retención, un envío
+`disputed` nunca es candidato incluso con 365 días encima, la resolución
+`disputed`→`cancelled` reinicia el conteo desde ese momento, los 4 estados elegibles,
+`deleteAllForCarrier` sin importar estado), `test/positions-report.integration.test.ts`
+(HTTP -- feliz, cadencia end-to-end, 403 por actor/estado en sus 5 variantes, 404, 401,
+400 de AJV, confirma que `app.swagger()` expone el path),
+`test/carrier-position-purge-sweep.test.ts` (mismo patrón mockeado que
+`pickup-expiry-sweep.test.ts`), 2 casos nuevos en `test/tracking.integration.test.ts`
+(última posición conocida se manda al conectar / no se manda nada de más sin ella), 3
+casos nuevos en `test/account-deletion.integration.test.ts` (borra, aísla por
+transportista, usuario sin posiciones). Suite completa del servicio: 837/837 tests (60
+archivos), contra Postgres/Redis reales. `movo-svc-users`: 520/520 (49 archivos).
+`tsc --noEmit` y `eslint` limpios en los tres paquetes tocados (`shared/movo-shared`,
+`movo-svc-shipments`, `movo-svc-users`).
+
+Pendiente / fuera de alcance (igual que el propio ticket): emisión desde el mobile en
+foreground/background (MOVO-203) y el mapa de seguimiento (MOVO-204), ambos bloqueados
+por este ticket; cálculo de ETA a partir de la traza y detección de desvíos de ruta
+(explícitamente fuera de alcance); verificación contra un deploy real en dev/prod (sin
+acceso a esa infra desde esta sesión); traducción a copy del código
+`SHIPMENT_NOT_IN_TRANSIT` en `movo-mobile/src/lib/error-messages.ts` (sin consumidor
+real todavía, MOVO-203 la agrega cuando exista); ADR-023 pendiente de que el usuario lo
+publique en Drive (texto completo abajo), igual que los ADRs 012-021.
+
+#### ADR-023 completo (texto para pegar en Drive, `[Movo] 004 - Sprint 0.md`)
+
+> **ADR-023 — Retención de la traza GPS del transportista**
+>
+> **Contexto**
+>
+> MOVO-202 persiste la traza de desplazamiento del transportista durante un envío
+> `in_transit` (una posición cada ~45s, no solo la última) para dejar evidencia ante
+> una disputa (MOVO-30) — no para analítica ni perfilado, propósito que el propio
+> ticket obligaba a declarar explícitamente. Una traza de geolocalización de una
+> persona física es un dato personal sensible (Ley 25.326): persistirla sin una
+> retención acotada y una purga automática real es, tal como advertía el ticket, un
+> hallazgo directo en cualquier auditoría de cumplimiento y contradice el derecho de
+> supresión que el proyecto ya implementó (MOVO-39, Done).
+>
+> **Decisión**
+>
+> - **Retención: 30 días desde que el envío cierra** (`delivered`/`completed`/
+>   `cancelled`/`rejected_by_receiver` — el conjunto exacto vive en
+>   `POSITION_PURGE_ELIGIBLE_STATUSES`, `shipment-state-machine.ts`). El ancla es
+>   `Shipment.lastStatusChangedAt`, no una columna nueva.
+> - **Un envío `disputed` nunca es candidato a purga mientras siga en ese estado** —
+>   la traza puede ser evidencia de la disputa en curso. `disputed` no tiene hoy
+>   ninguna transición de salida modelada (`VALID_TRANSITIONS`, mismo motivo que
+>   ADR-021 dejó pendiente la resolución de disputas), así que en la práctica la
+>   traza de un envío disputado queda retenida sin límite mientras dure. El día que
+>   exista una transición real de salida, el plazo de 30 días cuenta desde ESE
+>   momento (la resolución), nunca desde el cierre original anterior a la disputa —
+>   consecuencia directa de anclar en `lastStatusChangedAt` en vez de en un timestamp
+>   de "primer cierre", sin necesitar ningún cambio de código cuando esa transición
+>   se modele.
+> - **Purga por job periódico** (`carrier-position-purge-sweep.ts`, cada 60 minutos
+>   por default, configurable), no manual ni a demanda — mismo mecanismo ya aceptado
+>   en el proyecto para los otros barridos (MOVO-124/130, y el bug de retiro vencido
+>   de `published`).
+> - **La supresión de cuenta (MOVO-39) no espera los 30 días**: al dar de baja una
+>   cuenta, la traza del usuario como transportista se borra de inmediato (best-effort
+>   cross-servicio, `movo-svc-users` → `movo-svc-shipments`) — es supresión de datos
+>   personales a pedido, un caso distinto del ciclo de vida normal de retención.
+>
+> **Por qué 30 días, no otro número**
+>
+> Decisión de equipo, no un mínimo/máximo derivado de una norma específica: cubre la
+> ventana típica en la que una disputa se abre después de una entrega (el propio
+> flujo de calificación del proyecto usa una ventana de 72hs para calificar,
+> MOVO-146, mucho más corta) con margen de sobra, sin retener datos de geolocalización
+> más tiempo del que razonablemente hace falta para su propósito declarado —
+> principio de minimización de datos.
+>
+> **Trade-off aceptado**
+>
+> El plazo es corto en términos de posible litigio civil (que puede escalar mucho
+> después de 30 días) — se aceptó igual porque el propósito declarado de esta traza es
+> evidencia operativa de una disputa gestionada por la plataforma (MOVO-30), no
+> evidencia judicial de largo plazo; si una disputa sigue abierta, queda cubierta por
+> la excepción de `disputed` de arriba, que no tiene límite de tiempo mientras dure. El
+> borrado cross-servicio de la supresión de cuenta es best-effort, no transaccional
+> (no existe 2PC entre `movo-svc-users` y `movo-svc-shipments`, ADR-001) — si falla, el
+> barrido periódico igual alcanza esa traza más tarde si el envío ya cerró, pero un
+> envío todavía activo cuyo transportista se da de baja (caso ya bloqueado aguas
+> arriba: la baja exige cero envíos activos) no es un escenario alcanzable en la
+> práctica.
+>
+> **Referencias**: `MOVO-202` (este ticket), `MOVO-201` (canal de tiempo real),
+> `MOVO-39`/`MOVO-134` (derecho de supresión), `MOVO-30` (disputas), `MOVO-146`
+> (ventana de calificación, referencia de plazo corto ya aceptada en el proyecto).
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

@@ -147,6 +147,25 @@ export const ACTIVE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
   ShipmentStatus.IN_TRANSIT,
 ];
 
+/**
+ * MOVO-202/AC6: estados elegibles para la purga periódica de `carrier_positions` --
+ * mismo set que `TRACKING_CLOSED_STATUSES` MENOS `DISPUTED` a propósito. Un envío
+ * `disputed` nunca es elegible mientras siga en ese estado (la traza puede ser
+ * evidencia de la disputa en curso, ADR-023) -- `disputed` no tiene transición de
+ * salida modelada hoy (ver el comentario de `VALID_TRANSITIONS` más arriba), así que
+ * en la práctica queda retenido sin límite mientras dure. El ancla de "cuándo cerró"
+ * es `Shipment.lastStatusChangedAt`: si algún día se modela una salida real de
+ * `disputed` hacia un estado de este set, ese mismo timestamp pasa a marcar el
+ * momento de la resolución sin ningún cambio de código acá -- la retención cuenta
+ * desde ahí, no desde el cierre original antes de la disputa.
+ */
+export const POSITION_PURGE_ELIGIBLE_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.DELIVERED,
+  ShipmentStatus.COMPLETED,
+  ShipmentStatus.CANCELLED,
+  ShipmentStatus.REJECTED_BY_RECEIVER,
+];
+
 /** Solo lectura — no muta el estado, es para consultas (ej. habilitar/deshabilitar una acción en UI). */
 export function canTransition(from: ShipmentStatus, to: ShipmentStatus): boolean {
   return VALID_TRANSITIONS[from].has(to);

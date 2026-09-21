@@ -158,4 +158,24 @@ describe("ShipmentsClient (adapter concreto)", () => {
       await expect(client.findRecentRatingComments("user-1", 10)).rejects.toThrow(/500/);
     });
   });
+
+  describe("deleteCarrierPositions (MOVO-202/AC7)", () => {
+    it("pega DELETE a /internal/account-deletion/users/:id/carrier-positions y devuelve deletedCount", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ deletedCount: 7 }) });
+
+      const result = await client.deleteCarrierPositions("user-1");
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe("http://svc-shipments.test/internal/account-deletion/users/user-1/carrier-positions");
+      expect(init.method).toBe("DELETE");
+      expect(result).toBe(7);
+    });
+
+    it("lanza ante una respuesta no-ok, mismo criterio que findReputation", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 500 });
+
+      await expect(client.deleteCarrierPositions("user-1")).rejects.toThrow(/500/);
+    });
+  });
 });

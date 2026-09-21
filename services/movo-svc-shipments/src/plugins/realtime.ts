@@ -55,6 +55,22 @@ export class RealtimeRegistry {
     return total;
   }
 
+  /**
+   * MOVO-202/AC5: difunde un mensaje a todos los suscriptores activos de un envío --
+   * primer uso real del registro agnóstico de tipo de mensaje que documentaba AC8 de
+   * MOVO-201 (hasta ahora nadie publicaba nada, solo se registraba/desregistraba
+   * sockets). Silencioso si no hay nadie conectado (caso normal: nadie mirando el
+   * mapa en este momento) o si el envío directamente no tiene entrada en el mapa.
+   */
+  broadcast(shipmentId: string, message: unknown): void {
+    const sockets = this.connectionsByShipment.get(shipmentId);
+    if (!sockets || sockets.size === 0) return;
+    const payload = JSON.stringify(message);
+    for (const socket of sockets) {
+      socket.send(payload);
+    }
+  }
+
   close(shipmentId: string, code: number, reason: string): void {
     const sockets = this.connectionsByShipment.get(shipmentId);
     if (!sockets) return;
