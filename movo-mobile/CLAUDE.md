@@ -2856,6 +2856,93 @@ ver fotos cargadas desde el detalle de envío (`MOVO-194`). No probado en dispos
 físico ni los tres caminos de permiso reales — pendiente del DoD, no verificable en
 este entorno (mismo criterio que MOVO-195/MOVO-107).
 
+### MOVO-151 — "Mis ofertas": listado completo con tabs, avisos y estado vacío accionable
+
+Cierra el pendiente que dejaron documentado MOVO-183 y MOVO-182 ("el listado completo
+del ticket original sigue sin construirse"): `carrier/offers/index.tsx` pasa de una
+lista plana sin filtrar a tabs **Activas** (default, AC4) / **Cerradas**, ahora
+apoyada en los tres contratos de backend que este mismo refinamiento de ciclo había
+dejado bloqueantes y que ya llegaron a `develop` (MOVO-185 distancia/paquete, MOVO-186
+neto real, MOVO-188 ranking competitivo).
+
+- **`components/transport/my-offer-card.tsx` nueva** (pedida explícitamente por el
+  ticket): reemplaza la fila de una sola línea — ahora con fecha de retiro + distancia
+  (`shipment.distanceKm`), el neto real (`priceNetArs`, no el bruto `priceOffered`) y
+  un chip de estado con copy explicativo (`offerStatusLabel`, AC3, nunca el enum
+  crudo).
+- **"Requieren algo tuyo" reformulada**: antes solo `accepted`; ahora suma las
+  `pending` que no lideran su ranking (`competitiveRank.rank > 1`), con el aviso
+  "Quedaste 4.º de 5. Bajando a $X pasás al frente" (`competitiveRankNotice` nuevo en
+  `offer-format.ts`) — el aviso que el refinamiento de MOVO-151/182 había dejado
+  explícitamente "fuera de alcance hasta que exista el contrato" (MOVO-188), ya
+  resuelto. El resto de las `pending` (liderando) cae en una sección "El resto" sin
+  aviso — una card sin aviso no necesita destacarse.
+- **AC5/AC6 sin duplicar acciones**: una oferta `accepted` navega directo al envío
+  asignado (`/transport/:id`); el resto navega al detalle real de la oferta
+  (`carrier/offers/[id]`, MOVO-182), que ya tiene retirar/modificar — reusa esa
+  pantalla en vez de repetir el botón "Retirar" en cada card de la lista.
+- **AC7**: el estado vacío (sin ninguna oferta) suma un CTA "Ver envíos disponibles"
+  que vuelve al tab Transportar — antes era solo texto. Vacío de un tab con ofertas en
+  el otro (ej. todo activo, tab Cerradas vacío) es un mensaje corto sin CTA, caso
+  distinto del AC7 literal.
+- **AC1 del ticket ("segmentador dentro de Transportar, no una pantalla aparte") no
+  se tomó literal**: se mantuvo como ruta separada (`/carrier/offers`, ya así desde
+  MOVO-183, con dos accesos con contador en `TransportAccessCards`) en vez de
+  refactorizar a un segmentador embebido — reescribir esa navegación ya probada solo
+  para calzar con el texto original del AC, escrito antes de que el mockup de
+  Claude Design mostrara una pantalla dedicada con sus propios tabs internos
+  (Activas/Cerradas, lo que sí se construyó acá), no aportaba nada al usuario.
+- Hero "En juego"/"Confirmado" corregido para sumar `priceNetArs` (antes sumaba el
+  bruto `priceOffered` — quedaba mal versus el "te queda $X" de cada card).
+
+Tests nuevos: `test/my-offer-card.test.tsx`, `test/my-offers-summary-screen.test.tsx`
+reescrito contra el comportamiento con tabs (default Activas, agrupación en avisos,
+navegación AC5/AC6, ambos vacíos). 128/128 suites, 998/998 tests en `movo-mobile`.
+`tsc --noEmit` limpio (de paso se detectó y corrigió, de nuevo, un `dist/` local
+desactualizado de `@movo/shared` — no es parte del diff de esta US, build artifact
+gitignorado).
+
+**Cierre de la US (skill `cerrar-us`), dos gaps reales encontrados contra el
+texto literal del ticket, corregidos antes de cerrar:**
+
+- **AC3: `EXPIRED` no coincidía con el ejemplo literal del AC** ("venció antes de
+  que respondieran") — `offerStatusLabel` (`offer-format.ts`, no tocado por este
+  ticket hasta ahora) decía solo `"Venció"`. Corregido al texto exacto del AC.
+  `offerStatusBannerCopy` (detalle de oferta, MOVO-182) no se tocó: ya era
+  plenamente explicativo con título+subtítulo separados.
+- **DoD ("render de cada estado con su copy correspondiente") solo cubría
+  `pending`/`superseded`**: `my-offer-card.test.tsx` pasó a un `it.each` con los 6
+  estados. Suite final: 128/128 suites, 1003/1003 tests, `tsc --noEmit` limpio.
+- **AC2 ("tratamiento visual distinto" para los 6 estados), deviación aceptada,
+  no corregida**: `withdrawn`/`expired`/`superseded` comparten el mismo chip mute
+  (`bg-bg-mute`), solo distinto texto — únicamente pending/accepted/rejected
+  tienen color propio. Se decidió no rediseñar el chip para 3 estados "cerrados,
+  sin acción posible" con la misma US ya cerrada por lo demás; queda anotado como
+  posible ajuste visual menor, no un bug funcional (el texto sigue siendo
+  explicativo en los tres casos).
+- **AC1 (segmentador embebido en Transportar) confirmado como no aplicable**, ver
+  el punto de arriba — decisión ya tomada en MOVO-183, no de este ticket.
+
+**Fixes de review (PR #177):**
+
+- **El chip de estado de `MyOfferCard` perdía su color**: `bg-*` y `text-*` iban juntos
+  en el `View` contenedor y el `Text` interno no tenía color propio — en RN/NativeWind
+  el color de texto no se hereda de un `View`. Ahora son dos mapas
+  (`STATUS_CHIP_BG_CLASS`/`STATUS_CHIP_TEXT_CLASS`), con test que fija la clase en el
+  propio `Text`.
+- **Una `pending` sobre un envío `cancelled` ahora "requiere algo tuyo"**: cancelar un
+  envío no cierra sus ofertas `pending` (solo notifica), y llegan con
+  `competitiveRank: null` — antes caían en "El resto" como una oferta viva más. Sigue
+  sumando al hero "En juego" (no se tocó el total).
+- **Tab Cerradas recupera contador y cuándo se ofertó** (`Cerradas (N)`,
+  `MyOfferCard#showSentAgo` → `formatOfferedAgo`), que tenía la lista plana anterior.
+- `router.replace` del CTA del estado vacío se dejó a propósito: es un tab, y `push`
+  apilaría una segunda copia del grupo `(tabs)` sobre la de abajo.
+
+Pendiente / fuera de alcance: no probado en dispositivo; el footer "Las ofertas
+pendientes se cierran solas..." del mockup solo se muestra en el tab Activas cuando
+hay al menos una `pending`, sin verificar contra el comportamiento real de expiración
+del backend (ya lo cubre MOVO-145 del lado servidor, esto es solo copy).
 ### MOVO-159 — Pantalla de generación de QR con countdown (cedente de custodia) (`movo-mobile`)
 
 Implementación completa de la pantalla de transferencia de custodia física vía código QR dinámico para el cedente (emisor en retiro, transportista en entrega). Diseñada según el manual de marca de Movo y el artefacto de Claude Design (`viaje_del_transportista.dc.html`).

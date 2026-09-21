@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from "vitest";
 import { FastifyInstance } from "fastify";
 import { OfferStatus, ShipmentStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
@@ -255,7 +255,15 @@ describe("offer-repository (Postgres)", () => {
   });
 
   describe("update (MOVO-181)", () => {
-    it("AC1/AC3: aplica precio/fecha/franja horaria editados, sin tocar createdAt/expiresAt/status", async () => {
+    // `PICKUP_DATE` es una fecha fija: sin fijar "ahora" antes de ella, el `expiresAt`
+    // recomputado por `update()` (PR #177) ya caería en el pasado y la oferta se leería
+    // `expired`. Solo se falsea `Date` -- los timers reales siguen andando para la DB.
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("AC1/AC3: aplica precio/fecha/franja horaria editados y recomputa expiresAt, sin tocar createdAt/status", async () => {
+      vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-08-01T12:00:00.000Z") });
       const shipmentId = await createPublishedShipment();
       const created = await repo.create(baseOfferInput({ shipmentId }));
 
@@ -274,6 +282,8 @@ describe("offer-repository (Postgres)", () => {
       expect(updated.offeredPickupTimeWindowEnd).toBe("13:00:00");
       expect(updated.status).toBe(OfferStatus.PENDING);
       expect(updated.createdAt.getTime()).toBe(created.createdAt.getTime());
+      // Nueva fecha (PICKUP_DATE + 1 día) + fin de la franja propuesta (13:00 ART = 16:00Z).
+      expect(updated.expiresAt?.toISOString()).toBe("2026-08-21T16:00:00.000Z");
 
       const persisted = await repo.findById(created.id);
       expect(persisted?.priceOffered).toBe(7000);

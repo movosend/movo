@@ -64,6 +64,23 @@ export function acceptedOfferPickupWindowStartInstant(
 }
 
 /**
+ * Instante real (UTC) en el que vence una oferta `pending` (`Offer.expiresAt`, AC11 de
+ * MOVO-102): cuando cierra la ventana de retiro EFECTIVA de la oferta -- el fin de la
+ * franja que el transportista propuso (MOVO-177, string "HH:MM[:SS]", `null` si no
+ * propuso una) o, si no, el de la ventana del envío tal cual. `offeredDate` (`@db.Date`
+ * anclado) ya es la fecha de retiro efectiva. Única fuente de esta regla: la usan
+ * tanto la creación de la oferta (`shipments.service.ts#createOfferForShipment`) como
+ * su edición (`offer-repository.ts#update`).
+ */
+export function offerExpiresAtInstant(
+  offeredDate: Date,
+  offeredPickupTimeWindowEnd: string | null,
+  shipmentPickupTimeWindowEnd: Date,
+): Date {
+  return anchorTimeOfDayToInstant(offeredDate, offeredPickupTimeWindowEnd ?? shipmentPickupTimeWindowEnd);
+}
+
+/**
  * `true` si la ventana de retiro de un envío ya cerró respecto de `now`. Usado por el
  * barrido (`shipments.service.ts#expireOverduePublishedShipments`) que cancela los
  * `published` que nadie retiró a tiempo -- `GET /shipments/available` en sí NO filtra

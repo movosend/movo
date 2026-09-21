@@ -3,7 +3,7 @@ import { Prisma, PrismaClient, Offer as OfferRow, Shipment as ShipmentRow } from
 import { INITIAL_OFFER_STATUS, transition } from "../domain/offer-state-machine";
 import { transition as transitionShipmentStatus } from "../domain/shipment-state-machine";
 import { haversineKm } from "../domain/geo";
-import { acceptedOfferPickupWindowStartInstant } from "../domain/pickup-window";
+import { acceptedOfferPickupWindowStartInstant, offerExpiresAtInstant } from "../domain/pickup-window";
 import {
   Offer,
   CreateOfferInput,
@@ -470,12 +470,46 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           data.offeredPickupTimeWindowEnd = patch.offeredPickupTimeWindowEnd;
         }
 
-        // Compare-and-swap contra `status` (no contra los campos editables en sí) --
-        // mismo mecanismo que `applyTerminalTransition`: si un accept/reject/withdraw
-        // concurrente ya escribió sobre esta fila entre el findUnique de arriba y este
-        // UPDATE, `count` da 0 en vez de aplicar el patch sobre una oferta que ya dejó
-        // de ser pending.
-        const result = await tx.offer.updateMany({ where: { id, status: current.status }, data });
+        // Bug real de `expiresAt` nunca seteado (sin ticket propio, mismo que
+        // `createOfferForShipment`): si el patch cambia `offeredDate` y/o la franja, la
+        // ventana de retiro EFECTIVA cambió con él y `expiresAt` tiene que recomputarse
+        // -- dejarlo como estaba vencería la oferta antes de tiempo (fecha adelantada) o
+        // nunca (fecha atrasada). Se calcula ACÁ, sobre la fila leída dentro de la
+        // transacción y no en el servicio, para que se derive del mismo estado contra el
+        // que se hace el compare-and-swap de abajo (fix de review, PR #177). Un patch
+        // de solo precio no la toca. `null` en la franja = reset a la del envío.
+        const affectsExpiry = patch.offeredDate !== undefined || patch.offeredPickupTimeWindowEnd !== undefined;
+        if (affectsExpiry) {
+          data.expiresAt = offerExpiresAtInstant(
+            patch.offeredDate ?? current.offeredDate,
+            patch.offeredPickupTimeWindowEnd !== undefined
+              ? patch.offeredPickupTimeWindowEnd
+              : current.offeredPickupTimeWindowEnd,
+            current.shipment.pickupTimeWindowEnd
+          );
+        }
+
+        // Compare-and-swap contra `status` -- mismo mecanismo que
+        // `applyTerminalTransition`: si un accept/reject/withdraw concurrente ya
+        // escribió sobre esta fila entre el findUnique de arriba y este UPDATE, `count`
+        // da 0 en vez de aplicar el patch sobre una oferta que ya dejó de ser pending.
+        // Cuando el patch recomputa `expiresAt`, el CAS además cubre los campos de los
+        // que ese cálculo depende: dos PATCH concurrentes (uno cambia la fecha, otro la
+        // franja) ya no pueden pisarse dejando `expiresAt` derivado de una mezcla que
+        // nunca coexistió -- el segundo en escribir recibe 409 y reintenta contra el
+        // estado ya actualizado. Un patch de solo precio no entra en conflicto con eso.
+        const result = await tx.offer.updateMany({
+          where: {
+            id,
+            status: current.status,
+            ...(affectsExpiry && {
+              offeredDate: current.offeredDate,
+              offeredPickupTimeWindowStart: current.offeredPickupTimeWindowStart,
+              offeredPickupTimeWindowEnd: current.offeredPickupTimeWindowEnd,
+            }),
+          },
+          data,
+        });
         if (result.count === 0) {
           throw new OfferConcurrentModificationError(id);
         }
