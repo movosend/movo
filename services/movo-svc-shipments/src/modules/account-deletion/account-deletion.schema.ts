@@ -16,4 +16,14 @@ export const accountDeletionSchemas = {
       hasActiveShipments: { type: "boolean" },
     },
   },
+
+  // MOVO-202/AC7: cantidad de filas borradas -- puramente informativo para el log de
+  // svc-users, no una decisión que el caller tome según el número.
+  deletedPositionsResponse: {
+    type: "object",
+    required: ["deletedCount"],
+    properties: {
+      deletedCount: { type: "integer" },
+    },
+  },
 };

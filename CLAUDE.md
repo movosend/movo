@@ -77,9 +77,10 @@ Infra: AWS EC2 + Docker Compose (un ambiente por EC2: dev y prod), Terraform (re
 separado `movo-infra`), Cloudflare (DNS), GitHub Actions (CI/CD), Vercel (frontends
 Next.js). Ver `README.md` para instrucciones de setup local.
 
-Comunicación entre servicios: REST síncrono sobre HTTP, sin message broker. Socket.io
-para el canal de tracking en tiempo real. Solo el gateway expone puerto público (443);
-todo lo demás vive en la red Docker interna.
+Comunicación entre servicios: REST síncrono sobre HTTP, sin message broker. WebSocket
+nativo (`@fastify/websocket`, ADR-022 — reemplaza la mención a Socket.io de ADR-005)
+para el canal de tracking en tiempo real, gateway y `movo-svc-shipments`. Solo el
+gateway expone puerto público (443); todo lo demás vive en la red Docker interna.
 
 Todas las rutas del backend quedan bajo el prefijo `/api/v1/*` (`GET /health` es la
 excepción, sin versionar, para healthchecks).
@@ -97,7 +98,7 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 | 002 | Node.js+Fastify para I/O; Python+FastAPI solo para `pricing-logistics` | Dos stacks a mantener |
 | 003 | PostgreSQL único compartido (esquema por servicio) + Redis para sesiones/estado rápido | Punto único de fallo, mitigado con esquemas separados y snapshots |
 | 004 | JWT corto (60min) + refresh token opaco en Redis (7 días — TTL extendido a 90 días por ADR-013), roles como array (`AccessTokenClaims.roles: UserRole[]`) | Token robado sigue válido hasta expirar (máx 60min) |
-| 005 | REST + `/api/v1/` + Socket.io para tracking; Swagger autogenerado | Over-fetching mitigado con query params de proyección |
+| 005 | REST + `/api/v1/` + Socket.io para tracking (mención de Socket.io REEMPLAZADA por ADR-022: WebSocket nativo); Swagger autogenerado | Over-fetching mitigado con query params de proyección |
 | 006 | EC2 + Docker Compose (no K8s/PaaS/ECS); frontends Next.js en Vercel | Sin auto-scaling; sin alta disponibilidad (aceptado para el alcance del TFG) |
 | 007 | AWS S3 con presigned URLs para imágenes de envíos (nunca BLOBs en Postgres ni filesystem local) | Cliente implementa flujo de 2 pasos (pedir URL, hacer PUT) |
 | 008 | Google Maps Distance Matrix API para la matriz de costos del VRPTW (REEMPLAZADO por ADR-013: migración a Routes API, Compute Route Matrix) | Costo por llamada (N²) y dependencia de red en el camino crítico |
@@ -114,6 +115,8 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 | 019 | `movo-svc-pricing-logistics` stateless (sin base de datos propia ni esquema en Postgres); la entidad `Offer` vive en el esquema `shipments` | Acoplamiento de `shipments` con la lógica de ofertas a cambio de atomicidad transaccional (evita 2PC/Sagas distribuidas entre servicios) |
 | 020 | Handshake de custodia (MOVO-158) firma con ECDSA P-256/SHA-256 vía WebCrypto, formato de firma IEEE P1363 (raw r‖s, no DER) — la clave privada nunca sale del dispositivo (MOVO-157/158/159/195); lado mobile (MOVO-195) implementado con `@noble/curves` (JS puro, sin módulo nativo) en vez de un polyfill de WebCrypto o clave no-exportable en Keychain/Keystore nativo | Primera criptografía asimétrica del repo, sin precedente propio a reusar; firma en formato no-DER es una convención propia del proyecto (mobile tiene que hablar el mismo formato, no un estándar externo verificable por terceros); la privada pasa por JS del lado mobile en vez de quedar aislada 100% en hardware, aceptado por simplicidad/alcance del TFG (sin dev client/rebuild nativo) |
 | 021 | Extensión del set canónico de `ShipmentStatus` de 9 a 11 estados (MOVO-208): `assigned_unfunded` (transportista asignado, hold de fondos todavía sin crear — consecuencia de la decisión de hold de MOVO-12 "opción B", anclado cerca del retiro en vez de en la aceptación de la oferta) y `completed` (entregado Y pago liberado, MOVO-212 — distingue "entregado" de "entregado y cobrado"). `delivery_failed` evaluado y descartado explícitamente (5 preguntas de negocio sin responder, ver `docs/shipments/state-diagram.md`) | Ninguna de las dos transiciones nuevas se dispara todavía (bloqueadas por Mercado Pago, MOVO-210/212) — el riesgo aceptado es que la máquina de estados ya permite un camino que ningún endpoint HTTP dispara hoy, documentado explícitamente como "disponible y probado, no disparado" en vez de dejarlo implícito |
+| 022 | Canal de tiempo real (MOVO-200, spike): WebSocket nativo vía `@fastify/websocket` sobre el gateway y `movo-svc-shipments` (REEMPLAZA la mención a Socket.io de ADR-005) — cubre tracking (MOVO-11), chat (MOVO-26, cuyo AC ya pedía WebSockets explícito) y el panel de admin (MOVO-33) con un solo protocolo, en vez de Socket.io o Server-Sent Events | Sin reconexión automática ni salas/ack de fábrica (Socket.io los da, pero ningún caso de uso comprometido hoy los necesita — se construyen a mano si hace falta); nginx necesita headers Upgrade/Connection + subir `proxy_read_timeout` antes de que el canal funcione en producción (pendiente, ver "Pendientes transversales") |
+| 023 | Retención de la traza GPS del transportista (MOVO-202): 30 días desde que el envío cierra (`assigned_unfunded`/`assigned`/etc. no cuentan, solo `delivered`/`completed`/`cancelled`/`rejected_by_receiver`), purgada por job periódico; un envío `disputed` nunca es candidato mientras siga en ese estado — el plazo recién arranca a contar desde que se resuelve (hoy sin transición de salida modelada, así que en la práctica no vence). Evidencia para disputas (MOVO-30), explícitamente no analítica ni perfilado | Ventana de 30 días es una decisión de equipo, no un requisito legal derivado — documentada como tal para la defensa; la supresión de cuenta (MOVO-39) borra la traza del usuario de inmediato como transportista, sin esperar ese plazo, pero ese borrado cross-servicio es best-effort (si `movo-svc-shipments` no responde, la baja de cuenta igual se completa y el barrido periódico la alcanza más tarde) |
 
 ## Convenciones de código
 
@@ -298,6 +301,70 @@ Condiciones`/`Política de Privacidad`) por el equipo. Decisiones no obvias:
   (MOVO-230), y moderación de calificaciones (TyC sección 12) sin UI de
   reporte/edición todavía.
 
+### MOVO-200 — Spike: canal de tiempo real (ADR-022)
+
+Cierra la incertidumbre sobre el canal de tiempo real (ver "Pendientes transversales"
+histórico — no había ninguna línea de WebSocket/Socket.io/SSE en el repo antes de este
+spike). Decisión: **WebSocket nativo vía `@fastify/websocket`** (ADR-022), no
+Socket.io ni SSE — reemplaza la mención a Socket.io que traía ADR-005. Documento de
+conclusiones completo linkeado al issue en Linear (relevamiento, comparación de las 3
+tecnologías, impacto en infra, esbozo de auth/autorización).
+
+- **PoC mínima (AC5) en esta misma rama**: `services/movo-svc-shipments/src/plugins/
+  websocket.ts` + `src/modules/tracking/tracking-poc.routes.ts` —
+  `GET /shipments/:id/track` (WS) valida el JWT en el handshake
+  (`verifyAccessToken`, mismo mecanismo que el gateway), autoriza por pertenencia al
+  envío (`assertShipmentAccess` + `carrierId`) y empuja una posición de muestra.
+  **No era la implementación final** — MOVO-201 (ticket hermano bloqueado por este
+  spike, ver su entrada más abajo) la reemplazó por completo: conectaba directo a
+  `svc-shipments` sin pasar por el gateway, sin salas ni difusión a múltiples
+  suscriptores, sin ingesta real de GPS. La doc de uso vive ahora en
+  `docs/tracking/README.md` (`docs/tracking-poc/` ya no existe).
+- **MOVO-159 AC4 resuelto**: el condicional "polling o suscripción si hay Socket.io"
+  pasa a "suscripción por WebSocket, cuando MOVO-201 esté disponible" — ese reemplazo
+  de polling se hace en los tickets de implementación de MOVO-159/MOVO-199, no en este
+  spike.
+- **AC3 (infra) aplicado y validado localmente**: `infra/nginx/templates/
+  default.conf.template` suma un `map $http_upgrade $connection_upgrade` (patrón
+  estándar de nginx para servir HTTP y WS desde el mismo `location`, sin forzar
+  `Connection: upgrade` en requests normales) + `proxy_set_header Upgrade/Connection` +
+  `proxy_read_timeout` de 30s a 3600s. Validado con el stack local real
+  (`infra/docker-compose.local.yml`, nginx real con cert self-signed, no mockeado):
+  arranca sin errores con el template nuevo (equivalente a `nginx -t`, que este entorno
+  no tenía disponible antes), el tráfico normal sigue funcionando
+  (`curl https://localhost:8443/health` → 200), y un WebSocket real de punta a punta
+  (TLS en nginx → upgrade reenviado → JWT validado → mensaje recibido) funciona
+  apuntando nginx directo a `svc-shipments` (prueba temporal, revertida — el gateway
+  real hoy responde 404 a ese path porque `@fastify/http-proxy` no reenvía upgrades de
+  protocolo, confirmando que el hueco es MOVO-201, no nginx). El timeout subido aplica
+  a TODO el `location /` (no solo a rutas WS, que todavía no existen como tales del
+  lado del gateway) — trade-off documentado inline en el archivo. Sin probar contra un
+  deploy real en dev/prod (EC2) todavía.
+- **Pendiente de este ticket**: estimación informada de los tickets de implementación
+  de MOVO-11/MOVO-201 (identificados, sin horas concretas todavía).
+
+### MOVO-201 — Canal de tiempo real: implementación real (gateway + `svc-shipments`)
+
+Reemplaza la PoC de MOVO-200 sobre la tecnología que fijó ADR-022. Detalle completo en
+`gateway/CLAUDE.md` y `services/movo-svc-shipments/CLAUDE.md` (ambos con entrada propia
+de MOVO-201) — acá solo lo transversal.
+
+- **El gateway ahora sí proxea el upgrade WS** (`config/routes-map.ts#ServiceRoute.
+  websocket`, solo en `/shipments`): `@fastify/http-proxy` lo maneja internamente sin
+  necesitar `@fastify/websocket` ahí, pero no reenvía `x-user-*` al upstream por default
+  en una conexión WS (solo `cookie`) — hubo que agregar un `wsClientOptions.
+  rewriteRequestHeaders` propio. Cierra el hueco que el spike de MOVO-200 había
+  confirmado (`@fastify/http-proxy` no reenviaba upgrades de protocolo en absoluto).
+- **Heartbeat ping/pong implementado** (cada 30s, `movo-svc-shipments`) — cierra el
+  pendiente transversal que había dejado MOVO-200 (ver abajo, la entrada vieja quedó
+  resuelta) y permitió bajar `proxy_read_timeout` de nginx de 3600s a 90s.
+- **Auth de browser (`movo-admin`/MOVO-33) queda diseñada, no implementada**: mecanismo
+  elegido, subprotocolo `Sec-WebSocket-Protocol` (no query param, por el riesgo de
+  logueo del JWT en nginx/Cloudflare) — sin consumidor real todavía (MOVO-33 no está
+  bloqueado por MOVO-201), así que no se implementó código sin usar.
+- **Sin verificar contra un deploy real en dev/prod (EC2)** — AC6 del ticket, mismo
+  pendiente que ya traía MOVO-200 para nginx; esta sesión no tuvo acceso a esa infra.
+
 ### Automatización de sync de documentos legales (`scripts/sync-legal-docs.ts`)
 
 Cierra el pendiente de sync manual que MOVO-224/228 (`movo-mobile`) habían dejado
@@ -349,7 +416,24 @@ costó dos veces con env vars olvidadas (ver "Git, commits y PRs" más arriba).
   Cloudflare (incluido el DMARC), y (opcional) un prefijo `brand/*` público en el
   bucket de dev si se quiere usar el PNG del logo en los mails.
 - **ADRs con desarrollo completo pendiente de pegar en Drive** (solo tienen el resumen
-  de una línea en la tabla de arriba): 012, 013, 014, 015, 016, 017, 018, 019, 020.
+  de una línea en la tabla de arriba): 019, 020, 021, 022 (012-018 ya están pegados en
+  el doc de Sprint 0, confirmado al buscar dónde iba ADR-022 — la lista anterior acá
+  estaba desactualizada). **ADR-022 tiene su contenido completo ya redactado**, en un
+  doc aparte (`ADR-022 - Canal de tiempo real (WebSocket nativo) - pegar en Sprint 0`,
+  misma carpeta de Drive que el Sprint 0) porque esta sesión no tuvo forma de editar el
+  contenido del doc de Sprint 0 directamente — falta que alguien lo pegue en la sección
+  de ADRs y borre el doc aparte.
+- **Nginx con soporte de upgrade WebSocket y heartbeat aplicados, sin probar contra un
+  deploy real en EC2** (MOVO-200/ADR-022 AC3 + MOVO-201) — ver la entrada de MOVO-201
+  arriba: el heartbeat ping/pong ya está implementado y `proxy_read_timeout` bajó de
+  3600s a 90s. Falta la prueba contra dev/prod real (AC6 de MOVO-201), sin acceso a esa
+  infra desde ninguna de las dos sesiones todavía.
+- **Auth por header custom (`Authorization: Bearer`) no sirve para un cliente de
+  navegador estándar** (`window.WebSocket` no permite headers custom, a diferencia del
+  `WebSocket` de React Native) — MOVO-201 dejó el mecanismo DISEÑADO (subprotocolo
+  `Sec-WebSocket-Protocol`, no query param) pero sin implementar, porque `movo-admin`/
+  MOVO-33 (el único consumidor que lo necesitaría) no está bloqueado por MOVO-201 y
+  todavía no lo pide. Implementar cuando ese ticket lo necesite, no antes.
 - **`MP_TRANSACTION_FEE_RATE` sin confirmar** (MOVO-143,
   `shared/movo-shared/src/config/commission.ts`): placeholder (0.0499) hasta tener el
   valor real del contrato/homologación con MercadoPago. `MOVO_COMMISSION_RATE` (15%,

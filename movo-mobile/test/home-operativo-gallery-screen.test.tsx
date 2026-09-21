@@ -31,7 +31,7 @@ describe("HomeOperativoGalleryScreen", () => {
     expect(getByTestId("dev-home-sending")).toBeTruthy();
     expect(getByTestId("dev-home-receiving")).toBeTruthy();
     expect(getByTestId("dev-home-attention")).toBeTruthy();
-    expect(getByText("Nicolás Vera")).toBeTruthy();
+    expect(getByText("Lucía Gómez retira con este código")).toBeTruthy();
     expect(getByText("Julia te quiere enviar un paquete")).toBeTruthy();
   });
 

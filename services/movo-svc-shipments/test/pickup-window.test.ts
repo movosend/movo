@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { isPickupWindowExpired, pickupWindowEndInstant, toArgentinaCalendarDate } from "../src/domain/pickup-window";
+import {
+  acceptedOfferPickupWindowStartInstant,
+  isPickupWindowExpired,
+  pickupWindowEndInstant,
+  toArgentinaCalendarDate,
+} from "../src/domain/pickup-window";
 
 describe("pickupWindowEndInstant", () => {
   it("suma el offset de Argentina (UTC-3) al reloj de pared anclado", () => {
@@ -44,6 +49,26 @@ describe("isPickupWindowExpired", () => {
     const now = new Date("2026-09-03T15:00:01.000Z");
 
     expect(isPickupWindowExpired(pickupDate, pickupTimeWindowEnd, now)).toBe(true);
+  });
+});
+
+describe("acceptedOfferPickupWindowStartInstant", () => {
+  it("sin franja propuesta (null), usa la ventana original del envío", () => {
+    const offeredDate = new Date("2026-08-20T00:00:00.000Z");
+    const shipmentPickupTimeWindowStart = new Date("1970-01-01T09:00:00.000Z");
+
+    expect(
+      acceptedOfferPickupWindowStartInstant(offeredDate, null, shipmentPickupTimeWindowStart).toISOString(),
+    ).toBe("2026-08-20T12:00:00.000Z");
+  });
+
+  it("con franja propuesta (MOVO-177), usa el horario propuesto en vez del original del envío", () => {
+    const offeredDate = new Date("2026-08-22T00:00:00.000Z");
+    const shipmentPickupTimeWindowStart = new Date("1970-01-01T09:00:00.000Z");
+
+    expect(
+      acceptedOfferPickupWindowStartInstant(offeredDate, "14:30:00", shipmentPickupTimeWindowStart).toISOString(),
+    ).toBe("2026-08-22T17:30:00.000Z");
   });
 });
 

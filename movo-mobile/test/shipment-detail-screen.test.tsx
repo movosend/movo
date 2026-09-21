@@ -537,5 +537,61 @@ describe("ShipmentDetailScreen", () => {
     expect(mockRouterReplace).toHaveBeenCalledWith("/(app)/(tabs)/home");
     expect(mockRouterBack).not.toHaveBeenCalled();
   });
+
+  describe("Acceso contextual a Handshake QR (MOVO-159)", () => {
+    it("muestra 'Confirmar retiro' para el emisor cuando el envío está asignado", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-1" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ senderId: "user-1", carrierId: "user-2", status: ShipmentStatus.ASSIGNED }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId, getByText } = await render(<ShipmentDetailScreen />);
+
+      const handshakeBtn = getByTestId("shipment-detail-handshake-button");
+      expect(handshakeBtn).toBeTruthy();
+      expect(getByText("Confirmar retiro")).toBeTruthy();
+
+      await fireEvent.press(handshakeBtn);
+      expect(mockRouterPush).toHaveBeenCalledWith("/(app)/shipments/shipment-1/handshake");
+    });
+
+    it("muestra 'Confirmar entrega' para el transportista cuando el envío está en tránsito", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-2" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ senderId: "user-1", carrierId: "user-2", status: ShipmentStatus.IN_TRANSIT }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId, getByText } = await render(<ShipmentDetailScreen />);
+
+      const handshakeBtn = getByTestId("shipment-detail-handshake-button");
+      expect(handshakeBtn).toBeTruthy();
+      expect(getByText("Confirmar entrega")).toBeTruthy();
+
+      await fireEvent.press(handshakeBtn);
+      expect(mockRouterPush).toHaveBeenCalledWith("/(app)/shipments/shipment-1/handshake");
+    });
+
+    it("no muestra el botón cuando no corresponde confirmar custodia", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-1" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ senderId: "user-1", status: ShipmentStatus.PUBLISHED }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { queryByTestId } = await render(<ShipmentDetailScreen />);
+      expect(queryByTestId("shipment-detail-handshake-button")).toBeNull();
+    });
+  });
 });
 

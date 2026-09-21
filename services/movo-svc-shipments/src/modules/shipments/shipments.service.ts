@@ -15,6 +15,7 @@ import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { TripRepository } from "../../repositories/trip-repository";
+import { Trip } from "../../models/trip";
 import { RatingRepository } from "../../repositories/rating-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
@@ -50,6 +51,7 @@ import {
   assertIsSenderOrAdmin,
   assertShipmentAccess,
 } from "./assert-shipment-access";
+import { assertTripAccess } from "../trips/trip-access";
 
 type ShipmentsServiceLogger =
   | FastifyBaseLogger
@@ -490,6 +492,154 @@ async function dispatchReceiverTimeoutPush(
   }
 }
 
+/** MOVO-179: primer componente de una dirección ("Av. Colón 1234, Córdoba" ->
+ * "Av. Colón 1234") -- sin helper de formato de dirección reusable en el repo
+ * todavía, así que queda local a este archivo (único consumidor hoy: el copy del
+ * push de `dispatchTripMatchPushes`). */
+function shortAddress(address: string): string {
+  return address.split(",")[0].trim();
+}
+
+/**
+ * MOVO-179 (comentario de Linear, decisión de equipo): el prefiltro geométrico de
+ * `findActiveTripsMatchingShipment` puede dar falsos positivos (un envío que "en línea
+ * recta" cae en el corredor pero que la ruta real -- calles, sentido -- no lo hace
+ * viable) -- exactamente lo que `GET /trips/:id/matches` sí resuelve desde MOVO-219
+ * consultando `pricing-logistics`. Se reusa esa misma evaluación acá, pero SOLO sobre
+ * los candidatos que ya sobrevivieron el prefiltro geométrico (nunca sobre todos los
+ * viajes `active` del sistema) -- evita gastar la cuota de Google Routes en algo que
+ * de entrada ni siquiera pasaba el corredor.
+ *
+ * A diferencia de `getTripMatches` (política No-Fallback: un fallo del servicio de
+ * ruteo se propaga como 502/503 al caller HTTP), acá un fallo se trata como "no se
+ * pudo confirmar, no se notifica" -- este disparador es best-effort en segundo plano
+ * (AC2), no una respuesta que el usuario está esperando en pantalla, así que no tiene
+ * sentido que una caída de `pricing-logistics` se propague a ningún lado.
+ */
+async function evaluateTripMatchFeasibility(
+  pricingLogisticsClient: PricingLogisticsClient,
+  trip: Trip,
+  shipment: Shipment,
+  logger: ShipmentsServiceLogger | undefined
+): Promise<boolean> {
+  try {
+    const result = await pricingLogisticsClient.evaluateCandidates({
+      trip: {
+        id: trip.id,
+        originLat: trip.originLat,
+        originLng: trip.originLng,
+        destinationLat: trip.destinationLat,
+        destinationLng: trip.destinationLng,
+        departureAt: trip.departureAt.toISOString(),
+      },
+      candidates: [
+        {
+          id: shipment.id,
+          pickupLat: shipment.pickupLat,
+          pickupLng: shipment.pickupLng,
+          dropoffLat: shipment.deliveryLat,
+          dropoffLng: shipment.deliveryLng,
+          pickupWindowStart: shipment.pickupTimeWindowStart.toISOString(),
+          pickupWindowEnd: shipment.pickupTimeWindowEnd.toISOString(),
+        },
+      ],
+    });
+    return result.evaluations[0]?.feasible === true;
+  } catch (err) {
+    logger?.warn(
+      { err, event: "trip_match_routing_evaluation_failed", shipmentId: shipment.id, tripId: trip.id },
+      "No se pudo evaluar el desvío real del viaje contra pricing-logistics -- se descarta el match sin notificar"
+    );
+    return false;
+  }
+}
+
+/**
+ * MOVO-179 (AC1-AC5): quinto disparador de `notifications-client.ts` -- al publicarse
+ * un envío (`acceptShipment`), avisa a los transportistas con un viaje `active`
+ * declarado cuyo corredor contiene tanto el retiro como la entrega del envío (matching
+ * inverso de MOVO-161/50, `tripRepository.findActiveTripsMatchingShipment`), y cuya
+ * ruta real confirma que el desvío es viable (`evaluateTripMatchFeasibility`, sobre
+ * `pricing-logistics`). AC4: de-duplica por `carrierId`, no por `tripId` -- si el mismo
+ * transportista matchea con más de un viaje viable, se notifica una sola vez,
+ * referenciando el viaje con `departureAt` más próximo (decisión propia, el AC no fija
+ * el criterio de desempate). Best-effort por notificación, mismo patrón
+ * try/catch+`logger?.warn` que el resto de los disparadores de este archivo -- un
+ * fallo de un transportista no frena el resto ni la transición ya commiteada.
+ */
+async function dispatchTripMatchPushes(
+  tripRepository: TripRepository | undefined,
+  pricingLogisticsClient: PricingLogisticsClient | undefined,
+  notificationsClient: NotificationsClient | undefined,
+  logger: ShipmentsServiceLogger | undefined,
+  radiusKm: number,
+  shipment: Shipment
+): Promise<void> {
+  if (!tripRepository || !pricingLogisticsClient || !notificationsClient) {
+    return;
+  }
+
+  try {
+    const geometricCandidates = await tripRepository.findActiveTripsMatchingShipment({
+      pickupLat: shipment.pickupLat,
+      pickupLng: shipment.pickupLng,
+      deliveryLat: shipment.deliveryLat,
+      deliveryLng: shipment.deliveryLng,
+      excludeCarrierIds: [shipment.senderId, shipment.receiverId],
+      radiusKm,
+    });
+
+    if (geometricCandidates.length === 0) {
+      return;
+    }
+
+    const feasibility = await Promise.all(
+      geometricCandidates.map(async (trip) => ({
+        trip,
+        feasible: await evaluateTripMatchFeasibility(pricingLogisticsClient, trip, shipment, logger),
+      }))
+    );
+    const feasibleTrips = feasibility.filter((c) => c.feasible).map((c) => c.trip);
+
+    if (feasibleTrips.length === 0) {
+      return;
+    }
+
+    const sortedByDeparture = [...feasibleTrips].sort(
+      (a, b) => a.departureAt.getTime() - b.departureAt.getTime()
+    );
+    const tripByCarrierId = new Map<string, (typeof sortedByDeparture)[number]>();
+    for (const trip of sortedByDeparture) {
+      if (!tripByCarrierId.has(trip.carrierId)) {
+        tripByCarrierId.set(trip.carrierId, trip);
+      }
+    }
+
+    await Promise.all(
+      [...tripByCarrierId.values()].map(async (trip) => {
+        try {
+          await notificationsClient.sendPush({
+            userId: trip.carrierId,
+            title: "Nuevo paquete compatible",
+            body: `Hay un envío compatible con tu viaje ${shortAddress(trip.originAddress)} → ${shortAddress(trip.destinationAddress)}`,
+            data: { type: "trip_match", tripId: trip.id, shipmentId: shipment.id },
+          });
+        } catch (err) {
+          logger?.warn(
+            { err, event: "notification_dispatch_failed", shipmentId: shipment.id, tripId: trip.id },
+            "No se pudo enviar la push de envío compatible con viaje"
+          );
+        }
+      })
+    );
+  } catch (err) {
+    logger?.warn(
+      { err, event: "trip_match_dispatch_failed", shipmentId: shipment.id },
+      "No se pudo evaluar/despachar las pushes de envío compatible con viaje"
+    );
+  }
+}
+
 /** Aviso al emisor cuando el barrido cancela su envío `published` por vencimiento de
  * la ventana de retiro — mismo patrón que `dispatchReceiverTimeoutPush` (best-effort,
  * nunca revienta el barrido), `type: "shipment_cancelled"` porque el resultado de
@@ -552,6 +702,12 @@ export interface ShipmentsServiceOptions {
    * varios tests existentes construyen el servicio sin pasar todas las opciones.
    */
   ratingRepository?: RatingRepository;
+  /** MOVO-179: radio de desvío (km) para el matching inverso de `dispatchTripMatchPushes`
+   * en `acceptShipment` -- mismo valor (`TRIP_DEFAULT_MAX_DETOUR_KM`) que usa
+   * `trips.service.ts#getTripMatches` como default, sin override por viaje (`Trip` no
+   * persiste un `radiusKm` propio). Sin este valor inyectado, el trigger no dispara
+   * (mismo criterio best-effort/opcional que `tripRepository`). */
+  tripMatchDetourRadiusKm?: number;
 }
 
 export type ShipmentsService = ReturnType<typeof createShipmentsService>;
@@ -571,6 +727,7 @@ export function createShipmentsService(
   const getSenderReputationScore = opts.getSenderReputationScore;
   const tripRepository = opts.tripRepository;
   const ratingRepository = opts.ratingRepository;
+  const tripMatchDetourRadiusKm = opts.tripMatchDetourRadiusKm;
 
   return {
     async createShipment(input: CreateShipmentServiceInput): Promise<Shipment> {
@@ -946,14 +1103,24 @@ export function createShipmentsService(
       }
 
       // MOVO-162: tripId opcional -- valida que el viaje exista, sea del mismo
-      // transportista y siga activo antes de dejar que la oferta lo referencie. Sin
-      // este chequeo, cualquier caller podría taggear la oferta con el viaje de otro
-      // transportista o uno ya cancelado, y Trip.hasAcceptedPackages
+      // transportista y siga disponible antes de dejar que la oferta lo referencie.
+      // Sin este chequeo, cualquier caller podría taggear la oferta con el viaje de
+      // otro transportista o uno ya cancelado, y Trip.hasAcceptedPackages
       // (trip-repository.ts) perdería sentido. Deliberadamente NO valida que el envío
       // caiga geométricamente dentro del corredor del viaje -- todavía no hay ningún
       // consumidor real que dispare este campo (MOVO-163/MOVO-149 no lo contemplan en
       // su AC), así que esa validación queda para cuando exista ese flujo y se sepa
       // qué radio/semántica espera.
+      //
+      // MOVO-221: el chequeo original exigía `trip.status === ACTIVE` a secas -- con
+      // el rediseño de estados de viaje (declared/active/completed), una oferta se
+      // hace normalmente mientras el viaje todavía está `declared` (antes de que el
+      // transportista lo arranque, `POST /trips/:id/start`), así que restringir a
+      // `active` habría bloqueado el caso normal. Se amplía a "vivo" (declared o
+      // active), rechazando solo cancelled/completed -- mismo criterio ya aplicado al
+      // gating de `GET /trips/:id/matches` (`trips.service.ts`). `TRIP_NOT_ACTIVE`
+      // nunca se renombra (contrato de wire, `@movo/shared`) -- queda sin uso, el
+      // reemplazo es el código nuevo `TRIP_NOT_AVAILABLE`.
       if (input.tripId) {
         if (!tripRepository) {
           throw new Error("createOfferForShipment requiere tripRepository (ShipmentsServiceOptions) para validar tripId.");
@@ -962,11 +1129,20 @@ export function createShipmentsService(
         if (!trip) {
           throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${input.tripId}' no existe.`);
         }
-        if (trip.carrierId !== input.carrierId) {
-          throw new ApiError(403, "AUTH_FORBIDDEN", "No podés ofertar en nombre de un viaje que no es tuyo.");
-        }
-        if (trip.status !== TripStatus.ACTIVE) {
-          throw new ApiError(409, "TRIP_NOT_ACTIVE", "Solo podés ofertar desde un viaje activo.");
+        // allowAdmin: false -- a diferencia del resto de los usos de assertTripAccess,
+        // ofertar es una acción 100% self-service del transportista (input.carrierId
+        // siempre es el propio caller, nunca "en nombre de"); un admin no tiene ningún
+        // caso de uso legítimo para taggear la oferta de otro con este tripId.
+        assertTripAccess(trip, input.carrierId, input.callerRoles, {
+          allowAdmin: false,
+          forbiddenMessage: "No podés ofertar en nombre de un viaje que no es tuyo.",
+        });
+        if (trip.status !== TripStatus.DECLARED && trip.status !== TripStatus.ACTIVE) {
+          throw new ApiError(
+            409,
+            "TRIP_NOT_AVAILABLE",
+            `El viaje '${input.tripId}' no admite nuevas ofertas en su estado actual ('${trip.status}').`,
+          );
         }
       }
 
@@ -1065,6 +1241,20 @@ export function createShipmentsService(
           bodyTemplate: (name) => `${name} aceptó el envío, ya está publicado`,
           type: "shipment_accepted",
         });
+      }
+
+      // MOVO-179 (AC1/AC5): el trigger es puntual, solo en el momento de la
+      // publicación -- vive acá y en ningún otro lugar del ciclo de vida del envío.
+      // Best-effort/fire-and-forget, mismo criterio que la push de arriba.
+      if (tripMatchDetourRadiusKm !== undefined) {
+        void dispatchTripMatchPushes(
+          tripRepository,
+          pricingLogisticsClient,
+          notificationsClient,
+          logger,
+          tripMatchDetourRadiusKm,
+          updated
+        );
       }
 
       return updated;
@@ -1428,10 +1618,53 @@ export function createShipmentsService(
      * - Llama a OR-Tools vía `pricingLogisticsClient.optimizeRoute` (AC5).
      * - Si el solver falla: aplica degradación heurística con `optimized: false` (AC6).
      * - On-demand, sin persistencia en BD (AC7, AC9).
+     *
+     * MOVO-235: `tripId` opcional acota la ruta a las paradas de ESE viaje (en vez de
+     * todos los envíos activos del transportista) -- el mapa de MOVO-207 navega acá
+     * recién después de "Iniciar viaje", así que se exige `trip.status === active`
+     * (409 `TRIP_NOT_ACTIVE`, código que había quedado sin uso desde MOVO-221) en vez
+     * del criterio más laxo "declared o active" que usan `getTripMatches`/
+     * `createOfferForShipment`. AC5 del ticket (¿reusar la ruta que ya calculó
+     * `POST /trips/:id/start`?): no aplica -- el warm-up de `/start` es fire-and-forget
+     * y descarta su resultado (no hay dónde persistirlo en `Trip`, mismo criterio
+     * "on-demand sin persistencia" de MOVO-206 AC7/AC9), así que no hay ningún cache
+     * real del que esta ruta pueda leer.
+     * Autorización vía `assertTripAccess` (`../trips/trip-access.ts`, admin incluido
+     * por default -- fix de review: la primera versión no aceptaba `callerRoles` y
+     * bloqueaba con 403 incluso a un administrador).
      */
-    async getMyRoute(carrierId: string, location: { lat: number; lng: number }): Promise<CarrierRoute> {
-      // 1. Envíos activos del transportista (aprovecha query de MOVO-192)
-      const shipments = await repository.listActiveShipments("carrierId", carrierId);
+    async getMyRoute(
+      carrierId: string,
+      location: { lat: number; lng: number },
+      tripId?: string,
+      callerRoles: UserRole[] = [],
+    ): Promise<CarrierRoute> {
+      if (tripId) {
+        if (!tripRepository) {
+          throw new Error("getMyRoute requiere tripRepository (ShipmentsServiceOptions) para validar tripId.");
+        }
+        const trip = await tripRepository.findById(tripId);
+        if (!trip) {
+          throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
+        }
+        assertTripAccess(trip, carrierId, callerRoles, {
+          forbiddenMessage: "No tenés permiso para ver la ruta de este viaje.",
+        });
+        if (trip.status !== TripStatus.ACTIVE) {
+          // Fix de review: el mensaje anterior siempre decía "iniciá el viaje", pero
+          // este 409 también dispara para CANCELLED/COMPLETED -- confuso para un viaje
+          // que ya terminó y no va a "iniciarse" nunca.
+          const message =
+            trip.status === TripStatus.DECLARED
+              ? `El viaje '${tripId}' todavía no está iniciado (estado actual: '${trip.status}'). Iniciá el viaje antes de pedir su ruta.`
+              : `El viaje '${tripId}' ya no está en curso (estado actual: '${trip.status}').`;
+          throw new ApiError(409, "TRIP_NOT_ACTIVE", message);
+        }
+      }
+
+      // 1. Envíos activos del transportista (aprovecha query de MOVO-192), acotados al
+      // viaje si vino tripId (MOVO-235 AC1)
+      const shipments = await repository.listActiveShipments("carrierId", carrierId, tripId);
 
       // 2. Composición de paradas (AC2)
       const stops = aggregateCarrierStops(shipments);

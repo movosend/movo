@@ -46,7 +46,11 @@ function trip(overrides: Partial<TripWithAcceptedPackages> = {}): TripWithAccept
     destinationLng: -63.24,
     departureAt: "2026-09-10T12:00:00.000Z",
     vehicleType: "Auto",
-    status: TripStatus.ACTIVE,
+    // MOVO-221 (fix de review, PR #168): declared es el estado real de un viaje
+    // recién creado -- antes de este fix el default era ACTIVE y nunca ejercitaba el
+    // bug real (el hook nunca encontraba un viaje declared para vigilar, ver los
+    // tests dedicados más abajo).
+    status: TripStatus.DECLARED,
     createdAt: "2026-09-03T12:00:00.000Z",
     updatedAt: "2026-09-03T12:00:00.000Z",
     hasAcceptedPackages: false,
@@ -92,13 +96,54 @@ describe("useActiveTripMatchAlert", () => {
     jest.restoreAllMocks();
   });
 
-  it("sin ningún viaje `active`, no hay alerta", async () => {
+  it("sin ningún viaje declared/active, no hay alerta", async () => {
     mockUseMyTrips.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 } });
 
     const { result } = await renderHook(() => useActiveTripMatchAlert());
     await skipStartupDelay();
 
     expect(result.current.alert).toBeNull();
+  });
+
+  it("MOVO-221 (fix de review, PR #168): con solo viajes cancelled/completed (nada vigente), no hay alerta", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: {
+        items: [trip({ status: TripStatus.CANCELLED }), trip({ id: "trip-2", status: TripStatus.COMPLETED })],
+        page: 1,
+        limit: 50,
+        total: 2,
+      },
+    });
+    mockUseQuery.mockReturnValue(matchesResult([match("a")]));
+
+    const { result } = await renderHook(() => useActiveTripMatchAlert());
+    await skipStartupDelay();
+
+    expect(result.current.alert).toBeNull();
+  });
+
+  it("MOVO-221 (fix de review, PR #168): vigila un viaje declared (antes exigía active a secas y nunca lo encontraba)", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [trip({ status: TripStatus.DECLARED })], page: 1, limit: 50, total: 1 },
+    });
+    mockUseQuery.mockReturnValue(matchesResult([match("a")]));
+
+    const { result } = await renderHook(() => useActiveTripMatchAlert());
+    await skipStartupDelay();
+
+    expect(result.current.alert).toEqual({ tripId: "trip-1", shipments: [match("a")] });
+  });
+
+  it("MOVO-221 (fix de review, PR #168): también vigila un viaje ya active (para cuando exista 'Iniciar viaje')", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [trip({ status: TripStatus.ACTIVE })], page: 1, limit: 50, total: 1 },
+    });
+    mockUseQuery.mockReturnValue(matchesResult([match("a")]));
+
+    const { result } = await renderHook(() => useActiveTripMatchAlert());
+    await skipStartupDelay();
+
+    expect(result.current.alert).toEqual({ tripId: "trip-1", shipments: [match("a")] });
   });
 
   it("antes de que pase el delay de arranque (10s), no alerta aunque haya un match pendiente", async () => {

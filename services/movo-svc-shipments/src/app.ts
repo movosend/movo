@@ -7,16 +7,21 @@ import { envSchema } from "./config/env";
 import dbPlugin from "./plugins/db";
 import redisPlugin from "./plugins/redis";
 import authPlugin from "./plugins/auth";
+import realtimePlugin from "./plugins/realtime";
 import errorHandlerPlugin from "./plugins/error-handler";
 import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-sweep";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import pickupExpirySweepPlugin from "./plugins/pickup-expiry-sweep";
+import carrierPositionPurgeSweepPlugin from "./plugins/carrier-position-purge-sweep";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import offersRoutes, { OffersRoutesOptions } from "./modules/offers/offers.routes";
 import ratingsRoutes, { internalRatingsRoutes, RatingsRoutesOptions } from "./modules/ratings/ratings.routes";
 import tripsRoutes, { TripsRoutesOptions } from "./modules/trips/trips.routes";
 import accountDeletionRoutes from "./modules/account-deletion/account-deletion.routes";
 import handshakeRoutes, { HandshakeRoutesOptions } from "./modules/handshake/handshake.routes";
+import trackingRoutes, { TrackingRoutesOptions } from "./modules/tracking/tracking.routes";
+import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/positions.routes";
+import { ShipmentRepository } from "./repositories/shipment-repository";
 import { UsersClient } from "./adapters/users-client";
 import { StorageProvider } from "./adapters/storage-provider";
 import { RoutesProvider } from "./adapters/routes-provider";
@@ -49,11 +54,17 @@ export interface BuildAppOptions {
   orphanPhotoSweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de retiro vencido en background. */
   pickupExpirySweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el sweep de purga de posiciones GPS en
+   * background (MOVO-202). */
+  carrierPositionPurgeSweepEnabled?: boolean;
   /** Override solo para tests de integración -- evita depender de una integración
    * real de liberación de fondos (MOVO-158, fuera de alcance de este ticket). */
   fundsReleaseNotifier?: FundsReleaseNotifier;
   /** Override solo para tests de integración -- cliente de pricing-logistics (MOVO-206 / MOVO-219). */
   pricingLogisticsClient?: PricingLogisticsClient;
+  /** Override solo para tests -- canal de tiempo real (MOVO-201/ADR-022), evita
+   * depender de Postgres real para probar el rechazo de una conexión WS. */
+  shipmentRepository?: ShipmentRepository;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -102,6 +113,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(dbPlugin);
   app.register(redisPlugin);
   app.register(authPlugin);
+  app.register(realtimePlugin);
   app.register(receiverConfirmationSweepPlugin, {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
@@ -115,6 +127,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.pickupExpirySweepEnabled !== undefined ? { enabled: opts.pickupExpirySweepEnabled } : {}),
+  });
+  app.register(carrierPositionPurgeSweepPlugin, {
+    ...(opts.carrierPositionPurgeSweepEnabled !== undefined
+      ? { enabled: opts.carrierPositionPurgeSweepEnabled }
+      : {}),
   });
 
   app.get("/health", async () => ({ status: "ok" }));
@@ -135,6 +152,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const offersRouteOpts: OffersRoutesOptions = {
     prefix: "/offers",
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    // MOVO-234: resuelve la ficha de vehículo del transportista para el Trip
+    // auto-creado al aceptar una oferta sin viaje asociado.
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
   };
   app.register(offersRoutes, offersRouteOpts);
 
@@ -173,6 +193,23 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.fundsReleaseNotifier ? { fundsReleaseNotifier: opts.fundsReleaseNotifier } : {}),
   };
   app.register(handshakeRoutes, handshakeRouteOpts);
+
+  // MOVO-201/ADR-022: canal de tiempo real (@fastify/websocket) -- mismo prefix
+  // "/shipments" que shipmentsRoutes/handshakeRoutes. Reemplaza la PoC de MOVO-200 --
+  // ver el aviso completo en tracking.routes.ts y docs/tracking/README.md.
+  const trackingRouteOpts: TrackingRoutesOptions = {
+    prefix: "/shipments",
+    ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
+  };
+  app.register(trackingRoutes, trackingRouteOpts);
+
+  // MOVO-202: ingesta de posiciones GPS -- mismo prefix "/shipments" que
+  // trackingRoutes (el canal de recepción que difunde lo que este módulo publica).
+  const positionsRouteOpts: PositionsRoutesOptions = {
+    prefix: "/shipments",
+    ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
+  };
+  app.register(positionsRoutes, positionsRouteOpts);
 
   return app;
 }

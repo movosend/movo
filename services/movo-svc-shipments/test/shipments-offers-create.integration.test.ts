@@ -360,9 +360,10 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
   });
 
   describe("MOVO-162: tripId opcional", () => {
-    it("crea la oferta con el tripId de un viaje propio y activo", async () => {
+    it("crea la oferta con el tripId de un viaje propio todavía declared (MOVO-221: caso normal, antes de iniciar el viaje)", async () => {
       const shipment = await createPublishedShipment();
       const trip = await tripRepo.create(baseTripInput());
+      expect(trip.status).toBe(TripStatus.DECLARED);
 
       const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { tripId: trip.id });
 
@@ -370,6 +371,17 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
       expect(response.json().tripId).toBe(trip.id);
       const persisted = await offerRepo.findById(response.json().id);
       expect(persisted?.tripId).toBe(trip.id);
+    });
+
+    it("crea la oferta con el tripId de un viaje propio ya active (MOVO-221)", async () => {
+      const shipment = await createPublishedShipment();
+      const trip = await tripRepo.create(baseTripInput());
+      await tripRepo.start(trip.id);
+
+      const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { tripId: trip.id });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json().tripId).toBe(trip.id);
     });
 
     it("sin tripId, la oferta queda con tripId null (caso general, sin regresión)", async () => {
@@ -397,7 +409,7 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
       expect(response.json().error.code).toBe("AUTH_FORBIDDEN");
     });
 
-    it("409 TRIP_NOT_ACTIVE si el viaje ya está cancelado", async () => {
+    it("409 TRIP_NOT_AVAILABLE si el viaje ya está cancelado (MOVO-221: código nuevo, reemplaza a TRIP_NOT_ACTIVE)", async () => {
       const shipment = await createPublishedShipment();
       const trip = await tripRepo.create(baseTripInput());
       await tripRepo.update(trip.id, { status: TripStatus.CANCELLED });
@@ -405,7 +417,18 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
       const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { tripId: trip.id });
 
       expect(response.statusCode).toBe(409);
-      expect(response.json().error.code).toBe("TRIP_NOT_ACTIVE");
+      expect(response.json().error.code).toBe("TRIP_NOT_AVAILABLE");
+    });
+
+    it("409 TRIP_NOT_AVAILABLE si el viaje ya está completed (MOVO-221)", async () => {
+      const shipment = await createPublishedShipment();
+      const trip = await tripRepo.create(baseTripInput());
+      await tripRepo.update(trip.id, { status: TripStatus.COMPLETED });
+
+      const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { tripId: trip.id });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error.code).toBe("TRIP_NOT_AVAILABLE");
     });
 
     it("no persiste nada si la validación de tripId falla (rollback completo)", async () => {
