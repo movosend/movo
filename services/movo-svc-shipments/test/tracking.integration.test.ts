@@ -194,6 +194,55 @@ describe("GET /shipments/:id/track (WS)", () => {
     await waitForClose(ws);
   });
 
+  it("MOVO-202/AC3: si ya hay una última posición conocida en Redis, se manda apenas se conecta un suscriptor nuevo", async () => {
+    const carrierId = randomUUID();
+    const shipmentId = await createInTransitShipment(carrierId);
+    await app.redis.hset(`position:last:${shipmentId}`, {
+      lat: "-31.5",
+      lng: "-64.5",
+      accuracyM: "9",
+      capturedAt: "2026-09-20T12:00:00.000Z",
+      recordedAt: "2026-09-20T12:00:01.000Z",
+    });
+
+    const ws = connect(shipmentId, issueToken(carrierId));
+
+    const connected = await waitForMessage(ws);
+    expect(connected).toEqual({ type: "connected", shipmentId });
+    const position = await waitForMessage(ws);
+    expect(position).toEqual({
+      type: "position",
+      shipmentId,
+      lat: -31.5,
+      lng: -64.5,
+      accuracyM: 9,
+      capturedAt: "2026-09-20T12:00:00.000Z",
+      recordedAt: "2026-09-20T12:00:01.000Z",
+    });
+
+    ws.close();
+    await waitForClose(ws);
+  });
+
+  it("MOVO-202/AC3: sin última posición conocida, no manda ningún mensaje de más además de 'connected'", async () => {
+    const carrierId = randomUUID();
+    const shipmentId = await createInTransitShipment(carrierId);
+    const ws = connect(shipmentId, issueToken(carrierId));
+
+    const connected = await waitForMessage(ws);
+    expect(connected).toEqual({ type: "connected", shipmentId });
+
+    let receivedExtra = false;
+    ws.once("message", () => {
+      receivedExtra = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(receivedExtra).toBe(false);
+
+    ws.close();
+    await waitForClose(ws);
+  });
+
   it("un envío ya delivered rechaza la conexión al conectar (4009)", async () => {
     const carrierId = randomUUID();
     const shipmentId = await createInTransitShipment(carrierId);

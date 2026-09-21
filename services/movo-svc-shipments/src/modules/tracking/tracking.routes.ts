@@ -4,6 +4,8 @@ import type { WebSocket } from "ws";
 import { createShipmentRepository, ShipmentRepository } from "../../repositories/shipment-repository";
 import { authorizeRealtimeConnection, isTrackingClosedForShipment } from "../../services/realtime-authorizer";
 import { TRACKING_STATUS_CLOSED_WS_CODE } from "../../plugins/realtime";
+import { createPositionRepository } from "../../repositories/position-repository";
+import { createPositionService } from "../../services/position-service";
 
 export interface TrackingRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración -- evita depender de Postgres real para
@@ -46,6 +48,14 @@ export const HEARTBEAT_INTERVAL_MS = 30_000;
  */
 export default async function trackingRoutes(app: FastifyInstance, opts: TrackingRoutesOptions) {
   const shipmentRepository = opts.shipmentRepository ?? createShipmentRepository(app.db);
+  // MOVO-202/AC3: solo para leer la última posición conocida al conectar -- este
+  // módulo nunca reporta posiciones, así que un stub de difusión alcanza para el tipo.
+  const positionService = createPositionService(
+    shipmentRepository,
+    createPositionRepository(app.db),
+    app.redis,
+    { broadcast() {} }
+  );
 
   app.get<{ Params: TrackParams }>(
     "/:id/track",
@@ -85,6 +95,21 @@ export default async function trackingRoutes(app: FastifyInstance, opts: Trackin
       );
 
       socket.send(JSON.stringify({ type: "connected", shipmentId }));
+
+      // MOVO-202/AC3: si ya hay una última posición conocida en Redis (el
+      // transportista venía reportando antes de que este suscriptor se conectara),
+      // se la manda de una -- AC4 de MOVO-11 ("el mapa muestra la última posición
+      // conocida con timestamp") no puede esperar al próximo reporte real, que puede
+      // tardar hasta ~45s o no llegar nunca si el transportista desactivó la
+      // ubicación. `null` (todavía no reportó nada) no manda ningún mensaje de más.
+      try {
+        const lastKnown = await positionService.getLastKnownPosition(shipmentId);
+        if (lastKnown) {
+          socket.send(JSON.stringify({ type: "position", shipmentId, ...lastKnown }));
+        }
+      } catch (err) {
+        app.log.warn({ err, shipmentId }, "realtime: no se pudo leer la última posición conocida");
+      }
 
       let isAlive = true;
       socket.on("pong", () => {

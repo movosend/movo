@@ -47,6 +47,10 @@ function createFakeShipmentsClient() {
       commentsCallCount += 1;
       return { items: commentsResponses.get(userId) ?? [], nextCursor: null };
     },
+    // MOVO-202: esta suite no ejercita baja de cuenta.
+    async deleteCarrierPositions() {
+      return 0;
+    },
   };
 
   return {

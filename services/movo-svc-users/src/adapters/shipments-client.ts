@@ -57,6 +57,14 @@ export interface ShipmentsClient {
     limit: number,
     cursor?: string,
   ): Promise<{ items: RawRecentRatingComment[]; nextCursor: string | null }>;
+  /**
+   * MOVO-202/AC7: borra la traza GPS del usuario como transportista (supresión de
+   * cuenta, MOVO-39) -- llamado DESPUÉS de que `hasActiveShipments` ya confirmó que
+   * no hay nada activo. Mismo criterio "el cliente lanza, el caller decide" que
+   * `findReputation` -- `users.service.ts#deleteAccount` lo trata best-effort (un
+   * fallo se loguea, nunca revierte ni bloquea la baja ya anonimizada).
+   */
+  deleteCarrierPositions(userId: string): Promise<number>;
 }
 
 export interface ShipmentsClientConfig {
@@ -143,6 +151,18 @@ export function createShipmentsClient(config: ShipmentsClientConfig): ShipmentsC
         })),
         nextCursor: body.nextCursor,
       };
+    },
+
+    async deleteCarrierPositions(userId: string): Promise<number> {
+      const response = await fetch(
+        `${config.SHIPMENTS_SERVICE_URL}/internal/account-deletion/users/${encodeURIComponent(userId)}/carrier-positions`,
+        { method: "DELETE", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }
+      );
+      if (!response.ok) {
+        throw new Error(`El servicio de envíos devolvió status ${response.status} al borrar posiciones GPS.`);
+      }
+      const body = (await response.json()) as { deletedCount: number };
+      return body.deletedCount;
     },
   };
 }
