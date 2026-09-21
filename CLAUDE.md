@@ -403,10 +403,19 @@ backend (`ci-dev.yml`/`ci-prod.yml`). Un tag de git dispara el build en EAS Clou
 
 - **`dev-*`** (ej. `dev-2026-09-21`) → development build, profile `development`, iOS +
   Android.
-- **`v*`** (ej. `v1.0.0`) → profile `production` solo iOS con `--auto-submit` a
+- **`v*`** (ej. `v1.0.0`) → profile `staging` solo iOS con `--auto-submit` a
   TestFlight. Un guard previo falla el job si el commit taggeado no es ancestro de
-  `origin/main`: el profile `production` apunta a `api.movosend.app`, no se publica a
-  TestFlight un build de una rama sin mergear.
+  `origin/develop` ni de `origin/main` — no se publica a TestFlight un build de una
+  rama feature sin mergear.
+
+**TestFlight apunta a dev, no a prod**: la EC2 de producción está apagada por costos, así
+que el profile `staging` de `eas.json` (`distribution: store`, `EXPO_PUBLIC_API_URL=
+https://api-dev.movosend.app`, push activado) reemplaza al `production` para este flujo.
+`staging` declara `environment: "production"` a propósito: las variables de EAS
+(`GOOGLE_MAPS_IOS_API_KEY`) están cargadas en el ambiente `production`, y sin esa línea
+el build no las tomaría. El profile `production` sigue intacto y sin ningún workflow que
+lo use — cuando se prenda la EC2 de prod, sumar un tag propio (ej. `prod-*`) con un
+guard contra `main`.
 
 Decisiones no obvias: `eas build --no-wait` (el job termina al encolar en vez de gastar
 minutos de runner esperando; a cambio el check de GitHub queda verde aunque el build
@@ -419,7 +428,7 @@ buildea `@movo/shared` en el servidor de EAS (ver `movo-mobile/CLAUDE.md`).
 Pendiente: secret `EXPO_TOKEN` (repo) sin cargar — el workflow no puede correr sin él;
 dispositivos iOS registrados (`eas device:create`) para el development build ad hoc; la
 app creada en App Store Connect. Si el primer submit pide `ascAppId`, agregarlo en
-`eas.json#submit.production.ios`. Sin verificar contra un tag real todavía.
+`eas.json#submit.staging.ios`. Sin verificar contra un tag real todavía.
 
 ### Pendientes transversales
 
