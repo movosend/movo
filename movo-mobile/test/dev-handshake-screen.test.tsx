@@ -25,6 +25,22 @@ jest.mock("../src/store/auth-store", () => ({
   useAuthStore: (selector: any) => selector({ user: { userId: "user-sender" } }),
 }));
 
+// `HandshakeConfirmationResult` (MOVO-198, rediseño) fetchea sus propios datos
+// (`useShipment`/`usePublicProfile`/`useShipmentRoute`, TanStack Query real) -- esta
+// pantalla de dev no envuelve nada en `QueryClientProvider` (usa `shipmentsClient`
+// directo, sin react-query). Se mockea el componente entero, igual criterio que
+// `pickup-wizard-screens.test.tsx`: sus propios datos/animación ya están cubiertos
+// por `handshake-confirmation-result.test.tsx`, acá solo importa que esta pantalla
+// llegue a montarlo con el resultado correcto.
+jest.mock("../components/handshake/handshake-confirmation-result", () => {
+  const { Text } = require("react-native");
+  return {
+    HandshakeConfirmationResult: ({ testID, result }: any) => (
+      <Text testID={testID}>{`confirmation:${result.stage}`}</Text>
+    ),
+  };
+});
+
 // Mismo mock de `expo-camera` que `handshake-scan-step.test.tsx` — el componente
 // real vive adentro de esta pantalla de dev sin cambios.
 jest.mock("expo-camera", () => {
@@ -155,6 +171,7 @@ describe("DevHandshakeScreen", () => {
     );
     await fireEvent.press(getByTestId("handshake-scan-dev-simulate"));
 
-    await waitFor(() => expect(getByText("Retiro confirmado")).toBeTruthy());
+    await waitFor(() => expect(getByTestId("dev-handshake-confirmation-result")).toBeTruthy());
+    expect(getByText("confirmation:pickup")).toBeTruthy();
   });
 });

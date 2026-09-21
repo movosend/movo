@@ -318,6 +318,17 @@ export function formatEventTimestamp(iso: string): string | null {
   return EVENT_TIMESTAMP_FORMATTER.format(date);
 }
 
+const TIME_OF_DAY_FORMATTER = new Intl.DateTimeFormat("es-AR", { hour: "numeric", minute: "2-digit" });
+
+/** Solo la hora (sin fecha) de un ISO datetime -- para el eyebrow de la pantalla de
+ * éxito del handshake ("Retiro confirmado · 9:41", MOVO-198 rediseño), donde la
+ * fecha no aporta nada (el usuario acaba de escanear, obviamente es "ahora"). */
+export function formatConfirmedAtTime(iso: string): string | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return TIME_OF_DAY_FORMATTER.format(date);
+}
+
 /** Quién disparó la transición, resuelto contra los ids que ya tiene el envío en vez
  * de pedir el perfil de `actorId` (`GET /users/:id`) — el rol es lo informativo en una
  * línea de tiempo, y el nombre de la contraparte ya se muestra en `CounterpartCard`.
@@ -461,6 +472,15 @@ export function computeOnTripDetour<T extends TripRoute>(
  * método `Compute Routes`) en metros, formateada en km. Sin el `~` de
  * `formatTripDistanceKm`: esta sí es una medición real, no una aproximación. */
 export function formatRouteDistanceKm(distanceMeters: number): string {
+  return `${(distanceMeters / 1000).toFixed(1)} km`;
+}
+
+/** Distancia real de GPS (`usePickupProximityCheck`, MOVO-198 AC4) entre el
+ * transportista y el punto de retiro, para el mapa del paso 1 del wizard — metros
+ * enteros bajo 1km (la precisión que importa a esa escala, "80 m" vs. "150 m"), un
+ * decimal en km por encima (mismo criterio que `formatRouteDistanceKm`). */
+export function formatProximityDistance(distanceMeters: number): string {
+  if (distanceMeters < 1000) return `${Math.round(distanceMeters)} m`;
   return `${(distanceMeters / 1000).toFixed(1)} km`;
 }
 

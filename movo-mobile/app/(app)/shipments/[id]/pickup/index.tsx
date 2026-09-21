@@ -1,37 +1,134 @@
+import { useColorScheme } from "nativewind";
 import { router, useLocalSearchParams } from "expo-router";
-import { CheckCircle2, ChevronLeft, MapPin, QrCode } from "lucide-react-native";
-import { useEffect, type ReactNode } from "react";
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+import { CheckCircle2, MapPin, Ruler } from "lucide-react-native";
+import { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Text, View } from "react-native";
+import MapView, { Circle, Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { CounterpartCard } from "../../../../../components/shipments/counterpart-card";
-import { PackageCard } from "../../../../../components/shipments/package-card";
 import { PrimaryButton } from "../../../../../components/auth/primary-button";
-import { ErrorBanner } from "../../../../../components/ui/error-banner";
-import { SkeletonBlock } from "../../../../../components/ui/skeleton-block";
-import { useEvidenceStatus, useShipment } from "../../../../../src/hooks/use-shipments";
-import { usePickupProximityCheck } from "../../../../../src/hooks/use-pickup-proximity-check";
-import { useThemeColors } from "../../../../../src/hooks/use-theme-colors";
+import { PickupWizardStepHeader } from "../../../../../components/shipments/pickup-wizard-step-header";
 import {
-  formatPickupDateLabel,
-  formatPickupWindowLabel,
-  shortAddressLabel,
-} from "../../../../../src/lib/shipment-format";
+  MAP_EDGE_BLEED,
+  MAP_GEOMETRY_COLOR_DARK,
+  MAP_GEOMETRY_COLOR_LIGHT,
+  movoMapStyleDark,
+  movoMapStyleLight,
+} from "../../../../../src/constants/map-style";
+import { PICKUP_PROXIMITY_THRESHOLD_METERS, usePickupProximityCheck } from "../../../../../src/hooks/use-pickup-proximity-check";
+import { usePublicProfile } from "../../../../../src/hooks/use-profile";
+import { useShipment } from "../../../../../src/hooks/use-shipments";
+import { useThemeColors } from "../../../../../src/hooks/use-theme-colors";
+import { formatProximityDistance } from "../../../../../src/lib/shipment-format";
 
-function Eyebrow({ children }: { children: ReactNode }) {
-  return <Text className="mb-1.5 font-sans-medium text-caption uppercase text-fg-3">{children}</Text>;
+const PULSE_DURATION_MS = 2000;
+// Más margen que `RouteMapCard` (60-80) a propósito -- este mapa es de un solo
+// vistazo rápido al llegar, no necesita quedar tan pegado a los dos pines (pedido
+// explícito del usuario: "saca un poquito de zoom").
+const MAP_EDGE_PADDING = { top: 110, right: 90, bottom: 110, left: 90 };
+const MAP_INITIAL_DELTA = 0.018;
+
+// Tamaño base del halo y escala máxima que alcanza `LocationPulse` -- el contenedor
+// del marcador "vos" (`PULSE_MARKER_SIZE`) tiene que ser al menos así de grande, si
+// no `Marker` (react-native-maps) recorta todo lo que el halo dibuja fuera de los
+// límites que midió al montar el contenido, con una máscara recortada en cuadrado
+// (bug reportado en device: el pulso se veía "cortado").
+const PULSE_BASE_SIZE = 54;
+const PULSE_MAX_SCALE = 1.8;
+const PULSE_MARKER_SIZE = Math.ceil(PULSE_BASE_SIZE * PULSE_MAX_SCALE) + 16;
+
+/** Halo pulsante detrás del marcador "vos" en el mapa real -- mismo patrón que
+ * `PulsingStepRing` de `components/home/active-shipment-card.tsx` (radar en loop),
+ * no un simple parpadeo de opacidad. */
+function LocationPulse({ color }: { color: string }) {
+  const progress = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = withRepeat(withTiming(1, { duration: PULSE_DURATION_MS, easing: Easing.out(Easing.ease) }), -1, false);
+  }, [progress]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: (1 - progress.value) * 0.5,
+    transform: [{ scale: 1 + progress.value * (PULSE_MAX_SCALE - 1) }],
+  }));
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        { position: "absolute", width: PULSE_BASE_SIZE, height: PULSE_BASE_SIZE, borderRadius: 999, backgroundColor: color },
+        animatedStyle,
+      ]}
+    />
+  );
+}
+
+function MapBadge({ label }: { label: string }) {
+  return (
+    <View
+      className="max-w-[150px] rounded-full border border-border bg-bg px-2.5 py-1"
+      style={{ shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } }}
+    >
+      <Text className="font-sans-medium text-[11px] text-fg" numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
 }
 
 /**
- * Paso 1 del wizard de retiro (MOVO-198 AC2/AC4/AC6/AC7): resumen del retiro,
- * validación de proximidad, y el aviso explícito de pedirle el QR al emisor antes de
- * escanear. Decide el paso siguiente sin archivo propio en el ticket original -- es
- * la ruta índice de `pickup/`.
+ * Paso 1 del wizard de retiro (MOVO-198, rediseño): pantalla dedicada a la
+ * validación de proximidad (AC4) -- antes era un widget embebido en el resumen,
+ * ahora es el guard visible del flujo, un propósito por pantalla igual que el resto
+ * del rediseño.
+ *
+ * **Mapa real, no decorativo** (pedido explícito del usuario tras la primera
+ * versión, que solo tenía un fondo tipo mapa con un punto fijo en el centro): pin en
+ * el punto de retiro real del envío (`shipment.pickupLat/Lng`) + pin de la ubicación
+ * actual del transportista (`proximity.currentLocation`, resuelta por
+ * `usePickupProximityCheck`/GPS) + un círculo de 100m sobre el punto de retiro
+ * (mismo umbral que `PICKUP_PROXIMITY_THRESHOLD_METERS`, AC4) para visualizar el
+ * rango. Mismo estilo/`MapView` que `RouteMapCard` (MOVO-83/127) -- estilo custom
+ * `movoMapStyle*`, `PROVIDER_GOOGLE` (único provider que soporta estilos JSON custom),
+ * mismo truco de `MAP_EDGE_BLEED` para tapar la línea de 1px del borde nativo.
+ *
+ * **Ajuste post-feedback (mismo día)**: pines más grandes (antes 14-16px, apenas
+ * visibles), badge del punto de retiro con el nombre del emisor (`usePublicProfile`,
+ * antes la dirección -- el usuario ya la lee en el paso 2/resumen, acá importa quién
+ * es la persona) en vez de la dirección, badge "Vos" sobre el pin del transportista
+ * (antes sin etiqueta), y más margen en `fitToCoordinates`/delta inicial para no
+ * quedar tan encimado a los dos pines. Sin línea entre los pines -- se probó y se
+ * sacó, no era parte del pedido.
+ *
+ * **Tercer ajuste (mismo día)**: el chip de estado ("En el punto"/"Fuera de rango",
+ * antes flotando arriba a la izquierda) se integró en una sola pill al pie del mapa
+ * junto con la distancia (antes dos elementos separados) -- un divisor vertical
+ * separa el estado de la medición dentro de la misma pill.
+ *
+ * **Cuarto ajuste (mismo día)**: "Reintentar ubicación" pasa de un botón chico
+ * secundario dentro del panel de estado a ocupar el lugar del botón principal
+ * ("Continuar") cuando no se puede avanzar por distancia (`out_of_range`/`denied`/
+ * `error`) -- antes convivían los dos botones (uno chico arriba, "Continuar"
+ * deshabilitado abajo), ahora es un solo botón principal por vez.
+ *
+ * **Quinto ajuste (mismo día, bug reportado en device): el halo del pin "vos" se
+ * veía recortado por una máscara cuadrada en el punto más alto del pulso.** `Marker`
+ * (react-native-maps) rasteriza su contenido al tamaño que mide su `View` raíz --
+ * el halo (`LocationPulse`) crece más allá de ese contenedor al escalar (hasta
+ * `PULSE_MAX_SCALE`), así que la porción que se pasa del borde quedaba cortada en
+ * un cuadrado, no en un círculo. `PULSE_MARKER_SIZE` ahora se calcula a partir del
+ * tamaño base y la escala máxima del halo (con margen), así el contenedor siempre
+ * es más grande que el halo en su punto más expandido.
  */
-export default function PickupSummaryScreen() {
+export default function PickupGeoScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { colorScheme } = useColorScheme();
   const colors = useThemeColors();
-  const { data: shipment, isLoading, isError } = useShipment(id);
-  const evidenceStatus = useEvidenceStatus(id);
+  const mapRef = useRef<MapView>(null);
+  const [mapReady, setMapReady] = useState(false);
+  const mapBackgroundColor = colorScheme === "dark" ? MAP_GEOMETRY_COLOR_DARK : MAP_GEOMETRY_COLOR_LIGHT;
+  const { data: shipment } = useShipment(id);
+  const { data: senderProfile } = usePublicProfile(shipment?.senderId);
   const proximity = usePickupProximityCheck(shipment?.pickupLat ?? 0, shipment?.pickupLng ?? 0);
 
   useEffect(() => {
@@ -40,125 +137,190 @@ export default function PickupSummaryScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!shipment]);
 
-  if (isLoading || !shipment) {
-    return (
-      <SafeAreaView className="flex-1 bg-bg">
-        <View className="gap-4 px-5 pt-4">
-          <SkeletonBlock className="h-32 w-full rounded-[14px]" />
-          <SkeletonBlock className="h-20 w-full rounded-[14px]" />
-          <SkeletonBlock className="h-16 w-full rounded-[14px]" />
-        </View>
-      </SafeAreaView>
-    );
-  }
+  // Reencuadra apenas el mapa está listo, y de nuevo cuando la ubicación actual pasa
+  // de no-resuelta a resuelta (GPS suele tardar más que el montaje del `MapView`).
+  useEffect(() => {
+    if (!mapReady || !shipment) return;
+    const points = proximity.currentLocation
+      ? [
+          { latitude: shipment.pickupLat, longitude: shipment.pickupLng },
+          { latitude: proximity.currentLocation.lat, longitude: proximity.currentLocation.lng },
+        ]
+      : [{ latitude: shipment.pickupLat, longitude: shipment.pickupLng }];
+    mapRef.current?.fitToCoordinates(points, { edgePadding: MAP_EDGE_PADDING, animated: true });
+  }, [mapReady, shipment, proximity.currentLocation]);
 
-  if (isError) {
-    return (
-      <SafeAreaView className="flex-1 bg-bg px-5 pt-4">
-        <ErrorBanner testID="pickup-summary-error" message="No pudimos cargar este envío." />
-      </SafeAreaView>
-    );
-  }
-
-  const dateLabel = formatPickupDateLabel(shipment.pickupDate);
-  const windowLabel = formatPickupWindowLabel(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd);
-
-  function handleContinue() {
-    const satisfied = evidenceStatus.data?.satisfied === true;
-    router.push(`/shipments/${id}/pickup/${satisfied ? "scan" : "evidence"}`);
-  }
+  const dotColor = proximity.status === "within_range" ? "#9FC72E" : proximity.status === "out_of_range" ? "#E5484D" : "#8A8A93";
+  const canRetry = proximity.status === "out_of_range" || proximity.status === "denied" || proximity.status === "error";
+  const statusLabel =
+    proximity.status === "checking" || proximity.status === "idle"
+      ? "Ubicando"
+      : proximity.status === "within_range"
+        ? "En el punto"
+        : "Fuera de rango";
 
   return (
     <SafeAreaView className="flex-1 bg-bg">
-      <View className="flex-row items-center gap-3 px-5 pb-3.5 pt-1.5">
-        <Pressable
-          testID="pickup-summary-back"
-          onPress={() => (router.canGoBack() ? router.back() : router.replace(`/shipments/${id}`))}
-          className="h-8 w-8 items-center justify-center rounded-full bg-bg-mute active:opacity-75"
-          accessibilityRole="button"
-          accessibilityLabel="Volver"
-        >
-          <ChevronLeft size={18} color={colors.fg1} strokeWidth={2} />
-        </Pressable>
-        <Text className="font-sans-semibold text-h3 text-fg">Retirar paquete</Text>
+      <PickupWizardStepHeader
+        testIDPrefix="pickup-geo"
+        title="Confirmá que llegaste"
+        step={1}
+        totalSteps={5}
+        onBack={() => (router.canGoBack() ? router.back() : router.replace(`/shipments/${id}`))}
+      />
+
+      <View className="flex-1 overflow-hidden" style={{ backgroundColor: mapBackgroundColor }}>
+        {shipment ? (
+          <MapView
+            ref={mapRef}
+            testID="pickup-geo-map"
+            provider={PROVIDER_GOOGLE}
+            customMapStyle={colorScheme === "dark" ? movoMapStyleDark : movoMapStyleLight}
+            style={{
+              position: "absolute",
+              top: -MAP_EDGE_BLEED,
+              bottom: -MAP_EDGE_BLEED,
+              left: -MAP_EDGE_BLEED,
+              right: -MAP_EDGE_BLEED,
+            }}
+            initialRegion={{
+              latitude: shipment.pickupLat,
+              longitude: shipment.pickupLng,
+              latitudeDelta: MAP_INITIAL_DELTA,
+              longitudeDelta: MAP_INITIAL_DELTA,
+            }}
+            onMapReady={() => setMapReady(true)}
+            scrollEnabled
+            zoomEnabled
+            pitchEnabled={false}
+            rotateEnabled={false}
+          >
+            <Circle
+              center={{ latitude: shipment.pickupLat, longitude: shipment.pickupLng }}
+              radius={PICKUP_PROXIMITY_THRESHOLD_METERS}
+              strokeColor="rgba(10, 10, 11, 0.22)"
+              fillColor="rgba(10, 10, 11, 0.05)"
+              strokeWidth={1}
+            />
+
+            <Marker
+              testID="pickup-geo-map-pickup-marker"
+              coordinate={{ latitude: shipment.pickupLat, longitude: shipment.pickupLng }}
+              anchor={{ x: 0.5, y: 1 }}
+            >
+              <View className="items-center">
+                <View className="mb-2">
+                  <MapBadge label={senderProfile?.fullName ?? "Emisor"} />
+                </View>
+                <View className="h-6 w-6 rounded-full border-[3px] border-white bg-ink-950 dark:border-ink-950 dark:bg-white" />
+              </View>
+            </Marker>
+
+            {proximity.currentLocation ? (
+              <Marker
+                testID="pickup-geo-map-you-marker"
+                coordinate={{ latitude: proximity.currentLocation.lat, longitude: proximity.currentLocation.lng }}
+                anchor={{ x: 0.5, y: 0.5 }}
+                tracksViewChanges
+              >
+                <View className="items-center">
+                  <View className="mb-2">
+                    <MapBadge label="Vos" />
+                  </View>
+                  <View className="items-center justify-center" style={{ width: PULSE_MARKER_SIZE, height: PULSE_MARKER_SIZE }}>
+                    <LocationPulse color={dotColor === "#9FC72E" ? "rgba(198,242,74,0.45)" : "rgba(229,72,77,0.3)"} />
+                    <View
+                      className="rounded-full border-[3px] border-white"
+                      style={{ backgroundColor: dotColor, width: 24, height: 24 }}
+                    />
+                  </View>
+                </View>
+              </Marker>
+            ) : null}
+          </MapView>
+        ) : (
+          <View className="flex-1 items-center justify-center">
+            <ActivityIndicator size="small" color={colors.fg2} />
+          </View>
+        )}
+
+        <View pointerEvents="none" className="absolute inset-x-0 bottom-4 items-center">
+          <View
+            testID="pickup-geo-map-status"
+            className="flex-row items-center gap-2 rounded-full bg-bg px-3.5 py-2"
+            style={{ shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } }}
+          >
+            <View className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: dotColor }} />
+            <Text className="font-sans-semibold text-caption uppercase text-fg-2">{statusLabel}</Text>
+            {proximity.distanceMeters !== null ? (
+              <>
+                <View className="h-3 w-px bg-border" />
+                <View className="flex-row items-center gap-1">
+                  <Ruler size={14} color={colors.fg2} strokeWidth={1.8} />
+                  <Text testID="pickup-geo-map-distance" className="font-sans-semibold text-[13px] text-fg">
+                    {formatProximityDistance(proximity.distanceMeters)}
+                  </Text>
+                </View>
+              </>
+            ) : null}
+          </View>
+        </View>
       </View>
 
-      <ScrollView contentContainerClassName="gap-5 px-5 pb-6" showsVerticalScrollIndicator={false}>
-        <View className="gap-1.5 rounded-[14px] border border-border bg-bg px-4 py-3.5">
-          <Eyebrow>Retiro</Eyebrow>
-          <Text className="font-sans-semibold text-[15px] text-fg">
-            {shortAddressLabel(shipment.pickupAddress)}
-          </Text>
-          <Text className="font-sans text-small text-fg-2">
-            {[dateLabel, windowLabel].filter(Boolean).join(" · ")}
-          </Text>
-        </View>
-
-        <View>
-          <Eyebrow>Emisor</Eyebrow>
-          <CounterpartCard
-            testID="pickup-summary-sender"
-            userId={shipment.senderId}
-            onPress={() => router.push(`/profile/${shipment.senderId}`)}
-          />
-        </View>
-
-        <View>
-          <Eyebrow>Paquete</Eyebrow>
-          <PackageCard testID="pickup-summary-package" shipment={shipment} />
-        </View>
-
-        <View className="flex-row items-start gap-3 rounded-[14px] border border-warning-300 bg-warning-100 px-4 py-3.5">
-          <QrCode size={20} color="#0A0A0B" strokeWidth={1.8} />
-          <Text testID="pickup-summary-qr-reminder" className="flex-1 font-sans text-small text-ink-950">
-            Antes de escanear, pedile al emisor que genere el código QR de retiro desde
-            su app -- sin eso no vas a tener nada que escanear en el próximo paso.
-          </Text>
-        </View>
-
-        <View className="gap-3 rounded-[14px] border border-border px-4 py-3.5">
-          <View className="flex-row items-center gap-3">
-            <View className="h-10 w-10 items-center justify-center rounded-full bg-bg-mute">
-              {proximity.status === "checking" ? (
-                <ActivityIndicator testID="pickup-proximity-spinner" size="small" color={colors.fg2} />
-              ) : proximity.status === "within_range" ? (
-                <CheckCircle2 size={20} color="#16754A" strokeWidth={2} />
-              ) : (
-                <MapPin size={20} color={colors.fg2} strokeWidth={1.8} />
-              )}
+      <View className="gap-3.5 border-t border-border bg-bg px-5 pb-2 pt-4">
+        <View className="flex-row items-center gap-3.5">
+          {proximity.status === "checking" || proximity.status === "idle" ? (
+            <ActivityIndicator testID="pickup-geo-spinner" size="small" color={colors.fg2} />
+          ) : proximity.status === "within_range" ? (
+            <View className="items-center justify-center rounded-full bg-lime-500" style={{ width: 26, height: 26 }}>
+              <CheckCircle2 size={16} color="#0A0A0B" strokeWidth={2.6} />
             </View>
-            <Text className="flex-1 font-sans text-small text-fg-2">
-              {proximity.status === "checking"
-                ? "Confirmando que estás en el punto de retiro…"
+          ) : (
+            <View className="items-center justify-center rounded-full bg-danger-100" style={{ width: 26, height: 26 }}>
+              <MapPin size={15} color="#E5484D" strokeWidth={2.2} />
+            </View>
+          )}
+          <View className="flex-1 gap-0.5">
+            <Text className="font-sans-semibold text-[15px] text-fg">
+              {proximity.status === "checking" || proximity.status === "idle"
+                ? "Buscando tu ubicación"
                 : proximity.status === "within_range"
-                  ? "Estás en el punto de retiro."
+                  ? "Llegaste al punto de retiro"
                   : proximity.status === "out_of_range"
-                    ? `Estás a ${Math.round(proximity.distanceMeters ?? 0)}m del punto de retiro -- acercate para continuar.`
+                    ? `Estás a ${formatProximityDistance(proximity.distanceMeters ?? 0)} del punto`
                     : proximity.status === "denied"
-                      ? "Necesitamos tu ubicación para confirmar que estás en el punto de retiro."
-                      : proximity.status === "error"
-                        ? "No pudimos confirmar tu ubicación."
-                        : "Vamos a confirmar tu ubicación."}
+                      ? "Necesitamos tu ubicación"
+                      : "No pudimos confirmar tu ubicación"}
+            </Text>
+            <Text className="font-sans text-small text-fg-2">
+              {proximity.status === "checking" || proximity.status === "idle"
+                ? "Necesitamos el GPS para confirmar que llegaste."
+                : proximity.status === "within_range"
+                  ? "Ya podés continuar."
+                  : proximity.status === "out_of_range"
+                    ? "Acercate y volvé a probar. El retiro se habilita dentro de los 100 m."
+                    : proximity.status === "denied"
+                      ? "Sin GPS no podemos confirmar que estás en el punto de retiro."
+                      : "Intentá de nuevo."}
             </Text>
           </View>
-          {proximity.status !== "within_range" && proximity.status !== "checking" ? (
-            <Pressable
-              testID="pickup-proximity-retry"
-              onPress={() => void proximity.check()}
-              className="self-start rounded-lg bg-bg-mute px-3 py-1.5"
-            >
-              <Text className="font-sans-medium text-small text-fg">Reintentar</Text>
-            </Pressable>
-          ) : null}
         </View>
-      </ScrollView>
+      </View>
 
-      <PrimaryButton
-        testID="pickup-summary-continue"
-        label="Continuar"
-        disabled={proximity.status !== "within_range"}
-        onPress={handleContinue}
-      />
+      {canRetry ? (
+        <PrimaryButton
+          testID="pickup-geo-retry"
+          label="Reintentar ubicación"
+          onPress={() => void proximity.check()}
+        />
+      ) : (
+        <PrimaryButton
+          testID="pickup-geo-continue"
+          label="Continuar"
+          disabled={proximity.status !== "within_range"}
+          onPress={() => router.push(`/shipments/${id}/pickup/resumen`)}
+        />
+      )}
     </SafeAreaView>
   );
 }

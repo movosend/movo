@@ -19,7 +19,7 @@ export interface PickupWizardState {
 
 /**
  * Gate del wizard de retiro (MOVO-198 AC1): resuelve, antes de que
- * `pickup/_layout.tsx` renderice el `<Stack>` de sus 4 pasos, si el envío está
+ * `pickup/_layout.tsx` renderice el `<Stack>` de sus pasos, si el envío está
  * realmente en condiciones de iniciar el retiro. `assigned` es el único caso real
  * ("ready") -- el resto son estados que un deep link manual (el único punto de
  * entrada hoy, sin CTA real de MOVO-207 todavía) puede alcanzar y que el wizard

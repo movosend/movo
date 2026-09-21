@@ -1,16 +1,18 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { HandshakeScanStep } from "../../../../../components/handshake/handshake-scan-step";
+import { PickupWizardStepHeader } from "../../../../../components/shipments/pickup-wizard-step-header";
 import type { ConfirmHandshakeResult } from "../../../../../src/api/shipments-client";
 import { useEvidenceStatus } from "../../../../../src/hooks/use-shipments";
 import { usePickupResult } from "./_layout";
 
 /**
- * Paso 3 del wizard de retiro (MOVO-198 AC3/AC8/AC9): monta `HandshakeScanStep`
+ * Paso 5 del wizard de retiro (MOVO-198 AC3/AC8/AC9): monta `HandshakeScanStep`
  * (MOVO-160) tal cual, sin bifurcar por `stage` -- ese componente no lo necesita, el
- * backend lo infiere. El único agregado propio es el gate de evidencia y el puente
- * hacia `success.tsx` vía `usePickupResult`.
+ * backend lo infiere. Gana el header compartido del rediseño (antes esta pantalla no
+ * tenía ninguno) sin tocar la lógica de gate/confirmación de abajo.
  */
 export default function PickupScanScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -41,11 +43,20 @@ export default function PickupScanScreen() {
   }
 
   return (
-    <HandshakeScanStep
-      testID="pickup-scan-step"
-      shipmentId={id}
-      onConfirmed={handleConfirmed}
-      onEvidenceMissing={handleEvidenceMissing}
-    />
+    <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
+      <PickupWizardStepHeader
+        testIDPrefix="pickup-scan"
+        title="Escaneá el QR"
+        step={5}
+        totalSteps={5}
+        onBack={() => router.back()}
+      />
+      <HandshakeScanStep
+        testID="pickup-scan-step"
+        shipmentId={id}
+        onConfirmed={handleConfirmed}
+        onEvidenceMissing={handleEvidenceMissing}
+      />
+    </SafeAreaView>
   );
 }

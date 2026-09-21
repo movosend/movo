@@ -4,6 +4,7 @@ import {
   computeOnTripDetour,
   formatEventTimestamp,
   formatPickupWindowLabel,
+  formatProximityDistance,
   formatReceiverConfirmationDeadline,
   receiverConfirmationRemainingFraction,
   formatShipmentPrice,
@@ -518,5 +519,15 @@ describe("computeOnTripDetour", () => {
       2,
     );
     expect(result).not.toBeNull();
+  });
+});
+
+describe("formatProximityDistance", () => {
+  it("redondea a metros enteros bajo 1km", () => {
+    expect(formatProximityDistance(79.6)).toBe("80 m");
+  });
+
+  it("pasa a km con un decimal desde 1000m", () => {
+    expect(formatProximityDistance(1240)).toBe("1.2 km");
   });
 });

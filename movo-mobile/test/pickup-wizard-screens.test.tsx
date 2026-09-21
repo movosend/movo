@@ -33,13 +33,27 @@ jest.mock("../src/hooks/use-pickup-wizard", () => ({
 
 const mockUseShipment = jest.fn();
 const mockUseEvidenceStatus = jest.fn();
+const mockUseShipmentRoute = jest.fn(() => ({ data: undefined }));
 jest.mock("../src/hooks/use-shipments", () => ({
   useShipment: (...args: unknown[]) => mockUseShipment(...args),
   useEvidenceStatus: (...args: unknown[]) => mockUseEvidenceStatus(...args),
+  useShipmentRoute: () => mockUseShipmentRoute(),
+}));
+
+const mockUsePublicProfile = jest.fn<{ data: { fullName: string } | undefined }, [string | undefined]>(() => ({
+  data: undefined,
+}));
+jest.mock("../src/hooks/use-profile", () => ({
+  usePublicProfile: (id: string | undefined) => mockUsePublicProfile(id),
 }));
 
 const mockCheck = jest.fn();
-let mockProximity = { status: "idle" as string, distanceMeters: null as number | null, check: mockCheck };
+let mockProximity = {
+  status: "idle" as string,
+  distanceMeters: null as number | null,
+  currentLocation: null as { lat: number; lng: number } | null,
+  check: mockCheck,
+};
 jest.mock("../src/hooks/use-pickup-proximity-check", () => ({
   usePickupProximityCheck: () => mockProximity,
 }));
@@ -74,6 +88,21 @@ jest.mock("../components/handshake/handshake-scan-step", () => {
   };
 });
 
+let mockConfirmationResultProps: { onCtaPress?: () => void } | null = null;
+jest.mock("../components/handshake/handshake-confirmation-result", () => {
+  const { Pressable, Text } = require("react-native");
+  return {
+    HandshakeConfirmationResult: (props: any) => {
+      mockConfirmationResultProps = props;
+      return (
+        <Pressable testID={props.testID} onPress={props.onCtaPress}>
+          <Text>confirmation</Text>
+        </Pressable>
+      );
+    },
+  };
+});
+
 const mockUsePickupResult = jest.fn();
 jest.mock("../app/(app)/shipments/[id]/pickup/_layout", () => {
   // `__esModule: true` explícito -- `actual` (transpilado por Babel) lo tiene como
@@ -85,7 +114,9 @@ jest.mock("../app/(app)/shipments/[id]/pickup/_layout", () => {
 });
 
 import PickupWizardLayout from "../app/(app)/shipments/[id]/pickup/_layout";
-import PickupSummaryScreen from "../app/(app)/shipments/[id]/pickup/index";
+import PickupGeoScreen from "../app/(app)/shipments/[id]/pickup/index";
+import PickupResumenScreen from "../app/(app)/shipments/[id]/pickup/resumen";
+import PickupQrNoticeScreen from "../app/(app)/shipments/[id]/pickup/qr";
 import PickupEvidenceScreen from "../app/(app)/shipments/[id]/pickup/evidence";
 import PickupScanScreen from "../app/(app)/shipments/[id]/pickup/scan";
 import PickupSuccessScreen from "../app/(app)/shipments/[id]/pickup/success";
@@ -153,7 +184,7 @@ describe("_layout (gate del wizard de retiro, AC1)", () => {
     expect(getByTestId("pickup-wizard-blocked")).toBeTruthy();
   });
 
-  it("ready: renderiza el Stack de los 4 pasos", async () => {
+  it("ready: renderiza el Stack de los pasos", async () => {
     mockUsePickupWizard.mockReturnValue({ gate: "ready" });
 
     const { getByTestId } = await render(<PickupWizardLayout />);
@@ -162,44 +193,135 @@ describe("_layout (gate del wizard de retiro, AC1)", () => {
   });
 });
 
-describe("pickup/index (paso 1: resumen + proximidad + AC6)", () => {
+describe("pickup/index (paso 1: ubicación, AC4)", () => {
   beforeEach(() => {
     mockUseShipment.mockReturnValue({ data: shipment(), isLoading: false, isError: false });
-    mockUseEvidenceStatus.mockReturnValue({ data: { satisfied: false }, isLoading: false });
-    mockProximity = { status: "within_range", distanceMeters: 20, check: mockCheck };
+    mockProximity = {
+      status: "within_range",
+      distanceMeters: 20,
+      currentLocation: { lat: -31.4001, lng: -64.1802 },
+      check: mockCheck,
+    };
   });
   afterEach(() => jest.clearAllMocks());
 
-  it("muestra el aviso explícito de pedirle el QR al emisor (AC6)", async () => {
-    const { getByTestId } = await render(<PickupSummaryScreen />);
-    expect(getByTestId("pickup-summary-qr-reminder")).toBeTruthy();
-  });
+  it("Continuar deshabilitado mientras se ubica (idle/checking)", async () => {
+    mockProximity = { status: "checking", distanceMeters: null, currentLocation: null, check: mockCheck };
+    const { getByTestId } = await render(<PickupGeoScreen />);
 
-  it("Continuar deshabilitado hasta estar dentro del radio de proximidad (AC4)", async () => {
-    mockProximity = { status: "out_of_range", distanceMeters: 300, check: mockCheck };
-    const { getByTestId } = await render(<PickupSummaryScreen />);
-
-    await act(async () => fireEvent.press(getByTestId("pickup-summary-continue")));
+    await act(async () => fireEvent.press(getByTestId("pickup-geo-continue")));
     expect(mockRouterPush).not.toHaveBeenCalled();
   });
 
-  it("Continuar sin evidencia satisfecha navega al paso de evidencia", async () => {
-    const { getByTestId } = await render(<PickupSummaryScreen />);
+  it("dentro de rango, Continuar navega al resumen", async () => {
+    const { getByTestId } = await render(<PickupGeoScreen />);
 
-    await act(async () => fireEvent.press(getByTestId("pickup-summary-continue")));
-    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-1/pickup/evidence");
+    await act(async () => fireEvent.press(getByTestId("pickup-geo-continue")));
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-1/pickup/resumen");
   });
 
-  it("Continuar con evidencia ya satisfecha salta directo a escaneo (AC7)", async () => {
-    mockUseEvidenceStatus.mockReturnValue({ data: { satisfied: true }, isLoading: false });
-    const { getByTestId } = await render(<PickupSummaryScreen />);
+  it.each(["out_of_range", "denied", "error"] as const)(
+    "%s: 'Reintentar ubicación' ocupa el lugar de 'Continuar'",
+    async (status) => {
+      mockProximity = { status, distanceMeters: 300, currentLocation: null, check: mockCheck };
+      const { getByTestId, queryByTestId } = await render(<PickupGeoScreen />);
 
-    await act(async () => fireEvent.press(getByTestId("pickup-summary-continue")));
-    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-1/pickup/scan");
+      expect(queryByTestId("pickup-geo-continue")).toBeNull();
+      await act(async () => fireEvent.press(getByTestId("pickup-geo-retry")));
+      expect(mockCheck).toHaveBeenCalled();
+    },
+  );
+
+  it("muestra un mapa real con el pin de retiro y el pin de la ubicación actual", async () => {
+    const { getByTestId } = await render(<PickupGeoScreen />);
+
+    expect(getByTestId("pickup-geo-map")).toBeTruthy();
+    expect(getByTestId("pickup-geo-map-pickup-marker")).toBeTruthy();
+    expect(getByTestId("pickup-geo-map-you-marker")).toBeTruthy();
+  });
+
+  it("sin ubicación actual resuelta todavía, no muestra el pin de 'vos'", async () => {
+    mockProximity = { status: "checking", distanceMeters: null, currentLocation: null, check: mockCheck };
+    const { queryByTestId } = await render(<PickupGeoScreen />);
+
+    expect(queryByTestId("pickup-geo-map-you-marker")).toBeNull();
+  });
+
+  it("con distancia ya medida, muestra el chip de distancia al pie del mapa", async () => {
+    const { getByTestId } = await render(<PickupGeoScreen />);
+
+    expect(getByTestId("pickup-geo-map-distance")).toHaveTextContent("20 m");
+  });
+
+  it("sin distancia todavía (GPS sin resolver), no muestra el chip de distancia", async () => {
+    mockProximity = { status: "checking", distanceMeters: null, currentLocation: null, check: mockCheck };
+    const { queryByTestId } = await render(<PickupGeoScreen />);
+
+    expect(queryByTestId("pickup-geo-map-distance")).toBeNull();
+  });
+
+  it("el estado ('En el punto') y la distancia viven en la misma pill al pie del mapa", async () => {
+    const { getByTestId } = await render(<PickupGeoScreen />);
+
+    expect(getByTestId("pickup-geo-map-status")).toHaveTextContent("En el punto", { exact: false });
+    expect(getByTestId("pickup-geo-map-status")).toHaveTextContent("20 m", { exact: false });
   });
 });
 
-describe("pickup/evidence (paso 2)", () => {
+describe("pickup/resumen (paso 2)", () => {
+  beforeEach(() => {
+    mockUseShipment.mockReturnValue({ data: shipment(), isLoading: false, isError: false });
+  });
+  afterEach(() => jest.clearAllMocks());
+
+  it("muestra el punto de retiro, el emisor y el paquete", async () => {
+    const { getByTestId } = await render(<PickupResumenScreen />);
+
+    expect(getByTestId("pickup-resumen-sender")).toBeTruthy();
+    expect(getByTestId("pickup-resumen-package")).toBeTruthy();
+  });
+
+  it("'Empezar el retiro' siempre navega al aviso de QR, incluso con evidencia ya satisfecha", async () => {
+    const { getByTestId } = await render(<PickupResumenScreen />);
+
+    await act(async () => fireEvent.press(getByTestId("pickup-resumen-continue")));
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-1/pickup/qr");
+  });
+});
+
+describe("pickup/qr (paso 3, AC6)", () => {
+  afterEach(() => jest.clearAllMocks());
+
+  it("sin perfil del emisor cargado, muestra el aviso genérico", async () => {
+    mockUseShipment.mockReturnValue({ data: shipment(), isLoading: false, isError: false });
+    mockUsePublicProfile.mockReturnValue({ data: undefined });
+
+    const { getByText } = await render(<PickupQrNoticeScreen />);
+
+    expect(getByText("Pedile el QR al emisor")).toBeTruthy();
+  });
+
+  it("con perfil del emisor cargado, personaliza el aviso con su nombre", async () => {
+    mockUseShipment.mockReturnValue({ data: shipment(), isLoading: false, isError: false });
+    mockUsePublicProfile.mockReturnValue({ data: { fullName: "Julia Mancini" } });
+
+    const { getByText } = await render(<PickupQrNoticeScreen />);
+
+    expect(getByText("Pedile el QR a Julia")).toBeTruthy();
+  });
+
+  it("'Entendido' navega al paso de evidencia", async () => {
+    mockUseShipment.mockReturnValue({ data: shipment(), isLoading: false, isError: false });
+    mockUsePublicProfile.mockReturnValue({ data: undefined });
+
+    const { getByTestId } = await render(<PickupQrNoticeScreen />);
+
+    await act(async () => fireEvent.press(getByTestId("pickup-qr-continue")));
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-1/pickup/evidence");
+  });
+});
+
+describe("pickup/evidence (paso 4)", () => {
   afterEach(() => jest.clearAllMocks());
 
   it("Continuar deshabilitado hasta que el step reporte validez, después navega a escaneo", async () => {
@@ -215,7 +337,7 @@ describe("pickup/evidence (paso 2)", () => {
   });
 });
 
-describe("pickup/scan (paso 3, AC3/AC9)", () => {
+describe("pickup/scan (paso 5, AC3/AC9)", () => {
   beforeEach(() => {
     mockUsePickupResult.mockReturnValue({ result: null, setResult: jest.fn() });
   });
@@ -263,7 +385,7 @@ describe("pickup/scan (paso 3, AC3/AC9)", () => {
   });
 });
 
-describe("pickup/success (paso 4, AC10)", () => {
+describe("pickup/success (AC10)", () => {
   afterEach(() => jest.clearAllMocks());
 
   it("sin resultado en contexto (reingreso directo), degrada a un mensaje simple", async () => {
@@ -276,13 +398,27 @@ describe("pickup/success (paso 4, AC10)", () => {
     expect(mockRouterReplace).toHaveBeenCalledWith("/shipments/shipment-1");
   });
 
-  it("con resultado, muestra la confirmación e invalida el detalle antes de volver", async () => {
+  it("con resultado de retiro, el CTA (horneado en HandshakeConfirmationResult) navega al mapa de ruta", async () => {
     mockUsePickupResult.mockReturnValue({ result: confirmResult, setResult: jest.fn() });
 
     const { getByTestId } = await render(<PickupSuccessScreen />);
 
     expect(getByTestId("pickup-success-result")).toBeTruthy();
-    await act(async () => fireEvent.press(getByTestId("pickup-success-cta")));
+    await act(async () => fireEvent.press(getByTestId("pickup-success-result")));
+
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["shipments", "detail", "shipment-1"] });
+    expect(mockRouterReplace).toHaveBeenCalledWith("/route?shipmentId=shipment-1");
+  });
+
+  it("con resultado de entrega, el CTA vuelve al detalle del envío", async () => {
+    mockUsePickupResult.mockReturnValue({
+      result: { ...confirmResult, stage: "delivery" },
+      setResult: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<PickupSuccessScreen />);
+
+    await act(async () => fireEvent.press(getByTestId("pickup-success-result")));
 
     expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["shipments", "detail", "shipment-1"] });
     expect(mockRouterReplace).toHaveBeenCalledWith("/shipments/shipment-1");

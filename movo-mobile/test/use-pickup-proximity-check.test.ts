@@ -16,7 +16,7 @@ describe("usePickupProximityCheck", () => {
     expect(getCurrentLocation).not.toHaveBeenCalled();
   });
 
-  it("dentro del radio de 150m resuelve within_range", async () => {
+  it("dentro del radio de 100m resuelve within_range", async () => {
     // ~30m al norte del punto de retiro.
     (getCurrentLocation as jest.Mock).mockResolvedValue({ granted: true, lat: -31.3997, lng: -64.18 });
     const { result } = await renderHook(() => usePickupProximityCheck(-31.4, -64.18));
@@ -26,10 +26,11 @@ describe("usePickupProximityCheck", () => {
     });
 
     await waitFor(() => expect(result.current.status).toBe("within_range"));
-    expect(result.current.distanceMeters).toBeLessThanOrEqual(150);
+    expect(result.current.distanceMeters).toBeLessThanOrEqual(100);
+    expect(result.current.currentLocation).toEqual({ lat: -31.3997, lng: -64.18 });
   });
 
-  it("fuera del radio de 150m resuelve out_of_range con la distancia calculada", async () => {
+  it("fuera del radio de 100m resuelve out_of_range con la distancia calculada", async () => {
     // ~1.1km al norte del punto de retiro.
     (getCurrentLocation as jest.Mock).mockResolvedValue({ granted: true, lat: -31.39, lng: -64.18 });
     const { result } = await renderHook(() => usePickupProximityCheck(-31.4, -64.18));
@@ -39,7 +40,7 @@ describe("usePickupProximityCheck", () => {
     });
 
     await waitFor(() => expect(result.current.status).toBe("out_of_range"));
-    expect(result.current.distanceMeters).toBeGreaterThan(150);
+    expect(result.current.distanceMeters).toBeGreaterThan(100);
   });
 
   it("permiso denegado resuelve denied sin inventar una distancia", async () => {
@@ -52,6 +53,7 @@ describe("usePickupProximityCheck", () => {
 
     await waitFor(() => expect(result.current.status).toBe("denied"));
     expect(result.current.distanceMeters).toBeNull();
+    expect(result.current.currentLocation).toBeNull();
   });
 
   it("un fallo inesperado de GPS resuelve error", async () => {

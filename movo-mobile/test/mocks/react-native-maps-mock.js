@@ -22,10 +22,15 @@ function Polyline(props) {
   return React.createElement(View, { testID: props.testID });
 }
 
+function Circle(props) {
+  return React.createElement(View, { testID: props.testID });
+}
+
 module.exports = {
   __esModule: true,
   default: MapView,
   Marker,
   Polyline,
+  Circle,
   PROVIDER_GOOGLE: "google",
 };
