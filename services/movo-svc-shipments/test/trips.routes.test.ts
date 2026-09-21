@@ -44,6 +44,7 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
       }),
       updateTrip: vi.fn().mockResolvedValue(mockTrip({ vehicleType: "camioneta" })),
       deleteTrip: vi.fn().mockResolvedValue(undefined),
+      startTrip: vi.fn().mockResolvedValue(mockTrip({ status: TripStatus.ACTIVE })),
       getTripMatches: vi.fn().mockImplementation(async (params) => ({
         items: [],
         total: 0,
@@ -172,6 +173,95 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
 
     expect(res.statusCode).toBe(204);
     expect(service.deleteTrip).toHaveBeenCalled();
+  });
+
+  it("POST /:id/start inicia el viaje y devuelve 200 con status active (MOVO-221)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/${TRIP_ID}/start`,
+      headers: {
+        "x-user-id": CARRIER_ID,
+        "x-user-roles": "carrier",
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe(TripStatus.ACTIVE);
+    expect(service.startTrip).toHaveBeenCalledWith({
+      tripId: TRIP_ID,
+      callerId: CARRIER_ID,
+      callerRoles: ["carrier"],
+    });
+  });
+
+  it("POST /:id/start responde 409 TRIP_ALREADY_HAS_ACTIVE_TRIP si ya hay otro viaje active", async () => {
+    (service.startTrip as any).mockRejectedValue(
+      new ApiError(409, "TRIP_ALREADY_HAS_ACTIVE_TRIP", "Ya tenés otro viaje activo"),
+    );
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/${TRIP_ID}/start`,
+      headers: {
+        "x-user-id": CARRIER_ID,
+        "x-user-roles": "carrier",
+      },
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("TRIP_ALREADY_HAS_ACTIVE_TRIP");
+  });
+
+  it("POST /:id/start responde 409 TRIP_NOT_DECLARED si el viaje ya no está declared", async () => {
+    (service.startTrip as any).mockRejectedValue(
+      new ApiError(409, "TRIP_NOT_DECLARED", "El viaje no está declared"),
+    );
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/${TRIP_ID}/start`,
+      headers: {
+        "x-user-id": CARRIER_ID,
+        "x-user-roles": "carrier",
+      },
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("TRIP_NOT_DECLARED");
+  });
+
+  it("POST /:id/start responde 403 AUTH_FORBIDDEN si el caller no es el dueño", async () => {
+    (service.startTrip as any).mockRejectedValue(
+      new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso"),
+    );
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/${TRIP_ID}/start`,
+      headers: {
+        "x-user-id": "99999999-9999-9999-9999-999999999999",
+        "x-user-roles": "carrier",
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("POST /:id/start responde 404 TRIP_NOT_FOUND si el viaje no existe", async () => {
+    (service.startTrip as any).mockRejectedValue(
+      new ApiError(404, "TRIP_NOT_FOUND", "No existe"),
+    );
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/${TRIP_ID}/start`,
+      headers: {
+        "x-user-id": CARRIER_ID,
+        "x-user-roles": "carrier",
+      },
+    });
+
+    expect(res.statusCode).toBe(404);
   });
 
   it("GET /:id/matches devuelve paquetes compatibles con el corredor", async () => {

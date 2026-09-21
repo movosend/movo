@@ -69,10 +69,13 @@ module.exports = {
       // indistinguible. Sin override por env var a propósito: un `IOS_BUNDLE_ID`
       // suelto en el `.env.local` de alguien (leftover de antes de MOVO-232) volvería
       // a partir el bundle id en silencio.
-      bundleIdentifier: "com.movosend.movomobile",
+      bundleIdentifier:
+        process.env.EAS_BUILD_PROFILE === "production"
+          ? "com.movosend.movomobile"
+          : (process.env.IOS_BUNDLE_ID ?? "com.movosend.movomobile"),
       infoPlist: {
         NSCameraUsageDescription:
-          "Movo necesita la cámara para tomar tu foto de perfil y verificar tu identidad durante el registro.",
+          "Movo necesita la cámara para tomar tu foto de perfil, verificar tu identidad durante el registro y escanear el código de confirmación de retiro/entrega.",
         NSMicrophoneUsageDescription:
           "Movo necesita el micrófono para grabar el video de verificación de vida durante la verificación de identidad con Didit.",
         NSPhotoLibraryUsageDescription:
@@ -142,6 +145,15 @@ module.exports = {
         {
           locationWhenInUsePermission:
             "Movo usa tu ubicación para ayudarte a marcar el punto exacto de una dirección en el mapa, durante el registro y al crear un envío.",
+        },
+      ],
+      // Sin `cameraPermission` propio acá — el `NSCameraUsageDescription` ya cubre
+      // este uso (arriba, `ios.infoPlist`), mismo criterio que MOVO-160 solo necesita
+      // habilitar el escaneo de barcodes/QR, no pedir un permiso de cámara nuevo.
+      [
+        "expo-camera",
+        {
+          barcodeScannerEnabled: true,
         },
       ],
       "expo-font",

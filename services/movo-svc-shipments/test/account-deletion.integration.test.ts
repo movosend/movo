@@ -157,3 +157,103 @@ describe("GET /internal/account-deletion/users/:userId/active-shipments (MOVO-13
     expect(swagger.paths["/internal/account-deletion/users/{userId}/active-shipments"]).toBeUndefined();
   });
 });
+
+describe("DELETE /internal/account-deletion/users/:userId/carrier-positions (MOVO-202/AC7)", () => {
+  let app: FastifyInstance;
+  let repo: ShipmentRepository;
+
+  const baseInput: CreateShipmentInput = {
+    senderId: randomUUID(),
+    receiverId: randomUUID(),
+    packageType: PackageType.standard_package,
+    weightKg: 2.5,
+    lengthCm: 30,
+    widthCm: 20,
+    heightCm: 15,
+    description: "Caja con libros",
+    pickupAddress: "Av. Colón 1234, Córdoba",
+    pickupLat: -31.4201,
+    pickupLng: -64.1888,
+    deliveryAddress: "Bv. San Juan 500, Córdoba",
+    deliveryLat: -31.4135,
+    deliveryLng: -64.1811,
+    pickupDate: new Date("2026-08-20T00:00:00.000Z"),
+    pickupTimeWindowStart: new Date("1970-01-01T09:00:00.000Z"),
+    pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
+    suggestedPriceArs: 4500,
+  };
+
+  beforeAll(async () => {
+    process.env.JWT_SECRET = "test-secret";
+    process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
+    process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+    app = buildApp();
+    await app.ready();
+    repo = createShipmentRepository(app.db);
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(async () => {
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
+  });
+
+  async function seedPosition(shipmentId: string) {
+    await app.db.carrierPosition.create({
+      data: { shipmentId, lat: -31.42, lng: -64.18, accuracyM: 8, capturedAt: new Date() },
+    });
+  }
+
+  it("borra todas las posiciones de los envíos donde el usuario fue transportista", async () => {
+    const carrierId = randomUUID();
+    const shipment = await repo.create(baseInput);
+    await app.db.shipment.update({ where: { id: shipment.id }, data: { carrierId } });
+    await seedPosition(shipment.id);
+    await seedPosition(shipment.id);
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/internal/account-deletion/users/${carrierId}/carrier-positions`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({ deletedCount: 2 });
+    expect(await app.db.carrierPosition.count({ where: { shipmentId: shipment.id } })).toBe(0);
+  });
+
+  it("no toca las posiciones de envíos de OTROS transportistas", async () => {
+    const carrierId = randomUUID();
+    const otherCarrierId = randomUUID();
+    const own = await repo.create(baseInput);
+    await app.db.shipment.update({ where: { id: own.id }, data: { carrierId } });
+    await seedPosition(own.id);
+    const ajeno = await repo.create(baseInput);
+    await app.db.shipment.update({ where: { id: ajeno.id }, data: { carrierId: otherCarrierId } });
+    await seedPosition(ajeno.id);
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/internal/account-deletion/users/${carrierId}/carrier-positions`,
+    });
+
+    expect(JSON.parse(response.body)).toEqual({ deletedCount: 1 });
+    expect(await app.db.carrierPosition.count({ where: { shipmentId: ajeno.id } })).toBe(1);
+  });
+
+  it("usuario sin ninguna posición -> deletedCount 0, sin romper", async () => {
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/internal/account-deletion/users/${randomUUID()}/carrier-positions`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({ deletedCount: 0 });
+  });
+
+  it("no aparece en la Swagger pública (endpoint interno, schema hide:true)", async () => {
+    const swagger = app.swagger() as { paths: Record<string, unknown> };
+    expect(swagger.paths["/internal/account-deletion/users/{userId}/carrier-positions"]).toBeUndefined();
+  });
+});

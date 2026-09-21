@@ -1,5 +1,7 @@
 import { TripStatus } from "../api/trips-client";
 
+// MOVO-221: `declared` nuevo (estado inicial real, antes un viaje nacía directo en
+// `active` sin ningún paso explícito de "arrancar el viaje" — ver POST /trips/:id/start).
 const TRIP_STATUS_LABELS: Record<TripStatus, string> = {
   [TripStatus.DECLARED]: "Declarado",
   [TripStatus.ACTIVE]: "Activo",
@@ -22,11 +24,16 @@ export function tripStatusTone(
     case TripStatus.DECLARED:
       return "neutral";
     case TripStatus.ACTIVE:
-    default:
-      // Acento de marca (lima) para el estado principal/activo — feedback de UI post-
-      // implementación: el tono "info" (azul) no es parte de la paleta de acento de
-      // Movo, se pidió reemplazarlo por el lima característico.
+      // Acento de marca (lima) para el estado principal/en curso — feedback de UI
+      // post-implementación: el tono "info" (azul) no es parte de la paleta de acento
+      // de Movo, se pidió reemplazarlo por el lima característico.
       return "lime";
+    case TripStatus.DECLARED:
+    default:
+      // MOVO-221: `declared` es el estado neutral por default (pendiente de iniciar,
+      // "Iniciar viaje" todavía no se tocó) -- ya no comparte el lima de `active`,
+      // que ahora significa específicamente "en curso".
+      return "neutral";
   }
 }
 

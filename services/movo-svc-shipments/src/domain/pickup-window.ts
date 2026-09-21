@@ -4,6 +4,29 @@ import { toArgentinaCalendarDateString } from "@movo/shared";
 // `shipments.service.ts`) — sin DST, por lo que el offset es constante.
 const ARGENTINA_UTC_OFFSET_HOURS = 3;
 
+/** "HH:MM:SS" (formato de `Offer.offeredPickupTimeWindowStart/End`, MOVO-177) -> hora
+ * de reloj de pared, mismo shape que devuelve leer un `Date` @db.Time con getUTCHours/
+ * Minutes/Seconds. Compartido por `anchorTimeOfDayToInstant` para poder combinar tanto
+ * un `Date` @db.Time ya persistido como el string crudo de una franja propuesta. */
+function timeOfDay(time: Date | string): { hours: number; minutes: number; seconds: number } {
+  if (typeof time === "string") {
+    const [hours, minutes, seconds] = time.split(":").map(Number);
+    return { hours, minutes, seconds: seconds ?? 0 };
+  }
+  return { hours: time.getUTCHours(), minutes: time.getUTCMinutes(), seconds: time.getUTCSeconds() };
+}
+
+/** Ancla la parte de fecha de `date` (`@db.Date`, medianoche UTC "de mentira") con la
+ * hora de pared de `time` y recién ahí suma el offset de Argentina — mismo criterio
+ * que `combineDateAndTime`/`toRealInstant` de `shipments.service.ts`, pero operando
+ * sobre valores ya persistidos (o el string crudo de una franja propuesta, MOVO-234)
+ * en vez de parsear strings del body de un request. */
+function anchorTimeOfDayToInstant(date: Date, time: Date | string): Date {
+  const { hours, minutes, seconds } = timeOfDay(time);
+  const anchored = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), hours, minutes, seconds);
+  return new Date(anchored + ARGENTINA_UTC_OFFSET_HOURS * 60 * 60 * 1000);
+}
+
 /**
  * Combina la fecha de retiro (@db.Date) y una hora de ventana (@db.Time)
  * en un instante real UTC (Date).
@@ -33,7 +56,7 @@ export function pickupWindowInstant(pickupDate: Date, timeWindow: Date): Date {
  * (MOVO-142+, sin ticket propio — corrección directa sobre un bug reportado).
  */
 export function pickupWindowEndInstant(pickupDate: Date, pickupTimeWindowEnd: Date): Date {
-  return pickupWindowInstant(pickupDate, pickupTimeWindowEnd);
+  return anchorTimeOfDayToInstant(pickupDate, pickupTimeWindowEnd);
 }
 
 /**
@@ -42,6 +65,43 @@ export function pickupWindowEndInstant(pickupDate: Date, pickupTimeWindowEnd: Da
  */
 export function formatPickupInstant(pickupDate: Date, timeWindow: Date): string {
   return pickupWindowInstant(pickupDate, timeWindow).toISOString();
+}
+
+/**
+ * MOVO-234: instante real (UTC) del INICIO de la ventana de retiro EFECTIVAMENTE
+ * acordada de un envío al aceptar una oferta -- simétrica a `pickupWindowEndInstant`,
+ * pero para el arranque (usada como `departureAt` del `Trip` auto-creado cuando la
+ * oferta aceptada no venía asociada a un viaje declarado,
+ * `offer-repository.ts#acceptOffer`). `offeredDate` es siempre la fecha de retiro
+ * EFECTIVA (MOVO-177: el transportista pudo haber propuesto un día distinto al
+ * pedido por el emisor, y `offeredDate` ya refleja eso). La franja horaria también
+ * prioriza lo que el transportista propuso (`offeredPickupTimeWindowStart`, string
+ * "HH:MM:SS" sin anclar, `null` si no propuso una distinta) sobre la original del
+ * envío (`shipmentPickupTimeWindowStart`, `Date` @db.Time ya anclada).
+ */
+export function acceptedOfferPickupWindowStartInstant(
+  offeredDate: Date,
+  offeredPickupTimeWindowStart: string | null,
+  shipmentPickupTimeWindowStart: Date,
+): Date {
+  return anchorTimeOfDayToInstant(offeredDate, offeredPickupTimeWindowStart ?? shipmentPickupTimeWindowStart);
+}
+
+/**
+ * Instante real (UTC) en el que vence una oferta `pending` (`Offer.expiresAt`, AC11 de
+ * MOVO-102): cuando cierra la ventana de retiro EFECTIVA de la oferta -- el fin de la
+ * franja que el transportista propuso (MOVO-177, string "HH:MM[:SS]", `null` si no
+ * propuso una) o, si no, el de la ventana del envío tal cual. `offeredDate` (`@db.Date`
+ * anclado) ya es la fecha de retiro efectiva. Única fuente de esta regla: la usan
+ * tanto la creación de la oferta (`shipments.service.ts#createOfferForShipment`) como
+ * su edición (`offer-repository.ts#update`).
+ */
+export function offerExpiresAtInstant(
+  offeredDate: Date,
+  offeredPickupTimeWindowEnd: string | null,
+  shipmentPickupTimeWindowEnd: Date,
+): Date {
+  return anchorTimeOfDayToInstant(offeredDate, offeredPickupTimeWindowEnd ?? shipmentPickupTimeWindowEnd);
 }
 
 /**

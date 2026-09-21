@@ -3,6 +3,7 @@ import { Prisma, PrismaClient, Offer as OfferRow, Shipment as ShipmentRow } from
 import { INITIAL_OFFER_STATUS, transition } from "../domain/offer-state-machine";
 import { transition as transitionShipmentStatus } from "../domain/shipment-state-machine";
 import { haversineKm } from "../domain/geo";
+import { acceptedOfferPickupWindowStartInstant, offerExpiresAtInstant } from "../domain/pickup-window";
 import {
   Offer,
   CreateOfferInput,
@@ -11,6 +12,7 @@ import {
   deriveEffectiveOfferStatus,
   OfferWithShipmentContext,
 } from "../models/offer";
+import { Trip, buildTripCreateData, mapTrip } from "../models/trip";
 
 /** MOVO-177: el transportista puede proponer retirar hasta 3 días después de la
  * fecha pedida por el emisor (nunca antes -- el paquete recién está listo desde ese
@@ -223,6 +225,18 @@ export class OfferNotEditableError extends Error {
   }
 }
 
+/**
+ * MOVO-234 (AC1): datos que el caller (`offers.service.ts`) ya resolvió ANTES de la
+ * transacción de `acceptOffer` -- `vehicleType` necesita una llamada a `usersClient`
+ * (I/O de red, no anidable dentro de la transacción de Postgres), mismo criterio que
+ * `resolveSnapshotProfile` en `shipments.service.ts`. Solo se usa cuando la oferta
+ * aceptada no tenía `tripId` -- el resto del `Trip` (origen/destino/`departureAt`) se
+ * deriva del propio `Shipment`/`Offer` dentro de la transacción.
+ */
+export interface AutoTripDefaults {
+  vehicleType: string;
+}
+
 function isPendingOfferConflict(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -288,14 +302,29 @@ export interface OfferRepository {
    * asignación). El `UPDATE` de la oferta en sí también es compare-and-swap
    * (lanza `OfferConcurrentModificationError` si un `withdraw`/`reject`
    * concurrente ya la modificó).
+   *
+   * MOVO-234 (AC1/AC2): si la oferta aceptada no tenía `tripId`, crea un `Trip`
+   * `declared` para el transportista a partir del propio envío (origen/destino =
+   * retiro/entrega, `departureAt` = inicio de la ventana de retiro EFECTIVAMENTE
+   * acordada, nunca en el pasado -- ver el comentario de la implementación) y
+   * asocia la oferta a ese viaje nuevo, todo dentro de la misma transacción.
+   * `autoTripDefaults` SIEMPRE debería llegar resuelto desde `offers.service.ts`
+   * (fix de review, PR #176: antes se omitía cuando `Offer.tripId` no era `null`
+   * en una lectura previa a esta transacción, pero ese snapshot podía quedar
+   * obsoleto si el `Trip` se borraba mientras tanto, `onDelete: SetNull`) -- acá
+   * sigue siendo opcional solo por compatibilidad con tests que no lo necesitan.
+   * `autoCreatedTrip` en el resultado es `null` únicamente si la oferta, releída
+   * DENTRO de esta transacción, ya tenía `tripId`.
    */
   acceptOffer(
     id: string,
     actorId: string | null,
+    autoTripDefaults?: AutoTripDefaults,
   ): Promise<{
     offer: Offer;
     shipmentId: string;
     superseded: Array<{ id: string; carrierId: string }>;
+    autoCreatedTrip: Trip | null;
   }>;
   /**
    * MOVO-145 (AC1-AC4): ofertas propias del transportista, más recientes primero, con
@@ -441,12 +470,46 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           data.offeredPickupTimeWindowEnd = patch.offeredPickupTimeWindowEnd;
         }
 
-        // Compare-and-swap contra `status` (no contra los campos editables en sí) --
-        // mismo mecanismo que `applyTerminalTransition`: si un accept/reject/withdraw
-        // concurrente ya escribió sobre esta fila entre el findUnique de arriba y este
-        // UPDATE, `count` da 0 en vez de aplicar el patch sobre una oferta que ya dejó
-        // de ser pending.
-        const result = await tx.offer.updateMany({ where: { id, status: current.status }, data });
+        // Bug real de `expiresAt` nunca seteado (sin ticket propio, mismo que
+        // `createOfferForShipment`): si el patch cambia `offeredDate` y/o la franja, la
+        // ventana de retiro EFECTIVA cambió con él y `expiresAt` tiene que recomputarse
+        // -- dejarlo como estaba vencería la oferta antes de tiempo (fecha adelantada) o
+        // nunca (fecha atrasada). Se calcula ACÁ, sobre la fila leída dentro de la
+        // transacción y no en el servicio, para que se derive del mismo estado contra el
+        // que se hace el compare-and-swap de abajo (fix de review, PR #177). Un patch
+        // de solo precio no la toca. `null` en la franja = reset a la del envío.
+        const affectsExpiry = patch.offeredDate !== undefined || patch.offeredPickupTimeWindowEnd !== undefined;
+        if (affectsExpiry) {
+          data.expiresAt = offerExpiresAtInstant(
+            patch.offeredDate ?? current.offeredDate,
+            patch.offeredPickupTimeWindowEnd !== undefined
+              ? patch.offeredPickupTimeWindowEnd
+              : current.offeredPickupTimeWindowEnd,
+            current.shipment.pickupTimeWindowEnd
+          );
+        }
+
+        // Compare-and-swap contra `status` -- mismo mecanismo que
+        // `applyTerminalTransition`: si un accept/reject/withdraw concurrente ya
+        // escribió sobre esta fila entre el findUnique de arriba y este UPDATE, `count`
+        // da 0 en vez de aplicar el patch sobre una oferta que ya dejó de ser pending.
+        // Cuando el patch recomputa `expiresAt`, el CAS además cubre los campos de los
+        // que ese cálculo depende: dos PATCH concurrentes (uno cambia la fecha, otro la
+        // franja) ya no pueden pisarse dejando `expiresAt` derivado de una mezcla que
+        // nunca coexistió -- el segundo en escribir recibe 409 y reintenta contra el
+        // estado ya actualizado. Un patch de solo precio no entra en conflicto con eso.
+        const result = await tx.offer.updateMany({
+          where: {
+            id,
+            status: current.status,
+            ...(affectsExpiry && {
+              offeredDate: current.offeredDate,
+              offeredPickupTimeWindowStart: current.offeredPickupTimeWindowStart,
+              offeredPickupTimeWindowEnd: current.offeredPickupTimeWindowEnd,
+            }),
+          },
+          data,
+        });
         if (result.count === 0) {
           throw new OfferConcurrentModificationError(id);
         }
@@ -472,10 +535,12 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
     async acceptOffer(
       id: string,
       actorId: string | null,
+      autoTripDefaults?: AutoTripDefaults,
     ): Promise<{
       offer: Offer;
       shipmentId: string;
       superseded: Array<{ id: string; carrierId: string }>;
+      autoCreatedTrip: Trip | null;
     }> {
       return db.$transaction(async (tx) => {
         const current = await tx.offer.findUnique({ where: { id } });
@@ -550,7 +615,53 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           },
         });
 
+        // Único `now` para todo el resto del método (movido acá, antes vivía
+        // declarado más abajo) -- MOVO-234 lo necesita ya para el clamp de
+        // `departureAt` de abajo, y el resto de los usos (`respondedAt`,
+        // `supersededWhere`) siguen compartiendo el mismo instante que antes.
         const now = new Date();
+
+        // MOVO-234 (AC1/AC2): la oferta ganadora no vino de un viaje declarado -- se
+        // crea uno `declared` a partir del propio envío y se asocia acá mismo, dentro
+        // de la transacción atómica de la aceptación (nunca en un paso aparte: AC2
+        // pide que quede asociada "como si el transportista lo hubiera elegido a mano
+        // al ofertar"). `autoTripDefaults` viaja resuelto por el caller (I/O de red a
+        // usersClient, no anidable en esta transacción) -- sin él, no se auto-crea
+        // nada (mismo criterio best-effort que el resto de las dependencias opcionales
+        // de este repositorio).
+        let autoCreatedTrip: Trip | null = null;
+        if (current.tripId === null && autoTripDefaults) {
+          const shipment = await tx.shipment.findUniqueOrThrow({ where: { id: current.shipmentId } });
+          const effectiveDepartureAt = acceptedOfferPickupWindowStartInstant(
+            current.offeredDate,
+            current.offeredPickupTimeWindowStart,
+            shipment.pickupTimeWindowStart,
+          );
+          // Fix de review (PR #176): la ventana de retiro puede haber vencido para
+          // cuando se acepta la oferta (el emisor tardó en decidir, o el barrido de
+          // MOVO-148 todavía no corrió -- hasta ~15min de rezago) -- sin este clamp,
+          // se creaba un `Trip` `declared` con `departureAt` ya en el pasado, algo
+          // que `POST /trips` a mano nunca permite (`TRIP_DEPARTURE_IN_PAST`). No
+          // bloquea la aceptación de la oferta por esto (ya es un caso de borde
+          // tolerado en otras partes del dominio) -- en vez de eso, ancla el viaje a
+          // "ahora" como aproximación razonable de cuándo arranca en la práctica.
+          const departureAt = effectiveDepartureAt > now ? effectiveDepartureAt : now;
+          const tripRow = await tx.trip.create({
+            data: buildTripCreateData({
+              carrierId: current.carrierId,
+              originAddress: shipment.pickupAddress,
+              originLat: shipment.pickupLat.toNumber(),
+              originLng: shipment.pickupLng.toNumber(),
+              destinationAddress: shipment.deliveryAddress,
+              destinationLat: shipment.deliveryLat.toNumber(),
+              destinationLng: shipment.deliveryLng.toNumber(),
+              departureAt,
+              vehicleType: autoTripDefaults.vehicleType,
+            }),
+          });
+          autoCreatedTrip = mapTrip(tripRow);
+        }
+
         // Mismo compare-and-swap que applyTerminalTransition (PR #70,
         // tmvergara): protege el caso simétrico — un withdraw/reject
         // concurrente sobre esta misma oferta, entre el findUnique de
@@ -558,12 +669,21 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         // "accepted" solo porque esta transacción ya reservó el envío.
         const offerUpdate = await tx.offer.updateMany({
           where: { id, status: current.status },
-          data: { status: OfferStatus.ACCEPTED, respondedAt: now },
+          data: {
+            status: OfferStatus.ACCEPTED,
+            respondedAt: now,
+            ...(autoCreatedTrip ? { tripId: autoCreatedTrip.id } : {}),
+          },
         });
         if (offerUpdate.count === 0) {
           throw new OfferConcurrentModificationError(id);
         }
-        const accepted = { ...current, status: OfferStatus.ACCEPTED, respondedAt: now };
+        const accepted = {
+          ...current,
+          status: OfferStatus.ACCEPTED,
+          respondedAt: now,
+          ...(autoCreatedTrip ? { tripId: autoCreatedTrip.id } : {}),
+        };
 
         // AC8, en lote: las demás ofertas pending del mismo envío pasan a
         // superseded. Excluye las que ya vencieron lógicamente (expiresAt
@@ -588,7 +708,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           data: { status: OfferStatus.SUPERSEDED, respondedAt: now },
         });
 
-        return { offer: mapOffer(accepted), shipmentId: current.shipmentId, superseded };
+        return { offer: mapOffer(accepted), shipmentId: current.shipmentId, superseded, autoCreatedTrip };
       });
     },
 

@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ApiError, UserRole } from "@movo/shared";
 import { createTripsService } from "../src/modules/trips/trips.service";
-import { TripRepository } from "../src/repositories/trip-repository";
+import {
+  TripRepository,
+  TripNotFoundError,
+  TripNotDeclaredError,
+  TripAlreadyHasActiveTripError,
+} from "../src/repositories/trip-repository";
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
 import { OfferRepository } from "../src/repositories/offer-repository";
 import { UsersClient } from "../src/adapters/users-client";
@@ -63,6 +68,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
       listByCarrier: vi.fn().mockResolvedValue({ items: [fakeTrip()], total: 1 }),
       update: vi.fn().mockImplementation(async (id, input) => fakeTrip({ id, ...input })),
       delete: vi.fn().mockResolvedValue(undefined),
+      start: vi.fn().mockImplementation(async (id) => fakeTrip({ id, status: TripStatus.ACTIVE })),
     };
 
     shipmentRepo = {
@@ -76,6 +82,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
       listAvailable: vi.fn().mockResolvedValue({ items: [], total: 0 }),
       hasActiveShipmentsForUser: vi.fn(),
       checkActiveDisputesForUser: vi.fn(),
+      listActiveShipments: vi.fn().mockResolvedValue([]),
     };
 
     offerRepo = createFakeOfferRepository();
@@ -102,6 +109,14 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
         })),
         calculationMethod: "haversine_vrptw_v1",
       })),
+      optimizeRoute: vi.fn().mockResolvedValue({
+        stops: [],
+        totalDistanceKm: 0,
+        totalDurationMinutes: 0,
+        status: "optimal",
+        calculationMethod: "or_tools_v1",
+        disclaimer: "",
+      }),
     };
   });
 
@@ -377,6 +392,113 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
       });
 
       expect(tripRepo.delete).toHaveBeenCalledWith(TRIP_ID);
+    });
+  });
+
+  describe("startTrip (MOVO-221)", () => {
+    it("falla con 404 TRIP_NOT_FOUND si el viaje no existe", async () => {
+      const service = buildService();
+
+      await expect(
+        service.startTrip({
+          tripId: "non-existent",
+          callerId: CARRIER_ID,
+          callerRoles: [UserRole.CARRIER],
+        }),
+      ).rejects.toMatchObject({ statusCode: 404, code: "TRIP_NOT_FOUND" });
+      expect(tripRepo.start).not.toHaveBeenCalled();
+    });
+
+    it("falla con 403 AUTH_FORBIDDEN si el usuario no es el dueño ni admin", async () => {
+      const service = buildService();
+
+      await expect(
+        service.startTrip({
+          tripId: TRIP_ID,
+          callerId: OTHER_USER_ID,
+          callerRoles: [UserRole.CARRIER],
+        }),
+      ).rejects.toMatchObject({ statusCode: 403, code: "AUTH_FORBIDDEN" });
+      expect(tripRepo.start).not.toHaveBeenCalled();
+    });
+
+    it("permite a un ADMIN iniciar un viaje ajeno", async () => {
+      const service = buildService();
+
+      const result = await service.startTrip({
+        tripId: TRIP_ID,
+        callerId: OTHER_USER_ID,
+        callerRoles: [UserRole.ADMIN],
+      });
+
+      expect(result.status).toBe(TripStatus.ACTIVE);
+      expect(tripRepo.start).toHaveBeenCalledWith(TRIP_ID);
+    });
+
+    it("transiciona declared -> active y devuelve el viaje actualizado", async () => {
+      const service = buildService();
+
+      const result = await service.startTrip({
+        tripId: TRIP_ID,
+        callerId: CARRIER_ID,
+        callerRoles: [UserRole.CARRIER],
+      });
+
+      expect(tripRepo.start).toHaveBeenCalledWith(TRIP_ID);
+      expect(result.status).toBe(TripStatus.ACTIVE);
+    });
+
+    it("falla con 409 TRIP_NOT_DECLARED si el viaje ya no está declared (repo lo rechaza)", async () => {
+      (tripRepo.start as any).mockRejectedValue(new TripNotDeclaredError(TRIP_ID, TripStatus.ACTIVE));
+      const service = buildService();
+
+      await expect(
+        service.startTrip({
+          tripId: TRIP_ID,
+          callerId: CARRIER_ID,
+          callerRoles: [UserRole.CARRIER],
+        }),
+      ).rejects.toMatchObject({ statusCode: 409, code: "TRIP_NOT_DECLARED" });
+    });
+
+    it("falla con 409 TRIP_ALREADY_HAS_ACTIVE_TRIP si el transportista ya tiene otro viaje active", async () => {
+      (tripRepo.start as any).mockRejectedValue(new TripAlreadyHasActiveTripError(CARRIER_ID));
+      const service = buildService();
+
+      await expect(
+        service.startTrip({
+          tripId: TRIP_ID,
+          callerId: CARRIER_ID,
+          callerRoles: [UserRole.CARRIER],
+        }),
+      ).rejects.toMatchObject({ statusCode: 409, code: "TRIP_ALREADY_HAS_ACTIVE_TRIP" });
+    });
+
+    it("propaga TripNotFoundError del repo como 404 (carrera: el viaje se borró entre el findById y el start)", async () => {
+      (tripRepo.start as any).mockRejectedValue(new TripNotFoundError(TRIP_ID));
+      const service = buildService();
+
+      await expect(
+        service.startTrip({
+          tripId: TRIP_ID,
+          callerId: CARRIER_ID,
+          callerRoles: [UserRole.CARRIER],
+        }),
+      ).rejects.toMatchObject({ statusCode: 404, code: "TRIP_NOT_FOUND" });
+    });
+
+    it("dispara el warm-up del motor VRPTW best-effort sin bloquear la respuesta ni fallar si el solver no está disponible", async () => {
+      (shipmentRepo.listActiveShipments as any).mockResolvedValue([]);
+      (pricingLogisticsClient.optimizeRoute as any).mockRejectedValue(new Error("solver caído"));
+      const service = buildService();
+
+      const result = await service.startTrip({
+        tripId: TRIP_ID,
+        callerId: CARRIER_ID,
+        callerRoles: [UserRole.CARRIER],
+      });
+
+      expect(result.status).toBe(TripStatus.ACTIVE);
     });
   });
 
@@ -729,6 +851,52 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
       expect(result.items[0].detourDistanceKm).toBe(5.5);
       // El total de la paginación refleja la cantidad real en DB (50)
       expect(result.total).toBe(50);
+    });
+
+    it("falla con 409 TRIP_NOT_AVAILABLE si el viaje está cancelled (MOVO-221 -- gap real, antes no chequeaba status)", async () => {
+      trip.status = TripStatus.CANCELLED;
+      const service = buildService();
+
+      await expect(
+        service.getTripMatches({
+          tripId: TRIP_ID,
+          callerId: CARRIER_ID,
+          callerRoles: [UserRole.CARRIER],
+          page: 1,
+          limit: 20,
+        }),
+      ).rejects.toMatchObject({ statusCode: 409, code: "TRIP_NOT_AVAILABLE" });
+      expect(shipmentRepo.listAvailable).not.toHaveBeenCalled();
+    });
+
+    it("falla con 409 TRIP_NOT_AVAILABLE si el viaje está completed", async () => {
+      trip.status = TripStatus.COMPLETED;
+      const service = buildService();
+
+      await expect(
+        service.getTripMatches({
+          tripId: TRIP_ID,
+          callerId: CARRIER_ID,
+          callerRoles: [UserRole.CARRIER],
+          page: 1,
+          limit: 20,
+        }),
+      ).rejects.toMatchObject({ statusCode: 409, code: "TRIP_NOT_AVAILABLE" });
+    });
+
+    it("sigue funcionando con el viaje todavía declared (no arrancado)", async () => {
+      trip.status = TripStatus.DECLARED;
+      const service = buildService();
+
+      const result = await service.getTripMatches({
+        tripId: TRIP_ID,
+        callerId: CARRIER_ID,
+        callerRoles: [UserRole.CARRIER],
+        page: 1,
+        limit: 20,
+      });
+
+      expect(result.tripId).toBe(TRIP_ID);
     });
 
     it("política No-Fallback: si svc-pricing-logistics falla (502/503), propaga el error (MOVO-219)", async () => {

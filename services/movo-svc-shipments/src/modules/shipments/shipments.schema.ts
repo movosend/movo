@@ -704,12 +704,14 @@ export const shipmentsSchemas = {
   },
 
   // MOVO-206: ruta optimizada del transportista
+  // MOVO-235: tripId opcional acota la ruta a un viaje específico (ya iniciado).
   myRouteQuery: {
     type: "object",
     required: ["lat", "lng"],
     properties: {
       lat: { type: "number", minimum: -90, maximum: 90 },
       lng: { type: "number", minimum: -180, maximum: 180 },
+      tripId: { type: "string", format: "uuid" },
     },
   },
 

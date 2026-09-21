@@ -765,6 +765,22 @@ export function createUsersService(
         await sessionRepository.revokeAllForUser(userId);
         await sessionRepository.revokeAccessTokensIssuedBefore(userId);
 
+        // MOVO-202/AC7: la traza GPS del usuario como transportista vive en
+        // svc-shipments, no acá -- no se puede componer en la misma `$transaction`
+        // de arriba (otra base, otro servicio). Best-effort, mismo criterio que el
+        // borrado de la foto de perfil de abajo: un fallo de red no debe revertir
+        // ni bloquear una baja de cuenta que el resto ya completó -- el barrido
+        // periódico de purga de `svc-shipments` la alcanza igual más tarde si esto
+        // falla, aunque no de inmediato.
+        try {
+          await shipmentsClient.deleteCarrierPositions(userId);
+        } catch (error) {
+          logger.warn(
+            { userId, event: "carrier_positions_delete_failed", error: (error as Error).message },
+            "No se pudo borrar la traza GPS del transportista al dar de baja la cuenta"
+          );
+        }
+
         if (previousPhotoUrl) {
           const key = storageProvider.getKeyFromUrl(previousPhotoUrl);
           if (key) {

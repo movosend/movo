@@ -281,8 +281,13 @@ export default function TransportScreen() {
     (item) => !isPickupWindowExpired(item.pickupDate, item.pickupTimeWindowEnd),
   );
 
-  const activeTrips = useMemo(
-    () => (myTripsData?.items ?? []).filter((t) => t.status === TripStatus.ACTIVE),
+  // MOVO-221: la franja "de paso" se alimenta de los viajes `declared` (pendientes de
+  // iniciar), no `active` -- con el límite de 1 viaje `active` por cuenta que trajo
+  // ese ticket, cruzar el feed contra `active` solo cubriría como mucho un viaje a la
+  // vez. Los `declared` (que siguen siendo N) son los que de verdad describen "todos
+  // los trayectos que este transportista tiene pensados".
+  const declaredTrips = useMemo(
+    () => (myTripsData?.items ?? []).filter((t) => t.status === TripStatus.DECLARED),
     [myTripsData],
   );
   // Sin merge de "on-trip" en modo viaje: ya está filtrado por UN solo corredor
@@ -291,9 +296,9 @@ export default function TransportScreen() {
     () =>
       unexpiredItems.map((item) => ({
         item,
-        detour: isTripMode ? null : computeOnTripDetour(item, activeTrips, ON_TRIP_MAX_DETOUR_KM),
+        detour: isTripMode ? null : computeOnTripDetour(item, declaredTrips, ON_TRIP_MAX_DETOUR_KM),
       })),
-    [unexpiredItems, activeTrips, isTripMode],
+    [unexpiredItems, declaredTrips, isTripMode],
   );
   const offers = myOffersData?.items ?? [];
   // `GET /offers/mine` trae TODO el historial (incluidas retiradas/rechazadas/
@@ -327,7 +332,7 @@ export default function TransportScreen() {
     return [...sortTransportItems(withoutOffer, sortMode), ...sortTransportItems(withOffer, sortMode)];
   }, [filteredItems, sortMode, isTripMode]);
   const filterCount = transportFilterCount(filters);
-  const showOnlyOnTripToggle = !isTripMode && activeTrips.length > 0;
+  const showOnlyOnTripToggle = !isTripMode && declaredTrips.length > 0;
 
   // "Listo para mostrar datos": en modo viaje depende de que el detalle del viaje ya
   // resolvió (para el header de AC2); en modo genérico, del origen (GPS/default/
@@ -359,8 +364,11 @@ export default function TransportScreen() {
     ? isTripLoading || (isReady && isLoading)
     : showOriginSkeleton || (isReady && isLoading);
 
-  const trips = myTripsData?.items ?? [];
-  const tripsMeta = `${activeTrips.length} ${activeTrips.length === 1 ? "activo" : "activos"} · ${trips.length} ${trips.length === 1 ? "declarado" : "declarados"}`;
+  // MOVO-221: con el límite de 1 viaje `active` por cuenta, mostrar "N activos ·
+  // M declarados" ya no aporta nada (activos es siempre 0 o 1) -- el acceso "Mis
+  // viajes" pasa a mostrar solo la cuenta de declarados (los pendientes de iniciar).
+  // `offers` ya se declara más arriba (MOVO-182, split de useMyOffers por status).
+  const tripsMeta = `${declaredTrips.length} ${declaredTrips.length === 1 ? "declarado" : "declarados"}`;
   const pendingOffersCount = offers.filter((o) => o.status === OfferStatus.PENDING).length;
   const acceptedOffersCount = offers.filter((o) => o.status === OfferStatus.ACCEPTED).length;
   const offersMeta = `${pendingOffersCount} ${pendingOffersCount === 1 ? "pendiente" : "pendientes"} · ${acceptedOffersCount} ${acceptedOffersCount === 1 ? "aceptada" : "aceptadas"}`;

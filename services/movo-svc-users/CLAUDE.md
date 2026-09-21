@@ -706,6 +706,18 @@ inexistente). 49/49 suites, 518/518 tests. `tsc --noEmit` limpio.
 Pendiente / fuera de alcance: consumo desde `movo-mobile` documentado en su propio
 `CLAUDE.md`; sin historial de aceptaciones previas (solo se persiste la última).
 
+### MOVO-202 (lado `svc-users`) — `deleteAccount` extiende la supresión a la traza GPS
+
+Detalle completo (retención, purga, ADR-023) en `services/movo-svc-shipments/
+CLAUDE.md`. Acá solo lo que cambió de este lado: `shipmentsClient.
+deleteCarrierPositions(userId)` nuevo en `shipments-client.ts`, llamado desde
+`users.service.ts#deleteAccount` DESPUÉS de la `$transaction` local de anonimización —
+best-effort (try/catch + `logger.warn`, mismo criterio que el borrado de la foto de
+perfil unas líneas más abajo en el mismo método), confirmado con el usuario: un fallo
+de red hacia `movo-svc-shipments` no debe bloquear ni revertir una baja de cuenta que
+el resto ya completó, y el barrido periódico de purga de ese servicio alcanza la
+traza más tarde si esto falla.
+
 ### Pendientes de este servicio
 
 - **Credenciales reales sin cargar** en AWS Secrets Manager (dev y prod) — el código

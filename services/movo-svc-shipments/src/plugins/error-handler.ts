@@ -15,7 +15,12 @@ import {
   OfferNotEditableError,
 } from "../repositories/offer-repository";
 import { DuplicateRatingError } from "../repositories/rating-repository";
-import { TripNotFoundError, TripHasAcceptedPackagesError } from "../repositories/trip-repository";
+import {
+  TripNotFoundError,
+  TripHasAcceptedPackagesError,
+  TripNotDeclaredError,
+  TripAlreadyHasActiveTripError,
+} from "../repositories/trip-repository";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -192,6 +197,24 @@ export default fp(async (app: FastifyInstance) => {
 
     if (error instanceof TripHasAcceptedPackagesError) {
       const apiError = new ApiError(409, "TRIP_HAS_ACCEPTED_PACKAGES", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    if (error instanceof TripNotDeclaredError) {
+      const apiError = new ApiError(409, "TRIP_NOT_DECLARED", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    if (error instanceof TripAlreadyHasActiveTripError) {
+      const apiError = new ApiError(409, "TRIP_ALREADY_HAS_ACTIVE_TRIP", error.message);
       reply.code(apiError.statusCode).send({
         ...apiError.toJSON(),
         requestId,

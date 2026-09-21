@@ -19,6 +19,11 @@ export default defineConfig({
         "src/models/**/*.ts",
         "src/adapters/**/*.ts",
         "src/utils/**/*.ts",
+        // MOVO-201: `realtime-authorizer.ts` es lógica de auth/autorización real
+        // (mismo criterio que `adapters`/`repositories`), no un plugin de Fastify —
+        // sin esto quedaba fuera del reporte pese a estar ejercitado por
+        // `tracking.integration.test.ts`.
+        "src/services/**/*.ts",
       ],
       exclude: ["src/modules/**/*.schema.ts", "src/modules/**/*.routes.ts"],
       // Umbral general (55% lines) se activa cuando el resto de los módulos (hoy stubs

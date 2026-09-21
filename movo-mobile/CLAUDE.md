@@ -1394,6 +1394,29 @@ ficha, cartel de registro sin vehículo) y en `test/departure-date-time-picker.t
 Pendiente / fuera de alcance: no probado en device; `DELETE /users/me/vehicle` (si se
 decide ofrecer "eliminar vehículo" de verdad) queda como ticket de backend aparte.
 
+### MOVO-221 (mini-fix) — tab Transportar sigue el rediseño de estados de viaje
+
+Lado mobile del rediseño `declared/active/completed` de `svc-shipments` (ver su
+`CLAUDE.md`) — con el límite nuevo de 1 viaje `active` por cuenta, "N activos · M
+declarados" en el acceso "Mis viajes" (`transport.tsx`, MOVO-183) dejó de aportar
+nada (activos es siempre 0 o 1). `tripsMeta` pasa a mostrar solo la cuenta de
+`declared` (los pendientes de iniciar). `computeOnTripDetour`/`showOnlyOnTripToggle`
+(franja "de paso" y su toggle de filtro) se alimentan ahora de los viajes `declared`
+en vez de `active`, por el mismo motivo — son los `declared` (que siguen siendo N)
+los que describen "todos los trayectos que este transportista tiene pensados".
+`src/lib/trip-format.ts` (`tripStatusLabel`/`tripStatusTone`, usado en "Mis viajes")
+gana el caso `DECLARED` ("Declarado", tono `neutral`) — `ACTIVE` deja de compartir el
+lima de "estado principal" con `declared`, ahora significa específicamente "en curso".
+
+Sin botón "Iniciar viaje" todavía: `POST /trips/:id/start` (backend) no tiene ningún
+punto de entrada en la UI — fuera de alcance de este mini-fix, que es 100% el ajuste
+de `transport.tsx` que el ticket de backend dejaba pendiente.
+
+Tests: 2 casos nuevos en `test/transport-screen.test.tsx` (un viaje `active` no cuenta
+en `tripsMeta` ni aporta la franja de desvío — fijan explícitamente el cambio de
+comportamiento) + `TRIP_A` (fixture compartida del archivo) pasó a `declared` por
+default. `tsc --noEmit` limpio.
+
 ### Pendientes de este paquete
 
 - **`eas init`/development build real en dispositivo**: pendiente para probar de
@@ -2629,6 +2652,107 @@ provisioning profile). Se vuelve a hacer solo si: se borra/regenera `ios/` desde
 cero (`rm -rf ios/`, `expo prebuild --clean` — ahí Xcode "olvida" el Team elegido),
 se usa una máquina nueva, se prueba con un dispositivo físico nuevo (hay que
 registrar su UDID en el Team), o se suma un dev nuevo al equipo.
+### MOVO-160 — Escaneo de QR y confirmación con GPS (receptor de custodia)
+
+Lado que **recibe** la custodia (transportista en el retiro, receptor en la entrega)
+del handshake criptográfico (`MOVO-6`), contra el backend de `MOVO-158` (Done). El
+scanner nunca firma nada — la firma que viaja en el QR ya la generó el cedente
+(`MOVO-159`, todavía sin construir, con `signHandshakeNonce()` de `MOVO-195`); este
+lado solo relee lo escaneado y agrega sus propias coordenadas GPS.
+
+- **Entregado como componente + ruta standalone, sin cablear ningún CTA de
+  producción** (decisión tomada con el usuario): hoy no existe ningún punto de
+  entrada real — el CTA de Home para "Confirmar recepción" depende de `MOVO-192`
+  (sin backend) y el de retiro depende de la fase 2 del home (`MOVO-206`, sin
+  arrancar). `components/handshake/handshake-scan-step.tsx` (props
+  `{shipmentId, onConfirmed}`, sin conocer wizard/orquestación) y
+  `components/handshake/handshake-confirmation-result.tsx` quedan listos para que
+  `MOVO-198`/`MOVO-199` los monten como un paso más cuando existan.
+  `app/(app)/shipments/[id]/handshake-scan.tsx` es la ruta de prueba mientras tanto
+  (navegación directa).
+- **Formato del QR, definido acá por no estar en ningún ticket**: JSON
+  `{shipmentId, nonce, signature}` — lo mínimo que necesita `POST
+  /shipments/:id/handshake/confirm` (`{nonce, signature, lat, lng}` en el body, más
+  el `shipmentId` de la URL). Documentado en un comentario de MOVO-159 (Linear) para
+  que quien construya esa pantalla lo implemente igual del otro lado. `stage` no
+  viaja en el QR — el backend ya lo resuelve del lado de `/confirm`.
+- **`expo-camera` nuevo** (`CameraView`/`useCameraPermissions`, primer escaneo de
+  códigos del repo) — plugin agregado a `app.config.js` con
+  `barcodeScannerEnabled: true`, sin `cameraPermission` propio (el
+  `NSCameraUsageDescription` ya existente desde MOVO-98 alcanza, solo se amplió el
+  texto para mencionar el escaneo).
+- **GPS reusa `getCurrentLocation()` tal cual** (`src/lib/location.ts`, mismo patrón
+  que `use-my-location.ts`): si no hay permiso/no se puede obtener la posición, nunca
+  se llama a `confirm` con un dato inventado (AC3) — se corta antes con un error
+  explícito.
+- **`HANDSHAKE_DISTANCE_EXCEEDED` es el único error "reintentable sin re-escanear"**
+  (AC5): el componente guarda el último `{shipmentId, nonce, signature}` decodificado
+  y el botón "Reintentar" solo vuelve a leer el GPS y reenvía la misma confirmación
+  — el QR sigue vigente dentro de su TTL de 15s, no hace falta un código nuevo. El
+  resto de los códigos (`HANDSHAKE_QR_EXPIRED`/`_INVALID_SIGNATURE`/
+  `_CEDENTE_KEY_MISSING`/`_INVALID_SHIPMENT_STATE`, más un QR que no parsea como
+  JSON válido) ofrece "Volver a escanear", sin guardar el payload.
+- **Atajo de simulación de escaneo, solo `__DEV__`**: el DoD de dos-dispositivos-
+  reales no es alcanzable todavía (`MOVO-159`, el generador del QR, también sigue en
+  Todo) — un campo de texto para pegar el JSON a mano dispara el mismo camino que un
+  escaneo real, mismo criterio que el propio prototipo de Claude Design ("Simular
+  escaneo del receptor").
+- **Pantalla de éxito propia, sin navegar a `/shipments/:id`**: esa pantalla
+  (`MOVO-127`) solo sabe mostrar la perspectiva del emisor — le fallaría con 403 a un
+  transportista/receptor hasta que `MOVO-194` (extensión de roles del detalle,
+  todavía sin construir) exista. La ruta vuelve a Home en su lugar.
+
+**Grooming de Linear hecho en el camino** (pedido explícito del usuario, al revisar
+el árbol completo de dependencias de "fase 2 del home"): `MOVO-194` y `MOVO-199`
+—ya con AC/DoD completos, solo sin dueño— sumadas al Cycle 6 y asignadas a Tomás.
+`MOVO-207` se dejó con Pedro Yorlano a propósito (ya era suyo, no se reasignó).
+
+Tests: `test/handshake-scan-step.test.tsx` (los 3 permisos de cámara, QR no-JSON/
+incompleto, sin GPS, camino feliz, los 5 códigos de error con mensaje propio sin
+cerrar la cámara, reintento de `DISTANCE_EXCEEDED` con el mismo nonce, "volver a
+escanear" habilita un nuevo intento, atajo de simulación), `test/handshake-
+confirmation-result.test.tsx` (copy por `stage`), caso nuevo en
+`test/shipments-client.test.ts`. 115/115 suites, 881/881 tests. `tsc --noEmit`
+limpio (sin `eslint.config.js` en `movo-mobile` todavía, ver pendientes del
+paquete).
+
+Pendiente / fuera de alcance: cablear un CTA real (`MOVO-198`/`MOVO-199`/`MOVO-193`
+fase 2, todos sin arrancar); gating por rol en la ruta standalone (depende de
+`MOVO-194`).
+
+**`/dev-handshake` (mismo día, pedido del usuario): página de dev para probar esto
+contra el backend real sin esperar a `MOVO-159`.** Mismo criterio que `/dev-tokens`/
+`/dev-connection`/`/dev-home-operativo` — sin link desde la app, se navega
+escribiendo la URL. Reusa `HandshakeScanStep`/`HandshakeConfirmationResult` tal cual
+(cero fork).
+
+- **Elegir un envío**: lista los envíos propios (`listMine`, emisor) tocables, o un
+  campo para pegar cualquier ID — necesario para probar como transportista/receptor
+  de un envío que no es propio (esos roles no tienen ningún endpoint de listado
+  todavía, `MOVO-192` sigue Todo). Muestra el rol resuelto client-side y la etapa
+  pendiente (retiro/entrega) como información, sin gatear ninguna sección — el
+  backend es la única autoridad real de quién puede generar/confirmar.
+- **`shipmentsClient.generateHandshake()` nuevo** (`POST /shipments/:id/handshake/
+  generate`, MOVO-158, Done) — agregado ahora como parte del harness, pero es
+  simplemente el wrapper HTTP: `MOVO-159` lo va a reusar tal cual para su pantalla
+  real, no hace falta reescribirlo.
+- **"Generar QR de prueba"**: pide GPS (mismo `getCurrentLocation()` que el paso de
+  escaneo), llama a `generate`, firma el `canonicalPayload` con
+  `signHandshakeNonce()` (MOVO-195, ya existente) y arma el JSON exacto
+  `{shipmentId, nonce, signature}` que `HandshakeScanStep` espera — mostrado como
+  texto seleccionable (mantener presionado para copiar, sin sumar `expo-clipboard`
+  como dependencia nueva) para pegar en una segunda sesión/dispositivo logueado
+  como la contraparte real, dentro del TTL de 15s.
+- **Sin mock de ningún tipo**: todo pega contra `svc-shipments` real (`generate` y
+  `confirm`) — el único camino no genuino es que, sin `MOVO-159`, generar y escanear
+  hoy requiere dos pasadas manuales por esta misma pantalla (una por cuenta) en vez
+  de dos pantallas de producción distintas.
+
+Tests: `test/dev-handshake-screen.test.tsx` (selección de envío propio y por ID
+pegado, rol/etapa resueltos, generar QR pide GPS y firma antes de llamar a
+`generate`, sin GPS no llama a `generate`, confirmar desde el paso embebido llega a
+la pantalla de éxito), caso nuevo en `test/shipments-client.test.ts` para
+`generateHandshake`. 116/116 suites, 886/886 tests. `tsc --noEmit` limpio.
 
 ### MOVO-208 (backend, `svc-shipments`) — ajustes mobile por la extensión del set canónico
 
@@ -2731,6 +2855,126 @@ Pendiente / fuera de alcance (igual que el propio ticket): orquestación de wiza
 ver fotos cargadas desde el detalle de envío (`MOVO-194`). No probado en dispositivo
 físico ni los tres caminos de permiso reales — pendiente del DoD, no verificable en
 este entorno (mismo criterio que MOVO-195/MOVO-107).
+
+### MOVO-151 — "Mis ofertas": listado completo con tabs, avisos y estado vacío accionable
+
+Cierra el pendiente que dejaron documentado MOVO-183 y MOVO-182 ("el listado completo
+del ticket original sigue sin construirse"): `carrier/offers/index.tsx` pasa de una
+lista plana sin filtrar a tabs **Activas** (default, AC4) / **Cerradas**, ahora
+apoyada en los tres contratos de backend que este mismo refinamiento de ciclo había
+dejado bloqueantes y que ya llegaron a `develop` (MOVO-185 distancia/paquete, MOVO-186
+neto real, MOVO-188 ranking competitivo).
+
+- **`components/transport/my-offer-card.tsx` nueva** (pedida explícitamente por el
+  ticket): reemplaza la fila de una sola línea — ahora con fecha de retiro + distancia
+  (`shipment.distanceKm`), el neto real (`priceNetArs`, no el bruto `priceOffered`) y
+  un chip de estado con copy explicativo (`offerStatusLabel`, AC3, nunca el enum
+  crudo).
+- **"Requieren algo tuyo" reformulada**: antes solo `accepted`; ahora suma las
+  `pending` que no lideran su ranking (`competitiveRank.rank > 1`), con el aviso
+  "Quedaste 4.º de 5. Bajando a $X pasás al frente" (`competitiveRankNotice` nuevo en
+  `offer-format.ts`) — el aviso que el refinamiento de MOVO-151/182 había dejado
+  explícitamente "fuera de alcance hasta que exista el contrato" (MOVO-188), ya
+  resuelto. El resto de las `pending` (liderando) cae en una sección "El resto" sin
+  aviso — una card sin aviso no necesita destacarse.
+- **AC5/AC6 sin duplicar acciones**: una oferta `accepted` navega directo al envío
+  asignado (`/transport/:id`); el resto navega al detalle real de la oferta
+  (`carrier/offers/[id]`, MOVO-182), que ya tiene retirar/modificar — reusa esa
+  pantalla en vez de repetir el botón "Retirar" en cada card de la lista.
+- **AC7**: el estado vacío (sin ninguna oferta) suma un CTA "Ver envíos disponibles"
+  que vuelve al tab Transportar — antes era solo texto. Vacío de un tab con ofertas en
+  el otro (ej. todo activo, tab Cerradas vacío) es un mensaje corto sin CTA, caso
+  distinto del AC7 literal.
+- **AC1 del ticket ("segmentador dentro de Transportar, no una pantalla aparte") no
+  se tomó literal**: se mantuvo como ruta separada (`/carrier/offers`, ya así desde
+  MOVO-183, con dos accesos con contador en `TransportAccessCards`) en vez de
+  refactorizar a un segmentador embebido — reescribir esa navegación ya probada solo
+  para calzar con el texto original del AC, escrito antes de que el mockup de
+  Claude Design mostrara una pantalla dedicada con sus propios tabs internos
+  (Activas/Cerradas, lo que sí se construyó acá), no aportaba nada al usuario.
+- Hero "En juego"/"Confirmado" corregido para sumar `priceNetArs` (antes sumaba el
+  bruto `priceOffered` — quedaba mal versus el "te queda $X" de cada card).
+
+Tests nuevos: `test/my-offer-card.test.tsx`, `test/my-offers-summary-screen.test.tsx`
+reescrito contra el comportamiento con tabs (default Activas, agrupación en avisos,
+navegación AC5/AC6, ambos vacíos). 128/128 suites, 998/998 tests en `movo-mobile`.
+`tsc --noEmit` limpio (de paso se detectó y corrigió, de nuevo, un `dist/` local
+desactualizado de `@movo/shared` — no es parte del diff de esta US, build artifact
+gitignorado).
+
+**Cierre de la US (skill `cerrar-us`), dos gaps reales encontrados contra el
+texto literal del ticket, corregidos antes de cerrar:**
+
+- **AC3: `EXPIRED` no coincidía con el ejemplo literal del AC** ("venció antes de
+  que respondieran") — `offerStatusLabel` (`offer-format.ts`, no tocado por este
+  ticket hasta ahora) decía solo `"Venció"`. Corregido al texto exacto del AC.
+  `offerStatusBannerCopy` (detalle de oferta, MOVO-182) no se tocó: ya era
+  plenamente explicativo con título+subtítulo separados.
+- **DoD ("render de cada estado con su copy correspondiente") solo cubría
+  `pending`/`superseded`**: `my-offer-card.test.tsx` pasó a un `it.each` con los 6
+  estados. Suite final: 128/128 suites, 1003/1003 tests, `tsc --noEmit` limpio.
+- **AC2 ("tratamiento visual distinto" para los 6 estados), deviación aceptada,
+  no corregida**: `withdrawn`/`expired`/`superseded` comparten el mismo chip mute
+  (`bg-bg-mute`), solo distinto texto — únicamente pending/accepted/rejected
+  tienen color propio. Se decidió no rediseñar el chip para 3 estados "cerrados,
+  sin acción posible" con la misma US ya cerrada por lo demás; queda anotado como
+  posible ajuste visual menor, no un bug funcional (el texto sigue siendo
+  explicativo en los tres casos).
+- **AC1 (segmentador embebido en Transportar) confirmado como no aplicable**, ver
+  el punto de arriba — decisión ya tomada en MOVO-183, no de este ticket.
+
+**Fixes de review (PR #177):**
+
+- **El chip de estado de `MyOfferCard` perdía su color**: `bg-*` y `text-*` iban juntos
+  en el `View` contenedor y el `Text` interno no tenía color propio — en RN/NativeWind
+  el color de texto no se hereda de un `View`. Ahora son dos mapas
+  (`STATUS_CHIP_BG_CLASS`/`STATUS_CHIP_TEXT_CLASS`), con test que fija la clase en el
+  propio `Text`.
+- **Una `pending` sobre un envío `cancelled` ahora "requiere algo tuyo"**: cancelar un
+  envío no cierra sus ofertas `pending` (solo notifica), y llegan con
+  `competitiveRank: null` — antes caían en "El resto" como una oferta viva más. Sigue
+  sumando al hero "En juego" (no se tocó el total).
+- **Tab Cerradas recupera contador y cuándo se ofertó** (`Cerradas (N)`,
+  `MyOfferCard#showSentAgo` → `formatOfferedAgo`), que tenía la lista plana anterior.
+- `router.replace` del CTA del estado vacío se dejó a propósito: es un tab, y `push`
+  apilaría una segunda copia del grupo `(tabs)` sobre la de abajo.
+
+Pendiente / fuera de alcance: no probado en dispositivo; el footer "Las ofertas
+pendientes se cierran solas..." del mockup solo se muestra en el tab Activas cuando
+hay al menos una `pending`, sin verificar contra el comportamiento real de expiración
+del backend (ya lo cubre MOVO-145 del lado servidor, esto es solo copy).
+### MOVO-159 — Pantalla de generación de QR con countdown (cedente de custodia) (`movo-mobile`)
+
+Implementación completa de la pantalla de transferencia de custodia física vía código QR dinámico para el cedente (emisor en retiro, transportista en entrega). Diseñada según el manual de marca de Movo y el artefacto de Claude Design (`viaje_del_transportista.dc.html`).
+
+- **Dependencia instalada**: `react-native-qrcode-svg@6.3.24` (renderizado de QR vectorial nativo en SVG).
+- **Cliente API (`src/api/shipments-client.ts`)**: `generateHandshake(shipmentId, { lat, lng })` conectando con `POST /shipments/:id/handshake/generate`.
+- **Hook `useHandshakeQr` (`src/hooks/use-handshake-qr.ts`)**:
+  - Gating con `useDeviceKeyBootstrap()` si el estado de la clave del dispositivo no es `"ready"`.
+  - Captura obligatoria de coordenadas GPS vía `getCurrentLocation()` para validar geofence de 100m.
+  - Firma client-side del payload canónico retornado por el backend utilizando `signHandshakeNonce` (MOVO-195).
+  - Ensamblado del payload JSON convenido con el receptor (`MOVO-160`): `{"shipmentId": "...", "nonce": "...", "signature": "..."}`.
+  - Contador regresivo sincronizado contra el `expiresAt` autoritativo del backend (`new Date(generated.expiresAt).getTime()`, con fallback a `ttlSeconds`), mitigando desincronizaciones de reloj y latencia de red en la expiración del nonce. Transición a color de advertencia (`#E5484D`) en los últimos 5 segundos, y estado de expiración a los 0 segundos con opacidad atenuada (0.2).
+  - Botón de regeneración manual para solicitar y firmar un nuevo nonce tras expirar.
+  - Polling a `shipmentsClient.getById(id)` cada 2.5 segundos para detectar el avance de estado cuando el receptor completa el escaneo (`IN_TRANSIT` para retiro, `DELIVERED`/`COMPLETED` para entrega), transicionando inmediatamente a `"confirmed"` (reemplazable por WebSocket en `MOVO-201`).
+- **Componentes (`components/handshake/` & `components/ui/`)**:
+  - `MovoIsotype` (`components/ui/movo-isotype.tsx`): Implementación vectorial nativa en SVG del isotipo oficial según el Manual de Marca (`#movo-logo-dark`, 5 círculos concéntricos de apertura y esquinas redondeadas al 20%).
+  - `HandshakeQrCard`: Contenedor idéntico al prototipo con QR de 186×186, isotipo oficial de Movo en el badge central (44×44), reloj monoespaciado (`00:15`), barra de progreso animada, overlay de expirado, y simulación en `__DEV__`.
+  - `HandshakeSuccessView`: Pantalla de éxito con badge circular de check (64×64), paleta contextual de marca (fondo oscuro con tilde lima para retiro; fondo lima con tilde oscuro para entrega), tipografía Inter centrada, tabla resumen de envío y estado diferenciando `ShipmentStatus.COMPLETED` ("El envío figura como completado y el pago fue acreditado") de `DELIVERED` ("Estamos procesando el pago"), y botones de acción para volver al envío o a Inicio. Dispara vibración háptica de éxito (`Haptics.notificationAsync`).
+  - `HandshakeDeviceKeyWarning`: Banner de advertencia si la clave criptográfica del dispositivo está pendiente o en error con botón de reintento.
+- **Pantalla y Navegación**:
+  - Ruta `app/(app)/shipments/[id]/handshake.tsx`: Resuelve automáticamente el rol del usuario autenticado (emisor entrega paquete al transportista → "pickup"; transportista entrega paquete al destinatario → "delivery") y el nombre de pila de la contraparte desde su perfil público.
+  - Botón de acceso contextual en `app/(app)/shipments/[id].tsx`: Botón inferior con estilo lime "Confirmar retiro" para el emisor en estado `ASSIGNED`, y "Confirmar entrega" para el transportista en estado `IN_TRANSIT`.
+  - Acceso a pantalla de desarrollo (`/dev-handshake`) consolidado en la pestaña de Perfil (`profile.tsx`), manteniendo la pantalla Home limpia.
+  - Imports de `@movo/shared` apuntando a subpaths específicos (`@movo/shared/dist/types/shipment`, `@movo/shared/dist/errors/api-error`) para prevenir fugas de librerías Node (`node:crypto`, `jsonwebtoken`) en el runtime nativo.
+- **Tests**:
+  - `test/use-handshake-qr.test.tsx` (9 tests: AC2 generación y firma, AC2/AC3 countdown y expiración sincronizada con `expiresAt` autoritativo del backend, AC3 regeneración, AC4 polling de confirmación, AC5 GPS denegado y distancia excedida, pruebas de latencia de red, expiración inmediata en tránsito y fallback de TTL). Utiliza el patrón `Harness` con `render` para evitar el bug de `renderHook` de React 19 / RNTL 14.
+  - `test/handshake-qr-card.test.tsx` (5 tests: render normal, cuenta regresiva en rojo, overlay de expiración y botón de regenerar, estado de carga, errores).
+  - `test/handshake-success-view.test.tsx` (3 tests: retiro, entrega en estado `DELIVERED` informando procesamiento de pago, entrega en estado `COMPLETED` informando acreditación de pago, y navegación).
+  - `test/handshake-device-key-warning.test.tsx` (3 tests: ready, pending, error con reintento).
+  - `test/handshake-screen.test.tsx` (4 tests: resolución de rol emisor/transportista, advertencia de clave, transición a éxito).
+  - `test/shipment-detail-screen.test.tsx` (3 tests nuevos para el botón contextual).
+  - Suite completa: 132/132 suites, 1007/1007 tests pasando. `npx tsc --noEmit` sin errores.
 
 ### MOVO-207 — Mapa de ruta optimizada multi-parada, paradas ordenadas, ETA y recálculo
 

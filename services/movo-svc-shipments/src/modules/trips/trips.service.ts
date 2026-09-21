@@ -1,12 +1,21 @@
+import { FastifyBaseLogger } from "fastify";
 import { ApiError, UserRole } from "@movo/shared";
-import { TripRepository, TripNotFoundError, TripHasAcceptedPackagesError } from "../../repositories/trip-repository";
+import {
+  TripRepository,
+  TripNotFoundError,
+  TripHasAcceptedPackagesError,
+  TripNotDeclaredError,
+  TripAlreadyHasActiveTripError,
+} from "../../repositories/trip-repository";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { Trip, TripStatus, CreateTripInput, UpdateTripInput, TripWithAcceptedPackages } from "../../models/trip";
 import { MatchedShipment } from "../../models/shipment";
 import { formatPickupInstant, toArgentinaCalendarDate } from "../../domain/pickup-window";
+import { aggregateCarrierStops } from "../../domain/carrier-route";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
+import { assertTripAccess } from "./trip-access";
 
 export interface TripsService {
   createTrip(params: {
@@ -41,6 +50,18 @@ export interface TripsService {
     callerId: string;
     callerRoles: UserRole[];
   }): Promise<void>;
+
+  /**
+   * MOVO-221: `declared -> active` (solo puede haber 1 `active` por cuenta a la
+   * vez -- 409 `TRIP_ALREADY_HAS_ACTIVE_TRIP` si ya tiene otro). Dispara además,
+   * best-effort y fire-and-forget, un warm-up del motor VRPTW (AC2 del ticket) --
+   * nunca bloquea ni afecta la respuesta.
+   */
+  startTrip(params: {
+    tripId: string;
+    callerId: string;
+    callerRoles: UserRole[];
+  }): Promise<Trip>;
 
   getTripMatches(params: {
     tripId: string;
@@ -83,6 +104,41 @@ function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number):
   return R * c;
 }
 
+/**
+ * MOVO-221 (AC2): warm-up best-effort del motor VRPTW al iniciar un viaje -- fire-
+ * and-forget, el resultado se descarta (no hay columna en `Trip` donde persistirlo,
+ * mismo criterio "on-demand sin persistencia" de `GET /shipments/my-route`,
+ * MOVO-206 AC7/AC9). El mobile sigue pidiendo la ruta real por separado con la
+ * posición GPS real del transportista en ese momento -- más precisa que usar acá el
+ * origen declarado del viaje como proxy. Nunca lanza: cualquier falla (sin envíos
+ * activos, el solver caído, timeout) solo se loguea.
+ */
+async function triggerRouteWarmup(
+  trip: Trip,
+  deps: {
+    shipmentRepository: ShipmentRepository;
+    pricingLogisticsClient: PricingLogisticsClient;
+    logger?: FastifyBaseLogger;
+  },
+): Promise<void> {
+  try {
+    const shipments = await deps.shipmentRepository.listActiveShipments("carrierId", trip.carrierId);
+    const stops = aggregateCarrierStops(shipments);
+    if (stops.length === 0) {
+      return;
+    }
+    await deps.pricingLogisticsClient.optimizeRoute({
+      carrierLocation: { lat: trip.originLat, lng: trip.originLng },
+      stops,
+    });
+  } catch (err) {
+    deps.logger?.warn(
+      { err, event: "trip_start_route_warmup_failed", tripId: trip.id, carrierId: trip.carrierId },
+      "Fallo al disparar el warm-up del motor VRPTW al iniciar el viaje -- no bloquea la transición",
+    );
+  }
+}
+
 export function createTripsService(deps: {
   tripRepository: TripRepository;
   shipmentRepository: ShipmentRepository;
@@ -90,8 +146,17 @@ export function createTripsService(deps: {
   usersClient: UsersClient;
   defaultMaxDetourKm: number;
   pricingLogisticsClient: PricingLogisticsClient;
+  logger?: FastifyBaseLogger;
 }): TripsService {
-  const { tripRepository, shipmentRepository, offerRepository, usersClient, defaultMaxDetourKm, pricingLogisticsClient } = deps;
+  const {
+    tripRepository,
+    shipmentRepository,
+    offerRepository,
+    usersClient,
+    defaultMaxDetourKm,
+    pricingLogisticsClient,
+    logger,
+  } = deps;
 
   return {
     async createTrip({ callerId, callerRoles, input }) {
@@ -121,10 +186,7 @@ export function createTripsService(deps: {
         throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
       }
 
-      const isAdmin = callerRoles.includes(UserRole.ADMIN);
-      if (trip.carrierId !== callerId && !isAdmin) {
-        throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver este viaje.");
-      }
+      assertTripAccess(trip, callerId, callerRoles, { forbiddenMessage: "No tenés permiso para ver este viaje." });
 
       const acceptedCount = await tripRepository.countAcceptedOffers(tripId);
       return {
@@ -146,10 +208,9 @@ export function createTripsService(deps: {
         throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
       }
 
-      const isAdmin = callerRoles.includes(UserRole.ADMIN);
-      if (trip.carrierId !== callerId && !isAdmin) {
-        throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para modificar este viaje.");
-      }
+      assertTripAccess(trip, callerId, callerRoles, {
+        forbiddenMessage: "No tenés permiso para modificar este viaje.",
+      });
 
       const acceptedCount = await tripRepository.countAcceptedOffers(tripId);
       if (acceptedCount > 0) {
@@ -200,10 +261,9 @@ export function createTripsService(deps: {
         throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
       }
 
-      const isAdmin = callerRoles.includes(UserRole.ADMIN);
-      if (trip.carrierId !== callerId && !isAdmin) {
-        throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para eliminar este viaje.");
-      }
+      assertTripAccess(trip, callerId, callerRoles, {
+        forbiddenMessage: "No tenés permiso para eliminar este viaje.",
+      });
 
       const acceptedCount = await tripRepository.countAcceptedOffers(tripId);
       if (acceptedCount > 0) {
@@ -231,15 +291,60 @@ export function createTripsService(deps: {
       }
     },
 
+    async startTrip({ tripId, callerId, callerRoles }) {
+      const trip = await tripRepository.findById(tripId);
+      if (!trip) {
+        throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
+      }
+
+      assertTripAccess(trip, callerId, callerRoles, {
+        forbiddenMessage: "No tenés permiso para iniciar este viaje.",
+      });
+
+      let started: Trip;
+      try {
+        started = await tripRepository.start(tripId);
+      } catch (err) {
+        if (err instanceof TripNotFoundError) {
+          throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
+        }
+        if (err instanceof TripNotDeclaredError) {
+          throw new ApiError(409, "TRIP_NOT_DECLARED", err.message);
+        }
+        if (err instanceof TripAlreadyHasActiveTripError) {
+          throw new ApiError(409, "TRIP_ALREADY_HAS_ACTIVE_TRIP", err.message);
+        }
+        throw err;
+      }
+
+      // Fire-and-forget: no se espera, ni su éxito ni su falla afectan la respuesta.
+      void triggerRouteWarmup(started, { shipmentRepository, pricingLogisticsClient, logger });
+
+      return started;
+    },
+
     async getTripMatches({ tripId, callerId, callerRoles, radiusKm, page, limit }) {
       const trip = await tripRepository.findById(tripId);
       if (!trip) {
         throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
       }
 
+      assertTripAccess(trip, callerId, callerRoles, {
+        forbiddenMessage: "No tenés permiso para ver los matches de este viaje.",
+      });
       const isAdmin = callerRoles.includes(UserRole.ADMIN);
-      if (trip.carrierId !== callerId && !isAdmin) {
-        throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver los matches de este viaje.");
+
+      // MOVO-221: gap real cerrado -- antes `getTripMatches` no chequeaba `trip.status`
+      // en absoluto, así que un viaje `cancelled`/`completed` seguía devolviendo
+      // matches. Vigente mientras el viaje sigue "vivo" (declared o active, todavía
+      // sin arrancar o ya en curso) -- mismo criterio que el chequeo ampliado de
+      // `createOfferForShipment` (`shipments.service.ts`).
+      if (trip.status !== TripStatus.DECLARED && trip.status !== TripStatus.ACTIVE) {
+        throw new ApiError(
+          409,
+          "TRIP_NOT_AVAILABLE",
+          `El viaje '${tripId}' no admite matches en su estado actual ('${trip.status}').`,
+        );
       }
 
       if (!isAdmin) {

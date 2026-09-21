@@ -87,10 +87,15 @@ export default function EditTripScreen() {
             No se puede modificar ni cancelar directamente.
           </Text>
         </View>
-      ) : trip.status !== TripStatus.ACTIVE ? (
+      ) : trip.status === TripStatus.CANCELLED || trip.status === TripStatus.COMPLETED ? (
         // Hallazgo de review (PR #120): un viaje `cancelled`/`completed` no debería
         // mostrar el formulario editable — mismo criterio que el bloqueo de arriba,
         // solo que acá la razón es el estado del viaje, no paquetes aceptados.
+        // MOVO-221 (fix de review, PR #168): la condición original era
+        // `status !== ACTIVE`, heredada de cuando ese era el único estado no
+        // terminal — con `declared` como estado inicial real, bloqueaba editar
+        // TODO viaje recién declarado con este mismo cartel de "ya no está activo".
+        // Se invierte a los dos estados terminales explícitos.
         <View className="flex-1 items-center justify-center gap-2 px-8">
           <Text
             testID="edit-trip-not-active"

@@ -115,6 +115,25 @@ export const FULFILLED_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
 ];
 
 /**
+ * MOVO-201/AC4: a partir de cuál estado el canal de tiempo real (`realtime.ts`) cierra
+ * cualquier suscripción de tracking abierta sobre el envío — AC6 de MOVO-11, la
+ * ubicación del transportista deja de ser visible una vez completado el handshake de
+ * entrega. NO es lo mismo que "terminal en el grafo" (`VALID_TRANSITIONS[s].size===0`):
+ * `DELIVERED` sigue teniendo salida (hacia `COMPLETED`/`DISPUTED`) pero ya corta el
+ * tracking igual, mientras que `DISPUTED` sí es terminal en el grafo hoy y también
+ * corta (no hay ninguna razón de negocio para seguir exponiendo la ubicación de un
+ * envío en disputa). Lista explícita, no derivada, mismo criterio que
+ * `FULFILLED_SHIPMENT_STATUSES`/`ACTIVE_SHIPMENT_STATUSES` de arriba.
+ */
+export const TRACKING_CLOSED_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.DELIVERED,
+  ShipmentStatus.COMPLETED,
+  ShipmentStatus.CANCELLED,
+  ShipmentStatus.REJECTED_BY_RECEIVER,
+  ShipmentStatus.DISPUTED,
+];
+
+/**
  * MOVO-192: envíos con transportista ya comprometido, hasta la entrega (exclusive) —
  * el emisor, el transportista y el receptor tienen una acción de custodia pendiente
  * hoy sobre este envío. Ni `published`/`assignment_pending` (todavía sin compromiso
@@ -126,6 +145,25 @@ export const ACTIVE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
   ShipmentStatus.ASSIGNED_UNFUNDED,
   ShipmentStatus.ASSIGNED,
   ShipmentStatus.IN_TRANSIT,
+];
+
+/**
+ * MOVO-202/AC6: estados elegibles para la purga periódica de `carrier_positions` --
+ * mismo set que `TRACKING_CLOSED_STATUSES` MENOS `DISPUTED` a propósito. Un envío
+ * `disputed` nunca es elegible mientras siga en ese estado (la traza puede ser
+ * evidencia de la disputa en curso, ADR-023) -- `disputed` no tiene transición de
+ * salida modelada hoy (ver el comentario de `VALID_TRANSITIONS` más arriba), así que
+ * en la práctica queda retenido sin límite mientras dure. El ancla de "cuándo cerró"
+ * es `Shipment.lastStatusChangedAt`: si algún día se modela una salida real de
+ * `disputed` hacia un estado de este set, ese mismo timestamp pasa a marcar el
+ * momento de la resolución sin ningún cambio de código acá -- la retención cuenta
+ * desde ahí, no desde el cierre original antes de la disputa.
+ */
+export const POSITION_PURGE_ELIGIBLE_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.DELIVERED,
+  ShipmentStatus.COMPLETED,
+  ShipmentStatus.CANCELLED,
+  ShipmentStatus.REJECTED_BY_RECEIVER,
 ];
 
 /** Solo lectura — no muta el estado, es para consultas (ej. habilitar/deshabilitar una acción en UI). */

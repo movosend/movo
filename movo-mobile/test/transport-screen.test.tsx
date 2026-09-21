@@ -211,7 +211,9 @@ const TRIP_A: TripWithAcceptedPackages = {
   // computeOnTripDetour, MOVO-183) -- no un timestamp hardcodeado aparte.
   departureAt: `${DEFAULT_PICKUP_DATE}T12:00:00.000Z`,
   vehicleType: "Auto",
-  status: TripStatus.ACTIVE,
+  // MOVO-221: `declared` es el estado real de un viaje recién creado/pendiente de
+  // iniciar -- es el que alimenta tripsMeta/computeOnTripDetour ahora, no `active`.
+  status: TripStatus.DECLARED,
   createdAt: "2026-09-03T12:00:00.000Z",
   updatedAt: "2026-09-03T12:00:00.000Z",
   hasAcceptedPackages: false,
@@ -549,10 +551,24 @@ describe("TransportScreen", () => {
 
       const { getByText, getByTestId } = await render(<TransportScreen />);
 
-      expect(getByText("1 activo · 2 declarados")).toBeTruthy();
+      // MOVO-221: solo cuenta declared (TRIP_A) -- el segundo (completed) no.
+      expect(getByText("1 declarado")).toBeTruthy();
       expect(getByText("1 pendiente · 1 aceptada")).toBeTruthy();
       // Punto de atención (lime) solo cuando hay al menos una oferta aceptada.
       expect(getByTestId("transport-my-offers-attention-dot")).toBeTruthy();
+    });
+
+    it("MOVO-221: un viaje active tampoco cuenta en tripsMeta -- solo declared", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+      mockUseMyTrips.mockReturnValue({
+        data: { items: [{ ...TRIP_A, status: TripStatus.ACTIVE }], page: 1, limit: 50, total: 1 },
+      });
+      mockUseMyOffers.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 } });
+
+      const { getByText } = await render(<TransportScreen />);
+
+      expect(getByText("0 declarados")).toBeTruthy();
     });
 
     it("el acceso 'Mis ofertas' navega a /carrier/offers", async () => {
@@ -624,7 +640,7 @@ describe("TransportScreen", () => {
       expect(queryByTestId("transport-card-offered-my-offer-price")).toBeNull();
     });
 
-    it("fusiona el desvío de un viaje activo declarado en la card (aproximación client-side)", async () => {
+    it("fusiona el desvío de un viaje declared en la card (aproximación client-side, MOVO-221)", async () => {
       mockUseTransportOrigin.mockReturnValue(baseOriginResult());
       // Envío cuyo retiro está prácticamente sobre el origen del viaje declarado —
       // desvío ~0, bien por debajo de ON_TRIP_MAX_DETOUR_KM.
@@ -638,6 +654,23 @@ describe("TransportScreen", () => {
       const { getByTestId } = await render(<TransportScreen />);
 
       expect(getByTestId("transport-card-on-trip-detour")).toBeTruthy();
+    });
+
+    it("MOVO-221: un viaje ya active (no declared) no aporta la franja de desvío", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(
+        baseAvailableResult({
+          data: pages([availableShipment({ id: "on-trip", pickupLat: TRIP_A.originLat, pickupLng: TRIP_A.originLng })]),
+        }),
+      );
+      mockUseMyTrips.mockReturnValue({
+        data: { items: [{ ...TRIP_A, status: TripStatus.ACTIVE }], page: 1, limit: 50, total: 1 },
+      });
+
+      const { queryByTestId, getByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-card-on-trip")).toBeTruthy();
+      expect(queryByTestId("transport-card-on-trip-detour")).toBeNull();
     });
 
     it("muestra el conteo de resultados y ordena por desvío/pago/próximo al ciclar", async () => {
