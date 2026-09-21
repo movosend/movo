@@ -35,7 +35,12 @@
 // la capability nativa. Los builds de EAS (`eas.json`) sí la necesitan real: seteá
 // `ENABLE_PUSH_NOTIFICATIONS=true` como EAS Environment Variable en los perfiles que
 // vayan a probar push de punta a punta, una vez que el team de Apple sea de pago.
-const { withEntitlementsPlist, withDangerousMod, withXcodeProject } = require("expo/config-plugins");
+const {
+  withEntitlementsPlist,
+  withDangerousMod,
+  withXcodeProject,
+  IOSConfig,
+} = require("expo/config-plugins");
 const fs = require("fs");
 const path = require("path");
 
@@ -99,20 +104,15 @@ const withSceneDelegate = (config) => {
   config = withXcodeProject(config, (config) => {
     const project = config.modResults;
     const appName = config.modRequest.projectName;
-    const groupName = appName;
     const fileName = "SceneDelegate.swift";
 
-    // Evitar duplicados si el prebuild corre varias veces
-    const alreadyAdded = Object.values(project.pbxFileReferenceSection()).some(
-      (ref) => ref && ref.name === fileName
-    );
-    if (!alreadyAdded) {
-      project.addSourceFile(
-        `${appName}/${fileName}`,
-        { target: project.getFirstTarget().uuid },
-        groupName
-      );
-    }
+    // addBuildSourceFileToGroup resuelve el grupo por nombre (la API cruda de
+    // `xcode` espera el UUID del grupo) y es idempotente si el archivo ya está.
+    config.modResults = IOSConfig.XcodeUtils.addBuildSourceFileToGroup({
+      filepath: `${appName}/${fileName}`,
+      groupName: appName,
+      project,
+    });
     return config;
   });
 
