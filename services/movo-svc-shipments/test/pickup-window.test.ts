@@ -1,11 +1,22 @@
 import { describe, it, expect } from "vitest";
 import {
   acceptedOfferPickupWindowStartInstant,
+  formatPickupInstant,
   isPickupWindowExpired,
   offerExpiresAtInstant,
   pickupWindowEndInstant,
   toArgentinaCalendarDate,
 } from "../src/domain/pickup-window";
+
+describe("formatPickupInstant", () => {
+  it("combina fecha y hora de retiro en formato ISO con offset argentino (+3h)", () => {
+    const pickupDate = new Date("2026-09-17T00:00:00.000Z");
+    const pickupTimeWindowStart = new Date("1970-01-01T09:00:00.000Z");
+
+    // 09:00 en reloj de pared argentino es 12:00 UTC
+    expect(formatPickupInstant(pickupDate, pickupTimeWindowStart)).toBe("2026-09-17T12:00:00.000Z");
+  });
+});
 
 describe("pickupWindowEndInstant", () => {
   it("suma el offset de Argentina (UTC-3) al reloj de pared anclado", () => {

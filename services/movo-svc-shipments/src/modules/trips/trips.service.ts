@@ -12,7 +12,7 @@ import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { Trip, TripStatus, CreateTripInput, UpdateTripInput, TripWithAcceptedPackages } from "../../models/trip";
 import { MatchedShipment } from "../../models/shipment";
-import { toArgentinaCalendarDate } from "../../domain/pickup-window";
+import { formatPickupInstant, toArgentinaCalendarDate } from "../../domain/pickup-window";
 import { aggregateCarrierStops } from "../../domain/carrier-route";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
 import { assertTripAccess } from "./trip-access";
@@ -400,14 +400,14 @@ export function createTripsService(deps: {
           dropoffLat: item.deliveryLat,
           dropoffLng: item.deliveryLng,
           pickupWindowStart:
-            item.pickupTimeWindowStart instanceof Date
-              ? item.pickupTimeWindowStart.toISOString()
+            item.pickupDate && item.pickupTimeWindowStart instanceof Date
+              ? formatPickupInstant(item.pickupDate, item.pickupTimeWindowStart)
               : typeof item.pickupTimeWindowStart === "string"
                 ? item.pickupTimeWindowStart
                 : undefined,
           pickupWindowEnd:
-            item.pickupTimeWindowEnd instanceof Date
-              ? item.pickupTimeWindowEnd.toISOString()
+            item.pickupDate && item.pickupTimeWindowEnd instanceof Date
+              ? formatPickupInstant(item.pickupDate, item.pickupTimeWindowEnd)
               : typeof item.pickupTimeWindowEnd === "string"
                 ? item.pickupTimeWindowEnd
                 : undefined,

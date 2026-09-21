@@ -1662,6 +1662,11 @@ Decisiones clave:
   JWT) obtiene su propia ruta. No se acepta `carrierId` por parámetro.
 - **Contratos tipados en `@movo/shared`:** `CarrierRoute` y `CarrierRouteStop`
   exportados en `types/routing.ts` para consumo coordinado entre backend y mobile.
+- **Serialización de ventanas de retiro con timezone real (`formatPickupInstant`):**
+  `pickupDate` (@db.Date) y `pickupTimeWindow*` (@db.Time) se anclan en UTC sumando el offset
+  argentino (+3h UTC), evitando que viajen con fecha base 1970 a `svc-pricing-logistics`
+  lo que invalidaba falsamente candidatos en el evaluador de factibilidad.
+
 
 ### MOVO-222 — `GET /shipments/pending-ratings`: envíos con calificaciones pendientes de dar
 

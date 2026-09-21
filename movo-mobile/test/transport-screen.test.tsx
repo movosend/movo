@@ -726,5 +726,16 @@ describe("TransportScreen", () => {
       await fireEvent.press(getByTestId("transport-clear-filters"));
       expect(getByTestId("transport-card-std")).toBeTruthy();
     });
+
+    it("el acceso 'Mi ruta de hoy' navega a /route (MOVO-207)", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      const { getByTestId } = await render(<TransportScreen />);
+
+      await fireEvent.press(getByTestId("transport-my-route-cta"));
+
+      expect(mockRouterPush).toHaveBeenCalledWith("/route");
+    });
   });
 });
