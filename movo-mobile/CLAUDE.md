@@ -2878,14 +2878,17 @@ shipments/[id]/pickup/` (`_layout.tsx` + `index.tsx`/`evidence.tsx`/`scan.tsx`/
   `EvidenceCaptureStep`, TanStack Query dedupea) y hace `<Redirect>` a `evidence` si
   todavía no está satisfecha — cubre tanto un salto directo por URL como el caso
   defensivo de arriba.
-- **AC7 (reingreso con evidencia ya cargada salta al escaneo) resuelto en el propio
-  botón "Continuar" del paso 1**, no en el `_layout`: consulta el mismo
-  `evidence-status` y decide `evidence` o `scan` como siguiente ruta — sin esto,
-  cada reingreso obligaría a pasar por la pantalla de fotos aunque ya estén
-  confirmadas.
-- **AC4 (validación de proximidad, 150m) es un chequeo distinto del que ya hace el
-  handshake en sí** (100m entre emisor y transportista al momento de escanear,
-  MOVO-158/160): acá se compara la posición actual del transportista contra
+- **AC7 (reingreso con evidencia ya cargada salta al escaneo) resuelto originalmente
+  en el botón "Continuar" del paso 1** consultando `evidence-status` para decidir
+  `evidence` o `scan` como siguiente ruta — **revertido, ver fix post-QA más abajo**:
+  saltar directo a `scan` resultó confuso incluso cuando la evidencia ya estaba
+  confirmada de una corrida anterior, porque el usuario nunca había visto el paso en
+  esa sesión. "Continuar" ahora siempre entra por `qr`.
+- **AC4 (validación de proximidad, originalmente 150m — reducido a 100m, ver ajuste
+  post-QA más abajo) es un chequeo distinto del que ya hace el handshake en sí**
+  (100m entre emisor y transportista al momento de escanear, MOVO-158/160, mismo
+  umbral por coincidencia, no por compartir código): acá se compara la posición
+  actual del transportista contra
   `shipment.pickupLat/Lng` (la dirección del envío, estática), antes de dejarlo
   avanzar del paso 1 — `usePickupProximityCheck` (nuevo,
   `haversineDistanceKm` ya existente) bloquea "Continuar" hasta resolver
@@ -2916,3 +2919,191 @@ tests. `tsc --noEmit` limpio.
 Pendiente / fuera de alcance: DoD de dos dispositivos reales (bloqueado por
 `MOVO-159`) y prueba en dispositivo físico de cámara/GPS — no verificables en este
 entorno.
+
+**Rediseño del wizard sobre un prototipo de Claude Design (mismo ciclo, feedback
+explícito del usuario: "no me gusta para nada la estética actual").** Los 4 archivos
+originales (resumen+proximidad+aviso QR en `index.tsx`, `evidence.tsx`, `scan.tsx`,
+`success.tsx`) pasan a 6, un propósito por pantalla, sobre el prototipo "Retiro de
+paquete - flujo" (Claude Design, leído vía `DesignSync`): `index.tsx` (paso 1,
+ubicación — pantalla dedicada a la proximidad de AC4, antes un widget embebido),
+`resumen.tsx` **(nuevo)**, `qr.tsx` **(nuevo**, el banner amarillo de "pedile el QR"
+pasa a pantalla propia, con el nombre real del emisor vía `usePublicProfile` cuando
+carga), `evidence.tsx`/`scan.tsx` (mismo mecanismo/lógica, ganan el header compartido
+nuevo `components/shipments/pickup-wizard-step-header.tsx` — back + "Paso N de 5" +
+segmentos, mismo patrón que ya usa `transport/[id]/offer.tsx`), `success.tsx` (sin
+cambios de lógica, restyle oscuro). Tres decisiones tomadas con el usuario antes de
+implementar: el aviso de QR es pantalla propia (no un banner dentro del escaneo);
+`EvidenceCaptureStep` (MOVO-197, compartido con el futuro wizard de entrega) no se
+reescribe como viewfinder en vivo, solo se restylea el chrome alrededor; y
+`HandshakeConfirmationResult` (compartido con la ruta standalone de MOVO-160 y
+`/dev-handshake`) sí se restylea al lenguaje oscuro (`bg-ink-950` fijo, halo
+pulsante, sin cambiar texto/props — sus tests solo verifican contenido). La paleta
+del prototipo mapea 1:1 con los tokens ya existentes de `tailwind.config.js`
+(`ink-950`/`lime-500`/`route-500`...), misma escala de diseño. El fondo de la
+pantalla de ubicación es decorativo (grid + pulso), no un `MapView` real — sin
+precedente de `Circle` de `react-native-maps` en el repo, y el valor real es el
+feedback de distancia, no un mapa interactivo.
+
+**Segunda pasada (mismo ciclo): animación de barrido en la pantalla de éxito**,
+sobre un segundo prototipo de Claude Design ("Success de entrega"). Rediseño
+completo de `HandshakeConfirmationResult` (antes una card estática) a una secuencia
+en cascada: barrido lime desde el centro (círculo escalado con Reanimated — sin
+`clip-path` real, `react-native-svg` no lo soporta de forma confiable, ver el
+comentario ya existente en `app/(auth)/kyc.tsx`), check dibujado con
+`strokeDashoffset` animado (mismo patrón que `AnimatedCircle` de
+`publish-shipment-button.tsx`), título en cascada, y una hoja blanca inferior con
+CTA horneado adentro (antes el CTA vivía afuera, a cargo de cada caller).
+
+- **El componente pasa a fetchear sus propios datos** (`useShipment`/
+  `usePublicProfile`/`useShipmentRoute`) en vez de vivir de las 5 propiedades planas
+  de `ConfirmHandshakeResult` — necesita la dirección de entrega y el nombre del
+  receptor para personalizar "Lo tenés vos. Ahora, a {dirección}", y la ruta/ETA
+  real (`GET /shipments/route`, mismo dato que ya muestra `transport/[id].tsx`) para
+  la fila "25 min · 3,4 km". Sin esto, cada uno de los 3 callers hubiera tenido que
+  resolver y pasar lo mismo.
+- **Sin pill de "ubicación en vivo" del mock** (decisión tomada con el usuario): no
+  hay tracking en tiempo real todavía (MOVO-11/203 sin construir), afirmarlo hubiera
+  sido mentir. La barra decorativa de abajo de la fila de ruta se mantuvo (no afirma
+  nada por sí sola, es solo ritmo visual del reveal).
+- **`onCtaPress`/`ctaLabel` nuevos, ambos opcionales**: sin `onCtaPress` no se
+  muestra ningún botón (el componente sigue sin ser dueño de la navegación, mismo
+  criterio de siempre) — lo usa la galería `DevHandshakeScreen`, que lo embebe en un
+  box de tamaño fijo dentro de un scroll, sin ninguna acción real que ofrecer. Label
+  default por stage si no se pasa uno explícito ("Ver la ruta" / "Volver al envío").
+- **El CTA de retiro navega a `/route?shipmentId=...`** (pedido explícito del
+  usuario, que va a construir esa pantalla de mapa/tracking en vivo aparte) — esa
+  ruta no existe todavía en el repo, así que hoy cae en la pantalla "no encontrada"
+  de expo-router hasta que se construya. El de entrega (sin próximo destino que
+  trackear) vuelve al detalle del envío, como antes.
+- `app/(app)/shipments/[id]/handshake-scan.tsx` (ruta standalone de MOVO-160) y
+  `DevHandshakeScreen` actualizados al nuevo contrato — el primero perdió su propio
+  footer con botón (ahora vive horneado en el componente), el segundo mockea el
+  componente entero en su test (fetchea TanStack Query real y esa pantalla no tiene
+  ningún `QueryClientProvider` ancestro, a diferencia del resto de la app).
+
+Tests: `handshake-confirmation-result.test.tsx` reescrito por completo (mocks de los
+3 hooks nuevos, aserciones por regex en vez de texto exacto donde hay una hora real
+de por medio — timezone-dependiente); casos actualizados en
+`pickup-wizard-screens.test.tsx` (CTA horneado, destino distinto por stage) y
+`dev-handshake-screen.test.tsx` (mock del componente). 133/133 suites, 1053/1053
+tests. `tsc --noEmit` limpio.
+
+**Fix post-QA (mismo ciclo, reportado por el usuario en device): el paso 2 (resumen)
+saltaba directo a escaneo sin pasar por el aviso de QR ni por fotos.** Era el AC7
+funcionando tal como se documentó, no un bug — un envío reusado a mano durante QA
+(mismo shipment, varias corridas del botón dev) ya tenía evidencia confirmada de una
+corrida previa (`photoCount`/`satisfied` son acumulativos en DB, sin reset por
+sesión, confirmado contra `photos.service.ts` de `svc-shipments`), así que
+`evidence-status` volvía `satisfied:true` de entrada. El atajo se sacó: `pickup/
+resumen.tsx#handleContinue` ya no consulta `evidence-status`, "Empezar el retiro"
+siempre navega a `qr` → `evidence` → `scan`, sin importar si la evidencia ya está
+confirmada — `evidence.tsx`/`EvidenceCaptureStep` (MOVO-197) igual muestran esas
+fotos como ya satisfechas, así que reingresar no obliga a sacar fotos de nuevo, solo
+a pasar visualmente por el paso. Test de AC7 en `pickup-wizard-screens.test.tsx`
+reemplazado por uno que verifica que siempre navega a `qr`. 133/133 suites,
+1053/1053 tests. `tsc --noEmit` limpio.
+
+**Fix post-QA (mismo ciclo, pedido explícito del usuario): mapa real en el paso 1
+(ubicación), no decorativo.** La primera versión del rediseño (más arriba) tenía un
+fondo tipo mapa puramente estético (grid + un punto fijo en el centro, sin
+coordenadas reales) — se reemplazó por un `MapView` real (mismo patrón que
+`RouteMapCard`, MOVO-83/127: `PROVIDER_GOOGLE`, estilo custom `movoMapStyleDark/
+Light`, truco de `MAP_EDGE_BLEED` para tapar la línea de 1px del borde nativo) con:
+pin en el punto de retiro real (`shipment.pickupLat/Lng`) con badge de dirección,
+pin de "vos" en la ubicación actual (`proximity.currentLocation`, GPS real) con el
+mismo halo pulsante de antes, y un círculo de 150m sobre el punto de retiro (mismo
+umbral que `PICKUP_PROXIMITY_THRESHOLD_METERS`, AC4) para visualizar el rango. La
+distancia mostrada en el panel inferior sigue siendo la misma (GPS real vía
+`haversineDistanceKm`), ahora formateada con `formatProximityDistance` nueva
+(`shipment-format.ts`: metros enteros bajo 1km, un decimal en km por encima).
+
+- **`usePickupProximityCheck` gana `currentLocation: {lat,lng} | null`** (antes solo
+  exponía `distanceMeters`) — necesario para poder plotear el pin de "vos" en el
+  mapa, no solo mostrar la distancia como texto.
+- **`mapRef.fitToCoordinates` se dispara en dos momentos**: cuando el mapa termina
+  de montarse (`onMapReady`) y de nuevo cada vez que `currentLocation` cambia — el
+  GPS suele tardar más que el montaje del `MapView`, así que sin el segundo trigger
+  el mapa quedaría encuadrado solo en el punto de retiro aunque la ubicación actual
+  ya esté resuelta.
+- **Mock de `react-native-maps` (`test/mocks/react-native-maps-mock.js`) suma
+  `Circle`** (antes solo `MapView`/`Marker`/`Polyline`) — mismo criterio que el
+  resto del mock, una `View` plana sin lógica nativa.
+
+Tests nuevos: `formatProximityDistance` en `shipment-format.test.ts`, caso de
+`currentLocation` en `use-pickup-proximity-check.test.ts`, dos casos nuevos en
+`pickup-wizard-screens.test.tsx` (mapa con ambos pines, sin pin de "vos" mientras el
+GPS no resolvió). 133/133 suites, 1056/1056 tests. `tsc --noEmit` limpio.
+
+**Segundo ajuste (mismo día, feedback directo sobre el mapa real recién agregado):
+pines chicos, badges sin identidad, sin medición visible, demasiado zoom.**
+
+- **Pines más grandes**: pin de retiro 14px→24px, pin de "vos" 16px→24px (borde
+  3px en vez de 2px en ambos), halo pulsante 54px→64px.
+- **Badge del pin de retiro pasa de la dirección al nombre del emisor**
+  (`usePublicProfile(shipment.senderId)`, mismo hook que ya usa `pickup/qr.tsx` —
+  comparte query key, sin request de más) — la dirección ya se lee en el paso 2
+  (resumen), acá lo que importa es reconocer a la persona.
+- **Badge "Vos" nuevo sobre el pin del transportista** (antes sin ninguna etiqueta).
+- **Chip de distancia flotante al pie del mapa** (`pickup-geo-map-distance`, ícono
+  `Ruler` + `formatProximityDistance`) — la distancia ya estaba en el texto del
+  panel inferior ("Estás a X m del punto"), pero ese texto explica un estado, no
+  mide; el chip nuevo es una lectura numérica siempre visible mientras el GPS
+  resolvió, coexiste con el texto sin duplicar su propósito.
+- **Línea punteada entre ambos pines, agregada y sacada en la misma pasada** (feedback
+  explícito del usuario: no era parte de lo pedido) — quedó fuera, sin `Polyline` en
+  el mapa de este paso.
+- **Menos zoom**: `latitudeDelta`/`longitudeDelta` inicial 0.01→0.018, `edgePadding`
+  de `fitToCoordinates` 80/60→110/90 — con los pines más grandes y las dos etiquetas
+  nuevas, el encuadre anterior los dejaba pegados a los bordes del mapa.
+
+Tests nuevos en `pickup-wizard-screens.test.tsx` (chip de distancia visible/oculto
+según `distanceMeters`). 133/133 suites, 1058/1058 tests. `tsc --noEmit` limpio.
+
+**Tercer ajuste (mismo día, pedido explícito del usuario): el badge de estado ("En
+el punto"/"Fuera de rango", antes flotando arriba a la izquierda) se integró en la
+misma pill que la distancia**, al pie del mapa — antes eran dos elementos flotantes
+separados (badge arriba, chip de distancia abajo). Ahora es una sola pill
+(`pickup-geo-map-status`) con dot + label de estado + divisor vertical + distancia
+(`pickup-geo-map-distance`, testID conservado en el `Text` interno). El testID viejo
+del badge de arriba se eliminó — ya no existe ese elemento. Test nuevo verificando
+que ambos textos conviven en la misma pill. 133/133 suites, 1059/1059 tests.
+`tsc --noEmit` limpio.
+
+**Cuarto ajuste (mismo día, pedido explícito del usuario): "Reintentar ubicación"
+ocupa el lugar de "Continuar" cuando no se puede avanzar por distancia.** Antes
+convivían un botón chico "Reintentar ubicación" (dentro del panel de estado) y el
+botón principal "Continuar" deshabilitado, uno arriba del otro — dos botones a la
+vez, uno de ellos inerte. Ahora es un solo `PrimaryButton` por vez: con
+`out_of_range`/`denied`/`error`, el botón principal ES "Reintentar ubicación"
+(`pickup-geo-retry`, mismo estilo/tamaño que "Continuar", ya no un `Pressable`
+chico secundario); con `within_range` es "Continuar" habilitado; con `idle`/
+`checking` sigue siendo "Continuar" deshabilitado (todavía no hay nada que
+reintentar, el chequeo inicial corre solo). `canRetry` nueva deriva cuál de los dos
+`PrimaryButton` renderizar.
+
+Tests: el caso viejo que probaba "Continuar" deshabilitado con `out_of_range`
+(testID que ya no existe en ese estado) se reemplazó por uno con `idle`/`checking`;
+`it.each` nuevo cubriendo los 3 estados de reintento, verificando que
+`pickup-geo-continue` no existe mientras se puede reintentar. 133/133 suites,
+1061/1061 tests. `tsc --noEmit` limpio.
+
+**Quinto ajuste (mismo día, bug reportado en device): el halo pulsante del pin
+"vos" se veía recortado por una máscara cuadrada en su punto más expandido.**
+`Marker` (react-native-maps) rasteriza su contenido al tamaño que mide la `View`
+raíz que le pasás — el contenedor del halo estaba fijo en 64×64px mientras
+`LocationPulse` escala su halo base (54px) hasta 1.8x (~97px de diámetro en el
+pico del pulso), así que todo lo que se pasaba de esos 64px quedaba cortado en un
+cuadrado en vez de dejarse ver como círculo. `PULSE_MARKER_SIZE` ahora se calcula
+a partir de `PULSE_BASE_SIZE`/`PULSE_MAX_SCALE` (con margen) en vez de un número
+fijo — el contenedor del marcador siempre queda más grande que el halo en su punto
+más expandido, sin importar si alguno de los dos valores cambia después. 133/133
+suites, 1061/1061 tests. `tsc --noEmit` limpio.
+
+**Séptimo ajuste (mismo día, pedido explícito del usuario): radio de proximidad
+reducido de 150m a 100m.** `PICKUP_PROXIMITY_THRESHOLD_METERS`
+(`use-pickup-proximity-check.ts`) — único lugar de donde sale el valor real (el
+círculo del mapa, el copy de "Acercate y volvé a probar" y el gate de "Continuar"
+lo consumen todos de esa misma constante, sin ningún 150 hardcodeado en otro lado).
+Coincide ahora, por casualidad y no por compartir código, con el umbral de 100m que
+ya usa el handshake en sí (MOVO-158/160) al validar distancia emisor↔transportista
+en el momento de escanear. 133/133 suites, 1061/1061 tests. `tsc --noEmit` limpio.
