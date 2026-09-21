@@ -355,7 +355,42 @@ export const shipmentsClient = {
   getHistoryWith(userId: string): Promise<SharedHistory> {
     return httpClient.get<SharedHistory>(`/shipments/history-with/${userId}`);
   },
+
+  /**
+   * `POST /shipments/:id/handshake/generate` (MOVO-158 / MOVO-159).
+   * Genera el nonce y payload canónico para el handshake de custodia del cedente
+   * (emisor en retiro, transportista en entrega). Requiere las coordenadas GPS actuales.
+   */
+  generateHandshake(
+    shipmentId: string,
+    input: GenerateHandshakeInput,
+  ): Promise<GenerateHandshakeResult> {
+    return httpClient.post<GenerateHandshakeResult>(
+      `/shipments/${shipmentId}/handshake/generate`,
+      input,
+    );
+  },
 };
+
+/** Input para `POST /shipments/:id/handshake/generate`. */
+export interface GenerateHandshakeInput {
+  lat: number;
+  lng: number;
+}
+
+/**
+ * Respuesta de `POST /shipments/:id/handshake/generate` (MOVO-158 / MOVO-159).
+ * El cliente firma `canonicalPayload` con `signHandshakeNonce()` y ensambla el QR
+ * con `{ shipmentId, nonce, signature }`.
+ */
+export interface GenerateHandshakeResult {
+  shipmentId: string;
+  stage: "pickup" | "delivery";
+  nonce: string;
+  canonicalPayload: string;
+  expiresAt: string;
+  ttlSeconds: number;
+}
 
 /** MOVO-170, todavía sin backend. */
 export interface SharedHistory {

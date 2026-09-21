@@ -1,7 +1,8 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useLocalSearchParams } from "expo-router";
-import { ChevronLeft, Clock } from "lucide-react-native";
+import { ChevronLeft, Clock, QrCode } from "lucide-react-native";
+import * as Haptics from "expo-haptics";
 import { useState, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -120,8 +121,22 @@ export default function ShipmentDetailScreen() {
     isDeadlineExpired;
 
   const isSender = shipment !== undefined && currentUser?.userId === shipment.senderId;
+  const isCarrier = shipment !== undefined && currentUser?.userId === shipment.carrierId;
   const showSenderActions =
     isSender && shipment !== undefined && canCancelShipment(shipment.status);
+
+  // MOVO-159 AC1: botón contextual ("Confirmar retiro" / "Confirmar entrega")
+  // según el rol y el estado del envío para abrir la pantalla de generación de QR
+  const showPickupHandshake =
+    isSender && shipment?.status === ShipmentStatus.ASSIGNED;
+
+  const showDeliveryHandshake =
+    isCarrier && shipment?.status === ShipmentStatus.IN_TRANSIT;
+
+  const showHandshakeAction = showPickupHandshake || showDeliveryHandshake;
+  const handshakeActionLabel = showPickupHandshake
+    ? "Confirmar retiro"
+    : "Confirmar entrega";
 
   const pickupDateLabel = shipment
     ? formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate
@@ -361,6 +376,24 @@ export default function ShipmentDetailScreen() {
               onAcceptSuccess={() => setIsAcceptSuccessVisible(true)}
               testID="shipment-detail-receiver-actions"
             />
+          ) : null}
+
+          {showHandshakeAction && shipment ? (
+            <View className="border-t border-border bg-bg px-5 pb-6 pt-3.5">
+              <Pressable
+                testID="shipment-detail-handshake-button"
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  router.push(`/(app)/shipments/${shipment.id}/handshake`);
+                }}
+                className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-lime-500 py-3.5 active:opacity-85"
+              >
+                <QrCode size={18} color="#0A0A0B" />
+                <Text className="font-sans-semibold text-body text-ink-950">
+                  {handshakeActionLabel}
+                </Text>
+              </Pressable>
+            </View>
           ) : null}
 
           <AcceptSuccessModal

@@ -97,7 +97,11 @@ export type ApiErrorCode =
   | "DELIVERY_EVIDENCE_MISSING"
   // MOVO-196: al confirmar una foto de evidencia (`pickup`/`delivery`) que superaría
   // el máximo permitido por etapa (`MAX_EVIDENCE_PHOTOS_PER_STAGE`).
-  | "PHOTO_STAGE_LIMIT_EXCEEDED";
+  | "PHOTO_STAGE_LIMIT_EXCEEDED"
+  // MOVO-202: reportar una posición GPS sobre un envío que no está `in_transit` --
+  // AC2 del ticket lo trata como 403, no 409 (mismo status que un actor equivocado,
+  // aunque el problema sea de estado y no de autorización).
+  | "SHIPMENT_NOT_IN_TRANSIT";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

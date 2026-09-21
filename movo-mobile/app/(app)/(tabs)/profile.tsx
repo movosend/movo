@@ -123,6 +123,22 @@ export default function ProfileScreen() {
         <Text className="mt-6 text-center font-sans text-caption text-fg-3">
           Movo · v{Constants.expoConfig?.version ?? '?'}
         </Text>
+
+        {__DEV__ ? (
+          <View className="mt-3 flex-row items-center justify-center gap-2">
+            <Pressable onPress={() => router.push('/dev-handshake' as any)}>
+              <Text className="font-sans-medium text-[11px] text-lime-600 dark:text-lime-400 underline">
+                ⚡ Probar QR Handshake (Dev)
+              </Text>
+            </Pressable>
+            <Text className="text-fg-3">·</Text>
+            <Pressable onPress={() => router.push('/dev-home-operativo')}>
+              <Text className="font-sans text-[11px] text-fg-3 underline">
+                Dev Home
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
