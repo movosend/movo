@@ -150,11 +150,17 @@ describe("PATCH /offers/:id (Postgres, MOVO-181)", () => {
 
   it("bug real (sin ticket propio): resetear la franja propuesta a null recomputa expiresAt contra la ventana del envío, no la vieja franja propuesta", async () => {
     const shipmentId = await createPublishedShipment();
-    const withCustomWindow = await offerRepo.create(baseOfferInput({ shipmentId }));
-    await offerRepo.update(withCustomWindow.id, {
-      offeredPickupTimeWindowStart: "15:00:00",
-      offeredPickupTimeWindowEnd: "19:00:00", // el repositorio recomputa expiresAt: 19:00 ART -> 22:00Z
-    });
+    // Se crea directo con la franja propuesta y un `expiresAt` lejano (simula la franja
+    // custom vieja): `update()` recomputa `expiresAt`, y con `PICKUP_DATE` fija en el
+    // pasado la oferta nacería ya vencida y el PATCH de abajo daría 409.
+    const withCustomWindow = await offerRepo.create(
+      baseOfferInput({
+        shipmentId,
+        offeredPickupTimeWindowStart: "15:00:00",
+        offeredPickupTimeWindowEnd: "19:00:00",
+        expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+      }),
+    );
 
     const response = await requestPatch(withCustomWindow.id, carrierId, {
       offeredPickupTimeWindowStart: null,
