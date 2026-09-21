@@ -1959,20 +1959,21 @@ uno.
 
 - **`expiresAt` = cierre de la ventana de retiro EFECTIVA de la oferta**: la franja
   propuesta si el transportista propuso una (MOVO-177), la del propio envío si no.
-  Reusa `pickupWindowEndInstant` (`domain/pickup-window.ts`, ya usado por el barrido
-  de `published` vencidos) en vez de reimplementar el ajuste de offset de Argentina
-  (UTC-3) una tercera vez. `toEpochTime` (antes privado de `shipments.service.ts`)
-  se exportó, mismo motivo/criterio que `anchorDateUtc`/`combineDateAndTime`/
-  `normalizeTime` (MOVO-181) — convierte la franja propuesta (string) a la misma
-  forma anclada que ya trae `Shipment.pickupTimeWindowEnd` (columna `@db.Time`).
+  Una sola regla compartida, `offerExpiresAtInstant` (`domain/pickup-window.ts`, sobre
+  el mismo ajuste de offset de Argentina que ya usaba el barrido de `published`
+  vencidos), usada por la creación y por la edición — sin duplicar la derivación entre
+  `shipments.service.ts` y `offers.service.ts`.
 - **`PATCH /offers/:id` (MOVO-181) recibió el mismo fix, no solo la creación**:
   cambiar `offeredDate` y/o la franja propuesta sin recomputar `expiresAt` habría
-  dejado la oferta venciendo contra una ventana vieja (antes o después de la
-  correcta según para qué lado se editó) — mismo bug, otro call site, cerrado en el
-  mismo cambio en vez de dejarlo como gap conocido. `UpdateOfferInput` ganó
-  `expiresAt?: Date` (`undefined` = no tocar, mismo criterio que el resto del PATCH
-  parcial); un patch de solo precio no dispara el fetch extra del envío que hace
-  falta para el fallback ("sin franja propuesta, usa la del envío").
+  dejado la oferta venciendo contra una ventana vieja. Se recomputa **dentro de
+  `offerRepository.update`**, sobre la fila leída en la misma transacción, no en el
+  servicio: así el valor sale del mismo estado contra el que se hace el
+  compare-and-swap. Cuando el patch recomputa `expiresAt`, ese CAS cubre además
+  `offeredDate`/`offeredPickupTimeWindowStart/End` (no solo `status`): dos PATCH
+  concurrentes (uno cambia la fecha, otro la franja) ya no pueden dejar un `expiresAt`
+  derivado de una mezcla que nunca coexistió — el segundo en escribir recibe 409
+  `OFFER_CONCURRENT_MODIFICATION` (review de PR #177). Un patch de solo precio no
+  recomputa nada ni entra en ese conflicto.
 - **Encontrado por el usuario probando la pantalla de MOVO-151 en dispositivo**, no
   por un test — una oferta con fecha de retiro del día anterior seguía apareciendo
   "Pendiente" en "El resto" de Mis ofertas, contradiciendo el footer propio de esa

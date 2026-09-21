@@ -17,8 +17,7 @@ import { assertIsSender } from "../shipments/assert-shipment-access";
 // MOVO-181: reusa las mismas conversiones de fecha/hora que `createOfferForShipment`
 // (MOVO-143/177) en vez de duplicarlas -- ver el comentario de export en
 // shipments.service.ts.
-import { anchorDateUtc, combineDateAndTime, normalizeTime, toEpochTime } from "../shipments/shipments.service";
-import { pickupWindowEndInstant } from "../../domain/pickup-window";
+import { anchorDateUtc, combineDateAndTime, normalizeTime } from "../shipments/shipments.service";
 
 /**
  * MOVO-181 (AC1/AC3): subset editable vía `PATCH /offers/:id`, tal como llega del
@@ -565,31 +564,6 @@ export function createOffersService(
         }
       }
 
-      // Mismo bug de `expiresAt` corregido en `createOfferForShipment`
-      // (shipments.service.ts, sin ticket propio): si el patch cambia `offeredDate`
-      // y/o la franja, la ventana de retiro EFECTIVA de la oferta cambió con él, así
-      // que `expiresAt` tiene que recomputarse -- dejarlo como estaba habría vencido
-      // la oferta antes de tiempo (fecha adelantada) o nunca (fecha atrasada). Un
-      // patch de solo precio no la toca (`undefined`, "no tocar" para el
-      // repositorio) -- no amerita el fetch extra del envío.
-      let expiresAt: Date | undefined;
-      if (patch.offeredDate !== undefined || hasWindowStart) {
-        const shipment = await shipmentRepository.findById(offer.shipmentId);
-        if (!shipment) {
-          throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
-        }
-        const effectiveOfferedDateStr = patch.offeredDate ?? offer.offeredDate.toISOString().slice(0, 10);
-        const effectiveWindowEndAnchored =
-          hasWindowEnd && typeof patch.offeredPickupTimeWindowEnd === "string"
-            ? toEpochTime(patch.offeredPickupTimeWindowEnd)
-            : hasWindowEnd && patch.offeredPickupTimeWindowEnd === null
-              ? shipment.pickupTimeWindowEnd // reset explícito -- vuelve a la ventana del envío
-              : offer.offeredPickupTimeWindowEnd
-                ? toEpochTime(offer.offeredPickupTimeWindowEnd)
-                : shipment.pickupTimeWindowEnd;
-        expiresAt = pickupWindowEndInstant(anchorDateUtc(effectiveOfferedDateStr), effectiveWindowEndAnchored);
-      }
-
       return offerRepository.update(offerId, {
         priceOffered:
           patch.priceOfferedArs !== undefined ? computeOfferGrossPrice(patch.priceOfferedArs).grossArs : undefined,
@@ -604,7 +578,6 @@ export function createOffersService(
             ? null
             : normalizeTime(patch.offeredPickupTimeWindowEnd as string)
           : undefined,
-        expiresAt,
       });
     },
   };

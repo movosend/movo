@@ -153,8 +153,7 @@ describe("PATCH /offers/:id (Postgres, MOVO-181)", () => {
     const withCustomWindow = await offerRepo.create(baseOfferInput({ shipmentId }));
     await offerRepo.update(withCustomWindow.id, {
       offeredPickupTimeWindowStart: "15:00:00",
-      offeredPickupTimeWindowEnd: "19:00:00",
-      expiresAt: new Date("2030-01-01T00:00:00.000Z"), // bien lejos, simula la franja custom vieja
+      offeredPickupTimeWindowEnd: "19:00:00", // el repositorio recomputa expiresAt: 19:00 ART -> 22:00Z
     });
 
     const response = await requestPatch(withCustomWindow.id, carrierId, {

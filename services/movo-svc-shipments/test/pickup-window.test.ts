@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   acceptedOfferPickupWindowStartInstant,
   isPickupWindowExpired,
+  offerExpiresAtInstant,
   pickupWindowEndInstant,
   toArgentinaCalendarDate,
 } from "../src/domain/pickup-window";
@@ -69,6 +70,27 @@ describe("acceptedOfferPickupWindowStartInstant", () => {
     expect(
       acceptedOfferPickupWindowStartInstant(offeredDate, "14:30:00", shipmentPickupTimeWindowStart).toISOString(),
     ).toBe("2026-08-22T17:30:00.000Z");
+  });
+});
+
+describe("offerExpiresAtInstant", () => {
+  const offeredDate = new Date("2026-09-03T00:00:00.000Z");
+  const shipmentWindowEnd = new Date("1970-01-01T12:00:00.000Z");
+
+  it("sin franja propuesta, vence al cierre de la ventana del envío", () => {
+    expect(offerExpiresAtInstant(offeredDate, null, shipmentWindowEnd).toISOString()).toBe("2026-09-03T15:00:00.000Z");
+  });
+
+  it("con franja propuesta, vence al fin de esa franja, no al de la ventana del envío", () => {
+    expect(offerExpiresAtInstant(offeredDate, "19:00:00", shipmentWindowEnd).toISOString()).toBe(
+      "2026-09-03T22:00:00.000Z"
+    );
+  });
+
+  it("acepta la franja sin segundos (HH:MM)", () => {
+    expect(offerExpiresAtInstant(offeredDate, "19:00", shipmentWindowEnd).toISOString()).toBe(
+      "2026-09-03T22:00:00.000Z"
+    );
   });
 });
 

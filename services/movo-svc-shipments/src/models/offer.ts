@@ -143,10 +143,6 @@ export interface UpdateOfferInput {
   offeredDate?: Date;
   offeredPickupTimeWindowStart?: string | null;
   offeredPickupTimeWindowEnd?: string | null;
-  /** Recomputado por `offers.service.ts#updateOffer` cuando `offeredDate` y/o la
-   * franja cambian (mismo motivo que `CreateOfferInput.expiresAt` -- bug real de
-   * `expiresAt` nunca seteado, sin ticket propio). `undefined` = no tocar. */
-  expiresAt?: Date;
 }
 
 const OFFER_STATUS_VALUES: ReadonlySet<string> = new Set(Object.values(OfferStatus));
