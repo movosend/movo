@@ -3,6 +3,7 @@ import { PrismaClient, HandshakeEvent as HandshakeEventRow } from "../generated/
 import { transition } from "../domain/shipment-state-machine";
 import { ShipmentConcurrentModificationError } from "./shipment-repository";
 import { HandshakeEvent, HandshakeStage, parseHandshakeStage } from "../models/handshake";
+import { emitShipmentStatusChanged } from "../realtime/shipment-status-events";
 
 function mapHandshakeEvent(row: HandshakeEventRow): HandshakeEvent {
   return {
@@ -50,7 +51,10 @@ export interface HandshakeRepository {
    * `/shipments/:id/events` completo), (d) inserta el evento inmutable en
    * `handshake_events`. No reusa `shipment-repository.ts#updateStatus()` directo --
    * ese método abre su propia `$transaction`, no anidable acá (mismo motivo
-   * documentado en `offer-repository.ts#acceptOffer`, MOVO-102/AC9).
+   * documentado en `offer-repository.ts#acceptOffer`, MOVO-102/AC9). (e) ya afuera de
+   * la transacción, recién si confirmó: emite `shipmentStatusChanged` (MOVO-201/AC4)
+   * para que `realtime.ts` cierre cualquier socket de tracking abierto sobre el envío
+   * si `to` es un valor de `TRACKING_CLOSED_STATUSES` (ej. `in_transit -> delivered`).
    */
   confirmAndPersist(input: ConfirmHandshakeInput): Promise<HandshakeEvent>;
 }
@@ -58,7 +62,7 @@ export interface HandshakeRepository {
 export function createHandshakeRepository(db: PrismaClient): HandshakeRepository {
   return {
     async confirmAndPersist(input: ConfirmHandshakeInput): Promise<HandshakeEvent> {
-      return db.$transaction(async (tx) => {
+      const event = await db.$transaction(async (tx) => {
         // Lanza InvalidShipmentTransitionError si el par (from, to) no es una arista
         // válida del grafo -- ningún UPDATE se ejecuta si esto tira.
         transition(input.from, input.to);
@@ -105,6 +109,16 @@ export function createHandshakeRepository(db: PrismaClient): HandshakeRepository
 
         return mapHandshakeEvent(eventRow);
       });
+
+      // MOVO-201/AC4 (fix de review, PR #174): `in_transit -> delivered` también se
+      // confirma por acá (entrega vía handshake, MOVO-158), no solo por
+      // `shipment-repository.ts#updateStatus()` -- sin este emit, los sockets de
+      // tracking seguían abiertos después de una entrega real. Recién después de que
+      // el `$transaction` confirmó, mismo criterio que `updateStatus()`: un rollback
+      // (ej. `ShipmentConcurrentModificationError`) no debe cerrar ningún socket.
+      emitShipmentStatusChanged({ shipmentId: input.shipmentId, to: input.to });
+
+      return event;
     },
   };
 }

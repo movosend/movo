@@ -7,7 +7,7 @@ import { envSchema } from "./config/env";
 import dbPlugin from "./plugins/db";
 import redisPlugin from "./plugins/redis";
 import authPlugin from "./plugins/auth";
-import websocketPlugin from "./plugins/websocket";
+import realtimePlugin from "./plugins/realtime";
 import errorHandlerPlugin from "./plugins/error-handler";
 import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-sweep";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
@@ -18,7 +18,7 @@ import ratingsRoutes, { internalRatingsRoutes, RatingsRoutesOptions } from "./mo
 import tripsRoutes, { TripsRoutesOptions } from "./modules/trips/trips.routes";
 import accountDeletionRoutes from "./modules/account-deletion/account-deletion.routes";
 import handshakeRoutes, { HandshakeRoutesOptions } from "./modules/handshake/handshake.routes";
-import trackingPocRoutes, { TrackingPocRoutesOptions } from "./modules/tracking/tracking-poc.routes";
+import trackingRoutes, { TrackingRoutesOptions } from "./modules/tracking/tracking.routes";
 import { ShipmentRepository } from "./repositories/shipment-repository";
 import { UsersClient } from "./adapters/users-client";
 import { StorageProvider } from "./adapters/storage-provider";
@@ -57,8 +57,8 @@ export interface BuildAppOptions {
   fundsReleaseNotifier?: FundsReleaseNotifier;
   /** Override solo para tests de integración -- cliente de pricing-logistics (MOVO-206 / MOVO-219). */
   pricingLogisticsClient?: PricingLogisticsClient;
-  /** Override solo para tests -- PoC de MOVO-200/ADR-022 (canal de tiempo real),
-   * evita depender de Postgres real para probar el rechazo de una conexión WS. */
+  /** Override solo para tests -- canal de tiempo real (MOVO-201/ADR-022), evita
+   * depender de Postgres real para probar el rechazo de una conexión WS. */
   shipmentRepository?: ShipmentRepository;
 }
 
@@ -108,7 +108,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(dbPlugin);
   app.register(redisPlugin);
   app.register(authPlugin);
-  app.register(websocketPlugin);
+  app.register(realtimePlugin);
   app.register(receiverConfirmationSweepPlugin, {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
@@ -184,15 +184,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   };
   app.register(handshakeRoutes, handshakeRouteOpts);
 
-  // MOVO-200/ADR-022: PoC del canal de tiempo real (@fastify/websocket) -- mismo
-  // prefix "/shipments" que shipmentsRoutes/handshakeRoutes. NO es la
-  // implementación final (esa es MOVO-201) -- ver el aviso completo en
-  // tracking-poc.routes.ts y docs/tracking-poc/README.md.
-  const trackingPocRouteOpts: TrackingPocRoutesOptions = {
+  // MOVO-201/ADR-022: canal de tiempo real (@fastify/websocket) -- mismo prefix
+  // "/shipments" que shipmentsRoutes/handshakeRoutes. Reemplaza la PoC de MOVO-200 --
+  // ver el aviso completo en tracking.routes.ts y docs/tracking/README.md.
+  const trackingRouteOpts: TrackingRoutesOptions = {
     prefix: "/shipments",
     ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
   };
-  app.register(trackingPocRoutes, trackingPocRouteOpts);
+  app.register(trackingRoutes, trackingRouteOpts);
 
   return app;
 }

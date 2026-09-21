@@ -15,6 +15,7 @@ import { MatchedShipment } from "../../models/shipment";
 import { toArgentinaCalendarDate } from "../../domain/pickup-window";
 import { aggregateCarrierStops } from "../../domain/carrier-route";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
+import { assertTripAccess } from "./trip-access";
 
 export interface TripsService {
   createTrip(params: {
@@ -185,10 +186,7 @@ export function createTripsService(deps: {
         throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
       }
 
-      const isAdmin = callerRoles.includes(UserRole.ADMIN);
-      if (trip.carrierId !== callerId && !isAdmin) {
-        throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver este viaje.");
-      }
+      assertTripAccess(trip, callerId, callerRoles, { forbiddenMessage: "No tenés permiso para ver este viaje." });
 
       const acceptedCount = await tripRepository.countAcceptedOffers(tripId);
       return {
@@ -210,10 +208,9 @@ export function createTripsService(deps: {
         throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
       }
 
-      const isAdmin = callerRoles.includes(UserRole.ADMIN);
-      if (trip.carrierId !== callerId && !isAdmin) {
-        throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para modificar este viaje.");
-      }
+      assertTripAccess(trip, callerId, callerRoles, {
+        forbiddenMessage: "No tenés permiso para modificar este viaje.",
+      });
 
       const acceptedCount = await tripRepository.countAcceptedOffers(tripId);
       if (acceptedCount > 0) {
@@ -264,10 +261,9 @@ export function createTripsService(deps: {
         throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
       }
 
-      const isAdmin = callerRoles.includes(UserRole.ADMIN);
-      if (trip.carrierId !== callerId && !isAdmin) {
-        throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para eliminar este viaje.");
-      }
+      assertTripAccess(trip, callerId, callerRoles, {
+        forbiddenMessage: "No tenés permiso para eliminar este viaje.",
+      });
 
       const acceptedCount = await tripRepository.countAcceptedOffers(tripId);
       if (acceptedCount > 0) {
@@ -301,10 +297,9 @@ export function createTripsService(deps: {
         throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
       }
 
-      const isAdmin = callerRoles.includes(UserRole.ADMIN);
-      if (trip.carrierId !== callerId && !isAdmin) {
-        throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para iniciar este viaje.");
-      }
+      assertTripAccess(trip, callerId, callerRoles, {
+        forbiddenMessage: "No tenés permiso para iniciar este viaje.",
+      });
 
       let started: Trip;
       try {
@@ -334,10 +329,10 @@ export function createTripsService(deps: {
         throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
       }
 
+      assertTripAccess(trip, callerId, callerRoles, {
+        forbiddenMessage: "No tenés permiso para ver los matches de este viaje.",
+      });
       const isAdmin = callerRoles.includes(UserRole.ADMIN);
-      if (trip.carrierId !== callerId && !isAdmin) {
-        throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver los matches de este viaje.");
-      }
 
       // MOVO-221: gap real cerrado -- antes `getTripMatches` no chequeaba `trip.status`
       // en absoluto, así que un viaje `cancelled`/`completed` seguía devolviendo

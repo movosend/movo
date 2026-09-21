@@ -25,6 +25,15 @@ export interface ServiceRoute {
   prefix: string;
   upstream: string;
   allowedRoles?: UserRole[];
+  /**
+   * MOVO-201: habilita el proxy de upgrade WebSocket (`@fastify/http-proxy` lo maneja
+   * internamente, sin depender de `@fastify/websocket` en el gateway) para este prefijo.
+   * Solo `/shipments` lo necesita hoy (`GET /shipments/:id/track`) -- `routes/index.ts`
+   * reenvía además los headers `x-user-*`/`x-request-id` ya inyectados por el
+   * `preHandler`, que `@fastify/http-proxy` NO propaga por default en una conexión WS
+   * (su `rewriteRequestHeaders` de default solo reenvía `cookie`).
+   */
+  websocket?: boolean;
 }
 
 export interface PublicRoute {
@@ -67,6 +76,8 @@ export function getServiceRoutes(env: {
     {
       prefix: "/shipments",
       upstream: env.SHIPMENTS_SERVICE_URL,
+      // MOVO-201: GET /shipments/:id/track es un upgrade WebSocket, no HTTP normal.
+      websocket: true,
     },
     // MOVO-144/145: POST /offers/:id/accept, /reject y GET /offers/mine viven en
     // movo-svc-shipments bajo un prefijo propio (no anidado en /shipments), mismo

@@ -115,6 +115,25 @@ export const FULFILLED_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
 ];
 
 /**
+ * MOVO-201/AC4: a partir de cuál estado el canal de tiempo real (`realtime.ts`) cierra
+ * cualquier suscripción de tracking abierta sobre el envío — AC6 de MOVO-11, la
+ * ubicación del transportista deja de ser visible una vez completado el handshake de
+ * entrega. NO es lo mismo que "terminal en el grafo" (`VALID_TRANSITIONS[s].size===0`):
+ * `DELIVERED` sigue teniendo salida (hacia `COMPLETED`/`DISPUTED`) pero ya corta el
+ * tracking igual, mientras que `DISPUTED` sí es terminal en el grafo hoy y también
+ * corta (no hay ninguna razón de negocio para seguir exponiendo la ubicación de un
+ * envío en disputa). Lista explícita, no derivada, mismo criterio que
+ * `FULFILLED_SHIPMENT_STATUSES`/`ACTIVE_SHIPMENT_STATUSES` de arriba.
+ */
+export const TRACKING_CLOSED_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.DELIVERED,
+  ShipmentStatus.COMPLETED,
+  ShipmentStatus.CANCELLED,
+  ShipmentStatus.REJECTED_BY_RECEIVER,
+  ShipmentStatus.DISPUTED,
+];
+
+/**
  * MOVO-192: envíos con transportista ya comprometido, hasta la entrega (exclusive) —
  * el emisor, el transportista y el receptor tienen una acción de custodia pendiente
  * hoy sobre este envío. Ni `published`/`assignment_pending` (todavía sin compromiso
