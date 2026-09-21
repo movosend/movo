@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { ChevronLeft, MapPinOff, WifiOff } from "lucide-react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TripCard } from "../../../../components/trips/trip-card";
@@ -10,6 +10,7 @@ import { SuccessBanner } from "../../../../components/ui/success-banner";
 import { useDeleteTrip, useMyTrips } from "../../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
+import { diffAndMarkSeenTrips } from "../../../../src/lib/seen-trips";
 import type { TripWithAcceptedPackages } from "../../../../src/api/trips-client";
 
 const DELETE_ERROR_FALLBACK = "No pudimos cancelar el viaje. Probá de nuevo.";
@@ -37,6 +38,31 @@ export default function MyTripsScreen() {
   const { data, isLoading, isError, isRefetching, refetch } = useMyTrips();
   const deleteTrip = useDeleteTrip();
   const [showCreatedSuccess, setShowCreatedSuccess] = useState(created === "1");
+  const [autoCreatedMessage, setAutoCreatedMessage] = useState<string | null>(null);
+
+  /**
+   * MOVO-236, AC2: fallback in-app del aviso de viaje auto-creado (MOVO-234) cuando no
+   * hay push. Diffea contra el set de `tripId`s ya vistos por este dispositivo
+   * (`src/lib/seen-trips.ts`) — corre en cada carga de `data` (incluido un
+   * pull-to-refresh, idempotente, no hay costo real en repetirlo). Si venimos recién
+   * de "Declarar viaje" (`?created=1`), ese banner ya tiene prioridad -- el diff igual
+   * corre para dejar el set de vistos al día, pero no pisa el mensaje.
+   */
+  useEffect(() => {
+    if (!data) return;
+    let cancelled = false;
+    diffAndMarkSeenTrips(data.items.map((trip) => trip.id)).then(({ newTripIds }) => {
+      if (cancelled || newTripIds.length === 0 || created === "1") return;
+      setAutoCreatedMessage(
+        newTripIds.length === 1
+          ? "Se armó un viaje con un envío que aceptaste"
+          : "Se armaron viajes nuevos con envíos que aceptaste",
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [data, created]);
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -87,9 +113,11 @@ export default function MyTripsScreen() {
 
       <View className="px-5">
         <SuccessBanner
-          testID="my-trips-created-success"
-          message={showCreatedSuccess ? "¡Viaje declarado!" : null}
-          onDismiss={() => setShowCreatedSuccess(false)}
+          testID={showCreatedSuccess ? "my-trips-created-success" : "my-trips-auto-created-success"}
+          message={showCreatedSuccess ? "¡Viaje declarado!" : autoCreatedMessage}
+          onDismiss={() =>
+            showCreatedSuccess ? setShowCreatedSuccess(false) : setAutoCreatedMessage(null)
+          }
         />
       </View>
 

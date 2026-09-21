@@ -6,6 +6,7 @@ import {
   type CreateTripInput,
   type UpdateTripInput,
 } from "../api/trips-client";
+import { markTripAsSeen } from "../lib/seen-trips";
 
 const TRIPS_LIST_QUERY_KEY = ["trips", "mine", "list"];
 
@@ -46,8 +47,12 @@ export function useCreateTrip() {
   const queryClient = useQueryClient();
   return useMutation<Trip, unknown, CreateTripInput>({
     mutationFn: (body) => tripsClient.create(body),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: TRIPS_LIST_QUERY_KEY });
+      // MOVO-236: marcado ANTES de que "Mis viajes" llegue a diffear contra el set de
+      // vistos -- este viaje ya tiene su propio aviso (`?created=1`), no debe también
+      // disparar el banner de auto-creado.
+      void markTripAsSeen(data.id);
     },
   });
 }

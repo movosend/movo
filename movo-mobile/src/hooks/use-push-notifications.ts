@@ -42,8 +42,14 @@ const SHIPMENT_NOTIFICATION_TYPES: readonly string[] = [
  * lo que hace falta para abrir el feed filtrado (MOVO-163); `shipmentId` viaja en el
  * payload pero no se usa todavía (no hay forma de resaltar una card puntual del
  * feed) — simplificación aceptada, no alcance no pedido.
+ *
+ * MOVO-236: `trip_auto_created` (payload de MOVO-234, `{ type, tripId }`, sin
+ * `shipmentId`) comparte el mismo destino — no hay pantalla de "detalle de viaje"
+ * dedicada en el repo (MOVO-162 solo tiene lista/alta/edición), el feed filtrado por
+ * `tripId` es lo más parecido a "ver este viaje" que ya existe, mismo criterio que
+ * usa `TripCard.onPress` en `carrier/trips/index.tsx`.
  */
-const TRIP_MATCH_NOTIFICATION_TYPE = "trip_match";
+const TRIP_ROUTE_NOTIFICATION_TYPES: readonly string[] = ["trip_match", "trip_auto_created"];
 
 /** Las dos formas de ruta que puede devolver `resolveNotificationRoute` — un `href`
  * de solo path para los tipos que no llevan query params, o la forma objeto de
@@ -67,7 +73,7 @@ function resolveNotificationRoute(data: unknown): NotificationRoute | null {
     return typeof shipmentId === "string" ? `/shipments/${shipmentId}` : null;
   }
 
-  if (type === TRIP_MATCH_NOTIFICATION_TYPE) {
+  if (typeof type === "string" && TRIP_ROUTE_NOTIFICATION_TYPES.includes(type)) {
     const tripId = (data as { tripId?: unknown }).tripId;
     // Forma objeto, no `` `/(app)/(tabs)/transport?tripId=${tripId}` `` — mismo
     // criterio que `carrier/trips/index.tsx` para esta misma ruta: un `tripId` con
