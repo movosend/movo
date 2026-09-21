@@ -24,7 +24,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: "20"
+  # 22 y no 20 (como el resto de los workflows): `eas-cli` latest depende de paquetes
+  # (@oclif/plugin-autocomplete) que exigen Node >= 22, y expo-github-action lo instala
+  # con el Node del runner. Solo afecta a este workflow; no toca a backend ni a EAS Cloud.
+  NODE_VERSION: "22"
 
 jobs:
   dev-build:
