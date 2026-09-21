@@ -1,0 +1,104 @@
+name: Mobile EAS Build
+
+# Un tag de git dispara el build de movo-mobile en EAS Cloud:
+#   dev-*  -> development build (profile `development`, iOS + Android)
+#   v*     -> TestFlight (profile `production`, solo iOS, con submit automático)
+#
+# El workflow que corre es el del commit taggeado, no el de `develop`/`main`: tiene
+# que estar mergeado antes de crear el tag.
+on:
+  push:
+    tags:
+      - "v*"
+      - "dev-*"
+
+permissions:
+  contents: read
+
+# Sin cancel-in-progress: un tag de release no se debe cancelar a medias por otro tag.
+concurrency:
+  group: mobile-eas-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  dev-build:
+    if: startsWith(github.ref_name, 'dev-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: movo-mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # movo-mobile es un workspace npm del monorepo: sus deps se instalan
+      # (hoisteadas) desde la raíz. `app.config.js` necesita `expo` instalado
+      # para poder evaluarse cuando eas-cli lo lee.
+      - name: Instalar dependencias
+        working-directory: .
+        run: npm ci
+
+      # eas-cli >= 24.4.1: versiones anteriores tienen un bug con la Push Key de
+      # iOS (ver movo-mobile/CLAUDE.md, MOVO-232).
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # --no-wait: el job termina apenas EAS encola los builds (link en el log),
+      # en vez de gastar minutos de runner esperando. El resultado real del build
+      # se mira en expo.dev, no en este check.
+      - name: Encolar development build (iOS + Android)
+        run: eas build --platform all --profile development --non-interactive --no-wait
+
+  testflight:
+    if: startsWith(github.ref_name, 'v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: movo-mobile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # El guard de abajo necesita el historial de main.
+          fetch-depth: 0
+
+      # El profile `production` apunta a api.movosend.app: no se publica a
+      # TestFlight un build de un commit que no llegó a main.
+      - name: Verificar que el tag está en main
+        working-directory: .
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::El tag ${GITHUB_REF_NAME} apunta a un commit que no está en main. Mergeá a main antes de taggear un release."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: .
+        run: npm ci
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # --auto-submit: EAS sube el .ipa a App Store Connect apenas termina el
+      # build (el número de build lo incrementa `autoIncrement` de eas.json).
+      - name: Encolar build de producción + submit a TestFlight
+        run: eas build --platform ios --profile production --non-interactive --no-wait --auto-submit
