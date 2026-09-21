@@ -1667,12 +1667,6 @@ Decisiones clave:
   argentino (+3h UTC), evitando que viajen con fecha base 1970 a `svc-pricing-logistics`
   lo que invalidaba falsamente candidatos en el evaluador de factibilidad.
 
-Tests: `test/carrier-route.test.ts` (9 tests unitarios puros de dominio),
-`test/pricing-logistics-client.test.ts` (10 tests del adapter, incluyendo `optimizeRoute`
-con timeouts y errores 502/503), `test/shipments-my-route.service.test.ts` (4 tests de
-servicio), `test/shipments-my-route.routes.test.ts` (5 tests de endpoints HTTP), más test
-en `test/pickup-window.test.ts` y `test/trips-service.test.ts`. Total:
-129/129 unitarios de shipments pasando limpios, `tsc --noEmit` y `npm run lint` 100% en verde.
 
 ### MOVO-222 — `GET /shipments/pending-ratings`: envíos con calificaciones pendientes de dar
 

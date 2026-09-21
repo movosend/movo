@@ -2998,5 +2998,3 @@ Pantalla completa de itinerario y mapa de ruta optimizada para el transportista 
 - **Cliente HTTP consistente**: `shipmentsClient.getMyRoute` utiliza el objeto `query` de `httpClient.get` y `getById` mantiene aislamiento estricto sin scope creep de demo.
 
 - **Compatibilidad con MOVO-235 (`tripId`)**: `shipmentsClient.getMyRoute(coords, tripId?)` y `useOptimizedRoute(tripId?)` preparados para aceptar opcionalmente un `tripId` (por parámetro y por query param en `/route?tripId=...`), manteniendo retrocompatibilidad total si no se envía.
-
-Tests: `test/route-screen.test.tsx` (montaje, estados de carga, vacío, sin GPS, error, demo, navegación a wizard y refresco manual), `test/route-components.test.tsx` (unitarios de `StopList` y `RouteMap`, AC2-AC6, AC9, AC11, highlight de selección, itinerario multi-parada con waypoints en Google Maps, controles, drag handle y error en deep link), `test/use-optimized-route.test.ts` (hook, focus effect, guard de secuencia contra race conditions, limpieza de ruta en refetch fallido, GPS y errores), y `test/transport-screen.test.tsx` (acceso a /route). 27 tests específicos pasando en verde. `tsc --noEmit` sin errores.

@@ -23,7 +23,7 @@ import { PricingClient } from "../../adapters/pricing-client";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
 import { AvailableShipment, PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
 import { RatingRole } from "../../models/rating";
-import { isPickupWindowExpired, offerExpiresAtInstant } from "../../domain/pickup-window";
+import { isPickupWindowExpired, offerExpiresAtInstant, pickupWindowInstant } from "../../domain/pickup-window";
 import { haversineKm } from "../../domain/geo";
 import {
   aggregateCarrierStops,
@@ -539,8 +539,8 @@ async function evaluateTripMatchFeasibility(
           pickupLng: shipment.pickupLng,
           dropoffLat: shipment.deliveryLat,
           dropoffLng: shipment.deliveryLng,
-          pickupWindowStart: shipment.pickupTimeWindowStart.toISOString(),
-          pickupWindowEnd: shipment.pickupTimeWindowEnd.toISOString(),
+          pickupWindowStart: pickupWindowInstant(shipment.pickupDate, shipment.pickupTimeWindowStart).toISOString(),
+          pickupWindowEnd: pickupWindowInstant(shipment.pickupDate, shipment.pickupTimeWindowEnd).toISOString(),
         },
       ],
     });

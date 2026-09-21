@@ -256,11 +256,7 @@ export function RouteMap({
   const handleMarkerPress = (stop: CarrierRouteStop) => {
     setActiveTooltip(null);
     setIsTrackingCourier(false);
-    // Si activeStopOrder está definido y la parada tocada es futura, respetar la regla de Claude Design (aviso sin salto)
-    if (activeStopOrder != null && stop.stopOrder !== activeStopOrder) {
-      onSelectStop?.(stop);
-      return;
-    }
+    // Siempre animar la cámara al stop seleccionado; onSelectStop actualiza la selección en el padre
     animateToStop(stop, 1000);
     onSelectStop?.(stop);
   };
@@ -321,7 +317,9 @@ export function RouteMap({
     const latDelta = Math.max((maxLat - minLat) * 1.4, 0.06);
     const lngDelta = Math.max((maxLng - minLng) * 1.4, 0.06);
     return {
-      latitude: centerLat,
+      // Aplicar el mismo offset que animateToStop/animateToCourier para que el bounding box
+      // no quede oculto detrás del bottom sheet en el mount inicial y en el reset de cámara
+      latitude: centerLat - getLatitudeOffset(latDelta),
       longitude: centerLng,
       latitudeDelta: latDelta,
       longitudeDelta: lngDelta,

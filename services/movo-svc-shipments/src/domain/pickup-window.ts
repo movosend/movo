@@ -29,18 +29,11 @@ function anchorTimeOfDayToInstant(date: Date, time: Date | string): Date {
 
 /**
  * Combina la fecha de retiro (@db.Date) y una hora de ventana (@db.Time)
- * en un instante real UTC (Date).
+ * en un instante real UTC (Date). Delega en `anchorTimeOfDayToInstant` para
+ * no reimplementar la misma matemática de anclaje (eliminada en MOVO-234).
  */
 export function pickupWindowInstant(pickupDate: Date, timeWindow: Date): Date {
-  const anchored = Date.UTC(
-    pickupDate.getUTCFullYear(),
-    pickupDate.getUTCMonth(),
-    pickupDate.getUTCDate(),
-    timeWindow.getUTCHours(),
-    timeWindow.getUTCMinutes(),
-    timeWindow.getUTCSeconds(),
-  );
-  return new Date(anchored + ARGENTINA_UTC_OFFSET_HOURS * 60 * 60 * 1000);
+  return anchorTimeOfDayToInstant(pickupDate, timeWindow);
 }
 
 /**

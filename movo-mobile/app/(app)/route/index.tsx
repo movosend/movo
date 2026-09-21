@@ -133,6 +133,18 @@ export default function OptimizedRouteScreen() {
   const [focusTrigger, setFocusTrigger] = useState<number>(0);
   const [isListExpanded, setIsListExpanded] = useState(false);
 
+  // Re-derivar la parada seleccionada cuando llega una ruta nueva.
+  // Si la parada actualmente seleccionada ya no existe (ej: fue completada), se resetea al activeStop.
+  // Si sigue existiendo, se preserva la selección manual del usuario.
+  useEffect(() => {
+    if (!displayRoute) return;
+    const stops = displayRoute.stops;
+    const stillExists = selectedStopOrder != null && stops.some((s) => s.stopOrder === selectedStopOrder);
+    if (!stillExists) {
+      setSelectedStopOrder(stops[0]?.stopOrder ?? null);
+    }
+  }, [displayRoute]);
+
   // Animación continua y control por arrastre (PanResponder) del Bottom Sheet
   const sheetHeightAnim = useRef(new Animated.Value(COLLAPSED_HEIGHT)).current;
   const isExpandedRef = useRef(isListExpanded);
@@ -449,7 +461,7 @@ export default function OptimizedRouteScreen() {
           {/* Contenido según estado vacío o de carga */}
           {isLoading ? (
             <View testID="route-loading-state" className="flex-1 items-center justify-center gap-4 px-6">
-              <ActivityIndicator size="large" color="#0A0A0B" />
+              <ActivityIndicator size="large" color={colors.fg1} />
               <View className="items-center gap-1.5 text-center">
                 <Text className="font-sans-semibold text-[17px] text-fg">
                   Calculando la mejor ruta...

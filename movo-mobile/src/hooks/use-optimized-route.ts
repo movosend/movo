@@ -65,7 +65,8 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
       setRoute(result);
     } catch (err: unknown) {
       if (requestId !== requestSeqRef.current) return;
-      setRoute(null);
+      // En un refresh en background, preservar la ruta existente para no dejar la pantalla vacía
+      if (!isRefresh) setRoute(null);
       setError(friendlyErrorMessage(err, "No pudimos calcular tu ruta optimizada. Intentá de nuevo."));
     } finally {
       if (requestId === requestSeqRef.current) {
@@ -75,10 +76,11 @@ export function useOptimizedRoute(tripId?: string): UseOptimizedRouteResult {
     }
   }, [tripId]);
 
-  // AC7: Refrescar la ruta automáticamente al ganar foco (ej: al volver de completar una parada)
+  // AC7: Refrescar la ruta automáticamente al ganar foco (ej: al volver de completar una parada).
+  // isRefresh=true: el primer render ya inicia con isLoading=true; los refrescos por foco son silenciosos.
   useFocusEffect(
     useCallback(() => {
-      void fetchRoute();
+      void fetchRoute(true);
       return () => {
         // Invalidar petición en vuelo si la pantalla pierde foco
         requestSeqRef.current++;

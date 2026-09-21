@@ -114,7 +114,7 @@ describe("useOptimizedRoute (MOVO-207)", () => {
     expect(shipmentsClient.getMyRoute).toHaveBeenCalledTimes(2);
   });
 
-  it("Finding 3: un refetch fallido limpia la ruta anterior y setea el error para no tener estado mixto", async () => {
+  it("Finding 3: un refetch fallido preserva la ruta existente y setea el error (no deja la pantalla vacía)", async () => {
     (getCurrentLocation as jest.Mock).mockResolvedValue(mockCarrierLocation);
     (shipmentsClient.getMyRoute as jest.Mock)
       .mockResolvedValueOnce(mockRoute)
@@ -126,13 +126,14 @@ describe("useOptimizedRoute (MOVO-207)", () => {
     expect(result.current.route).toEqual(mockRoute);
     expect(result.current.error).toBeNull();
 
-    // Disparar refetch fallido
+    // Disparar refetch fallido (isRefresh=true preserva la ruta anterior)
     await act(async () => {
       await result.current.refetch();
     });
 
     expect(result.current.error).toBeTruthy();
-    expect(result.current.route).toBeNull();
+    // La ruta existente se preserva para no dejar la pantalla en blanco
+    expect(result.current.route).toEqual(mockRoute);
   });
 
   it("Finding 2: ignora respuestas desfasadas de llamadas solapadas o fuera de orden", async () => {

@@ -418,6 +418,7 @@ export default function TransportScreen() {
         <>
           <Pressable
             testID="transport-my-route-cta"
+            // expo-router no infiere la ruta raíz `/route` cuando se navega desde un grupo anidado (tabs); la ruta existe en app/(app)/route/index.tsx
             onPress={() => router.push("/route" as any)}
             className="mx-5 mb-3 flex-row items-center justify-between rounded-[10px] border border-border bg-bg-sub p-3.5"
           >
