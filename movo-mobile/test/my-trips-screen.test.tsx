@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react-native";
+import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import { Alert } from "react-native";
 import MyTripsScreen from "../app/(app)/carrier/trips/index";
 import { TripStatus, type TripWithAcceptedPackages } from "../src/api/trips-client";
@@ -25,6 +25,11 @@ const mockDeleteMutate = jest.fn();
 jest.mock("../src/hooks/use-trips", () => ({
   useMyTrips: () => mockUseMyTrips(),
   useDeleteTrip: () => ({ mutate: mockDeleteMutate }),
+}));
+
+const mockDiffAndMarkSeenTrips = jest.fn().mockResolvedValue({ newTripIds: [] });
+jest.mock("../src/lib/seen-trips", () => ({
+  diffAndMarkSeenTrips: (ids: string[]) => mockDiffAndMarkSeenTrips(ids),
 }));
 
 const TRIP_A: TripWithAcceptedPackages = {
@@ -94,6 +99,69 @@ describe("MyTripsScreen", () => {
     const { queryByTestId } = await render(<MyTripsScreen />);
 
     expect(queryByTestId("my-trips-created-success")).toBeNull();
+  });
+
+  it("MOVO-236 AC2: muestra un banner in-app cuando el diff detecta un viaje nuevo (fallback sin push)", async () => {
+    mockDiffAndMarkSeenTrips.mockResolvedValueOnce({ newTripIds: ["trip-1"] });
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId, getByText } = await render(<MyTripsScreen />);
+
+    await waitFor(() => expect(mockDiffAndMarkSeenTrips).toHaveBeenCalledWith([TRIP_A.id]));
+    expect(getByTestId("my-trips-auto-created-success")).toBeTruthy();
+    expect(getByText("Se armó un viaje con un envío que aceptaste")).toBeTruthy();
+  });
+
+  it("MOVO-236 AC2: usa copy en plural cuando el diff detecta más de un viaje nuevo", async () => {
+    mockDiffAndMarkSeenTrips.mockResolvedValueOnce({ newTripIds: ["trip-1", "trip-active"] });
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [TRIP_A, TRIP_ACTIVE], page: 1, limit: 50, total: 2 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByText } = await render(<MyTripsScreen />);
+
+    await waitFor(() => expect(getByText("Se armaron viajes nuevos con envíos que aceptaste")).toBeTruthy());
+  });
+
+  it("MOVO-236 AC2: sin viajes nuevos en el diff, no muestra ningún banner", async () => {
+    mockDiffAndMarkSeenTrips.mockResolvedValueOnce({ newTripIds: [] });
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { queryByTestId } = await render(<MyTripsScreen />);
+
+    await waitFor(() => expect(mockDiffAndMarkSeenTrips).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(queryByTestId("my-trips-auto-created-success")).toBeNull();
+  });
+
+  it("MOVO-236 AC2: el banner de '¡Viaje declarado!' (?created=1) tiene prioridad sobre el de auto-creado", async () => {
+    mockUseLocalSearchParams.mockReturnValue({ created: "1" });
+    mockDiffAndMarkSeenTrips.mockResolvedValueOnce({ newTripIds: ["trip-1"] });
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId, queryByTestId } = await render(<MyTripsScreen />);
+
+    expect(getByTestId("my-trips-created-success")).toBeTruthy();
+    await waitFor(() => expect(mockDiffAndMarkSeenTrips).toHaveBeenCalled());
+    expect(queryByTestId("my-trips-auto-created-success")).toBeNull();
   });
 
   it("muestra el estado de error con reintento", async () => {
