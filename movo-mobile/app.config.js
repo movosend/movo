@@ -74,6 +74,10 @@ module.exports = {
           ? "com.movosend.movomobile"
           : (process.env.IOS_BUNDLE_ID ?? "com.movosend.movomobile"),
       infoPlist: {
+        // Solo HTTPS + firma ECDSA del handshake (ADR-020): cifrado estándar/exento.
+        // Sin esto, cada build de TestFlight queda en "Missing Compliance" hasta que
+        // alguien responda a mano la pregunta de exportación en App Store Connect.
+        ITSAppUsesNonExemptEncryption: false,
         NSCameraUsageDescription:
           "Movo necesita la cámara para tomar tu foto de perfil, verificar tu identidad durante el registro y escanear el código de confirmación de retiro/entrega.",
         NSMicrophoneUsageDescription:
