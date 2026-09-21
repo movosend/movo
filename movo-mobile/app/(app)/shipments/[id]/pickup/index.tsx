@@ -27,6 +27,7 @@ const PULSE_DURATION_MS = 2000;
 // explícito del usuario: "saca un poquito de zoom").
 const MAP_EDGE_PADDING = { top: 110, right: 90, bottom: 110, left: 90 };
 const MAP_INITIAL_DELTA = 0.018;
+const METERS_PER_DEGREE = 111_320;
 
 // Tamaño base del halo y escala máxima que alcanza `LocationPulse` -- el contenedor
 // del marcador "vos" (`PULSE_MARKER_SIZE`) tiene que ser al menos así de grande, si
@@ -36,6 +37,9 @@ const MAP_INITIAL_DELTA = 0.018;
 const PULSE_BASE_SIZE = 54;
 const PULSE_MAX_SCALE = 1.8;
 const PULSE_MARKER_SIZE = Math.ceil(PULSE_BASE_SIZE * PULSE_MAX_SCALE) + 16;
+const YOU_MARKER_WIDTH = 160;
+// Alto simétrico alrededor del punto (badge arriba, espacio equivalente abajo): el centro es la coordenada.
+const YOU_MARKER_HEIGHT = 2 * (PULSE_MARKER_SIZE / 2 + 40);
 
 /** Halo pulsante detrás del marcador "vos" en el mapa real -- mismo patrón que
  * `PulsingStepRing` de `components/home/active-shipment-card.tsx` (radar en loop),
@@ -141,12 +145,19 @@ export default function PickupGeoScreen() {
   // de no-resuelta a resuelta (GPS suele tardar más que el montaje del `MapView`).
   useEffect(() => {
     if (!mapReady || !shipment) return;
-    const points = proximity.currentLocation
-      ? [
-          { latitude: shipment.pickupLat, longitude: shipment.pickupLng },
-          { latitude: proximity.currentLocation.lat, longitude: proximity.currentLocation.lng },
-        ]
-      : [{ latitude: shipment.pickupLat, longitude: shipment.pickupLng }];
+    // Siempre incluye los 4 extremos del círculo de retiro: el zoom mínimo es el que
+    // muestra el radio completo, aunque los dos pines estén casi encimados.
+    const dLat = PICKUP_PROXIMITY_THRESHOLD_METERS / METERS_PER_DEGREE;
+    const dLng = dLat / Math.max(Math.cos((shipment.pickupLat * Math.PI) / 180), 0.01);
+    const points = [
+      { latitude: shipment.pickupLat + dLat, longitude: shipment.pickupLng },
+      { latitude: shipment.pickupLat - dLat, longitude: shipment.pickupLng },
+      { latitude: shipment.pickupLat, longitude: shipment.pickupLng + dLng },
+      { latitude: shipment.pickupLat, longitude: shipment.pickupLng - dLng },
+      ...(proximity.currentLocation
+        ? [{ latitude: proximity.currentLocation.lat, longitude: proximity.currentLocation.lng }]
+        : []),
+    ];
     mapRef.current?.fitToCoordinates(points, { edgePadding: MAP_EDGE_PADDING, animated: true });
   }, [mapReady, shipment, proximity.currentLocation]);
 
@@ -223,11 +234,16 @@ export default function PickupGeoScreen() {
                 anchor={{ x: 0.5, y: 0.5 }}
                 tracksViewChanges
               >
-                <View className="items-center">
-                  <View className="mb-2">
+                <View style={{ width: YOU_MARKER_WIDTH, height: YOU_MARKER_HEIGHT }}>
+                  {/* Badge pegado al punto (24px de diámetro), independiente del tamaño del halo. */}
+                  <View
+                    pointerEvents="none"
+                    className="absolute items-center justify-end"
+                    style={{ left: 0, right: 0, bottom: YOU_MARKER_HEIGHT / 2 + 12 + 6 }}
+                  >
                     <MapBadge label="Vos" />
                   </View>
-                  <View className="items-center justify-center" style={{ width: PULSE_MARKER_SIZE, height: PULSE_MARKER_SIZE }}>
+                  <View className="absolute items-center justify-center" style={{ left: 0, right: 0, top: 0, bottom: 0 }}>
                     <LocationPulse color={dotColor === "#9FC72E" ? "rgba(198,242,74,0.45)" : "rgba(229,72,77,0.3)"} />
                     <View
                       className="rounded-full border-[3px] border-white"
