@@ -88,13 +88,22 @@ export default function HomeOperativoGalleryScreen() {
           </Text>
         </View>
 
-        <Link
-          href="/dev-tokens"
-          className="mt-4 font-sans text-small text-fg-3 underline"
-          testID="dev-home-go-tokens"
-        >
-          Ver tokens de diseño →
-        </Link>
+        <View className="mt-4 flex-row items-center gap-4">
+          <Link
+            href="/dev-tokens"
+            className="font-sans text-small text-fg-3 underline"
+            testID="dev-home-go-tokens"
+          >
+            Ver tokens de diseño →
+          </Link>
+          <Link
+            href={'/dev-handshake' as any}
+            className="font-sans text-small text-lime-600 dark:text-lime-400 underline font-medium"
+            testID="dev-home-go-handshake"
+          >
+            Ver QR Handshake (MOVO-159) →
+          </Link>
+        </View>
       </ScrollView>
     </View>
   );

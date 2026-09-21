@@ -69,7 +69,10 @@ module.exports = {
       // indistinguible. Sin override por env var a propósito: un `IOS_BUNDLE_ID`
       // suelto en el `.env.local` de alguien (leftover de antes de MOVO-232) volvería
       // a partir el bundle id en silencio.
-      bundleIdentifier: "com.movosend.movomobile",
+      bundleIdentifier:
+        process.env.EAS_BUILD_PROFILE === "production"
+          ? "com.movosend.movomobile"
+          : (process.env.IOS_BUNDLE_ID ?? "com.movosend.movomobile"),
       infoPlist: {
         NSCameraUsageDescription:
           "Movo necesita la cámara para tomar tu foto de perfil, verificar tu identidad durante el registro y escanear el código de confirmación de retiro/entrega.",
