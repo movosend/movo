@@ -1,19 +1,36 @@
 import { OfferStatus } from "@movo/shared/dist/types/offer";
 import { Pressable, Text, View } from "react-native";
 import type { MyOfferSummary } from "../../src/api/offers-client";
-import { offerStatusLabel } from "../../src/lib/offer-format";
-import { formatPickupDateLabel, formatPriceArs, shortAddressLabel } from "../../src/lib/shipment-format";
+import { formatOfferedAgo, offerStatusLabel } from "../../src/lib/offer-format";
+import {
+  formatDetourKm,
+  formatPickupDateLabel,
+  formatPriceArs,
+  shortAddressLabel,
+} from "../../src/lib/shipment-format";
 
 /** Chip de estado (AC2/AC3 de MOVO-151): copy explicativo, nunca el enum crudo
  * (`offerStatusLabel`), con tratamiento visual propio por estado -- mismo lenguaje
- * de chip `rounded-full` que ya usa `AvailableShipmentRow` para "Oferta aceptada". */
-const STATUS_CHIP_CLASS: Record<OfferStatus, string> = {
-  [OfferStatus.PENDING]: "bg-bg-mute text-fg-2",
-  [OfferStatus.ACCEPTED]: "bg-info-100 text-info-700",
-  [OfferStatus.REJECTED]: "bg-danger-100 text-danger-700",
-  [OfferStatus.WITHDRAWN]: "bg-bg-mute text-fg-3",
-  [OfferStatus.EXPIRED]: "bg-bg-mute text-fg-3",
-  [OfferStatus.SUPERSEDED]: "bg-bg-mute text-fg-3",
+ * de chip `rounded-full` que ya usa `AvailableShipmentRow` para "Oferta aceptada".
+ * Fondo y color de texto van en dos mapas separados porque se aplican a dos nodos
+ * distintos: en React Native/NativeWind el color de texto NO se hereda de un `View`
+ * padre, tiene que estar en el propio `Text`. */
+const STATUS_CHIP_BG_CLASS: Record<OfferStatus, string> = {
+  [OfferStatus.PENDING]: "bg-bg-mute",
+  [OfferStatus.ACCEPTED]: "bg-info-100",
+  [OfferStatus.REJECTED]: "bg-danger-100",
+  [OfferStatus.WITHDRAWN]: "bg-bg-mute",
+  [OfferStatus.EXPIRED]: "bg-bg-mute",
+  [OfferStatus.SUPERSEDED]: "bg-bg-mute",
+};
+
+const STATUS_CHIP_TEXT_CLASS: Record<OfferStatus, string> = {
+  [OfferStatus.PENDING]: "text-fg-2",
+  [OfferStatus.ACCEPTED]: "text-info-700",
+  [OfferStatus.REJECTED]: "text-danger-700",
+  [OfferStatus.WITHDRAWN]: "text-fg-3",
+  [OfferStatus.EXPIRED]: "text-fg-3",
+  [OfferStatus.SUPERSEDED]: "text-fg-3",
 };
 
 export interface MyOfferCardNotice {
@@ -29,6 +46,9 @@ interface MyOfferCardProps {
    * `pending`, o "seguí el retiro" para una `accepted`. Ausente en el resto -- una
    * card sin aviso es una fila de información, no una que "requiere algo tuyo". */
   notice?: MyOfferCardNotice | null;
+  /** Muestra "Ofertada hace X" (`formatOfferedAgo`) -- para el tab "Cerradas", donde
+   * la card es lo único que dice cuándo pasó cada oferta ya resuelta. */
+  showSentAgo?: boolean;
 }
 
 function routeLabel(offer: MyOfferSummary): string {
@@ -43,9 +63,10 @@ function routeLabel(offer: MyOfferSummary): string {
  * MOVO-186, no el bruto `priceOffered`) y un aviso opcional con su propio
  * tratamiento visual (fondo lima para positivo, mute para de atención).
  */
-export function MyOfferCard({ offer, onPress, testID, notice }: MyOfferCardProps) {
+export function MyOfferCard({ offer, onPress, testID, notice, showSentAgo }: MyOfferCardProps) {
   const pickupLabel = formatPickupDateLabel(offer.shipment.pickupDate) ?? offer.shipment.pickupDate;
-  const distanceLabel = `${offer.shipment.distanceKm.toFixed(1).replace(".", ",")} km`;
+  const distanceLabel = `${formatDetourKm(offer.shipment.distanceKm)} km`;
+  const sentAgoLabel = showSentAgo ? formatOfferedAgo(offer.createdAt) : "";
 
   return (
     <Pressable
@@ -57,10 +78,10 @@ export function MyOfferCard({ offer, onPress, testID, notice }: MyOfferCardProps
     >
       <View className="flex-row items-start justify-between gap-3">
         <View className="flex-1">
-          <View
-            className={`self-start rounded-full px-2 py-0.5 ${STATUS_CHIP_CLASS[offer.status]}`}
-          >
-            <Text className="font-sans-semibold text-[10px] uppercase tracking-wide">
+          <View className={`self-start rounded-full px-2 py-0.5 ${STATUS_CHIP_BG_CLASS[offer.status]}`}>
+            <Text
+              className={`font-sans-semibold text-[10px] uppercase tracking-wide ${STATUS_CHIP_TEXT_CLASS[offer.status]}`}
+            >
               {offerStatusLabel(offer.status)}
             </Text>
           </View>
@@ -70,6 +91,11 @@ export function MyOfferCard({ offer, onPress, testID, notice }: MyOfferCardProps
           <Text className="mt-0.5 font-sans text-[11.5px] text-fg-3">
             {pickupLabel} · {distanceLabel}
           </Text>
+          {sentAgoLabel ? (
+            <Text testID={`${testID}-sent-ago`} className="mt-0.5 font-sans text-[11.5px] text-fg-3">
+              {sentAgoLabel}
+            </Text>
+          ) : null}
         </View>
         <View className="items-end gap-0.5">
           <Text className="font-sans-semibold text-[17px] leading-[20px] tracking-[-0.02em] text-fg">

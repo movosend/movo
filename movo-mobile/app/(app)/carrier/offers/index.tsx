@@ -1,4 +1,5 @@
 import { OfferStatus } from "@movo/shared/dist/types/offer";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router } from "expo-router";
 import { ChevronLeft, HandCoins, WifiOff } from "lucide-react-native";
 import { useMemo, useState } from "react";
@@ -31,9 +32,18 @@ function noticeFor(offer: MyOfferSummary): MyOfferCardNotice | null {
   if (offer.status === OfferStatus.ACCEPTED) {
     return { text: "Ya te aceptaron. Seguí el retiro desde el detalle del envío.", tone: "positive" };
   }
-  if (offer.status === OfferStatus.PENDING && offer.competitiveRank) {
-    const text = competitiveRankNotice(offer.competitiveRank);
-    if (text) return { text, tone: "warning" };
+  if (offer.status === OfferStatus.PENDING) {
+    // Cancelar un envío NO cierra sus ofertas `pending` (solo notifica por push,
+    // `cancelShipment`): siguen `pending`, con `competitiveRank: null` porque el envío
+    // ya no acepta ofertas -- no porque lideren. Sin este aviso caían en "El resto"
+    // como una oferta viva más.
+    if (offer.shipment.status === ShipmentStatus.CANCELLED) {
+      return { text: "El emisor canceló este envío. Tu oferta ya no va a avanzar.", tone: "warning" };
+    }
+    if (offer.competitiveRank) {
+      const text = competitiveRankNotice(offer.competitiveRank);
+      if (text) return { text, tone: "warning" };
+    }
   }
   return null;
 }
@@ -77,7 +87,7 @@ function TabButton({
  * ranking competitivo (MOVO-188).
  *
  * "Activas" separa "Requieren algo tuyo" (aceptadas + pendientes que no lideran el
- * ranking, `noticeFor`) del resto (pendientes liderando) -- una card sin aviso no
+ * ranking o cuyo envío se canceló, `noticeFor`) del resto (pendientes liderando) -- una card sin aviso no
  * necesita destacarse. "Cerradas" agrupa rechazada/retirada/vencida/desplazada, todas
  * de solo lectura. Cada card navega al detalle real (`carrier/offers/[id]`, MOVO-182,
  * que ya tiene retirar/modificar -- AC6 se resuelve reusando esa pantalla, no
@@ -99,9 +109,9 @@ export default function MyOffersSummaryScreen() {
   const pendingTotal = pending.reduce((sum, o) => sum + o.priceNetArs, 0);
   const acceptedTotal = accepted.reduce((sum, o) => sum + o.priceNetArs, 0);
 
+  // Mismo criterio que el aviso de cada card: "requiere algo tuyo" = tiene aviso.
   const attention = useMemo(
-    () =>
-      [...accepted, ...pending.filter((o) => o.competitiveRank && o.competitiveRank.rank > 1)].sort(byRecent),
+    () => [...accepted, ...pending.filter((o) => noticeFor(o) !== null)].sort(byRecent),
     [accepted, pending],
   );
   const attentionIds = useMemo(() => new Set(attention.map((o) => o.id)), [attention]);
@@ -263,11 +273,15 @@ export default function MyOffersSummaryScreen() {
             </Text>
           ) : (
             <View className="gap-2.5">
+              <Text className="pt-1 font-sans-semibold text-caption uppercase text-fg-3">
+                Cerradas ({closed.length})
+              </Text>
               {closed.map((offer) => (
                 <MyOfferCard
                   key={offer.id}
                   testID={`my-offers-closed-${offer.id}`}
                   offer={offer}
+                  showSentAgo
                   onPress={() => goToOffer(offer)}
                 />
               ))}

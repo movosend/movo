@@ -127,6 +127,17 @@ export function formatSentAgo(createdAt: string, now: Date = new Date()): string
   return `hace ${diffDays} ${diffDays === 1 ? "día" : "días"}`;
 }
 
+/**
+ * "Ofertada hace 2 h" / "Ofertada recién" -- `formatSentAgo` con verbo, para la card
+ * de una oferta cerrada en "Mis ofertas" (MOVO-151): sin esto, una lista de ofertas
+ * ya resueltas no dice cuándo pasó cada una. `""` si la fecha es inválida.
+ */
+export function formatOfferedAgo(createdAt: string, now: Date = new Date()): string {
+  const ago = formatSentAgo(createdAt, now);
+  if (!ago) return "";
+  return ago === "Recién" ? "Ofertada recién" : `Ofertada ${ago}`;
+}
+
 /** "4.º" -- mismo formato que usaba el mockup para "Cómo venís". */
 export function ordinalLabel(rank: number): string {
   return `${rank}.º`;

@@ -2822,6 +2822,22 @@ texto literal del ticket, corregidos antes de cerrar:**
 - **AC1 (segmentador embebido en Transportar) confirmado como no aplicable**, ver
   el punto de arriba — decisión ya tomada en MOVO-183, no de este ticket.
 
+**Fixes de review (PR #177):**
+
+- **El chip de estado de `MyOfferCard` perdía su color**: `bg-*` y `text-*` iban juntos
+  en el `View` contenedor y el `Text` interno no tenía color propio — en RN/NativeWind
+  el color de texto no se hereda de un `View`. Ahora son dos mapas
+  (`STATUS_CHIP_BG_CLASS`/`STATUS_CHIP_TEXT_CLASS`), con test que fija la clase en el
+  propio `Text`.
+- **Una `pending` sobre un envío `cancelled` ahora "requiere algo tuyo"**: cancelar un
+  envío no cierra sus ofertas `pending` (solo notifica), y llegan con
+  `competitiveRank: null` — antes caían en "El resto" como una oferta viva más. Sigue
+  sumando al hero "En juego" (no se tocó el total).
+- **Tab Cerradas recupera contador y cuándo se ofertó** (`Cerradas (N)`,
+  `MyOfferCard#showSentAgo` → `formatOfferedAgo`), que tenía la lista plana anterior.
+- `router.replace` del CTA del estado vacío se dejó a propósito: es un tab, y `push`
+  apilaría una segunda copia del grupo `(tabs)` sobre la de abajo.
+
 Pendiente / fuera de alcance: no probado en dispositivo; el footer "Las ofertas
 pendientes se cierran solas..." del mockup solo se muestra en el tab Activas cuando
 hay al menos una `pending`, sin verificar contra el comportamiento real de expiración

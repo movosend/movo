@@ -174,6 +174,38 @@ describe("MyOffersSummaryScreen (MOVO-151)", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/(app)/(tabs)/transport");
   });
 
+  it("una pending sobre un envío cancelado va a 'Requieren algo tuyo' con su aviso, no a 'El resto'", async () => {
+    mockOffers([
+      offer({
+        id: "c1",
+        status: "pending" as MyOfferSummary["status"],
+        competitiveRank: null,
+        shipment: { ...offer().shipment, status: "cancelled" },
+      }),
+      offer({ id: "l1", status: "pending" as MyOfferSummary["status"], competitiveRank: { rank: 1, total: 2, lowestPriceNetArs: 4500, highestPriceNetArs: 5000 } }),
+    ]);
+
+    const { getByTestId, queryByTestId } = await render(<MyOffersSummaryScreen />);
+
+    expect(getByTestId("my-offers-attention-c1-notice")).toHaveTextContent(/El emisor canceló este envío/);
+    expect(queryByTestId("my-offers-active-c1")).toBeNull();
+    expect(getByTestId("my-offers-active-l1")).toBeTruthy();
+  });
+
+  it("el tab Cerradas muestra el contador y cuándo se ofertó cada una", async () => {
+    mockOffers([
+      offer({ id: "r1", status: "rejected" as MyOfferSummary["status"] }),
+      offer({ id: "w1", status: "withdrawn" as MyOfferSummary["status"] }),
+    ]);
+
+    const { getByTestId, getByText } = await render(<MyOffersSummaryScreen />);
+    await fireEvent.press(getByTestId("my-offers-tab-closed"));
+
+    expect(getByText("Cerradas (2)")).toBeTruthy();
+    expect(getByTestId("my-offers-closed-r1-sent-ago")).toBeTruthy();
+    expect(getByTestId("my-offers-closed-w1-sent-ago")).toBeTruthy();
+  });
+
   it("estado vacío del tab Cerradas cuando todas las ofertas siguen activas", async () => {
     mockOffers([offer({ id: "p1" })]);
 

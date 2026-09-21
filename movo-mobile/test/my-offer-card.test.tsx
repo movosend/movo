@@ -72,6 +72,42 @@ describe("MyOfferCard (MOVO-151)", () => {
     expect(getByText(expectedLabel)).toBeTruthy();
   });
 
+  it.each([
+    ["pending", "text-fg-2"],
+    ["accepted", "text-info-700"],
+    ["rejected", "text-danger-700"],
+    ["withdrawn", "text-fg-3"],
+    ["expired", "text-fg-3"],
+    ["superseded", "text-fg-3"],
+  ] as const)("el color del chip de %s va en el propio Text, no solo en el View padre (%s)", async (status, textClass) => {
+    const { getByText } = await render(
+      <MyOfferCard offer={offer({ status: status as MyOfferSummary["status"] })} testID="card" onPress={jest.fn()} />,
+    );
+
+    const label = getByText(
+      {
+        pending: "Pendiente",
+        accepted: "Aceptada",
+        rejected: "Rechazada",
+        withdrawn: "La retiraste",
+        expired: "Venció antes de que respondieran",
+        superseded: "El emisor eligió otra oferta",
+      }[status],
+    );
+    expect(label.props.className).toContain(textClass);
+  });
+
+  it("showSentAgo muestra cuándo se ofertó; sin él no aparece", async () => {
+    const recent = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const { getByTestId, queryByTestId, rerender } = await render(
+      <MyOfferCard offer={offer({ createdAt: recent })} testID="card" showSentAgo onPress={jest.fn()} />,
+    );
+    expect(getByTestId("card-sent-ago")).toHaveTextContent("Ofertada hace 2 h");
+
+    await rerender(<MyOfferCard offer={offer({ createdAt: recent })} testID="card" onPress={jest.fn()} />);
+    expect(queryByTestId("card-sent-ago")).toBeNull();
+  });
+
   it("sin aviso, no renderiza la franja de notice", async () => {
     const { queryByTestId } = await render(<MyOfferCard offer={offer()} testID="card" onPress={jest.fn()} />);
     expect(queryByTestId("card-notice")).toBeNull();
