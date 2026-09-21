@@ -72,8 +72,13 @@ function GateMessage({
 export default function PickupWizardLayout() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useThemeColors();
-  const { gate } = usePickupWizard(id);
+  const { gate: liveGate } = usePickupWizard(id);
   const [result, setResult] = useState<ConfirmHandshakeResult | null>(null);
+  // Una vez confirmado el handshake en esta sesión, el envío pasa a `in_transit` y el
+  // gate en vivo pasaría a `already_done`, pisando la pantalla de éxito con el mensaje
+  // "Ya confirmaste este retiro" (una segunda confirmación redundante). El gate solo
+  // protege la ENTRADA al wizard: con resultado en mano ya no se reevalúa.
+  const gate = result ? "ready" : liveGate;
 
   const goToDetail = () => router.replace(`/shipments/${id}`);
 

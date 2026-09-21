@@ -17,7 +17,19 @@ jest.mock("expo-router", () => {
       canGoBack: () => mockCanGoBack(),
     },
     useLocalSearchParams: () => mockUseLocalSearchParams(),
-    Stack: () => <Text testID="pickup-layout-stack">stack</Text>,
+    Stack: () => {
+      // Usa el Context REAL del layout (el mock de `usePickupResult` de más abajo solo
+      // afecta a las pantallas hijas) para poder simular que `scan.tsx` confirmó.
+      const { usePickupResult: useRealPickupResult } = jest.requireActual(
+        "../app/(app)/shipments/[id]/pickup/_layout",
+      );
+      const { setResult } = useRealPickupResult();
+      return (
+        <Text testID="pickup-layout-stack" onPress={() => setResult({ stage: "pickup" })}>
+          stack
+        </Text>
+      );
+    },
     Redirect: ({ href }: { href: string }) => <Text testID="pickup-redirect">{href}</Text>,
   };
 });
@@ -174,6 +186,20 @@ describe("_layout (gate del wizard de retiro, AC1)", () => {
     const { getByTestId } = await render(<PickupWizardLayout />);
 
     expect(getByTestId("pickup-wizard-already-done")).toBeTruthy();
+  });
+
+  it("ya confirmado en esta sesión: el gate en vivo (already_done) no pisa la pantalla de éxito", async () => {
+    mockUsePickupWizard.mockReturnValue({ gate: "ready" });
+
+    const { getByTestId, queryByTestId, rerender } = await render(<PickupWizardLayout />);
+    await act(async () => fireEvent.press(getByTestId("pickup-layout-stack")));
+
+    // El backend ya pasó el envío a `in_transit` y el detalle se refetchea.
+    mockUsePickupWizard.mockReturnValue({ gate: "already_done" });
+    await rerender(<PickupWizardLayout />);
+
+    expect(getByTestId("pickup-layout-stack")).toBeTruthy();
+    expect(queryByTestId("pickup-wizard-already-done")).toBeNull();
   });
 
   it.each(["not_found", "not_carrier", "invalid_state"])("%s: mensaje bloqueado con vuelta atrás", async (gate) => {
