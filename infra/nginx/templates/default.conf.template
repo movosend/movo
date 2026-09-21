@@ -8,6 +8,18 @@
 # obvios antes de que lleguen al gateway.
 limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
 
+# MOVO-200/ADR-022: soporte de upgrade de protocolo HTTP -> WebSocket. El
+# header Connection tiene que ser "upgrade" SOLO cuando el cliente lo pide
+# (una request WS manda el header Upgrade); para cualquier otra request
+# normal, nginx debe seguir cerrando la conexión hacia el upstream como
+# hace hoy -- forzar "upgrade" siempre rompería el resto de la API. Este es
+# el patrón estándar recomendado por nginx para servir HTTP y WS desde el
+# mismo location.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
 server {
     listen 80;
     server_name ${API_DOMAIN};
@@ -68,7 +80,31 @@ server {
         # El gateway es el único que decide si una ruta requiere auth; acá
         # no reenviamos el header Authorization salvo que venga del cliente,
         # así que no hace falta tocar nada extra.
-        proxy_read_timeout 30s;
+
+        # MOVO-200/ADR-022: headers de upgrade para el canal de tiempo real
+        # (WebSocket nativo, MOVO-201) -- sin esto, un upgrade HTTP ->
+        # WebSocket nunca llega al gateway como tal. $http_upgrade viaja tal
+        # cual lo mandó el cliente (vacío en una request normal); Connection
+        # sale del map de arriba, nunca fijo en "upgrade".
+        proxy_set_header   Upgrade    $http_upgrade;
+        proxy_set_header   Connection $connection_upgrade;
+
+        # 30s alcanzaba cuando todo el tráfico era request/response corto.
+        # MOVO-200/ADR-022 lo subió a 3600s como valor de referencia inicial
+        # (sin heartbeat propio todavía). MOVO-201 agregó el heartbeat
+        # ping/pong (cada 30s, `HEARTBEAT_INTERVAL_MS` en
+        # `movo-svc-shipments/src/modules/tracking/tracking.routes.ts`) que
+        # `@fastify/http-proxy` reenvía transparente entre el gateway y el
+        # cliente -- cualquier ping/pong resetea este timer igual que
+        # cualquier otro tráfico, así que 90s (3x el intervalo, margen para
+        # una pérdida de paquete puntual) alcanza sin dejar una conexión
+        # colgada mucho tiempo. Como este location es único para todo /,
+        # 90s también aplica al tráfico REST normal -- sigue siendo
+        # generoso para cualquier endpoint del proyecto (ninguno necesita
+        # normalmente más de unos segundos). De paso resuelve el timeout de
+        # inactividad de Cloudflare en modo Proxy (100s) si Cloudflare queda
+        # delante de esta EC2.
+        proxy_read_timeout 90s;
         proxy_connect_timeout 5s;
     }
 }

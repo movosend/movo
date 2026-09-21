@@ -19,6 +19,11 @@ const STAGE_COPY: Record<ConfirmHandshakeResult["stage"], { title: string; body:
   },
 };
 
+const STATUS_LABEL: Record<ConfirmHandshakeResult["stage"], string> = {
+  pickup: "En tránsito",
+  delivery: "Entregado",
+};
+
 /**
  * Pantalla de éxito del escaneo (MOVO-160, AC4) — puramente presentacional, calcada
  * del paso `wzIsDone` del prototipo "Viaje del transportista". Sin navegación propia:
@@ -44,7 +49,7 @@ export function HandshakeConfirmationResult({ result, testID }: HandshakeConfirm
         <View className="flex-row items-center justify-between gap-3.5 border-b border-border py-3">
           <Text className="font-sans text-[12px] text-fg-3">Estado</Text>
           <Text className="font-sans text-[13px] text-fg">
-            {result.status === "in_transit" ? "En tránsito" : "Entregado"}
+            {STATUS_LABEL[result.stage]}
           </Text>
         </View>
         <View className="flex-row items-center justify-between gap-3.5 border-b border-border py-3">

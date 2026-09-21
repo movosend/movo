@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
+import { createPositionRepository } from "../../repositories/position-repository";
 import { accountDeletionSchemas } from "./account-deletion.schema";
 
 /**
@@ -17,6 +18,7 @@ import { accountDeletionSchemas } from "./account-deletion.schema";
  */
 export default async function accountDeletionRoutes(app: FastifyInstance, _opts: FastifyPluginOptions) {
   const repository = createShipmentRepository(app.db);
+  const positionRepository = createPositionRepository(app.db);
 
   app.get(
     "/users/:userId/active-shipments",
@@ -33,6 +35,32 @@ export default async function accountDeletionRoutes(app: FastifyInstance, _opts:
     async (request: FastifyRequest) => {
       const { userId } = request.params as { userId: string };
       return repository.hasActiveShipmentsForUser(userId);
+    },
+  );
+
+  /**
+   * MOVO-202/AC7: la supresión de cuenta (MOVO-39) alcanza también la traza GPS del
+   * usuario como transportista -- borrado inmediato, sin importar la retención
+   * normal de `CARRIER_POSITION_RETENTION_DAYS` (esa es para el ciclo de vida
+   * regular de un envío, esto es supresión de datos personales a pedido). Llamado
+   * por `svc-users#deleteAccount` DESPUÉS de que ya validó que no hay envíos/
+   * disputas activos (mismo orden que `active-shipments` de arriba) -- un usuario
+   * con un envío `in_transit` nunca llega hasta acá, así que nunca se borra la
+   * traza de algo que todavía se está generando.
+   */
+  app.delete(
+    "/users/:userId/carrier-positions",
+    {
+      schema: {
+        hide: true,
+        params: accountDeletionSchemas.userIdParam,
+        response: { 200: accountDeletionSchemas.deletedPositionsResponse },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const { userId } = request.params as { userId: string };
+      const deletedCount = await positionRepository.deleteAllForCarrier(userId);
+      return { deletedCount };
     },
   );
 }

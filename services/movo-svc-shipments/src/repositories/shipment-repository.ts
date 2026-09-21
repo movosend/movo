@@ -1,4 +1,4 @@
-import { ShipmentStatus } from "@movo/shared";
+import { OfferStatus, ShipmentStatus } from "@movo/shared";
 import { Prisma, PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
 import {
   ACTIVE_SHIPMENT_STATUSES,
@@ -8,6 +8,7 @@ import {
   MIN_CREATION_PHOTOS_TO_PUBLISH,
   transition,
 } from "../domain/shipment-state-machine";
+import { emitShipmentStatusChanged } from "../realtime/shipment-status-events";
 import {
   Shipment,
   ShipmentEvent,
@@ -463,8 +464,29 @@ export interface ShipmentRepository {
    * endpoint `sending`/`transporting`/`receiving`, resueltos por el caller). Sin
    * paginación (fuera de alcance del ticket, AC de MOVO-192). Orden por `pickupDate`
    * ascendente y, dentro del mismo día, por `pickupTimeWindowStart` ascendente (AC7).
+   *
+   * MOVO-235 (AC1): `tripId` opcional acota además a los envíos cuya `Offer`
+   * `accepted` tiene `tripId` = ese viaje -- el vínculo Shipment->Trip no es una
+   * columna propia, vive a través de la oferta ganadora (`Offer.tripId`,
+   * `Shipment.offers` ya declarado en el schema). Sin `tripId`, comportamiento
+   * idéntico al de MOVO-192/206 (AC2 de MOVO-235: no rompe ningún consumidor
+   * existente que llame sin el parámetro).
+   *
+   * Se queda acá (spread condicional sobre este método genérico por rol) y no pasa a
+   * un `TripRepository.listShipments()` propio (review de MOVO-235) porque la
+   * composición de paradas necesita el resto del filtro que ya vive acá
+   * (`ACTIVE_SHIPMENT_STATUSES`, `mapShipment`, orden por `pickupDate`) -- moverlo
+   * habría significado o bien duplicar ese filtro en `trip-repository.ts`, o bien que
+   * `TripRepository` importe de `ShipmentRepository` (dirección de dependencia que hoy
+   * no existe en ningún otro lado del servicio). Si en el futuro aparece un segundo
+   * caller que necesite "envíos de un viaje" sin pasar por un rol, vale la pena
+   * revisar esta decisión.
    */
-  listActiveShipments(role: "senderId" | "carrierId" | "receiverId", userId: string): Promise<Shipment[]>;
+  listActiveShipments(
+    role: "senderId" | "carrierId" | "receiverId",
+    userId: string,
+    tripId?: string,
+  ): Promise<Shipment[]>;
   /**
    * MOVO-222: candidatos a calificar todavía pendientes de `userId` — `delivered`/
    * `completed` donde participa en CUALQUIER rol (`senderId`/`receiverId`/
@@ -627,6 +649,10 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         // mismo criterio que `accepted` en offer-repository.ts#acceptOffer.
         return { ...current, status: to, lastStatusChangedAt: now, deliveredAt, updatedAt: now };
       });
+
+      // MOVO-201/AC4: recién después de que la transacción confirmó -- un rollback
+      // (ej. ShipmentConcurrentModificationError) no debe cerrar ningún socket.
+      emitShipmentStatusChanged({ shipmentId: id, to });
 
       return mapShipment(row);
     },
@@ -923,9 +949,27 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       };
     },
 
-    async listActiveShipments(role: "senderId" | "carrierId" | "receiverId", userId: string): Promise<Shipment[]> {
+    async listActiveShipments(
+      role: "senderId" | "carrierId" | "receiverId",
+      userId: string,
+      tripId?: string,
+    ): Promise<Shipment[]> {
+      // MOVO-235 (review): bug latente, no disparable todavía -- `offers.some` matchea
+      // CUALQUIER oferta accepted con ese tripId, incluida una vieja de un envío que se
+      // re-ofertó bajo OTRO viaje después. Hoy es imposible llegar a ese estado (una vez
+      // `accepted`, `offer-state-machine.ts` no modela ninguna transición de salida), así
+      // que un envío nunca tiene más de una oferta `accepted` en su historia real. Deja de
+      // ser cierto apenas exista el revert de hold fallido (MOVO-210, "Offer.tripId" no
+      // se reevalúa hoy en ningún lado) -- ese ticket va a necesitar decidir qué pasa con
+      // la oferta `accepted` vieja (¿transicionarla a otro estado? ¿acá filtrar también
+      // por `shipment.tripId` si esa migración llega a existir?), no alcanza con este
+      // comentario.
       const rows = await db.shipment.findMany({
-        where: { [role]: userId, status: { in: [...ACTIVE_SHIPMENT_STATUSES] } },
+        where: {
+          [role]: userId,
+          status: { in: [...ACTIVE_SHIPMENT_STATUSES] },
+          ...(tripId ? { offers: { some: { tripId, status: OfferStatus.ACCEPTED } } } : {}),
+        },
         orderBy: [{ pickupDate: "asc" }, { pickupTimeWindowStart: "asc" }],
       });
       return rows.map(mapShipment);

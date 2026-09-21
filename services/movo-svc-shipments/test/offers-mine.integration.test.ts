@@ -57,7 +57,7 @@ describe("GET /offers/mine (Postgres)", () => {
 
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
-    process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://user:password@localhost:5432/movo";
+    process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
     app = buildApp();
     await app.ready();
@@ -237,6 +237,30 @@ describe("GET /offers/mine (Postgres)", () => {
     expect(typeof item.shipment.distanceKm).toBe("number");
     expect(item.shipment.pickupLat).toBeUndefined();
     expect(item.shipment.pickupLng).toBeUndefined();
+    // MOVO-182 (feedback de review, PR #164): pickupTimeWindowStart/End nuevos --
+    // ventana de retiro PEDIDA POR EL EMISOR (ver el comentario de
+    // `OfferShipmentContext` en models/offer.ts), viaja como "HH:MM:SS".
+    expect(item.shipment.pickupTimeWindowStart).toBe("09:00:00");
+    expect(item.shipment.pickupTimeWindowEnd).toBe("12:00:00");
+  });
+
+  it("MOVO-182 (feedback de review, PR #164): offeredDate sale como YYYY-MM-DD, no como instante completo", async () => {
+    const carrierId = randomUUID();
+    const shipmentId = await createPublishedShipment();
+    await offerRepo.create(baseOfferInput({ shipmentId, carrierId, offeredDate: PICKUP_DATE }));
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/offers/mine",
+      headers: { "x-user-id": carrierId },
+    });
+
+    expect(response.statusCode).toBe(200);
+    // Bug real: declarar el schema como "date-time" hacía que fast-json-stringify
+    // re-serializara el string ya recortado (`toOfferDto`/`toMyOfferDto`) como un
+    // instante completo (ej. "2026-08-20T00:00:00.000Z") en vez de dejarlo pasar tal
+    // cual -- `format: "date"` es lo que evita esa re-serialización.
+    expect(response.json().items[0].offeredDate).toBe("2026-08-20");
   });
 
   it("AC5: una oferta accepted expone el status real del envío (assignment_pending)", async () => {

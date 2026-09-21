@@ -38,12 +38,16 @@ const TRIP_A: TripWithAcceptedPackages = {
   destinationLng: -63.2404,
   departureAt: "2026-09-10T12:00:00.000Z",
   vehicleType: "Auto",
-  status: TripStatus.ACTIVE,
+  // MOVO-221 (fix de review, PR #168): declared es el estado real de un viaje recién
+  // creado -- antes de este fix quedaba hardcodeado en ACTIVE y nunca ejercitaba el
+  // bug real (editar/eliminar no se mostraban para un viaje declared).
+  status: TripStatus.DECLARED,
   createdAt: "2026-09-03T12:00:00.000Z",
   updatedAt: "2026-09-03T12:00:00.000Z",
   hasAcceptedPackages: false,
 };
 
+const TRIP_ACTIVE: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-active", status: TripStatus.ACTIVE };
 const TRIP_BLOCKED: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-2", hasAcceptedPackages: true };
 const TRIP_CANCELLED: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-3", status: TripStatus.CANCELLED };
 
@@ -151,6 +155,22 @@ describe("MyTripsScreen", () => {
 
     expect(queryByTestId(`my-trips-card-${TRIP_CANCELLED.id}-edit`)).toBeNull();
     expect(queryByTestId(`my-trips-card-${TRIP_CANCELLED.id}-delete`)).toBeNull();
+  });
+
+  it("MOVO-221 (fix de review, PR #168): un viaje declared (recién creado) SÍ expone editar/eliminar", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [TRIP_A, TRIP_ACTIVE], page: 1, limit: 50, total: 2 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<MyTripsScreen />);
+
+    expect(getByTestId(`my-trips-card-${TRIP_A.id}-edit`)).toBeTruthy();
+    expect(getByTestId(`my-trips-card-${TRIP_A.id}-delete`)).toBeTruthy();
+    expect(getByTestId(`my-trips-card-${TRIP_ACTIVE.id}-edit`)).toBeTruthy();
+    expect(getByTestId(`my-trips-card-${TRIP_ACTIVE.id}-delete`)).toBeTruthy();
   });
 
   it("navega a editar al tocar el ícono de lápiz de un viaje sin paquetes aceptados", async () => {

@@ -23,6 +23,11 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   STORAGE_PROVIDER_ERROR: "Hubo un problema con el almacenamiento de la imagen. Intentá de nuevo.",
   PHOTO_OBJECT_NOT_FOUND: "No pudimos procesar la imagen subida. Intentá cargarla de nuevo.",
   PHOTO_FORBIDDEN_KEY: "No tenés permiso para guardar esta foto.",
+  // Evidencia de retiro/entrega (MOVO-196/MOVO-197).
+  PHOTO_STAGE_LIMIT_EXCEEDED: "Ya alcanzaste el máximo de fotos permitidas para esta etapa.",
+  PHOTO_CONFIRMATION_IN_PROGRESS: "Estamos terminando de procesar la foto anterior. Esperá un segundo e intentá de nuevo.",
+  PICKUP_EVIDENCE_MISSING: "Todavía falta subir la evidencia fotográfica del retiro.",
+  DELIVERY_EVIDENCE_MISSING: "Todavía falta subir la evidencia fotográfica de la entrega.",
   USER_NOT_FOUND: "No se encontró el usuario.",
   USER_EMAIL_ALREADY_EXISTS: "El email ya se encuentra registrado.",
   USER_PHONE_ALREADY_EXISTS: "El teléfono ya se encuentra registrado.",

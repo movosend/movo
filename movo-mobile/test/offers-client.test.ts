@@ -6,6 +6,7 @@ jest.mock("../src/api/http-client", () => ({
   httpClient: {
     get: jest.fn(),
     post: jest.fn(),
+    patch: jest.fn(),
   },
 }));
 
@@ -25,6 +26,15 @@ describe("offersClient", () => {
     message: "Llego en horario",
     carrierRatingAtOffer: 4.8,
     carrierNameAtOffer: "Carlos Transportista",
+    priceNetArs: 12750,
+    commissionAmountArs: 2250,
+    senderNameAtOffer: null,
+    senderVerifiedAtOffer: null,
+    senderRatingAtOffer: null,
+    estimatedDeliveryDate: null,
+    estimatedDeliveryTimeWindowStart: null,
+    estimatedDeliveryTimeWindowEnd: null,
+    viewedAtBySender: null,
     status: OfferStatus.PENDING,
     expiresAt: null,
     createdAt: "2026-08-25T12:00:00.000Z",
@@ -133,5 +143,57 @@ describe("offersClient", () => {
       status: OfferStatus.PENDING,
     });
     expect(result).toEqual(mockListMine);
+  });
+
+  it("getOffer calls GET /offers/:id (MOVO-190)", async () => {
+    const mockDetail = {
+      ...mockOffer,
+      shipment: {
+        id: "shipment-1",
+        status: "published",
+        pickupAddress: "Av. Colón 1234",
+        pickupDate: "2026-09-01",
+        deliveryAddress: "Bv. San Juan 500",
+        distanceKm: 12.4,
+        packageType: "standard_package",
+        weightKg: 3,
+        description: null,
+      },
+      competitiveRank: null,
+    };
+    (httpClient.get as jest.Mock).mockResolvedValueOnce(mockDetail);
+
+    const result = await offersClient.getOffer("offer-1");
+
+    expect(httpClient.get).toHaveBeenCalledWith("/offers/offer-1");
+    expect(result).toEqual(mockDetail);
+  });
+
+  it("updateOffer calls PATCH /offers/:id with the partial body (MOVO-181)", async () => {
+    (httpClient.patch as jest.Mock).mockResolvedValueOnce({
+      ...mockOffer,
+      priceOffered: 16000,
+      shipment: {
+        id: "shipment-1",
+        status: "published",
+        pickupAddress: "Av. Colón 1234",
+        pickupDate: "2026-09-01",
+        deliveryAddress: "Bv. San Juan 500",
+        distanceKm: 12.4,
+        packageType: "standard_package",
+        weightKg: 3,
+        description: null,
+      },
+      competitiveRank: null,
+    });
+
+    const result = await offersClient.updateOffer("offer-1", {
+      priceOfferedArs: 13500,
+    });
+
+    expect(httpClient.patch).toHaveBeenCalledWith("/offers/offer-1", {
+      priceOfferedArs: 13500,
+    });
+    expect(result.priceOffered).toBe(16000);
   });
 });

@@ -4,6 +4,7 @@ import { createOffersService, PatchOfferInput } from "./offers.service";
 import { offersSchemas } from "./offers.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
+import { createUsersClient, UsersClient } from "../../adapters/users-client";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
 import { createRatingRepository } from "../../repositories/rating-repository";
@@ -15,6 +16,10 @@ export interface OffersRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración -- mismo criterio que
    * `ShipmentsRoutesOptions.notificationsClient`. */
   notificationsClient?: NotificationsClient;
+  /** Override solo para tests de integración -- MOVO-234, resuelve la ficha de
+   * vehículo del transportista para el `Trip` auto-creado al aceptar una oferta
+   * sin viaje asociado. Mismo criterio que `ShipmentsRoutesOptions.usersClient`. */
+  usersClient?: UsersClient;
 }
 
 /**
@@ -42,12 +47,18 @@ function toMyOfferDto(offer: OfferWithShipmentContext) {
     shipment: {
       ...offer.shipment,
       pickupDate: offer.shipment.pickupDate.toISOString().slice(0, 10),
+      // Mismo gotcha de timezone que pickupDate -- `@db.Time` ancladas a UTC, se
+      // formatean a mano en vez de dejar que el serializador `format: "time"` les
+      // reste el offset del proceso.
+      pickupTimeWindowStart: offer.shipment.pickupTimeWindowStart.toISOString().slice(11, 19),
+      pickupTimeWindowEnd: offer.shipment.pickupTimeWindowEnd.toISOString().slice(11, 19),
     },
   };
 }
 
 export default async function offersRoutes(app: FastifyInstance, opts: OffersRoutesOptions) {
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
+  const usersClient = opts.usersClient ?? createUsersClient(app.config);
   const offerRepository = createOfferRepository(app.db);
   const shipmentRepository = createShipmentRepository(app.db);
   // MOVO-188: batch de reputación `asCarrier` para el desempate de `competitiveRank`
@@ -64,7 +75,8 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
     shipmentRepository,
     notificationsClient,
     app.log,
-    ratingsService.getCarrierReputationScoresBatch
+    ratingsService.getCarrierReputationScoresBatch,
+    usersClient
   );
 
   app.get(

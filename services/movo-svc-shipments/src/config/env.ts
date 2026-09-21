@@ -22,6 +22,9 @@ export interface EnvConfig {
   PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES: number;
   PICKUP_EXPIRY_SWEEP_ENABLED?: boolean;
   FUNDS_RELEASE_NOTIFIER: "console";
+  CARRIER_POSITION_RETENTION_DAYS: number;
+  CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES: number;
+  CARRIER_POSITION_PURGE_SWEEP_ENABLED?: boolean;
 }
 
 export const envSchema = {
@@ -96,6 +99,18 @@ export const envSchema = {
     // "console" (default, no-op/log). El switch existe para no rediseñar el punto de
     // extensión cuando la integración real de pagos se destrabe.
     FUNDS_RELEASE_NOTIFIER: { type: "string", enum: ["console"], default: "console" },
+    // MOVO-202/ADR-023: retención de la traza GPS del transportista -- días desde que
+    // el envío cierra (`Shipment.lastStatusChangedAt` en un estado de
+    // `POSITION_PURGE_ELIGIBLE_STATUSES`) hasta que la purga periódica la borra.
+    // Evidencia para disputas (MOVO-30), no analítica -- decisión de equipo documentada
+    // en el ADR, no un valor técnico.
+    CARRIER_POSITION_RETENTION_DAYS: { type: "number", default: 30 },
+    // MOVO-202: intervalo en minutos del barrido de purga. Menos urgente que los
+    // sweeps operativos (RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES/
+    // PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES, 15min): purgar con hasta 1h de rezago
+    // sobre un plazo de 30 días no cambia nada material.
+    CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES: { type: "number", default: 60 },
+    CARRIER_POSITION_PURGE_SWEEP_ENABLED: { type: "boolean", default: true },
   },
 };
 

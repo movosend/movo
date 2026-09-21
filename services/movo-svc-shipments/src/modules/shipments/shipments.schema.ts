@@ -221,7 +221,11 @@ const offerResponse = {
     shipmentId: { type: "string" },
     carrierId: { type: "string" },
     priceOffered: { type: "number" },
-    offeredDate: { type: "string", format: "date-time" },
+    // Bug reportado por el usuario en la pantalla de detalle de oferta: `offeredDate`
+    // es `@db.Date` (mismo gotcha de timezone de MOVO-80/180) y `offer.dto.ts` ya lo
+    // formatea date-only (slice(0,10)) -- declararlo acá como "date-time" hacía que
+    // fast-json-stringify lo re-serializara como instante completo.
+    offeredDate: { type: "string", format: "date" },
     // MOVO-177: null cuando la oferta usa la ventana del envío tal cual.
     offeredPickupTimeWindowStart: { type: ["string", "null"] },
     offeredPickupTimeWindowEnd: { type: ["string", "null"] },
@@ -238,11 +242,7 @@ const offerResponse = {
     respondedAt: { type: ["string", "null"], format: "date-time" },
     // MOVO-162: viaje declarado del que esta oferta forma parte, si corresponde.
     tripId: { type: ["string", "null"] },
-    // MOVO-180: opcional al ofertar -- date-only (@db.Date), no "date-time" como
-    // offeredDate en esta misma respuesta: toOfferDto (offer.dto.ts) lo formatea
-    // ya recortado (slice(0, 10)), mismo criterio que myOfferResponse/shipmentResponse
-    // (feedback de review: el valor no puede salir con dos formatos distintos según
-    // el endpoint).
+    // MOVO-180: date-only (@db.Date), mismo criterio que offeredDate de arriba.
     estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
     estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
     estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
@@ -704,12 +704,14 @@ export const shipmentsSchemas = {
   },
 
   // MOVO-206: ruta optimizada del transportista
+  // MOVO-235: tripId opcional acota la ruta a un viaje específico (ya iniciado).
   myRouteQuery: {
     type: "object",
     required: ["lat", "lng"],
     properties: {
       lat: { type: "number", minimum: -90, maximum: 90 },
       lng: { type: "number", minimum: -180, maximum: 180 },
+      tripId: { type: "string", format: "uuid" },
     },
   },
 
