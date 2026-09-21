@@ -61,7 +61,28 @@ jobs:
       # en vez de gastar minutos de runner esperando. El resultado real del build
       # se mira en expo.dev, no en este check.
       - name: Encolar development build (iOS + Android)
-        run: eas build --platform all --profile development --non-interactive --no-wait
+        run: |
+          set -o pipefail
+          eas build --platform all --profile development --non-interactive --no-wait 2>&1 | tee "$RUNNER_TEMP/eas-build.log"
+
+      # Un aviso que falla no tiene que poner en rojo un build que sí se encoló
+      # (continue-on-error), y sin los secrets de Telegram simplemente se omite.
+      - name: Avisar en Telegram
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Sin secrets de Telegram: se omite el aviso."
+            exit 0
+          fi
+          links="$(grep -oE 'https://expo\.dev/accounts/[^ ]+/builds/[0-9a-f-]+' "$RUNNER_TEMP/eas-build.log" | sort -u)"
+          text="$(printf 'Development build encolado (%s)\n\n%s\n\nCuando termine, abrí el link desde tu iPhone o Android para instalarlo.' "$TAG" "$links")"
+          curl -sS --fail-with-body -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${text}" > /dev/null
 
   testflight:
     if: startsWith(github.ref_name, 'v')
@@ -105,4 +126,23 @@ jobs:
       # --auto-submit: EAS sube el .ipa a App Store Connect apenas termina el
       # build (el número de build lo incrementa `autoIncrement` de eas.json).
       - name: Encolar build de staging + submit a TestFlight
-        run: eas build --platform ios --profile staging --non-interactive --no-wait --auto-submit
+        run: |
+          set -o pipefail
+          eas build --platform ios --profile staging --non-interactive --no-wait --auto-submit 2>&1 | tee "$RUNNER_TEMP/eas-build.log"
+
+      - name: Avisar en Telegram
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Sin secrets de Telegram: se omite el aviso."
+            exit 0
+          fi
+          links="$(grep -oE 'https://expo\.dev/accounts/[^ ]+/builds/[0-9a-f-]+' "$RUNNER_TEMP/eas-build.log" | sort -u)"
+          text="$(printf 'Build de TestFlight encolado (%s)\n\n%s\n\nCuando EAS termine, Apple lo procesa unos 10 minutos y llega a TestFlight.' "$TAG" "$links")"
+          curl -sS --fail-with-body -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${text}" > /dev/null
