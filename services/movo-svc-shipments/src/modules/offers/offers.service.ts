@@ -10,7 +10,9 @@ import { FastifyBaseLogger } from "fastify";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { NotificationsClient } from "../../adapters/notifications-client";
+import { UsersClient } from "../../adapters/users-client";
 import { Offer, OfferCompetitiveRank, OfferWithShipmentContext } from "../../models/offer";
+import { Trip } from "../../models/trip";
 import { assertIsSender } from "../shipments/assert-shipment-access";
 // MOVO-181: reusa las mismas conversiones de fecha/hora que `createOfferForShipment`
 // (MOVO-143/177) en vez de duplicarlas -- ver el comentario de export en
@@ -79,6 +81,71 @@ async function dispatchOfferPush(
     logger?.warn(
       { err, event: "notification_dispatch_failed", shipmentId: params.shipmentId, offerId: params.offerId },
       "No se pudo enviar la push de decisión de oferta"
+    );
+  }
+}
+
+/** MOVO-234 (AC1): fallback cuando el transportista no tiene ficha de vehículo cargada
+ * (`PublicProfile.vehicle`, MOVO-172) o `usersClient` falla al resolverla -- mismo
+ * criterio de placeholder neutro que `UNKNOWN_COUNTERPARTY_NAME`
+ * (`shipments.service.ts`). */
+const AUTO_TRIP_VEHICLE_TYPE_PLACEHOLDER = "Vehículo sin especificar";
+
+/**
+ * MOVO-234 (AC1): `vehicleType` del `Trip` auto-creado al aceptar una oferta sin
+ * viaje asociado -- mismo formato `${brand} ${model}` que usa `movo-mobile` al
+ * declarar un viaje a mano (`components/trips/trip-form.tsx`). Best-effort: sin
+ * `usersClient` inyectado, sin ficha de vehículo cargada, o ante cualquier fallo de
+ * red, degrada al placeholder -- nunca bloquea la aceptación de la oferta (mismo
+ * criterio try/catch+`logger?.warn` que `resolveSnapshotProfile`,
+ * `shipments.service.ts`).
+ */
+async function resolveAutoTripVehicleType(
+  usersClient: UsersClient | undefined,
+  carrierId: string,
+  logger?: OffersServiceLogger
+): Promise<string> {
+  if (!usersClient) {
+    return AUTO_TRIP_VEHICLE_TYPE_PLACEHOLDER;
+  }
+  try {
+    const profile = await usersClient.findPublicProfile(carrierId, carrierId);
+    if (profile?.vehicle) {
+      return `${profile.vehicle.brand} ${profile.vehicle.model}`;
+    }
+  } catch (err) {
+    logger?.warn(
+      { err, event: "auto_trip_vehicle_lookup_failed", carrierId },
+      "No se pudo resolver la ficha de vehículo del transportista para el viaje auto-creado"
+    );
+  }
+  return AUTO_TRIP_VEHICLE_TYPE_PLACEHOLDER;
+}
+
+/** MOVO-234 (AC3): aviso explícito al transportista de que se creó un viaje a partir
+ * de este envío -- "no un efecto silencioso" (letra del AC). Mismo patrón
+ * try/catch+`logger?.warn` que `dispatchOfferPush`; el copy/canal final (push vs.
+ * in-app) es de `movo-mobile` (MOVO-236, bloqueado por este ticket), acá solo se
+ * dispara el trigger de backend vía `notificationsClient.sendPush`. */
+async function dispatchAutoTripCreatedPush(
+  notificationsClient: NotificationsClient | undefined,
+  logger: OffersServiceLogger | undefined,
+  trip: Trip
+): Promise<void> {
+  if (!notificationsClient) {
+    return;
+  }
+  try {
+    await notificationsClient.sendPush({
+      userId: trip.carrierId,
+      title: "Se creó un viaje a partir de este envío",
+      body: "Armamos un viaje en tu cuenta con este envío -- vas a recibir avisos de otros paquetes compatibles con esta ruta.",
+      data: { type: "trip_auto_created", tripId: trip.id },
+    });
+  } catch (err) {
+    logger?.warn(
+      { err, event: "notification_dispatch_failed", tripId: trip.id },
+      "No se pudo enviar la push de viaje auto-creado"
     );
   }
 }
@@ -218,7 +285,11 @@ export function createOffersService(
   logger?: OffersServiceLogger,
   /** MOVO-188: opcional -- sin inyectar (tests que no lo necesitan), el desempate
    * salta directo al criterio de envíos entregados/antigüedad, nunca rompe. */
-  getCarrierReputationScores?: GetCarrierReputationScores
+  getCarrierReputationScores?: GetCarrierReputationScores,
+  /** MOVO-234: opcional -- sin inyectar, `acceptOffer` sigue auto-creando el `Trip`
+   * (AC1 no depende de `usersClient`), solo que `vehicleType` degrada directo al
+   * placeholder sin intentar resolver la ficha de vehículo real. */
+  usersClient?: UsersClient
 ) {
   return {
     /**
@@ -307,7 +378,32 @@ export function createOffersService(
 
       assertIsSender(shipment, callerId);
 
-      const { offer: accepted, shipmentId, superseded } = await offerRepository.acceptOffer(offerId, callerId);
+      // MOVO-234 (AC1): se resuelve el vehículo del transportista ANTES de la
+      // transacción de aceptación -- I/O a `usersClient` no anidable dentro de la
+      // transacción de Postgres del repositorio. Best-effort (ver
+      // `resolveAutoTripVehicleType`): nunca bloquea la aceptación, en el peor caso
+      // el viaje auto-creado queda con el placeholder.
+      //
+      // Fix de review (PR #176): SIEMPRE se resuelve, sin importar si `offer.tripId`
+      // ya está seteado en esta lectura -- antes se omitía cuando no era `null`, pero
+      // ese snapshot podía quedar obsoleto para cuando la transacción de
+      // `offerRepository.acceptOffer()` relee la oferta: el transportista puede
+      // borrar su `Trip` mientras la aceptación está en curso (permitido sobre una
+      // oferta todavía `pending`, `onDelete: SetNull`), dejando `current.tripId` en
+      // `null` dentro de la transacción sin que este método lo supiera de antemano.
+      // Sin `autoTripDefaults` ya resuelto para ese caso, la oferta quedaba
+      // `accepted` con `tripId: null` y sin ningún `Trip` compensatorio -- rompía la
+      // garantía de AC1/AC2. El costo (una llamada de más a `usersClient` en el caso
+      // minoritario de una oferta que YA tenía viaje) es aceptable frente a esa
+      // garantía.
+      const autoTripDefaults = { vehicleType: await resolveAutoTripVehicleType(usersClient, offer.carrierId, logger) };
+
+      const {
+        offer: accepted,
+        shipmentId,
+        superseded,
+        autoCreatedTrip,
+      } = await offerRepository.acceptOffer(offerId, callerId, autoTripDefaults);
 
       // AC9: best-effort, fire-and-forget -- la transacción de acceptOffer() ya
       // commiteó, un fallo de entrega no revierte la asignación.
@@ -335,6 +431,12 @@ export function createOffersService(
           })
         )
       );
+
+      // MOVO-234 (AC3): aviso explícito del viaje auto-creado, nunca un efecto
+      // silencioso -- ver dispatchAutoTripCreatedPush.
+      if (autoCreatedTrip) {
+        void dispatchAutoTripCreatedPush(notificationsClient, logger, autoCreatedTrip);
+      }
 
       return accepted;
     },
