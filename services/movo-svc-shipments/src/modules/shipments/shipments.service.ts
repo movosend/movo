@@ -10,6 +10,8 @@ import {
   computeOfferGrossPrice,
   computeNetFromGross,
   getCommissionConfig,
+  renderNotificationTrigger,
+  notificationTriggerCategory,
 } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
@@ -77,10 +79,12 @@ async function dispatchNewOfferPush(
     return;
   }
   try {
+    const { title, body } = renderNotificationTrigger("offerCreated", { carrierName: params.carrierName });
     await notificationsClient.sendPush({
       userId: params.senderId,
-      title: "Nueva oferta en tu envío",
-      body: params.carrierName ? `${params.carrierName} ofertó por tu envío.` : "Recibiste una nueva oferta.",
+      title,
+      body,
+      category: notificationTriggerCategory("offerCreated"),
       data: { type: "offer_created", shipmentId: params.shipmentId, offerId: params.offerId },
     });
   } catch (err) {
@@ -437,8 +441,11 @@ function sortOffers(offers: Offer[], sort: ListShipmentOffersSort): Offer[] {
 interface ReceiverDecisionPushParams {
   shipment: Shipment;
   callerId: string;
-  title: string;
-  bodyTemplate: (name: string) => string;
+  /** Trigger centralizado (@movo/shared) -- resuelve título/cuerpo/categoría. */
+  triggerKey: "shipmentAccepted" | "shipmentRejected";
+  /** `data.type` de wire histórico, consumido por `resolveNotificationRoute` del
+   * mobile (deep-link de la push) -- deliberadamente distinto del `triggerKey`
+   * (no se renombra un valor de wire ya en producción solo por prolijidad interna). */
   type: "shipment_accepted" | "shipment_rejected";
 }
 
@@ -451,10 +458,12 @@ async function dispatchReceiverDecisionPush(
   try {
     const receiverProfile = await usersClient.findPublicProfile(params.callerId, params.callerId);
     const receiverName = receiverProfile?.fullName ?? "El receptor";
+    const { title, body } = renderNotificationTrigger(params.triggerKey, { receiverName });
     await notificationsClient.sendPush({
       userId: params.shipment.senderId,
-      title: params.title,
-      body: params.bodyTemplate(receiverName),
+      title,
+      body,
+      category: notificationTriggerCategory(params.triggerKey),
       data: { shipmentId: params.shipment.id, type: params.type },
     });
   } catch (err) {
@@ -478,10 +487,12 @@ async function dispatchReceiverTimeoutPush(
     // dispatchReceiverDecisionPush, donde el callerId es el receptor que tomó la decisión.
     const receiverProfile = await usersClient.findPublicProfile(shipment.receiverId, shipment.senderId);
     const receiverName = receiverProfile?.fullName ?? "El receptor";
+    const { title, body } = renderNotificationTrigger("shipmentCancelledConfirmationTimeout", { receiverName });
     await notificationsClient.sendPush({
       userId: shipment.senderId,
-      title: "Envío cancelado",
-      body: `Tu envío se canceló: ${receiverName} no lo confirmó a tiempo`,
+      title,
+      body,
+      category: notificationTriggerCategory("shipmentCancelledConfirmationTimeout"),
       data: { shipmentId: shipment.id, type: "shipment_cancelled" },
     });
   } catch (err) {
@@ -618,10 +629,15 @@ async function dispatchTripMatchPushes(
     await Promise.all(
       [...tripByCarrierId.values()].map(async (trip) => {
         try {
+          const { title, body } = renderNotificationTrigger("tripMatch", {
+            originShort: shortAddress(trip.originAddress),
+            destinationShort: shortAddress(trip.destinationAddress),
+          });
           await notificationsClient.sendPush({
             userId: trip.carrierId,
-            title: "Nuevo paquete compatible",
-            body: `Hay un envío compatible con tu viaje ${shortAddress(trip.originAddress)} → ${shortAddress(trip.destinationAddress)}`,
+            title,
+            body,
+            category: notificationTriggerCategory("tripMatch"),
             data: { type: "trip_match", tripId: trip.id, shipmentId: shipment.id },
           });
         } catch (err) {
@@ -650,10 +666,12 @@ async function dispatchPickupExpiredPush(
   shipment: Shipment
 ): Promise<void> {
   try {
+    const { title, body } = renderNotificationTrigger("shipmentCancelledPickupExpired", undefined);
     await notificationsClient.sendPush({
       userId: shipment.senderId,
-      title: "Envío cancelado",
-      body: "Tu envío se canceló: ningún transportista lo retiró dentro de la ventana publicada",
+      title,
+      body,
+      category: notificationTriggerCategory("shipmentCancelledPickupExpired"),
       data: { shipmentId: shipment.id, type: "shipment_cancelled" },
     });
   } catch (err) {
@@ -859,10 +877,12 @@ export function createShipmentsService(
         }
 
         try {
+          const { title, body } = renderNotificationTrigger("shipmentCreated", { senderName });
           await notificationsClient.sendPush({
             userId: created.receiverId,
-            title: "Tenés un envío nuevo para confirmar",
-            body: `${senderName} te envió un paquete. Tocá para revisar y confirmar el envío.`,
+            title,
+            body,
+            category: notificationTriggerCategory("shipmentCreated"),
             data: { type: "shipment", shipmentId: created.id },
           });
         } catch (err) {
@@ -1254,8 +1274,7 @@ export function createShipmentsService(
         void dispatchReceiverDecisionPush(notificationsClient, usersClient, logger, {
           shipment,
           callerId,
-          title: "Envío aceptado",
-          bodyTemplate: (name) => `${name} aceptó el envío, ya está publicado`,
+          triggerKey: "shipmentAccepted",
           type: "shipment_accepted",
         });
       }
@@ -1307,8 +1326,7 @@ export function createShipmentsService(
         void dispatchReceiverDecisionPush(notificationsClient, usersClient, logger, {
           shipment,
           callerId,
-          title: "Envío rechazado",
-          bodyTemplate: (name) => `${name} rechazó el envío`,
+          triggerKey: "shipmentRejected",
           type: "shipment_rejected",
         });
       }
@@ -1424,10 +1442,12 @@ export function createShipmentsService(
               return;
             }
             try {
+              const { title, body } = renderNotificationTrigger("offerVoidedByShipmentCancellation", undefined);
               await notificationsClient.sendPush({
                 userId: offer.carrierId,
-                title: "Tu oferta fue cancelada",
-                body: "El envío ya no está disponible.",
+                title,
+                body,
+                category: notificationTriggerCategory("offerVoidedByShipmentCancellation"),
                 data: { type: "shipment", shipmentId },
               });
             } catch (err) {
