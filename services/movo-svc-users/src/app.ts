@@ -22,6 +22,7 @@ import notificationsRoutes, {
 } from "./modules/notifications/notifications.routes";
 import addressesRoutes from "./modules/addresses/addresses.routes";
 import deviceKeysRoutes from "./modules/device-keys/device-keys.routes";
+import notificationPreferencesRoutes from "./modules/notification-preferences/notification-preferences.routes";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import { SmsProvider } from "./adapters/sms-provider";
 import { EmailProvider } from "./adapters/email-provider";
@@ -151,6 +152,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // MOVO-157 AC3/AC4: interno, mismo criterio que /internal/notifications de arriba --
   // no se declara en gateway/src/config/routes-map.ts, así que el gateway no lo proxea.
   app.register(deviceKeysRoutes, { prefix: "/internal" });
+
+  // MOVO-245: /users/me/notification-preferences -- protegida, ya cubierta por el
+  // prefijo /users existente en gateway/src/config/routes-map.ts (sin cambios ahí).
+  app.register(notificationPreferencesRoutes, { prefix: "/users" });
 
   return app;
 }

@@ -67,4 +67,72 @@ describe("createGoogleRoutesProvider", () => {
       code: "ROUTE_NOT_FOUND",
     } satisfies Partial<ApiError>);
   });
+
+  describe("getRouteDurations", () => {
+    const destinationB = { lat: -31.5, lng: -64.3 };
+
+    it("manda un origen y N destinos en una sola llamada a Compute Route Matrix", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => [
+          { originIndex: 0, destinationIndex: 0, condition: "ROUTE_EXISTS", duration: "300s" },
+          { originIndex: 0, destinationIndex: 1, condition: "ROUTE_EXISTS", duration: "900s" },
+        ],
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider = createGoogleRoutesProvider({ apiKey: "test-key" });
+      const results = await provider.getRouteDurations({ origin, destinations: [destination, destinationB] });
+
+      expect(results).toEqual([
+        { destinationIndex: 0, durationSeconds: 300 },
+        { destinationIndex: 1, durationSeconds: 900 },
+      ]);
+
+      const [url, requestInit] = fetchMock.mock.calls[0];
+      expect(url).toContain("computeRouteMatrix");
+      const body = JSON.parse(requestInit.body);
+      expect(body.origins).toHaveLength(1);
+      expect(body.destinations).toHaveLength(2);
+    });
+
+    it("un destino sin ruta (condition != ROUTE_EXISTS) resuelve a durationSeconds: null sin tirar el resto", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => [{ originIndex: 0, destinationIndex: 1, condition: "ROUTE_EXISTS", duration: "600s" }],
+        }),
+      );
+
+      const provider = createGoogleRoutesProvider({ apiKey: "test-key" });
+      const results = await provider.getRouteDurations({ origin, destinations: [destination, destinationB] });
+
+      expect(results).toEqual([
+        { destinationIndex: 0, durationSeconds: null },
+        { destinationIndex: 1, durationSeconds: 600 },
+      ]);
+    });
+
+    it("sin destinos, no llama a fetch y devuelve un array vacío", async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const provider = createGoogleRoutesProvider({ apiKey: "test-key" });
+      const results = await provider.getRouteDurations({ origin, destinations: [] });
+
+      expect(results).toEqual([]);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("traduce una falla de red a ApiError 502 ROUTES_PROVIDER_ERROR", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+
+      const provider = createGoogleRoutesProvider({ apiKey: "test-key" });
+      await expect(provider.getRouteDurations({ origin, destinations: [destination] })).rejects.toMatchObject({
+        statusCode: 502,
+        code: "ROUTES_PROVIDER_ERROR",
+      } satisfies Partial<ApiError>);
+    });
+  });
 });

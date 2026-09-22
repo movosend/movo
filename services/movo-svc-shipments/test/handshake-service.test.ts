@@ -8,7 +8,7 @@ import { HandshakeEvent } from "../src/models/handshake";
 import { Shipment, PackageType } from "../src/models/shipment";
 import { buildHandshakeCanonicalPayload } from "../src/domain/handshake-crypto";
 import { MIN_EVIDENCE_PHOTOS_PER_STAGE } from "../src/domain/evidence-photos";
-import { createFakeUsersClient } from "./fake-users-client";
+import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
 import { createFakeFundsReleaseNotifier } from "./fake-funds-release-notifier";
 
 const { subtle } = webcrypto;
@@ -824,6 +824,296 @@ describe("handshake.service", () => {
           shipmentId: shipment.id,
           carrierId: shipment.carrierId,
         });
+      });
+    });
+
+    // MOVO-245 (catálogo de MOVO-240): antes el handshake no disparaba ningún push.
+    describe("push de custodia (MOVO-245)", () => {
+      it("retiro confirmado: avisa al emisor Y al receptor (con ETA), categoría 'custody'", async () => {
+        const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED });
+        const redis = createFakeRedis();
+        const { nonce, signature } = await seedPendingChallenge(
+          redis,
+          shipment.id,
+          "pickup",
+          shipment.senderId,
+          -31.4201,
+          -64.1888
+        );
+        const notificationsClient = { sendPush: vi.fn().mockResolvedValue(undefined) };
+        const routesProvider = {
+          getRoute: vi.fn().mockResolvedValue({ polyline: "abc", distanceMeters: 5000, durationSeconds: 900 }),
+        };
+        const service = createHandshakeService(
+          fakeShipmentRepository({ findById: vi.fn().mockResolvedValue(shipment) }),
+          fakeHandshakeRepository(),
+          createFakeUsersClient(
+            { [shipment.carrierId as string]: fakePublicProfile({ id: shipment.carrierId as string, fullName: "Juan Pérez" }) },
+            { [shipment.senderId]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() } }
+          ),
+          redis,
+          createFakeFundsReleaseNotifier(),
+          undefined,
+          notificationsClient,
+          routesProvider
+        );
+
+        await service.confirmHandshake({
+          shipmentId: shipment.id,
+          callerId: shipment.carrierId as string,
+          nonce,
+          signature,
+          lat: -31.4201,
+          lng: -64.1888,
+        });
+
+        await vi.waitFor(() => {
+          expect(routesProvider.getRoute).toHaveBeenCalledWith({
+            origin: { lat: shipment.pickupLat, lng: shipment.pickupLng },
+            destination: { lat: shipment.deliveryLat, lng: shipment.deliveryLng },
+          });
+          expect(notificationsClient.sendPush).toHaveBeenCalledTimes(2);
+          expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+            userId: shipment.senderId,
+            title: "Retiro confirmado",
+            body: "Juan Pérez retiró tu paquete y esta en camino al destino.",
+            category: "custody",
+            data: { type: "custody_pickup_confirmed", shipmentId: shipment.id },
+          });
+          expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+            userId: shipment.receiverId,
+            title: "Tu paquete está en camino",
+            body: "Juan Pérez retiró el paquete. Llega en aprox. 15 min. Seguilo desde la app.",
+            category: "custody",
+            data: { type: "custody_pickup_confirmed", shipmentId: shipment.id },
+          });
+        });
+      });
+
+      it("retiro confirmado con un viaje de larga distancia: el ETA se muestra en horas, no en minutos", async () => {
+        const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED });
+        const redis = createFakeRedis();
+        const { nonce, signature } = await seedPendingChallenge(
+          redis,
+          shipment.id,
+          "pickup",
+          shipment.senderId,
+          -31.4201,
+          -64.1888
+        );
+        const notificationsClient = { sendPush: vi.fn().mockResolvedValue(undefined) };
+        // 8100s = 2h15min -- un envío interurbano real, no uno dentro de la misma ciudad.
+        const routesProvider = {
+          getRoute: vi.fn().mockResolvedValue({ polyline: "abc", distanceMeters: 180000, durationSeconds: 8100 }),
+        };
+        const service = createHandshakeService(
+          fakeShipmentRepository({ findById: vi.fn().mockResolvedValue(shipment) }),
+          fakeHandshakeRepository(),
+          createFakeUsersClient(
+            { [shipment.carrierId as string]: fakePublicProfile({ id: shipment.carrierId as string, fullName: "Juan Pérez" }) },
+            { [shipment.senderId]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() } }
+          ),
+          redis,
+          createFakeFundsReleaseNotifier(),
+          undefined,
+          notificationsClient,
+          routesProvider
+        );
+
+        await service.confirmHandshake({
+          shipmentId: shipment.id,
+          callerId: shipment.carrierId as string,
+          nonce,
+          signature,
+          lat: -31.4201,
+          lng: -64.1888,
+        });
+
+        await vi.waitFor(() => {
+          expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+            userId: shipment.receiverId,
+            title: "Tu paquete está en camino",
+            body: "Juan Pérez retiró el paquete. Llega en aprox. 2 h 15 min. Seguilo desde la app.",
+            category: "custody",
+            data: { type: "custody_pickup_confirmed", shipmentId: shipment.id },
+          });
+        });
+      });
+
+      it("retiro confirmado sin routesProvider: avisa al receptor sin ETA", async () => {
+        const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED });
+        const redis = createFakeRedis();
+        const { nonce, signature } = await seedPendingChallenge(
+          redis,
+          shipment.id,
+          "pickup",
+          shipment.senderId,
+          -31.4201,
+          -64.1888
+        );
+        const notificationsClient = { sendPush: vi.fn().mockResolvedValue(undefined) };
+        const service = createHandshakeService(
+          fakeShipmentRepository({ findById: vi.fn().mockResolvedValue(shipment) }),
+          fakeHandshakeRepository(),
+          createFakeUsersClient(
+            { [shipment.carrierId as string]: fakePublicProfile({ id: shipment.carrierId as string, fullName: "Juan Pérez" }) },
+            { [shipment.senderId]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() } }
+          ),
+          redis,
+          createFakeFundsReleaseNotifier(),
+          undefined,
+          notificationsClient
+        );
+
+        await service.confirmHandshake({
+          shipmentId: shipment.id,
+          callerId: shipment.carrierId as string,
+          nonce,
+          signature,
+          lat: -31.4201,
+          lng: -64.1888,
+        });
+
+        await vi.waitFor(() => {
+          expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+            userId: shipment.receiverId,
+            title: "Tu paquete está en camino",
+            body: "Juan Pérez retiró el paquete y ya está en camino. Seguilo desde la app.",
+            category: "custody",
+            data: { type: "custody_pickup_confirmed", shipmentId: shipment.id },
+          });
+        });
+      });
+
+      it("retiro confirmado: un routesProvider que falla no rompe el push (degrada sin ETA)", async () => {
+        const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED });
+        const redis = createFakeRedis();
+        const { nonce, signature } = await seedPendingChallenge(
+          redis,
+          shipment.id,
+          "pickup",
+          shipment.senderId,
+          -31.4201,
+          -64.1888
+        );
+        const notificationsClient = { sendPush: vi.fn().mockResolvedValue(undefined) };
+        const routesProvider = { getRoute: vi.fn().mockRejectedValue(new Error("boom")) };
+        const service = createHandshakeService(
+          fakeShipmentRepository({ findById: vi.fn().mockResolvedValue(shipment) }),
+          fakeHandshakeRepository(),
+          createFakeUsersClient(
+            { [shipment.carrierId as string]: fakePublicProfile({ id: shipment.carrierId as string, fullName: "Juan Pérez" }) },
+            { [shipment.senderId]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() } }
+          ),
+          redis,
+          createFakeFundsReleaseNotifier(),
+          undefined,
+          notificationsClient,
+          routesProvider
+        );
+
+        await service.confirmHandshake({
+          shipmentId: shipment.id,
+          callerId: shipment.carrierId as string,
+          nonce,
+          signature,
+          lat: -31.4201,
+          lng: -64.1888,
+        });
+
+        await vi.waitFor(() => {
+          expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+            userId: shipment.receiverId,
+            title: "Tu paquete está en camino",
+            body: "Juan Pérez retiró el paquete y ya está en camino. Seguilo desde la app.",
+            category: "custody",
+            data: { type: "custody_pickup_confirmed", shipmentId: shipment.id },
+          });
+        });
+      });
+
+      it("entrega confirmada: avisa al emisor Y al transportista, cada uno con su copy, categoría 'custody'", async () => {
+        const shipment = fakeShipment({ status: ShipmentStatus.IN_TRANSIT });
+        const redis = createFakeRedis();
+        const { nonce, signature } = await seedPendingChallenge(
+          redis,
+          shipment.id,
+          "delivery",
+          shipment.carrierId as string,
+          -31.4353,
+          -64.1858
+        );
+        const notificationsClient = { sendPush: vi.fn().mockResolvedValue(undefined) };
+        const service = createHandshakeService(
+          fakeShipmentRepository({ findById: vi.fn().mockResolvedValue(shipment) }),
+          fakeHandshakeRepository(),
+          createFakeUsersClient(
+            { [shipment.receiverId]: fakePublicProfile({ id: shipment.receiverId, fullName: "Ana Gómez" }) },
+            { [shipment.carrierId as string]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() } }
+          ),
+          redis,
+          createFakeFundsReleaseNotifier(),
+          undefined,
+          notificationsClient
+        );
+
+        await service.confirmHandshake({
+          shipmentId: shipment.id,
+          callerId: shipment.receiverId,
+          nonce,
+          signature,
+          lat: -31.4353,
+          lng: -64.1858,
+        });
+
+        await vi.waitFor(() => {
+          expect(notificationsClient.sendPush).toHaveBeenCalledTimes(2);
+          expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+            userId: shipment.senderId,
+            title: "Entrega confirmada",
+            body: "Ana Gómez confirmó que recibió tu paquete.",
+            category: "custody",
+            data: { type: "custody_delivery_confirmed", shipmentId: shipment.id },
+          });
+          expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+            userId: shipment.carrierId,
+            title: "Entrega confirmada",
+            body: "Ana Gómez confirmó la entrega. ¡Gracias por tu viaje con Movo!",
+            category: "custody",
+            data: { type: "custody_delivery_confirmed", shipmentId: shipment.id },
+          });
+        });
+      });
+
+      it("sin notificationsClient inyectado, no rompe (comportamiento previo a MOVO-245)", async () => {
+        const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED });
+        const redis = createFakeRedis();
+        const { nonce, signature } = await seedPendingChallenge(
+          redis,
+          shipment.id,
+          "pickup",
+          shipment.senderId,
+          -31.4201,
+          -64.1888
+        );
+        const service = createHandshakeService(
+          fakeShipmentRepository({ findById: vi.fn().mockResolvedValue(shipment) }),
+          fakeHandshakeRepository(),
+          createFakeUsersClient({}, { [shipment.senderId]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() } }),
+          redis,
+          createFakeFundsReleaseNotifier()
+        );
+
+        await expect(
+          service.confirmHandshake({
+            shipmentId: shipment.id,
+            callerId: shipment.carrierId as string,
+            nonce,
+            signature,
+            lat: -31.4201,
+            lng: -64.1888,
+          })
+        ).resolves.toMatchObject({ status: ShipmentStatus.IN_TRANSIT });
       });
     });
 

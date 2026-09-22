@@ -28,4 +28,22 @@ describe("createMockRoutesProvider", () => {
     expect(result.distanceMeters).toBeGreaterThan(0);
     expect(result.durationSeconds).toBeGreaterThan(0);
   });
+
+  describe("getRouteDurations", () => {
+    it("devuelve una duración por destino, en el mismo orden e indexadas por destinationIndex", async () => {
+      const farDestination = { lat: -31.5, lng: -64.3 };
+      const results = await provider.getRouteDurations({ origin, destinations: [destination, farDestination] });
+
+      expect(results).toHaveLength(2);
+      expect(results[0].destinationIndex).toBe(0);
+      expect(results[1].destinationIndex).toBe(1);
+      expect(results[0].durationSeconds).toBeGreaterThan(0);
+      expect(results[1].durationSeconds).toBeGreaterThan(results[0].durationSeconds as number);
+    });
+
+    it("devuelve un array vacío sin destinos", async () => {
+      const results = await provider.getRouteDurations({ origin, destinations: [] });
+      expect(results).toEqual([]);
+    });
+  });
 });

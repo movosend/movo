@@ -120,12 +120,14 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
           userId: winner.carrierId,
           title: "Tu oferta fue aceptada",
           body: "El emisor eligió tu oferta para este envío.",
+          category: "offers",
           data: { type: "offer_accepted", shipmentId, offerId: winner.id },
         });
         expect(notificationsClient.sendPush).toHaveBeenCalledWith({
           userId: loser.carrierId,
           title: "Tu oferta ya no está disponible",
           body: "El emisor eligió otra oferta para este envío.",
+          category: "offers",
           data: { type: "offer_superseded", shipmentId, offerId: loser.id },
         });
       });
@@ -312,6 +314,7 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
           userId: offer.carrierId,
           title: "Tu oferta fue rechazada",
           body: "El emisor rechazó tu oferta para este envío.",
+          category: "offers",
           data: { type: "offer_rejected", shipmentId, offerId: offer.id },
         });
       });
