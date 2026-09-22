@@ -114,6 +114,17 @@ describe("NotificationsHubScreen", () => {
     await waitFor(() => expect(getByTestId("notifications-hub-permission-banner")).toBeTruthy());
   });
 
+  it("con push bloqueado, oculta el resto de la pantalla (sin funcionalidad real)", async () => {
+    mockGetNotificationPermissionStatus.mockResolvedValue({ granted: false, canAskAgain: true });
+
+    const { getByTestId, queryByTestId } = await render(<NotificationsHubScreen />);
+
+    await waitFor(() => expect(getByTestId("notifications-hub-permission-banner")).toBeTruthy());
+    expect(queryByTestId("notifications-hub-settings")).toBeNull();
+    expect(queryByTestId("notifications-hub-master-toggle")).toBeNull();
+    expect(queryByTestId("notifications-hub-quiet-hours")).toBeNull();
+  });
+
   it("muestra el estado de carga mientras obtiene las preferencias", async () => {
     mockUseNotificationPreferences.mockReturnValue({ data: undefined, isLoading: true, isError: false });
 

@@ -107,66 +107,78 @@ export default function NotificationsHubScreen() {
         >
           <ErrorBanner testID="notifications-hub-banner" message={banner} />
 
-          {permissionBlocked ? <NotificationPermissionBanner testID="notifications-hub-permission-banner" /> : null}
-
-          <Pressable
-            testID="notifications-hub-quiet-hours"
-            onPress={() => router.push("/profile/notifications/quiet-hours" as any)}
-            className="mb-7 flex-row items-center gap-3.5 rounded-[10px] border border-border bg-bg-sub p-4"
-          >
-            <View className="flex-1">
-              <Text className="font-sans-medium text-body text-fg">Horario de silencio</Text>
-              <Text testID="notifications-hub-quiet-hours-summary" className="mt-0.5 font-sans text-small text-fg-3">
-                {quietHoursSummaryLabel(prefs.quietHours)}
+          {permissionBlocked ? (
+            <NotificationPermissionBanner testID="notifications-hub-permission-banner" />
+          ) : (
+            <View testID="notifications-hub-settings">
+              <Text testID="notifications-hub-intro" className="mb-6 font-sans text-small leading-[19px] text-fg-3">
+                Elegí qué te avisamos y cómo. Podés prender o apagar categorías enteras, definir un horario de
+                silencio, y desactivar todo de una con el interruptor de arriba.
               </Text>
-            </View>
-            <ChevronRight size={18} strokeWidth={1.8} color={colors.fg3} />
-          </Pressable>
 
-          <View className="mb-7 flex-row items-center gap-3.5 rounded-[10px] border border-border p-4">
-            <View className="flex-1">
-              <Text className="font-sans-medium text-body text-fg">Notificaciones push</Text>
-              <Text className="mt-0.5 font-sans text-small text-fg-3">
-                {prefs.pushEnabled ? "Activadas" : "Desactivadas — ninguna categoría te va a avisar"}
-              </Text>
-            </View>
-            <ToggleSwitch
-              testID="notifications-hub-master-toggle"
-              value={prefs.pushEnabled}
-              onChange={togglePush}
-              disabled={permissionBlocked}
-            />
-          </View>
+              <View className="mb-9 rounded-[10px] border border-border">
+                <View className="flex-row items-center gap-3.5 p-4">
+                  <View className="flex-1">
+                    <Text className="font-sans-medium text-body text-fg">Notificaciones push</Text>
+                    <Text className="mt-0.5 font-sans text-small text-fg-3">
+                      {prefs.pushEnabled ? "Activadas" : "Desactivadas — ninguna categoría te va a avisar"}
+                    </Text>
+                  </View>
+                  <ToggleSwitch
+                    testID="notifications-hub-master-toggle"
+                    value={prefs.pushEnabled}
+                    onChange={togglePush}
+                  />
+                </View>
 
-          {sections.map((section) => (
-            <View key={section.section} className="mb-2">
-              <View className="mb-2.5 border-b border-border-strong pb-1">
-                <Text className="font-sans-semibold text-caption uppercase text-fg">{section.title}</Text>
+                <View className="h-px bg-border" />
+
+                <Pressable
+                  testID="notifications-hub-quiet-hours"
+                  onPress={() => router.push("/profile/notifications/quiet-hours" as any)}
+                  className="flex-row items-center gap-3.5 p-4"
+                >
+                  <View className="flex-1">
+                    <Text className="font-sans-medium text-body text-fg">Horario de silencio</Text>
+                    <Text
+                      testID="notifications-hub-quiet-hours-summary"
+                      className="mt-0.5 font-sans text-small text-fg-3"
+                    >
+                      {quietHoursSummaryLabel(prefs.quietHours)}
+                    </Text>
+                  </View>
+                  <ChevronRight size={18} strokeWidth={1.8} color={colors.fg3} />
+                </Pressable>
               </View>
-              {section.note ? (
-                <Text className="mb-2 font-sans text-[11px] text-fg-3">{section.note}</Text>
-              ) : null}
-              {section.categories.map((category) => (
-                <NotificationCategoryRow
-                  key={category.id}
-                  testID={`notifications-hub-row-${category.id}`}
-                  title={category.title}
-                  sub={category.sub}
-                  implemented={category.implemented}
-                  enabled={isCategoryEnabled(prefs.categories, category.id)}
-                  dimmed={!prefs.pushEnabled}
-                  permissionBlocked={permissionBlocked}
-                  onToggle={(next) => toggleCategory(category.id, next)}
-                  onPress={() => router.push(`/profile/notifications/${category.id}` as any)}
-                />
-              ))}
-            </View>
-          ))}
 
-          <Text className="mt-3 font-sans text-[11px] leading-[16px] text-fg-3">
-            Los avisos marcados <Text className="font-sans-semibold text-fg-2">Pronto</Text> todavía no están
-            disponibles. Te van a llegar en cuanto se habiliten, con la configuración que dejes acá.
-          </Text>
+              {sections.map((section) => (
+                <View key={section.section} className="mb-9">
+                  <Text className="mb-3 font-sans-semibold text-h3 text-fg">{section.title}</Text>
+                  <View className="px-4">
+                    {section.categories.map((category) => (
+                      <NotificationCategoryRow
+                        key={category.id}
+                        testID={`notifications-hub-row-${category.id}`}
+                        title={category.title}
+                        sub={category.sub}
+                        implemented={category.implemented}
+                        enabled={isCategoryEnabled(prefs.categories, category.id)}
+                        dimmed={!prefs.pushEnabled}
+                        permissionBlocked={false}
+                        onToggle={(next) => toggleCategory(category.id, next)}
+                        onPress={() => router.push(`/profile/notifications/${category.id}` as any)}
+                      />
+                    ))}
+                  </View>
+                </View>
+              ))}
+
+              <Text className="mt-3 font-sans text-[11px] leading-[16px] text-fg-3">
+                Los avisos marcados <Text className="font-sans-semibold text-fg-2">Pronto</Text> todavía no
+                están disponibles. Te van a llegar en cuanto se habiliten, con la configuración que dejes acá.
+              </Text>
+            </View>
+          )}
         </ScrollView>
       )}
     </SafeAreaView>
