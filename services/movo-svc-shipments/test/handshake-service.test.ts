@@ -8,7 +8,7 @@ import { HandshakeEvent } from "../src/models/handshake";
 import { Shipment, PackageType } from "../src/models/shipment";
 import { buildHandshakeCanonicalPayload } from "../src/domain/handshake-crypto";
 import { MIN_EVIDENCE_PHOTOS_PER_STAGE } from "../src/domain/evidence-photos";
-import { createFakeUsersClient } from "./fake-users-client";
+import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
 import { createFakeFundsReleaseNotifier } from "./fake-funds-release-notifier";
 
 const { subtle } = webcrypto;
@@ -844,7 +844,10 @@ describe("handshake.service", () => {
         const service = createHandshakeService(
           fakeShipmentRepository({ findById: vi.fn().mockResolvedValue(shipment) }),
           fakeHandshakeRepository(),
-          createFakeUsersClient({}, { [shipment.senderId]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() } }),
+          createFakeUsersClient(
+            { [shipment.carrierId as string]: fakePublicProfile({ id: shipment.carrierId as string, fullName: "Juan Pérez" }) },
+            { [shipment.senderId]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() } }
+          ),
           redis,
           createFakeFundsReleaseNotifier(),
           undefined,
@@ -865,7 +868,7 @@ describe("handshake.service", () => {
           expect(notificationsClient.sendPush).toHaveBeenCalledWith({
             userId: shipment.senderId,
             title: "Retiro confirmado",
-            body: "El transportista retiró tu paquete y quedó bajo su custodia.",
+            body: "Juan Pérez retiró tu paquete y esta en camino al destino.",
             category: "custody",
             data: { type: "custody_pickup_confirmed", shipmentId: shipment.id },
           });
@@ -887,7 +890,10 @@ describe("handshake.service", () => {
         const service = createHandshakeService(
           fakeShipmentRepository({ findById: vi.fn().mockResolvedValue(shipment) }),
           fakeHandshakeRepository(),
-          createFakeUsersClient({}, { [shipment.carrierId as string]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() } }),
+          createFakeUsersClient(
+            { [shipment.receiverId]: fakePublicProfile({ id: shipment.receiverId, fullName: "Ana Gómez" }) },
+            { [shipment.carrierId as string]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() } }
+          ),
           redis,
           createFakeFundsReleaseNotifier(),
           undefined,
@@ -908,14 +914,14 @@ describe("handshake.service", () => {
           expect(notificationsClient.sendPush).toHaveBeenCalledWith({
             userId: shipment.senderId,
             title: "Entrega confirmada",
-            body: "El receptor confirmó que recibió el paquete.",
+            body: "Ana Gómez confirmó que recibió el paquete.",
             category: "custody",
             data: { type: "custody_delivery_confirmed", shipmentId: shipment.id },
           });
           expect(notificationsClient.sendPush).toHaveBeenCalledWith({
             userId: shipment.carrierId,
             title: "Entrega confirmada",
-            body: "El receptor confirmó que recibió el paquete.",
+            body: "Ana Gómez confirmó que recibió el paquete.",
             category: "custody",
             data: { type: "custody_delivery_confirmed", shipmentId: shipment.id },
           });

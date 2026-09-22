@@ -62,6 +62,7 @@ type ShipmentsServiceLogger =
 interface NewOfferPushParams {
   senderId: string;
   carrierName: string | null;
+  deliveryShort: string;
   shipmentId: string;
   offerId: string;
 }
@@ -79,7 +80,10 @@ async function dispatchNewOfferPush(
     return;
   }
   try {
-    const { title, body } = renderNotificationTrigger("offerCreated", { carrierName: params.carrierName });
+    const { title, body } = renderNotificationTrigger("offerCreated", {
+      carrierName: params.carrierName,
+      deliveryShort: params.deliveryShort,
+    });
     await notificationsClient.sendPush({
       userId: params.senderId,
       title,
@@ -505,8 +509,8 @@ async function dispatchReceiverTimeoutPush(
 
 /** MOVO-179: primer componente de una dirección ("Av. Colón 1234, Córdoba" ->
  * "Av. Colón 1234") -- sin helper de formato de dirección reusable en el repo
- * todavía, así que queda local a este archivo (único consumidor hoy: el copy del
- * push de `dispatchTripMatchPushes`). */
+ * todavía, así que queda local a este archivo (consumido por el copy del push de
+ * `dispatchTripMatchPushes` y, desde MOVO-245, `dispatchNewOfferPush`). */
 function shortAddress(address: string): string {
   return address.split(",")[0].trim();
 }
@@ -1237,6 +1241,7 @@ export function createShipmentsService(
       void dispatchNewOfferPush(notificationsClient, logger, {
         senderId: shipment.senderId,
         carrierName: offer.carrierNameAtOffer,
+        deliveryShort: shortAddress(shipment.deliveryAddress),
         shipmentId: shipment.id,
         offerId: offer.id,
       });

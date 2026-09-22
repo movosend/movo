@@ -340,14 +340,23 @@ export function createHandshakeService(
       // completó la entrega") -- best-effort, nunca bloquea la respuesta ya commiteada.
       if (notificationsClient) {
         if (stage === "pickup") {
-          const { title, body } = renderNotificationTrigger("custodyPickupConfirmed", undefined);
-          void notificationsClient
-            .sendPush({
-              userId: shipment.senderId,
-              title,
-              body,
-              category: notificationTriggerCategory("custodyPickupConfirmed"),
-              data: { type: "custody_pickup_confirmed", shipmentId: input.shipmentId },
+          // Quien confirma/escanea en el retiro es siempre el transportista
+          // (`assertIsCarrier` arriba, `input.callerId`) -- se busca su perfil con
+          // el emisor como caller, mismo criterio que `dispatchReceiverDecisionPush`
+          // en `shipments.service.ts`.
+          void usersClient
+            .findPublicProfile(input.callerId, shipment.senderId)
+            .catch(() => null)
+            .then((carrierProfile) => {
+              const carrierName = carrierProfile?.fullName ?? "El transportista";
+              const { title, body } = renderNotificationTrigger("custodyPickupConfirmed", { carrierName });
+              return notificationsClient.sendPush({
+                userId: shipment.senderId,
+                title,
+                body,
+                category: notificationTriggerCategory("custodyPickupConfirmed"),
+                data: { type: "custody_pickup_confirmed", shipmentId: input.shipmentId },
+              });
             })
             .catch((err) => {
               logger?.warn(
@@ -356,26 +365,42 @@ export function createHandshakeService(
               );
             });
         } else {
-          const { title, body } = renderNotificationTrigger("custodyDeliveryConfirmed", undefined);
-          const recipients = [shipment.senderId, shipment.carrierId].filter(
-            (id): id is string => id !== null && id !== undefined
-          );
-          for (const userId of recipients) {
-            void notificationsClient
-              .sendPush({
-                userId,
-                title,
-                body,
-                category: notificationTriggerCategory("custodyDeliveryConfirmed"),
-                data: { type: "custody_delivery_confirmed", shipmentId: input.shipmentId },
-              })
-              .catch((err) => {
-                logger?.warn(
-                  { err, event: "notification_dispatch_failed", shipmentId: input.shipmentId, userId },
-                  "No se pudo notificar la confirmación de entrega"
-                );
-              });
-          }
+          // Quien confirma/escanea en la entrega es siempre el receptor
+          // (`assertIsReceiver` arriba, `input.callerId`) -- un solo perfil resuelto
+          // una vez, reusado para ambos destinatarios (emisor y transportista
+          // reciben el mismo copy).
+          void usersClient
+            .findPublicProfile(input.callerId, shipment.senderId)
+            .catch(() => null)
+            .then((receiverProfile) => {
+              const receiverName = receiverProfile?.fullName ?? "El receptor";
+              const { title, body } = renderNotificationTrigger("custodyDeliveryConfirmed", { receiverName });
+              const recipients = [shipment.senderId, shipment.carrierId].filter(
+                (id): id is string => id !== null && id !== undefined
+              );
+              return Promise.all(
+                recipients.map((userId) =>
+                  notificationsClient.sendPush({
+                    userId,
+                    title,
+                    body,
+                    category: notificationTriggerCategory("custodyDeliveryConfirmed"),
+                    data: { type: "custody_delivery_confirmed", shipmentId: input.shipmentId },
+                  }).catch((err) => {
+                    logger?.warn(
+                      { err, event: "notification_dispatch_failed", shipmentId: input.shipmentId, userId },
+                      "No se pudo notificar la confirmación de entrega"
+                    );
+                  })
+                )
+              );
+            })
+            .catch((err) => {
+              logger?.warn(
+                { err, event: "notification_dispatch_failed", shipmentId: input.shipmentId },
+                "No se pudo notificar la confirmación de entrega"
+              );
+            });
         }
       }
 

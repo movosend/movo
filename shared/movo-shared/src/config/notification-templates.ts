@@ -90,12 +90,14 @@ export const NOTIFICATION_TRIGGERS = {
       body: "Tu envío se canceló: ningún transportista lo retiró dentro de la ventana publicada",
     })
   ),
-  offerCreated: definition<{ carrierName: string | null }>(
+  offerCreated: definition<{ carrierName: string | null; deliveryShort: string }>(
     "offers",
     { title: "Nueva oferta en tu envío", body: "Un transportista ofertó por tu envío." },
-    ({ carrierName }) => ({
+    ({ carrierName, deliveryShort }) => ({
       title: "Nueva oferta en tu envío",
-      body: carrierName ? `${carrierName} ofertó por tu envío.` : "Recibiste una nueva oferta.",
+      body: carrierName
+        ? `${carrierName} ofertó por tu envío a ${deliveryShort}.`
+        : `Recibiste una nueva oferta en tu envío a ${deliveryShort}.`,
     })
   ),
   offerAccepted: definition<void>(
@@ -127,18 +129,18 @@ export const NOTIFICATION_TRIGGERS = {
     { title: "Nuevo paquete compatible", body: "Hay un envío compatible con tu viaje." },
     ({ originShort, destinationShort }) => ({
       title: "Nuevo paquete compatible",
-      body: `Hay un envío compatible con tu viaje ${originShort} → ${destinationShort}`,
+      body: `Hay un envío compatible con tu viaje de ${originShort} → ${destinationShort}`,
     })
   ),
   tripAutoCreated: definition<void>(
     "trips",
     {
       title: "Se creó un viaje a partir de este envío",
-      body: "Armamos un viaje en tu cuenta con este envío -- vas a recibir avisos de otros paquetes compatibles con esta ruta.",
+      body: "Armamos un viaje en tu cuenta con este envío. Vas a recibir avisos de otros paquetes compatibles con esta ruta.",
     },
     () => ({
       title: "Se creó un viaje a partir de este envío",
-      body: "Armamos un viaje en tu cuenta con este envío -- vas a recibir avisos de otros paquetes compatibles con esta ruta.",
+      body: "Armamos un viaje en tu cuenta con este envío. Vas a recibir avisos de otros paquetes compatibles con esta ruta.",
     })
   ),
   ratingReceived: definition<void>(
@@ -151,15 +153,18 @@ export const NOTIFICATION_TRIGGERS = {
   ),
   // MOVO-245 (nuevo, sobre el handshake ya Done de MOVO-158/196): antes no disparaba
   // ningún push -- el usuario se enteraba solo reabriendo la app (ver MOVO-240).
-  custodyPickupConfirmed: definition<void>(
+  custodyPickupConfirmed: definition<{ carrierName: string }>(
     "custody",
-    { title: "Retiro confirmado", body: "El transportista retiró tu paquete y quedó bajo su custodia." },
-    () => ({ title: "Retiro confirmado", body: "El transportista retiró tu paquete y quedó bajo su custodia." })
+    { title: "Retiro confirmado", body: "El transportista retiró tu paquete y esta en camino al destino." },
+    ({ carrierName }) => ({
+      title: "Retiro confirmado",
+      body: `${carrierName} retiró tu paquete y esta en camino al destino.`,
+    })
   ),
-  custodyDeliveryConfirmed: definition<void>(
+  custodyDeliveryConfirmed: definition<{ receiverName: string }>(
     "custody",
     { title: "Entrega confirmada", body: "El receptor confirmó que recibió el paquete." },
-    () => ({ title: "Entrega confirmada", body: "El receptor confirmó que recibió el paquete." })
+    ({ receiverName }) => ({ title: "Entrega confirmada", body: `${receiverName} confirmó que recibió el paquete.` })
   ),
 };
 
