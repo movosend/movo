@@ -1,3 +1,4 @@
+import * as Haptics from "expo-haptics";
 import { useEffect } from "react";
 import { Pressable } from "react-native";
 import Animated, {
@@ -55,7 +56,10 @@ export function ToggleSwitch({ value, onChange, disabled, dimmed, testID }: Togg
     <Pressable
       testID={testID}
       disabled={disabled}
-      onPress={() => onChange(!value)}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onChange(!value);
+      }}
       accessibilityRole="switch"
       accessibilityState={{ checked: value, disabled: !!disabled }}
       style={{ opacity: dimmed ? 0.5 : 1 }}
