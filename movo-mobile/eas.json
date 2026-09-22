@@ -18,6 +18,15 @@
         "EXPO_PUBLIC_API_URL": "https://api-dev.movosend.app"
       }
     },
+    "staging": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "environment": "production",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api-dev.movosend.app",
+        "ENABLE_PUSH_NOTIFICATIONS": "true"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "env": {
@@ -26,6 +35,11 @@
     }
   },
   "submit": {
+    "staging": {
+      "ios": {
+        "ascAppId": "6814643767"
+      }
+    },
     "production": {}
   }
 }

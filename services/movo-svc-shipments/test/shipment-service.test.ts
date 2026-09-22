@@ -812,6 +812,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
         userId: "sender-id",
         title: "Envío aceptado",
         body: "María aceptó el envío, ya está publicado",
+        category: "shipments",
         data: { shipmentId: shipment.id, type: "shipment_accepted" },
       });
     });
@@ -860,6 +861,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
           userId: "carrier-1",
           title: "Nuevo paquete compatible",
           body: expect.stringContaining("Hay un envío compatible con tu viaje"),
+          category: "trips",
           data: { type: "trip_match", tripId: "trip-1", shipmentId: shipment.id },
         });
       });
@@ -1235,6 +1237,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
         userId: "sender-id",
         title: "Envío rechazado",
         body: "Carlos rechazó el envío",
+        category: "shipments",
         data: { shipmentId: shipment.id, type: "shipment_rejected" },
       });
     });
@@ -1412,12 +1415,14 @@ describe("shipments.service — expireOverdueShipments (MOVO-130)", () => {
         userId: "sender-1",
         title: "Envío cancelado",
         body: "Tu envío se canceló: Ana García no lo confirmó a tiempo",
+        category: "shipments",
         data: { shipmentId: "s-1", type: "shipment_cancelled" },
       });
       expect(notificationsClient.sendPush).toHaveBeenCalledWith({
         userId: "sender-2",
         title: "Envío cancelado",
         body: "Tu envío se canceló: Bruno Díaz no lo confirmó a tiempo",
+        category: "shipments",
         data: { shipmentId: "s-2", type: "shipment_cancelled" },
       });
     });
@@ -1502,6 +1507,7 @@ describe("shipments.service — expireOverduePublishedShipments (corrección de 
         userId: "sender-1",
         title: "Envío cancelado",
         body: "Tu envío se canceló: ningún transportista lo retiró dentro de la ventana publicada",
+        category: "shipments",
         data: { shipmentId: "s-1", type: "shipment_cancelled" },
       });
     });

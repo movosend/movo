@@ -2479,6 +2479,47 @@ publique en Drive (texto completo abajo), igual que los ADRs 012-021.
 > `MOVO-39`/`MOVO-134` (derecho de supresión), `MOVO-30` (disputas), `MOVO-146`
 > (ventana de calificación, referencia de plazo corto ya aceptada en el proyecto).
 
+### MOVO-245 — Preferencias de notificación push: enforcement + triggers de custodia/inicio de viaje
+
+Sub-issue de backend de MOVO-239/MOVO-240 (catálogo de push, separada de la mobile
+MOVO-246). Los ~13 call sites de `sendPush` existentes (envíos/ofertas/viajes/
+calificaciones) pasan a usar el copy/categoría centralizados de `@movo/shared`
+(`renderNotificationTrigger`/`notificationTriggerCategory`, ver
+`shared/movo-shared/CLAUDE.md`) — `category` pasa a un campo obligatorio de
+`SendPushNotificationInput`, el enforcement real (toggle maestro/categoría/horario de
+silencio) vive del lado de `movo-svc-users`.
+
+- **Dos avisos nuevos que antes no existían, cerrando un gap real del catálogo**:
+  el handshake de custodia (`handshake.service.ts`) no disparaba ningún push — ahora
+  el retiro avisa a emisor **y** receptor (el receptor nunca sabía que su paquete ya
+  estaba en camino) y la entrega avisa a emisor y transportista, cada uno con copy
+  propio (antes de este ticket ninguno de los dos existía). El inicio de un viaje
+  (`trips.service.ts#dispatchTripStartedPushes`, `startTrip`) tampoco notificaba a
+  nadie — ahora avisa a emisor/receptor de cada envío del viaje todavía sin retirar
+  (`ASSIGNED_UNFUNDED`/`ASSIGNED`); un envío ya `IN_TRANSIT` del mismo viaje no entra,
+  para no duplicar el aviso que ya disparó el handshake de retiro.
+- **`sendCustodyPush` (`src/utils/dispatch-push.ts`, fix post-review de PR #182)**:
+  colapsa el patrón repetido 3 veces (handshake pickup/delivery, inicio de viaje) de
+  renderizar un trigger + `sendPush` + tragarse el error con un `logger?.warn` propio
+  — un trigger nuevo de custodia solo necesita un call site, no volver a copiar ese
+  try/catch de ~20 líneas.
+- **`RoutesProvider.getRouteDurations` (uno-a-muchos, fix post-review de PR #182)**:
+  `dispatchTripStartedPushes` pedía un `getRoute` por envío pendiente del viaje (N
+  llamadas billables de Google Routes API con el mismo origen — hallazgo de code
+  review, ver ADR-015/`GOOGLE_MAPS_MAX_ELEMENTS`). Ahora una sola llamada a
+  `Compute Route Matrix` (1 origen x N destinos, `google-routes-provider.ts`) resuelve
+  el ETA de todos los envíos pendientes de una vez; un destino sin ruta resuelve a
+  `durationSeconds: null` sin tirar el resto de la matriz.
+
+Tests: unitarios verdes en los 3 paquetes (incluidos los nuevos de
+`google-routes-provider.test.ts`/`mock-routes-provider.test.ts` para
+`getRouteDurations`); los de integración de MOVO-245 en sí quedaron escritos pero sin
+poder correrse en este entorno por falta de Postgres/Redis local.
+
+Pendiente / fuera de alcance: mobile de MOVO-246 (pantalla de configuración,
+consumiendo las categorías `custody` nuevas); verificar en CI los tests de
+integración que no se pudieron correr localmente.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

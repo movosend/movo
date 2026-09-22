@@ -1,4 +1,4 @@
-import { ApiError, ShipmentStatus, UserRole } from "@movo/shared";
+import { ApiError, ShipmentStatus, UserRole, renderNotificationTrigger, notificationTriggerCategory } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { RatingRepository } from "../../repositories/rating-repository";
@@ -162,11 +162,13 @@ export function createRatingsService(
       // ya commiteada (mismo criterio que dispatchReceiverDecisionPush en
       // shipments.service.ts).
       if (notificationsClient) {
+        const { title, body } = renderNotificationTrigger("ratingReceived", undefined);
         void notificationsClient
           .sendPush({
             userId: created.rateeId,
-            title: "Recibiste una calificación",
-            body: "Alguien calificó tu participación en un envío. Mirala en tu perfil.",
+            title,
+            body,
+            category: notificationTriggerCategory("ratingReceived"),
             data: { type: "rating_received", shipmentId: created.shipmentId },
           })
           .catch((err: unknown) => {

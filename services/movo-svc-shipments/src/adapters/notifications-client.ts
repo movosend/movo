@@ -1,8 +1,15 @@
+import { NotificationCategoryId } from "@movo/shared";
+
 export interface SendPushNotificationInput {
   userId: string;
   title: string;
   body: string;
   data?: Record<string, unknown>;
+  /** MOVO-245 (AC1/AC2): obligatoria -- `movo-svc-users` la exige para poder respetar
+   * el toggle maestro/de categoría/horario de silencio del usuario antes de enviar.
+   * Preferí `notificationTriggerCategory(triggerKey)` (@movo/shared) en vez de
+   * escribir el id a mano en cada call site. */
+  category: NotificationCategoryId;
 }
 
 /**

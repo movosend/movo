@@ -264,3 +264,33 @@ ya no nace directo en `active`). Tres códigos nuevos en `ApiErrorCode`
 de `tripId` en `POST /shipments/:id/offers` — `TRIP_NOT_ACTIVE` (MOVO-162) queda sin
 uso pero nunca se elimina (contrato de wire). Detalle completo en
 `services/movo-svc-shipments/CLAUDE.md` (entrada de MOVO-221).
+
+### MOVO-245 — Catálogo de notificaciones: categorías, copy centralizado, horario de silencio
+
+Sub-issue de backend de MOVO-239/MOVO-240. Tres archivos nuevos en `src/config/`:
+
+- **`notification-categories.ts`**: catálogo de 11 categorías, 5 implementadas
+  (`custody`/`offers`/`ratings`/`trips`/`shipments`) y 6 marcadas `implemented: false`
+  ("Pronto" — `proximity`/`payments`/`kyc`/`account_security`/`chat`/`disputes`, del
+  catálogo de MOVO-240 sin trigger real todavía). El `id` es un string libre validado
+  en código vía `isImplementedNotificationCategory`, no un enum de Prisma — sumar una
+  categoría nueva no pide migración. `IMPLEMENTED_NOTIFICATION_CATEGORY_IDS` es la
+  lista que
+  `movo-svc-users` usa para validar `PUT /users/me/notification-preferences` (una key
+  desconocida o "Pronto" es 400) y para resolver el default (`true`) de cualquier
+  categoría sin fila explícita (AC5, tabla sparse).
+- **`notification-templates.ts`**: copy (título/cuerpo) centralizado por trigger
+  (`NOTIFICATION_TRIGGERS`, un literal tipado por `NotificationTriggerKey`) con
+  interpolación (`renderNotificationTrigger`) y su categoría asociada
+  (`notificationTriggerCategory`) — reemplaza el copy que antes vivía a mano repetido
+  en cada call site de `sendPush` de `movo-svc-shipments` (~13 sites, ver su
+  `CLAUDE.md`, entrada de MOVO-245).
+- **`quiet-hours.ts`** (`isValidTimeOfDay` + el cálculo del horario de silencio en hora
+  Argentina) y `formatEtaDuration` (min u horas) reusado por los triggers que llevan
+  ETA (retiro/inicio de viaje).
+
+`SendPushNotificationInput.category` (`movo-svc-shipments/src/adapters/
+notifications-client.ts`) pasa a ser un campo **obligatorio**, no un cambio de tipo
+compartido acá — `movo-svc-users` (`sendPushToUser`, único choke point) lo necesita
+para poder respetar el toggle maestro/de categoría/horario de silencio antes de
+enviar. Todo caller existente que no lo mande rompe en tiempo de compilación.

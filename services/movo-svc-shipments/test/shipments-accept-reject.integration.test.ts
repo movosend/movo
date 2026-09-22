@@ -147,6 +147,7 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
           userId: senderId,
           title: "Envío aceptado",
           body: "Lucía aceptó el envío, ya está publicado",
+          category: "shipments",
           data: { shipmentId: shipment.id, type: "shipment_accepted" },
         });
       });
@@ -344,6 +345,7 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
           userId: trip.carrierId,
           title: "Nuevo paquete compatible",
           body: expect.stringContaining("Hay un envío compatible con tu viaje"),
+          category: "trips",
           data: { type: "trip_match", tripId: trip.id, shipmentId: shipment.id },
         });
       });
@@ -451,6 +453,7 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
           userId: senderId,
           title: "Envío rechazado",
           body: "Lucía rechazó el envío",
+          category: "shipments",
           data: { shipmentId: shipment.id, type: "shipment_rejected" },
         });
       });

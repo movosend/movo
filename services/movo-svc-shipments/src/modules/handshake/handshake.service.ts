@@ -4,6 +4,9 @@ import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { HandshakeRepository } from "../../repositories/handshake-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { FundsReleaseNotifier } from "../../adapters/funds-release-notifier";
+import { NotificationsClient } from "../../adapters/notifications-client";
+import { RoutesProvider } from "../../adapters/routes-provider";
+import { sendCustodyPush } from "../../utils/dispatch-push";
 import { HandshakeStage } from "../../models/handshake";
 import { PhotoStage } from "../../models/shipment";
 import {
@@ -112,7 +115,16 @@ export function createHandshakeService(
   usersClient: UsersClient,
   redis: HandshakeRedisClient,
   fundsReleaseNotifier: FundsReleaseNotifier,
-  logger?: HandshakeServiceLogger
+  logger?: HandshakeServiceLogger,
+  /** MOVO-245 (catálogo de MOVO-240): antes el handshake no disparaba ningún push --
+   * el usuario se enteraba del retiro/entrega solo reabriendo la app. Opcional (no
+   * rompe callers/tests existentes que no lo pasan) -- sin él, simplemente no se
+   * notifica, mismo criterio best-effort que `fundsReleaseNotifier`. */
+  notificationsClient?: NotificationsClient,
+  /** Ajuste post-MOVO-245: solo se usa para estimar el ETA del push al receptor en el
+   * retiro (`custodyPickupConfirmedReceiver`) -- opcional y best-effort, un fallo o la
+   * ausencia del provider degradan a un aviso sin ETA, nunca bloquean el push. */
+  routesProvider?: RoutesProvider
 ) {
   return {
     /**
@@ -326,6 +338,127 @@ export function createHandshakeService(
               "No se pudo notificar la liberación de fondos"
             );
           });
+      }
+
+      // MOVO-245 (catálogo de MOVO-240) + ajuste post-release: retiro avisa al emisor
+      // Y al receptor (con copy propio para cada uno -- el receptor nunca sabía que su
+      // paquete ya estaba en camino); entrega avisa al emisor Y al transportista, cada
+      // uno con su propio texto (antes compartían el mismo). Best-effort, nunca bloquea
+      // la respuesta ya commiteada.
+      if (notificationsClient) {
+        if (stage === "pickup") {
+          // Quien confirma/escanea en el retiro es siempre el transportista
+          // (`assertIsCarrier` arriba, `input.callerId`) -- se busca su perfil una
+          // sola vez (con el emisor como caller, mismo criterio que
+          // `dispatchReceiverDecisionPush` en `shipments.service.ts`), reusado para
+          // los dos pushes.
+          void usersClient
+            .findPublicProfile(input.callerId, shipment.senderId)
+            .catch(() => null)
+            .then(async (carrierProfile) => {
+              const carrierName = carrierProfile?.fullName ?? "El transportista";
+
+              const senderSend = sendCustodyPush({
+                notificationsClient,
+                userId: shipment.senderId,
+                triggerKey: "custodyPickupConfirmed",
+                params: { carrierName },
+                data: { type: "custody_pickup_confirmed", shipmentId: input.shipmentId },
+                logger,
+                onErrorContext: {
+                  event: "notification_dispatch_failed",
+                  message: "No se pudo notificar la confirmación de retiro al emisor",
+                  extra: { shipmentId: input.shipmentId },
+                },
+              });
+
+              // Best-effort: sin `routesProvider` (o si la llamada falla) el push al
+              // receptor sale igual, solo que sin ETA (`etaMinutes: null` cae al copy
+              // genérico del trigger).
+              const etaMinutes = routesProvider
+                ? await routesProvider
+                    .getRoute({
+                      origin: { lat: shipment.pickupLat, lng: shipment.pickupLng },
+                      destination: { lat: shipment.deliveryLat, lng: shipment.deliveryLng },
+                    })
+                    .then((route) => Math.round(route.durationSeconds / 60))
+                    .catch(() => null)
+                : null;
+              const receiverSend = sendCustodyPush({
+                notificationsClient,
+                userId: shipment.receiverId,
+                triggerKey: "custodyPickupConfirmedReceiver",
+                params: { carrierName, etaMinutes },
+                data: { type: "custody_pickup_confirmed", shipmentId: input.shipmentId },
+                logger,
+                onErrorContext: {
+                  event: "notification_dispatch_failed",
+                  message: "No se pudo notificar la confirmación de retiro al receptor",
+                  extra: { shipmentId: input.shipmentId },
+                },
+              });
+
+              return Promise.all([senderSend, receiverSend]);
+            })
+            .catch((err) => {
+              logger?.warn(
+                { err, event: "notification_dispatch_failed", shipmentId: input.shipmentId },
+                "No se pudo notificar la confirmación de retiro"
+              );
+            });
+        } else {
+          // Quien confirma/escanea en la entrega es siempre el receptor
+          // (`assertIsReceiver` arriba, `input.callerId`) -- un solo perfil resuelto
+          // una vez, reusado para armar los dos copys (cada destinatario recibe el
+          // suyo, ya no comparten texto).
+          void usersClient
+            .findPublicProfile(input.callerId, shipment.senderId)
+            .catch(() => null)
+            .then((receiverProfile) => {
+              const receiverName = receiverProfile?.fullName ?? "El receptor";
+
+              const sends = [
+                sendCustodyPush({
+                  notificationsClient,
+                  userId: shipment.senderId,
+                  triggerKey: "custodyDeliveryConfirmedSender",
+                  params: { receiverName },
+                  data: { type: "custody_delivery_confirmed", shipmentId: input.shipmentId },
+                  logger,
+                  onErrorContext: {
+                    event: "notification_dispatch_failed",
+                    message: "No se pudo notificar la confirmación de entrega al emisor",
+                    extra: { shipmentId: input.shipmentId },
+                  },
+                }),
+              ];
+              if (shipment.carrierId) {
+                sends.push(
+                  sendCustodyPush({
+                    notificationsClient,
+                    userId: shipment.carrierId,
+                    triggerKey: "custodyDeliveryConfirmedCarrier",
+                    params: { receiverName },
+                    data: { type: "custody_delivery_confirmed", shipmentId: input.shipmentId },
+                    logger,
+                    onErrorContext: {
+                      event: "notification_dispatch_failed",
+                      message: "No se pudo notificar la confirmación de entrega al transportista",
+                      extra: { shipmentId: input.shipmentId },
+                    },
+                  })
+                );
+              }
+
+              return Promise.all(sends);
+            })
+            .catch((err) => {
+              logger?.warn(
+                { err, event: "notification_dispatch_failed", shipmentId: input.shipmentId },
+                "No se pudo notificar la confirmación de entrega"
+              );
+            });
+        }
       }
 
       return {

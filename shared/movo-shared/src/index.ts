@@ -72,4 +72,29 @@ export { LEGAL_DOCUMENT_VERSIONS } from "./config/legal";
 export type { LegalDocumentKind } from "./config/legal";
 
 // utils
-export { toArgentinaCalendarDateString } from "./utils/argentina-date";
+export { toArgentinaCalendarDateString, toArgentinaTimeOfDayString } from "./utils/argentina-date";
+
+// notification preferences (MOVO-239)
+export {
+  NOTIFICATION_CATEGORIES,
+  IMPLEMENTED_NOTIFICATION_CATEGORY_IDS,
+  isImplementedNotificationCategory,
+  getNotificationCategory,
+} from "./config/notification-categories";
+export type {
+  NotificationSection,
+  NotificationCategoryDefinition,
+  NotificationCategoryId,
+} from "./config/notification-categories";
+export {
+  NOTIFICATION_TRIGGERS,
+  notificationTriggerCopy,
+  notificationTriggerCategory,
+  renderNotificationTrigger,
+} from "./config/notification-templates";
+export type {
+  NotificationTriggerKey,
+  NotificationCopy,
+  NotificationTriggerDefinition,
+} from "./config/notification-templates";
+export { isValidTimeOfDay, isWithinQuietHours } from "./config/quiet-hours";

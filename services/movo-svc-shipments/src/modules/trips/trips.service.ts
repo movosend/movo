@@ -1,5 +1,5 @@
 import { FastifyBaseLogger } from "fastify";
-import { ApiError, UserRole } from "@movo/shared";
+import { ApiError, ShipmentStatus, UserRole } from "@movo/shared";
 import {
   TripRepository,
   TripNotFoundError,
@@ -10,6 +10,9 @@ import {
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
+import { NotificationsClient } from "../../adapters/notifications-client";
+import { RoutesProvider } from "../../adapters/routes-provider";
+import { sendCustodyPush } from "../../utils/dispatch-push";
 import { Trip, TripStatus, CreateTripInput, UpdateTripInput, TripWithAcceptedPackages } from "../../models/trip";
 import { MatchedShipment } from "../../models/shipment";
 import { formatPickupInstant, toArgentinaCalendarDate } from "../../domain/pickup-window";
@@ -139,6 +142,118 @@ async function triggerRouteWarmup(
   }
 }
 
+/**
+ * Ajuste post-MOVO-245: avisa a emisor y receptor de cada envío de ESTE viaje
+ * (`listActiveShipments(..., trip.id)`, MOVO-235 AC1 -- el vínculo real es
+ * `Offer.tripId`, no una columna en `Shipment`) que todavía no fue retirado
+ * (`ASSIGNED_UNFUNDED`/`ASSIGNED`) de que el transportista arrancó el viaje. Un envío
+ * ya `IN_TRANSIT` no entra acá -- ya recibió su propio push al confirmarse el retiro
+ * (`custodyPickupConfirmed*`, `handshake.service.ts`), avisar dos veces sería ruido.
+ *
+ * Al emisor con el ETA estimado hasta el RETIRO de su paquete (`routesProvider`,
+ * origen del viaje -> pickup del envío -- best-effort, igual que en el handshake: sin
+ * `routesProvider` o si la llamada falla, el push sale igual sin ETA). Al receptor sin
+ * ETA -- prometer un horario de ENTREGA acá sería un dato que ni el transportista tiene
+ * todavía (recién sale a buscar el paquete, puede haber más paradas de por medio antes
+ * de llegar a la de este envío). Fire-and-forget, nunca bloquea `startTrip`.
+ */
+async function dispatchTripStartedPushes(
+  trip: Trip,
+  deps: {
+    shipmentRepository: ShipmentRepository;
+    usersClient: UsersClient;
+    notificationsClient?: NotificationsClient;
+    routesProvider?: RoutesProvider;
+    logger?: FastifyBaseLogger;
+  },
+): Promise<void> {
+  const { notificationsClient } = deps;
+  if (!notificationsClient) {
+    return;
+  }
+  try {
+    const shipments = await deps.shipmentRepository.listActiveShipments("carrierId", trip.carrierId, trip.id);
+    const pending = shipments.filter(
+      (shipment) => shipment.status === ShipmentStatus.ASSIGNED_UNFUNDED || shipment.status === ShipmentStatus.ASSIGNED,
+    );
+    if (pending.length === 0) {
+      return;
+    }
+
+    const carrierProfile = await deps.usersClient.findPublicProfile(trip.carrierId, trip.carrierId).catch(() => null);
+    const carrierName = carrierProfile?.fullName ?? "El transportista";
+
+    // Una sola llamada `Compute Route Matrix` (1 origen x N destinos) en vez de un
+    // `getRoute` por envío pendiente -- hallazgo de code review de PR #182 (N envíos
+    // pendientes en el mismo viaje disparaban N llamadas billables con el mismo
+    // origen). Best-effort igual que antes: sin `routesProvider`, o si la matriz entera
+    // falla, todos los pushes salen igual sin ETA.
+    const etaMinutesByShipmentId = new Map<string, number | null>();
+    if (deps.routesProvider) {
+      try {
+        const durations = await deps.routesProvider.getRouteDurations({
+          origin: { lat: trip.originLat, lng: trip.originLng },
+          destinations: pending.map((shipment) => ({ lat: shipment.pickupLat, lng: shipment.pickupLng })),
+        });
+        for (const result of durations) {
+          const shipment = pending[result.destinationIndex];
+          if (shipment) {
+            etaMinutesByShipmentId.set(
+              shipment.id,
+              result.durationSeconds !== null ? Math.round(result.durationSeconds / 60) : null,
+            );
+          }
+        }
+      } catch (err) {
+        deps.logger?.warn(
+          { err, event: "trip_started_route_matrix_failed", tripId: trip.id },
+          "Fallo al calcular la matriz de ETA para el inicio del viaje -- los pushes salen sin ETA",
+        );
+      }
+    }
+
+    await Promise.all(
+      pending.map((shipment) => {
+        const etaMinutes = etaMinutesByShipmentId.get(shipment.id) ?? null;
+
+        return Promise.all([
+          sendCustodyPush({
+            notificationsClient,
+            userId: shipment.senderId,
+            triggerKey: "tripStartedSender",
+            params: { carrierName, etaMinutes },
+            data: { type: "trip_started", tripId: trip.id, shipmentId: shipment.id },
+            logger: deps.logger,
+            onErrorContext: {
+              event: "notification_dispatch_failed",
+              message: "No se pudo notificar el inicio del viaje al emisor",
+              extra: { tripId: trip.id, shipmentId: shipment.id },
+            },
+          }),
+          sendCustodyPush({
+            notificationsClient,
+            userId: shipment.receiverId,
+            triggerKey: "tripStartedReceiver",
+            params: { carrierName },
+            data: { type: "trip_started", tripId: trip.id, shipmentId: shipment.id },
+            logger: deps.logger,
+            onErrorContext: {
+              event: "notification_dispatch_failed",
+              message: "No se pudo notificar el inicio del viaje al receptor",
+              extra: { tripId: trip.id, shipmentId: shipment.id },
+            },
+          }),
+        ]);
+      }),
+    );
+  } catch (err) {
+    deps.logger?.warn(
+      { err, event: "trip_started_push_failed", tripId: trip.id, carrierId: trip.carrierId },
+      "Fallo al notificar el inicio del viaje -- no bloquea la transición",
+    );
+  }
+}
+
 export function createTripsService(deps: {
   tripRepository: TripRepository;
   shipmentRepository: ShipmentRepository;
@@ -147,6 +262,12 @@ export function createTripsService(deps: {
   defaultMaxDetourKm: number;
   pricingLogisticsClient: PricingLogisticsClient;
   logger?: FastifyBaseLogger;
+  /** Ajuste post-MOVO-245: avisos de "el transportista arrancó el viaje" a emisor y
+   * receptor. Opcional (no rompe callers/tests existentes) -- sin él, `startTrip` no
+   * notifica, mismo criterio best-effort que `pricingLogisticsClient`. */
+  notificationsClient?: NotificationsClient;
+  /** Solo alimenta el ETA del push al emisor -- best-effort, ver `dispatchTripStartedPushes`. */
+  routesProvider?: RoutesProvider;
 }): TripsService {
   const {
     tripRepository,
@@ -156,6 +277,8 @@ export function createTripsService(deps: {
     defaultMaxDetourKm,
     pricingLogisticsClient,
     logger,
+    notificationsClient,
+    routesProvider,
   } = deps;
 
   return {
@@ -319,6 +442,13 @@ export function createTripsService(deps: {
 
       // Fire-and-forget: no se espera, ni su éxito ni su falla afectan la respuesta.
       void triggerRouteWarmup(started, { shipmentRepository, pricingLogisticsClient, logger });
+      void dispatchTripStartedPushes(started, {
+        shipmentRepository,
+        usersClient,
+        notificationsClient,
+        routesProvider,
+        logger,
+      });
 
       return started;
     },

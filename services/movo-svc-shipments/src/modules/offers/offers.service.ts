@@ -5,6 +5,8 @@ import {
   computeNetFromGross,
   computeOfferGrossPrice,
   getCommissionConfig,
+  renderNotificationTrigger,
+  notificationTriggerCategory,
 } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
 import { OfferRepository } from "../../repositories/offer-repository";
@@ -55,10 +57,13 @@ type OffersServiceLogger =
 
 interface OfferPushParams {
   carrierId: string;
-  title: string;
-  body: string;
   shipmentId: string;
   offerId: string;
+  /** Trigger centralizado (@movo/shared) -- resuelve título/cuerpo/categoría. */
+  triggerKey: "offerAccepted" | "offerSuperseded" | "offerRejected";
+  /** `data.type` de wire histórico, consumido por el deep-link de la push del
+   * mobile -- deliberadamente igual al nombre del trigger salvo por el casing/
+   * snake_case ya en producción, no se renombra un valor de wire por prolijidad. */
   type: "offer_accepted" | "offer_superseded" | "offer_rejected";
 }
 
@@ -71,10 +76,12 @@ async function dispatchOfferPush(
     return;
   }
   try {
+    const { title, body } = renderNotificationTrigger(params.triggerKey, undefined);
     await notificationsClient.sendPush({
       userId: params.carrierId,
-      title: params.title,
-      body: params.body,
+      title,
+      body,
+      category: notificationTriggerCategory(params.triggerKey),
       data: { type: params.type, shipmentId: params.shipmentId, offerId: params.offerId },
     });
   } catch (err) {
@@ -136,10 +143,12 @@ async function dispatchAutoTripCreatedPush(
     return;
   }
   try {
+    const { title, body } = renderNotificationTrigger("tripAutoCreated", undefined);
     await notificationsClient.sendPush({
       userId: trip.carrierId,
-      title: "Se creó un viaje a partir de este envío",
-      body: "Armamos un viaje en tu cuenta con este envío -- vas a recibir avisos de otros paquetes compatibles con esta ruta.",
+      title,
+      body,
+      category: notificationTriggerCategory("tripAutoCreated"),
       data: { type: "trip_auto_created", tripId: trip.id },
     });
   } catch (err) {
@@ -409,8 +418,7 @@ export function createOffersService(
       // commiteó, un fallo de entrega no revierte la asignación.
       void dispatchOfferPush(notificationsClient, logger, {
         carrierId: accepted.carrierId,
-        title: "Tu oferta fue aceptada",
-        body: "El emisor eligió tu oferta para este envío.",
+        triggerKey: "offerAccepted",
         shipmentId,
         offerId: accepted.id,
         type: "offer_accepted",
@@ -423,8 +431,7 @@ export function createOffersService(
         superseded.map((sibling) =>
           dispatchOfferPush(notificationsClient, logger, {
             carrierId: sibling.carrierId,
-            title: "Tu oferta ya no está disponible",
-            body: "El emisor eligió otra oferta para este envío.",
+            triggerKey: "offerSuperseded",
             shipmentId,
             offerId: sibling.id,
             type: "offer_superseded",
@@ -463,8 +470,7 @@ export function createOffersService(
 
       void dispatchOfferPush(notificationsClient, logger, {
         carrierId: rejected.carrierId,
-        title: "Tu oferta fue rechazada",
-        body: "El emisor rechazó tu oferta para este envío.",
+        triggerKey: "offerRejected",
         shipmentId: rejected.shipmentId,
         offerId: rejected.id,
         type: "offer_rejected",

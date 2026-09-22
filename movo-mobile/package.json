@@ -16,6 +16,7 @@
     "expo-camera": "~57.0.5",
     "expo-constants": "~57.0.8",
     "expo-crypto": "~57.0.1",
+    "expo-dev-client": "~57.0.19",
     "expo-font": "~57.0.1",
     "expo-haptics": "~57.0.1",
     "expo-image-manipulator": "~57.0.10",
@@ -58,7 +59,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "test": "jest"
+    "test": "jest",
+    "eas-build-post-install": "npm run build --prefix ../shared/movo-shared"
   },
   "private": true
 }

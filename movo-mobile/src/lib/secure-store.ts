@@ -58,6 +58,14 @@ export const SECURE_STORE_KEYS = {
    * preferencia de UI sin nada sensible, reusa este wrapper genérico en vez de sumar
    * una dependencia nueva (tipo AsyncStorage) solo para esto. */
   transportRadiusKm: "movo.transportRadiusKm",
+  /** Set de `tripId`s ya vistos por este dispositivo en "Mis viajes" (MOVO-236, AC2)
+   * — JSON array de strings. Fallback in-app para el aviso de viaje auto-creado
+   * (MOVO-234) cuando no hay push: sin este registro no hay forma de distinguir "vi
+   * este viaje antes" de "apareció recién", ya que un `Trip` auto-creado es
+   * indistinguible de uno declarado a mano (AC3 de MOVO-236). Mismo criterio que
+   * `transportRadiusKm`: preferencia local sin nada sensible, no amerita una
+   * dependencia nueva tipo AsyncStorage. */
+  carrierSeenTripIds: "movo.carrierSeenTripIds",
   /** Clave privada ECDSA P-256 del dispositivo para el handshake criptográfico
    * (MOVO-195, ADR-020) — generada una sola vez por `src/crypto/keypair.ts`, nunca en
    * `AsyncStorage` ni en estado de React (AC2). Mismo criterio que `pushDeviceId`:

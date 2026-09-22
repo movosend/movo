@@ -176,6 +176,32 @@ describe("usePushNotifications", () => {
     expect(mockRouterPush).toHaveBeenCalledWith({ pathname: "/(app)/(tabs)/transport", params: { tripId: "trip_cold" } });
   });
 
+  it("MOVO-236: tocar una notificación trip_auto_created navega al feed filtrado por tripId", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (response: unknown) => void;
+    listener({
+      notification: { request: { content: { data: { type: "trip_auto_created", tripId: "trip_2" } } } },
+    });
+
+    expect(mockRouterPush).toHaveBeenCalledWith({ pathname: "/(app)/(tabs)/transport", params: { tripId: "trip_2" } });
+  });
+
+  it("MOVO-236: un trip_auto_created sin tripId en el payload no navega", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (response: unknown) => void;
+    listener({
+      notification: { request: { content: { data: { type: "trip_auto_created" } } } },
+    });
+
+    expect(mockRouterPush).not.toHaveBeenCalled();
+  });
+
   it("limpia el listener de notificaciones al desmontar", async () => {
     mockUseAuthStore.mockImplementation((selector) => selector({ status: "unauthenticated" }));
 

@@ -1,4 +1,4 @@
-import { RouteInput, RouteResult, RoutesProvider } from "./routes-provider";
+import { RouteDurationResult, RouteInput, RouteMatrixInput, RouteResult, RoutesProvider } from "./routes-provider";
 import { encodePolyline } from "../utils/polyline-encode";
 
 // Cantidad de puntos interpolados entre origen y destino — suficiente para que el
@@ -54,6 +54,18 @@ export function createMockRoutesProvider(): RoutesProvider {
         distanceMeters: Math.round(distanceMeters),
         durationSeconds,
       };
+    },
+
+    async getRouteDurations(input: RouteMatrixInput): Promise<RouteDurationResult[]> {
+      // Sin red, así que no hay ningún costo por elemento que batchear acá -- el mock
+      // igual expone la firma uno-a-muchos para que un caller no distinga real/mock.
+      return input.destinations.map((destination, destinationIndex) => {
+        const distanceMeters = haversineDistanceMeters(input.origin, destination);
+        return {
+          destinationIndex,
+          durationSeconds: Math.round((distanceMeters / 1000 / AVERAGE_SPEED_KMH) * 3600),
+        };
+      });
     },
   };
 }

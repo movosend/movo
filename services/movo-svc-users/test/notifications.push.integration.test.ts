@@ -68,7 +68,7 @@ describe("Endpoint interno POST /internal/notifications/push (MOVO-106 AC6)", ()
     const response = await app.inject({
       method: "POST",
       url: "/internal/notifications/push",
-      payload: { userId: user.id, title: "Hola", body: "Tenés una oferta" },
+      payload: { userId: user.id, title: "Hola", body: "Tenés una oferta", category: "offers" },
     });
 
     expect(response.statusCode).toBe(204);
@@ -82,7 +82,13 @@ describe("Endpoint interno POST /internal/notifications/push (MOVO-106 AC6)", ()
     const response = await app.inject({
       method: "POST",
       url: "/internal/notifications/push",
-      payload: { userId: user.id, title: "Nueva oferta", body: "Tenés una oferta nueva", data: { type: "shipment", shipmentId: "s1" } },
+      payload: {
+        userId: user.id,
+        title: "Nueva oferta",
+        body: "Tenés una oferta nueva",
+        category: "shipments",
+        data: { type: "shipment", shipmentId: "s1" },
+      },
     });
 
     expect(response.statusCode).toBe(204);
@@ -105,7 +111,7 @@ describe("Endpoint interno POST /internal/notifications/push (MOVO-106 AC6)", ()
     const response = await app.inject({
       method: "POST",
       url: "/internal/notifications/push",
-      payload: { userId: user.id, title: "t", body: "b" },
+      payload: { userId: user.id, title: "t", body: "b", category: "shipments" },
     });
 
     expect(response.statusCode).toBe(204);
@@ -132,7 +138,7 @@ describe("Endpoint interno POST /internal/notifications/push (MOVO-106 AC6)", ()
     const response = await localApp.inject({
       method: "POST",
       url: "/internal/notifications/push",
-      payload: { userId: user.id, title: "t", body: "b" },
+      payload: { userId: user.id, title: "t", body: "b", category: "shipments" },
     });
 
     expect(response.statusCode).toBe(204);
@@ -146,5 +152,126 @@ describe("Endpoint interno POST /internal/notifications/push (MOVO-106 AC6)", ()
     const response = await app.inject({ method: "GET", url: "/docs/json" });
     const swagger = JSON.parse(response.body);
     expect(swagger.paths["/internal/notifications/push"]).toBeUndefined();
+  });
+
+  it("400 sin category en el body (obligatoria desde MOVO-245)", async () => {
+    const user = await repo.create(buildInput());
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/internal/notifications/push",
+      payload: { userId: user.id, title: "t", body: "b" },
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  // MOVO-245 (AC1/AC2/AC3): enforcement real de preferencias antes de enviar --
+  // único choke point (`notifications.service.ts#sendPushToUser`), un test por AC.
+  describe("enforcement de preferencias (MOVO-245)", () => {
+    async function putPreferences(userId: string, payload: Record<string, unknown>) {
+      return app.inject({
+        method: "PUT",
+        url: "/users/me/notification-preferences",
+        headers: { "x-user-id": userId },
+        payload,
+      });
+    }
+
+    it("AC1: toggle maestro apagado impide cualquier push, sin importar la categoría", async () => {
+      const user = await repo.create(buildInput());
+      await registerToken(user.id, "device-1", "ExponentPushToken[abc]");
+      await putPreferences(user.id, { pushEnabled: false });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/internal/notifications/push",
+        payload: { userId: user.id, title: "t", body: "b", category: "shipments" },
+      });
+
+      expect(response.statusCode).toBe(204);
+      expect(pushProvider.__sentNotifications).toHaveLength(0);
+    });
+
+    it("AC2: apagar UNA categoría no afecta a las demás", async () => {
+      const user = await repo.create(buildInput());
+      await registerToken(user.id, "device-1", "ExponentPushToken[abc]");
+      await putPreferences(user.id, { categories: { offers: false } });
+
+      const offPush = await app.inject({
+        method: "POST",
+        url: "/internal/notifications/push",
+        payload: { userId: user.id, title: "t", body: "b", category: "offers" },
+      });
+      const onPush = await app.inject({
+        method: "POST",
+        url: "/internal/notifications/push",
+        payload: { userId: user.id, title: "t", body: "b", category: "shipments" },
+      });
+
+      expect(offPush.statusCode).toBe(204);
+      expect(onPush.statusCode).toBe(204);
+      expect(pushProvider.__sentNotifications).toHaveLength(1);
+    });
+
+    it("AC5: usuario que nunca tocó nada arranca con todo habilitado (default opt-out)", async () => {
+      const user = await repo.create(buildInput());
+      await registerToken(user.id, "device-1", "ExponentPushToken[abc]");
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/internal/notifications/push",
+        payload: { userId: user.id, title: "t", body: "b", category: "ratings" },
+      });
+
+      expect(response.statusCode).toBe(204);
+      expect(pushProvider.__sentNotifications).toHaveLength(1);
+    });
+
+    it("categoría desconocida (no implementada) nunca se envía", async () => {
+      const user = await repo.create(buildInput());
+      await registerToken(user.id, "device-1", "ExponentPushToken[abc]");
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/internal/notifications/push",
+        payload: { userId: user.id, title: "t", body: "b", category: "kyc" }, // "Pronto", sin trigger real
+      });
+
+      expect(response.statusCode).toBe(204);
+      expect(pushProvider.__sentNotifications).toHaveLength(0);
+    });
+
+    it("AC3: horario de silencio activo bloquea el envío de una categoría sin excepción", async () => {
+      const user = await repo.create(buildInput());
+      await registerToken(user.id, "device-1", "ExponentPushToken[abc]");
+      // Franja de 24hs (from === to, ver isWithinQuietHours) -- determinístico sin
+      // depender de la hora real en que corre el test.
+      await putPreferences(user.id, { quietHours: { enabled: true, from: "10:00", to: "10:00" } });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/internal/notifications/push",
+        payload: { userId: user.id, title: "t", body: "b", category: "shipments" },
+      });
+
+      expect(response.statusCode).toBe(204);
+      expect(pushProvider.__sentNotifications).toHaveLength(0);
+    });
+
+    it("horario de silencio desactivado no bloquea nada, aunque tenga una franja cargada", async () => {
+      const user = await repo.create(buildInput());
+      await registerToken(user.id, "device-1", "ExponentPushToken[abc]");
+      await putPreferences(user.id, { quietHours: { enabled: false, from: "10:00", to: "10:00" } });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/internal/notifications/push",
+        payload: { userId: user.id, title: "t", body: "b", category: "shipments" },
+      });
+
+      expect(response.statusCode).toBe(204);
+      expect(pushProvider.__sentNotifications).toHaveLength(1);
+    });
   });
 });
