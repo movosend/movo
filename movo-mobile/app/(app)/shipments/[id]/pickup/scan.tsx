@@ -3,7 +3,7 @@ import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { HandshakeScanStep } from "../../../../../components/handshake/handshake-scan-step";
-import { PickupWizardStepHeader } from "../../../../../components/shipments/pickup-wizard-step-header";
+import { WizardStepHeader } from "../../../../../components/shipments/wizard-step-header";
 import type { ConfirmHandshakeResult } from "../../../../../src/api/shipments-client";
 import { useEvidenceStatus } from "../../../../../src/hooks/use-shipments";
 import { usePickupResult } from "./_layout";
@@ -44,7 +44,7 @@ export default function PickupScanScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
-      <PickupWizardStepHeader
+      <WizardStepHeader
         testIDPrefix="pickup-scan"
         title="Escaneá el QR"
         step={5}

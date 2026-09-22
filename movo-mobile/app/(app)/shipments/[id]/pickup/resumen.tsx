@@ -4,7 +4,7 @@ import { ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CounterpartCard } from "../../../../../components/shipments/counterpart-card";
 import { PackageCard } from "../../../../../components/shipments/package-card";
-import { PickupWizardStepHeader } from "../../../../../components/shipments/pickup-wizard-step-header";
+import { WizardStepHeader } from "../../../../../components/shipments/wizard-step-header";
 import { PrimaryButton } from "../../../../../components/auth/primary-button";
 import { ErrorBanner } from "../../../../../components/ui/error-banner";
 import { SkeletonBlock } from "../../../../../components/ui/skeleton-block";
@@ -64,7 +64,7 @@ export default function PickupResumenScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-bg">
-      <PickupWizardStepHeader
+      <WizardStepHeader
         testIDPrefix="pickup-resumen"
         title="Resumen del retiro"
         step={2}

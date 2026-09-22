@@ -66,8 +66,9 @@ let mockProximity = {
   currentLocation: null as { lat: number; lng: number } | null,
   check: mockCheck,
 };
-jest.mock("../src/hooks/use-pickup-proximity-check", () => ({
-  usePickupProximityCheck: () => mockProximity,
+jest.mock("../src/hooks/use-proximity-check", () => ({
+  useProximityCheck: () => mockProximity,
+  PROXIMITY_THRESHOLD_METERS: 100,
 }));
 
 jest.mock("../components/shipments/counterpart-card", () => {
@@ -262,7 +263,9 @@ describe("pickup/index (paso 1: ubicación, AC4)", () => {
     const { getByTestId } = await render(<PickupGeoScreen />);
 
     expect(getByTestId("pickup-geo-map")).toBeTruthy();
-    expect(getByTestId("pickup-geo-map-pickup-marker")).toBeTruthy();
+    // testID genérico tras la extracción a `ProximityGeoScreen` (MOVO-199): antes
+    // "pickup-geo-map-pickup-marker", ahora "-target-marker" (compartido con delivery).
+    expect(getByTestId("pickup-geo-map-target-marker")).toBeTruthy();
     expect(getByTestId("pickup-geo-map-you-marker")).toBeTruthy();
   });
 
