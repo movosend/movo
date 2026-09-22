@@ -3,22 +3,8 @@ import { Shipment } from "../models/shipment";
 
 const ARGENTINA_UTC_OFFSET_HOURS = 3;
 
-/**
- * Combina la fecha y hora de retiro en un instante real UTC en formato ISO 8601.
- * Mismo criterio que `pickupWindowEndInstant` en `pickup-window.ts`.
- */
-export function formatPickupInstant(pickupDate: Date, timeWindow: Date): string {
-  const anchored = Date.UTC(
-    pickupDate.getUTCFullYear(),
-    pickupDate.getUTCMonth(),
-    pickupDate.getUTCDate(),
-    timeWindow.getUTCHours(),
-    timeWindow.getUTCMinutes(),
-    timeWindow.getUTCSeconds()
-  );
-  const realUtc = new Date(anchored + ARGENTINA_UTC_OFFSET_HOURS * 60 * 60 * 1000);
-  return realUtc.toISOString();
-}
+import { formatPickupInstant } from "./pickup-window";
+export { formatPickupInstant };
 
 /**
  * Combina la fecha estimada de entrega y la franja horaria string (ej: "14:00")

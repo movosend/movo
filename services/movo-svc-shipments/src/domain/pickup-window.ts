@@ -28,6 +28,15 @@ function anchorTimeOfDayToInstant(date: Date, time: Date | string): Date {
 }
 
 /**
+ * Combina la fecha de retiro (@db.Date) y una hora de ventana (@db.Time)
+ * en un instante real UTC (Date). Delega en `anchorTimeOfDayToInstant` para
+ * no reimplementar la misma matemática de anclaje (eliminada en MOVO-234).
+ */
+export function pickupWindowInstant(pickupDate: Date, timeWindow: Date): Date {
+  return anchorTimeOfDayToInstant(pickupDate, timeWindow);
+}
+
+/**
  * Instante real (UTC) en el que cierra la ventana de retiro de un envío, a partir de
  * los valores tal como los devuelve Prisma (`Shipment.pickupDate` @db.Date,
  * `Shipment.pickupTimeWindowEnd` @db.Time) — cada uno anclado por separado (reloj de
@@ -41,6 +50,14 @@ function anchorTimeOfDayToInstant(date: Date, time: Date | string): Date {
  */
 export function pickupWindowEndInstant(pickupDate: Date, pickupTimeWindowEnd: Date): Date {
   return anchorTimeOfDayToInstant(pickupDate, pickupTimeWindowEnd);
+}
+
+/**
+ * Combina la fecha y hora de retiro en un instante real UTC en formato ISO 8601.
+ * Mismo criterio que `pickupWindowEndInstant`.
+ */
+export function formatPickupInstant(pickupDate: Date, timeWindow: Date): string {
+  return pickupWindowInstant(pickupDate, timeWindow).toISOString();
 }
 
 /**

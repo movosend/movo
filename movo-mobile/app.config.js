@@ -35,7 +35,14 @@
 // la capability nativa. Los builds de EAS (`eas.json`) sí la necesitan real: seteá
 // `ENABLE_PUSH_NOTIFICATIONS=true` como EAS Environment Variable en los perfiles que
 // vayan a probar push de punta a punta, una vez que el team de Apple sea de pago.
-const { withEntitlementsPlist } = require("expo/config-plugins");
+const {
+  withEntitlementsPlist,
+  withDangerousMod,
+  withXcodeProject,
+  IOSConfig,
+} = require("expo/config-plugins");
+const fs = require("fs");
+const path = require("path");
 
 const PUSH_NOTIFICATIONS_ENABLED =
   process.env.ENABLE_PUSH_NOTIFICATIONS === "true";
@@ -45,6 +52,72 @@ const withoutPushEntitlement = (config) =>
     delete config.modResults["aps-environment"];
     return config;
   });
+
+/**
+ * MOVO-207 / iOS 18+: escribe SceneDelegate.swift en la carpeta ios/ y lo
+ * agrega al proyecto Xcode durante el prebuild. Expo genera el Info.plist con
+ * UIApplicationSceneManifest (declarado en ios.infoPlist abajo), pero el
+ * SceneDelegate referenciado ahí debe existir como archivo fuente compilable.
+ * Sin este plugin el error "UIScene life cycle is required" persiste.
+ */
+const SCENE_DELEGATE_SOURCE = `internal import Expo
+import UIKit
+
+// SceneDelegate requerido por iOS 18+ (UIScene lifecycle).
+// IMPORTANTE: debe conformar UIWindowSceneDelegate directamente —
+// ExpoAppDelegate implementa UIApplicationDelegate, no UISceneDelegate.
+// En willConnectTo se reutiliza la UIWindow que AppDelegate ya creó vía
+// ExpoReactNativeFactory, asignándola a la nueva UIWindowScene.
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+  var window: UIWindow?
+
+  func scene(
+    _ scene: UIScene,
+    willConnectTo session: UISceneSession,
+    options connectionOptions: UIScene.ConnectionOptions
+  ) {
+    guard let windowScene = scene as? UIWindowScene,
+          let existingWindow = (UIApplication.shared.delegate as? AppDelegate)?.window
+    else { return }
+    existingWindow.windowScene = windowScene
+    self.window = existingWindow
+  }
+}
+`;
+
+const withSceneDelegate = (config) => {
+  // Paso 1: escribir el archivo Swift en ios/<AppName>/SceneDelegate.swift
+  config = withDangerousMod(config, [
+    "ios",
+    async (config) => {
+      const appName = config.modRequest.projectName;
+      const iosDir = path.join(config.modRequest.platformProjectRoot, appName);
+      const filePath = path.join(iosDir, "SceneDelegate.swift");
+      if (!fs.existsSync(filePath)) {
+        fs.writeFileSync(filePath, SCENE_DELEGATE_SOURCE, "utf8");
+      }
+      return config;
+    },
+  ]);
+
+  // Paso 2: agregar SceneDelegate.swift al proyecto Xcode (Sources build phase)
+  config = withXcodeProject(config, (config) => {
+    const project = config.modResults;
+    const appName = config.modRequest.projectName;
+    const fileName = "SceneDelegate.swift";
+
+    // addBuildSourceFileToGroup resuelve el grupo por nombre (la API cruda de
+    // `xcode` espera el UUID del grupo) y es idempotente si el archivo ya está.
+    config.modResults = IOSConfig.XcodeUtils.addBuildSourceFileToGroup({
+      filepath: `${appName}/${fileName}`,
+      groupName: appName,
+      project,
+    });
+    return config;
+  });
+
+  return config;
+};
 
 module.exports = {
   expo: {
@@ -74,6 +147,10 @@ module.exports = {
           ? "com.movosend.movomobile"
           : (process.env.IOS_BUNDLE_ID ?? "com.movosend.movomobile"),
       infoPlist: {
+        // Solo HTTPS + firma ECDSA del handshake (ADR-020): cifrado estándar/exento.
+        // Sin esto, cada build de TestFlight queda en "Missing Compliance" hasta que
+        // alguien responda a mano la pregunta de exportación en App Store Connect.
+        ITSAppUsesNonExemptEncryption: false,
         NSCameraUsageDescription:
           "Movo necesita la cámara para tomar tu foto de perfil, verificar tu identidad durante el registro y escanear el código de confirmación de retiro/entrega.",
         NSMicrophoneUsageDescription:
@@ -91,6 +168,21 @@ module.exports = {
         // la app y el backend estén en la misma red.
         NSAppTransportSecurity: {
           NSAllowsLocalNetworking: true,
+        },
+        // iOS 18+ requiere el ciclo de vida UIScene para apps compiladas con el SDK
+        // más reciente (error: "UIScene life cycle is required"). Se declara una sola
+        // escena de ventana (ApplicationSupportsMultipleScenes=false) apuntando al
+        // SceneDelegate.swift que delega a ExpoAppDelegate.
+        UIApplicationSceneManifest: {
+          UIApplicationSupportsMultipleScenes: false,
+          UISceneConfigurations: {
+            UIWindowSceneSessionRoleApplication: [
+              {
+                UISceneConfigurationName: "Default Configuration",
+                UISceneDelegateClassName: "$(PRODUCT_MODULE_NAME).SceneDelegate",
+              },
+            ],
+          },
         },
       },
     },
@@ -175,6 +267,8 @@ module.exports = {
         },
       ],
       ...(PUSH_NOTIFICATIONS_ENABLED ? [] : [withoutPushEntitlement]),
+      // iOS 18+: crea SceneDelegate.swift y lo registra en el proyecto Xcode
+      withSceneDelegate,
     ],
     experiments: {
       typedRoutes: true,

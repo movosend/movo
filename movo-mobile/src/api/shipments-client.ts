@@ -1,4 +1,5 @@
 import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import type { CarrierRoute } from "@movo/shared/dist/types/routing";
 import type { PackageType } from "../store/shipment-wizard-store";
 import { httpClient } from "./http-client";
 
@@ -396,6 +397,17 @@ export const shipmentsClient = {
     return httpClient.get<SharedHistory>(`/shipments/history-with/${userId}`);
   },
 
+  /** `GET /shipments/my-route?lat=...&lng=...` (MOVO-206 / MOVO-207 / MOVO-235).
+   * Ruta optimizada multi-parada del transportista autenticado con solver VRPTW.
+   * Acepta opcionalmente `tripId` para acotar la ruta al viaje iniciado (MOVO-235). */
+  getMyRoute(coords: { lat: number; lng: number }, tripId?: string): Promise<CarrierRoute> {
+    return httpClient.get<CarrierRoute>("/shipments/my-route", {
+      lat: coords.lat,
+      lng: coords.lng,
+      tripId,
+    });
+  },
+
   /**
    * `POST /shipments/:id/handshake/generate` (MOVO-158 / MOVO-159).
    * Genera el nonce y payload canónico para el handshake de custodia del cedente
@@ -416,6 +428,8 @@ export const shipmentsClient = {
     return httpClient.post<ConfirmHandshakeResult>(`/shipments/${shipmentId}/handshake/confirm`, input);
   },
 };
+
+export type { CarrierRoute };
 
 /** Input para `POST /shipments/:id/handshake/generate`. */
 export interface GenerateHandshakeInput {

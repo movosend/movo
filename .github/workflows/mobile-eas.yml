@@ -1,0 +1,158 @@
+name: Mobile EAS Build
+
+# Un tag de git dispara el build de movo-mobile en EAS Cloud:
+#   dev-*  -> development build (profile `development`), un job por plataforma
+#             (iOS y Android en paralelo).
+#   v*     -> TestFlight (profile `staging`, solo iOS, con submit automático).
+#             Apunta a api-dev.movosend.app: la EC2 de prod está apagada por costos.
+#             Cuando se prenda, sumar un tag propio (ej. `prod-*`) con el profile
+#             `production` y un guard contra main.
+#
+# Cada job espera a que EAS termine el build y avisa por Telegram el resultado (listo o
+# falló) con el link a la página del build. El repo es público, así que los minutos de
+# runner que consume esa espera no se cobran.
+#
+# El workflow que corre es el del commit taggeado, no el de `develop`/`main`: tiene
+# que estar mergeado antes de crear el tag.
+on:
+  push:
+    tags:
+      - "v*"
+      - "dev-*"
+
+permissions:
+  contents: read
+
+# Sin cancel-in-progress: un tag de release no se debe cancelar a medias por otro tag.
+concurrency:
+  group: mobile-eas-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # 22 y no 20 (como el resto de los workflows): `eas-cli` latest depende de paquetes
+  # (@oclif/plugin-autocomplete) que exigen Node >= 22, y expo-github-action lo instala
+  # con el Node del runner. Solo afecta a este workflow; no toca a backend ni a EAS Cloud.
+  NODE_VERSION: "22"
+
+jobs:
+  dev-build:
+    if: startsWith(github.ref_name, 'dev-')
+    name: dev-build (${{ matrix.platform }})
+    runs-on: ubuntu-latest
+    # El build tarda ~15-25 min, más la cola de EAS (plan gratuito: puede ser larga).
+    timeout-minutes: 90
+    strategy:
+      # Que falle un build no cancela el de la otra plataforma.
+      fail-fast: false
+      matrix:
+        platform: [ios, android]
+    defaults:
+      run:
+        working-directory: movo-mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # movo-mobile es un workspace npm del monorepo: sus deps se instalan
+      # (hoisteadas) desde la raíz. `app.config.js` necesita `expo` instalado
+      # para poder evaluarse cuando eas-cli lo lee.
+      - name: Instalar dependencias
+        working-directory: .
+        run: npm ci
+
+      # eas-cli >= 24.4.1: versiones anteriores tienen un bug con la Push Key de
+      # iOS (ver movo-mobile/CLAUDE.md, MOVO-232).
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # Sin --no-wait: el job espera al build. Si EAS lo da por fallido, `eas` sale con
+      # error y el job queda en rojo.
+      - name: Development build (${{ matrix.platform }})
+        run: |
+          set -o pipefail
+          eas build --platform ${{ matrix.platform }} --profile development --non-interactive 2>&1 | tee "$RUNNER_TEMP/eas-build.log"
+
+      # always(): también avisa si el build falló o si se cortó antes (ej. `npm ci`).
+      # continue-on-error: un aviso que falla no cambia el resultado del build.
+      - name: Avisar en Telegram
+        if: always()
+        continue-on-error: true
+        working-directory: .
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MODE: dev
+          PLATFORM: ${{ matrix.platform }}
+          TAG: ${{ github.ref_name }}
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          LOG_FILE: ${{ runner.temp }}/eas-build.log
+        run: .github/scripts/notify-eas-build.sh
+
+  testflight:
+    if: startsWith(github.ref_name, 'v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: movo-mobile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # El guard de abajo necesita el historial de develop y main.
+          fetch-depth: 0
+
+      # TestFlight le llega a los testers: no se publica un build de un commit
+      # que no pasó por revisión (una rama feature sin mergear).
+      - name: Verificar que el tag está en develop o main
+        working-directory: .
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/develop \
+            && ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::El tag ${GITHUB_REF_NAME} apunta a un commit que no está en develop ni en main. Mergeá el PR antes de taggear."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: .
+        run: npm ci
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # --auto-submit: EAS sube el .ipa a App Store Connect apenas termina el
+      # build (el número de build lo incrementa `autoIncrement` de eas.json).
+      - name: Build de staging + submit a TestFlight
+        run: |
+          set -o pipefail
+          eas build --platform ios --profile staging --non-interactive --auto-submit 2>&1 | tee "$RUNNER_TEMP/eas-build.log"
+
+      - name: Avisar en Telegram
+        if: always()
+        continue-on-error: true
+        working-directory: .
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MODE: testflight
+          PLATFORM: ios
+          TAG: ${{ github.ref_name }}
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          LOG_FILE: ${{ runner.temp }}/eas-build.log
+        run: .github/scripts/notify-eas-build.sh
