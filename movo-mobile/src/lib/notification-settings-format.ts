@@ -20,7 +20,7 @@ import type { NotificationCategoryState } from "../api/notification-preferences-
  * (`NotificationSection`), la agrupación es "puramente cosmética" del lado mobile
  * (comentario del propio archivo compartido). */
 export const SECTION_META: Record<NotificationSection, { title: string; note: string }> = {
-  sending: { title: "Cuando envío un paquete", note: "Sos el emisor del paquete." },
+  sending: { title: "Cuando envío o recibo un paquete", note: "Sos el emisor o receptor del paquete." },
   carrying: { title: "Cuando transporto un paquete", note: "Sos el que lleva el paquete en su camino." },
   account: {
     title: "Cuenta y seguridad",
