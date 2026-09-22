@@ -1,11 +1,12 @@
 import { randomBytes, createHash } from "node:crypto";
-import { ApiError, ShipmentStatus, renderNotificationTrigger, notificationTriggerCategory } from "@movo/shared";
+import { ApiError, ShipmentStatus } from "@movo/shared";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { HandshakeRepository } from "../../repositories/handshake-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { FundsReleaseNotifier } from "../../adapters/funds-release-notifier";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { RoutesProvider } from "../../adapters/routes-provider";
+import { sendCustodyPush } from "../../utils/dispatch-push";
 import { HandshakeStage } from "../../models/handshake";
 import { PhotoStage } from "../../models/shipment";
 import {
@@ -357,21 +358,19 @@ export function createHandshakeService(
             .then(async (carrierProfile) => {
               const carrierName = carrierProfile?.fullName ?? "El transportista";
 
-              const senderPush = renderNotificationTrigger("custodyPickupConfirmed", { carrierName });
-              const senderSend = notificationsClient
-                .sendPush({
-                  userId: shipment.senderId,
-                  title: senderPush.title,
-                  body: senderPush.body,
-                  category: notificationTriggerCategory("custodyPickupConfirmed"),
-                  data: { type: "custody_pickup_confirmed", shipmentId: input.shipmentId },
-                })
-                .catch((err) => {
-                  logger?.warn(
-                    { err, event: "notification_dispatch_failed", shipmentId: input.shipmentId },
-                    "No se pudo notificar la confirmación de retiro al emisor"
-                  );
-                });
+              const senderSend = sendCustodyPush({
+                notificationsClient,
+                userId: shipment.senderId,
+                triggerKey: "custodyPickupConfirmed",
+                params: { carrierName },
+                data: { type: "custody_pickup_confirmed", shipmentId: input.shipmentId },
+                logger,
+                onErrorContext: {
+                  event: "notification_dispatch_failed",
+                  message: "No se pudo notificar la confirmación de retiro al emisor",
+                  extra: { shipmentId: input.shipmentId },
+                },
+              });
 
               // Best-effort: sin `routesProvider` (o si la llamada falla) el push al
               // receptor sale igual, solo que sin ETA (`etaMinutes: null` cae al copy
@@ -385,24 +384,19 @@ export function createHandshakeService(
                     .then((route) => Math.round(route.durationSeconds / 60))
                     .catch(() => null)
                 : null;
-              const receiverPush = renderNotificationTrigger("custodyPickupConfirmedReceiver", {
-                carrierName,
-                etaMinutes,
+              const receiverSend = sendCustodyPush({
+                notificationsClient,
+                userId: shipment.receiverId,
+                triggerKey: "custodyPickupConfirmedReceiver",
+                params: { carrierName, etaMinutes },
+                data: { type: "custody_pickup_confirmed", shipmentId: input.shipmentId },
+                logger,
+                onErrorContext: {
+                  event: "notification_dispatch_failed",
+                  message: "No se pudo notificar la confirmación de retiro al receptor",
+                  extra: { shipmentId: input.shipmentId },
+                },
               });
-              const receiverSend = notificationsClient
-                .sendPush({
-                  userId: shipment.receiverId,
-                  title: receiverPush.title,
-                  body: receiverPush.body,
-                  category: notificationTriggerCategory("custodyPickupConfirmedReceiver"),
-                  data: { type: "custody_pickup_confirmed", shipmentId: input.shipmentId },
-                })
-                .catch((err) => {
-                  logger?.warn(
-                    { err, event: "notification_dispatch_failed", shipmentId: input.shipmentId },
-                    "No se pudo notificar la confirmación de retiro al receptor"
-                  );
-                });
 
               return Promise.all([senderSend, receiverSend]);
             })
@@ -423,45 +417,36 @@ export function createHandshakeService(
             .then((receiverProfile) => {
               const receiverName = receiverProfile?.fullName ?? "El receptor";
 
-              const senderPush = renderNotificationTrigger("custodyDeliveryConfirmedSender", { receiverName });
-              const senderSend = notificationsClient
-                .sendPush({
+              const sends = [
+                sendCustodyPush({
+                  notificationsClient,
                   userId: shipment.senderId,
-                  title: senderPush.title,
-                  body: senderPush.body,
-                  category: notificationTriggerCategory("custodyDeliveryConfirmedSender"),
+                  triggerKey: "custodyDeliveryConfirmedSender",
+                  params: { receiverName },
                   data: { type: "custody_delivery_confirmed", shipmentId: input.shipmentId },
-                })
-                .catch((err) => {
-                  logger?.warn(
-                    { err, event: "notification_dispatch_failed", shipmentId: input.shipmentId, userId: shipment.senderId },
-                    "No se pudo notificar la confirmación de entrega al emisor"
-                  );
-                });
-
-              const sends = [senderSend];
+                  logger,
+                  onErrorContext: {
+                    event: "notification_dispatch_failed",
+                    message: "No se pudo notificar la confirmación de entrega al emisor",
+                    extra: { shipmentId: input.shipmentId },
+                  },
+                }),
+              ];
               if (shipment.carrierId) {
-                const carrierPush = renderNotificationTrigger("custodyDeliveryConfirmedCarrier", { receiverName });
                 sends.push(
-                  notificationsClient
-                    .sendPush({
-                      userId: shipment.carrierId,
-                      title: carrierPush.title,
-                      body: carrierPush.body,
-                      category: notificationTriggerCategory("custodyDeliveryConfirmedCarrier"),
-                      data: { type: "custody_delivery_confirmed", shipmentId: input.shipmentId },
-                    })
-                    .catch((err) => {
-                      logger?.warn(
-                        {
-                          err,
-                          event: "notification_dispatch_failed",
-                          shipmentId: input.shipmentId,
-                          userId: shipment.carrierId,
-                        },
-                        "No se pudo notificar la confirmación de entrega al transportista"
-                      );
-                    })
+                  sendCustodyPush({
+                    notificationsClient,
+                    userId: shipment.carrierId,
+                    triggerKey: "custodyDeliveryConfirmedCarrier",
+                    params: { receiverName },
+                    data: { type: "custody_delivery_confirmed", shipmentId: input.shipmentId },
+                    logger,
+                    onErrorContext: {
+                      event: "notification_dispatch_failed",
+                      message: "No se pudo notificar la confirmación de entrega al transportista",
+                      extra: { shipmentId: input.shipmentId },
+                    },
+                  })
                 );
               }
 
