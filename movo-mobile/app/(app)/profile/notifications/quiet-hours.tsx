@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ErrorBanner } from "../../../../components/ui/error-banner";
+import { SelectField } from "../../../../components/ui/select-field";
 import { ToggleSwitch } from "../../../../components/ui/toggle-switch";
 import {
   useNotificationPreferences,
@@ -13,26 +14,25 @@ import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
 
 /**
- * Ciclos fijos de hora (tal cual el prototipo `Notificaciones.dc.html`, `HOURS`/
- * `HOURS_END`) — el backend acepta cualquier `HH:MM` válido, pero el ticket pide
- * "UI completa del prototipo" específicamente para esta pantalla: tocar la card
- * avanza al siguiente valor de una franja nocturna típica, sin abrir un selector de
- * 48 opciones.
+ * Franja nocturna típica (el backend acepta cualquier `HH:MM` válido, pero acotar
+ * las opciones a una franja nocturna razonable evita una lista de 48 medias horas
+ * para un caso de uso que casi siempre cae de noche a la mañana).
+ *
+ * Reemplaza el tap-to-cycle original del prototipo `Notificaciones.dc.html`
+ * (tocar la card entera avanzaba al siguiente valor a ciegas, sin mostrar las
+ * demás opciones) — feedback de usuario: "no se entiende cómo usarlos". Ahora es
+ * un `SelectField` (mismo picker con hoja inferior que ya usa el resto de la app,
+ * ej. `TripForm`), que muestra la lista completa y cuál está elegida.
  */
 const HOURS: readonly string[] = ["20:00", "21:00", "22:00", "23:00", "00:00", "01:00"];
 const HOURS_END: readonly string[] = ["06:00", "07:00", "08:00", "09:00", "10:00"];
 
-function cycle(list: readonly string[], current: string): string {
-  const index = list.indexOf(current);
-  return list[(index + 1) % list.length] ?? list[0];
-}
-
 /**
- * "Horario de silencio" (MOVO-246 AC5): activar/desactivar + ciclar Desde/Hasta,
- * cada tap persiste solo (mismo criterio "todo se guarda sin botón Guardar" que
- * `edit.tsx`, MOVO-135) — sin excepciones activas hoy (ninguna categoría
- * implementada es `quietHoursExempt` todavía), así que el callout de abajo es
- * copy genérico, no promete un caso concreto que todavía no pasa.
+ * "Horario de silencio" (MOVO-246 AC5): activar/desactivar + elegir Desde/Hasta de
+ * una lista fija, cada cambio persiste solo (mismo criterio "todo se guarda sin
+ * botón Guardar" que `edit.tsx`, MOVO-135) — sin excepciones activas hoy (ninguna
+ * categoría implementada es `quietHoursExempt` todavía), así que el callout de
+ * abajo es copy genérico, no promete un caso concreto que todavía no pasa.
  */
 export default function QuietHoursScreen() {
   const colors = useThemeColors();
@@ -49,22 +49,14 @@ export default function QuietHoursScreen() {
     updatePreferences.mutate({ quietHours: { enabled: next } }, { onError: handleError });
   }
 
-  function cycleFrom() {
-    if (!prefs) return;
+  function setFrom(value: string) {
     setBanner(null);
-    updatePreferences.mutate(
-      { quietHours: { from: cycle(HOURS, prefs.quietHours.from) } },
-      { onError: handleError },
-    );
+    updatePreferences.mutate({ quietHours: { from: value } }, { onError: handleError });
   }
 
-  function cycleTo() {
-    if (!prefs) return;
+  function setTo(value: string) {
     setBanner(null);
-    updatePreferences.mutate(
-      { quietHours: { to: cycle(HOURS_END, prefs.quietHours.to) } },
-      { onError: handleError },
-    );
+    updatePreferences.mutate({ quietHours: { to: value } }, { onError: handleError });
   }
 
   return (
@@ -116,25 +108,25 @@ export default function QuietHoursScreen() {
             style={{ opacity: prefs.quietHours.enabled ? 1 : 0.4 }}
             pointerEvents={prefs.quietHours.enabled ? "auto" : "none"}
           >
-            <Pressable
+            <SelectField
               testID="quiet-hours-from"
-              onPress={cycleFrom}
-              className="flex-1 rounded-[10px] border border-border p-4"
-            >
-              <Text className="font-sans-semibold text-caption uppercase text-fg-3">Desde</Text>
-              <Text className="mt-1.5 font-mono-medium text-h3 text-fg">{prefs.quietHours.from}</Text>
-            </Pressable>
-            <Pressable
+              label="Desde"
+              value={prefs.quietHours.from}
+              options={HOURS}
+              onChange={setFrom}
+              containerClassName="flex-1 gap-1.5"
+            />
+            <SelectField
               testID="quiet-hours-to"
-              onPress={cycleTo}
-              className="flex-1 rounded-[10px] border border-border p-4"
-            >
-              <Text className="font-sans-semibold text-caption uppercase text-fg-3">Hasta</Text>
-              <Text className="mt-1.5 font-mono-medium text-h3 text-fg">{prefs.quietHours.to}</Text>
-            </Pressable>
+              label="Hasta"
+              value={prefs.quietHours.to}
+              options={HOURS_END}
+              onChange={setTo}
+              containerClassName="flex-1 gap-1.5"
+            />
           </View>
 
-          <View className="mt-6 rounded-[10px] bg-ink-950 p-4">
+          <View className="mt-6 rounded-[10px] border border-border-strong bg-ink-950 p-4 dark:bg-ink-800">
             <Text className="font-sans-semibold text-caption uppercase text-lime-500">Excepción</Text>
             <Text className="mt-1.5 font-sans text-[11px] leading-[16px] text-ink-200">
               Las categorías marcadas como excepción de seguridad van a sonar igual, aunque actives el

@@ -41,19 +41,21 @@ describe("QuietHoursScreen", () => {
     expect(mockMutate).toHaveBeenCalledWith({ quietHours: { enabled: false } }, expect.anything());
   });
 
-  it("tocar 'Desde' cicla al siguiente valor fijo de la franja nocturna", async () => {
+  it("elegir 'Desde' de la lista dispara la mutación con el valor elegido", async () => {
     const { getByTestId } = await render(<QuietHoursScreen />);
 
     await fireEvent.press(getByTestId("quiet-hours-from"));
+    await fireEvent.press(getByTestId("quiet-hours-from-option-21:00"));
 
-    expect(mockMutate).toHaveBeenCalledWith({ quietHours: { from: "00:00" } }, expect.anything());
+    expect(mockMutate).toHaveBeenCalledWith({ quietHours: { from: "21:00" } }, expect.anything());
   });
 
-  it("tocar 'Hasta' cicla al siguiente valor fijo", async () => {
+  it("elegir 'Hasta' de la lista dispara la mutación con el valor elegido", async () => {
     const { getByTestId } = await render(<QuietHoursScreen />);
 
     await fireEvent.press(getByTestId("quiet-hours-to"));
+    await fireEvent.press(getByTestId("quiet-hours-to-option-07:00"));
 
-    expect(mockMutate).toHaveBeenCalledWith({ quietHours: { to: "09:00" } }, expect.anything());
+    expect(mockMutate).toHaveBeenCalledWith({ quietHours: { to: "07:00" } }, expect.anything());
   });
 });
