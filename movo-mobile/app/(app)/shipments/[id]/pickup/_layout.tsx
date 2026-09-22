@@ -1,5 +1,5 @@
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { AlertCircle, Clock } from "lucide-react-native";
+import { AlertCircle, Wallet } from "lucide-react-native";
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -94,7 +94,7 @@ export default function PickupWizardLayout() {
     return (
       <GateMessage
         testID="pickup-wizard-unfunded"
-        icon={<Clock size={26} color={colors.fg2} strokeWidth={1.8} />}
+        icon={<Wallet size={26} color={colors.fg2} strokeWidth={1.8} />}
         title="Todavía no te toca retirar"
         body="El retiro es a más de unos días y la reserva de fondos se confirma más cerca de la fecha. Volvé a intentarlo cuando se acerque el horario de retiro."
         ctaLabel="Volver al envío"

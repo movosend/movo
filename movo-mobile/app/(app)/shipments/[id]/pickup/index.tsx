@@ -232,6 +232,12 @@ export default function PickupGeoScreen() {
                 testID="pickup-geo-map-you-marker"
                 coordinate={{ latitude: proximity.currentLocation.lat, longitude: proximity.currentLocation.lng }}
                 anchor={{ x: 0.5, y: 0.5 }}
+                // A diferencia de `route-map.tsx` (PR #169), acá `tracksViewChanges` no
+                // se puede apagar tras el render inicial: `LocationPulse` anima en loop
+                // infinito (`withRepeat`), y `Marker` solo rasteriza contenido nuevo en
+                // el mapa cuando `tracksViewChanges` está activo -- apagarlo congelaría
+                // el halo en su primer frame. Decisión consciente, no un olvido
+                // (feedback de review, PR #180).
                 tracksViewChanges
               >
                 <View style={{ width: YOU_MARKER_WIDTH, height: YOU_MARKER_HEIGHT }}>

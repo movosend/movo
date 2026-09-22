@@ -472,7 +472,13 @@ export function StopList({
                       <Text
                         className={`font-sans-semibold text-[13.5px] ${actionDisabled ? "text-fg-3" : "text-ink-950"}`}
                       >
-                        {actionDisabled ? "Entrega próximamente" : isPickup ? "Retirar paquete" : "Entregar paquete"}
+                        {actionDisabled
+                          ? isPickup
+                            ? "Retiro no disponible"
+                            : "Entrega próximamente"
+                          : isPickup
+                            ? "Retirar paquete"
+                            : "Entregar paquete"}
                       </Text>
                       {!actionDisabled && <ChevronRight size={15} color="#0A0A0B" />}
                     </Pressable>

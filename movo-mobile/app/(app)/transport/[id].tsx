@@ -235,7 +235,7 @@ export default function TransportShipmentDetailScreen() {
   // actualiza al aceptar, ver `offer-repository.ts`).
   const { data: myPendingOffers } = useMyOffers({ status: OfferStatus.PENDING, limit: 50 });
   const { data: myAcceptedOffers } = useMyOffers({ status: OfferStatus.ACCEPTED, limit: 50 });
-  const currentUserId = useAuthStore((s) => s.user?.userId);
+  const currentUser = useAuthStore((state) => state.user);
 
   const myActiveOffer = myPendingOffers?.items.find((offer) => offer.shipmentId === id);
   const myAcceptedOffer = myAcceptedOffers?.items.find((offer) => offer.shipmentId === id);
@@ -244,11 +244,10 @@ export default function TransportShipmentDetailScreen() {
   // dos condiciones que el gate del wizard ("ready"), para no ofrecer un CTA que el
   // propio wizard va a rechazar igual. La entrega (`in_transit`) todavía no tiene
   // wizard (MOVO-199), así que se muestra deshabilitada en vez de omitirse.
-  const isMyShipment = !!shipment && shipment.carrierId === currentUserId;
+  const isMyShipment = !!shipment && shipment.carrierId === currentUser?.userId;
   const canStartPickup = isMyShipment && shipment.status === ShipmentStatus.ASSIGNED;
   const showDeliveryComingSoon = isMyShipment && shipment.status === ShipmentStatus.IN_TRANSIT;
 
-  const currentUser = useAuthStore((state) => state.user);
   // El emisor ya eligió mi oferta y el envío se confirmó con `carrierId` seteado a
   // mí -- ofertar de nuevo ya no es posible (el envío dejó de estar `published`) ni
   // tiene sentido mostrar "cuánto te queda si ofertás el sugerido", así que tanto
