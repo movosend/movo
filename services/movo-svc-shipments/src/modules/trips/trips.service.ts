@@ -1,11 +1,5 @@
 import { FastifyBaseLogger } from "fastify";
-import {
-  ApiError,
-  ShipmentStatus,
-  UserRole,
-  renderNotificationTrigger,
-  notificationTriggerCategory,
-} from "@movo/shared";
+import { ApiError, ShipmentStatus, UserRole } from "@movo/shared";
 import {
   TripRepository,
   TripNotFoundError,
@@ -18,6 +12,7 @@ import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { RoutesProvider } from "../../adapters/routes-provider";
+import { sendCustodyPush } from "../../utils/dispatch-push";
 import { Trip, TripStatus, CreateTripInput, UpdateTripInput, TripWithAcceptedPackages } from "../../models/trip";
 import { MatchedShipment } from "../../models/shipment";
 import { formatPickupInstant, toArgentinaCalendarDate } from "../../domain/pickup-window";
@@ -188,62 +183,66 @@ async function dispatchTripStartedPushes(
     const carrierProfile = await deps.usersClient.findPublicProfile(trip.carrierId, trip.carrierId).catch(() => null);
     const carrierName = carrierProfile?.fullName ?? "El transportista";
 
+    // Una sola llamada `Compute Route Matrix` (1 origen x N destinos) en vez de un
+    // `getRoute` por envío pendiente -- hallazgo de code review de PR #182 (N envíos
+    // pendientes en el mismo viaje disparaban N llamadas billables con el mismo
+    // origen). Best-effort igual que antes: sin `routesProvider`, o si la matriz entera
+    // falla, todos los pushes salen igual sin ETA.
+    const etaMinutesByShipmentId = new Map<string, number | null>();
+    if (deps.routesProvider) {
+      try {
+        const durations = await deps.routesProvider.getRouteDurations({
+          origin: { lat: trip.originLat, lng: trip.originLng },
+          destinations: pending.map((shipment) => ({ lat: shipment.pickupLat, lng: shipment.pickupLng })),
+        });
+        for (const result of durations) {
+          const shipment = pending[result.destinationIndex];
+          if (shipment) {
+            etaMinutesByShipmentId.set(
+              shipment.id,
+              result.durationSeconds !== null ? Math.round(result.durationSeconds / 60) : null,
+            );
+          }
+        }
+      } catch (err) {
+        deps.logger?.warn(
+          { err, event: "trip_started_route_matrix_failed", tripId: trip.id },
+          "Fallo al calcular la matriz de ETA para el inicio del viaje -- los pushes salen sin ETA",
+        );
+      }
+    }
+
     await Promise.all(
-      pending.map(async (shipment) => {
-        const etaMinutes = deps.routesProvider
-          ? await deps.routesProvider
-              .getRoute({
-                origin: { lat: trip.originLat, lng: trip.originLng },
-                destination: { lat: shipment.pickupLat, lng: shipment.pickupLng },
-              })
-              .then((route) => Math.round(route.durationSeconds / 60))
-              .catch(() => null)
-          : null;
+      pending.map((shipment) => {
+        const etaMinutes = etaMinutesByShipmentId.get(shipment.id) ?? null;
 
-        const senderPush = renderNotificationTrigger("tripStartedSender", { carrierName, etaMinutes });
-        const receiverPush = renderNotificationTrigger("tripStartedReceiver", { carrierName });
-
-        await Promise.all([
-          notificationsClient
-            .sendPush({
-              userId: shipment.senderId,
-              title: senderPush.title,
-              body: senderPush.body,
-              category: notificationTriggerCategory("tripStartedSender"),
-              data: { type: "trip_started", tripId: trip.id, shipmentId: shipment.id },
-            })
-            .catch((err) => {
-              deps.logger?.warn(
-                {
-                  err,
-                  event: "notification_dispatch_failed",
-                  tripId: trip.id,
-                  shipmentId: shipment.id,
-                  userId: shipment.senderId,
-                },
-                "No se pudo notificar el inicio del viaje al emisor",
-              );
-            }),
-          notificationsClient
-            .sendPush({
-              userId: shipment.receiverId,
-              title: receiverPush.title,
-              body: receiverPush.body,
-              category: notificationTriggerCategory("tripStartedReceiver"),
-              data: { type: "trip_started", tripId: trip.id, shipmentId: shipment.id },
-            })
-            .catch((err) => {
-              deps.logger?.warn(
-                {
-                  err,
-                  event: "notification_dispatch_failed",
-                  tripId: trip.id,
-                  shipmentId: shipment.id,
-                  userId: shipment.receiverId,
-                },
-                "No se pudo notificar el inicio del viaje al receptor",
-              );
-            }),
+        return Promise.all([
+          sendCustodyPush({
+            notificationsClient,
+            userId: shipment.senderId,
+            triggerKey: "tripStartedSender",
+            params: { carrierName, etaMinutes },
+            data: { type: "trip_started", tripId: trip.id, shipmentId: shipment.id },
+            logger: deps.logger,
+            onErrorContext: {
+              event: "notification_dispatch_failed",
+              message: "No se pudo notificar el inicio del viaje al emisor",
+              extra: { tripId: trip.id, shipmentId: shipment.id },
+            },
+          }),
+          sendCustodyPush({
+            notificationsClient,
+            userId: shipment.receiverId,
+            triggerKey: "tripStartedReceiver",
+            params: { carrierName },
+            data: { type: "trip_started", tripId: trip.id, shipmentId: shipment.id },
+            logger: deps.logger,
+            onErrorContext: {
+              event: "notification_dispatch_failed",
+              message: "No se pudo notificar el inicio del viaje al receptor",
+              extra: { tripId: trip.id, shipmentId: shipment.id },
+            },
+          }),
         ]);
       }),
     );

@@ -522,7 +522,8 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
         (shipmentRepo.listActiveShipments as any).mockResolvedValue([shipment]);
         const notificationsClient = { sendPush: vi.fn().mockResolvedValue(undefined) };
         const routesProvider = {
-          getRoute: vi.fn().mockResolvedValue({ polyline: "abc", distanceMeters: 3000, durationSeconds: 600 }),
+          getRoute: vi.fn(),
+          getRouteDurations: vi.fn().mockResolvedValue([{ destinationIndex: 0, durationSeconds: 600 }]),
         };
         const service = buildService({ notificationsClient, routesProvider });
 
@@ -531,10 +532,13 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
         expect(shipmentRepo.listActiveShipments).toHaveBeenCalledWith("carrierId", CARRIER_ID, TRIP_ID);
 
         await vi.waitFor(() => {
-          expect(routesProvider.getRoute).toHaveBeenCalledWith({
+          // Una sola llamada a la matriz (1 origen x N destinos), nunca un `getRoute`
+          // por envío pendiente -- ver el comentario de costo en `dispatchTripStartedPushes`.
+          expect(routesProvider.getRouteDurations).toHaveBeenCalledWith({
             origin: { lat: trip.originLat, lng: trip.originLng },
-            destination: { lat: shipment.pickupLat, lng: shipment.pickupLng },
+            destinations: [{ lat: shipment.pickupLat, lng: shipment.pickupLng }],
           });
+          expect(routesProvider.getRoute).not.toHaveBeenCalled();
           expect(notificationsClient.sendPush).toHaveBeenCalledTimes(2);
           expect(notificationsClient.sendPush).toHaveBeenCalledWith({
             userId: shipment.senderId,

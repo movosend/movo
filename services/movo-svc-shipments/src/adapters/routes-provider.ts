@@ -19,12 +19,36 @@ export interface RouteResult {
   durationSeconds: number;
 }
 
+export interface RouteMatrixInput {
+  origin: RouteLatLng;
+  destinations: RouteLatLng[];
+}
+
+export interface RouteDurationResult {
+  /** Índice del destino dentro de `RouteMatrixInput.destinations` -- el resultado
+   * viaja en el mismo orden que se pidió, pero se etiqueta explícito para no depender
+   * de que ningún transporte intermedio reordene el array. */
+  destinationIndex: number;
+  /** `null` si Google no pudo trazar una ruta a ese destino puntual (`condition` !=
+   * `ROUTE_EXISTS`) -- un destino sin ruta no tira el resto de la matriz abajo. */
+  durationSeconds: number | null;
+}
+
 /** Interfaz detrás de la que vive la ruta real por calle del mapa del wizard de envíos
  * (MOVO-123, mapa de resumen de MOVO-83) — mismo criterio que `GeocodingProvider`
  * (ADR-014, `movo-svc-users`): permite testear `shipments.routes.ts` sin red y cambiar
  * de implementación (real/mock) sin tocar el resto del servicio. */
 export interface RoutesProvider {
   getRoute(input: RouteInput): Promise<RouteResult>;
+  /**
+   * Variante uno-a-muchos para cuando varios destinos comparten el mismo origen (ej.
+   * notificar a cada envío pendiente de un viaje recién iniciado, `trips.service.ts`) —
+   * una sola llamada facturable (`Compute Route Matrix`, ADR-015/ADR-008) en vez de N
+   * `getRoute` por separado (hallazgo de code review de PR #182/MOVO-245: N envíos
+   * pendientes en el mismo viaje disparaban N llamadas billables con el mismo origen).
+   * Solo duración -- ningún caller de esta variante necesita el polyline por destino.
+   */
+  getRouteDurations(input: RouteMatrixInput): Promise<RouteDurationResult[]>;
 }
 
 export interface RoutesProviderConfig {
