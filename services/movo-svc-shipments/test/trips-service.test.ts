@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ApiError, UserRole } from "@movo/shared";
+import { ApiError, ShipmentStatus, UserRole } from "@movo/shared";
 import { createTripsService } from "../src/modules/trips/trips.service";
 import {
   TripRepository,
@@ -499,6 +499,101 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
       });
 
       expect(result.status).toBe(TripStatus.ACTIVE);
+    });
+
+    describe("push de 'viaje iniciado' (ajuste post-MOVO-245)", () => {
+      function fakeAssignedShipment(overrides: Partial<any> = {}) {
+        return {
+          id: "shipment-1",
+          senderId: "sender-1",
+          receiverId: "receiver-1",
+          carrierId: CARRIER_ID,
+          status: ShipmentStatus.ASSIGNED,
+          pickupLat: -31.42,
+          pickupLng: -64.19,
+          deliveryLat: -31.5,
+          deliveryLng: -64.2,
+          ...overrides,
+        };
+      }
+
+      it("avisa al emisor (con ETA) y al receptor (sin ETA) de cada envío de este viaje todavía sin retirar", async () => {
+        const shipment = fakeAssignedShipment();
+        (shipmentRepo.listActiveShipments as any).mockResolvedValue([shipment]);
+        const notificationsClient = { sendPush: vi.fn().mockResolvedValue(undefined) };
+        const routesProvider = {
+          getRoute: vi.fn().mockResolvedValue({ polyline: "abc", distanceMeters: 3000, durationSeconds: 600 }),
+        };
+        const service = buildService({ notificationsClient, routesProvider });
+
+        await service.startTrip({ tripId: TRIP_ID, callerId: CARRIER_ID, callerRoles: [UserRole.CARRIER] });
+
+        expect(shipmentRepo.listActiveShipments).toHaveBeenCalledWith("carrierId", CARRIER_ID, TRIP_ID);
+
+        await vi.waitFor(() => {
+          expect(routesProvider.getRoute).toHaveBeenCalledWith({
+            origin: { lat: trip.originLat, lng: trip.originLng },
+            destination: { lat: shipment.pickupLat, lng: shipment.pickupLng },
+          });
+          expect(notificationsClient.sendPush).toHaveBeenCalledTimes(2);
+          expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+            userId: shipment.senderId,
+            title: "Tu transportista salió de viaje",
+            body: "Test Carrier inició su viaje. Llega a retirar tu paquete en aprox. 10 min. Seguilo desde la app.",
+            category: "custody",
+            data: { type: "trip_started", tripId: TRIP_ID, shipmentId: shipment.id },
+          });
+          expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+            userId: shipment.receiverId,
+            title: "Salieron a buscar tu paquete",
+            body: "Test Carrier inició su viaje camino a retirar tu paquete. Te avisamos cuando esté en camino a vos.",
+            category: "custody",
+            data: { type: "trip_started", tripId: TRIP_ID, shipmentId: shipment.id },
+          });
+        });
+      });
+
+      it("un envío de este viaje ya IN_TRANSIT no recibe este push (ya avisó el handshake de retiro)", async () => {
+        (shipmentRepo.listActiveShipments as any).mockResolvedValue([
+          fakeAssignedShipment({ id: "shipment-2", status: ShipmentStatus.IN_TRANSIT }),
+        ]);
+        const notificationsClient = { sendPush: vi.fn().mockResolvedValue(undefined) };
+        const service = buildService({ notificationsClient });
+
+        await service.startTrip({ tripId: TRIP_ID, callerId: CARRIER_ID, callerRoles: [UserRole.CARRIER] });
+
+        expect(notificationsClient.sendPush).not.toHaveBeenCalled();
+      });
+
+      it("sin routesProvider, avisa al emisor igual pero sin ETA", async () => {
+        (shipmentRepo.listActiveShipments as any).mockResolvedValue([fakeAssignedShipment()]);
+        const notificationsClient = { sendPush: vi.fn().mockResolvedValue(undefined) };
+        const service = buildService({ notificationsClient });
+
+        await service.startTrip({ tripId: TRIP_ID, callerId: CARRIER_ID, callerRoles: [UserRole.CARRIER] });
+
+        await vi.waitFor(() => {
+          expect(notificationsClient.sendPush).toHaveBeenCalledWith(
+            expect.objectContaining({
+              userId: "sender-1",
+              body: "Test Carrier inició su viaje camino a retirar tu paquete. Seguilo desde la app.",
+            }),
+          );
+        });
+      });
+
+      it("sin notificationsClient inyectado, no notifica y no rompe", async () => {
+        (shipmentRepo.listActiveShipments as any).mockResolvedValue([fakeAssignedShipment()]);
+        const service = buildService();
+
+        const result = await service.startTrip({
+          tripId: TRIP_ID,
+          callerId: CARRIER_ID,
+          callerRoles: [UserRole.CARRIER],
+        });
+
+        expect(result.status).toBe(TripStatus.ACTIVE);
+      });
     });
   });
 

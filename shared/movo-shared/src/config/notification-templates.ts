@@ -32,7 +32,9 @@ export type NotificationTriggerKey =
   | "custodyPickupConfirmed"
   | "custodyPickupConfirmedReceiver"
   | "custodyDeliveryConfirmedSender"
-  | "custodyDeliveryConfirmedCarrier";
+  | "custodyDeliveryConfirmedCarrier"
+  | "tripStartedSender"
+  | "tripStartedReceiver";
 
 export interface NotificationCopy {
   title: string;
@@ -216,6 +218,44 @@ export const NOTIFICATION_TRIGGERS = {
     ({ receiverName }) => ({
       title: "Entrega confirmada",
       body: `${receiverName} confirmó la entrega. ¡Gracias por tu viaje con Movo!`,
+    })
+  ),
+  // Nuevo (a pedido explícito): antes `startTrip` no avisaba a nadie -- emisor y
+  // receptor solo se enteraban de que el transportista se puso en movimiento al
+  // llegar el push de retiro confirmado (a veces horas después). Categoría "custody"
+  // -- mismo tema de fondo que los triggers de handshake de arriba (cuándo pasa algo
+  // con la custodia física de MI paquete), no uno nuevo por un evento adyacente.
+  //
+  // Al emisor con ETA (hasta el retiro de SU paquete, mismo formato/cierre que
+  // `custodyPickupConfirmedReceiver` -- ver `formatEtaDuration`); al receptor SIN
+  // ETA a propósito: en este punto el transportista recién arranca el viaje, puede
+  // tener otras paradas antes de llegar a buscar el paquete de este receptor, así
+  // que cualquier estimación de cuándo LE va a llegar a él sería inventada.
+  tripStartedSender: definition<{ carrierName: string; etaMinutes: number | null }>(
+    "custody",
+    {
+      title: "Tu transportista salió de viaje",
+      body: "El transportista inició su viaje camino a retirar tu paquete.",
+    },
+    ({ carrierName, etaMinutes }) => {
+      const eta = etaMinutes !== null ? formatEtaDuration(etaMinutes) : null;
+      return {
+        title: "Tu transportista salió de viaje",
+        body: eta
+          ? `${carrierName} inició su viaje. Llega a retirar tu paquete en aprox. ${eta}. Seguilo desde la app.`
+          : `${carrierName} inició su viaje camino a retirar tu paquete. Seguilo desde la app.`,
+      };
+    }
+  ),
+  tripStartedReceiver: definition<{ carrierName: string }>(
+    "custody",
+    {
+      title: "Salieron a buscar tu paquete",
+      body: "El transportista inició su viaje camino a retirar tu paquete. Te avisamos cuando esté en camino a vos.",
+    },
+    ({ carrierName }) => ({
+      title: "Salieron a buscar tu paquete",
+      body: `${carrierName} inició su viaje camino a retirar tu paquete. Te avisamos cuando esté en camino a vos.`,
     })
   ),
 };

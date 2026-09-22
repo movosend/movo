@@ -14,6 +14,8 @@ import {
   createPricingLogisticsClient,
   PricingLogisticsClient,
 } from "../../adapters/pricing-logistics-client";
+import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
+import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-provider";
 
 export interface TripsRoutesOptions extends FastifyPluginOptions {
   usersClient?: UsersClient;
@@ -21,6 +23,10 @@ export interface TripsRoutesOptions extends FastifyPluginOptions {
   shipmentRepository?: ShipmentRepository;
   offerRepository?: OfferRepository;
   pricingLogisticsClient?: PricingLogisticsClient;
+  /** Override solo para tests de integración -- avisos de "viaje iniciado" a emisor/receptor. */
+  notificationsClient?: NotificationsClient;
+  /** Override solo para tests de integración -- mismo criterio que `notificationsClient`. */
+  routesProvider?: RoutesProvider;
   service?: TripsService;
 }
 
@@ -76,6 +82,8 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
       PRICING_SERVICE_URL: app.config.PRICING_SERVICE_URL,
     });
   const defaultMaxDetourKm = app.config.TRIP_DEFAULT_MAX_DETOUR_KM ?? 15;
+  const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
+  const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config);
 
   const service =
     opts.service ??
@@ -87,6 +95,8 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
       pricingLogisticsClient,
       defaultMaxDetourKm,
       logger: app.log,
+      notificationsClient,
+      routesProvider,
     });
 
   // POST /trips: declara un nuevo viaje
