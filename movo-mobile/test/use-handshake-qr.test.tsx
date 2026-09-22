@@ -254,6 +254,48 @@ describe("useHandshakeQr (MOVO-159)", () => {
     expect(harness.current.error).toContain("100 m");
   });
 
+  it("MOVO-199 AC7: con onEvidenceMissing, DELIVERY_EVIDENCE_MISSING lo invoca en vez de setear un error genérico", async () => {
+    mockGenerateHandshake.mockRejectedValueOnce(
+      new ApiError(422, "DELIVERY_EVIDENCE_MISSING", "Evidence missing")
+    );
+    const onEvidenceMissing = jest.fn();
+
+    const harness = await renderHarness({ shipmentId, initialStage: "delivery", onEvidenceMissing });
+
+    await waitFor(() => {
+      expect(onEvidenceMissing).toHaveBeenCalledTimes(1);
+    });
+
+    expect(harness.current.status).not.toBe("error");
+    expect(harness.current.error).toBeNull();
+  });
+
+  it("MOVO-199 AC7: PICKUP_EVIDENCE_MISSING también dispara onEvidenceMissing (mismo mecanismo compartido)", async () => {
+    mockGenerateHandshake.mockRejectedValueOnce(
+      new ApiError(422, "PICKUP_EVIDENCE_MISSING", "Evidence missing")
+    );
+    const onEvidenceMissing = jest.fn();
+
+    await renderHarness({ shipmentId, initialStage: "pickup", onEvidenceMissing });
+
+    await waitFor(() => {
+      expect(onEvidenceMissing).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("sin onEvidenceMissing, DELIVERY_EVIDENCE_MISSING cae al error genérico (retrocompatible con /handshake y /dev-handshake)", async () => {
+    mockGenerateHandshake.mockRejectedValueOnce(
+      new ApiError(422, "DELIVERY_EVIDENCE_MISSING", "Evidence missing")
+    );
+
+    const harness = await renderHarness({ shipmentId, initialStage: "delivery" });
+
+    await waitFor(() => {
+      expect(harness.current.status).toBe("error");
+    });
+    expect(harness.current.error).not.toBeNull();
+  });
+
   it("deriva expiryTimestamp del expiresAt autoritativo del backend respetando latencia de red", async () => {
     // Si la llamada tardó 5s, el backend devolvió expiresAt con solo 10s restantes respecto a Date.now()
     mockGenerateHandshake.mockResolvedValueOnce({

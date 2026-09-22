@@ -23,6 +23,14 @@ export interface UseHandshakeQrOptions {
   shipmentId: string;
   initialStage?: "pickup" | "delivery";
   onConfirmed?: (shipment: ShipmentSummary) => void;
+  /** Caso defensivo del wizard de entrega (MOVO-199 AC7, mismo patrón que
+   * `onEvidenceMissing` de `HandshakeScanStep` en MOVO-198): un rechazo por
+   * `DELIVERY_EVIDENCE_MISSING` no debería pasar si el gate de evidencia del paso
+   * anterior funciona, pero el flujo tiene que degradar bien -- con este callback,
+   * el caller decide volver al paso de evidencia en vez de mostrar el error
+   * genérico. Opcional y retrocompatible: la pantalla standalone `/handshake` y
+   * `/dev-handshake` no lo pasan, sin cambio de comportamiento ahí. */
+  onEvidenceMissing?: () => void;
   /** En tests, permite omitir polling o ajustar intervalos */
   pollingIntervalMs?: number;
 }
@@ -50,6 +58,7 @@ export function useHandshakeQr({
   shipmentId,
   initialStage,
   onConfirmed,
+  onEvidenceMissing,
   pollingIntervalMs = DEFAULT_POLLING_INTERVAL_MS,
 }: UseHandshakeQrOptions): UseHandshakeQrResult {
   const deviceKey = useDeviceKeyBootstrap();
@@ -186,6 +195,19 @@ export function useHandshakeQr({
     } catch (err: unknown) {
       clearTimer();
       clearPolling();
+      // AC7: `DELIVERY_EVIDENCE_MISSING`/`PICKUP_EVIDENCE_MISSING` no son un error a
+      // mostrar acá -- el caller decide volver al paso de evidencia. Status
+      // deliberadamente NO vuelve a "idle" acá: el efecto de disparo automático
+      // reintentaría `generate()` en loop contra el mismo motivo mientras el
+      // `router.replace` del caller todavía no desmontó este componente.
+      if (
+        err instanceof ApiError &&
+        (err.code === "DELIVERY_EVIDENCE_MISSING" || err.code === "PICKUP_EVIDENCE_MISSING") &&
+        onEvidenceMissing
+      ) {
+        onEvidenceMissing();
+        return;
+      }
       setStatus("error");
       if (err instanceof ApiError && err.code === "HANDSHAKE_DISTANCE_EXCEEDED") {
         setError("La distancia entre ambos supera el límite permitido (100 m). Acérquense para confirmar.");
@@ -201,6 +223,7 @@ export function useHandshakeQr({
     clearPolling,
     handleExpiration,
     onConfirmed,
+    onEvidenceMissing,
     pollingIntervalMs,
   ]);
 

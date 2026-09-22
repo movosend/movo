@@ -194,6 +194,42 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/shipments/ship-1/pickup");
   });
 
+  it("MOVO-199: al tocar 'Entregar paquete' navega al wizard de entrega, ya no queda deshabilitado", async () => {
+    const activeRoute: CarrierRoute = {
+      stops: [
+        {
+          stopOrder: 1,
+          shipmentId: "ship-2",
+          type: "delivery",
+          lat: -31.43,
+          lng: -64.19,
+          address: "Nueva Córdoba",
+          estimatedArrivalMinutes: 5,
+          outsideTimeWindow: false,
+        },
+      ],
+      totalDistanceKm: 5,
+      totalDurationMinutes: 12,
+      optimized: true,
+      disclaimer: null,
+    };
+
+    (useOptimizedRoute as jest.Mock).mockReturnValue({
+      route: activeRoute,
+      carrierLocation: { lat: -31.4167, lng: -64.1833 },
+      isLoading: false,
+      isRefreshing: false,
+      gpsPermissionDenied: false,
+      error: null,
+      refetch: mockRefetch,
+    });
+
+    const { getByTestId } = await render(<OptimizedRouteScreen />);
+
+    await fireEvent.press(getByTestId("stop-action-btn-1"));
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/ship-2/delivery");
+  });
+
   it("activa el recorrido demo al presionar el botón de prueba", async () => {
     (useOptimizedRoute as jest.Mock).mockReturnValue({
       route: {
