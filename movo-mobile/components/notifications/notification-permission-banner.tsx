@@ -9,7 +9,10 @@ import { Linking, Platform, Pressable, Text, View } from "react-native";
  */
 export function NotificationPermissionBanner({ testID }: { testID?: string }) {
   return (
-    <View testID={testID} className="mb-6 rounded-[10px] border border-border-strong bg-ink-950 p-4">
+    <View
+      testID={testID}
+      className="mb-6 mt-5 rounded-[10px] border border-border-strong bg-ink-950 p-4 dark:bg-ink-800"
+    >
       <Text className="font-sans-semibold text-caption uppercase text-lime-500">Push bloqueado</Text>
       <Text className="mt-1.5 font-sans text-[13px] leading-[18px] text-ink-200">
         {Platform.OS === "ios" ? "iOS" : "Android"} está bloqueando las notificaciones de Movo. Activalas
@@ -18,7 +21,7 @@ export function NotificationPermissionBanner({ testID }: { testID?: string }) {
       <Pressable
         testID={testID ? `${testID}-open-settings` : undefined}
         onPress={() => void Linking.openSettings()}
-        className="mt-3.5 self-start rounded-lg bg-lime-500 px-3.5 py-2.5"
+        className="mt-3.5 items-center rounded-lg bg-lime-500 px-3.5 py-2.5"
       >
         <Text className="font-sans-semibold text-[13px] text-ink-950">
           Abrir ajustes de {Platform.OS === "ios" ? "iOS" : "Android"}
