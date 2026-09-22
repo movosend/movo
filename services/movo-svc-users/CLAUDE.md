@@ -1021,3 +1021,43 @@ Del lado `movo-mobile`, se agregó el único test que faltaba (`vehicle-client.t
 Pendiente / fuera de alcance: prueba manual de punta a punta (cargar la ficha desde
 `vehicle-info.tsx` y verla en el perfil público de otro usuario) no verificable en
 este entorno.
+
+### MOVO-245 — Preferencias de notificación push: modelo, endpoints y enforcement
+
+Sub-issue de backend de MOVO-239/MOVO-240 (catálogo de push, ver
+`shared/movo-shared/CLAUDE.md`). Módulo nuevo `notification-preferences/`:
+
+- **Dos tablas nuevas de Prisma**: `NotificationPreference` (toggle maestro
+  `pushEnabled` + horario de silencio, una fila por usuario con defaults explícitos —
+  se crea la primera vez que hace falta, sin quedar sparse: es 1 sola fila, no hay
+  beneficio de espacio en dejarla implícita) y `NotificationCategoryPreference`
+  (sparse de verdad — solo existe una fila cuando el usuario tocó el toggle de esa
+  categoría; ausencia de fila = categoría habilitada, AC5). `setCategoryEnabled(...,
+  enabled: true)` **borra** la fila en vez de persistir `true`, para no acumular filas
+  redundantes con el default implícito.
+- **`GET`/`PUT /users/me/notification-preferences`**: `PUT` valida cada key de
+  `categories` contra `isImplementedNotificationCategory` (@movo/shared) — una
+  categoría desconocida o todavía "Pronto" es 400 (el cliente no puede inventar una
+  preferencia sobre algo que no existe), y `quietHours.from`/`.to` contra
+  `isValidTimeOfDay`.
+- **Enforcement real en `notifications.service.ts#sendPushToUser`** (único choke
+  point de push del servicio): antes de mandar, resuelve las preferencias del
+  destinatario y descarta el envío (fail-closed, no tira error, solo no manda) si el
+  toggle maestro está apagado, la categoría del push está deshabilitada, o el horario
+  de silencio está activo y la categoría no es `quietHoursExempt`. `category` pasa a
+  campo obligatorio de `POST /internal/notifications/push` — sin ella, 400.
+- **Fix post-review de PR #182 (efficiency)**: `updatePreferences` disparaba un
+  `getPreferences` extra al final incluso cuando ya tenía el row recién devuelto por
+  `upsertPreferences` — dos round-trips a Postgres por cada `PUT` que tocaba el
+  toggle maestro/horario de silencio. Ahora ese row se resuelve una sola vez (del
+  upsert si hubo cambios, de un `getPreferences` si no hubo ninguno). Los overrides de
+  categoría siguen necesitando su propio fetch aparte (tabla distinta) — eso no
+  cambió. De paso, la validación de categoría pasó a reusar
+  `isImplementedNotificationCategory` (@movo/shared) en vez de reimplementar el mismo
+  chequeo con `.includes` a mano — un solo lugar decide qué categoría es válida.
+
+Tests: unitarios verdes; los de integración (`notification-preferences.integration.
+test.ts`) quedaron escritos pero sin poder correrse en este entorno por falta de
+Postgres/Redis local — pendiente de verificar en CI.
+
+Pendiente / fuera de alcance: mobile de MOVO-246 (pantalla de configuración).
