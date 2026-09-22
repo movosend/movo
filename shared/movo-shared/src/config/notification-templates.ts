@@ -30,7 +30,9 @@ export type NotificationTriggerKey =
   | "tripAutoCreated"
   | "ratingReceived"
   | "custodyPickupConfirmed"
-  | "custodyDeliveryConfirmed";
+  | "custodyPickupConfirmedReceiver"
+  | "custodyDeliveryConfirmedSender"
+  | "custodyDeliveryConfirmedCarrier";
 
 export interface NotificationCopy {
   title: string;
@@ -45,6 +47,19 @@ export interface NotificationTriggerDefinition<TParams = void> {
    * caller (nombre de la contraparte, etc.). Los triggers sin ningún dato dinámico
    * simplemente ignoran el argumento y devuelven `displayCopy` tal cual. */
   render: (params: TParams) => NotificationCopy;
+}
+
+/** Formatea minutos de ETA en "N min" o "N h" / "N h M min" -- un viaje interurbano
+ * real puede tardar horas, no solo minutos (ver `custodyPickupConfirmedReceiver`), y
+ * "Llega en aprox. 135 min" se lee peor que "Llega en aprox. 2 h 15 min". */
+function formatEtaDuration(etaMinutes: number): string {
+  const minutes = Math.max(0, Math.round(etaMinutes));
+  if (minutes < 60) {
+    return `${minutes} min`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes === 0 ? `${hours} h` : `${hours} h ${remainingMinutes} min`;
 }
 
 function definition<TParams = void>(
@@ -161,10 +176,47 @@ export const NOTIFICATION_TRIGGERS = {
       body: `${carrierName} retiró tu paquete y esta en camino al destino.`,
     })
   ),
-  custodyDeliveryConfirmed: definition<{ receiverName: string }>(
+  // Ajuste post-MOVO-245: el receptor no recibía ningún aviso en el retiro (solo se
+  // enteraba al llegar la entrega) -- copy propio, distinto del que recibe el emisor,
+  // con el ETA estimado cuando `routesProvider` pudo resolverlo (best-effort, nunca
+  // bloquea el push si falla -- ver `handshake.service.ts`). El ETA es una estimación
+  // de tiempo de viaje sin ventanas de espera/paradas intermedias -- puede terminar
+  // siendo de horas en un envío de larga distancia, así que SIEMPRE cierra invitando
+  // a seguir el estado real desde la app en vez de prometer un horario exacto.
+  custodyPickupConfirmedReceiver: definition<{ carrierName: string; etaMinutes: number | null }>(
     "custody",
-    { title: "Entrega confirmada", body: "El receptor confirmó que recibió el paquete." },
-    ({ receiverName }) => ({ title: "Entrega confirmada", body: `${receiverName} confirmó que recibió el paquete.` })
+    {
+      title: "Tu paquete está en camino",
+      body: "El transportista retiró el paquete y ya está en camino. Seguilo desde la app.",
+    },
+    ({ carrierName, etaMinutes }) => {
+      const eta = etaMinutes !== null ? formatEtaDuration(etaMinutes) : null;
+      return {
+        title: "Tu paquete está en camino",
+        body: eta
+          ? `${carrierName} retiró el paquete. Llega en aprox. ${eta}. Seguilo desde la app.`
+          : `${carrierName} retiró el paquete y ya está en camino. Seguilo desde la app.`,
+      };
+    }
+  ),
+  // Ajuste post-MOVO-245: emisor y transportista recibían el mismo texto en la
+  // entrega ("El receptor confirmó que recibió el paquete") -- separado en dos
+  // triggers con copy propio por destinatario.
+  custodyDeliveryConfirmedSender: definition<{ receiverName: string }>(
+    "custody",
+    { title: "Entrega confirmada", body: "El receptor confirmó que recibió tu paquete." },
+    ({ receiverName }) => ({
+      title: "Entrega confirmada",
+      body: `${receiverName} confirmó que recibió tu paquete.`,
+    })
+  ),
+  custodyDeliveryConfirmedCarrier: definition<{ receiverName: string }>(
+    "custody",
+    { title: "Entrega confirmada", body: "El receptor confirmó la entrega. ¡Gracias por tu viaje con Movo!" },
+    ({ receiverName }) => ({
+      title: "Entrega confirmada",
+      body: `${receiverName} confirmó la entrega. ¡Gracias por tu viaje con Movo!`,
+    })
   ),
 };
 
