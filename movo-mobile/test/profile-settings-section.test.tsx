@@ -13,9 +13,10 @@ jest.mock("../src/hooks/use-profile", () => ({
   useMyProfile: () => mockUseMyProfile(),
 }));
 
-// "Direcciones guardadas" (MOVO-121), "Cuenta y seguridad" (MOVO-136) y "Legal"
-// (MOVO-224) son los ítems de esta sección con pantalla real — cubre que navegan en
-// vez de mostrar el `Alert.alert` placeholder, y que el resto sigue mostrándolo.
+// "Direcciones guardadas" (MOVO-121), "Cuenta y seguridad" (MOVO-136), "Legal"
+// (MOVO-224) y "Notificaciones" (MOVO-246) son los ítems de esta sección con
+// pantalla real — cubre que navegan en vez de mostrar el `Alert.alert` placeholder,
+// y que el resto sigue mostrándolo.
 describe("ProfileSettingsSection", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -46,6 +47,14 @@ describe("ProfileSettingsSection", () => {
     expect(router.push).toHaveBeenCalledWith("/profile/legal");
   });
 
+  it("navega a /profile/notifications al tocar 'Notificaciones'", async () => {
+    const { getByText } = await render(<ProfileSettingsSection testID="settings" />);
+
+    fireEvent.press(getByText("Notificaciones"));
+
+    expect(router.push).toHaveBeenCalledWith("/profile/notifications");
+  });
+
   it("MOVO-229: muestra el punto de 'pendiente' junto a Legal si falta aceptar algo", async () => {
     const { getByTestId } = await render(<ProfileSettingsSection testID="settings" />);
 
@@ -71,7 +80,7 @@ describe("ProfileSettingsSection", () => {
     const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
     const { getByText } = await render(<ProfileSettingsSection testID="settings" />);
 
-    fireEvent.press(getByText("Notificaciones"));
+    fireEvent.press(getByText("Pagos y cobros"));
 
     expect(alertSpy).toHaveBeenCalledWith(
       "Próximamente",
