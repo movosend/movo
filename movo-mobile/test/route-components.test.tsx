@@ -206,6 +206,43 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       expect(onPressShipment).not.toHaveBeenCalled();
     });
 
+    it("con isActionDisabled, el CTA de la parada activa no dispara onPressAction y dice un label según el tipo de parada", async () => {
+      const onPressAction = jest.fn();
+
+      // stopOrder 1 es un retiro (sampleRoute.stops[0].type === "pickup"), así que
+      // deshabilitado debería decir "Retiro no disponible", no "Entrega
+      // próximamente" (bug de label fijo, feedback de review, PR #180).
+      const { getByTestId, getByText } = await render(
+        <StopList
+          route={sampleRoute}
+          activeStopOrder={1}
+          onPressAction={onPressAction}
+          isActionDisabled={() => true}
+        />
+      );
+
+      await fireEvent.press(getByTestId("stop-action-btn-1"));
+      expect(onPressAction).not.toHaveBeenCalled();
+      expect(getByText("Retiro no disponible")).toBeTruthy();
+    });
+
+    it("con isActionDisabled sobre una parada de entrega, dice 'Entrega próximamente'", async () => {
+      const onPressAction = jest.fn();
+
+      const { getByTestId, getByText } = await render(
+        <StopList
+          route={sampleRoute}
+          activeStopOrder={2}
+          onPressAction={onPressAction}
+          isActionDisabled={() => true}
+        />
+      );
+
+      await fireEvent.press(getByTestId("stop-action-btn-2"));
+      expect(onPressAction).not.toHaveBeenCalled();
+      expect(getByText("Entrega próximamente")).toBeTruthy();
+    });
+
     it("renderiza correctamente cuando una parada está activa (activeStopOrder)", async () => {
       const { getByTestId } = await render(
         <StopList route={sampleRoute} activeStopOrder={1} />

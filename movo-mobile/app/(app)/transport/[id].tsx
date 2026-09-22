@@ -1,5 +1,6 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { OfferStatus } from "@movo/shared/dist/types/offer";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { useColorScheme } from "nativewind";
@@ -27,8 +28,8 @@ import { SkeletonBlock } from "../../../components/ui/skeleton-block";
 import { useMyOffers } from "../../../src/hooks/use-offers";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
-import { getClientCommissionRate } from "../../../src/lib/commission-config";
 import { useAuthStore } from "../../../src/store/auth-store";
+import { getClientCommissionRate } from "../../../src/lib/commission-config";
 import {
   useShipment,
   useShipmentRoute,
@@ -234,11 +235,19 @@ export default function TransportShipmentDetailScreen() {
   // actualiza al aceptar, ver `offer-repository.ts`).
   const { data: myPendingOffers } = useMyOffers({ status: OfferStatus.PENDING, limit: 50 });
   const { data: myAcceptedOffers } = useMyOffers({ status: OfferStatus.ACCEPTED, limit: 50 });
+  const currentUser = useAuthStore((state) => state.user);
 
   const myActiveOffer = myPendingOffers?.items.find((offer) => offer.shipmentId === id);
   const myAcceptedOffer = myAcceptedOffers?.items.find((offer) => offer.shipmentId === id);
 
-  const currentUser = useAuthStore((state) => state.user);
+  // Punto de entrada real al wizard de retiro (MOVO-198) desde el detalle: mismas
+  // dos condiciones que el gate del wizard ("ready"), para no ofrecer un CTA que el
+  // propio wizard va a rechazar igual. La entrega (`in_transit`) todavía no tiene
+  // wizard (MOVO-199), así que se muestra deshabilitada en vez de omitirse.
+  const isMyShipment = !!shipment && shipment.carrierId === currentUser?.userId;
+  const canStartPickup = isMyShipment && shipment.status === ShipmentStatus.ASSIGNED;
+  const showDeliveryComingSoon = isMyShipment && shipment.status === ShipmentStatus.IN_TRANSIT;
+
   // El emisor ya eligió mi oferta y el envío se confirmó con `carrierId` seteado a
   // mí -- ofertar de nuevo ya no es posible (el envío dejó de estar `published`) ni
   // tiene sentido mostrar "cuánto te queda si ofertás el sugerido", así que tanto
@@ -647,8 +656,11 @@ export default function TransportShipmentDetailScreen() {
               punto de entrada al detalle -- una barra inferior duplicaría esa
               navegación (pedido explícito de no tener dos entradas al mismo lugar).
               Asignado a mí: no hay ninguna acción de ofertar posible, el CTA
-              desaparece sin reemplazo -- mismo criterio que la card de arriba. */}
-          {myActiveOffer || isAssignedToMe ? null : (
+              desaparece sin reemplazo -- mismo criterio que la card de arriba. El
+              botón de dev (MOVO-198) es la excepción: tiene que poder mostrarse
+              incluso con `isAssignedToMe` (es justo el caso al que apunta), así que
+              la barra entera se muestra si hay algo que renderizar adentro. */}
+          {canStartPickup || showDeliveryComingSoon || !(myActiveOffer || isAssignedToMe) ? (
             <View style={{ position: "relative" }}>
               {/* Sombra SOLO en el borde superior -- la barra vive fuera del
                   `ScrollView`, sin esto se pierde contra el contenido al hacer scroll
@@ -669,21 +681,48 @@ export default function TransportShipmentDetailScreen() {
                   opacity: 0.5,
                 }}
               />
-              <View className="border-t border-border bg-bg px-5 pb-6 pt-3.5">
-                <Pressable
-                  testID="transport-create-offer-cta"
-                  onPress={() =>
-                    router.push(`/(app)/transport/${shipment.id}/offer`)
-                  }
-                  className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-fg py-3.5"
-                >
-                  <Text className="font-sans-semibold text-body text-bg">
-                    Hacer una oferta
-                  </Text>
-                </Pressable>
+              <View className="border-t border-border bg-bg px-5 pb-6 pt-3.5 gap-2.5">
+                {canStartPickup ? (
+                  <Pressable
+                    testID="transport-pickup-wizard-cta"
+                    onPress={() =>
+                      router.push(`/(app)/shipments/${shipment.id}/pickup`)
+                    }
+                    className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-lime-500 py-3.5 active:bg-lime-400"
+                  >
+                    <Text className="font-sans-semibold text-body text-ink-950">
+                      Iniciar retiro
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {showDeliveryComingSoon ? (
+                  <Pressable
+                    testID="transport-delivery-cta-disabled"
+                    disabled
+                    accessibilityState={{ disabled: true }}
+                    className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-bg-mute py-3.5"
+                  >
+                    <Text className="font-sans-semibold text-body text-fg-3">
+                      Entrega próximamente
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {myActiveOffer || isAssignedToMe ? null : (
+                  <Pressable
+                    testID="transport-create-offer-cta"
+                    onPress={() =>
+                      router.push(`/(app)/transport/${shipment.id}/offer`)
+                    }
+                    className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-fg py-3.5"
+                  >
+                    <Text className="font-sans-semibold text-body text-bg">
+                      Hacer una oferta
+                    </Text>
+                  </Pressable>
+                )}
               </View>
             </View>
-          )}
+          ) : null}
         </View>
       )}
     </SafeAreaView>

@@ -89,10 +89,10 @@ export function AttentionConfirmCard({
           onPress={handleAccept}
           disabled={isBusy}
           className={`h-10 flex-1 items-center justify-center rounded-full ${
-            isBusy ? "bg-bg-mute" : "bg-ink-950"
+            isBusy ? "bg-bg-mute" : "bg-fg"
           }`}
         >
-          <Text className={`font-sans-semibold text-small ${isBusy ? "text-fg-3" : "text-paper"}`}>
+          <Text className={`font-sans-semibold text-small ${isBusy ? "text-fg-3" : "text-bg"}`}>
             Aceptar
           </Text>
         </Pressable>

@@ -22,6 +22,10 @@ function Polyline(props) {
   return React.createElement(View, { testID: props.testID });
 }
 
+function Circle(props) {
+  return React.createElement(View, { testID: props.testID });
+}
+
 function Callout(props) {
   return React.createElement(View, { testID: props.testID }, props.children);
 }
@@ -31,6 +35,7 @@ module.exports = {
   default: MapView,
   Marker,
   Polyline,
+  Circle,
   Callout,
   PROVIDER_GOOGLE: "google",
 };

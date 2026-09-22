@@ -25,6 +25,8 @@ interface StopListProps {
   onSelectStop?: (stop: CarrierRouteStop) => void;
   onPressShipment?: (shipmentId: string) => void;
   onPressAction?: (stop: CarrierRouteStop) => void;
+  /** Deshabilita el CTA principal de una parada (ej. entrega sin wizard todavía). */
+  isActionDisabled?: (stop: CarrierRouteStop) => boolean;
   isRefreshing?: boolean;
   onRefresh?: () => void;
   isExpanded?: boolean;
@@ -123,6 +125,7 @@ export function StopList({
   onSelectStop,
   onPressShipment,
   onPressAction,
+  isActionDisabled,
   isRefreshing,
   onRefresh,
   isExpanded,
@@ -290,6 +293,7 @@ export function StopList({
           const isHighlighted = stop.stopOrder === currentHighlightedOrder;
           const isNext = Boolean(activeStop && stop.stopOrder === activeStop.stopOrder);
           const isPickup = stop.type === "pickup";
+          const actionDisabled = isActionDisabled?.(stop) ?? false;
           const isLate = stop.outsideTimeWindow;
           const windowText = formatTimeWindow(stop.timeWindowStart, stop.timeWindowEnd);
           const etaText = formatEstimatedArrival(stop);
@@ -449,6 +453,7 @@ export function StopList({
                   {isNext && (
                     <Pressable
                       testID={`stop-action-btn-${stop.stopOrder}`}
+                      disabled={actionDisabled}
                       onPress={(e) => {
                         e.stopPropagation?.();
                         if (onPressAction) {
@@ -457,14 +462,25 @@ export function StopList({
                           onPressShipment(stop.shipmentId);
                         }
                       }}
-                      className="flex-1 h-11 rounded-[10px] bg-lime-500 active:bg-lime-400 flex-row items-center justify-center gap-1.5"
+                      className={`flex-1 h-11 rounded-[10px] flex-row items-center justify-center gap-1.5 ${
+                        actionDisabled ? "bg-bg-mute" : "bg-lime-500 active:bg-lime-400"
+                      }`}
                       accessibilityRole="button"
+                      accessibilityState={{ disabled: actionDisabled }}
                       accessibilityLabel={isPickup ? "Retirar paquete" : "Entregar paquete"}
                     >
-                      <Text className="font-sans-semibold text-[13.5px] text-ink-950">
-                        {isPickup ? "Retirar paquete" : "Entregar paquete"}
+                      <Text
+                        className={`font-sans-semibold text-[13.5px] ${actionDisabled ? "text-fg-3" : "text-ink-950"}`}
+                      >
+                        {actionDisabled
+                          ? isPickup
+                            ? "Retiro no disponible"
+                            : "Entrega próximamente"
+                          : isPickup
+                            ? "Retirar paquete"
+                            : "Entregar paquete"}
                       </Text>
-                      <ChevronRight size={15} color="#0A0A0B" />
+                      {!actionDisabled && <ChevronRight size={15} color="#0A0A0B" />}
                     </Pressable>
                   )}
                 </View>

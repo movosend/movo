@@ -427,6 +427,39 @@ describe("TransportShipmentDetailScreen", () => {
       );
     });
 
+    it("asignado a mí en `assigned`, 'Iniciar retiro' abre el wizard de retiro", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "carrier-me", status: ShipmentStatus.ASSIGNED }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      mockMyOffers([]);
+
+      const { getByTestId, queryByTestId } = await render(<TransportShipmentDetailScreen />);
+
+      expect(queryByTestId("transport-delivery-cta-disabled")).toBeNull();
+      await fireEvent.press(getByTestId("transport-pickup-wizard-cta"));
+      expect(mockRouterPush).toHaveBeenCalledWith("/(app)/shipments/shipment-1/pickup");
+    });
+
+    it("asignado a mí en `in_transit`, la entrega se muestra deshabilitada (sin wizard todavía)", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "carrier-me", status: ShipmentStatus.IN_TRANSIT }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      mockMyOffers([]);
+
+      const { getByTestId, queryByTestId } = await render(<TransportShipmentDetailScreen />);
+
+      expect(queryByTestId("transport-pickup-wizard-cta")).toBeNull();
+      expect(getByTestId("transport-delivery-cta-disabled")).toBeTruthy();
+    });
+
     it("si me asignaron el envío y mi oferta ganadora propuso otro día/horario, el detalle muestra lo confirmado por la oferta, no lo pedido por el emisor", async () => {
       mockUseShipment.mockReturnValue({
         isLoading: false,
