@@ -30,9 +30,9 @@ function AttentionInfoCard({ task, testID }: { task: AttentionInfoTask; testID?:
       <Pressable
         testID={testID ? `${testID}-primary` : undefined}
         onPress={task.onPrimary}
-        className="h-9 items-center justify-center rounded-full bg-ink-950 px-4"
+        className="h-9 items-center justify-center rounded-full bg-fg px-4"
       >
-        <Text className="font-sans-semibold text-caption text-paper">{task.primaryLabel}</Text>
+        <Text className="font-sans-semibold text-caption text-bg">{task.primaryLabel}</Text>
       </Pressable>
     </Pressable>
   );
