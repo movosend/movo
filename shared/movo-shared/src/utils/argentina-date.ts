@@ -20,3 +20,17 @@ export function toArgentinaCalendarDateString(instant: Date | string): string {
   const day = String(local.getUTCDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
+
+/**
+ * MOVO-239: hora del día en Argentina para un instante real, como `"HH:MM"` (24hs) --
+ * mismo offset fijo que `toArgentinaCalendarDateString`, usado por "Horario de
+ * silencio" (quiet hours de la pantalla de Configuración de notificaciones) para
+ * comparar contra `quietHoursFrom`/`quietHoursTo`.
+ */
+export function toArgentinaTimeOfDayString(instant: Date | string): string {
+  const date = typeof instant === "string" ? new Date(instant) : instant;
+  const local = new Date(date.getTime() - ARGENTINA_UTC_OFFSET_HOURS * 60 * 60 * 1000);
+  const hours = String(local.getUTCHours()).padStart(2, "0");
+  const minutes = String(local.getUTCMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
