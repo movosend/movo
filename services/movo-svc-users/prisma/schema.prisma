@@ -125,6 +125,53 @@ model VehicleProfile {
   @@schema("users")
 }
 
+// MOVO-245: toggle maestro de push + "Horario de silencio" (quiet hours), 1 fila por
+// usuario (mismo patrón `userId @unique` que `DeviceKey`/`VehicleProfile` -- un
+// upsert sobre la misma fila, sin historial). Ausencia de fila (usuario que nunca
+// tocó nada) se resuelve en `notification-preference-repository.ts` con los defaults
+// de AC5 (todo prendido, horario de silencio apagado) -- por eso todas las columnas
+// de acá tienen su propio default a nivel de Postgres, no dependen de que la fila
+// exista para tener un valor razonable.
+model NotificationPreference {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String   @unique(map: "notification_preferences_user_id_key") @map("user_id") @db.Uuid
+  pushEnabled      Boolean  @default(true) @map("push_enabled")
+  quietHoursEnabled Boolean @default(false) @map("quiet_hours_enabled")
+  // Hora Argentina "HH:MM" (`toArgentinaTimeOfDayString`/`isWithinQuietHours` de
+  // @movo/shared) -- se guarda como texto, no `@db.Time`, porque nunca se usa en una
+  // comparación SQL (`notifications.service.ts` la lee, resuelve en JS) y así evita
+  // el desfasaje de zona horaria que `@db.Time` sin TZ arrastraría.
+  quietHoursFrom   String   @default("23:00") @map("quiet_hours_from")
+  quietHoursTo     String   @default("08:00") @map("quiet_hours_to")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
+  @@schema("users")
+}
+
+// MOVO-245: tabla SPARSE a propósito -- una fila solo cuando el usuario tocó el
+// toggle de esa categoría. `category` es un string libre validado en código contra
+// `NOTIFICATION_CATEGORIES` (@movo/shared), no un enum de Postgres: agregar una
+// categoría nueva el día que se implemente un ítem del catálogo de MOVO-240 no
+// requiere ninguna migración acá. Ausencia de fila para (userId, category) = esa
+// categoría está HABILITADA (AC5: toda cuenta existente, y toda categoría que se
+// sume después, arranca prendida sin que nadie tenga que backfillear nada).
+model NotificationCategoryPreference {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  category  String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category], map: "notification_category_preferences_user_id_category_key")
+  @@map("notification_category_preferences")
+  @@schema("users")
+}
+
 model User {
   id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email             String        @unique(map: "users_email_key")
@@ -167,6 +214,8 @@ model User {
   driversLicense    DriversLicense?
   deviceKey         DeviceKey?
   vehicleProfile    VehicleProfile?
+  notificationPreference          NotificationPreference?
+  notificationCategoryPreferences NotificationCategoryPreference[]
 
   // users_email_lower_idx (índice único funcional sobre LOWER(email)) no tiene
   // equivalente declarable en schema.prisma (Prisma no modela expression indexes).

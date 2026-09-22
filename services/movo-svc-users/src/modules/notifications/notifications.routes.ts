@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
+import { NotificationCategoryId } from "@movo/shared";
 import { createNotificationsService } from "./notifications.service";
 import { notificationsSchemas } from "./notifications.schema";
 import { createPushNotificationProvider, PushNotificationProvider } from "../../adapters/push-notification-provider";
@@ -28,13 +29,22 @@ export default async function notificationsRoutes(app: FastifyInstance, opts: No
       schema: { hide: true, body: notificationsSchemas.internalPushBody },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const { userId, title, body, data } = request.body as {
+      const { userId, title, body, data, category } = request.body as {
         userId: string;
         title: string;
         body: string;
         data?: Record<string, unknown>;
+        category: string;
       };
-      await service.sendPushToUser(userId, { title, body, ...(data !== undefined ? { data } : {}) });
+      // El schema solo valida que sea un string no vacío -- una categoría desconocida
+      // la rechaza `isPushAllowed` en el service (no se envía, no rompe la request del
+      // caller). `as` acá es un simple cast de wire, no un `any` disfrazado.
+      await service.sendPushToUser(userId, {
+        title,
+        body,
+        category: category as NotificationCategoryId,
+        ...(data !== undefined ? { data } : {}),
+      });
       reply.code(204);
     },
   );
