@@ -1,7 +1,13 @@
 import { PrismaClient } from "../../generated/prisma/client";
-import { ApiError, IMPLEMENTED_NOTIFICATION_CATEGORY_IDS, isValidTimeOfDay } from "@movo/shared";
+import {
+  ApiError,
+  IMPLEMENTED_NOTIFICATION_CATEGORY_IDS,
+  isImplementedNotificationCategory,
+  isValidTimeOfDay,
+} from "@movo/shared";
 import {
   createNotificationPreferenceRepository,
+  NotificationPreferences,
   UpsertPreferencesInput,
 } from "../../repositories/notification-preference-repository";
 
@@ -30,11 +36,7 @@ export interface UpdateNotificationPreferencesInput {
 export function createNotificationPreferencesService(db: PrismaClient) {
   const repository = createNotificationPreferenceRepository(db);
 
-  async function resolve(userId: string): Promise<ResolvedNotificationPreferences> {
-    const [prefs, overrides] = await Promise.all([
-      repository.getPreferences(userId),
-      repository.getCategoryOverrides(userId),
-    ]);
+  function toResolved(prefs: NotificationPreferences, overrides: Map<string, boolean>): ResolvedNotificationPreferences {
     return {
       pushEnabled: prefs.pushEnabled,
       quietHours: { enabled: prefs.quietHoursEnabled, from: prefs.quietHoursFrom, to: prefs.quietHoursTo },
@@ -50,7 +52,11 @@ export function createNotificationPreferencesService(db: PrismaClient) {
 
   return {
     async getPreferences(userId: string): Promise<ResolvedNotificationPreferences> {
-      return resolve(userId);
+      const [prefs, overrides] = await Promise.all([
+        repository.getPreferences(userId),
+        repository.getCategoryOverrides(userId),
+      ]);
+      return toResolved(prefs, overrides);
     },
 
     async updatePreferences(
@@ -59,7 +65,7 @@ export function createNotificationPreferencesService(db: PrismaClient) {
     ): Promise<ResolvedNotificationPreferences> {
       if (input.categories) {
         for (const category of Object.keys(input.categories)) {
-          if (!IMPLEMENTED_NOTIFICATION_CATEGORY_IDS.includes(category)) {
+          if (!isImplementedNotificationCategory(category)) {
             throw new ApiError(
               400,
               "VALIDATION_FAILED",
@@ -82,9 +88,15 @@ export function createNotificationPreferencesService(db: PrismaClient) {
       if (input.quietHours?.from !== undefined) masterUpdate.quietHoursFrom = input.quietHours.from;
       if (input.quietHours?.to !== undefined) masterUpdate.quietHoursTo = input.quietHours.to;
 
-      if (Object.keys(masterUpdate).length > 0) {
-        await repository.upsertPreferences(userId, masterUpdate);
-      }
+      // `upsertPreferences` ya devuelve la fila resultante (`toDomainPreferences`) --
+      // reusarla evita un segundo round-trip a Postgres que solo repetiría la misma
+      // lectura (hallazgo de code review de PR #182/MOVO-245). Sin cambios al toggle
+      // maestro/horario de silencio, un `getPreferences` sigue siendo la única forma
+      // de tener el valor vigente.
+      const prefs =
+        Object.keys(masterUpdate).length > 0
+          ? await repository.upsertPreferences(userId, masterUpdate)
+          : await repository.getPreferences(userId);
 
       if (input.categories) {
         await Promise.all(
@@ -94,7 +106,8 @@ export function createNotificationPreferencesService(db: PrismaClient) {
         );
       }
 
-      return resolve(userId);
+      const overrides = await repository.getCategoryOverrides(userId);
+      return toResolved(prefs, overrides);
     },
   };
 }
