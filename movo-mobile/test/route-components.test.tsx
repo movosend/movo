@@ -206,6 +206,23 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       expect(onPressShipment).not.toHaveBeenCalled();
     });
 
+    it("con isActionDisabled, el CTA de la parada activa no dispara onPressAction y dice 'Entrega próximamente'", async () => {
+      const onPressAction = jest.fn();
+
+      const { getByTestId, getByText } = await render(
+        <StopList
+          route={sampleRoute}
+          activeStopOrder={1}
+          onPressAction={onPressAction}
+          isActionDisabled={() => true}
+        />
+      );
+
+      await fireEvent.press(getByTestId("stop-action-btn-1"));
+      expect(onPressAction).not.toHaveBeenCalled();
+      expect(getByText("Entrega próximamente")).toBeTruthy();
+    });
+
     it("renderiza correctamente cuando una parada está activa (activeStopOrder)", async () => {
       const { getByTestId } = await render(
         <StopList route={sampleRoute} activeStopOrder={1} />

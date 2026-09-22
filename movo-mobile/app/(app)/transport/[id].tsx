@@ -240,14 +240,13 @@ export default function TransportShipmentDetailScreen() {
   const myActiveOffer = myPendingOffers?.items.find((offer) => offer.shipmentId === id);
   const myAcceptedOffer = myAcceptedOffers?.items.find((offer) => offer.shipmentId === id);
 
-  // Botón de dev (sin equivalente de producción todavía, ver `use-pickup-wizard.ts`
-  // MOVO-198): mismas dos condiciones que el gate del wizard de retiro ("ready"),
-  // para no ofrecer un atajo que el propio wizard va a rechazar igual.
-  const canDevAccessPickupWizard =
-    __DEV__ &&
-    !!shipment &&
-    shipment.carrierId === currentUserId &&
-    shipment.status === ShipmentStatus.ASSIGNED;
+  // Punto de entrada real al wizard de retiro (MOVO-198) desde el detalle: mismas
+  // dos condiciones que el gate del wizard ("ready"), para no ofrecer un CTA que el
+  // propio wizard va a rechazar igual. La entrega (`in_transit`) todavía no tiene
+  // wizard (MOVO-199), así que se muestra deshabilitada en vez de omitirse.
+  const isMyShipment = !!shipment && shipment.carrierId === currentUserId;
+  const canStartPickup = isMyShipment && shipment.status === ShipmentStatus.ASSIGNED;
+  const showDeliveryComingSoon = isMyShipment && shipment.status === ShipmentStatus.IN_TRANSIT;
 
   const currentUser = useAuthStore((state) => state.user);
   // El emisor ya eligió mi oferta y el envío se confirmó con `carrierId` seteado a
@@ -662,7 +661,7 @@ export default function TransportShipmentDetailScreen() {
               botón de dev (MOVO-198) es la excepción: tiene que poder mostrarse
               incluso con `isAssignedToMe` (es justo el caso al que apunta), así que
               la barra entera se muestra si hay algo que renderizar adentro. */}
-          {canDevAccessPickupWizard || !(myActiveOffer || isAssignedToMe) ? (
+          {canStartPickup || showDeliveryComingSoon || !(myActiveOffer || isAssignedToMe) ? (
             <View style={{ position: "relative" }}>
               {/* Sombra SOLO en el borde superior -- la barra vive fuera del
                   `ScrollView`, sin esto se pierde contra el contenido al hacer scroll
@@ -684,16 +683,28 @@ export default function TransportShipmentDetailScreen() {
                 }}
               />
               <View className="border-t border-border bg-bg px-5 pb-6 pt-3.5 gap-2.5">
-                {canDevAccessPickupWizard ? (
+                {canStartPickup ? (
                   <Pressable
-                    testID="transport-dev-pickup-wizard-cta"
+                    testID="transport-pickup-wizard-cta"
                     onPress={() =>
                       router.push(`/(app)/shipments/${shipment.id}/pickup`)
                     }
-                    className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-[#1F52D6] py-3.5"
+                    className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-lime-500 py-3.5 active:bg-lime-400"
                   >
-                    <Text className="font-sans-semibold text-body text-white">
-                      [DEV] Probar wizard de retiro
+                    <Text className="font-sans-semibold text-body text-ink-950">
+                      Iniciar retiro
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {showDeliveryComingSoon ? (
+                  <Pressable
+                    testID="transport-delivery-cta-disabled"
+                    disabled
+                    accessibilityState={{ disabled: true }}
+                    className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-bg-mute py-3.5"
+                  >
+                    <Text className="font-sans-semibold text-body text-fg-3">
+                      Entrega próximamente
                     </Text>
                   </Pressable>
                 ) : null}
