@@ -27,6 +27,12 @@ describe("NotificationsClient", () => {
       userId: "user-123",
       title: "Envío aceptado",
       body: "Lucía aceptó el envío",
+      // `category` es obligatoria desde MOVO-245 (`SendPushNotificationInput`) --
+      // sin ella acá, este test seguía en verde (`tsconfig.json` excluye `test/` de
+      // `tsc --noEmit`, y Vitest transpila con esbuild sin type-check) pero dejaba de
+      // probar que el campo viaja de verdad en el body serializado. Hallazgo de code
+      // review de PR #182.
+      category: "shipments",
       data: { shipmentId: "shipment-123", type: "shipment_accepted" },
     });
 
@@ -42,6 +48,7 @@ describe("NotificationsClient", () => {
           userId: "user-123",
           title: "Envío aceptado",
           body: "Lucía aceptó el envío",
+          category: "shipments",
           data: { shipmentId: "shipment-123", type: "shipment_accepted" },
         }),
       })
@@ -64,6 +71,7 @@ describe("NotificationsClient", () => {
         userId: "user-123",
         title: "Test",
         body: "Test body",
+        category: "shipments",
       })
     ).rejects.toThrow("El servicio de notificaciones devolvió status 500");
   });
