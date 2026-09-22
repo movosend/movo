@@ -6,6 +6,7 @@ import { createShipmentRepository } from "../../repositories/shipment-repository
 import { createHandshakeRepository } from "../../repositories/handshake-repository";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
 import { createFundsReleaseNotifier, FundsReleaseNotifier } from "../../adapters/funds-release-notifier";
+import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 
 export interface HandshakeRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración -- evita depender de un `movo-svc-users`
@@ -13,6 +14,9 @@ export interface HandshakeRoutesOptions extends FastifyPluginOptions {
   usersClient?: UsersClient;
   /** Override solo para tests de integración -- mismo criterio que `usersClient`. */
   fundsReleaseNotifier?: FundsReleaseNotifier;
+  /** Override solo para tests de integración -- mismo criterio que `usersClient`
+   * (MOVO-245: retiro/entrega confirmados ahora disparan push). */
+  notificationsClient?: NotificationsClient;
 }
 
 function toGenerateHandshakeDto(result: GenerateHandshakeResult) {
@@ -32,6 +36,7 @@ function toConfirmHandshakeDto(result: ConfirmHandshakeResult) {
 export default async function handshakeRoutes(app: FastifyInstance, opts: HandshakeRoutesOptions) {
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
   const fundsReleaseNotifier = opts.fundsReleaseNotifier ?? createFundsReleaseNotifier(app.config);
+  const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
   const shipmentRepository = createShipmentRepository(app.db);
   const handshakeRepository = createHandshakeRepository(app.db);
   const service = createHandshakeService(
@@ -40,7 +45,8 @@ export default async function handshakeRoutes(app: FastifyInstance, opts: Handsh
     usersClient,
     app.redis,
     fundsReleaseNotifier,
-    app.log
+    app.log,
+    notificationsClient
   );
 
   app.post(

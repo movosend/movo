@@ -827,6 +827,133 @@ describe("handshake.service", () => {
       });
     });
 
+    // MOVO-245 (catálogo de MOVO-240): antes el handshake no disparaba ningún push.
+    describe("push de custodia (MOVO-245)", () => {
+      it("retiro confirmado: avisa solo al emisor, categoría 'custody'", async () => {
+        const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED });
+        const redis = createFakeRedis();
+        const { nonce, signature } = await seedPendingChallenge(
+          redis,
+          shipment.id,
+          "pickup",
+          shipment.senderId,
+          -31.4201,
+          -64.1888
+        );
+        const notificationsClient = { sendPush: vi.fn().mockResolvedValue(undefined) };
+        const service = createHandshakeService(
+          fakeShipmentRepository({ findById: vi.fn().mockResolvedValue(shipment) }),
+          fakeHandshakeRepository(),
+          createFakeUsersClient({}, { [shipment.senderId]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() } }),
+          redis,
+          createFakeFundsReleaseNotifier(),
+          undefined,
+          notificationsClient
+        );
+
+        await service.confirmHandshake({
+          shipmentId: shipment.id,
+          callerId: shipment.carrierId as string,
+          nonce,
+          signature,
+          lat: -31.4201,
+          lng: -64.1888,
+        });
+
+        await vi.waitFor(() => {
+          expect(notificationsClient.sendPush).toHaveBeenCalledTimes(1);
+          expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+            userId: shipment.senderId,
+            title: "Retiro confirmado",
+            body: "El transportista retiró tu paquete y quedó bajo su custodia.",
+            category: "custody",
+            data: { type: "custody_pickup_confirmed", shipmentId: shipment.id },
+          });
+        });
+      });
+
+      it("entrega confirmada: avisa al emisor Y al transportista, categoría 'custody'", async () => {
+        const shipment = fakeShipment({ status: ShipmentStatus.IN_TRANSIT });
+        const redis = createFakeRedis();
+        const { nonce, signature } = await seedPendingChallenge(
+          redis,
+          shipment.id,
+          "delivery",
+          shipment.carrierId as string,
+          -31.4353,
+          -64.1858
+        );
+        const notificationsClient = { sendPush: vi.fn().mockResolvedValue(undefined) };
+        const service = createHandshakeService(
+          fakeShipmentRepository({ findById: vi.fn().mockResolvedValue(shipment) }),
+          fakeHandshakeRepository(),
+          createFakeUsersClient({}, { [shipment.carrierId as string]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() } }),
+          redis,
+          createFakeFundsReleaseNotifier(),
+          undefined,
+          notificationsClient
+        );
+
+        await service.confirmHandshake({
+          shipmentId: shipment.id,
+          callerId: shipment.receiverId,
+          nonce,
+          signature,
+          lat: -31.4353,
+          lng: -64.1858,
+        });
+
+        await vi.waitFor(() => {
+          expect(notificationsClient.sendPush).toHaveBeenCalledTimes(2);
+          expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+            userId: shipment.senderId,
+            title: "Entrega confirmada",
+            body: "El receptor confirmó que recibió el paquete.",
+            category: "custody",
+            data: { type: "custody_delivery_confirmed", shipmentId: shipment.id },
+          });
+          expect(notificationsClient.sendPush).toHaveBeenCalledWith({
+            userId: shipment.carrierId,
+            title: "Entrega confirmada",
+            body: "El receptor confirmó que recibió el paquete.",
+            category: "custody",
+            data: { type: "custody_delivery_confirmed", shipmentId: shipment.id },
+          });
+        });
+      });
+
+      it("sin notificationsClient inyectado, no rompe (comportamiento previo a MOVO-245)", async () => {
+        const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED });
+        const redis = createFakeRedis();
+        const { nonce, signature } = await seedPendingChallenge(
+          redis,
+          shipment.id,
+          "pickup",
+          shipment.senderId,
+          -31.4201,
+          -64.1888
+        );
+        const service = createHandshakeService(
+          fakeShipmentRepository({ findById: vi.fn().mockResolvedValue(shipment) }),
+          fakeHandshakeRepository(),
+          createFakeUsersClient({}, { [shipment.senderId]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() } }),
+          redis,
+          createFakeFundsReleaseNotifier()
+        );
+
+        await expect(
+          service.confirmHandshake({
+            shipmentId: shipment.id,
+            callerId: shipment.carrierId as string,
+            nonce,
+            signature,
+            lat: -31.4201,
+            lng: -64.1888,
+          })
+        ).resolves.toMatchObject({ status: ShipmentStatus.IN_TRANSIT });
+      });
+    });
+
     it("409 SHIPMENT_CONCURRENT_MODIFICATION se propaga tal cual si el repositorio pierde el CAS", async () => {
       const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED });
       const redis = createFakeRedis();

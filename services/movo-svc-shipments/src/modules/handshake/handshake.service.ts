@@ -1,9 +1,10 @@
 import { randomBytes, createHash } from "node:crypto";
-import { ApiError, ShipmentStatus } from "@movo/shared";
+import { ApiError, ShipmentStatus, renderNotificationTrigger, notificationTriggerCategory } from "@movo/shared";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { HandshakeRepository } from "../../repositories/handshake-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { FundsReleaseNotifier } from "../../adapters/funds-release-notifier";
+import { NotificationsClient } from "../../adapters/notifications-client";
 import { HandshakeStage } from "../../models/handshake";
 import { PhotoStage } from "../../models/shipment";
 import {
@@ -112,7 +113,12 @@ export function createHandshakeService(
   usersClient: UsersClient,
   redis: HandshakeRedisClient,
   fundsReleaseNotifier: FundsReleaseNotifier,
-  logger?: HandshakeServiceLogger
+  logger?: HandshakeServiceLogger,
+  /** MOVO-245 (catálogo de MOVO-240): antes el handshake no disparaba ningún push --
+   * el usuario se enteraba del retiro/entrega solo reabriendo la app. Opcional (no
+   * rompe callers/tests existentes que no lo pasan) -- sin él, simplemente no se
+   * notifica, mismo criterio best-effort que `fundsReleaseNotifier`. */
+  notificationsClient?: NotificationsClient
 ) {
   return {
     /**
@@ -326,6 +332,51 @@ export function createHandshakeService(
               "No se pudo notificar la liberación de fondos"
             );
           });
+      }
+
+      // MOVO-245 (catálogo de MOVO-240): retiro avisa solo al emisor (el transportista
+      // ya lo sabe, lo acaba de escanear él mismo); entrega avisa al emisor Y al
+      // transportista (AC del catálogo: "aviso al emisor y al transportista de que se
+      // completó la entrega") -- best-effort, nunca bloquea la respuesta ya commiteada.
+      if (notificationsClient) {
+        if (stage === "pickup") {
+          const { title, body } = renderNotificationTrigger("custodyPickupConfirmed", undefined);
+          void notificationsClient
+            .sendPush({
+              userId: shipment.senderId,
+              title,
+              body,
+              category: notificationTriggerCategory("custodyPickupConfirmed"),
+              data: { type: "custody_pickup_confirmed", shipmentId: input.shipmentId },
+            })
+            .catch((err) => {
+              logger?.warn(
+                { err, event: "notification_dispatch_failed", shipmentId: input.shipmentId },
+                "No se pudo notificar la confirmación de retiro al emisor"
+              );
+            });
+        } else {
+          const { title, body } = renderNotificationTrigger("custodyDeliveryConfirmed", undefined);
+          const recipients = [shipment.senderId, shipment.carrierId].filter(
+            (id): id is string => id !== null && id !== undefined
+          );
+          for (const userId of recipients) {
+            void notificationsClient
+              .sendPush({
+                userId,
+                title,
+                body,
+                category: notificationTriggerCategory("custodyDeliveryConfirmed"),
+                data: { type: "custody_delivery_confirmed", shipmentId: input.shipmentId },
+              })
+              .catch((err) => {
+                logger?.warn(
+                  { err, event: "notification_dispatch_failed", shipmentId: input.shipmentId, userId },
+                  "No se pudo notificar la confirmación de entrega"
+                );
+              });
+          }
+        }
       }
 
       return {
