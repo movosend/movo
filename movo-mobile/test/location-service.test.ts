@@ -229,4 +229,26 @@ describe("LocationService (MOVO-203)", () => {
     await service.updateActiveShipments([]);
     expect(service.getStatus().isTracking).toBe(false);
   });
+
+  it("checkPermission y requestPermission sincronizan el estado permissionGranted y notifican", async () => {
+    const service = createService();
+    const statusListener = jest.fn();
+    service.subscribe(statusListener);
+
+    // Initial state
+    expect(service.getStatus().permissionGranted).toBe(null);
+
+    // Check permission granted
+    const granted = await service.checkPermission();
+    expect(granted).toBe(true);
+    expect(service.getStatus().permissionGranted).toBe(true);
+    expect(statusListener).toHaveBeenCalledWith(expect.objectContaining({ permissionGranted: true }));
+
+    // Request permission denied
+    mockGetPermissions.mockResolvedValueOnce({ granted: false, status: "denied" });
+    const denied = await service.checkPermission();
+    expect(denied).toBe(false);
+    expect(service.getStatus().permissionGranted).toBe(false);
+    expect(service.getStatus().lastError).toBe("PERMISSION_DENIED");
+  });
 });

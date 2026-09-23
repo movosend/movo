@@ -22,7 +22,6 @@ import {
   PackageCheck,
   RefreshCw,
   Route as RouteIcon,
-  Sparkles,
   X,
 } from "lucide-react-native";
 import type { CarrierRoute, CarrierRouteStop } from "@movo/shared/dist/types/routing";
@@ -274,11 +273,6 @@ export default function OptimizedRouteScreen() {
     if (stop.type === "pickup") {
       router.push(`/shipments/${stop.shipmentId}/pickup`);
     }
-  };
-
-  const handleStartDemo = () => {
-    setSelectedStopOrder(1);
-    setDemoMode(true);
   };
 
   return (

@@ -1,7 +1,10 @@
 import { renderHook, act } from "@testing-library/react-native";
 import * as Location from "expo-location";
 import { type ActiveShipmentSummary } from "../src/api/shipments-client";
-import { useCarrierTracking } from "../src/hooks/use-carrier-tracking";
+import {
+  useCarrierTracking,
+  useCarrierTrackingCoordinator,
+} from "../src/hooks/use-carrier-tracking";
 import { locationService } from "../src/location/location-service";
 
 const mockUseQuery = jest.fn();
@@ -44,11 +47,10 @@ function activeShipment(id: string, status: "assigned_unfunded" | "assigned" | "
   };
 }
 
-describe("useCarrierTracking hook (MOVO-203)", () => {
+describe("useCarrierTracking y coordinador (MOVO-203)", () => {
   beforeEach(() => {
     jest.spyOn(locationService, "updateActiveShipments").mockResolvedValue(undefined);
     jest.spyOn(locationService, "stopTracking").mockResolvedValue(undefined);
-    jest.spyOn(locationService, "subscribe").mockReturnValue(() => {});
 
     (Location.getForegroundPermissionsAsync as jest.Mock).mockResolvedValue({
       granted: true,
@@ -60,53 +62,69 @@ describe("useCarrierTracking hook (MOVO-203)", () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await locationService.resetForTesting();
     jest.clearAllMocks();
   });
 
-  it("activa el tracking cuando hay envíos en estado in_transit (AC1)", async () => {
-    mockUseQuery.mockReturnValue({
-      data: [
-        activeShipment("ship-1", "in_transit"),
-        activeShipment("ship-2", "assigned"),
-      ],
-      refetch: jest.fn(),
+  describe("useCarrierTrackingCoordinator", () => {
+    it("activa el tracking cuando hay envíos en estado in_transit (AC1)", async () => {
+      mockUseQuery.mockReturnValue({
+        data: [
+          activeShipment("ship-1", "in_transit"),
+          activeShipment("ship-2", "assigned"),
+        ],
+        refetch: jest.fn(),
+      });
+
+      const { result } = await renderHook(() => useCarrierTrackingCoordinator());
+
+      expect(result.current.inTransitCount).toBe(1);
+      expect(result.current.inTransitShipments[0].id).toBe("ship-1");
+      expect(locationService.updateActiveShipments).toHaveBeenCalledWith(["ship-1"]);
     });
 
-    const { result } = await renderHook(() => useCarrierTracking());
+    it("detiene el tracking si no hay ningún envío en in_transit (AC5, AC7)", async () => {
+      mockUseQuery.mockReturnValue({
+        data: [activeShipment("ship-2", "assigned")],
+        refetch: jest.fn(),
+      });
 
-    expect(result.current.inTransitCount).toBe(1);
-    expect(result.current.inTransitShipments[0].id).toBe("ship-1");
-    expect(locationService.updateActiveShipments).toHaveBeenCalledWith(["ship-1"]);
+      const { result } = await renderHook(() => useCarrierTrackingCoordinator());
+
+      expect(result.current.inTransitCount).toBe(0);
+      expect(locationService.updateActiveShipments).toHaveBeenCalledWith([]);
+    });
   });
 
-  it("detiene el tracking si no hay ningún envío en in_transit (AC5, AC7)", async () => {
-    mockUseQuery.mockReturnValue({
-      data: [activeShipment("ship-2", "assigned")],
-      refetch: jest.fn(),
+  describe("useCarrierTracking (consumidor)", () => {
+    it("permite solicitar permisos de ubicación en primer plano y sincroniza el estado compartido", async () => {
+      const { result } = await renderHook(() => useCarrierTracking());
+
+      let granted = false;
+      await act(async () => {
+        granted = await result.current.requestPermission();
+      });
+
+      expect(granted).toBe(true);
+      expect(Location.requestForegroundPermissionsAsync).toHaveBeenCalled();
+      expect(result.current.permissionGranted).toBe(true);
+      expect(locationService.getStatus().permissionGranted).toBe(true);
     });
 
-    const { result } = await renderHook(() => useCarrierTracking());
+    it("sincroniza permissionGranted entre múltiples instancias sin desfasaje", async () => {
+      const hook1 = await renderHook(() => useCarrierTracking());
+      const hook2 = await renderHook(() => useCarrierTracking());
 
-    expect(result.current.inTransitCount).toBe(0);
-    expect(locationService.updateActiveShipments).toHaveBeenCalledWith([]);
-  });
+      expect(hook1.result.current.permissionGranted).toBe(null);
+      expect(hook2.result.current.permissionGranted).toBe(null);
 
-  it("permite solicitar permisos de ubicación en primer plano", async () => {
-    mockUseQuery.mockReturnValue({
-      data: [],
-      refetch: jest.fn(),
+      await act(async () => {
+        await hook1.result.current.requestPermission();
+      });
+
+      expect(hook1.result.current.permissionGranted).toBe(true);
+      expect(hook2.result.current.permissionGranted).toBe(true);
     });
-
-    const { result } = await renderHook(() => useCarrierTracking());
-
-    let granted = false;
-    await act(async () => {
-      granted = await result.current.requestPermission();
-    });
-
-    expect(granted).toBe(true);
-    expect(Location.requestForegroundPermissionsAsync).toHaveBeenCalled();
-    expect(result.current.permissionGranted).toBe(true);
   });
 });

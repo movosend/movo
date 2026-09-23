@@ -15,6 +15,7 @@ export interface TrackingStatus {
   isTracking: boolean;
   activeShipmentIds: string[];
   pendingQueueCount: number;
+  permissionGranted: boolean | null;
   lastCapturedAt: string | null;
   lastReportedAt: string | null;
   lastError: string | null;
@@ -30,6 +31,7 @@ export interface LocationServiceOptions {
 export interface LocationServiceDeps {
   location: {
     getForegroundPermissionsAsync: () => Promise<Location.PermissionResponse>;
+    requestForegroundPermissionsAsync?: () => Promise<Location.PermissionResponse>;
     getCurrentPositionAsync: (options?: Location.LocationOptions) => Promise<Location.LocationObject>;
   };
   client: {
@@ -55,6 +57,7 @@ export class LocationService {
   private timer: ReturnType<typeof setInterval> | null = null;
   private isProcessingTick = false;
   private isTrackingState = false;
+  private permissionGranted: boolean | null = null;
   private lastCapturedAt: string | null = null;
   private lastReportedAt: string | null = null;
   private lastError: string | null = null;
@@ -178,10 +181,14 @@ export class LocationService {
     try {
       // 1. Verificar permisos
       const permission = await this.location.getForegroundPermissionsAsync();
+      this.permissionGranted = permission.granted;
       if (!permission.granted) {
         this.lastError = "PERMISSION_DENIED";
         this.emitStatus();
         return;
+      }
+      if (this.lastError === "PERMISSION_DENIED") {
+        this.lastError = null;
       }
 
       // 2. Obtener posición GPS actual
@@ -300,6 +307,57 @@ export class LocationService {
   }
 
   /**
+   * Consulta el estado actual de permisos de ubicación en primer plano y sincroniza el estado compartido.
+   */
+  async checkPermission(): Promise<boolean> {
+    try {
+      const perm = await this.location.getForegroundPermissionsAsync();
+      this.permissionGranted = perm.granted;
+      if (!perm.granted) {
+        this.lastError = "PERMISSION_DENIED";
+      } else if (this.lastError === "PERMISSION_DENIED") {
+        this.lastError = null;
+      }
+      this.emitStatus();
+      return perm.granted;
+    } catch {
+      this.permissionGranted = false;
+      this.lastError = "PERMISSION_DENIED";
+      this.emitStatus();
+      return false;
+    }
+  }
+
+  /**
+   * Solicita permisos de ubicación en primer plano al usuario y sincroniza el estado compartido.
+   */
+  async requestPermission(): Promise<boolean> {
+    try {
+      const requestFn =
+        this.location.requestForegroundPermissionsAsync ??
+        Location.requestForegroundPermissionsAsync;
+      const perm = await requestFn();
+      this.permissionGranted = perm.granted;
+      if (!perm.granted) {
+        this.lastError = "PERMISSION_DENIED";
+      } else if (this.lastError === "PERMISSION_DENIED") {
+        this.lastError = null;
+      }
+      this.emitStatus();
+      // Si se acaba de otorgar el permiso y hay envíos activos, intentar un reporte inmediato
+      if (perm.granted && this.activeShipmentIds.size > 0 && this.isTrackingState) {
+        void this.captureAndReportTick();
+      }
+      return perm.granted;
+    } catch {
+      this.permissionGranted = false;
+      this.lastError = "PERMISSION_DENIED";
+      this.emitStatus();
+      return false;
+    }
+  }
+
+  /**
    * Estado actual del servicio de tracking.
    */
   getStatus(): TrackingStatus {
@@ -307,10 +365,24 @@ export class LocationService {
       isTracking: this.isTrackingState,
       activeShipmentIds: Array.from(this.activeShipmentIds),
       pendingQueueCount: this.offlineQueue.length,
+      permissionGranted: this.permissionGranted,
       lastCapturedAt: this.lastCapturedAt,
       lastReportedAt: this.lastReportedAt,
       lastError: this.lastError,
     };
+  }
+
+  /**
+   * Resetea el estado para pruebas unitarias.
+   */
+  async resetForTesting(): Promise<void> {
+    await this.stopTracking();
+    this.offlineQueue = [];
+    this.permissionGranted = null;
+    this.lastCapturedAt = null;
+    this.lastReportedAt = null;
+    this.lastError = null;
+    this.emitStatus();
   }
 
   /**

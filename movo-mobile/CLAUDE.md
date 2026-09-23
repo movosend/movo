@@ -3591,12 +3591,17 @@ transporte activo (fase 1: foreground + offline FIFO):
     para no envenenar la cola.
   - Se detiene inmediatamente (`stopTracking`) al completar entregas o no tener envíos
     activos en tránsito (AC5, AC7).
-- **`src/hooks/use-carrier-tracking.ts`**:
-  - Sincroniza con los envíos devueltos por `getTransporting()`, filtrando
-    exclusivamente los que están en `in_transit`.
-  - Conecta reactivamente el ciclo de vida del `LocationService` y expone estado
-    (`isTracking`, `inTransitShipments`, `pendingQueueCount`, `permissionGranted`) y
-    métodos (`requestPermission`, `flushQueue`).
+- **`src/hooks/use-carrier-tracking.ts` y coordinación en `app/_layout.tsx`**:
+  - `useCarrierTrackingCoordinator`: montado una sola vez a nivel de sesión en
+    `app/_layout.tsx` (`CarrierTrackingCoordinatorMount` dentro de `QueryClientProvider`),
+    siguiendo el patrón establecido de `usePushNotifications` y `useDeviceKeyBootstrap`.
+    Sincroniza periódicamente `getTransporting()` filtrando envíos `in_transit`, ejecuta el
+    chequeo inicial de permisos y coordina `locationService.updateActiveShipments()`.
+  - `useCarrierTracking`: hook consumidor liviano para componentes visuales
+    (`TrackingActiveIndicator`), que se suscribe al singleton `locationService` sin duplicar
+    peticiones de red ni listeners.
+  - `permissionGranted` vive centralizado en `locationService`: el otorgamiento o rechazo
+    se sincroniza instantáneamente entre todas las pantallas montadas sin desfasajes de estado.
 - **UI Components**:
   - `components/location/tracking-permission-modal.tsx`: Modal explicativo que
     antecede al diálogo del sistema operativo (AC4).
@@ -3608,13 +3613,13 @@ transporte activo (fase 1: foreground + offline FIFO):
 - **Herramientas de desarrollo (`__DEV__`)**:
   - `app/dev-shortcuts.tsx` y `components/dev/DevShortcutsScreen.tsx`: pantalla centralizada
     de atajos dev exclusivamente disponible en desarrollo, incluyendo simulación de tracking
-    con envío de prueba y traslado del disparador de demo de ruta.
+    con envío de prueba y traslado del disparador de demo de ruta (limpiando código muerto en `route/index.tsx`).
 - **`app.config.js`**: Justificaciones de uso de ubicación en primer plano redactadas
   específicamente para la experiencia de entrega en tiempo real.
 
-Tests nuevos:
-- `test/location-service.test.ts` (9 tests)
-- `test/use-carrier-tracking.test.tsx` (3 tests)
+Tests:
+- `test/location-service.test.ts` (10 tests)
+- `test/use-carrier-tracking.test.tsx` (5 tests)
 - `test/tracking-components.test.tsx` (8 tests)
-Total: 20/20 tests en verde. Typecheck `npx tsc --noEmit` limpio sin errores.
+Total: 23 tests en verde. Typecheck `npx tsc --noEmit` limpio sin errores.
 

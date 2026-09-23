@@ -1,6 +1,5 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import * as Location from "expo-location";
 import { shipmentsClient, type ActiveShipmentSummary } from "../api/shipments-client";
 import { locationService, type TrackingStatus } from "../location/location-service";
 import { useAuthStore } from "../store/auth-store";
@@ -11,32 +10,45 @@ export interface UseCarrierTrackingOptions {
 }
 
 export interface UseCarrierTrackingResult extends TrackingStatus {
-  permissionGranted: boolean | null;
-  inTransitShipments: ActiveShipmentSummary[];
   inTransitCount: number;
+  inTransitShipments?: ActiveShipmentSummary[];
   checkPermission: () => Promise<boolean>;
   requestPermission: () => Promise<boolean>;
   flushQueue: () => Promise<void>;
+  refetchTransporting?: () => Promise<unknown>;
+}
+
+export interface UseCarrierTrackingCoordinatorResult {
+  inTransitShipments: ActiveShipmentSummary[];
+  inTransitCount: number;
   refetchTransporting: () => Promise<unknown>;
 }
 
 /**
- * Hook de reactividad para el tracking del transportista (MOVO-203).
+ * Coordinador central de ciclo de vida del tracking del transportista (MOVO-203).
  *
- * Se activa automáticamente cuando el transportista tiene al menos un envío en `in_transit`
- * y se desactiva de inmediato cuando no queda ninguno (AC1, AC5 de MOVO-11, AC7).
- * Expone el estado de tracking, permisos, cola offline y métodos de control.
+ * Se monta una sola vez a nivel de sesión en el layout raíz (`app/_layout.tsx`),
+ * siguiendo el mismo patrón de `usePushNotifications` y `useDeviceKeyBootstrap`.
+ * Coordina la consulta de envíos en tránsito (`GET /shipments/transporting`),
+ * el chequeo de permisos y la sincronización con el singleton `locationService`.
  */
-export function useCarrierTracking(options?: UseCarrierTrackingOptions): UseCarrierTrackingResult {
+export function useCarrierTrackingCoordinator(
+  options?: UseCarrierTrackingOptions
+): UseCarrierTrackingCoordinatorResult {
   const isEnabled = options?.enabled ?? true;
   const isAuthenticated = useAuthStore((s) => s.status === "authenticated");
+  const [isTracking, setIsTracking] = useState(() => locationService.getStatus().isTracking);
 
-  const [status, setStatus] = useState<TrackingStatus>(() => locationService.getStatus());
-  const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
+  useEffect(() => {
+    return locationService.subscribe((status) => {
+      setIsTracking(status.isTracking);
+    });
+  }, []);
 
   // Consultar envíos activos donde el usuario autenticado es el transportista
-  const calculatedInterval = status.isTracking ? 15_000 : 30_000;
-  const pollInterval = options?.refetchInterval !== undefined ? options.refetchInterval : calculatedInterval;
+  const calculatedInterval = isTracking ? 15_000 : 30_000;
+  const pollInterval =
+    options?.refetchInterval !== undefined ? options.refetchInterval : calculatedInterval;
 
   const { data: transportingShipments, refetch: refetchTransporting } = useQuery({
     queryKey: ["shipments", "transporting"],
@@ -52,34 +64,12 @@ export function useCarrierTracking(options?: UseCarrierTrackingOptions): UseCarr
   const inTransitIds = inTransitShipments.map((s) => s.id);
   const inTransitKey = inTransitIds.sort().join(",");
 
-  const checkPermission = useCallback(async (): Promise<boolean> => {
-    try {
-      const perm = await Location.getForegroundPermissionsAsync();
-      setPermissionGranted(perm.granted);
-      return perm.granted;
-    } catch {
-      setPermissionGranted(false);
-      return false;
-    }
-  }, []);
-
-  const requestPermission = useCallback(async (): Promise<boolean> => {
-    try {
-      const perm = await Location.requestForegroundPermissionsAsync();
-      setPermissionGranted(perm.granted);
-      return perm.granted;
-    } catch {
-      setPermissionGranted(false);
-      return false;
-    }
-  }, []);
-
-  // Suscripción al singleton locationService
+  // Chequeo inicial de permisos al autenticarse
   useEffect(() => {
-    const unsubscribe = locationService.subscribe(setStatus);
-    void checkPermission();
-    return unsubscribe;
-  }, [checkPermission]);
+    if (isAuthenticated && isEnabled) {
+      void locationService.checkPermission();
+    }
+  }, [isAuthenticated, isEnabled]);
 
   // Sincronización con el ciclo de vida de los envíos en in_transit
   useEffect(() => {
@@ -92,13 +82,31 @@ export function useCarrierTracking(options?: UseCarrierTrackingOptions): UseCarr
   }, [isAuthenticated, isEnabled, inTransitKey]);
 
   return {
-    ...status,
-    permissionGranted,
     inTransitShipments,
     inTransitCount: inTransitShipments.length,
-    checkPermission,
-    requestPermission,
-    flushQueue: () => locationService.flushQueue(),
     refetchTransporting,
+  };
+}
+
+/**
+ * Hook de consumo reactivo para componentes visuales (MOVO-203, AC8).
+ *
+ * Lee directamente del singleton `locationService`, compartiendo estado
+ * de tracking y permisos en toda la app sin duplicar peticiones de red ni listeners.
+ */
+export function useCarrierTracking(): UseCarrierTrackingResult {
+  const [status, setStatus] = useState<TrackingStatus>(() => locationService.getStatus());
+
+  useEffect(() => {
+    return locationService.subscribe(setStatus);
+  }, []);
+
+  return {
+    ...status,
+    permissionGranted: status.permissionGranted,
+    inTransitCount: status.activeShipmentIds.length,
+    checkPermission: () => locationService.checkPermission(),
+    requestPermission: () => locationService.requestPermission(),
+    flushQueue: () => locationService.flushQueue(),
   };
 }
