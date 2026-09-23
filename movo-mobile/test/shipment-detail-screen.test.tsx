@@ -419,6 +419,47 @@ describe("ShipmentDetailScreen", () => {
     expect(getByTestId("shipment-detail-ratings")).toBeTruthy();
   });
 
+  it("muestra 'Precio acordado' y el monto pactado cuando agreedPriceArs está presente (MOVO-244)", async () => {
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({
+        suggestedPriceArs: 4500,
+        agreedPriceArs: 6000,
+        status: ShipmentStatus.ASSIGNMENT_PENDING,
+        carrierId: "carrier-1",
+      }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByText, queryByText } = await render(<ShipmentDetailScreen />);
+
+    expect(getByText("Precio acordado")).toBeTruthy();
+    expect(getByText("$6.000")).toBeTruthy();
+    expect(queryByText("Costo aproximado")).toBeNull();
+  });
+
+  it("muestra 'Costo aproximado' y el precio sugerido cuando no hay oferta aceptada (agreedPriceArs null)", async () => {
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({
+        suggestedPriceArs: 4500,
+        agreedPriceArs: null,
+        status: ShipmentStatus.PUBLISHED,
+      }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByText, queryByText } = await render(<ShipmentDetailScreen />);
+
+    expect(getByText("Costo aproximado")).toBeTruthy();
+    expect(getByText("$4.500")).toBeTruthy();
+    expect(queryByText("Precio acordado")).toBeNull();
+  });
+
   it("cambia a la tab de línea de tiempo al tocarla, mostrando el historial (MOVO-128)", async () => {
     mockUseShipment.mockReturnValue({
       isLoading: false,
