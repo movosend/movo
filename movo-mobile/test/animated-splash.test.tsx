@@ -67,6 +67,17 @@ describe("AnimatedSplash (MOVO-247)", () => {
     expect(onFinished).toHaveBeenCalledTimes(1);
   });
 
+  it("failsafe (review de Pedro): fuerza la salida a los 12s aunque `ready` nunca llegue a `true`", async () => {
+    const onFinished = jest.fn();
+    await render(<AnimatedSplash testID="splash" colorScheme="light" ready={false} onFinished={onFinished} />);
+
+    await advance(11_900);
+    expect(onFinished).not.toHaveBeenCalled();
+
+    await advance(200);
+    expect(onFinished).toHaveBeenCalledTimes(1);
+  });
+
   it('muestra el wordmark "movo"', async () => {
     const screen = await render(<AnimatedSplash testID="splash" colorScheme="dark" ready={false} onFinished={jest.fn()} />);
     expect(screen.getByText("movo")).toBeTruthy();

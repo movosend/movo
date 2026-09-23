@@ -144,6 +144,22 @@ export function AnimatedSplash({ colorScheme, ready, onFinished, testID }: Anima
     };
   }, []);
 
+  // Failsafe (feedback de review, Pedro): `ready` depende de `restoreSession`/
+  // `loadApiOverride` (`app/_layout.tsx`) -- ambos tienen catch/finally propio,
+  // pero ante un cuelgue no previsto a nivel runtime (nunca resuelven ni
+  // rechazan) el loop de arriba seguiría esperando para siempre y el usuario
+  // quedaría atrapado en el splash. Este timer fuerza la salida a los
+  // `HARD_TIMEOUT_MS` sin importar `ready` ni el límite de ciclo de
+  // respiración -- a diferencia del camino feliz de arriba, acá sí está bien
+  // cortar a mitad de un pulso: es una red de seguridad, no una animación.
+  // `setExiting(true)` es idempotente (el efecto de salida solo corre una vez,
+  // gateado por `exiting`), así que no interfiere si la salida normal ya
+  // arrancó antes.
+  useEffect(() => {
+    const timer = setTimeout(() => setExiting(true), HARD_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
   useEffect(() => {
     if (!exiting) return;
     // Frena la respiración en loop (si no, sigue corriendo por debajo del
@@ -276,6 +292,9 @@ const RING_STAGGER_MS = Math.round(BREATHE_PERIOD_MS * 0.09);
  * ciclo de respiración para no cortar a mitad de un pulso. */
 const MIN_DISPLAY_MS = 3000;
 const EXIT_EARLIEST_MS = Math.ceil(MIN_DISPLAY_MS / BREATHE_PERIOD_MS) * BREATHE_PERIOD_MS;
+/** Failsafe: tiempo máximo absoluto que el splash puede quedar tapando la app
+ * aunque `ready` nunca llegue a `true` (ver el comentario del efecto). */
+const HARD_TIMEOUT_MS = 12000;
 
 const MARK_FADE_IN_MS = 300;
 const WORD_FADE_IN_MS = 350;
