@@ -592,6 +592,8 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
             // las US de asignación de EP-03). No está en el AC8 literal,
             // documentado como superset explícito.
             carrierId: current.carrierId,
+            // MOVO-244: persistir el precio pactado de la oferta aceptada como agreedPriceArs
+            agreedPriceArs: current.priceOffered,
             // MOVO-180: mismo criterio que carrierId -- el receptor necesita ver la
             // entrega estimada en el detalle del envío, no solo en el histórico de la
             // oferta. Quedan null si la oferta ganadora nunca los declaró (opcionales).

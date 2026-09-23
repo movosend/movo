@@ -22,27 +22,31 @@ interface LegalEntrySheetProps {
   visible: boolean;
   copy: LegalEntrySheetCopy;
   onReview: () => void;
-  onDismiss: () => void;
+  /**
+   * Callback opcional de descarte mantenido por retrocompatibilidad (MOVO-229).
+   * En MOVO-244 la aceptación de términos pasó a ser obligatoria y bloqueante:
+   * se eliminó el botón "Ahora no" y el sheet no se puede cerrar por backdrop ni
+   * por gesto. El componente ya no invoca esta función internamente; se mantiene
+   * como prop opcional para no romper consumidores existentes que aún la suministren.
+   */
+  onDismiss?: () => void;
   testID?: string;
 }
 
 /**
- * Sheet mostrado al abrir la app con Términos y/o Privacidad pendientes (MOVO-229)
- * — reemplaza el `Alert.alert` nativo de la primera pasada por un sheet propio,
- * fiel al prototipo (`showEntrySheet`). Sigue siendo **no bloqueante** (decisión de
- * producto ya confirmada): "Ahora no" solo cierra el sheet, no impide seguir usando
- * el resto de la app — el hub de Legal sigue mostrando la insignia "Pendiente"
- * mientras tanto.
+ * Sheet mostrado al abrir la app con Términos y/o Privacidad pendientes (MOVO-229/MOVO-244).
+ * Es **bloqueante**: no permite cerrar con "Ahora no" ni tocando el fondo — el usuario debe
+ * revisar y aceptar los términos para continuar.
  */
-export function LegalEntrySheet({ visible, copy, onReview, onDismiss, testID = "legal-entry-sheet" }: LegalEntrySheetProps) {
+export function LegalEntrySheet({ visible, copy, onReview, testID = "legal-entry-sheet" }: LegalEntrySheetProps) {
   const { isMounted, backdropStyle, sheetStyle } = useSheetAnimation(visible);
 
   return (
-    <Modal visible={isMounted} animationType="none" transparent onRequestClose={onDismiss} testID={testID}>
+    <Modal visible={isMounted} animationType="none" transparent onRequestClose={() => {}} testID={testID}>
       <SafeAreaProvider initialMetrics={initialWindowMetrics ?? FALLBACK_METRICS}>
         <View className="flex-1">
           <Animated.View style={[StyleSheet.absoluteFill, backdropStyle]}>
-            <Pressable testID={`${testID}-backdrop`} onPress={onDismiss} className="flex-1 bg-black/40" />
+            <View testID={`${testID}-backdrop`} className="flex-1 bg-black/40" />
           </Animated.View>
           <View className="flex-1 justify-end" pointerEvents="box-none">
             <Animated.View style={sheetStyle}>
@@ -66,10 +70,6 @@ export function LegalEntrySheet({ visible, copy, onReview, onDismiss, testID = "
                     className="w-full items-center justify-center rounded-lg bg-fg py-3.5"
                   >
                     <Text className="font-sans-semibold text-body text-bg">Revisar y aceptar</Text>
-                  </Pressable>
-
-                  <Pressable testID={`${testID}-dismiss`} onPress={onDismiss} className="mt-1 items-center py-2">
-                    <Text className="font-sans-medium text-body text-fg-2">Ahora no</Text>
                   </Pressable>
                 </View>
               </SafeAreaView>

@@ -3,9 +3,9 @@ import { Check, ChevronLeft, ShieldCheck } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { AvatarPeekViewer } from "../../../components/profile/avatar-peek-viewer";
 import { MutualConnectionsRow } from "../../../components/profile/mutual-connections-row";
 import { ProfileActionsMenu } from "../../../components/profile/profile-actions-menu";
-import { ProfileAvatar } from "../../../components/profile/profile-avatar";
 import {
   ReputationCard,
   type ReputationRole,
@@ -171,7 +171,7 @@ export default function PublicProfileScreen() {
         <View className="relative -mx-5 gap-3 overflow-hidden px-5 pb-4 pt-3">
           <GridPattern />
           <View className="flex-row items-center gap-3.5">
-            <ProfileAvatar
+            <AvatarPeekViewer
               testID="profile-detail-avatar"
               fullName={profile.fullName}
               photoUrl={profile.photoUrl}

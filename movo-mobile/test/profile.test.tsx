@@ -355,5 +355,28 @@ describe("ProfileScreen", () => {
 
     expect(router.push).toHaveBeenCalledWith("/profile/ratings");
   });
+
+  // MOVO-244 feedback: el visor de pantalla completa (`PhotoViewerModal`) se
+  // reemplazó por el peek circular de `AvatarPeekViewer` — la mecánica de
+  // abrir/cerrar en sí (depende de `measureInWindow`, que no dispara en este
+  // entorno de test) queda cubierta en `test/avatar-peek-viewer.test.tsx`, acá solo
+  // se verifica que la pantalla monta el botón con la foto real.
+  it("envuelve el avatar en el botón de long-press cuando hay photoUrl", async () => {
+    mockUseMyProfile.mockReturnValue({
+      data: baseProfile({ photoUrl: "https://movo.app/photos/martina.jpg" }),
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetch,
+    });
+    mockUsePublicProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: null,
+    });
+
+    const { getByTestId } = await render(<ProfileScreen />);
+    expect(getByTestId("profile-avatar-button")).toBeTruthy();
+    expect(getByTestId("profile-avatar")).toBeTruthy();
+  });
 });
 

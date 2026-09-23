@@ -9,6 +9,10 @@ const STATUS_LABEL: Record<ShipmentStatus, string> = {
   [ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION]: "Esperando receptor",
   [ShipmentStatus.REJECTED_BY_RECEIVER]: "Rechazado",
   [ShipmentStatus.PUBLISHED]: "Publicado",
+  // MOVO-248: Shipment.status = assignment_pending modela la etapa entre la aceptación
+  // de la oferta y la confirmación del hold de fondos. En la UI de mobile se muestra
+  // como "Sin asignar" hasta que el nuevo flujo y modelo de estados de MOVO-248 separe
+  // el estado del transportista del estado del hold/pago.
   [ShipmentStatus.ASSIGNMENT_PENDING]: "Sin asignar",
   // MOVO-208: transportista ya asignado, pero el hold de fondos todavía no se creó
   // (retiro a más de N días, MOVO-12 opción B) -- distinto de "Asignado" (`ASSIGNED`),
@@ -484,9 +488,18 @@ export function formatProximityDistance(distanceMeters: number): string {
   return `${(distanceMeters / 1000).toFixed(1)} km`;
 }
 
-/** Duración estimada de la ruta real (`GET /shipments/route`), redondeada al minuto. */
+/** Duración estimada de la ruta real (`GET /shipments/route`), redondeada al minuto o en horas si es >= 60 min (MOVO-244). */
 export function formatDurationMin(durationSeconds: number): string {
-  return `${Math.round(durationSeconds / 60)} min`;
+  const totalMin = Math.round(durationSeconds / 60);
+  if (totalMin < 60) {
+    return `${Math.max(0, totalMin)} min`;
+  }
+  const hours = Math.floor(totalMin / 60);
+  const remainingMin = totalMin % 60;
+  if (remainingMin === 0) {
+    return `${hours} h`;
+  }
+  return `${hours} h ${remainingMin} min`;
 }
 
 /** Distancia entre la ubicación del transportista y el punto de retiro (MOVO-166/177,

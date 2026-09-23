@@ -1,6 +1,12 @@
+import * as Haptics from "expo-haptics";
 import { CheckCircle2 } from "lucide-react-native";
+import { useEffect, useRef } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
-import Animated from "react-native-reanimated";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from "react-native-safe-area-context";
 import { useSheetAnimation } from "../../src/hooks/use-sheet-animation";
 
@@ -17,10 +23,9 @@ export interface ChooseOfferSuccessModalProps {
 }
 
 /**
- * Modal de éxito al elegir transportista (MOVO-150 / MOVO-17).
- * El copy es estrictamente honesto con la máquina de estados canónica: el envío pasa a
- * `assignment_pending`, NO a `assigned` (la asignación final se completa cuando se
- * reservan los fondos en MOVO-12). Por lo tanto, nunca promete "envío confirmado".
+ * Modal de éxito con animación al elegir oferta (MOVO-150 / MOVO-244).
+ * Presenta confirmación háptica, barra de progreso y auto-redirección al detalle
+ * del envío tras completarse la animación (~1.5s), con opción de tocar para avanzar antes.
  */
 export function ChooseOfferSuccessModal({
   visible,
@@ -29,8 +34,46 @@ export function ChooseOfferSuccessModal({
   testID,
 }: ChooseOfferSuccessModalProps) {
   const { isMounted, backdropStyle, sheetStyle } = useSheetAnimation(visible);
+  const progress = useSharedValue(0);
 
   const displayName = carrierName || "el transportista";
+
+  // `onDismiss` no está memoizado en todos los callers (`offers.tsx` le pasa una
+  // función inline) — cualquier re-render del padre mientras el modal está visible
+  // (el propio `handleConfirmAccept` dispara refetch/invalidations justo después de
+  // mostrarlo) le daba una identidad nueva y reiniciaba TODO el efecto: haptics de
+  // nuevo, `progress` vuelto a 0, y el timer de auto-dismiss de 1600ms cancelado y
+  // re-armado desde cero (MOVO-244 review, PR #184). Con la ref, el efecto solo
+  // corre una vez por apertura (`visible`), sin importar cuántas veces se re-renderice
+  // el padre mientras tanto.
+  const onDismissRef = useRef(onDismiss);
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+  }, [onDismiss]);
+
+  useEffect(() => {
+    if (visible) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      progress.value = 0;
+      progress.value = withTiming(1, { duration: 1500 });
+      const timer = setTimeout(() => {
+        onDismissRef.current();
+      }, 1600);
+      return () => clearTimeout(timer);
+    } else {
+      progress.value = 0;
+    }
+    // `progress` (shared value de Reanimated) queda fuera de deps a propósito, mismo
+    // criterio que `use-sheet-animation.ts` — es una referencia estable en runtime
+    // real, incluirla acá no aporta nada y en el mock de Jest de `useSharedValue`
+    // (que sí cambia de identidad en cada render, a diferencia del real) reiniciaba
+    // este efecto en cualquier re-render del padre.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  const progressBarStyle = useAnimatedStyle(() => ({
+    width: `${progress.value * 100}%`,
+  }));
 
   return (
     <Modal
@@ -58,13 +101,13 @@ export function ChooseOfferSuccessModal({
               className="rounded-t-[24px] border-t border-border bg-bg px-5 pt-6 pb-2"
             >
               <SafeAreaView edges={["bottom"]} className="gap-5 items-center">
-                <View className="h-14 w-14 items-center justify-center rounded-full bg-success-100">
-                  <CheckCircle2 size={32} color="#16754A" strokeWidth={2.2} />
+                <View className="h-16 w-16 items-center justify-center rounded-full bg-success-100">
+                  <CheckCircle2 size={36} color="#16754A" strokeWidth={2.4} />
                 </View>
 
                 <View className="gap-2 items-center text-center">
-                  <Text className="font-sans-semibold text-h3 text-fg text-center">
-                    ¡Transportista elegido!
+                  <Text className="font-sans-semibold text-h2 text-fg text-center">
+                    ¡Oferta aceptada!
                   </Text>
                   <Text className="font-sans text-small leading-5 text-fg-2 text-center px-4">
                     Seleccionaste la propuesta de{" "}
@@ -73,7 +116,20 @@ export function ChooseOfferSuccessModal({
                   </Text>
                 </View>
 
-                <View className="w-full pt-2">
+                {/* Animated progress redirect bar */}
+                <View className="w-full gap-2 px-2 items-center">
+                  <View className="h-1.5 w-full overflow-hidden rounded-full bg-border">
+                    <Animated.View
+                      style={progressBarStyle}
+                      className="h-full rounded-full bg-lime-500"
+                    />
+                  </View>
+                  <Text className="font-sans text-[12px] text-fg-3">
+                    Redirigiendo al detalle del envío...
+                  </Text>
+                </View>
+
+                <View className="w-full pt-1">
                   <Pressable
                     testID={testID ? `${testID}-dismiss-btn` : "choose-offer-success-dismiss-button"}
                     onPress={onDismiss}

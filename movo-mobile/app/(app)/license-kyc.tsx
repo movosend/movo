@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Image, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../../components/auth/primary-button";
+import { KycManualReviewResult } from "../../components/kyc/kyc-manual-review-result";
 import { ErrorBanner } from "../../components/ui/error-banner";
 import { authClient } from "../../src/api/auth-client";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -300,6 +301,20 @@ export default function LicenseKycScreen() {
     const BadgeIcon = badge.Icon;
     const canRetry = RETRYABLE.includes(kind);
     const canRefresh = kind === "in_progress" || kind === "manual_review";
+
+    if (kind === "manual_review") {
+      return (
+        <KycManualReviewResult
+          title="Tu licencia está en revisión"
+          body="A veces necesitamos un poco más de tiempo para validar tu documentación. Te avisaremos por notificación en cuanto esté lista."
+          onRefresh={handleRefresh}
+          refreshing={refreshing}
+          onGoHome={goHome}
+          testIDPrefix="license-kyc"
+        />
+      );
+    }
+
     return (
       <SafeAreaView className="flex-1 bg-bg px-8 pt-16">
         <View className="flex-1 items-center">
@@ -330,7 +345,7 @@ export default function LicenseKycScreen() {
             onPress={handleRefresh}
             className="mb-3 text-center font-sans text-[13px] text-fg-3"
           >
-            {kind === "manual_review" ? "Actualizar estado" : "Ya la completé — actualizar estado"}
+            Ya la completé — actualizar estado
           </Text>
         ) : null}
         {canRetry ? (

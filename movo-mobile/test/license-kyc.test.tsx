@@ -127,7 +127,7 @@ describe("LicenseKycScreen", () => {
     mockGetLicenseKycStatus.mockResolvedValue({ status: KycStatus.MANUAL_REVIEW, manualReviewReason: null });
 
     const { findByTestId } = await render(<LicenseKycScreen />);
-    await fireEvent.press(await findByTestId("license-kyc-primary-action"));
+    await fireEvent.press(await findByTestId("license-kyc-go-home"));
 
     expect(router.replace).toHaveBeenCalledWith("/home");
   });

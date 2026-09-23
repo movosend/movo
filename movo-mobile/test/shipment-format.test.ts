@@ -20,6 +20,7 @@ import {
   shipmentStatusTone,
   shortAddressLabel,
   formatShipmentRowTime,
+  formatDurationMin,
 } from "../src/lib/shipment-format";
 
 describe("shipmentStatusLabel", () => {
@@ -529,5 +530,24 @@ describe("formatProximityDistance", () => {
 
   it("pasa a km con un decimal desde 1000m", () => {
     expect(formatProximityDistance(1240)).toBe("1.2 km");
+  });
+});
+
+describe("formatDurationMin (MOVO-244)", () => {
+  it("formatea en minutos para duraciones menores a 60 minutos", () => {
+    expect(formatDurationMin(0)).toBe("0 min");
+    expect(formatDurationMin(150)).toBe("3 min");
+    expect(formatDurationMin(2700)).toBe("45 min");
+    expect(formatDurationMin(3540)).toBe("59 min");
+  });
+
+  it("formatea en horas exactas si no hay minutos restantes", () => {
+    expect(formatDurationMin(3600)).toBe("1 h");
+    expect(formatDurationMin(7200)).toBe("2 h");
+  });
+
+  it("formatea en horas y minutos si supera 60 minutos con resto", () => {
+    expect(formatDurationMin(4500)).toBe("1 h 15 min");
+    expect(formatDurationMin(9000)).toBe("2 h 30 min");
   });
 });
