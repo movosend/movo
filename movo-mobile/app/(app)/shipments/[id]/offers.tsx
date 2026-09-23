@@ -1,7 +1,8 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useLocalSearchParams } from "expo-router";
 import { ArrowUpDown, ChevronLeft, Inbox } from "lucide-react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -63,8 +64,8 @@ export default function ShipmentOffersScreen() {
   const [sort, setSort] = useState<OfferSortOption>("price");
   const [offerToAccept, setOfferToAccept] = useState<OfferSummary | null>(null);
   const [offerToReject, setOfferToReject] = useState<OfferSummary | null>(null);
-  const [acceptedOfferCarrierName, setAcceptedOfferCarrierName] = useState<string | null>(null);
   const [isSuccessModalVisible, setIsSuccessModalVisible] = useState(false);
+  const [acceptedOfferCarrierName, setAcceptedOfferCarrierName] = useState<string | null>(null);
   const [acceptErrorMessage, setAcceptErrorMessage] = useState<string | null>(null);
   const [rejectErrorMessage, setRejectErrorMessage] = useState<string | null>(null);
 
@@ -77,7 +78,17 @@ export default function ShipmentOffersScreen() {
     isRefetching,
   } = useShipmentOffers(id, { sort });
 
-  const { refetch: refetchShipment } = useShipment(id);
+  const { data: shipment, refetch: refetchShipment } = useShipment(id);
+
+  // Si el envío ya tiene transportista asignado (o no está publicado), redirige al detalle
+  // para no dejar al emisor viendo una lista vacía de ofertas ("Todavía no recibiste ofertas").
+  useEffect(() => {
+    if (shipment && (shipment.carrierId || shipment.status !== ShipmentStatus.PUBLISHED)) {
+      if (!isSuccessModalVisible) {
+        router.replace(`/shipments/${id}` as never);
+      }
+    }
+  }, [shipment, isSuccessModalVisible, id]);
 
   const acceptMutation = useAcceptOffer();
   const rejectMutation = useRejectOffer();
@@ -148,11 +159,7 @@ export default function ShipmentOffersScreen() {
 
   const handleSuccessDismiss = () => {
     setIsSuccessModalVisible(false);
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace(`/shipments/${id}` as never);
-    }
+    router.replace(`/shipments/${id}` as never);
   };
 
   const offerCount = offers ? offers.length : 0;

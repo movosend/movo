@@ -1,7 +1,8 @@
 import { KycStatus } from '@movo/shared/dist/types/user';
+import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useEffect } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ProfileAvatar } from '../../../components/profile/profile-avatar';
 import { AttentionSection } from '../../../components/home/attention-section';
@@ -79,6 +80,19 @@ export default function AuthenticatedHomeScreen() {
   const fullName = profile?.fullName ? capitalizeName(profile.fullName) : capitalizeName(user?.fullName);
   const dateLabel = formatGreetingDateLabel(new Date());
 
+  const [refreshing, setRefreshing] = useState(false);
+  const queryClient = useQueryClient();
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await Promise.allSettled([
+      queryClient.invalidateQueries({ queryKey: ["shipments"] }),
+      queryClient.invalidateQueries({ queryKey: ["users", "me"] }),
+      queryClient.invalidateQueries({ queryKey: ["attention-tasks"] }),
+    ]);
+    setRefreshing(false);
+  };
+
   return (
     <View className="flex-1 bg-bg">
       <SafeAreaView className="border-b border-border bg-bg-sub" edges={['top']}>
@@ -105,7 +119,20 @@ export default function AuthenticatedHomeScreen() {
         </View>
       </SafeAreaView>
 
-      <ScrollView contentContainerClassName="px-6 pb-32 pt-6" showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerClassName="px-6 pb-32 pt-6"
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            testID="app-home-refresh-control"
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.fg1}
+            progressViewOffset={32}
+            style={{ marginTop: 8 }}
+          />
+        }
+      >
         {bannerText && BannerIcon ? (
           <View
             testID="app-home-kyc-banner"

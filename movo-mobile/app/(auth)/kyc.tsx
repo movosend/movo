@@ -3,9 +3,10 @@ import type {
   VerificationErrorType,
   VerificationResult,
 } from "@didit-protocol/sdk-react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import {
   CameraOff,
+  Hourglass,
   ShieldAlert,
   TriangleAlert,
   WifiOff,
@@ -13,7 +14,7 @@ import {
 } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../../components/auth/primary-button";
 import { ErrorBanner } from "../../components/ui/error-banner";
@@ -195,10 +196,9 @@ export default function KycScreen() {
     refreshKycStatus,
   } = registration;
 
-  // Si se llega desde el wizard de registro, `registration.kycStatus` tiene prioridad.
-  // Si se llega desde "Mi perfil" (usuario autenticado), `registration.kycStatus` es null
-  // y se lee el estado actual desde `authStore`.
-  const kycStatus = registrationKycStatus ?? authUser?.kycStatus ?? null;
+  const params = typeof useLocalSearchParams === "function" ? useLocalSearchParams<{ status?: string }>() : {};
+  const forcedStatus = params?.status as KycStatus | undefined;
+  const kycStatus = forcedStatus ?? registrationKycStatus ?? authUser?.kycStatus ?? null;
 
   const [phase, setPhase] = useState<"intro" | "connecting" | "result">(
     () => (kycStatus && kycStatusToResultKind(kycStatus) ? "result" : "intro"),
@@ -233,19 +233,31 @@ export default function KycScreen() {
   // operador ya cerró) — se revalida contra `/kyc/status` una vez al entrar, en vez de
   // confiar ciegamente en ese valor.
   useEffect(() => {
+    if (forcedStatus) {
+      const kind = kycStatusToResultKind(forcedStatus);
+      if (kind) {
+        setResultKind(kind);
+        setPhase("result");
+      }
+      return;
+    }
     const resumed = kycStatus ? kycStatusToResultKind(kycStatus) : null;
     if (resumed) {
       setResultKind(resumed);
       setPhase("result");
+
+      // Auto-refresh solo en `pending` o `manual_review`: son los dos estados que
+      // el usuario puede estar esperando ver resolverse sin interactuar (AC7).
       if (
         !autoRefreshedRef.current &&
-        (resumed === "in_progress" || resumed === "manual_review")
+        !forcedStatus &&
+        (kycStatus === KycStatus.PENDING || kycStatus === KycStatus.MANUAL_REVIEW)
       ) {
         autoRefreshedRef.current = true;
         void refreshKycStatus();
       }
     }
-  }, [kycStatus, refreshKycStatus]);
+  }, [forcedStatus, kycStatus, refreshKycStatus]);
 
   async function beginVerification() {
     const session = await createKycSession();
@@ -364,15 +376,49 @@ export default function KycScreen() {
     const badge = RESULT_BADGE[kind];
     const BadgeIcon = badge.Icon;
     const canRetry = RETRYABLE.includes(kind);
-    // 'in_progress' y 'manual_review' son los dos casos donde el resultado real puede
-    // estar resuelto del lado del backend aunque esta pantalla todavía no se haya
-    // enterado (sesión de Didit con webhook en camino, o revisión manual que un
-    // operador ya cerró — caso real reportado, ver comentario del auto-refresh de
-    // arriba). El auto-refresh al entrar ya cubre el caso típico ("volví a abrir la
-    // app"/"toqué Continuar verificación"); este link es la vía manual para cuando el
-    // usuario se queda en la pantalla esperando y quiere volver a chequear sin salir.
     const canRefresh = kind === "in_progress" || kind === "manual_review";
     const isApproved = kind === "approved";
+
+    if (kind === "manual_review") {
+      return (
+        <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
+          <View className="flex-1 items-center justify-center px-7">
+            {/* Isotipo central: reloj de arena en tarjeta circular con halo */}
+            <View
+              testID="kyc-result-badge"
+              className="relative mb-8 h-32 w-32 items-center justify-center"
+            >
+              <View className="absolute inset-0 rounded-full border border-border/80" />
+              <View className="h-24 w-24 items-center justify-center rounded-full border border-border bg-bg-sub shadow-[0_2px_8px_rgba(0,0,0,0.03)]">
+                <Hourglass size={38} strokeWidth={1.75} color={colors.fg1} />
+              </View>
+            </View>
+
+            {/* Título y subtítulo */}
+            <Text
+              testID="kyc-result-title"
+              className="mb-3 text-center font-sans-semibold text-[23px] tracking-tight text-fg leading-snug"
+            >
+              Tu verificación está en revisión
+            </Text>
+            <Text className="max-w-[315px] text-center font-sans text-[15px] text-fg-2 leading-relaxed tracking-tight">
+              A veces necesitamos un poco más de tiempo para confirmar tu identidad. Te avisaremos por notificación en cuanto esté lista.
+            </Text>
+          </View>
+
+          {/* Botón primario: Actualizar estado consistente con toda la app */}
+          <PrimaryButton
+            testID="kyc-primary-action"
+            label="Actualizar estado"
+            onPress={handleRefresh}
+            loading={refreshing}
+            disabled={refreshing}
+            variant="dark"
+          />
+        </SafeAreaView>
+      );
+    }
+
     return (
       <SafeAreaView className="flex-1 bg-bg px-8 pt-16">
         <View className="flex-1 items-center">
@@ -420,9 +466,7 @@ export default function KycScreen() {
             onPress={handleRefresh}
             className="mb-3 text-center font-sans text-[13px] text-fg-3"
           >
-            {kind === "manual_review"
-              ? "Actualizar estado"
-              : "Ya la completé — actualizar estado"}
+            Ya la completé — actualizar estado
           </Text>
         ) : null}
         {canRetry ? (

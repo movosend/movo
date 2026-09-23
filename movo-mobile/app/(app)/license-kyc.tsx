@@ -7,6 +7,7 @@ import type {
 import { router, useLocalSearchParams } from "expo-router";
 import {
   CameraOff,
+  Hourglass,
   ShieldAlert,
   TriangleAlert,
   WifiOff,
@@ -14,7 +15,7 @@ import {
 } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../../components/auth/primary-button";
 import { ErrorBanner } from "../../components/ui/error-banner";
@@ -300,6 +301,51 @@ export default function LicenseKycScreen() {
     const BadgeIcon = badge.Icon;
     const canRetry = RETRYABLE.includes(kind);
     const canRefresh = kind === "in_progress" || kind === "manual_review";
+
+    if (kind === "manual_review") {
+      return (
+        <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
+          <View className="flex-1 items-center justify-center px-7">
+            {/* Isotipo central: reloj de arena en tarjeta circular con halo */}
+            <View
+              testID="license-kyc-result-badge"
+              className="relative mb-8 h-32 w-32 items-center justify-center"
+            >
+              <View className="absolute inset-0 rounded-full border border-border/80" />
+              <View className="h-24 w-24 items-center justify-center rounded-full border border-border bg-bg-sub shadow-[0_2px_8px_rgba(0,0,0,0.03)]">
+                <Hourglass size={38} strokeWidth={1.75} color={colors.fg1} />
+              </View>
+            </View>
+
+            {/* Título y subtítulo */}
+            <Text
+              testID="license-kyc-result-title"
+              className="mb-3 text-center font-sans-semibold text-[23px] tracking-tight text-fg leading-snug"
+            >
+              Tu licencia está en revisión
+            </Text>
+            <Text className="max-w-[315px] text-center font-sans text-[15px] text-fg-2 leading-relaxed tracking-tight">
+              A veces necesitamos un poco más de tiempo para validar tu documentación. Te avisaremos por notificación en cuanto esté lista.
+            </Text>
+          </View>
+
+          {/* Botón primario: Actualizar estado consistente con toda la app */}
+          <PrimaryButton
+            testID="license-kyc-primary-action"
+            label="Actualizar estado"
+            onPress={handleRefresh}
+            loading={refreshing}
+            disabled={refreshing}
+            variant="dark"
+          />
+          {/* Enlace secundario: Ir al inicio */}
+          <Pressable testID="license-kyc-go-home" onPress={goHome} className="pb-6 pt-2 items-center">
+            <Text className="font-sans text-[14px] text-fg-3">Ir al inicio</Text>
+          </Pressable>
+        </SafeAreaView>
+      );
+    }
+
     return (
       <SafeAreaView className="flex-1 bg-bg px-8 pt-16">
         <View className="flex-1 items-center">
@@ -330,7 +376,7 @@ export default function LicenseKycScreen() {
             onPress={handleRefresh}
             className="mb-3 text-center font-sans text-[13px] text-fg-3"
           >
-            {kind === "manual_review" ? "Actualizar estado" : "Ya la completé — actualizar estado"}
+            Ya la completé — actualizar estado
           </Text>
         ) : null}
         {canRetry ? (

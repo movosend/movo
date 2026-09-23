@@ -1,7 +1,7 @@
 import { router } from "expo-router";
 import { CheckCircle2, ChevronLeft, FileText, ShieldCheck, TriangleAlert, type LucideIcon } from "lucide-react-native";
-import { useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { BackHandler, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LegalDocumentSheet } from "../../../../components/legal/legal-document-sheet";
 import { useMyProfile } from "../../../../src/hooks/use-profile";
@@ -19,8 +19,8 @@ import {
  * Design "Rediseño página Legal con estados de firma": cada documento es una
  * tarjeta con ícono, insignia de estado (Al día / Pendiente / Nueva versión), la
  * firma electrónica real (fecha + versión) y un botón que abre el sheet de lectura
- * (`legal-document-sheet.tsx`) en vez de navegar a una pantalla propia — ver ese
- * componente para por qué "Ver también" cambia de documento sin cerrar el sheet.
+ * (`legal-document-sheet.tsx`) en vez de navegar a una pantalla propia.
+ * En MOVO-244: si hay documentos pendientes, la pantalla es bloqueante (no permite volver atrás).
  */
 export default function LegalHubScreen() {
   const colors = useThemeColors();
@@ -29,17 +29,28 @@ export default function LegalHubScreen() {
 
   const terms = getTermsAcceptanceState(profile);
   const privacy = getPrivacyAcceptanceState(profile);
+  const isBlocking = terms.status !== "up_to_date" || privacy.status !== "up_to_date";
+
+  useEffect(() => {
+    if (!isBlocking) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => true);
+    return () => sub.remove();
+  }, [isBlocking]);
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
       <View className="flex-row items-center gap-3 px-5 pb-3.5 pt-1.5">
-        <Pressable
-          testID="legal-hub-back"
-          onPress={() => router.back()}
-          className="h-8 w-8 items-center justify-center rounded-full bg-bg-mute"
-        >
-          <ChevronLeft size={18} color={colors.fg1} strokeWidth={2} />
-        </Pressable>
+        {!isBlocking ? (
+          <Pressable
+            testID="legal-hub-back"
+            onPress={() => router.back()}
+            className="h-8 w-8 items-center justify-center rounded-full bg-bg-mute"
+          >
+            <ChevronLeft size={18} color={colors.fg1} strokeWidth={2} />
+          </Pressable>
+        ) : (
+          <View className="h-8 w-8" />
+        )}
         <Text className="font-sans-semibold text-h3 text-fg">Legal</Text>
       </View>
 
