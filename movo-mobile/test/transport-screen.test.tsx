@@ -62,6 +62,19 @@ jest.mock("../src/hooks/use-addresses", () => ({
   useAddresses: jest.fn(() => ({ data: [] })),
 }));
 
+jest.mock("../src/hooks/use-carrier-tracking", () => ({
+  useCarrierTracking: () => ({
+    isTracking: false,
+    inTransitCount: 0,
+    pendingQueueCount: 0,
+    permissionGranted: true,
+    lastReportedAt: null,
+    lastError: null,
+    requestPermission: jest.fn(),
+    flushQueue: jest.fn(),
+  }),
+}));
+
 const mockStubSelection = { address: "Bv. Chacabuco 800, Córdoba", lat: -31.42, lng: -64.18, source: "places" };
 jest.mock("../components/send/address-search-sheet", () => {
   const { Pressable, Text } = require("react-native");

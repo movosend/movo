@@ -106,7 +106,7 @@ describe("Componentes de Tracking (MOVO-203)", () => {
 
       expect(getByTestId("tracking-active-indicator")).toBeTruthy();
       expect(getByText("Transmitiendo ubicación en vivo")).toBeTruthy();
-      expect(getByText("2 envíos en camino")).toBeTruthy();
+      expect(getByText("2 envíos pendientes de entrega")).toBeTruthy();
     });
 
     it("muestra advertencia cuando el permiso fue denegado (AC5)", async () => {

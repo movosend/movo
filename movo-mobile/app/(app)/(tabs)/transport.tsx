@@ -417,7 +417,7 @@ export default function TransportScreen() {
 
       {!isTripMode ? (
         <>
-          <TrackingActiveIndicator />
+          <TrackingActiveIndicator className="mx-5 mb-3" />
 
           <Pressable
             testID="transport-my-route-cta"

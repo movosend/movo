@@ -6,6 +6,7 @@ import { TrackingPermissionModal } from "./tracking-permission-modal";
 
 export interface TrackingActiveIndicatorProps {
   testID?: string;
+  className?: string;
 }
 
 /**
@@ -15,6 +16,7 @@ export interface TrackingActiveIndicatorProps {
  */
 export function TrackingActiveIndicator({
   testID = "tracking-active-indicator",
+  className = "w-full mb-6",
 }: TrackingActiveIndicatorProps) {
   const {
     isTracking,
@@ -48,13 +50,13 @@ export function TrackingActiveIndicator({
               ? "Sin conexión a internet"
               : "Transmitiendo ubicación en vivo"
         }
-        className={`mx-5 mb-3 flex-row items-center gap-2.5 rounded-xl px-3.5 py-2.5 border ${
+        className={`flex-row items-center gap-2.5 rounded-xl px-3.5 py-2.5 border ${
           isPermissionDenied
             ? "border-amber-500/40 bg-amber-500/10 active:bg-amber-500/15"
             : pendingQueueCount > 0
               ? "border-blue-500/40 bg-blue-500/10"
               : "border-lime-500/40 bg-lime-500/10"
-        }`}
+        } ${className}`}
       >
         {/* Indicador de estado o icono */}
         {isPermissionDenied ? (
@@ -71,13 +73,12 @@ export function TrackingActiveIndicator({
         <View className="flex-1">
           <Text
             testID={`${testID}-status-text`}
-            className={`font-sans-semibold text-[13px] ${
-              isPermissionDenied
+            className={`font-sans-semibold text-[13px] ${isPermissionDenied
                 ? "text-amber-500"
                 : pendingQueueCount > 0
                   ? "text-blue-400"
                   : "text-fg"
-            }`}
+              }`}
           >
             {isPermissionDenied
               ? "Permiso de ubicación requerido"
@@ -90,7 +91,7 @@ export function TrackingActiveIndicator({
               ? "Toca para activar el permiso de ubicación"
               : pendingQueueCount > 0
                 ? "Tu ubicación se transmitirá a los participantes de tus envíos una vez que se restablezca"
-                : `${inTransitCount} ${inTransitCount === 1 ? "envío" : "envíos"} en camino`}
+                : `${inTransitCount} ${inTransitCount === 1 ? "envío" : "envíos"} pendientes de entrega`}
           </Text>
         </View>
       </Pressable>

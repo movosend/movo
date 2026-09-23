@@ -48,6 +48,19 @@ jest.mock("../src/hooks/use-attention-tasks", () => ({
   useAttentionTasks: () => mockUseAttentionTasks(),
 }));
 
+jest.mock("../src/hooks/use-carrier-tracking", () => ({
+  useCarrierTracking: () => ({
+    isTracking: false,
+    inTransitCount: 0,
+    pendingQueueCount: 0,
+    permissionGranted: true,
+    lastReportedAt: null,
+    lastError: null,
+    requestPermission: jest.fn(),
+    flushQueue: jest.fn(),
+  }),
+}));
+
 jest.mock("../src/store/auth-store", () => ({
   useAuthStore: { getState: () => ({ updateKycStatus: mockUpdateKycStatus }) },
 }));
