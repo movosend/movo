@@ -3327,3 +3327,16 @@ Pantalla completa de itinerario y mapa de ruta optimizada para el transportista 
 - **Cliente HTTP consistente**: `shipmentsClient.getMyRoute` utiliza el objeto `query` de `httpClient.get` y `getById` mantiene aislamiento estricto sin scope creep de demo.
 
 - **Compatibilidad con MOVO-235 (`tripId`)**: `shipmentsClient.getMyRoute(coords, tripId?)` y `useOptimizedRoute(tripId?)` preparados para aceptar opcionalmente un `tripId` (por parámetro y por query param en `/route?tripId=...`), manteniendo retrocompatibilidad total si no se envía.
+
+### MOVO-244 — Batch de fixes: KYC, TyC obligatorios, sincronización de estado y varios de UI (`movo-mobile`)
+
+Batch de correcciones y mejoras funcionales y de UI en `movo-mobile`:
+- **KYC en revisión (`manual_review`)**: rediseño de la pantalla de revisión de DNI (`app/(auth)/kyc.tsx`) y licencia (`app/(app)/license-kyc.tsx`) según lineamientos Stitch. Card con isotipo/reloj de arena, copy con plazos claros (24-48 hs), eliminación del enlace "Ir al inicio" en verificación de DNI (el usuario no verificado no debe acceder a la app) y botón primario estandarizado `PrimaryButton` con padding seguro inferior. Soporte de visualización rápida vía query param `?status=manual_review` y acceso dev en Perfil (`__DEV__`).
+- **Términos y condiciones obligatorios**: `components/legal/legal-entry-sheet.tsx` documenta `onDismiss?: () => void` opcional para retrocompatibilidad pero mantiene comportamiento modal estricto. En `/profile/legal/index.tsx` se bloquea el botón volver (chevron y botón físico de Android) cuando hay TyC pendientes de aceptación.
+- **Pull-to-refresh y offsets**: agregado `RefreshControl` en Inicio (`app/(app)/(tabs)/home.tsx`) y Detalle de Envío (`app/(app)/shipments/[id].tsx`) con `progressViewOffset={32}` para evitar solapamientos con la barra de navegación.
+- **Aceptación de ofertas y redirect**: al aceptar una oferta en `offers.tsx`, se invalida y refetchea `['shipments', 'detail', id]` y `ChooseOfferSuccessModal` muestra animación de barra de progreso con feedback háptico (`Haptics.notificationAsync`) antes de redirigir automáticamente al detalle del envío con el transportista asignado.
+- **Formateo de tiempos de ruta**: `src/lib/shipment-format.ts` (`formatDurationMin`) formatea en horas y minutos (`X h Y min` / `X h`) cuando $\ge 60$ min. En `transport/[id].tsx` se mantiene en una sola línea (`shrink-0`, `numberOfLines={1}`).
+- **Zoom de foto de perfil**: long press con feedback háptico (`Haptics.impactAsync`) sobre el avatar de perfil abre `PhotoViewerModal` tanto en el perfil público (`profile/[id].tsx`) como en el propio (`(tabs)/profile.tsx`).
+- **Copy de precio en vista emisor**: se reemplazó "Precio sugerido" por "Costo aproximado" en `components/send/price-preview-card.tsx`.
+- **Handshake success**: extensión de un ~25-30% de la duración de las animaciones en `components/handshake/handshake-confirmation-result.tsx`.
+- **Estado de envío `ASSIGNMENT_PENDING`**: se mantuvo texto "Sin asignar" documentando que la separación entre asignación y hold de fondos se abordará integralmente en MOVO-248.
