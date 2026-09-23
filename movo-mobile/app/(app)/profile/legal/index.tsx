@@ -43,16 +43,16 @@ export default function LegalHubScreen() {
         <Text className="font-sans-semibold text-h3 text-fg">Legal</Text>
       </View>
 
+      <Text className="px-5 pb-4 font-sans text-[13px] text-fg-3">
+        Los documentos que rigen el uso de Movo y el tratamiento de tus datos. Cada
+        aceptación queda registrada con fecha y versión.
+      </Text>
+
       <ScrollView
         testID="legal-hub-content"
         contentContainerClassName="px-5 pb-10"
         showsVerticalScrollIndicator={false}
       >
-        <Text className="mb-5 font-sans text-[15px] leading-5 text-fg-2">
-          Los documentos que rigen el uso de Movo y el tratamiento de tus datos. Cada
-          aceptación queda registrada con fecha y versión.
-        </Text>
-
         <View className="gap-3">
           <LegalDocumentCard
             label="Términos y Condiciones de Uso"
@@ -95,6 +95,7 @@ function LegalDocumentCard({
   state: LegalDocumentAcceptanceState;
   onPress: () => void;
 }) {
+  const colors = useThemeColors();
   const meta = legalAcceptanceMeta(state);
   const badgeClass = meta.badgeTone === "success" ? "bg-success-100" : "bg-warning-100";
   const badgeTextClass = meta.badgeTone === "success" ? "text-success-700" : "text-warning-700";
@@ -109,7 +110,7 @@ function LegalDocumentCard({
     >
       <View className="flex-row items-start gap-3">
         <View className="h-[38px] w-[38px] items-center justify-center rounded-full border border-border bg-bg">
-          <Icon size={17} strokeWidth={1.6} color="#0A0A0B" />
+          <Icon size={17} strokeWidth={1.6} color={colors.fg1} />
         </View>
         <Text className="flex-1 pt-1.5 font-sans-medium text-[16px] text-fg" numberOfLines={2}>
           {label}
