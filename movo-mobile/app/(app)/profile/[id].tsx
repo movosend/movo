@@ -1,12 +1,11 @@
-import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import { Check, ChevronLeft, ShieldCheck } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { AvatarPeekViewer } from "../../../components/profile/avatar-peek-viewer";
 import { MutualConnectionsRow } from "../../../components/profile/mutual-connections-row";
 import { ProfileActionsMenu } from "../../../components/profile/profile-actions-menu";
-import { ProfileAvatar } from "../../../components/profile/profile-avatar";
 import {
   ReputationCard,
   type ReputationRole,
@@ -17,7 +16,6 @@ import { VerificationChips } from "../../../components/profile/verification-chip
 import { GridPattern } from "../../../components/ui/grid-pattern";
 import { SkeletonBlock } from "../../../components/ui/skeleton-block";
 import { StarRatingInput } from "../../../components/ui/star-rating-input";
-import { PhotoViewerModal } from "../../../components/shipments/photo-viewer-modal";
 import { useAuthStore } from "../../../src/store/auth-store";
 import { useSharedHistory } from "../../../src/hooks/use-shipments";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
@@ -98,12 +96,6 @@ export default function PublicProfileScreen() {
   const { data: profile, isLoading, isError } = usePublicProfile(id);
   const { data: sharedHistory } = useSharedHistory(id);
   const [role, setRole] = useState<ReputationRole>("carrier");
-  const [isPhotoViewerOpen, setIsPhotoViewerOpen] = useState(false);
-
-  const handleOpenPhotoViewer = () => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setIsPhotoViewerOpen(true);
-  };
 
   const handleBack = () => {
     if (router.canGoBack()) router.back();
@@ -179,29 +171,12 @@ export default function PublicProfileScreen() {
         <View className="relative -mx-5 gap-3 overflow-hidden px-5 pb-4 pt-3">
           <GridPattern />
           <View className="flex-row items-center gap-3.5">
-            {profile.photoUrl ? (
-              <Pressable
-                testID="profile-detail-avatar-button"
-                onLongPress={handleOpenPhotoViewer}
-                accessibilityRole="button"
-                accessibilityLabel="Mantener presionado para ver foto de perfil ampliada"
-                hitSlop={8}
-              >
-                <ProfileAvatar
-                  testID="profile-detail-avatar"
-                  fullName={profile.fullName}
-                  photoUrl={profile.photoUrl}
-                  size={80}
-                />
-              </Pressable>
-            ) : (
-              <ProfileAvatar
-                testID="profile-detail-avatar"
-                fullName={profile.fullName}
-                photoUrl={profile.photoUrl}
-                size={80}
-              />
-            )}
+            <AvatarPeekViewer
+              testID="profile-detail-avatar"
+              fullName={profile.fullName}
+              photoUrl={profile.photoUrl}
+              size={80}
+            />
             <View className="flex-1 gap-1">
               <Text className="font-sans-semibold text-[24px] leading-[27px] text-fg">
                 {profile.fullName}
@@ -360,16 +335,6 @@ export default function PublicProfileScreen() {
           </View>
         ) : null}
       </ScrollView>
-
-      {profile.photoUrl ? (
-        <PhotoViewerModal
-          testID="profile-photo-viewer"
-          visible={isPhotoViewerOpen}
-          photos={[{ id: "profile-photo", url: profile.photoUrl }]}
-          initialIndex={0}
-          onClose={() => setIsPhotoViewerOpen(false)}
-        />
-      ) : null}
     </SafeAreaView>
   );
 }

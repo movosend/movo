@@ -1,12 +1,10 @@
 import { KycStatus, UserRole } from '@movo/shared/dist/types/user';
-import * as Haptics from 'expo-haptics';
 import { Pencil } from 'lucide-react-native';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ProfileAvatar } from '../../../components/profile/profile-avatar';
+import { AvatarPeekViewer } from '../../../components/profile/avatar-peek-viewer';
 import { ProfileBadges } from '../../../components/profile/profile-badges';
 import { ProfileErrorState } from '../../../components/profile/profile-error-state';
 import { ProfileLicenseStatusBanner } from '../../../components/profile/profile-license-status-banner';
@@ -14,7 +12,6 @@ import { ProfileLogoutButton } from '../../../components/profile/profile-logout-
 import { ProfileActivityCard } from '../../../components/profile/profile-activity-card';
 import { ProfileSettingsSection } from '../../../components/profile/profile-settings-section';
 import { ProfileSkeleton } from '../../../components/profile/profile-skeleton';
-import { PhotoViewerModal } from '../../../components/shipments/photo-viewer-modal';
 import { useAuth } from '../../../src/hooks/use-auth';
 import { useThemeColors } from '../../../src/hooks/use-theme-colors';
 import { useMyProfile, usePublicProfile } from '../../../src/hooks/use-profile';
@@ -36,12 +33,6 @@ export default function ProfileScreen() {
   // falla. `GET /users/:id` no distingue self-lookup de cualquier otro (verificado
   // en `users.routes.ts`), así que no hace falta un endpoint nuevo.
   const { data: publicProfile } = usePublicProfile(data?.id);
-  const [isPhotoViewerOpen, setIsPhotoViewerOpen] = useState(false);
-
-  const handleOpenPhotoViewer = () => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setIsPhotoViewerOpen(true);
-  };
 
   if (isLoading) return <ProfileSkeleton testID="profile-skeleton" />;
 
@@ -65,29 +56,12 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View className="mb-6 flex-row items-center gap-4">
-          {data.photoUrl ? (
-            <Pressable
-              testID="profile-avatar-button"
-              onLongPress={handleOpenPhotoViewer}
-              accessibilityRole="button"
-              accessibilityLabel="Mantener presionado para ver foto de perfil ampliada"
-              hitSlop={8}
-            >
-              <ProfileAvatar
-                testID="profile-avatar"
-                fullName={displayName}
-                photoUrl={data.photoUrl}
-                size={88}
-              />
-            </Pressable>
-          ) : (
-            <ProfileAvatar
-              testID="profile-avatar"
-              fullName={displayName}
-              photoUrl={data.photoUrl}
-              size={88}
-            />
-          )}
+          <AvatarPeekViewer
+            testID="profile-avatar"
+            fullName={displayName}
+            photoUrl={data.photoUrl}
+            size={88}
+          />
           <View className="flex-1">
             <Text testID="profile-full-name" className="font-sans-semibold text-h2 text-fg">
               {displayName}
@@ -173,15 +147,6 @@ export default function ProfileScreen() {
         ) : null}
       </ScrollView>
 
-      {data.photoUrl ? (
-        <PhotoViewerModal
-          testID="profile-photo-viewer"
-          visible={isPhotoViewerOpen}
-          photos={[{ id: "profile-photo", url: data.photoUrl }]}
-          initialIndex={0}
-          onClose={() => setIsPhotoViewerOpen(false)}
-        />
-      ) : null}
     </SafeAreaView>
   );
 }

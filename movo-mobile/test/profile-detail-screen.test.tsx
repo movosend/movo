@@ -210,22 +210,20 @@ describe("PublicProfileScreen", () => {
     expect(queryByTestId("profile-detail-vehicle")).toBeNull();
   });
 
-  it("permite ampliar la foto de perfil al mantener presionada si existe photoUrl", async () => {
+  // MOVO-244 feedback: el visor de pantalla completa (`PhotoViewerModal`) se
+  // reemplazó por el peek circular de `AvatarPeekViewer` — la mecánica de
+  // abrir/cerrar en sí (depende de `measureInWindow`, que no dispara en este
+  // entorno de test) queda cubierta en `test/avatar-peek-viewer.test.tsx`, acá solo
+  // se verifica que la pantalla monta el botón con la foto real.
+  it("envuelve el avatar en el botón de long-press cuando hay photoUrl", async () => {
     mockUsePublicProfile.mockReturnValue({
       data: baseProfile({ photoUrl: "https://movo.app/photos/julia.jpg" }),
       isLoading: false,
       isError: false,
     });
 
-    const { getByTestId, queryByTestId } = await render(<PublicProfileScreen />);
-    const avatarBtn = getByTestId("profile-detail-avatar-button");
-    expect(avatarBtn).toBeTruthy();
-
-    await fireEvent(avatarBtn, "longPress");
-    expect(getByTestId("profile-photo-viewer")).toBeTruthy();
-    expect(getByTestId("profile-photo-viewer-close")).toBeTruthy();
-
-    await fireEvent.press(getByTestId("profile-photo-viewer-close"));
-    expect(queryByTestId("profile-photo-viewer-close")).toBeNull();
+    const { getByTestId } = await render(<PublicProfileScreen />);
+    expect(getByTestId("profile-detail-avatar-button")).toBeTruthy();
+    expect(getByTestId("profile-detail-avatar")).toBeTruthy();
   });
 });

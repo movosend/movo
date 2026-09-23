@@ -2,7 +2,7 @@ import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useLocalSearchParams } from "expo-router";
 import { ArrowUpDown, ChevronLeft, Inbox } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -79,16 +79,23 @@ export default function ShipmentOffersScreen() {
   } = useShipmentOffers(id, { sort });
 
   const { data: shipment, refetch: refetchShipment } = useShipment(id);
+  // Una vez que `handleConfirmAccept` acepta una oferta, el propio flujo de éxito
+  // (`handleSuccessDismiss`) es dueño de la navegación de vuelta al detalle — sin este
+  // guard, el efecto de abajo (que solo mira `shipment`/`id`, no el modal) podía
+  // disparar un SEGUNDO `router.replace` al mismo destino apenas `shipment.carrierId`
+  // llegaba por el refetch, apilando una copia vieja del detalle debajo de la fresca
+  // (MOVO-244 review, PR #184).
+  const hasAcceptedRef = useRef(false);
 
-  // Si el envío ya tiene transportista asignado (o no está publicado), redirige al detalle
-  // para no dejar al emisor viendo una lista vacía de ofertas ("Todavía no recibiste ofertas").
+  // Si el envío ya tiene transportista asignado (o no está publicado) por una vía
+  // ajena a esta pantalla (otro dispositivo, refresh), redirige al detalle para no
+  // dejar al emisor viendo una lista vacía de ofertas ("Todavía no recibiste ofertas").
   useEffect(() => {
+    if (hasAcceptedRef.current) return;
     if (shipment && (shipment.carrierId || shipment.status !== ShipmentStatus.PUBLISHED)) {
-      if (!isSuccessModalVisible) {
-        router.replace(`/shipments/${id}` as never);
-      }
+      router.replace(`/shipments/${id}` as never);
     }
-  }, [shipment, isSuccessModalVisible, id]);
+  }, [shipment, id]);
 
   const acceptMutation = useAcceptOffer();
   const rejectMutation = useRejectOffer();
@@ -114,6 +121,7 @@ export default function ShipmentOffersScreen() {
     if (!offerToAccept) return;
     try {
       await acceptMutation.mutateAsync(offerToAccept.id);
+      hasAcceptedRef.current = true;
       setAcceptedOfferCarrierName(offerToAccept.carrierNameAtOffer);
       setOfferToAccept(null);
       setIsSuccessModalVisible(true);

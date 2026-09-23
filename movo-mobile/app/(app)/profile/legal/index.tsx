@@ -1,6 +1,6 @@
-import { router } from "expo-router";
+import { router, useNavigation } from "expo-router";
 import { CheckCircle2, ChevronLeft, FileText, ShieldCheck, TriangleAlert, type LucideIcon } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { BackHandler, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LegalDocumentSheet } from "../../../../components/legal/legal-document-sheet";
@@ -21,9 +21,15 @@ import {
  * firma electrónica real (fecha + versión) y un botón que abre el sheet de lectura
  * (`legal-document-sheet.tsx`) en vez de navegar a una pantalla propia.
  * En MOVO-244: si hay documentos pendientes, la pantalla es bloqueante (no permite volver atrás).
+ * Bloquea las tres vías de salida por gesto/hardware: `BackHandler` (botón físico de
+ * Android) + `gestureEnabled: false` (swipe-back nativo de iOS, y el gesto de Android
+ * en versiones que lo soportan) vía `useNavigation().setOptions` — solo `BackHandler`
+ * dejaba el swipe-back de iOS completamente sin bloquear (bug de review, MOVO-244 PR
+ * #184), la única de las tres plataformas donde esta pantalla en realidad se abría.
  */
 export default function LegalHubScreen() {
   const colors = useThemeColors();
+  const navigation = useNavigation();
   const { data: profile } = useMyProfile();
   const [openDoc, setOpenDoc] = useState<LegalDocumentKind | null>(null);
 
@@ -36,6 +42,10 @@ export default function LegalHubScreen() {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => true);
     return () => sub.remove();
   }, [isBlocking]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({ gestureEnabled: !isBlocking });
+  }, [navigation, isBlocking]);
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>

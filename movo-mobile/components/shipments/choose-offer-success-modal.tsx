@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { CheckCircle2 } from "lucide-react-native";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, {
   useAnimatedStyle,
@@ -38,19 +38,38 @@ export function ChooseOfferSuccessModal({
 
   const displayName = carrierName || "el transportista";
 
+  // `onDismiss` no está memoizado en todos los callers (`offers.tsx` le pasa una
+  // función inline) — cualquier re-render del padre mientras el modal está visible
+  // (el propio `handleConfirmAccept` dispara refetch/invalidations justo después de
+  // mostrarlo) le daba una identidad nueva y reiniciaba TODO el efecto: haptics de
+  // nuevo, `progress` vuelto a 0, y el timer de auto-dismiss de 1600ms cancelado y
+  // re-armado desde cero (MOVO-244 review, PR #184). Con la ref, el efecto solo
+  // corre una vez por apertura (`visible`), sin importar cuántas veces se re-renderice
+  // el padre mientras tanto.
+  const onDismissRef = useRef(onDismiss);
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+  }, [onDismiss]);
+
   useEffect(() => {
     if (visible) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       progress.value = 0;
       progress.value = withTiming(1, { duration: 1500 });
       const timer = setTimeout(() => {
-        onDismiss();
+        onDismissRef.current();
       }, 1600);
       return () => clearTimeout(timer);
     } else {
       progress.value = 0;
     }
-  }, [visible, onDismiss, progress]);
+    // `progress` (shared value de Reanimated) queda fuera de deps a propósito, mismo
+    // criterio que `use-sheet-animation.ts` — es una referencia estable en runtime
+    // real, incluirla acá no aporta nada y en el mock de Jest de `useSharedValue`
+    // (que sí cambia de identidad en cada render, a diferencia del real) reiniciaba
+    // este efecto en cualquier re-render del padre.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   const progressBarStyle = useAnimatedStyle(() => ({
     width: `${progress.value * 100}%`,

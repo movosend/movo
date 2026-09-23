@@ -6,7 +6,6 @@ import type {
 import { router, useLocalSearchParams } from "expo-router";
 import {
   CameraOff,
-  Hourglass,
   ShieldAlert,
   TriangleAlert,
   WifiOff,
@@ -14,9 +13,10 @@ import {
 } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Image, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../../components/auth/primary-button";
+import { KycManualReviewResult } from "../../components/kyc/kyc-manual-review-result";
 import { ErrorBanner } from "../../components/ui/error-banner";
 import { useRegistration } from "../../src/hooks/use-registration";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -196,8 +196,12 @@ export default function KycScreen() {
     refreshKycStatus,
   } = registration;
 
-  const params = typeof useLocalSearchParams === "function" ? useLocalSearchParams<{ status?: string }>() : {};
-  const forcedStatus = params?.status as KycStatus | undefined;
+  const params = useLocalSearchParams<{ status?: string }>();
+  // `?status=` solo existe para el atajo de testing de Perfil (`__DEV__`, ver
+  // `profile.tsx`) — sin este guard, `/kyc` es una ruta real alcanzable por deep link
+  // (`movo://kyc?status=approved`) en producción, y cualquiera podía spoofear un KYC
+  // aprobado sin haber pasado por Didit (MOVO-244 review, PR #184).
+  const forcedStatus = __DEV__ ? (params?.status as KycStatus | undefined) : undefined;
   const kycStatus = forcedStatus ?? registrationKycStatus ?? authUser?.kycStatus ?? null;
 
   const [phase, setPhase] = useState<"intro" | "connecting" | "result">(
@@ -380,42 +384,17 @@ export default function KycScreen() {
     const isApproved = kind === "approved";
 
     if (kind === "manual_review") {
+      // Sin `onGoHome` a propósito: a diferencia de `license-kyc.tsx`, un usuario sin
+      // identidad verificada no tiene ninguna salida hacia el resto de la app
+      // (decisión explícita del equipo, ver `kyc.test.tsx`).
       return (
-        <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
-          <View className="flex-1 items-center justify-center px-7">
-            {/* Isotipo central: reloj de arena en tarjeta circular con halo */}
-            <View
-              testID="kyc-result-badge"
-              className="relative mb-8 h-32 w-32 items-center justify-center"
-            >
-              <View className="absolute inset-0 rounded-full border border-border/80" />
-              <View className="h-24 w-24 items-center justify-center rounded-full border border-border bg-bg-sub shadow-[0_2px_8px_rgba(0,0,0,0.03)]">
-                <Hourglass size={38} strokeWidth={1.75} color={colors.fg1} />
-              </View>
-            </View>
-
-            {/* Título y subtítulo */}
-            <Text
-              testID="kyc-result-title"
-              className="mb-3 text-center font-sans-semibold text-[23px] tracking-tight text-fg leading-snug"
-            >
-              Tu verificación está en revisión
-            </Text>
-            <Text className="max-w-[315px] text-center font-sans text-[15px] text-fg-2 leading-relaxed tracking-tight">
-              A veces necesitamos un poco más de tiempo para confirmar tu identidad. Te avisaremos por notificación en cuanto esté lista.
-            </Text>
-          </View>
-
-          {/* Botón primario: Actualizar estado consistente con toda la app */}
-          <PrimaryButton
-            testID="kyc-primary-action"
-            label="Actualizar estado"
-            onPress={handleRefresh}
-            loading={refreshing}
-            disabled={refreshing}
-            variant="dark"
-          />
-        </SafeAreaView>
+        <KycManualReviewResult
+          title="Tu verificación está en revisión"
+          body="A veces necesitamos un poco más de tiempo para confirmar tu identidad. Te avisaremos por notificación en cuanto esté lista."
+          onRefresh={handleRefresh}
+          refreshing={refreshing}
+          testIDPrefix="kyc"
+        />
       );
     }
 

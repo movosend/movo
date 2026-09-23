@@ -3,8 +3,10 @@ import { router } from "expo-router";
 import { LEGAL_DOCUMENT_VERSIONS } from "@movo/shared/dist/config/legal";
 import LegalHubScreen from "../app/(app)/profile/legal/index";
 
+const mockSetOptions = jest.fn();
 jest.mock("expo-router", () => ({
   router: { back: jest.fn(), push: jest.fn() },
+  useNavigation: jest.fn(() => ({ setOptions: mockSetOptions })),
 }));
 
 const mockUseMyProfile = jest.fn();
@@ -35,6 +37,25 @@ describe("LegalHubScreen", () => {
     jest.clearAllMocks();
     mockUseMyProfile.mockReturnValue({ data: CURRENT_PROFILE });
     mockUseAcceptLegalDocuments.mockReturnValue({ mutate: mockMutate, isPending: false });
+  });
+
+  // MOVO-244 review (PR #184): `BackHandler` solo cubre el botón físico de Android —
+  // sin `gestureEnabled: false`, el swipe-back nativo de iOS seguía abriendo una
+  // salida real mientras había documentos pendientes.
+  it("deshabilita el swipe-back nativo (gestureEnabled) mientras hay documentos pendientes", async () => {
+    mockUseMyProfile.mockReturnValue({
+      data: { ...CURRENT_PROFILE, termsAcceptedAt: null, termsVersion: null },
+    });
+
+    await render(<LegalHubScreen />);
+
+    expect(mockSetOptions).toHaveBeenCalledWith({ gestureEnabled: false });
+  });
+
+  it("rehabilita el swipe-back una vez que todo está al día", async () => {
+    await render(<LegalHubScreen />);
+
+    expect(mockSetOptions).toHaveBeenCalledWith({ gestureEnabled: true });
   });
 
   it("vuelve atrás desde el header", async () => {

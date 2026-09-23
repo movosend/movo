@@ -286,6 +286,55 @@ describe("ShipmentOffersScreen", () => {
     expect(router.replace).toHaveBeenCalledWith("/shipments/ship-1");
   });
 
+  // MOVO-244 review (PR #184): antes, el efecto de redirect (guardado solo por
+  // `isSuccessModalVisible`) y `handleSuccessDismiss` disparaban cada uno su propio
+  // `router.replace` al mismo destino apenas `shipment.carrierId` llegaba por el
+  // refetch — dos instancias apiladas del detalle. Acá el refetch de `useShipment` ya
+  // resolvió con `carrierId` seteado ANTES del dismiss (el caso real que lo disparaba).
+  it("no duplica el router.replace si el refetch del envío ya trae carrierId antes de cerrar el modal de éxito", async () => {
+    mockUseShipmentOffers.mockReturnValue({
+      data: [sampleOffer1],
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetchOffers,
+      isRefetching: false,
+    });
+    // Al montar, el envío todavía no tiene transportista (si ya lo tuviera, el
+    // usuario ni siquiera debería poder llegar acá — ver el otro test de este
+    // mismo `describe`). El mock se actualiza recién DENTRO de `mutateAsync`, para
+    // simular que la invalidación de MOVO-150 ya resolvió con `carrierId` seteado
+    // justo cuando se muestra el modal de éxito — el caso real que disparaba el bug.
+    mockUseShipment.mockReturnValue({
+      data: { id: "ship-1", carrierId: null, status: ShipmentStatus.PUBLISHED },
+      refetch: mockRefetchShipment,
+    });
+    mockMutateAccept.mockImplementationOnce(async () => {
+      mockUseShipment.mockReturnValue({
+        data: { id: "ship-1", carrierId: "carr-1", status: ShipmentStatus.ASSIGNMENT_PENDING },
+        refetch: mockRefetchShipment,
+      });
+      return { ...sampleOffer1, status: OfferStatus.ACCEPTED };
+    });
+
+    const { getByTestId, getByText } = await render(<ShipmentOffersScreen />);
+
+    await act(async () => {
+      fireEvent.press(getByTestId("offer-card-off-1-accept-btn"));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId("choose-offer-modal-confirm-btn"));
+    });
+
+    expect(getByText("¡Oferta aceptada!")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(getByTestId("choose-offer-success-modal-dismiss-btn"));
+    });
+
+    expect(router.replace).toHaveBeenCalledTimes(1);
+    expect(router.replace).toHaveBeenCalledWith("/shipments/ship-1");
+  });
+
   it("redirige al detalle del envío si el envío ya tiene transportista asignado", async () => {
     mockUseShipmentOffers.mockReturnValue({
       data: [],
