@@ -389,6 +389,12 @@ export const shipmentsClient = {
     return httpClient.get<ActiveShipmentSummary[]>("/shipments/receiving");
   },
 
+  /** `GET /shipments/transporting` (MOVO-192 / MOVO-203).
+   * Envíos activos donde el usuario autenticado es el transportista. */
+  getTransporting(): Promise<ActiveShipmentSummary[]> {
+    return httpClient.get<ActiveShipmentSummary[]>("/shipments/transporting");
+  },
+
   /** `GET /shipments/history-with/:userId` (MOVO-170, todavía sin implementar en
    * `svc-shipments` — ver esa issue para el contrato propuesto). Historial
    * compartido entre el usuario autenticado y `userId`, para el rediseño de
@@ -427,9 +433,34 @@ export const shipmentsClient = {
   confirmHandshake(shipmentId: string, input: ConfirmHandshakeInput): Promise<ConfirmHandshakeResult> {
     return httpClient.post<ConfirmHandshakeResult>(`/shipments/${shipmentId}/handshake/confirm`, input);
   },
+
+  /**
+   * `POST /shipments/:id/positions` (MOVO-202 / MOVO-203).
+   * Reporta la posición GPS actual del transportista para un envío en `in_transit`.
+   */
+  reportPosition(
+    shipmentId: string,
+    input: ReportPositionInput,
+  ): Promise<ReportPositionResult> {
+    return httpClient.post<ReportPositionResult>(
+      `/shipments/${shipmentId}/positions`,
+      input,
+    );
+  },
 };
 
 export type { CarrierRoute };
+
+export interface ReportPositionInput {
+  lat: number;
+  lng: number;
+  accuracyM: number;
+  capturedAt: string;
+}
+
+export interface ReportPositionResult {
+  persisted: boolean;
+}
 
 /** Input para `POST /shipments/:id/handshake/generate`. */
 export interface GenerateHandshakeInput {

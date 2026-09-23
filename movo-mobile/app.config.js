@@ -160,7 +160,7 @@ module.exports = {
         NFCReaderUsageDescription:
           "Movo usa NFC para leer el chip de tu pasaporte durante la verificación de identidad con Didit.",
         NSLocationWhenInUseUsageDescription:
-          "Movo usa tu ubicación para ayudarte a marcar el punto exacto de una dirección en el mapa, durante el registro y al crear un envío.",
+          "Movo usa tu ubicación para compartir el avance del envío en tiempo real con el emisor y receptor mientras transportás un paquete, y para ayudarte a marcar direcciones en el mapa.",
         // Permite tráfico HTTP plano hacia direcciones de red local (RFC1918/.local) sin
         // afectar ATS para el resto de internet — necesario para probar un development
         // build en un iPhone físico contra el backend corriendo en la LAN (override desde
@@ -236,7 +236,7 @@ module.exports = {
         "expo-location",
         {
           locationWhenInUsePermission:
-            "Movo usa tu ubicación para ayudarte a marcar el punto exacto de una dirección en el mapa, durante el registro y al crear un envío.",
+            "Movo usa tu ubicación para compartir el avance del envío en tiempo real con el emisor y receptor mientras transportás un paquete, y para ayudarte a marcar direcciones en el mapa.",
         },
       ],
       // Sin `cameraPermission` propio acá — el `NSCameraUsageDescription` ya cubre
