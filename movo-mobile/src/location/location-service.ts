@@ -208,14 +208,15 @@ export class LocationService {
           });
           this.lastReportedAt = new Date().toISOString();
         } catch (err) {
-          // Si el envío ya no está in_transit (403 SHIPMENT_NOT_IN_TRANSIT) o no existe (404),
-          // no lo encolamos para evitar saturar el offline queue con estados terminales.
+          // Errores 4xx (400 formato inválido, 401 no autenticado, 403 no in_transit, 404 inexistente):
+          // son errores terminales de cliente que nunca se resolverán con reintentos offline.
           const isTerminalStatus =
             err instanceof ApiError &&
-            (err.statusCode === 403 || err.statusCode === 404);
+            err.statusCode >= 400 &&
+            err.statusCode < 500;
 
           if (!isTerminalStatus) {
-            // Error de conectividad o red: encolar posición para reintento preservando capturedAt (AC6)
+            // Error de conectividad o 5xx: encolar posición para reintento preservando capturedAt (AC6)
             this.enqueuePosition({
               shipmentId,
               lat,
@@ -251,6 +252,15 @@ export class LocationService {
   }
 
   /**
+   * Limpia toda la cola offline de memoria y storage.
+   */
+  async clearQueue(): Promise<void> {
+    this.offlineQueue = [];
+    await this.persistQueue();
+    this.emitStatus();
+  }
+
+  /**
    * Drena secuencialmente las posiciones encoladas manteniendo el capturedAt original (AC6).
    */
   async flushQueue(): Promise<void> {
@@ -270,14 +280,15 @@ export class LocationService {
       } catch (err) {
         const isDeadShipment =
           err instanceof ApiError &&
-          (err.statusCode === 403 || err.statusCode === 404);
+          err.statusCode >= 400 &&
+          err.statusCode < 500;
 
         if (isDeadShipment) {
-          // Descartar este ítem ya que el envío ya no es reportable
+          // Descartar este ítem ya que el envío nunca será aceptado por backend
           continue;
         }
 
-        // Si falló por red, conservamos este ítem y el resto de la cola sin procesar
+        // Si falló por red o 5xx, conservamos este ítem y el resto de la cola sin procesar
         remainingQueue.push(...this.offlineQueue.slice(i));
         break;
       }
@@ -309,14 +320,6 @@ export class LocationService {
     return [...this.offlineQueue];
   }
 
-  /**
-   * Limpia la cola offline manualmente.
-   */
-  async clearQueue(): Promise<void> {
-    this.offlineQueue = [];
-    await this.persistQueue();
-    this.emitStatus();
-  }
 
   /**
    * Suscripción a cambios de estado del servicio.

@@ -24,11 +24,14 @@ import {
   ShieldAlert,
   Sparkles,
   Square,
+  Trash2,
   Wifi,
   WifiOff,
 } from "lucide-react-native";
 import { locationService, type TrackingStatus } from "../../src/location/location-service";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+
+const DEV_DEMO_SHIPMENT_ID = "00000000-0000-4000-8000-000000000001";
 
 /**
  * Pantalla central de atajos de desarrollo (solo visible en __DEV__).
@@ -57,7 +60,8 @@ export default function DevShortcutsScreen() {
       if (trackingStatus.isTracking) {
         await locationService.stopTracking();
       } else {
-        await locationService.startTracking(["shipment-dev-demo"]);
+        await locationService.clearQueue();
+        await locationService.startTracking([DEV_DEMO_SHIPMENT_ID]);
       }
     } finally {
       setIsProcessing(false);
@@ -67,7 +71,7 @@ export default function DevShortcutsScreen() {
   const handleSimulateOfflinePosition = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     locationService.enqueuePosition({
-      shipmentId: "shipment-dev-demo",
+      shipmentId: DEV_DEMO_SHIPMENT_ID,
       lat: -31.4167 + (Math.random() - 0.5) * 0.01,
       lng: -64.1833 + (Math.random() - 0.5) * 0.01,
       accuracyM: 10 + Math.round(Math.random() * 8),
@@ -83,6 +87,17 @@ export default function DevShortcutsScreen() {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleClearQueue = async () => {
+    setIsProcessing(true);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      await locationService.clearQueue();
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } finally {
       setIsProcessing(false);
     }
@@ -229,7 +244,7 @@ export default function DevShortcutsScreen() {
               >
                 <Plus size={14} color={colors.fg1} />
                 <Text className="font-sans-medium text-[12px] text-fg">
-                  Encolar offline (+1)
+                  Encolar (+1)
                 </Text>
               </Pressable>
 
@@ -244,6 +259,20 @@ export default function DevShortcutsScreen() {
                 <RefreshCw size={14} color={colors.fg1} />
                 <Text className="font-sans-medium text-[12px] text-fg">
                   Drenar cola
+                </Text>
+              </Pressable>
+
+              <Pressable
+                testID="dev-clear-queue-btn"
+                disabled={isProcessing || trackingStatus.pendingQueueCount === 0}
+                onPress={handleClearQueue}
+                className={`flex-1 flex-row items-center justify-center gap-1.5 rounded-[10px] border border-border py-2.5 ${
+                  trackingStatus.pendingQueueCount > 0 ? "bg-bg" : "bg-bg-mute opacity-50"
+                }`}
+              >
+                <Trash2 size={14} color={colors.fg1} />
+                <Text className="font-sans-medium text-[12px] text-fg">
+                  Limpiar
                 </Text>
               </Pressable>
             </View>

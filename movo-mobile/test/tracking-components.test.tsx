@@ -146,14 +146,14 @@ describe("Componentes de Tracking (MOVO-203)", () => {
       ).toBeTruthy();
     });
 
-    it("abre el modal de detalles al presionar el indicador", async () => {
+    it("abre el modal de permisos al presionar el indicador cuando el permiso está denegado", async () => {
       mockTrackingState = {
         isTracking: true,
         inTransitCount: 1,
         pendingQueueCount: 0,
-        permissionGranted: true,
-        lastReportedAt: "2026-09-23T12:00:00.000Z",
-        lastError: null,
+        permissionGranted: false,
+        lastReportedAt: null,
+        lastError: "PERMISSION_DENIED",
         requestPermission: jest.fn(),
         flushQueue: jest.fn(),
       };
@@ -162,8 +162,7 @@ describe("Componentes de Tracking (MOVO-203)", () => {
 
       await fireEvent.press(getByTestId("tracking-active-indicator"));
 
-      expect(getByText("Seguimiento de entregas")).toBeTruthy();
-      expect(getByText("Transmisión GPS del transportista")).toBeTruthy();
+      expect(getByText("Ubicación en vivo durante el envío")).toBeTruthy();
     });
   });
 });

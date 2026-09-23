@@ -35,6 +35,7 @@ describe("DevShortcutsScreen", () => {
     jest.clearAllMocks();
     jest.spyOn(locationService, "startTracking").mockResolvedValue(undefined);
     jest.spyOn(locationService, "stopTracking").mockResolvedValue(undefined);
+    jest.spyOn(locationService, "clearQueue").mockResolvedValue(undefined);
     jest.spyOn(locationService, "enqueuePosition").mockImplementation(jest.fn());
     jest.spyOn(locationService, "flushQueue").mockResolvedValue(undefined);
   });
@@ -53,7 +54,7 @@ describe("DevShortcutsScreen", () => {
     const { getByTestId } = await render(<DevShortcutsScreen />);
 
     await fireEvent.press(getByTestId("dev-toggle-tracking-btn"));
-    expect(locationService.startTracking).toHaveBeenCalledWith(["shipment-dev-demo"]);
+    expect(locationService.startTracking).toHaveBeenCalledWith(["00000000-0000-4000-8000-000000000001"]);
   });
 
   it("permite encolar una posición offline simulada", async () => {
@@ -61,7 +62,7 @@ describe("DevShortcutsScreen", () => {
 
     await fireEvent.press(getByTestId("dev-enqueue-offline-btn"));
     expect(locationService.enqueuePosition).toHaveBeenCalledWith(
-      expect.objectContaining({ shipmentId: "shipment-dev-demo" })
+      expect.objectContaining({ shipmentId: "00000000-0000-4000-8000-000000000001" })
     );
   });
 
