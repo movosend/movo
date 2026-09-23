@@ -3407,6 +3407,25 @@ la extracción), `test/use-proximity-check.test.ts` (renombrado junto con el hoo
 caso nuevo en `test/route-screen.test.tsx` (CTA de entrega habilitado). 146/146
 suites, 1211/1211 tests. `tsc --noEmit` limpio.
 
+**Rediseño del paso del QR (post-QA, aplica también al QR del emisor en el retiro,
+`shipments/[id]/handshake.tsx` — ambos montan `HandshakeQrCard`).** Sin countdown ni
+barra de progreso: `useHandshakeQr` renueva el nonce solo, 3s antes del `expiresAt` del
+backend (`HANDSHAKE_QR_REFRESH_LEAD_MS`), dejando el QR vigente en pantalla mientras
+pide el siguiente — el estado `"expired"` y `secondsLeft`/`progressPercent` ya no
+existen. Solo un error (GPS, distancia, red) corta la renovación, saca el QR y ofrece
+"Reintentar". Visualmente, la sombra queda solo en el recuadro blanco del QR (antes la
+tenía la card contenedora y el logo central). `useScanBrightness` (nuevo, sobre
+`expo-brightness` — **módulo nativo nuevo, requiere rebuild del dev client**) sube el
+brillo al máximo mientras el QR está montado y lo repone al desmontar o pasar a
+background (iOS guarda el valor previo; Android usa `restoreSystemBrightnessAsync`).
+Mock global en `test/mocks/expo-brightness-mock.js`. El encabezado (badge lima +
+`text-title`/`text-body`) quedó alineado arriba igual que el paso de evidencia, con el
+QR centrado en el espacio restante (el aviso "se renueva solo" va en absoluto debajo
+para no correr el centrado, y el paso del wizard usa un `View` plano en vez de
+`ScrollView` para que ese espacio ocupe todo el alto), y se sacó el bloque `__DEV__` de "Simulación &
+Pruebas" (`onSimulateScan` ya no existe) — para probar sin segundo dispositivo queda
+`/dev-handshake`.
+
 Pendiente / fuera de alcance: DoD de dos dispositivos reales (transportista genera,
 receptor escanea) y prueba en dispositivo físico de cámara/GPS — no verificables en
 este entorno, mismo criterio ya documentado en MOVO-198/159/160.
