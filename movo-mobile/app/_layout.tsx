@@ -17,12 +17,14 @@ import { useColorScheme } from 'nativewind';
 import { useCallback, useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
-import { Stack } from 'expo-router';
+import { Stack, usePathname } from 'expo-router';
 import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { LegalEntrySheet } from '../components/legal/legal-entry-sheet';
+import { RequiredPermissionsGate } from '../components/permissions/required-permissions-gate';
 import { useDeviceKeyBootstrap } from '../src/hooks/use-device-key-bootstrap';
 import { useLegalAcceptanceEntry } from '../src/hooks/use-legal-acceptance-entry';
+import { useRequiredPermissionsGate } from '../src/hooks/use-required-permissions-gate';
 import { usePushNotifications } from '../src/hooks/use-push-notifications';
 import { RegistrationProvider } from '../src/hooks/use-registration';
 import { loadApiOverride } from '../src/lib/api-override';
@@ -43,6 +45,35 @@ function LegalAcceptanceEntryMount() {
       copy={entry.copy}
       onReview={entry.onReview}
       onDismiss={entry.onDismiss}
+    />
+  );
+}
+
+/**
+ * Gate de permisos obligatorios (ubicación y cámara, ver `required-permissions.ts`),
+ * revalidado en cada apertura y en cada vuelta a foreground. Se monta acá arriba, por
+ * fuera del `<Stack>`, porque bloquea la app entera y no una pantalla: da igual dónde
+ * esté el usuario, autenticado o no.
+ *
+ * Única excepción: `/onboarding` (MOVO-249), que es exactamente la pantalla donde se
+ * piden por primera vez — tapar el carrusel con este gate sería mostrar dos veces la
+ * misma conversación, una encima de la otra.
+ */
+function RequiredPermissionsGateMount() {
+  const pathname = usePathname();
+  const gate = useRequiredPermissionsGate();
+  const isOnboarding = pathname === '/onboarding';
+
+  return (
+    <RequiredPermissionsGate
+      visible={gate.blocked && !isOnboarding}
+      missing={gate.missing}
+      statuses={gate.statuses}
+      pendingKind={gate.pendingKind}
+      onRequest={(kind) => {
+        void gate.request(kind);
+      }}
+      onOpenSettings={gate.openSettings}
     />
   );
 }
@@ -119,6 +150,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <RegistrationProvider>
           <LegalAcceptanceEntryMount />
+          <RequiredPermissionsGateMount />
           <View onLayout={onLayout} className="flex-1 bg-bg">
             <Stack screenOptions={{ headerShown: false }} />
             <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />

@@ -13,6 +13,13 @@ jest.mock("expo-secure-store", () => ({
   deleteItemAsync: jest.fn().mockResolvedValue(undefined),
 }));
 
+// MOVO-249: por default estos tests simulan un dispositivo que YA vio el carrusel de
+// onboarding — son casos preexistentes de esta pantalla, no de ese gate nuevo (que
+// tiene su propia suite, ver más abajo "gate de onboarding (MOVO-249)").
+jest.mock("../src/lib/onboarding-storage", () => ({
+  hasSeenOnboarding: jest.fn().mockResolvedValue(true),
+}));
+
 jest.mock("../src/api/auth-client", () => ({
   authClient: {
     register: jest.fn(),
@@ -126,5 +133,64 @@ describe("WelcomeScreen", () => {
     await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith("/kyc"));
     expect(replaceSpy).not.toHaveBeenCalledWith("/home");
     expect(setItemSpy).toHaveBeenCalledWith("movo.pendingRegistrationAccessToken", "access_1");
+  });
+
+  describe("gate de onboarding (MOVO-249)", () => {
+    it("un dispositivo que nunca vio el carrusel es redirigido a /onboarding en vez de mostrar el hero", async () => {
+      const { hasSeenOnboarding } = require("../src/lib/onboarding-storage");
+      (hasSeenOnboarding as jest.Mock).mockResolvedValue(false);
+      // `jest.clearAllMocks()` (afterEach) limpia llamadas pero no restaura
+      // `mockImplementation` — sin este reset explícito, este test hereda el
+      // `getItem` con registro-pendiente que dejó seteado un test anterior.
+      jest.spyOn(secureStore.secureStore, "getItem").mockResolvedValue(null);
+      const replaceSpy = jest.spyOn(router, "replace");
+
+      const { queryByText } = await renderWelcome();
+
+      await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith("/onboarding"));
+      expect(queryByText(/La red logística pensada/)).toBeNull();
+    });
+
+    it("un dispositivo con un registro ya en curso no se manda a /onboarding aunque no lo haya visto", async () => {
+      const { hasSeenOnboarding } = require("../src/lib/onboarding-storage");
+      (hasSeenOnboarding as jest.Mock).mockResolvedValue(false);
+      jest.spyOn(secureStore.secureStore, "getItem").mockImplementation(async (key: string) => {
+        if (key === "movo.pendingRegistrationUserId") return "usr_1";
+        if (key === "movo.pendingRegistrationAccessToken") return "access_1";
+        return null;
+      });
+      (authClient.getKycStatus as jest.Mock).mockResolvedValue({
+        status: "pending",
+        manualReviewReason: null,
+      });
+      const replaceSpy = jest.spyOn(router, "replace");
+
+      const { findByTestId } = await renderWelcome();
+
+      expect(await findByTestId("welcome-continue-kyc")).toBeTruthy();
+      expect(replaceSpy).not.toHaveBeenCalledWith("/onboarding");
+    });
+
+    it("con sesión autenticada no se muestra el onboarding aunque el flag diga que no se vio", async () => {
+      const { hasSeenOnboarding } = require("../src/lib/onboarding-storage");
+      (hasSeenOnboarding as jest.Mock).mockResolvedValue(false);
+      useAuthStore.setState({
+        status: "authenticated",
+        accessToken: "access_1",
+        refreshToken: "refresh_1",
+        user: {
+          userId: "usr_1",
+          fullName: "Julia Pérez",
+          roles: [UserRole.SENDER],
+          kycStatus: KycStatus.APPROVED,
+        },
+      });
+      const replaceSpy = jest.spyOn(router, "replace");
+
+      await renderWelcome();
+
+      await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith("/home"));
+      expect(replaceSpy).not.toHaveBeenCalledWith("/onboarding");
+    });
   });
 });
