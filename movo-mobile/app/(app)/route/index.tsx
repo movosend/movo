@@ -114,8 +114,15 @@ export default function OptimizedRouteScreen() {
   const EXPANDED_HEIGHT = Math.round(SCREEN_HEIGHT - (topInset + 64));
   const COLLAPSED_HEIGHT = Math.max(Math.round(SCREEN_HEIGHT * 0.32), 260);
 
-  const { tripId } = useLocalSearchParams<{ tripId?: string }>();
-  const [demoMode, setDemoMode] = useState(false);
+  const { tripId, demo } = useLocalSearchParams<{ tripId?: string; demo?: string }>();
+  const [demoMode, setDemoMode] = useState(() => Boolean(__DEV__ && demo === "true"));
+
+  useEffect(() => {
+    if (__DEV__ && demo === "true") {
+      setDemoMode(true);
+      setSelectedStopOrder(1);
+    }
+  }, [demo]);
   const {
     route,
     carrierLocation,
@@ -496,19 +503,6 @@ export default function OptimizedRouteScreen() {
                     Permitir ubicación y reintentar
                   </Text>
                 </Pressable>
-
-                {__DEV__ && (
-                  <Pressable
-                    testID="route-demo-button-gps"
-                    onPress={handleStartDemo}
-                    className="flex-row items-center justify-center gap-2 rounded-[12px] border border-border bg-bg-sub px-5 py-3"
-                  >
-                    <Sparkles size={16} color="#2BB673" />
-                    <Text className="font-sans-medium text-[13.5px] text-fg">
-                      Ver recorrido de prueba (Demo)
-                    </Text>
-                  </Pressable>
-                )}
               </View>
             </View>
           ) : error && !demoMode ? (
@@ -535,19 +529,6 @@ export default function OptimizedRouteScreen() {
                     Reintentar
                   </Text>
                 </Pressable>
-
-                {__DEV__ && (
-                  <Pressable
-                    testID="route-demo-button-error"
-                    onPress={handleStartDemo}
-                    className="flex-row items-center justify-center gap-2 rounded-[12px] border border-border bg-bg-sub px-5 py-2.5"
-                  >
-                    <Sparkles size={15} color="#2BB673" />
-                    <Text className="font-sans-medium text-[13px] text-fg">
-                      Ver recorrido de prueba (Demo)
-                    </Text>
-                  </Pressable>
-                )}
               </View>
             </View>
           ) : (
@@ -574,19 +555,6 @@ export default function OptimizedRouteScreen() {
                     Explorar envíos disponibles
                   </Text>
                 </Pressable>
-
-                {__DEV__ && (
-                  <Pressable
-                    testID="route-demo-button"
-                    onPress={handleStartDemo}
-                    className="flex-row items-center justify-center gap-2 rounded-[12px] border border-border bg-bg-sub px-5 py-3"
-                  >
-                    <Sparkles size={16} color="#2BB673" />
-                    <Text className="font-sans-medium text-[13.5px] text-fg">
-                      Ver recorrido de prueba (Demo)
-                    </Text>
-                  </Pressable>
-                )}
               </View>
             </View>
           )}

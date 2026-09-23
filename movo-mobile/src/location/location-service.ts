@@ -242,7 +242,7 @@ export class LocationService {
   /**
    * Agrega una posición a la cola offline, respetando el tamaño máximo.
    */
-  private enqueuePosition(item: QueuedPosition): void {
+  enqueuePosition(item: QueuedPosition): void {
     this.offlineQueue.push(item);
     if (this.offlineQueue.length > this.maxQueueSize) {
       this.offlineQueue.shift(); // Descartar la muestra más antigua

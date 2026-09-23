@@ -7,6 +7,7 @@ import type { CarrierRoute } from "@movo/shared/dist/types/routing";
 
 jest.mock("../src/hooks/use-optimized-route");
 
+let mockSearchParams: Record<string, string> = {};
 const mockRouterPush = jest.fn();
 const mockRouterBack = jest.fn();
 jest.mock("expo-router", () => ({
@@ -14,7 +15,7 @@ jest.mock("expo-router", () => ({
     push: (...args: unknown[]) => mockRouterPush(...args),
     back: (...args: unknown[]) => mockRouterBack(...args),
   },
-  useLocalSearchParams: () => ({}),
+  useLocalSearchParams: () => mockSearchParams,
   useFocusEffect: (cb: () => void) => {
     // eslint-disable-next-line react-hooks/rules-of-hooks
     const React = require("react");
@@ -28,6 +29,7 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
   const mockRefetch = jest.fn();
 
   beforeEach(() => {
+    mockSearchParams = {};
     jest.clearAllMocks();
   });
 
@@ -194,7 +196,8 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/shipments/ship-1/pickup");
   });
 
-  it("activa el recorrido demo al presionar el botón de prueba", async () => {
+  it("activa el recorrido demo cuando se pasa el parámetro demo=true", async () => {
+    mockSearchParams = { demo: "true" };
     (useOptimizedRoute as jest.Mock).mockReturnValue({
       route: {
         stops: [],
@@ -212,12 +215,7 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
     });
 
     const { getByTestId } = await render(<OptimizedRouteScreen />);
-    const demoButton = getByTestId("route-demo-button");
-    expect(demoButton).toBeTruthy();
 
-    await act(async () => {
-      fireEvent.press(demoButton);
-    });
     expect(getByTestId("route-floating-island")).toBeTruthy();
     expect(getByTestId("route-mapview")).toBeTruthy();
     expect(getByTestId("route-exit-demo-button")).toBeTruthy();
