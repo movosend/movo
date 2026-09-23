@@ -2528,10 +2528,8 @@ integración que no se pudieron correr localmente.
 - **Liberación del hold de MercadoPago al cancelar (MOVO-29) y cancelación con
   penalización desde `assigned`**: bloqueadas por `svc-payments`, que hoy no tiene
   holds/capture reales — ver MOVO-108 arriba.
-- **`agreedPriceArs` nunca se persiste al aceptar una oferta** (encontrado al
-  implementar MOVO-192): `offer-repository.ts#acceptOffer` fija `carrierId`/
-  `estimatedDeliveryDate*` al pasar a `assignment_pending`, pero no
-  `agreedPriceArs` — la columna queda `null` en todo envío activo hoy, aunque el
-  precio final ya está implícito en la oferta ganadora (`priceOffered`). Sin ticket
-  propio; candidato natural para cuando se retome `MOVO-210` (saga de asignación),
-  que de todos modos va a tocar esa misma transición.
+- **`agreedPriceArs` resuelto en MOVO-244**: `offer-repository.ts#acceptOffer` ahora persiste
+  `agreedPriceArs: current.priceOffered` atómicamente al pasar a `assignment_pending`, y
+  `getShipmentDetail` cuenta con fallback defensivo que recupera el precio de la oferta aceptada
+  si un registro histórico previo no lo tenía persistido.
+
