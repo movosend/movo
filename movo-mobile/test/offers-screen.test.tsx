@@ -2,6 +2,7 @@ import { act, fireEvent, render } from "@testing-library/react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { OfferStatus } from "@movo/shared/dist/types/offer";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import ShipmentOffersScreen from "../app/(app)/shipments/[id]/offers";
 import type { OfferSummary } from "../src/api/offers-client";
 
@@ -10,6 +11,10 @@ const mockMutateAccept = jest.fn();
 const mockMutateReject = jest.fn();
 const mockRefetchOffers = jest.fn();
 const mockRefetchShipment = jest.fn();
+const mockUseShipment = jest.fn(() => ({
+  data: undefined as any,
+  refetch: mockRefetchShipment,
+}));
 const mockUsePublicProfile = jest.fn();
 
 jest.mock("expo-router", () => ({
@@ -35,9 +40,7 @@ jest.mock("../src/hooks/use-offers", () => ({
 }));
 
 jest.mock("../src/hooks/use-shipments", () => ({
-  useShipment: () => ({
-    refetch: mockRefetchShipment,
-  }),
+  useShipment: () => mockUseShipment(),
 }));
 
 jest.mock("../src/hooks/use-profile", () => ({
@@ -270,8 +273,8 @@ describe("ShipmentOffersScreen", () => {
 
     expect(mockMutateAccept).toHaveBeenCalledWith("off-1");
 
-    // 4. Modal de éxito visible con copy honesto
-    expect(getByText("¡Transportista elegido!")).toBeTruthy();
+    // 4. Modal de éxito visible con copy animado "¡Oferta aceptada!"
+    expect(getByText("¡Oferta aceptada!")).toBeTruthy();
     expect(
       getByText(/Tu envío quedó en espera de la confirmación del pago para iniciar el viaje/)
     ).toBeTruthy();
@@ -280,7 +283,25 @@ describe("ShipmentOffersScreen", () => {
     await act(async () => {
       fireEvent.press(getByTestId("choose-offer-success-modal-dismiss-btn"));
     });
-    expect(router.back).toHaveBeenCalled();
+    expect(router.replace).toHaveBeenCalledWith("/shipments/ship-1");
+  });
+
+  it("redirige al detalle del envío si el envío ya tiene transportista asignado", async () => {
+    mockUseShipmentOffers.mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetchOffers,
+      isRefetching: false,
+    });
+    mockUseShipment.mockReturnValue({
+      data: { id: "ship-1", carrierId: "carrier-123", status: ShipmentStatus.ASSIGNED },
+      refetch: mockRefetchShipment,
+    });
+
+    await render(<ShipmentOffersScreen />);
+
+    expect(router.replace).toHaveBeenCalledWith("/shipments/ship-1");
   });
 
   it("maneja error 409 por asignación concurrente mostrando mensaje y refetcheando", async () => {

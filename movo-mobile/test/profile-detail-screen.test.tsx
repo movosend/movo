@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react-native";
+import { fireEvent, render } from "@testing-library/react-native";
 import type { PublicProfile } from "@movo/shared/dist/types/user-profile";
 import PublicProfileScreen from "../app/(app)/profile/[id]";
 
@@ -208,5 +208,24 @@ describe("PublicProfileScreen", () => {
     const { queryByTestId } = await render(<PublicProfileScreen />);
 
     expect(queryByTestId("profile-detail-vehicle")).toBeNull();
+  });
+
+  it("permite ampliar la foto de perfil al mantener presionada si existe photoUrl", async () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: baseProfile({ photoUrl: "https://movo.app/photos/julia.jpg" }),
+      isLoading: false,
+      isError: false,
+    });
+
+    const { getByTestId, queryByTestId } = await render(<PublicProfileScreen />);
+    const avatarBtn = getByTestId("profile-detail-avatar-button");
+    expect(avatarBtn).toBeTruthy();
+
+    await fireEvent(avatarBtn, "longPress");
+    expect(getByTestId("profile-photo-viewer")).toBeTruthy();
+    expect(getByTestId("profile-photo-viewer-close")).toBeTruthy();
+
+    await fireEvent.press(getByTestId("profile-photo-viewer-close"));
+    expect(queryByTestId("profile-photo-viewer-close")).toBeNull();
   });
 });

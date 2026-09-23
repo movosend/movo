@@ -355,5 +355,30 @@ describe("ProfileScreen", () => {
 
     expect(router.push).toHaveBeenCalledWith("/profile/ratings");
   });
+
+  it("permite ampliar la foto de perfil al mantener presionada si existe photoUrl", async () => {
+    mockUseMyProfile.mockReturnValue({
+      data: baseProfile({ photoUrl: "https://movo.app/photos/martina.jpg" }),
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetch,
+    });
+    mockUsePublicProfile.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: null,
+    });
+
+    const { getByTestId, queryByTestId } = await render(<ProfileScreen />);
+    const avatarBtn = getByTestId("profile-avatar-button");
+    expect(avatarBtn).toBeTruthy();
+
+    await fireEvent(avatarBtn, "longPress");
+    expect(getByTestId("profile-photo-viewer")).toBeTruthy();
+    expect(getByTestId("profile-photo-viewer-close")).toBeTruthy();
+
+    await fireEvent.press(getByTestId("profile-photo-viewer-close"));
+    expect(queryByTestId("profile-photo-viewer-close")).toBeNull();
+  });
 });
 

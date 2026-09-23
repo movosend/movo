@@ -94,4 +94,14 @@ describe("LegalHubScreen", () => {
     expect(router.push).not.toHaveBeenCalled();
     expect(router.back).not.toHaveBeenCalled();
   });
+
+  it("oculta el botón volver atrás cuando hay documentos pendientes (bloqueante)", async () => {
+    mockUseMyProfile.mockReturnValue({
+      data: { ...CURRENT_PROFILE, termsAcceptedAt: null, termsVersion: null },
+    });
+
+    const { queryByTestId } = await render(<LegalHubScreen />);
+
+    expect(queryByTestId("legal-hub-back")).toBeNull();
+  });
 });

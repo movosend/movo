@@ -4,7 +4,8 @@ import { router } from "expo-router";
 import KycScreen from "../app/(auth)/kyc";
 
 jest.mock("expo-router", () => ({
-  router: { back: jest.fn(), replace: jest.fn() },
+  router: { back: jest.fn(), replace: jest.fn(), push: jest.fn() },
+  useLocalSearchParams: () => ({}),
 }));
 
 let mockAuthStatus: "checking" | "authenticated" | "unauthenticated" = "unauthenticated";
@@ -133,31 +134,35 @@ describe("KycScreen", () => {
     expect(mockCreateKycSession).not.toHaveBeenCalled();
   });
 
-  // MOVO-98: manual_review no pasa a foto (va al inicio), approved continúa a /profile-photo
-  it("'Ir al inicio' en MANUAL_REVIEW navega a /home si está autenticado", async () => {
+  // MOVO-244: manual_review muestra botón primario Actualizar estado y enlace Ir al inicio
+  it("MANUAL_REVIEW muestra 'Actualizar estado' como acción primaria y permite consultar el estado", async () => {
     mockAuthStatus = "authenticated";
     mockKycStatus = KycStatus.MANUAL_REVIEW;
 
-    const { findByTestId } = await render(<KycScreen />);
+    const { findByTestId, getByText } = await render(<KycScreen />);
+    expect(getByText("Tu verificación está en revisión")).toBeTruthy();
+
     const primaryBtn = await findByTestId("kyc-primary-action");
-    expect(within(primaryBtn).getByText(/ir al inicio/i)).toBeTruthy();
+    expect(within(primaryBtn).getByText(/actualizar estado/i)).toBeTruthy();
 
     await fireEvent.press(primaryBtn);
-
-    expect(router.replace).toHaveBeenCalledWith("/home");
+    expect(mockRefreshKycStatus).toHaveBeenCalled();
   });
 
-  it("'Ir al inicio' en MANUAL_REVIEW navega a / si no está autenticado", async () => {
-    mockAuthStatus = "unauthenticated";
+  it("no muestra botón 'Ir al inicio' en MANUAL_REVIEW (usuario bloqueado hasta verificación)", async () => {
+    mockAuthStatus = "authenticated";
     mockKycStatus = KycStatus.MANUAL_REVIEW;
 
-    const { findByTestId } = await render(<KycScreen />);
-    const primaryBtn = await findByTestId("kyc-primary-action");
-    expect(within(primaryBtn).getByText(/ir al inicio/i)).toBeTruthy();
+    const { queryByTestId } = await render(<KycScreen />);
+    expect(queryByTestId("kyc-go-home")).toBeNull();
+  });
 
-    await fireEvent.press(primaryBtn);
+  it("no muestra la pill 'En revisión' sobre el isotipo en MANUAL_REVIEW", async () => {
+    mockAuthStatus = "authenticated";
+    mockKycStatus = KycStatus.MANUAL_REVIEW;
 
-    expect(router.replace).toHaveBeenCalledWith("/");
+    const { queryByText } = await render(<KycScreen />);
+    expect(queryByText("En revisión")).toBeNull();
   });
 
   it("'Continuar' navega a /profile-photo al completar con APPROVED", async () => {

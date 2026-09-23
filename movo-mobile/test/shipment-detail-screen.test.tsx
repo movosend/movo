@@ -1,6 +1,7 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { fireEvent, render } from "@testing-library/react-native";
+import { RefreshControl } from "react-native";
 import type { ShipmentSummary } from "../src/api/shipments-client";
 import ShipmentDetailScreen from "../app/(app)/shipments/[id]";
 
@@ -17,6 +18,12 @@ jest.mock("expo-router", () => ({
     canGoBack: () => mockCanGoBack(),
   },
   useLocalSearchParams: () => ({ id: "shipment-1" }),
+  useFocusEffect: (cb: () => void) => {
+    const React = require("react");
+    React.useEffect(() => {
+      return cb();
+    }, [cb]);
+  },
 }));
 
 const mockUseShipment = jest.fn();
@@ -591,6 +598,32 @@ describe("ShipmentDetailScreen", () => {
 
       const { queryByTestId } = await render(<ShipmentDetailScreen />);
       expect(queryByTestId("shipment-detail-handshake-button")).toBeNull();
+    });
+
+    it("renderiza refresh control para pull-to-refresh en la vista de detalle", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-1" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ senderId: "user-1", status: ShipmentStatus.PUBLISHED }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { toJSON } = await render(<ShipmentDetailScreen />);
+      const findNode = (node: any, type: string): any => {
+        if (!node) return null;
+        if (node.type === type) return node;
+        if (node.children) {
+          for (const c of node.children) {
+            const found = findNode(c, type);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+      const scrollViewNode = findNode(toJSON(), "RCTScrollView");
+      expect(scrollViewNode?.props?.refreshControl).toBeTruthy();
     });
   });
 });
