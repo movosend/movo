@@ -922,6 +922,16 @@ export function createShipmentsService(
         throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
       }
 
+      // MOVO-244: si por inconsistencia previa agreedPriceArs es null pero el envío ya tiene
+      // transportista asignado, completamos el precio pactado a partir de la oferta aceptada.
+      if (shipment.agreedPriceArs === null && shipment.carrierId && offerRepository) {
+        const offers = await offerRepository.listByShipment(shipment.id);
+        const accepted = offers.find((o) => o.status === OfferStatus.ACCEPTED);
+        if (accepted) {
+          shipment.agreedPriceArs = accepted.priceOffered;
+        }
+      }
+
       if (callerId === shipment.carrierId) {
         return shipment;
       }

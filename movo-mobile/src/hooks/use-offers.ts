@@ -51,6 +51,9 @@ export function useAcceptOffer(options?: {
       void queryClient.invalidateQueries({
         queryKey: ["shipments", "mine"],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["shipments", "active"],
+      });
       options?.onSuccess?.(data);
     },
     onError: (error) => {

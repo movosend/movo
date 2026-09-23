@@ -26,20 +26,15 @@ describe("LegalEntrySheet", () => {
     expect(onReview).toHaveBeenCalled();
   });
 
-  it("'Ahora no' llama a onDismiss, no a onReview", async () => {
-    const onReview = jest.fn();
-    const onDismiss = jest.fn();
-    const { getByTestId } = await render(
-      <LegalEntrySheet visible copy={COPY} onReview={onReview} onDismiss={onDismiss} />,
+  it("no muestra el botón 'Ahora no' (comportamiento bloqueante)", async () => {
+    const { queryByTestId } = await render(
+      <LegalEntrySheet visible copy={COPY} onReview={jest.fn()} onDismiss={jest.fn()} />,
     );
 
-    fireEvent.press(getByTestId("legal-entry-sheet-dismiss"));
-
-    expect(onDismiss).toHaveBeenCalled();
-    expect(onReview).not.toHaveBeenCalled();
+    expect(queryByTestId("legal-entry-sheet-dismiss")).toBeNull();
   });
 
-  it("tocar el fondo también llama a onDismiss", async () => {
+  it("tocar el fondo no llama a onDismiss ni cierra el sheet", async () => {
     const onDismiss = jest.fn();
     const { getByTestId } = await render(
       <LegalEntrySheet visible copy={COPY} onReview={jest.fn()} onDismiss={onDismiss} />,
@@ -47,6 +42,6 @@ describe("LegalEntrySheet", () => {
 
     fireEvent.press(getByTestId("legal-entry-sheet-backdrop"));
 
-    expect(onDismiss).toHaveBeenCalled();
+    expect(onDismiss).not.toHaveBeenCalled();
   });
 });

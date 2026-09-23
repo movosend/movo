@@ -129,8 +129,13 @@ function ZoomableImage({ uri, width, onZoomChange, testID }: ZoomableImageProps)
   );
 }
 
+export interface ViewerPhoto {
+  id: string;
+  url: string;
+}
+
 export interface PhotoViewerModalProps {
-  photos: ShipmentPhoto[];
+  photos: ViewerPhoto[];
   initialIndex: number;
   visible: boolean;
   onClose: () => void;
@@ -138,19 +143,9 @@ export interface PhotoViewerModalProps {
 }
 
 /**
- * Visor de fotos de evidencia del paquete a pantalla completa (AC4 de MOVO-127,
- * feedback post-QA: las fotos adjuntas eran solo un conteo en texto, sin forma de
- * verlas). Swipe horizontal paginado entre las fotos del envío, arranca en la que se
- * tocó desde la tira de miniaturas de `PackageCard` (`initialScrollIndex` +
- * `getItemLayout`, evita el salto/flash que da animar el scroll después del primer
- * render). El `FlatList` usado acá es el de `react-native-gesture-handler` (no el de
- * `react-native`) — necesario para que su scroll conviva con los gestos de pinch/pan
- * de `ZoomableImage` sin pelearse por el mismo puntero. La imagen ocupa todo el alto
- * disponible vía `flex: 1` en vez de un cálculo manual contra `Dimensions` (el cálculo
- * anterior restaba un alto de header fijo que no coincidía con el real, dejando la
- * foto descentrada verticalmente). Mismo patrón de `Modal` nativo que
- * `AddressSearchSheet`/`select-field` — no una ruta nueva de expo-router, el repo no
- * usa presentación modal de router en ningún otro lado todavía.
+ * Visor de fotos a pantalla completa (AC4 de MOVO-127, usado para fotos de
+ * envíos y foto ampliada de perfil de usuario). Swipe horizontal paginado entre
+ * fotos si hay varias, pinch-to-zoom + pan + doble tap en cada una.
  */
 export function PhotoViewerModal({ photos, initialIndex, visible, onClose, testID }: PhotoViewerModalProps) {
   const { width } = useWindowDimensions();
@@ -176,9 +171,13 @@ export function PhotoViewerModal({ photos, initialIndex, visible, onClose, testI
             >
               <X size={18} color="#FFFFFF" strokeWidth={2} />
             </Pressable>
-            <Text className="font-sans-medium text-[13px] text-white/70">
-              {index + 1} / {photos.length}
-            </Text>
+            {photos.length > 1 ? (
+              <Text className="font-sans-medium text-[13px] text-white/70">
+                {index + 1} / {photos.length}
+              </Text>
+            ) : (
+              <View className="h-9 w-9" />
+            )}
             <View className="h-9 w-9" />
           </View>
 

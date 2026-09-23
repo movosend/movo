@@ -1,10 +1,10 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { ChevronLeft, Clock, QrCode } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
-import { useState, type ReactNode } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { useCallback, useState, type ReactNode } from "react";
+import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
 import { CounterpartCard } from "../../../components/shipments/counterpart-card";
@@ -88,6 +88,25 @@ export default function ShipmentDetailScreen() {
   );
   const [ratingTarget, setRatingTarget] = useState<RatingTarget | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refetch();
+      if (shipment && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status)) {
+        void refetchRatings();
+      }
+    }, [refetch, refetchRatings, shipment?.status])
+  );
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await Promise.allSettled([
+      refetch(),
+      refetchRatings(),
+    ]);
+    setRefreshing(false);
+  };
 
   const openProfile = (userId: string) => router.push(`/profile/${userId}`);
 
@@ -248,6 +267,16 @@ export default function ShipmentDetailScreen() {
             <ScrollView
               showsVerticalScrollIndicator={false}
               contentContainerClassName="px-5 pt-4 pb-8 gap-4"
+              refreshControl={
+                <RefreshControl
+                  testID="shipment-detail-refresh-control"
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  tintColor={colors.fg1}
+                  progressViewOffset={32}
+                  style={{ marginTop: 8 }}
+                />
+              }
             >
               <View>
                 <Eyebrow>Ruta</Eyebrow>
@@ -292,7 +321,9 @@ export default function ShipmentDetailScreen() {
                 <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
                   <GridPattern />
                   <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
-                    {shipment.agreedPriceArs !== null ? "Precio acordado" : "Costo aproximado"}
+                    {shipment.agreedPriceArs !== null || shipment.carrierId !== null
+                      ? "Precio pactado"
+                      : "Costo aproximado"}
                   </Text>
                   <Text className="font-sans-semibold text-[20px] text-ink-950">
                     {formatShipmentPrice(

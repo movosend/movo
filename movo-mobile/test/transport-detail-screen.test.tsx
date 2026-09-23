@@ -253,6 +253,19 @@ describe("TransportShipmentDetailScreen", () => {
     );
   });
 
+  it("con ruta larga (>60 min), muestra la duración en horas y minutos", async () => {
+    mockUseShipment.mockReturnValue({ isLoading: false, isError: false, data: shipment(), error: null, refetch: jest.fn() });
+    mockUseShipmentRoute.mockReturnValue({
+      data: { polyline: "encoded", distanceMeters: 120000, durationSeconds: 5400 },
+    });
+
+    const { getByTestId } = await render(<TransportShipmentDetailScreen />);
+
+    expect(getByTestId("transport-detail-trip-distance").props.children).toBe(
+      "120.0 km · 1 h 30 min de viaje",
+    );
+  });
+
   it("sin pickupDistanceKm en los params (deep link sin origen), no muestra el badge de distancia al retiro", async () => {
     mockUseShipment.mockReturnValue({ isLoading: false, isError: false, data: shipment(), error: null, refetch: jest.fn() });
 

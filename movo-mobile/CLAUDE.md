@@ -1417,6 +1417,87 @@ en `tripsMeta` ni aporta la franja de desvío — fijan explícitamente el cambi
 comportamiento) + `TRIP_A` (fixture compartida del archivo) pasó a `declared` por
 default. `tsc --noEmit` limpio.
 
+### MOVO-244 (fixes de code review, PR #184) + peek circular de avatar
+
+Sesión de review sobre la branch de MOVO-244 (batch de fixes KYC/TyC/sync — ver
+entrada de arriba con el mismo número): 5 correcciones + 2 simplificaciones que
+salieron de una revisión de código antes de mergear, más un pedido de UX del
+usuario sobre la marcha (peek circular del avatar).
+
+- **Swipe-back de iOS no bloqueaba el gate de TyC obligatorio**
+  (`app/(app)/profile/legal/index.tsx`): `BackHandler` solo cubre el botón físico
+  de Android — sin `gestureEnabled: false` (seteado ahora vía
+  `useNavigation().setOptions`, `useLayoutEffect`), el swipe-back nativo de iOS
+  seguía siendo una salida real mientras había Términos/Privacidad pendientes.
+- **`?status=` de `/kyc` sin guardar por `__DEV__`** (`app/(auth)/kyc.tsx`): la
+  ruta es alcanzable por deep link real en producción
+  (`movo://kyc?status=approved`) — sin el guard, cualquiera podía spoofear un KYC
+  aprobado sin pasar por Didit. El atajo de testing solo funciona ahora en dev.
+- **Doble `router.replace` al aceptar una oferta**
+  (`app/(app)/shipments/[id]/offers.tsx`): el efecto de redirect-si-ya-asignado y
+  `handleSuccessDismiss` disparaban cada uno su propio `replace` casi a la vez si
+  el refetch del envío ya traía `carrierId` para cuando se cerraba el modal de
+  éxito — apilaba una copia vieja del detalle debajo de la fresca. Un
+  `hasAcceptedRef` marca que el flujo de aceptar ya es dueño de la navegación, el
+  efecto general se calla desde ahí en más.
+- **Animación del modal de éxito se reiniciaba con cualquier re-render del padre**
+  (`choose-offer-success-modal.tsx`): `onDismiss` no memoizado en `offers.tsx`
+  (función inline) + `progress` (shared value) en el array de deps del efecto —
+  cualquier refetch/invalidation mientras el modal estaba visible reiniciaba
+  haptics + barra de progreso + el timer de auto-dismiss de 1600ms.
+  **Gotcha real encontrado escribiendo el test de regresión**: el mock oficial de
+  Jest de `useSharedValue` (a diferencia del real) devuelve un objeto/Proxy
+  *nuevo* en cada render en vez de una referencia estable tipo `useRef` — meter un
+  shared value en un array de deps de `useEffect` "parece" inocuo (es lo que hacía
+  el código) pero solo se comporta mal en el mock, nunca en runtime real. Se sacó
+  `progress` de las deps (mismo criterio que ya usa `use-sheet-animation.ts`, con
+  el mismo comentario `eslint-disable-next-line react-hooks/exhaustive-deps`) — no
+  solo arregla el mock, es además el patrón correcto para cualquier shared value.
+- **`manual_review` de KYC de identidad sin ninguna salida** (`kyc.tsx`): evaluado
+  con el usuario y dejado tal cual a propósito — es la política real ("un usuario
+  no verificado no debe acceder a la app"), no un bug. Sí se resolvió la
+  duplicación real que arrastraba (`KycManualReviewResult` nuevo en
+  `components/kyc/`, compartido con `license-kyc.tsx` — este último sí pasa
+  `onGoHome`, ese caso no tiene la misma restricción).
+- Conditional muerto (`typeof useLocalSearchParams === "function" ? ... : {}`,
+  siempre `true`) limpiado de paso.
+
+**Pedido de UX sobre la marcha, no parte de la review**: "el long press debería
+ser un poco más breve" + "que la foto se amplíe desde el punto donde está, con
+máscara circular, como Instagram" — reemplaza el `PhotoViewerModal` (visor a
+pantalla completa con fade, pensado para evidencia de envío) que `profile.tsx`/
+`profile/[id].tsx` reusaban para este gesto de la propia foto de perfil.
+
+- **`AvatarPeekViewer` nuevo** (`components/profile/avatar-peek-viewer.tsx`):
+  `Pressable` con `delayLongPress={220}` (antes 500ms default) + `onPressOut` para
+  soltar — sin `Modal`: un overlay hermano absoluto (`pointerEvents="none"`) en el
+  mismo árbol, para no arriesgar que abrir una ventana nativa nueva a mitad de un
+  gesto corte la secuencia de touch antes de que llegue el `onPressOut`.
+- **Crece siempre como círculo, nunca anima `borderRadius`**: la foto (imagen fija
+  de `PEEK_SIZE`, con `borderRadius: PEEK_SIZE/2` constante) se anima solo con
+  `transform: [translateX, translateY, scale]` — arranca en el tamaño/posición
+  reales del avatar (offset calculado) y crece centrada en el mismo punto,
+  clampeado a los bordes de pantalla (`computePeekGeometry`, pura y testeada
+  aparte, mismo criterio ya aceptado para `ZoomableImage`). Evita el bug de
+  esquinas cuadradas de animar `width`/`height`/`borderRadius` a la vez
+  (documentado en la entrada de MOVO-223 de este mismo archivo).
+- **Geometría medida con `measureInWindow`, mecánica de abrir/cerrar sin cobertura
+  de test end-to-end**: mismo gap ya documentado para `sender-actions-bar.tsx`
+  (MOVO-29) — su callback nunca dispara en el entorno de test de RNTL/jest-expo.
+  `computePeekGeometry` (la parte pura) sí está 100% cubierta; el ciclo real de
+  abrir/cerrar queda para probar en device.
+
+Tests nuevos: `test/avatar-peek-viewer.test.tsx`, `test/choose-offer-success-modal.test.tsx`
+(nuevo, no existía ninguno dedicado para este componente); casos nuevos en
+`test/offers-screen.test.tsx` (regresión del doble `replace`), `test/legal-hub-screen.test.tsx`
+(`gestureEnabled`); reescritos los casos de zoom de avatar en `test/profile.test.tsx`/
+`test/profile-detail-screen.test.tsx` contra el componente nuevo. 146/146 suites,
+1194/1194 tests. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: nada de esto se probó en device todavía (ni el gate
+de TyC en iOS real, ni el peek del avatar) — pendiente de la review del usuario
+probando la branch en su celular.
+
 ### Pendientes de este paquete
 
 - **`eas init`/development build real en dispositivo**: pendiente para probar de
@@ -3327,6 +3408,19 @@ Pantalla completa de itinerario y mapa de ruta optimizada para el transportista 
 - **Cliente HTTP consistente**: `shipmentsClient.getMyRoute` utiliza el objeto `query` de `httpClient.get` y `getById` mantiene aislamiento estricto sin scope creep de demo.
 
 - **Compatibilidad con MOVO-235 (`tripId`)**: `shipmentsClient.getMyRoute(coords, tripId?)` y `useOptimizedRoute(tripId?)` preparados para aceptar opcionalmente un `tripId` (por parámetro y por query param en `/route?tripId=...`), manteniendo retrocompatibilidad total si no se envía.
+
+### MOVO-244 — Batch de fixes: KYC, TyC obligatorios, sincronización de estado y varios de UI (`movo-mobile`)
+
+Batch de correcciones y mejoras funcionales y de UI en `movo-mobile`:
+- **KYC en revisión (`manual_review`)**: rediseño de la pantalla de revisión de DNI (`app/(auth)/kyc.tsx`) y licencia (`app/(app)/license-kyc.tsx`) según lineamientos Stitch. Card con isotipo/reloj de arena, copy con plazos claros (24-48 hs), eliminación del enlace "Ir al inicio" en verificación de DNI (el usuario no verificado no debe acceder a la app) y botón primario estandarizado `PrimaryButton` con padding seguro inferior. Soporte de visualización rápida vía query param `?status=manual_review` y acceso dev en Perfil (`__DEV__`).
+- **Términos y condiciones obligatorios**: `components/legal/legal-entry-sheet.tsx` documenta `onDismiss?: () => void` opcional para retrocompatibilidad pero mantiene comportamiento modal estricto. En `/profile/legal/index.tsx` se bloquea el botón volver (chevron y botón físico de Android) cuando hay TyC pendientes de aceptación.
+- **Pull-to-refresh y offsets**: agregado `RefreshControl` en Inicio (`app/(app)/(tabs)/home.tsx`) y Detalle de Envío (`app/(app)/shipments/[id].tsx`) con `progressViewOffset={32}` para evitar solapamientos con la barra de navegación.
+- **Aceptación de ofertas y redirect**: al aceptar una oferta en `offers.tsx`, se invalida y refetchea `['shipments', 'detail', id]` y `ChooseOfferSuccessModal` muestra animación de barra de progreso con feedback háptico (`Haptics.notificationAsync`) antes de redirigir automáticamente al detalle del envío con el transportista asignado.
+- **Formateo de tiempos de ruta**: `src/lib/shipment-format.ts` (`formatDurationMin`) formatea en horas y minutos (`X h Y min` / `X h`) cuando $\ge 60$ min. En `transport/[id].tsx` se mantiene en una sola línea (`shrink-0`, `numberOfLines={1}`).
+- **Zoom de foto de perfil**: long press con feedback háptico (`Haptics.impactAsync`) sobre el avatar de perfil abre `PhotoViewerModal` tanto en el perfil público (`profile/[id].tsx`) como en el propio (`(tabs)/profile.tsx`).
+- **Copy de precio en vista emisor y precio pactado**: se reemplazó "Precio sugerido" por "Costo aproximado" en `components/send/price-preview-card.tsx`. En Detalle de Envío (`app/(app)/shipments/[id].tsx`), al aceptar una oferta o contar con transportista asignado se exhibe la etiqueta "Precio pactado" (precio final/confirmado, no aproximado), resolviendo la omisión de persistencia de `agreedPriceArs` en `offer-repository.ts#acceptOffer` e integrando fallback defensivo en `getShipmentDetail`.
+- **Handshake success**: extensión de un ~25-30% de la duración de las animaciones en `components/handshake/handshake-confirmation-result.tsx`.
+- **Estado de envío `ASSIGNMENT_PENDING`**: se mantuvo texto "Sin asignar" conforme a que la saga completa de asignación y reserva de fondos corresponde a MOVO-210 / MOVO-208 / MOVO-209 / MOVO-211.
 
 ### MOVO-246 — Pantalla de configuración de notificaciones: toggle maestro, categorías y horario de silencio
 

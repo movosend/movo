@@ -4,7 +4,7 @@ import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ProfileAvatar } from '../../../components/profile/profile-avatar';
+import { AvatarPeekViewer } from '../../../components/profile/avatar-peek-viewer';
 import { ProfileBadges } from '../../../components/profile/profile-badges';
 import { ProfileErrorState } from '../../../components/profile/profile-error-state';
 import { ProfileLicenseStatusBanner } from '../../../components/profile/profile-license-status-banner';
@@ -56,7 +56,7 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View className="mb-6 flex-row items-center gap-4">
-          <ProfileAvatar
+          <AvatarPeekViewer
             testID="profile-avatar"
             fullName={displayName}
             photoUrl={data.photoUrl}
@@ -125,7 +125,13 @@ export default function ProfileScreen() {
         </Text>
 
         {__DEV__ ? (
-          <View className="mt-3 flex-row items-center justify-center gap-2">
+          <View className="mt-3 flex-row flex-wrap items-center justify-center gap-2">
+            <Pressable onPress={() => router.push({ pathname: '/kyc', params: { status: 'manual_review' } } as any)}>
+              <Text className="font-sans-medium text-[11px] text-lime-600 dark:text-lime-400 underline">
+                ⚡ DNI en revisión (Dev)
+              </Text>
+            </Pressable>
+            <Text className="text-fg-3">·</Text>
             <Pressable onPress={() => router.push('/dev-handshake' as any)}>
               <Text className="font-sans-medium text-[11px] text-lime-600 dark:text-lime-400 underline">
                 ⚡ Probar QR Handshake (Dev)
@@ -140,6 +146,7 @@ export default function ProfileScreen() {
           </View>
         ) : null}
       </ScrollView>
+
     </SafeAreaView>
   );
 }
