@@ -23,7 +23,7 @@ export function PricePreviewCard({
     >
       <GridPattern />
       <Text className="font-sans-semibold text-[11px] uppercase tracking-widest text-ink-950/50">
-        Precio sugerido
+        Costo aproximado
       </Text>
       <Text className="mt-1 font-sans-semibold text-[38px] tracking-tight text-ink-950">
         {formatPriceArs(suggestedPriceArs)}
@@ -32,9 +32,8 @@ export function PricePreviewCard({
         {caption}
       </Text>
       <Text className="mt-3 font-sans text-[13px] leading-5 text-ink-950/60">
-        Este es el precio sugerido por Movo para tu envio. Una vez publicado,
-        otros usuarios comenzaran a ofertar contra este precio y vas a poder
-        elegir el envio que mas te convenga.
+        Este es el costo aproximado calculado por Movo para tu envío. Una vez publicado,
+        los transportistas comenzarán a ofertar y vas a poder elegir la opción que más te convenga.
       </Text>
     </View>
   );
