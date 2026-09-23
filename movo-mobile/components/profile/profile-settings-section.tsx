@@ -26,8 +26,9 @@ interface SettingsItem {
  * ítems que todavía no tienen pantalla propia quedan deshabilitados visualmente con
  * el mismo `Alert.alert("Próximamente", ...)` de siempre (sin traer una librería de
  * toast nueva solo para este caso). "Direcciones guardadas" fue el primero en tener
- * pantalla real (MOVO-121), "Cuenta y seguridad" el segundo (MOVO-136) y "Legal"
- * el tercero (MOVO-224) — a diferencia del resto, no llevan `opacity-60`.
+ * pantalla real (MOVO-121), "Cuenta y seguridad" el segundo (MOVO-136), "Legal"
+ * el tercero (MOVO-224) y "Notificaciones" el cuarto (MOVO-246) — a diferencia del
+ * resto, no llevan `opacity-60`.
  */
 export function ProfileSettingsSection({ testID }: { testID?: string }) {
   const colors = useThemeColors();
@@ -36,7 +37,7 @@ export function ProfileSettingsSection({ testID }: { testID?: string }) {
 
   const settingsItems: SettingsItem[] = [
     { label: "Cuenta y seguridad", Icon: Shield, onPress: () => router.push("/profile/security" as any) },
-    { label: "Notificaciones", Icon: Bell },
+    { label: "Notificaciones", Icon: Bell, onPress: () => router.push("/profile/notifications" as any) },
     { label: "Pagos y cobros", Icon: Wallet },
     { label: "Direcciones guardadas", Icon: MapPin, onPress: () => router.push("/addresses") },
     { label: "Ayuda y soporte", Icon: HelpCircle },
