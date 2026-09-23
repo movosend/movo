@@ -419,7 +419,7 @@ describe("ShipmentDetailScreen", () => {
     expect(getByTestId("shipment-detail-ratings")).toBeTruthy();
   });
 
-  it("muestra 'Precio acordado' y el monto pactado cuando agreedPriceArs está presente (MOVO-244)", async () => {
+  it("muestra 'Precio pactado' y el monto pactado cuando agreedPriceArs está presente (MOVO-244)", async () => {
     mockUseShipment.mockReturnValue({
       isLoading: false,
       isError: false,
@@ -435,12 +435,33 @@ describe("ShipmentDetailScreen", () => {
 
     const { getByText, queryByText } = await render(<ShipmentDetailScreen />);
 
-    expect(getByText("Precio acordado")).toBeTruthy();
+    expect(getByText("Precio pactado")).toBeTruthy();
     expect(getByText("$6.000")).toBeTruthy();
     expect(queryByText("Costo aproximado")).toBeNull();
   });
 
-  it("muestra 'Costo aproximado' y el precio sugerido cuando no hay oferta aceptada (agreedPriceArs null)", async () => {
+  it("muestra 'Precio pactado' cuando carrierId está presente aunque agreedPriceArs sea null (MOVO-244)", async () => {
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({
+        suggestedPriceArs: 4500,
+        agreedPriceArs: null,
+        status: ShipmentStatus.ASSIGNED,
+        carrierId: "carrier-1",
+      }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { getByText, queryByText } = await render(<ShipmentDetailScreen />);
+
+    expect(getByText("Precio pactado")).toBeTruthy();
+    expect(getByText("$4.500")).toBeTruthy();
+    expect(queryByText("Costo aproximado")).toBeNull();
+  });
+
+  it("muestra 'Costo aproximado' y el precio sugerido cuando no hay oferta aceptada (sin carrier y agreedPriceArs null)", async () => {
     mockUseShipment.mockReturnValue({
       isLoading: false,
       isError: false,
@@ -448,6 +469,7 @@ describe("ShipmentDetailScreen", () => {
         suggestedPriceArs: 4500,
         agreedPriceArs: null,
         status: ShipmentStatus.PUBLISHED,
+        carrierId: null,
       }),
       error: null,
       refetch: jest.fn(),
@@ -457,7 +479,7 @@ describe("ShipmentDetailScreen", () => {
 
     expect(getByText("Costo aproximado")).toBeTruthy();
     expect(getByText("$4.500")).toBeTruthy();
-    expect(queryByText("Precio acordado")).toBeNull();
+    expect(queryByText("Precio pactado")).toBeNull();
   });
 
   it("cambia a la tab de línea de tiempo al tocarla, mostrando el historial (MOVO-128)", async () => {

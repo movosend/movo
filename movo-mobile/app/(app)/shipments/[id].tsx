@@ -321,7 +321,9 @@ export default function ShipmentDetailScreen() {
                 <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
                   <GridPattern />
                   <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
-                    {shipment.agreedPriceArs !== null ? "Precio acordado" : "Costo aproximado"}
+                    {shipment.agreedPriceArs !== null || shipment.carrierId !== null
+                      ? "Precio pactado"
+                      : "Costo aproximado"}
                   </Text>
                   <Text className="font-sans-semibold text-[20px] text-ink-950">
                     {formatShipmentPrice(
