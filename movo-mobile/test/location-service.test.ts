@@ -251,4 +251,62 @@ describe("LocationService (MOVO-203)", () => {
     expect(service.getStatus().permissionGranted).toBe(false);
     expect(service.getStatus().lastError).toBe("PERMISSION_DENIED");
   });
+
+  it("trata 429 (rate-limit) como transitorio y lo conserva en la cola offline", async () => {
+    const service = createService();
+    service.enqueuePosition({
+      shipmentId: "ship-rate-limited",
+      lat: -31.4,
+      lng: -64.1,
+      accuracyM: 10,
+      capturedAt: "2026-09-23T12:00:00.000Z",
+    });
+
+    const rateLimitError = new ApiError(429, "RATE_LIMIT_EXCEEDED", "Demasiadas peticiones");
+    mockReportPosition.mockRejectedValueOnce(rateLimitError);
+
+    await service.flushQueue();
+
+    // El ítem 429 NO debe descartarse, debe conservarse para reintento
+    expect(service.getStatus().pendingQueueCount).toBe(1);
+    expect(service.getQueue()[0].shipmentId).toBe("ship-rate-limited");
+  });
+
+  it("stopTracking drena la cola pendiente antes de finalizar", async () => {
+    const service = createService();
+    service.enqueuePosition({
+      shipmentId: "ship-pending",
+      lat: -31.4,
+      lng: -64.1,
+      accuracyM: 10,
+      capturedAt: "2026-09-23T12:00:00.000Z",
+    });
+
+    await service.startTracking(["ship-pending"]);
+    mockReportPosition.mockResolvedValueOnce({ persisted: true });
+
+    await service.stopTracking();
+
+    expect(service.getStatus().isTracking).toBe(false);
+    expect(service.getStatus().pendingQueueCount).toBe(0);
+  });
+
+  it("en modo simulación, updateActiveShipments no detiene el tracking", async () => {
+    const service = createService();
+    service.setSimulationMode(true);
+    await service.startTracking(["ship-simulated"]);
+
+    expect(service.getStatus().isTracking).toBe(true);
+
+    // Llega poll con lista vacía
+    await service.updateActiveShipments([]);
+
+    // Sigue activo porque está simulando
+    expect(service.getStatus().isTracking).toBe(true);
+
+    // Al desactivar simulación y llamar stopTracking
+    service.setSimulationMode(false);
+    await service.stopTracking();
+    expect(service.getStatus().isTracking).toBe(false);
+  });
 });

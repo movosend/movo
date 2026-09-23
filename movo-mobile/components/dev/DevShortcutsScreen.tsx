@@ -58,9 +58,11 @@ export default function DevShortcutsScreen() {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       if (trackingStatus.isTracking) {
+        locationService.setSimulationMode(false);
         await locationService.stopTracking();
       } else {
         await locationService.clearQueue();
+        locationService.setSimulationMode(true);
         await locationService.startTracking([DEV_DEMO_SHIPMENT_ID]);
       }
     } finally {

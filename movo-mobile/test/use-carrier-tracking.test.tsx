@@ -63,7 +63,9 @@ describe("useCarrierTracking y coordinador (MOVO-203)", () => {
   });
 
   afterEach(async () => {
-    await locationService.resetForTesting();
+    await act(async () => {
+      await locationService.resetForTesting();
+    });
     jest.clearAllMocks();
   });
 
