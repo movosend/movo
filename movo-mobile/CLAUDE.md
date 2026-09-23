@@ -3402,3 +3402,74 @@ sin imagen propia para el splash nativo estático (decisión tomada acá, ver ar
 si más adelante se decide exportar un PNG del isotipo en reposo para ese frame
 inicial, es un cambio acotado a `app.config.js` + el asset, sin tocar
 `AnimatedSplash`.
+
+### MOVO-246 — Pantalla de configuración de notificaciones: toggle maestro, categorías y horario de silencio
+
+Sub-issue mobile de MOVO-239 (backend hermano: MOVO-245, `svc-users`/`svc-shipments`/
+`@movo/shared`, en PR al escribir esto). Reemplaza el placeholder "Notificaciones" de
+Perfil → Configuración (`profile-settings-section.tsx`, MOVO-78) por un hub real
+(`app/(app)/profile/notifications/index.tsx`, mismo patrón hub→sub-rutas que
+`security.tsx`) + detalle por categoría (`[categoryId].tsx`) + horario de silencio
+(`quiet-hours.tsx`), sobre el prototipo de Claude Design "Control de notificaciones
+en settings" (`Notificaciones.dc.html`).
+
+- **El prototipo define el lenguaje visual, no los datos**: el `.dc.html` hardcodea
+  12 filas ficticias que no coinciden con el catálogo real de MOVO-245
+  (`NOTIFICATION_CATEGORIES`/`NOTIFICATION_TRIGGERS` de `@movo/shared`, subpaths
+  `dist/config/notification-categories`/`dist/config/notification-templates`, nunca
+  el barrel). Catálogo real: implementadas → `custody`/`offers`/`ratings`/`shipments`
+  (sección "sending") y `trips` (sección "carrying"); "Pronto" → `proximity`/
+  `payments` (sending), `kyc`/`account_security` (account), `chat`/`disputes`
+  (conversations). Sin canal "app" (in-app, no existe todavía) y sin el punto "live"/
+  banners `critical`/`warnText` por fila del prototipo — ese campo no existe en
+  `NotificationCategoryDefinition`, era solo del JS de Claude Design.
+- **Toggle maestro (AC1) es una fila agregada sobre el prototipo**, que no lo tenía
+  — el ticket lo pedía explícito para cumplir el AC1 del padre (MOVO-239). Apagarlo
+  solo atenúa (`dimmed`) las categorías de abajo, no bloquea sus toggles: se pueden
+  seguir preconfigurando, quedan respetadas apenas se vuelve a prender el maestro.
+- **`components/ui/toggle-switch.tsx` (nuevo)**: primer toggle/switch del repo — ni
+  el `Switch` nativo de RN se usaba en ningún lado. Pill 46×28 + knob animado
+  (Reanimated), fiel a la función `sw()` del prototipo (mismo recorrido de 18px).
+  Props `disabled` (no dispara `onChange` — categorías "Pronto" o permiso del SO
+  bloqueado) y `dimmed` (solo opacidad, sigue tocable — toggle maestro apagado).
+- **Horario de silencio**: a diferencia del resto de la pantalla, se mantiene el
+  comportamiento de tap-to-cycle del prototipo tal cual (arrays fijos `HOURS`/
+  `HOURS_END`, franja nocturna), no un `SelectField` de 48 opciones — decisión
+  explícita del ticket ("UI completa del prototipo" para esta parte). Callout de
+  excepción con copy genérico: ninguna categoría implementada es `quietHoursExempt`
+  todavía, así que no promete un caso concreto que no pasa.
+- **Detalle de categoría**: lista los triggers reales (`displayCopy` de
+  `NOTIFICATION_TRIGGERS`, que ES el copy real del push, no una redacción aparte)
+  filtrados por `category`. Una categoría "Pronto" no tiene ningún trigger real que
+  listar — mensaje explícito ("Todavía no está disponible...") en vez de inventar
+  filas ficticias, mismo principio ya aplicado en `security.tsx`/`legal/index.tsx`.
+- **`src/api/notification-preferences-client.ts`** (`GET`/`PUT
+  /users/me/notification-preferences`) + **`src/hooks/use-notification-preferences.ts`**
+  (`useNotificationPreferences`/`useUpdateNotificationPreferences`, mismo criterio
+  `setQueryData` que `useUpdateProfile` — el `PUT` devuelve el recurso completo, así
+  que el toggle maestro, horario de silencio y cada categoría comparten una sola
+  query key sin refetch extra entre ellos).
+- **`src/lib/notification-permission.ts`** (`getNotificationPermissionStatus`,
+  `Notifications.getPermissionsAsync()` de solo lectura, nunca pide el permiso) +
+  banner "Push bloqueado" (`components/notifications/notification-permission-banner.tsx`,
+  `Linking.openSettings()`) — AC4: ningún toggle miente sobre un efecto que no va a
+  pasar si el SO ya bloqueó las notificaciones. Se refresca en cada foco de pantalla
+  (`useFocusEffect`) para reflejar la vuelta desde Ajustes.
+- **Sin dedicated hook test** para `use-notification-preferences.ts` (mismo criterio
+  ya aceptado para `use-profile.ts`/`use-shipments.ts`/`use-offers.ts` — ninguno
+  tiene test propio, se ejercitan vía el cliente HTTP y las pantallas que los
+  consumen mockeando el módulo del hook).
+
+Tests nuevos: `test/notification-preferences-client.test.ts`,
+`test/notification-settings-format.test.ts`, `test/toggle-switch.test.tsx`,
+`test/notification-permission-banner.test.tsx`,
+`test/notification-category-row.test.tsx`, `test/notifications-hub-screen.test.tsx`,
+`test/notification-category-detail-screen.test.tsx`,
+`test/quiet-hours-screen.test.tsx`, caso agregado a
+`test/profile-settings-section.test.tsx`. 147/147 suites, 1137/1137 tests en verde.
+`tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: MOVO-245 (backend) sigue en PR sin mergear a
+`develop` — el `dist/` de `@movo/shared` usado durante esta US quedó de una sesión
+anterior en la misma rama; correr `npm run build` en `shared/movo-shared` de nuevo
+una vez que ese PR mergee y `develop` traiga el `dist/` real. No probado en device.
