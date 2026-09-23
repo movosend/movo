@@ -29,8 +29,19 @@ import { RegistrationProvider } from '../src/hooks/use-registration';
 import { loadApiOverride } from '../src/lib/api-override';
 import { useAuthStore } from '../src/store/auth-store';
 import { useBootStore } from '../src/store/boot-store';
+import { useCarrierTrackingCoordinator } from '../src/hooks/use-carrier-tracking';
 
 SplashScreen.preventAutoHideAsync();
+
+/**
+ * MOVO-203: Coordinador central de tracking del transportista — vive dentro de
+ * `QueryClientProvider` para ejecutar un único ciclo de sincronización de envíos en tránsito
+ * y permisos con el singleton `locationService` a nivel de toda la sesión de la app.
+ */
+function CarrierTrackingCoordinatorMount() {
+  useCarrierTrackingCoordinator();
+  return null;
+}
 
 /**
  * MOVO-229 depende de `useMyProfile()` (React Query) — tiene que vivir DENTRO del
@@ -137,6 +148,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <RegistrationProvider>
+          <CarrierTrackingCoordinatorMount />
           {/* MOVO-247: recién cuando el splash animado ya terminó -- `LegalEntrySheet`
            * se presenta con el `Modal` nativo de RN (capa por fuera del árbol de
            * views normal), así que si se montara antes podría aparecer POR ENCIMA

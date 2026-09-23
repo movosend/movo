@@ -3566,3 +3566,60 @@ Pendiente / fuera de alcance: MOVO-245 (backend) sigue en PR sin mergear a
 `develop` — el `dist/` de `@movo/shared` usado durante esta US quedó de una sesión
 anterior en la misma rama; correr `npm run build` en `shared/movo-shared` de nuevo
 una vez que ese PR mergee y `develop` traiga el `dist/` real. No probado en device.
+
+### MOVO-203 — [movo-mobile] Emisión de ubicación del transportista en foreground y background
+
+Implementación del tracking y reporte de ubicación del transportista durante el
+transporte activo (fase 1: foreground + offline FIFO):
+
+- **División de alcance con MOVO-242**: El issue MOVO-242 fue creado en Linear
+  (21/09/2026) para desacoplar el background headless con `expo-task-manager` y el
+  profiling de batería de 1 hora. MOVO-203 implementa toda la arquitectura central
+  de tracking en foreground, cola offline FIFO persistida, sincronización reactiva,
+  permisos contextuales e indicadores de UI.
+- **`src/api/shipments-client.ts`**:
+  - `reportPosition(shipmentId, { lat, lng, accuracyM, capturedAt })` (`POST /shipments/:id/positions`).
+  - `getTransporting()` (`GET /shipments/transporting`).
+- **`src/location/location-service.ts`**:
+  - `LocationService` (singleton): administra la captura GPS con `expo-location`
+    (`Location.Accuracy.Balanced`) cada 25 segundos (configurable).
+  - Cola offline FIFO en memoria y persistida en `expo-secure-store`
+    (`SECURE_STORE_KEYS.carrierLocationOfflineQueue` — estrictamente sin AsyncStorage).
+  - Preserva el `capturedAt` original de cada muestra GPS.
+  - Al recuperar conexión (o en `flushQueue`), drena la cola en estricto orden FIFO.
+  - No encola ni reintenta errores terminales 403 (`SHIPMENT_NOT_IN_TRANSIT`) o 404
+    para no envenenar la cola.
+  - Se detiene inmediatamente (`stopTracking`) al completar entregas o no tener envíos
+    activos en tránsito (AC5, AC7).
+- **`src/hooks/use-carrier-tracking.ts` y coordinación en `app/_layout.tsx`**:
+  - `useCarrierTrackingCoordinator`: montado una sola vez a nivel de sesión en
+    `app/_layout.tsx` (`CarrierTrackingCoordinatorMount` dentro de `QueryClientProvider`),
+    siguiendo el patrón establecido de `usePushNotifications` y `useDeviceKeyBootstrap`.
+    Sincroniza periódicamente `getTransporting()` filtrando envíos `in_transit`, ejecuta el
+    chequeo inicial de permisos y coordina `locationService.updateActiveShipments()`.
+  - `useCarrierTracking`: hook consumidor liviano para componentes visuales
+    (`TrackingActiveIndicator`), que se suscribe al singleton `locationService` sin duplicar
+    peticiones de red ni listeners.
+  - `permissionGranted` vive centralizado en `locationService`: el otorgamiento o rechazo
+    se sincroniza instantáneamente entre todas las pantallas montadas sin desfasajes de estado.
+- **UI Components**:
+  - `components/location/tracking-permission-modal.tsx`: Modal explicativo que
+    antecede al diálogo del sistema operativo (AC4).
+  - `components/location/tracking-active-indicator.tsx`: Banner/pill informativo reactivo
+    que comunica si se está transmitiendo en vivo ("X envíos pendientes de entrega"),
+    si el permiso fue denegado (abre modal explicativo) o si no hay red ("Sin conexión
+    a internet"), ajustado a ancho completo en Home y márgenes estándar en Transportar (AC8).
+  - Integrado en `app/(app)/(tabs)/home.tsx` y `app/(app)/(tabs)/transport.tsx`.
+- **Herramientas de desarrollo (`__DEV__`)**:
+  - `app/dev-shortcuts.tsx` y `components/dev/DevShortcutsScreen.tsx`: pantalla centralizada
+    de atajos dev exclusivamente disponible en desarrollo, incluyendo simulación de tracking
+    con envío de prueba y traslado del disparador de demo de ruta (limpiando código muerto en `route/index.tsx`).
+- **`app.config.js`**: Justificaciones de uso de ubicación en primer plano redactadas
+  específicamente para la experiencia de entrega en tiempo real.
+
+Tests:
+- `test/location-service.test.ts` (10 tests)
+- `test/use-carrier-tracking.test.tsx` (5 tests)
+- `test/tracking-components.test.tsx` (8 tests)
+Total: 23 tests en verde. Typecheck `npx tsc --noEmit` limpio sin errores.
+
