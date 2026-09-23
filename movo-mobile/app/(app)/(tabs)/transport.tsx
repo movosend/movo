@@ -19,6 +19,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AddressSearchSheet } from "../../../components/send/address-search-sheet";
 import { AvailableShipmentCard } from "../../../components/transport/available-shipment-card";
 import { AvailableShipmentRow } from "../../../components/transport/available-shipment-row";
+import { TrackingActiveIndicator } from "../../../components/location/tracking-active-indicator";
 import { TransportAccessCards } from "../../../components/transport/transport-access-cards";
 import {
   DEFAULT_TRANSPORT_FILTERS,
@@ -416,6 +417,8 @@ export default function TransportScreen() {
 
       {!isTripMode ? (
         <>
+          <TrackingActiveIndicator />
+
           <Pressable
             testID="transport-my-route-cta"
             // expo-router no infiere la ruta raíz `/route` cuando se navega desde un grupo anidado (tabs); la ruta existe en app/(app)/route/index.tsx

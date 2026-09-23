@@ -9,6 +9,7 @@ import { AttentionSection } from '../../../components/home/attention-section';
 import { HomeSendCta } from '../../../components/home/home-send-cta';
 import { RecentShipmentsSection } from '../../../components/home/recent-shipments-section';
 import { RoleSection } from '../../../components/home/role-section';
+import { TrackingActiveIndicator } from '../../../components/location/tracking-active-indicator';
 import { useReceivingShipments, useSendingShipments } from '../../../src/hooks/use-active-shipments';
 import { useAuth } from '../../../src/hooks/use-auth';
 import { useMyProfile } from '../../../src/hooks/use-profile';
@@ -142,6 +143,8 @@ export default function AuthenticatedHomeScreen() {
             <Text className="flex-1 font-sans text-[13px] text-ink-950">{bannerText}</Text>
           </View>
         ) : null}
+
+        <TrackingActiveIndicator />
 
         <RoleSection
           testID="app-home-sending"
