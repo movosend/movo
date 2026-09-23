@@ -56,7 +56,9 @@ export class LocationService {
   private offlineQueue: QueuedPosition[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private isProcessingTick = false;
+  private isProcessingFlush = false;
   private isTrackingState = false;
+  private isSimulating = false;
   private permissionGranted: boolean | null = null;
   private lastCapturedAt: string | null = null;
   private lastReportedAt: string | null = null;
@@ -142,6 +144,10 @@ export class LocationService {
    * Actualiza el listado de envíos activos. Si la lista queda vacía, detiene el tracking de inmediato.
    */
   async updateActiveShipments(shipmentIds: string[]): Promise<void> {
+    if (this.isSimulating) {
+      // En modo simulación dev, no interrumpir el tracking simulado por el poll de envíos reales vacíos
+      return;
+    }
     const validIds = shipmentIds.filter((id) => typeof id === "string" && id.trim().length > 0);
     if (validIds.length === 0) {
       await this.stopTracking();
@@ -155,8 +161,17 @@ export class LocationService {
     }
   }
 
+  setSimulationMode(enabled: boolean): void {
+    this.isSimulating = enabled;
+  }
+
+  isSimulationMode(): boolean {
+    return this.isSimulating;
+  }
+
   /**
    * Detiene el tracking inmediatamente y limpia el timer (AC5/AC6/AC7).
+   * Si quedan posiciones encoladas en offlineQueue, intenta un último drenado.
    */
   async stopTracking(): Promise<void> {
     if (this.timer) {
@@ -165,8 +180,29 @@ export class LocationService {
     }
     this.activeShipmentIds.clear();
     this.isTrackingState = false;
+    this.isSimulating = false;
     this.lastError = null;
+
+    if (this.offlineQueue.length > 0) {
+      await this.flushQueue();
+    }
+
     this.emitStatus();
+  }
+
+  /**
+   * Determina si un error retornado por la API es terminal y permanente (no debe reintentarse).
+   * Errores 4xx (400, 401, 403, 404) indican datos o estado no apto (ej: SHIPMENT_NOT_IN_TRANSIT).
+   * Se excluye explícitamente 429 (Rate Limit / Too Many Requests), que es transitorio y debe reintentarse.
+   */
+  private isTerminalError(err: unknown): boolean {
+    if (!(err instanceof ApiError)) {
+      return false;
+    }
+    if (err.statusCode === 429) {
+      return false;
+    }
+    return err.statusCode >= 400 && err.statusCode < 500;
   }
 
   /**
@@ -215,15 +251,8 @@ export class LocationService {
           });
           this.lastReportedAt = new Date().toISOString();
         } catch (err) {
-          // Errores 4xx (400 formato inválido, 401 no autenticado, 403 no in_transit, 404 inexistente):
-          // son errores terminales de cliente que nunca se resolverán con reintentos offline.
-          const isTerminalStatus =
-            err instanceof ApiError &&
-            err.statusCode >= 400 &&
-            err.statusCode < 500;
-
-          if (!isTerminalStatus) {
-            // Error de conectividad o 5xx: encolar posición para reintento preservando capturedAt (AC6)
+          if (!this.isTerminalError(err)) {
+            // Error de conectividad, 429 (rate limit) o 5xx: encolar posición para reintento preservando capturedAt (AC6)
             this.enqueuePosition({
               shipmentId,
               lat,
@@ -269,41 +298,42 @@ export class LocationService {
 
   /**
    * Drena secuencialmente las posiciones encoladas manteniendo el capturedAt original (AC6).
+   * Protegido contra reentrancia para evitar concurrencia entre ticks y llamadas manuales.
    */
   async flushQueue(): Promise<void> {
-    if (this.offlineQueue.length === 0) return;
+    if (this.isProcessingFlush || this.offlineQueue.length === 0) return;
 
-    const remainingQueue: QueuedPosition[] = [];
+    this.isProcessingFlush = true;
+    try {
+      const remainingQueue: QueuedPosition[] = [];
 
-    for (let i = 0; i < this.offlineQueue.length; i++) {
-      const item = this.offlineQueue[i];
-      try {
-        await this.client.reportPosition(item.shipmentId, {
-          lat: item.lat,
-          lng: item.lng,
-          accuracyM: item.accuracyM,
-          capturedAt: item.capturedAt,
-        });
-      } catch (err) {
-        const isDeadShipment =
-          err instanceof ApiError &&
-          err.statusCode >= 400 &&
-          err.statusCode < 500;
+      for (let i = 0; i < this.offlineQueue.length; i++) {
+        const item = this.offlineQueue[i];
+        try {
+          await this.client.reportPosition(item.shipmentId, {
+            lat: item.lat,
+            lng: item.lng,
+            accuracyM: item.accuracyM,
+            capturedAt: item.capturedAt,
+          });
+        } catch (err) {
+          if (this.isTerminalError(err)) {
+            // Descartar este ítem ya que el envío nunca será aceptado por backend (ej. 403 no in_transit, 404)
+            continue;
+          }
 
-        if (isDeadShipment) {
-          // Descartar este ítem ya que el envío nunca será aceptado por backend
-          continue;
+          // Si falló por red, 429 (rate-limit) o 5xx, conservamos este ítem y el resto de la cola sin procesar
+          remainingQueue.push(...this.offlineQueue.slice(i));
+          break;
         }
-
-        // Si falló por red o 5xx, conservamos este ítem y el resto de la cola sin procesar
-        remainingQueue.push(...this.offlineQueue.slice(i));
-        break;
       }
-    }
 
-    this.offlineQueue = remainingQueue;
-    await this.persistQueue();
-    this.emitStatus();
+      this.offlineQueue = remainingQueue;
+      await this.persistQueue();
+    } finally {
+      this.isProcessingFlush = false;
+      this.emitStatus();
+    }
   }
 
   /**
