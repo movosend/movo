@@ -109,6 +109,23 @@ describe("Componentes de Tracking (MOVO-203)", () => {
       expect(getByText("2 envíos pendientes de entrega")).toBeTruthy();
     });
 
+    it("muestra concordancia en singular cuando hay 1 solo envío en camino", async () => {
+      mockTrackingState = {
+        isTracking: true,
+        inTransitCount: 1,
+        pendingQueueCount: 0,
+        permissionGranted: true,
+        lastReportedAt: "2026-09-23T12:00:00.000Z",
+        lastError: null,
+        requestPermission: jest.fn(),
+        flushQueue: jest.fn(),
+      };
+
+      const { getByText } = await render(<TrackingActiveIndicator />);
+
+      expect(getByText("1 envío pendiente de entrega")).toBeTruthy();
+    });
+
     it("muestra advertencia cuando el permiso fue denegado (AC5)", async () => {
       mockTrackingState = {
         isTracking: true,

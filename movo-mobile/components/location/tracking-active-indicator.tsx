@@ -91,7 +91,7 @@ export function TrackingActiveIndicator({
               ? "Toca para activar el permiso de ubicación"
               : pendingQueueCount > 0
                 ? "Tu ubicación se transmitirá a los participantes de tus envíos una vez que se restablezca"
-                : `${inTransitCount} ${inTransitCount === 1 ? "envío" : "envíos"} pendientes de entrega`}
+                : `${inTransitCount} ${inTransitCount === 1 ? "envío pendiente" : "envíos pendientes"} de entrega`}
           </Text>
         </View>
       </Pressable>
