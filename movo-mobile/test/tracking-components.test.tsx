@@ -126,7 +126,7 @@ describe("Componentes de Tracking (MOVO-203)", () => {
       expect(getByText("Permiso de ubicación requerido")).toBeTruthy();
     });
 
-    it("muestra indicador de modo offline cuando hay posiciones encoladas (AC6)", async () => {
+    it("muestra indicador de sin conexión a internet cuando hay posiciones pendientes (AC6)", async () => {
       mockTrackingState = {
         isTracking: true,
         inTransitCount: 1,
@@ -140,7 +140,10 @@ describe("Componentes de Tracking (MOVO-203)", () => {
 
       const { getByText } = await render(<TrackingActiveIndicator />);
 
-      expect(getByText("Guardando sin red (3 pendientes)")).toBeTruthy();
+      expect(getByText("Sin conexión a internet")).toBeTruthy();
+      expect(
+        getByText("Tu ubicación se transmitirá a los participantes de tus envíos una vez que se restablezca")
+      ).toBeTruthy();
     });
 
     it("abre el modal de detalles al presionar el indicador", async () => {

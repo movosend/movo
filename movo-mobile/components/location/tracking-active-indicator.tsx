@@ -104,11 +104,15 @@ export function TrackingActiveIndicator({
               {isPermissionDenied
                 ? "Permiso de ubicación requerido"
                 : pendingQueueCount > 0
-                  ? `Guardando sin red (${pendingQueueCount} pendientes)`
+                  ? "Sin conexión a internet"
                   : "Transmitiendo ubicación en vivo"}
             </Text>
-            <Text className="font-sans text-[11px] text-fg-3">
-              {inTransitCount} {inTransitCount === 1 ? "envío" : "envíos"} en camino
+            <Text className="font-sans text-[11px] text-fg-3 leading-4">
+              {isPermissionDenied
+                ? `${inTransitCount} ${inTransitCount === 1 ? "envío" : "envíos"} en camino`
+                : pendingQueueCount > 0
+                  ? "Tu ubicación se transmitirá a los participantes de tus envíos una vez que se restablezca"
+                  : `${inTransitCount} ${inTransitCount === 1 ? "envío" : "envíos"} en camino`}
             </Text>
           </View>
         </View>
@@ -161,9 +165,13 @@ export function TrackingActiveIndicator({
               </View>
 
               <View className="flex-row items-center justify-between rounded-xl bg-bg-mute/60 p-3 border border-border/50">
-                <Text className="font-sans text-[13px] text-fg-2">Cola offline</Text>
-                <Text className="font-sans-semibold text-[13px] text-fg">
-                  {pendingQueueCount} posiciones
+                <Text className="font-sans text-[13px] text-fg-2">Conexión a internet</Text>
+                <Text
+                  className={`font-sans-semibold text-[13px] ${
+                    pendingQueueCount > 0 ? "text-amber-500" : "text-lime-500"
+                  }`}
+                >
+                  {pendingQueueCount > 0 ? "Sin conexión" : "En línea"}
                 </Text>
               </View>
 
@@ -202,7 +210,7 @@ export function TrackingActiveIndicator({
                 >
                   <RefreshCw size={15} color={colors.fg1} className={isFlushing ? "animate-spin" : ""} />
                   <Text className="font-sans-semibold text-[13px] text-fg">
-                    {isFlushing ? "Sincronizando..." : "Sincronizar ahora"}
+                    {isFlushing ? "Reintentando conexión..." : "Reintentar conexión"}
                   </Text>
                 </Pressable>
               ) : null}
