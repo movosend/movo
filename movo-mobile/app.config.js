@@ -249,7 +249,21 @@ module.exports = {
         },
       ],
       "expo-font",
-      "expo-splash-screen",
+      // MOVO-247: sin imagen -- el splash nativo (estático, no puede animar) solo
+      // tapa el hueco entre el arranque del proceso y el primer frame con fuentes
+      // cargadas, momento en el que `AnimatedSplash` (JS, `app/_layout.tsx`) ya
+      // puede tomar la posta con el isotipo real. El color de fondo por tema evita
+      // el flash blanco-a-negro que Android muestra por default en dark mode antes
+      // de ese handoff.
+      [
+        "expo-splash-screen",
+        {
+          backgroundColor: "#FFFFFF",
+          dark: {
+            backgroundColor: "#0A0A0B",
+          },
+        },
+      ],
       "expo-router",
       "@react-native-community/datetimepicker",
       ...(PUSH_NOTIFICATIONS_ENABLED ? ["expo-notifications"] : []),

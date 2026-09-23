@@ -10,6 +10,7 @@ import { usersClient } from "../src/api/users-client";
 import { useRegistration } from "../src/hooks/use-registration";
 import { useThemeColors } from "../src/hooks/use-theme-colors";
 import { useAuthStore } from "../src/store/auth-store";
+import { useBootStore } from "../src/store/boot-store";
 
 export default function WelcomeScreen() {
   const { colorScheme } = useColorScheme();
@@ -35,6 +36,11 @@ export default function WelcomeScreen() {
   const authRefreshToken = useAuthStore((s) => s.refreshToken);
   const isAuthenticatedSession = authStatus === "authenticated" && authUser !== null;
   const authRedirectedRef = useRef(false);
+  // MOVO-247: el splash animado (`app/_layout.tsx`) se queda tapando la app hasta
+  // que esta señal se prende -- recién ahí sabe que la navegación de arranque (a
+  // Home/Kyc, si correspondía) ya se disparó, así nunca deja ver esta pantalla
+  // seguida de un push visible hacia el destino real.
+  const markInitialRouteResolved = useBootStore((s) => s.markInitialRouteResolved);
 
   useEffect(() => {
     if (!isAuthenticatedSession || !authUser || authRedirectedRef.current) return;
@@ -42,6 +48,7 @@ export default function WelcomeScreen() {
 
     if (authUser.kycStatus === KycStatus.APPROVED) {
       router.replace("/home");
+      markInitialRouteResolved();
       return;
     }
 
@@ -52,6 +59,7 @@ export default function WelcomeScreen() {
         if (fresh.kycStatus === KycStatus.APPROVED) {
           await useAuthStore.getState().updateKycStatus(KycStatus.APPROVED);
           router.replace("/home");
+          markInitialRouteResolved();
           return;
         }
       } catch {
@@ -65,8 +73,9 @@ export default function WelcomeScreen() {
         kycStatus: authUser.kycStatus,
       });
       router.replace("/kyc");
+      markInitialRouteResolved();
     })();
-  }, [isAuthenticatedSession, authUser, authAccessToken, authRefreshToken, registration]);
+  }, [isAuthenticatedSession, authUser, authAccessToken, authRefreshToken, registration, markInitialRouteResolved]);
 
   // AC7 (MOVO-73): si ya hay una cuenta creada que **nunca llegó a intentar** el KYC
   // (`RegistrationProvider` vive en `app/_layout.tsx`, por fuera de esta pantalla, así
@@ -86,8 +95,23 @@ export default function WelcomeScreen() {
   useEffect(() => {
     if (resumeChecked && shouldAutoRedirect) {
       router.replace("/kyc");
+      markInitialRouteResolved();
     }
-  }, [resumeChecked, shouldAutoRedirect]);
+  }, [resumeChecked, shouldAutoRedirect, markInitialRouteResolved]);
+
+  // Camino "no hay nada que redirigir" -- esta misma pantalla de Bienvenida es el
+  // destino final. `authStatus !== "checking"` importa acá: sin este chequeo,
+  // `isAuthenticatedSession` todavía lee `false` mientras la sesión sigue
+  // restaurándose (MOVO-247 montó este árbol apenas hay fuentes, ya no espera a
+  // `sessionChecked` como antes) y esta rama marcaría "resuelto" un instante
+  // antes de que el efecto de arriba redirija a Home/Kyc -- el splash se
+  // revelaría sobre la Bienvenida para de inmediato saltar, el "push" que este
+  // ticket vino a sacar.
+  useEffect(() => {
+    if (resumeChecked && authStatus !== "checking" && !shouldAutoRedirect && !isAuthenticatedSession) {
+      markInitialRouteResolved();
+    }
+  }, [resumeChecked, authStatus, shouldAutoRedirect, isAuthenticatedSession, markInitialRouteResolved]);
 
   if (!resumeChecked || shouldAutoRedirect || isAuthenticatedSession) {
     return (

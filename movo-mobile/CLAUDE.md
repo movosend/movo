@@ -3327,3 +3327,78 @@ Pantalla completa de itinerario y mapa de ruta optimizada para el transportista 
 - **Cliente HTTP consistente**: `shipmentsClient.getMyRoute` utiliza el objeto `query` de `httpClient.get` y `getById` mantiene aislamiento estricto sin scope creep de demo.
 
 - **Compatibilidad con MOVO-235 (`tripId`)**: `shipmentsClient.getMyRoute(coords, tripId?)` y `useOptimizedRoute(tripId?)` preparados para aceptar opcionalmente un `tripId` (por parámetro y por query param en `/route?tripId=...`), manteniendo retrocompatibilidad total si no se envía.
+
+### MOVO-247 — Splash screen animado (opción "1A · Expansión", Claude Design)
+
+Reemplaza el splash "horrible" que había hasta acá: un `expo-splash-screen` nativo
+sin imagen (fondo en blanco, sin marca) seguido de un `ActivityIndicator` genérico
+en `app/index.tsx` mientras se resolvía la sesión, y encima un salto visible ("push")
+si esa resolución terminaba mandando a Home/Kyc — se veía la pantalla de Bienvenida
+un instante antes de la navegación automática. Implementación fiel a la opción "1a ·
+Expansión" del prototipo de Claude Design (proyecto "Launch screen con animación de
+logo", leído vía `DesignSync` — el isotipo respira en grises mientras carga, se
+enciende en lime de adentro hacia afuera y se expande desde el centro revelando la
+app).
+
+- **`components/splash/animated-splash.tsx` (nuevo)**: no es una traducción literal
+  del `clip-path` que arma el `.dc.html` del prototipo — `react-native-svg` no lo
+  aplica de forma confiable (mismo gotcha ya documentado en `app/(auth)/kyc.tsx`
+  para un `<image>` recortado). En su lugar, cada uno de los 4 anillos del isotipo
+  (mismos radios relativos que `MovoIsotype`) apila 3 discos planos (base gris,
+  resalte de "respiración", lime de salida) que se cross-fadean por opacidad —
+  matemáticamente equivalente al `lerp` de color del mock (alpha-blend de un color
+  sólido sobre otro) sin depender de `interpolateColor`. El "revelado" final tampoco
+  es un clip-path creciente sobre la app: es un fundido a opacidad 0 de TODO el
+  overlay una vez que el conjunto ya terminó de expandirse — la app real ya está
+  montada y navegada detrás (ver el punto de "sin push" más abajo), así que un fundido
+  simple alcanza y es mucho más robusto que intentar clonar el `clip-path` del mock.
+- **Nota de consistencia de color del ticket (AC5), resuelta sin excepción real**: el
+  prototipo ya trae dos variantes propias (light/dark) — el splash sigue el
+  `colorScheme` del sistema igual que el resto de la app (MOVO-73), sin ningún
+  conflicto real con el manual de marca que negociar.
+- **Sin push visible (arquitectura de boot)**: antes, `app/_layout.tsx` montaba TODO
+  el árbol (incluido `<Stack>`) recién cuando fuentes+apiOverride+sesión estaban
+  listos, y solo ahí `app/index.tsx` arrancaba a resolver a dónde navegar — con el
+  splash nativo ya escondido en ese momento, el usuario veía la Bienvenida un
+  instante antes del salto. Ahora el árbol real se monta apenas hay fuentes
+  (`fontsLoaded`, lo único que el propio `AnimatedSplash` necesita para su wordmark)
+  y el splash JS quedó como overlay encima de `<Stack>`, tapando esa resolución
+  mientras corre detrás. `src/store/boot-store.ts` (`useBootStore`, Zustand chico
+  nuevo) expone `initialRouteResolved`, que `app/index.tsx` prende recién cuando ya
+  llamó (o decidió no llamar) a `router.replace` — el splash no empieza su salida
+  hasta que esa señal, más fuentes/apiOverride/sesión, estén todas en `true`
+  (`bootReady`). Cuidado documentado inline: `app/index.tsx` no puede marcar
+  "resuelto" apoyándose solo en `resumeChecked`/`!isAuthenticatedSession` — mientras
+  `authStatus` sigue en `"checking"` esa combinación da un falso negativo (todavía no
+  se sabe si hay sesión) y revelaría la Bienvenida un instante antes de que el efecto
+  de arriba redirija.
+- **`LegalAcceptanceEntryMount` (MOVO-229) retrasado hasta que el splash ya
+  terminó**: `LegalEntrySheet` se presenta con el `Modal` nativo de RN (una capa por
+  fuera del árbol de views normal) — si se montara antes, podría aparecer POR ENCIMA
+  del splash a mitad de su animación en vez de quedar detrás, sin relación con el
+  z-order de JSX que sí respeta el resto del árbol.
+- **Pedido explícito del usuario: mínimo ~3s de animación visible** aunque el boot
+  real termine antes (para poder apreciar el efecto) — implementado redondeando ese
+  piso hacia arriba al próximo múltiplo del período de respiración (1.6s, tomado del
+  prototipo) en vez de cortar a mitad de un pulso, mismo criterio que el propio mock
+  documenta ("la salida siempre espera a que el loop termine su ciclo").
+- **`app.config.js`**: el plugin `expo-splash-screen` gana `backgroundColor`/
+  `dark.backgroundColor` (antes sin config, fondo en blanco fijo sin importar el
+  tema) — ese splash nativo estático solo tiene que tapar el hueco hasta que hay
+  fuentes cargadas, así que ya no necesita imagen propia.
+
+Tests nuevos: `test/animated-splash.test.tsx` (se mantiene tapando mientras `ready`
+es `false`, nunca termina antes de ~3s aunque `ready` sea `true` desde el arranque,
+reintenta en el próximo límite de ciclo si `ready` llega tarde, limpia su timer al
+desmontar), `test/boot-store.test.ts`, `test/welcome-screen.test.tsx` (primer test de
+`app/index.tsx` en el repo — cubre puntualmente la señal `initialRouteResolved` en
+los 5 caminos de boot, no el contenido visual ya cubierto por los tests de
+`welcome-go-register`/etc. de otras US). 147/147 suites, 1187/1187 tests en
+`movo-mobile`. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: validado solo con el mock oficial de Reanimated (el
+DoD del ticket pide validar en iOS y Android reales, no verificable en este entorno);
+sin imagen propia para el splash nativo estático (decisión tomada acá, ver arriba) —
+si más adelante se decide exportar un PNG del isotipo en reposo para ese frame
+inicial, es un cambio acotado a `app.config.js` + el asset, sin tocar
+`AnimatedSplash`.
