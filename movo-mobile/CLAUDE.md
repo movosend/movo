@@ -3600,16 +3600,21 @@ transporte activo (fase 1: foreground + offline FIFO):
 - **UI Components**:
   - `components/location/tracking-permission-modal.tsx`: Modal explicativo que
     antecede al diálogo del sistema operativo (AC4).
-  - `components/location/tracking-active-indicator.tsx`: Pill flotante reactiva que
-    muestra si se está transmitiendo en vivo, si faltan permisos o si hay posiciones
-    en cola offline esperando red, con modal de detalle y botón de sincronización manual (AC8).
+  - `components/location/tracking-active-indicator.tsx`: Banner/pill informativo reactivo
+    que comunica si se está transmitiendo en vivo ("X envíos pendientes de entrega"),
+    si el permiso fue denegado (abre modal explicativo) o si no hay red ("Sin conexión
+    a internet"), ajustado a ancho completo en Home y márgenes estándar en Transportar (AC8).
   - Integrado en `app/(app)/(tabs)/home.tsx` y `app/(app)/(tabs)/transport.tsx`.
+- **Herramientas de desarrollo (`__DEV__`)**:
+  - `app/dev-shortcuts.tsx` y `components/dev/DevShortcutsScreen.tsx`: pantalla centralizada
+    de atajos dev exclusivamente disponible en desarrollo, incluyendo simulación de tracking
+    con envío de prueba y traslado del disparador de demo de ruta.
 - **`app.config.js`**: Justificaciones de uso de ubicación en primer plano redactadas
   específicamente para la experiencia de entrega en tiempo real.
 
 Tests nuevos:
 - `test/location-service.test.ts` (9 tests)
 - `test/use-carrier-tracking.test.tsx` (3 tests)
-- `test/tracking-components.test.tsx` (7 tests)
-Total: 19/19 tests en verde. Typecheck `npx tsc --noEmit` limpio sin errores.
+- `test/tracking-components.test.tsx` (8 tests)
+Total: 20/20 tests en verde. Typecheck `npx tsc --noEmit` limpio sin errores.
 
