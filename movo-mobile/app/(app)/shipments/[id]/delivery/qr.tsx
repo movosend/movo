@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
-import { ScrollView, View } from "react-native";
+import { View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { HandshakeQrCard } from "../../../../../components/handshake/handshake-qr-card";
@@ -21,8 +21,8 @@ import { useDeliveryResult } from "./_layout";
  * `initialStage="delivery"` fijo -- no hace falta que el backend lo re-infiera acá,
  * ya se sabe por el gate del `_layout` (`status === IN_TRANSIT`).
  *
- * Countdown de 15s con regeneración manual ilimitada (AC5, ya implementado en el
- * hook). El polling propio del hook detecta la confirmación del receptor
+ * El QR se renueva solo antes de vencer (TTL de 15s del backend), sin countdown
+ * visible -- el reintento manual queda solo para errores. El polling propio del hook detecta la confirmación del receptor
  * (`IN_TRANSIT → DELIVERED`/`COMPLETED`) y dispara `onConfirmed` -- AC6, navegación
  * automática al paso 5 sin acción del transportista.
  *
@@ -95,7 +95,7 @@ function DeliveryQrContent({
   onConfirmed: (shipment: ShipmentSummary) => void;
   onEvidenceMissing: () => void;
 }) {
-  const { qrPayload, secondsLeft, totalSeconds, progressPercent, isExpiringSoon, isExpired, status, error, regenerate } =
+  const { qrPayload, status, error, regenerate } =
     useHandshakeQr({
       shipmentId,
       initialStage: "delivery",
@@ -104,24 +104,21 @@ function DeliveryQrContent({
     });
 
   return (
-    <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
+    <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
       <WizardStepHeader testIDPrefix="delivery-qr" title="Generá el código" step={4} totalSteps={5} onBack={() => router.back()} />
-      <ScrollView contentContainerClassName="flex-1 items-center justify-center px-5 py-6" showsVerticalScrollIndicator={false}>
+      {/* Sin ScrollView: el contenido entra en pantalla y un View plano garantiza que
+          el área del QR ocupe todo el alto restante para centrarlo de verdad. */}
+      <View className="flex-1 px-5 pb-6">
         <HandshakeQrCard
           testID="delivery-qr-card"
           qrPayload={qrPayload}
-          secondsLeft={secondsLeft}
-          totalSeconds={totalSeconds}
-          progressPercent={progressPercent}
-          isExpiringSoon={isExpiringSoon}
-          isExpired={isExpired}
           isGenerating={status === "generating"}
           error={error}
           counterpartName={counterpartName}
           stage="delivery"
           onRegenerate={regenerate}
         />
-      </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }

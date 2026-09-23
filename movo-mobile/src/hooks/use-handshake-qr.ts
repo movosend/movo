@@ -15,7 +15,6 @@ export type HandshakeQrStatus =
   | "idle"
   | "generating"
   | "active"
-  | "expired"
   | "confirmed"
   | "error";
 
@@ -39,21 +38,30 @@ export interface UseHandshakeQrResult {
   status: HandshakeQrStatus;
   qrPayload: string | null;
   stage: "pickup" | "delivery" | null;
-  secondsLeft: number;
-  totalSeconds: number;
-  progressPercent: number;
-  isExpiringSoon: boolean;
-  isExpired: boolean;
   error: string | null;
   confirmedShipment: ShipmentSummary | null;
   deviceKeyStatus: ReturnType<typeof useDeviceKeyBootstrap>["status"];
   retryDeviceKey: () => void;
+  /** Reintento manual tras un error. En el camino feliz no hace falta: el QR se
+   * renueva solo antes de vencer. */
   regenerate: () => Promise<void>;
 }
 
 export const HANDSHAKE_QR_DEFAULT_TTL = 15;
 const DEFAULT_POLLING_INTERVAL_MS = 2500;
+/** Cuánto antes del vencimiento se pide el nonce siguiente. Generar implica GPS +
+ * request + firma (~1s en condiciones normales); con este margen el QR nuevo
+ * reemplaza al viejo antes de que el backend lo dé por vencido, sin que la pantalla
+ * pase nunca por un estado "expirado". */
+export const HANDSHAKE_QR_REFRESH_LEAD_MS = 3000;
 
+/**
+ * QR de transferencia de custodia del cedente (MOVO-159). Genera el nonce, lo firma
+ * con la clave del dispositivo y lo **renueva solo** antes de que venza (TTL de 15s
+ * del backend): mientras se pide el siguiente, se sigue mostrando el actual, así que
+ * para el usuario el QR siempre está vigente, sin countdown ni botón de regenerar.
+ * Solo un error (GPS, distancia, red) corta la renovación y pide un reintento manual.
+ */
 export function useHandshakeQr({
   shipmentId,
   initialStage,
@@ -66,21 +74,25 @@ export function useHandshakeQr({
   const [status, setStatus] = useState<HandshakeQrStatus>("idle");
   const [qrPayload, setQrPayload] = useState<string | null>(null);
   const [stage, setStage] = useState<"pickup" | "delivery" | null>(initialStage ?? null);
-  const [totalSeconds, setTotalSeconds] = useState<number>(HANDSHAKE_QR_DEFAULT_TTL);
-  const [secondsLeft, setSecondsLeft] = useState<number>(HANDSHAKE_QR_DEFAULT_TTL);
   const [error, setError] = useState<string | null>(null);
   const [confirmedShipment, setConfirmedShipment] = useState<ShipmentSummary | null>(null);
 
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isGeneratingRef = useRef(false);
+  const isConfirmedRef = useRef(false);
+  // Una generación en vuelo al desmontar no debe agendar otra renovación.
+  const isUnmountedRef = useRef(false);
   const currentStageRef = useRef<"pickup" | "delivery" | null>(initialStage ?? null);
   currentStageRef.current = stage;
+  // `generate` se agenda a sí mismo para la próxima renovación; el ref evita que el
+  // timeout capture una versión vieja del callback.
+  const generateRef = useRef<(silent: boolean) => Promise<void>>(async () => {});
 
-  const clearTimer = useCallback(() => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
+  const clearRefreshTimer = useCallback(() => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
     }
   }, []);
 
@@ -91,174 +103,148 @@ export function useHandshakeQr({
     }
   }, []);
 
-  const handleExpiration = useCallback(() => {
-    clearTimer();
-    clearPolling();
-    setStatus("expired");
-    setSecondsLeft(0);
-  }, [clearTimer, clearPolling]);
+  const startPolling = useCallback(() => {
+    if (pollingRef.current) return;
+    pollingRef.current = setInterval(async () => {
+      try {
+        const freshShipment = await shipmentsClient.getById(shipmentId);
+        const st = currentStageRef.current;
 
-  const generate = useCallback(async () => {
-    if (isGeneratingRef.current) return;
-    isGeneratingRef.current = true;
-    clearTimer();
-    clearPolling();
-    setError(null);
-    setStatus("generating");
+        const isNowConfirmed =
+          (st === "pickup" && freshShipment.status === ShipmentStatus.IN_TRANSIT) ||
+          (st === "delivery" &&
+            (freshShipment.status === ShipmentStatus.DELIVERED ||
+              freshShipment.status === ShipmentStatus.COMPLETED));
 
-    try {
-      // 1. Verificar GPS
-      const location = await getCurrentLocation();
-      if (!location.granted) {
+        if (isNowConfirmed && !isConfirmedRef.current) {
+          isConfirmedRef.current = true;
+          clearRefreshTimer();
+          clearPolling();
+          setStatus("confirmed");
+          setConfirmedShipment(freshShipment);
+          onConfirmed?.(freshShipment);
+        }
+      } catch {
+        // El polling ignora fallos esporádicos de red
+      }
+    }, pollingIntervalMs);
+  }, [shipmentId, pollingIntervalMs, clearRefreshTimer, clearPolling, onConfirmed]);
+
+  const generate = useCallback(
+    async (silent: boolean) => {
+      if (isGeneratingRef.current || isConfirmedRef.current) return;
+      isGeneratingRef.current = true;
+      clearRefreshTimer();
+      // Una renovación silenciosa deja el QR actual en pantalla (sigue vigente unos
+      // segundos más); solo la primera generación o un reintento muestran el spinner.
+      if (!silent) {
+        setError(null);
+        setStatus("generating");
+      }
+
+      try {
+        const location = await getCurrentLocation();
+        if (!location.granted) {
+          throw new LocationDeniedError();
+        }
+
+        const generated: GenerateHandshakeResult = await shipmentsClient.generateHandshake(
+          shipmentId,
+          { lat: location.lat, lng: location.lng },
+        );
+
+        setStage(generated.stage);
+        currentStageRef.current = generated.stage;
+
+        const signature = await signHandshakeNonce(generated.canonicalPayload);
+
+        // Payload JSON convenido con el receptor (MOVO-160)
+        const payloadString = JSON.stringify({
+          shipmentId: generated.shipmentId,
+          nonce: generated.nonce,
+          signature,
+        });
+
+        if (isConfirmedRef.current || isUnmountedRef.current) return;
+
+        setQrPayload(payloadString);
+        setStatus("active");
+        startPolling();
+
+        // Próxima renovación anclada al expiresAt autoritativo del backend (mitiga
+        // desfasaje de reloj y latencia de red); fallback al TTL si no viene.
+        const ttl = generated.ttlSeconds || HANDSHAKE_QR_DEFAULT_TTL;
+        const parsedExpiresAt = generated.expiresAt ? new Date(generated.expiresAt).getTime() : NaN;
+        const expiryTimestamp = !isNaN(parsedExpiresAt) ? parsedExpiresAt : Date.now() + ttl * 1000;
+        const refreshInMs = Math.max(0, expiryTimestamp - Date.now() - HANDSHAKE_QR_REFRESH_LEAD_MS);
+
+        refreshTimerRef.current = setTimeout(() => {
+          void generateRef.current(true);
+        }, refreshInMs);
+      } catch (err: unknown) {
+        clearRefreshTimer();
+        clearPolling();
+        // AC7: `DELIVERY_EVIDENCE_MISSING`/`PICKUP_EVIDENCE_MISSING` no son un error a
+        // mostrar acá -- el caller decide volver al paso de evidencia. Status
+        // deliberadamente NO vuelve a "idle" acá: el efecto de disparo automático
+        // reintentaría `generate()` en loop contra el mismo motivo mientras el
+        // `router.replace` del caller todavía no desmontó este componente.
+        if (
+          err instanceof ApiError &&
+          (err.code === "DELIVERY_EVIDENCE_MISSING" || err.code === "PICKUP_EVIDENCE_MISSING") &&
+          onEvidenceMissing
+        ) {
+          onEvidenceMissing();
+          return;
+        }
+        // Un QR que ya no se puede renovar se saca de pantalla: dejarlo visible
+        // haría creer que sigue sirviendo cuando en segundos el backend lo rechaza.
+        setQrPayload(null);
         setStatus("error");
-        setError("Necesitamos tu ubicación GPS para generar el código QR de entrega segura.");
-        return;
-      }
-
-      // 2. Llamar a POST /shipments/:id/handshake/generate
-      const generated: GenerateHandshakeResult = await shipmentsClient.generateHandshake(
-        shipmentId,
-        { lat: location.lat, lng: location.lng },
-      );
-
-      setStage(generated.stage);
-      currentStageRef.current = generated.stage;
-
-      // 3. Firmar el payload canónico client-side (MOVO-195)
-      const signature = await signHandshakeNonce(generated.canonicalPayload);
-
-      // 4. Armar el payload JSON convenido para el QR (MOVO-160)
-      const payloadString = JSON.stringify({
-        shipmentId: generated.shipmentId,
-        nonce: generated.nonce,
-        signature,
-      });
-
-      const ttl = generated.ttlSeconds || HANDSHAKE_QR_DEFAULT_TTL;
-      setQrPayload(payloadString);
-      setTotalSeconds(ttl);
-
-      // Iniciar cuenta regresiva usando el expiresAt autoritativo del backend
-      const parsedExpiresAt = generated.expiresAt
-        ? new Date(generated.expiresAt).getTime()
-        : NaN;
-      const expiryTimestamp = !isNaN(parsedExpiresAt)
-        ? parsedExpiresAt
-        : Date.now() + ttl * 1000;
-
-      const initialRemainingMs = expiryTimestamp - Date.now();
-      const initialRemainingSecs = Math.max(0, Math.min(ttl, Math.ceil(initialRemainingMs / 1000)));
-
-      setSecondsLeft(initialRemainingSecs);
-
-      if (initialRemainingSecs <= 0) {
-        handleExpiration();
-        return;
-      }
-
-      setStatus("active");
-
-      // Iniciar cuenta regresiva sincronizada con el backend (15s a 0s)
-      timerRef.current = setInterval(() => {
-        const remainingMs = expiryTimestamp - Date.now();
-        const remSecs = Math.max(0, Math.ceil(remainingMs / 1000));
-        setSecondsLeft(remSecs);
-
-        if (remSecs <= 0) {
-          handleExpiration();
+        if (err instanceof LocationDeniedError) {
+          setError("Necesitamos tu ubicación GPS para generar el código QR de entrega segura.");
+        } else if (err instanceof ApiError && err.code === "HANDSHAKE_DISTANCE_EXCEEDED") {
+          setError("La distancia entre ambos supera el límite permitido (100 m). Acérquense para confirmar.");
+        } else {
+          setError(friendlyErrorMessage(err, "No pudimos generar el código QR. Intentá de nuevo."));
         }
-      }, 500);
-
-      // Iniciar polling para detectar confirmación de la contraparte
-      pollingRef.current = setInterval(async () => {
-        try {
-          const freshShipment = await shipmentsClient.getById(shipmentId);
-          const st = currentStageRef.current;
-
-          const isNowConfirmed =
-            (st === "pickup" && freshShipment.status === ShipmentStatus.IN_TRANSIT) ||
-            (st === "delivery" &&
-              (freshShipment.status === ShipmentStatus.DELIVERED ||
-                freshShipment.status === ShipmentStatus.COMPLETED));
-
-          if (isNowConfirmed) {
-            clearTimer();
-            clearPolling();
-            setStatus("confirmed");
-            setConfirmedShipment(freshShipment);
-            onConfirmed?.(freshShipment);
-          }
-        } catch {
-          // El polling ignora fallos esporádicos de red
-        }
-      }, pollingIntervalMs);
-    } catch (err: unknown) {
-      clearTimer();
-      clearPolling();
-      // AC7: `DELIVERY_EVIDENCE_MISSING`/`PICKUP_EVIDENCE_MISSING` no son un error a
-      // mostrar acá -- el caller decide volver al paso de evidencia. Status
-      // deliberadamente NO vuelve a "idle" acá: el efecto de disparo automático
-      // reintentaría `generate()` en loop contra el mismo motivo mientras el
-      // `router.replace` del caller todavía no desmontó este componente.
-      if (
-        err instanceof ApiError &&
-        (err.code === "DELIVERY_EVIDENCE_MISSING" || err.code === "PICKUP_EVIDENCE_MISSING") &&
-        onEvidenceMissing
-      ) {
-        onEvidenceMissing();
-        return;
+      } finally {
+        isGeneratingRef.current = false;
       }
-      setStatus("error");
-      if (err instanceof ApiError && err.code === "HANDSHAKE_DISTANCE_EXCEEDED") {
-        setError("La distancia entre ambos supera el límite permitido (100 m). Acérquense para confirmar.");
-      } else {
-        setError(friendlyErrorMessage(err, "No pudimos generar el código QR. Intentá de nuevo."));
-      }
-    } finally {
-      isGeneratingRef.current = false;
-    }
-  }, [
-    shipmentId,
-    clearTimer,
-    clearPolling,
-    handleExpiration,
-    onConfirmed,
-    onEvidenceMissing,
-    pollingIntervalMs,
-  ]);
+    },
+    [shipmentId, clearRefreshTimer, clearPolling, startPolling, onEvidenceMissing],
+  );
+  generateRef.current = generate;
+
+  const regenerate = useCallback(() => generate(false), [generate]);
 
   // Disparo automático inicial si la clave está lista
   useEffect(() => {
     if (deviceKey.status === "ready" && status === "idle") {
-      void generate();
+      void generate(false);
     }
   }, [deviceKey.status, status, generate]);
 
   // Limpieza al desmontar
   useEffect(() => {
+    isUnmountedRef.current = false;
     return () => {
-      clearTimer();
+      isUnmountedRef.current = true;
+      clearRefreshTimer();
       clearPolling();
     };
-  }, [clearTimer, clearPolling]);
-
-  const isExpired = status === "expired" || secondsLeft <= 0;
-  const isExpiringSoon = secondsLeft <= 5 && !isExpired && status === "active";
-  const progressPercent = Math.max(0, Math.min(100, (secondsLeft / totalSeconds) * 100));
+  }, [clearRefreshTimer, clearPolling]);
 
   return {
     status,
     qrPayload,
     stage,
-    secondsLeft,
-    totalSeconds,
-    progressPercent,
-    isExpiringSoon,
-    isExpired,
     error,
     confirmedShipment,
     deviceKeyStatus: deviceKey.status,
     retryDeviceKey: deviceKey.retry,
-    regenerate: generate,
+    regenerate,
   };
 }
+
+class LocationDeniedError extends Error {}

@@ -66,11 +66,6 @@ describe("ShipmentHandshakeScreen (MOVO-159)", () => {
     status: "active",
     qrPayload: JSON.stringify({ shipmentId: "shp-abc-123", nonce: "n-1", signature: "s-1" }),
     stage: "pickup",
-    secondsLeft: 15,
-    totalSeconds: 15,
-    progressPercent: 100,
-    isExpiringSoon: false,
-    isExpired: false,
     error: null,
     confirmedShipment: null,
     deviceKeyStatus: "ready",
@@ -99,7 +94,7 @@ describe("ShipmentHandshakeScreen (MOVO-159)", () => {
 
     expect(getByText("Confirmar retiro")).toBeTruthy();
     expect(getByTestId("handshake-qr-code")).toBeTruthy();
-    expect(getByText("00:15")).toBeTruthy();
+    expect(getByTestId("handshake-qr-auto-refresh-hint")).toBeTruthy();
     // Subtítulo con nombre de contraparte
     expect(getByText(/Lucas tiene que escanear este QR/)).toBeTruthy();
 
