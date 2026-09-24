@@ -165,6 +165,7 @@ jest.mock("../app/(app)/shipments/[id]/delivery/_layout", () => {
 import DeliveryWizardLayout from "../app/(app)/shipments/[id]/delivery/_layout";
 import DeliveryGeoScreen from "../app/(app)/shipments/[id]/delivery/index";
 import DeliveryResumenScreen from "../app/(app)/shipments/[id]/delivery/resumen";
+import DeliveryScanNoticeScreen from "../app/(app)/shipments/[id]/delivery/aviso";
 import DeliveryEvidenceScreen from "../app/(app)/shipments/[id]/delivery/evidence";
 import DeliveryQrScreen from "../app/(app)/shipments/[id]/delivery/qr";
 import DeliverySuccessScreen from "../app/(app)/shipments/[id]/delivery/success";
@@ -286,23 +287,53 @@ describe("delivery/resumen (paso 2)", () => {
   });
   afterEach(() => jest.clearAllMocks());
 
-  it("muestra el punto de entrega, el receptor, el aviso de escaneo y el paquete", async () => {
+  it("muestra el punto de entrega, el receptor y el paquete", async () => {
     const { getByTestId } = await render(<DeliveryResumenScreen />);
 
     expect(getByTestId("delivery-resumen-receiver")).toBeTruthy();
     expect(getByTestId("delivery-resumen-package")).toBeTruthy();
-    expect(getByTestId("delivery-resumen-scan-notice")).toBeTruthy();
   });
 
-  it("'Empezar la entrega' navega directo a evidencia (sin paso de aviso de QR, a diferencia de pickup)", async () => {
+  it("'Empezar la entrega' navega al paso de aviso al receptor", async () => {
     const { getByTestId } = await render(<DeliveryResumenScreen />);
 
     await act(async () => fireEvent.press(getByTestId("delivery-resumen-continue")));
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-1/delivery/aviso");
+  });
+});
+
+describe("delivery/aviso (paso 3: avisarle al receptor que abra la app)", () => {
+  beforeEach(() => {
+    mockUseShipment.mockReturnValue({ data: shipment(), isLoading: false, isError: false });
+  });
+  afterEach(() => {
+    jest.clearAllMocks();
+    mockUsePublicProfile.mockImplementation(() => ({ data: undefined }));
+  });
+
+  it("personaliza el título con el nombre del receptor cuando ya cargó", async () => {
+    mockUsePublicProfile.mockImplementation(() => ({ data: { fullName: "Julia Pérez" } }));
+    const { getByTestId } = await render(<DeliveryScanNoticeScreen />);
+
+    expect(mockUsePublicProfile).toHaveBeenCalledWith("receiver-1");
+    expect(getByTestId("delivery-aviso-title")).toHaveTextContent("Avisale a Julia que abra Movo");
+  });
+
+  it("sin perfil cargado, cae a un título genérico sin bloquear la pantalla", async () => {
+    const { getByTestId } = await render(<DeliveryScanNoticeScreen />);
+
+    expect(getByTestId("delivery-aviso-title")).toHaveTextContent("Avisale al receptor que abra Movo");
+  });
+
+  it("'Entendido' navega a evidencia", async () => {
+    const { getByTestId } = await render(<DeliveryScanNoticeScreen />);
+
+    await act(async () => fireEvent.press(getByTestId("delivery-aviso-continue")));
     expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-1/delivery/evidence");
   });
 });
 
-describe("delivery/evidence (paso 3)", () => {
+describe("delivery/evidence (paso 4)", () => {
   afterEach(() => jest.clearAllMocks());
 
   it("Continuar deshabilitado hasta que el step reporte validez, después navega al QR", async () => {
@@ -318,7 +349,7 @@ describe("delivery/evidence (paso 3)", () => {
   });
 });
 
-describe("delivery/qr (paso 4, AC3/AC5/AC6/AC7 -- el transportista genera, roles invertidos vs. pickup)", () => {
+describe("delivery/qr (paso 5, AC3/AC5/AC6/AC7 -- el transportista genera, roles invertidos vs. pickup)", () => {
   beforeEach(() => {
     mockUseDeliveryResult.mockReturnValue({ result: null, setResult: jest.fn() });
     mockUseShipment.mockReturnValue({ data: shipment(), isLoading: false, isError: false });

@@ -12,7 +12,7 @@ import { usePublicProfile } from "../../../../../src/hooks/use-profile";
 import { useDeliveryResult } from "./_layout";
 
 /**
- * Paso 4 del wizard de entrega (MOVO-199): el transportista GENERA el QR acá (roles
+ * Paso 5 del wizard de entrega (MOVO-199): el transportista GENERA el QR acá (roles
  * invertidos respecto de `pickup/scan.tsx`, donde el transportista escanea el del
  * emisor -- confirmado contra `handshake.service.ts`: en delivery el cedente es el
  * transportista, el receptor de custodia es el receptor del envío). Monta
@@ -24,7 +24,7 @@ import { useDeliveryResult } from "./_layout";
  * El QR se renueva solo antes de vencer (TTL de 15s del backend), sin countdown
  * visible -- el reintento manual queda solo para errores. El polling propio del hook detecta la confirmación del receptor
  * (`IN_TRANSIT → DELIVERED`/`COMPLETED`) y dispara `onConfirmed` -- AC6, navegación
- * automática al paso 5 sin acción del transportista.
+ * automática a la confirmación sin acción del transportista.
  *
  * **`ConfirmHandshakeResult` sintético, no real**: a diferencia de `pickup/scan.tsx`
  * (que llama `confirmHandshake` él mismo y obtiene la respuesta real del servidor),
@@ -105,7 +105,7 @@ function DeliveryQrContent({
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
-      <WizardStepHeader testIDPrefix="delivery-qr" title="Generá el código" step={4} totalSteps={5} onBack={() => router.back()} />
+      <WizardStepHeader testIDPrefix="delivery-qr" title="Generá el código" step={5} totalSteps={5} onBack={() => router.back()} />
       {/* Sin ScrollView: el contenido entra en pantalla y un View plano garantiza que
           el área del QR ocupe todo el alto restante para centrarlo de verdad. */}
       <View className="flex-1 px-5 pb-6">

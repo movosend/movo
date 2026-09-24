@@ -18,20 +18,15 @@ function Eyebrow({ children }: { children: ReactNode }) {
 /**
  * Paso 2 del wizard de entrega (MOVO-199, calcado de `pickup/resumen.tsx`
  * MOVO-198): resumen de la entrega -- dirección, contacto del receptor, datos del
- * paquete. Incluye el copy fijo del AC4 ("el receptor tiene que abrir su app y
- * escanear") -- la fricción más previsible del flujo, resuelta con copy explícito
- * en vez de dejarla implícita, mismo criterio que el AC6 de pickup.
- *
- * A diferencia de pickup, "Empezar la entrega" navega directo a `evidence` (no hay
- * paso de "aviso, pedile el QR" -- acá no hay nada que pedirle a nadie antes de
- * generar el propio QR, el transportista es quien lo genera).
+ * paquete. El aviso del AC4 ("el receptor tiene que abrir su app y escanear") vive
+ * en su propio paso (`aviso.tsx`), igual que el aviso de QR en pickup.
  */
 export default function DeliveryResumenScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: shipment, isLoading, isError } = useShipment(id);
 
   function handleContinue() {
-    router.push(`/shipments/${id}/delivery/evidence`);
+    router.push(`/shipments/${id}/delivery/aviso`);
   }
 
   if (isLoading || !shipment) {
@@ -69,13 +64,6 @@ export default function DeliveryResumenScreen() {
           <Eyebrow>Entrega</Eyebrow>
           <Text className="font-sans-semibold text-[15px] text-fg">
             {shortAddressLabel(shipment.deliveryAddress)}
-          </Text>
-        </View>
-
-        <View className="flex-row items-start gap-3 rounded-[10px] border border-border bg-bg-mute px-4 py-3">
-          <Text testID="delivery-resumen-scan-notice" className="flex-1 font-sans text-small text-fg-2">
-            El receptor tiene que abrir su app y escanear el código que vas a generar
-            en el paso siguiente. Avisale antes de llegar al último paso.
           </Text>
         </View>
 

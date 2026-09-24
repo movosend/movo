@@ -64,7 +64,7 @@ function GateMessage({
  * Gate del wizard de entrega (MOVO-199 AC1, calcado de `pickup/_layout.tsx`
  * MOVO-198): resuelve si el envío está en condiciones reales de iniciar la entrega
  * ANTES de renderizar cualquiera de los pasos del wizard (5 pasos accionables +
- * confirmación: geo/proximidad → resumen → evidencia → QR → éxito). El punto de
+ * confirmación: geo/proximidad → resumen → aviso → evidencia → QR → éxito). El punto de
  * entrada real es el mapa de ruta (`MOVO-207`, `app/(app)/route/index.tsx`) -- por
  * eso cada estado "no listo" explica el motivo real en vez de un error genérico.
  */

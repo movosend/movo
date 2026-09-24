@@ -7,7 +7,7 @@ import { PrimaryButton } from "../../../../../components/auth/primary-button";
 import { WizardStepHeader } from "../../../../../components/shipments/wizard-step-header";
 
 /**
- * Paso 3 del wizard de entrega (MOVO-199, calcado de `pickup/evidence.tsx`
+ * Paso 4 del wizard de entrega (MOVO-199, calcado de `pickup/evidence.tsx`
  * MOVO-198): monta el step reusable de MOVO-197 tal cual, sin tocarlo, con
  * `stage="delivery"` -- ese componente no es dueño de la navegación (documentado en
  * su propio JSDoc), así que el header/botón "Continuar" viven acá.
@@ -21,7 +21,7 @@ export default function DeliveryEvidenceScreen() {
       <WizardStepHeader
         testIDPrefix="delivery-evidence"
         title="Fotos de evidencia"
-        step={3}
+        step={4}
         totalSteps={5}
         onBack={() => (router.canGoBack() ? router.back() : router.replace(`/shipments/${id}/delivery/resumen`))}
       />
