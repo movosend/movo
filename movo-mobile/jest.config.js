@@ -25,5 +25,6 @@ module.exports = {
   moduleNameMapper: {
     "\\.css$": "<rootDir>/test/mocks/style-mock.js",
     "^react-native-maps$": "<rootDir>/test/mocks/react-native-maps-mock.js",
+    "^expo-brightness$": "<rootDir>/test/mocks/expo-brightness-mock.js",
   },
 };

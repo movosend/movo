@@ -62,11 +62,6 @@ export default function ShipmentHandshakeScreen() {
   const {
     status: qrStatus,
     qrPayload,
-    secondsLeft,
-    totalSeconds,
-    progressPercent,
-    isExpiringSoon,
-    isExpired,
     error: qrError,
     confirmedShipment,
     deviceKeyStatus,
@@ -146,6 +141,7 @@ export default function ShipmentHandshakeScreen() {
 
       <ScrollView
         contentContainerClassName="px-5 py-6 gap-5"
+        contentContainerStyle={{ flexGrow: 1 }}
         keyboardShouldPersistTaps="handled"
       >
         {/* Advertencia si la clave criptográfica del dispositivo no está lista */}
@@ -168,27 +164,14 @@ export default function ShipmentHandshakeScreen() {
             message={friendlyErrorMessage(shipmentError, "No pudimos cargar este envío.")}
           />
         ) : (
-          /* Tarjeta Principal del QR con Countdown */
+          /* QR con renovación automática */
           <HandshakeQrCard
             qrPayload={qrPayload}
-            secondsLeft={secondsLeft}
-            totalSeconds={totalSeconds}
-            progressPercent={progressPercent}
-            isExpiringSoon={isExpiringSoon}
-            isExpired={isExpired}
             isGenerating={qrStatus === "generating"}
             error={qrError}
             counterpartName={counterpartFirstName}
             stage={stage}
             onRegenerate={regenerate}
-            onSimulateScan={
-              __DEV__
-                ? () => {
-                    // Simular escaneo confirmando localmente en dev
-                    void refetchShipment();
-                  }
-                : undefined
-            }
           />
         )}
       </ScrollView>

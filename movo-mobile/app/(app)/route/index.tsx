@@ -268,10 +268,10 @@ export default function OptimizedRouteScreen() {
     if (stop.shipmentId.startsWith("demo-")) {
       return;
     }
-    // La entrega no tiene wizard todavía (MOVO-199): el CTA queda deshabilitado
-    // (`isActionDisabled`), esto es solo defensa por si igual llega el press.
     if (stop.type === "pickup") {
       router.push(`/shipments/${stop.shipmentId}/pickup`);
+    } else {
+      router.push(`/shipments/${stop.shipmentId}/delivery`);
     }
   };
 
@@ -409,7 +409,6 @@ export default function OptimizedRouteScreen() {
               onSelectStop={handleSelectStop}
               onPressShipment={handlePressShipment}
               onPressAction={handlePressStopAction}
-              isActionDisabled={(stop) => stop.type === "delivery"}
               isRefreshing={isRefreshing}
               onRefresh={() => void refetch()}
               isExpanded={isListExpanded}

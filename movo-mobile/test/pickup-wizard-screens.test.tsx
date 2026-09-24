@@ -66,8 +66,9 @@ let mockProximity = {
   currentLocation: null as { lat: number; lng: number } | null,
   check: mockCheck,
 };
-jest.mock("../src/hooks/use-pickup-proximity-check", () => ({
-  usePickupProximityCheck: () => mockProximity,
+jest.mock("../src/hooks/use-proximity-check", () => ({
+  useProximityCheck: () => mockProximity,
+  PROXIMITY_THRESHOLD_METERS: 100,
 }));
 
 jest.mock("../components/shipments/counterpart-card", () => {
@@ -188,6 +189,19 @@ describe("_layout (gate del wizard de retiro, AC1)", () => {
     expect(getByTestId("pickup-wizard-already-done")).toBeTruthy();
   });
 
+  it("una vez en ready, un refetch que ve already_done antes de guardar el resultado no desmonta los pasos", async () => {
+    mockUsePickupWizard.mockReturnValue({ gate: "ready" });
+
+    const { getByTestId, queryByTestId, rerender } = await render(<PickupWizardLayout />);
+
+    // Sin tocar el Stack (sin resultado guardado): el envío avanzó por otro camino.
+    mockUsePickupWizard.mockReturnValue({ gate: "already_done" });
+    await rerender(<PickupWizardLayout />);
+
+    expect(getByTestId("pickup-layout-stack")).toBeTruthy();
+    expect(queryByTestId("pickup-wizard-already-done")).toBeNull();
+  });
+
   it("ya confirmado en esta sesión: el gate en vivo (already_done) no pisa la pantalla de éxito", async () => {
     mockUsePickupWizard.mockReturnValue({ gate: "ready" });
 
@@ -262,7 +276,9 @@ describe("pickup/index (paso 1: ubicación, AC4)", () => {
     const { getByTestId } = await render(<PickupGeoScreen />);
 
     expect(getByTestId("pickup-geo-map")).toBeTruthy();
-    expect(getByTestId("pickup-geo-map-pickup-marker")).toBeTruthy();
+    // testID genérico tras la extracción a `ProximityGeoScreen` (MOVO-199): antes
+    // "pickup-geo-map-pickup-marker", ahora "-target-marker" (compartido con delivery).
+    expect(getByTestId("pickup-geo-map-target-marker")).toBeTruthy();
     expect(getByTestId("pickup-geo-map-you-marker")).toBeTruthy();
   });
 
@@ -376,6 +392,25 @@ describe("pickup/scan (paso 5, AC3/AC9)", () => {
 
     expect(getByTestId("pickup-redirect")).toHaveTextContent("/shipments/shipment-1/pickup/evidence");
     expect(queryByTestId("pickup-scan-step")).toBeNull();
+  });
+
+  it("si evidence-status falla sin datos, muestra el error con reintento en vez de redirigir a evidencia", async () => {
+    const mockRefetch = jest.fn();
+    mockUseEvidenceStatus.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      isFetching: false,
+      refetch: mockRefetch,
+    });
+
+    const { getByTestId, queryByTestId } = await render(<PickupScanScreen />);
+
+    expect(queryByTestId("pickup-redirect")).toBeNull();
+    await act(async () => {
+      fireEvent.press(getByTestId("evidence-status-error-retry"));
+    });
+    expect(mockRefetch).toHaveBeenCalled();
   });
 
   it("con evidencia satisfecha, monta HandshakeScanStep", async () => {

@@ -1,28 +1,28 @@
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { AlertCircle, Wallet } from "lucide-react-native";
+import { AlertCircle } from "lucide-react-native";
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { ConfirmHandshakeResult } from "../../../../../src/api/shipments-client";
-import { usePickupWizard } from "../../../../../src/hooks/use-pickup-wizard";
+import { useDeliveryWizard } from "../../../../../src/hooks/use-delivery-wizard";
 import { useThemeColors } from "../../../../../src/hooks/use-theme-colors";
 
 /**
- * Único lugar donde `scan.tsx` deja el resultado del handshake para que
- * `success.tsx` lo muestre (MOVO-198) -- expo-router no serializa bien un objeto
- * completo por query params, y los dos viven siempre bajo el mismo `_layout`, así
- * que un Context acotado a este árbol alcanza sin sumar una dependencia de estado
- * global nueva.
+ * Único lugar donde `qr.tsx` deja el resultado del handshake para que `success.tsx`
+ * lo muestre (MOVO-199, calcado de `PickupResultContext` de MOVO-198) -- expo-router
+ * no serializa bien un objeto completo por query params, y los dos viven siempre
+ * bajo el mismo `_layout`, así que un Context acotado a este árbol alcanza sin sumar
+ * una dependencia de estado global nueva.
  */
-const PickupResultContext = createContext<{
+const DeliveryResultContext = createContext<{
   result: ConfirmHandshakeResult | null;
   setResult: (result: ConfirmHandshakeResult) => void;
 } | null>(null);
 
-export function usePickupResult() {
-  const ctx = useContext(PickupResultContext);
+export function useDeliveryResult() {
+  const ctx = useContext(DeliveryResultContext);
   if (!ctx) {
-    throw new Error("usePickupResult debe usarse dentro de PickupWizardLayout");
+    throw new Error("useDeliveryResult debe usarse dentro de DeliveryWizardLayout");
   }
   return ctx;
 }
@@ -61,23 +61,23 @@ function GateMessage({
 }
 
 /**
- * Gate del wizard de retiro (MOVO-198 AC1): resuelve si el envío está en
- * condiciones reales de iniciar el retiro ANTES de renderizar cualquiera de los
- * pasos del wizard (rediseño: 5 pasos accionables + confirmación, ver
- * `wizard-step-header.tsx`). El punto de entrada real es el mapa de ruta
- * (`MOVO-207`, `app/(app)/route/index.tsx`) -- por eso cada estado "no listo"
- * explica el motivo real en vez de un error genérico.
+ * Gate del wizard de entrega (MOVO-199 AC1, calcado de `pickup/_layout.tsx`
+ * MOVO-198): resuelve si el envío está en condiciones reales de iniciar la entrega
+ * ANTES de renderizar cualquiera de los pasos del wizard (5 pasos accionables +
+ * confirmación: geo/proximidad → resumen → aviso → evidencia → QR → éxito). El punto de
+ * entrada real es el mapa de ruta (`MOVO-207`, `app/(app)/route/index.tsx`) -- por
+ * eso cada estado "no listo" explica el motivo real en vez de un error genérico.
  */
-export default function PickupWizardLayout() {
+export default function DeliveryWizardLayout() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useThemeColors();
-  const { gate: liveGate } = usePickupWizard(id);
+  const { gate: liveGate } = useDeliveryWizard(id);
   const [result, setResult] = useState<ConfirmHandshakeResult | null>(null);
   // El gate solo protege la ENTRADA al wizard: una vez que dio `ready`, queda fijo
   // por el resto de la sesión. Si se reevaluara en vivo, cualquier refetch del envío
-  // que vea `in_transit` (el handshake ya se confirmó) antes de que el paso del QR/escaneo
+  // que vea `delivered` (el handshake ya se confirmó) antes de que el paso del QR/escaneo
   // guarde su resultado pasaría el gate a `already_done`, desmontaría el `<Stack>` y
-  // pisaría la pantalla de éxito con "Ya confirmaste este retiro". Un cambio de estado
+  // pisaría la pantalla de éxito con "Ya confirmaste esta entrega". Un cambio de estado
   // real a mitad del wizard (ej. cancelación) igual lo rechaza el backend al generar
   // o confirmar el handshake.
   const [reachedReady, setReachedReady] = useState(false);
@@ -89,31 +89,18 @@ export default function PickupWizardLayout() {
   if (gate === "loading") {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-bg">
-        <ActivityIndicator testID="pickup-wizard-loading" color={colors.fg2} />
+        <ActivityIndicator testID="delivery-wizard-loading" color={colors.fg2} />
       </SafeAreaView>
-    );
-  }
-
-  if (gate === "unfunded") {
-    return (
-      <GateMessage
-        testID="pickup-wizard-unfunded"
-        icon={<Wallet size={26} color={colors.fg2} strokeWidth={1.8} />}
-        title="Todavía no te toca retirar"
-        body="El retiro es a más de unos días y la reserva de fondos se confirma más cerca de la fecha. Volvé a intentarlo cuando se acerque el horario de retiro."
-        ctaLabel="Volver al envío"
-        onPress={goToDetail}
-      />
     );
   }
 
   if (gate === "already_done") {
     return (
       <GateMessage
-        testID="pickup-wizard-already-done"
+        testID="delivery-wizard-already-done"
         icon={<AlertCircle size={26} color={colors.fg2} strokeWidth={1.8} />}
-        title="Ya confirmaste este retiro"
-        body="El envío ya está en tránsito. No hace falta escanear de nuevo."
+        title="Ya confirmaste esta entrega"
+        body="El envío ya figura como entregado. No hace falta generar el código de nuevo."
         ctaLabel="Ver envío"
         onPress={goToDetail}
       />
@@ -126,13 +113,13 @@ export default function PickupWizardLayout() {
         ? "No pudimos cargar este envío."
         : gate === "not_carrier"
           ? "No sos el transportista asignado a este envío."
-          : "Este envío no está en etapa de retiro.";
+          : "Este envío no está en etapa de entrega.";
 
     return (
       <GateMessage
-        testID="pickup-wizard-blocked"
+        testID="delivery-wizard-blocked"
         icon={<AlertCircle size={26} color={colors.fg2} strokeWidth={1.8} />}
-        title="No podés retirar este envío"
+        title="No podés entregar este envío"
         body={body}
         ctaLabel="Volver"
         onPress={() => (router.canGoBack() ? router.back() : goToDetail())}
@@ -141,8 +128,8 @@ export default function PickupWizardLayout() {
   }
 
   return (
-    <PickupResultContext.Provider value={{ result, setResult }}>
+    <DeliveryResultContext.Provider value={{ result, setResult }}>
       <Stack screenOptions={{ headerShown: false }} />
-    </PickupResultContext.Provider>
+    </DeliveryResultContext.Provider>
   );
 }

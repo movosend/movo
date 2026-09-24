@@ -31,6 +31,14 @@ interface HandshakeConfirmationResultProps {
   /** Default por stage si no se pasa: "Ver la ruta" (retiro) / "Volver al envío"
    * (entrega). */
   ctaLabel?: string;
+  /** CTA secundario, opcional (MOVO-199 AC9: acceso a calificar a la contraparte
+   * desde el éxito de entrega) -- outline, debajo del primario dentro de la misma
+   * hoja. Sin esta prop no se renderiza nada, retrocompatible con los 3 callers que
+   * ya existían antes (`pickup/success.tsx`, `handshake-scan.tsx` standalone,
+   * `/dev-handshake`). Requiere `onCtaPress` (no tiene sentido un CTA secundario sin
+   * uno primario). */
+  secondaryCtaLabel?: string;
+  onSecondaryCtaPress?: () => void;
   testID?: string;
 }
 
@@ -68,7 +76,14 @@ const EASE_OUT = Easing.out(Easing.cubic);
  * mentir. La ruta/ETA hacia la entrega sí es real (`GET /shipments/route`,
  * ADR-015) -- mismo dato que ya muestra `transport/[id].tsx`.
  */
-export function HandshakeConfirmationResult({ result, onCtaPress, ctaLabel, testID }: HandshakeConfirmationResultProps) {
+export function HandshakeConfirmationResult({
+  result,
+  onCtaPress,
+  ctaLabel,
+  secondaryCtaLabel,
+  onSecondaryCtaPress,
+  testID,
+}: HandshakeConfirmationResultProps) {
   const { data: shipment } = useShipment(result.shipmentId);
   const isPickup = result.stage === "pickup";
 
@@ -200,6 +215,16 @@ export function HandshakeConfirmationResult({ result, onCtaPress, ctaLabel, test
             className="w-full items-center justify-center rounded-lg bg-ink-950 py-3.5 active:opacity-85"
           >
             <Text className="font-sans-semibold text-body text-paper">{resolvedCtaLabel}</Text>
+          </Pressable>
+        ) : null}
+
+        {onSecondaryCtaPress && secondaryCtaLabel ? (
+          <Pressable
+            testID={testID ? `${testID}-secondary-cta` : undefined}
+            onPress={onSecondaryCtaPress}
+            className="w-full items-center justify-center rounded-lg border border-ink-950/15 py-3.5 active:opacity-70"
+          >
+            <Text className="font-sans-semibold text-body text-ink-950">{secondaryCtaLabel}</Text>
           </Pressable>
         ) : null}
       </Animated.View>

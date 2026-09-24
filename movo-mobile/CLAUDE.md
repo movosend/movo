@@ -3409,6 +3409,131 @@ Pantalla completa de itinerario y mapa de ruta optimizada para el transportista 
 
 - **Compatibilidad con MOVO-235 (`tripId`)**: `shipmentsClient.getMyRoute(coords, tripId?)` y `useOptimizedRoute(tripId?)` preparados para aceptar opcionalmente un `tripId` (por parámetro y por query param en `/route?tripId=...`), manteniendo retrocompatibilidad total si no se envía.
 
+### MOVO-199 — Wizard de entrega del transportista: proximidad, evidencia y generación de QR
+
+Hermano de `MOVO-198` (retiro, ya en `develop`), con los roles del handshake
+**invertidos** (confirmado contra `handshake.service.ts`): el **transportista**
+saca las fotos y **genera** el QR (`MOVO-197` + `useHandshakeQr`/`HandshakeQrCard`,
+ya existentes de la implementación original de `MOVO-159`); el **receptor**
+escanea, fuera de este wizard (`MOVO-160`). Ruta nueva de 5 pasos bajo `app/(app)/
+shipments/[id]/delivery/` (`_layout.tsx` + `index.tsx`/`resumen.tsx`/`aviso.tsx`/
+`evidence.tsx`/`qr.tsx`/`success.tsx`), `src/hooks/use-delivery-wizard.ts` (gate,
+calcado de `use-pickup-wizard.ts`).
+
+- **Extensión de alcance sobre el AC2 literal del ticket (4 pasos), pedida
+  explícitamente por el usuario**: "deberíamos verificar la ubicación de entrega,
+  igual que en el retiro, es una de las características principales de Movo" — se
+  suma un paso 1 de proximidad/GPS contra `shipment.deliveryLat/Lng`, igual que el
+  AC4 de `MOVO-198` para retiro. Wizard final: geo → resumen → aviso → evidencia →
+  QR → confirmación.
+- **El aviso del AC4 ("el receptor tiene que abrir su app y escanear") es un paso
+  propio (`aviso.tsx`)**, no una card dentro del resumen (así era en la primera
+  versión, y el usuario lo pidió igual que en el retiro): espejo de `pickup/qr.tsx`
+  con el nombre real del receptor. Va antes de la evidencia, igual que en el retiro,
+  para que el receptor tenga el tiempo de las fotos para abrir la app.
+- **`ProximityGeoScreen` extraído** (`components/shipments/proximity-geo-screen.tsx`)
+  del antiguo `pickup/index.tsx`: ese archivo (mapa real + pulso GPS + círculo de
+  100m, ~300 líneas) no tenía nada específico de pickup pese al nombre, ya recibía
+  coordenadas por parámetro. Ahora es un componente compartido parametrizado
+  (`targetLat/Lng`, `counterpartId`/`counterpartFallbackLabel`, copy por prop —
+  género de "el retiro"/"la entrega" en español no se puede derivar de un
+  sustantivo genérico) — `pickup/index.tsx` y `delivery/index.tsx` son wrappers
+  delgados. `usePickupProximityCheck`/`use-pickup-proximity-check.ts` renombrados a
+  `useProximityCheck`/`use-proximity-check.ts` en el mismo movimiento, sin cambio de
+  comportamiento (mismos 100m). `components/shipments/pickup-wizard-step-header.tsx`
+  también renombrado a `wizard-step-header.tsx` (`WizardStepHeader`) — no tenía
+  nada de pickup, solo el nombre lo sugería.
+- **`useHandshakeQr` gana `onEvidenceMissing` opcional** (mismo patrón
+  retrocompatible que `onEvidenceMissing` de `HandshakeScanStep`, MOVO-198): un
+  rechazo por `DELIVERY_EVIDENCE_MISSING`/`PICKUP_EVIDENCE_MISSING` en `generate()`
+  invoca el callback en vez de setear el error genérico — cubre el AC7 (vuelve al
+  paso de evidencia con el motivo). Deliberadamente NO vuelve el status a `"idle"`
+  en ese branch (retomaría el efecto de disparo automático en loop contra el mismo
+  motivo mientras el `router.replace` del caller todavía no desmontó el
+  componente). La pantalla standalone `/handshake` y `/dev-handshake` no pasan el
+  callback, sin cambio de comportamiento ahí.
+- **`ConfirmHandshakeResult` sintético en `delivery/qr.tsx`, no real**: a
+  diferencia de `pickup/scan.tsx` (que llama `confirmHandshake` y obtiene la
+  respuesta real del servidor), acá el transportista nunca confirma — el receptor
+  lo hace, fuera de este wizard. Lo único que este paso sabe es que el polling de
+  `useHandshakeQr` detectó el cambio de estado (AC6, navegación automática al paso
+  5) — `previousStatus`/`status` se completan con certeza (el gate ya garantiza
+  `IN_TRANSIT` de entrada), `distanceM` queda en `0` (sin equivalente real del lado
+  del cedente, y `HandshakeConfirmationResult` no lo renderiza).
+- **AC9 (acceso a calificar desde el éxito)**: `HandshakeConfirmationResult`
+  (compartido con pickup) gana `secondaryCtaLabel`/`onSecondaryCtaPress`
+  opcionales, retrocompatibles — un botón outline dentro de la misma hoja blanca,
+  debajo del CTA primario. Primer intento (un `Pressable` absolutamente
+  posicionado flotando sobre el componente) se descartó por superponerse con el
+  CTA que ya vive dentro de la hoja animada; la prop nueva evita esa colisión de
+  layout. `delivery/success.tsx` lo usa para abrir `RatingSheet` (MOVO-153)
+  directo con el receptor como target — reusa el componente tal cual, sin
+  reimplementar nada de la lógica de calificación. `useShipment(result.shipmentId)`
+  resuelve el `receiverId` con la misma query key que ya consume
+  `HandshakeConfirmationResult` internamente (TanStack Query dedupea).
+- **Wiring del punto de entrada real**: `app/(app)/route/index.tsx` (MOVO-207)
+  tenía `isActionDisabled={(stop) => stop.type === "delivery"}` con un comentario
+  explícito "La entrega no tiene wizard todavía" — removido, `handlePressStopAction`
+  ahora navega a `/shipments/:id/delivery` para paradas de entrega, simétrico a
+  pickup.
+- **Botón "Confirmar entrega" del detalle del envío (`shipments/[id].tsx`),
+  dejado intacto**: sigue apuntando a `/handshake` (la pantalla standalone de
+  `MOVO-159`) — mismo criterio que `MOVO-198` aplicó simétricamente para "Confirmar
+  retiro" (tampoco se rewireó). El wizard nuevo se alcanza solo desde el mapa de
+  ruta (`MOVO-207`).
+
+Tests nuevos: `test/use-delivery-wizard.test.ts` (gate, calcado del de pickup —sin
+el caso `unfunded`, no hay estado intermedio equivalente del lado de entrega),
+`test/delivery-wizard-screens.test.tsx` (_layout + los 5 pasos), casos nuevos en
+`test/use-handshake-qr.test.tsx` (`onEvidenceMissing`, con y sin callback) y en
+`test/handshake-confirmation-result.test.tsx` (CTA secundario). Ajustados sin
+cambio de comportamiento: `test/pickup-wizard-screens.test.tsx` (un testID de
+marcador pasó de `pickup-geo-map-pickup-marker` a `-target-marker`, genérico tras
+la extracción), `test/use-proximity-check.test.ts` (renombrado junto con el hook),
+caso nuevo en `test/route-screen.test.tsx` (CTA de entrega habilitado). 146/146
+suites, 1211/1211 tests. `tsc --noEmit` limpio.
+
+**Rediseño del paso del QR (post-QA, aplica también al QR del emisor en el retiro,
+`shipments/[id]/handshake.tsx` — ambos montan `HandshakeQrCard`).** Sin countdown ni
+barra de progreso: `useHandshakeQr` renueva el nonce solo, 3s antes del `expiresAt` del
+backend (`HANDSHAKE_QR_REFRESH_LEAD_MS`), dejando el QR vigente en pantalla mientras
+pide el siguiente — el estado `"expired"` y `secondsLeft`/`progressPercent` ya no
+existen. Solo un error (GPS, distancia, red) corta la renovación, saca el QR y ofrece
+"Reintentar". Visualmente, la sombra queda solo en el recuadro blanco del QR (antes la
+tenía la card contenedora y el logo central). `useScanBrightness` (nuevo, sobre
+`expo-brightness` — **módulo nativo nuevo, requiere rebuild del dev client**) sube el
+brillo al máximo mientras el QR está montado y lo repone al desmontar o pasar a
+background (iOS guarda el valor previo; Android usa `restoreSystemBrightnessAsync`).
+Mock global en `test/mocks/expo-brightness-mock.js`. El encabezado (badge lima +
+`text-title`/`text-body`) quedó alineado arriba igual que el paso de evidencia, con el
+QR centrado en el espacio restante (el aviso "se renueva solo" va en absoluto debajo
+para no correr el centrado, y el paso del wizard usa un `View` plano en vez de
+`ScrollView` para que ese espacio ocupe todo el alto), y se sacó el bloque `__DEV__` de "Simulación &
+Pruebas" (`onSimulateScan` ya no existe) — para probar sin segundo dispositivo queda
+`/dev-handshake`.
+
+**Fixes de review (PR #188):**
+- **El QR no se traba si el receptor confirma justo antes de una renovación**:
+  `generateHandshake` falla contra un envío que ya avanzó de estado, y antes el `catch`
+  cortaba el polling y mostraba un error sin salida. Ahora `useHandshakeQr` consulta
+  el envío (`checkConfirmed`, la misma función que usa el polling) antes de mostrar
+  cualquier error, y si ya se confirmó va al éxito.
+- **El gate de `pickup/_layout.tsx` y de `delivery/_layout.tsx` queda fijo una vez que
+  dio `ready`**, en vez de protegerse solo con el resultado guardado: un refetch que
+  viera `delivered`/`in_transit` antes de que el paso guardara el resultado desmontaba
+  los pasos y tapaba la pantalla de éxito.
+- El paso del QR de entrega muestra `HandshakeDeviceKeyWarning` (antes ignoraba la
+  clave y quedaba en `idle` sin motivo ni reintento). Además, `EvidenceStatusError`
+  (nuevo, compartido con `pickup/scan.tsx`) muestra el error cuando falla la consulta
+  de evidencia sin datos en caché: antes redirigía a evidencia en bucle.
+- `useScanBrightness` repone el brillo con cualquier estado distinto de `active`
+  (incluye `inactive` en iOS) y encola las llamadas nativas para que un `restore()`
+  al desmontar nunca quede antes de un `raise()` en vuelo.
+
+Pendiente / fuera de alcance: DoD de dos dispositivos reales (transportista genera,
+receptor escanea) y prueba en dispositivo físico de cámara/GPS — no verificables en
+este entorno, mismo criterio ya documentado en MOVO-198/159/160.
+
 ### MOVO-247 — Splash screen animado (opción "1A · Expansión", Claude Design)
 
 Reemplaza el splash "horrible" que había hasta acá: un `expo-splash-screen` nativo

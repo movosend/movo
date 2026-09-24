@@ -9,34 +9,24 @@ import { PrimaryButton } from "../../../../../components/auth/primary-button";
 import { ErrorBanner } from "../../../../../components/ui/error-banner";
 import { SkeletonBlock } from "../../../../../components/ui/skeleton-block";
 import { useShipment } from "../../../../../src/hooks/use-shipments";
-import { formatPickupDateLabel, formatPickupWindowLabel, shortAddressLabel } from "../../../../../src/lib/shipment-format";
+import { shortAddressLabel } from "../../../../../src/lib/shipment-format";
 
 function Eyebrow({ children }: { children: ReactNode }) {
   return <Text className="mb-1.5 font-sans-medium text-caption uppercase text-fg-3">{children}</Text>;
 }
 
 /**
- * Paso 2 del wizard de retiro (MOVO-198, rediseño): resumen del retiro solo
- * -- proximidad (paso 1) y aviso de QR (paso 3) se separaron en pantallas propias.
- *
- * El AC7 original ("con evidencia ya satisfecha, saltar directo a escaneo") se
- * sacó a pedido del usuario tras probarlo en dispositivo: un envío reusado a mano
- * durante QA (mismo shipment, varias corridas con el botón dev) ya tenía evidencia
- * confirmada de una corrida anterior, así que "Empezar el retiro" saltaba directo a
- * `scan` sin pasar por el aviso de QR ni por la pantalla de fotos -- confuso incluso
- * cuando es el comportamiento "correcto" según ese AC, porque el usuario nunca vio
- * el paso de evidencia en esta sesión. Ahora el botón siempre entra por `qr` (que
- * encadena a `evidence`); `evidence.tsx` sigue mostrando fotos ya confirmadas como
- * satisfechas de entrada (`EvidenceCaptureStep`/`useEvidenceStatus`, MOVO-197), así
- * que reingresar con evidencia completa no obliga a sacar fotos de nuevo, solo a
- * pasar visualmente por el paso.
+ * Paso 2 del wizard de entrega (MOVO-199, calcado de `pickup/resumen.tsx`
+ * MOVO-198): resumen de la entrega -- dirección, contacto del receptor, datos del
+ * paquete. El aviso del AC4 ("el receptor tiene que abrir su app y escanear") vive
+ * en su propio paso (`aviso.tsx`), igual que el aviso de QR en pickup.
  */
-export default function PickupResumenScreen() {
+export default function DeliveryResumenScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: shipment, isLoading, isError } = useShipment(id);
 
   function handleContinue() {
-    router.push(`/shipments/${id}/pickup/qr`);
+    router.push(`/shipments/${id}/delivery/aviso`);
   }
 
   if (isLoading || !shipment) {
@@ -54,19 +44,16 @@ export default function PickupResumenScreen() {
   if (isError) {
     return (
       <SafeAreaView className="flex-1 bg-bg px-5 pt-4">
-        <ErrorBanner testID="pickup-resumen-error" message="No pudimos cargar este envío." />
+        <ErrorBanner testID="delivery-resumen-error" message="No pudimos cargar este envío." />
       </SafeAreaView>
     );
   }
 
-  const dateLabel = formatPickupDateLabel(shipment.pickupDate);
-  const windowLabel = formatPickupWindowLabel(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd);
-
   return (
     <SafeAreaView className="flex-1 bg-bg">
       <WizardStepHeader
-        testIDPrefix="pickup-resumen"
-        title="Resumen del retiro"
+        testIDPrefix="delivery-resumen"
+        title="Resumen de la entrega"
         step={2}
         totalSteps={5}
         onBack={() => router.back()}
@@ -74,31 +61,28 @@ export default function PickupResumenScreen() {
 
       <ScrollView contentContainerClassName="gap-5 px-5 pb-6" showsVerticalScrollIndicator={false}>
         <View className="gap-1.5 rounded-[14px] border border-border bg-bg px-4 py-3.5">
-          <Eyebrow>Retiro</Eyebrow>
+          <Eyebrow>Entrega</Eyebrow>
           <Text className="font-sans-semibold text-[15px] text-fg">
-            {shortAddressLabel(shipment.pickupAddress)}
-          </Text>
-          <Text className="font-sans text-small text-fg-2">
-            {[dateLabel, windowLabel].filter(Boolean).join(" · ")}
+            {shortAddressLabel(shipment.deliveryAddress)}
           </Text>
         </View>
 
         <View>
-          <Eyebrow>Emisor</Eyebrow>
+          <Eyebrow>Receptor</Eyebrow>
           <CounterpartCard
-            testID="pickup-resumen-sender"
-            userId={shipment.senderId}
-            onPress={() => router.push(`/profile/${shipment.senderId}`)}
+            testID="delivery-resumen-receiver"
+            userId={shipment.receiverId}
+            onPress={() => router.push(`/profile/${shipment.receiverId}`)}
           />
         </View>
 
         <View>
           <Eyebrow>Paquete</Eyebrow>
-          <PackageCard testID="pickup-resumen-package" shipment={shipment} />
+          <PackageCard testID="delivery-resumen-package" shipment={shipment} />
         </View>
       </ScrollView>
 
-      <PrimaryButton testID="pickup-resumen-continue" label="Empezar el retiro" onPress={handleContinue} />
+      <PrimaryButton testID="delivery-resumen-continue" label="Empezar la entrega" onPress={handleContinue} />
     </SafeAreaView>
   );
 }

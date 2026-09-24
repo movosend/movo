@@ -3,7 +3,8 @@ import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { HandshakeScanStep } from "../../../../../components/handshake/handshake-scan-step";
-import { PickupWizardStepHeader } from "../../../../../components/shipments/pickup-wizard-step-header";
+import { EvidenceStatusError } from "../../../../../components/evidence/evidence-status-error";
+import { WizardStepHeader } from "../../../../../components/shipments/wizard-step-header";
 import type { ConfirmHandshakeResult } from "../../../../../src/api/shipments-client";
 import { useEvidenceStatus } from "../../../../../src/hooks/use-shipments";
 import { usePickupResult } from "./_layout";
@@ -26,6 +27,17 @@ export default function PickupScanScreen() {
     return <View className="flex-1 bg-ink-950" />;
   }
 
+  // Solo si no hay ningún dato: con un valor previo en caché (ej. el que dejó el paso
+  // de evidencia) un refetch fallido no cambia lo que ya se sabe.
+  if (evidenceStatus.isError && !evidenceStatus.data) {
+    return (
+      <EvidenceStatusError
+        onRetry={() => void evidenceStatus.refetch()}
+        isRetrying={evidenceStatus.isFetching}
+      />
+    );
+  }
+
   if (evidenceStatus.data?.satisfied !== true) {
     return <Redirect href={`/shipments/${id}/pickup/evidence`} />;
   }
@@ -44,7 +56,7 @@ export default function PickupScanScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
-      <PickupWizardStepHeader
+      <WizardStepHeader
         testIDPrefix="pickup-scan"
         title="Escaneá el QR"
         step={5}
