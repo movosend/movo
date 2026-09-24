@@ -25,6 +25,10 @@ interface TrackParams {
  * fuente), así que alcanza con emitirlo del lado de `svc-shipments`. */
 export const HEARTBEAT_INTERVAL_MS = 30_000;
 
+/** Mismo código que el rechazo por token inválido al conectar: para el cliente ambos
+ * significan "reconectá con un token válido". */
+export const TRACKING_TOKEN_EXPIRED_WS_CODE = 4001;
+
 /**
  * MOVO-201: implementación real del canal de tiempo real (reemplaza la PoC de MOVO-200,
  * `tracking-poc.routes.ts`) -- `GET /shipments/:id/track` (WS). A diferencia de la PoC:
@@ -64,6 +68,7 @@ export default async function trackingRoutes(app: FastifyInstance, opts: Trackin
       const shipmentId = request.params.id;
 
       let shipment;
+      let tokenExpiresAtMs: number;
       try {
         const authorized = await authorizeRealtimeConnection(
           shipmentRepository,
@@ -71,6 +76,7 @@ export default async function trackingRoutes(app: FastifyInstance, opts: Trackin
           shipmentId
         );
         shipment = authorized.shipment;
+        tokenExpiresAtMs = authorized.tokenExpiresAtMs;
       } catch (err) {
         const statusCode = err instanceof ApiError ? err.statusCode : 500;
         const message = err instanceof ApiError ? err.message : "Error interno.";
@@ -111,6 +117,19 @@ export default async function trackingRoutes(app: FastifyInstance, opts: Trackin
         app.log.warn({ err, shipmentId }, "realtime: no se pudo leer la última posición conocida");
       }
 
+      // MOVO-250/AC7: el JWT se valida solo al conectar, pero la conexión puede vivir más
+      // que sus 60 min (ADR-004) -- se cierra con 4001 al llegar el `exp` y el cliente
+      // reconecta con el token renovado (MOVO-204). El tope evita que un `exp` lejano
+      // desborde el máximo de `setTimeout` (2^31-1 ms) y dispare el timer de inmediato.
+      const expiryTimer = setTimeout(
+        () => {
+          app.log.info({ shipmentId }, "realtime: token vencido, cerrando conexión de tracking");
+          socket.close(TRACKING_TOKEN_EXPIRED_WS_CODE, "Token vencido.");
+        },
+        Math.min(Math.max(tokenExpiresAtMs - Date.now(), 0), 2 ** 31 - 1)
+      );
+      expiryTimer.unref();
+
       let isAlive = true;
       socket.on("pong", () => {
         isAlive = true;
@@ -128,6 +147,7 @@ export default async function trackingRoutes(app: FastifyInstance, opts: Trackin
 
       socket.on("close", () => {
         clearInterval(heartbeat);
+        clearTimeout(expiryTimer);
         app.realtimeRegistry.unregister(shipmentId, socket);
         app.log.info({ shipmentId }, "realtime: cliente de tracking desconectado");
       });
