@@ -12,8 +12,13 @@ const SCAN_BRIGHTNESS = 1;
  * `setBrightnessAsync` no pide permisos: en Android solo afecta a la activity actual
  * (se restaura con `restoreSystemBrightnessAsync`); en iOS cambia el brillo del
  * dispositivo hasta que se bloquea, así que hay que guardar el valor previo y
- * reponerlo a mano -- también al pasar a background, si no el usuario se queda con
- * el brillo al máximo fuera de la app.
+ * reponerlo a mano -- también al dejar de estar `active` (background, pero también
+ * `inactive`: centro de control, llamada entrante), si no el usuario se queda con el
+ * brillo al máximo fuera de la app.
+ *
+ * Las llamadas nativas se encadenan en una cola: si el desmontaje llega con un
+ * `raise()` todavía en vuelo, el `restore()` corre recién después, así el último
+ * valor aplicado siempre es el previo y nunca queda el brillo al máximo.
  *
  * Best-effort: cualquier fallo del módulo nativo se ignora, nunca rompe la pantalla.
  */
@@ -21,6 +26,11 @@ export function useScanBrightness(): void {
   useEffect(() => {
     let previous: number | null = null;
     let active = true;
+    let queue: Promise<void> = Promise.resolve();
+    // Cada paso ya atrapa sus propios errores, así que la cola nunca queda rechazada.
+    const enqueue = (step: () => Promise<void>) => {
+      queue = queue.then(step);
+    };
 
     async function raise() {
       try {
@@ -44,17 +54,16 @@ export function useScanBrightness(): void {
       }
     }
 
-    void raise();
+    enqueue(raise);
 
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void raise();
-      else if (state === "background") void restore();
+      enqueue(state === "active" ? raise : restore);
     });
 
     return () => {
       active = false;
       subscription.remove();
-      void restore();
+      enqueue(restore);
     };
   }, []);
 }

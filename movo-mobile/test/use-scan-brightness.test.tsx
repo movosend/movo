@@ -62,6 +62,36 @@ describe("useScanBrightness", () => {
     await waitFor(() => expect(Brightness.setBrightnessAsync).toHaveBeenLastCalledWith(1));
   });
 
+  it("repone el brillo también en inactive (centro de control, llamada entrante)", async () => {
+    await render(<Harness />);
+    await waitFor(() => expect(Brightness.setBrightnessAsync).toHaveBeenCalledWith(1));
+
+    await act(async () => {
+      appStateListener?.("inactive");
+    });
+    await waitFor(() => expect(Brightness.setBrightnessAsync).toHaveBeenLastCalledWith(0.4));
+  });
+
+  it("si se desmonta con la subida de brillo en vuelo, la restauración corre después", async () => {
+    let resolveRaise: () => void = () => {};
+    (Brightness.setBrightnessAsync as jest.Mock).mockImplementationOnce(
+      () => new Promise<void>((resolve) => (resolveRaise = resolve)),
+    );
+    const { unmount } = await render(<Harness />);
+    await waitFor(() => expect(Brightness.setBrightnessAsync).toHaveBeenCalledWith(1));
+
+    await act(async () => {
+      unmount();
+    });
+    // Mientras la subida no terminó, la restauración todavía no se pidió.
+    expect(Brightness.setBrightnessAsync).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveRaise();
+    });
+    await waitFor(() => expect(Brightness.setBrightnessAsync).toHaveBeenLastCalledWith(0.4));
+  });
+
   it("no rompe si el módulo nativo falla", async () => {
     (Brightness.getBrightnessAsync as jest.Mock).mockRejectedValueOnce(new Error("no native"));
     const { getByText } = await render(<Harness />);
