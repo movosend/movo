@@ -2545,6 +2545,70 @@ Decisiones clave:
 Pendiente / fuera de alcance: notificar al transportista (evaluado, no implementado);
 ciclo de un viaje `active` que nunca llega a `completed`.
 
+### MOVO-250 — Ajustes de ingesta y canal de tracking (ADR-024)
+
+Fija el contrato backend ↔ mobile para la cola offline (MOVO-203) y el envío en segundo
+plano (MOVO-242). El patrón se mantiene (ingesta por HTTP, difusión por WebSocket, ADR-024
+lo deja escrito por primera vez); cambia cómo el backend trata la cola offline.
+
+Decisiones clave:
+- **Última posición conocida monótona (AC1)**: `position-service.ts` la actualiza con un
+  script Lua (`UPDATE_LAST_KNOWN_IF_NEWER_SCRIPT`) que compara contra `capturedAtMs` del
+  hash y solo escribe si `capturedAt` es ESTRICTAMENTE posterior. Redis y el broadcast
+  avanzan juntos: una posición vieja o igual no mueve el marcador ni se difunde, pero sí
+  puede entrar a la traza. `PositionRedisClient` ganó `eval` y perdió `hset`/`expire`.
+- **Cadencia por tramo de `capturedAt` (AC2)**: el claim pasó de `position:cadence:{id}`
+  (ventana móvil desde la llegada) a `position:cadence:{id}:{floor(capturedAt/45s)}`,
+  `SET NX` con TTL de 7 días (igual que la última posición: una cola puede vaciarse horas
+  después). El resultado no depende del orden de llegada, permite completar tramos
+  atrasados y hace idempotente el reenvío de un lote. Sigue liberando el claim si el
+  `create` falla.
+- **Validación de `capturedAt` (AC3)**: rechaza (422 `INVALID_CAPTURED_AT`, código nuevo
+  en `@movo/shared`) un `capturedAt` más de 2 min en el futuro o más de 2 min anterior a
+  `shipment.lastStatusChangedAt`, que mientras el envío está `in_transit` es el instante
+  en que pasó a ese estado (no hay columna propia). La tolerancia
+  (`CAPTURED_AT_CLOCK_SKEW_TOLERANCE_MS`) es simétrica: fix de review de PR #190, la
+  primera versión no la tenía hacia el pasado y rechazaba la primera muestra del tránsito
+  si el GPS muestreó segundos antes de que el servidor confirmara el handshake o el reloj
+  del teléfono estaba atrasado. Si `lastStatusChangedAt` es null (datos viejos) no se
+  aplica el piso.
+- **Lote (AC4)**: `POST /shipments/positions`, `{positions: [...]}` de 1 a 100
+  (`MAX_POSITIONS_PER_BATCH`). Responde 200 con `results[]` (`index`, `shipmentId`,
+  `status: accepted|rejected`, `persisted`/`code`); `FORBIDDEN` es la traducción de
+  `AUTH_FORBIDDEN` del endpoint individual. Un envío distinto se lee una sola vez por
+  lote. Un error de infra (DB/Redis caídos) NO se convierte en rechazo por ítem: falla el
+  request entero y el cliente reintenta, seguro por la idempotencia de arriba. El
+  individual sigue existiendo y comparte `assertCanReport`/`ingest`.
+- **Rate limit (AC5)**: el límite general del gateway es 200/min por IP compartido con
+  toda la API, y el individual (`/:id/positions`, path con parámetro) sigue bajo ese
+  límite. El lote tiene contador propio en `getRateLimitOverrides()`:
+  **30 requests/min por IP** (hasta 3.000 posiciones/min). Es lo que `MOVO-242` debe
+  respetar; el keyGenerator del gateway es por IP, no por usuario.
+- **`{type:"status", shipmentId, status}` (AC6)**: `realtime.ts` lo difunde en cada
+  `shipment-status-changed`, antes del cierre `4009` para que el cliente reciba el estado
+  final. `offer-repository.ts#acceptOffer` (`published → assignment_pending`) escribía
+  `status` directo sin emitir el evento: ahora lo emite tras el commit. `assigned` ya
+  aceptaba la suscripción (`TRACKING_CLOSED_STATUSES` no lo incluye), cubierto por test.
+- **Cierre por vencimiento del JWT (AC7)**: `authorizeRealtimeConnection` devuelve
+  `tokenExpiresAtMs` y `tracking.routes.ts` arma un `setTimeout` que cierra con `4001`
+  al llegar el `exp` (mismo código que el rechazo por token inválido: el cliente
+  reconecta con un token renovado).
+- **`RealtimeRegistry.broadcast` (AC8)**: solo a `readyState === 1` (literal, `ws` es
+  devDependency) y con try/catch por socket.
+
+Tests: `position-service.test.ts` (AC1-AC4 con fake de Redis que emula el Lua),
+`positions-report.integration.test.ts` (Redis y Postgres reales: AC1 con concurrencia,
+AC2 con 30 posiciones en orden invertido, AC3, lote mixto, idempotencia, 400/401),
+`tracking.integration.test.ts` (AC6 en `assigned`, evento de estado, AC7 con JWT de 2s),
+`realtime-registry.test.ts` (AC8). Los tests de integración crean el envío con
+`lastStatusChangedAt` 1h atrás para que los `capturedAt` recientes no caigan antes del
+inicio del tránsito.
+
+Pendiente / fuera de alcance: prueba del WebSocket contra la EC2 de dev real (pendiente de
+MOVO-201 AC6 / ADR-022 AC3); consumo del lote desde `movo-mobile` (MOVO-242) y del evento
+`status` (MOVO-159/204); ADR-024 pendiente de pegar en Drive (`[Movo] 004 - Sprint 0.md`),
+solo tiene el resumen de una línea en `CLAUDE.md` raíz.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

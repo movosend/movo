@@ -263,6 +263,18 @@ export function getRateLimitOverrides(): RateLimitedRoute[] {
       path: "/shipments/route",
       rateLimit: { max: 20, timeWindow: "15 minutes" },
     },
+    // MOVO-250/AC5: lote de posiciones GPS de la cola offline / tarea de segundo plano
+    // (MOVO-203/242). Sin este override cae en el límite general (200/min por IP,
+    // contador compartido con todo el resto de la API) y una tanda al volver la señal
+    // podría comerse ese presupuesto o recibir 429. Contador propio: hasta 30 lotes por
+    // minuto por IP (cada uno de hasta 100 posiciones) -- el mobile emite 1 lote cada
+    // varios segundos como mucho. El POST individual `/shipments/:id/positions` tiene un
+    // path con parámetro, así que sigue bajo el límite general.
+    {
+      method: "POST",
+      path: "/shipments/positions",
+      rateLimit: { max: 30, timeWindow: "1 minute" },
+    },
     // MOVO-125: reverse geocoding del GPS del wizard de envíos — PROTEGIDA (no está en
     // getPublicRoutes), a diferencia de /geocode y /places/*. Igual necesita este
     // limiter propio: requerir JWT no la protege de un usuario logueado disparando el
