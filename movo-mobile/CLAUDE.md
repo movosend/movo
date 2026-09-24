@@ -3335,16 +3335,21 @@ Hermano de `MOVO-198` (retiro, ya en `develop`), con los roles del handshake
 saca las fotos y **genera** el QR (`MOVO-197` + `useHandshakeQr`/`HandshakeQrCard`,
 ya existentes de la implementación original de `MOVO-159`); el **receptor**
 escanea, fuera de este wizard (`MOVO-160`). Ruta nueva de 5 pasos bajo `app/(app)/
-shipments/[id]/delivery/` (`_layout.tsx` + `index.tsx`/`resumen.tsx`/`evidence.tsx`/
-`qr.tsx`/`success.tsx`), `src/hooks/use-delivery-wizard.ts` (gate, calcado de
-`use-pickup-wizard.ts`).
+shipments/[id]/delivery/` (`_layout.tsx` + `index.tsx`/`resumen.tsx`/`aviso.tsx`/
+`evidence.tsx`/`qr.tsx`/`success.tsx`), `src/hooks/use-delivery-wizard.ts` (gate,
+calcado de `use-pickup-wizard.ts`).
 
 - **Extensión de alcance sobre el AC2 literal del ticket (4 pasos), pedida
   explícitamente por el usuario**: "deberíamos verificar la ubicación de entrega,
   igual que en el retiro, es una de las características principales de Movo" — se
   suma un paso 1 de proximidad/GPS contra `shipment.deliveryLat/Lng`, igual que el
-  AC4 de `MOVO-198` para retiro. Wizard final: geo → resumen → evidencia → QR →
-  confirmación.
+  AC4 de `MOVO-198` para retiro. Wizard final: geo → resumen → aviso → evidencia →
+  QR → confirmación.
+- **El aviso del AC4 ("el receptor tiene que abrir su app y escanear") es un paso
+  propio (`aviso.tsx`)**, no una card dentro del resumen (así era en la primera
+  versión, y el usuario lo pidió igual que en el retiro): espejo de `pickup/qr.tsx`
+  con el nombre real del receptor. Va antes de la evidencia, igual que en el retiro,
+  para que el receptor tenga el tiempo de las fotos para abrir la app.
 - **`ProximityGeoScreen` extraído** (`components/shipments/proximity-geo-screen.tsx`)
   del antiguo `pickup/index.tsx`: ese archivo (mapa real + pulso GPS + círculo de
   100m, ~300 líneas) no tenía nada específico de pickup pese al nombre, ya recibía
