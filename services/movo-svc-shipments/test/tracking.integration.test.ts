@@ -2,6 +2,7 @@ import { randomUUID, webcrypto } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import WebSocket from "ws";
+import jwt from "jsonwebtoken";
 import { signAccessToken, ShipmentStatus, UserRole, KycStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
@@ -303,5 +304,76 @@ describe("GET /shipments/:id/track (WS)", () => {
 
     const { code } = await closed;
     expect(code).toBe(TRACKING_STATUS_CLOSED_WS_CODE);
+  });
+  describe("MOVO-250", () => {
+    /** Envío en `assigned` con transportista -- el estado en el que se muestra el QR de retiro. */
+    async function createAssignedShipment(carrierId: string): Promise<string> {
+      const shipment = await repo.create(baseInput);
+      await repo.addPhoto(shipment.id, PhotoStage.creation, `shipments/${shipment.id}/creation/${randomUUID()}.jpg`);
+      await repo.addPhoto(shipment.id, PhotoStage.creation, `shipments/${shipment.id}/creation/${randomUUID()}.jpg`);
+      await repo.updateStatus(shipment.id, ShipmentStatus.PUBLISHED, shipment.senderId);
+      await app.db.shipment.update({ where: { id: shipment.id }, data: { carrierId } });
+      await repo.updateStatus(shipment.id, ShipmentStatus.ASSIGNMENT_PENDING, carrierId);
+      await repo.updateStatus(shipment.id, ShipmentStatus.ASSIGNED, carrierId);
+      return shipment.id;
+    }
+
+    it("AC6: un envío en 'assigned' acepta la suscripción del emisor (el QR de retiro se muestra en ese estado)", async () => {
+      const carrierId = randomUUID();
+      const shipmentId = await createAssignedShipment(carrierId);
+      const ws = connect(shipmentId, issueToken(baseInput.senderId));
+
+      expect(await waitForMessage(ws)).toEqual({ type: "connected", shipmentId });
+
+      ws.close();
+      await waitForClose(ws);
+    });
+
+    it("AC6: difunde { type: 'status' } a los suscriptores en cada transición", async () => {
+      const carrierId = randomUUID();
+      const shipmentId = await createAssignedShipment(carrierId);
+      const ws = connect(shipmentId, issueToken(baseInput.senderId));
+      await waitForMessage(ws);
+
+      const status = waitForMessage(ws);
+      await repo.updateStatus(shipmentId, ShipmentStatus.IN_TRANSIT, carrierId);
+
+      expect(await status).toEqual({ type: "status", shipmentId, status: ShipmentStatus.IN_TRANSIT });
+
+      ws.close();
+      await waitForClose(ws);
+    });
+
+    it("AC6: en un estado que corta el tracking, el cliente recibe el estado final y después el cierre 4009", async () => {
+      const carrierId = randomUUID();
+      const shipmentId = await createInTransitShipment(carrierId);
+      const ws = connect(shipmentId, issueToken(carrierId));
+      await waitForMessage(ws);
+
+      const status = waitForMessage(ws);
+      const closed = waitForClose(ws);
+      await repo.updateStatus(shipmentId, ShipmentStatus.DELIVERED, carrierId);
+
+      expect(await status).toEqual({ type: "status", shipmentId, status: ShipmentStatus.DELIVERED });
+      expect((await closed).code).toBe(TRACKING_STATUS_CLOSED_WS_CODE);
+    });
+
+    it("AC7: cierra con 4001 al llegar el exp del JWT, aunque el envío siga en curso", async () => {
+      const carrierId = randomUUID();
+      const shipmentId = await createInTransitShipment(carrierId);
+      const shortLivedToken = jwt.sign(
+        { sub: carrierId, roles: [UserRole.SENDER], kycStatus: KycStatus.NOT_STARTED },
+        "test-secret",
+        { expiresIn: 2, issuer: process.env.JWT_ISSUER ?? "movo" }
+      );
+      const ws = connect(shipmentId, shortLivedToken);
+      await waitForMessage(ws);
+
+      const startedAt = Date.now();
+      const { code } = await waitForClose(ws);
+
+      expect(code).toBe(4001);
+      expect(Date.now() - startedAt).toBeLessThan(4_000);
+    });
   });
 });

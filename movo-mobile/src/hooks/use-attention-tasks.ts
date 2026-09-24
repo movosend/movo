@@ -73,10 +73,13 @@ export function useAttentionTasks() {
   );
   const senderProfiles = usePublicProfiles(confirmSenderIds);
   const senderFirstNameById = new Map(
-    confirmSenderIds.map((id, index) => [
-      id,
-      senderProfiles[index]?.data?.fullName.split(" ")[0],
-    ]),
+    confirmSenderIds.map((id, index) => {
+      const fullName = senderProfiles[index]?.data?.fullName?.trim();
+      return [
+        id,
+        fullName ? fullName.split(/\s+/)[0] : undefined,
+      ];
+    }),
   );
 
   const tasks: AttentionTask[] = [];

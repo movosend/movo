@@ -111,6 +111,7 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
       const updatedShipment = await shipmentRepo.findById(shipmentId);
       expect(updatedShipment?.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
       expect(updatedShipment?.carrierId).toBe(winner.carrierId);
+      expect(updatedShipment?.agreedPriceArs).toBe(winner.priceOffered);
 
       const updatedLoser = await offerRepo.findById(loser.id);
       expect(updatedLoser?.status).toBe(OfferStatus.SUPERSEDED);

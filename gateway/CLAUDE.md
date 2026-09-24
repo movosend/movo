@@ -108,3 +108,12 @@ cerraba con `4001` — `authorizeRealtimeConnection` (`svc-shipments`) solo lee
 `Authorization: Bearer`, nunca cae a `x-user-*`. Reproducido por el reviewer con un
 Fastify + `@fastify/http-proxy` mínimo antes de encontrarlo en este repo. Test ampliado
 con el assert que pedía el review (`capturedHeaders["authorization"]`).
+
+### MOVO-250 — Rate limit propio para el lote de posiciones GPS
+
+`getRateLimitOverrides()` suma `POST /shipments/positions` (30/min por IP, contador
+propio) para el lote de la cola offline/tarea de segundo plano del mobile (MOVO-203/242).
+Sin esto caía en el límite general de 200/min compartido con toda la API y una tanda al
+volver la señal podía consumirlo. El POST individual `/shipments/:id/positions` no se
+puede listar acá (el match es por path exacto) y sigue bajo el general. Detalle en
+`services/movo-svc-shipments/CLAUDE.md` (MOVO-250).

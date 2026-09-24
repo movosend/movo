@@ -3,6 +3,7 @@ import { Prisma, PrismaClient, Offer as OfferRow, Shipment as ShipmentRow } from
 import { INITIAL_OFFER_STATUS, transition } from "../domain/offer-state-machine";
 import { transition as transitionShipmentStatus } from "../domain/shipment-state-machine";
 import { haversineKm } from "../domain/geo";
+import { emitShipmentStatusChanged } from "../realtime/shipment-status-events";
 import { acceptedOfferPickupWindowStartInstant, offerExpiresAtInstant } from "../domain/pickup-window";
 import {
   Offer,
@@ -542,7 +543,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
       superseded: Array<{ id: string; carrierId: string }>;
       autoCreatedTrip: Trip | null;
     }> {
-      return db.$transaction(async (tx) => {
+      const result = await db.$transaction(async (tx) => {
         const current = await tx.offer.findUnique({ where: { id } });
         if (!current) {
           throw new OfferNotFoundError(id);
@@ -592,6 +593,8 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
             // las US de asignación de EP-03). No está en el AC8 literal,
             // documentado como superset explícito.
             carrierId: current.carrierId,
+            // MOVO-244: persistir el precio pactado de la oferta aceptada como agreedPriceArs
+            agreedPriceArs: current.priceOffered,
             // MOVO-180: mismo criterio que carrierId -- el receptor necesita ver la
             // entrega estimada en el detalle del envío, no solo en el histórico de la
             // oferta. Quedan null si la oferta ganadora nunca los declaró (opcionales).
@@ -710,6 +713,13 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
 
         return { offer: mapOffer(accepted), shipmentId: current.shipmentId, superseded, autoCreatedTrip };
       });
+
+      // MOVO-250/AC6: recién después de que la transacción confirmó (un rollback no debe
+      // difundir nada) -- `published -> assignment_pending` es una transición más que los
+      // suscriptores del envío tienen que ver por el canal de tiempo real.
+      emitShipmentStatusChanged({ shipmentId: result.shipmentId, to: ShipmentStatus.ASSIGNMENT_PENDING });
+
+      return result;
     },
 
     async listByCarrier(

@@ -1,6 +1,7 @@
 import { KycStatus } from "@movo/shared/dist/types/user";
 import { fireEvent, render } from "@testing-library/react-native";
 import { router } from "expo-router";
+import { RefreshControl } from "react-native";
 import AuthenticatedHomeScreen from "../app/(app)/(tabs)/home";
 
 jest.mock("expo-router", () => ({
@@ -13,6 +14,12 @@ const mockUseRecentShipments = jest.fn();
 const mockUseSendingShipments = jest.fn();
 const mockUseReceivingShipments = jest.fn();
 const mockUseAttentionTasks = jest.fn();
+const mockInvalidateQueries = jest.fn();
+
+jest.mock("@tanstack/react-query", () => ({
+  ...jest.requireActual("@tanstack/react-query"),
+  useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
+}));
 
 jest.mock("../src/hooks/use-auth", () => {
   const { KycStatus } = jest.requireActual("@movo/shared/dist/types/user");
@@ -39,6 +46,19 @@ jest.mock("../src/hooks/use-active-shipments", () => ({
 
 jest.mock("../src/hooks/use-attention-tasks", () => ({
   useAttentionTasks: () => mockUseAttentionTasks(),
+}));
+
+jest.mock("../src/hooks/use-carrier-tracking", () => ({
+  useCarrierTracking: () => ({
+    isTracking: false,
+    inTransitCount: 0,
+    pendingQueueCount: 0,
+    permissionGranted: true,
+    lastReportedAt: null,
+    lastError: null,
+    requestPermission: jest.fn(),
+    flushQueue: jest.fn(),
+  }),
 }));
 
 jest.mock("../src/store/auth-store", () => ({
@@ -175,5 +195,22 @@ describe("AuthenticatedHomeScreen", () => {
 
     expect(getByTestId("app-home-attention")).toBeTruthy();
     expect(getByText("El receptor rechazó tu envío")).toBeTruthy();
+  });
+
+  it("renderiza refresh control para pull-to-refresh", async () => {
+    const { toJSON } = await render(<AuthenticatedHomeScreen />);
+    const findNode = (node: any, type: string): any => {
+      if (!node) return null;
+      if (node.type === type) return node;
+      if (node.children) {
+        for (const c of node.children) {
+          const found = findNode(c, type);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const scrollViewNode = findNode(toJSON(), "RCTScrollView");
+    expect(scrollViewNode?.props?.refreshControl).toBeTruthy();
   });
 });

@@ -1417,6 +1417,87 @@ en `tripsMeta` ni aporta la franja de desvío — fijan explícitamente el cambi
 comportamiento) + `TRIP_A` (fixture compartida del archivo) pasó a `declared` por
 default. `tsc --noEmit` limpio.
 
+### MOVO-244 (fixes de code review, PR #184) + peek circular de avatar
+
+Sesión de review sobre la branch de MOVO-244 (batch de fixes KYC/TyC/sync — ver
+entrada de arriba con el mismo número): 5 correcciones + 2 simplificaciones que
+salieron de una revisión de código antes de mergear, más un pedido de UX del
+usuario sobre la marcha (peek circular del avatar).
+
+- **Swipe-back de iOS no bloqueaba el gate de TyC obligatorio**
+  (`app/(app)/profile/legal/index.tsx`): `BackHandler` solo cubre el botón físico
+  de Android — sin `gestureEnabled: false` (seteado ahora vía
+  `useNavigation().setOptions`, `useLayoutEffect`), el swipe-back nativo de iOS
+  seguía siendo una salida real mientras había Términos/Privacidad pendientes.
+- **`?status=` de `/kyc` sin guardar por `__DEV__`** (`app/(auth)/kyc.tsx`): la
+  ruta es alcanzable por deep link real en producción
+  (`movo://kyc?status=approved`) — sin el guard, cualquiera podía spoofear un KYC
+  aprobado sin pasar por Didit. El atajo de testing solo funciona ahora en dev.
+- **Doble `router.replace` al aceptar una oferta**
+  (`app/(app)/shipments/[id]/offers.tsx`): el efecto de redirect-si-ya-asignado y
+  `handleSuccessDismiss` disparaban cada uno su propio `replace` casi a la vez si
+  el refetch del envío ya traía `carrierId` para cuando se cerraba el modal de
+  éxito — apilaba una copia vieja del detalle debajo de la fresca. Un
+  `hasAcceptedRef` marca que el flujo de aceptar ya es dueño de la navegación, el
+  efecto general se calla desde ahí en más.
+- **Animación del modal de éxito se reiniciaba con cualquier re-render del padre**
+  (`choose-offer-success-modal.tsx`): `onDismiss` no memoizado en `offers.tsx`
+  (función inline) + `progress` (shared value) en el array de deps del efecto —
+  cualquier refetch/invalidation mientras el modal estaba visible reiniciaba
+  haptics + barra de progreso + el timer de auto-dismiss de 1600ms.
+  **Gotcha real encontrado escribiendo el test de regresión**: el mock oficial de
+  Jest de `useSharedValue` (a diferencia del real) devuelve un objeto/Proxy
+  *nuevo* en cada render en vez de una referencia estable tipo `useRef` — meter un
+  shared value en un array de deps de `useEffect` "parece" inocuo (es lo que hacía
+  el código) pero solo se comporta mal en el mock, nunca en runtime real. Se sacó
+  `progress` de las deps (mismo criterio que ya usa `use-sheet-animation.ts`, con
+  el mismo comentario `eslint-disable-next-line react-hooks/exhaustive-deps`) — no
+  solo arregla el mock, es además el patrón correcto para cualquier shared value.
+- **`manual_review` de KYC de identidad sin ninguna salida** (`kyc.tsx`): evaluado
+  con el usuario y dejado tal cual a propósito — es la política real ("un usuario
+  no verificado no debe acceder a la app"), no un bug. Sí se resolvió la
+  duplicación real que arrastraba (`KycManualReviewResult` nuevo en
+  `components/kyc/`, compartido con `license-kyc.tsx` — este último sí pasa
+  `onGoHome`, ese caso no tiene la misma restricción).
+- Conditional muerto (`typeof useLocalSearchParams === "function" ? ... : {}`,
+  siempre `true`) limpiado de paso.
+
+**Pedido de UX sobre la marcha, no parte de la review**: "el long press debería
+ser un poco más breve" + "que la foto se amplíe desde el punto donde está, con
+máscara circular, como Instagram" — reemplaza el `PhotoViewerModal` (visor a
+pantalla completa con fade, pensado para evidencia de envío) que `profile.tsx`/
+`profile/[id].tsx` reusaban para este gesto de la propia foto de perfil.
+
+- **`AvatarPeekViewer` nuevo** (`components/profile/avatar-peek-viewer.tsx`):
+  `Pressable` con `delayLongPress={220}` (antes 500ms default) + `onPressOut` para
+  soltar — sin `Modal`: un overlay hermano absoluto (`pointerEvents="none"`) en el
+  mismo árbol, para no arriesgar que abrir una ventana nativa nueva a mitad de un
+  gesto corte la secuencia de touch antes de que llegue el `onPressOut`.
+- **Crece siempre como círculo, nunca anima `borderRadius`**: la foto (imagen fija
+  de `PEEK_SIZE`, con `borderRadius: PEEK_SIZE/2` constante) se anima solo con
+  `transform: [translateX, translateY, scale]` — arranca en el tamaño/posición
+  reales del avatar (offset calculado) y crece centrada en el mismo punto,
+  clampeado a los bordes de pantalla (`computePeekGeometry`, pura y testeada
+  aparte, mismo criterio ya aceptado para `ZoomableImage`). Evita el bug de
+  esquinas cuadradas de animar `width`/`height`/`borderRadius` a la vez
+  (documentado en la entrada de MOVO-223 de este mismo archivo).
+- **Geometría medida con `measureInWindow`, mecánica de abrir/cerrar sin cobertura
+  de test end-to-end**: mismo gap ya documentado para `sender-actions-bar.tsx`
+  (MOVO-29) — su callback nunca dispara en el entorno de test de RNTL/jest-expo.
+  `computePeekGeometry` (la parte pura) sí está 100% cubierta; el ciclo real de
+  abrir/cerrar queda para probar en device.
+
+Tests nuevos: `test/avatar-peek-viewer.test.tsx`, `test/choose-offer-success-modal.test.tsx`
+(nuevo, no existía ninguno dedicado para este componente); casos nuevos en
+`test/offers-screen.test.tsx` (regresión del doble `replace`), `test/legal-hub-screen.test.tsx`
+(`gestureEnabled`); reescritos los casos de zoom de avatar en `test/profile.test.tsx`/
+`test/profile-detail-screen.test.tsx` contra el componente nuevo. 146/146 suites,
+1194/1194 tests. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: nada de esto se probó en device todavía (ni el gate
+de TyC en iOS real, ni el peek del avatar) — pendiente de la review del usuario
+probando la branch en su celular.
+
 ### Pendientes de este paquete
 
 - **`eas init`/development build real en dispositivo**: pendiente para probar de
@@ -3452,3 +3533,218 @@ Pruebas" (`onSimulateScan` ya no existe) — para probar sin segundo dispositivo
 Pendiente / fuera de alcance: DoD de dos dispositivos reales (transportista genera,
 receptor escanea) y prueba en dispositivo físico de cámara/GPS — no verificables en
 este entorno, mismo criterio ya documentado en MOVO-198/159/160.
+
+### MOVO-247 — Splash screen animado (opción "1A · Expansión", Claude Design)
+
+Reemplaza el splash "horrible" que había hasta acá: un `expo-splash-screen` nativo
+sin imagen (fondo en blanco, sin marca) seguido de un `ActivityIndicator` genérico
+en `app/index.tsx` mientras se resolvía la sesión, y encima un salto visible ("push")
+si esa resolución terminaba mandando a Home/Kyc — se veía la pantalla de Bienvenida
+un instante antes de la navegación automática. Implementación fiel a la opción "1a ·
+Expansión" del prototipo de Claude Design (proyecto "Launch screen con animación de
+logo", leído vía `DesignSync` — el isotipo respira en grises mientras carga, se
+enciende en lime de adentro hacia afuera y se expande desde el centro revelando la
+app).
+
+- **`components/splash/animated-splash.tsx` (nuevo)**: no es una traducción literal
+  del `clip-path` que arma el `.dc.html` del prototipo — `react-native-svg` no lo
+  aplica de forma confiable (mismo gotcha ya documentado en `app/(auth)/kyc.tsx`
+  para un `<image>` recortado). En su lugar, cada uno de los 4 anillos del isotipo
+  (mismos radios relativos que `MovoIsotype`) apila 3 discos planos (base gris,
+  resalte de "respiración", lime de salida) que se cross-fadean por opacidad —
+  matemáticamente equivalente al `lerp` de color del mock (alpha-blend de un color
+  sólido sobre otro) sin depender de `interpolateColor`. El "revelado" final tampoco
+  es un clip-path creciente sobre la app: es un fundido a opacidad 0 de TODO el
+  overlay una vez que el conjunto ya terminó de expandirse — la app real ya está
+  montada y navegada detrás (ver el punto de "sin push" más abajo), así que un fundido
+  simple alcanza y es mucho más robusto que intentar clonar el `clip-path` del mock.
+- **Nota de consistencia de color del ticket (AC5), resuelta sin excepción real**: el
+  prototipo ya trae dos variantes propias (light/dark) — el splash sigue el
+  `colorScheme` del sistema igual que el resto de la app (MOVO-73), sin ningún
+  conflicto real con el manual de marca que negociar.
+- **Sin push visible (arquitectura de boot)**: antes, `app/_layout.tsx` montaba TODO
+  el árbol (incluido `<Stack>`) recién cuando fuentes+apiOverride+sesión estaban
+  listos, y solo ahí `app/index.tsx` arrancaba a resolver a dónde navegar — con el
+  splash nativo ya escondido en ese momento, el usuario veía la Bienvenida un
+  instante antes del salto. Ahora el árbol real se monta apenas hay fuentes
+  (`fontsLoaded`, lo único que el propio `AnimatedSplash` necesita para su wordmark)
+  y el splash JS quedó como overlay encima de `<Stack>`, tapando esa resolución
+  mientras corre detrás. `src/store/boot-store.ts` (`useBootStore`, Zustand chico
+  nuevo) expone `initialRouteResolved`, que `app/index.tsx` prende recién cuando ya
+  llamó (o decidió no llamar) a `router.replace` — el splash no empieza su salida
+  hasta que esa señal, más fuentes/apiOverride/sesión, estén todas en `true`
+  (`bootReady`). Cuidado documentado inline: `app/index.tsx` no puede marcar
+  "resuelto" apoyándose solo en `resumeChecked`/`!isAuthenticatedSession` — mientras
+  `authStatus` sigue en `"checking"` esa combinación da un falso negativo (todavía no
+  se sabe si hay sesión) y revelaría la Bienvenida un instante antes de que el efecto
+  de arriba redirija.
+- **`LegalAcceptanceEntryMount` (MOVO-229) retrasado hasta que el splash ya
+  terminó**: `LegalEntrySheet` se presenta con el `Modal` nativo de RN (una capa por
+  fuera del árbol de views normal) — si se montara antes, podría aparecer POR ENCIMA
+  del splash a mitad de su animación en vez de quedar detrás, sin relación con el
+  z-order de JSX que sí respeta el resto del árbol.
+- **Pedido explícito del usuario: mínimo ~3s de animación visible** aunque el boot
+  real termine antes (para poder apreciar el efecto) — implementado redondeando ese
+  piso hacia arriba al próximo múltiplo del período de respiración (1.6s, tomado del
+  prototipo) en vez de cortar a mitad de un pulso, mismo criterio que el propio mock
+  documenta ("la salida siempre espera a que el loop termine su ciclo").
+- **`app.config.js`**: el plugin `expo-splash-screen` gana `backgroundColor`/
+  `dark.backgroundColor` (antes sin config, fondo en blanco fijo sin importar el
+  tema) — ese splash nativo estático solo tiene que tapar el hueco hasta que hay
+  fuentes cargadas, así que ya no necesita imagen propia.
+
+Tests nuevos: `test/animated-splash.test.tsx` (se mantiene tapando mientras `ready`
+es `false`, nunca termina antes de ~3s aunque `ready` sea `true` desde el arranque,
+reintenta en el próximo límite de ciclo si `ready` llega tarde, limpia su timer al
+desmontar), `test/boot-store.test.ts`, `test/welcome-screen.test.tsx` (primer test de
+`app/index.tsx` en el repo — cubre puntualmente la señal `initialRouteResolved` en
+los 5 caminos de boot, no el contenido visual ya cubierto por los tests de
+`welcome-go-register`/etc. de otras US). 147/147 suites, 1187/1187 tests en
+`movo-mobile`. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: validado solo con el mock oficial de Reanimated (el
+DoD del ticket pide validar en iOS y Android reales, no verificable en este entorno);
+sin imagen propia para el splash nativo estático (decisión tomada acá, ver arriba) —
+si más adelante se decide exportar un PNG del isotipo en reposo para ese frame
+inicial, es un cambio acotado a `app.config.js` + el asset, sin tocar
+`AnimatedSplash`.
+### MOVO-244 — Batch de fixes: KYC, TyC obligatorios, sincronización de estado y varios de UI (`movo-mobile`)
+
+Batch de correcciones y mejoras funcionales y de UI en `movo-mobile`:
+- **KYC en revisión (`manual_review`)**: rediseño de la pantalla de revisión de DNI (`app/(auth)/kyc.tsx`) y licencia (`app/(app)/license-kyc.tsx`) según lineamientos Stitch. Card con isotipo/reloj de arena, copy con plazos claros (24-48 hs), eliminación del enlace "Ir al inicio" en verificación de DNI (el usuario no verificado no debe acceder a la app) y botón primario estandarizado `PrimaryButton` con padding seguro inferior. Soporte de visualización rápida vía query param `?status=manual_review` y acceso dev en Perfil (`__DEV__`).
+- **Términos y condiciones obligatorios**: `components/legal/legal-entry-sheet.tsx` documenta `onDismiss?: () => void` opcional para retrocompatibilidad pero mantiene comportamiento modal estricto. En `/profile/legal/index.tsx` se bloquea el botón volver (chevron y botón físico de Android) cuando hay TyC pendientes de aceptación.
+- **Pull-to-refresh y offsets**: agregado `RefreshControl` en Inicio (`app/(app)/(tabs)/home.tsx`) y Detalle de Envío (`app/(app)/shipments/[id].tsx`) con `progressViewOffset={32}` para evitar solapamientos con la barra de navegación.
+- **Aceptación de ofertas y redirect**: al aceptar una oferta en `offers.tsx`, se invalida y refetchea `['shipments', 'detail', id]` y `ChooseOfferSuccessModal` muestra animación de barra de progreso con feedback háptico (`Haptics.notificationAsync`) antes de redirigir automáticamente al detalle del envío con el transportista asignado.
+- **Formateo de tiempos de ruta**: `src/lib/shipment-format.ts` (`formatDurationMin`) formatea en horas y minutos (`X h Y min` / `X h`) cuando $\ge 60$ min. En `transport/[id].tsx` se mantiene en una sola línea (`shrink-0`, `numberOfLines={1}`).
+- **Zoom de foto de perfil**: long press con feedback háptico (`Haptics.impactAsync`) sobre el avatar de perfil abre `PhotoViewerModal` tanto en el perfil público (`profile/[id].tsx`) como en el propio (`(tabs)/profile.tsx`).
+- **Copy de precio en vista emisor y precio pactado**: se reemplazó "Precio sugerido" por "Costo aproximado" en `components/send/price-preview-card.tsx`. En Detalle de Envío (`app/(app)/shipments/[id].tsx`), al aceptar una oferta o contar con transportista asignado se exhibe la etiqueta "Precio pactado" (precio final/confirmado, no aproximado), resolviendo la omisión de persistencia de `agreedPriceArs` en `offer-repository.ts#acceptOffer` e integrando fallback defensivo en `getShipmentDetail`.
+- **Handshake success**: extensión de un ~25-30% de la duración de las animaciones en `components/handshake/handshake-confirmation-result.tsx`.
+- **Estado de envío `ASSIGNMENT_PENDING`**: se mantuvo texto "Sin asignar" conforme a que la saga completa de asignación y reserva de fondos corresponde a MOVO-210 / MOVO-208 / MOVO-209 / MOVO-211.
+
+### MOVO-246 — Pantalla de configuración de notificaciones: toggle maestro, categorías y horario de silencio
+
+Sub-issue mobile de MOVO-239 (backend hermano: MOVO-245, `svc-users`/`svc-shipments`/
+`@movo/shared`, en PR al escribir esto). Reemplaza el placeholder "Notificaciones" de
+Perfil → Configuración (`profile-settings-section.tsx`, MOVO-78) por un hub real
+(`app/(app)/profile/notifications/index.tsx`, mismo patrón hub→sub-rutas que
+`security.tsx`) + detalle por categoría (`[categoryId].tsx`) + horario de silencio
+(`quiet-hours.tsx`), sobre el prototipo de Claude Design "Control de notificaciones
+en settings" (`Notificaciones.dc.html`).
+
+- **El prototipo define el lenguaje visual, no los datos**: el `.dc.html` hardcodea
+  12 filas ficticias que no coinciden con el catálogo real de MOVO-245
+  (`NOTIFICATION_CATEGORIES`/`NOTIFICATION_TRIGGERS` de `@movo/shared`, subpaths
+  `dist/config/notification-categories`/`dist/config/notification-templates`, nunca
+  el barrel). Catálogo real: implementadas → `custody`/`offers`/`ratings`/`shipments`
+  (sección "sending") y `trips` (sección "carrying"); "Pronto" → `proximity`/
+  `payments` (sending), `kyc`/`account_security` (account), `chat`/`disputes`
+  (conversations). Sin canal "app" (in-app, no existe todavía) y sin el punto "live"/
+  banners `critical`/`warnText` por fila del prototipo — ese campo no existe en
+  `NotificationCategoryDefinition`, era solo del JS de Claude Design.
+- **Toggle maestro (AC1) es una fila agregada sobre el prototipo**, que no lo tenía
+  — el ticket lo pedía explícito para cumplir el AC1 del padre (MOVO-239). Apagarlo
+  solo atenúa (`dimmed`) las categorías de abajo, no bloquea sus toggles: se pueden
+  seguir preconfigurando, quedan respetadas apenas se vuelve a prender el maestro.
+- **`components/ui/toggle-switch.tsx` (nuevo)**: primer toggle/switch del repo — ni
+  el `Switch` nativo de RN se usaba en ningún lado. Pill 46×28 + knob animado
+  (Reanimated), fiel a la función `sw()` del prototipo (mismo recorrido de 18px).
+  Props `disabled` (no dispara `onChange` — categorías "Pronto" o permiso del SO
+  bloqueado) y `dimmed` (solo opacidad, sigue tocable — toggle maestro apagado).
+- **Horario de silencio**: a diferencia del resto de la pantalla, se mantiene el
+  comportamiento de tap-to-cycle del prototipo tal cual (arrays fijos `HOURS`/
+  `HOURS_END`, franja nocturna), no un `SelectField` de 48 opciones — decisión
+  explícita del ticket ("UI completa del prototipo" para esta parte). Callout de
+  excepción con copy genérico: ninguna categoría implementada es `quietHoursExempt`
+  todavía, así que no promete un caso concreto que no pasa.
+- **Detalle de categoría**: lista los triggers reales (`displayCopy` de
+  `NOTIFICATION_TRIGGERS`, que ES el copy real del push, no una redacción aparte)
+  filtrados por `category`. Una categoría "Pronto" no tiene ningún trigger real que
+  listar — mensaje explícito ("Todavía no está disponible...") en vez de inventar
+  filas ficticias, mismo principio ya aplicado en `security.tsx`/`legal/index.tsx`.
+- **`src/api/notification-preferences-client.ts`** (`GET`/`PUT
+  /users/me/notification-preferences`) + **`src/hooks/use-notification-preferences.ts`**
+  (`useNotificationPreferences`/`useUpdateNotificationPreferences`, mismo criterio
+  `setQueryData` que `useUpdateProfile` — el `PUT` devuelve el recurso completo, así
+  que el toggle maestro, horario de silencio y cada categoría comparten una sola
+  query key sin refetch extra entre ellos).
+- **`src/lib/notification-permission.ts`** (`getNotificationPermissionStatus`,
+  `Notifications.getPermissionsAsync()` de solo lectura, nunca pide el permiso) +
+  banner "Push bloqueado" (`components/notifications/notification-permission-banner.tsx`,
+  `Linking.openSettings()`) — AC4: ningún toggle miente sobre un efecto que no va a
+  pasar si el SO ya bloqueó las notificaciones. Se refresca en cada foco de pantalla
+  (`useFocusEffect`) para reflejar la vuelta desde Ajustes.
+- **Sin dedicated hook test** para `use-notification-preferences.ts` (mismo criterio
+  ya aceptado para `use-profile.ts`/`use-shipments.ts`/`use-offers.ts` — ninguno
+  tiene test propio, se ejercitan vía el cliente HTTP y las pantallas que los
+  consumen mockeando el módulo del hook).
+
+Tests nuevos: `test/notification-preferences-client.test.ts`,
+`test/notification-settings-format.test.ts`, `test/toggle-switch.test.tsx`,
+`test/notification-permission-banner.test.tsx`,
+`test/notification-category-row.test.tsx`, `test/notifications-hub-screen.test.tsx`,
+`test/notification-category-detail-screen.test.tsx`,
+`test/quiet-hours-screen.test.tsx`, caso agregado a
+`test/profile-settings-section.test.tsx`. 147/147 suites, 1137/1137 tests en verde.
+`tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: MOVO-245 (backend) sigue en PR sin mergear a
+`develop` — el `dist/` de `@movo/shared` usado durante esta US quedó de una sesión
+anterior en la misma rama; correr `npm run build` en `shared/movo-shared` de nuevo
+una vez que ese PR mergee y `develop` traiga el `dist/` real. No probado en device.
+
+### MOVO-203 — [movo-mobile] Emisión de ubicación del transportista en foreground y background
+
+Implementación del tracking y reporte de ubicación del transportista durante el
+transporte activo (fase 1: foreground + offline FIFO):
+
+- **División de alcance con MOVO-242**: El issue MOVO-242 fue creado en Linear
+  (21/09/2026) para desacoplar el background headless con `expo-task-manager` y el
+  profiling de batería de 1 hora. MOVO-203 implementa toda la arquitectura central
+  de tracking en foreground, cola offline FIFO persistida, sincronización reactiva,
+  permisos contextuales e indicadores de UI.
+- **`src/api/shipments-client.ts`**:
+  - `reportPosition(shipmentId, { lat, lng, accuracyM, capturedAt })` (`POST /shipments/:id/positions`).
+  - `getTransporting()` (`GET /shipments/transporting`).
+- **`src/location/location-service.ts`**:
+  - `LocationService` (singleton): administra la captura GPS con `expo-location`
+    (`Location.Accuracy.Balanced`) cada 25 segundos (configurable).
+  - Cola offline FIFO en memoria y persistida en `expo-secure-store`
+    (`SECURE_STORE_KEYS.carrierLocationOfflineQueue` — estrictamente sin AsyncStorage).
+  - Preserva el `capturedAt` original de cada muestra GPS.
+  - Al recuperar conexión (o en `flushQueue`), drena la cola en estricto orden FIFO.
+  - No encola ni reintenta errores terminales 403 (`SHIPMENT_NOT_IN_TRANSIT`) o 404
+    para no envenenar la cola.
+  - Se detiene inmediatamente (`stopTracking`) al completar entregas o no tener envíos
+    activos en tránsito (AC5, AC7).
+- **`src/hooks/use-carrier-tracking.ts` y coordinación en `app/_layout.tsx`**:
+  - `useCarrierTrackingCoordinator`: montado una sola vez a nivel de sesión en
+    `app/_layout.tsx` (`CarrierTrackingCoordinatorMount` dentro de `QueryClientProvider`),
+    siguiendo el patrón establecido de `usePushNotifications` y `useDeviceKeyBootstrap`.
+    Sincroniza periódicamente `getTransporting()` filtrando envíos `in_transit`, ejecuta el
+    chequeo inicial de permisos y coordina `locationService.updateActiveShipments()`.
+  - `useCarrierTracking`: hook consumidor liviano para componentes visuales
+    (`TrackingActiveIndicator`), que se suscribe al singleton `locationService` sin duplicar
+    peticiones de red ni listeners.
+  - `permissionGranted` vive centralizado en `locationService`: el otorgamiento o rechazo
+    se sincroniza instantáneamente entre todas las pantallas montadas sin desfasajes de estado.
+- **UI Components**:
+  - `components/location/tracking-permission-modal.tsx`: Modal explicativo que
+    antecede al diálogo del sistema operativo (AC4).
+  - `components/location/tracking-active-indicator.tsx`: Banner/pill informativo reactivo
+    que comunica si se está transmitiendo en vivo ("X envíos pendientes de entrega"),
+    si el permiso fue denegado (abre modal explicativo) o si no hay red ("Sin conexión
+    a internet"), ajustado a ancho completo en Home y márgenes estándar en Transportar (AC8).
+  - Integrado en `app/(app)/(tabs)/home.tsx` y `app/(app)/(tabs)/transport.tsx`.
+- **Herramientas de desarrollo (`__DEV__`)**:
+  - `app/dev-shortcuts.tsx` y `components/dev/DevShortcutsScreen.tsx`: pantalla centralizada
+    de atajos dev exclusivamente disponible en desarrollo, incluyendo simulación de tracking
+    con envío de prueba y traslado del disparador de demo de ruta (limpiando código muerto en `route/index.tsx`).
+- **`app.config.js`**: Justificaciones de uso de ubicación en primer plano redactadas
+  específicamente para la experiencia de entrega en tiempo real.
+
+Tests:
+- `test/location-service.test.ts` (10 tests)
+- `test/use-carrier-tracking.test.tsx` (5 tests)
+- `test/tracking-components.test.tsx` (8 tests)
+Total: 23 tests en verde. Typecheck `npx tsc --noEmit` limpio sin errores.
+

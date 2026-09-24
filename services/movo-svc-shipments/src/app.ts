@@ -13,6 +13,7 @@ import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-swe
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import pickupExpirySweepPlugin from "./plugins/pickup-expiry-sweep";
 import carrierPositionPurgeSweepPlugin from "./plugins/carrier-position-purge-sweep";
+import tripExpirySweepPlugin from "./plugins/trip-expiry-sweep";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import offersRoutes, { OffersRoutesOptions } from "./modules/offers/offers.routes";
 import ratingsRoutes, { internalRatingsRoutes, RatingsRoutesOptions } from "./modules/ratings/ratings.routes";
@@ -57,6 +58,9 @@ export interface BuildAppOptions {
   /** Override para habilitar/deshabilitar el sweep de purga de posiciones GPS en
    * background (MOVO-202). */
   carrierPositionPurgeSweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el sweep de viajes declared vencidos en
+   * background (MOVO-238). */
+  tripExpirySweepEnabled?: boolean;
   /** Override solo para tests de integración -- evita depender de una integración
    * real de liberación de fondos (MOVO-158, fuera de alcance de este ticket). */
   fundsReleaseNotifier?: FundsReleaseNotifier;
@@ -132,6 +136,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.carrierPositionPurgeSweepEnabled !== undefined
       ? { enabled: opts.carrierPositionPurgeSweepEnabled }
       : {}),
+  });
+  app.register(tripExpirySweepPlugin, {
+    ...(opts.tripExpirySweepEnabled !== undefined ? { enabled: opts.tripExpirySweepEnabled } : {}),
   });
 
   app.get("/health", async () => ({ status: "ok" }));

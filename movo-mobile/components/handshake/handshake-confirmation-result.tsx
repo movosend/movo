@@ -42,18 +42,18 @@ interface HandshakeConfirmationResultProps {
   testID?: string;
 }
 
-const WIPE_DURATION_MS = 900;
-const CHECK_FADE_DELAY_MS = 680;
-const CHECK_FADE_DURATION_MS = 240;
-const CHECK_DRAW_DELAY_MS = 720;
-const CHECK_DRAW_DURATION_MS = 700;
+const WIPE_DURATION_MS = 1150;
+const CHECK_FADE_DELAY_MS = 850;
+const CHECK_FADE_DURATION_MS = 300;
+const CHECK_DRAW_DELAY_MS = 900;
+const CHECK_DRAW_DURATION_MS = 880;
 const CHECK_DASH_LENGTH = 40;
-const TITLE_DELAY_MS = 1240;
-const TITLE_DURATION_MS = 560;
-const SHEET_DELAY_MS = 1780;
-const SHEET_DURATION_MS = 640;
-const BAR_DELAY_MS = 2300;
-const BAR_DURATION_MS = 900;
+const TITLE_DELAY_MS = 1550;
+const TITLE_DURATION_MS = 700;
+const SHEET_DELAY_MS = 2200;
+const SHEET_DURATION_MS = 800;
+const BAR_DELAY_MS = 2850;
+const BAR_DURATION_MS = 1100;
 
 const EASE_OUT = Easing.out(Easing.cubic);
 

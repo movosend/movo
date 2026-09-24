@@ -1,7 +1,7 @@
-import { router } from "expo-router";
+import { router, useNavigation } from "expo-router";
 import { CheckCircle2, ChevronLeft, FileText, ShieldCheck, TriangleAlert, type LucideIcon } from "lucide-react-native";
-import { useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { useEffect, useLayoutEffect, useState } from "react";
+import { BackHandler, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LegalDocumentSheet } from "../../../../components/legal/legal-document-sheet";
 import { useMyProfile } from "../../../../src/hooks/use-profile";
@@ -19,40 +19,61 @@ import {
  * Design "Rediseño página Legal con estados de firma": cada documento es una
  * tarjeta con ícono, insignia de estado (Al día / Pendiente / Nueva versión), la
  * firma electrónica real (fecha + versión) y un botón que abre el sheet de lectura
- * (`legal-document-sheet.tsx`) en vez de navegar a una pantalla propia — ver ese
- * componente para por qué "Ver también" cambia de documento sin cerrar el sheet.
+ * (`legal-document-sheet.tsx`) en vez de navegar a una pantalla propia.
+ * En MOVO-244: si hay documentos pendientes, la pantalla es bloqueante (no permite volver atrás).
+ * Bloquea las tres vías de salida por gesto/hardware: `BackHandler` (botón físico de
+ * Android) + `gestureEnabled: false` (swipe-back nativo de iOS, y el gesto de Android
+ * en versiones que lo soportan) vía `useNavigation().setOptions` — solo `BackHandler`
+ * dejaba el swipe-back de iOS completamente sin bloquear (bug de review, MOVO-244 PR
+ * #184), la única de las tres plataformas donde esta pantalla en realidad se abría.
  */
 export default function LegalHubScreen() {
   const colors = useThemeColors();
+  const navigation = useNavigation();
   const { data: profile } = useMyProfile();
   const [openDoc, setOpenDoc] = useState<LegalDocumentKind | null>(null);
 
   const terms = getTermsAcceptanceState(profile);
   const privacy = getPrivacyAcceptanceState(profile);
+  const isBlocking = terms.status !== "up_to_date" || privacy.status !== "up_to_date";
+
+  useEffect(() => {
+    if (!isBlocking) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => true);
+    return () => sub.remove();
+  }, [isBlocking]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({ gestureEnabled: !isBlocking });
+  }, [navigation, isBlocking]);
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
       <View className="flex-row items-center gap-3 px-5 pb-3.5 pt-1.5">
-        <Pressable
-          testID="legal-hub-back"
-          onPress={() => router.back()}
-          className="h-8 w-8 items-center justify-center rounded-full bg-bg-mute"
-        >
-          <ChevronLeft size={18} color={colors.fg1} strokeWidth={2} />
-        </Pressable>
+        {!isBlocking ? (
+          <Pressable
+            testID="legal-hub-back"
+            onPress={() => router.back()}
+            className="h-8 w-8 items-center justify-center rounded-full bg-bg-mute"
+          >
+            <ChevronLeft size={18} color={colors.fg1} strokeWidth={2} />
+          </Pressable>
+        ) : (
+          <View className="h-8 w-8" />
+        )}
         <Text className="font-sans-semibold text-h3 text-fg">Legal</Text>
       </View>
+
+      <Text className="px-5 pb-4 font-sans text-[13px] text-fg-3">
+        Los documentos que rigen el uso de Movo y el tratamiento de tus datos. Cada
+        aceptación queda registrada con fecha y versión.
+      </Text>
 
       <ScrollView
         testID="legal-hub-content"
         contentContainerClassName="px-5 pb-10"
         showsVerticalScrollIndicator={false}
       >
-        <Text className="mb-5 font-sans text-[15px] leading-5 text-fg-2">
-          Los documentos que rigen el uso de Movo y el tratamiento de tus datos. Cada
-          aceptación queda registrada con fecha y versión.
-        </Text>
-
         <View className="gap-3">
           <LegalDocumentCard
             label="Términos y Condiciones de Uso"
@@ -95,6 +116,7 @@ function LegalDocumentCard({
   state: LegalDocumentAcceptanceState;
   onPress: () => void;
 }) {
+  const colors = useThemeColors();
   const meta = legalAcceptanceMeta(state);
   const badgeClass = meta.badgeTone === "success" ? "bg-success-100" : "bg-warning-100";
   const badgeTextClass = meta.badgeTone === "success" ? "text-success-700" : "text-warning-700";
@@ -109,7 +131,7 @@ function LegalDocumentCard({
     >
       <View className="flex-row items-start gap-3">
         <View className="h-[38px] w-[38px] items-center justify-center rounded-full border border-border bg-bg">
-          <Icon size={17} strokeWidth={1.6} color="#0A0A0B" />
+          <Icon size={17} strokeWidth={1.6} color={colors.fg1} />
         </View>
         <Text className="flex-1 pt-1.5 font-sans-medium text-[16px] text-fg" numberOfLines={2}>
           {label}

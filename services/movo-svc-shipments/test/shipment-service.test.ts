@@ -516,6 +516,32 @@ describe("shipments.service — getShipmentDetail", () => {
     await expect(service.getShipmentDetail(shipment.id, "carrier-id", [])).resolves.toBe(shipment);
   });
 
+  it("MOVO-244: si agreedPriceArs es null en un envío asignado, recupera el monto de la oferta aceptada", async () => {
+    const shipment = fakeShipment({
+      senderId: "sender-id",
+      receiverId: "receiver-id",
+      carrierId: "carrier-id",
+      status: ShipmentStatus.ASSIGNMENT_PENDING,
+      suggestedPriceArs: 4500,
+      agreedPriceArs: null,
+    });
+    const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });
+    const offerRepository = createFakeOfferRepository({
+      listByShipment: vi.fn().mockResolvedValue([
+        fakeOffer({
+          shipmentId: shipment.id,
+          carrierId: "carrier-id",
+          priceOffered: 5200,
+          status: OfferStatus.ACCEPTED,
+        }),
+      ]),
+    });
+    const service = createTestShipmentsService(repository, createFakeUsersClient({}), offerRepository);
+
+    const result = await service.getShipmentDetail(shipment.id, "sender-id", []);
+    expect(result.agreedPriceArs).toBe(5200);
+  });
+
   it("un transportista verificado ve un envío published ajeno", async () => {
     const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id", status: ShipmentStatus.PUBLISHED });
     const repository = fakeRepository({ findById: vi.fn().mockResolvedValue(shipment) });

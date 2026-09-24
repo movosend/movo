@@ -3,7 +3,7 @@ import type {
   VerificationErrorType,
   VerificationResult,
 } from "@didit-protocol/sdk-react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import {
   CameraOff,
   ShieldAlert,
@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Image, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../../components/auth/primary-button";
+import { KycManualReviewResult } from "../../components/kyc/kyc-manual-review-result";
 import { ErrorBanner } from "../../components/ui/error-banner";
 import { useRegistration } from "../../src/hooks/use-registration";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -195,10 +196,13 @@ export default function KycScreen() {
     refreshKycStatus,
   } = registration;
 
-  // Si se llega desde el wizard de registro, `registration.kycStatus` tiene prioridad.
-  // Si se llega desde "Mi perfil" (usuario autenticado), `registration.kycStatus` es null
-  // y se lee el estado actual desde `authStore`.
-  const kycStatus = registrationKycStatus ?? authUser?.kycStatus ?? null;
+  const params = useLocalSearchParams<{ status?: string }>();
+  // `?status=` solo existe para el atajo de testing de Perfil (`__DEV__`, ver
+  // `profile.tsx`) — sin este guard, `/kyc` es una ruta real alcanzable por deep link
+  // (`movo://kyc?status=approved`) en producción, y cualquiera podía spoofear un KYC
+  // aprobado sin haber pasado por Didit (MOVO-244 review, PR #184).
+  const forcedStatus = __DEV__ ? (params?.status as KycStatus | undefined) : undefined;
+  const kycStatus = forcedStatus ?? registrationKycStatus ?? authUser?.kycStatus ?? null;
 
   const [phase, setPhase] = useState<"intro" | "connecting" | "result">(
     () => (kycStatus && kycStatusToResultKind(kycStatus) ? "result" : "intro"),
@@ -233,19 +237,31 @@ export default function KycScreen() {
   // operador ya cerró) — se revalida contra `/kyc/status` una vez al entrar, en vez de
   // confiar ciegamente en ese valor.
   useEffect(() => {
+    if (forcedStatus) {
+      const kind = kycStatusToResultKind(forcedStatus);
+      if (kind) {
+        setResultKind(kind);
+        setPhase("result");
+      }
+      return;
+    }
     const resumed = kycStatus ? kycStatusToResultKind(kycStatus) : null;
     if (resumed) {
       setResultKind(resumed);
       setPhase("result");
+
+      // Auto-refresh solo en `pending` o `manual_review`: son los dos estados que
+      // el usuario puede estar esperando ver resolverse sin interactuar (AC7).
       if (
         !autoRefreshedRef.current &&
-        (resumed === "in_progress" || resumed === "manual_review")
+        !forcedStatus &&
+        (kycStatus === KycStatus.PENDING || kycStatus === KycStatus.MANUAL_REVIEW)
       ) {
         autoRefreshedRef.current = true;
         void refreshKycStatus();
       }
     }
-  }, [kycStatus, refreshKycStatus]);
+  }, [forcedStatus, kycStatus, refreshKycStatus]);
 
   async function beginVerification() {
     const session = await createKycSession();
@@ -364,15 +380,24 @@ export default function KycScreen() {
     const badge = RESULT_BADGE[kind];
     const BadgeIcon = badge.Icon;
     const canRetry = RETRYABLE.includes(kind);
-    // 'in_progress' y 'manual_review' son los dos casos donde el resultado real puede
-    // estar resuelto del lado del backend aunque esta pantalla todavía no se haya
-    // enterado (sesión de Didit con webhook en camino, o revisión manual que un
-    // operador ya cerró — caso real reportado, ver comentario del auto-refresh de
-    // arriba). El auto-refresh al entrar ya cubre el caso típico ("volví a abrir la
-    // app"/"toqué Continuar verificación"); este link es la vía manual para cuando el
-    // usuario se queda en la pantalla esperando y quiere volver a chequear sin salir.
     const canRefresh = kind === "in_progress" || kind === "manual_review";
     const isApproved = kind === "approved";
+
+    if (kind === "manual_review") {
+      // Sin `onGoHome` a propósito: a diferencia de `license-kyc.tsx`, un usuario sin
+      // identidad verificada no tiene ninguna salida hacia el resto de la app
+      // (decisión explícita del equipo, ver `kyc.test.tsx`).
+      return (
+        <KycManualReviewResult
+          title="Tu verificación está en revisión"
+          body="A veces necesitamos un poco más de tiempo para confirmar tu identidad. Te avisaremos por notificación en cuanto esté lista."
+          onRefresh={handleRefresh}
+          refreshing={refreshing}
+          testIDPrefix="kyc"
+        />
+      );
+    }
+
     return (
       <SafeAreaView className="flex-1 bg-bg px-8 pt-16">
         <View className="flex-1 items-center">
@@ -420,9 +445,7 @@ export default function KycScreen() {
             onPress={handleRefresh}
             className="mb-3 text-center font-sans text-[13px] text-fg-3"
           >
-            {kind === "manual_review"
-              ? "Actualizar estado"
-              : "Ya la completé — actualizar estado"}
+            Ya la completé — actualizar estado
           </Text>
         ) : null}
         {canRetry ? (

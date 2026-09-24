@@ -73,6 +73,10 @@ export const SECURE_STORE_KEYS = {
    * `logout()`, así que si otro usuario loguea en el mismo teléfono reusa la misma
    * clave física y solo registra su propia pública contra `POST /users/me/device-key`. */
   handshakeDevicePrivateKey: "movo.handshake.devicePrivateKey",
+  /** Cola persistida de posiciones GPS capturadas sin red (MOVO-203, AC6).
+   * Se almacena como JSON array de `QueuedPosition` y se drena en ráfaga
+   * preservando el `capturedAt` original de cada muestra. */
+  carrierLocationOfflineQueue: "movo.carrier.locationOfflineQueue",
 } as const;
 
 /**

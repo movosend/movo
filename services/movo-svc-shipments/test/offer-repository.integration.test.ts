@@ -477,6 +477,7 @@ describe("offer-repository (Postgres)", () => {
       const shipment = await shipmentRepo.findById(shipmentId);
       expect(shipment?.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
       expect(shipment?.carrierId).toBe(offerA.carrierId);
+      expect(shipment?.agreedPriceArs).toBe(offerA.priceOffered);
 
       const events = await shipmentRepo.listEvents(shipmentId);
       const acceptEvent = events.find((e) => e.toStatus === ShipmentStatus.ASSIGNMENT_PENDING);
