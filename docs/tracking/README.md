@@ -29,6 +29,23 @@ detrás del proxy de `movo-api-gateway`, que:
    ingesta de posiciones (MOVO-202) y futuros canales (chat, MOVO-26) lo reusen sin
    rediseñarlo.
 
+### Contrato de mensajes y códigos de cierre (MOVO-250, ADR-024)
+
+El canal es de RECEPCIÓN: el transportista reporta por HTTP (`POST /shipments/:id/positions`
+o el lote `POST /shipments/positions`) y el server difunde por acá.
+
+| Mensaje | Cuándo |
+| --- | --- |
+| `{type:"connected", shipmentId}` | Al aceptar la conexión |
+| `{type:"position", shipmentId, lat, lng, accuracyM, capturedAt, recordedAt}` | Última posición conocida al conectar, y cada posición con `capturedAt` más reciente que la guardada (una vieja de la cola offline no se difunde) |
+| `{type:"status", shipmentId, status}` | En cada transición de estado del envío (antes del cierre `4009` si el estado corta el tracking) |
+
+| Cierre | Motivo |
+| --- | --- |
+| `4001` | Sin token / token inválido al conectar, o el `exp` del JWT llegó con la conexión abierta — reconectar con el token renovado |
+| `4003` / `4004` | Envío ajeno / inexistente |
+| `4009` | El envío llegó a un estado que corta el tracking |
+
 Fuera de alcance de MOVO-201 (tickets hermanos): la ingesta y persistencia real de
 posiciones GPS (MOVO-202), la emisión desde el mobile, y el chat (MOVO-26).
 
