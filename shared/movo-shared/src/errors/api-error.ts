@@ -101,7 +101,10 @@ export type ApiErrorCode =
   // MOVO-202: reportar una posición GPS sobre un envío que no está `in_transit` --
   // AC2 del ticket lo trata como 403, no 409 (mismo status que un actor equivocado,
   // aunque el problema sea de estado y no de autorización).
-  | "SHIPMENT_NOT_IN_TRANSIT";
+  | "SHIPMENT_NOT_IN_TRANSIT"
+  // MOVO-250: `capturedAt` de una posición GPS en el futuro (más allá de la tolerancia de
+  // desfase de reloj) o anterior a que el envío pasara a `in_transit`.
+  | "INVALID_CAPTURED_AT";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {
