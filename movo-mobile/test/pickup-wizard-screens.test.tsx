@@ -189,6 +189,19 @@ describe("_layout (gate del wizard de retiro, AC1)", () => {
     expect(getByTestId("pickup-wizard-already-done")).toBeTruthy();
   });
 
+  it("una vez en ready, un refetch que ve already_done antes de guardar el resultado no desmonta los pasos", async () => {
+    mockUsePickupWizard.mockReturnValue({ gate: "ready" });
+
+    const { getByTestId, queryByTestId, rerender } = await render(<PickupWizardLayout />);
+
+    // Sin tocar el Stack (sin resultado guardado): el envío avanzó por otro camino.
+    mockUsePickupWizard.mockReturnValue({ gate: "already_done" });
+    await rerender(<PickupWizardLayout />);
+
+    expect(getByTestId("pickup-layout-stack")).toBeTruthy();
+    expect(queryByTestId("pickup-wizard-already-done")).toBeNull();
+  });
+
   it("ya confirmado en esta sesión: el gate en vivo (already_done) no pisa la pantalla de éxito", async () => {
     mockUsePickupWizard.mockReturnValue({ gate: "ready" });
 

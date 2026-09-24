@@ -73,11 +73,16 @@ export default function DeliveryWizardLayout() {
   const colors = useThemeColors();
   const { gate: liveGate } = useDeliveryWizard(id);
   const [result, setResult] = useState<ConfirmHandshakeResult | null>(null);
-  // Una vez confirmado el handshake en esta sesión, el envío pasa a `delivered` y el
-  // gate en vivo pasaría a `already_done`, pisando la pantalla de éxito con el
-  // mensaje "Ya confirmaste esta entrega" (una segunda confirmación redundante). El
-  // gate solo protege la ENTRADA al wizard: con resultado en mano ya no se reevalúa.
-  const gate = result ? "ready" : liveGate;
+  // El gate solo protege la ENTRADA al wizard: una vez que dio `ready`, queda fijo
+  // por el resto de la sesión. Si se reevaluara en vivo, cualquier refetch del envío
+  // que vea `delivered` (el handshake ya se confirmó) antes de que el paso del QR/escaneo
+  // guarde su resultado pasaría el gate a `already_done`, desmontaría el `<Stack>` y
+  // pisaría la pantalla de éxito con "Ya confirmaste esta entrega". Un cambio de estado
+  // real a mitad del wizard (ej. cancelación) igual lo rechaza el backend al generar
+  // o confirmar el handshake.
+  const [reachedReady, setReachedReady] = useState(false);
+  if (liveGate === "ready" && !reachedReady) setReachedReady(true);
+  const gate = reachedReady || liveGate === "ready" ? "ready" : liveGate;
 
   const goToDetail = () => router.replace(`/shipments/${id}`);
 
