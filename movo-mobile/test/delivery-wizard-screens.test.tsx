@@ -90,6 +90,8 @@ jest.mock("../components/evidence/evidence-capture-step", () => {
 
 let mockHandshakeQrOptions: { onConfirmed: (s: unknown) => void; onEvidenceMissing?: () => void } | null = null;
 const mockRegenerate = jest.fn();
+const mockRetryDeviceKey = jest.fn();
+let mockDeviceKeyStatus = "ready";
 jest.mock("../src/hooks/use-handshake-qr", () => ({
   useHandshakeQr: (options: any) => {
     mockHandshakeQrOptions = options;
@@ -99,8 +101,8 @@ jest.mock("../src/hooks/use-handshake-qr", () => ({
       stage: "delivery",
       error: null,
       confirmedShipment: null,
-      deviceKeyStatus: "ready",
-      retryDeviceKey: jest.fn(),
+      deviceKeyStatus: mockDeviceKeyStatus,
+      retryDeviceKey: mockRetryDeviceKey,
       regenerate: mockRegenerate,
     };
   },
@@ -387,6 +389,57 @@ describe("delivery/qr (paso 5, AC3/AC5/AC6/AC7 -- el transportista genera, roles
       expect.objectContaining({ shipmentId: "shipment-1", stage: "delivery", status: "delivered" }),
     );
     expect(mockRouterReplace).toHaveBeenCalledWith("/shipments/shipment-1/delivery/success");
+  });
+
+  it("si evidence-status falla sin datos, muestra el error con reintento en vez de redirigir a evidencia", async () => {
+    const mockRefetch = jest.fn();
+    mockUseEvidenceStatus.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      isFetching: false,
+      refetch: mockRefetch,
+    });
+
+    const { getByTestId, queryByTestId } = await render(<DeliveryQrScreen />);
+
+    expect(queryByTestId("delivery-redirect")).toBeNull();
+    await act(async () => {
+      fireEvent.press(getByTestId("evidence-status-error-retry"));
+    });
+    expect(mockRefetch).toHaveBeenCalled();
+  });
+
+  it("con un refetch fallido pero datos satisfechos en caché, sigue mostrando el QR", async () => {
+    mockUseEvidenceStatus.mockReturnValue({ data: { satisfied: true }, isLoading: false, isError: true });
+
+    const { getByTestId } = await render(<DeliveryQrScreen />);
+
+    expect(getByTestId("delivery-qr-card")).toBeTruthy();
+  });
+
+  it("con la clave del dispositivo en error, muestra el aviso con reintento", async () => {
+    mockUseEvidenceStatus.mockReturnValue({ data: { satisfied: true }, isLoading: false });
+    mockDeviceKeyStatus = "error";
+
+    try {
+      const { getByTestId } = await render(<DeliveryQrScreen />);
+      expect(getByTestId("delivery-qr-device-key-warning")).toBeTruthy();
+      await act(async () => {
+        fireEvent.press(getByTestId("handshake-device-key-retry"));
+      });
+      expect(mockRetryDeviceKey).toHaveBeenCalled();
+    } finally {
+      mockDeviceKeyStatus = "ready";
+    }
+  });
+
+  it("con la clave lista, no muestra el aviso", async () => {
+    mockUseEvidenceStatus.mockReturnValue({ data: { satisfied: true }, isLoading: false });
+
+    const { queryByTestId } = await render(<DeliveryQrScreen />);
+
+    expect(queryByTestId("delivery-qr-device-key-warning")).toBeNull();
   });
 
   it("AC7: onEvidenceMissing invalida evidence-status y vuelve al paso de evidencia", async () => {

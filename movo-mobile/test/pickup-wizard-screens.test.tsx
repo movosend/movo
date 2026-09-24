@@ -381,6 +381,25 @@ describe("pickup/scan (paso 5, AC3/AC9)", () => {
     expect(queryByTestId("pickup-scan-step")).toBeNull();
   });
 
+  it("si evidence-status falla sin datos, muestra el error con reintento en vez de redirigir a evidencia", async () => {
+    const mockRefetch = jest.fn();
+    mockUseEvidenceStatus.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      isFetching: false,
+      refetch: mockRefetch,
+    });
+
+    const { getByTestId, queryByTestId } = await render(<PickupScanScreen />);
+
+    expect(queryByTestId("pickup-redirect")).toBeNull();
+    await act(async () => {
+      fireEvent.press(getByTestId("evidence-status-error-retry"));
+    });
+    expect(mockRefetch).toHaveBeenCalled();
+  });
+
   it("con evidencia satisfecha, monta HandshakeScanStep", async () => {
     mockUseEvidenceStatus.mockReturnValue({ data: { satisfied: true }, isLoading: false });
 

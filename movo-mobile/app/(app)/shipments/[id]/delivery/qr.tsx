@@ -3,7 +3,9 @@ import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import { HandshakeDeviceKeyWarning } from "../../../../../components/handshake/handshake-device-key-warning";
 import { HandshakeQrCard } from "../../../../../components/handshake/handshake-qr-card";
+import { EvidenceStatusError } from "../../../../../components/evidence/evidence-status-error";
 import { WizardStepHeader } from "../../../../../components/shipments/wizard-step-header";
 import type { ConfirmHandshakeResult, ShipmentSummary } from "../../../../../src/api/shipments-client";
 import { useEvidenceStatus, useShipment } from "../../../../../src/hooks/use-shipments";
@@ -48,6 +50,17 @@ export default function DeliveryQrScreen() {
   // resolvió, se espera acá en vez de arriesgar un salto directo sin evidencia.
   if (evidenceStatus.isLoading) {
     return <View className="flex-1 bg-ink-950" />;
+  }
+
+  // Solo si no hay ningún dato: con un valor previo en caché (ej. el que dejó el paso
+  // de evidencia) un refetch fallido no cambia lo que ya se sabe.
+  if (evidenceStatus.isError && !evidenceStatus.data) {
+    return (
+      <EvidenceStatusError
+        onRetry={() => void evidenceStatus.refetch()}
+        isRetrying={evidenceStatus.isFetching}
+      />
+    );
   }
 
   if (evidenceStatus.data?.satisfied !== true) {
@@ -95,7 +108,7 @@ function DeliveryQrContent({
   onConfirmed: (shipment: ShipmentSummary) => void;
   onEvidenceMissing: () => void;
 }) {
-  const { qrPayload, status, error, regenerate } =
+  const { qrPayload, status, error, regenerate, deviceKeyStatus, retryDeviceKey } =
     useHandshakeQr({
       shipmentId,
       initialStage: "delivery",
@@ -109,6 +122,18 @@ function DeliveryQrContent({
       {/* Sin ScrollView: el contenido entra en pantalla y un View plano garantiza que
           el área del QR ocupe todo el alto restante para centrarlo de verdad. */}
       <View className="flex-1 px-5 pb-6">
+        {/* Sin clave lista el hook nunca genera (queda en `idle`, sin error): sin este
+            aviso el usuario vería "No se pudo cargar el QR" sin motivo ni reintento.
+            Mismo tratamiento que la pantalla standalone `/handshake`. */}
+        {deviceKeyStatus !== "ready" ? (
+          <View className="pt-4">
+            <HandshakeDeviceKeyWarning
+              testID="delivery-qr-device-key-warning"
+              status={deviceKeyStatus}
+              onRetry={retryDeviceKey}
+            />
+          </View>
+        ) : null}
         <HandshakeQrCard
           testID="delivery-qr-card"
           qrPayload={qrPayload}

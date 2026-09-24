@@ -3,6 +3,7 @@ import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { HandshakeScanStep } from "../../../../../components/handshake/handshake-scan-step";
+import { EvidenceStatusError } from "../../../../../components/evidence/evidence-status-error";
 import { WizardStepHeader } from "../../../../../components/shipments/wizard-step-header";
 import type { ConfirmHandshakeResult } from "../../../../../src/api/shipments-client";
 import { useEvidenceStatus } from "../../../../../src/hooks/use-shipments";
@@ -24,6 +25,17 @@ export default function PickupScanScreen() {
   // resolvió, se espera acá en vez de arriesgar un salto directo sin evidencia.
   if (evidenceStatus.isLoading) {
     return <View className="flex-1 bg-ink-950" />;
+  }
+
+  // Solo si no hay ningún dato: con un valor previo en caché (ej. el que dejó el paso
+  // de evidencia) un refetch fallido no cambia lo que ya se sabe.
+  if (evidenceStatus.isError && !evidenceStatus.data) {
+    return (
+      <EvidenceStatusError
+        onRetry={() => void evidenceStatus.refetch()}
+        isRetrying={evidenceStatus.isFetching}
+      />
+    );
   }
 
   if (evidenceStatus.data?.satisfied !== true) {
