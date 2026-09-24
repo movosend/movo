@@ -103,32 +103,44 @@ export function useHandshakeQr({
     }
   }, []);
 
+  /** Consulta el envío y, si el receptor de custodia ya confirmó, cierra el flujo.
+   * Lo usan el polling y el `catch` de una generación: si el receptor escanea justo
+   * antes de una renovación, `generateHandshake` falla contra un envío que ya
+   * avanzó de estado, y sin esta consulta el cedente quedaría trabado en un error
+   * (con un "Reintentar" que vuelve a fallar) en vez de llegar al éxito. */
+  const checkConfirmed = useCallback(async (): Promise<boolean> => {
+    if (isConfirmedRef.current) return true;
+    const freshShipment = await shipmentsClient.getById(shipmentId);
+    const st = currentStageRef.current;
+
+    const isNowConfirmed =
+      (st === "pickup" && freshShipment.status === ShipmentStatus.IN_TRANSIT) ||
+      (st === "delivery" &&
+        (freshShipment.status === ShipmentStatus.DELIVERED ||
+          freshShipment.status === ShipmentStatus.COMPLETED));
+
+    if (!isNowConfirmed || isConfirmedRef.current) return isConfirmedRef.current;
+
+    isConfirmedRef.current = true;
+    clearRefreshTimer();
+    clearPolling();
+    if (isUnmountedRef.current) return true;
+    setStatus("confirmed");
+    setConfirmedShipment(freshShipment);
+    onConfirmed?.(freshShipment);
+    return true;
+  }, [shipmentId, clearRefreshTimer, clearPolling, onConfirmed]);
+
   const startPolling = useCallback(() => {
     if (pollingRef.current) return;
     pollingRef.current = setInterval(async () => {
       try {
-        const freshShipment = await shipmentsClient.getById(shipmentId);
-        const st = currentStageRef.current;
-
-        const isNowConfirmed =
-          (st === "pickup" && freshShipment.status === ShipmentStatus.IN_TRANSIT) ||
-          (st === "delivery" &&
-            (freshShipment.status === ShipmentStatus.DELIVERED ||
-              freshShipment.status === ShipmentStatus.COMPLETED));
-
-        if (isNowConfirmed && !isConfirmedRef.current) {
-          isConfirmedRef.current = true;
-          clearRefreshTimer();
-          clearPolling();
-          setStatus("confirmed");
-          setConfirmedShipment(freshShipment);
-          onConfirmed?.(freshShipment);
-        }
+        await checkConfirmed();
       } catch {
         // El polling ignora fallos esporádicos de red
       }
     }, pollingIntervalMs);
-  }, [shipmentId, pollingIntervalMs, clearRefreshTimer, clearPolling, onConfirmed]);
+  }, [pollingIntervalMs, checkConfirmed]);
 
   const generate = useCallback(
     async (silent: boolean) => {
@@ -184,6 +196,15 @@ export function useHandshakeQr({
       } catch (err: unknown) {
         clearRefreshTimer();
         clearPolling();
+        // Antes de mostrar cualquier error: puede que el fallo sea justamente porque
+        // el receptor ya confirmó (el envío dejó de estar en un estado que permita
+        // generar). En ese caso no hay error que mostrar, hay que ir al éxito.
+        try {
+          if (await checkConfirmed()) return;
+        } catch {
+          // Si la consulta también falla, se muestra el error original.
+        }
+        if (isUnmountedRef.current) return;
         // AC7: `DELIVERY_EVIDENCE_MISSING`/`PICKUP_EVIDENCE_MISSING` no son un error a
         // mostrar acá -- el caller decide volver al paso de evidencia. Status
         // deliberadamente NO vuelve a "idle" acá: el efecto de disparo automático
@@ -212,7 +233,7 @@ export function useHandshakeQr({
         isGeneratingRef.current = false;
       }
     },
-    [shipmentId, clearRefreshTimer, clearPolling, startPolling, onEvidenceMissing],
+    [shipmentId, clearRefreshTimer, clearPolling, startPolling, checkConfirmed, onEvidenceMissing],
   );
   generateRef.current = generate;
 

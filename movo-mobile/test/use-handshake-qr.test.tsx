@@ -218,6 +218,66 @@ describe("useHandshakeQr (MOVO-159)", () => {
     expect(harness.current.error).toBeNull();
   });
 
+  it("si la renovación falla porque el receptor ya confirmó, va al éxito en vez de mostrar el error", async () => {
+    const onConfirmedMock = jest.fn();
+    mockGenerateHandshake.mockResolvedValue({
+      shipmentId,
+      stage: "delivery",
+      nonce: "nonce-xyz-456",
+      canonicalPayload: `${shipmentId}:delivery:nonce-xyz-456`,
+      expiresAt: "2026-09-19T10:00:15.000Z",
+      ttlSeconds: 15,
+    });
+    // Polling a 60s: el receptor confirma antes de que el polling llegue a verlo.
+    const harness = await renderHarness({
+      shipmentId,
+      initialStage: "delivery",
+      onConfirmed: onConfirmedMock,
+      pollingIntervalMs: 60000,
+    });
+    await waitFor(() => {
+      expect(harness.current.status).toBe("active");
+    });
+
+    mockGenerateHandshake.mockRejectedValueOnce(
+      new ApiError(409, "HANDSHAKE_INVALID_SHIPMENT_STATE", "Invalid state")
+    );
+    mockGetById.mockResolvedValueOnce({ id: shipmentId, status: ShipmentStatus.DELIVERED });
+
+    await act(async () => {
+      jest.advanceTimersByTime(12000);
+    });
+
+    await waitFor(() => {
+      expect(harness.current.status).toBe("confirmed");
+    });
+    expect(harness.current.error).toBeNull();
+    expect(onConfirmedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ status: ShipmentStatus.DELIVERED })
+    );
+  });
+
+  it("si la renovación falla y la consulta del envío también, muestra el error original", async () => {
+    const harness = await renderHarness({ shipmentId, initialStage: "pickup", pollingIntervalMs: 60000 });
+    await waitFor(() => {
+      expect(harness.current.status).toBe("active");
+    });
+
+    mockGenerateHandshake.mockRejectedValueOnce(
+      new ApiError(422, "HANDSHAKE_DISTANCE_EXCEEDED", "Distance exceeded")
+    );
+    mockGetById.mockRejectedValueOnce(new Error("network"));
+
+    await act(async () => {
+      jest.advanceTimersByTime(12000);
+    });
+
+    await waitFor(() => {
+      expect(harness.current.status).toBe("error");
+    });
+    expect(harness.current.error).toContain("100 m");
+  });
+
   it("deja de renovar al desmontar", async () => {
     const harness = await renderHarness({ shipmentId, initialStage: "pickup" });
     await waitFor(() => {
