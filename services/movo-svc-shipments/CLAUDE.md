@@ -2564,11 +2564,14 @@ Decisiones clave:
   atrasados y hace idempotente el reenvío de un lote. Sigue liberando el claim si el
   `create` falla.
 - **Validación de `capturedAt` (AC3)**: rechaza (422 `INVALID_CAPTURED_AT`, código nuevo
-  en `@movo/shared`) un `capturedAt` más de 2 min en el futuro
-  (`CAPTURED_AT_FUTURE_TOLERANCE_MS`) o anterior a `shipment.lastStatusChangedAt`, que
-  mientras el envío está `in_transit` es el instante en que pasó a ese estado (no hay
-  columna propia). Si es null (datos viejos) no se aplica el piso. Sin tolerancia en el
-  piso: el ticket solo la pide para el futuro.
+  en `@movo/shared`) un `capturedAt` más de 2 min en el futuro o más de 2 min anterior a
+  `shipment.lastStatusChangedAt`, que mientras el envío está `in_transit` es el instante
+  en que pasó a ese estado (no hay columna propia). La tolerancia
+  (`CAPTURED_AT_CLOCK_SKEW_TOLERANCE_MS`) es simétrica: fix de review de PR #190, la
+  primera versión no la tenía hacia el pasado y rechazaba la primera muestra del tránsito
+  si el GPS muestreó segundos antes de que el servidor confirmara el handshake o el reloj
+  del teléfono estaba atrasado. Si `lastStatusChangedAt` es null (datos viejos) no se
+  aplica el piso.
 - **Lote (AC4)**: `POST /shipments/positions`, `{positions: [...]}` de 1 a 100
   (`MAX_POSITIONS_PER_BATCH`). Responde 200 con `results[]` (`index`, `shipmentId`,
   `status: accepted|rejected`, `persisted`/`code`); `FORBIDDEN` es la traducción de

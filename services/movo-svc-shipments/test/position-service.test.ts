@@ -6,7 +6,7 @@ import {
   PositionRedisClient,
   RealtimePublisher,
   UPDATE_LAST_KNOWN_IF_NEWER_SCRIPT,
-  CAPTURED_AT_FUTURE_TOLERANCE_MS,
+  CAPTURED_AT_CLOCK_SKEW_TOLERANCE_MS,
 } from "../src/services/position-service";
 import { PositionRepository } from "../src/repositories/position-repository";
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
@@ -392,18 +392,18 @@ describe("position-service (MOVO-202)", () => {
       await expect(
         service.reportPosition("shipment-1", "carrier-1", {
           ...basePosition,
-          capturedAt: at(CAPTURED_AT_FUTURE_TOLERANCE_MS + 1_000),
+          capturedAt: at(CAPTURED_AT_CLOCK_SKEW_TOLERANCE_MS + 1_000),
         })
       ).rejects.toMatchObject({ statusCode: 422, code: "INVALID_CAPTURED_AT" });
       await expect(
         service.reportPosition("shipment-1", "carrier-1", {
           ...basePosition,
-          capturedAt: at(CAPTURED_AT_FUTURE_TOLERANCE_MS - 1_000),
+          capturedAt: at(CAPTURED_AT_CLOCK_SKEW_TOLERANCE_MS - 1_000),
         })
       ).resolves.toEqual({ persisted: true });
     });
 
-    it("rechaza un capturedAt anterior al momento en que el envío pasó a in_transit", async () => {
+    it("rechaza un capturedAt anterior al inicio del tránsito más allá de la tolerancia, acepta uno dentro", async () => {
       const inTransitSince = new Date("2026-09-20T11:00:00.000Z");
       const service = createPositionService(
         fakeShipmentRepository({
@@ -417,11 +417,16 @@ describe("position-service (MOVO-202)", () => {
       await expect(
         service.reportPosition("shipment-1", "carrier-1", {
           ...basePosition,
-          capturedAt: new Date(inTransitSince.getTime() - 1_000),
+          capturedAt: new Date(inTransitSince.getTime() - CAPTURED_AT_CLOCK_SKEW_TOLERANCE_MS - 1_000),
         })
       ).rejects.toMatchObject({ code: "INVALID_CAPTURED_AT" });
+      // Review de PR #190: una muestra unos segundos anterior al handshake (reloj atrasado
+      // o GPS que muestreó antes de la confirmación) no puede rechazarse.
       await expect(
-        service.reportPosition("shipment-1", "carrier-1", { ...basePosition, capturedAt: inTransitSince })
+        service.reportPosition("shipment-1", "carrier-1", {
+          ...basePosition,
+          capturedAt: new Date(inTransitSince.getTime() - 10_000),
+        })
       ).resolves.toEqual({ persisted: true });
     });
   });

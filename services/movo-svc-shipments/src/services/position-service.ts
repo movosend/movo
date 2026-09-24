@@ -14,9 +14,13 @@ import { Shipment } from "../models/shipment";
  */
 export const CARRIER_POSITION_MIN_PERSIST_INTERVAL_MS = 45_000;
 
-/** MOVO-250/AC3: tolerancia por desfase de reloj del dispositivo -- un `capturedAt` hasta
- * 2 min en el futuro respecto del reloj del servidor se acepta, más que eso se rechaza. */
-export const CAPTURED_AT_FUTURE_TOLERANCE_MS = 2 * 60_000;
+/** MOVO-250/AC3: tolerancia por desfase de reloj del dispositivo, SIMÉTRICA (review de PR
+ * #190): un `capturedAt` hasta 2 min en el futuro respecto del reloj del servidor, o hasta
+ * 2 min antes del inicio del tránsito, se acepta; más que eso se rechaza. Hacia el pasado
+ * hace falta igual que hacia el futuro: el GPS puede muestrear unos segundos antes de que el
+ * servidor confirme el handshake, o el reloj del teléfono puede estar atrasado, y sin
+ * margen la primera muestra del tránsito se rechazaba. */
+export const CAPTURED_AT_CLOCK_SKEW_TOLERANCE_MS = 2 * 60_000;
 
 /** TTL del hash de "última posición conocida" en Redis -- puramente defensivo: en el
  * flujo normal el tracking se corta (MOVO-201/AC4) mucho antes de esto, así que esta
@@ -141,8 +145,8 @@ export function createPositionService(
     // pasó a ese estado (lo mantiene cada escritor de `status`).
     const inTransitSince = shipment.lastStatusChangedAt?.getTime();
     if (
-      capturedMs > now.getTime() + CAPTURED_AT_FUTURE_TOLERANCE_MS ||
-      (inTransitSince !== undefined && capturedMs < inTransitSince)
+      capturedMs > now.getTime() + CAPTURED_AT_CLOCK_SKEW_TOLERANCE_MS ||
+      (inTransitSince !== undefined && capturedMs < inTransitSince - CAPTURED_AT_CLOCK_SKEW_TOLERANCE_MS)
     ) {
       throw new ApiError(
         422,

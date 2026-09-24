@@ -4,7 +4,10 @@ import { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { CreateShipmentInput, PackageType } from "../src/models/shipment";
-import { CARRIER_POSITION_MIN_PERSIST_INTERVAL_MS } from "../src/services/position-service";
+import {
+  CAPTURED_AT_CLOCK_SKEW_TOLERANCE_MS,
+  CARRIER_POSITION_MIN_PERSIST_INTERVAL_MS,
+} from "../src/services/position-service";
 
 describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
   let app: FastifyInstance;
@@ -266,14 +269,15 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
       expect(response.json().error.code).toBe("INVALID_CAPTURED_AT");
     });
 
-    it("AC3: rechaza un capturedAt anterior al momento en que el envío pasó a in_transit", async () => {
+    it("AC3: rechaza un capturedAt anterior al inicio del tránsito más allá de la tolerancia de reloj", async () => {
       const shipmentId = await createShipmentWithStatus("in_transit");
       const inTransitSince = new Date(Date.now() - 60_000);
       await app.db.shipment.update({ where: { id: shipmentId }, data: { lastStatusChangedAt: inTransitSince } });
 
       const response = await reportBatch(carrierId, [
+        position(shipmentId, new Date(inTransitSince.getTime() - CAPTURED_AT_CLOCK_SKEW_TOLERANCE_MS - 5_000)),
+        // Dentro de la tolerancia: la primera muestra del tránsito no se rechaza (review PR #190).
         position(shipmentId, new Date(inTransitSince.getTime() - 5_000)),
-        position(shipmentId, new Date(inTransitSince.getTime() + 5_000)),
       ]);
 
       expect(response.json().results).toEqual([
