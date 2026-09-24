@@ -475,8 +475,8 @@ export function formatRouteDistanceKm(distanceMeters: number): string {
   return `${(distanceMeters / 1000).toFixed(1)} km`;
 }
 
-/** Distancia real de GPS (`usePickupProximityCheck`, MOVO-198 AC4) entre el
- * transportista y el punto de retiro, para el mapa del paso 1 del wizard — metros
+/** Distancia real de GPS (`useProximityCheck`, MOVO-198 AC4/MOVO-199) entre el
+ * transportista y el punto de retiro o de entrega, para el mapa del paso 1 de cada wizard — metros
  * enteros bajo 1km (la precisión que importa a esa escala, "80 m" vs. "150 m"), un
  * decimal en km por encima (mismo criterio que `formatRouteDistanceKm`). */
 export function formatProximityDistance(distanceMeters: number): string {

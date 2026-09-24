@@ -64,10 +64,9 @@ function GateMessage({
  * Gate del wizard de retiro (MOVO-198 AC1): resuelve si el envío está en
  * condiciones reales de iniciar el retiro ANTES de renderizar cualquiera de los
  * pasos del wizard (rediseño: 5 pasos accionables + confirmación, ver
- * `wizard-step-header.tsx`). Como todavía no existe ningún CTA de producción que lleve acá (depende del
- * mapa de MOVO-207, sin construir), esta ruta solo se alcanza por navegación
- * manual/deep link -- por eso cada estado "no listo" explica el motivo real en vez
- * de un error genérico, es el único punto de entrada hoy.
+ * `wizard-step-header.tsx`). El punto de entrada real es el mapa de ruta
+ * (`MOVO-207`, `app/(app)/route/index.tsx`) -- por eso cada estado "no listo"
+ * explica el motivo real en vez de un error genérico.
  */
 export default function PickupWizardLayout() {
   const { id } = useLocalSearchParams<{ id: string }>();
