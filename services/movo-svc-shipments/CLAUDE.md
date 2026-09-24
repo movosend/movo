@@ -2520,6 +2520,31 @@ Pendiente / fuera de alcance: mobile de MOVO-246 (pantalla de configuración,
 consumiendo las categorías `custody` nuevas); verificar en CI los tests de
 integración que no se pudieron correr localmente.
 
+### MOVO-238 — Expiración automática de viajes `declared` vencidos
+
+Cierra el gap que MOVO-221 dejó explícito: un viaje `declared` cuyo `departureAt` pasó
+sin que nadie lo iniciara quedaba `declared` para siempre. Sweep nuevo
+`src/plugins/trip-expiry-sweep.ts` (mismo esqueleto `setInterval` + lock Redis que
+`pickup-expiry-sweep.ts`, lotes de 100, `TRIP_EXPIRY_SWEEP_INTERVAL_MINUTES`/`_ENABLED`,
+default 15min/true) sobre `trip-repository.ts#cancelOverdueDeclared`.
+
+Decisiones clave:
+- **AC2 resuelto como "bloquea, no cascadea"** (mismo criterio que MOVO-134): un viaje
+  vencido con algún paquete aceptado (`ACCEPTED_OFFER_FILTER`, que ya ignora envíos
+  `cancelled`) queda `declared` y no se toca — también es coherente con que
+  `update`/`delete` ya rechacen ese viaje. Sin cascada de cancelación de envíos.
+- **AC5: log estructurado (`trip_auto_cancelled`) + `updatedAt`, sin tabla de eventos
+  de `Trip`** — no hay otro consumidor de un historial de viaje que lo justifique.
+- **Sin `expired` en `TripStatus`**: se cancela directo a `cancelled`, como pedía AC1.
+- **Compare-and-swap por viaje** (`updateMany` re-evaluando el mismo `where`): si el
+  viaje se inicia o se le acepta un paquete entre el SELECT y el UPDATE, se saltea. Queda
+  una ventana mínima contra un `acceptOffer` concurrente sobre ese `tripId` (no toca la
+  fila `trips`), aceptada.
+- Env vars en los 3 lugares (`.env.example`, `envSchema`, `infra/docker-compose.yml`).
+
+Pendiente / fuera de alcance: notificar al transportista (evaluado, no implementado);
+ciclo de un viaje `active` que nunca llega a `completed`.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
