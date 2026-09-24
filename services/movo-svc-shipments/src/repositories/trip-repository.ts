@@ -105,6 +105,14 @@ export interface TripRepository {
    * de "1 active por carrier", `TripAlreadyHasActiveTripError` (índice único parcial).
    */
   start(id: string): Promise<Trip>;
+  /**
+   * MOVO-238: cancela hasta `limit` viajes `declared` cuyo `departureAt` ya pasó y que no
+   * tienen ningún paquete aceptado (mismo `ACCEPTED_OFFER_FILTER` que bloquea
+   * `update`/`delete`). Un viaje `declared` vencido CON paquete aceptado se deja intacto
+   * (AC2: bloquea, no cascadea -- mismo criterio que MOVO-134). Devuelve los ids
+   * efectivamente cancelados.
+   */
+  cancelOverdueDeclared(now: Date, limit: number): Promise<string[]>;
 }
 
 export interface MatchShipmentParams {
@@ -312,6 +320,37 @@ export function createTripRepository(db: PrismaClient): TripRepository {
 
       const row = await db.trip.findUniqueOrThrow({ where: { id } });
       return mapTrip(row);
+    },
+
+    async cancelOverdueDeclared(now: Date, limit: number): Promise<string[]> {
+      // `active` nunca entra (AC4): el filtro es siempre `status: declared`.
+      const where = {
+        status: TripStatus.DECLARED,
+        departureAt: { lt: now },
+        offers: { none: ACCEPTED_OFFER_FILTER },
+      };
+
+      const candidates = await db.trip.findMany({
+        where,
+        select: { id: true },
+        orderBy: { departureAt: "asc" },
+        take: limit,
+      });
+
+      // Compare-and-swap por viaje, re-evaluando el mismo `where`: si entre el SELECT y
+      // el UPDATE el transportista lo inició o se le aceptó un paquete, `count` da 0 y
+      // se saltea. Queda una ventana mínima contra un `acceptOffer` concurrente que no
+      // toca la fila de `trips` -- aceptada, el viaje cancelado igual conserva su
+      // historial y el sweep corre cada pocos minutos, no en un hot path.
+      const cancelled: string[] = [];
+      for (const { id } of candidates) {
+        const result = await db.trip.updateMany({
+          where: { ...where, id },
+          data: { status: TripStatus.CANCELLED },
+        });
+        if (result.count > 0) cancelled.push(id);
+      }
+      return cancelled;
     },
   };
 }
