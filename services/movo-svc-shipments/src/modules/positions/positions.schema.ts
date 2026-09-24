@@ -34,8 +34,59 @@ const reportPositionResponse = {
   },
 };
 
+// MOVO-250/AC4: máximo de posiciones por lote (sugerido 100 por el ticket).
+export const MAX_POSITIONS_PER_BATCH = 100;
+
+const batchPositionItem = {
+  type: "object",
+  required: ["shipmentId", "lat", "lng", "accuracyM", "capturedAt"],
+  properties: {
+    shipmentId: { type: "string", format: "uuid" },
+    ...reportPositionBody.properties,
+  },
+  additionalProperties: false,
+};
+
+const reportPositionsBatchBody = {
+  type: "object",
+  required: ["positions"],
+  properties: {
+    positions: { type: "array", minItems: 1, maxItems: MAX_POSITIONS_PER_BATCH, items: batchPositionItem },
+  },
+  additionalProperties: false,
+};
+
+// Un resultado por ítem, en el orden del request (`index` lo repite igual). Objeto plano
+// con `persisted`/`code` opcionales en vez de un oneOf, que fast-json-stringify serializa
+// mal: `accepted` trae `persisted`, `rejected` trae `code`.
+const reportPositionsBatchResponse = {
+  type: "object",
+  required: ["results"],
+  properties: {
+    results: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["index", "shipmentId", "status"],
+        properties: {
+          index: { type: "integer" },
+          shipmentId: { type: "string" },
+          status: { type: "string", enum: ["accepted", "rejected"] },
+          persisted: { type: "boolean" },
+          code: {
+            type: "string",
+            enum: ["SHIPMENT_NOT_IN_TRANSIT", "NOT_FOUND", "FORBIDDEN", "INVALID_CAPTURED_AT"],
+          },
+        },
+      },
+    },
+  },
+};
+
 export const positionsSchemas = {
   shipmentIdParam,
   reportPositionBody,
   reportPositionResponse,
+  reportPositionsBatchBody,
+  reportPositionsBatchResponse,
 };

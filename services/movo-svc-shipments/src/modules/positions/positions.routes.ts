@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
 import { createShipmentRepository, ShipmentRepository } from "../../repositories/shipment-repository";
 import { createPositionRepository } from "../../repositories/position-repository";
-import { createPositionService, ReportPositionInput } from "../../services/position-service";
+import { BatchPositionInput, createPositionService, ReportPositionInput } from "../../services/position-service";
 import { positionsSchemas } from "./positions.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 
@@ -13,6 +13,10 @@ export interface PositionsRoutesOptions extends FastifyPluginOptions {
 
 interface ShipmentIdParams {
   id: string;
+}
+
+interface ReportPositionsBatchBody {
+  positions: Array<ReportPositionBody & { shipmentId: string }>;
 }
 
 interface ReportPositionBody {
@@ -46,6 +50,40 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
     app.log
   );
 
+  // MOVO-250/AC4: lote para la tarea de segundo plano de MOVO-242 y el vaciado de la cola
+  // offline de MOVO-203. Límite de requests: ver
+  // `getRateLimitOverrides()` del gateway (AC5).
+  app.post<{ Body: ReportPositionsBatchBody }>(
+    "/positions",
+    {
+      schema: {
+        summary: "Reportar posiciones GPS del transportista por lotes",
+        description:
+          "MOVO-250/AC4: hasta 100 posiciones (de uno o varios envíos) por request. Responde 200 con " +
+          "un resultado por ítem, no todo-o-nada: `accepted` (con `persisted`, si entró a la traza) o " +
+          "`rejected` con un código (SHIPMENT_NOT_IN_TRANSIT, NOT_FOUND, FORBIDDEN, INVALID_CAPTURED_AT). " +
+          "La traza se agrupa en tramos de 45s según `capturedAt` (no la hora de llegada), y la última " +
+          "posición conocida/difusión solo avanzan con un `capturedAt` más reciente que el guardado.",
+        tags: ["positions"],
+        body: positionsSchemas.reportPositionsBatchBody,
+        response: {
+          200: positionsSchemas.reportPositionsBatchResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest<{ Body: ReportPositionsBatchBody }>) => {
+      const callerId = requireUserIdFromHeader(request);
+      const items: BatchPositionInput[] = request.body.positions.map((p) => ({
+        shipmentId: p.shipmentId,
+        lat: p.lat,
+        lng: p.lng,
+        accuracyM: p.accuracyM,
+        capturedAt: new Date(p.capturedAt),
+      }));
+      return { results: await service.reportPositions(callerId, items) };
+    }
+  );
+
   app.post<{ Params: ShipmentIdParams; Body: ReportPositionBody }>(
     "/:id/positions",
     {
@@ -54,8 +92,9 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
         description:
           "AC1/AC2/AC4 de MOVO-202: solo el transportista asignado de un envío `in_transit` puede " +
           "reportar -- 403 para cualquier otro actor o estado (SHIPMENT_NOT_IN_TRANSIT). El servidor " +
-          "descarta la cadencia (persiste como mucho una posición cada ~45s en Postgres, evidencia " +
-          "para disputas) sin confiar en el cliente; la última posición conocida en Redis y la " +
+          "descarta la cadencia (persiste como mucho una posición por tramo de 45s de `capturedAt` en " +
+          "Postgres, evidencia para disputas) sin confiar en el cliente; 422 INVALID_CAPTURED_AT si " +
+          "`capturedAt` está en el futuro o es anterior al inicio del tránsito; la última posición conocida en Redis y la " +
           "difusión a los suscriptores del canal de tiempo real (MOVO-201) pasan siempre, sin esperar " +
           "esa persistencia.",
         tags: ["positions"],
