@@ -3431,6 +3431,24 @@ para no correr el centrado, y el paso del wizard usa un `View` plano en vez de
 Pruebas" (`onSimulateScan` ya no existe) — para probar sin segundo dispositivo queda
 `/dev-handshake`.
 
+**Fixes de review (PR #188):**
+- **El QR no se traba si el receptor confirma justo antes de una renovación**:
+  `generateHandshake` falla contra un envío que ya avanzó de estado, y antes el `catch`
+  cortaba el polling y mostraba un error sin salida. Ahora `useHandshakeQr` consulta
+  el envío (`checkConfirmed`, la misma función que usa el polling) antes de mostrar
+  cualquier error, y si ya se confirmó va al éxito.
+- **El gate de `pickup/_layout.tsx` y de `delivery/_layout.tsx` queda fijo una vez que
+  dio `ready`**, en vez de protegerse solo con el resultado guardado: un refetch que
+  viera `delivered`/`in_transit` antes de que el paso guardara el resultado desmontaba
+  los pasos y tapaba la pantalla de éxito.
+- El paso del QR de entrega muestra `HandshakeDeviceKeyWarning` (antes ignoraba la
+  clave y quedaba en `idle` sin motivo ni reintento). Además, `EvidenceStatusError`
+  (nuevo, compartido con `pickup/scan.tsx`) muestra el error cuando falla la consulta
+  de evidencia sin datos en caché: antes redirigía a evidencia en bucle.
+- `useScanBrightness` repone el brillo con cualquier estado distinto de `active`
+  (incluye `inactive` en iOS) y encola las llamadas nativas para que un `restore()`
+  al desmontar nunca quede antes de un `raise()` en vuelo.
+
 Pendiente / fuera de alcance: DoD de dos dispositivos reales (transportista genera,
 receptor escanea) y prueba en dispositivo físico de cámara/GPS — no verificables en
 este entorno, mismo criterio ya documentado en MOVO-198/159/160.
