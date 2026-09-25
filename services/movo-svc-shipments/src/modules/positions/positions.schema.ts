@@ -75,7 +75,13 @@ const reportPositionsBatchResponse = {
           persisted: { type: "boolean" },
           code: {
             type: "string",
-            enum: ["SHIPMENT_NOT_IN_TRANSIT", "NOT_FOUND", "FORBIDDEN", "INVALID_CAPTURED_AT"],
+            enum: [
+              "SHIPMENT_NOT_TRACKABLE",
+              "SHIPMENT_NOT_IN_TRANSIT",
+              "NOT_FOUND",
+              "FORBIDDEN",
+              "INVALID_CAPTURED_AT",
+            ],
           },
         },
       },

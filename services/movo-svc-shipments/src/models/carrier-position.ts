@@ -5,6 +5,7 @@
 export interface CarrierPosition {
   id: string;
   shipmentId: string;
+  tripId: string;
   lat: number;
   lng: number;
   accuracyM: number;
@@ -16,6 +17,7 @@ export interface CarrierPosition {
 
 export interface CreateCarrierPositionInput {
   shipmentId: string;
+  tripId: string;
   lat: number;
   lng: number;
   accuracyM: number;

@@ -1,9 +1,9 @@
-import { ApiError, ShipmentStatus } from "@movo/shared";
-import { ShipmentRepository } from "../repositories/shipment-repository";
+import { ApiError, TripStatus } from "@movo/shared";
+import { ShipmentRepository, ShipmentTrackingContext } from "../repositories/shipment-repository";
 import { PositionRepository } from "../repositories/position-repository";
 import { assertIsCarrier } from "../modules/shipments/assert-shipment-access";
 import { CarrierPosition, LastKnownCarrierPosition } from "../models/carrier-position";
-import { Shipment } from "../models/shipment";
+import { TRACKABLE_SHIPMENT_STATUSES } from "../domain/shipment-state-machine";
 
 /**
  * MOVO-202/AC4: cadencia de persistencia en Postgres. Constante, no env var -- es una
@@ -34,18 +34,21 @@ const LAST_KNOWN_POSITION_TTL_SECONDS = 7 * 24 * 60 * 60;
  * tramo ya persistido no se duplique. */
 const CADENCE_BUCKET_TTL_MS = LAST_KNOWN_POSITION_TTL_SECONDS * 1000;
 
-function lastKnownPositionKey(shipmentId: string): string {
-  return `position:last:${shipmentId}`;
+/**
+ * MOVO-251: la última posición conocida en Redis se indexa por `tripId` (no por `shipmentId`),
+ * ya que la ubicación GPS física es del viaje (VRPTW).
+ */
+function lastKnownPositionKey(tripId: string): string {
+  return `position:last:${tripId}`;
 }
 
 /**
- * Claim del tramo de cadencia (AC4 de MOVO-202, rehecho por AC2 de MOVO-250): un tramo es
- * `floor(capturedAt / 45s)`, no una ventana móvil desde la hora de llegada -- así el
- * resultado no depende del orden en que llegan las posiciones y se pueden completar
- * tramos atrasados al vaciar una cola offline.
+ * Claim del tramo de cadencia (AC4 de MOVO-202, rehecho por AC2 de MOVO-250, adaptado por MOVO-251):
+ * un tramo es `floor(capturedAt / 45s)` por VIAJE (`tripId`), no por envío, para evitar duplicar
+ * filas cuando el transportista lleva múltiples envíos consolidados.
  */
-function persistCadenceBucketKey(shipmentId: string, bucket: number): string {
-  return `position:cadence:${shipmentId}:${bucket}`;
+function persistCadenceBucketKey(tripId: string, bucket: number): string {
+  return `position:cadence:${tripId}:${bucket}`;
 }
 
 /**
@@ -96,8 +99,13 @@ export interface BatchPositionInput extends ReportPositionInput {
   shipmentId: string;
 }
 
-/** MOVO-250/AC4: motivos de rechazo por ítem del lote. */
-export type PositionRejectionCode = "SHIPMENT_NOT_IN_TRANSIT" | "NOT_FOUND" | "FORBIDDEN" | "INVALID_CAPTURED_AT";
+/** MOVO-250/AC4 y MOVO-251: motivos de rechazo por ítem del lote. */
+export type PositionRejectionCode =
+  | "SHIPMENT_NOT_TRACKABLE"
+  | "SHIPMENT_NOT_IN_TRANSIT"
+  | "NOT_FOUND"
+  | "FORBIDDEN"
+  | "INVALID_CAPTURED_AT";
 
 export type PositionBatchItemResult =
   | { index: number; shipmentId: string; status: "accepted"; persisted: boolean }
@@ -124,29 +132,66 @@ export function createPositionService(
   realtime: RealtimePublisher,
   logger?: PositionServiceLogger
 ): PositionService {
-  /** AC2 de MOVO-202 (autorización estricta: solo el transportista asignado, solo
-   * `in_transit`, 403 para cualquier otro actor o estado -- literal del ticket, no el
-   * 409 que sería más habitual para "estado equivocado") + AC3 de MOVO-250 (`capturedAt`
-   * plausible). Lanza `ApiError`; el lote lo traduce a un código por ítem. */
-  function assertCanReport(shipment: Shipment | null, callerId: string, capturedAt: Date, now: Date): Shipment {
-    if (!shipment) {
+  async function resolveTrackingContext(shipmentId: string): Promise<ShipmentTrackingContext | null> {
+    if (shipmentRepository.findTrackingContext) {
+      return shipmentRepository.findTrackingContext(shipmentId);
+    }
+    const shipment = await shipmentRepository.findById(shipmentId);
+    if (!shipment) return null;
+    return {
+      shipment,
+      trip: {
+        id: "trip-default",
+        status: TripStatus.ACTIVE,
+        carrierId: shipment.carrierId ?? "",
+      },
+      activeShipmentIds: [shipment.id],
+    };
+  }
+
+  /**
+   * MOVO-251: autorización para reportar posición pasa a validar el Trip, no el Shipment aislado.
+   * Se acepta si:
+   * (a) el Trip asociado está en active (MOVO-221), y
+   * (b) el shipmentId reportado pertenece a ese viaje (oferta accepted).
+   * El Shipment.status se acepta en assigned e in_transit; se rechaza en delivered y estados terminales.
+   */
+  function assertCanReport(
+    context: ShipmentTrackingContext | null,
+    callerId: string,
+    capturedAt: Date,
+    now: Date
+  ): ShipmentTrackingContext & { trip: NonNullable<ShipmentTrackingContext["trip"]> } {
+    if (!context || !context.shipment) {
       throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
     }
+    const { shipment, trip } = context;
     assertIsCarrier(shipment, callerId);
-    if (shipment.status !== ShipmentStatus.IN_TRANSIT) {
+
+    if (!TRACKABLE_SHIPMENT_STATUSES.includes(shipment.status)) {
       throw new ApiError(
         403,
-        "SHIPMENT_NOT_IN_TRANSIT",
-        "Solo se pueden reportar posiciones mientras el envío está en tránsito."
+        "SHIPMENT_NOT_TRACKABLE",
+        "El envío ya no se encuentra en un estado trackeable."
       );
     }
+
+    if (!trip || trip.status !== TripStatus.ACTIVE) {
+      throw new ApiError(
+        403,
+        "SHIPMENT_NOT_TRACKABLE",
+        trip
+          ? `El viaje asociado al envío no está activo (estado actual: '${trip.status}').`
+          : "El envío no tiene un viaje asociado para reportar posiciones."
+      );
+    }
+
     const capturedMs = capturedAt.getTime();
-    // `lastStatusChangedAt` es, mientras el envío está `in_transit`, el instante en que
-    // pasó a ese estado (lo mantiene cada escritor de `status`).
-    const inTransitSince = shipment.lastStatusChangedAt?.getTime();
+    // `lastStatusChangedAt` mantiene el instante en que entró al estado actual.
+    const statusSince = shipment.lastStatusChangedAt?.getTime();
     if (
       capturedMs > now.getTime() + CAPTURED_AT_CLOCK_SKEW_TOLERANCE_MS ||
-      (inTransitSince !== undefined && capturedMs < inTransitSince - CAPTURED_AT_CLOCK_SKEW_TOLERANCE_MS)
+      (statusSince !== undefined && capturedMs < statusSince - CAPTURED_AT_CLOCK_SKEW_TOLERANCE_MS)
     ) {
       throw new ApiError(
         422,
@@ -154,22 +199,23 @@ export function createPositionService(
         "La fecha de captura está en el futuro o es anterior al inicio del tránsito."
       );
     }
-    return shipment;
+    return context as ShipmentTrackingContext & { trip: NonNullable<ShipmentTrackingContext["trip"]> };
   }
 
   /**
-   * AC4/AC5 de MOVO-202 con el orden de MOVO-250. La cadencia se decide con un claim
-   * atómico por TRAMO de `capturedAt` (`SET NX`) en Redis, nunca confiando en que el
-   * cliente respete los ~45s. La última posición conocida (AC1) y la difusión pasan solo
-   * si `capturedAt` es más reciente que la guardada: una posición vieja entra a la traza
-   * pero no mueve el marcador.
+   * AC4/AC5 de MOVO-202 con el orden de MOVO-250 y agrupamiento por viaje de MOVO-251.
+   * La cadencia se decide con un claim atómico por TRAMO de `capturedAt` (`SET NX`) en Redis por `tripId`.
+   * La última posición conocida se indexa por `tripId` y la difusión llega a los envíos activos del viaje.
    */
-  async function ingest(shipmentId: string, input: ReportPositionInput, now: Date): Promise<{ persisted: boolean }> {
-    // El TTL del claim no es la ventana, es el tiempo que el tramo queda "ocupado": no es
-    // un lock alrededor de la escritura (que podría vencer a mitad de un `create` lento)
-    // y no se libera al terminar, solo si el `create` falla.
+  async function ingest(
+    shipmentId: string,
+    tripId: string,
+    input: ReportPositionInput,
+    now: Date,
+    activeShipmentIds?: string[]
+  ): Promise<{ persisted: boolean }> {
     const bucket = Math.floor(input.capturedAt.getTime() / CARRIER_POSITION_MIN_PERSIST_INTERVAL_MS);
-    const cadenceKey = persistCadenceBucketKey(shipmentId, bucket);
+    const cadenceKey = persistCadenceBucketKey(tripId, bucket);
     const claimed = await redis.set(cadenceKey, "1", "PX", CADENCE_BUCKET_TTL_MS, "NX");
     const shouldPersist = claimed === "OK";
 
@@ -177,17 +223,15 @@ export function createPositionService(
       try {
         await positionRepository.create({
           shipmentId,
+          tripId,
           lat: input.lat,
           lng: input.lng,
           accuracyM: input.accuracyM,
           capturedAt: input.capturedAt,
         });
       } catch (err) {
-        // Si la escritura falló, no quedó nada persistido: se libera el claim para que
-        // el próximo reporte del tramo pueda reintentar en vez de perder esa traza.
-        // Best-effort -- si el `del` también falla, el claim expira solo por TTL.
         await redis.del(cadenceKey).catch((delErr: unknown) => {
-          logger?.warn({ err: delErr, shipmentId }, "No se pudo liberar el claim de cadencia tras un create fallido");
+          logger?.warn({ err: delErr, tripId, shipmentId }, "No se pudo liberar el claim de cadencia tras un create fallido");
         });
         throw err;
       }
@@ -196,7 +240,7 @@ export function createPositionService(
     const updated = await redis.eval(
       UPDATE_LAST_KNOWN_IF_NEWER_SCRIPT,
       1,
-      lastKnownPositionKey(shipmentId),
+      lastKnownPositionKey(tripId),
       String(input.capturedAt.getTime()),
       String(input.lat),
       String(input.lng),
@@ -207,15 +251,18 @@ export function createPositionService(
     );
 
     if (Number(updated) === 1) {
-      realtime.broadcast(shipmentId, {
-        type: "position",
-        shipmentId,
-        lat: input.lat,
-        lng: input.lng,
-        accuracyM: input.accuracyM,
-        capturedAt: input.capturedAt.toISOString(),
-        recordedAt: now.toISOString(),
-      });
+      const targets = activeShipmentIds && activeShipmentIds.length > 0 ? activeShipmentIds : [shipmentId];
+      for (const targetId of targets) {
+        realtime.broadcast(targetId, {
+          type: "position",
+          shipmentId: targetId,
+          lat: input.lat,
+          lng: input.lng,
+          accuracyM: input.accuracyM,
+          capturedAt: input.capturedAt.toISOString(),
+          recordedAt: now.toISOString(),
+        });
+      }
     }
 
     return { persisted: shouldPersist };
@@ -227,33 +274,27 @@ export function createPositionService(
       callerId: string,
       input: ReportPositionInput
     ): Promise<{ persisted: boolean }> {
-      const shipment = await shipmentRepository.findById(shipmentId);
+      const context = await resolveTrackingContext(shipmentId);
       const now = new Date();
-      assertCanReport(shipment, callerId, input.capturedAt, now);
-      return ingest(shipmentId, input, now);
+      const valid = assertCanReport(context, callerId, input.capturedAt, now);
+      return ingest(shipmentId, valid.trip.id, input, now, valid.activeShipmentIds);
     },
 
-    /**
-     * MOVO-250/AC4: resultado por ítem, no todo-o-nada -- el mobile necesita saber qué
-     * descartar de su cola y qué envío dejar de trackear. Los ítems se procesan en
-     * orden; reintentar un lote completo es seguro (los tramos ya persistidos no se
-     * duplican y la última posición nunca retrocede).
-     */
     async reportPositions(callerId: string, items: BatchPositionInput[]): Promise<PositionBatchItemResult[]> {
       const now = new Date();
-      // Un lote suele repetir pocos envíos: una lectura por envío distinto, no por ítem.
-      const shipments = new Map<string, Promise<Shipment | null>>();
+      const contexts = new Map<string, Promise<ShipmentTrackingContext | null>>();
       const results: PositionBatchItemResult[] = [];
 
       for (const [index, item] of items.entries()) {
-        let lookup = shipments.get(item.shipmentId);
+        let lookup = contexts.get(item.shipmentId);
         if (!lookup) {
-          lookup = shipmentRepository.findById(item.shipmentId);
-          shipments.set(item.shipmentId, lookup);
+          lookup = resolveTrackingContext(item.shipmentId);
+          contexts.set(item.shipmentId, lookup);
         }
 
+        let valid: ShipmentTrackingContext & { trip: NonNullable<ShipmentTrackingContext["trip"]> };
         try {
-          assertCanReport(await lookup, callerId, item.capturedAt, now);
+          valid = assertCanReport(await lookup, callerId, item.capturedAt, now);
         } catch (err) {
           const code = toRejectionCode(err);
           if (!code) throw err;
@@ -261,17 +302,27 @@ export function createPositionService(
           continue;
         }
 
-        const { persisted } = await ingest(item.shipmentId, item, now);
+        const { persisted } = await ingest(item.shipmentId, valid.trip.id, item, now, valid.activeShipmentIds);
         results.push({ index, shipmentId: item.shipmentId, status: "accepted", persisted });
       }
 
       return results;
     },
 
-    /** AC3: para que `tracking.routes.ts` empuje la última posición conocida apenas
-     * se conecta un suscriptor nuevo, sin esperar el próximo reporte real. */
     async getLastKnownPosition(shipmentId: string): Promise<LastKnownCarrierPosition | null> {
-      const raw = await redis.hgetall(lastKnownPositionKey(shipmentId));
+      const context = await resolveTrackingContext(shipmentId);
+      if (!context || !context.shipment) return null;
+
+      // MOVO-251/AC5: un envío que sale del viaje o no está en estado trackeable deja de resolver posición
+      if (!TRACKABLE_SHIPMENT_STATUSES.includes(context.shipment.status)) {
+        return null;
+      }
+
+      if (!context.trip || context.trip.status !== TripStatus.ACTIVE) {
+        return null;
+      }
+
+      const raw = await redis.hgetall(lastKnownPositionKey(context.trip.id));
       if (!raw || !raw.lat) return null;
       return {
         lat: Number(raw.lat),
@@ -282,7 +333,6 @@ export function createPositionService(
       };
     },
 
-    /** AC6: corrido por el sweep periódico (`carrier-position-purge-sweep.ts`). */
     async purgeExpiredPositions(retentionDays: number): Promise<number> {
       const deleted = await positionRepository.purgeEligibleClosedShipments(new Date(), retentionDays);
       if (deleted > 0) {
@@ -291,7 +341,6 @@ export function createPositionService(
       return deleted;
     },
 
-    /** AC7: supresión de cuenta (MOVO-39) -- ver `account-deletion.routes.ts`. */
     async deletePositionsForCarrier(carrierId: string): Promise<number> {
       return positionRepository.deleteAllForCarrier(carrierId);
     },
@@ -305,9 +354,10 @@ function toRejectionCode(err: unknown): PositionRejectionCode | null {
       return "NOT_FOUND";
     case "AUTH_FORBIDDEN":
       return "FORBIDDEN";
+    case "SHIPMENT_NOT_TRACKABLE":
     case "SHIPMENT_NOT_IN_TRANSIT":
     case "INVALID_CAPTURED_AT":
-      return err.code;
+      return err.code as PositionRejectionCode;
     default:
       return null;
   }

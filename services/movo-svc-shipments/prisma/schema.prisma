@@ -410,6 +410,8 @@ model HandshakeEvent {
 model CarrierPosition {
   id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   shipmentId String @map("shipment_id") @db.Uuid
+  // MOVO-251: asociar al viaje (Trip) para agrupar y controlar cadencia por viaje (VRPTW).
+  tripId     String @map("trip_id") @db.Uuid
 
   lat Decimal @db.Decimal(9, 6)
   lng Decimal @db.Decimal(9, 6)
@@ -425,8 +427,10 @@ model CarrierPosition {
   recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  trip     Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
 
   @@index([shipmentId, recordedAt], map: "carrier_positions_shipment_id_recorded_at_idx")
+  @@index([tripId, recordedAt], map: "carrier_positions_trip_id_recorded_at_idx")
   @@map("carrier_positions")
   @@schema("shipments")
 }
@@ -454,7 +458,8 @@ model Trip {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  offers Offer[]
+  offers           Offer[]
+  carrierPositions CarrierPosition[]
 
   @@index([carrierId], map: "trips_carrier_id_idx")
   @@index([status], map: "trips_status_idx")

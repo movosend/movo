@@ -138,7 +138,7 @@ describe("GET /shipments/:id/track (WS)", () => {
   });
 
   beforeEach(async () => {
-    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments, shipments.trips RESTART IDENTITY CASCADE");
   });
 
   it("token válido + envío propio: acepta la conexión", async () => {
@@ -198,7 +198,31 @@ describe("GET /shipments/:id/track (WS)", () => {
   it("MOVO-202/AC3: si ya hay una última posición conocida en Redis, se manda apenas se conecta un suscriptor nuevo", async () => {
     const carrierId = randomUUID();
     const shipmentId = await createInTransitShipment(carrierId);
-    await app.redis.hset(`position:last:${shipmentId}`, {
+    const trip = await app.db.trip.create({
+      data: {
+        carrierId,
+        originAddress: "Av. Colón 1234, Córdoba",
+        originLat: -31.4201,
+        originLng: -64.1888,
+        destinationAddress: "Av. San Martín 100, Villa María",
+        destinationLat: -32.4104,
+        destinationLng: -63.2404,
+        departureAt: new Date(Date.now() - 2 * 60 * 60_000),
+        vehicleType: "auto",
+        status: "active",
+      },
+    });
+    await app.db.offer.create({
+      data: {
+        shipmentId,
+        carrierId,
+        priceOffered: 4500,
+        offeredDate: new Date("2026-08-20T00:00:00.000Z"),
+        status: "accepted",
+        tripId: trip.id,
+      },
+    });
+    await app.redis.hset(`position:last:${trip.id}`, {
       lat: "-31.5",
       lng: "-64.5",
       accuracyM: "9",

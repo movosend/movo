@@ -53,10 +53,13 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
   });
 
   beforeEach(async () => {
-    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments, shipments.trips RESTART IDENTITY CASCADE");
   });
 
-  async function createShipmentWithStatus(status: string, withCarrierId: string | null = carrierId): Promise<string> {
+  async function createShipmentWithStatus(
+    status: string,
+    withCarrierId: string | null = carrierId
+  ): Promise<{ shipmentId: string; tripId: string }> {
     const created = await repo.create(baseInput);
     await app.db.shipment.update({
       where: { id: created.id },
@@ -69,7 +72,40 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
         ...(withCarrierId ? { carrierId: withCarrierId } : {}),
       },
     });
-    return created.id;
+
+    const effectiveCarrierId = withCarrierId ?? carrierId;
+    let trip = await app.db.trip.findFirst({
+      where: { carrierId: effectiveCarrierId, status: "active" },
+    });
+    if (!trip) {
+      trip = await app.db.trip.create({
+        data: {
+          carrierId: effectiveCarrierId,
+          originAddress: "Av. Colón 1234, Córdoba",
+          originLat: -31.4201,
+          originLng: -64.1888,
+          destinationAddress: "Av. San Martín 100, Villa María",
+          destinationLat: -32.4104,
+          destinationLng: -63.2404,
+          departureAt: new Date(Date.now() - 2 * 60 * 60_000),
+          vehicleType: "auto",
+          status: "active",
+        },
+      });
+    }
+
+    await app.db.offer.create({
+      data: {
+        shipmentId: created.id,
+        carrierId: effectiveCarrierId,
+        priceOffered: 4500,
+        offeredDate: new Date("2026-08-20T00:00:00.000Z"),
+        status: "accepted",
+        tripId: trip.id,
+      },
+    });
+
+    return { shipmentId: created.id, tripId: trip.id };
   }
 
   function report(shipmentId: string, userId: string, body: Record<string, unknown> = {}) {
@@ -88,7 +124,7 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
   }
 
   it("AC1/AC2: el transportista asignado reporta sobre un envío in_transit -> 202, se persiste y actualiza la última posición", async () => {
-    const shipmentId = await createShipmentWithStatus("in_transit");
+    const { shipmentId } = await createShipmentWithStatus("in_transit");
 
     const response = await report(shipmentId, carrierId, { lat: -31.5, lng: -64.5, accuracyM: 7 });
 
@@ -102,7 +138,7 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
   });
 
   it("AC4: reportes seguidos (cada pocos segundos) descartan la persistencia salvo el primero", async () => {
-    const shipmentId = await createShipmentWithStatus("in_transit");
+    const { shipmentId } = await createShipmentWithStatus("in_transit");
 
     const capturedAt = new Date().toISOString();
     const first = await report(shipmentId, carrierId, { capturedAt });
@@ -116,7 +152,7 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
   });
 
   it("AC2: 403 AUTH_FORBIDDEN si el caller no es el transportista asignado", async () => {
-    const shipmentId = await createShipmentWithStatus("in_transit");
+    const { shipmentId } = await createShipmentWithStatus("in_transit");
 
     const response = await report(shipmentId, otherCarrierId);
 
@@ -125,7 +161,7 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
   });
 
   it("AC2: 403 AUTH_FORBIDDEN si el caller es el emisor o el receptor (no el transportista)", async () => {
-    const shipmentId = await createShipmentWithStatus("in_transit");
+    const { shipmentId } = await createShipmentWithStatus("in_transit");
 
     const asSender = await report(shipmentId, senderId);
     const asReceiver = await report(shipmentId, receiverId);
@@ -134,17 +170,36 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
     expect(asReceiver.statusCode).toBe(403);
   });
 
-  it.each(["assigned", "assigned_unfunded", "delivered", "completed", "cancelled"])(
-    "AC2: 403 SHIPMENT_NOT_IN_TRANSIT si el envío está en '%s'",
+  it.each(["assigned_unfunded", "delivered", "completed", "cancelled"])(
+    "AC2: 403 SHIPMENT_NOT_TRACKABLE si el envío está en '%s'",
     async (status) => {
-      const shipmentId = await createShipmentWithStatus(status);
+      const { shipmentId } = await createShipmentWithStatus(status);
 
       const response = await report(shipmentId, carrierId);
 
       expect(response.statusCode).toBe(403);
-      expect(response.json().error.code).toBe("SHIPMENT_NOT_IN_TRANSIT");
+      expect(response.json().error.code).toBe("SHIPMENT_NOT_TRACKABLE");
     }
   );
+
+  it("MOVO-251: 202 si el envío está en 'assigned' y el viaje asociado está 'active'", async () => {
+    const { shipmentId } = await createShipmentWithStatus("assigned");
+
+    const response = await report(shipmentId, carrierId);
+
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toEqual({ persisted: true });
+  });
+
+  it("MOVO-251: 403 SHIPMENT_NOT_TRACKABLE si el envío está en 'assigned' pero el viaje está 'declared'", async () => {
+    const { shipmentId, tripId } = await createShipmentWithStatus("assigned");
+    await app.db.trip.update({ where: { id: tripId }, data: { status: "declared" } });
+
+    const response = await report(shipmentId, carrierId);
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.code).toBe("SHIPMENT_NOT_TRACKABLE");
+  });
 
   it("404 NOT_FOUND sobre un envío inexistente", async () => {
     const response = await report(randomUUID(), carrierId);
@@ -152,7 +207,7 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
   });
 
   it("401 sin x-user-id", async () => {
-    const shipmentId = await createShipmentWithStatus("in_transit");
+    const { shipmentId } = await createShipmentWithStatus("in_transit");
     const response = await app.inject({
       method: "POST",
       url: `/shipments/${shipmentId}/positions`,
@@ -162,13 +217,13 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
   });
 
   it("400 con capturedAt no parseable como fecha (AJV, format: date-time)", async () => {
-    const shipmentId = await createShipmentWithStatus("in_transit");
+    const { shipmentId } = await createShipmentWithStatus("in_transit");
     const response = await report(shipmentId, carrierId, { capturedAt: "no-es-una-fecha" });
     expect(response.statusCode).toBe(400);
   });
 
   it("400 con lat/lng fuera de rango (AJV)", async () => {
-    const shipmentId = await createShipmentWithStatus("in_transit");
+    const { shipmentId } = await createShipmentWithStatus("in_transit");
     const response = await report(shipmentId, carrierId, { lat: 200 });
     expect(response.statusCode).toBe(400);
   });
@@ -194,7 +249,7 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
     }
 
     it("AC1 (Redis real, Lua): reportar la posición actual y después una más vieja conserva la actual", async () => {
-      const shipmentId = await createShipmentWithStatus("in_transit");
+      const { shipmentId, tripId } = await createShipmentWithStatus("in_transit");
       const current = new Date(Date.now() - 1_000);
       const older = new Date(Date.now() - 10 * 60_000);
 
@@ -202,7 +257,7 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
       const response = await report(shipmentId, carrierId, { lat: -31.1, capturedAt: older.toISOString() });
 
       expect(response.statusCode).toBe(202);
-      const lastKnown = await app.redis.hgetall(`position:last:${shipmentId}`);
+      const lastKnown = await app.redis.hgetall(`position:last:${tripId}`);
       expect(Number(lastKnown.lat)).toBe(-31.5);
       expect(lastKnown.capturedAt).toBe(current.toISOString());
       // La vieja es de otro tramo: entra a la traza igual.
@@ -210,7 +265,7 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
     });
 
     it("AC1: dos reportes concurrentes con distinto capturedAt dejan siempre el más reciente", async () => {
-      const shipmentId = await createShipmentWithStatus("in_transit");
+      const { shipmentId, tripId } = await createShipmentWithStatus("in_transit");
       const newest = new Date(Date.now() - 1_000);
 
       await Promise.all(
@@ -222,12 +277,12 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
         )
       );
 
-      const lastKnown = await app.redis.hgetall(`position:last:${shipmentId}`);
+      const lastKnown = await app.redis.hgetall(`position:last:${tripId}`);
       expect(lastKnown.capturedAt).toBe(newest.toISOString());
     });
 
     it("AC2: una tanda de 30 posiciones cada 5s de hace 3 minutos persiste una por tramo de 45s, sin importar el orden", async () => {
-      const shipmentId = await createShipmentWithStatus("in_transit");
+      const { shipmentId, tripId } = await createShipmentWithStatus("in_transit");
       const t0 = Math.floor((Date.now() - 4 * 60_000) / BUCKET_MS) * BUCKET_MS;
       const positions = Array.from({ length: 30 }, (_, i) => position(shipmentId, new Date(t0 + i * 5_000)));
       // Orden de llegada invertido: la más nueva primero.
@@ -242,12 +297,12 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
       expect(rows).toHaveLength(4);
       expect(new Set(rows.map((r) => Math.floor(r.capturedAt.getTime() / BUCKET_MS))).size).toBe(4);
       // El marcador queda en la más reciente aunque haya llegado primero.
-      const lastKnown = await app.redis.hgetall(`position:last:${shipmentId}`);
+      const lastKnown = await app.redis.hgetall(`position:last:${tripId}`);
       expect(lastKnown.capturedAt).toBe(new Date(t0 + 29 * 5_000).toISOString());
     });
 
     it("AC2: reenviar el mismo lote no duplica la traza (idempotente)", async () => {
-      const shipmentId = await createShipmentWithStatus("in_transit");
+      const { shipmentId } = await createShipmentWithStatus("in_transit");
       const t0 = Math.floor((Date.now() - 4 * 60_000) / BUCKET_MS) * BUCKET_MS;
       const positions = Array.from({ length: 10 }, (_, i) => position(shipmentId, new Date(t0 + i * 5_000)));
 
@@ -259,7 +314,7 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
     });
 
     it("AC3: 422 INVALID_CAPTURED_AT con un capturedAt en el futuro (endpoint individual)", async () => {
-      const shipmentId = await createShipmentWithStatus("in_transit");
+      const { shipmentId } = await createShipmentWithStatus("in_transit");
 
       const response = await report(shipmentId, carrierId, {
         capturedAt: new Date(Date.now() + 10 * 60_000).toISOString(),
@@ -270,7 +325,7 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
     });
 
     it("AC3: rechaza un capturedAt anterior al inicio del tránsito más allá de la tolerancia de reloj", async () => {
-      const shipmentId = await createShipmentWithStatus("in_transit");
+      const { shipmentId } = await createShipmentWithStatus("in_transit");
       const inTransitSince = new Date(Date.now() - 60_000);
       await app.db.shipment.update({ where: { id: shipmentId }, data: { lastStatusChangedAt: inTransitSince } });
 
@@ -287,9 +342,9 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
     });
 
     it("AC4: lote mixto (en tránsito, entregado, ajeno, inexistente) -> un resultado por ítem", async () => {
-      const inTransit = await createShipmentWithStatus("in_transit");
-      const delivered = await createShipmentWithStatus("delivered");
-      const foreign = await createShipmentWithStatus("in_transit", otherCarrierId);
+      const { shipmentId: inTransit } = await createShipmentWithStatus("in_transit");
+      const { shipmentId: delivered } = await createShipmentWithStatus("delivered");
+      const { shipmentId: foreign } = await createShipmentWithStatus("in_transit", otherCarrierId);
       const missing = randomUUID();
       const now = new Date(Date.now() - 1_000);
 
@@ -303,7 +358,7 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
       expect(response.statusCode).toBe(200);
       expect(response.json().results).toEqual([
         { index: 0, shipmentId: inTransit, status: "accepted", persisted: true },
-        { index: 1, shipmentId: delivered, status: "rejected", code: "SHIPMENT_NOT_IN_TRANSIT" },
+        { index: 1, shipmentId: delivered, status: "rejected", code: "SHIPMENT_NOT_TRACKABLE" },
         { index: 2, shipmentId: foreign, status: "rejected", code: "FORBIDDEN" },
         { index: 3, shipmentId: missing, status: "rejected", code: "NOT_FOUND" },
       ]);
@@ -311,7 +366,7 @@ describe("POST /shipments/:id/positions (Postgres, MOVO-202)", () => {
     });
 
     it("AC4: 400 con un lote vacío, con más de 100 posiciones o sin x-user-id (401)", async () => {
-      const shipmentId = await createShipmentWithStatus("in_transit");
+      const { shipmentId } = await createShipmentWithStatus("in_transit");
       const at = new Date(Date.now() - 1_000);
 
       expect((await reportBatch(carrierId, [])).statusCode).toBe(400);

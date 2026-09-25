@@ -84,6 +84,7 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   HANDSHAKE_CEDENTE_KEY_MISSING:
     "La otra persona todavía no puede confirmar la transferencia desde su dispositivo. Pedile que actualice la app.",
   HANDSHAKE_INVALID_SHIPMENT_STATE: "Este envío ya no está en un estado que permita confirmar esto.",
+  SHIPMENT_NOT_TRACKABLE: "El envío no se encuentra en un viaje activo para realizar seguimiento.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",
   RATE_LIMIT_EXCEEDED: "Hiciste demasiados intentos. Esperá un momento y volvé a intentar.",

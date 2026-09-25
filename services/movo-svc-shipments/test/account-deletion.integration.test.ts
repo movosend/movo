@@ -197,12 +197,38 @@ describe("DELETE /internal/account-deletion/users/:userId/carrier-positions (MOV
   });
 
   beforeEach(async () => {
-    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments, shipments.trips RESTART IDENTITY CASCADE");
   });
 
   async function seedPosition(shipmentId: string) {
+    const shipment = await app.db.shipment.findUnique({ where: { id: shipmentId } });
+    const carrierId = shipment?.carrierId ?? randomUUID();
+    let trip = await app.db.trip.findFirst({ where: { carrierId } });
+    if (!trip) {
+      trip = await app.db.trip.create({
+        data: {
+          carrierId,
+          originAddress: "Av. Colón 1234, Córdoba",
+          originLat: -31.4201,
+          originLng: -64.1888,
+          destinationAddress: "Av. San Martín 100, Villa María",
+          destinationLat: -32.4104,
+          destinationLng: -63.2404,
+          departureAt: new Date(),
+          vehicleType: "auto",
+          status: "active",
+        },
+      });
+    }
     await app.db.carrierPosition.create({
-      data: { shipmentId, lat: -31.42, lng: -64.18, accuracyM: 8, capturedAt: new Date() },
+      data: {
+        shipmentId,
+        tripId: trip.id,
+        lat: -31.42,
+        lng: -64.18,
+        accuracyM: 8,
+        capturedAt: new Date(),
+      },
     });
   }
 

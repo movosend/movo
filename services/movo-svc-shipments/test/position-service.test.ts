@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { ShipmentStatus } from "@movo/shared";
+import { ShipmentStatus, TripStatus } from "@movo/shared";
 import {
   createPositionService,
   CARRIER_POSITION_MIN_PERSIST_INTERVAL_MS,
@@ -9,7 +9,7 @@ import {
   CAPTURED_AT_CLOCK_SKEW_TOLERANCE_MS,
 } from "../src/services/position-service";
 import { PositionRepository } from "../src/repositories/position-repository";
-import { ShipmentRepository } from "../src/repositories/shipment-repository";
+import { ShipmentRepository, ShipmentTrackingContext } from "../src/repositories/shipment-repository";
 import { Shipment, PackageType } from "../src/models/shipment";
 
 function fakeShipment(overrides: Partial<Shipment> = {}): Shipment {
@@ -49,10 +49,26 @@ function fakeShipment(overrides: Partial<Shipment> = {}): Shipment {
 }
 
 function fakeShipmentRepository(overrides: Partial<ShipmentRepository> = {}): ShipmentRepository {
-  return {
+  const repo: Partial<ShipmentRepository> = {
     findById: vi.fn().mockResolvedValue(fakeShipment()),
     ...overrides,
-  } as ShipmentRepository;
+  };
+  if (!repo.findTrackingContext) {
+    repo.findTrackingContext = vi.fn().mockImplementation(async (id: string) => {
+      const s = await repo.findById!(id);
+      if (!s) return null;
+      return {
+        shipment: s,
+        trip: {
+          id: "trip-1",
+          status: TripStatus.ACTIVE,
+          carrierId: s.carrierId ?? "carrier-1",
+        },
+        activeShipmentIds: [s.id],
+      };
+    });
+  }
+  return repo as ShipmentRepository;
 }
 
 function fakePositionRepository(overrides: Partial<PositionRepository> = {}): PositionRepository {
@@ -122,12 +138,12 @@ function alignedBucketStart(iso: string): number {
 
 const basePosition = { lat: -31.42, lng: -64.18, accuracyM: 8, capturedAt: new Date("2026-09-20T12:00:00.000Z") };
 
-describe("position-service (MOVO-202)", () => {
+describe("position-service (MOVO-202 / MOVO-251)", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  describe("AC2: autorización", () => {
+  describe("AC2: autorización (adaptado por MOVO-251)", () => {
     it("403 AUTH_FORBIDDEN si el caller no es el transportista asignado", async () => {
       const service = createPositionService(
         fakeShipmentRepository(),
@@ -143,12 +159,11 @@ describe("position-service (MOVO-202)", () => {
     });
 
     it.each([
-      ShipmentStatus.ASSIGNED,
       ShipmentStatus.ASSIGNED_UNFUNDED,
       ShipmentStatus.DELIVERED,
       ShipmentStatus.COMPLETED,
       ShipmentStatus.CANCELLED,
-    ])("403 SHIPMENT_NOT_IN_TRANSIT si el envío está en '%s'", async (status) => {
+    ])("403 SHIPMENT_NOT_TRACKABLE si el envío está en '%s'", async (status) => {
       const shipmentRepository = fakeShipmentRepository({
         findById: vi.fn().mockResolvedValue(fakeShipment({ status })),
       });
@@ -161,7 +176,7 @@ describe("position-service (MOVO-202)", () => {
 
       await expect(service.reportPosition("shipment-1", "carrier-1", basePosition)).rejects.toMatchObject({
         statusCode: 403,
-        code: "SHIPMENT_NOT_IN_TRANSIT",
+        code: "SHIPMENT_NOT_TRACKABLE",
       });
     });
 
@@ -182,6 +197,22 @@ describe("position-service (MOVO-202)", () => {
     it("acepta al transportista asignado sobre un envío in_transit", async () => {
       const service = createPositionService(
         fakeShipmentRepository(),
+        fakePositionRepository(),
+        createFakeRedis(),
+        fakeRealtime()
+      );
+
+      await expect(service.reportPosition("shipment-1", "carrier-1", basePosition)).resolves.toEqual({
+        persisted: true,
+      });
+    });
+
+    it("MOVO-251: acepta al transportista asignado sobre un envío assigned si el viaje está active", async () => {
+      const shipmentRepository = fakeShipmentRepository({
+        findById: vi.fn().mockResolvedValue(fakeShipment({ status: ShipmentStatus.ASSIGNED })),
+      });
+      const service = createPositionService(
+        shipmentRepository,
         fakePositionRepository(),
         createFakeRedis(),
         fakeRealtime()
@@ -458,7 +489,7 @@ describe("position-service (MOVO-202)", () => {
 
       expect(results).toEqual([
         { index: 0, shipmentId: "in-transit", status: "accepted", persisted: true },
-        { index: 1, shipmentId: "delivered", status: "rejected", code: "SHIPMENT_NOT_IN_TRANSIT" },
+        { index: 1, shipmentId: "delivered", status: "rejected", code: "SHIPMENT_NOT_TRACKABLE" },
         { index: 2, shipmentId: "ajeno", status: "rejected", code: "FORBIDDEN" },
         { index: 3, shipmentId: "fantasma", status: "rejected", code: "NOT_FOUND" },
         { index: 4, shipmentId: "in-transit", status: "rejected", code: "INVALID_CAPTURED_AT" },
@@ -534,6 +565,181 @@ describe("position-service (MOVO-202)", () => {
 
       await expect(service.deletePositionsForCarrier("carrier-1")).resolves.toBe(5);
       expect(positionRepository.deleteAllForCarrier).toHaveBeenCalledWith("carrier-1");
+    });
+  });
+
+  describe("MOVO-251: gateo y persistencia por Trip", () => {
+    it("un envío assigned dentro de un trip active acepta la posición", async () => {
+      const shipmentRepository = fakeShipmentRepository({
+        findTrackingContext: vi.fn().mockResolvedValue({
+          shipment: fakeShipment({ id: "shipment-assigned", status: ShipmentStatus.ASSIGNED }),
+          trip: { id: "trip-active-1", status: TripStatus.ACTIVE, carrierId: "carrier-1" },
+          activeShipmentIds: ["shipment-assigned"],
+        }),
+      });
+      const service = createPositionService(
+        shipmentRepository,
+        fakePositionRepository(),
+        createFakeRedis(),
+        fakeRealtime()
+      );
+
+      await expect(
+        service.reportPosition("shipment-assigned", "carrier-1", basePosition)
+      ).resolves.toEqual({ persisted: true });
+    });
+
+    it("un envío assigned cuyo trip no está active (todavía declared) rechaza con 403 SHIPMENT_NOT_TRACKABLE", async () => {
+      const shipmentRepository = fakeShipmentRepository({
+        findTrackingContext: vi.fn().mockResolvedValue({
+          shipment: fakeShipment({ id: "shipment-assigned", status: ShipmentStatus.ASSIGNED }),
+          trip: { id: "trip-declared-1", status: TripStatus.DECLARED, carrierId: "carrier-1" },
+          activeShipmentIds: ["shipment-assigned"],
+        }),
+      });
+      const service = createPositionService(
+        shipmentRepository,
+        fakePositionRepository(),
+        createFakeRedis(),
+        fakeRealtime()
+      );
+
+      await expect(
+        service.reportPosition("shipment-assigned", "carrier-1", basePosition)
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        code: "SHIPMENT_NOT_TRACKABLE",
+      });
+    });
+
+    it("un envío sin viaje asociado rechaza con 403 SHIPMENT_NOT_TRACKABLE", async () => {
+      const shipmentRepository = fakeShipmentRepository({
+        findTrackingContext: vi.fn().mockResolvedValue({
+          shipment: fakeShipment({ id: "shipment-no-trip", status: ShipmentStatus.ASSIGNED }),
+          trip: null,
+          activeShipmentIds: ["shipment-no-trip"],
+        }),
+      });
+      const service = createPositionService(
+        shipmentRepository,
+        fakePositionRepository(),
+        createFakeRedis(),
+        fakeRealtime()
+      );
+
+      await expect(
+        service.reportPosition("shipment-no-trip", "carrier-1", basePosition)
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        code: "SHIPMENT_NOT_TRACKABLE",
+      });
+    });
+
+    it("dos envíos del mismo trip, misma posición física reportada una sola vez, guardan una sola fila en carrier_positions con ese trip_id", async () => {
+      const tripId = "trip-consolidated-1";
+      const shipmentRepository = fakeShipmentRepository({
+        findTrackingContext: vi.fn().mockImplementation(async (id: string) => ({
+          shipment: fakeShipment({ id, status: ShipmentStatus.IN_TRANSIT }),
+          trip: { id: tripId, status: TripStatus.ACTIVE, carrierId: "carrier-1" },
+          activeShipmentIds: ["shipment-A", "shipment-B"],
+        })),
+      });
+      const positionRepository = fakePositionRepository();
+      const service = createPositionService(
+        shipmentRepository,
+        positionRepository,
+        createFakeRedis(),
+        fakeRealtime()
+      );
+
+      // Reporte para shipment-A: primer reporte del tramo, persiste
+      const resA = await service.reportPosition("shipment-A", "carrier-1", basePosition);
+      expect(resA).toEqual({ persisted: true });
+
+      // Reporte para shipment-B con la misma posición física (mismo capturedAt y tripId): descarta cadencia
+      const resB = await service.reportPosition("shipment-B", "carrier-1", basePosition);
+      expect(resB).toEqual({ persisted: false });
+
+      // Se llamó a create exactamente una vez con el tripId correspondiente
+      expect(positionRepository.create).toHaveBeenCalledTimes(1);
+      expect(positionRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          shipmentId: "shipment-A",
+          tripId,
+        })
+      );
+    });
+
+    it("envío que sale del trip (oferta cancelada o estado terminal) deja de aparecer en el read-side (getLastKnownPosition) aunque el trip siga activo", async () => {
+      const tripId = "trip-active-1";
+      let shipmentStatus = ShipmentStatus.IN_TRANSIT;
+      let hasTrip = true;
+
+      const shipmentRepository = fakeShipmentRepository({
+        findTrackingContext: vi.fn().mockImplementation(async () => ({
+          shipment: fakeShipment({ id: "shipment-1", status: shipmentStatus }),
+          trip: hasTrip ? { id: tripId, status: TripStatus.ACTIVE, carrierId: "carrier-1" } : null,
+          activeShipmentIds: ["shipment-1"],
+        })),
+      });
+
+      const redis = createFakeRedis();
+      const service = createPositionService(
+        shipmentRepository,
+        fakePositionRepository(),
+        redis,
+        fakeRealtime()
+      );
+
+      // Reportamos una posición para que quede en Redis bajo la clave del viaje
+      await service.reportPosition("shipment-1", "carrier-1", basePosition);
+
+      // Mientras el envío está en tránsito, el read-side resuelve la posición
+      const knownWhileActive = await service.getLastKnownPosition("shipment-1");
+      expect(knownWhileActive).toMatchObject({ lat: basePosition.lat, lng: basePosition.lng });
+
+      // Caso 1: el envío pasa a DELIVERED
+      shipmentStatus = ShipmentStatus.DELIVERED;
+      expect(await service.getLastKnownPosition("shipment-1")).toBeNull();
+
+      // Caso 1b: el envío está en ASSIGNED_UNFUNDED (fondos no confirmados aún, no trackeable)
+      shipmentStatus = ShipmentStatus.ASSIGNED_UNFUNDED;
+      expect(await service.getLastKnownPosition("shipment-1")).toBeNull();
+
+      // Caso 2: el envío vuelve a ASSIGNED pero se desvincula del viaje (oferta cancelada)
+      shipmentStatus = ShipmentStatus.ASSIGNED;
+      hasTrip = false;
+      expect(await service.getLastKnownPosition("shipment-1")).toBeNull();
+
+      // La posición del viaje en Redis sigue viva para otros envíos
+      hasTrip = true;
+      shipmentStatus = ShipmentStatus.IN_TRANSIT;
+      expect(await service.getLastKnownPosition("shipment-1")).not.toBeNull();
+    });
+
+    it("difunde a todos los envíos activos del viaje cuando entra una nueva posición", async () => {
+      const tripId = "trip-multi-1";
+      const realtime = fakeRealtime();
+      const shipmentRepository = fakeShipmentRepository({
+        findTrackingContext: vi.fn().mockResolvedValue({
+          shipment: fakeShipment({ id: "shipment-A", status: ShipmentStatus.IN_TRANSIT }),
+          trip: { id: tripId, status: TripStatus.ACTIVE, carrierId: "carrier-1" },
+          activeShipmentIds: ["shipment-A", "shipment-B"],
+        }),
+      });
+
+      const service = createPositionService(
+        shipmentRepository,
+        fakePositionRepository(),
+        createFakeRedis(),
+        realtime
+      );
+
+      await service.reportPosition("shipment-A", "carrier-1", basePosition);
+
+      // Se difundió a ambos envíos activos del viaje
+      expect(realtime.messages).toHaveLength(2);
+      expect(realtime.messages.map((m) => m.shipmentId)).toEqual(["shipment-A", "shipment-B"]);
     });
   });
 });
