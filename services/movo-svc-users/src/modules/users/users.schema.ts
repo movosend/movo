@@ -228,6 +228,9 @@ export const usersSchemas = {
       reputationScore: { type: ["number", "null"] },
       bio: { type: ["string", "null"] },
       vehicle: { oneOf: [{ type: "null" }, vehicleProfileObject] },
+      // MOVO-175: solo mirando el perfil de otro (ausente en el propio). Como `bio`,
+      // no va en `publicProfileExtras`, así que nunca viaja en `GET /users/search`.
+      isBlockedByMe: { type: "boolean" },
       ...publicProfileExtras,
     },
   },

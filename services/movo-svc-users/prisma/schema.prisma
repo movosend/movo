@@ -172,6 +172,64 @@ model NotificationCategoryPreference {
   @@schema("users")
 }
 
+// MOVO-175: valores alineados 1:1 con `ReportReason`/`ReportStatus` de @movo/shared.
+enum ReportReason {
+  harassment
+  no_show
+  damaged_package
+  payment_issue
+  other
+
+  @@map("report_reason_enum")
+  @@schema("users")
+}
+
+enum ReportStatus {
+  pending
+  reviewed
+  dismissed
+
+  @@map("report_status_enum")
+  @@schema("users")
+}
+
+// MOVO-175 (ADR-026): una fila por dirección (quién bloqueó a quién), pero el EFECTO
+// es simétrico -- `listRelatedUserIds` une las dos direcciones. `deleteAccount` borra
+// explícitamente las filas en ambas direcciones: la baja es soft delete, así que el
+// `onDelete: Cascade` nunca dispara (mismo caso que KYC/licencia).
+model UserBlock {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  blockerId String   @map("blocker_id") @db.Uuid
+  blockedId String   @map("blocked_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  blocker   User     @relation("UserBlockBlocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("UserBlockBlocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId], map: "user_blocks_blocker_id_blocked_id_key")
+  @@index([blockedId], map: "user_blocks_blocked_id_idx")
+  @@map("user_blocks")
+  @@schema("users")
+}
+
+// MOVO-175: solo se persiste -- la revisión (pending -> reviewed/dismissed) queda para
+// el panel de admin, fuera de alcance de esta US. Se conserva tras la baja de cuenta
+// de cualquiera de las dos partes (evidencia para admin; el usuario ya queda anonimizado).
+model UserReport {
+  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reporterId String       @map("reporter_id") @db.Uuid
+  reportedId String       @map("reported_id") @db.Uuid
+  reason     ReportReason
+  details    String?      @db.Text
+  status     ReportStatus @default(pending)
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  reporter   User         @relation("UserReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reported   User         @relation("UserReportReported", fields: [reportedId], references: [id], onDelete: Cascade)
+
+  @@index([reporterId, reportedId, status], map: "user_reports_reporter_id_reported_id_status_idx")
+  @@map("user_reports")
+  @@schema("users")
+}
+
 model User {
   id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email             String        @unique(map: "users_email_key")
@@ -216,6 +274,10 @@ model User {
   vehicleProfile    VehicleProfile?
   notificationPreference          NotificationPreference?
   notificationCategoryPreferences NotificationCategoryPreference[]
+  blocksMade        UserBlock[]   @relation("UserBlockBlocker")
+  blocksReceived    UserBlock[]   @relation("UserBlockBlocked")
+  reportsMade       UserReport[]  @relation("UserReportReporter")
+  reportsReceived   UserReport[]  @relation("UserReportReported")
 
   // users_email_lower_idx (índice único funcional sobre LOWER(email)) no tiene
   // equivalente declarable en schema.prisma (Prisma no modela expression indexes).
