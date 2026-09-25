@@ -1,4 +1,4 @@
-import { ApiError, ShipmentStatus, TripStatus } from "@movo/shared";
+import { ApiError, TripStatus } from "@movo/shared";
 import { ShipmentRepository, ShipmentTrackingContext } from "../repositories/shipment-repository";
 import { PositionRepository } from "../repositories/position-repository";
 import { assertIsCarrier } from "../modules/shipments/assert-shipment-access";
