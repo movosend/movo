@@ -1061,3 +1061,25 @@ test.ts`) quedaron escritos pero sin poder correrse en este entorno por falta de
 Postgres/Redis local — pendiente de verificar en CI.
 
 Pendiente / fuera de alcance: mobile de MOVO-246 (pantalla de configuración).
+
+### MOVO-175 — Reportar y bloquear usuarios (ADR-026)
+
+Módulo nuevo `src/modules/moderation/` + `moderation-repository.ts`, tablas
+`user_blocks`/`user_reports` (migración a mano, `prisma migrate diff` datamodel→datamodel
+con el prefijo `users.` agregado). Rutas protegidas bajo `/users` (sin cambios en el
+gateway): `POST /users/:id/report`, `POST`/`DELETE /users/:id/block`, `GET /users/me/blocked`;
+interna `GET /internal/users/:id/block-relations` (unión simétrica, la consume `svc-shipments`).
+
+- **Una fila por dirección, efecto simétrico**: la simetría la resuelve
+  `listRelatedUserIds`, no la tabla — `isBlockedByMe` (nuevo en `GET /users/:id`, solo
+  mirando a otro) necesita saber la dirección, y nunca revela si el otro bloqueó al caller.
+- **Reportes idempotentes por par**: un reporte `pending` repetido devuelve 200 con el
+  mismo reporte sin consumir cupo; los nuevos (201) tienen tope de 10/día por usuario
+  (Redis `SET NX EX` + `INCR`, `RATE_LIMIT_EXCEEDED` ya existente). Solo se persisten — la
+  revisión es de admin, fuera de alcance.
+- **`deleteAccount` borra los bloqueos en ambas direcciones** dentro de su `$transaction`
+  (el `Cascade` nunca dispara por el soft delete); los reportes se conservan como evidencia.
+- `GET /users/search` excluye a cualquiera con un bloqueo en cualquier dirección
+  (`search()` pasa a recibir una lista de ids a excluir).
+
+Pendiente / fuera de alcance: revisión de reportes desde `movo-admin`/`svc-admin`.

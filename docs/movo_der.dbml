@@ -381,6 +381,29 @@ Table users.vehicle_profiles {
   updated_at timestamp
 }
 
+Table users.user_blocks {
+  id uuid [pk]
+  blocker_id uuid [ref: > users.user.id]
+  blocked_id uuid [ref: > users.user.id]
+  created_at timestamp
+  indexes {
+    (blocker_id, blocked_id) [unique]
+    blocked_id
+  }
+  Note: 'MOVO-175 (ADR-026): una fila por dirección, efecto simétrico'
+}
+
+Table users.user_reports {
+  id uuid [pk]
+  reporter_id uuid [ref: > users.user.id]
+  reported_id uuid [ref: > users.user.id]
+  reason varchar [note: 'harassment | no_show | damaged_package | payment_issue | other']
+  details text
+  status varchar [note: 'pending | reviewed | dismissed']
+  created_at timestamp
+  Note: 'MOVO-175: se conserva tras la baja de cuenta (evidencia para admin)'
+}
+
 Table users.payment_method {
   id uuid [pk]
   user_id uuid [ref: > users.user.id]

@@ -2650,3 +2650,22 @@ Decisiones clave:
   `getShipmentDetail` cuenta con fallback defensivo que recupera el precio de la oferta aceptada
   si un registro histórico previo no lo tenía persistido.
 
+
+### MOVO-175 — Efecto del bloqueo de usuarios sobre envíos y ofertas (ADR-026)
+
+`usersClient.listBlockRelatedUserIds` (nuevo, `GET /internal/users/:id/block-relations` de
+`svc-users`) + `src/utils/block-relations.ts` con dos variantes: `assertNotBlocked` (falla
+cerrado, `403 USER_BLOCKED`; un `svc-users` caído propaga su 502) para crear oferta, aceptar
+oferta y designar receptor en `createShipment`; `safeBlockRelatedUserIds` (falla abierto con
+`warn`) para el feed `/shipments/available`, `GET /trips/:id/matches`, las ofertas recibidas
+y el push de trip-match.
+
+- **El filtro del feed va en `availableShipmentsWhereSql`** (`excludePartyIds`, sobre
+  emisor y receptor), no en un post-filtro, para que el `total` de la paginación no diverja.
+- **Ofertas recibidas**: el emisor no ve las `pending` de alguien bloqueado; las ya
+  resueltas sí (una aceptada es un envío en curso, que el bloqueo no cancela). Un admin ve todo.
+- **Aceptar una oferta hecha antes del bloqueo da 403**: el chequeo va antes de la
+  transacción de `acceptOffer`. Sin `usersClient` inyectado (solo tests unitarios) se omite.
+- `dispatchTripMatchPushes` ahora recibe `usersClient` y suma los bloqueados de emisor y
+  receptor a `excludeCarrierIds`; como resuelve eso antes de buscar viajes, los tests
+  unitarios que miran `findActiveTripsMatchingShipment` usan `vi.waitFor`.
