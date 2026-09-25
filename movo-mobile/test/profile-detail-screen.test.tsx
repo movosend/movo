@@ -33,6 +33,7 @@ jest.mock("../src/hooks/use-shipments", () => ({
 jest.mock("../src/hooks/use-moderation", () => ({
   useReportUser: () => ({ mutateAsync: jest.fn(), isPending: false }),
   useBlockUser: () => ({ mutate: jest.fn(), isPending: false }),
+  useUnblockUser: () => ({ mutate: jest.fn(), isPending: false }),
 }));
 
 jest.mock("../src/store/auth-store", () => ({

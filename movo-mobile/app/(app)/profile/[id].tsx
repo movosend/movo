@@ -14,6 +14,7 @@ import { UsageStatsGrid } from "../../../components/profile/usage-stats-grid";
 import { VehicleCard } from "../../../components/profile/vehicle-card";
 import { VerificationChips } from "../../../components/profile/verification-chips";
 import { GridPattern } from "../../../components/ui/grid-pattern";
+import { SuccessBanner } from "../../../components/ui/success-banner";
 import { SkeletonBlock } from "../../../components/ui/skeleton-block";
 import { StarRatingInput } from "../../../components/ui/star-rating-input";
 import { useAuthStore } from "../../../src/store/auth-store";
@@ -96,6 +97,9 @@ export default function PublicProfileScreen() {
   const { data: profile, isLoading, isError } = usePublicProfile(id);
   const { data: sharedHistory } = useSharedHistory(id);
   const [role, setRole] = useState<ReputationRole>("carrier");
+  const [moderationSuccess, setModerationSuccess] = useState<string | null>(
+    null,
+  );
 
   const handleBack = () => {
     if (router.canGoBack()) router.back();
@@ -157,10 +161,22 @@ export default function PublicProfileScreen() {
           <ProfileActionsMenu
             userId={profile.id}
             fullName={profile.fullName}
+            isBlockedByMe={profile.isBlockedByMe}
+            onActionSuccess={setModerationSuccess}
             testID="profile-detail-actions"
           />
         )}
       </View>
+
+      {moderationSuccess ? (
+        <View className="px-5">
+          <SuccessBanner
+            testID="profile-detail-moderation-success"
+            message={moderationSuccess}
+            onDismiss={() => setModerationSuccess(null)}
+          />
+        </View>
+      ) : null}
 
       <ScrollView
         testID="profile-detail-content"
