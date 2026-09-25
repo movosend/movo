@@ -233,7 +233,7 @@ describe("ProfileActionsMenu", () => {
 
     expect(Alert.alert).toHaveBeenCalledWith(
       "¿Bloquear a Marta González?",
-      expect.any(String),
+      "Podés revertirlo cuando quieras desde Configuración › Cuenta y seguridad › Usuarios bloqueados.",
       expect.any(Array),
     );
     expect(mockBlockMutate).not.toHaveBeenCalled();

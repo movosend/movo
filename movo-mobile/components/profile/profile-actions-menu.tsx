@@ -113,8 +113,9 @@ export function ProfileActionsMenu({
   function confirmBlock() {
     Alert.alert(
       `¿Bloquear a ${fullName}?`,
-      "No se van a ver en sus listados y no van a poder crear envíos ni ofertas nuevas entre ustedes. " +
-        "Los envíos que ya tengan en curso siguen normalmente.",
+      // El detalle de qué implica un bloqueo vive en la pantalla de bloqueados
+      // (`BlockImplicationsCard`); acá solo se dice dónde revertirlo.
+      "Podés revertirlo cuando quieras desde Configuración › Cuenta y seguridad › Usuarios bloqueados.",
       [
         { text: "Cancelar", style: "cancel" },
         {
