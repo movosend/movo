@@ -3,7 +3,7 @@ import { ShipmentRepository, ShipmentTrackingContext } from "../repositories/shi
 import { PositionRepository } from "../repositories/position-repository";
 import { assertIsCarrier } from "../modules/shipments/assert-shipment-access";
 import { CarrierPosition, LastKnownCarrierPosition } from "../models/carrier-position";
-import { TRACKING_CLOSED_STATUSES } from "../domain/shipment-state-machine";
+import { TRACKABLE_SHIPMENT_STATUSES } from "../domain/shipment-state-machine";
 
 /**
  * MOVO-202/AC4: cadencia de persistencia en Postgres. Constante, no env var -- es una
@@ -168,10 +168,7 @@ export function createPositionService(
     const { shipment, trip } = context;
     assertIsCarrier(shipment, callerId);
 
-    if (
-      shipment.status !== ShipmentStatus.ASSIGNED &&
-      shipment.status !== ShipmentStatus.IN_TRANSIT
-    ) {
+    if (!TRACKABLE_SHIPMENT_STATUSES.includes(shipment.status)) {
       throw new ApiError(
         403,
         "SHIPMENT_NOT_TRACKABLE",
@@ -316,12 +313,8 @@ export function createPositionService(
       const context = await resolveTrackingContext(shipmentId);
       if (!context || !context.shipment) return null;
 
-      // MOVO-251/AC5: un envío que sale del viaje o pasa a estado terminal/cerrado deja de resolver posición
-      if (
-        TRACKING_CLOSED_STATUSES.includes(context.shipment.status) ||
-        (context.shipment.status !== ShipmentStatus.ASSIGNED &&
-          context.shipment.status !== ShipmentStatus.IN_TRANSIT)
-      ) {
+      // MOVO-251/AC5: un envío que sale del viaje o no está en estado trackeable deja de resolver posición
+      if (!TRACKABLE_SHIPMENT_STATUSES.includes(context.shipment.status)) {
         return null;
       }
 

@@ -702,6 +702,10 @@ describe("position-service (MOVO-202 / MOVO-251)", () => {
       shipmentStatus = ShipmentStatus.DELIVERED;
       expect(await service.getLastKnownPosition("shipment-1")).toBeNull();
 
+      // Caso 1b: el envío está en ASSIGNED_UNFUNDED (fondos no confirmados aún, no trackeable)
+      shipmentStatus = ShipmentStatus.ASSIGNED_UNFUNDED;
+      expect(await service.getLastKnownPosition("shipment-1")).toBeNull();
+
       // Caso 2: el envío vuelve a ASSIGNED pero se desvincula del viaje (oferta cancelada)
       shipmentStatus = ShipmentStatus.ASSIGNED;
       hasTrip = false;

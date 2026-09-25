@@ -148,6 +148,16 @@ export const ACTIVE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
 ];
 
 /**
+ * MOVO-251: estados en los que un envío es elegible para tracking en vivo (GPS en tránsito o
+ * transportista en camino hacia el retiro). A diferencia de `ACTIVE_SHIPMENT_STATUSES`, excluye
+ * `ASSIGNED_UNFUNDED`, ya que un envío sin hold de fondos confirmado todavía no es trackeable.
+ */
+export const TRACKABLE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.ASSIGNED,
+  ShipmentStatus.IN_TRANSIT,
+];
+
+/**
  * MOVO-202/AC6: estados elegibles para la purga periódica de `carrier_positions` --
  * mismo set que `TRACKING_CLOSED_STATUSES` MENOS `DISPUTED` a propósito. Un envío
  * `disputed` nunca es elegible mientras siga en ese estado (la traza puede ser

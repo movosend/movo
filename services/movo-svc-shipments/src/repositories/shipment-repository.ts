@@ -6,6 +6,7 @@ import {
   INITIAL_SHIPMENT_STATUS,
   InsufficientCreationPhotosError,
   MIN_CREATION_PHOTOS_TO_PUBLISH,
+  TRACKABLE_SHIPMENT_STATUSES,
   transition,
 } from "../domain/shipment-state-machine";
 import { emitShipmentStatusChanged } from "../realtime/shipment-status-events";
@@ -1028,7 +1029,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       const trip = acceptedOffer.trip;
       const activeRows = await db.shipment.findMany({
         where: {
-          status: { in: [...ACTIVE_SHIPMENT_STATUSES] },
+          status: { in: [...TRACKABLE_SHIPMENT_STATUSES] },
           offers: { some: { tripId: trip.id, status: OfferStatus.ACCEPTED } },
         },
         select: { id: true },

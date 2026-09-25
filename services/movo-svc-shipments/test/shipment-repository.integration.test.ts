@@ -52,7 +52,7 @@ describe("shipment-repository (Postgres)", () => {
 
   beforeEach(async () => {
     // CASCADE también vacía shipment_events/shipment_photos (FK a shipments.shipments).
-    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments, shipments.trips RESTART IDENTITY CASCADE");
   });
 
   describe("create", () => {
@@ -838,4 +838,84 @@ describe("shipment-repository (Postgres)", () => {
       expect(items.map((i) => i.id).sort()).toEqual([day1.id, day2.id].sort());
     });
   });
+
+  describe("findTrackingContext (MOVO-251)", () => {
+    it("incluye solo envíos en estados trackeables (assigned, in_transit) y excluye assigned_unfunded en activeShipmentIds", async () => {
+      const carrierId = randomUUID();
+      const trip = await app.db.trip.create({
+        data: {
+          carrierId,
+          originAddress: "Av. Colón 1234, Córdoba",
+          originLat: -31.4201,
+          originLng: -64.1888,
+          destinationAddress: "Av. San Martín 100, Villa María",
+          destinationLat: -32.4104,
+          destinationLng: -63.2404,
+          departureAt: new Date(),
+          vehicleType: "auto",
+          status: "active",
+        },
+      });
+
+      const sInTransit = await repo.create(baseInput);
+      await app.db.shipment.update({ where: { id: sInTransit.id }, data: { status: "in_transit", carrierId } });
+      await app.db.offer.create({
+        data: {
+          shipmentId: sInTransit.id,
+          carrierId,
+          priceOffered: 1000,
+          offeredDate: new Date(),
+          status: "accepted",
+          tripId: trip.id,
+        },
+      });
+
+      const sAssigned = await repo.create(baseInput);
+      await app.db.shipment.update({ where: { id: sAssigned.id }, data: { status: "assigned", carrierId } });
+      await app.db.offer.create({
+        data: {
+          shipmentId: sAssigned.id,
+          carrierId,
+          priceOffered: 1000,
+          offeredDate: new Date(),
+          status: "accepted",
+          tripId: trip.id,
+        },
+      });
+
+      const sUnfunded = await repo.create(baseInput);
+      await app.db.shipment.update({ where: { id: sUnfunded.id }, data: { status: "assigned_unfunded", carrierId } });
+      await app.db.offer.create({
+        data: {
+          shipmentId: sUnfunded.id,
+          carrierId,
+          priceOffered: 1000,
+          offeredDate: new Date(),
+          status: "accepted",
+          tripId: trip.id,
+        },
+      });
+
+      const sDelivered = await repo.create(baseInput);
+      await app.db.shipment.update({ where: { id: sDelivered.id }, data: { status: "delivered", carrierId } });
+      await app.db.offer.create({
+        data: {
+          shipmentId: sDelivered.id,
+          carrierId,
+          priceOffered: 1000,
+          offeredDate: new Date(),
+          status: "accepted",
+          tripId: trip.id,
+        },
+      });
+
+      const context = await repo.findTrackingContext(sInTransit.id);
+      expect(context).not.toBeNull();
+      expect(context?.trip?.id).toBe(trip.id);
+      // Solo sInTransit y sAssigned deben estar en activeShipmentIds (TRACKABLE_SHIPMENT_STATUSES)
+      // sUnfunded (assigned_unfunded) y sDelivered (delivered) quedan excluidos del broadcast
+      expect(context?.activeShipmentIds.sort()).toEqual([sAssigned.id, sInTransit.id].sort());
+    });
+  });
 });
+
