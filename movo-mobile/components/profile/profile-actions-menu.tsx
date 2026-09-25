@@ -4,7 +4,7 @@ import * as Haptics from "expo-haptics";
 import { MoreVertical } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
 import { useState } from "react";
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from "react-native-safe-area-context";
 import { useBlockUser, useReportUser, useUnblockUser } from "../../src/hooks/use-moderation";
@@ -89,15 +89,24 @@ export function ProfileActionsMenu({
     setIsReportModalVisible(true);
   }
 
+  /** Con el teclado abierto el sheet sube y su parte superior queda fuera de la
+   * pantalla: se cierra el teclado para que el formulario completo (y el error) vuelva
+   * a verse. El banner además vive junto al botón, en la zona que siempre queda
+   * visible sobre el teclado. */
+  function showReportError(message: string) {
+    Keyboard.dismiss();
+    setErrorMessage(message);
+  }
+
   async function handleConfirmReport() {
     if (!reason) {
-      setErrorMessage("Elegí un motivo para continuar.");
+      showReportError("Elegí un motivo para continuar.");
       return;
     }
     try {
       await reportMutation.mutateAsync({ reason, details: details.trim() || undefined });
     } catch (err) {
-      setErrorMessage(resolveErrorMessage(err));
+      showReportError(resolveErrorMessage(err));
     }
   }
 
@@ -255,15 +264,6 @@ export function ProfileActionsMenu({
                       El equipo de Movo revisa cada reporte. Contanos qué pasó.
                     </Text>
 
-                    {errorMessage ? (
-                      <View className="mb-3">
-                        <ErrorBanner
-                          testID={testID ? `${testID}-report-error` : "profile-report-error"}
-                          message={errorMessage}
-                        />
-                      </View>
-                    ) : null}
-
                     <View className="mb-3 gap-2">
                       {REASON_OPTIONS.map((option) => (
                         <Pressable
@@ -299,6 +299,15 @@ export function ProfileActionsMenu({
                       multiline
                       maxLength={500}
                     />
+
+                    {errorMessage ? (
+                      <View className="mt-3">
+                        <ErrorBanner
+                          testID={testID ? `${testID}-report-error` : "profile-report-error"}
+                          message={errorMessage}
+                        />
+                      </View>
+                    ) : null}
 
                     <View className="mt-2 flex-col gap-2.5 pb-4 pt-2">
                       <Pressable

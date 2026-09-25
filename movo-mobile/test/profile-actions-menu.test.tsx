@@ -1,4 +1,4 @@
-import { Alert, type AlertButton } from "react-native";
+import { Alert, Keyboard, type AlertButton } from "react-native";
 import { act, fireEvent, render } from "@testing-library/react-native";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ReportReason } from "@movo/shared/dist/types/user";
@@ -77,6 +77,7 @@ describe("ProfileActionsMenu", () => {
     mockBlockState = { isPending: false };
     mockReportError = null;
     jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    jest.spyOn(Keyboard, "dismiss").mockImplementation(() => {});
   });
 
   it("abre el modal de reporte al elegir 'Reportar' del menú", async () => {
@@ -213,6 +214,9 @@ describe("ProfileActionsMenu", () => {
     expect(
       getByText("Hiciste demasiados reportes hoy. Probá de nuevo mañana."),
     ).toBeTruthy();
+    // Con el teclado abierto la parte de arriba del sheet queda fuera de pantalla:
+    // al fallar se cierra el teclado para que el error se vea.
+    expect(Keyboard.dismiss).toHaveBeenCalled();
     expect(queryByTestId("actions-report-success")).toBeNull();
   });
 
