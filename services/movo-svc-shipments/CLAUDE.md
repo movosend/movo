@@ -2607,7 +2607,35 @@ inicio del tránsito.
 Pendiente / fuera de alcance: prueba del WebSocket contra la EC2 de dev real (pendiente de
 MOVO-201 AC6 / ADR-022 AC3); consumo del lote desde `movo-mobile` (MOVO-242) y del evento
 `status` (MOVO-159/204); ADR-024 pendiente de pegar en Drive (`[Movo] 004 - Sprint 0.md`),
-solo tiene el resumen de una línea en `CLAUDE.md` raíz.
+### MOVO-251 — Gatear ingesta y lectura de tracking por Trip activo, no por Shipment.status
+
+Corrige el modelo de tracking: antes de este ticket, `position-service.ts` gateaba la ingesta
+únicamente por `Shipment.status === IN_TRANSIT`, rechazando con 403 posiciones tomadas mientras
+el transportista se acercaba a retirar el paquete (estado `ASSIGNED`), y `carrier_positions`
+estaba indexada únicamente por `shipment_id`, duplicando filas innecesariamente en envíos
+consolidados de un mismo viaje (VRPTW).
+
+Decisiones clave:
+- **Autorización por Trip activo (`Trip.status === active`)**: la autorización valida que el
+  envío pertenezca a un viaje mediante oferta `accepted` (`ShipmentTrackingContext`) y que dicho
+  viaje esté en `active` (MOVO-221). `Shipment.status` se acepta tanto en `assigned` como en
+  `in_transit`; se rechaza en `delivered` y estados terminales/cerrados.
+- **Nuevo código de error `SHIPMENT_NOT_TRACKABLE`**: reemplaza a `SHIPMENT_NOT_IN_TRANSIT` para
+  señalar que el envío no pertenece a un viaje activo o ya no es trackeable. Incorporado en
+  `@movo/shared#ApiErrorCode` y reflejado en el esquema de Swagger y respuesta de lote (`PositionRejectionCode`).
+- **Persistencia y cadencia por `trip_id` en Postgres y Redis**:
+  - `shipments.carrier_positions` gana columna `trip_id UUID NOT NULL` con FK a `trips(id)` y
+    `carrier_positions_trip_id_recorded_at_idx`.
+  - Migración con backfill desde `shipments.offers` (`status = 'accepted'`) y purga de filas
+    huérfanas de testing sin viaje.
+  - La clave de cadencia (`persistCadenceBucketKey`) y la última posición conocida en Redis
+    (`lastKnownPositionKey`) se indexan por `tripId`: si el transportista lleva dos envíos del mismo
+    viaje, la cadencia se evalúa a nivel de viaje y persiste una sola fila en Postgres.
+- **Read-side (`getLastKnownPosition`)**: resuelve `shipmentId -> tripId -> position:last:{tripId}`.
+  Si el envío sale del viaje o entra en un estado terminal (`TRACKING_CLOSED_STATUSES`), deja de
+  resolver posición para ese envío individual (`null`), sin afectar a los demás envíos del viaje.
+- **Difusión en tiempo real**: cuando entra una nueva posición para el viaje, se difunde a todos los
+  envíos activos asociados a ese viaje.
 
 ### Pendientes de este servicio
 

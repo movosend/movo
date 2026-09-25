@@ -1,4 +1,4 @@
-import { OfferStatus, ShipmentStatus } from "@movo/shared";
+import { OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
 import { Prisma, PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
 import {
   ACTIVE_SHIPMENT_STATUSES,
@@ -505,6 +505,21 @@ export interface ShipmentRepository {
    * review — antes usaba `RATING_WINDOW_HOURS` a secas acá).
    */
   findPendingRatingCandidates(userId: string, deliveredSince: Date): Promise<Shipment[]>;
+  /**
+   * MOVO-251: resuelve el contexto necesario para autorizar y rutear tracking de un envío:
+   * el Shipment, la oferta ganadora y el viaje (Trip) asociado.
+   */
+  findTrackingContext(shipmentId: string): Promise<ShipmentTrackingContext | null>;
+}
+
+export interface ShipmentTrackingContext {
+  shipment: Shipment;
+  trip: {
+    id: string;
+    status: TripStatus;
+    carrierId: string;
+  } | null;
+  activeShipmentIds?: string[];
 }
 
 export class ShipmentNotFoundError extends Error {
@@ -985,6 +1000,49 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         orderBy: { deliveredAt: "desc" },
       });
       return rows.map(mapShipment);
+    },
+
+    async findTrackingContext(shipmentId: string): Promise<ShipmentTrackingContext | null> {
+      const row = await db.shipment.findUnique({
+        where: { id: shipmentId },
+        include: {
+          offers: {
+            where: { status: OfferStatus.ACCEPTED },
+            include: { trip: true },
+            take: 1,
+          },
+        },
+      });
+      if (!row) return null;
+
+      const shipment = mapShipment(row);
+      const acceptedOffer = row.offers[0];
+      if (!acceptedOffer || !acceptedOffer.trip) {
+        return {
+          shipment,
+          trip: null,
+          activeShipmentIds: [shipment.id],
+        };
+      }
+
+      const trip = acceptedOffer.trip;
+      const activeRows = await db.shipment.findMany({
+        where: {
+          status: { in: [...ACTIVE_SHIPMENT_STATUSES] },
+          offers: { some: { tripId: trip.id, status: OfferStatus.ACCEPTED } },
+        },
+        select: { id: true },
+      });
+
+      return {
+        shipment,
+        trip: {
+          id: trip.id,
+          status: trip.status as TripStatus,
+          carrierId: trip.carrierId,
+        },
+        activeShipmentIds: activeRows.map((r) => r.id),
+      };
     },
   };
 }

@@ -59,11 +59,11 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
       schema: {
         summary: "Reportar posiciones GPS del transportista por lotes",
         description:
-          "MOVO-250/AC4: hasta 100 posiciones (de uno o varios envíos) por request. Responde 200 con " +
+          "MOVO-250/AC4 y MOVO-251: hasta 100 posiciones (de uno o varios envíos) por request. Responde 200 con " +
           "un resultado por ítem, no todo-o-nada: `accepted` (con `persisted`, si entró a la traza) o " +
-          "`rejected` con un código (SHIPMENT_NOT_IN_TRANSIT, NOT_FOUND, FORBIDDEN, INVALID_CAPTURED_AT). " +
-          "La traza se agrupa en tramos de 45s según `capturedAt` (no la hora de llegada), y la última " +
-          "posición conocida/difusión solo avanzan con un `capturedAt` más reciente que el guardado.",
+          "`rejected` con un código (SHIPMENT_NOT_TRACKABLE, NOT_FOUND, FORBIDDEN, INVALID_CAPTURED_AT). " +
+          "La traza y la cadencia de 45s se agrupan por viaje (tripId) según `capturedAt` (no la hora de llegada), y la última " +
+          "posición conocida/difusión avanzan a nivel de viaje con un `capturedAt` más reciente que el guardado.",
         tags: ["positions"],
         body: positionsSchemas.reportPositionsBatchBody,
         response: {
@@ -90,11 +90,11 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
       schema: {
         summary: "Reportar la posición GPS actual del transportista",
         description:
-          "AC1/AC2/AC4 de MOVO-202: solo el transportista asignado de un envío `in_transit` puede " +
-          "reportar -- 403 para cualquier otro actor o estado (SHIPMENT_NOT_IN_TRANSIT). El servidor " +
+          "MOVO-202 y MOVO-251: el transportista asignado de un envío en viaje activo (`assigned` o `in_transit`) puede " +
+          "reportar -- 403 SHIPMENT_NOT_TRACKABLE si el viaje no está activo o el envío ya no es trackeable. El servidor " +
           "descarta la cadencia (persiste como mucho una posición por tramo de 45s de `capturedAt` en " +
-          "Postgres, evidencia para disputas) sin confiar en el cliente; 422 INVALID_CAPTURED_AT si " +
-          "`capturedAt` está en el futuro o es anterior al inicio del tránsito; la última posición conocida en Redis y la " +
+          "Postgres por viaje, evidencia para disputas) sin confiar en el cliente; 422 INVALID_CAPTURED_AT si " +
+          "`capturedAt` está en el futuro o es anterior al inicio del tránsito; la última posición conocida en Redis por viaje y la " +
           "difusión a los suscriptores del canal de tiempo real (MOVO-201) pasan siempre, sin esperar " +
           "esa persistencia.",
         tags: ["positions"],
