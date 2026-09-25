@@ -217,4 +217,7 @@ export interface PublicProfile {
    * de vehículo. Igual que `bio`, viaja en `GET /users/:id` pero se descarta a
    * nivel de schema en `GET /users/search`. */
   vehicle?: VehicleProfile | null;
+  /** MOVO-175: si el caller bloqueó a este usuario. Solo viaja en `GET /users/:id`
+   * mirando el perfil de otro -- nunca revela si el otro bloqueó al caller. */
+  isBlockedByMe?: boolean;
 }

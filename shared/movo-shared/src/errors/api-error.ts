@@ -106,7 +106,12 @@ export type ApiErrorCode =
   | "SHIPMENT_NOT_TRACKABLE"
   // MOVO-250: `capturedAt` de una posición GPS en el futuro (más allá de la tolerancia de
   // desfase de reloj) o anterior a que el envío pasara a `in_transit`.
-  | "INVALID_CAPTURED_AT";
+  | "INVALID_CAPTURED_AT"
+  // MOVO-175: interacción (oferta, aceptación, envío como receptor) entre dos usuarios
+  // con un bloqueo en cualquier dirección -- explícito a propósito (ADR-026).
+  | "USER_BLOCKED"
+  // MOVO-175: reportarse o bloquearse a uno mismo.
+  | "CANNOT_MODERATE_SELF";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {
