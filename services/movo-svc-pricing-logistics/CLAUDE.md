@@ -160,4 +160,20 @@ inviabilidad por ventana horaria vencida, Cache Hit vs Cache Miss en Redis, lím
 candidatos 422 y propagación de error 502). Suite completa en verde (26/26 tests, 88%
 cobertura total). `ruff` y `mypy` limpios.
 
+### MOVO-216 — Spike: pricing dinámico (demanda + combustible)
 
+Entregables en `docs/pricing/` (`pricing-spike-report.md`, `pricing_prototype.py`, solo
+stdlib, `--offline` opcional). Insumo directo de MOVO-138. Conclusiones: el combustible sale
+de la API CKAN de la Secretaría de Energía (Res. 314/2016, solo HTTP): mediana nacional de
+nafta súper con **filtro de frescura de 30 días obligatorio** (sin él, la mediana subestima
+~40% por declaraciones viejas), cache Redis de 24h + último valor bueno 7d + fallback de
+config, con degradación permitida (a diferencia de la política No-Fallback del ruteo).
+Coeficientes de la tarifa en litros de nafta, así se indexan con el surtidor. Alta demanda =
+`(publicados en 15 km + 1) / transportistas distintos ≥ 3` con mínimo de 4 envíos, recargo
+de 10% a 30%, calibrado con Monte Carlo. Los conteos los calcula `svc-shipments` y los manda
+como `demandContext` opcional (ADR-019 intacto). Respuesta sin `breakdown` (no tiene
+consumidores; pasa al log `pricing_quote_computed`) y con `highDemand`, que `svc-shipments`
+persiste en `shipments.high_demand` (nullable: `NULL` = sin cotización). Si falla Google,
+`/quote` degrada a Haversine x 1,3 (`distanceSource` en el log): excepción acotada a la
+política No-Fallback, que sigue vigente para `/optimize/route` y `/routes/evaluate-candidates`.
+Decisiones en ADR-025; implementación en MOVO-138.
