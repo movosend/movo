@@ -233,6 +233,7 @@ function availableShipmentsWhereSql(params: {
   pickupBox: { latMin: number; latMax: number; lngMin: number; lngMax: number };
   deliveryBox: { latMin: number; latMax: number; lngMin: number; lngMax: number } | null;
   pickupDate: Date | null;
+  excludePartyIds: string[];
 }): Prisma.Sql {
   const deliveryBoxFilter = params.deliveryBox
     ? Prisma.sql`
@@ -246,6 +247,15 @@ function availableShipmentsWhereSql(params: {
   // argentino que `trip.departureAt` (ver `toArgentinaCalendarDate`). `pickup_date` es
   // `@db.Date`, comparable por igualdad directa contra el `Date` ya anclado.
   const pickupDateFilter = params.pickupDate ? Prisma.sql`AND pickup_date = ${params.pickupDate}::date` : Prisma.empty;
+  // MOVO-175 (ADR-026): envíos donde el emisor o el receptor tienen un bloqueo con el
+  // caller. Acá y no en un post-filtro, para que el conteo de paginación no diverja.
+  const blockedPartiesFilter =
+    params.excludePartyIds.length > 0
+      ? Prisma.sql`
+      AND sender_id <> ALL(${params.excludePartyIds}::uuid[])
+      AND receiver_id <> ALL(${params.excludePartyIds}::uuid[])
+    `
+      : Prisma.empty;
   return Prisma.sql`
     status = 'published'
       AND sender_id <> ${params.callerId}::uuid
@@ -254,6 +264,7 @@ function availableShipmentsWhereSql(params: {
       AND pickup_lng BETWEEN ${params.pickupBox.lngMin} AND ${params.pickupBox.lngMax}
       ${deliveryBoxFilter}
       ${pickupDateFilter}
+      ${blockedPartiesFilter}
   `;
 }
 
@@ -384,6 +395,8 @@ export interface ShipmentRepository {
     maxDistanceKm?: number;
     pickupDate?: Date;
     excludeUserId: string;
+    /** MOVO-175: usuarios con un bloqueo con el caller -- se excluyen sus envíos como emisor o receptor. */
+    excludePartyIds?: string[];
     page: number;
     limit: number;
   }): Promise<{ items: AvailableShipment[]; total: number }>;
@@ -743,6 +756,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       maxDistanceKm?: number;
       pickupDate?: Date;
       excludeUserId: string;
+      excludePartyIds?: string[];
       page: number;
       limit: number;
     }): Promise<{ items: AvailableShipment[]; total: number }> {
@@ -762,6 +776,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         pickupBox,
         deliveryBox,
         pickupDate: params.pickupDate ?? null,
+        excludePartyIds: params.excludePartyIds ?? [],
       });
 
       // Sin destino: Haversine punto-a-punto contra el origen (círculo). Con destino:

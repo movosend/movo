@@ -26,6 +26,13 @@ export interface UsersClient {
    * no un fallo de transporte.
    */
   findDeviceKey(userId: string): Promise<DeviceKey | null>;
+  /**
+   * MOVO-175 (ADR-026): ids de todos los usuarios con un bloqueo con `userId` en
+   * cualquier dirección (la simetría la resuelve svc-users). Lanza 502 ante cualquier
+   * falla -- decidir si eso bloquea la operación (escrituras) o se degrada a "sin
+   * bloqueos" (listados) es del caller, ver `utils/block-relations.ts`.
+   */
+  listBlockRelatedUserIds(userId: string): Promise<string[]>;
 }
 
 export interface UsersClientConfig {
@@ -90,6 +97,31 @@ export function createUsersClient(config: UsersClientConfig): UsersClient {
       }
 
       return (await response.json()) as DeviceKey;
+    },
+
+    async listBlockRelatedUserIds(userId: string): Promise<string[]> {
+      let response: Response;
+      try {
+        // Interno (MOVO-175), mismo criterio que findDeviceKey: sin `x-user-id`.
+        response = await fetch(
+          `${config.USERS_SERVICE_URL}/internal/users/${encodeURIComponent(userId)}/block-relations`,
+          { method: "GET", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+        );
+      } catch {
+        throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de usuarios.");
+      }
+
+      if (!response.ok) {
+        throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "El servicio de usuarios devolvió un error.");
+      }
+
+      const body = (await response.json()) as { userIds?: unknown };
+      // Una forma inesperada nunca se lee como "sin bloqueos": eso dejaría pasar en
+      // silencio una interacción bloqueada (misma lección que MOVO-134).
+      if (!Array.isArray(body.userIds)) {
+        throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "El servicio de usuarios devolvió una respuesta inválida.");
+      }
+      return body.userIds as string[];
     },
   };
 }

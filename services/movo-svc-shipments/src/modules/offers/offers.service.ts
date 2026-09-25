@@ -13,6 +13,7 @@ import { OfferRepository } from "../../repositories/offer-repository";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { UsersClient } from "../../adapters/users-client";
+import { assertNotBlocked } from "../../utils/block-relations";
 import { Offer, OfferCompetitiveRank, OfferWithShipmentContext } from "../../models/offer";
 import { Trip } from "../../models/trip";
 import { assertIsSender } from "../shipments/assert-shipment-access";
@@ -386,6 +387,12 @@ export function createOffersService(
       }
 
       assertIsSender(shipment, callerId);
+      // MOVO-175 (ADR-026): una oferta hecha antes del bloqueo ya no se puede aceptar.
+      // Falla cerrado. Sin `usersClient` inyectado (solo tests unitarios que no lo
+      // ejercitan) no hay forma de consultar el bloqueo -- producción siempre lo inyecta.
+      if (usersClient) {
+        await assertNotBlocked(usersClient, offer.carrierId, [shipment.senderId, shipment.receiverId]);
+      }
 
       // MOVO-234 (AC1): se resuelve el vehículo del transportista ANTES de la
       // transacción de aceptación -- I/O a `usersClient` no anidable dentro de la
