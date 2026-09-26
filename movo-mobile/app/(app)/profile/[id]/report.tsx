@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { ChevronLeft, WifiOff } from "lucide-react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -44,7 +44,13 @@ export default function ReportUserScreen() {
   const report = reportQuery.data ?? null;
   const fullName = profile?.fullName ?? "esta persona";
   const isLoading = profileQuery.isLoading || reportQuery.isLoading;
-  const isError = !isLoading && (profileQuery.isError || reportQuery.isError);
+  // Fix de review (PR #193): el reporte propio sobrevive a la baja de cuenta del
+  // reportado (getPendingReport, moderation.service.ts) -- un 404 de `GET /users/:id`
+  // sobre una cuenta ya borrada no debería tapar un reporte que sí cargó bien. Solo
+  // bloquea la pantalla un error del que no hay forma de recuperarse: el reporte en sí
+  // falló, o el reporte falló Y el perfil también (no hay ni nombre ni reporte que
+  // mostrar).
+  const isError = !isLoading && (reportQuery.isError || (profileQuery.isError && !report));
 
   function handleBack() {
     if (router.canGoBack()) router.back();
@@ -54,6 +60,19 @@ export default function ReportUserScreen() {
   function handleAlreadyPending() {
     setNotice(`Ya tenías un reporte en revisión sobre ${fullName}. No enviamos uno nuevo.`);
   }
+
+  // Fix de review (PR #193): tras el 409, `notice` queda seteado y `report` en `null`
+  // hasta que el `invalidateQueries` de `useReportUser` trae el reporte real. Si en ese
+  // intervalo el reporte se resolvió (pasó a `reviewed`/`dismissed`), el refetch
+  // devuelve `null` y sin este efecto la pantalla se quedaba en el spinner del branch
+  // "409 recibido" para siempre -- nunca vuelve a mostrar el formulario ni ningún otro
+  // estado. Una vez que el refetch de `reportQuery` termina (no está en vuelo) y sigue
+  // sin reporte, se limpia el aviso para que el flujo caiga al `ReportForm`.
+  useEffect(() => {
+    if (notice && !report && !reportQuery.isFetching && reportQuery.isFetched) {
+      setNotice(null);
+    }
+  }, [notice, report, reportQuery.isFetching, reportQuery.isFetched]);
 
   function confirmBlock() {
     Alert.alert(
