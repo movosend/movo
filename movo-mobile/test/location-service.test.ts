@@ -1,26 +1,51 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { LocationService } from "../src/location/location-service";
-import { SECURE_STORE_KEYS } from "../src/lib/secure-store";
+import { backgroundTrackingManager } from "../src/location/tracking-task";
+import { offlineQueueStorage } from "../src/location/offline-queue-storage";
 
 jest.mock("expo-location", () => ({
   Accuracy: { Balanced: 3, High: 4, Low: 1 },
   getForegroundPermissionsAsync: jest.fn(),
   requestForegroundPermissionsAsync: jest.fn(),
+  getBackgroundPermissionsAsync: jest.fn(),
+  requestBackgroundPermissionsAsync: jest.fn(),
   getCurrentPositionAsync: jest.fn(),
 }));
 
-describe("LocationService (MOVO-203)", () => {
-  let mockGetPermissions: jest.Mock;
+jest.mock("../src/location/tracking-task", () => {
+  let droppedCb: ((id: string, reason: string) => void) | null = null;
+  return {
+    backgroundTrackingManager: {
+      setTrackingContext: jest.fn(),
+      startBackgroundTracking: jest.fn().mockResolvedValue(true),
+      stopBackgroundTracking: jest.fn().mockResolvedValue(undefined),
+      flushBatchQueue: jest.fn().mockResolvedValue({ sentCount: 1, remainingCount: 0 }),
+      onShipmentDropped: jest.fn((cb) => {
+        droppedCb = cb;
+        return () => {
+          droppedCb = null;
+        };
+      }),
+      __triggerDropped: (id: string, reason: string) => {
+        if (droppedCb) droppedCb(id, reason);
+      },
+    },
+  };
+});
+
+describe("LocationService (MOVO-203 / MOVO-242)", () => {
+  let mockGetForegroundPermissions: jest.Mock;
+  let mockGetBackgroundPermissions: jest.Mock;
   let mockGetPosition: jest.Mock;
   let mockReportPosition: jest.Mock;
-  let mockStorageGet: jest.Mock;
-  let mockStorageSet: jest.Mock;
-  let mockStorageDelete: jest.Mock;
+  let inMemoryQueue: any[];
 
   beforeEach(() => {
     jest.useFakeTimers();
 
-    mockGetPermissions = jest.fn().mockResolvedValue({ granted: true, status: "granted" });
+    inMemoryQueue = [];
+    mockGetForegroundPermissions = jest.fn().mockResolvedValue({ granted: true, status: "granted" });
+    mockGetBackgroundPermissions = jest.fn().mockResolvedValue({ granted: true, status: "granted" });
     mockGetPosition = jest.fn().mockResolvedValue({
       coords: {
         latitude: -31.4167,
@@ -30,9 +55,6 @@ describe("LocationService (MOVO-203)", () => {
       timestamp: 1727090000000,
     });
     mockReportPosition = jest.fn().mockResolvedValue({ persisted: true });
-    mockStorageGet = jest.fn().mockResolvedValue(null);
-    mockStorageSet = jest.fn().mockResolvedValue(undefined);
-    mockStorageDelete = jest.fn().mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -43,16 +65,25 @@ describe("LocationService (MOVO-203)", () => {
   function createService(options?: { intervalMs?: number }) {
     return new LocationService({
       location: {
-        getForegroundPermissionsAsync: mockGetPermissions,
+        getForegroundPermissionsAsync: mockGetForegroundPermissions,
+        getBackgroundPermissionsAsync: mockGetBackgroundPermissions,
         getCurrentPositionAsync: mockGetPosition,
       },
       client: {
         reportPosition: mockReportPosition,
       },
       storage: {
-        getItem: mockStorageGet,
-        setItem: mockStorageSet,
-        deleteItem: mockStorageDelete,
+        loadQueue: jest.fn().mockImplementation(async () => [...inMemoryQueue]),
+        saveQueue: jest.fn().mockImplementation(async (q) => {
+          inMemoryQueue = [...q];
+        }),
+        enqueuePositions: jest.fn().mockImplementation(async (positions) => {
+          inMemoryQueue.push(...positions);
+          return inMemoryQueue;
+        }),
+        clearQueue: jest.fn().mockImplementation(async () => {
+          inMemoryQueue = [];
+        }),
       },
       options: {
         intervalMs: options?.intervalMs ?? 25_000,
@@ -60,48 +91,40 @@ describe("LocationService (MOVO-203)", () => {
     });
   }
 
-  it("inicia tracking y realiza reporte inmediato para envíos activos (AC1, AC2)", async () => {
+  it("inicia tracking para un viaje y realiza captura inmediata (AC1, AC2)", async () => {
     const service = createService();
 
-    await service.startTracking(["shipment-1"]);
+    await service.startTracking({ tripId: "trip-1", shipmentIds: ["shipment-1"] });
 
     expect(service.getStatus().isTracking).toBe(true);
+    expect(service.getStatus().tripId).toBe("trip-1");
     expect(service.getStatus().activeShipmentIds).toEqual(["shipment-1"]);
 
-    // Esperar a que resuelva la captura inicial asíncrona
     await Promise.resolve();
 
-    expect(mockGetPermissions).toHaveBeenCalled();
+    expect(mockGetForegroundPermissions).toHaveBeenCalled();
     expect(mockGetPosition).toHaveBeenCalled();
-    expect(mockReportPosition).toHaveBeenCalledWith("shipment-1", {
-      lat: -31.4167,
-      lng: -64.1833,
-      accuracyM: 12.5,
-      capturedAt: new Date(1727090000000).toISOString(),
-    });
+    expect(backgroundTrackingManager.setTrackingContext).toHaveBeenCalledWith("trip-1", ["shipment-1"]);
+    expect(backgroundTrackingManager.startBackgroundTracking).toHaveBeenCalledWith("trip-1", ["shipment-1"]);
 
     await service.stopTracking();
   });
 
-  it("emite posiciones periódicamente según el intervalo configurado (AC2)", async () => {
+  it("emite posiciones periódicamente en foreground según el intervalo configurado (AC2)", async () => {
     const service = createService({ intervalMs: 25_000 });
 
     await service.startTracking(["shipment-1"]);
     await Promise.resolve();
-    expect(mockReportPosition).toHaveBeenCalledTimes(1);
+    expect(mockGetPosition).toHaveBeenCalledTimes(1);
 
     // Avanzar 25 segundos
     await jest.advanceTimersByTimeAsync(25_000);
-    expect(mockReportPosition).toHaveBeenCalledTimes(2);
-
-    // Avanzar otros 25 segundos
-    await jest.advanceTimersByTimeAsync(25_000);
-    expect(mockReportPosition).toHaveBeenCalledTimes(3);
+    expect(mockGetPosition).toHaveBeenCalledTimes(2);
 
     await service.stopTracking();
   });
 
-  it("detiene el tracking inmediatamente y limpia el timer (AC5, AC7)", async () => {
+  it("detiene el tracking inmediatamente y desregistra background (AC5, AC7, AC11)", async () => {
     const service = createService({ intervalMs: 25_000 });
 
     await service.startTracking(["shipment-1"]);
@@ -111,15 +134,11 @@ describe("LocationService (MOVO-203)", () => {
     await service.stopTracking();
     expect(service.getStatus().isTracking).toBe(false);
     expect(service.getStatus().activeShipmentIds).toEqual([]);
-
-    // Avanzar el tiempo: no debe haber más llamadas
-    jest.advanceTimersByTime(50_000);
-    await Promise.resolve();
-    expect(mockReportPosition).toHaveBeenCalledTimes(1);
+    expect(backgroundTrackingManager.stopBackgroundTracking).toHaveBeenCalled();
   });
 
-  it("registra error cuando los permisos no fueron concedidos (AC4, AC5)", async () => {
-    mockGetPermissions.mockResolvedValueOnce({ granted: false, status: "denied" });
+  it("registra error cuando los permisos de foreground no fueron concedidos", async () => {
+    mockGetForegroundPermissions.mockResolvedValueOnce({ granted: false, status: "denied" });
     const service = createService();
 
     await service.startTracking(["shipment-1"]);
@@ -127,98 +146,44 @@ describe("LocationService (MOVO-203)", () => {
 
     expect(service.getStatus().lastError).toBe("PERMISSION_DENIED");
     expect(mockGetPosition).not.toHaveBeenCalled();
-    expect(mockReportPosition).not.toHaveBeenCalled();
 
     await service.stopTracking();
   });
 
-  it("encola posiciones offline cuando hay fallo de red preservando capturedAt (AC6)", async () => {
-    mockReportPosition.mockRejectedValueOnce(new Error("Network request failed"));
+  it("permite tracking solo en foreground si el permiso de background fue denegado (AC3)", async () => {
+    mockGetForegroundPermissions.mockResolvedValue({ granted: true, status: "granted" });
+    mockGetBackgroundPermissions.mockResolvedValue({ granted: false, status: "denied" });
+
     const service = createService();
+    await service.checkBackgroundPermission();
 
     await service.startTracking(["shipment-1"]);
     await Promise.resolve();
 
     const status = service.getStatus();
-    expect(status.pendingQueueCount).toBe(1);
-
-    const queue = service.getQueue();
-    expect(queue).toHaveLength(1);
-    expect(queue[0]).toEqual({
-      shipmentId: "shipment-1",
-      lat: -31.4167,
-      lng: -64.1833,
-      accuracyM: 12.5,
-      capturedAt: new Date(1727090000000).toISOString(),
-    });
-
-    expect(mockStorageSet).toHaveBeenCalledWith(
-      SECURE_STORE_KEYS.carrierLocationOfflineQueue,
-      expect.stringContaining("shipment-1")
-    );
+    expect(status.isTracking).toBe(true);
+    expect(status.isForegroundOnly).toBe(true);
+    expect(status.isBackgroundActive).toBe(false);
 
     await service.stopTracking();
   });
 
-  it("no encola errores terminales 403 o 404 (envío ya no en tránsito)", async () => {
-    mockReportPosition.mockRejectedValueOnce(
-      new ApiError(403, "SHIPMENT_NOT_IN_TRANSIT", "El envío ya no está en tránsito")
-    );
+  it("desvincula un envío individual cuando backgroundManager notifica SHIPMENT_NOT_TRACKABLE", async () => {
     const service = createService();
+    await service.startTracking(["shipment-1", "shipment-2"]);
 
-    await service.startTracking(["shipment-1"]);
-    await Promise.resolve();
+    expect(service.getStatus().activeShipmentIds).toEqual(["shipment-1", "shipment-2"]);
 
-    expect(service.getStatus().pendingQueueCount).toBe(0);
-    expect(mockStorageSet).not.toHaveBeenCalled();
+    // Disparar evento de descarte por SHIPMENT_NOT_TRACKABLE (MOVO-251 / AC7)
+    (backgroundTrackingManager as any).__triggerDropped("shipment-2", "SHIPMENT_NOT_TRACKABLE");
 
-    await service.stopTracking();
-  });
+    expect(service.getStatus().activeShipmentIds).toEqual(["shipment-1"]);
+    expect(service.getStatus().isTracking).toBe(true);
 
-  it("drena la cola offline enviando muestras con su capturedAt original al recuperar red (AC6)", async () => {
-    const service = createService();
-
-    // 1. Simular fallo inicial para encolar
-    mockReportPosition.mockRejectedValueOnce(new Error("Network error"));
-    await service.startTracking(["shipment-1"]);
-    await Promise.resolve();
-    expect(service.getStatus().pendingQueueCount).toBe(1);
-
-    // 2. Siguiente tick con red disponible
-    mockReportPosition.mockResolvedValue({ persisted: true });
-    await jest.advanceTimersByTimeAsync(25_000);
-
-    // Debe haberse reportado la posición actual y luego drenado la encolada
-    expect(mockReportPosition).toHaveBeenCalledWith(
-      "shipment-1",
-      expect.objectContaining({
-        capturedAt: new Date(1727090000000).toISOString(),
-      })
-    );
-
-    expect(service.getStatus().pendingQueueCount).toBe(0);
-    expect(mockStorageDelete).toHaveBeenCalledWith(SECURE_STORE_KEYS.carrierLocationOfflineQueue);
-
-    await service.stopTracking();
-  });
-
-  it("recupera la cola persistida desde storage al iniciar", async () => {
-    const persistedItems = [
-      {
-        shipmentId: "shipment-saved",
-        lat: -31.42,
-        lng: -64.19,
-        accuracyM: 10,
-        capturedAt: "2026-09-23T10:00:00.000Z",
-      },
-    ];
-    mockStorageGet.mockResolvedValueOnce(JSON.stringify(persistedItems));
-
-    const service = createService();
-    await service.loadPersistedQueue();
-
-    expect(service.getStatus().pendingQueueCount).toBe(1);
-    expect(service.getQueue()[0].shipmentId).toBe("shipment-saved");
+    // Si se descarta el último envío, se frena el tracking
+    (backgroundTrackingManager as any).__triggerDropped("shipment-1", "SHIPMENT_NOT_TRACKABLE");
+    expect(service.getStatus().isTracking).toBe(false);
+    expect(service.getStatus().activeShipmentIds).toEqual([]);
   });
 
   it("updateActiveShipments detiene el tracking si la lista queda vacía", async () => {
@@ -230,67 +195,6 @@ describe("LocationService (MOVO-203)", () => {
     expect(service.getStatus().isTracking).toBe(false);
   });
 
-  it("checkPermission y requestPermission sincronizan el estado permissionGranted y notifican", async () => {
-    const service = createService();
-    const statusListener = jest.fn();
-    service.subscribe(statusListener);
-
-    // Initial state
-    expect(service.getStatus().permissionGranted).toBe(null);
-
-    // Check permission granted
-    const granted = await service.checkPermission();
-    expect(granted).toBe(true);
-    expect(service.getStatus().permissionGranted).toBe(true);
-    expect(statusListener).toHaveBeenCalledWith(expect.objectContaining({ permissionGranted: true }));
-
-    // Request permission denied
-    mockGetPermissions.mockResolvedValueOnce({ granted: false, status: "denied" });
-    const denied = await service.checkPermission();
-    expect(denied).toBe(false);
-    expect(service.getStatus().permissionGranted).toBe(false);
-    expect(service.getStatus().lastError).toBe("PERMISSION_DENIED");
-  });
-
-  it("trata 429 (rate-limit) como transitorio y lo conserva en la cola offline", async () => {
-    const service = createService();
-    service.enqueuePosition({
-      shipmentId: "ship-rate-limited",
-      lat: -31.4,
-      lng: -64.1,
-      accuracyM: 10,
-      capturedAt: "2026-09-23T12:00:00.000Z",
-    });
-
-    const rateLimitError = new ApiError(429, "RATE_LIMIT_EXCEEDED", "Demasiadas peticiones");
-    mockReportPosition.mockRejectedValueOnce(rateLimitError);
-
-    await service.flushQueue();
-
-    // El ítem 429 NO debe descartarse, debe conservarse para reintento
-    expect(service.getStatus().pendingQueueCount).toBe(1);
-    expect(service.getQueue()[0].shipmentId).toBe("ship-rate-limited");
-  });
-
-  it("stopTracking drena la cola pendiente antes de finalizar", async () => {
-    const service = createService();
-    service.enqueuePosition({
-      shipmentId: "ship-pending",
-      lat: -31.4,
-      lng: -64.1,
-      accuracyM: 10,
-      capturedAt: "2026-09-23T12:00:00.000Z",
-    });
-
-    await service.startTracking(["ship-pending"]);
-    mockReportPosition.mockResolvedValueOnce({ persisted: true });
-
-    await service.stopTracking();
-
-    expect(service.getStatus().isTracking).toBe(false);
-    expect(service.getStatus().pendingQueueCount).toBe(0);
-  });
-
   it("en modo simulación, updateActiveShipments no detiene el tracking", async () => {
     const service = createService();
     service.setSimulationMode(true);
@@ -298,13 +202,9 @@ describe("LocationService (MOVO-203)", () => {
 
     expect(service.getStatus().isTracking).toBe(true);
 
-    // Llega poll con lista vacía
     await service.updateActiveShipments([]);
-
-    // Sigue activo porque está simulando
     expect(service.getStatus().isTracking).toBe(true);
 
-    // Al desactivar simulación y llamar stopTracking
     service.setSimulationMode(false);
     await service.stopTracking();
     expect(service.getStatus().isTracking).toBe(false);

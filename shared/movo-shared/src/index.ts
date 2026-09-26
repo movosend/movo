@@ -40,6 +40,7 @@ export type {
   PrivateProfile,
   PublicProfile,
   ReputationBreakdown,
+  ReputationCategoryScore,
   RecentRatingComment,
   VehicleProfile,
 } from "./types/user-profile";
@@ -71,6 +72,14 @@ export type { CommissionConfig, OfferGrossPriceBreakdown } from "./config/commis
 // legal (MOVO-228)
 export { LEGAL_DOCUMENT_VERSIONS } from "./config/legal";
 export type { LegalDocumentKind } from "./config/legal";
+
+// rating categories (MOVO-173)
+export {
+  CARRIER_RATING_CATEGORIES,
+  SENDER_RATING_CATEGORIES,
+  RECEIVER_RATING_CATEGORIES,
+} from "./config/rating-categories";
+export type { RatingCategoryDefinition, RatingCategoryScoreField } from "./config/rating-categories";
 
 // utils
 export { toArgentinaCalendarDateString, toArgentinaTimeOfDayString } from "./utils/argentina-date";

@@ -447,6 +447,18 @@ export const shipmentsClient = {
       input,
     );
   },
+
+  /**
+   * `POST /shipments/positions` (MOVO-250 / MOVO-242 / AC8).
+   * Reporta una tanda o lote de posiciones GPS (hasta 100).
+   */
+  reportPositionsBatch(
+    positions: BatchPositionItemInput[],
+  ): Promise<ReportPositionsBatchResult> {
+    return httpClient.post<ReportPositionsBatchResult>("/shipments/positions", {
+      positions,
+    });
+  },
 };
 
 export type { CarrierRoute };
@@ -460,6 +472,33 @@ export interface ReportPositionInput {
 
 export interface ReportPositionResult {
   persisted: boolean;
+}
+
+export interface BatchPositionItemInput {
+  shipmentId: string;
+  lat: number;
+  lng: number;
+  accuracyM: number;
+  capturedAt: string;
+}
+
+export type BatchPositionRejectionCode =
+  | "SHIPMENT_NOT_TRACKABLE"
+  | "SHIPMENT_NOT_IN_TRANSIT"
+  | "NOT_FOUND"
+  | "FORBIDDEN"
+  | "INVALID_CAPTURED_AT";
+
+export interface BatchPositionResultItem {
+  index: number;
+  shipmentId: string;
+  status: "accepted" | "rejected";
+  persisted?: boolean;
+  code?: BatchPositionRejectionCode;
+}
+
+export interface ReportPositionsBatchResult {
+  results: BatchPositionResultItem[];
 }
 
 /** Input para `POST /shipments/:id/handshake/generate`. */

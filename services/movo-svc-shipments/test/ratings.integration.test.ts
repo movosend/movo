@@ -451,4 +451,210 @@ describe("Calificaciones post-entrega — /shipments/:id/ratings (Postgres) — 
       expect(senderResponse.json().transactionCounts).toEqual({ asSender: 2, asCarrier: 0 });
     });
   });
+  describe("MOVO-173: calificación por categorías", () => {
+    async function rate(
+      shipmentId: string,
+      raterId: string,
+      rateeId: string,
+      payload: Record<string, unknown>,
+    ) {
+      return app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/ratings`,
+        headers: { "x-user-id": raterId },
+        payload: { rateeId, ...payload },
+      });
+    }
+
+    it("crea una calificación a un transportista con sus categorías y las devuelve", async () => {
+      const shipmentId = await createDeliveredShipment();
+      await assignCarrier(shipmentId);
+
+      const response = await rate(shipmentId, senderId, carrierId, {
+        score: 5,
+        punctualityScore: 4,
+        careScore: 5,
+        communicationScore: 3,
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toMatchObject({
+        role: "carrier",
+        score: 5,
+        punctualityScore: 4,
+        careScore: 5,
+        communicationScore: 3,
+      });
+
+      const list = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipmentId}/ratings`,
+        headers: { "x-user-id": senderId },
+      });
+      expect(list.json()[0]).toMatchObject({ punctualityScore: 4, careScore: 5, communicationScore: 3 });
+    });
+
+    it("crea una calificación a un emisor con puntualidad y comunicación", async () => {
+      const shipmentId = await createDeliveredShipment();
+      await assignCarrier(shipmentId);
+
+      const response = await rate(shipmentId, carrierId, senderId, {
+        score: 4,
+        punctualityScore: 5,
+        communicationScore: 4,
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toMatchObject({
+        role: "sender",
+        punctualityScore: 5,
+        communicationScore: 4,
+        careScore: null,
+      });
+    });
+
+    it("crea una calificación a un receptor con el mismo set que el emisor", async () => {
+      const shipmentId = await createDeliveredShipment();
+      await assignCarrier(shipmentId);
+
+      const response = await rate(shipmentId, carrierId, receiverId, {
+        score: 5,
+        punctualityScore: 4,
+        communicationScore: 5,
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toMatchObject({
+        role: "receiver",
+        punctualityScore: 4,
+        communicationScore: 5,
+        careScore: null,
+      });
+    });
+
+    it("sin categorías sigue funcionando: todas quedan en null", async () => {
+      const shipmentId = await createDeliveredShipment();
+      await assignCarrier(shipmentId);
+
+      const response = await rate(shipmentId, senderId, carrierId, { score: 4 });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toMatchObject({
+        punctualityScore: null,
+        careScore: null,
+        communicationScore: null,
+      });
+    });
+
+    it("422 si se manda cuidado del paquete al calificar a un emisor", async () => {
+      const shipmentId = await createDeliveredShipment();
+      await assignCarrier(shipmentId);
+
+      const response = await rate(shipmentId, carrierId, senderId, { score: 4, careScore: 5 });
+
+      expect(response.statusCode).toBe(422);
+      expect(response.json().error.code).toBe("VALIDATION_FAILED");
+    });
+
+    it("422 si se manda cuidado del paquete al calificar a un receptor", async () => {
+      const shipmentId = await createDeliveredShipment();
+      await assignCarrier(shipmentId);
+
+      const response = await rate(shipmentId, carrierId, receiverId, { score: 4, careScore: 5 });
+
+      expect(response.statusCode).toBe(422);
+    });
+
+    it("400 si una categoría está fuera de 1..5", async () => {
+      const shipmentId = await createDeliveredShipment();
+      await assignCarrier(shipmentId);
+
+      const response = await rate(shipmentId, senderId, carrierId, { score: 4, punctualityScore: 6 });
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it("PATCH reemplaza las categorías: la que no se manda queda en null", async () => {
+      const shipmentId = await createDeliveredShipment();
+      await assignCarrier(shipmentId);
+      await rate(shipmentId, senderId, carrierId, { score: 4, punctualityScore: 5, communicationScore: 4 });
+
+      const patch = await app.inject({
+        method: "PATCH",
+        url: `/shipments/${shipmentId}/ratings/${carrierId}`,
+        headers: { "x-user-id": senderId },
+        payload: { score: 4, careScore: 3 },
+      });
+
+      expect(patch.statusCode).toBe(200);
+      expect(patch.json()).toMatchObject({ careScore: 3, punctualityScore: null, communicationScore: null });
+    });
+
+    it("PATCH con una categoría que no es del rol → 422", async () => {
+      const shipmentId = await createDeliveredShipment();
+      await assignCarrier(shipmentId);
+      await rate(shipmentId, carrierId, senderId, { score: 4 });
+
+      const patch = await app.inject({
+        method: "PATCH",
+        url: `/shipments/${shipmentId}/ratings/${senderId}`,
+        headers: { "x-user-id": carrierId },
+        payload: { score: 4, careScore: 3 },
+      });
+
+      expect(patch.statusCode).toBe(422);
+    });
+
+    it("el agregado pondera por categoría y no mezcla roles", async () => {
+      // Todos los `score` generales en 4 => la media global `m` es exactamente 4, así el
+      // resultado esperado de cada categoría se calcula a mano: (C·m + Σscores) / (C + n)
+      // con C=5 y pesos ≈ 1 (calificaciones recién creadas).
+      for (let i = 0; i < 3; i += 1) {
+        const shipmentId = await createDeliveredShipment();
+        await assignCarrier(shipmentId);
+        await rate(shipmentId, senderId, carrierId, { score: 4, punctualityScore: 5, careScore: 1 });
+      }
+
+      const response = await app.inject({ method: "GET", url: `/internal/users/${carrierId}/reputation` });
+      const { asCarrier, asSender } = response.json();
+
+      // punctuality: (5*4 + 3*5) / (5 + 3) = 4.375 -> 4.4 ; care: (5*4 + 3*1) / 8 = 2.875 -> 2.9
+      expect(asCarrier.categories).toEqual([
+        { key: "punctuality", label: "Puntualidad", score: 4.4 },
+        { key: "care", label: "Cuidado del paquete", score: 2.9 },
+      ]);
+      // Nadie calificó a `carrierId` como comunicación ni como emisor: ni aparece esa
+      // categoría ni el desglose de emisor lleva `categories`.
+      expect(asCarrier.categories.map((c: { key: string }) => c.key)).not.toContain("communication");
+      expect(asSender.categories).toBeUndefined();
+      // El global no lleva categorías (mezclaría "Cuidado del paquete", solo del transportista, con las de las contrapartes).
+      expect(response.json().categories).toBeUndefined();
+    });
+
+    it("el agregado del emisor usa sus 2 categorías (puntualidad y comunicación)", async () => {
+      for (let i = 0; i < 3; i += 1) {
+        const shipmentId = await createDeliveredShipment();
+        await assignCarrier(shipmentId);
+        await rate(shipmentId, carrierId, senderId, { score: 4, punctualityScore: 5, communicationScore: 3 });
+      }
+
+      const response = await app.inject({ method: "GET", url: `/internal/users/${senderId}/reputation` });
+
+      // punctuality: (5*4 + 3*5) / 8 = 4.375 -> 4.4 ; communication: (5*4 + 3*3) / 8 = 3.625 -> 3.6
+      expect(response.json().asSender.categories).toEqual([
+        { key: "punctuality", label: "Puntualidad", score: 4.4 },
+        { key: "communication", label: "Comunicación", score: 3.6 },
+      ]);
+    });
+
+    it("ratings sin categorías no generan `categories` en el agregado", async () => {
+      const shipmentId = await createDeliveredShipment();
+      await assignCarrier(shipmentId);
+      await rate(shipmentId, senderId, carrierId, { score: 5 });
+
+      const response = await app.inject({ method: "GET", url: `/internal/users/${carrierId}/reputation` });
+
+      expect(response.json().asCarrier.categories).toBeUndefined();
+    });
+  });
 });

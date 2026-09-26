@@ -55,6 +55,19 @@ const usageStats = {
   },
 };
 
+// MOVO-173: promedio por sub-categoría, calculado en svc-shipments (mismo shape que su
+// `reputationCategoryScore` -- duplicado acá por el criterio "autocontenido" de arriba).
+// Ausente (no `[]`) si ninguna categoría del rol tiene calificaciones cargadas todavía.
+const reputationCategoryScore = {
+  type: "object",
+  required: ["key", "label", "score"],
+  properties: {
+    key: { type: "string" },
+    label: { type: "string" },
+    score: { type: "number" },
+  },
+};
+
 const reputationBreakdown = {
   type: "object",
   required: ["reputationScore", "ratingCount", "isNewProfile"],
@@ -63,6 +76,7 @@ const reputationBreakdown = {
     ratingCount: { type: "integer" },
     isNewProfile: { type: "boolean" },
     usageStats,
+    categories: { type: "array", items: reputationCategoryScore },
   },
 };
 
