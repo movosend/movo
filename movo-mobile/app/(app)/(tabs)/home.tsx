@@ -21,6 +21,7 @@ import {
 } from '../../../src/lib/kyc-status-ui';
 import { capitalizeName, formatGreetingDateLabel, getFirstName } from '../../../src/lib/profile-format';
 import { useAuthStore } from '../../../src/store/auth-store';
+import { useTabBarScrollHandler } from '../../../src/store/tab-bar-store';
 
 /**
  * Home del área autenticada (MOVO-83, reemplaza el placeholder de MOVO-76): header
@@ -52,6 +53,7 @@ const KYC_BANNER_TEXT: Partial<Record<KycStatus, string>> = {
 };
 
 export default function AuthenticatedHomeScreen() {
+  const tabBarScroll = useTabBarScrollHandler();
   const { user } = useAuth();
   const { data: profile } = useMyProfile();
   const colors = useThemeColors();
@@ -121,6 +123,7 @@ export default function AuthenticatedHomeScreen() {
       </SafeAreaView>
 
       <ScrollView
+        {...tabBarScroll}
         contentContainerClassName="px-6 pb-32 pt-6"
         showsVerticalScrollIndicator={false}
         refreshControl={

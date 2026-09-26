@@ -34,6 +34,7 @@ import type { MyOfferSummary } from "../../../src/api/offers-client";
 import type { AvailableShipment } from "../../../src/api/shipments-client";
 import { useAddresses } from "../../../src/hooks/use-addresses";
 import { useMyOffers } from "../../../src/hooks/use-offers";
+import { useTabBarScrollHandler } from "../../../src/store/tab-bar-store";
 import { TRANSPORT_RADIUS_OPTIONS_KM, useAvailableShipments } from "../../../src/hooks/use-shipments";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useTransportOrigin } from "../../../src/hooks/use-transport-origin";
@@ -231,6 +232,7 @@ function applyTransportFilters<T>(
  * endpoint que cruce el feed general contra los viajes activos).
  */
 export default function TransportScreen() {
+  const tabBarScroll = useTabBarScrollHandler();
   const colors = useThemeColors();
   const { tripId } = useLocalSearchParams<{ tripId?: string }>();
   // Único punto que deriva el modo de `tripId` — el resto de los flags (isReady,
@@ -545,6 +547,7 @@ export default function TransportScreen() {
         )
       ) : isReady ? (
         <FlatList
+          {...tabBarScroll}
           testID="transport-list"
           data={sortedItems}
           keyExtractor={({ item }) => item.id}

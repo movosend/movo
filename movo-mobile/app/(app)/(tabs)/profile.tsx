@@ -17,6 +17,7 @@ import { useThemeColors } from '../../../src/hooks/use-theme-colors';
 import { useMyProfile, usePublicProfile } from '../../../src/hooks/use-profile';
 import { friendlyErrorMessage } from '../../../src/lib/error-messages';
 import { capitalizeName } from '../../../src/lib/profile-format';
+import { useTabBarScrollHandler } from '../../../src/store/tab-bar-store';
 
 /**
  * Pantalla de perfil propio (MOVO-78, tab "Ajustes"). Compone las piezas de
@@ -24,6 +25,7 @@ import { capitalizeName } from '../../../src/lib/profile-format';
  * MOVO-77 backend, ya Done).
  */
 export default function ProfileScreen() {
+  const tabBarScroll = useTabBarScrollHandler();
   const colors = useThemeColors();
   const { logout } = useAuth();
   const { data, isLoading, isError, error, refetch } = useMyProfile();
@@ -51,6 +53,7 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={['top']}>
       <ScrollView
+        {...tabBarScroll}
         testID="profile-screen-content"
         contentContainerClassName="px-6 pb-32 pt-8"
         showsVerticalScrollIndicator={false}
