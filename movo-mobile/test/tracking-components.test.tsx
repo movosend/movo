@@ -3,14 +3,17 @@ import React from "react";
 import { TrackingActiveIndicator } from "../components/location/tracking-active-indicator";
 import { TrackingPermissionModal } from "../components/location/tracking-permission-modal";
 
-let mockTrackingState = {
+let mockTrackingState: any = {
   isTracking: false,
+  isBackgroundActive: false,
   inTransitCount: 0,
   pendingQueueCount: 0,
   permissionGranted: true as boolean | null,
+  backgroundPermissionGranted: true as boolean | null,
   lastReportedAt: null as string | null,
   lastError: null as string | null,
   requestPermission: jest.fn(),
+  requestBackgroundPermission: jest.fn(),
   flushQueue: jest.fn(),
 };
 
@@ -180,6 +183,77 @@ describe("Componentes de Tracking (MOVO-203)", () => {
       await fireEvent.press(getByTestId("tracking-active-indicator"));
 
       expect(getByText("Ubicación en vivo durante el envío")).toBeTruthy();
+    });
+
+    it("muestra estado degradado 'Transmitiendo solo con app abierta' cuando falta permiso de background (MOVO-242, AC3)", async () => {
+      const mockRequestBackground = jest.fn();
+      mockTrackingState = {
+        isTracking: true,
+        inTransitCount: 1,
+        pendingQueueCount: 0,
+        permissionGranted: true,
+        backgroundPermissionGranted: false,
+        lastReportedAt: "2026-09-26T10:00:00.000Z",
+        lastError: null,
+        requestPermission: jest.fn(),
+        requestBackgroundPermission: mockRequestBackground,
+        flushQueue: jest.fn(),
+      };
+
+      const { getByTestId, getByText } = await render(<TrackingActiveIndicator />);
+
+      expect(getByText("Transmitiendo solo con app abierta")).toBeTruthy();
+      expect(
+        getByText("Toca para activar en segundo plano y apagar la pantalla sin pausar")
+      ).toBeTruthy();
+
+      await fireEvent.press(getByTestId("tracking-active-indicator"));
+
+      expect(getByText("Ubicación en segundo plano")).toBeTruthy();
+      expect(getByText("Permitir en segundo plano")).toBeTruthy();
+
+      await fireEvent.press(getByTestId("tracking-permission-modal-accept-btn"));
+      expect(mockRequestBackground).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("TrackingPermissionModal - Etapa 2 Background (MOVO-242, AC2)", () => {
+    it("renderiza contenido explicativo de segundo plano y dispara onAccept", async () => {
+      const onAccept = jest.fn();
+      const onDismiss = jest.fn();
+
+      const { getByText, getByTestId } = await render(
+        <TrackingPermissionModal
+          visible={true}
+          stage="background"
+          onAccept={onAccept}
+          onDismiss={onDismiss}
+        />
+      );
+
+      expect(getByText("Ubicación en segundo plano")).toBeTruthy();
+      expect(getByText("Permitir en segundo plano")).toBeTruthy();
+      expect(getByText("Continuar solo con app abierta")).toBeTruthy();
+
+      await fireEvent.press(getByTestId("tracking-permission-modal-accept-btn"));
+      expect(onAccept).toHaveBeenCalledTimes(1);
+    });
+
+    it("dispara onDismiss al continuar solo con app abierta", async () => {
+      const onAccept = jest.fn();
+      const onDismiss = jest.fn();
+
+      const { getByTestId } = await render(
+        <TrackingPermissionModal
+          visible={true}
+          stage="background"
+          onAccept={onAccept}
+          onDismiss={onDismiss}
+        />
+      );
+
+      await fireEvent.press(getByTestId("tracking-permission-modal-dismiss-btn"));
+      expect(onDismiss).toHaveBeenCalledTimes(1);
     });
   });
 });

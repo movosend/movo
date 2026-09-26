@@ -30,6 +30,7 @@ import { loadApiOverride } from '../src/lib/api-override';
 import { useAuthStore } from '../src/store/auth-store';
 import { useBootStore } from '../src/store/boot-store';
 import { useCarrierTrackingCoordinator } from '../src/hooks/use-carrier-tracking';
+import '../src/location/tracking-task';
 
 SplashScreen.preventAutoHideAsync();
 

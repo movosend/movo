@@ -80,9 +80,15 @@ export interface TripMatchesResponse {
   radiusKm: number;
 }
 
+export interface ListTripsParams extends Record<string, string | number | boolean | undefined> {
+  page?: number;
+  limit?: number;
+  status?: TripStatus | string;
+}
+
 export const tripsClient = {
   /** Protegida — `httpClient` adjunta `Authorization` automáticamente (MOVO-76). */
-  list(params?: { page?: number; limit?: number }): Promise<ListTripsResponse> {
+  list(params?: ListTripsParams): Promise<ListTripsResponse> {
     return httpClient.get<ListTripsResponse>("/trips", params);
   },
 
