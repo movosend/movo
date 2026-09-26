@@ -87,6 +87,22 @@ export interface RecentRatingComment {
 }
 
 /**
+ * MOVO-174: "Ya envió con N personas con las que vos también enviaste" -- prueba social del
+ * perfil (`GET /users/:id/mutual-connections`). Depende de QUIÉN MIRA, no es un dato plano del
+ * usuario visitado, así que no viaja en `PublicProfile`.
+ *
+ * **Decisión de privacidad: solo el conteo.** `sampleFirstNames` viaja SIEMPRE vacío: nombrar
+ * a un tercero revelaría que transaccionó con alguien que el viewer conoce, sin que ese tercero
+ * haya dado consentimiento. El campo se mantiene en el contrato para poder pasar a mostrar
+ * nombres sin romper a los clientes; el copy de mobile ya cae solo al conteo si viene vacío.
+ * Cuentan únicamente envíos entregados (`delivered`/`completed`).
+ */
+export interface MutualConnections {
+  totalCount: number;
+  sampleFirstNames: string[];
+}
+
+/**
  * Perfil completo del usuario autenticado (`GET /users/me`, MOVO-77 AC1). Wire contract
  * de este endpoint — nunca se expone en la proyección pública.
  *

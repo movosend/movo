@@ -40,6 +40,7 @@ export type {
   PublicProfile,
   ReputationBreakdown,
   RecentRatingComment,
+  MutualConnections,
   VehicleProfile,
 } from "./types/user-profile";
 export type { Address, CreateAddressInput, UpdateAddressInput } from "./types/address";

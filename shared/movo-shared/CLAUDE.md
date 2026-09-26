@@ -294,3 +294,10 @@ notifications-client.ts`) pasa a ser un campo **obligatorio**, no un cambio de t
 compartido acá — `movo-svc-users` (`sendPushToUser`, único choke point) lo necesita
 para poder respetar el toggle maestro/de categoría/horario de silencio antes de
 enviar. Todo caller existente que no lo mande rompe en tiempo de compilación.
+
+### MOVO-174 — `MutualConnections`
+
+`src/types/user-profile.ts` — wire contract de `GET /users/:id/mutual-connections`
+(`{ totalCount, sampleFirstNames }`), migrado desde un tipo local de `movo-mobile` (mismo criterio que
+`PublicProfile`). `sampleFirstNames` viaja siempre vacío por la decisión de privacidad de esa US (solo
+el conteo); se mantiene en el tipo para poder mostrar nombres más adelante sin romper clientes.
