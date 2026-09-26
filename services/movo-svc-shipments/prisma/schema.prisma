@@ -172,6 +172,10 @@ model Shipment {
   // MOVO-130 AC1: deadline de confirmación del receptor (createdAt + RECEIVER_CONFIRMATION_TIMEOUT_HOURS).
   // Nullable para envíos preexistentes sin backfill.
   receiverConfirmationDeadline DateTime?      @map("receiver_confirmation_deadline") @db.Timestamptz
+  // MOVO-253: plazo del emisor para elegir otro receptor tras un rechazo, seteado al
+  // pasar a rejected_by_receiver. NULL en rechazos anteriores a este cambio: el barrido
+  // los trata como vencidos y los cancela en su primera corrida.
+  receiverRedesignationDeadline DateTime?     @map("receiver_redesignation_deadline") @db.Timestamptz
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   // Mantenida por trigger de Postgres (shipments.update_updated_at_column()),

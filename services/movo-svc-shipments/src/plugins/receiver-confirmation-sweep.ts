@@ -41,6 +41,9 @@ export default fp(async (app: FastifyInstance, opts: ReceiverConfirmationSweepPl
       }
 
       await service.expireOverdueShipments();
+      // MOVO-253: mismo ciclo de vida (la decisión pendiente sobre el receptor), mismo
+      // lock e intervalo -- no amerita un plugin ni variables de entorno propias.
+      await service.expireRejectedShipments();
     } catch (err) {
       app.log.error({ err }, "Error inesperado durante la ejecución del sweep de confirmación de receptor");
     }

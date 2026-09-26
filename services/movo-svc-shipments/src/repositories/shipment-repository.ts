@@ -21,7 +21,33 @@ import {
   parseShipmentStatus,
 } from "../models/shipment";
 
+/**
+ * MOVO-253: include acotado al último evento `-> rejected_by_receiver` (take 1 por
+ * envío), para exponer el motivo del rechazo en `GET /shipments/:id` y `/mine` sin un
+ * `GET /:id/events` por cada card del home.
+ */
+const LAST_REJECTION_INCLUDE = {
+  events: {
+    where: { toStatus: ShipmentStatus.REJECTED_BY_RECEIVER },
+    orderBy: { createdAt: "desc" },
+    take: 1,
+    select: { reason: true },
+  },
+} satisfies Prisma.ShipmentInclude;
+
+type ShipmentRowWithLastRejection = ShipmentRow & { events: Array<{ reason: string | null }> };
+
+function mapShipmentWithLastRejection(row: ShipmentRowWithLastRejection): Shipment {
+  const rejectionReason =
+    row.status === ShipmentStatus.REJECTED_BY_RECEIVER ? (row.events[0]?.reason ?? null) : null;
+  return mapShipmentRow(row, rejectionReason);
+}
+
 function mapShipment(row: ShipmentRow): Shipment {
+  return mapShipmentRow(row, null);
+}
+
+function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipment {
   return {
     id: row.id,
     senderId: row.senderId,
@@ -51,6 +77,8 @@ function mapShipment(row: ShipmentRow): Shipment {
     lastStatusChangedAt: row.lastStatusChangedAt,
     deliveredAt: row.deliveredAt,
     receiverConfirmationDeadline: row.receiverConfirmationDeadline,
+    receiverRedesignationDeadline: row.receiverRedesignationDeadline,
+    rejectionReason,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     estimatedDeliveryDate: row.estimatedDeliveryDate,
@@ -320,6 +348,19 @@ function mapAvailableShipmentRow(row: AvailableShipmentRow): AvailableShipment {
   };
 }
 
+export interface UpdateStatusOptions {
+  /** MOVO-253: se persiste junto con el paso a `rejected_by_receiver`. */
+  receiverRedesignationDeadline?: Date;
+}
+
+export interface RedesignateReceiverInput {
+  id: string;
+  receiverId: string;
+  /** El emisor, actor del evento. */
+  actorId: string;
+  receiverConfirmationDeadline: Date;
+}
+
 export interface ShipmentRepository {
   create(input: CreateShipmentInput): Promise<Shipment>;
   findById(id: string): Promise<Shipment | null>;
@@ -332,7 +373,22 @@ export interface ShipmentRepository {
    * `ShipmentConcurrentModificationError` si otra transición concurrente ya
    * ganó la carrera por el UPDATE.
    */
-  updateStatus(id: string, to: ShipmentStatus, actorId: string | null, reason?: string): Promise<Shipment>;
+  updateStatus(
+    id: string,
+    to: ShipmentStatus,
+    actorId: string | null,
+    reason?: string,
+    options?: UpdateStatusOptions
+  ): Promise<Shipment>;
+  /**
+   * MOVO-253: el emisor elige otro receptor para un envío `rejected_by_receiver`.
+   * En una sola transacción: `receiverId`, vuelta a `awaiting_receiver_confirmation`
+   * con un `receiverConfirmationDeadline` nuevo y el evento con el emisor como actor.
+   * Compare-and-swap contra `status` (mismo criterio que `updateStatus`): si el
+   * barrido o una cancelación ganaron la carrera, lanza
+   * `ShipmentConcurrentModificationError`.
+   */
+  redesignateReceiver(input: RedesignateReceiverInput): Promise<Shipment>;
   listEvents(shipmentId: string): Promise<ShipmentEvent[]>;
   addPhoto(shipmentId: string, stage: PhotoStage, s3Key: string): Promise<ShipmentPhoto>;
   listPhotos(shipmentId: string): Promise<ShipmentPhoto[]>;
@@ -354,9 +410,16 @@ export interface ShipmentRepository {
   /**
    * Envíos donde el usuario participa como sender o como receiver (AC9 de MOVO-80 —
    * todavía no hay rol de "carrier" asignado en este sprint). Paginado, más reciente
-   * primero.
+   * primero. `statuses` (MOVO-253, opcional) acota a esos estados -- lo usa
+   * "Requiere tu atención" del mobile para que envíos terminales más nuevos no dejen
+   * afuera una tarea pendiente.
    */
-  listByUser(userId: string, page: number, limit: number): Promise<{ items: Shipment[]; total: number }>;
+  listByUser(
+    userId: string,
+    page: number,
+    limit: number,
+    statuses?: readonly ShipmentStatus[]
+  ): Promise<{ items: Shipment[]; total: number }>;
   /**
    * MOVO-142: envíos `published` cerca del origen del caller (AC1 original -- no hace
    * falta tener un viaje planificado). `destinationLat`/`destinationLng` son
@@ -392,6 +455,12 @@ export interface ShipmentRepository {
    * Lote acotado ordenado por deadline ascendente.
    */
   findExpiredAwaitingConfirmation(deadline: Date, limit: number): Promise<Shipment[]>;
+  /**
+   * MOVO-253 AC3: envíos `rejected_by_receiver` con el plazo para elegir otro receptor
+   * vencido o nulo -- nulo son los rechazos anteriores a MOVO-253, que se cierran en
+   * la primera corrida del barrido. Lote acotado, los nulos primero.
+   */
+  findExpiredRejected(now: Date, limit: number): Promise<Shipment[]>;
   /**
    * Candidatos a expirar del barrido de envíos `published` sin retirar (corrección
    * directa sobre un bug reportado: `GET /shipments/available` seguía devolviendo
@@ -594,11 +663,17 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
     },
 
     async findById(id: string): Promise<Shipment | null> {
-      const row = await db.shipment.findUnique({ where: { id } });
-      return row ? mapShipment(row) : null;
+      const row = await db.shipment.findUnique({ where: { id }, include: LAST_REJECTION_INCLUDE });
+      return row ? mapShipmentWithLastRejection(row) : null;
     },
 
-    async updateStatus(id: string, to: ShipmentStatus, actorId: string | null, reason?: string): Promise<Shipment> {
+    async updateStatus(
+      id: string,
+      to: ShipmentStatus,
+      actorId: string | null,
+      reason?: string,
+      options: UpdateStatusOptions = {}
+    ): Promise<Shipment> {
       // Esta lectura ya NO es la fuente de verdad de la carrera (MOVO-118) —
       // solo sirve para validar la transición y la precondición de fotos
       // antes de pagar el costo de abrir una transacción. La corrección real
@@ -629,6 +704,8 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
 
       const now = new Date();
       const deliveredAt = to === ShipmentStatus.DELIVERED ? now : current.deliveredAt;
+      const receiverRedesignationDeadline =
+        options.receiverRedesignationDeadline ?? current.receiverRedesignationDeadline;
 
       const row = await db.$transaction(async (tx) => {
         // MOVO-118: compare-and-swap, mismo patrón que
@@ -643,6 +720,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             status: to,
             lastStatusChangedAt: now,
             deliveredAt,
+            receiverRedesignationDeadline,
           },
         });
 
@@ -663,12 +741,57 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         // `updateMany` no devuelve la fila actualizada (a diferencia de
         // `update`) — se reconstruye a mano en vez de pagar un SELECT extra,
         // mismo criterio que `accepted` en offer-repository.ts#acceptOffer.
-        return { ...current, status: to, lastStatusChangedAt: now, deliveredAt, updatedAt: now };
+        return {
+          ...current,
+          status: to,
+          lastStatusChangedAt: now,
+          deliveredAt,
+          receiverRedesignationDeadline,
+          updatedAt: now,
+        };
       });
 
       // MOVO-201/AC4: recién después de que la transacción confirmó -- un rollback
       // (ej. ShipmentConcurrentModificationError) no debe cerrar ningún socket.
       emitShipmentStatusChanged({ shipmentId: id, to });
+
+      return mapShipmentRow(row, to === ShipmentStatus.REJECTED_BY_RECEIVER ? (reason ?? null) : null);
+    },
+
+    async redesignateReceiver(input: RedesignateReceiverInput): Promise<Shipment> {
+      const from = ShipmentStatus.REJECTED_BY_RECEIVER;
+      const to = ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION;
+      // Defensa en profundidad, mismo criterio que `handshake-repository.ts`: el grafo
+      // canónico sigue siendo la fuente de verdad aunque la transición esté fija acá.
+      transition(from, to);
+
+      const now = new Date();
+      const row = await db.$transaction(async (tx) => {
+        const updated = await tx.shipment.updateMany({
+          where: { id: input.id, status: from },
+          data: {
+            receiverId: input.receiverId,
+            status: to,
+            lastStatusChangedAt: now,
+            receiverConfirmationDeadline: input.receiverConfirmationDeadline,
+            receiverRedesignationDeadline: null,
+          },
+        });
+
+        if (updated.count === 0) {
+          throw new ShipmentConcurrentModificationError(input.id);
+        }
+
+        await tx.shipmentEvent.create({
+          data: { shipmentId: input.id, fromStatus: from, toStatus: to, actorId: input.actorId, reason: null },
+        });
+
+        return tx.shipment.findUniqueOrThrow({ where: { id: input.id } });
+      });
+
+      // MOVO-201/AC4: todo escritor de `status` fuera de `updateStatus` tiene que emitir
+      // el evento (el handshake se lo había salteado, ver CLAUDE.md de MOVO-201).
+      emitShipmentStatusChanged({ shipmentId: input.id, to });
 
       return mapShipment(row);
     },
@@ -720,18 +843,27 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return db.shipmentPhoto.count({ where: { shipmentId, stage } });
     },
 
-    async listByUser(userId: string, page: number, limit: number): Promise<{ items: Shipment[]; total: number }> {
-      const where = { OR: [{ senderId: userId }, { receiverId: userId }] };
+    async listByUser(
+      userId: string,
+      page: number,
+      limit: number,
+      statuses?: readonly ShipmentStatus[]
+    ): Promise<{ items: Shipment[]; total: number }> {
+      const where: Prisma.ShipmentWhereInput = {
+        OR: [{ senderId: userId }, { receiverId: userId }],
+        ...(statuses && statuses.length > 0 ? { status: { in: [...statuses] } } : {}),
+      };
       const [rows, total] = await Promise.all([
         db.shipment.findMany({
           where,
+          include: LAST_REJECTION_INCLUDE,
           orderBy: { createdAt: "desc" },
           skip: (page - 1) * limit,
           take: limit,
         }),
         db.shipment.count({ where }),
       ]);
-      return { items: rows.map(mapShipment), total };
+      return { items: rows.map(mapShipmentWithLastRejection), total };
     },
 
     async listAvailable(params: {
@@ -851,6 +983,18 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       return rows.map(mapShipment);
     },
 
+    async findExpiredRejected(now: Date, limit: number): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: {
+          status: ShipmentStatus.REJECTED_BY_RECEIVER,
+          OR: [{ receiverRedesignationDeadline: null }, { receiverRedesignationDeadline: { lte: now } }],
+        },
+        take: limit,
+        orderBy: { receiverRedesignationDeadline: { sort: "asc", nulls: "first" } },
+      });
+      return rows.map(mapShipment);
+    },
+
     async findPotentiallyExpiredPublished(limit: number): Promise<Shipment[]> {
       const rows = await db.shipment.findMany({
         where: { status: ShipmentStatus.PUBLISHED },
@@ -871,19 +1015,22 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             // MOVO-212 empiece a moverlos ahí. `assigned_unfunded` sigue contando
             // como activo por default (no está en esta lista): tiene transportista
             // comprometido aunque el hold todavía no exista.
-            notIn: [
-              ShipmentStatus.DELIVERED,
-              ShipmentStatus.COMPLETED,
-              ShipmentStatus.REJECTED_BY_RECEIVER,
-              ShipmentStatus.CANCELLED,
-            ],
+            notIn: [ShipmentStatus.DELIVERED, ShipmentStatus.COMPLETED, ShipmentStatus.CANCELLED],
           },
         },
-        select: { status: true },
+        select: { status: true, senderId: true },
       });
+      // MOVO-253: un `rejected_by_receiver` ya no es terminal, pero solo cuenta como
+      // activo para el emisor (todavía puede elegir otro receptor o cancelar). Mientras
+      // dura el rechazo `receiverId` sigue siendo quien rechazó, y eso no debe
+      // bloquearle la baja. No se mira el plazo: si venció, el barrido lo cierra en
+      // a lo sumo un intervalo.
+      const active = rows.filter(
+        (r) => r.status !== ShipmentStatus.REJECTED_BY_RECEIVER || r.senderId === userId
+      );
       return {
-        hasActiveDispute: rows.some((r) => r.status === ShipmentStatus.DISPUTED),
-        hasActiveShipments: rows.some((r) => r.status !== ShipmentStatus.DISPUTED),
+        hasActiveDispute: active.some((r) => r.status === ShipmentStatus.DISPUTED),
+        hasActiveShipments: active.some((r) => r.status !== ShipmentStatus.DISPUTED),
       };
     },
 
