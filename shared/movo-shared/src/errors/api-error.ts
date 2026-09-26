@@ -115,6 +115,8 @@ export type ApiErrorCode =
   // MOVO-175: ya hay un reporte propio en revisión sobre ese usuario -- se suma
   // información con `POST /users/:id/report/entries` en vez de crear otro.
   | "REPORT_ALREADY_PENDING"
+  // MOVO-256: la foto ya está asociada a otro envío del reporte (o al mismo, reintento).
+  | "REPORT_PHOTO_ALREADY_USED"
   // MOVO-175: sumar información sin un reporte propio en revisión sobre ese usuario.
   | "REPORT_NOT_FOUND";
 
