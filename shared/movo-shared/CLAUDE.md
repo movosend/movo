@@ -294,3 +294,16 @@ notifications-client.ts`) pasa a ser un campo **obligatorio**, no un cambio de t
 compartido acá — `movo-svc-users` (`sendPushToUser`, único choke point) lo necesita
 para poder respetar el toggle maestro/de categoría/horario de silencio antes de
 enviar. Todo caller existente que no lo mande rompe en tiempo de compilación.
+
+### MOVO-173 — `config/rating-categories.ts`
+
+`CARRIER_RATING_CATEGORIES` (puntualidad/cuidado del paquete/comunicación) y
+`SENDER_RATING_CATEGORIES`/`RECEIVER_RATING_CATEGORIES` (`{ key, label, scoreField }`;
+puntualidad/comunicación, el mismo set a propósito para las dos contrapartes del
+transportista) son la fuente única de las sub-categorías de una calificación: `svc-shipments` las usa para
+validar y agregar, `movo-mobile` para dibujar los inputs de `RatingSheet` (import por
+subpath `dist/config/rating-categories`, no por el barrel). `scoreField`
+(`RatingCategoryScoreField`) es el nombre del campo en el wire contract. Exportados
+también desde el barrel, junto con `ReputationCategoryScore` (que ya existía pero no se
+exportaba). `ReputationBreakdown.categories` deja de ser "todavía sin backend".
+

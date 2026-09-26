@@ -26,6 +26,9 @@ export function fakeRating(overrides: Partial<Rating> & { shipmentId: string; ra
     role: RatingRole.receiver,
     score: 5,
     comment: null,
+    punctualityScore: null,
+    careScore: null,
+    communicationScore: null,
     createdAt: new Date(),
     ...overrides,
   };

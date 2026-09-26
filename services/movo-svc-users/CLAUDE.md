@@ -1061,3 +1061,12 @@ test.ts`) quedaron escritos pero sin poder correrse en este entorno por falta de
 Postgres/Redis local — pendiente de verificar en CI.
 
 Pendiente / fuera de alcance: mobile de MOVO-246 (pantalla de configuración).
+
+### MOVO-173 — `categories` en el desglose de reputación
+
+Sin lógica nueva: `svc-shipments` calcula `asSender.categories`/`asCarrier.categories`
+(ver su `CLAUDE.md`) y este servicio ya reenviaba el desglose tal cual. Lo único
+necesario fue declarar `categories` en `reputationBreakdown` de `users.schema.ts` —
+sin eso el serializador de Fastify lo descarta en silencio y nunca llega al cliente
+(el test nuevo de `users.reputation.integration.test.ts` falla sin ese campo).
+

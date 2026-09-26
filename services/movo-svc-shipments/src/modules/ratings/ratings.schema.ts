@@ -1,5 +1,7 @@
 // Autocontenido a propósito (no importa de otros *.schema.ts) -- mismo criterio que el
-// resto del repo (ver shipments.schema.ts).
+// resto del repo (ver shipments.schema.ts). Sí importa de @movo/shared (no es un
+// *.schema.ts), fuente única de qué campos de categoría existen (MOVO-173).
+import { CARRIER_RATING_CATEGORIES } from "@movo/shared";
 
 const RATING_ROLE_VALUES = ["sender", "carrier", "receiver"];
 
@@ -14,6 +16,18 @@ const COMMENT_MAX_LENGTH = 500;
 const DEFAULT_RECENT_RATINGS_LIMIT = 10;
 const MAX_RECENT_RATINGS_LIMIT = 50;
 
+// MOVO-173: sub-scores opcionales, mismo rango entero 1..5 que `score`. Cuáles aplican
+// depende del rol del CALIFICADO -- lo valida `ratings.service.ts` (422), no este schema.
+const categoryScoreInput = { type: "integer", minimum: SCORE_MIN, maximum: SCORE_MAX };
+const categoryScoreInputProperties = Object.fromEntries(
+  CARRIER_RATING_CATEGORIES.map((c) => [c.scoreField, categoryScoreInput]),
+);
+
+const categoryScoreOutput = { type: ["integer", "null"] };
+const categoryScoreOutputProperties = Object.fromEntries(
+  CARRIER_RATING_CATEGORIES.map((c) => [c.scoreField, categoryScoreOutput]),
+);
+
 const ratingResponse = {
   type: "object",
   required: ["id", "shipmentId", "raterId", "rateeId", "role", "score", "comment", "createdAt"],
@@ -25,6 +39,8 @@ const ratingResponse = {
     role: { type: "string", enum: RATING_ROLE_VALUES },
     score: { type: "integer" },
     comment: { type: ["string", "null"] },
+    // MOVO-173: `null` en las filas anteriores o si el calificador no tocó esa categoría.
+    ...categoryScoreOutputProperties,
     createdAt: { type: "string", format: "date-time" },
   },
 };
@@ -44,6 +60,18 @@ const usageStats = {
 // MOVO-147 AC3: "el mismo cálculo restringido al rol" -- asSender/asCarrier tienen la
 // misma forma que el resultado global, cada uno con su propio ratingCount/isNewProfile.
 // MOVO-170 sumó `usageStats`, exclusivo del desglose por rol (no del global).
+// MOVO-173 sumó `categories`: promedio por sub-categoría del rol, ausente (no `[]`) si
+// ninguna tiene calificaciones cargadas todavía.
+const reputationCategoryScore = {
+  type: "object",
+  required: ["key", "label", "score"],
+  properties: {
+    key: { type: "string" },
+    label: { type: "string" },
+    score: { type: "number" },
+  },
+};
+
 const reputationBreakdown = {
   type: "object",
   required: ["reputationScore", "ratingCount", "isNewProfile", "usageStats"],
@@ -52,6 +80,7 @@ const reputationBreakdown = {
     ratingCount: { type: "integer" },
     isNewProfile: { type: "boolean" },
     usageStats,
+    categories: { type: "array", items: reputationCategoryScore },
   },
 };
 
@@ -118,6 +147,7 @@ export const ratingsSchemas = {
       rateeId: { type: "string", format: "uuid" },
       score: { type: "integer", minimum: SCORE_MIN, maximum: SCORE_MAX },
       comment: { type: "string", maxLength: COMMENT_MAX_LENGTH },
+      ...categoryScoreInputProperties,
     },
     additionalProperties: false,
   },
@@ -128,6 +158,7 @@ export const ratingsSchemas = {
     properties: {
       score: { type: "integer", minimum: SCORE_MIN, maximum: SCORE_MAX },
       comment: { type: "string", maxLength: COMMENT_MAX_LENGTH },
+      ...categoryScoreInputProperties,
     },
     additionalProperties: false,
   },
