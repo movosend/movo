@@ -2637,6 +2637,25 @@ Decisiones clave:
 - **Difusión en tiempo real**: cuando entra una nueva posición para el viaje, se difunde a todos los
   envíos activos asociados a ese viaje.
 
+### MOVO-174 — Conexiones mutuas: contrapartes en común entre dos usuarios (`svc-shipments`)
+
+Endpoint interno `GET /internal/users/:userId/mutual-connections/:otherId` (módulo nuevo
+`src/modules/mutual-connections/`, calcado de `account-deletion`: no pasa por el gateway,
+`schema.hide: true`) que consulta `movo-svc-users` para el "Ya envió con N personas con las que
+vos también enviaste" del perfil. `shipment-repository.ts#countMutualCounterparties` arma, para
+cada usuario, el conjunto de contrapartes (en cualquier rol) de sus envíos ENTREGADOS, intersecta
+y excluye a los dos usuarios de la cuenta.
+
+- **Devuelve solo `{ totalCount }`, nunca los ids**: decisión de privacidad de MOVO-174 (solo el
+  conteo, sin nombrar a terceros que no dieron consentimiento). Así ningún dato de terceros sale de
+  este servicio; pasar a "con nombres" sería un cambio de contrato interno acotado.
+- **Cuentan solo `delivered`/`completed`** (`FULFILLED_SHIPMENT_STATUSES`): "ya envió con X" habla de
+  algo que ocurrió. Distinto de `getSharedHistory` (MOVO-170), que cuenta envíos en cualquier estado.
+- **Un envío directo entre los dos usuarios no cuenta** como conexión mutua.
+
+Pendiente / fuera de alcance: mostrar nombres de pila (requeriría revertir la decisión de privacidad
+y un ADR corto).
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
