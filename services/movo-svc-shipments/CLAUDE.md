@@ -2637,6 +2637,35 @@ Decisiones clave:
 - **Difusión en tiempo real**: cuando entra una nueva posición para el viaje, se difunde a todos los
   envíos activos asociados a ese viaje.
 
+### MOVO-173 — Calificación por categorías (puntualidad/cuidado/comunicación)
+
+`Rating` gana 3 columnas nullable de sub-scores (`punctuality_score`/`care_score`/
+`communication_score`, migración aditiva `20260926120000_add_rating_categories`: las filas
+viejas quedan en NULL, sin backfill). Cuáles aplican depende del rol del CALIFICADO en ese
+envío y se define una sola vez en `@movo/shared` (`config/rating-categories.ts`):
+transportista → puntualidad/cuidado del paquete/comunicación; emisor y receptor → el mismo
+set, puntualidad/comunicación (decisión de producto tras probarlo en el mobile: la primera
+versión daba a la contraparte "paquete listo"/"dirección clara" y nada al receptor).
+
+- **Una categoría que no es del rol del calificado es 422 `VALIDATION_FAILED`** (se
+  reusa el código de validación de negocio que ya usa el servicio, no se sumó uno nuevo
+  a `@movo/shared`), no se ignora en silencio: quedaría guardado un dato que nunca se
+  agrega. En el PATCH el rol sale de `existing.role`, nunca del cliente. El PATCH es
+  reemplazo completo, igual que `comment`: la categoría que no se manda queda en NULL.
+- **Agregado (`domain/reputation.ts#computeCategoryScores`)**: mismo decaimiento +
+  shrinkage que el score general, promediando cada categoría solo con las calificaciones
+  que la cargaron. El shrinkage va hacia la MISMA media global `m` del score general, no
+  hacia una media propia por categoría (decisión propia: evita un `AVG` por sub-score y
+  mantiene las barras comparables con el número grande de arriba). `categories` viaja
+  solo en `asSender`/`asCarrier` (el global mezclaría "Cuidado del paquete", exclusivo del
+  transportista, con las de las contrapartes) y se omite (no `[]`) si ninguna categoría tiene
+  datos. **Las categorías del receptor se guardan pero no se agregan ni se muestran en
+  ningún lado**: el perfil solo tiene desglose `asSender`/`asCarrier` (las calificaciones como
+  `receiver` entran al score global sin desglose propio, MOVO-147).
+
+Pendiente / fuera de alcance: no hay recálculo retroactivo para calificaciones ya
+existentes (no tienen sub-scores que agregar).
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre

@@ -1,15 +1,26 @@
-import { ApiError, ShipmentStatus, UserRole, renderNotificationTrigger, notificationTriggerCategory } from "@movo/shared";
+import {
+  ApiError,
+  ShipmentStatus,
+  UserRole,
+  renderNotificationTrigger,
+  notificationTriggerCategory,
+  CARRIER_RATING_CATEGORIES,
+  SENDER_RATING_CATEGORIES,
+  RECEIVER_RATING_CATEGORIES,
+  RatingCategoryScoreField,
+  ReputationCategoryScore,
+} from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { RatingRepository } from "../../repositories/rating-repository";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { Shipment, ShipmentEvent } from "../../models/shipment";
-import { Rating, RatingRole } from "../../models/rating";
+import { Rating, RatingCategoryScoresInput, RatingRole } from "../../models/rating";
 import { isRatingWindowOpen } from "../../domain/rating-window";
-import { computeReputationScore, ReputationResult } from "../../domain/reputation";
+import { computeCategoryScores, computeReputationScore, ReputationResult } from "../../domain/reputation";
 import { FULFILLED_SHIPMENT_STATUSES } from "../../domain/shipment-state-machine";
 
-export interface CreateRatingServiceInput {
+export interface CreateRatingServiceInput extends RatingCategoryScoresInput {
   shipmentId: string;
   raterId: string;
   rateeId: string;
@@ -17,7 +28,7 @@ export interface CreateRatingServiceInput {
   comment?: string;
 }
 
-export interface UpdateRatingServiceInput {
+export interface UpdateRatingServiceInput extends RatingCategoryScoresInput {
   shipmentId: string;
   raterId: string;
   rateeId: string;
@@ -48,9 +59,12 @@ export interface UsageStats {
   avgPackageWeightKg: number | null;
 }
 
+/** MOVO-173: `categories` ausente (no `[]`) si ninguna categoría del rol tiene datos. */
+type RoleReputation = ReputationResult & { usageStats: UsageStats; categories?: ReputationCategoryScore[] };
+
 export interface ReputationSummary extends ReputationResult {
-  asSender: ReputationResult & { usageStats: UsageStats };
-  asCarrier: ReputationResult & { usageStats: UsageStats };
+  asSender: RoleReputation;
+  asCarrier: RoleReputation;
   transactionCounts: { asSender: number; asCarrier: number };
 }
 
@@ -71,6 +85,53 @@ function resolveShipmentRole(shipment: Shipment, userId: string): RatingRole | n
     return RatingRole.receiver;
   }
   return null;
+}
+
+/**
+ * MOVO-173: qué sub-scores admite calificar a alguien según su rol EN ESTE ENVÍO. El
+ * emisor y el receptor comparten set (puntualidad/comunicación). Mandar una categoría
+ * de otro rol (ej. `careScore` a un emisor) es un error del cliente, no algo que se ignore
+ * en silencio: quedaría guardado un dato que nunca se va a agregar.
+ */
+const CATEGORY_FIELDS_BY_RATEE_ROLE: Record<RatingRole, ReadonlySet<RatingCategoryScoreField>> = {
+  [RatingRole.carrier]: new Set(CARRIER_RATING_CATEGORIES.map((c) => c.scoreField)),
+  [RatingRole.sender]: new Set(SENDER_RATING_CATEGORIES.map((c) => c.scoreField)),
+  [RatingRole.receiver]: new Set(RECEIVER_RATING_CATEGORIES.map((c) => c.scoreField)),
+};
+
+const ALL_CATEGORY_FIELDS: readonly RatingCategoryScoreField[] = [
+  "punctualityScore",
+  "careScore",
+  "communicationScore",
+];
+
+const RATEE_ROLE_LABEL: Record<RatingRole, string> = {
+  [RatingRole.carrier]: "transportista",
+  [RatingRole.sender]: "emisor",
+  [RatingRole.receiver]: "receptor",
+};
+
+/** Solo los sub-scores que vinieron en el input (el resto de sus campos no son categorías). */
+function pickCategoryScores(input: RatingCategoryScoresInput): RatingCategoryScoresInput {
+  const picked: RatingCategoryScoresInput = {};
+  for (const field of ALL_CATEGORY_FIELDS) {
+    if (input[field] !== undefined) {
+      picked[field] = input[field];
+    }
+  }
+  return picked;
+}
+
+function assertCategoriesMatchRateeRole(rateeRole: RatingRole, categories: RatingCategoryScoresInput): void {
+  const allowed = CATEGORY_FIELDS_BY_RATEE_ROLE[rateeRole];
+  const invalid = ALL_CATEGORY_FIELDS.filter((field) => categories[field] !== undefined && !allowed.has(field));
+  if (invalid.length > 0) {
+    throw new ApiError(
+      422,
+      "VALIDATION_FAILED",
+      `Las categorías ${invalid.join(", ")} no aplican al calificar a un ${RATEE_ROLE_LABEL[rateeRole]}.`,
+    );
+  }
 }
 
 function assertIsShipmentParty(shipment: Shipment, userId: string, message: string): void {
@@ -142,6 +203,7 @@ export function createRatingsService(
       if (input.raterId === input.rateeId) {
         throw new ApiError(403, "AUTH_FORBIDDEN", "No podés calificarte a vos mismo.");
       }
+      assertCategoriesMatchRateeRole(rateeRole, input);
 
       const events = await shipmentRepository.listEvents(input.shipmentId);
       assertRatingWindowAllowsWrite(shipment, events, new Date());
@@ -156,6 +218,7 @@ export function createRatingsService(
         role: rateeRole,
         score: input.score,
         comment: input.comment,
+        ...pickCategoryScores(input),
       });
 
       // AC7: best-effort, fire-and-forget -- un fallo de entrega no revierte el alta
@@ -192,11 +255,20 @@ export function createRatingsService(
       if (!existing) {
         throw new ApiError(404, "SHIPMENT_RATING_NOT_FOUND", "No existe una calificación tuya para editar.");
       }
+      // `existing.role` es el rol del CALIFICADO, fijado al crear la calificación.
+      assertCategoriesMatchRateeRole(existing.role, input);
 
       const events = await shipmentRepository.listEvents(input.shipmentId);
       assertRatingWindowAllowsWrite(shipment, events, new Date());
 
-      return ratingRepository.update(input.shipmentId, input.raterId, input.rateeId, input.score, input.comment);
+      return ratingRepository.update(
+        input.shipmentId,
+        input.raterId,
+        input.rateeId,
+        input.score,
+        input.comment,
+        pickCategoryScores(input),
+      );
     },
 
     async listShipmentRatings(shipmentId: string, callerId: string, callerRoles: UserRole[]): Promise<Rating[]> {
@@ -256,24 +328,27 @@ export function createRatingsService(
       // desglose propio -- AC3 solo pide sender/carrier porque es la reputación de
       // transportista la que importa al elegir una oferta (MOVO-17/23).
       const global = computeReputationScore(ratings, params);
-      const asSender = computeReputationScore(
-        ratings.filter((r) => r.role === RatingRole.sender),
-        params,
-      );
-      const asCarrier = computeReputationScore(
-        ratings.filter((r) => r.role === RatingRole.carrier),
-        params,
-      );
+      const senderRatings = ratings.filter((r) => r.role === RatingRole.sender);
+      const carrierRatings = ratings.filter((r) => r.role === RatingRole.carrier);
+      const asSender = computeReputationScore(senderRatings, params);
+      const asCarrier = computeReputationScore(carrierRatings, params);
+
+      // MOVO-173: las categorías dependen del rol, así que solo existen en el desglose
+      // por rol -- el global mezclaría "Cuidado del paquete" (solo del transportista) con las de las contrapartes.
+      const senderCategories = computeCategoryScores(senderRatings, SENDER_RATING_CATEGORIES, params);
+      const carrierCategories = computeCategoryScores(carrierRatings, CARRIER_RATING_CATEGORIES, params);
 
       return {
         ...global,
         asSender: {
           ...asSender,
           usageStats: { delivered: transactionCounts.asSender, ...usageStatsByRole.asSender },
+          ...(senderCategories && { categories: senderCategories }),
         },
         asCarrier: {
           ...asCarrier,
           usageStats: { delivered: transactionCounts.asCarrier, ...usageStatsByRole.asCarrier },
+          ...(carrierCategories && { categories: carrierCategories }),
         },
         transactionCounts,
       };

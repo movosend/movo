@@ -1,16 +1,40 @@
 import { PrismaClient, Rating as RatingRow } from "../generated/prisma/client";
-import { Rating, CreateRatingInput, RatingRole, parseRatingRole } from "../models/rating";
+import {
+  Rating,
+  CreateRatingInput,
+  RatingCategoryScores,
+  RatingCategoryScoresInput,
+  RatingRole,
+  parseRatingRole,
+} from "../models/rating";
 
 /**
  * MOVO-147: proyección mínima para el cálculo de reputación -- estructuralmente un
  * superset de `RatingForReputation` (`domain/reputation.ts`, solo `score`/`createdAt`),
  * con `role` sumado para que `ratings.service.ts` arme los tres buckets (global/
- * asSender/asCarrier) sin una segunda query.
+ * asSender/asCarrier) sin una segunda query, y (MOVO-173) los sub-scores por categoría
+ * para promediarlos con el mismo criterio de ponderación.
  */
-export interface RatingRowForReputation {
+export interface RatingRowForReputation extends RatingCategoryScores {
   score: number;
   createdAt: Date;
   role: RatingRole;
+}
+
+const CATEGORY_SCORE_SELECT = {
+  punctualityScore: true,
+  careScore: true,
+  communicationScore: true,
+} as const;
+
+/** MOVO-173: una categoría no cargada se persiste como NULL, nunca como 0 ni omitida --
+ * así el PATCH (reemplazo completo, igual que `comment`) también puede borrarla. */
+function categoryScoreColumns(categories: RatingCategoryScoresInput = {}): RatingCategoryScores {
+  return {
+    punctualityScore: categories.punctualityScore ?? null,
+    careScore: categories.careScore ?? null,
+    communicationScore: categories.communicationScore ?? null,
+  };
 }
 
 function mapRating(row: RatingRow): Rating {
@@ -22,6 +46,9 @@ function mapRating(row: RatingRow): Rating {
     role: parseRatingRole(row.role),
     score: row.score,
     comment: row.comment,
+    punctualityScore: row.punctualityScore,
+    careScore: row.careScore,
+    communicationScore: row.communicationScore,
     createdAt: row.createdAt,
   };
 }
@@ -55,8 +82,16 @@ export class DuplicateRatingError extends Error {
 export interface RatingRepository {
   create(input: CreateRatingInput): Promise<Rating>;
   /** AC5: edita la fila existente -- el caller (`ratings.service.ts`) ya verificó que
-   * existe antes de llamar, no hay chequeo de "no encontrado" acá. */
-  update(shipmentId: string, raterId: string, rateeId: string, score: number, comment?: string): Promise<Rating>;
+   * existe antes de llamar, no hay chequeo de "no encontrado" acá. Reemplazo completo:
+   * `comment`/`categories` ausentes quedan en NULL (MOVO-173). */
+  update(
+    shipmentId: string,
+    raterId: string,
+    rateeId: string,
+    score: number,
+    comment?: string,
+    categories?: RatingCategoryScoresInput,
+  ): Promise<Rating>;
   findByPair(shipmentId: string, raterId: string, rateeId: string): Promise<Rating | null>;
   /** AC6: calificaciones de un envío, para que sus participantes vean a quién ya calificaron. */
   listByShipment(shipmentId: string): Promise<Rating[]>;
@@ -139,6 +174,7 @@ export function createRatingRepository(db: PrismaClient): RatingRepository {
             role: input.role,
             score: input.score,
             comment: input.comment ?? null,
+            ...categoryScoreColumns(input),
           },
         });
         return mapRating(row);
@@ -156,10 +192,11 @@ export function createRatingRepository(db: PrismaClient): RatingRepository {
       rateeId: string,
       score: number,
       comment?: string,
+      categories?: RatingCategoryScoresInput,
     ): Promise<Rating> {
       const row = await db.rating.update({
         where: { shipmentId_raterId_rateeId: { shipmentId, raterId, rateeId } },
-        data: { score, comment: comment ?? null },
+        data: { score, comment: comment ?? null, ...categoryScoreColumns(categories) },
       });
       return mapRating(row);
     },
@@ -206,7 +243,7 @@ export function createRatingRepository(db: PrismaClient): RatingRepository {
     async listForReputation(rateeId: string): Promise<RatingRowForReputation[]> {
       const rows = await db.rating.findMany({
         where: { rateeId },
-        select: { score: true, createdAt: true, role: true },
+        select: { score: true, createdAt: true, role: true, ...CATEGORY_SCORE_SELECT },
       });
       return rows.map((row) => ({ ...row, role: parseRatingRole(row.role) }));
     },
@@ -218,12 +255,12 @@ export function createRatingRepository(db: PrismaClient): RatingRepository {
       }
       const rows = await db.rating.findMany({
         where: { rateeId: { in: rateeIds } },
-        select: { rateeId: true, score: true, createdAt: true, role: true },
+        select: { rateeId: true, score: true, createdAt: true, role: true, ...CATEGORY_SCORE_SELECT },
       });
-      for (const row of rows) {
-        const list = map.get(row.rateeId) ?? [];
-        list.push({ score: row.score, createdAt: row.createdAt, role: parseRatingRole(row.role) });
-        map.set(row.rateeId, list);
+      for (const { rateeId, ...rest } of rows) {
+        const list = map.get(rateeId) ?? [];
+        list.push({ ...rest, role: parseRatingRole(rest.role) });
+        map.set(rateeId, list);
       }
       return map;
     },
