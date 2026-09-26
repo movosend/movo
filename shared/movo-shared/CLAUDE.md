@@ -300,4 +300,6 @@ enviar. Todo caller existente que no lo mande rompe en tiempo de compilación.
 `ReportReason`/`ReportStatus` (ya existían sin backend) pasan a exportarse desde el barrel;
 nuevos `BlockedUserSummary` (`types/user.ts`), `PublicProfile.isBlockedByMe?` (opcional, solo
 en `GET /users/:id` mirando a otro) y los códigos `USER_BLOCKED`/`CANNOT_MODERATE_SELF`. El
-límite diario de reportes reusa `RATE_LIMIT_EXCEEDED` en vez de un código propio.
+límite diario de reportes reusa `RATE_LIMIT_EXCEEDED` en vez de un código propio. Review de
+PR #193: `UserReportSummary`/`UserReportEntry` (reporte propio en revisión con la información
+sumada después) y los códigos `REPORT_ALREADY_PENDING`/`REPORT_NOT_FOUND`.

@@ -10,6 +10,14 @@ export interface UserReportRecord {
   details: string | null;
   status: ReportStatus;
   createdAt: Date;
+  /** Información sumada después (MOVO-175), de la más vieja a la más nueva. */
+  entries: UserReportEntryRecord[];
+}
+
+export interface UserReportEntryRecord {
+  id: string;
+  details: string;
+  createdAt: Date;
 }
 
 export interface CreateReportInput {
@@ -36,10 +44,27 @@ export interface ModerationRepository {
    */
   listRelatedUserIds(userId: string): Promise<string[]>;
   findPendingReport(reporterId: string, reportedId: string): Promise<UserReportRecord | null>;
-  createReport(input: CreateReportInput): Promise<UserReportRecord>;
+  /** `null` si ya hay un reporte `pending` del mismo par (índice único parcial
+   * `user_reports_reporter_id_reported_id_pending_key`): otro pedido concurrente ganó. */
+  createReport(input: CreateReportInput): Promise<UserReportRecord | null>;
+  /** Append-only: el reporte original nunca se edita. */
+  addReportEntry(reportId: string, details: string): Promise<UserReportEntryRecord>;
 }
 
-function toDomainReport(row: Prisma.UserReportGetPayload<Record<string, never>>): UserReportRecord {
+/** Mismo criterio que `isDefaultUniqueConflict` de `address-repository.ts`: el único
+ * índice único de `user_reports` es el parcial de reportes `pending`, así que cualquier
+ * P2002 en `createReport()` viene de ahí. */
+function isPendingReportConflict(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+const WITH_ENTRIES = { entries: { orderBy: { createdAt: "asc" } } } satisfies Prisma.UserReportInclude;
+
+function toDomainEntry(row: Prisma.UserReportEntryGetPayload<Record<string, never>>): UserReportEntryRecord {
+  return { id: row.id, details: row.details, createdAt: row.createdAt };
+}
+
+function toDomainReport(row: Prisma.UserReportGetPayload<{ include: typeof WITH_ENTRIES }>): UserReportRecord {
   return {
     id: row.id,
     reporterId: row.reporterId,
@@ -48,6 +73,7 @@ function toDomainReport(row: Prisma.UserReportGetPayload<Record<string, never>>)
     details: row.details,
     status: row.status as ReportStatus,
     createdAt: row.createdAt,
+    entries: row.entries.map(toDomainEntry),
   };
 }
 
@@ -99,13 +125,24 @@ export function createModerationRepository(db: Prisma.TransactionClient): Modera
       const row = await db.userReport.findFirst({
         where: { reporterId, reportedId, status: "pending" },
         orderBy: { createdAt: "desc" },
+        include: WITH_ENTRIES,
       });
       return row ? toDomainReport(row) : null;
     },
 
     async createReport(input) {
-      const row = await db.userReport.create({ data: input });
-      return toDomainReport(row);
+      try {
+        const row = await db.userReport.create({ data: input, include: WITH_ENTRIES });
+        return toDomainReport(row);
+      } catch (error) {
+        if (isPendingReportConflict(error)) return null;
+        throw error;
+      }
+    },
+
+    async addReportEntry(reportId, details) {
+      const row = await db.userReportEntry.create({ data: { reportId, details } });
+      return toDomainEntry(row);
     },
   };
 }

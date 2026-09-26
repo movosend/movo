@@ -4,6 +4,32 @@
 const REPORT_REASON_VALUES = ["harassment", "no_show", "damaged_package", "payment_issue", "other"];
 const REPORT_STATUS_VALUES = ["pending", "reviewed", "dismissed"];
 
+// `UserReportSummary` de @movo/shared.
+const reportObject = {
+  type: "object",
+  required: ["id", "reportedId", "reason", "details", "status", "createdAt", "entries"],
+  properties: {
+    id: { type: "string" },
+    reportedId: { type: "string" },
+    reason: { type: "string", enum: REPORT_REASON_VALUES },
+    details: { type: ["string", "null"] },
+    status: { type: "string", enum: REPORT_STATUS_VALUES },
+    createdAt: { type: "string" },
+    entries: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["id", "details", "createdAt"],
+        properties: {
+          id: { type: "string" },
+          details: { type: "string" },
+          createdAt: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
 export const moderationSchemas = {
   userIdParam: {
     type: "object",
@@ -23,17 +49,21 @@ export const moderationSchemas = {
     additionalProperties: false,
   },
 
-  reportResponse: {
+  reportEntryBody: {
     type: "object",
-    required: ["id", "reportedId", "reason", "details", "status", "createdAt"],
+    required: ["details"],
     properties: {
-      id: { type: "string" },
-      reportedId: { type: "string" },
-      reason: { type: "string", enum: REPORT_REASON_VALUES },
-      details: { type: ["string", "null"] },
-      status: { type: "string", enum: REPORT_STATUS_VALUES },
-      createdAt: { type: "string" },
+      details: { type: "string", minLength: 1, maxLength: 500 },
     },
+    additionalProperties: false,
+  },
+
+  reportResponse: reportObject,
+
+  // GET /users/:id/report: `null` es el estado esperado "no tenés un reporte en
+  // revisión sobre esta persona" (mismo criterio que `vehicleOrNullResponse`).
+  reportOrNullResponse: {
+    oneOf: [{ type: "null" }, reportObject],
   },
 
   blockedListResponse: {

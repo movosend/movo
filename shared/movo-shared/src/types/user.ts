@@ -65,6 +65,30 @@ export enum ReportStatus {
   DISMISSED = "dismissed",
 }
 
+/** Información que el reportante sumó a su reporte pendiente (MOVO-175). Append-only. */
+export interface UserReportEntry {
+  id: string;
+  details: string;
+  /** ISO date. */
+  createdAt: string;
+}
+
+/**
+ * Reporte propio sobre otro usuario (MOVO-175): `GET /users/:id/report` y respuesta de
+ * `POST /users/:id/report`. Nunca expone reportes de terceros.
+ */
+export interface UserReportSummary {
+  id: string;
+  reportedId: string;
+  reason: ReportReason;
+  details: string | null;
+  status: ReportStatus;
+  /** ISO date. */
+  createdAt: string;
+  /** Entradas sumadas después, de la más vieja a la más nueva. */
+  entries: UserReportEntry[];
+}
+
 /**
  * Fila de `GET /users/me/blocked` (MOVO-175): usuarios que el caller bloqueó, del
  * más reciente al más viejo. Solo la dirección propia -- quién me bloqueó a mí no

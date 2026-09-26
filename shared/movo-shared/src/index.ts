@@ -22,7 +22,7 @@ export type { ApiErrorCode, SerializedApiError } from "./errors/api-error";
 
 // types
 export { UserRole, KycStatus, AccountStatus, ReportReason, ReportStatus } from "./types/user";
-export type { BlockedUserSummary } from "./types/user";
+export type { BlockedUserSummary, UserReportEntry, UserReportSummary } from "./types/user";
 export { ShipmentStatus } from "./types/shipment";
 export type {
   SharedHistory,

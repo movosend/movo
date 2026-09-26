@@ -1,7 +1,25 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
+import { UserReportSummary } from "@movo/shared";
 import { createModerationService, ReportUserInput } from "./moderation.service";
 import { moderationSchemas } from "./moderation.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
+import { UserReportRecord } from "../../repositories/moderation-repository";
+
+function toReportDto(report: UserReportRecord): UserReportSummary {
+  return {
+    id: report.id,
+    reportedId: report.reportedId,
+    reason: report.reason,
+    details: report.details,
+    status: report.status,
+    createdAt: report.createdAt.toISOString(),
+    entries: report.entries.map((entry) => ({
+      id: entry.id,
+      details: entry.details,
+      createdAt: entry.createdAt.toISOString(),
+    })),
+  };
+}
 
 /**
  * MOVO-175 (ADR-026): reportar y bloquear usuarios. Rutas protegidas bajo `/users`
@@ -18,13 +36,69 @@ export default async function moderationRoutes(app: FastifyInstance, _opts: Fast
         summary: "Reportar a un usuario",
         description:
           "MOVO-175: persiste un reporte en estado `pending` (la revisión la hace un admin). " +
-          "Un solo reporte pendiente por par: reportar de nuevo devuelve 200 con el mismo " +
-          "reporte en vez de 201. Máximo 10 reportes nuevos por día por usuario (429).",
+          "Un solo reporte pendiente por par: si ya hay uno, 409 `REPORT_ALREADY_PENDING` " +
+          "(se le suma información con `POST /users/:id/report/entries`). Máximo 10 " +
+          "reportes o entradas por día por usuario (429).",
         tags: ["users"],
         params: moderationSchemas.userIdParam,
         body: moderationSchemas.reportBody,
         response: {
-          200: moderationSchemas.reportResponse,
+          201: moderationSchemas.reportResponse,
+          400: moderationSchemas.errorResponse,
+          401: moderationSchemas.errorResponse,
+          404: moderationSchemas.errorResponse,
+          409: moderationSchemas.errorResponse,
+          429: moderationSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      const report = await service.reportUser(callerId, id, request.body as ReportUserInput);
+      reply.code(201);
+      return toReportDto(report);
+    },
+  );
+
+  app.get(
+    "/:id/report",
+    {
+      schema: {
+        summary: "Reporte propio en revisión sobre un usuario",
+        description:
+          "MOVO-175: el reporte `pending` que el caller hizo sobre `:id`, con la información " +
+          "sumada después, o `null` si no tiene ninguno. Nunca expone reportes de terceros.",
+        tags: ["users"],
+        params: moderationSchemas.userIdParam,
+        response: {
+          200: moderationSchemas.reportOrNullResponse,
+          400: moderationSchemas.errorResponse,
+          401: moderationSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      const report = await service.getPendingReport(callerId, id);
+      return report ? toReportDto(report) : null;
+    },
+  );
+
+  app.post(
+    "/:id/report/entries",
+    {
+      schema: {
+        summary: "Sumar información a un reporte en revisión",
+        description:
+          "MOVO-175: agrega una entrada al reporte `pending` propio sobre `:id`. El reporte " +
+          "original no se edita. Consume el mismo cupo diario que un reporte nuevo (429); " +
+          "404 `REPORT_NOT_FOUND` si no hay un reporte en revisión.",
+        tags: ["users"],
+        params: moderationSchemas.userIdParam,
+        body: moderationSchemas.reportEntryBody,
+        response: {
           201: moderationSchemas.reportResponse,
           400: moderationSchemas.errorResponse,
           401: moderationSchemas.errorResponse,
@@ -36,16 +110,10 @@ export default async function moderationRoutes(app: FastifyInstance, _opts: Fast
     async (request: FastifyRequest, reply: FastifyReply) => {
       const callerId = requireUserIdFromHeader(request);
       const { id } = request.params as { id: string };
-      const { report, created } = await service.reportUser(callerId, id, request.body as ReportUserInput);
-      reply.code(created ? 201 : 200);
-      return {
-        id: report.id,
-        reportedId: report.reportedId,
-        reason: report.reason,
-        details: report.details,
-        status: report.status,
-        createdAt: report.createdAt.toISOString(),
-      };
+      const { details } = request.body as { details: string };
+      const report = await service.addReportEntry(callerId, id, details);
+      reply.code(201);
+      return toReportDto(report);
     },
   );
 

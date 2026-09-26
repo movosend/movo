@@ -16,12 +16,6 @@ export interface ReportUserInput {
   details?: string;
 }
 
-export interface ReportUserResult {
-  report: UserReportRecord;
-  /** `false` si ya existía un reporte `pending` del mismo par (reintento idempotente). */
-  created: boolean;
-}
-
 /**
  * MOVO-175 (ADR-026): reportar y bloquear usuarios. El efecto del bloqueo sobre
  * envíos/ofertas vive en `svc-shipments`, que consulta `listRelatedUserIds` por el
@@ -31,11 +25,23 @@ export function createModerationService(db: PrismaClient, redis: Redis) {
   const userRepository = createUserRepository(db);
   const repository = createModerationRepository(db);
 
-  /** Mismo criterio que `getPublicProfile`: `deleted` se trata como "no existe". */
-  async function assertModeratableTarget(callerId: string, targetId: string): Promise<void> {
+  function assertNotSelf(callerId: string, targetId: string): void {
     if (callerId === targetId) {
       throw new ApiError(400, "CANNOT_MODERATE_SELF", "No podés reportarte ni bloquearte a vos mismo.");
     }
+  }
+
+  function reportAlreadyPending(): ApiError {
+    return new ApiError(
+      409,
+      "REPORT_ALREADY_PENDING",
+      "Ya tenés un reporte en revisión sobre este usuario. Podés sumarle información.",
+    );
+  }
+
+  /** Mismo criterio que `getPublicProfile`: `deleted` se trata como "no existe". */
+  async function assertModeratableTarget(callerId: string, targetId: string): Promise<void> {
+    assertNotSelf(callerId, targetId);
     const target = await userRepository.findById(targetId);
     if (!target || target.status === AccountStatus.DELETED) {
       throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
@@ -54,15 +60,28 @@ export function createModerationService(db: PrismaClient, redis: Redis) {
     }
   }
 
+  /** `DECR` solo si la key sigue viva: si expiró entre medio, un `DECR` suelto la
+   * recrearía en -1 y sin TTL. Atómico vía Lua, mismo motivo que `SET NX EX` arriba. */
+  async function refundReportQuota(reporterId: string): Promise<void> {
+    await redis.eval(
+      "if redis.call('EXISTS', KEYS[1]) == 1 then return redis.call('DECR', KEYS[1]) end return 0",
+      1,
+      reportRateLimitKey(reporterId),
+    );
+  }
+
   return {
-    async reportUser(reporterId: string, reportedId: string, input: ReportUserInput): Promise<ReportUserResult> {
+    /**
+     * Un solo reporte `pending` por par. Si ya hay uno, 409 `REPORT_ALREADY_PENDING`
+     * en vez de devolverlo como éxito: antes se respondía 200 con el reporte existente
+     * y se descartaban sin avisar el motivo/detalle nuevos. Lo que el reportante quiera
+     * agregar va por `addReportEntry`.
+     */
+    async reportUser(reporterId: string, reportedId: string, input: ReportUserInput): Promise<UserReportRecord> {
       await assertModeratableTarget(reporterId, reportedId);
 
-      // Un reporte pendiente por par: reintentar (doble tap, reintento tras timeout)
-      // devuelve el mismo reporte sin consumir cupo ni duplicar la fila.
-      const pending = await repository.findPendingReport(reporterId, reportedId);
-      if (pending) {
-        return { report: pending, created: false };
+      if (await repository.findPendingReport(reporterId, reportedId)) {
+        throw reportAlreadyPending();
       }
 
       await consumeReportQuota(reporterId);
@@ -73,7 +92,39 @@ export function createModerationService(db: PrismaClient, redis: Redis) {
         reason: input.reason,
         details,
       });
-      return { report, created: true };
+      if (!report) {
+        // Dos pedidos concurrentes pasaron los dos el `findPendingReport` de arriba y
+        // el índice único parcial dejó entrar solo a uno: este no creó nada, así que
+        // reintegra el cupo que consumió.
+        await refundReportQuota(reporterId);
+        throw reportAlreadyPending();
+      }
+      return report;
+    },
+
+    /** El reporte `pending` propio sobre `reportedId`, o `null`. Nunca expone reportes
+     * de terceros. No valida que el target exista: el reporte sobrevive a la baja de
+     * cuenta del reportado y el reportante lo puede seguir viendo. */
+    async getPendingReport(reporterId: string, reportedId: string): Promise<UserReportRecord | null> {
+      assertNotSelf(reporterId, reportedId);
+      return repository.findPendingReport(reporterId, reportedId);
+    },
+
+    /** Suma información al reporte `pending` propio, sin editar lo ya enviado. Consume
+     * el mismo cupo diario que un reporte nuevo. */
+    async addReportEntry(reporterId: string, reportedId: string, details: string): Promise<UserReportRecord> {
+      assertNotSelf(reporterId, reportedId);
+      const trimmed = details.trim();
+      if (!trimmed) {
+        throw new ApiError(400, "VALIDATION_FAILED", "Escribí la información que querés sumar.");
+      }
+      const pending = await repository.findPendingReport(reporterId, reportedId);
+      if (!pending) {
+        throw new ApiError(404, "REPORT_NOT_FOUND", "No tenés un reporte en revisión sobre este usuario.");
+      }
+      await consumeReportQuota(reporterId);
+      const entry = await repository.addReportEntry(pending.id, trimmed);
+      return { ...pending, entries: [...pending.entries, entry] };
     },
 
     async blockUser(blockerId: string, blockedId: string): Promise<void> {
@@ -84,9 +135,7 @@ export function createModerationService(db: PrismaClient, redis: Redis) {
     /** No valida que el target exista: desbloquear a una cuenta dada de baja (cuyas
      * filas ya se borraron en `deleteAccount`) es un no-op, no un 404. */
     async unblockUser(blockerId: string, blockedId: string): Promise<void> {
-      if (blockerId === blockedId) {
-        throw new ApiError(400, "CANNOT_MODERATE_SELF", "No podés reportarte ni bloquearte a vos mismo.");
-      }
+      assertNotSelf(blockerId, blockedId);
       await repository.unblock(blockerId, blockedId);
     },
 

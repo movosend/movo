@@ -83,6 +83,15 @@ describe("Reportar y bloquear usuarios (MOVO-175)", () => {
     });
   }
 
+  function addEntry(callerId: string, targetId: string, details: string) {
+    return app.inject({
+      method: "POST",
+      url: `/users/${targetId}/report/entries`,
+      headers: { "x-user-id": callerId },
+      payload: { details },
+    });
+  }
+
   function block(callerId: string, targetId: string) {
     return app.inject({ method: "POST", url: `/users/${targetId}/block`, headers: { "x-user-id": callerId } });
   }
@@ -107,16 +116,42 @@ describe("Reportar y bloquear usuarios (MOVO-175)", () => {
       expect(body).toMatchObject({ reportedId: b.id, reason: "harassment", details: "me insultó", status: "pending" });
     });
 
-    it("idempotente: un segundo reporte del mismo par devuelve 200 con el mismo reporte", async () => {
+    it("409 REPORT_ALREADY_PENDING si ya hay un reporte en revisión, sin tocar el existente ni consumir cupo", async () => {
       const a = await repo.create(buildInput());
       const b = await repo.create(buildInput());
 
-      const first = JSON.parse((await report(a.id, b.id, { reason: "no_show" })).body);
-      const second = await report(a.id, b.id, { reason: "other" });
+      await report(a.id, b.id, { reason: "no_show" });
+      const second = await report(a.id, b.id, { reason: "other", details: "otra cosa" });
 
-      expect(second.statusCode).toBe(200);
-      expect(JSON.parse(second.body).id).toBe(first.id);
+      expect(second.statusCode).toBe(409);
+      expect(JSON.parse(second.body).error.code).toBe("REPORT_ALREADY_PENDING");
+      const rows = await app.db.userReport.findMany();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ reason: "no_show", details: null });
+      expect(await app.redis.get(reportRateLimitKey(a.id))).toBe("1");
+    });
+
+    it("dos reportes concurrentes del mismo par crean una sola fila y consumen un solo cupo", async () => {
+      const a = await repo.create(buildInput());
+      const b = await repo.create(buildInput());
+
+      const responses = await Promise.all([
+        report(a.id, b.id, { reason: "no_show" }),
+        report(a.id, b.id, { reason: "no_show" }),
+      ]);
+
+      expect(responses.map((r) => r.statusCode).sort()).toEqual([201, 409]);
       expect(await app.db.userReport.count()).toBe(1);
+      expect(await app.redis.get(reportRateLimitKey(a.id))).toBe("1");
+    });
+
+    it("la respuesta incluye entries vacío", async () => {
+      const a = await repo.create(buildInput());
+      const b = await repo.create(buildInput());
+
+      const response = await report(a.id, b.id, { reason: "other" });
+
+      expect(JSON.parse(response.body).entries).toEqual([]);
     });
 
     it("details vacío se persiste como null", async () => {
@@ -170,6 +205,91 @@ describe("Reportar y bloquear usuarios (MOVO-175)", () => {
     it("401 sin x-user-id", async () => {
       const response = await app.inject({ method: "POST", url: `/users/${randomUUID()}/report`, payload: { reason: "other" } });
       expect(response.statusCode).toBe(401);
+    });
+  });
+
+  describe("GET /users/:id/report", () => {
+    function getReport(callerId: string, targetId: string) {
+      return app.inject({ method: "GET", url: `/users/${targetId}/report`, headers: { "x-user-id": callerId } });
+    }
+
+    it("devuelve null sin un reporte en revisión", async () => {
+      const a = await repo.create(buildInput());
+      const b = await repo.create(buildInput());
+
+      const response = await getReport(a.id, b.id);
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body)).toBeNull();
+    });
+
+    it("devuelve el reporte propio con sus entradas, pero nunca el de un tercero", async () => {
+      const a = await repo.create(buildInput());
+      const b = await repo.create(buildInput());
+      const c = await repo.create(buildInput());
+      await report(a.id, b.id, { reason: "harassment", details: "me insultó" });
+      await addEntry(a.id, b.id, "y después me bloqueó el teléfono");
+
+      const own = JSON.parse((await getReport(a.id, b.id)).body);
+      expect(own).toMatchObject({ reportedId: b.id, reason: "harassment", details: "me insultó" });
+      expect(own.entries.map((e: { details: string }) => e.details)).toEqual(["y después me bloqueó el teléfono"]);
+
+      expect(JSON.parse((await getReport(c.id, b.id)).body)).toBeNull();
+    });
+
+    it("400 CANNOT_MODERATE_SELF sobre uno mismo", async () => {
+      const a = await repo.create(buildInput());
+      expect((await getReport(a.id, a.id)).statusCode).toBe(400);
+    });
+  });
+
+  describe("POST /users/:id/report/entries", () => {
+    it("suma entradas en orden sin editar el reporte original", async () => {
+      const a = await repo.create(buildInput());
+      const b = await repo.create(buildInput());
+      await report(a.id, b.id, { reason: "no_show", details: "no vino" });
+
+      await addEntry(a.id, b.id, "  primera  ");
+      const response = await addEntry(a.id, b.id, "segunda");
+
+      expect(response.statusCode).toBe(201);
+      const body = JSON.parse(response.body);
+      expect(body).toMatchObject({ reason: "no_show", details: "no vino" });
+      expect(body.entries.map((e: { details: string }) => e.details)).toEqual(["primera", "segunda"]);
+      expect(await app.db.userReportEntry.count()).toBe(2);
+    });
+
+    it("consume el mismo cupo diario que un reporte nuevo", async () => {
+      const a = await repo.create(buildInput());
+      const b = await repo.create(buildInput());
+      await report(a.id, b.id, { reason: "other" });
+      await app.redis.set(reportRateLimitKey(a.id), REPORT_RATE_LIMIT_MAX, "EX", 60);
+
+      const response = await addEntry(a.id, b.id, "más info");
+
+      expect(response.statusCode).toBe(429);
+      expect(await app.db.userReportEntry.count()).toBe(0);
+    });
+
+    it("404 REPORT_NOT_FOUND sin un reporte en revisión", async () => {
+      const a = await repo.create(buildInput());
+      const b = await repo.create(buildInput());
+
+      const response = await addEntry(a.id, b.id, "más info");
+
+      expect(response.statusCode).toBe(404);
+      expect(JSON.parse(response.body).error.code).toBe("REPORT_NOT_FOUND");
+    });
+
+    it("400 con detalle vacío, solo espacios o demasiado largo", async () => {
+      const a = await repo.create(buildInput());
+      const b = await repo.create(buildInput());
+      await report(a.id, b.id, { reason: "other" });
+
+      expect((await addEntry(a.id, b.id, "")).statusCode).toBe(400);
+      expect((await addEntry(a.id, b.id, "   ")).statusCode).toBe(400);
+      expect((await addEntry(a.id, b.id, "x".repeat(501))).statusCode).toBe(400);
+      expect(await app.db.userReportEntry.count()).toBe(0);
     });
   });
 

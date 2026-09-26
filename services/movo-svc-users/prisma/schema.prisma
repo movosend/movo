@@ -224,9 +224,25 @@ model UserReport {
   createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz
   reporter   User         @relation("UserReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
   reported   User         @relation("UserReportReported", fields: [reportedId], references: [id], onDelete: Cascade)
+  entries    UserReportEntry[]
 
   @@index([reporterId, reportedId, status], map: "user_reports_reporter_id_reported_id_status_idx")
   @@map("user_reports")
+  @@schema("users")
+}
+
+// MOVO-175 (review de PR #193): información que el reportante suma a su reporte
+// pendiente. Append-only -- el reporte original nunca se edita, así el admin ve qué
+// se dijo y cuándo.
+model UserReportEntry {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reportId  String     @map("report_id") @db.Uuid
+  details   String     @db.Text
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  report    UserReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId, createdAt], map: "user_report_entries_report_id_created_at_idx")
+  @@map("user_report_entries")
   @@schema("users")
 }
 

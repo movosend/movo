@@ -401,7 +401,15 @@ Table users.user_reports {
   details text
   status varchar [note: 'pending | reviewed | dismissed']
   created_at timestamp
-  Note: 'MOVO-175: se conserva tras la baja de cuenta (evidencia para admin)'
+  Note: 'MOVO-175: se conserva tras la baja de cuenta (evidencia para admin). A lo sumo un pending por (reporter_id, reported_id), índice único parcial'
+}
+
+Table users.user_report_entries {
+  id uuid [pk]
+  report_id uuid [ref: > users.user_reports.id]
+  details text
+  created_at timestamp
+  Note: 'MOVO-175: información que el reportante suma a su reporte pending. Append-only, el reporte original no se edita'
 }
 
 Table users.payment_method {
