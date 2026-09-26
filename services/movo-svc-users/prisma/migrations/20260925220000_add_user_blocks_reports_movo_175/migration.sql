@@ -11,7 +11,12 @@ CREATE TABLE "users"."user_blocks" (
     "blocked_id" UUID NOT NULL,
     "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "user_blocks_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "user_blocks_pkey" PRIMARY KEY ("id"),
+    -- Fix de review, PR #193: `assertNotSelf` (moderation.service.ts) ya impide un
+    -- auto-bloqueo por la API, pero es una invariante barata de garantizar en la base
+    -- -- evita que un insert directo o un futuro camino sin el service deje una fila
+    -- que además haría que `listRelatedUserIds` devuelva al propio usuario.
+    CONSTRAINT "user_blocks_no_self_block" CHECK ("blocker_id" <> "blocked_id")
 );
 
 -- CreateTable

@@ -86,12 +86,22 @@ export function createModerationService(db: PrismaClient, redis: Redis) {
 
       await consumeReportQuota(reporterId);
       const details = input.details?.trim() ? input.details.trim() : null;
-      const report = await repository.createReport({
-        reporterId,
-        reportedId,
-        reason: input.reason,
-        details,
-      });
+      // MOVO-175 (fix de review, PR #193): el cupo ya se consumió arriba -- cualquier
+      // error del INSERT (no solo el P2002 esperado del índice único parcial, también
+      // un timeout/error de conexión) tiene que reintegrarlo, o el cupo diario queda
+      // gastado sin que se haya guardado nada.
+      let report: UserReportRecord | null;
+      try {
+        report = await repository.createReport({
+          reporterId,
+          reportedId,
+          reason: input.reason,
+          details,
+        });
+      } catch (error) {
+        await refundReportQuota(reporterId);
+        throw error;
+      }
       if (!report) {
         // Dos pedidos concurrentes pasaron los dos el `findPendingReport` de arriba y
         // el índice único parcial dejó entrar solo a uno: este no creó nada, así que
@@ -123,7 +133,15 @@ export function createModerationService(db: PrismaClient, redis: Redis) {
         throw new ApiError(404, "REPORT_NOT_FOUND", "No tenés un reporte en revisión sobre este usuario.");
       }
       await consumeReportQuota(reporterId);
-      const entry = await repository.addReportEntry(pending.id, trimmed);
+      // Mismo criterio que reportUser: si el INSERT falla por cualquier motivo, el
+      // cupo ya consumido se reintegra en vez de perderse sin haber guardado nada.
+      let entry;
+      try {
+        entry = await repository.addReportEntry(pending.id, trimmed);
+      } catch (error) {
+        await refundReportQuota(reporterId);
+        throw error;
+      }
       return { ...pending, entries: [...pending.entries, entry] };
     },
 
