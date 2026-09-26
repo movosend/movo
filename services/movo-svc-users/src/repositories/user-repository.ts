@@ -84,7 +84,7 @@ export interface UserRepository {
    * Búsqueda de receptor (AC3 de MOVO-80) por nombre completo — no existe columna
    * `username` en este modelo. Excluye al propio caller.
    */
-  search(query: string, excludeUserId: string, limit: number): Promise<User[]>;
+  search(query: string, excludeUserIds: string[], limit: number): Promise<User[]>;
   /** MOVO-134: `POST /users/me/password`, después de verificar la contraseña actual. */
   updatePassword(id: string, passwordHash: string): Promise<User | null>;
   /**
@@ -463,7 +463,7 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
       }
     },
 
-    async search(query: string, excludeUserId: string, limit: number): Promise<User[]> {
+    async search(query: string, excludeUserIds: string[], limit: number): Promise<User[]> {
       const words = query.split(/\s+/).filter(Boolean);
       const or: Prisma.UserWhereInput[] = [
         { firstName: { contains: query, mode: "insensitive" } },
@@ -489,7 +489,7 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         // Mismo criterio que `getPublicProfile` (users.service.ts): `deleted` es baja
         // lógica y se trata como "no existe" hacia afuera; `banned` sí es buscable
         // (sanción reversible, no una baja voluntaria).
-        where: { AND: [{ id: { not: excludeUserId } }, { status: { not: PrismaAccountStatus.deleted } }, { OR: or }] },
+        where: { AND: [{ id: { notIn: excludeUserIds } }, { status: { not: PrismaAccountStatus.deleted } }, { OR: or }] },
         include: { roles: true },
         take: limit,
         orderBy: { firstName: "asc" },

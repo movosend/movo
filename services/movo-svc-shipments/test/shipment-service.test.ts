@@ -868,13 +868,16 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
 
       await service.acceptShipment(shipment.id, "receiver-id");
 
-      expect(tripRepository.findActiveTripsMatchingShipment).toHaveBeenCalledWith({
-        pickupLat: shipment.pickupLat,
-        pickupLng: shipment.pickupLng,
-        deliveryLat: shipment.deliveryLat,
-        deliveryLng: shipment.deliveryLng,
-        excludeCarrierIds: [shipment.senderId, shipment.receiverId],
-        radiusKm: 15,
+      // Fire-and-forget: desde MOVO-175 resuelve los bloqueos antes de buscar viajes.
+      await vi.waitFor(() => {
+        expect(tripRepository.findActiveTripsMatchingShipment).toHaveBeenCalledWith({
+          pickupLat: shipment.pickupLat,
+          pickupLng: shipment.pickupLng,
+          deliveryLat: shipment.deliveryLat,
+          deliveryLng: shipment.deliveryLng,
+          excludeCarrierIds: [shipment.senderId, shipment.receiverId],
+          radiusKm: 15,
+        });
       });
       // Peter (comentario de Linear): solo se llama a pricing-logistics para los
       // candidatos que YA pasaron el prefiltro geométrico, no para todo el universo
@@ -1028,6 +1031,35 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       expect(result.status).toBe(ShipmentStatus.PUBLISHED);
     });
 
+    it("MOVO-175: excluye a los transportistas con un bloqueo con el emisor o el receptor", async () => {
+      const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+      const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.PUBLISHED });
+      const repository = fakeRepository({
+        findById: vi.fn().mockResolvedValue(shipment),
+        updateStatus: vi.fn().mockResolvedValue(updatedShipment),
+      });
+      const tripRepository = createFakeTripRepository();
+      const usersClient = createFakeUsersClient({}, {}, [
+        ["sender-id", "carrier-blocked-by-sender"],
+        ["carrier-who-blocked-receiver", "receiver-id"],
+      ]);
+      const service = createShipmentsService(repository, usersClient, createFakeNotificationsClient(), undefined, {
+        tripRepository,
+        pricingLogisticsClient: createFakePricingLogisticsClient(),
+        tripMatchDetourRadiusKm: 15,
+      });
+
+      await service.acceptShipment(shipment.id, "receiver-id");
+
+      await vi.waitFor(() => {
+        expect(tripRepository.findActiveTripsMatchingShipment).toHaveBeenCalledWith(
+          expect.objectContaining({
+            excludeCarrierIds: ["sender-id", "receiver-id", "carrier-blocked-by-sender", "carrier-who-blocked-receiver"],
+          })
+        );
+      });
+    });
+
     it("sin viajes que matcheen geométricamente, no llama a pricing-logistics ni dispara ninguna push de este tipo", async () => {
       const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
       const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.PUBLISHED });
@@ -1046,7 +1078,9 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
 
       await service.acceptShipment(shipment.id, "receiver-id");
 
-      expect(tripRepository.findActiveTripsMatchingShipment).toHaveBeenCalled();
+      await vi.waitFor(() => {
+        expect(tripRepository.findActiveTripsMatchingShipment).toHaveBeenCalled();
+      });
       expect(pricingLogisticsClient.evaluateCandidates).not.toHaveBeenCalled();
       const tripMatchCalls = (notificationsClient.sendPush as ReturnType<typeof vi.fn>).mock.calls.filter(
         ([input]) => input.data?.type === "trip_match"

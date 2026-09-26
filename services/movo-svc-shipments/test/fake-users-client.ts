@@ -8,12 +8,23 @@ import { DeviceKey, UsersClient } from "../src/adapters/users-client";
  * `deviceKeys` (MOVO-158) mapea `userId -> DeviceKey | undefined` (ausente = 404
  * `DEVICE_KEY_NOT_FOUND` real de svc-users, MOVO-157) — opcional, default vacío, los
  * tests que no ejercitan el handshake no necesitan tocarlo.
+ * `blocks` (MOVO-175) es una lista de pares `[blockerId, blockedId]`; el fake resuelve
+ * la simetría igual que svc-users (unión de las dos direcciones).
  */
 export function createFakeUsersClient(
   profiles: Record<string, PublicProfile>,
-  deviceKeys: Record<string, DeviceKey> = {}
+  deviceKeys: Record<string, DeviceKey> = {},
+  blocks: Array<[string, string]> = []
 ): UsersClient {
   return {
+    async listBlockRelatedUserIds(userId: string): Promise<string[]> {
+      const ids = new Set<string>();
+      for (const [blocker, blocked] of blocks) {
+        if (blocker === userId) ids.add(blocked);
+        if (blocked === userId) ids.add(blocker);
+      }
+      return [...ids];
+    },
     async findPublicProfile(userId: string): Promise<PublicProfile | null> {
       return profiles[userId] ?? null;
     },

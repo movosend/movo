@@ -1,25 +1,29 @@
-import { Alert } from "react-native";
-import { fireEvent, render } from "@testing-library/react-native";
-import { ReportReason } from "@movo/shared/dist/types/user";
+import { Alert, type AlertButton } from "react-native";
+import { act, fireEvent, render } from "@testing-library/react-native";
+import { ApiError } from "@movo/shared/dist/errors/api-error";
+import { ReportReason, ReportStatus, type UserReportSummary } from "@movo/shared/dist/types/user";
 import { ProfileActionsMenu } from "../components/profile/profile-actions-menu";
 
-const mockReportMutate = jest.fn();
+type MutateOpts = { onSuccess?: () => void; onError?: (err: unknown) => void };
+
+const mockPush = jest.fn();
 const mockBlockMutate = jest.fn();
-let mockReportState = { isPending: false };
-let mockBlockState = { isPending: false };
+const mockUnblockMutate = jest.fn();
+let mockPendingReport: UserReportSummary | null = null;
+
+jest.mock("expo-router", () => ({
+  router: { push: (...args: unknown[]) => mockPush(...args) },
+}));
 
 jest.mock("../src/hooks/use-moderation", () => ({
-  useReportUser: (_userId: string, options: { onSuccess?: () => void }) => ({
-    mutateAsync: (input: unknown) => {
-      mockReportMutate(input);
-      options.onSuccess?.();
-      return Promise.resolve();
-    },
-    isPending: mockReportState.isPending,
-  }),
+  usePendingReport: () => ({ data: mockPendingReport }),
   useBlockUser: () => ({
-    mutate: (_arg: unknown, opts?: { onError?: (err: unknown) => void }) => mockBlockMutate(opts),
-    isPending: mockBlockState.isPending,
+    mutate: (_arg: unknown, opts?: MutateOpts) => mockBlockMutate(opts),
+    isPending: false,
+  }),
+  useUnblockUser: () => ({
+    mutate: (userId: string, opts?: MutateOpts) => mockUnblockMutate(userId, opts),
+    isPending: false,
   }),
 }));
 
@@ -45,61 +49,121 @@ jest.mock("@react-native-menu/menu", () => {
   };
 });
 
+/** Ejecuta el botón no-cancel del último `Alert.alert` dentro de `act()` (sus
+ * callbacks no pasan por ningún evento de RNTL). */
+async function confirmLastAlert() {
+  const buttons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as AlertButton[];
+  const confirm = buttons.find((b) => b.style !== "cancel");
+  await act(async () => {
+    confirm?.onPress?.();
+  });
+}
+
 describe("ProfileActionsMenu", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockReportState = { isPending: false };
-    mockBlockState = { isPending: false };
+    mockPendingReport = null;
     jest.spyOn(Alert, "alert").mockImplementation(() => {});
   });
 
-  it("abre el modal de reporte al elegir 'Reportar' del menú", async () => {
+  it("sin reporte en revisión ofrece reportar y navega a la pantalla de reporte", async () => {
     const { getByTestId, getByText } = await render(
-      <ProfileActionsMenu userId="user-2" fullName="Marta González" testID="actions" />
+      <ProfileActionsMenu userId="user-2" fullName="Marta González" testID="actions" />,
     );
 
+    expect(getByText("Reportar a Marta González")).toBeTruthy();
     await fireEvent.press(getByTestId("actions-menu-action-report-user"));
 
-    expect(getByTestId("actions-report-modal")).toBeTruthy();
-    expect(getByText("El equipo de Movo revisa cada reporte. Contanos qué pasó.")).toBeTruthy();
+    expect(mockPush).toHaveBeenCalledWith("/profile/user-2/report");
   });
 
-  it("exige elegir un motivo antes de enviar el reporte", async () => {
+  it("con un reporte en revisión ofrece verlo, en la misma pantalla", async () => {
+    mockPendingReport = {
+      id: "report-1",
+      reportedId: "user-2",
+      reason: ReportReason.NO_SHOW,
+      details: null,
+      status: ReportStatus.PENDING,
+      createdAt: "2026-09-20T15:00:00.000Z",
+      entries: [],
+    };
     const { getByTestId, getByText } = await render(
-      <ProfileActionsMenu userId="user-2" fullName="Marta González" testID="actions" />
+      <ProfileActionsMenu userId="user-2" fullName="Marta González" testID="actions" />,
     );
 
+    expect(getByText("Ver tu reporte")).toBeTruthy();
     await fireEvent.press(getByTestId("actions-menu-action-report-user"));
-    await fireEvent.press(getByTestId("actions-report-confirm-button"));
 
-    expect(getByText("Elegí un motivo para continuar.")).toBeTruthy();
-    expect(mockReportMutate).not.toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith("/profile/user-2/report");
   });
 
-  it("envía el reporte con el motivo elegido", async () => {
+  it("pide confirmación nativa antes de bloquear y avisa el resultado", async () => {
+    const onActionSuccess = jest.fn();
     const { getByTestId } = await render(
-      <ProfileActionsMenu userId="user-2" fullName="Marta González" testID="actions" />
-    );
-
-    await fireEvent.press(getByTestId("actions-menu-action-report-user"));
-    await fireEvent.press(getByTestId(`actions-reason-${ReportReason.NO_SHOW}`));
-    await fireEvent.press(getByTestId("actions-report-confirm-button"));
-
-    expect(mockReportMutate).toHaveBeenCalledWith({ reason: ReportReason.NO_SHOW, details: undefined });
-  });
-
-  it("pide confirmación nativa antes de bloquear", async () => {
-    const { getByTestId } = await render(
-      <ProfileActionsMenu userId="user-2" fullName="Marta González" testID="actions" />
+      <ProfileActionsMenu
+        userId="user-2"
+        fullName="Marta González"
+        onActionSuccess={onActionSuccess}
+        testID="actions"
+      />,
     );
 
     await fireEvent.press(getByTestId("actions-menu-action-block-user"));
 
     expect(Alert.alert).toHaveBeenCalledWith(
       "¿Bloquear a Marta González?",
-      expect.any(String),
+      "Podés revertirlo cuando quieras desde Configuración › Cuenta y seguridad › Usuarios bloqueados.",
       expect.any(Array),
     );
     expect(mockBlockMutate).not.toHaveBeenCalled();
+
+    await confirmLastAlert();
+    const opts = mockBlockMutate.mock.calls[0][0] as MutateOpts;
+    await act(async () => {
+      opts.onSuccess?.();
+    });
+    expect(onActionSuccess).toHaveBeenCalledWith("Bloqueaste a Marta González.");
+  });
+
+  it("con isBlockedByMe ofrece 'Desbloquear' en vez de 'Bloquear' y desbloquea tras confirmar", async () => {
+    const onActionSuccess = jest.fn();
+    const { getByTestId, queryByTestId } = await render(
+      <ProfileActionsMenu
+        userId="user-2"
+        fullName="Marta González"
+        isBlockedByMe
+        onActionSuccess={onActionSuccess}
+        testID="actions"
+      />,
+    );
+
+    expect(queryByTestId("actions-menu-action-block-user")).toBeNull();
+    await fireEvent.press(getByTestId("actions-menu-action-unblock-user"));
+    await confirmLastAlert();
+
+    expect(mockUnblockMutate).toHaveBeenCalledWith("user-2", expect.any(Object));
+    const opts = mockUnblockMutate.mock.calls[0][1] as MutateOpts;
+    await act(async () => {
+      opts.onSuccess?.();
+    });
+    expect(onActionSuccess).toHaveBeenCalledWith("Desbloqueaste a Marta González.");
+  });
+
+  it("un bloqueo fallido muestra el error traducido", async () => {
+    const { getByTestId } = await render(
+      <ProfileActionsMenu userId="user-2" fullName="Marta González" testID="actions" />,
+    );
+
+    await fireEvent.press(getByTestId("actions-menu-action-block-user"));
+    await confirmLastAlert();
+    const opts = mockBlockMutate.mock.calls[0][0] as MutateOpts;
+    await act(async () => {
+      opts.onError?.(new ApiError(400, "CANNOT_MODERATE_SELF", "self"));
+    });
+
+    expect(Alert.alert).toHaveBeenLastCalledWith(
+      "No pudimos bloquear",
+      "No podés reportarte ni bloquearte a vos mismo.",
+    );
   });
 });

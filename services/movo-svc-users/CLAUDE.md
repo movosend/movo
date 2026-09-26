@@ -1070,3 +1070,37 @@ necesario fue declarar `categories` en `reputationBreakdown` de `users.schema.ts
 sin eso el serializador de Fastify lo descarta en silencio y nunca llega al cliente
 (el test nuevo de `users.reputation.integration.test.ts` falla sin ese campo).
 
+### MOVO-175 — Reportar y bloquear usuarios (ADR-026)
+
+Módulo nuevo `src/modules/moderation/` + `moderation-repository.ts`, tablas
+`user_blocks`/`user_reports` (migración a mano, `prisma migrate diff` datamodel→datamodel
+con el prefijo `users.` agregado). Rutas protegidas bajo `/users` (sin cambios en el
+gateway): `POST /users/:id/report`, `POST`/`DELETE /users/:id/block`, `GET /users/me/blocked`;
+interna `GET /internal/users/:id/block-relations` (unión simétrica, la consume `svc-shipments`).
+
+- **Una fila por dirección, efecto simétrico**: la simetría la resuelve
+  `listRelatedUserIds`, no la tabla — `isBlockedByMe` (nuevo en `GET /users/:id`, solo
+  mirando a otro) necesita saber la dirección, y nunca revela si el otro bloqueó al caller.
+- **Un reporte `pending` por par, ampliable pero no editable**: reportar de nuevo da
+  409 `REPORT_ALREADY_PENDING`; lo que el reportante quiera agregar va como entrada
+  (`POST /users/:id/report/entries`, tabla `user_report_entries`, append-only) y
+  `GET /users/:id/report` devuelve el propio con sus entradas o `null`. Reportes y
+  entradas comparten el tope de 10/día por usuario (Redis `SET NX EX` + `INCR`,
+  `RATE_LIMIT_EXCEEDED`). Solo se persisten — la revisión es de admin, fuera de alcance.
+- **`deleteAccount` borra los bloqueos en ambas direcciones** dentro de su `$transaction`
+  (el `Cascade` nunca dispara por el soft delete); los reportes se conservan como evidencia.
+- `GET /users/search` excluye a cualquiera con un bloqueo en cualquier dirección
+  (`search()` pasa a recibir una lista de ids a excluir).
+
+Pendiente / fuera de alcance: revisión de reportes desde `movo-admin`/`svc-admin`.
+
+**Cambios de review (PR #193)**:
+- Alena1812: el chequeo de pendiente y el INSERT no estaban atados, así que dos pedidos
+  concurrentes creaban dos filas y consumían dos cupos. Migración
+  `20260926120000_unique_pending_report_movo_175`: índice único parcial
+  `(reporter_id, reported_id) WHERE status = 'pending'` (a mano, mismo criterio que
+  MOVO-119). Ante el `P2002` se reintegra el cupo (`DECR` en Lua, solo si la key sigue
+  viva) y se responde el mismo 409.
+- La versión original respondía 200 con el reporte existente y descartaba sin avisar el
+  motivo/detalle del segundo intento. Se reemplazó por el 409 + entradas de arriba
+  (migración `20260926130000_add_user_report_entries_movo_175`).

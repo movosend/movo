@@ -13,6 +13,7 @@ import { OfferRepository } from "../../repositories/offer-repository";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { UsersClient } from "../../adapters/users-client";
+import { assertNotBlocked } from "../../utils/block-relations";
 import { Offer, OfferCompetitiveRank, OfferWithShipmentContext } from "../../models/offer";
 import { Trip } from "../../models/trip";
 import { assertIsSender } from "../shipments/assert-shipment-access";
@@ -102,19 +103,15 @@ const AUTO_TRIP_VEHICLE_TYPE_PLACEHOLDER = "Vehículo sin especificar";
  * MOVO-234 (AC1): `vehicleType` del `Trip` auto-creado al aceptar una oferta sin
  * viaje asociado -- mismo formato `${brand} ${model}` que usa `movo-mobile` al
  * declarar un viaje a mano (`components/trips/trip-form.tsx`). Best-effort: sin
- * `usersClient` inyectado, sin ficha de vehículo cargada, o ante cualquier fallo de
- * red, degrada al placeholder -- nunca bloquea la aceptación de la oferta (mismo
- * criterio try/catch+`logger?.warn` que `resolveSnapshotProfile`,
- * `shipments.service.ts`).
+ * ficha de vehículo cargada, o ante cualquier fallo de red, degrada al placeholder --
+ * nunca bloquea la aceptación de la oferta (mismo criterio try/catch+`logger?.warn`
+ * que `resolveSnapshotProfile`, `shipments.service.ts`).
  */
 async function resolveAutoTripVehicleType(
-  usersClient: UsersClient | undefined,
+  usersClient: UsersClient,
   carrierId: string,
   logger?: OffersServiceLogger
 ): Promise<string> {
-  if (!usersClient) {
-    return AUTO_TRIP_VEHICLE_TYPE_PLACEHOLDER;
-  }
   try {
     const profile = await usersClient.findPublicProfile(carrierId, carrierId);
     if (profile?.vehicle) {
@@ -290,15 +287,24 @@ async function attachCompetitiveRanks(
 export function createOffersService(
   offerRepository: OfferRepository,
   shipmentRepository: ShipmentRepository,
+  /**
+   * MOVO-175 (fix de review, PR #193): antes opcional (último parámetro) -- un
+   * `usersClient` sin inyectar saltaba en silencio el chequeo de bloqueo de
+   * `acceptOffer`/`updateOffer` (ADR-026), contra el "falla cerrado" que ambos
+   * documentan. `offers.routes.ts` siempre lo inyecta en producción
+   * (`opts.usersClient ?? createUsersClient(app.config)`), así que volverlo
+   * obligatorio no cambia el comportamiento real -- solo cierra la posibilidad de que
+   * un cableado futuro lo deje afuera sin que ningún test lo note. Movido antes de los
+   * parámetros opcionales (TS no permite un parámetro requerido después de uno
+   * opcional) -- los tests unitarios que no ejercitan el chequeo de bloqueo pasan un
+   * fake.
+   */
+  usersClient: UsersClient,
   notificationsClient?: NotificationsClient,
   logger?: OffersServiceLogger,
   /** MOVO-188: opcional -- sin inyectar (tests que no lo necesitan), el desempate
    * salta directo al criterio de envíos entregados/antigüedad, nunca rompe. */
-  getCarrierReputationScores?: GetCarrierReputationScores,
-  /** MOVO-234: opcional -- sin inyectar, `acceptOffer` sigue auto-creando el `Trip`
-   * (AC1 no depende de `usersClient`), solo que `vehicleType` degrada directo al
-   * placeholder sin intentar resolver la ficha de vehículo real. */
-  usersClient?: UsersClient
+  getCarrierReputationScores?: GetCarrierReputationScores
 ) {
   return {
     /**
@@ -386,6 +392,10 @@ export function createOffersService(
       }
 
       assertIsSender(shipment, callerId);
+      // MOVO-175 (ADR-026): una oferta hecha antes del bloqueo ya no se puede aceptar.
+      // Falla cerrado -- `usersClient` es obligatorio (ver comentario del parámetro en
+      // createOffersService), así que este chequeo siempre se ejecuta.
+      await assertNotBlocked(usersClient, offer.carrierId, [shipment.senderId, shipment.receiverId]);
 
       // MOVO-234 (AC1): se resuelve el vehículo del transportista ANTES de la
       // transacción de aceptación -- I/O a `usersClient` no anidable dentro de la
@@ -517,6 +527,15 @@ export function createOffersService(
       if (offer.carrierId !== callerId) {
         throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el transportista dueño de la oferta puede modificarla.");
       }
+
+      // MOVO-175 (ADR-026): mismo criterio que `acceptOffer` -- una oferta hecha antes
+      // del bloqueo tampoco se puede editar. Falla cerrado, `usersClient` es
+      // obligatorio (ver comentario del parámetro en createOffersService).
+      const shipment = await shipmentRepository.findById(offer.shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+      await assertNotBlocked(usersClient, offer.carrierId, [shipment.senderId, shipment.receiverId]);
 
       if (patch.priceOfferedArs !== undefined && patch.priceOfferedArs <= 0) {
         throw new ApiError(422, "VALIDATION_FAILED", "El precio ofertado tiene que ser mayor a 0.");

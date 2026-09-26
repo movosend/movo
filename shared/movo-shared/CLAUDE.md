@@ -307,3 +307,11 @@ subpath `dist/config/rating-categories`, no por el barrel). `scoreField`
 también desde el barrel, junto con `ReputationCategoryScore` (que ya existía pero no se
 exportaba). `ReputationBreakdown.categories` deja de ser "todavía sin backend".
 
+### MOVO-175 — Reportar y bloquear usuarios
+
+`ReportReason`/`ReportStatus` (ya existían sin backend) pasan a exportarse desde el barrel;
+nuevos `BlockedUserSummary` (`types/user.ts`), `PublicProfile.isBlockedByMe?` (opcional, solo
+en `GET /users/:id` mirando a otro) y los códigos `USER_BLOCKED`/`CANNOT_MODERATE_SELF`. El
+límite diario de reportes reusa `RATE_LIMIT_EXCEEDED` en vez de un código propio. Review de
+PR #193: `UserReportSummary`/`UserReportEntry` (reporte propio en revisión con la información
+sumada después) y los códigos `REPORT_ALREADY_PENDING`/`REPORT_NOT_FOUND`.

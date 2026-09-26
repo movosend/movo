@@ -47,8 +47,7 @@ export enum AccountStatus {
 }
 
 /**
- * Motivo de un reporte de usuario (MOVO-175, todavía sin backend — el mobile ya
- * tipa el modal de reportar contra este enum). Se agregan valores al final, nunca
+ * Motivo de un reporte de usuario (MOVO-175). Se agregan valores al final, nunca
  * se renombra uno existente (mismo criterio que `KycStatus`).
  */
 export enum ReportReason {
@@ -59,9 +58,46 @@ export enum ReportReason {
   OTHER = "other",
 }
 
-/** Estado de revisión de un reporte de usuario (MOVO-175, todavía sin backend). */
+/** Estado de revisión de un reporte de usuario (MOVO-175). La revisión la hace un admin (fuera de alcance de MOVO-175). */
 export enum ReportStatus {
   PENDING = "pending",
   REVIEWED = "reviewed",
   DISMISSED = "dismissed",
+}
+
+/** Información que el reportante sumó a su reporte pendiente (MOVO-175). Append-only. */
+export interface UserReportEntry {
+  id: string;
+  details: string;
+  /** ISO date. */
+  createdAt: string;
+}
+
+/**
+ * Reporte propio sobre otro usuario (MOVO-175): `GET /users/:id/report` y respuesta de
+ * `POST /users/:id/report`. Nunca expone reportes de terceros.
+ */
+export interface UserReportSummary {
+  id: string;
+  reportedId: string;
+  reason: ReportReason;
+  details: string | null;
+  status: ReportStatus;
+  /** ISO date. */
+  createdAt: string;
+  /** Entradas sumadas después, de la más vieja a la más nueva. */
+  entries: UserReportEntry[];
+}
+
+/**
+ * Fila de `GET /users/me/blocked` (MOVO-175): usuarios que el caller bloqueó, del
+ * más reciente al más viejo. Solo la dirección propia -- quién me bloqueó a mí no
+ * se expone nunca.
+ */
+export interface BlockedUserSummary {
+  id: string;
+  fullName: string;
+  photoUrl: string | null;
+  /** ISO date del bloqueo. */
+  blockedAt: string;
 }

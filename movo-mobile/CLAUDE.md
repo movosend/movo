@@ -3823,3 +3823,32 @@ dibujaba `breakdown.categories` si existía.
 
 Pendiente / fuera de alcance: no probado en dispositivo.
 
+
+### MOVO-175 — Reportar y bloquear usuarios, cierre del lado mobile (ADR-026)
+
+Completa lo que MOVO-176 había dejado armado contra endpoints inexistentes. El menú de
+`profile-actions-menu.tsx` alterna "Bloquear"/"Desbloquear" según `isBlockedByMe`, avisa el
+resultado con `SuccessBanner` en `profile/[id].tsx` (antes no había feedback), y reportar
+navega a su propia pantalla (ver abajo). Errores vía `friendlyErrorMessage`, con override del
+`RATE_LIMIT_EXCEEDED` para el tope diario de reportes; se sacó el copy temporal del 404.
+
+- **Pantalla nueva `profile/blocked-users.tsx`** desde "Cuenta y seguridad" (sección
+  "Privacidad"): lista, desbloqueo confirmado con `Alert.alert`, estado vacío. Arriba,
+  `BlockImplicationsCard` explica qué implica un bloqueo (cada fila es una regla que el
+  backend aplica de verdad) — toda la pantalla es un solo scroll para que la card se vea
+  también con la lista vacía, cargando o con error.
+- **Pantalla `profile/[id]/report.tsx` (review de PR #193)**: un solo lugar para "mi reporte
+  sobre esta persona". Sin reporte en revisión muestra `ReportForm`; con uno, `PendingReportView`
+  (motivo, detalle y entradas ya enviadas, más un campo para sumar información vía
+  `useAddReportEntry`, nunca edita lo enviado). Al crear, la misma pantalla pasa a mostrar el
+  reporte con un agradecimiento y "Bloquear a {nombre}". Un 409 `REPORT_ALREADY_PENDING` (caso
+  raro: reporte hecho desde otro dispositivo, o un reintento cuyo primer envío sí llegó) muestra
+  el reporte existente con un aviso, sin trasladar lo escrito a ningún campo. Empezó como sheet del
+  menú y se movió a pantalla porque el historial de entradas crece sin límite y el teclado
+  dentro de un sheet con scroll anidado era frágil.
+- **`usePendingReport` (`GET /users/:id/report`) lo lanza `profile/[id].tsx` en paralelo con
+  el perfil**: el menú lo lee del caché (`staleTime` de 30s, sin segunda request) para
+  ofrecer "Reportar a {nombre}" o "Ver tu reporte", ambas navegando a la pantalla de arriba.
+- **Bloquear/desbloquear invalida más que el perfil** (`invalidateBlockDependentQueries`):
+  el feed disponible, los matches de viaje y las ofertas de cualquier envío
+  (`["shipments", id, "offers", ...]`, por predicado porque el id va en el medio de la key).
