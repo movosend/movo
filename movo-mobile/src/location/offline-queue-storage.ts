@@ -1,4 +1,4 @@
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { secureStore, SECURE_STORE_KEYS } from "../lib/secure-store";
 
 export interface QueuedPosition {
