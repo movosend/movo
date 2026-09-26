@@ -133,17 +133,20 @@ export function computeCategoryScores(
   params: ReputationParams,
 ): ReputationCategoryScore[] | undefined {
   const now = params.now ?? new Date();
+  // El peso de decaimiento depende solo de `createdAt`, no de la categoría -- se calcula
+  // una vez por calificación en vez de una vez por (categoría × calificación).
+  const weights = ratings.map((rating) => decayWeight(rating.createdAt, now, params.decayHalfLifeDays));
   const result: ReputationCategoryScore[] = [];
 
   for (const { key, label, scoreField } of definitions) {
     let weightedScoreSum = 0;
     let weightedCount = 0;
-    for (const rating of ratings) {
-      const value = rating[scoreField];
+    for (let i = 0; i < ratings.length; i++) {
+      const value = ratings[i][scoreField];
       if (typeof value !== "number") {
         continue;
       }
-      const weight = decayWeight(rating.createdAt, now, params.decayHalfLifeDays);
+      const weight = weights[i];
       weightedScoreSum += weight * value;
       weightedCount += weight;
     }

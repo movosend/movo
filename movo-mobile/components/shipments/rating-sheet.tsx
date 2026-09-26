@@ -1,5 +1,5 @@
 import * as Haptics from "expo-haptics";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
@@ -76,13 +76,16 @@ function categoriesForRole(role: RatingRole): readonly RatingCategoryDefinition[
   return RECEIVER_RATING_CATEGORIES;
 }
 
+// CARRIER_RATING_CATEGORIES es el superset de campos (transportista es el único rol
+// con las 3) -- derivarlo de ahí evita mantener este literal en sincronía a mano con
+// @movo/shared (ver el mismo criterio en ratings.service.ts del backend).
+const ALL_CATEGORY_FIELDS: readonly RatingCategoryScoreField[] = CARRIER_RATING_CATEGORIES.map(
+  (c) => c.scoreField,
+);
+
 function initialCategoryScores(rating?: Rating): RatingCategoryScoresInput {
   const scores: RatingCategoryScoresInput = {};
-  for (const field of [
-    "punctualityScore",
-    "careScore",
-    "communicationScore",
-  ] as const) {
+  for (const field of ALL_CATEGORY_FIELDS) {
     const value = rating?.[field];
     if (typeof value === "number") {
       scores[field] = value;
@@ -116,7 +119,10 @@ export function RatingSheet({
 
   const [score, setScore] = useState<number>(effectiveTarget?.existingRating?.score ?? 0);
   const [comment, setComment] = useState<string>(effectiveTarget?.existingRating?.comment ?? "");
-  const [categoryScores, setCategoryScores] = useState<RatingCategoryScoresInput>(() =>
+  // Solo las categorías que el usuario eligió a mano (o que vienen de la calificación que
+  // edita) -- estar presente acá ES la marca de "tocada". La estrella general nunca
+  // escribe acá, así cambiar el puntaje general después nunca pisa una elección puntual.
+  const [manualCategoryScores, setManualCategoryScores] = useState<RatingCategoryScoresInput>(() =>
     initialCategoryScores(effectiveTarget?.existingRating),
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -141,12 +147,17 @@ export function RatingSheet({
 
   const categories = effectiveTarget ? categoriesForRole(effectiveTarget.rateeRole) : [];
 
-  // Categorías que el usuario ya eligió a mano (o que vienen de la calificación que edita):
-  // la estrella general las autocompleta solo si NO están acá, así cambiar el puntaje general
-  // después nunca pisa una elección puntual.
-  const touchedCategories = useRef<Set<RatingCategoryScoreField>>(
-    new Set(Object.keys(initialCategoryScores(effectiveTarget?.existingRating)) as RatingCategoryScoreField[]),
-  );
+  // Fusiona lo tocado a mano con el autocompletado por la estrella general (categorías
+  // del rol sin entrada manual, mientras haya un puntaje general elegido).
+  const categoryScores = useMemo<RatingCategoryScoresInput>(() => {
+    const merged: RatingCategoryScoresInput = { ...manualCategoryScores };
+    for (const { scoreField } of categories) {
+      if (!(scoreField in manualCategoryScores) && score > 0) {
+        merged[scoreField] = score;
+      }
+    }
+    return merged;
+  }, [manualCategoryScores, categories, score]);
 
   // Reset recién cuando el sheet terminó de cerrarse: si fuera al abrir, un frame mostraría
   // la confirmación vieja; si fuera al empezar a cerrar, se vería el formulario deslizándose.
@@ -161,9 +172,7 @@ export function RatingSheet({
     if (visible && target) {
       setScore(target.existingRating?.score ?? 0);
       setComment(target.existingRating?.comment ?? "");
-      const initial = initialCategoryScores(target.existingRating);
-      setCategoryScores(initial);
-      touchedCategories.current = new Set(Object.keys(initial) as RatingCategoryScoreField[]);
+      setManualCategoryScores(initialCategoryScores(target.existingRating));
       setErrorMessage(null);
     }
   }, [visible, target]);
@@ -172,23 +181,14 @@ export function RatingSheet({
   const updateMutation = useUpdateRating(shipmentId);
   const isPending = createMutation.isPending || updateMutation.isPending;
 
-  // Calificar en general autocompleta con el mismo valor las categorías todavía sin tocar.
+  // Calificar en general autocompleta con el mismo valor las categorías todavía sin tocar
+  // (vía el merge de `categoryScores` de arriba, reactivo a `score`).
   const handleScoreChange = (value: number) => {
     setScore(value);
-    setCategoryScores((prev) => {
-      const next = { ...prev };
-      for (const { scoreField } of categories) {
-        if (!touchedCategories.current.has(scoreField)) {
-          next[scoreField] = value;
-        }
-      }
-      return next;
-    });
   };
 
   const handleCategoryChange = (field: RatingCategoryScoreField, value: number) => {
-    touchedCategories.current.add(field);
-    setCategoryScores((prev) => ({ ...prev, [field]: value }));
+    setManualCategoryScores((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleClose = () => {

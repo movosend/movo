@@ -99,11 +99,12 @@ const CATEGORY_FIELDS_BY_RATEE_ROLE: Record<RatingRole, ReadonlySet<RatingCatego
   [RatingRole.receiver]: new Set(RECEIVER_RATING_CATEGORIES.map((c) => c.scoreField)),
 };
 
-const ALL_CATEGORY_FIELDS: readonly RatingCategoryScoreField[] = [
-  "punctualityScore",
-  "careScore",
-  "communicationScore",
-];
+// CARRIER_RATING_CATEGORIES es el superset (transportista es el único rol con las 3
+// categorías) -- derivarlo de ahí evita mantener este literal en sincronía a mano si
+// @movo/shared suma una categoría nueva.
+const ALL_CATEGORY_FIELDS: readonly RatingCategoryScoreField[] = CARRIER_RATING_CATEGORIES.map(
+  (c) => c.scoreField,
+);
 
 const RATEE_ROLE_LABEL: Record<RatingRole, string> = {
   [RatingRole.carrier]: "transportista",

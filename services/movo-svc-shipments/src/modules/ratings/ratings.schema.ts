@@ -1,5 +1,7 @@
 // Autocontenido a propósito (no importa de otros *.schema.ts) -- mismo criterio que el
-// resto del repo (ver shipments.schema.ts).
+// resto del repo (ver shipments.schema.ts). Sí importa de @movo/shared (no es un
+// *.schema.ts), fuente única de qué campos de categoría existen (MOVO-173).
+import { CARRIER_RATING_CATEGORIES } from "@movo/shared";
 
 const RATING_ROLE_VALUES = ["sender", "carrier", "receiver"];
 
@@ -17,13 +19,14 @@ const MAX_RECENT_RATINGS_LIMIT = 50;
 // MOVO-173: sub-scores opcionales, mismo rango entero 1..5 que `score`. Cuáles aplican
 // depende del rol del CALIFICADO -- lo valida `ratings.service.ts` (422), no este schema.
 const categoryScoreInput = { type: "integer", minimum: SCORE_MIN, maximum: SCORE_MAX };
-const categoryScoreInputProperties = {
-  punctualityScore: categoryScoreInput,
-  careScore: categoryScoreInput,
-  communicationScore: categoryScoreInput,
-};
+const categoryScoreInputProperties = Object.fromEntries(
+  CARRIER_RATING_CATEGORIES.map((c) => [c.scoreField, categoryScoreInput]),
+);
 
 const categoryScoreOutput = { type: ["integer", "null"] };
+const categoryScoreOutputProperties = Object.fromEntries(
+  CARRIER_RATING_CATEGORIES.map((c) => [c.scoreField, categoryScoreOutput]),
+);
 
 const ratingResponse = {
   type: "object",
@@ -37,9 +40,7 @@ const ratingResponse = {
     score: { type: "integer" },
     comment: { type: ["string", "null"] },
     // MOVO-173: `null` en las filas anteriores o si el calificador no tocó esa categoría.
-    punctualityScore: categoryScoreOutput,
-    careScore: categoryScoreOutput,
-    communicationScore: categoryScoreOutput,
+    ...categoryScoreOutputProperties,
     createdAt: { type: "string", format: "date-time" },
   },
 };
