@@ -210,6 +210,11 @@ export default function PublicProfileScreen() {
             isPhoneVerified={profile.phoneVerified}
             isEmailVerified={profile.emailVerified}
           />
+
+          <MutualConnectionsRow
+            userId={profile.id}
+            testID="profile-detail-mutual-connections"
+          />
         </View>
 
         {profile.isNewProfile ? (
@@ -275,11 +280,6 @@ export default function PublicProfileScreen() {
             />
           </View>
         )}
-
-        <MutualConnectionsRow
-          userId={profile.id}
-          testID="profile-detail-mutual-connections"
-        />
 
         {sharedHistory ? (
           <Text

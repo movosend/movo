@@ -74,6 +74,29 @@ describe("PublicProfileScreen", () => {
     mockUseMutualConnections.mockReturnValue({ data: undefined });
   });
 
+  it("muestra las conexiones mutuas en el hero (MOVO-174)", async () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: baseProfile(),
+      isLoading: false,
+      isError: false,
+    });
+    mockUseMutualConnections.mockReturnValue({ data: { totalCount: 5, sampleFirstNames: [] } });
+
+    const { getByTestId, getByText } = await render(<PublicProfileScreen />);
+
+    expect(getByTestId("profile-detail-mutual-connections")).toBeTruthy();
+    expect(getByText(/Ya hizo envíos con 5 personas que vos también conocés/)).toBeTruthy();
+  });
+
+  it("no muestra la fila de conexiones mutuas si no hay ninguna", async () => {
+    mockUsePublicProfile.mockReturnValue({ data: baseProfile(), isLoading: false, isError: false });
+    mockUseMutualConnections.mockReturnValue({ data: { totalCount: 0, sampleFirstNames: [] } });
+
+    const { queryByTestId } = await render(<PublicProfileScreen />);
+
+    expect(queryByTestId("profile-detail-mutual-connections")).toBeNull();
+  });
+
   it("muestra el skeleton mientras carga", async () => {
     mockUsePublicProfile.mockReturnValue({ data: undefined, isLoading: true, isError: false });
 

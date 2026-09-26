@@ -1,4 +1,4 @@
-import type { PrivateProfile, PublicProfile } from "@movo/shared/dist/types/user-profile";
+import type { MutualConnections, PrivateProfile, PublicProfile } from "@movo/shared/dist/types/user-profile";
 import { httpClient } from "./http-client";
 import type { SessionResponse } from "./session-types";
 import { uploadBlobToPresignedUrl } from "../lib/s3-upload";
@@ -40,11 +40,8 @@ export interface AcceptLegalDocumentsInput {
   privacyVersion?: string;
 }
 
-/** MOVO-174, todavía sin backend. */
-export interface MutualConnections {
-  totalCount: number;
-  sampleFirstNames: string[];
-}
+/** MOVO-174: viene de `@movo/shared` (mismo criterio que `PublicProfile`/`PrivateProfile`). */
+export type { MutualConnections };
 
 /**
  * Respuesta del paso 1 de los cambios verificados de teléfono/email (MOVO-133), y
@@ -106,9 +103,9 @@ export const usersClient = {
     return httpClient.get<PublicProfile[]>("/users/search", { q });
   },
 
-  /** `GET /users/:id/mutual-connections` (MOVO-174, todavía sin implementar en
-   * `svc-users` — ver esa issue para el contrato propuesto, incluida la decisión
-   * de privacidad pendiente sobre `sampleFirstNames`). */
+  /** `GET /users/:id/mutual-connections` (MOVO-174, `svc-users`). Decisión de privacidad:
+   * solo el conteo, `sampleFirstNames` siempre viene vacío — ver `MutualConnections`
+   * en `@movo/shared`. */
   getMutualConnections(id: string): Promise<MutualConnections> {
     return httpClient.get<MutualConnections>(`/users/${id}/mutual-connections`);
   },

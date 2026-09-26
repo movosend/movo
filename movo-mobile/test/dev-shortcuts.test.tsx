@@ -50,6 +50,37 @@ describe("DevShortcutsScreen", () => {
     expect(getByTestId("dev-toggle-tracking-btn")).toBeTruthy();
   });
 
+  it("los ejemplos de conexiones mutuas están en un desplegable, cerrado por defecto (MOVO-174)", async () => {
+    const { getByText, getByTestId, queryByTestId, queryByText } = await render(<DevShortcutsScreen />);
+
+    expect(getByText("Conexiones mutuas (MOVO-174)")).toBeTruthy();
+    // Cerrado: no se renderiza ningún ejemplo.
+    expect(queryByTestId("dev-mutual-zero-empty")).toBeNull();
+    expect(queryByText(/Ya hizo envíos con/)).toBeNull();
+
+    await fireEvent.press(getByTestId("dev-mutual-toggle"));
+
+    // Con 0 no se renderiza la fila, solo una nota explicativa.
+    expect(getByTestId("dev-mutual-zero-empty")).toBeTruthy();
+    // Variantes solo conteo, sin nombrar a nadie.
+    expect(getByText(/Ya hizo envíos con 1 persona que vos también conocés/)).toBeTruthy();
+    expect(getByText(/Ya hizo envíos con 3 personas que vos también conocés/)).toBeTruthy();
+    // "99+" cuando el conteo no entra en el núcleo.
+    expect(getByTestId("dev-mutual-huge-count", { includeHiddenElements: true })).toHaveTextContent("99+");
+    // No hay variantes con nombre: el backend nunca manda `sampleFirstNames`.
+    expect(queryByText(/Malena/)).toBeNull();
+  });
+
+  it("el desplegable de conexiones mutuas se vuelve a cerrar", async () => {
+    const { getByTestId, queryByTestId } = await render(<DevShortcutsScreen />);
+
+    await fireEvent.press(getByTestId("dev-mutual-toggle"));
+    expect(getByTestId("dev-mutual-zero-empty")).toBeTruthy();
+
+    await fireEvent.press(getByTestId("dev-mutual-toggle"));
+    expect(queryByTestId("dev-mutual-zero-empty")).toBeNull();
+  });
+
   it("inicia y detiene el tracking simulado", async () => {
     const { getByTestId } = await render(<DevShortcutsScreen />);
 

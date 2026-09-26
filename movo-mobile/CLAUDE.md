@@ -3748,3 +3748,40 @@ Tests:
 - `test/tracking-components.test.tsx` (8 tests)
 Total: 23 tests en verde. Typecheck `npx tsc --noEmit` limpio sin errores.
 
+### MOVO-174 — Conexiones mutuas: conectado al backend real
+
+`MutualConnectionsRow`/`useMutualConnections`/`usersClient.getMutualConnections` ya existían desde
+MOVO-176 esperando el endpoint; esta US es solo limpieza: `MutualConnections` pasa a importarse de
+`@movo/shared/dist/types/user-profile` (antes tipo local) y se sacan los comentarios "todavía sin
+backend". Con la decisión de privacidad (backend manda `sampleFirstNames` siempre vacío) el copy que se
+ve es siempre el del conteo ("Ya envió con N personas con las que vos también enviaste"), sin nombrar a
+nadie; la variante con nombres sigue soportada por el componente. Se agrega el test faltante de
+`getMutualConnections` en `users-client.test.ts`.
+
+- **Diseño ("anillos", elegido con el usuario entre 3 propuestas hechas sobre el manual de marca
+  v1.0)**: sin card, un medallón de anillos concéntricos de 96px junto al copy, con eyebrow "EN COMÚN".
+  Los anillos son las "capas de confianza" del símbolo de la marca: se suman hacia el centro según el
+  conteo (1, 2 o 3 anillos) y el núcleo lleva el número en JetBrains Mono ("99+" si no entra). **Sin
+  fotos ni iniciales de terceros** (decisión de privacidad, solo el conteo). Los elementos entran del
+  centro hacia afuera, 200ms con el ease-out del manual y sin rebote; el medallón está oculto a lectores
+  de pantalla (`accessibilityElementsHidden`) porque el copy dice lo mismo en texto. Anillos como
+  `View`s con borde (no SVG), color del tema con alfa vía `useThemeColors().fg1`, así sirven en claro y
+  oscuro. **Subió al hero de `profile/[id].tsx`**, debajo de `VerificationChips` (antes al final, tras
+  las cards): es prueba social que ayuda a decidir.
+- **Núcleo en Signal Lime, por pedido explícito del usuario, apartándose del manual**: el manual reserva
+  el lima para estados activos/en vivo y lo prohíbe como decoración; acá es un acento deliberado (texto
+  ink sobre lime, combinación que el manual sí permite). Es una sola constante (`LIME` en
+  `mutual-connections-row.tsx`) si hay que revertirlo.
+- **Copy: "Ya hizo envíos con N personas que vos también conocés"** — no "transportó paquetes de N
+  conocidos": la conexión mutua cuenta contrapartes en CUALQUIER rol (emisor/receptor/transportista) de
+  envíos entregados, así que "transportó" sería falso para quien solo envió o recibió. "Conocés" =
+  personas con las que el viewer también hizo envíos.
+- **Atajo de dev** (`components/dev/DevMutualConnectionsSection.tsx`, montado en `DevShortcutsScreen`):
+  muestra la fila con datos de prueba (0, 1, 2, 3 y 150 conexiones para ver los anillos y el "99+")
+  en un desplegable cerrado por defecto, para no alargar la pantalla de atajos. Sin
+  variantes con nombre: el backend nunca manda `sampleFirstNames`. Para eso la parte visual se separó en `MutualConnectionsSummary` (recibe los
+  datos por props); `MutualConnectionsRow` sigue siendo el que hace el fetch y lo usa.
+- Claude Design no se pudo consultar (`DesignSync` pide `/design-login`): el diseño sale del manual de
+  marca y del código de la pantalla; queda pendiente contrastarlo con el prototipo si hace falta.
+
+Pendiente / fuera de alcance: no probado en dispositivo; requiere el backend desplegado.
