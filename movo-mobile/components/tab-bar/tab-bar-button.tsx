@@ -1,67 +1,64 @@
 import * as Haptics from "expo-haptics";
 import { type LucideIcon } from "lucide-react-native";
-import { Pressable, Text, View } from "react-native";
+import { useEffect } from "react";
+import { Pressable, View, type LayoutChangeEvent } from "react-native";
 import Animated, {
+  Easing,
   interpolateColor,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
+  withTiming,
 } from "react-native-reanimated";
-import { useEffect } from "react";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 
-const BUTTON_HEIGHT = 44;
-const ICON_SIZE = 18;
-const SPRING_CONFIG = { damping: 18, stiffness: 220, mass: 0.7 };
-const PRESS_SPRING_CONFIG = { damping: 14, stiffness: 300 };
+const TAB_HEIGHT = 44;
+const ICON_SIZE = 20;
 
 interface TabBarButtonProps {
   label: string;
   Icon: LucideIcon;
   isFocused: boolean;
+  isHighlighted: boolean;
   onPress: () => void;
+  onPressIn: () => void;
+  onPressOut: () => void;
+  onLayout: (event: LayoutChangeEvent) => void;
   testID?: string;
 }
 
 /**
- * Botón individual del tab bar flotante (MOVO-78). Segunda reescritura tras feedback
- * de que la variante "expandable" (pill que crece con el label) no convencía: ahora
- * los 3 tabs muestran siempre ícono+label a ancho fijo (`flex: 1`, repartiendo el
- * ancho total de la barra en partes iguales — lo arma el padre, acá solo se ocupa
- * un slot ya fijo), y la única diferencia entre seleccionado/no-seleccionado es un
- * fondo negro (`colors.fg1`) + color de ícono/texto invertido. Nada cambia de tamaño
- * ni de posición al seleccionar, así que no hace falta animar layout de hermanos
- * (`LinearTransition` de la versión anterior ya no aplica) — solo hay un crossfade de
- * color con spring, más el bounce táctil de siempre en press-in/out.
+ * Botón del tab bar flotante (MOVO-78). No pinta fondo propio: la pill de selección
+ * es una sola, compartida, y la anima `FloatingTabBar`. `isHighlighted` (color) se
+ * separa de `isFocused` (accesibilidad) porque mientras se arrastra la selección el
+ * tab resaltado es el que está bajo el dedo, no todavía el de la ruta activa.
  */
-export function TabBarButton({ label, Icon, isFocused, onPress, testID }: TabBarButtonProps) {
+export function TabBarButton({
+  label,
+  Icon,
+  isFocused,
+  isHighlighted,
+  onPress,
+  onPressIn,
+  onPressOut,
+  onLayout,
+  testID,
+}: TabBarButtonProps) {
   const colors = useThemeColors();
-  const progress = useSharedValue(isFocused ? 1 : 0);
-  const pressScale = useSharedValue(1);
+  const progress = useSharedValue(isHighlighted ? 1 : 0);
 
   useEffect(() => {
-    progress.value = withSpring(isFocused ? 1 : 0, SPRING_CONFIG);
-  }, [isFocused, progress]);
+    progress.value = withTiming(isHighlighted ? 1 : 0, {
+      duration: 250,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [isHighlighted, progress]);
 
-  const containerStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(progress.value, [0, 1], ["transparent", colors.fg1]),
-    transform: [{ scale: pressScale.value }],
-  }));
+  const activeIconStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
+  const inactiveIconStyle = useAnimatedStyle(() => ({ opacity: 1 - progress.value }));
 
   const labelStyle = useAnimatedStyle(() => ({
-    color: interpolateColor(progress.value, [0, 1], [colors.fg2, colors.bg]),
+    color: interpolateColor(progress.value, [0, 1], [colors.fg3, colors.fg1]),
   }));
-
-  const inactiveIconStyle = useAnimatedStyle(() => ({ opacity: 1 - progress.value }));
-  const activeIconStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
-
-  function handlePressIn() {
-    pressScale.value = withSpring(0.96, PRESS_SPRING_CONFIG);
-  }
-
-  function handlePressOut() {
-    pressScale.value = withSpring(1, PRESS_SPRING_CONFIG);
-  }
 
   function handlePress() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -69,37 +66,48 @@ export function TabBarButton({ label, Icon, isFocused, onPress, testID }: TabBar
   }
 
   return (
-    <Animated.View
-      style={[{ flex: 1, height: BUTTON_HEIGHT, borderRadius: BUTTON_HEIGHT / 2 }, containerStyle]}
+    <Pressable
+      onPress={handlePress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      onLayout={onLayout}
+      testID={testID}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: isFocused }}
+      accessibilityLabel={label}
+      style={{
+        height: TAB_HEIGHT,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 5,
+        paddingHorizontal: 12,
+      }}
     >
-      <Pressable
-        onPress={handlePress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        testID={testID}
-        accessibilityRole="tab"
-        accessibilityState={{ selected: isFocused }}
-        accessibilityLabel={label}
-        className="h-full w-full flex-row items-center justify-center gap-1"
+      <View style={{ width: ICON_SIZE, height: ICON_SIZE }}>
+        <Animated.View style={[iconLayer, inactiveIconStyle]}>
+          <Icon size={ICON_SIZE} strokeWidth={2} color={colors.fg3} />
+        </Animated.View>
+        <Animated.View style={[iconLayer, activeIconStyle]}>
+          <Icon size={ICON_SIZE} strokeWidth={2.25} color={colors.fg1} />
+        </Animated.View>
+      </View>
+      <Animated.Text
+        numberOfLines={1}
+        style={[{ fontSize: 14, letterSpacing: -0.1 }, labelStyle]}
+        className="font-sans-semibold"
       >
-        <View style={{ width: ICON_SIZE, height: ICON_SIZE }}>
-          <Animated.View style={[{ position: "absolute" }, inactiveIconStyle]}>
-            <Icon size={ICON_SIZE} strokeWidth={2} color={colors.fg2} />
-          </Animated.View>
-          <Animated.View style={[{ position: "absolute" }, activeIconStyle]}>
-            <Icon size={ICON_SIZE} strokeWidth={2} color={colors.bg} />
-          </Animated.View>
-        </View>
-        <Animated.Text
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.85}
-          style={[{ fontSize: 12.5 }, labelStyle]}
-          className="font-sans-semibold"
-        >
-          {label}
-        </Animated.Text>
-      </Pressable>
-    </Animated.View>
+        {label}
+      </Animated.Text>
+    </Pressable>
   );
 }
+
+const iconLayer = {
+  position: "absolute",
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  alignItems: "center",
+  justifyContent: "center",
+} as const;
