@@ -31,8 +31,16 @@ export interface UsersClient {
    * cualquier dirección (la simetría la resuelve svc-users). Lanza 502 ante cualquier
    * falla -- decidir si eso bloquea la operación (escrituras) o se degrada a "sin
    * bloqueos" (listados) es del caller, ver `utils/block-relations.ts`.
+   *
+   * `timeoutMs` (fix de review, PR #193): opcional, default `REQUEST_TIMEOUT_MS`
+   * (5000, mismo timeout largo que el resto del cliente -- pensado para
+   * `assertNotBlocked`, que SÍ debe esperar antes de fallar cerrado). Los callers que
+   * degradan gratis a "sin filtrar" (`safeBlockRelatedUserIds` -- feed Transportar,
+   * matches de viaje, ofertas recibidas, push de trip-match) pasan un timeout más
+   * corto: si `svc-users` está colgado (no caído), esas pantallas no deben esperar
+   * los 5s completos solo para terminar mostrando lo mismo sin filtrar.
    */
-  listBlockRelatedUserIds(userId: string): Promise<string[]>;
+  listBlockRelatedUserIds(userId: string, timeoutMs?: number): Promise<string[]>;
 }
 
 export interface UsersClientConfig {
@@ -99,13 +107,13 @@ export function createUsersClient(config: UsersClientConfig): UsersClient {
       return (await response.json()) as DeviceKey;
     },
 
-    async listBlockRelatedUserIds(userId: string): Promise<string[]> {
+    async listBlockRelatedUserIds(userId: string, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<string[]> {
       let response: Response;
       try {
         // Interno (MOVO-175), mismo criterio que findDeviceKey: sin `x-user-id`.
         response = await fetch(
           `${config.USERS_SERVICE_URL}/internal/users/${encodeURIComponent(userId)}/block-relations`,
-          { method: "GET", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+          { method: "GET", signal: AbortSignal.timeout(timeoutMs) },
         );
       } catch {
         throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de usuarios.");

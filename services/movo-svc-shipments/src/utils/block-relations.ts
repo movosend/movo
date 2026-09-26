@@ -4,6 +4,15 @@ import { UsersClient } from "../adapters/users-client";
 type WarnLogger = { warn: (obj: unknown, msg?: string) => void };
 
 /**
+ * MOVO-175 (fix de review, PR #193): `safeBlockRelatedUserIds` degrada a "sin
+ * filtrar" ante cualquier falla, sin costo -- no vale la pena esperar el timeout
+ * largo del cliente (5000ms, pensado para una escritura que sí debe fallar cerrado)
+ * si `svc-users` está colgado y no caído. Mismo criterio que
+ * `pricing-client.ts` (3000ms, mismo motivo).
+ */
+const SAFE_BLOCK_RELATIONS_TIMEOUT_MS = 1500;
+
+/**
  * MOVO-175 (ADR-026): falla CERRADO -- para escrituras (crear oferta, aceptar oferta,
  * crear envío). Si alguno de `otherUserIds` tiene un bloqueo con `userId` en
  * cualquier dirección, 403 `USER_BLOCKED` explícito (decisión de producto: se revela
@@ -35,7 +44,7 @@ export async function safeBlockRelatedUserIds(
   logger?: WarnLogger,
 ): Promise<string[]> {
   try {
-    return await usersClient.listBlockRelatedUserIds(userId);
+    return await usersClient.listBlockRelatedUserIds(userId, SAFE_BLOCK_RELATIONS_TIMEOUT_MS);
   } catch (error) {
     logger?.warn(
       { userId, event: "block_relations_fetch_failed", error: (error as Error).message },

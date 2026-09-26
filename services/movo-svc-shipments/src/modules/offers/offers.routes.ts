@@ -73,10 +73,10 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
   const service = createOffersService(
     offerRepository,
     shipmentRepository,
+    usersClient,
     notificationsClient,
     app.log,
-    ratingsService.getCarrierReputationScoresBatch,
-    usersClient
+    ratingsService.getCarrierReputationScoresBatch
   );
 
   app.get(
