@@ -27,6 +27,19 @@ describe("moderationClient", () => {
     });
   });
 
+  it("getPendingReport pide GET /users/:id/report", async () => {
+    (httpClient.get as jest.Mock).mockResolvedValueOnce(null);
+    await expect(moderationClient.getPendingReport("user-2")).resolves.toBeNull();
+    expect(httpClient.get).toHaveBeenCalledWith("/users/user-2/report");
+  });
+
+  it("addReportEntry envía POST /users/:id/report/entries con el detalle", async () => {
+    await moderationClient.addReportEntry("user-2", "Me insultó por chat");
+    expect(httpClient.post).toHaveBeenCalledWith("/users/user-2/report/entries", {
+      details: "Me insultó por chat",
+    });
+  });
+
   it("blockUser/unblockUser pegan contra /users/:id/block", async () => {
     await moderationClient.blockUser("user-2");
     await moderationClient.unblockUser("user-2");

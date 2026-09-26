@@ -30,8 +30,12 @@ jest.mock("../src/hooks/use-shipments", () => ({
   useSharedHistory: (...args: unknown[]) => mockUseSharedHistory(...args),
 }));
 
+const mockUsePendingReport = jest.fn((..._args: unknown[]) => ({ data: null }));
+
 jest.mock("../src/hooks/use-moderation", () => ({
   useReportUser: () => ({ mutateAsync: jest.fn(), isPending: false }),
+  usePendingReport: (...args: unknown[]) => mockUsePendingReport(...args),
+  useAddReportEntry: () => ({ mutateAsync: jest.fn(), isPending: false }),
   useBlockUser: () => ({ mutate: jest.fn(), isPending: false }),
   useUnblockUser: () => ({ mutate: jest.fn(), isPending: false }),
 }));
@@ -81,6 +85,13 @@ describe("PublicProfileScreen", () => {
     const { getByTestId } = await render(<PublicProfileScreen />);
 
     expect(getByTestId("profile-detail-skeleton")).toBeTruthy();
+  });
+
+  it("pide el reporte propio en revisión en paralelo con el perfil, sin esperar a que cargue", async () => {
+    mockUsePublicProfile.mockReturnValue({ data: undefined, isLoading: true, isError: false });
+    await render(<PublicProfileScreen />);
+
+    expect(mockUsePendingReport).toHaveBeenCalledWith("user-2", { enabled: true });
   });
 
   it("muestra un error si el perfil no pudo cargarse", async () => {

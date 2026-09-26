@@ -18,6 +18,7 @@ import { SuccessBanner } from "../../../components/ui/success-banner";
 import { SkeletonBlock } from "../../../components/ui/skeleton-block";
 import { StarRatingInput } from "../../../components/ui/star-rating-input";
 import { useAuthStore } from "../../../src/store/auth-store";
+import { usePendingReport } from "../../../src/hooks/use-moderation";
 import { useSharedHistory } from "../../../src/hooks/use-shipments";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
@@ -96,6 +97,9 @@ export default function PublicProfileScreen() {
   const currentUserId = useAuthStore((state) => state.user?.userId);
   const { data: profile, isLoading, isError } = usePublicProfile(id);
   const { data: sharedHistory } = useSharedHistory(id);
+  // En paralelo con el perfil (no recién cuando se monta el menú, que espera a que
+  // el perfil cargue): así "Ver tu reporte" ya está resuelto al abrir el menú.
+  usePendingReport(id, { enabled: !!id && !!currentUserId && id !== currentUserId });
   const [role, setRole] = useState<ReputationRole>("carrier");
   const [moderationSuccess, setModerationSuccess] = useState<string | null>(
     null,

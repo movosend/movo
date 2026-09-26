@@ -35,6 +35,8 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   // error genérico. Aplica en las dos direcciones (quien bloqueó y quien fue bloqueado).
   USER_BLOCKED: "No podés interactuar con este usuario porque hay un bloqueo entre ustedes.",
   CANNOT_MODERATE_SELF: "No podés reportarte ni bloquearte a vos mismo.",
+  REPORT_ALREADY_PENDING: "Ya tenés un reporte en revisión sobre esta persona. Podés sumarle información.",
+  REPORT_NOT_FOUND: "Tu reporte ya no está en revisión.",
   // MOVO-228: la app manda una versión de Términos/Privacidad vieja — pasa solo si
   // el usuario tiene una versión desactualizada de la app instalada.
   LEGAL_DOCUMENT_VERSION_MISMATCH: "Actualizá la app para ver la versión más reciente de los Términos y la Política de Privacidad.",

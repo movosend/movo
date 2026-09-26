@@ -1,4 +1,5 @@
-import { ReportReason } from "@movo/shared/dist/types/user";
+import { ApiError } from "@movo/shared/dist/errors/api-error";
+import type { ReportReason } from "@movo/shared/dist/types/user";
 import { MenuView } from "@react-native-menu/menu";
 import * as Haptics from "expo-haptics";
 import { MoreVertical } from "lucide-react-native";
@@ -7,12 +8,14 @@ import { useState } from "react";
 import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from "react-native-safe-area-context";
-import { useBlockUser, useReportUser, useUnblockUser } from "../../src/hooks/use-moderation";
+import { useBlockUser, usePendingReport, useReportUser, useUnblockUser } from "../../src/hooks/use-moderation";
 import { useSheetAnimation } from "../../src/hooks/use-sheet-animation";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../src/lib/error-messages";
+import { REPORT_REASON_OPTIONS } from "../../src/lib/report-format";
 import { ErrorBanner } from "../ui/error-banner";
 import { TextField } from "../ui/text-field";
+import { PendingReportView } from "./pending-report-view";
 
 const FALLBACK_METRICS = {
   frame: { x: 0, y: 0, width: 0, height: 0 },
@@ -22,14 +25,6 @@ const FALLBACK_METRICS = {
 const REPORT_ACTION_ID = "report-user";
 const BLOCK_ACTION_ID = "block-user";
 const UNBLOCK_ACTION_ID = "unblock-user";
-
-const REASON_OPTIONS: { value: ReportReason; label: string }[] = [
-  { value: ReportReason.HARASSMENT, label: "Acoso o maltrato" },
-  { value: ReportReason.NO_SHOW, label: "No se presentó" },
-  { value: ReportReason.DAMAGED_PACKAGE, label: "Paquete dañado" },
-  { value: ReportReason.PAYMENT_ISSUE, label: "Problema con el pago" },
-  { value: ReportReason.OTHER, label: "Otro motivo" },
-];
 
 export interface ProfileActionsMenuProps {
   userId: string;
@@ -48,7 +43,9 @@ export interface ProfileActionsMenuProps {
  * para el motivo de reporte (necesita texto libre), y `Alert.alert` nativo como
  * último paso de la confirmación de bloqueo (mismo criterio que la baja de cuenta,
  * MOVO-136: el diálogo nativo cierra la acción, no es el único paso). Después de
- * reportar, el sheet pasa a un estado de éxito que ofrece bloquear también.
+ * reportar, el sheet pasa a un estado de éxito que ofrece bloquear también. Con un
+ * reporte propio ya en revisión, el menú ofrece verlo en vez de reportar de nuevo, y
+ * el sheet muestra lo enviado y deja sumarle información (`PendingReportView`).
  */
 export function ProfileActionsMenu({
   userId,
@@ -65,11 +62,18 @@ export function ProfileActionsMenu({
   const [details, setDetails] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isReportSubmitted, setIsReportSubmitted] = useState(false);
+  /** Aviso cuando se intentó reportar y ya había un reporte en revisión (409). */
+  const [pendingNotice, setPendingNotice] = useState<string | null>(null);
+  /** Lo que se había escrito en ese intento, para no perderlo: pasa al campo de
+   * "Sumar información" del reporte existente. */
+  const [carriedDetails, setCarriedDetails] = useState("");
   const { isMounted, backdropStyle, sheetStyle } = useSheetAnimation(isReportModalVisible);
 
   const reportMutation = useReportUser(userId, {
     onSuccess: () => setIsReportSubmitted(true),
   });
+  const pendingReportQuery = usePendingReport(userId);
+  const pendingReport = pendingReportQuery.data ?? null;
   const blockMutation = useBlockUser(userId);
   const unblockMutation = useUnblockUser();
 
@@ -86,6 +90,8 @@ export function ProfileActionsMenu({
     setReason(null);
     setDetails("");
     setIsReportSubmitted(false);
+    setPendingNotice(null);
+    setCarriedDetails("");
     setIsReportModalVisible(true);
   }
 
@@ -106,6 +112,15 @@ export function ProfileActionsMenu({
     try {
       await reportMutation.mutateAsync({ reason, details: details.trim() || undefined });
     } catch (err) {
+      if (err instanceof ApiError && err.code === "REPORT_ALREADY_PENDING") {
+        // `useReportUser` ya pidió el reporte existente: el sheet pasa a mostrarlo.
+        Keyboard.dismiss();
+        setCarriedDetails(details.trim());
+        setPendingNotice(
+          `Ya tenías un reporte en revisión sobre ${fullName}, así que no creamos otro. Si querés, sumale lo que acabás de escribir.`,
+        );
+        return;
+      }
       showReportError(resolveErrorMessage(err));
     }
   }
@@ -171,7 +186,7 @@ export function ProfileActionsMenu({
           actions={[
             {
               id: REPORT_ACTION_ID,
-              title: `Reportar a ${fullName}`,
+              title: pendingReport ? "Ver tu reporte" : `Reportar a ${fullName}`,
               image: Platform.select({ ios: "flag", android: "ic_menu_report_image" }),
               // Sin `imageColor` explícito el ícono queda sin tinte (invisible en la
               // práctica) — a diferencia de "Bloquear", que sí lo tenía por ser
@@ -256,6 +271,22 @@ export function ProfileActionsMenu({
                         </Pressable>
                       </View>
                     </View>
+                  ) : pendingReport ? (
+                    <PendingReportView
+                      userId={userId}
+                      fullName={fullName}
+                      report={pendingReport}
+                      notice={pendingNotice}
+                      initialDetails={carriedDetails}
+                      disabled={isBusy}
+                      onClose={() => setIsReportModalVisible(false)}
+                      testID={testID ? `${testID}-pending-report` : "profile-pending-report"}
+                    />
+                  ) : pendingNotice ? (
+                    // 409 recibido pero el reporte existente todavía no llegó.
+                    <View className="items-center px-5 py-10">
+                      <ActivityIndicator color={colors.fg1} />
+                    </View>
                   ) : (
                   <View className="px-5 pt-5">
                     <Text className="mb-1 font-sans-semibold text-h3 text-fg">
@@ -266,7 +297,7 @@ export function ProfileActionsMenu({
                     </Text>
 
                     <View className="mb-3 gap-2">
-                      {REASON_OPTIONS.map((option) => (
+                      {REPORT_REASON_OPTIONS.map((option) => (
                         <Pressable
                           key={option.value}
                           testID={testID ? `${testID}-reason-${option.value}` : undefined}

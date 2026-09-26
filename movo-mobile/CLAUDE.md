@@ -3763,6 +3763,13 @@ omite si ya está bloqueado). Errores vía `friendlyErrorMessage`, con override 
   `BlockImplicationsCard` explica qué implica un bloqueo (cada fila es una regla que el
   backend aplica de verdad) — toda la pantalla es un solo scroll para que la card se vea
   también con la lista vacía, cargando o con error.
+- **Reporte en revisión (review de PR #193)**: `usePendingReport` (`GET /users/:id/report`,
+  lanzado por `profile/[id].tsx` en paralelo con el perfil; el menú lo lee del caché
+  gracias a un `staleTime` de 30s) decide el menú: con un reporte propio pendiente ofrece "Ver tu reporte" y el sheet
+  muestra `PendingReportView` (motivo, detalle y entradas ya enviadas, más un campo para
+  sumar información vía `useAddReportEntry`). Nunca edita lo enviado. Si igual se
+  intenta reportar y el backend responde 409 `REPORT_ALREADY_PENDING`, el sheet pasa al
+  reporte existente con lo que se había escrito ya cargado en el campo de sumar.
 - **Bloquear/desbloquear invalida más que el perfil** (`invalidateBlockDependentQueries`):
   el feed disponible, los matches de viaje y las ofertas de cualquier envío
   (`["shipments", id, "offers", ...]`, por predicado porque el id va en el medio de la key).

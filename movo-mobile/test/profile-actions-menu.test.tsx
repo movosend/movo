@@ -1,7 +1,7 @@
 import { Alert, Keyboard, type AlertButton } from "react-native";
 import { act, fireEvent, render } from "@testing-library/react-native";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
-import { ReportReason } from "@movo/shared/dist/types/user";
+import { ReportReason, ReportStatus, type UserReportSummary } from "@movo/shared/dist/types/user";
 import { ProfileActionsMenu } from "../components/profile/profile-actions-menu";
 
 type MutateOpts = { onSuccess?: () => void; onError?: (err: unknown) => void };
@@ -12,16 +12,42 @@ const mockUnblockMutate = jest.fn();
 let mockReportState = { isPending: false };
 let mockBlockState = { isPending: false };
 let mockReportError: unknown = null;
+let mockPendingReport: UserReportSummary | null = null;
+/** Lo que "trae" la invalidación tras un 409: el hook real refetchea, acá se asigna. */
+let mockPendingReportAfterConflict: UserReportSummary | null = null;
+const mockAddEntry = jest.fn();
+let mockAddEntryError: unknown = null;
+
+const PENDING_REPORT: UserReportSummary = {
+  id: "report-1",
+  reportedId: "user-2",
+  reason: ReportReason.NO_SHOW,
+  details: "No vino al retiro",
+  status: ReportStatus.PENDING,
+  createdAt: "2026-09-20T15:00:00.000Z",
+  entries: [{ id: "entry-1", details: "Tampoco respondió mensajes", createdAt: "2026-09-21T15:00:00.000Z" }],
+};
 
 jest.mock("../src/hooks/use-moderation", () => ({
   useReportUser: (_userId: string, options: { onSuccess?: () => void }) => ({
     mutateAsync: (input: unknown) => {
       mockReportMutate(input);
-      if (mockReportError) return Promise.reject(mockReportError);
+      if (mockReportError) {
+        mockPendingReport = mockPendingReportAfterConflict;
+        return Promise.reject(mockReportError);
+      }
       options.onSuccess?.();
       return Promise.resolve();
     },
     isPending: mockReportState.isPending,
+  }),
+  usePendingReport: () => ({ data: mockPendingReport }),
+  useAddReportEntry: () => ({
+    mutateAsync: (details: string) => {
+      mockAddEntry(details);
+      return mockAddEntryError ? Promise.reject(mockAddEntryError) : Promise.resolve();
+    },
+    isPending: false,
   }),
   useBlockUser: () => ({
     mutate: (_arg: unknown, opts?: MutateOpts) => mockBlockMutate(opts),
@@ -76,6 +102,9 @@ describe("ProfileActionsMenu", () => {
     mockReportState = { isPending: false };
     mockBlockState = { isPending: false };
     mockReportError = null;
+    mockPendingReport = null;
+    mockPendingReportAfterConflict = null;
+    mockAddEntryError = null;
     jest.spyOn(Alert, "alert").mockImplementation(() => {});
     jest.spyOn(Keyboard, "dismiss").mockImplementation(() => {});
   });
@@ -95,6 +124,77 @@ describe("ProfileActionsMenu", () => {
     expect(
       getByText("El equipo de Movo revisa cada reporte. Contanos qué pasó."),
     ).toBeTruthy();
+  });
+
+  it("con un reporte en revisión, el menú ofrece verlo y el sheet muestra lo enviado", async () => {
+    mockPendingReport = PENDING_REPORT;
+    const { getByTestId, getByText, queryByTestId } = await render(
+      <ProfileActionsMenu userId="user-2" fullName="Marta González" testID="actions" />,
+    );
+
+    expect(getByText("Ver tu reporte")).toBeTruthy();
+    await fireEvent.press(getByTestId("actions-menu-action-report-user"));
+
+    expect(getByTestId("actions-pending-report")).toBeTruthy();
+    expect(getByTestId("actions-pending-report-reason").props.children).toBe("No se presentó");
+    expect(getByText("No vino al retiro")).toBeTruthy();
+    expect(getByText("Tampoco respondió mensajes")).toBeTruthy();
+    expect(queryByTestId("actions-report-confirm-button")).toBeNull();
+  });
+
+  it("suma información al reporte en revisión sin mandar un reporte nuevo", async () => {
+    mockPendingReport = PENDING_REPORT;
+    const { getByTestId } = await render(
+      <ProfileActionsMenu userId="user-2" fullName="Marta González" testID="actions" />,
+    );
+
+    await fireEvent.press(getByTestId("actions-menu-action-report-user"));
+    expect(getByTestId("actions-pending-report-add-button").props.accessibilityState).toEqual({ disabled: true });
+
+    await fireEvent.changeText(getByTestId("actions-pending-report-entry-input"), "  Me insultó por chat  ");
+    await act(async () => {
+      fireEvent.press(getByTestId("actions-pending-report-add-button"));
+    });
+
+    expect(mockAddEntry).toHaveBeenCalledWith("Me insultó por chat");
+    expect(mockReportMutate).not.toHaveBeenCalled();
+    expect(getByTestId("actions-pending-report-entry-added")).toBeTruthy();
+  });
+
+  it("un error al sumar información se muestra sin cerrar el sheet", async () => {
+    mockPendingReport = PENDING_REPORT;
+    mockAddEntryError = new ApiError(429, "RATE_LIMIT_EXCEEDED", "rate limited");
+    const { getByTestId, getByText } = await render(
+      <ProfileActionsMenu userId="user-2" fullName="Marta González" testID="actions" />,
+    );
+
+    await fireEvent.press(getByTestId("actions-menu-action-report-user"));
+    await fireEvent.changeText(getByTestId("actions-pending-report-entry-input"), "Algo más");
+    await act(async () => {
+      fireEvent.press(getByTestId("actions-pending-report-add-button"));
+    });
+
+    expect(getByText("Hiciste demasiados reportes hoy. Probá de nuevo mañana.")).toBeTruthy();
+    expect(getByTestId("actions-pending-report")).toBeTruthy();
+  });
+
+  it("si al reportar ya había uno en revisión, muestra el existente con lo escrito listo para sumar", async () => {
+    mockReportError = new ApiError(409, "REPORT_ALREADY_PENDING", "ya existe");
+    mockPendingReportAfterConflict = PENDING_REPORT;
+    const { getByTestId } = await render(
+      <ProfileActionsMenu userId="user-2" fullName="Marta González" testID="actions" />,
+    );
+
+    await fireEvent.press(getByTestId("actions-menu-action-report-user"));
+    await fireEvent.press(getByTestId(`actions-reason-${ReportReason.HARASSMENT}`));
+    await fireEvent.changeText(getByTestId("actions-report-details-input"), "Me insultó");
+    await act(async () => {
+      fireEvent.press(getByTestId("actions-report-confirm-button"));
+    });
+
+    expect(getByTestId("actions-pending-report")).toBeTruthy();
+    expect(getByTestId("actions-pending-report-notice")).toBeTruthy();
+    expect(getByTestId("actions-pending-report-entry-input").props.value).toBe("Me insultó");
   });
 
   it("exige elegir un motivo antes de enviar el reporte", async () => {
