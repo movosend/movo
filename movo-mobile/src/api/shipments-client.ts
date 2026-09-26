@@ -37,6 +37,11 @@ export interface ShipmentSummary {
   lastStatusChangedAt: string | null;
   deliveredAt: string | null;
   receiverConfirmationDeadline?: string | null;
+  /** MOVO-253: plazo del emisor para elegir otro receptor tras un rechazo. Solo
+   * significativo en `rejected_by_receiver`; `null` en rechazos anteriores al cambio. */
+  receiverRedesignationDeadline?: string | null;
+  /** MOVO-253: motivo del último rechazo, `null` fuera de `rejected_by_receiver`. */
+  rejectionReason?: string | null;
   createdAt: string;
   updatedAt: string;
   /** MOVO-180 (adelantado): solo presente en `GET /shipments/:id` cuando el caller es
@@ -282,7 +287,8 @@ export interface ConfirmHandshakeResult {
 export const shipmentsClient = {
   /** Protegida — `httpClient` adjunta `Authorization` automáticamente vía el
    * interceptor de sesión (MOVO-76). */
-  listMine(params?: { page?: number; limit?: number }): Promise<ListMineResponse> {
+  /** `status` (MOVO-253) acota a esos estados, repetido en la query. */
+  listMine(params?: { page?: number; limit?: number; status?: readonly ShipmentStatus[] }): Promise<ListMineResponse> {
     return httpClient.get<ListMineResponse>("/shipments/mine", params);
   },
 
@@ -373,6 +379,13 @@ export const shipmentsClient = {
    * `published` o `assignment_pending`. */
   cancel(shipmentId: string, body?: { reason?: string }): Promise<ShipmentSummary> {
     return httpClient.post<ShipmentSummary>(`/shipments/${shipmentId}/cancel`, body ?? {});
+  },
+
+  /** `POST /shipments/:id/receiver` (MOVO-253) — el emisor elige otro receptor para un
+   * envío `rejected_by_receiver`, antes de `receiverRedesignationDeadline`. La dirección
+   * de entrega no cambia. */
+  redesignateReceiver(shipmentId: string, receiverId: string): Promise<ShipmentSummary> {
+    return httpClient.post<ShipmentSummary>(`/shipments/${shipmentId}/receiver`, { receiverId });
   },
 
   /** `GET /shipments/sending` (MOVO-192, todavía sin backend — ver `ActiveShipmentSummary`).

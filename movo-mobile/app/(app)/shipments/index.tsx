@@ -60,6 +60,9 @@ const STAGE_STATUSES: Record<LifecycleStage, ShipmentStatus[]> = {
     ShipmentStatus.ASSIGNED,
     ShipmentStatus.IN_TRANSIT,
     ShipmentStatus.DISPUTED,
+    // MOVO-253: en curso para el emisor (tiene que elegir otro receptor); para quien
+    // rechazó cae en "Completados" (`shipmentLifecycleStage`), por eso está en los dos.
+    ShipmentStatus.REJECTED_BY_RECEIVER,
   ],
   past: [
     ShipmentStatus.DELIVERED,
@@ -394,7 +397,8 @@ export default function MyShipmentsScreen() {
 
   const items = data?.pages.flatMap((page) => page.items) ?? [];
   const stageItems = items.filter(
-    (item) => shipmentLifecycleStage(item.status) === stage,
+    (item) =>
+      shipmentLifecycleStage(item.status, { isReceiver: item.receiverId === currentUserId }) === stage,
   );
 
   // Ordenados por frecuencia (más envíos primero)

@@ -36,6 +36,9 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   LEGAL_DOCUMENT_VERSION_MISMATCH: "Actualizá la app para ver la versión más reciente de los Términos y la Política de Privacidad.",
   SHIPMENT_RECEIVER_IS_SENDER: "No podés elegirte a vos mismo como receptor.",
   SHIPMENT_RECEIVER_KYC_NOT_APPROVED: "El receptor todavía no tiene su identidad verificada.",
+  // Elegir otro receptor tras un rechazo (MOVO-253).
+  SHIPMENT_RECEIVER_ALREADY_REJECTED: "Esta persona ya rechazó este envío. Elegí a otra.",
+  SHIPMENT_REDESIGNATION_EXPIRED: "Venció el plazo para elegir otro receptor. El envío se va a cancelar.",
   SHIPMENT_PICKUP_WINDOW_IN_PAST: "Elegí una fecha y horario de retiro que todavía no haya pasado.",
   SHIPMENT_PICKUP_WINDOW_INVALID: "El horario de fin del retiro tiene que ser posterior al de inicio.",
   SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE: "El retiro y la entrega tienen que estar en ubicaciones distintas.",
