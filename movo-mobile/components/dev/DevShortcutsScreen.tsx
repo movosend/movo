@@ -30,6 +30,7 @@ import {
 } from "lucide-react-native";
 import { locationService, type TrackingStatus } from "../../src/location/location-service";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { DevRatingSection } from "./DevRatingSection";
 
 const DEV_DEMO_SHIPMENT_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -363,6 +364,9 @@ export default function DevShortcutsScreen() {
             </Pressable>
           </View>
         </View>
+
+        {/* SECCIÓN 3b: CALIFICACIÓN POR CATEGORÍAS (MOVO-173) */}
+        <DevRatingSection />
 
         {/* SECCIÓN 4: OPERACIONES Y DEBUG */}
         <View className="rounded-[16px] border border-border bg-bg-sub p-4">
