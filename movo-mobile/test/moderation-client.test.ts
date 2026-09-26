@@ -33,10 +33,19 @@ describe("moderationClient", () => {
     expect(httpClient.get).toHaveBeenCalledWith("/users/user-2/report");
   });
 
-  it("addReportEntry envía POST /users/:id/report/entries con el detalle", async () => {
-    await moderationClient.addReportEntry("user-2", "Me insultó por chat");
+  it("addReportEntry envía POST /users/:id/report/entries con texto y fotos", async () => {
+    await moderationClient.addReportEntry("user-2", { details: "Me insultó por chat", photoKeys: ["reports/a/1.jpg"] });
     expect(httpClient.post).toHaveBeenCalledWith("/users/user-2/report/entries", {
       details: "Me insultó por chat",
+      photoKeys: ["reports/a/1.jpg"],
+    });
+  });
+
+  it("presignReportPhoto pide POST /users/:id/report/photos/presign como JPEG (MOVO-256)", async () => {
+    await moderationClient.presignReportPhoto("user-2", 2048);
+    expect(httpClient.post).toHaveBeenCalledWith("/users/user-2/report/photos/presign", {
+      contentType: "image/jpeg",
+      contentLength: 2048,
     });
   });
 

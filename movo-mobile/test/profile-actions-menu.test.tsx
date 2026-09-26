@@ -85,6 +85,7 @@ describe("ProfileActionsMenu", () => {
       details: null,
       status: ReportStatus.PENDING,
       createdAt: "2026-09-20T15:00:00.000Z",
+      photos: [],
       entries: [],
     };
     const { getByTestId, getByText } = await render(
