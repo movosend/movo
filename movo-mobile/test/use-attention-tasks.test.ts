@@ -105,14 +105,18 @@ describe("useAttentionTasks (MOVO-193)", () => {
     expect(task.senderFirstName).toBe("Julia");
   });
 
-  it("arma una tarea de receptor rechazado si el usuario es el emisor", async () => {
+  it("MOVO-253: arma la tarea de rechazo con motivo, plazo y la acción de elegir otro receptor", async () => {
+    mockUsePublicProfiles.mockReturnValue([{ data: { fullName: "Lucía Gómez" } }]);
     mockUseAttentionSourceShipments.mockReturnValue({
       data: {
         items: [
           shipment({
             id: "s2",
             senderId: "me",
+            receiverId: "rejecter-1",
             status: ShipmentStatus.REJECTED_BY_RECEIVER,
+            rejectionReason: "No estoy en la ciudad",
+            receiverRedesignationDeadline: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
           }),
         ],
       },
@@ -122,9 +126,41 @@ describe("useAttentionTasks (MOVO-193)", () => {
     const { result } = await renderHook(() => useAttentionTasks());
 
     expect(result.current.tasks).toHaveLength(1);
+    expect(mockUsePublicProfiles).toHaveBeenCalledWith(["rejecter-1"]);
     const task = result.current.tasks[0];
-    expect(task.kind).toBe("info");
-    expect(task.title).toBe("El receptor rechazó tu envío");
+    if (task.kind !== "rejected") throw new Error("expected rejected task");
+    expect(task.title).toBe("Lucía rechazó tu envío");
+    expect(task.reason).toBe("No estoy en la ciudad");
+    expect(task.deadlineLabel).toMatch(/^Tenés hasta/);
+
+    task.onChooseReceiver();
+    expect(mockPush).toHaveBeenCalledWith("/shipments/s2/change-receiver");
+  });
+
+  it("MOVO-253 AC5: con el plazo vencido o nulo, la tarea de rechazo desaparece", async () => {
+    mockUseAttentionSourceShipments.mockReturnValue({
+      data: {
+        items: [
+          shipment({
+            id: "vencido",
+            senderId: "me",
+            status: ShipmentStatus.REJECTED_BY_RECEIVER,
+            receiverRedesignationDeadline: new Date(Date.now() - 1000).toISOString(),
+          }),
+          shipment({
+            id: "previo-a-movo-253",
+            senderId: "me",
+            status: ShipmentStatus.REJECTED_BY_RECEIVER,
+            receiverRedesignationDeadline: null,
+          }),
+        ],
+      },
+      isLoading: false,
+    });
+
+    const { result } = await renderHook(() => useAttentionTasks());
+
+    expect(result.current.tasks).toEqual([]);
   });
 
   it("ignora envíos donde el usuario no es la parte relevante para ese estado", async () => {

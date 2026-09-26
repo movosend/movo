@@ -43,6 +43,29 @@ describe("ReceiverSearchField", () => {
     expect(queryByTestId("receiver-invite")).toBeNull();
   });
 
+  it("MOVO-253: excludeIds saca de los resultados a quienes ya rechazaron", async () => {
+    mockSearch.mockResolvedValue([
+      { id: "u1", fullName: "Ana López", isVerified: true, photoUrl: null, reputationScore: null },
+      { id: "u2", fullName: "Ana Pérez", isVerified: true, photoUrl: null, reputationScore: null },
+    ]);
+
+    const { getByTestId, getByText, queryByText } = await render(
+      <ReceiverSearchField
+        testID="receiver"
+        selected={null}
+        onSelect={jest.fn()}
+        onClear={jest.fn()}
+        onFocusInput={jest.fn()}
+        excludeIds={["u1"]}
+      />,
+    );
+
+    fireEvent.changeText(getByTestId("receiver"), "Ana");
+
+    await waitFor(() => expect(getByText("Ana Pérez")).toBeTruthy(), { timeout: 1000 });
+    expect(queryByText("Ana López")).toBeNull();
+  });
+
   it("ofrece invitar por WhatsApp cuando no encuentra a nadie", async () => {
     mockSearch.mockResolvedValue([]);
 
