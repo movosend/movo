@@ -1061,3 +1061,19 @@ test.ts`) quedaron escritos pero sin poder correrse en este entorno por falta de
 Postgres/Redis local — pendiente de verificar en CI.
 
 Pendiente / fuera de alcance: mobile de MOVO-246 (pantalla de configuración).
+
+### MOVO-174 — `GET /users/:id/mutual-connections`
+
+"Ya envió con N personas con las que vos también enviaste" del perfil. Depende de QUIÉN MIRA
+(`x-user-id`), por eso es un endpoint propio y no un campo de `PublicProfile`.
+`users.service.ts#getMutualConnections` valida al usuario visitado (404 `USER_NOT_FOUND`, `deleted`
+cuenta como "no existe"), consulta a `svc-shipments` (`shipments-client.ts#findMutualConnectionsCount`,
+endpoint interno) y devuelve `{ totalCount, sampleFirstNames: [] }`.
+
+- **Decisión de privacidad: solo el conteo.** `sampleFirstNames` viaja SIEMPRE vacío: nombrar a un
+  tercero revelaría que transaccionó con alguien que el viewer conoce, sin su consentimiento. El campo
+  queda en el contrato para poder pasar a nombres sin romper clientes (ese cambio pediría un ADR corto).
+- **Mirar el propio perfil da 0 y no llama a `svc-shipments`** (propio usuario excluido).
+- **Si `svc-shipments` falla, degrada a 0 y loguea** (`mutual_connections_fetch_failed`), igual que la
+  reputación (AC3 de MOVO-152): el mobile oculta la fila con 0, el perfil nunca se cae por esto.
+- Sin cambios en el gateway (`/users` ya se proxea genéricamente) ni env vars nuevas.

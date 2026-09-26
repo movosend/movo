@@ -65,6 +65,14 @@ export interface ShipmentsClient {
    * fallo se loguea, nunca revierte ni bloquea la baja ya anonimizada).
    */
   deleteCarrierPositions(userId: string): Promise<number>;
+  /**
+   * MOVO-174: cuántas personas distintas son contraparte entregada de `viewerId` y de
+   * `otherId` a la vez, leído de `GET /internal/users/:id/mutual-connections/:otherId`
+   * (`svc-shipments`). Devuelve solo el conteo, nunca ids de terceros (decisión de privacidad).
+   * Mismo criterio "el cliente lanza, el caller decide" que `findReputation`:
+   * `users.service.ts#getMutualConnections` degrada a 0 si esto falla, el perfil no se cae.
+   */
+  findMutualConnectionsCount(viewerId: string, otherId: string): Promise<number>;
 }
 
 export interface ShipmentsClientConfig {
@@ -151,6 +159,18 @@ export function createShipmentsClient(config: ShipmentsClientConfig): ShipmentsC
         })),
         nextCursor: body.nextCursor,
       };
+    },
+
+    async findMutualConnectionsCount(viewerId: string, otherId: string): Promise<number> {
+      const response = await fetch(
+        `${config.SHIPMENTS_SERVICE_URL}/internal/users/${encodeURIComponent(viewerId)}/mutual-connections/${encodeURIComponent(otherId)}`,
+        { method: "GET", signal: AbortSignal.timeout(REPUTATION_REQUEST_TIMEOUT_MS) }
+      );
+      if (!response.ok) {
+        throw new Error(`El servicio de envíos devolvió status ${response.status} al pedir las conexiones mutuas.`);
+      }
+      const body = (await response.json()) as { totalCount: number };
+      return body.totalCount;
     },
 
     async deleteCarrierPositions(userId: string): Promise<number> {

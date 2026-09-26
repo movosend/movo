@@ -281,6 +281,17 @@ export const usersSchemas = {
     },
   },
 
+  // MOVO-174: solo el conteo; `sampleFirstNames` viaja siempre vacío (decisión de privacidad,
+  // ver `MutualConnections` en `@movo/shared`) pero se mantiene en el contrato.
+  mutualConnectionsResponse: {
+    type: "object",
+    required: ["totalCount", "sampleFirstNames"],
+    properties: {
+      totalCount: { type: "integer" },
+      sampleFirstNames: { type: "array", items: { type: "string" } },
+    },
+  },
+
   photoUploadUrlBody: {
     type: "object",
     required: ["contentType", "contentLength"],

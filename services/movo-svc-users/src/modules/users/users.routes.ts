@@ -481,6 +481,35 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
     },
   );
 
+  app.get(
+    "/:id/mutual-connections",
+    {
+      schema: {
+        summary: "Conexiones mutuas con otro usuario",
+        description:
+          "MOVO-174: 'Ya envió con N personas con las que vos también enviaste' del perfil " +
+          "público. Depende de quién mira (x-user-id), por eso no viaja en GET /:id. Cuenta las " +
+          "personas que son contraparte ENTREGADA (delivered/completed) tanto del caller como " +
+          "del usuario visitado, excluyendo a ambos. Decisión de privacidad: solo el conteo, " +
+          "sampleFirstNames siempre vacío. Mirar el propio perfil devuelve 0. 404 " +
+          "USER_NOT_FOUND si el usuario no existe o fue dado de baja. Ruta protegida.",
+        tags: ["users"],
+        params: usersSchemas.userIdParam,
+        response: {
+          200: usersSchemas.mutualConnectionsResponse,
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const viewerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      return service.getMutualConnections(viewerId, id);
+    },
+  );
+
   app.post(
     "/me/photo/upload-url",
     {

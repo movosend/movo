@@ -7,6 +7,7 @@ import {
   ApiError,
   KycStatus,
   LEGAL_DOCUMENT_VERSIONS,
+  MutualConnections,
   RecentRatingComment,
   VehicleProfile as SharedVehicleProfile,
 } from "@movo/shared";
@@ -398,6 +399,37 @@ export function createUsersService(
       }
       const { items, nextCursor } = await shipmentsClient.findRecentRatingComments(id, limit, cursor);
       return { items: await enrichWithRaterNames(items), nextCursor };
+    },
+
+    /**
+     * MOVO-174: "Ya envió con N personas con las que vos también enviaste". Depende de
+     * QUIÉN MIRA (`viewerId`), por eso es un endpoint propio y no un campo de `PublicProfile`.
+     *
+     * Decisión de privacidad: solo el conteo, `sampleFirstNames` siempre vacío -- ver
+     * `MutualConnections` en `@movo/shared`. Mismo criterio de existencia que
+     * `getPublicProfile` (404 `USER_NOT_FOUND` trata `deleted` como "no existe"). Mirar el
+     * propio perfil no tiene conexiones mutuas (0, sin llamar a `svc-shipments`). Si
+     * `svc-shipments` falla degrada a 0 y loguea, igual que la reputación (AC3 de MOVO-152):
+     * el mobile oculta la fila con 0, así que el perfil nunca se cae por esto.
+     */
+    async getMutualConnections(viewerId: string, id: string): Promise<MutualConnections> {
+      const user = await repository.findById(id);
+      if (!user || user.status === AccountStatus.DELETED) {
+        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
+      if (viewerId === id) {
+        return { totalCount: 0, sampleFirstNames: [] };
+      }
+      try {
+        const totalCount = await shipmentsClient.findMutualConnectionsCount(viewerId, id);
+        return { totalCount, sampleFirstNames: [] };
+      } catch (error) {
+        logger.warn(
+          { viewerId, userId: id, event: "mutual_connections_fetch_failed", error: (error as Error).message },
+          "No se pudieron obtener las conexiones mutuas de svc-shipments"
+        );
+        return { totalCount: 0, sampleFirstNames: [] };
+      }
     },
 
     /** AC1/AC2/AC3: emite la presigned URL de subida. El `objectKey` lo genera el
