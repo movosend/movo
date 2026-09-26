@@ -207,6 +207,29 @@ describe("Bloqueo de usuarios en svc-shipments (Postgres, MOVO-175)", () => {
     });
   });
 
+  describe("PATCH /offers/:id", () => {
+    it("403 USER_BLOCKED al editar una oferta hecha antes del bloqueo; la oferta no cambia", async () => {
+      const shipment = await createPublishedShipment();
+      const offer = await offerRepo.create({
+        shipmentId: shipment.id,
+        carrierId: carrierBlockedBySender,
+        priceOffered: 4000,
+        offeredDate: PICKUP_DATE,
+      });
+
+      const response = await app.inject({
+        method: "PATCH",
+        url: `/offers/${offer.id}`,
+        headers: { "x-user-id": carrierBlockedBySender, "x-user-roles": "carrier" },
+        payload: { priceOfferedArs: 3000 },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.code).toBe("USER_BLOCKED");
+      expect((await offerRepo.findById(offer.id))?.priceOffered).toBe(offer.priceOffered);
+    });
+  });
+
   describe("POST /shipments", () => {
     const body = {
       packageType: "standard_package",

@@ -525,6 +525,16 @@ export function createOffersService(
         throw new ApiError(403, "AUTH_FORBIDDEN", "Solo el transportista dueño de la oferta puede modificarla.");
       }
 
+      // MOVO-175 (ADR-026): mismo criterio que `acceptOffer` -- una oferta hecha antes
+      // del bloqueo tampoco se puede editar. Falla cerrado.
+      if (usersClient) {
+        const shipment = await shipmentRepository.findById(offer.shipmentId);
+        if (!shipment) {
+          throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+        }
+        await assertNotBlocked(usersClient, offer.carrierId, [shipment.senderId, shipment.receiverId]);
+      }
+
       if (patch.priceOfferedArs !== undefined && patch.priceOfferedArs <= 0) {
         throw new ApiError(422, "VALIDATION_FAILED", "El precio ofertado tiene que ser mayor a 0.");
       }

@@ -2664,8 +2664,10 @@ y el push de trip-match.
   emisor y receptor), no en un post-filtro, para que el `total` de la paginación no diverja.
 - **Ofertas recibidas**: el emisor no ve las `pending` de alguien bloqueado; las ya
   resueltas sí (una aceptada es un envío en curso, que el bloqueo no cancela). Un admin ve todo.
-- **Aceptar una oferta hecha antes del bloqueo da 403**: el chequeo va antes de la
-  transacción de `acceptOffer`. Sin `usersClient` inyectado (solo tests unitarios) se omite.
+- **Aceptar o editar (`PATCH /offers/:id`, fix de review de PR #193) una oferta hecha
+  antes del bloqueo da 403**: el chequeo va antes de la transacción de `acceptOffer` y
+  antes de validar el patch en `updateOffer`. Sin `usersClient` inyectado (solo tests
+  unitarios) se omite.
 - `dispatchTripMatchPushes` ahora recibe `usersClient` y suma los bloqueados de emisor y
   receptor a `excludeCarrierIds`; como resuelve eso antes de buscar viajes, los tests
   unitarios que miran `findActiveTripsMatchingShipment` usan `vi.waitFor`.
