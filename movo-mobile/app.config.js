@@ -81,6 +81,10 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     else { return }
     existingWindow.windowScene = windowScene
     self.window = existingWindow
+    // AppDelegate llamó a makeKeyAndVisible antes de que existiera la escena, así que
+    // hay que repetirlo acá: sin una ventana key en la escena, iOS no resuelve bien el
+    // indicador de inicio (aparece un instante y se oculta).
+    existingWindow.makeKeyAndVisible()
   }
 }
 `;
@@ -93,9 +97,9 @@ const withSceneDelegate = (config) => {
       const appName = config.modRequest.projectName;
       const iosDir = path.join(config.modRequest.platformProjectRoot, appName);
       const filePath = path.join(iosDir, "SceneDelegate.swift");
-      if (!fs.existsSync(filePath)) {
-        fs.writeFileSync(filePath, SCENE_DELEGATE_SOURCE, "utf8");
-      }
+      // Siempre se sobrescribe: es un archivo generado, y con un `existsSync` los
+      // cambios a SCENE_DELEGATE_SOURCE nunca llegaban a un `ios/` ya generado.
+      fs.writeFileSync(filePath, SCENE_DELEGATE_SOURCE, "utf8");
       return config;
     },
   ]);
