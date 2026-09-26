@@ -1,6 +1,6 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
-import { moderationClient, type ReportUserInput } from "../api/moderation-client";
+import { type AddReportEntryInput, moderationClient, type ReportUserInput } from "../api/moderation-client";
 
 export const BLOCKED_USERS_QUERY_KEY = ["moderation", "blocked"] as const;
 
@@ -63,12 +63,13 @@ export function useReportUser(
   });
 }
 
-/** MOVO-175: suma información al reporte en revisión, sin editar lo ya enviado. */
+/** MOVO-175: suma información al reporte en revisión, sin editar lo ya enviado. Texto,
+ * fotos (MOVO-256) o ambos. */
 export function useAddReportEntry(userId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (details: string) => moderationClient.addReportEntry(userId, details),
+    mutationFn: (input: AddReportEntryInput) => moderationClient.addReportEntry(userId, input),
     onSuccess: (report) => {
       queryClient.setQueryData(pendingReportQueryKey(userId), report);
     },

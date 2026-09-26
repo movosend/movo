@@ -3852,3 +3852,27 @@ navega a su propia pantalla (ver abajo). Errores vía `friendlyErrorMessage`, co
 - **Bloquear/desbloquear invalida más que el perfil** (`invalidateBlockDependentQueries`):
   el feed disponible, los matches de viaje y las ofertas de cualquier envío
   (`["shipments", id, "offers", ...]`, por predicado porque el id va en el medio de la key).
+
+### MOVO-256 — Fotos en el reporte y rediseño de "Tu reporte" (mockup 1A de Claude Design)
+
+`profile/[id]/report.tsx` con reporte en revisión sigue la opción 1A del proyecto "Reportar
+usuario": el reporte como hilo. Card oscura de estado (`GridPattern` ganó `fade="top-right"` y
+`cellSize` para el desvanecido radial del mockup), historial en línea de tiempo (lo original con
+su motivo y cada entrada con fecha, `formatReportTimestamp`), "Tu seguridad" con bloquear como
+acción secundaria (o "Bloqueaste a X" si ya está bloqueado) y composer fijo abajo tipo chat. El
+agradecimiento con botón rojo de bloquear que aparecía al crear el reporte se fue: el card de
+estado ya lo dice y bloquear queda siempre a mano. Los avisos ("Lo sumamos a tu reporte.",
+"Bloqueaste a X.") son el toast flotante del mockup en vez de `SuccessBanner`.
+
+- **Fotos (`use-report-photos.ts`)**: cada foto sube al elegirla (cámara o galería vía
+  `Alert.alert`, comprimir → presign → PUT), así cada una muestra su estado; un error queda en
+  la foto puntual y se reintenta tocándola. Mientras haya una subiendo o con error el envío está
+  bloqueado: mandarlo igual la descartaría sin avisar. Las keys recién se asocian al enviar.
+  Mismo flujo en el formulario de reporte nuevo (no cubierto por el mockup: fila de miniaturas +
+  botón "agregar").
+- Las fotos enviadas se ven en grilla de 4 por envío y abren `PhotoViewerModal`.
+- El estado "Resuelto" del mockup no se implementó: `GET /users/:id/report` solo devuelve el
+  reporte `pending`, un reporte revisado nunca llega a esta pantalla.
+
+Pendiente / fuera de alcance: no probado en device (cámara/galería reales, teclado con el
+composer fijo).

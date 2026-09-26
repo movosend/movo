@@ -65,12 +65,29 @@ export enum ReportStatus {
   DISMISSED = "dismissed",
 }
 
+/**
+ * Foto de evidencia de un reporte (MOVO-256). `url` es una presigned GET de TTL corto
+ * (`expiresIn` segundos): las fotos de reportes viven en un prefijo privado, nunca
+ * públicas como la foto de perfil (ADR-016). No cachear la URL más allá de ese plazo.
+ */
+export interface UserReportPhoto {
+  id: string;
+  url: string;
+  expiresIn: number;
+}
+
+/** Máximo de fotos por envío de un reporte: el original o cada entrada (MOVO-256). */
+export const MAX_REPORT_PHOTOS_PER_SUBMISSION = 4;
+
 /** Información que el reportante sumó a su reporte pendiente (MOVO-175). Append-only. */
 export interface UserReportEntry {
   id: string;
-  details: string;
+  /** `null` si la entrada es solo fotos (MOVO-256). */
+  details: string | null;
   /** ISO date. */
   createdAt: string;
+  /** Fotos mandadas con esta entrada (MOVO-256). */
+  photos: UserReportPhoto[];
 }
 
 /**
@@ -85,8 +102,17 @@ export interface UserReportSummary {
   status: ReportStatus;
   /** ISO date. */
   createdAt: string;
+  /** Fotos mandadas con el reporte original (MOVO-256). */
+  photos: UserReportPhoto[];
   /** Entradas sumadas después, de la más vieja a la más nueva. */
   entries: UserReportEntry[];
+}
+
+/** Respuesta de `POST /users/:id/report/photos/presign` (MOVO-256). */
+export interface ReportPhotoUploadUrl {
+  uploadUrl: string;
+  s3Key: string;
+  expiresIn: number;
 }
 
 /**

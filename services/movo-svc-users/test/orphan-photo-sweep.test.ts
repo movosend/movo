@@ -52,12 +52,12 @@ describe("orphan-photo-sweep plugin (movo-svc-users)", () => {
     } as any);
 
     const mockRedisSet = vi.fn().mockResolvedValue("OK");
-    const mockZrangebyscore = vi
-      .fn()
-      .mockResolvedValue([
-        "profile-photos/confirmed-user/confirmed-key.jpg",
-        "profile-photos/orphan-user/orphan-key.jpg",
-      ]);
+    // MOVO-256: el sweep también barre `photos:pending:reports`; acá ese set está vacío.
+    const mockZrangebyscore = vi.fn(async (key: string) =>
+      key === "photos:pending:profile-photos"
+        ? ["profile-photos/confirmed-user/confirmed-key.jpg", "profile-photos/orphan-user/orphan-key.jpg"]
+        : []
+    );
     const mockZrem = vi.fn().mockResolvedValue(1);
     const mockUnlink = vi.fn().mockResolvedValue(1);
     app.decorate("redis", {
@@ -72,6 +72,7 @@ describe("orphan-photo-sweep plugin (movo-svc-users)", () => {
       createUploadUrl: vi.fn(),
       headObject: vi.fn(),
       getPublicUrl: publicUrlFor,
+      createDownloadUrl: vi.fn(),
       getKeyFromUrl: vi.fn(),
       deleteObject: mockDeleteObject,
     };
@@ -149,6 +150,7 @@ describe("orphan-photo-sweep plugin (movo-svc-users)", () => {
         createUploadUrl: vi.fn(),
         headObject: vi.fn(),
         getPublicUrl: vi.fn(),
+        createDownloadUrl: vi.fn(),
         getKeyFromUrl: vi.fn(),
         deleteObject: vi.fn(),
       },
@@ -192,6 +194,7 @@ describe("orphan-photo-sweep plugin (movo-svc-users)", () => {
         createUploadUrl: vi.fn(),
         headObject: vi.fn(),
         getPublicUrl: vi.fn(),
+        createDownloadUrl: vi.fn(),
         getKeyFromUrl: vi.fn(),
         deleteObject: mockDeleteObject,
       },
@@ -207,6 +210,67 @@ describe("orphan-photo-sweep plugin (movo-svc-users)", () => {
     expect(mockDeleteObject).not.toHaveBeenCalled();
     expect(mockZrem).not.toHaveBeenCalled();
     expect(mockUnlink).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("MOVO-256: barre reports/* contra user_report_photos, con su propio lock global y por key", async () => {
+    const app = Fastify();
+    app.decorate("config", {
+      ORPHAN_PHOTO_RETENTION_HOURS: 24,
+      ORPHAN_PHOTO_SWEEP_INTERVAL_MINUTES: 60,
+      ORPHAN_PHOTO_SWEEP_ENABLED: true,
+    } as EnvConfig);
+
+    const associated = "reports/user-a/associated.jpg";
+    const orphan = "reports/user-a/orphan.jpg";
+    app.decorate("db", {
+      user: { findFirst: vi.fn() },
+      userReportPhoto: {
+        findUnique: vi.fn(async ({ where }: { where: { s3Key: string } }) =>
+          where.s3Key === associated ? { id: "photo-1" } : null
+        ),
+      },
+    } as any);
+
+    const mockRedisSet = vi.fn().mockResolvedValue("OK");
+    const mockZrem = vi.fn().mockResolvedValue(1);
+    app.decorate("redis", {
+      set: mockRedisSet,
+      zrangebyscore: vi.fn(async (key: string) => (key === "photos:pending:reports" ? [associated, orphan] : [])),
+      zrem: mockZrem,
+      unlink: vi.fn().mockResolvedValue(1),
+    } as any);
+
+    const mockDeleteObject = vi.fn().mockResolvedValue(undefined);
+    await app.register(orphanPhotoSweepPlugin, {
+      storageProvider: {
+        createUploadUrl: vi.fn(),
+        headObject: vi.fn(),
+        getPublicUrl: vi.fn(),
+        createDownloadUrl: vi.fn(),
+        getKeyFromUrl: vi.fn(),
+        deleteObject: mockDeleteObject,
+      },
+      enabled: true,
+    });
+    await app.ready();
+
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+
+    expect(mockRedisSet).toHaveBeenCalledWith("locks:orphan-photo-sweep:reports", "locked", "PX", expect.any(Number), "NX");
+    expect(mockRedisSet).toHaveBeenCalledWith(
+      `locks:orphan-photo-sweep:key:reports:${orphan}`,
+      "1",
+      "PX",
+      expect.any(Number),
+      "NX"
+    );
+    // La asociada a un reporte nunca se borra; la huérfana sí. Las dos se destrackean.
+    expect(mockDeleteObject).toHaveBeenCalledTimes(1);
+    expect(mockDeleteObject).toHaveBeenCalledWith(orphan);
+    expect(mockZrem).toHaveBeenCalledWith("photos:pending:reports", associated);
+    expect(mockZrem).toHaveBeenCalledWith("photos:pending:reports", orphan);
 
     await app.close();
   });

@@ -409,7 +409,16 @@ Table users.user_report_entries {
   report_id uuid [ref: > users.user_reports.id]
   details text
   created_at timestamp
-  Note: 'MOVO-175: información que el reportante suma a su reporte pending. Append-only, el reporte original no se edita'
+  Note: 'MOVO-175: información que el reportante suma a su reporte pending. Append-only, el reporte original no se edita. MOVO-256: details nullable (una entrada puede ser solo fotos)'
+}
+
+Table users.user_report_photos {
+  id uuid [pk]
+  report_id uuid [ref: > users.user_reports.id]
+  entry_id uuid [null, ref: > users.user_report_entries.id]
+  s3_key text [unique]
+  created_at timestamp
+  Note: 'MOVO-256: foto de evidencia de un reporte. entry_id null = reporte original, si no la entrada que la sumó. Objeto privado en S3 (reports/{reporterId}/), se lee con presigned GET'
 }
 
 Table users.payment_method {

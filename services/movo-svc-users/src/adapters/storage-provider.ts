@@ -31,6 +31,13 @@ export interface StorageProvider {
   getPublicUrl(key: string): string;
 
   /**
+   * MOVO-256: presigned GET de TTL corto para objetos bajo un prefijo privado (fotos
+   * de reportes, `reports/*`) -- a diferencia de `getPublicUrl`, cada lectura pide una
+   * URL nueva. Mismo contrato que el `createDownloadUrl` de `svc-shipments` (MOVO-81).
+   */
+  createDownloadUrl(key: string): Promise<{ url: string; expiresIn: number }>;
+
+  /**
    * Inversa de `getPublicUrl` -- recupera la key a partir de una URL ya persistida.
    * Hace falta porque no se guarda el `objectKey` en una columna aparte (MOVO-97 no
    * migra el schema): al reemplazar una foto, la key del objeto viejo se deriva de la
