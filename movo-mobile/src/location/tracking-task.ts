@@ -1,7 +1,7 @@
 import * as TaskManager from "expo-task-manager";
 import * as Location from "expo-location";
 import { shipmentsClient, BatchPositionItemInput, BatchPositionResultItem } from "../api/shipments-client";
-import { offlineQueueStorage, QueuedPosition } from "./offline-queue-storage";
+import { offlineQueueStorage, QueuedPosition, TrackingContextData } from "./offline-queue-storage";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 
 export const MOVO_CARRIER_BACKGROUND_TRACKING_TASK = "movo-carrier-background-tracking";
@@ -10,10 +10,7 @@ export const BACKGROUND_TRACKING_INTERVAL_MS = 45_000;
 export const BACKGROUND_DISTANCE_INTERVAL_METERS = 30;
 export const MAX_POSITIONS_PER_BATCH = 100;
 
-export interface TrackingContextData {
-  tripId: string | null;
-  shipmentIds: string[];
-}
+export { TrackingContextData };
 
 export type ShipmentDroppedListener = (shipmentId: string, reason: string) => void;
 
@@ -33,15 +30,25 @@ class BackgroundTrackingManager {
   }
 
   setTrackingContext(tripId: string | null, shipmentIds: string[]): void {
+    const validIds = shipmentIds.filter((id) => typeof id === "string" && id.trim().length > 0);
     this.activeTripId = tripId;
-    this.activeShipmentIds = new Set(
-      shipmentIds.filter((id) => typeof id === "string" && id.trim().length > 0)
-    );
+    this.activeShipmentIds = new Set(validIds);
+
+    // Persistir contexto en disco para recuperarlo si el OS relanza el proceso en headless (MOVO-242)
+    void offlineQueueStorage.saveTrackingContext({
+      tripId,
+      shipmentIds: validIds,
+    });
   }
 
   removeShipment(shipmentId: string, reason = "SHIPMENT_NOT_TRACKABLE"): void {
     if (this.activeShipmentIds.has(shipmentId)) {
       this.activeShipmentIds.delete(shipmentId);
+      void offlineQueueStorage.saveTrackingContext({
+        tripId: this.activeTripId,
+        shipmentIds: Array.from(this.activeShipmentIds),
+      });
+
       for (const listener of this.droppedListeners) {
         try {
           listener(shipmentId, reason);
@@ -63,7 +70,20 @@ class BackgroundTrackingManager {
    * Procesa las ubicaciones recibidas desde el sistema operativo en segundo plano.
    */
   async handleLocations(locations: Location.LocationObject[]): Promise<void> {
-    if (!locations || locations.length === 0 || this.activeShipmentIds.size === 0) {
+    if (!locations || locations.length === 0) {
+      return;
+    }
+
+    // Si el proceso fue relanzado headless por el OS y la memoria está vacía, restaurar desde disco (MOVO-242)
+    if (this.activeShipmentIds.size === 0) {
+      const persisted = await offlineQueueStorage.loadTrackingContext();
+      if (persisted && persisted.shipmentIds.length > 0) {
+        this.activeTripId = persisted.tripId;
+        this.activeShipmentIds = new Set(persisted.shipmentIds);
+      }
+    }
+
+    if (this.activeShipmentIds.size === 0) {
       return;
     }
 
@@ -96,6 +116,7 @@ class BackgroundTrackingManager {
   /**
    * Vacía la cola usando el endpoint de lote POST /shipments/positions (AC8).
    * Respetando el rate limit (30 req/min de MOVO-250) con backoff exponencial ante 429.
+   * Evita condiciones de carrera removiendo únicamente las posiciones procesadas.
    */
   async flushBatchQueue(): Promise<{ sentCount: number; remainingCount: number }> {
     if (this.isFlushing) {
@@ -160,14 +181,13 @@ class BackgroundTrackingManager {
           }
         }
 
-        // Reconstruir la cola con los ítems no removidos del batch + el resto de la cola
-        const remainingBatch = batch.filter((_, idx) => !indicesToRemove.has(idx));
-        const restOfQueue = queue.slice(MAX_POSITIONS_PER_BATCH);
-        const newQueue = [...remainingBatch, ...restOfQueue];
-        await offlineQueueStorage.saveQueue(newQueue);
+        // Quitar de la cola solo los ítems procesados releeyendo el archivo bajo mutex
+        // Esto previene que se pisen posiciones encoladas concurrentemente durante el await (MOVO-242)
+        const itemsToRemove = batch.filter((_, idx) => indicesToRemove.has(idx));
+        const updatedQueue = await offlineQueueStorage.removeSentPositions(itemsToRemove);
 
-        const sent = batch.length - remainingBatch.length;
-        return { sentCount: sent, remainingCount: newQueue.length };
+        const sent = itemsToRemove.length;
+        return { sentCount: sent, remainingCount: updatedQueue.length };
       } catch (err: unknown) {
         if (err instanceof ApiError && err.statusCode === 429) {
           this.last429Timestamp = Date.now();
@@ -222,6 +242,7 @@ class BackgroundTrackingManager {
   async stopBackgroundTracking(): Promise<void> {
     this.activeTripId = null;
     this.activeShipmentIds.clear();
+    await offlineQueueStorage.clearTrackingContext();
 
     const isRegistered = await TaskManager.isTaskRegisteredAsync(MOVO_CARRIER_BACKGROUND_TRACKING_TASK);
     if (isRegistered) {

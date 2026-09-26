@@ -187,23 +187,30 @@ export class LocationService {
       tripStatus === TripStatus.COMPLETED ||
       tripStatus === TripStatus.CANCELLED
     ) {
+      this.activeTripId = null;
+      this.activeShipmentIds.clear();
       await this.stopTracking();
       return;
     }
-
-    const isTripActive =
-      tripStatus === "active" ||
-      tripStatus === TripStatus.ACTIVE ||
-      (this.activeTripId !== null && tripStatus === undefined);
 
     const validIds = shipmentIds.filter((id) => typeof id === "string" && id.trim().length > 0);
 
-    if (validIds.length === 0 && !isTripActive && !tripId) {
+    if (tripId !== undefined) {
+      this.activeTripId = tripId;
+    }
+
+    // Si no hay envíos trackeables, frenar tracking
+    if (validIds.length === 0) {
       await this.stopTracking();
       return;
     }
 
-    this.activeTripId = tripId !== undefined ? tripId : this.activeTripId;
+    // Si se especificó tripStatus y no es activo, frenar tracking
+    if (tripStatus !== undefined && tripStatus !== "active" && tripStatus !== TripStatus.ACTIVE) {
+      await this.stopTracking();
+      return;
+    }
+
     this.activeShipmentIds = new Set(validIds);
     backgroundTrackingManager.setTrackingContext(this.activeTripId, validIds);
 
@@ -219,7 +226,7 @@ export class LocationService {
     if (this.activeShipmentIds.has(shipmentId)) {
       this.activeShipmentIds.delete(shipmentId);
       backgroundTrackingManager.setTrackingContext(this.activeTripId, Array.from(this.activeShipmentIds));
-      if (this.activeShipmentIds.size === 0 && !this.activeTripId) {
+      if (this.activeShipmentIds.size === 0) {
         void this.stopTracking();
       } else {
         this.emitStatus();

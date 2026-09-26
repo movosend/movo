@@ -127,4 +127,49 @@ describe("OfflineQueueStorage (MOVO-242 / AC9)", () => {
       { idempotent: true }
     );
   });
+
+  it("removeSentPositions quita solo los ítems procesados y preserva los concurrentes", async () => {
+    const item1: QueuedPosition = { shipmentId: "s-1", lat: 1, lng: 1, accuracyM: 5, capturedAt: "2026-09-26T10:00:00Z" };
+    const item2: QueuedPosition = { shipmentId: "s-2", lat: 2, lng: 2, accuracyM: 5, capturedAt: "2026-09-26T10:00:01Z" };
+    const itemConcurrent: QueuedPosition = { shipmentId: "s-3", lat: 3, lng: 3, accuracyM: 5, capturedAt: "2026-09-26T10:00:02Z" };
+
+    // Archivo actual tiene los 3 ítems
+    mockGetInfoAsync.mockResolvedValue({ exists: true });
+    mockReadAsStringAsync.mockResolvedValue(JSON.stringify([item1, item2, itemConcurrent]));
+    mockWriteAsStringAsync.mockResolvedValue(undefined);
+
+    const storage = createStorage();
+    // Se procesaron con éxito item1 e item2
+    const remaining = await storage.removeSentPositions([item1, item2]);
+
+    expect(remaining).toEqual([itemConcurrent]);
+    expect(mockWriteAsStringAsync).toHaveBeenCalledWith(
+      "file:///mock/data/movo_carrier_location_queue.json",
+      JSON.stringify([itemConcurrent])
+    );
+  });
+
+  it("persiste y recupera el contexto de tracking en disco (MOVO-242)", async () => {
+    mockWriteAsStringAsync.mockResolvedValue(undefined);
+    mockGetInfoAsync.mockResolvedValue({ exists: true });
+    const contextData = { tripId: "trip-999", shipmentIds: ["ship-1", "ship-2"] };
+    mockReadAsStringAsync.mockResolvedValue(JSON.stringify(contextData));
+    mockDeleteAsync.mockResolvedValue(undefined);
+
+    const storage = createStorage();
+    await storage.saveTrackingContext(contextData);
+    expect(mockWriteAsStringAsync).toHaveBeenCalledWith(
+      "file:///mock/data/movo_carrier_tracking_context.json",
+      JSON.stringify(contextData)
+    );
+
+    const loaded = await storage.loadTrackingContext();
+    expect(loaded).toEqual(contextData);
+
+    await storage.clearTrackingContext();
+    expect(mockDeleteAsync).toHaveBeenCalledWith(
+      "file:///mock/data/movo_carrier_tracking_context.json",
+      { idempotent: true }
+    );
+  });
 });

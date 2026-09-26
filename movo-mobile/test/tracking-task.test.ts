@@ -27,7 +27,11 @@ jest.mock("../src/location/offline-queue-storage", () => ({
     loadQueue: jest.fn(),
     saveQueue: jest.fn(),
     enqueuePositions: jest.fn(),
+    removeSentPositions: jest.fn().mockResolvedValue([]),
     clearQueue: jest.fn(),
+    saveTrackingContext: jest.fn().mockResolvedValue(undefined),
+    loadTrackingContext: jest.fn().mockResolvedValue(null),
+    clearTrackingContext: jest.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -96,8 +100,8 @@ describe("BackgroundTrackingManager (MOVO-242 / AC1, AC5, AC8)", () => {
       }))
     );
 
-    // Ambas posiciones salen de la cola (una aceptada, otra rechazada terminal)
-    expect(offlineQueueStorage.saveQueue).toHaveBeenCalledWith([]);
+    // Ambas posiciones salen de la cola de forma segura (una aceptada, otra rechazada terminal)
+    expect(offlineQueueStorage.removeSentPositions).toHaveBeenCalledWith(queue);
     expect(result.sentCount).toBe(2);
 
     // shipment-2 se desvincula de los envíos activos por SHIPMENT_NOT_TRACKABLE
@@ -105,6 +109,38 @@ describe("BackgroundTrackingManager (MOVO-242 / AC1, AC5, AC8)", () => {
     expect(backgroundTrackingManager.getTrackingContext().shipmentIds).toEqual(["shipment-1"]);
 
     unsub();
+  });
+
+  it("handleLocations restaura el contexto persistido si el proceso fue relanzado headless (MOVO-242)", async () => {
+    // Simular que el proceso fue reiniciado en background sin UI: memoria vacía
+    backgroundTrackingManager.setTrackingContext(null, []);
+    expect(backgroundTrackingManager.getTrackingContext().shipmentIds).toEqual([]);
+
+    // En disco existe el contexto guardado previamente
+    (offlineQueueStorage.loadTrackingContext as jest.Mock).mockResolvedValue({
+      tripId: "persisted-trip-123",
+      shipmentIds: ["persisted-shipment-456"],
+    });
+    (offlineQueueStorage.loadQueue as jest.Mock).mockResolvedValue([]);
+    (offlineQueueStorage.enqueuePositions as jest.Mock).mockResolvedValue([]);
+
+    const locations = [
+      {
+        coords: { latitude: -31.42, longitude: -64.18, accuracy: 10 },
+        timestamp: 1727340000000,
+      },
+    ] as Location.LocationObject[];
+
+    await backgroundTrackingManager.handleLocations(locations);
+
+    expect(offlineQueueStorage.loadTrackingContext).toHaveBeenCalled();
+    expect(backgroundTrackingManager.getTrackingContext()).toEqual({
+      tripId: "persisted-trip-123",
+      shipmentIds: ["persisted-shipment-456"],
+    });
+    expect(offlineQueueStorage.enqueuePositions).toHaveBeenCalledWith([
+      expect.objectContaining({ shipmentId: "persisted-shipment-456" }),
+    ]);
   });
 
   it("flushBatchQueue retiene la cola y no descarta posiciones ante HTTP 429", async () => {

@@ -99,7 +99,7 @@ describe("useCarrierTracking y coordinador (MOVO-203 / MOVO-242)", () => {
       expect(result.current.trackableCount).toBe(2);
       expect(result.current.inTransitCount).toBe(1);
       expect(result.current.trackableShipments.map((s) => s.id)).toEqual(["ship-1", "ship-2"]);
-      expect(locationService.updateActiveShipments).toHaveBeenCalledWith(["ship-1", "ship-2"]);
+      expect(locationService.updateActiveShipments).toHaveBeenCalledWith(["ship-1", "ship-2"], null, null);
     });
 
     it("sincroniza el tripId y status activo con locationService (MOVO-242, AC7)", async () => {
@@ -232,7 +232,48 @@ describe("useCarrierTracking y coordinador (MOVO-203 / MOVO-242)", () => {
       const { result } = await renderHook(() => useCarrierTrackingCoordinator());
 
       expect(result.current.trackableCount).toBe(0);
-      expect(locationService.updateActiveShipments).toHaveBeenCalledWith([]);
+      expect(locationService.updateActiveShipments).toHaveBeenCalledWith([], null, null);
+    });
+
+    it("detiene el tracking si el viaje activo pasa a completado o cancelado (MOVO-242)", async () => {
+      let isTripActive = true;
+      mockUseQuery.mockImplementation(({ queryKey }: { queryKey: string[] }) => {
+        if (queryKey[0] === "shipments") {
+          return {
+            data: [activeShipment("ship-1", "in_transit")],
+            refetch: jest.fn(),
+          };
+        }
+        if (queryKey[0] === "trips") {
+          return {
+            data: isTripActive
+              ? { items: [{ id: "trip-active-1", status: "active" }] }
+              : { items: [] },
+            refetch: jest.fn(),
+          };
+        }
+        return { data: undefined, refetch: jest.fn() };
+      });
+
+      const { rerender } = await renderHook(() => useCarrierTrackingCoordinator());
+
+      expect(locationService.updateActiveShipments).toHaveBeenCalledWith(
+        ["ship-1"],
+        "trip-active-1",
+        "active"
+      );
+
+      // El viaje activo finaliza (desaparece de activeTrips)
+      isTripActive = false;
+      await act(async () => {
+        rerender({});
+      });
+
+      expect(locationService.updateActiveShipments).toHaveBeenLastCalledWith(
+        ["ship-1"],
+        null,
+        "completed"
+      );
     });
   });
 

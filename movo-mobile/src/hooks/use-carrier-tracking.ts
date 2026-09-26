@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { shipmentsClient, type ActiveShipmentSummary } from "../api/shipments-client";
 import { tripsClient, TripStatus } from "../api/trips-client";
@@ -62,10 +62,10 @@ export function useCarrierTrackingCoordinator(
     refetchInterval: pollInterval,
   });
 
-  // Consultar viajes del transportista para asociar el tripId activo (MOVO-242)
+  // Consultar viajes activos del transportista (MOVO-242: filtrado por status=active para que no se pierda por paginación)
   const { data: myTrips } = useQuery({
-    queryKey: ["trips", "mine", "tracking"],
-    queryFn: () => tripsClient.list({ page: 1, limit: 10 }),
+    queryKey: ["trips", "mine", "active"],
+    queryFn: () => tripsClient.list({ page: 1, limit: 10, status: TripStatus.ACTIVE }),
     enabled: isAuthenticated && isEnabled,
     refetchInterval: pollInterval,
     retry: false,
@@ -76,6 +76,7 @@ export function useCarrierTrackingCoordinator(
   );
   const activeTripId = activeTrip?.id ?? null;
   const activeTripStatus = activeTrip?.status ?? null;
+  const prevActiveTripIdRef = useRef<string | null>(null);
 
   // Filtrar envíos elegibles para tracking: assigned e in_transit (MOVO-242 / MOVO-251 TRACKABLE_SHIPMENT_STATUSES)
   // Excluye assigned_unfunded ya que requiere hold confirmado de fondos antes de trackeo
@@ -100,14 +101,27 @@ export function useCarrierTrackingCoordinator(
   // Sincronización con el ciclo de vida de los envíos trackeables y el viaje activo (AC7, AC11)
   useEffect(() => {
     if (!isAuthenticated || !isEnabled) {
+      prevActiveTripIdRef.current = null;
       void locationService.stopTracking();
       return;
     }
 
-    if (activeTripId || activeTripStatus) {
+    const hadActiveTrip = prevActiveTripIdRef.current !== null;
+    const hasActiveTripNow = activeTripId !== null;
+
+    if (hadActiveTrip && !hasActiveTripNow) {
+      // El viaje que estaba activo terminó (completado o cancelado)
+      prevActiveTripIdRef.current = null;
+      void locationService.updateActiveShipments(trackableIds, null, TripStatus.COMPLETED);
+      return;
+    }
+
+    prevActiveTripIdRef.current = activeTripId;
+
+    if (hasActiveTripNow) {
       void locationService.updateActiveShipments(trackableIds, activeTripId, activeTripStatus);
     } else {
-      void locationService.updateActiveShipments(trackableIds);
+      void locationService.updateActiveShipments(trackableIds, null, null);
     }
   }, [isAuthenticated, isEnabled, trackableKey, activeTripId, activeTripStatus]);
 
