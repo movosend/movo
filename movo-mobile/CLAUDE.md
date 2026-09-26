@@ -3742,9 +3742,40 @@ transporte activo (fase 1: foreground + offline FIFO):
 - **`app.config.js`**: Justificaciones de uso de ubicación en primer plano redactadas
   específicamente para la experiencia de entrega en tiempo real.
 
+### MOVO-242 — [movo-mobile] Emisión de ubicación del transportista en background: permisos en dos etapas, cadencia reducida y cola en archivo
+
+Implementación del tracking en segundo plano (`expo-task-manager` + `expo-location`),
+permisos en dos etapas, migración de cola offline a archivos (`expo-file-system`),
+reporte unificado en lote (`POST /shipments/positions`), ciclo de vida por viaje
+y descarte de envíos rechazados con `SHIPMENT_NOT_TRACKABLE`:
+
+- **Configuración nativa y Stores (`app.config.js`)**:
+  - `NSLocationAlwaysAndWhenInUseUsageDescription` y `NSLocationAlwaysUsageDescription` con textos reales y específicos de auditoría de App Store.
+  - `UIBackgroundModes: ["location"]` en iOS.
+  - Permiso `ACCESS_BACKGROUND_LOCATION` y plugin `expo-location` con `isAndroidBackgroundLocationEnabled: true` y notificación foreground en Android.
+- **Almacenamiento de cola offline en archivo (`src/location/offline-queue-storage.ts`)**:
+  - Migración desde `expo-secure-store` (límite ~2 KB) hacia almacenamiento de archivo en `expo-file-system.documentDirectory/movo_carrier_queue.json` (hasta 100 posiciones, ~15 KB).
+  - Migración automática y atómica de datos legados persistidos en SecureStore al primer arranque.
+- **Cliente API batch (`src/api/shipments-client.ts`)**:
+  - Agregado método `reportPositionsBatch(positions: BatchPositionItemInput[])` contra `POST /shipments/positions` (MOVO-250 / MOVO-242).
+- **Background Task Headless (`src/location/tracking-task.ts`)**:
+  - Tarea registrada con `TaskManager.defineTask(MOVO_CARRIER_BACKGROUND_TRACKING_TASK)` montada en `app/_layout.tsx`.
+  - Cadencia reducida de background: 45s (`timeInterval: 45_000`, `distanceInterval: 30`, `accuracy: Balanced`).
+  - Vaciado unificado en lote: comparte la misma cola con el primer plano; ante HTTP 429 aplica backoff exponencial sin descartar posiciones.
+  - Manejo de respuestas por ítem: ante `SHIPMENT_NOT_TRACKABLE` (código backend de MOVO-251), desvincula el envío individual del tracking sin apagar el viaje.
+- **Ciclo de vida por Viaje y Envíos Trackeables (`location-service.ts` y `use-carrier-tracking.ts`)**:
+  - El tracking arranca cuando `Trip.status === "active"` (MOVO-252) y contiene envíos elegibles en `assigned` o `in_transit` (confirmado contra `TRACKABLE_SHIPMENT_STATUSES` de MOVO-251, excluyendo `assigned_unfunded`).
+  - Se detiene inmediatamente cuando `Trip.status === "completed"` o `"cancelled"`, o en `logout`.
+  - Si un envío `in_transit` se entrega pero quedan otros `assigned`, el tracking continúa activo sin detenerse.
+- **Permisos en dos etapas y UI (`components/location/`)**:
+  - `TrackingPermissionModal`: soporte para `stage="foreground"` (etapa 1) y `stage="background"` (etapa 2 con explicación de pantalla apagada / navegación alternativa).
+  - `TrackingActiveIndicator`: soporta estado degradado `"Transmitiendo solo con app abierta"` cuando el permiso de background fue denegado, permitiendo continuar operando en foreground sin bloquear al transportista (AC3).
+
 Tests:
-- `test/location-service.test.ts` (10 tests)
-- `test/use-carrier-tracking.test.tsx` (5 tests)
-- `test/tracking-components.test.tsx` (8 tests)
-Total: 23 tests en verde. Typecheck `npx tsc --noEmit` limpio sin errores.
+- `test/offline-queue-storage.test.ts` (5 tests)
+- `test/tracking-task.test.ts` (6 tests)
+- `test/location-service.test.ts` (8 tests)
+- `test/use-carrier-tracking.test.tsx` (8 tests, incluye DoD de assigned + in_transit y transición a delivered)
+- `test/tracking-components.test.tsx` (11 tests, incluye stage background y estado degradado)
+Total MOVO-242: 38 tests pasando. Suite completa movo-mobile: 166 suites, 1359 tests en verde.
 
