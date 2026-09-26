@@ -3748,3 +3748,25 @@ Tests:
 - `test/tracking-components.test.tsx` (8 tests)
 Total: 23 tests en verde. Typecheck `npx tsc --noEmit` limpio sin errores.
 
+### MOVO-253 — Elegir otro receptor tras un rechazo
+
+Lado mobile del ADR-027 (`rejected_by_receiver` deja de ser terminal, ver
+`services/movo-svc-shipments/CLAUDE.md`).
+
+- **"Requiere tu atención"**: la tarea de rechazo pasa a una card propia
+  (`AttentionRejectedCard`, kind `"rejected"`) con el nombre de quien rechazó, el motivo
+  (`rejectionReason`), el plazo (`redesignationDeadlineLabel`, "Tenés hasta mañana
+  18:00") y el CTA "Elegir otro receptor". Con el plazo vencido o nulo la tarea no se
+  lista. La fuente pide solo los dos estados que generan tareas (`?status=`, AC8) —
+  `http-client.ts` ahora serializa arrays como clave repetida.
+- **`app/(app)/shipments/[id]/change-receiver.tsx`**: reusa `ReceiverSearchField`, que
+  gana `excludeIds` (quienes ya rechazaron, sacados de los eventos, y uno mismo). Solo se
+  elige la persona, la dirección no cambia.
+- **Detalle (vista emisor)**: `RejectedReceiverBanner` con motivo, plazo y CTA; se
+  re-renderiza al vencer (`useDeadlineExpired`). `canCancelShipment` incluye el estado.
+- **Formato**: tono `warning`; `shipmentLifecycleStage` depende del rol (en curso para el
+  emisor, terminado para quien rechazó). Línea de tiempo: "Elegiste otro receptor", y un
+  rechazo anterior se muestra como "El receptor anterior rechazó el envío" en vez de
+  tomar el nombre del receptor actual.
+
+Pendiente: no probado en device.

@@ -2637,6 +2637,44 @@ Decisiones clave:
 - **Difusión en tiempo real**: cuando entra una nueva posición para el viaje, se difunde a todos los
   envíos activos asociados a ese viaje.
 
+### MOVO-253 — Elegir otro receptor tras un rechazo (ADR-027)
+
+`rejected_by_receiver` deja de ser terminal: sale hacia `awaiting_receiver_confirmation`
+(el emisor elige otro receptor) o `cancelled` (el emisor cancela, o vence el plazo).
+Columna nueva `receiver_redesignation_deadline` (migración
+`20260926120000_add_receiver_redesignation_deadline`), seteada en `rejectShipment` con
+`deadlineCappedByPickupWindow` (`domain/pickup-window.ts`, extraída de `createShipment`
+para compartir la regla con la confirmación). Env var `RECEIVER_REDESIGNATION_TIMEOUT_HOURS`
+(default 48) en los tres lugares.
+
+- **`POST /shipments/:id/receiver`** (`redesignateReceiver`): solo el emisor, solo en
+  `rejected_by_receiver`, 409 `SHIPMENT_REDESIGNATION_EXPIRED` con el plazo vencido o
+  nulo aunque el barrido no haya corrido. Mismas validaciones de receptor que
+  `createShipment` + bloqueo (`assertNotBlocked`, ADR-026 — **depende de MOVO-175**, que
+  aporta `utils/block-relations.ts` y `UsersClient.listBlockRelatedUserIds`; esta rama no
+  compila sola hasta mergearse después de esa) + 422 `SHIPMENT_RECEIVER_ALREADY_REJECTED`
+  para quien ya rechazó, sacado de los eventos `-> rejected_by_receiver` sin columna
+  propia. Solo cambia la persona: la dirección de entrega no se toca (decisión de
+  producto), así que el precio sugerido tampoco se recalcula.
+- **`shipment-repository.ts#redesignateReceiver`**: compare-and-swap contra `status` en
+  una transacción (receptor, estado, plazo de confirmación nuevo, evento con el emisor
+  como actor) y emite `shipment-status-changed` tras el commit — tercer escritor de
+  `status` fuera de `updateStatus`, mismo cuidado que el handshake (MOVO-201).
+- **Barrido**: `expireRejectedShipments` corre dentro de `receiver-confirmation-sweep.ts`
+  (mismo lock e intervalo, sin plugin ni env vars propias). Cancela con `actorId: null`
+  los rechazos vencidos **o con plazo nulo**, así los anteriores a este cambio se cierran
+  en la primera corrida. Push nueva `shipmentCancelledRedesignationExpired`.
+- **`rejectionReason` en el DTO de envío**: motivo del último rechazo, cargado con un
+  `include` acotado (take 1) en `findById`/`listByUser` — el home lo muestra sin un
+  `GET /:id/events` por card. `GET /shipments/mine` gana `?status=` repetible.
+- **Baja de cuenta**: un rechazado cuenta como activo solo para el emisor; quien rechazó
+  sigue siendo `receiverId` durante el plazo y no debe quedar bloqueado.
+- Quien rechazó deja de ver el envío apenas se elige a otra persona (AC9, aceptado: el
+  acceso sigue a `receiverId`).
+
+Pendiente: correr la suite de integración contra Postgres/Redis reales (en esta sesión
+Docker no estaba levantado, solo pasaron los unitarios y el type-check).
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
