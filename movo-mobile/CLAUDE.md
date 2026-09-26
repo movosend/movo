@@ -3823,3 +3823,24 @@ dibujaba `breakdown.categories` si existía.
 
 Pendiente / fuera de alcance: no probado en dispositivo.
 
+### Rediseño del tab bar (sin ticket): Liquid Glass, selección deslizable y colapso al scrollear
+
+Reemplaza la estética de MOVO-78 tomando como referencia `rit3zh/expo-motion-tabs` (una app
+de ejemplo, no una librería: se copió la estética, no se sumó como dependencia).
+`FloatingTabBar` pasa a una pill centrada que se ajusta al contenido, con `GlassView` de
+`expo-glass-effect` (Liquid Glass nativo, iOS 26+; en Android e iOS anteriores cae al
+`BlurView` de antes, porque ahí `GlassView` es un `View` plano). La selección es una sola
+pill que se desliza con spring entre tabs y se puede arrastrar (`Gesture.Pan` con
+`activeOffsetX`, así los taps siguen yendo a cada botón), y la barra se achica al
+scrollear hacia abajo (`src/store/tab-bar-store.ts`, `useTabBarScrollHandler` en las 3
+pantallas de tabs). `expo-glass-effect` es módulo nativo: requiere rebuild del dev client.
+
+- `SceneDelegate` generado por `app.config.js` ahora llama a `makeKeyAndVisible()` al
+  conectar la escena, y el plugin lo reescribe siempre (antes solo si no existía, así que
+  ninguna corrección llegaba a un `ios/` ya generado). No resolvió el indicador de inicio
+  de iOS que no se ve en ninguna pantalla — causa todavía sin encontrar.
+- Pantallas con scroll dentro de `SafeAreaView` con `edges={["top","bottom"]}` cortan la
+  lista encima del indicador (franja fija del color de fondo) en vez de dejarla pasar por
+  debajo como en iOS. Corregido solo en `profile/edit.tsx` como prueba (`edges={["top"]}` +
+  `insets.bottom` en el `paddingBottom` del scroll); falta el resto de las pantallas.
+
