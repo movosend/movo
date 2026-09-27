@@ -21,6 +21,7 @@ import {
   shortAddressLabel,
   formatShipmentRowTime,
   formatDurationMin,
+  redesignationDeadlineLabel,
 } from "../src/lib/shipment-format";
 
 describe("shipmentStatusLabel", () => {
@@ -61,7 +62,8 @@ describe("shipmentStatusTone", () => {
 
   it("mapea cancelled/rejected (terminales fallidos) a danger", () => {
     expect(shipmentStatusTone(ShipmentStatus.CANCELLED)).toBe("danger");
-    expect(shipmentStatusTone(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("danger");
+    // MOVO-253: el rechazo ya no es terminal, espera que el emisor elija a otra persona.
+    expect(shipmentStatusTone(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("warning");
   });
 
   it("mapea awaiting_receiver_confirmation/disputed (esperan una acción) a warning", () => {
@@ -118,17 +120,24 @@ describe("canCancelShipment", () => {
     expect(canCancelShipment(ShipmentStatus.IN_TRANSIT)).toBe(false);
     expect(canCancelShipment(ShipmentStatus.DELIVERED)).toBe(false);
     expect(canCancelShipment(ShipmentStatus.CANCELLED)).toBe(false);
-    expect(canCancelShipment(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe(false);
     expect(canCancelShipment(ShipmentStatus.DISPUTED)).toBe(false);
+  });
+
+  it("MOVO-253 AC4: permite cancelar un envío rechazado", () => {
+    expect(canCancelShipment(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe(true);
   });
 });
 
 describe("shipmentLifecycleStage", () => {
-  it("agrupa entregado/completado/cancelado/rechazado como pasados", () => {
+  it("agrupa entregado/completado/cancelado como pasados", () => {
     expect(shipmentLifecycleStage(ShipmentStatus.DELIVERED)).toBe("past");
     expect(shipmentLifecycleStage(ShipmentStatus.COMPLETED)).toBe("past");
     expect(shipmentLifecycleStage(ShipmentStatus.CANCELLED)).toBe("past");
-    expect(shipmentLifecycleStage(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("past");
+  });
+
+  it("MOVO-253: rechazado está en curso para el emisor y terminado para quien rechazó", () => {
+    expect(shipmentLifecycleStage(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("ongoing");
+    expect(shipmentLifecycleStage(ShipmentStatus.REJECTED_BY_RECEIVER, { isReceiver: true })).toBe("past");
   });
 
   it("agrupa el resto, incluido disputado y assigned_unfunded, como en curso", () => {
@@ -549,5 +558,40 @@ describe("formatDurationMin (MOVO-244)", () => {
   it("formatea en horas y minutos si supera 60 minutos con resto", () => {
     expect(formatDurationMin(4500)).toBe("1 h 15 min");
     expect(formatDurationMin(9000)).toBe("2 h 30 min");
+  });
+});
+
+describe("MOVO-253: elegir otro receptor", () => {
+  it("titula el evento de re-designación según quién mira", () => {
+    expect(
+      shipmentEventTitle(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, ShipmentStatus.REJECTED_BY_RECEIVER, {
+        isSender: true,
+      }),
+    ).toBe("Elegiste otro receptor");
+    expect(
+      shipmentEventTitle(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, ShipmentStatus.REJECTED_BY_RECEIVER),
+    ).toBe("El emisor eligió otro receptor");
+  });
+
+  describe("redesignationDeadlineLabel", () => {
+    const now = new Date(2026, 8, 25, 10, 0);
+
+    it("hoy, mañana o con fecha", () => {
+      expect(redesignationDeadlineLabel(new Date(2026, 8, 25, 18, 0).toISOString(), now)).toBe(
+        "Tenés hasta hoy 18:00",
+      );
+      expect(redesignationDeadlineLabel(new Date(2026, 8, 26, 9, 30).toISOString(), now)).toBe(
+        "Tenés hasta mañana 09:30",
+      );
+      expect(redesignationDeadlineLabel(new Date(2026, 8, 27, 18, 0).toISOString(), now)).toMatch(
+        /^Tenés hasta el \S+ 27\/9 18:00$/,
+      );
+    });
+
+    it("null si falta, es inválido o ya venció", () => {
+      expect(redesignationDeadlineLabel(null, now)).toBeNull();
+      expect(redesignationDeadlineLabel("no-es-fecha", now)).toBeNull();
+      expect(redesignationDeadlineLabel(new Date(2026, 8, 25, 9, 0).toISOString(), now)).toBeNull();
+    });
   });
 });

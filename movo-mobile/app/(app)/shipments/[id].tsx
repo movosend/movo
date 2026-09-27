@@ -12,6 +12,7 @@ import { OffersBanner } from "../../../components/shipments/offers-banner";
 import { PackageCard } from "../../../components/shipments/package-card";
 import { RatingSheet, type RatingTarget } from "../../../components/shipments/rating-sheet";
 import { ReceiverActionsBar } from "../../../components/shipments/receiver-actions-bar";
+import { RejectedReceiverBanner } from "../../../components/shipments/rejected-receiver-banner";
 import { SenderActionsBar } from "../../../components/shipments/sender-actions-bar";
 import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
 import { ShipmentRatingsCard } from "../../../components/shipments/shipment-ratings-card";
@@ -143,6 +144,9 @@ export default function ShipmentDetailScreen() {
   const isCarrier = shipment !== undefined && currentUser?.userId === shipment.carrierId;
   const showSenderActions =
     isSender && shipment !== undefined && canCancelShipment(shipment.status);
+
+  // MOVO-253 AC6: el receptor rechazó y el emisor puede elegir a otra persona.
+  const showRejectedBanner = isSender && shipment?.status === ShipmentStatus.REJECTED_BY_RECEIVER;
 
   // MOVO-159 AC1: botón contextual ("Confirmar retiro" / "Confirmar entrega")
   // según el rol y el estado del envío para abrir la pantalla de generación de QR
@@ -294,6 +298,10 @@ export default function ShipmentDetailScreen() {
                   testID="shipment-detail-route-map"
                 />
               </View>
+
+              {showRejectedBanner ? (
+                <RejectedReceiverBanner shipment={shipment} testID="shipment-detail-rejected-banner" />
+              ) : null}
 
               {showExpiredBanner ? (
                 <View

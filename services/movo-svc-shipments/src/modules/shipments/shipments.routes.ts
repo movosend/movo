@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
+import { ShipmentStatus } from "@movo/shared";
 import {
   createShipmentsService,
   CreateShipmentServiceInput,
@@ -82,6 +83,9 @@ function toShipmentDto(shipment: Shipment | ShipmentDetailResult) {
     pickupTimeWindowEnd: shipment.pickupTimeWindowEnd.toISOString().slice(11, 19),
     receiverConfirmationDeadline: shipment.receiverConfirmationDeadline
       ? shipment.receiverConfirmationDeadline.toISOString()
+      : null,
+    receiverRedesignationDeadline: shipment.receiverRedesignationDeadline
+      ? shipment.receiverRedesignationDeadline.toISOString()
       : null,
     // MOVO-180: mismo gotcha de timezone que pickupDate (@db.Date anclada a UTC) --
     // estimatedDeliveryTimeWindowStart/End no lo necesitan, se persisten como string
@@ -170,6 +174,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
     opts.service ??
     createShipmentsService(repository, usersClient, notificationsClient, app.log, {
       receiverConfirmationTimeoutHours: app.config.RECEIVER_CONFIRMATION_TIMEOUT_HOURS,
+      receiverRedesignationTimeoutHours: app.config.RECEIVER_REDESIGNATION_TIMEOUT_HOURS,
       offerRepository,
       pricingClient,
       pricingLogisticsClient,
@@ -234,7 +239,8 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         summary: "Mis envíos",
         description:
           "AC9 de MOVO-80: lista paginada de los envíos donde el usuario autenticado " +
-          "participa como emisor o como receptor, más reciente primero.",
+          "participa como emisor o como receptor, más reciente primero. `status` " +
+          "(opcional, repetible, MOVO-253) acota a esos estados.",
         tags: ["shipments"],
         querystring: shipmentsSchemas.listMineQuery,
         response: {
@@ -245,8 +251,8 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
     },
     async (request: FastifyRequest) => {
       const userId = requireUserIdFromHeader(request);
-      const { page, limit } = request.query as { page: number; limit: number };
-      const result = await service.listMyShipments(userId, page, limit);
+      const { page, limit, status } = request.query as { page: number; limit: number; status?: ShipmentStatus[] };
+      const result = await service.listMyShipments(userId, page, limit, status);
       return { ...result, items: result.items.map(toShipmentDto) };
     }
   );
@@ -886,9 +892,10 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         summary: "Rechazar un envío (receptor)",
         description:
           "MOVO-129 (backend de MOVO-16): transiciona el envío de awaiting_receiver_confirmation " +
-          "a rejected_by_receiver (terminal). Solo el receptor designado puede llamar a este endpoint. " +
+          "a rejected_by_receiver. Solo el receptor designado puede llamar a este endpoint. " +
           "Body opcional { reason: string } (máx 500 chars) persistido en shipment_events. " +
-          "Dispara notificación push best-effort al emisor.",
+          "Fija receiverRedesignationDeadline: el plazo del emisor para elegir otro receptor " +
+          "(MOVO-253). Dispara notificación push best-effort al emisor.",
         tags: ["shipments"],
         params: shipmentsSchemas.shipmentIdParam,
         body: shipmentsSchemas.rejectShipmentBody,
@@ -907,6 +914,43 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const { id } = request.params as { id: string };
       const body = (request.body ?? {}) as { reason?: string };
       const shipment = await service.rejectShipment(id, callerId, body.reason);
+      return toShipmentDto(shipment);
+    }
+  );
+
+  app.post(
+    "/:id/receiver",
+    {
+      schema: {
+        summary: "Elegir otro receptor tras un rechazo (emisor)",
+        description:
+          "MOVO-253: el emisor de un envío rejected_by_receiver elige otro receptor antes " +
+          "de receiverRedesignationDeadline. El envío vuelve a awaiting_receiver_confirmation " +
+          "con un plazo de confirmación nuevo y el receptor nuevo recibe la push de envío " +
+          "por confirmar. La dirección de entrega no cambia. 409 SHIPMENT_REDESIGNATION_EXPIRED " +
+          "si el plazo venció; 422 si el receptor es el propio emisor, no tiene KYC aprobado " +
+          "o ya rechazó este envío; 403 USER_BLOCKED si hay un bloqueo entre ambos. " +
+          "El receptor que rechazó deja de tener acceso al envío.",
+        tags: ["shipments"],
+        params: shipmentsSchemas.shipmentIdParam,
+        body: shipmentsSchemas.redesignateReceiverBody,
+        response: {
+          200: shipmentsSchemas.shipmentResponse,
+          400: shipmentsSchemas.errorResponse,
+          401: shipmentsSchemas.errorResponse,
+          403: shipmentsSchemas.errorResponse,
+          404: shipmentsSchemas.errorResponse,
+          409: shipmentsSchemas.errorResponse,
+          422: shipmentsSchemas.errorResponse,
+          502: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const callerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      const { receiverId } = request.body as { receiverId: string };
+      const shipment = await service.redesignateReceiver(id, callerId, receiverId);
       return toShipmentDto(shipment);
     }
   );

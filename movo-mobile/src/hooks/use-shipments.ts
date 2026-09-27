@@ -1,4 +1,5 @@
 import { useInfiniteQuery, useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { shipmentsClient, type CreateShipmentInput, type EvidenceStatus, type ShipmentSummary } from "../api/shipments-client";
 
 interface LatLng {
@@ -31,10 +32,17 @@ export function useRecentShipments() {
  * propia (no comparte cache con el preview de 3 ni con el listado infinito de "Mis
  * Envíos") porque el límite es distinto.
  */
+/** Solo los estados que generan tareas (MOVO-253 AC8): sin este filtro, envíos
+ * terminales más nuevos podían empujar una tarea pendiente fuera de los primeros 20. */
+const ATTENTION_SOURCE_STATUSES = [
+  ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+  ShipmentStatus.REJECTED_BY_RECEIVER,
+] as const;
+
 export function useAttentionSourceShipments() {
   return useQuery({
     queryKey: ["shipments", "mine", "attention"],
-    queryFn: () => shipmentsClient.listMine({ page: 1, limit: 20 }),
+    queryFn: () => shipmentsClient.listMine({ page: 1, limit: 20, status: ATTENTION_SOURCE_STATUSES }),
   });
 }
 
@@ -202,6 +210,22 @@ export function useRejectShipment() {
       queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "recent"] });
       queryClient.invalidateQueries({ queryKey: ["shipments", "mine", "list"] });
       queryClient.invalidateQueries({ queryKey: ["shipments", "detail", id] });
+      queryClient.setQueryData(["shipments", "detail", id], data);
+    },
+  });
+}
+
+/**
+ * El emisor elige otro receptor para un envío rechazado (MOVO-253). Mismas
+ * invalidaciones que rechazar/cancelar: el envío cambia de estado y de receptor.
+ */
+export function useRedesignateReceiver() {
+  const queryClient = useQueryClient();
+  return useMutation<ShipmentSummary, unknown, { id: string; receiverId: string }>({
+    mutationFn: ({ id, receiverId }) => shipmentsClient.redesignateReceiver(id, receiverId),
+    onSuccess: (data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["shipments", "mine"] });
+      queryClient.invalidateQueries({ queryKey: ["shipments", "events", id] });
       queryClient.setQueryData(["shipments", "detail", id], data);
     },
   });

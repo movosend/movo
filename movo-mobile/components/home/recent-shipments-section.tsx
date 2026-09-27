@@ -3,6 +3,7 @@ import { PackageX, WifiOff } from "lucide-react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useRecentShipments } from "../../src/hooks/use-shipments";
 import { shipmentLifecycleStage } from "../../src/lib/shipment-format";
+import { useAuthStore } from "../../src/store/auth-store";
 import { ShipmentRow } from "../shipments/shipment-row";
 import { ViewAllShipmentsLink } from "./view-all-shipments-link";
 
@@ -18,9 +19,12 @@ import { ViewAllShipmentsLink } from "./view-all-shipments-link";
 export function RecentShipmentsSection({ testID }: { testID?: string }) {
   const colors = useThemeColors();
   const { data, isLoading, isError, refetch } = useRecentShipments();
+  const currentUserId = useAuthStore((state) => state.user?.userId);
 
   const activeCount = data
-    ? data.items.filter((s) => shipmentLifecycleStage(s.status) === "ongoing").length
+    ? data.items.filter(
+        (s) => shipmentLifecycleStage(s.status, { isReceiver: s.receiverId === currentUserId }) === "ongoing",
+      ).length
     : 0;
 
   return (

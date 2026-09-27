@@ -159,9 +159,17 @@ function EventRow({
   const colors = useThemeColors();
   const tone = TONE_STYLE[shipmentStatusTone(event.toStatus)];
   const timestamp = formatEventTimestamp(event.createdAt);
-  const actor = shipmentActorLabel(event.actorId, parties, currentUserId, {
-    receiverName: receiverFirstName,
-  });
+  // MOVO-253: tras elegir otro receptor, `parties.receiverId` es el receptor NUEVO — un
+  // rechazo anterior lo hizo otra persona y no puede tomar su nombre ni su rol.
+  const isFormerReceiverRejection =
+    event.toStatus === Status.REJECTED_BY_RECEIVER &&
+    event.actorId !== null &&
+    event.actorId !== parties.receiverId;
+  const actor = isFormerReceiverRejection
+    ? "Receptor anterior"
+    : shipmentActorLabel(event.actorId, parties, currentUserId, {
+        receiverName: receiverFirstName,
+      });
   const detail = shipmentEventDetail(event.toStatus, event.fromStatus);
 
   return (
@@ -173,9 +181,10 @@ function EventRow({
       isLast={isLast}
       title={
         <Text className={`font-sans-semibold text-body ${isCurrent ? "text-fg" : "text-fg-2"}`}>
-          {shipmentEventTitle(event.toStatus, event.fromStatus, { 
-            receiverName: receiverFirstName,
-            isReceiver,
+          {shipmentEventTitle(event.toStatus, event.fromStatus, {
+            receiverName: isFormerReceiverRejection ? "El receptor anterior" : receiverFirstName,
+            isReceiver: isReceiver && event.actorId === currentUserId,
+            isSender: currentUserId !== null && currentUserId === parties.senderId,
           })}
         </Text>
       }
