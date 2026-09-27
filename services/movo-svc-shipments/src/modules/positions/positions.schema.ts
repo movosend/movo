@@ -89,10 +89,22 @@ const reportPositionsBatchResponse = {
   },
 };
 
+const latestPositionResponse = {
+  type: ["object", "null"],
+  properties: {
+    lat: { type: "number" },
+    lng: { type: "number" },
+    accuracyM: { type: "number" },
+    capturedAt: { type: "string" },
+    recordedAt: { type: "string" },
+  },
+};
+
 export const positionsSchemas = {
   shipmentIdParam,
   reportPositionBody,
   reportPositionResponse,
   reportPositionsBatchBody,
   reportPositionsBatchResponse,
+  latestPositionResponse,
 };

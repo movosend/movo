@@ -4,6 +4,9 @@ import { createPositionRepository } from "../../repositories/position-repository
 import { BatchPositionInput, createPositionService, ReportPositionInput } from "../../services/position-service";
 import { positionsSchemas } from "./positions.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
+import { getUserRolesFromHeader } from "../../utils/get-user-roles";
+import { assertShipmentAccess } from "../shipments/assert-shipment-access";
+import { ApiError } from "@movo/shared";
 
 export interface PositionsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración -- mismo criterio que el resto de los
@@ -117,6 +120,39 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
       const result = await service.reportPosition(shipmentId, callerId, input);
       reply.code(202);
       return result;
+    }
+  );
+
+  // MOVO-204: lectura inmediata de la última posición conocida para emisor/receptor
+  app.get<{ Params: ShipmentIdParams }>(
+    "/:id/positions/latest",
+    {
+      schema: {
+        summary: "Obtener la última posición conocida del transportista para un envío",
+        description:
+          "MOVO-204 / MOVO-251: retorna la última posición registrada en Redis por tripId si el envío y viaje están activos, o null si aún no hay posiciones registradas.",
+        tags: ["positions"],
+        params: positionsSchemas.shipmentIdParam,
+        response: {
+          200: positionsSchemas.latestPositionResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest<{ Params: ShipmentIdParams }>) => {
+      const callerId = requireUserIdFromHeader(request);
+      const callerRoles = getUserRolesFromHeader(request);
+      const { id: shipmentId } = request.params;
+
+      const shipment = await shipmentRepository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+
+      if (callerId !== shipment.carrierId) {
+        assertShipmentAccess(shipment, callerId, callerRoles, "No tenés permiso para ver el tracking de este envío.");
+      }
+
+      return (await service.getLastKnownPosition(shipmentId)) ?? null;
     }
   );
 }
