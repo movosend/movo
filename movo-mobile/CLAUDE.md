@@ -3911,3 +3911,24 @@ nadie; la variante con nombres sigue soportada por el componente. Se agrega el t
   marca y del código de la pantalla; queda pendiente contrastarlo con el prototipo si hace falta.
 
 Pendiente / fuera de alcance: no probado en dispositivo; requiere el backend desplegado.
+
+### MOVO-204 — Mapa de seguimiento en vivo para emisor y receptor (`movo-mobile`)
+
+Implementación del mapa táctico y bottom sheet interactivo para emisor y receptor (`app/(app)/shipments/[id]/tracking.tsx`) consumiendo telemetría en tiempo real sobre el canal WebSocket y el endpoint `GET /shipments/:id/positions/latest`.
+
+- **Diseño Stitch & Experiencia del Conductor (MOVO-207)**:
+  - Bottom sheet deslizable con física basada en `PanResponder` y `Animated.spring` (tensión 65, fricción 11, feedback háptico con `Haptics.impactAsync(Light)`), expandible hacia arriba y colapsable a su altura base (~38% / 290px).
+  - Componentes integrados del mockup Stitch: Hero ETA Card (llegada estimada con cálculo de hora, badge `~X min`, subtítulo de distancia en km y barra de progreso verde lima), tarjeta de conductor verificado con avatar, rating, insignia MOVO y acciones de Mensaje y Llamar, tarjeta técnica de paquete y destino con botón para copiar tracking code `#MV-...` y botón para abrir la dirección en Google/Apple Maps.
+  - Píldora de telemetría superior flotante con indicador pulsante ("En vivo · 24ms", "Reconectando", "Pausado", "Finalizado").
+- **Cumplimiento estricto de Privacidad (ADR-023)**:
+  - El componente `LiveMap` (`components/tracking/live-map.tsx`) NO renderiza trazas históricas ni polilíneas pasadas del recorrido del transportista. Únicamente muestra la posición actual del conductor y el pin del destino.
+  - Al recibir estado `delivered` o código terminal `4009` del WebSocket, la UI finaliza el seguimiento y desactiva la telemetría.
+- **Hooks de Sincronización y Resiliencia**:
+  - `useShipmentChannel` (`src/hooks/use-shipment-channel.ts`): canal WebSocket resiliente con backoff exponencial progresivo (1s..30s), reconexión inmediata al volver de segundo plano (`AppState === "active"`), refresh automático transparente de token ante código `4001` sin desloguear ni mostrar errores, y no reconexión ante cierre terminal `4009`.
+  - `useLivePosition` (`src/hooks/use-live-position.ts`): combina fetch inicial HTTP contra `GET /shipments/:id/positions/latest` con updates WebSocket en vivo, evalúa obsolescencia de posición (> 120s / 2 min sin updates marca estado `isStale` y "Pausado" con advertencia), y calcula distancias y tiempos de llegada mediante fórmula Haversine pura.
+- **Acceso desde el Detalle del Envío**:
+  - En `app/(app)/shipments/[id].tsx`, si el envío tiene un transportista asignado o está en tránsito, se muestra el botón táctico "Seguimiento en vivo" con acento Signal Lime para navegar directamente a la pantalla de tracking.
+- **Soporte de Modo Demo**:
+  - Parámetro `demo=true` permite inspeccionar la pantalla con datos preconfigurados de Stitch en desarrollo o pruebas.
+- **Tests**:
+  - Unitarios y de integración para `useShipmentChannel` (`test/use-shipment-channel.test.ts`), `useLivePosition` (`test/use-live-position.test.ts`), `LiveTrackingScreen` (`test/live-tracking-screen.test.tsx`) y regresión de `shipment-detail-screen.test.tsx`.
