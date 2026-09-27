@@ -463,7 +463,10 @@ espera al build (matriz por plataforma), y un tag `v*` sobre `develop` (guard + 
   Maps (server-side `GOOGLE_MAPS_API_KEY` compartida entre `svc-users`/futuros
   consumidores + `GOOGLE_MAPS_IOS/ANDROID_API_KEY` del mobile), Telegram bot
   (`SMS_PROVIDER=telegram`, solo dev), `STORAGE_PROVIDER=s3` + bucket/region de MOVO-97,
-  Resend (`EMAIL_PROVIDER=resend` + `RESEND_API_KEY`/`EMAIL_FROM`, ADR-017).
+  Resend (`EMAIL_PROVIDER=resend` + `RESEND_API_KEY`/`EMAIL_FROM`, ADR-017), precio de
+  combustible (`FUEL_PRICE_PROVIDER=energia` en `movo-svc-pricing-logistics`, MOVO-138/ADR-025;
+  no es una credencial, la API es pública, pero sin esa var dev cotiza con el precio fijo de
+  config).
 - **Terraform de `movo-infra`**: bucket de fotos de perfil (MOVO-97/ADR-016) aplicado
   en dev, `terraform apply` de prod pendiente. El dominio de envío de mails
   (MOVO-139/ADR-017) ya está verificado en Resend con DKIM/SPF/MX de bounces **y

@@ -177,3 +177,34 @@ persiste en `shipments.high_demand` (nullable: `NULL` = sin cotización). Si fal
 `/quote` degrada a Haversine x 1,3 (`distanceSource` en el log): excepción acotada a la
 política No-Fallback, que sigue vigente para `/optimize/route` y `/routes/evaluate-candidates`.
 Decisiones en ADR-025; implementación en MOVO-138.
+
+### MOVO-138 — `POST /quote` con `demand_fuel_routes_v1` (ADR-025)
+
+Reemplaza `euclidean_linear_v1` según el spike MOVO-216. `app/services/pricing.py` (fórmula,
+recargo por demanda, log `pricing_quote_computed` con el desglose), `app/services/fuel_price.py`
+(nuevo), `app/services/routes_provider.py#compute_route_km`. Respuesta sin `breakdown`, con
+`highDemand` (verdadero si y solo si hubo recargo). Coeficientes y parámetros de demanda en
+config (`PRICING_*_L`, `PRICING_DEMAND_*`); `PRICING_*_ARS` de MOVO-82 eliminados.
+
+- **`FuelPriceProvider`** (molde de ADR-012): `mock` por default, `energia` consulta la API
+  CKAN con cache Redis 24h → último valor bueno 7d → fallback de config. Dos agregados al
+  diseño del spike: **backoff de 10 min** tras una falla o un valor rechazado (sin esto, con
+  la API caída cada cotización pagaba el timeout), y **presupuesto total de 2s** para toda la
+  consulta, incluida la vía alternativa `datastore_search` (el prototipo le daba 10s). Sin
+  Redis devuelve el valor de config, nunca consulta la API en cada cotización.
+- **Matriz 1x1 para `/quote`**: `compute_matrix([origen, destino])` pedía una 2x2 (4
+  elementos facturados por cotización); `compute_route_km` pide uno solo. `_request_elements`
+  concentra el POST a Google para ambos métodos.
+- **El mock de rutas también lleva × 1,3 en `/quote`** (`distanceSource: haversine_mock`):
+  devuelve línea recta, y sin el factor dev/CI cotizaban ~30% por debajo de Google. El mock
+  de `/optimize` no cambia.
+- **Fallback a Haversine × 1,3** si Google falla, timeout de 1,5s o distancia 0; No-Fallback
+  intacto en `/optimize/route` y `/routes/evaluate-candidates`.
+- **`main.py` configura logging**: los `logger.info` de `app.*` no salían a ningún lado (root
+  en WARNING sin handler), incluido el log que reemplaza al desglose.
+- **Tests de cache contra Redis real** (`tests/test_fuel_price.py`, base 15): se saltean en
+  local sin Redis y fallan en CI (`CI=true`); `pr-checks.yml` suma Redis al job de Python.
+
+Pendiente: `FUEL_PRICE_PROVIDER=energia` sin cargar en Secrets Manager (dev cotiza con el
+precio fijo de config). La API de Energía respondió en 1,38s en la prueba real: dentro del
+presupuesto de 2s pero con poco margen.
