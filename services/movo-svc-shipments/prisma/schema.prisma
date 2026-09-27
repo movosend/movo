@@ -153,6 +153,10 @@ model Shipment {
   // Versión del algoritmo que produjo suggestedPriceArs (PriceCalculationMethod de
   // @movo/shared, ej. "euclidean_linear_v1") -- null junto con un precio nulo.
   calculationMethod String?  @map("calculation_method")
+  // MOVO-138 (ADR-025): true si la cotización llevó recargo por alta demanda. Misma
+  // foto que suggestedPriceArs, nunca se recalcula. null = sin cotización o envío
+  // anterior a demand_fuel_routes_v1 -- no equivale a false (el badge solo con true).
+  highDemand        Boolean? @map("high_demand")
   agreedPriceArs    Decimal? @map("agreed_price_ars") @db.Decimal
   // DER: "tipado como enum en el Miro pero sin valores definidos" — se deja
   // texto libre a propósito, no se inventan valores que nadie definió.

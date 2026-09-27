@@ -45,6 +45,7 @@ function mapShipment(row: ShipmentRow): Shipment {
     pickupTimeWindowEnd: row.pickupTimeWindowEnd,
     suggestedPriceArs: row.suggestedPriceArs ? row.suggestedPriceArs.toNumber() : null,
     calculationMethod: row.calculationMethod,
+    highDemand: row.highDemand,
     agreedPriceArs: row.agreedPriceArs ? row.agreedPriceArs.toNumber() : null,
     paymentMethod: row.paymentMethod,
     status: parseShipmentStatus(row.status, "status"),
@@ -388,6 +389,12 @@ export interface ShipmentRepository {
     limit: number;
   }): Promise<{ items: AvailableShipment[]; total: number }>;
   /**
+   * MOVO-138 (ADR-025): envíos `published` con retiro a `radiusKm` o menos del punto
+   * dado -- la mitad "demanda" del `demandContext` de `POST /quote`. Sin excluir al
+   * emisor: el volumen propio también es demanda de la zona.
+   */
+  countPublishedNearPickup(params: { lat: number; lng: number; radiusKm: number }): Promise<number>;
+  /**
    * MOVO-130 AC3: Envíos en awaiting_receiver_confirmation cuya deadline ya venció.
    * Lote acotado ordenado por deadline ascendente.
    */
@@ -571,6 +578,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             pickupTimeWindowEnd: input.pickupTimeWindowEnd,
             suggestedPriceArs: input.suggestedPriceArs,
             calculationMethod: input.calculationMethod,
+            highDemand: input.highDemand,
             receiverConfirmationDeadline: input.receiverConfirmationDeadline ?? null,
             status: INITIAL_SHIPMENT_STATUS,
             lastStatusChangedAt: new Date(),
@@ -732,6 +740,22 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         db.shipment.count({ where }),
       ]);
       return { items: rows.map(mapShipment), total };
+    },
+
+    async countPublishedNearPickup(params: { lat: number; lng: number; radiusKm: number }): Promise<number> {
+      // Mismo patrón que `listAvailable`: el bounding box acota por el índice
+      // `shipments_status_pickup_lat_lng_idx` y el Haversine afina el círculo.
+      const box = boundingBox(params.lat, params.lng, params.radiusKm);
+      const distance = haversinePointToColumnKm(params.lat, params.lng, Prisma.sql`pickup_lat`, Prisma.sql`pickup_lng`);
+      const rows = await db.$queryRaw<{ count: bigint }[]>`
+        SELECT COUNT(*)::bigint AS count
+        FROM shipments.shipments
+        WHERE status = 'published'
+          AND pickup_lat BETWEEN ${box.latMin} AND ${box.latMax}
+          AND pickup_lng BETWEEN ${box.lngMin} AND ${box.lngMax}
+          AND ${distance} <= ${params.radiusKm}
+      `;
+      return Number(rows[0]?.count ?? 0);
     },
 
     async listAvailable(params: {

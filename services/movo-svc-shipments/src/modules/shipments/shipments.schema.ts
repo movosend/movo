@@ -59,6 +59,7 @@ const shipmentResponse = {
     "pickupTimeWindowEnd",
     "suggestedPriceArs",
     "calculationMethod",
+    "highDemand",
     "agreedPriceArs",
     "paymentMethod",
     "status",
@@ -97,6 +98,10 @@ const shipmentResponse = {
     // nulidad -- ver PriceCalculationMethod en @movo/shared para los valores posibles.
     suggestedPriceArs: { type: ["number", "null"] },
     calculationMethod: { type: ["string", "null"] },
+    // MOVO-138: true si el precio sugerido lleva recargo por alta demanda (el mobile
+    // muestra el badge solo con true). null = sin cotización o envío anterior a
+    // demand_fuel_routes_v1 -- no equivale a false.
+    highDemand: { type: ["boolean", "null"] },
     agreedPriceArs: { type: ["number", "null"] },
     paymentMethod: { type: ["string", "null"] },
     status: { type: "string" },

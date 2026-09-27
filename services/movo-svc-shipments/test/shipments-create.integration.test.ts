@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
-import { ShipmentStatus } from "@movo/shared";
+import { PriceCalculationMethod, ShipmentStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createShipmentRepository } from "../src/repositories/shipment-repository";
 import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
@@ -202,6 +202,7 @@ describe("POST /shipments (Postgres)", () => {
     vi.mocked(pricingClient.getQuote).mockResolvedValueOnce({
       suggestedPriceArs: null,
       calculationMethod: null,
+      highDemand: null,
     });
 
     const response = await app.inject({
@@ -215,6 +216,8 @@ describe("POST /shipments (Postgres)", () => {
     const body = response.json();
     expect(body.suggestedPriceArs).toBeNull();
     expect(body.calculationMethod).toBeNull();
+    // MOVO-138: sin cotización, highDemand queda NULL (no false).
+    expect(body.highDemand).toBeNull();
     expect(body.status).toBe(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION);
   });
 
@@ -229,6 +232,52 @@ describe("POST /shipments (Postgres)", () => {
     expect(response.statusCode).toBe(201);
     const body = response.json();
     expect(body.suggestedPriceArs).toBe(2256);
-    expect(body.calculationMethod).toBe("euclidean_linear_v1");
+    expect(body.calculationMethod).toBe("demand_fuel_routes_v1");
+    expect(body.highDemand).toBe(false);
+  });
+
+  it("MOVO-138: cuenta la demanda con los repositorios reales, persiste highDemand y lo expone en el detalle", async () => {
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.trips RESTART IDENTITY CASCADE");
+    await app.db.trip.create({
+      data: {
+        carrierId: randomUUID(),
+        originAddress: "Av. Colón 1234, Córdoba",
+        originLat: -31.4201,
+        originLng: -64.1888,
+        destinationAddress: "Villa María",
+        destinationLat: -32.4104,
+        destinationLng: -63.2404,
+        departureAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        vehicleType: "auto",
+      },
+    });
+    vi.mocked(pricingClient.getQuote).mockResolvedValueOnce({
+      suggestedPriceArs: 36220,
+      calculationMethod: PriceCalculationMethod.DEMAND_FUEL_ROUTES_V1,
+      highDemand: true,
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/shipments",
+      headers: { "x-user-id": senderId },
+      payload: validBody,
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(pricingClient.getQuote).toHaveBeenCalledWith(
+      expect.objectContaining({ demandContext: { publishedShipments: 0, availableCarriers: 1 } })
+    );
+    const id = created.json().id;
+    const row = await app.db.shipment.findUniqueOrThrow({ where: { id } });
+    expect(row.highDemand).toBe(true);
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/shipments/${id}`,
+      headers: { "x-user-id": senderId },
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().highDemand).toBe(true);
   });
 });

@@ -55,6 +55,37 @@ describe("shipment-repository (Postgres)", () => {
     await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments, shipments.trips RESTART IDENTITY CASCADE");
   });
 
+  describe("countPublishedNearPickup (MOVO-138)", () => {
+    async function createShipment(overrides: Partial<CreateShipmentInput> = {}, publish = true) {
+      const created = await repo.create({ ...baseInput, senderId: randomUUID(), ...overrides });
+      if (!publish) return created;
+      await repo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+      await repo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+      return repo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null);
+    }
+
+    const zone = { lat: -31.4201, lng: -64.1888, radiusKm: 15 };
+
+    it("cuenta los envíos published con retiro dentro del radio", async () => {
+      await createShipment();
+      await createShipment({ pickupLat: -31.5, pickupLng: -64.1 }); // ~12km
+
+      expect(await repo.countPublishedNearPickup(zone)).toBe(2);
+    });
+
+    it("no cuenta envíos con retiro fuera del radio", async () => {
+      await createShipment({ pickupLat: -31.6, pickupLng: -64.1888 }); // ~20km
+
+      expect(await repo.countPublishedNearPickup(zone)).toBe(0);
+    });
+
+    it("no cuenta envíos que todavía no están published", async () => {
+      await createShipment({}, false); // awaiting_receiver_confirmation
+
+      expect(await repo.countPublishedNearPickup(zone)).toBe(0);
+    });
+  });
+
   describe("create", () => {
     it("crea el envío en el estado inicial y registra el primer evento", async () => {
       const shipment = await repo.create(baseInput);

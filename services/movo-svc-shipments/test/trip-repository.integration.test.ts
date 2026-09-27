@@ -319,3 +319,85 @@ describe("trip-repository (Postgres) — findActiveTripsMatchingShipment (MOVO-1
     expect(matches).toEqual([]);
   });
 });
+
+describe("trip-repository (Postgres) — countAvailableCarriersNear (MOVO-138)", () => {
+  let app: FastifyInstance;
+  let tripRepo: TripRepository;
+
+  // Mismo corredor sintético que el describe de MOVO-179: (-31,-64) -> (-31,-63), ~95km.
+  const HOUR_MS = 60 * 60 * 1000;
+  const now = Date.now();
+  const window = { departureFrom: new Date(now - 6 * HOUR_MS), departureTo: new Date(now + 72 * HOUR_MS) };
+  const pickupInCorridor = { lat: -31.0, lng: -63.5, radiusKm: 15 };
+
+  function tripInput(overrides: Partial<CreateTripInput> = {}): CreateTripInput {
+    return {
+      carrierId: randomUUID(),
+      originAddress: "Córdoba",
+      originLat: -31.0,
+      originLng: -64.0,
+      destinationAddress: "Villa María",
+      destinationLat: -31.0,
+      destinationLng: -63.0,
+      departureAt: new Date(now + 24 * HOUR_MS),
+      vehicleType: "auto",
+      ...overrides,
+    };
+  }
+
+  beforeAll(async () => {
+    process.env.JWT_SECRET = "test-secret";
+    process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
+    process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+    app = buildApp();
+    await app.ready();
+    tripRepo = createTripRepository(app.db);
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(async () => {
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.trips RESTART IDENTITY CASCADE");
+  });
+
+  it("cuenta viajes declared y active cuyo corredor pasa por el retiro", async () => {
+    await tripRepo.create(tripInput());
+    const active = await tripRepo.create(tripInput({ departureAt: new Date(now - 2 * HOUR_MS) }));
+    await tripRepo.start(active.id);
+
+    expect(await tripRepo.countAvailableCarriersNear({ ...pickupInCorridor, ...window })).toBe(2);
+  });
+
+  it("un transportista con dos viajes en la ventana cuenta una sola vez (DISTINCT carrier_id)", async () => {
+    const carrierId = randomUUID();
+    await tripRepo.create(tripInput({ carrierId }));
+    await tripRepo.create(tripInput({ carrierId, departureAt: new Date(now + 48 * HOUR_MS) }));
+
+    expect(await tripRepo.countAvailableCarriersNear({ ...pickupInCorridor, ...window })).toBe(1);
+  });
+
+  it("no cuenta viajes cuyo corredor queda fuera del radio", async () => {
+    await tripRepo.create(tripInput());
+
+    const farPickup = { lat: -30.8, lng: -63.5, radiusKm: 15 }; // ~22km perpendicular
+    expect(await tripRepo.countAvailableCarriersNear({ ...farPickup, ...window })).toBe(0);
+  });
+
+  it("no cuenta viajes que salen fuera de la ventana (-6h / +72h)", async () => {
+    await tripRepo.create(tripInput({ departureAt: new Date(now - 10 * HOUR_MS) }));
+    await tripRepo.create(tripInput({ departureAt: new Date(now + 100 * HOUR_MS) }));
+
+    expect(await tripRepo.countAvailableCarriersNear({ ...pickupInCorridor, ...window })).toBe(0);
+  });
+
+  it("no cuenta viajes cancelled ni completed", async () => {
+    const cancelled = await tripRepo.create(tripInput());
+    await tripRepo.update(cancelled.id, { status: TripStatus.CANCELLED });
+    const completed = await tripRepo.create(tripInput());
+    await tripRepo.update(completed.id, { status: TripStatus.COMPLETED });
+
+    expect(await tripRepo.countAvailableCarriersNear({ ...pickupInCorridor, ...window })).toBe(0);
+  });
+});

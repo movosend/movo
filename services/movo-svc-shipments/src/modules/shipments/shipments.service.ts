@@ -27,6 +27,7 @@ import { AvailableShipment, PackageType, Shipment, ShipmentEvent } from "../../m
 import { RatingRole } from "../../models/rating";
 import { isPickupWindowExpired, offerExpiresAtInstant, pickupWindowInstant } from "../../domain/pickup-window";
 import { haversineKm } from "../../domain/geo";
+import { quoteShipment } from "./shipment-quote";
 import {
   aggregateCarrierStops,
   buildDegradedRoute,
@@ -802,23 +803,25 @@ export function createShipmentsService(
         );
       }
 
-      // MOVO-82: `getQuote` nunca lanza -- degrada a `{ suggestedPriceArs: null,
-      // calculationMethod: null }` ("precio a estimar") ante cualquier falla de
-      // movo-svc-pricing-logistics (AC6), sin cliente inyectado, o datos incompletos
-      // (AC7, inalcanzable hoy porque createShipmentBody exige todos estos campos).
-      const quote = pricingClient
-        ? await pricingClient.getQuote({
-            weightKg: input.weightKg,
-            lengthCm: input.lengthCm,
-            widthCm: input.widthCm,
-            heightCm: input.heightCm,
-            packageType: input.packageType,
-            originLat: input.pickupLat,
-            originLng: input.pickupLng,
-            destinationLat: input.deliveryLat,
-            destinationLng: input.deliveryLng,
-          })
-        : { suggestedPriceArs: null, calculationMethod: null };
+      // MOVO-82: `quoteShipment` nunca lanza -- degrada a "precio a estimar" (todo
+      // `null`) ante cualquier falla de movo-svc-pricing-logistics (AC6), sin cliente
+      // inyectado, o datos incompletos (AC7, inalcanzable hoy porque
+      // createShipmentBody exige todos estos campos). MOVO-138: antes cuenta la
+      // demanda de la zona de retiro para el recargo por alta demanda.
+      const quote = await quoteShipment(
+        { pricingClient, shipmentRepository: repository, tripRepository, logger },
+        {
+          weightKg: input.weightKg,
+          lengthCm: input.lengthCm,
+          widthCm: input.widthCm,
+          heightCm: input.heightCm,
+          packageType: input.packageType,
+          originLat: input.pickupLat,
+          originLng: input.pickupLng,
+          destinationLat: input.deliveryLat,
+          destinationLng: input.deliveryLng,
+        }
+      );
 
       if (quote.suggestedPriceArs === null) {
         logger?.warn(
@@ -858,6 +861,7 @@ export function createShipmentsService(
         pickupTimeWindowEnd: toEpochTime(input.pickupTimeWindowEnd),
         suggestedPriceArs: quote.suggestedPriceArs,
         calculationMethod: quote.calculationMethod,
+        highDemand: quote.highDemand,
         receiverConfirmationDeadline,
       });
 

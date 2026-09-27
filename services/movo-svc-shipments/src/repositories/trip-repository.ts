@@ -113,6 +113,21 @@ export interface TripRepository {
    * efectivamente cancelados.
    */
   cancelOverdueDeclared(now: Date, limit: number): Promise<string[]>;
+  /**
+   * MOVO-138 (ADR-025): transportistas DISTINTOS con un viaje `declared`/`active` que
+   * sale dentro de la ventana dada y cuyo trayecto pasa a `radiusKm` o menos del
+   * retiro -- la mitad "oferta" del `demandContext` de `POST /quote`. Un transportista
+   * con dos viajes en la semana cuenta una vez.
+   */
+  countAvailableCarriersNear(params: AvailableCarriersParams): Promise<number>;
+}
+
+export interface AvailableCarriersParams {
+  lat: number;
+  lng: number;
+  radiusKm: number;
+  departureFrom: Date;
+  departureTo: Date;
 }
 
 export interface MatchShipmentParams {
@@ -288,6 +303,35 @@ export function createTripRepository(db: PrismaClient): TripRepository {
           );
           return pickupDistanceKm <= params.radiusKm && deliveryDistanceKm <= params.radiusKm;
         });
+    },
+
+    async countAvailableCarriersNear(params: AvailableCarriersParams): Promise<number> {
+      // Mismo criterio que `findActiveTripsMatchingShipment`: el segmento cambia por
+      // cada viaje, así que se filtra en memoria con `distanceToSegmentKm` sobre los
+      // viajes ya acotados por status y ventana de salida (volumen bajo).
+      const rows = await db.trip.findMany({
+        where: {
+          status: { in: [TripStatus.DECLARED, TripStatus.ACTIVE] },
+          departureAt: { gte: params.departureFrom, lte: params.departureTo },
+        },
+        select: { carrierId: true, originLat: true, originLng: true, destinationLat: true, destinationLng: true },
+      });
+
+      const carriers = new Set<string>();
+      for (const row of rows) {
+        const distanceKm = distanceToSegmentKm(
+          params.lat,
+          params.lng,
+          Number(row.originLat),
+          Number(row.originLng),
+          Number(row.destinationLat),
+          Number(row.destinationLng)
+        );
+        if (distanceKm <= params.radiusKm) {
+          carriers.add(row.carrierId);
+        }
+      }
+      return carriers.size;
     },
 
     async start(id: string): Promise<Trip> {
