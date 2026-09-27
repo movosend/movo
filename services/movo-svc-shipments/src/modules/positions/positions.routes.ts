@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
 import { createShipmentRepository, ShipmentRepository } from "../../repositories/shipment-repository";
 import { createPositionRepository } from "../../repositories/position-repository";
-import { BatchPositionInput, createPositionService, ReportPositionInput } from "../../services/position-service";
+import { BatchPositionInput, createPositionService, PositionService, ReportPositionInput } from "../../services/position-service";
 import { positionsSchemas } from "./positions.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { getUserRolesFromHeader } from "../../utils/get-user-roles";
@@ -12,6 +12,7 @@ export interface PositionsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración -- mismo criterio que el resto de los
    * módulos (`shipmentRepository`/`usersClient`/etc). */
   shipmentRepository?: ShipmentRepository;
+  service?: PositionService;
 }
 
 interface ShipmentIdParams {
@@ -45,13 +46,15 @@ interface ReportPositionBody {
 export default async function positionsRoutes(app: FastifyInstance, opts: PositionsRoutesOptions) {
   const shipmentRepository = opts.shipmentRepository ?? createShipmentRepository(app.db);
   const positionRepository = createPositionRepository(app.db);
-  const service = createPositionService(
-    shipmentRepository,
-    positionRepository,
-    app.redis,
-    app.realtimeRegistry,
-    app.log
-  );
+  const service =
+    opts.service ??
+    createPositionService(
+      shipmentRepository,
+      positionRepository,
+      app.redis,
+      app.realtimeRegistry,
+      app.log
+    );
 
   // MOVO-250/AC4: lote para la tarea de segundo plano de MOVO-242 y el vaciado de la cola
   // offline de MOVO-203. Límite de requests: ver
