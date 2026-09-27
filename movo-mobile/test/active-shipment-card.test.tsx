@@ -1,7 +1,12 @@
 import { fireEvent, render } from "@testing-library/react-native";
 import { Alert } from "react-native";
+import { router } from "expo-router";
 import type { ActiveShipmentSummary } from "../src/api/shipments-client";
 import { ActiveShipmentCard } from "../components/home/active-shipment-card";
+
+jest.mock("expo-router", () => ({
+  router: { push: jest.fn() },
+}));
 
 function makeShipment(overrides: Partial<ActiveShipmentSummary> = {}): ActiveShipmentSummary {
   return {
@@ -68,13 +73,25 @@ describe("ActiveShipmentCard (MOVO-193)", () => {
     alertSpy.mockRestore();
   });
 
-  it("emisor + in_transit muestra el CTA 'Ver en el mapa'", async () => {
+  it("emisor + in_transit muestra el CTA 'Ver en el mapa' y navega a tracking al presionarlo", async () => {
     const { getByText, getByTestId } = await render(
       <ActiveShipmentCard shipment={makeShipment({ status: "in_transit" })} role="sending" testID="card" />,
     );
 
     expect(getByTestId("card-cta")).toBeTruthy();
     expect(getByText("Ver en el mapa")).toBeTruthy();
+
+    await fireEvent.press(getByTestId("card-cta"));
+    expect(router.push).toHaveBeenCalledWith("/(app)/shipments/s1/tracking");
+  });
+
+  it("un envío demo navega con ?demo=true al presionar 'Ver en el mapa'", async () => {
+    const { getByTestId } = await render(
+      <ActiveShipmentCard shipment={makeShipment({ id: "demo-in-transit", status: "in_transit" })} role="sending" testID="card" />,
+    );
+
+    await fireEvent.press(getByTestId("card-cta"));
+    expect(router.push).toHaveBeenCalledWith("/(app)/shipments/demo-in-transit/tracking?demo=true");
   });
 
   it("el nodo pulsante ('En camino' actual) no lleva elevation — en Android tapaba por completo el halo detrás", async () => {

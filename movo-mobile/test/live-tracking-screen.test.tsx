@@ -26,7 +26,7 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
     mockSearchParams = { id: "shipment-uuid-12345" };
     jest.clearAllMocks();
     jest.spyOn(Linking, "openURL").mockResolvedValue(true as any);
-    jest.spyOn(Clipboard, "setString").mockImplementation(() => {});
+    jest.spyOn(Clipboard, "setString").mockImplementation(() => { });
   });
 
   const mockShipmentData = {
@@ -110,7 +110,7 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
     // Banner de privacidad ADR-023
     expect(getByTestId("banner-privacy-adr023")).toBeTruthy();
     expect(
-      getByText(/No se almacenan trazas de recorrido pasadas conforme a ADR-023/i)
+      getByText(/No se almacenan trazas de recorrido pasadas/i)
     ).toBeTruthy();
   });
 

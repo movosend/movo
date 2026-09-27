@@ -106,9 +106,42 @@ export function useLivePosition(
     staleTime: 10_000,
   });
 
+  // Simulación en vivo para modo demo (probar telemetría en dispositivo real)
+  useEffect(() => {
+    if (!demo) return;
+    const startLat = -31.3850;
+    const startLng = -64.2250;
+    setLivePosition({
+      lat: startLat,
+      lng: startLng,
+      accuracyM: 8,
+      heading: 145,
+      speed: 12.5,
+      capturedAt: new Date().toISOString(),
+    });
+
+    let step = 0;
+    const interval = setInterval(() => {
+      step += 1;
+      const progress = (step % 200) / 200;
+      const curLat = startLat + progress * (-31.9140 - startLat) * 0.2;
+      const curLng = startLng + progress * (-63.6820 - startLng) * 0.2;
+      setLivePosition({
+        lat: curLat,
+        lng: curLng,
+        accuracyM: 6 + Math.round(Math.random() * 4),
+        heading: 140 + Math.round(Math.random() * 10),
+        speed: 11 + Math.random() * 3,
+        capturedAt: new Date().toISOString(),
+      });
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [demo]);
+
   // Inicializar o sincronizar con la posición inicial cuando se carga
   useEffect(() => {
-    if (initialPosition && !livePosition) {
+    if (initialPosition && !livePosition && !demo) {
       setLivePosition({
         lat: initialPosition.lat,
         lng: initialPosition.lng,
@@ -116,7 +149,7 @@ export function useLivePosition(
         capturedAt: initialPosition.capturedAt,
       });
     }
-  }, [initialPosition, livePosition]);
+  }, [initialPosition, livePosition, demo]);
 
   // Manejador de eventos WebSocket de posición
   const handlePositionMessage = useCallback((payload: RealtimePositionEvent) => {

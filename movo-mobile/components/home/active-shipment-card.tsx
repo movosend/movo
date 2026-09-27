@@ -1,6 +1,7 @@
 import { Flag, MapPin, Package, Route } from "lucide-react-native";
 import { Fragment, useEffect } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
+import { router } from "expo-router";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import type { ActiveShipmentSummary } from "../../src/api/shipments-client";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -94,41 +95,63 @@ export function ActiveShipmentCard({
 
   const handleCta = () => {
     if (!cta) return;
+    if (
+      cta.label === "Ver en el mapa" ||
+      cta.destination === "tracking" ||
+      cta.destination.includes("Tracking en vivo")
+    ) {
+      const isDemo = shipment.id.startsWith("dev-") || shipment.id.startsWith("demo");
+      router.push(`/(app)/shipments/${shipment.id}/tracking${isDemo ? "?demo=true" : ""}` as any);
+      return;
+    }
     // MOVO-159/160 todavía no tienen pantalla propia en el repo — mismo criterio que
     // "Abrir Mis ofertas completo" en MOVO-183, un aviso explícito en vez de navegar
     // a una ruta inventada.
     Alert.alert("Muy pronto", `Esta acción todavía no está lista (${cta.destination}).`);
   };
 
+  const handleCardPress = () => {
+    const isDemo = shipment.id.startsWith("dev-") || shipment.id.startsWith("demo");
+    if (shipment.status === "in_transit") {
+      router.push(`/(app)/shipments/${shipment.id}/tracking${isDemo ? "?demo=true" : ""}` as any);
+    } else {
+      router.push(`/(app)/shipments/${shipment.id}` as any);
+    }
+  };
+
   const content = (
     <View style={{ padding: 20, gap: 4 }}>
-      {/* ── Encabezado: código (headline) + contraparte, pill de estado a la derecha ── */}
-      <View className="flex-row items-start justify-between gap-3">
-        <View className="min-w-0 flex-1 gap-0.5">
-          <Text className="font-mono-semibold text-[25px] text-fg" numberOfLines={1}>
-            {activeShipmentDisplayCode(shipment.id)}
-          </Text>
-          <Text className="font-sans-medium text-small text-fg-2">
-            {activeShipmentSubtitle(shipment)}
-          </Text>
+      <Pressable
+        onPress={handleCardPress}
+        style={({ pressed }) => [{ gap: 4 }, pressed && { opacity: 0.92 }]}
+      >
+        {/* ── Encabezado: código (headline) + contraparte, pill de estado a la derecha ── */}
+        <View className="flex-row items-start justify-between gap-3">
+          <View className="min-w-0 flex-1 gap-0.5">
+            <Text className="font-mono-semibold text-[25px] text-fg" numberOfLines={1}>
+              {activeShipmentDisplayCode(shipment.id)}
+            </Text>
+            <Text className="font-sans-medium text-small text-fg-2">
+              {activeShipmentSubtitle(shipment)}
+            </Text>
+          </View>
+          <View
+            // El pill del estado en la card "flat" (`assigned_unfunded`) apenas se
+            // distinguía del fondo (`bg-bg-mute` sobre `bg-bg-sub`, casi el mismo tono
+            // — feedback del usuario, "el pill actual no se diferencia del fondo, es
+            // muy clarito") — un borde explícito lo separa sin depender del contraste
+            // de relleno, que en dark mode es igual de parecido entre ambos tokens.
+            className={`flex-none flex-row items-center gap-1.5 self-start rounded-full border px-3 ${isUnfunded ? "border-border-strong bg-bg-mute" : "border-transparent"}`}
+            style={{ height: 31, backgroundColor: isUnfunded ? undefined : colors.activeCardPillBg }}
+          >
+            {shipment.status === "in_transit" ? (
+              <View className="h-1.5 w-1.5 rounded-full bg-fg" />
+            ) : null}
+            <Text className="font-sans-semibold text-caption text-fg">
+              {activeShipmentStatusLabel(shipment)}
+            </Text>
+          </View>
         </View>
-        <View
-          // El pill del estado en la card "flat" (`assigned_unfunded`) apenas se
-          // distinguía del fondo (`bg-bg-mute` sobre `bg-bg-sub`, casi el mismo tono
-          // — feedback del usuario, "el pill actual no se diferencia del fondo, es
-          // muy clarito") — un borde explícito lo separa sin depender del contraste
-          // de relleno, que en dark mode es igual de parecido entre ambos tokens.
-          className={`flex-none flex-row items-center gap-1.5 self-start rounded-full border px-3 ${isUnfunded ? "border-border-strong bg-bg-mute" : "border-transparent"}`}
-          style={{ height: 31, backgroundColor: isUnfunded ? undefined : colors.activeCardPillBg }}
-        >
-          {shipment.status === "in_transit" ? (
-            <View className="h-1.5 w-1.5 rounded-full bg-fg" />
-          ) : null}
-          <Text className="font-sans-semibold text-caption text-fg">
-            {activeShipmentStatusLabel(shipment)}
-          </Text>
-        </View>
-      </View>
 
       {/* El chip "Hoy" suelto se reemplazó por el subtítulo del encabezado
           ("Nicolás Vera retira hoy"/"retira mañana", `activeShipmentSubtitle`) —
@@ -255,6 +278,7 @@ export function ActiveShipmentCard({
           </Text>
         </View>
       </View>
+      </Pressable>
 
       {/* ── Fila inferior: texto + acción ── */}
       <View

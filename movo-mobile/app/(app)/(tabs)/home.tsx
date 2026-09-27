@@ -10,6 +10,7 @@ import { HomeSendCta } from '../../../components/home/home-send-cta';
 import { RecentShipmentsSection } from '../../../components/home/recent-shipments-section';
 import { RoleSection } from '../../../components/home/role-section';
 import { TrackingActiveIndicator } from '../../../components/location/tracking-active-indicator';
+import type { ActiveShipmentSummary } from '../../../src/api/shipments-client';
 import { useReceivingShipments, useSendingShipments } from '../../../src/hooks/use-active-shipments';
 import { useAuth } from '../../../src/hooks/use-auth';
 import { useMyProfile } from '../../../src/hooks/use-profile';
@@ -57,8 +58,31 @@ export default function AuthenticatedHomeScreen() {
   const { user } = useAuth();
   const { data: profile } = useMyProfile();
   const colors = useThemeColors();
-  const { data: sending } = useSendingShipments();
+  const { data: realSending } = useSendingShipments();
   const { data: receiving } = useReceivingShipments();
+
+  // En __DEV__ (fuera de tests unitarios de Jest), permitir simular un envío en tránsito si el backend no retorna envíos activos
+  const [enableDemoMock, setEnableDemoMock] = useState(
+    () => Boolean(__DEV__ && process.env.NODE_ENV !== "test")
+  );
+
+  const DEMO_ACTIVE_SHIPMENT: ActiveShipmentSummary = {
+    id: "demo-in-transit-204",
+    status: "in_transit",
+    pickupDate: new Date().toISOString().slice(0, 10),
+    pickupTimeWindowStart: "09:00",
+    pickupTimeWindowEnd: "12:00",
+    pickupAddress: "Av. Colón 1200, Córdoba",
+    deliveryAddress: "San Martín 450, Oncativo",
+    agreedPriceArs: 6100,
+    counterparty: { name: "Lucas Benítez", initials: "LB" },
+    isToday: true,
+    pickupWindowExpired: false,
+  };
+
+  const sending = (realSending && realSending.length > 0)
+    ? realSending
+    : (enableDemoMock ? [DEMO_ACTIVE_SHIPMENT] : []);
 
   // El perfil fresco del backend prevalece sobre el snapshot estático del login
   const currentKycStatus = profile?.kycStatus ?? user?.kycStatus;
@@ -148,6 +172,30 @@ export default function AuthenticatedHomeScreen() {
         ) : null}
 
         <TrackingActiveIndicator />
+
+        {__DEV__ && process.env.NODE_ENV !== "test" && (!realSending || realSending.length === 0) ? (
+          <View
+            testID="dev-mock-indicator-banner"
+            className="mb-4 flex-row items-center justify-between rounded-xl border border-dashed border-lime-500/40 bg-lime-500/10 px-3.5 py-2.5"
+          >
+            <View className="flex-1 pr-2">
+              <Text className="font-sans-semibold text-[12px] text-fg">
+                Modo Mock: Envío en tránsito (MOVO-204)
+              </Text>
+              <Text className="font-sans text-[11px] text-fg-3">
+                Card de producción lista para probar "Ver en el mapa"
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => setEnableDemoMock((prev) => !prev)}
+              className="rounded-full bg-lime-500 px-3 py-1"
+            >
+              <Text className="font-sans-bold text-[11px] text-ink-950">
+                {enableDemoMock ? "Ocultar" : "Mostrar"}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         <RoleSection
           testID="app-home-sending"

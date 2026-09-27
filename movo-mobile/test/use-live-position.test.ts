@@ -100,7 +100,7 @@ describe("useLivePosition (MOVO-204 Live Tracking Hook)", () => {
     });
 
     it("marca el estado como closed cuando el canal reporta entrega finalizada", async () => {
-      let statusCallback: ((status: string) => void) | undefined;
+      let statusCallback: ((event: any) => void) | undefined;
 
       mockUseQuery.mockReturnValue({
         data: null,

@@ -313,6 +313,17 @@ export default function DevShortcutsScreen() {
               Abrir recorrido demo en el mapa
             </Text>
           </Pressable>
+
+          <Pressable
+            testID="dev-live-tracking-demo-btn"
+            onPress={() => router.push("/shipments/demo-mock/tracking?demo=true" as any)}
+            className="mt-2.5 flex-row items-center justify-center gap-2 rounded-[12px] bg-lime-500 py-3 shadow-sm"
+          >
+            <Navigation size={16} color="#0A0A0B" />
+            <Text className="font-sans-bold text-[13.5px] text-ink-950">
+              Ver Seguimiento en Vivo (MOVO-204 Demo)
+            </Text>
+          </Pressable>
         </View>
 
         {/* SECCIÓN 3: IDENTIDAD Y KYC */}

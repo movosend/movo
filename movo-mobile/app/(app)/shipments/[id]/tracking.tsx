@@ -126,7 +126,7 @@ export default function LiveTrackingScreen() {
     demo: demoMode,
   });
 
-  const displayPosition = demoMode ? DEMO_CARRIER_POSITION : livePosition;
+  const displayPosition = demoMode ? (livePosition ?? DEMO_CARRIER_POSITION) : livePosition;
   const displayCarrierName = demoMode
     ? DEMO_DRIVER.name
     : carrierProfile?.fullName || "Transportista";
@@ -159,7 +159,7 @@ export default function LiveTrackingScreen() {
       setIsExpanded(expandState);
       try {
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      } catch {}
+      } catch { }
       Animated.spring(sheetHeightAnim, {
         toValue: toHeight,
         tension: 65,
@@ -229,8 +229,8 @@ export default function LiveTrackingScreen() {
   const trackingCode = demoMode
     ? "MV-28491"
     : shipment?.id
-    ? `MV-${shipment.id.slice(0, 6).toUpperCase()}`
-    : "MV-MOVO";
+      ? `MV-${shipment.id.slice(0, 6).toUpperCase()}`
+      : "MV-MOVO";
 
   const handleCopyCode = () => {
     try {
@@ -238,7 +238,7 @@ export default function LiveTrackingScreen() {
       Clipboard.setString(trackingCode);
       setCopiedCodeToast(true);
       setTimeout(() => setCopiedCodeToast(false), 2000);
-    } catch {}
+    } catch { }
   };
 
   // Abrir destino en Google Maps
@@ -252,7 +252,7 @@ export default function LiveTrackingScreen() {
       );
       const url = `https://www.google.com/maps/search/?api=1&query=${query}`;
       void Linking.openURL(url);
-    } catch {}
+    } catch { }
   };
 
   // Contactar por llamada
@@ -263,7 +263,7 @@ export default function LiveTrackingScreen() {
       if (phone) {
         void Linking.openURL(`tel:${phone}`);
       }
-    } catch {}
+    } catch { }
   };
 
   // Contactar por mensaje / chat
@@ -271,7 +271,7 @@ export default function LiveTrackingScreen() {
     try {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       // Navegación futura a chat o modal
-    } catch {}
+    } catch { }
   };
 
   // Cálculo de hora ETA para Hero Card
@@ -337,9 +337,8 @@ export default function LiveTrackingScreen() {
             <Text className="text-fg-3 text-[10px]">·</Text>
             <View className="flex-row items-center gap-1">
               <View
-                className={`h-1.5 w-1.5 rounded-full ${
-                  isStale ? "bg-amber-500" : "bg-[#C6F24A]"
-                }`}
+                className={`h-1.5 w-1.5 rounded-full ${isStale ? "bg-amber-500" : "bg-[#C6F24A]"
+                  }`}
               />
               <Text className="font-sans-bold text-[10px] uppercase tracking-wider text-fg-2">
                 {isStale ? "Señal pausada" : "Telemetría activa"}
@@ -684,7 +683,7 @@ export default function LiveTrackingScreen() {
             <ShieldCheck size={16} color="#71717A" className="mt-0.5 flex-none" />
             <Text className="font-sans text-[11px] text-fg-3 flex-1 leading-relaxed">
               Ubicación en tiempo real activa únicamente durante el trayecto activo.
-              No se almacenan trazas de recorrido pasadas conforme a ADR-023.
+              No se almacenan trazas de recorrido pasadas.
             </Text>
           </View>
         </ScrollView>
