@@ -31,7 +31,8 @@ export type TrackingStatus =
   | "live"
   | "reconnecting"
   | "stale"
-  | "closed";
+  | "closed"
+  | "no_position";
 
 const STALE_THRESHOLD_MS = 120_000; // 2 minutos (AC5)
 
@@ -92,7 +93,7 @@ export function useLivePosition(
 
   const [livePosition, setLivePosition] = useState<LiveCarrierPosition | null>(null);
   const [isDelivered, setIsDelivered] = useState(false);
-  const [, setTicker] = useState(0);
+  const [ticker, setTicker] = useState(0);
 
   // Consulta inicial HTTP: última posición conocida del transportista
   const {
@@ -194,14 +195,14 @@ export function useLivePosition(
     if (!livePosition?.capturedAt) return false;
     const elapsed = Date.now() - new Date(livePosition.capturedAt).getTime();
     return elapsed > STALE_THRESHOLD_MS;
-  }, [livePosition?.capturedAt]);
+  }, [livePosition?.capturedAt, ticker]);
 
   // Derivar el estado general de tracking
   const trackingStatus: TrackingStatus = useMemo(() => {
     if (demo) return "live";
     if (isDelivered || isTerminalClosed) return "closed";
     if (connectionState === "reconnecting") return "reconnecting";
-    if (connectionState === "connecting" && !livePosition) return "connecting";
+    if (!livePosition) return "no_position";
     if (isStale) return "stale";
     if (connectionState === "connected") return "live";
     return "connecting";
@@ -210,7 +211,7 @@ export function useLivePosition(
   // Texto amigable de última actualización
   const lastUpdateText = useMemo(() => {
     return formatTimeAgo(livePosition?.capturedAt);
-  }, [livePosition?.capturedAt]);
+  }, [livePosition?.capturedAt, ticker]);
 
   // Distancia restante en km al destino
   const distanceKm = useMemo(() => {

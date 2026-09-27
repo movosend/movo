@@ -316,11 +316,16 @@ export default function DevShortcutsScreen() {
 
           <Pressable
             testID="dev-live-tracking-demo-btn"
-            onPress={() => router.push("/shipments/demo-mock/tracking?demo=true" as any)}
+            onPress={() =>
+              router.push({
+                pathname: "/shipments/[id]/tracking",
+                params: { id: "demo-mock", demo: "true" },
+              })
+            }
             className="mt-2.5 flex-row items-center justify-center gap-2 rounded-[12px] bg-lime-500 py-3 shadow-sm"
           >
             <Navigation size={16} color="#0A0A0B" />
-            <Text className="font-sans-bold text-[13.5px] text-ink-950">
+            <Text className="font-sans-semibold text-[13.5px] text-ink-950">
               Ver Seguimiento en Vivo (MOVO-204 Demo)
             </Text>
           </Pressable>

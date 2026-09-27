@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
 import { useColorScheme } from "nativewind";
 import * as Haptics from "expo-haptics";
@@ -43,7 +43,9 @@ export function LiveMap({
   testID = "live-tracking-map",
 }: LiveMapProps) {
   const mapRef = useRef<MapView>(null);
+  const markerRef = useRef<any>(null);
   const isMapReady = useRef(false);
+  const hasFittedRef = useRef(false);
   const [isFollowingCarrier, setIsFollowingCarrier] = useState(false);
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
 
@@ -146,8 +148,19 @@ export function LiveMap({
   // Al estar listo el mapa, ajustamos el encuadre inicial
   const handleMapReady = useCallback(() => {
     isMapReady.current = true;
-    fitCarrierAndDestination(false);
-  }, [fitCarrierAndDestination]);
+    if (!hasFittedRef.current && (carrierPosition || destinationLocation)) {
+      hasFittedRef.current = true;
+      fitCarrierAndDestination(false);
+    }
+  }, [carrierPosition, destinationLocation, fitCarrierAndDestination]);
+
+  // Si los datos llegan tarde por HTTP tras montar, encuadrar la primera vez que haya coordenadas
+  useEffect(() => {
+    if (isMapReady.current && !hasFittedRef.current && (carrierPosition || destinationLocation)) {
+      hasFittedRef.current = true;
+      fitCarrierAndDestination(true);
+    }
+  }, [carrierPosition, destinationLocation, fitCarrierAndDestination]);
 
   // Si cambia la posición y estamos en modo seguimiento activo, actualizamos la cámara
   useEffect(() => {
@@ -155,6 +168,19 @@ export function LiveMap({
       centerOnCarrier(450);
     }
   }, [carrierPosition?.lat, carrierPosition?.lng, isFollowingCarrier, centerOnCarrier]);
+
+  // Animación suave del marcador entre coordenadas recibidas
+  useEffect(() => {
+    if (carrierPosition && markerRef.current?.animateMarkerToCoordinate) {
+      markerRef.current.animateMarkerToCoordinate(
+        {
+          latitude: carrierPosition.lat,
+          longitude: carrierPosition.lng,
+        },
+        500
+      );
+    }
+  }, [carrierPosition?.lat, carrierPosition?.lng]);
 
   // Botón centrar en el conductor: siempre centra en la última ubicación conocida
   const handleCenterCarrier = () => {
@@ -187,7 +213,12 @@ export function LiveMap({
     live: {
       dotBg: "#C6F24A",
       text: "En vivo",
-      sub: lastUpdateText ?? "24ms",
+      sub: lastUpdateText ? lastUpdateText : "Actualizado",
+    },
+    no_position: {
+      dotBg: "#71717A",
+      text: "Sin ubicación",
+      sub: "Disponible al iniciar el viaje",
     },
     reconnecting: {
       dotBg: "#F59E0B",
@@ -197,7 +228,7 @@ export function LiveMap({
     stale: {
       dotBg: "#F59E0B",
       text: "Pausado",
-      sub: lastUpdateText ?? "Sin señal",
+      sub: lastUpdateText ? `Última ubicación: ${lastUpdateText}` : "Sin señal",
     },
     closed: {
       dotBg: "#71717A",
@@ -212,12 +243,12 @@ export function LiveMap({
   }[trackingStatus];
 
   return (
-    <View testID={testID} style={styles.container}>
+    <View testID={testID} style={[styles.container, { backgroundColor: colors.bg }]}>
       <MapView
         ref={mapRef}
         testID="live-map-view"
         style={StyleSheet.absoluteFill}
-        provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
+        provider={PROVIDER_GOOGLE}
         customMapStyle={isDark ? movoMapStyleDark : movoMapStyleLight}
         initialRegion={initialRegion}
         onMapReady={handleMapReady}
@@ -282,6 +313,7 @@ export function LiveMap({
         {/* MARCADOR 2: Transportista en Tiempo Real (ADR-023: Sin traza histórica) */}
         {carrierPosition && (
           <Marker
+            ref={markerRef}
             testID="live-map-carrier-marker"
             coordinate={{
               latitude: carrierPosition.lat,
@@ -450,7 +482,7 @@ const styles = StyleSheet.create({
   },
   destinationBadgeText: {
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: "Inter_600SemiBold",
   },
   destinationPinCircle: {
     width: 32,
@@ -502,7 +534,7 @@ const styles = StyleSheet.create({
   carrierCalloutText: {
     color: "#FFFFFF",
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: "Inter_600SemiBold",
     letterSpacing: 0.3,
   },
   carrierPinContainer: {
@@ -561,7 +593,7 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: "Inter_600SemiBold",
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
@@ -571,7 +603,7 @@ const styles = StyleSheet.create({
   },
   subText: {
     fontSize: 12,
-    fontWeight: "500",
+    fontFamily: "Inter_500Medium",
     color: "#71717A",
   },
   controlsContainer: {

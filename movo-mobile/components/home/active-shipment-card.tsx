@@ -95,13 +95,13 @@ export function ActiveShipmentCard({
 
   const handleCta = () => {
     if (!cta) return;
-    if (
-      cta.label === "Ver en el mapa" ||
-      cta.destination === "tracking" ||
-      cta.destination.includes("Tracking en vivo")
-    ) {
-      const isDemo = shipment.id.startsWith("dev-") || shipment.id.startsWith("demo");
-      router.push(`/(app)/shipments/${shipment.id}/tracking${isDemo ? "?demo=true" : ""}` as any);
+    if (cta.action === "live_tracking") {
+      const isDemo = shipment.id.startsWith("demo-");
+      router.push(
+        isDemo
+          ? (`/(app)/shipments/${shipment.id}/tracking?demo=true` as any)
+          : (`/(app)/shipments/${shipment.id}/tracking` as any)
+      );
       return;
     }
     // MOVO-159/160 todavía no tienen pantalla propia en el repo — mismo criterio que
@@ -110,23 +110,10 @@ export function ActiveShipmentCard({
     Alert.alert("Muy pronto", `Esta acción todavía no está lista (${cta.destination}).`);
   };
 
-  const handleCardPress = () => {
-    const isDemo = shipment.id.startsWith("dev-") || shipment.id.startsWith("demo");
-    if (shipment.status === "in_transit") {
-      router.push(`/(app)/shipments/${shipment.id}/tracking${isDemo ? "?demo=true" : ""}` as any);
-    } else {
-      router.push(`/(app)/shipments/${shipment.id}` as any);
-    }
-  };
-
   const content = (
     <View style={{ padding: 20, gap: 4 }}>
-      <Pressable
-        onPress={handleCardPress}
-        style={({ pressed }) => [{ gap: 4 }, pressed && { opacity: 0.92 }]}
-      >
-        {/* ── Encabezado: código (headline) + contraparte, pill de estado a la derecha ── */}
-        <View className="flex-row items-start justify-between gap-3">
+      {/* ── Encabezado: código (headline) + contraparte, pill de estado a la derecha ── */}
+      <View className="flex-row items-start justify-between gap-3">
           <View className="min-w-0 flex-1 gap-0.5">
             <Text className="font-mono-semibold text-[25px] text-fg" numberOfLines={1}>
               {activeShipmentDisplayCode(shipment.id)}
@@ -278,7 +265,6 @@ export function ActiveShipmentCard({
           </Text>
         </View>
       </View>
-      </Pressable>
 
       {/* ── Fila inferior: texto + acción ── */}
       <View

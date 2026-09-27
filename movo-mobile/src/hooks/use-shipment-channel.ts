@@ -109,17 +109,24 @@ export function useShipmentChannel(
   const closeSocket = useCallback(() => {
     clearReconnectTimer();
     if (socketRef.current) {
+      const ws = socketRef.current;
+      socketRef.current = null;
       try {
-        socketRef.current.close(1000, "Normal closure");
+        ws.onopen = null as any;
+        ws.onmessage = null as any;
+        ws.onerror = null as any;
+        ws.onclose = null as any;
+        ws.close(1000, "Normal closure");
       } catch {
         // Ignorar errores al cerrar
       }
-      socketRef.current = null;
     }
   }, [clearReconnectTimer]);
 
   const connect = useCallback(() => {
-    if (!enabled || !shipmentId || !isAuthenticated || !accessToken) {
+    const currentToken = useAuthStore.getState().accessToken;
+    const isAuth = useAuthStore.getState().status === "authenticated";
+    if (!enabled || !shipmentId || !isAuth || !currentToken) {
       return;
     }
 
@@ -137,18 +144,20 @@ export function useShipmentChannel(
       // como tercer argumento para inyectar Authorization en el handshake inicial.
       const ws = new (WebSocket as any)(url, undefined, {
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${currentToken}`,
         },
       }) as WebSocket;
 
       socketRef.current = ws;
 
       ws.onopen = () => {
+        if (socketRef.current !== ws) return;
         reconnectAttemptsRef.current = 0;
         setConnectionState("connected");
       };
 
       ws.onmessage = (event: WebSocketMessageEvent) => {
+        if (socketRef.current !== ws) return;
         try {
           const raw = typeof event.data === "string" ? event.data : String(event.data);
           const data = JSON.parse(raw) as RealtimeMessage;
@@ -173,6 +182,10 @@ export function useShipmentChannel(
       };
 
       ws.onclose = async (event: WebSocketCloseEvent) => {
+        if (socketRef.current !== ws) {
+          // Socket reemplazado o cerrado a propósito
+          return;
+        }
         socketRef.current = null;
 
         if (isManuallyClosedRef.current) {
@@ -180,14 +193,15 @@ export function useShipmentChannel(
           return;
         }
 
-        // Caso 1: Token expirado (4001) -> Refrescar sesión y reconectar de inmediato
+        // Caso 1: Token expirado (4001) -> Refrescar sesión y reconectar con el nuevo token
         if (event.code === WS_CLOSE_CODES.TOKEN_EXPIRED) {
+          setConnectionState("reconnecting");
           void (async () => {
             try {
-              setConnectionState("reconnecting");
               await refreshTokens();
-              // Con el nuevo token disponible en el store, reintentar de inmediato
-              connect();
+              if (!isManuallyClosedRef.current && socketRef.current === null) {
+                connect();
+              }
             } catch {
               setConnectionState("error");
             }
@@ -213,7 +227,9 @@ export function useShipmentChannel(
 
         clearReconnectTimer();
         reconnectTimeoutRef.current = setTimeout(() => {
-          void connect();
+          if (!isManuallyClosedRef.current && socketRef.current === null) {
+            void connect();
+          }
         }, delay);
       };
     } catch {
@@ -223,10 +239,12 @@ export function useShipmentChannel(
       reconnectAttemptsRef.current = attempt + 1;
       clearReconnectTimer();
       reconnectTimeoutRef.current = setTimeout(() => {
-        void connect();
+        if (!isManuallyClosedRef.current && socketRef.current === null) {
+          void connect();
+        }
       }, delay);
     }
-  }, [enabled, shipmentId, isAuthenticated, accessToken, closeSocket, clearReconnectTimer]);
+  }, [enabled, shipmentId, closeSocket, clearReconnectTimer]);
 
   // Manejo de AppState: reconexión inmediata al volver de segundo plano
   useEffect(() => {
@@ -256,6 +274,7 @@ export function useShipmentChannel(
     }
 
     return () => {
+      isManuallyClosedRef.current = true;
       closeSocket();
     };
   }, [enabled, shipmentId, isAuthenticated, connect, closeSocket]);

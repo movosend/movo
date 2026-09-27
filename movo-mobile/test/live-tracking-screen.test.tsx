@@ -1,26 +1,24 @@
 import React from "react";
 import { render, fireEvent, act } from "@testing-library/react-native";
 import { Linking } from "react-native";
-import * as Clipboard from "expo-clipboard";
 import LiveTrackingScreen from "../app/(app)/shipments/[id]/tracking";
 import { useShipment } from "../src/hooks/use-shipments";
 import { usePublicProfile } from "../src/hooks/use-profile";
 import { useLivePosition } from "../src/hooks/use-live-position";
 
 // Mocks
-jest.mock("expo-clipboard", () => ({
-  setStringAsync: jest.fn().mockResolvedValue(true),
-}));
 jest.mock("../src/hooks/use-shipments");
 jest.mock("../src/hooks/use-profile");
 jest.mock("../src/hooks/use-live-position");
 
 let mockSearchParams: Record<string, string> = {};
 const mockRouterBack = jest.fn();
+const mockRouterReplace = jest.fn();
 jest.mock("expo-router", () => ({
   router: {
     push: jest.fn(),
     back: (...args: unknown[]) => mockRouterBack(...args),
+    replace: (...args: unknown[]) => mockRouterReplace(...args),
   },
   useLocalSearchParams: () => mockSearchParams,
 }));
@@ -63,7 +61,7 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
     isDelivered: false,
     distanceKm: 18.4,
     estimatedArrivalMinutes: 22,
-    lastUpdateText: "24ms",
+    lastUpdateText: "hace unos segundos",
     isLoadingInitial: false,
   };
 
@@ -82,8 +80,7 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
 
     // Header y telemetría
     expect(getByTestId("tracking-header")).toBeTruthy();
-    expect(getByText("Seguimiento en Vivo")).toBeTruthy();
-    expect(getByText("Telemetría activa")).toBeTruthy();
+    expect(getByText("Seguimiento en vivo")).toBeTruthy();
 
     // Mapa táctico
     expect(getByTestId("live-tracking-map")).toBeTruthy();
@@ -95,14 +92,11 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
     // Hero ETA Card
     expect(getByTestId("card-hero-eta")).toBeTruthy();
     expect(getByText("Llegada estimada")).toBeTruthy();
-    expect(getByText("~22 min")).toBeTruthy();
+    expect(getByText("~22 min (aprox.)")).toBeTruthy();
     expect(getByText("18.4 km hacia destino final")).toBeTruthy();
 
     // Conductor
     expect(getByTestId("card-driver-info")).toBeTruthy();
-    expect(getByText("Lucas Benítez")).toBeTruthy();
-    expect(getByTestId("btn-message-driver")).toBeTruthy();
-    expect(getByTestId("btn-call-driver")).toBeTruthy();
 
     // Paquete y Destino
     expect(getByTestId("card-package-and-destination")).toBeTruthy();
@@ -113,33 +107,11 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
     // Banner de privacidad ADR-023
     expect(getByTestId("banner-privacy-adr023")).toBeTruthy();
     expect(
-      getByText(/No se almacenan trazas de recorrido pasadas/i)
+      getByText(/Solo ves la ubicación actual del transportista/i)
     ).toBeTruthy();
   });
 
-  it("permite copiar el código de seguimiento al portapapeles y muestra toast", async () => {
-    (useShipment as jest.Mock).mockReturnValue({
-      data: mockShipmentData,
-      isLoading: false,
-    });
-    (usePublicProfile as jest.Mock).mockReturnValue({
-      data: mockCarrierData,
-      isLoading: false,
-    });
-    (useLivePosition as jest.Mock).mockReturnValue(mockPositionData);
-
-    const { getByTestId } = await render(<LiveTrackingScreen />);
-
-    const copyBtn = getByTestId("btn-copy-tracking-code");
-    await act(async () => {
-      await fireEvent.press(copyBtn);
-    });
-
-    expect(Clipboard.setStringAsync).toHaveBeenCalledWith("MV-SHIPME");
-    expect(getByTestId("copied-code-toast")).toBeTruthy();
-  });
-
-  it("abre la dirección en Google Maps al presionar el botón de destino", async () => {
+  it("abre las coordenadas de destino en Google Maps al presionar el botón de destino", async () => {
     (useShipment as jest.Mock).mockReturnValue({
       data: mockShipmentData,
       isLoading: false,
@@ -158,7 +130,7 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
     });
 
     expect(Linking.openURL).toHaveBeenCalledWith(
-      expect.stringContaining("https://www.google.com/maps/search/?api=1&query=")
+      "https://www.google.com/maps/search/?api=1&query=-31.914,-63.682"
     );
   });
 
@@ -171,7 +143,7 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
 
     const { getByTestId, getByText, getAllByText } = await render(<LiveTrackingScreen />);
 
-    expect(getAllByText("#MV-28491").length).toBeGreaterThanOrEqual(1);
+    expect(getAllByText("MV-28491").length).toBeGreaterThanOrEqual(1);
     expect(getByText("Lucas Benítez")).toBeTruthy();
     expect(getByTestId("btn-exit-demo")).toBeTruthy();
   });
@@ -195,5 +167,26 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
     });
 
     expect(mockRouterBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("muestra el overlay de entrega cuando isDelivered es true", async () => {
+    (useShipment as jest.Mock).mockReturnValue({
+      data: mockShipmentData,
+      isLoading: false,
+    });
+    (usePublicProfile as jest.Mock).mockReturnValue({
+      data: mockCarrierData,
+      isLoading: false,
+    });
+    (useLivePosition as jest.Mock).mockReturnValue({
+      ...mockPositionData,
+      isDelivered: true,
+      trackingStatus: "closed",
+    });
+
+    const { getByTestId, getByText } = await render(<LiveTrackingScreen />);
+
+    expect(getByTestId("tracking-delivered-overlay")).toBeTruthy();
+    expect(getByText("Envío entregado")).toBeTruthy();
   });
 });

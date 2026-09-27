@@ -5,16 +5,20 @@ import { refreshTokens } from "../src/api/http-client";
 process.env.EXPO_PUBLIC_API_URL = "http://localhost:3000";
 
 // Mocks
-jest.mock("../src/store/auth-store", () => ({
-  useAuthStore: jest.fn((selector?: (s: any) => any) => {
-    const state = {
-      accessToken: "test-valid-token",
-      status: "authenticated",
-    };
+jest.mock("../src/store/auth-store", () => {
+  const state = {
+    accessToken: "test-valid-token",
+    status: "authenticated",
+  };
+  const mockFn: any = jest.fn((selector?: (s: any) => any) => {
     return selector ? selector(state) : state;
-  }),
-  registerAuthHooks: jest.fn(),
-}));
+  });
+  mockFn.getState = () => state;
+  return {
+    useAuthStore: mockFn,
+    registerAuthHooks: jest.fn(),
+  };
+});
 
 jest.mock("../src/api/http-client", () => {
   const original = jest.requireActual("../src/api/http-client");
@@ -194,5 +198,59 @@ describe("useShipmentChannel (MOVO-204 WebSocket Hook)", () => {
     });
 
     expect(MockWebSocket.instances.length).toBe(1);
+  });
+
+  it("al desmontar cierra el socket y no genera nuevas instancias tras avanzar timers", async () => {
+    const { unmount } = await renderHook(() =>
+      useShipmentChannel("shipment-123", { enabled: true })
+    );
+
+    expect(MockWebSocket.instances.length).toBe(1);
+
+    await act(async () => {
+      unmount();
+    });
+
+    // Avanzar timers varios segundos
+    await act(async () => {
+      jest.advanceTimersByTime(10000);
+    });
+
+    // No debe haber nuevas instancias de socket creadas
+    expect(MockWebSocket.instances.length).toBe(1);
+  });
+
+  it("reconnect() no dispara un loop infinito de sockets", async () => {
+    const { result } = await renderHook(() =>
+      useShipmentChannel("shipment-123", { enabled: true })
+    );
+
+    expect(MockWebSocket.instances.length).toBe(1);
+    const ws1 = MockWebSocket.instances[0];
+
+    await act(async () => {
+      ws1.triggerOpen();
+    });
+
+    // Llamar reconnect()
+    await act(async () => {
+      result.current.reconnect();
+    });
+
+    // El primer socket se cerró y se creó el segundo
+    expect(MockWebSocket.instances.length).toBe(2);
+    const ws2 = MockWebSocket.instances[1];
+
+    await act(async () => {
+      ws2.triggerOpen();
+    });
+
+    // Avanzar timers 15 segundos
+    await act(async () => {
+      jest.advanceTimersByTime(15000);
+    });
+
+    // No debe haberse generado ningún socket adicional en loop
+    expect(MockWebSocket.instances.length).toBe(2);
   });
 });

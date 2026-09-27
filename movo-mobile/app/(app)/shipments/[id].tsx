@@ -295,7 +295,13 @@ export default function ShipmentDetailScreen() {
                 />
               </View>
 
-              {shipment.carrierId && shipment.status !== ShipmentStatus.DELIVERED && shipment.status !== ShipmentStatus.CANCELLED ? (
+              {!isCarrier &&
+              shipment.carrierId &&
+              shipment.status !== ShipmentStatus.DELIVERED &&
+              shipment.status !== ShipmentStatus.CANCELLED &&
+              shipment.status !== ShipmentStatus.COMPLETED &&
+              shipment.status !== ShipmentStatus.DISPUTED &&
+              shipment.status !== ShipmentStatus.REJECTED_BY_RECEIVER ? (
                 <Pressable
                   testID="shipment-detail-live-tracking-button"
                   onPress={() => {

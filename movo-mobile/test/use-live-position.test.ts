@@ -134,5 +134,57 @@ describe("useLivePosition (MOVO-204 Live Tracking Hook)", () => {
       expect(result.current.isDelivered).toBe(true);
       expect(result.current.trackingStatus).toBe("closed");
     });
+
+    it("retorna trackingStatus 'no_position' cuando el canal está conectado pero no hay posición registrada (AC6)", async () => {
+      mockUseQuery.mockReturnValue({
+        data: null,
+        isLoading: false,
+        refetch: jest.fn(),
+      });
+
+      const { result } = await renderHook(() =>
+        useLivePosition("shipment-123", {
+          destination: { lat: -31.9140, lng: -63.6820 },
+        })
+      );
+
+      expect(result.current.position).toBeNull();
+      expect(result.current.trackingStatus).toBe("no_position");
+    });
+
+    it("transiciona a stale con fake timers al pasar 121 segundos sin actualizaciones", async () => {
+      jest.useFakeTimers();
+      const mockInitialPosition = {
+        lat: -31.4201,
+        lng: -64.1888,
+        accuracyM: 10,
+        capturedAt: new Date().toISOString(),
+        recordedAt: new Date().toISOString(),
+      };
+
+      mockUseQuery.mockReturnValue({
+        data: mockInitialPosition,
+        isLoading: false,
+        refetch: jest.fn(),
+      });
+
+      const { result } = await renderHook(() =>
+        useLivePosition("shipment-123", {
+          destination: { lat: -31.9140, lng: -63.6820 },
+        })
+      );
+
+      expect(result.current.trackingStatus).toBe("live");
+      expect(result.current.isStale).toBe(false);
+
+      // Avanzar 121 segundos
+      await act(async () => {
+        jest.advanceTimersByTime(121_000);
+      });
+
+      expect(result.current.isStale).toBe(true);
+      expect(result.current.trackingStatus).toBe("stale");
+      jest.useRealTimers();
+    });
   });
 });
