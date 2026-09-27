@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -35,6 +37,30 @@ class Settings(BaseSettings):
     factor_fragile_item: float = Field(
         default=1.2,
         validation_alias=AliasChoices("PRICING_FACTOR_FRAGILE_ITEM", "factor_fragile_item"),
+    )
+
+    # Precio de combustible (MOVO-138, ADR-025). `mock` devuelve el fallback fijo sin
+    # red ni Redis (default de dev/test/CI); `energia` consulta la API CKAN de la
+    # Secretaría de Energía con cache en Redis.
+    fuel_price_provider: Literal["mock", "energia"] = Field(
+        default="mock",
+        validation_alias=AliasChoices("FUEL_PRICE_PROVIDER", "fuel_price_provider"),
+    )
+    # Mediana nacional de nafta súper relevada el 24/09/2026 (spike MOVO-216). Se usa
+    # con el provider `mock`, y con `energia` si no hay Redis ni último valor bueno.
+    fuel_price_fallback_ars_per_l: float = Field(
+        default=2222.5,
+        gt=0,
+        validation_alias=AliasChoices(
+            "PRICING_FUEL_PRICE_FALLBACK_ARS_PER_L", "fuel_price_fallback_ars_per_l"
+        ),
+    )
+    fuel_cache_ttl_seconds: int = Field(
+        default=86400,
+        gt=0,
+        validation_alias=AliasChoices(
+            "PRICING_FUEL_CACHE_TTL_SECONDS", "fuel_cache_ttl_seconds"
+        ),
     )
 
     # Configuración de Routing y VRPTW (MOVO-205 / MOVO-217 / ADR-013 / ADR-015)
