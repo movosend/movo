@@ -459,6 +459,16 @@ export const shipmentsClient = {
       positions,
     });
   },
+
+  /**
+   * `GET /shipments/:id/positions/latest` (MOVO-204 / MOVO-251).
+   * Obtiene la última posición GPS conocida del transportista para un envío en viaje activo.
+   */
+  getLastKnownPosition(shipmentId: string): Promise<LastKnownCarrierPosition | null> {
+    return httpClient.get<LastKnownCarrierPosition | null>(
+      `/shipments/${shipmentId}/positions/latest`
+    );
+  },
 };
 
 export type { CarrierRoute };
@@ -472,6 +482,14 @@ export interface ReportPositionInput {
 
 export interface ReportPositionResult {
   persisted: boolean;
+}
+
+export interface LastKnownCarrierPosition {
+  lat: number;
+  lng: number;
+  accuracyM: number;
+  capturedAt: string;
+  recordedAt: string;
 }
 
 export interface BatchPositionItemInput {
