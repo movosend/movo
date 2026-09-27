@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { ChevronLeft, ChevronRight, KeyRound, UserX } from "lucide-react-native";
+import { Ban, ChevronLeft, ChevronRight, KeyRound, UserX } from "lucide-react-native";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
@@ -63,6 +63,26 @@ export default function AccountSecurityScreen() {
               <Text className="font-sans text-[15px] text-fg">Contraseña</Text>
               <Text className="mt-0.5 font-sans text-[12px] text-fg-3">
                 Cambiala cuando quieras
+              </Text>
+            </View>
+            <ChevronRight size={18} strokeWidth={1.8} color={colors.fg3} />
+          </Pressable>
+        </View>
+
+        <Text className="mb-2.5 mt-7 font-sans-semibold text-caption uppercase text-fg-3">
+          Privacidad
+        </Text>
+        <View className="overflow-hidden rounded-[10px] border border-border bg-bg-sub">
+          <Pressable
+            testID="security-blocked-users"
+            onPress={() => router.push("/profile/blocked-users" as any)}
+            className="flex-row items-center gap-3 px-4 py-4"
+          >
+            <Ban size={18} strokeWidth={1.8} color={colors.fg3} />
+            <View className="flex-1">
+              <Text className="font-sans text-[15px] text-fg">Usuarios bloqueados</Text>
+              <Text className="mt-0.5 font-sans text-[12px] text-fg-3">
+                Quiénes no pueden cruzarse con vos en Movo
               </Text>
             </View>
             <ChevronRight size={18} strokeWidth={1.8} color={colors.fg3} />

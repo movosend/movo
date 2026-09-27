@@ -6,7 +6,7 @@ import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createRatingRepository } from "../../repositories/rating-repository";
-import { Rating } from "../../models/rating";
+import { Rating, RatingCategoryScoresInput } from "../../models/rating";
 
 export interface RatingsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración -- evita depender de un `movo-svc-users`
@@ -43,7 +43,10 @@ export default async function ratingsRoutes(app: FastifyInstance, opts: RatingsR
           "califica como el calificado tienen que ser partes del envío y no pueden ser la misma " +
           "persona (403). Un segundo POST sobre el mismo par devuelve 409 " +
           "SHIPMENT_RATING_ALREADY_EXISTS -- usar PATCH para editar. Dispara una push best-effort " +
-          "al calificado.",
+          "al calificado. MOVO-173: admite sub-scores opcionales (1-5) según el rol del calificado -- " +
+          "transportista: punctualityScore/careScore/communicationScore; emisor y receptor: " +
+          "punctualityScore/communicationScore. Una categoría que no corresponde al rol responde " +
+          "422 VALIDATION_FAILED.",
         tags: ["ratings"],
         params: ratingsSchemas.shipmentIdParam,
         body: ratingsSchemas.createRatingBody,
@@ -54,13 +57,14 @@ export default async function ratingsRoutes(app: FastifyInstance, opts: RatingsR
           403: ratingsSchemas.errorResponse,
           404: ratingsSchemas.errorResponse,
           409: ratingsSchemas.errorResponse,
+          422: ratingsSchemas.errorResponse,
         },
       },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const raterId = requireUserIdFromHeader(request);
       const { id } = request.params as { id: string };
-      const body = request.body as { rateeId: string; score: number; comment?: string };
+      const body = request.body as { rateeId: string; score: number; comment?: string } & RatingCategoryScoresInput;
       const rating = await service.createRating({ shipmentId: id, raterId, ...body });
       reply.code(201);
       return toRatingDto(rating);
@@ -75,7 +79,9 @@ export default async function ratingsRoutes(app: FastifyInstance, opts: RatingsR
         description:
           "AC5 de MOVO-146: edita la calificación que el caller ya hizo a rateeId en este envío -- " +
           "nunca crea una segunda fila. Mismas precondiciones de ventana/disputa que el alta (409). " +
-          "404 SHIPMENT_RATING_NOT_FOUND si el caller no calificó todavía a esa persona en este envío.",
+          "404 SHIPMENT_RATING_NOT_FOUND si el caller no calificó todavía a esa persona en este envío. " +
+          "MOVO-173: reemplazo completo, igual que `comment` -- una categoría que no se manda queda sin " +
+          "valor. Mismas reglas de rol que el alta (422 VALIDATION_FAILED).",
         tags: ["ratings"],
         params: ratingsSchemas.shipmentRateeIdParam,
         body: ratingsSchemas.updateRatingBody,
@@ -85,13 +91,14 @@ export default async function ratingsRoutes(app: FastifyInstance, opts: RatingsR
           401: ratingsSchemas.errorResponse,
           404: ratingsSchemas.errorResponse,
           409: ratingsSchemas.errorResponse,
+          422: ratingsSchemas.errorResponse,
         },
       },
     },
     async (request: FastifyRequest) => {
       const raterId = requireUserIdFromHeader(request);
       const { id, rateeId } = request.params as { id: string; rateeId: string };
-      const body = request.body as { score: number; comment?: string };
+      const body = request.body as { score: number; comment?: string } & RatingCategoryScoresInput;
       const rating = await service.updateRating({ shipmentId: id, raterId, rateeId, ...body });
       return toRatingDto(rating);
     },

@@ -34,9 +34,12 @@ export interface ReputationBreakdown {
   isNewProfile: boolean;
   /**
    * Promedio por sub-categoría (puntualidad/cuidado/comunicación del transportista;
-   * paquete listo/dirección clara/comunicación del emisor) — MOVO-173, todavía sin
-   * backend. `undefined` en cualquier respuesta actual; los consumidores (mobile)
-   * ocultan la fila de barras entera mientras no llegue, nunca la rellenan con ceros.
+   * paquete listo/dirección clara/comunicación del emisor) — MOVO-173, calculado en
+   * `svc-shipments` con el mismo shrinkage+decaimiento que `reputationScore`. Solo
+   * viaja en `asSender`/`asCarrier` y `undefined` si ninguna categoría tiene
+   * calificaciones cargadas (ratings anteriores a MOVO-173, que no se recalculan); los
+   * consumidores (mobile) ocultan la fila de barras entera en ese caso, nunca la
+   * rellenan con ceros.
    */
   categories?: ReputationCategoryScore[];
   /**
@@ -50,7 +53,7 @@ export interface ReputationBreakdown {
   usageStats?: UsageStats;
 }
 
-/** MOVO-173 (calificación por categorías, sin backend todavía). */
+/** MOVO-173: `key`/`label` salen de `config/rating-categories.ts`. */
 export interface ReputationCategoryScore {
   key: string;
   label: string;
@@ -233,4 +236,7 @@ export interface PublicProfile {
    * de vehículo. Igual que `bio`, viaja en `GET /users/:id` pero se descarta a
    * nivel de schema en `GET /users/search`. */
   vehicle?: VehicleProfile | null;
+  /** MOVO-175: si el caller bloqueó a este usuario. Solo viaja en `GET /users/:id`
+   * mirando el perfil de otro -- nunca revela si el otro bloqueó al caller. */
+  isBlockedByMe?: boolean;
 }

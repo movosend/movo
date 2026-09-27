@@ -347,6 +347,15 @@ model Rating {
   score   Int
   comment String? @db.Text
 
+  // MOVO-173: sub-scores opcionales (1..5, validados en el schema de la ruta). Cuáles
+  // aplican depende de `role` (el CALIFICADO): carrier -> punctuality/care/
+  // communication, sender y receiver -> punctuality/communication
+  // (`@movo/shared`, config/rating-categories.ts). Nullable: las filas
+  // anteriores a MOVO-173 quedan en NULL y no se recalculan retroactivamente.
+  punctualityScore   Int? @map("punctuality_score")
+  careScore          Int? @map("care_score")
+  communicationScore Int? @map("communication_score")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)

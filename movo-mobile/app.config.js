@@ -161,6 +161,9 @@ module.exports = {
           "Movo usa NFC para leer el chip de tu pasaporte durante la verificación de identidad con Didit.",
         NSLocationWhenInUseUsageDescription:
           "Movo usa tu ubicación para compartir el avance del envío en tiempo real con el emisor y receptor mientras transportás un paquete, y para ayudarte a marcar direcciones en el mapa.",
+        NSLocationAlwaysAndWhenInUseUsageDescription:
+          "Movo usa tu ubicación en segundo plano para compartir el avance del viaje en tiempo real con el emisor y receptor mientras transportás paquetes, incluso cuando la app está minimizada o la pantalla bloqueada.",
+        UIBackgroundModes: ["location"],
         // Permite tráfico HTTP plano hacia direcciones de red local (RFC1918/.local) sin
         // afectar ATS para el resto de internet — necesario para probar un development
         // build en un iPhone físico contra el backend corriendo en la LAN (override desde
@@ -209,7 +212,11 @@ module.exports = {
       // developer lo baja de Firebase Console y lo pega acá; en EAS Cloud se resuelve
       // vía el secret de archivo `GOOGLE_SERVICES_JSON` (ver eas.json).
       googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? "./google-services.json",
-      permissions: ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"],
+      permissions: [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+      ],
     },
     web: {
       favicon: "./assets/favicon.png",
@@ -237,6 +244,9 @@ module.exports = {
         {
           locationWhenInUsePermission:
             "Movo usa tu ubicación para compartir el avance del envío en tiempo real con el emisor y receptor mientras transportás un paquete, y para ayudarte a marcar direcciones en el mapa.",
+          locationAlwaysAndWhenInUsePermission:
+            "Movo usa tu ubicación en segundo plano para compartir el avance del viaje en tiempo real con el emisor y receptor mientras transportás paquetes, incluso cuando la app está minimizada o la pantalla bloqueada.",
+          isAndroidBackgroundLocationEnabled: true,
         },
       ],
       // Sin `cameraPermission` propio acá — el `NSCameraUsageDescription` ya cubre

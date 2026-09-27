@@ -10,6 +10,7 @@ import {
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
+import { safeBlockRelatedUserIds } from "../../utils/block-relations";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { RoutesProvider } from "../../adapters/routes-provider";
 import { sendCustodyPush } from "../../utils/dispatch-push";
@@ -483,6 +484,9 @@ export function createTripsService(deps: {
 
       const effectiveRadiusKm = radiusKm ?? defaultMaxDetourKm;
 
+      // MOVO-175 (ADR-026): mismo filtro de bloqueos que el feed "Transportar", falla abierto.
+      const blockedIds = await safeBlockRelatedUserIds(usersClient, trip.carrierId, logger);
+
       // 1. Prefiltro geométrico (corredor <= 15 km y fecha calendario argentina)
       const { items, total } = await shipmentRepository.listAvailable({
         originLat: trip.originLat,
@@ -492,6 +496,7 @@ export function createTripsService(deps: {
         radiusKm: effectiveRadiusKm,
         pickupDate: toArgentinaCalendarDate(trip.departureAt),
         excludeUserId: trip.carrierId,
+        excludePartyIds: blockedIds,
         page,
         limit,
       });

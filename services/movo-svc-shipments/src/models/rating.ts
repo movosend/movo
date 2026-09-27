@@ -1,3 +1,4 @@
+import { RatingCategoryScoreField } from "@movo/shared";
 import { RatingRole } from "../generated/prisma/client";
 import { InvalidEnumValueError } from "./shipment";
 
@@ -11,7 +12,7 @@ export { RatingRole };
  * agregado que consume `svc-users` vive en MOVO-25) -- se reusa el enum del cliente
  * Prisma directo, mismo criterio incremental que `PackageType`/`PhotoStage`.
  */
-export interface Rating {
+export interface Rating extends RatingCategoryScores {
   id: string;
   shipmentId: string;
   raterId: string;
@@ -22,7 +23,17 @@ export interface Rating {
   createdAt: Date;
 }
 
-export interface CreateRatingInput {
+/**
+ * MOVO-173: sub-scores de una calificación, `null` cuando no se cargó (filas anteriores
+ * a MOVO-173, o el calificador no tocó esa categoría). Cuáles aplican depende de `role`
+ * -- ver `@movo/shared` `config/rating-categories.ts`.
+ */
+export type RatingCategoryScores = Record<RatingCategoryScoreField, number | null>;
+
+/** Lo que llega en el body de alta/edición: solo las categorías que el usuario cargó. */
+export type RatingCategoryScoresInput = Partial<Record<RatingCategoryScoreField, number>>;
+
+export interface CreateRatingInput extends RatingCategoryScoresInput {
   shipmentId: string;
   raterId: string;
   rateeId: string;
