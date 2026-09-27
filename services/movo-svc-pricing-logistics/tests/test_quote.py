@@ -34,11 +34,8 @@ def test_quote_standard_package_no_factor() -> None:
     # factor standard_package = 1.0 -> sin cambios
     assert body["suggestedPriceArs"] == 21198.0
     assert body["calculationMethod"] == "euclidean_linear_v1"
-    assert body["breakdown"] == [
-        {"label": "base", "amountArs": 1500.0},
-        {"label": "distancia", "amountArs": 16698.0},
-        {"label": "peso", "amountArs": 3000.0},
-    ]
+    assert body["highDemand"] is False
+    assert "breakdown" not in body
 
 
 def test_quote_fragile_item_applies_factor() -> None:
@@ -66,7 +63,7 @@ def test_quote_fragile_item_applies_factor() -> None:
     # factor fragile_item = 1.2 -> 36396 * 1.2 = 43675.2
     assert body["suggestedPriceArs"] == 43675.2
     assert body["calculationMethod"] == "euclidean_linear_v1"
-    assert body["breakdown"][-1] == {"label": "factor_tipo_paquete", "amountArs": 7279.2}
+    assert body["highDemand"] is False
 
 
 def test_quote_letter_document() -> None:
@@ -108,6 +105,48 @@ def test_quote_missing_field_returns_422() -> None:
             "heightCm": 10,
             "packageType": "standard_package",
             "urgent": False,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_quote_accepts_demand_context() -> None:
+    response = client.post(
+        "/quote",
+        json={
+            "originLat": 0,
+            "originLng": 0,
+            "destinationLat": 1,
+            "destinationLng": 0,
+            "weightKg": 10,
+            "lengthCm": 20,
+            "widthCm": 15,
+            "heightCm": 10,
+            "packageType": "standard_package",
+            "urgent": False,
+            "demandContext": {"publishedShipments": 9, "availableCarriers": 2},
+        },
+    )
+
+    assert response.status_code == 200
+
+
+def test_quote_negative_demand_context_returns_422() -> None:
+    response = client.post(
+        "/quote",
+        json={
+            "originLat": 0,
+            "originLng": 0,
+            "destinationLat": 1,
+            "destinationLng": 0,
+            "weightKg": 10,
+            "lengthCm": 20,
+            "widthCm": 15,
+            "heightCm": 10,
+            "packageType": "standard_package",
+            "urgent": False,
+            "demandContext": {"publishedShipments": -1, "availableCarriers": 2},
         },
     )
 

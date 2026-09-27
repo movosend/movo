@@ -1,7 +1,7 @@
 import math
 
 from app.config import settings
-from app.models.quote import PackageType, PriceBreakdownItem, PriceCalculationMethod, QuoteRequest, QuoteResponse
+from app.models.quote import PackageType, PriceCalculationMethod, QuoteRequest, QuoteResponse
 
 # Grados de latitud/longitud a metros (aproximación equirectangular, precisión de
 # sobra para las distancias urbanas/interurbanas de Argentina que maneja MOVO).
@@ -48,18 +48,10 @@ def compute_quote(req: QuoteRequest) -> QuoteResponse:
     factor = _PACKAGE_TYPE_FACTORS[req.package_type]
     suggested_price_ars = round(subtotal * factor, 2)
 
-    breakdown = [
-        PriceBreakdownItem(label="base", amount_ars=round(base, 2)),
-        PriceBreakdownItem(label="distancia", amount_ars=round(distance_component, 2)),
-        PriceBreakdownItem(label="peso", amount_ars=round(weight_component, 2)),
-    ]
-    if factor != 1.0:
-        breakdown.append(
-            PriceBreakdownItem(label="factor_tipo_paquete", amount_ars=round(subtotal * (factor - 1.0), 2))
-        )
-
+    # Sin `breakdown` en el wire (MOVO-216/ADR-025). `high_demand` queda en False hasta
+    # que `demand_fuel_routes_v1` (MOVO-138) reemplace esta fórmula.
     return QuoteResponse(
         suggested_price_ars=suggested_price_ars,
-        breakdown=breakdown,
+        high_demand=False,
         calculation_method=PriceCalculationMethod.EUCLIDEAN_LINEAR_V1,
     )

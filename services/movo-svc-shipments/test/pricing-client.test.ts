@@ -31,7 +31,7 @@ describe("PricingClient", () => {
       json: () =>
         Promise.resolve({
           suggestedPriceArs: 2256,
-          breakdown: [],
+          highDemand: false,
           calculationMethod: "euclidean_linear_v1",
         }),
     });
