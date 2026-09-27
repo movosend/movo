@@ -9,14 +9,15 @@ router = APIRouter()
 @router.post(
     "/quote",
     response_model=QuoteResponse,
-    summary="Precio sugerido para un envío (implementación provisoria, MOVO-82)",
+    summary="Precio sugerido para un envío (demand_fuel_routes_v1, MOVO-138)",
     description=(
-        "Calcula `suggestedPriceArs` con la fórmula lineal provisoria "
-        "(`calculationMethod: euclidean_linear_v1`) — distancia euclidiana entre "
-        "origen y destino, peso y un factor según `packageType`. Reemplazada a "
-        "futuro por el motor de precios real (demanda + combustible + Google Routes "
-        "API) sin cambiar este contrato."
+        "Calcula `suggestedPriceArs` con `calculationMethod: demand_fuel_routes_v1` "
+        "(ADR-025): distancia por ruta (Google Routes API, o Haversine x 1,3 si falla), "
+        "tarifa en litros de nafta al precio de surtidor, peso, factor según "
+        "`packageType` y recargo de 10% a 30% si `demandContext` indica alta demanda en "
+        "la zona de retiro. `highDemand` es `true` si y solo si se aplicó ese recargo. "
+        "Sin desglose en la respuesta: queda en el log `pricing_quote_computed`."
     ),
 )
-def create_quote(request: QuoteRequest) -> QuoteResponse:
-    return compute_quote(request)
+async def create_quote(request: QuoteRequest) -> QuoteResponse:
+    return await compute_quote(request)
