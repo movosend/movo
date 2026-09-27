@@ -73,7 +73,12 @@ export function FloatingTabBar({ state, navigation, insets }: BottomTabBarProps)
   const indicatorVisible = useSharedValue(0);
   const lifted = useSharedValue(0);
   const dragIndex = useSharedValue(-1);
+  const activeIndex = useSharedValue(state.index);
   const frames = useSharedValue<TabFrame[]>([]);
+
+  useEffect(() => {
+    activeIndex.value = state.index;
+  }, [state.index, activeIndex]);
   const collapsed = useTabBarStore((store) => store.collapsed);
   const collapse = useSharedValue(0);
 
@@ -196,10 +201,20 @@ export function FloatingTabBar({ state, navigation, insets }: BottomTabBarProps)
         runOnJS(handleDragHover)(nearest);
       }
     })
-    .onEnd(() => {
+    .onEnd((_event, success) => {
       const tabs = frames.value;
       const index = dragIndex.value;
-      if (index < 0 || !tabs[index]) return;
+      if (!success || index < 0 || !tabs[index]) {
+        // Gesto cancelado (llamada entrante, gesto del sistema, etc.): la pill
+        // vuelve al tab activo real, sin navegar al que quedó bajo el dedo.
+        const activeTab = tabs[activeIndex.value];
+        if (activeTab) {
+          indicatorX.value = withSpring(activeTab.x, SLIDE_SPRING);
+          indicatorW.value = withSpring(activeTab.width, SLIDE_SPRING);
+        }
+        runOnJS(clearHover)();
+        return;
+      }
       indicatorX.value = withSpring(tabs[index].x, SLIDE_SPRING);
       indicatorW.value = withSpring(tabs[index].width, SLIDE_SPRING);
       runOnJS(handleDragEnd)(index);

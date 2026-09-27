@@ -93,6 +93,7 @@ export function TabBarButton({
       </View>
       <Animated.Text
         numberOfLines={1}
+        maxFontSizeMultiplier={1.3}
         style={[{ fontSize: 14, letterSpacing: -0.1 }, labelStyle]}
         className="font-sans-semibold"
       >
