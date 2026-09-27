@@ -46,10 +46,27 @@ export function LiveMap({
   const isMapReady = useRef(false);
   const [isFollowingCarrier, setIsFollowingCarrier] = useState(false);
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
+  const lastKnownCarrierPositionRef = useRef<LatLng | null>(null);
 
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
   const colors = useThemeColors();
+
+  // Guardar siempre la última ubicación válida conocida del transportista
+  useEffect(() => {
+    if (
+      carrierPosition &&
+      typeof carrierPosition.lat === "number" &&
+      !isNaN(carrierPosition.lat) &&
+      typeof carrierPosition.lng === "number" &&
+      !isNaN(carrierPosition.lng)
+    ) {
+      lastKnownCarrierPositionRef.current = {
+        latitude: carrierPosition.lat,
+        longitude: carrierPosition.lng,
+      };
+    }
+  }, [carrierPosition?.lat, carrierPosition?.lng]);
 
   // Permite que los subviews nativos se rendericen y luego congela el ciclo de rastreo para alto rendimiento
   useEffect(() => {
@@ -60,17 +77,59 @@ export function LiveMap({
     return () => clearTimeout(timer);
   }, [carrierPosition, destinationLocation]);
 
+  // Desplazamiento vertical para que el marcador quede en el centro del área visible sobre el bottom sheet
+  const getLatitudeOffset = useCallback(
+    (latDelta: number) => {
+      const effectiveBottom = bottomOffset ?? 290;
+      return (latDelta * effectiveBottom) / 1600;
+    },
+    [bottomOffset]
+  );
+
+  // Centrar cámara en el transportista con animación suave y offset
+  const centerOnCarrier = useCallback(
+    (duration = 600) => {
+      const target =
+        (carrierPosition && {
+          latitude: carrierPosition.lat,
+          longitude: carrierPosition.lng,
+        }) ??
+        lastKnownCarrierPositionRef.current;
+
+      if (!target || !mapRef.current) return;
+
+      const latDelta = 0.016;
+      const lngDelta = 0.016;
+      const offset = getLatitudeOffset(latDelta);
+
+      mapRef.current.animateToRegion(
+        {
+          latitude: target.latitude - offset,
+          longitude: target.longitude,
+          latitudeDelta: latDelta,
+          longitudeDelta: lngDelta,
+        },
+        duration
+      );
+    },
+    [carrierPosition, getLatitudeOffset]
+  );
+
   // Encuadrar el mapa para mostrar conductor y destino con márgenes
   const fitCarrierAndDestination = useCallback(
     (animated = true) => {
       if (!mapRef.current || !isMapReady.current) return;
 
       const coordinates: LatLng[] = [];
-      if (carrierPosition) {
-        coordinates.push({
+      const carrier =
+        (carrierPosition && {
           latitude: carrierPosition.lat,
           longitude: carrierPosition.lng,
-        });
+        }) ??
+        lastKnownCarrierPositionRef.current;
+
+      if (carrier) {
+        coordinates.push(carrier);
       }
       if (destinationLocation) {
         coordinates.push({
@@ -82,12 +141,15 @@ export function LiveMap({
       if (coordinates.length === 0) return;
 
       if (coordinates.length === 1) {
+        const latDelta = 0.016;
+        const lngDelta = 0.016;
+        const offset = getLatitudeOffset(latDelta);
         mapRef.current.animateToRegion(
           {
-            latitude: coordinates[0].latitude,
+            latitude: coordinates[0].latitude - offset,
             longitude: coordinates[0].longitude,
-            latitudeDelta: 0.015,
-            longitudeDelta: 0.015,
+            latitudeDelta: latDelta,
+            longitudeDelta: lngDelta,
           },
           animated ? 500 : 0
         );
@@ -96,15 +158,15 @@ export function LiveMap({
 
       mapRef.current.fitToCoordinates(coordinates, {
         edgePadding: {
-          top: topOffset + 32,
+          top: topOffset + 40,
           right: 48,
-          bottom: bottomOffset + 32,
+          bottom: bottomOffset + 40,
           left: 48,
         },
         animated,
       });
     },
-    [carrierPosition, destinationLocation, topOffset, bottomOffset]
+    [carrierPosition, destinationLocation, topOffset, bottomOffset, getLatitudeOffset]
   );
 
   // Al estar listo el mapa, ajustamos el encuadre inicial
@@ -113,40 +175,20 @@ export function LiveMap({
     fitCarrierAndDestination(false);
   }, [fitCarrierAndDestination]);
 
-  // Si cambia la posición y estamos en modo seguimiento, centramos en el transportista
+  // Si cambia la posición y estamos en modo seguimiento activo, actualizamos la cámara
   useEffect(() => {
-    if (isFollowingCarrier && carrierPosition && mapRef.current) {
-      mapRef.current.animateCamera(
-        {
-          center: {
-            latitude: carrierPosition.lat,
-            longitude: carrierPosition.lng,
-          },
-          zoom: 16,
-        },
-        { duration: 400 }
-      );
+    if (isFollowingCarrier && carrierPosition && isMapReady.current) {
+      centerOnCarrier(450);
     }
-  }, [carrierPosition, isFollowingCarrier]);
+  }, [carrierPosition?.lat, carrierPosition?.lng, isFollowingCarrier, centerOnCarrier]);
 
-  // Botón centrar en el conductor
+  // Botón centrar en el conductor: siempre centra en la última ubicación conocida
   const handleCenterCarrier = () => {
     try {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
-    if (!carrierPosition || !mapRef.current) return;
-
     setIsFollowingCarrier(true);
-    mapRef.current.animateCamera(
-      {
-        center: {
-          latitude: carrierPosition.lat,
-          longitude: carrierPosition.lng,
-        },
-        zoom: 16,
-      },
-      { duration: 500 }
-    );
+    centerOnCarrier(600);
   };
 
   // Botón ver mapa completo (conductor + destino)
@@ -205,6 +247,9 @@ export function LiveMap({
         customMapStyle={isDark ? movoMapStyleDark : movoMapStyleLight}
         initialRegion={initialRegion}
         onMapReady={handleMapReady}
+        onPanDrag={() => {
+          setIsFollowingCarrier(false);
+        }}
         showsCompass={false}
         showsTraffic={false}
         showsBuildings={false}
@@ -352,52 +397,53 @@ export function LiveMap({
         </View>
       </View>
 
-      {/* Controles Flotantes Superiores: Centrar / Alternar vista */}
+      {/* Controles Flotantes Superiores: Centrar en Transportista & Vista Panorámica */}
       {showControls && (
-        <View
-          style={[styles.controlsContainer, { top: topOffset }]}
-        >
-          {isFollowingCarrier ? (
-            <Pressable
-              testID="btn-view-overview"
-              onPress={handleOverview}
-              accessibilityRole="button"
-              accessibilityLabel="Ver destino y transportista"
-              style={[
-                styles.mapControlButton,
-                {
-                  backgroundColor: isDark ? "#18181B" : "#FFFFFF",
-                  borderColor: isDark ? "rgba(255,255,255,0.15)" : "#E4E4E7",
-                },
-              ]}
-            >
-              <Map
-                size={17}
-                color={isDark ? "#FFFFFF" : "#0A0A0B"}
-                strokeWidth={2.2}
-              />
-            </Pressable>
-          ) : (
-            <Pressable
-              testID="btn-recenter-carrier"
-              onPress={handleCenterCarrier}
-              accessibilityRole="button"
-              accessibilityLabel="Centrar en transportista"
-              style={[
-                styles.mapControlButton,
-                {
-                  backgroundColor: isDark ? "#18181B" : "#FFFFFF",
-                  borderColor: isDark ? "rgba(255,255,255,0.15)" : "#E4E4E7",
-                },
-              ]}
-            >
-              <Crosshair
-                size={17}
-                color={isDark ? "#FFFFFF" : "#0A0A0B"}
-                strokeWidth={2.2}
-              />
-            </Pressable>
-          )}
+        <View style={[styles.controlsContainer, { top: topOffset, gap: 10 }]}>
+          <Pressable
+            testID="btn-recenter-carrier"
+            onPress={handleCenterCarrier}
+            accessibilityRole="button"
+            accessibilityLabel="Centrar en transportista"
+            style={[
+              styles.mapControlButton,
+              {
+                backgroundColor: isDark ? "#18181B" : "#FFFFFF",
+                borderColor: isFollowingCarrier
+                  ? "#C6F24A"
+                  : isDark
+                  ? "rgba(255,255,255,0.15)"
+                  : "#E4E4E7",
+                borderWidth: isFollowingCarrier ? 1.5 : 1,
+              },
+            ]}
+          >
+            <Crosshair
+              size={18}
+              color={isFollowingCarrier ? "#C6F24A" : isDark ? "#FFFFFF" : "#0A0A0B"}
+              strokeWidth={2.4}
+            />
+          </Pressable>
+
+          <Pressable
+            testID="btn-view-overview"
+            onPress={handleOverview}
+            accessibilityRole="button"
+            accessibilityLabel="Ver destino y transportista"
+            style={[
+              styles.mapControlButton,
+              {
+                backgroundColor: isDark ? "#18181B" : "#FFFFFF",
+                borderColor: isDark ? "rgba(255,255,255,0.15)" : "#E4E4E7",
+              },
+            ]}
+          >
+            <Map
+              size={18}
+              color={isDark ? "#FFFFFF" : "#0A0A0B"}
+              strokeWidth={2.2}
+            />
+          </Pressable>
         </View>
       )}
     </View>
