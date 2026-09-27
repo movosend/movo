@@ -1061,3 +1061,68 @@ test.ts`) quedaron escritos pero sin poder correrse en este entorno por falta de
 Postgres/Redis local — pendiente de verificar en CI.
 
 Pendiente / fuera de alcance: mobile de MOVO-246 (pantalla de configuración).
+
+### MOVO-173 — `categories` en el desglose de reputación
+
+Sin lógica nueva: `svc-shipments` calcula `asSender.categories`/`asCarrier.categories`
+(ver su `CLAUDE.md`) y este servicio ya reenviaba el desglose tal cual. Lo único
+necesario fue declarar `categories` en `reputationBreakdown` de `users.schema.ts` —
+sin eso el serializador de Fastify lo descarta en silencio y nunca llega al cliente
+(el test nuevo de `users.reputation.integration.test.ts` falla sin ese campo).
+
+### MOVO-175 — Reportar y bloquear usuarios (ADR-026)
+
+Módulo nuevo `src/modules/moderation/` + `moderation-repository.ts`, tablas
+`user_blocks`/`user_reports` (migración a mano, `prisma migrate diff` datamodel→datamodel
+con el prefijo `users.` agregado). Rutas protegidas bajo `/users` (sin cambios en el
+gateway): `POST /users/:id/report`, `POST`/`DELETE /users/:id/block`, `GET /users/me/blocked`;
+interna `GET /internal/users/:id/block-relations` (unión simétrica, la consume `svc-shipments`).
+
+- **Una fila por dirección, efecto simétrico**: la simetría la resuelve
+  `listRelatedUserIds`, no la tabla — `isBlockedByMe` (nuevo en `GET /users/:id`, solo
+  mirando a otro) necesita saber la dirección, y nunca revela si el otro bloqueó al caller.
+- **Un reporte `pending` por par, ampliable pero no editable**: reportar de nuevo da
+  409 `REPORT_ALREADY_PENDING`; lo que el reportante quiera agregar va como entrada
+  (`POST /users/:id/report/entries`, tabla `user_report_entries`, append-only) y
+  `GET /users/:id/report` devuelve el propio con sus entradas o `null`. Reportes y
+  entradas comparten el tope de 10/día por usuario (Redis `SET NX EX` + `INCR`,
+  `RATE_LIMIT_EXCEEDED`). Solo se persisten — la revisión es de admin, fuera de alcance.
+- **`deleteAccount` borra los bloqueos en ambas direcciones** dentro de su `$transaction`
+  (el `Cascade` nunca dispara por el soft delete); los reportes se conservan como evidencia.
+- `GET /users/search` excluye a cualquiera con un bloqueo en cualquier dirección
+  (`search()` pasa a recibir una lista de ids a excluir).
+
+Pendiente / fuera de alcance: revisión de reportes desde `movo-admin`/`svc-admin`.
+
+**Cambios de review (PR #193)**:
+- Alena1812: el chequeo de pendiente y el INSERT no estaban atados, así que dos pedidos
+  concurrentes creaban dos filas y consumían dos cupos. Migración
+  `20260926120000_unique_pending_report_movo_175`: índice único parcial
+  `(reporter_id, reported_id) WHERE status = 'pending'` (a mano, mismo criterio que
+  MOVO-119). Ante el `P2002` se reintegra el cupo (`DECR` en Lua, solo si la key sigue
+  viva) y se responde el mismo 409.
+- La versión original respondía 200 con el reporte existente y descartaba sin avisar el
+  motivo/detalle del segundo intento. Se reemplazó por el 409 + entradas de arriba
+  (migración `20260926130000_add_user_report_entries_movo_175`).
+
+### MOVO-174 — `GET /users/:id/mutual-connections`
+
+"Ya envió con N personas con las que vos también enviaste" del perfil. Depende de QUIÉN MIRA
+(`x-user-id`), por eso es un endpoint propio y no un campo de `PublicProfile`.
+`users.service.ts#getMutualConnections` valida al usuario visitado (404 `USER_NOT_FOUND`, `deleted`
+cuenta como "no existe"), consulta a `svc-shipments` (`shipments-client.ts#findMutualConnectionIds`,
+endpoint interno), descarta las contrapartes con cuenta dada de baja (`user-repository.ts#
+countActiveByIds`, `status != deleted`; `banned` sí cuenta) y devuelve `{ totalCount,
+sampleFirstNames: [] }`.
+
+- **`svc-shipments` devuelve ids, no un conteo, porque no sabe qué cuentas se eliminaron** (fix de
+  review de PR #196): sin este filtro, alguien que borró su cuenta seguía contando como conexión en
+  común. Los ids no salen de `getMutualConnections`. Si la base propia falla al contar, el error se
+  propaga: solo la caída de `svc-shipments` degrada a 0.
+- **Decisión de privacidad: solo el conteo.** `sampleFirstNames` viaja SIEMPRE vacío: nombrar a un
+  tercero revelaría que transaccionó con alguien que el viewer conoce, sin su consentimiento. El campo
+  queda en el contrato para poder pasar a nombres sin romper clientes (ese cambio pediría un ADR corto).
+- **Mirar el propio perfil da 0 y no llama a `svc-shipments`** (propio usuario excluido).
+- **Si `svc-shipments` falla, degrada a 0 y loguea** (`mutual_connections_fetch_failed`), igual que la
+  reputación (AC3 de MOVO-152): el mobile oculta la fila con 0, el perfil nunca se cae por esto.
+- Sin cambios en el gateway (`/users` ya se proxea genéricamente) ni env vars nuevas.

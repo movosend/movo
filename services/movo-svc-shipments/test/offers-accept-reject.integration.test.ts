@@ -73,7 +73,9 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 
     notificationsClient = createFakeNotificationsClient();
-    app = buildApp({ notificationsClient, sweepEnabled: false });
+    // MOVO-175: `acceptOffer` consulta bloqueos a svc-users y falla cerrado -- sin
+    // fake, el cliente real (inalcanzable en tests) devolvería 502.
+    app = buildApp({ notificationsClient, usersClient: createFakeUsersClient({}), sweepEnabled: false });
     await app.ready();
     offerRepo = createOfferRepository(app.db);
     shipmentRepo = createShipmentRepository(app.db);

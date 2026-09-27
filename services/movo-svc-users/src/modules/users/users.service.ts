@@ -7,6 +7,7 @@ import {
   ApiError,
   KycStatus,
   LEGAL_DOCUMENT_VERSIONS,
+  MutualConnections,
   RecentRatingComment,
   VehicleProfile as SharedVehicleProfile,
 } from "@movo/shared";
@@ -16,6 +17,7 @@ import { createPushTokenRepository } from "../../repositories/push-token-reposit
 import { createDeviceKeyRepository } from "../../repositories/device-key-repository";
 import { createVehicleProfileRepository } from "../../repositories/vehicle-repository";
 import { createSessionRepository } from "../../repositories/session-repository";
+import { createModerationRepository } from "../../repositories/moderation-repository";
 import {
   PrivateProfile,
   PublicProfile,
@@ -221,6 +223,7 @@ export function createUsersService(
   const deviceKeyRepository = createDeviceKeyRepository(db);
   const vehicleProfileRepository = createVehicleProfileRepository(db);
   const sessionRepository = createSessionRepository(redis);
+  const moderationRepository = createModerationRepository(db);
 
   /**
    * MOVO-152 AC3/AC5: agregado de reputación de `userId`, leído de Redis primero (TTL
@@ -354,11 +357,14 @@ export function createUsersService(
       if (trimmed.length < 2) {
         throw new ApiError(400, "VALIDATION_FAILED", "El término de búsqueda debe tener al menos 2 caracteres.");
       }
-      const users = await repository.search(trimmed, callerId, 20);
+      // MOVO-175 (ADR-026): bloqueo simétrico -- ni a quien bloqueé ni a quien me
+      // bloqueó (no puedo elegirlo como receptor de todas formas, svc-shipments lo rechaza).
+      const blockedIds = await moderationRepository.listRelatedUserIds(callerId);
+      const users = await repository.search(trimmed, [callerId, ...blockedIds], 20);
       return Promise.all(users.map((user) => composePublicProfile(user, false)));
     },
 
-    async getPublicProfile(id: string): Promise<PublicProfile> {
+    async getPublicProfile(id: string, callerId: string): Promise<PublicProfile> {
       const user = await repository.findById(id);
       // `deleted` es baja lógica (el registro sigue en la DB) pero se trata como
       // "no existe" hacia afuera: decisión de equipo en review de PR #55 (tmvergara),
@@ -376,7 +382,13 @@ export function createUsersService(
         throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
       }
       // MOVO-152 AC2: perfil completo -- sí pide los comentarios recientes.
-      return composePublicProfile(user, true);
+      const profile = await composePublicProfile(user, true);
+      // MOVO-175: solo la dirección propia (caller -> perfil). Si el otro bloqueó al
+      // caller no se revela acá: el perfil se sirve igual (ADR-026).
+      if (callerId !== id) {
+        profile.isBlockedByMe = await moderationRepository.isBlockedBy(callerId, id);
+      }
+      return profile;
     },
 
     /**
@@ -398,6 +410,44 @@ export function createUsersService(
       }
       const { items, nextCursor } = await shipmentsClient.findRecentRatingComments(id, limit, cursor);
       return { items: await enrichWithRaterNames(items), nextCursor };
+    },
+
+    /**
+     * MOVO-174: "Ya envió con N personas con las que vos también enviaste". Depende de
+     * QUIÉN MIRA (`viewerId`), por eso es un endpoint propio y no un campo de `PublicProfile`.
+     *
+     * Decisión de privacidad: solo el conteo, `sampleFirstNames` siempre vacío -- ver
+     * `MutualConnections` en `@movo/shared`. Mismo criterio de existencia que
+     * `getPublicProfile` (404 `USER_NOT_FOUND` trata `deleted` como "no existe"). Mirar el
+     * propio perfil no tiene conexiones mutuas (0, sin llamar a `svc-shipments`). Si
+     * `svc-shipments` falla degrada a 0 y loguea, igual que la reputación (AC3 de MOVO-152):
+     * el mobile oculta la fila con 0, así que el perfil nunca se cae por esto.
+     *
+     * `svc-shipments` no sabe qué cuentas se dieron de baja (no marca ni limpia los ids en los
+     * envíos), así que devuelve los ids de las contrapartes y acá se descartan las eliminadas antes
+     * de contar -- misma regla de "no existe" que el 404 de arriba. Los ids no salen de este método.
+     */
+    async getMutualConnections(viewerId: string, id: string): Promise<MutualConnections> {
+      const user = await repository.findById(id);
+      if (!user || user.status === AccountStatus.DELETED) {
+        throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
+      }
+      if (viewerId === id) {
+        return { totalCount: 0, sampleFirstNames: [] };
+      }
+      let counterpartyIds: string[];
+      try {
+        counterpartyIds = await shipmentsClient.findMutualConnectionIds(viewerId, id);
+      } catch (error) {
+        logger.warn(
+          { viewerId, userId: id, event: "mutual_connections_fetch_failed", error: (error as Error).message },
+          "No se pudieron obtener las conexiones mutuas de svc-shipments"
+        );
+        return { totalCount: 0, sampleFirstNames: [] };
+      }
+      // Fuera del try: un fallo de la base propia no es "svc-shipments caído", no se disfraza de 0.
+      const totalCount = await repository.countActiveByIds(counterpartyIds);
+      return { totalCount, sampleFirstNames: [] };
     },
 
     /** AC1/AC2/AC3: emite la presigned URL de subida. El `objectKey` lo genera el
@@ -760,6 +810,9 @@ export function createUsersService(
           // propósito. Sin este borrado, el endpoint interno de svc-shipments seguía
           // resolviendo la clave pública de un dispositivo de un usuario ya eliminado.
           await tx.deviceKey.deleteMany({ where: { userId } });
+          // MOVO-175 (ADR-026): mismo motivo -- los bloqueos en ambas direcciones se
+          // borran a mano. Los reportes se conservan a propósito (evidencia para admin).
+          await tx.userBlock.deleteMany({ where: { OR: [{ blockerId: userId }, { blockedId: userId }] } });
         });
 
         await sessionRepository.revokeAllForUser(userId);

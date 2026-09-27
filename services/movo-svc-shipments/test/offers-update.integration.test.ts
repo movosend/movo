@@ -3,6 +3,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import { ShipmentStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
+import { createFakeUsersClient } from "./fake-users-client";
 import { createOfferRepository, OfferRepository } from "../src/repositories/offer-repository";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { CreateOfferInput } from "../src/models/offer";
@@ -71,7 +72,9 @@ describe("PATCH /offers/:id (Postgres, MOVO-181)", () => {
     process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 
-    app = buildApp({ sweepEnabled: false });
+    // Editar una oferta consulta bloqueos en svc-users (MOVO-175): sin el fake, el
+    // cliente real no llega a ningún host y el PATCH responde 502.
+    app = buildApp({ usersClient: createFakeUsersClient({}), sweepEnabled: false });
     await app.ready();
     offerRepo = createOfferRepository(app.db);
     shipmentRepo = createShipmentRepository(app.db);

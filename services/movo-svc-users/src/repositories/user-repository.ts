@@ -84,7 +84,7 @@ export interface UserRepository {
    * Búsqueda de receptor (AC3 de MOVO-80) por nombre completo — no existe columna
    * `username` en este modelo. Excluye al propio caller.
    */
-  search(query: string, excludeUserId: string, limit: number): Promise<User[]>;
+  search(query: string, excludeUserIds: string[], limit: number): Promise<User[]>;
   /** MOVO-134: `POST /users/me/password`, después de verificar la contraseña actual. */
   updatePassword(id: string, passwordHash: string): Promise<User | null>;
   /**
@@ -107,6 +107,13 @@ export interface UserRepository {
    * el caller decide el fallback.
    */
   findNamesByIds(ids: string[]): Promise<Map<string, string>>;
+  /**
+   * MOVO-174: cuántos de estos ids pertenecen a una cuenta que sigue existiendo (`status` distinto
+   * de `deleted`, mismo criterio que `getPublicProfile`). `svc-shipments` no sabe qué cuentas se
+   * dieron de baja, así que las contrapartes en común llegan acá para descartar las eliminadas
+   * antes de contarlas. `banned` sí cuenta: es una sanción reversible, no una baja.
+   */
+  countActiveByIds(ids: string[]): Promise<number>;
 }
 
 type UserWithRoles = Prisma.UserGetPayload<{ include: { roles: true } }>;
@@ -463,7 +470,7 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
       }
     },
 
-    async search(query: string, excludeUserId: string, limit: number): Promise<User[]> {
+    async search(query: string, excludeUserIds: string[], limit: number): Promise<User[]> {
       const words = query.split(/\s+/).filter(Boolean);
       const or: Prisma.UserWhereInput[] = [
         { firstName: { contains: query, mode: "insensitive" } },
@@ -489,7 +496,7 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         // Mismo criterio que `getPublicProfile` (users.service.ts): `deleted` es baja
         // lógica y se trata como "no existe" hacia afuera; `banned` sí es buscable
         // (sanción reversible, no una baja voluntaria).
-        where: { AND: [{ id: { not: excludeUserId } }, { status: { not: PrismaAccountStatus.deleted } }, { OR: or }] },
+        where: { AND: [{ id: { notIn: excludeUserIds } }, { status: { not: PrismaAccountStatus.deleted } }, { OR: or }] },
         include: { roles: true },
         take: limit,
         orderBy: { firstName: "asc" },
@@ -552,6 +559,13 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         select: { id: true, firstName: true, lastName: true },
       });
       return new Map(rows.map((row) => [row.id, fullName(row)]));
+    },
+
+    async countActiveByIds(ids: string[]): Promise<number> {
+      if (ids.length === 0) {
+        return 0;
+      }
+      return db.user.count({ where: { id: { in: ids }, status: { not: PrismaAccountStatus.deleted } } });
     },
   };
 }

@@ -5,18 +5,21 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 
 export interface TrackingPermissionModalProps {
   visible: boolean;
+  stage?: "foreground" | "background";
   onAccept: () => void;
   onDismiss: () => void;
   testID?: string;
 }
 
 /**
- * Pantalla explicativa previa a solicitar el permiso de ubicación del sistema (MOVO-203, AC4).
+ * Pantalla explicativa previa a solicitar el permiso de ubicación del sistema (MOVO-203, AC4; MOVO-242, AC2).
  * Explica al transportista el propósito y acotación temporal del tracking antes de disparar
- * el diálogo nativo de iOS / Android para maximizar la tasa de aceptación.
+ * el diálogo nativo de iOS / Android para maximizar la tasa de aceptación, tanto en primer plano
+ * como en segundo plano.
  */
 export function TrackingPermissionModal({
   visible,
+  stage = "foreground",
   onAccept,
   onDismiss,
   testID = "tracking-permission-modal",
@@ -32,6 +35,8 @@ export function TrackingPermissionModal({
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onDismiss();
   };
+
+  const isBackground = stage === "background";
 
   return (
     <Modal
@@ -49,12 +54,15 @@ export function TrackingPermissionModal({
           </View>
 
           <Text className="font-sans-bold text-[20px] leading-tight text-fg">
-            Ubicación en vivo durante el envío
+            {isBackground
+              ? "Ubicación en segundo plano"
+              : "Ubicación en vivo durante el envío"}
           </Text>
 
           <Text className="mt-2 font-sans text-[14px] leading-relaxed text-fg-2">
-            Para que el emisor y el receptor puedan ver el avance del paquete en el mapa,
-            Movo necesita compartir tu ubicación mientras realizás el viaje.
+            {isBackground
+              ? "Para mantener informados al emisor y destinatario mientras conducís con la pantalla apagada o usás otra app (como Waze o Maps), Movo necesita acceso a tu ubicación en segundo plano durante el viaje."
+              : "Para que el emisor y el receptor puedan ver el avance del paquete en el mapa, Movo necesita compartir tu ubicación mientras realizás el viaje."}
           </Text>
 
           {/* Puntos destacados */}
@@ -62,14 +70,18 @@ export function TrackingPermissionModal({
             <View className="flex-row items-center gap-2.5">
               <CheckCircle2 size={16} color={colors.fg1} strokeWidth={2} />
               <Text className="flex-1 font-sans text-[12px] text-fg-1">
-                Visible solo mientras el envío esté <Text className="font-sans-semibold">En camino</Text>.
+                {isBackground
+                  ? "Permite apagar la pantalla o alternar apps de navegación sin pausar el viaje."
+                  : "Visible solo mientras el envío esté En camino."}
               </Text>
             </View>
 
             <View className="flex-row items-center gap-2.5">
               <ShieldCheck size={16} color={colors.fg1} strokeWidth={2} />
               <Text className="flex-1 font-sans text-[12px] text-fg-1">
-                Se detiene automáticamente al confirmar la entrega.
+                {isBackground
+                  ? "Se detiene automáticamente al completar el viaje o entregar los paquetes."
+                  : "Se detiene automáticamente al confirmar la entrega."}
               </Text>
             </View>
           </View>
@@ -82,7 +94,7 @@ export function TrackingPermissionModal({
               className="w-full items-center justify-center rounded-xl bg-lime-500 py-3.5 active:opacity-90"
             >
               <Text className="font-sans-semibold text-[15px] text-ink-950">
-                Entendido, activar ubicación
+                {isBackground ? "Permitir en segundo plano" : "Entendido, activar ubicación"}
               </Text>
             </Pressable>
 
@@ -92,7 +104,9 @@ export function TrackingPermissionModal({
               className="w-full items-center justify-center rounded-xl py-2.5 active:opacity-70"
             >
               <Text className="font-sans-medium text-[13px] text-fg-3">
-                Continuar sin compartir ubicación
+                {isBackground
+                  ? "Continuar solo con app abierta"
+                  : "Continuar sin compartir ubicación"}
               </Text>
             </Pressable>
           </View>

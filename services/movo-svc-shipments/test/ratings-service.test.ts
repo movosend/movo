@@ -235,7 +235,7 @@ describe("ratings.service — updateRating (MOVO-146 AC5)", () => {
     });
 
     expect(ratingRepository.create).not.toHaveBeenCalled();
-    expect(ratingRepository.update).toHaveBeenCalledWith(SHIPMENT_ID, SENDER_ID, RECEIVER_ID, 4, "mejoró");
+    expect(ratingRepository.update).toHaveBeenCalledWith(SHIPMENT_ID, SENDER_ID, RECEIVER_ID, 4, "mejoró", {});
     expect(result).toEqual(updated);
   });
 
@@ -401,5 +401,195 @@ describe("ratings.service — getReputationSummary (MOVO-147 AC3)", () => {
 
     // (5*3 + 5) / (5 + 1) = 20/6 = 3.33... -> 3.3
     expect(summary.reputationScore).toBe(3.3);
+  });
+});
+
+describe("ratings.service — categorías por rol (MOVO-173)", () => {
+  const REPUTATION_CONFIG = { confidenceConstant: 5, decayHalfLifeDays: 180 };
+
+  it("alta a un transportista con sus 3 categorías -- las persiste tal cual", async () => {
+    const ratingRepository = createFakeRatingRepository({
+      create: vi.fn().mockImplementation((input) => Promise.resolve(fakeRating(input))),
+    });
+    const service = createRatingsService(fakeShipmentRepository(), ratingRepository, createFakeNotificationsClient());
+
+    freezeTime(NOW);
+    await service.createRating({
+      shipmentId: SHIPMENT_ID,
+      raterId: SENDER_ID,
+      rateeId: CARRIER_ID,
+      score: 5,
+      punctualityScore: 4,
+      careScore: 5,
+      communicationScore: 3,
+    });
+
+    expect(ratingRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ role: RatingRole.carrier, punctualityScore: 4, careScore: 5, communicationScore: 3 }),
+    );
+  });
+
+  it("alta a un emisor con sus 2 categorías (puntualidad y comunicación)", async () => {
+    const ratingRepository = createFakeRatingRepository({
+      create: vi.fn().mockImplementation((input) => Promise.resolve(fakeRating(input))),
+    });
+    const service = createRatingsService(fakeShipmentRepository(), ratingRepository, createFakeNotificationsClient());
+
+    freezeTime(NOW);
+    await service.createRating({
+      shipmentId: SHIPMENT_ID,
+      raterId: CARRIER_ID,
+      rateeId: SENDER_ID,
+      score: 4,
+      punctualityScore: 5,
+      communicationScore: 4,
+    });
+
+    expect(ratingRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ role: RatingRole.sender, punctualityScore: 5, communicationScore: 4 }),
+    );
+  });
+
+  it("alta a un receptor con el mismo set que el emisor (puntualidad y comunicación)", async () => {
+    const ratingRepository = createFakeRatingRepository({
+      create: vi.fn().mockImplementation((input) => Promise.resolve(fakeRating(input))),
+    });
+    const service = createRatingsService(fakeShipmentRepository(), ratingRepository, createFakeNotificationsClient());
+
+    freezeTime(NOW);
+    await service.createRating({
+      shipmentId: SHIPMENT_ID,
+      raterId: CARRIER_ID,
+      rateeId: RECEIVER_ID,
+      score: 5,
+      punctualityScore: 4,
+      communicationScore: 5,
+    });
+
+    expect(ratingRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ role: RatingRole.receiver, punctualityScore: 4, communicationScore: 5 }),
+    );
+  });
+
+  it("sin categorías sigue funcionando (retrocompatible)", async () => {
+    const ratingRepository = createFakeRatingRepository({
+      create: vi.fn().mockImplementation((input) => Promise.resolve(fakeRating(input))),
+    });
+    const service = createRatingsService(fakeShipmentRepository(), ratingRepository, createFakeNotificationsClient());
+
+    freezeTime(NOW);
+    await service.createRating({ shipmentId: SHIPMENT_ID, raterId: SENDER_ID, rateeId: CARRIER_ID, score: 4 });
+
+    const created = (ratingRepository.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(created).not.toHaveProperty("punctualityScore");
+    expect(created).not.toHaveProperty("careScore");
+  });
+
+  it("422 si se manda una categoría de transportista (cuidado del paquete) a un emisor", async () => {
+    const ratingRepository = createFakeRatingRepository();
+    const service = createRatingsService(fakeShipmentRepository(), ratingRepository, createFakeNotificationsClient());
+
+    freezeTime(NOW);
+    await expect(
+      service.createRating({
+        shipmentId: SHIPMENT_ID,
+        raterId: CARRIER_ID,
+        rateeId: SENDER_ID,
+        score: 4,
+        careScore: 5,
+      }),
+    ).rejects.toMatchObject({ statusCode: 422, code: "VALIDATION_FAILED" });
+    expect(ratingRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("422 si se manda cuidado del paquete al calificar a un receptor", async () => {
+    const service = createRatingsService(fakeShipmentRepository(), createFakeRatingRepository(), createFakeNotificationsClient());
+
+    freezeTime(NOW);
+    await expect(
+      service.createRating({
+        shipmentId: SHIPMENT_ID,
+        raterId: CARRIER_ID,
+        rateeId: RECEIVER_ID,
+        score: 4,
+        careScore: 5,
+      }),
+    ).rejects.toMatchObject({ statusCode: 422, code: "VALIDATION_FAILED" });
+  });
+
+  it("edición: pasa las categorías al repositorio (reemplazo completo)", async () => {
+    const existing = fakeRating({ shipmentId: SHIPMENT_ID, raterId: SENDER_ID, rateeId: CARRIER_ID, role: RatingRole.carrier });
+    const ratingRepository = createFakeRatingRepository({
+      findByPair: vi.fn().mockResolvedValue(existing),
+      update: vi.fn().mockResolvedValue(existing),
+    });
+    const service = createRatingsService(fakeShipmentRepository(), ratingRepository);
+
+    freezeTime(NOW);
+    await service.updateRating({
+      shipmentId: SHIPMENT_ID,
+      raterId: SENDER_ID,
+      rateeId: CARRIER_ID,
+      score: 4,
+      careScore: 5,
+    });
+
+    expect(ratingRepository.update).toHaveBeenCalledWith(SHIPMENT_ID, SENDER_ID, CARRIER_ID, 4, undefined, { careScore: 5 });
+  });
+
+  it("edición: valida contra el rol guardado en la calificación, no contra uno que mande el cliente", async () => {
+    const existing = fakeRating({ shipmentId: SHIPMENT_ID, raterId: CARRIER_ID, rateeId: SENDER_ID, role: RatingRole.sender });
+    const ratingRepository = createFakeRatingRepository({ findByPair: vi.fn().mockResolvedValue(existing) });
+    const service = createRatingsService(fakeShipmentRepository(), ratingRepository);
+
+    freezeTime(NOW);
+    await expect(
+      service.updateRating({
+        shipmentId: SHIPMENT_ID,
+        raterId: CARRIER_ID,
+        rateeId: SENDER_ID,
+        score: 4,
+        careScore: 3,
+      }),
+    ).rejects.toMatchObject({ statusCode: 422, code: "VALIDATION_FAILED" });
+    expect(ratingRepository.update).not.toHaveBeenCalled();
+  });
+
+  it("agregado: `categories` de asCarrier/asSender salen solo de las calificaciones de ese rol", async () => {
+    const now = new Date();
+    const ratingRepository = createFakeRatingRepository({
+      listForReputation: vi.fn().mockResolvedValue([
+        { score: 4, createdAt: now, role: RatingRole.carrier, punctualityScore: 5, careScore: 4, communicationScore: 3 },
+        { score: 4, createdAt: now, role: RatingRole.sender, punctualityScore: 4, careScore: null, communicationScore: 2 },
+      ]),
+      getGlobalAverageScore: vi.fn().mockResolvedValue(3),
+    });
+    const service = createRatingsService(fakeShipmentRepository(), ratingRepository, undefined, undefined, REPUTATION_CONFIG);
+
+    const summary = await service.getReputationSummary(RECEIVER_ID);
+
+    expect(summary.asCarrier.categories?.map((c) => c.key)).toEqual(["punctuality", "care", "communication"]);
+    expect(summary.asSender.categories?.map((c) => c.key)).toEqual(["punctuality", "communication"]);
+    // `communication` existe en los dos sets pero cada rol promedia solo las suyas: 3 (carrier) vs 2 (sender).
+    const carrierComm = summary.asCarrier.categories?.find((c) => c.key === "communication")?.score as number;
+    const senderComm = summary.asSender.categories?.find((c) => c.key === "communication")?.score as number;
+    expect(carrierComm).toBeGreaterThan(senderComm);
+    // El global mezclaría categorías de roles distintos: nunca las lleva.
+    expect(summary).not.toHaveProperty("categories");
+  });
+
+  it("agregado: ratings viejos sin categorías no generan `categories` (ausente, no vacío)", async () => {
+    const ratingRepository = createFakeRatingRepository({
+      listForReputation: vi.fn().mockResolvedValue([
+        { score: 5, createdAt: new Date(), role: RatingRole.carrier, punctualityScore: null, careScore: null, communicationScore: null },
+      ]),
+      getGlobalAverageScore: vi.fn().mockResolvedValue(3),
+    });
+    const service = createRatingsService(fakeShipmentRepository(), ratingRepository, undefined, undefined, REPUTATION_CONFIG);
+
+    const summary = await service.getReputationSummary(CARRIER_ID);
+
+    expect(summary.asCarrier).not.toHaveProperty("categories");
+    expect(summary.asSender).not.toHaveProperty("categories");
   });
 });

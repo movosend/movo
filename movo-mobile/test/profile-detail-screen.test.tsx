@@ -30,9 +30,14 @@ jest.mock("../src/hooks/use-shipments", () => ({
   useSharedHistory: (...args: unknown[]) => mockUseSharedHistory(...args),
 }));
 
+const mockUsePendingReport = jest.fn((..._args: unknown[]) => ({ data: null }));
+
 jest.mock("../src/hooks/use-moderation", () => ({
   useReportUser: () => ({ mutateAsync: jest.fn(), isPending: false }),
+  usePendingReport: (...args: unknown[]) => mockUsePendingReport(...args),
+  useAddReportEntry: () => ({ mutateAsync: jest.fn(), isPending: false }),
   useBlockUser: () => ({ mutate: jest.fn(), isPending: false }),
+  useUnblockUser: () => ({ mutate: jest.fn(), isPending: false }),
 }));
 
 jest.mock("../src/store/auth-store", () => ({
@@ -74,12 +79,42 @@ describe("PublicProfileScreen", () => {
     mockUseMutualConnections.mockReturnValue({ data: undefined });
   });
 
+  it("muestra las conexiones mutuas en el hero (MOVO-174)", async () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: baseProfile(),
+      isLoading: false,
+      isError: false,
+    });
+    mockUseMutualConnections.mockReturnValue({ data: { totalCount: 5, sampleFirstNames: [] } });
+
+    const { getByTestId, getByText } = await render(<PublicProfileScreen />);
+
+    expect(getByTestId("profile-detail-mutual-connections")).toBeTruthy();
+    expect(getByText(/Ya hizo envíos con 5 personas que vos también conocés/)).toBeTruthy();
+  });
+
+  it("no muestra la fila de conexiones mutuas si no hay ninguna", async () => {
+    mockUsePublicProfile.mockReturnValue({ data: baseProfile(), isLoading: false, isError: false });
+    mockUseMutualConnections.mockReturnValue({ data: { totalCount: 0, sampleFirstNames: [] } });
+
+    const { queryByTestId } = await render(<PublicProfileScreen />);
+
+    expect(queryByTestId("profile-detail-mutual-connections")).toBeNull();
+  });
+
   it("muestra el skeleton mientras carga", async () => {
     mockUsePublicProfile.mockReturnValue({ data: undefined, isLoading: true, isError: false });
 
     const { getByTestId } = await render(<PublicProfileScreen />);
 
     expect(getByTestId("profile-detail-skeleton")).toBeTruthy();
+  });
+
+  it("pide el reporte propio en revisión en paralelo con el perfil, sin esperar a que cargue", async () => {
+    mockUsePublicProfile.mockReturnValue({ data: undefined, isLoading: true, isError: false });
+    await render(<PublicProfileScreen />);
+
+    expect(mockUsePendingReport).toHaveBeenCalledWith("user-2", { enabled: true });
   });
 
   it("muestra un error si el perfil no pudo cargarse", async () => {

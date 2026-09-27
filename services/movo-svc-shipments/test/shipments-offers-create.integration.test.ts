@@ -334,7 +334,11 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
       .mockRejectedValue(new Error("usersClient caído"));
 
     const failingApp = buildApp({
-      usersClient: { findPublicProfile, findDeviceKey: vi.fn().mockResolvedValue(null) },
+      usersClient: {
+        findPublicProfile,
+        findDeviceKey: vi.fn().mockResolvedValue(null),
+        listBlockRelatedUserIds: vi.fn().mockResolvedValue([]),
+      },
       sweepEnabled: false,
     });
     await failingApp.ready();
