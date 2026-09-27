@@ -72,20 +72,20 @@ describe("ShipmentRatingsCard", () => {
     // Emisor solo califica al transportista
     const fromSender = resolveCounterparties(baseShipment, "sender-1");
     expect(fromSender).toEqual([
-      { userId: "carrier-1", roleLabel: "Transportista" },
+      { userId: "carrier-1", roleLabel: "Transportista", rateeRole: "carrier" },
     ]);
 
     // Receptor solo califica al transportista
     const fromReceiver = resolveCounterparties(baseShipment, "receiver-1");
     expect(fromReceiver).toEqual([
-      { userId: "carrier-1", roleLabel: "Transportista" },
+      { userId: "carrier-1", roleLabel: "Transportista", rateeRole: "carrier" },
     ]);
 
     // Transportista califica a ambos (emisor y receptor)
     const fromCarrier = resolveCounterparties(baseShipment, "carrier-1");
     expect(fromCarrier).toEqual([
-      { userId: "sender-1", roleLabel: "Emisor" },
-      { userId: "receiver-1", roleLabel: "Receptor" },
+      { userId: "sender-1", roleLabel: "Emisor", rateeRole: "sender" },
+      { userId: "receiver-1", roleLabel: "Receptor", rateeRole: "receiver" },
     ]);
   });
 

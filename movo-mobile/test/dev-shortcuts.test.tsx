@@ -18,6 +18,13 @@ jest.mock("expo-haptics", () => ({
   NotificationFeedbackType: { Success: "success", Warning: "warning", Error: "error" },
 }));
 
+// `RatingSheet` (sección de MOVO-173) usa mutaciones de TanStack Query; esta pantalla se
+// renderiza acá sin `QueryClientProvider`.
+jest.mock("../src/hooks/use-ratings", () => ({
+  useCreateRating: () => ({ mutateAsync: jest.fn(), isPending: false }),
+  useUpdateRating: () => ({ mutateAsync: jest.fn(), isPending: false }),
+}));
+
 jest.mock("../src/hooks/use-theme-colors", () => ({
   useThemeColors: () => ({
     fg: "#FFFFFF",
@@ -47,7 +54,38 @@ describe("DevShortcutsScreen", () => {
     expect(getByText("Emisión de ubicación (MOVO-203)")).toBeTruthy();
     expect(getByText("Ruta Optimizada (Demo)")).toBeTruthy();
     expect(getByText("Identidad y KYC")).toBeTruthy();
+    expect(getByText("Calificación por categorías (MOVO-173)")).toBeTruthy();
     expect(getByTestId("dev-toggle-tracking-btn")).toBeTruthy();
+  });
+
+  it("abre el sheet de calificación con las categorías del rol elegido", async () => {
+    const { getByTestId, getByText, queryByText, queryByTestId } = await render(<DevShortcutsScreen />);
+
+    // Cerrado por defecto.
+    expect(queryByText("Detalle de la experiencia (opcional)")).toBeNull();
+
+    await fireEvent.press(getByTestId("dev-rating-carrier-btn"));
+    expect(getByTestId("dev-rating-sheet-category-punctuality")).toBeTruthy();
+
+    await fireEvent.press(getByTestId("dev-rating-sheet-close"));
+    await fireEvent.press(getByTestId("dev-rating-sender-btn"));
+    expect(getByTestId("dev-rating-sheet-category-punctuality")).toBeTruthy();
+    expect(queryByTestId("dev-rating-sheet-category-care")).toBeNull();
+    expect(getByText("Detalle de la experiencia (opcional)")).toBeTruthy();
+  });
+
+  it("el receptor comparte las categorías del emisor y la vista previa del perfil trae las barras", async () => {
+    const { getByTestId, queryByTestId, queryByText, getByText } = await render(<DevShortcutsScreen />);
+
+    // Vista previa del perfil: barras del rol activo (transportista por defecto).
+    expect(getByText("Cuidado del paquete")).toBeTruthy();
+    await fireEvent.press(getByTestId("dev-rating-reputation-preview-role-sender"));
+    // El emisor no tiene "Cuidado del paquete".
+    expect(queryByText("Cuidado del paquete")).toBeNull();
+
+    await fireEvent.press(getByTestId("dev-rating-receiver-btn"));
+    expect(getByTestId("dev-rating-sheet-category-punctuality")).toBeTruthy();
+    expect(queryByTestId("dev-rating-sheet-category-care")).toBeNull();
   });
 
   it("inicia y detiene el tracking simulado", async () => {

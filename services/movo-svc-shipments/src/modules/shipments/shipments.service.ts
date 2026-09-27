@@ -55,6 +55,7 @@ import {
   assertShipmentAccess,
 } from "./assert-shipment-access";
 import { assertTripAccess } from "../trips/trip-access";
+import { assertNotBlocked, safeBlockRelatedUserIds } from "../../utils/block-relations";
 
 type ShipmentsServiceLogger =
   | FastifyBaseLogger
@@ -587,6 +588,7 @@ async function dispatchTripMatchPushes(
   tripRepository: TripRepository | undefined,
   pricingLogisticsClient: PricingLogisticsClient | undefined,
   notificationsClient: NotificationsClient | undefined,
+  usersClient: UsersClient,
   logger: ShipmentsServiceLogger | undefined,
   radiusKm: number,
   shipment: Shipment
@@ -596,12 +598,18 @@ async function dispatchTripMatchPushes(
   }
 
   try {
+    // MOVO-175 (ADR-026): no avisar a transportistas con un bloqueo con el emisor o
+    // el receptor -- no podrían ofertar igual. Falla abierto, como el resto del push.
+    const [senderBlocks, receiverBlocks] = await Promise.all([
+      safeBlockRelatedUserIds(usersClient, shipment.senderId, logger),
+      safeBlockRelatedUserIds(usersClient, shipment.receiverId, logger),
+    ]);
     const geometricCandidates = await tripRepository.findActiveTripsMatchingShipment({
       pickupLat: shipment.pickupLat,
       pickupLng: shipment.pickupLng,
       deliveryLat: shipment.deliveryLat,
       deliveryLng: shipment.deliveryLng,
-      excludeCarrierIds: [shipment.senderId, shipment.receiverId],
+      excludeCarrierIds: [...new Set([shipment.senderId, shipment.receiverId, ...senderBlocks, ...receiverBlocks])],
       radiusKm,
     });
 
@@ -802,6 +810,8 @@ export function createShipmentsService(
           "El receptor todavía no tiene su identidad verificada."
         );
       }
+      // MOVO-175 (ADR-026): no se puede designar como receptor a alguien con un bloqueo.
+      await assertNotBlocked(usersClient, input.senderId, [input.receiverId]);
 
       // MOVO-82: `quoteShipment` nunca lanza -- degrada a "precio a estimar" (todo
       // `null`) ante cualquier falla de movo-svc-pricing-logistics (AC6), sin cliente
@@ -1023,7 +1033,19 @@ export function createShipmentsService(
         ? offers
         : offers.filter((offer) => offer.status === OfferStatus.PENDING && shipmentAcceptsOffers);
 
-      return sortOffers(filtered, query.sort ?? "price");
+      // MOVO-175 (ADR-026): el emisor no ve ofertas pendientes de alguien con quien hay
+      // un bloqueo (aceptarlas respondería 403 igual). Las resueltas sí se ven: una
+      // oferta ya aceptada es un envío en curso, que el bloqueo no cancela. Un admin
+      // ve todo. Falla abierto, como el feed.
+      if (callerId !== shipment.senderId) {
+        return sortOffers(filtered, query.sort ?? "price");
+      }
+      const blockedIds = new Set(await safeBlockRelatedUserIds(usersClient, callerId, logger));
+      const visible = filtered.filter(
+        (offer) => offer.status !== OfferStatus.PENDING || !blockedIds.has(offer.carrierId),
+      );
+
+      return sortOffers(visible, query.sort ?? "price");
     },
 
     /**
@@ -1057,6 +1079,8 @@ export function createShipmentsService(
       }
 
       assertIsNotShipmentParty(shipment, input.carrierId);
+      // MOVO-175 (ADR-026): falla cerrado -- sin confirmar que no hay bloqueo, no se oferta.
+      await assertNotBlocked(usersClient, input.carrierId, [shipment.senderId, shipment.receiverId]);
 
       if (input.priceNetArs <= 0) {
         throw new ApiError(422, "VALIDATION_FAILED", "El precio ofertado tiene que ser mayor a 0.");
@@ -1306,6 +1330,7 @@ export function createShipmentsService(
           tripRepository,
           pricingLogisticsClient,
           notificationsClient,
+          usersClient,
           logger,
           tripMatchDetourRadiusKm,
           updated
@@ -1383,6 +1408,8 @@ export function createShipmentsService(
         );
       }
       await assertVerifiedCarrier(usersClient, callerId, callerRoles);
+      // MOVO-175 (ADR-026): falla abierto -- un svc-users caído no tira el feed.
+      const blockedIds = await safeBlockRelatedUserIds(usersClient, callerId, logger);
 
       const { items, total } = await repository.listAvailable({
         originLat: query.originLat,
@@ -1392,6 +1419,7 @@ export function createShipmentsService(
         radiusKm: query.radiusKm,
         maxDistanceKm: query.maxDistanceKm,
         excludeUserId: callerId,
+        excludePartyIds: blockedIds,
         page: query.page,
         limit: query.limit,
       });

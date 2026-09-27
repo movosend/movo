@@ -1,3 +1,5 @@
+import type { RatingCategoryDefinition, RatingCategoryScoreField, ReputationCategoryScore } from "@movo/shared";
+
 /**
  * MOVO-147: cálculo del score de reputación ponderado. Función pura sobre una lista
  * de `{ score, createdAt }` -- sin acceso a base, testeable al detalle (AC1), mismo
@@ -61,6 +63,25 @@ export const MIN_RATINGS_FOR_ESTABLISHED_PROFILE = 3;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+/**
+ * Peso de una calificación: `0.5 ^ (antigüedad_en_días / semivida)`. `Math.max(0, ...)`:
+ * un reloj de servidor levemente desincronizado no debe producir un peso > 1
+ * (calificación "del futuro"). Compartido por el score general y el de cada categoría
+ * (MOVO-173) para que ambos ponderen exactamente igual.
+ */
+function decayWeight(createdAt: Date, now: Date, decayHalfLifeDays: number): number {
+  const ageDays = Math.max(0, (now.getTime() - createdAt.getTime()) / MS_PER_DAY);
+  return Math.pow(0.5, ageDays / decayHalfLifeDays);
+}
+
+/** `(C·m + Σpeso·score) / (C + Σpeso)` redondeado a un decimal -- el shrinkage descripto arriba. */
+function shrunkAverage(weightedScoreSum: number, weightedCount: number, params: ReputationParams): number {
+  const shrunk =
+    (params.confidenceConstant * params.globalAverageScore + weightedScoreSum) /
+    (params.confidenceConstant + weightedCount);
+  return Math.round(shrunk * 10) / 10;
+}
+
 export function computeReputationScore(
   ratings: readonly RatingForReputation[],
   params: ReputationParams,
@@ -77,21 +98,62 @@ export function computeReputationScore(
   let weightedCount = 0;
 
   for (const rating of ratings) {
-    // `Math.max(0, ...)`: un reloj de servidor levemente desincronizado no debe
-    // producir un peso > 1 (calificación "del futuro").
-    const ageDays = Math.max(0, (now.getTime() - rating.createdAt.getTime()) / MS_PER_DAY);
-    const weight = Math.pow(0.5, ageDays / params.decayHalfLifeDays);
+    const weight = decayWeight(rating.createdAt, now, params.decayHalfLifeDays);
     weightedScoreSum += weight * rating.score;
     weightedCount += weight;
   }
 
-  const shrunkScore =
-    (params.confidenceConstant * params.globalAverageScore + weightedScoreSum) /
-    (params.confidenceConstant + weightedCount);
-
   return {
-    reputationScore: Math.round(shrunkScore * 10) / 10,
+    reputationScore: shrunkAverage(weightedScoreSum, weightedCount, params),
     ratingCount,
     isNewProfile,
   };
+}
+
+/** Una calificación con sus sub-scores (MOVO-173), `null` = categoría no cargada. */
+export type RatingForCategoryReputation = RatingForReputation & Partial<Record<RatingCategoryScoreField, number | null>>;
+
+/**
+ * MOVO-173: promedio por categoría, con el MISMO criterio que `computeReputationScore`
+ * (decaimiento temporal + shrinkage). Cada categoría promedia solo las calificaciones que
+ * la cargaron (es opcional al calificar), así que una calificación sin `careScore` no
+ * arrastra el promedio de "Cuidado" hacia ningún lado.
+ *
+ * El shrinkage se hace hacia la MISMA media global `m` del score general en vez de una
+ * media propia por categoría: evita una query de `AVG` por cada sub-score y mantiene las
+ * barras comparables con el número grande de arriba.
+ *
+ * `undefined` (no `[]`) si ninguna categoría del set tiene datos -- el consumidor oculta
+ * la fila entera en ese caso en vez de mostrar barras vacías. El orden es el de
+ * `definitions`, no el de llegada de las calificaciones.
+ */
+export function computeCategoryScores(
+  ratings: readonly RatingForCategoryReputation[],
+  definitions: readonly RatingCategoryDefinition[],
+  params: ReputationParams,
+): ReputationCategoryScore[] | undefined {
+  const now = params.now ?? new Date();
+  // El peso de decaimiento depende solo de `createdAt`, no de la categoría -- se calcula
+  // una vez por calificación en vez de una vez por (categoría × calificación).
+  const weights = ratings.map((rating) => decayWeight(rating.createdAt, now, params.decayHalfLifeDays));
+  const result: ReputationCategoryScore[] = [];
+
+  for (const { key, label, scoreField } of definitions) {
+    let weightedScoreSum = 0;
+    let weightedCount = 0;
+    for (let i = 0; i < ratings.length; i++) {
+      const value = ratings[i][scoreField];
+      if (typeof value !== "number") {
+        continue;
+      }
+      const weight = weights[i];
+      weightedScoreSum += weight * value;
+      weightedCount += weight;
+    }
+    if (weightedCount > 0) {
+      result.push({ key, label, score: shrunkAverage(weightedScoreSum, weightedCount, params) });
+    }
+  }
+
+  return result.length > 0 ? result : undefined;
 }

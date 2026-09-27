@@ -445,9 +445,9 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
       },
     },
     async (request: FastifyRequest) => {
-      requireUserIdFromHeader(request);
+      const callerId = requireUserIdFromHeader(request);
       const { id } = request.params as { id: string };
-      return service.getPublicProfile(id);
+      return service.getPublicProfile(id, callerId);
     },
   );
 

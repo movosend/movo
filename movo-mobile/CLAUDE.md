@@ -3742,9 +3742,113 @@ transporte activo (fase 1: foreground + offline FIFO):
 - **`app.config.js`**: Justificaciones de uso de ubicación en primer plano redactadas
   específicamente para la experiencia de entrega en tiempo real.
 
-Tests:
-- `test/location-service.test.ts` (10 tests)
-- `test/use-carrier-tracking.test.tsx` (5 tests)
-- `test/tracking-components.test.tsx` (8 tests)
-Total: 23 tests en verde. Typecheck `npx tsc --noEmit` limpio sin errores.
+### MOVO-242 — [movo-mobile] Emisión de ubicación del transportista en background: permisos en dos etapas, cadencia reducida y cola en archivo
 
+Implementación del tracking en segundo plano (`expo-task-manager` + `expo-location`),
+permisos en dos etapas, migración de cola offline a archivos (`expo-file-system`),
+reporte unificado en lote (`POST /shipments/positions`), ciclo de vida por viaje
+y descarte de envíos rechazados con `SHIPMENT_NOT_TRACKABLE`:
+
+- **Configuración nativa y Stores (`app.config.js`)**:
+  - `NSLocationAlwaysAndWhenInUseUsageDescription` y `NSLocationAlwaysUsageDescription` con textos reales y específicos de auditoría de App Store.
+  - `UIBackgroundModes: ["location"]` en iOS.
+  - Permiso `ACCESS_BACKGROUND_LOCATION` y plugin `expo-location` con `isAndroidBackgroundLocationEnabled: true` y notificación foreground en Android.
+- **Almacenamiento de cola offline en archivo y mutex (`src/location/offline-queue-storage.ts`)**:
+  - Migración desde `expo-secure-store` (límite ~2 KB) hacia almacenamiento de archivo en `expo-file-system.documentDirectory/movo_carrier_queue.json` (hasta 100 posiciones, ~15 KB).
+  - Mutex asíncrono para serializar operaciones de I/O (`withLock`) y remoción atómica (`removeSentPositions`) releeyendo la cola para no pisar posiciones encoladas concurrentemente durante el envío de red.
+  - Persistencia de contexto de tracking (`movo_carrier_tracking_context.json`) para restaurar `tripId` y `shipmentIds` ante un reinicio del proceso en modo headless por el SO.
+- **Cliente API batch y Trips (`src/api/`)**:
+  - `shipmentsClient.reportPositionsBatch(positions: BatchPositionItemInput[])` contra `POST /shipments/positions`.
+  - `tripsClient.list(params?: ListTripsParams)` soporta `status` para consultar `status=active` evitando perder el viaje activo por paginación histórica.
+- **Background Task Headless (`src/location/tracking-task.ts`)**:
+  - Tarea registrada con `TaskManager.defineTask(MOVO_CARRIER_BACKGROUND_TRACKING_TASK)` montada en `app/_layout.tsx`.
+  - Cadencia reducida de background: 45s (`timeInterval: 45_000`, `distanceInterval: 30`, `accuracy: Balanced`).
+  - Vaciado unificado en lote sin carrera de datos; ante HTTP 429 aplica backoff exponencial sin descartar posiciones.
+  - Manejo de respuestas por ítem: ante `SHIPMENT_NOT_TRACKABLE` (código backend de MOVO-251), desvincula el envío individual del tracking sin apagar el viaje y actualiza el contexto persistido.
+  - Restauración automática del contexto de tracking en disco ante ejecución headless.
+- **Ciclo de vida por Viaje y Envíos Trackeables (`location-service.ts` y `use-carrier-tracking.ts`)**:
+  - El tracking arranca cuando `Trip.status === "active"` (MOVO-252) y contiene envíos elegibles en `assigned` o `in_transit` (confirmado contra `TRACKABLE_SHIPMENT_STATUSES` de MOVO-251, excluyendo `assigned_unfunded`).
+  - Se detiene inmediatamente cuando `Trip.status === "completed"` o `"cancelled"`, o en `logout`, o cuando no quedan paquetes por entregar.
+  - Detección explícita de transición de viaje activo a finalizado (`prevActiveTripIdRef`) para apagar la tarea de fondo y timers.
+- **Permisos en dos etapas y UI (`components/location/`)**:
+  - `TrackingPermissionModal`: soporte para `stage="foreground"` (etapa 1) y `stage="background"` (etapa 2 con explicación de pantalla apagada / navegación alternativa).
+  - `TrackingActiveIndicator`: soporta estado degradado `"Transmitiendo solo con app abierta"` cuando el permiso de background fue denegado, permitiendo continuar operando en foreground sin bloquear al transportista (AC3).
+
+Tests:
+- `test/offline-queue-storage.test.ts` (7 tests, incluye mutex atómico y persistencia de contexto)
+- `test/tracking-task.test.ts` (7 tests, incluye headless recovery y no pisar cola)
+- `test/location-service.test.ts` (8 tests)
+- `test/use-carrier-tracking.test.tsx` (9 tests, incluye detección de viaje completado y filtrado active)
+- `test/tracking-components.test.tsx` (11 tests, incluye stage background y estado degradado)
+Total MOVO-242: 42 tests pasando. Suite completa movo-mobile: 166 suites, 1363 tests en verde.
+
+### MOVO-173 — Estrellas de categoría en `RatingSheet` (`movo-mobile`)
+
+Lado de captura de la calificación por categorías (backend en
+`services/movo-svc-shipments/CLAUDE.md`). `reputation-card.tsx` no necesitó cambios: ya
+dibujaba `breakdown.categories` si existía.
+
+- **`RatingTarget` gana `rateeRole: RatingRole`** (requerido): `resolveCounterparties`
+  ya sabía estructuralmente el rol de cada contraparte, y `delivery/success.tsx` pasa
+  `"receiver"`. Sin el rol no hay forma de saber qué categorías mostrar.
+- **Las categorías salen de `@movo/shared/dist/config/rating-categories`**, nunca
+  hardcodeadas en el componente: transportista → puntualidad/cuidado del paquete/
+  comunicación; emisor y receptor → el mismo set, puntualidad/comunicación (decisión de
+  producto tras probarlo: la primera versión daba "paquete listo"/"dirección clara" al
+  emisor y nada al receptor). Reusa `StarRatingInput` (`size={20}`), `testID`
+  `${testID}-category-${key}`.
+- **La estrella general autocompleta las categorías** con el mismo valor (pedido de
+  diseño tras probarlo), pero solo las que el usuario todavía no eligió a mano: una
+  categoría tocada, o precargada al editar, nunca se pisa al cambiar el puntaje general
+  (`touchedCategories`, un `ref`). Lo autocompletado se envía tal cual se ve. En edición
+  el sheet reenvía el estado completo, porque el backend reemplaza en vez de mergear (una
+  categoría ya cargada no se puede "des-calificar", solo cambiar).
+- **Confirmación al enviar** (`components/shipments/rating-success-moment.tsx`): al
+  terminar bien, el sheet vibra (`Haptics.notificationAsync(Success)`, mismo criterio que
+  `ChooseOfferSuccessModal`) y reemplaza el formulario por un tilde dibujado con
+  `strokeDashoffset` (mismo patrón que `handshake-confirmation-result.tsx`) durante
+  `SUCCESS_HOLD_MS` (1100ms); recién ahí llama a `onSuccess`/`onClose`, así el banner del
+  detalle aparece después del tilde y no encima. Mientras se ve no se puede cerrar el sheet,
+  y `submitted` se resetea cuando termina de cerrarse (no al abrir, para no dejar un frame
+  con el tilde viejo). Un envío que falla no vibra ni muestra el tilde.
+- **`RatingTarget.photoUrl`** (opcional): el header del sheet muestra el `AvatarImage` de
+  la persona calificada (iniciales si no tiene foto). Lo completan
+  `shipment-ratings-card.tsx` y `delivery/success.tsx`, que ya tenían su perfil cargado.
+- `ratings-client.ts`: `Rating`/`CreateRatingInput`/`UpdateRatingInput` ganan los 5
+  campos opcionales.
+- **Atajo de dev** (`components/dev/DevRatingSection.tsx`, montado en
+  `DevShortcutsScreen`): abre el `RatingSheet` para cada rol del calificado y muestra las
+  barras de `ReputationCard` con datos ficticios, sin armar un envío entregado. El envío
+  del sheet es ficticio, así que enviar la calificación falla contra el backend real.
+
+Pendiente / fuera de alcance: no probado en dispositivo.
+
+
+### MOVO-175 — Reportar y bloquear usuarios, cierre del lado mobile (ADR-026)
+
+Completa lo que MOVO-176 había dejado armado contra endpoints inexistentes. El menú de
+`profile-actions-menu.tsx` alterna "Bloquear"/"Desbloquear" según `isBlockedByMe`, avisa el
+resultado con `SuccessBanner` en `profile/[id].tsx` (antes no había feedback), y reportar
+navega a su propia pantalla (ver abajo). Errores vía `friendlyErrorMessage`, con override del
+`RATE_LIMIT_EXCEEDED` para el tope diario de reportes; se sacó el copy temporal del 404.
+
+- **Pantalla nueva `profile/blocked-users.tsx`** desde "Cuenta y seguridad" (sección
+  "Privacidad"): lista, desbloqueo confirmado con `Alert.alert`, estado vacío. Arriba,
+  `BlockImplicationsCard` explica qué implica un bloqueo (cada fila es una regla que el
+  backend aplica de verdad) — toda la pantalla es un solo scroll para que la card se vea
+  también con la lista vacía, cargando o con error.
+- **Pantalla `profile/[id]/report.tsx` (review de PR #193)**: un solo lugar para "mi reporte
+  sobre esta persona". Sin reporte en revisión muestra `ReportForm`; con uno, `PendingReportView`
+  (motivo, detalle y entradas ya enviadas, más un campo para sumar información vía
+  `useAddReportEntry`, nunca edita lo enviado). Al crear, la misma pantalla pasa a mostrar el
+  reporte con un agradecimiento y "Bloquear a {nombre}". Un 409 `REPORT_ALREADY_PENDING` (caso
+  raro: reporte hecho desde otro dispositivo, o un reintento cuyo primer envío sí llegó) muestra
+  el reporte existente con un aviso, sin trasladar lo escrito a ningún campo. Empezó como sheet del
+  menú y se movió a pantalla porque el historial de entradas crece sin límite y el teclado
+  dentro de un sheet con scroll anidado era frágil.
+- **`usePendingReport` (`GET /users/:id/report`) lo lanza `profile/[id].tsx` en paralelo con
+  el perfil**: el menú lo lee del caché (`staleTime` de 30s, sin segunda request) para
+  ofrecer "Reportar a {nombre}" o "Ver tu reporte", ambas navegando a la pantalla de arriba.
+- **Bloquear/desbloquear invalida más que el perfil** (`invalidateBlockDependentQueries`):
+  el feed disponible, los matches de viaje y las ofertas de cualquier envío
+  (`["shipments", id, "offers", ...]`, por predicado porque el id va en el medio de la key).

@@ -190,6 +190,47 @@ describe("Reputación real en el perfil (MOVO-152)", () => {
       expect(body.recentRatingComments[0].raterName).toBe("Usuario de Movo");
     });
 
+    it("MOVO-173: `categories` de cada rol calculadas en svc-shipments llegan al cliente", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput({ firstName: "Juan", lastName: "Perez" }));
+      const carrierCategories = [
+        { key: "punctuality", label: "Puntualidad", score: 4.4 },
+        { key: "care", label: "Cuidado del paquete", score: 2.9 },
+      ];
+      const senderCategories = [{ key: "punctuality", label: "Puntualidad", score: 4.1 }];
+      fake.setReputation(
+        target.id,
+        buildSummary({
+          asCarrier: { reputationScore: 4.8, ratingCount: 7, isNewProfile: false, categories: carrierCategories },
+          asSender: { reputationScore: 4.5, ratingCount: 5, isNewProfile: false, categories: senderCategories },
+        }),
+      );
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/users/${target.id}`,
+        headers: { "x-user-id": caller.id },
+      });
+
+      const body = JSON.parse(response.body);
+      expect(body.asCarrier.categories).toEqual(carrierCategories);
+      expect(body.asSender.categories).toEqual(senderCategories);
+    });
+
+    it("MOVO-173: sin categorías cargadas el desglose no trae `categories`", async () => {
+      const caller = await repo.create(buildInput());
+      const target = await repo.create(buildInput({ firstName: "Juan", lastName: "Perez" }));
+      fake.setReputation(target.id, buildSummary());
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/users/${target.id}`,
+        headers: { "x-user-id": caller.id },
+      });
+
+      expect(JSON.parse(response.body).asCarrier).not.toHaveProperty("categories");
+    });
+
     it("MOVO-170: resuelve raterName contra la tabla local cuando el rater es un usuario real", async () => {
       const caller = await repo.create(buildInput());
       const target = await repo.create(buildInput({ firstName: "Juan", lastName: "Perez" }));

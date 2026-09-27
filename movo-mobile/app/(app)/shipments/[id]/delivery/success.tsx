@@ -73,7 +73,9 @@ export default function DeliverySuccessScreen() {
     ? {
         userId: receiverUserId,
         fullName: receiverProfile?.fullName ?? "Receptor",
+        photoUrl: receiverProfile?.photoUrl ?? null,
         roleLabel: "Receptor",
+        rateeRole: "receiver",
         existingRating,
       }
     : null;
