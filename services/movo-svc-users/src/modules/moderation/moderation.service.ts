@@ -37,7 +37,17 @@ export const PENDING_REPORT_PHOTOS_REDIS_KEY = "photos:pending:reports";
 export function reportPhotoLockKey(s3Key: string): string {
   return `locks:orphan-photo-sweep:key:reports:${s3Key}`;
 }
-export const REPORT_PHOTO_LOCK_TTL_MS = 5_000;
+// Cubre hasta 4 `headObject` + la consulta de asociadas + el INSERT con margen real
+// (fix de review, PR #198): 5s era ajustado y, sumado a que `release()` hacía `DEL`
+// sin fijarse quién tenía el lock, una carrera con el sweep de huérfanas podía borrar
+// el objeto de S3 justo antes del INSERT o soltar un lock que ya era del sweep.
+export const REPORT_PHOTO_LOCK_TTL_MS = 20_000;
+
+/** Compare-and-delete atómico: solo borra la key si el valor sigue siendo el token
+ * que este caller puso -- si ya expiró y otro (el sweep, u otra request) tomó el
+ * lock mientras tanto, no lo pisa. */
+const RELEASE_LOCK_IF_OWNER_SCRIPT =
+  "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end";
 
 /** MOVO-256: JPEG y 2 MB, mismo criterio que la evidencia de envíos (MOVO-81): el
  * cliente comprime a JPEG antes de pedir la URL. Duplicado en `moderation.schema.ts`. */
@@ -157,14 +167,17 @@ export function createModerationService(
       throw new ApiError(403, "PHOTO_FORBIDDEN_KEY", "La imagen no pertenece al usuario autenticado.");
     }
 
-    const acquired: string[] = [];
+    const acquired: Array<{ lockKey: string; token: string }> = [];
     const release = async () => {
-      if (acquired.length > 0) await redis.unlink(...acquired);
+      await Promise.all(
+        acquired.map(({ lockKey, token }) => redis.eval(RELEASE_LOCK_IF_OWNER_SCRIPT, 1, lockKey, token)),
+      );
     };
     try {
       for (const key of keys) {
         const lockKey = reportPhotoLockKey(key);
-        const ok = await redis.set(lockKey, "1", "PX", REPORT_PHOTO_LOCK_TTL_MS, "NX");
+        const token = randomUUID();
+        const ok = await redis.set(lockKey, token, "PX", REPORT_PHOTO_LOCK_TTL_MS, "NX");
         if (ok !== "OK") {
           throw new ApiError(
             409,
@@ -172,7 +185,7 @@ export function createModerationService(
             "Hay una verificación en curso para una de las imágenes, reintentá en unos segundos.",
           );
         }
-        acquired.push(lockKey);
+        acquired.push({ lockKey, token });
       }
 
       const [heads, associated] = await Promise.all([

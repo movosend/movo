@@ -1129,7 +1129,25 @@ reporte y las entradas reciben `photoKeys` (hasta 4, `MAX_REPORT_PHOTOS_PER_SUBM
   `reports`, cada uno con su sorted set, su lock global y su fuente de verdad en Postgres.
 - Sin Terraform nuevo: el bucket ya es privado salvo `profile-photos/*` y el rol de la EC2 ya
   tiene Put/Delete/Get sobre todo el bucket. Sin env vars nuevas.
+- **`POST /users/:id/report/photos/presign` no tiene rate limit propio en el gateway, a
+  propósito**: el cupo diario real se controla al asociar la foto (`reportUser`/
+  `addReportEntry` consumen `RATE_LIMIT_EXCEEDED`, MOVO-175) y el sweep de huérfanas
+  borra las que se presignan y nunca se asocian — un presign de más no cuesta nada real
+  aparte de una fila efímera en Redis, así que no se agregó un override en
+  `gateway/src/config/routes-map.ts`.
 
 Pendiente / fuera de alcance: plazo de retención de las fotos tras la baja de cuenta (candidato
 a ADR, hoy se conservan como el resto del reporte); sumar las imágenes de reportes a la Política
 de Privacidad; revisión desde `movo-admin`.
+
+**Fixes de review (PR #198, Alena1812):**
+- **`REPORT_PHOTO_LOCK_TTL_MS` subido de 5s a 20s + `release()` con compare-and-delete
+  (Lua, token random por lock) en vez de `unlink()` a ciegas**
+  (`moderation.service.ts`): 5s era ajustado contra hasta 4 `headObject` + la consulta
+  de asociadas + el INSERT, y el `release()` viejo podía soltar un lock que ya era del
+  sweep de huérfanas si el propio venció antes de tiempo -- con eso, el sweep podía
+  borrar el objeto de S3 justo antes de que el INSERT terminara. El comentario de
+  `services/movo-svc-users/CLAUDE.md` que decía "el rol de la EC2 ya tiene Put/Delete/
+  Get sobre todo el bucket" también estaba desactualizado desde MOVO-114 -- ver la
+  entrada transversal de "Pendientes" del `CLAUDE.md` raíz (falta sumar `"reports"` a
+  `ec2_role_s3_prefixes` en `movo-infra` antes de un deploy real).
