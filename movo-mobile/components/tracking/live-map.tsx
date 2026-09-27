@@ -46,27 +46,10 @@ export function LiveMap({
   const isMapReady = useRef(false);
   const [isFollowingCarrier, setIsFollowingCarrier] = useState(false);
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
-  const lastKnownCarrierPositionRef = useRef<LatLng | null>(null);
 
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
   const colors = useThemeColors();
-
-  // Guardar siempre la última ubicación válida conocida del transportista
-  useEffect(() => {
-    if (
-      carrierPosition &&
-      typeof carrierPosition.lat === "number" &&
-      !isNaN(carrierPosition.lat) &&
-      typeof carrierPosition.lng === "number" &&
-      !isNaN(carrierPosition.lng)
-    ) {
-      lastKnownCarrierPositionRef.current = {
-        latitude: carrierPosition.lat,
-        longitude: carrierPosition.lng,
-      };
-    }
-  }, [carrierPosition?.lat, carrierPosition?.lng]);
 
   // Permite que los subviews nativos se rendericen y luego congela el ciclo de rastreo para alto rendimiento
   useEffect(() => {
@@ -87,16 +70,10 @@ export function LiveMap({
   );
 
   // Centrar cámara en el transportista con animación suave y offset
+  // (carrierPosition ya viene retenido por useLivePosition como single source of truth)
   const centerOnCarrier = useCallback(
     (duration = 600) => {
-      const target =
-        (carrierPosition && {
-          latitude: carrierPosition.lat,
-          longitude: carrierPosition.lng,
-        }) ??
-        lastKnownCarrierPositionRef.current;
-
-      if (!target || !mapRef.current) return;
+      if (!carrierPosition || !mapRef.current) return;
 
       const latDelta = 0.016;
       const lngDelta = 0.016;
@@ -104,8 +81,8 @@ export function LiveMap({
 
       mapRef.current.animateToRegion(
         {
-          latitude: target.latitude - offset,
-          longitude: target.longitude,
+          latitude: carrierPosition.lat - offset,
+          longitude: carrierPosition.lng,
           latitudeDelta: latDelta,
           longitudeDelta: lngDelta,
         },
@@ -121,15 +98,11 @@ export function LiveMap({
       if (!mapRef.current || !isMapReady.current) return;
 
       const coordinates: LatLng[] = [];
-      const carrier =
-        (carrierPosition && {
+      if (carrierPosition) {
+        coordinates.push({
           latitude: carrierPosition.lat,
           longitude: carrierPosition.lng,
-        }) ??
-        lastKnownCarrierPositionRef.current;
-
-      if (carrier) {
-        coordinates.push(carrier);
+        });
       }
       if (destinationLocation) {
         coordinates.push({
