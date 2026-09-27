@@ -460,14 +460,16 @@ export interface ShipmentRepository {
     otherId: string,
   ): Promise<{ sharedShipmentCount: number; lastSharedAt: Date | null; allDelivered: boolean }>;
   /**
-   * MOVO-174: cuántas personas distintas son contraparte ENTREGADA de `userId` y de `otherId`
-   * a la vez ("ya envió con N personas con las que vos también enviaste"). Devuelve solo el
-   * número, nunca los ids: nombrar a un tercero es una decisión de privacidad que se tomó en
-   * contra (ver `MutualConnections` en `@movo/shared`), así que ningún dato de terceros sale
-   * de este servicio. Cuentan solo envíos `delivered`/`completed` en cualquier rol, y la cuenta
-   * excluye a los dos usuarios (un envío directo entre ambos no es una conexión mutua).
+   * MOVO-174: ids de las personas distintas que son contraparte ENTREGADA de `userId` y de
+   * `otherId` a la vez ("ya envió con N personas con las que vos también enviaste"). Solo los
+   * consume `movo-svc-users` por la red interna, que los filtra por estado de cuenta (este
+   * servicio no sabe qué cuentas se dieron de baja) y devuelve al cliente únicamente el conteo:
+   * nombrar a un tercero es una decisión de privacidad que se tomó en contra (ver
+   * `MutualConnections` en `@movo/shared`). Cuentan solo envíos `delivered`/`completed` en
+   * cualquier rol, y el resultado excluye a los dos usuarios (un envío directo entre ambos no
+   * es una conexión mutua).
    */
-  countMutualCounterparties(userId: string, otherId: string): Promise<number>;
+  findMutualCounterpartyIds(userId: string, otherId: string): Promise<string[]>;
   /**
    * MOVO-192: envíos activos (`ACTIVE_SHIPMENT_STATUSES`) donde `userId` participa en
    * el rol de columna dado (`senderId`/`carrierId`/`receiverId` -- no los nombres de
@@ -994,18 +996,12 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       };
     },
 
-    async countMutualCounterparties(userId: string, otherId: string): Promise<number> {
+    async findMutualCounterpartyIds(userId: string, otherId: string): Promise<string[]> {
       const [mine, theirs] = await Promise.all([
         fulfilledCounterpartyIds(userId),
         fulfilledCounterpartyIds(otherId),
       ]);
-      let count = 0;
-      for (const id of mine) {
-        if (id !== userId && id !== otherId && theirs.has(id)) {
-          count += 1;
-        }
-      }
-      return count;
+      return [...mine].filter((id) => id !== userId && id !== otherId && theirs.has(id));
     },
 
     async listActiveShipments(

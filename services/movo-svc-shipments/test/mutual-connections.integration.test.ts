@@ -52,13 +52,17 @@ describe("Conexiones mutuas — GET /internal/users/:userId/mutual-connections/:
     await app.db.shipment.update({ where: { id: created.id }, data: { carrierId, status } });
   }
 
-  async function mutualCount(userId: string, otherId: string): Promise<number> {
+  async function mutualIds(userId: string, otherId: string): Promise<string[]> {
     const response = await app.inject({
       method: "GET",
       url: `/internal/users/${userId}/mutual-connections/${otherId}`,
     });
     expect(response.statusCode).toBe(200);
-    return response.json().totalCount;
+    return response.json().counterpartyIds;
+  }
+
+  async function mutualCount(userId: string, otherId: string): Promise<number> {
+    return (await mutualIds(userId, otherId)).length;
   }
 
   beforeAll(async () => {
@@ -114,6 +118,15 @@ describe("Conexiones mutuas — GET /internal/users/:userId/mutual-connections/:
     await shipment(viewer, personX, null, "delivered");
 
     expect(await mutualCount(viewer, other)).toBe(3);
+  });
+
+  it("devuelve los ids de las contrapartes en común, sin repetir ni incluir a los dos usuarios", async () => {
+    await shipment(viewer, personX, other, "delivered");
+    await shipment(personX, other, null, "delivered");
+    await shipment(personY, viewer, null, "delivered");
+    await shipment(other, personY, null, "delivered");
+
+    expect((await mutualIds(viewer, other)).sort()).toEqual([personX, personY].sort());
   });
 
   it("es simétrico: intercambiar viewer y visitado da el mismo número", async () => {

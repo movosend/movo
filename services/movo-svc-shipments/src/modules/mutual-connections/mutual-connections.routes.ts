@@ -9,8 +9,10 @@ import { mutualConnectionsSchemas } from "./mutual-connections.schema";
  * `account-deletion` (MOVO-134). Lo consulta `movo-svc-users` para
  * `GET /users/:id/mutual-connections`.
  *
- * De solo lectura y devuelve únicamente un conteo: ningún id de terceros sale de este
- * servicio (decisión de privacidad, ver `MutualConnections` en `@movo/shared`).
+ * De solo lectura. Devuelve los ids de las contrapartes en común (no un conteo) porque este
+ * servicio no sabe qué cuentas fueron dadas de baja: `movo-svc-users` los filtra por estado de
+ * cuenta y es quien responde al cliente con el conteo. Los ids nunca salen de la red interna
+ * (decisión de privacidad, ver `MutualConnections` en `@movo/shared`).
  */
 export default async function mutualConnectionsRoutes(app: FastifyInstance, _opts: FastifyPluginOptions) {
   const repository = createShipmentRepository(app.db);
@@ -26,7 +28,7 @@ export default async function mutualConnectionsRoutes(app: FastifyInstance, _opt
     },
     async (request: FastifyRequest) => {
       const { userId, otherId } = request.params as { userId: string; otherId: string };
-      return { totalCount: await repository.countMutualCounterparties(userId, otherId) };
+      return { counterpartyIds: await repository.findMutualCounterpartyIds(userId, otherId) };
     },
   );
 }

@@ -2642,13 +2642,16 @@ Decisiones clave:
 Endpoint interno `GET /internal/users/:userId/mutual-connections/:otherId` (módulo nuevo
 `src/modules/mutual-connections/`, calcado de `account-deletion`: no pasa por el gateway,
 `schema.hide: true`) que consulta `movo-svc-users` para el "Ya envió con N personas con las que
-vos también enviaste" del perfil. `shipment-repository.ts#countMutualCounterparties` arma, para
+vos también enviaste" del perfil. `shipment-repository.ts#findMutualCounterpartyIds` arma, para
 cada usuario, el conjunto de contrapartes (en cualquier rol) de sus envíos ENTREGADOS, intersecta
 y excluye a los dos usuarios de la cuenta.
 
-- **Devuelve solo `{ totalCount }`, nunca los ids**: decisión de privacidad de MOVO-174 (solo el
-  conteo, sin nombrar a terceros que no dieron consentimiento). Así ningún dato de terceros sale de
-  este servicio; pasar a "con nombres" sería un cambio de contrato interno acotado.
+- **Devuelve `{ counterpartyIds }` y no un conteo** (fix de review de PR #196): este servicio no
+  sabe qué cuentas se dieron de baja (la baja solo chequea envíos activos y borra posiciones, no
+  toca los ids de los envíos), así que un conteo propio incluiría personas que ya no existen.
+  `svc-users` filtra los ids por estado de cuenta y es quien responde al cliente. La decisión de
+  privacidad de MOVO-174 sigue en pie donde importa: los ids solo viajan por la red interna
+  (endpoint `hide: true`, fuera del gateway), y la respuesta pública devuelve únicamente el conteo.
 - **Cuentan solo `delivered`/`completed`** (`FULFILLED_SHIPMENT_STATUSES`): "ya envió con X" habla de
   algo que ocurrió. Distinto de `getSharedHistory` (MOVO-170), que cuenta envíos en cualquier estado.
 - **Un envío directo entre los dos usuarios no cuenta** como conexión mutua.
