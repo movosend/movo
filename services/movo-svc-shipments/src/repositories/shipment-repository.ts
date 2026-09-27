@@ -473,6 +473,17 @@ export interface ShipmentRepository {
     otherId: string,
   ): Promise<{ sharedShipmentCount: number; lastSharedAt: Date | null; allDelivered: boolean }>;
   /**
+   * MOVO-174: ids de las personas distintas que son contraparte ENTREGADA de `userId` y de
+   * `otherId` a la vez ("ya envió con N personas con las que vos también enviaste"). Solo los
+   * consume `movo-svc-users` por la red interna, que los filtra por estado de cuenta (este
+   * servicio no sabe qué cuentas se dieron de baja) y devuelve al cliente únicamente el conteo:
+   * nombrar a un tercero es una decisión de privacidad que se tomó en contra (ver
+   * `MutualConnections` en `@movo/shared`). Cuentan solo envíos `delivered`/`completed` en
+   * cualquier rol, y el resultado excluye a los dos usuarios (un envío directo entre ambos no
+   * es una conexión mutua).
+   */
+  findMutualCounterpartyIds(userId: string, otherId: string): Promise<string[]>;
+  /**
    * MOVO-192: envíos activos (`ACTIVE_SHIPMENT_STATUSES`) donde `userId` participa en
    * el rol de columna dado (`senderId`/`carrierId`/`receiverId` -- no los nombres de
    * endpoint `sending`/`transporting`/`receiving`, resueltos por el caller). Sin
@@ -559,6 +570,26 @@ export class ShipmentConcurrentModificationError extends Error {
 }
 
 export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
+  /** MOVO-174: ids de las contrapartes (en cualquier rol) de los envíos ENTREGADOS de `userId`. */
+  async function fulfilledCounterpartyIds(userId: string): Promise<Set<string>> {
+    const rows = await db.shipment.findMany({
+      where: {
+        status: { in: [...FULFILLED_SHIPMENT_STATUSES] },
+        OR: [{ senderId: userId }, { receiverId: userId }, { carrierId: userId }],
+      },
+      select: { senderId: true, receiverId: true, carrierId: true },
+    });
+    const ids = new Set<string>();
+    for (const row of rows) {
+      for (const id of [row.senderId, row.receiverId, row.carrierId]) {
+        if (id && id !== userId) {
+          ids.add(id);
+        }
+      }
+    }
+    return ids;
+  }
+
   return {
     async create(input: CreateShipmentInput): Promise<Shipment> {
       const row = await db.$transaction(async (tx) => {
@@ -978,6 +1009,14 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           (r) => r.status === ShipmentStatus.DELIVERED || r.status === ShipmentStatus.COMPLETED,
         ),
       };
+    },
+
+    async findMutualCounterpartyIds(userId: string, otherId: string): Promise<string[]> {
+      const [mine, theirs] = await Promise.all([
+        fulfilledCounterpartyIds(userId),
+        fulfilledCounterpartyIds(otherId),
+      ]);
+      return [...mine].filter((id) => id !== userId && id !== otherId && theirs.has(id));
     },
 
     async listActiveShipments(

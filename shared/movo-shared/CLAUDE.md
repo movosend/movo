@@ -315,3 +315,10 @@ en `GET /users/:id` mirando a otro) y los códigos `USER_BLOCKED`/`CANNOT_MODERA
 límite diario de reportes reusa `RATE_LIMIT_EXCEEDED` en vez de un código propio. Review de
 PR #193: `UserReportSummary`/`UserReportEntry` (reporte propio en revisión con la información
 sumada después) y los códigos `REPORT_ALREADY_PENDING`/`REPORT_NOT_FOUND`.
+
+### MOVO-174 — `MutualConnections`
+
+`src/types/user-profile.ts` — wire contract de `GET /users/:id/mutual-connections`
+(`{ totalCount, sampleFirstNames }`), migrado desde un tipo local de `movo-mobile` (mismo criterio que
+`PublicProfile`). `sampleFirstNames` viaja siempre vacío por la decisión de privacidad de esa US (solo
+el conteo); se mantiene en el tipo para poder mostrar nombres más adelante sin romper clientes.
