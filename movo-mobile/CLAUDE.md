@@ -3937,3 +3937,26 @@ Implementación del mapa táctico y bottom sheet interactivo para emisor y recep
   - Parámetro `demo=true` y atajo en `DevShortcutsScreen` para probar la pantalla en desarrollo.
 - **Tests**:
   - Unitarios y de integración para `useShipmentChannel` (`test/use-shipment-channel.test.ts`), `useLivePosition` (`test/use-live-position.test.ts`), `LiveTrackingScreen` (`test/live-tracking-screen.test.tsx`), `ActiveShipmentCard` (`test/active-shipment-card.test.tsx`), `activeShipmentCta` (`test/active-shipment-format.test.ts`) y endpoint backend `GET /shipments/:id/positions/latest` (`test/positions.routes.test.ts`).
+
+### MOVO-253 — Elegir otro receptor tras un rechazo
+
+Lado mobile del ADR-027 (`rejected_by_receiver` deja de ser terminal, ver
+`services/movo-svc-shipments/CLAUDE.md`).
+
+- **"Requiere tu atención"**: la tarea de rechazo pasa a una card propia
+  (`AttentionRejectedCard`, kind `"rejected"`) con el nombre de quien rechazó, el motivo
+  (`rejectionReason`), el plazo (`redesignationDeadlineLabel`, "Tenés hasta mañana
+  18:00") y el CTA "Elegir otro receptor". Con el plazo vencido o nulo la tarea no se
+  lista. La fuente pide solo los dos estados que generan tareas (`?status=`, AC8) —
+  `http-client.ts` ahora serializa arrays como clave repetida.
+- **`app/(app)/shipments/[id]/change-receiver.tsx`**: reusa `ReceiverSearchField`, que
+  gana `excludeIds` (quienes ya rechazaron, sacados de los eventos, y uno mismo). Solo se
+  elige la persona, la dirección no cambia.
+- **Detalle (vista emisor)**: `RejectedReceiverBanner` con motivo, plazo y CTA; se
+  re-renderiza al vencer (`useDeadlineExpired`). `canCancelShipment` incluye el estado.
+- **Formato**: tono `warning`; `shipmentLifecycleStage` depende del rol (en curso para el
+  emisor, terminado para quien rechazó). Línea de tiempo: "Elegiste otro receptor", y un
+  rechazo anterior se muestra como "El receptor actual rechazó el envío" en vez de
+  tomar el nombre del receptor actual.
+
+Pendiente: no probado en device.

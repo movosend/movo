@@ -437,6 +437,11 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
 
       const updated = await repo.findById(shipment.id);
       expect(updated?.status).toBe(ShipmentStatus.REJECTED_BY_RECEIVER);
+      // MOVO-253: el plazo para elegir otro receptor queda persistido y expuesto.
+      expect(updated?.receiverRedesignationDeadline).toBeInstanceOf(Date);
+      expect(data.receiverRedesignationDeadline).toBe(updated?.receiverRedesignationDeadline?.toISOString());
+      expect(data.rejectionReason).toBe("No estoy en la ciudad");
+      expect(updated?.rejectionReason).toBe("No estoy en la ciudad");
 
       const events = await repo.listEvents(shipment.id);
       expect(events).toHaveLength(2);
@@ -452,7 +457,7 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
         expect(notificationsClient.sendPush).toHaveBeenCalledWith({
           userId: senderId,
           title: "Envío rechazado",
-          body: "Lucía rechazó el envío",
+          body: "Lucía rechazó el envío. Podés elegir otro receptor.",
           category: "shipments",
           data: { shipmentId: shipment.id, type: "shipment_rejected" },
         });

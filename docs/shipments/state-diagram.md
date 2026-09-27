@@ -8,8 +8,12 @@ adjunto en el issue de Linear) y después en código
 única fuente de verdad ejecutable, este diagrama se actualiza si el código cambia, no al
 revés.
 
-`rejected_by_receiver`, `cancelled` y `completed` son terminales por diseño (MOVO-79/
-MOVO-208). `disputed` tampoco tiene salida en este módulo: la resolución de una disputa
+`cancelled` y `completed` son terminales por diseño (MOVO-79/MOVO-208).
+`rejected_by_receiver` lo fue hasta MOVO-253 (ADR-027): ahora el emisor tiene un plazo
+(`receiver_redesignation_deadline`, 48hs con tope en la ventana de retiro) para elegir
+otro receptor o cancelar, y si no hace ninguna de las dos el barrido lo pasa a
+`cancelled`. El rechazo no se pierde: queda como evento en la línea de tiempo.
+`disputed` tampoco tiene salida en este módulo: la resolución de una disputa
 es responsabilidad de un admin (MOVO-30, panel en MOVO-32) y todavía no hay ticket que
 defina a qué estado vuelve el envío — no se modela una transición inventada para no
 adelantar una decisión que no está tomada.
@@ -50,7 +54,8 @@ stateDiagram-v2
     delivered --> completed: captura y split de MP confirmados (MOVO-212)
     delivered --> disputed: reclamo post-entrega (MOVO-30)
 
-    rejected_by_receiver --> [*]
+    rejected_by_receiver --> awaiting_receiver_confirmation: emisor elige otro receptor (MOVO-253)
+    rejected_by_receiver --> cancelled: emisor cancela o vence el plazo\n(barrido, MOVO-253)
     cancelled --> [*]
     completed --> [*]
 
@@ -89,12 +94,13 @@ envío queda en `in_transit` indefinidamente).
   partir de `in_transit` la única salida de excepción es `disputed`.
 - `assigned_unfunded` → `in_transit` directo (AC2 de MOVO-208): permitiría retirar un
   paquete sin fondos reservados.
-- Cualquier transición saliente de un estado terminal (`rejected_by_receiver`,
-  `cancelled`, `completed`) o de `disputed`.
+- Cualquier transición saliente de un estado terminal (`cancelled`, `completed`) o de
+  `disputed`.
+- `rejected_by_receiver` → `published` directo: el receptor nuevo tiene que confirmar.
 - Quedarse en el mismo estado (`X` → `X`) no se modela como transición.
 
 Ver `services/movo-svc-shipments/test/shipment-state-machine.test.ts` para la cobertura
-completa: las 18 transiciones válidas del diagrama + casos inválidos representativos de
+completa: las 20 transiciones válidas del diagrama + casos inválidos representativos de
 cada categoría de arriba.
 
 ## Fuente original del diagrama

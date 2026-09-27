@@ -66,8 +66,9 @@ export function shipmentStatusTone(
     case ShipmentStatus.COMPLETED:
       return "success";
     case ShipmentStatus.CANCELLED:
-    case ShipmentStatus.REJECTED_BY_RECEIVER:
       return "danger";
+    // MOVO-253: el rechazo ya no es terminal — el emisor tiene que elegir otro receptor.
+    case ShipmentStatus.REJECTED_BY_RECEIVER:
     case ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION:
     case ShipmentStatus.DISPUTED:
     case ShipmentStatus.ASSIGNED_UNFUNDED:
@@ -86,13 +87,19 @@ export function shipmentStatusTone(
  * "Mis Envíos" (MOVO-127) — patrón estándar de listados de pedidos/viajes (Uber,
  * apps de delivery). `DISPUTED` cuenta como "en curso": todavía espera una resolución,
  * no es un estado final desde la perspectiva del usuario. */
-export function shipmentLifecycleStage(status: ShipmentStatus): "ongoing" | "past" {
+export function shipmentLifecycleStage(
+  status: ShipmentStatus,
+  options?: { isReceiver?: boolean },
+): "ongoing" | "past" {
   switch (status) {
     case ShipmentStatus.DELIVERED:
     case ShipmentStatus.COMPLETED:
     case ShipmentStatus.CANCELLED:
-    case ShipmentStatus.REJECTED_BY_RECEIVER:
       return "past";
+    // MOVO-253: para el emisor sigue en curso (puede elegir otro receptor); para quien
+    // rechazó ya terminó — deja de verlo en cuanto el emisor elige a otra persona.
+    case ShipmentStatus.REJECTED_BY_RECEIVER:
+      return options?.isReceiver ? "past" : "ongoing";
     default:
       return "ongoing";
   }
@@ -122,6 +129,8 @@ export function receiverConfirmationStatus(
 export function canCancelShipment(status: ShipmentStatus): boolean {
   return (
     status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION ||
+    // MOVO-253 AC4: en vez de elegir otro receptor, el emisor puede cancelar.
+    status === ShipmentStatus.REJECTED_BY_RECEIVER ||
     status === ShipmentStatus.PUBLISHED ||
     status === ShipmentStatus.ASSIGNMENT_PENDING
   );
@@ -168,9 +177,17 @@ export function formatPickupDateLabel(pickupDate: string): string | null {
 export function shipmentEventTitle(
   toStatus: ShipmentStatus,
   fromStatus: ShipmentStatus | null,
-  options?: { receiverName?: string | null; isReceiver?: boolean },
+  options?: { receiverName?: string | null; isReceiver?: boolean; isSender?: boolean },
 ): string {
   if (fromStatus === null) return "Envío creado";
+
+  // MOVO-253: tras un rechazo, el emisor eligió a otra persona.
+  if (
+    fromStatus === ShipmentStatus.REJECTED_BY_RECEIVER &&
+    toStatus === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION
+  ) {
+    return options?.isSender ? "Elegiste otro receptor" : "El emisor eligió otro receptor";
+  }
 
   // La aceptación del receptor no tiene estado propio: es exactamente la transición
   // `awaiting_receiver_confirmation -> published` (`acceptShipment` en
@@ -606,6 +623,30 @@ export function formatReceiverConfirmationDeadline(
   if (hours <= 0) return null;
   if (hours === 1) return "Te queda 1 h para confirmar";
   return `Te quedan ${hours} h para confirmar`;
+}
+
+/**
+ * MOVO-253 AC5: hasta cuándo puede el emisor elegir otro receptor, como hora de reloj
+ * ("Tenés hasta hoy 18:00", "Tenés hasta mañana 09:30", "Tenés hasta el vie 26/9
+ * 18:00"). `null` si el plazo falta, es inválido o ya venció: en ese caso la acción ya
+ * no está disponible y el barrido cancela el envío.
+ */
+export function redesignationDeadlineLabel(
+  deadlineIso: string | null | undefined,
+  now: Date = new Date(),
+): string | null {
+  if (!deadlineIso) return null;
+  const deadline = new Date(deadlineIso);
+  if (Number.isNaN(deadline.getTime()) || deadline <= now) return null;
+
+  const time = deadline.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dayDiff = Math.round((startOfDay(deadline) - startOfDay(now)) / (24 * 60 * 60 * 1000));
+
+  if (dayDiff === 0) return `Tenés hasta hoy ${time}`;
+  if (dayDiff === 1) return `Tenés hasta mañana ${time}`;
+  const weekday = deadline.toLocaleDateString("es-AR", { weekday: "short" }).replace(".", "");
+  return `Tenés hasta el ${weekday} ${deadline.getDate()}/${deadline.getMonth() + 1} ${time}`;
 }
 
 /** Versión corta de `formatReceiverConfirmationDeadline` ("vence en N h") para

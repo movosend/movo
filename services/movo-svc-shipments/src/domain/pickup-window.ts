@@ -113,6 +113,18 @@ export function isPickupWindowExpired(pickupDate: Date, pickupTimeWindowEnd: Dat
 }
 
 /**
+ * Plazo para una decisión pendiente sobre el envío: `now + timeoutHours`, con tope en
+ * el cierre de la ventana de retiro (`pickupWindowEnd`, ya un instante real) -- no
+ * tiene sentido decidir sobre un retiro que ya pasó. Regla compartida por la
+ * confirmación del receptor (MOVO-130) y la elección de otro receptor tras un rechazo
+ * (MOVO-253).
+ */
+export function deadlineCappedByPickupWindow(now: Date, timeoutHours: number, pickupWindowEnd: Date): Date {
+  const timeoutDeadline = new Date(now.getTime() + timeoutHours * 60 * 60 * 1000);
+  return timeoutDeadline <= pickupWindowEnd ? timeoutDeadline : pickupWindowEnd;
+}
+
+/**
  * Inversa de `pickupWindowEndInstant`: dado un instante real (UTC, ej.
  * `Trip.departureAt`), la fecha de calendario en Argentina como un `Date` anclado
  * (Y/M/D en UTC a medianoche) -- mismo formato "reloj de pared etiquetado como UTC"
