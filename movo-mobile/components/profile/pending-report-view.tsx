@@ -24,6 +24,9 @@ export interface PendingReportViewProps {
   onBlock: () => void;
   /** Se sumó una entrada: la pantalla muestra el aviso flotante. */
   onEntryAdded: () => void;
+  /** MOVO-256 (fix de review, PR #198): pide URLs frescas antes de abrir el visor de
+   * fotos -- ver `ReportPhotoGrid`. */
+  onPhotoViewerOpen?: () => void;
   testID?: string;
 }
 
@@ -88,6 +91,7 @@ export function PendingReportView({
   blockPending,
   onBlock,
   onEntryAdded,
+  onPhotoViewerOpen,
   testID = "pending-report",
 }: PendingReportViewProps) {
   const colors = useThemeColors();
@@ -192,7 +196,11 @@ export function PendingReportView({
                     {item.text}
                   </Text>
                 ) : null}
-                <ReportPhotoGrid photos={item.photos} testID={`${testID}-item-${index}-photos`} />
+                <ReportPhotoGrid
+                  photos={item.photos}
+                  testID={`${testID}-item-${index}-photos`}
+                  onOpen={onPhotoViewerOpen}
+                />
               </View>
             </View>
           ))}
@@ -256,13 +264,13 @@ export function PendingReportView({
           <Pressable
             testID={`${testID}-add-photo`}
             onPress={draftPhotos.add}
-            disabled={!draftPhotos.canAddMore}
+            disabled={!draftPhotos.canAddMore || addEntryMutation.isPending}
             accessibilityRole="button"
             accessibilityLabel="Agregar foto"
-            accessibilityState={{ disabled: !draftPhotos.canAddMore }}
+            accessibilityState={{ disabled: !draftPhotos.canAddMore || addEntryMutation.isPending }}
             style={COMPOSER_BUTTON_STYLE}
             className={`items-center justify-center rounded-full bg-bg-mute active:bg-ink-150 ${
-              draftPhotos.canAddMore ? "" : "opacity-40"
+              draftPhotos.canAddMore && !addEntryMutation.isPending ? "" : "opacity-40"
             }`}
           >
             <ImagePlus size={20} color={colors.fg1} strokeWidth={1.9} />

@@ -3876,3 +3876,17 @@ estado ya lo dice y bloquear queda siempre a mano. Los avisos ("Lo sumamos a tu 
 
 Pendiente / fuera de alcance: no probado en device (cámara/galería reales, teclado con el
 composer fijo).
+
+**Fixes de review (PR #198, Alena1812):**
+- **Se podía perder una foto agregada mientras se enviaba la entrada**
+  (`pending-report-view.tsx`): el botón de agregar foto solo se deshabilitaba al
+  llegar a 4 fotos, no mientras `addEntryMutation.isPending` -- una foto elegida
+  entre tocar "enviar" y que vuelva la respuesta no viajaba en el request y
+  `draftPhotos.reset()` la borraba del borrador sin avisar. Ahora también se
+  deshabilita mientras la mutación está en vuelo.
+- **Las URLs de las fotos vencían en el visor** (`report-photos.tsx`): las
+  presignadas duran 300s y la pantalla no volvía a pedir el reporte mientras
+  estaba abierta -- tocar una miniatura pasado ese tiempo daba 403 de S3.
+  `ReportPhotoGrid` gana `onOpen?: () => void`, llamado antes de abrir el visor;
+  `report.tsx` lo conecta a `reportQuery.refetch()` (URLs frescas del último
+  `GET /users/:id/report`).

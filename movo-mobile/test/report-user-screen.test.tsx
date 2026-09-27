@@ -22,6 +22,7 @@ let mockPendingReport: UserReportSummary | null = null;
 let mockPendingReportAfterMutation: UserReportSummary | null = null;
 let mockReportError: unknown = null;
 let mockAddEntryError: unknown = null;
+let mockAddEntryPending = false;
 let mockUuid = 0;
 
 jest.mock("expo-router", () => ({
@@ -50,7 +51,7 @@ jest.mock("../src/hooks/use-moderation", () => ({
       mockAddEntry(input);
       return mockAddEntryError ? Promise.reject(mockAddEntryError) : Promise.resolve();
     },
-    isPending: false,
+    isPending: mockAddEntryPending,
   }),
   useBlockUser: () => ({
     mutate: (_arg: unknown, opts?: { onSuccess?: () => void }) => mockBlockMutate(opts),
@@ -124,6 +125,7 @@ describe("ReportUserScreen", () => {
     mockPendingReportAfterMutation = null;
     mockReportError = null;
     mockAddEntryError = null;
+    mockAddEntryPending = false;
     mockUuid = 0;
     mockPickGallery.mockResolvedValue({ cancelled: false, uri: "file:///gallery.jpg" });
     mockPresign.mockImplementation(() =>
@@ -255,13 +257,27 @@ describe("ReportUserScreen", () => {
       expect(queryByTestId("report-screen-pending-item-0-photos")).toBeNull();
     });
 
-    it("tocar una foto enviada la abre a pantalla completa", async () => {
+    it("tocar una foto enviada la abre a pantalla completa y pide URLs frescas", async () => {
       const { getByTestId, queryByTestId } = await render(<ReportUserScreen />);
 
       expect(queryByTestId("report-screen-pending-item-0-photos-viewer-close")).toBeNull();
+      expect(mockReportRefetch).not.toHaveBeenCalled();
       await pressAndFlush(getByTestId("report-screen-pending-item-0-photos-1"));
 
       expect(getByTestId("report-screen-pending-item-0-photos-viewer-close")).toBeTruthy();
+      // Fix de review (PR #198): las URLs presignadas vencen a los 300s -- abrir el
+      // visor vuelve a pedir el reporte para no mostrar una URL ya vencida.
+      expect(mockReportRefetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("no deja agregar otra foto mientras se está enviando la entrada", async () => {
+      mockAddEntryPending = true;
+      const { getByTestId } = await render(<ReportUserScreen />);
+
+      // Fix de review (PR #198): antes solo se deshabilitaba al llegar a 4 fotos --
+      // una foto agregada mientras la mutación está en vuelo no viaja en el request y
+      // se pierde en silencio al resetear el borrador.
+      expect(getByTestId("report-screen-pending-add-photo").props.accessibilityState).toEqual({ disabled: true });
     });
 
     it("suma texto al reporte y avisa con el toast", async () => {

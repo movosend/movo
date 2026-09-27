@@ -166,6 +166,7 @@ export default function ReportUserScreen() {
             blockPending={blockMutation.isPending}
             onBlock={confirmBlock}
             onEntryAdded={() => showToast("Lo sumamos a tu reporte.")}
+            onPhotoViewerOpen={() => void reportQuery.refetch()}
             testID="report-screen-pending"
           />
         ) : notice ? (

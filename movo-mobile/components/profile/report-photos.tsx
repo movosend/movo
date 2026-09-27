@@ -106,6 +106,12 @@ export function ReportDraftPhotoRow({
 export interface ReportPhotoGridProps {
   photos: UserReportPhoto[];
   testID?: string;
+  /** MOVO-256 (fix de review, PR #198): las URLs presignadas vencen a los `expiresIn`
+   * segundos que trae cada foto y esta pantalla no las vuelve a pedir sola mientras
+   * está abierta -- sin esto, abrir el visor pasado ese tiempo daba 403 de S3. Se pide
+   * el reporte de nuevo (URLs frescas) apenas se toca una miniatura, antes de abrir el
+   * visor. */
+  onOpen?: () => void;
 }
 
 /**
@@ -113,10 +119,15 @@ export interface ReportPhotoGridProps {
  * (mockup 1A). Tocar una abre el visor a pantalla completa con zoom. Las URLs son
  * presigned GET de TTL corto: se usan tal cual llegan del último `GET`.
  */
-export function ReportPhotoGrid({ photos, testID = "report-photo-grid" }: ReportPhotoGridProps) {
+export function ReportPhotoGrid({ photos, testID = "report-photo-grid", onOpen }: ReportPhotoGridProps) {
   const [cellSize, setCellSize] = useState(0);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   if (photos.length === 0) return null;
+
+  function handleOpen(index: number) {
+    onOpen?.();
+    setViewerIndex(index);
+  }
 
   return (
     <>
@@ -130,7 +141,7 @@ export function ReportPhotoGrid({ photos, testID = "report-photo-grid" }: Report
           <Pressable
             key={photo.id}
             testID={`${testID}-${index}`}
-            onPress={() => setViewerIndex(index)}
+            onPress={() => handleOpen(index)}
             accessibilityRole="imagebutton"
             accessibilityLabel={`Ver foto ${index + 1} de ${photos.length}`}
             style={{ width: cellSize, height: cellSize }}
