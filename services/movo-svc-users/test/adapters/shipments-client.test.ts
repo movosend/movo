@@ -178,4 +178,29 @@ describe("ShipmentsClient (adapter concreto)", () => {
       await expect(client.deleteCarrierPositions("user-1")).rejects.toThrow(/500/);
     });
   });
+  describe("findMutualConnectionIds (MOVO-174)", () => {
+    it("pega GET a /internal/users/:viewer/mutual-connections/:other y devuelve los ids", async () => {
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ counterpartyIds: ["a", "b"] }) });
+
+      const result = await client.findMutualConnectionIds("viewer-1", "user-2");
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe("http://svc-shipments.test/internal/users/viewer-1/mutual-connections/user-2");
+      expect(init.method).toBe("GET");
+      expect(result).toEqual(["a", "b"]);
+    });
+
+    it("lanza ante una respuesta no-ok (el caller decide degradar)", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 500 });
+
+      await expect(client.findMutualConnectionIds("viewer-1", "user-2")).rejects.toThrow(/status 500/);
+    });
+
+    it("propaga un fallo de red/timeout", async () => {
+      fetchMock.mockRejectedValue(new Error("network down"));
+
+      await expect(client.findMutualConnectionIds("viewer-1", "user-2")).rejects.toThrow("network down");
+    });
+  });
 });

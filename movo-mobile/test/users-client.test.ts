@@ -70,6 +70,21 @@ describe("usersClient", () => {
     expect(profile).toEqual({ id: "u-1", fullName: "Juan Perez" });
   });
 
+  it("getMutualConnections hace GET /users/:id/mutual-connections (MOVO-174)", async () => {
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: {
+        get: jest.fn().mockResolvedValue({ totalCount: 4, sampleFirstNames: [] }),
+      },
+    }));
+    const { usersClient } = require("../src/api/users-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    const result = await usersClient.getMutualConnections("user-2");
+
+    expect(httpClient.get).toHaveBeenCalledWith("/users/user-2/mutual-connections");
+    expect(result).toEqual({ totalCount: 4, sampleFirstNames: [] });
+  });
+
   it("getPhotoUploadUrl hace POST /users/me/photo/upload-url con contentType y contentLength", async () => {
     jest.doMock("../src/api/http-client", () => ({
       httpClient: {

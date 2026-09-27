@@ -3844,3 +3844,70 @@ pantallas de tabs). `expo-glass-effect` es módulo nativo: requiere rebuild del 
   debajo como en iOS. Corregido solo en `profile/edit.tsx` como prueba (`edges={["top"]}` +
   `insets.bottom` en el `paddingBottom` del scroll); falta el resto de las pantallas.
 
+
+### MOVO-175 — Reportar y bloquear usuarios, cierre del lado mobile (ADR-026)
+
+Completa lo que MOVO-176 había dejado armado contra endpoints inexistentes. El menú de
+`profile-actions-menu.tsx` alterna "Bloquear"/"Desbloquear" según `isBlockedByMe`, avisa el
+resultado con `SuccessBanner` en `profile/[id].tsx` (antes no había feedback), y reportar
+navega a su propia pantalla (ver abajo). Errores vía `friendlyErrorMessage`, con override del
+`RATE_LIMIT_EXCEEDED` para el tope diario de reportes; se sacó el copy temporal del 404.
+
+- **Pantalla nueva `profile/blocked-users.tsx`** desde "Cuenta y seguridad" (sección
+  "Privacidad"): lista, desbloqueo confirmado con `Alert.alert`, estado vacío. Arriba,
+  `BlockImplicationsCard` explica qué implica un bloqueo (cada fila es una regla que el
+  backend aplica de verdad) — toda la pantalla es un solo scroll para que la card se vea
+  también con la lista vacía, cargando o con error.
+- **Pantalla `profile/[id]/report.tsx` (review de PR #193)**: un solo lugar para "mi reporte
+  sobre esta persona". Sin reporte en revisión muestra `ReportForm`; con uno, `PendingReportView`
+  (motivo, detalle y entradas ya enviadas, más un campo para sumar información vía
+  `useAddReportEntry`, nunca edita lo enviado). Al crear, la misma pantalla pasa a mostrar el
+  reporte con un agradecimiento y "Bloquear a {nombre}". Un 409 `REPORT_ALREADY_PENDING` (caso
+  raro: reporte hecho desde otro dispositivo, o un reintento cuyo primer envío sí llegó) muestra
+  el reporte existente con un aviso, sin trasladar lo escrito a ningún campo. Empezó como sheet del
+  menú y se movió a pantalla porque el historial de entradas crece sin límite y el teclado
+  dentro de un sheet con scroll anidado era frágil.
+- **`usePendingReport` (`GET /users/:id/report`) lo lanza `profile/[id].tsx` en paralelo con
+  el perfil**: el menú lo lee del caché (`staleTime` de 30s, sin segunda request) para
+  ofrecer "Reportar a {nombre}" o "Ver tu reporte", ambas navegando a la pantalla de arriba.
+- **Bloquear/desbloquear invalida más que el perfil** (`invalidateBlockDependentQueries`):
+  el feed disponible, los matches de viaje y las ofertas de cualquier envío
+  (`["shipments", id, "offers", ...]`, por predicado porque el id va en el medio de la key).
+
+### MOVO-174 — Conexiones mutuas: conectado al backend real
+
+`MutualConnectionsRow`/`useMutualConnections`/`usersClient.getMutualConnections` ya existían desde
+MOVO-176 esperando el endpoint; esta US es solo limpieza: `MutualConnections` pasa a importarse de
+`@movo/shared/dist/types/user-profile` (antes tipo local) y se sacan los comentarios "todavía sin
+backend". Con la decisión de privacidad (backend manda `sampleFirstNames` siempre vacío) el copy que se
+ve es siempre el del conteo ("Ya envió con N personas con las que vos también enviaste"), sin nombrar a
+nadie; la variante con nombres sigue soportada por el componente. Se agrega el test faltante de
+`getMutualConnections` en `users-client.test.ts`.
+
+- **Diseño ("anillos", elegido con el usuario entre 3 propuestas hechas sobre el manual de marca
+  v1.0)**: sin card, un medallón de anillos concéntricos de 96px junto al copy, con eyebrow "EN COMÚN".
+  Los anillos son las "capas de confianza" del símbolo de la marca: se suman hacia el centro según el
+  conteo (1, 2 o 3 anillos) y el núcleo lleva el número en JetBrains Mono ("99+" si no entra). **Sin
+  fotos ni iniciales de terceros** (decisión de privacidad, solo el conteo). Los elementos entran del
+  centro hacia afuera, 200ms con el ease-out del manual y sin rebote; el medallón está oculto a lectores
+  de pantalla (`accessibilityElementsHidden`) porque el copy dice lo mismo en texto. Anillos como
+  `View`s con borde (no SVG), color del tema con alfa vía `useThemeColors().fg1`, así sirven en claro y
+  oscuro. **Subió al hero de `profile/[id].tsx`**, debajo de `VerificationChips` (antes al final, tras
+  las cards): es prueba social que ayuda a decidir.
+- **Núcleo en Signal Lime, por pedido explícito del usuario, apartándose del manual**: el manual reserva
+  el lima para estados activos/en vivo y lo prohíbe como decoración; acá es un acento deliberado (texto
+  ink sobre lime, combinación que el manual sí permite). Es una sola constante (`LIME` en
+  `mutual-connections-row.tsx`) si hay que revertirlo.
+- **Copy: "Ya hizo envíos con N personas que vos también conocés"** — no "transportó paquetes de N
+  conocidos": la conexión mutua cuenta contrapartes en CUALQUIER rol (emisor/receptor/transportista) de
+  envíos entregados, así que "transportó" sería falso para quien solo envió o recibió. "Conocés" =
+  personas con las que el viewer también hizo envíos.
+- **Atajo de dev** (`components/dev/DevMutualConnectionsSection.tsx`, montado en `DevShortcutsScreen`):
+  muestra la fila con datos de prueba (0, 1, 2, 3 y 150 conexiones para ver los anillos y el "99+")
+  en un desplegable cerrado por defecto, para no alargar la pantalla de atajos. Sin
+  variantes con nombre: el backend nunca manda `sampleFirstNames`. Para eso la parte visual se separó en `MutualConnectionsSummary` (recibe los
+  datos por props); `MutualConnectionsRow` sigue siendo el que hace el fetch y lo usa.
+- Claude Design no se pudo consultar (`DesignSync` pide `/design-login`): el diseño sale del manual de
+  marca y del código de la pantalla; queda pendiente contrastarlo con el prototipo si hace falta.
+
+Pendiente / fuera de alcance: no probado en dispositivo; requiere el backend desplegado.

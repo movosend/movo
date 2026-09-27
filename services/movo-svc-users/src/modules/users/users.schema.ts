@@ -242,6 +242,9 @@ export const usersSchemas = {
       reputationScore: { type: ["number", "null"] },
       bio: { type: ["string", "null"] },
       vehicle: { oneOf: [{ type: "null" }, vehicleProfileObject] },
+      // MOVO-175: solo mirando el perfil de otro (ausente en el propio). Como `bio`,
+      // no va en `publicProfileExtras`, así que nunca viaja en `GET /users/search`.
+      isBlockedByMe: { type: "boolean" },
       ...publicProfileExtras,
     },
   },
@@ -292,6 +295,17 @@ export const usersSchemas = {
     properties: {
       items: { type: "array", items: recentRatingComment },
       nextCursor: { type: ["string", "null"] },
+    },
+  },
+
+  // MOVO-174: solo el conteo; `sampleFirstNames` viaja siempre vacío (decisión de privacidad,
+  // ver `MutualConnections` en `@movo/shared`) pero se mantiene en el contrato.
+  mutualConnectionsResponse: {
+    type: "object",
+    required: ["totalCount", "sampleFirstNames"],
+    properties: {
+      totalCount: { type: "integer" },
+      sampleFirstNames: { type: "array", items: { type: "string" } },
     },
   },
 
