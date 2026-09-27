@@ -13,7 +13,7 @@ import { CreateUserInput } from "../src/models/user";
  * llamadas para verificar que mirar el propio perfil ni siquiera consulta a svc-shipments.
  */
 function createFakeShipmentsClient() {
-  const counts = new Map<string, number>();
+  const ids = new Map<string, string[]>();
   let failing = false;
   const calls: Array<{ viewerId: string; otherId: string }> = [];
 
@@ -30,20 +30,20 @@ function createFakeShipmentsClient() {
     async deleteCarrierPositions() {
       return 0;
     },
-    async findMutualConnectionsCount(viewerId: string, otherId: string) {
+    async findMutualConnectionIds(viewerId: string, otherId: string) {
       calls.push({ viewerId, otherId });
       if (failing) {
         throw new Error("svc-shipments caído (simulado)");
       }
-      return counts.get(`${viewerId}:${otherId}`) ?? 0;
+      return ids.get(`${viewerId}:${otherId}`) ?? [];
     },
   };
 
   return {
     client,
     calls,
-    setCount(viewerId: string, otherId: string, count: number) {
-      counts.set(`${viewerId}:${otherId}`, count);
+    setIds(viewerId: string, otherId: string, counterpartyIds: string[]) {
+      ids.set(`${viewerId}:${otherId}`, counterpartyIds);
     },
     setFailing(value: boolean) {
       failing = value;
@@ -106,10 +106,15 @@ describe("Conexiones mutuas en el perfil — GET /users/:id/mutual-connections (
     });
   }
 
-  it.each([0, 1, 5])("devuelve el conteo de svc-shipments (%i conexiones mutuas), sin nombrar a nadie", async (count) => {
+  async function createCounterparties(count: number): Promise<string[]> {
+    const created = await Promise.all(Array.from({ length: count }, () => repo.create(buildInput())));
+    return created.map((user) => user.id);
+  }
+
+  it.each([0, 1, 5])("cuenta las contrapartes que devuelve svc-shipments (%i conexiones mutuas), sin nombrar a nadie", async (count) => {
     const viewer = await repo.create(buildInput());
     const target = await repo.create(buildInput({ firstName: "Juan", lastName: "Perez" }));
-    fake.setCount(viewer.id, target.id, count);
+    fake.setIds(viewer.id, target.id, await createCounterparties(count));
 
     const response = await getMutual(viewer.id, target.id);
 
@@ -129,7 +134,7 @@ describe("Conexiones mutuas en el perfil — GET /users/:id/mutual-connections (
 
   it("mirar el propio perfil da 0 y no consulta a svc-shipments (propio usuario excluido)", async () => {
     const viewer = await repo.create(buildInput());
-    fake.setCount(viewer.id, viewer.id, 9);
+    fake.setIds(viewer.id, viewer.id, await createCounterparties(3));
 
     const response = await getMutual(viewer.id, viewer.id);
 
@@ -141,13 +146,42 @@ describe("Conexiones mutuas en el perfil — GET /users/:id/mutual-connections (
   it("si svc-shipments falla, el perfil no se cae: degrada a 0", async () => {
     const viewer = await repo.create(buildInput());
     const target = await repo.create(buildInput({ firstName: "Juan", lastName: "Perez" }));
-    fake.setCount(viewer.id, target.id, 3);
+    fake.setIds(viewer.id, target.id, await createCounterparties(3));
     fake.setFailing(true);
 
     const response = await getMutual(viewer.id, target.id);
 
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(response.body)).toEqual({ totalCount: 0, sampleFirstNames: [] });
+  });
+
+  it("descarta las contrapartes cuya cuenta fue dada de baja (deleted) antes de contar", async () => {
+    const viewer = await repo.create(buildInput());
+    const target = await repo.create(buildInput({ firstName: "Juan", lastName: "Perez" }));
+    const [active, banned, deleted] = await createCounterparties(3);
+    await app.db.user.update({ where: { id: banned }, data: { status: "banned" } });
+    await app.db.user.update({ where: { id: deleted }, data: { status: "deleted" } });
+    // Un id que no existe en `users.users` tampoco cuenta.
+    fake.setIds(viewer.id, target.id, [active, banned, deleted, randomUUID()]);
+
+    const response = await getMutual(viewer.id, target.id);
+
+    expect(response.statusCode).toBe(200);
+    // `banned` es una sanción reversible: sigue contando, igual que en la búsqueda de usuarios.
+    expect(JSON.parse(response.body)).toEqual({ totalCount: 2, sampleFirstNames: [] });
+  });
+
+  it("nunca expone los ids de las contrapartes en la respuesta", async () => {
+    const viewer = await repo.create(buildInput());
+    const target = await repo.create(buildInput({ firstName: "Juan", lastName: "Perez" }));
+    const counterpartyIds = await createCounterparties(2);
+    fake.setIds(viewer.id, target.id, counterpartyIds);
+
+    const response = await getMutual(viewer.id, target.id);
+
+    for (const id of counterpartyIds) {
+      expect(response.body).not.toContain(id);
+    }
   });
 
   it("404 USER_NOT_FOUND si el usuario visitado no existe", async () => {

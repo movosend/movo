@@ -411,6 +411,10 @@ export function createUsersService(
      * propio perfil no tiene conexiones mutuas (0, sin llamar a `svc-shipments`). Si
      * `svc-shipments` falla degrada a 0 y loguea, igual que la reputación (AC3 de MOVO-152):
      * el mobile oculta la fila con 0, así que el perfil nunca se cae por esto.
+     *
+     * `svc-shipments` no sabe qué cuentas se dieron de baja (no marca ni limpia los ids en los
+     * envíos), así que devuelve los ids de las contrapartes y acá se descartan las eliminadas antes
+     * de contar -- misma regla de "no existe" que el 404 de arriba. Los ids no salen de este método.
      */
     async getMutualConnections(viewerId: string, id: string): Promise<MutualConnections> {
       const user = await repository.findById(id);
@@ -420,9 +424,9 @@ export function createUsersService(
       if (viewerId === id) {
         return { totalCount: 0, sampleFirstNames: [] };
       }
+      let counterpartyIds: string[];
       try {
-        const totalCount = await shipmentsClient.findMutualConnectionsCount(viewerId, id);
-        return { totalCount, sampleFirstNames: [] };
+        counterpartyIds = await shipmentsClient.findMutualConnectionIds(viewerId, id);
       } catch (error) {
         logger.warn(
           { viewerId, userId: id, event: "mutual_connections_fetch_failed", error: (error as Error).message },
@@ -430,6 +434,9 @@ export function createUsersService(
         );
         return { totalCount: 0, sampleFirstNames: [] };
       }
+      // Fuera del try: un fallo de la base propia no es "svc-shipments caído", no se disfraza de 0.
+      const totalCount = await repository.countActiveByIds(counterpartyIds);
+      return { totalCount, sampleFirstNames: [] };
     },
 
     /** AC1/AC2/AC3: emite la presigned URL de subida. El `objectKey` lo genera el

@@ -107,6 +107,13 @@ export interface UserRepository {
    * el caller decide el fallback.
    */
   findNamesByIds(ids: string[]): Promise<Map<string, string>>;
+  /**
+   * MOVO-174: cuántos de estos ids pertenecen a una cuenta que sigue existiendo (`status` distinto
+   * de `deleted`, mismo criterio que `getPublicProfile`). `svc-shipments` no sabe qué cuentas se
+   * dieron de baja, así que las contrapartes en común llegan acá para descartar las eliminadas
+   * antes de contarlas. `banned` sí cuenta: es una sanción reversible, no una baja.
+   */
+  countActiveByIds(ids: string[]): Promise<number>;
 }
 
 type UserWithRoles = Prisma.UserGetPayload<{ include: { roles: true } }>;
@@ -552,6 +559,13 @@ export function createUserRepository(db: Prisma.TransactionClient): UserReposito
         select: { id: true, firstName: true, lastName: true },
       });
       return new Map(rows.map((row) => [row.id, fullName(row)]));
+    },
+
+    async countActiveByIds(ids: string[]): Promise<number> {
+      if (ids.length === 0) {
+        return 0;
+      }
+      return db.user.count({ where: { id: { in: ids }, status: { not: PrismaAccountStatus.deleted } } });
     },
   };
 }

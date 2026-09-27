@@ -48,8 +48,8 @@ function createFakeShipmentsClient() {
       return 0;
     },
     // MOVO-174: esta suite no ejercita conexiones mutuas.
-    async findMutualConnectionsCount() {
-      return 0;
+    async findMutualConnectionIds() {
+      return [];
     },
   };
   return {
