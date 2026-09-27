@@ -60,7 +60,8 @@ export function LiveMap({
     return () => clearTimeout(timer);
   }, [carrierPosition, destinationLocation]);
 
-  // Desplazamiento vertical para que el marcador quede en el centro del área visible sobre el bottom sheet
+  // Desplazamiento vertical para que el marcador quede en el centro del área visible sobre el bottom sheet.
+  // 1600 pts es el factor de escala empírico (aprox. 2x viewport height) que proyecta los píxeles de oclusión del bottom sheet a latDelta.
   const getLatitudeOffset = useCallback(
     (latDelta: number) => {
       const effectiveBottom = bottomOffset ?? 290;

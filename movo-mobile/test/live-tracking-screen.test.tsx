@@ -1,12 +1,16 @@
 import React from "react";
 import { render, fireEvent, act } from "@testing-library/react-native";
-import { Clipboard, Linking } from "react-native";
+import { Linking } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import LiveTrackingScreen from "../app/(app)/shipments/[id]/tracking";
 import { useShipment } from "../src/hooks/use-shipments";
 import { usePublicProfile } from "../src/hooks/use-profile";
 import { useLivePosition } from "../src/hooks/use-live-position";
 
 // Mocks
+jest.mock("expo-clipboard", () => ({
+  setStringAsync: jest.fn().mockResolvedValue(true),
+}));
 jest.mock("../src/hooks/use-shipments");
 jest.mock("../src/hooks/use-profile");
 jest.mock("../src/hooks/use-live-position");
@@ -26,7 +30,6 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
     mockSearchParams = { id: "shipment-uuid-12345" };
     jest.clearAllMocks();
     jest.spyOn(Linking, "openURL").mockResolvedValue(true as any);
-    jest.spyOn(Clipboard, "setString").mockImplementation(() => { });
   });
 
   const mockShipmentData = {
@@ -132,7 +135,7 @@ describe("LiveTrackingScreen (MOVO-204 Live Tracking Map Screen)", () => {
       await fireEvent.press(copyBtn);
     });
 
-    expect(Clipboard.setString).toHaveBeenCalledWith("MV-SHIPME");
+    expect(Clipboard.setStringAsync).toHaveBeenCalledWith("MV-SHIPME");
     expect(getByTestId("copied-code-toast")).toBeTruthy();
   });
 

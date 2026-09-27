@@ -50,9 +50,9 @@ export function calculateHaversineKm(
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) *
+    Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return Number((R * c).toFixed(1));
 }
@@ -149,7 +149,7 @@ export function useLivePosition(
         capturedAt: initialPosition.capturedAt,
       });
     }
-  }, [initialPosition, livePosition, demo]);
+  }, [initialPosition, demo]);
 
   // Manejador de eventos WebSocket de posición
   const handlePositionMessage = useCallback((payload: RealtimePositionEvent) => {

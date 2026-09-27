@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Animated,
-  Clipboard,
   Dimensions,
   Image,
   Linking,
@@ -14,6 +13,7 @@ import {
   Text,
   View,
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
@@ -81,12 +81,6 @@ export default function LiveTrackingScreen() {
   const shipmentId = Array.isArray(rawId) ? rawId[0] : rawId;
   const [demoMode, setDemoMode] = useState(() => Boolean(demo === "true"));
 
-  useEffect(() => {
-    if (demo === "true") {
-      setDemoMode(true);
-    }
-  }, [demo]);
-
   // Consulta del envío
   const {
     data: shipment,
@@ -137,6 +131,15 @@ export default function LiveTrackingScreen() {
 
   const [isExpanded, setIsExpanded] = useState(false);
   const [copiedCodeToast, setCopiedCodeToast] = useState(false);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
 
   // Animación de arrastre con PanResponder (idéntica a route/index.tsx)
   const sheetHeightAnim = useRef(new Animated.Value(COLLAPSED_HEIGHT)).current;
@@ -235,9 +238,15 @@ export default function LiveTrackingScreen() {
   const handleCopyCode = () => {
     try {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      Clipboard.setString(trackingCode);
+      void Clipboard.setStringAsync(trackingCode);
       setCopiedCodeToast(true);
-      setTimeout(() => setCopiedCodeToast(false), 2000);
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+      toastTimerRef.current = setTimeout(() => {
+        setCopiedCodeToast(false);
+        toastTimerRef.current = null;
+      }, 2000);
     } catch { }
   };
 
