@@ -193,6 +193,62 @@ describe("ShipmentDetailScreen", () => {
     expect(queryByText("Volver a Inicio")).toBeNull();
   });
 
+  it("mirando como receptor no muestra el precio: no es un dato que le corresponda", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({ agreedPriceArs: 5000, carrierId: "carrier-1" }),
+      error: null,
+      refetch: jest.fn(),
+    });
+    const { getByText, queryByText } = await render(<ShipmentDetailScreen />);
+
+    expect(getByText("Retiro programado")).toBeTruthy();
+    expect(queryByText("Precio pactado")).toBeNull();
+    expect(queryByText("Costo aproximado")).toBeNull();
+    expect(queryByText("$5.000")).toBeNull();
+  });
+
+  describe("encabezado: rol y código del envío", () => {
+    function withShipment() {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ id: "8f2a1c3e-0000-4000-8000-000000012345" }),
+        error: null,
+        refetch: jest.fn(),
+      });
+    }
+
+    it("mirando como emisor muestra ENVIÁS y el código #MOVO del resto de la app", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-1" });
+      withShipment();
+      const { getByTestId, getByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByText("Enviás ·")).toBeTruthy();
+      expect(getByTestId("shipment-detail-code").props.children).toBe("#MOVO-12345");
+    });
+
+    it("mirando como receptor muestra RECIBÍS", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+      withShipment();
+      const { getByText, queryByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByText("Recibís ·")).toBeTruthy();
+      expect(queryByText("Enviás ·")).toBeNull();
+    });
+
+    it("sin ser emisor ni receptor muestra solo el código, sin tag de rol", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "otra-persona" });
+      withShipment();
+      const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(queryByTestId("shipment-detail-role")).toBeNull();
+      expect(getByTestId("shipment-detail-code")).toBeTruthy();
+    });
+  });
+
   // MOVO-176: la sheet chica de MOVO-154 se reemplazó por una pantalla completa.
   it("tocar la card del receptor navega a la pantalla de perfil público", async () => {
     mockUseShipment.mockReturnValue({

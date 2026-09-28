@@ -1,7 +1,7 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { ChevronLeft, Clock, QrCode } from "lucide-react-native";
+import { ArrowDownLeft, ArrowUpRight, ChevronLeft, Clock, QrCode } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useCallback, useState, type ReactNode } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
@@ -28,6 +28,7 @@ import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useShipmentRatings } from "../../../src/hooks/use-ratings";
 import { useShipment } from "../../../src/hooks/use-shipments";
+import { activeShipmentDisplayCode } from "../../../src/lib/active-shipment-format";
 import {
   FULFILLED_SHIPMENT_STATUSES,
   canCancelShipment,
@@ -215,9 +216,23 @@ export default function ShipmentDetailScreen() {
         <View className="flex-1">
           <Text className="font-sans-semibold text-h3 text-fg">Detalle del envío</Text>
           {shipment ? (
-            <Text className="mt-0.5 font-sans text-[10px] uppercase tracking-wide text-fg-3">
-              {shipment.id.slice(0, 8)}
-            </Text>
+            <View className="mt-0.5 flex-row items-center gap-1">
+              {isSender || isReceiver ? (
+                <View testID="shipment-detail-role" className="flex-row items-center gap-0.5">
+                  {isSender ? (
+                    <ArrowUpRight size={11} strokeWidth={2} color={colors.fg3} />
+                  ) : (
+                    <ArrowDownLeft size={11} strokeWidth={2} color={colors.fg3} />
+                  )}
+                  <Text className="font-sans text-[10px] uppercase tracking-wide text-fg-3">
+                    {isSender ? "Enviás" : "Recibís"} ·
+                  </Text>
+                </View>
+              ) : null}
+              <Text testID="shipment-detail-code" className="font-sans text-[10px] uppercase tracking-wide text-fg-3">
+                {activeShipmentDisplayCode(shipment.id)}
+              </Text>
+            </View>
           ) : null}
         </View>
 
@@ -326,20 +341,24 @@ export default function ShipmentDetailScreen() {
                     {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
                   </Text>
                 </View>
-                <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
-                  <GridPattern />
-                  <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
-                    {shipment.agreedPriceArs !== null || shipment.carrierId !== null
-                      ? "Precio pactado"
-                      : "Costo aproximado"}
-                  </Text>
-                  <Text className="font-sans-semibold text-[20px] text-ink-950">
-                    {formatShipmentPrice(
-                      shipment.agreedPriceArs,
-                      shipment.suggestedPriceArs
-                    )}
-                  </Text>
-                </View>
+                {/* El precio es un acuerdo entre emisor y transportista: el receptor no
+                    paga nada, así que no se le muestra y el retiro ocupa todo el ancho. */}
+                {isReceiver ? null : (
+                  <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
+                    <GridPattern />
+                    <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
+                      {shipment.agreedPriceArs !== null || shipment.carrierId !== null
+                        ? "Precio pactado"
+                        : "Costo aproximado"}
+                    </Text>
+                    <Text className="font-sans-semibold text-[20px] text-ink-950">
+                      {formatShipmentPrice(
+                        shipment.agreedPriceArs,
+                        shipment.suggestedPriceArs
+                      )}
+                    </Text>
+                  </View>
+                )}
               </View>
 
               <View>
