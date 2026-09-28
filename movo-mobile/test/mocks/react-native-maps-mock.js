@@ -18,8 +18,10 @@ function Marker(props) {
   return React.createElement(View, { testID: props.testID }, props.children);
 }
 
+// `coordinates` se conserva para poder verificar qué trazo se dibuja (ruta real,
+// recta de fallback o nada mientras carga).
 function Polyline(props) {
-  return React.createElement(View, { testID: props.testID });
+  return React.createElement(View, { testID: props.testID, coordinates: props.coordinates });
 }
 
 function Circle(props) {
