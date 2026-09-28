@@ -415,7 +415,11 @@ const PICKUP_DAY_MONTHS = [
  * cuidado de zona horaria que el resto del archivo: `pickupDate` y "hoy" se comparan
  * como strings `YYYY-MM-DD` vía `toArgentinaCalendarDateString`, nunca restando
  * `Date`s directamente (correría el día en UTC-3). */
-export function formatPickupDayLabel(pickupDate: string, now: Date = new Date()): string {
+export function formatPickupDayLabel(
+  pickupDate: string,
+  now: Date = new Date(),
+  options: { includeMonth?: boolean } = {},
+): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(pickupDate)) return pickupDate;
   const todayStr = toArgentinaCalendarDateString(now);
   if (pickupDate === todayStr) return "Hoy";
@@ -429,6 +433,8 @@ export function formatPickupDayLabel(pickupDate: string, now: Date = new Date())
 
   const [y, m, d] = pickupDate.split("-").map(Number);
   const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  // MOVO-257: "Mis envíos" usa la forma corta del prototipo ("mié 30"), sin mes.
+  if (options.includeMonth === false) return `${PICKUP_DAY_WEEKDAYS[weekday]} ${d}`;
   return `${PICKUP_DAY_WEEKDAYS[weekday]} ${d} ${PICKUP_DAY_MONTHS[m - 1]}`;
 }
 

@@ -48,6 +48,9 @@ export interface ShipmentSummary {
    * un transportista ajeno viendo un envío `published` — agregado de ofertas vigentes
    * sin identidad de los competidores, `null` si no hay ninguna. */
   offersSummary?: { count: number; minPriceNetArs: number } | null;
+  /** MOVO-257: solo en `GET /shipments/mine` — ofertas vigentes de un envío
+   * `published` visto por su emisor; `null` en cualquier otro caso. */
+  pendingOffersCount?: number | null;
 }
 
 export interface ListMineResponse {
