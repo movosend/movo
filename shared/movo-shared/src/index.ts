@@ -47,7 +47,13 @@ export type {
 } from "./types/user-profile";
 export type { Address, CreateAddressInput, UpdateAddressInput } from "./types/address";
 export { PriceCalculationMethod } from "./types/pricing";
-export type { DemandContext, QuoteRequest, QuoteResponse } from "./types/pricing";
+export type {
+  DemandContext,
+  QuoteRequest,
+  QuoteResponse,
+  ShipmentQuoteRequest,
+  ShipmentQuoteResponse,
+} from "./types/pricing";
 export { OptimizationStatus } from "./types/routing";
 export type {
   Coordinates,

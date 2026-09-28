@@ -54,3 +54,42 @@ export interface QuoteResponse {
   highDemand: boolean;
   calculationMethod: PriceCalculationMethod;
 }
+
+/**
+ * Body de `POST /shipments/quote` en `movo-svc-shipments` (MOVO-255): los mismos
+ * campos de `POST /shipments` que afectan el precio, con los mismos nombres.
+ */
+export interface ShipmentQuoteRequest {
+  packageType: QuoteRequest["packageType"];
+  weightKg: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  pickupLat: number;
+  pickupLng: number;
+  deliveryLat: number;
+  deliveryLng: number;
+}
+
+/**
+ * Respuesta de `POST /shipments/quote` (MOVO-255, ADR-028). Con precio, trae un
+ * `quoteId` de un solo uso que congela ese precio hasta `expiresAt` al mandarlo en
+ * `POST /shipments`. Si pricing no respondió, todo `null` ("precio a estimar") y sin
+ * `quoteId`: no se congela una no-cotización.
+ */
+export type ShipmentQuoteResponse =
+  | {
+      quoteId: string;
+      suggestedPriceArs: number;
+      highDemand: boolean | null;
+      calculationMethod: PriceCalculationMethod;
+      /** ISO 8601. */
+      expiresAt: string;
+    }
+  | {
+      quoteId: null;
+      suggestedPriceArs: null;
+      highDemand: null;
+      calculationMethod: null;
+      expiresAt: null;
+    };
