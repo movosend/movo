@@ -88,20 +88,26 @@ export default async function routesPlugin(
   // — emitir presigned URLs es la puerta de entrada a escribir en el bucket de S3). El
   // lookup en el preHandler es el mismo para las dos: por `method + path`, sin importar
   // si la ruta es pública o no.
-  const strictRateLimiters = new Map<string, ReturnType<typeof app.rateLimit>>();
+  const strictRateLimiters = new Map<string, { limiter: ReturnType<typeof app.rateLimit>; perUser: boolean }>();
   const rateLimitedRoutes = [
     ...getPublicRoutes().filter((r) => r.rateLimit),
     ...getRateLimitOverrides(),
   ];
   for (const route of rateLimitedRoutes) {
     const routeKey = `${route.method} ${route.path}`;
-    strictRateLimiters.set(
-      routeKey,
-      app.rateLimit({
+    // MOVO-255: `perUser` cuenta por `sub` del JWT. Ese limiter corre recién después de
+    // `authenticate` (ver el preHandler), así que `request.user` ya está; el fallback a
+    // IP es solo defensivo.
+    const perUser = "perUser" in route && route.perUser === true;
+    strictRateLimiters.set(routeKey, {
+      perUser,
+      limiter: app.rateLimit({
         ...route.rateLimit!,
-        keyGenerator: (request) => `${routeKey}:${request.ip}`,
-      })
-    );
+        keyGenerator: perUser
+          ? (request) => `${routeKey}:user:${request.user?.sub ?? request.ip}`
+          : (request) => `${routeKey}:${request.ip}`,
+      }),
+    });
   }
 
   for (const route of serviceRoutes) {
@@ -120,8 +126,13 @@ export default async function routesPlugin(
       // protegida (ej. /users/me/photo/upload-url, MOVO-97)—, general en cualquier
       // otro caso. El lookup es independiente de si la ruta es pública: ver
       // `rateLimitedRoutes` más arriba.
-      const strictLimiter = strictRateLimiters.get(`${request.method.toUpperCase()} ${path}`);
-      await (strictLimiter ?? generalLimiter).call(app, request, reply);
+      // MOVO-255: un limiter `perUser` se difiere hasta después de autenticar (sigue
+      // siendo el único limiter del request, no se suma al general).
+      const strict = strictRateLimiters.get(`${request.method.toUpperCase()} ${path}`);
+      const deferredLimiter = strict?.perUser && !publicRoute ? strict.limiter : undefined;
+      if (!deferredLimiter) {
+        await (strict?.limiter ?? generalLimiter).call(app, request, reply);
+      }
 
       if (publicRoute) {
         // Ruta pública: solo limpiar headers falsificados y propagar request ID
@@ -136,6 +147,10 @@ export default async function routesPlugin(
 
       // Ruta protegida: autenticar, validar rol (si el prefijo lo exige), inyectar identidad
       await app.authenticate(request, reply);
+
+      if (deferredLimiter) {
+        await deferredLimiter.call(app, request, reply);
+      }
 
       if (route.allowedRoles && route.allowedRoles.length > 0) {
         await app.authorize(route.allowedRoles)(request, reply);

@@ -2784,3 +2784,21 @@ y el push de trip-match.
 - `dispatchTripMatchPushes` ahora recibe `usersClient` y suma los bloqueados de emisor y
   receptor a `excludeCarrierIds`; como resuelve eso antes de buscar viajes, los tests
   unitarios que miran `findActiveTripsMatchingShipment` usan `vi.waitFor`.
+
+### MOVO-255 — Cotización congelada del resumen del wizard (ADR-028)
+
+`POST /shipments/quote` cotiza con la misma función que la creación (`quoteShipment`,
+`shipment-quote.ts`, ya extraída en MOVO-138) y, si hay precio, lo guarda en Redis
+(`shipment_quote:{quoteId}`, TTL `SHIPMENT_QUOTE_TTL_SECONDS` = 15 min, constante y no env
+var) con `userId`, precio, `highDemand`, `calculationMethod` y un fingerprint (SHA-256 de
+tipo, peso, dimensiones y coordenadas redondeadas a 6 decimales). Sin precio responde todo
+`null` y no guarda nada. `POST /shipments` acepta `quoteId` opcional: con él usa el precio
+congelado sin llamar a pricing; sin él cotiza como antes (builds viejos).
+
+- **Consumo con Lua que compara antes de borrar** (`quote-store.ts`), no `GETDEL` a secas:
+  un `quoteId` de otro usuario o mandado con otros datos no quema la cotización del dueño.
+  Otro usuario o inexistente/vencida/usada → `409 QUOTE_EXPIRED` (no revela que el id
+  existe); fingerprint distinto → `409 QUOTE_MISMATCH` (la cotización queda viva).
+- **Se consume después de las validaciones de `createShipment`** (receptor, KYC, bloqueo,
+  franja), así un 422 no la quema. Un `quoteId` inválido nunca cae a recalcular.
+- Descripción, direcciones escritas y franja no entran al fingerprint: no afectan el precio.
