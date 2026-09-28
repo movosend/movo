@@ -9,11 +9,11 @@ const STATUS_LABEL: Record<ShipmentStatus, string> = {
   [ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION]: "Esperando receptor",
   [ShipmentStatus.REJECTED_BY_RECEIVER]: "Rechazado",
   [ShipmentStatus.PUBLISHED]: "Publicado",
-  // MOVO-248: Shipment.status = assignment_pending modela la etapa entre la aceptación
-  // de la oferta y la confirmación del hold de fondos. En la UI de mobile se muestra
-  // como "Sin asignar" hasta que el nuevo flujo y modelo de estados de MOVO-248 separe
-  // el estado del transportista del estado del hold/pago.
-  [ShipmentStatus.ASSIGNMENT_PENDING]: "Sin asignar",
+  // `assignment_pending`: la oferta ya se aceptó y el transportista quedó guardado en el
+  // envío (`carrierId`); lo que falta es reservar el pago (MOVO-12/210, todavía sin
+  // implementar). La pill habla del transportista, no del pago (MOVO-248), así que es
+  // "Asignado" y no "Sin asignar".
+  [ShipmentStatus.ASSIGNMENT_PENDING]: "Asignado",
   // MOVO-208: transportista ya asignado, pero el hold de fondos todavía no se creó
   // (retiro a más de N días, MOVO-12 opción B) -- distinto de "Asignado" (`ASSIGNED`),
   // que sí implica fondos reservados.
@@ -177,9 +177,27 @@ export function formatPickupDateLabel(pickupDate: string): string | null {
 export function shipmentEventTitle(
   toStatus: ShipmentStatus,
   fromStatus: ShipmentStatus | null,
-  options?: { receiverName?: string | null; isReceiver?: boolean; isSender?: boolean },
+  options?: {
+    receiverName?: string | null;
+    carrierName?: string | null;
+    isReceiver?: boolean;
+    isSender?: boolean;
+    isCarrier?: boolean;
+  },
 ): string {
   if (fromStatus === null) return "Envío creado";
+
+  // Aceptar una oferta es la transición `published -> assignment_pending` (o
+  // `assigned_unfunded` si el retiro es lejano, MOVO-208): lo que pasó ahí es que el
+  // emisor eligió al transportista. Titularla por el `toStatus` la mostraba como
+  // "Buscando transportista", justo cuando la búsqueda terminó. El pago pendiente va
+  // como detalle (`shipmentEventDetail`).
+  if (isOfferAcceptance(toStatus, fromStatus)) {
+    if (options?.isCarrier) return "El emisor aceptó tu oferta";
+    const carrier = options?.carrierName;
+    if (options?.isSender) return carrier ? `Elegiste a ${carrier} como transportista` : "Elegiste al transportista";
+    return carrier ? `El emisor eligió a ${carrier}` : "El emisor eligió al transportista";
+  }
 
   // MOVO-253: tras un rechazo, el emisor eligió a otra persona.
   if (
@@ -214,11 +232,12 @@ export function shipmentEventTitle(
     case ShipmentStatus.PUBLISHED:
       return "Publicado para transportistas";
     case ShipmentStatus.ASSIGNMENT_PENDING:
-      return "Buscando transportista";
     case ShipmentStatus.ASSIGNED_UNFUNDED:
-      return "Transportista asignado -- fondos aún no reservados";
+      return "Transportista elegido";
+    // Llegar a `assigned` es confirmar el hold de fondos: el transportista ya se había
+    // elegido al aceptar la oferta.
     case ShipmentStatus.ASSIGNED:
-      return "Transportista asignado";
+      return "Pago reservado";
     case ShipmentStatus.IN_TRANSIT:
       return "El paquete salió en camino";
     case ShipmentStatus.DELIVERED:
@@ -248,7 +267,30 @@ export function shipmentEventDetail(
   ) {
     return "Publicado para transportistas";
   }
+  if (isOfferAcceptance(toStatus, fromStatus)) {
+    return toStatus === ShipmentStatus.ASSIGNED_UNFUNDED
+      ? "El pago se reserva más cerca del retiro"
+      : "Falta reservar el pago";
+  }
   return null;
+}
+
+function isOfferAcceptance(toStatus: ShipmentStatus, fromStatus: ShipmentStatus | null): boolean {
+  return (
+    fromStatus === ShipmentStatus.PUBLISHED &&
+    (toStatus === ShipmentStatus.ASSIGNMENT_PENDING || toStatus === ShipmentStatus.ASSIGNED_UNFUNDED)
+  );
+}
+
+/**
+ * Si el `reason` de un evento se muestra en la línea de tiempo. Solo en cancelaciones
+ * y rechazos: ahí es el motivo que escribió una persona, o la explicación de un
+ * barrido automático ("El receptor no confirmó dentro del plazo"). En el resto, el
+ * backend guarda texto interno ("Oferta <uuid> aceptada", "Handshake de retiro
+ * confirmado") que no está pensado para el usuario.
+ */
+export function shouldShowEventReason(toStatus: ShipmentStatus): boolean {
+  return toStatus === ShipmentStatus.CANCELLED || toStatus === ShipmentStatus.REJECTED_BY_RECEIVER;
 }
 
 /** Camino feliz del ciclo de vida, en orden — el mismo grafo de
@@ -305,10 +347,14 @@ export function shipmentPendingStepLabel(
     case ShipmentStatus.PUBLISHED:
       if (options?.isReceiver) return "Tu confirmación";
       return receiver ? `Aceptación de ${receiver}` : "Aceptación del receptor";
+    // Paso que se cumple al aceptar una oferta: se nombra por la elección, no por la
+    // búsqueda (mismo ícono de persona con check que el evento real).
     case ShipmentStatus.ASSIGNMENT_PENDING:
-      return "Búsqueda de transportista";
+      return "Elección del transportista";
+    // El transportista se elige al aceptar la oferta (`assignment_pending`); pasar a
+    // `assigned` es la reserva del pago.
     case ShipmentStatus.ASSIGNED:
-      return "Asignación del transportista";
+      return "Reserva del pago";
     case ShipmentStatus.IN_TRANSIT:
       return "Retiro del paquete";
     case ShipmentStatus.DELIVERED:

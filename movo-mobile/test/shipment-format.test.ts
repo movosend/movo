@@ -16,6 +16,7 @@ import {
   shipmentEventTitle,
   shipmentLifecycleStage,
   shipmentPendingStepLabel,
+  shouldShowEventReason,
   shipmentStatusLabel,
   shipmentStatusTone,
   shortAddressLabel,
@@ -31,7 +32,7 @@ describe("shipmentStatusLabel", () => {
     expect(shipmentStatusLabel(ShipmentStatus.DELIVERED)).toBe("Entregado");
     expect(shipmentStatusLabel(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe("Esperando receptor");
     expect(shipmentStatusLabel(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("Rechazado");
-    expect(shipmentStatusLabel(ShipmentStatus.ASSIGNMENT_PENDING)).toBe("Sin asignar");
+    expect(shipmentStatusLabel(ShipmentStatus.ASSIGNMENT_PENDING)).toBe("Asignado");
     expect(shipmentStatusLabel(ShipmentStatus.ASSIGNED)).toBe("Asignado");
   });
 
@@ -201,7 +202,7 @@ describe("shipmentEventTitle", () => {
 
   it("MOVO-208: títulos narrativos de los estados nuevos", () => {
     expect(shipmentEventTitle(ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.PUBLISHED)).toBe(
-      "Transportista asignado -- fondos aún no reservados",
+      "El emisor eligió al transportista",
     );
     expect(shipmentEventTitle(ShipmentStatus.COMPLETED, ShipmentStatus.DELIVERED)).toBe(
       "Pago liberado, envío cerrado",
@@ -593,5 +594,39 @@ describe("MOVO-253: elegir otro receptor", () => {
       expect(redesignationDeadlineLabel("no-es-fecha", now)).toBeNull();
       expect(redesignationDeadlineLabel(new Date(2026, 8, 25, 9, 0).toISOString(), now)).toBeNull();
     });
+  });
+});
+
+describe("aceptación de una oferta en la línea de tiempo", () => {
+  const accept = [ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.PUBLISHED] as const;
+
+  it("se titula por la elección del transportista, según quién mira", () => {
+    expect(shipmentEventTitle(...accept, { isSender: true, carrierName: "Juan" })).toBe(
+      "Elegiste a Juan como transportista",
+    );
+    expect(shipmentEventTitle(...accept, { isSender: true })).toBe("Elegiste al transportista");
+    expect(shipmentEventTitle(...accept, { carrierName: "Juan" })).toBe("El emisor eligió a Juan");
+    expect(shipmentEventTitle(...accept, { isCarrier: true, carrierName: "Juan" })).toBe(
+      "El emisor aceptó tu oferta",
+    );
+  });
+
+  it("el pago pendiente va como detalle", () => {
+    expect(shipmentEventDetail(...accept)).toBe("Falta reservar el pago");
+    expect(shipmentEventDetail(ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.PUBLISHED)).toBe(
+      "El pago se reserva más cerca del retiro",
+    );
+  });
+
+  it("pasar a assigned es la reserva del pago, no la asignación", () => {
+    expect(shipmentEventTitle(ShipmentStatus.ASSIGNED, ShipmentStatus.ASSIGNMENT_PENDING)).toBe("Pago reservado");
+    expect(shipmentPendingStepLabel(ShipmentStatus.ASSIGNED)).toBe("Reserva del pago");
+  });
+
+  it("solo muestra el motivo en cancelaciones y rechazos", () => {
+    expect(shouldShowEventReason(ShipmentStatus.CANCELLED)).toBe(true);
+    expect(shouldShowEventReason(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe(true);
+    expect(shouldShowEventReason(ShipmentStatus.ASSIGNMENT_PENDING)).toBe(false);
+    expect(shouldShowEventReason(ShipmentStatus.IN_TRANSIT)).toBe(false);
   });
 });
