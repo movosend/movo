@@ -3934,3 +3934,22 @@ Lado mobile del ADR-027 (`rejected_by_receiver` deja de ser terminal, ver
   tomar el nombre del receptor actual.
 
 Pendiente: no probado en device.
+
+### MOVO-254 — Badge "Alta demanda en tu zona" junto al precio sugerido
+
+`HighDemandBadge` (`components/shipments/high-demand-badge.tsx`) explica el recargo de
+`demand_fuel_routes_v1` sin mostrar el porcentaje (ADR-025): pill en tinta sobre la card
+lima de precio, y un tap despliega el texto de ayuda (no un tooltip flotante: medir la
+posición con `measureInWindow` no es testeable en jest-expo, mismo gap que MOVO-29). El
+componente no decide cuándo mostrarse; eso queda en cada caller.
+
+- **Detalle (`shipments/[id].tsx`)**: `ShipmentSummary` suma `highDemand: boolean | null`.
+  Se muestra solo al emisor, con `highDemand === true` (`null` no equivale a `false`) y
+  sin precio pactado. Usa la misma condición que la etiqueta "Precio pactado"
+  (`agreedPriceArs` o `carrierId`), no solo `agreedPriceArs` como decía el AC3: con
+  transportista asignado la card ya no muestra el precio sugerido.
+- **Resumen del wizard, pendiente**: MOVO-255 (PR #202, abierta) deja `highDemand` en
+  `priceQuote` del store y le pasa el badge a este ticket. Se conecta en
+  `PricePreviewCard` cuando #202 llegue a `develop`.
+
+Pendiente: no probado en device.
