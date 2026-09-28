@@ -281,8 +281,8 @@ describe("ShipmentDetailScreen", () => {
     expect(getByTestId("shipment-detail-sender")).toBeTruthy();
     expect(getByText("Pedro Emisor")).toBeTruthy();
     expect(queryByTestId("shipment-detail-receiver")).toBeNull();
-    expect(queryByText("Pend. de aceptar")).toBeNull();
-    expect(queryByText("Aceptó el envío")).toBeNull();
+    expect(queryByText("Pendiente")).toBeNull();
+    expect(queryByText("Aceptó")).toBeNull();
   });
 
   it("mirando como receptor en awaiting_receiver_confirmation, muestra la barra de acciones (AC4 de MOVO-131)", async () => {
@@ -611,7 +611,7 @@ describe("ShipmentDetailScreen", () => {
 
     const { getByText } = await render(<ShipmentDetailScreen />);
 
-    expect(getByText("Pend. de aceptar")).toBeTruthy();
+    expect(getByText("Pendiente")).toBeTruthy();
   });
 
   it("muestra el badge de 'rechazó el envío' del receptor cuando el receptor lo rechazó", async () => {
@@ -625,7 +625,7 @@ describe("ShipmentDetailScreen", () => {
 
     const { getByText } = await render(<ShipmentDetailScreen />);
 
-    expect(getByText("Rechazó el envío")).toBeTruthy();
+    expect(getByText("Rechazó")).toBeTruthy();
   });
 
   it("hace pop de la pila con router.back() al tocar volver, en vez de empujar Inicio encima", async () => {
