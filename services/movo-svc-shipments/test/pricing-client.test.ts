@@ -31,8 +31,8 @@ describe("PricingClient", () => {
       json: () =>
         Promise.resolve({
           suggestedPriceArs: 2256,
-          breakdown: [],
-          calculationMethod: "euclidean_linear_v1",
+          highDemand: false,
+          calculationMethod: "demand_fuel_routes_v1",
         }),
     });
     globalThis.fetch = fetchMock;
@@ -58,7 +58,45 @@ describe("PricingClient", () => {
     });
     expect(result).toEqual({
       suggestedPriceArs: 2256,
+      calculationMethod: PriceCalculationMethod.DEMAND_FUEL_ROUTES_V1,
+      highDemand: false,
+    });
+  });
+
+  it("MOVO-138: manda demandContext cuando viene y devuelve highDemand", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({ suggestedPriceArs: 36220, highDemand: true, calculationMethod: "demand_fuel_routes_v1" }),
+    });
+    globalThis.fetch = fetchMock;
+
+    const client = createPricingClient({ PRICING_SERVICE_URL: "http://movo-svc-pricing-logistics:8000" });
+    const result = await client.getQuote({
+      ...completeInput,
+      demandContext: { publishedShipments: 9, availableCarriers: 2 },
+    });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).demandContext).toEqual({
+      publishedShipments: 9,
+      availableCarriers: 2,
+    });
+    expect(result.highDemand).toBe(true);
+  });
+
+  it("MOVO-138: highDemand es null si pricing no lo informa (versión anterior desplegada)", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ suggestedPriceArs: 2256, calculationMethod: "euclidean_linear_v1" }),
+    });
+
+    const client = createPricingClient({ PRICING_SERVICE_URL: "http://movo-svc-pricing-logistics:8000" });
+    const result = await client.getQuote(completeInput);
+
+    expect(result).toEqual({
+      suggestedPriceArs: 2256,
       calculationMethod: PriceCalculationMethod.EUCLIDEAN_LINEAR_V1,
+      highDemand: null,
     });
   });
 
@@ -70,7 +108,7 @@ describe("PricingClient", () => {
     const result = await client.getQuote({ ...completeInput, weightKg: undefined });
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(result).toEqual({ suggestedPriceArs: null, calculationMethod: null });
+    expect(result).toEqual({ suggestedPriceArs: null, calculationMethod: null, highDemand: null });
   });
 
   it("AC6: devuelve el fallback (no lanza) si la respuesta no es ok", async () => {
@@ -80,7 +118,7 @@ describe("PricingClient", () => {
     const client = createPricingClient({ PRICING_SERVICE_URL: "http://movo-svc-pricing-logistics:8000" });
     const result = await client.getQuote(completeInput);
 
-    expect(result).toEqual({ suggestedPriceArs: null, calculationMethod: null });
+    expect(result).toEqual({ suggestedPriceArs: null, calculationMethod: null, highDemand: null });
   });
 
   it("AC6: devuelve el fallback (no lanza) ante un error de red/timeout", async () => {
@@ -90,7 +128,7 @@ describe("PricingClient", () => {
     const client = createPricingClient({ PRICING_SERVICE_URL: "http://movo-svc-pricing-logistics:8000" });
     const result = await client.getQuote(completeInput);
 
-    expect(result).toEqual({ suggestedPriceArs: null, calculationMethod: null });
+    expect(result).toEqual({ suggestedPriceArs: null, calculationMethod: null, highDemand: null });
   });
 
   it("AC6: devuelve el fallback (no lanza) si la respuesta es 200 pero el body no parsea como JSON", async () => {
@@ -103,6 +141,6 @@ describe("PricingClient", () => {
     const client = createPricingClient({ PRICING_SERVICE_URL: "http://movo-svc-pricing-logistics:8000" });
     const result = await client.getQuote(completeInput);
 
-    expect(result).toEqual({ suggestedPriceArs: null, calculationMethod: null });
+    expect(result).toEqual({ suggestedPriceArs: null, calculationMethod: null, highDemand: null });
   });
 });

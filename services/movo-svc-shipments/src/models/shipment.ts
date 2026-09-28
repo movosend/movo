@@ -39,12 +39,23 @@ export interface Shipment {
   /** Versión del algoritmo que produjo `suggestedPriceArs` (`PriceCalculationMethod`
    * de `@movo/shared`), o `null` junto con un `suggestedPriceArs` nulo. */
   calculationMethod: string | null;
+  /** MOVO-138 (ADR-025): `true` si la cotización llevó recargo por alta demanda. Misma
+   * foto que `suggestedPriceArs`, nunca se recalcula. `null` = sin cotización o envío
+   * anterior a `demand_fuel_routes_v1` -- no equivale a `false`. */
+  highDemand: boolean | null;
   agreedPriceArs: number | null;
   paymentMethod: string | null;
   status: ShipmentStatus;
   lastStatusChangedAt: Date | null;
   deliveredAt: Date | null;
   receiverConfirmationDeadline: Date | null;
+  /** MOVO-253: plazo del emisor para elegir otro receptor. Solo significativo en
+   * `rejected_by_receiver`; `null` en rechazos anteriores a este cambio. */
+  receiverRedesignationDeadline: Date | null;
+  /** MOVO-253: motivo del último rechazo (`shipment_events.reason`), solo cuando el
+   * envío está en `rejected_by_receiver` y la lectura lo cargó (`findById`/
+   * `listByUser`) -- `null` en cualquier otro caso. */
+  rejectionReason: string | null;
   createdAt: Date;
   updatedAt: Date;
   /** MOVO-180: entrega estimada (día + franja) de la oferta ganadora, copiada acá al
@@ -128,6 +139,7 @@ export interface CreateShipmentInput {
   pickupTimeWindowEnd: Date;
   suggestedPriceArs: number | null;
   calculationMethod: string | null;
+  highDemand: boolean | null;
   receiverConfirmationDeadline?: Date | null;
 }
 

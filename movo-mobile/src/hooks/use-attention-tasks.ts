@@ -1,6 +1,10 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router } from "expo-router";
-import { receiverConfirmationDeadlineShortLabel, shortAddressLabel } from "../lib/shipment-format";
+import {
+  receiverConfirmationDeadlineShortLabel,
+  redesignationDeadlineLabel,
+  shortAddressLabel,
+} from "../lib/shipment-format";
 import { useAuthStore } from "../store/auth-store";
 import { usePublicProfiles } from "./use-profile";
 import { useAttentionSourceShipments } from "./use-shipments";
@@ -29,7 +33,22 @@ export interface AttentionConfirmTask {
   onPress: () => void;
 }
 
-export type AttentionTask = AttentionInfoTask | AttentionConfirmTask;
+/** MOVO-253: el receptor rechazó el envío y el emisor puede elegir a otra persona
+ * hasta `deadlineLabel`. Se renderiza con `AttentionRejectedCard`. */
+export interface AttentionRejectedTask {
+  kind: "rejected";
+  id: string;
+  shipmentId: string;
+  title: string;
+  meta: string;
+  /** Motivo que dejó el receptor al rechazar, si dejó uno. */
+  reason: string | null;
+  deadlineLabel: string;
+  onPress: () => void;
+  onChooseReceiver: () => void;
+}
+
+export type AttentionTask = AttentionInfoTask | AttentionConfirmTask | AttentionRejectedTask;
 
 /**
  * "Requiere tu atención" (MOVO-193, alcance ampliado a pedido del usuario: reusar
@@ -41,8 +60,12 @@ export type AttentionTask = AttentionInfoTask | AttentionConfirmTask;
  *   Aceptar/Rechazar (renderizados por `AttentionConfirmCard`) abren el sheet real
  *   de confirmación en vez de resolverlo acá con un `Alert` genérico — feedback
  *   explícito del usuario tras una primera versión con `Alert.alert`.
- * - `REJECTED_BY_RECEIVER` con el usuario como emisor: el receptor rechazó el envío,
- *   hay que elegir otro.
+ * - `REJECTED_BY_RECEIVER` con el usuario como emisor: el receptor rechazó el envío y
+ *   el emisor puede elegir a otra persona hasta `receiverRedesignationDeadline`
+ *   (MOVO-253). Con el plazo vencido (o nulo, rechazos anteriores a MOVO-253) la tarea
+ *   no se lista: la acción ya no está disponible y el barrido cancela el envío.
+ *
+ * La fuente pide solo esos dos estados (`useAttentionSourceShipments`, MOVO-253 AC8).
  *
  * Deliberadamente fuera de esta versión (gaps de backend a crear como ticket nuevo,
  * ver el comentario dejado en MOVO-192):
@@ -71,14 +94,25 @@ export function useAttentionTasks() {
         .map((shipment) => shipment.senderId),
     ),
   );
-  const senderProfiles = usePublicProfiles(confirmSenderIds);
-  const senderFirstNameById = new Map(
-    confirmSenderIds.map((id, index) => {
-      const fullName = senderProfiles[index]?.data?.fullName?.trim();
-      return [
-        id,
-        fullName ? fullName.split(/\s+/)[0] : undefined,
-      ];
+  const rejecterIds = Array.from(
+    new Set(
+      (data?.items ?? [])
+        .filter(
+          (shipment) =>
+            shipment.status === ShipmentStatus.REJECTED_BY_RECEIVER &&
+            shipment.senderId === currentUserId,
+        )
+        .map((shipment) => shipment.receiverId),
+    ),
+  );
+  // Un solo `usePublicProfiles` para emisores y receptores que rechazaron: comparten
+  // cache por id con el resto de la app.
+  const profileIds = [...confirmSenderIds, ...rejecterIds];
+  const profiles = usePublicProfiles(profileIds);
+  const firstNameById = new Map(
+    profileIds.map((id, index) => {
+      const fullName = profiles[index]?.data?.fullName?.trim();
+      return [id, fullName ? fullName.split(/\s+/)[0] : undefined];
     }),
   );
 
@@ -89,7 +123,7 @@ export function useAttentionTasks() {
         shipment.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION &&
         shipment.receiverId === currentUserId
       ) {
-        const senderFirstName = senderFirstNameById.get(shipment.senderId);
+        const senderFirstName = firstNameById.get(shipment.senderId);
         const deadlineLabel = receiverConfirmationDeadlineShortLabel(
           shipment.receiverConfirmationDeadline,
         );
@@ -111,14 +145,21 @@ export function useAttentionTasks() {
         shipment.status === ShipmentStatus.REJECTED_BY_RECEIVER &&
         shipment.senderId === currentUserId
       ) {
+        const deadlineLabel = redesignationDeadlineLabel(shipment.receiverRedesignationDeadline);
+        if (!deadlineLabel) continue;
+        const rejecterFirstName = firstNameById.get(shipment.receiverId);
         tasks.push({
-          kind: "info",
+          kind: "rejected",
           id: `rejected-${shipment.id}`,
-          title: "El receptor rechazó tu envío",
-          meta: shortAddressLabel(shipment.deliveryAddress),
+          shipmentId: shipment.id,
+          title: rejecterFirstName
+            ? `${rejecterFirstName} rechazó tu envío`
+            : "El receptor rechazó tu envío",
+          meta: `Iba a ${shortAddressLabel(shipment.deliveryAddress)}`,
+          reason: shipment.rejectionReason ?? null,
+          deadlineLabel,
           onPress: () => router.push(`/shipments/${shipment.id}`),
-          primaryLabel: "Ver envío",
-          onPrimary: () => router.push(`/shipments/${shipment.id}`),
+          onChooseReceiver: () => router.push(`/shipments/${shipment.id}/change-receiver`),
         });
       }
     }

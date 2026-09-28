@@ -40,6 +40,14 @@ class RoutesProvider(ABC):
         """Calcula las matrices NxN de distancias (km) y tiempos (min) entre todos los waypoints."""
         pass
 
+    def compute_route_km(self, origin: Coordinates, destination: Coordinates) -> float:
+        """Distancia de un solo trayecto origen→destino, para `POST /quote` (MOVO-138).
+
+        Los providers que cobran por elemento sobreescriben esto para pedir una matriz
+        1x1 en vez de la 2x2 que implicaría `compute_matrix([origin, destination])`.
+        """
+        return self.compute_matrix([origin, destination]).dist_matrix_km[0][1]
+
 
 class MockRoutesProvider(RoutesProvider):
     """Proveedor determinístico basado en Haversine y velocidad promedio (ADR-013).
@@ -111,23 +119,53 @@ class GoogleRoutesProvider(RoutesProvider):
                 provider_name="google_routes",
             )
 
+        waypoint_specs = [_waypoint_spec(w) for w in waypoints]
+        elements = self._request_elements(waypoint_specs, waypoint_specs)
+
+        dist_matrix = [[0.0] * n for _ in range(n)]
+        time_matrix = [[0] * n for _ in range(n)]
+
+        for elem in elements:
+            # Si el elemento contiene un error de enrutamiento
+            if "status" in elem and elem["status"].get("code", 0) != 0:
+                logger.warning("Elemento no enrutable en matriz: %s", elem["status"])
+                continue
+
+            orig_idx = elem.get("originIndex")
+            dest_idx = elem.get("destinationIndex")
+            if orig_idx is None or dest_idx is None:
+                continue
+
+            dist_meters = elem.get("distanceMeters", 0)
+            duration_str = elem.get("duration", "0s")
+            duration_seconds = int(duration_str.rstrip("s")) if duration_str.endswith("s") else 0
+
+            dist_matrix[orig_idx][dest_idx] = round(dist_meters / 1000.0, 3)
+            time_matrix[orig_idx][dest_idx] = math.ceil(duration_seconds / 60.0)
+
+        return DistanceMatrixResult(
+            dist_matrix_km=dist_matrix,
+            time_matrix_min=time_matrix,
+            provider_name="google_routes",
+        )
+
+    def compute_route_km(self, origin: Coordinates, destination: Coordinates) -> float:
+        """Matriz 1x1: un solo elemento facturado por cotización (ADR-015)."""
+        elements = self._request_elements([_waypoint_spec(origin)], [_waypoint_spec(destination)])
+        elem = elements[0] if len(elements) == 1 else {}
+        if elem.get("status", {}).get("code", 0) != 0 or "distanceMeters" not in elem:
+            raise RoutesProviderError("Google Routes API no encontró una ruta entre origen y destino.")
+        return round(elem["distanceMeters"] / 1000.0, 3)
+
+    def _request_elements(
+        self, origins: list[dict[str, Any]], destinations: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         headers = {
             "Content-Type": "application/json",
             "X-Goog-Api-Key": self.api_key,
             "X-Goog-FieldMask": FIELD_MASK,
         }
-
-        # Estructura del body con waypoints ordenados canónicamente
-        waypoint_specs = [
-            {"waypoint": {"location": {"latLng": {"latitude": w.lat, "longitude": w.lng}}}}
-            for w in waypoints
-        ]
-
-        payload = {
-            "origins": waypoint_specs,
-            "destinations": waypoint_specs,
-            "travelMode": "DRIVE",
-        }
+        payload = {"origins": origins, "destinations": destinations, "travelMode": "DRIVE"}
 
         try:
             with httpx.Client(timeout=self.timeout) as client:
@@ -157,37 +195,18 @@ class GoogleRoutesProvider(RoutesProvider):
             raise RoutesProviderError(
                 "Formato inesperado devuelto por Google Routes API."
             ) from exc
-
-        dist_matrix = [[0.0] * n for _ in range(n)]
-        time_matrix = [[0] * n for _ in range(n)]
-
-        for elem in elements:
-            # Si el elemento contiene un error de enrutamiento
-            if "status" in elem and elem["status"].get("code", 0) != 0:
-                logger.warning("Elemento no enrutable en matriz: %s", elem["status"])
-                continue
-
-            orig_idx = elem.get("originIndex")
-            dest_idx = elem.get("destinationIndex")
-            if orig_idx is None or dest_idx is None:
-                continue
-
-            dist_meters = elem.get("distanceMeters", 0)
-            duration_str = elem.get("duration", "0s")
-            duration_seconds = int(duration_str.rstrip("s")) if duration_str.endswith("s") else 0
-
-            dist_matrix[orig_idx][dest_idx] = round(dist_meters / 1000.0, 3)
-            time_matrix[orig_idx][dest_idx] = math.ceil(duration_seconds / 60.0)
-
-        return DistanceMatrixResult(
-            dist_matrix_km=dist_matrix,
-            time_matrix_min=time_matrix,
-            provider_name="google_routes",
-        )
+        return elements
 
 
-def get_routes_provider() -> RoutesProvider:
-    """Factory de RoutesProvider según la variable de entorno ROUTES_PROVIDER."""
+def _waypoint_spec(point: Coordinates) -> dict[str, Any]:
+    return {"waypoint": {"location": {"latLng": {"latitude": point.lat, "longitude": point.lng}}}}
+
+
+def get_routes_provider(timeout: float = REQUEST_TIMEOUT_SECONDS) -> RoutesProvider:
+    """Factory de RoutesProvider según la variable de entorno ROUTES_PROVIDER.
+
+    `timeout` solo aplica a Google: `/quote` pide uno más corto (MOVO-138).
+    """
     provider_type = settings.routes_provider.lower().strip()
     if provider_type == "google":
         if not settings.google_maps_api_key:
@@ -195,5 +214,5 @@ def get_routes_provider() -> RoutesProvider:
                 "ROUTES_PROVIDER=google requiere GOOGLE_MAPS_API_KEY configurada.",
                 status_code=500,
             )
-        return GoogleRoutesProvider(api_key=settings.google_maps_api_key)
+        return GoogleRoutesProvider(api_key=settings.google_maps_api_key, timeout=timeout)
     return MockRoutesProvider(avg_speed_kmh=settings.routing_avg_speed_kmh)

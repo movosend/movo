@@ -39,6 +39,10 @@ export type ApiErrorCode =
   | "SHIPMENT_INSUFFICIENT_CREATION_PHOTOS"
   | "SHIPMENT_INVALID_TRANSITION"
   | "SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED"
+  // MOVO-253: venció el plazo para elegir otro receptor tras un rechazo.
+  | "SHIPMENT_REDESIGNATION_EXPIRED"
+  // MOVO-253: el receptor elegido ya rechazó este mismo envío.
+  | "SHIPMENT_RECEIVER_ALREADY_REJECTED"
   | "ROUTES_PROVIDER_ERROR"
   | "ROUTE_NOT_FOUND"
   | "PROFILE_NAME_LOCKED_BY_KYC"

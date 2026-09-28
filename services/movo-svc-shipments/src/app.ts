@@ -19,6 +19,7 @@ import offersRoutes, { OffersRoutesOptions } from "./modules/offers/offers.route
 import ratingsRoutes, { internalRatingsRoutes, RatingsRoutesOptions } from "./modules/ratings/ratings.routes";
 import tripsRoutes, { TripsRoutesOptions } from "./modules/trips/trips.routes";
 import accountDeletionRoutes from "./modules/account-deletion/account-deletion.routes";
+import mutualConnectionsRoutes from "./modules/mutual-connections/mutual-connections.routes";
 import handshakeRoutes, { HandshakeRoutesOptions } from "./modules/handshake/handshake.routes";
 import trackingRoutes, { TrackingRoutesOptions } from "./modules/tracking/tracking.routes";
 import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/positions.routes";
@@ -187,6 +188,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Interno -- no se declara en gateway/src/config/routes-map.ts (mismo criterio que
   // /internal/notifications de movo-svc-users, MOVO-106).
   app.register(accountDeletionRoutes, { prefix: "/internal/account-deletion" });
+
+  // MOVO-174: consultado por movo-svc-users para "conexiones mutuas" del perfil. Interno.
+  app.register(mutualConnectionsRoutes, { prefix: "/internal" });
 
   // MOVO-146 AC10: consultado por movo-svc-users para el agregado/últimas
   // calificaciones del perfil (MOVO-25). Interno, mismo criterio que accountDeletionRoutes.

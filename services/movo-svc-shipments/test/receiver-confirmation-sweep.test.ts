@@ -74,7 +74,8 @@ describe("receiver-confirmation-sweep plugin", () => {
       expect.any(Number),
       "NX"
     );
-    expect(mockFindMany).toHaveBeenCalled();
+    // MOVO-253: el mismo ciclo corre también el barrido de rechazos vencidos.
+    expect(mockFindMany).toHaveBeenCalledTimes(2);
 
     await app.close();
     expect(vi.getTimerCount()).toBe(0);

@@ -47,6 +47,10 @@ function createFakeShipmentsClient() {
     async deleteCarrierPositions() {
       return 0;
     },
+    // MOVO-174: esta suite no ejercita conexiones mutuas.
+    async findMutualConnectionIds() {
+      return [];
+    },
   };
   return {
     client,

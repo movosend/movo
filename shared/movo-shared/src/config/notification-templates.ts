@@ -21,6 +21,7 @@ export type NotificationTriggerKey =
   | "shipmentRejected"
   | "shipmentCancelledConfirmationTimeout"
   | "shipmentCancelledPickupExpired"
+  | "shipmentCancelledRedesignationExpired"
   | "offerCreated"
   | "offerAccepted"
   | "offerSuperseded"
@@ -86,10 +87,19 @@ export const NOTIFICATION_TRIGGERS = {
     { title: "Envío aceptado", body: "El receptor aceptó el envío, ya está publicado." },
     ({ receiverName }) => ({ title: "Envío aceptado", body: `${receiverName} aceptó el envío, ya está publicado` })
   ),
+  // MOVO-253: el rechazo ya no es terminal, el emisor puede elegir otro receptor.
   shipmentRejected: definition<{ receiverName: string }>(
     "shipments",
-    { title: "Envío rechazado", body: "El receptor rechazó el envío." },
-    ({ receiverName }) => ({ title: "Envío rechazado", body: `${receiverName} rechazó el envío` })
+    { title: "Envío rechazado", body: "El receptor rechazó el envío. Podés elegir otro receptor." },
+    ({ receiverName }) => ({
+      title: "Envío rechazado",
+      body: `${receiverName} rechazó el envío. Podés elegir otro receptor.`,
+    })
+  ),
+  shipmentCancelledRedesignationExpired: definition<void>(
+    "shipments",
+    { title: "Envío cancelado", body: "Tu envío se canceló: no elegiste otro receptor a tiempo." },
+    () => ({ title: "Envío cancelado", body: "Tu envío se canceló: no elegiste otro receptor a tiempo" })
   ),
   shipmentCancelledConfirmationTimeout: definition<{ receiverName: string }>(
     "shipments",

@@ -1151,3 +1151,24 @@ de Privacidad; revisión desde `movo-admin`.
   Get sobre todo el bucket" también estaba desactualizado desde MOVO-114 -- ver la
   entrada transversal de "Pendientes" del `CLAUDE.md` raíz (falta sumar `"reports"` a
   `ec2_role_s3_prefixes` en `movo-infra` antes de un deploy real).
+### MOVO-174 — `GET /users/:id/mutual-connections`
+
+"Ya envió con N personas con las que vos también enviaste" del perfil. Depende de QUIÉN MIRA
+(`x-user-id`), por eso es un endpoint propio y no un campo de `PublicProfile`.
+`users.service.ts#getMutualConnections` valida al usuario visitado (404 `USER_NOT_FOUND`, `deleted`
+cuenta como "no existe"), consulta a `svc-shipments` (`shipments-client.ts#findMutualConnectionIds`,
+endpoint interno), descarta las contrapartes con cuenta dada de baja (`user-repository.ts#
+countActiveByIds`, `status != deleted`; `banned` sí cuenta) y devuelve `{ totalCount,
+sampleFirstNames: [] }`.
+
+- **`svc-shipments` devuelve ids, no un conteo, porque no sabe qué cuentas se eliminaron** (fix de
+  review de PR #196): sin este filtro, alguien que borró su cuenta seguía contando como conexión en
+  común. Los ids no salen de `getMutualConnections`. Si la base propia falla al contar, el error se
+  propaga: solo la caída de `svc-shipments` degrada a 0.
+- **Decisión de privacidad: solo el conteo.** `sampleFirstNames` viaja SIEMPRE vacío: nombrar a un
+  tercero revelaría que transaccionó con alguien que el viewer conoce, sin su consentimiento. El campo
+  queda en el contrato para poder pasar a nombres sin romper clientes (ese cambio pediría un ADR corto).
+- **Mirar el propio perfil da 0 y no llama a `svc-shipments`** (propio usuario excluido).
+- **Si `svc-shipments` falla, degrada a 0 y loguea** (`mutual_connections_fetch_failed`), igual que la
+  reputación (AC3 de MOVO-152): el mobile oculta la fila con 0, el perfil nunca se cae por esto.
+- Sin cambios en el gateway (`/users` ya se proxea genéricamente) ni env vars nuevas.

@@ -25,8 +25,15 @@ import { PricingClient } from "../../adapters/pricing-client";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
 import { AvailableShipment, PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
 import { RatingRole } from "../../models/rating";
-import { isPickupWindowExpired, offerExpiresAtInstant, pickupWindowInstant } from "../../domain/pickup-window";
+import {
+  deadlineCappedByPickupWindow,
+  isPickupWindowExpired,
+  offerExpiresAtInstant,
+  pickupWindowEndInstant,
+  pickupWindowInstant,
+} from "../../domain/pickup-window";
 import { haversineKm } from "../../domain/geo";
+import { quoteShipment } from "./shipment-quote";
 import {
   aggregateCarrierStops,
   buildDegradedRoute,
@@ -50,6 +57,7 @@ import { Offer } from "../../models/offer";
 import {
   assertIsNotShipmentParty,
   assertIsReceiver,
+  assertIsSender,
   assertIsSenderOrAdmin,
   assertShipmentAccess,
 } from "./assert-shipment-access";
@@ -479,6 +487,70 @@ async function dispatchReceiverDecisionPush(
   }
 }
 
+/**
+ * Push "tenés un envío nuevo para confirmar" al receptor (AC1 de MOVO-108). Nunca
+ * lanza. Compartida por `createShipment` y, desde MOVO-253, por la elección de otro
+ * receptor tras un rechazo -- para el receptor nuevo es el mismo aviso.
+ */
+async function dispatchShipmentCreatedPush(
+  notificationsClient: NotificationsClient,
+  usersClient: UsersClient,
+  logger: ShipmentsServiceLogger | undefined,
+  shipment: Shipment
+): Promise<void> {
+  let senderName = "Un usuario";
+  try {
+    const senderProfile = await usersClient.findPublicProfile(shipment.senderId, shipment.senderId);
+    if (senderProfile?.fullName) {
+      senderName = senderProfile.fullName;
+    }
+  } catch (err) {
+    logger?.warn(
+      { err, event: "sender_profile_lookup_for_push_failed", senderId: shipment.senderId },
+      "No se pudo obtener el perfil del emisor para el copy del push; usando fallback"
+    );
+  }
+
+  try {
+    const { title, body } = renderNotificationTrigger("shipmentCreated", { senderName });
+    await notificationsClient.sendPush({
+      userId: shipment.receiverId,
+      title,
+      body,
+      category: notificationTriggerCategory("shipmentCreated"),
+      data: { type: "shipment", shipmentId: shipment.id },
+    });
+  } catch (err) {
+    logger?.warn(
+      { err, event: "notification_dispatch_failed", shipmentId: shipment.id },
+      "No se pudo notificar al receptor sobre el envío nuevo"
+    );
+  }
+}
+
+/** MOVO-253 AC3: el barrido canceló un rechazo sin nuevo receptor elegido a tiempo. */
+async function dispatchRedesignationExpiredPush(
+  notificationsClient: NotificationsClient,
+  logger: ShipmentsServiceLogger | undefined,
+  shipment: Shipment
+): Promise<void> {
+  try {
+    const { title, body } = renderNotificationTrigger("shipmentCancelledRedesignationExpired", undefined);
+    await notificationsClient.sendPush({
+      userId: shipment.senderId,
+      title,
+      body,
+      category: notificationTriggerCategory("shipmentCancelledRedesignationExpired"),
+      data: { shipmentId: shipment.id, type: "shipment_cancelled" },
+    });
+  } catch (err) {
+    logger?.warn(
+      { err, event: "notification_dispatch_failed", shipmentId: shipment.id },
+      "No se pudo enviar la push de cancelación por plazo de re-designación vencido al emisor"
+    );
+  }
+}
+
 async function dispatchReceiverTimeoutPush(
   notificationsClient: NotificationsClient,
   usersClient: UsersClient,
@@ -696,6 +768,9 @@ async function dispatchPickupExpiredPush(
 
 export interface ShipmentsServiceOptions {
   receiverConfirmationTimeoutHours?: number;
+  /** MOVO-253: horas que tiene el emisor para elegir otro receptor tras un rechazo
+   * (`RECEIVER_REDESIGNATION_TIMEOUT_HOURS`), con tope en la ventana de retiro. */
+  receiverRedesignationTimeoutHours?: number;
   /** Requerido solo para `cancelShipment` (AC7 de MOVO-108, notificar ofertas
    * pendientes) — el barrido de MOVO-130 no lo necesita, nunca cancela por esa vía. */
   offerRepository?: OfferRepository;
@@ -750,6 +825,7 @@ export function createShipmentsService(
   opts: ShipmentsServiceOptions = {}
 ) {
   const timeoutHours = opts.receiverConfirmationTimeoutHours ?? 48;
+  const redesignationTimeoutHours = opts.receiverRedesignationTimeoutHours ?? 48;
   const offerRepository = opts.offerRepository;
   const pricingClient = opts.pricingClient;
   const pricingLogisticsClient = opts.pricingLogisticsClient;
@@ -812,23 +888,25 @@ export function createShipmentsService(
       // MOVO-175 (ADR-026): no se puede designar como receptor a alguien con un bloqueo.
       await assertNotBlocked(usersClient, input.senderId, [input.receiverId]);
 
-      // MOVO-82: `getQuote` nunca lanza -- degrada a `{ suggestedPriceArs: null,
-      // calculationMethod: null }` ("precio a estimar") ante cualquier falla de
-      // movo-svc-pricing-logistics (AC6), sin cliente inyectado, o datos incompletos
-      // (AC7, inalcanzable hoy porque createShipmentBody exige todos estos campos).
-      const quote = pricingClient
-        ? await pricingClient.getQuote({
-            weightKg: input.weightKg,
-            lengthCm: input.lengthCm,
-            widthCm: input.widthCm,
-            heightCm: input.heightCm,
-            packageType: input.packageType,
-            originLat: input.pickupLat,
-            originLng: input.pickupLng,
-            destinationLat: input.deliveryLat,
-            destinationLng: input.deliveryLng,
-          })
-        : { suggestedPriceArs: null, calculationMethod: null };
+      // MOVO-82: `quoteShipment` nunca lanza -- degrada a "precio a estimar" (todo
+      // `null`) ante cualquier falla de movo-svc-pricing-logistics (AC6), sin cliente
+      // inyectado, o datos incompletos (AC7, inalcanzable hoy porque
+      // createShipmentBody exige todos estos campos). MOVO-138: antes cuenta la
+      // demanda de la zona de retiro para el recargo por alta demanda.
+      const quote = await quoteShipment(
+        { pricingClient, shipmentRepository: repository, tripRepository, logger },
+        {
+          weightKg: input.weightKg,
+          lengthCm: input.lengthCm,
+          widthCm: input.widthCm,
+          heightCm: input.heightCm,
+          packageType: input.packageType,
+          originLat: input.pickupLat,
+          originLng: input.pickupLng,
+          destinationLat: input.deliveryLat,
+          destinationLng: input.deliveryLng,
+        }
+      );
 
       if (quote.suggestedPriceArs === null) {
         logger?.warn(
@@ -843,10 +921,11 @@ export function createShipmentsService(
       // cuya ventana de retiro ya cerró. `windowEndAt` viene anclado como reloj de pared
       // argentino (ver `combineDateAndTime`), así que hay que pasarlo por `toRealInstant`
       // antes de compararlo/persistirlo junto a instantes reales como `timeoutDeadline`.
-      const timeoutDeadline = new Date(Date.now() + timeoutHours * 60 * 60 * 1000);
-      const pickupWindowDeadline = toRealInstant(windowEndAt);
-      const receiverConfirmationDeadline =
-        timeoutDeadline <= pickupWindowDeadline ? timeoutDeadline : pickupWindowDeadline;
+      const receiverConfirmationDeadline = deadlineCappedByPickupWindow(
+        new Date(),
+        timeoutHours,
+        toRealInstant(windowEndAt)
+      );
 
       const created = await repository.create({
         senderId: input.senderId,
@@ -868,6 +947,7 @@ export function createShipmentsService(
         pickupTimeWindowEnd: toEpochTime(input.pickupTimeWindowEnd),
         suggestedPriceArs: quote.suggestedPriceArs,
         calculationMethod: quote.calculationMethod,
+        highDemand: quote.highDemand,
         receiverConfirmationDeadline,
       });
 
@@ -877,34 +957,7 @@ export function createShipmentsService(
       // (no fire-and-forget): no hay razón de negocio para no esperar el intento antes
       // de responder, a diferencia de accept/reject donde la latencia extra no aporta.
       if (notificationsClient) {
-        let senderName = "Un usuario";
-        try {
-          const senderProfile = await usersClient.findPublicProfile(input.senderId, input.senderId);
-          if (senderProfile?.fullName) {
-            senderName = senderProfile.fullName;
-          }
-        } catch (err) {
-          logger?.warn(
-            { err, event: "sender_profile_lookup_for_push_failed", senderId: input.senderId },
-            "No se pudo obtener el perfil del emisor para el copy del push; usando fallback"
-          );
-        }
-
-        try {
-          const { title, body } = renderNotificationTrigger("shipmentCreated", { senderName });
-          await notificationsClient.sendPush({
-            userId: created.receiverId,
-            title,
-            body,
-            category: notificationTriggerCategory("shipmentCreated"),
-            data: { type: "shipment", shipmentId: created.id },
-          });
-        } catch (err) {
-          logger?.warn(
-            { err, event: "notification_dispatch_failed", shipmentId: created.id },
-            "No se pudo notificar al receptor sobre el envío nuevo"
-          );
-        }
+        await dispatchShipmentCreatedPush(notificationsClient, usersClient, logger, created);
       }
 
       return created;
@@ -1357,7 +1410,16 @@ export function createShipmentsService(
         );
       }
 
-      const updated = await repository.updateStatus(shipmentId, ShipmentStatus.REJECTED_BY_RECEIVER, callerId, reason);
+      // MOVO-253: el emisor tiene hasta este plazo para elegir otro receptor, con el
+      // mismo tope por ventana de retiro que la confirmación.
+      const receiverRedesignationDeadline = deadlineCappedByPickupWindow(
+        new Date(),
+        redesignationTimeoutHours,
+        pickupWindowEndInstant(shipment.pickupDate, shipment.pickupTimeWindowEnd)
+      );
+      const updated = await repository.updateStatus(shipmentId, ShipmentStatus.REJECTED_BY_RECEIVER, callerId, reason, {
+        receiverRedesignationDeadline,
+      });
 
       // Best-effort push notification al emisor (AC8 de MOVO-129): deliberadamente
       // sin await -- el estado ya está commiteado y la push no debe agregar latencia
@@ -1374,8 +1436,102 @@ export function createShipmentsService(
       return updated;
     },
 
-    async listMyShipments(userId: string, page: number, limit: number): Promise<ListMineResult> {
-      const { items, total } = await repository.listByUser(userId, page, limit);
+    /**
+     * MOVO-253 AC1/AC2: el emisor elige otro receptor para un envío rechazado. Mismas
+     * validaciones que `createShipment` sobre el receptor, más no elegir a alguien que
+     * ya rechazó este envío. La dirección de entrega no cambia (decisión de producto):
+     * solo se cambia la persona, así que el precio sugerido tampoco se recalcula.
+     */
+    async redesignateReceiver(shipmentId: string, callerId: string, receiverId: string): Promise<Shipment> {
+      const shipment = await repository.findById(shipmentId);
+      if (!shipment) {
+        throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
+      }
+
+      assertIsSender(shipment, callerId, "Solo el emisor puede elegir otro receptor.");
+
+      if (shipment.status !== ShipmentStatus.REJECTED_BY_RECEIVER) {
+        throw new ApiError(
+          409,
+          "SHIPMENT_INVALID_TRANSITION",
+          "Solo se puede elegir otro receptor cuando el anterior rechazó el envío."
+        );
+      }
+
+      // Mismo criterio que MOVO-130 AC5: el plazo manda aunque el barrido todavía no
+      // haya corrido. Un plazo nulo es un rechazo anterior a MOVO-253, que el barrido
+      // cierra en su primera corrida -- se trata como vencido.
+      const now = new Date();
+      if (!shipment.receiverRedesignationDeadline || shipment.receiverRedesignationDeadline < now) {
+        throw new ApiError(
+          409,
+          "SHIPMENT_REDESIGNATION_EXPIRED",
+          "Venció el plazo para elegir otro receptor para este envío."
+        );
+      }
+
+      if (receiverId === shipment.senderId) {
+        throw new ApiError(422, "SHIPMENT_RECEIVER_IS_SENDER", "No podés designarte a vos mismo como receptor.");
+      }
+
+      // Sin columna propia: quien rechazó sale de los eventos `-> rejected_by_receiver`
+      // del envío (el actor es el receptor de ese momento).
+      const events = await repository.listEvents(shipmentId);
+      const rejectedBy = new Set(
+        events
+          .filter((event) => event.toStatus === ShipmentStatus.REJECTED_BY_RECEIVER && event.actorId)
+          .map((event) => event.actorId)
+      );
+      if (rejectedBy.has(receiverId)) {
+        throw new ApiError(
+          422,
+          "SHIPMENT_RECEIVER_ALREADY_REJECTED",
+          "Esta persona ya rechazó este envío. Elegí a otra."
+        );
+      }
+
+      const receiverProfile = await usersClient.findPublicProfile(receiverId, callerId);
+      if (!receiverProfile) {
+        throw new ApiError(404, "USER_NOT_FOUND", "El receptor indicado no existe.");
+      }
+      if (!receiverProfile.isVerified) {
+        throw new ApiError(
+          422,
+          "SHIPMENT_RECEIVER_KYC_NOT_APPROVED",
+          "El receptor todavía no tiene su identidad verificada."
+        );
+      }
+
+      // MOVO-175 (ADR-026): no se puede designar como receptor a alguien con un bloqueo.
+      await assertNotBlocked(usersClient, callerId, [receiverId]);
+
+      const updated = await repository.redesignateReceiver({
+        id: shipmentId,
+        receiverId,
+        actorId: callerId,
+        receiverConfirmationDeadline: deadlineCappedByPickupWindow(
+          now,
+          timeoutHours,
+          pickupWindowEndInstant(shipment.pickupDate, shipment.pickupTimeWindowEnd)
+        ),
+      });
+
+      // Mismo aviso que al crear el envío: para el receptor nuevo es un envío por
+      // confirmar como cualquier otro. Fire-and-forget, el cambio ya está commiteado.
+      if (notificationsClient) {
+        void dispatchShipmentCreatedPush(notificationsClient, usersClient, logger, updated);
+      }
+
+      return updated;
+    },
+
+    async listMyShipments(
+      userId: string,
+      page: number,
+      limit: number,
+      statuses?: readonly ShipmentStatus[]
+    ): Promise<ListMineResult> {
+      const { items, total } = await repository.listByUser(userId, page, limit, statuses);
       return { items, page, limit, total };
     },
 
@@ -1463,7 +1619,7 @@ export function createShipmentsService(
 
       const previousStatus = shipment.status;
       // Cualquier otro estado sin salida hacia `cancelled` (delivered, in_transit,
-      // disputed, cancelled, rejected_by_receiver) llega hasta acá y
+      // disputed, cancelled) llega hasta acá y
       // shipment-state-machine.ts lo rechaza con InvalidShipmentTransitionError
       // (409 SHIPMENT_INVALID_TRANSITION, ver plugins/error-handler.ts).
       const cancelled = await repository.updateStatus(shipmentId, ShipmentStatus.CANCELLED, callerId, reason);
@@ -1547,6 +1703,48 @@ export function createShipmentsService(
             errorsCount,
           },
           `Barrido de confirmación de receptor finalizado: ${expiredCount} expirados, ${errorsCount} fallos`
+        );
+      }
+
+      return { expiredCount, errorsCount };
+    },
+
+    /**
+     * MOVO-253 AC3: cancela los `rejected_by_receiver` cuyo plazo para elegir otro
+     * receptor venció, o es nulo (rechazos anteriores a MOVO-253). Mismo esqueleto que
+     * `expireOverdueShipments`: lote acotado, `actorId: null`, push best-effort al emisor.
+     */
+    async expireRejectedShipments(batchSize = 100): Promise<{ expiredCount: number; errorsCount: number }> {
+      const expired = await repository.findExpiredRejected(new Date(), batchSize);
+      let expiredCount = 0;
+      let errorsCount = 0;
+
+      for (const shipment of expired) {
+        try {
+          await repository.updateStatus(
+            shipment.id,
+            ShipmentStatus.CANCELLED,
+            null,
+            "El emisor no eligió otro receptor dentro del plazo"
+          );
+          expiredCount++;
+
+          if (notificationsClient) {
+            void dispatchRedesignationExpiredPush(notificationsClient, logger, shipment);
+          }
+        } catch (err) {
+          errorsCount++;
+          logger?.error(
+            { err, shipmentId: shipment.id, event: "receiver_redesignation_sweep_error" },
+            "Error al cancelar envío rechazado con plazo vencido en barrido"
+          );
+        }
+      }
+
+      if (expired.length > 0) {
+        logger?.info(
+          { event: "receiver_redesignation_sweep", totalFound: expired.length, expiredCount, errorsCount },
+          `Barrido de re-designación de receptor finalizado: ${expiredCount} cancelados, ${errorsCount} fallos`
         );
       }
 

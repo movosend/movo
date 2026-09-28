@@ -295,6 +295,14 @@ compartido acá — `movo-svc-users` (`sendPushToUser`, único choke point) lo n
 para poder respetar el toggle maestro/de categoría/horario de silencio antes de
 enviar. Todo caller existente que no lo mande rompe en tiempo de compilación.
 
+### MOVO-138 — Contrato `demand_fuel_routes_v1` de `POST /quote`
+
+`src/types/pricing.ts`: `PriceCalculationMethod.DEMAND_FUEL_ROUTES_V1` (sin borrar
+`EUCLIDEAN_LINEAR_V1`, sigue persistido en envíos viejos), `QuoteRequest.demandContext?`
+(`DemandContext`, nuevo export) y `QuoteResponse.highDemand`. `breakdown` y
+`PriceBreakdownItem` salen del contrato: ningún consumidor los leía y el desglose pasa al
+log `pricing_quote_computed` del servicio (ADR-025). El enum de Python
+(`movo-svc-pricing-logistics/app/models/quote.py`) se actualizó en el mismo commit.
 ### MOVO-173 — `config/rating-categories.ts`
 
 `CARRIER_RATING_CATEGORIES` (puntualidad/cuidado del paquete/comunicación) y
@@ -315,3 +323,10 @@ en `GET /users/:id` mirando a otro) y los códigos `USER_BLOCKED`/`CANNOT_MODERA
 límite diario de reportes reusa `RATE_LIMIT_EXCEEDED` en vez de un código propio. Review de
 PR #193: `UserReportSummary`/`UserReportEntry` (reporte propio en revisión con la información
 sumada después) y los códigos `REPORT_ALREADY_PENDING`/`REPORT_NOT_FOUND`.
+
+### MOVO-174 — `MutualConnections`
+
+`src/types/user-profile.ts` — wire contract de `GET /users/:id/mutual-connections`
+(`{ totalCount, sampleFirstNames }`), migrado desde un tipo local de `movo-mobile` (mismo criterio que
+`PublicProfile`). `sampleFirstNames` viaja siempre vacío por la decisión de privacidad de esa US (solo
+el conteo); se mantiene en el tipo para poder mostrar nombres más adelante sin romper clientes.

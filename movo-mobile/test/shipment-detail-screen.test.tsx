@@ -689,5 +689,65 @@ describe("ShipmentDetailScreen", () => {
       expect(scrollViewNode?.props?.refreshControl).toBeTruthy();
     });
   });
-});
 
+  describe("MOVO-253 AC6: envío rechazado, vista emisor", () => {
+    const futureDeadline = () => new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+
+    it("muestra motivo, plazo y el CTA de elegir otro receptor", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        error: null,
+        refetch: jest.fn(),
+        data: shipment({
+          status: ShipmentStatus.REJECTED_BY_RECEIVER,
+          rejectionReason: "No estoy en la ciudad",
+          receiverRedesignationDeadline: futureDeadline(),
+        }),
+      });
+
+      const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-rejected-banner-reason")).toHaveTextContent("“No estoy en la ciudad”");
+      expect(getByTestId("shipment-detail-rejected-banner-deadline")).toHaveTextContent(/^Tenés hasta/);
+      await fireEvent.press(getByTestId("shipment-detail-rejected-banner-cta"));
+      expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-1/change-receiver");
+    });
+
+    it("con el plazo vencido, avisa y no ofrece el CTA", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        error: null,
+        refetch: jest.fn(),
+        data: shipment({
+          status: ShipmentStatus.REJECTED_BY_RECEIVER,
+          receiverRedesignationDeadline: new Date(Date.now() - 1000).toISOString(),
+        }),
+      });
+
+      const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-rejected-banner-expired")).toBeTruthy();
+      expect(queryByTestId("shipment-detail-rejected-banner-cta")).toBeNull();
+    });
+
+    it("el receptor no ve el banner", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        error: null,
+        refetch: jest.fn(),
+        data: shipment({
+          status: ShipmentStatus.REJECTED_BY_RECEIVER,
+          receiverRedesignationDeadline: futureDeadline(),
+        }),
+      });
+
+      const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(queryByTestId("shipment-detail-rejected-banner")).toBeNull();
+    });
+  });
+});

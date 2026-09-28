@@ -55,11 +55,12 @@ export type {
   ReputationBreakdown,
   ReputationCategoryScore,
   RecentRatingComment,
+  MutualConnections,
   VehicleProfile,
 } from "./types/user-profile";
 export type { Address, CreateAddressInput, UpdateAddressInput } from "./types/address";
 export { PriceCalculationMethod } from "./types/pricing";
-export type { QuoteRequest, QuoteResponse, PriceBreakdownItem } from "./types/pricing";
+export type { DemandContext, QuoteRequest, QuoteResponse } from "./types/pricing";
 export { OptimizationStatus } from "./types/routing";
 export type {
   Coordinates,

@@ -11,6 +11,9 @@ const VALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
   [ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, ShipmentStatus.PUBLISHED],
   [ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, ShipmentStatus.REJECTED_BY_RECEIVER],
   [ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, ShipmentStatus.CANCELLED],
+  // MOVO-253: el emisor elige otro receptor, o cancela / vence el plazo
+  [ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION],
+  [ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.CANCELLED],
   [ShipmentStatus.PUBLISHED, ShipmentStatus.ASSIGNMENT_PENDING],
   [ShipmentStatus.PUBLISHED, ShipmentStatus.ASSIGNED_UNFUNDED],
   [ShipmentStatus.PUBLISHED, ShipmentStatus.CANCELLED],
@@ -36,6 +39,8 @@ const INVALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
   [ShipmentStatus.IN_TRANSIT, ShipmentStatus.CANCELLED],
   // desde un estado terminal
   [ShipmentStatus.CANCELLED, ShipmentStatus.PUBLISHED],
+  // MOVO-253: un rechazo solo sale hacia otro receptor o hacia cancelled -- nunca
+  // publicado directo, el receptor nuevo tiene que confirmar
   [ShipmentStatus.REJECTED_BY_RECEIVER, ShipmentStatus.PUBLISHED],
   [ShipmentStatus.DISPUTED, ShipmentStatus.DELIVERED],
   // reversa de una transición válida
@@ -84,7 +89,6 @@ describe("shipment-state-machine", () => {
 
   it("todo estado no terminal tiene al menos una transición válida definida en el DTE", () => {
     const terminal = [
-      ShipmentStatus.REJECTED_BY_RECEIVER,
       ShipmentStatus.CANCELLED,
       ShipmentStatus.DISPUTED,
       ShipmentStatus.COMPLETED,

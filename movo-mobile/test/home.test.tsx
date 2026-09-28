@@ -61,8 +61,12 @@ jest.mock("../src/hooks/use-carrier-tracking", () => ({
   }),
 }));
 
+// Hook con selector (`RecentShipmentsSection` lee el usuario, MOVO-253) + `getState`.
 jest.mock("../src/store/auth-store", () => ({
-  useAuthStore: { getState: () => ({ updateKycStatus: mockUpdateKycStatus }) },
+  useAuthStore: Object.assign(
+    (selector: (state: { user: { userId: string } }) => unknown) => selector({ user: { userId: "me" } }),
+    { getState: () => ({ updateKycStatus: mockUpdateKycStatus }) },
+  ),
 }));
 
 // MOVO-83: home rediseñada — saludo + banner KYC (sin cambios de MOVO-76) + CTA de

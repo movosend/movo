@@ -132,13 +132,16 @@ export const MOCK_ATTENTION_TASKS: AttentionTask[] = [
     meta: "Recibís en Av. Rivadavia 5400 · vence en 22 h",
     onPress: () => {},
   },
+  // MOVO-253: rechazo con plazo para elegir otro receptor.
   {
-    kind: "info",
+    kind: "rejected",
     id: "dev-task-rejected",
-    title: "El receptor rechazó tu envío",
-    meta: "Vélez Sarsfield 200, Córdoba",
+    shipmentId: "dev-shipment-rejected",
+    title: "Lucía rechazó tu envío",
+    meta: "Iba a Vélez Sarsfield 200",
+    reason: "Esa semana no estoy en Córdoba",
+    deadlineLabel: "Tenés hasta mañana 18:00",
     onPress: () => {},
-    primaryLabel: "Ver envío",
-    onPrimary: () => {},
+    onChooseReceiver: () => {},
   },
 ];

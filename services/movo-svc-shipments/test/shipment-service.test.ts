@@ -59,6 +59,7 @@ function fakeShipment(overrides: Partial<Shipment> = {}): Shipment {
     pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
     suggestedPriceArs: 2100,
     calculationMethod: "euclidean_linear_v1",
+    highDemand: null,
     agreedPriceArs: null,
     paymentMethod: null,
     status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
@@ -95,6 +96,7 @@ function fakeRepository(overrides: Partial<ShipmentRepository> = {}): ShipmentRe
     existsPhotoByS3Key: vi.fn().mockResolvedValue(false),
     listByUser: vi.fn(),
     listAvailable: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    countPublishedNearPickup: vi.fn().mockResolvedValue(0),
     findExpiredAwaitingConfirmation: vi.fn().mockResolvedValue([]),
     findPotentiallyExpiredPublished: vi.fn().mockResolvedValue([]),
     hasActiveShipmentsForUser: vi.fn().mockResolvedValue({ hasActiveDispute: false, hasActiveShipments: false }),
@@ -263,7 +265,8 @@ describe("shipments.service — createShipment", () => {
         senderId: "sender-id",
         receiverId: "receiver-id",
         suggestedPriceArs: 2256,
-        calculationMethod: "euclidean_linear_v1",
+        calculationMethod: "demand_fuel_routes_v1",
+        highDemand: false,
         pickupDate: new Date("2030-01-01T00:00:00.000Z"),
         pickupTimeWindowStart: new Date("1970-01-01T09:00:00.000Z"),
         pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
@@ -279,14 +282,14 @@ describe("shipments.service — createShipment", () => {
     // Mismo contrato que el cliente real (pricing-client.ts) ante una falla real: nunca
     // rechaza, resuelve al fallback -- acá se simula directo el resultado ya resuelto.
     const pricingClient = createFakePricingClient({
-      getQuote: vi.fn().mockResolvedValue({ suggestedPriceArs: null, calculationMethod: null }),
+      getQuote: vi.fn().mockResolvedValue({ suggestedPriceArs: null, calculationMethod: null, highDemand: null }),
     });
     const service = createTestShipmentsService(repository, usersClient, undefined, undefined, pricingClient);
 
     await expect(service.createShipment(baseInput)).resolves.toBeDefined();
 
     expect(repository.create).toHaveBeenCalledWith(
-      expect.objectContaining({ suggestedPriceArs: null, calculationMethod: null })
+      expect.objectContaining({ suggestedPriceArs: null, calculationMethod: null, highDemand: null })
     );
   });
 
@@ -302,7 +305,35 @@ describe("shipments.service — createShipment", () => {
     await expect(service.createShipment(baseInput)).resolves.toBeDefined();
 
     expect(repository.create).toHaveBeenCalledWith(
-      expect.objectContaining({ suggestedPriceArs: null, calculationMethod: null })
+      expect.objectContaining({ suggestedPriceArs: null, calculationMethod: null, highDemand: null })
+    );
+  });
+
+  it("cuenta la demanda de la zona, la manda a pricing y persiste highDemand (MOVO-138)", async () => {
+    const repository = fakeRepository({ countPublishedNearPickup: vi.fn().mockResolvedValue(9) });
+    const tripRepository = createFakeTripRepository({ countAvailableCarriersNear: vi.fn().mockResolvedValue(2) });
+    const usersClient = createFakeUsersClient({
+      "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
+    });
+    const pricingClient = createFakePricingClient({
+      getQuote: vi.fn().mockResolvedValue({
+        suggestedPriceArs: 36220,
+        calculationMethod: "demand_fuel_routes_v1",
+        highDemand: true,
+      }),
+    });
+    const service = createShipmentsService(repository, usersClient, undefined, undefined, {
+      pricingClient,
+      tripRepository,
+    });
+
+    await service.createShipment(baseInput);
+
+    expect(pricingClient.getQuote).toHaveBeenCalledWith(
+      expect.objectContaining({ demandContext: { publishedShipments: 9, availableCarriers: 2 } })
+    );
+    expect(repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ suggestedPriceArs: 36220, highDemand: true })
     );
   });
 
@@ -1290,13 +1321,15 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       shipment.id,
       ShipmentStatus.REJECTED_BY_RECEIVER,
       "receiver-id",
-      "No lo pedí"
+      "No lo pedí",
+      // MOVO-253: el plazo para elegir otro receptor se persiste junto con el rechazo.
+      { receiverRedesignationDeadline: expect.any(Date) }
     );
     await vi.waitFor(() => {
       expect(notificationsClient.sendPush).toHaveBeenCalledWith({
         userId: "sender-id",
         title: "Envío rechazado",
-        body: "Carlos rechazó el envío",
+        body: "Carlos rechazó el envío. Podés elegir otro receptor.",
         category: "shipments",
         data: { shipmentId: shipment.id, type: "shipment_rejected" },
       });
@@ -1321,7 +1354,8 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       shipment.id,
       ShipmentStatus.REJECTED_BY_RECEIVER,
       "receiver-id",
-      undefined
+      undefined,
+      { receiverRedesignationDeadline: expect.any(Date) }
     );
   });
 
@@ -1363,7 +1397,8 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       shipment.id,
       ShipmentStatus.REJECTED_BY_RECEIVER,
       "receiver-id",
-      undefined
+      undefined,
+      { receiverRedesignationDeadline: expect.any(Date) }
     );
   });
 
@@ -1433,7 +1468,8 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       shipment.id,
       ShipmentStatus.REJECTED_BY_RECEIVER,
       "receiver-id",
-      undefined
+      undefined,
+      { receiverRedesignationDeadline: expect.any(Date) }
     );
   });
 });

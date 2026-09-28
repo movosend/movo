@@ -7,14 +7,15 @@ import { PricingClient, QuoteInput, QuoteResult } from "../src/adapters/pricing-
  * `movo-svc-pricing-logistics` real levantado (mismo criterio que
  * `fake-users-client.ts`). Por default resuelve un precio fijo determinístico; pasar
  * `getQuote` en `overrides` para simular el fallback de MOVO-82 (AC6/AC7, `{
- * suggestedPriceArs: null, calculationMethod: null }`).
+ * suggestedPriceArs: null, calculationMethod: null, highDemand: null }`).
  */
 export function createFakePricingClient(overrides: Partial<PricingClient> = {}): PricingClient {
   return {
     getQuote: vi.fn(
       async (_input: QuoteInput): Promise<QuoteResult> => ({
         suggestedPriceArs: 2256,
-        calculationMethod: PriceCalculationMethod.EUCLIDEAN_LINEAR_V1,
+        calculationMethod: PriceCalculationMethod.DEMAND_FUEL_ROUTES_V1,
+        highDemand: false,
       })
     ),
     ...overrides,
