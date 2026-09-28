@@ -379,7 +379,41 @@ const shipmentEventResponse = {
   },
 };
 
+// MOVO-255: campos de `createShipmentBody` que afectan el precio, reusados por el body
+// de `POST /shipments/quote` para que las dos rutas validen exactamente igual.
+const priceAffectingProperties = {
+  packageType: { type: "string", enum: PACKAGE_TYPE_VALUES },
+  weightKg: { type: "number", minimum: WEIGHT_KG_MIN, maximum: WEIGHT_KG_MAX },
+  lengthCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
+  widthCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
+  heightCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
+  pickupLat: { type: "number", minimum: -90, maximum: 90 },
+  pickupLng: { type: "number", minimum: -180, maximum: 180 },
+  deliveryLat: { type: "number", minimum: -90, maximum: 90 },
+  deliveryLng: { type: "number", minimum: -180, maximum: 180 },
+};
+
 export const shipmentsSchemas = {
+  quoteShipmentBody: {
+    type: "object",
+    required: Object.keys(priceAffectingProperties),
+    properties: priceAffectingProperties,
+    additionalProperties: false,
+  },
+
+  // Sin precio (pricing caído) todos los campos vienen en `null` y no hay `quoteId`.
+  quoteShipmentResponse: {
+    type: "object",
+    required: ["quoteId", "suggestedPriceArs", "highDemand", "calculationMethod", "expiresAt"],
+    properties: {
+      quoteId: { type: ["string", "null"], format: "uuid" },
+      suggestedPriceArs: { type: ["number", "null"] },
+      highDemand: { type: ["boolean", "null"] },
+      calculationMethod: { type: ["string", "null"] },
+      expiresAt: { type: ["string", "null"], format: "date-time" },
+    },
+  },
+
   createShipmentBody: {
     type: "object",
     required: [
@@ -400,25 +434,19 @@ export const shipmentsSchemas = {
       "pickupTimeWindowEnd",
     ],
     properties: {
-      packageType: { type: "string", enum: PACKAGE_TYPE_VALUES },
-      weightKg: { type: "number", minimum: WEIGHT_KG_MIN, maximum: WEIGHT_KG_MAX },
-      lengthCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
-      widthCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
-      heightCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
+      ...priceAffectingProperties,
       description: { type: "string", maxLength: 500 },
       // `senderId` NUNCA se acepta acá (AC10 de MOVO-80) — si el cliente lo manda
       // igual, `additionalProperties: false` lo rechaza en vez de ignorarlo en
       // silencio, así el error es explícito en vez de una falsa sensación de éxito.
       receiverId: { type: "string", format: "uuid" },
       pickupAddress: { type: "string", minLength: 1 },
-      pickupLat: { type: "number", minimum: -90, maximum: 90 },
-      pickupLng: { type: "number", minimum: -180, maximum: 180 },
       deliveryAddress: { type: "string", minLength: 1 },
-      deliveryLat: { type: "number", minimum: -90, maximum: 90 },
-      deliveryLng: { type: "number", minimum: -180, maximum: 180 },
       pickupDate: { type: "string", format: "date" },
       pickupTimeWindowStart: { type: "string", pattern: TIME_PATTERN },
       pickupTimeWindowEnd: { type: "string", pattern: TIME_PATTERN },
+      // MOVO-255: opcional, compatibilidad con builds del mobile que no cotizan antes.
+      quoteId: { type: "string", format: "uuid" },
     },
     additionalProperties: false,
   },
