@@ -28,4 +28,27 @@ describe("VehicleCard", () => {
     expect(getByText("Baúl mediano · hasta 15 kg")).toBeTruthy();
     expect(getByText("AB 123 CD")).toBeTruthy();
   });
+
+  it("muestra el logo de la marca en vez del ícono genérico", async () => {
+    const { getByTestId } = await render(
+      <VehicleCard
+        testID="vehicle"
+        vehicle={{ brand: "Toyota", model: "Hilux", cargoCapacityLabel: "Caja", licensePlate: "AB 123 CD" }}
+      />
+    );
+
+    expect(getByTestId("vehicle-brand")).toBeTruthy();
+  });
+
+  it("sin logo cargado para la marca muestra sus iniciales", async () => {
+    const { getByTestId, getByText } = await render(
+      <VehicleCard
+        testID="vehicle"
+        vehicle={{ brand: "Marca Rara", model: "X", cargoCapacityLabel: "Baúl", licensePlate: "AB 123 CD" }}
+      />
+    );
+
+    expect(getByTestId("vehicle-brand")).toBeTruthy();
+    expect(getByText("MA")).toBeTruthy();
+  });
 });
