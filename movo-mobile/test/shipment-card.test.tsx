@@ -32,6 +32,7 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
     pickupTimeWindowStart: "09:00",
     pickupTimeWindowEnd: "12:00",
     suggestedPriceArs: 4500,
+    highDemand: null,
     agreedPriceArs: null,
     paymentMethod: null,
     status: ShipmentStatus.PUBLISHED,

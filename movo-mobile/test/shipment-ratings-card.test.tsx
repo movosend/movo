@@ -46,6 +46,7 @@ describe("ShipmentRatingsCard", () => {
     pickupTimeWindowStart: "10:00",
     pickupTimeWindowEnd: "12:00",
     suggestedPriceArs: 10000,
+    highDemand: null,
     agreedPriceArs: 9500,
     paymentMethod: null,
     status: ShipmentStatus.DELIVERED,
