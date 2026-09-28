@@ -2643,7 +2643,8 @@ Decisiones clave:
 `POST /quote`: envíos `published` a ≤ 15 km (`shipment-repository.ts#countPublishedNearPickup`,
 SQL con bounding box + Haversine) y transportistas distintos con viaje `declared`/`active` que
 sale entre −6h y +72h y cuyo corredor pasa a ≤ 15 km (`trip-repository.ts#countAvailableCarriersNear`,
-filtro en memoria con `distanceToSegmentKm`, mismo criterio de volumen bajo que MOVO-179).
+prefiltro SQL por rectángulo del viaje ensanchado 15 km + `distanceToSegmentKm` en memoria:
+corre en cada `createShipment`, así que no trae todos los viajes del país).
 
 - **`src/modules/shipments/shipment-quote.ts#quoteShipment`**: conteo + cotización fuera de
   `createShipment` para que la cotización previa del wizard (MOVO-255) use la misma lógica.

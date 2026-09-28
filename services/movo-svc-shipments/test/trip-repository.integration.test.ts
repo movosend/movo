@@ -385,6 +385,22 @@ describe("trip-repository (Postgres) — countAvailableCarriersNear (MOVO-138)",
     expect(await tripRepo.countAvailableCarriersNear({ ...farPickup, ...window })).toBe(0);
   });
 
+  it("el prefiltro SQL no descarta un viaje cuyo segmento pasa cerca aunque ambos extremos queden lejos", async () => {
+    // Corredor largo norte-sur (Salta -> Ushuaia): la latitud media del viaje queda muy al
+    // sur del retiro, y los dos extremos están a más de 1000km de él.
+    await tripRepo.create(tripInput({ originLat: -24.8, originLng: -65.4, destinationLat: -54.8, destinationLng: -68.3 }));
+
+    const pickupNearMiddle = { lat: -31.4, lng: -65.9, radiusKm: 15 };
+    expect(await tripRepo.countAvailableCarriersNear({ ...pickupNearMiddle, ...window })).toBe(1);
+  });
+
+  it("el prefiltro SQL descarta viajes de otra región sin afectar el conteo", async () => {
+    await tripRepo.create(tripInput());
+    await tripRepo.create(tripInput({ originLat: -34.6, originLng: -58.4, destinationLat: -38.0, destinationLng: -57.5 }));
+
+    expect(await tripRepo.countAvailableCarriersNear({ ...pickupInCorridor, ...window })).toBe(1);
+  });
+
   it("no cuenta viajes que salen fuera de la ventana (-6h / +72h)", async () => {
     await tripRepo.create(tripInput({ departureAt: new Date(now - 10 * HOUR_MS) }));
     await tripRepo.create(tripInput({ departureAt: new Date(now + 100 * HOUR_MS) }));
