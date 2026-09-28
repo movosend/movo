@@ -32,7 +32,7 @@ export function MyShipmentsRoleCard({
       className={`flex-1 gap-2.5 rounded-[10px] border bg-bg-sub p-3.5 ${selected ? "border-fg" : "border-border"}`}
     >
       <View className="flex-row items-center justify-between">
-        <View className="h-[30px] w-[30px] items-center justify-center rounded-full bg-bg">
+        <View className="h-[30px] w-[30px] items-center justify-center rounded-full bg-bg-mute">
           <Icon size={16} strokeWidth={2} color={colors.fg1} />
         </View>
         {needsAction ? (
