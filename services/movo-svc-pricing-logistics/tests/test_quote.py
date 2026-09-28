@@ -11,6 +11,9 @@ cuentas se verifiquen a mano:
 import asyncio
 import json
 import logging
+import time
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,6 +23,7 @@ from app.config import settings
 from app.models.optimize import Coordinates
 from app.models.quote import DemandContext, PackageType, QuoteRequest
 from app.services.fuel_price import FuelPrice, FuelPriceProvider
+from app.services import pricing
 from app.services.pricing import (
     DistanceSource,
     _round_to_10,
@@ -37,6 +41,7 @@ from app.services.routes_provider import (
 from main import app
 
 client = TestClient(app)
+T = TypeVar("T")
 
 
 class FixedFuel(FuelPriceProvider):
@@ -209,6 +214,55 @@ def test_quote_uses_short_google_timeout() -> None:
         assert _distance(None) == (150.0, "routes_api")
     provider = route.call_args.args[0]
     assert provider.timeout == 1.5
+
+
+class SlowRoute(FixedRoute):
+    def __init__(self, km: float, delay: float):
+        super().__init__(km)
+        self.delay = delay
+
+    def compute_route_km(self, origin: Coordinates, destination: Coordinates) -> float:
+        time.sleep(self.delay)  # sync, como httpx.Client
+        return super().compute_route_km(origin, destination)
+
+
+class SlowFuel(FuelPriceProvider):
+    def __init__(self, delay: float):
+        self.delay = delay
+
+    async def get_price(self) -> FuelPrice:
+        await asyncio.sleep(self.delay)
+        return FuelPrice(ars_per_liter=2000.0, source="api")
+
+
+def _elapsed(coro_factory: Callable[[], Awaitable[T]]) -> tuple[T, float]:
+    """Mide dentro del loop: `asyncio.run` espera a los threads del executor al cerrar."""
+
+    async def run() -> tuple[T, float]:
+        start = time.perf_counter()
+        result = await coro_factory()
+        return result, time.perf_counter() - start
+
+    return asyncio.run(run())
+
+
+def test_slow_routes_are_cut_by_the_quote_timeout() -> None:
+    with patch.object(pricing, "QUOTE_ROUTES_TIMEOUT_SECONDS", 0.1):
+        (km, source), elapsed = _elapsed(lambda: road_distance_km(SlowRoute(150.0, 0.5), ORIGIN, DESTINATION))
+    assert source == "haversine_fallback"
+    assert km == pytest.approx(STRAIGHT_KM * 1.3)
+    assert elapsed < 0.4
+
+
+def test_fuel_and_routes_run_in_parallel() -> None:
+    # Con los topes reales (2s combustible, 1,5s rutas) en serie serían 3,5s, más que
+    # los 3s de `pricing-client.ts`. Escalado a 0,3s + 0,3s para que el test sea rápido.
+    with patch.object(pricing, "QUOTE_ROUTES_TIMEOUT_SECONDS", 1.0):
+        res, elapsed = _elapsed(
+            lambda: compute_quote(_request(), fuel_provider=SlowFuel(0.3), routes=SlowRoute(100.0, 0.3))
+        )
+    assert res.suggested_price_ars == 17650.0
+    assert elapsed < 0.5
 
 
 # --- GoogleRoutesProvider.compute_route_km (matriz 1x1) --------------------------------

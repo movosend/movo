@@ -190,8 +190,10 @@ config (`PRICING_*_L`, `PRICING_DEMAND_*`); `PRICING_*_ARS` de MOVO-82 eliminado
   CKAN con cache Redis 24h → último valor bueno 7d → fallback de config. Dos agregados al
   diseño del spike: **backoff de 10 min** tras una falla o un valor rechazado (sin esto, con
   la API caída cada cotización pagaba el timeout), y **presupuesto total de 2s** para toda la
-  consulta, incluida la vía alternativa `datastore_search` (el prototipo le daba 10s). Sin
-  Redis devuelve el valor de config, nunca consulta la API en cada cotización.
+  consulta, incluida la vía alternativa `datastore_search` (el prototipo le daba 10s). Un
+  **lock `SET NX EX 10`** evita el estampido cuando vence el valor fresco: solo una
+  cotización consulta la API y las concurrentes sirven `:lkg`/config. Sin Redis devuelve el
+  valor de config, nunca consulta la API en cada cotización.
 - **Matriz 1x1 para `/quote`**: `compute_matrix([origen, destino])` pedía una 2x2 (4
   elementos facturados por cotización); `compute_route_km` pide uno solo. `_request_elements`
   concentra el POST a Google para ambos métodos.
@@ -199,9 +201,14 @@ config (`PRICING_*_L`, `PRICING_DEMAND_*`); `PRICING_*_ARS` de MOVO-82 eliminado
   devuelve línea recta, y sin el factor dev/CI cotizaban ~30% por debajo de Google. El mock
   de `/optimize` no cambia.
 - **Fallback a Haversine × 1,3** si Google falla, timeout de 1,5s o distancia 0; No-Fallback
-  intacto en `/optimize/route` y `/routes/evaluate-candidates`.
+  intacto en `/optimize/route` y `/routes/evaluate-candidates`. El 1,5s es un
+  `asyncio.wait_for` total (el `timeout` de httpx es por fase), y combustible y distancia se
+  consultan en paralelo: el peor caso es ~2s, dentro de los 3s de `pricing-client.ts`.
 - **`main.py` configura logging**: los `logger.info` de `app.*` no salían a ningún lado (root
-  en WARNING sin handler), incluido el log que reemplaza al desglose.
+  en WARNING sin handler), incluido el log que reemplaza al desglose. Ese log sirve para
+  recalibrar, no como evidencia de disputas (MOVO-30): no lleva `shipmentId` ni
+  `x-request-id` y la rotación de `json-file` no lo hace durable. Si MOVO-30 lo necesita,
+  habría que persistir el desglose en `shipments`.
 - **Tests de cache contra Redis real** (`tests/test_fuel_price.py`, base 15): se saltean en
   local sin Redis y fallan en CI (`CI=true`); `pr-checks.yml` suma Redis al job de Python.
 

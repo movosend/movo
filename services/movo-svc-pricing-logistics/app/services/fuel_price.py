@@ -55,10 +55,15 @@ LKG_TTL_SECONDS = 7 * 24 * 3600
 # Tras una falla o un valor rechazado no se reintenta durante este lapso: sin esto, con
 # la API caída cada cotización pagaría el timeout completo.
 RETRY_BACKOFF_SECONDS = 600
+# Cuando vence el valor fresco, solo la cotización que toma este lock consulta la API;
+# las concurrentes sirven `:lkg`/config en vez de disparar todas la misma query contra
+# un servicio sin SLA. Mayor que `FETCH_TIMEOUT_SECONDS` para cubrir la consulta entera.
+FETCH_LOCK_SECONDS = 10
 
 FRESH_KEY = f"fuel_price:{PRODUCT_NAFTA_SUPER}"
 LKG_KEY = f"{FRESH_KEY}:lkg"
 BACKOFF_KEY = f"{FRESH_KEY}:backoff"
+FETCH_LOCK_KEY = f"{FRESH_KEY}:lock"
 
 FuelPriceSource = Literal["api", "lkg", "config", "mock"]
 
@@ -185,7 +190,7 @@ class EnergiaFuelPriceProvider(FuelPriceProvider):
             logger.warning("fuel_price_redis_failed error=%s", exc)
             return self._config_price()
 
-        if not in_backoff:
+        if not in_backoff and await _try_fetch_lock(redis):
             fetched = await self._fetch_sane(lkg)
             if fetched is not None:
                 await self._store(redis, fetched)
@@ -242,6 +247,14 @@ async def _read_cached(redis: Redis, key: str) -> dict[str, Any] | None:
         logger.warning("fuel_price_cache_corrupt key=%s", key)
         return None
     return data
+
+
+async def _try_fetch_lock(redis: Redis) -> bool:
+    try:
+        return bool(await redis.set(FETCH_LOCK_KEY, "1", nx=True, ex=FETCH_LOCK_SECONDS))
+    except Exception as exc:  # noqa: BLE001 — sin lock se consulta igual, como antes del lock
+        logger.warning("fuel_price_lock_failed error=%s", exc)
+        return True
 
 
 async def _safe_set(redis: Redis, key: str, value: str, ttl_seconds: int) -> None:

@@ -24,7 +24,9 @@ logger = logging.getLogger(__name__)
 # puro) y al fallback cuando Google falla.
 ROAD_DETOUR_FACTOR = 1.3
 # Deja margen para degradar a Haversine dentro de los 3s de `pricing-client.ts`
-# (`movo-svc-shipments`), en vez de los 5s que usa el ruteo.
+# (`movo-svc-shipments`), en vez de los 5s que usa el ruteo. Corre en paralelo con la
+# consulta de combustible (`FETCH_TIMEOUT_SECONDS`, 2s): el peor caso es el mayor de
+# los dos topes, no la suma.
 QUOTE_ROUTES_TIMEOUT_SECONDS = 1.5
 
 DistanceSource = Literal["routes_api", "haversine_mock", "haversine_fallback"]
@@ -70,8 +72,13 @@ async def road_distance_km(
     straight_km = haversine_distance_km(origin.lat, origin.lng, destination.lat, destination.lng)
     try:
         provider = routes or get_routes_provider(timeout=QUOTE_ROUTES_TIMEOUT_SECONDS)
-        # El provider es sync (httpx.Client): se corre fuera del event loop.
-        km = await asyncio.to_thread(provider.compute_route_km, origin, destination)
+        # El provider es sync (httpx.Client): se corre fuera del event loop. El timeout de
+        # httpx es por fase (connect, read...), no total: `wait_for` pone el tope real.
+        # El thread sigue hasta que httpx corta, pero la cotización ya degradó a tiempo.
+        km = await asyncio.wait_for(
+            asyncio.to_thread(provider.compute_route_km, origin, destination),
+            QUOTE_ROUTES_TIMEOUT_SECONDS,
+        )
     except Exception as exc:  # noqa: BLE001 — cualquier falla del proveedor degrada igual
         logger.warning("quote_routes_provider_failed_using_haversine error=%s", exc)
         return straight_km * ROAD_DETOUR_FACTOR, "haversine_fallback"
@@ -104,11 +111,15 @@ async def compute_quote(
     fuel_provider: FuelPriceProvider | None = None,
     routes: RoutesProvider | None = None,
 ) -> QuoteResponse:
-    fuel = await (fuel_provider or get_fuel_price_provider()).get_price()
-    distance_km, distance_source = await road_distance_km(
-        routes,
-        Coordinates(lat=req.origin_lat, lng=req.origin_lng),
-        Coordinates(lat=req.destination_lat, lng=req.destination_lng),
+    # Independientes entre sí: en serie, el peor caso (2s + 1,5s) pasaba los 3s de
+    # `pricing-client.ts` y el envío quedaba en "precio a estimar".
+    fuel, (distance_km, distance_source) = await asyncio.gather(
+        (fuel_provider or get_fuel_price_provider()).get_price(),
+        road_distance_km(
+            routes,
+            Coordinates(lat=req.origin_lat, lng=req.origin_lng),
+            Coordinates(lat=req.destination_lat, lng=req.destination_lng),
+        ),
     )
 
     p = fuel.ars_per_liter
@@ -122,8 +133,10 @@ async def compute_quote(
     demand = demand_multiplier(req.demand_context)
     suggested_price_ars = _round_to_10(subtotal * demand.multiplier)
 
-    # El desglose no viaja al emisor (spike §6.2): queda acá como evidencia para
-    # disputas (MOVO-30) y para recalibrar los parámetros con datos reales.
+    # El desglose no viaja al emisor (spike §6.2): se loguea para recalibrar los
+    # parámetros con datos reales. No sirve como evidencia de disputas (MOVO-30): la
+    # cotización ocurre antes de que exista el envío, el log no lleva `shipmentId` ni
+    # `x-request-id`, y la rotación de `json-file` no lo hace durable.
     logger.info(
         "pricing_quote_computed %s",
         json.dumps(

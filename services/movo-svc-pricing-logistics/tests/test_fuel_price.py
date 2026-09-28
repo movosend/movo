@@ -22,6 +22,8 @@ from app.config import settings
 from app.services import fuel_price
 from app.services.fuel_price import (
     BACKOFF_KEY,
+    FETCH_LOCK_KEY,
+    FETCH_LOCK_SECONDS,
     FRESH_KEY,
     LKG_KEY,
     LKG_TTL_SECONDS,
@@ -160,6 +162,26 @@ def test_slow_api_is_cut_by_the_timeout(real_redis: None) -> None:
     with_redis(run)
 
 
+def test_concurrent_quotes_call_the_api_once(real_redis: None) -> None:
+    class SlowStub(StubCkanClient):
+        async def fetch_median(self) -> tuple[float, int]:
+            await asyncio.sleep(0.1)
+            return await super().fetch_median()
+
+    async def run(redis: Redis) -> None:
+        await redis.set(LKG_KEY, _cached(2150.0))
+        stub = SlowStub((2223.0, 619))
+        provider = EnergiaFuelPriceProvider(client=stub, redis=redis)
+
+        prices = await asyncio.gather(*(provider.get_price() for _ in range(5)))
+
+        assert stub.calls == 1
+        assert sorted(p.source for p in prices) == ["api", "lkg", "lkg", "lkg", "lkg"]
+        assert 0 < await redis.ttl(FETCH_LOCK_KEY) <= FETCH_LOCK_SECONDS
+
+    with_redis(run)
+
+
 @pytest.mark.parametrize(
     ("value", "samples", "lkg"),
     [
@@ -215,7 +237,7 @@ def test_cache_write_failure_still_returns_the_fetched_price(real_redis: None) -
     async def run() -> None:
         redis = ReadOnlyRedis.from_url(REDIS_TEST_URL, decode_responses=True)
         try:
-            await redis.delete(FRESH_KEY, LKG_KEY, BACKOFF_KEY)
+            await redis.delete(FRESH_KEY, LKG_KEY, BACKOFF_KEY, FETCH_LOCK_KEY)
             price = await EnergiaFuelPriceProvider(client=StubCkanClient((2223.0, 619)), redis=redis).get_price()
             assert (price.ars_per_liter, price.source) == (2223.0, "api")
             assert await redis.get(FRESH_KEY) is None
