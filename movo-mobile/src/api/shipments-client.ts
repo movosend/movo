@@ -31,6 +31,10 @@ export interface ShipmentSummary {
   pickupTimeWindowStart: string;
   pickupTimeWindowEnd: string;
   suggestedPriceArs: number;
+  /** MOVO-138/254: `true` si el precio sugerido lleva recargo por alta demanda.
+   * `null` (sin cotización, o envío anterior a `demand_fuel_routes_v1`) no equivale a
+   * `false`: no se sabe, así que tampoco se muestra el badge. */
+  highDemand: boolean | null;
   agreedPriceArs: number | null;
   paymentMethod: string | null;
   status: ShipmentStatus;

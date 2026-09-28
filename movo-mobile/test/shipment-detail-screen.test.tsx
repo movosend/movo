@@ -112,6 +112,7 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
     pickupTimeWindowStart: "09:00",
     pickupTimeWindowEnd: "12:00",
     suggestedPriceArs: 4500,
+    highDemand: null,
     agreedPriceArs: null,
     paymentMethod: null,
     status: ShipmentStatus.PUBLISHED,
@@ -480,6 +481,66 @@ describe("ShipmentDetailScreen", () => {
     expect(getByText("Costo aproximado")).toBeTruthy();
     expect(getByText("$4.500")).toBeTruthy();
     expect(queryByText("Precio pactado")).toBeNull();
+  });
+
+  describe("badge de alta demanda (MOVO-254)", () => {
+    function renderWith(overrides: Partial<ShipmentSummary>) {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment(overrides),
+        error: null,
+        refetch: jest.fn(),
+      });
+      return render(<ShipmentDetailScreen />);
+    }
+
+    it("lo muestra al emisor junto al precio sugerido si highDemand es true", async () => {
+      const { getByTestId, getByText } = await renderWith({ highDemand: true });
+
+      expect(getByTestId("shipment-detail-high-demand")).toBeTruthy();
+      expect(getByText("Costo aproximado")).toBeTruthy();
+    });
+
+    it.each([
+      ["false", false],
+      ["null (sin cotización o envío anterior)", null],
+    ])("no lo muestra si highDemand es %s", async (_label, highDemand) => {
+      const { queryByTestId } = await renderWith({ highDemand });
+
+      expect(queryByTestId("shipment-detail-high-demand")).toBeNull();
+    });
+
+    it("no lo muestra si el envío ya tiene precio acordado", async () => {
+      const { queryByTestId } = await renderWith({
+        highDemand: true,
+        agreedPriceArs: 6000,
+        carrierId: "carrier-1",
+        status: ShipmentStatus.ASSIGNMENT_PENDING,
+      });
+
+      expect(queryByTestId("shipment-detail-high-demand")).toBeNull();
+    });
+
+    it("no lo muestra con transportista asignado aunque agreedPriceArs sea null", async () => {
+      const { queryByTestId, getByText } = await renderWith({
+        highDemand: true,
+        agreedPriceArs: null,
+        carrierId: "carrier-1",
+        status: ShipmentStatus.ASSIGNED,
+      });
+
+      expect(getByText("Precio pactado")).toBeTruthy();
+      expect(queryByTestId("shipment-detail-high-demand")).toBeNull();
+    });
+
+    it("no lo muestra al receptor", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+
+      const { queryByTestId } = await renderWith({ highDemand: true });
+
+      expect(queryByTestId("shipment-detail-high-demand")).toBeNull();
+    });
   });
 
   it("cambia a la tab de línea de tiempo al tocarla, mostrando el historial (MOVO-128)", async () => {
