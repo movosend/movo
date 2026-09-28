@@ -2760,3 +2760,17 @@ y el push de trip-match.
 - `dispatchTripMatchPushes` ahora recibe `usersClient` y suma los bloqueados de emisor y
   receptor a `excludeCarrierIds`; como resuelve eso antes de buscar viajes, los tests
   unitarios que miran `findActiveTripsMatchingShipment` usan `vi.waitFor`.
+
+### MOVO-257 — `pendingOffersCount` en `GET /shipments/mine`
+
+Soporte del rediseño de "Mis envíos" (`movo-mobile`): cada ítem suma
+`pendingOffersCount`, la cantidad de ofertas **vigentes** (`offerStatusWhere(PENDING)`,
+respeta la expiración perezosa) — solo para el emisor de un envío `published`, `null` en
+cualquier otro caso (el receptor no ve ofertas). Se cuenta con un único `groupBy` sobre la
+página (`offer-repository.ts#countPendingOffersByShipmentIds`), nunca una query por envío.
+Campo agregado al `listMineResponse` (Swagger generado lo refleja).
+
+Detectado en la misma rama y derivado a MOVO-258: ningún barrido vence envíos con
+transportista (`assignment_pending`/`assigned_unfunded`/`assigned`) ni cierra viajes
+`active` (nada escribe `TripStatus.COMPLETED`), y envío y viaje se traban entre sí por
+la regla "bloquea, no cascadea" de MOVO-238.
