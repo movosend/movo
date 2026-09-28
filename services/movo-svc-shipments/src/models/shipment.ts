@@ -49,6 +49,13 @@ export interface Shipment {
   lastStatusChangedAt: Date | null;
   deliveredAt: Date | null;
   receiverConfirmationDeadline: Date | null;
+  /** MOVO-253: plazo del emisor para elegir otro receptor. Solo significativo en
+   * `rejected_by_receiver`; `null` en rechazos anteriores a este cambio. */
+  receiverRedesignationDeadline: Date | null;
+  /** MOVO-253: motivo del último rechazo (`shipment_events.reason`), solo cuando el
+   * envío está en `rejected_by_receiver` y la lectura lo cargó (`findById`/
+   * `listByUser`) -- `null` en cualquier otro caso. */
+  rejectionReason: string | null;
   createdAt: Date;
   updatedAt: Date;
   /** MOVO-180: entrega estimada (día + franja) de la oferta ganadora, copiada acá al

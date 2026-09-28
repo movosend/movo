@@ -2661,6 +2661,44 @@ corre en cada `createShipment`, así que no trae todos los viajes del país).
 
 Pendiente fuera de alcance: badge en el detalle del envío (MOVO-254, mobile) y cotización
 congelada en el resumen del wizard (MOVO-255).
+### MOVO-253 — Elegir otro receptor tras un rechazo (ADR-027)
+
+`rejected_by_receiver` deja de ser terminal: sale hacia `awaiting_receiver_confirmation`
+(el emisor elige otro receptor) o `cancelled` (el emisor cancela, o vence el plazo).
+Columna nueva `receiver_redesignation_deadline` (migración
+`20260926120000_add_receiver_redesignation_deadline`), seteada en `rejectShipment` con
+`deadlineCappedByPickupWindow` (`domain/pickup-window.ts`, extraída de `createShipment`
+para compartir la regla con la confirmación). Env var `RECEIVER_REDESIGNATION_TIMEOUT_HOURS`
+(default 48) en los tres lugares.
+
+- **`POST /shipments/:id/receiver`** (`redesignateReceiver`): solo el emisor, solo en
+  `rejected_by_receiver`, 409 `SHIPMENT_REDESIGNATION_EXPIRED` con el plazo vencido o
+  nulo aunque el barrido no haya corrido. Mismas validaciones de receptor que
+  `createShipment` + bloqueo (`assertNotBlocked`, ADR-026 — **depende de MOVO-175**, que
+  aporta `utils/block-relations.ts` y `UsersClient.listBlockRelatedUserIds`; esta rama no
+  compila sola hasta mergearse después de esa) + 422 `SHIPMENT_RECEIVER_ALREADY_REJECTED`
+  para quien ya rechazó, sacado de los eventos `-> rejected_by_receiver` sin columna
+  propia. Solo cambia la persona: la dirección de entrega no se toca (decisión de
+  producto), así que el precio sugerido tampoco se recalcula.
+- **`shipment-repository.ts#redesignateReceiver`**: compare-and-swap contra `status` en
+  una transacción (receptor, estado, plazo de confirmación nuevo, evento con el emisor
+  como actor) y emite `shipment-status-changed` tras el commit — tercer escritor de
+  `status` fuera de `updateStatus`, mismo cuidado que el handshake (MOVO-201).
+- **Barrido**: `expireRejectedShipments` corre dentro de `receiver-confirmation-sweep.ts`
+  (mismo lock e intervalo, sin plugin ni env vars propias). Cancela con `actorId: null`
+  los rechazos vencidos **o con plazo nulo**, así los anteriores a este cambio se cierran
+  en la primera corrida. Push nueva `shipmentCancelledRedesignationExpired`.
+- **`rejectionReason` en el DTO de envío**: motivo del último rechazo, cargado con un
+  `include` acotado (take 1) en `findById`/`listByUser` — el home lo muestra sin un
+  `GET /:id/events` por card. `GET /shipments/mine` gana `?status=` repetible.
+- **Baja de cuenta**: un rechazado cuenta como activo solo para el emisor; quien rechazó
+  sigue siendo `receiverId` durante el plazo y no debe quedar bloqueado.
+- Quien rechazó deja de ver el envío apenas se elige a otra persona (AC9, aceptado: el
+  acceso sigue a `receiverId`).
+
+Pendiente: correr la suite de integración contra Postgres/Redis reales (en esta sesión
+Docker no estaba levantado, solo pasaron los unitarios y el type-check).
+
 ### MOVO-173 — Calificación por categorías (puntualidad/cuidado/comunicación)
 
 `Rating` gana 3 columnas nullable de sub-scores (`punctuality_score`/`care_score`/
@@ -2689,6 +2727,28 @@ versión daba a la contraparte "paquete listo"/"dirección clara" y nada al rece
 
 Pendiente / fuera de alcance: no hay recálculo retroactivo para calificaciones ya
 existentes (no tienen sub-scores que agregar).
+
+### MOVO-174 — Conexiones mutuas: contrapartes en común entre dos usuarios (`svc-shipments`)
+
+Endpoint interno `GET /internal/users/:userId/mutual-connections/:otherId` (módulo nuevo
+`src/modules/mutual-connections/`, calcado de `account-deletion`: no pasa por el gateway,
+`schema.hide: true`) que consulta `movo-svc-users` para el "Ya envió con N personas con las que
+vos también enviaste" del perfil. `shipment-repository.ts#findMutualCounterpartyIds` arma, para
+cada usuario, el conjunto de contrapartes (en cualquier rol) de sus envíos ENTREGADOS, intersecta
+y excluye a los dos usuarios de la cuenta.
+
+- **Devuelve `{ counterpartyIds }` y no un conteo** (fix de review de PR #196): este servicio no
+  sabe qué cuentas se dieron de baja (la baja solo chequea envíos activos y borra posiciones, no
+  toca los ids de los envíos), así que un conteo propio incluiría personas que ya no existen.
+  `svc-users` filtra los ids por estado de cuenta y es quien responde al cliente. La decisión de
+  privacidad de MOVO-174 sigue en pie donde importa: los ids solo viajan por la red interna
+  (endpoint `hide: true`, fuera del gateway), y la respuesta pública devuelve únicamente el conteo.
+- **Cuentan solo `delivered`/`completed`** (`FULFILLED_SHIPMENT_STATUSES`): "ya envió con X" habla de
+  algo que ocurrió. Distinto de `getSharedHistory` (MOVO-170), que cuenta envíos en cualquier estado.
+- **Un envío directo entre los dos usuarios no cuenta** como conexión mutua.
+
+Pendiente / fuera de alcance: mostrar nombres de pila (requeriría revertir la decisión de privacidad
+y un ADR corto).
 
 ### Pendientes de este servicio
 

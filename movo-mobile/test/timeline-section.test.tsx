@@ -267,4 +267,35 @@ describe("TimelineSection", () => {
     expect(getByText("Calificaciones (1)")).toBeTruthy();
     expect(getByText('"Llegó todo en perfecto estado"')).toBeTruthy();
   });
+
+  it("MOVO-253: un rechazo del receptor anterior no toma el nombre del receptor actual", async () => {
+    mockUseShipmentEvents.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+      data: [
+        event({ id: "e1" }),
+        event({
+          id: "e2",
+          fromStatus: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+          toStatus: ShipmentStatus.REJECTED_BY_RECEIVER,
+          actorId: "former-receiver",
+          reason: "No estoy en la ciudad",
+        }),
+        event({
+          id: "e3",
+          fromStatus: ShipmentStatus.REJECTED_BY_RECEIVER,
+          toStatus: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+          actorId: "sender-1",
+        }),
+      ],
+    });
+
+    const { getByText, queryByText } = await renderTimeline();
+
+    expect(getByText("El receptor anterior rechazó el envío")).toBeTruthy();
+    expect(getByText("Receptor anterior")).toBeTruthy();
+    expect(queryByText("Lucas rechazó el envío")).toBeNull();
+    expect(getByText("Elegiste otro receptor")).toBeTruthy();
+  });
 });

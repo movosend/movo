@@ -57,6 +57,9 @@ interface ReceiverSearchFieldProps {
   onSelect: (profile: PublicProfile) => void;
   onClear: () => void;
   onFocusInput: OnFocusInput;
+  /** MOVO-253: ids que no se pueden elegir (quienes ya rechazaron el envío) — se
+   * sacan de los resultados en vez de mostrarse deshabilitados. */
+  excludeIds?: readonly string[];
   testID?: string;
 }
 
@@ -68,6 +71,7 @@ export function ReceiverSearchField({
   onSelect,
   onClear,
   onFocusInput,
+  excludeIds,
   testID,
 }: ReceiverSearchFieldProps) {
   const colors = useThemeColors();
@@ -97,7 +101,7 @@ export function ReceiverSearchField({
       .search(trimmedQuery)
       .then((found) => {
         if (!cancelled) {
-          setResults(found);
+          setResults(excludeIds ? found.filter((profile) => !excludeIds.includes(profile.id)) : found);
           setResultsQuery(trimmedQuery);
         }
       })
@@ -110,6 +114,9 @@ export function ReceiverSearchField({
     return () => {
       cancelled = true;
     };
+    // `excludeIds` queda fuera a propósito: llega como array nuevo en cada render del
+    // caller y relanzaría la búsqueda en loop; la lista no cambia mientras se busca.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trimmedQuery, selected]);
 
   const searching = !selected && trimmedQuery.length >= MIN_QUERY_LENGTH && resultsQuery !== trimmedQuery;

@@ -1,5 +1,6 @@
 // Autocontenido a propósito (no importa de otros *.schema.ts) — mismo criterio que ya
 // usa movo-svc-users: cada schema no comparte definiciones entre sí.
+import { ShipmentStatus } from "@movo/shared";
 
 const PACKAGE_TYPE_VALUES = ["letter_document", "standard_package", "fragile_item"];
 
@@ -66,6 +67,8 @@ const shipmentResponse = {
     "lastStatusChangedAt",
     "deliveredAt",
     "receiverConfirmationDeadline",
+    "receiverRedesignationDeadline",
+    "rejectionReason",
     "createdAt",
     "updatedAt",
     "estimatedDeliveryDate",
@@ -108,6 +111,11 @@ const shipmentResponse = {
     lastStatusChangedAt: { type: ["string", "null"], format: "date-time" },
     deliveredAt: { type: ["string", "null"], format: "date-time" },
     receiverConfirmationDeadline: { type: ["string", "null"], format: "date-time" },
+    // MOVO-253: plazo del emisor para elegir otro receptor, solo significativo en
+    // `rejected_by_receiver`. `rejectionReason` es el motivo del último rechazo, `null`
+    // fuera de ese estado.
+    receiverRedesignationDeadline: { type: ["string", "null"], format: "date-time" },
+    rejectionReason: { type: ["string", "null"] },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
     // MOVO-180 (adelantado): solo presente en `GET /shipments/:id` cuando el caller es
@@ -454,7 +462,22 @@ export const shipmentsSchemas = {
     properties: {
       page: { type: "integer", minimum: 1, default: 1 },
       limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
+      // MOVO-253: filtro opcional por estado, repetible (`?status=a&status=b`). Sin él,
+      // devuelve todos los estados como antes.
+      status: {
+        type: "array",
+        items: { type: "string", enum: Object.values(ShipmentStatus) },
+      },
     },
+  },
+
+  redesignateReceiverBody: {
+    type: "object",
+    required: ["receiverId"],
+    properties: {
+      receiverId: { type: "string", format: "uuid" },
+    },
+    additionalProperties: false,
   },
 
   shipmentResponse,

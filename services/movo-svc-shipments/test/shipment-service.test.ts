@@ -1321,13 +1321,15 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       shipment.id,
       ShipmentStatus.REJECTED_BY_RECEIVER,
       "receiver-id",
-      "No lo pedí"
+      "No lo pedí",
+      // MOVO-253: el plazo para elegir otro receptor se persiste junto con el rechazo.
+      { receiverRedesignationDeadline: expect.any(Date) }
     );
     await vi.waitFor(() => {
       expect(notificationsClient.sendPush).toHaveBeenCalledWith({
         userId: "sender-id",
         title: "Envío rechazado",
-        body: "Carlos rechazó el envío",
+        body: "Carlos rechazó el envío. Podés elegir otro receptor.",
         category: "shipments",
         data: { shipmentId: shipment.id, type: "shipment_rejected" },
       });
@@ -1352,7 +1354,8 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       shipment.id,
       ShipmentStatus.REJECTED_BY_RECEIVER,
       "receiver-id",
-      undefined
+      undefined,
+      { receiverRedesignationDeadline: expect.any(Date) }
     );
   });
 
@@ -1394,7 +1397,8 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       shipment.id,
       ShipmentStatus.REJECTED_BY_RECEIVER,
       "receiver-id",
-      undefined
+      undefined,
+      { receiverRedesignationDeadline: expect.any(Date) }
     );
   });
 
@@ -1464,7 +1468,8 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       shipment.id,
       ShipmentStatus.REJECTED_BY_RECEIVER,
       "receiver-id",
-      undefined
+      undefined,
+      { receiverRedesignationDeadline: expect.any(Date) }
     );
   });
 });

@@ -135,10 +135,27 @@ describe("GET /internal/account-deletion/users/:userId/active-shipments (MOVO-13
     expect(body).toEqual({ hasActiveDispute: true, hasActiveShipments: true });
   });
 
+  it("MOVO-253: un envío rejected_by_receiver cuenta como activo para el emisor", async () => {
+    const senderId = randomUUID();
+    const created = await repo.create({ ...baseInput, senderId });
+    await forceStatus(created.id, ShipmentStatus.REJECTED_BY_RECEIVER);
+
+    const { body } = await query(senderId);
+    expect(body).toEqual({ hasActiveDispute: false, hasActiveShipments: true });
+  });
+
+  it("MOVO-253: un envío rejected_by_receiver NO cuenta como activo para quien lo rechazó", async () => {
+    const receiverId = randomUUID();
+    const created = await repo.create({ ...baseInput, receiverId });
+    await forceStatus(created.id, ShipmentStatus.REJECTED_BY_RECEIVER);
+
+    const { body } = await query(receiverId);
+    expect(body).toEqual({ hasActiveDispute: false, hasActiveShipments: false });
+  });
+
   it.each([
     ShipmentStatus.DELIVERED,
     ShipmentStatus.COMPLETED,
-    ShipmentStatus.REJECTED_BY_RECEIVER,
     ShipmentStatus.CANCELLED,
   ])(
     "envío en estado terminal %s -> no cuenta como activo",

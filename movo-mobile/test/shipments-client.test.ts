@@ -36,6 +36,21 @@ describe("shipmentsClient", () => {
     expect(result.status).toBe("rejected_by_receiver");
   });
 
+  it("redesignateReceiver hace POST /shipments/:id/receiver con el receptor nuevo (MOVO-253)", async () => {
+    jest.doMock("../src/api/http-client", () => ({
+      httpClient: {
+        post: jest.fn().mockResolvedValue({ id: "shipment-1", status: "awaiting_receiver_confirmation" }),
+      },
+    }));
+    const { shipmentsClient } = require("../src/api/shipments-client");
+    const { httpClient } = require("../src/api/http-client");
+
+    const result = await shipmentsClient.redesignateReceiver("shipment-1", "receiver-2");
+
+    expect(httpClient.post).toHaveBeenCalledWith("/shipments/shipment-1/receiver", { receiverId: "receiver-2" });
+    expect(result.status).toBe("awaiting_receiver_confirmation");
+  });
+
   it("reject pasa body vacío si no se proporciona motivo", async () => {
     jest.doMock("../src/api/http-client", () => ({
       httpClient: {
