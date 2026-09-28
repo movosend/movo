@@ -1,5 +1,6 @@
-import { Image, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import { getInitials } from "../../src/lib/profile-format";
+import { RemoteImage } from "../ui/remote-image";
 
 export interface ProfileAvatarProps {
   fullName: string;
@@ -21,14 +22,19 @@ export interface ProfileAvatarProps {
 export function ProfileAvatar({ fullName, photoUrl, size = 56, testID }: ProfileAvatarProps) {
   if (photoUrl) {
     return (
-      <Image
+      <RemoteImage
         testID={testID}
-        source={{ uri: photoUrl }}
+        uri={photoUrl}
         style={{ width: size, height: size, borderRadius: size / 2 }}
+        fallback={<AvatarInitials fullName={fullName} size={size} />}
       />
     );
   }
 
+  return <AvatarInitials fullName={fullName} size={size} testID={testID} />;
+}
+
+function AvatarInitials({ fullName, size, testID }: { fullName: string; size: number; testID?: string }) {
   return (
     <View
       testID={testID}
