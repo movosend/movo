@@ -136,8 +136,13 @@ export interface CreateShipmentServiceInput {
   pickupTimeWindowEnd: string;
 }
 
+/** MOVO-257: ítem de `GET /shipments/mine` -- `pendingOffersCount` es la cantidad de
+ * ofertas vigentes, solo para el emisor de un envío `published` (el receptor no ve
+ * ofertas); `null` en cualquier otro caso. */
+export type MineShipment = Shipment & { pendingOffersCount: number | null };
+
 export interface ListMineResult {
-  items: Shipment[];
+  items: MineShipment[];
   page: number;
   limit: number;
   total: number;
@@ -1528,7 +1533,25 @@ export function createShipmentsService(
       statuses?: readonly ShipmentStatus[]
     ): Promise<ListMineResult> {
       const { items, total } = await repository.listByUser(userId, page, limit, statuses);
-      return { items, page, limit, total };
+      // MOVO-257: conteo de ofertas vigentes en batch sobre la página (una sola query),
+      // solo para los envíos publicados donde el caller es el emisor.
+      const countableIds = items
+        .filter((s) => s.senderId === userId && s.status === ShipmentStatus.PUBLISHED)
+        .map((s) => s.id);
+      const counts =
+        offerRepository && countableIds.length > 0
+          ? await offerRepository.countPendingOffersByShipmentIds(countableIds)
+          : new Map<string, number>();
+      const countable = new Set(countableIds);
+      return {
+        items: items.map((s) => ({
+          ...s,
+          pendingOffersCount: countable.has(s.id) ? counts.get(s.id) ?? 0 : null,
+        })),
+        page,
+        limit,
+        total,
+      };
     },
 
     /**

@@ -481,7 +481,18 @@ export const shipmentsSchemas = {
     type: "object",
     required: ["items", "page", "limit", "total"],
     properties: {
-      items: { type: "array", items: shipmentResponse },
+      items: {
+        type: "array",
+        items: {
+          ...shipmentResponse,
+          properties: {
+            ...shipmentResponse.properties,
+            // MOVO-257: ofertas vigentes, solo para el emisor de un envío `published`;
+            // `null` en cualquier otro caso (el receptor no ve ofertas).
+            pendingOffersCount: { type: ["integer", "null"] },
+          },
+        },
+      },
       page: { type: "integer" },
       limit: { type: "integer" },
       total: { type: "integer" },

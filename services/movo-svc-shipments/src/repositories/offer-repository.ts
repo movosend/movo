@@ -350,6 +350,13 @@ export interface OfferRepository {
    */
   listPendingOfferedShipmentIds(carrierId: string, shipmentIds: string[]): Promise<Set<string>>;
   /**
+   * MOVO-257: cantidad de ofertas con status EFECTIVO `pending` (reusa
+   * `offerStatusWhere`, no cuenta las vencidas por lectura) de cada envío dado, para
+   * `pendingOffersCount` de `GET /shipments/mine`. Un solo `groupBy` sobre la página,
+   * nunca una query por envío. Un envío sin ofertas vigentes no aparece en el `Map`.
+   */
+  countPendingOffersByShipmentIds(shipmentIds: string[], now?: Date): Promise<Map<string, number>>;
+  /**
    * MOVO-188 (AC1-AC3/AC5): ofertas `pending` efectivas de cada envío dado, ordenadas
    * por `priceOffered` (bruto) ascendente -- el caller (`offers.service.ts#listMyOffers`)
    * ubica ahí la posición de la oferta propia, resuelve el desempate (reputación /
@@ -752,6 +759,18 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         select: { shipmentId: true },
       });
       return new Set(rows.map((r) => r.shipmentId));
+    },
+
+    async countPendingOffersByShipmentIds(shipmentIds: string[], now: Date = new Date()): Promise<Map<string, number>> {
+      if (shipmentIds.length === 0) {
+        return new Map();
+      }
+      const rows = await db.offer.groupBy({
+        by: ["shipmentId"],
+        where: { shipmentId: { in: shipmentIds }, ...offerStatusWhere(OfferStatus.PENDING, now) },
+        _count: { _all: true },
+      });
+      return new Map(rows.map((r) => [r.shipmentId, r._count._all]));
     },
 
     async listPendingOffersByShipmentIds(

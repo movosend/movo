@@ -22,6 +22,7 @@ export function createFakeOfferRepository(overrides: Partial<OfferRepository> = 
     listByCarrier: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     listPendingOfferedShipmentIds: vi.fn().mockResolvedValue(new Set()),
     listPendingOffersByShipmentIds: vi.fn().mockResolvedValue(new Map()),
+    countPendingOffersByShipmentIds: vi.fn().mockResolvedValue(new Map()),
     ...overrides,
   };
 }
