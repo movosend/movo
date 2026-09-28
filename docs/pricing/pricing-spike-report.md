@@ -207,7 +207,7 @@ Sin demanda, el precio nuevo es igual al de v1 con la misma distancia. **La dife
 ```
 
 - **`breakdown` sale del wire.** Se verificó con grep que **ningún consumidor lo lee**: `pricing-client.ts` solo usa `suggestedPriceArs` y `calculationMethod`, y `movo-mobile` no lo referencia. Solo lo declara `QuoteResponse` de `@movo/shared`. Quitarlo no rompe nada.
-- **El desglose no se pierde.** Queda en un log estructurado `pricing_quote_computed` con el precio del combustible y su fuente (`api`/`lkg`/`config`), la distancia, los componentes, el ratio y el multiplicador. Sirve como evidencia para disputas (MOVO-30) y para la defensa, sin exponérselo al emisor.
+- **El desglose no se pierde.** Queda en un log estructurado `pricing_quote_computed` con el precio del combustible y su fuente (`api`/`lkg`/`config`), la distancia, los componentes, el ratio y el multiplicador. Sirve para recalibrar los parámetros y para la defensa, sin exponérselo al emisor. No alcanza como evidencia para disputas (MOVO-30): la cotización ocurre antes de que exista el envío, el log no lleva `shipmentId` ni `x-request-id` y la rotación de logs no lo hace durable.
 - **El texto del badge ("Alta demanda en tu zona") vive en el mobile**, no en el backend. El backend devuelve un booleano y la redacción es de la UI.
 - **`highDemand` se persiste en el envío** (`shipments.high_demand`, ver §7.4), así el badge se puede mostrar después en el detalle.
 - **Compatibilidad:** agregar `highDemand` y quitar `breakdown` no rompe `pricing-client.ts`. Da igual qué servicio se despliegue primero.

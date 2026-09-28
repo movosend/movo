@@ -295,6 +295,14 @@ compartido acá — `movo-svc-users` (`sendPushToUser`, único choke point) lo n
 para poder respetar el toggle maestro/de categoría/horario de silencio antes de
 enviar. Todo caller existente que no lo mande rompe en tiempo de compilación.
 
+### MOVO-138 — Contrato `demand_fuel_routes_v1` de `POST /quote`
+
+`src/types/pricing.ts`: `PriceCalculationMethod.DEMAND_FUEL_ROUTES_V1` (sin borrar
+`EUCLIDEAN_LINEAR_V1`, sigue persistido en envíos viejos), `QuoteRequest.demandContext?`
+(`DemandContext`, nuevo export) y `QuoteResponse.highDemand`. `breakdown` y
+`PriceBreakdownItem` salen del contrato: ningún consumidor los leía y el desglose pasa al
+log `pricing_quote_computed` del servicio (ADR-025). El enum de Python
+(`movo-svc-pricing-logistics/app/models/quote.py`) se actualizó en el mismo commit.
 ### MOVO-173 — `config/rating-categories.ts`
 
 `CARRIER_RATING_CATEGORIES` (puntualidad/cuidado del paquete/comunicación) y
