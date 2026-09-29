@@ -3,7 +3,6 @@ import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useColorScheme } from "nativewind";
 import {
-  Image,
   Modal,
   Platform,
   Pressable,
@@ -18,6 +17,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSheetAnimation } from "../../src/hooks/use-sheet-animation";
+import { RemoteImage } from "../ui/remote-image";
 import { ProfileAvatar } from "./profile-avatar";
 
 // Tamaño objetivo del peek — capado por el ancho real de pantalla (`computePeekGeometry`
@@ -244,10 +244,9 @@ export function AvatarPeekViewer({ fullName, photoUrl, size = 56, testID }: Avat
                 {/* `Pressable` propio (no-op): absorbe el toque para que tocar la foto
                     no cierre el peek — solo el backdrop de atrás lo cierra. */}
                 <Pressable onPress={() => {}}>
-                  <Image
-                    source={{ uri: photoUrl }}
+                  <RemoteImage
+                    uri={photoUrl}
                     style={{ width: peek.size, height: peek.size, borderRadius: peek.size / 2 }}
-                    resizeMode="cover"
                   />
                 </Pressable>
               </Animated.View>

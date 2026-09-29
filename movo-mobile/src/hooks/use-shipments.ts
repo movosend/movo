@@ -149,6 +149,10 @@ export function useShipmentPhotos(id: string | undefined) {
     queryKey: ["shipments", "photos", id],
     queryFn: () => shipmentsClient.listPhotos(id!),
     enabled: !!id,
+    // Las URLs son presigned GET que vencen a los 5 min: se reusan hasta los 4 min en
+    // vez de re-firmar en cada visita al detalle. Pasado ese plazo, las fotos igual
+    // salen del caché de disco (`RemoteImage` cachea por la key de S3, no por la firma).
+    staleTime: 4 * 60 * 1000,
   });
 }
 

@@ -1,5 +1,5 @@
 import { Pencil } from "lucide-react-native";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
 import Animated, { processColor, useAnimatedProps, useFrameCallback, useSharedValue } from "react-native-reanimated";
@@ -15,14 +15,26 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useShipmentRoute } from "../../src/hooks/use-shipments";
 import { hexToRgba } from "../../src/lib/color";
 import { decodePolyline } from "../../src/lib/polyline";
+import { SkeletonBlock } from "../ui/skeleton-block";
 
 const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
 
 const MAP_HEIGHT = 220;
 const EDGE_PADDING = { top: 64, right: 48, bottom: 40, left: 48 };
+// Cuánto se puede alejar el mapa por debajo del zoom que encuadra la ruta. No es un
+// `minZoomLevel` fijo porque las rutas van de unas cuadras a más de 100 km: el mínimo
+// sale del encuadre real de cada ruta (un nivel = el doble de área visible).
+const EXTRA_ZOOM_OUT_LEVELS = 1;
+// Máximo explícito, siempre: en iOS (Google Maps, Fabric) `minZoomLevel` y
+// `maxZoomLevel` se aplican juntos, y sin `maxZoomLevel` el máximo queda en 0. Fijar un
+// mínimo mayor que ese 0 hace que Google Maps tire una excepción nativa y la app se
+// cierre. 20 es el máximo que soporta Google Maps.
+const MAX_ZOOM_LEVEL = 20;
 
-// Cuando todavía no llegó la ruta real (`GET /shipments/route`, MOVO-123) o falló, se
-// interpola una línea recta como placeholder — se ve peor pero nunca deja el mapa vacío.
+// Si la ruta real (`GET /shipments/route`, MOVO-123) falla, se interpola una línea recta
+// para no dejar el mapa sin trazo. Mientras la ruta todavía está cargando NO se dibuja
+// esa recta: se veía una línea recta que segundos después era reemplazada de golpe por
+// la ruta por calle. En su lugar, un skeleton tapa todo el mapa hasta que hay trazo.
 const FALLBACK_ROUTE_STEPS = 24;
 // Ciclo del barrido (referencia: comparativa "before/after" de Uber) — un trazo negro se
 // dibuja progresivamente de punta a punta sobre la línea gris de base, se mantiene un
@@ -101,9 +113,10 @@ export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardP
   const { colorScheme } = useColorScheme();
   const colors = useThemeColors();
   const mapRef = useRef<MapView>(null);
+  const [minZoomLevel, setMinZoomLevel] = useState<number | undefined>(undefined);
   const mapBackgroundColor = colorScheme === "dark" ? MAP_GEOMETRY_COLOR_DARK : MAP_GEOMETRY_COLOR_LIGHT;
 
-  const { data: route } = useShipmentRoute(
+  const { data: route, isError: routeFailed } = useShipmentRoute(
     pickup ? { lat: pickup.lat, lng: pickup.lng } : null,
     delivery ? { lat: delivery.lat, lng: delivery.lng } : null,
   );
@@ -135,18 +148,23 @@ export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardP
     }
   }, false);
 
-  useEffect(() => {
-    frameCallback.setActive(Boolean(pickup && delivery));
-  }, [pickup, delivery, frameCallback]);
-
   // Calculado antes del early return de abajo: los hooks (`useAnimatedProps`) no
   // pueden ser condicionales, así que `routePoints` se resuelve acá con `pickup`/
   // `delivery` todavía potencialmente `null` (ruta vacía en ese caso — nunca se
-  // llega a renderizar el mapa que la usaría).
-  const routePoints = useMemo(
-    () => (pickup && delivery ? (route ? decodePolyline(route.polyline) : buildFallbackRoutePoints(pickup, delivery)) : []),
-    [pickup, delivery, route],
-  );
+  // llega a renderizar el mapa que la usaría). Vacía también mientras la ruta carga.
+  const routePoints = useMemo(() => {
+    if (!pickup || !delivery) return [];
+    if (route) return decodePolyline(route.polyline);
+    return routeFailed ? buildFallbackRoutePoints(pickup, delivery) : [];
+  }, [pickup, delivery, route, routeFailed]);
+  const isRouteLoading = Boolean(pickup && delivery) && routePoints.length === 0;
+
+  // Cada vez que aparece un trazo nuevo, el barrido arranca de cero desde el origen.
+  useEffect(() => {
+    startedAt.value = null;
+    sweepLength.value = 0;
+    frameCallback.setActive(routePoints.length > 0);
+  }, [routePoints, frameCallback, startedAt, sweepLength]);
 
   // La punta del barrido interpola entre los dos puntos de ruta más cercanos en vez de
   // saltar de punto en punto — con pocos puntos (ruta fallback, o un polyline real con
@@ -223,18 +241,40 @@ export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardP
             latitudeDelta: Math.max(Math.abs(pickup.lat - delivery.lat) * 1.8, 0.02),
             longitudeDelta: Math.max(Math.abs(pickup.lng - delivery.lng) * 1.8, 0.02),
           }}
-          onMapReady={() =>
-            mapRef.current?.fitToCoordinates([pickup, delivery].map((p) => ({ latitude: p.lat, longitude: p.lng })), {
+          minZoomLevel={minZoomLevel}
+          maxZoomLevel={MAX_ZOOM_LEVEL}
+          onMapReady={() => {
+            const map = mapRef.current;
+            if (!map) return;
+            map.fitToCoordinates([pickup, delivery].map((p) => ({ latitude: p.lat, longitude: p.lng })), {
               edgePadding: EDGE_PADDING,
               animated: false,
-            })
-          }
+            });
+            // El zoom del encuadre recién se puede leer después de aplicarlo.
+            requestAnimationFrame(() => {
+              map
+                .getCamera()
+                .then((camera) => {
+                  if (typeof camera.zoom === "number" && Number.isFinite(camera.zoom)) {
+                    setMinZoomLevel(Math.min(Math.max(camera.zoom - EXTRA_ZOOM_OUT_LEVELS, 0), MAX_ZOOM_LEVEL));
+                  }
+                })
+                .catch(() => {
+                  // Sin cámara no se limita el zoom: el mapa sigue usable, solo sin tope.
+                });
+            });
+          }}
           scrollEnabled
           zoomEnabled
           pitchEnabled={false}
           rotateEnabled={false}
         >
-          <Polyline coordinates={routePoints} strokeColor={colors.fg3} strokeWidth={3.5} />
+          <Polyline
+            testID={testID ? `${testID}-route-base` : undefined}
+            coordinates={routePoints}
+            strokeColor={colors.fg3}
+            strokeWidth={3.5}
+          />
           <AnimatedPolyline
             coordinates={routePoints}
             strokeColor={hexToRgba(colors.fg1, 1)}
@@ -259,6 +299,13 @@ export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardP
             </View>
           </Marker>
         </MapView>
+
+        {isRouteLoading ? (
+          <SkeletonBlock
+            testID={testID ? `${testID}-route-loading` : undefined}
+            className="absolute inset-0"
+          />
+        ) : null}
 
         {onEdit ? (
           <Pressable
