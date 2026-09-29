@@ -134,3 +134,30 @@ export function formatPhoneDisplay(phone: string | null | undefined): string {
   const splitAt = isBsAs ? 4 : 3;
   return `+54 9 ${areaCode} ${subscriber.slice(0, splitAt)}-${subscriber.slice(splitAt)}`;
 }
+
+function plural(n: number, singular: string, pluralForm: string): string {
+  return `${n} ${n === 1 ? singular : pluralForm}`;
+}
+
+/**
+ * Antigüedad de la cuenta para el perfil público (`PublicProfile.memberSince`, ISO del
+ * `createdAt` del usuario, MOVO-170): "Miembro desde hoy", "Miembro desde hace 5 días",
+ * "… hace 3 meses", "… hace 2 años". Meses y años por calendario (no bloques fijos de
+ * 30/365 días), así un año cumplido se lee como "1 año" y no "12 meses". `null` si la
+ * fecha no se puede leer, para no mostrar nada antes que un texto roto.
+ */
+export function formatMemberSince(memberSince: string | null | undefined, now: Date = new Date()): string | null {
+  if (!memberSince) return null;
+  const since = new Date(memberSince);
+  if (Number.isNaN(since.getTime())) return null;
+
+  let months = (now.getFullYear() - since.getFullYear()) * 12 + (now.getMonth() - since.getMonth());
+  if (now.getDate() < since.getDate()) months -= 1;
+
+  if (months >= 12) return `Miembro desde hace ${plural(Math.floor(months / 12), "año", "años")}`;
+  if (months >= 1) return `Miembro desde hace ${plural(months, "mes", "meses")}`;
+
+  const days = Math.floor((now.getTime() - since.getTime()) / (24 * 60 * 60 * 1000));
+  if (days < 1) return "Miembro desde hoy";
+  return `Miembro desde hace ${plural(days, "día", "días")}`;
+}

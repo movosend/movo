@@ -50,9 +50,10 @@ describe("PhotoPicker", () => {
       />,
     );
 
-    const avatar = getByTestId("photo-picker-avatar");
+    const avatar = getByTestId("photo-picker-avatar-image");
     expect(avatar.props.source).toEqual({
       uri: "https://s3.amazonaws.com/bucket/profile-photos/u1.jpg",
+      cacheKey: "https://s3.amazonaws.com/bucket/profile-photos/u1.jpg",
     });
   });
 

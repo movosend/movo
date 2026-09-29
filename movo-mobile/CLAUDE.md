@@ -4015,3 +4015,52 @@ entrar (reusa la cotización guardada si sigue vigente) y manda el `quoteId` al 
 
 Pendiente: el badge "Alta demanda en tu zona" (`highDemand` ya queda en el store) entra
 con MOVO-254. No probado en device.
+
+### MOVO-257 — Rediseño de "Mis envíos" para emisor y receptor
+
+`app/(app)/shipments/index.tsx` rehecha sobre el prototipo "Mis envíos 4a": accesos por
+rol ("Enviás"/"Recibís", con conteo y punto de acción), segmentado En curso/Historial,
+filas con franja de acción (aceptar, elegir oferta, elegir otro receptor, aviso de
+"por vencer sin ofertas") y filtros de Persona/Estado con etiquetas removibles.
+`ShipmentCard` se borró; la presentación vive en `src/lib/my-shipments-format.ts`
+(pura, testeada) y los componentes `my-shipment-row`/`my-shipments-controls`/
+`my-shipments-filter-sheet`. El conteo de ofertas sale de `pendingOffersCount` de
+`GET /shipments/mine` (ver `services/movo-svc-shipments/CLAUDE.md`).
+
+Alcance ampliado en la misma rama (probando en device, detalle en los comentarios del
+ticket):
+- **`expo-image` (módulo nativo, requiere rebuild del dev client)**: `components/ui/
+  remote-image.tsx` es el único punto que carga imágenes por red — caché memoria+disco
+  con clave estable (la URL sin query, `src/lib/remote-image.ts`), porque las fotos de
+  envío son presigned GET que cambian en cada pedido y el `Image` de RN las volvía a
+  bajar siempre. Skeleton/spinner, fundido y fallback. `useShipmentPhotos` con
+  `staleTime` de 4 min (la firma vence a los 5). Las imágenes locales y los assets
+  siguen con `Image` de RN. Mock propio en Jest (`test/mocks/expo-image-mock.js`): el
+  real revienta al importarse por la integración con `expo-observe`.
+- **`RouteMapCard`**: skeleton sobre todo el mapa mientras carga la ruta (antes dibujaba
+  una recta que después se reemplazaba de golpe; la recta queda solo como fallback de
+  error) y zoom out limitado a un nivel por debajo del encuadre. **Siempre con
+  `maxZoomLevel` explícito**: en iOS (Google Maps, Fabric) min y max se aplican juntos
+  y sin max queda en 0 — fijar un mínimo mayor cierra la app. Una prueba de animar la
+  opacidad de la línea de base con `processColor` la dejó roja en nativo: la base
+  quedó estática.
+- **Paleta del mapa** (`src/constants/map-style.ts`, todos los mapas): calles en tres
+  grises, gris propio para zonas urbanas, lima apagado para parques/deportes y más
+  lavado para hospitales/escuelas/aeropuertos. `landscape.natural` descartado (teñía
+  casi todo el mapa en rutas largas). Las reglas lima van al final: tienen que pisar el
+  `visibility: off` de `poi`/`transit`.
+- **Detalle del envío**: rol + código `#MOVO` bajo el título; el receptor no ve el
+  precio; `CounterpartCard` sin estrellas si no hay calificaciones y badges cortos
+  ("Pendiente"/"Aceptó"/"Rechazó").
+- **`assignment_pending` ya no se lee como "sin transportista"**: es el estado final de
+  toda oferta aceptada mientras no exista el hold de MP (MOVO-12/210). Pill "Asignado",
+  el evento se titula por la elección ("Elegiste a Juan como transportista") con "Falta
+  reservar el pago" de detalle, el paso pendiente es "Reserva del pago", y el `reason`
+  de un evento solo se muestra en cancelaciones y rechazos (`shouldShowEventReason`: el
+  resto es texto interno del backend, como "Oferta <uuid> aceptada").
+- **Perfil público**: "Miembro desde hace…" (`formatMemberSince`, meses y años por
+  calendario) en vez de la fecha ISO cruda, y `BrandAvatar` en la ficha de vehículo.
+
+Pendiente: `offer-card.tsx` sigue mostrando estrellas vacías sin calificaciones;
+expiración de envíos con transportista y cierre de viajes `active` derivados a
+MOVO-258; no probado en device tras los últimos ajustes.

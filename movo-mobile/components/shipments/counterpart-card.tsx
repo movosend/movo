@@ -21,19 +21,19 @@ const RECEIVER_CONFIRMATION_META: Record<
   { label: string; Icon: LucideIcon; iconColor: string; className: string }
 > = {
   pending: {
-    label: "Pend. de aceptar",
+    label: "Pendiente",
     Icon: Clock,
     iconColor: "#A97714",
     className: "bg-warning-100 text-warning-700",
   },
   confirmed: {
-    label: "Aceptó el envío",
+    label: "Aceptó",
     Icon: CheckCircle2,
     iconColor: "#16754A",
     className: "bg-success-100 text-success-700",
   },
   rejected: {
-    label: "Rechazó el envío",
+    label: "Rechazó",
     Icon: XCircle,
     iconColor: "#972327",
     className: "bg-danger-100 text-danger-700",
@@ -103,6 +103,9 @@ export function CounterpartCard({
     );
   }
 
+  const hasReputation =
+    !profile.isNewProfile && profile.reputationScore !== null && profile.reputationScore !== undefined;
+
   const confirmation = receiverConfirmation
     ? RECEIVER_CONFIRMATION_META[receiverConfirmation]
     : null;
@@ -130,7 +133,11 @@ export function CounterpartCard({
         </Text>
         {profile.isVerified ? <ProfileVerifiedBadge /> : null}
         <View className="mt-1 flex-row items-center gap-1.5">
-          <StarRatingInput score={profile.reputationScore ?? 0} readOnly size={11} gap={1} />
+          {/* Sin calificaciones (o perfil nuevo) no se dibujan estrellas: cinco estrellas
+              vacías se leen como "lo calificaron mal", no como "todavía no lo calificaron". */}
+          {hasReputation ? (
+            <StarRatingInput testID={testID ? `${testID}-stars` : undefined} score={profile.reputationScore ?? 0} readOnly size={11} gap={1} />
+          ) : null}
           <Text className="font-sans text-[11px] text-fg-3">
             {formatReputationScore(profile.reputationScore, profile.isNewProfile)}
           </Text>

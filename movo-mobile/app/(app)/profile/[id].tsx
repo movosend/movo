@@ -22,7 +22,7 @@ import { usePendingReport } from "../../../src/hooks/use-moderation";
 import { useSharedHistory } from "../../../src/hooks/use-shipments";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
-import { formatRatingDate } from "../../../src/lib/profile-format";
+import { formatMemberSince, formatRatingDate } from "../../../src/lib/profile-format";
 
 const NEW_PROFILE_GUARANTEES = [
   {
@@ -142,6 +142,8 @@ export default function PublicProfileScreen() {
   const isOwnProfile = !!currentUserId && currentUserId === profile.id;
   const shownComments = profile.recentRatingComments.slice(0, 10);
 
+  const memberSinceLabel = formatMemberSince(profile.memberSince);
+
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
       <View className="flex-row items-center gap-3 px-5 pb-3.5 pt-1.5">
@@ -209,9 +211,9 @@ export default function PublicProfileScreen() {
                   </Text>
                 </View>
               ) : null}
-              {profile.memberSince ? (
-                <Text className="font-sans text-[12px] text-fg-3">
-                  {profile.memberSince}
+              {memberSinceLabel ? (
+                <Text testID="profile-detail-member-since" className="font-sans text-[12px] text-fg-3">
+                  {memberSinceLabel}
                 </Text>
               ) : null}
             </View>

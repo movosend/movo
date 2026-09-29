@@ -102,6 +102,15 @@ describe("PublicProfileScreen", () => {
     expect(queryByTestId("profile-detail-mutual-connections")).toBeNull();
   });
 
+  it("muestra la antigüedad de la cuenta en vez de la fecha cruda", async () => {
+    mockUsePublicProfile.mockReturnValue({ data: baseProfile(), isLoading: false, isError: false });
+
+    const { getByTestId, queryByText } = await render(<PublicProfileScreen />);
+
+    expect(getByTestId("profile-detail-member-since").props.children).toMatch(/^Miembro desde (hoy|hace )/);
+    expect(queryByText("2026-01-01T00:00:00.000Z")).toBeNull();
+  });
+
   it("muestra el skeleton mientras carga", async () => {
     mockUsePublicProfile.mockReturnValue({ data: undefined, isLoading: true, isError: false });
 

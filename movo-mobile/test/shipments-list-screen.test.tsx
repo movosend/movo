@@ -1,10 +1,11 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { fireEvent, render } from "@testing-library/react-native";
+import { act, fireEvent, render, within } from "@testing-library/react-native";
 import type { ShipmentSummary } from "../src/api/shipments-client";
 import MyShipmentsScreen from "../app/(app)/shipments/index";
 
 const mockRouterBack = jest.fn();
 const mockRouterReplace = jest.fn();
+const mockRouterPush = jest.fn();
 const mockCanGoBack = jest.fn(() => true);
 
 jest.mock("expo-router", () => ({
@@ -12,26 +13,28 @@ jest.mock("expo-router", () => ({
     back: () => mockRouterBack(),
     replace: (...args: unknown[]) => mockRouterReplace(...args),
     canGoBack: () => mockCanGoBack(),
-    push: jest.fn(),
+    push: (...args: unknown[]) => mockRouterPush(...args),
   },
 }));
 
 const mockUseMyShipments = jest.fn();
-
 jest.mock("../src/hooks/use-shipments", () => ({
   useMyShipments: () => mockUseMyShipments(),
 }));
 
-const mockUsePublicProfiles = jest.fn();
-
+const NAMES: Record<string, string> = {
+  ana: "Ana López",
+  martin: "Martín Sosa",
+  juan: "Juan Pérez",
+  paul: "Paul Díaz",
+};
 jest.mock("../src/hooks/use-profile", () => ({
-  usePublicProfiles: (ids: string[]) => mockUsePublicProfiles(ids),
+  usePublicProfiles: (ids: string[]) => ids.map((id) => ({ data: { fullName: NAMES[id] } })),
 }));
 
-const mockCurrentUser = jest.fn();
 jest.mock("../src/store/auth-store", () => ({
   useAuthStore: (selector?: (state: { user: { userId: string } | null }) => unknown) => {
-    const state = { user: mockCurrentUser() };
+    const state = { user: { userId: "me" } };
     return typeof selector === "function" ? selector(state) : state;
   },
 }));
@@ -39,8 +42,8 @@ jest.mock("../src/store/auth-store", () => ({
 function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
   return {
     id: "shipment-1",
-    senderId: "user-1",
-    receiverId: "user-2",
+    senderId: "me",
+    receiverId: "ana",
     carrierId: null,
     packageType: "standard_package",
     weightKg: 2,
@@ -49,26 +52,70 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
     heightCm: 20,
     description: null,
     urgent: false,
-    pickupAddress: "Av. Colón 1234, Córdoba",
+    pickupAddress: "Av. Don Bosco 4807, Córdoba",
     pickupLat: -31.4,
     pickupLng: -64.18,
-    deliveryAddress: "Bv. San Juan 500, Córdoba",
+    deliveryAddress: "Rivadavia 387, Córdoba",
     deliveryLat: -31.41,
     deliveryLng: -64.19,
-    pickupDate: "2026-08-20",
-    pickupTimeWindowStart: "09:00",
-    pickupTimeWindowEnd: "12:00",
+    pickupDate: "2030-01-05",
+    pickupTimeWindowStart: "09:00:00",
+    pickupTimeWindowEnd: "12:00:00",
     suggestedPriceArs: 4500,
     agreedPriceArs: null,
     paymentMethod: null,
     status: ShipmentStatus.PUBLISHED,
     lastStatusChangedAt: null,
     deliveredAt: null,
+    pendingOffersCount: 0,
     createdAt: "2026-08-15T10:00:00.000Z",
     updatedAt: "2026-08-15T10:00:00.000Z",
     ...overrides,
   };
 }
+
+const WITH_OFFERS = shipment({ id: "with-offers", pendingOffersCount: 3, pickupDate: "2030-01-06" });
+const TO_ACCEPT = shipment({
+  id: "to-accept",
+  senderId: "martin",
+  receiverId: "me",
+  status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+  pendingOffersCount: null,
+  pickupDate: "2030-01-07",
+});
+const IN_TRANSIT = shipment({
+  id: "in-transit",
+  status: ShipmentStatus.IN_TRANSIT,
+  agreedPriceArs: 8467,
+  pendingOffersCount: null,
+  pickupDate: "2030-01-01",
+  deliveryAddress: "Jujuy 455, Córdoba",
+});
+const REJECTED = shipment({
+  id: "rejected",
+  receiverId: "paul",
+  status: ShipmentStatus.REJECTED_BY_RECEIVER,
+  receiverRedesignationDeadline: "2099-01-01T12:00:00.000Z",
+  pendingOffersCount: null,
+  pickupDate: "2030-01-08",
+});
+// Cierres en el año en curso: el encabezado del mes no lleva año ("Septiembre").
+const YEAR = new Date().getFullYear();
+const DELIVERED = shipment({
+  id: "delivered",
+  receiverId: "juan",
+  status: ShipmentStatus.DELIVERED,
+  pendingOffersCount: null,
+  lastStatusChangedAt: `${YEAR}-09-24T15:00:00.000Z`,
+});
+const CANCELLED = shipment({
+  id: "cancelled",
+  senderId: "martin",
+  receiverId: "me",
+  status: ShipmentStatus.CANCELLED,
+  pendingOffersCount: null,
+  lastStatusChangedAt: `${YEAR}-08-22T15:00:00.000Z`,
+});
 
 function baseResult(overrides: Record<string, unknown> = {}) {
   return {
@@ -88,304 +135,176 @@ function pages(items: ShipmentSummary[]) {
   return { pages: [{ items, page: 1, limit: 20, total: items.length }] };
 }
 
-// MOVO-127: pantalla "Mis Envíos" — tabs En curso/Completados + filtros (estado, destinatario).
-describe("MyShipmentsScreen", () => {
-  beforeEach(() => {
-    mockUsePublicProfiles.mockReturnValue([]);
-  });
+const ALL = [IN_TRANSIT, WITH_OFFERS, TO_ACCEPT, REJECTED, DELIVERED, CANCELLED];
 
+async function renderWith(items: ShipmentSummary[] = ALL) {
+  mockUseMyShipments.mockReturnValue(baseResult({ data: pages(items) }));
+  return render(<MyShipmentsScreen />);
+}
+
+function rowIds(getAllByTestId: (id: RegExp) => Array<{ props: Record<string, unknown> }>) {
+  return getAllByTestId(/^my-shipments-row-/)
+    .map((n) => String(n.props.testID).replace("my-shipments-row-", ""))
+    .filter((id) => !/-(pill|strip|quiet)$/.test(id));
+}
+
+// MOVO-257: rediseño de "Mis envíos" sobre el prototipo "Mis envíos 4a".
+describe("MyShipmentsScreen", () => {
   afterEach(() => jest.clearAllMocks());
 
-  it("muestra el skeleton mientras carga la primera página", async () => {
+  it("muestra el skeleton mientras carga, sin filas", async () => {
     mockUseMyShipments.mockReturnValue(baseResult({ isLoading: true }));
-
-    const { queryByTestId } = await render(<MyShipmentsScreen />);
-
-    expect(queryByTestId("my-shipments-list")).toBeNull();
+    const { queryAllByTestId } = await render(<MyShipmentsScreen />);
+    expect(queryAllByTestId(/^my-shipments-row-/)).toHaveLength(0);
   });
 
   it("muestra el estado de error con reintentar", async () => {
-    mockUseMyShipments.mockReturnValue(baseResult({ isError: true }));
-
+    const refetch = jest.fn();
+    mockUseMyShipments.mockReturnValue(baseResult({ isError: true, refetch }));
     const { getByText } = await render(<MyShipmentsScreen />);
-
     expect(getByText("No pudimos cargar tus envíos.")).toBeTruthy();
+    await act(async () => fireEvent.press(getByText("Reintentar")));
+    expect(refetch).toHaveBeenCalled();
   });
 
-  it('arranca en la tab "En curso" y muestra su estado vacío', async () => {
-    mockUseMyShipments.mockReturnValue(baseResult({ data: pages([shipment({ status: ShipmentStatus.DELIVERED })]) }));
+  it("las tarjetas de rol cuentan los activos y marcan cuando alguno requiere acción", async () => {
+    const { getByTestId } = await renderWith();
+    expect(within(getByTestId("my-shipments-role-sending")).getByText("3 activos")).toBeTruthy();
+    expect(within(getByTestId("my-shipments-role-receiving")).getByText("1 activo")).toBeTruthy();
+    expect(getByTestId("my-shipments-role-sending-dot")).toBeTruthy();
+    expect(getByTestId("my-shipments-role-receiving-dot")).toBeTruthy();
+  });
 
-    const { getByText } = await render(<MyShipmentsScreen />);
+  it("En curso lista primero lo que requiere acción y después por fecha de retiro", async () => {
+    const { getAllByTestId, getByText } = await renderWith();
+    expect(rowIds(getAllByTestId)).toEqual(["with-offers", "to-accept", "rejected", "in-transit"]);
+    expect(getByText("4 en curso")).toBeTruthy();
+  });
 
+  it("cada fila muestra título por rol, precio y su franja", async () => {
+    const { getByTestId } = await renderWith();
+    const offers = within(getByTestId("my-shipments-row-with-offers"));
+    expect(offers.getByText("Rivadavia 387")).toBeTruthy();
+    expect(offers.getByText("3 OFERTAS")).toBeTruthy();
+    expect(offers.getByText("aprox.")).toBeTruthy();
+    expect(offers.getByText("Tenés 3 ofertas. Elegí quién lo lleva.")).toBeTruthy();
+
+    const accept = within(getByTestId("my-shipments-row-to-accept"));
+    expect(accept.getByText("Av. Don Bosco 4807")).toBeTruthy();
+    expect(accept.getByText("Martín te manda un paquete. Aceptalo.")).toBeTruthy();
+
+    const transit = within(getByTestId("my-shipments-row-in-transit"));
+    expect(transit.getByText("EN CAMINO")).toBeTruthy();
+    expect(transit.getByText("pactado")).toBeTruthy();
+  });
+
+  it("la franja lleva a la pantalla donde se resuelve y la fila al detalle", async () => {
+    const { getByTestId } = await renderWith();
+    await act(async () => fireEvent.press(getByTestId("my-shipments-row-with-offers-strip")));
+    expect(mockRouterPush).toHaveBeenLastCalledWith("/shipments/with-offers/offers");
+    await act(async () => fireEvent.press(getByTestId("my-shipments-row-rejected-strip")));
+    expect(mockRouterPush).toHaveBeenLastCalledWith("/shipments/rejected/change-receiver");
+    await act(async () => fireEvent.press(getByTestId("my-shipments-row-in-transit")));
+    expect(mockRouterPush).toHaveBeenLastCalledWith("/shipments/in-transit");
+  });
+
+  it("tocar una tarjeta de rol filtra, oculta el tag de rol y cambia el título; tocarla de nuevo vuelve a todos", async () => {
+    const { getByTestId, getAllByTestId, getByText, queryByText } = await renderWith();
+    await act(async () => fireEvent.press(getByTestId("my-shipments-role-receiving")));
+    expect(rowIds(getAllByTestId)).toEqual(["to-accept"]);
+    expect(getByText("1 que recibís")).toBeTruthy();
+    expect(queryByText("RECIBÍS")).toBeNull();
+
+    await act(async () => fireEvent.press(getByTestId("my-shipments-role-receiving")));
+    expect(getByText("4 en curso")).toBeTruthy();
+  });
+
+  it("Historial agrupa por mes de cierre, más reciente primero", async () => {
+    const { getByTestId, getAllByTestId, getByText } = await renderWith();
+    await act(async () => fireEvent.press(getByTestId("my-shipments-stage-history")));
+    expect(rowIds(getAllByTestId)).toEqual(["delivered", "cancelled"]);
+    expect(getByText("Septiembre")).toBeTruthy();
+    expect(getByText("Agosto")).toBeTruthy();
+    expect(within(getByTestId("my-shipments-row-delivered")).getByText(/^\S{3} 24 · Enviás$/)).toBeTruthy();
+    expect(within(getByTestId("my-shipments-row-cancelled")).getByText("CANCELADO")).toBeTruthy();
+  });
+
+  it("el filtro de Persona muestra una etiqueta que se saca con un toque", async () => {
+    const { getByTestId, getAllByTestId, queryByTestId } = await renderWith();
+    await act(async () => fireEvent.press(getByTestId("my-shipments-filter-open")));
+    await act(async () => fireEvent.press(getByTestId("shipments-filter-person-option-ana")));
+    await act(async () => fireEvent.press(getByTestId("shipments-filter-apply")));
+
+    expect(rowIds(getAllByTestId)).toEqual(["with-offers", "in-transit"]);
+    expect(getByTestId("my-shipments-filter-dot")).toBeTruthy();
+
+    await act(async () => fireEvent.press(getByTestId("my-shipments-active-filter-person")));
+    expect(rowIds(getAllByTestId)).toHaveLength(4);
+    expect(queryByTestId("my-shipments-filter-dot")).toBeNull();
+  });
+
+  it("el filtro de Persona busca también a quien te envía, no solo al destinatario", async () => {
+    const { getByTestId, getAllByTestId } = await renderWith();
+    await act(async () => fireEvent.press(getByTestId("my-shipments-filter-open")));
+    await act(async () => fireEvent.press(getByTestId("shipments-filter-person-option-martin")));
+    await act(async () => fireEvent.press(getByTestId("shipments-filter-apply")));
+    expect(rowIds(getAllByTestId)).toEqual(["to-accept"]);
+  });
+
+  it("cambiar de pestaña conserva la persona y borra el estado", async () => {
+    const { getByTestId, getAllByTestId, queryByTestId } = await renderWith();
+    await act(async () => fireEvent.press(getByTestId("my-shipments-filter-open")));
+    await act(async () => fireEvent.press(getByTestId("shipments-filter-person-option-martin")));
+    await act(async () => fireEvent.press(getByTestId("shipments-filter-status-option-accept")));
+    await act(async () => fireEvent.press(getByTestId("shipments-filter-apply")));
+    expect(getByTestId("my-shipments-active-filter-status")).toBeTruthy();
+
+    await act(async () => fireEvent.press(getByTestId("my-shipments-stage-history")));
+    expect(queryByTestId("my-shipments-active-filter-status")).toBeNull();
+    expect(getByTestId("my-shipments-active-filter-person")).toBeTruthy();
+    expect(rowIds(getAllByTestId)).toEqual(["cancelled"]);
+  });
+
+  it("cambiar de rol borra la persona si no aparece en el rol nuevo", async () => {
+    const { getByTestId, queryByTestId } = await renderWith();
+    await act(async () => fireEvent.press(getByTestId("my-shipments-filter-open")));
+    await act(async () => fireEvent.press(getByTestId("shipments-filter-person-option-martin")));
+    await act(async () => fireEvent.press(getByTestId("shipments-filter-apply")));
+
+    await act(async () => fireEvent.press(getByTestId("my-shipments-role-sending")));
+    expect(queryByTestId("my-shipments-active-filter-person")).toBeNull();
+  });
+
+  it("sin resultados por filtro ofrece quitar los filtros", async () => {
+    const { getByTestId, getByText, getAllByTestId } = await renderWith();
+    await act(async () => fireEvent.press(getByTestId("my-shipments-filter-open")));
+    await act(async () => fireEvent.press(getByTestId("shipments-filter-person-option-martin")));
+    await act(async () => fireEvent.press(getByTestId("shipments-filter-status-option-in_transit")));
+    await act(async () => fireEvent.press(getByTestId("shipments-filter-apply")));
+    expect(getByText("No hay envíos con ese filtro.")).toBeTruthy();
+
+    await act(async () => fireEvent.press(getByTestId("my-shipments-clear-filter")));
+    expect(rowIds(getAllByTestId)).toHaveLength(4);
+  });
+
+  it("muestra el estado vacío de En curso", async () => {
+    const { getByText } = await renderWith([DELIVERED]);
     expect(getByText("No tenés envíos en curso.")).toBeTruthy();
   });
 
-  it("lista solo los envíos de la tab activa", async () => {
-    mockUseMyShipments.mockReturnValue(
-      baseResult({
-        data: pages([
-          shipment({ id: "ongoing-1", status: ShipmentStatus.IN_TRANSIT }),
-          shipment({ id: "past-1", status: ShipmentStatus.DELIVERED }),
-        ]),
-      }),
-    );
-
-    const { getByTestId, queryByTestId } = await render(<MyShipmentsScreen />);
-
-    expect(getByTestId("my-shipments-card-ongoing-1")).toBeTruthy();
-    expect(queryByTestId("my-shipments-card-past-1")).toBeNull();
+  it("muestra el estado vacío de Historial", async () => {
+    const { getByText, getByTestId } = await renderWith([IN_TRANSIT]);
+    await act(async () => fireEvent.press(getByTestId("my-shipments-stage-history")));
+    expect(getByText("Todavía no tenés envíos en tu historial.")).toBeTruthy();
   });
 
-  it("cambia a Completados al tocar esa tab", async () => {
-    mockUseMyShipments.mockReturnValue(
-      baseResult({
-        data: pages([
-          shipment({ id: "ongoing-1", status: ShipmentStatus.IN_TRANSIT }),
-          shipment({ id: "past-1", status: ShipmentStatus.DELIVERED }),
-        ]),
-      }),
-    );
+  it("el botón de volver sale de la pantalla, o vuelve a Inicio sin historial", async () => {
+    const { getByTestId } = await renderWith();
+    await act(async () => fireEvent.press(getByTestId("my-shipments-back")));
+    expect(mockRouterBack).toHaveBeenCalled();
 
-    const { getByTestId, queryByTestId } = await render(<MyShipmentsScreen />);
-
-    await fireEvent.press(getByTestId("my-shipments-stage-past"));
-
-    expect(getByTestId("my-shipments-card-past-1")).toBeTruthy();
-    expect(queryByTestId("my-shipments-card-ongoing-1")).toBeNull();
-  });
-
-  it("filtra por estado desde las pills y muestra el indicador activo", async () => {
-    mockUseMyShipments.mockReturnValue(
-      baseResult({
-        data: pages([
-          shipment({ id: "s1", status: ShipmentStatus.IN_TRANSIT }),
-          shipment({ id: "s2", status: ShipmentStatus.PUBLISHED }),
-        ]),
-      }),
-    );
-
-    const { getByTestId, queryByTestId } = await render(<MyShipmentsScreen />);
-
-    expect(queryByTestId("my-shipments-filter-dot")).toBeNull();
-
-    await fireEvent.press(getByTestId("my-shipments-filter-open"));
-    await fireEvent.press(getByTestId(`shipments-filter-status-option-${ShipmentStatus.IN_TRANSIT}`));
-    await fireEvent.press(getByTestId("shipments-filter-apply"));
-
-    expect(getByTestId("my-shipments-card-s1")).toBeTruthy();
-    expect(queryByTestId("my-shipments-card-s2")).toBeNull();
-    expect(getByTestId("my-shipments-filter-dot")).toBeTruthy();
-  });
-
-  it("filtra por destinatario desde las pills usando el nombre resuelto", async () => {
-    mockUsePublicProfiles.mockReturnValue([
-      { data: { id: "receiver-a", fullName: "Ana Pérez" } },
-      { data: { id: "receiver-b", fullName: "Beto Gómez" } },
-    ]);
-    mockUseMyShipments.mockReturnValue(
-      baseResult({
-        data: pages([
-          shipment({ id: "s1", receiverId: "receiver-a" }),
-          shipment({ id: "s2", receiverId: "receiver-b" }),
-        ]),
-      }),
-    );
-
-    const { getByTestId, getByText, queryByTestId } = await render(<MyShipmentsScreen />);
-
-    await fireEvent.press(getByTestId("my-shipments-filter-open"));
-    await fireEvent.press(getByTestId("shipments-filter-receiver-option-receiver-a"));
-
-    expect(getByText("Ana Pérez")).toBeTruthy();
-
-    await fireEvent.press(getByTestId("shipments-filter-apply"));
-
-    expect(getByTestId("my-shipments-card-s1")).toBeTruthy();
-    expect(queryByTestId("my-shipments-card-s2")).toBeNull();
-  });
-
-  it("muestra como pill solo a los 3 destinatarios más frecuentes, con el nombre capitalizado", async () => {
-    mockUsePublicProfiles.mockReturnValue([
-      { data: { id: "receiver-a", fullName: "ANA PÉREZ" } },
-      { data: { id: "receiver-b", fullName: "beto gómez" } },
-      { data: { id: "receiver-c", fullName: "Caro Díaz" } },
-      { data: { id: "receiver-d", fullName: "Dani Ruiz" } },
-    ]);
-    // receiver-d es el único con un solo envío, así que queda fuera del top 3.
-    mockUseMyShipments.mockReturnValue(
-      baseResult({
-        data: pages([
-          shipment({ id: "s1", receiverId: "receiver-a" }),
-          shipment({ id: "s2", receiverId: "receiver-a" }),
-          shipment({ id: "s3", receiverId: "receiver-b" }),
-          shipment({ id: "s4", receiverId: "receiver-b" }),
-          shipment({ id: "s5", receiverId: "receiver-c" }),
-          shipment({ id: "s6", receiverId: "receiver-c" }),
-          shipment({ id: "s7", receiverId: "receiver-d" }),
-        ]),
-      }),
-    );
-
-    const { getByTestId, getByText, queryByTestId } = await render(<MyShipmentsScreen />);
-
-    await fireEvent.press(getByTestId("my-shipments-filter-open"));
-
-    expect(getByTestId("shipments-filter-receiver-option-receiver-a")).toBeTruthy();
-    expect(getByTestId("shipments-filter-receiver-option-receiver-b")).toBeTruthy();
-    expect(getByTestId("shipments-filter-receiver-option-receiver-c")).toBeTruthy();
-    expect(queryByTestId("shipments-filter-receiver-option-receiver-d")).toBeNull();
-
-    expect(getByText("Ana Pérez")).toBeTruthy();
-    expect(getByText("Beto Gómez")).toBeTruthy();
-
-    // El que quedó fuera del top se alcanza escribiendo.
-    await fireEvent.changeText(getByTestId("shipments-filter-receiver-search"), "dani");
-
-    expect(getByTestId("shipments-filter-receiver-option-receiver-d")).toBeTruthy();
-    expect(queryByTestId("shipments-filter-receiver-option-receiver-a")).toBeNull();
-  });
-
-  it("busca destinatarios por nombre y filtra las pills", async () => {
-    mockUsePublicProfiles.mockReturnValue([
-      { data: { id: "receiver-a", fullName: "Ana Pérez" } },
-      { data: { id: "receiver-b", fullName: "Beto Gómez" } },
-    ]);
-    mockUseMyShipments.mockReturnValue(
-      baseResult({
-        data: pages([
-          shipment({ id: "s1", receiverId: "receiver-a" }),
-          shipment({ id: "s2", receiverId: "receiver-b" }),
-        ]),
-      }),
-    );
-
-    const { getByTestId, queryByTestId } = await render(<MyShipmentsScreen />);
-
-    await fireEvent.press(getByTestId("my-shipments-filter-open"));
-    await fireEvent.changeText(getByTestId("shipments-filter-receiver-search"), "ana");
-
-    expect(getByTestId("shipments-filter-receiver-option-receiver-a")).toBeTruthy();
-    expect(queryByTestId("shipments-filter-receiver-option-receiver-b")).toBeNull();
-
-    await fireEvent.press(getByTestId("shipments-filter-receiver-option-receiver-a"));
-    await fireEvent.press(getByTestId("shipments-filter-apply"));
-
-    expect(getByTestId("my-shipments-card-s1")).toBeTruthy();
-    expect(queryByTestId("my-shipments-card-s2")).toBeNull();
-  });
-
-  it('"Limpiar" en la hoja resetea ambos filtros', async () => {
-    mockUseMyShipments.mockReturnValue(
-      baseResult({
-        data: pages([
-          shipment({ id: "s1", status: ShipmentStatus.IN_TRANSIT }),
-          shipment({ id: "s2", status: ShipmentStatus.PUBLISHED }),
-        ]),
-      }),
-    );
-
-    const { getByTestId, queryByTestId } = await render(<MyShipmentsScreen />);
-
-    await fireEvent.press(getByTestId("my-shipments-filter-open"));
-    await fireEvent.press(getByTestId(`shipments-filter-status-option-${ShipmentStatus.IN_TRANSIT}`));
-    await fireEvent.press(getByTestId("shipments-filter-apply"));
-
-    await fireEvent.press(getByTestId("my-shipments-filter-open"));
-    await fireEvent.press(getByTestId("shipments-filter-clear"));
-
-    expect(getByTestId("my-shipments-card-s1")).toBeTruthy();
-    expect(getByTestId("my-shipments-card-s2")).toBeTruthy();
-    expect(queryByTestId("my-shipments-filter-dot")).toBeNull();
-  });
-
-  it("permite quitar el filtro desde el estado vacío filtrado", async () => {
-    mockUseMyShipments.mockReturnValue(baseResult({ data: pages([shipment({ status: ShipmentStatus.PUBLISHED })]) }));
-
-    const { getByTestId, getByText } = await render(<MyShipmentsScreen />);
-
-    await fireEvent.press(getByTestId("my-shipments-filter-open"));
-    await fireEvent.press(getByTestId(`shipments-filter-status-option-${ShipmentStatus.IN_TRANSIT}`));
-    await fireEvent.press(getByTestId("shipments-filter-apply"));
-
-    expect(getByText("No hay envíos con ese filtro.")).toBeTruthy();
-
-    await fireEvent.press(getByTestId("my-shipments-clear-filter"));
-
-    expect(getByTestId("my-shipments-card-shipment-1")).toBeTruthy();
-  });
-
-  it("filtra por rol desde las pills de la hoja de filtro (MOVO-132)", async () => {
-    mockCurrentUser.mockReturnValue({ userId: "user-1" });
-    mockUseMyShipments.mockReturnValue(
-      baseResult({
-        data: pages([
-          shipment({ id: "sent-1", senderId: "user-1", receiverId: "user-2" }),
-          shipment({ id: "received-1", senderId: "user-3", receiverId: "user-1" }),
-        ]),
-      }),
-    );
-
-    const { getByTestId, queryByTestId } = await render(<MyShipmentsScreen />);
-
-    // Ambos visibles inicialmente
-    expect(getByTestId("my-shipments-card-sent-1")).toBeTruthy();
-    expect(getByTestId("my-shipments-card-received-1")).toBeTruthy();
-
-    // Filtrar por Enviados
-    await fireEvent.press(getByTestId("my-shipments-filter-open"));
-    await fireEvent.press(getByTestId("shipments-filter-role-option-sent"));
-    await fireEvent.press(getByTestId("shipments-filter-apply"));
-
-    expect(getByTestId("my-shipments-card-sent-1")).toBeTruthy();
-    expect(queryByTestId("my-shipments-card-received-1")).toBeNull();
-
-    // Cambiar a Recibidos
-    await fireEvent.press(getByTestId("my-shipments-filter-open"));
-    await fireEvent.press(getByTestId("shipments-filter-role-option-received"));
-    await fireEvent.press(getByTestId("shipments-filter-apply"));
-
-    expect(queryByTestId("my-shipments-card-sent-1")).toBeNull();
-    expect(getByTestId("my-shipments-card-received-1")).toBeTruthy();
-  });
-
-  it("prioriza en la cima los envíos recibidos en awaiting_receiver_confirmation (AC2 de MOVO-132)", async () => {
-    mockCurrentUser.mockReturnValue({ userId: "user-1" });
-    mockUseMyShipments.mockReturnValue(
-      baseResult({
-        data: pages([
-          shipment({ id: "s-published", senderId: "user-1", receiverId: "user-2", status: ShipmentStatus.PUBLISHED }),
-          shipment({ id: "s-pending", senderId: "user-3", receiverId: "user-1", status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION }),
-        ]),
-      }),
-    );
-
-    const { getByTestId } = await render(<MyShipmentsScreen />);
-
-    // Verificar que s-pending se renderiza y que está presente
-    expect(getByTestId("my-shipments-card-s-pending")).toBeTruthy();
-    expect(getByTestId("my-shipments-card-s-published")).toBeTruthy();
-  });
-
-  it("vuelve atrás con router.back() cuando hay historial", async () => {
-    mockCanGoBack.mockReturnValue(true);
-    mockUseMyShipments.mockReturnValue(baseResult({ data: pages([]) }));
-
-    const { getByTestId } = await render(<MyShipmentsScreen />);
-
-    await fireEvent.press(getByTestId("my-shipments-back"));
-
-    expect(mockRouterBack).toHaveBeenCalledTimes(1);
-    expect(mockRouterReplace).not.toHaveBeenCalled();
-  });
-
-  it("usa router.replace hacia Inicio como fallback sin historial", async () => {
-    mockCanGoBack.mockReturnValue(false);
-    mockUseMyShipments.mockReturnValue(baseResult({ data: pages([]) }));
-
-    const { getByTestId } = await render(<MyShipmentsScreen />);
-
-    await fireEvent.press(getByTestId("my-shipments-back"));
-
+    mockCanGoBack.mockReturnValueOnce(false);
+    await act(async () => fireEvent.press(getByTestId("my-shipments-back")));
     expect(mockRouterReplace).toHaveBeenCalledWith("/(app)/(tabs)/home");
   });
 });
