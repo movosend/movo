@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
 import { useColorScheme } from "nativewind";
 import * as Haptics from "expo-haptics";
@@ -169,9 +169,13 @@ export function LiveMap({
     }
   }, [carrierPosition?.lat, carrierPosition?.lng, isFollowingCarrier, centerOnCarrier]);
 
-  // Animación suave del marcador entre coordenadas recibidas
+  // Animación suave del marcador entre coordenadas recibidas (solo soportado nativamente en Android por react-native-maps; en iOS coordinate actualiza directamente)
   useEffect(() => {
-    if (carrierPosition && markerRef.current?.animateMarkerToCoordinate) {
+    if (
+      Platform.OS === "android" &&
+      carrierPosition &&
+      markerRef.current?.animateMarkerToCoordinate
+    ) {
       markerRef.current.animateMarkerToCoordinate(
         {
           latitude: carrierPosition.lat,
@@ -186,7 +190,7 @@ export function LiveMap({
   const handleCenterCarrier = () => {
     try {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
+    } catch { }
     setIsFollowingCarrier(true);
     centerOnCarrier(600);
   };
@@ -195,7 +199,7 @@ export function LiveMap({
   const handleOverview = () => {
     try {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
+    } catch { }
     setIsFollowingCarrier(false);
     fitCarrierAndDestination(true);
   };
@@ -418,8 +422,8 @@ export function LiveMap({
                 borderColor: isFollowingCarrier
                   ? "#C6F24A"
                   : isDark
-                  ? "rgba(255,255,255,0.15)"
-                  : "#E4E4E7",
+                    ? "rgba(255,255,255,0.15)"
+                    : "#E4E4E7",
                 borderWidth: isFollowingCarrier ? 1.5 : 1,
               },
             ]}
