@@ -19,6 +19,7 @@ jest.mock("expo-router", () => ({
 const mockUseTrip = jest.fn();
 const mockUseTripMatches = jest.fn();
 const mockUseMyTrips = jest.fn();
+const mockStartTripMutateAsync = jest.fn();
 jest.mock("../src/hooks/use-trips", () => {
   const actual = jest.requireActual("../src/hooks/use-trips");
   return {
@@ -26,6 +27,7 @@ jest.mock("../src/hooks/use-trips", () => {
     useTrip: (...args: unknown[]) => mockUseTrip(...args),
     useTripMatches: (...args: unknown[]) => mockUseTripMatches(...args),
     useMyTrips: (...args: unknown[]) => mockUseMyTrips(...args),
+    useStartTrip: () => ({ mutateAsync: mockStartTripMutateAsync }),
   };
 });
 
@@ -749,6 +751,137 @@ describe("TransportScreen", () => {
       await fireEvent.press(getByTestId("transport-my-route-cta"));
 
       expect(mockRouterPush).toHaveBeenCalledWith("/route");
+    });
+  });
+
+  describe("CTA Iniciar viaje (MOVO-252)", () => {
+    const declaredTripWithPackages: TripWithAcceptedPackages = {
+      id: "trip-ready-1",
+      carrierId: "carrier-1",
+      originAddress: "Av. Colón 1234, Córdoba",
+      originLat: -31.42,
+      originLng: -64.18,
+      destinationAddress: "San Martín 450, Villa María",
+      destinationLat: -32.41,
+      destinationLng: -63.24,
+      departureAt: "2026-09-10T12:00:00.000Z",
+      vehicleType: "Auto",
+      status: TripStatus.DECLARED,
+      createdAt: "2026-09-03T12:00:00.000Z",
+      updatedAt: "2026-09-03T12:00:00.000Z",
+      hasAcceptedPackages: true,
+    };
+
+    const declaredTripWithoutPackages: TripWithAcceptedPackages = {
+      ...declaredTripWithPackages,
+      id: "trip-no-packages",
+      hasAcceptedPackages: false,
+    };
+
+    const activeTripItem: TripWithAcceptedPackages = {
+      ...declaredTripWithPackages,
+      id: "trip-active-1",
+      status: TripStatus.ACTIVE,
+    };
+
+    it("AC1: si hay un viaje declared con paquetes aceptados, renderiza el CTA 'Iniciar viaje'", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+      mockUseMyTrips.mockReturnValue({
+        data: { items: [declaredTripWithPackages], page: 1, limit: 50, total: 1 },
+      });
+
+      const { getByTestId, getByText } = await render(<TransportScreen />);
+
+      expect(getByTestId(`transport-declared-trip-cta-${declaredTripWithPackages.id}`)).toBeTruthy();
+      expect(getByText("Iniciar viaje")).toBeTruthy();
+    });
+
+    it("AC8: si el viaje declared NO tiene paquetes aceptados, no renderiza el CTA 'Iniciar viaje'", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+      mockUseMyTrips.mockReturnValue({
+        data: { items: [declaredTripWithoutPackages], page: 1, limit: 50, total: 1 },
+      });
+
+      const { queryByTestId, queryByText } = await render(<TransportScreen />);
+
+      expect(queryByTestId(`transport-declared-trip-cta-${declaredTripWithoutPackages.id}`)).toBeNull();
+      expect(queryByText("Iniciar viaje")).toBeNull();
+    });
+
+    it("AC2: presionar 'Iniciar viaje' invoca startTripMutation.mutateAsync", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+      mockUseMyTrips.mockReturnValue({
+        data: { items: [declaredTripWithPackages], page: 1, limit: 50, total: 1 },
+      });
+      mockStartTripMutateAsync.mockResolvedValueOnce({
+        ...declaredTripWithPackages,
+        status: TripStatus.ACTIVE,
+      });
+
+      const { getByTestId } = await render(<TransportScreen />);
+      await fireEvent.press(
+        getByTestId(`transport-declared-trip-cta-${declaredTripWithPackages.id}-start-button`),
+      );
+
+      expect(mockStartTripMutateAsync).toHaveBeenCalledWith(declaredTripWithPackages.id);
+    });
+
+    it("AC3: si el transportista tiene un viaje active, muestra el CTA 'Viaje en curso · ver mapa'", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+      mockUseMyTrips.mockReturnValue({
+        data: { items: [activeTripItem], page: 1, limit: 50, total: 1 },
+      });
+
+      const { getByTestId, getByText } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-active-trip-cta")).toBeTruthy();
+      expect(getByText("Viaje en curso · ver mapa")).toBeTruthy();
+    });
+
+    it("AC4/AC6: si startTrip falla con TRIP_ALREADY_HAS_ACTIVE_TRIP, muestra el banner con mensaje explícito", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+      mockUseMyTrips.mockReturnValue({
+        data: { items: [declaredTripWithPackages], page: 1, limit: 50, total: 1 },
+      });
+      mockStartTripMutateAsync.mockRejectedValueOnce(
+        new ApiError(409, "TRIP_ALREADY_HAS_ACTIVE_TRIP", "Ya tenés un viaje activo"),
+      );
+
+      const { getByTestId, findByText } = await render(<TransportScreen />);
+      await fireEvent.press(
+        getByTestId(`transport-declared-trip-cta-${declaredTripWithPackages.id}-start-button`),
+      );
+
+      expect(
+        await findByText("Ya tenés otro viaje en curso. Solo podés tener 1 viaje activo a la vez."),
+      ).toBeTruthy();
+    });
+
+    it("en modo viaje (isTripMode) con un viaje declared con paquetes, muestra el CTA 'Iniciar viaje'", async () => {
+      mockLocalSearchParams = { tripId: declaredTripWithPackages.id };
+      mockUseTrip.mockReturnValue({
+        data: declaredTripWithPackages,
+        isLoading: false,
+        isError: false,
+        refetch: jest.fn(),
+      });
+      mockUseTripMatches.mockReturnValue({
+        data: { pages: [{ items: [], page: 1, limit: 20, total: 0 }] },
+        isLoading: false,
+        isError: false,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId, getByText } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-mode-trip-cta")).toBeTruthy();
+      expect(getByText("Iniciar viaje")).toBeTruthy();
+      mockLocalSearchParams = {};
     });
   });
 });

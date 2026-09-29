@@ -7,6 +7,13 @@ import type { CarrierRoute } from "@movo/shared/dist/types/routing";
 
 jest.mock("../src/hooks/use-optimized-route");
 
+const mockUseTrip = jest.fn((_id?: string) => ({ data: undefined as any, isLoading: false }));
+const mockStartTripMutateAsync = jest.fn();
+jest.mock("../src/hooks/use-trips", () => ({
+  useTrip: (id?: string) => mockUseTrip(id),
+  useStartTrip: () => ({ mutateAsync: mockStartTripMutateAsync }),
+}));
+
 let mockSearchParams: Record<string, string> = {};
 const mockRouterPush = jest.fn();
 const mockRouterBack = jest.fn();
@@ -30,6 +37,7 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
 
   beforeEach(() => {
     mockSearchParams = {};
+    mockUseTrip.mockReturnValue({ data: undefined, isLoading: false });
     jest.clearAllMocks();
   });
 
@@ -255,5 +263,40 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
     expect(getByTestId("route-floating-island")).toBeTruthy();
     expect(getByTestId("route-mapview")).toBeTruthy();
     expect(getByTestId("route-exit-demo-button")).toBeTruthy();
+  });
+
+  it("MOVO-252: muestra CTA 'Iniciar viaje' si se abre con un tripId de un viaje declared con paquetes", async () => {
+    mockSearchParams = { tripId: "trip-declared-1" };
+    (useOptimizedRoute as jest.Mock).mockReturnValue({
+      route: null,
+      carrierLocation: null,
+      isLoading: false,
+      isRefreshing: false,
+      gpsPermissionDenied: false,
+      error: null,
+      refetch: mockRefetch,
+    });
+    mockUseTrip.mockReturnValue({
+      data: {
+        id: "trip-declared-1",
+        carrierId: "carrier-1",
+        originAddress: "Av. Colón 1234, Córdoba",
+        destinationAddress: "San Martín 450, Villa María",
+        departureAt: "2026-09-10T12:00:00.000Z",
+        vehicleType: "Auto",
+        status: "declared",
+        hasAcceptedPackages: true,
+      } as any,
+      isLoading: false,
+    });
+
+    const { getByTestId, getByText } = await render(<OptimizedRouteScreen />);
+
+    expect(getByTestId("route-declared-trip-state")).toBeTruthy();
+    expect(getByTestId("route-trip-cta-start-button")).toBeTruthy();
+    expect(getByText("Iniciar viaje")).toBeTruthy();
+
+    await fireEvent.press(getByTestId("route-trip-cta-start-button"));
+    expect(mockStartTripMutateAsync).toHaveBeenCalledWith("trip-declared-1");
   });
 });
