@@ -4,10 +4,38 @@
 const REPORT_REASON_VALUES = ["harassment", "no_show", "damaged_package", "payment_issue", "other"];
 const REPORT_STATUS_VALUES = ["pending", "reviewed", "dismissed"];
 
+// MOVO-256: `MAX_REPORT_PHOTOS_PER_SUBMISSION` de @movo/shared y los límites de
+// `moderation.service.ts` (JPEG, 2 MB), duplicados acá por el mismo criterio de arriba.
+const MAX_REPORT_PHOTOS = 4;
+const MAX_REPORT_PHOTO_BYTES = 2 * 1024 * 1024;
+
+// `UserReportPhoto` de @movo/shared.
+const photoArray = {
+  type: "array",
+  items: {
+    type: "object",
+    required: ["id", "url", "expiresIn"],
+    properties: {
+      id: { type: "string" },
+      url: { type: "string" },
+      expiresIn: { type: "integer" },
+    },
+  },
+};
+
+// Keys devueltas por `POST /users/:id/report/photos/presign`. El prefijo propio, que
+// el objeto exista y que no esté ya asociado se validan en el service.
+const photoKeysProperty = {
+  type: "array",
+  maxItems: MAX_REPORT_PHOTOS,
+  uniqueItems: true,
+  items: { type: "string", minLength: 1, maxLength: 256 },
+};
+
 // `UserReportSummary` de @movo/shared.
 const reportObject = {
   type: "object",
-  required: ["id", "reportedId", "reason", "details", "status", "createdAt", "entries"],
+  required: ["id", "reportedId", "reason", "details", "status", "createdAt", "photos", "entries"],
   properties: {
     id: { type: "string" },
     reportedId: { type: "string" },
@@ -15,15 +43,17 @@ const reportObject = {
     details: { type: ["string", "null"] },
     status: { type: "string", enum: REPORT_STATUS_VALUES },
     createdAt: { type: "string" },
+    photos: photoArray,
     entries: {
       type: "array",
       items: {
         type: "object",
-        required: ["id", "details", "createdAt"],
+        required: ["id", "details", "createdAt", "photos"],
         properties: {
           id: { type: "string" },
-          details: { type: "string" },
+          details: { type: ["string", "null"] },
           createdAt: { type: "string" },
+          photos: photoArray,
         },
       },
     },
@@ -45,17 +75,39 @@ export const moderationSchemas = {
     properties: {
       reason: { type: "string", enum: REPORT_REASON_VALUES },
       details: { type: "string", maxLength: 500 },
+      photoKeys: photoKeysProperty,
     },
     additionalProperties: false,
   },
 
+  // MOVO-256: texto, fotos o ambos -- "al menos uno de los dos" se valida en el service.
   reportEntryBody: {
     type: "object",
-    required: ["details"],
     properties: {
-      details: { type: "string", minLength: 1, maxLength: 500 },
+      details: { type: "string", maxLength: 500 },
+      photoKeys: photoKeysProperty,
     },
     additionalProperties: false,
+  },
+
+  reportPhotoUploadBody: {
+    type: "object",
+    required: ["contentType", "contentLength"],
+    properties: {
+      contentType: { type: "string", enum: ["image/jpeg"] },
+      contentLength: { type: "integer", minimum: 1, maximum: MAX_REPORT_PHOTO_BYTES },
+    },
+    additionalProperties: false,
+  },
+
+  reportPhotoUploadResponse: {
+    type: "object",
+    required: ["uploadUrl", "s3Key", "expiresIn"],
+    properties: {
+      uploadUrl: { type: "string" },
+      s3Key: { type: "string" },
+      expiresIn: { type: "integer" },
+    },
   },
 
   reportResponse: reportObject,

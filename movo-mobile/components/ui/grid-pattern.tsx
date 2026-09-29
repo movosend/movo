@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { View, type LayoutChangeEvent } from "react-native";
-import Svg, { Defs, Path, Pattern, Rect } from "react-native-svg";
+import Svg, { Defs, Mask, Path, Pattern, RadialGradient, Rect, Stop } from "react-native-svg";
 
 const GRID_SIZE = 22;
 const DEFAULT_GRID_COLOR = "#0A0A0B";
@@ -13,6 +13,12 @@ export interface GridPatternProps {
    * el mockup original (`rgba(255,255,255,.06)` sobre fondo negro). */
   color?: string;
   opacity?: number;
+  /** MOVO-256: desvanece la grilla desde la esquina superior derecha hacia afuera
+   * (card de estado del reporte). Equivale al `mask-image: radial-gradient(circle at
+   * 100% 0, #000, transparent 70%)` del mockup. Sin `fade`, la grilla es pareja. */
+  fade?: "top-right";
+  /** Lado de cada celda en px (default 22). El card de estado del reporte usa 24. */
+  cellSize?: number;
 }
 
 /**
@@ -28,7 +34,12 @@ export interface GridPatternProps {
  * dimensiones numéricas) dejaba el patrón un poco corto contra el borde derecho/
  * inferior del card (react-native-svg no resuelve bien esos porcentajes ahí).
  */
-export function GridPattern({ color = DEFAULT_GRID_COLOR, opacity = DEFAULT_GRID_OPACITY }: GridPatternProps = {}) {
+export function GridPattern({
+  color = DEFAULT_GRID_COLOR,
+  opacity = DEFAULT_GRID_OPACITY,
+  fade,
+  cellSize = GRID_SIZE,
+}: GridPatternProps = {}) {
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   const handleLayout = (event: LayoutChangeEvent) => {
@@ -45,17 +56,41 @@ export function GridPattern({ color = DEFAULT_GRID_COLOR, opacity = DEFAULT_GRID
       {size.width > 0 && size.height > 0 ? (
         <Svg width={size.width} height={size.height}>
           <Defs>
-            <Pattern id="grid-pattern-cell" patternUnits="userSpaceOnUse" width={GRID_SIZE} height={GRID_SIZE}>
+            <Pattern id="grid-pattern-cell" patternUnits="userSpaceOnUse" width={cellSize} height={cellSize}>
               <Path
-                d={`M ${GRID_SIZE} 0 L 0 0 0 ${GRID_SIZE}`}
+                d={`M ${cellSize} 0 L 0 0 0 ${cellSize}`}
                 stroke={color}
                 strokeWidth={1}
                 fill="none"
                 opacity={opacity}
               />
             </Pattern>
+            {fade === "top-right" ? (
+              <>
+                {/* `circle` de CSS llega por default hasta la esquina más lejana: el
+                    radio es la diagonal, y el 70% del mockup es el stop transparente. */}
+                <RadialGradient
+                  id="grid-pattern-fade"
+                  cx={size.width}
+                  cy={0}
+                  r={Math.hypot(size.width, size.height) * 0.7}
+                  gradientUnits="userSpaceOnUse"
+                >
+                  <Stop offset="0" stopColor="#FFFFFF" stopOpacity={1} />
+                  <Stop offset="1" stopColor="#FFFFFF" stopOpacity={0} />
+                </RadialGradient>
+                <Mask id="grid-pattern-mask">
+                  <Rect width={size.width} height={size.height} fill="url(#grid-pattern-fade)" />
+                </Mask>
+              </>
+            ) : null}
           </Defs>
-          <Rect width={size.width} height={size.height} fill="url(#grid-pattern-cell)" />
+          <Rect
+            width={size.width}
+            height={size.height}
+            fill="url(#grid-pattern-cell)"
+            {...(fade ? { mask: "url(#grid-pattern-mask)" } : {})}
+          />
         </Svg>
       ) : null}
     </View>
