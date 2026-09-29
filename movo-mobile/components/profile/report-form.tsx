@@ -1,40 +1,52 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import type { ReportReason } from "@movo/shared/dist/types/user";
+import { ImagePlus } from "lucide-react-native";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { useReportUser } from "../../src/hooks/use-moderation";
+import { useReportPhotos } from "../../src/hooks/use-report-photos";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../src/lib/error-messages";
 import { REPORT_REASON_OPTIONS } from "../../src/lib/report-format";
 import { ErrorBanner } from "../ui/error-banner";
 import { TextField } from "../ui/text-field";
+import { DRAFT_THUMB_SIZE, ReportDraftPhotoRow } from "./report-photos";
 
 export interface ReportFormProps {
   userId: string;
   /** Reporte creado: `useReportUser` ya lo dejó en el caché de `usePendingReport`. */
-  onCreated: () => void;
+  onCreated?: () => void;
   /** 409 `REPORT_ALREADY_PENDING`: ya había un reporte en revisión. */
   onAlreadyPending: () => void;
   testID?: string;
 }
 
-/** MOVO-175: formulario de un reporte nuevo (motivo obligatorio + detalle opcional). */
+/** MOVO-175: formulario de un reporte nuevo (motivo obligatorio + detalle opcional).
+ * MOVO-256: fotos de evidencia opcionales, con el mismo flujo que el composer del
+ * reporte en revisión (cada foto sube al elegirla; se asocian al enviar). */
 export function ReportForm({ userId, onCreated, onAlreadyPending, testID = "report-form" }: ReportFormProps) {
   const colors = useThemeColors();
   const [reason, setReason] = useState<ReportReason | null>(null);
   const [details, setDetails] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const reportMutation = useReportUser(userId);
+  const draftPhotos = useReportPhotos(userId);
+  const isBusy = reportMutation.isPending || draftPhotos.hasPending;
 
   async function handleSubmit() {
     if (!reason) {
       setErrorMessage("Elegí un motivo para continuar.");
       return;
     }
+    if (draftPhotos.hasPending) return;
     setErrorMessage(null);
     try {
-      await reportMutation.mutateAsync({ reason, details: details.trim() || undefined });
-      onCreated();
+      await reportMutation.mutateAsync({
+        reason,
+        details: details.trim() || undefined,
+        ...(draftPhotos.uploadedKeys.length > 0 ? { photoKeys: draftPhotos.uploadedKeys } : {}),
+      });
+      onCreated?.();
     } catch (err) {
       if (err instanceof ApiError && err.code === "REPORT_ALREADY_PENDING") {
         onAlreadyPending();
@@ -43,6 +55,7 @@ export function ReportForm({ userId, onCreated, onAlreadyPending, testID = "repo
       setErrorMessage(
         friendlyErrorMessage(err, "No pudimos enviar el reporte. Probá de nuevo.", {
           RATE_LIMIT_EXCEEDED: "Hiciste demasiados reportes hoy. Probá de nuevo mañana.",
+          REPORT_PHOTO_ALREADY_USED: "Una de las fotos ya está en un reporte. Quitala y probá de nuevo.",
         }),
       );
     }
@@ -89,6 +102,34 @@ export function ReportForm({ userId, onCreated, onAlreadyPending, testID = "repo
         maxLength={500}
       />
 
+      <View className="mt-5 gap-2" testID={`${testID}-photos`}>
+        <Text className="font-sans-semibold text-caption uppercase text-fg-3">Fotos (opcional)</Text>
+        <ReportDraftPhotoRow
+          testID={`${testID}-draft-photos`}
+          photos={draftPhotos.photos}
+          max={draftPhotos.max}
+          onRemove={draftPhotos.remove}
+          onRetry={draftPhotos.retry}
+          addTile={
+            draftPhotos.canAddMore ? (
+              <Pressable
+                testID={`${testID}-add-photo`}
+                onPress={draftPhotos.add}
+                accessibilityRole="button"
+                accessibilityLabel="Agregar foto"
+                style={{ width: DRAFT_THUMB_SIZE, height: DRAFT_THUMB_SIZE }}
+                className="items-center justify-center rounded-[10px] bg-bg-mute active:bg-ink-150"
+              >
+                <ImagePlus size={20} color={colors.fg1} strokeWidth={1.9} />
+              </Pressable>
+            ) : null
+          }
+        />
+        <Text className="font-sans text-small text-fg-3">
+          Capturas de chat, el paquete dañado. Solo las ve el equipo de Movo: evitá mostrar datos que no hagan falta.
+        </Text>
+      </View>
+
       {errorMessage ? (
         <View className="mt-3">
           <ErrorBanner testID={`${testID}-error`} message={errorMessage} />
@@ -98,9 +139,10 @@ export function ReportForm({ userId, onCreated, onAlreadyPending, testID = "repo
       <Pressable
         testID={`${testID}-submit`}
         onPress={() => void handleSubmit()}
-        disabled={reportMutation.isPending}
+        disabled={isBusy}
+        accessibilityState={{ disabled: isBusy }}
         className={`mt-5 w-full flex-row items-center justify-center gap-2 rounded-lg bg-fg py-3.5 ${
-          reportMutation.isPending ? "opacity-70" : ""
+          isBusy ? "opacity-70" : ""
         }`}
       >
         {reportMutation.isPending ? <ActivityIndicator size="small" color={colors.bg} /> : null}

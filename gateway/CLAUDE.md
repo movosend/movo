@@ -117,3 +117,12 @@ Sin esto caía en el límite general de 200/min compartido con toda la API y una
 volver la señal podía consumirlo. El POST individual `/shipments/:id/positions` no se
 puede listar acá (el match es por path exacto) y sigue bajo el general. Detalle en
 `services/movo-svc-shipments/CLAUDE.md` (MOVO-250).
+
+### MOVO-255 — Rate limit por usuario en `POST /shipments/quote`
+
+`RateLimitedRoute` gana `perUser`: ese limiter cuenta por `sub` del JWT en vez de por IP y
+corre después de `authenticate` (sigue siendo el único limiter del request, no se suma al
+general). Primer uso: `POST /shipments/quote`, 20 cada 15 min, mismo límite que
+`/shipments/route` porque cada cotización consulta Google Routes. Por usuario porque varios
+celulares detrás del NAT de la operadora comparten IP. Un request sin token a una ruta
+`perUser` responde 401 sin pasar por ningún limiter.

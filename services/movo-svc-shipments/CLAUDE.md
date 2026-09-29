@@ -2637,6 +2637,30 @@ Decisiones clave:
 - **Difusión en tiempo real**: cuando entra una nueva posición para el viaje, se difunde a todos los
   envíos activos asociados a ese viaje.
 
+### MOVO-138 — Conteo de demanda y `high_demand` para `demand_fuel_routes_v1` (ADR-025)
+
+`createShipment` cuenta la demanda de la zona de retiro y la manda como `demandContext` a
+`POST /quote`: envíos `published` a ≤ 15 km (`shipment-repository.ts#countPublishedNearPickup`,
+SQL con bounding box + Haversine) y transportistas distintos con viaje `declared`/`active` que
+sale entre −6h y +72h y cuyo corredor pasa a ≤ 15 km (`trip-repository.ts#countAvailableCarriersNear`,
+prefiltro SQL por rectángulo del viaje ensanchado 15 km + `distanceToSegmentKm` en memoria:
+corre en cada `createShipment`, así que no trae todos los viajes del país).
+
+- **`src/modules/shipments/shipment-quote.ts#quoteShipment`**: conteo + cotización fuera de
+  `createShipment` para que la cotización previa del wizard (MOVO-255) use la misma lógica.
+  Nunca lanza: si el conteo falla cotiza sin `demandContext` (sin recargo).
+- **Radio y ventana como constantes** (`src/domain/demand.ts`), no env vars: el umbral de
+  pricing se calibró sobre esos valores. No reusa `TRIP_DEFAULT_MAX_DETOUR_KM` aunque valga
+  lo mismo (es un parámetro del feed que el transportista puede cambiar).
+- **Sin excluir al emisor** de ninguno de los dos conteos (§4.1 del spike al pie de la letra).
+- **`shipments.high_demand BOOLEAN NULL`** (migración `20260926230000`, sin backfill),
+  escrita junto a `suggested_price_ars` y expuesta en el detalle. `NULL` = sin cotización o
+  envío anterior a `demand_fuel_routes_v1`, no equivale a `false`.
+- **`pricing-client.ts`** devuelve `highDemand: null` si pricing no lo informa (versión
+  anterior desplegada): el orden de deploy entre servicios no importa.
+
+Pendiente fuera de alcance: badge en el detalle del envío (MOVO-254, mobile) y cotización
+congelada en el resumen del wizard (MOVO-255).
 ### MOVO-253 — Elegir otro receptor tras un rechazo (ADR-027)
 
 `rejected_by_receiver` deja de ser terminal: sale hacia `awaiting_receiver_confirmation`
@@ -2769,3 +2793,20 @@ y el push de trip-match.
   - Consulta `positionService.getLastKnownPosition(shipmentId)`, que lee de Redis respetando el ciclo de vida del Trip (ADR-023).
   - Schema formal agregado en `positions.schema.ts`.
 
+### MOVO-255 — Cotización congelada del resumen del wizard (ADR-028)
+
+`POST /shipments/quote` cotiza con la misma función que la creación (`quoteShipment`,
+`shipment-quote.ts`, ya extraída en MOVO-138) y, si hay precio, lo guarda en Redis
+(`shipment_quote:{quoteId}`, TTL `SHIPMENT_QUOTE_TTL_SECONDS` = 15 min, constante y no env
+var) con `userId`, precio, `highDemand`, `calculationMethod` y un fingerprint (SHA-256 de
+tipo, peso, dimensiones y coordenadas redondeadas a 6 decimales). Sin precio responde todo
+`null` y no guarda nada. `POST /shipments` acepta `quoteId` opcional: con él usa el precio
+congelado sin llamar a pricing; sin él cotiza como antes (builds viejos).
+
+- **Consumo con Lua que compara antes de borrar** (`quote-store.ts`), no `GETDEL` a secas:
+  un `quoteId` de otro usuario o mandado con otros datos no quema la cotización del dueño.
+  Otro usuario o inexistente/vencida/usada → `409 QUOTE_EXPIRED` (no revela que el id
+  existe); fingerprint distinto → `409 QUOTE_MISMATCH` (la cotización queda viva).
+- **Se consume después de las validaciones de `createShipment`** (receptor, KYC, bloqueo,
+  franja), así un 422 no la quema. Un `quoteId` inválido nunca cae a recalcular.
+- Descripción, direcciones escritas y franja no entran al fingerprint: no afectan el precio.

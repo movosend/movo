@@ -18,6 +18,7 @@ export function createFakeTripRepository(overrides: Partial<TripRepository> = {}
     update: vi.fn(),
     delete: vi.fn(),
     findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([]),
+    countAvailableCarriersNear: vi.fn().mockResolvedValue(0),
     ...overrides,
   };
 }

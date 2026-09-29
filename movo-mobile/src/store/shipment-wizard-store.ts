@@ -33,10 +33,32 @@ export interface WizardPhoto {
   errorMessage: string | null;
 }
 
+/**
+ * Cotización del paso de resumen (MOVO-255). `quoteId` congela `suggestedPriceArs` en
+ * el backend hasta `expiresAt`: se manda al crear el envío para que se cree
+ * exactamente a ese precio. Los setters de los datos que afectan el precio (tipo,
+ * peso, dimensiones, direcciones) la descartan, así nunca viaja un `quoteId` de datos
+ * viejos.
+ */
 export interface PriceQuoteState {
   suggestedPriceArs: number | null;
+  highDemand: boolean | null;
+  quoteId: string | null;
+  expiresAt: string | null;
   status: "idle" | "loading" | "ready" | "unavailable";
+  /** `true` si se volvió a cotizar tras un 409 al crear: el emisor tiene que ver el
+   * precio nuevo ("El precio se actualizó") y confirmar de nuevo. */
+  updated: boolean;
 }
+
+export const IDLE_PRICE_QUOTE: PriceQuoteState = {
+  suggestedPriceArs: null,
+  highDemand: null,
+  quoteId: null,
+  expiresAt: null,
+  status: "idle",
+  updated: false,
+};
 
 export interface SubmissionState {
   status: "idle" | "submitting" | "error";
@@ -106,23 +128,36 @@ const initialState = {
   pickupTimeWindowStart: "",
   pickupTimeWindowEnd: "",
   photos: [] as WizardPhoto[],
-  priceQuote: { suggestedPriceArs: null, status: "idle" } as PriceQuoteState,
+  priceQuote: IDLE_PRICE_QUOTE,
   submission: { status: "idle", errorMessage: null, fieldErrorStep: null, shipmentId: null } as SubmissionState,
 };
+
+const sameCoords = (a: AddressSelection | null, b: AddressSelection | null) =>
+  a === b || (a !== null && b !== null && a.lat === b.lat && a.lng === b.lng);
 
 export const useShipmentWizardStore = create<ShipmentWizardState>((set) => ({
   ...initialState,
 
   setStep: (step) => set({ step }),
-  setPackageType: (packageType) => set({ packageType }),
-  setWeightKg: (weightKg) => set({ weightKg }),
-  setLengthCm: (lengthCm) => set({ lengthCm }),
-  setWidthCm: (widthCm) => set({ widthCm }),
-  setHeightCm: (heightCm) => set({ heightCm }),
+  // MOVO-255: un cambio real en un dato que afecta el precio descarta la cotización.
+  setPackageType: (packageType) =>
+    set((state) => (state.packageType === packageType ? {} : { packageType, priceQuote: IDLE_PRICE_QUOTE })),
+  setWeightKg: (weightKg) =>
+    set((state) => (state.weightKg === weightKg ? {} : { weightKg, priceQuote: IDLE_PRICE_QUOTE })),
+  setLengthCm: (lengthCm) =>
+    set((state) => (state.lengthCm === lengthCm ? {} : { lengthCm, priceQuote: IDLE_PRICE_QUOTE })),
+  setWidthCm: (widthCm) =>
+    set((state) => (state.widthCm === widthCm ? {} : { widthCm, priceQuote: IDLE_PRICE_QUOTE })),
+  setHeightCm: (heightCm) =>
+    set((state) => (state.heightCm === heightCm ? {} : { heightCm, priceQuote: IDLE_PRICE_QUOTE })),
   setDescription: (description) => set({ description }),
   setReceiver: (receiver) => set({ receiver }),
-  setPickup: (pickup) => set({ pickup }),
-  setDelivery: (delivery) => set({ delivery }),
+  setPickup: (pickup) =>
+    set((state) => (sameCoords(state.pickup, pickup) ? { pickup } : { pickup, priceQuote: IDLE_PRICE_QUOTE })),
+  setDelivery: (delivery) =>
+    set((state) =>
+      sameCoords(state.delivery, delivery) ? { delivery } : { delivery, priceQuote: IDLE_PRICE_QUOTE },
+    ),
   setPickupDate: (pickupDate) => set({ pickupDate }),
   setPickupTimeWindowStart: (pickupTimeWindowStart) => set({ pickupTimeWindowStart }),
   setPickupTimeWindowEnd: (pickupTimeWindowEnd) => set({ pickupTimeWindowEnd }),

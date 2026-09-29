@@ -4,6 +4,8 @@ import {
   CarrierRoute,
   OfferStatus,
   PublicProfile,
+  ShipmentQuoteRequest,
+  ShipmentQuoteResponse,
   ShipmentStatus,
   TripStatus,
   UserRole,
@@ -33,6 +35,8 @@ import {
   pickupWindowInstant,
 } from "../../domain/pickup-window";
 import { haversineKm } from "../../domain/geo";
+import { quoteShipment } from "./shipment-quote";
+import { QuoteStore, quoteFingerprint } from "./quote-store";
 import {
   aggregateCarrierStops,
   buildDegradedRoute,
@@ -134,6 +138,8 @@ export interface CreateShipmentServiceInput {
   /** "HH:MM" o "HH:MM:SS" */
   pickupTimeWindowStart: string;
   pickupTimeWindowEnd: string;
+  /** MOVO-255: cotización congelada de `POST /shipments/quote`. Sin esto se cotiza al crear. */
+  quoteId?: string;
 }
 
 export interface ListMineResult {
@@ -277,6 +283,33 @@ const UNKNOWN_COUNTERPARTY_NAME = "Usuario de Movo";
 // pensado para descartar casos legítimos como "de mi depto a la portería del mismo
 // edificio".
 const MIN_PICKUP_DELIVERY_DISTANCE_KM = 0.1;
+
+function assertPickupDeliveryApart(
+  input: Pick<ShipmentQuoteRequest, "pickupLat" | "pickupLng" | "deliveryLat" | "deliveryLng">
+) {
+  const distanceKm = haversineKm(input.pickupLat, input.pickupLng, input.deliveryLat, input.deliveryLng);
+  if (distanceKm < MIN_PICKUP_DELIVERY_DISTANCE_KM) {
+    throw new ApiError(
+      422,
+      "SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE",
+      "El retiro y la entrega tienen que estar en ubicaciones distintas."
+    );
+  }
+}
+
+function priceQuoteInput(input: ShipmentQuoteRequest) {
+  return {
+    weightKg: input.weightKg,
+    lengthCm: input.lengthCm,
+    widthCm: input.widthCm,
+    heightCm: input.heightCm,
+    packageType: input.packageType,
+    originLat: input.pickupLat,
+    originLng: input.pickupLng,
+    destinationLat: input.deliveryLat,
+    destinationLng: input.deliveryLng,
+  };
+}
 
 /** "HH:MM" -> "HH:MM:00"; "HH:MM:SS" queda igual.
  * Exportada: `offers.service.ts#updateOffer` (MOVO-181) revalida la franja horaria
@@ -812,6 +845,9 @@ export interface ShipmentsServiceOptions {
    * persiste un `radiusKm` propio). Sin este valor inyectado, el trigger no dispara
    * (mismo criterio best-effort/opcional que `tripRepository`). */
   tripMatchDetourRadiusKm?: number;
+  /** Requerido para `quoteShipmentPrice` y para `createShipment` con `quoteId`
+   * (MOVO-255) -- cotizaciones congeladas en Redis. */
+  quoteStore?: QuoteStore;
 }
 
 export type ShipmentsService = ReturnType<typeof createShipmentsService>;
@@ -833,8 +869,70 @@ export function createShipmentsService(
   const tripRepository = opts.tripRepository;
   const ratingRepository = opts.ratingRepository;
   const tripMatchDetourRadiusKm = opts.tripMatchDetourRadiusKm;
+  const quoteStore = opts.quoteStore;
+
+  function requireQuoteStore(): QuoteStore {
+    if (!quoteStore) {
+      throw new Error("quoteStore no inyectado -- requerido para cotizaciones congeladas (MOVO-255)");
+    }
+    return quoteStore;
+  }
+
+  async function consumeFrozenQuote(quoteId: string, senderId: string, input: ShipmentQuoteRequest) {
+    const result = await requireQuoteStore().consume(quoteId, senderId, quoteFingerprint(input));
+    if (result.status === "expired") {
+      throw new ApiError(409, "QUOTE_EXPIRED", "La cotización venció. Volvé a cotizar el envío.");
+    }
+    if (result.status === "mismatch") {
+      throw new ApiError(
+        409,
+        "QUOTE_MISMATCH",
+        "Los datos del envío cambiaron después de cotizar. Volvé a cotizar el envío."
+      );
+    }
+    const { suggestedPriceArs, calculationMethod, highDemand } = result.quote;
+    return { suggestedPriceArs, calculationMethod, highDemand };
+  }
 
   return {
+    /**
+     * MOVO-255 (ADR-028): cotización previa del resumen del wizard. Misma función de
+     * precio que `createShipment` (`quoteShipment`), así el número que ve el emisor es
+     * el que se guarda al crear. Con precio, lo congela en Redis por
+     * `SHIPMENT_QUOTE_TTL_SECONDS`; sin precio (pricing caído) no guarda nada.
+     */
+    async quoteShipmentPrice(senderId: string, input: ShipmentQuoteRequest): Promise<ShipmentQuoteResponse> {
+      assertPickupDeliveryApart(input);
+      const store = requireQuoteStore();
+
+      const quote = await quoteShipment(
+        { pricingClient, shipmentRepository: repository, tripRepository, logger },
+        priceQuoteInput(input)
+      );
+      if (quote.suggestedPriceArs === null || quote.calculationMethod === null) {
+        logger?.warn(
+          { event: "pricing_quote_unavailable", senderId },
+          "No se pudo cotizar el envío -- el resumen muestra 'precio a estimar'"
+        );
+        return { quoteId: null, suggestedPriceArs: null, highDemand: null, calculationMethod: null, expiresAt: null };
+      }
+
+      const { quoteId, expiresAt } = await store.save({
+        userId: senderId,
+        suggestedPriceArs: quote.suggestedPriceArs,
+        highDemand: quote.highDemand,
+        calculationMethod: quote.calculationMethod,
+        fingerprint: quoteFingerprint(input),
+      });
+      return {
+        quoteId,
+        suggestedPriceArs: quote.suggestedPriceArs,
+        highDemand: quote.highDemand,
+        calculationMethod: quote.calculationMethod,
+        expiresAt: expiresAt.toISOString(),
+      };
+    },
+
     async createShipment(input: CreateShipmentServiceInput): Promise<Shipment> {
       // AC4 — auto-designación, primero por ser el chequeo más barato (sin I/O).
       if (input.senderId === input.receiverId) {
@@ -842,19 +940,7 @@ export function createShipmentsService(
       }
 
       // MOVO-126 — retiro y entrega no pueden ser la misma ubicación, todavía sin I/O.
-      const pickupDeliveryDistanceKm = haversineKm(
-        input.pickupLat,
-        input.pickupLng,
-        input.deliveryLat,
-        input.deliveryLng
-      );
-      if (pickupDeliveryDistanceKm < MIN_PICKUP_DELIVERY_DISTANCE_KM) {
-        throw new ApiError(
-          422,
-          "SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE",
-          "El retiro y la entrega tienen que estar en ubicaciones distintas."
-        );
-      }
+      assertPickupDeliveryApart(input);
 
       // AC6 — validación de fecha/franja, todavía sin I/O.
       const windowStartAt = combineDateAndTime(input.pickupDate, input.pickupTimeWindowStart);
@@ -887,23 +973,22 @@ export function createShipmentsService(
       // MOVO-175 (ADR-026): no se puede designar como receptor a alguien con un bloqueo.
       await assertNotBlocked(usersClient, input.senderId, [input.receiverId]);
 
-      // MOVO-82: `getQuote` nunca lanza -- degrada a `{ suggestedPriceArs: null,
-      // calculationMethod: null }` ("precio a estimar") ante cualquier falla de
-      // movo-svc-pricing-logistics (AC6), sin cliente inyectado, o datos incompletos
-      // (AC7, inalcanzable hoy porque createShipmentBody exige todos estos campos).
-      const quote = pricingClient
-        ? await pricingClient.getQuote({
-            weightKg: input.weightKg,
-            lengthCm: input.lengthCm,
-            widthCm: input.widthCm,
-            heightCm: input.heightCm,
-            packageType: input.packageType,
-            originLat: input.pickupLat,
-            originLng: input.pickupLng,
-            destinationLat: input.deliveryLat,
-            destinationLng: input.deliveryLng,
-          })
-        : { suggestedPriceArs: null, calculationMethod: null };
+      // MOVO-255 (ADR-028): con `quoteId`, precio congelado sin volver a llamar a
+      // pricing. Se consume recién acá, después de las validaciones de arriba, para que
+      // un 422 por el receptor o la franja no queme la cotización. Un `quoteId`
+      // inválido nunca cae a recalcular: eso anularía el precio que vio el emisor.
+      //
+      // Sin `quoteId` (builds viejos del mobile), MOVO-82: `quoteShipment` nunca lanza
+      // -- degrada a "precio a estimar" (todo `null`) ante cualquier falla de
+      // movo-svc-pricing-logistics (AC6), sin cliente inyectado, o datos incompletos.
+      // MOVO-138: antes cuenta la demanda de la zona de retiro.
+      const quote =
+        input.quoteId !== undefined
+          ? await consumeFrozenQuote(input.quoteId, input.senderId, input)
+          : await quoteShipment(
+              { pricingClient, shipmentRepository: repository, tripRepository, logger },
+              priceQuoteInput(input)
+            );
 
       if (quote.suggestedPriceArs === null) {
         logger?.warn(
@@ -944,6 +1029,7 @@ export function createShipmentsService(
         pickupTimeWindowEnd: toEpochTime(input.pickupTimeWindowEnd),
         suggestedPriceArs: quote.suggestedPriceArs,
         calculationMethod: quote.calculationMethod,
+        highDemand: quote.highDemand,
         receiverConfirmationDeadline,
       });
 

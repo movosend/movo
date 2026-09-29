@@ -52,6 +52,13 @@ export interface RateLimitedRoute {
     max: number;
     timeWindow: string;
   };
+  /**
+   * MOVO-255: cuenta por usuario (`sub` del JWT) en vez de por IP. El limiter corre
+   * después de autenticar, así que solo sirve en rutas protegidas. Útil cuando el
+   * recurso a proteger es por cuenta y no por red: varios celulares detrás del mismo
+   * NAT de la operadora no deberían compartir un contador.
+   */
+  perUser?: boolean;
 }
 
 export function getServiceRoutes(env: {
@@ -274,6 +281,16 @@ export function getRateLimitOverrides(): RateLimitedRoute[] {
       method: "POST",
       path: "/shipments/positions",
       rateLimit: { max: 30, timeWindow: "1 minute" },
+    },
+    // MOVO-255: cotización congelada del resumen del wizard. Cada llamada consulta
+    // Google Routes (pago) desde `movo-svc-pricing-logistics`, mismo límite que
+    // `/shipments/route`. Por usuario, como pide el ticket: el mobile cotiza una vez
+    // por entrada al resumen (y una más ante un 409), no por tecleo.
+    {
+      method: "POST",
+      path: "/shipments/quote",
+      rateLimit: { max: 20, timeWindow: "15 minutes" },
+      perUser: true,
     },
     // MOVO-125: reverse geocoding del GPS del wizard de envíos — PROTEGIDA (no está en
     // getPublicRoutes), a diferencia de /geocode y /places/*. Igual necesita este
