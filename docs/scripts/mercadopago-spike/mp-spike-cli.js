@@ -212,6 +212,7 @@ const state = {
 const sdkState = {
   sellerAccessToken: null,
   sellerUserId: null,
+  sellerPublicKey: null,
   cardTokenId: null,
   customerId: null,
   savedCardId: null,
@@ -1271,6 +1272,7 @@ code, en vez de armar la URL a mano y pegarle a POST /oauth/token con fetch.
 
   sdkState.sellerAccessToken = data.access_token;
   sdkState.sellerUserId = data.user_id;
+  sdkState.sellerPublicKey = data.public_key || null;
 
   const tokenPrefix = typeof data.access_token === 'string' ? data.access_token.split('-')[0] : 'unknown';
   console.log(`\n✅ Cuenta de transportista conectada (SDK). user_id = ${data.user_id}.`);
@@ -1296,24 +1298,27 @@ async function stepSdkTokenizeCard() {
 --------------------------------------------------------------------------
 [SDK] s3 — Tokenizar la tarjeta de prueba
 --------------------------------------------------------------------------
-Igual que la opción 3, pero con \`new CardToken(config).create()\`.
+Esta opción NO usa el SDK, a propósito. \`CardToken.create()\` siempre manda
+el access_token del \`config\`, y MP rechaza tokenizar así desde un
+servidor: con el access_token del vendedor responde 403 G001
+"unexpected_processing" (verificado el 2026-09-29). Antes de ese día
+fallaba antes con 2006 o 2034.
 
-DIFERENCIA IMPORTANTE con la opción 3 (ver comentario de la sección "s1..s9"
-más arriba): el SDK no soporta tokenizar con \`public_key\` sin
-Authorization — siempre manda el access_token del \`config\` que le pasás.
-Por eso acá se tokeniza con el access_token del VENDEDOR conectado (s2), no
-con la Public Key de la app.
+En producción la tarjeta la tokeniza el mobile (Bricks / Secure Fields)
+con la PUBLIC KEY del transportista, sin Authorization. Acá simulamos eso:
+POST /v1/card_tokens?public_key=<public_key del vendedor conectado en s2>.
+El resto del flujo (s5-s8) sí usa el SDK.
 `);
-  if (!loadSdk()) return;
-  if (!sdkState.sellerAccessToken) {
-    console.log('[error] Todavía no conectaste un transportista (opción s2) — hace falta su');
-    console.log('        access_token para tokenizar acá (ver diferencia con la opción 3 arriba).');
+  if (!sdkState.sellerPublicKey) {
+    console.log('[error] Todavía no conectaste un transportista (opción s2): hace falta su');
+    console.log('        public_key para tokenizar como lo haría el mobile.');
     return;
   }
 
-  const { CardToken } = mercadopago;
-  const { ok, data } = await sdkCall('CardToken.create()', () =>
-    new CardToken(sdkConfig(sdkState.sellerAccessToken)).create({
+  const { ok, data } = await mpRequest(
+    'POST',
+    `/v1/card_tokens?public_key=${encodeURIComponent(sdkState.sellerPublicKey)}`,
+    {
       body: {
         card_number: CONFIG.testCard.number,
         security_code: CONFIG.testCard.cvv,
@@ -1324,14 +1329,14 @@ con la Public Key de la app.
           identification: { type: 'DNI', number: '12345678' },
         },
       },
-    })
+    }
   );
 
   if (!ok) return;
 
   sdkState.cardTokenId = data.id;
-  console.log(`\n✅ card_token creado (SDK): ${data.id}`);
-  appendToSessionLog('SDK:s3:tokenize-card', { cardTokenId: data.id });
+  console.log(`\n✅ card_token creado (public_key del vendedor, como el mobile): ${data.id}`);
+  appendToSessionLog('SDK:s3:tokenize-card', { cardTokenId: data.id, via: 'seller-public-key' });
 }
 
 async function stepSdkCreateHoldPaymentWithSplit() {
