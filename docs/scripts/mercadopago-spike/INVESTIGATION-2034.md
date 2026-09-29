@@ -591,3 +591,8 @@ resultado que con raw-fetch. Hold `1352825041` capturado con `application_fee 15
 (que tokeniza con el access_token del vendedor) ahora responde `403 G001
 "unexpected_processing"`, así que `s3` pasó a tokenizar con la `public_key` del vendedor,
 como lo hace el mobile. Detalle en `SOLUCION-FINAL.md`, sección 4.
+
+**Mismo día, tarjeta guardada (card-on-file):** no se pudo validar. Guardar la tarjeta como
+customer del transportista da `128 "payment method response is empty"`, y la variante con
+la cuenta de Movo no se puede probar en sandbox (credenciales live). El equipo decidió
+crear el hold siempre con el emisor presente. Detalle en `SOLUCION-FINAL.md`, sección 7.

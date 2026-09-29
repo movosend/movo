@@ -200,6 +200,8 @@ const state = {
   // esa cuenta (split/marketplace): MP exige que el card_token se cree con
   // la public_key del COLLECTOR real, no con la de nuestra app.
   cardTokenId: null, // token de un solo uso de la tarjeta de prueba (AC1/AC3)
+  sellerCustomerId: null, // c1: customer creado en la cuenta del TRANSPORTISTA
+  sellerSavedCardId: null, // c1: tarjeta guardada contra ese customer
   customerId: null, // customer de MP para guardar la tarjeta (hallazgo MOVO-100)
   savedCardId: null, // id ESTABLE de la tarjeta guardada contra ese customer
   holdPaymentId: null, // id del pago con capture:false ya creado (AC1)
@@ -865,6 +867,198 @@ paso anterior, estos no deberían expirar. Es lo que hay que confirmar acá.
     lastFourDigits: data.last_four_digits,
     cardBrand: data.payment_method?.id,
   });
+}
+
+
+// ----------------------------------------------------------------------------
+// c1-c3 — ¿Sirve una tarjeta guardada (card-on-file) en el modelo marketplace?
+// ----------------------------------------------------------------------------
+//
+// Pregunta de diseño de MOVO-12/MOVO-215 (2026-09-29). El hold se crea con el
+// access_token del transportista y la tarjeta se tokeniza con SU public_key.
+// Una tarjeta guardada ¿sirve para crear el hold más tarde, sin el emisor
+// presente (sin CVV)? Dos variantes:
+//   c1 + c2: la tarjeta se guarda como customer DEL TRANSPORTISTA (al aceptar la
+//            oferta, con el emisor presente) y el hold se crea después sin CVV.
+//   c3:      la tarjeta se guarda UNA vez en la cuenta de MOVO (la app) y se
+//            intenta cobrar con el token del transportista (cross-account).
+
+async function findOrCreateCustomer(accessToken, email) {
+  const created = await mpRequest('POST', '/v1/customers', { token: accessToken, body: { email } });
+  if (created.ok) return created.data.id;
+  const search = await mpRequest('GET', `/v1/customers/search?email=${encodeURIComponent(email)}`, {
+    token: accessToken,
+  });
+  return search.data?.results?.[0]?.id || null;
+}
+
+async function tokenFromSavedCard(publicKey, cardId, { withCvv, bearer } = {}) {
+  const body = { card_id: cardId };
+  if (withCvv) body.security_code = CONFIG.testCard.cvv;
+  const path = bearer ? '/v1/card_tokens' : `/v1/card_tokens?public_key=${encodeURIComponent(publicKey)}`;
+  return mpRequest('POST', path, { token: bearer || undefined, body });
+}
+
+async function tokenizeWithSellerPk() {
+  const res = await mpRequest('POST', `/v1/card_tokens?public_key=${encodeURIComponent(state.sellerPublicKey)}`, {
+    body: {
+      card_number: CONFIG.testCard.number,
+      security_code: CONFIG.testCard.cvv,
+      expiration_month: CONFIG.testCard.expirationMonth,
+      expiration_year: CONFIG.testCard.expirationYear,
+      cardholder: { name: CONFIG.testCard.holderName, identification: { type: 'DNI', number: '12345678' } },
+    },
+  });
+  return res.ok ? res.data.id : null;
+}
+
+async function stepSellerSaveCard() {
+  console.log(`
+--------------------------------------------------------------------------
+c1 — Guardar la tarjeta como customer de la cuenta del TRANSPORTISTA
+--------------------------------------------------------------------------
+Requiere: 2 (OAuth del vendedor). Simula lo que pasaría al aceptar la oferta
+con el emisor presente. Prueba variantes hasta que una guarde la tarjeta:
+  v1: customer del email del comprador, body { token }
+  v2: mismo customer, body { token, payment_method_id, issuer_id }
+  v3: customer con un email nuevo (no ligado a ningún usuario), body { token }
+Cada variante usa un card_token nuevo (tokenizado con la public_key del vendedor).
+`);
+  if (!state.sellerAccessToken || !state.sellerPublicKey) {
+    console.log('[error] Falta la opción 2 (vendedor conectado).');
+    return;
+  }
+  const buyerCustomer = await findOrCreateCustomer(state.sellerAccessToken, CONFIG.testPayerEmail);
+  const variants = [
+    { label: 'c1v1:buyer-email', customerId: buyerCustomer, extra: {} },
+    { label: 'c1v2:buyer-email+pm', customerId: buyerCustomer, extra: { payment_method_id: 'visa', issuer_id: '310' } },
+    { label: 'c1v3:fresh-email', email: `movo.spike.${Date.now()}@gmail.com`, extra: {} },
+  ];
+  for (const v of variants) {
+    console.log(`\n### ${v.label}`);
+    const customerId = v.customerId || (await findOrCreateCustomer(state.sellerAccessToken, v.email));
+    if (!customerId) {
+      appendToSessionLog(`${v.label}`, { error: 'no customer' });
+      continue;
+    }
+    const token = await tokenizeWithSellerPk();
+    if (!token) continue;
+    const { ok, data } = await mpRequest('POST', `/v1/customers/${customerId}/cards`, {
+      token: state.sellerAccessToken,
+      body: { token, ...v.extra },
+    });
+    appendToSessionLog(`${v.label}`, ok ? { customerId, savedCardId: data.id } : { customerId, error: data });
+    if (ok) {
+      state.sellerCustomerId = customerId;
+      state.sellerSavedCardId = data.id;
+      console.log(`\n✅ Tarjeta guardada (${v.label}). customer=${customerId} card=${data.id}`);
+      return;
+    }
+  }
+  console.log('\n[resultado] Ninguna variante pudo guardar la tarjeta en la cuenta del vendedor.');
+}
+
+async function createHoldFromToken(token, customerId, label) {
+  const { ok, data } = await mpRequest('POST', '/v1/payments', {
+    token: state.sellerAccessToken,
+    idempotencyKey: crypto.randomUUID(),
+    body: {
+      transaction_amount: CONFIG.holdAmount,
+      capture: false,
+      installments: 1,
+      token,
+      description: `[SPIKE MOVO-49] ${label}`,
+      payer: customerId ? { type: 'customer', id: customerId } : { email: CONFIG.testPayerEmail },
+      application_fee: CONFIG.applicationFee,
+    },
+  });
+  if (ok) {
+    state.holdPaymentId = data.id;
+    console.log(`\n✅ Hold creado: id=${data.id} status=${data.status}/${data.status_detail}`);
+  }
+  appendToSessionLog(`${label}:hold`, ok ? { paymentId: data.id, status: data.status } : { error: data });
+  return ok;
+}
+
+async function stepSellerHoldFromSavedCard() {
+  console.log(`
+--------------------------------------------------------------------------
+c2 — Hold + split con la tarjeta guardada del vendedor, SIN CVV (off-session)
+--------------------------------------------------------------------------
+Prueba en orden, deteniéndose en la primera que funcione:
+  a) token desde card_id con public_key del vendedor, sin CVV
+  b) token desde card_id con Bearer del vendedor, sin CVV
+  c) (control) token desde card_id con public_key del vendedor, CON CVV
+Con el token obtenido crea el hold (capture:false + application_fee) con
+payer {type: customer}. Si solo funciona (c), off-session NO es viable.
+`);
+  if (!state.sellerAccessToken || !state.sellerSavedCardId) {
+    console.log('[error] Falta la opción c1 (tarjeta guardada en la cuenta del vendedor).');
+    return;
+  }
+  const attempts = [
+    { label: 'c2a:no-cvv-public-key', opts: {} },
+    { label: 'c2b:no-cvv-bearer', opts: { bearer: state.sellerAccessToken } },
+    { label: 'c2c:with-cvv-control', opts: { withCvv: true } },
+  ];
+  for (const attempt of attempts) {
+    console.log(`\n### ${attempt.label}`);
+    const res = await tokenFromSavedCard(state.sellerPublicKey, state.sellerSavedCardId, attempt.opts);
+    appendToSessionLog(`${attempt.label}:token`, res.ok ? { tokenId: res.data.id } : { error: res.data });
+    if (!res.ok) continue;
+    const held = await createHoldFromToken(res.data.id, state.sellerCustomerId, attempt.label);
+    if (held) return;
+  }
+  console.log('\n[resultado] Ninguna variante creó el hold.');
+}
+
+async function stepCrossAccountSavedCard() {
+  console.log(`
+--------------------------------------------------------------------------
+c3 — Tarjeta guardada en la cuenta de MOVO, cobrada con el token del vendedor
+--------------------------------------------------------------------------
+Tokeniza con la public_key de la APP (Movo), guarda la tarjeta como customer de
+Movo y después intenta crear el hold con el access_token del vendedor usando
+esa tarjeta guardada. Requiere la opción 2 (vendedor conectado).
+`);
+  if (!state.sellerAccessToken || !CONFIG.appAccessToken || !CONFIG.appPublicKey) {
+    console.log('[error] Faltan la opción 2 o las credenciales de la app en .env.');
+    return;
+  }
+  const tok = await mpRequest('POST', `/v1/card_tokens?public_key=${encodeURIComponent(CONFIG.appPublicKey)}`, {
+    body: {
+      card_number: CONFIG.testCard.number,
+      security_code: CONFIG.testCard.cvv,
+      expiration_month: CONFIG.testCard.expirationMonth,
+      expiration_year: CONFIG.testCard.expirationYear,
+      cardholder: { name: CONFIG.testCard.holderName, identification: { type: 'DNI', number: '12345678' } },
+    },
+  });
+  appendToSessionLog('c3:tokenize-app-pk', tok.ok ? { tokenId: tok.data.id } : { error: tok.data });
+  if (!tok.ok) return;
+  const customerId = await findOrCreateCustomer(CONFIG.appAccessToken, CONFIG.testPayerEmail);
+  appendToSessionLog('c3:movo-customer', { customerId });
+  if (!customerId) return;
+  const saved = await mpRequest('POST', `/v1/customers/${customerId}/cards`, {
+    token: CONFIG.appAccessToken,
+    body: { token: tok.data.id },
+  });
+  appendToSessionLog('c3:movo-save-card', saved.ok ? { savedCardId: saved.data.id } : { error: saved.data });
+  if (!saved.ok) return;
+  const attempts = [
+    { label: 'c3a:seller-pk-no-cvv', pk: state.sellerPublicKey, withCvv: false },
+    { label: 'c3b:seller-pk-with-cvv', pk: state.sellerPublicKey, withCvv: true },
+    { label: 'c3c:app-pk-with-cvv', pk: CONFIG.appPublicKey, withCvv: true },
+  ];
+  for (const attempt of attempts) {
+    console.log(`\n### ${attempt.label}`);
+    const res = await tokenFromSavedCard(attempt.pk, saved.data.id, { withCvv: attempt.withCvv });
+    appendToSessionLog(`${attempt.label}:token`, res.ok ? { tokenId: res.data.id } : { error: res.data });
+    if (!res.ok) continue;
+    const held = await createHoldFromToken(res.data.id, customerId, attempt.label);
+    if (held) return;
+  }
+  console.log('\n[resultado] Ninguna variante cross-account creó el hold.');
 }
 
 // ----------------------------------------------------------------------------
@@ -1851,6 +2045,9 @@ const MENU = [
   { key: '3', label: 'Tokenizar la tarjeta de prueba (necesario antes del paso 4/5)', run: stepTokenizeCard },
   { key: '4', label: '[MOVO-100] Crear customer + guardar tarjeta (id estable, reusable)', run: stepCreateCustomerAndSaveCard },
   { key: '5', label: 'AC1+AC3 — Crear pago: capture:false + application_fee (split)', run: stepCreateHoldPaymentWithSplit },
+  { key: 'c1', label: '[card-on-file] Guardar la tarjeta en la cuenta del vendedor (requiere 2 y 3)', run: stepSellerSaveCard },
+  { key: 'c2', label: '[card-on-file] Hold + split con esa tarjeta guardada, sin CVV', run: stepSellerHoldFromSavedCard },
+  { key: 'c3', label: '[card-on-file] Tarjeta guardada en la cuenta de Movo, cobrada con token del vendedor', run: stepCrossAccountSavedCard },
   { key: '6', label: 'AC3 — Consultar el pago (ver cómo quedó repartido el split)', run: stepInspectPayment },
   { key: '7', label: 'AC1/AC3 — Capturar el pago (cobrar de verdad)', run: stepCapturePayment },
   { key: '8', label: 'AC4 — Cancelar el hold (liberar fondos sin cobrar)', run: stepCancelHold },

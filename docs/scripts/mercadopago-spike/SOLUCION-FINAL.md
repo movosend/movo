@@ -373,3 +373,31 @@ Dos salvedades:
 - **Vencimiento del hold:** cuánto dura una autorización sin capturar antes de que MP la
   cancele sola. Condiciona dónde anclar el hold en el ciclo del envío (ADR-021,
   `assigned_unfunded`).
+
+---
+
+## 7. Tarjeta guardada (card-on-file) en el modelo marketplace: no validada
+
+Probado el 2026-09-29 (opciones `c1`–`c3` de `mp-spike-cli.js`) para decidir si el hold se
+puede crear más tarde sin el emisor presente (MOVO-12, opción B).
+
+| Prueba | Resultado |
+| --- | --- |
+| `c1` Guardar la tarjeta como customer **del transportista** (`POST /v1/customers/{id}/cards` con su access_token y un card_token de su `public_key`) | `400 — 128 "payment method response is empty"`, con dos card_tokens distintos |
+| `c1` Ídem, mandando `payment_method_id`/`issuer_id` en el body | `400 — 118 "the body must be a Json Object"`: MP no acepta campos extra |
+| `c1` Customer con un email nuevo, no ligado a ningún usuario | `400 — 225 "Invalid test user email"`: en sandbox el customer tiene que ser un usuario de prueba |
+| `c3` Guardar la tarjeta en la cuenta de **Movo** y cobrarla con el token del transportista | No se puede probar: las credenciales propias de la app son de una cuenta de prueba y MP las trata como live (`401 — 300 "Unauthorized use of live credentials"` al crear el customer) |
+
+`c2` (crear el hold con la tarjeta guardada y sin CVV) no se llegó a ejecutar porque
+ninguna variante de `c1` guardó la tarjeta.
+
+**Conclusión:** no hay evidencia de que una tarjeta guardada sirva para cobrar un hold con
+split en nombre de un transportista, y la variante cross-account ni siquiera se puede
+probar en sandbox. **Decisión del equipo: el hold se crea siempre con el emisor presente**
+(Card Payment Brick, tokenizando con la `public_key` del transportista del envío). Para
+retiros lejanos, el emisor confirma el pago cuando se acerca la fecha en vez de un job que
+cobra solo.
+
+Dato de paso: el customer del comprador en la cuenta del vendedor tiene id
+`3612507366-…`. Es el mismo `payer.id 3612507366` de los pagos de la sección 3, así que ese
+es el usuario que MP asocia al email de Emisor-Alena.
