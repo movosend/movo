@@ -1,6 +1,6 @@
 # Investigación en curso — opción 5 del spike (hold + split) devuelve error 2034
 
-Estado al cierre de esta sesión (2026-08-12): **sin resolver**. Este documento es un
+**RESUELTO el 2026-09-29**: la solución, con los datos exactos, está en `SOLUCION-FINAL.md`; acá, la sesión del 29/09 al final. Estado original al 2026-08-12: sin resolver. Este documento es un
 registro cronológico de lo que se probó y lo que devolvió Mercado Pago, para que
 quien retome esto no tenga que repetir los mismos pasos. No asume cuál es la causa
 final — al cierre de la sesión quedaron descartadas algunas hipótesis y quedan otras
@@ -317,8 +317,10 @@ Integrador (y no a quien sea el dueño real de esa app), la app tendría que est
 **desde el panel de la propia cuenta Integrador** — los test users pueden loguearse en
 developers.mercadopago.com igual que una cuenta real y crear ahí su propia aplicación.
 
-Se hizo exactamente eso: loguearse como la cuenta Integrador ("Movo",
-`TESTUSER7570690210904606444`, `user_id: 3609549431`) y crear una app nueva desde ahí
+Se hizo exactamente eso: loguearse como la cuenta Integrador ("Movo S.A",
+`TESTUSER5057190937651221244`, `user_id: 3609549431` — creada por Tomás desde su app
+"generador de cuentas" `2511208387832416`, no la "Movo" de JcBordino; corregido el
+2026-09-29) y crear una app nueva desde ahí
 (`client_id 7550835762771398`). Se actualizó `.env` con estas credenciales y se repitió
 el flujo (`2` → `3` → `5`, Payments API raw-fetch) conectando a Juan Cruz por OAuth
 contra esta app nueva.
@@ -539,3 +541,53 @@ este lado. Si soporte no aporta una causa nueva y distinta a partir de esta resp
 se cierra la investigación y se documenta `application_fee` (con o sin hold) como
 **limitación conocida no soportada en el sandbox de MP** para este TFG — no seguir
 iterando combinaciones de cuentas.
+
+## Sesión 2026-09-29 — RESUELTO: con las tres partes de prueba, hold + split funciona
+
+Soporte (con logs de Payments sobre los dos intentos del 04/09) identificó la causa: el
+`payer.email` inventado de esa prueba (`comprador.prueba@gmail.com`, puesto para seguir su
+consejo de no usar `@testuser.com`) hizo que MP registrara al pagador como **comprador
+invitado (guest)**, es decir, como usuario real. App (`7550835762771398`, dueña Integrador
+de prueba `3609549431`) y vendedor (`2991764998`) sí eran de prueba, pero había una parte
+real en la operación, que es la condición del 2034.
+
+Revisando el historial con esa regla, **ningún intento anterior tuvo las tres partes de
+prueba a la vez**: hasta el 14/08 el dueño de la app era una cuenta real (Tomás o
+JcBordino), y el 04/09 el pagador era un guest. Las tres cuentas de prueba (Movo S.A,
+Transportista - Tomas, Emisor - Alena) las creó Tomás desde la misma app "generador de
+cuentas" `2511208387832416`, así que no hay diferencia de cuenta padre entre ellas.
+
+Prueba repetida (flujo raw-fetch `2 → 3 → 5 → 7 → 6`), con app `7550835762771398`, OAuth del
+vendedor `2991764998` con `test_token:true` (token `TEST-`) y `payer.email` = email real de
+la cuenta Comprador Emisor-Alena (`test_user_4715592661702347785@testuser.com`, confirmado
+desde su perfil en MP):
+
+- **Hold + split** (`capture:false` + `application_fee: 150`, `transaction_amount: 1000`):
+  HTTP 201, pago `1352823085`, `authorized` / `pending_capture`.
+- **Captura**: `approved` / `accredited`. `fee_details` =
+  `[mercadopago_fee 41, application_fee 150]`, ambos `fee_payer: collector`;
+  `net_received_amount: 809` (1000 − 41 − 150). **El split quedó aplicado.**
+- **Cancelación de un hold con split** (pago `1352824879`): `cancelled`, `fee_details: []`,
+  `net_received_amount: 0`, así que cancelar el hold no cobra comisión.
+
+Detalles observados:
+- Antes de capturar, `charges_details` solo lista `mercadopago_fee`; el `application_fee`
+  recién aparece en `fee_details` después de la captura.
+- `marketplace_owner` vuelve `null` aunque el split se aplique. No sirve como señal.
+- El pagador del pago es `payer.id 3612507366`, no el `user_id 2991765000` que muestra el
+  panel para Emisor-Alena. No afecta el resultado; queda anotado.
+
+**Conclusión**: el 2034 venía de la configuración de cuentas de nuestras pruebas, no de
+una limitación del sandbox. `capture:false` + `application_fee` vía Payments API +
+OAuth Connect funciona en sandbox **siempre que app, vendedor y pagador sean cuentas de
+prueba** (la app, creada desde una cuenta de prueba Integrador; el `payer.email`, el email
+real de una cuenta de prueba Comprador). Queda pendiente la pregunta 3 de soporte (si
+producción exige homologar el modelo Marketplace en la cuenta real), que el sandbox no
+responde.
+
+**Mismo día, flujo con el SDK oficial** (`s2 → s3 → s5 → s7 → s6` y `s3 → s5 → s8 → s6`): mismo
+resultado que con raw-fetch. Hold `1352825041` capturado con `application_fee 150` y neto
+809, y hold `1352825061` cancelado sin fees. Único cambio: `CardToken.create()` del SDK
+(que tokeniza con el access_token del vendedor) ahora responde `403 G001
+"unexpected_processing"`, así que `s3` pasó a tokenizar con la `public_key` del vendedor,
+como lo hace el mobile. Detalle en `SOLUCION-FINAL.md`, sección 4.
