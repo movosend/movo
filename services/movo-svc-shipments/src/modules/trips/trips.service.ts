@@ -305,18 +305,14 @@ export function createTripsService(deps: {
     },
 
     async getTrip({ tripId, callerId, callerRoles }) {
-      const trip = await tripRepository.findById(tripId);
+      const trip = await tripRepository.findByIdWithPackages(tripId);
       if (!trip) {
         throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
       }
 
       assertTripAccess(trip, callerId, callerRoles, { forbiddenMessage: "No tenés permiso para ver este viaje." });
 
-      const acceptedCount = await tripRepository.countAcceptedOffers(tripId);
-      return {
-        ...trip,
-        hasAcceptedPackages: acceptedCount > 0,
-      };
+      return trip;
     },
 
     async listCarrierTrips({ callerId, callerRoles, page, limit, status }) {

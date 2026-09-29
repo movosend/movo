@@ -2824,3 +2824,7 @@ Detectado en la misma rama y derivado a MOVO-258: ningún barrido vence envíos 
 transportista (`assignment_pending`/`assigned_unfunded`/`assigned`) ni cierra viajes
 `active` (nada escribe `TripStatus.COMPLETED`), y envío y viaje se traban entre sí por
 la regla "bloquea, no cascadea" de MOVO-238.
+
+### MOVO-261 — Paquetes aceptados en el detalle del viaje (`GET /trips/:id`)
+
+Soporte del rediseño del detalle del viaje (`movo-mobile`): se agrega `packages: TripAcceptedPackage[]` y `acceptedPackagesCount` a la respuesta del viaje extendido (y `acceptedPackagesCount` también al listado). Resuelto optimizando `tripRepository.findByIdWithPackages` con un `include` sobre `offers.shipment` (filtrado por `ACCEPTED_OFFER_FILTER`) para evitar N+1 queries. No impacta en la DB ni rompe endpoints existentes. DTOs de mobile (`trips-client.ts`) sincronizados, tests de mocks actualizados.

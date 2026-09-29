@@ -35,12 +35,44 @@ const tripResponse = {
   },
 };
 
+const tripAcceptedPackageResponse = {
+  type: "object",
+  required: [
+    "shipmentId",
+    "status",
+    "packageType",
+    "weightKg",
+    "pickupAddress",
+    "deliveryAddress",
+    "pickupDate",
+    "pickupTimeWindowStart",
+    "pickupTimeWindowEnd",
+    "agreedPriceArs",
+    "senderName",
+  ],
+  properties: {
+    shipmentId: { type: "string" },
+    status: { type: "string" },
+    packageType: { type: "string" },
+    weightKg: { type: "number" },
+    pickupAddress: { type: "string" },
+    deliveryAddress: { type: "string" },
+    pickupDate: { type: "string" },
+    pickupTimeWindowStart: { type: "string" },
+    pickupTimeWindowEnd: { type: "string" },
+    agreedPriceArs: { type: "number" },
+    senderName: { type: "string" },
+  },
+};
+
 const tripWithAcceptedPackagesResponse = {
   type: "object",
-  required: [...tripResponse.required, "hasAcceptedPackages"],
+  required: [...tripResponse.required, "hasAcceptedPackages", "acceptedPackagesCount"],
   properties: {
     ...tripResponse.properties,
     hasAcceptedPackages: { type: "boolean" },
+    acceptedPackagesCount: { type: "integer" },
+    packages: { type: "array", items: tripAcceptedPackageResponse },
   },
 };
 
