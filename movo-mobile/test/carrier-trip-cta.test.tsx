@@ -24,6 +24,7 @@ const BASE_TRIP: TripWithAcceptedPackages = {
   createdAt: "2026-09-03T12:00:00.000Z",
   updatedAt: "2026-09-03T12:00:00.000Z",
   hasAcceptedPackages: true,
+  acceptedPackagesCount: 1,
 };
 
 describe("CarrierTripCta (MOVO-252)", () => {
@@ -49,6 +50,7 @@ describe("CarrierTripCta (MOVO-252)", () => {
     const tripWithoutPackages: TripWithAcceptedPackages = {
       ...BASE_TRIP,
       hasAcceptedPackages: false,
+      acceptedPackagesCount: 0,
     };
 
     const { queryByTestId } = await render(

@@ -54,6 +54,7 @@ function trip(overrides: Partial<TripWithAcceptedPackages> = {}): TripWithAccept
     createdAt: "2026-09-03T12:00:00.000Z",
     updatedAt: "2026-09-03T12:00:00.000Z",
     hasAcceptedPackages: false,
+    acceptedPackagesCount: 0,
     ...overrides,
   };
 }
