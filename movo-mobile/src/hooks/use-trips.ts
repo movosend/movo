@@ -97,4 +97,20 @@ export function useDeleteTrip() {
   });
 }
 
+/**
+ * MOVO-252: Inicia un viaje declared con paquetes aceptados (`POST /trips/:id/start`).
+ * Transiciona el viaje a `active` e invalida la lista de viajes, el detalle y la ruta.
+ */
+export function useStartTrip() {
+  const queryClient = useQueryClient();
+  return useMutation<Trip, unknown, string>({
+    mutationFn: (id) => tripsClient.start(id),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: TRIPS_LIST_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ["trips", "detail", id] });
+      queryClient.invalidateQueries({ queryKey: ["route"] });
+    },
+  });
+}
+
 export type { Trip, TripWithAcceptedPackages };

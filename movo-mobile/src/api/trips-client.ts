@@ -120,4 +120,12 @@ export const tripsClient = {
   getMatches(id: string, params?: TripMatchesParams): Promise<TripMatchesResponse> {
     return httpClient.get<TripMatchesResponse>(`/trips/${id}/matches`, params);
   },
+
+  /** `POST /trips/:id/start` (MOVO-221 / MOVO-252) — transiciona el viaje de declared a active.
+   * 409 `TRIP_NOT_DECLARED` si no está en declared.
+   * 409 `TRIP_ALREADY_HAS_ACTIVE_TRIP` si ya tiene otro viaje active.
+   * 409 `TRIP_START_TOO_EARLY` si todavía no es el día de salida. */
+  start(id: string): Promise<Trip> {
+    return httpClient.post<Trip>(`/trips/${id}/start`);
+  },
 };

@@ -1,4 +1,6 @@
+import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { TripStatus } from "../api/trips-client";
+import { friendlyErrorMessage } from "./error-messages";
 
 // MOVO-221: `declared` nuevo (estado inicial real, antes un viaje nacía directo en
 // `active` sin ningún paso explícito de "arrancar el viaje" — ver POST /trips/:id/start).
@@ -50,4 +52,55 @@ const DEPARTURE_FORMATTER = new Intl.DateTimeFormat("es-AR", {
  * lee en hora local del dispositivo directo con `new Date`. */
 export function formatDepartureLabel(departureAt: string): string {
   return DEPARTURE_FORMATTER.format(new Date(departureAt));
+}
+
+const DEPARTURE_DATE_FORMATTER = new Intl.DateTimeFormat("es-AR", {
+  day: "numeric",
+  month: "long",
+});
+
+export function formatDepartureDateOnly(departureAt: string): string {
+  try {
+    return DEPARTURE_DATE_FORMATTER.format(new Date(departureAt));
+  } catch {
+    return departureAt;
+  }
+}
+
+export function isTripDepartureToday(departureAt: string): boolean {
+  try {
+    const d = new Date(departureAt);
+    const now = new Date();
+    return (
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate()
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * MOVO-252: Formatea el error devuelto al intentar iniciar un viaje (`POST /trips/:id/start`).
+ * AC5: Si el error es 409 `TRIP_START_TOO_EARLY`, el mensaje debe ser explícito: "Podés iniciar este viaje el {fecha}".
+ * AC6: Si es 409 por límite de un viaje activo: "Ya tenés otro viaje en curso. Solo podés tener 1 viaje activo a la vez."
+ * AC4: Si es genérico o de red: mensaje amigable sin alterar el estado del viaje.
+ */
+export function formatTripStartErrorMessage(err: unknown, departureAt?: string): string {
+  if (err instanceof ApiError) {
+    if (err.code === "TRIP_START_TOO_EARLY") {
+      if (departureAt) {
+        return `Podés iniciar este viaje el ${formatDepartureDateOnly(departureAt)}.`;
+      }
+      return "Podés iniciar este viaje el día de salida programado.";
+    }
+    if (err.code === "TRIP_ALREADY_HAS_ACTIVE_TRIP") {
+      return "Ya tenés otro viaje en curso. Solo podés tener 1 viaje activo a la vez.";
+    }
+    if (err.code === "TRIP_NOT_DECLARED") {
+      return "El viaje ya fue iniciado o finalizado.";
+    }
+  }
+  return friendlyErrorMessage(err, "No pudimos iniciar el viaje. Intentá de nuevo.");
 }
