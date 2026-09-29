@@ -1,7 +1,15 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { ArrowDownLeft, ArrowUpRight, ChevronLeft, Clock, QrCode } from "lucide-react-native";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  QrCode,
+  Radio,
+} from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useCallback, useState, type ReactNode } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
@@ -316,6 +324,43 @@ export default function ShipmentDetailScreen() {
 
               {showRejectedBanner ? (
                 <RejectedReceiverBanner shipment={shipment} testID="shipment-detail-rejected-banner" />
+              ) : null}
+
+              {!isCarrier &&
+              shipment.carrierId &&
+              shipment.status !== ShipmentStatus.DELIVERED &&
+              shipment.status !== ShipmentStatus.CANCELLED &&
+              shipment.status !== ShipmentStatus.COMPLETED &&
+              shipment.status !== ShipmentStatus.DISPUTED &&
+              shipment.status !== ShipmentStatus.REJECTED_BY_RECEIVER ? (
+                <Pressable
+                  testID="shipment-detail-live-tracking-button"
+                  onPress={() => {
+                    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.push(`/(app)/shipments/${shipment.id}/tracking`);
+                  }}
+                  className="flex-row items-center justify-between p-3.5 rounded-xl border border-border bg-bg-mute active:scale-[0.99]"
+                  accessibilityRole="button"
+                  accessibilityLabel="Ver seguimiento en vivo en el mapa"
+                >
+                  <View className="flex-row items-center gap-3">
+                    <View className="h-9 w-9 rounded-lg bg-[#C6F24A] items-center justify-center">
+                      <Radio size={18} color="#0A0A0B" />
+                    </View>
+                    <View>
+                      <View className="flex-row items-center gap-1.5">
+                        <View className="h-2 w-2 rounded-full bg-[#C6F24A]" />
+                        <Text className="font-sans-semibold text-[13.5px] text-fg">
+                          Seguimiento en vivo
+                        </Text>
+                      </View>
+                      <Text className="font-sans text-[11.5px] text-fg-3">
+                        Ubicación en tiempo real del transportista
+                      </Text>
+                    </View>
+                  </View>
+                  <ChevronRight size={18} color={colors.fg2} />
+                </Pressable>
               ) : null}
 
               {showExpiredBanner ? (

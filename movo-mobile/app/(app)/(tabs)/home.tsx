@@ -149,6 +149,8 @@ export default function AuthenticatedHomeScreen() {
 
         <TrackingActiveIndicator />
 
+
+
         <RoleSection
           testID="app-home-sending"
           title="Estoy enviando"

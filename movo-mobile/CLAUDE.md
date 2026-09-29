@@ -3949,6 +3949,32 @@ nadie; la variante con nombres sigue soportada por el componente. Se agrega el t
 
 Pendiente / fuera de alcance: no probado en dispositivo; requiere el backend desplegado.
 
+### MOVO-204 — Mapa de seguimiento en vivo para emisor y receptor (`movo-mobile`)
+
+Implementación del mapa táctico y bottom sheet interactivo para emisor y receptor (`app/(app)/shipments/[id]/tracking.tsx`) consumiendo telemetría en tiempo real sobre el canal WebSocket (`useShipmentChannel`) y el endpoint HTTP `GET /shipments/:id/positions/latest`.
+
+- **Pantalla y Bottom Sheet de Seguimiento**:
+  - Bottom sheet deslizable con física basada en `PanResponder` y `Animated.spring` (tensión 65, fricción 11, feedback háptico con `Haptics.impactAsync(Light)`), expandible y colapsable a su altura base (220px), sin `ScrollView` anidada para evitar conflictos de gestos con el mapa.
+  - Tarjeta de contraparte integrada con `CounterpartCard` (muestra perfil público del transportista asignado, reputación, estado de verificación y navegación a `/profile/[id]`).
+  - Hero ETA Card con llegada estimada aproximada (`~X min (aprox.)`) y distancia en km calculadas mediante Haversine sin datos ni barras de progreso ficticias cuando no hay telemetría.
+  - Tarjeta técnica de destino con link directo a coordenadas lat/lng en Google Maps / Apple Maps.
+  - Píldora de telemetría superior flotante con estados reales ("En vivo", "Sin posición", "Reconectando", "Pausado", "Finalizado"), sin indicadores de latencia ficticios.
+  - Overlay terminal al recibir entrega finalizada (`delivered` / código 4009) informando el arribo del paquete y ofreciendo regreso a la app.
+- **Cumplimiento estricto de Privacidad (ADR-023)**:
+  - El componente `LiveMap` (`components/tracking/live-map.tsx`) NO renderiza trazas históricas ni polilíneas pasadas del recorrido del transportista. Únicamente muestra la posición actual del conductor y el pin del destino.
+  - Disclaimer de privacidad exacto según ADR-023: "Solo se comparte la ubicación en tiempo real mientras el envío está en camino. No se almacena historial de rutas."
+  - Al recibir estado `delivered` o código terminal `4009` del WebSocket, la UI finaliza el seguimiento y desactiva la telemetría.
+- **Hooks de Sincronización y Resiliencia**:
+  - `useShipmentChannel` (`src/hooks/use-shipment-channel.ts`): canal WebSocket resiliente con backoff exponencial progresivo (1s..30s), reconexión inmediata al volver de segundo plano (`AppState === "active"`), token dinámico vía `useAuthStore.getState().accessToken`, limpieza estricta de listeners en `unmount` para prevenir leaks de sockets concurrentes, y cierre terminal ante código `4009`.
+  - `useLivePosition` (`src/hooks/use-live-position.ts`): combina fetch inicial HTTP contra `GET /shipments/:id/positions/latest` con updates WebSocket en vivo, evalúa obsolescencia de posición (> 120s / 2 min sin updates marca estado `stale` y "Pausado" con actualización de timer reactivo), contempla estado `no_position`, y calcula distancias mediante Haversine.
+- **Acceso desde el Detalle del Envío y Home**:
+  - En `app/(app)/shipments/[id].tsx`, solo emisor y receptor (no el transportista, que ve su propia pantalla de navegación) acceden a "Seguimiento en vivo" para envíos en curso (`assigned` o `in_transit`).
+  - En la card de envío activo en inicio (`ActiveShipmentCard`), la acción tipada `live_tracking` navega directamente al mapa de seguimiento en vivo.
+- **Soporte de Modo Demo**:
+  - Parámetro `demo=true` y atajo en `DevShortcutsScreen` para probar la pantalla en desarrollo.
+- **Tests**:
+  - Unitarios y de integración para `useShipmentChannel` (`test/use-shipment-channel.test.ts`), `useLivePosition` (`test/use-live-position.test.ts`), `LiveTrackingScreen` (`test/live-tracking-screen.test.tsx`), `ActiveShipmentCard` (`test/active-shipment-card.test.tsx`), `activeShipmentCta` (`test/active-shipment-format.test.ts`) y endpoint backend `GET /shipments/:id/positions/latest` (`test/positions.routes.test.ts`).
+
 ### MOVO-253 — Elegir otro receptor tras un rechazo
 
 Lado mobile del ADR-027 (`rejected_by_receiver` deja de ser terminal, ver
@@ -3967,7 +3993,7 @@ Lado mobile del ADR-027 (`rejected_by_receiver` deja de ser terminal, ver
   re-renderiza al vencer (`useDeadlineExpired`). `canCancelShipment` incluye el estado.
 - **Formato**: tono `warning`; `shipmentLifecycleStage` depende del rol (en curso para el
   emisor, terminado para quien rechazó). Línea de tiempo: "Elegiste otro receptor", y un
-  rechazo anterior se muestra como "El receptor anterior rechazó el envío" en vez de
+  rechazo anterior se muestra como "El receptor actual rechazó el envío" en vez de
   tomar el nombre del receptor actual.
 
 Pendiente: no probado en device.

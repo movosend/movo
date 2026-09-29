@@ -2785,6 +2785,14 @@ y el push de trip-match.
   receptor a `excludeCarrierIds`; como resuelve eso antes de buscar viajes, los tests
   unitarios que miran `findActiveTripsMatchingShipment` usan `vi.waitFor`.
 
+### MOVO-204 — Endpoint de última posición conocida para seguimiento (`movo-svc-shipments`)
+
+- **Ruta nueva `GET /:id/positions/latest`** (`src/modules/positions/positions.routes.ts`):
+  - Retorna `200` con `latestPositionResponse` (`lat`, `lng`, `accuracyM`, `capturedAt`, `recordedAt`) o `null` si no hay posición registrada.
+  - Protegido por `assertShipmentAccess` (solo las partes del envío: emisor, receptor, transportista asignado, o admin).
+  - Consulta `positionService.getLastKnownPosition(shipmentId)`, que lee de Redis respetando el ciclo de vida del Trip (ADR-023).
+  - Schema formal agregado en `positions.schema.ts`.
+
 ### MOVO-255 — Cotización congelada del resumen del wizard (ADR-028)
 
 `POST /shipments/quote` cotiza con la misma función que la creación (`quoteShipment`,
