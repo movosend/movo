@@ -28,8 +28,12 @@ import type { CarrierRoute, CarrierRouteStop } from "@movo/shared/dist/types/rou
 import { useOptimizedRoute } from "../../../src/hooks/use-optimized-route";
 import { RouteMap } from "../../../components/route/route-map";
 import { StopList } from "../../../components/route/stop-list";
+import { CarrierTripCta } from "../../../components/trips/carrier-trip-cta";
+import { TripStatus } from "../../../src/api/trips-client";
+import { useStartTrip, useTrip } from "../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { decodePolyline } from "../../../src/lib/polyline";
+import { formatTripStartErrorMessage } from "../../../src/lib/trip-format";
 
 // Punto de partida declarado del transportista (Claude Design originPin en calle Blas Pascal / Las Mulitas, Córdoba)
 const DEMO_ORIGIN = { lat: -31.3533, lng: -64.2562 };
@@ -131,6 +135,27 @@ export default function OptimizedRouteScreen() {
     error,
     refetch,
   } = useOptimizedRoute(tripId);
+
+  const tripQuery = useTrip(tripId);
+  const tripData = tripQuery?.data;
+  const startTripMutation = useStartTrip();
+  const [isStartingTrip, setIsStartingTrip] = useState(false);
+  const [startTripError, setStartTripError] = useState<string | null>(null);
+
+  const handleStartTrip = async () => {
+    if (!tripId) return;
+    try {
+      setIsStartingTrip(true);
+      setStartTripError(null);
+      await startTripMutation.mutateAsync(tripId);
+      await refetch();
+    } catch (err) {
+      const msg = formatTripStartErrorMessage(err, tripData?.departureAt);
+      setStartTripError(msg);
+    } finally {
+      setIsStartingTrip(false);
+    }
+  };
 
   const displayRoute = demoMode ? DEMO_ROUTE : route;
   const displayLocation = demoMode ? DEMO_CARRIER_LOCATION : carrierLocation;
@@ -522,6 +547,19 @@ export default function OptimizedRouteScreen() {
                     Reintentar
                   </Text>
                 </Pressable>
+              </View>
+            </View>
+          ) : tripData?.status === TripStatus.DECLARED && tripData.hasAcceptedPackages ? (
+            /* MOVO-252: El viaje está declarado con paquetes -- se ofrece el CTA para iniciarlo */
+            <View testID="route-declared-trip-state" className="flex-1 items-center justify-center gap-5 px-6">
+              <View className="w-full max-w-sm">
+                <CarrierTripCta
+                  trip={tripData}
+                  testID="route-trip-cta"
+                  onStart={handleStartTrip}
+                  isStarting={isStartingTrip}
+                  errorMessage={startTripError}
+                />
               </View>
             </View>
           ) : (
