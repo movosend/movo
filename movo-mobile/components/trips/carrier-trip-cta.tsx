@@ -1,20 +1,21 @@
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
 import { TripStatus, type TripWithAcceptedPackages } from "../../src/api/trips-client";
-import { shortAddressLabel } from "../../src/lib/shipment-format";
 import {
   formatDepartureDateOnly,
-  formatDepartureLabel,
   isTripDepartureToday,
-  tripStatusLabel,
 } from "../../src/lib/trip-format";
 import { ErrorBanner } from "../ui/error-banner";
+
+import { haversineKm } from "../../src/lib/geo";
 
 interface CarrierTripCtaProps {
   trip: TripWithAcceptedPackages;
   onStart?: (trip: TripWithAcceptedPackages) => void | Promise<void>;
   isStarting?: boolean;
   errorMessage?: string | null;
+  stopsCount?: number;
+  distanceKm?: number;
   testID?: string;
 }
 
@@ -34,6 +35,8 @@ export function CarrierTripCta({
   onStart,
   isStarting = false,
   errorMessage,
+  stopsCount,
+  distanceKm,
   testID,
 }: CarrierTripCtaProps) {
   // AC8: Si es declared sin paquetes aceptados (o cancelado/completado), no renderiza CTA
@@ -48,63 +51,73 @@ export function CarrierTripCta({
   const isDeclared = trip.status === TripStatus.DECLARED;
   const isActive = trip.status === TripStatus.ACTIVE;
 
+  const rawDist =
+    distanceKm ??
+    (trip.originLat != null &&
+    trip.originLng != null &&
+    trip.destinationLat != null &&
+    trip.destinationLng != null &&
+    (trip.originLat !== 0 || trip.originLng !== 0 || trip.destinationLat !== 0 || trip.destinationLng !== 0)
+      ? haversineKm(
+          trip.originLat,
+          trip.originLng,
+          trip.destinationLat,
+          trip.destinationLng,
+        )
+      : null);
+
+  const formattedDistance =
+    rawDist != null && !isNaN(rawDist) && rawDist > 0
+      ? `${(Math.round(rawDist * 10) / 10).toFixed(1).replace(".", ",")} km`
+      : "— km";
+
+  const stopsText =
+    stopsCount !== undefined && stopsCount !== null
+      ? `${stopsCount} ${stopsCount === 1 ? "parada" : "paradas"}`
+      : "Calculando…";
+
   return (
     <View
       testID={testID}
-      className="overflow-hidden rounded-[10px] border border-border bg-bg-mute p-3.5"
+      className="overflow-hidden rounded-[10px] border border-border bg-white dark:bg-bg-sub"
     >
-      <View className="flex-row items-center gap-1.5 flex-wrap">
-        {isToday ? (
-          <View className="rounded-full bg-fg px-2.5 py-0.5">
-            <Text className="font-sans-semibold text-[10px] uppercase tracking-wider text-bg">
-              Hoy
-            </Text>
-          </View>
-        ) : (
-          <View className="rounded-full border border-border bg-bg px-2.5 py-0.5">
-            <Text className="font-sans-medium text-[10px] text-fg-2">
-              {formatDepartureDateOnly(trip.departureAt)}
-            </Text>
-          </View>
-        )}
+      <View className="gap-3 p-3.5 pb-0">
+        <View className="flex-row items-center gap-1.5 flex-wrap">
+          {isToday ? (
+            <View className="h-[22px] items-center justify-center rounded-full bg-fg px-[9px]">
+              <Text className="font-sans-semibold text-[10px] uppercase tracking-wider text-bg">
+                Hoy
+              </Text>
+            </View>
+          ) : (
+            <View className="h-[22px] items-center justify-center rounded-full border border-border bg-bg px-[9px]">
+              <Text className="font-sans-medium text-[10px] text-fg-2">
+                {formatDepartureDateOnly(trip.departureAt)}
+              </Text>
+            </View>
+          )}
 
-        <View
-          className={`rounded-full px-2.5 py-0.5 ${
-            isActive ? "bg-lime-200" : "border border-border bg-bg"
-          }`}
-        >
-          <Text
-            className={`font-sans-semibold text-[10px] uppercase tracking-wider ${
-              isActive ? "text-ink-950" : "text-fg-2"
-            }`}
-          >
-            {isActive ? "En curso" : tripStatusLabel(trip.status)}
-          </Text>
+          {isActive ? (
+            <View className="h-[22px] items-center justify-center rounded-full bg-lime-200 px-[9px]">
+              <Text className="font-sans-semibold text-[10px] uppercase tracking-wider text-ink-950">
+                En curso
+              </Text>
+            </View>
+          ) : null}
         </View>
 
-        {trip.hasAcceptedPackages ? (
-          <View className="rounded-full bg-lime-500/15 px-2 py-0.5">
-            <Text className="font-sans-medium text-[10px] text-fg-2">
-              Paquetes aceptados
-            </Text>
-          </View>
-        ) : null}
-      </View>
-
-      <View className="mt-2.5 gap-0.5">
-        <Text className="font-sans-semibold text-[16px] text-fg">
-          Viaje del {formatDepartureDateOnly(trip.departureAt)}
-        </Text>
-        <Text className="font-sans text-[13px] text-fg-3" numberOfLines={1}>
-          {shortAddressLabel(trip.originAddress)} → {shortAddressLabel(trip.destinationAddress)}
-        </Text>
-        <Text className="font-sans text-[11.5px] text-fg-3">
-          Salida: {formatDepartureLabel(trip.departureAt)}
-        </Text>
+        <View className="gap-[3px]">
+          <Text className="font-sans-semibold text-[19px] tracking-tight text-fg">
+            Viaje del {formatDepartureDateOnly(trip.departureAt)}
+          </Text>
+          <Text className="font-sans text-[13px] text-fg-3">
+            {stopsText} · {formattedDistance}
+          </Text>
+        </View>
       </View>
 
       {errorMessage ? (
-        <View className="mt-2.5">
+        <View className="px-3.5 pt-2.5">
           <ErrorBanner
             testID={testID ? `${testID}-error` : undefined}
             message={errorMessage}
@@ -112,7 +125,7 @@ export function CarrierTripCta({
         </View>
       ) : null}
 
-      <View className="mt-3">
+      <View className="p-3.5">
         {isDeclared ? (
           <Pressable
             testID={testID ? `${testID}-start-button` : undefined}

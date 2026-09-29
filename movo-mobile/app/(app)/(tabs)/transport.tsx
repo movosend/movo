@@ -39,11 +39,9 @@ import { TRANSPORT_RADIUS_OPTIONS_KM, useAvailableShipments } from "../../../src
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useTransportOrigin } from "../../../src/hooks/use-transport-origin";
 import { useTransportRadius } from "../../../src/hooks/use-transport-radius";
-import { CarrierTripCta } from "../../../components/trips/carrier-trip-cta";
-import { TripStatus, type TripWithAcceptedPackages } from "../../../src/api/trips-client";
-import { useMyTrips, useStartTrip, useTrip, useTripMatches } from "../../../src/hooks/use-trips";
+import { TripStatus } from "../../../src/api/trips-client";
+import { useMyTrips, useTrip, useTripMatches } from "../../../src/hooks/use-trips";
 import { friendlyErrorMessage } from "../../../src/lib/error-messages";
-import { formatTripStartErrorMessage } from "../../../src/lib/trip-format";
 import {
   computeOnTripDetour,
   isPickupWindowExpired,
@@ -295,35 +293,6 @@ export default function TransportScreen() {
     () => (myTripsData?.items ?? []).filter((t) => t.status === TripStatus.DECLARED),
     [myTripsData],
   );
-  // MOVO-252: Viaje activo único (MOVO-221) y viajes declarados listos para iniciar (con paquetes aceptados).
-  const activeTrip = useMemo(
-    () => (myTripsData?.items ?? []).find((t) => t.status === TripStatus.ACTIVE),
-    [myTripsData],
-  );
-  const readyDeclaredTrips = useMemo(
-    () =>
-      (myTripsData?.items ?? []).filter(
-        (t) => t.status === TripStatus.DECLARED && t.hasAcceptedPackages,
-      ),
-    [myTripsData],
-  );
-
-  const startTripMutation = useStartTrip();
-  const [startingTripId, setStartingTripId] = useState<string | null>(null);
-  const [startTripError, setStartTripError] = useState<{ id: string; message: string } | null>(null);
-
-  const handleStartTrip = async (targetTrip: TripWithAcceptedPackages) => {
-    try {
-      setStartingTripId(targetTrip.id);
-      setStartTripError(null);
-      await startTripMutation.mutateAsync(targetTrip.id);
-    } catch (err) {
-      const msg = formatTripStartErrorMessage(err, targetTrip.departureAt);
-      setStartTripError({ id: targetTrip.id, message: msg });
-    } finally {
-      setStartingTripId(null);
-    }
-  };
   // Sin merge de "on-trip" en modo viaje: ya está filtrado por UN solo corredor
   // (`GET /trips/:id/matches`), mostrar una franja de desvío redundante ahí no aporta.
   const itemsWithDetour = useMemo(
@@ -448,42 +417,9 @@ export default function TransportScreen() {
         ) : null}
       </View>
 
-      {isTripMode && trip ? (
-        <View className="mx-5 mb-3">
-          <CarrierTripCta
-            trip={trip}
-            testID="transport-mode-trip-cta"
-            onStart={handleStartTrip}
-            isStarting={startingTripId === trip.id}
-            errorMessage={startTripError?.id === trip.id ? startTripError.message : null}
-          />
-        </View>
-      ) : null}
-
       {!isTripMode ? (
         <>
           <TrackingActiveIndicator className="mx-5 mb-3" />
-
-          {activeTrip ? (
-            <View className="mx-5 mb-3">
-              <CarrierTripCta
-                trip={activeTrip}
-                testID="transport-active-trip-cta"
-              />
-            </View>
-          ) : null}
-
-          {readyDeclaredTrips.map((dt) => (
-            <View key={dt.id} className="mx-5 mb-3">
-              <CarrierTripCta
-                trip={dt}
-                testID={`transport-declared-trip-cta-${dt.id}`}
-                onStart={handleStartTrip}
-                isStarting={startingTripId === dt.id}
-                errorMessage={startTripError?.id === dt.id ? startTripError.message : null}
-              />
-            </View>
-          ))}
 
           <Pressable
             testID="transport-my-route-cta"
