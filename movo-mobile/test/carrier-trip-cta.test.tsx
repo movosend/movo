@@ -129,4 +129,37 @@ describe("CarrierTripCta (MOVO-252)", () => {
     const btn = getByTestId("carrier-cta-start-button");
     expect(btn.props.accessibilityState?.disabled).toBe(true);
   });
+
+  it("muestra el resumen con paradas y distancia formateada", async () => {
+    const { getByText } = await render(
+      <CarrierTripCta
+        trip={BASE_TRIP}
+        stopsCount={5}
+        distanceKm={14.2}
+        testID="carrier-cta"
+      />,
+    );
+
+    expect(getByText("5 paradas · 14,2 km")).toBeTruthy();
+  });
+
+  it("muestra estados honestos ('Calculando…' y '— km') cuando no hay paradas o coordenadas válidas", async () => {
+    const tripWithoutCoords: TripWithAcceptedPackages = {
+      ...BASE_TRIP,
+      originLat: 0,
+      originLng: 0,
+      destinationLat: 0,
+      destinationLng: 0,
+    };
+
+    const { getByText } = await render(
+      <CarrierTripCta
+        trip={tripWithoutCoords}
+        testID="carrier-cta"
+      />,
+    );
+
+    expect(getByText("Calculando… · — km")).toBeTruthy();
+  });
 });
+
