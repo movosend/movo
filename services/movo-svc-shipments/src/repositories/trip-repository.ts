@@ -12,6 +12,29 @@ import {
 import { distanceToSegmentKm } from "../domain/geo";
 
 /**
+ * MOVO-138: prefiltro SQL de `countAvailableCarriersNear` -- un viaje solo puede pasar a
+ * `radiusKm` del punto si el rectángulo que encierra su origen y destino, ensanchado
+ * `radiusKm`, contiene el punto. Se deja pasar filas de más (las descarta
+ * `distanceToSegmentKm` en memoria), nunca de menos: el ancho en longitud usa el coseno
+ * de 60° y no el del punto, porque `distanceToSegmentKm` mide con la latitud media del
+ * viaje, que puede quedar más al sur que el punto (Ushuaia está a ~55°S); y el alto
+ * usa 110.574 km/°, el mismo `ky` de `distanceToSegmentKm` (más chico que 111.32).
+ */
+const PREFILTER_MIN_COS = Math.cos((60 * Math.PI) / 180);
+
+function tripCorridorContainsPointWhere(lat: number, lng: number, radiusKm: number) {
+  const latDelta = radiusKm / 110.574;
+  const lngDelta = radiusKm / (111.32 * PREFILTER_MIN_COS);
+  // LEAST(origen, destino) <= max AND GREATEST(origen, destino) >= min, sin `$queryRaw`.
+  return [
+    { OR: [{ originLat: { lte: lat + latDelta } }, { destinationLat: { lte: lat + latDelta } }] },
+    { OR: [{ originLat: { gte: lat - latDelta } }, { destinationLat: { gte: lat - latDelta } }] },
+    { OR: [{ originLng: { lte: lng + lngDelta } }, { destinationLng: { lte: lng + lngDelta } }] },
+    { OR: [{ originLng: { gte: lng - lngDelta } }, { destinationLng: { gte: lng - lngDelta } }] },
+  ];
+}
+
+/**
  * Fragmento de filtro de "oferta que bloquea el viaje" — una oferta `accepted` cuyo
  * envío ya está `cancelled` NO cuenta como paquete aceptado (fix, MOVO-162): sin este
  * filtro, `cancelShipment` (`shipments.service.ts`) nunca toca la fila de `Offer` al
@@ -113,6 +136,21 @@ export interface TripRepository {
    * efectivamente cancelados.
    */
   cancelOverdueDeclared(now: Date, limit: number): Promise<string[]>;
+  /**
+   * MOVO-138 (ADR-025): transportistas DISTINTOS con un viaje `declared`/`active` que
+   * sale dentro de la ventana dada y cuyo trayecto pasa a `radiusKm` o menos del
+   * retiro -- la mitad "oferta" del `demandContext` de `POST /quote`. Un transportista
+   * con dos viajes en la semana cuenta una vez.
+   */
+  countAvailableCarriersNear(params: AvailableCarriersParams): Promise<number>;
+}
+
+export interface AvailableCarriersParams {
+  lat: number;
+  lng: number;
+  radiusKm: number;
+  departureFrom: Date;
+  departureTo: Date;
 }
 
 export interface MatchShipmentParams {
@@ -288,6 +326,36 @@ export function createTripRepository(db: PrismaClient): TripRepository {
           );
           return pickupDistanceKm <= params.radiusKm && deliveryDistanceKm <= params.radiusKm;
         });
+    },
+
+    async countAvailableCarriersNear(params: AvailableCarriersParams): Promise<number> {
+      // El segmento cambia por cada viaje: el prefiltro SQL descarta los viajes que no
+      // pueden pasar cerca del retiro, y `distanceToSegmentKm` afina en memoria. Corre en
+      // cada `createShipment`, antes de la llamada a pricing.
+      const rows = await db.trip.findMany({
+        where: {
+          status: { in: [TripStatus.DECLARED, TripStatus.ACTIVE] },
+          departureAt: { gte: params.departureFrom, lte: params.departureTo },
+          AND: tripCorridorContainsPointWhere(params.lat, params.lng, params.radiusKm),
+        },
+        select: { carrierId: true, originLat: true, originLng: true, destinationLat: true, destinationLng: true },
+      });
+
+      const carriers = new Set<string>();
+      for (const row of rows) {
+        const distanceKm = distanceToSegmentKm(
+          params.lat,
+          params.lng,
+          Number(row.originLat),
+          Number(row.originLng),
+          Number(row.destinationLat),
+          Number(row.destinationLng)
+        );
+        if (distanceKm <= params.radiusKm) {
+          carriers.add(row.carrierId);
+        }
+      }
+      return carriers.size;
     },
 
     async start(id: string): Promise<Trip> {

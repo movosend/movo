@@ -1,36 +1,43 @@
-import { mockPricingProvider } from "./mock-pricing-provider";
+import type { ShipmentQuoteResponse } from "@movo/shared/dist/types/pricing";
+import { shipmentsClient } from "../api/shipments-client";
+import type { PackageType } from "../store/shipment-wizard-store";
 
 /**
- * Preview de precio sugerido para el paso de resumen del wizard de envíos (MOVO-83,
- * AC7/AC8) — MOVO-82 (motor real de `svc-pricing-logistics`) todavía no existe. Este
- * provider es una PREVIEW client-side, nunca el valor autoritativo: una vez que
- * `POST /shipments` crea el envío de verdad, el `suggestedPriceArs` que devuelve el
- * servidor (calculado en `shipments.service.ts`, `movo-svc-shipments`, MOVO-80) es el
- * único número real — este solo existe para no dejar el resumen vacío antes de
- * confirmar.
+ * Precio del paso de resumen del wizard de envíos (MOVO-83). Desde MOVO-255 es el
+ * precio real del backend (`POST /shipments/quote`, misma lógica que la creación) y
+ * viene congelado con un `quoteId`: el envío se crea exactamente a este precio. Antes
+ * era una preview calculada en el celular con la fórmula provisoria, que dejó de
+ * coincidir con el backend al entrar `demand_fuel_routes_v1` (MOVO-138).
  */
 export interface PricingQuoteInput {
-  pickup: { lat: number; lng: number } | null;
-  delivery: { lat: number; lng: number } | null;
-  weightKg: number | null;
-  lengthCm: number | null;
-  widthCm: number | null;
-  heightCm: number | null;
-}
-
-export interface PricingQuoteResult {
-  suggestedPriceArs: number;
+  packageType: PackageType;
+  weightKg: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  pickup: { lat: number; lng: number };
+  delivery: { lat: number; lng: number };
 }
 
 export interface PricingProvider {
-  getQuote(input: PricingQuoteInput): Promise<PricingQuoteResult | null>;
+  getQuote(input: PricingQuoteInput): Promise<ShipmentQuoteResponse>;
 }
 
-/** true mientras MOVO-82 (svc-pricing-logistics, `POST /quote`) no exista — cambiar a
- * `false` cuando ese ticket cierre y haya un `RealPricingProvider` que lo consuma. */
-const USE_MOCK_PRICING = true;
+const realPricingProvider: PricingProvider = {
+  getQuote: (input) =>
+    shipmentsClient.quote({
+      packageType: input.packageType,
+      weightKg: input.weightKg,
+      lengthCm: input.lengthCm,
+      widthCm: input.widthCm,
+      heightCm: input.heightCm,
+      pickupLat: input.pickup.lat,
+      pickupLng: input.pickup.lng,
+      deliveryLat: input.delivery.lat,
+      deliveryLng: input.delivery.lng,
+    }),
+};
 
 export function createPricingProvider(): PricingProvider {
-  if (USE_MOCK_PRICING) return mockPricingProvider;
-  throw new Error("RealPricingProvider no implementado todavía — ver MOVO-82.");
+  return realPricingProvider;
 }

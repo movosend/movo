@@ -1,10 +1,8 @@
 /**
- * Wire contract de `POST /quote` en `movo-svc-pricing-logistics` (MOVO-82).
- * Consumido por `movo-svc-shipments` (`src/adapters/pricing-client.ts`) y, a futuro,
- * por el wizard de creación de envío del mobile (MOVO-83). El motor real (demanda +
- * combustible + Google Routes API, ver backlog) reemplaza la implementación detrás de
- * este mismo contrato sin requerir cambios en los consumidores — por eso vive acá y no
- * duplicado en cada servicio.
+ * Wire contract de `POST /quote` en `movo-svc-pricing-logistics` (MOVO-82, MOVO-138).
+ * Consumido por `movo-svc-shipments` (`src/adapters/pricing-client.ts`). El motor
+ * `demand_fuel_routes_v1` (MOVO-138, ADR-025) reemplazó la implementación provisoria
+ * detrás de este mismo contrato — por eso vive acá y no duplicado en cada servicio.
  */
 export interface QuoteRequest {
   originLat: number;
@@ -17,26 +15,81 @@ export interface QuoteRequest {
   heightCm: number;
   packageType: "letter_document" | "standard_package" | "fragile_item";
   urgent: boolean;
+  /**
+   * Conteos de oferta/demanda en la zona de retiro (MOVO-138, ADR-025). Los calcula
+   * `movo-svc-shipments`, que es dueño de esos datos — pricing sigue stateless
+   * (ADR-019). Opcional: sin este campo no se aplica recargo por alta demanda.
+   */
+  demandContext?: DemandContext;
 }
 
-export interface PriceBreakdownItem {
-  label: string;
-  amountArs: number;
+export interface DemandContext {
+  /** Envíos `published` con retiro dentro del radio de la zona, sin contar el cotizado. */
+  publishedShipments: number;
+  /** Transportistas distintos (`DISTINCT carrier_id`) con viaje que pasa por la zona. */
+  availableCarriers: number;
 }
 
 /**
  * Identifica la versión del algoritmo que produjo `suggestedPriceArs` (AC4 de
- * MOVO-82). `EUCLIDEAN_LINEAR_V1` es la implementación provisoria de este sprint —
- * agregar un valor nuevo acá cuando el motor real (ver backlog) reemplace la fórmula,
- * nunca reusar ni renombrar `EUCLIDEAN_LINEAR_V1` una vez desplegado (queda persistido
- * en envíos ya creados, AC8).
+ * MOVO-82). Agregar un valor nuevo cuando cambie la fórmula, nunca reusar ni renombrar
+ * uno ya desplegado (queda persistido en envíos ya creados). Alineado 1:1 a mano con
+ * el `Enum` de `movo-svc-pricing-logistics/app/models/quote.py`.
  */
 export enum PriceCalculationMethod {
+  /** Provisoria de MOVO-82 (ADR-018). Ya no se emite, pero sigue persistida en envíos viejos. */
   EUCLIDEAN_LINEAR_V1 = "euclidean_linear_v1",
+  /** Ruta real + combustible + demanda (MOVO-138, ADR-025). */
+  DEMAND_FUEL_ROUTES_V1 = "demand_fuel_routes_v1",
 }
 
+/**
+ * Sin desglose de la fórmula (MOVO-216/ADR-025): el emisor solo ve el precio final y
+ * si rige alta demanda. El desglose queda en el log `pricing_quote_computed` de
+ * `movo-svc-pricing-logistics`.
+ */
 export interface QuoteResponse {
   suggestedPriceArs: number;
-  breakdown: PriceBreakdownItem[];
+  /** `true` si y solo si se aplicó recargo por alta demanda. */
+  highDemand: boolean;
   calculationMethod: PriceCalculationMethod;
 }
+
+/**
+ * Body de `POST /shipments/quote` en `movo-svc-shipments` (MOVO-255): los mismos
+ * campos de `POST /shipments` que afectan el precio, con los mismos nombres.
+ */
+export interface ShipmentQuoteRequest {
+  packageType: QuoteRequest["packageType"];
+  weightKg: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  pickupLat: number;
+  pickupLng: number;
+  deliveryLat: number;
+  deliveryLng: number;
+}
+
+/**
+ * Respuesta de `POST /shipments/quote` (MOVO-255, ADR-028). Con precio, trae un
+ * `quoteId` de un solo uso que congela ese precio hasta `expiresAt` al mandarlo en
+ * `POST /shipments`. Si pricing no respondió, todo `null` ("precio a estimar") y sin
+ * `quoteId`: no se congela una no-cotización.
+ */
+export type ShipmentQuoteResponse =
+  | {
+      quoteId: string;
+      suggestedPriceArs: number;
+      highDemand: boolean | null;
+      calculationMethod: PriceCalculationMethod;
+      /** ISO 8601. */
+      expiresAt: string;
+    }
+  | {
+      quoteId: null;
+      suggestedPriceArs: null;
+      highDemand: null;
+      calculationMethod: null;
+      expiresAt: null;
+    };

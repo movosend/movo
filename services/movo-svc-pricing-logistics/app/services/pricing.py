@@ -1,65 +1,166 @@
+"""Precio sugerido `demand_fuel_routes_v1` (MOVO-138, ADR-025).
+
+Reemplaza a `euclidean_linear_v1` (MOVO-82, ADR-018). Fórmula, calibración y
+decisiones en `docs/pricing/pricing-spike-report.md` §4-§7.
+"""
+
+import asyncio
+import json
+import logging
 import math
+from dataclasses import dataclass
+from typing import Literal
 
 from app.config import settings
-from app.models.quote import PackageType, PriceBreakdownItem, PriceCalculationMethod, QuoteRequest, QuoteResponse
+from app.models.optimize import Coordinates
+from app.models.quote import DemandContext, PackageType, PriceCalculationMethod, QuoteRequest, QuoteResponse
+from app.services.distance import haversine_distance_km
+from app.services.fuel_price import FuelPriceProvider, get_fuel_price_provider
+from app.services.routes_provider import MockRoutesProvider, RoutesProvider, get_routes_provider
 
-# Grados de latitud/longitud a metros (aproximación equirectangular, precisión de
-# sobra para las distancias urbanas/interurbanas de Argentina que maneja MOVO).
-KM_PER_DEGREE_LAT = 111.32
+logger = logging.getLogger(__name__)
 
-_PACKAGE_TYPE_FACTORS = {
-    PackageType.LETTER_DOCUMENT: settings.factor_letter_document,
-    PackageType.STANDARD_PACKAGE: settings.factor_standard_package,
-    PackageType.FRAGILE_ITEM: settings.factor_fragile_item,
-}
+# Línea recta → distancia por ruta. Se aplica al mock de rutas (que devuelve Haversine
+# puro) y al fallback cuando Google falla.
+ROAD_DETOUR_FACTOR = 1.3
+# Deja margen para degradar a Haversine dentro de los 3s de `pricing-client.ts`
+# (`movo-svc-shipments`), en vez de los 5s que usa el ruteo. Corre en paralelo con la
+# consulta de combustible (`FETCH_TIMEOUT_SECONDS`, 2s): el peor caso es el mayor de
+# los dos topes, no la suma.
+QUOTE_ROUTES_TIMEOUT_SECONDS = 1.5
+
+DistanceSource = Literal["routes_api", "haversine_mock", "haversine_fallback"]
 
 
-def _euclidean_distance_km(req: QuoteRequest) -> float:
-    """AC3 pide explícitamente "distancia euclidiana entre coordenadas" — no
-    Haversine/geodésica (a diferencia del cálculo que hace `movo-svc-shipments` para
-    validar que retiro y entrega no sean el mismo punto, MOVO-126). Una distancia
-    euclidiana sobre grados crudos no tiene unidades de distancia sensatas, así que
-    se proyectan los grados a km sobre un plano local (aproximación equirectangular:
-    la longitud se escala por `cos(latitud promedio)` porque los meridianos se juntan
-    hacia los polos) y recién ahí se aplica Pitágoras — sigue siendo una distancia
-    euclidiana (línea recta en el plano proyectado), no la geodésica real.
+@dataclass(frozen=True)
+class DemandResult:
+    ratio: float
+    high_demand: bool
+    multiplier: float
+
+
+def demand_multiplier(ctx: DemandContext | None) -> DemandResult:
+    """`demanda = publicados en la zona + 1` (el envío que se cotiza);
+    `ratio = demanda / max(transportistas, 1)`.
+
+    Alta demanda si `demanda >= mínimo` y `ratio >= umbral`. El recargo salta de 0 al
+    recargo base al cruzar el umbral en vez de arrancar suave: así `highDemand` es
+    verdadero si y solo si hay recargo, y el emisor nunca ve uno sin el otro.
     """
-    avg_lat_rad = math.radians((req.origin_lat + req.destination_lat) / 2)
-    km_per_degree_lng = KM_PER_DEGREE_LAT * math.cos(avg_lat_rad)
+    if ctx is None:
+        return DemandResult(ratio=0.0, high_demand=False, multiplier=1.0)
 
-    dlat_km = (req.destination_lat - req.origin_lat) * KM_PER_DEGREE_LAT
-    dlng_km = (req.destination_lng - req.origin_lng) * km_per_degree_lng
+    demand = ctx.published_shipments + 1
+    ratio = demand / max(ctx.available_carriers, 1)
+    if demand < settings.demand_min_shipments or ratio < settings.demand_ratio_threshold:
+        return DemandResult(ratio=ratio, high_demand=False, multiplier=1.0)
 
-    return math.sqrt(dlat_km**2 + dlng_km**2)
+    surcharge = min(
+        settings.demand_max_surcharge,
+        settings.demand_base_surcharge + settings.demand_slope * (ratio - settings.demand_ratio_threshold),
+    )
+    return DemandResult(ratio=ratio, high_demand=True, multiplier=round(1.0 + surcharge, 4))
 
 
-def compute_quote(req: QuoteRequest) -> QuoteResponse:
-    """Fórmula lineal provisoria (MOVO-82, ADR-017): `base + distanciaKm*tarifaKm +
-    pesoKg*tarifaKg`, escalada por un factor según `packageType`. Determinística, sin
-    I/O — reemplazar por el motor real (demanda + combustible + Google Routes API,
-    ver backlog) sin tocar el contrato de `POST /quote` (AC10)."""
-    distance_km = _euclidean_distance_km(req)
-
-    base = settings.base_fare_ars
-    distance_component = distance_km * settings.price_per_km_ars
-    weight_component = req.weight_kg * settings.price_per_kg_ars
-    subtotal = base + distance_component + weight_component
-
-    factor = _PACKAGE_TYPE_FACTORS[req.package_type]
-    suggested_price_ars = round(subtotal * factor, 2)
-
-    breakdown = [
-        PriceBreakdownItem(label="base", amount_ars=round(base, 2)),
-        PriceBreakdownItem(label="distancia", amount_ars=round(distance_component, 2)),
-        PriceBreakdownItem(label="peso", amount_ars=round(weight_component, 2)),
-    ]
-    if factor != 1.0:
-        breakdown.append(
-            PriceBreakdownItem(label="factor_tipo_paquete", amount_ars=round(subtotal * (factor - 1.0), 2))
+async def road_distance_km(
+    routes: RoutesProvider | None, origin: Coordinates, destination: Coordinates
+) -> tuple[float, DistanceSource]:
+    """Si Google falla (caído, timeout, cuota agotada, sin ruta), `/quote` NO propaga el
+    502: degrada a Haversine x 1,3. Excepción acotada a la política No-Fallback de
+    MOVO-205, que sigue vigente para `/optimize/route` y `/routes/evaluate-candidates`:
+    acá el resultado es un precio sugerido y editable, no instrucciones de ruta."""
+    straight_km = haversine_distance_km(origin.lat, origin.lng, destination.lat, destination.lng)
+    try:
+        provider = routes or get_routes_provider(timeout=QUOTE_ROUTES_TIMEOUT_SECONDS)
+        # El provider es sync (httpx.Client): se corre fuera del event loop. El timeout de
+        # httpx es por fase (connect, read...), no total: `wait_for` pone el tope real.
+        # El thread sigue hasta que httpx corta, pero la cotización ya degradó a tiempo.
+        km = await asyncio.wait_for(
+            asyncio.to_thread(provider.compute_route_km, origin, destination),
+            QUOTE_ROUTES_TIMEOUT_SECONDS,
         )
+    except Exception as exc:  # noqa: BLE001 — cualquier falla del proveedor degrada igual
+        logger.warning("quote_routes_provider_failed_using_haversine error=%s", exc)
+        return straight_km * ROAD_DETOUR_FACTOR, "haversine_fallback"
+
+    if isinstance(provider, MockRoutesProvider):
+        # El mock devuelve línea recta: sin el factor, dev/CI cotizarían ~30% por debajo
+        # de lo que cotiza Google.
+        return km * ROAD_DETOUR_FACTOR, "haversine_mock"
+    if km <= 0 < straight_km:
+        logger.warning("quote_routes_provider_zero_distance_using_haversine")
+        return straight_km * ROAD_DETOUR_FACTOR, "haversine_fallback"
+    return km, "routes_api"
+
+
+def _package_factor(package_type: PackageType) -> float:
+    return {
+        PackageType.LETTER_DOCUMENT: settings.factor_letter_document,
+        PackageType.STANDARD_PACKAGE: settings.factor_standard_package,
+        PackageType.FRAGILE_ITEM: settings.factor_fragile_item,
+    }[package_type]
+
+
+def _round_to_10(value: float) -> float:
+    """Redondeo a $10, mitad hacia arriba (`round()` de Python redondea al par)."""
+    return float(math.floor(value / 10 + 0.5) * 10)
+
+
+async def compute_quote(
+    req: QuoteRequest,
+    fuel_provider: FuelPriceProvider | None = None,
+    routes: RoutesProvider | None = None,
+) -> QuoteResponse:
+    # Independientes entre sí: en serie, el peor caso (2s + 1,5s) pasaba los 3s de
+    # `pricing-client.ts` y el envío quedaba en "precio a estimar".
+    fuel, (distance_km, distance_source) = await asyncio.gather(
+        (fuel_provider or get_fuel_price_provider()).get_price(),
+        road_distance_km(
+            routes,
+            Coordinates(lat=req.origin_lat, lng=req.origin_lng),
+            Coordinates(lat=req.destination_lat, lng=req.destination_lng),
+        ),
+    )
+
+    p = fuel.ars_per_liter
+    base = settings.base_fare_l * p
+    per_km_ars = (settings.fuel_l_per_km * settings.fuel_cost_share + settings.non_fuel_l_per_km) * p
+    distance_component = distance_km * per_km_ars
+    weight_component = req.weight_kg * settings.per_kg_l * p
+    package_factor = _package_factor(req.package_type)
+    subtotal = (base + distance_component + weight_component) * package_factor
+
+    demand = demand_multiplier(req.demand_context)
+    suggested_price_ars = _round_to_10(subtotal * demand.multiplier)
+
+    # El desglose no viaja al emisor (spike §6.2): se loguea para recalibrar los
+    # parámetros con datos reales. No sirve como evidencia de disputas (MOVO-30): la
+    # cotización ocurre antes de que exista el envío, el log no lleva `shipmentId` ni
+    # `x-request-id`, y la rotación de `json-file` no lo hace durable.
+    logger.info(
+        "pricing_quote_computed %s",
+        json.dumps(
+            {
+                "suggestedPriceArs": suggested_price_ars,
+                "highDemand": demand.high_demand,
+                "fuelArsPerLiter": p,
+                "fuelSource": fuel.source,
+                "distanceKm": round(distance_km, 2),
+                "distanceSource": distance_source,
+                "perKmArs": round(per_km_ars, 2),
+                "base": round(base, 2),
+                "distance": round(distance_component, 2),
+                "weight": round(weight_component, 2),
+                "packageFactor": package_factor,
+                "demandContext": req.demand_context.model_dump(by_alias=True) if req.demand_context else None,
+                "demandRatio": round(demand.ratio, 2),
+                "demandMultiplier": demand.multiplier,
+            }
+        ),
+    )
 
     return QuoteResponse(
         suggested_price_ars=suggested_price_ars,
-        breakdown=breakdown,
-        calculation_method=PriceCalculationMethod.EUCLIDEAN_LINEAR_V1,
+        high_demand=demand.high_demand,
+        calculation_method=PriceCalculationMethod.DEMAND_FUEL_ROUTES_V1,
     )

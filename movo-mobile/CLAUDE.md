@@ -3935,6 +3935,24 @@ Lado mobile del ADR-027 (`rejected_by_receiver` deja de ser terminal, ver
 
 Pendiente: no probado en device.
 
+### MOVO-255 — Precio real y congelado en el resumen del wizard de envío
+
+`RealPricingProvider` (`src/adapters/pricing-provider.ts`) contra `POST /shipments/quote`;
+se borró `mock-pricing-provider.ts` y el flag `USE_MOCK_PRICING`. El resumen cotiza solo al
+entrar (reusa la cotización guardada si sigue vigente) y manda el `quoteId` al publicar.
+
+- **`priceQuote` del store** guarda `quoteId`/`expiresAt`/`highDemand`/`updated`. Los setters
+  de tipo, peso, dimensiones y coordenadas de retiro/entrega la descartan solo si el valor
+  cambia de verdad; descripción, receptor y franja no la tocan.
+- **409 `QUOTE_EXPIRED`/`QUOTE_MISMATCH`**: se vuelve a cotizar, aparece "El precio se
+  actualizó" y el botón vuelve a idle; nunca se reintenta la creación sola (AC4). Una
+  respuesta de cotización que llega cuando el wizard ya tiene otros datos se descarta.
+- Si pricing no responde se muestra "Precio a estimar" y se crea sin `quoteId` (el backend
+  cotiza al crear), igual que antes.
+
+Pendiente: el badge "Alta demanda en tu zona" (`highDemand` ya queda en el store) entra
+con MOVO-254. No probado en device.
+
 ### MOVO-257 — Rediseño de "Mis envíos" para emisor y receptor
 
 `app/(app)/shipments/index.tsx` rehecha sobre el prototipo "Mis envíos 4a": accesos por
