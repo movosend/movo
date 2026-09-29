@@ -4064,3 +4064,50 @@ ticket):
 Pendiente: `offer-card.tsx` sigue mostrando estrellas vacías sin calificaciones;
 expiración de envíos con transportista y cierre de viajes `active` derivados a
 MOVO-258; no probado en device tras los últimos ajustes.
+
+### MOVO-252 — CTA "Iniciar viaje" para el transportista
+
+Punto de entrada mobile para `POST /trips/:id/start` (MOVO-221 backend), permitiendo
+transicionar un viaje de `declared` a `active` cuando tiene paquetes aceptados
+(`hasAcceptedPackages: true`), desbloqueando el arranque del tracking en vivo (MOVO-251).
+Diseño visual fiel al prototipo de Tomás ("Viaje del transportista.dc.html", MOVO-191):
+
+- **`CarrierTripCta` (`components/trips/carrier-trip-cta.tsx`)**:
+  - Estado `declared` con paquetes aceptados: botón primario "Iniciar viaje" (`bg-lime-500`,
+    `text-ink-950`, altura de 52px, `font-sans-semibold`). Al presionar, ejecuta la mutación y
+    muestra un spinner de carga.
+  - Estado `active`: cambia a botón "Viaje en curso · ver mapa" (`bg-fg`, `text-bg`), que
+    navega directamente a `/route?tripId=${trip.id}`.
+  - Estado `declared` sin paquetes aceptados (o `cancelled`/`completed`): el CTA no se renderiza (AC8).
+- **Tab Transportar (`app/(app)/(tabs)/transport.tsx`)**:
+  - Modo filtrado por viaje (`isTripMode`, `?tripId=`): renderiza la card del viaje con su CTA correspondiente.
+  - Modo general: renderiza el viaje `active` si existe, y una card por cada viaje `declared` que
+    tenga paquetes aceptados. Si el transportista intenta iniciar un segundo viaje teniendo uno activo,
+    captura el 409 y muestra el banner con el mensaje de conflicto en esa tarjeta.
+- **Ruta del transportista (`app/(app)/route/index.tsx`)**:
+  - Al abrir `/route?tripId=...` para un viaje `declared` con paquetes aceptados, muestra el CTA
+    "Iniciar viaje" en vez del estado genérico "Sin paradas asignadas". Al iniciar el viaje, pasa
+    a `active` y calcula la ruta optimizada inmediatamente.
+- **Tarjetas en Mis Viajes (`components/trips/trip-card.tsx` y `app/(app)/carrier/trips/index.tsx`)**:
+  - `TripCard` gana los botones "Iniciar viaje" (declared con paquetes) y "Viaje en curso · ver mapa" (active).
+  - Manejo de errores con Alert amigable ante fallos de red o backend.
+- **Mapeo de errores (`src/lib/error-messages.ts` y `src/lib/trip-format.ts`)**:
+  - 409 `TRIP_ALREADY_HAS_ACTIVE_TRIP`: "Ya tenés otro viaje en curso. Solo podés tener 1 viaje activo a la vez." (AC6).
+  - 409 `TRIP_START_TOO_EARLY`: "Podés iniciar este viaje el {fecha}." con formateo en español (AC5).
+  - 409 `TRIP_NOT_DECLARED`: "El viaje ya fue iniciado o finalizado."
+  - Errores de red/servidor: mensaje amigable sin cambiar el estado local (AC4).
+- **Cliente y Store**:
+  - `src/api/trips-client.ts`: método `start(id: string): Promise<Trip>`.
+  - `src/hooks/use-trips.ts`: hook `useStartTrip()` que invalida `["trips", "mine", "list"]`,
+    `["trips", "detail", id]` y `["route"]`.
+
+Tests agregados/actualizados:
+- `test/trips-client.test.ts`: test de llamada a `POST /trips/:id/start`.
+- `test/use-trips.test.tsx`: test de la mutación `useStartTrip`.
+- `test/trip-format.test.ts`: tests de formateo de fechas y traducción de códigos de error de viaje.
+- `test/carrier-trip-cta.test.tsx`: tests completos de renderizado según estado, botón de inicio, botón de mapa, banner de error e indicador de carga.
+- `test/my-trips-screen.test.tsx`: tests de interacción de inicio y navegación en las tarjetas de viaje.
+- `test/transport-screen.test.tsx`: tests de renderizado de CTA en modo general y modo viaje, y manejo de conflictos 409.
+- `test/route-screen.test.tsx`: test de visualización de CTA y transición de inicio desde la pantalla de ruta.
+- Cobertura: 181/181 suites pasando (1562 tests en `movo-mobile`). `tsc --noEmit` con 0 errores.
+
