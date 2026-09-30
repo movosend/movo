@@ -79,7 +79,6 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   TRIP_NOT_DECLARED: "El viaje ya fue iniciado o finalizado.",
   TRIP_ALREADY_HAS_ACTIVE_TRIP:
     "Ya tenés otro viaje en curso. Solo podés tener 1 viaje activo a la vez.",
-  TRIP_START_TOO_EARLY: "Todavía no podés iniciar este viaje.",
   TRIP_NOT_AVAILABLE: "Este viaje ya no está disponible.",
   // Calificaciones post-entrega (MOVO-153 / backend MOVO-146).
   SHIPMENT_NOT_DELIVERED: "El envío todavía no fue entregado.",

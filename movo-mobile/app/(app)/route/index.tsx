@@ -523,6 +523,19 @@ export default function OptimizedRouteScreen() {
                 </Pressable>
               </View>
             </View>
+          ) : tripData?.status === TripStatus.DECLARED && tripData.hasAcceptedPackages ? (
+            /* MOVO-252: El viaje está declarado con paquetes -- se ofrece el CTA para iniciarlo */
+            <View testID="route-declared-trip-state" className="flex-1 items-center justify-center gap-5 px-6">
+              <View className="w-full max-w-sm">
+                <CarrierTripCta
+                  trip={tripData}
+                  testID="route-trip-cta"
+                  onStart={handleStartTrip}
+                  isStarting={isStartingTrip}
+                  errorMessage={startTripError}
+                />
+              </View>
+            </View>
           ) : error && !demoMode ? (
             /* Error de backend o conexión */
             <View testID="route-error-state" className="flex-1 items-center justify-center gap-4 px-8">
@@ -547,19 +560,6 @@ export default function OptimizedRouteScreen() {
                     Reintentar
                   </Text>
                 </Pressable>
-              </View>
-            </View>
-          ) : tripData?.status === TripStatus.DECLARED && tripData.hasAcceptedPackages ? (
-            /* MOVO-252: El viaje está declarado con paquetes -- se ofrece el CTA para iniciarlo */
-            <View testID="route-declared-trip-state" className="flex-1 items-center justify-center gap-5 px-6">
-              <View className="w-full max-w-sm">
-                <CarrierTripCta
-                  trip={tripData}
-                  testID="route-trip-cta"
-                  onStart={handleStartTrip}
-                  isStarting={isStartingTrip}
-                  errorMessage={startTripError}
-                />
               </View>
             </View>
           ) : (

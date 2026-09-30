@@ -89,6 +89,7 @@ export interface ActiveShipmentSummary {
   counterparty: ActiveShipmentCounterparty;
   isToday: boolean;
   pickupWindowExpired: boolean;
+  tripId: string | null;
 }
 
 /**

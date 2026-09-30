@@ -51,15 +51,6 @@ export function CarrierTransportingSection({
     return null;
   }
 
-  // Número real de paradas calculadas a partir de los envíos que transporta el carrier
-  const stopsCount =
-    transportingShipments != null
-      ? transportingShipments.reduce(
-          (acc, s) => acc + (s.status === "in_transit" ? 1 : 2),
-          0,
-        )
-      : undefined;
-
   const handleStartTrip = async (targetTrip: TripWithAcceptedPackages) => {
     try {
       setStartingTripId(targetTrip.id);
@@ -101,17 +92,27 @@ export function CarrierTransportingSection({
         </Text>
       </View>
 
-      {tripsToShow.map((trip) => (
-        <CarrierTripCta
-          key={trip.id}
-          trip={trip}
-          stopsCount={stopsCount}
-          testID={`${testID}-card-${trip.id}`}
-          onStart={handleStartTrip}
-          isStarting={startingTripId === trip.id}
-          errorMessage={startTripError?.id === trip.id ? startTripError.message : null}
-        />
-      ))}
+      {tripsToShow.map((trip) => {
+        // Número real de paradas calculadas a partir de los envíos que transporta el carrier para este viaje
+        const tripStopsCount =
+          transportingShipments != null
+            ? transportingShipments
+                .filter((s) => s.tripId === trip.id)
+                .reduce((acc, s) => acc + (s.status === "in_transit" ? 1 : 2), 0)
+            : undefined;
+
+        return (
+          <CarrierTripCta
+            key={trip.id}
+            trip={trip}
+            stopsCount={tripStopsCount}
+            testID={`${testID}-card-${trip.id}`}
+            onStart={handleStartTrip}
+            isStarting={startingTripId === trip.id}
+            errorMessage={startTripError?.id === trip.id ? startTripError.message : null}
+          />
+        );
+      })}
     </View>
   );
 }

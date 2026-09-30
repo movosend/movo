@@ -38,17 +38,6 @@ describe("trip-format (MOVO-252)", () => {
   });
 
   describe("formatTripStartErrorMessage", () => {
-    it("AC5: formatea explícitamente el 409 TRIP_START_TOO_EARLY con la fecha de salida", () => {
-      const err = new ApiError(409, "TRIP_START_TOO_EARLY", "Demasiado temprano");
-      const msg = formatTripStartErrorMessage(err, "2026-09-10T12:00:00.000Z");
-      expect(msg).toMatch(/Podés iniciar este viaje el 10 de septiembre/);
-    });
-
-    it("AC5 fallback: TRIP_START_TOO_EARLY sin fecha especifica día programado", () => {
-      const err = new ApiError(409, "TRIP_START_TOO_EARLY", "Demasiado temprano");
-      const msg = formatTripStartErrorMessage(err);
-      expect(msg).toBe("Podés iniciar este viaje el día de salida programado.");
-    });
 
     it("AC6: formatea explícitamente el límite de 1 viaje activo por cuenta (TRIP_ALREADY_HAS_ACTIVE_TRIP)", () => {
       const err = new ApiError(409, "TRIP_ALREADY_HAS_ACTIVE_TRIP", "Conflicto activo");

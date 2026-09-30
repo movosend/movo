@@ -108,6 +108,8 @@ export function useStartTrip() {
     onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: TRIPS_LIST_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ["trips", "detail", id] });
+      queryClient.invalidateQueries({ queryKey: ["trips", "mine", "active"] });
+      queryClient.invalidateQueries({ queryKey: ["shipments", "transporting"] });
       queryClient.invalidateQueries({ queryKey: ["route"] });
     },
   });

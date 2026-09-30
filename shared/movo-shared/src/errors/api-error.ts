@@ -90,7 +90,6 @@ export type ApiErrorCode =
   // MOVO-221 / MOVO-252: rediseño de estados de viaje (declared/active/completed).
   | "TRIP_NOT_DECLARED"
   | "TRIP_ALREADY_HAS_ACTIVE_TRIP"
-  | "TRIP_START_TOO_EARLY"
   | "TRIP_NOT_AVAILABLE"
   // MOVO-228: la app mandó una versión de Términos/Privacidad distinta a la vigente
   // (`LEGAL_DOCUMENT_VERSIONS`, config/legal.ts) -- app desactualizada, el usuario

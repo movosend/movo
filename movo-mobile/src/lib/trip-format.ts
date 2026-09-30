@@ -83,18 +83,11 @@ export function isTripDepartureToday(departureAt: string): boolean {
 
 /**
  * MOVO-252: Formatea el error devuelto al intentar iniciar un viaje (`POST /trips/:id/start`).
- * AC5: Si el error es 409 `TRIP_START_TOO_EARLY`, el mensaje debe ser explícito: "Podés iniciar este viaje el {fecha}".
  * AC6: Si es 409 por límite de un viaje activo: "Ya tenés otro viaje en curso. Solo podés tener 1 viaje activo a la vez."
  * AC4: Si es genérico o de red: mensaje amigable sin alterar el estado del viaje.
  */
 export function formatTripStartErrorMessage(err: unknown, departureAt?: string): string {
   if (err instanceof ApiError) {
-    if (err.code === "TRIP_START_TOO_EARLY") {
-      if (departureAt) {
-        return `Podés iniciar este viaje el ${formatDepartureDateOnly(departureAt)}.`;
-      }
-      return "Podés iniciar este viaje el día de salida programado.";
-    }
     if (err.code === "TRIP_ALREADY_HAS_ACTIVE_TRIP") {
       return "Ya tenés otro viaje en curso. Solo podés tener 1 viaje activo a la vez.";
     }
