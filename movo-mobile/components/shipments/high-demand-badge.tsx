@@ -34,11 +34,11 @@ export function HighDemandBadge({ testID = "high-demand-badge" }: HighDemandBadg
         className="flex-row items-center gap-1 self-start rounded-full bg-ink-950 px-2.5 py-1 active:opacity-80"
       >
         <TrendingUp size={12} color="#FFFFFF" strokeWidth={2.25} />
-        <Text className="font-sans-medium text-[11px] text-paper">Alta demanda en tu zona</Text>
+        <Text className="font-sans-medium text-caption text-paper">Alta demanda en tu zona</Text>
         <Chevron size={12} color="#FFFFFF" strokeWidth={2.25} />
       </Pressable>
       {expanded ? (
-        <Text testID={`${testID}-help`} className="mt-1.5 font-sans text-[12px] leading-4 text-ink-950/70">
+        <Text testID={`${testID}-help`} className="mt-1.5 font-sans text-small text-ink-950/70">
           {HIGH_DEMAND_HELP_TEXT}
         </Text>
       ) : null}
