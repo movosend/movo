@@ -299,6 +299,7 @@ const activeShipmentSummaryResponse = {
     "counterparty",
     "isToday",
     "pickupWindowExpired",
+    "tripId",
   ],
   properties: {
     id: { type: "string" },
@@ -321,6 +322,7 @@ const activeShipmentSummaryResponse = {
     },
     isToday: { type: "boolean" },
     pickupWindowExpired: { type: "boolean" },
+    tripId: { type: ["string", "null"], format: "uuid" },
   },
 };
 

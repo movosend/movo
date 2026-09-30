@@ -248,6 +248,7 @@ export interface ActiveShipmentResult {
   counterparty: { name: string; initials: string };
   isToday: boolean;
   pickupWindowExpired: boolean;
+  tripId: string | null;
 }
 
 const ACTIVE_SHIPMENT_ROLE_TO_COLUMN: Record<ActiveShipmentRole, "senderId" | "carrierId" | "receiverId"> = {
@@ -1962,6 +1963,25 @@ export function createShipmentsService(
         })
       );
 
+      const tripIdByShipmentId = new Map<string, string | null>();
+      if (offerRepository) {
+        await Promise.all(
+          shipments.map(async (shipment) => {
+            try {
+              const offers = await offerRepository.listByShipment(shipment.id);
+              const accepted = offers.find((o) => o.status === OfferStatus.ACCEPTED);
+              tripIdByShipmentId.set(shipment.id, accepted?.tripId ?? null);
+            } catch (err) {
+              logger?.warn(
+                { err, event: "active_shipment_offers_lookup_failed", shipmentId: shipment.id },
+                "No se pudieron resolver las ofertas de un envío activo"
+              );
+              tripIdByShipmentId.set(shipment.id, null);
+            }
+          })
+        );
+      }
+
       const now = new Date();
       return shipments.map((shipment) => {
         // Garantizado por `ACTIVE_SHIPMENT_STATUSES` -- `repository.listActiveShipments`
@@ -1989,6 +2009,7 @@ export function createShipmentsService(
             shipment.pickupTimeWindowEnd,
             now
           ),
+          tripId: tripIdByShipmentId.get(shipment.id) ?? null,
         };
       });
     },

@@ -7,9 +7,10 @@ import { TripCard } from "../../../../components/trips/trip-card";
 import { PrimaryButton } from "../../../../components/auth/primary-button";
 import { SkeletonBlock } from "../../../../components/ui/skeleton-block";
 import { SuccessBanner } from "../../../../components/ui/success-banner";
-import { useDeleteTrip, useMyTrips } from "../../../../src/hooks/use-trips";
+import { useDeleteTrip, useMyTrips, useStartTrip } from "../../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
+import { formatTripStartErrorMessage } from "../../../../src/lib/trip-format";
 import { diffAndMarkSeenTrips } from "../../../../src/lib/seen-trips";
 import type { TripWithAcceptedPackages } from "../../../../src/api/trips-client";
 
@@ -37,8 +38,22 @@ export default function MyTripsScreen() {
   const { created } = useLocalSearchParams<{ created?: string }>();
   const { data, isLoading, isError, isRefetching, refetch } = useMyTrips();
   const deleteTrip = useDeleteTrip();
+  const startTrip = useStartTrip();
+  const [startingTripId, setStartingTripId] = useState<string | null>(null);
   const [showCreatedSuccess, setShowCreatedSuccess] = useState(created === "1");
   const [autoCreatedMessage, setAutoCreatedMessage] = useState<string | null>(null);
+
+  const handleStartTrip = async (trip: TripWithAcceptedPackages) => {
+    try {
+      setStartingTripId(trip.id);
+      await startTrip.mutateAsync(trip.id);
+    } catch (err) {
+      const msg = formatTripStartErrorMessage(err, trip.departureAt);
+      Alert.alert("No pudimos iniciar el viaje", msg);
+    } finally {
+      setStartingTripId(null);
+    }
+  };
 
   /**
    * MOVO-236, AC2: fallback in-app del aviso de viaje auto-creado (MOVO-234) cuando no
@@ -172,6 +187,8 @@ export default function MyTripsScreen() {
               // `as any`: ruta nueva de MOVO-162, ver el comentario de `transport.tsx`.
               onEdit={() => router.push(`/carrier/trips/${trip.id}/edit` as any)}
               onDelete={() => handleDelete(trip)}
+              onStart={() => handleStartTrip(trip)}
+              isStarting={startingTripId === trip.id}
               // MOVO-163: tocar la card abre el feed filtrado por este viaje. Objeto
               // `{ pathname, params }` (no un string armado a mano) — mismo patrón ya
               // usado por `transport/[id].tsx` para navegar a esta ruta con params.

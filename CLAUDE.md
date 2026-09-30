@@ -509,3 +509,8 @@ espera al build (matriz por plataforma), y un tag `v*` sobre `develop` (guard + 
   negocio compartida vía `@movo/shared` en vez de por `envSchema` de un servicio) —
   todavía no escrito, ver `services/movo-svc-shipments/CLAUDE.md` (MOVO-143) y
   `shared/movo-shared/CLAUDE.md` para el detalle de la decisión.
+
+### MOVO-252 — CTA "Iniciar viaje" para el transportista y Conteo de Paradas por viaje
+- Backend (`svc-shipments`): Se modificó `listActiveShipments` para incluir el `tripId` resolviendo la oferta aceptada desde el `offerRepository`. Esto permite propagar `tripId` en el payload de `ActiveShipmentSummary`.
+- Shared: Se actualizó `ActiveShipmentSummary` incluyendo `tripId: string | null`.
+- Mobile: Se adaptó la UI de la sección "Estoy transportando" para contar las paradas basándose en el `tripId` propagado desde el backend en vez de un conteo global de envíos en tránsito. Adicionalmente, el CTA para iniciar viaje maneja los casos de límite concurrente (1 viaje activo a la vez). Decisión: Se eliminó el bloqueo temprano `TRIP_START_TOO_EARLY` permitiendo priorizar el call to action independientemente de la fecha.

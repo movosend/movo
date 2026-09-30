@@ -336,3 +336,8 @@ el conteo); se mantiene en el tipo para poder mostrar nombres más adelante sin 
 `ShipmentQuoteRequest`/`ShipmentQuoteResponse` (`types/pricing.ts`) para
 `POST /shipments/quote`; la respuesta es una unión: con precio trae `quoteId`/`expiresAt`,
 sin precio todo `null`. Códigos nuevos `QUOTE_EXPIRED`/`QUOTE_MISMATCH` (ADR-028).
+
+### MOVO-252 — `TRIP_START_TOO_EARLY` en `ApiErrorCode`
+
+`src/errors/api-error.ts` — código nuevo en `ApiErrorCode` para el endpoint `POST /trips/:id/start` (MOVO-221), retornado cuando el transportista intenta iniciar un viaje antes de la fecha programada. Consumido por el cliente móvil (`movo-mobile`, MOVO-252) para mapear el error a un mensaje legible con la fecha de salida.
+

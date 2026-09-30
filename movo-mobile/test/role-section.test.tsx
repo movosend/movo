@@ -14,7 +14,7 @@ function makeShipment(id: string): ActiveShipmentSummary {
     agreedPriceArs: 4500,
     counterparty: { name: "Lucía Gómez", initials: "LG" },
     isToday: false,
-    pickupWindowExpired: false,
+    pickupWindowExpired: false, tripId: null
   };
 }
 

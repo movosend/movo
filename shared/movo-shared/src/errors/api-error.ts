@@ -87,7 +87,7 @@ export type ApiErrorCode =
   | "HANDSHAKE_INVALID_SHIPMENT_STATE"
   | "ROUTING_SERVICE_ERROR"
   | "ROUTING_SERVICE_UNAVAILABLE"
-  // MOVO-221: rediseño de estados de viaje (declared/active/completed).
+  // MOVO-221 / MOVO-252: rediseño de estados de viaje (declared/active/completed).
   | "TRIP_NOT_DECLARED"
   | "TRIP_ALREADY_HAS_ACTIVE_TRIP"
   | "TRIP_NOT_AVAILABLE"

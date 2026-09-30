@@ -75,6 +75,11 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
     "El origen y el destino tienen que estar separados por al menos 100 metros.",
   TRIP_DEPARTURE_IN_PAST: "La fecha y hora de salida tiene que ser futura.",
   TRIP_NOT_ACTIVE: "Este viaje ya no está activo.",
+  // Iniciar viaje (MOVO-221 / MOVO-252).
+  TRIP_NOT_DECLARED: "El viaje ya fue iniciado o finalizado.",
+  TRIP_ALREADY_HAS_ACTIVE_TRIP:
+    "Ya tenés otro viaje en curso. Solo podés tener 1 viaje activo a la vez.",
+  TRIP_NOT_AVAILABLE: "Este viaje ya no está disponible.",
   // Calificaciones post-entrega (MOVO-153 / backend MOVO-146).
   SHIPMENT_NOT_DELIVERED: "El envío todavía no fue entregado.",
   SHIPMENT_RATING_DISPUTE_ACTIVE:

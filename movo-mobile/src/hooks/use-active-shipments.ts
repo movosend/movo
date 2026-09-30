@@ -8,10 +8,8 @@ import { shipmentsClient } from "../api/shipments-client";
  * renderiza (mismo criterio que cualquier otra query fallida no bloqueante del home,
  * ver `RecentShipmentsSection`) — no hay mock local en runtime, solo en tests.
  *
- * "Estoy transportando" (`getTransporting`) queda para una fase 2 de esta misma US,
- * con un layout distinto (card de "viaje del día" agregado, no una card por envío,
- * ver `Viaje del transportista.dc.html`) que depende de MOVO-206 — no se agrega acá
- * todavía.
+ * `getTransporting` es consumido por `CarrierTransportingSection` (MOVO-252) para
+ * calcular el número real de paradas del carrier activo o a punto de iniciar viaje.
  */
 export function useSendingShipments() {
   return useQuery({
@@ -26,3 +24,11 @@ export function useReceivingShipments() {
     queryFn: () => shipmentsClient.getReceiving(),
   });
 }
+
+export function useTransportingShipments() {
+  return useQuery({
+    queryKey: ["shipments", "active", "transporting"],
+    queryFn: () => shipmentsClient.getTransporting(),
+  });
+}
+
