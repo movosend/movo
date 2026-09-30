@@ -34,6 +34,7 @@ describe("tripsClient", () => {
   const mockTripWithPackages: TripWithAcceptedPackages = {
     ...mockTrip,
     hasAcceptedPackages: false,
+    acceptedPackagesCount: 0,
   };
 
   it("list calls GET /trips with params", async () => {
@@ -94,5 +95,15 @@ describe("tripsClient", () => {
     await tripsClient.remove("trip-1");
 
     expect(httpClient.delete).toHaveBeenCalledWith("/trips/trip-1");
+  });
+
+  it("start calls POST /trips/:id/start (MOVO-252)", async () => {
+    const startedTrip = { ...mockTrip, status: TripStatus.ACTIVE };
+    (httpClient.post as jest.Mock).mockResolvedValueOnce(startedTrip);
+
+    const result = await tripsClient.start("trip-1");
+
+    expect(httpClient.post).toHaveBeenCalledWith("/trips/trip-1/start");
+    expect(result.status).toBe(TripStatus.ACTIVE);
   });
 });

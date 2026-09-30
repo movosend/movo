@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { Alert } from "react-native";
 import MyTripsScreen from "../app/(app)/carrier/trips/index";
 import { TripStatus, type TripWithAcceptedPackages } from "../src/api/trips-client";
@@ -21,10 +21,12 @@ jest.mock("expo-router", () => ({
 
 const mockUseMyTrips = jest.fn();
 const mockDeleteMutate = jest.fn();
+const mockStartMutateAsync = jest.fn();
 
 jest.mock("../src/hooks/use-trips", () => ({
   useMyTrips: () => mockUseMyTrips(),
   useDeleteTrip: () => ({ mutate: mockDeleteMutate }),
+  useStartTrip: () => ({ mutateAsync: mockStartMutateAsync }),
 }));
 
 const mockDiffAndMarkSeenTrips = jest.fn().mockResolvedValue({ newTripIds: [] });
@@ -50,10 +52,11 @@ const TRIP_A: TripWithAcceptedPackages = {
   createdAt: "2026-09-03T12:00:00.000Z",
   updatedAt: "2026-09-03T12:00:00.000Z",
   hasAcceptedPackages: false,
+  acceptedPackagesCount: 0,
 };
 
 const TRIP_ACTIVE: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-active", status: TripStatus.ACTIVE };
-const TRIP_BLOCKED: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-2", hasAcceptedPackages: true };
+const TRIP_BLOCKED: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-2", hasAcceptedPackages: true, acceptedPackagesCount: 1 };
 const TRIP_CANCELLED: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-3", status: TripStatus.CANCELLED };
 
 describe("MyTripsScreen", () => {
@@ -239,6 +242,75 @@ describe("MyTripsScreen", () => {
     expect(getByTestId(`my-trips-card-${TRIP_A.id}-delete`)).toBeTruthy();
     expect(getByTestId(`my-trips-card-${TRIP_ACTIVE.id}-edit`)).toBeTruthy();
     expect(getByTestId(`my-trips-card-${TRIP_ACTIVE.id}-delete`)).toBeTruthy();
+  });
+
+  it("MOVO-252 AC1: un viaje declared con paquetes aceptados muestra el botón 'Iniciar viaje'", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [TRIP_BLOCKED], page: 1, limit: 50, total: 1 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId, getByText } = await render(<MyTripsScreen />);
+
+    expect(getByTestId(`my-trips-card-${TRIP_BLOCKED.id}-start-btn`)).toBeTruthy();
+    expect(getByText("Iniciar viaje")).toBeTruthy();
+  });
+
+  it("MOVO-252 AC2: presionar 'Iniciar viaje' invoca useStartTrip con el id del viaje", async () => {
+    mockStartMutateAsync.mockResolvedValueOnce({ ...TRIP_BLOCKED, status: TripStatus.ACTIVE });
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [TRIP_BLOCKED], page: 1, limit: 50, total: 1 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<MyTripsScreen />);
+    fireEvent.press(getByTestId(`my-trips-card-${TRIP_BLOCKED.id}-start-btn`));
+
+    expect(mockStartMutateAsync).toHaveBeenCalledWith(TRIP_BLOCKED.id);
+  });
+
+  it("MOVO-252 AC4: si useStartTrip falla, muestra Alert con el mensaje de error", async () => {
+    const alertSpy = jest.spyOn(Alert, "alert");
+    mockStartMutateAsync.mockRejectedValueOnce(new Error("Network failed"));
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [TRIP_BLOCKED], page: 1, limit: 50, total: 1 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<MyTripsScreen />);
+    await act(async () => {
+      fireEvent.press(getByTestId(`my-trips-card-${TRIP_BLOCKED.id}-start-btn`));
+    });
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith("No pudimos iniciar el viaje", expect.any(String));
+    });
+  });
+
+  it("MOVO-252 AC3: un viaje active muestra el botón 'Viaje en curso · ver mapa'", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [TRIP_ACTIVE], page: 1, limit: 50, total: 1 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId, getByText } = await render(<MyTripsScreen />);
+
+    expect(getByTestId(`my-trips-card-${TRIP_ACTIVE.id}-view-map-btn`)).toBeTruthy();
+    expect(getByText("Viaje en curso · ver mapa")).toBeTruthy();
+
+    fireEvent.press(getByTestId(`my-trips-card-${TRIP_ACTIVE.id}-view-map-btn`));
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      pathname: "/route",
+      params: { tripId: TRIP_ACTIVE.id },
+    });
   });
 
   it("navega a editar al tocar el ícono de lápiz de un viaje sin paquetes aceptados", async () => {

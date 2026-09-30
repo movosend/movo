@@ -254,6 +254,7 @@ export interface ActiveShipmentSummary {
   counterparty: { name: string; initials: string };
   isToday: boolean;
   pickupWindowExpired: boolean;
+  tripId: string | null;
 }
 
 /**

@@ -20,7 +20,7 @@ function makeShipment(overrides: Partial<ActiveShipmentSummary> = {}): ActiveShi
     agreedPriceArs: 4500,
     counterparty: { name: "Lucía Gómez", initials: "LG" },
     isToday: false,
-    pickupWindowExpired: false,
+    pickupWindowExpired: false, tripId: null,
     ...overrides,
   };
 }
@@ -49,7 +49,7 @@ describe("ActiveShipmentCard (MOVO-193)", () => {
   it("isToday mueve 'hoy' al subtítulo en vez de un chip aparte, y muestra el chip 'Ventana vencida'", async () => {
     const { getByText, queryByText } = await render(
       <ActiveShipmentCard
-        shipment={makeShipment({ isToday: true, pickupWindowExpired: true })}
+        shipment={makeShipment({ isToday: true, pickupWindowExpired: true, tripId: null })}
         role="sending"
         testID="card"
       />,

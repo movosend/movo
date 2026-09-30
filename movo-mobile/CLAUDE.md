@@ -4084,3 +4084,51 @@ componente no decide cuándo mostrarse; eso queda en cada caller.
   mostrado.
 
 Pendiente: no probado en device.
+                                                                                   
+### MOVO-252 — CTA "Iniciar viaje" para el transportista
+
+Punto de entrada mobile para `POST /trips/:id/start` (MOVO-221 backend), permitiendo
+transicionar un viaje de `declared` a `active` cuando tiene paquetes aceptados
+(`hasAcceptedPackages: true`), desbloqueando el arranque del tracking en vivo (MOVO-251).
+Diseño visual fiel al prototipo de Tomás ("Viaje del transportista.dc.html", MOVO-191):
+
+- **`CarrierTripCta` (`components/trips/carrier-trip-cta.tsx`)**:
+  - Estado `declared` con paquetes aceptados: botón primario "Iniciar viaje" (`bg-lime-500`,
+    `text-ink-950`, altura de 52px, `font-sans-semibold`). Al presionar, ejecuta la mutación y
+    muestra un spinner de carga.
+  - Estado `active`: cambia a botón "Viaje en curso · ver mapa" (`bg-fg`, `text-bg`), que
+    navega directamente a `/route?tripId=${trip.id}`.
+  - Estado `declared` sin paquetes aceptados (o `cancelled`/`completed`): el CTA no se renderiza (AC8).
+- **Pantalla de Inicio (`app/(app)/(tabs)/home.tsx` y `components/home/carrier-transporting-section.tsx`)**:
+  - Incorpora la sección operativa "Estoy transportando", fiel al prototipo de Tomás (`Viaje del transportista.dc.html`, líneas 52-85).
+  - Si el transportista tiene un viaje activo o viajes declarados con paquetes aceptados, muestra el encabezado con ícono, texto y contador de viajes, y la card con el CTA correspondiente ("Iniciar viaje" / "Viaje en curso · ver mapa").
+  - Si no hay ningún viaje activo ni declarado con paquetes aceptados, no se renderiza nada.
+  - Prioriza el viaje de hoy sobre fechas futuras o pasadas al ordenar los viajes declarados.
+- **Ruta del transportista (`app/(app)/route/index.tsx`)**:
+  - Al abrir `/route?tripId=...` para un viaje `declared` con paquetes aceptados, muestra el CTA
+    "Iniciar viaje" en vez del estado genérico "Sin paradas asignadas". Al iniciar el viaje, pasa
+    a `active` y calcula la ruta optimizada inmediatamente.
+- **Tarjetas en Mis Viajes (`components/trips/trip-card.tsx` y `app/(app)/carrier/trips/index.tsx`)**:
+  - `TripCard` gana los botones "Iniciar viaje" (declared con paquetes) y "Viaje en curso · ver mapa" (active).
+  - Manejo de errores con Alert amigable ante fallos de red o backend.
+- **Mapeo de errores (`src/lib/error-messages.ts` y `src/lib/trip-format.ts`)**:
+  - 409 `TRIP_ALREADY_HAS_ACTIVE_TRIP`: "Ya tenés otro viaje en curso. Solo podés tener 1 viaje activo a la vez." (AC6).
+  - 409 `TRIP_START_TOO_EARLY`: "Podés iniciar este viaje el {fecha}." con formateo en español (AC5).
+  - 409 `TRIP_NOT_DECLARED`: "El viaje ya fue iniciado o finalizado."
+  - Errores de red/servidor: mensaje amigable sin cambiar el estado local (AC4).
+- **Cliente y Store**:
+  - `src/api/trips-client.ts`: método `start(id: string): Promise<Trip>`.
+  - `src/hooks/use-trips.ts`: hook `useStartTrip()` que invalida `["trips", "mine", "list"]`,
+    `["trips", "detail", id]` y `["route"]`.
+
+Tests agregados/actualizados:
+- `test/trips-client.test.ts`: test de llamada a `POST /trips/:id/start`.
+- `test/use-trips.test.tsx`: test de la mutación `useStartTrip`.
+- `test/trip-format.test.ts`: tests de formateo de fechas y traducción de códigos de error de viaje.
+- `test/carrier-trip-cta.test.tsx`: tests completos de renderizado según estado, botón de inicio, botón de mapa, banner de error e indicador de carga.
+- `test/carrier-transporting-section.test.tsx`: tests unitarios de la sección "Estoy transportando" en Inicio.
+- `test/home.test.tsx`: tests de renderizado y flujo de inicio en la pantalla de Inicio.
+- `test/my-trips-screen.test.tsx`: tests de interacción de inicio y navegación en las tarjetas de viaje.
+- `test/route-screen.test.tsx`: test de visualización de CTA y transición de inicio desde la pantalla de ruta.
+- Cobertura: 182/182 suites pasando (1564 tests en `movo-mobile`). `tsc --noEmit` con 0 errores.
+

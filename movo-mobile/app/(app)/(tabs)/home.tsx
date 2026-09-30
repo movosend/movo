@@ -6,6 +6,7 @@ import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ProfileAvatar } from '../../../components/profile/profile-avatar';
 import { AttentionSection } from '../../../components/home/attention-section';
+import { CarrierTransportingSection } from '../../../components/home/carrier-transporting-section';
 import { HomeSendCta } from '../../../components/home/home-send-cta';
 import { RecentShipmentsSection } from '../../../components/home/recent-shipments-section';
 import { RoleSection } from '../../../components/home/role-section';
@@ -37,9 +38,9 @@ import { useTabBarScrollHandler } from '../../../src/store/tab-bar-store';
  * MOVO-193: "Estoy enviando"/"Voy a recibir" (`RoleSection`) consumen `GET
  * /shipments/sending`/`/receiving` (MOVO-192, todavía sin backend — ver
  * `ActiveShipmentSummary` en `shipments-client.ts`); mientras no exista, esas
- * queries fallan y las secciones no se renderizan. "Estoy transportando" queda para
- * una fase 2 de esta misma US (layout distinto, card de viaje agregado, depende de
- * MOVO-206).
+ * queries fallan y las secciones no se renderizan. `CarrierTransportingSection`
+ * (MOVO-252) usa `GET /shipments/transporting` y `GET /trips` para la sección
+ * "Estoy transportando" visible al transportista en el home.
  */
 const KYC_BANNER_TEXT: Partial<Record<KycStatus, string>> = {
   [KycStatus.NOT_STARTED]: 'Todavía no verificaste tu identidad. Mientras tanto, tu acceso está restringido.',
@@ -90,6 +91,7 @@ export default function AuthenticatedHomeScreen() {
     setRefreshing(true);
     await Promise.allSettled([
       queryClient.invalidateQueries({ queryKey: ["shipments"] }),
+      queryClient.invalidateQueries({ queryKey: ["trips"] }),
       queryClient.invalidateQueries({ queryKey: ["users", "me"] }),
       queryClient.invalidateQueries({ queryKey: ["attention-tasks"] }),
     ]);
@@ -149,7 +151,7 @@ export default function AuthenticatedHomeScreen() {
 
         <TrackingActiveIndicator />
 
-
+        <CarrierTransportingSection testID="app-home-transporting" />
 
         <RoleSection
           testID="app-home-sending"

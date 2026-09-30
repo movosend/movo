@@ -13,12 +13,23 @@ const mockUpdateKycStatus = jest.fn();
 const mockUseRecentShipments = jest.fn();
 const mockUseSendingShipments = jest.fn();
 const mockUseReceivingShipments = jest.fn();
+const mockUseTransportingShipments = jest.fn();
 const mockUseAttentionTasks = jest.fn();
 const mockInvalidateQueries = jest.fn();
+const mockUseMyTrips = jest.fn();
+const mockStartTripMutateAsync = jest.fn();
 
 jest.mock("@tanstack/react-query", () => ({
   ...jest.requireActual("@tanstack/react-query"),
   useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
+}));
+
+jest.mock("../src/hooks/use-trips", () => ({
+  useMyTrips: () => mockUseMyTrips(),
+  useStartTrip: () => ({
+    mutateAsync: mockStartTripMutateAsync,
+    isPending: false,
+  }),
 }));
 
 jest.mock("../src/hooks/use-auth", () => {
@@ -42,6 +53,7 @@ jest.mock("../src/hooks/use-shipments", () => ({
 jest.mock("../src/hooks/use-active-shipments", () => ({
   useSendingShipments: () => mockUseSendingShipments(),
   useReceivingShipments: () => mockUseReceivingShipments(),
+  useTransportingShipments: () => mockUseTransportingShipments(),
 }));
 
 jest.mock("../src/hooks/use-attention-tasks", () => ({
@@ -82,7 +94,9 @@ describe("AuthenticatedHomeScreen", () => {
     });
     mockUseSendingShipments.mockReturnValue({ data: [] });
     mockUseReceivingShipments.mockReturnValue({ data: [] });
+    mockUseTransportingShipments.mockReturnValue({ data: [] });
     mockUseAttentionTasks.mockReturnValue({ tasks: [], isLoading: false });
+    mockUseMyTrips.mockReturnValue({ data: { items: [], total: 0 } });
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -93,6 +107,47 @@ describe("AuthenticatedHomeScreen", () => {
     expect(getByTestId("app-home-welcome")).toHaveTextContent("Hola, Martina");
     expect(getByTestId("app-home-send-cta")).toBeTruthy();
     expect(getByText("Coordiná un envío con un transportista verificado")).toBeTruthy();
+  });
+
+  it("no renderiza 'Estoy transportando' si no hay viajes activos ni declarados con paquetes", async () => {
+    mockUseMyTrips.mockReturnValue({ data: { items: [], total: 0 } });
+    const { queryByTestId } = await render(<AuthenticatedHomeScreen />);
+    expect(queryByTestId("app-home-transporting")).toBeNull();
+  });
+
+  it("renderiza 'Estoy transportando' con card y botón 'Iniciar viaje' para viaje declared con paquetes aceptados", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: {
+        items: [
+          {
+            id: "trip-declared-1",
+            carrierId: "me",
+            originAddress: "Av. Colón 100, Córdoba",
+            originLat: -31.4,
+            originLng: -64.18,
+            destinationAddress: "San Martín 200, Villa Carlos Paz",
+            destinationLat: -31.42,
+            destinationLng: -64.49,
+            departureAt: new Date().toISOString(),
+            vehicleType: "car",
+            status: "declared",
+            hasAcceptedPackages: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ],
+        total: 1,
+      },
+    });
+
+    const { getByTestId, getByText } = await render(<AuthenticatedHomeScreen />);
+
+    expect(getByTestId("app-home-transporting")).toBeTruthy();
+    expect(getByText(/estoy transportando/i)).toBeTruthy();
+    expect(getByText("Iniciar viaje")).toBeTruthy();
+
+    fireEvent.press(getByText("Iniciar viaje"));
+    expect(mockStartTripMutateAsync).toHaveBeenCalledWith("trip-declared-1");
   });
 
   it("muestra la fecha del día y navega a Mi perfil al tocar el avatar", async () => {

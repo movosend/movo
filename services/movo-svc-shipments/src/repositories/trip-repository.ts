@@ -111,6 +111,7 @@ function isUniqueConstraintConflict(error: unknown): boolean {
 export interface TripRepository {
   create(input: CreateTripInput): Promise<Trip>;
   findById(id: string): Promise<Trip | null>;
+  findByIdWithPackages(id: string): Promise<TripWithAcceptedPackages | null>;
   countAcceptedOffers(tripId: string): Promise<number>;
   listByCarrier(
     carrierId: string,
@@ -179,6 +180,64 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       return row ? mapTrip(row) : null;
     },
 
+    async findByIdWithPackages(id: string): Promise<TripWithAcceptedPackages | null> {
+      const row = await db.trip.findUnique({
+        where: { id },
+        include: {
+          offers: {
+            where: ACCEPTED_OFFER_FILTER,
+            include: {
+              shipment: true,
+            },
+          },
+        },
+      });
+
+      if (!row) {
+        return null;
+      }
+
+      const offers = row.offers;
+      const packages = offers.map((offer) => {
+        const sh = offer.shipment;
+        const pickupDateStr = offer.offeredDate.toISOString().slice(0, 10);
+        
+        const pickupTimeWindowStart = offer.offeredPickupTimeWindowStart 
+          ?? sh.pickupTimeWindowStart.toISOString().slice(11, 19);
+        const pickupTimeWindowEnd = offer.offeredPickupTimeWindowEnd 
+          ?? sh.pickupTimeWindowEnd.toISOString().slice(11, 19);
+
+        return {
+          shipmentId: sh.id,
+          status: sh.status as ShipmentStatus,
+          packageType: sh.packageType,
+          weightKg: sh.weightKg.toNumber(),
+          pickupAddress: sh.pickupAddress,
+          deliveryAddress: sh.deliveryAddress,
+          pickupDate: pickupDateStr,
+          pickupTimeWindowStart,
+          pickupTimeWindowEnd,
+          agreedPriceArs: offer.priceOffered.toNumber(),
+          senderName: offer.senderNameAtOffer ?? "Emisor",
+        };
+      });
+
+      // Sort by pickupDate and then by pickupTimeWindowStart ascending
+      packages.sort((a, b) => {
+        if (a.pickupDate === b.pickupDate) {
+          return a.pickupTimeWindowStart.localeCompare(b.pickupTimeWindowStart);
+        }
+        return a.pickupDate.localeCompare(b.pickupDate);
+      });
+
+      return {
+        ...mapTrip(row),
+        hasAcceptedPackages: offers.length > 0,
+        acceptedPackagesCount: offers.length,
+        packages,
+      };
+    },
+
     async countAcceptedOffers(tripId: string): Promise<number> {
       return db.offer.count({
         where: {
@@ -221,6 +280,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       const items: TripWithAcceptedPackages[] = rows.map((row) => ({
         ...mapTrip(row),
         hasAcceptedPackages: row._count.offers > 0,
+        acceptedPackagesCount: row._count.offers,
       }));
 
       return { items, total };

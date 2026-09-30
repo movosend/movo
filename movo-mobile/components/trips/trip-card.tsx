@@ -1,5 +1,6 @@
 import { ArrowRight, Clock, Pencil, Trash2, Truck } from "lucide-react-native";
-import { Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { router } from "expo-router";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { shortAddressLabel } from "../../src/lib/shipment-format";
 import { formatDepartureLabel, tripStatusLabel, tripStatusTone } from "../../src/lib/trip-format";
@@ -20,6 +21,8 @@ interface TripCardProps {
   onEdit: () => void;
   onDelete: () => void;
   onPress?: () => void;
+  onStart?: () => void;
+  isStarting?: boolean;
   testID?: string;
 }
 
@@ -45,7 +48,15 @@ interface TripCardProps {
  * touch al más específico, sin bubbling tipo DOM) para que tocar esos íconos no
  * dispare también la navegación, mismo patrón que `ContactRow` (MOVO-139).
  */
-export function TripCard({ trip, onEdit, onDelete, onPress, testID }: TripCardProps) {
+export function TripCard({
+  trip,
+  onEdit,
+  onDelete,
+  onPress,
+  onStart,
+  isStarting,
+  testID,
+}: TripCardProps) {
   const colors = useThemeColors();
   const tone = tripStatusTone(trip.status);
   const [badgeBg, badgeText] = TONE_BADGE_CLASS[tone].split(" ");
@@ -92,6 +103,45 @@ export function TripCard({ trip, onEdit, onDelete, onPress, testID }: TripCardPr
             directamente.
           </Text>
         </View>
+      ) : null}
+
+      {trip.hasAcceptedPackages && trip.status === TripStatus.DECLARED ? (
+        <Pressable
+          testID={testID ? `${testID}-start-btn` : undefined}
+          onPress={(e) => {
+            e.stopPropagation?.();
+            onStart?.();
+          }}
+          disabled={isStarting}
+          accessibilityRole="button"
+          accessibilityLabel="Iniciar viaje"
+          className="h-[48px] w-full items-center justify-center rounded-[8px] bg-lime-500 active:opacity-90"
+        >
+          {isStarting ? (
+            <ActivityIndicator size="small" color="#0A0A0B" />
+          ) : (
+            <Text className="font-sans-semibold text-[14px] text-ink-950">
+              Iniciar viaje
+            </Text>
+          )}
+        </Pressable>
+      ) : null}
+
+      {trip.status === TripStatus.ACTIVE ? (
+        <Pressable
+          testID={testID ? `${testID}-view-map-btn` : undefined}
+          onPress={(e) => {
+            e.stopPropagation?.();
+            router.push({ pathname: "/route", params: { tripId: trip.id } } as any);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Viaje en curso, ver mapa"
+          className="h-[48px] w-full items-center justify-center rounded-[8px] bg-fg active:opacity-90"
+        >
+          <Text className="font-sans-semibold text-[14px] text-bg">
+            Viaje en curso · ver mapa
+          </Text>
+        </Pressable>
       ) : null}
 
       <View className="flex-row items-center justify-between border-t border-border pt-3">
