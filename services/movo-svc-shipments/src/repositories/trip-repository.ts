@@ -200,9 +200,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       const offers = row.offers;
       const packages = offers.map((offer) => {
         const sh = offer.shipment;
-        const pickupDateStr = offer.offeredDate 
-          ? offer.offeredDate.toISOString().slice(0, 10)
-          : sh.pickupDate.toISOString().slice(0, 10);
+        const pickupDateStr = offer.offeredDate.toISOString().slice(0, 10);
         
         const pickupTimeWindowStart = offer.offeredPickupTimeWindowStart 
           ?? sh.pickupTimeWindowStart.toISOString().slice(11, 19);
@@ -224,7 +222,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         };
       });
 
-      // Sort by pickupTimeWindowStart ascending
+      // Sort by pickupDate and then by pickupTimeWindowStart ascending
       packages.sort((a, b) => {
         if (a.pickupDate === b.pickupDate) {
           return a.pickupTimeWindowStart.localeCompare(b.pickupTimeWindowStart);
