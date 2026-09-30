@@ -116,6 +116,25 @@ describe("SummaryStep — cotización congelada (MOVO-255)", () => {
     );
   });
 
+  it("muestra el badge de alta demanda solo si la cotización lo indica (MOVO-254)", async () => {
+    quoteMock.mockResolvedValueOnce({ ...frozenQuote("q-1", 30120), highDemand: true });
+
+    const { findByTestId } = await render(<SummaryStep onGoToStep={jest.fn()} />);
+
+    expect(await findByTestId("summary-step-price-high-demand")).toBeTruthy();
+  });
+
+  it("sin alta demanda no muestra el badge", async () => {
+    quoteMock.mockResolvedValueOnce(frozenQuote("q-1", 30120));
+
+    const { findByText, queryByTestId } = await render(
+      <SummaryStep onGoToStep={jest.fn()} />,
+    );
+    await findByText(`$${(30120).toLocaleString("es-AR")}`);
+
+    expect(queryByTestId("summary-step-price-high-demand")).toBeNull();
+  });
+
   it("crea el envío con el quoteId de la cotización mostrada", async () => {
     quoteMock.mockResolvedValueOnce(frozenQuote("q-1", 30120));
     mockCreate.mockResolvedValueOnce({ id: "shipment-1" });

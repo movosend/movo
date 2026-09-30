@@ -331,6 +331,7 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
       <PricePreviewCard
         testID="summary-step-price"
         suggestedPriceArs={priceQuote.status === "ready" ? priceQuote.suggestedPriceArs : null}
+        highDemand={priceQuote.status === "ready" && priceQuote.highDemand === true}
         caption={
           priceQuote.status === "loading"
             ? "Calculando…"

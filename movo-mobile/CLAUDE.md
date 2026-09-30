@@ -4065,6 +4065,26 @@ Pendiente: `offer-card.tsx` sigue mostrando estrellas vacías sin calificaciones
 expiración de envíos con transportista y cierre de viajes `active` derivados a
 MOVO-258; no probado en device tras los últimos ajustes.
 
+### MOVO-254 — Badge "Alta demanda en tu zona" junto al precio sugerido
+
+`HighDemandBadge` (`components/shipments/high-demand-badge.tsx`) explica el recargo de
+`demand_fuel_routes_v1` sin mostrar el porcentaje (ADR-025): pill en tinta sobre la card
+lima de precio, y un tap despliega el texto de ayuda (no un tooltip flotante: medir la
+posición con `measureInWindow` no es testeable en jest-expo, mismo gap que MOVO-29). El
+componente no decide cuándo mostrarse; eso queda en cada caller.
+
+- **Detalle (`shipments/[id].tsx`)**: `ShipmentSummary` suma `highDemand: boolean | null`.
+  Se muestra solo al emisor, con `highDemand === true` (`null` no equivale a `false`) y
+  sin precio pactado. Usa la misma condición que la etiqueta "Precio pactado"
+  (`agreedPriceArs` o `carrierId`), no solo `agreedPriceArs` como decía el AC3: con
+  transportista asignado la card ya no muestra el precio sugerido.
+- **Resumen del wizard**: `PricePreviewCard` suma la prop `highDemand`; `SummaryStep` la
+  pasa con `priceQuote.status === "ready"` y `priceQuote.highDemand === true` (el valor que
+  guarda la cotización congelada de MOVO-255), así el badge corresponde siempre al precio
+  mostrado.
+
+Pendiente: no probado en device.
+                                                                                   
 ### MOVO-252 — CTA "Iniciar viaje" para el transportista
 
 Punto de entrada mobile para `POST /trips/:id/start` (MOVO-221 backend), permitiendo

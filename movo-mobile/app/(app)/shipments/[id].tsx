@@ -16,6 +16,7 @@ import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
 import { CounterpartCard } from "../../../components/shipments/counterpart-card";
+import { HighDemandBadge } from "../../../components/shipments/high-demand-badge";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
 import { PackageCard } from "../../../components/shipments/package-card";
 import { RatingSheet, type RatingTarget } from "../../../components/shipments/rating-sheet";
@@ -169,6 +170,14 @@ export default function ShipmentDetailScreen() {
   const handshakeActionLabel = showPickupHandshake
     ? "Confirmar retiro"
     : "Confirmar entrega";
+
+  // Misma condición que decide "Precio pactado" en la card de precio: con transportista
+  // asignado el precio que se ve ya no es el sugerido, así que el recargo no aplica.
+  const hasAgreedPrice =
+    shipment !== undefined && (shipment.agreedPriceArs !== null || shipment.carrierId !== null);
+
+  // MOVO-254: el badge es información para el emisor. `null` no equivale a `false`.
+  const showHighDemandBadge = isSender && shipment?.highDemand === true && !hasAgreedPrice;
 
   const pickupDateLabel = shipment
     ? formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate
@@ -392,9 +401,7 @@ export default function ShipmentDetailScreen() {
                   <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
                     <GridPattern />
                     <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
-                      {shipment.agreedPriceArs !== null || shipment.carrierId !== null
-                        ? "Precio pactado"
-                        : "Costo aproximado"}
+                      {hasAgreedPrice ? "Precio pactado" : "Costo aproximado"}
                     </Text>
                     <Text className="font-sans-semibold text-[20px] text-ink-950">
                       {formatShipmentPrice(
@@ -402,6 +409,11 @@ export default function ShipmentDetailScreen() {
                         shipment.suggestedPriceArs
                       )}
                     </Text>
+                    {showHighDemandBadge ? (
+                      <View className="mt-2">
+                        <HighDemandBadge testID="shipment-detail-high-demand" />
+                      </View>
+                    ) : null}
                   </View>
                 )}
               </View>
