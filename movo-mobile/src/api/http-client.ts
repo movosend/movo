@@ -106,7 +106,7 @@ async function doRefresh(): Promise<SessionResponse> {
   return session;
 }
 
-function refreshTokens(): Promise<SessionResponse> {
+export function refreshTokens(): Promise<SessionResponse> {
   if (!refreshPromise) {
     refreshPromise = doRefresh().finally(() => {
       refreshPromise = null;

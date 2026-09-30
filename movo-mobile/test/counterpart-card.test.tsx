@@ -85,7 +85,7 @@ describe("CounterpartCard", () => {
 
     const { getByText } = await render(<CounterpartCard userId="user-2" receiverConfirmation="confirmed" />);
 
-    expect(getByText("Aceptó el envío")).toBeTruthy();
+    expect(getByText("Aceptó")).toBeTruthy();
   });
 
   it("no muestra ningún badge de confirmación cuando no se pasa `receiverConfirmation` (transportista)", async () => {
@@ -105,9 +105,9 @@ describe("CounterpartCard", () => {
 
     const { queryByText } = await render(<CounterpartCard userId="carrier-1" />);
 
-    expect(queryByText("Aceptó el envío")).toBeNull();
-    expect(queryByText("Pend. de aceptar")).toBeNull();
-    expect(queryByText("Rechazó el envío")).toBeNull();
+    expect(queryByText("Aceptó")).toBeNull();
+    expect(queryByText("Pendiente")).toBeNull();
+    expect(queryByText("Rechazó")).toBeNull();
   });
 
   it("no muestra ningún badge de confirmación cuando se renderiza el emisor sin `receiverConfirmation` (MOVO-131)", async () => {
@@ -128,9 +128,9 @@ describe("CounterpartCard", () => {
     const { getByText, queryByText } = await render(<CounterpartCard userId="sender-1" />);
 
     expect(getByText("Pedro Emisor")).toBeTruthy();
-    expect(queryByText("Aceptó el envío")).toBeNull();
-    expect(queryByText("Pend. de aceptar")).toBeNull();
-    expect(queryByText("Rechazó el envío")).toBeNull();
+    expect(queryByText("Aceptó")).toBeNull();
+    expect(queryByText("Pendiente")).toBeNull();
+    expect(queryByText("Rechazó")).toBeNull();
   });
 
   // MOVO-154: acceso al perfil de la contraparte desde el detalle de envío.
@@ -196,9 +196,11 @@ describe("CounterpartCard", () => {
       isError: false,
     });
 
-    const { getByText } = await render(<CounterpartCard userId="user-2" />);
+    const { getByText, queryByTestId } = await render(<CounterpartCard userId="user-2" testID="counterpart" />);
 
     expect(getByText("Perfil nuevo")).toBeTruthy();
+    // Con perfil nuevo no se dibujan estrellas, solo el texto.
+    expect(queryByTestId("counterpart-stars")).toBeNull();
   });
 
   it("muestra 'Sin calificaciones' cuando no hay reputación (MOVO-154, AC4)", async () => {
@@ -217,9 +219,32 @@ describe("CounterpartCard", () => {
       isError: false,
     });
 
-    const { getByText } = await render(<CounterpartCard userId="user-2" />);
+    const { getByText, queryByTestId } = await render(<CounterpartCard userId="user-2" testID="counterpart" />);
 
     expect(getByText("Sin calificaciones")).toBeTruthy();
+    expect(queryByTestId("counterpart-stars")).toBeNull();
+  });
+
+  it("con calificaciones reales muestra las estrellas y el score", async () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: {
+        id: "user-2",
+        fullName: "Marta González",
+        photoUrl: null,
+        isVerified: false,
+        badges: [],
+        transactionCounts: { asSender: 5, asCarrier: 0 },
+        reputationScore: 4.6,
+        isNewProfile: false,
+      },
+      isLoading: false,
+      isError: false,
+    });
+
+    const { getByText, getByTestId } = await render(<CounterpartCard userId="user-2" testID="counterpart" />);
+
+    expect(getByTestId("counterpart-stars")).toBeTruthy();
+    expect(getByText("4.6")).toBeTruthy();
   });
 });
 

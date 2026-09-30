@@ -1,5 +1,6 @@
 import {
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -16,6 +17,9 @@ export interface S3StorageProviderConfig {
 /** TTL corto (AC1 de MOVO-97): una presigned URL de subida no debería quedar viva más
  * que el tiempo que le toma al cliente elegir la foto y subirla. */
 const UPLOAD_URL_TTL_SECONDS = 300;
+
+/** MOVO-256: mismo TTL que las presigned GET de `svc-shipments` (MOVO-81). */
+const DOWNLOAD_URL_TTL_SECONDS = 300;
 
 /**
  * Implementación real sobre S3 (ADR-007/ADR-015). Credenciales vía el default
@@ -73,6 +77,20 @@ export function createS3StorageProvider(config: S3StorageProviderConfig): Storag
 
     getPublicUrl(key) {
       return `https://${publicUrlHost}/${key}`;
+    },
+
+    async createDownloadUrl(key) {
+      // Prefijo privado (MOVO-256, `reports/*`): sin URL pública estable, cada lectura
+      // pide una presigned GET nueva -- mismo criterio que `shipments/*` en svc-shipments.
+      let url: string;
+      try {
+        url = await getSignedUrl(client, new GetObjectCommand({ Bucket: config.bucketName, Key: key }), {
+          expiresIn: DOWNLOAD_URL_TTL_SECONDS,
+        });
+      } catch {
+        throw new ApiError(502, "STORAGE_PROVIDER_ERROR", "No se pudo generar la URL de lectura.");
+      }
+      return { url, expiresIn: DOWNLOAD_URL_TTL_SECONDS };
     },
 
     getKeyFromUrl(url) {

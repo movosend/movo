@@ -225,6 +225,7 @@ model UserReport {
   reporter   User         @relation("UserReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
   reported   User         @relation("UserReportReported", fields: [reportedId], references: [id], onDelete: Cascade)
   entries    UserReportEntry[]
+  photos     UserReportPhoto[]
 
   @@index([reporterId, reportedId, status], map: "user_reports_reporter_id_reported_id_status_idx")
   @@map("user_reports")
@@ -233,16 +234,39 @@ model UserReport {
 
 // MOVO-175 (review de PR #193): información que el reportante suma a su reporte
 // pendiente. Append-only -- el reporte original nunca se edita, así el admin ve qué
-// se dijo y cuándo.
+// se dijo y cuándo. MOVO-256: `details` pasa a nullable -- una entrada puede ser solo
+// fotos (el service exige texto o al menos una foto).
 model UserReportEntry {
-  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  reportId  String     @map("report_id") @db.Uuid
-  details   String     @db.Text
-  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz
-  report    UserReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  id        String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reportId  String            @map("report_id") @db.Uuid
+  details   String?           @db.Text
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  report    UserReport        @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  photos    UserReportPhoto[]
 
   @@index([reportId, createdAt], map: "user_report_entries_report_id_created_at_idx")
   @@map("user_report_entries")
+  @@schema("users")
+}
+
+// MOVO-256: fotos de evidencia de un reporte. Cada foto pertenece al envío en el que
+// se mandó: `entryId` null = el reporte original, si no, la entrada que la sumó. El
+// objeto vive en S3 bajo el prefijo privado `reports/{reporterId}/` (presigned GET,
+// nunca público como `profile-photos/*`). `s3Key` único: una key subida se asocia a un
+// solo envío.
+model UserReportPhoto {
+  id        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reportId  String           @map("report_id") @db.Uuid
+  entryId   String?          @map("entry_id") @db.Uuid
+  s3Key     String           @map("s3_key")
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  report    UserReport       @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  entry     UserReportEntry? @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@unique([s3Key], map: "user_report_photos_s3_key_key")
+  @@index([reportId, createdAt], map: "user_report_photos_report_id_created_at_idx")
+  @@index([entryId], map: "user_report_photos_entry_id_idx")
+  @@map("user_report_photos")
   @@schema("users")
 }
 

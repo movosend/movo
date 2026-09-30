@@ -1,8 +1,9 @@
 import { Camera, Package } from "lucide-react-native";
 import { useState } from "react";
-import { Image, Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { packageTypeLabel } from "../send/category-grid";
 import { PhotoViewerModal } from "./photo-viewer-modal";
+import { RemoteImage } from "../ui/remote-image";
 import { SkeletonBlock } from "../ui/skeleton-block";
 import type { ShipmentSummary } from "../../src/api/shipments-client";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -71,10 +72,10 @@ export function PackageCard({ shipment, testID }: PackageCardProps) {
                   testID={testID ? `${testID}-photo-${index}` : undefined}
                   onPress={() => setViewerIndex(index)}
                 >
-                  <Image
-                    source={{ uri: photo.url }}
+                  <RemoteImage
+                    testID={testID ? `${testID}-photo-${index}-thumb` : undefined}
+                    uri={photo.url}
                     style={{ width: THUMB_SIZE, height: THUMB_SIZE, borderRadius: 8 }}
-                    resizeMode="cover"
                   />
                 </Pressable>
               ))}

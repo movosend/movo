@@ -119,8 +119,15 @@ export type ApiErrorCode =
   // MOVO-175: ya hay un reporte propio en revisión sobre ese usuario -- se suma
   // información con `POST /users/:id/report/entries` en vez de crear otro.
   | "REPORT_ALREADY_PENDING"
+  // MOVO-256: la foto ya está asociada a otro envío del reporte (o al mismo, reintento).
+  | "REPORT_PHOTO_ALREADY_USED"
   // MOVO-175: sumar información sin un reporte propio en revisión sobre ese usuario.
-  | "REPORT_NOT_FOUND";
+  | "REPORT_NOT_FOUND"
+  // MOVO-255: el `quoteId` mandado al crear el envío no existe, venció, ya se usó o es
+  // de otro usuario -- el cliente vuelve a cotizar y pide confirmación de nuevo.
+  | "QUOTE_EXPIRED"
+  // MOVO-255: los datos que afectan el precio cambiaron después de cotizar.
+  | "QUOTE_MISMATCH";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

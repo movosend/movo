@@ -1,6 +1,7 @@
 import {
   capitalizeName,
   formatGreetingDateLabel,
+  formatMemberSince,
   formatReputationScore,
   formatShipmentCount,
   formatTripCount,
@@ -108,5 +109,37 @@ describe("profile-format", () => {
     ])("capitalizeName(%p) === %p", (input, expected) => {
       expect(capitalizeName(input)).toBe(expected);
     });
+  });
+});
+
+describe("formatMemberSince", () => {
+  const now = new Date(2026, 8, 28, 15, 0); // 28/09/2026, hora local
+
+  it("el mismo día es 'desde hoy'", () => {
+    expect(formatMemberSince(new Date(2026, 8, 28, 9, 0).toISOString(), now)).toBe("Miembro desde hoy");
+  });
+
+  it("cuenta días en singular y plural", () => {
+    expect(formatMemberSince(new Date(2026, 8, 27, 12, 0).toISOString(), now)).toBe("Miembro desde hace 1 día");
+    expect(formatMemberSince(new Date(2026, 8, 3, 12, 0).toISOString(), now)).toBe("Miembro desde hace 25 días");
+  });
+
+  it("cuenta meses por calendario", () => {
+    expect(formatMemberSince(new Date(2026, 7, 28, 12, 0).toISOString(), now)).toBe("Miembro desde hace 1 mes");
+    expect(formatMemberSince(new Date(2026, 3, 10, 12, 0).toISOString(), now)).toBe("Miembro desde hace 5 meses");
+  });
+
+  it("un año cumplido es '1 año', no '12 meses'", () => {
+    expect(formatMemberSince(new Date(2025, 8, 28, 12, 0).toISOString(), now)).toBe("Miembro desde hace 1 año");
+    expect(formatMemberSince(new Date(2023, 1, 1, 12, 0).toISOString(), now)).toBe("Miembro desde hace 3 años");
+  });
+
+  it("un mes que todavía no se cumplió sigue contando en días", () => {
+    expect(formatMemberSince(new Date(2026, 7, 29, 12, 0).toISOString(), now)).toBe("Miembro desde hace 30 días");
+  });
+
+  it("sin fecha o con una fecha inválida no muestra nada", () => {
+    expect(formatMemberSince(null, now)).toBeNull();
+    expect(formatMemberSince("no-es-una-fecha", now)).toBeNull();
   });
 });

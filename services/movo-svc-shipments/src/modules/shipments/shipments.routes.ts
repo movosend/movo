@@ -1,11 +1,12 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from "fastify";
-import { ShipmentStatus } from "@movo/shared";
+import { ShipmentQuoteRequest, ShipmentStatus } from "@movo/shared";
 import {
   createShipmentsService,
   CreateShipmentServiceInput,
   ShipmentsService,
 } from "./shipments.service";
 import { createPhotosService, ConfirmPhotoInput, PresignPhotoInput } from "./photos.service";
+import { createQuoteStore } from "./quote-store";
 import { shipmentsSchemas } from "./shipments.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { getUserRolesFromHeader } from "../../utils/get-user-roles";
@@ -184,6 +185,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       // acceptShipment) -- mismo default (15) que ya usa trips.routes.ts para
       // GET /trips/:id/matches, `Trip` no persiste un radiusKm propio.
       tripMatchDetourRadiusKm: app.config.TRIP_DEFAULT_MAX_DETOUR_KM,
+      quoteStore: createQuoteStore(app.redis),
     getCarrierReputationScore: async (carrierId: string) => {
       const summary = await ratingsService.getReputationSummary(carrierId);
       return summary.asCarrier.reputationScore;
@@ -207,7 +209,11 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "El senderId sale SIEMPRE del header x-user-id inyectado por el gateway (AC10) " +
           "— cualquier senderId en el body es rechazado por el schema (additionalProperties: " +
           "false), nunca leído. Falla con 404/422 si el receptor no existe, tiene KYC de " +
-          "identidad sin aprobar, es el propio emisor, o la franja de retiro es inválida.",
+          "identidad sin aprobar, es el propio emisor, o la franja de retiro es inválida. " +
+          "MOVO-255: con `quoteId` (de `POST /shipments/quote`) usa ese precio congelado sin " +
+          "volver a cotizar; responde 409 QUOTE_EXPIRED si no existe, venció, ya se usó o es " +
+          "de otro usuario, y 409 QUOTE_MISMATCH si los datos que afectan el precio no " +
+          "coinciden con los cotizados. Sin `quoteId`, cotiza al crear.",
         tags: ["shipments"],
         body: shipmentsSchemas.createShipmentBody,
         response: {
@@ -215,6 +221,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           400: shipmentsSchemas.errorResponse,
           401: shipmentsSchemas.errorResponse,
           404: shipmentsSchemas.errorResponse,
+          409: shipmentsSchemas.errorResponse,
           422: shipmentsSchemas.errorResponse,
           502: shipmentsSchemas.errorResponse,
         },
@@ -226,6 +233,34 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const shipment = await service.createShipment({ ...body, senderId });
       reply.code(201);
       return toShipmentDto(shipment);
+    }
+  );
+
+  app.post(
+    "/quote",
+    {
+      schema: {
+        summary: "Cotizar un envío antes de crearlo",
+        description:
+          "MOVO-255 (ADR-028): precio real del resumen del wizard, con la misma lógica que " +
+          "`POST /shipments`. Con precio, devuelve un `quoteId` de un solo uso que congela " +
+          "ese precio hasta `expiresAt` (15 min) para el mismo usuario y los mismos datos. " +
+          "Si pricing no responde, todos los campos vienen en null ('precio a estimar') y " +
+          "sin `quoteId`. Rate limit por usuario en el gateway: cada cotización consulta " +
+          "Google Routes.",
+        tags: ["shipments"],
+        body: shipmentsSchemas.quoteShipmentBody,
+        response: {
+          200: shipmentsSchemas.quoteShipmentResponse,
+          400: shipmentsSchemas.errorResponse,
+          401: shipmentsSchemas.errorResponse,
+          422: shipmentsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const senderId = requireUserIdFromHeader(request);
+      return service.quoteShipmentPrice(senderId, request.body as ShipmentQuoteRequest);
     }
   );
 

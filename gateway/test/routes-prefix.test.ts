@@ -294,6 +294,51 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
     });
   });
 
+  describe("Rate limit por usuario: POST /shipments/quote (MOVO-255)", () => {
+    // Cada cotización consulta Google Routes: 20 cada 15 min por cuenta (no por IP).
+    function tokenFor(sub: string): string {
+      return signAccessToken({ sub, roles: [UserRole.SENDER], kycStatus: KycStatus.NOT_STARTED });
+    }
+
+    function quote(token: string, ip: string) {
+      return app.inject({
+        method: "POST",
+        url: "/api/v1/shipments/quote",
+        headers: { authorization: `Bearer ${token}`, "x-forwarded-for": ip },
+        payload: {},
+      });
+    }
+
+    it("permite 20 cotizaciones por usuario, bloquea la 21va con 429 y no afecta a otro usuario de la misma IP", async () => {
+      const ip = `10.9.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`;
+      const suffix = String(Math.floor(Math.random() * 1e12)).padStart(12, "0");
+      const token = tokenFor(`55555555-5555-5555-5555-${suffix}`);
+      const otherToken = tokenFor(`66666666-6666-6666-6666-${suffix}`);
+
+      for (let i = 0; i < 20; i++) {
+        expect((await quote(token, ip)).statusCode).toBe(200);
+      }
+      expect((await quote(token, ip)).statusCode).toBe(429);
+
+      expect((await quote(otherToken, ip)).statusCode).toBe(200);
+    });
+
+    it("el mismo usuario desde otra IP comparte el contador", async () => {
+      const suffix = String(Math.floor(Math.random() * 1e12)).padStart(12, "0");
+      const token = tokenFor(`77777777-7777-7777-7777-${suffix}`);
+
+      for (let i = 0; i < 20; i++) {
+        expect((await quote(token, `10.10.0.${i + 1}`)).statusCode).toBe(200);
+      }
+      expect((await quote(token, "10.10.1.1")).statusCode).toBe(429);
+    });
+
+    it("sin token responde 401 (el limiter por usuario corre después de autenticar)", async () => {
+      const response = await app.inject({ method: "POST", url: "/api/v1/shipments/quote", payload: {} });
+      expect(response.statusCode).toBe(401);
+    });
+  });
+
   describe("Rate limit estricto en rutas protegidas de cambio de teléfono/email (MOVO-133, review de tmvergara)", () => {
     // Mandan SMS reales por Twilio (ADR-012) -- sin este override caían al límite
     // general (RATE_LIMIT_MAX/min), y el cooldown de otpService.generateOtp() es por

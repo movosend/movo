@@ -2784,3 +2784,43 @@ y el push de trip-match.
 - `dispatchTripMatchPushes` ahora recibe `usersClient` y suma los bloqueados de emisor y
   receptor a `excludeCarrierIds`; como resuelve eso antes de buscar viajes, los tests
   unitarios que miran `findActiveTripsMatchingShipment` usan `vi.waitFor`.
+
+### MOVO-204 — Endpoint de última posición conocida para seguimiento (`movo-svc-shipments`)
+
+- **Ruta nueva `GET /:id/positions/latest`** (`src/modules/positions/positions.routes.ts`):
+  - Retorna `200` con `latestPositionResponse` (`lat`, `lng`, `accuracyM`, `capturedAt`, `recordedAt`) o `null` si no hay posición registrada.
+  - Protegido por `assertShipmentAccess` (solo las partes del envío: emisor, receptor, transportista asignado, o admin).
+  - Consulta `positionService.getLastKnownPosition(shipmentId)`, que lee de Redis respetando el ciclo de vida del Trip (ADR-023).
+  - Schema formal agregado en `positions.schema.ts`.
+
+### MOVO-255 — Cotización congelada del resumen del wizard (ADR-028)
+
+`POST /shipments/quote` cotiza con la misma función que la creación (`quoteShipment`,
+`shipment-quote.ts`, ya extraída en MOVO-138) y, si hay precio, lo guarda en Redis
+(`shipment_quote:{quoteId}`, TTL `SHIPMENT_QUOTE_TTL_SECONDS` = 15 min, constante y no env
+var) con `userId`, precio, `highDemand`, `calculationMethod` y un fingerprint (SHA-256 de
+tipo, peso, dimensiones y coordenadas redondeadas a 6 decimales). Sin precio responde todo
+`null` y no guarda nada. `POST /shipments` acepta `quoteId` opcional: con él usa el precio
+congelado sin llamar a pricing; sin él cotiza como antes (builds viejos).
+
+- **Consumo con Lua que compara antes de borrar** (`quote-store.ts`), no `GETDEL` a secas:
+  un `quoteId` de otro usuario o mandado con otros datos no quema la cotización del dueño.
+  Otro usuario o inexistente/vencida/usada → `409 QUOTE_EXPIRED` (no revela que el id
+  existe); fingerprint distinto → `409 QUOTE_MISMATCH` (la cotización queda viva).
+- **Se consume después de las validaciones de `createShipment`** (receptor, KYC, bloqueo,
+  franja), así un 422 no la quema. Un `quoteId` inválido nunca cae a recalcular.
+- Descripción, direcciones escritas y franja no entran al fingerprint: no afectan el precio.
+
+### MOVO-257 — `pendingOffersCount` en `GET /shipments/mine`
+
+Soporte del rediseño de "Mis envíos" (`movo-mobile`): cada ítem suma
+`pendingOffersCount`, la cantidad de ofertas **vigentes** (`offerStatusWhere(PENDING)`,
+respeta la expiración perezosa) — solo para el emisor de un envío `published`, `null` en
+cualquier otro caso (el receptor no ve ofertas). Se cuenta con un único `groupBy` sobre la
+página (`offer-repository.ts#countPendingOffersByShipmentIds`), nunca una query por envío.
+Campo agregado al `listMineResponse` (Swagger generado lo refleja).
+
+Detectado en la misma rama y derivado a MOVO-258: ningún barrido vence envíos con
+transportista (`assignment_pending`/`assigned_unfunded`/`assigned`) ni cierra viajes
+`active` (nada escribe `TripStatus.COMPLETED`), y envío y viaje se traban entre sí por
+la regla "bloquea, no cascadea" de MOVO-238.

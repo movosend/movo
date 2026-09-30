@@ -160,8 +160,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   // MOVO-175: reportar/bloquear bajo /users (ya proxeado por el gateway) + la unión
   // simétrica de bloqueos para svc-shipments bajo /internal (no proxeado).
-  app.register(moderationRoutes, { prefix: "/users" });
-  app.register(internalModerationRoutes, { prefix: "/internal" });
+  // MOVO-256: las fotos de reportes usan el mismo StorageProvider (override de tests).
+  const storageOverride = opts.storageProvider ? { storageProvider: opts.storageProvider } : {};
+  app.register(moderationRoutes, { prefix: "/users", ...storageOverride });
+  app.register(internalModerationRoutes, { prefix: "/internal", ...storageOverride });
 
   return app;
 }

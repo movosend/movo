@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
+import { ShipmentStatus } from "@movo/shared";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
-import { CreateShipmentInput, PackageType } from "../src/models/shipment";
+import { createOfferRepository } from "../src/repositories/offer-repository";
+import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
 import { createFakeUsersClient } from "./fake-users-client";
 
 describe("GET /shipments/mine (Postgres)", () => {
@@ -95,6 +97,58 @@ describe("GET /shipments/mine (Postgres)", () => {
     const page1Ids = page1.json().items.map((s: { id: string }) => s.id);
     const page2Ids = page2.json().items.map((s: { id: string }) => s.id);
     expect(page1Ids).not.toEqual(page2Ids);
+  });
+
+  describe("MOVO-257: pendingOffersCount", () => {
+    async function publish(senderId: string, receiverId: string): Promise<string> {
+      const created = await repo.create(inputFor(senderId, receiverId));
+      await repo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+      await repo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+      return (await repo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null)).id;
+    }
+
+    function offer(shipmentId: string, overrides: { expiresAt?: Date | null } = {}) {
+      return createOfferRepository(app.db).create({
+        shipmentId,
+        carrierId: randomUUID(),
+        priceOffered: 5000,
+        offeredDate: new Date("2030-01-01T00:00:00.000Z"),
+        ...overrides,
+      });
+    }
+
+    async function mineAs(userId: string) {
+      const response = await app.inject({ method: "GET", url: "/shipments/mine", headers: { "x-user-id": userId } });
+      expect(response.statusCode).toBe(200);
+      return response.json().items as Array<{ id: string; pendingOffersCount: number | null }>;
+    }
+
+    it("cuenta solo las ofertas vigentes para el emisor de un envío publicado", async () => {
+      const withOffers = await publish(userA, otherA);
+      const withoutOffers = await publish(userA, otherA);
+      await offer(withOffers);
+      await offer(withOffers);
+      await offer(withOffers, { expiresAt: new Date(Date.now() - 60_000) }); // vencida, no cuenta
+
+      const items = await mineAs(userA);
+      expect(items.find((s) => s.id === withOffers)?.pendingOffersCount).toBe(2);
+      expect(items.find((s) => s.id === withoutOffers)?.pendingOffersCount).toBe(0);
+    });
+
+    it("el receptor nunca ve el conteo", async () => {
+      const shipmentId = await publish(otherA, userA);
+      await offer(shipmentId);
+
+      const items = await mineAs(userA);
+      expect(items.find((s) => s.id === shipmentId)?.pendingOffersCount).toBeNull();
+    });
+
+    it("es null para un envío que no está publicado", async () => {
+      const created = await repo.create(inputFor(userA, otherA));
+
+      const items = await mineAs(userA);
+      expect(items.find((s) => s.id === created.id)?.pendingOffersCount).toBeNull();
+    });
   });
 
   it("responde 401 sin x-user-id", async () => {

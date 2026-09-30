@@ -1,7 +1,6 @@
 import { X } from "lucide-react-native";
 import { useState } from "react";
 import {
-  Image,
   Modal,
   Pressable,
   Text,
@@ -14,6 +13,7 @@ import { FlatList, Gesture, GestureDetector } from "react-native-gesture-handler
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from "react-native-safe-area-context";
 import type { ShipmentPhoto } from "../../src/api/shipments-client";
+import { RemoteImage } from "../ui/remote-image";
 
 // Mismo fallback que `AddressSearchSheet` — `initialWindowMetrics` es `null` en Jest
 // (sin módulo nativo real), no bloquea el primer render en device.
@@ -122,7 +122,12 @@ function ZoomableImage({ uri, width, onZoomChange, testID }: ZoomableImageProps)
           testID={testID}
           style={[{ flex: 1, alignItems: "center", justifyContent: "center" }, animatedStyle]}
         >
-          <Image source={{ uri }} style={{ width, height: "100%" }} resizeMode="contain" />
+          <RemoteImage
+            uri={uri}
+            style={{ width, height: "100%" }}
+            contentFit="contain"
+            loadingIndicator="spinner"
+          />
         </Animated.View>
       </GestureDetector>
     </View>

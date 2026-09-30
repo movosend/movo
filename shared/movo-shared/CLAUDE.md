@@ -330,3 +330,9 @@ sumada después) y los códigos `REPORT_ALREADY_PENDING`/`REPORT_NOT_FOUND`.
 (`{ totalCount, sampleFirstNames }`), migrado desde un tipo local de `movo-mobile` (mismo criterio que
 `PublicProfile`). `sampleFirstNames` viaja siempre vacío por la decisión de privacidad de esa US (solo
 el conteo); se mantiene en el tipo para poder mostrar nombres más adelante sin romper clientes.
+
+### MOVO-255 — Contrato de la cotización congelada
+
+`ShipmentQuoteRequest`/`ShipmentQuoteResponse` (`types/pricing.ts`) para
+`POST /shipments/quote`; la respuesta es una unión: con precio trae `quoteId`/`expiresAt`,
+sin precio todo `null`. Códigos nuevos `QUOTE_EXPIRED`/`QUOTE_MISMATCH` (ADR-028).

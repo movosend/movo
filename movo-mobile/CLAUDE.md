@@ -3874,6 +3874,43 @@ navega a su propia pantalla (ver abajo). Errores vía `friendlyErrorMessage`, co
   el feed disponible, los matches de viaje y las ofertas de cualquier envío
   (`["shipments", id, "offers", ...]`, por predicado porque el id va en el medio de la key).
 
+### MOVO-256 — Fotos en el reporte y rediseño de "Tu reporte" (mockup 1A de Claude Design)
+
+`profile/[id]/report.tsx` con reporte en revisión sigue la opción 1A del proyecto "Reportar
+usuario": el reporte como hilo. Card oscura de estado (`GridPattern` ganó `fade="top-right"` y
+`cellSize` para el desvanecido radial del mockup), historial en línea de tiempo (lo original con
+su motivo y cada entrada con fecha, `formatReportTimestamp`), "Tu seguridad" con bloquear como
+acción secundaria (o "Bloqueaste a X" si ya está bloqueado) y composer fijo abajo tipo chat. El
+agradecimiento con botón rojo de bloquear que aparecía al crear el reporte se fue: el card de
+estado ya lo dice y bloquear queda siempre a mano. Los avisos ("Lo sumamos a tu reporte.",
+"Bloqueaste a X.") son el toast flotante del mockup en vez de `SuccessBanner`.
+
+- **Fotos (`use-report-photos.ts`)**: cada foto sube al elegirla (cámara o galería vía
+  `Alert.alert`, comprimir → presign → PUT), así cada una muestra su estado; un error queda en
+  la foto puntual y se reintenta tocándola. Mientras haya una subiendo o con error el envío está
+  bloqueado: mandarlo igual la descartaría sin avisar. Las keys recién se asocian al enviar.
+  Mismo flujo en el formulario de reporte nuevo (no cubierto por el mockup: fila de miniaturas +
+  botón "agregar").
+- Las fotos enviadas se ven en grilla de 4 por envío y abren `PhotoViewerModal`.
+- El estado "Resuelto" del mockup no se implementó: `GET /users/:id/report` solo devuelve el
+  reporte `pending`, un reporte revisado nunca llega a esta pantalla.
+
+Pendiente / fuera de alcance: no probado en device (cámara/galería reales, teclado con el
+composer fijo).
+
+**Fixes de review (PR #198, Alena1812):**
+- **Se podía perder una foto agregada mientras se enviaba la entrada**
+  (`pending-report-view.tsx`): el botón de agregar foto solo se deshabilitaba al
+  llegar a 4 fotos, no mientras `addEntryMutation.isPending` -- una foto elegida
+  entre tocar "enviar" y que vuelva la respuesta no viajaba en el request y
+  `draftPhotos.reset()` la borraba del borrador sin avisar. Ahora también se
+  deshabilita mientras la mutación está en vuelo.
+- **Las URLs de las fotos vencían en el visor** (`report-photos.tsx`): las
+  presignadas duran 300s y la pantalla no volvía a pedir el reporte mientras
+  estaba abierta -- tocar una miniatura pasado ese tiempo daba 403 de S3.
+  `ReportPhotoGrid` gana `onOpen?: () => void`, llamado antes de abrir el visor;
+  `report.tsx` lo conecta a `reportQuery.refetch()` (URLs frescas del último
+  `GET /users/:id/report`).
 ### MOVO-174 — Conexiones mutuas: conectado al backend real
 
 `MutualConnectionsRow`/`useMutualConnections`/`usersClient.getMutualConnections` ya existían desde
@@ -3912,6 +3949,32 @@ nadie; la variante con nombres sigue soportada por el componente. Se agrega el t
 
 Pendiente / fuera de alcance: no probado en dispositivo; requiere el backend desplegado.
 
+### MOVO-204 — Mapa de seguimiento en vivo para emisor y receptor (`movo-mobile`)
+
+Implementación del mapa táctico y bottom sheet interactivo para emisor y receptor (`app/(app)/shipments/[id]/tracking.tsx`) consumiendo telemetría en tiempo real sobre el canal WebSocket (`useShipmentChannel`) y el endpoint HTTP `GET /shipments/:id/positions/latest`.
+
+- **Pantalla y Bottom Sheet de Seguimiento**:
+  - Bottom sheet deslizable con física basada en `PanResponder` y `Animated.spring` (tensión 65, fricción 11, feedback háptico con `Haptics.impactAsync(Light)`), expandible y colapsable a su altura base (220px), sin `ScrollView` anidada para evitar conflictos de gestos con el mapa.
+  - Tarjeta de contraparte integrada con `CounterpartCard` (muestra perfil público del transportista asignado, reputación, estado de verificación y navegación a `/profile/[id]`).
+  - Hero ETA Card con llegada estimada aproximada (`~X min (aprox.)`) y distancia en km calculadas mediante Haversine sin datos ni barras de progreso ficticias cuando no hay telemetría.
+  - Tarjeta técnica de destino con link directo a coordenadas lat/lng en Google Maps / Apple Maps.
+  - Píldora de telemetría superior flotante con estados reales ("En vivo", "Sin posición", "Reconectando", "Pausado", "Finalizado"), sin indicadores de latencia ficticios.
+  - Overlay terminal al recibir entrega finalizada (`delivered` / código 4009) informando el arribo del paquete y ofreciendo regreso a la app.
+- **Cumplimiento estricto de Privacidad (ADR-023)**:
+  - El componente `LiveMap` (`components/tracking/live-map.tsx`) NO renderiza trazas históricas ni polilíneas pasadas del recorrido del transportista. Únicamente muestra la posición actual del conductor y el pin del destino.
+  - Disclaimer de privacidad exacto según ADR-023: "Solo se comparte la ubicación en tiempo real mientras el envío está en camino. No se almacena historial de rutas."
+  - Al recibir estado `delivered` o código terminal `4009` del WebSocket, la UI finaliza el seguimiento y desactiva la telemetría.
+- **Hooks de Sincronización y Resiliencia**:
+  - `useShipmentChannel` (`src/hooks/use-shipment-channel.ts`): canal WebSocket resiliente con backoff exponencial progresivo (1s..30s), reconexión inmediata al volver de segundo plano (`AppState === "active"`), token dinámico vía `useAuthStore.getState().accessToken`, limpieza estricta de listeners en `unmount` para prevenir leaks de sockets concurrentes, y cierre terminal ante código `4009`.
+  - `useLivePosition` (`src/hooks/use-live-position.ts`): combina fetch inicial HTTP contra `GET /shipments/:id/positions/latest` con updates WebSocket en vivo, evalúa obsolescencia de posición (> 120s / 2 min sin updates marca estado `stale` y "Pausado" con actualización de timer reactivo), contempla estado `no_position`, y calcula distancias mediante Haversine.
+- **Acceso desde el Detalle del Envío y Home**:
+  - En `app/(app)/shipments/[id].tsx`, solo emisor y receptor (no el transportista, que ve su propia pantalla de navegación) acceden a "Seguimiento en vivo" para envíos en curso (`assigned` o `in_transit`).
+  - En la card de envío activo en inicio (`ActiveShipmentCard`), la acción tipada `live_tracking` navega directamente al mapa de seguimiento en vivo.
+- **Soporte de Modo Demo**:
+  - Parámetro `demo=true` y atajo en `DevShortcutsScreen` para probar la pantalla en desarrollo.
+- **Tests**:
+  - Unitarios y de integración para `useShipmentChannel` (`test/use-shipment-channel.test.ts`), `useLivePosition` (`test/use-live-position.test.ts`), `LiveTrackingScreen` (`test/live-tracking-screen.test.tsx`), `ActiveShipmentCard` (`test/active-shipment-card.test.tsx`), `activeShipmentCta` (`test/active-shipment-format.test.ts`) y endpoint backend `GET /shipments/:id/positions/latest` (`test/positions.routes.test.ts`).
+
 ### MOVO-253 — Elegir otro receptor tras un rechazo
 
 Lado mobile del ADR-027 (`rejected_by_receiver` deja de ser terminal, ver
@@ -3930,10 +3993,77 @@ Lado mobile del ADR-027 (`rejected_by_receiver` deja de ser terminal, ver
   re-renderiza al vencer (`useDeadlineExpired`). `canCancelShipment` incluye el estado.
 - **Formato**: tono `warning`; `shipmentLifecycleStage` depende del rol (en curso para el
   emisor, terminado para quien rechazó). Línea de tiempo: "Elegiste otro receptor", y un
-  rechazo anterior se muestra como "El receptor anterior rechazó el envío" en vez de
+  rechazo anterior se muestra como "El receptor actual rechazó el envío" en vez de
   tomar el nombre del receptor actual.
 
 Pendiente: no probado en device.
+
+### MOVO-255 — Precio real y congelado en el resumen del wizard de envío
+
+`RealPricingProvider` (`src/adapters/pricing-provider.ts`) contra `POST /shipments/quote`;
+se borró `mock-pricing-provider.ts` y el flag `USE_MOCK_PRICING`. El resumen cotiza solo al
+entrar (reusa la cotización guardada si sigue vigente) y manda el `quoteId` al publicar.
+
+- **`priceQuote` del store** guarda `quoteId`/`expiresAt`/`highDemand`/`updated`. Los setters
+  de tipo, peso, dimensiones y coordenadas de retiro/entrega la descartan solo si el valor
+  cambia de verdad; descripción, receptor y franja no la tocan.
+- **409 `QUOTE_EXPIRED`/`QUOTE_MISMATCH`**: se vuelve a cotizar, aparece "El precio se
+  actualizó" y el botón vuelve a idle; nunca se reintenta la creación sola (AC4). Una
+  respuesta de cotización que llega cuando el wizard ya tiene otros datos se descarta.
+- Si pricing no responde se muestra "Precio a estimar" y se crea sin `quoteId` (el backend
+  cotiza al crear), igual que antes.
+
+Pendiente: el badge "Alta demanda en tu zona" (`highDemand` ya queda en el store) entra
+con MOVO-254. No probado en device.
+
+### MOVO-257 — Rediseño de "Mis envíos" para emisor y receptor
+
+`app/(app)/shipments/index.tsx` rehecha sobre el prototipo "Mis envíos 4a": accesos por
+rol ("Enviás"/"Recibís", con conteo y punto de acción), segmentado En curso/Historial,
+filas con franja de acción (aceptar, elegir oferta, elegir otro receptor, aviso de
+"por vencer sin ofertas") y filtros de Persona/Estado con etiquetas removibles.
+`ShipmentCard` se borró; la presentación vive en `src/lib/my-shipments-format.ts`
+(pura, testeada) y los componentes `my-shipment-row`/`my-shipments-controls`/
+`my-shipments-filter-sheet`. El conteo de ofertas sale de `pendingOffersCount` de
+`GET /shipments/mine` (ver `services/movo-svc-shipments/CLAUDE.md`).
+
+Alcance ampliado en la misma rama (probando en device, detalle en los comentarios del
+ticket):
+- **`expo-image` (módulo nativo, requiere rebuild del dev client)**: `components/ui/
+  remote-image.tsx` es el único punto que carga imágenes por red — caché memoria+disco
+  con clave estable (la URL sin query, `src/lib/remote-image.ts`), porque las fotos de
+  envío son presigned GET que cambian en cada pedido y el `Image` de RN las volvía a
+  bajar siempre. Skeleton/spinner, fundido y fallback. `useShipmentPhotos` con
+  `staleTime` de 4 min (la firma vence a los 5). Las imágenes locales y los assets
+  siguen con `Image` de RN. Mock propio en Jest (`test/mocks/expo-image-mock.js`): el
+  real revienta al importarse por la integración con `expo-observe`.
+- **`RouteMapCard`**: skeleton sobre todo el mapa mientras carga la ruta (antes dibujaba
+  una recta que después se reemplazaba de golpe; la recta queda solo como fallback de
+  error) y zoom out limitado a un nivel por debajo del encuadre. **Siempre con
+  `maxZoomLevel` explícito**: en iOS (Google Maps, Fabric) min y max se aplican juntos
+  y sin max queda en 0 — fijar un mínimo mayor cierra la app. Una prueba de animar la
+  opacidad de la línea de base con `processColor` la dejó roja en nativo: la base
+  quedó estática.
+- **Paleta del mapa** (`src/constants/map-style.ts`, todos los mapas): calles en tres
+  grises, gris propio para zonas urbanas, lima apagado para parques/deportes y más
+  lavado para hospitales/escuelas/aeropuertos. `landscape.natural` descartado (teñía
+  casi todo el mapa en rutas largas). Las reglas lima van al final: tienen que pisar el
+  `visibility: off` de `poi`/`transit`.
+- **Detalle del envío**: rol + código `#MOVO` bajo el título; el receptor no ve el
+  precio; `CounterpartCard` sin estrellas si no hay calificaciones y badges cortos
+  ("Pendiente"/"Aceptó"/"Rechazó").
+- **`assignment_pending` ya no se lee como "sin transportista"**: es el estado final de
+  toda oferta aceptada mientras no exista el hold de MP (MOVO-12/210). Pill "Asignado",
+  el evento se titula por la elección ("Elegiste a Juan como transportista") con "Falta
+  reservar el pago" de detalle, el paso pendiente es "Reserva del pago", y el `reason`
+  de un evento solo se muestra en cancelaciones y rechazos (`shouldShowEventReason`: el
+  resto es texto interno del backend, como "Oferta <uuid> aceptada").
+- **Perfil público**: "Miembro desde hace…" (`formatMemberSince`, meses y años por
+  calendario) en vez de la fecha ISO cruda, y `BrandAvatar` en la ficha de vehículo.
+
+Pendiente: `offer-card.tsx` sigue mostrando estrellas vacías sin calificaciones;
+expiración de envíos con transportista y cierre de viajes `active` derivados a
+MOVO-258; no probado en device tras los últimos ajustes.
 
 ### MOVO-254 — Badge "Alta demanda en tu zona" junto al precio sugerido
 

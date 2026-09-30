@@ -1105,6 +1105,52 @@ Pendiente / fuera de alcance: revisión de reportes desde `movo-admin`/`svc-admi
   motivo/detalle del segundo intento. Se reemplazó por el 409 + entradas de arriba
   (migración `20260926130000_add_user_report_entries_movo_175`).
 
+### MOVO-256 — Fotos de evidencia en un reporte de usuario
+
+Tabla `users.user_report_photos` (migración `20260926230000_add_user_report_photos_movo_256`):
+cada foto pertenece al envío en el que se mandó (`entry_id` null = reporte original), `s3_key`
+único. `user_report_entries.details` pasa a nullable: una entrada puede ser solo fotos (el
+service exige texto o al menos una foto). `POST /users/:id/report/photos/presign` firma un PUT
+(JPEG, 2 MB, mismo criterio que MOVO-81) bajo el prefijo privado `reports/{reporterId}/`; el
+reporte y las entradas reciben `photoKeys` (hasta 4, `MAX_REPORT_PHOTOS_PER_SUBMISSION` de
+`@movo/shared`, el número del mockup de diseño) y el `GET` devuelve una presigned GET por foto
+(`StorageProvider.createDownloadUrl`, nuevo en este servicio, mismo contrato que en
+`svc-shipments`). Nunca públicas como `profile-photos/*` (ADR-016).
+
+- **Asociar una key toma el mismo lock por key que el sweep de huérfanas**
+  (`reportPhotoLockKey`) antes de validar prefijo propio + `headObject` + que no esté ya en
+  otro envío, y lo suelta después del INSERT: sin eso, el sweep podía borrar el objeto entre la
+  validación y la asociación. Las fotos se validan antes de consumir cupo diario (una foto
+  rechazada no gasta cupo); el presign no consume cupo.
+- **El índice único de `s3_key` es la red de seguridad de la carrera**: el P2002 se distingue
+  del de reporte pendiente duplicado buscando `s3_key` en todo `meta` (con el driver adapter
+  viene anidado, ver MOVO-93) — `isReportPhotoKeyConflict`, probado contra Postgres real.
+- **El sweep (`orphan-photo-sweep.ts`) pasó a una lista de prefijos**: `profile-photos` y
+  `reports`, cada uno con su sorted set, su lock global y su fuente de verdad en Postgres.
+- Sin Terraform nuevo: el bucket ya es privado salvo `profile-photos/*` y el rol de la EC2 ya
+  tiene Put/Delete/Get sobre todo el bucket. Sin env vars nuevas.
+- **`POST /users/:id/report/photos/presign` no tiene rate limit propio en el gateway, a
+  propósito**: el cupo diario real se controla al asociar la foto (`reportUser`/
+  `addReportEntry` consumen `RATE_LIMIT_EXCEEDED`, MOVO-175) y el sweep de huérfanas
+  borra las que se presignan y nunca se asocian — un presign de más no cuesta nada real
+  aparte de una fila efímera en Redis, así que no se agregó un override en
+  `gateway/src/config/routes-map.ts`.
+
+Pendiente / fuera de alcance: plazo de retención de las fotos tras la baja de cuenta (candidato
+a ADR, hoy se conservan como el resto del reporte); sumar las imágenes de reportes a la Política
+de Privacidad; revisión desde `movo-admin`.
+
+**Fixes de review (PR #198, Alena1812):**
+- **`REPORT_PHOTO_LOCK_TTL_MS` subido de 5s a 20s + `release()` con compare-and-delete
+  (Lua, token random por lock) en vez de `unlink()` a ciegas**
+  (`moderation.service.ts`): 5s era ajustado contra hasta 4 `headObject` + la consulta
+  de asociadas + el INSERT, y el `release()` viejo podía soltar un lock que ya era del
+  sweep de huérfanas si el propio venció antes de tiempo -- con eso, el sweep podía
+  borrar el objeto de S3 justo antes de que el INSERT terminara. El comentario de
+  `services/movo-svc-users/CLAUDE.md` que decía "el rol de la EC2 ya tiene Put/Delete/
+  Get sobre todo el bucket" también estaba desactualizado desde MOVO-114 -- ver la
+  entrada transversal de "Pendientes" del `CLAUDE.md` raíz (falta sumar `"reports"` a
+  `ec2_role_s3_prefixes` en `movo-infra` antes de un deploy real).
 ### MOVO-174 — `GET /users/:id/mutual-connections`
 
 "Ya envió con N personas con las que vos también enviaste" del perfil. Depende de QUIÉN MIRA

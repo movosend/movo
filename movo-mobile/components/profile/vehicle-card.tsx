@@ -1,7 +1,6 @@
 import type { VehicleProfile } from "@movo/shared/dist/types/user-profile";
-import { Truck } from "lucide-react-native";
 import { Text, View } from "react-native";
-import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { BrandAvatar } from "../vehicle/brand-avatar";
 
 export interface VehicleCardProps {
   vehicle: VehicleProfile | null | undefined;
@@ -15,8 +14,6 @@ export interface VehicleCardProps {
  * entrega su paquete puede verificar el vehículo antes de subirlo.
  */
 export function VehicleCard({ vehicle, testID }: VehicleCardProps) {
-  const colors = useThemeColors();
-
   if (!vehicle) return null;
 
   return (
@@ -24,9 +21,8 @@ export function VehicleCard({ vehicle, testID }: VehicleCardProps) {
       testID={testID}
       className="flex-row items-center gap-3 rounded-[16px] border border-border bg-bg px-4 py-3.5"
     >
-      <View className="h-[42px] w-[42px] items-center justify-center rounded-xl bg-bg-mute">
-        <Truck size={22} strokeWidth={1.75} color={colors.fg1} />
-      </View>
+      {/* Logo real de la marca, o sus iniciales si no hay logo cargado (MOVO-223). */}
+      <BrandAvatar brand={vehicle.brand} size={42} testID={testID ? `${testID}-brand` : undefined} />
       <View className="flex-1 gap-0.5">
         <Text className="font-sans-semibold text-[14.5px] text-fg">
           {vehicle.brand} {vehicle.model}

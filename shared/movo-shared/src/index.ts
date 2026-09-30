@@ -21,8 +21,21 @@ export { ApiError } from "./errors/api-error";
 export type { ApiErrorCode, SerializedApiError } from "./errors/api-error";
 
 // types
-export { UserRole, KycStatus, AccountStatus, ReportReason, ReportStatus } from "./types/user";
-export type { BlockedUserSummary, UserReportEntry, UserReportSummary } from "./types/user";
+export {
+  UserRole,
+  KycStatus,
+  AccountStatus,
+  ReportReason,
+  ReportStatus,
+  MAX_REPORT_PHOTOS_PER_SUBMISSION,
+} from "./types/user";
+export type {
+  BlockedUserSummary,
+  ReportPhotoUploadUrl,
+  UserReportEntry,
+  UserReportPhoto,
+  UserReportSummary,
+} from "./types/user";
 export { ShipmentStatus } from "./types/shipment";
 export type {
   SharedHistory,
@@ -47,7 +60,13 @@ export type {
 } from "./types/user-profile";
 export type { Address, CreateAddressInput, UpdateAddressInput } from "./types/address";
 export { PriceCalculationMethod } from "./types/pricing";
-export type { DemandContext, QuoteRequest, QuoteResponse } from "./types/pricing";
+export type {
+  DemandContext,
+  QuoteRequest,
+  QuoteResponse,
+  ShipmentQuoteRequest,
+  ShipmentQuoteResponse,
+} from "./types/pricing";
 export { OptimizationStatus } from "./types/routing";
 export type {
   Coordinates,

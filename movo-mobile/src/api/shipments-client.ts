@@ -1,5 +1,6 @@
 import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
+import type { ShipmentQuoteRequest, ShipmentQuoteResponse } from "@movo/shared/dist/types/pricing";
 import type { PackageType } from "../store/shipment-wizard-store";
 import { httpClient } from "./http-client";
 
@@ -52,6 +53,9 @@ export interface ShipmentSummary {
    * un transportista ajeno viendo un envío `published` — agregado de ofertas vigentes
    * sin identidad de los competidores, `null` si no hay ninguna. */
   offersSummary?: { count: number; minPriceNetArs: number } | null;
+  /** MOVO-257: solo en `GET /shipments/mine` — ofertas vigentes de un envío
+   * `published` visto por su emisor; `null` en cualquier otro caso. */
+  pendingOffersCount?: number | null;
 }
 
 export interface ListMineResponse {
@@ -83,6 +87,10 @@ export interface CreateShipmentInput {
   pickupDate: string;
   pickupTimeWindowStart: string;
   pickupTimeWindowEnd: string;
+  /** MOVO-255: cotización congelada de `POST /shipments/quote`. Con esto el envío se
+   * crea exactamente al precio que vio el emisor, o falla con 409 `QUOTE_EXPIRED`/
+   * `QUOTE_MISMATCH` (nunca se recalcula en silencio). */
+  quoteId?: string;
 }
 
 /** Respuesta de `GET /shipments/route` (`routeResponse` en `shipments.schema.ts`,
@@ -317,6 +325,11 @@ export const shipmentsClient = {
     return httpClient.post<ShipmentSummary>("/shipments", body);
   },
 
+  /** MOVO-255: precio real del resumen del wizard, congelado 15 min en el backend. */
+  quote(body: ShipmentQuoteRequest): Promise<ShipmentQuoteResponse> {
+    return httpClient.post<ShipmentQuoteResponse>("/shipments/quote", body);
+  },
+
   getRoute(origin: { lat: number; lng: number }, destination: { lat: number; lng: number }): Promise<RouteResult> {
     return httpClient.get<RouteResult>("/shipments/route", {
       originLat: origin.lat,
@@ -476,6 +489,16 @@ export const shipmentsClient = {
       positions,
     });
   },
+
+  /**
+   * `GET /shipments/:id/positions/latest` (MOVO-204 / MOVO-251).
+   * Obtiene la última posición GPS conocida del transportista para un envío en viaje activo.
+   */
+  getLastKnownPosition(shipmentId: string): Promise<LastKnownCarrierPosition | null> {
+    return httpClient.get<LastKnownCarrierPosition | null>(
+      `/shipments/${shipmentId}/positions/latest`
+    );
+  },
 };
 
 export type { CarrierRoute };
@@ -489,6 +512,14 @@ export interface ReportPositionInput {
 
 export interface ReportPositionResult {
   persisted: boolean;
+}
+
+export interface LastKnownCarrierPosition {
+  lat: number;
+  lng: number;
+  accuracyM: number;
+  capturedAt: string;
+  recordedAt: string;
 }
 
 export interface BatchPositionItemInput {
