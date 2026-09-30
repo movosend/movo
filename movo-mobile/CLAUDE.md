@@ -4078,8 +4078,9 @@ componente no decide cuándo mostrarse; eso queda en cada caller.
   sin precio pactado. Usa la misma condición que la etiqueta "Precio pactado"
   (`agreedPriceArs` o `carrierId`), no solo `agreedPriceArs` como decía el AC3: con
   transportista asignado la card ya no muestra el precio sugerido.
-- **Resumen del wizard, pendiente**: MOVO-255 (PR #202, abierta) deja `highDemand` en
-  `priceQuote` del store y le pasa el badge a este ticket. Se conecta en
-  `PricePreviewCard` cuando #202 llegue a `develop`.
+- **Resumen del wizard**: `PricePreviewCard` suma la prop `highDemand`; `SummaryStep` la
+  pasa con `priceQuote.status === "ready"` y `priceQuote.highDemand === true` (el valor que
+  guarda la cotización congelada de MOVO-255), así el badge corresponde siempre al precio
+  mostrado.
 
 Pendiente: no probado en device.
