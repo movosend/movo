@@ -34,6 +34,7 @@ describe("tripsClient", () => {
   const mockTripWithPackages: TripWithAcceptedPackages = {
     ...mockTrip,
     hasAcceptedPackages: false,
+    acceptedPackagesCount: 0,
   };
 
   it("list calls GET /trips with params", async () => {

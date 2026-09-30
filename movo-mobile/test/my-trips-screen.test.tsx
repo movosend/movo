@@ -52,10 +52,11 @@ const TRIP_A: TripWithAcceptedPackages = {
   createdAt: "2026-09-03T12:00:00.000Z",
   updatedAt: "2026-09-03T12:00:00.000Z",
   hasAcceptedPackages: false,
+  acceptedPackagesCount: 0,
 };
 
 const TRIP_ACTIVE: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-active", status: TripStatus.ACTIVE };
-const TRIP_BLOCKED: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-2", hasAcceptedPackages: true };
+const TRIP_BLOCKED: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-2", hasAcceptedPackages: true, acceptedPackagesCount: 1 };
 const TRIP_CANCELLED: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-3", status: TripStatus.CANCELLED };
 
 describe("MyTripsScreen", () => {

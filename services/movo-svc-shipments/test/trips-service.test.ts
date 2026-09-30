@@ -64,6 +64,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
     tripRepo = {
       create: vi.fn().mockImplementation(async (input) => fakeTrip(input)),
       findById: vi.fn().mockImplementation(async (id) => (id === TRIP_ID ? trip : null)),
+      findByIdWithPackages: vi.fn().mockImplementation(async (id) => (id === TRIP_ID ? { ...trip, hasAcceptedPackages: false, acceptedPackagesCount: 0, packages: [] } : null)),
       countAcceptedOffers: vi.fn().mockResolvedValue(0),
       listByCarrier: vi.fn().mockResolvedValue({ items: [fakeTrip()], total: 1 }),
       update: vi.fn().mockImplementation(async (id, input) => fakeTrip({ id, ...input })),
@@ -304,7 +305,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
     });
 
     it("devuelve el viaje con hasAcceptedPackages: true si tiene ofertas aceptadas", async () => {
-      (tripRepo.countAcceptedOffers as any).mockResolvedValue(2);
+      (tripRepo.findByIdWithPackages as any).mockResolvedValue({ ...trip, hasAcceptedPackages: true, acceptedPackagesCount: 2, packages: [] });
 
       const service = buildService();
 

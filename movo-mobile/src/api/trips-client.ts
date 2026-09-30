@@ -1,5 +1,6 @@
 import { httpClient } from "./http-client";
 import { TripStatus } from "@movo/shared/dist/types/trip";
+import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { AvailableShipment } from "./shipments-client";
 
 export { TripStatus };
@@ -27,10 +28,26 @@ export interface Trip {
   updatedAt: string;
 }
 
+export interface TripAcceptedPackage {
+  shipmentId: string;
+  status: ShipmentStatus;
+  packageType: string;
+  weightKg: number;
+  pickupAddress: string;
+  deliveryAddress: string;
+  pickupDate: string;
+  pickupTimeWindowStart: string;
+  pickupTimeWindowEnd: string;
+  agreedPriceArs: number;
+  senderName: string;
+}
+
 /** `GET /trips`/`GET /trips/:id` suman este flag (`hasAcceptedPackages`) — un viaje con
  * al menos un paquete aceptado no se puede editar ni cancelar directo (AC3/AC4). */
 export interface TripWithAcceptedPackages extends Trip {
   hasAcceptedPackages: boolean;
+  acceptedPackagesCount: number;
+  packages?: TripAcceptedPackage[];
 }
 
 /** Body de `POST /trips` (`createTripBody`, `additionalProperties: false` en el

@@ -417,3 +417,117 @@ describe("trip-repository (Postgres) — countAvailableCarriersNear (MOVO-138)",
     expect(await tripRepo.countAvailableCarriersNear({ ...pickupInCorridor, ...window })).toBe(0);
   });
 });
+
+describe("trip-repository (Postgres) — findByIdWithPackages (MOVO-261)", () => {
+  let app: FastifyInstance;
+  let tripRepo: TripRepository;
+  let shipmentRepo: ShipmentRepository;
+  let offerRepo: OfferRepository;
+
+  const baseShipmentInput: CreateShipmentInput = {
+    senderId: randomUUID(),
+    receiverId: randomUUID(),
+    packageType: PackageType.standard_package,
+    weightKg: 2.5,
+    lengthCm: 30,
+    widthCm: 20,
+    heightCm: 15,
+    description: "Caja",
+    pickupAddress: "Origen",
+    pickupLat: -31.0,
+    pickupLng: -64.0,
+    deliveryAddress: "Destino",
+    deliveryLat: -31.0,
+    deliveryLng: -63.0,
+    pickupDate: PICKUP_DATE,
+    pickupTimeWindowStart: new Date("1970-01-01T09:00:00.000Z"),
+    pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
+    suggestedPriceArs: 4500,
+  };
+
+  beforeAll(async () => {
+    process.env.JWT_SECRET = "test-secret";
+    process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
+    process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+    app = buildApp();
+    await app.ready();
+    tripRepo = createTripRepository(app.db);
+    shipmentRepo = createShipmentRepository(app.db);
+    offerRepo = createOfferRepository(app.db);
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(async () => {
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
+  });
+
+  async function createPublishedShipment(overrides: Partial<CreateShipmentInput> = {}): Promise<string> {
+    const created = await shipmentRepo.create({ ...baseShipmentInput, ...overrides });
+    await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+    await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+    const published = await shipmentRepo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null);
+    return published.id;
+  }
+
+  it("devuelve los paquetes con el orden correcto (primero por fecha, luego por franja), usando la franja de la oferta y excluyendo los cancelados", async () => {
+    const carrierId = randomUUID();
+    const trip = await tripRepo.create({
+      carrierId,
+      originAddress: "Origen",
+      originLat: -31.0,
+      originLng: -64.0,
+      destinationAddress: "Destino",
+      destinationLat: -31.0,
+      destinationLng: -63.0,
+      departureAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      vehicleType: "auto",
+    });
+
+    // Envío 1: Cancelado (debe quedar afuera)
+    const s1 = await createPublishedShipment();
+    const o1 = await offerRepo.create({ shipmentId: s1, carrierId, priceOffered: 1000, offeredDate: PICKUP_DATE });
+    const { offer: acc1 } = await offerRepo.acceptOffer(o1.id, carrierId);
+    await app.db.offer.update({ where: { id: acc1.id }, data: { tripId: trip.id } });
+    await shipmentRepo.updateStatus(s1, ShipmentStatus.CANCELLED, carrierId);
+
+    // Envío 2: Segunda fecha, franja matutina (10:00)
+    const s2 = await createPublishedShipment({ pickupDate: new Date("2026-08-21T00:00:00.000Z") });
+    const o2 = await offerRepo.create({ shipmentId: s2, carrierId, priceOffered: 1000, offeredDate: new Date("2026-08-21T00:00:00.000Z"), offeredPickupTimeWindowStart: "10:00:00", offeredPickupTimeWindowEnd: "12:00:00" });
+    const { offer: acc2 } = await offerRepo.acceptOffer(o2.id, carrierId);
+    await app.db.offer.update({ where: { id: acc2.id }, data: { tripId: trip.id } });
+
+    // Envío 3: Primera fecha (PICKUP_DATE), franja tarde (14:00 - usa franja del envío porque no tiene en la oferta)
+    const s3 = await createPublishedShipment({ pickupTimeWindowStart: new Date("1970-01-01T14:00:00.000Z"), pickupTimeWindowEnd: new Date("1970-01-01T16:00:00.000Z") });
+    const o3 = await offerRepo.create({ shipmentId: s3, carrierId, priceOffered: 1000, offeredDate: PICKUP_DATE });
+    const { offer: acc3 } = await offerRepo.acceptOffer(o3.id, carrierId);
+    await app.db.offer.update({ where: { id: acc3.id }, data: { tripId: trip.id } });
+
+    // Envío 4: Primera fecha (PICKUP_DATE), franja mañana (09:00 - usa franja de la oferta)
+    const s4 = await createPublishedShipment();
+    const o4 = await offerRepo.create({ shipmentId: s4, carrierId, priceOffered: 1000, offeredDate: PICKUP_DATE, offeredPickupTimeWindowStart: "09:00:00", offeredPickupTimeWindowEnd: "11:00:00" });
+    const { offer: acc4 } = await offerRepo.acceptOffer(o4.id, carrierId);
+    await app.db.offer.update({ where: { id: acc4.id }, data: { tripId: trip.id } });
+
+    const result = await tripRepo.findByIdWithPackages(trip.id);
+    
+    expect(result).not.toBeNull();
+    expect(result?.acceptedPackagesCount).toBe(3);
+    expect(result?.packages).toHaveLength(3);
+    
+    // Orden esperado: s4 (día 20, 09:00), s3 (día 20, 14:00), s2 (día 21, 10:00)
+    expect(result?.packages[0].shipmentId).toBe(s4);
+    expect(result?.packages[0].pickupDate).toBe("2026-08-20");
+    expect(result?.packages[0].pickupTimeWindowStart).toBe("09:00:00");
+    
+    expect(result?.packages[1].shipmentId).toBe(s3);
+    expect(result?.packages[1].pickupDate).toBe("2026-08-20");
+    expect(result?.packages[1].pickupTimeWindowStart).toBe("14:00:00");
+    
+    expect(result?.packages[2].shipmentId).toBe(s2);
+    expect(result?.packages[2].pickupDate).toBe("2026-08-21");
+    expect(result?.packages[2].pickupTimeWindowStart).toBe("10:00:00");
+  });
+});
