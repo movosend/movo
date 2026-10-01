@@ -146,6 +146,7 @@ enum trip_status_enum {
   declared
   active
   cancelled
+  expired
   completed
 }
 
@@ -636,6 +637,7 @@ Table shipments.trips {
   departure_at timestamp [note: 'timestamptz, fecha y hora de salida planeada']
   vehicle_type varchar [note: 'auto, moto, utilitario, camion, etc.']
   status trip_status_enum [default: 'declared', note: 'MOVO-221: default pasó de active a declared']
+  cancelled_at timestamp [note: 'timestamptz, MOVO-260: fecha de cancelación lógica']
   created_at timestamp
   updated_at timestamp [note: 'mantenida por trigger update_updated_at_column']
 
