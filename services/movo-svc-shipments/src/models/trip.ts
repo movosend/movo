@@ -20,6 +20,7 @@ export interface Trip {
   departureAt: Date;
   vehicleType: string;
   status: TripStatus;
+  cancelledAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -128,6 +129,7 @@ export function mapTrip(row: TripRow): Trip {
     departureAt: row.departureAt,
     vehicleType: row.vehicleType,
     status: parseTripStatus(row.status),
+    cancelledAt: row.cancelledAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

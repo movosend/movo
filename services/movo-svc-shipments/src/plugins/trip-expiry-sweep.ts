@@ -43,11 +43,11 @@ export default fp(async (app: FastifyInstance, opts: TripExpirySweepPluginOption
         return;
       }
 
-      const cancelledIds = await repository.cancelOverdueDeclared(new Date(), BATCH_SIZE);
-      for (const tripId of cancelledIds) {
+      const expiredIds = await repository.cancelOverdueDeclared(new Date(), BATCH_SIZE);
+      for (const tripId of expiredIds) {
         app.log.info(
-          { event: "trip_auto_cancelled", tripId, reason: "departure_passed_without_accepted_offers" },
-          "Viaje declared vencido cancelado automáticamente",
+          { event: "trip_auto_expired", tripId, reason: "departure_passed_without_accepted_offers" },
+          "Viaje declared vencido expirado automáticamente",
         );
       }
     } catch (err) {

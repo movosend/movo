@@ -1,5 +1,6 @@
 // MOVO-221: `declared` agregado como estado inicial real del ciclo de vida.
-const TRIP_STATUS_VALUES = ["declared", "active", "cancelled", "completed"];
+// MOVO-260: `expired` separado de `cancelled`.
+const TRIP_STATUS_VALUES = ["declared", "active", "cancelled", "expired", "completed"];
 
 const tripResponse = {
   type: "object",
@@ -30,6 +31,7 @@ const tripResponse = {
     departureAt: { type: "string", format: "date-time" },
     vehicleType: { type: "string" },
     status: { type: "string", enum: TRIP_STATUS_VALUES },
+    cancelledAt: { type: ["string", "null"], format: "date-time" },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
   },
@@ -182,6 +184,7 @@ export const tripsSchemas = {
     type: "object",
     properties: {
       status: { type: "string", enum: TRIP_STATUS_VALUES },
+      scope: { type: "string", enum: ["upcoming", "history"] },
       page: { type: "integer", minimum: 1, default: 1 },
       limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
     },
