@@ -109,6 +109,7 @@ enum TripStatus {
   declared
   active
   cancelled
+  expired
   completed
 
   @@map("trip_status_enum")
@@ -471,6 +472,8 @@ model Trip {
   // Prisma (mismo caso que offers_shipment_carrier_pending_unique, MOVO-102) --
   // agregado a mano en la migración de backfill.
   status             TripStatus @default(declared)
+
+  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
