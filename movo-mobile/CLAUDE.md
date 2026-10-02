@@ -4016,6 +4016,19 @@ entrar (reusa la cotización guardada si sigue vigente) y manda el `quoteId` al 
 Pendiente: el badge "Alta demanda en tu zona" (`highDemand` ya queda en el store) entra
 con MOVO-254. No probado en device.
 
+### MOVO-184 — Actividad reciente del home: prioridad por acción y expiración de terminales
+
+Rediseño del widget "Actividad reciente" (`RecentShipmentsSection`) de Inicio para que los envíos más relevantes no queden ocultos detrás de cancelados o completados recientes. AC1 y AC2 resueltos 100% client-side sobre una ventana más amplia.
+
+- **Ventana ampliada a `limit: 20`**: `useRecentShipments` ahora pide los últimos 20 envíos propios (en vez de 3) sin filtro de estado. El payload es ínfimo (~2.5KB gzipped), ahorra requests condicionales y garantiza que haya suficientes envíos para llenar los 3 espacios del widget con activos priorizados o, si no los hay, con historial reciente.
+- **`selectRecentShipments` puro y testeado** (`src/lib/recent-shipments-selection.ts`):
+  - **Nivel 1 (Acción)**: Usa el mismo helper `presentMyShipment.strip` de MOVO-257. Receptores pendientes de confirmar, emisores con ofertas, plazos por vencer o receptores a re-designar quedan siempre arriba.
+  - **Nivel 2 (Ongoing)**: El resto de los envíos en curso.
+  - **Nivel 3 (Historial)**: Envíos terminales.
+  - Dentro de cada nivel se desempatan por `createdAt desc`.
+- **Expiración a las 48h**: `cancelled` y `rejected_by_receiver` (vistos por el receptor) desaparecen del widget pasadas 48 horas desde `lastStatusChangedAt`. `delivered` y `completed` no expiran nunca (sirven de fallback).
+- **Contador "N activos" no sufre regresiones (AC3)**: Sigue computando los envíos `"ongoing"` visibles en el widget (hasta 3), alineado con la expectativa visual de la lista mostrada debajo.
+
 ### MOVO-257 — Rediseño de "Mis envíos" para emisor y receptor
 
 `app/(app)/shipments/index.tsx` rehecha sobre el prototipo "Mis envíos 4a": accesos por

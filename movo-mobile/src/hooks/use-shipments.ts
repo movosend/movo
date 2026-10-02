@@ -22,7 +22,7 @@ export const TRANSPORT_RADIUS_OPTIONS_KM = [10, 25, 50, 100] as const;
 export function useRecentShipments() {
   return useQuery({
     queryKey: ["shipments", "mine", "recent"],
-    queryFn: () => shipmentsClient.listMine({ page: 1, limit: 3 }),
+    queryFn: () => shipmentsClient.listMine({ page: 1, limit: 20 }),
   });
 }
 
