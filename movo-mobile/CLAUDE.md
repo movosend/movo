@@ -4132,3 +4132,16 @@ Tests agregados/actualizados:
 - `test/route-screen.test.tsx`: test de visualización de CTA y transición de inicio desde la pantalla de ruta.
 - Cobertura: 182/182 suites pasando (1564 tests en `movo-mobile`). `tsc --noEmit` con 0 errores.
 
+
+### MOVO-258 — Ajustes del mobile por la expiración y el cierre automático de envíos y viajes
+
+Cambios chicos de soporte al backend (detalle en `services/movo-svc-shipments/CLAUDE.md`):
+- **`OfferStatus.SHIPMENT_CANCELLED`** (oferta cerrada porque su envío se canceló): etiqueta, chip y
+  banner en `src/lib/offer-format.ts`/`components/transport/my-offer-card.tsx`, y cuenta como oferta
+  cerrada en `app/(app)/carrier/offers/index.tsx`.
+- **`TRIP_NO_PACKAGES`**: mensaje en `src/lib/error-messages.ts` para `POST /trips/:id/start` sobre un
+  viaje sin paquetes. El botón "Iniciar viaje" sigue visible; ocultarlo depende del rediseño de "Mis
+  viajes" (MOVO-259).
+- **Tocar la card de un viaje `active` en "Mis viajes" abre el mapa (`/route`)** en vez del feed filtrado:
+  un viaje iniciado tiene sus paquetes fijos y `GET /trips/:id/matches` le responde 409
+  `TRIP_NOT_AVAILABLE`. Un viaje `declared` sigue abriendo el feed (`test/my-trips-screen.test.tsx`).

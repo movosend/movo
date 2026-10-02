@@ -341,3 +341,9 @@ sin precio todo `null`. Códigos nuevos `QUOTE_EXPIRED`/`QUOTE_MISMATCH` (ADR-02
 
 `src/errors/api-error.ts` — código nuevo en `ApiErrorCode` para el endpoint `POST /trips/:id/start` (MOVO-221), retornado cuando el transportista intenta iniciar un viaje antes de la fecha programada. Consumido por el cliente móvil (`movo-mobile`, MOVO-252) para mapear el error a un mensaje legible con la fecha de salida.
 
+
+### MOVO-258 — `OfferStatus.SHIPMENT_CANCELLED`, `TRIP_NO_PACKAGES` y triggers de notificación (ADR-029)
+
+`types/offer.ts`: 7° valor de `OfferStatus` (oferta cerrada porque su envío se canceló).
+`errors/api-error.ts`: código `TRIP_NO_PACKAGES` (iniciar un viaje sin paquetes). `config/notification-templates.ts`: triggers
+`shipmentCancelledPickupMissed{Sender,Receiver,Carrier}`, `offersNeedReview` y `transitAnomalyCheck`.
