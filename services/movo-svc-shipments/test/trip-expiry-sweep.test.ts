@@ -47,7 +47,7 @@ describe("trip-expiry-sweep plugin", () => {
 
     expect(redisSet).toHaveBeenCalledWith("locks:trip-expiry-sweep", "locked", "PX", expect.any(Number), "NX");
     expect(findMany).toHaveBeenCalled();
-    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: "cancelled" } }));
+    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: "expired" } }));
 
     await app.close();
     expect(vi.getTimerCount()).toBe(0);
