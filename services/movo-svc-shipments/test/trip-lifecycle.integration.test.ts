@@ -153,7 +153,7 @@ describe("trip-repository (Postgres) — ciclo de vida declared/active", () => {
 
   it("start() lanza TripNotDeclaredError si el viaje está cancelled", async () => {
     const trip = await tripRepo.create(baseTripInput());
-    await tripRepo.update(trip.id, { status: TripStatus.CANCELLED });
+    await app.db.trip.update({ where: { id: trip.id }, data: { status: TripStatus.CANCELLED } });
 
     await expect(tripRepo.start(trip.id)).rejects.toThrow(TripNotDeclaredError);
   });
@@ -195,16 +195,18 @@ describe("trip-repository (Postgres) — ciclo de vida declared/active", () => {
     expect(statuses).toEqual([TripStatus.ACTIVE, TripStatus.DECLARED].sort());
   });
 
-  it("update() (PATCH) respeta el mismo límite si se fuerza status:active a mano", async () => {
+  // MOVO-260: el PATCH ya no acepta `status` (iniciar va por /start, cancelar por /cancel),
+  // pero el índice único parcial sigue siendo la última línea de defensa en la DB.
+  it("el índice único parcial bloquea un segundo active aunque se escriba directo en la DB", async () => {
     const carrierId = randomUUID();
     const tripA = await tripRepo.create(baseTripInput({ carrierId }));
     const tripB = await tripRepo.create(baseTripInput({ carrierId }));
     await attachAcceptedPackage(app.db, tripA);
     await tripRepo.start(tripA.id);
 
-    await expect(tripRepo.update(tripB.id, { status: TripStatus.ACTIVE })).rejects.toThrow(
-      TripAlreadyHasActiveTripError,
-    );
+    await expect(
+      app.db.trip.update({ where: { id: tripB.id }, data: { status: TripStatus.ACTIVE } }),
+    ).rejects.toThrow();
   });
 
   it("un viaje active no bloquea a OTRO transportista de iniciar el suyo (aislamiento por carrierId)", async () => {

@@ -131,7 +131,7 @@ describe("expiración y cierre automático (MOVO-258, Postgres)", () => {
   });
 
   describe("D1 + AC3: retiro no realizado y viaje destrabado", () => {
-    it("cancela el envío, cierra la oferta y el viaje se cancela en la corrida siguiente", async () => {
+    it("cancela el envío, cierra la oferta y el viaje expira en la corrida siguiente", async () => {
       const { shipmentId, offerId, trip } = await createAssignedWithTrip();
 
       // Mientras el paquete está vivo, el viaje vencido queda bloqueado.
@@ -146,7 +146,8 @@ describe("expiración y cierre automático (MOVO-258, Postgres)", () => {
       expect(events.at(-1)?.reason).toContain("El retiro no se realizó");
 
       expect(await tripRepo.cancelOverdueDeclared(new Date(), 100)).toEqual([trip.id]);
-      expect((await tripRepo.findById(trip.id))?.status).toBe(TripStatus.CANCELLED);
+      // ADR-029 (MOVO-260): la baja automática de un viaje es `expired`, no `cancelled`.
+      expect((await tripRepo.findById(trip.id))?.status).toBe(TripStatus.EXPIRED);
     });
 
     it("no toca un envío dentro del margen de gracia", async () => {
@@ -228,23 +229,23 @@ describe("expiración y cierre automático (MOVO-258, Postgres)", () => {
       expect((await tripRepo.findById(declared.id))?.status).toBe(TripStatus.DECLARED);
     });
 
-    it("cancelActiveWithoutPackages cancela un active al que se le cancelaron todos los paquetes", async () => {
+    it("expireActiveWithoutPackages expira un active al que se le cancelaron todos los paquetes", async () => {
       const { tripId, shipmentId } = await activeTripWithShipment(null);
 
       // Con un paquete vivo no se toca.
-      expect(await tripRepo.cancelActiveWithoutPackages(100)).toEqual([]);
+      expect(await tripRepo.expireActiveWithoutPackages(100)).toEqual([]);
 
       await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.CANCELLED, null);
 
-      expect(await tripRepo.cancelActiveWithoutPackages(100)).toEqual([tripId]);
-      expect((await tripRepo.findById(tripId))?.status).toBe(TripStatus.CANCELLED);
+      expect(await tripRepo.expireActiveWithoutPackages(100)).toEqual([tripId]);
+      expect((await tripRepo.findById(tripId))?.status).toBe(TripStatus.EXPIRED);
     });
 
-    it("cancelActiveWithoutPackages no toca un declared sin paquetes ni un active con paquete entregado", async () => {
+    it("expireActiveWithoutPackages no toca un declared sin paquetes ni un active con paquete entregado", async () => {
       const declared = await tripRepo.create(tripInput({ departureAt: new Date(Date.now() + HOUR_MS) }));
       const { tripId } = await activeTripWithShipment(ShipmentStatus.DELIVERED);
 
-      expect(await tripRepo.cancelActiveWithoutPackages(100)).toEqual([]);
+      expect(await tripRepo.expireActiveWithoutPackages(100)).toEqual([]);
       expect((await tripRepo.findById(declared.id))?.status).toBe(TripStatus.DECLARED);
       expect((await tripRepo.findById(tripId))?.status).toBe(TripStatus.ACTIVE);
     });

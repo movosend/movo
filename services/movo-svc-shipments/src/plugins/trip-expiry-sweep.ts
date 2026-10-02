@@ -15,12 +15,13 @@ const BATCH_SIZE = 100;
  * MOVO-238: cancela periódicamente los viajes `declared` cuyo `departureAt` ya pasó sin
  * que el transportista los iniciara ni tuvieran un paquete aceptado -- mismo esqueleto
  * `setInterval` + lock distribuido en Redis que el resto de los sweeps del servicio
- * (`pickup-expiry-sweep.ts`, `receiver-confirmation-sweep.ts`). Un viaje `active` nunca
- * se toca, y uno vencido CON paquete aceptado queda para revisión manual (ver
- * `TripRepository.cancelOverdueDeclared`).
+ * (`pickup-expiry-sweep.ts`, `receiver-confirmation-sweep.ts`). Un `declared` vencido CON
+ * paquete aceptado queda sin tocar hasta que el envío se retire o se cancele (ver
+ * `TripRepository.cancelOverdueDeclared`). Desde MOVO-258 un `active` solo se toca para
+ * cerrarlo cuando sus paquetes terminaron (`completed`) o ya no le queda ninguno (`expired`).
  *
  * Auditoría (AC5): sin tabla de eventos propia para `Trip` -- alcanza con el log
- * estructurado (`trip_auto_cancelled`) + `updatedAt`, que el `@updatedAt` de Prisma
+ * estructurado (`trip_auto_expired`) + `updatedAt`, que el `@updatedAt` de Prisma
  * refresca en la cancelación.
  */
 export default fp(async (app: FastifyInstance, opts: TripExpirySweepPluginOptions = {}) => {
@@ -46,11 +47,11 @@ export default fp(async (app: FastifyInstance, opts: TripExpirySweepPluginOption
         return;
       }
 
-      const cancelledIds = await repository.cancelOverdueDeclared(new Date(), BATCH_SIZE);
-      for (const tripId of cancelledIds) {
+      const expiredIds = await repository.cancelOverdueDeclared(new Date(), BATCH_SIZE);
+      for (const tripId of expiredIds) {
         app.log.info(
-          { event: "trip_auto_cancelled", tripId, reason: "departure_passed_without_accepted_offers" },
-          "Viaje declared vencido cancelado automáticamente",
+          { event: "trip_auto_expired", tripId, reason: "departure_passed_without_accepted_offers" },
+          "Viaje declared vencido expirado automáticamente",
         );
       }
 
@@ -63,11 +64,11 @@ export default fp(async (app: FastifyInstance, opts: TripExpirySweepPluginOption
         );
       }
 
-      const emptyActiveIds = await repository.cancelActiveWithoutPackages(BATCH_SIZE);
+      const emptyActiveIds = await repository.expireActiveWithoutPackages(BATCH_SIZE);
       for (const tripId of emptyActiveIds) {
         app.log.info(
-          { event: "trip_auto_cancelled", tripId, reason: "active_without_packages" },
-          "Viaje active sin paquetes vivos cancelado automáticamente",
+          { event: "trip_auto_expired", tripId, reason: "active_without_packages" },
+          "Viaje active sin paquetes vivos expirado automáticamente",
         );
       }
     } catch (err) {

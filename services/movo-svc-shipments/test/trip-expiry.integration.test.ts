@@ -107,7 +107,7 @@ describe("trip-repository (Postgres) — cancelOverdueDeclared (MOVO-238)", () =
 
     expect(cancelled).toEqual([trip.id]);
     const after = await tripRepo.findById(trip.id);
-    expect(after?.status).toBe(TripStatus.CANCELLED);
+    expect(after?.status).toBe(TripStatus.EXPIRED);
     expect(after!.updatedAt.getTime()).toBeGreaterThanOrEqual(trip.updatedAt.getTime());
   });
 

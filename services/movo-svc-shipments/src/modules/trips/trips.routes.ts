@@ -50,7 +50,6 @@ interface UpdateTripBody {
   destinationLng?: number;
   departureAt?: string;
   vehicleType?: string;
-  status?: TripStatus;
 }
 
 function toAvailableShipmentDto(item: MatchedShipment) {
@@ -147,7 +146,7 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
     async (request: FastifyRequest, reply: FastifyReply) => {
       const callerId = requireUserIdFromHeader(request);
       const callerRoles = getUserRolesFromHeader(request);
-      const query = request.query as { page?: number; limit?: number; status?: TripStatus };
+      const query = request.query as { page?: number; limit?: number; status?: TripStatus; scope?: "upcoming" | "history" };
 
       const result = await service.listCarrierTrips({
         callerId,
@@ -155,6 +154,7 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
         page: query.page ?? 1,
         limit: query.limit ?? 20,
         status: query.status,
+        scope: query.scope,
       });
 
       return reply.send({
@@ -238,6 +238,7 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
     {
       schema: {
         summary: "Eliminar o cancelar viaje declarado",
+        deprecated: true,
         params: tripsSchemas.tripIdParam,
         response: {
           204: { type: "null", description: "Viaje eliminado exitosamente" },
@@ -259,6 +260,36 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
       });
 
       return reply.code(204).send();
+    },
+  );
+
+  // POST /trips/:id/cancel: declared -> cancelled (MOVO-260)
+  app.post(
+    "/:id/cancel",
+    {
+      schema: {
+        summary: "Cancelar viaje declarado (lógico)",
+        params: tripsSchemas.tripIdParam,
+        response: {
+          200: tripsSchemas.tripResponse,
+          403: tripsSchemas.errorResponse,
+          404: tripsSchemas.errorResponse,
+          409: tripsSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const callerId = requireUserIdFromHeader(request);
+      const callerRoles = getUserRolesFromHeader(request);
+      const { id } = request.params as { id: string };
+
+      const trip = await service.cancelTrip({
+        tripId: id,
+        callerId,
+        callerRoles,
+      });
+
+      return reply.send(toTripDto(trip));
     },
   );
 

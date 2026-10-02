@@ -13,5 +13,6 @@ export enum TripStatus {
   DECLARED = "declared",
   ACTIVE = "active",
   CANCELLED = "cancelled",
+  EXPIRED = "expired",
   COMPLETED = "completed",
 }
