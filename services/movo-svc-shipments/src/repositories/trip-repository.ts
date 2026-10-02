@@ -75,11 +75,12 @@ export class TripNotDeclaredError extends Error {
   constructor(
     public readonly id: string,
     public readonly status?: TripStatus,
+    public readonly action: string = "iniciar"
   ) {
     super(
       status
-        ? `El viaje '${id}' no se puede iniciar porque no está en estado 'declared' (estado actual: '${status}')`
-        : `El viaje '${id}' no se puede iniciar porque otra operación ya lo modificó`,
+        ? `El viaje '${id}' no se puede ${action} porque no está en estado 'declared' (estado actual: '${status}')`
+        : `El viaje '${id}' no se puede ${action} porque otra operación ya lo modificó`,
     );
     this.name = "TripNotDeclaredError";
   }
@@ -324,7 +325,6 @@ export function createTripRepository(db: PrismaClient): TripRepository {
             ...(input.destinationLng !== undefined ? { destinationLng: input.destinationLng } : {}),
             ...(input.departureAt !== undefined ? { departureAt: input.departureAt } : {}),
             ...(input.vehicleType !== undefined ? { vehicleType: input.vehicleType } : {}),
-            ...(input.status !== undefined ? { status: input.status } : {}),
           },
         });
 
@@ -469,7 +469,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         throw new TripNotFoundError(id);
       }
       if (current.status !== TripStatus.DECLARED) {
-        throw new TripNotDeclaredError(id, parseTripStatus(current.status));
+        throw new TripNotDeclaredError(id, parseTripStatus(current.status), "cancelar");
       }
 
       const acceptedCount = await db.offer.count({
@@ -485,7 +485,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       });
 
       if (result.count === 0) {
-        throw new TripNotDeclaredError(id);
+        throw new TripNotDeclaredError(id, undefined, "cancelar");
       }
 
       const row = await db.trip.findUniqueOrThrow({ where: { id } });

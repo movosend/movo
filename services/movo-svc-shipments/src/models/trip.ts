@@ -46,7 +46,6 @@ export interface UpdateTripInput {
   destinationLng?: number;
   departureAt?: Date;
   vehicleType?: string;
-  status?: TripStatus;
 }
 
 export interface TripAcceptedPackage {

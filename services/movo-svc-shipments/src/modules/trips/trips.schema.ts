@@ -176,7 +176,6 @@ export const tripsSchemas = {
       destinationLng: { type: "number", minimum: -180, maximum: 180 },
       departureAt: { type: "string", format: "date-time" },
       vehicleType: { type: "string", minLength: 1, maxLength: 50 },
-      status: { type: "string", enum: TRIP_STATUS_VALUES },
     },
   },
 

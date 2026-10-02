@@ -50,7 +50,6 @@ interface UpdateTripBody {
   destinationLng?: number;
   departureAt?: string;
   vehicleType?: string;
-  status?: TripStatus;
 }
 
 function toAvailableShipmentDto(item: MatchedShipment) {
