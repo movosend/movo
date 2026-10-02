@@ -32,7 +32,7 @@ export class InvalidOfferTransitionError extends Error {
  * clave existe acá solo por completitud (mismo estilo que
  * `shipment-state-machine.ts`, que lista incluso sus estados terminales).
  *
- * `rejected`/`withdrawn`/`expired`/`superseded` no tienen salida: son
+ * `rejected`/`withdrawn`/`expired`/`superseded`/`shipment_cancelled` no tienen salida: son
  * terminales. Un rechazo previo no bloquea una oferta nueva (AC7) — pero
  * eso es una fila nueva, no una transición de ésta.
  */
@@ -42,12 +42,16 @@ const VALID_TRANSITIONS: Readonly<Record<OfferStatus, ReadonlySet<OfferStatus>>>
     OfferStatus.REJECTED, // el emisor la rechaza explícitamente
     OfferStatus.WITHDRAWN, // el transportista la retira antes de respuesta
     OfferStatus.SUPERSEDED, // el emisor aceptó otra oferta del mismo envío (batch, AC8)
+    OfferStatus.SHIPMENT_CANCELLED, // el envío se canceló con la oferta vigente (MOVO-258, D7)
   ]),
-  [OfferStatus.ACCEPTED]: new Set(),
+  [OfferStatus.ACCEPTED]: new Set([
+    OfferStatus.SHIPMENT_CANCELLED, // el envío se canceló después de aceptarla (MOVO-258, D7)
+  ]),
   [OfferStatus.REJECTED]: new Set(),
   [OfferStatus.WITHDRAWN]: new Set(),
   [OfferStatus.EXPIRED]: new Set(),
   [OfferStatus.SUPERSEDED]: new Set(),
+  [OfferStatus.SHIPMENT_CANCELLED]: new Set(),
 };
 
 /** Solo lectura — no muta el estado, es para consultas (ej. habilitar/deshabilitar una acción en UI). */

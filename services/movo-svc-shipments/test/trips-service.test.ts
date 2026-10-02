@@ -700,6 +700,11 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
   });
 
   describe("getTripMatches", () => {
+    // MOVO-258 (D5): solo un viaje `declared` busca paquetes; al iniciarlo quedan fijos.
+    beforeEach(() => {
+      trip.status = TripStatus.DECLARED;
+    });
+
     it("llama a shipmentRepository.listAvailable con el corredor y radio por defecto", async () => {
       const service = buildService();
 
@@ -1080,6 +1085,22 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
           limit: 20,
         }),
       ).rejects.toMatchObject({ statusCode: 409, code: "TRIP_NOT_AVAILABLE" });
+    });
+
+    it("falla con 409 TRIP_NOT_AVAILABLE si el viaje ya está active: los paquetes quedan fijos al iniciar (MOVO-258)", async () => {
+      trip.status = TripStatus.ACTIVE;
+      const service = buildService();
+
+      await expect(
+        service.getTripMatches({
+          tripId: TRIP_ID,
+          callerId: CARRIER_ID,
+          callerRoles: [UserRole.CARRIER],
+          page: 1,
+          limit: 20,
+        }),
+      ).rejects.toMatchObject({ statusCode: 409, code: "TRIP_NOT_AVAILABLE" });
+      expect(shipmentRepo.listAvailable).not.toHaveBeenCalled();
     });
 
     it("sigue funcionando con el viaje todavía declared (no arrancado)", async () => {

@@ -112,6 +112,25 @@ export class TripNotDeclaredError extends Error {
 }
 
 /**
+ * MOVO-258 (D5): `start()` sobre un viaje `declared` sin ningún paquete aceptado vivo. Los
+ * paquetes de un viaje quedan fijos al iniciarlo, así que arrancar uno vacío no tiene
+ * sentido (si además ya pasó su hora de salida, el barrido de vencimiento lo cancela).
+ */
+export class TripHasNoPackagesError extends Error {
+  constructor(
+    public readonly id: string,
+    public readonly departurePassed: boolean,
+  ) {
+    super(
+      departurePassed
+        ? `El viaje '${id}' venció: pasó su hora de salida sin paquetes asignados`
+        : `El viaje '${id}' no se puede iniciar porque no tiene paquetes asignados`,
+    );
+    this.name = "TripHasNoPackagesError";
+  }
+}
+
+/**
  * MOVO-221 (AC "solo puede haber 1 viaje active por cuenta a la vez"): el transportista
  * ya tiene otro viaje `active` en curso. Se lanza al atrapar el `P2002` del índice único
  * parcial `trips_carrier_active_unique` (`(carrier_id) WHERE status='active'`) -- la
@@ -148,7 +167,7 @@ export interface TripRepository {
   ): Promise<{ items: TripWithAcceptedPackages[]; total: number }>;
   update(id: string, input: UpdateTripInput): Promise<Trip>;
   delete(id: string): Promise<void>;
-  findActiveTripsMatchingShipment(params: MatchShipmentParams): Promise<Trip[]>;
+  findDeclaredTripsMatchingShipment(params: MatchShipmentParams): Promise<Trip[]>;
   /**
    * MOVO-221: única vía para transicionar `declared -> active`. Compare-and-swap
    * (`updateMany` condicionado por `status: declared`) -- si pierde la carrera contra
@@ -171,6 +190,21 @@ export interface TripRepository {
    * expirados.
    */
   cancelOverdueDeclared(now: Date, limit: number): Promise<string[]>;
+  /**
+   * MOVO-258 (D5): pasa a `completed` hasta `limit` viajes `active` que tienen al menos un
+   * paquete aceptado vivo y cuyos paquetes quedaron TODOS en un estado final (`delivered`/
+   * `completed`/`cancelled`) -- un `disputed`, un `in_transit` o cualquier otro estado
+   * intermedio lo mantiene abierto. Un viaje `active` sin paquetes no se toca. Devuelve
+   * los ids efectivamente cerrados.
+   */
+  completeFinishedActive(limit: number): Promise<string[]>;
+  /**
+   * MOVO-258 (D5): pasa a `expired` (baja automática, ADR-029) hasta `limit` viajes `active` que se quedaron sin ningún paquete
+   * aceptado vivo (todos sus envíos se cancelaron después de iniciarlo). `start()` exige al
+   * menos uno y los paquetes quedan fijos, así que un `active` vacío no tiene nada que
+   * transportar. Devuelve los ids expirados.
+   */
+  expireActiveWithoutPackages(limit: number): Promise<string[]>;
   /**
    * MOVO-138 (ADR-025): transportistas DISTINTOS con un viaje `declared`/`active` que
    * sale dentro de la ventana dada y cuyo trayecto pasa a `radiusKm` o menos del
@@ -401,10 +435,11 @@ export function createTripRepository(db: PrismaClient): TripRepository {
      * compuesto en MOVO-130 por bajo volumen) -- si creciera, el candidato es un
      * prefiltro `corridorBoundingBox` análogo al del matching directo.
      */
-    async findActiveTripsMatchingShipment(params: MatchShipmentParams): Promise<Trip[]> {
+    async findDeclaredTripsMatchingShipment(params: MatchShipmentParams): Promise<Trip[]> {
       const rows = await db.trip.findMany({
         where: {
-          status: TripStatus.ACTIVE,
+          // MOVO-258: solo `declared` -- un viaje iniciado ya tiene sus paquetes fijos.
+          status: TripStatus.DECLARED,
           carrierId: { notIn: params.excludeCarrierIds },
         },
       });
@@ -438,6 +473,9 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       // cada `createShipment`, antes de la llamada a pricing.
       const rows = await db.trip.findMany({
         where: {
+          // MOVO-258 NO toca este conteo a propósito (ADR-025): un `active` ya no puede
+          // tomar paquetes, pero cambiarlo mueve el recargo por alta demanda -- pendiente
+          // de decisión en MOVO-270.
           status: { in: [TripStatus.DECLARED, TripStatus.ACTIVE] },
           departureAt: { gte: params.departureFrom, lte: params.departureTo },
           AND: tripCorridorContainsPointWhere(params.lat, params.lng, params.radiusKm),
@@ -470,12 +508,28 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       if (current.status !== TripStatus.DECLARED) {
         throw new TripNotDeclaredError(id, parseTripStatus(current.status));
       }
+      // MOVO-258 (D5): al iniciar, el transportista ya sabe qué paquetes lleva y eso no
+      // cambia -- un viaje sin paquetes no se puede iniciar (ni siquiera aparece como
+      // iniciable en la app).
+      const livePackages = await db.offer.count({ where: { tripId: id, ...ACCEPTED_OFFER_FILTER } });
+      if (livePackages === 0) {
+        throw new TripHasNoPackagesError(id, current.departureAt < new Date());
+      }
 
       let result;
       try {
-        result = await db.trip.updateMany({
-          where: { id, status: TripStatus.DECLARED },
-          data: { status: TripStatus.ACTIVE },
+        result = await db.$transaction(async (tx) => {
+          const updated = await tx.trip.updateMany({
+            where: { id, status: TripStatus.DECLARED },
+            data: { status: TripStatus.ACTIVE },
+          });
+          if (updated.count > 0) {
+            // MOVO-258 (D5): los paquetes quedan fijos al iniciar -- las ofertas todavía
+            // `pending` que apuntaban a este viaje se desasocian (siguen vigentes para el
+            // emisor; si las acepta, `acceptOffer` les crea un viaje propio, MOVO-234).
+            await tx.offer.updateMany({ where: { tripId: id, status: "pending" }, data: { tripId: null } });
+          }
+          return updated;
         });
       } catch (error) {
         if (isUniqueConstraintConflict(error)) {
@@ -527,6 +581,58 @@ export function createTripRepository(db: PrismaClient): TripRepository {
 
       const row = await db.trip.findUniqueOrThrow({ where: { id } });
       return mapTrip(row);
+    },
+
+    async completeFinishedActive(limit: number): Promise<string[]> {
+      const where = {
+        status: TripStatus.ACTIVE,
+        offers: {
+          some: ACCEPTED_OFFER_FILTER,
+          none: {
+            status: "accepted" as const,
+            shipment: {
+              status: { notIn: [ShipmentStatus.DELIVERED, ShipmentStatus.COMPLETED, ShipmentStatus.CANCELLED] },
+            },
+          },
+        },
+      };
+
+      const candidates = await db.trip.findMany({
+        where,
+        select: { id: true },
+        orderBy: { departureAt: "asc" },
+        take: limit,
+      });
+
+      // Mismo compare-and-swap por viaje que `cancelOverdueDeclared`: re-evalúa el `where`
+      // en el UPDATE, así un paquete que se acepta o un envío que cambia de estado entre
+      // el SELECT y acá deja `count` en 0 y el viaje se saltea hasta la próxima corrida.
+      const completed: string[] = [];
+      for (const { id } of candidates) {
+        const result = await db.trip.updateMany({
+          where: { ...where, id },
+          data: { status: TripStatus.COMPLETED },
+        });
+        if (result.count > 0) completed.push(id);
+      }
+      return completed;
+    },
+
+    async expireActiveWithoutPackages(limit: number): Promise<string[]> {
+      const where = { status: TripStatus.ACTIVE, offers: { none: ACCEPTED_OFFER_FILTER } };
+      const candidates = await db.trip.findMany({
+        where,
+        select: { id: true },
+        orderBy: { departureAt: "asc" },
+        take: limit,
+      });
+
+      const expired: string[] = [];
+      for (const { id } of candidates) {
+        const result = await db.trip.updateMany({ where: { ...where, id }, data: { status: TripStatus.EXPIRED } });
+        if (result.count > 0) expired.push(id);
+      }
+      return expired;
     },
 
     async cancelOverdueDeclared(now: Date, limit: number): Promise<string[]> {

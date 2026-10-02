@@ -21,10 +21,20 @@ function timeOfDay(time: Date | string): { hours: number; minutes: number; secon
  * que `combineDateAndTime`/`toRealInstant` de `shipments.service.ts`, pero operando
  * sobre valores ya persistidos (o el string crudo de una franja propuesta, MOVO-234)
  * en vez de parsear strings del body de un request. */
-function anchorTimeOfDayToInstant(date: Date, time: Date | string): Date {
+export function anchorTimeOfDayToInstant(date: Date, time: Date | string): Date {
   const { hours, minutes, seconds } = timeOfDay(time);
   const anchored = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), hours, minutes, seconds);
   return new Date(anchored + ARGENTINA_UTC_OFFSET_HOURS * 60 * 60 * 1000);
+}
+
+/**
+ * MOVO-258: "HH:MM[:SS]" (franja propuesta en una oferta, MOVO-177) -> `Date` en el
+ * formato de las columnas `@db.Time` (hora de pared etiquetada como UTC sobre
+ * 1970-01-01), listo para escribir en `Shipment.pickupTimeWindowStart/End`.
+ */
+export function timeStringToTimeColumn(time: string): Date {
+  const { hours, minutes, seconds } = timeOfDay(time);
+  return new Date(Date.UTC(1970, 0, 1, hours, minutes, seconds));
 }
 
 /**

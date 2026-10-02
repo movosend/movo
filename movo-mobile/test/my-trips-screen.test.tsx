@@ -327,6 +327,26 @@ describe("MyTripsScreen", () => {
     expect(mockRouterPush).toHaveBeenCalledWith(`/carrier/trips/${TRIP_A.id}/edit`);
   });
 
+  it("MOVO-258: tocar la card de un viaje iniciado abre el mapa, no el feed de matches", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [TRIP_ACTIVE], page: 1, limit: 50, total: 1 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId } = await render(<MyTripsScreen />);
+    fireEvent.press(getByTestId(`my-trips-card-${TRIP_ACTIVE.id}`));
+
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      pathname: "/route",
+      params: { tripId: TRIP_ACTIVE.id },
+    });
+    expect(mockRouterPush).not.toHaveBeenCalledWith(
+      expect.objectContaining({ pathname: "/(app)/(tabs)/transport" }),
+    );
+  });
+
   it("MOVO-163: tocar la card navega al feed filtrado por ese viaje", async () => {
     mockUseMyTrips.mockReturnValue({
       data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
