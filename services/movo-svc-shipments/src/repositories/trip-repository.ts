@@ -1,5 +1,5 @@
-import { PrismaClient } from "../generated/prisma/client";
-import { ShipmentStatus, TripStatus } from "@movo/shared";
+import { PrismaClient, Prisma } from "../generated/prisma/client";
+import { OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
 import {
   Trip,
   CreateTripInput,
@@ -49,6 +49,31 @@ const ACCEPTED_OFFER_FILTER = {
   shipment: { status: { not: ShipmentStatus.CANCELLED } },
 } as const;
 
+/**
+ * MOVO-260: transiciona un viaje `declared` a un estado de baja (`cancelled`/`expired`)
+ * con compare-and-swap sobre `where`, y en la MISMA transacción desasocia las ofertas
+ * `pending` que lo apuntaban (`tripId: null`). Sin esto el emisor podía aceptar una de
+ * esas ofertas y el paquete quedaba aceptado sobre un viaje dado de baja --
+ * `acceptOffer` solo auto-crea un viaje cuando `tripId` es `null` (MOVO-234), así que
+ * desasociarlas hace que la aceptación arme un viaje nuevo en vez de colgarse del muerto.
+ * Devuelve si el CAS aplicó.
+ */
+async function retireDeclaredTrip(
+  db: PrismaClient,
+  where: Prisma.TripWhereInput & { id: string },
+  data: Prisma.TripUpdateManyMutationInput,
+): Promise<boolean> {
+  return db.$transaction(async (tx) => {
+    const result = await tx.trip.updateMany({ where, data });
+    if (result.count === 0) return false;
+    await tx.offer.updateMany({
+      where: { tripId: where.id, status: OfferStatus.PENDING },
+      data: { tripId: null },
+    });
+    return true;
+  });
+}
+
 export class TripNotFoundError extends Error {
   constructor(public readonly id: string) {
     super(`El viaje '${id}' no fue encontrado`);
@@ -75,11 +100,12 @@ export class TripNotDeclaredError extends Error {
   constructor(
     public readonly id: string,
     public readonly status?: TripStatus,
+    public readonly action: string = "iniciar"
   ) {
     super(
       status
-        ? `El viaje '${id}' no se puede iniciar porque no está en estado 'declared' (estado actual: '${status}')`
-        : `El viaje '${id}' no se puede iniciar porque otra operación ya lo modificó`,
+        ? `El viaje '${id}' no se puede ${action} porque no está en estado 'declared' (estado actual: '${status}')`
+        : `El viaje '${id}' no se puede ${action} porque otra operación ya lo modificó`,
     );
     this.name = "TripNotDeclaredError";
   }
@@ -118,6 +144,7 @@ export interface TripRepository {
     page: number,
     limit: number,
     status?: TripStatus,
+    scope?: "upcoming" | "history",
   ): Promise<{ items: TripWithAcceptedPackages[]; total: number }>;
   update(id: string, input: UpdateTripInput): Promise<Trip>;
   delete(id: string): Promise<void>;
@@ -130,11 +157,18 @@ export interface TripRepository {
    */
   start(id: string): Promise<Trip>;
   /**
-   * MOVO-238: cancela hasta `limit` viajes `declared` cuyo `departureAt` ya pasó y que no
-   * tienen ningún paquete aceptado (mismo `ACCEPTED_OFFER_FILTER` que bloquea
-   * `update`/`delete`). Un viaje `declared` vencido CON paquete aceptado se deja intacto
-   * (AC2: bloquea, no cascadea -- mismo criterio que MOVO-134). Devuelve los ids
-   * efectivamente cancelados.
+   * MOVO-260: cancelación lógica `declared -> cancelled` (setea `cancelledAt`). Lanza
+   * `TripNotFoundError`, `TripNotDeclaredError` (acción "cancelar") o
+   * `TripHasAcceptedPackagesError`. Desasocia las ofertas `pending` del viaje.
+   */
+  cancel(id: string): Promise<Trip>;
+  /**
+   * MOVO-238: pasa a `expired` (MOVO-260, antes `cancelled`) hasta `limit` viajes
+   * `declared` cuyo `departureAt` ya pasó y que no tienen ningún paquete aceptado (mismo
+   * `ACCEPTED_OFFER_FILTER` que bloquea `update`/`delete`). Un viaje `declared` vencido
+   * CON paquete aceptado se deja intacto (AC2: bloquea, no cascadea -- mismo criterio que
+   * MOVO-134). Desasocia las ofertas `pending` del viaje. Devuelve los ids efectivamente
+   * expirados.
    */
   cancelOverdueDeclared(now: Date, limit: number): Promise<string[]>;
   /**
@@ -252,16 +286,27 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       page: number,
       limit: number,
       status?: TripStatus,
+      scope?: "upcoming" | "history",
     ): Promise<{ items: TripWithAcceptedPackages[]; total: number }> {
-      const where = {
+      const where: Prisma.TripWhereInput = {
         carrierId,
         ...(status ? { status } : {}),
+      };
+
+      if (scope === "upcoming") {
+        where.status = { in: [TripStatus.DECLARED, TripStatus.ACTIVE] };
+      } else if (scope === "history") {
+        where.status = { in: [TripStatus.COMPLETED, TripStatus.CANCELLED, TripStatus.EXPIRED] };
+      }
+
+      const orderBy: Prisma.TripOrderByWithRelationInput = {
+        departureAt: scope === "history" ? "desc" : "asc",
       };
 
       const [rows, total] = await Promise.all([
         db.trip.findMany({
           where,
-          orderBy: { departureAt: "asc" },
+          orderBy,
           skip: (page - 1) * limit,
           take: limit,
           include: {
@@ -311,7 +356,6 @@ export function createTripRepository(db: PrismaClient): TripRepository {
             ...(input.destinationLng !== undefined ? { destinationLng: input.destinationLng } : {}),
             ...(input.departureAt !== undefined ? { departureAt: input.departureAt } : {}),
             ...(input.vehicleType !== undefined ? { vehicleType: input.vehicleType } : {}),
-            ...(input.status !== undefined ? { status: input.status } : {}),
           },
         });
 
@@ -450,6 +494,41 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       return mapTrip(row);
     },
 
+    async cancel(id: string): Promise<Trip> {
+      const current = await db.trip.findUnique({ where: { id } });
+      if (!current) {
+        throw new TripNotFoundError(id);
+      }
+      if (current.status !== TripStatus.DECLARED) {
+        throw new TripNotDeclaredError(id, parseTripStatus(current.status), "cancelar");
+      }
+
+      const acceptedCount = await db.offer.count({
+        where: { tripId: id, ...ACCEPTED_OFFER_FILTER },
+      });
+      if (acceptedCount > 0) {
+        throw new TripHasAcceptedPackagesError(id);
+      }
+
+      // El conteo de paquetes aceptados de arriba y el CAS de abajo no son atómicos entre
+      // sí: un `acceptOffer` concurrente sobre una oferta de este viaje puede colarse en el
+      // medio. Mismo criterio ya aceptado en `cancelOverdueDeclared` -- y como el CAS
+      // desasocia las `pending` en la misma transacción, esa ventana solo existe para una
+      // aceptación que ya leyó la oferta antes del UPDATE.
+      const applied = await retireDeclaredTrip(
+        db,
+        { id, status: TripStatus.DECLARED },
+        { status: TripStatus.CANCELLED, cancelledAt: new Date() },
+      );
+
+      if (!applied) {
+        throw new TripNotDeclaredError(id, undefined, "cancelar");
+      }
+
+      const row = await db.trip.findUniqueOrThrow({ where: { id } });
+      return mapTrip(row);
+    },
+
     async cancelOverdueDeclared(now: Date, limit: number): Promise<string[]> {
       // `active` nunca entra (AC4): el filtro es siempre `status: declared`.
       const where = {
@@ -470,15 +549,12 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       // se saltea. Queda una ventana mínima contra un `acceptOffer` concurrente que no
       // toca la fila de `trips` -- aceptada, el viaje cancelado igual conserva su
       // historial y el sweep corre cada pocos minutos, no en un hot path.
-      const cancelled: string[] = [];
+      const expired: string[] = [];
       for (const { id } of candidates) {
-        const result = await db.trip.updateMany({
-          where: { ...where, id },
-          data: { status: TripStatus.CANCELLED },
-        });
-        if (result.count > 0) cancelled.push(id);
+        const applied = await retireDeclaredTrip(db, { ...where, id }, { status: TripStatus.EXPIRED });
+        if (applied) expired.push(id);
       }
-      return cancelled;
+      return expired;
     },
   };
 }

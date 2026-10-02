@@ -271,9 +271,9 @@ describe("trip-repository (Postgres) — findActiveTripsMatchingShipment (MOVO-1
 
   it("excluye viajes cancelled/completed aunque su corredor matchee", async () => {
     const cancelled = await tripRepo.create(baseTripInput());
-    await tripRepo.update(cancelled.id, { status: TripStatus.CANCELLED });
+    await app.db.trip.update({ where: { id: cancelled.id }, data: { status: TripStatus.CANCELLED } });
     const completed = await tripRepo.create(baseTripInput());
-    await tripRepo.update(completed.id, { status: TripStatus.COMPLETED });
+    await app.db.trip.update({ where: { id: completed.id }, data: { status: TripStatus.COMPLETED } });
 
     const matches = await tripRepo.findActiveTripsMatchingShipment({
       pickupLat: -31.0,
@@ -410,9 +410,9 @@ describe("trip-repository (Postgres) — countAvailableCarriersNear (MOVO-138)",
 
   it("no cuenta viajes cancelled ni completed", async () => {
     const cancelled = await tripRepo.create(tripInput());
-    await tripRepo.update(cancelled.id, { status: TripStatus.CANCELLED });
+    await app.db.trip.update({ where: { id: cancelled.id }, data: { status: TripStatus.CANCELLED } });
     const completed = await tripRepo.create(tripInput());
-    await tripRepo.update(completed.id, { status: TripStatus.COMPLETED });
+    await app.db.trip.update({ where: { id: completed.id }, data: { status: TripStatus.COMPLETED } });
 
     expect(await tripRepo.countAvailableCarriersNear({ ...pickupInCorridor, ...window })).toBe(0);
   });

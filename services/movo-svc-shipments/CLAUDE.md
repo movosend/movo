@@ -2828,3 +2828,26 @@ la regla "bloquea, no cascadea" de MOVO-238.
 ### MOVO-261 — Paquetes aceptados en el detalle del viaje (`GET /trips/:id`)
 
 Soporte del rediseño del detalle del viaje (`movo-mobile`): se agrega `packages: TripAcceptedPackage[]` y `acceptedPackagesCount` a la respuesta del viaje extendido (y `acceptedPackagesCount` también al listado). Resuelto optimizando `tripRepository.findByIdWithPackages` con un `include` sobre `offers.shipment` (filtrado por `ACCEPTED_OFFER_FILTER`) en una sola query. No impacta en la DB ni rompe endpoints existentes. DTOs de mobile (`trips-client.ts`) sincronizados, tests de mocks actualizados.
+
+### MOVO-260 — Estado expired separado de cancelled, cancelación lógica de viajes y listado por scope
+
+Soporte del rediseño del historial de "Mis viajes" y cancelación de viajes (`movo-mobile`): 
+Se introdujo `TripStatus.EXPIRED` para separar semánticamente la cancelación automática por inactividad (`trip-expiry-sweep.ts`) de la decisión explícita del usuario.
+- Nuevo endpoint `POST /trips/:id/cancel` permite cancelación lógica del viaje (transición de `declared` a `cancelled`), registrando la fecha en la columna `cancelled_at`.
+- Actualización de `GET /trips` agregando el parámetro `scope=upcoming|history`. `upcoming` (declared+active, ordenado por departureAt asc), `history` (completed+cancelled+expired, ordenado por departureAt desc).
+- Migración backfill que transiciona los viajes `cancelled` existentes a `expired`.
+- Se documenta la decisión formal en `ADR-029`.
+
+Fixes de review (PR #208, JcBordino4):
+- `status` sale del body de `PATCH /trips/:id` y de `UpdateTripInput`: la única vía a
+  `active` es `/start` y a `cancelled` es `/cancel`. Fastify descarta el campo en
+  silencio (`removeAdditional`, ver MOVO-129), no responde 400. El índice único parcial
+  de MOVO-221 sigue siendo la garantía en la base.
+- Dar de baja un viaje (`cancel()` y el barrido de `expired`) desasocia en la misma
+  transacción sus ofertas `pending` (`tripId: null`, `retireDeclaredTrip`): si el emisor
+  acepta una después, `acceptOffer` auto-crea un viaje nuevo (MOVO-234) en vez de colgar
+  el paquete de uno muerto.
+- `GET /trips` con `status` y `scope` juntos responde 400 `VALIDATION_FAILED`. `upcoming`
+  sigue mostrando un `declared` con salida vencida (hasta el barrido, o para siempre si
+  tiene paquetes aceptados, porque todavía hay que iniciarlo): documentado en Swagger.
+- `TripNotDeclaredError` recibe la acción, así el 409 de `/cancel` no habla de "iniciar".
