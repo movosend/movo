@@ -4,7 +4,11 @@ import { INITIAL_OFFER_STATUS, transition } from "../domain/offer-state-machine"
 import { transition as transitionShipmentStatus } from "../domain/shipment-state-machine";
 import { haversineKm } from "../domain/geo";
 import { emitShipmentStatusChanged } from "../realtime/shipment-status-events";
-import { acceptedOfferPickupWindowStartInstant, offerExpiresAtInstant } from "../domain/pickup-window";
+import {
+  acceptedOfferPickupWindowStartInstant,
+  offerExpiresAtInstant,
+  timeStringToTimeColumn,
+} from "../domain/pickup-window";
 import {
   Offer,
   CreateOfferInput,
@@ -608,6 +612,18 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
             estimatedDeliveryDate: current.estimatedDeliveryDate,
             estimatedDeliveryTimeWindowStart: current.estimatedDeliveryTimeWindowStart,
             estimatedDeliveryTimeWindowEnd: current.estimatedDeliveryTimeWindowEnd,
+            // MOVO-258 (D3): el envío pasa a reflejar la ventana de retiro realmente
+            // acordada (MOVO-177: el transportista pudo proponer otro día/franja), así
+            // los barridos de expiración leen solo el envío, nunca la oferta aceptada.
+            // `offeredDate` ya es la fecha efectiva; la franja solo se pisa si la
+            // oferta propuso una distinta (si no, queda la original del envío).
+            pickupDate: current.offeredDate,
+            ...(current.offeredPickupTimeWindowStart !== null && {
+              pickupTimeWindowStart: timeStringToTimeColumn(current.offeredPickupTimeWindowStart),
+            }),
+            ...(current.offeredPickupTimeWindowEnd !== null && {
+              pickupTimeWindowEnd: timeStringToTimeColumn(current.offeredPickupTimeWindowEnd),
+            }),
             lastStatusChangedAt: new Date(),
           },
         });

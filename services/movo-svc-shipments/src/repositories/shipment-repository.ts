@@ -10,6 +10,7 @@ import {
   transition,
 } from "../domain/shipment-state-machine";
 import { emitShipmentStatusChanged } from "../realtime/shipment-status-events";
+import { transition as offerTransition } from "../domain/offer-state-machine";
 import {
   Shipment,
   ShipmentEvent,
@@ -79,6 +80,7 @@ function mapShipmentRow(row: ShipmentRow, rejectionReason: string | null): Shipm
     deliveredAt: row.deliveredAt,
     receiverConfirmationDeadline: row.receiverConfirmationDeadline,
     receiverRedesignationDeadline: row.receiverRedesignationDeadline,
+    transitAnomalyFlaggedAt: row.transitAnomalyFlaggedAt,
     rejectionReason,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -498,6 +500,25 @@ export interface ShipmentRepository {
    */
   findPotentiallyExpiredPublished(limit: number): Promise<Shipment[]>;
   /**
+   * MOVO-258 (D1): envíos con transportista asignado (`assignment_pending`/
+   * `assigned_unfunded`/`assigned`), los de ventana de retiro más vieja primero -- mismo
+   * criterio que `findPotentiallyExpiredPublished`: el filtro fino por instante real
+   * (con el margen de gracia) se hace en JS con `isPickupMissed`.
+   */
+  findPotentiallyPickupMissed(limit: number): Promise<Shipment[]>;
+  /**
+   * MOVO-258 (D4): envíos `in_transit` todavía sin marcar para revisión, el que lleva más
+   * tiempo en tránsito primero. El umbral de anomalía depende de la entrega estimada de
+   * cada uno, así que lo evalúa el caller (`isTransitAnomalous`).
+   */
+  findInTransitUnflagged(limit: number): Promise<Shipment[]>;
+  /**
+   * MOVO-258 (D4): marca un envío `in_transit` para revisión. Compare-and-swap: solo
+   * escribe si sigue `in_transit` y sin marcar -- devuelve `false` si otra réplica ya lo
+   * marcó o el envío se entregó mientras tanto (el caller no notifica en ese caso).
+   */
+  flagTransitAnomaly(id: string, now?: Date): Promise<boolean>;
+  /**
    * MOVO-134: soporte del endpoint interno de baja de cuenta de `svc-users` -- ¿el
    * usuario (como sender, receiver o carrier) tiene algún envío en un estado no
    * terminal? Separa `disputed` del resto (`awaiting_receiver_confirmation`,
@@ -790,6 +811,28 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           },
         });
 
+        // MOVO-258 (D7): cancelar un envío cierra sus ofertas en la misma transacción,
+        // para que ningún camino de cancelación (emisor, barridos) las deje "vivas" en
+        // "Mis ofertas". Una `pending` ya vencida por fecha no se toca: sigue siendo
+        // `expired` por lectura, no corresponde reetiquetarla como cancelación.
+        if (to === ShipmentStatus.CANCELLED) {
+          // Valida contra el grafo canónico de la oferta, mismo criterio que
+          // `offer-repository.ts` con el de envíos (no se enruta por su repositorio
+          // para mantenerse dentro de esta transacción).
+          offerTransition(OfferStatus.PENDING, OfferStatus.SHIPMENT_CANCELLED);
+          offerTransition(OfferStatus.ACCEPTED, OfferStatus.SHIPMENT_CANCELLED);
+          await tx.offer.updateMany({
+            where: {
+              shipmentId: id,
+              OR: [
+                { status: OfferStatus.ACCEPTED },
+                { status: OfferStatus.PENDING, OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] },
+              ],
+            },
+            data: { status: OfferStatus.SHIPMENT_CANCELLED },
+          });
+        }
+
         // `updateMany` no devuelve la fila actualizada (a diferencia de
         // `update`) — se reconstruye a mano en vez de pagar un SELECT extra,
         // mismo criterio que `accepted` en offer-repository.ts#acceptOffer.
@@ -1072,6 +1115,36 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         orderBy: [{ pickupDate: "asc" }, { pickupTimeWindowEnd: "asc" }],
       });
       return rows.map(mapShipment);
+    },
+
+    async findPotentiallyPickupMissed(limit: number): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: {
+          status: {
+            in: [ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.ASSIGNED],
+          },
+        },
+        take: limit,
+        orderBy: [{ pickupDate: "asc" }, { pickupTimeWindowEnd: "asc" }],
+      });
+      return rows.map(mapShipment);
+    },
+
+    async findInTransitUnflagged(limit: number): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: { status: ShipmentStatus.IN_TRANSIT, transitAnomalyFlaggedAt: null },
+        take: limit,
+        orderBy: { lastStatusChangedAt: "asc" },
+      });
+      return rows.map(mapShipment);
+    },
+
+    async flagTransitAnomaly(id: string, now: Date = new Date()): Promise<boolean> {
+      const result = await db.shipment.updateMany({
+        where: { id, status: ShipmentStatus.IN_TRANSIT, transitAnomalyFlaggedAt: null },
+        data: { transitAnomalyFlaggedAt: now },
+      });
+      return result.count > 0;
     },
 
     async hasActiveShipmentsForUser(userId: string): Promise<{ hasActiveDispute: boolean; hasActiveShipments: boolean }> {

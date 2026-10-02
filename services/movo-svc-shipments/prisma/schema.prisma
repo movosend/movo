@@ -87,6 +87,7 @@ enum OfferStatus {
   withdrawn
   expired
   superseded
+  shipment_cancelled
 
   @@map("offer_status_enum")
   @@schema("shipments")
@@ -180,6 +181,9 @@ model Shipment {
   // pasar a rejected_by_receiver. NULL en rechazos anteriores a este cambio: el barrido
   // los trata como vencidos y los cancela en su primera corrida.
   receiverRedesignationDeadline DateTime?     @map("receiver_redesignation_deadline") @db.Timestamptz
+  // MOVO-258 (D4): instante en que el barrido de `in_transit` anómalo marcó el envío
+  // para revisión (no lo cancela). NULL = nunca marcado; solo se escribe una vez.
+  transitAnomalyFlaggedAt DateTime? @map("transit_anomaly_flagged_at") @db.Timestamptz
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   // Mantenida por trigger de Postgres (shipments.update_updated_at_column()),
