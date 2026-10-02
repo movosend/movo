@@ -482,7 +482,7 @@ espera al build (matriz por plataforma), y un tag `v*` sobre `develop` (guard + 
   Cloudflare (incluido el DMARC), y (opcional) un prefijo `brand/*` público en el
   bucket de dev si se quiere usar el PNG del logo en los mails.
 - **ADRs con desarrollo completo pendiente de pegar en Drive** (solo tienen el resumen
-  de una línea en la tabla de arriba): 019, 020, 021, 022, 026, 028 (012-018 ya están pegados en
+  de una línea en la tabla de arriba): 019, 020, 021, 022, 026, 028, 029 (012-018 ya están pegados en
   el doc de Sprint 0, confirmado al buscar dónde iba ADR-022 — la lista anterior acá
   estaba desactualizada). **ADR-022 tiene su contenido completo ya redactado**, en un
   doc aparte (`ADR-022 - Canal de tiempo real (WebSocket nativo) - pegar en Sprint 0`,
