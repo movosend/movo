@@ -2837,3 +2837,17 @@ Se introdujo `TripStatus.EXPIRED` para separar semánticamente la cancelación a
 - Actualización de `GET /trips` agregando el parámetro `scope=upcoming|history`. `upcoming` (declared+active, ordenado por departureAt asc), `history` (completed+cancelled+expired, ordenado por departureAt desc).
 - Migración backfill que transiciona los viajes `cancelled` existentes a `expired`.
 - Se documenta la decisión formal en `ADR-029`.
+
+Fixes de review (PR #208, JcBordino4):
+- `status` sale del body de `PATCH /trips/:id` y de `UpdateTripInput`: la única vía a
+  `active` es `/start` y a `cancelled` es `/cancel`. Fastify descarta el campo en
+  silencio (`removeAdditional`, ver MOVO-129), no responde 400. El índice único parcial
+  de MOVO-221 sigue siendo la garantía en la base.
+- Dar de baja un viaje (`cancel()` y el barrido de `expired`) desasocia en la misma
+  transacción sus ofertas `pending` (`tripId: null`, `retireDeclaredTrip`): si el emisor
+  acepta una después, `acceptOffer` auto-crea un viaje nuevo (MOVO-234) en vez de colgar
+  el paquete de uno muerto.
+- `GET /trips` con `status` y `scope` juntos responde 400 `VALIDATION_FAILED`. `upcoming`
+  sigue mostrando un `declared` con salida vencida (hasta el barrido, o para siempre si
+  tiene paquetes aceptados, porque todavía hay que iniciarlo): documentado en Swagger.
+- `TripNotDeclaredError` recibe la acción, así el 409 de `/cancel` no habla de "iniciar".

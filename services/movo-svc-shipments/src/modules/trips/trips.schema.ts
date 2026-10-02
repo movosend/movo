@@ -183,7 +183,15 @@ export const tripsSchemas = {
     type: "object",
     properties: {
       status: { type: "string", enum: TRIP_STATUS_VALUES },
-      scope: { type: "string", enum: ["upcoming", "history"] },
+      scope: {
+        type: "string",
+        enum: ["upcoming", "history"],
+        description:
+          "Excluyente con `status` (400 si llegan los dos). `upcoming`: declared+active, por departureAt asc " +
+          "-- incluye un declared con departureAt ya vencido hasta que el barrido lo expire (hasta 15 min), " +
+          "o indefinidamente si tiene paquetes aceptados (el transportista todavía tiene que iniciarlo). " +
+          "`history`: completed+cancelled+expired, por departureAt desc.",
+      },
       page: { type: "integer", minimum: 1, default: 1 },
       limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
     },

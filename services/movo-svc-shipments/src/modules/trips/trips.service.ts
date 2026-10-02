@@ -323,6 +323,12 @@ export function createTripsService(deps: {
     },
 
     async listCarrierTrips({ callerId, callerRoles, page, limit, status, scope }) {
+      // `scope` ya fija su propio set de estados: combinarlo con `status` es ambiguo, se
+      // rechaza en vez de dejar que uno pise al otro en silencio (review de PR #208).
+      if (status && scope) {
+        throw new ApiError(400, "VALIDATION_FAILED", "No se puede filtrar por 'status' y 'scope' a la vez.");
+      }
+
       await assertVerifiedCarrier(usersClient, callerId, callerRoles);
 
       const { items, total } = await tripRepository.listByCarrier(callerId, page, limit, status, scope);

@@ -191,6 +191,25 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
     expect(service.updateTrip).toHaveBeenCalled();
   });
 
+  it("PATCH /:id nunca propaga status al service (cancelar va por /cancel, iniciar por /start -- MOVO-260)", async () => {
+    await app.inject({
+      method: "PATCH",
+      url: `/${TRIP_ID}`,
+      headers: {
+        "x-user-id": CARRIER_ID,
+        "x-user-roles": "carrier",
+      },
+      payload: {
+        vehicleType: "camioneta",
+        status: "cancelled",
+      },
+    });
+
+    expect(service.updateTrip).toHaveBeenCalledWith(
+      expect.objectContaining({ input: expect.not.objectContaining({ status: expect.anything() }) }),
+    );
+  });
+
   it("DELETE /:id elimina el viaje y devuelve 204", async () => {
     const res = await app.inject({
       method: "DELETE",

@@ -11,7 +11,10 @@ function buildTestApp(redisResult: string | null) {
   } as EnvConfig);
   const findMany = vi.fn().mockResolvedValue([{ id: "trip-1" }]);
   const updateMany = vi.fn().mockResolvedValue({ count: 1 });
-  app.decorate("db", { trip: { findMany, updateMany } } as unknown as FastifyInstance["db"]);
+  const offerUpdateMany = vi.fn().mockResolvedValue({ count: 0 });
+  const tx = { trip: { updateMany }, offer: { updateMany: offerUpdateMany } };
+  const $transaction = vi.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx));
+  app.decorate("db", { trip: { findMany, updateMany }, $transaction } as unknown as FastifyInstance["db"]);
   const redisSet = vi.fn().mockResolvedValue(redisResult);
   app.decorate("redis", { set: redisSet } as unknown as FastifyInstance["redis"]);
   return { app, findMany, updateMany, redisSet };
