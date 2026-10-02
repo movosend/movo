@@ -9,6 +9,7 @@ const TRIP_STATUS_LABELS: Record<TripStatus, string> = {
   [TripStatus.ACTIVE]: "Activo",
   [TripStatus.CANCELLED]: "Cancelado",
   [TripStatus.COMPLETED]: "Completado",
+  [TripStatus.EXPIRED]: "Expirado",
 };
 
 export function tripStatusLabel(status: TripStatus): string {
@@ -22,6 +23,7 @@ export function tripStatusTone(
     case TripStatus.COMPLETED:
       return "success";
     case TripStatus.CANCELLED:
+    case TripStatus.EXPIRED:
       return "danger";
     case TripStatus.DECLARED:
       return "neutral";
