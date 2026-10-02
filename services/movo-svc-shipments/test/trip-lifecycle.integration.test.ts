@@ -9,11 +9,13 @@ import {
   TripNotFoundError,
   TripNotDeclaredError,
   TripAlreadyHasActiveTripError,
+  TripHasNoPackagesError,
 } from "../src/repositories/trip-repository";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { createOfferRepository, OfferRepository } from "../src/repositories/offer-repository";
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
 import { CreateTripInput } from "../src/models/trip";
+import { attachAcceptedPackage } from "./trip-package-fixture";
 
 const PICKUP_DATE = new Date("2026-08-20T00:00:00.000Z");
 
@@ -102,6 +104,7 @@ describe("trip-repository (Postgres) — ciclo de vida declared/active", () => {
 
   it("start() transiciona declared -> active y persiste el cambio", async () => {
     const trip = await tripRepo.create(baseTripInput());
+    await attachAcceptedPackage(app.db, trip);
 
     const started = await tripRepo.start(trip.id);
     expect(started.status).toBe(TripStatus.ACTIVE);
@@ -110,12 +113,39 @@ describe("trip-repository (Postgres) — ciclo de vida declared/active", () => {
     expect(reloaded?.status).toBe(TripStatus.ACTIVE);
   });
 
+  it("start() lanza TripHasNoPackagesError si el viaje no tiene paquetes aceptados (MOVO-258)", async () => {
+    const trip = await tripRepo.create(baseTripInput());
+
+    await expect(tripRepo.start(trip.id)).rejects.toThrow(TripHasNoPackagesError);
+    expect((await tripRepo.findById(trip.id))?.status).toBe(TripStatus.DECLARED);
+  });
+
+  it("start() desasocia las ofertas pending del viaje: los paquetes quedan fijos al iniciar (MOVO-258)", async () => {
+    const trip = await tripRepo.create(baseTripInput());
+    await attachAcceptedPackage(app.db, trip);
+    const otherShipment = await createPublishedShipment();
+    const pending = await offerRepo.create({
+      shipmentId: otherShipment,
+      carrierId: trip.carrierId,
+      priceOffered: 4000,
+      offeredDate: PICKUP_DATE,
+      tripId: trip.id,
+    });
+
+    await tripRepo.start(trip.id);
+
+    const row = await app.db.offer.findUniqueOrThrow({ where: { id: pending.id } });
+    expect(row.tripId).toBeNull();
+    expect(row.status).toBe("pending");
+  });
+
   it("start() lanza TripNotFoundError si el viaje no existe", async () => {
     await expect(tripRepo.start(randomUUID())).rejects.toThrow(TripNotFoundError);
   });
 
   it("start() lanza TripNotDeclaredError ante un segundo start (double-tap)", async () => {
     const trip = await tripRepo.create(baseTripInput());
+    await attachAcceptedPackage(app.db, trip);
     await tripRepo.start(trip.id);
 
     await expect(tripRepo.start(trip.id)).rejects.toThrow(TripNotDeclaredError);
@@ -132,6 +162,8 @@ describe("trip-repository (Postgres) — ciclo de vida declared/active", () => {
     const carrierId = randomUUID();
     const tripA = await tripRepo.create(baseTripInput({ carrierId }));
     const tripB = await tripRepo.create(baseTripInput({ carrierId }));
+    await attachAcceptedPackage(app.db, tripA);
+    await attachAcceptedPackage(app.db, tripB);
 
     await tripRepo.start(tripA.id);
 
@@ -146,6 +178,8 @@ describe("trip-repository (Postgres) — ciclo de vida declared/active", () => {
     const carrierId = randomUUID();
     const tripA = await tripRepo.create(baseTripInput({ carrierId }));
     const tripB = await tripRepo.create(baseTripInput({ carrierId }));
+    await attachAcceptedPackage(app.db, tripA);
+    await attachAcceptedPackage(app.db, tripB);
 
     const results = await Promise.allSettled([tripRepo.start(tripA.id), tripRepo.start(tripB.id)]);
 
@@ -165,6 +199,7 @@ describe("trip-repository (Postgres) — ciclo de vida declared/active", () => {
     const carrierId = randomUUID();
     const tripA = await tripRepo.create(baseTripInput({ carrierId }));
     const tripB = await tripRepo.create(baseTripInput({ carrierId }));
+    await attachAcceptedPackage(app.db, tripA);
     await tripRepo.start(tripA.id);
 
     await expect(tripRepo.update(tripB.id, { status: TripStatus.ACTIVE })).rejects.toThrow(
@@ -175,6 +210,8 @@ describe("trip-repository (Postgres) — ciclo de vida declared/active", () => {
   it("un viaje active no bloquea a OTRO transportista de iniciar el suyo (aislamiento por carrierId)", async () => {
     const tripA = await tripRepo.create(baseTripInput());
     const tripB = await tripRepo.create(baseTripInput());
+    await attachAcceptedPackage(app.db, tripA);
+    await attachAcceptedPackage(app.db, tripB);
 
     await expect(tripRepo.start(tripA.id)).resolves.toMatchObject({ status: TripStatus.ACTIVE });
     await expect(tripRepo.start(tripB.id)).resolves.toMatchObject({ status: TripStatus.ACTIVE });

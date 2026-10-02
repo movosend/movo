@@ -402,15 +402,15 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
       expect(persisted?.tripId).toBe(trip.id);
     });
 
-    it("crea la oferta con el tripId de un viaje propio ya active (MOVO-221)", async () => {
+    it("409 TRIP_NOT_AVAILABLE si el viaje propio ya está active: los paquetes quedan fijos al iniciar (MOVO-258)", async () => {
       const shipment = await createPublishedShipment();
       const trip = await tripRepo.create(baseTripInput());
-      await tripRepo.start(trip.id);
+      await app.db.trip.update({ where: { id: trip.id }, data: { status: "active" } });
 
       const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { tripId: trip.id });
 
-      expect(response.statusCode).toBe(201);
-      expect(response.json().tripId).toBe(trip.id);
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error.code).toBe("TRIP_NOT_AVAILABLE");
     });
 
     it("sin tripId, la oferta queda con tripId null (caso general, sin regresión)", async () => {
