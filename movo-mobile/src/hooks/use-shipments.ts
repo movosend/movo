@@ -122,11 +122,19 @@ export function useShipmentRoute(origin: LatLng | null, destination: LatLng | nu
 
 /** Detalle de un envío propio — pantalla a la que lleva "Ver envío" al terminar el
  * wizard de creación (MOVO-83). `enabled` solo con un id real (nunca `undefined`). */
-export function useShipment(id: string | undefined) {
+export function useShipment(
+  id: string | undefined,
+  options?: {
+    /** Polling según el envío ya cargado (MOVO-271 AC5); `false` lo apaga. */
+    refetchInterval?: (shipment: ShipmentSummary | undefined) => number | false;
+  },
+) {
+  const refetchInterval = options?.refetchInterval;
   return useQuery({
     queryKey: ["shipments", "detail", id],
     queryFn: () => shipmentsClient.getById(id!),
     enabled: !!id,
+    refetchInterval: refetchInterval ? (query) => refetchInterval(query.state.data) : undefined,
   });
 }
 
