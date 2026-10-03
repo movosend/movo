@@ -109,6 +109,8 @@ export interface RouteGameServiceDeps {
   now?: () => Date;
 }
 
+const round = (value: number, digits: number) => Math.round(value * 10 ** digits) / 10 ** digits;
+
 const toPoint = ([name, zone, lat, lng]: RouteGamePlace): RouteGamePoint => ({ name, zone, lat, lng });
 
 export function createRouteGameService(deps: RouteGameServiceDeps): RouteGameService {
@@ -232,7 +234,19 @@ export function createRouteGameService(deps: RouteGameServiceDeps): RouteGameSer
         throw new ApiError(404, "ROUTE_GAME_NOT_FOUND", "La partida venció o no existe.");
       }
 
-      const record: RouteGameSessionRecord = { id, ...commonFields(input), ...base };
+      // Mismo redondeo que las columnas: la respuesta coincide con lo que queda guardado.
+      const record: RouteGameSessionRecord = {
+        id,
+        ...commonFields(input),
+        ...base,
+        userKm: round(base.userKm, 2),
+        optimalKm: round(base.optimalKm, 2),
+        extraKm: round(base.extraKm, 2),
+        userMin: round(base.userMin, 1),
+        optimalMin: round(base.optimalMin, 1),
+        extraMin: round(base.extraMin, 1),
+        efficiencyPct: round(base.efficiencyPct, 1),
+      };
       const { created } = await deps.repository.upsertSession(record);
       return {
         id,

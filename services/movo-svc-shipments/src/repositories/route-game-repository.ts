@@ -17,7 +17,6 @@ export interface RouteGameRepository {
 }
 
 const dec = (value: number) => new Prisma.Decimal(value);
-const round = (value: number, digits: number) => Math.round(value * 10 ** digits) / 10 ** digits;
 
 function toRow(r: RouteGameSessionRecord) {
   return {
@@ -31,13 +30,13 @@ function toRow(r: RouteGameSessionRecord) {
     stopCount: r.stopCount,
     userOrder: r.userOrder,
     optimalOrder: r.optimalOrder,
-    userKm: dec(round(r.userKm, 2)),
-    optimalKm: dec(round(r.optimalKm, 2)),
-    extraKm: dec(round(r.extraKm, 2)),
-    userMin: dec(round(r.userMin, 1)),
-    optimalMin: dec(round(r.optimalMin, 1)),
-    extraMin: dec(round(r.extraMin, 1)),
-    efficiencyPct: dec(round(r.efficiencyPct, 1)),
+    userKm: dec(r.userKm),
+    optimalKm: dec(r.optimalKm),
+    extraKm: dec(r.extraKm),
+    userMin: dec(r.userMin),
+    optimalMin: dec(r.optimalMin),
+    extraMin: dec(r.extraMin),
+    efficiencyPct: dec(r.efficiencyPct),
     tie: r.tie,
     timeUsedSec: r.timeUsedSec,
     timeLimitSec: r.timeLimitSec,
