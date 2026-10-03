@@ -45,6 +45,22 @@ class RouteStopInput(CamelModel):
     )
 
 
+class OptimizationObjective(str, Enum):
+    TIME = "time"
+    DISTANCE = "distance"
+
+
+class PrecomputedMatrix(CamelModel):
+    """Matriz ya calculada (ej. cacheada por el juego del optimizador de la feria).
+
+    Orden canónico: [carrierLocation, pickups (orden de entrada), deliveries (orden de
+    entrada), finalLocation si vino]. Con solo entregas coincide con el orden de `stops`.
+    """
+
+    dist_km: list[list[float]]
+    time_min: list[list[int]]
+
+
 class OptimizeRouteRequest(CamelModel):
     """Payload de entrada para POST /optimize/route (MOVO-205)."""
 
@@ -62,6 +78,16 @@ class OptimizeRouteRequest(CamelModel):
     final_location: Coordinates | None = Field(
         default=None,
         description="Destino final declarado del viaje si aplica (para ruta cerrada/corredor)",
+    )
+    # Opt-in del módulo demo de `movo-svc-shipments` (juego del optimizador): el flujo de
+    # transportistas sigue minimizando tiempo y pidiendo la matriz al provider.
+    objective: OptimizationObjective = Field(
+        default=OptimizationObjective.TIME,
+        description="Costo a minimizar: 'time' (default) o 'distance'",
+    )
+    matrix: PrecomputedMatrix | None = Field(
+        default=None,
+        description="Matriz precalculada en orden canónico; si viene, no se consulta al provider",
     )
 
 
@@ -109,4 +135,27 @@ class OptimizeRouteResponse(CamelModel):
     )
     disclaimer: str = Field(
         description="Aclaración técnica sobre la naturaleza geométrica o vial del cálculo de tiempos"
+    )
+
+
+# Google Compute Route Matrix acepta hasta 625 elementos por request (25x25).
+ROUTE_MATRIX_MAX_POINTS = 25
+
+
+class RouteMatrixRequest(CamelModel):
+    """Payload de POST /routes/matrix: matriz NxN entre todos los puntos."""
+
+    points: list[Coordinates] = Field(
+        min_length=2,
+        max_length=ROUTE_MATRIX_MAX_POINTS,
+        description="Puntos (2 a 25); la matriz respeta este orden en filas y columnas",
+    )
+
+
+class RouteMatrixResponse(CamelModel):
+    dist_km: list[list[float]] = Field(description="Distancias en km, dist_km[i][j] de i a j")
+    time_min: list[list[int]] = Field(description="Tiempos de manejo en minutos")
+    provider: str = Field(description="Proveedor usado: 'google_routes' o 'haversine_mock'")
+    elements_billed: int = Field(
+        description="Elementos facturables pedidos al proveedor (0 si es el mock sin costo)"
     )

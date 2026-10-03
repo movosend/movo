@@ -2,11 +2,20 @@ import {
   ApiError,
   OptimizeRouteRequest,
   OptimizeRouteResponse,
+  RouteMatrixRequest,
+  RouteMatrixResponse,
   RouteStopInput,
   RouteStopOutput,
 } from "@movo/shared";
 
-export type { OptimizeRouteRequest, OptimizeRouteResponse, RouteStopInput, RouteStopOutput };
+export type {
+  OptimizeRouteRequest,
+  OptimizeRouteResponse,
+  RouteMatrixRequest,
+  RouteMatrixResponse,
+  RouteStopInput,
+  RouteStopOutput,
+};
 
 export interface EvaluateCandidatesTripInput {
   id: string;
@@ -54,6 +63,8 @@ export interface EvaluateCandidatesResult {
 export interface PricingLogisticsClient {
   evaluateCandidates(input: EvaluateCandidatesInput): Promise<EvaluateCandidatesResult>;
   optimizeRoute(input: OptimizeRouteRequest): Promise<OptimizeRouteResponse>;
+  /** Matriz NxN sin optimizar (juego del optimizador: se cachea por ciudad). */
+  routeMatrix(input: RouteMatrixRequest): Promise<RouteMatrixResponse>;
 }
 
 export interface PricingLogisticsClientConfig {
@@ -68,109 +79,60 @@ export function createPricingLogisticsClient(
 ): PricingLogisticsClient {
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
+  async function post<T>(path: string, input: unknown): Promise<T> {
+    let response: Response;
+    try {
+      response = await fetch(`${config.PRICING_SERVICE_URL}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err: unknown) {
+      if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        throw new ApiError(
+          503,
+          "ROUTING_SERVICE_UNAVAILABLE",
+          "El servicio de ruteo superó el tiempo límite de espera."
+        );
+      }
+      throw new ApiError(
+        503,
+        "ROUTING_SERVICE_UNAVAILABLE",
+        "No se pudo conectar con el servicio de ruteo."
+      );
+    }
+
+    if (!response.ok) {
+      if (response.status === 503) {
+        throw new ApiError(
+          503,
+          "ROUTING_SERVICE_UNAVAILABLE",
+          "El servicio de ruteo no está disponible."
+        );
+      }
+      throw new ApiError(
+        502,
+        "ROUTING_SERVICE_ERROR",
+        `El servicio de ruteo respondió con error HTTP ${response.status}.`
+      );
+    }
+
+    try {
+      return (await response.json()) as T;
+    } catch {
+      throw new ApiError(
+        502,
+        "ROUTING_SERVICE_ERROR",
+        "Respuesta inválida o malformada del servicio de ruteo."
+      );
+    }
+  }
+
   return {
-    async evaluateCandidates(input: EvaluateCandidatesInput): Promise<EvaluateCandidatesResult> {
-      let response: Response;
-      try {
-        response = await fetch(`${config.PRICING_SERVICE_URL}/routes/evaluate-candidates`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(input),
-          signal: AbortSignal.timeout(timeoutMs),
-        });
-      } catch (err: unknown) {
-        if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
-          throw new ApiError(
-            503,
-            "ROUTING_SERVICE_UNAVAILABLE",
-            "El servicio de ruteo superó el tiempo límite de espera."
-          );
-        }
-        throw new ApiError(
-          503,
-          "ROUTING_SERVICE_UNAVAILABLE",
-          "No se pudo conectar con el servicio de ruteo."
-        );
-      }
-
-      if (!response.ok) {
-        if (response.status === 503) {
-          throw new ApiError(
-            503,
-            "ROUTING_SERVICE_UNAVAILABLE",
-            "El servicio de ruteo no está disponible."
-          );
-        }
-        throw new ApiError(
-          502,
-          "ROUTING_SERVICE_ERROR",
-          `El servicio de ruteo respondió con error HTTP ${response.status}.`
-        );
-      }
-
-      let data: EvaluateCandidatesResult;
-      try {
-        data = (await response.json()) as EvaluateCandidatesResult;
-      } catch {
-        throw new ApiError(
-          502,
-          "ROUTING_SERVICE_ERROR",
-          "Respuesta inválida o malformada del servicio de ruteo."
-        );
-      }
-      return data;
-    },
-
-    async optimizeRoute(input: OptimizeRouteRequest): Promise<OptimizeRouteResponse> {
-      let response: Response;
-      try {
-        response = await fetch(`${config.PRICING_SERVICE_URL}/optimize/route`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(input),
-          signal: AbortSignal.timeout(timeoutMs),
-        });
-      } catch (err: unknown) {
-        if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
-          throw new ApiError(
-            503,
-            "ROUTING_SERVICE_UNAVAILABLE",
-            "El servicio de ruteo superó el tiempo límite de espera."
-          );
-        }
-        throw new ApiError(
-          503,
-          "ROUTING_SERVICE_UNAVAILABLE",
-          "No se pudo conectar con el servicio de ruteo."
-        );
-      }
-
-      if (!response.ok) {
-        if (response.status === 503) {
-          throw new ApiError(
-            503,
-            "ROUTING_SERVICE_UNAVAILABLE",
-            "El servicio de ruteo no está disponible."
-          );
-        }
-        throw new ApiError(
-          502,
-          "ROUTING_SERVICE_ERROR",
-          `El servicio de ruteo respondió con error HTTP ${response.status}.`
-        );
-      }
-
-      let data: OptimizeRouteResponse;
-      try {
-        data = (await response.json()) as OptimizeRouteResponse;
-      } catch {
-        throw new ApiError(
-          502,
-          "ROUTING_SERVICE_ERROR",
-          "Respuesta inválida o malformada del servicio de ruteo."
-        );
-      }
-      return data;
-    },
+    evaluateCandidates: (input) =>
+      post<EvaluateCandidatesResult>("/routes/evaluate-candidates", input),
+    optimizeRoute: (input) => post<OptimizeRouteResponse>("/optimize/route", input),
+    routeMatrix: (input) => post<RouteMatrixResponse>("/routes/matrix", input),
   };
 }

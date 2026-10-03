@@ -127,7 +127,12 @@ export type ApiErrorCode =
   // de otro usuario -- el cliente vuelve a cotizar y pide confirmación de nuevo.
   | "QUOTE_EXPIRED"
   // MOVO-255: los datos que afectan el precio cambiaron después de cotizar.
-  | "QUOTE_MISMATCH";
+  | "QUOTE_MISMATCH"
+  // Juego de precios de la feria (módulo demo de svc-shipments + API key en el gateway)
+  | "AUTH_API_KEY_INVALID"
+  | "PRICING_UNAVAILABLE"
+  // Juego del optimizador: partida vencida en Redis y sin los números offline del iPad.
+  | "ROUTE_GAME_NOT_FOUND";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

@@ -66,6 +66,7 @@ export type {
   QuoteResponse,
   ShipmentQuoteRequest,
   ShipmentQuoteResponse,
+  QuoteBreakdown,
 } from "./types/pricing";
 export { OptimizationStatus } from "./types/routing";
 export type {
@@ -77,6 +78,10 @@ export type {
   OptimizeRouteResponse,
   CarrierRouteStop,
   CarrierRoute,
+  OptimizationObjective,
+  PrecomputedMatrix,
+  RouteMatrixRequest,
+  RouteMatrixResponse,
 } from "./types/routing";
 
 // commission
