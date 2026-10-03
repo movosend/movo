@@ -131,7 +131,12 @@ describe("PricingGameService.quote", () => {
       commissionRate: 0.15,
       courierEarnArs: 54547.83, // 62.730 / 1,15
     });
-    expect(quoteStore.items.get(QUOTE_ID)?.courierEarnArs).toBe(54547.83);
+    expect(quoteStore.items.get(QUOTE_ID)).toMatchObject({
+      courierEarnArs: 54547.83,
+      // Se guarda lo cotizado para atar la partida a esa ruta (no viaja en la respuesta).
+      origin: { lat: -31.4201, lng: -64.1888 },
+      destination: { lat: -32.9442, lng: -60.6505 },
+    });
   });
 
   it("503 PRICING_UNAVAILABLE si pricing no devuelve precio (no inventa uno)", async () => {
@@ -160,7 +165,7 @@ describe("PricingGameService.saveSession", () => {
 
     const result = await service.saveSession(
       SESSION_ID,
-      session({ suggestedPriceArs: 1, courierEarnArs: 1, packagePreset: "medium" })
+      session({ suggestedPriceArs: 1, courierEarnArs: 1 })
     );
 
     expect(result).toEqual({ id: SESSION_ID, created: true, quoteVerified: true });
@@ -185,6 +190,25 @@ describe("PricingGameService.saveSession", () => {
       email: "visitante@mail.com",
     });
     expect(record.startedAt).toEqual(new Date("2026-10-10T15:00:00.000Z"));
+  });
+
+  it.each([
+    ["otro origen", { origin: { name: "Mendoza", province: "Mendoza", lat: -32.8895, lng: -68.8458 } }],
+    ["otro destino", { destination: { name: "Salta", province: "Salta", lat: -24.7821, lng: -65.4232 } }],
+    ["sin destino", { destination: null }],
+    ["otro paquete", { packagePreset: "medium" as const }],
+  ])("una cotización de otra partida (%s) no la verifica", async (_label, overrides) => {
+    const { service, repository } = setup();
+    await service.quote({
+      origin: { lat: -31.4201, lng: -64.1888 },
+      destination: { lat: -32.9442, lng: -60.6505 },
+      packagePreset: "small",
+    });
+
+    const result = await service.saveSession(SESSION_ID, session({ suggestedPriceArs: 99, ...overrides }));
+
+    expect(result.quoteVerified).toBe(false);
+    expect(repository.saved[0]).toMatchObject({ suggestedPriceArs: 99, breakdown: null, distanceKm: null });
   });
 
   it("con quoteId vencido guarda lo del body y marca quoteVerified false", async () => {

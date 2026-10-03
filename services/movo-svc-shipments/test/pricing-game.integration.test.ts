@@ -128,6 +128,46 @@ describe("/demo/pricing-game (Postgres + Redis)", () => {
     expect(row.quoteVerified).toBe(true);
   });
 
+  it("un reenvío con la cotización ya vencida no degrada una partida verificada", async () => {
+    const q = await quote();
+    const id = randomUUID();
+    const url = `/demo/pricing-game/sessions/${id}`;
+    await app.inject({ method: "PUT", url, headers: DEMO, payload: session(q.quoteId) });
+    await app.redis.del(`pricing_game_quote:${q.quoteId}`);
+
+    const resent = await app.inject({
+      method: "PUT",
+      url,
+      headers: DEMO,
+      payload: session(q.quoteId, { suggestedPriceArs: 1, courierEarnArs: 1, senderAnswer: "yes", senderWtpArs: null }),
+    });
+
+    expect(resent.json()).toEqual({ id, created: false, quoteVerified: false });
+    const row = await app.db.pricingGameSession.findUniqueOrThrow({ where: { id } });
+    expect(row.quoteVerified).toBe(true);
+    expect(row.suggestedPriceArs?.toNumber()).toBe(62730);
+    expect(row.distanceKm?.toNumber()).toBe(401.2);
+    expect(row.breakdown).toMatchObject({ distanceSource: "routes_api" });
+    // Las respuestas sí se actualizan.
+    expect(row.senderAnswer).toBe("yes");
+  });
+
+  it("stats: el precio de una partida sin verificar no entra a los ratios", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: `/demo/pricing-game/sessions/${randomUUID()}`,
+      headers: DEMO,
+      payload: session(null, { suggestedPriceArs: 1000, courierEarnArs: 1000 }),
+    });
+    expect(res.json().quoteVerified).toBe(false);
+
+    const stats = (await app.inject({ method: "GET", url: "/demo/pricing-game/stats?eventTag=feria-test", headers: DEMO })).json();
+    expect(stats.sessions).toBe(1);
+    expect(stats.sender.answers.no).toBe(1);
+    expect(stats.sender.ratio.n).toBe(0);
+    expect(stats.courier.ratio.n).toBe(0);
+  });
+
   it("stats agrega las partidas del evento sin datos personales", async () => {
     const q = await quote();
     for (const overrides of [

@@ -4,7 +4,7 @@ import { PricingGameRepository } from "../../repositories/pricing-game-repositor
 import { PricingGameAnswer, PricingGameScreen, PricingGameSessionRecord } from "../../models/pricing-game";
 import { computePricingGameStats, PricingGameStats } from "../../domain/pricing-game-stats";
 import { PRICING_GAME_PRESETS, PricingGamePreset } from "./pricing-game.presets";
-import { PricingGameQuoteStore } from "./pricing-game-quote-store";
+import { PricingGameQuote, PricingGameQuoteStore } from "./pricing-game-quote-store";
 
 /** Tag por defecto si el kiosco no manda `?stand=` (partidas desde la web pública). */
 export const DEFAULT_EVENT_TAG = "web";
@@ -80,6 +80,18 @@ export interface PricingGameServiceDeps {
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
+const COORD_EPSILON = 1e-6;
+const samePoint = (a: Point, b: Point | null | undefined) =>
+  b != null && Math.abs(a.lat - b.lat) < COORD_EPSILON && Math.abs(a.lng - b.lng) < COORD_EPSILON;
+
+function quoteMatchesSession(quote: PricingGameQuote, input: PricingGameSessionInput): boolean {
+  return (
+    samePoint(quote.origin, input.origin) &&
+    samePoint(quote.destination, input.destination) &&
+    (input.packagePreset == null || input.packagePreset === quote.packagePreset)
+  );
+}
+
 export function createPricingGameService(deps: PricingGameServiceDeps): PricingGameService {
   return {
     async quote({ origin, destination, packagePreset }) {
@@ -99,7 +111,7 @@ export function createPricingGameService(deps: PricingGameServiceDeps): PricingG
       }
 
       const commissionRate = getCommissionConfig().movoCommissionRate;
-      const quote = {
+      const priced = {
         packagePreset,
         suggestedPriceArs: result.suggestedPriceArs,
         highDemand: result.highDemand,
@@ -110,12 +122,19 @@ export function createPricingGameService(deps: PricingGameServiceDeps): PricingG
         // neto (misma fórmula que las ofertas, MOVO-186).
         courierEarnArs: computeNetFromGross(result.suggestedPriceArs, commissionRate),
       };
-      const quoteId = await deps.quoteStore.save(quote);
-      return { quoteId, ...quote };
+      const quoteId = await deps.quoteStore.save({
+        origin: { lat: origin.lat, lng: origin.lng },
+        destination: { lat: destination.lat, lng: destination.lng },
+        ...priced,
+      });
+      return { quoteId, ...priced };
     },
 
     async saveSession(id, input) {
-      const stored = input.quoteId ? await deps.quoteStore.get(input.quoteId) : null;
+      const quote = input.quoteId ? await deps.quoteStore.get(input.quoteId) : null;
+      // Una cotización de otra ruta o de otro paquete no verifica la partida: el precio
+      // no corresponde a lo que se guarda como origen/destino (métricas por tramo).
+      const stored = quote && quoteMatchesSession(quote, input) ? quote : null;
       const presetId = stored?.packagePreset ?? input.packagePreset ?? null;
       const preset = presetId ? PRICING_GAME_PRESETS[presetId] : null;
       const breakdown = stored?.breakdown ?? null;

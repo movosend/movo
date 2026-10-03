@@ -7,7 +7,8 @@ import {
 /**
  * Juego de precios de la feria: persistencia de partidas (`shipments.pricing_game_sessions`).
  * Upsert por `id` (UUID del cliente) para que el reenvío de la cola offline del iPad no
- * duplique filas.
+ * duplique filas. Un reenvío que ya no puede verificar la cotización (venció en Redis)
+ * no pisa la de una fila que sí quedó verificada: solo actualiza las respuestas.
  */
 export interface PricingGameRepository {
   upsertSession(record: PricingGameSessionRecord): Promise<{ created: boolean }>;
@@ -16,6 +17,41 @@ export interface PricingGameRepository {
 
 const dec = (value: number | null | undefined) => (value == null ? null : new Prisma.Decimal(value));
 const num = (value: Prisma.Decimal | null) => (value == null ? null : value.toNumber());
+
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
+
+/** Columnas que salen de la cotización (o de lo cotizado): fijas una vez verificadas. */
+const QUOTE_COLUMNS = [
+  "originName",
+  "originProvince",
+  "originLat",
+  "originLng",
+  "destinationName",
+  "destinationProvince",
+  "destinationLat",
+  "destinationLng",
+  "packagePreset",
+  "packageType",
+  "weightKg",
+  "quoteId",
+  "quoteVerified",
+  "calculationMethod",
+  "suggestedPriceArs",
+  "highDemand",
+  "distanceKm",
+  "distanceSource",
+  "fuelArsPerLiter",
+  "breakdown",
+  "commissionRate",
+  "courierEarnArs",
+] as const;
 
 function toRow(r: PricingGameSessionRecord) {
   return {
@@ -61,16 +97,30 @@ function toRow(r: PricingGameSessionRecord) {
 }
 
 export function createPricingGameRepository(db: PrismaClient): PricingGameRepository {
-  return {
+  const repository: PricingGameRepository = {
     async upsertSession(record) {
       const data = toRow(record);
-      const existing = await db.pricingGameSession.findUnique({ where: { id: record.id }, select: { id: true } });
-      await db.pricingGameSession.upsert({
+      const existing = await db.pricingGameSession.findUnique({
         where: { id: record.id },
-        create: { id: record.id, ...data },
-        update: data,
+        select: { quoteVerified: true },
       });
-      return { created: !existing };
+      if (!existing) {
+        try {
+          await db.pricingGameSession.create({ data: { id: record.id, ...data } });
+          return { created: true };
+        } catch (error) {
+          // Dos PUT simultáneos de la misma partida: el que pierde sigue como reenvío.
+          if (!isUniqueViolation(error)) throw error;
+          return repository.upsertSession(record);
+        }
+      }
+
+      const update: Partial<typeof data> = { ...data };
+      if (existing.quoteVerified && !record.quoteVerified) {
+        for (const column of QUOTE_COLUMNS) delete update[column];
+      }
+      await db.pricingGameSession.update({ where: { id: record.id }, data: update });
+      return { created: false };
     },
 
     async listForStats(eventTag, limit) {
@@ -79,6 +129,7 @@ export function createPricingGameRepository(db: PrismaClient): PricingGameReposi
         orderBy: { createdAt: "desc" },
         take: limit,
         select: {
+          quoteVerified: true,
           completed: true,
           packagePreset: true,
           distanceKm: true,
@@ -94,13 +145,16 @@ export function createPricingGameRepository(db: PrismaClient): PricingGameReposi
         completed: row.completed,
         packagePreset: row.packagePreset,
         distanceKm: num(row.distanceKm),
-        suggestedPriceArs: num(row.suggestedPriceArs),
+        // Un precio sin verificar llegó en el body: no entra a los ratios WTP/WTA (mismo
+        // criterio que las queries de `docs/pricing/pricing-game-metrics.md`).
+        suggestedPriceArs: row.quoteVerified ? num(row.suggestedPriceArs) : null,
         senderAnswer: row.senderAnswer,
         senderWtpArs: num(row.senderWtpArs),
-        courierEarnArs: num(row.courierEarnArs),
+        courierEarnArs: row.quoteVerified ? num(row.courierEarnArs) : null,
         courierAnswer: row.courierAnswer,
         courierWtaArs: num(row.courierWtaArs),
       }));
     },
   };
+  return repository;
 }

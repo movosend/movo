@@ -15,6 +15,9 @@ export const PRICING_GAME_QUOTE_TTL_SECONDS = 60 * 60;
 const quoteKey = (quoteId: string) => `pricing_game_quote:${quoteId}`;
 
 export interface PricingGameQuote {
+  /** Lo que se cotizó: la partida solo queda verificada si manda los mismos puntos. */
+  origin: { lat: number; lng: number };
+  destination: { lat: number; lng: number };
   packagePreset: PricingGamePreset;
   suggestedPriceArs: number;
   highDemand: boolean | null;
