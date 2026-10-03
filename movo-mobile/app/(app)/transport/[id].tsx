@@ -17,6 +17,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { PublicProfile } from "@movo/shared/dist/types/user-profile";
 import type { ReceiverConfirmationStatus } from "../../../components/shipments/counterpart-card";
+import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
 import { PackageCard } from "../../../components/shipments/package-card";
 import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
 import { RouteMapCard } from "../../../components/send/route-map-card";
@@ -426,13 +427,19 @@ export default function TransportShipmentDetailScreen() {
                 </View>
               </Pressable>
             ) : isAssignedToMe ? (
-              <View
+              <Pressable
                 testID="transport-assigned-to-me-card"
-                className="rounded-[14px] border border-lime-500/50 bg-lime-100 p-4 dark:border-lime-500/30 dark:bg-lime-500/[0.14]"
+                onPress={() => router.push(`/(app)/shipments/${shipment.id}`)}
+                accessibilityRole="button"
+                accessibilityLabel="Ver el detalle del envío"
+                className="rounded-[14px] border border-lime-500/50 bg-lime-100 p-4 active:opacity-80 dark:border-lime-500/30 dark:bg-lime-500/[0.14]"
               >
-                <Text className="font-sans-semibold text-small text-lime-800 dark:text-lime-300">
-                  Te eligieron para este envío
-                </Text>
+                <View className="flex-row items-center justify-between gap-2">
+                  <Text className="font-sans-semibold text-small text-lime-800 dark:text-lime-300">
+                    Te eligieron para este envío
+                  </Text>
+                  <ChevronRight size={16} strokeWidth={2} color={activeOfferAccentColor} />
+                </View>
                 {/* No reusa `ShipmentStatusBadge`/`shipmentStatusLabel` (pensado para
                     el punto de vista del emisor/receptor) -- "Sin asignar" es el label
                     de `assignment_pending`, y acá el envío YA está asignado a mí, así
@@ -447,7 +454,10 @@ export default function TransportShipmentDetailScreen() {
                   {formatTimeHHMM(effectivePickupTimeWindowEnd)} h. Ese día retirás el
                   paquete y arrancás el viaje hasta la entrega.
                 </Text>
-              </View>
+                <Text className="mt-2.5 font-sans-semibold text-[13px] text-lime-800 dark:text-lime-300">
+                  Ver detalle del envío
+                </Text>
+              </Pressable>
             ) : null}
 
             <View>
@@ -627,6 +637,8 @@ export default function TransportShipmentDetailScreen() {
                 testID="transport-detail-package"
               />
             </View>
+
+            <EvidencePhotosSection shipmentId={shipment.id} testID="transport-detail-evidence" />
 
             <View>
               <Eyebrow>Con quién tratás</Eyebrow>

@@ -1,14 +1,17 @@
+import { computeNetFromGross } from "@movo/shared/dist/config/commission";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams, type Href } from "expo-router";
 import {
   ArrowDownLeft,
   ArrowUpRight,
   ChevronLeft,
   ChevronRight,
   Clock,
+  Package,
   QrCode,
   Radio,
+  Truck,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useCallback, useState, type ReactNode } from "react";
@@ -17,6 +20,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
 import { CounterpartCard } from "../../../components/shipments/counterpart-card";
 import { HighDemandBadge } from "../../../components/shipments/high-demand-badge";
+import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
 import { PackageCard } from "../../../components/shipments/package-card";
 import { RatingSheet, type RatingTarget } from "../../../components/shipments/rating-sheet";
@@ -36,15 +40,20 @@ import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useShipmentRatings } from "../../../src/hooks/use-ratings";
-import { useShipment } from "../../../src/hooks/use-shipments";
+import { useShipment, useShipmentPhotos } from "../../../src/hooks/use-shipments";
 import { activeShipmentDisplayCode } from "../../../src/lib/active-shipment-format";
+import { getClientCommissionRate } from "../../../src/lib/commission-config";
 import {
   FULFILLED_SHIPMENT_STATUSES,
   canCancelShipment,
   formatPickupDateLabel,
+  formatPriceArs,
   formatShipmentPrice,
   formatTimeHHMM,
+  pickupLocalityLabel,
   receiverConfirmationStatus,
+  shipmentDetailCta,
+  type ShipmentDetailRole,
 } from "../../../src/lib/shipment-format";
 
 type DetailTab = "detalle" | "timeline";
@@ -100,6 +109,7 @@ export default function ShipmentDetailScreen() {
   const [ratingTarget, setRatingTarget] = useState<RatingTarget | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const { refetch: refetchPhotos, isStale: arePhotosStale } = useShipmentPhotos(id);
 
   useFocusEffect(
     useCallback(() => {
@@ -107,7 +117,12 @@ export default function ShipmentDetailScreen() {
       if (shipment && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status)) {
         void refetchRatings();
       }
-    }, [refetch, refetchRatings, shipment?.status])
+      // Las URLs de las fotos son presigned y vencen: al volver a la pantalla pasado
+      // el `staleTime` se piden de nuevo en vez de mostrar imágenes rotas (AC7).
+      if (arePhotosStale) {
+        void refetchPhotos();
+      }
+    }, [refetch, refetchRatings, shipment?.status, arePhotosStale, refetchPhotos])
   );
 
   const handleRefresh = async () => {
@@ -115,6 +130,7 @@ export default function ShipmentDetailScreen() {
     await Promise.allSettled([
       refetch(),
       refetchRatings(),
+      refetchPhotos(),
     ]);
     setRefreshing(false);
   };
@@ -158,18 +174,21 @@ export default function ShipmentDetailScreen() {
   // MOVO-253 AC6: el receptor rechazó y el emisor puede elegir a otra persona.
   const showRejectedBanner = isSender && shipment?.status === ShipmentStatus.REJECTED_BY_RECEIVER;
 
-  // MOVO-159 AC1: botón contextual ("Confirmar retiro" / "Confirmar entrega")
-  // según el rol y el estado del envío para abrir la pantalla de generación de QR
-  const showPickupHandshake =
-    isSender && shipment?.status === ShipmentStatus.ASSIGNED;
+  const role: ShipmentDetailRole | null = isSender
+    ? "sender"
+    : isReceiver
+      ? "receiver"
+      : isCarrier
+        ? "carrier"
+        : null;
+  const contextualCta = shipment ? shipmentDetailCta(role, shipment.status, shipment.id) : null;
 
-  const showDeliveryHandshake =
-    isCarrier && shipment?.status === ShipmentStatus.IN_TRANSIT;
-
-  const showHandshakeAction = showPickupHandshake || showDeliveryHandshake;
-  const handshakeActionLabel = showPickupHandshake
-    ? "Confirmar retiro"
-    : "Confirmar entrega";
+  // El precio pactado (`agreedPriceArs`) es el bruto que paga el emisor; el
+  // transportista ve lo que le queda después de la comisión de Movo (AC3).
+  const carrierNetArs =
+    isCarrier && shipment?.agreedPriceArs != null
+      ? computeNetFromGross(shipment.agreedPriceArs, getClientCommissionRate())
+      : null;
 
   // Misma condición que decide "Precio pactado" en la card de precio: con transportista
   // asignado el precio que se ve ya no es el sugerido, así que el recargo no aplica.
@@ -234,15 +253,17 @@ export default function ShipmentDetailScreen() {
           <Text className="font-sans-semibold text-h3 text-fg">Detalle del envío</Text>
           {shipment ? (
             <View className="mt-0.5 flex-row items-center gap-1">
-              {isSender || isReceiver ? (
+              {role ? (
                 <View testID="shipment-detail-role" className="flex-row items-center gap-0.5">
-                  {isSender ? (
+                  {role === "sender" ? (
                     <ArrowUpRight size={11} strokeWidth={2} color={colors.fg3} />
-                  ) : (
+                  ) : role === "receiver" ? (
                     <ArrowDownLeft size={11} strokeWidth={2} color={colors.fg3} />
+                  ) : (
+                    <Truck size={11} strokeWidth={2} color={colors.fg3} />
                   )}
                   <Text className="font-sans text-[10px] uppercase tracking-wide text-fg-3">
-                    {isSender ? "Enviás" : "Recibís"} ·
+                    {role === "sender" ? "Enviás" : role === "receiver" ? "Recibís" : "Transportás"} ·
                   </Text>
                 </View>
               ) : null}
@@ -316,12 +337,23 @@ export default function ShipmentDetailScreen() {
             >
               <View>
                 <Eyebrow>Ruta</Eyebrow>
+                {/* El receptor no ve el punto exacto de retiro: solo el pin de entrega y
+                    la localidad del origen, sin calle ni altura (AC4). */}
                 <RouteMapCard
-                  pickup={{
-                    address: shipment.pickupAddress,
-                    lat: shipment.pickupLat,
-                    lng: shipment.pickupLng,
-                  }}
+                  pickup={
+                    isReceiver
+                      ? null
+                      : {
+                          address: shipment.pickupAddress,
+                          lat: shipment.pickupLat,
+                          lng: shipment.pickupLng,
+                        }
+                  }
+                  pickupLabel={
+                    isReceiver
+                      ? (pickupLocalityLabel(shipment.pickupAddress) ?? "la zona del emisor")
+                      : undefined
+                  }
                   delivery={{
                     address: shipment.deliveryAddress,
                     lat: shipment.deliveryLat,
@@ -401,13 +433,19 @@ export default function ShipmentDetailScreen() {
                   <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
                     <GridPattern />
                     <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
-                      {hasAgreedPrice ? "Precio pactado" : "Costo aproximado"}
+                      {carrierNetArs !== null
+                        ? "Te queda"
+                        : hasAgreedPrice
+                          ? "Precio pactado"
+                          : "Costo aproximado"}
                     </Text>
-                    <Text className="font-sans-semibold text-[20px] text-ink-950">
-                      {formatShipmentPrice(
-                        shipment.agreedPriceArs,
-                        shipment.suggestedPriceArs
-                      )}
+                    <Text testID="shipment-detail-price" className="font-sans-semibold text-[20px] text-ink-950">
+                      {carrierNetArs !== null
+                        ? formatPriceArs(carrierNetArs)
+                        : formatShipmentPrice(
+                            shipment.agreedPriceArs,
+                            shipment.suggestedPriceArs
+                          )}
                     </Text>
                     {showHighDemandBadge ? (
                       <View className="mt-2">
@@ -423,8 +461,21 @@ export default function ShipmentDetailScreen() {
                 <PackageCard shipment={shipment} testID="shipment-detail-package" />
               </View>
 
+              <EvidencePhotosSection shipmentId={shipment.id} testID="shipment-detail-evidence" />
+
               {showOffersBanner ? (
                 <OffersBanner shipmentId={shipment.id} testID="shipment-detail-offers" />
+              ) : null}
+
+              {isCarrier ? (
+                <View>
+                  <Eyebrow>Emisor</Eyebrow>
+                  <CounterpartCard
+                    userId={shipment.senderId}
+                    onPress={() => openProfile(shipment.senderId)}
+                    testID="shipment-detail-sender"
+                  />
+                </View>
               ) : null}
 
               <View>
@@ -441,7 +492,9 @@ export default function ShipmentDetailScreen() {
                 />
               </View>
 
-              {shipment.carrierId && !FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? (
+              {!isCarrier &&
+              shipment.carrierId &&
+              !FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? (
                 <View>
                   <Eyebrow>Transportista</Eyebrow>
                   <CounterpartCard
@@ -493,21 +546,32 @@ export default function ShipmentDetailScreen() {
             />
           ) : null}
 
-          {showHandshakeAction && shipment ? (
+          {contextualCta?.kind === "action" ? (
             <View className="border-t border-border bg-bg px-5 pb-6 pt-3.5">
               <Pressable
-                testID="shipment-detail-handshake-button"
+                testID="shipment-detail-cta"
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  router.push(`/(app)/shipments/${shipment.id}/handshake`);
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  router.push(contextualCta.path as Href);
                 }}
+                accessibilityRole="button"
                 className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-lime-500 py-3.5 active:opacity-85"
               >
-                <QrCode size={18} color="#0A0A0B" />
-                <Text className="font-sans-semibold text-body text-ink-950">
-                  {handshakeActionLabel}
-                </Text>
+                {contextualCta.icon === "qr" ? (
+                  <QrCode size={18} color="#0A0A0B" />
+                ) : (
+                  <Package size={18} color="#0A0A0B" />
+                )}
+                <Text className="font-sans-semibold text-body text-ink-950">{contextualCta.label}</Text>
               </Pressable>
+            </View>
+          ) : contextualCta?.kind === "info" ? (
+            <View
+              testID="shipment-detail-cta-info"
+              className="flex-row items-center gap-2 border-t border-border bg-bg px-5 pb-6 pt-3.5"
+            >
+              <Clock size={16} color={colors.fg3} strokeWidth={2} />
+              <Text className="flex-1 font-sans text-small text-fg-2">{contextualCta.text}</Text>
             </View>
           ) : null}
 

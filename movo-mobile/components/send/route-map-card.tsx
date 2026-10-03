@@ -94,6 +94,10 @@ interface RouteMapCardProps {
   /** Sin `onEdit` no se renderiza el botón flotante de lápiz — el detalle de envío
    * (MOVO-127) reusa este mapa en modo solo lectura, la ruta ya está fijada. */
   onEdit?: () => void;
+  /** Con `pickup={null}` y este texto, el mapa muestra solo el punto de entrega y el
+   * retiro queda como una línea de texto debajo, sin pin ni coordenadas: la vista del
+   * receptor no expone el retiro exacto (MOVO-194 AC4). */
+  pickupLabel?: string;
   testID?: string;
 }
 
@@ -109,7 +113,7 @@ interface RouteMapCardProps {
  * el origen, un cuadrado para el destino, mismo color `fg-1` a propósito (se
  * distinguen por forma, no por color).
  */
-export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardProps) {
+export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, testID }: RouteMapCardProps) {
   const { colorScheme } = useColorScheme();
   const colors = useThemeColors();
   const mapRef = useRef<MapView>(null);
@@ -206,7 +210,9 @@ export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardP
     };
   }, [routePoints, colors.fg1]);
 
-  if (!pickup || !delivery) {
+  const deliveryOnly = !pickup && !!delivery && pickupLabel !== undefined;
+
+  if (!delivery || (!pickup && !deliveryOnly)) {
     return (
       <View
         testID={testID}
@@ -235,17 +241,21 @@ export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardP
             left: -MAP_EDGE_BLEED,
             right: -MAP_EDGE_BLEED,
           }}
-          initialRegion={{
-            latitude: (pickup.lat + delivery.lat) / 2,
-            longitude: (pickup.lng + delivery.lng) / 2,
-            latitudeDelta: Math.max(Math.abs(pickup.lat - delivery.lat) * 1.8, 0.02),
-            longitudeDelta: Math.max(Math.abs(pickup.lng - delivery.lng) * 1.8, 0.02),
-          }}
+          initialRegion={
+            pickup
+              ? {
+                  latitude: (pickup.lat + delivery.lat) / 2,
+                  longitude: (pickup.lng + delivery.lng) / 2,
+                  latitudeDelta: Math.max(Math.abs(pickup.lat - delivery.lat) * 1.8, 0.02),
+                  longitudeDelta: Math.max(Math.abs(pickup.lng - delivery.lng) * 1.8, 0.02),
+                }
+              : { latitude: delivery.lat, longitude: delivery.lng, latitudeDelta: 0.02, longitudeDelta: 0.02 }
+          }
           minZoomLevel={minZoomLevel}
           maxZoomLevel={MAX_ZOOM_LEVEL}
           onMapReady={() => {
             const map = mapRef.current;
-            if (!map) return;
+            if (!map || !pickup) return;
             map.fitToCoordinates([pickup, delivery].map((p) => ({ latitude: p.lat, longitude: p.lng })), {
               edgePadding: EDGE_PADDING,
               animated: false,
@@ -269,27 +279,31 @@ export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardP
           pitchEnabled={false}
           rotateEnabled={false}
         >
-          <Polyline
-            testID={testID ? `${testID}-route-base` : undefined}
-            coordinates={routePoints}
-            strokeColor={colors.fg3}
-            strokeWidth={3.5}
-          />
-          <AnimatedPolyline
-            coordinates={routePoints}
-            strokeColor={hexToRgba(colors.fg1, 1)}
-            strokeWidth={3.5}
-            animatedProps={animatedSweepProps}
-          />
+          {pickup ? (
+            <>
+              <Polyline
+                testID={testID ? `${testID}-route-base` : undefined}
+                coordinates={routePoints}
+                strokeColor={colors.fg3}
+                strokeWidth={3.5}
+              />
+              <AnimatedPolyline
+                coordinates={routePoints}
+                strokeColor={hexToRgba(colors.fg1, 1)}
+                strokeWidth={3.5}
+                animatedProps={animatedSweepProps}
+              />
 
-          <Marker coordinate={{ latitude: pickup.lat, longitude: pickup.lng }} anchor={{ x: 0.5, y: 1 }}>
-            <View className="items-center">
-              <View className="mb-1.5">
-                <RouteBadge label={pickup.address} />
-              </View>
-              <View className="h-3.5 w-3.5 rounded-full border-2 border-white bg-ink-950 dark:border-ink-950 dark:bg-white" />
-            </View>
-          </Marker>
+              <Marker coordinate={{ latitude: pickup.lat, longitude: pickup.lng }} anchor={{ x: 0.5, y: 1 }}>
+                <View className="items-center">
+                  <View className="mb-1.5">
+                    <RouteBadge label={pickup.address} />
+                  </View>
+                  <View className="h-3.5 w-3.5 rounded-full border-2 border-white bg-ink-950 dark:border-ink-950 dark:bg-white" />
+                </View>
+              </Marker>
+            </>
+          ) : null}
           <Marker coordinate={{ latitude: delivery.lat, longitude: delivery.lng }} anchor={{ x: 0.5, y: 1 }}>
             <View className="items-center">
               <View className="mb-1.5">
@@ -319,6 +333,18 @@ export function RouteMapCard({ pickup, delivery, onEdit, testID }: RouteMapCardP
           </Pressable>
         ) : null}
       </View>
+
+      {deliveryOnly ? (
+        <View
+          testID={testID ? `${testID}-pickup-label` : undefined}
+          className="flex-row items-center gap-2 border-t border-border bg-bg px-3.5 py-3"
+        >
+          <View className="h-2.5 w-2.5 rounded-full border-2 border-fg-3" />
+          <Text className="flex-1 font-sans text-[12.5px] text-fg-2" numberOfLines={1}>
+            Retiro en {pickupLabel}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }

@@ -2784,10 +2784,6 @@ lado solo relee lo escaneado y agrega sus propias coordenadas GPS.
   Todo) — un campo de texto para pegar el JSON a mano dispara el mismo camino que un
   escaneo real, mismo criterio que el propio prototipo de Claude Design ("Simular
   escaneo del receptor").
-- **Pantalla de éxito propia, sin navegar a `/shipments/:id`**: esa pantalla
-  (`MOVO-127`) solo sabe mostrar la perspectiva del emisor — le fallaría con 403 a un
-  transportista/receptor hasta que `MOVO-194` (extensión de roles del detalle,
-  todavía sin construir) exista. La ruta vuelve a Home en su lugar.
 
 **Grooming de Linear hecho en el camino** (pedido explícito del usuario, al revisar
 el árbol completo de dependencias de "fase 2 del home"): `MOVO-194` y `MOVO-199`
@@ -2915,10 +2911,11 @@ satisfecha.
   ticket). "Eliminar antes de avanzar" aplica solo a fotos que **todavía no se
   confirmaron** (en cola, subiendo, en error) — una foto ya confirmada contra S3/DB
   queda fija, sin botón de borrado. No se abrió ticket de backend nuevo para esto.
-- **Gap de diseño documentado, no un bug**: `GET /shipments/:id/photos` (MOVO-81) no
-  incluye al transportista en su autorización (emisor/receptor/admin), así que el
-  step no puede traer preview de fotos confirmadas en una sesión anterior al
-  remontarse — solo trackea localmente lo capturado en el montaje actual.
+- **Gap de diseño documentado, no un bug**: cuando se escribió este step,
+  `GET /shipments/:id/photos` (MOVO-81) no incluía al transportista en su
+  autorización, así que el step no trae preview de fotos confirmadas en una sesión
+  anterior al remontarse — solo trackea localmente lo capturado en el montaje actual.
+  Desde MOVO-194 el backend ya deja pasar al transportista; el step sigue sin usarlo.
   `evidence-status.photoCount` sigue siendo la fuente autoritativa del conteo total;
   la diferencia contra lo capturado en sesión se renderiza como celda "Confirmada"
   sin imagen, para que el grid cuadre con el máximo real sin mentir sobre qué hay.
@@ -4131,4 +4128,41 @@ Tests agregados/actualizados:
 - `test/my-trips-screen.test.tsx`: tests de interacción de inicio y navegación en las tarjetas de viaje.
 - `test/route-screen.test.tsx`: test de visualización de CTA y transición de inicio desde la pantalla de ruta.
 - Cobertura: 182/182 suites pasando (1564 tests en `movo-mobile`). `tsc --noEmit` con 0 errores.
+
+### MOVO-194 — Detalle del envío: vista del transportista y del receptor
+
+Completa `app/(app)/shipments/[id].tsx` para los tres roles (el backend de este ticket,
+acceso del transportista a eventos y fotos, está en `services/movo-svc-shipments/CLAUDE.md`).
+
+- **CTA contextual** (`shipmentDetailCta`, `shipment-format.ts`): una acción por rol y
+  estado — emisor `assigned` → "Generar retiro" (`/handshake`), transportista `assigned`
+  → "Retirar paquete" (`/pickup`), transportista `in_transit` → "Entregar paquete"
+  (`/delivery`, antes iba al QR suelto y se salteaba la evidencia), receptor `in_transit`
+  → "Confirmar recepción" (`/handshake-scan`, primer punto de entrada real del receptor).
+  `assigned_unfunded` muestra un texto en vez de botón. El copy compartido con el home
+  vive en constantes de `shipment-format.ts` (`SENDER_PICKUP_CTA_LABEL`, etc.): el emisor
+  pasó de "Confirmar retiro" a "Generar retiro" para coincidir con el home.
+- **Precio**: el transportista ve "Te queda" con `computeNetFromGross(agreedPriceArs,
+  getClientCommissionRate())` — con la tasa del cliente, no la default de `@movo/shared`.
+- **Receptor sin el retiro exacto**: `RouteMapCard` acepta `pickup={null}` + `pickupLabel`
+  (solo pin de entrega y una fila "Retiro en {localidad}"); las coordenadas de retiro no
+  llegan al componente. La localidad sale de `pickupLocalityLabel` (`shipment-format.ts`):
+  todo lo que sigue a la calle, sin código postal ni país ("Villa Carlos Paz, Córdoba"). No
+  se reusó `shortAddressLabel` (devuelve la calle con altura) ni `zoneLabelFromAddress`
+  (puede devolver la calle o quedarse solo con la provincia); si no hay localidad, el texto
+  es "la zona del emisor", nunca la calle. La fila del receptor en "Mis envíos"
+  (`my-shipments-format.ts#presentMyShipment`, MOVO-257) usa el mismo helper para que la
+  calle no se filtre por la lista (fallback: "Envío de {nombre}" / "Envío para vos"). El
+  backend igual sigue mandando `pickupAddress` completo en `GET /shipments/:id`.
+- **Transportista**: ve las cards de emisor y receptor, no la suya; header "Transportás".
+- **`EvidencePhotosSection`** (nuevo): fotos agrupadas por stage (creation → pickup →
+  delivery), sin stages vacíos y sin sección si no hay fotos. Reemplaza la tira de fotos de
+  `PackageCard`, que quedó solo con los datos del paquete. También se monta en
+  `transport/[id].tsx`. Al volver a la pantalla con la query `isStale` se refetchea, porque
+  las URLs presigned vencen.
+- **`transport/[id].tsx`**: la card "Te eligieron para este envío" navega al detalle.
+
+Pendiente / fuera de alcance: no probado en device con las tres cuentas (DoD manual);
+`transport/[id].tsx` sigue mostrando la entrega como "deshabilitada, sin wizard" aunque
+MOVO-199 ya existe.
 

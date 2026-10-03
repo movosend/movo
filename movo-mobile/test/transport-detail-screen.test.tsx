@@ -441,6 +441,22 @@ describe("TransportShipmentDetailScreen", () => {
       );
     });
 
+    it("tocar 'Te eligieron para este envío' abre el detalle del envío (MOVO-194 AC8)", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "carrier-me", status: ShipmentStatus.ASSIGNED }),
+        error: null,
+        refetch: jest.fn(),
+      });
+      mockMyOffers([]);
+
+      const { getByTestId } = await render(<TransportShipmentDetailScreen />);
+
+      await fireEvent.press(getByTestId("transport-assigned-to-me-card"));
+      expect(mockRouterPush).toHaveBeenCalledWith("/(app)/shipments/shipment-1");
+    });
+
     it("asignado a mí en `assigned`, 'Iniciar retiro' abre el wizard de retiro", async () => {
       mockUseShipment.mockReturnValue({
         isLoading: false,

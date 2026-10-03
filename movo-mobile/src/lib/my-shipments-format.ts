@@ -8,6 +8,7 @@ import {
   redesignationDeadlineLabel,
   shipmentLifecycleStage,
   shipmentStatusLabel,
+  pickupLocalityLabel,
   shortAddressLabel,
 } from "./shipment-format";
 
@@ -134,7 +135,11 @@ export function presentMyShipment(
     role,
     stage,
     counterpartId: myShipmentCounterpartId(shipment, role),
-    title: shortAddressLabel(sending ? shipment.deliveryAddress : shipment.pickupAddress),
+    // El receptor ve el origen solo como localidad, nunca la calle de retiro (MOVO-194 AC4,
+    // mismo dato que el detalle del envío).
+    title: sending
+      ? shortAddressLabel(shipment.deliveryAddress)
+      : (pickupLocalityLabel(shipment.pickupAddress) ?? (counterpart ? `Envío de ${counterpart}` : "Envío para vos")),
     dayLabel:
       stage === "history"
         ? shortDayFromInstant(myShipmentClosedAt(shipment))
