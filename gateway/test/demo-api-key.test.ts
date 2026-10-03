@@ -140,6 +140,29 @@ describe("Prefijo /demo con API key", () => {
     expect(blocked.statusCode).toBe(429);
     expect(otherVisitor.statusCode).toBe(200);
   });
+
+  it("crear partidas del optimizador tiene su propio límite por visitante", async () => {
+    const create = (ip: string) =>
+      app.inject({
+        method: "POST",
+        url: "/api/v1/demo/route-game/games",
+        headers: { "x-api-key": KEY_A, "x-movo-client-ip": ip },
+        payload: {},
+      });
+
+    for (let i = 0; i < 60; i += 1) {
+      expect((await create("203.0.113.9")).statusCode).toBe(200);
+    }
+    expect((await create("203.0.113.9")).statusCode).toBe(429);
+    expect(capturedUrl).toBe("/demo/route-game/games");
+    // El ranking cuenta aparte: agotar la creación no lo bloquea.
+    const ranking = await app.inject({
+      method: "GET",
+      url: "/api/v1/demo/route-game/ranking?eventTag=feria",
+      headers: { "x-api-key": KEY_A, "x-movo-client-ip": "203.0.113.9" },
+    });
+    expect(ranking.statusCode).toBe(200);
+  });
 });
 
 describe("Prefijo /demo sin DEMO_API_KEYS configurada", () => {

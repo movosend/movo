@@ -139,3 +139,7 @@ las rutas. Rate limit `perClient` (cliente demo + IP real del visitante en
 `x-movo-client-ip`, que reenvía el servidor de Next): sin eso todo el sitio compartiría las
 IPs de Vercel. Cotización, stats y resto de `/demo`: 60/min por visitante (varios iPads de la feria comparten la IP del wifi). Sin
 CORS: la key vive solo en el servidor de Next, nunca en el navegador. Ver ADR-030.
+
+Juego del optimizador (ADR-031): `POST /demo/route-game/games` y `GET /demo/route-game/ranking`
+con su propio límite `perClient` de 60/min (crear una partida corre OR-Tools en
+pricing-logistics); el PUT y el reset caen en el límite demo general.

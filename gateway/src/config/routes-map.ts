@@ -366,5 +366,23 @@ export function getRateLimitOverrides(): RateLimitedRoute[] {
       rateLimit: { max: 60, timeWindow: "1 minute" },
       perClient: true,
     },
+    // Juego del optimizador: crear una partida corre OR-Tools (~1 s de CPU en
+    // pricing-logistics) sobre la matriz de la ciudad, que solo se factura a Google la
+    // primera vez (cache de 30 días). Una partida dura ~2 min, así que 60/min por
+    // visitante sobra aunque todos los iPads del stand compartan la IP del wifi. El
+    // ranking se pide una vez por partida. El PUT (`:id`) y el reset caen en el límite
+    // demo general.
+    {
+      method: "POST",
+      path: "/demo/route-game/games",
+      rateLimit: { max: 60, timeWindow: "1 minute" },
+      perClient: true,
+    },
+    {
+      method: "GET",
+      path: "/demo/route-game/ranking",
+      rateLimit: { max: 60, timeWindow: "1 minute" },
+      perClient: true,
+    },
   ];
 }
