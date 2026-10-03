@@ -2851,3 +2851,27 @@ Fixes de review (PR #208, JcBordino4):
   sigue mostrando un `declared` con salida vencida (hasta el barrido, o para siempre si
   tiene paquetes aceptados, porque todavía hay que iniciarlo): documentado en Swagger.
 - `TripNotDeclaredError` recibe la acción, así el 409 de `/cancel` no habla de "iniciar".
+
+### Juego de precios de la feria — módulo `demo` (sin ticket de Linear)
+
+Backend del juego de `movo-institucional` (/juegos/precios): el visitante elige origen,
+destino y paquete, ve el precio real, dice si lo pagaría (y si no, a cuánto) y si lo
+llevaría como transportista. `src/modules/demo/` (prefijo `/demo`, autenticado con API key
+en el gateway, ADR-030) + tabla `shipments.pricing_game_sessions` (migración
+`20261003120000_add_pricing_game_sessions`, sin FKs: los visitantes no tienen cuenta).
+
+- `POST /demo/pricing-game/quote`: reusa `quoteShipment()` (misma cotización y demanda real
+  que el wizard) con `includeBreakdown`. Peso y medidas salen de presets del backend
+  (`pricing-game.presets.ts`), no del cliente. La ganancia del transportista es
+  `computeNetFromGross` (comisión real del 15%). Guarda la cotización en Redis 1 h
+  (`pricing_game_quote:{id}`). Sin precio: 503 `PRICING_UNAVAILABLE`, nunca inventa uno.
+- `PUT /demo/pricing-game/sessions/:id`: upsert por UUID del cliente (la cola offline del
+  kiosco reenvía sin duplicar). Precio/desglose/ganancia salen de Redis por `quoteId`
+  (`quoteVerified`); si venció, se usan los del body con `quoteVerified: false`. El email
+  solo se guarda con `emailConsent: true`.
+- `GET /demo/pricing-game/stats?eventTag=`: aceptación y mediana/cuartiles de
+  `disposición a pagar / precio` y `pedido / ganancia`, total, por paquete y por tramo de
+  distancia. En memoria sobre las últimas 20.000 partidas (`domain/pricing-game-stats.ts`),
+  sin datos personales. Queries de referencia en `docs/pricing/pricing-game-metrics.md`.
+- Las rutas exigen `x-client-id` `demo-*` (lo inyecta el gateway): defensa si alguien
+  proxea `/demo` sin pasar por el chequeo de key.

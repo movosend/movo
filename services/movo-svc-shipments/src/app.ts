@@ -23,6 +23,7 @@ import mutualConnectionsRoutes from "./modules/mutual-connections/mutual-connect
 import handshakeRoutes, { HandshakeRoutesOptions } from "./modules/handshake/handshake.routes";
 import trackingRoutes, { TrackingRoutesOptions } from "./modules/tracking/tracking.routes";
 import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/positions.routes";
+import demoRoutes, { DemoRoutesOptions } from "./modules/demo/demo.routes";
 import { ShipmentRepository } from "./repositories/shipment-repository";
 import { UsersClient } from "./adapters/users-client";
 import { StorageProvider } from "./adapters/storage-provider";
@@ -221,6 +222,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
   };
   app.register(positionsRoutes, positionsRouteOpts);
+
+  // Juegos del sitio institucional (/juegos): autenticados por API key en el gateway
+  // (prefijo /demo), no por JWT -- ver demo.routes.ts.
+  const demoRouteOpts: DemoRoutesOptions = {
+    prefix: "/demo",
+    ...(opts.pricingClient ? { pricingClient: opts.pricingClient } : {}),
+  };
+  app.register(demoRoutes, demoRouteOpts);
 
   return app;
 }

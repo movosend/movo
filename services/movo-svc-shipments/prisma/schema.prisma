@@ -487,3 +487,70 @@ model Trip {
   @@map("trips")
   @@schema("shipments")
 }
+
+// Juego de precios de la feria (movo-institucional, /juegos/precios): una fila por
+// partida. Mide la disposición a pagar (emisor) y a aceptar (transportista) frente al
+// precio real de `demand_fuel_routes_v1`, para recalibrar `PRICING_*` y para la
+// exposición del proyecto. Sin FK a usuarios: los visitantes no tienen cuenta.
+// `id` lo genera el cliente (UUID) para que el reenvío de la cola offline sea idempotente.
+model PricingGameSession {
+  id         String  @id @db.Uuid
+  eventTag   String  @map("event_tag") @db.VarChar(64)
+  deviceId   String? @map("device_id") @db.VarChar(64)
+
+  startedAt   DateTime @map("started_at") @db.Timestamptz
+  endedAt     DateTime @map("ended_at") @db.Timestamptz
+  durationSec Int      @map("duration_sec")
+  completed   Boolean
+  lastScreen  String   @map("last_screen") @db.VarChar(32)
+
+  originName        String?  @map("origin_name") @db.VarChar(120)
+  originProvince    String?  @map("origin_province") @db.VarChar(120)
+  originLat         Decimal? @map("origin_lat") @db.Decimal(9, 6)
+  originLng         Decimal? @map("origin_lng") @db.Decimal(9, 6)
+  destinationName     String?  @map("destination_name") @db.VarChar(120)
+  destinationProvince String?  @map("destination_province") @db.VarChar(120)
+  destinationLat      Decimal? @map("destination_lat") @db.Decimal(9, 6)
+  destinationLng      Decimal? @map("destination_lng") @db.Decimal(9, 6)
+
+  packagePreset String?      @map("package_preset") @db.VarChar(16)
+  packageType   PackageType? @map("package_type")
+  weightKg      Decimal?     @map("weight_kg") @db.Decimal(6, 2)
+
+  // Cotización. `quoteVerified` = el precio salió de la cotización guardada en Redis
+  // por el propio servidor (no del body); `false` si el `quoteId` venció o no vino.
+  quoteId           String?  @map("quote_id") @db.Uuid
+  quoteVerified     Boolean  @default(false) @map("quote_verified")
+  calculationMethod String?  @map("calculation_method") @db.VarChar(32)
+  suggestedPriceArs Decimal? @map("suggested_price_ars") @db.Decimal(12, 2)
+  highDemand        Boolean? @map("high_demand")
+  distanceKm        Decimal? @map("distance_km") @db.Decimal(8, 2)
+  distanceSource    String?  @map("distance_source") @db.VarChar(32)
+  fuelArsPerLiter   Decimal? @map("fuel_ars_per_liter") @db.Decimal(10, 2)
+  // Desglose completo de pricing (`QuoteBreakdown`), tal cual lo devolvió el servicio.
+  breakdown         Json?
+
+  // Emisor: yes | maybe | no. `senderAltChoice`: -10 | -20 | -30 | custom | none.
+  senderAnswer    String?  @map("sender_answer") @db.VarChar(8)
+  senderAltChoice String?  @map("sender_alt_choice") @db.VarChar(8)
+  senderWtpArs    Decimal? @map("sender_wtp_ars") @db.Decimal(12, 2)
+
+  // Transportista: misma escala; `courierAltChoice`: +10 | +20 | +30 | custom | none.
+  commissionRate   Decimal? @map("commission_rate") @db.Decimal(5, 4)
+  courierEarnArs   Decimal? @map("courier_earn_ars") @db.Decimal(12, 2)
+  courierAnswer    String?  @map("courier_answer") @db.VarChar(8)
+  courierAltChoice String?  @map("courier_alt_choice") @db.VarChar(8)
+  courierWtaArs    Decimal? @map("courier_wta_ars") @db.Decimal(12, 2)
+
+  uberEstimateArs Decimal? @map("uber_estimate_ars") @db.Decimal(12, 2)
+  // Solo con consentimiento explícito (sorteo); nunca se expone en `stats`.
+  email     String? @db.VarChar(254)
+  userAgent String? @map("user_agent") @db.VarChar(512)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([eventTag, createdAt], map: "pricing_game_sessions_event_tag_created_at_idx")
+  @@map("pricing_game_sessions")
+  @@schema("shipments")
+}
