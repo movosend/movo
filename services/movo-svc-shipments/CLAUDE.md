@@ -2828,3 +2828,15 @@ la regla "bloquea, no cascadea" de MOVO-238.
 ### MOVO-261 — Paquetes aceptados en el detalle del viaje (`GET /trips/:id`)
 
 Soporte del rediseño del detalle del viaje (`movo-mobile`): se agrega `packages: TripAcceptedPackage[]` y `acceptedPackagesCount` a la respuesta del viaje extendido (y `acceptedPackagesCount` también al listado). Resuelto optimizando `tripRepository.findByIdWithPackages` con un `include` sobre `offers.shipment` (filtrado por `ACCEPTED_OFFER_FILTER`) en una sola query. No impacta en la DB ni rompe endpoints existentes. DTOs de mobile (`trips-client.ts`) sincronizados, tests de mocks actualizados.
+
+### MOVO-194 — Acceso del transportista asignado a eventos y fotos
+
+`assertShipmentAccess` suma `carrierId` a las partes (con guard de `null`), así
+`GET /shipments/:id/events` y `GET /shipments/:id/photos` responden 200 al transportista
+asignado; uno con oferta rechazada sigue recibiendo 403. Se sacó el caso especial
+`if (callerId !== shipment.carrierId)` de sus dos callers que lo tenían
+(`realtime-authorizer.ts` y `GET /:id/positions/latest`). `getShipmentDetail` y
+`getEvidenceStatus` mantienen su chequeo inline (el primero además abre `published` a
+transportistas verificados). Tests nuevos en `shipments-events.integration.test.ts` y
+`photos.integration.test.ts` (carrier 200, carrier con oferta rechazada 403).
+

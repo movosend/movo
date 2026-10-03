@@ -267,8 +267,8 @@ export function createPhotosService(
       }
     },
 
-    /** AC7: URLs prefirmadas de lectura, TTL corto, solo para emisor/receptor/admin --
-     * mismo chequeo de autorización que `getShipmentDetail` (AC8 de MOVO-80). */
+    /** AC7: URLs prefirmadas de lectura, TTL corto, para emisor/receptor/transportista
+     * asignado/admin (`assertShipmentAccess`). */
     async listPhotoUrls(shipmentId: string, callerId: string, callerRoles: UserRole[]): Promise<PhotoUrlDto[]> {
       const shipment = await repository.findById(shipmentId);
       if (!shipment) {
@@ -290,10 +290,9 @@ export function createPhotosService(
      * `status` actual del envío -- `assigned` implica retiro pendiente (evidencia
      * `pickup`), `in_transit` implica entrega pendiente (evidencia `delivery`);
      * cualquier otro estado no tiene handshake pendiente, así que no hay nada que
-     * exigir (`stage: null`, `satisfied: true`). Autorización propia (no
-     * `assertShipmentAccess`): además de emisor/receptor/admin, el transportista
-     * asignado también necesita consultarlo -- mismo criterio inline que el AC8 de
-     * MOVO-142 en `getShipmentDetail`, ese helper compartido no conoce `carrierId`. */
+     * exigir (`stage: null`, `satisfied: true`). Mismo criterio de acceso que
+     * `assertShipmentAccess` (emisor/receptor/transportista asignado/admin), con
+     * mensaje de error propio. */
     async getEvidenceStatus(shipmentId: string, callerId: string, callerRoles: UserRole[]): Promise<EvidenceStatusDto> {
       const shipment = await repository.findById(shipmentId);
       if (!shipment) {

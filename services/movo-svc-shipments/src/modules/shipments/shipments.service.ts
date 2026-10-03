@@ -1052,16 +1052,11 @@ export function createShipmentsService(
     },
 
     /**
-     * AC8 de MOVO-142: amplía la visibilidad de `assertShipmentAccess` (emisor/
-     * receptor/admin) con dos casos nuevos, reimplementados acá en vez de tocar ese
-     * helper (compartido con `getShipmentEvents`/`photos.service.ts`, fuera del
-     * alcance de este ticket, y necesita I/O async que ese helper síncrono no puede
-     * intercalar antes del 403 final):
-     * - El `carrierId` ya asignado ve su propio envío en cualquier estado (gap real,
-     *   `assertShipmentAccess` nunca conoció `carrierId`).
-     * - Un transportista verificado (rol `carrier` + KYC de identidad aprobado) ve un
-     *   envío `published` ajeno -- la apertura de descubrimiento que necesita
-     *   `GET /shipments/available`. Fuera de `published`, el 403 original se mantiene.
+     * AC8 de MOVO-142: además de las partes (emisor/receptor/transportista asignado/
+     * admin, mismo criterio que `assertShipmentAccess`), un transportista verificado
+     * (rol `carrier` + KYC de identidad aprobado) ve un envío `published` ajeno -- la
+     * apertura de descubrimiento que necesita `GET /shipments/available`. Chequeo
+     * inline porque ese caso necesita I/O async antes del 403 final.
      */
     async getShipmentDetail(
       shipmentId: string,
