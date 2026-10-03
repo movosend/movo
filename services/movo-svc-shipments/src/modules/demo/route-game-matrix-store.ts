@@ -1,4 +1,5 @@
 import type Redis from "ioredis";
+import { ApiError } from "@movo/shared";
 import type { FastifyBaseLogger } from "fastify";
 import { RouteMatrix } from "../../domain/route-game";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
@@ -39,6 +40,22 @@ export interface RouteGameMatrixStoreDeps {
   logger?: Pick<FastifyBaseLogger, "info" | "warn">;
 }
 
+/**
+ * Pares `[desde, hasta]` sin distancia fuera de la diagonal. Google Routes deja en 0 los
+ * elementos que no pudo rutear (solo los loguea): ese arco costaría 0 para OR-Tools y para
+ * el puntaje del jugador durante todo el evento. Los puntos del pool son todos distintos,
+ * así que un 0 fuera de la diagonal nunca es una distancia real.
+ */
+export function unroutablePairs(distKm: number[][]): [number, number][] {
+  const pairs: [number, number][] = [];
+  distKm.forEach((row, i) =>
+    row.forEach((km, j) => {
+      if (i !== j && !(km > 0)) pairs.push([i, j]);
+    })
+  );
+  return pairs;
+}
+
 export function createRouteGameMatrixStore(deps: RouteGameMatrixStoreDeps): RouteGameMatrixStore {
   // Dos iPads que arrancan a la vez la primera partida de una ciudad comparten el mismo
   // pedido en vez de facturarlo dos veces (alcanza con una instancia del servicio).
@@ -49,6 +66,12 @@ export function createRouteGameMatrixStore(deps: RouteGameMatrixStoreDeps): Rout
       points: scenario.pool.map(([, , lat, lng]) => ({ lat, lng })),
     });
     const matrix: CachedRouteMatrix = { distKm: res.distKm, timeMin: res.timeMin, provider: res.provider };
+    const unroutable = unroutablePairs(matrix.distKm);
+    if (unroutable.length > 0) {
+      // No se cachea ni se juega: un pool con un par no ruteable hay que corregirlo a mano.
+      deps.logger?.warn({ scenarioId: scenario.id, provider: res.provider, unroutable }, "route_game_matrix_unroutable");
+      throw new ApiError(503, "ROUTING_SERVICE_UNAVAILABLE", "No se pudo armar el mapa de esta ciudad.");
+    }
     if (res.provider !== "haversine_mock") {
       await deps.redis.set(matrixKey(scenario), JSON.stringify(matrix), "EX", ROUTE_GAME_MATRIX_TTL_SECONDS);
     }
@@ -67,7 +90,7 @@ export function createRouteGameMatrixStore(deps: RouteGameMatrixStoreDeps): Rout
         try {
           const matrix = JSON.parse(raw) as CachedRouteMatrix;
           const n = scenario.pool.length;
-          if (matrix.distKm.length === n && matrix.timeMin.length === n) {
+          if (matrix.distKm.length === n && matrix.timeMin.length === n && unroutablePairs(matrix.distKm).length === 0) {
             return { matrix, info: { cache: "hit", provider: matrix.provider, elementsBilled: 0 } };
           }
         } catch {

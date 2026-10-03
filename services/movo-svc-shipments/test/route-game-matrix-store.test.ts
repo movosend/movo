@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createRouteGameMatrixStore } from "../src/modules/demo/route-game-matrix-store";
+import { createRouteGameMatrixStore, unroutablePairs } from "../src/modules/demo/route-game-matrix-store";
 import { ROUTE_GAME_SCENARIOS } from "../src/modules/demo/route-game.scenarios";
 
 const scenario = ROUTE_GAME_SCENARIOS[1];
@@ -69,5 +69,28 @@ describe("route-game-matrix-store", () => {
     routeMatrix.mockRejectedValue(new Error("caído"));
     await expect(store().get(scenario)).rejects.toThrow("caído");
     expect(redis.set).not.toHaveBeenCalled();
+  });
+
+  it("una matriz con un par no ruteable (0 fuera de la diagonal) no se cachea ni se juega", async () => {
+    const withHole = square(1).map((row, i) => row.map((v, j) => (i === j ? 0 : v)));
+    withHole[0][2] = 0;
+    routeMatrix.mockResolvedValue({ distKm: withHole, timeMin: square(2), provider: "google_routes", elementsBilled: n * n });
+    await expect(store().get(scenario)).rejects.toMatchObject({ statusCode: 503, code: "ROUTING_SERVICE_UNAVAILABLE" });
+    expect(redis.set).not.toHaveBeenCalled();
+  });
+
+  it("una matriz con agujeros que ya estaba en cache se descarta y se vuelve a pedir", async () => {
+    const withHole = square(1);
+    withHole[1][0] = 0;
+    redis.data.set(
+      `route_game_matrix:${scenario.id}:v${scenario.version}`,
+      JSON.stringify({ distKm: withHole, timeMin: square(2), provider: "google_routes" })
+    );
+    expect((await store().get(scenario)).info.cache).toBe("miss");
+  });
+
+  it("unroutablePairs ignora la diagonal", () => {
+    expect(unroutablePairs([[0, 1], [2, 0]])).toEqual([]);
+    expect(unroutablePairs([[0, 0], [2, 0]])).toEqual([[0, 1]]);
   });
 });
