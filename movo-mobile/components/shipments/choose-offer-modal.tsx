@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from "react-native-safe-area-context";
@@ -19,6 +19,8 @@ export interface ChooseOfferModalProps {
   errorMessage: string | null;
   onConfirm: () => void;
   onClose: () => void;
+  /** Se llama cuando el sheet terminó de cerrarse y su `Modal` nativo ya no está. */
+  onClosed?: () => void;
   testID?: string;
 }
 
@@ -29,9 +31,21 @@ export function ChooseOfferModal({
   errorMessage,
   onConfirm,
   onClose,
+  onClosed,
   testID,
 }: ChooseOfferModalProps) {
   const { isMounted, backdropStyle, sheetStyle } = useSheetAnimation(visible);
+
+  // iOS no presenta un `Modal` mientras otro se está cerrando: lo descarta sin error.
+  // Quien quiera abrir otro modal después de este (el de éxito, MOVO-271 AC2) tiene
+  // que esperar a este aviso en vez de abrirlo en el mismo render en que lo cierra.
+  const onClosedRef = useRef(onClosed);
+  onClosedRef.current = onClosed;
+  const wasMountedRef = useRef(isMounted);
+  useEffect(() => {
+    if (wasMountedRef.current && !isMounted) onClosedRef.current?.();
+    wasMountedRef.current = isMounted;
+  }, [isMounted]);
 
   const lastOfferRef = useRef<OfferSummary | null>(offer);
   if (offer) {

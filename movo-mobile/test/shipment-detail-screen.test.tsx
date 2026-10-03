@@ -32,7 +32,7 @@ const mockRejectMutation = { mutateAsync: jest.fn(), isPending: false };
 const mockCancelMutation = { mutateAsync: jest.fn(), isPending: false };
 
 jest.mock("../src/hooks/use-shipments", () => ({
-  useShipment: () => mockUseShipment(),
+  useShipment: (...args: unknown[]) => mockUseShipment(...args),
   useShipmentPhotos: () => ({ data: [], isLoading: false }),
   useShipmentRoute: () => ({ data: undefined }),
   useShipmentEvents: () => ({ data: [], isLoading: false, isError: false, refetch: jest.fn() }),
@@ -867,4 +867,87 @@ describe("ShipmentDetailScreen", () => {
       expect(queryByTestId("shipment-detail-rejected-banner")).toBeNull();
     });
   });
+});
+
+describe("ShipmentDetailScreen — seguimiento en vivo (MOVO-271 AC3/AC5)", () => {
+  beforeEach(() => {
+    mockCanGoBack.mockReturnValue(true);
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+  });
+  afterEach(() => jest.clearAllMocks());
+
+  function mockShipment(overrides: Partial<ShipmentSummary>) {
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment(overrides),
+      error: null,
+      refetch: jest.fn(),
+    });
+  }
+
+  it.each([ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.ASSIGNED])(
+    "antes del retiro (%s) muestra el placeholder y no navega",
+    async (status) => {
+      mockShipment({ carrierId: "carrier-1", status });
+
+      const { getByTestId, queryByTestId, getByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-live-tracking-pending")).toBeTruthy();
+      expect(queryByTestId("shipment-detail-live-tracking")).toBeNull();
+      expect(
+        getByText("Cuando el transportista inicie el recorrido, vas a poder ver su ubicación en tiempo real."),
+      ).toBeTruthy();
+    },
+  );
+
+  it("en tránsito habilita la card y navega al mapa", async () => {
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.IN_TRANSIT });
+
+    const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-live-tracking-pending")).toBeNull();
+    await fireEvent.press(getByTestId("shipment-detail-live-tracking"));
+    expect(mockRouterPush).toHaveBeenCalledWith("/(app)/shipments/shipment-1/tracking");
+  });
+
+  it("el receptor también la ve", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.IN_TRANSIT });
+
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-live-tracking")).toBeTruthy();
+  });
+
+  it("no la muestra al transportista, sin transportista ni con el envío entregado", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "carrier-1" });
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.IN_TRANSIT });
+    const asCarrier = await render(<ShipmentDetailScreen />);
+    expect(asCarrier.queryByTestId("shipment-detail-live-tracking")).toBeNull();
+    asCarrier.unmount();
+
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    mockShipment({ carrierId: null, status: ShipmentStatus.PUBLISHED });
+    const withoutCarrier = await render(<ShipmentDetailScreen />);
+    expect(withoutCarrier.queryByTestId("shipment-detail-live-tracking-pending")).toBeNull();
+    withoutCarrier.unmount();
+
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.DELIVERED });
+    const delivered = await render(<ShipmentDetailScreen />);
+    expect(delivered.queryByTestId("shipment-detail-live-tracking")).toBeNull();
+    expect(delivered.queryByTestId("shipment-detail-live-tracking-pending")).toBeNull();
+  });
+
+  it("le pasa al detalle el polling del placeholder", async () => {
+    mockShipment({ carrierId: "carrier-1", status: ShipmentStatus.ASSIGNMENT_PENDING });
+    await render(<ShipmentDetailScreen />);
+
+    const options = mockUseShipment.mock.calls.at(-1)?.[1] as {
+      refetchInterval: (data: ShipmentSummary | undefined) => number | false;
+    };
+    expect(options.refetchInterval(shipment({ carrierId: "carrier-1", status: ShipmentStatus.ASSIGNMENT_PENDING }))).toBe(30_000);
+    expect(options.refetchInterval(shipment({ carrierId: "carrier-1", status: ShipmentStatus.IN_TRANSIT }))).toBe(false);
+  });
+
 });

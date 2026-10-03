@@ -1,6 +1,6 @@
 import { act, render } from "@testing-library/react-native";
 import { useState } from "react";
-import { ChooseOfferSuccessModal } from "../components/shipments/choose-offer-success-modal";
+import { AUTO_DISMISS_MS, ChooseOfferSuccessModal } from "../components/shipments/choose-offer-success-modal";
 
 /**
  * MOVO-244 review (PR #184): `onDismiss` no está memoizado en todos los callers
@@ -28,12 +28,17 @@ describe("ChooseOfferSuccessModal (MOVO-150 / MOVO-244)", () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 
-  it("se auto-cierra 1600ms después de abrirse", async () => {
+  it("se auto-cierra AUTO_DISMISS_MS después de abrirse, no antes", async () => {
     const onDismiss = jest.fn();
     await render(<Wrapper onDismiss={onDismiss} />);
 
     await act(async () => {
-      jest.advanceTimersByTime(1600);
+      jest.advanceTimersByTime(AUTO_DISMISS_MS - 1);
+    });
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(1);
     });
 
     expect(onDismiss).toHaveBeenCalledTimes(1);
@@ -44,7 +49,7 @@ describe("ChooseOfferSuccessModal (MOVO-150 / MOVO-244)", () => {
     const { rerender } = await render(<Wrapper onDismiss={onDismiss} />);
 
     await act(async () => {
-      jest.advanceTimersByTime(800); // a mitad de camino del timer de 1600ms
+      jest.advanceTimersByTime(AUTO_DISMISS_MS / 2); // a mitad de camino del timer
     });
 
     // Simula el refetch/invalidation que `offers.tsx#handleConfirmAccept` dispara
@@ -55,7 +60,7 @@ describe("ChooseOfferSuccessModal (MOVO-150 / MOVO-244)", () => {
     });
 
     await act(async () => {
-      jest.advanceTimersByTime(800); // completa los 1600ms originales
+      jest.advanceTimersByTime(AUTO_DISMISS_MS / 2); // completa el plazo original
     });
 
     expect(onDismiss).toHaveBeenCalledTimes(1);
