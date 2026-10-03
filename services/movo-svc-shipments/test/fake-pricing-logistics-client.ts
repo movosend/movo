@@ -35,6 +35,9 @@ export function createFakePricingLogisticsClient(
     optimizeRoute: vi.fn(async (_input: OptimizeRouteRequest): Promise<OptimizeRouteResponse> => {
       throw new Error("createFakePricingLogisticsClient: optimizeRoute no está mockeado en este fake");
     }),
+    routeMatrix: vi.fn(async () => {
+      throw new Error("createFakePricingLogisticsClient: routeMatrix no está mockeado en este fake");
+    }),
     ...overrides,
   };
 }

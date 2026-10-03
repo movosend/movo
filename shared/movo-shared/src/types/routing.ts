@@ -28,11 +28,40 @@ export interface RouteStopInput {
   serviceTimeMinutes?: number | null;
 }
 
+export type OptimizationObjective = "time" | "distance";
+
+/**
+ * Matriz ya calculada, en orden canónico `[carrierLocation, pickups..., deliveries...,
+ * finalLocation]` (con solo entregas coincide con el orden de `stops`). La pasa el
+ * módulo demo de `movo-svc-shipments` (juego del optimizador) para no volver a facturar
+ * elementos de Google en cada partida.
+ */
+export interface PrecomputedMatrix {
+  distKm: number[][];
+  timeMin: number[][];
+}
+
 export interface OptimizeRouteRequest {
   carrierLocation: Coordinates;
   stops: RouteStopInput[];
   departureTime?: string | null;
   finalLocation?: Coordinates | null;
+  /** Default `time`. `distance` solo lo pide el juego del optimizador. */
+  objective?: OptimizationObjective;
+  matrix?: PrecomputedMatrix | null;
+}
+
+/** `POST /routes/matrix` de `movo-svc-pricing-logistics` (hasta 25 puntos). */
+export interface RouteMatrixRequest {
+  points: Coordinates[];
+}
+
+export interface RouteMatrixResponse {
+  distKm: number[][];
+  timeMin: number[][];
+  provider: string;
+  /** Elementos facturables pedidos a Google (0 con el mock). */
+  elementsBilled: number;
 }
 
 export interface RouteStopOutput {

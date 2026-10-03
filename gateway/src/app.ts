@@ -7,6 +7,7 @@ import { API_PREFIX } from "./config/routes-map";
 import errorHandlerPlugin from "./plugins/error-handler";
 import rateLimitPlugin from "./plugins/rate-limit";
 import authPlugin from "./plugins/auth";
+import apiKeyPlugin from "./plugins/api-key";
 import routesPlugin from "./routes/index";
 
 export function buildApp(): FastifyInstance {
@@ -36,6 +37,7 @@ export function buildApp(): FastifyInstance {
   app.register(swaggerUi, { routePrefix: "/docs" });
 
   app.register(authPlugin, { env });
+  app.register(apiKeyPlugin, { env });
   app.register(routesPlugin, { env, prefix: API_PREFIX });
 
   // Fuera de /api/v1 a propósito: es el endpoint que consultan el healthcheck

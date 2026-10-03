@@ -341,3 +341,9 @@ sin precio todo `null`. Códigos nuevos `QUOTE_EXPIRED`/`QUOTE_MISMATCH` (ADR-02
 
 `src/errors/api-error.ts` — código nuevo en `ApiErrorCode` para el endpoint `POST /trips/:id/start` (MOVO-221), retornado cuando el transportista intenta iniciar un viaje antes de la fecha programada. Consumido por el cliente móvil (`movo-mobile`, MOVO-252) para mapear el error a un mensaje legible con la fecha de salida.
 
+
+### Juego de precios de la feria — `QuoteBreakdown` y códigos nuevos
+
+`types/pricing.ts`: `QuoteRequest.includeBreakdown?` y `QuoteResponse.breakdown?`
+(`QuoteBreakdown`, espejo del modelo Python). `ApiErrorCode` suma `AUTH_API_KEY_INVALID`
+(gateway, prefijo `/demo`) y `PRICING_UNAVAILABLE` (503 del juego cuando pricing no cotiza).
