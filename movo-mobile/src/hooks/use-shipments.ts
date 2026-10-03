@@ -37,6 +37,7 @@ export function useRecentShipments() {
 const ATTENTION_SOURCE_STATUSES = [
   ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
   ShipmentStatus.REJECTED_BY_RECEIVER,
+  ShipmentStatus.PUBLISHED, // MOVO-184 AC5: ofertas recibidas
 ] as const;
 
 export function useAttentionSourceShipments() {

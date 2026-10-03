@@ -4028,6 +4028,7 @@ Rediseño del widget "Actividad reciente" (`RecentShipmentsSection`) de Inicio p
   - Dentro de cada nivel se desempatan por `createdAt desc`.
 - **Expiración a las 48h**: `cancelled` y `rejected_by_receiver` (vistos por el receptor) desaparecen del widget pasadas 48 horas desde `lastStatusChangedAt`. `delivered` y `completed` no expiran nunca (sirven de fallback).
 - **Contador "N activos" no sufre regresiones (AC3)**: Sigue computando los envíos `"ongoing"` visibles en el widget (hasta 3), alineado con la expectativa visual de la lista mostrada debajo.
+- **Aviso de ofertas recibidas (AC5)**: va en "Requiere tu atención" (`use-attention-tasks.ts`), no en la fila del widget — es una tarea `info` con `icon: "offers"` ("Recibiste N ofertas", card → detalle, "Ver ofertas" → `/shipments/:id/offers`). Cierra el gap que MOVO-193 había dejado documentado por falta de datos: el conteo sale de `pendingOffersCount` de `/mine` (MOVO-257), por eso `useAttentionSourceShipments` suma `published` a sus estados. Rechazar una oferta ahora invalida `["shipments","mine"]` para que el aviso no quede con un conteo viejo. El envío igual sigue arriba en "Actividad reciente" por el nivel 1 de AC1.
 
 ### MOVO-257 — Rediseño de "Mis envíos" para emisor y receptor
 

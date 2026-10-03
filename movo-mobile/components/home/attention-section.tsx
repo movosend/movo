@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { Clock, UserRoundPlus, XCircle } from "lucide-react-native";
+import { Clock, Inbox, UserRoundPlus, XCircle } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { AcceptSuccessModal } from "../shipments/accept-success-modal";
@@ -14,6 +14,8 @@ import { AttentionConfirmCard } from "./attention-confirm-card";
 
 function AttentionInfoCard({ task, testID }: { task: AttentionInfoTask; testID?: string }) {
   const colors = useThemeColors();
+  // Mismo ícono que el banner de ofertas del detalle (`OffersBanner`, MOVO-150).
+  const Icon = task.icon === "offers" ? Inbox : XCircle;
   return (
     <Pressable
       testID={testID}
@@ -21,7 +23,7 @@ function AttentionInfoCard({ task, testID }: { task: AttentionInfoTask; testID?:
       className="flex-row items-center gap-3 rounded-[16px] border border-border bg-bg p-4"
     >
       <View className="h-11 w-11 items-center justify-center rounded-full bg-bg-mute">
-        <XCircle size={20} color={colors.fg2} strokeWidth={1.8} />
+        <Icon size={20} color={colors.fg2} strokeWidth={1.8} />
       </View>
       <View className="flex-1 gap-0.5">
         <Text numberOfLines={2} className="font-sans-semibold text-small text-fg">
