@@ -78,6 +78,10 @@ export type {
   OptimizeRouteResponse,
   CarrierRouteStop,
   CarrierRoute,
+  OptimizationObjective,
+  PrecomputedMatrix,
+  RouteMatrixRequest,
+  RouteMatrixResponse,
 } from "./types/routing";
 
 // commission
