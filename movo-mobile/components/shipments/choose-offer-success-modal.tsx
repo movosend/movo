@@ -1,5 +1,4 @@
 import * as Haptics from "expo-haptics";
-import { CheckCircle2 } from "lucide-react-native";
 import { useEffect, useRef } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, {
@@ -9,11 +8,15 @@ import Animated, {
 } from "react-native-reanimated";
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from "react-native-safe-area-context";
 import { useSheetAnimation } from "../../src/hooks/use-sheet-animation";
+import { SuccessMoment } from "../ui/success-moment";
 
 const FALLBACK_METRICS = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
   insets: { top: 47, left: 0, right: 0, bottom: 34 },
 };
+
+/** 3,5 s (MOVO-271): con 1,6 s no se llegaba a leer el texto antes del redirect. */
+export const AUTO_DISMISS_MS = 3500;
 
 export interface ChooseOfferSuccessModalProps {
   visible: boolean;
@@ -23,9 +26,9 @@ export interface ChooseOfferSuccessModalProps {
 }
 
 /**
- * Modal de éxito con animación al elegir oferta (MOVO-150 / MOVO-244).
+ * Modal de éxito con animación al elegir oferta (MOVO-150 / MOVO-244 / MOVO-271).
  * Presenta confirmación háptica, barra de progreso y auto-redirección al detalle
- * del envío tras completarse la animación (~1.5s), con opción de tocar para avanzar antes.
+ * del envío tras `AUTO_DISMISS_MS`, con opción de tocar para avanzar antes.
  */
 export function ChooseOfferSuccessModal({
   visible,
@@ -42,7 +45,7 @@ export function ChooseOfferSuccessModal({
   // función inline) — cualquier re-render del padre mientras el modal está visible
   // (el propio `handleConfirmAccept` dispara refetch/invalidations justo después de
   // mostrarlo) le daba una identidad nueva y reiniciaba TODO el efecto: haptics de
-  // nuevo, `progress` vuelto a 0, y el timer de auto-dismiss de 1600ms cancelado y
+  // nuevo, `progress` vuelto a 0, y el timer de auto-dismiss cancelado y
   // re-armado desde cero (MOVO-244 review, PR #184). Con la ref, el efecto solo
   // corre una vez por apertura (`visible`), sin importar cuántas veces se re-renderice
   // el padre mientras tanto.
@@ -55,10 +58,10 @@ export function ChooseOfferSuccessModal({
     if (visible) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       progress.value = 0;
-      progress.value = withTiming(1, { duration: 1500 });
+      progress.value = withTiming(1, { duration: AUTO_DISMISS_MS - 100 });
       const timer = setTimeout(() => {
         onDismissRef.current();
-      }, 1600);
+      }, AUTO_DISMISS_MS);
       return () => clearTimeout(timer);
     } else {
       progress.value = 0;
@@ -98,23 +101,17 @@ export function ChooseOfferSuccessModal({
           <View pointerEvents="box-none" className="flex-1 justify-end">
             <Animated.View
               style={sheetStyle}
-              className="rounded-t-[24px] border-t border-border bg-bg px-5 pt-6 pb-2"
+              className="rounded-t-[24px] border-t border-border bg-bg px-5 pb-2"
             >
               <SafeAreaView edges={["bottom"]} className="gap-5 items-center">
-                <View className="h-16 w-16 items-center justify-center rounded-full bg-success-100">
-                  <CheckCircle2 size={36} color="#16754A" strokeWidth={2.4} />
-                </View>
-
-                <View className="gap-2 items-center text-center">
-                  <Text className="font-sans-semibold text-h2 text-fg text-center">
-                    ¡Oferta aceptada!
-                  </Text>
-                  <Text className="font-sans text-small leading-5 text-fg-2 text-center px-4">
-                    Seleccionaste la propuesta de{" "}
-                    <Text className="font-sans-semibold text-fg">{displayName}</Text>.
-                    Tu envío quedó en espera de la confirmación del pago para iniciar el viaje.
-                  </Text>
-                </View>
+                {/* MOVO-271 AC2: mismo momento de éxito animado que al calificar
+                    (`SuccessMoment`). Se monta con el modal, así que la animación
+                    arranca en cada apertura y termina (~600ms) antes del auto-dismiss. */}
+                <SuccessMoment
+                  title="¡Oferta aceptada!"
+                  subtitle={`Seleccionaste la propuesta de ${displayName}. Tu envío quedó en espera de la confirmación del pago para iniciar el viaje.`}
+                  testID={testID ? `${testID}-moment` : "choose-offer-success-moment"}
+                />
 
                 {/* Animated progress redirect bar */}
                 <View className="w-full gap-2 px-2 items-center">
