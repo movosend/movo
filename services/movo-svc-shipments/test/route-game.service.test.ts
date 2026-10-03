@@ -43,10 +43,18 @@ describe("route-game.service", () => {
       matrix: { ...straightLineMatrix(scenario.pool), provider: "google_routes" },
       info: { cache: "hit", provider: "google_routes", elementsBilled: 0 },
     }));
+    // Como el repo real: el primer PUT fija el resultado; un reenvío solo suma nombre/mail.
     repository.upsertSession.mockImplementation(async (r: RouteGameSessionRecord) => {
-      const created = !saved.some((s) => s.id === r.id);
-      saved = [...saved.filter((s) => s.id !== r.id), r];
-      return { created };
+      const existing = saved.find((s) => s.id === r.id);
+      const stored = existing
+        ? { ...existing, name: r.name ?? existing.name, email: r.email ?? existing.email, inRanking: existing.inRanking || r.inRanking }
+        : r;
+      saved = [...saved.filter((s) => s.id !== r.id), stored];
+      const { computedBy, userKm, optimalKm, userMin, optimalMin, extraKm, extraMin, efficiencyPct, tie, optimalOrder, distanceMethod } = stored;
+      return {
+        created: !existing,
+        score: { computedBy, userKm, optimalKm, userMin, optimalMin, extraKm, extraMin, efficiencyPct, tie, optimalOrder, distanceMethod },
+      };
     });
     repository.listRanking.mockResolvedValue([]);
     repository.hideFromRanking.mockResolvedValue(3);
@@ -120,9 +128,20 @@ describe("route-game.service", () => {
       expect(res.tie).toBe(true);
       expect(saved).toHaveLength(1);
       expect(saved[0]).toMatchObject({ name: "Juli", inRanking: true, email: "juli@mail.com" });
+      expect(repository.upsertSession).toHaveBeenLastCalledWith(expect.objectContaining({ email: "juli@mail.com" }));
 
       await s.saveGame(game.gameId, { ...base, userOrder, name: "Juli", email: "juli@mail.com" });
-      expect(saved[0].email).toBeNull();
+      // Sin el tilde el servicio no manda el mail (el repo conserva el que ya estaba).
+      expect(repository.upsertSession).toHaveBeenLastCalledWith(expect.objectContaining({ email: null }));
+    });
+
+    it("reenviar con otro orden o menos tiempo devuelve el resultado del primer PUT", async () => {
+      const s = service();
+      const game = await s.createGame({ stopCount: 4 });
+      const stored = games.get(game.gameId)!;
+      const first = await s.saveGame(game.gameId, { ...base, userOrder: [...stored.optimalOrder].reverse() });
+      const second = await s.saveGame(game.gameId, { ...base, userOrder: first.optimalOrder, timeUsedSec: 0, name: "Tramposo" });
+      expect(second).toMatchObject({ created: false, efficiencyPct: first.efficiencyPct, userKm: first.userKm, tie: first.tie });
     });
 
     it("400 si el orden no es una permutación de las paradas de la partida", async () => {
@@ -150,6 +169,27 @@ describe("route-game.service", () => {
         },
       });
       expect(res).toMatchObject({ computedBy: "client", efficiencyPct: 80, extraKm: 2, distanceMethod: "haversine_x1.35" });
+    });
+
+    it("una partida offline con nombre se guarda pero no entra al ranking (km sin verificar)", async () => {
+      const point = { name: "x", zone: "y", lat: -34.6, lng: -58.4 };
+      await service().saveGame(GAME_ID, {
+        ...base,
+        userOrder: [0, 1, 2, 3],
+        name: "Offline",
+        offline: {
+          scenarioId: "caba",
+          city: "CABA",
+          points: { start: point, stops: [point, point, point, point], end: point },
+          optimalOrder: [0, 1, 2, 3],
+          userKm: 0,
+          optimalKm: 5,
+          userMin: 0,
+          optimalMin: 5,
+          distanceMethod: "haversine_x1.35",
+        },
+      });
+      expect(saved[0]).toMatchObject({ name: "Offline", computedBy: "client", inRanking: false });
     });
 
     it("404 si la partida no existe y no vino offline; 400 si el offline es inválido", async () => {

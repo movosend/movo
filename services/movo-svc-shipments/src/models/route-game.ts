@@ -46,3 +46,19 @@ export interface RouteGameSessionRecord {
   email: string | null;
   userAgent: string | null;
 }
+
+/** Resultado de una partida tal como quedó guardado (lo que devuelve el `PUT`). */
+export type RouteGameScore = Pick<
+  RouteGameSessionRecord,
+  | "computedBy"
+  | "userKm"
+  | "optimalKm"
+  | "userMin"
+  | "optimalMin"
+  | "extraKm"
+  | "extraMin"
+  | "efficiencyPct"
+  | "tie"
+  | "optimalOrder"
+  | "distanceMethod"
+>;

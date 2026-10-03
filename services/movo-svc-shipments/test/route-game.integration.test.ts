@@ -48,6 +48,12 @@ describe("/demo/route-game (Postgres + Redis)", () => {
     });
   }
 
+  /** El óptimo guardado en Redis al crear la partida (el cliente no lo ve hasta registrarla). */
+  async function storedOptimalOrder(gameId: string): Promise<number[]> {
+    const raw = await app.redis.get(`route_game:${gameId}`);
+    return JSON.parse(raw!).optimalOrder;
+  }
+
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret";
     process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
@@ -109,8 +115,7 @@ describe("/demo/route-game (Postgres + Redis)", () => {
 
   it("ranking compartido: ordena las partidas de distintos iPads; el reset las saca sin borrarlas", async () => {
     const perfect = await create(4);
-    const optimal = (await save(perfect.gameId, perfect.initialOrder)).json().optimalOrder;
-    await save(perfect.gameId, optimal, { name: "Ana", deviceId: "ipad-1" });
+    await save(perfect.gameId, await storedOptimalOrder(perfect.gameId), { name: "Ana", deviceId: "ipad-1" });
 
     const worse = await create(4);
     await save(worse.gameId, worse.initialOrder, { name: "Beto", deviceId: "ipad-2" });
@@ -129,10 +134,52 @@ describe("/demo/route-game (Postgres + Redis)", () => {
     expect(await app.db.routeGameSession.count()).toBe(3);
   });
 
+  it("el segundo PUT no cambia el resultado: reenviar el óptimo con tiempo 0 no sube en el ranking", async () => {
+    const game = await create(4);
+    const first = (await save(game.gameId, game.initialOrder)).json();
+
+    const cheat = await save(game.gameId, first.optimalOrder, { timeUsedSec: 0, name: "Tramposo" });
+    expect(cheat.statusCode).toBe(200);
+    expect(cheat.json()).toMatchObject({ efficiencyPct: first.efficiencyPct, userKm: first.userKm, tie: first.tie });
+
+    const [row] = await app.db.routeGameSession.findMany();
+    expect(row).toMatchObject({ name: "Tramposo", inRanking: true, timeUsedSec: 40, userOrder: game.initialOrder });
+    expect(row.efficiencyPct.toNumber()).toBe(first.efficiencyPct);
+  });
+
+  it("un reenvío sin nombre (la cola manda tarde el primer PUT) no borra el nombre ni el mail", async () => {
+    const game = await create(4);
+    await save(game.gameId, game.initialOrder, { name: "Juli", email: "juli@mail.com", emailConsent: true });
+    await save(game.gameId, game.initialOrder);
+    const [row] = await app.db.routeGameSession.findMany();
+    expect(row).toMatchObject({ name: "Juli", email: "juli@mail.com", inRanking: true });
+  });
+
+  it("después del reset, un reenvío no devuelve la partida al ranking (tampoco un 'anotarme' en vuelo)", async () => {
+    const ranked = await create(4);
+    await save(ranked.gameId, ranked.initialOrder, { name: "Ana" });
+    const unnamed = await create(4);
+    await save(unnamed.gameId, unnamed.initialOrder);
+
+    const reset = await app.inject({ method: "POST", url: "/demo/route-game/ranking/reset", headers: DEMO, payload: { eventTag: EVENT } });
+    expect(reset.json()).toEqual({ hidden: 1 });
+
+    await save(ranked.gameId, ranked.initialOrder, { name: "Ana" });
+    await save(unnamed.gameId, unnamed.initialOrder, { name: "Beto" });
+    const after = (await app.inject({ method: "GET", url: `/demo/route-game/ranking?eventTag=${EVENT}`, headers: DEMO })).json();
+    expect(after.total).toBe(0);
+
+    // Una partida nueva después del reset sí entra.
+    const fresh = await create(4);
+    await save(fresh.gameId, fresh.initialOrder, { name: "Caro" });
+    const ranking = (await app.inject({ method: "GET", url: `/demo/route-game/ranking?eventTag=${EVENT}`, headers: DEMO })).json();
+    expect(ranking.entries.map((e: { name: string }) => e.name)).toEqual(["Caro"]);
+  });
+
   it("partida jugada sin red: se guarda con los números del iPad", async () => {
     const id = "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
     const point = { name: "Obelisco", zone: "San Nicolás", lat: -34.6037, lng: -58.3816 };
-    const res = await save(id, [1, 0, 2, 3], {
+    const offline = {
       offline: {
         scenarioId: "caba",
         city: "CABA",
@@ -144,9 +191,13 @@ describe("/demo/route-game (Postgres + Redis)", () => {
         optimalMin: 32,
         distanceMethod: "haversine_x1.35",
       },
-    });
+    };
+    const res = await save(id, [1, 0, 2, 3], offline);
     expect(res.statusCode).toBe(201);
     expect(res.json()).toMatchObject({ computedBy: "client", efficiencyPct: 80 });
+    // Con nombre igual queda fuera del ranking: los km los mandó el iPad.
+    await save(id, [1, 0, 2, 3], { ...offline, name: "Offline" });
+    expect(await app.db.routeGameSession.findUnique({ where: { id } })).toMatchObject({ name: "Offline", inRanking: false });
     const unknown = await save("8b1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", [0, 1, 2, 3]);
     expect(unknown.statusCode).toBe(404);
     expect(unknown.json().error.code).toBe("ROUTE_GAME_NOT_FOUND");

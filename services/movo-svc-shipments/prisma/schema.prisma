@@ -592,6 +592,8 @@ model RouteGameSession {
   // Ranking del día: el nombre se muestra en el stand; `inRanking` lo apaga el reset.
   name      String? @db.VarChar(18)
   inRanking Boolean @default(false) @map("in_ranking")
+  // Cuándo la sacó el reset: un reenvío posterior no la vuelve a meter al ranking.
+  rankingHiddenAt DateTime? @map("ranking_hidden_at") @db.Timestamptz
   // Solo con consentimiento explícito (sorteo + newsletter).
   email     String? @db.VarChar(254)
   userAgent String? @map("user_agent") @db.VarChar(512)

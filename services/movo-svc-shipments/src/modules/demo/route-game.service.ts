@@ -235,9 +235,13 @@ export function createRouteGameService(deps: RouteGameServiceDeps): RouteGameSer
       }
 
       // Mismo redondeo que las columnas: la respuesta coincide con lo que queda guardado.
+      const common = commonFields(input);
       const record: RouteGameSessionRecord = {
         id,
-        ...commonFields(input),
+        ...common,
+        // Una partida offline se puntúa con km que manda el iPad, sin forma de
+        // verificarlos: se guarda para métricas pero no compite en el ranking ni el sorteo.
+        inRanking: common.inRanking && computedBy === "server",
         ...base,
         userKm: round(base.userKm, 2),
         optimalKm: round(base.optimalKm, 2),
@@ -247,22 +251,9 @@ export function createRouteGameService(deps: RouteGameServiceDeps): RouteGameSer
         extraMin: round(base.extraMin, 1),
         efficiencyPct: round(base.efficiencyPct, 1),
       };
-      const { created } = await deps.repository.upsertSession(record);
-      return {
-        id,
-        created,
-        computedBy,
-        userKm: record.userKm,
-        optimalKm: record.optimalKm,
-        userMin: record.userMin,
-        optimalMin: record.optimalMin,
-        extraKm: record.extraKm,
-        extraMin: record.extraMin,
-        efficiencyPct: record.efficiencyPct,
-        tie: record.tie,
-        optimalOrder: record.optimalOrder,
-        distanceMethod: record.distanceMethod,
-      };
+      // En un reenvío el resultado es el del primer PUT, no el recién calculado.
+      const { created, score } = await deps.repository.upsertSession(record);
+      return { id, created, ...score };
     },
 
     async ranking(eventTag, gameId) {
