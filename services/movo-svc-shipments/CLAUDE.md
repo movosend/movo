@@ -2875,3 +2875,30 @@ en el gateway, ADR-030) + tabla `shipments.pricing_game_sessions` (migración
   sin datos personales. Queries de referencia en `docs/pricing/pricing-game-metrics.md`.
 - Las rutas exigen `x-client-id` `demo-*` (lo inyecta el gateway): defensa si alguien
   proxea `/demo` sin pasar por el chequeo de key.
+
+### Juego del optimizador de la feria — submódulo `route-game` del módulo `demo` (ADR-031)
+
+Backend de `/juegos/optimizador` (`movo-institucional`): el visitante ordena 4 a 7 paradas
+y compite contra OR-Tools. Ciudades en `route-game.scenarios.ts` (las 5 del prototipo, con
+`version` para invalidar la cache), lógica pura en `domain/route-game.ts`, tabla
+`shipments.route_game_sessions` (migración `20261004120000_add_route_game_sessions`).
+
+- `POST /demo/route-game/games`: elige ciudad (sin repetir `lastScenarioId`) y puntos,
+  recorta la matriz de la ciudad y llama a `/optimize/route` con `objective: distance` y
+  `matrix`. La matriz sale de `route-game-matrix-store.ts` (Redis 30 días, un pedido en
+  vuelo por ciudad; la del mock no se cachea). La partida (óptimo + submatriz) queda 1 h en
+  Redis y el óptimo no viaja hasta registrarla. Devuelve `matrix: { cache, provider,
+  elementsBilled }` para el indicador de costo del juego; cada miss se loguea
+  (`route_game_matrix_miss`). Cliente de pricing-logistics con 6 s de timeout (OR-Tools
+  corre ~1 s y el primer juego de una ciudad también pide la matriz).
+- `PUT /demo/route-game/games/:id`: upsert idempotente. Mide la ruta del jugador con la
+  misma submatriz (`computedBy: server`); si la partida venció, acepta los números de
+  `offline` (`computedBy: client`), y sin ellos 404 `ROUTE_GAME_NOT_FOUND` (código nuevo).
+  Con `name` entra al ranking; el mail solo con `emailConsent`.
+- `GET /demo/route-game/ranking` y `POST /demo/route-game/ranking/reset`: top 7 del día en
+  hora argentina por `eventTag` (eficiencia desc, tiempo asc), compartido entre iPads; el
+  reset apaga `in_ranking` sin borrar filas (siguen para métricas y sorteo).
+- `pricing-logistics-client.ts` concentra el POST con manejo de errores en un helper y suma
+  `routeMatrix`. El servicio del juego se arma en la primera request para que los tests del
+  juego de precios sigan registrando el plugin sin config.
+

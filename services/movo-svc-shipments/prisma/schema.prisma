@@ -554,3 +554,52 @@ model PricingGameSession {
   @@map("pricing_game_sessions")
   @@schema("shipments")
 }
+
+// Juego del optimizador de la feria (movo-institucional /juegos/optimizador): una fila
+// por partida. Los km salen de la misma matriz (cacheada por ciudad) con la que
+// OR-Tools resolvió el óptimo; `computedBy: client` = partida jugada sin red, con los
+// números que calculó el iPad.
+model RouteGameSession {
+  id         String  @id @db.Uuid
+  eventTag   String  @map("event_tag") @db.VarChar(64)
+  deviceId   String? @map("device_id") @db.VarChar(64)
+  startedAt  DateTime @map("started_at") @db.Timestamptz
+  endedAt    DateTime @map("ended_at") @db.Timestamptz
+
+  scenarioId String @map("scenario_id") @db.VarChar(16)
+  city       String @db.VarChar(64)
+  // `{ start, stops[], end }` con nombre, barrio y coordenadas.
+  points       Json
+  stopCount    Int  @map("stop_count")
+  userOrder    Json @map("user_order")
+  optimalOrder Json @map("optimal_order")
+
+  userKm        Decimal @map("user_km") @db.Decimal(8, 2)
+  optimalKm     Decimal @map("optimal_km") @db.Decimal(8, 2)
+  extraKm       Decimal @map("extra_km") @db.Decimal(8, 2)
+  userMin       Decimal @map("user_min") @db.Decimal(8, 1)
+  optimalMin    Decimal @map("optimal_min") @db.Decimal(8, 1)
+  extraMin      Decimal @map("extra_min") @db.Decimal(8, 1)
+  efficiencyPct Decimal @map("efficiency_pct") @db.Decimal(5, 1)
+  tie           Boolean
+
+  timeUsedSec    Int     @map("time_used_sec")
+  timeLimitSec   Int?    @map("time_limit_sec")
+  timedOut       Boolean @map("timed_out")
+  distanceMethod String? @map("distance_method") @db.VarChar(32)
+  computedBy     String  @map("computed_by") @db.VarChar(8)
+
+  // Ranking del día: el nombre se muestra en el stand; `inRanking` lo apaga el reset.
+  name      String? @db.VarChar(18)
+  inRanking Boolean @default(false) @map("in_ranking")
+  // Solo con consentimiento explícito (sorteo + newsletter).
+  email     String? @db.VarChar(254)
+  userAgent String? @map("user_agent") @db.VarChar(512)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([eventTag, endedAt], map: "route_game_sessions_event_tag_ended_at_idx")
+  @@map("route_game_sessions")
+  @@schema("shipments")
+}

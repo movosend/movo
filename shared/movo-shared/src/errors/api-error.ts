@@ -130,7 +130,9 @@ export type ApiErrorCode =
   | "QUOTE_MISMATCH"
   // Juego de precios de la feria (módulo demo de svc-shipments + API key en el gateway)
   | "AUTH_API_KEY_INVALID"
-  | "PRICING_UNAVAILABLE";
+  | "PRICING_UNAVAILABLE"
+  // Juego del optimizador: partida vencida en Redis y sin los números offline del iPad.
+  | "ROUTE_GAME_NOT_FOUND";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

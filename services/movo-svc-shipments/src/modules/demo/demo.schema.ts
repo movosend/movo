@@ -2,6 +2,7 @@
 // shipments.schema.ts.
 import { PRICING_GAME_SCREENS } from "../../models/pricing-game";
 import { PRICING_GAME_PRESET_IDS } from "./pricing-game.presets";
+import { ROUTE_GAME_MAX_STOPS, ROUTE_GAME_MIN_STOPS, ROUTE_GAME_SCENARIO_IDS } from "./route-game.scenarios";
 
 // El juego solo ofrece localidades argentinas (bbox de la búsqueda de Photon en el front).
 const AR_LAT = { type: "number", minimum: -56, maximum: -21 } as const;
@@ -80,7 +81,202 @@ const groupStatsProperties = {
   courier: sideStats,
 } as const;
 
+// --- Juego del optimizador ---------------------------------------------------------
+
+const routePoint = {
+  type: "object",
+  required: ["name", "zone", "lat", "lng"],
+  properties: {
+    name: { type: "string", minLength: 1, maxLength: 120 },
+    zone: { type: "string", maxLength: 120 },
+    lat: AR_LAT,
+    lng: AR_LNG,
+  },
+  additionalProperties: false,
+} as const;
+
+const stopOrder = {
+  type: "array",
+  minItems: ROUTE_GAME_MIN_STOPS,
+  maxItems: ROUTE_GAME_MAX_STOPS,
+  items: { type: "integer", minimum: 0, maximum: ROUTE_GAME_MAX_STOPS - 1 },
+} as const;
+
+const KM = { type: "number", minimum: 0, maximum: 10_000 } as const;
+const MINUTES = { type: "number", minimum: 0, maximum: 100_000 } as const;
+
+const routeGameSaveResponse = {
+  type: "object",
+  required: [
+    "id",
+    "created",
+    "computedBy",
+    "userKm",
+    "optimalKm",
+    "userMin",
+    "optimalMin",
+    "extraKm",
+    "extraMin",
+    "efficiencyPct",
+    "tie",
+    "optimalOrder",
+    "distanceMethod",
+  ],
+  properties: {
+    id: { type: "string", format: "uuid" },
+    created: { type: "boolean" },
+    computedBy: { type: "string", enum: ["server", "client"] },
+    userKm: { type: "number" },
+    optimalKm: { type: "number" },
+    userMin: { type: "number" },
+    optimalMin: { type: "number" },
+    extraKm: { type: "number" },
+    extraMin: { type: "number" },
+    efficiencyPct: { type: "number" },
+    tie: { type: "boolean" },
+    optimalOrder: { type: "array", items: { type: "integer" } },
+    distanceMethod: { type: ["string", "null"] },
+  },
+} as const;
+
+const routeGameSchemas = {
+  routeGameCreateBody: {
+    type: "object",
+    required: ["stopCount"],
+    properties: {
+      stopCount: { type: "integer", minimum: ROUTE_GAME_MIN_STOPS, maximum: ROUTE_GAME_MAX_STOPS },
+      lastScenarioId: { type: "string", maxLength: 16 },
+    },
+    additionalProperties: false,
+  },
+
+  routeGameCreateResponse: {
+    type: "object",
+    required: ["gameId", "scenarioId", "city", "zone", "start", "end", "stops", "initialOrder", "matrix"],
+    properties: {
+      gameId: { type: "string", format: "uuid" },
+      scenarioId: { type: "string" },
+      city: { type: "string" },
+      zone: { type: "string" },
+      start: routePoint,
+      end: routePoint,
+      stops: { type: "array", items: routePoint },
+      initialOrder: { type: "array", items: { type: "integer" } },
+      matrix: {
+        type: "object",
+        required: ["cache", "provider", "elementsBilled"],
+        properties: {
+          cache: { type: "string", enum: ["hit", "miss"] },
+          provider: { type: "string" },
+          elementsBilled: { type: "integer" },
+        },
+      },
+    },
+  },
+
+  routeGameSaveBody: {
+    type: "object",
+    required: ["startedAt", "endedAt", "userOrder", "timeUsedSec", "timedOut"],
+    properties: {
+      eventTag: EVENT_TAG,
+      deviceId: { type: "string", maxLength: 64 },
+      startedAt: { type: "string", format: "date-time" },
+      endedAt: { type: "string", format: "date-time" },
+      userOrder: stopOrder,
+      timeUsedSec: { type: "integer", minimum: 0, maximum: 3_600 },
+      timeLimitSec: { type: ["integer", "null"], minimum: 10, maximum: 600 },
+      timedOut: { type: "boolean" },
+      name: { type: ["string", "null"], maxLength: 18 },
+      email: { type: ["string", "null"], format: "email", maxLength: 254 },
+      emailConsent: { type: "boolean" },
+      userAgent: { type: ["string", "null"], maxLength: 512 },
+      offline: {
+        type: "object",
+        required: [
+          "scenarioId",
+          "city",
+          "points",
+          "optimalOrder",
+          "userKm",
+          "optimalKm",
+          "userMin",
+          "optimalMin",
+          "distanceMethod",
+        ],
+        properties: {
+          scenarioId: { type: "string", enum: ROUTE_GAME_SCENARIO_IDS },
+          city: { type: "string", maxLength: 64 },
+          points: {
+            type: "object",
+            required: ["start", "stops", "end"],
+            properties: {
+              start: routePoint,
+              stops: { type: "array", minItems: ROUTE_GAME_MIN_STOPS, maxItems: ROUTE_GAME_MAX_STOPS, items: routePoint },
+              end: routePoint,
+            },
+            additionalProperties: false,
+          },
+          optimalOrder: stopOrder,
+          userKm: KM,
+          optimalKm: KM,
+          userMin: MINUTES,
+          optimalMin: MINUTES,
+          distanceMethod: { type: "string", maxLength: 32 },
+        },
+        additionalProperties: false,
+      },
+    },
+    additionalProperties: false,
+  },
+
+  routeGameSaveResponse,
+
+  routeGameRankingQuery: {
+    type: "object",
+    properties: { eventTag: EVENT_TAG, gameId: { type: "string", format: "uuid" } },
+    additionalProperties: false,
+  },
+
+  routeGameRankingResponse: {
+    type: "object",
+    required: ["total", "position", "entries"],
+    properties: {
+      total: { type: "integer" },
+      position: { type: ["integer", "null"] },
+      entries: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["id", "position", "name", "efficiencyPct", "timeUsedSec", "mine"],
+          properties: {
+            id: { type: "string" },
+            position: { type: "integer" },
+            name: { type: "string" },
+            efficiencyPct: { type: "number" },
+            timeUsedSec: { type: "integer" },
+            mine: { type: "boolean" },
+          },
+        },
+      },
+    },
+  },
+
+  routeGameRankingResetBody: {
+    type: "object",
+    properties: { eventTag: EVENT_TAG },
+    additionalProperties: false,
+  },
+
+  routeGameRankingResetResponse: {
+    type: "object",
+    required: ["hidden"],
+    properties: { hidden: { type: "integer" } },
+  },
+} as const;
+
 export const demoSchemas = {
+  ...routeGameSchemas,
+
   quoteBody: {
     type: "object",
     required: ["origin", "destination", "packagePreset"],

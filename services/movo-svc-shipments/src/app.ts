@@ -228,6 +228,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const demoRouteOpts: DemoRoutesOptions = {
     prefix: "/demo",
     ...(opts.pricingClient ? { pricingClient: opts.pricingClient } : {}),
+    ...(opts.pricingLogisticsClient ? { pricingLogisticsClient: opts.pricingLogisticsClient } : {}),
   };
   app.register(demoRoutes, demoRouteOpts);
 
