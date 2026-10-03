@@ -2902,3 +2902,20 @@ y compite contra OR-Tools. Ciudades en `route-game.scenarios.ts` (las 5 del prot
   `routeMatrix`. El servicio del juego se arma en la primera request para que los tests del
   juego de precios sigan registrando el plugin sin config.
 
+Fixes de review (PR #212, PedroYorlano):
+- **El primer `PUT` fija el resultado**: el primero ya devuelve `optimalOrder`, así que un
+  reenvío solo puede sumar nombre/mail (nunca borrarlos) y la respuesta sale de la fila
+  guardada. Antes repuntuaba con el `userOrder`/`timeUsedSec` del body (reenviar el óptimo
+  daba 100%).
+- **El reset marca `ranking_hidden_at`** (migración `20261005120000`) en todas las partidas
+  del día, con o sin nombre: un reenvío o un "anotarme" en vuelo ya no las devuelve al
+  ranking. Una partida offline (`computedBy: client`, km del iPad) nunca entra al ranking.
+- **Matriz con 0 fuera de la diagonal** (par que Google no pudo rutear): 503, no se cachea
+  ni se juega; una así ya cacheada se vuelve a pedir.
+- **Juego de precios**: la cotización guarda origen/destino y solo verifica una partida con
+  los mismos puntos y paquete; un reenvío sin verificar no pisa los campos de una fila ya
+  verificada; `stats` no usa el precio de filas sin verificar para los ratios (las cuenta
+  igual en respuestas y finalización).
+- Alta con `create` + reintento ante `P2002` en vez de `findUnique` + `upsert`: `created`
+  queda bien bajo concurrencia.
+
