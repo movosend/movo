@@ -143,3 +143,9 @@ CORS: la key vive solo en el servidor de Next, nunca en el navegador. Ver ADR-03
 Juego del optimizador (ADR-031): `POST /demo/route-game/games` y `GET /demo/route-game/ranking`
 con su propio límite `perClient` de 60/min (crear una partida corre OR-Tools en
 pricing-logistics); el PUT y el reset caen en el límite demo general.
+
+Fix de review (PR #212, PedroYorlano): una key inválida en `/demo` pasa por el limiter
+general por IP antes del 401 (antes ningún limiter corría antes de `authenticateApiKey`).
+El estricto por cliente demo todavía no corrió, así que sigue habiendo un solo limiter por
+request. Queda pendiente un tope global por `clientId`: `x-movo-client-ip` lo controla quien
+tiene la key.

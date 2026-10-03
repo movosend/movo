@@ -80,6 +80,28 @@ describe("Prefijo /demo con API key", () => {
     expect(hits).toBe(0);
   });
 
+  it("las keys inválidas cuentan contra el límite general por IP: pasado el tope, 429", async () => {
+    // IP propia (trustProxy) para no gastar el contador general de otros tests.
+    const ip = "203.0.113.7";
+    await app.redis.del(`general:${ip}`);
+    const attempt = () =>
+      app.inject({
+        method: "GET",
+        url: "/api/v1/demo/pricing-game/stats",
+        headers: { "x-api-key": "c".repeat(64), "x-forwarded-for": ip },
+      });
+
+    const max = Number(process.env.RATE_LIMIT_MAX) || 200;
+    for (let i = 0; i < max; i++) {
+      expect((await attempt()).statusCode).toBe(401);
+    }
+    const blocked = await attempt();
+
+    expect(blocked.statusCode).toBe(429);
+    expect(hits).toBe(0);
+    await app.redis.del(`general:${ip}`);
+  });
+
   it("un JWT válido de usuario no sirve en /demo", async () => {
     const token = signAccessToken({
       sub: "11111111-1111-1111-1111-111111111111",

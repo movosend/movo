@@ -151,7 +151,16 @@ export default async function routesPlugin(
       delete request.headers["x-client-id"];
 
       if (route.auth === "apiKey") {
-        const clientId = await app.authenticateApiKey(request);
+        let clientId: string;
+        try {
+          clientId = await app.authenticateApiKey(request);
+        } catch (error) {
+          // Una key inválida cuenta contra el límite general por IP (el estricto por
+          // cliente demo todavía no corrió, así que sigue siendo un solo limiter por
+          // request): sin esto los 401 de /demo no tienen ningún tope.
+          await generalLimiter.call(app, request, reply);
+          throw error;
+        }
         request.headers["x-client-id"] = clientId;
         const strict = strictRateLimiters.get(`${request.method.toUpperCase()} ${path}`);
         await (strict?.limiter ?? demoGeneralLimiter).call(app, request, reply);
