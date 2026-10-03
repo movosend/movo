@@ -10,6 +10,7 @@ import { routeCost } from "../src/domain/route-game";
 import { bruteForceOptimize, straightLineMatrix } from "./fake-route-game-optimizer";
 
 const GAME_ID = "0f8d6a1c-2b3e-4c5d-8e9f-0a1b2c3d4e5f";
+const round = (value: number, digits: number) => Math.round(value * 10 ** digits) / 10 ** digits;
 
 describe("route-game.service", () => {
   let games: Map<string, StoredRouteGame>;
@@ -103,8 +104,9 @@ describe("route-game.service", () => {
       const res = await s.saveGame(game.gameId, { ...base, userOrder });
       const mine = routeCost(stored.matrix, userOrder);
       expect(res).toMatchObject({ created: true, computedBy: "server", optimalOrder: stored.optimalOrder });
-      expect(res.userKm).toBeCloseTo(mine.km);
-      expect(res.efficiencyPct).toBeCloseTo(Math.min(100, (stored.optimalKm / mine.km) * 100));
+      // La respuesta sale redondeada igual que las columnas (km a 2 decimales, % a 1).
+      expect(res.userKm).toBeCloseTo(round(mine.km, 2), 6);
+      expect(res.efficiencyPct).toBeCloseTo(round(Math.min(100, (stored.optimalKm / mine.km) * 100), 1), 6);
       expect(saved[0]).toMatchObject({ inRanking: false, name: null, email: null, stopCount: 4, timeLimitSec: 60 });
     });
 
