@@ -22,7 +22,7 @@ export const TRANSPORT_RADIUS_OPTIONS_KM = [10, 25, 50, 100] as const;
 export function useRecentShipments() {
   return useQuery({
     queryKey: ["shipments", "mine", "recent"],
-    queryFn: () => shipmentsClient.listMine({ page: 1, limit: 3 }),
+    queryFn: () => shipmentsClient.listMine({ page: 1, limit: 20 }),
   });
 }
 
@@ -37,6 +37,7 @@ export function useRecentShipments() {
 const ATTENTION_SOURCE_STATUSES = [
   ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
   ShipmentStatus.REJECTED_BY_RECEIVER,
+  ShipmentStatus.PUBLISHED, // MOVO-184 AC5: ofertas recibidas
 ] as const;
 
 export function useAttentionSourceShipments() {
