@@ -132,36 +132,14 @@ describe("CarrierTripCta (MOVO-252)", () => {
     expect(btn.props.accessibilityState?.disabled).toBe(true);
   });
 
-  it("muestra el resumen con paradas y distancia formateada", async () => {
-    const { getByText } = await render(
-      <CarrierTripCta
-        trip={BASE_TRIP}
-        stopsCount={5}
-        distanceKm={14.2}
-        testID="carrier-cta"
-      />,
+  it("titula con la ruta (no la fecha) y resume con los paquetes aceptados", async () => {
+    const { getByText, queryByText } = await render(
+      <CarrierTripCta trip={{ ...BASE_TRIP, acceptedPackagesCount: 3 }} testID="carrier-cta" />,
     );
 
-    expect(getByText("5 paradas · 14,2 km")).toBeTruthy();
-  });
-
-  it("muestra estados honestos ('Calculando…' y '— km') cuando no hay paradas o coordenadas válidas", async () => {
-    const tripWithoutCoords: TripWithAcceptedPackages = {
-      ...BASE_TRIP,
-      originLat: 0,
-      originLng: 0,
-      destinationLat: 0,
-      destinationLng: 0,
-    };
-
-    const { getByText } = await render(
-      <CarrierTripCta
-        trip={tripWithoutCoords}
-        testID="carrier-cta"
-      />,
-    );
-
-    expect(getByText("Calculando… · — km")).toBeTruthy();
+    expect(getByText("Córdoba → Villa María")).toBeTruthy();
+    expect(getByText("3 paquetes")).toBeTruthy();
+    expect(queryByText(/paradas/)).toBeNull();
+    expect(queryByText(/km/)).toBeNull();
   });
 });
-

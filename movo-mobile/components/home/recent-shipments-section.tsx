@@ -1,10 +1,15 @@
 import { ActivityIndicator, Text, View } from "react-native";
 import { PackageX, WifiOff } from "lucide-react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import type { ShipmentSummary } from "../../src/api/shipments-client";
+import type { TripWithAcceptedPackages } from "../../src/api/trips-client";
 import { useRecentShipments } from "../../src/hooks/use-shipments";
+import { useMyTrips } from "../../src/hooks/use-trips";
 import { shipmentLifecycleStage } from "../../src/lib/shipment-format";
+import { splitCarrierHomeTrips } from "../../src/lib/trip-format";
 import { useAuthStore } from "../../src/store/auth-store";
 import { ShipmentRow } from "../shipments/shipment-row";
+import { CarrierTripRow } from "./carrier-trip-row";
 import { ViewAllShipmentsLink } from "./view-all-shipments-link";
 
 /**
@@ -15,10 +20,17 @@ import { ViewAllShipmentsLink } from "./view-all-shipments-link";
  * contenedor — un label de sección, una línea divisoria fina, y filas separadas por
  * bordes finos, terminando en "Ver todos mis envíos" como último ítem de la misma
  * lista (`ViewAllShipmentsLink`, ya no una sección aparte debajo).
+ *
+ * También lista los viajes `declared` con paquetes del transportista que no se llevan la
+ * card de "Estoy transportando" (`splitCarrierHomeTrips`, la misma regla en las dos
+ * secciones), mezclados con los envíos por su última actividad (`updatedAt` del viaje,
+ * `lastStatusChangedAt`/`createdAt` del envío).
  */
 export function RecentShipmentsSection({ testID }: { testID?: string }) {
   const colors = useThemeColors();
   const { data, isLoading, isError, refetch } = useRecentShipments();
+  const { data: myTripsData } = useMyTrips();
+  const { otherTrips } = splitCarrierHomeTrips(myTripsData?.items ?? []);
   const currentUserId = useAuthStore((state) => state.user?.userId);
 
   const activeCount = data
@@ -61,7 +73,7 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
             Reintentar
           </Text>
         </View>
-      ) : !data || data.items.length === 0 ? (
+      ) : (data?.items.length ?? 0) + otherTrips.length === 0 ? (
         <View className="items-center gap-2 py-6">
           <PackageX size={20} strokeWidth={1.8} color={colors.fg3} />
           <Text className="text-center font-sans text-small text-fg-2">
@@ -70,18 +82,46 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
         </View>
       ) : (
         <View>
-          {data.items.map((shipment, index) => (
-            <ShipmentRow
-              key={shipment.id}
-              shipment={shipment}
-              isFirst={index === 0}
-              testID={`shipment-row-${shipment.id}`}
-            />
-          ))}
+          {mergeByRecentActivity(data?.items ?? [], otherTrips).map((item, index) =>
+            item.kind === "trip" ? (
+              <CarrierTripRow
+                key={`trip-${item.trip.id}`}
+                trip={item.trip}
+                isFirst={index === 0}
+                testID={`trip-row-${item.trip.id}`}
+              />
+            ) : (
+              <ShipmentRow
+                key={item.shipment.id}
+                shipment={item.shipment}
+                isFirst={index === 0}
+                testID={`shipment-row-${item.shipment.id}`}
+              />
+            ),
+          )}
         </View>
       )}
 
       <ViewAllShipmentsLink testID={testID ? `${testID}-view-all` : undefined} />
     </View>
   );
+}
+
+type ActivityItem =
+  | { kind: "shipment"; shipment: ShipmentSummary; at: string }
+  | { kind: "trip"; trip: TripWithAcceptedPackages; at: string };
+
+/** Más reciente primero. */
+function mergeByRecentActivity(
+  shipments: ShipmentSummary[],
+  trips: TripWithAcceptedPackages[],
+): ActivityItem[] {
+  return [
+    ...shipments.map((shipment): ActivityItem => ({
+      kind: "shipment",
+      shipment,
+      at: shipment.lastStatusChangedAt ?? shipment.createdAt,
+    })),
+    ...trips.map((trip): ActivityItem => ({ kind: "trip", trip, at: trip.updatedAt })),
+  ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }
