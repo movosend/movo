@@ -84,6 +84,49 @@ describe("PricingClient", () => {
     expect(result.highDemand).toBe(true);
   });
 
+  it("juego de precios: con includeBreakdown lo pide y devuelve el desglose", async () => {
+    const breakdown = {
+      distanceKm: 100,
+      distanceSource: "routes_api",
+      fuelArsPerLiter: 2000,
+      fuelSource: "mock",
+      perKmArs: 136,
+      base: 1350,
+      distance: 13600,
+      weight: 2700,
+      packageFactor: 1,
+      demandRatio: 0,
+      demandMultiplier: 1,
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({ suggestedPriceArs: 17650, highDemand: false, calculationMethod: "demand_fuel_routes_v1", breakdown }),
+    });
+    globalThis.fetch = fetchMock;
+
+    const client = createPricingClient({ PRICING_SERVICE_URL: "http://movo-svc-pricing-logistics:8000" });
+    const result = await client.getQuote({ ...completeInput, includeBreakdown: true });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).includeBreakdown).toBe(true);
+    expect(result.breakdown).toEqual(breakdown);
+  });
+
+  it("juego de precios: sin includeBreakdown no lo pide ni lo propaga aunque venga", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({ suggestedPriceArs: 2256, highDemand: false, calculationMethod: "demand_fuel_routes_v1", breakdown: {} }),
+    });
+    globalThis.fetch = fetchMock;
+
+    const client = createPricingClient({ PRICING_SERVICE_URL: "http://movo-svc-pricing-logistics:8000" });
+    const result = await client.getQuote(completeInput);
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty("includeBreakdown");
+    expect(result).not.toHaveProperty("breakdown");
+  });
+
   it("MOVO-138: highDemand es null si pricing no lo informa (versión anterior desplegada)", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,

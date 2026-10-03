@@ -215,3 +215,11 @@ config (`PRICING_*_L`, `PRICING_DEMAND_*`); `PRICING_*_ARS` de MOVO-82 eliminado
 Pendiente: `FUEL_PRICE_PROVIDER=energia` sin cargar en Secrets Manager (dev cotiza con el
 precio fijo de config). La API de Energía respondió en 1,38s en la prueba real: dentro del
 presupuesto de 2s pero con poco margen.
+
+### Juego de precios de la feria — desglose opt-in en `POST /quote`
+
+`QuoteRequest.includeBreakdown` (default `false`) devuelve en `breakdown` el mismo
+desglose que ya iba al log `pricing_quote_computed` (distancia y su fuente, nafta y su
+fuente, base/distancia/peso, factor de paquete, demanda). Sin el flag la respuesta es
+idéntica a antes (`response_model_exclude_none`). Solo lo pide el módulo `demo` de
+`movo-svc-shipments`; el flujo del emisor sigue sin desglose (ADR-025 intacto, ver ADR-030).

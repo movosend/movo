@@ -66,6 +66,7 @@ export type {
   QuoteResponse,
   ShipmentQuoteRequest,
   ShipmentQuoteResponse,
+  QuoteBreakdown,
 } from "./types/pricing";
 export { OptimizationStatus } from "./types/routing";
 export type {
