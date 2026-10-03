@@ -25,7 +25,7 @@ import {
 } from "@movo/shared/dist/config/rating-categories";
 import { AvatarImage } from "../ui/avatar-image";
 import { ErrorBanner } from "../ui/error-banner";
-import { RatingSuccessMoment } from "./rating-success-moment";
+import { SuccessMoment } from "../ui/success-moment";
 import { StarRatingInput } from "../ui/star-rating-input";
 import type { Rating, RatingCategoryScoresInput, RatingRole } from "../../src/api/ratings-client";
 import { useCreateRating, useUpdateRating } from "../../src/hooks/use-ratings";
@@ -282,7 +282,7 @@ export function RatingSheet({
               >
                 <SafeAreaView edges={["bottom"]}>
                   {submitted ? (
-                    <RatingSuccessMoment
+                    <SuccessMoment
                       testID={testID ? `${testID}-success` : "rating-sheet-success"}
                       title={isEditing ? "¡Calificación actualizada!" : "¡Gracias por calificar!"}
                       subtitle={`Tu opinión sobre ${effectiveTarget.fullName} ayuda a la comunidad de Movo.`}

@@ -16,19 +16,20 @@ const AnimatedPath = Animated.createAnimatedComponent(Path);
 const CHECK_DASH_LENGTH = 24;
 const EASE_OUT = Easing.out(Easing.cubic);
 
-export interface RatingSuccessMomentProps {
+export interface SuccessMomentProps {
   title: string;
   subtitle: string;
   testID?: string;
 }
 
 /**
- * Confirmación breve dentro de `RatingSheet` (MOVO-173): el círculo lime entra con un leve
- * rebote, el tilde se dibuja y el texto sube. Mismo patrón de tilde dibujado con
- * `strokeDashoffset` que `handshake-confirmation-result.tsx`; el sheet decide cuánto se
- * muestra antes de cerrar.
+ * Confirmación breve de éxito: el círculo lime entra con un leve rebote, el tilde se
+ * dibuja y el texto sube. Mismo patrón de tilde dibujado con `strokeDashoffset` que
+ * `handshake-confirmation-result.tsx`; quien lo monta decide cuánto se muestra antes de
+ * cerrar. Nació en `RatingSheet` (MOVO-173) y se movió a `ui/` al reusarlo en
+ * `ChooseOfferSuccessModal` (MOVO-271 AC2).
  */
-export function RatingSuccessMoment({ title, subtitle, testID }: RatingSuccessMomentProps) {
+export function SuccessMoment({ title, subtitle, testID }: SuccessMomentProps) {
   const circle = useSharedValue(0);
   const check = useSharedValue(0);
   const text = useSharedValue(0);
