@@ -80,6 +80,33 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       expect(getByTestId("stop-eta-3").props.children).toMatch(/\+1h50min aprox/);
     });
 
+    it("colapsado: solo la card de la próxima parada, con su botonera, sin scroll ni banner; y reporta su alto", async () => {
+      const onCollapsedHeightChange = jest.fn();
+      const { getByTestId, queryByTestId } = await render(
+        <StopList
+          route={{ ...sampleRoute, optimized: false }}
+          activeStopOrder={1}
+          selectedStopOrder={2}
+          onCollapsedHeightChange={onCollapsedHeightChange}
+        />
+      );
+
+      expect(getByTestId("stop-row-1")).toBeTruthy();
+      expect(queryByTestId("stop-row-2")).toBeNull();
+      expect(queryByTestId("stop-row-3")).toBeNull();
+      // Botonera completa aunque la parada seleccionada en el mapa sea otra
+      expect(getByTestId("stop-navigate-btn-1")).toBeTruthy();
+      expect(getByTestId("stop-action-btn-1")).toBeTruthy();
+      // Sin scroll ni banner de ruta no optimizada mientras está colapsado
+      expect(queryByTestId("unoptimized-banner")).toBeNull();
+      expect(queryByTestId("unoptimized-route-banner")).toBeNull();
+
+      // El alto natural medido (+ padding del contenedor) se reporta al sheet
+      const wrapper = getByTestId("stop-list-collapsed-content");
+      await fireEvent(wrapper, "layout", { nativeEvent: { layout: { height: 300, width: 390, x: 0, y: 0 } } });
+      expect(onCollapsedHeightChange).toHaveBeenCalledWith(336);
+    });
+
     it("renderiza el drag handle superior táctil para arrastrar o expandir", async () => {
       const { getByTestId, getByText } = await render(
         <StopList route={sampleRoute} />
@@ -113,7 +140,7 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       };
 
       const { getByTestId, getByText } = await render(
-        <StopList route={degradedRoute} />
+        <StopList route={degradedRoute} isExpanded={true} />
       );
 
       expect(getByTestId("unoptimized-route-banner")).toBeTruthy();
@@ -609,7 +636,7 @@ describe("Componentes de Ruta (MOVO-207)", () => {
     it("configura el spinner de refresco del bottom sheet en color negro (#0A0A0B)", async () => {
       const onRefresh = jest.fn();
       const { toJSON } = await render(
-        <StopList route={sampleRoute} onRefresh={onRefresh} isRefreshing={false} />
+        <StopList route={sampleRoute} onRefresh={onRefresh} isRefreshing={false} isExpanded={true} />
       );
 
       const findNode = (node: any, type: string): any => {

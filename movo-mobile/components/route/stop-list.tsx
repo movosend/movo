@@ -6,6 +6,7 @@ import {
 } from "lucide-react-native";
 import {
   GestureResponderHandlers,
+  LayoutChangeEvent,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -31,6 +32,11 @@ interface StopListProps {
   isExpanded?: boolean;
   onToggleExpand?: () => void;
   panHandlers?: GestureResponderHandlers;
+  /**
+   * Alto que necesita el sheet colapsado para mostrar completa la card de la próxima
+   * parada (sin scroll). Lo mide el propio StopList; el sheet lo usa como altura colapsada.
+   */
+  onCollapsedHeightChange?: (height: number) => void;
   testID?: string;
 }
 
@@ -130,6 +136,7 @@ export function StopList({
   onRefresh,
   isExpanded,
   onToggleExpand,
+  onCollapsedHeightChange,
   panHandlers,
   testID = "carrier-stop-list",
 }: StopListProps) {
@@ -171,92 +178,22 @@ export function StopList({
     onSelectStop?.(stop);
   };
 
-  // Se muestran todas las paradas en el scroll; la activa incluye sus CTA y las demás en modo pendiente
-  const stopsToDisplay = stops;
+  // Colapsado: solo la card de la próxima parada, completa y sin scroll. Expandido: todas las
+  // paradas en el scroll; la activa incluye sus CTA y las demás en modo pendiente.
+  const collapsed = !expanded;
+  const stopsToDisplay = collapsed && activeStop ? [activeStop] : stops;
 
-  return (
-    <View testID={testID} className="flex-1 bg-bg px-4 pb-8 pt-1">
-      {/* Header interactivo con toggle de lista completa y soporte de arrastre para bottom sheet */}
-      <View {...(panHandlers ?? {})}>
-        <Pressable
-          testID="stop-list-toggle-sheet"
-          onPress={handleToggle}
-          className="items-center pb-2.5 pt-0.5"
-          accessibilityRole="button"
-          accessibilityLabel={
-            expanded ? "Ver mapa" : `Ver todas las ${stops.length} paradas`
-          }
-        >
-          {/* Handle superior centrado para arrastrar el sheet ("ese coso") */}
-          <View
-            testID="stop-list-drag-handle"
-            className="w-full items-center pt-1 pb-2.5"
-          >
-            <View
-              style={{
-                width: 48,
-                height: 5,
-                borderRadius: 999,
-                backgroundColor: isDark
-                  ? "rgba(255, 255, 255, 0.28)"
-                  : "rgba(10, 10, 11, 0.20)",
-              }}
-            />
-          </View>
+  // Padding vertical del contenedor raíz (pt-1 + pb-8) que se suma al contenido medido.
+  const ROOT_VERTICAL_PADDING = 36;
+  const handleCollapsedLayout = (e: LayoutChangeEvent) => {
+    onCollapsedHeightChange?.(Math.ceil(e.nativeEvent.layout.height) + ROOT_VERTICAL_PADDING);
+  };
 
-        {/* Barra de cabecera con título dinámico y botón de toggle */}
-        <View className="w-full flex-row items-center justify-between border-b border-border pb-3">
-          <View>
-            <Text
-              testID="stop-list-summary-title"
-              className="font-sans-semibold text-[15px] text-fg"
-            >
-              {expanded
-                ? `Itinerario · ${stops.length} ${stops.length === 1 ? "parada" : "paradas"}`
-                : `Próxima parada · ${activeStop ? `${activeStop.stopOrder} de ${stops.length}` : `${stops.length}`}`}
-            </Text>
-            <Text className="font-sans text-[12px] text-fg-3">
-              {totalDistanceKm > 0 ? `${totalDistanceKm.toFixed(1)} km · ` : ""}
-              {totalDurationMinutes > 0
-                ? `${formatDuration(totalDurationMinutes)} aprox.`
-                : "Tiempo est. variable"}
-            </Text>
-          </View>
-
-          <View className="flex-row items-center gap-2">
-            {optimized ? (
-              <View className="hidden sm:flex flex-row items-center gap-1 rounded-full bg-lime-500/15 px-2 py-0.5 border border-lime-500/20">
-                <View className="h-1.5 w-1.5 rounded-full bg-lime-500" />
-                <Text className="font-sans-medium text-[10.5px] text-lime-600 dark:text-lime-400">
-                  Óptima
-                </Text>
-              </View>
-            ) : null}
-          </View>
-        </View>
-      </Pressable>
-      </View>
-
-      <ScrollView
-        className="flex-1"
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 28 }}
-        nestedScrollEnabled
-        refreshControl={
-          onRefresh ? (
-            <RefreshControl
-              testID="stop-list-refresh-control"
-              refreshing={Boolean(isRefreshing)}
-              onRefresh={onRefresh}
-              tintColor="#0A0A0B"
-              colors={["#0A0A0B"]}
-            />
-          ) : undefined
-        }
-      >
-
+  // Contenido de la lista (banner + cards), compartido entre el modo colapsado y el scroll expandido
+  const renderListContent = () => (
+    <>
       {/* Banner de ruta no optimizada (AC6) */}
-      {!optimized && (
+      {!optimized && !collapsed && (
         <View
           testID="unoptimized-route-banner"
           className="my-3 flex-row items-start gap-2.5 rounded-[10px] border border-warning-300 bg-warning-100 p-3"
@@ -279,7 +216,8 @@ export function StopList({
         {stopsToDisplay.map((stop) => {
           // La parada abierta y destacada es la seleccionada actualmente (por defecto la activa/próxima)
           const currentHighlightedOrder = selectedStopOrder ?? activeStop?.stopOrder ?? 1;
-          const isHighlighted = stop.stopOrder === currentHighlightedOrder;
+          // Colapsado: la única card visible es la próxima y siempre muestra su botonera
+          const isHighlighted = collapsed || stop.stopOrder === currentHighlightedOrder;
           const isNext = Boolean(activeStop && stop.stopOrder === activeStop.stopOrder);
           const isPickup = stop.type === "pickup";
           const actionDisabled = isActionDisabled?.(stop) ?? false;
@@ -484,11 +422,109 @@ export function StopList({
         })}
       </View>
 
+    </>
+  );
+
+  return (
+    <View testID={testID} className="flex-1 bg-bg px-4 pb-8 pt-1">
+      {/* Header interactivo con toggle de lista completa y soporte de arrastre para bottom sheet */}
+      {/* Colapsado: el wrapper toma su alto natural (header + próxima card) y se mide para dimensionar el sheet */}
+      <View
+        testID={collapsed ? "stop-list-collapsed-content" : undefined}
+        style={collapsed ? undefined : { flex: 1 }}
+        onLayout={collapsed ? handleCollapsedLayout : undefined}
+      >
+      <View {...(panHandlers ?? {})}>
+        <Pressable
+          testID="stop-list-toggle-sheet"
+          onPress={handleToggle}
+          className="items-center pb-2.5 pt-0.5"
+          accessibilityRole="button"
+          accessibilityLabel={
+            expanded ? "Ver mapa" : `Ver todas las ${stops.length} paradas`
+          }
+        >
+          {/* Handle superior centrado para arrastrar el sheet ("ese coso") */}
+          <View
+            testID="stop-list-drag-handle"
+            className="w-full items-center pt-1 pb-2.5"
+          >
+            <View
+              style={{
+                width: 48,
+                height: 5,
+                borderRadius: 999,
+                backgroundColor: isDark
+                  ? "rgba(255, 255, 255, 0.28)"
+                  : "rgba(10, 10, 11, 0.20)",
+              }}
+            />
+          </View>
+
+        {/* Barra de cabecera con título dinámico y botón de toggle */}
+        <View className="w-full flex-row items-center justify-between border-b border-border pb-3">
+          <View>
+            <Text
+              testID="stop-list-summary-title"
+              className="font-sans-semibold text-[15px] text-fg"
+            >
+              {expanded
+                ? `Itinerario · ${stops.length} ${stops.length === 1 ? "parada" : "paradas"}`
+                : `Próxima parada · ${activeStop ? `${activeStop.stopOrder} de ${stops.length}` : `${stops.length}`}`}
+            </Text>
+            <Text className="font-sans text-[12px] text-fg-3">
+              {totalDistanceKm > 0 ? `${totalDistanceKm.toFixed(1)} km · ` : ""}
+              {totalDurationMinutes > 0
+                ? `${formatDuration(totalDurationMinutes)} aprox.`
+                : "Tiempo est. variable"}
+            </Text>
+          </View>
+
+          <View className="flex-row items-center gap-2">
+            {optimized ? (
+              <View className="hidden sm:flex flex-row items-center gap-1 rounded-full bg-lime-500/15 px-2 py-0.5 border border-lime-500/20">
+                <View className="h-1.5 w-1.5 rounded-full bg-lime-500" />
+                <Text className="font-sans-medium text-[10.5px] text-lime-600 dark:text-lime-400">
+                  Óptima
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </Pressable>
+      </View>
+
+      {collapsed ? (
+        <View>
+          {renderListContent()}
+        </View>
+      ) : (
+      <ScrollView
+        className="flex-1"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 28 }}
+        nestedScrollEnabled
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl
+              testID="stop-list-refresh-control"
+              refreshing={Boolean(isRefreshing)}
+              onRefresh={onRefresh}
+              tintColor="#0A0A0B"
+              colors={["#0A0A0B"]}
+            />
+          ) : undefined
+        }
+      >
+        {renderListContent()}
+      </ScrollView>
+      )}
+      </View>
       {/* Toast flotante para avisos de parada pendiente (Claude Design hasToast) */}
       {toastMessage && (
         <View
           testID="stop-list-toast"
-          className="mt-4 rounded-[10px] bg-ink-950 px-4 py-3 shadow-lg"
+          className="absolute bottom-3 left-4 right-4 rounded-[10px] bg-ink-950 px-4 py-3 shadow-lg"
           style={{
             shadowColor: "#000",
             shadowOffset: { width: 0, height: 4 },
@@ -502,7 +538,6 @@ export function StopList({
           </Text>
         </View>
       )}
-      </ScrollView>
     </View>
   );
 }

@@ -115,7 +115,14 @@ export default function OptimizedRouteScreen() {
 
   // Alturas dinámicas para el bottom sheet fluido
   const EXPANDED_HEIGHT = Math.round(SCREEN_HEIGHT - (topInset + 64));
-  const COLLAPSED_HEIGHT = Math.max(Math.round(SCREEN_HEIGHT * 0.32), 260);
+  // Altura colapsada: la que mide StopList para mostrar completa la card de la próxima parada
+  // (sin scroll). Hasta la primera medición, una estimación para no saltar de golpe.
+  const FALLBACK_COLLAPSED_HEIGHT = Math.max(Math.round(SCREEN_HEIGHT * 0.4), 340);
+  const [measuredCollapsedHeight, setMeasuredCollapsedHeight] = useState<number | null>(null);
+  const COLLAPSED_HEIGHT = Math.min(
+    measuredCollapsedHeight ?? FALLBACK_COLLAPSED_HEIGHT,
+    Math.round(EXPANDED_HEIGHT * 0.7),
+  );
 
   const { tripId, demo } = useLocalSearchParams<{ tripId?: string; demo?: string }>();
   const [demoMode, setDemoMode] = useState(() => Boolean(__DEV__ && demo === "true"));
@@ -207,6 +214,13 @@ export default function OptimizedRouteScreen() {
     },
     [sheetHeightAnim]
   );
+
+  // Si cambia el alto medido (otra parada, otro texto) y el sheet está colapsado, acompañarlo
+  useEffect(() => {
+    if (!isExpandedRef.current) {
+      sheetHeightAnim.setValue(COLLAPSED_HEIGHT);
+    }
+  }, [COLLAPSED_HEIGHT, sheetHeightAnim]);
 
   const handleToggleExpand = useCallback(() => {
     const nextState = !isExpandedRef.current;
@@ -438,6 +452,7 @@ export default function OptimizedRouteScreen() {
               onRefresh={() => void refetch()}
               isExpanded={isListExpanded}
               onToggleExpand={handleToggleExpand}
+              onCollapsedHeightChange={setMeasuredCollapsedHeight}
               panHandlers={panResponder.panHandlers}
             />
           </Animated.View>
