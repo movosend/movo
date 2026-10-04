@@ -47,6 +47,19 @@ function rewriteWebSocketRequestHeaders(
   return rewritten;
 }
 
+/**
+ * Clave de rate limit de un cliente demo: el id de la API key (`x-client-id`, ya
+ * inyectado por el gateway) + la IP real del visitante que reenvía el servidor de
+ * Next.js en `x-movo-client-ip`. Ese header solo se lee después de validar la key (el
+ * servidor de Next es de confianza); sin él cuenta por la IP del propio servidor.
+ */
+function demoClientKey(request: FastifyRequest): string {
+  const clientId = request.headers["x-client-id"];
+  const visitorIp = request.headers["x-movo-client-ip"];
+  const ip = typeof visitorIp === "string" && visitorIp.length > 0 && visitorIp.length <= 64 ? visitorIp : request.ip;
+  return `${typeof clientId === "string" ? clientId : "unknown"}:${ip}`;
+}
+
 // Sin fastify-plugin a propósito: este plugin no necesita exponer nada al
 // padre (a diferencia de auth.ts o rate-limit.ts), así que mantiene su
 // propio contexto encapsulado — eso es lo que permite que el `prefix`
@@ -99,16 +112,29 @@ export default async function routesPlugin(
     // `authenticate` (ver el preHandler), así que `request.user` ya está; el fallback a
     // IP es solo defensivo.
     const perUser = "perUser" in route && route.perUser === true;
+    // Juegos (`auth: "apiKey"`): por cliente demo + IP del visitante, también después de
+    // autenticar la key (ver `demoClientKey`).
+    const perClient = "perClient" in route && route.perClient === true;
     strictRateLimiters.set(routeKey, {
-      perUser,
+      perUser: perUser || perClient,
       limiter: app.rateLimit({
         ...route.rateLimit!,
-        keyGenerator: perUser
-          ? (request) => `${routeKey}:user:${request.user?.sub ?? request.ip}`
-          : (request) => `${routeKey}:${request.ip}`,
+        keyGenerator: perClient
+          ? (request) => `${routeKey}:${demoClientKey(request)}`
+          : perUser
+            ? (request) => `${routeKey}:user:${request.user?.sub ?? request.ip}`
+            : (request) => `${routeKey}:${request.ip}`,
       }),
     });
   }
+
+  // Límite de las rutas demo sin override propio (ej. `PUT /demo/pricing-game/sessions/:id`,
+  // con parámetro en el path): 60/min por visitante, contador aparte del general.
+  const demoGeneralLimiter = app.rateLimit({
+    max: 60,
+    timeWindow: "1 minute",
+    keyGenerator: (request) => `demo-general:${demoClientKey(request)}`,
+  });
 
   for (const route of serviceRoutes) {
     const preHandler = async (request: FastifyRequest, reply: FastifyReply) => {
@@ -120,6 +146,37 @@ export default async function routesPlugin(
       const path = fullPath.startsWith(API_PREFIX)
         ? fullPath.slice(API_PREFIX.length)
         : fullPath;
+      // Ningún cliente puede mandar su propio `x-client-id`: solo lo inyecta el
+      // gateway tras validar una API key (rutas demo, abajo).
+      delete request.headers["x-client-id"];
+
+      if (route.auth === "apiKey") {
+        let clientId: string;
+        try {
+          clientId = await app.authenticateApiKey(request);
+        } catch (error) {
+          // Una key inválida cuenta contra el límite general por IP (el estricto por
+          // cliente demo todavía no corrió, así que sigue siendo un solo limiter por
+          // request): sin esto los 401 de /demo no tienen ningún tope.
+          await generalLimiter.call(app, request, reply);
+          throw error;
+        }
+        request.headers["x-client-id"] = clientId;
+        const strict = strictRateLimiters.get(`${request.method.toUpperCase()} ${path}`);
+        await (strict?.limiter ?? demoGeneralLimiter).call(app, request, reply);
+
+        Object.keys(request.headers).forEach((key) => {
+          if (key.toLowerCase().startsWith("x-user-")) {
+            delete request.headers[key];
+          }
+        });
+        // La key no viaja al upstream: ya cumplió su función acá.
+        delete request.headers["x-api-key"];
+        delete request.headers["authorization"];
+        request.headers["x-request-id"] = request.requestId;
+        return;
+      }
+
       const publicRoute = isPublicRoute(request.method, path);
 
       // Rate limit: estricto si esta ruta puntual lo declara —pública (ej. login) o

@@ -8,6 +8,12 @@ export interface EnvConfig {
   ADMIN_SERVICE_URL: string;
   PRICING_LOGISTICS_SERVICE_URL?: string;
   RATE_LIMIT_MAX: number;
+  /**
+   * API keys de los clientes "demo" (juegos de `movo-institucional`), separadas por
+   * coma. Autentican el prefijo `/demo` en vez de un JWT. Vacía = `/demo` responde 401
+   * a todo (el default en cualquier ambiente que no la cargue).
+   */
+  DEMO_API_KEYS: string[];
 }
 
 function required(name: string): string {
@@ -32,5 +38,9 @@ export function loadEnv(): EnvConfig {
     ADMIN_SERVICE_URL:
       process.env.ADMIN_SERVICE_URL ?? "http://movo-svc-admin:3000",
     RATE_LIMIT_MAX: Number(process.env.RATE_LIMIT_MAX) || 200,
+    DEMO_API_KEYS: (process.env.DEMO_API_KEYS ?? "")
+      .split(",")
+      .map((key) => key.trim())
+      .filter((key) => key.length > 0),
   };
 }

@@ -126,3 +126,26 @@ general). Primer uso: `POST /shipments/quote`, 20 cada 15 min, mismo límite que
 `/shipments/route` porque cada cotización consulta Google Routes. Por usuario porque varios
 celulares detrás del NAT de la operadora comparten IP. Un request sin token a una ruta
 `perUser` responde 401 sin pasar por ningún limiter.
+
+### Juego de precios de la feria — API key para el prefijo `/demo`
+
+Primer cliente del gateway que no es un usuario: los juegos de `movo-institucional`
+(/juegos). `ServiceRoute.auth: "apiKey"` (default `"jwt"`) cambia la autenticación del
+prefijo: `plugins/api-key.ts#authenticateApiKey` compara `x-api-key` contra
+`DEMO_API_KEYS` (lista separada por coma; vacía = todo 401) con hashes SHA-256 y
+`timingSafeEqual`, e inyecta `x-client-id: demo-<n>`. Un JWT no sirve en `/demo`, la key no
+se reenvía al upstream y cualquier `x-client-id` que mande un cliente se borra en todas
+las rutas. Rate limit `perClient` (cliente demo + IP real del visitante en
+`x-movo-client-ip`, que reenvía el servidor de Next): sin eso todo el sitio compartiría las
+IPs de Vercel. Cotización, stats y resto de `/demo`: 60/min por visitante (varios iPads de la feria comparten la IP del wifi). Sin
+CORS: la key vive solo en el servidor de Next, nunca en el navegador. Ver ADR-030.
+
+Juego del optimizador (ADR-031): `POST /demo/route-game/games` y `GET /demo/route-game/ranking`
+con su propio límite `perClient` de 60/min (crear una partida corre OR-Tools en
+pricing-logistics); el PUT y el reset caen en el límite demo general.
+
+Fix de review (PR #212, PedroYorlano): una key inválida en `/demo` pasa por el limiter
+general por IP antes del 401 (antes ningún limiter corría antes de `authenticateApiKey`).
+El estricto por cliente demo todavía no corrió, así que sigue habiendo un solo limiter por
+request. Queda pendiente un tope global por `clientId`: `x-movo-client-ip` lo controla quien
+tiene la key.

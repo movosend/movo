@@ -64,6 +64,8 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}
+      # Juegos de movo-institucional (/api/v1/demo/*). Vacía = /demo responde 401.
+      - DEMO_API_KEYS=${DEMO_API_KEYS:-}
     depends_on:
       - postgres
       - redis
