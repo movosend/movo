@@ -4132,3 +4132,18 @@ Tests agregados/actualizados:
 - `test/route-screen.test.tsx`: test de visualización de CTA y transición de inicio desde la pantalla de ruta.
 - Cobertura: 182/182 suites pasando (1564 tests en `movo-mobile`). `tsc --noEmit` con 0 errores.
 
+
+### MOVO-237 — Botón "Navegar" por parada (deep-link a Google Maps/Waze, ADR-032)
+
+La parada seleccionada de `StopList` (MOVO-207) suma `NavigateButton`
+(`components/route/navigate-button.tsx`) junto a "Ver envío" y el CTA de retiro/entrega.
+`src/lib/navigation-deeplink.ts` arma la cascada Google Maps nativo (`google.navigation:` en
+Android, `comgooglemaps://` en iOS) → Waze → Google Maps web y la resuelve probando
+`Linking.openURL` en orden, sin `canOpenURL`: así no hace falta declarar
+`LSApplicationQueriesSchemes`/`<queries>` ni rebuildear el dev client. No llama a ningún
+endpoint (costo cero para Movo). Distinto del "Abrir en Maps" flotante de `route-map.tsx`,
+que abre el recorrido completo con waypoints por URL web y no se tocó. Detalle en
+`docs/navigation/README.md`.
+
+Pendiente: DoD manual del ticket (Android e iOS con Google Maps, fallback a Waze sin Google
+Maps, fallback a browser sin ninguna de las dos) — no probado en device.

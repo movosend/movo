@@ -173,6 +173,24 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       expect(onPressShipment).toHaveBeenCalledWith("ship-101");
     });
 
+    it("MOVO-237: toda parada seleccionada ofrece 'Navegar', con deep-link a sus coordenadas", async () => {
+      const openURLSpy = jest.spyOn(Linking, "openURL").mockResolvedValue(true);
+
+      const { getByTestId, queryByTestId } = await render(
+        <StopList route={sampleRoute} activeStopOrder={1} selectedStopOrder={2} isExpanded={true} />
+      );
+
+      // Solo la parada seleccionada lo muestra, sea o no la próxima
+      expect(queryByTestId("stop-navigate-btn-1")).toBeNull();
+      await act(async () => {
+        fireEvent.press(getByTestId("stop-navigate-btn-2"));
+      });
+
+      expect(openURLSpy).toHaveBeenCalledTimes(1);
+      expect(openURLSpy.mock.calls[0][0]).toContain("-31.9139,-63.6817");
+      openURLSpy.mockRestore();
+    });
+
     it("aplica resaltado y accessibilityState.selected cuando la parada coincide con selectedStopOrder (AC4)", async () => {
       const { getByTestId } = await render(
         <StopList

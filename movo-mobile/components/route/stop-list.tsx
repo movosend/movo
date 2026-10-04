@@ -17,6 +17,7 @@ import {
 import { useColorScheme } from "nativewind";
 import type { CarrierRoute, CarrierRouteStop } from "@movo/shared/dist/types/routing";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { NavigateButton } from "./navigate-button";
 
 interface StopListProps {
   route: CarrierRoute;
@@ -117,6 +118,7 @@ export function formatTimeWindow(start?: string | null, end?: string | null): st
  * AC6: Si `route.optimized === false`, muestra aviso discreto de degradación heurística.
  * AC9: Permite navegar al detalle del envío (`/shipments/:id`).
  * AC11: El ETA se presenta con copy "aprox." (estimación geométrica sin tráfico en tiempo real).
+ * MOVO-237: la parada seleccionada ofrece "Navegar" (deep-link a la app de mapas del sistema).
  */
 export function StopList({
   route,
@@ -438,9 +440,7 @@ export function StopList({
                         e.stopPropagation?.();
                         onPressShipment(stop.shipmentId);
                       }}
-                      className={`h-11 rounded-[10px] border border-border bg-bg active:bg-bg-mute flex-row items-center justify-center gap-1.5 ${
-                        isNext ? "flex-1" : "w-full"
-                      }`}
+                      className="h-11 flex-1 rounded-[10px] border border-border bg-bg active:bg-bg-mute flex-row items-center justify-center gap-1.5"
                       accessibilityRole="button"
                       accessibilityLabel={`Ver detalle del envío ${stop.shipmentId}`}
                     >
@@ -448,6 +448,12 @@ export function StopList({
                       <ArrowUpRight size={15} color={colors.fg2} />
                     </Pressable>
                   )}
+
+                  {/* MOVO-237: deep-link a Google Maps/Waze/browser, disponible en toda parada seleccionada */}
+                  <NavigateButton
+                    target={{ lat: stop.lat, lng: stop.lng }}
+                    testID={`stop-navigate-btn-${stop.stopOrder}`}
+                  />
 
                   {/* Botón de acción (Retirar/Entregar) solo disponible para la próxima parada activa */}
                   {isNext && (

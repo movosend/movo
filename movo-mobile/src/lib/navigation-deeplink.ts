@@ -1,0 +1,53 @@
+import { Linking, Platform } from "react-native";
+
+export interface NavigationTarget {
+  lat: number;
+  lng: number;
+}
+
+type NavigationPlatform = "ios" | "android";
+
+/**
+ * URLs candidatas para navegar hasta una parada (MOVO-237, ADR-032), en el orden de
+ * fallback del AC2: Google Maps nativo → Waze → Google Maps web. La navegación real la
+ * resuelve la app externa, así que esto nunca llama a Compute Routes ni al Navigation
+ * SDK (AC3) — es la razón por la que el modo `live` del `RoutesProvider` de
+ * `svc-shipments` quedó como placeholder.
+ */
+export function buildNavigationCandidates(
+  target: NavigationTarget,
+  platform: NavigationPlatform,
+): string[] {
+  const coords = `${target.lat},${target.lng}`;
+  const googleMapsNative =
+    platform === "android"
+      ? `google.navigation:q=${coords}`
+      : `comgooglemaps://?daddr=${coords}&directionsmode=driving`;
+  return [
+    googleMapsNative,
+    `waze://?ll=${coords}&navigate=yes`,
+    `https://www.google.com/maps/dir/?api=1&destination=${coords}&travelmode=driving`,
+  ];
+}
+
+/**
+ * Abre la primera app de navegación que acepte el deep-link. Se prueba `openURL` en
+ * cascada en vez de preguntar con `canOpenURL`: este último exige declarar los schemes
+ * (`LSApplicationQueriesSchemes` en iOS, `<queries>` en Android 11+), o sea un build
+ * nativo nuevo, mientras que `openURL` ya rechaza por sí solo cuando ninguna app
+ * instalada maneja la URL — mismo orden de fallback, sin tocar config nativa.
+ *
+ * @returns la URL que se terminó abriendo, o `null` si ni el browser la aceptó.
+ */
+export async function openNavigation(target: NavigationTarget): Promise<string | null> {
+  const platform: NavigationPlatform = Platform.OS === "android" ? "android" : "ios";
+  for (const url of buildNavigationCandidates(target, platform)) {
+    try {
+      await Linking.openURL(url);
+      return url;
+    } catch {
+      // App no instalada: probar la siguiente candidata.
+    }
+  }
+  return null;
+}
