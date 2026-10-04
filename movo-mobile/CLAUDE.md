@@ -4141,8 +4141,10 @@ La parada seleccionada de `StopList` (MOVO-207) suma `NavigateButton`
 Android, `comgooglemaps://` en iOS) → Waze → Google Maps web y la resuelve probando
 `Linking.openURL` en orden, sin `canOpenURL`: así no hace falta declarar
 `LSApplicationQueriesSchemes`/`<queries>` ni rebuildear el dev client. No llama a ningún
-endpoint (costo cero para Movo). Distinto del "Abrir en Maps" flotante de `route-map.tsx`,
-que abre el recorrido completo con waypoints por URL web y no se tocó. Detalle en
+endpoint (costo cero para Movo). El "Abrir en Maps" flotante de `route-map.tsx` (subtítulo
+"Ver ruta completa") usa la MISMA cascada vía `openRoute`: iOS encadena paradas con
+`comgooglemaps://...+to:`, Android usa un `intent://` sobre la URL web con waypoints, y Waze (sin
+waypoints) va a la primera parada. El `intent://` de Android no se probó en device. Detalle en
 `docs/navigation/README.md`.
 
 Pendiente: DoD manual del ticket (Android e iOS con Google Maps, fallback a Waze sin Google

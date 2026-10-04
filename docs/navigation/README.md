@@ -26,9 +26,11 @@ cuando no hay ninguna app que maneje la URL.
 **Costo para Movo: cero.** El botón no llama a Compute Routes ni al Navigation SDK; el
 re-routing, el tráfico y las indicaciones por voz los resuelve la app externa.
 
-No confundir con el botón flotante "Abrir en Maps" del mapa (`route-map.tsx`, MOVO-207):
-ese abre el **recorrido completo** con todas las paradas como waypoints, y por eso usa
-solo la URL web (ni `google.navigation:` ni Waze aceptan paradas intermedias).
+El botón flotante "Abrir en Maps" del mapa (`route-map.tsx`, MOVO-207, subtítulo "Ver ruta
+completa") usa la **misma cascada** (`openRoute`), pero con el recorrido completo: en iOS
+Google Maps encadena las paradas con `+to:`; en Android se usa un `intent://` que fuerza
+Google Maps sobre la URL web con waypoints (sin probar en device); Waze no admite paradas
+intermedias, así que abre la navegación a la primera; y la URL web lleva hasta 9 waypoints.
 
 ## `RoutesProvider.mode`: `per_trip` y `live`
 

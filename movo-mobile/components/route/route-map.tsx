@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
 import { useColorScheme } from "nativewind";
 import * as Haptics from "expo-haptics";
 import { ArrowUpRight, Crosshair, Map, X } from "lucide-react-native";
+import { openRoute } from "../../src/lib/navigation-deeplink";
 import type { CarrierRouteStop } from "@movo/shared/dist/types/routing";
 import {
   movoMapStyleDark,
@@ -103,64 +104,29 @@ export function RouteMap({
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch { }
 
-    // Paradas ordenadas según stopOrder para el recorrido secuenciado en Google Maps
+    // Paradas ordenadas según stopOrder para el recorrido secuenciado; sin paradas, se
+    // navega hacia la posición del transportista.
     const sortedStops = [...stops].sort((a, b) => a.stopOrder - b.stopOrder);
+    const routeStops = sortedStops.length > 0 ? sortedStops : carrierLocation ? [carrierLocation] : [];
 
-    let destination = "-31.4201,-64.1888";
-    let waypointsParam = "";
-
-    if (sortedStops.length === 1) {
-      destination = `${sortedStops[0].lat},${sortedStops[0].lng}`;
-    } else if (sortedStops.length > 1) {
-      // La última parada es el destino final del itinerario
-      const finalStop = sortedStops[sortedStops.length - 1];
-      destination = `${finalStop.lat},${finalStop.lng}`;
-
-      // Todas las paradas anteriores son waypoints intermedios en orden
-      const intermediateStops = sortedStops.slice(0, -1);
-      // Google Maps soporta hasta 9 waypoints intermedios en URLs
-      waypointsParam = `&waypoints=${intermediateStops
-        .slice(0, 9)
-        .map((s) => `${s.lat},${s.lng}`)
-        .join("%7C")}`;
-    } else if (carrierLocation) {
-      destination = `${carrierLocation.lat},${carrierLocation.lng}`;
-    }
-
-    const originParam = carrierLocation
-      ? `&origin=${carrierLocation.lat},${carrierLocation.lng}`
-      : "";
-
-    const mapsUrl = `https://www.google.com/maps/dir/?api=1${originParam}&destination=${encodeURIComponent(
-      destination
-    )}${waypointsParam}&travelmode=driving`;
-
-    Linking.openURL(mapsUrl)
-      .then(() => {
-        setMapsToast({
-          type: "success",
-          message: "Iniciando navegación con Google Maps...",
-        });
-        if (mapsToastTimeoutRef.current) {
-          clearTimeout(mapsToastTimeoutRef.current);
-        }
-        mapsToastTimeoutRef.current = setTimeout(() => {
-          setMapsToast(null);
-        }, 2400);
-      })
-      .catch((err) => {
-        console.warn("[Movo Navigation] No se pudo abrir la navegación externa:", err);
-        setMapsToast({
-          type: "error",
-          message: "No se pudo abrir la navegación externa.",
-        });
-        if (mapsToastTimeoutRef.current) {
-          clearTimeout(mapsToastTimeoutRef.current);
-        }
-        mapsToastTimeoutRef.current = setTimeout(() => {
-          setMapsToast(null);
-        }, 3000);
-      });
+    // Misma cascada de deep-links que el botón "Navegar" de cada parada (MOVO-237).
+    void openRoute({
+      origin: carrierLocation,
+      stops: routeStops.map((s) => ({ lat: s.lat, lng: s.lng })),
+    }).then((opened) => {
+      const ok = opened !== null;
+      setMapsToast(
+        ok
+          ? { type: "success", message: "Abriendo el recorrido en tu app de mapas..." }
+          : { type: "error", message: "No se pudo abrir la navegación externa." },
+      );
+      if (mapsToastTimeoutRef.current) {
+        clearTimeout(mapsToastTimeoutRef.current);
+      }
+      mapsToastTimeoutRef.current = setTimeout(() => {
+        setMapsToast(null);
+      }, ok ? 2400 : 3000);
+    });
   };
 
   // Coordenadas de referencia: origen declarado + posición actual + paradas
@@ -706,7 +672,7 @@ export function RouteMap({
             testID="route-map-open-maps"
             onPress={handleOpenExternalMaps}
             accessibilityRole="button"
-            accessibilityLabel="Abrir en Maps para navegación paso a paso"
+            accessibilityLabel="Abrir en Maps para ver la ruta completa"
           >
             <View
               style={{
@@ -757,7 +723,7 @@ export function RouteMap({
                     color: isDark ? "#A1A1AA" : "#71717A",
                   }}
                 >
-                  GPS paso a paso
+                  Ver ruta completa
                 </Text>
               </View>
             </View>

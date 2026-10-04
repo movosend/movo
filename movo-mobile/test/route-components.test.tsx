@@ -494,7 +494,7 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       const openMapsBtn = getByTestId("route-map-open-maps");
       expect(openMapsBtn).toBeTruthy();
       expect(getByText("Abrir en Maps")).toBeTruthy();
-      expect(getByText("GPS paso a paso")).toBeTruthy();
+      expect(getByText("Ver ruta completa")).toBeTruthy();
 
       // Toast no visible al inicio
       expect(queryByTestId("route-navigation-toast")).toBeNull();
@@ -505,11 +505,12 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       });
 
       expect(openURLSpy).toHaveBeenCalledTimes(1);
-      expect(openURLSpy.mock.calls[0][0]).toContain("https://www.google.com/maps/dir/");
+      // Misma cascada que "Navegar": primero el deep-link nativo de Google Maps (iOS)
+      expect(openURLSpy.mock.calls[0][0]).toContain("comgooglemaps://");
       expect(openURLSpy.mock.calls[0][0]).toContain("-31.425"); // lat de parada 1
 
       expect(getByTestId("route-navigation-toast")).toBeTruthy();
-      expect(getByText("Iniciando navegación con Google Maps...")).toBeTruthy();
+      expect(getByText("Abriendo el recorrido en tu app de mapas...")).toBeTruthy();
 
       // Al expirar el tiempo del toast (2400ms), desaparece
       await act(async () => {
@@ -523,7 +524,7 @@ describe("Componentes de Ruta (MOVO-207)", () => {
 
     it("muestra feedback de error si el sistema no puede abrir la app de mapas externa", async () => {
       jest.useFakeTimers();
-      const openURLSpy = jest.spyOn(Linking, "openURL").mockRejectedValueOnce(new Error("No app available"));
+      const openURLSpy = jest.spyOn(Linking, "openURL").mockRejectedValue(new Error("No app available"));
 
       const { getByTestId, getByText, queryByTestId } = await render(
         <RouteMap
@@ -538,7 +539,8 @@ describe("Componentes de Ruta (MOVO-207)", () => {
         fireEvent.press(openMapsBtn);
       });
 
-      expect(openURLSpy).toHaveBeenCalledTimes(1);
+      // Prueba toda la cascada (Google Maps nativo → Waze → web) antes de avisar el error
+      expect(openURLSpy).toHaveBeenCalledTimes(3);
       expect(getByTestId("route-navigation-toast")).toBeTruthy();
       expect(getByText("No se pudo abrir la navegación externa.")).toBeTruthy();
 
@@ -566,16 +568,15 @@ describe("Componentes de Ruta (MOVO-207)", () => {
         fireEvent.press(getByTestId("route-map-open-maps"));
       });
 
+      // Primera candidata de la cascada (iOS en jest): deep-link nativo de Google Maps
       expect(openURLSpy).toHaveBeenCalledTimes(1);
       const calledUrl = openURLSpy.mock.calls[0][0];
 
-      // Incluye origen con posición del transportista
-      expect(calledUrl).toContain("origin=-31.4167,-64.1833");
-      // Incluye parada 3 como destino final
-      expect(calledUrl).toContain("destination=-32.0416%2C-63.5698");
-      // Incluye paradas 1 y 2 como waypoints secuenciados intermedios
-      expect(calledUrl).toContain("waypoints=-31.425,-64.187%7C-31.9139,-63.6817");
-      expect(calledUrl).toContain("travelmode=driving");
+      // Origen con la posición del transportista
+      expect(calledUrl).toContain("saddr=-31.4167,-64.1833");
+      // Paradas 1, 2 y 3 (destino final) encadenadas en orden
+      expect(calledUrl).toContain("daddr=-31.425,-64.187+to:-31.9139,-63.6817+to:-32.0416,-63.5698");
+      expect(calledUrl).toContain("directionsmode=driving");
 
       openURLSpy.mockRestore();
     });
