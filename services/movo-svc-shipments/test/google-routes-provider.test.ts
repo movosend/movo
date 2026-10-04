@@ -42,6 +42,32 @@ describe("createGoogleRoutesProvider", () => {
     expect(requestInit.body).not.toContain("secret-key");
   });
 
+  it("mode per_trip manda el mismo request que sin mode", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ routes: [{ distanceMeters: 1, duration: "1s", polyline: { encodedPolyline: "x" } }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = createGoogleRoutesProvider({ apiKey: "test-key" });
+
+    await provider.getRoute({ origin, destination });
+    await provider.getRoute({ origin, destination, mode: "per_trip" });
+
+    expect(fetchMock.mock.calls[1][1].body).toBe(fetchMock.mock.calls[0][1].body);
+  });
+
+  it("mode live falla con ApiError 501 sin llamar a Google", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = createGoogleRoutesProvider({ apiKey: "test-key" });
+    await expect(provider.getRoute({ origin, destination, mode: "live" })).rejects.toMatchObject({
+      statusCode: 501,
+      code: "ROUTE_MODE_NOT_IMPLEMENTED",
+    } satisfies Partial<ApiError>);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("traduce una falla de red a ApiError 502 ROUTES_PROVIDER_ERROR", async () => {
     vi.stubGlobal(
       "fetch",
