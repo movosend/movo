@@ -45,6 +45,8 @@ export type ApiErrorCode =
   | "SHIPMENT_RECEIVER_ALREADY_REJECTED"
   | "ROUTES_PROVIDER_ERROR"
   | "ROUTE_NOT_FOUND"
+  // MOVO-237: modo `live` del RoutesProvider, placeholder intencional (ADR-032).
+  | "ROUTE_MODE_NOT_IMPLEMENTED"
   | "PROFILE_NAME_LOCKED_BY_KYC"
   | "PHONE_ALREADY_IN_USE"
   | "EMAIL_ALREADY_IN_USE"

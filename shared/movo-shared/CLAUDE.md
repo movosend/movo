@@ -347,3 +347,8 @@ sin precio todo `null`. Códigos nuevos `QUOTE_EXPIRED`/`QUOTE_MISMATCH` (ADR-02
 `types/pricing.ts`: `QuoteRequest.includeBreakdown?` y `QuoteResponse.breakdown?`
 (`QuoteBreakdown`, espejo del modelo Python). `ApiErrorCode` suma `AUTH_API_KEY_INVALID`
 (gateway, prefijo `/demo`) y `PRICING_UNAVAILABLE` (503 del juego cuando pricing no cotiza).
+
+### MOVO-237 — código `ROUTE_MODE_NOT_IMPLEMENTED`
+
+`ApiErrorCode` suma `ROUTE_MODE_NOT_IMPLEMENTED` (501), que responde `RoutesProvider` de
+`svc-shipments` si se pide el modo `live`, reservado y sin implementar (ADR-032).
