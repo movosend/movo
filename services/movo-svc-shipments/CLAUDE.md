@@ -3000,3 +3000,25 @@ Fixes de review (PR #212, PedroYorlano):
 - Alta con `create` + reintento ante `P2002` en vez de `findUnique` + `upsert`: `created`
   queda bien bajo concurrencia.
 
+### MOVO-274 — Push de calificación pendiente al entregar
+
+`handshake.service.ts#confirmHandshake`, rama de entrega, junto a los push de custodia de MOVO-245:
+emisor, receptor y transportista reciben un aviso para calificar (triggers `ratingPendingSender`/
+`ratingPendingReceiver`/`ratingPendingCarrier`, categoría `ratings`, `data.type: "rating_pending"`).
+Mismo pareo de "interacción física" que `pending-rating.ts` (MOVO-222): emisor y receptor califican al
+transportista, el transportista califica a emisor y receptor. Los otros tres avisos de MOVO-274 (KYC,
+cuenta y seguridad) viven en `svc-users`, ver su `CLAUDE.md`.
+
+- **Solo al entregar, sin recordatorio diferido**: el ticket dejaba abierto si sumar uno (con su barrido)
+  y se decidió no hacerlo por ahora.
+- **Emisor y receptor son la misma persona → un solo aviso** (el del emisor), en vez de dos idénticos.
+- **No se descuenta "quien ya calificó"**: calificar exige `delivered`, así que al entregar nadie calificó.
+  Si más adelante se agrega el recordatorio diferido, ahí sí hay que consultar `ratings` (MOVO-222
+  ya expone la lógica en `computePendingRatingFor`).
+- **Sin transportista asignado no se manda ninguno** (en la práctica un envío `in_transit` siempre tiene).
+- El test existente de la entrega de custodia ya no cuenta "2 push" a secas: cuenta solo los de
+  categoría `custody`. Tests nuevos en `handshake-service.test.ts` (los tres destinatarios, emisor ==
+  receptor, y que el retiro no mande este aviso).
+
+Pendiente / fuera de alcance: el recordatorio diferido para quien no califica.
+

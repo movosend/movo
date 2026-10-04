@@ -1172,3 +1172,34 @@ sampleFirstNames: [] }`.
 - **Si `svc-shipments` falla, degrada a 0 y loguea** (`mutual_connections_fetch_failed`), igual que la
   reputación (AC3 de MOVO-152): el mobile oculta la fila con 0, el perfil nunca se cae por esto.
 - Sin cambios en el gateway (`/users` ya se proxea genéricamente) ni env vars nuevas.
+
+### MOVO-274 — Push de KYC y de cuenta y seguridad
+
+Cuatro avisos push nuevos, sobre el modelo de preferencias de MOVO-245: resultado de la verificación
+de identidad/licencia (aprobada, rechazada, en revisión) y cambio confirmado de contraseña, email y
+teléfono. Las categorías `kyc` y `account_security` pasan a `implemented: true` (ver
+`shared/movo-shared/CLAUDE.md`), así que aparecen con toggle real en la pantalla de MOVO-246 sin
+tocar mobile. Todo sale por `notifications/send-trigger-push.ts#sendTriggerPush` (renderiza el trigger de
+`@movo/shared`, llama a `sendPushToUser` y se traga cualquier error con un `warn`: el equivalente de
+`sendCustodyPush` de `svc-shipments`).
+
+- **KYC avisa desde `kyc.service.ts#notifyDecision`, solo con lo que devuelve `applyTerminalDecision`**:
+  webhook y pull comparten esa compuerta de idempotencia, así que un webhook repetido, o el pull que
+  llega después del webhook, no manda un segundo push. `expired` aplica la transición pero no avisa (no
+  es un resultado). El copy no lleva el motivo del rechazo ni datos del documento (AC9 de MOVO-72).
+- **Cuenta y seguridad**: contraseña (`changePassword` y `resetPassword`, después de revocar las
+  sesiones), teléfono (`verifyPhoneChange`, hasta ahora sin ningún aviso) y email (`verifyEmailChange`,
+  además del mail al email anterior). El push se suma a los avisos por SMS/mail, no los reemplaza.
+  `account_security` es la primera categoría con `quietHoursExempt: true` en uso: atraviesa el horario de
+  silencio. Los textos no incluyen el email ni el número nuevo (el push se ve con el teléfono bloqueado).
+- **Siempre best-effort y después de persistir**: un push caído no revierte ni cambia la respuesta (en KYC
+  importa doble: si lanzara, el webhook respondería 5xx y Didit reintentaría un evento ya aplicado).
+- **`createKycService`, `createUsersService` y `createPasswordResetService` reciben `notifications:
+  PushSender` como parámetro obligatorio**; los tres módulos de rutas lo arman con `pushProvider`
+  inyectable (`buildApp({ pushProvider })`), el mismo override que ya usa `/internal/notifications`.
+- Tests unitarios con mocks, sin base: `send-trigger-push.test.ts`, `kyc.push.test.ts`,
+  `account-security.push.test.ts`. Los de integración de cada flujo no se tocaron.
+
+Pendiente / fuera de alcance: login desde un dispositivo nuevo (el login no tiene hoy registro de
+dispositivos conocidos); verificar en CI la suite de integración completa, que no se pudo correr en la
+máquina donde se desarrolló (la contraseña del Postgres local estaba desfasada del `.env`, ver MOVO-228).
