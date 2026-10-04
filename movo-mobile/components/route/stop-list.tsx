@@ -2,9 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowUpRight,
-  ChevronDown,
   ChevronRight,
-  ChevronUp,
 } from "lucide-react-native";
 import {
   GestureResponderHandlers,
@@ -234,17 +232,6 @@ export function StopList({
                 </Text>
               </View>
             ) : null}
-
-            <View className="flex-row items-center gap-1 rounded-full border border-border bg-bg-sub px-2.5 py-1.5">
-              <Text className="font-sans-medium text-[11.5px] text-fg">
-                {expanded ? "Ver mapa" : `Ver todas (${stops.length})`}
-              </Text>
-              {expanded ? (
-                <ChevronDown size={14} color={colors.fg2} />
-              ) : (
-                <ChevronUp size={14} color={colors.fg2} />
-              )}
-            </View>
           </View>
         </View>
       </Pressable>
