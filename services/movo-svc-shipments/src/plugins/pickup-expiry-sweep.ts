@@ -1,5 +1,6 @@
 import fp from "fastify-plugin";
 import { FastifyInstance } from "fastify";
+import { registerSweep } from "./register-sweep";
 import { createShipmentRepository } from "../repositories/shipment-repository";
 import { createOfferRepository } from "../repositories/offer-repository";
 import { createUsersClient, UsersClient } from "../adapters/users-client";
@@ -21,14 +22,6 @@ export interface PickupExpirySweepPluginOptions {
  * disponibles), sin ticket propio.
  */
 export default fp(async (app: FastifyInstance, opts: PickupExpirySweepPluginOptions = {}) => {
-  const isEnabled = opts.enabled ?? app.config.PICKUP_EXPIRY_SWEEP_ENABLED ?? true;
-  const intervalMinutes = app.config.PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES;
-
-  if (!isEnabled || intervalMinutes <= 0) {
-    app.log.info("Pickup expiry sweep plugin está desactivado.");
-    return;
-  }
-
   const repository = createShipmentRepository(app.db);
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
@@ -38,29 +31,19 @@ export default fp(async (app: FastifyInstance, opts: PickupExpirySweepPluginOpti
     offerRepository: createOfferRepository(app.db),
     claimNotificationOnce: async (key, ttlSeconds) =>
       (await app.redis.set(`notified:${key}`, "1", "EX", ttlSeconds, "NX")) === "OK",
+    releaseNotificationClaim: async (key) => {
+      await app.redis.del(`notified:${key}`);
+    },
   });
 
-  const intervalMs = intervalMinutes * 60 * 1000;
-  const lockTtlMs = Math.max(10_000, Math.floor(intervalMs * 0.8));
-  const lockKey = "locks:pickup-expiry-sweep";
-
-  const runSweep = async () => {
-    try {
-      const acquired = await app.redis.set(lockKey, "locked", "PX", lockTtlMs, "NX");
-      if (acquired !== "OK") {
-        app.log.debug({ lockKey }, "Sweep omitido: otra instancia tiene el lock de Redis.");
-        return;
-      }
-
+  registerSweep(app, {
+    name: "Pickup expiry sweep plugin",
+    lockKey: "locks:pickup-expiry-sweep",
+    enabled: opts.enabled ?? app.config.PICKUP_EXPIRY_SWEEP_ENABLED ?? true,
+    intervalMinutes: app.config.PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES,
+    errorMessage: "Error inesperado durante la ejecución del sweep de retiro vencido",
+    run: async () => {
       await service.expireOverduePublishedShipments();
-    } catch (err) {
-      app.log.error({ err }, "Error inesperado durante la ejecución del sweep de retiro vencido");
-    }
-  };
-
-  const timer = setInterval(runSweep, intervalMs);
-
-  app.addHook("onClose", async () => {
-    clearInterval(timer);
+    },
   });
 });

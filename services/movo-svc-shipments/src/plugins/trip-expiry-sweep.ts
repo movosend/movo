@@ -1,5 +1,6 @@
 import fp from "fastify-plugin";
 import { FastifyInstance } from "fastify";
+import { registerSweep } from "./register-sweep";
 import { createTripRepository } from "../repositories/trip-repository";
 
 export interface TripExpirySweepPluginOptions {
@@ -25,60 +26,56 @@ const BATCH_SIZE = 100;
  * refresca en la cancelación.
  */
 export default fp(async (app: FastifyInstance, opts: TripExpirySweepPluginOptions = {}) => {
-  const isEnabled = opts.enabled ?? app.config.TRIP_EXPIRY_SWEEP_ENABLED ?? true;
-  const intervalMinutes = app.config.TRIP_EXPIRY_SWEEP_INTERVAL_MINUTES;
-
-  if (!isEnabled || intervalMinutes <= 0) {
-    app.log.info("Trip expiry sweep plugin está desactivado.");
-    return;
-  }
-
   const repository = createTripRepository(app.db);
 
-  const intervalMs = intervalMinutes * 60 * 1000;
-  const lockTtlMs = Math.max(10_000, Math.floor(intervalMs * 0.8));
-  const lockKey = "locks:trip-expiry-sweep";
-
-  const runSweep = async () => {
+  // Un paso que falla no debe frenar a los demás: con un solo try/catch, una fila mala en
+  // `cancelOverdueDeclared` dejaba sin correr (para siempre) el cierre de los `active`
+  // terminados o vacíos, y con el índice de 1 viaje activo el transportista quedaba bloqueado.
+  const runStep = async (step: string, fn: () => Promise<void>) => {
     try {
-      const acquired = await app.redis.set(lockKey, "locked", "PX", lockTtlMs, "NX");
-      if (acquired !== "OK") {
-        app.log.debug({ lockKey }, "Sweep omitido: otra instancia tiene el lock de Redis.");
-        return;
-      }
-
-      const expiredIds = await repository.cancelOverdueDeclared(new Date(), BATCH_SIZE);
-      for (const tripId of expiredIds) {
-        app.log.info(
-          { event: "trip_auto_expired", tripId, reason: "departure_passed_without_accepted_offers" },
-          "Viaje declared vencido expirado automáticamente",
-        );
-      }
-
-      // MOVO-258 (D5): cierre automático de viajes `active` cuyos paquetes ya terminaron.
-      const completedIds = await repository.completeFinishedActive(BATCH_SIZE);
-      for (const tripId of completedIds) {
-        app.log.info(
-          { event: "trip_auto_completed", tripId, reason: "all_packages_finished" },
-          "Viaje active con todos sus paquetes terminados completado automáticamente",
-        );
-      }
-
-      const emptyActiveIds = await repository.expireActiveWithoutPackages(BATCH_SIZE);
-      for (const tripId of emptyActiveIds) {
-        app.log.info(
-          { event: "trip_auto_expired", tripId, reason: "active_without_packages" },
-          "Viaje active sin paquetes vivos expirado automáticamente",
-        );
-      }
+      await fn();
     } catch (err) {
-      app.log.error({ err }, "Error inesperado durante el sweep de viajes declared vencidos");
+      app.log.error({ err, step }, "Error en un paso del sweep de viajes");
     }
   };
 
-  const timer = setInterval(runSweep, intervalMs);
+  registerSweep(app, {
+    name: "Trip expiry sweep plugin",
+    lockKey: "locks:trip-expiry-sweep",
+    enabled: opts.enabled ?? app.config.TRIP_EXPIRY_SWEEP_ENABLED ?? true,
+    intervalMinutes: app.config.TRIP_EXPIRY_SWEEP_INTERVAL_MINUTES,
+    errorMessage: "Error inesperado durante el sweep de viajes",
+    run: async () => {
+      await runStep("cancel_overdue_declared", async () => {
+        const expiredIds = await repository.cancelOverdueDeclared(new Date(), BATCH_SIZE);
+        for (const tripId of expiredIds) {
+          app.log.info(
+            { event: "trip_auto_expired", tripId, reason: "departure_passed_without_accepted_offers" },
+            "Viaje declared vencido expirado automáticamente",
+          );
+        }
+      });
 
-  app.addHook("onClose", async () => {
-    clearInterval(timer);
+      // MOVO-258 (D5): cierre automático de viajes `active` cuyos paquetes ya terminaron.
+      await runStep("complete_finished_active", async () => {
+        const completedIds = await repository.completeFinishedActive(BATCH_SIZE);
+        for (const tripId of completedIds) {
+          app.log.info(
+            { event: "trip_auto_completed", tripId, reason: "all_packages_finished" },
+            "Viaje active con todos sus paquetes terminados completado automáticamente",
+          );
+        }
+      });
+
+      await runStep("expire_active_without_packages", async () => {
+        const emptyActiveIds = await repository.expireActiveWithoutPackages(BATCH_SIZE);
+        for (const tripId of emptyActiveIds) {
+          app.log.info(
+            { event: "trip_auto_expired", tripId, reason: "active_without_packages" },
+            "Viaje active sin paquetes vivos expirado automáticamente",
+          );
+        }
+      });
+    },
   });
 });
