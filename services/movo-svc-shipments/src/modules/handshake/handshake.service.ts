@@ -450,6 +450,60 @@ export function createHandshakeService(
                 );
               }
 
+              // MOVO-274: calificación pendiente, solo al entregar. Recién entregado
+              // nadie calificó todavía (calificar exige `delivered`), así que no hay
+              // nada que descontar. Emisor y receptor califican al transportista, el
+              // transportista califica a ambos (mismo pareo que `pending-rating.ts`).
+              if (shipment.carrierId) {
+                // Si emisor y receptor son la misma persona, recibe un solo aviso (el
+                // del emisor) en vez de dos idénticos.
+                if (shipment.receiverId !== shipment.senderId) {
+                  sends.push(
+                    sendCustodyPush({
+                      notificationsClient,
+                      userId: shipment.receiverId,
+                      triggerKey: "ratingPendingReceiver",
+                      params: undefined,
+                      data: { type: "rating_pending", shipmentId: input.shipmentId },
+                      logger,
+                      onErrorContext: {
+                        event: "notification_dispatch_failed",
+                        message: "No se pudo notificar la calificación pendiente al receptor",
+                        extra: { shipmentId: input.shipmentId },
+                      },
+                    })
+                  );
+                }
+                sends.push(
+                  sendCustodyPush({
+                    notificationsClient,
+                    userId: shipment.senderId,
+                    triggerKey: "ratingPendingSender",
+                    params: undefined,
+                    data: { type: "rating_pending", shipmentId: input.shipmentId },
+                    logger,
+                    onErrorContext: {
+                      event: "notification_dispatch_failed",
+                      message: "No se pudo notificar la calificación pendiente al emisor",
+                      extra: { shipmentId: input.shipmentId },
+                    },
+                  }),
+                  sendCustodyPush({
+                    notificationsClient,
+                    userId: shipment.carrierId,
+                    triggerKey: "ratingPendingCarrier",
+                    params: undefined,
+                    data: { type: "rating_pending", shipmentId: input.shipmentId },
+                    logger,
+                    onErrorContext: {
+                      event: "notification_dispatch_failed",
+                      message: "No se pudo notificar la calificación pendiente al transportista",
+                      extra: { shipmentId: input.shipmentId },
+                    },
+                  })
+                );
+              }
+
               return Promise.all(sends);
             })
             .catch((err) => {
