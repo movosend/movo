@@ -2861,7 +2861,11 @@ puras viven en `src/domain/expiration.ts`.
 
 - **D3 — el envío guarda la ventana acordada**: `offer-repository.ts#acceptOffer` copia
   `offeredDate` y, si la oferta propuso otra, la franja (`offeredPickupTimeWindowStart/End`) a
-  `pickupDate`/`pickupTimeWindowStart/End` del envío. Los barridos leen solo el envío.
+  `pickupDate`/`pickupTimeWindowStart/End` del envío. Los barridos leen solo el envío. La ventana que pidió
+  el emisor se guarda antes en `original_pickup_*` y `updateStatus` la restaura al volver a `published` (hold
+  fallido, MOVO-210): sin eso el envío reabierto quedaba con el día del transportista que perdió la asignación.
+  La migración `20261003120000_...` hace además el backfill de los envíos ya asignados antes del deploy (copia
+  la ventana de la oferta `accepted`); sin él el barrido los medía contra la fecha original y podía cancelarlos.
 - **D1/D2 — `pickup-missed-sweep.ts` → `expireUnpickedAssignedShipments`**: cancela
   `assignment_pending`/`assigned_unfunded`/`assigned` con ventana cerrada hace más de
   `PICKUP_MISSED_GRACE_HOURS` (24), sin culpables ni efecto en reputación, y avisa a emisor,
@@ -2876,7 +2880,11 @@ puras viven en `src/domain/expiration.ts`.
 - **D6 — `expireOverduePublishedShipments`**: un `published` con ventana vencida no se cancela
   mientras tenga ofertas `pending` vigentes (cuentan con `countPendingOffersByShipmentIds`); el día
   de retiro se avisa al emisor una vez (`claimNotificationOnce`, `SET NX` en Redis, TTL 7 días —
-  sin esa dependencia el aviso no se manda para no repetirlo en cada vuelta). Sin `offerRepository`
+  sin esa dependencia el aviso no se manda para no repetirlo en cada vuelta). Solo se avisa el día de retiro
+  (el texto dice "hoy"), y si la push falla se libera la clave (`releaseNotificationClaim`) para que el
+  próximo barrido reintente. La vigencia por ofertas solo protege de la cancelación: ese `published` deja de
+  aparecer en `GET /shipments/available` (`availableShipmentsWhereSql` filtra la ventana en SQL, huso de
+  Argentina) y `createOfferForShipment` responde 409 `SHIPMENT_NOT_AVAILABLE_FOR_OFFER`. Sin `offerRepository`
   conserva el comportamiento anterior. Devuelve además `keptForOffersCount`.
 - **D5 — los paquetes de un viaje quedan fijos al iniciarlo**: `POST /trips/:id/start` exige al menos un
   paquete aceptado vivo (409 `TRIP_NO_PACKAGES`) y desasocia las ofertas todavía `pending` del viaje
@@ -2885,7 +2893,9 @@ puras viven en `src/domain/expiration.ts`.
   si está `active`), aparece en `GET /trips/:id/matches` y en el matching inverso del push de paquete
   compatible (`findDeclaredTripsMatchingShipment`, antes `findActiveTripsMatchingShipment`: el título de
   MOVO-179 ya decía "viaje declarado"). `trip-expiry-sweep.ts` suma `completeFinishedActive` (`active`
-  con ≥1 paquete vivo y todos en `delivered`/`completed`/`cancelled`; `disputed` lo mantiene abierto) y
+  con ≥1 paquete vivo y todos en `delivered`/`completed`/`cancelled`/`disputed`: `disputed` no tiene salida
+  modelada, así que retenerlo trababa al transportista para siempre por el índice de 1 viaje activo; por lo
+  mismo un reclamo posterior a la entrega no reabre el viaje) y
   `expireActiveWithoutPackages` (un `active` al que se le cancelaron todos los paquetes).
   **`countAvailableCarriersNear` (pricing, ADR-025) NO se tocó** y sigue contando `declared` y `active`:
   cambiarlo mueve el recargo por alta demanda -- decisión pendiente en MOVO-270.
@@ -2909,7 +2919,16 @@ puras viven en `src/domain/expiration.ts`.
   (sin transición de salida modelada, MOVO-30/ADR-023). El botón de iniciar viaje sin paquetes
   solo está cerrado en el backend (409 `TRIP_NO_PACKAGES`): ocultarlo en la app lo decide el
   rediseño de "Mis viajes" (MOVO-259, `acceptedPackagesCount` ya viaja en el listado). Los
-  candidatos de cada barrido se leen ordenados por antigüedad con tope de lote: si 100 envíos
-  viejos nunca vencen, podrían demorar a los siguientes (volumen del PF, aceptado).
+  barridos que podían quedar tapados por 100 candidatos que nunca vencen no se quedan con el primer
+  lote: `published` pagina con cursor (`findPotentiallyExpiredPublished(limit, afterId)`, hasta 20
+  páginas) e `in_transit` prefiltra en SQL con una cota inferior conservadora del umbral
+  (`findInTransitUnflagged(limit, { now, fallbackHours })`).
+- **Esqueleto de barridos**: `src/plugins/register-sweep.ts#registerSweep` (`setInterval` + lock Redis
+  `PX`/`NX` + `onClose`) lo comparten los 7 plugins de barrido; cada uno solo declara su regla. El lock no
+  se libera al terminar a propósito (también limita la frecuencia entre réplicas). `trip-expiry-sweep.ts`
+  corre cada uno de sus tres pasos con su propio try/catch: una fila mala en uno no frena los otros.
+- **`acceptOffer` condiciona su UPDATE también por `tripId`**: un `start()` concurrente desasocia las
+  `pending`; sin esto la oferta quedaba `accepted` sin viaje. Perder esa carrera da 409
+  `OFFER_CONCURRENT_MODIFICATION` y el reintento auto-crea un viaje (MOVO-234).
 - Mobile: `OfferStatus.SHIPMENT_CANCELLED` mapeado en `offer-format.ts`/`my-offer-card.tsx`/
   `carrier/offers/index.tsx` (cuenta como oferta cerrada) y `TRIP_NO_PACKAGES` en `error-messages.ts`.
