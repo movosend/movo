@@ -84,8 +84,8 @@ describe("NotificationsHubScreen", () => {
   it("una categoría 'Pronto' no tiene toggle funcional", async () => {
     const { getByTestId } = await render(<NotificationsHubScreen />);
 
-    expect(getByTestId("notifications-hub-row-kyc-pending")).toBeTruthy();
-    await fireEvent.press(getByTestId("notifications-hub-row-kyc-toggle"));
+    expect(getByTestId("notifications-hub-row-chat-pending")).toBeTruthy();
+    await fireEvent.press(getByTestId("notifications-hub-row-chat-toggle"));
 
     expect(mockMutate).not.toHaveBeenCalled();
   });
