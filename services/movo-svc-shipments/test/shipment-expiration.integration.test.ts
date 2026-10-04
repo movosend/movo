@@ -209,7 +209,14 @@ describe("expiración y cierre automático (MOVO-258, Postgres)", () => {
       expect((await tripRepo.findById(tripId))?.status).toBe(TripStatus.COMPLETED);
     });
 
-    it.each([ShipmentStatus.IN_TRANSIT, ShipmentStatus.DISPUTED, ShipmentStatus.ASSIGNMENT_PENDING])(
+    it("un paquete disputed no retiene al viaje (sin salida modelada, lo trabaría para siempre)", async () => {
+      const { tripId } = await activeTripWithShipment(ShipmentStatus.DISPUTED);
+
+      expect(await tripRepo.completeFinishedActive(100)).toEqual([tripId]);
+      expect((await tripRepo.findById(tripId))?.status).toBe(TripStatus.COMPLETED);
+    });
+
+    it.each([ShipmentStatus.IN_TRANSIT, ShipmentStatus.ASSIGNMENT_PENDING])(
       "sigue active si un paquete está %s",
       async (status) => {
         const { tripId } = await activeTripWithShipment(status);
@@ -259,6 +266,120 @@ describe("expiración y cierre automático (MOVO-258, Postgres)", () => {
 
       const { trip } = await createAssignedWithTrip();
       await expect(tripRepo.start(trip.id)).resolves.toMatchObject({ status: TripStatus.ACTIVE });
+    });
+  });
+
+  describe("D3: ventana acordada vs. ventana original del emisor", () => {
+    const AGREED_DATE = new Date("2026-08-22T00:00:00.000Z");
+
+    it("acceptOffer guarda la original; volver a published (hold fallido) la restaura y la limpia", async () => {
+      const carrierId = randomUUID();
+      const shipmentId = await createPublished();
+      const offer = await offerRepo.create({
+        shipmentId,
+        carrierId,
+        priceOffered: 5000,
+        offeredDate: AGREED_DATE,
+        offeredPickupTimeWindowStart: "14:00:00",
+        offeredPickupTimeWindowEnd: "16:00:00",
+      });
+
+      await offerRepo.acceptOffer(offer.id, null);
+
+      const assigned = await app.db.shipment.findUniqueOrThrow({ where: { id: shipmentId } });
+      expect(assigned.pickupDate).toEqual(AGREED_DATE);
+      expect(assigned.pickupTimeWindowEnd.toISOString()).toBe("1970-01-01T16:00:00.000Z");
+      expect(assigned.originalPickupDate).toEqual(PICKUP_DATE);
+      expect(assigned.originalPickupTimeWindowEnd?.toISOString()).toBe("1970-01-01T12:00:00.000Z");
+
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.PUBLISHED, null);
+
+      const reverted = await app.db.shipment.findUniqueOrThrow({ where: { id: shipmentId } });
+      expect(reverted.pickupDate).toEqual(PICKUP_DATE);
+      expect(reverted.pickupTimeWindowStart.toISOString()).toBe("1970-01-01T09:00:00.000Z");
+      expect(reverted.pickupTimeWindowEnd.toISOString()).toBe("1970-01-01T12:00:00.000Z");
+      expect(reverted.originalPickupDate).toBeNull();
+      expect(reverted.originalPickupTimeWindowStart).toBeNull();
+      expect(reverted.originalPickupTimeWindowEnd).toBeNull();
+    });
+  });
+
+  describe("carrera acceptOffer vs. start() del viaje (MOVO-258, D5)", () => {
+    it("una oferta aceptada nunca queda sin viaje, gane quien gane la carrera", async () => {
+      // Concurrente de verdad contra Postgres: `start()` desasocia las `pending` del viaje
+      // mientras `acceptOffer` ya leyó `tripId`. El CAS por `tripId` hace que, si perdió la
+      // carrera, falle con 409 en vez de dejar la oferta `accepted` con `tripId = null`.
+      for (let i = 0; i < 8; i++) {
+        const carrierId = randomUUID();
+        const trip = await tripRepo.create(tripInput({ carrierId, departureAt: new Date(Date.now() + HOUR_MS) }));
+        // El viaje necesita un paquete aceptado vivo para poder iniciarse.
+        const anchorShipment = await createPublished();
+        const anchorOffer = await offerRepo.create({
+          shipmentId: anchorShipment,
+          carrierId,
+          priceOffered: 1,
+          offeredDate: PICKUP_DATE,
+        });
+        await offerRepo.acceptOffer(anchorOffer.id, carrierId);
+        await app.db.offer.update({ where: { id: anchorOffer.id }, data: { tripId: trip.id } });
+
+        const shipmentId = await createPublished();
+        const offer = await offerRepo.create({
+          shipmentId,
+          carrierId,
+          priceOffered: 5000,
+          offeredDate: PICKUP_DATE,
+          tripId: trip.id,
+        });
+
+        const [accepted] = await Promise.allSettled([
+          offerRepo.acceptOffer(offer.id, null, { vehicleType: "auto" }),
+          tripRepo.start(trip.id),
+        ]);
+
+        const row = await app.db.offer.findUniqueOrThrow({ where: { id: offer.id } });
+        if (accepted.status === "fulfilled") {
+          expect(row.status).toBe(OfferStatus.ACCEPTED);
+          expect(row.tripId).not.toBeNull();
+        } else {
+          expect(accepted.reason).toMatchObject({ name: expect.stringMatching(/Concurrent|NotAvailable/) });
+          expect(row.status).toBe(OfferStatus.PENDING);
+        }
+      }
+    });
+  });
+
+  describe("barridos con candidatos que no vencen (starvation)", () => {
+    it("findInTransitUnflagged con prefiltro: un in_transit con entrega estimada futura no ocupa el lote", async () => {
+      const future = await createAssignedWithTrip();
+      await app.db.shipment.update({
+        where: { id: future.shipmentId },
+        data: {
+          status: ShipmentStatus.IN_TRANSIT,
+          estimatedDeliveryDate: new Date(Date.now() + 10 * 24 * HOUR_MS),
+          lastStatusChangedAt: new Date(Date.now() - 100 * HOUR_MS),
+        },
+      });
+      const overdue = await createAssignedWithTrip();
+      await app.db.shipment.update({
+        where: { id: overdue.shipmentId },
+        data: { status: ShipmentStatus.IN_TRANSIT, lastStatusChangedAt: new Date(Date.now() - 72 * HOUR_MS) },
+      });
+
+      const result = await shipmentRepo.findInTransitUnflagged(1, { fallbackHours: 48 });
+
+      expect(result.map((s) => s.id)).toEqual([overdue.shipmentId]);
+    });
+
+    it("findPotentiallyExpiredPublished pagina con cursor", async () => {
+      const ids = [await createPublished(), await createPublished(), await createPublished()];
+
+      const page1 = await shipmentRepo.findPotentiallyExpiredPublished(2);
+      const page2 = await shipmentRepo.findPotentiallyExpiredPublished(2, page1[1].id);
+
+      expect(page1).toHaveLength(2);
+      expect(page2).toHaveLength(1);
+      expect([...page1, ...page2].map((s) => s.id).sort()).toEqual([...ids].sort());
     });
   });
 

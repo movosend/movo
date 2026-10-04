@@ -292,6 +292,9 @@ const UNKNOWN_COUNTERPARTY_NAME = "Usuario de Movo";
 // edificio".
 const MIN_PICKUP_DELIVERY_DISTANCE_KM = 0.1;
 
+/** Tope de páginas por corrida de un barrido que pagina candidatos (volumen del PF: 20 x 100). */
+const MAX_SWEEP_PAGES = 20;
+
 function assertPickupDeliveryApart(
   input: Pick<ShipmentQuoteRequest, "pickupLat" | "pickupLng" | "deliveryLat" | "deliveryLng">
 ) {
@@ -852,18 +855,24 @@ async function dispatchPickupMissedPushes(
 }
 
 /** MOVO-258 (D6): día de retiro sin oferta aceptada pero con ofertas vigentes -- avisa al
- * emisor UNA vez por envío (la clave de dedupe vive más que cualquier ventana de retiro). */
+ * emisor UNA vez por envío (la clave de dedupe vive más que cualquier ventana de retiro). Si la
+ * push falla se libera la clave: sin eso, un `notifications` caído dejaba al emisor sin aviso
+ * durante los 7 días del TTL. */
 async function dispatchOffersNeedReviewPush(
   notificationsClient: NotificationsClient,
   logger: SweepLogger,
   shipment: Shipment,
   pendingCount: number,
-  claimOnce: ShipmentsServiceOptions["claimNotificationOnce"]
+  claimOnce: ShipmentsServiceOptions["claimNotificationOnce"],
+  releaseClaim: ShipmentsServiceOptions["releaseNotificationClaim"]
 ): Promise<void> {
+  const claimKey = `offers-need-review:${shipment.id}`;
+  let claimed = false;
   try {
-    if (!claimOnce || !(await claimOnce(`offers-need-review:${shipment.id}`, 7 * 24 * 60 * 60))) {
+    if (!claimOnce || !(await claimOnce(claimKey, 7 * 24 * 60 * 60))) {
       return;
     }
+    claimed = true;
     const { title, body } = renderNotificationTrigger("offersNeedReview", { pendingCount });
     await notificationsClient.sendPush({
       userId: shipment.senderId,
@@ -877,6 +886,16 @@ async function dispatchOffersNeedReviewPush(
       { err, event: "notification_dispatch_failed", shipmentId: shipment.id },
       "No se pudo avisar al emisor que tiene ofertas para revisar"
     );
+    if (claimed && releaseClaim) {
+      try {
+        await releaseClaim(claimKey);
+      } catch (releaseErr) {
+        logger?.warn(
+          { err: releaseErr, event: "notification_claim_release_failed", shipmentId: shipment.id },
+          "No se pudo liberar la clave de dedupe del aviso de ofertas para revisar"
+        );
+      }
+    }
   }
 }
 
@@ -965,6 +984,9 @@ export interface ShipmentsServiceOptions {
    * esta dependencia el aviso de "ofertas para revisar" no se manda: un barrido corre
    * cada pocos minutos y repetiría la push en cada vuelta. */
   claimNotificationOnce?: (key: string, ttlSeconds: number) => Promise<boolean>;
+  /** Deshace un `claimNotificationOnce` cuando el envío de la push falló, para que el
+   * próximo barrido lo reintente en vez de dar el aviso por mandado durante todo el TTL. */
+  releaseNotificationClaim?: (key: string) => Promise<void>;
 }
 
 export type ShipmentsService = ReturnType<typeof createShipmentsService>;
@@ -1325,6 +1347,16 @@ export function createShipmentsService(
           409,
           "SHIPMENT_NOT_AVAILABLE_FOR_OFFER",
           "El envío no está disponible para recibir ofertas."
+        );
+      }
+      // MOVO-258 (D6): un `published` con la ventana original vencida puede seguir vivo solo
+      // porque tiene ofertas vigentes -- eso lo protege de la cancelación, pero no admite
+      // ofertas NUEVAS (`isWithinOfferDateRange` dejaría ofertar hasta pickupDate + 3 días).
+      if (isPickupWindowExpired(shipment.pickupDate, shipment.pickupTimeWindowEnd)) {
+        throw new ApiError(
+          409,
+          "SHIPMENT_NOT_AVAILABLE_FOR_OFFER",
+          "La ventana de retiro de este envío ya cerró: no recibe ofertas nuevas."
         );
       }
 
@@ -1994,7 +2026,17 @@ export function createShipmentsService(
       batchSize = 100
     ): Promise<{ expiredCount: number; errorsCount: number; keptForOffersCount: number }> {
       const now = new Date();
-      const candidates = await repository.findPotentiallyExpiredPublished(batchSize);
+      // Los `published` que se conservan por ofertas vigentes (D6) quedan siempre al frente
+      // del orden: se pagina con cursor para no dejar sin evaluar a los que vienen después.
+      const candidates: Shipment[] = [];
+      for (let page = 0; page < MAX_SWEEP_PAGES; page++) {
+        const lastId = candidates[candidates.length - 1]?.id;
+        const batch = await (lastId
+          ? repository.findPotentiallyExpiredPublished(batchSize, lastId)
+          : repository.findPotentiallyExpiredPublished(batchSize));
+        candidates.push(...batch);
+        if (batch.length < batchSize) break;
+      }
 
       // MOVO-258 (D6): el envío sigue vivo mientras tenga ofertas vigentes (cada oferta
       // vence por SU propia ventana, MOVO-177), y el día de retiro se avisa al emisor
@@ -2002,6 +2044,7 @@ export function createShipmentsService(
       // Sin `offerRepository` inyectado se conserva el comportamiento anterior.
       const todayAr = toArgentinaCalendarDateString(now);
       const dueToday = candidates.filter((shipment) => shipment.pickupDate.toISOString().slice(0, 10) <= todayAr);
+      const isPickupDay = (shipment: Shipment) => shipment.pickupDate.toISOString().slice(0, 10) === todayAr;
       const pendingByShipment =
         offerRepository && dueToday.length > 0
           ? await offerRepository.countPendingOffersByShipmentIds(
@@ -2016,13 +2059,16 @@ export function createShipmentsService(
         const pendingCount = pendingByShipment.get(shipment.id) ?? 0;
         if (pendingCount > 0) {
           keptForOffersCount++;
-          if (notificationsClient) {
+          // El texto dice "hoy es el día de retiro": solo se manda ese día. Si el barrido no
+          // corrió ese día (deploy, Redis caído), el aviso se saltea en vez de salir tarde.
+          if (notificationsClient && isPickupDay(shipment)) {
             void dispatchOffersNeedReviewPush(
               notificationsClient,
               logger,
               shipment,
               pendingCount,
-              opts.claimNotificationOnce
+              opts.claimNotificationOnce,
+              opts.releaseNotificationClaim
             );
           }
           continue;
@@ -2136,7 +2182,10 @@ export function createShipmentsService(
      */
     async flagAnomalousInTransitShipments(batchSize = 100): Promise<{ flaggedCount: number; errorsCount: number }> {
       const now = new Date();
-      const candidates = await repository.findInTransitUnflagged(batchSize);
+      const candidates = await repository.findInTransitUnflagged(batchSize, {
+        now,
+        fallbackHours: transitAnomalyFallbackHours,
+      });
       let flaggedCount = 0;
       let errorsCount = 0;
 

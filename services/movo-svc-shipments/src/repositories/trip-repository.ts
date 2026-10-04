@@ -50,6 +50,21 @@ const ACCEPTED_OFFER_FILTER = {
 } as const;
 
 /**
+ * MOVO-258 (D5): estados de envío que ya no retienen al viaje `active`. `disputed` cuenta
+ * como terminal para el VIAJE: no tiene transición de salida modelada (ADR-023), así que
+ * tratarlo como "sigue abierto" dejaba al transportista bloqueado para siempre por el
+ * índice de 1 viaje activo, y una disputa es un asunto de custodia/pago, no de transporte.
+ * Por el mismo criterio `delivered` también cierra, aunque admita un reclamo posterior
+ * (`delivered -> disputed`): ese reclamo ya no reabre ni bloquea al viaje.
+ */
+const TRIP_FINISHED_SHIPMENT_STATUSES: ShipmentStatus[] = [
+  ShipmentStatus.DELIVERED,
+  ShipmentStatus.COMPLETED,
+  ShipmentStatus.CANCELLED,
+  ShipmentStatus.DISPUTED,
+];
+
+/**
  * MOVO-260: transiciona un viaje `declared` a un estado de baja (`cancelled`/`expired`)
  * con compare-and-swap sobre `where`, y en la MISMA transacción desasocia las ofertas
  * `pending` que lo apuntaban (`tripId: null`). Sin esto el emisor podía aceptar una de
@@ -591,7 +606,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
           none: {
             status: "accepted" as const,
             shipment: {
-              status: { notIn: [ShipmentStatus.DELIVERED, ShipmentStatus.COMPLETED, ShipmentStatus.CANCELLED] },
+              status: { notIn: TRIP_FINISHED_SHIPMENT_STATUSES },
             },
           },
         },

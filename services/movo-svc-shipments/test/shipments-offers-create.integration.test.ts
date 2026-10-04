@@ -174,6 +174,15 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
     expect(response.json().error.code).toBe("SHIPMENT_NOT_AVAILABLE_FOR_OFFER");
   });
 
+  it("MOVO-258 (D6): 409 SHIPMENT_NOT_AVAILABLE_FOR_OFFER si la ventana de retiro original ya cerró", async () => {
+    // Un published vencido puede seguir vivo por ofertas previas, pero no recibe ofertas nuevas
+    // aunque `offeredDate` caiga dentro de pickupDate + 3 días.
+    const shipment = await createPublishedShipment({ pickupDate: new Date("2026-08-20T00:00:00.000Z") });
+    const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { offeredDate: "2026-08-21" });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe("SHIPMENT_NOT_AVAILABLE_FOR_OFFER");
+  });
+
   it("AC3: 403 AUTH_FORBIDDEN si el emisor intenta ofertar sobre su propio envío", async () => {
     const shipment = await createPublishedShipment();
     const response = await requestCreateOffer(shipment.id, senderId);

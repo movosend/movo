@@ -124,7 +124,12 @@ describe("expireUnpickedAssignedShipments (MOVO-258, D1)", () => {
 });
 
 describe("expireOverduePublishedShipments con ofertas vigentes (MOVO-258, D6)", () => {
-  const overduePublished = shipment({ status: ShipmentStatus.PUBLISHED, carrierId: null });
+  // Retiro HOY (25/09 AR) con la franja ya cerrada (09-12): el único día en que se avisa.
+  const overduePublished = shipment({
+    status: ShipmentStatus.PUBLISHED,
+    carrierId: null,
+    pickupDate: new Date("2026-09-25T00:00:00.000Z"),
+  });
 
   function offerRepo(pending: number): OfferRepository {
     return {
@@ -152,6 +157,66 @@ describe("expireOverduePublishedShipments con ofertas vigentes (MOVO-258, D6)", 
     expect(notifications.sendPush).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "sender-1", title: "Tenés ofertas para revisar" })
     );
+  });
+
+  it("no avisa si el día de retiro ya pasó (el texto dice 'hoy'), pero igual conserva el envío", async () => {
+    const lateDay = shipment({
+      status: ShipmentStatus.PUBLISHED,
+      carrierId: null,
+      pickupDate: new Date("2026-09-23T00:00:00.000Z"),
+    });
+    const repository = repo({ findPotentiallyExpiredPublished: vi.fn().mockResolvedValue([lateDay]) });
+    const notifications = createFakeNotificationsClient();
+    const claimNotificationOnce = vi.fn().mockResolvedValue(true);
+    const service = createShipmentsService(repository, createFakeUsersClient({}), notifications, undefined, {
+      offerRepository: offerRepo(1),
+      claimNotificationOnce,
+    });
+
+    expect(await service.expireOverduePublishedShipments()).toEqual({
+      expiredCount: 0,
+      errorsCount: 0,
+      keptForOffersCount: 1,
+    });
+    await Promise.resolve();
+    expect(claimNotificationOnce).not.toHaveBeenCalled();
+    expect(notifications.sendPush).not.toHaveBeenCalled();
+  });
+
+  it("si la push falla libera la clave de dedupe para que el próximo barrido reintente", async () => {
+    const repository = repo({ findPotentiallyExpiredPublished: vi.fn().mockResolvedValue([overduePublished]) });
+    const notifications = createFakeNotificationsClient();
+    vi.mocked(notifications.sendPush).mockRejectedValueOnce(new Error("notifications caído"));
+    const claimed = new Set<string>();
+    const claimNotificationOnce = vi.fn(async (key: string) => !claimed.has(key) && !!claimed.add(key));
+    const releaseNotificationClaim = vi.fn(async (key: string) => {
+      claimed.delete(key);
+    });
+    const service = createShipmentsService(repository, createFakeUsersClient({}), notifications, undefined, {
+      offerRepository: offerRepo(1),
+      claimNotificationOnce,
+      releaseNotificationClaim,
+    });
+
+    await service.expireOverduePublishedShipments();
+    await vi.waitFor(() => expect(releaseNotificationClaim).toHaveBeenCalledWith("offers-need-review:s-1"));
+
+    await service.expireOverduePublishedShipments();
+    await vi.waitFor(() => expect(notifications.sendPush).toHaveBeenCalledTimes(2));
+  });
+
+  it("pagina con cursor: un lote lleno no deja afuera a los candidatos que vienen después", async () => {
+    const page1 = [shipment({ id: "s-1", status: ShipmentStatus.PUBLISHED }), shipment({ id: "s-2", status: ShipmentStatus.PUBLISHED })];
+    const page2 = [shipment({ id: "s-3", status: ShipmentStatus.PUBLISHED })];
+    const findPage = vi.fn().mockResolvedValueOnce(page1).mockResolvedValueOnce(page2);
+    const repository = repo({ findPotentiallyExpiredPublished: findPage });
+    const service = createShipmentsService(repository, createFakeUsersClient({}));
+
+    const result = await service.expireOverduePublishedShipments(2);
+
+    expect(findPage).toHaveBeenNthCalledWith(1, 2);
+    expect(findPage).toHaveBeenNthCalledWith(2, 2, "s-2");
+    expect(result.expiredCount).toBe(3);
   });
 
   it("cancela cuando ya no queda ninguna oferta vigente", async () => {
@@ -193,6 +258,8 @@ describe("flagAnomalousInTransitShipments (MOVO-258, D4)", () => {
     const service = createShipmentsService(repository, createFakeUsersClient({}), notifications);
 
     expect(await service.flagAnomalousInTransitShipments()).toEqual({ flaggedCount: 1, errorsCount: 0 });
+    // El prefiltro SQL necesita el plazo fijo y el instante de la corrida.
+    expect(repository.findInTransitUnflagged).toHaveBeenCalledWith(100, { now: NOW, fallbackHours: 48 });
     expect(repository.flagTransitAnomaly).toHaveBeenCalledWith("s-1", NOW);
     expect(repository.updateStatus).not.toHaveBeenCalled();
     await vi.waitFor(() =>

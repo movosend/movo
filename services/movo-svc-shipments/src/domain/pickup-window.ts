@@ -110,13 +110,11 @@ export function offerExpiresAtInstant(
 /**
  * `true` si la ventana de retiro de un envío ya cerró respecto de `now`. Usado por el
  * barrido (`shipments.service.ts#expireOverduePublishedShipments`) que cancela los
- * `published` que nadie retiró a tiempo -- `GET /shipments/available` en sí NO filtra
- * en tiempo real por esto (mismo motivo que el resto del dominio prefiere funciones
- * puras en JS a replicar esta cuenta en SQL, ver el comentario de
- * `findPotentiallyExpiredPublished` en `shipment-repository.ts`): sigue devolviendo
- * `published` con la ventana recién vencida hasta que corre el próximo barrido (a lo
- * sumo `PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES`). El mobile (MOVO-148) aplica el mismo
- * chequeo client-side sobre la lista ya paginada para no depender de esa ventana.
+ * `published` que nadie retiró a tiempo y por `createOfferForShipment`. Un `published` con
+ * ventana vencida puede seguir vivo por tener ofertas vigentes (MOVO-258, D6): eso lo salva
+ * de la cancelación, pero no lo ofrece más -- `GET /shipments/available` lo excluye en SQL
+ * (`availableShipmentsWhereSql`, misma cuenta con el huso de Argentina) y no recibe ofertas
+ * nuevas.
  */
 export function isPickupWindowExpired(pickupDate: Date, pickupTimeWindowEnd: Date, now: Date = new Date()): boolean {
   return pickupWindowEndInstant(pickupDate, pickupTimeWindowEnd) < now;

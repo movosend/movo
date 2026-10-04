@@ -148,6 +148,12 @@ model Shipment {
   pickupDate            DateTime @map("pickup_date") @db.Date
   pickupTimeWindowStart DateTime @map("pickup_time_window_start") @db.Time
   pickupTimeWindowEnd   DateTime @map("pickup_time_window_end") @db.Time
+  // MOVO-258 (D3): ventana que pidió el emisor, guardada por `acceptOffer` antes de pisar
+  // `pickupDate`/`pickupTimeWindow*` con la acordada. NULL mientras no haya una oferta
+  // aceptada; al volver a `published` (hold fallido, MOVO-210) se restaura y se limpia.
+  originalPickupDate            DateTime? @map("original_pickup_date") @db.Date
+  originalPickupTimeWindowStart DateTime? @map("original_pickup_time_window_start") @db.Time
+  originalPickupTimeWindowEnd   DateTime? @map("original_pickup_time_window_end") @db.Time
 
   // MOVO-82: nullable = "precio a estimar" (AC6), cuando movo-svc-pricing-logistics no
   // respondió o faltaban datos al crear el envío. Nunca se recalcula (AC8).
