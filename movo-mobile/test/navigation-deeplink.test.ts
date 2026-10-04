@@ -78,5 +78,13 @@ describe("navigation-deeplink (MOVO-237)", () => {
 
       await expect(openNavigation(target)).resolves.toBeNull();
     });
+
+    it("con coordenadas inválidas no abre nada y devuelve null", async () => {
+      setPlatform("ios");
+      const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(true);
+
+      await expect(openNavigation({ lat: NaN, lng: -64.187 })).resolves.toBeNull();
+      expect(openURL).not.toHaveBeenCalled();
+    });
   });
 });

@@ -432,7 +432,7 @@ export function StopList({
 
               {/* Botonera expandida para el envío seleccionado/destacado */}
               {isHighlighted && (
-                <View className="mt-3 flex-row items-center gap-2.5 border-t border-border pt-3">
+                <View className="mt-3 flex-row flex-wrap items-center gap-2.5 border-t border-border pt-3">
                   {onPressShipment && (
                     <Pressable
                       testID={`stop-shipment-link-${stop.stopOrder}`}
@@ -451,11 +451,12 @@ export function StopList({
 
                   {/* MOVO-237: deep-link a Google Maps/Waze/browser, disponible en toda parada seleccionada */}
                   <NavigateButton
+                    className="flex-1"
                     target={{ lat: stop.lat, lng: stop.lng }}
                     testID={`stop-navigate-btn-${stop.stopOrder}`}
                   />
 
-                  {/* Botón de acción (Retirar/Entregar) solo disponible para la próxima parada activa */}
+                  {/* Botón de acción (Retirar/Entregar) solo disponible para la próxima parada activa; ocupa su propia fila (w-full) para que la etiqueta no se corte en pantallas angostas */}
                   {isNext && (
                     <Pressable
                       testID={`stop-action-btn-${stop.stopOrder}`}
@@ -468,7 +469,7 @@ export function StopList({
                           onPressShipment(stop.shipmentId);
                         }
                       }}
-                      className={`flex-1 h-11 rounded-[10px] flex-row items-center justify-center gap-1.5 ${
+                      className={`w-full h-11 rounded-[10px] flex-row items-center justify-center gap-1.5 ${
                         actionDisabled ? "bg-bg-mute" : "bg-lime-500 active:bg-lime-400"
                       }`}
                       accessibilityRole="button"

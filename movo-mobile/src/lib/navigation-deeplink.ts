@@ -8,7 +8,7 @@ export interface NavigationTarget {
 type NavigationPlatform = "ios" | "android";
 
 /**
- * URLs candidatas para navegar hasta una parada (MOVO-237, ADR-032), en el orden de
+ * URLs candidatas para navegar hasta una parada (MOVO-237, ADR-033), en el orden de
  * fallback del AC2: Google Maps nativo → Waze → Google Maps web. La navegación real la
  * resuelve la app externa, así que esto nunca llama a Compute Routes ni al Navigation
  * SDK (AC3) — es la razón por la que el modo `live` del `RoutesProvider` de
@@ -37,16 +37,23 @@ export function buildNavigationCandidates(
  * nativo nuevo, mientras que `openURL` ya rechaza por sí solo cuando ninguna app
  * instalada maneja la URL — mismo orden de fallback, sin tocar config nativa.
  *
- * @returns la URL que se terminó abriendo, o `null` si ni el browser la aceptó.
+ * @returns la URL que se terminó abriendo, o `null` si las coordenadas son inválidas o ni el browser la aceptó
+ * (el llamador avisa al usuario).
  */
 export async function openNavigation(target: NavigationTarget): Promise<string | null> {
+  // Coordenadas inválidas (NaN/Infinity) armarían una URL rota que igual "abre": cortar acá.
+  if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) {
+    console.warn("[navigation] coordenadas inválidas, no se abre la navegación", target);
+    return null;
+  }
   const platform: NavigationPlatform = Platform.OS === "android" ? "android" : "ios";
   for (const url of buildNavigationCandidates(target, platform)) {
     try {
       await Linking.openURL(url);
       return url;
-    } catch {
-      // App no instalada: probar la siguiente candidata.
+    } catch (err) {
+      // Normalmente "app no instalada": probar la siguiente candidata, dejando traza del motivo.
+      console.warn("[navigation] openURL rechazó", url, err);
     }
   }
   return null;
