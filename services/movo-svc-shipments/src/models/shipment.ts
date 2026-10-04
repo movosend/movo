@@ -52,6 +52,9 @@ export interface Shipment {
   /** MOVO-253: plazo del emisor para elegir otro receptor. Solo significativo en
    * `rejected_by_receiver`; `null` en rechazos anteriores a este cambio. */
   receiverRedesignationDeadline: Date | null;
+  /** MOVO-258 (D4): cuándo el barrido marcó el envío `in_transit` para revisión por no
+   * haberse entregado a tiempo; `null` = nunca marcado. */
+  transitAnomalyFlaggedAt: Date | null;
   /** MOVO-253: motivo del último rechazo (`shipment_events.reason`), solo cuando el
    * envío está en `rejected_by_receiver` y la lectura lo cargó (`findById`/
    * `listByUser`) -- `null` en cualquier otro caso. */

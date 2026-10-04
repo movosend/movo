@@ -347,3 +347,9 @@ sin precio todo `null`. Códigos nuevos `QUOTE_EXPIRED`/`QUOTE_MISMATCH` (ADR-02
 `types/pricing.ts`: `QuoteRequest.includeBreakdown?` y `QuoteResponse.breakdown?`
 (`QuoteBreakdown`, espejo del modelo Python). `ApiErrorCode` suma `AUTH_API_KEY_INVALID`
 (gateway, prefijo `/demo`) y `PRICING_UNAVAILABLE` (503 del juego cuando pricing no cotiza).
+
+### MOVO-258 — `OfferStatus.SHIPMENT_CANCELLED`, `TRIP_NO_PACKAGES` y triggers de notificación (ADR-032)
+
+`types/offer.ts`: 7° valor de `OfferStatus` (oferta cerrada porque su envío se canceló).
+`errors/api-error.ts`: código `TRIP_NO_PACKAGES` (iniciar un viaje sin paquetes). `config/notification-templates.ts`: triggers
+`shipmentCancelledPickupMissed{Sender,Receiver,Carrier}`, `offersNeedReview` y `transitAnomalyCheck`.

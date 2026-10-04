@@ -484,6 +484,34 @@ describe("offer-repository (Postgres)", () => {
       expect(acceptEvent?.actorId).toBe(actorId);
     });
 
+    it("MOVO-258 (D3): copia al envío la fecha y franja de retiro efectivas de la oferta aceptada", async () => {
+      const shipmentId = await createPublishedShipment();
+      const before = await shipmentRepo.findById(shipmentId);
+      const laterDate = new Date(PICKUP_DATE.getTime() + 2 * 24 * 60 * 60 * 1000);
+      const offer = await repo.create(
+        baseOfferInput({
+          shipmentId,
+          offeredDate: laterDate,
+          offeredPickupTimeWindowStart: "15:00:00",
+          offeredPickupTimeWindowEnd: "19:00:00",
+        }),
+      );
+
+      await repo.acceptOffer(offer.id, null);
+
+      const after = await shipmentRepo.findById(shipmentId);
+      expect(after?.pickupDate.toISOString().slice(0, 10)).toBe(laterDate.toISOString().slice(0, 10));
+      expect(after?.pickupTimeWindowStart.toISOString().slice(11, 19)).toBe("15:00:00");
+      expect(after?.pickupTimeWindowEnd.toISOString().slice(11, 19)).toBe("19:00:00");
+      // Sin franja propuesta, la original del envío no se toca.
+      const noWindow = await createPublishedShipment();
+      const plain = await repo.create(baseOfferInput({ shipmentId: noWindow }));
+      await repo.acceptOffer(plain.id, null);
+      const plainAfter = await shipmentRepo.findById(noWindow);
+      expect(plainAfter?.pickupTimeWindowStart).toEqual(before?.pickupTimeWindowStart);
+      expect(plainAfter?.pickupTimeWindowEnd).toEqual(before?.pickupTimeWindowEnd);
+    });
+
     it("una oferta pending pero con expiresAt vencido NO se marca superseded al aceptar otra", async () => {
       const shipmentId = await createPublishedShipment();
       const offerA = await repo.create(baseOfferInput({ shipmentId }));

@@ -14,6 +14,8 @@ import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import pickupExpirySweepPlugin from "./plugins/pickup-expiry-sweep";
 import carrierPositionPurgeSweepPlugin from "./plugins/carrier-position-purge-sweep";
 import tripExpirySweepPlugin from "./plugins/trip-expiry-sweep";
+import pickupMissedSweepPlugin from "./plugins/pickup-missed-sweep";
+import transitAnomalySweepPlugin from "./plugins/transit-anomaly-sweep";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import offersRoutes, { OffersRoutesOptions } from "./modules/offers/offers.routes";
 import ratingsRoutes, { internalRatingsRoutes, RatingsRoutesOptions } from "./modules/ratings/ratings.routes";
@@ -63,6 +65,10 @@ export interface BuildAppOptions {
   /** Override para habilitar/deshabilitar el sweep de viajes declared vencidos en
    * background (MOVO-238). */
   tripExpirySweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el sweep de retiro no realizado (MOVO-258). */
+  pickupMissedSweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el sweep de `in_transit` anómalo (MOVO-258). */
+  transitAnomalySweepEnabled?: boolean;
   /** Override solo para tests de integración -- evita depender de una integración
    * real de liberación de fondos (MOVO-158, fuera de alcance de este ticket). */
   fundsReleaseNotifier?: FundsReleaseNotifier;
@@ -141,6 +147,16 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
   app.register(tripExpirySweepPlugin, {
     ...(opts.tripExpirySweepEnabled !== undefined ? { enabled: opts.tripExpirySweepEnabled } : {}),
+  });
+  app.register(pickupMissedSweepPlugin, {
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.pickupMissedSweepEnabled !== undefined ? { enabled: opts.pickupMissedSweepEnabled } : {}),
+  });
+  app.register(transitAnomalySweepPlugin, {
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.transitAnomalySweepEnabled !== undefined ? { enabled: opts.transitAnomalySweepEnabled } : {}),
   });
 
   app.get("/health", async () => ({ status: "ok" }));

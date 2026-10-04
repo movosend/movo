@@ -22,6 +22,11 @@ export type NotificationTriggerKey =
   | "shipmentCancelledConfirmationTimeout"
   | "shipmentCancelledPickupExpired"
   | "shipmentCancelledRedesignationExpired"
+  | "shipmentCancelledPickupMissedSender"
+  | "shipmentCancelledPickupMissedReceiver"
+  | "shipmentCancelledPickupMissedCarrier"
+  | "offersNeedReview"
+  | "transitAnomalyCheck"
   | "offerCreated"
   | "offerAccepted"
   | "offerSuperseded"
@@ -115,6 +120,54 @@ export const NOTIFICATION_TRIGGERS = {
     () => ({
       title: "Envío cancelado",
       body: "Tu envío se canceló: ningún transportista lo retiró dentro de la ventana publicada",
+    })
+  ),
+  // MOVO-258 (D1/D2): envío con transportista cuya ventana de retiro venció hace más de
+  // el margen de gracia. Se cancela sin culpables: el sistema no puede saber quién faltó.
+  shipmentCancelledPickupMissedSender: definition<void>(
+    "shipments",
+    { title: "Envío cancelado", body: "Tu envío se canceló: el retiro no se realizó dentro del plazo acordado." },
+    () => ({
+      title: "Envío cancelado",
+      body: "Tu envío se canceló: el retiro no se realizó dentro del plazo acordado",
+    })
+  ),
+  shipmentCancelledPickupMissedReceiver: definition<void>(
+    "shipments",
+    { title: "Envío cancelado", body: "El envío que ibas a recibir se canceló: el retiro no se realizó a tiempo." },
+    () => ({
+      title: "Envío cancelado",
+      body: "El envío que ibas a recibir se canceló: el retiro no se realizó a tiempo",
+    })
+  ),
+  shipmentCancelledPickupMissedCarrier: definition<void>(
+    "shipments",
+    { title: "Envío cancelado", body: "El envío se canceló: el retiro no se realizó dentro del plazo acordado." },
+    () => ({
+      title: "Envío cancelado",
+      body: "El envío se canceló: el retiro no se realizó dentro del plazo acordado",
+    })
+  ),
+  // MOVO-258 (D6): llegó el día de retiro de un envío publicado sin oferta aceptada, pero
+  // todavía hay ofertas vigentes.
+  offersNeedReview: definition<{ pendingCount: number }>(
+    "offers",
+    { title: "Tenés ofertas para revisar", body: "Hoy es el día de retiro de tu envío y todavía no elegiste una oferta." },
+    ({ pendingCount }) => ({
+      title: "Tenés ofertas para revisar",
+      body:
+        pendingCount === 1
+          ? "Hoy es el día de retiro de tu envío y tenés 1 oferta vigente. Revisala antes de que venza."
+          : `Hoy es el día de retiro de tu envío y tenés ${pendingCount} ofertas vigentes. Revisalas antes de que venzan.`,
+    })
+  ),
+  // MOVO-258 (D4): un `in_transit` pasó su entrega estimada + 50% de la duración.
+  transitAnomalyCheck: definition<void>(
+    "shipments",
+    { title: "¿Todo bien con tu entrega?", body: "Pasó el tiempo estimado de entrega. Si tuviste un inconveniente, avisanos." },
+    () => ({
+      title: "¿Todo bien con tu entrega?",
+      body: "Pasó el tiempo estimado de entrega. Si tuviste un inconveniente, avisanos; si ya entregaste, confirmalo en la app",
     })
   ),
   offerCreated: definition<{ carrierName: string | null; deliveryShort: string }>(

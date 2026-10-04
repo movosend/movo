@@ -4,7 +4,11 @@ import { INITIAL_OFFER_STATUS, transition } from "../domain/offer-state-machine"
 import { transition as transitionShipmentStatus } from "../domain/shipment-state-machine";
 import { haversineKm } from "../domain/geo";
 import { emitShipmentStatusChanged } from "../realtime/shipment-status-events";
-import { acceptedOfferPickupWindowStartInstant, offerExpiresAtInstant } from "../domain/pickup-window";
+import {
+  acceptedOfferPickupWindowStartInstant,
+  offerExpiresAtInstant,
+  timeStringToTimeColumn,
+} from "../domain/pickup-window";
 import {
   Offer,
   CreateOfferInput,
@@ -580,6 +584,17 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         // canónico.
         transitionShipmentStatus(ShipmentStatus.PUBLISHED, ShipmentStatus.ASSIGNMENT_PENDING);
 
+        // La lectura y el UPDATE de abajo no son atómicos entre sí, pero el UPDATE condiciona
+        // por `status = published` y un `published` no cambia su ventana (solo `acceptOffer`
+        // la pisa), así que el valor leído es el que se pisa.
+        const originalWindow = await tx.shipment.findUnique({
+          where: { id: current.shipmentId },
+          select: { pickupDate: true, pickupTimeWindowStart: true, pickupTimeWindowEnd: true },
+        });
+        if (!originalWindow) {
+          throw new ShipmentNotAvailableForAssignmentError(current.shipmentId);
+        }
+
         // AC9: bloqueo optimista real. El UPDATE condiciona por
         // status='published' y se cuenta `count`. Bajo el nivel de
         // aislamiento por defecto de Postgres (READ COMMITTED), un UPDATE
@@ -594,6 +609,12 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         const shipmentUpdate = await tx.shipment.updateMany({
           where: { id: current.shipmentId, status: ShipmentStatus.PUBLISHED },
           data: {
+            // MOVO-258 (D3): se guarda la ventana que pidió el emisor antes de pisarla con
+            // la acordada, para restaurarla si el envío vuelve a `published` (hold fallido).
+            // `updateMany` no puede referenciar otra columna, así que se lee antes.
+            originalPickupDate: originalWindow.pickupDate,
+            originalPickupTimeWindowStart: originalWindow.pickupTimeWindowStart,
+            originalPickupTimeWindowEnd: originalWindow.pickupTimeWindowEnd,
             status: ShipmentStatus.ASSIGNMENT_PENDING,
             // Consecuencia directa de "quién ganó" — la columna ya existe
             // nullable exactamente para esto (MOVO-104, preparación para
@@ -608,6 +629,18 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
             estimatedDeliveryDate: current.estimatedDeliveryDate,
             estimatedDeliveryTimeWindowStart: current.estimatedDeliveryTimeWindowStart,
             estimatedDeliveryTimeWindowEnd: current.estimatedDeliveryTimeWindowEnd,
+            // MOVO-258 (D3): el envío pasa a reflejar la ventana de retiro realmente
+            // acordada (MOVO-177: el transportista pudo proponer otro día/franja), así
+            // los barridos de expiración leen solo el envío, nunca la oferta aceptada.
+            // `offeredDate` ya es la fecha efectiva; la franja solo se pisa si la
+            // oferta propuso una distinta (si no, queda la original del envío).
+            pickupDate: current.offeredDate,
+            ...(current.offeredPickupTimeWindowStart !== null && {
+              pickupTimeWindowStart: timeStringToTimeColumn(current.offeredPickupTimeWindowStart),
+            }),
+            ...(current.offeredPickupTimeWindowEnd !== null && {
+              pickupTimeWindowEnd: timeStringToTimeColumn(current.offeredPickupTimeWindowEnd),
+            }),
             lastStatusChangedAt: new Date(),
           },
         });
@@ -678,7 +711,12 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         // arriba y este UPDATE, no debería pisarse silenciosamente con
         // "accepted" solo porque esta transacción ya reservó el envío.
         const offerUpdate = await tx.offer.updateMany({
-          where: { id, status: current.status },
+          // `tripId` también entra al compare-and-swap: un `start()` concurrente del viaje
+          // (que desasocia las `pending`, MOVO-258 D5) entre el `findUnique` y acá dejaría
+          // una oferta `accepted` sin viaje -- el paquete huérfano. Con esto el UPDATE no
+          // matchea y responde 409 (modificación concurrente); el reintento ya ve `tripId`
+          // en null y auto-crea un viaje.
+          where: { id, status: current.status, tripId: current.tripId },
           data: {
             status: OfferStatus.ACCEPTED,
             respondedAt: now,
