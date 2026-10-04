@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
-  ArrowUpRight,
-  ChevronRight,
+  Package,
 } from "lucide-react-native";
 import {
   GestureResponderHandlers,
@@ -231,11 +230,9 @@ export function StopList({
           // Entrega: Círculo (radius 999)
           // Demora (isLate): Fondo #E5484D (rojo alerta)
           let chipBg = "#0A0A0B";
-          let chipBorderColor = "#FFFFFF";
           let chipTextColor = "#FFFFFF";
           if (isLate) {
             chipBg = "#E5484D";
-            chipBorderColor = "#FFFFFF";
             chipTextColor = "#FFFFFF";
           }
 
@@ -252,21 +249,9 @@ export function StopList({
               testID={`stop-row-${stop.stopOrder}`}
               accessibilityState={{ selected: isHighlighted }}
               onPress={() => handlePressStop(stop)}
-              className="rounded-[12px] border p-3.5"
-              style={{
-                backgroundColor: isHighlighted ? colors.bg : colors.bgSub,
-                borderColor: isHighlighted ? colors.fg1 : colors.border,
-                borderWidth: isHighlighted ? 1.5 : 1,
-                ...(isHighlighted
-                  ? {
-                    shadowColor: "#000",
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: isDark ? 0.3 : 0.08,
-                    shadowRadius: 10,
-                    elevation: 3,
-                  }
-                  : {}),
-              }}
+              className={`rounded-[16px] border border-border p-4 ${
+                isHighlighted ? "bg-bg shadow-sm" : "bg-bg-sub"
+              }`}
             >
               <View className="flex-row items-start gap-3">
                 {/* Chip numérico: cuadrado redondeado para retiro, círculo para entrega */}
@@ -290,8 +275,7 @@ export function StopList({
                 <View className="flex-1 min-w-0">
                   <View className="flex-row items-center gap-2">
                     <Text
-                      className={`font-sans-bold text-[10px] tracking-wider uppercase ${isPickup ? "text-fg" : "text-fg-2"
-                        }`}
+                      className="font-sans-semibold text-caption uppercase text-fg-3"
                     >
                       {isPickup ? "Retiro" : "Entrega"}
                     </Text>
@@ -302,19 +286,19 @@ export function StopList({
                         testID={`stop-late-badge-${stop.stopOrder}`}
                         className="rounded-full bg-danger-100 px-2 py-0.5 border border-danger-300"
                       >
-                        <Text className="font-sans-semibold text-[9px] tracking-wider uppercase text-danger-700">
+                        <Text className="font-sans-semibold text-caption uppercase text-danger-700">
                           Fuera de ventana
                         </Text>
                       </View>
                     ) : isNext ? (
                       <View className="rounded-full bg-fg px-2 py-0.5">
-                        <Text className="font-sans-semibold text-[9px] tracking-wider uppercase text-bg">
+                        <Text className="font-sans-semibold text-caption uppercase text-bg">
                           Próxima
                         </Text>
                       </View>
                     ) : (
                       <View className="rounded-full bg-bg-mute px-2 py-0.5">
-                        <Text className="font-sans-semibold text-[9px] tracking-wider uppercase text-fg-3">
+                        <Text className="font-sans-semibold text-caption uppercase text-fg-3">
                           Pendiente
                         </Text>
                       </View>
@@ -324,7 +308,7 @@ export function StopList({
                   {/* Dirección */}
                   <Text
                     numberOfLines={1}
-                    className="mt-1 font-sans-medium text-[13.5px] text-fg"
+                    className="mt-1 font-sans-semibold text-body text-fg"
                   >
                     {stop.address ?? "Dirección a coordinar"}
                   </Text>
@@ -332,7 +316,7 @@ export function StopList({
                   {/* Subtítulo / Detalle del envío */}
                   <Text
                     numberOfLines={1}
-                    className="mt-0.5 font-sans text-[11.5px] text-fg-3"
+                    className="mt-0.5 font-sans text-small text-fg-3"
                   >
                     {detailText}
                   </Text>
@@ -342,46 +326,48 @@ export function StopList({
                 <View className="flex-none items-end gap-0.5">
                   <Text
                     testID={`stop-eta-${stop.stopOrder}`}
-                    className={`font-mono text-[12px] ${isLate ? "text-danger-700 font-sans-bold" : "text-fg font-sans-semibold"
+                    className={`font-mono text-mono ${isLate ? "text-danger-700 font-sans-bold" : "text-fg font-sans-semibold"
                       }`}
                   >
                     {etaText}
                   </Text>
                   {windowText && (
-                    <Text className="font-sans text-[10.5px] text-fg-3">
+                    <Text className="font-sans text-[11px] text-fg-3">
                       {windowText}
                     </Text>
                   )}
                 </View>
               </View>
 
-              {/* Botonera expandida para el envío seleccionado/destacado */}
+              {/* Botonera del envío seleccionado: acciones secundarias en fila, CTA principal debajo */}
               {isHighlighted && (
-                <View className="mt-3 flex-row flex-wrap items-center gap-2.5 border-t border-border pt-3">
-                  {onPressShipment && (
-                    <Pressable
-                      testID={`stop-shipment-link-${stop.stopOrder}`}
-                      onPress={(e) => {
-                        e.stopPropagation?.();
-                        onPressShipment(stop.shipmentId);
-                      }}
-                      className="h-11 flex-1 rounded-[10px] border border-border bg-bg active:bg-bg-mute flex-row items-center justify-center gap-1.5"
-                      accessibilityRole="button"
-                      accessibilityLabel={`Ver detalle del envío ${stop.shipmentId}`}
-                    >
-                      <Text className="font-sans-medium text-[13.5px] text-fg">Ver envío</Text>
-                      <ArrowUpRight size={15} color={colors.fg2} />
-                    </Pressable>
-                  )}
+                <View className="mt-3.5 gap-2.5 border-t border-border pt-3.5">
+                  <View className="flex-row items-center gap-2.5">
+                    {onPressShipment && (
+                      <Pressable
+                        testID={`stop-shipment-link-${stop.stopOrder}`}
+                        onPress={(e) => {
+                          e.stopPropagation?.();
+                          onPressShipment(stop.shipmentId);
+                        }}
+                        className="h-11 flex-1 flex-row items-center justify-center gap-1.5 rounded-[10px] border border-border bg-bg active:bg-bg-mute"
+                        accessibilityRole="button"
+                        accessibilityLabel={`Ver detalle del envío ${stop.shipmentId}`}
+                      >
+                        <Package size={16} color={colors.fg2} />
+                        <Text className="font-sans-medium text-[14px] text-fg">Ver envío</Text>
+                      </Pressable>
+                    )}
 
-                  {/* MOVO-237: deep-link a Google Maps/Waze/browser, disponible en toda parada seleccionada */}
-                  <NavigateButton
-                    className="flex-1"
-                    target={{ lat: stop.lat, lng: stop.lng }}
-                    testID={`stop-navigate-btn-${stop.stopOrder}`}
-                  />
+                    {/* MOVO-237: deep-link a Google Maps/Waze/browser, disponible en toda parada seleccionada */}
+                    <NavigateButton
+                      className="flex-1"
+                      target={{ lat: stop.lat, lng: stop.lng }}
+                      testID={`stop-navigate-btn-${stop.stopOrder}`}
+                    />
+                  </View>
 
-                  {/* Botón de acción (Retirar/Entregar) solo disponible para la próxima parada activa; ocupa su propia fila (w-full) para que la etiqueta no se corte en pantallas angostas */}
+                  {/* Acción principal (Retirar/Entregar): solo para la próxima parada activa */}
                   {isNext && (
                     <Pressable
                       testID={`stop-action-btn-${stop.stopOrder}`}
@@ -394,7 +380,7 @@ export function StopList({
                           onPressShipment(stop.shipmentId);
                         }
                       }}
-                      className={`w-full h-11 rounded-[10px] flex-row items-center justify-center gap-1.5 ${
+                      className={`h-11 w-full items-center justify-center rounded-[10px] ${
                         actionDisabled ? "bg-bg-mute" : "bg-lime-500 active:bg-lime-400"
                       }`}
                       accessibilityRole="button"
@@ -402,7 +388,7 @@ export function StopList({
                       accessibilityLabel={isPickup ? "Retirar paquete" : "Entregar paquete"}
                     >
                       <Text
-                        className={`font-sans-semibold text-[13.5px] ${actionDisabled ? "text-fg-3" : "text-ink-950"}`}
+                        className={`font-sans-semibold text-[14px] ${actionDisabled ? "text-fg-3" : "text-ink-950"}`}
                       >
                         {actionDisabled
                           ? isPickup
@@ -412,7 +398,6 @@ export function StopList({
                             ? "Retirar paquete"
                             : "Entregar paquete"}
                       </Text>
-                      {!actionDisabled && <ChevronRight size={15} color="#0A0A0B" />}
                     </Pressable>
                   )}
                 </View>

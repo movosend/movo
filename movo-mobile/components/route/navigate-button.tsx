@@ -30,12 +30,12 @@ export function NavigateButton({ target, testID = "navigate-btn", className = ""
           }
         });
       }}
-      className={`h-11 flex-row items-center justify-center gap-1.5 rounded-[10px] border border-border bg-bg px-3 active:bg-bg-mute ${className}`}
+      className={`h-11 flex-row items-center justify-center gap-1.5 rounded-[10px] border border-border bg-bg active:bg-bg-mute ${className}`}
       accessibilityRole="button"
       accessibilityLabel="Navegar hasta esta parada"
     >
-      <Navigation size={15} color={colors.fg2} />
-      <Text className="font-sans-medium text-[13.5px] text-fg">Navegar</Text>
+      <Navigation size={16} color={colors.fg2} />
+      <Text className="font-sans-medium text-[14px] text-fg">Navegar</Text>
     </Pressable>
   );
 }

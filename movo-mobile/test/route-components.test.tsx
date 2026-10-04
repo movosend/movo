@@ -295,11 +295,8 @@ describe("Componentes de Ruta (MOVO-207)", () => {
 
       const stopRow1 = getByTestId("stop-row-1");
       expect(stopRow1).toBeTruthy();
-      expect(stopRow1.props.style).toEqual(
-        expect.objectContaining({
-          borderWidth: 1.5,
-        })
-      );
+      // La parada activa queda marcada como seleccionada (el énfasis visual es de clases, no de estilo inline)
+      expect(stopRow1.props.accessibilityState).toEqual(expect.objectContaining({ selected: true }));
     });
 
     it("renderiza chips coherentes con los nodos del mapa (retiro cuadrado, entrega círculo, fondo negro sin borde incompleto)", async () => {
