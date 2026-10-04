@@ -1,6 +1,6 @@
 # Navegación turn-by-turn del transportista
 
-Implementación de [MOVO-237](https://linear.app/movosend/issue/MOVO-237) (ver **ADR-032**,
+Implementación de [MOVO-237](https://linear.app/movosend/issue/MOVO-237) (ver **ADR-033**,
 `CLAUDE.md` raíz). Cierra el "fuera de alcance" que dejó MOVO-207 (mapa de ruta
 optimizada): la navegación paso a paso hasta cada parada.
 

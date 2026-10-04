@@ -8,7 +8,7 @@ export interface RouteLatLng {
 }
 
 /**
- * Modo de consumo de Compute Routes (MOVO-237, ADR-032):
+ * Modo de consumo de Compute Routes (MOVO-237, ADR-033):
  *
  * - `per_trip`: una llamada estática por par origen→destino (o por recálculo de
  *   paradas) para dibujar el polyline en el mapa propio de Movo — tier Basic, 1-3

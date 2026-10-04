@@ -14,6 +14,7 @@ import { createShipmentRepository, ShipmentRepository } from "../src/repositorie
 import { createOfferRepository, OfferRepository } from "../src/repositories/offer-repository";
 import { PackageType, PhotoStage } from "../src/models/shipment";
 import { CreateTripInput } from "../src/models/trip";
+import { attachAcceptedPackage } from "./trip-package-fixture";
 
 const PICKUP_DATE = new Date("2026-08-20T00:00:00.000Z");
 const HOUR_MS = 60 * 60 * 1000;
@@ -125,6 +126,8 @@ describe("trip-repository (Postgres) — cancelación lógica y scope (MOVO-260)
 
     it("lanza TripNotDeclaredError con un mensaje de cancelación (no de inicio) si el viaje está active", async () => {
       const trip = await tripRepo.create(baseTripInput());
+      // MOVO-258: iniciar un viaje exige al menos un paquete aceptado.
+      await attachAcceptedPackage(app.db, trip);
       await tripRepo.start(trip.id);
 
       const err = await tripRepo.cancel(trip.id).catch((e: unknown) => e);
@@ -192,6 +195,8 @@ describe("trip-repository (Postgres) — cancelación lógica y scope (MOVO-260)
       const declaredLater = await tripRepo.create(baseTripInput({ carrierId, departureAt: at(48) }));
       const declaredSooner = await tripRepo.create(baseTripInput({ carrierId, departureAt: at(24) }));
       const active = await tripRepo.create(baseTripInput({ carrierId, departureAt: at(36) }));
+      // MOVO-258: iniciar un viaje exige al menos un paquete aceptado.
+      await attachAcceptedPackage(app.db, active);
       await tripRepo.start(active.id);
       const cancelled = await tripRepo.create(baseTripInput({ carrierId, departureAt: at(-24) }));
       await tripRepo.cancel(cancelled.id);

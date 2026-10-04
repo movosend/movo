@@ -26,8 +26,10 @@ stateDiagram-v2
     pending --> rejected: emisor rechaza
     pending --> withdrawn: transportista retira
     pending --> superseded: emisor aceptó otra oferta del mismo envío (batch, AC8)
+    pending --> shipment_cancelled: el envío se canceló con la oferta vigente (MOVO-258)
+    accepted --> shipment_cancelled: el envío se canceló después de aceptarla (MOVO-258)
 
-    accepted --> [*]
+    shipment_cancelled --> [*]
     rejected --> [*]
     withdrawn --> [*]
     superseded --> [*]
@@ -40,6 +42,13 @@ stateDiagram-v2
         UPDATE a 'expired'.
     end note
 ```
+
+## `shipment_cancelled` (MOVO-258)
+
+Séptimo estado: se escribe en lote, en la misma transacción que pasa el envío a `cancelled`
+(`shipment-repository.ts#updateStatus`), para las ofertas `accepted` y las `pending` todavía
+vigentes. Una `pending` vencida por fecha sigue siendo `expired`, y las ya `rejected`/`withdrawn`/
+`superseded` no se reetiquetan. Terminal.
 
 ## Transiciones inválidas (rechazadas explícitamente, ejemplos)
 

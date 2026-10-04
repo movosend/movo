@@ -12,7 +12,7 @@ import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
 import { formatTripStartErrorMessage } from "../../../../src/lib/trip-format";
 import { diffAndMarkSeenTrips } from "../../../../src/lib/seen-trips";
-import type { TripWithAcceptedPackages } from "../../../../src/api/trips-client";
+import { TripStatus, type TripWithAcceptedPackages } from "../../../../src/api/trips-client";
 
 const DELETE_ERROR_FALLBACK = "No pudimos cancelar el viaje. Probá de nuevo.";
 
@@ -192,8 +192,14 @@ export default function MyTripsScreen() {
               // MOVO-163: tocar la card abre el feed filtrado por este viaje. Objeto
               // `{ pathname, params }` (no un string armado a mano) — mismo patrón ya
               // usado por `transport/[id].tsx` para navegar a esta ruta con params.
+              // MOVO-258: un viaje iniciado tiene sus paquetes fijos y el backend ya no le
+              // devuelve matches (409 `TRIP_NOT_AVAILABLE`), así que ahí la card abre el mapa.
+              // `as any`: "/route" no figura en los tipos de rutas de expo-router (mismo caso que
+              // `trip-card.tsx`).
               onPress={() =>
-                router.push({ pathname: "/(app)/(tabs)/transport", params: { tripId: trip.id } })
+                trip.status === TripStatus.ACTIVE
+                  ? router.push({ pathname: "/route", params: { tripId: trip.id } } as any)
+                  : router.push({ pathname: "/(app)/(tabs)/transport", params: { tripId: trip.id } })
               }
             />
           ))}

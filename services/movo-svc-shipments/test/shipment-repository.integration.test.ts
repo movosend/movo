@@ -414,9 +414,12 @@ describe("shipment-repository (Postgres)", () => {
     const destinationLat = -31.4135;
     const destinationLng = -64.1811;
     const KM_PER_DEGREE_LAT = 111.32;
+    const FUTURE_PICKUP_DATE = new Date("2030-01-01T00:00:00.000Z");
 
     async function createPublished(overrides: Partial<CreateShipmentInput> = {}) {
-      const shipment = await repo.create({ ...baseInput, ...overrides });
+      // MOVO-258: `listAvailable` excluye los `published` con la ventana de retiro vencida, así
+      // que los fixtures usan una fecha futura (el `baseInput` de arriba ya quedó en el pasado).
+      const shipment = await repo.create({ ...baseInput, pickupDate: FUTURE_PICKUP_DATE, ...overrides });
       await addTwoCreationPhotos(shipment.id);
       return repo.updateStatus(shipment.id, ShipmentStatus.PUBLISHED, shipment.senderId);
     }
@@ -812,14 +815,14 @@ describe("shipment-repository (Postgres)", () => {
         pickupLng: originLng,
         deliveryLat: destinationLat,
         deliveryLng: destinationLng,
-        pickupDate: new Date("2026-09-08T00:00:00.000Z"),
+        pickupDate: new Date("2030-09-08T00:00:00.000Z"),
       });
       const otherDay = await createPublished({
         pickupLat: originLat,
         pickupLng: originLng,
         deliveryLat: destinationLat,
         deliveryLng: destinationLng,
-        pickupDate: new Date("2026-09-27T00:00:00.000Z"),
+        pickupDate: new Date("2030-09-27T00:00:00.000Z"),
       });
 
       const { items, total } = await repo.listAvailable({
@@ -828,7 +831,7 @@ describe("shipment-repository (Postgres)", () => {
         destinationLat,
         destinationLng,
         radiusKm: 5,
-        pickupDate: new Date("2026-09-08T00:00:00.000Z"),
+        pickupDate: new Date("2030-09-08T00:00:00.000Z"),
         excludeUserId: randomUUID(),
         page: 1,
         limit: 20,
@@ -845,14 +848,14 @@ describe("shipment-repository (Postgres)", () => {
         pickupLng: originLng,
         deliveryLat: destinationLat,
         deliveryLng: destinationLng,
-        pickupDate: new Date("2026-09-08T00:00:00.000Z"),
+        pickupDate: new Date("2030-09-08T00:00:00.000Z"),
       });
       const day2 = await createPublished({
         pickupLat: originLat,
         pickupLng: originLng,
         deliveryLat: destinationLat,
         deliveryLng: destinationLng,
-        pickupDate: new Date("2026-09-27T00:00:00.000Z"),
+        pickupDate: new Date("2030-09-27T00:00:00.000Z"),
       });
 
       const { items } = await repo.listAvailable({
@@ -868,6 +871,34 @@ describe("shipment-repository (Postgres)", () => {
 
       expect(items.map((i) => i.id).sort()).toEqual([day1.id, day2.id].sort());
     });
+    it("excluye un published con la ventana de retiro vencida (MOVO-258, D6: sigue vivo por ofertas, pero no se ofrece)", async () => {
+      await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+        pickupDate: new Date("2026-08-20T00:00:00.000Z"),
+      });
+      const vigente = await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+
+      const { items, total } = await repo.listAvailable({
+        originLat,
+        originLng,
+        radiusKm: 5,
+        excludeUserId: randomUUID(),
+        page: 1,
+        limit: 20,
+      });
+
+      expect(items.map((i) => i.id)).toEqual([vigente.id]);
+      expect(total).toBe(1);
+    });
+
   });
 
   describe("findTrackingContext (MOVO-251)", () => {

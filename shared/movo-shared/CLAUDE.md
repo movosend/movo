@@ -351,4 +351,10 @@ sin precio todo `null`. Códigos nuevos `QUOTE_EXPIRED`/`QUOTE_MISMATCH` (ADR-02
 ### MOVO-237 — código `ROUTE_MODE_NOT_IMPLEMENTED`
 
 `ApiErrorCode` suma `ROUTE_MODE_NOT_IMPLEMENTED` (501), que responde `RoutesProvider` de
-`svc-shipments` si se pide el modo `live`, reservado y sin implementar (ADR-032).
+`svc-shipments` si se pide el modo `live`, reservado y sin implementar (ADR-033).
+
+### MOVO-258 — `OfferStatus.SHIPMENT_CANCELLED`, `TRIP_NO_PACKAGES` y triggers de notificación (ADR-032)
+
+`types/offer.ts`: 7° valor de `OfferStatus` (oferta cerrada porque su envío se canceló).
+`errors/api-error.ts`: código `TRIP_NO_PACKAGES` (iniciar un viaje sin paquetes). `config/notification-templates.ts`: triggers
+`shipmentCancelledPickupMissed{Sender,Receiver,Carrier}`, `offersNeedReview` y `transitAnomalyCheck`.

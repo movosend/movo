@@ -66,6 +66,7 @@ function fakeShipment(overrides: Partial<Shipment> = {}): Shipment {
     lastStatusChangedAt: null,
     deliveredAt: null,
     receiverConfirmationDeadline: null,
+    transitAnomalyFlaggedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -99,6 +100,9 @@ function fakeRepository(overrides: Partial<ShipmentRepository> = {}): ShipmentRe
     countPublishedNearPickup: vi.fn().mockResolvedValue(0),
     findExpiredAwaitingConfirmation: vi.fn().mockResolvedValue([]),
     findPotentiallyExpiredPublished: vi.fn().mockResolvedValue([]),
+    findPotentiallyPickupMissed: vi.fn().mockResolvedValue([]),
+    findInTransitUnflagged: vi.fn().mockResolvedValue([]),
+    flagTransitAnomaly: vi.fn().mockResolvedValue(true),
     hasActiveShipmentsForUser: vi.fn().mockResolvedValue({ hasActiveDispute: false, hasActiveShipments: false }),
     countCompletedTransactions: vi.fn().mockResolvedValue({ asSender: 0, asCarrier: 0 }),
     countDeliveredAsCarrierByIds: vi.fn().mockResolvedValue(new Map()),
@@ -887,7 +891,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       });
       const trip = fakeTrip({ id: "trip-1", carrierId: "carrier-1" });
       const tripRepository = createFakeTripRepository({
-        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([trip]),
+        findDeclaredTripsMatchingShipment: vi.fn().mockResolvedValue([trip]),
       });
       const pricingLogisticsClient = createFakePricingLogisticsClient();
       const notificationsClient = createFakeNotificationsClient();
@@ -901,7 +905,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
 
       // Fire-and-forget: desde MOVO-175 resuelve los bloqueos antes de buscar viajes.
       await vi.waitFor(() => {
-        expect(tripRepository.findActiveTripsMatchingShipment).toHaveBeenCalledWith({
+        expect(tripRepository.findDeclaredTripsMatchingShipment).toHaveBeenCalledWith({
           pickupLat: shipment.pickupLat,
           pickupLng: shipment.pickupLng,
           deliveryLat: shipment.deliveryLat,
@@ -936,7 +940,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       });
       const trip = fakeTrip({ id: "trip-1", carrierId: "carrier-1" });
       const tripRepository = createFakeTripRepository({
-        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([trip]),
+        findDeclaredTripsMatchingShipment: vi.fn().mockResolvedValue([trip]),
       });
       const pricingLogisticsClient = createFakePricingLogisticsClient({
         evaluateCandidates: vi.fn().mockResolvedValue({
@@ -970,7 +974,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       });
       const trip = fakeTrip({ id: "trip-1", carrierId: "carrier-1" });
       const tripRepository = createFakeTripRepository({
-        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([trip]),
+        findDeclaredTripsMatchingShipment: vi.fn().mockResolvedValue([trip]),
       });
       const pricingLogisticsClient = createFakePricingLogisticsClient({
         evaluateCandidates: vi.fn().mockRejectedValue(new Error("Routing service down")),
@@ -1009,7 +1013,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
         departureAt: new Date("2030-01-02T08:00:00.000Z"),
       });
       const tripRepository = createFakeTripRepository({
-        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([laterTrip, earlierTrip]),
+        findDeclaredTripsMatchingShipment: vi.fn().mockResolvedValue([laterTrip, earlierTrip]),
       });
       const pricingLogisticsClient = createFakePricingLogisticsClient();
       const notificationsClient = createFakeNotificationsClient();
@@ -1045,7 +1049,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
         updateStatus: vi.fn().mockResolvedValue(updatedShipment),
       });
       const tripRepository = createFakeTripRepository({
-        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([fakeTrip({ carrierId: "carrier-1" })]),
+        findDeclaredTripsMatchingShipment: vi.fn().mockResolvedValue([fakeTrip({ carrierId: "carrier-1" })]),
       });
       const pricingLogisticsClient = createFakePricingLogisticsClient();
       const notificationsClient = createFakeNotificationsClient({
@@ -1083,7 +1087,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       await service.acceptShipment(shipment.id, "receiver-id");
 
       await vi.waitFor(() => {
-        expect(tripRepository.findActiveTripsMatchingShipment).toHaveBeenCalledWith(
+        expect(tripRepository.findDeclaredTripsMatchingShipment).toHaveBeenCalledWith(
           expect.objectContaining({
             excludeCarrierIds: ["sender-id", "receiver-id", "carrier-blocked-by-sender", "carrier-who-blocked-receiver"],
           })
@@ -1110,7 +1114,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       await service.acceptShipment(shipment.id, "receiver-id");
 
       await vi.waitFor(() => {
-        expect(tripRepository.findActiveTripsMatchingShipment).toHaveBeenCalled();
+        expect(tripRepository.findDeclaredTripsMatchingShipment).toHaveBeenCalled();
       });
       expect(pricingLogisticsClient.evaluateCandidates).not.toHaveBeenCalled();
       const tripMatchCalls = (notificationsClient.sendPush as ReturnType<typeof vi.fn>).mock.calls.filter(
@@ -1137,7 +1141,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
 
       await service.acceptShipment(shipment.id, "receiver-id");
 
-      expect(tripRepository.findActiveTripsMatchingShipment).not.toHaveBeenCalled();
+      expect(tripRepository.findDeclaredTripsMatchingShipment).not.toHaveBeenCalled();
     });
 
     it("sin pricingLogisticsClient inyectado, no dispara ninguna push de este tipo (dependencia requerida)", async () => {
@@ -1148,7 +1152,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
         updateStatus: vi.fn().mockResolvedValue(updatedShipment),
       });
       const tripRepository = createFakeTripRepository({
-        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([fakeTrip({ carrierId: "carrier-1" })]),
+        findDeclaredTripsMatchingShipment: vi.fn().mockResolvedValue([fakeTrip({ carrierId: "carrier-1" })]),
       });
       const notificationsClient = createFakeNotificationsClient();
       const service = createShipmentsService(repository, createFakeUsersClient({}), notificationsClient, undefined, {
@@ -1164,7 +1168,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       expect(tripMatchCalls).toHaveLength(0);
     });
 
-    it("un fallo de tripRepository.findActiveTripsMatchingShipment no revienta el proceso (fix de review, Lucas — PR #172)", async () => {
+    it("un fallo de tripRepository.findDeclaredTripsMatchingShipment no revienta el proceso (fix de review, Lucas — PR #172)", async () => {
       const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
       const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.PUBLISHED });
       const repository = fakeRepository({
@@ -1172,7 +1176,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
         updateStatus: vi.fn().mockResolvedValue(updatedShipment),
       });
       const tripRepository = createFakeTripRepository({
-        findActiveTripsMatchingShipment: vi.fn().mockRejectedValue(new Error("Connection timeout")),
+        findDeclaredTripsMatchingShipment: vi.fn().mockRejectedValue(new Error("Connection timeout")),
       });
       const pricingLogisticsClient = createFakePricingLogisticsClient();
       const notificationsClient = createFakeNotificationsClient();

@@ -56,6 +56,19 @@ describe("trip-expiry-sweep plugin", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("un paso que falla no frena a los demás (cada paso tiene su propio try/catch)", async () => {
+    const { app, findMany } = buildTestApp("OK");
+    // El primer paso (cancelOverdueDeclared) tira; los otros dos igual tienen que correr.
+    findMany.mockRejectedValueOnce(new Error("fila mala")).mockResolvedValue([]);
+
+    await app.register(tripExpirySweepPlugin, { enabled: true });
+    await app.ready();
+    await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+
+    expect(findMany).toHaveBeenCalledTimes(3);
+    await app.close();
+  });
+
   it("omite el sweep si otra réplica tiene el lock", async () => {
     const { app, findMany, redisSet } = buildTestApp(null);
 
