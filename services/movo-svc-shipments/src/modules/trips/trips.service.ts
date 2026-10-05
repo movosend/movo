@@ -6,6 +6,7 @@ import {
   TripHasAcceptedPackagesError,
   TripNotDeclaredError,
   TripAlreadyHasActiveTripError,
+  TripHasNoPackagesError,
 } from "../../repositories/trip-repository";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
@@ -477,6 +478,9 @@ export function createTripsService(deps: {
         if (err instanceof TripAlreadyHasActiveTripError) {
           throw new ApiError(409, "TRIP_ALREADY_HAS_ACTIVE_TRIP", err.message);
         }
+        if (err instanceof TripHasNoPackagesError) {
+          throw new ApiError(409, "TRIP_NO_PACKAGES", err.message);
+        }
         throw err;
       }
 
@@ -509,7 +513,8 @@ export function createTripsService(deps: {
       // matches. Vigente mientras el viaje sigue "vivo" (declared o active, todavía
       // sin arrancar o ya en curso) -- mismo criterio que el chequeo ampliado de
       // `createOfferForShipment` (`shipments.service.ts`).
-      if (trip.status !== TripStatus.DECLARED && trip.status !== TripStatus.ACTIVE) {
+      // MOVO-258 (D5): un viaje iniciado tiene sus paquetes fijos, ya no busca más.
+      if (trip.status !== TripStatus.DECLARED) {
         throw new ApiError(
           409,
           "TRIP_NOT_AVAILABLE",

@@ -45,6 +45,8 @@ export type ApiErrorCode =
   | "SHIPMENT_RECEIVER_ALREADY_REJECTED"
   | "ROUTES_PROVIDER_ERROR"
   | "ROUTE_NOT_FOUND"
+  // MOVO-237: modo `live` del RoutesProvider, placeholder intencional (ADR-033).
+  | "ROUTE_MODE_NOT_IMPLEMENTED"
   | "PROFILE_NAME_LOCKED_BY_KYC"
   | "PHONE_ALREADY_IN_USE"
   | "EMAIL_ALREADY_IN_USE"
@@ -91,6 +93,9 @@ export type ApiErrorCode =
   | "TRIP_NOT_DECLARED"
   | "TRIP_ALREADY_HAS_ACTIVE_TRIP"
   | "TRIP_NOT_AVAILABLE"
+  // MOVO-258 (D5): `POST /trips/:id/start` sobre un viaje sin ningún paquete aceptado --
+  // los paquetes quedan fijos al iniciar, así que no se puede arrancar uno vacío.
+  | "TRIP_NO_PACKAGES"
   // MOVO-228: la app mandó una versión de Términos/Privacidad distinta a la vigente
   // (`LEGAL_DOCUMENT_VERSIONS`, config/legal.ts) -- app desactualizada, el usuario
   // tiene que revisar y aceptar el contenido actual antes de poder registrarse.
@@ -127,7 +132,12 @@ export type ApiErrorCode =
   // de otro usuario -- el cliente vuelve a cotizar y pide confirmación de nuevo.
   | "QUOTE_EXPIRED"
   // MOVO-255: los datos que afectan el precio cambiaron después de cotizar.
-  | "QUOTE_MISMATCH";
+  | "QUOTE_MISMATCH"
+  // Juego de precios de la feria (módulo demo de svc-shipments + API key en el gateway)
+  | "AUTH_API_KEY_INVALID"
+  | "PRICING_UNAVAILABLE"
+  // Juego del optimizador: partida vencida en Redis y sin los números offline del iPad.
+  | "ROUTE_GAME_NOT_FOUND";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

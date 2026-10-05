@@ -3635,10 +3635,13 @@ en settings" (`Notificaciones.dc.html`).
   12 filas ficticias que no coinciden con el catálogo real de MOVO-245
   (`NOTIFICATION_CATEGORIES`/`NOTIFICATION_TRIGGERS` de `@movo/shared`, subpaths
   `dist/config/notification-categories`/`dist/config/notification-templates`, nunca
-  el barrel). Catálogo real: implementadas → `custody`/`offers`/`ratings`/`shipments`
-  (sección "sending") y `trips` (sección "carrying"); "Pronto" → `proximity`/
-  `payments` (sending), `kyc`/`account_security` (account), `chat`/`disputes`
-  (conversations). Sin canal "app" (in-app, no existe todavía) y sin el punto "live"/
+  el barrel). Catálogo real al momento de MOVO-246: implementadas →
+  `custody`/`offers`/`ratings`/`shipments` (sección "sending") y `trips` (sección
+  "carrying"); "Pronto" → `proximity`/`payments` (sending), `kyc`/`account_security`
+  (account), `chat`/`disputes` (conversations). MOVO-274 pasó después `kyc` y
+  `account_security` a implementadas (ver `shared/movo-shared/CLAUDE.md`): hoy los
+  "Pronto" son `proximity`/`payments`/`chat`/`disputes`, y los tests que necesitan un
+  ejemplo de "Pronto" usan `chat`. Sin canal "app" (in-app, no existe todavía) y sin el punto "live"/
   banners `critical`/`warnText` por fila del prototipo — ese campo no existe en
   `NotificationCategoryDefinition`, era solo del JS de Claude Design.
 - **Toggle maestro (AC1) es una fila agregada sobre el prototipo**, que no lo tenía
@@ -4016,6 +4019,20 @@ entrar (reusa la cotización guardada si sigue vigente) y manda el `quoteId` al 
 Pendiente: el badge "Alta demanda en tu zona" (`highDemand` ya queda en el store) entra
 con MOVO-254. No probado en device.
 
+### MOVO-184 — Actividad reciente del home: prioridad por acción y expiración de terminales
+
+Rediseño del widget "Actividad reciente" (`RecentShipmentsSection`) de Inicio para que los envíos más relevantes no queden ocultos detrás de cancelados o completados recientes. AC1 y AC2 resueltos 100% client-side sobre una ventana más amplia.
+
+- **Tres consultas por grupo de estado** (review de la PR): `useRecentShipments` pide en curso, `delivered`/`completed` y `cancelled` por separado (20 c/u) y une el resultado. Una sola ventana de los 20 más nuevos dejaba afuera un envío en curso viejo o vaciaba el widget si los 20 eran cancelados vencidos.
+- **`selectRecentShipments` puro y testeado** (`src/lib/recent-shipments-selection.ts`):
+  - **Nivel 1 (Acción)**: Usa el mismo helper `presentMyShipment.strip` de MOVO-257, solo si es de `kind: "action"` (el aviso `warning` de "se cancela solo" no sube de nivel). Receptores pendientes de confirmar, emisores con ofertas, plazos por vencer o receptores a re-designar quedan siempre arriba.
+  - **Nivel 2 (Ongoing)**: El resto de los envíos en curso.
+  - **Nivel 3 (Historial)**: Envíos terminales.
+  - Dentro de cada nivel se desempatan por `createdAt desc`.
+- **Expiración a las 48h**: `cancelled` y `rejected_by_receiver` (vistos por el receptor) desaparecen del widget pasadas 48 horas desde `lastStatusChangedAt`. `delivered` y `completed` no expiran nunca (sirven de fallback).
+- **Contador "N activos" no sufre regresiones (AC3)**: Sigue computando los envíos `"ongoing"` visibles en el widget (hasta 3), alineado con la expectativa visual de la lista mostrada debajo.
+- **Aviso de ofertas recibidas (AC5)**: va en "Requiere tu atención" (`use-attention-tasks.ts`), no en la fila del widget — es una tarea `info` con `icon: "offers"` ("Recibiste N ofertas", card → detalle, "Ver ofertas" → `/shipments/:id/offers`). Cierra el gap que MOVO-193 había dejado documentado por falta de datos: el conteo sale de `pendingOffersCount` de `/mine` (MOVO-257), por eso `useAttentionSourceShipments` hace una consulta aparte de `published` con `withPendingOffers` (filtro de backend), para que no compita por lugar con las tareas de confirmar/redesignar (MOVO-253 AC8). Rechazar una oferta ahora invalida `["shipments","mine"]` para que el aviso no quede con un conteo viejo. El envío igual sigue arriba en "Actividad reciente" por el nivel 1 de AC1.
+
 ### MOVO-257 — Rediseño de "Mis envíos" para emisor y receptor
 
 `app/(app)/shipments/index.tsx` rehecha sobre el prototipo "Mis envíos 4a": accesos por
@@ -4140,3 +4157,60 @@ Tests agregados/actualizados:
 - **Redirect duplicado (AC4)**: `offers.tsx` (aceptar oferta), `transport/[id]/offer.tsx` (crear o editar una oferta), `handshake.tsx` ("Volver al envío"), `tracking.tsx` ("Ver detalle del envío" con el envío entregado) y `change-receiver.tsx` (tras elegir otro receptor) vuelven al detalle con `router.dismissTo` en vez de `replace`, que apilaba una segunda instancia del detalle de origen. `dismissTo` hace pop hasta la existente o reemplaza si no está en la pila (ej. desde el aviso de ofertas del home). Los flujos `pickup/*` y `delivery/*` siguen con `replace` a propósito: se abren desde "Mi ruta" o Transportar, nunca desde el detalle del envío, así que no duplican.
 - **Seguimiento en vivo (AC3/AC5)**: `LiveTrackingCard` con el lenguaje de `OffersBanner`, en estado `available` o placeholder `pending`, según `liveTrackingAvailability` (`shipment-format.ts`). Decisión de producto: la ubicación se ve desde "Iniciar viaje" hasta la entrega y antes no se captura. Hoy se habilita recién en `in_transit`, porque el backend rechaza posiciones con el envío en `assignment_pending` (el hold de fondos sigue bloqueado). Cuando MOVO-270 habilite el tramo inicio del viaje → retiro, cambia solo ese helper. Mientras está en placeholder, el detalle se refresca cada 30 s (`liveTrackingPendingPollInterval`) para habilitarse sin salir de la pantalla.
 - **Badge de tipo de paquete (AC6)**: `PackageCard` toma el ícono de `packageTypeIcon` (`category-grid.tsx`), el mismo mapeo que el wizard.
+
+### MOVO-237 — Botón "Navegar" por parada (deep-link a Google Maps/Waze, ADR-033)
+
+La parada seleccionada de `StopList` (MOVO-207) suma `NavigateButton`
+(`components/route/navigate-button.tsx`) junto a "Ver envío" y el CTA de retiro/entrega.
+`src/lib/navigation-deeplink.ts` arma la cascada Google Maps nativo (`google.navigation:` en
+Android, `comgooglemaps://` en iOS) → Waze → Google Maps web y la resuelve probando
+`Linking.openURL` en orden, sin `canOpenURL`: así no hace falta declarar
+`LSApplicationQueriesSchemes`/`<queries>` ni rebuildear el dev client. No llama a ningún
+endpoint (costo cero para Movo). Detalle en `docs/navigation/README.md`.
+
+**Rediseño de la pantalla "Mi ruta" sobre el mockup 2a de Claude Design** ("Morph desde la
+parada activa", proyecto "Parada en curso"). La card ancla es la parada seleccionada (por
+defecto la próxima); al abrir aparece detrás de ella un fondo con borde lima y el resto de la ruta
+se despliega arriba y abajo con escalonado por distancia. Tocar una fila la vuelve ancla (así
+"Navegar" sigue disponible en cualquier parada); el CTA de retiro/entrega solo aparece si la ancla
+es la próxima. El encabezado cruza "Próxima parada" con "Tu ruta", el mapa se oscurece al 45%
+(tocarlo cierra) y la isla de arriba (sin el punto pulsante del mockup), "Centrar" y "Abrir en Maps" suben y se apagan. Duración y
+curva en `src/lib/route-sheet-motion.ts` (360ms, ease-out). El ID del envío se reemplaza por
+"Retirás de / Entregás a" + nombre (`use-stop-counterpart.ts`: `useShipment` + `usePublicProfile`);
+sin nombre todavía muestra solo la acción.
+
+- **El contenido de la card ancla nunca cambia de tamaño**: el fondo y el borde lima son una capa
+  aparte que sobresale 12px y aparece por opacidad. La primera versión animaba padding y tamaño de
+  letra (como el mockup), y en device el texto de la dirección se reacomodaba cuadro a cuadro al
+  abrir y el alto colapsado medido cambiaba durante la animación, con el sheet persiguiéndolo
+  (vibraba al arrastrar). Por eso tampoco se cambia de contenedor entre estados (un solo
+  `ScrollView`) y el alto colapsado sale de encabezado + card, no del layout del sheet.
+- **El `PanResponder` se crea una sola vez** y lee los altos desde refs: recrearlo a mitad de un
+  arrastre reinicia el gesto.
+- "Abrir en Maps" se mantiene (el mockup lo sacaba): es la única forma de ver el recorrido
+  completo en la app de mapas. Va como un control chico ("Maps") a la izquierda de "Centrar",
+  no como botón flotante grande sobre el sheet.
+- La isla de arriba no tiene botón de actualizar: la ruta se recalcula al volver a la pantalla
+  (`useFocusEffect`) y, con el sheet abierto, hay pull-to-refresh.
+- "Volver" es el botón circular con `ChevronLeft` a la izquierda de la isla (mismo patrón que el
+  resto de la app, `canGoBack` o Inicio); se sacó el botón "Inicio" de la derecha.
+- Desvíos del mockup: la dirección es la línea principal también en las filas (el nombre llega
+  después y movería el layout), las filas mantienen cuadrado/círculo de los marcadores (AC3 de
+  MOVO-207), la card ancla suma la ventana horaria (AC4), y no hay estado "hecha" por parada porque
+  `GET /shipments/my-route` solo devuelve las pendientes.
+
+Pendiente: DoD manual del ticket (Android e iOS con Google Maps, fallback a Waze sin Google
+Maps, fallback a browser sin ninguna de las dos) — no probado en device.
+
+### MOVO-258 — Ajustes del mobile por la expiración y el cierre automático de envíos y viajes
+
+Cambios chicos de soporte al backend (detalle en `services/movo-svc-shipments/CLAUDE.md`):
+- **`OfferStatus.SHIPMENT_CANCELLED`** (oferta cerrada porque su envío se canceló): etiqueta, chip y
+  banner en `src/lib/offer-format.ts`/`components/transport/my-offer-card.tsx`, y cuenta como oferta
+  cerrada en `app/(app)/carrier/offers/index.tsx`.
+- **`TRIP_NO_PACKAGES`**: mensaje en `src/lib/error-messages.ts` para `POST /trips/:id/start` sobre un
+  viaje sin paquetes. El botón "Iniciar viaje" sigue visible; ocultarlo depende del rediseño de "Mis
+  viajes" (MOVO-259).
+- **Tocar la card de un viaje `active` en "Mis viajes" abre el mapa (`/route`)** en vez del feed filtrado:
+  un viaje iniciado tiene sus paquetes fijos y `GET /trips/:id/matches` le responde 409
+  `TRIP_NOT_AVAILABLE`. Un viaje `declared` sigue abriendo el feed (`test/my-trips-screen.test.tsx`).

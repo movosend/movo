@@ -13,7 +13,14 @@ from typing import Literal
 
 from app.config import settings
 from app.models.optimize import Coordinates
-from app.models.quote import DemandContext, PackageType, PriceCalculationMethod, QuoteRequest, QuoteResponse
+from app.models.quote import (
+    DemandContext,
+    PackageType,
+    PriceCalculationMethod,
+    QuoteBreakdown,
+    QuoteRequest,
+    QuoteResponse,
+)
 from app.services.distance import haversine_distance_km
 from app.services.fuel_price import FuelPriceProvider, get_fuel_price_provider
 from app.services.routes_provider import MockRoutesProvider, RoutesProvider, get_routes_provider
@@ -159,8 +166,27 @@ async def compute_quote(
         ),
     )
 
+    breakdown = (
+        QuoteBreakdown(
+            distance_km=round(distance_km, 2),
+            distance_source=distance_source,
+            fuel_ars_per_liter=p,
+            fuel_source=fuel.source,
+            per_km_ars=round(per_km_ars, 2),
+            base=round(base, 2),
+            distance=round(distance_component, 2),
+            weight=round(weight_component, 2),
+            package_factor=package_factor,
+            demand_ratio=round(demand.ratio, 2),
+            demand_multiplier=demand.multiplier,
+        )
+        if req.include_breakdown
+        else None
+    )
+
     return QuoteResponse(
         suggested_price_ars=suggested_price_ars,
         high_demand=demand.high_demand,
         calculation_method=PriceCalculationMethod.DEMAND_FUEL_ROUTES_V1,
+        breakdown=breakdown,
     )

@@ -8,6 +8,7 @@ from app.config import settings
 from app.routers.evaluate import router as evaluate_router
 from app.routers.optimize import router as optimize_router
 from app.routers.quote import router as quote_router
+from app.routers.routes_matrix import router as routes_matrix_router
 from app.services.redis_client import close_redis_client, init_redis_client, ping_redis
 
 # Sin esto los `logger.info` de `app.*` no salen a ningún lado (el root queda en WARNING
@@ -43,3 +44,4 @@ async def health() -> dict[str, str]:
 app.include_router(quote_router)
 app.include_router(optimize_router)
 app.include_router(evaluate_router)
+app.include_router(routes_matrix_router)

@@ -301,7 +301,13 @@ export const shipmentsClient = {
   /** Protegida — `httpClient` adjunta `Authorization` automáticamente vía el
    * interceptor de sesión (MOVO-76). */
   /** `status` (MOVO-253) acota a esos estados, repetido en la query. */
-  listMine(params?: { page?: number; limit?: number; status?: readonly ShipmentStatus[] }): Promise<ListMineResponse> {
+  listMine(params?: {
+    page?: number;
+    limit?: number;
+    status?: readonly ShipmentStatus[];
+    /** MOVO-184: solo envíos propios (como emisor) con al menos una oferta vigente. */
+    withPendingOffers?: boolean;
+  }): Promise<ListMineResponse> {
     return httpClient.get<ListMineResponse>("/shipments/mine", params);
   },
 

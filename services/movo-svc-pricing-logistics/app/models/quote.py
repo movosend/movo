@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -49,6 +50,25 @@ class QuoteRequest(CamelModel):
     urgent: bool = False
     # Opcional: sin contexto de demanda no se aplica recargo.
     demand_context: DemandContext | None = None
+    # Solo lo pide el módulo demo de `movo-svc-shipments` (juego de precios de la feria):
+    # la cotización del emisor sigue sin desglose (ADR-025).
+    include_breakdown: bool = False
+
+
+class QuoteBreakdown(CamelModel):
+    """Mismo desglose que el log `pricing_quote_computed`, en pesos salvo factores."""
+
+    distance_km: float
+    distance_source: Literal["routes_api", "haversine_mock", "haversine_fallback"]
+    fuel_ars_per_liter: float
+    fuel_source: Literal["api", "lkg", "config", "mock"]
+    per_km_ars: float
+    base: float
+    distance: float
+    weight: float
+    package_factor: float
+    demand_ratio: float
+    demand_multiplier: float
 
 
 class QuoteResponse(CamelModel):
@@ -58,3 +78,5 @@ class QuoteResponse(CamelModel):
     suggested_price_ars: float
     high_demand: bool
     calculation_method: PriceCalculationMethod
+    # Solo con `includeBreakdown: true`; si es `None` no viaja (`response_model_exclude_none`).
+    breakdown: QuoteBreakdown | None = None

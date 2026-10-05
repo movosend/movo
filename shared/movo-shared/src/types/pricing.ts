@@ -21,6 +21,27 @@ export interface QuoteRequest {
    * (ADR-019). Opcional: sin este campo no se aplica recargo por alta demanda.
    */
   demandContext?: DemandContext;
+  /**
+   * Pide el desglose de la fórmula en `breakdown`. Solo lo usa el módulo demo de
+   * `movo-svc-shipments` (juego de precios de la feria); el flujo del emisor nunca lo
+   * manda (ADR-025: el emisor ve solo el precio final).
+   */
+  includeBreakdown?: boolean;
+}
+
+/** Mismo desglose que el log `pricing_quote_computed`, en pesos salvo factores. */
+export interface QuoteBreakdown {
+  distanceKm: number;
+  distanceSource: "routes_api" | "haversine_mock" | "haversine_fallback";
+  fuelArsPerLiter: number;
+  fuelSource: "api" | "lkg" | "config" | "mock";
+  perKmArs: number;
+  base: number;
+  distance: number;
+  weight: number;
+  packageFactor: number;
+  demandRatio: number;
+  demandMultiplier: number;
 }
 
 export interface DemandContext {
@@ -53,6 +74,8 @@ export interface QuoteResponse {
   /** `true` si y solo si se aplicó recargo por alta demanda. */
   highDemand: boolean;
   calculationMethod: PriceCalculationMethod;
+  /** Solo presente si el request trajo `includeBreakdown: true`. */
+  breakdown?: QuoteBreakdown;
 }
 
 /**

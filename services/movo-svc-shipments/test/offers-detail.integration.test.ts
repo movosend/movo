@@ -154,17 +154,17 @@ describe("GET /offers/:id (Postgres)", () => {
     expect(response.json().competitiveRank).toBeNull();
   });
 
-  it("competitiveRank: null cuando el envío ya no acepta ofertas (cancelado), aunque la oferta siga pending en base", async () => {
+  it("competitiveRank: null cuando el envío ya no acepta ofertas (cancelado) -- la oferta queda shipment_cancelled (MOVO-258)", async () => {
     const carrierId = randomUUID();
     const shipmentId = await createPublishedShipment();
     const offer = await offerRepo.create(baseOfferInput({ shipmentId, carrierId }));
-    // cancelShipment (MOVO-108) no toca las filas de offers, solo el envío.
+    // MOVO-258 (D7): cancelar el envío cierra sus ofertas en la misma transacción.
     await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.CANCELLED, null);
 
     const response = await requestDetail(offer.id, carrierId);
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().status).toBe(OfferStatus.PENDING);
+    expect(response.json().status).toBe(OfferStatus.SHIPMENT_CANCELLED);
     expect(response.json().shipment.status).toBe(ShipmentStatus.CANCELLED);
     expect(response.json().competitiveRank).toBeNull();
   });

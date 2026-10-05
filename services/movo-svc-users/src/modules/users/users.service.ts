@@ -33,6 +33,7 @@ import { ShipmentsClient, UserReputationSummary, RawRecentRatingComment } from "
 import { issueSession, LoginUserResult, normalizePhoneToE164Ar } from "../auth/auth.service";
 import { OtpService } from "../../services/otp-service";
 import { buildEmailChangedNotice, EmailProvider } from "../../adapters/email-provider";
+import { PushSender, sendTriggerPush } from "../notifications/send-trigger-push";
 
 // @node-rs/argon2 exporta `Algorithm` como `const enum`, incompatible con
 // `isolatedModules` -- mismo motivo/valor que auth.service.ts/otp-service.ts.
@@ -216,6 +217,7 @@ export function createUsersService(
   shipmentsClient: ShipmentsClient,
   otpService: OtpService,
   emailProvider: EmailProvider,
+  notifications: PushSender,
   reputationCacheTtlSeconds: number = DEFAULT_REPUTATION_CACHE_TTL_SECONDS
 ) {
   const repository = createUserRepository(db);
@@ -727,6 +729,24 @@ export function createUsersService(
       await resetPasswordChangeRateLimit(redis, userId);
       await sessionRepository.revokeAllForUser(userId);
       await sessionRepository.revokeAccessTokensIssuedBefore(userId);
+
+      // MOVO-274: aviso push, después de revocar las sesiones y con el cambio ya
+      // persistido — best-effort (el helper nunca lanza), un fallo no revierte nada ni
+      // cambia la respuesta. Se suma al resto de los avisos de este evento, no los
+      // reemplaza.
+      await sendTriggerPush({
+        notifications,
+        userId,
+        triggerKey: "accountPasswordChanged",
+        params: undefined,
+        data: { type: "account_password_changed" },
+        logger,
+        onErrorContext: {
+          event: "password_changed_push_failed",
+          message: "no se pudo enviar el push de contraseña cambiada; el cambio ya estaba aplicado",
+        },
+      });
+
       return issueSession(sessionRepository, updated);
     },
 
@@ -977,6 +997,19 @@ export function createUsersService(
         if (!updated) {
           throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
         }
+        // MOVO-274: aviso push con el cambio ya persistido (best-effort, el helper no lanza).
+        await sendTriggerPush({
+          notifications,
+          userId,
+          triggerKey: "accountPhoneChanged",
+          params: undefined,
+          data: { type: "account_phone_changed" },
+          logger,
+          onErrorContext: {
+            event: "phone_changed_push_failed",
+            message: "no se pudo enviar el push de teléfono cambiado; el cambio ya estaba aplicado",
+          },
+        });
         return composePrivateProfile(updated);
       } catch (err) {
         // AC5: el teléfono pudo quedar tomado por otra cuenta entre el paso 1 y este
@@ -1120,6 +1153,20 @@ export function createUsersService(
           throw new ApiError(404, "USER_NOT_FOUND", "Usuario no encontrado.");
         }
         await notifyPreviousEmailOfChange(user.email, pendingEmail);
+        // MOVO-274: además del mail al email anterior, push a los dispositivos de la
+        // cuenta (best-effort, el helper no lanza).
+        await sendTriggerPush({
+          notifications,
+          userId,
+          triggerKey: "accountEmailChanged",
+          params: undefined,
+          data: { type: "account_email_changed" },
+          logger,
+          onErrorContext: {
+            event: "email_changed_push_failed",
+            message: "no se pudo enviar el push de email cambiado; el cambio ya estaba aplicado",
+          },
+        });
         return composePrivateProfile(updated);
       } catch (err) {
         if (err instanceof UserConflictError) {

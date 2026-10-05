@@ -215,3 +215,24 @@ config (`PRICING_*_L`, `PRICING_DEMAND_*`); `PRICING_*_ARS` de MOVO-82 eliminado
 Pendiente: `FUEL_PRICE_PROVIDER=energia` sin cargar en Secrets Manager (dev cotiza con el
 precio fijo de config). La API de Energía respondió en 1,38s en la prueba real: dentro del
 presupuesto de 2s pero con poco margen.
+
+### Juego de precios de la feria — desglose opt-in en `POST /quote`
+
+`QuoteRequest.includeBreakdown` (default `false`) devuelve en `breakdown` el mismo
+desglose que ya iba al log `pricing_quote_computed` (distancia y su fuente, nafta y su
+fuente, base/distancia/peso, factor de paquete, demanda). Sin el flag la respuesta es
+idéntica a antes (`response_model_exclude_none`). Solo lo pide el módulo `demo` de
+`movo-svc-shipments`; el flujo del emisor sigue sin desglose (ADR-025 intacto, ver ADR-030).
+
+### Juego del optimizador de la feria — `objective`/`matrix` en `/optimize/route` y `POST /routes/matrix` (ADR-031)
+
+Dos opt-in en `OptimizeRouteRequest`, sin cambios para el flujo de transportistas:
+`objective` (`time` por default, como hasta ahora; `distance` usa un callback en metros
+enteros como costo de arco y deja la dimensión de tiempo como estaba) y `matrix`
+(`{ distKm, timeMin }` precalculada en orden canónico; si viene no se llama al provider,
+422 si no es NxN con los puntos del request, y `calculationMethod:
+precomputed_matrix_vrptw_v1`). `POST /routes/matrix` (`app/routers/routes_matrix.py`)
+devuelve la matriz del provider para 2 a 25 puntos (límite de 625 elementos de Google) con
+`elementsBilled` (0 en el mock). Solo los usa el módulo `demo` de `svc-shipments`, que pide
+la matriz de cada ciudad una vez y la cachea. Tests en `tests/test_optimize_demo_opt_ins.py`.
+

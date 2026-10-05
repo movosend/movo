@@ -29,6 +29,21 @@ describe("createMockRoutesProvider", () => {
     expect(result.durationSeconds).toBeGreaterThan(0);
   });
 
+  describe("mode (MOVO-237)", () => {
+    it("per_trip explícito da el mismo resultado que sin mode", async () => {
+      const withoutMode = await provider.getRoute({ origin, destination });
+      const perTrip = await provider.getRoute({ origin, destination, mode: "per_trip" });
+      expect(perTrip).toEqual(withoutMode);
+    });
+
+    it("live falla con ApiError 501 ROUTE_MODE_NOT_IMPLEMENTED", async () => {
+      await expect(provider.getRoute({ origin, destination, mode: "live" })).rejects.toMatchObject({
+        statusCode: 501,
+        code: "ROUTE_MODE_NOT_IMPLEMENTED",
+      });
+    });
+  });
+
   describe("getRouteDurations", () => {
     it("devuelve una duración por destino, en el mismo orden e indexadas por destinationIndex", async () => {
       const farDestination = { lat: -31.5, lng: -64.3 };

@@ -1067,7 +1067,13 @@ describe("handshake.service", () => {
         });
 
         await vi.waitFor(() => {
-          expect(notificationsClient.sendPush).toHaveBeenCalledTimes(2);
+          // MOVO-274: la entrega ahora también manda los avisos de calificación pendiente
+          // (categoría "ratings", cubiertos por sus propios tests de abajo) -- acá se
+          // cuentan solo los de custodia, que es lo que este test verifica.
+          const custodyCalls = notificationsClient.sendPush.mock.calls.filter(
+            ([input]) => input.category === "custody"
+          );
+          expect(custodyCalls).toHaveLength(2);
           expect(notificationsClient.sendPush).toHaveBeenCalledWith({
             userId: shipment.senderId,
             title: "Entrega confirmada",
@@ -1082,6 +1088,137 @@ describe("handshake.service", () => {
             category: "custody",
             data: { type: "custody_delivery_confirmed", shipmentId: shipment.id },
           });
+        });
+      });
+
+      describe("calificación pendiente (MOVO-274)", () => {
+        async function confirmDelivery(overrides: Partial<Shipment> = {}) {
+          const shipment = fakeShipment({ status: ShipmentStatus.IN_TRANSIT, ...overrides });
+          const redis = createFakeRedis();
+          const { nonce, signature } = await seedPendingChallenge(
+            redis,
+            shipment.id,
+            "delivery",
+            shipment.carrierId as string,
+            -31.4353,
+            -64.1858
+          );
+          const notificationsClient = { sendPush: vi.fn().mockResolvedValue(undefined) };
+          const service = createHandshakeService(
+            fakeShipmentRepository({ findById: vi.fn().mockResolvedValue(shipment) }),
+            fakeHandshakeRepository(),
+            createFakeUsersClient(
+              { [shipment.receiverId]: fakePublicProfile({ id: shipment.receiverId, fullName: "Ana Gómez" }) },
+              { [shipment.carrierId as string]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() } }
+            ),
+            redis,
+            createFakeFundsReleaseNotifier(),
+            undefined,
+            notificationsClient
+          );
+
+          await service.confirmHandshake({
+            shipmentId: shipment.id,
+            callerId: shipment.receiverId,
+            nonce,
+            signature,
+            lat: -31.4353,
+            lng: -64.1858,
+          });
+
+          const ratingPushes = () =>
+            notificationsClient.sendPush.mock.calls
+              .map(([input]) => input)
+              .filter((input) => input.category === "ratings");
+          return { shipment, ratingPushes };
+        }
+
+        it("entrega confirmada: avisa al emisor, al receptor y al transportista, cada uno con su copy, categoría 'ratings'", async () => {
+          const { shipment, ratingPushes } = await confirmDelivery();
+
+          await vi.waitFor(() => {
+            const pushes = ratingPushes();
+            expect(pushes).toHaveLength(3);
+            expect(pushes).toContainEqual({
+              userId: shipment.senderId,
+              title: "Calificá a tu transportista",
+              body: "Tu envío fue entregado. Contanos cómo fue tu experiencia.",
+              category: "ratings",
+              data: { type: "rating_pending", shipmentId: shipment.id },
+            });
+            expect(pushes).toContainEqual({
+              userId: shipment.receiverId,
+              title: "Calificá a tu transportista",
+              body: "Recibiste tu paquete. Contanos cómo fue tu experiencia.",
+              category: "ratings",
+              data: { type: "rating_pending", shipmentId: shipment.id },
+            });
+            expect(pushes).toContainEqual({
+              userId: shipment.carrierId,
+              title: "Calificá tu entrega",
+              body: "Completaste la entrega. Calificá al emisor y al receptor.",
+              category: "ratings",
+              data: { type: "rating_pending", shipmentId: shipment.id },
+            });
+          });
+        });
+
+        it("si emisor y receptor son la misma persona, recibe un solo aviso (el del emisor)", async () => {
+          const { shipment, ratingPushes } = await confirmDelivery({ receiverId: "sender-1" });
+
+          await vi.waitFor(() => {
+            const pushes = ratingPushes();
+            expect(pushes).toHaveLength(2);
+            const toSender = pushes.filter((input) => input.userId === shipment.senderId);
+            expect(toSender).toHaveLength(1);
+            expect(toSender[0]?.body).toBe("Tu envío fue entregado. Contanos cómo fue tu experiencia.");
+            expect(pushes.some((input) => input.userId === shipment.carrierId)).toBe(true);
+          });
+        });
+
+        it("el retiro no manda aviso de calificación (solo la entrega)", async () => {
+          const shipment = fakeShipment({ status: ShipmentStatus.ASSIGNED });
+          const redis = createFakeRedis();
+          const { nonce, signature } = await seedPendingChallenge(
+            redis,
+            shipment.id,
+            "pickup",
+            shipment.senderId,
+            -31.4201,
+            -64.1888
+          );
+          const notificationsClient = { sendPush: vi.fn().mockResolvedValue(undefined) };
+          const service = createHandshakeService(
+            fakeShipmentRepository({ findById: vi.fn().mockResolvedValue(shipment) }),
+            fakeHandshakeRepository(),
+            createFakeUsersClient(
+              { [shipment.carrierId as string]: fakePublicProfile({ id: shipment.carrierId as string, fullName: "Juan Pérez" }) },
+              { [shipment.senderId]: { publicKey: publicKeyB64, registeredAt: new Date().toISOString() } }
+            ),
+            redis,
+            createFakeFundsReleaseNotifier(),
+            undefined,
+            notificationsClient
+          );
+
+          await service.confirmHandshake({
+            shipmentId: shipment.id,
+            callerId: shipment.carrierId as string,
+            nonce,
+            signature,
+            lat: -31.4201,
+            lng: -64.1888,
+          });
+
+          // Esperar a que los push de custodia del retiro salgan (son fire-and-forget)
+          // antes de afirmar que no hubo ninguno de calificación.
+          await vi.waitFor(() => {
+            expect(notificationsClient.sendPush).toHaveBeenCalled();
+          });
+          const ratingCalls = notificationsClient.sendPush.mock.calls.filter(
+            ([input]) => input.category === "ratings"
+          );
+          expect(ratingCalls).toHaveLength(0);
         });
       });
 
