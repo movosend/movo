@@ -84,15 +84,15 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       // Sin banner de ruta no optimizada mientras está colapsado
       expect(queryByTestId("unoptimized-route-banner")).toBeNull();
 
-      // Alto colapsado = encabezado + padding superior (16) + card ancla + padding inferior
+      // Alto colapsado = encabezado + padding superior (28) + card ancla + padding inferior
       // (insets 0 en test → 16 + 12 = 28). Ninguno depende de la animación de abrir/cerrar.
       await fireEvent(getByTestId("stop-list-header"), "layout", {
         nativeEvent: { layout: { height: 70, width: 390, x: 0, y: 0 } },
       });
       await fireEvent(getByTestId("stop-list-anchor"), "layout", {
-        nativeEvent: { layout: { height: 300, width: 350, x: 20, y: 16 } },
+        nativeEvent: { layout: { height: 300, width: 350, x: 20, y: 28 } },
       });
-      expect(onCollapsedHeightChange).toHaveBeenLastCalledWith(70 + 16 + 300 + 28);
+      expect(onCollapsedHeightChange).toHaveBeenLastCalledWith(70 + 28 + 300 + 28);
     });
 
     it("al abrir despliega el resto de la ruta alrededor de la card ancla y cambia el encabezado a 'Tu ruta'", async () => {

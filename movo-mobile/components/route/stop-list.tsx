@@ -154,7 +154,11 @@ const ANCHOR_CHROME_INSET = 12;
 /** Separación entre la card ancla y la fila vecina (deja lugar al fondo que sobresale). */
 const ANCHOR_ROW_GAP = ANCHOR_CHROME_INSET + 8;
 const ROW_GAP = 8;
-const CONTENT_PADDING_TOP = 16;
+/**
+ * Aire entre el encabezado y la card ancla. Fijo en los dos estados (cambiarlo al abrir haría
+ * saltar la card): con la ruta abierta deja 16px entre "Tu ruta" y el fondo que sobresale.
+ */
+const CONTENT_PADDING_TOP = ANCHOR_CHROME_INSET + 16;
 
 /**
  * Sheet de paradas de "Mi ruta" (MOVO-207, rediseñado sobre el mockup 2a de Claude Design
