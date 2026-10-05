@@ -1,5 +1,12 @@
 import { ApiError } from "@movo/shared";
-import { RouteDurationResult, RouteInput, RouteMatrixInput, RouteResult, RoutesProvider } from "./routes-provider";
+import {
+  assertSupportedRouteMode,
+  RouteDurationResult,
+  RouteInput,
+  RouteMatrixInput,
+  RouteResult,
+  RoutesProvider,
+} from "./routes-provider";
 
 export interface GoogleRoutesProviderConfig {
   apiKey: string;
@@ -49,6 +56,7 @@ export function createGoogleRoutesProvider(config: GoogleRoutesProviderConfig): 
   const matrixBaseUrl = config.matrixBaseUrl ?? DEFAULT_MATRIX_BASE_URL;
   return {
     async getRoute(input: RouteInput): Promise<RouteResult> {
+      assertSupportedRouteMode(input);
       let response: Response;
       try {
         response = await fetch(baseUrl, {

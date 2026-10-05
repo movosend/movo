@@ -1,3 +1,4 @@
+import { ApiError } from "@movo/shared";
 import { createMockRoutesProvider } from "./mock-routes-provider";
 import { createGoogleRoutesProvider } from "./google-routes-provider";
 
@@ -6,9 +7,28 @@ export interface RouteLatLng {
   lng: number;
 }
 
+/**
+ * Modo de consumo de Compute Routes (MOVO-237, ADR-033):
+ *
+ * - `per_trip`: una llamada estática por par origen→destino (o por recálculo de
+ *   paradas) para dibujar el polyline en el mapa propio de Movo — tier Basic, 1-3
+ *   llamadas por viaje. Es el único modo implementado y el default.
+ * - `live`: re-routing continuo tipo Waze. **Placeholder intencional, no una
+ *   funcionalidad recortada por error**: la navegación real del transportista se
+ *   delega por deep-link a Google Maps/Waze (`movo-mobile`,
+ *   `src/lib/navigation-deeplink.ts`), a costo cero para Movo, en vez de pagar el
+ *   Navigation SDK (~US$25/1.000, 5x Compute Routes) o reimplementar re-routing en
+ *   loop. Queda tipado para no rediseñar el contrato si algún día se decide una
+ *   navegación 100% in-app; mientras tanto, pedirlo falla explícito
+ *   (`assertSupportedRouteMode`) en vez de fingir soporte.
+ */
+export type RouteMode = "per_trip" | "live";
+
 export interface RouteInput {
   origin: RouteLatLng;
   destination: RouteLatLng;
+  /** Default `per_trip` — los callers previos a MOVO-237 no lo pasan. */
+  mode?: RouteMode;
 }
 
 export interface RouteResult {
@@ -49,6 +69,19 @@ export interface RoutesProvider {
    * Solo duración -- ningún caller de esta variante necesita el polyline por destino.
    */
   getRouteDurations(input: RouteMatrixInput): Promise<RouteDurationResult[]>;
+}
+
+/** Guard compartido por todas las implementaciones de `getRoute`: corta antes de
+ * cualquier llamada facturable si se pide un modo que no existe todavía (ver
+ * `RouteMode`). */
+export function assertSupportedRouteMode(input: RouteInput): void {
+  if (input.mode === "live") {
+    throw new ApiError(
+      501,
+      "ROUTE_MODE_NOT_IMPLEMENTED",
+      'El modo de ruta "live" no está implementado: la navegación se delega a la app de mapas del dispositivo.',
+    );
+  }
 }
 
 export interface RoutesProviderConfig {
