@@ -4163,7 +4163,10 @@ sin nombre todavía muestra solo la acción.
 - **El `PanResponder` se crea una sola vez** y lee los altos desde refs: recrearlo a mitad de un
   arrastre reinicia el gesto.
 - "Abrir en Maps" se mantiene (el mockup lo sacaba): es la única forma de ver el recorrido
-  completo en la app de mapas.
+  completo en la app de mapas. Va como un control chico ("Maps") a la izquierda de "Centrar",
+  no como botón flotante grande sobre el sheet.
+- La isla de arriba no tiene botón de actualizar: la ruta se recalcula al volver a la pantalla
+  (`useFocusEffect`) y, con el sheet abierto, hay pull-to-refresh.
 - Desvíos del mockup: la dirección es la línea principal también en las filas (el nombre llega
   después y movería el layout), las filas mantienen cuadrado/círculo de los marcadores (AC3 de
   MOVO-207), la card ancla suma la ventana horaria (AC4), y no hay estado "hecha" por parada porque

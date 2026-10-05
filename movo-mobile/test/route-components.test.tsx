@@ -451,11 +451,11 @@ describe("Componentes de Ruta (MOVO-207)", () => {
         />
       );
 
-      // Control flotante "Abrir en Maps" con subtítulo
+      // Control "Maps" junto a "Centrar": discreto, sin subtítulo
       const openMapsBtn = getByTestId("route-map-open-maps");
       expect(openMapsBtn).toBeTruthy();
-      expect(getByText("Abrir en Maps")).toBeTruthy();
-      expect(getByText("Ver ruta completa")).toBeTruthy();
+      expect(getByText("Maps")).toBeTruthy();
+      expect(openMapsBtn.props.accessibilityLabel).toBe("Abrir en Maps para ver la ruta completa");
 
       // Toast no visible al inicio
       expect(queryByTestId("route-navigation-toast")).toBeNull();

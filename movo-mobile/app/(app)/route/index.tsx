@@ -412,7 +412,8 @@ export default function OptimizedRouteScreen() {
       {/* 1. VISTA CUANDO HAY UN VIAJE ACTIVO CON MAPA */}
       {hasActiveTrip && displayRoute ? (
         <View className="flex-1 relative">
-          {/* Isla de arriba (mockup 2a): estado del viaje + actualizar + volver. Se apaga con la ruta abierta */}
+          {/* Isla de arriba (mockup 2a): estado del viaje + volver. Se apaga con la ruta abierta.
+              Sin botón de actualizar: la ruta se recalcula al volver a la pantalla y, abierta, tiene pull-to-refresh */}
           <Reanimated.View
             testID="route-floating-island"
             pointerEvents={isListExpanded ? "none" : "auto"}
@@ -464,20 +465,6 @@ export default function OptimizedRouteScreen() {
               </Pressable>
             ) : (
               <View className="flex-none flex-row items-center gap-2">
-                <Pressable
-                  testID="route-refresh-active-button"
-                  onPress={() => void refetch()}
-                  disabled={isLoading || isRefreshing}
-                  className="h-11 w-11 items-center justify-center rounded-lg border border-border bg-bg-mute"
-                  accessibilityRole="button"
-                  accessibilityLabel="Actualizar ruta"
-                >
-                  <RefreshCw
-                    size={20}
-                    color={colors.fg1}
-                    className={isRefreshing ? "animate-spin" : undefined}
-                  />
-                </Pressable>
                 <Pressable
                   testID="route-back-button"
                   onPress={() => router.back()}

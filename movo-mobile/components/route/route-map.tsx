@@ -307,6 +307,22 @@ export function RouteMap({
     };
   }, [routePoints]);
 
+  // Vidrio compartido por los controles flotantes del mapa (mismo lenguaje que la isla de arriba)
+  const glassControlStyle = {
+    height: 44,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    borderRadius: 14,
+    backgroundColor: isDark ? "rgba(10, 10, 11, 0.85)" : "rgba(255, 255, 255, 0.92)",
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: isDark ? 0.3 : 0.1,
+    shadowRadius: 10,
+    elevation: 6,
+  };
+
   return (
     <View testID={testID} style={StyleSheet.absoluteFill}>
       <MapView
@@ -532,33 +548,33 @@ export function RouteMap({
         </View>
       )}
 
-      {/* Control flotante "Centrar" <-> "Ver ruta" (mockup 2a: 44px, mismo vidrio que la isla de arriba) */}
+      {/* Controles del mapa arriba a la derecha (mockup 2a: 44px, mismo vidrio que la isla):
+          "Maps" (ruta completa en la app de mapas, discreto) y "Centrar" <-> "Ver ruta" */}
       <Animated.View
         pointerEvents={showControls ? "box-none" : "none"}
-        style={[{ position: "absolute", right: 16, top: topOffset ?? 16, zIndex: 20 }, controlsStyle]}
+        style={[
+          { position: "absolute", right: 16, top: topOffset ?? 16, zIndex: 20, flexDirection: "row", gap: 8 },
+          controlsStyle,
+        ]}
       >
+        {stops.length > 0 && (
+          <Pressable
+            testID="route-map-open-maps"
+            onPress={handleOpenExternalMaps}
+            accessibilityRole="button"
+            accessibilityLabel="Abrir en Maps para ver la ruta completa"
+            style={[glassControlStyle, { paddingLeft: 10, paddingRight: 12, gap: 6 }]}
+          >
+            <ArrowUpRight size={18} color={colors.fg2} strokeWidth={1.75} />
+            <Text className="font-sans-medium text-[14px] text-fg-2">Maps</Text>
+          </Pressable>
+        )}
         <Pressable
           testID={isTrackingCourier ? "route-map-reset-zoom" : "route-map-recenter"}
           onPress={isTrackingCourier ? handleOverviewPress : handleCenterPress}
           accessibilityRole="button"
           accessibilityLabel={isTrackingCourier ? "Ver ruta completa" : "Centrar en mi ubicación"}
-          style={{
-            height: 44,
-            paddingLeft: 12,
-            paddingRight: 16,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 8,
-            borderRadius: 14,
-            backgroundColor: isDark ? "rgba(10, 10, 11, 0.85)" : "rgba(255, 255, 255, 0.92)",
-            borderWidth: 1,
-            borderColor: colors.border,
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: isDark ? 0.3 : 0.1,
-            shadowRadius: 10,
-            elevation: 6,
-          }}
+          style={[glassControlStyle, { paddingLeft: 12, paddingRight: 16, gap: 8 }]}
         >
           {isTrackingCourier ? (
             <Map size={20} color={colors.fg1} strokeWidth={1.75} />
@@ -571,63 +587,14 @@ export function RouteMap({
         </Pressable>
       </Animated.View>
 
-      {/* "Abrir en Maps": ruta completa en la app de mapas. Mismo vidrio y alto que "Centrar" */}
-      {stops.length > 0 && (
-        <Animated.View
-          pointerEvents={showControls ? "box-none" : "none"}
-          style={[{ position: "absolute", right: 16, bottom: (bottomOffset ?? 270) + 16, zIndex: 25 }, controlsStyle]}
-        >
-          <Pressable
-            testID="route-map-open-maps"
-            onPress={handleOpenExternalMaps}
-            accessibilityRole="button"
-            accessibilityLabel="Abrir en Maps para ver la ruta completa"
-            style={{
-              height: 52,
-              paddingLeft: 8,
-              paddingRight: 16,
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 10,
-              borderRadius: 14,
-            backgroundColor: isDark ? "rgba(10, 10, 11, 0.85)" : "rgba(255, 255, 255, 0.92)",
-            borderWidth: 1,
-            borderColor: colors.border,
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: isDark ? 0.3 : 0.1,
-            shadowRadius: 10,
-            elevation: 6,
-            }}
-          >
-            <View
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 10,
-                backgroundColor: "#C6F24A",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <ArrowUpRight size={20} color="#0A0A0B" strokeWidth={2} />
-            </View>
-            <View>
-              <Text className="font-sans-medium text-[15px] leading-[18px] text-fg">Abrir en Maps</Text>
-              <Text className="font-sans text-[12px] leading-[15px] text-fg-3">Ver ruta completa</Text>
-            </View>
-          </Pressable>
-        </Animated.View>
-      )}
-
-      {/* Aviso de "Abrir en Maps", debajo de la isla de arriba */}
+      {/* Aviso de "Abrir en Maps", debajo de los controles */}
       {mapsToast && (
         <View
           testID="route-navigation-toast"
           pointerEvents="none"
           style={{
             position: "absolute",
-            top: topOffset ?? 16,
+            top: (topOffset ?? 16) + 44 + 8,
             alignSelf: "center",
             zIndex: 40,
             flexDirection: "row",

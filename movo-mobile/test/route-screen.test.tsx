@@ -172,7 +172,7 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
       refetch: mockRefetch,
     });
 
-    const { getByTestId, getByText } = await render(<OptimizedRouteScreen />);
+    const { getByTestId, getByText, queryByTestId } = await render(<OptimizedRouteScreen />);
 
     // Isla flotante de viaje en curso (Claude Design)
     expect(getByTestId("route-floating-island")).toBeTruthy();
@@ -201,9 +201,8 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
     await fireEvent.press(getByTestId("route-back-button"));
     expect(mockRouterBack).toHaveBeenCalledTimes(1);
 
-    // Finding 7: Botón de refresco manual en la isla flotante cuando la ruta está activa
-    await fireEvent.press(getByTestId("route-refresh-active-button"));
-    expect(mockRefetch).toHaveBeenCalledTimes(1);
+    // La isla ya no tiene botón de actualizar (la ruta se recalcula al volver a la pantalla)
+    expect(queryByTestId("route-refresh-active-button")).toBeNull();
 
     // Finding 1 / AC9: Al tocar "Retirar paquete" navega al wizard de retiro
     await fireEvent.press(getByTestId("stop-action-btn-1"));
