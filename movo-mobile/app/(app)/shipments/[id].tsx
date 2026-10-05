@@ -1,6 +1,6 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useIsFocused, useLocalSearchParams } from "expo-router";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -94,9 +94,13 @@ export default function ShipmentDetailScreen() {
   // MOVO-271 AC5: mientras el seguimiento espera a que arranque el recorrido, el detalle
   // se refresca solo para habilitarlo sin salir de la pantalla. Importa sobre todo para
   // el receptor, que no participa del retiro (el emisor vuelve del handshake y el
-  // `useFocusEffect` de abajo ya refetchea). Sin el placeholder no hay polling.
+  // `useFocusEffect` de abajo ya refetchea). Sin el placeholder no hay polling. Solo con
+  // foco: el detalle sigue montado en el stack cuando se abre otra pantalla encima, y
+  // React Query no conoce el foco de React Navigation.
+  const isFocused = useIsFocused();
   const { data: shipment, isLoading, isError, error, refetch } = useShipment(id, {
-    refetchInterval: (data) => liveTrackingPendingPollInterval(data, currentUser?.userId),
+    refetchInterval: (data) =>
+      isFocused ? liveTrackingPendingPollInterval(data, currentUser?.userId) : false,
   });
   const [tab, setTab] = useState<DetailTab>("detalle");
   const [isAcceptSuccessVisible, setIsAcceptSuccessVisible] = useState(false);
