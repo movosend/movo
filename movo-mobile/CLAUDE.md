@@ -4167,6 +4167,8 @@ sin nombre todavía muestra solo la acción.
   no como botón flotante grande sobre el sheet.
 - La isla de arriba no tiene botón de actualizar: la ruta se recalcula al volver a la pantalla
   (`useFocusEffect`) y, con el sheet abierto, hay pull-to-refresh.
+- "Volver" es el botón circular con `ChevronLeft` a la izquierda de la isla (mismo patrón que el
+  resto de la app, `canGoBack` o Inicio); se sacó el botón "Inicio" de la derecha.
 - Desvíos del mockup: la dirección es la línea principal también en las filas (el nombre llega
   después y movería el layout), las filas mantienen cuadrado/círculo de los marcadores (AC3 de
   MOVO-207), la card ancla suma la ventana horaria (AC4), y no hay estado "hecha" por parada porque

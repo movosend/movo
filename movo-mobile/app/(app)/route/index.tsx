@@ -22,7 +22,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { router, useLocalSearchParams } from "expo-router";
 import { useColorScheme } from "nativewind";
 import {
-  ArrowLeft,
+  ChevronLeft,
   MapPinOff,
   PackageCheck,
   RefreshCw,
@@ -389,6 +389,12 @@ export default function OptimizedRouteScreen() {
     // El mapa anima suavemente de regreso a la vista panorámica completa
   };
 
+  // Mismo criterio que el resto de la app: volver si hay historial, si no a Inicio
+  const handleBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(app)/(tabs)/home");
+  };
+
   const handlePressShipment = (shipmentId: string) => {
     if (shipmentId.startsWith("demo-")) {
       return;
@@ -412,7 +418,7 @@ export default function OptimizedRouteScreen() {
       {/* 1. VISTA CUANDO HAY UN VIAJE ACTIVO CON MAPA */}
       {hasActiveTrip && displayRoute ? (
         <View className="flex-1 relative">
-          {/* Isla de arriba (mockup 2a): estado del viaje + volver. Se apaga con la ruta abierta.
+          {/* Isla de arriba (mockup 2a): volver (circular, como en el resto de la app) + estado del viaje. Se apaga con la ruta abierta.
               Sin botón de actualizar: la ruta se recalcula al volver a la pantalla y, abierta, tiene pull-to-refresh */}
           <Reanimated.View
             testID="route-floating-island"
@@ -425,8 +431,8 @@ export default function OptimizedRouteScreen() {
                 right: 16,
                 zIndex: 25,
                 height: ISLAND_HEIGHT,
-                paddingLeft: 16,
-                paddingRight: 10,
+                paddingLeft: 12,
+                paddingRight: 12,
                 borderRadius: 14,
                 backgroundColor: isDark ? "rgba(10, 10, 11, 0.85)" : "rgba(255, 255, 255, 0.92)",
                 borderWidth: 1,
@@ -443,6 +449,16 @@ export default function OptimizedRouteScreen() {
               islandStyle,
             ]}
           >
+            <Pressable
+              testID="route-back-button"
+              onPress={handleBack}
+              hitSlop={6}
+              className="h-10 w-10 flex-none items-center justify-center rounded-full bg-bg-mute active:opacity-75"
+              accessibilityRole="button"
+              accessibilityLabel="Volver"
+            >
+              <ChevronLeft size={20} color={colors.fg1} strokeWidth={2} />
+            </Pressable>
             <PulseDot />
             <View className="min-w-0 flex-1 justify-center gap-0.5">
               <Text className="font-sans-semibold text-caption uppercase text-fg-2">
@@ -463,19 +479,7 @@ export default function OptimizedRouteScreen() {
               >
                 <Text className="font-sans-medium text-[15px] text-fg">Salir demo</Text>
               </Pressable>
-            ) : (
-              <View className="flex-none flex-row items-center gap-2">
-                <Pressable
-                  testID="route-back-button"
-                  onPress={() => router.back()}
-                  className="h-11 flex-none items-center justify-center rounded-lg border border-border bg-bg-mute px-4"
-                  accessibilityRole="button"
-                  accessibilityLabel="Inicio"
-                >
-                  <Text className="font-sans-medium text-[15px] text-fg">Inicio</Text>
-                </Pressable>
-              </View>
-            )}
+            ) : null}
           </Reanimated.View>
 
           {/* Fondo completo: Mapa interactivo que no se redimensiona para evitar parpadeos nativos */}
@@ -560,12 +564,12 @@ export default function OptimizedRouteScreen() {
               <View className="flex-row items-center gap-3">
                 <Pressable
                   testID="route-back-button"
-                  onPress={() => router.back()}
-                  className="h-9 w-9 items-center justify-center rounded-full border border-border bg-bg"
+                  onPress={handleBack}
+                  className="h-9 w-9 items-center justify-center rounded-full bg-bg-mute active:opacity-75"
                   accessibilityRole="button"
                   accessibilityLabel="Volver"
                 >
-                  <ArrowLeft size={18} color={colors.fg1} />
+                  <ChevronLeft size={20} color={colors.fg1} strokeWidth={2} />
                 </Pressable>
                 <View>
                   <Text className="font-sans-semibold text-[16px] text-fg">
