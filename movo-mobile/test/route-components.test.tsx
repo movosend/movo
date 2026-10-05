@@ -84,9 +84,15 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       // Sin banner de ruta no optimizada mientras está colapsado
       expect(queryByTestId("unoptimized-route-banner")).toBeNull();
 
-      const wrapper = getByTestId("stop-list-collapsed-content");
-      await fireEvent(wrapper, "layout", { nativeEvent: { layout: { height: 300, width: 390, x: 0, y: 0 } } });
-      expect(onCollapsedHeightChange).toHaveBeenCalledWith(300);
+      // Alto colapsado = encabezado + padding superior (16) + card ancla + padding inferior
+      // (insets 0 en test → 16 + 12 = 28). Ninguno depende de la animación de abrir/cerrar.
+      await fireEvent(getByTestId("stop-list-header"), "layout", {
+        nativeEvent: { layout: { height: 70, width: 390, x: 0, y: 0 } },
+      });
+      await fireEvent(getByTestId("stop-list-anchor"), "layout", {
+        nativeEvent: { layout: { height: 300, width: 350, x: 20, y: 16 } },
+      });
+      expect(onCollapsedHeightChange).toHaveBeenLastCalledWith(70 + 16 + 300 + 28);
     });
 
     it("al abrir despliega el resto de la ruta alrededor de la card ancla y cambia el encabezado a 'Tu ruta'", async () => {
@@ -431,6 +437,109 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       });
       expect(getByTestId("route-map-recenter")).toBeTruthy();
       expect(onResetFocus).toHaveBeenCalledTimes(1);
+    });
+
+    it("renderiza botón 'Abrir en Maps' y activa feedback toast e interactividad de navegación", async () => {
+      jest.useFakeTimers();
+      const openURLSpy = jest.spyOn(Linking, "openURL").mockImplementation(() => Promise.resolve());
+
+      const { getByTestId, getByText, queryByTestId } = await render(
+        <RouteMap
+          carrierLocation={{ lat: -31.4167, lng: -64.1833 }}
+          stops={sampleRoute.stops}
+          activeStopOrder={1}
+        />
+      );
+
+      // Control flotante "Abrir en Maps" con subtítulo
+      const openMapsBtn = getByTestId("route-map-open-maps");
+      expect(openMapsBtn).toBeTruthy();
+      expect(getByText("Abrir en Maps")).toBeTruthy();
+      expect(getByText("Ver ruta completa")).toBeTruthy();
+
+      // Toast no visible al inicio
+      expect(queryByTestId("route-navigation-toast")).toBeNull();
+
+      // Al presionar, abre el enlace y muestra el toast de éxito
+      await act(async () => {
+        fireEvent.press(openMapsBtn);
+      });
+
+      expect(openURLSpy).toHaveBeenCalledTimes(1);
+      // Misma cascada que "Navegar": primero el deep-link nativo de Google Maps (iOS)
+      expect(openURLSpy.mock.calls[0][0]).toContain("comgooglemaps://");
+      expect(openURLSpy.mock.calls[0][0]).toContain("-31.425"); // lat de parada 1
+
+      expect(getByTestId("route-navigation-toast")).toBeTruthy();
+      expect(getByText("Abriendo el recorrido en tu app de mapas...")).toBeTruthy();
+
+      // Al expirar el tiempo del toast (2400ms), desaparece
+      await act(async () => {
+        jest.advanceTimersByTime(2500);
+      });
+      expect(queryByTestId("route-navigation-toast")).toBeNull();
+
+      openURLSpy.mockRestore();
+      jest.useRealTimers();
+    });
+
+    it("muestra feedback de error si el sistema no puede abrir la app de mapas externa", async () => {
+      jest.useFakeTimers();
+      const openURLSpy = jest.spyOn(Linking, "openURL").mockRejectedValue(new Error("No app available"));
+
+      const { getByTestId, getByText, queryByTestId } = await render(
+        <RouteMap
+          carrierLocation={{ lat: -31.4167, lng: -64.1833 }}
+          stops={sampleRoute.stops}
+          activeStopOrder={1}
+        />
+      );
+
+      const openMapsBtn = getByTestId("route-map-open-maps");
+      await act(async () => {
+        fireEvent.press(openMapsBtn);
+      });
+
+      // Prueba toda la cascada (Google Maps nativo → Waze → web) antes de avisar el error
+      expect(openURLSpy).toHaveBeenCalledTimes(3);
+      expect(getByTestId("route-navigation-toast")).toBeTruthy();
+      expect(getByText("No se pudo abrir la navegación externa.")).toBeTruthy();
+
+      await act(async () => {
+        jest.advanceTimersByTime(3100);
+      });
+      expect(queryByTestId("route-navigation-toast")).toBeNull();
+
+      openURLSpy.mockRestore();
+      jest.useRealTimers();
+    });
+
+    it("abre en Google Maps el recorrido completo con todas las paradas secuenciadas mediante waypoints y destino final", async () => {
+      const openURLSpy = jest.spyOn(Linking, "openURL").mockImplementation(() => Promise.resolve());
+
+      const { getByTestId } = await render(
+        <RouteMap
+          carrierLocation={{ lat: -31.4167, lng: -64.1833 }}
+          stops={sampleRoute.stops}
+          activeStopOrder={1}
+        />
+      );
+
+      await act(async () => {
+        fireEvent.press(getByTestId("route-map-open-maps"));
+      });
+
+      // Primera candidata de la cascada (iOS en jest): deep-link nativo de Google Maps
+      expect(openURLSpy).toHaveBeenCalledTimes(1);
+      const calledUrl = openURLSpy.mock.calls[0][0];
+
+      // Origen con la posición del transportista
+      expect(calledUrl).toContain("saddr=-31.4167,-64.1833");
+      // Paradas 1, 2 y 3 (destino final) encadenadas en orden
+      expect(calledUrl).toContain("daddr=-31.425,-64.187+to:-31.9139,-63.6817+to:-32.0416,-63.5698");
+      expect(calledUrl).toContain("directionsmode=driving");
+
+      openURLSpy.mockRestore();
     });
 
     it("al presionar un marcador de parada en el mapa llama a onSelectStop para destacarla en el bottom sheet", async () => {

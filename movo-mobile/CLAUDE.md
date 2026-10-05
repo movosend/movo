@@ -4145,18 +4145,29 @@ endpoint (costo cero para Movo). Detalle en `docs/navigation/README.md`.
 
 **Rediseño de la pantalla "Mi ruta" sobre el mockup 2a de Claude Design** ("Morph desde la
 parada activa", proyecto "Parada en curso"). La card ancla es la parada seleccionada (por
-defecto la próxima): colapsada se ve plana dentro del sheet, y al abrir gana fondo, borde lima y
-padding mientras el resto de la ruta se despliega arriba y abajo con escalonado por distancia.
-Tocar una fila la vuelve ancla (así "Navegar" sigue disponible en cualquier parada); el CTA de
-retiro/entrega solo aparece si la ancla es la próxima. El encabezado cruza "Próxima parada" con
-"Tu ruta", el mapa se oscurece al 45% (tocarlo cierra) y la isla de arriba y "Centrar" suben y se
-apagan. Duración y curva en `src/lib/route-sheet-motion.ts` (360ms, ease-out). El ID del envío se
-reemplaza por "Retirás de / Entregás a" + nombre (`use-stop-counterpart.ts`: `useShipment` +
-`usePublicProfile`); sin nombre todavía muestra solo la acción. Se sacó el "Abrir en Maps"
-flotante (y `openRoute`): duplicaba a "Navegar". Desvíos del mockup: la dirección es la línea
-principal también en las filas (el nombre llega después y movería el layout), las filas mantienen
-cuadrado/círculo de los marcadores (AC3 de MOVO-207) y la card ancla suma la ventana horaria (AC4);
-sin estado "hecha" por parada porque `GET /shipments/my-route` solo devuelve las pendientes.
+defecto la próxima); al abrir aparece detrás de ella un fondo con borde lima y el resto de la ruta
+se despliega arriba y abajo con escalonado por distancia. Tocar una fila la vuelve ancla (así
+"Navegar" sigue disponible en cualquier parada); el CTA de retiro/entrega solo aparece si la ancla
+es la próxima. El encabezado cruza "Próxima parada" con "Tu ruta", el mapa se oscurece al 45%
+(tocarlo cierra) y la isla de arriba, "Centrar" y "Abrir en Maps" suben y se apagan. Duración y
+curva en `src/lib/route-sheet-motion.ts` (360ms, ease-out). El ID del envío se reemplaza por
+"Retirás de / Entregás a" + nombre (`use-stop-counterpart.ts`: `useShipment` + `usePublicProfile`);
+sin nombre todavía muestra solo la acción.
+
+- **El contenido de la card ancla nunca cambia de tamaño**: el fondo y el borde lima son una capa
+  aparte que sobresale 12px y aparece por opacidad. La primera versión animaba padding y tamaño de
+  letra (como el mockup), y en device el texto de la dirección se reacomodaba cuadro a cuadro al
+  abrir y el alto colapsado medido cambiaba durante la animación, con el sheet persiguiéndolo
+  (vibraba al arrastrar). Por eso tampoco se cambia de contenedor entre estados (un solo
+  `ScrollView`) y el alto colapsado sale de encabezado + card, no del layout del sheet.
+- **El `PanResponder` se crea una sola vez** y lee los altos desde refs: recrearlo a mitad de un
+  arrastre reinicia el gesto.
+- "Abrir en Maps" se mantiene (el mockup lo sacaba): es la única forma de ver el recorrido
+  completo en la app de mapas.
+- Desvíos del mockup: la dirección es la línea principal también en las filas (el nombre llega
+  después y movería el layout), las filas mantienen cuadrado/círculo de los marcadores (AC3 de
+  MOVO-207), la card ancla suma la ventana horaria (AC4), y no hay estado "hecha" por parada porque
+  `GET /shipments/my-route` solo devuelve las pendientes.
 
 Pendiente: DoD manual del ticket (Android e iOS con Google Maps, fallback a Waze sin Google
 Maps, fallback a browser sin ninguna de las dos) — no probado en device.

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { AlertCircle, ChevronDown, Package } from "lucide-react-native";
 import {
   GestureResponderHandlers,
@@ -15,7 +15,6 @@ import Animated, {
   Easing,
   Extrapolation,
   interpolate,
-  interpolateColor,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -138,14 +137,6 @@ export function formatTimeWindow(start?: string | null, end?: string | null): st
   return null;
 }
 
-/** `#RRGGBB` → `rgba(r,g,b,a)`; deja pasar cualquier otro formato sin tocar. */
-function withAlpha(hex: string, alpha: number): string {
-  const m = /^#([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return hex;
-  const n = parseInt(m[1], 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
-}
-
 function stopKindLabel(stop: CarrierRouteStop): string {
   return stop.type === "pickup" ? "Retiro" : "Entrega";
 }
@@ -158,14 +149,25 @@ function counterpartLine(stop: CarrierRouteStop, name: string | null): { verb: s
   return name ? { verb: "Entregás a", name } : { verb: "Entregás el paquete", name: null };
 }
 
+/** Cuánto sobresale el fondo de la card ancla abierta alrededor de su contenido. */
+const ANCHOR_CHROME_INSET = 12;
+/** Separación entre la card ancla y la fila vecina (deja lugar al fondo que sobresale). */
+const ANCHOR_ROW_GAP = ANCHOR_CHROME_INSET + 8;
+const ROW_GAP = 8;
+const CONTENT_PADDING_TOP = 16;
+
 /**
  * Sheet de paradas de "Mi ruta" (MOVO-207, rediseñado sobre el mockup 2a de Claude Design
  * "Morph desde la parada activa").
  *
  * La card ancla es la parada seleccionada (por defecto la próxima) y nunca se reemplaza:
- * colapsada se ve plana, integrada al sheet; al abrir gana fondo, borde lima y padding, y
- * el resto de la ruta se despliega desde ella hacia arriba y hacia abajo con un leve
- * escalonado por distancia. Tocar otra parada de la lista la vuelve ancla.
+ * colapsada se ve plana, integrada al sheet; al abrir aparece detrás de ella un fondo con
+ * borde lima, y el resto de la ruta se despliega arriba y abajo con un leve escalonado por
+ * distancia. Tocar otra parada de la lista la vuelve ancla.
+ *
+ * El contenido de la card ancla mide siempre lo mismo (el fondo es una capa aparte que
+ * sobresale): así el texto no se reacomoda cuadro a cuadro al abrir, y el alto colapsado
+ * del sheet no depende de la animación.
  *
  * AC4: orden, tipo, dirección, ventana horaria y ETA de cada parada.
  * AC5: `outsideTimeWindow` se marca explícitamente como "Fuera de ventana".
@@ -212,7 +214,7 @@ export function StopList({
     return () => clearTimeout(timer);
   }, [expanded]);
 
-  // 0 = colapsado, 1 = abierto. Maneja el cruce de encabezados y el "morph" de la card ancla.
+  // 0 = colapsado, 1 = abierto. Maneja el cruce de encabezados y el fondo de la card ancla.
   const openProgress = useSharedValue(expanded ? 1 : 0);
   useEffect(() => {
     openProgress.value = withTiming(expanded ? 1 : 0, {
@@ -228,10 +230,38 @@ export function StopList({
   const anchorIndex = anchorStop ? stops.indexOf(anchorStop) : 0;
   const anchorIsNext = Boolean(anchorStop && nextStop && anchorStop.stopOrder === nextStop.stopOrder);
 
-  // Colapsado y sin filas, el contenido toma su alto natural y se mide para dimensionar el sheet.
-  const measuring = !expanded && !rowsMounted;
-  const handleCollapsedLayout = (e: LayoutChangeEvent) => {
-    onCollapsedHeightChange?.(Math.ceil(e.nativeEvent.layout.height));
+  // Alto colapsado = encabezado + card ancla + paddings. Ninguno de los dos cambia con la
+  // animación, así que se puede reportar en cualquier momento sin que el sheet persiga un
+  // valor que se mueve.
+  const [headerHeight, setHeaderHeight] = useState<number | null>(null);
+  const [anchorHeight, setAnchorHeight] = useState<number | null>(null);
+  useEffect(() => {
+    if (headerHeight == null || anchorHeight == null) return;
+    onCollapsedHeightChange?.(Math.ceil(headerHeight + CONTENT_PADDING_TOP + anchorHeight + bottomPadding));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [headerHeight, anchorHeight, bottomPadding]);
+
+  // Al abrir, si hay paradas antes de la ancla, el scroll la deja donde estaba (las previas
+  // quedan arriba, a un scroll). Al cerrar, vuelve arriba de todo.
+  const scrollRef = useRef<ScrollView>(null);
+  const keepAnchorInPlace = useRef(false);
+  useEffect(() => {
+    if (expanded) {
+      keepAnchorInPlace.current = true;
+    } else {
+      keepAnchorInPlace.current = false;
+      scrollRef.current?.scrollTo?.({ y: 0, animated: true });
+    }
+  }, [expanded]);
+
+  const handleAnchorLayout = (e: LayoutChangeEvent) => {
+    const { height, y } = e.nativeEvent.layout;
+    const rounded = Math.round(height);
+    setAnchorHeight((prev) => (prev === rounded ? prev : rounded));
+    if (keepAnchorInPlace.current && y > CONTENT_PADDING_TOP) {
+      scrollRef.current?.scrollTo?.({ y: y - CONTENT_PADDING_TOP, animated: false });
+      keepAnchorInPlace.current = false;
+    }
   };
 
   const headerCollapsedStyle = useAnimatedStyle(() => ({
@@ -254,29 +284,18 @@ export function StopList({
     totalDistanceKm > 0 ? ` · ${totalDistanceKm.toFixed(1)} km` : ""
   } · horarios aprox.`;
 
-  const anchorCard = anchorStop ? (
-    <AnchorStopCard
-      stop={anchorStop}
-      isNext={anchorIsNext}
-      openProgress={openProgress}
-      bgSub={colors.bgSub}
-      onSelect={() => onSelectStop?.(anchorStop)}
-      onPressShipment={onPressShipment}
-      onPressAction={onPressAction}
-      actionDisabled={isActionDisabled?.(anchorStop) ?? false}
-    />
-  ) : null;
-
   const renderRows = (side: "before" | "after") => {
     const slice = side === "before" ? stops.slice(0, anchorIndex) : stops.slice(anchorIndex + 1);
     return slice.map((stop) => {
       const index = stops.indexOf(stop);
+      const distance = Math.abs(index - anchorIndex);
       return (
         <RouteStopRow
           key={`${stop.shipmentId}-${stop.type}-${stop.stopOrder}`}
           stop={stop}
           side={side}
-          distance={Math.abs(index - anchorIndex)}
+          distance={distance}
+          gap={distance === 1 ? ANCHOR_ROW_GAP : ROW_GAP}
           visible={expanded}
           isNext={Boolean(nextStop && stop.stopOrder === nextStop.stopOrder)}
           onPress={() => onSelectStop?.(stop)}
@@ -287,108 +306,120 @@ export function StopList({
 
   return (
     <View testID={testID} style={{ flex: 1 }} className="bg-bg">
+      {/* Manija y encabezado: se arrastran o se tocan para abrir/cerrar la ruta */}
       <View
-        testID={measuring ? "stop-list-collapsed-content" : undefined}
-        style={measuring ? undefined : { flex: 1 }}
-        onLayout={measuring ? handleCollapsedLayout : undefined}
+        testID="stop-list-header"
+        {...(panHandlers ?? {})}
+        onLayout={(e) => {
+          const h = Math.round(e.nativeEvent.layout.height);
+          setHeaderHeight((prev) => (prev === h ? prev : h));
+        }}
       >
-        {/* Manija y encabezado: se arrastran o se tocan para abrir/cerrar la ruta */}
-        <View {...(panHandlers ?? {})}>
-          <Pressable
-            testID="stop-list-toggle-sheet"
-            onPress={handleToggle}
-            className="px-5 pt-2"
-            accessibilityRole="button"
-            accessibilityLabel={expanded ? "Cerrar la ruta" : "Ver la ruta completa"}
-          >
-            <View testID="stop-list-drag-handle" className="items-center">
-              <View style={{ width: 36, height: 5, borderRadius: 999, backgroundColor: handleColor }} />
-            </View>
-
-            <View style={{ height: 48, marginTop: 14 }}>
-              <Animated.View
-                pointerEvents="none"
-                style={[StyleSheet.absoluteFill, { justifyContent: "center", gap: 4 }, headerCollapsedStyle]}
-              >
-                <Text
-                  testID="stop-list-summary-title"
-                  className="font-sans-semibold text-caption uppercase text-fg-3"
-                >
-                  {headerTitle}
-                </Text>
-                <Text className="font-sans-medium text-[13px] text-fg-2">{headerSubtitle}</Text>
-              </Animated.View>
-
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  StyleSheet.absoluteFill,
-                  { flexDirection: "row", alignItems: "center", gap: 12 },
-                  headerExpandedStyle,
-                ]}
-              >
-                <View className="flex-1 gap-0.5">
-                  <Text className="font-sans-semibold text-[22px] leading-[26px] tracking-[-0.2px] text-fg">
-                    Tu ruta
-                  </Text>
-                  <Text className="font-sans-medium text-[13px] text-fg-2">{routeSummary}</Text>
-                </View>
-                <View className="h-11 w-11 items-center justify-center rounded-lg bg-bg-mute">
-                  <ChevronDown size={20} color={colors.fg1} />
-                </View>
-              </Animated.View>
-            </View>
-          </Pressable>
-        </View>
-
-        {measuring ? (
-          <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: bottomPadding }}>
-            {anchorCard}
+        <Pressable
+          testID="stop-list-toggle-sheet"
+          onPress={handleToggle}
+          className="px-5 pt-2"
+          accessibilityRole="button"
+          accessibilityLabel={expanded ? "Cerrar la ruta" : "Ver la ruta completa"}
+        >
+          <View testID="stop-list-drag-handle" className="items-center">
+            <View style={{ width: 36, height: 5, borderRadius: 999, backgroundColor: handleColor }} />
           </View>
-        ) : (
-          <ScrollView
-            className="flex-1"
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: bottomPadding }}
-            nestedScrollEnabled
-            scrollEnabled={expanded}
-            refreshControl={
-              onRefresh && expanded ? (
-                <RefreshControl
-                  testID="stop-list-refresh-control"
-                  refreshing={Boolean(isRefreshing)}
-                  onRefresh={onRefresh}
-                  tintColor={colors.fg1}
-                  colors={[INK_950]}
-                />
-              ) : undefined
-            }
-          >
-            {/* Aviso de ruta no optimizada (AC6), solo con la ruta abierta */}
-            {!optimized && expanded && (
-              <View
-                testID="unoptimized-route-banner"
-                className="mb-3 flex-row items-start gap-2.5 rounded-lg border border-warning-300 bg-warning-100 p-3"
-              >
-                <AlertCircle size={16} color="#D97706" />
-                <View className="flex-1">
-                  <Text className="font-sans-semibold text-[13px] text-ink-950">
-                    Orden por defecto (no optimizado)
-                  </Text>
-                  <Text className="mt-0.5 font-sans text-[12px] leading-4 text-ink-900">
-                    {disclaimer ??
-                      "El optimizador no estuvo disponible. Se muestran los retiros antes que las entregas según su horario."}
-                  </Text>
-                </View>
-              </View>
-            )}
 
-            {rowsMounted && renderRows("before")}
-            {anchorCard}
-            {rowsMounted && renderRows("after")}
-          </ScrollView>
-        )}
+          <View style={{ height: 48, marginTop: 14 }}>
+            <Animated.View
+              pointerEvents="none"
+              style={[StyleSheet.absoluteFill, { justifyContent: "center", gap: 4 }, headerCollapsedStyle]}
+            >
+              <Text
+                testID="stop-list-summary-title"
+                className="font-sans-semibold text-caption uppercase text-fg-3"
+              >
+                {headerTitle}
+              </Text>
+              <Text className="font-sans-medium text-[13px] text-fg-2">{headerSubtitle}</Text>
+            </Animated.View>
+
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                StyleSheet.absoluteFill,
+                { flexDirection: "row", alignItems: "center", gap: 12 },
+                headerExpandedStyle,
+              ]}
+            >
+              <View className="flex-1 gap-0.5">
+                <Text className="font-sans-semibold text-[22px] leading-[26px] tracking-[-0.2px] text-fg">
+                  Tu ruta
+                </Text>
+                <Text className="font-sans-medium text-[13px] text-fg-2">{routeSummary}</Text>
+              </View>
+              <View className="h-11 w-11 items-center justify-center rounded-lg bg-bg-mute">
+                <ChevronDown size={20} color={colors.fg1} />
+              </View>
+            </Animated.View>
+          </View>
+        </Pressable>
       </View>
+
+      <ScrollView
+        ref={scrollRef}
+        className="flex-1"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingTop: CONTENT_PADDING_TOP,
+          paddingBottom: bottomPadding,
+        }}
+        nestedScrollEnabled
+        scrollEnabled={expanded}
+        refreshControl={
+          onRefresh && expanded ? (
+            <RefreshControl
+              testID="stop-list-refresh-control"
+              refreshing={Boolean(isRefreshing)}
+              onRefresh={onRefresh}
+              tintColor={colors.fg1}
+              colors={[INK_950]}
+            />
+          ) : undefined
+        }
+      >
+        {/* Aviso de ruta no optimizada (AC6), solo con la ruta abierta */}
+        {!optimized && expanded && (
+          <View
+            testID="unoptimized-route-banner"
+            className="mb-5 flex-row items-start gap-2.5 rounded-lg border border-warning-300 bg-warning-100 p-3"
+          >
+            <AlertCircle size={16} color="#D97706" />
+            <View className="flex-1">
+              <Text className="font-sans-semibold text-[13px] text-ink-950">
+                Orden por defecto (no optimizado)
+              </Text>
+              <Text className="mt-0.5 font-sans text-[12px] leading-4 text-ink-900">
+                {disclaimer ??
+                  "El optimizador no estuvo disponible. Se muestran los retiros antes que las entregas según su horario."}
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {rowsMounted && renderRows("before")}
+        {anchorStop && (
+          <View testID="stop-list-anchor" onLayout={handleAnchorLayout}>
+            <AnchorStopCard
+              stop={anchorStop}
+              isNext={anchorIsNext}
+              openProgress={openProgress}
+              onSelect={() => onSelectStop?.(anchorStop)}
+              onPressShipment={onPressShipment}
+              onPressAction={onPressAction}
+              actionDisabled={isActionDisabled?.(anchorStop) ?? false}
+            />
+          </View>
+        )}
+        {rowsMounted && renderRows("after")}
+      </ScrollView>
     </View>
   );
 }
@@ -397,7 +428,6 @@ interface AnchorStopCardProps {
   stop: CarrierRouteStop;
   isNext: boolean;
   openProgress: SharedValue<number>;
-  bgSub: string;
   onSelect: () => void;
   onPressShipment?: (shipmentId: string) => void;
   onPressAction?: (stop: CarrierRouteStop) => void;
@@ -405,15 +435,14 @@ interface AnchorStopCardProps {
 }
 
 /**
- * Card ancla: plana dentro del sheet colapsado, y con fondo, borde lima y padding con la
- * ruta abierta. La dirección es el título (lo que busca quien maneja) y el ID del envío
- * queda detrás de "Ver envío".
+ * Card ancla. La dirección es el título (lo que busca quien maneja) y el ID del envío queda
+ * detrás de "Ver envío". Con la ruta abierta, un fondo con borde lima aparece detrás y
+ * sobresale `ANCHOR_CHROME_INSET`; el contenido no se mueve ni cambia de ancho.
  */
 function AnchorStopCard({
   stop,
   isNext,
   openProgress,
-  bgSub,
   onSelect,
   onPressShipment,
   onPressAction,
@@ -425,21 +454,11 @@ function AnchorStopCard({
   const isPickup = stop.type === "pickup";
   const isLate = stop.outsideTimeWindow;
   const windowText = formatTimeWindow(stop.timeWindowStart, stop.timeWindowEnd);
-  const transparentBg = withAlpha(bgSub, 0);
 
-  const cardStyle = useAnimatedStyle(() => ({
-    padding: interpolate(openProgress.value, [0, 1], [0, 16]),
-    backgroundColor: interpolateColor(openProgress.value, [0, 1], [transparentBg, bgSub]),
-    borderColor: interpolateColor(
-      openProgress.value,
-      [0, 1],
-      ["rgba(198, 242, 74, 0)", "rgba(198, 242, 74, 0.35)"],
-    ),
+  const chromeStyle = useAnimatedStyle(() => ({
+    opacity: openProgress.value,
+    transform: [{ scale: interpolate(openProgress.value, [0, 1], [0.97, 1]) }],
   }));
-  const titleStyle = useAnimatedStyle(() => {
-    const size = interpolate(openProgress.value, [0, 1], [22, 20]);
-    return { fontSize: size, lineHeight: Math.round(size * 1.2) };
-  });
 
   const actionLabel = actionDisabled
     ? isPickup
@@ -450,7 +469,25 @@ function AnchorStopCard({
       : "Entregar paquete";
 
   return (
-    <Animated.View style={[{ borderRadius: 8, borderWidth: 1, gap: 14 }, cardStyle]}>
+    <View style={{ gap: 14 }}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          {
+            position: "absolute",
+            top: -ANCHOR_CHROME_INSET,
+            bottom: -ANCHOR_CHROME_INSET,
+            left: -ANCHOR_CHROME_INSET,
+            right: -ANCHOR_CHROME_INSET,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: "rgba(198, 242, 74, 0.35)",
+            backgroundColor: colors.bgSub,
+          },
+          chromeStyle,
+        ]}
+      />
+
       <Pressable
         testID={`stop-row-${stop.stopOrder}`}
         accessibilityState={{ selected: true }}
@@ -495,15 +532,12 @@ function AnchorStopCard({
           </Text>
         </View>
 
-        <Animated.Text
+        <Text
           numberOfLines={2}
-          style={[
-            { fontFamily: "Inter_600SemiBold", letterSpacing: -0.2, color: colors.fg1 },
-            titleStyle,
-          ]}
+          className="font-sans-semibold text-[22px] leading-[26px] tracking-[-0.2px] text-fg"
         >
           {stop.address ?? "Dirección a coordinar"}
-        </Animated.Text>
+        </Text>
 
         <View className="flex-row items-baseline gap-1.5">
           <Text className="font-sans text-[15px] text-fg-3">{verb}</Text>
@@ -572,7 +606,7 @@ function AnchorStopCard({
           </Pressable>
         )}
       </View>
-    </Animated.View>
+    </View>
   );
 }
 
@@ -581,6 +615,8 @@ interface RouteStopRowProps {
   side: "before" | "after";
   /** Paradas de distancia a la card ancla: define el escalonado al abrir. */
   distance: number;
+  /** Separación hacia la card vecina (más grande junto a la ancla, por su fondo). */
+  gap: number;
   visible: boolean;
   isNext: boolean;
   onPress: () => void;
@@ -589,9 +625,9 @@ interface RouteStopRowProps {
 /**
  * Fila compacta de una parada que no es la ancla. Entra desde la card ancla (arriba o
  * abajo según su lado) con un leve escalonado por distancia; al cerrar se apaga entera
- * de una, sin escalonado.
+ * de una, sin escalonado. Mismo ancho que el fondo de la card ancla abierta.
  */
-function RouteStopRow({ stop, side, distance, visible, isNext, onPress }: RouteStopRowProps) {
+function RouteStopRow({ stop, side, distance, gap, visible, isNext, onPress }: RouteStopRowProps) {
   const colors = useThemeColors();
   const name = useStopCounterpartName(stop);
   const { verb, name: who } = counterpartLine(stop, name);
@@ -632,7 +668,11 @@ function RouteStopRow({ stop, side, distance, visible, isNext, onPress }: RouteS
 
   return (
     <Animated.View
-      style={[side === "before" ? { paddingBottom: 8 } : { paddingTop: 8 }, rowStyle]}
+      style={[
+        { marginHorizontal: -ANCHOR_CHROME_INSET },
+        side === "before" ? { paddingBottom: gap } : { paddingTop: gap },
+        rowStyle,
+      ]}
     >
       <Pressable
         testID={`stop-row-${stop.stopOrder}`}
@@ -640,7 +680,7 @@ function RouteStopRow({ stop, side, distance, visible, isNext, onPress }: RouteS
         accessibilityRole="button"
         accessibilityLabel={`Parada ${stop.stopOrder}: ${stopKindLabel(stop)} en ${stop.address ?? "dirección a coordinar"}`}
         onPress={onPress}
-        className="min-h-[72px] flex-row items-center gap-3 rounded-lg border border-border bg-bg-sub px-3.5 py-3 active:opacity-80"
+        className="min-h-[72px] flex-row items-center gap-3 rounded-xl border border-border bg-bg-sub px-3.5 py-3 active:opacity-80"
       >
         {/* Mismo código de forma que los marcadores del mapa: cuadrado retiro, círculo entrega */}
         <View

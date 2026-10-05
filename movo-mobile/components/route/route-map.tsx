@@ -3,7 +3,9 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
 import { useColorScheme } from "nativewind";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
-import { Crosshair, Map, X } from "lucide-react-native";
+import * as Haptics from "expo-haptics";
+import { ArrowUpRight, Crosshair, Map, X } from "lucide-react-native";
+import { openRoute } from "../../src/lib/navigation-deeplink";
 import type { CarrierRouteStop } from "@movo/shared/dist/types/routing";
 import {
   movoMapStyleDark,
@@ -61,6 +63,8 @@ export function RouteMap({
   const [isTrackingCourier, setIsTrackingCourier] = useState<boolean>(false);
   const [activeTooltip, setActiveTooltip] = useState<"origin" | "courier" | null>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [mapsToast, setMapsToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const mapsToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -90,8 +94,41 @@ export function RouteMap({
       if (tooltipTimeoutRef.current) {
         clearTimeout(tooltipTimeoutRef.current);
       }
+      if (mapsToastTimeoutRef.current) {
+        clearTimeout(mapsToastTimeoutRef.current);
+      }
     };
   }, []);
+
+  // "Abrir en Maps": el recorrido completo (todas las paradas en orden) en la app de mapas,
+  // con la misma cascada de deep-links que "Navegar" (MOVO-237).
+  const handleOpenExternalMaps = () => {
+    try {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+
+    // Paradas ordenadas según stopOrder; sin paradas, se navega hacia la posición del transportista.
+    const sortedStops = [...stops].sort((a, b) => a.stopOrder - b.stopOrder);
+    const routeStops = sortedStops.length > 0 ? sortedStops : carrierLocation ? [carrierLocation] : [];
+
+    void openRoute({
+      origin: carrierLocation,
+      stops: routeStops.map((s) => ({ lat: s.lat, lng: s.lng })),
+    }).then((opened) => {
+      const ok = opened !== null;
+      setMapsToast(
+        ok
+          ? { type: "success", message: "Abriendo el recorrido en tu app de mapas..." }
+          : { type: "error", message: "No se pudo abrir la navegación externa." },
+      );
+      if (mapsToastTimeoutRef.current) {
+        clearTimeout(mapsToastTimeoutRef.current);
+      }
+      mapsToastTimeoutRef.current = setTimeout(() => {
+        setMapsToast(null);
+      }, ok ? 2400 : 3000);
+    });
+  };
 
   // Los controles se apagan y suben un poco con la ruta abierta, en vez de desaparecer de golpe
   const controlsProgress = useSharedValue(showControls ? 1 : 0);
@@ -533,6 +570,93 @@ export function RouteMap({
           </Text>
         </Pressable>
       </Animated.View>
+
+      {/* "Abrir en Maps": ruta completa en la app de mapas. Mismo vidrio y alto que "Centrar" */}
+      {stops.length > 0 && (
+        <Animated.View
+          pointerEvents={showControls ? "box-none" : "none"}
+          style={[{ position: "absolute", right: 16, bottom: (bottomOffset ?? 270) + 16, zIndex: 25 }, controlsStyle]}
+        >
+          <Pressable
+            testID="route-map-open-maps"
+            onPress={handleOpenExternalMaps}
+            accessibilityRole="button"
+            accessibilityLabel="Abrir en Maps para ver la ruta completa"
+            style={{
+              height: 52,
+              paddingLeft: 8,
+              paddingRight: 16,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+              borderRadius: 14,
+            backgroundColor: isDark ? "rgba(10, 10, 11, 0.85)" : "rgba(255, 255, 255, 0.92)",
+            borderWidth: 1,
+            borderColor: colors.border,
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: isDark ? 0.3 : 0.1,
+            shadowRadius: 10,
+            elevation: 6,
+            }}
+          >
+            <View
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                backgroundColor: "#C6F24A",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <ArrowUpRight size={20} color="#0A0A0B" strokeWidth={2} />
+            </View>
+            <View>
+              <Text className="font-sans-medium text-[15px] leading-[18px] text-fg">Abrir en Maps</Text>
+              <Text className="font-sans text-[12px] leading-[15px] text-fg-3">Ver ruta completa</Text>
+            </View>
+          </Pressable>
+        </Animated.View>
+      )}
+
+      {/* Aviso de "Abrir en Maps", debajo de la isla de arriba */}
+      {mapsToast && (
+        <View
+          testID="route-navigation-toast"
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: topOffset ?? 16,
+            alignSelf: "center",
+            zIndex: 40,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            borderRadius: 999,
+            backgroundColor: isDark ? "rgba(10, 10, 11, 0.85)" : "rgba(255, 255, 255, 0.92)",
+            borderWidth: 1,
+            borderColor: colors.border,
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: isDark ? 0.3 : 0.1,
+            shadowRadius: 10,
+            elevation: 6,
+          }}
+        >
+          <View
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: 4,
+              backgroundColor: mapsToast.type === "error" ? "#E5484D" : "#C6F24A",
+            }}
+          />
+          <Text className="font-sans-medium text-[13px] text-fg">{mapsToast.message}</Text>
+        </View>
+      )}
     </View>
   );
 }

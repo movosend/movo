@@ -244,16 +244,21 @@ export default function OptimizedRouteScreen() {
   // Mientras el sheet se mueve, los cambios de alto medido no lo tocan: al terminar se
   // reconcilia contra el último alto medido (la card ancla cambia de padding al cerrar).
   const isAnimatingRef = useRef(false);
+  const isDraggingRef = useRef(false);
   const collapsedHeightRef = useRef(COLLAPSED_HEIGHT);
   collapsedHeightRef.current = COLLAPSED_HEIGHT;
+  const expandedHeightRef = useRef(EXPANDED_HEIGHT);
+  expandedHeightRef.current = EXPANDED_HEIGHT;
   const hasMeasuredRef = useRef(false);
 
   const animateTo = useCallback(
-    (toHeight: number, expandState: boolean) => {
+    (toHeight: number, expandState: boolean, withHaptic = true) => {
       setIsListExpanded(expandState);
-      try {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      } catch {}
+      if (withHaptic) {
+        try {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        } catch {}
+      }
       isAnimatingRef.current = true;
       Animated.timing(sheetHeightAnim, {
         toValue: toHeight,
@@ -277,7 +282,8 @@ export default function OptimizedRouteScreen() {
 
   // Si cambia el alto medido (otra parada, otro texto) y el sheet está quieto y colapsado, acompañarlo
   useEffect(() => {
-    if (isExpandedRef.current || isAnimatingRef.current) return;
+    if (isExpandedRef.current || isAnimatingRef.current || isDraggingRef.current) return;
+    if (hasMeasuredRef.current && Math.abs(currentHeightRef.current - COLLAPSED_HEIGHT) < 1) return;
     if (!hasMeasuredRef.current) {
       sheetHeightAnim.setValue(COLLAPSED_HEIGHT);
     } else {
@@ -314,50 +320,50 @@ export default function OptimizedRouteScreen() {
     animateTo(nextState ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT, nextState);
   }, [EXPANDED_HEIGHT, COLLAPSED_HEIGHT, animateTo]);
 
-  // Gestos de arrastre desde el borde superior / handle del Bottom Sheet
+  // Gestos de arrastre desde la manija/encabezado del sheet. Se crea una sola vez y lee los
+  // altos desde refs: si se recreara a mitad de un arrastre (por ejemplo porque cambió el alto
+  // medido), el gesto arrancaría de nuevo y el sheet saltaría.
   const panResponder = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
         onStartShouldSetPanResponderCapture: () => false,
-        onMoveShouldSetPanResponder: (_, gestureState) => {
-          return Math.abs(gestureState.dy) > 3;
-        },
-        onMoveShouldSetPanResponderCapture: (_, gestureState) => {
-          return Math.abs(gestureState.dy) > 3;
-        },
+        onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+        onMoveShouldSetPanResponderCapture: (_, g) => Math.abs(g.dy) > 4 && Math.abs(g.dy) > Math.abs(g.dx),
         onPanResponderTerminationRequest: () => false,
         onPanResponderGrant: () => {
+          isDraggingRef.current = true;
           sheetHeightAnim.stopAnimation();
           dragStartHeightRef.current = currentHeightRef.current;
         },
-        onPanResponderMove: (_, gestureState) => {
-          // Arrastrar hacia arriba (dy < 0) agranda la altura del sheet
-          const newHeight = dragStartHeightRef.current - gestureState.dy;
-          const clamped = Math.min(Math.max(newHeight, COLLAPSED_HEIGHT - 30), EXPANDED_HEIGHT + 30);
-          sheetHeightAnim.setValue(clamped);
+        onPanResponderMove: (_, g) => {
+          // Arrastrar hacia arriba (dy < 0) agranda el sheet; pasado el tope se frena.
+          const min = collapsedHeightRef.current;
+          const max = expandedHeightRef.current;
+          let next = dragStartHeightRef.current - g.dy;
+          if (next > max) next = max + (next - max) * 0.25;
+          if (next < min) next = min - (min - next) * 0.25;
+          sheetHeightAnim.setValue(next);
         },
-        onPanResponderRelease: (_, gestureState) => {
-          const movedUp = gestureState.dy < -25 || gestureState.vy < -0.25;
-          const movedDown = gestureState.dy > 25 || gestureState.vy > 0.25;
-
-          let shouldExpand = isExpandedRef.current;
-          if (!isExpandedRef.current && movedUp) {
-            shouldExpand = true;
-          } else if (isExpandedRef.current && movedDown) {
-            shouldExpand = false;
-          } else {
-            const midpoint = (COLLAPSED_HEIGHT + EXPANDED_HEIGHT) / 2;
-            shouldExpand = currentHeightRef.current > midpoint;
-          }
-
-          animateTo(shouldExpand ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT, shouldExpand);
+        onPanResponderRelease: (_, g) => {
+          isDraggingRef.current = false;
+          const min = collapsedHeightRef.current;
+          const max = expandedHeightRef.current;
+          const wasExpanded = isExpandedRef.current;
+          let shouldExpand: boolean;
+          if (g.vy < -0.3 || g.dy < -40) shouldExpand = true;
+          else if (g.vy > 0.3 || g.dy > 40) shouldExpand = false;
+          else shouldExpand = currentHeightRef.current > (min + max) / 2;
+          animateTo(shouldExpand ? max : min, shouldExpand, shouldExpand !== wasExpanded);
         },
         onPanResponderTerminate: () => {
-          animateTo(isExpandedRef.current ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT, isExpandedRef.current);
+          isDraggingRef.current = false;
+          const expanded = isExpandedRef.current;
+          animateTo(expanded ? expandedHeightRef.current : collapsedHeightRef.current, expanded, false);
         },
       }),
-    [COLLAPSED_HEIGHT, EXPANDED_HEIGHT, animateTo, sheetHeightAnim]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
   );
 
   // Determinar si hay un viaje activo válido con paradas asignadas
