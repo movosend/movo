@@ -14,7 +14,6 @@ import Reanimated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
-  withRepeat,
   withTiming,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
@@ -61,29 +60,6 @@ const CHROME_EASING = Easing.bezier(...ROUTE_SHEET_BEZIER);
 const ISLAND_HEIGHT = 64;
 const ISLAND_GAP = 16;
 
-/** Punto lima con un anillo que se expande y se apaga en loop: el viaje está en curso. */
-function PulseDot() {
-  const pulse = useSharedValue(0);
-  useEffect(() => {
-    pulse.value = withRepeat(withTiming(1, { duration: 2000, easing: Easing.out(Easing.ease) }), -1, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  const ringStyle = useAnimatedStyle(() => ({
-    opacity: 0.55 * (1 - pulse.value),
-    transform: [{ scale: 1 + pulse.value * 1.6 }],
-  }));
-  return (
-    <View style={{ width: 8, height: 8 }}>
-      <Reanimated.View
-        style={[
-          { position: "absolute", width: 8, height: 8, borderRadius: 999, backgroundColor: "#C6F24A" },
-          ringStyle,
-        ]}
-      />
-      <View style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: "#C6F24A" }} />
-    </View>
-  );
-}
 
 /** Polilínea codificada real del trazado vial Córdoba → Las Mulitas → Oncativo → Villa María (RN 9 / Autopista) */
 const DEMO_POLYLINE =
@@ -418,7 +394,7 @@ export default function OptimizedRouteScreen() {
       {/* 1. VISTA CUANDO HAY UN VIAJE ACTIVO CON MAPA */}
       {hasActiveTrip && displayRoute ? (
         <View className="flex-1 relative">
-          {/* Isla de arriba (mockup 2a): volver (circular, como en el resto de la app) + estado del viaje. Se apaga con la ruta abierta.
+          {/* Isla de arriba (mockup 2a, sin el punto pulsante): volver (circular, como en el resto de la app) + estado del viaje. Se apaga con la ruta abierta.
               Sin botón de actualizar: la ruta se recalcula al volver a la pantalla y, abierta, tiene pull-to-refresh */}
           <Reanimated.View
             testID="route-floating-island"
@@ -459,7 +435,6 @@ export default function OptimizedRouteScreen() {
             >
               <ChevronLeft size={20} color={colors.fg1} strokeWidth={2} />
             </Pressable>
-            <PulseDot />
             <View className="min-w-0 flex-1 justify-center gap-0.5">
               <Text className="font-sans-semibold text-caption uppercase text-fg-2">
                 {demoMode ? "Modo demo" : "Viaje en curso"}

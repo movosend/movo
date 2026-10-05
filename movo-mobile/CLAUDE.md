@@ -4149,7 +4149,7 @@ defecto la próxima); al abrir aparece detrás de ella un fondo con borde lima y
 se despliega arriba y abajo con escalonado por distancia. Tocar una fila la vuelve ancla (así
 "Navegar" sigue disponible en cualquier parada); el CTA de retiro/entrega solo aparece si la ancla
 es la próxima. El encabezado cruza "Próxima parada" con "Tu ruta", el mapa se oscurece al 45%
-(tocarlo cierra) y la isla de arriba, "Centrar" y "Abrir en Maps" suben y se apagan. Duración y
+(tocarlo cierra) y la isla de arriba (sin el punto pulsante del mockup), "Centrar" y "Abrir en Maps" suben y se apagan. Duración y
 curva en `src/lib/route-sheet-motion.ts` (360ms, ease-out). El ID del envío se reemplaza por
 "Retirás de / Entregás a" + nombre (`use-stop-counterpart.ts`: `useShipment` + `usePublicProfile`);
 sin nombre todavía muestra solo la acción.
