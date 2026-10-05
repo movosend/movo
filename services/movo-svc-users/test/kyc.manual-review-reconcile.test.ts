@@ -130,6 +130,23 @@ describe("Reconciliación de manual_review → estado terminal (fix del caso rep
     expect(user?.kycStatusIdentity).toBe("rejected");
   });
 
+  it("un webhook 'In Review' repetido sobre manual_review no reescribe la fila (review de PR #215, MOVO-274)", async () => {
+    const { userId, externalSessionId } = await createManualReviewVerification();
+    const before = await app.db.kycVerification.findUnique({ where: { externalSessionId } });
+
+    const response = await postWebhook({ status: "In Review", session_id: externalSessionId });
+
+    expect(response.statusCode).toBe(200);
+    // Quedarse en manual_review no es una transición: no se toca resolvedAt ni raw_decision
+    // (y, por la misma compuerta, tampoco se vuelve a mandar el push de "en revisión").
+    const after = await app.db.kycVerification.findUnique({ where: { externalSessionId } });
+    expect(after?.status).toBe("manual_review");
+    expect(after?.resolvedAt?.getTime()).toBe(before?.resolvedAt?.getTime());
+    expect(after?.rawDecision).toEqual(before?.rawDecision);
+    const user = await app.db.user.findUnique({ where: { id: userId } });
+    expect(user?.kycStatusIdentity).toBe("manual_review");
+  });
+
   it("GET /kyc/status reconcilia contra Didit (pull) cuando el segundo webhook nunca llegó a nuestro backend", async () => {
     const { userId, externalSessionId } = await createManualReviewVerification();
     // Simula que Didit sí tiene la decisión (el operador ya aprobó), pero por lo que

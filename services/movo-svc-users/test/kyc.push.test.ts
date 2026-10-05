@@ -188,6 +188,41 @@ describe("Push del resultado de KYC (MOVO-274)", () => {
       expect(notifications.sendPushToUser).not.toHaveBeenCalled();
     });
 
+    // Review de PR #215: Didit repite `In Review` mientras dura la revisión humana. Si
+    // `manual_review` fuera también un origen válido para llegar a `manual_review`, la
+    // compuerta devolvería la fila (transición `manual_review` → `manual_review`) y el
+    // aviso de "en revisión" saldría una vez por cada repetición.
+    it("'In Review' solo puede partir de pending: un duplicado sobre manual_review no avisa de nuevo", async () => {
+      // Con `fromStatus: [pending]`, la compuerta real (`status in fromStatus`) no
+      // matchea una fila que ya está en manual_review y devuelve null.
+      mocks.resolveByExternalSessionId.mockResolvedValue(null);
+      const { service, notifications } = buildService();
+
+      await postWebhook(service, { status: "In Review", session_id: SESSION_ID });
+
+      expect(mocks.resolveByExternalSessionId).toHaveBeenCalledWith(
+        expect.objectContaining({ fromStatus: [KycStatus.PENDING], toStatus: KycStatus.MANUAL_REVIEW })
+      );
+      expect(notifications.sendPushToUser).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { rawStatus: "Approved", status: KycStatus.APPROVED },
+      { rawStatus: "Declined", status: KycStatus.REJECTED },
+    ])(
+      "'$rawStatus' sigue partiendo de pending y de manual_review (la revisión humana se resuelve después)",
+      async ({ rawStatus, status }) => {
+        mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", status));
+        const { service } = buildService();
+
+        await postWebhook(service, { status: rawStatus, session_id: SESSION_ID });
+
+        expect(mocks.resolveByExternalSessionId).toHaveBeenCalledWith(
+          expect.objectContaining({ fromStatus: [KycStatus.PENDING, KycStatus.MANUAL_REVIEW], toStatus: status })
+        );
+      }
+    );
+
     it("el push sale DESPUÉS de aplicar la decisión", async () => {
       mocks.resolveByExternalSessionId.mockResolvedValue(fakeVerification("identity", KycStatus.APPROVED));
       const { service, notifications } = buildService();
@@ -245,6 +280,24 @@ describe("Push del resultado de KYC (MOVO-274)", () => {
       const result = await service.getStatus(USER_ID, "identity");
 
       expect(result.status).toBe(KycStatus.APPROVED);
+      expect(notifications.sendPushToUser).not.toHaveBeenCalled();
+    });
+
+    it("un pull que sigue viendo 'In Review' sobre una verificación en manual_review no avisa de nuevo", async () => {
+      mocks.findById.mockResolvedValue(fakeUser(KycStatus.MANUAL_REVIEW));
+      mocks.findLatestByUserId.mockResolvedValue({ status: KycStatus.MANUAL_REVIEW, externalSessionId: SESSION_ID });
+      // Misma compuerta que el webhook: `fromStatus: [pending]` no matchea manual_review.
+      mocks.resolveByExternalSessionId.mockResolvedValue(null);
+      const { service, notifications } = buildService({
+        getSessionDecision: async () => ({ sessionId: SESSION_ID, rawStatus: "In Review", decision: {} }),
+      });
+
+      const result = await service.getStatus(USER_ID, "identity");
+
+      expect(result.status).toBe(KycStatus.MANUAL_REVIEW);
+      expect(mocks.resolveByExternalSessionId).toHaveBeenCalledWith(
+        expect.objectContaining({ fromStatus: [KycStatus.PENDING], toStatus: KycStatus.MANUAL_REVIEW })
+      );
       expect(notifications.sendPushToUser).not.toHaveBeenCalled();
     });
 

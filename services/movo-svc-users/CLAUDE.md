@@ -1187,6 +1187,11 @@ tocar mobile. Todo sale por `notifications/send-trigger-push.ts#sendTriggerPush`
   webhook y pull comparten esa compuerta de idempotencia, así que un webhook repetido, o el pull que
   llega después del webhook, no manda un segundo push. `expired` aplica la transición pero no avisa (no
   es un resultado). El copy no lleva el motivo del rechazo ni datos del documento (AC9 de MOVO-72).
+  **`manual_review` como destino parte solo de `pending`** (review de PR #215): Didit repite `In Review`
+  mientras dura la revisión humana, y con `manual_review` también como origen la compuerta lo contaba como
+  una transición `manual_review` → `manual_review` (devolvía la fila, reescribía `resolvedAt`/`raw_decision`
+  y repetía el push en cada webhook duplicado o "actualizar estado"). Los resultados finales
+  (`approved`/`rejected`/`expired`) siguen partiendo de `pending` y `manual_review`.
 - **Cuenta y seguridad**: contraseña (`changePassword` y `resetPassword`, después de revocar las
   sesiones), teléfono (`verifyPhoneChange`, hasta ahora sin ningún aviso) y email (`verifyEmailChange`,
   además del mail al email anterior). El push se suma a los avisos por SMS/mail, no los reemplaza.

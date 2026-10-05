@@ -298,6 +298,15 @@ export function createKycService(
    * consola de Didit, webhook "entregado" según Didit, pero el usuario seguía viendo
    * "en revisión" sin ninguna forma de destrabarse).
    *
+   * Esa excepción NO aplica cuando el destino es el propio `manual_review`: ahí el origen
+   * válido es solo `pending`. Didit sigue devolviendo `In Review` todo el tiempo que dura
+   * la revisión humana (en cada webhook repetido y en cada pull de "actualizar estado"),
+   * y con `manual_review` también como origen la compuerta lo contaba como una transición
+   * `manual_review` → `manual_review`: devolvía la fila en vez de `null`, reescribía
+   * `resolvedAt`/`raw_decision` y, con MOVO-274, volvía a mandar el push de "en revisión"
+   * (review de PR #215). Quedarse en el mismo estado no es una transición, así que
+   * devuelve `null` como cualquier duplicado (AC7).
+   *
    * MOVO-15: además de sincronizar `users.kyc_status_identity`/`kyc_status_license`
    * (según `result.verificationType`), si el tipo es `license` y la decisión es
    * `approved`, upsertea `users.drivers_license` en la misma transacción — es el único
@@ -308,11 +317,16 @@ export function createKycService(
     targetStatus: KycStatus,
     rawDecision: Record<string, unknown>
   ): Promise<KycVerification | null> {
+    const fromStatus =
+      targetStatus === KycStatus.MANUAL_REVIEW
+        ? [KycStatus.PENDING]
+        : [KycStatus.PENDING, KycStatus.MANUAL_REVIEW];
+
     return db.$transaction(async (tx) => {
       const txKycVerificationRepository = createKycVerificationRepository(tx);
       const result = await txKycVerificationRepository.resolveByExternalSessionId({
         externalSessionId,
-        fromStatus: [KycStatus.PENDING, KycStatus.MANUAL_REVIEW],
+        fromStatus,
         toStatus: targetStatus,
         rawDecision,
       });
