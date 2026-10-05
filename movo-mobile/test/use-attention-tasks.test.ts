@@ -187,6 +187,48 @@ describe("useAttentionTasks (MOVO-193)", () => {
     expect(result.current.tasks).toEqual([]);
   });
 
+  it("arma una tarea de ofertas para un envío propio publicado con ofertas pendientes (MOVO-184 AC5)", async () => {
+    mockUseAttentionSourceShipments.mockReturnValue({
+      data: {
+        items: [
+          shipment({ id: "una", senderId: "me", status: ShipmentStatus.PUBLISHED, pendingOffersCount: 1 }),
+          shipment({ id: "varias", senderId: "me", status: ShipmentStatus.PUBLISHED, pendingOffersCount: 3 }),
+        ],
+      },
+      isLoading: false,
+    });
+
+    const { result } = await renderHook(() => useAttentionTasks());
+
+    expect(result.current.tasks).toMatchObject([
+      { kind: "info", id: "offers-una", icon: "offers", title: "Recibiste una oferta", primaryLabel: "Ver ofertas" },
+      { kind: "info", id: "offers-varias", title: "Recibiste 3 ofertas" },
+    ]);
+    const [task] = result.current.tasks;
+    if (task.kind !== "info") throw new Error("esperaba una tarea info");
+    task.onPress();
+    expect(mockPush).toHaveBeenLastCalledWith("/shipments/una");
+    task.onPrimary();
+    expect(mockPush).toHaveBeenLastCalledWith("/shipments/una/offers");
+  });
+
+  it("no arma tarea de ofertas sin ofertas pendientes ni si el envío publicado no es propio", async () => {
+    mockUseAttentionSourceShipments.mockReturnValue({
+      data: {
+        items: [
+          shipment({ id: "sin", senderId: "me", status: ShipmentStatus.PUBLISHED, pendingOffersCount: 0 }),
+          shipment({ id: "nulo", senderId: "me", status: ShipmentStatus.PUBLISHED, pendingOffersCount: null }),
+          shipment({ id: "ajeno", senderId: "otro", receiverId: "me", status: ShipmentStatus.PUBLISHED, pendingOffersCount: 2 }),
+        ],
+      },
+      isLoading: false,
+    });
+
+    const { result } = await renderHook(() => useAttentionTasks());
+
+    expect(result.current.tasks).toEqual([]);
+  });
+
   it("ignora estados que no generan tarea (ej. in_transit)", async () => {
     mockUseAttentionSourceShipments.mockReturnValue({
       data: { items: [shipment({ id: "s5", senderId: "me", status: ShipmentStatus.IN_TRANSIT })] },

@@ -9,10 +9,12 @@ import { useAuthStore } from "../store/auth-store";
 import { usePublicProfiles } from "./use-profile";
 import { useAttentionSourceShipments } from "./use-shipments";
 
-/** Tarea informativa de un solo botón (ej. "El receptor rechazó tu envío"). */
+/** Tarea informativa de un solo botón (ej. "Recibiste 2 ofertas"). */
 export interface AttentionInfoTask {
   kind: "info";
   id: string;
+  /** Ícono del círculo de la card; sin valor, el genérico de aviso. */
+  icon?: "offers";
   title: string;
   meta: string;
   onPress: () => void;
@@ -65,14 +67,16 @@ export type AttentionTask = AttentionInfoTask | AttentionConfirmTask | Attention
  *   (MOVO-253). Con el plazo vencido (o nulo, rechazos anteriores a MOVO-253) la tarea
  *   no se lista: la acción ya no está disponible y el barrido cancela el envío.
  *
- * La fuente pide solo esos dos estados (`useAttentionSourceShipments`, MOVO-253 AC8).
+ * - `PUBLISHED` con el usuario como emisor y `pendingOffersCount > 0` (MOVO-184 AC5):
+ *   recibió ofertas y tiene que elegir quién lo lleva. Tocar la card navega al
+ *   detalle; "Ver ofertas" va directo a la pantalla de ofertas recibidas (MOVO-150).
+ *   El conteo sale de `pendingOffersCount` de `/mine` (MOVO-257), sin un request por
+ *   envío.
+ *
+ * La fuente pide solo esos estados (`useAttentionSourceShipments`, MOVO-253 AC8).
  *
  * Deliberadamente fuera de esta versión (gaps de backend a crear como ticket nuevo,
  * ver el comentario dejado en MOVO-192):
- * - "Ofertas nuevas en mis envíos publicados": no hay ningún agregado de ofertas para
- *   el propio emisor en `GET /shipments/mine` — `ShipmentSummary.offersSummary` es
- *   solo para un transportista ajeno viendo el envío (MOVO-180), y listar el conteo
- *   real requeriría un `GET /shipments/:id/offers` por cada envío publicado (N+1).
  * - "Calificaciones pendientes de dar": no existe ningún endpoint que liste envíos
  *   entregados sin calificar por el usuario actual (`ratings-client.ts` solo permite
  *   crear/leer una calificación puntual) — ver `MOVO-222`.
@@ -160,6 +164,23 @@ export function useAttentionTasks() {
           deadlineLabel,
           onPress: () => router.push(`/shipments/${shipment.id}`),
           onChooseReceiver: () => router.push(`/shipments/${shipment.id}/change-receiver`),
+        });
+      }
+      const offersCount = shipment.pendingOffersCount ?? 0;
+      if (
+        shipment.status === ShipmentStatus.PUBLISHED &&
+        shipment.senderId === currentUserId &&
+        offersCount > 0
+      ) {
+        tasks.push({
+          kind: "info",
+          id: `offers-${shipment.id}`,
+          icon: "offers",
+          title: offersCount === 1 ? "Recibiste una oferta" : `Recibiste ${offersCount} ofertas`,
+          meta: `Va a ${shortAddressLabel(shipment.deliveryAddress)}`,
+          onPress: () => router.push(`/shipments/${shipment.id}`),
+          primaryLabel: "Ver ofertas",
+          onPrimary: () => router.push(`/shipments/${shipment.id}/offers`),
         });
       }
     }

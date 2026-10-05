@@ -10,6 +10,7 @@ const TRIP_STATUS_LABELS: Record<TripStatus, string> = {
   [TripStatus.CANCELLED]: "Cancelado",
   [TripStatus.EXPIRED]: "Vencido",
   [TripStatus.COMPLETED]: "Completado",
+  [TripStatus.EXPIRED]: "Expirado",
 };
 
 export function tripStatusLabel(status: TripStatus): string {

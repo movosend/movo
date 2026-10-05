@@ -428,13 +428,16 @@ export interface ShipmentRepository {
    * todavía no hay rol de "carrier" asignado en este sprint). Paginado, más reciente
    * primero. `statuses` (MOVO-253, opcional) acota a esos estados -- lo usa
    * "Requiere tu atención" del mobile para que envíos terminales más nuevos no dejen
-   * afuera una tarea pendiente.
+   * afuera una tarea pendiente. `filters.withPendingOffers` (MOVO-184) restringe a los
+   * envíos donde el usuario es EMISOR y hay al menos una oferta con status efectivo
+   * `pending` (no vencida por lectura, mismo criterio que `offerStatusWhere`).
    */
   listByUser(
     userId: string,
     page: number,
     limit: number,
-    statuses?: readonly ShipmentStatus[]
+    statuses?: readonly ShipmentStatus[],
+    filters?: { withPendingOffers?: boolean }
   ): Promise<{ items: Shipment[]; total: number }>;
   /**
    * MOVO-142: envíos `published` cerca del origen del caller (AC1 original -- no hace
@@ -972,10 +975,21 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       userId: string,
       page: number,
       limit: number,
-      statuses?: readonly ShipmentStatus[]
+      statuses?: readonly ShipmentStatus[],
+      filters?: { withPendingOffers?: boolean }
     ): Promise<{ items: Shipment[]; total: number }> {
       const where: Prisma.ShipmentWhereInput = {
-        OR: [{ senderId: userId }, { receiverId: userId }],
+        ...(filters?.withPendingOffers
+          ? {
+              senderId: userId,
+              offers: {
+                some: {
+                  status: OfferStatus.PENDING,
+                  OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
+                },
+              },
+            }
+          : { OR: [{ senderId: userId }, { receiverId: userId }] }),
         ...(statuses && statuses.length > 0 ? { status: { in: [...statuses] } } : {}),
       };
       const [rows, total] = await Promise.all([
