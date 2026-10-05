@@ -1,25 +1,47 @@
 import React, { useEffect, useRef, useState } from "react";
-import {
-  AlertCircle,
-  ArrowUpRight,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-} from "lucide-react-native";
+import { AlertCircle, ChevronDown, Package } from "lucide-react-native";
 import {
   GestureResponderHandlers,
+  LayoutChangeEvent,
   Pressable,
   RefreshControl,
   ScrollView,
+  StyleSheet,
   Text,
   View,
 } from "react-native";
+import Animated, {
+  type SharedValue,
+  Easing,
+  Extrapolation,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withTiming,
+} from "react-native-reanimated";
 import { useColorScheme } from "nativewind";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CarrierRoute, CarrierRouteStop } from "@movo/shared/dist/types/routing";
+import { useStopCounterpartName } from "../../src/hooks/use-stop-counterpart";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import {
+  ROUTE_SHEET_BEZIER,
+  ROUTE_SHEET_CLOSE_FADE_MS,
+  ROUTE_SHEET_DURATION_MS,
+  ROUTE_SHEET_FADE_DELAY_MS,
+  ROUTE_SHEET_STAGGER_MS,
+} from "../../src/lib/route-sheet-motion";
+import { NavigateButton } from "./navigate-button";
+
+const LIME = "#C6F24A";
+const INK_950 = "#0A0A0B";
+const DANGER = "#E5484D";
+const EASE = Easing.bezier(...ROUTE_SHEET_BEZIER);
 
 interface StopListProps {
   route: CarrierRoute;
+  /** Parada que ocupa la card ancla. Por defecto, la próxima (`activeStopOrder`). */
   selectedStopOrder?: number | null;
   activeStopOrder?: number | null;
   onSelectStop?: (stop: CarrierRouteStop) => void;
@@ -32,6 +54,11 @@ interface StopListProps {
   isExpanded?: boolean;
   onToggleExpand?: () => void;
   panHandlers?: GestureResponderHandlers;
+  /**
+   * Alto que necesita el sheet colapsado para mostrar completa la card ancla (sin
+   * scroll). Lo mide el propio StopList; el sheet lo usa como altura colapsada.
+   */
+  onCollapsedHeightChange?: (height: number) => void;
   testID?: string;
 }
 
@@ -52,22 +79,30 @@ export function formatDuration(minutes: number): string {
   return `${hours}h${remainingMinutes}min`;
 }
 
+function clockTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/**
+ * ETA de una parada en versión corta, para las filas compactas ("23:12" o "+1h50min").
+ * El encabezado del sheet aclara que todos los horarios son aproximados (AC11).
+ */
+function formatEtaShort(stop: CarrierRouteStop): string {
+  const clock = clockTime(stop.estimatedArrivalAt);
+  if (clock) return clock;
+  if (stop.estimatedArrivalMinutes > 0) return `+${formatDuration(stop.estimatedArrivalMinutes)}`;
+  return "Ahora";
+}
+
 /**
  * Formatea el ETA estimado asegurando que se presente siempre como estimación (AC11: "aprox.").
  */
 export function formatEstimatedArrival(stop: CarrierRouteStop): string {
-  if (stop.estimatedArrivalAt) {
-    try {
-      const d = new Date(stop.estimatedArrivalAt);
-      if (!isNaN(d.getTime())) {
-        const hh = String(d.getHours()).padStart(2, "0");
-        const mm = String(d.getMinutes()).padStart(2, "0");
-        return `${hh}:${mm} aprox.`;
-      }
-    } catch {
-      // fallback abajo
-    }
-  }
+  const clock = clockTime(stop.estimatedArrivalAt);
+  if (clock) return `${clock} aprox.`;
   if (stop.estimatedArrivalMinutes > 0) {
     return `+${formatDuration(stop.estimatedArrivalMinutes)} aprox.`;
   }
@@ -79,14 +114,7 @@ export function formatEstimatedArrival(stop: CarrierRouteStop): string {
  */
 function extractHourMinute(instantStr: string | null | undefined): string | null {
   if (!instantStr) return null;
-  if (instantStr.includes("T")) {
-    const d = new Date(instantStr);
-    if (!isNaN(d.getTime())) {
-      const hh = String(d.getHours()).padStart(2, "0");
-      const mm = String(d.getMinutes()).padStart(2, "0");
-      return `${hh}:${mm}`;
-    }
-  }
+  if (instantStr.includes("T")) return clockTime(instantStr);
   const parts = instantStr.split(":");
   if (parts.length >= 2) {
     return `${parts[0]}:${parts[1]}`;
@@ -98,7 +126,7 @@ export function formatTimeWindow(start?: string | null, end?: string | null): st
   const startFmt = extractHourMinute(start);
   const endFmt = extractHourMinute(end);
   if (startFmt && endFmt) {
-    return `${startFmt} - ${endFmt}`;
+    return `${startFmt} – ${endFmt}`;
   }
   if (startFmt) {
     return `Desde ${startFmt}`;
@@ -109,14 +137,48 @@ export function formatTimeWindow(start?: string | null, end?: string | null): st
   return null;
 }
 
+function stopKindLabel(stop: CarrierRouteStop): string {
+  return stop.type === "pickup" ? "Retiro" : "Entrega";
+}
+
+/** "Retirás de Julia" / "Entregás a Julia", o la acción sola mientras no hay nombre. */
+function counterpartLine(stop: CarrierRouteStop, name: string | null): { verb: string; name: string | null } {
+  if (stop.type === "pickup") {
+    return name ? { verb: "Retirás de", name } : { verb: "Retirás el paquete", name: null };
+  }
+  return name ? { verb: "Entregás a", name } : { verb: "Entregás el paquete", name: null };
+}
+
+/** Cuánto sobresale el fondo de la card ancla abierta alrededor de su contenido. */
+const ANCHOR_CHROME_INSET = 12;
+/** Separación entre la card ancla y la fila vecina (deja lugar al fondo que sobresale). */
+const ANCHOR_ROW_GAP = ANCHOR_CHROME_INSET + 8;
+const ROW_GAP = 8;
 /**
- * Lista sincronizada de paradas para la ruta optimizada (MOVO-207) según Claude Design.
+ * Aire entre el encabezado y la card ancla. Fijo en los dos estados (cambiarlo al abrir haría
+ * saltar la card): con la ruta abierta deja 16px entre "Tu ruta" y el fondo que sobresale.
+ */
+const CONTENT_PADDING_TOP = ANCHOR_CHROME_INSET + 16;
+
+/**
+ * Sheet de paradas de "Mi ruta" (MOVO-207, rediseñado sobre el mockup 2a de Claude Design
+ * "Morph desde la parada activa").
  *
- * AC4: Muestra cada parada con su orden, tipo (retiro/entrega), dirección, ventana horaria y ETA.
- * AC5: Si `outsideTimeWindow: true`, se marca explícitamente como fuera de ventana/demora estimada.
- * AC6: Si `route.optimized === false`, muestra aviso discreto de degradación heurística.
- * AC9: Permite navegar al detalle del envío (`/shipments/:id`).
- * AC11: El ETA se presenta con copy "aprox." (estimación geométrica sin tráfico en tiempo real).
+ * La card ancla es la parada seleccionada (por defecto la próxima) y nunca se reemplaza:
+ * colapsada se ve plana, integrada al sheet; al abrir aparece detrás de ella un fondo con
+ * borde lima, y el resto de la ruta se despliega arriba y abajo con un leve escalonado por
+ * distancia. Tocar otra parada de la lista la vuelve ancla.
+ *
+ * El contenido de la card ancla mide siempre lo mismo (el fondo es una capa aparte que
+ * sobresale): así el texto no se reacomoda cuadro a cuadro al abrir, y el alto colapsado
+ * del sheet no depende de la animación.
+ *
+ * AC4: orden, tipo, dirección, ventana horaria y ETA de cada parada.
+ * AC5: `outsideTimeWindow` se marca explícitamente como "Fuera de ventana".
+ * AC6: `route.optimized === false` muestra un aviso de orden por defecto.
+ * AC9: "Ver envío" lleva al detalle del envío.
+ * AC11: el ETA se presenta siempre como aproximado.
+ * MOVO-237: la card ancla ofrece "Navegar" (deep-link a la app de mapas del sistema).
  */
 export function StopList({
   route,
@@ -131,384 +193,534 @@ export function StopList({
   isExpanded,
   onToggleExpand,
   panHandlers,
+  onCollapsedHeightChange,
   testID = "carrier-stop-list",
 }: StopListProps) {
   const colors = useThemeColors();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
-  const { stops, totalDistanceKm, totalDurationMinutes, optimized, disclaimer } = route;
+  const insets = useSafeAreaInsets();
+  const bottomPadding = Math.max(insets?.bottom ?? 0, 16) + 12;
+  const { stops, totalDistanceKm, optimized, disclaimer } = route;
 
   const [internalExpanded, setInternalExpanded] = useState(false);
   const expanded = isExpanded ?? internalExpanded;
   const handleToggle = onToggleExpand ?? (() => setInternalExpanded((prev) => !prev));
 
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Parada activa que corresponde ejecutar primero según orden estricto de Claude Design
-  const activeStop =
-    stops.find((s) => s.stopOrder === (activeStopOrder ?? 1)) ?? stops[0];
-
-  const showToast = (msg: string) => {
-    if (toastTimeoutRef.current) {
-      clearTimeout(toastTimeoutRef.current);
-    }
-    setToastMessage(msg);
-    toastTimeoutRef.current = setTimeout(() => {
-      setToastMessage(null);
-    }, 3000);
-  };
-
+  // Las filas siguen montadas un instante al cerrar para poder apagarse antes de desmontarse.
+  const [rowsMounted, setRowsMounted] = useState(expanded);
   useEffect(() => {
-    return () => {
-      if (toastTimeoutRef.current) {
-        clearTimeout(toastTimeoutRef.current);
-      }
-    };
-  }, []);
+    if (expanded) {
+      setRowsMounted(true);
+      return;
+    }
+    const timer = setTimeout(() => setRowsMounted(false), ROUTE_SHEET_CLOSE_FADE_MS + 20);
+    return () => clearTimeout(timer);
+  }, [expanded]);
 
-  const handlePressStop = (stop: CarrierRouteStop) => {
-    onSelectStop?.(stop);
+  // 0 = colapsado, 1 = abierto. Maneja el cruce de encabezados y el fondo de la card ancla.
+  const openProgress = useSharedValue(expanded ? 1 : 0);
+  useEffect(() => {
+    openProgress.value = withTiming(expanded ? 1 : 0, {
+      duration: ROUTE_SHEET_DURATION_MS,
+      easing: EASE,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded]);
+
+  const nextStop = stops.find((s) => s.stopOrder === (activeStopOrder ?? 1)) ?? stops[0];
+  const anchorStop =
+    stops.find((s) => s.stopOrder === (selectedStopOrder ?? nextStop?.stopOrder)) ?? nextStop;
+  const anchorIndex = anchorStop ? stops.indexOf(anchorStop) : 0;
+  const anchorIsNext = Boolean(anchorStop && nextStop && anchorStop.stopOrder === nextStop.stopOrder);
+
+  // Alto colapsado = encabezado + card ancla + paddings. Ninguno de los dos cambia con la
+  // animación, así que se puede reportar en cualquier momento sin que el sheet persiga un
+  // valor que se mueve.
+  const [headerHeight, setHeaderHeight] = useState<number | null>(null);
+  const [anchorHeight, setAnchorHeight] = useState<number | null>(null);
+  useEffect(() => {
+    if (headerHeight == null || anchorHeight == null) return;
+    onCollapsedHeightChange?.(Math.ceil(headerHeight + CONTENT_PADDING_TOP + anchorHeight + bottomPadding));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [headerHeight, anchorHeight, bottomPadding]);
+
+  // Al abrir, si hay paradas antes de la ancla, el scroll la deja donde estaba (las previas
+  // quedan arriba, a un scroll). Al cerrar, vuelve arriba de todo.
+  const scrollRef = useRef<ScrollView>(null);
+  const keepAnchorInPlace = useRef(false);
+  useEffect(() => {
+    if (expanded) {
+      keepAnchorInPlace.current = true;
+    } else {
+      keepAnchorInPlace.current = false;
+      scrollRef.current?.scrollTo?.({ y: 0, animated: true });
+    }
+  }, [expanded]);
+
+  const handleAnchorLayout = (e: LayoutChangeEvent) => {
+    const { height, y } = e.nativeEvent.layout;
+    const rounded = Math.round(height);
+    setAnchorHeight((prev) => (prev === rounded ? prev : rounded));
+    if (keepAnchorInPlace.current && y > CONTENT_PADDING_TOP) {
+      scrollRef.current?.scrollTo?.({ y: y - CONTENT_PADDING_TOP, animated: false });
+      keepAnchorInPlace.current = false;
+    }
   };
 
-  // Se muestran todas las paradas en el scroll; la activa incluye sus CTA y las demás en modo pendiente
-  const stopsToDisplay = stops;
+  const headerCollapsedStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(openProgress.value, [0, 0.55], [1, 0], Extrapolation.CLAMP),
+    transform: [{ translateY: interpolate(openProgress.value, [0, 1], [0, -6]) }],
+  }));
+  const headerExpandedStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(openProgress.value, [0.45, 1], [0, 1], Extrapolation.CLAMP),
+    transform: [{ translateY: interpolate(openProgress.value, [0, 1], [6, 0]) }],
+  }));
+
+  const handleColor = isDark ? "#3A3A40" : "#D5D5DB";
+  const headerTitle = anchorStop
+    ? `${anchorIsNext ? "Próxima parada" : "Parada"} · ${anchorStop.stopOrder} de ${stops.length}`
+    : `${stops.length} paradas`;
+  const headerSubtitle = anchorStop
+    ? `${anchorStop.estimatedArrivalMinutes > 0 ? `${formatDuration(anchorStop.estimatedArrivalMinutes)} · ` : ""}${formatEstimatedArrival(anchorStop)}`
+    : "";
+  const routeSummary = `${stops.length} ${stops.length === 1 ? "parada" : "paradas"}${
+    totalDistanceKm > 0 ? ` · ${totalDistanceKm.toFixed(1)} km` : ""
+  } · horarios aprox.`;
+
+  const renderRows = (side: "before" | "after") => {
+    const slice = side === "before" ? stops.slice(0, anchorIndex) : stops.slice(anchorIndex + 1);
+    return slice.map((stop) => {
+      const index = stops.indexOf(stop);
+      const distance = Math.abs(index - anchorIndex);
+      return (
+        <RouteStopRow
+          key={`${stop.shipmentId}-${stop.type}-${stop.stopOrder}`}
+          stop={stop}
+          side={side}
+          distance={distance}
+          gap={distance === 1 ? ANCHOR_ROW_GAP : ROW_GAP}
+          visible={expanded}
+          isNext={Boolean(nextStop && stop.stopOrder === nextStop.stopOrder)}
+          onPress={() => onSelectStop?.(stop)}
+        />
+      );
+    });
+  };
 
   return (
-    <View testID={testID} className="flex-1 bg-bg px-4 pb-8 pt-1">
-      {/* Header interactivo con toggle de lista completa y soporte de arrastre para bottom sheet */}
-      <View {...(panHandlers ?? {})}>
+    <View testID={testID} style={{ flex: 1 }} className="bg-bg">
+      {/* Manija y encabezado: se arrastran o se tocan para abrir/cerrar la ruta */}
+      <View
+        testID="stop-list-header"
+        {...(panHandlers ?? {})}
+        onLayout={(e) => {
+          const h = Math.round(e.nativeEvent.layout.height);
+          setHeaderHeight((prev) => (prev === h ? prev : h));
+        }}
+      >
         <Pressable
           testID="stop-list-toggle-sheet"
           onPress={handleToggle}
-          className="items-center pb-2.5 pt-0.5"
+          className="px-5 pt-2"
           accessibilityRole="button"
-          accessibilityLabel={
-            expanded ? "Ver mapa" : `Ver todas las ${stops.length} paradas`
-          }
+          accessibilityLabel={expanded ? "Cerrar la ruta" : "Ver la ruta completa"}
         >
-          {/* Handle superior centrado para arrastrar el sheet ("ese coso") */}
-          <View
-            testID="stop-list-drag-handle"
-            className="w-full items-center pt-1 pb-2.5"
-          >
-            <View
-              style={{
-                width: 48,
-                height: 5,
-                borderRadius: 999,
-                backgroundColor: isDark
-                  ? "rgba(255, 255, 255, 0.28)"
-                  : "rgba(10, 10, 11, 0.20)",
-              }}
-            />
+          <View testID="stop-list-drag-handle" className="items-center">
+            <View style={{ width: 36, height: 5, borderRadius: 999, backgroundColor: handleColor }} />
           </View>
 
-        {/* Barra de cabecera con título dinámico y botón de toggle */}
-        <View className="w-full flex-row items-center justify-between border-b border-border pb-3">
-          <View>
-            <Text
-              testID="stop-list-summary-title"
-              className="font-sans-semibold text-[15px] text-fg"
+          <View style={{ height: 48, marginTop: 14 }}>
+            <Animated.View
+              pointerEvents="none"
+              style={[StyleSheet.absoluteFill, { justifyContent: "center", gap: 4 }, headerCollapsedStyle]}
             >
-              {expanded
-                ? `Itinerario · ${stops.length} ${stops.length === 1 ? "parada" : "paradas"}`
-                : `Próxima parada · ${activeStop ? `${activeStop.stopOrder} de ${stops.length}` : `${stops.length}`}`}
-            </Text>
-            <Text className="font-sans text-[12px] text-fg-3">
-              {totalDistanceKm > 0 ? `${totalDistanceKm.toFixed(1)} km · ` : ""}
-              {totalDurationMinutes > 0
-                ? `${formatDuration(totalDurationMinutes)} aprox.`
-                : "Tiempo est. variable"}
-            </Text>
-          </View>
-
-          <View className="flex-row items-center gap-2">
-            {optimized ? (
-              <View className="hidden sm:flex flex-row items-center gap-1 rounded-full bg-lime-500/15 px-2 py-0.5 border border-lime-500/20">
-                <View className="h-1.5 w-1.5 rounded-full bg-lime-500" />
-                <Text className="font-sans-medium text-[10.5px] text-lime-600 dark:text-lime-400">
-                  Óptima
-                </Text>
-              </View>
-            ) : null}
-
-            <View className="flex-row items-center gap-1 rounded-full border border-border bg-bg-sub px-2.5 py-1.5">
-              <Text className="font-sans-medium text-[11.5px] text-fg">
-                {expanded ? "Ver mapa" : `Ver todas (${stops.length})`}
+              <Text
+                testID="stop-list-summary-title"
+                className="font-sans-semibold text-caption uppercase text-fg-3"
+              >
+                {headerTitle}
               </Text>
-              {expanded ? (
-                <ChevronDown size={14} color={colors.fg2} />
-              ) : (
-                <ChevronUp size={14} color={colors.fg2} />
-              )}
-            </View>
+              <Text className="font-sans-medium text-[13px] text-fg-2">{headerSubtitle}</Text>
+            </Animated.View>
+
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                StyleSheet.absoluteFill,
+                { flexDirection: "row", alignItems: "center", gap: 12 },
+                headerExpandedStyle,
+              ]}
+            >
+              <View className="flex-1 gap-0.5">
+                <Text className="font-sans-semibold text-[22px] leading-[26px] tracking-[-0.2px] text-fg">
+                  Tu ruta
+                </Text>
+                <Text className="font-sans-medium text-[13px] text-fg-2">{routeSummary}</Text>
+              </View>
+              <View className="h-11 w-11 items-center justify-center rounded-lg bg-bg-mute">
+                <ChevronDown size={20} color={colors.fg1} />
+              </View>
+            </Animated.View>
           </View>
-        </View>
-      </Pressable>
+        </Pressable>
       </View>
 
       <ScrollView
+        ref={scrollRef}
         className="flex-1"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 28 }}
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingTop: CONTENT_PADDING_TOP,
+          paddingBottom: bottomPadding,
+        }}
         nestedScrollEnabled
+        scrollEnabled={expanded}
         refreshControl={
-          onRefresh ? (
+          onRefresh && expanded ? (
             <RefreshControl
               testID="stop-list-refresh-control"
               refreshing={Boolean(isRefreshing)}
               onRefresh={onRefresh}
-              tintColor="#0A0A0B"
-              colors={["#0A0A0B"]}
+              tintColor={colors.fg1}
+              colors={[INK_950]}
             />
           ) : undefined
         }
       >
-
-      {/* Banner de ruta no optimizada (AC6) */}
-      {!optimized && (
-        <View
-          testID="unoptimized-route-banner"
-          className="my-3 flex-row items-start gap-2.5 rounded-[10px] border border-warning-300 bg-warning-100 p-3"
-        >
-          <AlertCircle size={16} color="#D97706" className="mt-0.5 flex-none" />
-          <View className="flex-1">
-            <Text className="font-sans-semibold text-[12.5px] text-ink-950">
-              Orden por defecto (no optimizado)
-            </Text>
-            <Text className="mt-0.5 font-sans text-[11.5px] text-ink-900">
-              {disclaimer ??
-                "El optimizador no estuvo disponible. Se muestran los retiros antes que las entregas según su horario."}
-            </Text>
+        {/* Aviso de ruta no optimizada (AC6), solo con la ruta abierta */}
+        {!optimized && expanded && (
+          <View
+            testID="unoptimized-route-banner"
+            className="mb-5 flex-row items-start gap-2.5 rounded-lg border border-warning-300 bg-warning-100 p-3"
+          >
+            <AlertCircle size={16} color="#D97706" />
+            <View className="flex-1">
+              <Text className="font-sans-semibold text-[13px] text-ink-950">
+                Orden por defecto (no optimizado)
+              </Text>
+              <Text className="mt-0.5 font-sans text-[12px] leading-4 text-ink-900">
+                {disclaimer ??
+                  "El optimizador no estuvo disponible. Se muestran los retiros antes que las entregas según su horario."}
+              </Text>
+            </View>
           </View>
-        </View>
-      )}
+        )}
 
-      {/* Items de paradas */}
-      <View className="mt-3 gap-2.5">
-        {stopsToDisplay.map((stop) => {
-          // La parada abierta y destacada es la seleccionada actualmente (por defecto la activa/próxima)
-          const currentHighlightedOrder = selectedStopOrder ?? activeStop?.stopOrder ?? 1;
-          const isHighlighted = stop.stopOrder === currentHighlightedOrder;
-          const isNext = Boolean(activeStop && stop.stopOrder === activeStop.stopOrder);
-          const isPickup = stop.type === "pickup";
-          const actionDisabled = isActionDisabled?.(stop) ?? false;
-          const isLate = stop.outsideTimeWindow;
-          const windowText = formatTimeWindow(stop.timeWindowStart, stop.timeWindowEnd);
-          const etaText = formatEstimatedArrival(stop);
-
-          // Coherencia visual con los nodos del mapa (route-map.tsx):
-          // Todos los nodos tienen fondo #0A0A0B (negro), número #FFFFFF (blanco) y borde blanco sencillo.
-          // Retiro: Cuadrado redondeado (radius 8)
-          // Entrega: Círculo (radius 999)
-          // Demora (isLate): Fondo #E5484D (rojo alerta)
-          let chipBg = "#0A0A0B";
-          let chipBorderColor = "#FFFFFF";
-          let chipTextColor = "#FFFFFF";
-          if (isLate) {
-            chipBg = "#E5484D";
-            chipBorderColor = "#FFFFFF";
-            chipTextColor = "#FFFFFF";
-          }
-
-          const shipmentLabel = stop.shipmentId
-            .replace("demo-shipment-", "")
-            .replace("ship-", "#");
-          const detailText = isPickup
-            ? `Retirás paquete · Envío ${shipmentLabel}`
-            : `Entregás paquete · Envío ${shipmentLabel}`;
-
-          return (
-            <Pressable
-              key={`${stop.shipmentId}-${stop.type}-${stop.stopOrder}`}
-              testID={`stop-row-${stop.stopOrder}`}
-              accessibilityState={{ selected: isHighlighted }}
-              onPress={() => handlePressStop(stop)}
-              className="rounded-[12px] border p-3.5"
-              style={{
-                backgroundColor: isHighlighted ? colors.bg : colors.bgSub,
-                borderColor: isHighlighted ? colors.fg1 : colors.border,
-                borderWidth: isHighlighted ? 1.5 : 1,
-                ...(isHighlighted
-                  ? {
-                    shadowColor: "#000",
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: isDark ? 0.3 : 0.08,
-                    shadowRadius: 10,
-                    elevation: 3,
-                  }
-                  : {}),
-              }}
-            >
-              <View className="flex-row items-start gap-3">
-                {/* Chip numérico: cuadrado redondeado para retiro, círculo para entrega */}
-                <View
-                  style={{
-                    backgroundColor: chipBg,
-                    borderRadius: isPickup ? 8 : 999,
-                  }}
-                  testID={`stop-chip-${stop.stopOrder}`}
-                  className="h-7 w-7 flex-none items-center justify-center"
-                >
-                  <Text
-                    style={{ color: chipTextColor }}
-                    className="font-sans-bold text-[12px]"
-                  >
-                    {stop.stopOrder}
-                  </Text>
-                </View>
-
-                {/* Contenido de la parada */}
-                <View className="flex-1 min-w-0">
-                  <View className="flex-row items-center gap-2">
-                    <Text
-                      className={`font-sans-bold text-[10px] tracking-wider uppercase ${isPickup ? "text-fg" : "text-fg-2"
-                        }`}
-                    >
-                      {isPickup ? "Retiro" : "Entrega"}
-                    </Text>
-
-                    {/* Pill de estado: Solo activeStop es 'Próxima', las demás son 'Pendiente' (Claude Design) */}
-                    {isLate ? (
-                      <View
-                        testID={`stop-late-badge-${stop.stopOrder}`}
-                        className="rounded-full bg-danger-100 px-2 py-0.5 border border-danger-300"
-                      >
-                        <Text className="font-sans-semibold text-[9px] tracking-wider uppercase text-danger-700">
-                          Fuera de ventana
-                        </Text>
-                      </View>
-                    ) : isNext ? (
-                      <View className="rounded-full bg-fg px-2 py-0.5">
-                        <Text className="font-sans-semibold text-[9px] tracking-wider uppercase text-bg">
-                          Próxima
-                        </Text>
-                      </View>
-                    ) : (
-                      <View className="rounded-full bg-bg-mute px-2 py-0.5">
-                        <Text className="font-sans-semibold text-[9px] tracking-wider uppercase text-fg-3">
-                          Pendiente
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-
-                  {/* Dirección */}
-                  <Text
-                    numberOfLines={1}
-                    className="mt-1 font-sans-medium text-[13.5px] text-fg"
-                  >
-                    {stop.address ?? "Dirección a coordinar"}
-                  </Text>
-
-                  {/* Subtítulo / Detalle del envío */}
-                  <Text
-                    numberOfLines={1}
-                    className="mt-0.5 font-sans text-[11.5px] text-fg-3"
-                  >
-                    {detailText}
-                  </Text>
-                </View>
-
-                {/* Columna derecha: ETA y franja horaria */}
-                <View className="flex-none items-end gap-0.5">
-                  <Text
-                    testID={`stop-eta-${stop.stopOrder}`}
-                    className={`font-mono text-[12px] ${isLate ? "text-danger-700 font-sans-bold" : "text-fg font-sans-semibold"
-                      }`}
-                  >
-                    {etaText}
-                  </Text>
-                  {windowText && (
-                    <Text className="font-sans text-[10.5px] text-fg-3">
-                      {windowText}
-                    </Text>
-                  )}
-                </View>
-              </View>
-
-              {/* Botonera expandida para el envío seleccionado/destacado */}
-              {isHighlighted && (
-                <View className="mt-3 flex-row items-center gap-2.5 border-t border-border pt-3">
-                  {onPressShipment && (
-                    <Pressable
-                      testID={`stop-shipment-link-${stop.stopOrder}`}
-                      onPress={(e) => {
-                        e.stopPropagation?.();
-                        onPressShipment(stop.shipmentId);
-                      }}
-                      className={`h-11 rounded-[10px] border border-border bg-bg active:bg-bg-mute flex-row items-center justify-center gap-1.5 ${
-                        isNext ? "flex-1" : "w-full"
-                      }`}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Ver detalle del envío ${stop.shipmentId}`}
-                    >
-                      <Text className="font-sans-medium text-[13.5px] text-fg">Ver envío</Text>
-                      <ArrowUpRight size={15} color={colors.fg2} />
-                    </Pressable>
-                  )}
-
-                  {/* Botón de acción (Retirar/Entregar) solo disponible para la próxima parada activa */}
-                  {isNext && (
-                    <Pressable
-                      testID={`stop-action-btn-${stop.stopOrder}`}
-                      disabled={actionDisabled}
-                      onPress={(e) => {
-                        e.stopPropagation?.();
-                        if (onPressAction) {
-                          onPressAction(stop);
-                        } else if (onPressShipment) {
-                          onPressShipment(stop.shipmentId);
-                        }
-                      }}
-                      className={`flex-1 h-11 rounded-[10px] flex-row items-center justify-center gap-1.5 ${
-                        actionDisabled ? "bg-bg-mute" : "bg-lime-500 active:bg-lime-400"
-                      }`}
-                      accessibilityRole="button"
-                      accessibilityState={{ disabled: actionDisabled }}
-                      accessibilityLabel={isPickup ? "Retirar paquete" : "Entregar paquete"}
-                    >
-                      <Text
-                        className={`font-sans-semibold text-[13.5px] ${actionDisabled ? "text-fg-3" : "text-ink-950"}`}
-                      >
-                        {actionDisabled
-                          ? isPickup
-                            ? "Retiro no disponible"
-                            : "Entrega próximamente"
-                          : isPickup
-                            ? "Retirar paquete"
-                            : "Entregar paquete"}
-                      </Text>
-                      {!actionDisabled && <ChevronRight size={15} color="#0A0A0B" />}
-                    </Pressable>
-                  )}
-                </View>
-              )}
-            </Pressable>
-          );
-        })}
-      </View>
-
-      {/* Toast flotante para avisos de parada pendiente (Claude Design hasToast) */}
-      {toastMessage && (
-        <View
-          testID="stop-list-toast"
-          className="mt-4 rounded-[10px] bg-ink-950 px-4 py-3 shadow-lg"
-          style={{
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.25,
-            shadowRadius: 8,
-            elevation: 6,
-          }}
-        >
-          <Text className="font-sans-medium text-[13px] leading-5 text-white">
-            {toastMessage}
-          </Text>
-        </View>
-      )}
+        {rowsMounted && renderRows("before")}
+        {anchorStop && (
+          <View testID="stop-list-anchor" onLayout={handleAnchorLayout}>
+            <AnchorStopCard
+              stop={anchorStop}
+              isNext={anchorIsNext}
+              openProgress={openProgress}
+              onSelect={() => onSelectStop?.(anchorStop)}
+              onPressShipment={onPressShipment}
+              onPressAction={onPressAction}
+              actionDisabled={isActionDisabled?.(anchorStop) ?? false}
+            />
+          </View>
+        )}
+        {rowsMounted && renderRows("after")}
       </ScrollView>
     </View>
+  );
+}
+
+interface AnchorStopCardProps {
+  stop: CarrierRouteStop;
+  isNext: boolean;
+  openProgress: SharedValue<number>;
+  onSelect: () => void;
+  onPressShipment?: (shipmentId: string) => void;
+  onPressAction?: (stop: CarrierRouteStop) => void;
+  actionDisabled: boolean;
+}
+
+/**
+ * Card ancla. La dirección es el título (lo que busca quien maneja) y el ID del envío queda
+ * detrás de "Ver envío". Con la ruta abierta, un fondo con borde lima aparece detrás y
+ * sobresale `ANCHOR_CHROME_INSET`; el contenido no se mueve ni cambia de ancho.
+ */
+function AnchorStopCard({
+  stop,
+  isNext,
+  openProgress,
+  onSelect,
+  onPressShipment,
+  onPressAction,
+  actionDisabled,
+}: AnchorStopCardProps) {
+  const colors = useThemeColors();
+  const name = useStopCounterpartName(stop);
+  const { verb, name: who } = counterpartLine(stop, name);
+  const isPickup = stop.type === "pickup";
+  const isLate = stop.outsideTimeWindow;
+  const windowText = formatTimeWindow(stop.timeWindowStart, stop.timeWindowEnd);
+
+  const chromeStyle = useAnimatedStyle(() => ({
+    opacity: openProgress.value,
+    transform: [{ scale: interpolate(openProgress.value, [0, 1], [0.97, 1]) }],
+  }));
+
+  const actionLabel = actionDisabled
+    ? isPickup
+      ? "Retiro no disponible"
+      : "Entrega próximamente"
+    : isPickup
+      ? "Retirar paquete"
+      : "Entregar paquete";
+
+  return (
+    <View style={{ gap: 14 }}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          {
+            position: "absolute",
+            top: -ANCHOR_CHROME_INSET,
+            bottom: -ANCHOR_CHROME_INSET,
+            left: -ANCHOR_CHROME_INSET,
+            right: -ANCHOR_CHROME_INSET,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: "rgba(198, 242, 74, 0.35)",
+            backgroundColor: colors.bgSub,
+          },
+          chromeStyle,
+        ]}
+      />
+
+      <Pressable
+        testID={`stop-row-${stop.stopOrder}`}
+        accessibilityState={{ selected: true }}
+        accessibilityRole="button"
+        accessibilityLabel={`Parada ${stop.stopOrder}: ${stopKindLabel(stop)} en ${stop.address ?? "dirección a coordinar"}`}
+        onPress={onSelect}
+        className="gap-2"
+      >
+        <View className="flex-row items-center gap-2">
+          <View
+            testID={`stop-chip-${stop.stopOrder}`}
+            className="h-6 items-center justify-center rounded-full px-2.5"
+            style={{ backgroundColor: isNext ? LIME : colors.bgMute }}
+          >
+            <Text
+              className="font-sans-semibold text-caption uppercase"
+              style={{ color: isNext ? INK_950 : colors.fg1 }}
+            >
+              {stopKindLabel(stop)}
+            </Text>
+          </View>
+          {isLate ? (
+            <Text
+              testID={`stop-late-badge-${stop.stopOrder}`}
+              className="font-sans-semibold text-caption uppercase"
+              style={{ color: DANGER }}
+            >
+              Fuera de ventana
+            </Text>
+          ) : (
+            <Text className="font-sans-semibold text-caption uppercase text-fg-2">
+              {isNext ? "Próxima" : `Parada ${stop.stopOrder}`}
+            </Text>
+          )}
+          <View className="flex-1" />
+          <Text
+            testID={`stop-eta-${stop.stopOrder}`}
+            className="font-sans-medium text-[13px]"
+            style={{ color: isLate ? DANGER : colors.fg1 }}
+          >
+            {formatEstimatedArrival(stop)}
+          </Text>
+        </View>
+
+        <Text
+          numberOfLines={2}
+          className="font-sans-semibold text-[22px] leading-[26px] tracking-[-0.2px] text-fg"
+        >
+          {stop.address ?? "Dirección a coordinar"}
+        </Text>
+
+        <View className="flex-row items-baseline gap-1.5">
+          <Text className="font-sans text-[15px] text-fg-3">{verb}</Text>
+          {who && (
+            <Text numberOfLines={1} className="flex-shrink font-sans-medium text-[15px] text-fg">
+              {who}
+            </Text>
+          )}
+        </View>
+        {windowText && (
+          <Text className="font-sans text-[13px] text-fg-3">Ventana {windowText}</Text>
+        )}
+      </Pressable>
+
+      <View className="gap-3">
+        <View className="flex-row gap-3">
+          {onPressShipment && (
+            <Pressable
+              testID={`stop-shipment-link-${stop.stopOrder}`}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                onPressShipment(stop.shipmentId);
+              }}
+              className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-lg border border-border bg-bg-mute active:opacity-80"
+              accessibilityRole="button"
+              accessibilityLabel={`Ver detalle del envío ${stop.shipmentId}`}
+            >
+              <Package size={20} color={colors.fg1} strokeWidth={1.75} />
+              <Text className="font-sans-medium text-[16px] text-fg">Ver envío</Text>
+            </Pressable>
+          )}
+          <NavigateButton
+            className="flex-1"
+            target={{ lat: stop.lat, lng: stop.lng }}
+            testID={`stop-navigate-btn-${stop.stopOrder}`}
+          />
+        </View>
+
+        {/* Acción principal (Retirar/Entregar): solo para la próxima parada */}
+        {isNext && (
+          <Pressable
+            testID={`stop-action-btn-${stop.stopOrder}`}
+            disabled={actionDisabled}
+            onPress={(e) => {
+              e.stopPropagation?.();
+              if (onPressAction) {
+                onPressAction(stop);
+              } else if (onPressShipment) {
+                onPressShipment(stop.shipmentId);
+              }
+            }}
+            className={`h-14 w-full items-center justify-center rounded-lg ${
+              actionDisabled ? "bg-bg-mute" : "bg-lime-500 active:bg-lime-400"
+            }`}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: actionDisabled }}
+            accessibilityLabel={actionLabel}
+          >
+            <Text
+              className={`font-sans-semibold text-[17px] tracking-[-0.2px] ${
+                actionDisabled ? "text-fg-3" : "text-ink-950"
+              }`}
+            >
+              {actionLabel}
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+}
+
+interface RouteStopRowProps {
+  stop: CarrierRouteStop;
+  side: "before" | "after";
+  /** Paradas de distancia a la card ancla: define el escalonado al abrir. */
+  distance: number;
+  /** Separación hacia la card vecina (más grande junto a la ancla, por su fondo). */
+  gap: number;
+  visible: boolean;
+  isNext: boolean;
+  onPress: () => void;
+}
+
+/**
+ * Fila compacta de una parada que no es la ancla. Entra desde la card ancla (arriba o
+ * abajo según su lado) con un leve escalonado por distancia; al cerrar se apaga entera
+ * de una, sin escalonado. Mismo ancho que el fondo de la card ancla abierta.
+ */
+function RouteStopRow({ stop, side, distance, gap, visible, isNext, onPress }: RouteStopRowProps) {
+  const colors = useThemeColors();
+  const name = useStopCounterpartName(stop);
+  const { verb, name: who } = counterpartLine(stop, name);
+  const isLate = stop.outsideTimeWindow;
+  const offset = side === "before" ? -8 : 8;
+
+  const opacity = useSharedValue(0);
+  const translateY = useSharedValue(offset);
+  useEffect(() => {
+    const delay = distance * ROUTE_SHEET_STAGGER_MS;
+    if (visible) {
+      opacity.value = withDelay(
+        delay + ROUTE_SHEET_FADE_DELAY_MS,
+        withTiming(1, { duration: Math.round(ROUTE_SHEET_DURATION_MS * 0.7), easing: EASE }),
+      );
+      translateY.value = withDelay(
+        delay + 40,
+        withTiming(0, { duration: ROUTE_SHEET_DURATION_MS, easing: EASE }),
+      );
+    } else {
+      opacity.value = withTiming(0, { duration: ROUTE_SHEET_CLOSE_FADE_MS, easing: EASE });
+      translateY.value = withTiming(offset, {
+        duration: Math.round(ROUTE_SHEET_DURATION_MS * 0.5),
+        easing: EASE,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  const rowStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  const state = isLate ? "Fuera de ventana" : isNext ? "Próxima" : "Pendiente";
+  const chipBg = isLate ? DANGER : isNext ? LIME : colors.bgMute;
+  const chipFg = isLate ? "#FFFFFF" : isNext ? INK_950 : colors.fg1;
+
+  return (
+    <Animated.View
+      style={[
+        { marginHorizontal: -ANCHOR_CHROME_INSET },
+        side === "before" ? { paddingBottom: gap } : { paddingTop: gap },
+        rowStyle,
+      ]}
+    >
+      <Pressable
+        testID={`stop-row-${stop.stopOrder}`}
+        accessibilityState={{ selected: false }}
+        accessibilityRole="button"
+        accessibilityLabel={`Parada ${stop.stopOrder}: ${stopKindLabel(stop)} en ${stop.address ?? "dirección a coordinar"}`}
+        onPress={onPress}
+        className="min-h-[72px] flex-row items-center gap-3 rounded-xl border border-border bg-bg-sub px-3.5 py-3 active:opacity-80"
+      >
+        {/* Mismo código de forma que los marcadores del mapa: cuadrado retiro, círculo entrega */}
+        <View
+          testID={`stop-chip-${stop.stopOrder}`}
+          className="h-8 w-8 items-center justify-center"
+          style={{ backgroundColor: chipBg, borderRadius: stop.type === "pickup" ? 8 : 999 }}
+        >
+          <Text className="font-sans-semibold text-[14px]" style={{ color: chipFg }}>
+            {stop.stopOrder}
+          </Text>
+        </View>
+
+        <View className="min-w-0 flex-1 gap-0.5">
+          <Text
+            testID={isLate ? `stop-late-badge-${stop.stopOrder}` : undefined}
+            className="font-sans-semibold text-caption uppercase"
+            style={{ color: isLate ? DANGER : colors.fg3 }}
+          >
+            {stopKindLabel(stop)} · {state}
+          </Text>
+          <Text numberOfLines={1} className="font-sans-medium text-[16px] text-fg">
+            {stop.address ?? "Dirección a coordinar"}
+          </Text>
+          <Text numberOfLines={1} className="font-sans text-[13px] text-fg-3">
+            {who ? `${verb} ${who}` : verb}
+          </Text>
+        </View>
+
+        <Text
+          testID={`stop-eta-${stop.stopOrder}`}
+          className="font-sans-medium text-[13px]"
+          style={{ color: isLate ? DANGER : colors.fg2 }}
+        >
+          {formatEtaShort(stop)}
+        </Text>
+      </Pressable>
+    </Animated.View>
   );
 }

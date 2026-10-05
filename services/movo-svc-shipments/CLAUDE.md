@@ -3000,3 +3000,14 @@ Fixes de review (PR #212, PedroYorlano):
 - Alta con `create` + reintento ante `P2002` en vez de `findUnique` + `upsert`: `created`
   queda bien bajo concurrencia.
 
+
+### MOVO-237 — `RoutesProvider.mode`: `per_trip` y `live` (ADR-033)
+
+`RouteInput` (`src/adapters/routes-provider.ts`) gana `mode?: "per_trip" | "live"`. `per_trip`
+es el default y el único implementado: los callers existentes (wizard de envío, handshake,
+viajes) no lo pasan y no cambian. `live` es un placeholder intencional para una navegación
+100% in-app futura: `assertSupportedRouteMode` (llamado al principio de `getRoute` en la
+implementación de Google y en el mock) responde `501 ROUTE_MODE_NOT_IMPLEMENTED` antes de
+cualquier llamada facturable. La navegación real se delega por deep-link desde el mobile
+(ver `docs/navigation/README.md`). `getRouteDurations` (Compute Route Matrix) no lleva `mode`.
+El ticket numeraba esta decisión ADR-022, que ya era el canal WebSocket: quedó como ADR-033.
