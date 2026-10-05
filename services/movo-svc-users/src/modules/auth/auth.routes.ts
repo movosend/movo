@@ -9,6 +9,8 @@ import { createEmailProvider, EmailProvider } from "../../adapters/email-provide
 import { createPhoneVerificationService } from "./phone-verification.service";
 import { createSessionRepository } from "../../repositories/session-repository";
 import { createPasswordResetService } from "./password-reset.service";
+import { createPushNotificationProvider, PushNotificationProvider } from "../../adapters/push-notification-provider";
+import { createNotificationsService } from "../notifications/notifications.service";
 
 export interface AuthRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests — evita depender de logs de consola para leer el código
@@ -17,6 +19,9 @@ export interface AuthRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests — mismo criterio que `smsProvider` (MOVO-139).
    * `POST /auth/resend-otp` es genérica: puede tocarle reenviar un OTP de canal email. */
   emailProvider?: EmailProvider;
+  /** Override solo para tests (MOVO-274) — captura el push de "contraseña cambiada"
+   * del flujo de recuperación sin depender de la red de Expo. */
+  pushProvider?: PushNotificationProvider;
 }
 
 interface SendOtpBody {
@@ -63,6 +68,9 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
   const sessionRepository = createSessionRepository(app.redis);
   const service = createAuthService(app.db, app.redis, phoneVerificationService, sessionRepository);
 
+  const pushProvider = opts.pushProvider ?? createPushNotificationProvider(app.config);
+  const notifications = createNotificationsService(app.db, pushProvider, app.log);
+
   const passwordResetService = createPasswordResetService(
     app.db,
     app.redis,
@@ -70,6 +78,7 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
     otpService,
     smsProvider,
     emailProvider,
+    notifications,
     app.config.JWT_SECRET,
     app.log
   );

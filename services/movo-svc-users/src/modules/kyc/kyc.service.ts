@@ -8,6 +8,35 @@ import { createDriversLicenseRepository } from "../../repositories/drivers-licen
 import { DiditClient, DiditSessionDecision, mapDiditStatusToKycStatus } from "../../adapters/didit-client";
 import { KycVerification, VerificationType } from "../../models/kyc-verification";
 import { verifyDiditSignature } from "../../adapters/didit-signature";
+import { PushSender, sendTriggerPush } from "../notifications/send-trigger-push";
+
+/** Los seis triggers de KYC (MOVO-274): ninguno lleva datos dinámicos, así que
+ * `renderNotificationTrigger` los renderiza sin parámetros. */
+type KycTriggerKey =
+  | "kycIdentityApproved"
+  | "kycIdentityRejected"
+  | "kycIdentityManualReview"
+  | "kycLicenseApproved"
+  | "kycLicenseRejected"
+  | "kycLicenseManualReview";
+
+/**
+ * MOVO-274: qué aviso corresponde a cada (tipo de verificación, resultado). Solo los
+ * tres estados que le importan al usuario — `expired`/`pending`/`not_started` no son
+ * un resultado y nunca avisan (`undefined`).
+ */
+const KYC_RESULT_TRIGGERS: Record<VerificationType, Partial<Record<KycStatus, KycTriggerKey>>> = {
+  identity: {
+    [KycStatus.APPROVED]: "kycIdentityApproved",
+    [KycStatus.REJECTED]: "kycIdentityRejected",
+    [KycStatus.MANUAL_REVIEW]: "kycIdentityManualReview",
+  },
+  license: {
+    [KycStatus.APPROVED]: "kycLicenseApproved",
+    [KycStatus.REJECTED]: "kycLicenseRejected",
+    [KycStatus.MANUAL_REVIEW]: "kycLicenseManualReview",
+  },
+};
 
 /**
  * Estados desde los que se puede pedir una sesión nueva (AC2) — todos menos `approved`
@@ -211,10 +240,43 @@ export function createKycService(
   db: PrismaClient,
   diditClient: DiditClient,
   webhookSecret: string | undefined,
-  logger: FastifyBaseLogger
+  logger: FastifyBaseLogger,
+  notifications: PushSender
 ) {
   const userRepository = createUserRepository(db);
   const kycVerificationRepository = createKycVerificationRepository(db);
+
+  /**
+   * MOVO-274: avisa al usuario el resultado de una verificación. Se llama SOLO con el
+   * `KycVerification` que devolvió `applyTerminalDecision` (nunca `null`): ese es el
+   * gate de idempotencia, así que un webhook repetido, o el pull que llega después del
+   * webhook (o al revés), no manda un segundo push — cada transición real avisa una vez.
+   *
+   * Va después de que la transacción ya commiteó y es best-effort: un fallo del push
+   * (o de resolver preferencias) se loguea y se traga. Si lanzara, el webhook
+   * respondería 5xx y Didit reintentaría un evento que ya se aplicó, y un `getStatus`
+   * fallaría por un aviso. El copy no lleva el motivo del rechazo ni datos del
+   * documento (AC9 de MOVO-72) — el detalle se ve dentro de la app.
+   */
+  async function notifyDecision(resolved: KycVerification, status: KycStatus): Promise<void> {
+    const triggerKey = KYC_RESULT_TRIGGERS[resolved.verificationType][status];
+    if (!triggerKey) {
+      return;
+    }
+    await sendTriggerPush({
+      notifications,
+      userId: resolved.userId,
+      triggerKey,
+      params: undefined,
+      data: { type: "kyc_result", verificationType: resolved.verificationType, status },
+      logger,
+      onErrorContext: {
+        event: "kyc_push_failed",
+        message: "no se pudo enviar el push del resultado de KYC; la decisión ya estaba aplicada",
+        extra: { verificationType: resolved.verificationType, status },
+      },
+    });
+  }
 
   /**
    * Aplica una decisión terminal de Didit sobre un intento que sigue en `pending` o
@@ -236,6 +298,15 @@ export function createKycService(
    * consola de Didit, webhook "entregado" según Didit, pero el usuario seguía viendo
    * "en revisión" sin ninguna forma de destrabarse).
    *
+   * Esa excepción NO aplica cuando el destino es el propio `manual_review`: ahí el origen
+   * válido es solo `pending`. Didit sigue devolviendo `In Review` todo el tiempo que dura
+   * la revisión humana (en cada webhook repetido y en cada pull de "actualizar estado"),
+   * y con `manual_review` también como origen la compuerta lo contaba como una transición
+   * `manual_review` → `manual_review`: devolvía la fila en vez de `null`, reescribía
+   * `resolvedAt`/`raw_decision` y, con MOVO-274, volvía a mandar el push de "en revisión"
+   * (review de PR #215). Quedarse en el mismo estado no es una transición, así que
+   * devuelve `null` como cualquier duplicado (AC7).
+   *
    * MOVO-15: además de sincronizar `users.kyc_status_identity`/`kyc_status_license`
    * (según `result.verificationType`), si el tipo es `license` y la decisión es
    * `approved`, upsertea `users.drivers_license` en la misma transacción — es el único
@@ -246,11 +317,16 @@ export function createKycService(
     targetStatus: KycStatus,
     rawDecision: Record<string, unknown>
   ): Promise<KycVerification | null> {
+    const fromStatus =
+      targetStatus === KycStatus.MANUAL_REVIEW
+        ? [KycStatus.PENDING]
+        : [KycStatus.PENDING, KycStatus.MANUAL_REVIEW];
+
     return db.$transaction(async (tx) => {
       const txKycVerificationRepository = createKycVerificationRepository(tx);
       const result = await txKycVerificationRepository.resolveByExternalSessionId({
         externalSessionId,
-        fromStatus: [KycStatus.PENDING, KycStatus.MANUAL_REVIEW],
+        fromStatus,
         toStatus: targetStatus,
         rawDecision,
       });
@@ -366,6 +442,8 @@ export function createKycService(
       },
       "kyc status transition (reconciliada por pull, no por webhook)"
     );
+
+    await notifyDecision(resolved, targetStatus);
     return targetStatus;
   }
 
@@ -488,6 +566,8 @@ export function createKycService(
         },
         "kyc status transition"
       );
+
+      await notifyDecision(resolved, targetStatus);
     },
 
     async getStatus(userId: string, verificationType: VerificationType): Promise<KycStatusResult> {

@@ -3,12 +3,18 @@ import { ApiError } from "@movo/shared";
 import { createKycService, DiditWebhookPayload } from "./kyc.service";
 import { kycSchemas } from "./kyc.schema";
 import { createDiditClient, DiditClient } from "../../adapters/didit-client";
+import { createPushNotificationProvider, PushNotificationProvider } from "../../adapters/push-notification-provider";
+import { createNotificationsService } from "../notifications/notifications.service";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 
 export interface KycRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de red/credenciales
    * reales de Didit.me, mismo criterio que `smsProvider` en `auth.routes.ts`. */
   diditClient?: DiditClient;
+  /** Override solo para tests de integración (MOVO-274): captura los push del
+   * resultado de KYC sin depender de la red de Expo, mismo criterio que
+   * `NotificationsRoutesOptions.pushProvider`. */
+  pushProvider?: PushNotificationProvider;
 }
 
 declare module "fastify" {
@@ -22,7 +28,9 @@ declare module "fastify" {
 
 export default async function kycRoutes(app: FastifyInstance, opts: KycRoutesOptions) {
   const diditClient = opts.diditClient ?? createDiditClient(app.config);
-  const service = createKycService(app.db, diditClient, app.config.DIDIT_WEBHOOK_SECRET, app.log);
+  const pushProvider = opts.pushProvider ?? createPushNotificationProvider(app.config);
+  const notifications = createNotificationsService(app.db, pushProvider, app.log);
+  const service = createKycService(app.db, diditClient, app.config.DIDIT_WEBHOOK_SECRET, app.log, notifications);
 
   // Content-type parser scoped a este plugin: Fastify encapsula `addContentTypeParser`
   // por contexto de registro, así que esto NO afecta a `/auth/*` ni `/users/*`

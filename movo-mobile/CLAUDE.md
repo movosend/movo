@@ -3635,10 +3635,13 @@ en settings" (`Notificaciones.dc.html`).
   12 filas ficticias que no coinciden con el catálogo real de MOVO-245
   (`NOTIFICATION_CATEGORIES`/`NOTIFICATION_TRIGGERS` de `@movo/shared`, subpaths
   `dist/config/notification-categories`/`dist/config/notification-templates`, nunca
-  el barrel). Catálogo real: implementadas → `custody`/`offers`/`ratings`/`shipments`
-  (sección "sending") y `trips` (sección "carrying"); "Pronto" → `proximity`/
-  `payments` (sending), `kyc`/`account_security` (account), `chat`/`disputes`
-  (conversations). Sin canal "app" (in-app, no existe todavía) y sin el punto "live"/
+  el barrel). Catálogo real al momento de MOVO-246: implementadas →
+  `custody`/`offers`/`ratings`/`shipments` (sección "sending") y `trips` (sección
+  "carrying"); "Pronto" → `proximity`/`payments` (sending), `kyc`/`account_security`
+  (account), `chat`/`disputes` (conversations). MOVO-274 pasó después `kyc` y
+  `account_security` a implementadas (ver `shared/movo-shared/CLAUDE.md`): hoy los
+  "Pronto" son `proximity`/`payments`/`chat`/`disputes`, y los tests que necesitan un
+  ejemplo de "Pronto" usan `chat`. Sin canal "app" (in-app, no existe todavía) y sin el punto "live"/
   banners `critical`/`warnText` por fila del prototipo — ese campo no existe en
   `NotificationCategoryDefinition`, era solo del JS de Claude Design.
 - **Toggle maestro (AC1) es una fila agregada sobre el prototipo**, que no lo tenía

@@ -358,3 +358,20 @@ sin precio todo `null`. Códigos nuevos `QUOTE_EXPIRED`/`QUOTE_MISMATCH` (ADR-02
 `types/offer.ts`: 7° valor de `OfferStatus` (oferta cerrada porque su envío se canceló).
 `errors/api-error.ts`: código `TRIP_NO_PACKAGES` (iniciar un viaje sin paquetes). `config/notification-templates.ts`: triggers
 `shipmentCancelledPickupMissed{Sender,Receiver,Carrier}`, `offersNeedReview` y `transitAnomalyCheck`.
+
+### MOVO-274 — Triggers de KYC, cuenta y seguridad y calificación pendiente
+
+`config/notification-templates.ts` suma 12 triggers: `kyc{Identity,License}{Approved,Rejected,ManualReview}`
+(6), `accountPasswordChanged`/`accountEmailChanged`/`accountPhoneChanged` (categoría `account_security`) y
+`ratingPending{Sender,Receiver,Carrier}` (categoría `ratings`, que ya estaba implementada).
+`config/notification-categories.ts`: `kyc` y `account_security` pasan a `implemented: true` (la pantalla de
+MOVO-246 las muestra con toggle real, sin cambios en mobile); `account_security` es la primera categoría
+con `quietHoursExempt: true` en uso.
+
+- **Seis triggers de KYC y no uno parametrizado**: el copy tiene que dejar claro de cuál de las dos
+  verificaciones se trata, y `displayCopy` de la pantalla de Configuración muestra cada aviso tal cual.
+- **Ningún copy lleva datos sensibles** (motivo del rechazo, email o número nuevos): un push se ve en la
+  pantalla bloqueada.
+- Sin test propio en `shared` que los referencie: se cubren desde los tests de `svc-users` y
+  `svc-shipments`. Recordatorio habitual: tras tocar este paquete, `npm run build` antes de tipar desde
+  otro workspace (los servicios leen `dist/`).

@@ -104,6 +104,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.smsProvider ? { smsProvider: opts.smsProvider } : {}),
     // MOVO-139: el OTP de verificación/cambio de email y el aviso al email anterior.
     ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
+    // MOVO-274: push de "contraseña cambiada" (cambio de contraseña logueado).
+    ...(opts.pushProvider ? { pushProvider: opts.pushProvider } : {}),
   };
   app.register(usersRoutes, usersRouteOpts);
 
@@ -114,12 +116,15 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     prefix: "/auth",
     ...(opts.smsProvider ? { smsProvider: opts.smsProvider } : {}),
     ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
+    // MOVO-274: push de "contraseña cambiada" (recuperación de contraseña).
+    ...(opts.pushProvider ? { pushProvider: opts.pushProvider } : {}),
   };
   app.register(authRoutes, authRouteOpts);
 
   const kycRouteOpts: KycRoutesOptions = {
     prefix: "/kyc",
     ...(opts.diditClient ? { diditClient: opts.diditClient } : {}),
+    ...(opts.pushProvider ? { pushProvider: opts.pushProvider } : {}),
   };
   app.register(kycRoutes, kycRouteOpts);
 

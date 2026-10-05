@@ -11,6 +11,7 @@ import { OtpService } from "../../services/otp-service";
 import { OtpChannel } from "../../repositories/otp-repository";
 import { SmsProvider, buildPasswordChangedMessage } from "../../adapters/sms-provider";
 import { EmailProvider, buildPasswordChangedNotice } from "../../adapters/email-provider";
+import { PushSender, sendTriggerPush } from "../notifications/send-trigger-push";
 import { normalizePhoneToE164Ar } from "./auth.service";
 
 export const PASSWORD_RESET_TOKEN_PURPOSE = "password_reset" as const;
@@ -64,6 +65,7 @@ export function createPasswordResetService(
   otpService: OtpService,
   smsProvider: SmsProvider,
   emailProvider: EmailProvider,
+  notifications: PushSender,
   jwtSecret: string,
   logger: FastifyBaseLogger
 ): PasswordResetService {
@@ -203,6 +205,21 @@ export function createPasswordResetService(
           logger.error({ err }, "No se pudo enviar el aviso de contraseña cambiada por email");
         }
       }
+
+      // MOVO-274: además, push a los dispositivos con la app (el helper nunca lanza,
+      // mismo criterio best-effort que los dos avisos de arriba).
+      await sendTriggerPush({
+        notifications,
+        userId,
+        triggerKey: "accountPasswordChanged",
+        params: undefined,
+        data: { type: "account_password_changed" },
+        logger,
+        onErrorContext: {
+          event: "password_changed_push_failed",
+          message: "no se pudo enviar el push de contraseña cambiada; el cambio ya estaba aplicado",
+        },
+      });
     },
   };
 }
