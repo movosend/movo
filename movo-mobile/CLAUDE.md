@@ -4150,6 +4150,14 @@ Tests agregados/actualizados:
 - Cobertura: 182/182 suites pasando (1564 tests en `movo-mobile`). `tsc --noEmit` con 0 errores.
 
 
+### MOVO-271 — Paquete de fixes #2: ofertas, seguimiento en vivo y detalle de envío
+
+- **Mapas (AC1)**: la causa raíz no estaba en el código. La key de Maps SDK para iOS no tenía cargado el bundle id de los builds de EAS/TestFlight (`com.movosend.movomobile`; en local cada uno usa el suyo vía `IOS_BUNDLE_ID` en `.env.local`, que no viaja a EAS). Se resolvió en la consola de Google Cloud.
+- **Oferta aceptada (AC2)**: `ChooseOfferSuccessModal` usa `SuccessMoment` (antes `RatingSuccessMoment`, movido a `components/ui/success-moment.tsx` para reusarlo). En iOS el modal no aparecía: se abría en el mismo render en que se cerraba el sheet de confirmación, y iOS descarta un `Modal` presentado mientras otro se está cerrando. Ahora se abre desde `ChooseOfferModal#onClosed`, cuando el sheet terminó de cerrarse. El auto-cierre pasó de 1,6 s a 3,5 s (`AUTO_DISMISS_MS`) porque no se llegaba a leer.
+- **Redirect duplicado (AC4)**: `offers.tsx` (aceptar oferta), `transport/[id]/offer.tsx` (crear o editar una oferta), `handshake.tsx` ("Volver al envío"), `tracking.tsx` ("Ver detalle del envío" con el envío entregado) y `change-receiver.tsx` (tras elegir otro receptor) vuelven al detalle con `router.dismissTo` en vez de `replace`, que apilaba una segunda instancia del detalle de origen. `dismissTo` hace pop hasta la existente o reemplaza si no está en la pila (ej. desde el aviso de ofertas del home). Los flujos `pickup/*` y `delivery/*` siguen con `replace` a propósito: se abren desde "Mi ruta" o Transportar, nunca desde el detalle del envío, así que no duplican.
+- **Seguimiento en vivo (AC3/AC5)**: `LiveTrackingCard` con el lenguaje de `OffersBanner`, en estado `available` o placeholder `pending`, según `liveTrackingAvailability` (`shipment-format.ts`). Decisión de producto: la ubicación se ve desde "Iniciar viaje" hasta la entrega y antes no se captura. Hoy se habilita recién en `in_transit`, porque el backend rechaza posiciones con el envío en `assignment_pending` (el hold de fondos sigue bloqueado). Cuando MOVO-270 habilite el tramo inicio del viaje → retiro, cambia solo ese helper. Mientras está en placeholder, el detalle se refresca cada 30 s (`liveTrackingPendingPollInterval`) para habilitarse sin salir de la pantalla.
+- **Badge de tipo de paquete (AC6)**: `PackageCard` toma el ícono de `packageTypeIcon` (`category-grid.tsx`), el mismo mapeo que el wizard.
+
 ### MOVO-237 — Botón "Navegar" por parada (deep-link a Google Maps/Waze, ADR-033)
 
 La parada seleccionada de `StopList` (MOVO-207) suma `NavigateButton`

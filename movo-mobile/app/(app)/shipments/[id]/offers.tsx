@@ -86,6 +86,17 @@ export default function ShipmentOffersScreen() {
   // llegaba por el refetch, apilando una copia vieja del detalle debajo de la fresca
   // (MOVO-244 review, PR #184).
   const hasAcceptedRef = useRef(false);
+  const showSuccessOnCloseRef = useRef(false);
+
+  // Vuelve al detalle de este envío: si ya está en la pila (se llegó desde ahí) hace pop
+  // hasta él, y si no (ej. desde el aviso de ofertas del home, MOVO-184) reemplaza esta
+  // pantalla. Un `router.replace` a secas apilaba una segunda instancia del detalle
+  // encima de la que ya existía, y "volver" pasaba de detalle a detalle (MOVO-271 AC4).
+  // El detalle refetchea al recuperar el foco (`useFocusEffect`), así que llega con el
+  // estado actualizado (MOVO-244).
+  const goToShipmentDetail = () => {
+    router.dismissTo(`/shipments/${id}` as never);
+  };
 
   // Si el envío ya tiene transportista asignado (o no está publicado) por una vía
   // ajena a esta pantalla (otro dispositivo, refresh), redirige al detalle para no
@@ -93,8 +104,10 @@ export default function ShipmentOffersScreen() {
   useEffect(() => {
     if (hasAcceptedRef.current) return;
     if (shipment && (shipment.carrierId || shipment.status !== ShipmentStatus.PUBLISHED)) {
-      router.replace(`/shipments/${id}` as never);
+      goToShipmentDetail();
     }
+    // `goToShipmentDetail` solo depende de `id`, ya listado.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shipment, id]);
 
   const acceptMutation = useAcceptOffer();
@@ -123,8 +136,10 @@ export default function ShipmentOffersScreen() {
       await acceptMutation.mutateAsync(offerToAccept.id);
       hasAcceptedRef.current = true;
       setAcceptedOfferCarrierName(offerToAccept.carrierNameAtOffer);
+      // El modal de éxito se abre recién en `onClosed` del sheet de confirmación:
+      // abrirlo en este mismo render hacía que iOS lo descartara (MOVO-271 AC2).
+      showSuccessOnCloseRef.current = true;
       setOfferToAccept(null);
-      setIsSuccessModalVisible(true);
       void refetch();
       void refetchShipment();
     } catch (err) {
@@ -167,7 +182,7 @@ export default function ShipmentOffersScreen() {
 
   const handleSuccessDismiss = () => {
     setIsSuccessModalVisible(false);
-    router.replace(`/shipments/${id}` as never);
+    goToShipmentDetail();
   };
 
   const offerCount = offers ? offers.length : 0;
@@ -311,6 +326,11 @@ export default function ShipmentOffersScreen() {
         isPending={acceptMutation.isPending}
         errorMessage={acceptErrorMessage}
         onConfirm={handleConfirmAccept}
+        onClosed={() => {
+          if (!showSuccessOnCloseRef.current) return;
+          showSuccessOnCloseRef.current = false;
+          setIsSuccessModalVisible(true);
+        }}
         onClose={() => {
           if (!acceptMutation.isPending) {
             setOfferToAccept(null);

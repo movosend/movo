@@ -69,7 +69,9 @@ export default function ChangeReceiverScreen() {
     setErrorMessage(null);
     try {
       await redesignate.mutateAsync({ id, receiverId: receiver.id });
-      router.replace(`/shipments/${id}`);
+      // `dismissTo` (MOVO-271): desde el banner del detalle vuelve a esa misma instancia
+      // en vez de apilar otra; desde el home (no hay detalle en la pila) reemplaza.
+      router.dismissTo(`/shipments/${id}`);
     } catch (err) {
       setErrorMessage(friendlyErrorMessage(err, "No pudimos cambiar el receptor. Intentá de nuevo."));
       void refetch();

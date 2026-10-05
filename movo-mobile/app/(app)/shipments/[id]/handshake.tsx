@@ -99,8 +99,10 @@ export default function ShipmentHandshakeScreen() {
         <HandshakeSuccessView
           shipment={confirmedShipment ?? shipment!}
           stage={stage}
+          // `dismissTo` (MOVO-271): esta pantalla se abre desde el detalle; `replace`
+          // apilaba una segunda instancia del detalle encima de la original.
           onBackToShipment={() => {
-            router.replace(`/(app)/shipments/${shipmentId}`);
+            router.dismissTo(`/(app)/shipments/${shipmentId}`);
           }}
           onGoHome={() => {
             router.replace("/(app)/(tabs)/home");

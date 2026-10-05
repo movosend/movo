@@ -1,14 +1,12 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useIsFocused, useLocalSearchParams } from "expo-router";
 import {
   ArrowDownLeft,
   ArrowUpRight,
   ChevronLeft,
-  ChevronRight,
   Clock,
   QrCode,
-  Radio,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useCallback, useState, type ReactNode } from "react";
@@ -17,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
 import { CounterpartCard } from "../../../components/shipments/counterpart-card";
 import { HighDemandBadge } from "../../../components/shipments/high-demand-badge";
+import { LiveTrackingCard } from "../../../components/shipments/live-tracking-card";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
 import { PackageCard } from "../../../components/shipments/package-card";
 import { RatingSheet, type RatingTarget } from "../../../components/shipments/rating-sheet";
@@ -44,6 +43,8 @@ import {
   formatPickupDateLabel,
   formatShipmentPrice,
   formatTimeHHMM,
+  liveTrackingAvailability,
+  liveTrackingPendingPollInterval,
   receiverConfirmationStatus,
 } from "../../../src/lib/shipment-format";
 
@@ -90,7 +91,17 @@ export default function ShipmentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useThemeColors();
   const currentUser = useAuthStore((state) => state.user);
-  const { data: shipment, isLoading, isError, error, refetch } = useShipment(id);
+  // MOVO-271 AC5: mientras el seguimiento espera a que arranque el recorrido, el detalle
+  // se refresca solo para habilitarlo sin salir de la pantalla. Importa sobre todo para
+  // el receptor, que no participa del retiro (el emisor vuelve del handshake y el
+  // `useFocusEffect` de abajo ya refetchea). Sin el placeholder no hay polling. Solo con
+  // foco: el detalle sigue montado en el stack cuando se abre otra pantalla encima, y
+  // React Query no conoce el foco de React Navigation.
+  const isFocused = useIsFocused();
+  const { data: shipment, isLoading, isError, error, refetch } = useShipment(id, {
+    refetchInterval: (data) =>
+      isFocused ? liveTrackingPendingPollInterval(data, currentUser?.userId) : false,
+  });
   const [tab, setTab] = useState<DetailTab>("detalle");
   const [isAcceptSuccessVisible, setIsAcceptSuccessVisible] = useState(false);
 
@@ -170,6 +181,13 @@ export default function ShipmentDetailScreen() {
   const handshakeActionLabel = showPickupHandshake
     ? "Confirmar retiro"
     : "Confirmar entrega";
+
+  // MOVO-271 AC5: emisor y receptor ven el seguimiento (o su placeholder) mientras hay
+  // transportista y el envío no cerró; el transportista tiene su propio mapa de ruta.
+  const liveTracking =
+    shipment !== undefined && !isCarrier && shipment.carrierId
+      ? liveTrackingAvailability(shipment.status)
+      : null;
 
   // Misma condición que decide "Precio pactado" en la card de precio: con transportista
   // asignado el precio que se ve ya no es el sugerido, así que el recargo no aplica.
@@ -335,41 +353,12 @@ export default function ShipmentDetailScreen() {
                 <RejectedReceiverBanner shipment={shipment} testID="shipment-detail-rejected-banner" />
               ) : null}
 
-              {!isCarrier &&
-              shipment.carrierId &&
-              shipment.status !== ShipmentStatus.DELIVERED &&
-              shipment.status !== ShipmentStatus.CANCELLED &&
-              shipment.status !== ShipmentStatus.COMPLETED &&
-              shipment.status !== ShipmentStatus.DISPUTED &&
-              shipment.status !== ShipmentStatus.REJECTED_BY_RECEIVER ? (
-                <Pressable
-                  testID="shipment-detail-live-tracking-button"
-                  onPress={() => {
-                    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    router.push(`/(app)/shipments/${shipment.id}/tracking`);
-                  }}
-                  className="flex-row items-center justify-between p-3.5 rounded-xl border border-border bg-bg-mute active:scale-[0.99]"
-                  accessibilityRole="button"
-                  accessibilityLabel="Ver seguimiento en vivo en el mapa"
-                >
-                  <View className="flex-row items-center gap-3">
-                    <View className="h-9 w-9 rounded-lg bg-[#C6F24A] items-center justify-center">
-                      <Radio size={18} color="#0A0A0B" />
-                    </View>
-                    <View>
-                      <View className="flex-row items-center gap-1.5">
-                        <View className="h-2 w-2 rounded-full bg-[#C6F24A]" />
-                        <Text className="font-sans-semibold text-[13.5px] text-fg">
-                          Seguimiento en vivo
-                        </Text>
-                      </View>
-                      <Text className="font-sans text-[11.5px] text-fg-3">
-                        Ubicación en tiempo real del transportista
-                      </Text>
-                    </View>
-                  </View>
-                  <ChevronRight size={18} color={colors.fg2} />
-                </Pressable>
+              {liveTracking ? (
+                <LiveTrackingCard
+                  shipmentId={shipment.id}
+                  availability={liveTracking}
+                  testID="shipment-detail-live-tracking"
+                />
               ) : null}
 
               {showExpiredBanner ? (

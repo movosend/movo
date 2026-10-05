@@ -702,8 +702,12 @@ export default function CreateOfferScreen() {
       <OfferSuccessOverlay
         netArs={createdOffer.priceNetArs}
         title={isEditMode ? "Oferta actualizada" : "Oferta enviada"}
+        // `dismissTo` y no `replace` (MOVO-271): este formulario siempre se abre empujado
+        // desde el detalle al que vuelve (del envío al crear, de la oferta al editar), y
+        // `replace` apilaba una segunda instancia de ese detalle encima de la original,
+        // así que "volver" pasaba de detalle a detalle. Si no está en la pila, reemplaza.
         onDone={() =>
-          router.replace(
+          router.dismissTo(
             isEditMode
               ? `/(app)/carrier/offers/${offerId}`
               : `/(app)/transport/${id}`,

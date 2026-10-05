@@ -136,6 +136,44 @@ export function canCancelShipment(status: ShipmentStatus): boolean {
   );
 }
 
+/** Estado de la card "Seguimiento en vivo" del detalle para emisor/receptor
+ * (MOVO-271 AC5). Decisión de producto: la ubicación del transportista se ve desde que
+ * inicia el viaje hasta la entrega, y antes de "Iniciar viaje" no se captura ni se
+ * muestra. Hoy el backend solo acepta posiciones con el envío `in_transit` (tramo
+ * retiro → entrega): entre el inicio del viaje y el retiro el envío sigue en
+ * `assignment_pending` y la ingesta responde 403 `SHIPMENT_NOT_TRACKABLE`, así que se
+ * habilita recién en `in_transit`. Cuando MOVO-270 habilite ese tramo, `"available"`
+ * pasa a depender de que el viaje esté activo y no hace falta tocar la card.
+ * `null`: sin transportista o envío cerrado, la card no se muestra. */
+export type LiveTrackingAvailability = "available" | "pending";
+
+export function liveTrackingAvailability(status: ShipmentStatus): LiveTrackingAvailability | null {
+  switch (status) {
+    case ShipmentStatus.IN_TRANSIT:
+      return "available";
+    case ShipmentStatus.ASSIGNMENT_PENDING:
+    case ShipmentStatus.ASSIGNED_UNFUNDED:
+    case ShipmentStatus.ASSIGNED:
+      return "pending";
+    default:
+      return null;
+  }
+}
+
+/** Cada cuánto se refresca el detalle mientras el seguimiento muestra el placeholder,
+ * para habilitarlo sin salir de la pantalla (MOVO-271 AC5). */
+export const LIVE_TRACKING_PENDING_POLL_MS = 30_000;
+
+/** Si quien mira el detalle tiene que hacer polling: solo emisor/receptor (el
+ * transportista no ve la card) y solo mientras el seguimiento espera el retiro. */
+export function liveTrackingPendingPollInterval(
+  shipment: { status: ShipmentStatus; carrierId: string | null } | undefined,
+  viewerId: string | undefined,
+): number | false {
+  if (!shipment?.carrierId || shipment.carrierId === viewerId) return false;
+  return liveTrackingAvailability(shipment.status) === "pending" ? LIVE_TRACKING_PENDING_POLL_MS : false;
+}
+
 /** Nunca "$0" — un envío recién creado sin precio acordado todavía muestra la
  * sugerencia, nunca un número que parezca gratis. */
 export function formatShipmentPrice(agreedPriceArs: number | null, suggestedPriceArs: number): string {

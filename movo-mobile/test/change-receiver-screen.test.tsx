@@ -4,9 +4,11 @@ import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import ChangeReceiverScreen from "../app/(app)/shipments/[id]/change-receiver";
 
 const mockRouterReplace = jest.fn();
+const mockRouterDismissTo = jest.fn();
 jest.mock("expo-router", () => ({
   router: {
     replace: (...args: unknown[]) => mockRouterReplace(...args),
+    dismissTo: (...args: unknown[]) => mockRouterDismissTo(...args),
     back: jest.fn(),
     canGoBack: () => true,
   },
@@ -102,7 +104,7 @@ describe("ChangeReceiverScreen (MOVO-253)", () => {
     await waitFor(() =>
       expect(mockMutateAsync).toHaveBeenCalledWith({ id: "shipment-1", receiverId: "receiver-2" }),
     );
-    expect(mockRouterReplace).toHaveBeenCalledWith("/shipments/shipment-1");
+    expect(mockRouterDismissTo).toHaveBeenCalledWith("/shipments/shipment-1");
   });
 
   it("muestra el error traducido y refresca el envío si el backend rechaza", async () => {
@@ -119,7 +121,7 @@ describe("ChangeReceiverScreen (MOVO-253)", () => {
       "Esta persona ya rechazó este envío. Elegí a otra.",
     );
     expect(mockRefetch).toHaveBeenCalled();
-    expect(mockRouterReplace).not.toHaveBeenCalled();
+    expect(mockRouterDismissTo).not.toHaveBeenCalled();
   });
 
   it("con el plazo vencido o el envío en otro estado, no ofrece elegir", async () => {
