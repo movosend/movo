@@ -5,6 +5,11 @@ import { formatDuration, StopList } from "../components/route/stop-list";
 import { RouteMap } from "../components/route/route-map";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
 
+const mockCounterpartName = jest.fn<string | null, [unknown]>(() => null);
+jest.mock("../src/hooks/use-stop-counterpart", () => ({
+  useStopCounterpartName: (stop: unknown) => mockCounterpartName(stop),
+}));
+
 describe("Componentes de Ruta (MOVO-207)", () => {
   const sampleRoute: CarrierRoute = {
     stops: [
@@ -52,87 +57,77 @@ describe("Componentes de Ruta (MOVO-207)", () => {
   };
 
   describe("StopList", () => {
-    it("AC4: renderiza próxima parada activa en modo compacto y todas al expandir (AC11)", async () => {
-      const { getByText, getByTestId, getAllByText } = await render(
-        <StopList route={sampleRoute} />
-      );
-
-      // Cabecera inicial en modo compacto
-      expect(getByText(/Próxima parada/)).toBeTruthy();
-      expect(getByText(/42.8 km/)).toBeTruthy();
-
-      // Parada 1 visible en modo compacto
-      expect(getByTestId("stop-row-1")).toBeTruthy();
-      expect(getByText("Av. Colón 1200")).toBeTruthy();
-      expect(getByText(/retiro/i)).toBeTruthy();
-
-      // Expandir el itinerario completo
-      await fireEvent.press(getByTestId("stop-list-toggle-sheet"));
-
-      // Ahora se visualizan todas las paradas
-      expect(getByText(/Itinerario · 3 paradas/)).toBeTruthy();
-      expect(getByTestId("stop-row-2")).toBeTruthy();
-      expect(getByText("San Martín 450")).toBeTruthy();
-      expect(getByTestId("stop-row-3")).toBeTruthy();
-
-      // AC11: Formato de ETA aprox. en horas y minutos (ej: +1h50min)
-      expect(getByTestId("stop-eta-1").props.children).toMatch(/aprox/);
-      expect(getByTestId("stop-eta-3").props.children).toMatch(/\+1h50min aprox/);
+    beforeEach(() => {
+      mockCounterpartName.mockReset();
+      mockCounterpartName.mockReturnValue(null);
     });
 
-    it("colapsado: solo la card de la próxima parada, con su botonera, sin scroll ni banner; y reporta su alto", async () => {
+    it("colapsado: solo la card de la próxima parada, completa, con su botonera, y reporta su alto", async () => {
       const onCollapsedHeightChange = jest.fn();
-      const { getByTestId, queryByTestId } = await render(
+      const { getByTestId, queryByTestId, getByText } = await render(
         <StopList
           route={{ ...sampleRoute, optimized: false }}
           activeStopOrder={1}
-          selectedStopOrder={2}
+          onPressShipment={jest.fn()}
           onCollapsedHeightChange={onCollapsedHeightChange}
         />
       );
 
+      expect(getByText(/Próxima parada · 1 de 3/)).toBeTruthy();
       expect(getByTestId("stop-row-1")).toBeTruthy();
+      expect(getByText("Av. Colón 1200")).toBeTruthy();
       expect(queryByTestId("stop-row-2")).toBeNull();
       expect(queryByTestId("stop-row-3")).toBeNull();
-      // Botonera completa aunque la parada seleccionada en el mapa sea otra
+      expect(getByTestId("stop-shipment-link-1")).toBeTruthy();
       expect(getByTestId("stop-navigate-btn-1")).toBeTruthy();
       expect(getByTestId("stop-action-btn-1")).toBeTruthy();
-      // Sin scroll ni banner de ruta no optimizada mientras está colapsado
-      expect(queryByTestId("unoptimized-banner")).toBeNull();
+      // Sin banner de ruta no optimizada mientras está colapsado
       expect(queryByTestId("unoptimized-route-banner")).toBeNull();
 
-      // El alto natural medido (+ padding del contenedor) se reporta al sheet
       const wrapper = getByTestId("stop-list-collapsed-content");
       await fireEvent(wrapper, "layout", { nativeEvent: { layout: { height: 300, width: 390, x: 0, y: 0 } } });
-      expect(onCollapsedHeightChange).toHaveBeenCalledWith(336);
+      expect(onCollapsedHeightChange).toHaveBeenCalledWith(300);
     });
 
-    it("renderiza el drag handle superior táctil para arrastrar o expandir", async () => {
-      const { getByTestId, getByText } = await render(
-        <StopList route={sampleRoute} />
-      );
+    it("al abrir despliega el resto de la ruta alrededor de la card ancla y cambia el encabezado a 'Tu ruta'", async () => {
+      const { getByTestId, getByText } = await render(<StopList route={sampleRoute} activeStopOrder={1} />);
 
       expect(getByTestId("stop-list-drag-handle")).toBeTruthy();
-      await fireEvent.press(getByTestId("stop-list-toggle-sheet"));
-      expect(getByText(/Itinerario · 3 paradas/)).toBeTruthy();
+      await act(async () => {
+        fireEvent.press(getByTestId("stop-list-toggle-sheet"));
+      });
+
+      expect(getByText("Tu ruta")).toBeTruthy();
+      expect(getByText(/3 paradas · 42.8 km · horarios aprox\./)).toBeTruthy();
+      expect(getByTestId("stop-row-2")).toBeTruthy();
+      expect(getByText("San Martín 450")).toBeTruthy();
+      expect(getByTestId("stop-row-3")).toBeTruthy();
     });
 
-    it("AC5: muestra explícitamente el badge de demora/fuera de ventana si outsideTimeWindow es true al expandir", async () => {
-      const { getByTestId, queryByTestId } = await render(
-        <StopList route={sampleRoute} />
+    it("AC11: la card ancla muestra el ETA con 'aprox.' y las filas compactas la hora corta", async () => {
+      const { getByTestId } = await render(
+        <StopList route={sampleRoute} activeStopOrder={1} isExpanded={true} />
       );
 
-      // Expandir lista
-      await fireEvent.press(getByTestId("stop-list-toggle-sheet"));
+      expect(getByTestId("stop-eta-1").props.children).toMatch(/aprox\.$/);
+      expect(getByTestId("stop-eta-3").props.children).toBe("+1h50min");
+    });
 
-      // Parada 1 no tiene retraso
+    it("AC4: la card ancla muestra la ventana horaria de la parada", async () => {
+      const { getByText } = await render(<StopList route={sampleRoute} activeStopOrder={1} />);
+      expect(getByText(/^Ventana /)).toBeTruthy();
+    });
+
+    it("AC5: marca 'Fuera de ventana' en la parada demorada", async () => {
+      const { getByTestId, queryByTestId } = await render(
+        <StopList route={sampleRoute} activeStopOrder={1} isExpanded={true} />
+      );
+
       expect(queryByTestId("stop-late-badge-1")).toBeNull();
-
-      // Parada 2 tiene outsideTimeWindow = true
       expect(getByTestId("stop-late-badge-2")).toBeTruthy();
     });
 
-    it("AC6: muestra el banner de ruta no optimizada / degradada cuando optimized es false", async () => {
+    it("AC6: muestra el banner de ruta no optimizada con la ruta abierta", async () => {
       const degradedRoute: CarrierRoute = {
         ...sampleRoute,
         optimized: false,
@@ -148,35 +143,36 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       expect(getByText(/Ruta ordenada por defecto/)).toBeTruthy();
     });
 
-    it("permite seleccionar cualquier parada, abre su detalle con 'Ver envío' y omite el botón de acción si no es la próxima", async () => {
-      const onSelectStop = jest.fn();
-      const onPressShipment = jest.fn();
-
-      const { getByTestId, queryByTestId } = await render(
-        <StopList
-          route={sampleRoute}
-          activeStopOrder={1}
-          selectedStopOrder={1}
-          onSelectStop={onSelectStop}
-          onPressShipment={onPressShipment}
-          isExpanded={true}
-        />
+    it("reemplaza el ID del envío por la persona: 'Retirás de' / 'Entregás a' + nombre", async () => {
+      mockCounterpartName.mockImplementation((stop) =>
+        (stop as { type: string }).type === "pickup" ? "Martina" : "Julia"
+      );
+      const { getByText, getAllByText } = await render(
+        <StopList route={sampleRoute} activeStopOrder={1} isExpanded={true} />
       );
 
-      // Por default la parada activa 1 está destacada y abierta (ambos botones)
-      expect(getByTestId("stop-shipment-link-1")).toBeTruthy();
-      expect(getByTestId("stop-action-btn-1")).toBeTruthy();
-      expect(queryByTestId("stop-shipment-link-2")).toBeNull();
-      expect(queryByTestId("stop-action-btn-2")).toBeNull();
+      expect(getByText("Retirás de")).toBeTruthy();
+      expect(getByText("Martina")).toBeTruthy();
+      expect(getAllByText("Entregás a Julia").length).toBe(2);
+    });
 
-      // Tocar parada futura 2 dispara onSelectStop
+    it("sin nombre todavía muestra solo la acción, sin inventar a la persona", async () => {
+      const { getByText } = await render(<StopList route={sampleRoute} activeStopOrder={1} />);
+      expect(getByText("Retirás el paquete")).toBeTruthy();
+    });
+
+    it("tocar una fila la selecciona (pasa a ser la card ancla)", async () => {
+      const onSelectStop = jest.fn();
+      const { getByTestId } = await render(
+        <StopList route={sampleRoute} activeStopOrder={1} onSelectStop={onSelectStop} isExpanded={true} />
+      );
+
       await fireEvent.press(getByTestId("stop-row-2"));
       expect(onSelectStop).toHaveBeenCalledWith(sampleRoute.stops[1]);
     });
 
-    it("en paradas seleccionadas que no son la próxima solo renderiza 'Ver envío' (sin botón de retirar/entregar)", async () => {
+    it("con otra parada seleccionada, la ancla es esa: 'Ver envío' y 'Navegar' pero sin CTA de retiro/entrega", async () => {
       const onPressShipment = jest.fn();
-
       const { getByTestId, queryByTestId } = await render(
         <StopList
           route={sampleRoute}
@@ -187,28 +183,30 @@ describe("Componentes de Ruta (MOVO-207)", () => {
         />
       );
 
-      // Parada 2 está seleccionada: muestra "Ver envío" pero NO "Retirar paquete" ni "Entregar paquete"
+      expect(getByTestId("stop-row-2").props.accessibilityState.selected).toBe(true);
+      expect(getByTestId("stop-row-1").props.accessibilityState.selected).toBe(false);
       expect(getByTestId("stop-shipment-link-2")).toBeTruthy();
+      expect(getByTestId("stop-navigate-btn-2")).toBeTruthy();
       expect(queryByTestId("stop-action-btn-2")).toBeNull();
-
-      // Parada 1 no está seleccionada: sus botones están cerrados
       expect(queryByTestId("stop-shipment-link-1")).toBeNull();
-      expect(queryByTestId("stop-action-btn-1")).toBeNull();
 
-      // Navegación a ver envío funciona desde la parada 2
       await fireEvent.press(getByTestId("stop-shipment-link-2"));
       expect(onPressShipment).toHaveBeenCalledWith("ship-101");
     });
 
-    it("MOVO-237: toda parada seleccionada ofrece 'Navegar', con deep-link a sus coordenadas", async () => {
+    it("con otra parada seleccionada y colapsado, el encabezado dice 'Parada N de M' en vez de 'Próxima parada'", async () => {
+      const { getByText } = await render(
+        <StopList route={sampleRoute} activeStopOrder={1} selectedStopOrder={3} />
+      );
+      expect(getByText(/^Parada · 3 de 3$/)).toBeTruthy();
+    });
+
+    it("MOVO-237: 'Navegar' abre el deep-link a las coordenadas de la card ancla", async () => {
       const openURLSpy = jest.spyOn(Linking, "openURL").mockResolvedValue(true);
 
-      const { getByTestId, queryByTestId } = await render(
-        <StopList route={sampleRoute} activeStopOrder={1} selectedStopOrder={2} isExpanded={true} />
+      const { getByTestId } = await render(
+        <StopList route={sampleRoute} activeStopOrder={1} selectedStopOrder={2} />
       );
-
-      // Solo la parada seleccionada lo muestra, sea o no la próxima
-      expect(queryByTestId("stop-navigate-btn-1")).toBeNull();
       await act(async () => {
         fireEvent.press(getByTestId("stop-navigate-btn-2"));
       });
@@ -218,21 +216,7 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       openURLSpy.mockRestore();
     });
 
-    it("aplica resaltado y accessibilityState.selected cuando la parada coincide con selectedStopOrder (AC4)", async () => {
-      const { getByTestId } = await render(
-        <StopList
-          route={sampleRoute}
-          activeStopOrder={1}
-          selectedStopOrder={2}
-          isExpanded={true}
-        />
-      );
-
-      expect(getByTestId("stop-row-2").props.accessibilityState.selected).toBe(true);
-      expect(getByTestId("stop-row-1").props.accessibilityState.selected).toBe(false);
-    });
-
-    it("AC9: al presionar el CTA principal de la parada activa dispara onPressAction", async () => {
+    it("AC9: el CTA principal de la próxima parada dispara onPressAction", async () => {
       const onPressAction = jest.fn();
       const onPressShipment = jest.fn();
 
@@ -246,24 +230,14 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       );
 
       await fireEvent.press(getByTestId("stop-action-btn-1"));
-      expect(onPressAction).toHaveBeenCalledTimes(1);
       expect(onPressAction).toHaveBeenCalledWith(sampleRoute.stops[0]);
       expect(onPressShipment).not.toHaveBeenCalled();
     });
 
-    it("con isActionDisabled, el CTA de la parada activa no dispara onPressAction y dice un label según el tipo de parada", async () => {
+    it("con isActionDisabled sobre un retiro, el CTA no dispara onPressAction y dice 'Retiro no disponible'", async () => {
       const onPressAction = jest.fn();
-
-      // stopOrder 1 es un retiro (sampleRoute.stops[0].type === "pickup"), así que
-      // deshabilitado debería decir "Retiro no disponible", no "Entrega
-      // próximamente" (bug de label fijo, feedback de review, PR #180).
       const { getByTestId, getByText } = await render(
-        <StopList
-          route={sampleRoute}
-          activeStopOrder={1}
-          onPressAction={onPressAction}
-          isActionDisabled={() => true}
-        />
+        <StopList route={sampleRoute} activeStopOrder={1} onPressAction={onPressAction} isActionDisabled={() => true} />
       );
 
       await fireEvent.press(getByTestId("stop-action-btn-1"));
@@ -271,64 +245,21 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       expect(getByText("Retiro no disponible")).toBeTruthy();
     });
 
-    it("con isActionDisabled sobre una parada de entrega, dice 'Entrega próximamente'", async () => {
-      const onPressAction = jest.fn();
-
-      const { getByTestId, getByText } = await render(
-        <StopList
-          route={sampleRoute}
-          activeStopOrder={2}
-          onPressAction={onPressAction}
-          isActionDisabled={() => true}
-        />
+    it("con isActionDisabled sobre una entrega, dice 'Entrega próximamente'", async () => {
+      const { getByText } = await render(
+        <StopList route={sampleRoute} activeStopOrder={2} isActionDisabled={() => true} />
       );
-
-      await fireEvent.press(getByTestId("stop-action-btn-2"));
-      expect(onPressAction).not.toHaveBeenCalled();
       expect(getByText("Entrega próximamente")).toBeTruthy();
     });
 
-    it("renderiza correctamente cuando una parada está activa (activeStopOrder)", async () => {
+    it("las filas usan la forma de los marcadores del mapa (entrega círculo) y rojo si hay demora", async () => {
       const { getByTestId } = await render(
-        <StopList route={sampleRoute} activeStopOrder={1} />
+        <StopList route={sampleRoute} activeStopOrder={1} isExpanded={true} />
       );
 
-      const stopRow1 = getByTestId("stop-row-1");
-      expect(stopRow1).toBeTruthy();
-      // La parada activa queda marcada como seleccionada (el énfasis visual es de clases, no de estilo inline)
-      expect(stopRow1.props.accessibilityState).toEqual(expect.objectContaining({ selected: true }));
-    });
-
-    it("renderiza chips coherentes con los nodos del mapa (retiro cuadrado, entrega círculo, fondo negro sin borde incompleto)", async () => {
-      const { getByTestId } = await render(
-        <StopList route={sampleRoute} isExpanded={true} />
-      );
-
-      // Parada 1 (retiro): cuadrado redondeado (radius 8), fondo #0A0A0B
-      const chip1 = getByTestId("stop-chip-1");
-      expect(chip1.props.style).toEqual(
-        expect.objectContaining({
-          borderRadius: 8,
-          backgroundColor: "#0A0A0B",
-        })
-      );
-
-      // Parada 3 (entrega): círculo completo (radius 999), fondo #0A0A0B
-      const chip3 = getByTestId("stop-chip-3");
-      expect(chip3.props.style).toEqual(
-        expect.objectContaining({
-          borderRadius: 999,
-          backgroundColor: "#0A0A0B",
-        })
-      );
-
-      // Parada 2 (demora / retraso): círculo completo (radius 999), fondo #E5484D (rojo)
-      const chip2 = getByTestId("stop-chip-2");
-      expect(chip2.props.style).toEqual(
-        expect.objectContaining({
-          borderRadius: 999,
-          backgroundColor: "#E5484D",
-        })
+      expect(getByTestId("stop-chip-3").props.style).toEqual(expect.objectContaining({ borderRadius: 999 }));
+      expect(getByTestId("stop-chip-2").props.style).toEqual(
+        expect.objectContaining({ borderRadius: 999, backgroundColor: "#E5484D" })
       );
     });
   });
@@ -500,109 +431,6 @@ describe("Componentes de Ruta (MOVO-207)", () => {
       });
       expect(getByTestId("route-map-recenter")).toBeTruthy();
       expect(onResetFocus).toHaveBeenCalledTimes(1);
-    });
-
-    it("renderiza botón 'Abrir en Maps' y activa feedback toast e interactividad de navegación", async () => {
-      jest.useFakeTimers();
-      const openURLSpy = jest.spyOn(Linking, "openURL").mockImplementation(() => Promise.resolve());
-
-      const { getByTestId, getByText, queryByTestId } = await render(
-        <RouteMap
-          carrierLocation={{ lat: -31.4167, lng: -64.1833 }}
-          stops={sampleRoute.stops}
-          activeStopOrder={1}
-        />
-      );
-
-      // Control flotante "Abrir en Maps" con subtítulo
-      const openMapsBtn = getByTestId("route-map-open-maps");
-      expect(openMapsBtn).toBeTruthy();
-      expect(getByText("Abrir en Maps")).toBeTruthy();
-      expect(getByText("Ver ruta completa")).toBeTruthy();
-
-      // Toast no visible al inicio
-      expect(queryByTestId("route-navigation-toast")).toBeNull();
-
-      // Al presionar, abre el enlace y muestra el toast de éxito
-      await act(async () => {
-        fireEvent.press(openMapsBtn);
-      });
-
-      expect(openURLSpy).toHaveBeenCalledTimes(1);
-      // Misma cascada que "Navegar": primero el deep-link nativo de Google Maps (iOS)
-      expect(openURLSpy.mock.calls[0][0]).toContain("comgooglemaps://");
-      expect(openURLSpy.mock.calls[0][0]).toContain("-31.425"); // lat de parada 1
-
-      expect(getByTestId("route-navigation-toast")).toBeTruthy();
-      expect(getByText("Abriendo el recorrido en tu app de mapas...")).toBeTruthy();
-
-      // Al expirar el tiempo del toast (2400ms), desaparece
-      await act(async () => {
-        jest.advanceTimersByTime(2500);
-      });
-      expect(queryByTestId("route-navigation-toast")).toBeNull();
-
-      openURLSpy.mockRestore();
-      jest.useRealTimers();
-    });
-
-    it("muestra feedback de error si el sistema no puede abrir la app de mapas externa", async () => {
-      jest.useFakeTimers();
-      const openURLSpy = jest.spyOn(Linking, "openURL").mockRejectedValue(new Error("No app available"));
-
-      const { getByTestId, getByText, queryByTestId } = await render(
-        <RouteMap
-          carrierLocation={{ lat: -31.4167, lng: -64.1833 }}
-          stops={sampleRoute.stops}
-          activeStopOrder={1}
-        />
-      );
-
-      const openMapsBtn = getByTestId("route-map-open-maps");
-      await act(async () => {
-        fireEvent.press(openMapsBtn);
-      });
-
-      // Prueba toda la cascada (Google Maps nativo → Waze → web) antes de avisar el error
-      expect(openURLSpy).toHaveBeenCalledTimes(3);
-      expect(getByTestId("route-navigation-toast")).toBeTruthy();
-      expect(getByText("No se pudo abrir la navegación externa.")).toBeTruthy();
-
-      await act(async () => {
-        jest.advanceTimersByTime(3100);
-      });
-      expect(queryByTestId("route-navigation-toast")).toBeNull();
-
-      openURLSpy.mockRestore();
-      jest.useRealTimers();
-    });
-
-    it("abre en Google Maps el recorrido completo con todas las paradas secuenciadas mediante waypoints y destino final", async () => {
-      const openURLSpy = jest.spyOn(Linking, "openURL").mockImplementation(() => Promise.resolve());
-
-      const { getByTestId } = await render(
-        <RouteMap
-          carrierLocation={{ lat: -31.4167, lng: -64.1833 }}
-          stops={sampleRoute.stops}
-          activeStopOrder={1}
-        />
-      );
-
-      await act(async () => {
-        fireEvent.press(getByTestId("route-map-open-maps"));
-      });
-
-      // Primera candidata de la cascada (iOS en jest): deep-link nativo de Google Maps
-      expect(openURLSpy).toHaveBeenCalledTimes(1);
-      const calledUrl = openURLSpy.mock.calls[0][0];
-
-      // Origen con la posición del transportista
-      expect(calledUrl).toContain("saddr=-31.4167,-64.1833");
-      // Paradas 1, 2 y 3 (destino final) encadenadas en orden
-      expect(calledUrl).toContain("daddr=-31.425,-64.187+to:-31.9139,-63.6817+to:-32.0416,-63.5698");
-      expect(calledUrl).toContain("directionsmode=driving");
-
-      openURLSpy.mockRestore();
     });
 
     it("al presionar un marcador de parada en el mapa llama a onSelectStop para destacarla en el bottom sheet", async () => {

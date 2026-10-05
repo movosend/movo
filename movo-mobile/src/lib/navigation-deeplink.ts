@@ -30,58 +30,6 @@ export function buildNavigationCandidates(
   ];
 }
 
-/** Recorrido completo: origen opcional + paradas en orden (la última es el destino final). */
-export interface NavigationRoute {
-  origin?: NavigationTarget | null;
-  stops: NavigationTarget[];
-}
-
-/** Google Maps web acepta hasta 9 waypoints intermedios en la URL. */
-const MAX_WAYPOINTS = 9;
-
-const coordsOf = (t: NavigationTarget) => `${t.lat},${t.lng}`;
-
-/**
- * URLs candidatas para ver el recorrido completo, misma cascada que
- * `buildNavigationCandidates`: Google Maps nativo → Waze → Google Maps web.
- *
- * - Google Maps iOS: `comgooglemaps://` admite varias paradas encadenadas con `+to:`.
- * - Google Maps Android: no existe un scheme nativo con waypoints, así que se usa un
- *   `intent://` que fuerza el paquete de Google Maps sobre la misma URL web.
- * - Waze no admite waypoints: abre la navegación a la PRIMERA parada, que es la que sigue.
- */
-export function buildRouteCandidates(
-  route: NavigationRoute,
-  platform: NavigationPlatform,
-): string[] {
-  const stops = route.stops;
-  if (stops.length === 0) return [];
-  const destination = stops[stops.length - 1];
-  const intermediates = stops.slice(0, -1).slice(0, MAX_WAYPOINTS);
-  const origin = route.origin ?? null;
-
-  const webQuery =
-    `api=1${origin ? `&origin=${coordsOf(origin)}` : ""}` +
-    `&destination=${coordsOf(destination)}` +
-    (intermediates.length > 0
-      ? `&waypoints=${intermediates.map(coordsOf).join("%7C")}`
-      : "") +
-    "&travelmode=driving";
-  const web = `https://www.google.com/maps/dir/?${webQuery}`;
-
-  const googleMapsNative =
-    platform === "android"
-      ? `intent://www.google.com/maps/dir/?${webQuery}#Intent;scheme=https;package=com.google.android.apps.maps;end`
-      : `comgooglemaps://?${origin ? `saddr=${coordsOf(origin)}&` : ""}daddr=${[
-          ...intermediates,
-          destination,
-        ]
-          .map(coordsOf)
-          .join("+to:")}&directionsmode=driving`;
-
-  return [googleMapsNative, `waze://?ll=${coordsOf(stops[0])}&navigate=yes`, web];
-}
-
 /**
  * Prueba `Linking.openURL` en cascada en vez de preguntar con `canOpenURL`: este último
  * exige declarar los schemes (`LSApplicationQueriesSchemes` en iOS, `<queries>` en
@@ -121,13 +69,4 @@ export async function openNavigation(target: NavigationTarget): Promise<string |
     return null;
   }
   return openFirstAvailable(buildNavigationCandidates(target, currentPlatform()));
-}
-
-/** Igual que `openNavigation`, pero para el recorrido completo con todas las paradas. */
-export async function openRoute(route: NavigationRoute): Promise<string | null> {
-  if (route.stops.length === 0 || !route.stops.every(isValid) || (route.origin && !isValid(route.origin))) {
-    console.warn("[navigation] recorrido vacío o con coordenadas inválidas", route);
-    return null;
-  }
-  return openFirstAvailable(buildRouteCandidates(route, currentPlatform()));
 }

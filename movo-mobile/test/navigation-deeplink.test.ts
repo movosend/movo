@@ -1,5 +1,5 @@
 import { Linking, Platform } from "react-native";
-import { buildNavigationCandidates, buildRouteCandidates, openNavigation, openRoute } from "../src/lib/navigation-deeplink";
+import { buildNavigationCandidates, openNavigation } from "../src/lib/navigation-deeplink";
 
 const target = { lat: -31.425, lng: -64.187 };
 const WAZE = "waze://?ll=-31.425,-64.187&navigate=yes";
@@ -84,43 +84,6 @@ describe("navigation-deeplink (MOVO-237)", () => {
       const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(true);
 
       await expect(openNavigation({ lat: NaN, lng: -64.187 })).resolves.toBeNull();
-      expect(openURL).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("recorrido completo", () => {
-    const route = {
-      origin: { lat: -31.4, lng: -64.1 },
-      stops: [target, { lat: -31.5, lng: -64.2 }, { lat: -31.6, lng: -64.3 }],
-    };
-
-    it("iOS: Google Maps encadena las paradas, Waze va a la primera, web lleva waypoints", () => {
-      const [native, waze, web] = buildRouteCandidates(route, "ios");
-      expect(native).toBe(
-        "comgooglemaps://?saddr=-31.4,-64.1&daddr=-31.425,-64.187+to:-31.5,-64.2+to:-31.6,-64.3&directionsmode=driving",
-      );
-      expect(waze).toBe(WAZE);
-      expect(web).toContain("destination=-31.6,-64.3");
-      expect(web).toContain("waypoints=-31.425,-64.187%7C-31.5,-64.2");
-    });
-
-    it("Android: usa un intent que fuerza Google Maps sobre la URL web", () => {
-      const [native] = buildRouteCandidates(route, "android");
-      expect(native.startsWith("intent://www.google.com/maps/dir/?")).toBe(true);
-      expect(native).toContain("package=com.google.android.apps.maps");
-    });
-
-    it("openRoute cae a la siguiente candidata y rechaza recorridos inválidos", async () => {
-      setPlatform("ios");
-      const openURL = jest
-        .spyOn(Linking, "openURL")
-        .mockRejectedValueOnce(new Error("no app"))
-        .mockResolvedValue(true);
-      await expect(openRoute(route)).resolves.toBe(WAZE);
-
-      openURL.mockClear();
-      await expect(openRoute({ stops: [] })).resolves.toBeNull();
-      await expect(openRoute({ stops: [{ lat: NaN, lng: 1 }] })).resolves.toBeNull();
       expect(openURL).not.toHaveBeenCalled();
     });
   });

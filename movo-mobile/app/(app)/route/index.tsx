@@ -3,15 +3,20 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
+  Easing as RNEasing,
   PanResponder,
-  Platform,
   Pressable,
-  RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import Reanimated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
@@ -34,6 +39,12 @@ import { useStartTrip, useTrip } from "../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { decodePolyline } from "../../../src/lib/polyline";
 import { formatTripStartErrorMessage } from "../../../src/lib/trip-format";
+import { shortAddressLabel } from "../../../src/lib/shipment-format";
+import {
+  ROUTE_SHEET_BEZIER,
+  ROUTE_SHEET_DIM_OPACITY,
+  ROUTE_SHEET_DURATION_MS,
+} from "../../../src/lib/route-sheet-motion";
 
 // Punto de partida declarado del transportista (Claude Design originPin en calle Blas Pascal / Las Mulitas, Córdoba)
 const DEMO_ORIGIN = { lat: -31.3533, lng: -64.2562 };
@@ -42,6 +53,37 @@ const DEMO_ORIGIN = { lat: -31.3533, lng: -64.2562 };
 const DEMO_CARRIER_LOCATION = { lat: -31.3850, lng: -64.2250 }; // Autovía / RN 9
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
+
+const SHEET_EASING = RNEasing.bezier(...ROUTE_SHEET_BEZIER);
+const CHROME_EASING = Easing.bezier(...ROUTE_SHEET_BEZIER);
+
+/** Alto de la isla de arriba (mockup 2a) y separación hasta el control "Centrar" del mapa. */
+const ISLAND_HEIGHT = 64;
+const ISLAND_GAP = 16;
+
+/** Punto lima con un anillo que se expande y se apaga en loop: el viaje está en curso. */
+function PulseDot() {
+  const pulse = useSharedValue(0);
+  useEffect(() => {
+    pulse.value = withRepeat(withTiming(1, { duration: 2000, easing: Easing.out(Easing.ease) }), -1, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const ringStyle = useAnimatedStyle(() => ({
+    opacity: 0.55 * (1 - pulse.value),
+    transform: [{ scale: 1 + pulse.value * 1.6 }],
+  }));
+  return (
+    <View style={{ width: 8, height: 8 }}>
+      <Reanimated.View
+        style={[
+          { position: "absolute", width: 8, height: 8, borderRadius: 999, backgroundColor: "#C6F24A" },
+          ringStyle,
+        ]}
+      />
+      <View style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: "#C6F24A" }} />
+    </View>
+  );
+}
 
 /** Polilínea codificada real del trazado vial Córdoba → Las Mulitas → Oncativo → Villa María (RN 9 / Autopista) */
 const DEMO_POLYLINE =
@@ -199,28 +241,73 @@ export default function OptimizedRouteScreen() {
     };
   }, [sheetHeightAnim]);
 
+  // Mientras el sheet se mueve, los cambios de alto medido no lo tocan: al terminar se
+  // reconcilia contra el último alto medido (la card ancla cambia de padding al cerrar).
+  const isAnimatingRef = useRef(false);
+  const collapsedHeightRef = useRef(COLLAPSED_HEIGHT);
+  collapsedHeightRef.current = COLLAPSED_HEIGHT;
+  const hasMeasuredRef = useRef(false);
+
   const animateTo = useCallback(
     (toHeight: number, expandState: boolean) => {
       setIsListExpanded(expandState);
       try {
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       } catch {}
-      Animated.spring(sheetHeightAnim, {
+      isAnimatingRef.current = true;
+      Animated.timing(sheetHeightAnim, {
         toValue: toHeight,
-        tension: 65,
-        friction: 11,
+        duration: ROUTE_SHEET_DURATION_MS,
+        easing: SHEET_EASING,
         useNativeDriver: false,
-      }).start();
+      }).start(({ finished }) => {
+        isAnimatingRef.current = false;
+        if (finished && !expandState && collapsedHeightRef.current !== toHeight) {
+          Animated.timing(sheetHeightAnim, {
+            toValue: collapsedHeightRef.current,
+            duration: 200,
+            easing: SHEET_EASING,
+            useNativeDriver: false,
+          }).start();
+        }
+      });
     },
     [sheetHeightAnim]
   );
 
-  // Si cambia el alto medido (otra parada, otro texto) y el sheet está colapsado, acompañarlo
+  // Si cambia el alto medido (otra parada, otro texto) y el sheet está quieto y colapsado, acompañarlo
   useEffect(() => {
-    if (!isExpandedRef.current) {
+    if (isExpandedRef.current || isAnimatingRef.current) return;
+    if (!hasMeasuredRef.current) {
       sheetHeightAnim.setValue(COLLAPSED_HEIGHT);
+    } else {
+      Animated.timing(sheetHeightAnim, {
+        toValue: COLLAPSED_HEIGHT,
+        duration: 200,
+        easing: SHEET_EASING,
+        useNativeDriver: false,
+      }).start();
     }
+    if (measuredCollapsedHeight != null) hasMeasuredRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [COLLAPSED_HEIGHT, sheetHeightAnim]);
+
+  // Coreografía del resto de la pantalla al abrir la ruta: la isla sube y se apaga, el mapa se oscurece
+  const chromeProgress = useSharedValue(0);
+  useEffect(() => {
+    chromeProgress.value = withTiming(isListExpanded ? 1 : 0, {
+      duration: ROUTE_SHEET_DURATION_MS,
+      easing: CHROME_EASING,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isListExpanded]);
+  const islandStyle = useAnimatedStyle(() => ({
+    opacity: 1 - Math.min(1, chromeProgress.value / 0.6),
+    transform: [{ translateY: chromeProgress.value * -8 }],
+  }));
+  const dimStyle = useAnimatedStyle(() => ({
+    opacity: chromeProgress.value * ROUTE_SHEET_DIM_OPACITY,
+  }));
 
   const handleToggleExpand = useCallback(() => {
     const nextState = !isExpandedRef.current;
@@ -319,83 +406,84 @@ export default function OptimizedRouteScreen() {
       {/* 1. VISTA CUANDO HAY UN VIAJE ACTIVO CON MAPA */}
       {hasActiveTrip && displayRoute ? (
         <View className="flex-1 relative">
-          {/* Isla Flotante Superior (Claude Design lines 147-156) */}
-          <View
+          {/* Isla de arriba (mockup 2a): estado del viaje + actualizar + volver. Se apaga con la ruta abierta */}
+          <Reanimated.View
             testID="route-floating-island"
-            style={{
-              position: "absolute",
-              top: topInset + 8,
-              left: 16,
-              right: 16,
-              zIndex: 25,
-              minHeight: 52,
-              paddingHorizontal: 14,
-              paddingVertical: 8,
-              borderRadius: 14,
-              backgroundColor: isDark ? "rgba(17, 17, 19, 0.94)" : "rgba(255, 255, 255, 0.94)",
-              borderWidth: 1,
-              borderColor: isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(10, 10, 11, 0.08)",
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 8 },
-              shadowOpacity: 0.15,
-              shadowRadius: 20,
-              elevation: 6,
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 10,
-            }}
+            pointerEvents={isListExpanded ? "none" : "auto"}
+            style={[
+              {
+                position: "absolute",
+                top: topInset + 8,
+                left: 16,
+                right: 16,
+                zIndex: 25,
+                height: ISLAND_HEIGHT,
+                paddingLeft: 16,
+                paddingRight: 10,
+                borderRadius: 14,
+                backgroundColor: isDark ? "rgba(10, 10, 11, 0.85)" : "rgba(255, 255, 255, 0.92)",
+                borderWidth: 1,
+                borderColor: colors.border,
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: isDark ? 0.3 : 0.12,
+                shadowRadius: 20,
+                elevation: 6,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12,
+              },
+              islandStyle,
+            ]}
           >
-            <View className="h-2 w-2 rounded-full bg-lime-500 flex-none" />
-            <View className="flex-1 min-w-0 justify-center">
-              <Text className="font-sans-bold text-[10px] tracking-wider uppercase text-fg-3">
-                {demoMode ? "Modo Demo" : "Viaje en curso"}
+            <PulseDot />
+            <View className="min-w-0 flex-1 justify-center gap-0.5">
+              <Text className="font-sans-semibold text-caption uppercase text-fg-2">
+                {demoMode ? "Modo demo" : "Viaje en curso"}
               </Text>
-              <Text
-                numberOfLines={1}
-                className="font-sans-medium text-[13px] text-fg"
-              >
+              <Text numberOfLines={1} className="font-sans-medium text-[15px] text-fg">
                 Parada {activeStop?.stopOrder ?? 1} de {displayRoute.stops.length} ·{" "}
-                {activeStop?.address ?? "Inicio"}
+                {activeStop?.address ? shortAddressLabel(activeStop.address) : "Inicio"}
               </Text>
             </View>
             {demoMode ? (
               <Pressable
                 testID="route-exit-demo-button"
                 onPress={() => setDemoMode(false)}
-                className="h-8 px-3 rounded-full border border-border bg-bg items-center justify-center flex-none"
+                className="h-11 flex-none items-center justify-center rounded-lg border border-border bg-bg-mute px-4"
                 accessibilityRole="button"
                 accessibilityLabel="Salir demo"
               >
-                <Text className="font-sans-medium text-[12px] text-fg">Salir demo</Text>
+                <Text className="font-sans-medium text-[15px] text-fg">Salir demo</Text>
               </Pressable>
             ) : (
-              <View className="flex-row items-center gap-1.5 flex-none">
+              <View className="flex-none flex-row items-center gap-2">
                 <Pressable
                   testID="route-refresh-active-button"
                   onPress={() => void refetch()}
                   disabled={isLoading || isRefreshing}
-                  className="h-8 w-8 rounded-full border border-border bg-bg items-center justify-center"
+                  className="h-11 w-11 items-center justify-center rounded-lg border border-border bg-bg-mute"
                   accessibilityRole="button"
                   accessibilityLabel="Actualizar ruta"
                 >
                   <RefreshCw
-                    size={14}
-                    color={colors.fg2}
+                    size={20}
+                    color={colors.fg1}
                     className={isRefreshing ? "animate-spin" : undefined}
                   />
                 </Pressable>
                 <Pressable
                   testID="route-back-button"
                   onPress={() => router.back()}
-                  className="h-8 px-3 rounded-full border border-border bg-bg items-center justify-center flex-none"
+                  className="h-11 flex-none items-center justify-center rounded-lg border border-border bg-bg-mute px-4"
                   accessibilityRole="button"
                   accessibilityLabel="Inicio"
                 >
-                  <Text className="font-sans-medium text-[12px] text-fg">Inicio</Text>
+                  <Text className="font-sans-medium text-[15px] text-fg">Inicio</Text>
                 </Pressable>
               </View>
             )}
-          </View>
+          </Reanimated.View>
 
           {/* Fondo completo: Mapa interactivo que no se redimensiona para evitar parpadeos nativos */}
           <View
@@ -412,11 +500,25 @@ export default function OptimizedRouteScreen() {
               polylineCoordinates={demoPolylineCoordinates}
               onResetFocus={handleResetFocus}
               focusTrigger={focusTrigger}
-              topOffset={topInset + 70}
+              topOffset={topInset + 8 + ISLAND_HEIGHT + ISLAND_GAP}
               bottomOffset={isListExpanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT}
               showControls={!isListExpanded}
             />
           </View>
+
+          {/* Velo sobre el mapa con la ruta abierta: tocarlo la cierra */}
+          <Reanimated.View
+            testID="route-map-dim"
+            pointerEvents={isListExpanded ? "auto" : "none"}
+            style={[StyleSheet.absoluteFill, { zIndex: 28, backgroundColor: "#0A0A0B" }, dimStyle]}
+          >
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={handleToggleExpand}
+              accessibilityRole="button"
+              accessibilityLabel="Cerrar la ruta"
+            />
+          </Reanimated.View>
 
           {/* Bottom sheet fluido deslizable desde el borde superior */}
           <Animated.View
@@ -428,8 +530,8 @@ export default function OptimizedRouteScreen() {
               bottom: 0,
               height: sheetHeightAnim,
               zIndex: 30,
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
+              borderTopLeftRadius: 14,
+              borderTopRightRadius: 14,
               borderTopWidth: 1,
               borderColor: colors.border,
               backgroundColor: colors.bg,

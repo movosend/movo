@@ -1,16 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
 import { useColorScheme } from "nativewind";
-import * as Haptics from "expo-haptics";
-import { ArrowUpRight, Crosshair, Map, X } from "lucide-react-native";
-import { openRoute } from "../../src/lib/navigation-deeplink";
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { Crosshair, Map, X } from "lucide-react-native";
 import type { CarrierRouteStop } from "@movo/shared/dist/types/routing";
 import {
   movoMapStyleDark,
   movoMapStyleLight,
 } from "../../src/constants/map-style";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { ROUTE_SHEET_BEZIER, ROUTE_SHEET_DURATION_MS } from "../../src/lib/route-sheet-motion";
 
 interface RouteMapProps {
   carrierLocation?: { lat: number; lng: number } | null;
@@ -61,8 +61,6 @@ export function RouteMap({
   const [isTrackingCourier, setIsTrackingCourier] = useState<boolean>(false);
   const [activeTooltip, setActiveTooltip] = useState<"origin" | "courier" | null>(null);
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [mapsToast, setMapsToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  const mapsToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -92,42 +90,22 @@ export function RouteMap({
       if (tooltipTimeoutRef.current) {
         clearTimeout(tooltipTimeoutRef.current);
       }
-      if (mapsToastTimeoutRef.current) {
-        clearTimeout(mapsToastTimeoutRef.current);
-      }
     };
   }, []);
 
-  // Al presionar el botón de navegación externa (Finding 3 / AC4 / Screen 1 Interactivity)
-  const handleOpenExternalMaps = () => {
-    try {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch { }
-
-    // Paradas ordenadas según stopOrder para el recorrido secuenciado; sin paradas, se
-    // navega hacia la posición del transportista.
-    const sortedStops = [...stops].sort((a, b) => a.stopOrder - b.stopOrder);
-    const routeStops = sortedStops.length > 0 ? sortedStops : carrierLocation ? [carrierLocation] : [];
-
-    // Misma cascada de deep-links que el botón "Navegar" de cada parada (MOVO-237).
-    void openRoute({
-      origin: carrierLocation,
-      stops: routeStops.map((s) => ({ lat: s.lat, lng: s.lng })),
-    }).then((opened) => {
-      const ok = opened !== null;
-      setMapsToast(
-        ok
-          ? { type: "success", message: "Abriendo el recorrido en tu app de mapas..." }
-          : { type: "error", message: "No se pudo abrir la navegación externa." },
-      );
-      if (mapsToastTimeoutRef.current) {
-        clearTimeout(mapsToastTimeoutRef.current);
-      }
-      mapsToastTimeoutRef.current = setTimeout(() => {
-        setMapsToast(null);
-      }, ok ? 2400 : 3000);
+  // Los controles se apagan y suben un poco con la ruta abierta, en vez de desaparecer de golpe
+  const controlsProgress = useSharedValue(showControls ? 1 : 0);
+  useEffect(() => {
+    controlsProgress.value = withTiming(showControls ? 1 : 0, {
+      duration: Math.round(ROUTE_SHEET_DURATION_MS * 0.6),
+      easing: Easing.bezier(...ROUTE_SHEET_BEZIER),
     });
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showControls]);
+  const controlsStyle = useAnimatedStyle(() => ({
+    opacity: controlsProgress.value,
+    transform: [{ translateY: (1 - controlsProgress.value) * -8 }],
+  }));
 
   // Coordenadas de referencia: origen declarado + posición actual + paradas
   const routePoints: LatLng[] = useMemo(() => {
@@ -517,219 +495,44 @@ export function RouteMap({
         </View>
       )}
 
-      {/* Toast Feedback de navegación externa (Screen 1 Interactivity) posicionado justo debajo de la isla flotante */}
-      {mapsToast && (
-        <View
-          testID="route-navigation-toast"
+      {/* Control flotante "Centrar" <-> "Ver ruta" (mockup 2a: 44px, mismo vidrio que la isla de arriba) */}
+      <Animated.View
+        pointerEvents={showControls ? "box-none" : "none"}
+        style={[{ position: "absolute", right: 16, top: topOffset ?? 16, zIndex: 20 }, controlsStyle]}
+      >
+        <Pressable
+          testID={isTrackingCourier ? "route-map-reset-zoom" : "route-map-recenter"}
+          onPress={isTrackingCourier ? handleOverviewPress : handleCenterPress}
+          accessibilityRole="button"
+          accessibilityLabel={isTrackingCourier ? "Ver ruta completa" : "Centrar en mi ubicación"}
           style={{
-            position: "absolute",
-            top: topOffset ?? 16,
-            alignSelf: "center",
-            zIndex: 40,
-            backgroundColor: isDark ? "rgba(17, 17, 19, 0.94)" : "rgba(255, 255, 255, 0.94)",
-            borderColor: isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(10, 10, 11, 0.08)",
-            borderWidth: 1,
-            borderRadius: 9999,
-            paddingHorizontal: 16,
-            paddingVertical: 9,
+            height: 44,
+            paddingLeft: 12,
+            paddingRight: 16,
             flexDirection: "row",
             alignItems: "center",
             gap: 8,
+            borderRadius: 14,
+            backgroundColor: isDark ? "rgba(10, 10, 11, 0.85)" : "rgba(255, 255, 255, 0.92)",
+            borderWidth: 1,
+            borderColor: colors.border,
             shadowColor: "#000",
             shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: isDark ? 0.25 : 0.12,
+            shadowOpacity: isDark ? 0.3 : 0.1,
             shadowRadius: 10,
             elevation: 6,
           }}
         >
-          <View
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: 4,
-              backgroundColor: mapsToast.type === "error" ? "#E5484D" : "#C6F24A",
-            }}
-          />
-          <Text
-            style={{
-              fontSize: 12,
-              fontWeight: "600",
-              color: isDark ? "#FFFFFF" : "#0A0A0B",
-            }}
-          >
-            {mapsToast.message}
-          </Text>
-        </View>
-      )}
-
-      {/* Control flotante individual alterno sobre el mapa ("Centrar" <-> "Ver ruta") estilo Google Maps */}
-      {showControls && (
-        <View
-          style={{
-            position: "absolute",
-            right: 14,
-            top: topOffset ?? 16,
-            zIndex: 20,
-          }}
-        >
           {isTrackingCourier ? (
-            <Pressable
-              testID="route-map-reset-zoom"
-              onPress={handleOverviewPress}
-              accessibilityRole="button"
-              accessibilityLabel="Ver ruta completa"
-            >
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8,
-                  paddingHorizontal: 14,
-                  paddingVertical: 9,
-                  borderRadius: 16,
-                  backgroundColor: isDark ? "#18181B" : "#FFFFFF",
-                  borderWidth: 1,
-                  borderColor: isDark ? "rgba(255, 255, 255, 0.15)" : "#E4E4E7",
-                  shadowColor: "#000",
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.12,
-                  shadowRadius: 10,
-                  elevation: 6,
-                }}
-              >
-                <Map
-                  size={15}
-                  color={isDark ? "#FFFFFF" : "#0A0A0B"}
-                  strokeWidth={2.2}
-                />
-                <Text
-                  style={{
-                    fontSize: 12,
-                    fontWeight: "700",
-                    color: isDark ? "#FFFFFF" : "#0A0A0B",
-                  }}
-                >
-                  Ver ruta
-                </Text>
-              </View>
-            </Pressable>
+            <Map size={20} color={colors.fg1} strokeWidth={1.75} />
           ) : (
-            <Pressable
-              testID="route-map-recenter"
-              onPress={handleCenterPress}
-              accessibilityRole="button"
-              accessibilityLabel="Centrar en mi ubicación"
-            >
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8,
-                  paddingHorizontal: 14,
-                  paddingVertical: 9,
-                  borderRadius: 16,
-                  backgroundColor: isDark ? "#18181B" : "#FFFFFF",
-                  borderWidth: 1,
-                  borderColor: isDark ? "rgba(255, 255, 255, 0.15)" : "#E4E4E7",
-                  shadowColor: "#000",
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.12,
-                  shadowRadius: 10,
-                  elevation: 6,
-                }}
-              >
-                <Crosshair
-                  size={15}
-                  color={isDark ? "#FFFFFF" : "#0A0A0B"}
-                  strokeWidth={2.2}
-                />
-                <Text
-                  style={{
-                    fontSize: 12,
-                    fontWeight: "700",
-                    color: isDark ? "#FFFFFF" : "#0A0A0B",
-                  }}
-                >
-                  Centrar
-                </Text>
-              </View>
-            </Pressable>
+            <Crosshair size={20} color={colors.fg1} strokeWidth={1.75} />
           )}
-        </View>
-      )}
-
-      {/* Botón flotante "Abrir en Maps" (Visual Screen 2 + Interactividad Screen 1) */}
-      {showControls && stops.length > 0 && (
-        <View
-          style={{
-            position: "absolute",
-            right: 14,
-            bottom: (bottomOffset ?? 270) + 16,
-            zIndex: 25,
-          }}
-        >
-          <Pressable
-            testID="route-map-open-maps"
-            onPress={handleOpenExternalMaps}
-            accessibilityRole="button"
-            accessibilityLabel="Abrir en Maps para ver la ruta completa"
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 10,
-                paddingHorizontal: 14,
-                paddingVertical: 10,
-                borderRadius: 16,
-                backgroundColor: isDark ? "#18181B" : "#FFFFFF",
-                borderWidth: 1,
-                borderColor: isDark ? "rgba(255, 255, 255, 0.15)" : "#E4E4E7",
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.12,
-                shadowRadius: 10,
-                elevation: 6,
-              }}
-            >
-              <View
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 8,
-                  backgroundColor: "#0A0A0B",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <ArrowUpRight size={14} color="#FFFFFF" strokeWidth={2.5} />
-              </View>
-              <View style={{ justifyContent: "center" }}>
-                <Text
-                  style={{
-                    fontSize: 11,
-                    fontWeight: "800",
-                    lineHeight: 14,
-                    color: isDark ? "#FFFFFF" : "#0A0A0B",
-                  }}
-                >
-                  Abrir en Maps
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 9,
-                    fontWeight: "500",
-                    lineHeight: 12,
-                    color: isDark ? "#A1A1AA" : "#71717A",
-                  }}
-                >
-                  Ver ruta completa
-                </Text>
-              </View>
-            </View>
-          </Pressable>
-        </View>
-      )}
+          <Text className="font-sans-medium text-[15px] text-fg">
+            {isTrackingCourier ? "Ver ruta" : "Centrar"}
+          </Text>
+        </Pressable>
+      </Animated.View>
     </View>
   );
 }
