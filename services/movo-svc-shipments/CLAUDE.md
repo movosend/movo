@@ -2661,6 +2661,14 @@ corre en cada `createShipment`, así que no trae todos los viajes del país).
 
 Pendiente fuera de alcance: badge en el detalle del envío (MOVO-254, mobile) y cotización
 congelada en el resumen del wizard (MOVO-255).
+### MOVO-184 — Filtro `withPendingOffers` en `GET /shipments/mine`
+
+Query param opcional: deja solo los envíos donde el caller es emisor y hay al menos una
+oferta con estado efectivo `pending` (no vencida por lectura). Lo usa "Requiere tu
+atención" del mobile para no depender de una ventana fija de la lista. Cambios en
+`shipments.schema.ts`, `shipments.routes.ts`, `shipments.service.ts` y
+`shipment-repository.ts#listByUser`.
+
 ### MOVO-253 — Elegir otro receptor tras un rechazo (ADR-027)
 
 `rejected_by_receiver` deja de ser terminal: sale hacia `awaiting_receiver_confirmation`

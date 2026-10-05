@@ -1617,9 +1617,10 @@ export function createShipmentsService(
       userId: string,
       page: number,
       limit: number,
-      statuses?: readonly ShipmentStatus[]
+      statuses?: readonly ShipmentStatus[],
+      filters?: { withPendingOffers?: boolean }
     ): Promise<ListMineResult> {
-      const { items, total } = await repository.listByUser(userId, page, limit, statuses);
+      const { items, total } = await repository.listByUser(userId, page, limit, statuses, filters);
       // MOVO-257: conteo de ofertas vigentes en batch sobre la página (una sola query),
       // solo para los envíos publicados donde el caller es el emisor.
       const countableIds = items

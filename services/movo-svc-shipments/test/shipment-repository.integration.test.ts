@@ -324,6 +324,34 @@ describe("shipment-repository (Postgres)", () => {
       expect(items).toEqual([]);
       expect(total).toBe(0);
     });
+
+    it("withPendingOffers: solo envíos propios (emisor) con una oferta vigente", async () => {
+      const userId = randomUUID();
+      const offer = (shipmentId: string, extra: Record<string, unknown> = {}) =>
+        app.db.offer.create({
+          data: {
+            shipmentId,
+            carrierId: randomUUID(),
+            priceOffered: 1000,
+            offeredDate: new Date(),
+            status: "pending",
+            ...extra,
+          },
+        });
+      const withOffer = await repo.create({ ...baseInput, senderId: userId });
+      await offer(withOffer.id);
+      const withoutOffer = await repo.create({ ...baseInput, senderId: userId });
+      const withExpiredOffer = await repo.create({ ...baseInput, senderId: userId });
+      await offer(withExpiredOffer.id, { expiresAt: new Date(Date.now() - 60_000) });
+      const asReceiver = await repo.create({ ...baseInput, senderId: randomUUID(), receiverId: userId });
+      await offer(asReceiver.id);
+
+      const { items, total } = await repo.listByUser(userId, 1, 20, undefined, { withPendingOffers: true });
+
+      expect(items.map((s) => s.id)).toEqual([withOffer.id]);
+      expect(total).toBe(1);
+      expect(items.map((s) => s.id)).not.toContain(withoutOffer.id);
+    });
   });
 
   describe("findExpiredAwaitingConfirmation", () => {

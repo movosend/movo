@@ -275,7 +275,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         description:
           "AC9 de MOVO-80: lista paginada de los envíos donde el usuario autenticado " +
           "participa como emisor o como receptor, más reciente primero. `status` " +
-          "(opcional, repetible, MOVO-253) acota a esos estados.",
+          "(opcional, repetible, MOVO-253) acota a esos estados. `withPendingOffers` " +
+          "(opcional, MOVO-184) deja solo los envíos donde el usuario es emisor y hay " +
+          "al menos una oferta vigente.",
         tags: ["shipments"],
         querystring: shipmentsSchemas.listMineQuery,
         response: {
@@ -286,8 +288,13 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
     },
     async (request: FastifyRequest) => {
       const userId = requireUserIdFromHeader(request);
-      const { page, limit, status } = request.query as { page: number; limit: number; status?: ShipmentStatus[] };
-      const result = await service.listMyShipments(userId, page, limit, status);
+      const { page, limit, status, withPendingOffers } = request.query as {
+        page: number;
+        limit: number;
+        status?: ShipmentStatus[];
+        withPendingOffers?: boolean;
+      };
+      const result = await service.listMyShipments(userId, page, limit, status, { withPendingOffers });
       return { ...result, items: result.items.map(toShipmentDto) };
     }
   );

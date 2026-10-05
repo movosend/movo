@@ -498,6 +498,9 @@ export const shipmentsSchemas = {
         type: "array",
         items: { type: "string", enum: Object.values(ShipmentStatus) },
       },
+      // MOVO-184: solo los envíos propios (como emisor) con al menos una oferta vigente.
+      // Evita que "Requiere tu atención" dependa de una ventana fija de la lista.
+      withPendingOffers: { type: "boolean" },
     },
   },
 
