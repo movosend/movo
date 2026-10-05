@@ -116,4 +116,15 @@ describe("selectRecentShipments (MOVO-184)", () => {
 
     expect(result.length).toBe(2);
   });
+  it("AC1: un publicado sin ofertas por vencer (aviso informativo) no desplaza a un envío en curso", () => {
+    const expiring = createShipment("exp", "2026-10-02T07:00:00.000Z", ShipmentStatus.PUBLISHED, {
+      pickupDate: "2026-10-02",
+      pendingOffersCount: 0,
+    });
+    const inTransit = createShipment("transit", "2026-10-02T09:00:00.000Z", ShipmentStatus.IN_TRANSIT);
+
+    const result = selectRecentShipments([expiring, inTransit], USER_1, { now: NOW });
+
+    expect(result.map((s) => s.id)).toEqual(["transit", "exp"]);
+  });
 });

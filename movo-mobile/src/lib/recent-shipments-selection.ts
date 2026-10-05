@@ -50,7 +50,8 @@ export function selectRecentShipments(
     let priority = 3; // Nivel 3: Historial
     
     if (presentation.stage === "ongoing") {
-      priority = presentation.strip !== null ? 1 : 2; // Nivel 1: Acción, Nivel 2: Ongoing
+      // Solo una franja de acción sube al nivel 1; un aviso informativo (`warning`) no.
+      priority = presentation.strip?.kind === "action" ? 1 : 2; // Nivel 1: Acción, Nivel 2: Ongoing
     }
 
     return { shipment, priority };
