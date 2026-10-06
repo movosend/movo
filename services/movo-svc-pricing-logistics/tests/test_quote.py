@@ -433,16 +433,16 @@ def test_endpoint_sends_breakdown_with_the_flag() -> None:
 
 @pytest.mark.parametrize(
     ("km", "expected"),
-    [(0, 0.0), (30, 30.0), (50, 50.0), (150, 50 + 100 * 0.3), (300, 50 + 250 * 0.3), (2300, 125 + 2000 * 0.025)],
+    [(0, 0.0), (20, 20.0), (30, 30.0), (150, 30 + 120 * 0.2), (300, 30 + 270 * 0.2), (2300, 84 + 2000 * 0.015)],
 )
 def test_effective_distance_tiers(monkeypatch: pytest.MonkeyPatch, km: float, expected: float) -> None:
-    monkeypatch.setattr(settings, "distance_tier1_km", 50.0)
+    monkeypatch.setattr(settings, "distance_tier1_km", 30.0)
     monkeypatch.setattr(settings, "distance_tier2_km", 300.0)
     assert pricing.effective_distance_km(km) == pytest.approx(expected)
 
 
 def test_long_distance_document_stays_under_30k(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "distance_tier1_km", 50.0)
+    monkeypatch.setattr(settings, "distance_tier1_km", 30.0)
     monkeypatch.setattr(settings, "distance_tier2_km", 300.0)
     price, _ = _quote(_request(), km=2300.0)  # Chubut → Tucumán
     assert price < 30000

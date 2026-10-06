@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     # que el costo marginal por km cae con la distancia. Km efectivos = primeros
     # `tier1_km` al 100%, hasta `tier2_km` al `tier2_rate`, el resto al `tier3_rate`.
     distance_tier1_km: float = Field(
-        default=50.0,
+        default=30.0,
         ge=0,
         validation_alias=AliasChoices("PRICING_DISTANCE_TIER1_KM", "distance_tier1_km"),
     )
@@ -62,13 +62,13 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("PRICING_DISTANCE_TIER2_KM", "distance_tier2_km"),
     )
     distance_tier2_rate: float = Field(
-        default=0.3,
+        default=0.2,
         ge=0,
         le=1,
         validation_alias=AliasChoices("PRICING_DISTANCE_TIER2_RATE", "distance_tier2_rate"),
     )
     distance_tier3_rate: float = Field(
-        default=0.025,
+        default=0.015,
         ge=0,
         le=1,
         validation_alias=AliasChoices("PRICING_DISTANCE_TIER3_RATE", "distance_tier3_rate"),
