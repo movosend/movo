@@ -44,6 +44,13 @@ client = TestClient(app)
 T = TypeVar("T")
 
 
+@pytest.fixture(autouse=True)
+def _linear_distance(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Los casos de la fórmula asumen tarifa lineal por km; los tramos se prueban aparte."""
+    monkeypatch.setattr(settings, "distance_tier1_km", 1e9)
+    monkeypatch.setattr(settings, "distance_tier2_km", 1e9)
+
+
 class FixedFuel(FuelPriceProvider):
     async def get_price(self) -> FuelPrice:
         return FuelPrice(ars_per_liter=2000.0, source="mock")
@@ -419,3 +426,23 @@ def test_endpoint_sends_breakdown_with_the_flag() -> None:
         "distanceKm", "distanceSource", "fuelArsPerLiter", "fuelSource", "perKmArs",
         "base", "distance", "weight", "packageFactor", "demandRatio", "demandMultiplier",
     }
+
+
+# --- Tramos decrecientes de distancia (hotfix larga distancia) -------------------------
+
+
+@pytest.mark.parametrize(
+    ("km", "expected"),
+    [(0, 0.0), (20, 20.0), (30, 30.0), (150, 30 + 120 * 0.2), (300, 30 + 270 * 0.2), (2300, 84 + 2000 * 0.015)],
+)
+def test_effective_distance_tiers(monkeypatch: pytest.MonkeyPatch, km: float, expected: float) -> None:
+    monkeypatch.setattr(settings, "distance_tier1_km", 30.0)
+    monkeypatch.setattr(settings, "distance_tier2_km", 300.0)
+    assert pricing.effective_distance_km(km) == pytest.approx(expected)
+
+
+def test_long_distance_document_stays_under_30k(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "distance_tier1_km", 30.0)
+    monkeypatch.setattr(settings, "distance_tier2_km", 300.0)
+    price, _ = _quote(_request(), km=2300.0)  # Chubut → Tucumán
+    assert price < 30000
