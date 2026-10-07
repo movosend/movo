@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Linking } from "react-native";
 import OnboardingScreen from "../app/onboarding";
 
@@ -38,12 +38,9 @@ jest.mock("expo-camera", () => ({
  */
 describe("OnboardingScreen (MOVO-249)", () => {
   beforeEach(() => jest.clearAllMocks());
-  afterEach(() => jest.useRealTimers());
 
-  /** Timers falsos solo en los tests que necesitan cruzar `ADVANCE_DELAY_MS` — a
-   * nivel de `beforeEach` chocan con las animaciones (Reanimated) de las
-   * ilustraciones de los pasos de concepto y cuelgan el render. */
-  const withFakeTimers = () => jest.useFakeTimers();
+  /** Sin timers falsos: chocan con las animaciones (Reanimated) de las ilustraciones
+   * y cuelgan el render. */
 
   it("arranca en el primer paso de concepto, con 'Omitir' pero sin volver", async () => {
     await render(<OnboardingScreen />);
@@ -93,15 +90,16 @@ describe("OnboardingScreen (MOVO-249)", () => {
     expect(screen.queryByTestId("onboarding-permission-later")).toBeNull();
   });
 
+  // Con timers reales: activar los timers falsos antes del render cuelga el test por
+  // las animaciones de las ilustraciones (ver el comentario de arriba). `waitFor`
+  // espera el avance automático post-permiso (`ADVANCE_DELAY_MS`, ~350ms).
   it("el paso de notificaciones sí ofrece 'Ahora no', y no pide ningún permiso", async () => {
-    withFakeTimers();
     const Notifications = require("expo-notifications");
     await render(<OnboardingScreen />);
     await act(async () => fireEvent.press(screen.getByTestId("onboarding-skip")));
     await act(async () => fireEvent.press(screen.getByTestId("onboarding-permission-primary")));
-    await act(async () => jest.advanceTimersByTime(400));
 
-    expect(screen.getByText(/Enterate de cada paso del envío/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/Enterate de cada paso del envío/)).toBeTruthy());
     await act(async () => fireEvent.press(screen.getByTestId("onboarding-permission-later")));
 
     expect(Notifications.requestPermissionsAsync).not.toHaveBeenCalled();

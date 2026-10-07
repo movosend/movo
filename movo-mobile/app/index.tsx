@@ -100,20 +100,6 @@ export default function WelcomeScreen() {
     }
   }, [resumeChecked, shouldAutoRedirect, markInitialRouteResolved]);
 
-  // Camino "no hay nada que redirigir" -- esta misma pantalla de Bienvenida es el
-  // destino final. `authStatus !== "checking"` importa acá: sin este chequeo,
-  // `isAuthenticatedSession` todavía lee `false` mientras la sesión sigue
-  // restaurándose (MOVO-247 montó este árbol apenas hay fuentes, ya no espera a
-  // `sessionChecked` como antes) y esta rama marcaría "resuelto" un instante
-  // antes de que el efecto de arriba redirija a Home/Kyc -- el splash se
-  // revelaría sobre la Bienvenida para de inmediato saltar, el "push" que este
-  // ticket vino a sacar.
-  useEffect(() => {
-    if (resumeChecked && authStatus !== "checking" && !shouldAutoRedirect && !isAuthenticatedSession) {
-      markInitialRouteResolved();
-    }
-  }, [resumeChecked, authStatus, shouldAutoRedirect, isAuthenticatedSession, markInitialRouteResolved]);
-
   // MOVO-249: carrusel de onboarding, una sola vez por dispositivo, antes de esta
   // misma pantalla de bienvenida. Se ignora si ya hay una cuenta creada
   // (`hasPendingRegistration`, aunque el flag de "visto" nunca se haya seteado —
@@ -136,18 +122,56 @@ export default function WelcomeScreen() {
     };
   }, []);
 
+  // `authStatus !== "checking"`: quien actualiza la app con una sesión guardada nunca
+  // vio el carrusel, pero no tiene que verlo — sin esto saltaría a `/onboarding` antes
+  // de que la sesión termine de restaurarse.
   const shouldShowOnboarding =
     onboardingChecked &&
     needsOnboarding &&
     resumeChecked &&
+    authStatus !== "checking" &&
     !isAuthenticatedSession &&
     !hasPendingRegistration;
+
+  // Camino "no hay nada que redirigir" -- esta misma pantalla de Bienvenida es el
+  // destino final. `authStatus !== "checking"` importa acá: sin este chequeo,
+  // `isAuthenticatedSession` todavía lee `false` mientras la sesión sigue
+  // restaurándose (MOVO-247 montó este árbol apenas hay fuentes, ya no espera a
+  // `sessionChecked` como antes) y esta rama marcaría "resuelto" un instante
+  // antes de que el efecto de arriba redirija a Home/Kyc -- el splash se
+  // revelaría sobre la Bienvenida para de inmediato saltar, el "push" que este
+  // ticket vino a sacar.
+  //
+  // Mismo criterio con el carrusel (MOVO-249): hasta saber si hay que mostrarlo no se
+  // marca nada, o en un dispositivo nuevo el splash se revelaría sobre la Bienvenida
+  // para saltar enseguida a `/onboarding`.
+  useEffect(() => {
+    if (
+      resumeChecked &&
+      onboardingChecked &&
+      authStatus !== "checking" &&
+      !shouldAutoRedirect &&
+      !isAuthenticatedSession &&
+      !shouldShowOnboarding
+    ) {
+      markInitialRouteResolved();
+    }
+  }, [
+    resumeChecked,
+    onboardingChecked,
+    authStatus,
+    shouldAutoRedirect,
+    isAuthenticatedSession,
+    shouldShowOnboarding,
+    markInitialRouteResolved,
+  ]);
 
   useEffect(() => {
     if (shouldShowOnboarding) {
       router.replace("/onboarding");
+      markInitialRouteResolved();
     }
-  }, [shouldShowOnboarding]);
+  }, [shouldShowOnboarding, markInitialRouteResolved]);
 
   if (
     !resumeChecked ||

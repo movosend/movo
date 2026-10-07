@@ -24,6 +24,12 @@ jest.mock("../src/hooks/use-registration", () => {
   };
 });
 
+// MOVO-249: por default el carrusel ya se vio; cada test que lo necesite lo cambia.
+let mockHasSeenOnboarding = true;
+jest.mock("../src/lib/onboarding-storage", () => ({
+  hasSeenOnboarding: () => Promise.resolve(mockHasSeenOnboarding),
+}));
+
 jest.mock("../src/api/users-client", () => ({
   usersClient: { getMyProfile: jest.fn() },
 }));
@@ -56,6 +62,26 @@ describe("WelcomeScreen -- boot resuelto (MOVO-247)", () => {
     };
     useAuthStore.setState({ status: "unauthenticated", accessToken: null, refreshToken: null, user: null });
     useBootStore.setState({ initialRouteResolved: false });
+    mockHasSeenOnboarding = true;
+  });
+
+  it("dispositivo nuevo sin sesión: va al carrusel y recién ahí marca resuelto (MOVO-249)", async () => {
+    mockHasSeenOnboarding = false;
+    await render(<WelcomeScreen />);
+    await flush();
+
+    expect(mockReplace).toHaveBeenCalledWith("/onboarding");
+    expect(useBootStore.getState().initialRouteResolved).toBe(true);
+  });
+
+  it("carrusel sin ver pero sesión restaurándose: no salta al carrusel (MOVO-249)", async () => {
+    mockHasSeenOnboarding = false;
+    useAuthStore.setState({ status: "checking", accessToken: null, refreshToken: null, user: null });
+    await render(<WelcomeScreen />);
+    await flush();
+
+    expect(mockReplace).not.toHaveBeenCalledWith("/onboarding");
+    expect(useBootStore.getState().initialRouteResolved).toBe(false);
   });
 
   it("sin sesión y sin registro pendiente: se queda en Bienvenida y marca resuelto", async () => {

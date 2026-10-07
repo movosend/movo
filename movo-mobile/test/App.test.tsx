@@ -143,6 +143,9 @@ describe("WelcomeScreen", () => {
       // `mockImplementation` — sin este reset explícito, este test hereda el
       // `getItem` con registro-pendiente que dejó seteado un test anterior.
       jest.spyOn(secureStore.secureStore, "getItem").mockResolvedValue(null);
+      // La sesión ya terminó de restaurarse sin usuario: mientras sigue en "checking"
+      // la pantalla no manda al carrusel (podría haber una sesión guardada).
+      useAuthStore.setState({ status: "unauthenticated" });
       const replaceSpy = jest.spyOn(router, "replace");
 
       const { queryByText } = await renderWelcome();
