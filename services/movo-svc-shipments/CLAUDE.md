@@ -2843,9 +2843,10 @@ Soporte del rediseño del detalle del viaje (`movo-mobile`): se agrega `packages
 `GET /shipments/:id/events` y `GET /shipments/:id/photos` responden 200 al transportista
 asignado; uno con oferta rechazada sigue recibiendo 403. Se sacó el caso especial
 `if (callerId !== shipment.carrierId)` de sus dos callers que lo tenían
-(`realtime-authorizer.ts` y `GET /:id/positions/latest`). `getShipmentDetail` y
-`getEvidenceStatus` mantienen su chequeo inline (el primero además abre `published` a
-transportistas verificados). Tests nuevos en `shipments-events.integration.test.ts` y
+(`realtime-authorizer.ts` y `GET /:id/positions/latest`). La regla vive en un solo lugar,
+`hasShipmentAccess` (booleano, mismo archivo): `assertShipmentAccess` lo usa para lanzar el 403,
+`getEvidenceStatus` lo usa vía `assertShipmentAccess` con su mensaje propio y `getShipmentDetail`
+lo llama directo porque además abre `published` a transportistas verificados. Tests nuevos en `shipments-events.integration.test.ts` y
 `photos.integration.test.ts` (carrier 200, carrier con oferta rechazada 403).
 
 

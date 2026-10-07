@@ -65,6 +65,7 @@ import {
   assertIsSender,
   assertIsSenderOrAdmin,
   assertShipmentAccess,
+  hasShipmentAccess,
 } from "./assert-shipment-access";
 import { assertTripAccess } from "../trips/trip-access";
 import { assertNotBlocked, safeBlockRelatedUserIds } from "../../utils/block-relations";
@@ -1213,13 +1214,7 @@ export function createShipmentsService(
         }
       }
 
-      if (callerId === shipment.carrierId) {
-        return shipment;
-      }
-
-      const isParty = callerId === shipment.senderId || callerId === shipment.receiverId;
-      const isAdmin = callerRoles.includes(UserRole.ADMIN);
-      if (isParty || isAdmin) {
+      if (hasShipmentAccess(shipment, callerId, callerRoles)) {
         return shipment;
       }
 

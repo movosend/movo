@@ -299,11 +299,12 @@ export function createPhotosService(
         throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
       }
 
-      const isParty = callerId === shipment.senderId || callerId === shipment.receiverId || callerId === shipment.carrierId;
-      const isAdmin = callerRoles.includes(UserRole.ADMIN);
-      if (!isParty && !isAdmin) {
-        throw new ApiError(403, "AUTH_FORBIDDEN", "No tenés permiso para ver el estado de evidencia de este envío.");
-      }
+      assertShipmentAccess(
+        shipment,
+        callerId,
+        callerRoles,
+        "No tenés permiso para ver el estado de evidencia de este envío."
+      );
 
       const stage: Extract<PhotoStage, "pickup" | "delivery"> | null =
         shipment.status === ShipmentStatus.ASSIGNED

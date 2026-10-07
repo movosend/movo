@@ -13,14 +13,22 @@ export function assertShipmentAccess(
   callerRoles: UserRole[],
   forbiddenMessage = "No tenés permiso para ver este envío."
 ): void {
+  if (!hasShipmentAccess(shipment, callerId, callerRoles)) {
+    throw new ApiError(403, "AUTH_FORBIDDEN", forbiddenMessage);
+  }
+}
+
+/**
+ * Misma regla que `assertShipmentAccess` pero como booleano, para los callers que
+ * necesitan decidir (p. ej. caer a otra rama) en vez de lanzar. Fuente única de quién
+ * cuenta como parte del envío: emisor, receptor, transportista asignado o admin.
+ */
+export function hasShipmentAccess(shipment: Shipment, callerId: string, callerRoles: UserRole[]): boolean {
   const isParty =
     callerId === shipment.senderId ||
     callerId === shipment.receiverId ||
     (shipment.carrierId !== null && callerId === shipment.carrierId);
-  const isAdmin = callerRoles.includes(UserRole.ADMIN);
-  if (!isParty && !isAdmin) {
-    throw new ApiError(403, "AUTH_FORBIDDEN", forbiddenMessage);
-  }
+  return isParty || callerRoles.includes(UserRole.ADMIN);
 }
 
 /**
