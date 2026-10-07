@@ -169,6 +169,14 @@ describe("pickupLocalityLabel", () => {
     expect(pickupLocalityLabel("Av. Colón 1234, 5000, Córdoba")).toBe("Córdoba");
   });
 
+  it("no deja pasar la calle ni la altura de segmentos posteriores al primero", () => {
+    expect(pickupLocalityLabel("Nuevo Centro Shopping, Av. Duarte Quirós 1400, X5000 Córdoba, Argentina")).toBe(
+      "Córdoba",
+    );
+    expect(pickupLocalityLabel("Av. Colón, 450, Córdoba")).toBe("Córdoba");
+    expect(pickupLocalityLabel("Shopping, Av. Colón, Córdoba, Córdoba, Argentina")).toBe("Córdoba");
+  });
+
   it("nunca devuelve la calle: null si la dirección no tiene más que eso", () => {
     expect(pickupLocalityLabel("Av. Colón 1234")).toBeNull();
     expect(pickupLocalityLabel("Av. Colón 1234, Argentina")).toBeNull();

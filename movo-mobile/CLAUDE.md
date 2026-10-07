@@ -4148,42 +4148,23 @@ Tests agregados/actualizados:
 
 ### MOVO-194 — Detalle del envío: vista del transportista y del receptor
 
-Completa `app/(app)/shipments/[id].tsx` para los tres roles (el backend de este ticket,
-acceso del transportista a eventos y fotos, está en `services/movo-svc-shipments/CLAUDE.md`).
+`app/(app)/shipments/[id].tsx` completo para los tres roles, con CTA contextual por rol y
+estado (`shipmentDetailCta`, `shipment-format.ts`; `assigned_unfunded` muestra texto, no botón).
+El transportista ve "Te queda" con la tasa de comisión del cliente. El receptor no ve el retiro
+exacto: `RouteMapCard` con `pickup={null}` + `pickupLabel` desde `pickupLocalityLabel`
+(localidad sin calle, altura, código postal ni país; "la zona del emisor" si no hay), el mismo
+helper que usa "Mis envíos". La card "Voy a recibir" del Home usa el mismo helper. **Limitación aceptada**: es una
+protección solo de UI, el backend sigue mandando `pickupAddress`/`pickupLat`/`pickupLng` exactos al
+receptor en `GET /shipments/:id` y `/shipments/receiving` (se ve en el tráfico de red). Redactarlos
+en el servidor cambia el contrato de `@movo/shared` y queda para si AC4 pasa a exigir que el dato no
+llegue al dispositivo. `EvidencePhotosSection` (fotos por stage, también en `transport/[id].tsx` solo para el
+transportista asignado) reemplaza la tira de `PackageCard`. Fuera del ticket, en el mismo PR:
+el Home lista los viajes `declared` con paquetes que no se llevan la card "Estoy transportando"
+(`splitCarrierHomeTrips`, `CarrierTripRow`), intercalados por fecha en "Actividad reciente" sin
+pasar por delante de los envíos que piden acción y con el mismo tope de 3.
 
-- **CTA contextual** (`shipmentDetailCta`, `shipment-format.ts`): una acción por rol y
-  estado — emisor `assigned` → "Generar retiro" (`/handshake`), transportista `assigned`
-  → "Retirar paquete" (`/pickup`), transportista `in_transit` → "Entregar paquete"
-  (`/delivery`, antes iba al QR suelto y se salteaba la evidencia), receptor `in_transit`
-  → "Confirmar recepción" (`/handshake-scan`, primer punto de entrada real del receptor).
-  `assigned_unfunded` muestra un texto en vez de botón. El copy compartido con el home
-  vive en constantes de `shipment-format.ts` (`SENDER_PICKUP_CTA_LABEL`, etc.): el emisor
-  pasó de "Confirmar retiro" a "Generar retiro" para coincidir con el home.
-- **Precio**: el transportista ve "Te queda" con `computeNetFromGross(agreedPriceArs,
-  getClientCommissionRate())` — con la tasa del cliente, no la default de `@movo/shared`.
-- **Receptor sin el retiro exacto**: `RouteMapCard` acepta `pickup={null}` + `pickupLabel`
-  (solo pin de entrega y una fila "Retiro en {localidad}"); las coordenadas de retiro no
-  llegan al componente. La localidad sale de `pickupLocalityLabel` (`shipment-format.ts`):
-  todo lo que sigue a la calle, sin código postal ni país ("Villa Carlos Paz, Córdoba"). No
-  se reusó `shortAddressLabel` (devuelve la calle con altura) ni `zoneLabelFromAddress`
-  (puede devolver la calle o quedarse solo con la provincia); si no hay localidad, el texto
-  es "la zona del emisor", nunca la calle. La fila del receptor en "Mis envíos"
-  (`my-shipments-format.ts#presentMyShipment`, MOVO-257) usa el mismo helper para que la
-  calle no se filtre por la lista (fallback: "Envío de {nombre}" / "Envío para vos"). El
-  backend igual sigue mandando `pickupAddress` completo en `GET /shipments/:id`.
-- **Transportista**: ve las cards de emisor y receptor, no la suya; header "Transportás".
-- **`EvidencePhotosSection`** (nuevo): fotos agrupadas por stage (creation → pickup →
-  delivery), sin stages vacíos y sin sección si no hay fotos. Reemplaza la tira de fotos de
-  `PackageCard`, que quedó solo con los datos del paquete. También se monta en
-  `transport/[id].tsx`. Al volver a la pantalla con la query `isStale` se refetchea, porque
-  las URLs presigned vencen.
-- **`transport/[id].tsx`**: la card "Te eligieron para este envío" navega al detalle.
-
-Pendiente / fuera de alcance: no probado en device con las tres cuentas (DoD manual);
-`transport/[id].tsx` sigue mostrando la entrega como "deshabilitada, sin wizard" aunque
-MOVO-199 ya existe.
-
-
+Pendiente: no probado en device con las tres cuentas; `transport/[id].tsx` sigue mostrando la
+entrega como "deshabilitada" aunque MOVO-199 ya existe.
 
 ### MOVO-271 — Paquete de fixes #2: ofertas, seguimiento en vivo y detalle de envío
 

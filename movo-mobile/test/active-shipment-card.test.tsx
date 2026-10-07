@@ -60,6 +60,46 @@ describe("ActiveShipmentCard (MOVO-193)", () => {
     expect(getByText("Ventana vencida")).toBeTruthy();
   });
 
+  it("el receptor ve la localidad del retiro, no la calle (MOVO-194 AC4)", async () => {
+    const { getByText, queryByText } = await render(
+      <ActiveShipmentCard
+        shipment={makeShipment({
+          status: "in_transit",
+          pickupAddress: "Belgrano 99, X5152 Villa Carlos Paz, Córdoba, Argentina",
+        })}
+        role="receiving"
+        testID="card"
+      />,
+    );
+
+    expect(getByText("Villa Carlos Paz, Córdoba")).toBeTruthy();
+    expect(queryByText("Belgrano 99")).toBeNull();
+  });
+
+  it("el receptor ve 'la zona del emisor' si la dirección de retiro no trae localidad", async () => {
+    const { getByText } = await render(
+      <ActiveShipmentCard
+        shipment={makeShipment({ status: "in_transit", pickupAddress: "Belgrano 99" })}
+        role="receiving"
+        testID="card"
+      />,
+    );
+
+    expect(getByText("la zona del emisor")).toBeTruthy();
+  });
+
+  it("el emisor sigue viendo la calle del retiro", async () => {
+    const { getByText } = await render(
+      <ActiveShipmentCard
+        shipment={makeShipment({ status: "assigned", pickupAddress: "Belgrano 99, Córdoba" })}
+        role="sending"
+        testID="card"
+      />,
+    );
+
+    expect(getByText("Belgrano 99")).toBeTruthy();
+  });
+
   it("tocar el CTA muestra un aviso 'Muy pronto' en vez de navegar (MOVO-159/160 sin pantalla todavía)", async () => {
     const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
 

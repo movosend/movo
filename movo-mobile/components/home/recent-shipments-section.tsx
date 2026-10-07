@@ -6,6 +6,7 @@ import type { TripWithAcceptedPackages } from "../../src/api/trips-client";
 import { useRecentShipments } from "../../src/hooks/use-shipments";
 import { useMyTrips } from "../../src/hooks/use-trips";
 import { selectRecentShipments } from "../../src/lib/recent-shipments-selection";
+import { presentMyShipment } from "../../src/lib/my-shipments-format";
 import { shipmentLifecycleStage } from "../../src/lib/shipment-format";
 import { splitCarrierHomeTrips } from "../../src/lib/trip-format";
 import { useAuthStore } from "../../src/store/auth-store";
@@ -25,7 +26,10 @@ import { ViewAllShipmentsLink } from "./view-all-shipments-link";
  * También lista los viajes `declared` con paquetes del transportista que no se llevan la
  * card de "Estoy transportando" (`splitCarrierHomeTrips`, la misma regla en las dos
  * secciones), mezclados con los envíos por su última actividad (`updatedAt` del viaje,
- * `lastStatusChangedAt`/`createdAt` del envío).
+ * `lastStatusChangedAt`/`createdAt` del envío) sin alterar el orden que dejó
+ * `selectRecentShipments` (acción → en curso → historial): los viajes se intercalan por
+ * fecha pero nunca pasan por delante de un envío que requiere acción. La lista mezclada
+ * respeta el mismo tope que los envíos.
  */
 export function RecentShipmentsSection({ testID }: { testID?: string }) {
   const colors = useThemeColors();
@@ -35,6 +39,9 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
   const currentUserId = useAuthStore((state) => state.user?.userId);
 
   const visibleShipments = data && currentUserId ? selectRecentShipments(data.items, currentUserId) : [];
+  const actionCount = currentUserId
+    ? visibleShipments.filter((s) => presentMyShipment(s, currentUserId).strip?.kind === "action").length
+    : 0;
 
   const activeCount = visibleShipments.filter(
     (s) => shipmentLifecycleStage(s.status, { isReceiver: s.receiverId === currentUserId }) === "ongoing",
@@ -83,7 +90,7 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
         </View>
       ) : (
         <View>
-          {mergeByRecentActivity(visibleShipments, otherTrips).map((item, index) =>
+          {mergeByRecentActivity(visibleShipments, otherTrips, actionCount).map((item, index) =>
             item.kind === "trip" ? (
               <CarrierTripRow
                 key={`trip-${item.trip.id}`}
@@ -108,21 +115,33 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
   );
 }
 
+const RECENT_ACTIVITY_LIMIT = 3;
+
 type ActivityItem =
   | { kind: "shipment"; shipment: ShipmentSummary; at: string }
   | { kind: "trip"; trip: TripWithAcceptedPackages; at: string };
 
-/** Más reciente primero. */
+/** Conserva el orden de `shipments` (ya priorizado) y va intercalando los viajes por
+ * recencia: un viaje se ubica antes del primer envío más viejo que él, pero nunca dentro
+ * de los primeros `actionCount` (los que requieren acción). Corta en `limit`. */
 function mergeByRecentActivity(
   shipments: ShipmentSummary[],
   trips: TripWithAcceptedPackages[],
+  actionCount: number,
+  limit = RECENT_ACTIVITY_LIMIT,
 ): ActivityItem[] {
-  return [
-    ...shipments.map((shipment): ActivityItem => ({
-      kind: "shipment",
-      shipment,
-      at: shipment.lastStatusChangedAt ?? shipment.createdAt,
-    })),
-    ...trips.map((trip): ActivityItem => ({ kind: "trip", trip, at: trip.updatedAt })),
-  ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  const items: ActivityItem[] = shipments.map((shipment) => ({
+    kind: "shipment",
+    shipment,
+    at: shipment.lastStatusChangedAt ?? shipment.createdAt,
+  }));
+  const sortedTrips = trips
+    .map((trip): ActivityItem => ({ kind: "trip", trip, at: trip.updatedAt }))
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  for (const tripItem of sortedTrips) {
+    let index = items.findIndex((item, i) => i >= actionCount && Date.parse(item.at) < Date.parse(tripItem.at));
+    if (index === -1) index = items.length;
+    items.splice(index, 0, tripItem);
+  }
+  return items.slice(0, limit);
 }

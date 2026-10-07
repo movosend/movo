@@ -700,18 +700,26 @@ export function zoneLabelFromAddress(address: string): string {
   return candidate.replace(/^[A-Za-z]\d{3,4}[A-Za-z]{0,3}\s+/, "").trim() || address;
 }
 
-/** Localidad del retiro para el receptor (MOVO-194 AC4): todo lo que sigue a la calle,
- * sin país ni código postal — "San Martín 450, X5152 Villa Carlos Paz, Córdoba,
- * Argentina" → "Villa Carlos Paz, Córdoba". A diferencia de `zoneLabelFromAddress`,
- * nunca devuelve el primer segmento (calle y altura): si la dirección no tiene nada más
- * que la calle, devuelve `null` y el que llama decide el texto genérico. */
+const STREET_PREFIX = /^(av\.?|avda\.?|avenida|calle|bv\.?|bvd\.?|boulevard|ruta|rn|rp|pasaje|pje\.?|diagonal|camino)\s/i;
+
+/** Localidad del retiro para el receptor (MOVO-194 AC4): lo que sigue a la calle, sin
+ * país, código postal ni ningún segmento que parezca calle o altura — "San Martín 450,
+ * X5152 Villa Carlos Paz, Córdoba, Argentina" → "Villa Carlos Paz, Córdoba". Google a
+ * veces antepone un lugar ("Nuevo Centro Shopping, Av. Duarte Quirós 1400, X5000
+ * Córdoba"), así que no alcanza con saltear el primer segmento: se descarta todo
+ * segmento con dígitos (altura) o con prefijo de vía ("Av. Colón"). A diferencia de
+ * `zoneLabelFromAddress`, nunca devuelve el primer segmento: si no queda nada, devuelve
+ * `null` y el que llama decide el texto genérico. */
 export function pickupLocalityLabel(address: string): string | null {
   const segments = address
     .split(",")
     .map((s) => s.trim())
     .slice(1)
     .map((s) => s.replace(/^[A-Za-z]?\d{4}[A-Za-z]{0,3}(\s+|$)/, "").trim())
-    .filter((s) => s !== "" && s.toLowerCase() !== "argentina");
+    .filter(
+      (s) =>
+        s !== "" && s.toLowerCase() !== "argentina" && !/\d/.test(s) && !STREET_PREFIX.test(s),
+    );
   const unique = segments.filter((s, i) => i === 0 || s.toLowerCase() !== segments[i - 1].toLowerCase());
   return unique.length > 0 ? unique.join(", ") : null;
 }

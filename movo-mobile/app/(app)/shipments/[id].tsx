@@ -12,7 +12,7 @@ import {
   Truck,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
@@ -120,7 +120,9 @@ export default function ShipmentDetailScreen() {
   const [ratingTarget, setRatingTarget] = useState<RatingTarget | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const { refetch: refetchPhotos, isStale: arePhotosStale } = useShipmentPhotos(id);
+  const photosQuery = useShipmentPhotos(id);
+  const photosQueryRef = useRef(photosQuery);
+  photosQueryRef.current = photosQuery;
 
   useFocusEffect(
     useCallback(() => {
@@ -128,12 +130,21 @@ export default function ShipmentDetailScreen() {
       if (shipment && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status)) {
         void refetchRatings();
       }
-      // Las URLs de las fotos son presigned y vencen: al volver a la pantalla pasado
-      // el `staleTime` se piden de nuevo en vez de mostrar imágenes rotas (AC7).
-      if (arePhotosStale) {
-        void refetchPhotos();
+    }, [refetch, refetchRatings, shipment?.status])
+  );
+
+  // Las URLs de las fotos son presigned y vencen: al volver a la pantalla pasado el
+  // `staleTime` se piden de nuevo en vez de mostrar imágenes rotas (AC7). Efecto aparte
+  // y con el estado leído de un ref al enfocar, no de un valor reactivo: así el flip de
+  // `isStale` no vuelve a disparar el refetch del detalle y las calificaciones, y no
+  // pisa el fetch inicial de la primera visita.
+  useFocusEffect(
+    useCallback(() => {
+      const photos = photosQueryRef.current;
+      if (photos.isStale && photos.fetchStatus !== "fetching") {
+        void photos.refetch();
       }
-    }, [refetch, refetchRatings, shipment?.status, arePhotosStale, refetchPhotos])
+    }, [])
   );
 
   const handleRefresh = async () => {
@@ -141,7 +152,7 @@ export default function ShipmentDetailScreen() {
     await Promise.allSettled([
       refetch(),
       refetchRatings(),
-      refetchPhotos(),
+      photosQueryRef.current.refetch(),
     ]);
     setRefreshing(false);
   };

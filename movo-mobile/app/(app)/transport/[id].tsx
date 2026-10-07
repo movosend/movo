@@ -638,7 +638,11 @@ export default function TransportShipmentDetailScreen() {
               />
             </View>
 
-            <EvidencePhotosSection shipmentId={shipment.id} testID="transport-detail-evidence" />
+            {/* Solo el transportista asignado puede pedir las fotos: para el resto (descubrimiento
+                de un envío publicado) el backend responde 403. */}
+            {isAssignedToMe ? (
+              <EvidencePhotosSection shipmentId={shipment.id} testID="transport-detail-evidence" />
+            ) : null}
 
             <View>
               <Eyebrow>Con quién tratás</Eyebrow>
