@@ -31,11 +31,20 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   USER_NOT_FOUND: "No se encontró el usuario.",
   USER_EMAIL_ALREADY_EXISTS: "El email ya se encuentra registrado.",
   USER_PHONE_ALREADY_EXISTS: "El teléfono ya se encuentra registrado.",
+  // MOVO-175 (ADR-026): explícito a propósito -- el bloqueo se revela en vez de un
+  // error genérico. Aplica en las dos direcciones (quien bloqueó y quien fue bloqueado).
+  USER_BLOCKED: "No podés interactuar con este usuario porque hay un bloqueo entre ustedes.",
+  CANNOT_MODERATE_SELF: "No podés reportarte ni bloquearte a vos mismo.",
+  REPORT_ALREADY_PENDING: "Ya tenés un reporte en revisión sobre esta persona. Podés sumarle información.",
+  REPORT_NOT_FOUND: "Tu reporte ya no está en revisión.",
   // MOVO-228: la app manda una versión de Términos/Privacidad vieja — pasa solo si
   // el usuario tiene una versión desactualizada de la app instalada.
   LEGAL_DOCUMENT_VERSION_MISMATCH: "Actualizá la app para ver la versión más reciente de los Términos y la Política de Privacidad.",
   SHIPMENT_RECEIVER_IS_SENDER: "No podés elegirte a vos mismo como receptor.",
   SHIPMENT_RECEIVER_KYC_NOT_APPROVED: "El receptor todavía no tiene su identidad verificada.",
+  // Elegir otro receptor tras un rechazo (MOVO-253).
+  SHIPMENT_RECEIVER_ALREADY_REJECTED: "Esta persona ya rechazó este envío. Elegí a otra.",
+  SHIPMENT_REDESIGNATION_EXPIRED: "Venció el plazo para elegir otro receptor. El envío se va a cancelar.",
   SHIPMENT_PICKUP_WINDOW_IN_PAST: "Elegí una fecha y horario de retiro que todavía no haya pasado.",
   SHIPMENT_PICKUP_WINDOW_INVALID: "El horario de fin del retiro tiene que ser posterior al de inicio.",
   SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE: "El retiro y la entrega tienen que estar en ubicaciones distintas.",
@@ -66,6 +75,12 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
     "El origen y el destino tienen que estar separados por al menos 100 metros.",
   TRIP_DEPARTURE_IN_PAST: "La fecha y hora de salida tiene que ser futura.",
   TRIP_NOT_ACTIVE: "Este viaje ya no está activo.",
+  // Iniciar viaje (MOVO-221 / MOVO-252).
+  TRIP_NOT_DECLARED: "El viaje ya fue iniciado o finalizado.",
+  TRIP_ALREADY_HAS_ACTIVE_TRIP:
+    "Ya tenés otro viaje en curso. Solo podés tener 1 viaje activo a la vez.",
+  TRIP_NOT_AVAILABLE: "Este viaje ya no está disponible.",
+  TRIP_NO_PACKAGES: "Este viaje no tiene paquetes asignados, así que no se puede iniciar.",
   // Calificaciones post-entrega (MOVO-153 / backend MOVO-146).
   SHIPMENT_NOT_DELIVERED: "El envío todavía no fue entregado.",
   SHIPMENT_RATING_DISPUTE_ACTIVE:
@@ -84,6 +99,7 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   HANDSHAKE_CEDENTE_KEY_MISSING:
     "La otra persona todavía no puede confirmar la transferencia desde su dispositivo. Pedile que actualice la app.",
   HANDSHAKE_INVALID_SHIPMENT_STATE: "Este envío ya no está en un estado que permita confirmar esto.",
+  SHIPMENT_NOT_TRACKABLE: "El envío no se encuentra en un viaje activo para realizar seguimiento.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",
   RATE_LIMIT_EXCEEDED: "Hiciste demasiados intentos. Esperá un momento y volvé a intentar.",

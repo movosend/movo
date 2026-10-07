@@ -2,15 +2,14 @@ import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import {
   AlertTriangle,
   BadgeCheck,
-  CircleDollarSign,
   CircleSlash,
   Clock,
   Megaphone,
   PackageCheck,
   PackagePlus,
-  Search,
   Truck,
   UserCheck,
+  Wallet,
   XCircle,
   type LucideIcon,
 } from "lucide-react-native";
@@ -32,6 +31,7 @@ import {
   shipmentEventDetail,
   shipmentEventTitle,
   shipmentPendingStepLabel,
+  shouldShowEventReason,
   shipmentStatusTone,
 } from "../../src/lib/shipment-format";
 import { ErrorBanner } from "../ui/error-banner";
@@ -41,10 +41,12 @@ const EVENT_ICON: Record<ShipmentStatus, LucideIcon> = {
   [Status.AWAITING_RECEIVER_CONFIRMATION]: Clock,
   [Status.REJECTED_BY_RECEIVER]: CircleSlash,
   [Status.PUBLISHED]: Megaphone,
-  [Status.ASSIGNMENT_PENDING]: Search,
-  // MOVO-208: asignado, hold de fondos todavía sin crear (retiro lejano).
-  [Status.ASSIGNED_UNFUNDED]: CircleDollarSign,
-  [Status.ASSIGNED]: UserCheck,
+  // Entrar a `assignment_pending`/`assigned_unfunded` es aceptar una oferta, o sea elegir
+  // al transportista (retiro cercano o lejano, MOVO-208).
+  [Status.ASSIGNMENT_PENDING]: UserCheck,
+  [Status.ASSIGNED_UNFUNDED]: UserCheck,
+  // Pasar a `assigned` es reservar el pago: el transportista ya estaba elegido.
+  [Status.ASSIGNED]: Wallet,
   [Status.IN_TRANSIT]: Truck,
   [Status.DELIVERED]: PackageCheck,
   // MOVO-208: entregado y pago liberado (MOVO-212) -- inalcanzable hasta esa historia.
@@ -146,6 +148,7 @@ function EventRow({
   parties,
   currentUserId,
   receiverFirstName,
+  carrierFirstName,
   isReceiver,
 }: {
   event: ShipmentEvent;
@@ -154,14 +157,23 @@ function EventRow({
   parties: TimelineSectionProps["parties"];
   currentUserId: string | null;
   receiverFirstName: string | null;
+  carrierFirstName: string | null;
   isReceiver: boolean;
 }) {
   const colors = useThemeColors();
   const tone = TONE_STYLE[shipmentStatusTone(event.toStatus)];
   const timestamp = formatEventTimestamp(event.createdAt);
-  const actor = shipmentActorLabel(event.actorId, parties, currentUserId, {
-    receiverName: receiverFirstName,
-  });
+  // MOVO-253: tras elegir otro receptor, `parties.receiverId` es el receptor NUEVO — un
+  // rechazo anterior lo hizo otra persona y no puede tomar su nombre ni su rol.
+  const isFormerReceiverRejection =
+    event.toStatus === Status.REJECTED_BY_RECEIVER &&
+    event.actorId !== null &&
+    event.actorId !== parties.receiverId;
+  const actor = isFormerReceiverRejection
+    ? "Receptor anterior"
+    : shipmentActorLabel(event.actorId, parties, currentUserId, {
+        receiverName: receiverFirstName,
+      });
   const detail = shipmentEventDetail(event.toStatus, event.fromStatus);
 
   return (
@@ -173,9 +185,12 @@ function EventRow({
       isLast={isLast}
       title={
         <Text className={`font-sans-semibold text-body ${isCurrent ? "text-fg" : "text-fg-2"}`}>
-          {shipmentEventTitle(event.toStatus, event.fromStatus, { 
-            receiverName: receiverFirstName,
-            isReceiver,
+          {shipmentEventTitle(event.toStatus, event.fromStatus, {
+            receiverName: isFormerReceiverRejection ? "El receptor anterior" : receiverFirstName,
+            isReceiver: isReceiver && event.actorId === currentUserId,
+            isSender: currentUserId !== null && currentUserId === parties.senderId,
+            isCarrier: currentUserId !== null && currentUserId === parties.carrierId,
+            carrierName: carrierFirstName,
           })}
         </Text>
       }
@@ -190,7 +205,7 @@ function EventRow({
         ) : null}
       </View>
       {detail ? <Text className="mt-1 font-sans text-small text-fg-3">{detail}</Text> : null}
-      {event.reason ? (
+      {event.reason && shouldShowEventReason(event.toStatus) ? (
         <Text className="mt-2 font-sans text-small text-fg-2">{event.reason}</Text>
       ) : null}
     </TimelineRow>
@@ -301,10 +316,12 @@ export function TimelineSection({ shipmentId, parties, testID }: TimelineSection
   const { data: events, isLoading, isError, refetch } = useShipmentEvents(shipmentId);
   const { data: ratings } = useShipmentRatings(shipmentId);
   const { data: receiverProfile } = usePublicProfile(parties.receiverId);
+  const { data: carrierProfile } = usePublicProfile(parties.carrierId ?? undefined);
   const currentUserId = useAuthStore((state) => state.user?.userId ?? null);
   const isReceiver = Boolean(currentUserId && currentUserId === parties.receiverId);
   const rawReceiverFirstName = getFirstName(receiverProfile?.fullName) || null;
   const receiverFirstName = isReceiver ? null : rawReceiverFirstName;
+  const carrierFirstName = getFirstName(carrierProfile?.fullName) || null;
   const colors = useThemeColors();
 
   if (isLoading) {
@@ -353,6 +370,7 @@ export function TimelineSection({ shipmentId, parties, testID }: TimelineSection
           parties={parties}
           currentUserId={currentUserId}
           receiverFirstName={receiverFirstName}
+          carrierFirstName={carrierFirstName}
           isReceiver={isReceiver}
         />
       ))}

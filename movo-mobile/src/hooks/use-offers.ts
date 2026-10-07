@@ -74,6 +74,8 @@ export function useRejectOffer(options?: {
       void queryClient.invalidateQueries({
         queryKey: ["shipments", data.shipmentId, "offers"],
       });
+      // `pendingOffersCount` de `/mine` baja: aviso de ofertas del home (MOVO-184 AC5)
+      void queryClient.invalidateQueries({ queryKey: ["shipments", "mine"] });
       options?.onSuccess?.(data);
     },
     onError: (error) => {

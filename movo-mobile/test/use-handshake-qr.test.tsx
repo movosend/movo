@@ -122,8 +122,6 @@ describe("useHandshakeQr (MOVO-159)", () => {
 
     expect(harness.current.status).toBe("active");
     expect(harness.current.stage).toBe("pickup");
-    expect(harness.current.secondsLeft).toBe(15);
-    expect(harness.current.isExpired).toBe(false);
 
     const parsed = JSON.parse(harness.current.qrPayload!);
     expect(parsed).toEqual({
@@ -133,65 +131,167 @@ describe("useHandshakeQr (MOVO-159)", () => {
     });
   });
 
-  it("AC2 & AC3: cuenta regresiva de 15 segundos y marca el QR como expirado al llegar a 0", async () => {
+  it("renueva el QR solo, 3s antes de que venza, sin pasar por un estado de spinner ni expirado", async () => {
     const harness = await renderHarness({ shipmentId, initialStage: "pickup" });
 
     await waitFor(() => {
       expect(harness.current.status).toBe("active");
     });
-    expect(harness.current.secondsLeft).toBe(15);
-
-    // Avanzar 10 segundos -> quedan 5s (isExpiringSoon = true)
-    await act(async () => {
-      jest.advanceTimersByTime(10000);
-    });
-    expect(harness.current.secondsLeft).toBe(5);
-    expect(harness.current.isExpiringSoon).toBe(true);
-    expect(harness.current.isExpired).toBe(false);
-
-    // Avanzar 5 segundos más -> 15s completados -> expirado
-    await act(async () => {
-      jest.advanceTimersByTime(5000);
-    });
-    expect(harness.current.status).toBe("expired");
-    expect(harness.current.secondsLeft).toBe(0);
-    expect(harness.current.isExpired).toBe(true);
-  });
-
-  it("AC3: permite regenerar el código QR tras haber expirado", async () => {
-    const harness = await renderHarness({ shipmentId, initialStage: "pickup" });
-
-    await waitFor(() => {
-      expect(harness.current.status).toBe("active");
-    });
-
-    // Expira
-    await act(async () => {
-      jest.advanceTimersByTime(15500);
-    });
-    expect(harness.current.isExpired).toBe(true);
 
     mockGenerateHandshake.mockResolvedValueOnce({
       shipmentId,
       stage: "pickup",
       nonce: "nonce-renewed-789",
       canonicalPayload: `${shipmentId}:pickup:nonce-renewed-789`,
-      expiresAt: "2026-09-19T10:00:30.500Z",
+      expiresAt: "2026-09-19T10:00:27.000Z",
       ttlSeconds: 15,
     });
     mockSignHandshakeNonce.mockResolvedValueOnce("signature-renewed-mock");
 
-    // Regenerar
+    // A los 11.9s todavía no se pidió el nonce siguiente.
+    await act(async () => {
+      jest.advanceTimersByTime(11900);
+    });
+    expect(mockGenerateHandshake).toHaveBeenCalledTimes(1);
+
+    // A los 12s (15s - 3s de margen) arranca la renovación.
+    await act(async () => {
+      jest.advanceTimersByTime(100);
+    });
+
+    await waitFor(() => {
+      expect(JSON.parse(harness.current.qrPayload!).nonce).toBe("nonce-renewed-789");
+    });
+    expect(mockGenerateHandshake).toHaveBeenCalledTimes(2);
+    expect(harness.current.status).toBe("active");
+  });
+
+  it("durante una renovación silenciosa sigue mostrando el QR vigente", async () => {
+    const harness = await renderHarness({ shipmentId, initialStage: "pickup" });
+    await waitFor(() => {
+      expect(harness.current.status).toBe("active");
+    });
+    const firstPayload = harness.current.qrPayload;
+
+    // La generación siguiente queda colgada (red lenta).
+    mockGenerateHandshake.mockReturnValueOnce(new Promise(() => {}));
+
+    await act(async () => {
+      jest.advanceTimersByTime(12000);
+    });
+
+    expect(mockGenerateHandshake).toHaveBeenCalledTimes(2);
+    expect(harness.current.status).toBe("active");
+    expect(harness.current.qrPayload).toBe(firstPayload);
+  });
+
+  it("si la renovación falla, saca el QR y pide un reintento manual", async () => {
+    const harness = await renderHarness({ shipmentId, initialStage: "pickup" });
+    await waitFor(() => {
+      expect(harness.current.status).toBe("active");
+    });
+
+    mockGenerateHandshake.mockRejectedValueOnce(
+      new ApiError(422, "HANDSHAKE_DISTANCE_EXCEEDED", "Distance exceeded")
+    );
+
+    await act(async () => {
+      jest.advanceTimersByTime(12000);
+    });
+
+    await waitFor(() => {
+      expect(harness.current.status).toBe("error");
+    });
+    expect(harness.current.qrPayload).toBeNull();
+    expect(harness.current.error).toContain("100 m");
+
+    // Sin reintento automático tras un error.
+    await act(async () => {
+      jest.advanceTimersByTime(30000);
+    });
+    expect(mockGenerateHandshake).toHaveBeenCalledTimes(2);
+
     await act(async () => {
       await harness.current.regenerate();
     });
-
     expect(harness.current.status).toBe("active");
-    expect(harness.current.isExpired).toBe(false);
-    expect(harness.current.secondsLeft).toBe(15);
+    expect(harness.current.error).toBeNull();
+  });
 
-    const parsed = JSON.parse(harness.current.qrPayload!);
-    expect(parsed.nonce).toBe("nonce-renewed-789");
+  it("si la renovación falla porque el receptor ya confirmó, va al éxito en vez de mostrar el error", async () => {
+    const onConfirmedMock = jest.fn();
+    mockGenerateHandshake.mockResolvedValue({
+      shipmentId,
+      stage: "delivery",
+      nonce: "nonce-xyz-456",
+      canonicalPayload: `${shipmentId}:delivery:nonce-xyz-456`,
+      expiresAt: "2026-09-19T10:00:15.000Z",
+      ttlSeconds: 15,
+    });
+    // Polling a 60s: el receptor confirma antes de que el polling llegue a verlo.
+    const harness = await renderHarness({
+      shipmentId,
+      initialStage: "delivery",
+      onConfirmed: onConfirmedMock,
+      pollingIntervalMs: 60000,
+    });
+    await waitFor(() => {
+      expect(harness.current.status).toBe("active");
+    });
+
+    mockGenerateHandshake.mockRejectedValueOnce(
+      new ApiError(409, "HANDSHAKE_INVALID_SHIPMENT_STATE", "Invalid state")
+    );
+    mockGetById.mockResolvedValueOnce({ id: shipmentId, status: ShipmentStatus.DELIVERED });
+
+    await act(async () => {
+      jest.advanceTimersByTime(12000);
+    });
+
+    await waitFor(() => {
+      expect(harness.current.status).toBe("confirmed");
+    });
+    expect(harness.current.error).toBeNull();
+    expect(onConfirmedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ status: ShipmentStatus.DELIVERED })
+    );
+  });
+
+  it("si la renovación falla y la consulta del envío también, muestra el error original", async () => {
+    const harness = await renderHarness({ shipmentId, initialStage: "pickup", pollingIntervalMs: 60000 });
+    await waitFor(() => {
+      expect(harness.current.status).toBe("active");
+    });
+
+    mockGenerateHandshake.mockRejectedValueOnce(
+      new ApiError(422, "HANDSHAKE_DISTANCE_EXCEEDED", "Distance exceeded")
+    );
+    mockGetById.mockRejectedValueOnce(new Error("network"));
+
+    await act(async () => {
+      jest.advanceTimersByTime(12000);
+    });
+
+    await waitFor(() => {
+      expect(harness.current.status).toBe("error");
+    });
+    expect(harness.current.error).toContain("100 m");
+  });
+
+  it("deja de renovar al desmontar", async () => {
+    const harness = await renderHarness({ shipmentId, initialStage: "pickup" });
+    await waitFor(() => {
+      expect(harness.current.status).toBe("active");
+    });
+
+    await act(async () => {
+      harness.unmount();
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(60000);
+    });
+
+    expect(mockGenerateHandshake).toHaveBeenCalledTimes(1);
   });
 
   it("AC4: polling detecta confirmación del receptor y pasa a estado confirmed", async () => {
@@ -254,48 +354,99 @@ describe("useHandshakeQr (MOVO-159)", () => {
     expect(harness.current.error).toContain("100 m");
   });
 
-  it("deriva expiryTimestamp del expiresAt autoritativo del backend respetando latencia de red", async () => {
-    // Si la llamada tardó 5s, el backend devolvió expiresAt con solo 10s restantes respecto a Date.now()
+  it("MOVO-199 AC7: con onEvidenceMissing, DELIVERY_EVIDENCE_MISSING lo invoca en vez de setear un error genérico", async () => {
+    mockGenerateHandshake.mockRejectedValueOnce(
+      new ApiError(422, "DELIVERY_EVIDENCE_MISSING", "Evidence missing")
+    );
+    const onEvidenceMissing = jest.fn();
+
+    const harness = await renderHarness({ shipmentId, initialStage: "delivery", onEvidenceMissing });
+
+    await waitFor(() => {
+      expect(onEvidenceMissing).toHaveBeenCalledTimes(1);
+    });
+
+    expect(harness.current.status).not.toBe("error");
+    expect(harness.current.error).toBeNull();
+  });
+
+  it("MOVO-199 AC7: PICKUP_EVIDENCE_MISSING también dispara onEvidenceMissing (mismo mecanismo compartido)", async () => {
+    mockGenerateHandshake.mockRejectedValueOnce(
+      new ApiError(422, "PICKUP_EVIDENCE_MISSING", "Evidence missing")
+    );
+    const onEvidenceMissing = jest.fn();
+
+    await renderHarness({ shipmentId, initialStage: "pickup", onEvidenceMissing });
+
+    await waitFor(() => {
+      expect(onEvidenceMissing).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("sin onEvidenceMissing, DELIVERY_EVIDENCE_MISSING cae al error genérico (retrocompatible con /handshake y /dev-handshake)", async () => {
+    mockGenerateHandshake.mockRejectedValueOnce(
+      new ApiError(422, "DELIVERY_EVIDENCE_MISSING", "Evidence missing")
+    );
+
+    const harness = await renderHarness({ shipmentId, initialStage: "delivery" });
+
+    await waitFor(() => {
+      expect(harness.current.status).toBe("error");
+    });
+    expect(harness.current.error).not.toBeNull();
+  });
+
+  it("ancla la renovación al expiresAt autoritativo del backend (latencia de red)", async () => {
+    // El backend devolvió un expiresAt con solo 10s restantes respecto de Date.now().
     mockGenerateHandshake.mockResolvedValueOnce({
       shipmentId,
       stage: "pickup",
       nonce: "nonce-latency",
       canonicalPayload: `${shipmentId}:pickup:nonce-latency`,
-      expiresAt: "2026-09-19T10:00:10.000Z", // 10s desde 10:00:00
+      expiresAt: "2026-09-19T10:00:10.000Z",
       ttlSeconds: 15,
     });
 
     const harness = await renderHarness({ shipmentId, initialStage: "pickup" });
-
     await waitFor(() => {
       expect(harness.current.status).toBe("active");
     });
 
-    expect(harness.current.secondsLeft).toBe(10);
-    expect(harness.current.totalSeconds).toBe(15);
+    await act(async () => {
+      jest.advanceTimersByTime(6900);
+    });
+    expect(mockGenerateHandshake).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      jest.advanceTimersByTime(100);
+    });
+    expect(mockGenerateHandshake).toHaveBeenCalledTimes(2);
   });
 
-  it("expira inmediatamente si el expiresAt del backend ya venció en tránsito", async () => {
+  it("renueva enseguida si el expiresAt del backend ya venció en tránsito", async () => {
     mockGenerateHandshake.mockResolvedValueOnce({
       shipmentId,
       stage: "pickup",
       nonce: "nonce-expired-backend",
       canonicalPayload: `${shipmentId}:pickup:nonce-expired-backend`,
-      expiresAt: "2026-09-19T09:59:59.000Z", // 1s en el pasado respecto a 10:00:00
+      expiresAt: "2026-09-19T09:59:59.000Z",
       ttlSeconds: 15,
     });
 
     const harness = await renderHarness({ shipmentId, initialStage: "pickup" });
-
     await waitFor(() => {
-      expect(harness.current.status).toBe("expired");
+      expect(harness.current.status).toBe("active");
     });
 
-    expect(harness.current.secondsLeft).toBe(0);
-    expect(harness.current.isExpired).toBe(true);
+    await act(async () => {
+      jest.advanceTimersByTime(0);
+    });
+    await waitFor(() => {
+      expect(JSON.parse(harness.current.qrPayload!).nonce).toBe("nonce-xyz-456");
+    });
   });
 
-  it("utiliza fallback a Date.now() + ttl * 1000 si expiresAt es inválido o no está presente", async () => {
+  it("usa Date.now() + ttl como fallback si expiresAt no es válido", async () => {
     mockGenerateHandshake.mockResolvedValueOnce({
       shipmentId,
       stage: "pickup",
@@ -306,12 +457,18 @@ describe("useHandshakeQr (MOVO-159)", () => {
     });
 
     const harness = await renderHarness({ shipmentId, initialStage: "pickup" });
-
     await waitFor(() => {
       expect(harness.current.status).toBe("active");
     });
 
-    expect(harness.current.secondsLeft).toBe(12);
-    expect(harness.current.totalSeconds).toBe(12);
+    await act(async () => {
+      jest.advanceTimersByTime(8900);
+    });
+    expect(mockGenerateHandshake).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      jest.advanceTimersByTime(100);
+    });
+    expect(mockGenerateHandshake).toHaveBeenCalledTimes(2);
   });
 });

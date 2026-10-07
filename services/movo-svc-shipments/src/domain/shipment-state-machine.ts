@@ -47,8 +47,13 @@ export class InsufficientCreationPhotosError extends Error {
  * el issue de Linear). Única fuente de verdad: cualquier cambio acá debe
  * reflejarse primero en el diagrama, no al revés (AC4).
  *
- * `rejected_by_receiver`, `cancelled`, `disputed` y `completed` no tienen
- * salida en este módulo — los tres primeros son terminales por diseño
+ * `rejected_by_receiver` dejó de ser terminal en MOVO-253 (ADR-027): el emisor
+ * puede elegir otro receptor (vuelve a `awaiting_receiver_confirmation`) o
+ * cancelar, y si no hace ninguna de las dos antes de
+ * `receiverRedesignationDeadline` el barrido lo pasa a `cancelled`.
+ *
+ * `cancelled`, `disputed` y `completed` no tienen salida en este módulo — los
+ * dos primeros son terminales por diseño
  * (MOVO-79/MOVO-208; la resolución de una disputa, a cargo de un admin
  * MOVO-30/MOVO-32, todavía no tiene ticket que defina a qué estado vuelve,
  * así que no se modela acá una transición inventada); `completed` es
@@ -96,7 +101,10 @@ const VALID_TRANSITIONS: Readonly<Record<ShipmentStatus, ReadonlySet<ShipmentSta
     ShipmentStatus.DISPUTED, // reclamo post-entrega (MOVO-30)
   ]),
   [ShipmentStatus.COMPLETED]: new Set(),
-  [ShipmentStatus.REJECTED_BY_RECEIVER]: new Set(),
+  [ShipmentStatus.REJECTED_BY_RECEIVER]: new Set([
+    ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, // emisor elige otro receptor (MOVO-253)
+    ShipmentStatus.CANCELLED, // emisor cancela o vence el plazo para elegir otro (MOVO-253)
+  ]),
   [ShipmentStatus.CANCELLED]: new Set(),
   [ShipmentStatus.DISPUTED]: new Set(),
 };
@@ -143,6 +151,16 @@ export const TRACKING_CLOSED_STATUSES: readonly ShipmentStatus[] = [
  */
 export const ACTIVE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
   ShipmentStatus.ASSIGNED_UNFUNDED,
+  ShipmentStatus.ASSIGNED,
+  ShipmentStatus.IN_TRANSIT,
+];
+
+/**
+ * MOVO-251: estados en los que un envío es elegible para tracking en vivo (GPS en tránsito o
+ * transportista en camino hacia el retiro). A diferencia de `ACTIVE_SHIPMENT_STATUSES`, excluye
+ * `ASSIGNED_UNFUNDED`, ya que un envío sin hold de fondos confirmado todavía no es trackeable.
+ */
+export const TRACKABLE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
   ShipmentStatus.ASSIGNED,
   ShipmentStatus.IN_TRANSIT,
 ];

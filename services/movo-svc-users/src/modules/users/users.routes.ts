@@ -14,6 +14,8 @@ import { createStorageProvider, StorageProvider } from "../../adapters/storage-p
 import { createShipmentsClient, ShipmentsClient } from "../../adapters/shipments-client";
 import { createSmsProvider, SmsProvider } from "../../adapters/sms-provider";
 import { createEmailProvider, EmailProvider } from "../../adapters/email-provider";
+import { createPushNotificationProvider, PushNotificationProvider } from "../../adapters/push-notification-provider";
+import { createNotificationsService } from "../notifications/notifications.service";
 import { createOtpRepository } from "../../repositories/otp-repository";
 import { createOtpService } from "../../services/otp-service";
 
@@ -30,6 +32,10 @@ export interface UsersRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — mismo criterio que `smsProvider`
    * (MOVO-139: el OTP de email y el aviso al email anterior salen por este proveedor). */
   emailProvider?: EmailProvider;
+  /** Override solo para tests de integración (MOVO-274) — captura el push de
+   * "contraseña cambiada" sin depender de la red de Expo, mismo criterio que
+   * `NotificationsRoutesOptions.pushProvider`. */
+  pushProvider?: PushNotificationProvider;
 }
 
 export default async function usersRoutes(app: FastifyInstance, opts: UsersRoutesOptions) {
@@ -39,6 +45,8 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
   const emailProvider = opts.emailProvider ?? createEmailProvider(app.config);
   const otpRepository = createOtpRepository(app.redis);
   const otpService = createOtpService(otpRepository, { sms: smsProvider, email: emailProvider });
+  const pushProvider = opts.pushProvider ?? createPushNotificationProvider(app.config);
+  const notifications = createNotificationsService(app.db, pushProvider, app.log);
   const service = createUsersService(
     app.db,
     storageProvider,
@@ -47,6 +55,7 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
     shipmentsClient,
     otpService,
     emailProvider,
+    notifications,
     app.config.REPUTATION_CACHE_TTL_SECONDS
   );
 
@@ -445,9 +454,9 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
       },
     },
     async (request: FastifyRequest) => {
-      requireUserIdFromHeader(request);
+      const callerId = requireUserIdFromHeader(request);
       const { id } = request.params as { id: string };
-      return service.getPublicProfile(id);
+      return service.getPublicProfile(id, callerId);
     },
   );
 
@@ -478,6 +487,35 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
       const { id } = request.params as { id: string };
       const { limit, cursor } = request.query as { limit: number; cursor?: string };
       return service.listUserRatings(id, limit, cursor);
+    },
+  );
+
+  app.get(
+    "/:id/mutual-connections",
+    {
+      schema: {
+        summary: "Conexiones mutuas con otro usuario",
+        description:
+          "MOVO-174: 'Ya envió con N personas con las que vos también enviaste' del perfil " +
+          "público. Depende de quién mira (x-user-id), por eso no viaja en GET /:id. Cuenta las " +
+          "personas que son contraparte ENTREGADA (delivered/completed) tanto del caller como " +
+          "del usuario visitado, excluyendo a ambos. Decisión de privacidad: solo el conteo, " +
+          "sampleFirstNames siempre vacío. Mirar el propio perfil devuelve 0. 404 " +
+          "USER_NOT_FOUND si el usuario no existe o fue dado de baja. Ruta protegida.",
+        tags: ["users"],
+        params: usersSchemas.userIdParam,
+        response: {
+          200: usersSchemas.mutualConnectionsResponse,
+          400: usersSchemas.errorResponse,
+          401: usersSchemas.errorResponse,
+          404: usersSchemas.errorResponse,
+        },
+      },
+    },
+    async (request: FastifyRequest) => {
+      const viewerId = requireUserIdFromHeader(request);
+      const { id } = request.params as { id: string };
+      return service.getMutualConnections(viewerId, id);
     },
   );
 

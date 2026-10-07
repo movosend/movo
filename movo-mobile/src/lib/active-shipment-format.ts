@@ -59,6 +59,7 @@ export interface ActiveShipmentCta {
    * (Ver en el mapa) — mismo criterio de jerarquía visual que el resto de la app
    * (un CTA por pantalla se lleva el acento lime, el resto usa `bg-fg`). */
   variant?: "primary" | "secondary";
+  action?: "live_tracking" | "coming_soon";
 }
 
 /**
@@ -86,6 +87,7 @@ export function activeShipmentCta(
     return {
       label: "Ver en el mapa",
       destination: "MOVO-203/MOVO-11 · Tracking en vivo",
+      action: "live_tracking",
       variant: "secondary",
     };
   }

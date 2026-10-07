@@ -112,4 +112,29 @@ describe("HandshakeConfirmationResult", () => {
 
     expect(getByText("Volver a Inicio")).toBeTruthy();
   });
+
+  it("MOVO-199: sin secondaryCtaLabel/onSecondaryCtaPress, no muestra un segundo botón", async () => {
+    const { queryByTestId } = await render(
+      <HandshakeConfirmationResult testID="hcr" result={baseResult} onCtaPress={jest.fn()} />,
+    );
+
+    expect(queryByTestId("hcr-secondary-cta")).toBeNull();
+  });
+
+  it("MOVO-199: con secondaryCtaLabel/onSecondaryCtaPress, muestra el CTA secundario y lo dispara al tocarlo", async () => {
+    const onSecondaryCtaPress = jest.fn();
+    const { getByTestId, getByText } = await render(
+      <HandshakeConfirmationResult
+        testID="hcr"
+        result={baseResult}
+        onCtaPress={jest.fn()}
+        secondaryCtaLabel="Calificar al receptor"
+        onSecondaryCtaPress={onSecondaryCtaPress}
+      />,
+    );
+
+    expect(getByText("Calificar al receptor")).toBeTruthy();
+    await act(async () => fireEvent.press(getByTestId("hcr-secondary-cta")));
+    expect(onSecondaryCtaPress).toHaveBeenCalled();
+  });
 });

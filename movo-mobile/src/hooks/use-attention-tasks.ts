@@ -1,14 +1,20 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router } from "expo-router";
-import { receiverConfirmationDeadlineShortLabel, shortAddressLabel } from "../lib/shipment-format";
+import {
+  receiverConfirmationDeadlineShortLabel,
+  redesignationDeadlineLabel,
+  shortAddressLabel,
+} from "../lib/shipment-format";
 import { useAuthStore } from "../store/auth-store";
 import { usePublicProfiles } from "./use-profile";
 import { useAttentionSourceShipments } from "./use-shipments";
 
-/** Tarea informativa de un solo botón (ej. "El receptor rechazó tu envío"). */
+/** Tarea informativa de un solo botón (ej. "Recibiste 2 ofertas"). */
 export interface AttentionInfoTask {
   kind: "info";
   id: string;
+  /** Ícono del círculo de la card; sin valor, el genérico de aviso. */
+  icon?: "offers";
   title: string;
   meta: string;
   onPress: () => void;
@@ -29,7 +35,22 @@ export interface AttentionConfirmTask {
   onPress: () => void;
 }
 
-export type AttentionTask = AttentionInfoTask | AttentionConfirmTask;
+/** MOVO-253: el receptor rechazó el envío y el emisor puede elegir a otra persona
+ * hasta `deadlineLabel`. Se renderiza con `AttentionRejectedCard`. */
+export interface AttentionRejectedTask {
+  kind: "rejected";
+  id: string;
+  shipmentId: string;
+  title: string;
+  meta: string;
+  /** Motivo que dejó el receptor al rechazar, si dejó uno. */
+  reason: string | null;
+  deadlineLabel: string;
+  onPress: () => void;
+  onChooseReceiver: () => void;
+}
+
+export type AttentionTask = AttentionInfoTask | AttentionConfirmTask | AttentionRejectedTask;
 
 /**
  * "Requiere tu atención" (MOVO-193, alcance ampliado a pedido del usuario: reusar
@@ -41,15 +62,21 @@ export type AttentionTask = AttentionInfoTask | AttentionConfirmTask;
  *   Aceptar/Rechazar (renderizados por `AttentionConfirmCard`) abren el sheet real
  *   de confirmación en vez de resolverlo acá con un `Alert` genérico — feedback
  *   explícito del usuario tras una primera versión con `Alert.alert`.
- * - `REJECTED_BY_RECEIVER` con el usuario como emisor: el receptor rechazó el envío,
- *   hay que elegir otro.
+ * - `REJECTED_BY_RECEIVER` con el usuario como emisor: el receptor rechazó el envío y
+ *   el emisor puede elegir a otra persona hasta `receiverRedesignationDeadline`
+ *   (MOVO-253). Con el plazo vencido (o nulo, rechazos anteriores a MOVO-253) la tarea
+ *   no se lista: la acción ya no está disponible y el barrido cancela el envío.
+ *
+ * - `PUBLISHED` con el usuario como emisor y `pendingOffersCount > 0` (MOVO-184 AC5):
+ *   recibió ofertas y tiene que elegir quién lo lleva. Tocar la card navega al
+ *   detalle; "Ver ofertas" va directo a la pantalla de ofertas recibidas (MOVO-150).
+ *   El conteo sale de `pendingOffersCount` de `/mine` (MOVO-257), sin un request por
+ *   envío.
+ *
+ * La fuente pide solo esos estados (`useAttentionSourceShipments`, MOVO-253 AC8).
  *
  * Deliberadamente fuera de esta versión (gaps de backend a crear como ticket nuevo,
  * ver el comentario dejado en MOVO-192):
- * - "Ofertas nuevas en mis envíos publicados": no hay ningún agregado de ofertas para
- *   el propio emisor en `GET /shipments/mine` — `ShipmentSummary.offersSummary` es
- *   solo para un transportista ajeno viendo el envío (MOVO-180), y listar el conteo
- *   real requeriría un `GET /shipments/:id/offers` por cada envío publicado (N+1).
  * - "Calificaciones pendientes de dar": no existe ningún endpoint que liste envíos
  *   entregados sin calificar por el usuario actual (`ratings-client.ts` solo permite
  *   crear/leer una calificación puntual) — ver `MOVO-222`.
@@ -71,14 +98,25 @@ export function useAttentionTasks() {
         .map((shipment) => shipment.senderId),
     ),
   );
-  const senderProfiles = usePublicProfiles(confirmSenderIds);
-  const senderFirstNameById = new Map(
-    confirmSenderIds.map((id, index) => {
-      const fullName = senderProfiles[index]?.data?.fullName?.trim();
-      return [
-        id,
-        fullName ? fullName.split(/\s+/)[0] : undefined,
-      ];
+  const rejecterIds = Array.from(
+    new Set(
+      (data?.items ?? [])
+        .filter(
+          (shipment) =>
+            shipment.status === ShipmentStatus.REJECTED_BY_RECEIVER &&
+            shipment.senderId === currentUserId,
+        )
+        .map((shipment) => shipment.receiverId),
+    ),
+  );
+  // Un solo `usePublicProfiles` para emisores y receptores que rechazaron: comparten
+  // cache por id con el resto de la app.
+  const profileIds = [...confirmSenderIds, ...rejecterIds];
+  const profiles = usePublicProfiles(profileIds);
+  const firstNameById = new Map(
+    profileIds.map((id, index) => {
+      const fullName = profiles[index]?.data?.fullName?.trim();
+      return [id, fullName ? fullName.split(/\s+/)[0] : undefined];
     }),
   );
 
@@ -89,7 +127,7 @@ export function useAttentionTasks() {
         shipment.status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION &&
         shipment.receiverId === currentUserId
       ) {
-        const senderFirstName = senderFirstNameById.get(shipment.senderId);
+        const senderFirstName = firstNameById.get(shipment.senderId);
         const deadlineLabel = receiverConfirmationDeadlineShortLabel(
           shipment.receiverConfirmationDeadline,
         );
@@ -111,14 +149,38 @@ export function useAttentionTasks() {
         shipment.status === ShipmentStatus.REJECTED_BY_RECEIVER &&
         shipment.senderId === currentUserId
       ) {
+        const deadlineLabel = redesignationDeadlineLabel(shipment.receiverRedesignationDeadline);
+        if (!deadlineLabel) continue;
+        const rejecterFirstName = firstNameById.get(shipment.receiverId);
+        tasks.push({
+          kind: "rejected",
+          id: `rejected-${shipment.id}`,
+          shipmentId: shipment.id,
+          title: rejecterFirstName
+            ? `${rejecterFirstName} rechazó tu envío`
+            : "El receptor rechazó tu envío",
+          meta: `Iba a ${shortAddressLabel(shipment.deliveryAddress)}`,
+          reason: shipment.rejectionReason ?? null,
+          deadlineLabel,
+          onPress: () => router.push(`/shipments/${shipment.id}`),
+          onChooseReceiver: () => router.push(`/shipments/${shipment.id}/change-receiver`),
+        });
+      }
+      const offersCount = shipment.pendingOffersCount ?? 0;
+      if (
+        shipment.status === ShipmentStatus.PUBLISHED &&
+        shipment.senderId === currentUserId &&
+        offersCount > 0
+      ) {
         tasks.push({
           kind: "info",
-          id: `rejected-${shipment.id}`,
-          title: "El receptor rechazó tu envío",
-          meta: shortAddressLabel(shipment.deliveryAddress),
+          id: `offers-${shipment.id}`,
+          icon: "offers",
+          title: offersCount === 1 ? "Recibiste una oferta" : `Recibiste ${offersCount} ofertas`,
+          meta: `Va a ${shortAddressLabel(shipment.deliveryAddress)}`,
           onPress: () => router.push(`/shipments/${shipment.id}`),
-          primaryLabel: "Ver envío",
-          onPrimary: () => router.push(`/shipments/${shipment.id}`),
+          primaryLabel: "Ver ofertas",
+          onPrimary: () => router.push(`/shipments/${shipment.id}/offers`),
         });
       }
     }

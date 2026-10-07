@@ -21,10 +21,20 @@ function timeOfDay(time: Date | string): { hours: number; minutes: number; secon
  * que `combineDateAndTime`/`toRealInstant` de `shipments.service.ts`, pero operando
  * sobre valores ya persistidos (o el string crudo de una franja propuesta, MOVO-234)
  * en vez de parsear strings del body de un request. */
-function anchorTimeOfDayToInstant(date: Date, time: Date | string): Date {
+export function anchorTimeOfDayToInstant(date: Date, time: Date | string): Date {
   const { hours, minutes, seconds } = timeOfDay(time);
   const anchored = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), hours, minutes, seconds);
   return new Date(anchored + ARGENTINA_UTC_OFFSET_HOURS * 60 * 60 * 1000);
+}
+
+/**
+ * MOVO-258: "HH:MM[:SS]" (franja propuesta en una oferta, MOVO-177) -> `Date` en el
+ * formato de las columnas `@db.Time` (hora de pared etiquetada como UTC sobre
+ * 1970-01-01), listo para escribir en `Shipment.pickupTimeWindowStart/End`.
+ */
+export function timeStringToTimeColumn(time: string): Date {
+  const { hours, minutes, seconds } = timeOfDay(time);
+  return new Date(Date.UTC(1970, 0, 1, hours, minutes, seconds));
 }
 
 /**
@@ -100,16 +110,26 @@ export function offerExpiresAtInstant(
 /**
  * `true` si la ventana de retiro de un envío ya cerró respecto de `now`. Usado por el
  * barrido (`shipments.service.ts#expireOverduePublishedShipments`) que cancela los
- * `published` que nadie retiró a tiempo -- `GET /shipments/available` en sí NO filtra
- * en tiempo real por esto (mismo motivo que el resto del dominio prefiere funciones
- * puras en JS a replicar esta cuenta en SQL, ver el comentario de
- * `findPotentiallyExpiredPublished` en `shipment-repository.ts`): sigue devolviendo
- * `published` con la ventana recién vencida hasta que corre el próximo barrido (a lo
- * sumo `PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES`). El mobile (MOVO-148) aplica el mismo
- * chequeo client-side sobre la lista ya paginada para no depender de esa ventana.
+ * `published` que nadie retiró a tiempo y por `createOfferForShipment`. Un `published` con
+ * ventana vencida puede seguir vivo por tener ofertas vigentes (MOVO-258, D6): eso lo salva
+ * de la cancelación, pero no lo ofrece más -- `GET /shipments/available` lo excluye en SQL
+ * (`availableShipmentsWhereSql`, misma cuenta con el huso de Argentina) y no recibe ofertas
+ * nuevas.
  */
 export function isPickupWindowExpired(pickupDate: Date, pickupTimeWindowEnd: Date, now: Date = new Date()): boolean {
   return pickupWindowEndInstant(pickupDate, pickupTimeWindowEnd) < now;
+}
+
+/**
+ * Plazo para una decisión pendiente sobre el envío: `now + timeoutHours`, con tope en
+ * el cierre de la ventana de retiro (`pickupWindowEnd`, ya un instante real) -- no
+ * tiene sentido decidir sobre un retiro que ya pasó. Regla compartida por la
+ * confirmación del receptor (MOVO-130) y la elección de otro receptor tras un rechazo
+ * (MOVO-253).
+ */
+export function deadlineCappedByPickupWindow(now: Date, timeoutHours: number, pickupWindowEnd: Date): Date {
+  const timeoutDeadline = new Date(now.getTime() + timeoutHours * 60 * 60 * 1000);
+  return timeoutDeadline <= pickupWindowEnd ? timeoutDeadline : pickupWindowEnd;
 }
 
 /**

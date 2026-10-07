@@ -14,6 +14,10 @@ import { TRACKING_CLOSED_STATUSES } from "../domain/shipment-state-machine";
  * este cierra una conexión que SÍ estaba autorizada. */
 export const TRACKING_STATUS_CLOSED_WS_CODE = 4009;
 
+/** `readyState` de un socket abierto (`WebSocket.OPEN` de `ws`) -- literal para no
+ * importar `ws` como valor (es devDependency, `src/` solo lo usa como tipo). */
+const WS_READY_STATE_OPEN = 1;
+
 /**
  * MOVO-201/AC8: registro en memoria de sockets activos por envío -- agnóstico del tipo
  * de mensaje que viaje por ellos (posición, chat, evento de handshake), para que
@@ -61,13 +65,20 @@ export class RealtimeRegistry {
    * MOVO-201 (hasta ahora nadie publicaba nada, solo se registraba/desregistraba
    * sockets). Silencioso si no hay nadie conectado (caso normal: nadie mirando el
    * mapa en este momento) o si el envío directamente no tiene entrada en el mapa.
+   * MOVO-250/AC8: solo envía a sockets `OPEN` y aísla el error de cada uno -- un socket
+   * roto (cerrándose, o que tira al enviar) no corta el reparto al resto.
    */
   broadcast(shipmentId: string, message: unknown): void {
     const sockets = this.connectionsByShipment.get(shipmentId);
     if (!sockets || sockets.size === 0) return;
     const payload = JSON.stringify(message);
     for (const socket of sockets) {
-      socket.send(payload);
+      if (socket.readyState !== WS_READY_STATE_OPEN) continue;
+      try {
+        socket.send(payload);
+      } catch {
+        // El socket se limpia solo por su propio listener "close"/"error".
+      }
     }
   }
 
@@ -103,6 +114,10 @@ export default fp(async (app: FastifyInstance) => {
   app.decorate("realtimeRegistry", registry);
 
   onShipmentStatusChanged((event: ShipmentStatusChangedEvent) => {
+    // MOVO-250/AC6: cada transición se difunde a los suscriptores -- las pantallas de QR
+    // del handshake (MOVO-159) dejan de consultar cada 2,5s. Va ANTES del cierre por
+    // estado terminal, para que el cliente reciba el estado final antes del `4009`.
+    registry.broadcast(event.shipmentId, { type: "status", shipmentId: event.shipmentId, status: event.to });
     if (!TRACKING_CLOSED_STATUSES.includes(event.to)) return;
     const activeBeforeClose = registry.activeConnections(event.shipmentId);
     if (activeBeforeClose === 0) return;

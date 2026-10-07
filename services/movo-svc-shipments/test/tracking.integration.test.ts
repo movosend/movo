@@ -2,6 +2,7 @@ import { randomUUID, webcrypto } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import WebSocket from "ws";
+import jwt from "jsonwebtoken";
 import { signAccessToken, ShipmentStatus, UserRole, KycStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
@@ -137,7 +138,7 @@ describe("GET /shipments/:id/track (WS)", () => {
   });
 
   beforeEach(async () => {
-    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments, shipments.trips RESTART IDENTITY CASCADE");
   });
 
   it("token válido + envío propio: acepta la conexión", async () => {
@@ -197,7 +198,31 @@ describe("GET /shipments/:id/track (WS)", () => {
   it("MOVO-202/AC3: si ya hay una última posición conocida en Redis, se manda apenas se conecta un suscriptor nuevo", async () => {
     const carrierId = randomUUID();
     const shipmentId = await createInTransitShipment(carrierId);
-    await app.redis.hset(`position:last:${shipmentId}`, {
+    const trip = await app.db.trip.create({
+      data: {
+        carrierId,
+        originAddress: "Av. Colón 1234, Córdoba",
+        originLat: -31.4201,
+        originLng: -64.1888,
+        destinationAddress: "Av. San Martín 100, Villa María",
+        destinationLat: -32.4104,
+        destinationLng: -63.2404,
+        departureAt: new Date(Date.now() - 2 * 60 * 60_000),
+        vehicleType: "auto",
+        status: "active",
+      },
+    });
+    await app.db.offer.create({
+      data: {
+        shipmentId,
+        carrierId,
+        priceOffered: 4500,
+        offeredDate: new Date("2026-08-20T00:00:00.000Z"),
+        status: "accepted",
+        tripId: trip.id,
+      },
+    });
+    await app.redis.hset(`position:last:${trip.id}`, {
       lat: "-31.5",
       lng: "-64.5",
       accuracyM: "9",
@@ -303,5 +328,76 @@ describe("GET /shipments/:id/track (WS)", () => {
 
     const { code } = await closed;
     expect(code).toBe(TRACKING_STATUS_CLOSED_WS_CODE);
+  });
+  describe("MOVO-250", () => {
+    /** Envío en `assigned` con transportista -- el estado en el que se muestra el QR de retiro. */
+    async function createAssignedShipment(carrierId: string): Promise<string> {
+      const shipment = await repo.create(baseInput);
+      await repo.addPhoto(shipment.id, PhotoStage.creation, `shipments/${shipment.id}/creation/${randomUUID()}.jpg`);
+      await repo.addPhoto(shipment.id, PhotoStage.creation, `shipments/${shipment.id}/creation/${randomUUID()}.jpg`);
+      await repo.updateStatus(shipment.id, ShipmentStatus.PUBLISHED, shipment.senderId);
+      await app.db.shipment.update({ where: { id: shipment.id }, data: { carrierId } });
+      await repo.updateStatus(shipment.id, ShipmentStatus.ASSIGNMENT_PENDING, carrierId);
+      await repo.updateStatus(shipment.id, ShipmentStatus.ASSIGNED, carrierId);
+      return shipment.id;
+    }
+
+    it("AC6: un envío en 'assigned' acepta la suscripción del emisor (el QR de retiro se muestra en ese estado)", async () => {
+      const carrierId = randomUUID();
+      const shipmentId = await createAssignedShipment(carrierId);
+      const ws = connect(shipmentId, issueToken(baseInput.senderId));
+
+      expect(await waitForMessage(ws)).toEqual({ type: "connected", shipmentId });
+
+      ws.close();
+      await waitForClose(ws);
+    });
+
+    it("AC6: difunde { type: 'status' } a los suscriptores en cada transición", async () => {
+      const carrierId = randomUUID();
+      const shipmentId = await createAssignedShipment(carrierId);
+      const ws = connect(shipmentId, issueToken(baseInput.senderId));
+      await waitForMessage(ws);
+
+      const status = waitForMessage(ws);
+      await repo.updateStatus(shipmentId, ShipmentStatus.IN_TRANSIT, carrierId);
+
+      expect(await status).toEqual({ type: "status", shipmentId, status: ShipmentStatus.IN_TRANSIT });
+
+      ws.close();
+      await waitForClose(ws);
+    });
+
+    it("AC6: en un estado que corta el tracking, el cliente recibe el estado final y después el cierre 4009", async () => {
+      const carrierId = randomUUID();
+      const shipmentId = await createInTransitShipment(carrierId);
+      const ws = connect(shipmentId, issueToken(carrierId));
+      await waitForMessage(ws);
+
+      const status = waitForMessage(ws);
+      const closed = waitForClose(ws);
+      await repo.updateStatus(shipmentId, ShipmentStatus.DELIVERED, carrierId);
+
+      expect(await status).toEqual({ type: "status", shipmentId, status: ShipmentStatus.DELIVERED });
+      expect((await closed).code).toBe(TRACKING_STATUS_CLOSED_WS_CODE);
+    });
+
+    it("AC7: cierra con 4001 al llegar el exp del JWT, aunque el envío siga en curso", async () => {
+      const carrierId = randomUUID();
+      const shipmentId = await createInTransitShipment(carrierId);
+      const shortLivedToken = jwt.sign(
+        { sub: carrierId, roles: [UserRole.SENDER], kycStatus: KycStatus.NOT_STARTED },
+        "test-secret",
+        { expiresIn: 2, issuer: process.env.JWT_ISSUER ?? "movo" }
+      );
+      const ws = connect(shipmentId, shortLivedToken);
+      await waitForMessage(ws);
+
+      const startedAt = Date.now();
+      const { code } = await waitForClose(ws);
+
+      expect(code).toBe(4001);
+      expect(Date.now() - startedAt).toBeLessThan(4_000);
+    });
   });
 });

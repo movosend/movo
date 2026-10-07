@@ -24,6 +24,9 @@ export default defineConfig({
         // sin esto quedaba fuera del reporte pese a estar ejercitado por
         // `tracking.integration.test.ts`.
         "src/services/**/*.ts",
+        // MOVO-138: cotización del envío (conteo de demanda + pricing), lógica de
+        // negocio fuera de `*.service.ts` para que la reuse MOVO-255.
+        "src/modules/shipments/shipment-quote.ts",
       ],
       exclude: ["src/modules/**/*.schema.ts", "src/modules/**/*.routes.ts"],
       // Umbral general (55% lines) se activa cuando el resto de los módulos (hoy stubs

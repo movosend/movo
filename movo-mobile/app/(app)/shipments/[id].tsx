@@ -1,17 +1,26 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { ChevronLeft, Clock, QrCode } from "lucide-react-native";
+import { router, useFocusEffect, useIsFocused, useLocalSearchParams } from "expo-router";
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  ChevronLeft,
+  Clock,
+  QrCode,
+} from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useCallback, useState, type ReactNode } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
 import { CounterpartCard } from "../../../components/shipments/counterpart-card";
+import { HighDemandBadge } from "../../../components/shipments/high-demand-badge";
+import { LiveTrackingCard } from "../../../components/shipments/live-tracking-card";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
 import { PackageCard } from "../../../components/shipments/package-card";
 import { RatingSheet, type RatingTarget } from "../../../components/shipments/rating-sheet";
 import { ReceiverActionsBar } from "../../../components/shipments/receiver-actions-bar";
+import { RejectedReceiverBanner } from "../../../components/shipments/rejected-receiver-banner";
 import { SenderActionsBar } from "../../../components/shipments/sender-actions-bar";
 import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
 import { ShipmentRatingsCard } from "../../../components/shipments/shipment-ratings-card";
@@ -27,12 +36,15 @@ import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useShipmentRatings } from "../../../src/hooks/use-ratings";
 import { useShipment } from "../../../src/hooks/use-shipments";
+import { activeShipmentDisplayCode } from "../../../src/lib/active-shipment-format";
 import {
   FULFILLED_SHIPMENT_STATUSES,
   canCancelShipment,
   formatPickupDateLabel,
   formatShipmentPrice,
   formatTimeHHMM,
+  liveTrackingAvailability,
+  liveTrackingPendingPollInterval,
   receiverConfirmationStatus,
 } from "../../../src/lib/shipment-format";
 
@@ -79,7 +91,17 @@ export default function ShipmentDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useThemeColors();
   const currentUser = useAuthStore((state) => state.user);
-  const { data: shipment, isLoading, isError, error, refetch } = useShipment(id);
+  // MOVO-271 AC5: mientras el seguimiento espera a que arranque el recorrido, el detalle
+  // se refresca solo para habilitarlo sin salir de la pantalla. Importa sobre todo para
+  // el receptor, que no participa del retiro (el emisor vuelve del handshake y el
+  // `useFocusEffect` de abajo ya refetchea). Sin el placeholder no hay polling. Solo con
+  // foco: el detalle sigue montado en el stack cuando se abre otra pantalla encima, y
+  // React Query no conoce el foco de React Navigation.
+  const isFocused = useIsFocused();
+  const { data: shipment, isLoading, isError, error, refetch } = useShipment(id, {
+    refetchInterval: (data) =>
+      isFocused ? liveTrackingPendingPollInterval(data, currentUser?.userId) : false,
+  });
   const [tab, setTab] = useState<DetailTab>("detalle");
   const [isAcceptSuccessVisible, setIsAcceptSuccessVisible] = useState(false);
 
@@ -144,6 +166,9 @@ export default function ShipmentDetailScreen() {
   const showSenderActions =
     isSender && shipment !== undefined && canCancelShipment(shipment.status);
 
+  // MOVO-253 AC6: el receptor rechazó y el emisor puede elegir a otra persona.
+  const showRejectedBanner = isSender && shipment?.status === ShipmentStatus.REJECTED_BY_RECEIVER;
+
   // MOVO-159 AC1: botón contextual ("Confirmar retiro" / "Confirmar entrega")
   // según el rol y el estado del envío para abrir la pantalla de generación de QR
   const showPickupHandshake =
@@ -156,6 +181,21 @@ export default function ShipmentDetailScreen() {
   const handshakeActionLabel = showPickupHandshake
     ? "Confirmar retiro"
     : "Confirmar entrega";
+
+  // MOVO-271 AC5: emisor y receptor ven el seguimiento (o su placeholder) mientras hay
+  // transportista y el envío no cerró; el transportista tiene su propio mapa de ruta.
+  const liveTracking =
+    shipment !== undefined && !isCarrier && shipment.carrierId
+      ? liveTrackingAvailability(shipment.status)
+      : null;
+
+  // Misma condición que decide "Precio pactado" en la card de precio: con transportista
+  // asignado el precio que se ve ya no es el sugerido, así que el recargo no aplica.
+  const hasAgreedPrice =
+    shipment !== undefined && (shipment.agreedPriceArs !== null || shipment.carrierId !== null);
+
+  // MOVO-254: el badge es información para el emisor. `null` no equivale a `false`.
+  const showHighDemandBadge = isSender && shipment?.highDemand === true && !hasAgreedPrice;
 
   const pickupDateLabel = shipment
     ? formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate
@@ -211,9 +251,23 @@ export default function ShipmentDetailScreen() {
         <View className="flex-1">
           <Text className="font-sans-semibold text-h3 text-fg">Detalle del envío</Text>
           {shipment ? (
-            <Text className="mt-0.5 font-sans text-[10px] uppercase tracking-wide text-fg-3">
-              {shipment.id.slice(0, 8)}
-            </Text>
+            <View className="mt-0.5 flex-row items-center gap-1">
+              {isSender || isReceiver ? (
+                <View testID="shipment-detail-role" className="flex-row items-center gap-0.5">
+                  {isSender ? (
+                    <ArrowUpRight size={11} strokeWidth={2} color={colors.fg3} />
+                  ) : (
+                    <ArrowDownLeft size={11} strokeWidth={2} color={colors.fg3} />
+                  )}
+                  <Text className="font-sans text-[10px] uppercase tracking-wide text-fg-3">
+                    {isSender ? "Enviás" : "Recibís"} ·
+                  </Text>
+                </View>
+              ) : null}
+              <Text testID="shipment-detail-code" className="font-sans text-[10px] uppercase tracking-wide text-fg-3">
+                {activeShipmentDisplayCode(shipment.id)}
+              </Text>
+            </View>
           ) : null}
         </View>
 
@@ -295,6 +349,18 @@ export default function ShipmentDetailScreen() {
                 />
               </View>
 
+              {showRejectedBanner ? (
+                <RejectedReceiverBanner shipment={shipment} testID="shipment-detail-rejected-banner" />
+              ) : null}
+
+              {liveTracking ? (
+                <LiveTrackingCard
+                  shipmentId={shipment.id}
+                  availability={liveTracking}
+                  testID="shipment-detail-live-tracking"
+                />
+              ) : null}
+
               {showExpiredBanner ? (
                 <View
                   testID="shipment-detail-expired-banner"
@@ -318,20 +384,27 @@ export default function ShipmentDetailScreen() {
                     {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
                   </Text>
                 </View>
-                <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
-                  <GridPattern />
-                  <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
-                    {shipment.agreedPriceArs !== null || shipment.carrierId !== null
-                      ? "Precio pactado"
-                      : "Costo aproximado"}
-                  </Text>
-                  <Text className="font-sans-semibold text-[20px] text-ink-950">
-                    {formatShipmentPrice(
-                      shipment.agreedPriceArs,
-                      shipment.suggestedPriceArs
-                    )}
-                  </Text>
-                </View>
+                {/* El precio es un acuerdo entre emisor y transportista: el receptor no
+                    paga nada, así que no se le muestra y el retiro ocupa todo el ancho. */}
+                {isReceiver ? null : (
+                  <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
+                    <GridPattern />
+                    <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
+                      {hasAgreedPrice ? "Precio pactado" : "Costo aproximado"}
+                    </Text>
+                    <Text className="font-sans-semibold text-[20px] text-ink-950">
+                      {formatShipmentPrice(
+                        shipment.agreedPriceArs,
+                        shipment.suggestedPriceArs
+                      )}
+                    </Text>
+                    {showHighDemandBadge ? (
+                      <View className="mt-2">
+                        <HighDemandBadge testID="shipment-detail-high-demand" />
+                      </View>
+                    ) : null}
+                  </View>
+                )}
               </View>
 
               <View>

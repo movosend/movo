@@ -1,4 +1,11 @@
-import { RouteDurationResult, RouteInput, RouteMatrixInput, RouteResult, RoutesProvider } from "./routes-provider";
+import {
+  assertSupportedRouteMode,
+  RouteDurationResult,
+  RouteInput,
+  RouteMatrixInput,
+  RouteResult,
+  RoutesProvider,
+} from "./routes-provider";
 import { encodePolyline } from "../utils/polyline-encode";
 
 // Cantidad de puntos interpolados entre origen y destino — suficiente para que el
@@ -37,6 +44,7 @@ function haversineDistanceMeters(a: { lat: number; lng: number }, b: { lat: numb
 export function createMockRoutesProvider(): RoutesProvider {
   return {
     async getRoute(input: RouteInput): Promise<RouteResult> {
+      assertSupportedRouteMode(input);
       const points = [];
       for (let i = 0; i <= ROUTE_STEPS; i += 1) {
         const t = i / ROUTE_STEPS;

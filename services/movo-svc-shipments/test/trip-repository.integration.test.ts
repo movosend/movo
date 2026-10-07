@@ -184,7 +184,7 @@ describe("trip-repository (Postgres) — hasAcceptedPackages ignora envíos canc
  * MOVO-142/161), en la dirección opuesta -- incluido el caso "Oncativo" (un punto en
  * el MEDIO de un trayecto largo, no cerca de ningún extremo).
  */
-describe("trip-repository (Postgres) — findActiveTripsMatchingShipment (MOVO-179)", () => {
+describe("trip-repository (Postgres) — findDeclaredTripsMatchingShipment (MOVO-179)", () => {
   let app: FastifyInstance;
   let tripRepo: TripRepository;
 
@@ -211,15 +211,12 @@ describe("trip-repository (Postgres) — findActiveTripsMatchingShipment (MOVO-1
   }
 
   /**
-   * MOVO-221 (merge posterior a MOVO-179): `tripRepo.create()` ahora nace `declared`,
-   * no `active` -- `findActiveTripsMatchingShipment` solo mira `active` (AC1), así que
-   * cada trip de este describe necesita pasar por `start()` explícito para seguir
-   * probando lo que dice probar, en vez de matchear/no-matchear por casualidad de
-   * status.
+   * MOVO-258 (D5): `findDeclaredTripsMatchingShipment` solo mira viajes `declared` -- al
+   * iniciar un viaje sus paquetes quedan fijos, así que ya no recibe pushes de paquetes
+   * compatibles (antes miraba `active`, AC1 de MOVO-179, contra el título del ticket).
    */
-  async function createActiveTrip(overrides: Partial<CreateTripInput> = {}) {
-    const trip = await tripRepo.create(baseTripInput(overrides));
-    return tripRepo.start(trip.id);
+  async function createDeclaredTrip(overrides: Partial<CreateTripInput> = {}) {
+    return tripRepo.create(baseTripInput(overrides));
   }
 
   beforeAll(async () => {
@@ -239,10 +236,10 @@ describe("trip-repository (Postgres) — findActiveTripsMatchingShipment (MOVO-1
     await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.trips RESTART IDENTITY CASCADE");
   });
 
-  it("un viaje active matchea un envío en el MEDIO del corredor (ni cerca del origen ni del destino, caso Oncativo)", async () => {
-    const trip = await createActiveTrip();
+  it("un viaje declared matchea un envío en el MEDIO del corredor (ni cerca del origen ni del destino, caso Oncativo)", async () => {
+    const trip = await createDeclaredTrip();
 
-    const matches = await tripRepo.findActiveTripsMatchingShipment({
+    const matches = await tripRepo.findDeclaredTripsMatchingShipment({
       pickupLat: -31.0,
       pickupLng: -63.5,
       deliveryLat: -31.0,
@@ -255,9 +252,9 @@ describe("trip-repository (Postgres) — findActiveTripsMatchingShipment (MOVO-1
   });
 
   it("no matchea un envío fuera del radio de desvío del corredor", async () => {
-    await createActiveTrip();
+    await createDeclaredTrip();
 
-    const matches = await tripRepo.findActiveTripsMatchingShipment({
+    const matches = await tripRepo.findDeclaredTripsMatchingShipment({
       pickupLat: -30.8, // ~22km perpendicular al corredor, fuera de radiusKm=10
       pickupLng: -63.5,
       deliveryLat: -30.8,
@@ -271,11 +268,11 @@ describe("trip-repository (Postgres) — findActiveTripsMatchingShipment (MOVO-1
 
   it("excluye viajes cancelled/completed aunque su corredor matchee", async () => {
     const cancelled = await tripRepo.create(baseTripInput());
-    await tripRepo.update(cancelled.id, { status: TripStatus.CANCELLED });
+    await app.db.trip.update({ where: { id: cancelled.id }, data: { status: TripStatus.CANCELLED } });
     const completed = await tripRepo.create(baseTripInput());
-    await tripRepo.update(completed.id, { status: TripStatus.COMPLETED });
+    await app.db.trip.update({ where: { id: completed.id }, data: { status: TripStatus.COMPLETED } });
 
-    const matches = await tripRepo.findActiveTripsMatchingShipment({
+    const matches = await tripRepo.findDeclaredTripsMatchingShipment({
       pickupLat: -31.0,
       pickupLng: -63.5,
       deliveryLat: -31.0,
@@ -289,10 +286,10 @@ describe("trip-repository (Postgres) — findActiveTripsMatchingShipment (MOVO-1
 
   it("excluye viajes de los carrierIds pasados en excludeCarrierIds (senderId/receiverId del envío)", async () => {
     const excludedCarrierId = randomUUID();
-    await createActiveTrip({ carrierId: excludedCarrierId });
-    const otherCarrierTrip = await createActiveTrip();
+    await createDeclaredTrip({ carrierId: excludedCarrierId });
+    const otherCarrierTrip = await createDeclaredTrip();
 
-    const matches = await tripRepo.findActiveTripsMatchingShipment({
+    const matches = await tripRepo.findDeclaredTripsMatchingShipment({
       pickupLat: -31.0,
       pickupLng: -63.5,
       deliveryLat: -31.0,
@@ -305,9 +302,9 @@ describe("trip-repository (Postgres) — findActiveTripsMatchingShipment (MOVO-1
   });
 
   it("requiere que TANTO el retiro como la entrega estén dentro del corredor", async () => {
-    await createActiveTrip();
+    await createDeclaredTrip();
 
-    const matches = await tripRepo.findActiveTripsMatchingShipment({
+    const matches = await tripRepo.findDeclaredTripsMatchingShipment({
       pickupLat: -31.0,
       pickupLng: -63.5, // dentro del corredor
       deliveryLat: -30.8,
@@ -317,5 +314,219 @@ describe("trip-repository (Postgres) — findActiveTripsMatchingShipment (MOVO-1
     });
 
     expect(matches).toEqual([]);
+  });
+});
+
+describe("trip-repository (Postgres) — countAvailableCarriersNear (MOVO-138)", () => {
+  let app: FastifyInstance;
+  let tripRepo: TripRepository;
+
+  // Mismo corredor sintético que el describe de MOVO-179: (-31,-64) -> (-31,-63), ~95km.
+  const HOUR_MS = 60 * 60 * 1000;
+  const now = Date.now();
+  const window = { departureFrom: new Date(now - 6 * HOUR_MS), departureTo: new Date(now + 72 * HOUR_MS) };
+  const pickupInCorridor = { lat: -31.0, lng: -63.5, radiusKm: 15 };
+
+  function tripInput(overrides: Partial<CreateTripInput> = {}): CreateTripInput {
+    return {
+      carrierId: randomUUID(),
+      originAddress: "Córdoba",
+      originLat: -31.0,
+      originLng: -64.0,
+      destinationAddress: "Villa María",
+      destinationLat: -31.0,
+      destinationLng: -63.0,
+      departureAt: new Date(now + 24 * HOUR_MS),
+      vehicleType: "auto",
+      ...overrides,
+    };
+  }
+
+  beforeAll(async () => {
+    process.env.JWT_SECRET = "test-secret";
+    process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
+    process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+    app = buildApp();
+    await app.ready();
+    tripRepo = createTripRepository(app.db);
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(async () => {
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.trips RESTART IDENTITY CASCADE");
+  });
+
+  it("cuenta viajes declared y active cuyo corredor pasa por el retiro", async () => {
+    await tripRepo.create(tripInput());
+    // MOVO-258: `start()` exige paquetes; este test mide solo el conteo (que sigue sumando
+    // `active`, ADR-025), así que se fuerza el estado directo en la base.
+    const active = await tripRepo.create(tripInput({ departureAt: new Date(now - 2 * HOUR_MS) }));
+    await app.db.trip.update({ where: { id: active.id }, data: { status: "active" } });
+
+    expect(await tripRepo.countAvailableCarriersNear({ ...pickupInCorridor, ...window })).toBe(2);
+  });
+
+  it("un transportista con dos viajes en la ventana cuenta una sola vez (DISTINCT carrier_id)", async () => {
+    const carrierId = randomUUID();
+    await tripRepo.create(tripInput({ carrierId }));
+    await tripRepo.create(tripInput({ carrierId, departureAt: new Date(now + 48 * HOUR_MS) }));
+
+    expect(await tripRepo.countAvailableCarriersNear({ ...pickupInCorridor, ...window })).toBe(1);
+  });
+
+  it("no cuenta viajes cuyo corredor queda fuera del radio", async () => {
+    await tripRepo.create(tripInput());
+
+    const farPickup = { lat: -30.8, lng: -63.5, radiusKm: 15 }; // ~22km perpendicular
+    expect(await tripRepo.countAvailableCarriersNear({ ...farPickup, ...window })).toBe(0);
+  });
+
+  it("el prefiltro SQL no descarta un viaje cuyo segmento pasa cerca aunque ambos extremos queden lejos", async () => {
+    // Corredor largo norte-sur (Salta -> Ushuaia): la latitud media del viaje queda muy al
+    // sur del retiro, y los dos extremos están a más de 1000km de él.
+    await tripRepo.create(tripInput({ originLat: -24.8, originLng: -65.4, destinationLat: -54.8, destinationLng: -68.3 }));
+
+    const pickupNearMiddle = { lat: -31.4, lng: -65.9, radiusKm: 15 };
+    expect(await tripRepo.countAvailableCarriersNear({ ...pickupNearMiddle, ...window })).toBe(1);
+  });
+
+  it("el prefiltro SQL descarta viajes de otra región sin afectar el conteo", async () => {
+    await tripRepo.create(tripInput());
+    await tripRepo.create(tripInput({ originLat: -34.6, originLng: -58.4, destinationLat: -38.0, destinationLng: -57.5 }));
+
+    expect(await tripRepo.countAvailableCarriersNear({ ...pickupInCorridor, ...window })).toBe(1);
+  });
+
+  it("no cuenta viajes que salen fuera de la ventana (-6h / +72h)", async () => {
+    await tripRepo.create(tripInput({ departureAt: new Date(now - 10 * HOUR_MS) }));
+    await tripRepo.create(tripInput({ departureAt: new Date(now + 100 * HOUR_MS) }));
+
+    expect(await tripRepo.countAvailableCarriersNear({ ...pickupInCorridor, ...window })).toBe(0);
+  });
+
+  it("no cuenta viajes cancelled ni completed", async () => {
+    const cancelled = await tripRepo.create(tripInput());
+    await app.db.trip.update({ where: { id: cancelled.id }, data: { status: TripStatus.CANCELLED } });
+    const completed = await tripRepo.create(tripInput());
+    await app.db.trip.update({ where: { id: completed.id }, data: { status: TripStatus.COMPLETED } });
+
+    expect(await tripRepo.countAvailableCarriersNear({ ...pickupInCorridor, ...window })).toBe(0);
+  });
+});
+
+describe("trip-repository (Postgres) — findByIdWithPackages (MOVO-261)", () => {
+  let app: FastifyInstance;
+  let tripRepo: TripRepository;
+  let shipmentRepo: ShipmentRepository;
+  let offerRepo: OfferRepository;
+
+  const baseShipmentInput: CreateShipmentInput = {
+    senderId: randomUUID(),
+    receiverId: randomUUID(),
+    packageType: PackageType.standard_package,
+    weightKg: 2.5,
+    lengthCm: 30,
+    widthCm: 20,
+    heightCm: 15,
+    description: "Caja",
+    pickupAddress: "Origen",
+    pickupLat: -31.0,
+    pickupLng: -64.0,
+    deliveryAddress: "Destino",
+    deliveryLat: -31.0,
+    deliveryLng: -63.0,
+    pickupDate: PICKUP_DATE,
+    pickupTimeWindowStart: new Date("1970-01-01T09:00:00.000Z"),
+    pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
+    suggestedPriceArs: 4500,
+  };
+
+  beforeAll(async () => {
+    process.env.JWT_SECRET = "test-secret";
+    process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
+    process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+    app = buildApp();
+    await app.ready();
+    tripRepo = createTripRepository(app.db);
+    shipmentRepo = createShipmentRepository(app.db);
+    offerRepo = createOfferRepository(app.db);
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(async () => {
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
+  });
+
+  async function createPublishedShipment(overrides: Partial<CreateShipmentInput> = {}): Promise<string> {
+    const created = await shipmentRepo.create({ ...baseShipmentInput, ...overrides });
+    await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+    await shipmentRepo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+    const published = await shipmentRepo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null);
+    return published.id;
+  }
+
+  it("devuelve los paquetes con el orden correcto (primero por fecha, luego por franja), usando la franja de la oferta y excluyendo los cancelados", async () => {
+    const carrierId = randomUUID();
+    const trip = await tripRepo.create({
+      carrierId,
+      originAddress: "Origen",
+      originLat: -31.0,
+      originLng: -64.0,
+      destinationAddress: "Destino",
+      destinationLat: -31.0,
+      destinationLng: -63.0,
+      departureAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      vehicleType: "auto",
+    });
+
+    // Envío 1: Cancelado (debe quedar afuera)
+    const s1 = await createPublishedShipment();
+    const o1 = await offerRepo.create({ shipmentId: s1, carrierId, priceOffered: 1000, offeredDate: PICKUP_DATE });
+    const { offer: acc1 } = await offerRepo.acceptOffer(o1.id, carrierId);
+    await app.db.offer.update({ where: { id: acc1.id }, data: { tripId: trip.id } });
+    await shipmentRepo.updateStatus(s1, ShipmentStatus.CANCELLED, carrierId);
+
+    // Envío 2: Segunda fecha, franja matutina (10:00)
+    const s2 = await createPublishedShipment({ pickupDate: new Date("2026-08-21T00:00:00.000Z") });
+    const o2 = await offerRepo.create({ shipmentId: s2, carrierId, priceOffered: 1000, offeredDate: new Date("2026-08-21T00:00:00.000Z"), offeredPickupTimeWindowStart: "10:00:00", offeredPickupTimeWindowEnd: "12:00:00" });
+    const { offer: acc2 } = await offerRepo.acceptOffer(o2.id, carrierId);
+    await app.db.offer.update({ where: { id: acc2.id }, data: { tripId: trip.id } });
+
+    // Envío 3: Primera fecha (PICKUP_DATE), franja tarde (14:00 - usa franja del envío porque no tiene en la oferta)
+    const s3 = await createPublishedShipment({ pickupTimeWindowStart: new Date("1970-01-01T14:00:00.000Z"), pickupTimeWindowEnd: new Date("1970-01-01T16:00:00.000Z") });
+    const o3 = await offerRepo.create({ shipmentId: s3, carrierId, priceOffered: 1000, offeredDate: PICKUP_DATE });
+    const { offer: acc3 } = await offerRepo.acceptOffer(o3.id, carrierId);
+    await app.db.offer.update({ where: { id: acc3.id }, data: { tripId: trip.id } });
+
+    // Envío 4: Primera fecha (PICKUP_DATE), franja mañana (09:00 - usa franja de la oferta)
+    const s4 = await createPublishedShipment();
+    const o4 = await offerRepo.create({ shipmentId: s4, carrierId, priceOffered: 1000, offeredDate: PICKUP_DATE, offeredPickupTimeWindowStart: "09:00:00", offeredPickupTimeWindowEnd: "11:00:00" });
+    const { offer: acc4 } = await offerRepo.acceptOffer(o4.id, carrierId);
+    await app.db.offer.update({ where: { id: acc4.id }, data: { tripId: trip.id } });
+
+    const result = await tripRepo.findByIdWithPackages(trip.id);
+    
+    expect(result).not.toBeNull();
+    expect(result?.acceptedPackagesCount).toBe(3);
+    expect(result?.packages).toHaveLength(3);
+    
+    // Orden esperado: s4 (día 20, 09:00), s3 (día 20, 14:00), s2 (día 21, 10:00)
+    expect(result?.packages[0].shipmentId).toBe(s4);
+    expect(result?.packages[0].pickupDate).toBe("2026-08-20");
+    expect(result?.packages[0].pickupTimeWindowStart).toBe("09:00:00");
+    
+    expect(result?.packages[1].shipmentId).toBe(s3);
+    expect(result?.packages[1].pickupDate).toBe("2026-08-20");
+    expect(result?.packages[1].pickupTimeWindowStart).toBe("14:00:00");
+    
+    expect(result?.packages[2].shipmentId).toBe(s2);
+    expect(result?.packages[2].pickupDate).toBe("2026-08-21");
+    expect(result?.packages[2].pickupTimeWindowStart).toBe("10:00:00");
   });
 });

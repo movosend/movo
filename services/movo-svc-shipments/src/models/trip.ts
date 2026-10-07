@@ -1,4 +1,4 @@
-import { TripStatus } from "@movo/shared";
+import { TripStatus, ShipmentStatus } from "@movo/shared";
 import { Trip as TripRow } from "../generated/prisma/client";
 import { InvalidEnumValueError } from "./shipment";
 
@@ -20,6 +20,7 @@ export interface Trip {
   departureAt: Date;
   vehicleType: string;
   status: TripStatus;
+  cancelledAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -45,11 +46,26 @@ export interface UpdateTripInput {
   destinationLng?: number;
   departureAt?: Date;
   vehicleType?: string;
-  status?: TripStatus;
+}
+
+export interface TripAcceptedPackage {
+  shipmentId: string;
+  status: ShipmentStatus;
+  packageType: string;
+  weightKg: number;
+  pickupAddress: string;
+  deliveryAddress: string;
+  pickupDate: string;
+  pickupTimeWindowStart: string;
+  pickupTimeWindowEnd: string;
+  agreedPriceArs: number;
+  senderName: string;
 }
 
 export interface TripWithAcceptedPackages extends Trip {
   hasAcceptedPackages: boolean;
+  acceptedPackagesCount: number;
+  packages?: TripAcceptedPackage[];
 }
 
 const TRIP_STATUS_VALUES: ReadonlySet<string> = new Set(Object.values(TripStatus));
@@ -112,6 +128,7 @@ export function mapTrip(row: TripRow): Trip {
     departureAt: row.departureAt,
     vehicleType: row.vehicleType,
     status: parseTripStatus(row.status),
+    cancelledAt: row.cancelledAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

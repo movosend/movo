@@ -47,8 +47,7 @@ export enum AccountStatus {
 }
 
 /**
- * Motivo de un reporte de usuario (MOVO-175, todavía sin backend — el mobile ya
- * tipa el modal de reportar contra este enum). Se agregan valores al final, nunca
+ * Motivo de un reporte de usuario (MOVO-175). Se agregan valores al final, nunca
  * se renombra uno existente (mismo criterio que `KycStatus`).
  */
 export enum ReportReason {
@@ -59,9 +58,72 @@ export enum ReportReason {
   OTHER = "other",
 }
 
-/** Estado de revisión de un reporte de usuario (MOVO-175, todavía sin backend). */
+/** Estado de revisión de un reporte de usuario (MOVO-175). La revisión la hace un admin (fuera de alcance de MOVO-175). */
 export enum ReportStatus {
   PENDING = "pending",
   REVIEWED = "reviewed",
   DISMISSED = "dismissed",
+}
+
+/**
+ * Foto de evidencia de un reporte (MOVO-256). `url` es una presigned GET de TTL corto
+ * (`expiresIn` segundos): las fotos de reportes viven en un prefijo privado, nunca
+ * públicas como la foto de perfil (ADR-016). No cachear la URL más allá de ese plazo.
+ */
+export interface UserReportPhoto {
+  id: string;
+  url: string;
+  expiresIn: number;
+}
+
+/** Máximo de fotos por envío de un reporte: el original o cada entrada (MOVO-256). */
+export const MAX_REPORT_PHOTOS_PER_SUBMISSION = 4;
+
+/** Información que el reportante sumó a su reporte pendiente (MOVO-175). Append-only. */
+export interface UserReportEntry {
+  id: string;
+  /** `null` si la entrada es solo fotos (MOVO-256). */
+  details: string | null;
+  /** ISO date. */
+  createdAt: string;
+  /** Fotos mandadas con esta entrada (MOVO-256). */
+  photos: UserReportPhoto[];
+}
+
+/**
+ * Reporte propio sobre otro usuario (MOVO-175): `GET /users/:id/report` y respuesta de
+ * `POST /users/:id/report`. Nunca expone reportes de terceros.
+ */
+export interface UserReportSummary {
+  id: string;
+  reportedId: string;
+  reason: ReportReason;
+  details: string | null;
+  status: ReportStatus;
+  /** ISO date. */
+  createdAt: string;
+  /** Fotos mandadas con el reporte original (MOVO-256). */
+  photos: UserReportPhoto[];
+  /** Entradas sumadas después, de la más vieja a la más nueva. */
+  entries: UserReportEntry[];
+}
+
+/** Respuesta de `POST /users/:id/report/photos/presign` (MOVO-256). */
+export interface ReportPhotoUploadUrl {
+  uploadUrl: string;
+  s3Key: string;
+  expiresIn: number;
+}
+
+/**
+ * Fila de `GET /users/me/blocked` (MOVO-175): usuarios que el caller bloqueó, del
+ * más reciente al más viejo. Solo la dirección propia -- quién me bloqueó a mí no
+ * se expone nunca.
+ */
+export interface BlockedUserSummary {
+  id: string;
+  fullName: string;
+  photoUrl: string | null;
+  /** ISO date del bloqueo. */
+  blockedAt: string;
 }

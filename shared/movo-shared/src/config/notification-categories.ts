@@ -17,9 +17,9 @@
  * `implemented: false` son las categorías del catálogo de MOVO-240 sin trigger real
  * todavía -- la pantalla las muestra grisadas ("Pronto"), sin lógica de enforcement
  * (no hay ningún `sendPush` que las use todavía). `quietHoursExempt` es la excepción
- * de "Horario de silencio" (MOVO-245, sección quiet hours): hoy ninguna categoría
- * implementada la usa (el prototipo la reserva para notificaciones de seguridad de
- * cuenta y de proximidad, ninguna de las dos implementada aún).
+ * de "Horario de silencio" (MOVO-245, sección quiet hours): hoy solo
+ * `account_security` la usa (MOVO-274; el prototipo también la reserva para
+ * proximidad, todavía sin implementar).
  */
 
 /** Agrupación puramente cosmética para la pantalla mobile (secciones por contexto de
@@ -41,8 +41,8 @@ export interface NotificationCategoryDefinition {
   implemented: boolean;
   /** Si `true`, esta categoría ignora "Horario de silencio" (AC de quiet hours) --
    * pensada para notificaciones que el usuario necesita ver aunque esté en la franja
-   * de silencio (seguridad de cuenta, alguien tocando timbre). Ninguna categoría
-   * implementada la usa hoy -- default `false`. */
+   * de silencio (seguridad de cuenta, alguien tocando timbre). Hoy solo
+   * `account_security` la usa -- default `false`. */
   quietHoursExempt: boolean;
 }
 
@@ -105,7 +105,7 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategoryDefinition[] 
     section: "account",
     title: "Verificaciones",
     sub: "Resultado de identidad y licencia de conducir",
-    implemented: false,
+    implemented: true,
     quietHoursExempt: false,
   },
   {
@@ -113,11 +113,10 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategoryDefinition[] 
     section: "account",
     title: "Seguridad de la cuenta",
     sub: "Contraseña, email, teléfono y dispositivos nuevos",
-    implemented: false,
-    // Reservado para cuando exista el trigger (catálogo MOVO-240): un aviso de
-    // seguridad de cuenta debería sonar aunque el usuario esté en horario de
-    // silencio -- documentado acá para no tener que revisar este archivo de nuevo
-    // cuando esa categoría pase a `implemented: true`.
+    implemented: true,
+    // MOVO-274: un aviso de seguridad de cuenta suena aunque el usuario esté en
+    // horario de silencio -- si alguien le cambió la contraseña, enterarse a la
+    // mañana siguiente le sirve de poco.
     quietHoursExempt: true,
   },
 

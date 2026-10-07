@@ -7,6 +7,8 @@ import { assertShipmentAccess } from "../modules/shipments/assert-shipment-acces
 export interface AuthorizedRealtimeConnection {
   shipment: Shipment;
   callerId: string;
+  /** `exp` del JWT en ms epoch -- MOVO-250/AC7: la conexión se cierra al llegar a este instante. */
+  tokenExpiresAtMs: number;
 }
 
 /**
@@ -34,7 +36,7 @@ export async function authorizeRealtimeConnection(
   if (result.status === "invalid") {
     throw new ApiError(401, "AUTH_TOKEN_INVALID", "Token inválido o vencido.");
   }
-  const { sub: callerId, roles: callerRoles } = result.claims;
+  const { sub: callerId, roles: callerRoles, exp } = result.claims;
 
   const shipment = await shipmentRepository.findById(shipmentId);
   if (!shipment) {
@@ -45,7 +47,7 @@ export async function authorizeRealtimeConnection(
     assertShipmentAccess(shipment, callerId, callerRoles, "No tenés permiso para ver el tracking de este envío.");
   }
 
-  return { shipment, callerId };
+  return { shipment, callerId, tokenExpiresAtMs: exp * 1000 };
 }
 
 /** AC4: el envío ya está en un estado donde el tracking no debería mostrarse. */

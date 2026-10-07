@@ -2,7 +2,9 @@ import { ActivityIndicator, Text, View } from "react-native";
 import { PackageX, WifiOff } from "lucide-react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useRecentShipments } from "../../src/hooks/use-shipments";
+import { selectRecentShipments } from "../../src/lib/recent-shipments-selection";
 import { shipmentLifecycleStage } from "../../src/lib/shipment-format";
+import { useAuthStore } from "../../src/store/auth-store";
 import { ShipmentRow } from "../shipments/shipment-row";
 import { ViewAllShipmentsLink } from "./view-all-shipments-link";
 
@@ -18,10 +20,13 @@ import { ViewAllShipmentsLink } from "./view-all-shipments-link";
 export function RecentShipmentsSection({ testID }: { testID?: string }) {
   const colors = useThemeColors();
   const { data, isLoading, isError, refetch } = useRecentShipments();
+  const currentUserId = useAuthStore((state) => state.user?.userId);
 
-  const activeCount = data
-    ? data.items.filter((s) => shipmentLifecycleStage(s.status) === "ongoing").length
-    : 0;
+  const visibleShipments = data && currentUserId ? selectRecentShipments(data.items, currentUserId) : [];
+
+  const activeCount = visibleShipments.filter(
+    (s) => shipmentLifecycleStage(s.status, { isReceiver: s.receiverId === currentUserId }) === "ongoing",
+  ).length;
 
   return (
     <View testID={testID}>
@@ -57,7 +62,7 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
             Reintentar
           </Text>
         </View>
-      ) : !data || data.items.length === 0 ? (
+      ) : !data || visibleShipments.length === 0 ? (
         <View className="items-center gap-2 py-6">
           <PackageX size={20} strokeWidth={1.8} color={colors.fg3} />
           <Text className="text-center font-sans text-small text-fg-2">
@@ -66,7 +71,7 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
         </View>
       ) : (
         <View>
-          {data.items.map((shipment, index) => (
+          {visibleShipments.map((shipment, index) => (
             <ShipmentRow
               key={shipment.id}
               shipment={shipment}

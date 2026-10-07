@@ -1,10 +1,13 @@
 import { Text, View } from "react-native";
 import { formatPriceArs } from "../../src/lib/shipment-format";
+import { HighDemandBadge } from "../shipments/high-demand-badge";
 import { GridPattern } from "../ui/grid-pattern";
 
 interface PricePreviewCardProps {
   suggestedPriceArs: number | null;
   caption: string;
+  /** Muestra el badge de alta demanda (MOVO-254); cuándo corresponde lo decide el caller. */
+  highDemand?: boolean;
   testID?: string;
 }
 
@@ -14,6 +17,7 @@ interface PricePreviewCardProps {
 export function PricePreviewCard({
   suggestedPriceArs,
   caption,
+  highDemand = false,
   testID,
 }: PricePreviewCardProps) {
   return (
@@ -28,6 +32,11 @@ export function PricePreviewCard({
       <Text className="mt-1 font-sans-semibold text-[38px] tracking-tight text-ink-950">
         {formatPriceArs(suggestedPriceArs)}
       </Text>
+      {highDemand ? (
+        <View className="mt-2">
+          <HighDemandBadge testID={testID ? `${testID}-high-demand` : undefined} />
+        </View>
+      ) : null}
       <Text className="mt-2 font-sans text-[11px] uppercase tracking-wide text-ink-950/45">
         {caption}
       </Text>

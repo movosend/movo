@@ -80,6 +80,10 @@ export const SECURE_STORE_KEYS = {
    * ninguna. Sobrevive a `clearSession()`/logout a propósito — deslogueás y volvés a
    * loguear en el mismo teléfono, no tiene que reaparecer. */
   hasSeenOnboarding: "movo.hasSeenOnboarding",
+  /** Cola persistida de posiciones GPS capturadas sin red (MOVO-203, AC6).
+   * Se almacena como JSON array de `QueuedPosition` y se drena en ráfaga
+   * preservando el `capturedAt` original de cada muestra. */
+  carrierLocationOfflineQueue: "movo.carrier.locationOfflineQueue",
 } as const;
 
 /**

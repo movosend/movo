@@ -6,6 +6,7 @@ import CreateOfferScreen from "../app/(app)/transport/[id]/offer";
 
 const mockRouterBack = jest.fn();
 const mockRouterReplace = jest.fn();
+const mockRouterDismissTo = jest.fn();
 const mockRouterPush = jest.fn();
 const mockCanGoBack = jest.fn(() => true);
 // MOVO-182: sin `offerId` por default (modo creación, todos los tests existentes) --
@@ -16,6 +17,7 @@ jest.mock("expo-router", () => ({
   router: {
     back: (...args: unknown[]) => mockRouterBack(...args),
     replace: (...args: unknown[]) => mockRouterReplace(...args),
+    dismissTo: (...args: unknown[]) => mockRouterDismissTo(...args),
     push: (...args: unknown[]) => mockRouterPush(...args),
     canGoBack: () => mockCanGoBack(),
   },
@@ -103,6 +105,7 @@ function shipment(overrides: Partial<ShipmentSummary> = {}): ShipmentSummary {
     pickupTimeWindowStart: "09:00",
     pickupTimeWindowEnd: "12:00",
     suggestedPriceArs: 4500,
+    highDemand: null,
     agreedPriceArs: null,
     paymentMethod: null,
     status: ShipmentStatus.PUBLISHED,
@@ -343,7 +346,7 @@ describe("CreateOfferScreen (MOVO-177)", () => {
     });
     setTimeoutSpy.mockRestore();
 
-    expect(mockRouterReplace).toHaveBeenCalledWith("/(app)/transport/shipment-1");
+    expect(mockRouterDismissTo).toHaveBeenCalledWith("/(app)/transport/shipment-1");
   });
 
   it("sin franja de entrega estimada elegida, el submit queda deshabilitado", async () => {
@@ -533,7 +536,7 @@ describe("CreateOfferScreen (MOVO-177)", () => {
       await act(async () => {
         autoReturnCall?.[0]();
       });
-      expect(mockRouterReplace).toHaveBeenCalledWith(
+      expect(mockRouterDismissTo).toHaveBeenCalledWith(
         "/(app)/carrier/offers/offer-1"
       );
     });

@@ -3,7 +3,12 @@ import { Prisma, PrismaClient, Offer as OfferRow, Shipment as ShipmentRow } from
 import { INITIAL_OFFER_STATUS, transition } from "../domain/offer-state-machine";
 import { transition as transitionShipmentStatus } from "../domain/shipment-state-machine";
 import { haversineKm } from "../domain/geo";
-import { acceptedOfferPickupWindowStartInstant, offerExpiresAtInstant } from "../domain/pickup-window";
+import { emitShipmentStatusChanged } from "../realtime/shipment-status-events";
+import {
+  acceptedOfferPickupWindowStartInstant,
+  offerExpiresAtInstant,
+  timeStringToTimeColumn,
+} from "../domain/pickup-window";
 import {
   Offer,
   CreateOfferInput,
@@ -349,6 +354,13 @@ export interface OfferRepository {
    */
   listPendingOfferedShipmentIds(carrierId: string, shipmentIds: string[]): Promise<Set<string>>;
   /**
+   * MOVO-257: cantidad de ofertas con status EFECTIVO `pending` (reusa
+   * `offerStatusWhere`, no cuenta las vencidas por lectura) de cada envío dado, para
+   * `pendingOffersCount` de `GET /shipments/mine`. Un solo `groupBy` sobre la página,
+   * nunca una query por envío. Un envío sin ofertas vigentes no aparece en el `Map`.
+   */
+  countPendingOffersByShipmentIds(shipmentIds: string[], now?: Date): Promise<Map<string, number>>;
+  /**
    * MOVO-188 (AC1-AC3/AC5): ofertas `pending` efectivas de cada envío dado, ordenadas
    * por `priceOffered` (bruto) ascendente -- el caller (`offers.service.ts#listMyOffers`)
    * ubica ahí la posición de la oferta propia, resuelve el desempate (reputación /
@@ -542,7 +554,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
       superseded: Array<{ id: string; carrierId: string }>;
       autoCreatedTrip: Trip | null;
     }> {
-      return db.$transaction(async (tx) => {
+      const result = await db.$transaction(async (tx) => {
         const current = await tx.offer.findUnique({ where: { id } });
         if (!current) {
           throw new OfferNotFoundError(id);
@@ -572,6 +584,17 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         // canónico.
         transitionShipmentStatus(ShipmentStatus.PUBLISHED, ShipmentStatus.ASSIGNMENT_PENDING);
 
+        // La lectura y el UPDATE de abajo no son atómicos entre sí, pero el UPDATE condiciona
+        // por `status = published` y un `published` no cambia su ventana (solo `acceptOffer`
+        // la pisa), así que el valor leído es el que se pisa.
+        const originalWindow = await tx.shipment.findUnique({
+          where: { id: current.shipmentId },
+          select: { pickupDate: true, pickupTimeWindowStart: true, pickupTimeWindowEnd: true },
+        });
+        if (!originalWindow) {
+          throw new ShipmentNotAvailableForAssignmentError(current.shipmentId);
+        }
+
         // AC9: bloqueo optimista real. El UPDATE condiciona por
         // status='published' y se cuenta `count`. Bajo el nivel de
         // aislamiento por defecto de Postgres (READ COMMITTED), un UPDATE
@@ -586,6 +609,12 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         const shipmentUpdate = await tx.shipment.updateMany({
           where: { id: current.shipmentId, status: ShipmentStatus.PUBLISHED },
           data: {
+            // MOVO-258 (D3): se guarda la ventana que pidió el emisor antes de pisarla con
+            // la acordada, para restaurarla si el envío vuelve a `published` (hold fallido).
+            // `updateMany` no puede referenciar otra columna, así que se lee antes.
+            originalPickupDate: originalWindow.pickupDate,
+            originalPickupTimeWindowStart: originalWindow.pickupTimeWindowStart,
+            originalPickupTimeWindowEnd: originalWindow.pickupTimeWindowEnd,
             status: ShipmentStatus.ASSIGNMENT_PENDING,
             // Consecuencia directa de "quién ganó" — la columna ya existe
             // nullable exactamente para esto (MOVO-104, preparación para
@@ -600,6 +629,18 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
             estimatedDeliveryDate: current.estimatedDeliveryDate,
             estimatedDeliveryTimeWindowStart: current.estimatedDeliveryTimeWindowStart,
             estimatedDeliveryTimeWindowEnd: current.estimatedDeliveryTimeWindowEnd,
+            // MOVO-258 (D3): el envío pasa a reflejar la ventana de retiro realmente
+            // acordada (MOVO-177: el transportista pudo proponer otro día/franja), así
+            // los barridos de expiración leen solo el envío, nunca la oferta aceptada.
+            // `offeredDate` ya es la fecha efectiva; la franja solo se pisa si la
+            // oferta propuso una distinta (si no, queda la original del envío).
+            pickupDate: current.offeredDate,
+            ...(current.offeredPickupTimeWindowStart !== null && {
+              pickupTimeWindowStart: timeStringToTimeColumn(current.offeredPickupTimeWindowStart),
+            }),
+            ...(current.offeredPickupTimeWindowEnd !== null && {
+              pickupTimeWindowEnd: timeStringToTimeColumn(current.offeredPickupTimeWindowEnd),
+            }),
             lastStatusChangedAt: new Date(),
           },
         });
@@ -670,7 +711,12 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         // arriba y este UPDATE, no debería pisarse silenciosamente con
         // "accepted" solo porque esta transacción ya reservó el envío.
         const offerUpdate = await tx.offer.updateMany({
-          where: { id, status: current.status },
+          // `tripId` también entra al compare-and-swap: un `start()` concurrente del viaje
+          // (que desasocia las `pending`, MOVO-258 D5) entre el `findUnique` y acá dejaría
+          // una oferta `accepted` sin viaje -- el paquete huérfano. Con esto el UPDATE no
+          // matchea y responde 409 (modificación concurrente); el reintento ya ve `tripId`
+          // en null y auto-crea un viaje.
+          where: { id, status: current.status, tripId: current.tripId },
           data: {
             status: OfferStatus.ACCEPTED,
             respondedAt: now,
@@ -712,6 +758,13 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
 
         return { offer: mapOffer(accepted), shipmentId: current.shipmentId, superseded, autoCreatedTrip };
       });
+
+      // MOVO-250/AC6: recién después de que la transacción confirmó (un rollback no debe
+      // difundir nada) -- `published -> assignment_pending` es una transición más que los
+      // suscriptores del envío tienen que ver por el canal de tiempo real.
+      emitShipmentStatusChanged({ shipmentId: result.shipmentId, to: ShipmentStatus.ASSIGNMENT_PENDING });
+
+      return result;
     },
 
     async listByCarrier(
@@ -744,6 +797,18 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         select: { shipmentId: true },
       });
       return new Set(rows.map((r) => r.shipmentId));
+    },
+
+    async countPendingOffersByShipmentIds(shipmentIds: string[], now: Date = new Date()): Promise<Map<string, number>> {
+      if (shipmentIds.length === 0) {
+        return new Map();
+      }
+      const rows = await db.offer.groupBy({
+        by: ["shipmentId"],
+        where: { shipmentId: { in: shipmentIds }, ...offerStatusWhere(OfferStatus.PENDING, now) },
+        _count: { _all: true },
+      });
+      return new Map(rows.map((r) => [r.shipmentId, r._count._all]));
     },
 
     async listPendingOffersByShipmentIds(

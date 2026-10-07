@@ -13,11 +13,15 @@ export function createFakeTripRepository(overrides: Partial<TripRepository> = {}
   return {
     create: vi.fn(),
     findById: vi.fn(),
+    findByIdWithPackages: vi.fn(),
     countAcceptedOffers: vi.fn().mockResolvedValue(0),
     listByCarrier: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     update: vi.fn(),
     delete: vi.fn(),
-    findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([]),
+    findDeclaredTripsMatchingShipment: vi.fn().mockResolvedValue([]),
+    countAvailableCarriersNear: vi.fn().mockResolvedValue(0),
+    start: vi.fn(),
+    cancelOverdueDeclared: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
 }

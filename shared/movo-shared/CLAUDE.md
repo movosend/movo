@@ -294,3 +294,84 @@ notifications-client.ts`) pasa a ser un campo **obligatorio**, no un cambio de t
 compartido acá — `movo-svc-users` (`sendPushToUser`, único choke point) lo necesita
 para poder respetar el toggle maestro/de categoría/horario de silencio antes de
 enviar. Todo caller existente que no lo mande rompe en tiempo de compilación.
+
+### MOVO-138 — Contrato `demand_fuel_routes_v1` de `POST /quote`
+
+`src/types/pricing.ts`: `PriceCalculationMethod.DEMAND_FUEL_ROUTES_V1` (sin borrar
+`EUCLIDEAN_LINEAR_V1`, sigue persistido en envíos viejos), `QuoteRequest.demandContext?`
+(`DemandContext`, nuevo export) y `QuoteResponse.highDemand`. `breakdown` y
+`PriceBreakdownItem` salen del contrato: ningún consumidor los leía y el desglose pasa al
+log `pricing_quote_computed` del servicio (ADR-025). El enum de Python
+(`movo-svc-pricing-logistics/app/models/quote.py`) se actualizó en el mismo commit.
+### MOVO-173 — `config/rating-categories.ts`
+
+`CARRIER_RATING_CATEGORIES` (puntualidad/cuidado del paquete/comunicación) y
+`SENDER_RATING_CATEGORIES`/`RECEIVER_RATING_CATEGORIES` (`{ key, label, scoreField }`;
+puntualidad/comunicación, el mismo set a propósito para las dos contrapartes del
+transportista) son la fuente única de las sub-categorías de una calificación: `svc-shipments` las usa para
+validar y agregar, `movo-mobile` para dibujar los inputs de `RatingSheet` (import por
+subpath `dist/config/rating-categories`, no por el barrel). `scoreField`
+(`RatingCategoryScoreField`) es el nombre del campo en el wire contract. Exportados
+también desde el barrel, junto con `ReputationCategoryScore` (que ya existía pero no se
+exportaba). `ReputationBreakdown.categories` deja de ser "todavía sin backend".
+
+### MOVO-175 — Reportar y bloquear usuarios
+
+`ReportReason`/`ReportStatus` (ya existían sin backend) pasan a exportarse desde el barrel;
+nuevos `BlockedUserSummary` (`types/user.ts`), `PublicProfile.isBlockedByMe?` (opcional, solo
+en `GET /users/:id` mirando a otro) y los códigos `USER_BLOCKED`/`CANNOT_MODERATE_SELF`. El
+límite diario de reportes reusa `RATE_LIMIT_EXCEEDED` en vez de un código propio. Review de
+PR #193: `UserReportSummary`/`UserReportEntry` (reporte propio en revisión con la información
+sumada después) y los códigos `REPORT_ALREADY_PENDING`/`REPORT_NOT_FOUND`.
+
+### MOVO-174 — `MutualConnections`
+
+`src/types/user-profile.ts` — wire contract de `GET /users/:id/mutual-connections`
+(`{ totalCount, sampleFirstNames }`), migrado desde un tipo local de `movo-mobile` (mismo criterio que
+`PublicProfile`). `sampleFirstNames` viaja siempre vacío por la decisión de privacidad de esa US (solo
+el conteo); se mantiene en el tipo para poder mostrar nombres más adelante sin romper clientes.
+
+### MOVO-255 — Contrato de la cotización congelada
+
+`ShipmentQuoteRequest`/`ShipmentQuoteResponse` (`types/pricing.ts`) para
+`POST /shipments/quote`; la respuesta es una unión: con precio trae `quoteId`/`expiresAt`,
+sin precio todo `null`. Códigos nuevos `QUOTE_EXPIRED`/`QUOTE_MISMATCH` (ADR-028).
+
+### MOVO-252 — `TRIP_START_TOO_EARLY` en `ApiErrorCode`
+
+`src/errors/api-error.ts` — código nuevo en `ApiErrorCode` para el endpoint `POST /trips/:id/start` (MOVO-221), retornado cuando el transportista intenta iniciar un viaje antes de la fecha programada. Consumido por el cliente móvil (`movo-mobile`, MOVO-252) para mapear el error a un mensaje legible con la fecha de salida.
+
+
+### Juego de precios de la feria — `QuoteBreakdown` y códigos nuevos
+
+`types/pricing.ts`: `QuoteRequest.includeBreakdown?` y `QuoteResponse.breakdown?`
+(`QuoteBreakdown`, espejo del modelo Python). `ApiErrorCode` suma `AUTH_API_KEY_INVALID`
+(gateway, prefijo `/demo`) y `PRICING_UNAVAILABLE` (503 del juego cuando pricing no cotiza).
+
+### MOVO-237 — código `ROUTE_MODE_NOT_IMPLEMENTED`
+
+`ApiErrorCode` suma `ROUTE_MODE_NOT_IMPLEMENTED` (501), que responde `RoutesProvider` de
+`svc-shipments` si se pide el modo `live`, reservado y sin implementar (ADR-033).
+
+### MOVO-258 — `OfferStatus.SHIPMENT_CANCELLED`, `TRIP_NO_PACKAGES` y triggers de notificación (ADR-032)
+
+`types/offer.ts`: 7° valor de `OfferStatus` (oferta cerrada porque su envío se canceló).
+`errors/api-error.ts`: código `TRIP_NO_PACKAGES` (iniciar un viaje sin paquetes). `config/notification-templates.ts`: triggers
+`shipmentCancelledPickupMissed{Sender,Receiver,Carrier}`, `offersNeedReview` y `transitAnomalyCheck`.
+
+### MOVO-274 — Triggers de KYC, cuenta y seguridad y calificación pendiente
+
+`config/notification-templates.ts` suma 12 triggers: `kyc{Identity,License}{Approved,Rejected,ManualReview}`
+(6), `accountPasswordChanged`/`accountEmailChanged`/`accountPhoneChanged` (categoría `account_security`) y
+`ratingPending{Sender,Receiver,Carrier}` (categoría `ratings`, que ya estaba implementada).
+`config/notification-categories.ts`: `kyc` y `account_security` pasan a `implemented: true` (la pantalla de
+MOVO-246 las muestra con toggle real, sin cambios en mobile); `account_security` es la primera categoría
+con `quietHoursExempt: true` en uso.
+
+- **Seis triggers de KYC y no uno parametrizado**: el copy tiene que dejar claro de cuál de las dos
+  verificaciones se trata, y `displayCopy` de la pantalla de Configuración muestra cada aviso tal cual.
+- **Ningún copy lleva datos sensibles** (motivo del rechazo, email o número nuevos): un push se ve en la
+  pantalla bloqueada.
+- Sin test propio en `shared` que los referencie: se cubren desde los tests de `svc-users` y
+  `svc-shipments`. Recordatorio habitual: tras tocar este paquete, `npm run build` antes de tipar desde
+  otro workspace (los servicios leen `dist/`).

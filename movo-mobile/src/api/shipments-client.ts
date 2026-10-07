@@ -1,5 +1,6 @@
 import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
+import type { ShipmentQuoteRequest, ShipmentQuoteResponse } from "@movo/shared/dist/types/pricing";
 import type { PackageType } from "../store/shipment-wizard-store";
 import { httpClient } from "./http-client";
 
@@ -31,18 +32,30 @@ export interface ShipmentSummary {
   pickupTimeWindowStart: string;
   pickupTimeWindowEnd: string;
   suggestedPriceArs: number;
+  /** MOVO-138/254: `true` si el precio sugerido lleva recargo por alta demanda.
+   * `null` (sin cotización, o envío anterior a `demand_fuel_routes_v1`) no equivale a
+   * `false`: no se sabe, así que tampoco se muestra el badge. */
+  highDemand: boolean | null;
   agreedPriceArs: number | null;
   paymentMethod: string | null;
   status: ShipmentStatus;
   lastStatusChangedAt: string | null;
   deliveredAt: string | null;
   receiverConfirmationDeadline?: string | null;
+  /** MOVO-253: plazo del emisor para elegir otro receptor tras un rechazo. Solo
+   * significativo en `rejected_by_receiver`; `null` en rechazos anteriores al cambio. */
+  receiverRedesignationDeadline?: string | null;
+  /** MOVO-253: motivo del último rechazo, `null` fuera de `rejected_by_receiver`. */
+  rejectionReason?: string | null;
   createdAt: string;
   updatedAt: string;
   /** MOVO-180 (adelantado): solo presente en `GET /shipments/:id` cuando el caller es
    * un transportista ajeno viendo un envío `published` — agregado de ofertas vigentes
    * sin identidad de los competidores, `null` si no hay ninguna. */
   offersSummary?: { count: number; minPriceNetArs: number } | null;
+  /** MOVO-257: solo en `GET /shipments/mine` — ofertas vigentes de un envío
+   * `published` visto por su emisor; `null` en cualquier otro caso. */
+  pendingOffersCount?: number | null;
 }
 
 export interface ListMineResponse {
@@ -74,6 +87,10 @@ export interface CreateShipmentInput {
   pickupDate: string;
   pickupTimeWindowStart: string;
   pickupTimeWindowEnd: string;
+  /** MOVO-255: cotización congelada de `POST /shipments/quote`. Con esto el envío se
+   * crea exactamente al precio que vio el emisor, o falla con 409 `QUOTE_EXPIRED`/
+   * `QUOTE_MISMATCH` (nunca se recalcula en silencio). */
+  quoteId?: string;
 }
 
 /** Respuesta de `GET /shipments/route` (`routeResponse` en `shipments.schema.ts`,
@@ -237,6 +254,7 @@ export interface ActiveShipmentSummary {
   counterparty: { name: string; initials: string };
   isToday: boolean;
   pickupWindowExpired: boolean;
+  tripId: string | null;
 }
 
 /**
@@ -282,7 +300,14 @@ export interface ConfirmHandshakeResult {
 export const shipmentsClient = {
   /** Protegida — `httpClient` adjunta `Authorization` automáticamente vía el
    * interceptor de sesión (MOVO-76). */
-  listMine(params?: { page?: number; limit?: number }): Promise<ListMineResponse> {
+  /** `status` (MOVO-253) acota a esos estados, repetido en la query. */
+  listMine(params?: {
+    page?: number;
+    limit?: number;
+    status?: readonly ShipmentStatus[];
+    /** MOVO-184: solo envíos propios (como emisor) con al menos una oferta vigente. */
+    withPendingOffers?: boolean;
+  }): Promise<ListMineResponse> {
     return httpClient.get<ListMineResponse>("/shipments/mine", params);
   },
 
@@ -305,6 +330,11 @@ export const shipmentsClient = {
 
   create(body: CreateShipmentInput): Promise<ShipmentSummary> {
     return httpClient.post<ShipmentSummary>("/shipments", body);
+  },
+
+  /** MOVO-255: precio real del resumen del wizard, congelado 15 min en el backend. */
+  quote(body: ShipmentQuoteRequest): Promise<ShipmentQuoteResponse> {
+    return httpClient.post<ShipmentQuoteResponse>("/shipments/quote", body);
   },
 
   getRoute(origin: { lat: number; lng: number }, destination: { lat: number; lng: number }): Promise<RouteResult> {
@@ -375,6 +405,13 @@ export const shipmentsClient = {
     return httpClient.post<ShipmentSummary>(`/shipments/${shipmentId}/cancel`, body ?? {});
   },
 
+  /** `POST /shipments/:id/receiver` (MOVO-253) — el emisor elige otro receptor para un
+   * envío `rejected_by_receiver`, antes de `receiverRedesignationDeadline`. La dirección
+   * de entrega no cambia. */
+  redesignateReceiver(shipmentId: string, receiverId: string): Promise<ShipmentSummary> {
+    return httpClient.post<ShipmentSummary>(`/shipments/${shipmentId}/receiver`, { receiverId });
+  },
+
   /** `GET /shipments/sending` (MOVO-192, todavía sin backend — ver `ActiveShipmentSummary`).
    * Envíos activos donde el usuario autenticado es el emisor, para la sección "Estoy
    * enviando" del home operativo (MOVO-193). */
@@ -387,6 +424,12 @@ export const shipmentsClient = {
    * receptor, para la sección "Voy a recibir" del home operativo (MOVO-193). */
   getReceiving(): Promise<ActiveShipmentSummary[]> {
     return httpClient.get<ActiveShipmentSummary[]>("/shipments/receiving");
+  },
+
+  /** `GET /shipments/transporting` (MOVO-192 / MOVO-203).
+   * Envíos activos donde el usuario autenticado es el transportista. */
+  getTransporting(): Promise<ActiveShipmentSummary[]> {
+    return httpClient.get<ActiveShipmentSummary[]>("/shipments/transporting");
   },
 
   /** `GET /shipments/history-with/:userId` (MOVO-170, todavía sin implementar en
@@ -427,9 +470,91 @@ export const shipmentsClient = {
   confirmHandshake(shipmentId: string, input: ConfirmHandshakeInput): Promise<ConfirmHandshakeResult> {
     return httpClient.post<ConfirmHandshakeResult>(`/shipments/${shipmentId}/handshake/confirm`, input);
   },
+
+  /**
+   * `POST /shipments/:id/positions` (MOVO-202 / MOVO-203).
+   * Reporta la posición GPS actual del transportista para un envío en `in_transit`.
+   */
+  reportPosition(
+    shipmentId: string,
+    input: ReportPositionInput,
+  ): Promise<ReportPositionResult> {
+    return httpClient.post<ReportPositionResult>(
+      `/shipments/${shipmentId}/positions`,
+      input,
+    );
+  },
+
+  /**
+   * `POST /shipments/positions` (MOVO-250 / MOVO-242 / AC8).
+   * Reporta una tanda o lote de posiciones GPS (hasta 100).
+   */
+  reportPositionsBatch(
+    positions: BatchPositionItemInput[],
+  ): Promise<ReportPositionsBatchResult> {
+    return httpClient.post<ReportPositionsBatchResult>("/shipments/positions", {
+      positions,
+    });
+  },
+
+  /**
+   * `GET /shipments/:id/positions/latest` (MOVO-204 / MOVO-251).
+   * Obtiene la última posición GPS conocida del transportista para un envío en viaje activo.
+   */
+  getLastKnownPosition(shipmentId: string): Promise<LastKnownCarrierPosition | null> {
+    return httpClient.get<LastKnownCarrierPosition | null>(
+      `/shipments/${shipmentId}/positions/latest`
+    );
+  },
 };
 
 export type { CarrierRoute };
+
+export interface ReportPositionInput {
+  lat: number;
+  lng: number;
+  accuracyM: number;
+  capturedAt: string;
+}
+
+export interface ReportPositionResult {
+  persisted: boolean;
+}
+
+export interface LastKnownCarrierPosition {
+  lat: number;
+  lng: number;
+  accuracyM: number;
+  capturedAt: string;
+  recordedAt: string;
+}
+
+export interface BatchPositionItemInput {
+  shipmentId: string;
+  lat: number;
+  lng: number;
+  accuracyM: number;
+  capturedAt: string;
+}
+
+export type BatchPositionRejectionCode =
+  | "SHIPMENT_NOT_TRACKABLE"
+  | "SHIPMENT_NOT_IN_TRANSIT"
+  | "NOT_FOUND"
+  | "FORBIDDEN"
+  | "INVALID_CAPTURED_AT";
+
+export interface BatchPositionResultItem {
+  index: number;
+  shipmentId: string;
+  status: "accepted" | "rejected";
+  persisted?: boolean;
+  code?: BatchPositionRejectionCode;
+}
+
+export interface ReportPositionsBatchResult {
+  results: BatchPositionResultItem[];
+}
 
 /** Input para `POST /shipments/:id/handshake/generate`. */
 export interface GenerateHandshakeInput {

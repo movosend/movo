@@ -34,6 +34,13 @@ export interface ServiceRoute {
    * (su `rewriteRequestHeaders` de default solo reenvía `cookie`).
    */
   websocket?: boolean;
+  /**
+   * Cómo se autentica el prefijo. Default `"jwt"` (usuario de la app, con
+   * `publicRoutes` como excepción). `"apiKey"`: header `x-api-key` contra
+   * `DEMO_API_KEYS` (juegos de `movo-institucional`, sin usuario) -- el JWT no sirve
+   * ahí y `publicRoutes` no aplica.
+   */
+  auth?: "jwt" | "apiKey";
 }
 
 export interface PublicRoute {
@@ -52,6 +59,20 @@ export interface RateLimitedRoute {
     max: number;
     timeWindow: string;
   };
+  /**
+   * MOVO-255: cuenta por usuario (`sub` del JWT) en vez de por IP. El limiter corre
+   * después de autenticar, así que solo sirve en rutas protegidas. Útil cuando el
+   * recurso a proteger es por cuenta y no por red: varios celulares detrás del mismo
+   * NAT de la operadora no deberían compartir un contador.
+   */
+  perUser?: boolean;
+  /**
+   * Cuenta por cliente demo (`x-client-id`) + IP real del visitante (`x-movo-client-ip`,
+   * que reenvía el servidor de Next.js). Solo para rutas `auth: "apiKey"`: sin esto, todo
+   * el tráfico del sitio institucional llegaría desde las pocas IPs de Vercel y
+   * compartiría un único contador.
+   */
+  perClient?: boolean;
 }
 
 export function getServiceRoutes(env: {
@@ -146,6 +167,15 @@ export function getServiceRoutes(env: {
     {
       prefix: "/places",
       upstream: env.USERS_SERVICE_URL,
+    },
+
+    // Juegos de movo-institucional (/juegos): el juego de precios cotiza con el motor
+    // real y guarda cada partida en `shipments.pricing_game_sessions`. Sin usuario: se
+    // autentica con API key (`DEMO_API_KEYS`), no con JWT.
+    {
+      prefix: "/demo",
+      upstream: env.SHIPMENTS_SERVICE_URL,
+      auth: "apiKey",
     },
   ];
 }
@@ -263,6 +293,28 @@ export function getRateLimitOverrides(): RateLimitedRoute[] {
       path: "/shipments/route",
       rateLimit: { max: 20, timeWindow: "15 minutes" },
     },
+    // MOVO-250/AC5: lote de posiciones GPS de la cola offline / tarea de segundo plano
+    // (MOVO-203/242). Sin este override cae en el límite general (200/min por IP,
+    // contador compartido con todo el resto de la API) y una tanda al volver la señal
+    // podría comerse ese presupuesto o recibir 429. Contador propio: hasta 30 lotes por
+    // minuto por IP (cada uno de hasta 100 posiciones) -- el mobile emite 1 lote cada
+    // varios segundos como mucho. El POST individual `/shipments/:id/positions` tiene un
+    // path con parámetro, así que sigue bajo el límite general.
+    {
+      method: "POST",
+      path: "/shipments/positions",
+      rateLimit: { max: 30, timeWindow: "1 minute" },
+    },
+    // MOVO-255: cotización congelada del resumen del wizard. Cada llamada consulta
+    // Google Routes (pago) desde `movo-svc-pricing-logistics`, mismo límite que
+    // `/shipments/route`. Por usuario, como pide el ticket: el mobile cotiza una vez
+    // por entrada al resumen (y una más ante un 409), no por tecleo.
+    {
+      method: "POST",
+      path: "/shipments/quote",
+      rateLimit: { max: 20, timeWindow: "15 minutes" },
+      perUser: true,
+    },
     // MOVO-125: reverse geocoding del GPS del wizard de envíos — PROTEGIDA (no está en
     // getPublicRoutes), a diferencia de /geocode y /places/*. Igual necesita este
     // limiter propio: requerir JWT no la protege de un usuario logueado disparando el
@@ -296,6 +348,41 @@ export function getRateLimitOverrides(): RateLimitedRoute[] {
       method: "POST",
       path: "/users/me/email/verify/otp",
       rateLimit: { max: 5, timeWindow: "15 minutes" },
+    },
+    // Juego de precios: cada cotización consulta Google Routes (pago) desde
+    // pricing-logistics. Una partida cotiza 1 vez (más ~6 pares del loop de atracción,
+    // cacheados unas horas en el kiosco). 60/min porque en la feria varios iPads salen
+    // por el mismo wifi (misma IP). El PUT de partidas tiene `:id` en el path y cae en el
+    // límite demo general (60/min por visitante, ver routes/index.ts).
+    {
+      method: "POST",
+      path: "/demo/pricing-game/quote",
+      rateLimit: { max: 60, timeWindow: "1 minute" },
+      perClient: true,
+    },
+    {
+      method: "GET",
+      path: "/demo/pricing-game/stats",
+      rateLimit: { max: 60, timeWindow: "1 minute" },
+      perClient: true,
+    },
+    // Juego del optimizador: crear una partida corre OR-Tools (~1 s de CPU en
+    // pricing-logistics) sobre la matriz de la ciudad, que solo se factura a Google la
+    // primera vez (cache de 30 días). Una partida dura ~2 min, así que 60/min por
+    // visitante sobra aunque todos los iPads del stand compartan la IP del wifi. El
+    // ranking se pide una vez por partida. El PUT (`:id`) y el reset caen en el límite
+    // demo general.
+    {
+      method: "POST",
+      path: "/demo/route-game/games",
+      rateLimit: { max: 60, timeWindow: "1 minute" },
+      perClient: true,
+    },
+    {
+      method: "GET",
+      path: "/demo/route-game/ranking",
+      rateLimit: { max: 60, timeWindow: "1 minute" },
+      perClient: true,
     },
   ];
 }

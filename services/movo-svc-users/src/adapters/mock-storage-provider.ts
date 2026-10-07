@@ -7,6 +7,7 @@ interface StoredObject {
 }
 
 const MOCK_PUBLIC_URL_HOST = "mock-bucket.s3.mock-region.movo.local";
+const MOCK_DOWNLOAD_URL_HOST = "mock-bucket-private.s3.mock-region.movo.local";
 
 /**
  * `StorageProvider` de más superficie que la interfaz real -- el único punto donde el
@@ -49,6 +50,13 @@ export function createMockStorageProvider(): MockStorageProvider {
 
     getPublicUrl(key) {
       return `https://${MOCK_PUBLIC_URL_HOST}/${key}`;
+    },
+
+    async createDownloadUrl(key) {
+      return {
+        url: `https://${MOCK_DOWNLOAD_URL_HOST}/${key}?mock-download=${randomUUID()}`,
+        expiresIn: 300,
+      };
     },
 
     getKeyFromUrl(url) {

@@ -1,6 +1,6 @@
 import { AlertCircle, Clock } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
-import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import { ShipmentStatus, type RatingRole } from "@movo/shared/dist/types/shipment";
 import { AvatarImage } from "../ui/avatar-image";
 import { SkeletonBlock } from "../ui/skeleton-block";
 import { StarRatingInput } from "../ui/star-rating-input";
@@ -34,6 +34,8 @@ export function isRatingWindowExpired(deliveredAt: string | null | undefined): b
 export interface CounterpartyInfo {
   userId: string;
   roleLabel: string;
+  /** MOVO-173: rol del CALIFICADO en este envío -- decide qué categorías muestra `RatingSheet`. */
+  rateeRole: RatingRole;
 }
 
 export function resolveCounterparties(
@@ -49,17 +51,17 @@ export function resolveCounterparties(
   if (isSender) {
     // El emisor interactúa únicamente con el transportista en el retiro
     if (shipment.carrierId) {
-      counterparties.push({ userId: shipment.carrierId, roleLabel: "Transportista" });
+      counterparties.push({ userId: shipment.carrierId, roleLabel: "Transportista", rateeRole: "carrier" });
     }
   } else if (isReceiver) {
     // El receptor interactúa únicamente con el transportista en la entrega
     if (shipment.carrierId) {
-      counterparties.push({ userId: shipment.carrierId, roleLabel: "Transportista" });
+      counterparties.push({ userId: shipment.carrierId, roleLabel: "Transportista", rateeRole: "carrier" });
     }
   } else if (isCarrier) {
     // El transportista interactúa con ambas partes (retiro y entrega)
-    counterparties.push({ userId: shipment.senderId, roleLabel: "Emisor" });
-    counterparties.push({ userId: shipment.receiverId, roleLabel: "Receptor" });
+    counterparties.push({ userId: shipment.senderId, roleLabel: "Emisor", rateeRole: "sender" });
+    counterparties.push({ userId: shipment.receiverId, roleLabel: "Receptor", rateeRole: "receiver" });
   }
 
   return counterparties;
@@ -110,7 +112,9 @@ function CounterpartyRatingRow({
     onRate({
       userId: counterparty.userId,
       fullName,
+      photoUrl: profile?.photoUrl ?? null,
       roleLabel: counterparty.roleLabel,
+      rateeRole: counterparty.rateeRole,
       existingRating: myRating,
     });
   };

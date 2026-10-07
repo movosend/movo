@@ -11,6 +11,7 @@ export interface EnvConfig {
   ROUTES_PROVIDER: "mock" | "google";
   GOOGLE_MAPS_API_KEY?: string;
   RECEIVER_CONFIRMATION_TIMEOUT_HOURS: number;
+  RECEIVER_REDESIGNATION_TIMEOUT_HOURS: number;
   RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES: number;
   RECEIVER_CONFIRMATION_SWEEP_ENABLED?: boolean;
   ORPHAN_PHOTO_RETENTION_HOURS: number;
@@ -25,6 +26,14 @@ export interface EnvConfig {
   CARRIER_POSITION_RETENTION_DAYS: number;
   CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES: number;
   CARRIER_POSITION_PURGE_SWEEP_ENABLED?: boolean;
+  TRIP_EXPIRY_SWEEP_INTERVAL_MINUTES: number;
+  TRIP_EXPIRY_SWEEP_ENABLED?: boolean;
+  PICKUP_MISSED_SWEEP_INTERVAL_MINUTES: number;
+  PICKUP_MISSED_SWEEP_ENABLED?: boolean;
+  PICKUP_MISSED_GRACE_HOURS: number;
+  TRANSIT_ANOMALY_SWEEP_INTERVAL_MINUTES: number;
+  TRANSIT_ANOMALY_SWEEP_ENABLED?: boolean;
+  IN_TRANSIT_ANOMALY_FALLBACK_HOURS: number;
 }
 
 export const envSchema = {
@@ -63,6 +72,9 @@ export const envSchema = {
     GOOGLE_MAPS_API_KEY: { type: "string" },
     // MOVO-130: plazo en horas para que el receptor acepte/rechace antes de que el envío expire.
     RECEIVER_CONFIRMATION_TIMEOUT_HOURS: { type: "number", default: 48 },
+    // MOVO-253: plazo en horas para que el emisor elija otro receptor tras un rechazo
+    // (con tope en la ventana de retiro). Lo cierra el mismo barrido de MOVO-130.
+    RECEIVER_REDESIGNATION_TIMEOUT_HOURS: { type: "number", default: 48 },
     // MOVO-130: intervalo en minutos del barrido periódico de expiración.
     RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
     // MOVO-130: flag para habilitar/deshabilitar el barrido periódico (útil en test/CI).
@@ -111,6 +123,20 @@ export const envSchema = {
     // sobre un plazo de 30 días no cambia nada material.
     CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES: { type: "number", default: 60 },
     CARRIER_POSITION_PURGE_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-238: barrido que cancela viajes `declared` con `departureAt` vencido sin
+    // paquetes aceptados -- mismo criterio que PICKUP_EXPIRY_SWEEP_*.
+    TRIP_EXPIRY_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
+    TRIP_EXPIRY_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-258 (D1): barrido que cancela envíos con transportista cuyo retiro no se hizo,
+    // pasado el margen de gracia sobre el cierre de la ventana de retiro efectiva.
+    PICKUP_MISSED_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
+    PICKUP_MISSED_SWEEP_ENABLED: { type: "boolean", default: true },
+    PICKUP_MISSED_GRACE_HOURS: { type: "number", default: 24 },
+    // MOVO-258 (D4): barrido que marca para revisión los `in_transit` que no se entregaron.
+    // El fallback aplica solo si la oferta aceptada no declaró entrega estimada.
+    TRANSIT_ANOMALY_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
+    TRANSIT_ANOMALY_SWEEP_ENABLED: { type: "boolean", default: true },
+    IN_TRANSIT_ANOMALY_FALLBACK_HOURS: { type: "number", default: 48 },
   },
 };
 

@@ -1,15 +1,21 @@
 import { router } from "expo-router";
-import { XCircle } from "lucide-react-native";
+import { Clock, Inbox, UserRoundPlus, XCircle } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { AcceptSuccessModal } from "../shipments/accept-success-modal";
-import type { AttentionInfoTask, AttentionTask } from "../../src/hooks/use-attention-tasks";
+import type {
+  AttentionInfoTask,
+  AttentionRejectedTask,
+  AttentionTask,
+} from "../../src/hooks/use-attention-tasks";
 import { useAttentionTasks } from "../../src/hooks/use-attention-tasks";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { AttentionConfirmCard } from "./attention-confirm-card";
 
 function AttentionInfoCard({ task, testID }: { task: AttentionInfoTask; testID?: string }) {
   const colors = useThemeColors();
+  // Mismo ícono que el banner de ofertas del detalle (`OffersBanner`, MOVO-150).
+  const Icon = task.icon === "offers" ? Inbox : XCircle;
   return (
     <Pressable
       testID={testID}
@@ -17,7 +23,7 @@ function AttentionInfoCard({ task, testID }: { task: AttentionInfoTask; testID?:
       className="flex-row items-center gap-3 rounded-[16px] border border-border bg-bg p-4"
     >
       <View className="h-11 w-11 items-center justify-center rounded-full bg-bg-mute">
-        <XCircle size={20} color={colors.fg2} strokeWidth={1.8} />
+        <Icon size={20} color={colors.fg2} strokeWidth={1.8} />
       </View>
       <View className="flex-1 gap-0.5">
         <Text numberOfLines={2} className="font-sans-semibold text-small text-fg">
@@ -33,6 +39,60 @@ function AttentionInfoCard({ task, testID }: { task: AttentionInfoTask; testID?:
         className="h-9 items-center justify-center rounded-full bg-fg px-4"
       >
         <Text className="font-sans-semibold text-caption text-bg">{task.primaryLabel}</Text>
+      </Pressable>
+    </Pressable>
+  );
+}
+
+/** MOVO-253 AC5: rechazo del receptor con la acción de elegir a otra persona, el motivo
+ * (si lo dejó) y hasta cuándo se puede. El botón va a ancho completo: "Elegir otro
+ * receptor" no entra en la pill de la derecha de `AttentionInfoCard`. */
+function AttentionRejectedCard({ task, testID }: { task: AttentionRejectedTask; testID?: string }) {
+  const colors = useThemeColors();
+  return (
+    <Pressable
+      testID={testID}
+      onPress={task.onPress}
+      className="gap-3 rounded-[16px] border border-border bg-bg p-4"
+    >
+      <View className="flex-row items-center gap-3">
+        <View className="h-11 w-11 items-center justify-center rounded-full bg-warning-100">
+          <XCircle size={20} color="#A97714" strokeWidth={1.8} />
+        </View>
+        <View className="flex-1 gap-0.5">
+          <Text numberOfLines={2} className="font-sans-semibold text-small text-fg">
+            {task.title}
+          </Text>
+          <Text numberOfLines={1} className="font-sans text-caption text-fg-2">
+            {task.meta}
+          </Text>
+        </View>
+      </View>
+
+      {task.reason ? (
+        <Text
+          testID={testID ? `${testID}-reason` : undefined}
+          numberOfLines={2}
+          className="font-sans text-small text-fg-2"
+        >
+          “{task.reason}”
+        </Text>
+      ) : null}
+
+      <View className="flex-row items-center gap-1.5">
+        <Clock size={13} color={colors.fg3} strokeWidth={2} />
+        <Text testID={testID ? `${testID}-deadline` : undefined} className="font-sans text-caption text-fg-3">
+          {task.deadlineLabel} para elegir a otra persona
+        </Text>
+      </View>
+
+      <Pressable
+        testID={testID ? `${testID}-primary` : undefined}
+        onPress={task.onChooseReceiver}
+        className="h-10 flex-row items-center justify-center gap-2 rounded-full bg-fg"
+      >
+        <UserRoundPlus size={15} color={colors.bg} strokeWidth={2} />
+        <Text className="font-sans-semibold text-caption text-bg">Elegir otro receptor</Text>
       </Pressable>
     </Pressable>
   );
@@ -94,16 +154,20 @@ export function AttentionTaskList({ tasks, testID }: { tasks: AttentionTask[]; t
       </Text>
       {tasks.map((task) => {
         const taskTestID = testID ? `${testID}-task-${task.id}` : undefined;
-        return task.kind === "confirm" ? (
-          <AttentionConfirmCard
-            key={task.id}
-            task={task}
-            onAcceptSuccess={() => setAcceptSuccessShipmentId(task.shipmentId)}
-            testID={taskTestID}
-          />
-        ) : (
-          <AttentionInfoCard key={task.id} task={task} testID={taskTestID} />
-        );
+        if (task.kind === "confirm") {
+          return (
+            <AttentionConfirmCard
+              key={task.id}
+              task={task}
+              onAcceptSuccess={() => setAcceptSuccessShipmentId(task.shipmentId)}
+              testID={taskTestID}
+            />
+          );
+        }
+        if (task.kind === "rejected") {
+          return <AttentionRejectedCard key={task.id} task={task} testID={taskTestID} />;
+        }
+        return <AttentionInfoCard key={task.id} task={task} testID={taskTestID} />;
       })}
 
       {successModal}

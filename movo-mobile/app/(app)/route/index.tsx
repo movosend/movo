@@ -3,34 +3,47 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
+  Easing as RNEasing,
   PanResponder,
-  Platform,
   Pressable,
-  RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import Reanimated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import { useColorScheme } from "nativewind";
 import {
-  ArrowLeft,
+  ChevronLeft,
   MapPinOff,
   PackageCheck,
   RefreshCw,
   Route as RouteIcon,
-  Sparkles,
   X,
 } from "lucide-react-native";
 import type { CarrierRoute, CarrierRouteStop } from "@movo/shared/dist/types/routing";
 import { useOptimizedRoute } from "../../../src/hooks/use-optimized-route";
 import { RouteMap } from "../../../components/route/route-map";
 import { StopList } from "../../../components/route/stop-list";
+import { CarrierTripCta } from "../../../components/trips/carrier-trip-cta";
+import { TripStatus } from "../../../src/api/trips-client";
+import { useStartTrip, useTrip } from "../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { decodePolyline } from "../../../src/lib/polyline";
+import { formatTripStartErrorMessage } from "../../../src/lib/trip-format";
+import { shortAddressLabel } from "../../../src/lib/shipment-format";
+import {
+  ROUTE_SHEET_BEZIER,
+  ROUTE_SHEET_DIM_OPACITY,
+  ROUTE_SHEET_DURATION_MS,
+} from "../../../src/lib/route-sheet-motion";
 
 // Punto de partida declarado del transportista (Claude Design originPin en calle Blas Pascal / Las Mulitas, Córdoba)
 const DEMO_ORIGIN = { lat: -31.3533, lng: -64.2562 };
@@ -39,6 +52,14 @@ const DEMO_ORIGIN = { lat: -31.3533, lng: -64.2562 };
 const DEMO_CARRIER_LOCATION = { lat: -31.3850, lng: -64.2250 }; // Autovía / RN 9
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
+
+const SHEET_EASING = RNEasing.bezier(...ROUTE_SHEET_BEZIER);
+const CHROME_EASING = Easing.bezier(...ROUTE_SHEET_BEZIER);
+
+/** Alto de la isla de arriba (mockup 2a) y separación hasta el control "Centrar" del mapa. */
+const ISLAND_HEIGHT = 64;
+const ISLAND_GAP = 16;
+
 
 /** Polilínea codificada real del trazado vial Córdoba → Las Mulitas → Oncativo → Villa María (RN 9 / Autopista) */
 const DEMO_POLYLINE =
@@ -112,10 +133,24 @@ export default function OptimizedRouteScreen() {
 
   // Alturas dinámicas para el bottom sheet fluido
   const EXPANDED_HEIGHT = Math.round(SCREEN_HEIGHT - (topInset + 64));
-  const COLLAPSED_HEIGHT = Math.max(Math.round(SCREEN_HEIGHT * 0.32), 260);
+  // Altura colapsada: la que mide StopList para mostrar completa la card de la próxima parada
+  // (sin scroll). Hasta la primera medición, una estimación para no saltar de golpe.
+  const FALLBACK_COLLAPSED_HEIGHT = Math.max(Math.round(SCREEN_HEIGHT * 0.4), 340);
+  const [measuredCollapsedHeight, setMeasuredCollapsedHeight] = useState<number | null>(null);
+  const COLLAPSED_HEIGHT = Math.min(
+    measuredCollapsedHeight ?? FALLBACK_COLLAPSED_HEIGHT,
+    Math.round(EXPANDED_HEIGHT * 0.7),
+  );
 
-  const { tripId } = useLocalSearchParams<{ tripId?: string }>();
-  const [demoMode, setDemoMode] = useState(false);
+  const { tripId, demo } = useLocalSearchParams<{ tripId?: string; demo?: string }>();
+  const [demoMode, setDemoMode] = useState(() => Boolean(__DEV__ && demo === "true"));
+
+  useEffect(() => {
+    if (__DEV__ && demo === "true") {
+      setDemoMode(true);
+      setSelectedStopOrder(1);
+    }
+  }, [demo]);
   const {
     route,
     carrierLocation,
@@ -125,6 +160,27 @@ export default function OptimizedRouteScreen() {
     error,
     refetch,
   } = useOptimizedRoute(tripId);
+
+  const tripQuery = useTrip(tripId);
+  const tripData = tripQuery?.data;
+  const startTripMutation = useStartTrip();
+  const [isStartingTrip, setIsStartingTrip] = useState(false);
+  const [startTripError, setStartTripError] = useState<string | null>(null);
+
+  const handleStartTrip = async () => {
+    if (!tripId) return;
+    try {
+      setIsStartingTrip(true);
+      setStartTripError(null);
+      await startTripMutation.mutateAsync(tripId);
+      await refetch();
+    } catch (err) {
+      const msg = formatTripStartErrorMessage(err, tripData?.departureAt);
+      setStartTripError(msg);
+    } finally {
+      setIsStartingTrip(false);
+    }
+  };
 
   const displayRoute = demoMode ? DEMO_ROUTE : route;
   const displayLocation = demoMode ? DEMO_CARRIER_LOCATION : carrierLocation;
@@ -161,71 +217,129 @@ export default function OptimizedRouteScreen() {
     };
   }, [sheetHeightAnim]);
 
+  // Mientras el sheet se mueve, los cambios de alto medido no lo tocan: al terminar se
+  // reconcilia contra el último alto medido (la card ancla cambia de padding al cerrar).
+  const isAnimatingRef = useRef(false);
+  const isDraggingRef = useRef(false);
+  const collapsedHeightRef = useRef(COLLAPSED_HEIGHT);
+  collapsedHeightRef.current = COLLAPSED_HEIGHT;
+  const expandedHeightRef = useRef(EXPANDED_HEIGHT);
+  expandedHeightRef.current = EXPANDED_HEIGHT;
+  const hasMeasuredRef = useRef(false);
+
   const animateTo = useCallback(
-    (toHeight: number, expandState: boolean) => {
+    (toHeight: number, expandState: boolean, withHaptic = true) => {
       setIsListExpanded(expandState);
-      try {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      } catch {}
-      Animated.spring(sheetHeightAnim, {
+      if (withHaptic) {
+        try {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        } catch {}
+      }
+      isAnimatingRef.current = true;
+      Animated.timing(sheetHeightAnim, {
         toValue: toHeight,
-        tension: 65,
-        friction: 11,
+        duration: ROUTE_SHEET_DURATION_MS,
+        easing: SHEET_EASING,
         useNativeDriver: false,
-      }).start();
+      }).start(({ finished }) => {
+        isAnimatingRef.current = false;
+        if (finished && !expandState && collapsedHeightRef.current !== toHeight) {
+          Animated.timing(sheetHeightAnim, {
+            toValue: collapsedHeightRef.current,
+            duration: 200,
+            easing: SHEET_EASING,
+            useNativeDriver: false,
+          }).start();
+        }
+      });
     },
     [sheetHeightAnim]
   );
+
+  // Si cambia el alto medido (otra parada, otro texto) y el sheet está quieto y colapsado, acompañarlo
+  useEffect(() => {
+    if (isExpandedRef.current || isAnimatingRef.current || isDraggingRef.current) return;
+    if (hasMeasuredRef.current && Math.abs(currentHeightRef.current - COLLAPSED_HEIGHT) < 1) return;
+    if (!hasMeasuredRef.current) {
+      sheetHeightAnim.setValue(COLLAPSED_HEIGHT);
+    } else {
+      Animated.timing(sheetHeightAnim, {
+        toValue: COLLAPSED_HEIGHT,
+        duration: 200,
+        easing: SHEET_EASING,
+        useNativeDriver: false,
+      }).start();
+    }
+    if (measuredCollapsedHeight != null) hasMeasuredRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [COLLAPSED_HEIGHT, sheetHeightAnim]);
+
+  // Coreografía del resto de la pantalla al abrir la ruta: la isla sube y se apaga, el mapa se oscurece
+  const chromeProgress = useSharedValue(0);
+  useEffect(() => {
+    chromeProgress.value = withTiming(isListExpanded ? 1 : 0, {
+      duration: ROUTE_SHEET_DURATION_MS,
+      easing: CHROME_EASING,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isListExpanded]);
+  const islandStyle = useAnimatedStyle(() => ({
+    opacity: 1 - Math.min(1, chromeProgress.value / 0.6),
+    transform: [{ translateY: chromeProgress.value * -8 }],
+  }));
+  const dimStyle = useAnimatedStyle(() => ({
+    opacity: chromeProgress.value * ROUTE_SHEET_DIM_OPACITY,
+  }));
 
   const handleToggleExpand = useCallback(() => {
     const nextState = !isExpandedRef.current;
     animateTo(nextState ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT, nextState);
   }, [EXPANDED_HEIGHT, COLLAPSED_HEIGHT, animateTo]);
 
-  // Gestos de arrastre desde el borde superior / handle del Bottom Sheet
+  // Gestos de arrastre desde la manija/encabezado del sheet. Se crea una sola vez y lee los
+  // altos desde refs: si se recreara a mitad de un arrastre (por ejemplo porque cambió el alto
+  // medido), el gesto arrancaría de nuevo y el sheet saltaría.
   const panResponder = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
         onStartShouldSetPanResponderCapture: () => false,
-        onMoveShouldSetPanResponder: (_, gestureState) => {
-          return Math.abs(gestureState.dy) > 3;
-        },
-        onMoveShouldSetPanResponderCapture: (_, gestureState) => {
-          return Math.abs(gestureState.dy) > 3;
-        },
+        onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+        onMoveShouldSetPanResponderCapture: (_, g) => Math.abs(g.dy) > 4 && Math.abs(g.dy) > Math.abs(g.dx),
         onPanResponderTerminationRequest: () => false,
         onPanResponderGrant: () => {
+          isDraggingRef.current = true;
           sheetHeightAnim.stopAnimation();
           dragStartHeightRef.current = currentHeightRef.current;
         },
-        onPanResponderMove: (_, gestureState) => {
-          // Arrastrar hacia arriba (dy < 0) agranda la altura del sheet
-          const newHeight = dragStartHeightRef.current - gestureState.dy;
-          const clamped = Math.min(Math.max(newHeight, COLLAPSED_HEIGHT - 30), EXPANDED_HEIGHT + 30);
-          sheetHeightAnim.setValue(clamped);
+        onPanResponderMove: (_, g) => {
+          // Arrastrar hacia arriba (dy < 0) agranda el sheet; pasado el tope se frena.
+          const min = collapsedHeightRef.current;
+          const max = expandedHeightRef.current;
+          let next = dragStartHeightRef.current - g.dy;
+          if (next > max) next = max + (next - max) * 0.25;
+          if (next < min) next = min - (min - next) * 0.25;
+          sheetHeightAnim.setValue(next);
         },
-        onPanResponderRelease: (_, gestureState) => {
-          const movedUp = gestureState.dy < -25 || gestureState.vy < -0.25;
-          const movedDown = gestureState.dy > 25 || gestureState.vy > 0.25;
-
-          let shouldExpand = isExpandedRef.current;
-          if (!isExpandedRef.current && movedUp) {
-            shouldExpand = true;
-          } else if (isExpandedRef.current && movedDown) {
-            shouldExpand = false;
-          } else {
-            const midpoint = (COLLAPSED_HEIGHT + EXPANDED_HEIGHT) / 2;
-            shouldExpand = currentHeightRef.current > midpoint;
-          }
-
-          animateTo(shouldExpand ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT, shouldExpand);
+        onPanResponderRelease: (_, g) => {
+          isDraggingRef.current = false;
+          const min = collapsedHeightRef.current;
+          const max = expandedHeightRef.current;
+          const wasExpanded = isExpandedRef.current;
+          let shouldExpand: boolean;
+          if (g.vy < -0.3 || g.dy < -40) shouldExpand = true;
+          else if (g.vy > 0.3 || g.dy > 40) shouldExpand = false;
+          else shouldExpand = currentHeightRef.current > (min + max) / 2;
+          animateTo(shouldExpand ? max : min, shouldExpand, shouldExpand !== wasExpanded);
         },
         onPanResponderTerminate: () => {
-          animateTo(isExpandedRef.current ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT, isExpandedRef.current);
+          isDraggingRef.current = false;
+          const expanded = isExpandedRef.current;
+          animateTo(expanded ? expandedHeightRef.current : collapsedHeightRef.current, expanded, false);
         },
       }),
-    [COLLAPSED_HEIGHT, EXPANDED_HEIGHT, animateTo, sheetHeightAnim]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
   );
 
   // Determinar si hay un viaje activo válido con paradas asignadas
@@ -251,6 +365,12 @@ export default function OptimizedRouteScreen() {
     // El mapa anima suavemente de regreso a la vista panorámica completa
   };
 
+  // Mismo criterio que el resto de la app: volver si hay historial, si no a Inicio
+  const handleBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(app)/(tabs)/home");
+  };
+
   const handlePressShipment = (shipmentId: string) => {
     if (shipmentId.startsWith("demo-")) {
       return;
@@ -262,16 +382,11 @@ export default function OptimizedRouteScreen() {
     if (stop.shipmentId.startsWith("demo-")) {
       return;
     }
-    // La entrega no tiene wizard todavía (MOVO-199): el CTA queda deshabilitado
-    // (`isActionDisabled`), esto es solo defensa por si igual llega el press.
     if (stop.type === "pickup") {
       router.push(`/shipments/${stop.shipmentId}/pickup`);
+    } else {
+      router.push(`/shipments/${stop.shipmentId}/delivery`);
     }
-  };
-
-  const handleStartDemo = () => {
-    setSelectedStopOrder(1);
-    setDemoMode(true);
   };
 
   return (
@@ -279,83 +394,68 @@ export default function OptimizedRouteScreen() {
       {/* 1. VISTA CUANDO HAY UN VIAJE ACTIVO CON MAPA */}
       {hasActiveTrip && displayRoute ? (
         <View className="flex-1 relative">
-          {/* Isla Flotante Superior (Claude Design lines 147-156) */}
-          <View
+          {/* Isla de arriba (mockup 2a, sin el punto pulsante): volver (circular, como en el resto de la app) + estado del viaje. Se apaga con la ruta abierta.
+              Sin botón de actualizar: la ruta se recalcula al volver a la pantalla y, abierta, tiene pull-to-refresh */}
+          <Reanimated.View
             testID="route-floating-island"
-            style={{
-              position: "absolute",
-              top: topInset + 8,
-              left: 16,
-              right: 16,
-              zIndex: 25,
-              minHeight: 52,
-              paddingHorizontal: 14,
-              paddingVertical: 8,
-              borderRadius: 14,
-              backgroundColor: isDark ? "rgba(17, 17, 19, 0.94)" : "rgba(255, 255, 255, 0.94)",
-              borderWidth: 1,
-              borderColor: isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(10, 10, 11, 0.08)",
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 8 },
-              shadowOpacity: 0.15,
-              shadowRadius: 20,
-              elevation: 6,
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 10,
-            }}
+            pointerEvents={isListExpanded ? "none" : "auto"}
+            style={[
+              {
+                position: "absolute",
+                top: topInset + 8,
+                left: 16,
+                right: 16,
+                zIndex: 25,
+                height: ISLAND_HEIGHT,
+                paddingLeft: 12,
+                paddingRight: 12,
+                borderRadius: 14,
+                backgroundColor: isDark ? "rgba(10, 10, 11, 0.85)" : "rgba(255, 255, 255, 0.92)",
+                borderWidth: 1,
+                borderColor: colors.border,
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: isDark ? 0.3 : 0.12,
+                shadowRadius: 20,
+                elevation: 6,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12,
+              },
+              islandStyle,
+            ]}
           >
-            <View className="h-2 w-2 rounded-full bg-lime-500 flex-none" />
-            <View className="flex-1 min-w-0 justify-center">
-              <Text className="font-sans-bold text-[10px] tracking-wider uppercase text-fg-3">
-                {demoMode ? "Modo Demo" : "Viaje en curso"}
+            <Pressable
+              testID="route-back-button"
+              onPress={handleBack}
+              hitSlop={6}
+              className="h-10 w-10 flex-none items-center justify-center rounded-full bg-bg-mute active:opacity-75"
+              accessibilityRole="button"
+              accessibilityLabel="Volver"
+            >
+              <ChevronLeft size={20} color={colors.fg1} strokeWidth={2} />
+            </Pressable>
+            <View className="min-w-0 flex-1 justify-center gap-0.5">
+              <Text className="font-sans-semibold text-caption uppercase text-fg-2">
+                {demoMode ? "Modo demo" : "Viaje en curso"}
               </Text>
-              <Text
-                numberOfLines={1}
-                className="font-sans-medium text-[13px] text-fg"
-              >
+              <Text numberOfLines={1} className="font-sans-medium text-[15px] text-fg">
                 Parada {activeStop?.stopOrder ?? 1} de {displayRoute.stops.length} ·{" "}
-                {activeStop?.address ?? "Inicio"}
+                {activeStop?.address ? shortAddressLabel(activeStop.address) : "Inicio"}
               </Text>
             </View>
             {demoMode ? (
               <Pressable
                 testID="route-exit-demo-button"
                 onPress={() => setDemoMode(false)}
-                className="h-8 px-3 rounded-full border border-border bg-bg items-center justify-center flex-none"
+                className="h-11 flex-none items-center justify-center rounded-lg border border-border bg-bg-mute px-4"
                 accessibilityRole="button"
                 accessibilityLabel="Salir demo"
               >
-                <Text className="font-sans-medium text-[12px] text-fg">Salir demo</Text>
+                <Text className="font-sans-medium text-[15px] text-fg">Salir demo</Text>
               </Pressable>
-            ) : (
-              <View className="flex-row items-center gap-1.5 flex-none">
-                <Pressable
-                  testID="route-refresh-active-button"
-                  onPress={() => void refetch()}
-                  disabled={isLoading || isRefreshing}
-                  className="h-8 w-8 rounded-full border border-border bg-bg items-center justify-center"
-                  accessibilityRole="button"
-                  accessibilityLabel="Actualizar ruta"
-                >
-                  <RefreshCw
-                    size={14}
-                    color={colors.fg2}
-                    className={isRefreshing ? "animate-spin" : undefined}
-                  />
-                </Pressable>
-                <Pressable
-                  testID="route-back-button"
-                  onPress={() => router.back()}
-                  className="h-8 px-3 rounded-full border border-border bg-bg items-center justify-center flex-none"
-                  accessibilityRole="button"
-                  accessibilityLabel="Inicio"
-                >
-                  <Text className="font-sans-medium text-[12px] text-fg">Inicio</Text>
-                </Pressable>
-              </View>
-            )}
-          </View>
+            ) : null}
+          </Reanimated.View>
 
           {/* Fondo completo: Mapa interactivo que no se redimensiona para evitar parpadeos nativos */}
           <View
@@ -372,11 +472,25 @@ export default function OptimizedRouteScreen() {
               polylineCoordinates={demoPolylineCoordinates}
               onResetFocus={handleResetFocus}
               focusTrigger={focusTrigger}
-              topOffset={topInset + 70}
+              topOffset={topInset + 8 + ISLAND_HEIGHT + ISLAND_GAP}
               bottomOffset={isListExpanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT}
               showControls={!isListExpanded}
             />
           </View>
+
+          {/* Velo sobre el mapa con la ruta abierta: tocarlo la cierra */}
+          <Reanimated.View
+            testID="route-map-dim"
+            pointerEvents={isListExpanded ? "auto" : "none"}
+            style={[StyleSheet.absoluteFill, { zIndex: 28, backgroundColor: "#0A0A0B" }, dimStyle]}
+          >
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={handleToggleExpand}
+              accessibilityRole="button"
+              accessibilityLabel="Cerrar la ruta"
+            />
+          </Reanimated.View>
 
           {/* Bottom sheet fluido deslizable desde el borde superior */}
           <Animated.View
@@ -388,8 +502,8 @@ export default function OptimizedRouteScreen() {
               bottom: 0,
               height: sheetHeightAnim,
               zIndex: 30,
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
+              borderTopLeftRadius: 14,
+              borderTopRightRadius: 14,
               borderTopWidth: 1,
               borderColor: colors.border,
               backgroundColor: colors.bg,
@@ -408,11 +522,11 @@ export default function OptimizedRouteScreen() {
               onSelectStop={handleSelectStop}
               onPressShipment={handlePressShipment}
               onPressAction={handlePressStopAction}
-              isActionDisabled={(stop) => stop.type === "delivery"}
               isRefreshing={isRefreshing}
               onRefresh={() => void refetch()}
               isExpanded={isListExpanded}
               onToggleExpand={handleToggleExpand}
+              onCollapsedHeightChange={setMeasuredCollapsedHeight}
               panHandlers={panResponder.panHandlers}
             />
           </Animated.View>
@@ -425,12 +539,12 @@ export default function OptimizedRouteScreen() {
               <View className="flex-row items-center gap-3">
                 <Pressable
                   testID="route-back-button"
-                  onPress={() => router.back()}
-                  className="h-9 w-9 items-center justify-center rounded-full border border-border bg-bg"
+                  onPress={handleBack}
+                  className="h-9 w-9 items-center justify-center rounded-full bg-bg-mute active:opacity-75"
                   accessibilityRole="button"
                   accessibilityLabel="Volver"
                 >
-                  <ArrowLeft size={18} color={colors.fg1} />
+                  <ChevronLeft size={20} color={colors.fg1} strokeWidth={2} />
                 </Pressable>
                 <View>
                   <Text className="font-sans-semibold text-[16px] text-fg">
@@ -496,19 +610,19 @@ export default function OptimizedRouteScreen() {
                     Permitir ubicación y reintentar
                   </Text>
                 </Pressable>
-
-                {__DEV__ && (
-                  <Pressable
-                    testID="route-demo-button-gps"
-                    onPress={handleStartDemo}
-                    className="flex-row items-center justify-center gap-2 rounded-[12px] border border-border bg-bg-sub px-5 py-3"
-                  >
-                    <Sparkles size={16} color="#2BB673" />
-                    <Text className="font-sans-medium text-[13.5px] text-fg">
-                      Ver recorrido de prueba (Demo)
-                    </Text>
-                  </Pressable>
-                )}
+              </View>
+            </View>
+          ) : tripData?.status === TripStatus.DECLARED && tripData.hasAcceptedPackages ? (
+            /* MOVO-252: El viaje está declarado con paquetes -- se ofrece el CTA para iniciarlo */
+            <View testID="route-declared-trip-state" className="flex-1 items-center justify-center gap-5 px-6">
+              <View className="w-full max-w-sm">
+                <CarrierTripCta
+                  trip={tripData}
+                  testID="route-trip-cta"
+                  onStart={handleStartTrip}
+                  isStarting={isStartingTrip}
+                  errorMessage={startTripError}
+                />
               </View>
             </View>
           ) : error && !demoMode ? (
@@ -535,19 +649,6 @@ export default function OptimizedRouteScreen() {
                     Reintentar
                   </Text>
                 </Pressable>
-
-                {__DEV__ && (
-                  <Pressable
-                    testID="route-demo-button-error"
-                    onPress={handleStartDemo}
-                    className="flex-row items-center justify-center gap-2 rounded-[12px] border border-border bg-bg-sub px-5 py-2.5"
-                  >
-                    <Sparkles size={15} color="#2BB673" />
-                    <Text className="font-sans-medium text-[13px] text-fg">
-                      Ver recorrido de prueba (Demo)
-                    </Text>
-                  </Pressable>
-                )}
               </View>
             </View>
           ) : (
@@ -574,19 +675,6 @@ export default function OptimizedRouteScreen() {
                     Explorar envíos disponibles
                   </Text>
                 </Pressable>
-
-                {__DEV__ && (
-                  <Pressable
-                    testID="route-demo-button"
-                    onPress={handleStartDemo}
-                    className="flex-row items-center justify-center gap-2 rounded-[12px] border border-border bg-bg-sub px-5 py-3"
-                  >
-                    <Sparkles size={16} color="#2BB673" />
-                    <Text className="font-sans-medium text-[13.5px] text-fg">
-                      Ver recorrido de prueba (Demo)
-                    </Text>
-                  </Pressable>
-                )}
               </View>
             </View>
           )}

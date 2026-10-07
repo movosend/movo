@@ -24,7 +24,7 @@ export const MOCK_SENDING_SHIPMENTS: ActiveShipmentSummary[] = [
     agreedPriceArs: 4500,
     counterparty: { name: "Nicolás Vera", initials: "NV" },
     isToday: false,
-    pickupWindowExpired: false,
+    pickupWindowExpired: false, tripId: null
   },
   {
     id: "dev-sending-assigned-hoy-51302",
@@ -37,7 +37,7 @@ export const MOCK_SENDING_SHIPMENTS: ActiveShipmentSummary[] = [
     agreedPriceArs: 5200,
     counterparty: { name: "Lucía Gómez", initials: "LG" },
     isToday: true,
-    pickupWindowExpired: false,
+    pickupWindowExpired: false, tripId: null
   },
   {
     id: "dev-sending-assigned-vencido-39871",
@@ -50,7 +50,7 @@ export const MOCK_SENDING_SHIPMENTS: ActiveShipmentSummary[] = [
     agreedPriceArs: 3800,
     counterparty: { name: "Marta Ruiz", initials: "MR" },
     isToday: false,
-    pickupWindowExpired: true,
+    pickupWindowExpired: true, tripId: null
   },
   {
     id: "dev-sending-in-transit-60214",
@@ -63,7 +63,7 @@ export const MOCK_SENDING_SHIPMENTS: ActiveShipmentSummary[] = [
     agreedPriceArs: 6100,
     counterparty: { name: "Juan Pereyra", initials: "JP" },
     isToday: false,
-    pickupWindowExpired: false,
+    pickupWindowExpired: false, tripId: null
   },
 ];
 
@@ -79,7 +79,7 @@ export const MOCK_RECEIVING_SHIPMENTS: ActiveShipmentSummary[] = [
     agreedPriceArs: 4900,
     counterparty: { name: "Julia Fernández", initials: "JF" },
     isToday: false,
-    pickupWindowExpired: false,
+    pickupWindowExpired: false, tripId: null
   },
   {
     id: "dev-receiving-assigned-88530",
@@ -92,7 +92,7 @@ export const MOCK_RECEIVING_SHIPMENTS: ActiveShipmentSummary[] = [
     agreedPriceArs: 5300,
     counterparty: { name: "Pedro Yorlano", initials: "PY" },
     isToday: false,
-    pickupWindowExpired: false,
+    pickupWindowExpired: false, tripId: null
   },
   {
     id: "dev-receiving-in-transit-hoy-91007",
@@ -105,7 +105,7 @@ export const MOCK_RECEIVING_SHIPMENTS: ActiveShipmentSummary[] = [
     agreedPriceArs: 4100,
     counterparty: { name: "Alena Ariza", initials: "AA" },
     isToday: true,
-    pickupWindowExpired: false,
+    pickupWindowExpired: false, tripId: null
   },
   {
     id: "dev-receiving-in-transit-vencido-25164",
@@ -118,7 +118,7 @@ export const MOCK_RECEIVING_SHIPMENTS: ActiveShipmentSummary[] = [
     agreedPriceArs: 3500,
     counterparty: { name: "Tomás Olmos", initials: "TO" },
     isToday: false,
-    pickupWindowExpired: true,
+    pickupWindowExpired: true, tripId: null
   },
 ];
 
@@ -132,13 +132,16 @@ export const MOCK_ATTENTION_TASKS: AttentionTask[] = [
     meta: "Recibís en Av. Rivadavia 5400 · vence en 22 h",
     onPress: () => {},
   },
+  // MOVO-253: rechazo con plazo para elegir otro receptor.
   {
-    kind: "info",
+    kind: "rejected",
     id: "dev-task-rejected",
-    title: "El receptor rechazó tu envío",
-    meta: "Vélez Sarsfield 200, Córdoba",
+    shipmentId: "dev-shipment-rejected",
+    title: "Lucía rechazó tu envío",
+    meta: "Iba a Vélez Sarsfield 200",
+    reason: "Esa semana no estoy en Córdoba",
+    deadlineLabel: "Tenés hasta mañana 18:00",
     onPress: () => {},
-    primaryLabel: "Ver envío",
-    onPrimary: () => {},
+    onChooseReceiver: () => {},
   },
 ];

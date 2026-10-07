@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -7,55 +7,51 @@ import {
   View,
 } from "react-native";
 import QRCode from "react-native-qrcode-svg";
-import { RefreshCw, AlertCircle } from "lucide-react-native";
+import { RefreshCw, AlertCircle, QrCode } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
+import { useScanBrightness } from "../../src/hooks/use-scan-brightness";
 import { MovoIsotype } from "../ui/movo-isotype";
 
 export interface HandshakeQrCardProps {
   qrPayload: string | null;
-  secondsLeft: number;
-  totalSeconds?: number;
-  progressPercent: number;
-  isExpiringSoon: boolean;
-  isExpired: boolean;
   isGenerating?: boolean;
   error?: string | null;
   counterpartName?: string;
   stage: "pickup" | "delivery" | null;
+  /** Reintento manual, solo se ofrece ante un error: en el camino feliz el QR se
+   * renueva solo (`useHandshakeQr`). */
   onRegenerate: () => void;
-  onSimulateScan?: () => void;
   testID?: string;
 }
 
+const QR_SIZE = 248;
+/** Alto que ocupa el aviso "se renueva solo" debajo del QR (padding + una línea). */
+const HINT_HEIGHT = 40;
+/** Corrimiento extra hacia arriba: el centro geométrico de un área alta se percibe
+ * bajo, el ojo espera el foco un poco por encima. */
+const OPTICAL_LIFT = 16;
+
+/**
+ * QR que el cedente le muestra a la contraparte (emisor en el retiro, transportista
+ * en la entrega). Sin countdown: el hook renueva el código antes de que venza, así
+ * que lo que está en pantalla siempre sirve. Mientras está montado sube el brillo al
+ * máximo para que el escaneo no dependa del brillo que tenga el teléfono.
+ *
+ * Solo el recuadro del QR lleva sombra -- es lo único que tiene que destacarse; el
+ * resto va plano sobre el fondo de la pantalla.
+ */
 export function HandshakeQrCard({
   qrPayload,
-  secondsLeft,
-  progressPercent,
-  isExpiringSoon,
-  isExpired,
   isGenerating,
   error,
   counterpartName,
   stage,
   onRegenerate,
-  onSimulateScan,
   testID = "handshake-qr-card",
 }: HandshakeQrCardProps) {
   const colors = useThemeColors();
-
-  const formattedTime = useMemo(() => {
-    if (isExpired) return "00:00";
-    return "00:" + String(Math.max(0, secondsLeft)).padStart(2, "0");
-  }, [isExpired, secondsLeft]);
-
-  const timeColor = isExpiringSoon
-    ? "#E5484D"
-    : colors.fg1;
-
-  const barColor = isExpiringSoon
-    ? "#E5484D"
-    : "#C6F24A";
+  useScanBrightness();
 
   const handleRegenerate = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -67,202 +63,155 @@ export function HandshakeQrCard({
     ? `${counterpartName} tiene que escanear este QR desde su app para confirmar ${stageLabel}.`
     : `La otra persona tiene que escanear este código desde su app para confirmar ${stageLabel}.`;
 
+  const showSpinner = isGenerating && !qrPayload;
+
   return (
-    <View testID={testID} className="w-full gap-4">
-      {/* Cabecera / Instrucciones (Claude Design) */}
-      <View className="gap-1.5 px-1">
-        <Text className="font-sans-semibold text-[22px] tracking-tight text-fg">
+    <View testID={testID} className="w-full flex-1 gap-6">
+      {/* Mismo encabezado que el resto de los pasos del wizard (ver EvidenceCaptureStep). */}
+      <View className="mt-2 mb-1 h-14 w-14 items-center justify-center rounded-[14px] bg-lime-200">
+        <QrCode size={26} color="#0A0A0B" strokeWidth={1.8} />
+      </View>
+      <View>
+        <Text className="mb-1.5 font-sans-semibold text-title text-fg">
           Mostrale el código
         </Text>
-        <Text className="font-sans text-[14px] leading-relaxed text-fg-2">
-          {subtitle}
-        </Text>
+        <Text className="font-sans text-body text-fg-2">{subtitle}</Text>
       </View>
 
-      {/* Tarjeta Principal del QR */}
+      {/* Se centra el conjunto QR + aviso, no el QR solo: el aviso va en absoluto
+          debajo (no entra en el flujo) y el `paddingBottom` le reserva su lugar, más
+          un pequeño corrimiento óptico hacia arriba. El error sí va en flujo (tiene
+          un botón, y un hijo fuera de los límites del padre no recibe toques en
+          Android) -- en ese caso no hay QR que centrar. */}
       <View
-        className="items-center gap-4 rounded-[14px] border border-border bg-bg-elevated p-6 shadow-sm"
-        style={styles.cardContainer}
+        className="flex-1 items-center justify-center gap-6"
+        style={!error && qrPayload ? styles.centerWithHint : undefined}
       >
-        {/* Contenedor del QR y Logo Central */}
-        <View
-          testID="handshake-qr-box"
-          className="relative items-center justify-center overflow-hidden rounded-xl bg-white p-2"
-          style={[
-            styles.qrBox,
-            isExpired && styles.qrExpiredOpacity,
-          ]}
-        >
-          {isGenerating ? (
-            <View className="h-[186px] w-[186px] items-center justify-center">
-              <ActivityIndicator size="large" color="#0A0A0B" />
-              <Text className="mt-2 font-sans-medium text-[12px] text-ink-700">
-                Generando código seguro…
-              </Text>
-            </View>
-          ) : qrPayload ? (
-            <>
-              <QRCode
-                value={qrPayload}
-                size={186}
-                color="#0A0A0B"
-                backgroundColor="#FFFFFF"
-                quietZone={6}
-                ecl="M"
-                testID="handshake-qr-code"
-              />
-
-              {/* Logo Central de Movo (Isotipo oficial del Manual de Marca) */}
-              <View style={styles.centerLogoWrapper}>
-                <MovoIsotype size={28} variant="dark" testID="handshake-qr-center-logo" />
-              </View>
-            </>
-          ) : (
-            <View className="h-[186px] w-[186px] items-center justify-center">
-              <AlertCircle size={32} color={colors.fg3} />
-              <Text className="mt-2 text-center font-sans text-[12px] text-fg-3">
-                No se pudo cargar el QR
-              </Text>
-            </View>
-          )}
-
-          {isExpired && !isGenerating ? (
-            <View
-              testID="handshake-qr-expired-overlay"
-              className="absolute inset-0 items-center justify-center bg-white/60"
-            >
-              <View className="rounded-full bg-red-100 px-3 py-1 dark:bg-red-950/40">
-                <Text className="font-sans-semibold text-[11px] text-red-600 dark:text-red-400">
-                  Código expirado
+        <View style={styles.qrAnchor}>
+          <View testID="handshake-qr-box" style={styles.qrBox}>
+            {showSpinner ? (
+              <View style={styles.qrPlaceholder}>
+                <ActivityIndicator size="large" color="#0A0A0B" />
+                <Text className="mt-2 font-sans-medium text-[12px] text-ink-700">
+                  Generando código seguro…
                 </Text>
               </View>
+            ) : qrPayload ? (
+              <>
+                <QRCode
+                  value={qrPayload}
+                  size={QR_SIZE}
+                  color="#0A0A0B"
+                  backgroundColor="#FFFFFF"
+                  quietZone={6}
+                  ecl="M"
+                  testID="handshake-qr-code"
+                />
+                <View style={styles.centerLogoWrapper}>
+                  <MovoIsotype
+                    size={34}
+                    variant="dark"
+                    testID="handshake-qr-center-logo"
+                  />
+                </View>
+              </>
+            ) : (
+              <View style={styles.qrPlaceholder}>
+                <AlertCircle size={32} color="#8A8A8E" />
+                <Text className="mt-2 text-center font-sans text-[12px] text-ink-500">
+                  No se pudo cargar el QR
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {!error && qrPayload ? (
+            <View
+              pointerEvents="none"
+              style={styles.hint}
+              className="flex-row items-center justify-center gap-1.5"
+            >
+              <RefreshCw size={12} color={colors.fg3} />
+              <Text
+                testID="handshake-qr-auto-refresh-hint"
+                className="font-sans text-[12px] text-fg-3"
+              >
+                El código se renueva solo por seguridad
+              </Text>
             </View>
           ) : null}
         </View>
 
-        {/* Reloj Monospace y Barra de Progreso Regresiva */}
-        <View className="w-full gap-2">
-          <View className="flex-row items-center justify-center gap-1.5">
-            <Text
-              testID="handshake-qr-countdown-text"
-              style={{ color: timeColor }}
-              className="font-mono text-[13px] font-semibold tracking-wider"
-            >
-              {formattedTime}
-            </Text>
-          </View>
-
-          {/* Barra de progreso */}
-          <View className="h-1 w-full overflow-hidden rounded-full bg-bg-mute">
-            <View
-              testID="handshake-qr-progress-bar"
-              style={{
-                width: `${progressPercent}%`,
-                backgroundColor: barColor,
-              }}
-              className="h-full rounded-full"
-            />
-          </View>
-
-          <Text className="text-center font-sans text-[11px] text-fg-3">
-            {isExpired
-              ? "Generá un código nuevo para seguir"
-              : isExpiringSoon
-                ? "A punto de vencer"
-                : "Válido por 15 segundos"}
-          </Text>
-        </View>
-
-        {/* Botón de Regeneración si está expirado */}
-        {isExpired ? (
-          <Pressable
-            testID="handshake-qr-regenerate"
-            onPress={handleRegenerate}
-            disabled={isGenerating}
-            className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-lime-500 py-3.5 active:opacity-85"
-          >
-            <RefreshCw size={16} color="#0A0A0B" />
-            <Text className="font-sans-semibold text-[14px] text-ink-950">
-              Generar nuevo QR
-            </Text>
-          </Pressable>
-        ) : null}
-
-        {/* Error si ocurrió en el hook */}
         {error ? (
-          <View
-            testID="handshake-qr-error"
-            className="w-full flex-row items-center gap-2 rounded-lg bg-red-50 p-3 dark:bg-red-950/30"
-          >
-            <AlertCircle size={16} color="#E5484D" />
-            <Text className="flex-1 font-sans text-[12px] text-red-700 dark:text-red-300">
-              {error}
-            </Text>
+          <View className="w-full gap-3">
+            <View
+              testID="handshake-qr-error"
+              className="w-full flex-row items-center gap-2 rounded-lg bg-red-50 p-3 dark:bg-red-950/30"
+            >
+              <AlertCircle size={16} color="#E5484D" />
+              <Text className="flex-1 font-sans text-[12px] text-red-700 dark:text-red-300">
+                {error}
+              </Text>
+            </View>
+            <Pressable
+              testID="handshake-qr-regenerate"
+              onPress={handleRegenerate}
+              disabled={isGenerating}
+              className="w-full flex-row items-center justify-center gap-2 rounded-lg bg-lime-500 py-3.5 active:opacity-85"
+            >
+              <RefreshCw size={16} color="#0A0A0B" />
+              <Text className="font-sans-semibold text-[14px] text-ink-950">
+                Reintentar
+              </Text>
+            </Pressable>
           </View>
         ) : null}
       </View>
-
-      {/* Herramientas de Desarrollo (__DEV__) */}
-      {__DEV__ && qrPayload ? (
-        <View className="gap-2 rounded-xl border border-dashed border-border bg-bg-mute/60 p-3">
-          <Text className="font-sans-semibold text-[10px] uppercase tracking-wider text-fg-3">
-            Simulación & Pruebas (Dev)
-          </Text>
-          <View className="gap-2">
-            {onSimulateScan ? (
-              <Pressable
-                testID="handshake-qr-sim-scan"
-                onPress={onSimulateScan}
-                className="w-full items-center justify-center rounded-lg bg-bg-elevated border border-border py-2.5 active:opacity-75"
-              >
-                <Text className="font-sans-medium text-[12px] text-fg">
-                  Simular escaneo receptor
-                </Text>
-              </Pressable>
-            ) : null}
-            <View className="w-full rounded-lg bg-bg-elevated p-2.5 border border-border">
-              <Text className="font-sans text-[10px] text-fg-3 mb-1">Payload JSON (tocá para seleccionar):</Text>
-              <Text
-                testID="handshake-qr-payload-text"
-                selectable
-                numberOfLines={2}
-                className="font-mono text-[11px] text-fg"
-              >
-                {qrPayload}
-              </Text>
-            </View>
-          </View>
-        </View>
-      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  cardContainer: {
-    maxWidth: 420,
-    alignSelf: "center",
-    width: "100%",
+  qrAnchor: {
+    alignSelf: "stretch",
+    alignItems: "center",
+  },
+  hint: {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    right: 0,
+    paddingTop: 20,
+  },
+  centerWithHint: {
+    paddingBottom: HINT_HEIGHT + OPTICAL_LIFT,
   },
   qrBox: {
-    width: 202,
-    height: 202,
-  },
-  qrExpiredOpacity: {
-    opacity: 0.2,
-  },
-  centerLogoWrapper: {
-    position: "absolute",
-    width: 44,
-    height: 44,
-    borderRadius: 10,
+    width: QR_SIZE + 24,
+    height: QR_SIZE + 24,
+    borderRadius: 20,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowColor: "#0A0A0B",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.16,
+    shadowRadius: 24,
+    elevation: 10,
+  },
+  qrPlaceholder: {
+    width: QR_SIZE,
+    height: QR_SIZE,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  centerLogoWrapper: {
+    position: "absolute",
+    width: 54,
+    height: 54,
+    borderRadius: 13,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

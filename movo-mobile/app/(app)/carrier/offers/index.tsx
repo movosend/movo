@@ -18,6 +18,7 @@ const CLOSED_STATUSES: readonly OfferStatus[] = [
   OfferStatus.WITHDRAWN,
   OfferStatus.EXPIRED,
   OfferStatus.SUPERSEDED,
+  OfferStatus.SHIPMENT_CANCELLED,
 ];
 
 type OffersTab = "active" | "closed";

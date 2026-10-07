@@ -30,6 +30,20 @@ describe("http-client", () => {
     );
   });
 
+  it("MOVO-253: un array en la query se manda como clave repetida", async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    // @ts-expect-error mock global
+    global.fetch = fetchMock;
+
+    const { httpClient } = require("../src/api/http-client");
+    await httpClient.get("/shipments/mine", { page: 1, status: ["a", "b"] });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api-dev.movosend.app/api/v1/shipments/mine?page=1&status=a&status=b",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
   it("parsea SerializedApiError y lanza un ApiError tipado", async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: false,

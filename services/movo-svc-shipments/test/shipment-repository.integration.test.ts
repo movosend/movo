@@ -52,7 +52,38 @@ describe("shipment-repository (Postgres)", () => {
 
   beforeEach(async () => {
     // CASCADE también vacía shipment_events/shipment_photos (FK a shipments.shipments).
-    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments, shipments.trips RESTART IDENTITY CASCADE");
+  });
+
+  describe("countPublishedNearPickup (MOVO-138)", () => {
+    async function createShipment(overrides: Partial<CreateShipmentInput> = {}, publish = true) {
+      const created = await repo.create({ ...baseInput, senderId: randomUUID(), ...overrides });
+      if (!publish) return created;
+      await repo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+      await repo.addPhoto(created.id, PhotoStage.creation, `shipments/${created.id}/creation/${randomUUID()}.jpg`);
+      return repo.updateStatus(created.id, ShipmentStatus.PUBLISHED, null);
+    }
+
+    const zone = { lat: -31.4201, lng: -64.1888, radiusKm: 15 };
+
+    it("cuenta los envíos published con retiro dentro del radio", async () => {
+      await createShipment();
+      await createShipment({ pickupLat: -31.5, pickupLng: -64.1 }); // ~12km
+
+      expect(await repo.countPublishedNearPickup(zone)).toBe(2);
+    });
+
+    it("no cuenta envíos con retiro fuera del radio", async () => {
+      await createShipment({ pickupLat: -31.6, pickupLng: -64.1888 }); // ~20km
+
+      expect(await repo.countPublishedNearPickup(zone)).toBe(0);
+    });
+
+    it("no cuenta envíos que todavía no están published", async () => {
+      await createShipment({}, false); // awaiting_receiver_confirmation
+
+      expect(await repo.countPublishedNearPickup(zone)).toBe(0);
+    });
   });
 
   describe("create", () => {
@@ -293,6 +324,34 @@ describe("shipment-repository (Postgres)", () => {
       expect(items).toEqual([]);
       expect(total).toBe(0);
     });
+
+    it("withPendingOffers: solo envíos propios (emisor) con una oferta vigente", async () => {
+      const userId = randomUUID();
+      const offer = (shipmentId: string, extra: Record<string, unknown> = {}) =>
+        app.db.offer.create({
+          data: {
+            shipmentId,
+            carrierId: randomUUID(),
+            priceOffered: 1000,
+            offeredDate: new Date(),
+            status: "pending",
+            ...extra,
+          },
+        });
+      const withOffer = await repo.create({ ...baseInput, senderId: userId });
+      await offer(withOffer.id);
+      const withoutOffer = await repo.create({ ...baseInput, senderId: userId });
+      const withExpiredOffer = await repo.create({ ...baseInput, senderId: userId });
+      await offer(withExpiredOffer.id, { expiresAt: new Date(Date.now() - 60_000) });
+      const asReceiver = await repo.create({ ...baseInput, senderId: randomUUID(), receiverId: userId });
+      await offer(asReceiver.id);
+
+      const { items, total } = await repo.listByUser(userId, 1, 20, undefined, { withPendingOffers: true });
+
+      expect(items.map((s) => s.id)).toEqual([withOffer.id]);
+      expect(total).toBe(1);
+      expect(items.map((s) => s.id)).not.toContain(withoutOffer.id);
+    });
   });
 
   describe("findExpiredAwaitingConfirmation", () => {
@@ -383,9 +442,12 @@ describe("shipment-repository (Postgres)", () => {
     const destinationLat = -31.4135;
     const destinationLng = -64.1811;
     const KM_PER_DEGREE_LAT = 111.32;
+    const FUTURE_PICKUP_DATE = new Date("2030-01-01T00:00:00.000Z");
 
     async function createPublished(overrides: Partial<CreateShipmentInput> = {}) {
-      const shipment = await repo.create({ ...baseInput, ...overrides });
+      // MOVO-258: `listAvailable` excluye los `published` con la ventana de retiro vencida, así
+      // que los fixtures usan una fecha futura (el `baseInput` de arriba ya quedó en el pasado).
+      const shipment = await repo.create({ ...baseInput, pickupDate: FUTURE_PICKUP_DATE, ...overrides });
       await addTwoCreationPhotos(shipment.id);
       return repo.updateStatus(shipment.id, ShipmentStatus.PUBLISHED, shipment.senderId);
     }
@@ -781,14 +843,14 @@ describe("shipment-repository (Postgres)", () => {
         pickupLng: originLng,
         deliveryLat: destinationLat,
         deliveryLng: destinationLng,
-        pickupDate: new Date("2026-09-08T00:00:00.000Z"),
+        pickupDate: new Date("2030-09-08T00:00:00.000Z"),
       });
       const otherDay = await createPublished({
         pickupLat: originLat,
         pickupLng: originLng,
         deliveryLat: destinationLat,
         deliveryLng: destinationLng,
-        pickupDate: new Date("2026-09-27T00:00:00.000Z"),
+        pickupDate: new Date("2030-09-27T00:00:00.000Z"),
       });
 
       const { items, total } = await repo.listAvailable({
@@ -797,7 +859,7 @@ describe("shipment-repository (Postgres)", () => {
         destinationLat,
         destinationLng,
         radiusKm: 5,
-        pickupDate: new Date("2026-09-08T00:00:00.000Z"),
+        pickupDate: new Date("2030-09-08T00:00:00.000Z"),
         excludeUserId: randomUUID(),
         page: 1,
         limit: 20,
@@ -814,14 +876,14 @@ describe("shipment-repository (Postgres)", () => {
         pickupLng: originLng,
         deliveryLat: destinationLat,
         deliveryLng: destinationLng,
-        pickupDate: new Date("2026-09-08T00:00:00.000Z"),
+        pickupDate: new Date("2030-09-08T00:00:00.000Z"),
       });
       const day2 = await createPublished({
         pickupLat: originLat,
         pickupLng: originLng,
         deliveryLat: destinationLat,
         deliveryLng: destinationLng,
-        pickupDate: new Date("2026-09-27T00:00:00.000Z"),
+        pickupDate: new Date("2030-09-27T00:00:00.000Z"),
       });
 
       const { items } = await repo.listAvailable({
@@ -837,5 +899,113 @@ describe("shipment-repository (Postgres)", () => {
 
       expect(items.map((i) => i.id).sort()).toEqual([day1.id, day2.id].sort());
     });
+    it("excluye un published con la ventana de retiro vencida (MOVO-258, D6: sigue vivo por ofertas, pero no se ofrece)", async () => {
+      await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+        pickupDate: new Date("2026-08-20T00:00:00.000Z"),
+      });
+      const vigente = await createPublished({
+        pickupLat: originLat,
+        pickupLng: originLng,
+        deliveryLat: destinationLat,
+        deliveryLng: destinationLng,
+      });
+
+      const { items, total } = await repo.listAvailable({
+        originLat,
+        originLng,
+        radiusKm: 5,
+        excludeUserId: randomUUID(),
+        page: 1,
+        limit: 20,
+      });
+
+      expect(items.map((i) => i.id)).toEqual([vigente.id]);
+      expect(total).toBe(1);
+    });
+
+  });
+
+  describe("findTrackingContext (MOVO-251)", () => {
+    it("incluye solo envíos en estados trackeables (assigned, in_transit) y excluye assigned_unfunded en activeShipmentIds", async () => {
+      const carrierId = randomUUID();
+      const trip = await app.db.trip.create({
+        data: {
+          carrierId,
+          originAddress: "Av. Colón 1234, Córdoba",
+          originLat: -31.4201,
+          originLng: -64.1888,
+          destinationAddress: "Av. San Martín 100, Villa María",
+          destinationLat: -32.4104,
+          destinationLng: -63.2404,
+          departureAt: new Date(),
+          vehicleType: "auto",
+          status: "active",
+        },
+      });
+
+      const sInTransit = await repo.create(baseInput);
+      await app.db.shipment.update({ where: { id: sInTransit.id }, data: { status: "in_transit", carrierId } });
+      await app.db.offer.create({
+        data: {
+          shipmentId: sInTransit.id,
+          carrierId,
+          priceOffered: 1000,
+          offeredDate: new Date(),
+          status: "accepted",
+          tripId: trip.id,
+        },
+      });
+
+      const sAssigned = await repo.create(baseInput);
+      await app.db.shipment.update({ where: { id: sAssigned.id }, data: { status: "assigned", carrierId } });
+      await app.db.offer.create({
+        data: {
+          shipmentId: sAssigned.id,
+          carrierId,
+          priceOffered: 1000,
+          offeredDate: new Date(),
+          status: "accepted",
+          tripId: trip.id,
+        },
+      });
+
+      const sUnfunded = await repo.create(baseInput);
+      await app.db.shipment.update({ where: { id: sUnfunded.id }, data: { status: "assigned_unfunded", carrierId } });
+      await app.db.offer.create({
+        data: {
+          shipmentId: sUnfunded.id,
+          carrierId,
+          priceOffered: 1000,
+          offeredDate: new Date(),
+          status: "accepted",
+          tripId: trip.id,
+        },
+      });
+
+      const sDelivered = await repo.create(baseInput);
+      await app.db.shipment.update({ where: { id: sDelivered.id }, data: { status: "delivered", carrierId } });
+      await app.db.offer.create({
+        data: {
+          shipmentId: sDelivered.id,
+          carrierId,
+          priceOffered: 1000,
+          offeredDate: new Date(),
+          status: "accepted",
+          tripId: trip.id,
+        },
+      });
+
+      const context = await repo.findTrackingContext(sInTransit.id);
+      expect(context).not.toBeNull();
+      expect(context?.trip?.id).toBe(trip.id);
+      // Solo sInTransit y sAssigned deben estar en activeShipmentIds (TRACKABLE_SHIPMENT_STATUSES)
+      // sUnfunded (assigned_unfunded) y sDelivered (delivered) quedan excluidos del broadcast
+      expect(context?.activeShipmentIds.sort()).toEqual([sAssigned.id, sInTransit.id].sort());
+    });
   });
 });
+

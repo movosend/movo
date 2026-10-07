@@ -59,12 +59,14 @@ function fakeShipment(overrides: Partial<Shipment> = {}): Shipment {
     pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
     suggestedPriceArs: 2100,
     calculationMethod: "euclidean_linear_v1",
+    highDemand: null,
     agreedPriceArs: null,
     paymentMethod: null,
     status: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
     lastStatusChangedAt: null,
     deliveredAt: null,
     receiverConfirmationDeadline: null,
+    transitAnomalyFlaggedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -95,8 +97,12 @@ function fakeRepository(overrides: Partial<ShipmentRepository> = {}): ShipmentRe
     existsPhotoByS3Key: vi.fn().mockResolvedValue(false),
     listByUser: vi.fn(),
     listAvailable: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    countPublishedNearPickup: vi.fn().mockResolvedValue(0),
     findExpiredAwaitingConfirmation: vi.fn().mockResolvedValue([]),
     findPotentiallyExpiredPublished: vi.fn().mockResolvedValue([]),
+    findPotentiallyPickupMissed: vi.fn().mockResolvedValue([]),
+    findInTransitUnflagged: vi.fn().mockResolvedValue([]),
+    flagTransitAnomaly: vi.fn().mockResolvedValue(true),
     hasActiveShipmentsForUser: vi.fn().mockResolvedValue({ hasActiveDispute: false, hasActiveShipments: false }),
     countCompletedTransactions: vi.fn().mockResolvedValue({ asSender: 0, asCarrier: 0 }),
     countDeliveredAsCarrierByIds: vi.fn().mockResolvedValue(new Map()),
@@ -263,7 +269,8 @@ describe("shipments.service — createShipment", () => {
         senderId: "sender-id",
         receiverId: "receiver-id",
         suggestedPriceArs: 2256,
-        calculationMethod: "euclidean_linear_v1",
+        calculationMethod: "demand_fuel_routes_v1",
+        highDemand: false,
         pickupDate: new Date("2030-01-01T00:00:00.000Z"),
         pickupTimeWindowStart: new Date("1970-01-01T09:00:00.000Z"),
         pickupTimeWindowEnd: new Date("1970-01-01T12:00:00.000Z"),
@@ -279,14 +286,14 @@ describe("shipments.service — createShipment", () => {
     // Mismo contrato que el cliente real (pricing-client.ts) ante una falla real: nunca
     // rechaza, resuelve al fallback -- acá se simula directo el resultado ya resuelto.
     const pricingClient = createFakePricingClient({
-      getQuote: vi.fn().mockResolvedValue({ suggestedPriceArs: null, calculationMethod: null }),
+      getQuote: vi.fn().mockResolvedValue({ suggestedPriceArs: null, calculationMethod: null, highDemand: null }),
     });
     const service = createTestShipmentsService(repository, usersClient, undefined, undefined, pricingClient);
 
     await expect(service.createShipment(baseInput)).resolves.toBeDefined();
 
     expect(repository.create).toHaveBeenCalledWith(
-      expect.objectContaining({ suggestedPriceArs: null, calculationMethod: null })
+      expect.objectContaining({ suggestedPriceArs: null, calculationMethod: null, highDemand: null })
     );
   });
 
@@ -302,7 +309,35 @@ describe("shipments.service — createShipment", () => {
     await expect(service.createShipment(baseInput)).resolves.toBeDefined();
 
     expect(repository.create).toHaveBeenCalledWith(
-      expect.objectContaining({ suggestedPriceArs: null, calculationMethod: null })
+      expect.objectContaining({ suggestedPriceArs: null, calculationMethod: null, highDemand: null })
+    );
+  });
+
+  it("cuenta la demanda de la zona, la manda a pricing y persiste highDemand (MOVO-138)", async () => {
+    const repository = fakeRepository({ countPublishedNearPickup: vi.fn().mockResolvedValue(9) });
+    const tripRepository = createFakeTripRepository({ countAvailableCarriersNear: vi.fn().mockResolvedValue(2) });
+    const usersClient = createFakeUsersClient({
+      "receiver-id": fakePublicProfile({ id: "receiver-id", isVerified: true }),
+    });
+    const pricingClient = createFakePricingClient({
+      getQuote: vi.fn().mockResolvedValue({
+        suggestedPriceArs: 36220,
+        calculationMethod: "demand_fuel_routes_v1",
+        highDemand: true,
+      }),
+    });
+    const service = createShipmentsService(repository, usersClient, undefined, undefined, {
+      pricingClient,
+      tripRepository,
+    });
+
+    await service.createShipment(baseInput);
+
+    expect(pricingClient.getQuote).toHaveBeenCalledWith(
+      expect.objectContaining({ demandContext: { publishedShipments: 9, availableCarriers: 2 } })
+    );
+    expect(repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ suggestedPriceArs: 36220, highDemand: true })
     );
   });
 
@@ -856,7 +891,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       });
       const trip = fakeTrip({ id: "trip-1", carrierId: "carrier-1" });
       const tripRepository = createFakeTripRepository({
-        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([trip]),
+        findDeclaredTripsMatchingShipment: vi.fn().mockResolvedValue([trip]),
       });
       const pricingLogisticsClient = createFakePricingLogisticsClient();
       const notificationsClient = createFakeNotificationsClient();
@@ -868,13 +903,16 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
 
       await service.acceptShipment(shipment.id, "receiver-id");
 
-      expect(tripRepository.findActiveTripsMatchingShipment).toHaveBeenCalledWith({
-        pickupLat: shipment.pickupLat,
-        pickupLng: shipment.pickupLng,
-        deliveryLat: shipment.deliveryLat,
-        deliveryLng: shipment.deliveryLng,
-        excludeCarrierIds: [shipment.senderId, shipment.receiverId],
-        radiusKm: 15,
+      // Fire-and-forget: desde MOVO-175 resuelve los bloqueos antes de buscar viajes.
+      await vi.waitFor(() => {
+        expect(tripRepository.findDeclaredTripsMatchingShipment).toHaveBeenCalledWith({
+          pickupLat: shipment.pickupLat,
+          pickupLng: shipment.pickupLng,
+          deliveryLat: shipment.deliveryLat,
+          deliveryLng: shipment.deliveryLng,
+          excludeCarrierIds: [shipment.senderId, shipment.receiverId],
+          radiusKm: 15,
+        });
       });
       // Peter (comentario de Linear): solo se llama a pricing-logistics para los
       // candidatos que YA pasaron el prefiltro geométrico, no para todo el universo
@@ -902,7 +940,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       });
       const trip = fakeTrip({ id: "trip-1", carrierId: "carrier-1" });
       const tripRepository = createFakeTripRepository({
-        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([trip]),
+        findDeclaredTripsMatchingShipment: vi.fn().mockResolvedValue([trip]),
       });
       const pricingLogisticsClient = createFakePricingLogisticsClient({
         evaluateCandidates: vi.fn().mockResolvedValue({
@@ -936,7 +974,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       });
       const trip = fakeTrip({ id: "trip-1", carrierId: "carrier-1" });
       const tripRepository = createFakeTripRepository({
-        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([trip]),
+        findDeclaredTripsMatchingShipment: vi.fn().mockResolvedValue([trip]),
       });
       const pricingLogisticsClient = createFakePricingLogisticsClient({
         evaluateCandidates: vi.fn().mockRejectedValue(new Error("Routing service down")),
@@ -975,7 +1013,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
         departureAt: new Date("2030-01-02T08:00:00.000Z"),
       });
       const tripRepository = createFakeTripRepository({
-        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([laterTrip, earlierTrip]),
+        findDeclaredTripsMatchingShipment: vi.fn().mockResolvedValue([laterTrip, earlierTrip]),
       });
       const pricingLogisticsClient = createFakePricingLogisticsClient();
       const notificationsClient = createFakeNotificationsClient();
@@ -1011,7 +1049,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
         updateStatus: vi.fn().mockResolvedValue(updatedShipment),
       });
       const tripRepository = createFakeTripRepository({
-        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([fakeTrip({ carrierId: "carrier-1" })]),
+        findDeclaredTripsMatchingShipment: vi.fn().mockResolvedValue([fakeTrip({ carrierId: "carrier-1" })]),
       });
       const pricingLogisticsClient = createFakePricingLogisticsClient();
       const notificationsClient = createFakeNotificationsClient({
@@ -1026,6 +1064,35 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       const result = await service.acceptShipment(shipment.id, "receiver-id");
 
       expect(result.status).toBe(ShipmentStatus.PUBLISHED);
+    });
+
+    it("MOVO-175: excluye a los transportistas con un bloqueo con el emisor o el receptor", async () => {
+      const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
+      const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.PUBLISHED });
+      const repository = fakeRepository({
+        findById: vi.fn().mockResolvedValue(shipment),
+        updateStatus: vi.fn().mockResolvedValue(updatedShipment),
+      });
+      const tripRepository = createFakeTripRepository();
+      const usersClient = createFakeUsersClient({}, {}, [
+        ["sender-id", "carrier-blocked-by-sender"],
+        ["carrier-who-blocked-receiver", "receiver-id"],
+      ]);
+      const service = createShipmentsService(repository, usersClient, createFakeNotificationsClient(), undefined, {
+        tripRepository,
+        pricingLogisticsClient: createFakePricingLogisticsClient(),
+        tripMatchDetourRadiusKm: 15,
+      });
+
+      await service.acceptShipment(shipment.id, "receiver-id");
+
+      await vi.waitFor(() => {
+        expect(tripRepository.findDeclaredTripsMatchingShipment).toHaveBeenCalledWith(
+          expect.objectContaining({
+            excludeCarrierIds: ["sender-id", "receiver-id", "carrier-blocked-by-sender", "carrier-who-blocked-receiver"],
+          })
+        );
+      });
     });
 
     it("sin viajes que matcheen geométricamente, no llama a pricing-logistics ni dispara ninguna push de este tipo", async () => {
@@ -1046,7 +1113,9 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
 
       await service.acceptShipment(shipment.id, "receiver-id");
 
-      expect(tripRepository.findActiveTripsMatchingShipment).toHaveBeenCalled();
+      await vi.waitFor(() => {
+        expect(tripRepository.findDeclaredTripsMatchingShipment).toHaveBeenCalled();
+      });
       expect(pricingLogisticsClient.evaluateCandidates).not.toHaveBeenCalled();
       const tripMatchCalls = (notificationsClient.sendPush as ReturnType<typeof vi.fn>).mock.calls.filter(
         ([input]) => input.data?.type === "trip_match"
@@ -1072,7 +1141,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
 
       await service.acceptShipment(shipment.id, "receiver-id");
 
-      expect(tripRepository.findActiveTripsMatchingShipment).not.toHaveBeenCalled();
+      expect(tripRepository.findDeclaredTripsMatchingShipment).not.toHaveBeenCalled();
     });
 
     it("sin pricingLogisticsClient inyectado, no dispara ninguna push de este tipo (dependencia requerida)", async () => {
@@ -1083,7 +1152,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
         updateStatus: vi.fn().mockResolvedValue(updatedShipment),
       });
       const tripRepository = createFakeTripRepository({
-        findActiveTripsMatchingShipment: vi.fn().mockResolvedValue([fakeTrip({ carrierId: "carrier-1" })]),
+        findDeclaredTripsMatchingShipment: vi.fn().mockResolvedValue([fakeTrip({ carrierId: "carrier-1" })]),
       });
       const notificationsClient = createFakeNotificationsClient();
       const service = createShipmentsService(repository, createFakeUsersClient({}), notificationsClient, undefined, {
@@ -1099,7 +1168,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       expect(tripMatchCalls).toHaveLength(0);
     });
 
-    it("un fallo de tripRepository.findActiveTripsMatchingShipment no revienta el proceso (fix de review, Lucas — PR #172)", async () => {
+    it("un fallo de tripRepository.findDeclaredTripsMatchingShipment no revienta el proceso (fix de review, Lucas — PR #172)", async () => {
       const shipment = fakeShipment({ senderId: "sender-id", receiverId: "receiver-id" });
       const updatedShipment = fakeShipment({ ...shipment, status: ShipmentStatus.PUBLISHED });
       const repository = fakeRepository({
@@ -1107,7 +1176,7 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
         updateStatus: vi.fn().mockResolvedValue(updatedShipment),
       });
       const tripRepository = createFakeTripRepository({
-        findActiveTripsMatchingShipment: vi.fn().mockRejectedValue(new Error("Connection timeout")),
+        findDeclaredTripsMatchingShipment: vi.fn().mockRejectedValue(new Error("Connection timeout")),
       });
       const pricingLogisticsClient = createFakePricingLogisticsClient();
       const notificationsClient = createFakeNotificationsClient();
@@ -1256,13 +1325,15 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       shipment.id,
       ShipmentStatus.REJECTED_BY_RECEIVER,
       "receiver-id",
-      "No lo pedí"
+      "No lo pedí",
+      // MOVO-253: el plazo para elegir otro receptor se persiste junto con el rechazo.
+      { receiverRedesignationDeadline: expect.any(Date) }
     );
     await vi.waitFor(() => {
       expect(notificationsClient.sendPush).toHaveBeenCalledWith({
         userId: "sender-id",
         title: "Envío rechazado",
-        body: "Carlos rechazó el envío",
+        body: "Carlos rechazó el envío. Podés elegir otro receptor.",
         category: "shipments",
         data: { shipmentId: shipment.id, type: "shipment_rejected" },
       });
@@ -1287,7 +1358,8 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       shipment.id,
       ShipmentStatus.REJECTED_BY_RECEIVER,
       "receiver-id",
-      undefined
+      undefined,
+      { receiverRedesignationDeadline: expect.any(Date) }
     );
   });
 
@@ -1329,7 +1401,8 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       shipment.id,
       ShipmentStatus.REJECTED_BY_RECEIVER,
       "receiver-id",
-      undefined
+      undefined,
+      { receiverRedesignationDeadline: expect.any(Date) }
     );
   });
 
@@ -1399,7 +1472,8 @@ describe("shipments.service — shipment interactions (events, accept, reject)",
       shipment.id,
       ShipmentStatus.REJECTED_BY_RECEIVER,
       "receiver-id",
-      undefined
+      undefined,
+      { receiverRedesignationDeadline: expect.any(Date) }
     );
   });
 });

@@ -81,6 +81,10 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     else { return }
     existingWindow.windowScene = windowScene
     self.window = existingWindow
+    // AppDelegate llamó a makeKeyAndVisible antes de que existiera la escena, así que
+    // hay que repetirlo acá: sin una ventana key en la escena, iOS no resuelve bien el
+    // indicador de inicio (aparece un instante y se oculta).
+    existingWindow.makeKeyAndVisible()
   }
 }
 `;
@@ -93,9 +97,9 @@ const withSceneDelegate = (config) => {
       const appName = config.modRequest.projectName;
       const iosDir = path.join(config.modRequest.platformProjectRoot, appName);
       const filePath = path.join(iosDir, "SceneDelegate.swift");
-      if (!fs.existsSync(filePath)) {
-        fs.writeFileSync(filePath, SCENE_DELEGATE_SOURCE, "utf8");
-      }
+      // Siempre se sobrescribe: es un archivo generado, y con un `existsSync` los
+      // cambios a SCENE_DELEGATE_SOURCE nunca llegaban a un `ios/` ya generado.
+      fs.writeFileSync(filePath, SCENE_DELEGATE_SOURCE, "utf8");
       return config;
     },
   ]);
@@ -160,7 +164,10 @@ module.exports = {
         NFCReaderUsageDescription:
           "Movo usa NFC para leer el chip de tu pasaporte durante la verificación de identidad con Didit.",
         NSLocationWhenInUseUsageDescription:
-          "Movo usa tu ubicación para ayudarte a marcar el punto exacto de una dirección en el mapa, durante el registro y al crear un envío.",
+          "Movo usa tu ubicación para compartir el avance del envío en tiempo real con el emisor y receptor mientras transportás un paquete, y para ayudarte a marcar direcciones en el mapa.",
+        NSLocationAlwaysAndWhenInUseUsageDescription:
+          "Movo usa tu ubicación en segundo plano para compartir el avance del viaje en tiempo real con el emisor y receptor mientras transportás paquetes, incluso cuando la app está minimizada o la pantalla bloqueada.",
+        UIBackgroundModes: ["location"],
         // Permite tráfico HTTP plano hacia direcciones de red local (RFC1918/.local) sin
         // afectar ATS para el resto de internet — necesario para probar un development
         // build en un iPhone físico contra el backend corriendo en la LAN (override desde
@@ -209,7 +216,11 @@ module.exports = {
       // developer lo baja de Firebase Console y lo pega acá; en EAS Cloud se resuelve
       // vía el secret de archivo `GOOGLE_SERVICES_JSON` (ver eas.json).
       googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? "./google-services.json",
-      permissions: ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"],
+      permissions: [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+      ],
     },
     web: {
       favicon: "./assets/favicon.png",
@@ -236,7 +247,10 @@ module.exports = {
         "expo-location",
         {
           locationWhenInUsePermission:
-            "Movo usa tu ubicación para ayudarte a marcar el punto exacto de una dirección en el mapa, durante el registro y al crear un envío.",
+            "Movo usa tu ubicación para compartir el avance del envío en tiempo real con el emisor y receptor mientras transportás un paquete, y para ayudarte a marcar direcciones en el mapa.",
+          locationAlwaysAndWhenInUsePermission:
+            "Movo usa tu ubicación en segundo plano para compartir el avance del viaje en tiempo real con el emisor y receptor mientras transportás paquetes, incluso cuando la app está minimizada o la pantalla bloqueada.",
+          isAndroidBackgroundLocationEnabled: true,
         },
       ],
       // Sin `cameraPermission` propio acá — el `NSCameraUsageDescription` ya cubre
@@ -249,7 +263,21 @@ module.exports = {
         },
       ],
       "expo-font",
-      "expo-splash-screen",
+      // MOVO-247: sin imagen -- el splash nativo (estático, no puede animar) solo
+      // tapa el hueco entre el arranque del proceso y el primer frame con fuentes
+      // cargadas, momento en el que `AnimatedSplash` (JS, `app/_layout.tsx`) ya
+      // puede tomar la posta con el isotipo real. El color de fondo por tema evita
+      // el flash blanco-a-negro que Android muestra por default en dark mode antes
+      // de ese handoff.
+      [
+        "expo-splash-screen",
+        {
+          backgroundColor: "#FFFFFF",
+          dark: {
+            backgroundColor: "#0A0A0B",
+          },
+        },
+      ],
       "expo-router",
       "@react-native-community/datetimepicker",
       ...(PUSH_NOTIFICATIONS_ENABLED ? ["expo-notifications"] : []),

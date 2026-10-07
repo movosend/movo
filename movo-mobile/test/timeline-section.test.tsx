@@ -157,8 +157,8 @@ describe("TimelineSection", () => {
 
     const { getByText } = await renderTimeline();
 
-    expect(getByText("Búsqueda de transportista")).toBeTruthy();
-    expect(getByText("Asignación del transportista")).toBeTruthy();
+    expect(getByText("Elección del transportista")).toBeTruthy();
+    expect(getByText("Reserva del pago")).toBeTruthy();
     expect(getByText("Retiro del paquete")).toBeTruthy();
     expect(getByText("Entrega a Lucas")).toBeTruthy();
   });
@@ -266,5 +266,100 @@ describe("TimelineSection", () => {
     expect(getByTestId("timeline-ratings-section")).toBeTruthy();
     expect(getByText("Calificaciones (1)")).toBeTruthy();
     expect(getByText('"Llegó todo en perfecto estado"')).toBeTruthy();
+  });
+
+  it("MOVO-253: un rechazo del receptor anterior no toma el nombre del receptor actual", async () => {
+    mockUseShipmentEvents.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+      data: [
+        event({ id: "e1" }),
+        event({
+          id: "e2",
+          fromStatus: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+          toStatus: ShipmentStatus.REJECTED_BY_RECEIVER,
+          actorId: "former-receiver",
+          reason: "No estoy en la ciudad",
+        }),
+        event({
+          id: "e3",
+          fromStatus: ShipmentStatus.REJECTED_BY_RECEIVER,
+          toStatus: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+          actorId: "sender-1",
+        }),
+      ],
+    });
+
+    const { getByText, queryByText } = await renderTimeline();
+
+    expect(getByText("El receptor anterior rechazó el envío")).toBeTruthy();
+    expect(getByText("Receptor anterior")).toBeTruthy();
+    expect(queryByText("Lucas rechazó el envío")).toBeNull();
+    expect(getByText("Elegiste otro receptor")).toBeTruthy();
+  });
+
+  describe("oferta aceptada (assignment_pending)", () => {
+    const acceptance = event({
+      id: "event-3",
+      fromStatus: ShipmentStatus.PUBLISHED,
+      toStatus: ShipmentStatus.ASSIGNMENT_PENDING,
+      actorId: "sender-1",
+      reason: "Oferta f67a9fb1-b384-453b-95aa-6e72de12dab1 aceptada",
+    });
+
+    function renderWithCarrier() {
+      mockUsePublicProfile.mockImplementation((id: string) => ({
+        data: id === "carrier-1" ? { id, fullName: "Juan Pérez" } : { id, fullName: "Lucas Romero" },
+      }));
+      return render(
+        <TimelineSection
+          shipmentId="shipment-1"
+          parties={{ ...PARTIES, carrierId: "carrier-1" }}
+          testID="timeline"
+        />,
+      );
+    }
+
+    it("muestra la elección del transportista, el pago pendiente y oculta el motivo interno", async () => {
+      mockUseShipmentEvents.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        refetch: jest.fn(),
+        data: [event(), acceptance],
+      });
+
+      const { getByText, queryByText } = await renderWithCarrier();
+
+      expect(getByText("Elegiste a Juan como transportista")).toBeTruthy();
+      expect(getByText("Falta reservar el pago")).toBeTruthy();
+      expect(queryByText("Buscando transportista")).toBeNull();
+      expect(queryByText(/Oferta f67a9fb1/)).toBeNull();
+      // El próximo paso es la reserva del pago, no la asignación.
+      expect(getByText("Reserva del pago")).toBeTruthy();
+      expect(queryByText("Asignación del transportista")).toBeNull();
+    });
+
+    it("sigue mostrando el motivo de una cancelación", async () => {
+      mockUseShipmentEvents.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        refetch: jest.fn(),
+        data: [
+          event(),
+          event({
+            id: "event-4",
+            fromStatus: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+            toStatus: ShipmentStatus.CANCELLED,
+            actorId: null,
+            reason: "El receptor no confirmó dentro del plazo",
+          }),
+        ],
+      });
+
+      const { getByText } = await renderWithCarrier();
+
+      expect(getByText("El receptor no confirmó dentro del plazo")).toBeTruthy();
+    });
   });
 });

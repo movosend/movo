@@ -372,7 +372,7 @@ describe("GET /offers/mine (Postgres)", () => {
       }
     });
 
-    it("una oferta pending sobre un envío ya cancelado (que no toca las ofertas) expone competitiveRank: null", async () => {
+    it("una oferta sobre un envío ya cancelado queda shipment_cancelled (MOVO-258) y expone competitiveRank: null", async () => {
       const shipmentId = await createPublishedShipment();
       const carrierId = randomUUID();
       await offerRepo.create(baseOfferInput({ shipmentId, carrierId }));
@@ -385,7 +385,7 @@ describe("GET /offers/mine (Postgres)", () => {
       });
 
       const item = response.json().items[0];
-      expect(item.status).toBe(OfferStatus.PENDING);
+      expect(item.status).toBe(OfferStatus.SHIPMENT_CANCELLED);
       expect(item.shipment.status).toBe(ShipmentStatus.CANCELLED);
       expect(item.competitiveRank).toBeNull();
     });

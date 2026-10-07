@@ -1,6 +1,8 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import {
   canCancelShipment,
+  liveTrackingAvailability,
+  liveTrackingPendingPollInterval,
   computeOnTripDetour,
   formatEventTimestamp,
   formatPickupWindowLabel,
@@ -16,11 +18,13 @@ import {
   shipmentEventTitle,
   shipmentLifecycleStage,
   shipmentPendingStepLabel,
+  shouldShowEventReason,
   shipmentStatusLabel,
   shipmentStatusTone,
   shortAddressLabel,
   formatShipmentRowTime,
   formatDurationMin,
+  redesignationDeadlineLabel,
 } from "../src/lib/shipment-format";
 
 describe("shipmentStatusLabel", () => {
@@ -30,7 +34,7 @@ describe("shipmentStatusLabel", () => {
     expect(shipmentStatusLabel(ShipmentStatus.DELIVERED)).toBe("Entregado");
     expect(shipmentStatusLabel(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION)).toBe("Esperando receptor");
     expect(shipmentStatusLabel(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("Rechazado");
-    expect(shipmentStatusLabel(ShipmentStatus.ASSIGNMENT_PENDING)).toBe("Sin asignar");
+    expect(shipmentStatusLabel(ShipmentStatus.ASSIGNMENT_PENDING)).toBe("Asignado");
     expect(shipmentStatusLabel(ShipmentStatus.ASSIGNED)).toBe("Asignado");
   });
 
@@ -61,7 +65,8 @@ describe("shipmentStatusTone", () => {
 
   it("mapea cancelled/rejected (terminales fallidos) a danger", () => {
     expect(shipmentStatusTone(ShipmentStatus.CANCELLED)).toBe("danger");
-    expect(shipmentStatusTone(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("danger");
+    // MOVO-253: el rechazo ya no es terminal, espera que el emisor elija a otra persona.
+    expect(shipmentStatusTone(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("warning");
   });
 
   it("mapea awaiting_receiver_confirmation/disputed (esperan una acción) a warning", () => {
@@ -118,17 +123,24 @@ describe("canCancelShipment", () => {
     expect(canCancelShipment(ShipmentStatus.IN_TRANSIT)).toBe(false);
     expect(canCancelShipment(ShipmentStatus.DELIVERED)).toBe(false);
     expect(canCancelShipment(ShipmentStatus.CANCELLED)).toBe(false);
-    expect(canCancelShipment(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe(false);
     expect(canCancelShipment(ShipmentStatus.DISPUTED)).toBe(false);
+  });
+
+  it("MOVO-253 AC4: permite cancelar un envío rechazado", () => {
+    expect(canCancelShipment(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe(true);
   });
 });
 
 describe("shipmentLifecycleStage", () => {
-  it("agrupa entregado/completado/cancelado/rechazado como pasados", () => {
+  it("agrupa entregado/completado/cancelado como pasados", () => {
     expect(shipmentLifecycleStage(ShipmentStatus.DELIVERED)).toBe("past");
     expect(shipmentLifecycleStage(ShipmentStatus.COMPLETED)).toBe("past");
     expect(shipmentLifecycleStage(ShipmentStatus.CANCELLED)).toBe("past");
-    expect(shipmentLifecycleStage(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("past");
+  });
+
+  it("MOVO-253: rechazado está en curso para el emisor y terminado para quien rechazó", () => {
+    expect(shipmentLifecycleStage(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe("ongoing");
+    expect(shipmentLifecycleStage(ShipmentStatus.REJECTED_BY_RECEIVER, { isReceiver: true })).toBe("past");
   });
 
   it("agrupa el resto, incluido disputado y assigned_unfunded, como en curso", () => {
@@ -192,7 +204,7 @@ describe("shipmentEventTitle", () => {
 
   it("MOVO-208: títulos narrativos de los estados nuevos", () => {
     expect(shipmentEventTitle(ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.PUBLISHED)).toBe(
-      "Transportista asignado -- fondos aún no reservados",
+      "El emisor eligió al transportista",
     );
     expect(shipmentEventTitle(ShipmentStatus.COMPLETED, ShipmentStatus.DELIVERED)).toBe(
       "Pago liberado, envío cerrado",
@@ -549,5 +561,116 @@ describe("formatDurationMin (MOVO-244)", () => {
   it("formatea en horas y minutos si supera 60 minutos con resto", () => {
     expect(formatDurationMin(4500)).toBe("1 h 15 min");
     expect(formatDurationMin(9000)).toBe("2 h 30 min");
+  });
+});
+
+describe("MOVO-253: elegir otro receptor", () => {
+  it("titula el evento de re-designación según quién mira", () => {
+    expect(
+      shipmentEventTitle(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, ShipmentStatus.REJECTED_BY_RECEIVER, {
+        isSender: true,
+      }),
+    ).toBe("Elegiste otro receptor");
+    expect(
+      shipmentEventTitle(ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION, ShipmentStatus.REJECTED_BY_RECEIVER),
+    ).toBe("El emisor eligió otro receptor");
+  });
+
+  describe("redesignationDeadlineLabel", () => {
+    const now = new Date(2026, 8, 25, 10, 0);
+
+    it("hoy, mañana o con fecha", () => {
+      expect(redesignationDeadlineLabel(new Date(2026, 8, 25, 18, 0).toISOString(), now)).toBe(
+        "Tenés hasta hoy 18:00",
+      );
+      expect(redesignationDeadlineLabel(new Date(2026, 8, 26, 9, 30).toISOString(), now)).toBe(
+        "Tenés hasta mañana 09:30",
+      );
+      expect(redesignationDeadlineLabel(new Date(2026, 8, 27, 18, 0).toISOString(), now)).toMatch(
+        /^Tenés hasta el \S+ 27\/9 18:00$/,
+      );
+    });
+
+    it("null si falta, es inválido o ya venció", () => {
+      expect(redesignationDeadlineLabel(null, now)).toBeNull();
+      expect(redesignationDeadlineLabel("no-es-fecha", now)).toBeNull();
+      expect(redesignationDeadlineLabel(new Date(2026, 8, 25, 9, 0).toISOString(), now)).toBeNull();
+    });
+  });
+});
+
+describe("aceptación de una oferta en la línea de tiempo", () => {
+  const accept = [ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.PUBLISHED] as const;
+
+  it("se titula por la elección del transportista, según quién mira", () => {
+    expect(shipmentEventTitle(...accept, { isSender: true, carrierName: "Juan" })).toBe(
+      "Elegiste a Juan como transportista",
+    );
+    expect(shipmentEventTitle(...accept, { isSender: true })).toBe("Elegiste al transportista");
+    expect(shipmentEventTitle(...accept, { carrierName: "Juan" })).toBe("El emisor eligió a Juan");
+    expect(shipmentEventTitle(...accept, { isCarrier: true, carrierName: "Juan" })).toBe(
+      "El emisor aceptó tu oferta",
+    );
+  });
+
+  it("el pago pendiente va como detalle", () => {
+    expect(shipmentEventDetail(...accept)).toBe("Falta reservar el pago");
+    expect(shipmentEventDetail(ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.PUBLISHED)).toBe(
+      "El pago se reserva más cerca del retiro",
+    );
+  });
+
+  it("pasar a assigned es la reserva del pago, no la asignación", () => {
+    expect(shipmentEventTitle(ShipmentStatus.ASSIGNED, ShipmentStatus.ASSIGNMENT_PENDING)).toBe("Pago reservado");
+    expect(shipmentPendingStepLabel(ShipmentStatus.ASSIGNED)).toBe("Reserva del pago");
+  });
+
+  it("solo muestra el motivo en cancelaciones y rechazos", () => {
+    expect(shouldShowEventReason(ShipmentStatus.CANCELLED)).toBe(true);
+    expect(shouldShowEventReason(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe(true);
+    expect(shouldShowEventReason(ShipmentStatus.ASSIGNMENT_PENDING)).toBe(false);
+    expect(shouldShowEventReason(ShipmentStatus.IN_TRANSIT)).toBe(false);
+  });
+});
+
+describe("liveTrackingAvailability (MOVO-271 AC5)", () => {
+  it("solo se habilita en tránsito, que es cuando el backend acepta posiciones hoy", () => {
+    expect(liveTrackingAvailability(ShipmentStatus.IN_TRANSIT)).toBe("available");
+  });
+
+  it("con transportista asignado y antes del retiro, muestra el placeholder", () => {
+    expect(liveTrackingAvailability(ShipmentStatus.ASSIGNMENT_PENDING)).toBe("pending");
+    expect(liveTrackingAvailability(ShipmentStatus.ASSIGNED_UNFUNDED)).toBe("pending");
+    expect(liveTrackingAvailability(ShipmentStatus.ASSIGNED)).toBe("pending");
+  });
+
+  it("sin transportista o con el envío cerrado, no hay card", () => {
+    for (const status of [
+      ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+      ShipmentStatus.PUBLISHED,
+      ShipmentStatus.REJECTED_BY_RECEIVER,
+      ShipmentStatus.DELIVERED,
+      ShipmentStatus.COMPLETED,
+      ShipmentStatus.CANCELLED,
+      ShipmentStatus.DISPUTED,
+    ]) {
+      expect(liveTrackingAvailability(status)).toBeNull();
+    }
+  });
+});
+
+describe("liveTrackingPendingPollInterval (MOVO-271 AC5)", () => {
+  const pending = { status: ShipmentStatus.ASSIGNMENT_PENDING, carrierId: "carrier-1" };
+
+  it("emisor y receptor refrescan cada 30s mientras esperan el retiro", () => {
+    expect(liveTrackingPendingPollInterval(pending, "sender-1")).toBe(30_000);
+    expect(liveTrackingPendingPollInterval(pending, "receiver-1")).toBe(30_000);
+  });
+
+  it("no refresca si ya está en tránsito, sin transportista, sin datos o si mira el transportista", () => {
+    expect(liveTrackingPendingPollInterval({ ...pending, status: ShipmentStatus.IN_TRANSIT }, "sender-1")).toBe(false);
+    expect(liveTrackingPendingPollInterval({ status: ShipmentStatus.PUBLISHED, carrierId: null }, "sender-1")).toBe(false);
+    expect(liveTrackingPendingPollInterval(undefined, "sender-1")).toBe(false);
+    expect(liveTrackingPendingPollInterval(pending, "carrier-1")).toBe(false);
   });
 });

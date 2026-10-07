@@ -126,6 +126,7 @@ local ver [`backend-local-docker.md`](./backend-local-docker.md).
 | Síntoma | Qué probar |
 |---|---|
 | `pod install` falla con "No podspec found" | `npx expo prebuild --clean` y volver a buildear |
+| `pod install` falla con "Unable to find a specification for `DiditSDK/All`" | El pod de Didit no está en el trunk de CocoaPods: el plugin de Expo lo agrega al `Podfile` con la URL de su podspec al hacer prebuild, y tu `ios/` quedó generado sin esa línea. `npx expo prebuild --platform ios --clean` y volver a buildear |
 | Cambiaste `app.config.js` y no se ve el cambio | Faltó `--clean` en el prebuild |
 | La app en el teléfono no encuentra Metro | Misma Wi-Fi que la Mac; probá `npx expo start --tunnel` |
 | El mapa se ve gris | Faltan las keys de Google Maps en `.env.local` (esperado hoy) |

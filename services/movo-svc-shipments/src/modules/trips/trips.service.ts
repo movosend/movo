@@ -6,10 +6,12 @@ import {
   TripHasAcceptedPackagesError,
   TripNotDeclaredError,
   TripAlreadyHasActiveTripError,
+  TripHasNoPackagesError,
 } from "../../repositories/trip-repository";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
+import { safeBlockRelatedUserIds } from "../../utils/block-relations";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { RoutesProvider } from "../../adapters/routes-provider";
 import { sendCustodyPush } from "../../utils/dispatch-push";
@@ -39,6 +41,7 @@ export interface TripsService {
     page: number;
     limit: number;
     status?: TripStatus;
+    scope?: "upcoming" | "history";
   }): Promise<{ items: TripWithAcceptedPackages[]; total: number; page: number; limit: number }>;
 
   updateTrip(params: {
@@ -46,6 +49,12 @@ export interface TripsService {
     callerId: string;
     callerRoles: UserRole[];
     input: UpdateTripInput;
+  }): Promise<Trip>;
+
+  cancelTrip(params: {
+    tripId: string;
+    callerId: string;
+    callerRoles: UserRole[];
   }): Promise<Trip>;
 
   deleteTrip(params: {
@@ -304,24 +313,26 @@ export function createTripsService(deps: {
     },
 
     async getTrip({ tripId, callerId, callerRoles }) {
-      const trip = await tripRepository.findById(tripId);
+      const trip = await tripRepository.findByIdWithPackages(tripId);
       if (!trip) {
         throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
       }
 
       assertTripAccess(trip, callerId, callerRoles, { forbiddenMessage: "No tenés permiso para ver este viaje." });
 
-      const acceptedCount = await tripRepository.countAcceptedOffers(tripId);
-      return {
-        ...trip,
-        hasAcceptedPackages: acceptedCount > 0,
-      };
+      return trip;
     },
 
-    async listCarrierTrips({ callerId, callerRoles, page, limit, status }) {
+    async listCarrierTrips({ callerId, callerRoles, page, limit, status, scope }) {
+      // `scope` ya fija su propio set de estados: combinarlo con `status` es ambiguo, se
+      // rechaza en vez de dejar que uno pise al otro en silencio (review de PR #208).
+      if (status && scope) {
+        throw new ApiError(400, "VALIDATION_FAILED", "No se puede filtrar por 'status' y 'scope' a la vez.");
+      }
+
       await assertVerifiedCarrier(usersClient, callerId, callerRoles);
 
-      const { items, total } = await tripRepository.listByCarrier(callerId, page, limit, status);
+      const { items, total } = await tripRepository.listByCarrier(callerId, page, limit, status, scope);
       return { items, total, page, limit };
     },
 
@@ -373,6 +384,36 @@ export function createTripsService(deps: {
             "TRIP_HAS_ACCEPTED_PACKAGES",
             "No podés modificar un viaje que ya tiene paquetes aceptados.",
           );
+        }
+        throw err;
+      }
+    },
+
+    async cancelTrip({ tripId, callerId, callerRoles }) {
+      const trip = await tripRepository.findById(tripId);
+      if (!trip) {
+        throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
+      }
+
+      assertTripAccess(trip, callerId, callerRoles, {
+        forbiddenMessage: "No tenés permiso para cancelar este viaje.",
+      });
+
+      try {
+        return await tripRepository.cancel(tripId);
+      } catch (err) {
+        if (err instanceof TripNotFoundError) {
+          throw new ApiError(404, "TRIP_NOT_FOUND", `El viaje '${tripId}' no existe.`);
+        }
+        if (err instanceof TripHasAcceptedPackagesError) {
+          throw new ApiError(
+            409,
+            "TRIP_HAS_ACCEPTED_PACKAGES",
+            "No podés cancelar un viaje que ya tiene paquetes aceptados.",
+          );
+        }
+        if (err instanceof TripNotDeclaredError) {
+          throw new ApiError(409, "TRIP_NOT_DECLARED", err.message);
         }
         throw err;
       }
@@ -437,6 +478,9 @@ export function createTripsService(deps: {
         if (err instanceof TripAlreadyHasActiveTripError) {
           throw new ApiError(409, "TRIP_ALREADY_HAS_ACTIVE_TRIP", err.message);
         }
+        if (err instanceof TripHasNoPackagesError) {
+          throw new ApiError(409, "TRIP_NO_PACKAGES", err.message);
+        }
         throw err;
       }
 
@@ -469,7 +513,8 @@ export function createTripsService(deps: {
       // matches. Vigente mientras el viaje sigue "vivo" (declared o active, todavía
       // sin arrancar o ya en curso) -- mismo criterio que el chequeo ampliado de
       // `createOfferForShipment` (`shipments.service.ts`).
-      if (trip.status !== TripStatus.DECLARED && trip.status !== TripStatus.ACTIVE) {
+      // MOVO-258 (D5): un viaje iniciado tiene sus paquetes fijos, ya no busca más.
+      if (trip.status !== TripStatus.DECLARED) {
         throw new ApiError(
           409,
           "TRIP_NOT_AVAILABLE",
@@ -483,6 +528,9 @@ export function createTripsService(deps: {
 
       const effectiveRadiusKm = radiusKm ?? defaultMaxDetourKm;
 
+      // MOVO-175 (ADR-026): mismo filtro de bloqueos que el feed "Transportar", falla abierto.
+      const blockedIds = await safeBlockRelatedUserIds(usersClient, trip.carrierId, logger);
+
       // 1. Prefiltro geométrico (corredor <= 15 km y fecha calendario argentina)
       const { items, total } = await shipmentRepository.listAvailable({
         originLat: trip.originLat,
@@ -492,6 +540,7 @@ export function createTripsService(deps: {
         radiusKm: effectiveRadiusKm,
         pickupDate: toArgentinaCalendarDate(trip.departureAt),
         excludeUserId: trip.carrierId,
+        excludePartyIds: blockedIds,
         page,
         limit,
       });

@@ -1,5 +1,6 @@
 // Autocontenido a propósito (no importa de otros *.schema.ts) — mismo criterio que ya
 // usa movo-svc-users: cada schema no comparte definiciones entre sí.
+import { ShipmentStatus } from "@movo/shared";
 
 const PACKAGE_TYPE_VALUES = ["letter_document", "standard_package", "fragile_item"];
 
@@ -59,12 +60,15 @@ const shipmentResponse = {
     "pickupTimeWindowEnd",
     "suggestedPriceArs",
     "calculationMethod",
+    "highDemand",
     "agreedPriceArs",
     "paymentMethod",
     "status",
     "lastStatusChangedAt",
     "deliveredAt",
     "receiverConfirmationDeadline",
+    "receiverRedesignationDeadline",
+    "rejectionReason",
     "createdAt",
     "updatedAt",
     "estimatedDeliveryDate",
@@ -97,12 +101,21 @@ const shipmentResponse = {
     // nulidad -- ver PriceCalculationMethod en @movo/shared para los valores posibles.
     suggestedPriceArs: { type: ["number", "null"] },
     calculationMethod: { type: ["string", "null"] },
+    // MOVO-138: true si el precio sugerido lleva recargo por alta demanda (el mobile
+    // muestra el badge solo con true). null = sin cotización o envío anterior a
+    // demand_fuel_routes_v1 -- no equivale a false.
+    highDemand: { type: ["boolean", "null"] },
     agreedPriceArs: { type: ["number", "null"] },
     paymentMethod: { type: ["string", "null"] },
     status: { type: "string" },
     lastStatusChangedAt: { type: ["string", "null"], format: "date-time" },
     deliveredAt: { type: ["string", "null"], format: "date-time" },
     receiverConfirmationDeadline: { type: ["string", "null"], format: "date-time" },
+    // MOVO-253: plazo del emisor para elegir otro receptor, solo significativo en
+    // `rejected_by_receiver`. `rejectionReason` es el motivo del último rechazo, `null`
+    // fuera de ese estado.
+    receiverRedesignationDeadline: { type: ["string", "null"], format: "date-time" },
+    rejectionReason: { type: ["string", "null"] },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
     // MOVO-180 (adelantado): solo presente en `GET /shipments/:id` cuando el caller es
@@ -286,6 +299,7 @@ const activeShipmentSummaryResponse = {
     "counterparty",
     "isToday",
     "pickupWindowExpired",
+    "tripId",
   ],
   properties: {
     id: { type: "string" },
@@ -308,6 +322,7 @@ const activeShipmentSummaryResponse = {
     },
     isToday: { type: "boolean" },
     pickupWindowExpired: { type: "boolean" },
+    tripId: { type: ["string", "null"], format: "uuid" },
   },
 };
 
@@ -366,7 +381,41 @@ const shipmentEventResponse = {
   },
 };
 
+// MOVO-255: campos de `createShipmentBody` que afectan el precio, reusados por el body
+// de `POST /shipments/quote` para que las dos rutas validen exactamente igual.
+const priceAffectingProperties = {
+  packageType: { type: "string", enum: PACKAGE_TYPE_VALUES },
+  weightKg: { type: "number", minimum: WEIGHT_KG_MIN, maximum: WEIGHT_KG_MAX },
+  lengthCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
+  widthCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
+  heightCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
+  pickupLat: { type: "number", minimum: -90, maximum: 90 },
+  pickupLng: { type: "number", minimum: -180, maximum: 180 },
+  deliveryLat: { type: "number", minimum: -90, maximum: 90 },
+  deliveryLng: { type: "number", minimum: -180, maximum: 180 },
+};
+
 export const shipmentsSchemas = {
+  quoteShipmentBody: {
+    type: "object",
+    required: Object.keys(priceAffectingProperties),
+    properties: priceAffectingProperties,
+    additionalProperties: false,
+  },
+
+  // Sin precio (pricing caído) todos los campos vienen en `null` y no hay `quoteId`.
+  quoteShipmentResponse: {
+    type: "object",
+    required: ["quoteId", "suggestedPriceArs", "highDemand", "calculationMethod", "expiresAt"],
+    properties: {
+      quoteId: { type: ["string", "null"], format: "uuid" },
+      suggestedPriceArs: { type: ["number", "null"] },
+      highDemand: { type: ["boolean", "null"] },
+      calculationMethod: { type: ["string", "null"] },
+      expiresAt: { type: ["string", "null"], format: "date-time" },
+    },
+  },
+
   createShipmentBody: {
     type: "object",
     required: [
@@ -387,25 +436,19 @@ export const shipmentsSchemas = {
       "pickupTimeWindowEnd",
     ],
     properties: {
-      packageType: { type: "string", enum: PACKAGE_TYPE_VALUES },
-      weightKg: { type: "number", minimum: WEIGHT_KG_MIN, maximum: WEIGHT_KG_MAX },
-      lengthCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
-      widthCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
-      heightCm: { type: "number", minimum: DIMENSION_CM_MIN, maximum: DIMENSION_CM_MAX },
+      ...priceAffectingProperties,
       description: { type: "string", maxLength: 500 },
       // `senderId` NUNCA se acepta acá (AC10 de MOVO-80) — si el cliente lo manda
       // igual, `additionalProperties: false` lo rechaza en vez de ignorarlo en
       // silencio, así el error es explícito en vez de una falsa sensación de éxito.
       receiverId: { type: "string", format: "uuid" },
       pickupAddress: { type: "string", minLength: 1 },
-      pickupLat: { type: "number", minimum: -90, maximum: 90 },
-      pickupLng: { type: "number", minimum: -180, maximum: 180 },
       deliveryAddress: { type: "string", minLength: 1 },
-      deliveryLat: { type: "number", minimum: -90, maximum: 90 },
-      deliveryLng: { type: "number", minimum: -180, maximum: 180 },
       pickupDate: { type: "string", format: "date" },
       pickupTimeWindowStart: { type: "string", pattern: TIME_PATTERN },
       pickupTimeWindowEnd: { type: "string", pattern: TIME_PATTERN },
+      // MOVO-255: opcional, compatibilidad con builds del mobile que no cotizan antes.
+      quoteId: { type: "string", format: "uuid" },
     },
     additionalProperties: false,
   },
@@ -449,7 +492,25 @@ export const shipmentsSchemas = {
     properties: {
       page: { type: "integer", minimum: 1, default: 1 },
       limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
+      // MOVO-253: filtro opcional por estado, repetible (`?status=a&status=b`). Sin él,
+      // devuelve todos los estados como antes.
+      status: {
+        type: "array",
+        items: { type: "string", enum: Object.values(ShipmentStatus) },
+      },
+      // MOVO-184: solo los envíos propios (como emisor) con al menos una oferta vigente.
+      // Evita que "Requiere tu atención" dependa de una ventana fija de la lista.
+      withPendingOffers: { type: "boolean" },
     },
+  },
+
+  redesignateReceiverBody: {
+    type: "object",
+    required: ["receiverId"],
+    properties: {
+      receiverId: { type: "string", format: "uuid" },
+    },
+    additionalProperties: false,
   },
 
   shipmentResponse,
@@ -458,7 +519,18 @@ export const shipmentsSchemas = {
     type: "object",
     required: ["items", "page", "limit", "total"],
     properties: {
-      items: { type: "array", items: shipmentResponse },
+      items: {
+        type: "array",
+        items: {
+          ...shipmentResponse,
+          properties: {
+            ...shipmentResponse.properties,
+            // MOVO-257: ofertas vigentes, solo para el emisor de un envío `published`;
+            // `null` en cualquier otro caso (el receptor no ve ofertas).
+            pendingOffersCount: { type: ["integer", "null"] },
+          },
+        },
+      },
       page: { type: "integer" },
       limit: { type: "integer" },
       total: { type: "integer" },

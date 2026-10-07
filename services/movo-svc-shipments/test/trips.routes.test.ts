@@ -24,6 +24,7 @@ function mockTrip(overrides: Record<string, any> = {}) {
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     hasAcceptedPackages: false,
+    acceptedPackagesCount: 0,
     ...overrides,
   };
 }
@@ -43,6 +44,7 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
         limit: 20,
       }),
       updateTrip: vi.fn().mockResolvedValue(mockTrip({ vehicleType: "camioneta" })),
+      cancelTrip: vi.fn().mockResolvedValue(mockTrip({ status: TripStatus.CANCELLED })),
       deleteTrip: vi.fn().mockResolvedValue(undefined),
       startTrip: vi.fn().mockResolvedValue(mockTrip({ status: TripStatus.ACTIVE })),
       getTripMatches: vi.fn().mockImplementation(async (params) => ({
@@ -127,6 +129,34 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
     expect(body.items[0].hasAcceptedPackages).toBe(false);
   });
 
+  it("GET / lista los viajes con scope upcoming (MOVO-260)", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/?scope=upcoming",
+      headers: {
+        "x-user-id": CARRIER_ID,
+        "x-user-roles": "carrier",
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(service.listCarrierTrips).toHaveBeenCalledWith(expect.objectContaining({ scope: "upcoming" }));
+  });
+
+  it("GET / lista los viajes con scope history (MOVO-260)", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/?scope=history",
+      headers: {
+        "x-user-id": CARRIER_ID,
+        "x-user-roles": "carrier",
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(service.listCarrierTrips).toHaveBeenCalledWith(expect.objectContaining({ scope: "history" }));
+  });
+
   it("GET /:id devuelve el detalle del viaje", async () => {
     const res = await app.inject({
       method: "GET",
@@ -161,6 +191,25 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
     expect(service.updateTrip).toHaveBeenCalled();
   });
 
+  it("PATCH /:id nunca propaga status al service (cancelar va por /cancel, iniciar por /start -- MOVO-260)", async () => {
+    await app.inject({
+      method: "PATCH",
+      url: `/${TRIP_ID}`,
+      headers: {
+        "x-user-id": CARRIER_ID,
+        "x-user-roles": "carrier",
+      },
+      payload: {
+        vehicleType: "camioneta",
+        status: "cancelled",
+      },
+    });
+
+    expect(service.updateTrip).toHaveBeenCalledWith(
+      expect.objectContaining({ input: expect.not.objectContaining({ status: expect.anything() }) }),
+    );
+  });
+
   it("DELETE /:id elimina el viaje y devuelve 204", async () => {
     const res = await app.inject({
       method: "DELETE",
@@ -173,6 +222,45 @@ describe("trips.routes (Fastify HTTP endpoints)", () => {
 
     expect(res.statusCode).toBe(204);
     expect(service.deleteTrip).toHaveBeenCalled();
+  });
+
+  it("POST /:id/cancel cancela el viaje lógicamente y devuelve 200 (MOVO-260)", async () => {
+    (service.cancelTrip as any).mockResolvedValue(mockTrip({ status: TripStatus.CANCELLED }));
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/${TRIP_ID}/cancel`,
+      headers: {
+        "x-user-id": CARRIER_ID,
+        "x-user-roles": "carrier",
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe(TripStatus.CANCELLED);
+    expect(service.cancelTrip).toHaveBeenCalledWith({
+      tripId: TRIP_ID,
+      callerId: CARRIER_ID,
+      callerRoles: ["carrier"],
+    });
+  });
+
+  it("POST /:id/cancel responde 409 TRIP_NOT_DECLARED si el viaje no se puede cancelar", async () => {
+    (service.cancelTrip as any).mockRejectedValue(
+      new ApiError(409, "TRIP_NOT_DECLARED", "El viaje no está declared"),
+    );
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/${TRIP_ID}/cancel`,
+      headers: {
+        "x-user-id": CARRIER_ID,
+        "x-user-roles": "carrier",
+      },
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("TRIP_NOT_DECLARED");
   });
 
   it("POST /:id/start inicia el viaje y devuelve 200 con status active (MOVO-221)", async () => {

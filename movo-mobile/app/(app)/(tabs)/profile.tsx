@@ -1,5 +1,5 @@
 import { KycStatus, UserRole } from '@movo/shared/dist/types/user';
-import { Pencil } from 'lucide-react-native';
+import { Pencil, Sparkles } from 'lucide-react-native';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { Pressable, ScrollView, Text, View } from 'react-native';
@@ -17,6 +17,7 @@ import { useThemeColors } from '../../../src/hooks/use-theme-colors';
 import { useMyProfile, usePublicProfile } from '../../../src/hooks/use-profile';
 import { friendlyErrorMessage } from '../../../src/lib/error-messages';
 import { capitalizeName } from '../../../src/lib/profile-format';
+import { useTabBarScrollHandler } from '../../../src/store/tab-bar-store';
 
 /**
  * Pantalla de perfil propio (MOVO-78, tab "Ajustes"). Compone las piezas de
@@ -24,6 +25,7 @@ import { capitalizeName } from '../../../src/lib/profile-format';
  * MOVO-77 backend, ya Done).
  */
 export default function ProfileScreen() {
+  const tabBarScroll = useTabBarScrollHandler();
   const colors = useThemeColors();
   const { logout } = useAuth();
   const { data, isLoading, isError, error, refetch } = useMyProfile();
@@ -51,6 +53,7 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={['top']}>
       <ScrollView
+        {...tabBarScroll}
         testID="profile-screen-content"
         contentContainerClassName="px-6 pb-32 pt-8"
         showsVerticalScrollIndicator={false}
@@ -125,22 +128,15 @@ export default function ProfileScreen() {
         </Text>
 
         {__DEV__ ? (
-          <View className="mt-3 flex-row flex-wrap items-center justify-center gap-2">
-            <Pressable onPress={() => router.push({ pathname: '/kyc', params: { status: 'manual_review' } } as any)}>
-              <Text className="font-sans-medium text-[11px] text-lime-600 dark:text-lime-400 underline">
-                ⚡ DNI en revisión (Dev)
-              </Text>
-            </Pressable>
-            <Text className="text-fg-3">·</Text>
-            <Pressable onPress={() => router.push('/dev-handshake' as any)}>
-              <Text className="font-sans-medium text-[11px] text-lime-600 dark:text-lime-400 underline">
-                ⚡ Probar QR Handshake (Dev)
-              </Text>
-            </Pressable>
-            <Text className="text-fg-3">·</Text>
-            <Pressable onPress={() => router.push('/dev-home-operativo')}>
-              <Text className="font-sans text-[11px] text-fg-3 underline">
-                Dev Home
+          <View className="mt-4 px-2">
+            <Pressable
+              testID="profile-dev-shortcuts-button"
+              onPress={() => router.push('/dev-shortcuts' as any)}
+              className="flex-row items-center justify-center gap-2 rounded-[12px] border border-dashed border-lime-500/40 bg-lime-500/10 py-3"
+            >
+              <Sparkles size={16} color="#2BB673" />
+              <Text className="font-sans-medium text-[13px] text-lime-600 dark:text-lime-400">
+                ⚡ Atajos de desarrollo (Dev)
               </Text>
             </Pressable>
           </View>

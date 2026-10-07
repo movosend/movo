@@ -50,8 +50,26 @@ describe("position-repository (Postgres, MOVO-202)", () => {
   });
 
   beforeEach(async () => {
-    await db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments RESTART IDENTITY CASCADE");
+    await db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments, shipments.trips RESTART IDENTITY CASCADE");
   });
+
+  async function createTrip(carrierId = randomUUID()): Promise<string> {
+    const trip = await db.trip.create({
+      data: {
+        carrierId,
+        originAddress: "Av. Colón 1234, Córdoba",
+        originLat: -31.4201,
+        originLng: -64.1888,
+        destinationAddress: "Av. San Martín 100, Villa María",
+        destinationLat: -32.4104,
+        destinationLng: -63.2404,
+        departureAt: new Date(),
+        vehicleType: "auto",
+        status: "active",
+      },
+    });
+    return trip.id;
+  }
 
   async function forceClosed(
     shipmentId: string,
@@ -68,16 +86,20 @@ describe("position-repository (Postgres, MOVO-202)", () => {
   describe("create (AC1/AC9)", () => {
     it("persiste lat/lng/accuracyM/capturedAt, con recordedAt propio del servidor", async () => {
       const shipment = await shipmentRepo.create(baseInput);
+      const tripId = await createTrip();
       const before = new Date();
 
       const created = await positionRepo.create({
         shipmentId: shipment.id,
+        tripId,
         lat: -31.42,
         lng: -64.18,
         accuracyM: 12.5,
         capturedAt: new Date("2026-08-19T23:00:00.000Z"), // encolada offline, anterior a "ahora"
       });
 
+      expect(created.shipmentId).toBe(shipment.id);
+      expect(created.tripId).toBe(tripId);
       expect(created.lat).toBe(-31.42);
       expect(created.lng).toBe(-64.18);
       expect(created.accuracyM).toBe(12.5);
@@ -89,7 +111,8 @@ describe("position-repository (Postgres, MOVO-202)", () => {
   describe("purgeEligibleClosedShipments (AC6)", () => {
     it("borra posiciones de un envío delivered cerrado hace más de retentionDays", async () => {
       const shipment = await shipmentRepo.create(baseInput);
-      await positionRepo.create({ shipmentId: shipment.id, lat: 1, lng: 1, accuracyM: 5, capturedAt: new Date() });
+      const tripId = await createTrip();
+      await positionRepo.create({ shipmentId: shipment.id, tripId, lat: 1, lng: 1, accuracyM: 5, capturedAt: new Date() });
       const closedAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
       await forceClosed(shipment.id, "delivered", closedAt);
 
@@ -101,7 +124,8 @@ describe("position-repository (Postgres, MOVO-202)", () => {
 
     it("NO borra un envío cerrado hace menos de retentionDays", async () => {
       const shipment = await shipmentRepo.create(baseInput);
-      await positionRepo.create({ shipmentId: shipment.id, lat: 1, lng: 1, accuracyM: 5, capturedAt: new Date() });
+      const tripId = await createTrip();
+      await positionRepo.create({ shipmentId: shipment.id, tripId, lat: 1, lng: 1, accuracyM: 5, capturedAt: new Date() });
       const closedAt = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
       await forceClosed(shipment.id, "delivered", closedAt);
 
@@ -113,7 +137,8 @@ describe("position-repository (Postgres, MOVO-202)", () => {
 
     it("un envío 'disputed' NUNCA es candidato, sin importar cuánto tiempo pasó", async () => {
       const shipment = await shipmentRepo.create(baseInput);
-      await positionRepo.create({ shipmentId: shipment.id, lat: 1, lng: 1, accuracyM: 5, capturedAt: new Date() });
+      const tripId = await createTrip();
+      await positionRepo.create({ shipmentId: shipment.id, tripId, lat: 1, lng: 1, accuracyM: 5, capturedAt: new Date() });
       const longAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
       await forceClosed(shipment.id, "disputed", longAgo);
 
@@ -128,7 +153,8 @@ describe("position-repository (Postgres, MOVO-202)", () => {
       // segundo forceClosed) hace apenas 2 días -- lastStatusChangedAt es lo único que
       // importa, no hay memoria del paso por disputed.
       const shipment = await shipmentRepo.create(baseInput);
-      await positionRepo.create({ shipmentId: shipment.id, lat: 1, lng: 1, accuracyM: 5, capturedAt: new Date() });
+      const tripId = await createTrip();
+      await positionRepo.create({ shipmentId: shipment.id, tripId, lat: 1, lng: 1, accuracyM: 5, capturedAt: new Date() });
       await forceClosed(shipment.id, "disputed", new Date(Date.now() - 40 * 24 * 60 * 60 * 1000));
       await forceClosed(shipment.id, "cancelled", new Date(Date.now() - 2 * 24 * 60 * 60 * 1000));
 
@@ -143,12 +169,14 @@ describe("position-repository (Postgres, MOVO-202)", () => {
       const shipmentIds: string[] = [];
       for (const status of eligible) {
         const shipment = await shipmentRepo.create(baseInput);
-        await positionRepo.create({ shipmentId: shipment.id, lat: 1, lng: 1, accuracyM: 5, capturedAt: new Date() });
+        const tripId = await createTrip();
+        await positionRepo.create({ shipmentId: shipment.id, tripId, lat: 1, lng: 1, accuracyM: 5, capturedAt: new Date() });
         await forceClosed(shipment.id, status, closedAt);
         shipmentIds.push(shipment.id);
       }
       const openShipment = await shipmentRepo.create(baseInput);
-      await positionRepo.create({ shipmentId: openShipment.id, lat: 1, lng: 1, accuracyM: 5, capturedAt: new Date() });
+      const openTripId = await createTrip();
+      await positionRepo.create({ shipmentId: openShipment.id, tripId: openTripId, lat: 1, lng: 1, accuracyM: 5, capturedAt: new Date() });
       await forceClosed(openShipment.id, "in_transit", closedAt);
 
       const deleted = await positionRepo.purgeEligibleClosedShipments(new Date(), 30);
@@ -162,7 +190,8 @@ describe("position-repository (Postgres, MOVO-202)", () => {
     it("borra todas las posiciones de los envíos donde el usuario fue transportista, sin importar estado/retención", async () => {
       const carrierId = randomUUID();
       const shipment = await shipmentRepo.create(baseInput);
-      await positionRepo.create({ shipmentId: shipment.id, lat: 1, lng: 1, accuracyM: 5, capturedAt: new Date() });
+      const tripId = await createTrip(carrierId);
+      await positionRepo.create({ shipmentId: shipment.id, tripId, lat: 1, lng: 1, accuracyM: 5, capturedAt: new Date() });
       await forceClosed(shipment.id, "in_transit", new Date(), carrierId); // ni siquiera cerrado
 
       const deleted = await positionRepo.deleteAllForCarrier(carrierId);

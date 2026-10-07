@@ -3,15 +3,22 @@ import { httpClient } from "./http-client";
  * antes vivía duplicado acá y como enum Prisma en `movo-svc-shipments`, sin unificar
  * hasta que `RatingRole` cruzó el barrel compartido. */
 import type { RatingRole } from "@movo/shared/dist/types/shipment";
+import type { RatingCategoryScoreField } from "@movo/shared/dist/config/rating-categories";
 
 export type { RatingRole };
+
+/**
+ * MOVO-173: sub-scores opcionales (1..5) de una calificación. Cuáles aplican depende del
+ * rol del calificado (`@movo/shared` `config/rating-categories.ts`).
+ */
+export type RatingCategoryScoresInput = Partial<Record<RatingCategoryScoreField, number>>;
 
 /**
  * DTO tal cual lo devuelve `POST /shipments/:id/ratings`, `PATCH /shipments/:id/ratings/:rateeId`
  * y `GET /shipments/:id/ratings` (`ratingResponse` en `ratings.schema.ts`, `movo-svc-shipments`,
  * MOVO-146 / MOVO-153).
  */
-export interface Rating {
+export interface Rating extends Partial<Record<RatingCategoryScoreField, number | null>> {
   id: string;
   shipmentId: string;
   raterId: string;
@@ -22,13 +29,13 @@ export interface Rating {
   createdAt: string;
 }
 
-export interface CreateRatingInput {
+export interface CreateRatingInput extends RatingCategoryScoresInput {
   rateeId: string;
   score: number;
   comment?: string;
 }
 
-export interface UpdateRatingInput {
+export interface UpdateRatingInput extends RatingCategoryScoresInput {
   score: number;
   comment?: string;
 }

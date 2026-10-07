@@ -1,4 +1,4 @@
-import { PriceCalculationMethod, QuoteRequest, QuoteResponse } from "@movo/shared";
+import { DemandContext, PriceCalculationMethod, QuoteBreakdown, QuoteRequest, QuoteResponse } from "@movo/shared";
 
 /**
  * Cliente HTTP hacia `POST /quote` de `movo-svc-pricing-logistics` (MOVO-82) —
@@ -19,11 +19,20 @@ export interface QuoteInput {
   destinationLat?: number;
   destinationLng?: number;
   urgent?: boolean;
+  /** MOVO-138 (ADR-025): conteos de la zona de retiro. Sin esto no hay recargo. */
+  demandContext?: DemandContext;
+  /** Solo el módulo demo (juego de precios): pide el desglose de la fórmula. */
+  includeBreakdown?: boolean;
 }
 
 export interface QuoteResult {
   suggestedPriceArs: number | null;
   calculationMethod: PriceCalculationMethod | null;
+  /** MOVO-138: `null` junto con un precio nulo, o si pricing no lo informó (versión
+   * anterior a `demand_fuel_routes_v1` desplegada). No equivale a `false`. */
+  highDemand: boolean | null;
+  /** Solo si se pidió `includeBreakdown` y pricing lo devolvió. */
+  breakdown?: QuoteBreakdown;
 }
 
 export interface PricingClient {
@@ -39,7 +48,7 @@ export interface PricingClientConfig {
 // tiempo antes de resolver al fallback.
 const REQUEST_TIMEOUT_MS = 3000;
 
-const NO_QUOTE: QuoteResult = { suggestedPriceArs: null, calculationMethod: null };
+const NO_QUOTE: QuoteResult = { suggestedPriceArs: null, calculationMethod: null, highDemand: null };
 
 const REQUIRED_NUMERIC_FIELDS = [
   "weightKg",
@@ -87,6 +96,8 @@ export function createPricingClient(config: PricingClientConfig): PricingClient 
         heightCm: input.heightCm,
         packageType: input.packageType,
         urgent: input.urgent ?? false,
+        ...(input.demandContext ? { demandContext: input.demandContext } : {}),
+        ...(input.includeBreakdown ? { includeBreakdown: true } : {}),
       };
 
       let data: QuoteResponse;
@@ -109,7 +120,13 @@ export function createPricingClient(config: PricingClientConfig): PricingClient 
         return NO_QUOTE;
       }
 
-      return { suggestedPriceArs: data.suggestedPriceArs, calculationMethod: data.calculationMethod };
+      return {
+        suggestedPriceArs: data.suggestedPriceArs,
+        calculationMethod: data.calculationMethod,
+        // Tolera un pricing todavía sin `highDemand` (deploys desfasados entre servicios).
+        highDemand: typeof data.highDemand === "boolean" ? data.highDemand : null,
+        ...(input.includeBreakdown && data.breakdown ? { breakdown: data.breakdown } : {}),
+      };
     },
   };
 }

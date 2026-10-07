@@ -23,6 +23,7 @@ import notificationsRoutes, {
 import addressesRoutes from "./modules/addresses/addresses.routes";
 import deviceKeysRoutes from "./modules/device-keys/device-keys.routes";
 import notificationPreferencesRoutes from "./modules/notification-preferences/notification-preferences.routes";
+import moderationRoutes, { internalModerationRoutes } from "./modules/moderation/moderation.routes";
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import { SmsProvider } from "./adapters/sms-provider";
 import { EmailProvider } from "./adapters/email-provider";
@@ -103,6 +104,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.smsProvider ? { smsProvider: opts.smsProvider } : {}),
     // MOVO-139: el OTP de verificación/cambio de email y el aviso al email anterior.
     ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
+    // MOVO-274: push de "contraseña cambiada" (cambio de contraseña logueado).
+    ...(opts.pushProvider ? { pushProvider: opts.pushProvider } : {}),
   };
   app.register(usersRoutes, usersRouteOpts);
 
@@ -113,12 +116,15 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     prefix: "/auth",
     ...(opts.smsProvider ? { smsProvider: opts.smsProvider } : {}),
     ...(opts.emailProvider ? { emailProvider: opts.emailProvider } : {}),
+    // MOVO-274: push de "contraseña cambiada" (recuperación de contraseña).
+    ...(opts.pushProvider ? { pushProvider: opts.pushProvider } : {}),
   };
   app.register(authRoutes, authRouteOpts);
 
   const kycRouteOpts: KycRoutesOptions = {
     prefix: "/kyc",
     ...(opts.diditClient ? { diditClient: opts.diditClient } : {}),
+    ...(opts.pushProvider ? { pushProvider: opts.pushProvider } : {}),
   };
   app.register(kycRoutes, kycRouteOpts);
 
@@ -156,6 +162,13 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // MOVO-245: /users/me/notification-preferences -- protegida, ya cubierta por el
   // prefijo /users existente en gateway/src/config/routes-map.ts (sin cambios ahí).
   app.register(notificationPreferencesRoutes, { prefix: "/users" });
+
+  // MOVO-175: reportar/bloquear bajo /users (ya proxeado por el gateway) + la unión
+  // simétrica de bloqueos para svc-shipments bajo /internal (no proxeado).
+  // MOVO-256: las fotos de reportes usan el mismo StorageProvider (override de tests).
+  const storageOverride = opts.storageProvider ? { storageProvider: opts.storageProvider } : {};
+  app.register(moderationRoutes, { prefix: "/users", ...storageOverride });
+  app.register(internalModerationRoutes, { prefix: "/internal", ...storageOverride });
 
   return app;
 }

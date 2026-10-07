@@ -22,7 +22,7 @@ function makeShipment(overrides: Partial<ActiveShipmentSummary> = {}): ActiveShi
     agreedPriceArs: 4500,
     counterparty: { name: "Lucía Gómez", initials: "LG" },
     isToday: false,
-    pickupWindowExpired: false,
+    pickupWindowExpired: false, tripId: null,
     ...overrides,
   };
 }
@@ -41,6 +41,7 @@ describe("activeShipmentCta (MOVO-193 AC5, recortado a sending/receiving)", () =
   it("emisor + in_transit -> Ver en el mapa, variante secundaria (negra, no lime)", () => {
     const cta = activeShipmentCta("sending", makeShipment({ status: "in_transit" }));
     expect(cta).toEqual({
+      action: "live_tracking",
       label: "Ver en el mapa",
       destination: "MOVO-203/MOVO-11 · Tracking en vivo",
       variant: "secondary",

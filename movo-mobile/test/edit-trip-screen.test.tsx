@@ -47,6 +47,7 @@ const TRIP: TripWithAcceptedPackages = {
   createdAt: "2026-09-03T12:00:00.000Z",
   updatedAt: "2026-09-03T12:00:00.000Z",
   hasAcceptedPackages: false,
+  acceptedPackagesCount: 0,
 };
 
 // El TripForm en sí ya tiene su propia cobertura completa (trip-form.test.tsx) —
@@ -82,7 +83,7 @@ describe("EditTripScreen", () => {
 
   it("AC4: muestra el mensaje bloqueado en vez del form si el viaje tiene paquetes aceptados", async () => {
     mockUseTrip.mockReturnValue({
-      data: { ...TRIP, hasAcceptedPackages: true },
+      data: { ...TRIP, hasAcceptedPackages: true, acceptedPackagesCount: 1 },
       isLoading: false,
       isError: false,
       refetch: jest.fn(),

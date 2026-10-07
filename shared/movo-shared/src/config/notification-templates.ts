@@ -21,6 +21,12 @@ export type NotificationTriggerKey =
   | "shipmentRejected"
   | "shipmentCancelledConfirmationTimeout"
   | "shipmentCancelledPickupExpired"
+  | "shipmentCancelledRedesignationExpired"
+  | "shipmentCancelledPickupMissedSender"
+  | "shipmentCancelledPickupMissedReceiver"
+  | "shipmentCancelledPickupMissedCarrier"
+  | "offersNeedReview"
+  | "transitAnomalyCheck"
   | "offerCreated"
   | "offerAccepted"
   | "offerSuperseded"
@@ -34,7 +40,19 @@ export type NotificationTriggerKey =
   | "custodyDeliveryConfirmedSender"
   | "custodyDeliveryConfirmedCarrier"
   | "tripStartedSender"
-  | "tripStartedReceiver";
+  | "tripStartedReceiver"
+  | "kycIdentityApproved"
+  | "kycIdentityRejected"
+  | "kycIdentityManualReview"
+  | "kycLicenseApproved"
+  | "kycLicenseRejected"
+  | "kycLicenseManualReview"
+  | "accountPasswordChanged"
+  | "accountEmailChanged"
+  | "accountPhoneChanged"
+  | "ratingPendingSender"
+  | "ratingPendingReceiver"
+  | "ratingPendingCarrier";
 
 export interface NotificationCopy {
   title: string;
@@ -86,10 +104,19 @@ export const NOTIFICATION_TRIGGERS = {
     { title: "Envío aceptado", body: "El receptor aceptó el envío, ya está publicado." },
     ({ receiverName }) => ({ title: "Envío aceptado", body: `${receiverName} aceptó el envío, ya está publicado` })
   ),
+  // MOVO-253: el rechazo ya no es terminal, el emisor puede elegir otro receptor.
   shipmentRejected: definition<{ receiverName: string }>(
     "shipments",
-    { title: "Envío rechazado", body: "El receptor rechazó el envío." },
-    ({ receiverName }) => ({ title: "Envío rechazado", body: `${receiverName} rechazó el envío` })
+    { title: "Envío rechazado", body: "El receptor rechazó el envío. Podés elegir otro receptor." },
+    ({ receiverName }) => ({
+      title: "Envío rechazado",
+      body: `${receiverName} rechazó el envío. Podés elegir otro receptor.`,
+    })
+  ),
+  shipmentCancelledRedesignationExpired: definition<void>(
+    "shipments",
+    { title: "Envío cancelado", body: "Tu envío se canceló: no elegiste otro receptor a tiempo." },
+    () => ({ title: "Envío cancelado", body: "Tu envío se canceló: no elegiste otro receptor a tiempo" })
   ),
   shipmentCancelledConfirmationTimeout: definition<{ receiverName: string }>(
     "shipments",
@@ -105,6 +132,54 @@ export const NOTIFICATION_TRIGGERS = {
     () => ({
       title: "Envío cancelado",
       body: "Tu envío se canceló: ningún transportista lo retiró dentro de la ventana publicada",
+    })
+  ),
+  // MOVO-258 (D1/D2): envío con transportista cuya ventana de retiro venció hace más de
+  // el margen de gracia. Se cancela sin culpables: el sistema no puede saber quién faltó.
+  shipmentCancelledPickupMissedSender: definition<void>(
+    "shipments",
+    { title: "Envío cancelado", body: "Tu envío se canceló: el retiro no se realizó dentro del plazo acordado." },
+    () => ({
+      title: "Envío cancelado",
+      body: "Tu envío se canceló: el retiro no se realizó dentro del plazo acordado",
+    })
+  ),
+  shipmentCancelledPickupMissedReceiver: definition<void>(
+    "shipments",
+    { title: "Envío cancelado", body: "El envío que ibas a recibir se canceló: el retiro no se realizó a tiempo." },
+    () => ({
+      title: "Envío cancelado",
+      body: "El envío que ibas a recibir se canceló: el retiro no se realizó a tiempo",
+    })
+  ),
+  shipmentCancelledPickupMissedCarrier: definition<void>(
+    "shipments",
+    { title: "Envío cancelado", body: "El envío se canceló: el retiro no se realizó dentro del plazo acordado." },
+    () => ({
+      title: "Envío cancelado",
+      body: "El envío se canceló: el retiro no se realizó dentro del plazo acordado",
+    })
+  ),
+  // MOVO-258 (D6): llegó el día de retiro de un envío publicado sin oferta aceptada, pero
+  // todavía hay ofertas vigentes.
+  offersNeedReview: definition<{ pendingCount: number }>(
+    "offers",
+    { title: "Tenés ofertas para revisar", body: "Hoy es el día de retiro de tu envío y todavía no elegiste una oferta." },
+    ({ pendingCount }) => ({
+      title: "Tenés ofertas para revisar",
+      body:
+        pendingCount === 1
+          ? "Hoy es el día de retiro de tu envío y tenés 1 oferta vigente. Revisala antes de que venza."
+          : `Hoy es el día de retiro de tu envío y tenés ${pendingCount} ofertas vigentes. Revisalas antes de que venzan.`,
+    })
+  ),
+  // MOVO-258 (D4): un `in_transit` pasó su entrega estimada + 50% de la duración.
+  transitAnomalyCheck: definition<void>(
+    "shipments",
+    { title: "¿Todo bien con tu entrega?", body: "Pasó el tiempo estimado de entrega. Si tuviste un inconveniente, avisanos." },
+    () => ({
+      title: "¿Todo bien con tu entrega?",
+      body: "Pasó el tiempo estimado de entrega. Si tuviste un inconveniente, avisanos; si ya entregaste, confirmalo en la app",
     })
   ),
   offerCreated: definition<{ carrierName: string | null; deliveryShort: string }>(
@@ -257,6 +332,112 @@ export const NOTIFICATION_TRIGGERS = {
       title: "Salieron a buscar tu paquete",
       body: `${carrierName} inició su viaje camino a retirar tu paquete. Te avisamos cuando esté en camino a vos.`,
     })
+  ),
+  // MOVO-274: resultado de la verificación de identidad / licencia (Didit). Seis
+  // triggers y no uno parametrizado por tipo: el copy tiene que dejar claro de cuál de
+  // las dos verificaciones se trata, y `displayCopy` de la pantalla de Configuración
+  // muestra cada aviso tal cual. Sin datos dinámicos: nunca se menciona el motivo del
+  // rechazo ni ningún dato del documento (AC9 de MOVO-72, nada de PII en un push que
+  // se ve en la pantalla bloqueada).
+  kycIdentityApproved: definition<void>(
+    "kyc",
+    { title: "Identidad verificada", body: "Tu identidad fue verificada de manera exitosa." },
+    () => ({ title: "Identidad verificada", body: "Tu identidad fue verificada de manera exitosa." })
+  ),
+  kycIdentityRejected: definition<void>(
+    "kyc",
+    {
+      title: "No pudimos verificar tu identidad",
+      body: "Tu verificación de identidad falló. Podés volver a intentarlo desde la app.",
+    },
+    () => ({
+      title: "No pudimos verificar tu identidad",
+      body: "Tu verificación de identidad falló. Podés volver a intentarlo desde la app.",
+    })
+  ),
+  kycIdentityManualReview: definition<void>(
+    "kyc",
+    {
+      title: "Tu identidad está en revisión",
+      body: "Estamos revisando tu verificación de identidad. Te avisamos cuando tengamos el resultado.",
+    },
+    () => ({
+      title: "Tu identidad está en revisión",
+      body: "Estamos revisando tu verificación de identidad. Te avisamos cuando tengamos el resultado.",
+    })
+  ),
+  kycLicenseApproved: definition<void>(
+    "kyc",
+    { title: "Licencia verificada", body: "Verificamos tu licencia de conducir correctamente." },
+    () => ({ title: "Licencia verificada", body: "Verificamos tu licencia de conducir correctamente." })
+  ),
+  kycLicenseRejected: definition<void>(
+    "kyc",
+    {
+      title: "No pudimos verificar tu licencia",
+      body: "Tu verificación de licencia de conducir falló. Podés volver a intentarlo desde la app.",
+    },
+    () => ({
+      title: "No pudimos verificar tu licencia",
+      body: "Tu verificación de licencia de conducir falló. Podés volver a intentarlo desde la app.",
+    })
+  ),
+  kycLicenseManualReview: definition<void>(
+    "kyc",
+    {
+      title: "Tu licencia está en revisión",
+      body: "Estamos revisando tu licencia de conducir. Te avisamos cuando tengamos el resultado.",
+    },
+    () => ({
+      title: "Tu licencia está en revisión",
+      body: "Estamos revisando tu licencia de conducir. Te avisamos cuando tengamos el resultado.",
+    })
+  ),
+  // MOVO-274: cambio de contraseña confirmado (logueado, MOVO-134, o por recuperación,
+  // MOVO-140). Va a TODOS los dispositivos con push registrado -- el que hizo el
+  // cambio y los demás, que además quedaron deslogueados. No incluye ningún dato de la
+  // contraseña ni del dispositivo.
+  accountPasswordChanged: definition<void>(
+    "account_security",
+    {
+      title: "Cambiaste tu contraseña",
+      body: "La contraseña de tu cuenta se cambió. Por seguridad, cerramos tus otras sesiones.",
+    },
+    () => ({
+      title: "Cambiaste tu contraseña",
+      body: "La contraseña de tu cuenta se cambió. Por seguridad, cerramos tus otras sesiones.",
+    })
+  ),
+  // MOVO-274: cambio de email / teléfono confirmado por OTP (MOVO-133/139). Sin la
+  // dirección ni el número en el texto: el push se ve en la pantalla bloqueada.
+  accountEmailChanged: definition<void>(
+    "account_security",
+    { title: "Cambiaste tu email", body: "El email de tu cuenta se actualizó correctamente." },
+    () => ({ title: "Cambiaste tu email", body: "El email de tu cuenta se actualizó correctamente." })
+  ),
+  accountPhoneChanged: definition<void>(
+    "account_security",
+    { title: "Cambiaste tu teléfono", body: "El teléfono de tu cuenta se actualizó correctamente." },
+    () => ({ title: "Cambiaste tu teléfono", body: "El teléfono de tu cuenta se actualizó correctamente." })
+  ),
+  // MOVO-274: calificación pendiente, solo al confirmarse la entrega (sin recordatorio
+  // diferido por ahora). Copy propio por rol, mismo pareo de "interacción física" que
+  // `pending-rating.ts` (MOVO-222): emisor y receptor califican al transportista, el
+  // transportista califica a emisor y receptor.
+  ratingPendingSender: definition<void>(
+    "ratings",
+    { title: "Calificá a tu transportista", body: "Tu envío fue entregado. Contanos cómo fue tu experiencia." },
+    () => ({ title: "Calificá a tu transportista", body: "Tu envío fue entregado. Contanos cómo fue tu experiencia." })
+  ),
+  ratingPendingReceiver: definition<void>(
+    "ratings",
+    { title: "Calificá a tu transportista", body: "Recibiste tu paquete. Contanos cómo fue tu experiencia." },
+    () => ({ title: "Calificá a tu transportista", body: "Recibiste tu paquete. Contanos cómo fue tu experiencia." })
+  ),
+  ratingPendingCarrier: definition<void>(
+    "ratings",
+    { title: "Calificá tu entrega", body: "Completaste la entrega. Calificá al emisor y al receptor." },
+    () => ({ title: "Calificá tu entrega", body: "Completaste la entrega. Calificá al emisor y al receptor." })
   ),
 };
 

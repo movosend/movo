@@ -10,7 +10,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQueryClient } from "@tanstack/react-query";
 import { PhotoPicker } from "../../../components/profile/photo-picker";
 import { ProfileSkeleton } from "../../../components/profile/profile-skeleton";
@@ -59,6 +59,7 @@ const BIO_MAX_LENGTH = 280;
  */
 export default function EditProfileScreen() {
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const { scrollRef, onScroll } = useKeyboardScroll();
   const { data: profile, isLoading, isError, error, refetch } = useMyProfile();
@@ -184,7 +185,7 @@ export default function EditProfileScreen() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
+    <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
       <Header onBack={handleBack} colorFg={colors.fg1} />
       <KeyboardAvoidingView
         className="flex-1"
@@ -195,7 +196,7 @@ export default function EditProfileScreen() {
           ref={scrollRef}
           testID="edit-profile-content"
           className="flex-1 px-5"
-          contentContainerClassName="pb-8"
+          contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
           keyboardShouldPersistTaps="handled"
           onScroll={onScroll}
           scrollEventThrottle={16}

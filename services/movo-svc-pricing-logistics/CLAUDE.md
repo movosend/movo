@@ -160,4 +160,79 @@ inviabilidad por ventana horaria vencida, Cache Hit vs Cache Miss en Redis, lím
 candidatos 422 y propagación de error 502). Suite completa en verde (26/26 tests, 88%
 cobertura total). `ruff` y `mypy` limpios.
 
+### MOVO-216 — Spike: pricing dinámico (demanda + combustible)
+
+Entregables en `docs/pricing/` (`pricing-spike-report.md`, `pricing_prototype.py`, solo
+stdlib, `--offline` opcional). Insumo directo de MOVO-138. Conclusiones: el combustible sale
+de la API CKAN de la Secretaría de Energía (Res. 314/2016, solo HTTP): mediana nacional de
+nafta súper con **filtro de frescura de 30 días obligatorio** (sin él, la mediana subestima
+~40% por declaraciones viejas), cache Redis de 24h + último valor bueno 7d + fallback de
+config, con degradación permitida (a diferencia de la política No-Fallback del ruteo).
+Coeficientes de la tarifa en litros de nafta, así se indexan con el surtidor. Alta demanda =
+`(publicados en 15 km + 1) / transportistas distintos ≥ 3` con mínimo de 4 envíos, recargo
+de 10% a 30%, calibrado con Monte Carlo. Los conteos los calcula `svc-shipments` y los manda
+como `demandContext` opcional (ADR-019 intacto). Respuesta sin `breakdown` (no tiene
+consumidores; pasa al log `pricing_quote_computed`) y con `highDemand`, que `svc-shipments`
+persiste en `shipments.high_demand` (nullable: `NULL` = sin cotización). Si falla Google,
+`/quote` degrada a Haversine x 1,3 (`distanceSource` en el log): excepción acotada a la
+política No-Fallback, que sigue vigente para `/optimize/route` y `/routes/evaluate-candidates`.
+Decisiones en ADR-025; implementación en MOVO-138.
+
+### MOVO-138 — `POST /quote` con `demand_fuel_routes_v1` (ADR-025)
+
+Reemplaza `euclidean_linear_v1` según el spike MOVO-216. `app/services/pricing.py` (fórmula,
+recargo por demanda, log `pricing_quote_computed` con el desglose), `app/services/fuel_price.py`
+(nuevo), `app/services/routes_provider.py#compute_route_km`. Respuesta sin `breakdown`, con
+`highDemand` (verdadero si y solo si hubo recargo). Coeficientes y parámetros de demanda en
+config (`PRICING_*_L`, `PRICING_DEMAND_*`); `PRICING_*_ARS` de MOVO-82 eliminados.
+
+- **`FuelPriceProvider`** (molde de ADR-012): `mock` por default, `energia` consulta la API
+  CKAN con cache Redis 24h → último valor bueno 7d → fallback de config. Dos agregados al
+  diseño del spike: **backoff de 10 min** tras una falla o un valor rechazado (sin esto, con
+  la API caída cada cotización pagaba el timeout), y **presupuesto total de 2s** para toda la
+  consulta, incluida la vía alternativa `datastore_search` (el prototipo le daba 10s). Un
+  **lock `SET NX EX 10`** evita el estampido cuando vence el valor fresco: solo una
+  cotización consulta la API y las concurrentes sirven `:lkg`/config. Sin Redis devuelve el
+  valor de config, nunca consulta la API en cada cotización.
+- **Matriz 1x1 para `/quote`**: `compute_matrix([origen, destino])` pedía una 2x2 (4
+  elementos facturados por cotización); `compute_route_km` pide uno solo. `_request_elements`
+  concentra el POST a Google para ambos métodos.
+- **El mock de rutas también lleva × 1,3 en `/quote`** (`distanceSource: haversine_mock`):
+  devuelve línea recta, y sin el factor dev/CI cotizaban ~30% por debajo de Google. El mock
+  de `/optimize` no cambia.
+- **Fallback a Haversine × 1,3** si Google falla, timeout de 1,5s o distancia 0; No-Fallback
+  intacto en `/optimize/route` y `/routes/evaluate-candidates`. El 1,5s es un
+  `asyncio.wait_for` total (el `timeout` de httpx es por fase), y combustible y distancia se
+  consultan en paralelo: el peor caso es ~2s, dentro de los 3s de `pricing-client.ts`.
+- **`main.py` configura logging**: los `logger.info` de `app.*` no salían a ningún lado (root
+  en WARNING sin handler), incluido el log que reemplaza al desglose. Ese log sirve para
+  recalibrar, no como evidencia de disputas (MOVO-30): no lleva `shipmentId` ni
+  `x-request-id` y la rotación de `json-file` no lo hace durable. Si MOVO-30 lo necesita,
+  habría que persistir el desglose en `shipments`.
+- **Tests de cache contra Redis real** (`tests/test_fuel_price.py`, base 15): se saltean en
+  local sin Redis y fallan en CI (`CI=true`); `pr-checks.yml` suma Redis al job de Python.
+
+Pendiente: `FUEL_PRICE_PROVIDER=energia` sin cargar en Secrets Manager (dev cotiza con el
+precio fijo de config). La API de Energía respondió en 1,38s en la prueba real: dentro del
+presupuesto de 2s pero con poco margen.
+
+### Juego de precios de la feria — desglose opt-in en `POST /quote`
+
+`QuoteRequest.includeBreakdown` (default `false`) devuelve en `breakdown` el mismo
+desglose que ya iba al log `pricing_quote_computed` (distancia y su fuente, nafta y su
+fuente, base/distancia/peso, factor de paquete, demanda). Sin el flag la respuesta es
+idéntica a antes (`response_model_exclude_none`). Solo lo pide el módulo `demo` de
+`movo-svc-shipments`; el flujo del emisor sigue sin desglose (ADR-025 intacto, ver ADR-030).
+
+### Juego del optimizador de la feria — `objective`/`matrix` en `/optimize/route` y `POST /routes/matrix` (ADR-031)
+
+Dos opt-in en `OptimizeRouteRequest`, sin cambios para el flujo de transportistas:
+`objective` (`time` por default, como hasta ahora; `distance` usa un callback en metros
+enteros como costo de arco y deja la dimensión de tiempo como estaba) y `matrix`
+(`{ distKm, timeMin }` precalculada en orden canónico; si viene no se llama al provider,
+422 si no es NxN con los puntos del request, y `calculationMethod:
+precomputed_matrix_vrptw_v1`). `POST /routes/matrix` (`app/routers/routes_matrix.py`)
+devuelve la matriz del provider para 2 a 25 puntos (límite de 625 elementos de Google) con
+`elementsBilled` (0 en el mock). Solo los usa el módulo `demo` de `svc-shipments`, que pide
+la matriz de cada ciudad una vez y la cachea. Tests en `tests/test_optimize_demo_opt_ins.py`.
 

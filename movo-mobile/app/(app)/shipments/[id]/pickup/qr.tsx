@@ -3,7 +3,7 @@ import { HelpCircle, QrCode } from "lucide-react-native";
 import { Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../../../../../components/auth/primary-button";
-import { PickupWizardStepHeader } from "../../../../../components/shipments/pickup-wizard-step-header";
+import { WizardStepHeader } from "../../../../../components/shipments/wizard-step-header";
 import { usePublicProfile } from "../../../../../src/hooks/use-profile";
 import { useShipment } from "../../../../../src/hooks/use-shipments";
 
@@ -22,7 +22,7 @@ export default function PickupQrNoticeScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-bg">
-      <PickupWizardStepHeader
+      <WizardStepHeader
         testIDPrefix="pickup-qr"
         title="Antes de empezar"
         step={3}

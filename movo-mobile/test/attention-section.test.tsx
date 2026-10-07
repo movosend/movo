@@ -58,6 +58,38 @@ describe("AttentionSection (MOVO-193)", () => {
     expect(onPress).not.toHaveBeenCalled();
   });
 
+  it("MOVO-253: la tarea de rechazo muestra motivo y plazo, y su CTA elige otro receptor", async () => {
+    const onPress = jest.fn();
+    const onChooseReceiver = jest.fn();
+    mockUseAttentionTasks.mockReturnValue({
+      tasks: [
+        {
+          kind: "rejected",
+          id: "t3",
+          shipmentId: "shipment-3",
+          title: "Lucía rechazó tu envío",
+          meta: "Iba a San Martín 450",
+          reason: "No estoy en la ciudad",
+          deadlineLabel: "Tenés hasta mañana 18:00",
+          onPress,
+          onChooseReceiver,
+        },
+      ],
+      isLoading: false,
+    });
+
+    const { getByText, getByTestId } = await render(<AttentionSection testID="attention" />);
+
+    expect(getByText("Lucía rechazó tu envío")).toBeTruthy();
+    expect(getByTestId("attention-task-t3-reason")).toHaveTextContent("“No estoy en la ciudad”");
+    expect(getByTestId("attention-task-t3-deadline")).toHaveTextContent(
+      "Tenés hasta mañana 18:00 para elegir a otra persona",
+    );
+    await fireEvent.press(getByTestId("attention-task-t3-primary"));
+    expect(onChooseReceiver).toHaveBeenCalledTimes(1);
+    expect(onPress).not.toHaveBeenCalled();
+  });
+
   it("una tarea de confirmación muestra Rechazar/Aceptar y abre el sheet real de confirmación", async () => {
     const onPress = jest.fn();
     mockUseAttentionTasks.mockReturnValue({

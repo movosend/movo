@@ -7,6 +7,7 @@ function mapPosition(row: CarrierPositionRow): CarrierPosition {
   return {
     id: row.id,
     shipmentId: row.shipmentId,
+    tripId: row.tripId,
     lat: row.lat.toNumber(),
     lng: row.lng.toNumber(),
     accuracyM: row.accuracyM.toNumber(),
@@ -38,6 +39,7 @@ export function createPositionRepository(db: PrismaClient): PositionRepository {
       const created = await db.carrierPosition.create({
         data: {
           shipmentId: input.shipmentId,
+          tripId: input.tripId,
           lat: input.lat,
           lng: input.lng,
           accuracyM: input.accuracyM,
@@ -62,7 +64,9 @@ export function createPositionRepository(db: PrismaClient): PositionRepository {
 
     async deleteAllForCarrier(carrierId: string): Promise<number> {
       const result = await db.carrierPosition.deleteMany({
-        where: { shipment: { carrierId } },
+        where: {
+          OR: [{ shipment: { carrierId } }, { trip: { carrierId } }],
+        },
       });
       return result.count;
     },

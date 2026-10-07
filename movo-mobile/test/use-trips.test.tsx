@@ -4,7 +4,10 @@ import type { ReactNode } from "react";
 
 jest.mock("../src/api/trips-client", () => ({
   ...jest.requireActual("../src/api/trips-client"),
-  tripsClient: { create: jest.fn() },
+  tripsClient: {
+    create: jest.fn(),
+    start: jest.fn(),
+  },
 }));
 
 const mockMarkTripAsSeen = jest.fn().mockResolvedValue(undefined);
@@ -13,10 +16,11 @@ jest.mock("../src/lib/seen-trips", () => ({
 }));
 
 import { TripStatus, tripsClient } from "../src/api/trips-client";
-import { useCreateTrip } from "../src/hooks/use-trips";
+import { useCreateTrip, useStartTrip } from "../src/hooks/use-trips";
 import type { CreateTripInput, Trip } from "../src/api/trips-client";
 
 const mockCreate = tripsClient.create as jest.Mock;
+const mockStart = tripsClient.start as jest.Mock;
 
 function wrapper({ children }: { children: ReactNode }) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -55,5 +59,22 @@ describe("useCreateTrip (MOVO-236)", () => {
     });
 
     await waitFor(() => expect(mockMarkTripAsSeen).toHaveBeenCalledWith("trip-nuevo"));
+  });
+});
+
+describe("useStartTrip (MOVO-252)", () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it("inicia el viaje llamando a tripsClient.start con el id correspondiente", async () => {
+    const startedTrip: Trip = { ...FAKE_TRIP, id: "trip-1", status: TripStatus.ACTIVE };
+    mockStart.mockResolvedValue(startedTrip);
+
+    const { result } = await renderHook(() => useStartTrip(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync("trip-1");
+    });
+
+    expect(mockStart).toHaveBeenCalledWith("trip-1");
   });
 });

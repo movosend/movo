@@ -3409,6 +3409,205 @@ Pantalla completa de itinerario y mapa de ruta optimizada para el transportista 
 
 - **Compatibilidad con MOVO-235 (`tripId`)**: `shipmentsClient.getMyRoute(coords, tripId?)` y `useOptimizedRoute(tripId?)` preparados para aceptar opcionalmente un `tripId` (por parámetro y por query param en `/route?tripId=...`), manteniendo retrocompatibilidad total si no se envía.
 
+### MOVO-199 — Wizard de entrega del transportista: proximidad, evidencia y generación de QR
+
+Hermano de `MOVO-198` (retiro, ya en `develop`), con los roles del handshake
+**invertidos** (confirmado contra `handshake.service.ts`): el **transportista**
+saca las fotos y **genera** el QR (`MOVO-197` + `useHandshakeQr`/`HandshakeQrCard`,
+ya existentes de la implementación original de `MOVO-159`); el **receptor**
+escanea, fuera de este wizard (`MOVO-160`). Ruta nueva de 5 pasos bajo `app/(app)/
+shipments/[id]/delivery/` (`_layout.tsx` + `index.tsx`/`resumen.tsx`/`aviso.tsx`/
+`evidence.tsx`/`qr.tsx`/`success.tsx`), `src/hooks/use-delivery-wizard.ts` (gate,
+calcado de `use-pickup-wizard.ts`).
+
+- **Extensión de alcance sobre el AC2 literal del ticket (4 pasos), pedida
+  explícitamente por el usuario**: "deberíamos verificar la ubicación de entrega,
+  igual que en el retiro, es una de las características principales de Movo" — se
+  suma un paso 1 de proximidad/GPS contra `shipment.deliveryLat/Lng`, igual que el
+  AC4 de `MOVO-198` para retiro. Wizard final: geo → resumen → aviso → evidencia →
+  QR → confirmación.
+- **El aviso del AC4 ("el receptor tiene que abrir su app y escanear") es un paso
+  propio (`aviso.tsx`)**, no una card dentro del resumen (así era en la primera
+  versión, y el usuario lo pidió igual que en el retiro): espejo de `pickup/qr.tsx`
+  con el nombre real del receptor. Va antes de la evidencia, igual que en el retiro,
+  para que el receptor tenga el tiempo de las fotos para abrir la app.
+- **`ProximityGeoScreen` extraído** (`components/shipments/proximity-geo-screen.tsx`)
+  del antiguo `pickup/index.tsx`: ese archivo (mapa real + pulso GPS + círculo de
+  100m, ~300 líneas) no tenía nada específico de pickup pese al nombre, ya recibía
+  coordenadas por parámetro. Ahora es un componente compartido parametrizado
+  (`targetLat/Lng`, `counterpartId`/`counterpartFallbackLabel`, copy por prop —
+  género de "el retiro"/"la entrega" en español no se puede derivar de un
+  sustantivo genérico) — `pickup/index.tsx` y `delivery/index.tsx` son wrappers
+  delgados. `usePickupProximityCheck`/`use-pickup-proximity-check.ts` renombrados a
+  `useProximityCheck`/`use-proximity-check.ts` en el mismo movimiento, sin cambio de
+  comportamiento (mismos 100m). `components/shipments/pickup-wizard-step-header.tsx`
+  también renombrado a `wizard-step-header.tsx` (`WizardStepHeader`) — no tenía
+  nada de pickup, solo el nombre lo sugería.
+- **`useHandshakeQr` gana `onEvidenceMissing` opcional** (mismo patrón
+  retrocompatible que `onEvidenceMissing` de `HandshakeScanStep`, MOVO-198): un
+  rechazo por `DELIVERY_EVIDENCE_MISSING`/`PICKUP_EVIDENCE_MISSING` en `generate()`
+  invoca el callback en vez de setear el error genérico — cubre el AC7 (vuelve al
+  paso de evidencia con el motivo). Deliberadamente NO vuelve el status a `"idle"`
+  en ese branch (retomaría el efecto de disparo automático en loop contra el mismo
+  motivo mientras el `router.replace` del caller todavía no desmontó el
+  componente). La pantalla standalone `/handshake` y `/dev-handshake` no pasan el
+  callback, sin cambio de comportamiento ahí.
+- **`ConfirmHandshakeResult` sintético en `delivery/qr.tsx`, no real**: a
+  diferencia de `pickup/scan.tsx` (que llama `confirmHandshake` y obtiene la
+  respuesta real del servidor), acá el transportista nunca confirma — el receptor
+  lo hace, fuera de este wizard. Lo único que este paso sabe es que el polling de
+  `useHandshakeQr` detectó el cambio de estado (AC6, navegación automática al paso
+  5) — `previousStatus`/`status` se completan con certeza (el gate ya garantiza
+  `IN_TRANSIT` de entrada), `distanceM` queda en `0` (sin equivalente real del lado
+  del cedente, y `HandshakeConfirmationResult` no lo renderiza).
+- **AC9 (acceso a calificar desde el éxito)**: `HandshakeConfirmationResult`
+  (compartido con pickup) gana `secondaryCtaLabel`/`onSecondaryCtaPress`
+  opcionales, retrocompatibles — un botón outline dentro de la misma hoja blanca,
+  debajo del CTA primario. Primer intento (un `Pressable` absolutamente
+  posicionado flotando sobre el componente) se descartó por superponerse con el
+  CTA que ya vive dentro de la hoja animada; la prop nueva evita esa colisión de
+  layout. `delivery/success.tsx` lo usa para abrir `RatingSheet` (MOVO-153)
+  directo con el receptor como target — reusa el componente tal cual, sin
+  reimplementar nada de la lógica de calificación. `useShipment(result.shipmentId)`
+  resuelve el `receiverId` con la misma query key que ya consume
+  `HandshakeConfirmationResult` internamente (TanStack Query dedupea).
+- **Wiring del punto de entrada real**: `app/(app)/route/index.tsx` (MOVO-207)
+  tenía `isActionDisabled={(stop) => stop.type === "delivery"}` con un comentario
+  explícito "La entrega no tiene wizard todavía" — removido, `handlePressStopAction`
+  ahora navega a `/shipments/:id/delivery` para paradas de entrega, simétrico a
+  pickup.
+- **Botón "Confirmar entrega" del detalle del envío (`shipments/[id].tsx`),
+  dejado intacto**: sigue apuntando a `/handshake` (la pantalla standalone de
+  `MOVO-159`) — mismo criterio que `MOVO-198` aplicó simétricamente para "Confirmar
+  retiro" (tampoco se rewireó). El wizard nuevo se alcanza solo desde el mapa de
+  ruta (`MOVO-207`).
+
+Tests nuevos: `test/use-delivery-wizard.test.ts` (gate, calcado del de pickup —sin
+el caso `unfunded`, no hay estado intermedio equivalente del lado de entrega),
+`test/delivery-wizard-screens.test.tsx` (_layout + los 5 pasos), casos nuevos en
+`test/use-handshake-qr.test.tsx` (`onEvidenceMissing`, con y sin callback) y en
+`test/handshake-confirmation-result.test.tsx` (CTA secundario). Ajustados sin
+cambio de comportamiento: `test/pickup-wizard-screens.test.tsx` (un testID de
+marcador pasó de `pickup-geo-map-pickup-marker` a `-target-marker`, genérico tras
+la extracción), `test/use-proximity-check.test.ts` (renombrado junto con el hook),
+caso nuevo en `test/route-screen.test.tsx` (CTA de entrega habilitado). 146/146
+suites, 1211/1211 tests. `tsc --noEmit` limpio.
+
+**Rediseño del paso del QR (post-QA, aplica también al QR del emisor en el retiro,
+`shipments/[id]/handshake.tsx` — ambos montan `HandshakeQrCard`).** Sin countdown ni
+barra de progreso: `useHandshakeQr` renueva el nonce solo, 3s antes del `expiresAt` del
+backend (`HANDSHAKE_QR_REFRESH_LEAD_MS`), dejando el QR vigente en pantalla mientras
+pide el siguiente — el estado `"expired"` y `secondsLeft`/`progressPercent` ya no
+existen. Solo un error (GPS, distancia, red) corta la renovación, saca el QR y ofrece
+"Reintentar". Visualmente, la sombra queda solo en el recuadro blanco del QR (antes la
+tenía la card contenedora y el logo central). `useScanBrightness` (nuevo, sobre
+`expo-brightness` — **módulo nativo nuevo, requiere rebuild del dev client**) sube el
+brillo al máximo mientras el QR está montado y lo repone al desmontar o pasar a
+background (iOS guarda el valor previo; Android usa `restoreSystemBrightnessAsync`).
+Mock global en `test/mocks/expo-brightness-mock.js`. El encabezado (badge lima +
+`text-title`/`text-body`) quedó alineado arriba igual que el paso de evidencia, con el
+QR centrado en el espacio restante (el aviso "se renueva solo" va en absoluto debajo
+para no correr el centrado, y el paso del wizard usa un `View` plano en vez de
+`ScrollView` para que ese espacio ocupe todo el alto), y se sacó el bloque `__DEV__` de "Simulación &
+Pruebas" (`onSimulateScan` ya no existe) — para probar sin segundo dispositivo queda
+`/dev-handshake`.
+
+**Fixes de review (PR #188):**
+- **El QR no se traba si el receptor confirma justo antes de una renovación**:
+  `generateHandshake` falla contra un envío que ya avanzó de estado, y antes el `catch`
+  cortaba el polling y mostraba un error sin salida. Ahora `useHandshakeQr` consulta
+  el envío (`checkConfirmed`, la misma función que usa el polling) antes de mostrar
+  cualquier error, y si ya se confirmó va al éxito.
+- **El gate de `pickup/_layout.tsx` y de `delivery/_layout.tsx` queda fijo una vez que
+  dio `ready`**, en vez de protegerse solo con el resultado guardado: un refetch que
+  viera `delivered`/`in_transit` antes de que el paso guardara el resultado desmontaba
+  los pasos y tapaba la pantalla de éxito.
+- El paso del QR de entrega muestra `HandshakeDeviceKeyWarning` (antes ignoraba la
+  clave y quedaba en `idle` sin motivo ni reintento). Además, `EvidenceStatusError`
+  (nuevo, compartido con `pickup/scan.tsx`) muestra el error cuando falla la consulta
+  de evidencia sin datos en caché: antes redirigía a evidencia en bucle.
+- `useScanBrightness` repone el brillo con cualquier estado distinto de `active`
+  (incluye `inactive` en iOS) y encola las llamadas nativas para que un `restore()`
+  al desmontar nunca quede antes de un `raise()` en vuelo.
+
+Pendiente / fuera de alcance: DoD de dos dispositivos reales (transportista genera,
+receptor escanea) y prueba en dispositivo físico de cámara/GPS — no verificables en
+este entorno, mismo criterio ya documentado en MOVO-198/159/160.
+
+### MOVO-247 — Splash screen animado (opción "1A · Expansión", Claude Design)
+
+Reemplaza el splash "horrible" que había hasta acá: un `expo-splash-screen` nativo
+sin imagen (fondo en blanco, sin marca) seguido de un `ActivityIndicator` genérico
+en `app/index.tsx` mientras se resolvía la sesión, y encima un salto visible ("push")
+si esa resolución terminaba mandando a Home/Kyc — se veía la pantalla de Bienvenida
+un instante antes de la navegación automática. Implementación fiel a la opción "1a ·
+Expansión" del prototipo de Claude Design (proyecto "Launch screen con animación de
+logo", leído vía `DesignSync` — el isotipo respira en grises mientras carga, se
+enciende en lime de adentro hacia afuera y se expande desde el centro revelando la
+app).
+
+- **`components/splash/animated-splash.tsx` (nuevo)**: no es una traducción literal
+  del `clip-path` que arma el `.dc.html` del prototipo — `react-native-svg` no lo
+  aplica de forma confiable (mismo gotcha ya documentado en `app/(auth)/kyc.tsx`
+  para un `<image>` recortado). En su lugar, cada uno de los 4 anillos del isotipo
+  (mismos radios relativos que `MovoIsotype`) apila 3 discos planos (base gris,
+  resalte de "respiración", lime de salida) que se cross-fadean por opacidad —
+  matemáticamente equivalente al `lerp` de color del mock (alpha-blend de un color
+  sólido sobre otro) sin depender de `interpolateColor`. El "revelado" final tampoco
+  es un clip-path creciente sobre la app: es un fundido a opacidad 0 de TODO el
+  overlay una vez que el conjunto ya terminó de expandirse — la app real ya está
+  montada y navegada detrás (ver el punto de "sin push" más abajo), así que un fundido
+  simple alcanza y es mucho más robusto que intentar clonar el `clip-path` del mock.
+- **Nota de consistencia de color del ticket (AC5), resuelta sin excepción real**: el
+  prototipo ya trae dos variantes propias (light/dark) — el splash sigue el
+  `colorScheme` del sistema igual que el resto de la app (MOVO-73), sin ningún
+  conflicto real con el manual de marca que negociar.
+- **Sin push visible (arquitectura de boot)**: antes, `app/_layout.tsx` montaba TODO
+  el árbol (incluido `<Stack>`) recién cuando fuentes+apiOverride+sesión estaban
+  listos, y solo ahí `app/index.tsx` arrancaba a resolver a dónde navegar — con el
+  splash nativo ya escondido en ese momento, el usuario veía la Bienvenida un
+  instante antes del salto. Ahora el árbol real se monta apenas hay fuentes
+  (`fontsLoaded`, lo único que el propio `AnimatedSplash` necesita para su wordmark)
+  y el splash JS quedó como overlay encima de `<Stack>`, tapando esa resolución
+  mientras corre detrás. `src/store/boot-store.ts` (`useBootStore`, Zustand chico
+  nuevo) expone `initialRouteResolved`, que `app/index.tsx` prende recién cuando ya
+  llamó (o decidió no llamar) a `router.replace` — el splash no empieza su salida
+  hasta que esa señal, más fuentes/apiOverride/sesión, estén todas en `true`
+  (`bootReady`). Cuidado documentado inline: `app/index.tsx` no puede marcar
+  "resuelto" apoyándose solo en `resumeChecked`/`!isAuthenticatedSession` — mientras
+  `authStatus` sigue en `"checking"` esa combinación da un falso negativo (todavía no
+  se sabe si hay sesión) y revelaría la Bienvenida un instante antes de que el efecto
+  de arriba redirija.
+- **`LegalAcceptanceEntryMount` (MOVO-229) retrasado hasta que el splash ya
+  terminó**: `LegalEntrySheet` se presenta con el `Modal` nativo de RN (una capa por
+  fuera del árbol de views normal) — si se montara antes, podría aparecer POR ENCIMA
+  del splash a mitad de su animación en vez de quedar detrás, sin relación con el
+  z-order de JSX que sí respeta el resto del árbol.
+- **Pedido explícito del usuario: mínimo ~3s de animación visible** aunque el boot
+  real termine antes (para poder apreciar el efecto) — implementado redondeando ese
+  piso hacia arriba al próximo múltiplo del período de respiración (1.6s, tomado del
+  prototipo) en vez de cortar a mitad de un pulso, mismo criterio que el propio mock
+  documenta ("la salida siempre espera a que el loop termine su ciclo").
+- **`app.config.js`**: el plugin `expo-splash-screen` gana `backgroundColor`/
+  `dark.backgroundColor` (antes sin config, fondo en blanco fijo sin importar el
+  tema) — ese splash nativo estático solo tiene que tapar el hueco hasta que hay
+  fuentes cargadas, así que ya no necesita imagen propia.
+
+Tests nuevos: `test/animated-splash.test.tsx` (se mantiene tapando mientras `ready`
+es `false`, nunca termina antes de ~3s aunque `ready` sea `true` desde el arranque,
+reintenta en el próximo límite de ciclo si `ready` llega tarde, limpia su timer al
+desmontar), `test/boot-store.test.ts`, `test/welcome-screen.test.tsx` (primer test de
+`app/index.tsx` en el repo — cubre puntualmente la señal `initialRouteResolved` en
+los 5 caminos de boot, no el contenido visual ya cubierto por los tests de
+`welcome-go-register`/etc. de otras US). 147/147 suites, 1187/1187 tests en
+`movo-mobile`. `tsc --noEmit` limpio.
+
+Pendiente / fuera de alcance: validado solo con el mock oficial de Reanimated (el
+DoD del ticket pide validar en iOS y Android reales, no verificable en este entorno);
+sin imagen propia para el splash nativo estático (decisión tomada acá, ver arriba) —
+si más adelante se decide exportar un PNG del isotipo en reposo para ese frame
+inicial, es un cambio acotado a `app.config.js` + el asset, sin tocar
+`AnimatedSplash`.
 ### MOVO-244 — Batch de fixes: KYC, TyC obligatorios, sincronización de estado y varios de UI (`movo-mobile`)
 
 Batch de correcciones y mejoras funcionales y de UI en `movo-mobile`:
@@ -3436,10 +3635,13 @@ en settings" (`Notificaciones.dc.html`).
   12 filas ficticias que no coinciden con el catálogo real de MOVO-245
   (`NOTIFICATION_CATEGORIES`/`NOTIFICATION_TRIGGERS` de `@movo/shared`, subpaths
   `dist/config/notification-categories`/`dist/config/notification-templates`, nunca
-  el barrel). Catálogo real: implementadas → `custody`/`offers`/`ratings`/`shipments`
-  (sección "sending") y `trips` (sección "carrying"); "Pronto" → `proximity`/
-  `payments` (sending), `kyc`/`account_security` (account), `chat`/`disputes`
-  (conversations). Sin canal "app" (in-app, no existe todavía) y sin el punto "live"/
+  el barrel). Catálogo real al momento de MOVO-246: implementadas →
+  `custody`/`offers`/`ratings`/`shipments` (sección "sending") y `trips` (sección
+  "carrying"); "Pronto" → `proximity`/`payments` (sending), `kyc`/`account_security`
+  (account), `chat`/`disputes` (conversations). MOVO-274 pasó después `kyc` y
+  `account_security` a implementadas (ver `shared/movo-shared/CLAUDE.md`): hoy los
+  "Pronto" son `proximity`/`payments`/`chat`/`disputes`, y los tests que necesitan un
+  ejemplo de "Pronto" usan `chat`. Sin canal "app" (in-app, no existe todavía) y sin el punto "live"/
   banners `critical`/`warnText` por fila del prototipo — ese campo no existe en
   `NotificationCategoryDefinition`, era solo del JS de Claude Design.
 - **Toggle maestro (AC1) es una fila agregada sobre el prototipo**, que no lo tenía
@@ -3492,3 +3694,523 @@ Pendiente / fuera de alcance: MOVO-245 (backend) sigue en PR sin mergear a
 `develop` — el `dist/` de `@movo/shared` usado durante esta US quedó de una sesión
 anterior en la misma rama; correr `npm run build` en `shared/movo-shared` de nuevo
 una vez que ese PR mergee y `develop` traiga el `dist/` real. No probado en device.
+
+### MOVO-203 — [movo-mobile] Emisión de ubicación del transportista en foreground y background
+
+Implementación del tracking y reporte de ubicación del transportista durante el
+transporte activo (fase 1: foreground + offline FIFO):
+
+- **División de alcance con MOVO-242**: El issue MOVO-242 fue creado en Linear
+  (21/09/2026) para desacoplar el background headless con `expo-task-manager` y el
+  profiling de batería de 1 hora. MOVO-203 implementa toda la arquitectura central
+  de tracking en foreground, cola offline FIFO persistida, sincronización reactiva,
+  permisos contextuales e indicadores de UI.
+- **`src/api/shipments-client.ts`**:
+  - `reportPosition(shipmentId, { lat, lng, accuracyM, capturedAt })` (`POST /shipments/:id/positions`).
+  - `getTransporting()` (`GET /shipments/transporting`).
+- **`src/location/location-service.ts`**:
+  - `LocationService` (singleton): administra la captura GPS con `expo-location`
+    (`Location.Accuracy.Balanced`) cada 25 segundos (configurable).
+  - Cola offline FIFO en memoria y persistida en `expo-secure-store`
+    (`SECURE_STORE_KEYS.carrierLocationOfflineQueue` — estrictamente sin AsyncStorage).
+  - Preserva el `capturedAt` original de cada muestra GPS.
+  - Al recuperar conexión (o en `flushQueue`), drena la cola en estricto orden FIFO.
+  - No encola ni reintenta errores terminales 403 (`SHIPMENT_NOT_IN_TRANSIT`) o 404
+    para no envenenar la cola.
+  - Se detiene inmediatamente (`stopTracking`) al completar entregas o no tener envíos
+    activos en tránsito (AC5, AC7).
+- **`src/hooks/use-carrier-tracking.ts` y coordinación en `app/_layout.tsx`**:
+  - `useCarrierTrackingCoordinator`: montado una sola vez a nivel de sesión en
+    `app/_layout.tsx` (`CarrierTrackingCoordinatorMount` dentro de `QueryClientProvider`),
+    siguiendo el patrón establecido de `usePushNotifications` y `useDeviceKeyBootstrap`.
+    Sincroniza periódicamente `getTransporting()` filtrando envíos `in_transit`, ejecuta el
+    chequeo inicial de permisos y coordina `locationService.updateActiveShipments()`.
+  - `useCarrierTracking`: hook consumidor liviano para componentes visuales
+    (`TrackingActiveIndicator`), que se suscribe al singleton `locationService` sin duplicar
+    peticiones de red ni listeners.
+  - `permissionGranted` vive centralizado en `locationService`: el otorgamiento o rechazo
+    se sincroniza instantáneamente entre todas las pantallas montadas sin desfasajes de estado.
+- **UI Components**:
+  - `components/location/tracking-permission-modal.tsx`: Modal explicativo que
+    antecede al diálogo del sistema operativo (AC4).
+  - `components/location/tracking-active-indicator.tsx`: Banner/pill informativo reactivo
+    que comunica si se está transmitiendo en vivo ("X envíos pendientes de entrega"),
+    si el permiso fue denegado (abre modal explicativo) o si no hay red ("Sin conexión
+    a internet"), ajustado a ancho completo en Home y márgenes estándar en Transportar (AC8).
+  - Integrado en `app/(app)/(tabs)/home.tsx` y `app/(app)/(tabs)/transport.tsx`.
+- **Herramientas de desarrollo (`__DEV__`)**:
+  - `app/dev-shortcuts.tsx` y `components/dev/DevShortcutsScreen.tsx`: pantalla centralizada
+    de atajos dev exclusivamente disponible en desarrollo, incluyendo simulación de tracking
+    con envío de prueba y traslado del disparador de demo de ruta (limpiando código muerto en `route/index.tsx`).
+- **`app.config.js`**: Justificaciones de uso de ubicación en primer plano redactadas
+  específicamente para la experiencia de entrega en tiempo real.
+
+### MOVO-242 — [movo-mobile] Emisión de ubicación del transportista en background: permisos en dos etapas, cadencia reducida y cola en archivo
+
+Implementación del tracking en segundo plano (`expo-task-manager` + `expo-location`),
+permisos en dos etapas, migración de cola offline a archivos (`expo-file-system`),
+reporte unificado en lote (`POST /shipments/positions`), ciclo de vida por viaje
+y descarte de envíos rechazados con `SHIPMENT_NOT_TRACKABLE`:
+
+- **Configuración nativa y Stores (`app.config.js`)**:
+  - `NSLocationAlwaysAndWhenInUseUsageDescription` y `NSLocationAlwaysUsageDescription` con textos reales y específicos de auditoría de App Store.
+  - `UIBackgroundModes: ["location"]` en iOS.
+  - Permiso `ACCESS_BACKGROUND_LOCATION` y plugin `expo-location` con `isAndroidBackgroundLocationEnabled: true` y notificación foreground en Android.
+- **Almacenamiento de cola offline en archivo y mutex (`src/location/offline-queue-storage.ts`)**:
+  - Migración desde `expo-secure-store` (límite ~2 KB) hacia almacenamiento de archivo en `expo-file-system.documentDirectory/movo_carrier_queue.json` (hasta 100 posiciones, ~15 KB).
+  - Mutex asíncrono para serializar operaciones de I/O (`withLock`) y remoción atómica (`removeSentPositions`) releeyendo la cola para no pisar posiciones encoladas concurrentemente durante el envío de red.
+  - Persistencia de contexto de tracking (`movo_carrier_tracking_context.json`) para restaurar `tripId` y `shipmentIds` ante un reinicio del proceso en modo headless por el SO.
+- **Cliente API batch y Trips (`src/api/`)**:
+  - `shipmentsClient.reportPositionsBatch(positions: BatchPositionItemInput[])` contra `POST /shipments/positions`.
+  - `tripsClient.list(params?: ListTripsParams)` soporta `status` para consultar `status=active` evitando perder el viaje activo por paginación histórica.
+- **Background Task Headless (`src/location/tracking-task.ts`)**:
+  - Tarea registrada con `TaskManager.defineTask(MOVO_CARRIER_BACKGROUND_TRACKING_TASK)` montada en `app/_layout.tsx`.
+  - Cadencia reducida de background: 45s (`timeInterval: 45_000`, `distanceInterval: 30`, `accuracy: Balanced`).
+  - Vaciado unificado en lote sin carrera de datos; ante HTTP 429 aplica backoff exponencial sin descartar posiciones.
+  - Manejo de respuestas por ítem: ante `SHIPMENT_NOT_TRACKABLE` (código backend de MOVO-251), desvincula el envío individual del tracking sin apagar el viaje y actualiza el contexto persistido.
+  - Restauración automática del contexto de tracking en disco ante ejecución headless.
+- **Ciclo de vida por Viaje y Envíos Trackeables (`location-service.ts` y `use-carrier-tracking.ts`)**:
+  - El tracking arranca cuando `Trip.status === "active"` (MOVO-252) y contiene envíos elegibles en `assigned` o `in_transit` (confirmado contra `TRACKABLE_SHIPMENT_STATUSES` de MOVO-251, excluyendo `assigned_unfunded`).
+  - Se detiene inmediatamente cuando `Trip.status === "completed"` o `"cancelled"`, o en `logout`, o cuando no quedan paquetes por entregar.
+  - Detección explícita de transición de viaje activo a finalizado (`prevActiveTripIdRef`) para apagar la tarea de fondo y timers.
+- **Permisos en dos etapas y UI (`components/location/`)**:
+  - `TrackingPermissionModal`: soporte para `stage="foreground"` (etapa 1) y `stage="background"` (etapa 2 con explicación de pantalla apagada / navegación alternativa).
+  - `TrackingActiveIndicator`: soporta estado degradado `"Transmitiendo solo con app abierta"` cuando el permiso de background fue denegado, permitiendo continuar operando en foreground sin bloquear al transportista (AC3).
+
+Tests:
+- `test/offline-queue-storage.test.ts` (7 tests, incluye mutex atómico y persistencia de contexto)
+- `test/tracking-task.test.ts` (7 tests, incluye headless recovery y no pisar cola)
+- `test/location-service.test.ts` (8 tests)
+- `test/use-carrier-tracking.test.tsx` (9 tests, incluye detección de viaje completado y filtrado active)
+- `test/tracking-components.test.tsx` (11 tests, incluye stage background y estado degradado)
+Total MOVO-242: 42 tests pasando. Suite completa movo-mobile: 166 suites, 1363 tests en verde.
+
+### MOVO-173 — Estrellas de categoría en `RatingSheet` (`movo-mobile`)
+
+Lado de captura de la calificación por categorías (backend en
+`services/movo-svc-shipments/CLAUDE.md`). `reputation-card.tsx` no necesitó cambios: ya
+dibujaba `breakdown.categories` si existía.
+
+- **`RatingTarget` gana `rateeRole: RatingRole`** (requerido): `resolveCounterparties`
+  ya sabía estructuralmente el rol de cada contraparte, y `delivery/success.tsx` pasa
+  `"receiver"`. Sin el rol no hay forma de saber qué categorías mostrar.
+- **Las categorías salen de `@movo/shared/dist/config/rating-categories`**, nunca
+  hardcodeadas en el componente: transportista → puntualidad/cuidado del paquete/
+  comunicación; emisor y receptor → el mismo set, puntualidad/comunicación (decisión de
+  producto tras probarlo: la primera versión daba "paquete listo"/"dirección clara" al
+  emisor y nada al receptor). Reusa `StarRatingInput` (`size={20}`), `testID`
+  `${testID}-category-${key}`.
+- **La estrella general autocompleta las categorías** con el mismo valor (pedido de
+  diseño tras probarlo), pero solo las que el usuario todavía no eligió a mano: una
+  categoría tocada, o precargada al editar, nunca se pisa al cambiar el puntaje general
+  (`touchedCategories`, un `ref`). Lo autocompletado se envía tal cual se ve. En edición
+  el sheet reenvía el estado completo, porque el backend reemplaza en vez de mergear (una
+  categoría ya cargada no se puede "des-calificar", solo cambiar).
+- **Confirmación al enviar** (`components/shipments/rating-success-moment.tsx`): al
+  terminar bien, el sheet vibra (`Haptics.notificationAsync(Success)`, mismo criterio que
+  `ChooseOfferSuccessModal`) y reemplaza el formulario por un tilde dibujado con
+  `strokeDashoffset` (mismo patrón que `handshake-confirmation-result.tsx`) durante
+  `SUCCESS_HOLD_MS` (1100ms); recién ahí llama a `onSuccess`/`onClose`, así el banner del
+  detalle aparece después del tilde y no encima. Mientras se ve no se puede cerrar el sheet,
+  y `submitted` se resetea cuando termina de cerrarse (no al abrir, para no dejar un frame
+  con el tilde viejo). Un envío que falla no vibra ni muestra el tilde.
+- **`RatingTarget.photoUrl`** (opcional): el header del sheet muestra el `AvatarImage` de
+  la persona calificada (iniciales si no tiene foto). Lo completan
+  `shipment-ratings-card.tsx` y `delivery/success.tsx`, que ya tenían su perfil cargado.
+- `ratings-client.ts`: `Rating`/`CreateRatingInput`/`UpdateRatingInput` ganan los 5
+  campos opcionales.
+- **Atajo de dev** (`components/dev/DevRatingSection.tsx`, montado en
+  `DevShortcutsScreen`): abre el `RatingSheet` para cada rol del calificado y muestra las
+  barras de `ReputationCard` con datos ficticios, sin armar un envío entregado. El envío
+  del sheet es ficticio, así que enviar la calificación falla contra el backend real.
+
+Pendiente / fuera de alcance: no probado en dispositivo.
+
+### Rediseño del tab bar (sin ticket): Liquid Glass, selección deslizable y colapso al scrollear
+
+Reemplaza la estética de MOVO-78 tomando como referencia `rit3zh/expo-motion-tabs` (una app
+de ejemplo, no una librería: se copió la estética, no se sumó como dependencia).
+`FloatingTabBar` pasa a una pill centrada que se ajusta al contenido, con `GlassView` de
+`expo-glass-effect` (Liquid Glass nativo, iOS 26+; en Android e iOS anteriores cae al
+`BlurView` de antes, porque ahí `GlassView` es un `View` plano). La selección es una sola
+pill que se desliza con spring entre tabs y se puede arrastrar (`Gesture.Pan` con
+`activeOffsetX`, así los taps siguen yendo a cada botón), y la barra se achica al
+scrollear hacia abajo (`src/store/tab-bar-store.ts`, `useTabBarScrollHandler` en las 3
+pantallas de tabs). `expo-glass-effect` es módulo nativo: requiere rebuild del dev client.
+
+- `SceneDelegate` generado por `app.config.js` ahora llama a `makeKeyAndVisible()` al
+  conectar la escena, y el plugin lo reescribe siempre (antes solo si no existía, así que
+  ninguna corrección llegaba a un `ios/` ya generado). No resolvió el indicador de inicio
+  de iOS que no se ve en ninguna pantalla — causa todavía sin encontrar.
+- Pantallas con scroll dentro de `SafeAreaView` con `edges={["top","bottom"]}` cortan la
+  lista encima del indicador (franja fija del color de fondo) en vez de dejarla pasar por
+  debajo como en iOS. Corregido solo en `profile/edit.tsx` como prueba (`edges={["top"]}` +
+  `insets.bottom` en el `paddingBottom` del scroll); falta el resto de las pantallas.
+
+
+### MOVO-175 — Reportar y bloquear usuarios, cierre del lado mobile (ADR-026)
+
+Completa lo que MOVO-176 había dejado armado contra endpoints inexistentes. El menú de
+`profile-actions-menu.tsx` alterna "Bloquear"/"Desbloquear" según `isBlockedByMe`, avisa el
+resultado con `SuccessBanner` en `profile/[id].tsx` (antes no había feedback), y reportar
+navega a su propia pantalla (ver abajo). Errores vía `friendlyErrorMessage`, con override del
+`RATE_LIMIT_EXCEEDED` para el tope diario de reportes; se sacó el copy temporal del 404.
+
+- **Pantalla nueva `profile/blocked-users.tsx`** desde "Cuenta y seguridad" (sección
+  "Privacidad"): lista, desbloqueo confirmado con `Alert.alert`, estado vacío. Arriba,
+  `BlockImplicationsCard` explica qué implica un bloqueo (cada fila es una regla que el
+  backend aplica de verdad) — toda la pantalla es un solo scroll para que la card se vea
+  también con la lista vacía, cargando o con error.
+- **Pantalla `profile/[id]/report.tsx` (review de PR #193)**: un solo lugar para "mi reporte
+  sobre esta persona". Sin reporte en revisión muestra `ReportForm`; con uno, `PendingReportView`
+  (motivo, detalle y entradas ya enviadas, más un campo para sumar información vía
+  `useAddReportEntry`, nunca edita lo enviado). Al crear, la misma pantalla pasa a mostrar el
+  reporte con un agradecimiento y "Bloquear a {nombre}". Un 409 `REPORT_ALREADY_PENDING` (caso
+  raro: reporte hecho desde otro dispositivo, o un reintento cuyo primer envío sí llegó) muestra
+  el reporte existente con un aviso, sin trasladar lo escrito a ningún campo. Empezó como sheet del
+  menú y se movió a pantalla porque el historial de entradas crece sin límite y el teclado
+  dentro de un sheet con scroll anidado era frágil.
+- **`usePendingReport` (`GET /users/:id/report`) lo lanza `profile/[id].tsx` en paralelo con
+  el perfil**: el menú lo lee del caché (`staleTime` de 30s, sin segunda request) para
+  ofrecer "Reportar a {nombre}" o "Ver tu reporte", ambas navegando a la pantalla de arriba.
+- **Bloquear/desbloquear invalida más que el perfil** (`invalidateBlockDependentQueries`):
+  el feed disponible, los matches de viaje y las ofertas de cualquier envío
+  (`["shipments", id, "offers", ...]`, por predicado porque el id va en el medio de la key).
+
+### MOVO-256 — Fotos en el reporte y rediseño de "Tu reporte" (mockup 1A de Claude Design)
+
+`profile/[id]/report.tsx` con reporte en revisión sigue la opción 1A del proyecto "Reportar
+usuario": el reporte como hilo. Card oscura de estado (`GridPattern` ganó `fade="top-right"` y
+`cellSize` para el desvanecido radial del mockup), historial en línea de tiempo (lo original con
+su motivo y cada entrada con fecha, `formatReportTimestamp`), "Tu seguridad" con bloquear como
+acción secundaria (o "Bloqueaste a X" si ya está bloqueado) y composer fijo abajo tipo chat. El
+agradecimiento con botón rojo de bloquear que aparecía al crear el reporte se fue: el card de
+estado ya lo dice y bloquear queda siempre a mano. Los avisos ("Lo sumamos a tu reporte.",
+"Bloqueaste a X.") son el toast flotante del mockup en vez de `SuccessBanner`.
+
+- **Fotos (`use-report-photos.ts`)**: cada foto sube al elegirla (cámara o galería vía
+  `Alert.alert`, comprimir → presign → PUT), así cada una muestra su estado; un error queda en
+  la foto puntual y se reintenta tocándola. Mientras haya una subiendo o con error el envío está
+  bloqueado: mandarlo igual la descartaría sin avisar. Las keys recién se asocian al enviar.
+  Mismo flujo en el formulario de reporte nuevo (no cubierto por el mockup: fila de miniaturas +
+  botón "agregar").
+- Las fotos enviadas se ven en grilla de 4 por envío y abren `PhotoViewerModal`.
+- El estado "Resuelto" del mockup no se implementó: `GET /users/:id/report` solo devuelve el
+  reporte `pending`, un reporte revisado nunca llega a esta pantalla.
+
+Pendiente / fuera de alcance: no probado en device (cámara/galería reales, teclado con el
+composer fijo).
+
+**Fixes de review (PR #198, Alena1812):**
+- **Se podía perder una foto agregada mientras se enviaba la entrada**
+  (`pending-report-view.tsx`): el botón de agregar foto solo se deshabilitaba al
+  llegar a 4 fotos, no mientras `addEntryMutation.isPending` -- una foto elegida
+  entre tocar "enviar" y que vuelva la respuesta no viajaba en el request y
+  `draftPhotos.reset()` la borraba del borrador sin avisar. Ahora también se
+  deshabilita mientras la mutación está en vuelo.
+- **Las URLs de las fotos vencían en el visor** (`report-photos.tsx`): las
+  presignadas duran 300s y la pantalla no volvía a pedir el reporte mientras
+  estaba abierta -- tocar una miniatura pasado ese tiempo daba 403 de S3.
+  `ReportPhotoGrid` gana `onOpen?: () => void`, llamado antes de abrir el visor;
+  `report.tsx` lo conecta a `reportQuery.refetch()` (URLs frescas del último
+  `GET /users/:id/report`).
+### MOVO-174 — Conexiones mutuas: conectado al backend real
+
+`MutualConnectionsRow`/`useMutualConnections`/`usersClient.getMutualConnections` ya existían desde
+MOVO-176 esperando el endpoint; esta US es solo limpieza: `MutualConnections` pasa a importarse de
+`@movo/shared/dist/types/user-profile` (antes tipo local) y se sacan los comentarios "todavía sin
+backend". Con la decisión de privacidad (backend manda `sampleFirstNames` siempre vacío) el copy que se
+ve es siempre el del conteo ("Ya envió con N personas con las que vos también enviaste"), sin nombrar a
+nadie; la variante con nombres sigue soportada por el componente. Se agrega el test faltante de
+`getMutualConnections` en `users-client.test.ts`.
+
+- **Diseño ("anillos", elegido con el usuario entre 3 propuestas hechas sobre el manual de marca
+  v1.0)**: sin card, un medallón de anillos concéntricos de 96px junto al copy, con eyebrow "EN COMÚN".
+  Los anillos son las "capas de confianza" del símbolo de la marca: se suman hacia el centro según el
+  conteo (1, 2 o 3 anillos) y el núcleo lleva el número en JetBrains Mono ("99+" si no entra). **Sin
+  fotos ni iniciales de terceros** (decisión de privacidad, solo el conteo). Los elementos entran del
+  centro hacia afuera, 200ms con el ease-out del manual y sin rebote; el medallón está oculto a lectores
+  de pantalla (`accessibilityElementsHidden`) porque el copy dice lo mismo en texto. Anillos como
+  `View`s con borde (no SVG), color del tema con alfa vía `useThemeColors().fg1`, así sirven en claro y
+  oscuro. **Subió al hero de `profile/[id].tsx`**, debajo de `VerificationChips` (antes al final, tras
+  las cards): es prueba social que ayuda a decidir.
+- **Núcleo en Signal Lime, por pedido explícito del usuario, apartándose del manual**: el manual reserva
+  el lima para estados activos/en vivo y lo prohíbe como decoración; acá es un acento deliberado (texto
+  ink sobre lime, combinación que el manual sí permite). Es una sola constante (`LIME` en
+  `mutual-connections-row.tsx`) si hay que revertirlo.
+- **Copy: "Ya hizo envíos con N personas que vos también conocés"** — no "transportó paquetes de N
+  conocidos": la conexión mutua cuenta contrapartes en CUALQUIER rol (emisor/receptor/transportista) de
+  envíos entregados, así que "transportó" sería falso para quien solo envió o recibió. "Conocés" =
+  personas con las que el viewer también hizo envíos.
+- **Atajo de dev** (`components/dev/DevMutualConnectionsSection.tsx`, montado en `DevShortcutsScreen`):
+  muestra la fila con datos de prueba (0, 1, 2, 3 y 150 conexiones para ver los anillos y el "99+")
+  en un desplegable cerrado por defecto, para no alargar la pantalla de atajos. Sin
+  variantes con nombre: el backend nunca manda `sampleFirstNames`. Para eso la parte visual se separó en `MutualConnectionsSummary` (recibe los
+  datos por props); `MutualConnectionsRow` sigue siendo el que hace el fetch y lo usa.
+- Claude Design no se pudo consultar (`DesignSync` pide `/design-login`): el diseño sale del manual de
+  marca y del código de la pantalla; queda pendiente contrastarlo con el prototipo si hace falta.
+
+Pendiente / fuera de alcance: no probado en dispositivo; requiere el backend desplegado.
+
+### MOVO-204 — Mapa de seguimiento en vivo para emisor y receptor (`movo-mobile`)
+
+Implementación del mapa táctico y bottom sheet interactivo para emisor y receptor (`app/(app)/shipments/[id]/tracking.tsx`) consumiendo telemetría en tiempo real sobre el canal WebSocket (`useShipmentChannel`) y el endpoint HTTP `GET /shipments/:id/positions/latest`.
+
+- **Pantalla y Bottom Sheet de Seguimiento**:
+  - Bottom sheet deslizable con física basada en `PanResponder` y `Animated.spring` (tensión 65, fricción 11, feedback háptico con `Haptics.impactAsync(Light)`), expandible y colapsable a su altura base (220px), sin `ScrollView` anidada para evitar conflictos de gestos con el mapa.
+  - Tarjeta de contraparte integrada con `CounterpartCard` (muestra perfil público del transportista asignado, reputación, estado de verificación y navegación a `/profile/[id]`).
+  - Hero ETA Card con llegada estimada aproximada (`~X min (aprox.)`) y distancia en km calculadas mediante Haversine sin datos ni barras de progreso ficticias cuando no hay telemetría.
+  - Tarjeta técnica de destino con link directo a coordenadas lat/lng en Google Maps / Apple Maps.
+  - Píldora de telemetría superior flotante con estados reales ("En vivo", "Sin posición", "Reconectando", "Pausado", "Finalizado"), sin indicadores de latencia ficticios.
+  - Overlay terminal al recibir entrega finalizada (`delivered` / código 4009) informando el arribo del paquete y ofreciendo regreso a la app.
+- **Cumplimiento estricto de Privacidad (ADR-023)**:
+  - El componente `LiveMap` (`components/tracking/live-map.tsx`) NO renderiza trazas históricas ni polilíneas pasadas del recorrido del transportista. Únicamente muestra la posición actual del conductor y el pin del destino.
+  - Disclaimer de privacidad exacto según ADR-023: "Solo se comparte la ubicación en tiempo real mientras el envío está en camino. No se almacena historial de rutas."
+  - Al recibir estado `delivered` o código terminal `4009` del WebSocket, la UI finaliza el seguimiento y desactiva la telemetría.
+- **Hooks de Sincronización y Resiliencia**:
+  - `useShipmentChannel` (`src/hooks/use-shipment-channel.ts`): canal WebSocket resiliente con backoff exponencial progresivo (1s..30s), reconexión inmediata al volver de segundo plano (`AppState === "active"`), token dinámico vía `useAuthStore.getState().accessToken`, limpieza estricta de listeners en `unmount` para prevenir leaks de sockets concurrentes, y cierre terminal ante código `4009`.
+  - `useLivePosition` (`src/hooks/use-live-position.ts`): combina fetch inicial HTTP contra `GET /shipments/:id/positions/latest` con updates WebSocket en vivo, evalúa obsolescencia de posición (> 120s / 2 min sin updates marca estado `stale` y "Pausado" con actualización de timer reactivo), contempla estado `no_position`, y calcula distancias mediante Haversine.
+- **Acceso desde el Detalle del Envío y Home**:
+  - En `app/(app)/shipments/[id].tsx`, solo emisor y receptor (no el transportista, que ve su propia pantalla de navegación) acceden a "Seguimiento en vivo" para envíos en curso (`assigned` o `in_transit`).
+  - En la card de envío activo en inicio (`ActiveShipmentCard`), la acción tipada `live_tracking` navega directamente al mapa de seguimiento en vivo.
+- **Soporte de Modo Demo**:
+  - Parámetro `demo=true` y atajo en `DevShortcutsScreen` para probar la pantalla en desarrollo.
+- **Tests**:
+  - Unitarios y de integración para `useShipmentChannel` (`test/use-shipment-channel.test.ts`), `useLivePosition` (`test/use-live-position.test.ts`), `LiveTrackingScreen` (`test/live-tracking-screen.test.tsx`), `ActiveShipmentCard` (`test/active-shipment-card.test.tsx`), `activeShipmentCta` (`test/active-shipment-format.test.ts`) y endpoint backend `GET /shipments/:id/positions/latest` (`test/positions.routes.test.ts`).
+
+### MOVO-253 — Elegir otro receptor tras un rechazo
+
+Lado mobile del ADR-027 (`rejected_by_receiver` deja de ser terminal, ver
+`services/movo-svc-shipments/CLAUDE.md`).
+
+- **"Requiere tu atención"**: la tarea de rechazo pasa a una card propia
+  (`AttentionRejectedCard`, kind `"rejected"`) con el nombre de quien rechazó, el motivo
+  (`rejectionReason`), el plazo (`redesignationDeadlineLabel`, "Tenés hasta mañana
+  18:00") y el CTA "Elegir otro receptor". Con el plazo vencido o nulo la tarea no se
+  lista. La fuente pide solo los dos estados que generan tareas (`?status=`, AC8) —
+  `http-client.ts` ahora serializa arrays como clave repetida.
+- **`app/(app)/shipments/[id]/change-receiver.tsx`**: reusa `ReceiverSearchField`, que
+  gana `excludeIds` (quienes ya rechazaron, sacados de los eventos, y uno mismo). Solo se
+  elige la persona, la dirección no cambia.
+- **Detalle (vista emisor)**: `RejectedReceiverBanner` con motivo, plazo y CTA; se
+  re-renderiza al vencer (`useDeadlineExpired`). `canCancelShipment` incluye el estado.
+- **Formato**: tono `warning`; `shipmentLifecycleStage` depende del rol (en curso para el
+  emisor, terminado para quien rechazó). Línea de tiempo: "Elegiste otro receptor", y un
+  rechazo anterior se muestra como "El receptor actual rechazó el envío" en vez de
+  tomar el nombre del receptor actual.
+
+Pendiente: no probado en device.
+
+### MOVO-255 — Precio real y congelado en el resumen del wizard de envío
+
+`RealPricingProvider` (`src/adapters/pricing-provider.ts`) contra `POST /shipments/quote`;
+se borró `mock-pricing-provider.ts` y el flag `USE_MOCK_PRICING`. El resumen cotiza solo al
+entrar (reusa la cotización guardada si sigue vigente) y manda el `quoteId` al publicar.
+
+- **`priceQuote` del store** guarda `quoteId`/`expiresAt`/`highDemand`/`updated`. Los setters
+  de tipo, peso, dimensiones y coordenadas de retiro/entrega la descartan solo si el valor
+  cambia de verdad; descripción, receptor y franja no la tocan.
+- **409 `QUOTE_EXPIRED`/`QUOTE_MISMATCH`**: se vuelve a cotizar, aparece "El precio se
+  actualizó" y el botón vuelve a idle; nunca se reintenta la creación sola (AC4). Una
+  respuesta de cotización que llega cuando el wizard ya tiene otros datos se descarta.
+- Si pricing no responde se muestra "Precio a estimar" y se crea sin `quoteId` (el backend
+  cotiza al crear), igual que antes.
+
+Pendiente: el badge "Alta demanda en tu zona" (`highDemand` ya queda en el store) entra
+con MOVO-254. No probado en device.
+
+### MOVO-184 — Actividad reciente del home: prioridad por acción y expiración de terminales
+
+Rediseño del widget "Actividad reciente" (`RecentShipmentsSection`) de Inicio para que los envíos más relevantes no queden ocultos detrás de cancelados o completados recientes. AC1 y AC2 resueltos 100% client-side sobre una ventana más amplia.
+
+- **Tres consultas por grupo de estado** (review de la PR): `useRecentShipments` pide en curso, `delivered`/`completed` y `cancelled` por separado (20 c/u) y une el resultado. Una sola ventana de los 20 más nuevos dejaba afuera un envío en curso viejo o vaciaba el widget si los 20 eran cancelados vencidos.
+- **`selectRecentShipments` puro y testeado** (`src/lib/recent-shipments-selection.ts`):
+  - **Nivel 1 (Acción)**: Usa el mismo helper `presentMyShipment.strip` de MOVO-257, solo si es de `kind: "action"` (el aviso `warning` de "se cancela solo" no sube de nivel). Receptores pendientes de confirmar, emisores con ofertas, plazos por vencer o receptores a re-designar quedan siempre arriba.
+  - **Nivel 2 (Ongoing)**: El resto de los envíos en curso.
+  - **Nivel 3 (Historial)**: Envíos terminales.
+  - Dentro de cada nivel se desempatan por `createdAt desc`.
+- **Expiración a las 48h**: `cancelled` y `rejected_by_receiver` (vistos por el receptor) desaparecen del widget pasadas 48 horas desde `lastStatusChangedAt`. `delivered` y `completed` no expiran nunca (sirven de fallback).
+- **Contador "N activos" no sufre regresiones (AC3)**: Sigue computando los envíos `"ongoing"` visibles en el widget (hasta 3), alineado con la expectativa visual de la lista mostrada debajo.
+- **Aviso de ofertas recibidas (AC5)**: va en "Requiere tu atención" (`use-attention-tasks.ts`), no en la fila del widget — es una tarea `info` con `icon: "offers"` ("Recibiste N ofertas", card → detalle, "Ver ofertas" → `/shipments/:id/offers`). Cierra el gap que MOVO-193 había dejado documentado por falta de datos: el conteo sale de `pendingOffersCount` de `/mine` (MOVO-257), por eso `useAttentionSourceShipments` hace una consulta aparte de `published` con `withPendingOffers` (filtro de backend), para que no compita por lugar con las tareas de confirmar/redesignar (MOVO-253 AC8). Rechazar una oferta ahora invalida `["shipments","mine"]` para que el aviso no quede con un conteo viejo. El envío igual sigue arriba en "Actividad reciente" por el nivel 1 de AC1.
+
+### MOVO-257 — Rediseño de "Mis envíos" para emisor y receptor
+
+`app/(app)/shipments/index.tsx` rehecha sobre el prototipo "Mis envíos 4a": accesos por
+rol ("Enviás"/"Recibís", con conteo y punto de acción), segmentado En curso/Historial,
+filas con franja de acción (aceptar, elegir oferta, elegir otro receptor, aviso de
+"por vencer sin ofertas") y filtros de Persona/Estado con etiquetas removibles.
+`ShipmentCard` se borró; la presentación vive en `src/lib/my-shipments-format.ts`
+(pura, testeada) y los componentes `my-shipment-row`/`my-shipments-controls`/
+`my-shipments-filter-sheet`. El conteo de ofertas sale de `pendingOffersCount` de
+`GET /shipments/mine` (ver `services/movo-svc-shipments/CLAUDE.md`).
+
+Alcance ampliado en la misma rama (probando en device, detalle en los comentarios del
+ticket):
+- **`expo-image` (módulo nativo, requiere rebuild del dev client)**: `components/ui/
+  remote-image.tsx` es el único punto que carga imágenes por red — caché memoria+disco
+  con clave estable (la URL sin query, `src/lib/remote-image.ts`), porque las fotos de
+  envío son presigned GET que cambian en cada pedido y el `Image` de RN las volvía a
+  bajar siempre. Skeleton/spinner, fundido y fallback. `useShipmentPhotos` con
+  `staleTime` de 4 min (la firma vence a los 5). Las imágenes locales y los assets
+  siguen con `Image` de RN. Mock propio en Jest (`test/mocks/expo-image-mock.js`): el
+  real revienta al importarse por la integración con `expo-observe`.
+- **`RouteMapCard`**: skeleton sobre todo el mapa mientras carga la ruta (antes dibujaba
+  una recta que después se reemplazaba de golpe; la recta queda solo como fallback de
+  error) y zoom out limitado a un nivel por debajo del encuadre. **Siempre con
+  `maxZoomLevel` explícito**: en iOS (Google Maps, Fabric) min y max se aplican juntos
+  y sin max queda en 0 — fijar un mínimo mayor cierra la app. Una prueba de animar la
+  opacidad de la línea de base con `processColor` la dejó roja en nativo: la base
+  quedó estática.
+- **Paleta del mapa** (`src/constants/map-style.ts`, todos los mapas): calles en tres
+  grises, gris propio para zonas urbanas, lima apagado para parques/deportes y más
+  lavado para hospitales/escuelas/aeropuertos. `landscape.natural` descartado (teñía
+  casi todo el mapa en rutas largas). Las reglas lima van al final: tienen que pisar el
+  `visibility: off` de `poi`/`transit`.
+- **Detalle del envío**: rol + código `#MOVO` bajo el título; el receptor no ve el
+  precio; `CounterpartCard` sin estrellas si no hay calificaciones y badges cortos
+  ("Pendiente"/"Aceptó"/"Rechazó").
+- **`assignment_pending` ya no se lee como "sin transportista"**: es el estado final de
+  toda oferta aceptada mientras no exista el hold de MP (MOVO-12/210). Pill "Asignado",
+  el evento se titula por la elección ("Elegiste a Juan como transportista") con "Falta
+  reservar el pago" de detalle, el paso pendiente es "Reserva del pago", y el `reason`
+  de un evento solo se muestra en cancelaciones y rechazos (`shouldShowEventReason`: el
+  resto es texto interno del backend, como "Oferta <uuid> aceptada").
+- **Perfil público**: "Miembro desde hace…" (`formatMemberSince`, meses y años por
+  calendario) en vez de la fecha ISO cruda, y `BrandAvatar` en la ficha de vehículo.
+
+Pendiente: `offer-card.tsx` sigue mostrando estrellas vacías sin calificaciones;
+expiración de envíos con transportista y cierre de viajes `active` derivados a
+MOVO-258; no probado en device tras los últimos ajustes.
+
+### MOVO-254 — Badge "Alta demanda en tu zona" junto al precio sugerido
+
+`HighDemandBadge` (`components/shipments/high-demand-badge.tsx`) explica el recargo de
+`demand_fuel_routes_v1` sin mostrar el porcentaje (ADR-025): pill en tinta sobre la card
+lima de precio, y un tap despliega el texto de ayuda (no un tooltip flotante: medir la
+posición con `measureInWindow` no es testeable en jest-expo, mismo gap que MOVO-29). El
+componente no decide cuándo mostrarse; eso queda en cada caller.
+
+- **Detalle (`shipments/[id].tsx`)**: `ShipmentSummary` suma `highDemand: boolean | null`.
+  Se muestra solo al emisor, con `highDemand === true` (`null` no equivale a `false`) y
+  sin precio pactado. Usa la misma condición que la etiqueta "Precio pactado"
+  (`agreedPriceArs` o `carrierId`), no solo `agreedPriceArs` como decía el AC3: con
+  transportista asignado la card ya no muestra el precio sugerido.
+- **Resumen del wizard**: `PricePreviewCard` suma la prop `highDemand`; `SummaryStep` la
+  pasa con `priceQuote.status === "ready"` y `priceQuote.highDemand === true` (el valor que
+  guarda la cotización congelada de MOVO-255), así el badge corresponde siempre al precio
+  mostrado.
+
+Pendiente: no probado en device.
+                                                                                   
+### MOVO-252 — CTA "Iniciar viaje" para el transportista
+
+Punto de entrada mobile para `POST /trips/:id/start` (MOVO-221 backend), permitiendo
+transicionar un viaje de `declared` a `active` cuando tiene paquetes aceptados
+(`hasAcceptedPackages: true`), desbloqueando el arranque del tracking en vivo (MOVO-251).
+Diseño visual fiel al prototipo de Tomás ("Viaje del transportista.dc.html", MOVO-191):
+
+- **`CarrierTripCta` (`components/trips/carrier-trip-cta.tsx`)**:
+  - Estado `declared` con paquetes aceptados: botón primario "Iniciar viaje" (`bg-lime-500`,
+    `text-ink-950`, altura de 52px, `font-sans-semibold`). Al presionar, ejecuta la mutación y
+    muestra un spinner de carga.
+  - Estado `active`: cambia a botón "Viaje en curso · ver mapa" (`bg-fg`, `text-bg`), que
+    navega directamente a `/route?tripId=${trip.id}`.
+  - Estado `declared` sin paquetes aceptados (o `cancelled`/`completed`): el CTA no se renderiza (AC8).
+- **Pantalla de Inicio (`app/(app)/(tabs)/home.tsx` y `components/home/carrier-transporting-section.tsx`)**:
+  - Incorpora la sección operativa "Estoy transportando", fiel al prototipo de Tomás (`Viaje del transportista.dc.html`, líneas 52-85).
+  - Si el transportista tiene un viaje activo o viajes declarados con paquetes aceptados, muestra el encabezado con ícono, texto y contador de viajes, y la card con el CTA correspondiente ("Iniciar viaje" / "Viaje en curso · ver mapa").
+  - Si no hay ningún viaje activo ni declarado con paquetes aceptados, no se renderiza nada.
+  - Prioriza el viaje de hoy sobre fechas futuras o pasadas al ordenar los viajes declarados.
+- **Ruta del transportista (`app/(app)/route/index.tsx`)**:
+  - Al abrir `/route?tripId=...` para un viaje `declared` con paquetes aceptados, muestra el CTA
+    "Iniciar viaje" en vez del estado genérico "Sin paradas asignadas". Al iniciar el viaje, pasa
+    a `active` y calcula la ruta optimizada inmediatamente.
+- **Tarjetas en Mis Viajes (`components/trips/trip-card.tsx` y `app/(app)/carrier/trips/index.tsx`)**:
+  - `TripCard` gana los botones "Iniciar viaje" (declared con paquetes) y "Viaje en curso · ver mapa" (active).
+  - Manejo de errores con Alert amigable ante fallos de red o backend.
+- **Mapeo de errores (`src/lib/error-messages.ts` y `src/lib/trip-format.ts`)**:
+  - 409 `TRIP_ALREADY_HAS_ACTIVE_TRIP`: "Ya tenés otro viaje en curso. Solo podés tener 1 viaje activo a la vez." (AC6).
+  - 409 `TRIP_START_TOO_EARLY`: "Podés iniciar este viaje el {fecha}." con formateo en español (AC5).
+  - 409 `TRIP_NOT_DECLARED`: "El viaje ya fue iniciado o finalizado."
+  - Errores de red/servidor: mensaje amigable sin cambiar el estado local (AC4).
+- **Cliente y Store**:
+  - `src/api/trips-client.ts`: método `start(id: string): Promise<Trip>`.
+  - `src/hooks/use-trips.ts`: hook `useStartTrip()` que invalida `["trips", "mine", "list"]`,
+    `["trips", "detail", id]` y `["route"]`.
+
+Tests agregados/actualizados:
+- `test/trips-client.test.ts`: test de llamada a `POST /trips/:id/start`.
+- `test/use-trips.test.tsx`: test de la mutación `useStartTrip`.
+- `test/trip-format.test.ts`: tests de formateo de fechas y traducción de códigos de error de viaje.
+- `test/carrier-trip-cta.test.tsx`: tests completos de renderizado según estado, botón de inicio, botón de mapa, banner de error e indicador de carga.
+- `test/carrier-transporting-section.test.tsx`: tests unitarios de la sección "Estoy transportando" en Inicio.
+- `test/home.test.tsx`: tests de renderizado y flujo de inicio en la pantalla de Inicio.
+- `test/my-trips-screen.test.tsx`: tests de interacción de inicio y navegación en las tarjetas de viaje.
+- `test/route-screen.test.tsx`: test de visualización de CTA y transición de inicio desde la pantalla de ruta.
+- Cobertura: 182/182 suites pasando (1564 tests en `movo-mobile`). `tsc --noEmit` con 0 errores.
+
+
+### MOVO-271 — Paquete de fixes #2: ofertas, seguimiento en vivo y detalle de envío
+
+- **Mapas (AC1)**: la causa raíz no estaba en el código. La key de Maps SDK para iOS no tenía cargado el bundle id de los builds de EAS/TestFlight (`com.movosend.movomobile`; en local cada uno usa el suyo vía `IOS_BUNDLE_ID` en `.env.local`, que no viaja a EAS). Se resolvió en la consola de Google Cloud.
+- **Oferta aceptada (AC2)**: `ChooseOfferSuccessModal` usa `SuccessMoment` (antes `RatingSuccessMoment`, movido a `components/ui/success-moment.tsx` para reusarlo). En iOS el modal no aparecía: se abría en el mismo render en que se cerraba el sheet de confirmación, y iOS descarta un `Modal` presentado mientras otro se está cerrando. Ahora se abre desde `ChooseOfferModal#onClosed`, cuando el sheet terminó de cerrarse. El auto-cierre pasó de 1,6 s a 3,5 s (`AUTO_DISMISS_MS`) porque no se llegaba a leer.
+- **Redirect duplicado (AC4)**: `offers.tsx` (aceptar oferta), `transport/[id]/offer.tsx` (crear o editar una oferta), `handshake.tsx` ("Volver al envío"), `tracking.tsx` ("Ver detalle del envío" con el envío entregado) y `change-receiver.tsx` (tras elegir otro receptor) vuelven al detalle con `router.dismissTo` en vez de `replace`, que apilaba una segunda instancia del detalle de origen. `dismissTo` hace pop hasta la existente o reemplaza si no está en la pila (ej. desde el aviso de ofertas del home). Los flujos `pickup/*` y `delivery/*` siguen con `replace` a propósito: se abren desde "Mi ruta" o Transportar, nunca desde el detalle del envío, así que no duplican.
+- **Seguimiento en vivo (AC3/AC5)**: `LiveTrackingCard` con el lenguaje de `OffersBanner`, en estado `available` o placeholder `pending`, según `liveTrackingAvailability` (`shipment-format.ts`). Decisión de producto: la ubicación se ve desde "Iniciar viaje" hasta la entrega y antes no se captura. Hoy se habilita recién en `in_transit`, porque el backend rechaza posiciones con el envío en `assignment_pending` (el hold de fondos sigue bloqueado). Cuando MOVO-270 habilite el tramo inicio del viaje → retiro, cambia solo ese helper. Mientras está en placeholder, el detalle se refresca cada 30 s (`liveTrackingPendingPollInterval`) para habilitarse sin salir de la pantalla.
+- **Badge de tipo de paquete (AC6)**: `PackageCard` toma el ícono de `packageTypeIcon` (`category-grid.tsx`), el mismo mapeo que el wizard.
+
+### MOVO-237 — Botón "Navegar" por parada (deep-link a Google Maps/Waze, ADR-033)
+
+La parada seleccionada de `StopList` (MOVO-207) suma `NavigateButton`
+(`components/route/navigate-button.tsx`) junto a "Ver envío" y el CTA de retiro/entrega.
+`src/lib/navigation-deeplink.ts` arma la cascada Google Maps nativo (`google.navigation:` en
+Android, `comgooglemaps://` en iOS) → Waze → Google Maps web y la resuelve probando
+`Linking.openURL` en orden, sin `canOpenURL`: así no hace falta declarar
+`LSApplicationQueriesSchemes`/`<queries>` ni rebuildear el dev client. No llama a ningún
+endpoint (costo cero para Movo). Detalle en `docs/navigation/README.md`.
+
+**Rediseño de la pantalla "Mi ruta" sobre el mockup 2a de Claude Design** ("Morph desde la
+parada activa", proyecto "Parada en curso"). La card ancla es la parada seleccionada (por
+defecto la próxima); al abrir aparece detrás de ella un fondo con borde lima y el resto de la ruta
+se despliega arriba y abajo con escalonado por distancia. Tocar una fila la vuelve ancla (así
+"Navegar" sigue disponible en cualquier parada); el CTA de retiro/entrega solo aparece si la ancla
+es la próxima. El encabezado cruza "Próxima parada" con "Tu ruta", el mapa se oscurece al 45%
+(tocarlo cierra) y la isla de arriba (sin el punto pulsante del mockup), "Centrar" y "Abrir en Maps" suben y se apagan. Duración y
+curva en `src/lib/route-sheet-motion.ts` (360ms, ease-out). El ID del envío se reemplaza por
+"Retirás de / Entregás a" + nombre (`use-stop-counterpart.ts`: `useShipment` + `usePublicProfile`);
+sin nombre todavía muestra solo la acción.
+
+- **El contenido de la card ancla nunca cambia de tamaño**: el fondo y el borde lima son una capa
+  aparte que sobresale 12px y aparece por opacidad. La primera versión animaba padding y tamaño de
+  letra (como el mockup), y en device el texto de la dirección se reacomodaba cuadro a cuadro al
+  abrir y el alto colapsado medido cambiaba durante la animación, con el sheet persiguiéndolo
+  (vibraba al arrastrar). Por eso tampoco se cambia de contenedor entre estados (un solo
+  `ScrollView`) y el alto colapsado sale de encabezado + card, no del layout del sheet.
+- **El `PanResponder` se crea una sola vez** y lee los altos desde refs: recrearlo a mitad de un
+  arrastre reinicia el gesto.
+- "Abrir en Maps" se mantiene (el mockup lo sacaba): es la única forma de ver el recorrido
+  completo en la app de mapas. Va como un control chico ("Maps") a la izquierda de "Centrar",
+  no como botón flotante grande sobre el sheet.
+- La isla de arriba no tiene botón de actualizar: la ruta se recalcula al volver a la pantalla
+  (`useFocusEffect`) y, con el sheet abierto, hay pull-to-refresh.
+- "Volver" es el botón circular con `ChevronLeft` a la izquierda de la isla (mismo patrón que el
+  resto de la app, `canGoBack` o Inicio); se sacó el botón "Inicio" de la derecha.
+- Desvíos del mockup: la dirección es la línea principal también en las filas (el nombre llega
+  después y movería el layout), las filas mantienen cuadrado/círculo de los marcadores (AC3 de
+  MOVO-207), la card ancla suma la ventana horaria (AC4), y no hay estado "hecha" por parada porque
+  `GET /shipments/my-route` solo devuelve las pendientes.
+
+Pendiente: DoD manual del ticket (Android e iOS con Google Maps, fallback a Waze sin Google
+Maps, fallback a browser sin ninguna de las dos) — no probado en device.
+
+### MOVO-258 — Ajustes del mobile por la expiración y el cierre automático de envíos y viajes
+
+Cambios chicos de soporte al backend (detalle en `services/movo-svc-shipments/CLAUDE.md`):
+- **`OfferStatus.SHIPMENT_CANCELLED`** (oferta cerrada porque su envío se canceló): etiqueta, chip y
+  banner en `src/lib/offer-format.ts`/`components/transport/my-offer-card.tsx`, y cuenta como oferta
+  cerrada en `app/(app)/carrier/offers/index.tsx`.
+- **`TRIP_NO_PACKAGES`**: mensaje en `src/lib/error-messages.ts` para `POST /trips/:id/start` sobre un
+  viaje sin paquetes. El botón "Iniciar viaje" sigue visible; ocultarlo depende del rediseño de "Mis
+  viajes" (MOVO-259).
+- **Tocar la card de un viaje `active` en "Mis viajes" abre el mapa (`/route`)** en vez del feed filtrado:
+  un viaje iniciado tiene sus paquetes fijos y `GET /trips/:id/matches` le responde 409
+  `TRIP_NOT_AVAILABLE`. Un viaje `declared` sigue abriendo el feed (`test/my-trips-screen.test.tsx`).

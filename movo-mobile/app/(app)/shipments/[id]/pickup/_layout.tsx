@@ -64,21 +64,25 @@ function GateMessage({
  * Gate del wizard de retiro (MOVO-198 AC1): resuelve si el envío está en
  * condiciones reales de iniciar el retiro ANTES de renderizar cualquiera de los
  * pasos del wizard (rediseño: 5 pasos accionables + confirmación, ver
- * `pickup-wizard-step-header.tsx`). Como todavía no existe ningún CTA de producción que lleve acá (depende del
- * mapa de MOVO-207, sin construir), esta ruta solo se alcanza por navegación
- * manual/deep link -- por eso cada estado "no listo" explica el motivo real en vez
- * de un error genérico, es el único punto de entrada hoy.
+ * `wizard-step-header.tsx`). El punto de entrada real es el mapa de ruta
+ * (`MOVO-207`, `app/(app)/route/index.tsx`) -- por eso cada estado "no listo"
+ * explica el motivo real en vez de un error genérico.
  */
 export default function PickupWizardLayout() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useThemeColors();
   const { gate: liveGate } = usePickupWizard(id);
   const [result, setResult] = useState<ConfirmHandshakeResult | null>(null);
-  // Una vez confirmado el handshake en esta sesión, el envío pasa a `in_transit` y el
-  // gate en vivo pasaría a `already_done`, pisando la pantalla de éxito con el mensaje
-  // "Ya confirmaste este retiro" (una segunda confirmación redundante). El gate solo
-  // protege la ENTRADA al wizard: con resultado en mano ya no se reevalúa.
-  const gate = result ? "ready" : liveGate;
+  // El gate solo protege la ENTRADA al wizard: una vez que dio `ready`, queda fijo
+  // por el resto de la sesión. Si se reevaluara en vivo, cualquier refetch del envío
+  // que vea `in_transit` (el handshake ya se confirmó) antes de que el paso del QR/escaneo
+  // guarde su resultado pasaría el gate a `already_done`, desmontaría el `<Stack>` y
+  // pisaría la pantalla de éxito con "Ya confirmaste este retiro". Un cambio de estado
+  // real a mitad del wizard (ej. cancelación) igual lo rechaza el backend al generar
+  // o confirmar el handshake.
+  const [reachedReady, setReachedReady] = useState(false);
+  if (liveGate === "ready" && !reachedReady) setReachedReady(true);
+  const gate = reachedReady || liveGate === "ready" ? "ready" : liveGate;
 
   const goToDetail = () => router.replace(`/shipments/${id}`);
 

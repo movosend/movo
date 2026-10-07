@@ -4,13 +4,17 @@ import { useEffect } from "react";
 import { Pressable, Text, View } from "react-native";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { createPhotoUploadProvider } from "../../../src/adapters/photo-upload-provider";
-import { createPricingProvider } from "../../../src/adapters/pricing-provider";
+import { createPricingProvider, type PricingQuoteInput } from "../../../src/adapters/pricing-provider";
 import { useCreateShipment } from "../../../src/hooks/use-shipments";
 import { friendlyErrorMessage } from "../../../src/lib/error-messages";
 import { uriToBlob } from "../../../src/lib/photo-utils";
 import { capitalizeName } from "../../../src/lib/profile-format";
 import { formatPickupDateLabel, formatPickupWindowLabel } from "../../../src/lib/shipment-format";
-import { useShipmentWizardStore, type WizardPhoto } from "../../../src/store/shipment-wizard-store";
+import {
+  IDLE_PRICE_QUOTE,
+  useShipmentWizardStore,
+  type WizardPhoto,
+} from "../../../src/store/shipment-wizard-store";
 import type { CreateShipmentInput } from "../../../src/api/shipments-client";
 import { ErrorBanner } from "../../ui/error-banner";
 import { packageTypeLabel } from "../category-grid";
@@ -36,6 +40,78 @@ function errorCodeToStep(code: string): number | null {
   }
 }
 
+/** MOVO-255: la cotización congelada venció o ya no coincide con los datos. */
+const QUOTE_ERROR_CODES = new Set(["QUOTE_EXPIRED", "QUOTE_MISMATCH"]);
+
+type WizardSnapshot = ReturnType<typeof useShipmentWizardStore.getState>;
+
+/** Datos que afectan el precio, o `null` si falta alguno. */
+function buildPriceInput(state: WizardSnapshot): PricingQuoteInput | null {
+  const weightKg = Number(state.weightKg) || null;
+  const lengthCm = Number(state.lengthCm) || null;
+  const widthCm = Number(state.widthCm) || null;
+  const heightCm = Number(state.heightCm) || null;
+  if (!state.packageType || !state.pickup || !state.delivery || !weightKg || !lengthCm || !widthCm || !heightCm) {
+    return null;
+  }
+  return {
+    packageType: state.packageType,
+    weightKg,
+    lengthCm,
+    widthCm,
+    heightCm,
+    pickup: { lat: state.pickup.lat, lng: state.pickup.lng },
+    delivery: { lat: state.delivery.lat, lng: state.delivery.lng },
+  };
+}
+
+function isQuoteStillValid(quote: WizardSnapshot["priceQuote"]): boolean {
+  return (
+    quote.status === "ready" &&
+    quote.quoteId !== null &&
+    quote.expiresAt !== null &&
+    new Date(quote.expiresAt).getTime() > Date.now()
+  );
+}
+
+/**
+ * Cotiza contra el backend y guarda el resultado en el store (MOVO-255). Si mientras
+ * tanto cambió algún dato que afecta el precio, descarta la respuesta: sería el precio
+ * de un envío que ya no es el que está en el wizard.
+ */
+async function refreshQuote(updated: boolean): Promise<void> {
+  const { setPriceQuote } = useShipmentWizardStore.getState();
+  const input = buildPriceInput(useShipmentWizardStore.getState());
+  if (!input) {
+    setPriceQuote({ ...IDLE_PRICE_QUOTE, status: "unavailable" });
+    return;
+  }
+
+  setPriceQuote({ ...useShipmentWizardStore.getState().priceQuote, quoteId: null, status: "loading", updated });
+  let next: WizardSnapshot["priceQuote"];
+  try {
+    const result = await createPricingProvider().getQuote(input);
+    next =
+      result.quoteId === null
+        ? { ...IDLE_PRICE_QUOTE, status: "unavailable", updated }
+        : {
+            suggestedPriceArs: result.suggestedPriceArs,
+            highDemand: result.highDemand,
+            quoteId: result.quoteId,
+            expiresAt: result.expiresAt,
+            status: "ready",
+            updated,
+          };
+  } catch {
+    next = { ...IDLE_PRICE_QUOTE, status: "unavailable", updated };
+  }
+
+  const current = buildPriceInput(useShipmentWizardStore.getState());
+  if (JSON.stringify(current) === JSON.stringify(input)) {
+    setPriceQuote(next);
+  }
+}
+
 interface SummaryStepProps {
   onGoToStep: (step: number) => void;
 }
@@ -57,7 +133,6 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
     photos,
     priceQuote,
     submission,
-    setPriceQuote,
     setSubmission,
     updatePhoto,
     resetWizard,
@@ -65,30 +140,15 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
 
   const createShipment = useCreateShipment();
 
+  // MOVO-255: se cotiza solo al entrar al resumen (cambiar un dato que afecta el
+  // precio implica volver a otro paso, que desmonta este). Si la cotización guardada
+  // sigue vigente se reusa: volver del paso de fotos no tiene por qué cambiar el precio.
   useEffect(() => {
-    const weight = Number(weightKg) || null;
-    const length = Number(lengthCm) || null;
-    const width = Number(widthCm) || null;
-    const height = Number(heightCm) || null;
-
-    if (!pickup || !delivery || !weight || !length || !width || !height) {
-      setPriceQuote({ suggestedPriceArs: null, status: "unavailable" });
-      return;
+    const current = useShipmentWizardStore.getState().priceQuote;
+    if (current.status !== "loading" && !isQuoteStillValid(current)) {
+      void refreshQuote(false);
     }
-
-    setPriceQuote({ suggestedPriceArs: priceQuote.suggestedPriceArs, status: "loading" });
-    createPricingProvider()
-      .getQuote({ pickup, delivery, weightKg: weight, lengthCm: length, widthCm: width, heightCm: height })
-      .then((result) => {
-        setPriceQuote(
-          result
-            ? { suggestedPriceArs: result.suggestedPriceArs, status: "ready" }
-            : { suggestedPriceArs: null, status: "unavailable" },
-        );
-      })
-      .catch(() => setPriceQuote({ suggestedPriceArs: null, status: "unavailable" }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickup, delivery, weightKg, lengthCm, widthCm, heightCm]);
+  }, []);
 
   async function uploadPhotos(shipmentId: string, photosToUpload: WizardPhoto[]) {
     const provider = createPhotoUploadProvider();
@@ -145,12 +205,26 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
         pickupTimeWindowStart,
         pickupTimeWindowEnd,
       };
+      // MOVO-255: con `quoteId` el envío se crea exactamente al precio mostrado. Sin
+      // él (pricing no respondió, "precio a estimar") el backend cotiza al crear.
+      const { quoteId } = useShipmentWizardStore.getState().priceQuote;
+      if (quoteId) {
+        body.quoteId = quoteId;
+      }
 
       try {
         const created = await createShipment.mutateAsync(body);
         shipmentId = created.id;
         setSubmission({ shipmentId: created.id });
       } catch (err) {
+        // MOVO-255 (AC4): la cotización venció o no coincide. Nunca se reintenta la
+        // creación sola: se vuelve a cotizar, se muestra el precio nuevo y el emisor
+        // tiene que volver a tocar "Publicar".
+        if (err instanceof ApiError && QUOTE_ERROR_CODES.has(err.code)) {
+          setSubmission({ status: "idle", errorMessage: null, fieldErrorStep: null });
+          await refreshQuote(true);
+          throw err;
+        }
         const fieldErrorStep = err instanceof ApiError ? errorCodeToStep(err.code) : null;
         setSubmission({
           status: "error",
@@ -242,9 +316,22 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
         />
       </View>
 
+      {priceQuote.updated && priceQuote.status === "ready" ? (
+        <View
+          testID="summary-step-price-updated"
+          className="rounded-[10px] border border-warning-300 bg-warning-100 px-3.5 py-3"
+        >
+          <Text className="font-sans-semibold text-[13px] text-ink-950">El precio se actualizó</Text>
+          <Text className="mt-0.5 font-sans text-[13px] text-ink-950/70">
+            Revisá el nuevo costo y volvé a confirmar para publicar el envío.
+          </Text>
+        </View>
+      ) : null}
+
       <PricePreviewCard
         testID="summary-step-price"
         suggestedPriceArs={priceQuote.status === "ready" ? priceQuote.suggestedPriceArs : null}
+        highDemand={priceQuote.status === "ready" && priceQuote.highDemand === true}
         caption={
           priceQuote.status === "loading"
             ? "Calculando…"
@@ -256,7 +343,7 @@ export function SummaryStep({ onGoToStep }: SummaryStepProps) {
 
       <PublishShipmentButton
         testID="summary-step-submit"
-        disabled={!receiver || !pickup || !delivery}
+        disabled={!receiver || !pickup || !delivery || priceQuote.status === "loading"}
         onPublish={publish}
         onPublishError={() => {}}
         onViewShipment={handleViewShipment}

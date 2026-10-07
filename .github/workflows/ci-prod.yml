@@ -196,6 +196,20 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.svc-pricing-logistics == 'true'
     runs-on: ubuntu-latest
+    # MOVO-138: los tests del cache de combustible corren contra Redis real (en CI
+    # fallan si no hay Redis, en vez de saltearse como en local).
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      REDIS_TEST_URL: redis://localhost:6379/15
     defaults:
       run:
         working-directory: services/movo-svc-pricing-logistics
@@ -418,7 +432,12 @@ jobs:
               # El status se captura directo, no con `if ...; then return 0; fi`
               # + `code=$?`: un `if` sin `else` cuya condición falla devuelve 0,
               # así que `code` nunca vería el 124 del timeout.
-              timeout 600 docker compose run --rm -T "$1" npx prisma migrate deploy
+              # Binario directo y --no-deps: la EC2 es una t3.micro (1 GB, ADR-006)
+              # y con todo el stack arriba `npx` (npm -> sh -> prisma, tres procesos
+              # node) alcanzaba para que el OOM killer matara la migración con
+              # SIGKILL. Postgres y Redis ya están levantados, compose no tiene que
+              # tocarlos.
+              timeout 600 docker compose run --rm -T --no-deps "$1" /app/node_modules/.bin/prisma migrate deploy
               code=$?
               [ "$code" -eq 0 ] && return 0
               if [ "$code" -eq 124 ]; then

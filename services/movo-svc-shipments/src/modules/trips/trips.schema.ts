@@ -1,5 +1,6 @@
 // MOVO-221: `declared` agregado como estado inicial real del ciclo de vida.
-const TRIP_STATUS_VALUES = ["declared", "active", "cancelled", "completed"];
+// MOVO-260: `expired` separado de `cancelled`.
+const TRIP_STATUS_VALUES = ["declared", "active", "cancelled", "expired", "completed"];
 
 const tripResponse = {
   type: "object",
@@ -30,17 +31,50 @@ const tripResponse = {
     departureAt: { type: "string", format: "date-time" },
     vehicleType: { type: "string" },
     status: { type: "string", enum: TRIP_STATUS_VALUES },
+    cancelledAt: { type: ["string", "null"], format: "date-time" },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
   },
 };
 
+const tripAcceptedPackageResponse = {
+  type: "object",
+  required: [
+    "shipmentId",
+    "status",
+    "packageType",
+    "weightKg",
+    "pickupAddress",
+    "deliveryAddress",
+    "pickupDate",
+    "pickupTimeWindowStart",
+    "pickupTimeWindowEnd",
+    "agreedPriceArs",
+    "senderName",
+  ],
+  properties: {
+    shipmentId: { type: "string" },
+    status: { type: "string" },
+    packageType: { type: "string" },
+    weightKg: { type: "number" },
+    pickupAddress: { type: "string" },
+    deliveryAddress: { type: "string" },
+    pickupDate: { type: "string" },
+    pickupTimeWindowStart: { type: "string" },
+    pickupTimeWindowEnd: { type: "string" },
+    agreedPriceArs: { type: "number" },
+    senderName: { type: "string" },
+  },
+};
+
 const tripWithAcceptedPackagesResponse = {
   type: "object",
-  required: [...tripResponse.required, "hasAcceptedPackages"],
+  required: [...tripResponse.required, "hasAcceptedPackages", "acceptedPackagesCount"],
   properties: {
     ...tripResponse.properties,
     hasAcceptedPackages: { type: "boolean" },
+    acceptedPackagesCount: { type: "integer" },
+    packages: { type: "array", items: tripAcceptedPackageResponse },
   },
 };
 
@@ -142,7 +176,6 @@ export const tripsSchemas = {
       destinationLng: { type: "number", minimum: -180, maximum: 180 },
       departureAt: { type: "string", format: "date-time" },
       vehicleType: { type: "string", minLength: 1, maxLength: 50 },
-      status: { type: "string", enum: TRIP_STATUS_VALUES },
     },
   },
 
@@ -150,6 +183,15 @@ export const tripsSchemas = {
     type: "object",
     properties: {
       status: { type: "string", enum: TRIP_STATUS_VALUES },
+      scope: {
+        type: "string",
+        enum: ["upcoming", "history"],
+        description:
+          "Excluyente con `status` (400 si llegan los dos). `upcoming`: declared+active, por departureAt asc " +
+          "-- incluye un declared con departureAt ya vencido hasta que el barrido lo expire (hasta 15 min), " +
+          "o indefinidamente si tiene paquetes aceptados (el transportista todavía tiene que iniciarlo). " +
+          "`history`: completed+cancelled+expired, por departureAt desc.",
+      },
       page: { type: "integer", minimum: 1, default: 1 },
       limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
     },

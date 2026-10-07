@@ -27,7 +27,9 @@ type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 interface RequestOptions {
   method?: HttpMethod;
   body?: unknown;
-  query?: Record<string, string | number | boolean | undefined>;
+  /** Un array se serializa como clave repetida (`?status=a&status=b`), lo que
+   * Fastify parsea como array (MOVO-253, filtro de `GET /shipments/mine`). */
+  query?: Record<string, string | number | boolean | readonly string[] | undefined>;
   /** Headers explícitos por request — p.ej. `Authorization` adjuntado a mano por
    * `authClient.logout` (MOVO-76) o `createKycSession`/`getKycStatus` (MOVO-73). Si se
    * pasa `Authorization` acá, el interceptor no lo pisa. */
@@ -59,7 +61,9 @@ function buildUrl(path: string, query?: RequestOptions["query"]): string {
   const url = new URL(`${getApiBaseUrl()}/api/v1${path}`);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
-      if (value !== undefined) {
+      if (Array.isArray(value)) {
+        for (const item of value) url.searchParams.append(key, item);
+      } else if (value !== undefined) {
         url.searchParams.set(key, String(value));
       }
     }
@@ -102,7 +106,7 @@ async function doRefresh(): Promise<SessionResponse> {
   return session;
 }
 
-function refreshTokens(): Promise<SessionResponse> {
+export function refreshTokens(): Promise<SessionResponse> {
   if (!refreshPromise) {
     refreshPromise = doRefresh().finally(() => {
       refreshPromise = null;

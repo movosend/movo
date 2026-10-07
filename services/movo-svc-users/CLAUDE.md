@@ -1061,3 +1061,150 @@ test.ts`) quedaron escritos pero sin poder correrse en este entorno por falta de
 Postgres/Redis local — pendiente de verificar en CI.
 
 Pendiente / fuera de alcance: mobile de MOVO-246 (pantalla de configuración).
+
+### MOVO-173 — `categories` en el desglose de reputación
+
+Sin lógica nueva: `svc-shipments` calcula `asSender.categories`/`asCarrier.categories`
+(ver su `CLAUDE.md`) y este servicio ya reenviaba el desglose tal cual. Lo único
+necesario fue declarar `categories` en `reputationBreakdown` de `users.schema.ts` —
+sin eso el serializador de Fastify lo descarta en silencio y nunca llega al cliente
+(el test nuevo de `users.reputation.integration.test.ts` falla sin ese campo).
+
+### MOVO-175 — Reportar y bloquear usuarios (ADR-026)
+
+Módulo nuevo `src/modules/moderation/` + `moderation-repository.ts`, tablas
+`user_blocks`/`user_reports` (migración a mano, `prisma migrate diff` datamodel→datamodel
+con el prefijo `users.` agregado). Rutas protegidas bajo `/users` (sin cambios en el
+gateway): `POST /users/:id/report`, `POST`/`DELETE /users/:id/block`, `GET /users/me/blocked`;
+interna `GET /internal/users/:id/block-relations` (unión simétrica, la consume `svc-shipments`).
+
+- **Una fila por dirección, efecto simétrico**: la simetría la resuelve
+  `listRelatedUserIds`, no la tabla — `isBlockedByMe` (nuevo en `GET /users/:id`, solo
+  mirando a otro) necesita saber la dirección, y nunca revela si el otro bloqueó al caller.
+- **Un reporte `pending` por par, ampliable pero no editable**: reportar de nuevo da
+  409 `REPORT_ALREADY_PENDING`; lo que el reportante quiera agregar va como entrada
+  (`POST /users/:id/report/entries`, tabla `user_report_entries`, append-only) y
+  `GET /users/:id/report` devuelve el propio con sus entradas o `null`. Reportes y
+  entradas comparten el tope de 10/día por usuario (Redis `SET NX EX` + `INCR`,
+  `RATE_LIMIT_EXCEEDED`). Solo se persisten — la revisión es de admin, fuera de alcance.
+- **`deleteAccount` borra los bloqueos en ambas direcciones** dentro de su `$transaction`
+  (el `Cascade` nunca dispara por el soft delete); los reportes se conservan como evidencia.
+- `GET /users/search` excluye a cualquiera con un bloqueo en cualquier dirección
+  (`search()` pasa a recibir una lista de ids a excluir).
+
+Pendiente / fuera de alcance: revisión de reportes desde `movo-admin`/`svc-admin`.
+
+**Cambios de review (PR #193)**:
+- Alena1812: el chequeo de pendiente y el INSERT no estaban atados, así que dos pedidos
+  concurrentes creaban dos filas y consumían dos cupos. Migración
+  `20260926120000_unique_pending_report_movo_175`: índice único parcial
+  `(reporter_id, reported_id) WHERE status = 'pending'` (a mano, mismo criterio que
+  MOVO-119). Ante el `P2002` se reintegra el cupo (`DECR` en Lua, solo si la key sigue
+  viva) y se responde el mismo 409.
+- La versión original respondía 200 con el reporte existente y descartaba sin avisar el
+  motivo/detalle del segundo intento. Se reemplazó por el 409 + entradas de arriba
+  (migración `20260926130000_add_user_report_entries_movo_175`).
+
+### MOVO-256 — Fotos de evidencia en un reporte de usuario
+
+Tabla `users.user_report_photos` (migración `20260926230000_add_user_report_photos_movo_256`):
+cada foto pertenece al envío en el que se mandó (`entry_id` null = reporte original), `s3_key`
+único. `user_report_entries.details` pasa a nullable: una entrada puede ser solo fotos (el
+service exige texto o al menos una foto). `POST /users/:id/report/photos/presign` firma un PUT
+(JPEG, 2 MB, mismo criterio que MOVO-81) bajo el prefijo privado `reports/{reporterId}/`; el
+reporte y las entradas reciben `photoKeys` (hasta 4, `MAX_REPORT_PHOTOS_PER_SUBMISSION` de
+`@movo/shared`, el número del mockup de diseño) y el `GET` devuelve una presigned GET por foto
+(`StorageProvider.createDownloadUrl`, nuevo en este servicio, mismo contrato que en
+`svc-shipments`). Nunca públicas como `profile-photos/*` (ADR-016).
+
+- **Asociar una key toma el mismo lock por key que el sweep de huérfanas**
+  (`reportPhotoLockKey`) antes de validar prefijo propio + `headObject` + que no esté ya en
+  otro envío, y lo suelta después del INSERT: sin eso, el sweep podía borrar el objeto entre la
+  validación y la asociación. Las fotos se validan antes de consumir cupo diario (una foto
+  rechazada no gasta cupo); el presign no consume cupo.
+- **El índice único de `s3_key` es la red de seguridad de la carrera**: el P2002 se distingue
+  del de reporte pendiente duplicado buscando `s3_key` en todo `meta` (con el driver adapter
+  viene anidado, ver MOVO-93) — `isReportPhotoKeyConflict`, probado contra Postgres real.
+- **El sweep (`orphan-photo-sweep.ts`) pasó a una lista de prefijos**: `profile-photos` y
+  `reports`, cada uno con su sorted set, su lock global y su fuente de verdad en Postgres.
+- Sin Terraform nuevo: el bucket ya es privado salvo `profile-photos/*` y el rol de la EC2 ya
+  tiene Put/Delete/Get sobre todo el bucket. Sin env vars nuevas.
+- **`POST /users/:id/report/photos/presign` no tiene rate limit propio en el gateway, a
+  propósito**: el cupo diario real se controla al asociar la foto (`reportUser`/
+  `addReportEntry` consumen `RATE_LIMIT_EXCEEDED`, MOVO-175) y el sweep de huérfanas
+  borra las que se presignan y nunca se asocian — un presign de más no cuesta nada real
+  aparte de una fila efímera en Redis, así que no se agregó un override en
+  `gateway/src/config/routes-map.ts`.
+
+Pendiente / fuera de alcance: plazo de retención de las fotos tras la baja de cuenta (candidato
+a ADR, hoy se conservan como el resto del reporte); sumar las imágenes de reportes a la Política
+de Privacidad; revisión desde `movo-admin`.
+
+**Fixes de review (PR #198, Alena1812):**
+- **`REPORT_PHOTO_LOCK_TTL_MS` subido de 5s a 20s + `release()` con compare-and-delete
+  (Lua, token random por lock) en vez de `unlink()` a ciegas**
+  (`moderation.service.ts`): 5s era ajustado contra hasta 4 `headObject` + la consulta
+  de asociadas + el INSERT, y el `release()` viejo podía soltar un lock que ya era del
+  sweep de huérfanas si el propio venció antes de tiempo -- con eso, el sweep podía
+  borrar el objeto de S3 justo antes de que el INSERT terminara. El comentario de
+  `services/movo-svc-users/CLAUDE.md` que decía "el rol de la EC2 ya tiene Put/Delete/
+  Get sobre todo el bucket" también estaba desactualizado desde MOVO-114 -- ver la
+  entrada transversal de "Pendientes" del `CLAUDE.md` raíz (falta sumar `"reports"` a
+  `ec2_role_s3_prefixes` en `movo-infra` antes de un deploy real).
+### MOVO-174 — `GET /users/:id/mutual-connections`
+
+"Ya envió con N personas con las que vos también enviaste" del perfil. Depende de QUIÉN MIRA
+(`x-user-id`), por eso es un endpoint propio y no un campo de `PublicProfile`.
+`users.service.ts#getMutualConnections` valida al usuario visitado (404 `USER_NOT_FOUND`, `deleted`
+cuenta como "no existe"), consulta a `svc-shipments` (`shipments-client.ts#findMutualConnectionIds`,
+endpoint interno), descarta las contrapartes con cuenta dada de baja (`user-repository.ts#
+countActiveByIds`, `status != deleted`; `banned` sí cuenta) y devuelve `{ totalCount,
+sampleFirstNames: [] }`.
+
+- **`svc-shipments` devuelve ids, no un conteo, porque no sabe qué cuentas se eliminaron** (fix de
+  review de PR #196): sin este filtro, alguien que borró su cuenta seguía contando como conexión en
+  común. Los ids no salen de `getMutualConnections`. Si la base propia falla al contar, el error se
+  propaga: solo la caída de `svc-shipments` degrada a 0.
+- **Decisión de privacidad: solo el conteo.** `sampleFirstNames` viaja SIEMPRE vacío: nombrar a un
+  tercero revelaría que transaccionó con alguien que el viewer conoce, sin su consentimiento. El campo
+  queda en el contrato para poder pasar a nombres sin romper clientes (ese cambio pediría un ADR corto).
+- **Mirar el propio perfil da 0 y no llama a `svc-shipments`** (propio usuario excluido).
+- **Si `svc-shipments` falla, degrada a 0 y loguea** (`mutual_connections_fetch_failed`), igual que la
+  reputación (AC3 de MOVO-152): el mobile oculta la fila con 0, el perfil nunca se cae por esto.
+- Sin cambios en el gateway (`/users` ya se proxea genéricamente) ni env vars nuevas.
+
+### MOVO-274 — Push de KYC y de cuenta y seguridad
+
+Cuatro avisos push nuevos, sobre el modelo de preferencias de MOVO-245: resultado de la verificación
+de identidad/licencia (aprobada, rechazada, en revisión) y cambio confirmado de contraseña, email y
+teléfono. Las categorías `kyc` y `account_security` pasan a `implemented: true` (ver
+`shared/movo-shared/CLAUDE.md`), así que aparecen con toggle real en la pantalla de MOVO-246 sin
+tocar mobile. Todo sale por `notifications/send-trigger-push.ts#sendTriggerPush` (renderiza el trigger de
+`@movo/shared`, llama a `sendPushToUser` y se traga cualquier error con un `warn`: el equivalente de
+`sendCustodyPush` de `svc-shipments`).
+
+- **KYC avisa desde `kyc.service.ts#notifyDecision`, solo con lo que devuelve `applyTerminalDecision`**:
+  webhook y pull comparten esa compuerta de idempotencia, así que un webhook repetido, o el pull que
+  llega después del webhook, no manda un segundo push. `expired` aplica la transición pero no avisa (no
+  es un resultado). El copy no lleva el motivo del rechazo ni datos del documento (AC9 de MOVO-72).
+  **`manual_review` como destino parte solo de `pending`** (review de PR #215): Didit repite `In Review`
+  mientras dura la revisión humana, y con `manual_review` también como origen la compuerta lo contaba como
+  una transición `manual_review` → `manual_review` (devolvía la fila, reescribía `resolvedAt`/`raw_decision`
+  y repetía el push en cada webhook duplicado o "actualizar estado"). Los resultados finales
+  (`approved`/`rejected`/`expired`) siguen partiendo de `pending` y `manual_review`.
+- **Cuenta y seguridad**: contraseña (`changePassword` y `resetPassword`, después de revocar las
+  sesiones), teléfono (`verifyPhoneChange`, hasta ahora sin ningún aviso) y email (`verifyEmailChange`,
+  además del mail al email anterior). El push se suma a los avisos por SMS/mail, no los reemplaza.
+  `account_security` es la primera categoría con `quietHoursExempt: true` en uso: atraviesa el horario de
+  silencio. Los textos no incluyen el email ni el número nuevo (el push se ve con el teléfono bloqueado).
+- **Siempre best-effort y después de persistir**: un push caído no revierte ni cambia la respuesta (en KYC
+  importa doble: si lanzara, el webhook respondería 5xx y Didit reintentaría un evento ya aplicado).
+- **`createKycService`, `createUsersService` y `createPasswordResetService` reciben `notifications:
+  PushSender` como parámetro obligatorio**; los tres módulos de rutas lo arman con `pushProvider`
+  inyectable (`buildApp({ pushProvider })`), el mismo override que ya usa `/internal/notifications`.
+- Tests unitarios con mocks, sin base: `send-trigger-push.test.ts`, `kyc.push.test.ts`,
+  `account-security.push.test.ts`. Los de integración de cada flujo no se tocaron.
+
+Pendiente / fuera de alcance: login desde un dispositivo nuevo (el login no tiene hoy registro de
+dispositivos conocidos); verificar en CI la suite de integración completa, que no se pudo correr en la
+máquina donde se desarrolló (la contraseña del Postgres local estaba desfasada del `.env`, ver MOVO-228).

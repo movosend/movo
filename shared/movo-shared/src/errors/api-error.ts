@@ -39,8 +39,14 @@ export type ApiErrorCode =
   | "SHIPMENT_INSUFFICIENT_CREATION_PHOTOS"
   | "SHIPMENT_INVALID_TRANSITION"
   | "SHIPMENT_RECEIVER_CONFIRMATION_EXPIRED"
+  // MOVO-253: venció el plazo para elegir otro receptor tras un rechazo.
+  | "SHIPMENT_REDESIGNATION_EXPIRED"
+  // MOVO-253: el receptor elegido ya rechazó este mismo envío.
+  | "SHIPMENT_RECEIVER_ALREADY_REJECTED"
   | "ROUTES_PROVIDER_ERROR"
   | "ROUTE_NOT_FOUND"
+  // MOVO-237: modo `live` del RoutesProvider, placeholder intencional (ADR-033).
+  | "ROUTE_MODE_NOT_IMPLEMENTED"
   | "PROFILE_NAME_LOCKED_BY_KYC"
   | "PHONE_ALREADY_IN_USE"
   | "EMAIL_ALREADY_IN_USE"
@@ -83,10 +89,13 @@ export type ApiErrorCode =
   | "HANDSHAKE_INVALID_SHIPMENT_STATE"
   | "ROUTING_SERVICE_ERROR"
   | "ROUTING_SERVICE_UNAVAILABLE"
-  // MOVO-221: rediseño de estados de viaje (declared/active/completed).
+  // MOVO-221 / MOVO-252: rediseño de estados de viaje (declared/active/completed).
   | "TRIP_NOT_DECLARED"
   | "TRIP_ALREADY_HAS_ACTIVE_TRIP"
   | "TRIP_NOT_AVAILABLE"
+  // MOVO-258 (D5): `POST /trips/:id/start` sobre un viaje sin ningún paquete aceptado --
+  // los paquetes quedan fijos al iniciar, así que no se puede arrancar uno vacío.
+  | "TRIP_NO_PACKAGES"
   // MOVO-228: la app mandó una versión de Términos/Privacidad distinta a la vigente
   // (`LEGAL_DOCUMENT_VERSIONS`, config/legal.ts) -- app desactualizada, el usuario
   // tiene que revisar y aceptar el contenido actual antes de poder registrarse.
@@ -101,7 +110,34 @@ export type ApiErrorCode =
   // MOVO-202: reportar una posición GPS sobre un envío que no está `in_transit` --
   // AC2 del ticket lo trata como 403, no 409 (mismo status que un actor equivocado,
   // aunque el problema sea de estado y no de autorización).
-  | "SHIPMENT_NOT_IN_TRANSIT";
+  | "SHIPMENT_NOT_IN_TRANSIT"
+  // MOVO-251: el envío no está en un viaje activo (o ya cerró su ciclo) para reportar o leer tracking.
+  | "SHIPMENT_NOT_TRACKABLE"
+  // MOVO-250: `capturedAt` de una posición GPS en el futuro (más allá de la tolerancia de
+  // desfase de reloj) o anterior a que el envío pasara a `in_transit`.
+  | "INVALID_CAPTURED_AT"
+  // MOVO-175: interacción (oferta, aceptación, envío como receptor) entre dos usuarios
+  // con un bloqueo en cualquier dirección -- explícito a propósito (ADR-026).
+  | "USER_BLOCKED"
+  // MOVO-175: reportarse o bloquearse a uno mismo.
+  | "CANNOT_MODERATE_SELF"
+  // MOVO-175: ya hay un reporte propio en revisión sobre ese usuario -- se suma
+  // información con `POST /users/:id/report/entries` en vez de crear otro.
+  | "REPORT_ALREADY_PENDING"
+  // MOVO-256: la foto ya está asociada a otro envío del reporte (o al mismo, reintento).
+  | "REPORT_PHOTO_ALREADY_USED"
+  // MOVO-175: sumar información sin un reporte propio en revisión sobre ese usuario.
+  | "REPORT_NOT_FOUND"
+  // MOVO-255: el `quoteId` mandado al crear el envío no existe, venció, ya se usó o es
+  // de otro usuario -- el cliente vuelve a cotizar y pide confirmación de nuevo.
+  | "QUOTE_EXPIRED"
+  // MOVO-255: los datos que afectan el precio cambiaron después de cotizar.
+  | "QUOTE_MISMATCH"
+  // Juego de precios de la feria (módulo demo de svc-shipments + API key en el gateway)
+  | "AUTH_API_KEY_INVALID"
+  | "PRICING_UNAVAILABLE"
+  // Juego del optimizador: partida vencida en Redis y sin los números offline del iPad.
+  | "ROUTE_GAME_NOT_FOUND";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

@@ -9,11 +9,11 @@ const STATUS_LABEL: Record<ShipmentStatus, string> = {
   [ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION]: "Esperando receptor",
   [ShipmentStatus.REJECTED_BY_RECEIVER]: "Rechazado",
   [ShipmentStatus.PUBLISHED]: "Publicado",
-  // MOVO-248: Shipment.status = assignment_pending modela la etapa entre la aceptación
-  // de la oferta y la confirmación del hold de fondos. En la UI de mobile se muestra
-  // como "Sin asignar" hasta que el nuevo flujo y modelo de estados de MOVO-248 separe
-  // el estado del transportista del estado del hold/pago.
-  [ShipmentStatus.ASSIGNMENT_PENDING]: "Sin asignar",
+  // `assignment_pending`: la oferta ya se aceptó y el transportista quedó guardado en el
+  // envío (`carrierId`); lo que falta es reservar el pago (MOVO-12/210, todavía sin
+  // implementar). La pill habla del transportista, no del pago (MOVO-248), así que es
+  // "Asignado" y no "Sin asignar".
+  [ShipmentStatus.ASSIGNMENT_PENDING]: "Asignado",
   // MOVO-208: transportista ya asignado, pero el hold de fondos todavía no se creó
   // (retiro a más de N días, MOVO-12 opción B) -- distinto de "Asignado" (`ASSIGNED`),
   // que sí implica fondos reservados.
@@ -66,8 +66,9 @@ export function shipmentStatusTone(
     case ShipmentStatus.COMPLETED:
       return "success";
     case ShipmentStatus.CANCELLED:
-    case ShipmentStatus.REJECTED_BY_RECEIVER:
       return "danger";
+    // MOVO-253: el rechazo ya no es terminal — el emisor tiene que elegir otro receptor.
+    case ShipmentStatus.REJECTED_BY_RECEIVER:
     case ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION:
     case ShipmentStatus.DISPUTED:
     case ShipmentStatus.ASSIGNED_UNFUNDED:
@@ -86,13 +87,19 @@ export function shipmentStatusTone(
  * "Mis Envíos" (MOVO-127) — patrón estándar de listados de pedidos/viajes (Uber,
  * apps de delivery). `DISPUTED` cuenta como "en curso": todavía espera una resolución,
  * no es un estado final desde la perspectiva del usuario. */
-export function shipmentLifecycleStage(status: ShipmentStatus): "ongoing" | "past" {
+export function shipmentLifecycleStage(
+  status: ShipmentStatus,
+  options?: { isReceiver?: boolean },
+): "ongoing" | "past" {
   switch (status) {
     case ShipmentStatus.DELIVERED:
     case ShipmentStatus.COMPLETED:
     case ShipmentStatus.CANCELLED:
-    case ShipmentStatus.REJECTED_BY_RECEIVER:
       return "past";
+    // MOVO-253: para el emisor sigue en curso (puede elegir otro receptor); para quien
+    // rechazó ya terminó — deja de verlo en cuanto el emisor elige a otra persona.
+    case ShipmentStatus.REJECTED_BY_RECEIVER:
+      return options?.isReceiver ? "past" : "ongoing";
     default:
       return "ongoing";
   }
@@ -122,9 +129,49 @@ export function receiverConfirmationStatus(
 export function canCancelShipment(status: ShipmentStatus): boolean {
   return (
     status === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION ||
+    // MOVO-253 AC4: en vez de elegir otro receptor, el emisor puede cancelar.
+    status === ShipmentStatus.REJECTED_BY_RECEIVER ||
     status === ShipmentStatus.PUBLISHED ||
     status === ShipmentStatus.ASSIGNMENT_PENDING
   );
+}
+
+/** Estado de la card "Seguimiento en vivo" del detalle para emisor/receptor
+ * (MOVO-271 AC5). Decisión de producto: la ubicación del transportista se ve desde que
+ * inicia el viaje hasta la entrega, y antes de "Iniciar viaje" no se captura ni se
+ * muestra. Hoy el backend solo acepta posiciones con el envío `in_transit` (tramo
+ * retiro → entrega): entre el inicio del viaje y el retiro el envío sigue en
+ * `assignment_pending` y la ingesta responde 403 `SHIPMENT_NOT_TRACKABLE`, así que se
+ * habilita recién en `in_transit`. Cuando MOVO-270 habilite ese tramo, `"available"`
+ * pasa a depender de que el viaje esté activo y no hace falta tocar la card.
+ * `null`: sin transportista o envío cerrado, la card no se muestra. */
+export type LiveTrackingAvailability = "available" | "pending";
+
+export function liveTrackingAvailability(status: ShipmentStatus): LiveTrackingAvailability | null {
+  switch (status) {
+    case ShipmentStatus.IN_TRANSIT:
+      return "available";
+    case ShipmentStatus.ASSIGNMENT_PENDING:
+    case ShipmentStatus.ASSIGNED_UNFUNDED:
+    case ShipmentStatus.ASSIGNED:
+      return "pending";
+    default:
+      return null;
+  }
+}
+
+/** Cada cuánto se refresca el detalle mientras el seguimiento muestra el placeholder,
+ * para habilitarlo sin salir de la pantalla (MOVO-271 AC5). */
+export const LIVE_TRACKING_PENDING_POLL_MS = 30_000;
+
+/** Si quien mira el detalle tiene que hacer polling: solo emisor/receptor (el
+ * transportista no ve la card) y solo mientras el seguimiento espera el retiro. */
+export function liveTrackingPendingPollInterval(
+  shipment: { status: ShipmentStatus; carrierId: string | null } | undefined,
+  viewerId: string | undefined,
+): number | false {
+  if (!shipment?.carrierId || shipment.carrierId === viewerId) return false;
+  return liveTrackingAvailability(shipment.status) === "pending" ? LIVE_TRACKING_PENDING_POLL_MS : false;
 }
 
 /** Nunca "$0" — un envío recién creado sin precio acordado todavía muestra la
@@ -168,9 +215,35 @@ export function formatPickupDateLabel(pickupDate: string): string | null {
 export function shipmentEventTitle(
   toStatus: ShipmentStatus,
   fromStatus: ShipmentStatus | null,
-  options?: { receiverName?: string | null; isReceiver?: boolean },
+  options?: {
+    receiverName?: string | null;
+    carrierName?: string | null;
+    isReceiver?: boolean;
+    isSender?: boolean;
+    isCarrier?: boolean;
+  },
 ): string {
   if (fromStatus === null) return "Envío creado";
+
+  // Aceptar una oferta es la transición `published -> assignment_pending` (o
+  // `assigned_unfunded` si el retiro es lejano, MOVO-208): lo que pasó ahí es que el
+  // emisor eligió al transportista. Titularla por el `toStatus` la mostraba como
+  // "Buscando transportista", justo cuando la búsqueda terminó. El pago pendiente va
+  // como detalle (`shipmentEventDetail`).
+  if (isOfferAcceptance(toStatus, fromStatus)) {
+    if (options?.isCarrier) return "El emisor aceptó tu oferta";
+    const carrier = options?.carrierName;
+    if (options?.isSender) return carrier ? `Elegiste a ${carrier} como transportista` : "Elegiste al transportista";
+    return carrier ? `El emisor eligió a ${carrier}` : "El emisor eligió al transportista";
+  }
+
+  // MOVO-253: tras un rechazo, el emisor eligió a otra persona.
+  if (
+    fromStatus === ShipmentStatus.REJECTED_BY_RECEIVER &&
+    toStatus === ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION
+  ) {
+    return options?.isSender ? "Elegiste otro receptor" : "El emisor eligió otro receptor";
+  }
 
   // La aceptación del receptor no tiene estado propio: es exactamente la transición
   // `awaiting_receiver_confirmation -> published` (`acceptShipment` en
@@ -197,11 +270,12 @@ export function shipmentEventTitle(
     case ShipmentStatus.PUBLISHED:
       return "Publicado para transportistas";
     case ShipmentStatus.ASSIGNMENT_PENDING:
-      return "Buscando transportista";
     case ShipmentStatus.ASSIGNED_UNFUNDED:
-      return "Transportista asignado -- fondos aún no reservados";
+      return "Transportista elegido";
+    // Llegar a `assigned` es confirmar el hold de fondos: el transportista ya se había
+    // elegido al aceptar la oferta.
     case ShipmentStatus.ASSIGNED:
-      return "Transportista asignado";
+      return "Pago reservado";
     case ShipmentStatus.IN_TRANSIT:
       return "El paquete salió en camino";
     case ShipmentStatus.DELIVERED:
@@ -231,7 +305,30 @@ export function shipmentEventDetail(
   ) {
     return "Publicado para transportistas";
   }
+  if (isOfferAcceptance(toStatus, fromStatus)) {
+    return toStatus === ShipmentStatus.ASSIGNED_UNFUNDED
+      ? "El pago se reserva más cerca del retiro"
+      : "Falta reservar el pago";
+  }
   return null;
+}
+
+function isOfferAcceptance(toStatus: ShipmentStatus, fromStatus: ShipmentStatus | null): boolean {
+  return (
+    fromStatus === ShipmentStatus.PUBLISHED &&
+    (toStatus === ShipmentStatus.ASSIGNMENT_PENDING || toStatus === ShipmentStatus.ASSIGNED_UNFUNDED)
+  );
+}
+
+/**
+ * Si el `reason` de un evento se muestra en la línea de tiempo. Solo en cancelaciones
+ * y rechazos: ahí es el motivo que escribió una persona, o la explicación de un
+ * barrido automático ("El receptor no confirmó dentro del plazo"). En el resto, el
+ * backend guarda texto interno ("Oferta <uuid> aceptada", "Handshake de retiro
+ * confirmado") que no está pensado para el usuario.
+ */
+export function shouldShowEventReason(toStatus: ShipmentStatus): boolean {
+  return toStatus === ShipmentStatus.CANCELLED || toStatus === ShipmentStatus.REJECTED_BY_RECEIVER;
 }
 
 /** Camino feliz del ciclo de vida, en orden — el mismo grafo de
@@ -288,10 +385,14 @@ export function shipmentPendingStepLabel(
     case ShipmentStatus.PUBLISHED:
       if (options?.isReceiver) return "Tu confirmación";
       return receiver ? `Aceptación de ${receiver}` : "Aceptación del receptor";
+    // Paso que se cumple al aceptar una oferta: se nombra por la elección, no por la
+    // búsqueda (mismo ícono de persona con check que el evento real).
     case ShipmentStatus.ASSIGNMENT_PENDING:
-      return "Búsqueda de transportista";
+      return "Elección del transportista";
+    // El transportista se elige al aceptar la oferta (`assignment_pending`); pasar a
+    // `assigned` es la reserva del pago.
     case ShipmentStatus.ASSIGNED:
-      return "Asignación del transportista";
+      return "Reserva del pago";
     case ShipmentStatus.IN_TRANSIT:
       return "Retiro del paquete";
     case ShipmentStatus.DELIVERED:
@@ -398,7 +499,11 @@ const PICKUP_DAY_MONTHS = [
  * cuidado de zona horaria que el resto del archivo: `pickupDate` y "hoy" se comparan
  * como strings `YYYY-MM-DD` vía `toArgentinaCalendarDateString`, nunca restando
  * `Date`s directamente (correría el día en UTC-3). */
-export function formatPickupDayLabel(pickupDate: string, now: Date = new Date()): string {
+export function formatPickupDayLabel(
+  pickupDate: string,
+  now: Date = new Date(),
+  options: { includeMonth?: boolean } = {},
+): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(pickupDate)) return pickupDate;
   const todayStr = toArgentinaCalendarDateString(now);
   if (pickupDate === todayStr) return "Hoy";
@@ -412,6 +517,8 @@ export function formatPickupDayLabel(pickupDate: string, now: Date = new Date())
 
   const [y, m, d] = pickupDate.split("-").map(Number);
   const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  // MOVO-257: "Mis envíos" usa la forma corta del prototipo ("mié 30"), sin mes.
+  if (options.includeMonth === false) return `${PICKUP_DAY_WEEKDAYS[weekday]} ${d}`;
   return `${PICKUP_DAY_WEEKDAYS[weekday]} ${d} ${PICKUP_DAY_MONTHS[m - 1]}`;
 }
 
@@ -479,8 +586,8 @@ export function formatRouteDistanceKm(distanceMeters: number): string {
   return `${(distanceMeters / 1000).toFixed(1)} km`;
 }
 
-/** Distancia real de GPS (`usePickupProximityCheck`, MOVO-198 AC4) entre el
- * transportista y el punto de retiro, para el mapa del paso 1 del wizard — metros
+/** Distancia real de GPS (`useProximityCheck`, MOVO-198 AC4/MOVO-199) entre el
+ * transportista y el punto de retiro o de entrega, para el mapa del paso 1 de cada wizard — metros
  * enteros bajo 1km (la precisión que importa a esa escala, "80 m" vs. "150 m"), un
  * decimal en km por encima (mismo criterio que `formatRouteDistanceKm`). */
 export function formatProximityDistance(distanceMeters: number): string {
@@ -606,6 +713,30 @@ export function formatReceiverConfirmationDeadline(
   if (hours <= 0) return null;
   if (hours === 1) return "Te queda 1 h para confirmar";
   return `Te quedan ${hours} h para confirmar`;
+}
+
+/**
+ * MOVO-253 AC5: hasta cuándo puede el emisor elegir otro receptor, como hora de reloj
+ * ("Tenés hasta hoy 18:00", "Tenés hasta mañana 09:30", "Tenés hasta el vie 26/9
+ * 18:00"). `null` si el plazo falta, es inválido o ya venció: en ese caso la acción ya
+ * no está disponible y el barrido cancela el envío.
+ */
+export function redesignationDeadlineLabel(
+  deadlineIso: string | null | undefined,
+  now: Date = new Date(),
+): string | null {
+  if (!deadlineIso) return null;
+  const deadline = new Date(deadlineIso);
+  if (Number.isNaN(deadline.getTime()) || deadline <= now) return null;
+
+  const time = deadline.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dayDiff = Math.round((startOfDay(deadline) - startOfDay(now)) / (24 * 60 * 60 * 1000));
+
+  if (dayDiff === 0) return `Tenés hasta hoy ${time}`;
+  if (dayDiff === 1) return `Tenés hasta mañana ${time}`;
+  const weekday = deadline.toLocaleDateString("es-AR", { weekday: "short" }).replace(".", "");
+  return `Tenés hasta el ${weekday} ${deadline.getDate()}/${deadline.getMonth() + 1} ${time}`;
 }
 
 /** Versión corta de `formatReceiverConfirmationDeadline` ("vence en N h") para

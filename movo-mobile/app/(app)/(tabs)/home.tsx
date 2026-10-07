@@ -6,9 +6,11 @@ import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ProfileAvatar } from '../../../components/profile/profile-avatar';
 import { AttentionSection } from '../../../components/home/attention-section';
+import { CarrierTransportingSection } from '../../../components/home/carrier-transporting-section';
 import { HomeSendCta } from '../../../components/home/home-send-cta';
 import { RecentShipmentsSection } from '../../../components/home/recent-shipments-section';
 import { RoleSection } from '../../../components/home/role-section';
+import { TrackingActiveIndicator } from '../../../components/location/tracking-active-indicator';
 import { useReceivingShipments, useSendingShipments } from '../../../src/hooks/use-active-shipments';
 import { useAuth } from '../../../src/hooks/use-auth';
 import { useMyProfile } from '../../../src/hooks/use-profile';
@@ -20,6 +22,7 @@ import {
 } from '../../../src/lib/kyc-status-ui';
 import { capitalizeName, formatGreetingDateLabel, getFirstName } from '../../../src/lib/profile-format';
 import { useAuthStore } from '../../../src/store/auth-store';
+import { useTabBarScrollHandler } from '../../../src/store/tab-bar-store';
 
 /**
  * Home del área autenticada (MOVO-83, reemplaza el placeholder de MOVO-76): header
@@ -35,9 +38,9 @@ import { useAuthStore } from '../../../src/store/auth-store';
  * MOVO-193: "Estoy enviando"/"Voy a recibir" (`RoleSection`) consumen `GET
  * /shipments/sending`/`/receiving` (MOVO-192, todavía sin backend — ver
  * `ActiveShipmentSummary` en `shipments-client.ts`); mientras no exista, esas
- * queries fallan y las secciones no se renderizan. "Estoy transportando" queda para
- * una fase 2 de esta misma US (layout distinto, card de viaje agregado, depende de
- * MOVO-206).
+ * queries fallan y las secciones no se renderizan. `CarrierTransportingSection`
+ * (MOVO-252) usa `GET /shipments/transporting` y `GET /trips` para la sección
+ * "Estoy transportando" visible al transportista en el home.
  */
 const KYC_BANNER_TEXT: Partial<Record<KycStatus, string>> = {
   [KycStatus.NOT_STARTED]: 'Todavía no verificaste tu identidad. Mientras tanto, tu acceso está restringido.',
@@ -51,6 +54,7 @@ const KYC_BANNER_TEXT: Partial<Record<KycStatus, string>> = {
 };
 
 export default function AuthenticatedHomeScreen() {
+  const tabBarScroll = useTabBarScrollHandler();
   const { user } = useAuth();
   const { data: profile } = useMyProfile();
   const colors = useThemeColors();
@@ -87,6 +91,7 @@ export default function AuthenticatedHomeScreen() {
     setRefreshing(true);
     await Promise.allSettled([
       queryClient.invalidateQueries({ queryKey: ["shipments"] }),
+      queryClient.invalidateQueries({ queryKey: ["trips"] }),
       queryClient.invalidateQueries({ queryKey: ["users", "me"] }),
       queryClient.invalidateQueries({ queryKey: ["attention-tasks"] }),
     ]);
@@ -120,6 +125,7 @@ export default function AuthenticatedHomeScreen() {
       </SafeAreaView>
 
       <ScrollView
+        {...tabBarScroll}
         contentContainerClassName="px-6 pb-32 pt-6"
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -142,6 +148,10 @@ export default function AuthenticatedHomeScreen() {
             <Text className="flex-1 font-sans text-[13px] text-ink-950">{bannerText}</Text>
           </View>
         ) : null}
+
+        <TrackingActiveIndicator />
+
+        <CarrierTransportingSection testID="app-home-transporting" />
 
         <RoleSection
           testID="app-home-sending"

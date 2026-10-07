@@ -104,14 +104,12 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
   }
 
   /**
-   * MOVO-221 (merge posterior a MOVO-179): `tripRepo.create()` ahora nace `declared`,
-   * no `active` -- `findActiveTripsMatchingShipment` solo mira `active` (AC1), así que
-   * cada trip de este describe necesita pasar por `start()` explícito para seguir
-   * probando lo que dice probar, en vez de no-matchear por casualidad de status.
+   * MOVO-258 (D5): `findDeclaredTripsMatchingShipment` solo mira viajes `declared` -- al
+   * iniciar un viaje sus paquetes quedan fijos, así que ya no recibe pushes de paquetes
+   * compatibles (antes miraba `active`, AC1 de MOVO-179, contra el título del ticket).
    */
-  async function createActiveTrip(overrides: Partial<CreateTripInput> = {}) {
-    const trip = await tripRepo.create(baseTripInput(overrides));
-    return tripRepo.start(trip.id);
+  async function createDeclaredTrip(overrides: Partial<CreateTripInput> = {}) {
+    return tripRepo.create(baseTripInput(overrides));
   }
 
   describe("POST /shipments/:id/accept", () => {
@@ -322,11 +320,11 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
     // MOVO-179 (DoD): test de integración de punta a punta -- aceptar un envío con un
     // viaje activo compatible ya sembrado dispara exactamente una llamada a
     // notifications-client.ts con el payload esperado.
-    describe("MOVO-179: push de envío compatible con viaje activo (trip_match)", () => {
-      it("dispara exactamente una push trip_match al transportista con un viaje active compatible", async () => {
+    describe("MOVO-179: push de envío compatible con viaje declarado (trip_match)", () => {
+      it("dispara exactamente una push trip_match al transportista con un viaje declared compatible", async () => {
         const shipment = await repo.create(baseInput);
         await addTwoCreationPhotos(shipment.id);
-        const trip = await createActiveTrip();
+        const trip = await createDeclaredTrip();
 
         const response = await app.inject({
           method: "POST",
@@ -350,12 +348,12 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
         });
       });
 
-      it("no dispara ninguna push trip_match si ningún viaje active matchea", async () => {
+      it("no dispara ninguna push trip_match si ningún viaje declared matchea", async () => {
         const shipment = await repo.create(baseInput);
         await addTwoCreationPhotos(shipment.id);
         // Viaje MUY lejos del retiro/entrega del envío -- fuera de cualquier radio de
         // desvío razonable.
-        await createActiveTrip({
+        await createDeclaredTrip({
           originLat: baseInput.pickupLat - 5,
           originLng: baseInput.pickupLng - 5,
           destinationLat: baseInput.deliveryLat - 5,
@@ -380,7 +378,7 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
       it("no dispara push si el viaje matchea geométricamente pero pricing-logistics lo marca no viable (decisión de equipo, Peter)", async () => {
         const shipment = await repo.create(baseInput);
         await addTwoCreationPhotos(shipment.id);
-        await createActiveTrip();
+        await createDeclaredTrip();
         (pricingLogisticsClient.evaluateCandidates as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
           directDistanceKm: 10,
           directDurationMinutes: 15,
@@ -437,6 +435,11 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
 
       const updated = await repo.findById(shipment.id);
       expect(updated?.status).toBe(ShipmentStatus.REJECTED_BY_RECEIVER);
+      // MOVO-253: el plazo para elegir otro receptor queda persistido y expuesto.
+      expect(updated?.receiverRedesignationDeadline).toBeInstanceOf(Date);
+      expect(data.receiverRedesignationDeadline).toBe(updated?.receiverRedesignationDeadline?.toISOString());
+      expect(data.rejectionReason).toBe("No estoy en la ciudad");
+      expect(updated?.rejectionReason).toBe("No estoy en la ciudad");
 
       const events = await repo.listEvents(shipment.id);
       expect(events).toHaveLength(2);
@@ -452,7 +455,7 @@ describe("POST /shipments/:id/accept y POST /shipments/:id/reject (Postgres)", (
         expect(notificationsClient.sendPush).toHaveBeenCalledWith({
           userId: senderId,
           title: "Envío rechazado",
-          body: "Lucía rechazó el envío",
+          body: "Lucía rechazó el envío. Podés elegir otro receptor.",
           category: "shipments",
           data: { shipmentId: shipment.id, type: "shipment_rejected" },
         });

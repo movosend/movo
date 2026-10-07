@@ -4,7 +4,7 @@ import { ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { EvidenceCaptureStep } from "../../../../../components/evidence/evidence-capture-step";
 import { PrimaryButton } from "../../../../../components/auth/primary-button";
-import { PickupWizardStepHeader } from "../../../../../components/shipments/pickup-wizard-step-header";
+import { WizardStepHeader } from "../../../../../components/shipments/wizard-step-header";
 
 /**
  * Paso 4 del wizard de retiro (MOVO-198): monta el step reusable de MOVO-197 tal
@@ -17,7 +17,7 @@ export default function PickupEvidenceScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-bg">
-      <PickupWizardStepHeader
+      <WizardStepHeader
         testIDPrefix="pickup-evidence"
         title="Fotos de evidencia"
         step={4}

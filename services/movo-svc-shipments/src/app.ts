@@ -13,14 +13,19 @@ import receiverConfirmationSweepPlugin from "./plugins/receiver-confirmation-swe
 import orphanPhotoSweepPlugin from "./plugins/orphan-photo-sweep";
 import pickupExpirySweepPlugin from "./plugins/pickup-expiry-sweep";
 import carrierPositionPurgeSweepPlugin from "./plugins/carrier-position-purge-sweep";
+import tripExpirySweepPlugin from "./plugins/trip-expiry-sweep";
+import pickupMissedSweepPlugin from "./plugins/pickup-missed-sweep";
+import transitAnomalySweepPlugin from "./plugins/transit-anomaly-sweep";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import offersRoutes, { OffersRoutesOptions } from "./modules/offers/offers.routes";
 import ratingsRoutes, { internalRatingsRoutes, RatingsRoutesOptions } from "./modules/ratings/ratings.routes";
 import tripsRoutes, { TripsRoutesOptions } from "./modules/trips/trips.routes";
 import accountDeletionRoutes from "./modules/account-deletion/account-deletion.routes";
+import mutualConnectionsRoutes from "./modules/mutual-connections/mutual-connections.routes";
 import handshakeRoutes, { HandshakeRoutesOptions } from "./modules/handshake/handshake.routes";
 import trackingRoutes, { TrackingRoutesOptions } from "./modules/tracking/tracking.routes";
 import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/positions.routes";
+import demoRoutes, { DemoRoutesOptions } from "./modules/demo/demo.routes";
 import { ShipmentRepository } from "./repositories/shipment-repository";
 import { UsersClient } from "./adapters/users-client";
 import { StorageProvider } from "./adapters/storage-provider";
@@ -57,6 +62,13 @@ export interface BuildAppOptions {
   /** Override para habilitar/deshabilitar el sweep de purga de posiciones GPS en
    * background (MOVO-202). */
   carrierPositionPurgeSweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el sweep de viajes declared vencidos en
+   * background (MOVO-238). */
+  tripExpirySweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el sweep de retiro no realizado (MOVO-258). */
+  pickupMissedSweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el sweep de `in_transit` anómalo (MOVO-258). */
+  transitAnomalySweepEnabled?: boolean;
   /** Override solo para tests de integración -- evita depender de una integración
    * real de liberación de fondos (MOVO-158, fuera de alcance de este ticket). */
   fundsReleaseNotifier?: FundsReleaseNotifier;
@@ -133,6 +145,19 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
       ? { enabled: opts.carrierPositionPurgeSweepEnabled }
       : {}),
   });
+  app.register(tripExpirySweepPlugin, {
+    ...(opts.tripExpirySweepEnabled !== undefined ? { enabled: opts.tripExpirySweepEnabled } : {}),
+  });
+  app.register(pickupMissedSweepPlugin, {
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.pickupMissedSweepEnabled !== undefined ? { enabled: opts.pickupMissedSweepEnabled } : {}),
+  });
+  app.register(transitAnomalySweepPlugin, {
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.transitAnomalySweepEnabled !== undefined ? { enabled: opts.transitAnomalySweepEnabled } : {}),
+  });
 
   app.get("/health", async () => ({ status: "ok" }));
 
@@ -181,6 +206,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // /internal/notifications de movo-svc-users, MOVO-106).
   app.register(accountDeletionRoutes, { prefix: "/internal/account-deletion" });
 
+  // MOVO-174: consultado por movo-svc-users para "conexiones mutuas" del perfil. Interno.
+  app.register(mutualConnectionsRoutes, { prefix: "/internal" });
+
   // MOVO-146 AC10: consultado por movo-svc-users para el agregado/últimas
   // calificaciones del perfil (MOVO-25). Interno, mismo criterio que accountDeletionRoutes.
   app.register(internalRatingsRoutes, { prefix: "/internal" });
@@ -210,6 +238,15 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
   };
   app.register(positionsRoutes, positionsRouteOpts);
+
+  // Juegos del sitio institucional (/juegos): autenticados por API key en el gateway
+  // (prefijo /demo), no por JWT -- ver demo.routes.ts.
+  const demoRouteOpts: DemoRoutesOptions = {
+    prefix: "/demo",
+    ...(opts.pricingClient ? { pricingClient: opts.pricingClient } : {}),
+    ...(opts.pricingLogisticsClient ? { pricingLogisticsClient: opts.pricingLogisticsClient } : {}),
+  };
+  app.register(demoRoutes, demoRouteOpts);
 
   return app;
 }

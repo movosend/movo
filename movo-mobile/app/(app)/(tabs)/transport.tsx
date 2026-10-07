@@ -19,6 +19,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { AddressSearchSheet } from "../../../components/send/address-search-sheet";
 import { AvailableShipmentCard } from "../../../components/transport/available-shipment-card";
 import { AvailableShipmentRow } from "../../../components/transport/available-shipment-row";
+import { TrackingActiveIndicator } from "../../../components/location/tracking-active-indicator";
 import { TransportAccessCards } from "../../../components/transport/transport-access-cards";
 import {
   DEFAULT_TRANSPORT_FILTERS,
@@ -33,6 +34,7 @@ import type { MyOfferSummary } from "../../../src/api/offers-client";
 import type { AvailableShipment } from "../../../src/api/shipments-client";
 import { useAddresses } from "../../../src/hooks/use-addresses";
 import { useMyOffers } from "../../../src/hooks/use-offers";
+import { useTabBarScrollHandler } from "../../../src/store/tab-bar-store";
 import { TRANSPORT_RADIUS_OPTIONS_KM, useAvailableShipments } from "../../../src/hooks/use-shipments";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
 import { useTransportOrigin } from "../../../src/hooks/use-transport-origin";
@@ -230,6 +232,7 @@ function applyTransportFilters<T>(
  * endpoint que cruce el feed general contra los viajes activos).
  */
 export default function TransportScreen() {
+  const tabBarScroll = useTabBarScrollHandler();
   const colors = useThemeColors();
   const { tripId } = useLocalSearchParams<{ tripId?: string }>();
   // Único punto que deriva el modo de `tripId` — el resto de los flags (isReady,
@@ -416,6 +419,8 @@ export default function TransportScreen() {
 
       {!isTripMode ? (
         <>
+          <TrackingActiveIndicator className="mx-5 mb-3" />
+
           <Pressable
             testID="transport-my-route-cta"
             // expo-router no infiere la ruta raíz `/route` cuando se navega desde un grupo anidado (tabs); la ruta existe en app/(app)/route/index.tsx
@@ -542,6 +547,7 @@ export default function TransportScreen() {
         )
       ) : isReady ? (
         <FlatList
+          {...tabBarScroll}
           testID="transport-list"
           data={sortedItems}
           keyExtractor={({ item }) => item.id}
