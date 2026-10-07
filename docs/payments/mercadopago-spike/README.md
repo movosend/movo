@@ -36,17 +36,27 @@ monorepo — es un artefacto de investigación, vive en `docs/` a propósito.
 
 ## Setup
 
-1. `cp .env.example .env`
-2. Seguir las instrucciones que están como comentario arriba de cada
-   variable en `.env.example` — resumen:
-   - Crear una app en el [panel de Mercado Pago Developers](https://www.mercadopago.com.ar/developers/panel/app),
-     modelo **Marketplace**.
-   - Crear una cuenta de prueba tipo **Vendedor** (va a hacer de
-     transportista).
-   - Copiar `Access Token`, `Client ID` y `Client secret` de prueba al `.env`.
-   - Registrar `http://localhost:8787/callback` como Redirect URI de la app.
+### Credenciales del equipo (no están en el repo)
+
+Las credenciales de sandbox con las que se verificó el flujo (app `movosend`, las tres
+cuentas de prueba con sus contraseñas, tarjeta y un `.env` listo para copiar) están en el
+archivo **"MOVO — Credenciales sandbox de Mercado Pago"** (`mp-sandbox-credenciales.md`).
+Ese archivo no se versiona: se comparte por el medio seguro del equipo. Pedíselo a Tomás
+Vergara. **Nunca pegues esos valores en el repo, en Linear ni en una PR.**
+
+No crees una app nueva desde tu cuenta real de MP: en sandbox el dueño de la app, el
+vendedor y el pagador tienen que ser cuentas de prueba, si no MP rechaza el pago con 2034
+(ver `SOLUCION-FINAL.md` §1).
+
+### Pasos
+
+1. Copiar el bloque `.env` del archivo de credenciales a `.env` en esta carpeta
+   (gitignored). `.env.example` documenta qué es cada variable.
+2. Levantar un túnel (`cloudflared tunnel --url http://localhost:8787`) y cargar
+   `https://<túnel>/callback` como Redirect URI en el panel de la app `movosend`
+   (logueado como la cuenta de prueba Movo S.A) y en `MP_REDIRECT_URI`.
 3. (Solo si vas a usar las opciones "s1".."s9") `npm install`
-4. `node mp-spike-cli.js`
+4. `node mp-spike-cli.js` y seguir el checklist de `SOLUCION-FINAL.md` §5.
 
 ## Cómo se usa
 

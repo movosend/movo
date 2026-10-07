@@ -33,7 +33,9 @@ Soporte de MP lo confirmó con logs de Payments sobre los intentos del 04/09 (pa
 
 Las contraseñas y los códigos de verificación de las cuentas de prueba **no se copian
 acá** (el repo es público): se ven en el panel de MP → *Tus integraciones* → app
-"generador de cuentas" → *Cuentas de prueba*.
+"generador de cuentas" → *Cuentas de prueba*. Las credenciales completas para que el equipo
+reproduzca esto (incluido el `client_secret`) están en el archivo "MOVO — Credenciales
+sandbox de Mercado Pago", que se comparte por fuera del repo (ver `README.md` → Setup).
 
 ### Cuentas de prueba
 
