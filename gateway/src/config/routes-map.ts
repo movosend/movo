@@ -34,6 +34,13 @@ export interface ServiceRoute {
    * (su `rewriteRequestHeaders` de default solo reenvía `cookie`).
    */
   websocket?: boolean;
+  /**
+   * Cómo se autentica el prefijo. Default `"jwt"` (usuario de la app, con
+   * `publicRoutes` como excepción). `"apiKey"`: header `x-api-key` contra
+   * `DEMO_API_KEYS` (juegos de `movo-institucional`, sin usuario) -- el JWT no sirve
+   * ahí y `publicRoutes` no aplica.
+   */
+  auth?: "jwt" | "apiKey";
 }
 
 export interface PublicRoute {
@@ -59,6 +66,13 @@ export interface RateLimitedRoute {
    * NAT de la operadora no deberían compartir un contador.
    */
   perUser?: boolean;
+  /**
+   * Cuenta por cliente demo (`x-client-id`) + IP real del visitante (`x-movo-client-ip`,
+   * que reenvía el servidor de Next.js). Solo para rutas `auth: "apiKey"`: sin esto, todo
+   * el tráfico del sitio institucional llegaría desde las pocas IPs de Vercel y
+   * compartiría un único contador.
+   */
+  perClient?: boolean;
 }
 
 export function getServiceRoutes(env: {
@@ -153,6 +167,15 @@ export function getServiceRoutes(env: {
     {
       prefix: "/places",
       upstream: env.USERS_SERVICE_URL,
+    },
+
+    // Juegos de movo-institucional (/juegos): el juego de precios cotiza con el motor
+    // real y guarda cada partida en `shipments.pricing_game_sessions`. Sin usuario: se
+    // autentica con API key (`DEMO_API_KEYS`), no con JWT.
+    {
+      prefix: "/demo",
+      upstream: env.SHIPMENTS_SERVICE_URL,
+      auth: "apiKey",
     },
   ];
 }
@@ -325,6 +348,41 @@ export function getRateLimitOverrides(): RateLimitedRoute[] {
       method: "POST",
       path: "/users/me/email/verify/otp",
       rateLimit: { max: 5, timeWindow: "15 minutes" },
+    },
+    // Juego de precios: cada cotización consulta Google Routes (pago) desde
+    // pricing-logistics. Una partida cotiza 1 vez (más ~6 pares del loop de atracción,
+    // cacheados unas horas en el kiosco). 60/min porque en la feria varios iPads salen
+    // por el mismo wifi (misma IP). El PUT de partidas tiene `:id` en el path y cae en el
+    // límite demo general (60/min por visitante, ver routes/index.ts).
+    {
+      method: "POST",
+      path: "/demo/pricing-game/quote",
+      rateLimit: { max: 60, timeWindow: "1 minute" },
+      perClient: true,
+    },
+    {
+      method: "GET",
+      path: "/demo/pricing-game/stats",
+      rateLimit: { max: 60, timeWindow: "1 minute" },
+      perClient: true,
+    },
+    // Juego del optimizador: crear una partida corre OR-Tools (~1 s de CPU en
+    // pricing-logistics) sobre la matriz de la ciudad, que solo se factura a Google la
+    // primera vez (cache de 30 días). Una partida dura ~2 min, así que 60/min por
+    // visitante sobra aunque todos los iPads del stand compartan la IP del wifi. El
+    // ranking se pide una vez por partida. El PUT (`:id`) y el reset caen en el límite
+    // demo general.
+    {
+      method: "POST",
+      path: "/demo/route-game/games",
+      rateLimit: { max: 60, timeWindow: "1 minute" },
+      perClient: true,
+    },
+    {
+      method: "GET",
+      path: "/demo/route-game/ranking",
+      rateLimit: { max: 60, timeWindow: "1 minute" },
+      perClient: true,
     },
   ];
 }

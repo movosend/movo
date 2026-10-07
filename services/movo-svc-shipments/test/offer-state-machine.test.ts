@@ -12,6 +12,9 @@ const VALID_TRANSITIONS: Array<[OfferStatus, OfferStatus]> = [
   [OfferStatus.PENDING, OfferStatus.REJECTED],
   [OfferStatus.PENDING, OfferStatus.WITHDRAWN],
   [OfferStatus.PENDING, OfferStatus.SUPERSEDED],
+  // MOVO-258 (D7): el envío se cancela con la oferta vigente o ya aceptada
+  [OfferStatus.PENDING, OfferStatus.SHIPMENT_CANCELLED],
+  [OfferStatus.ACCEPTED, OfferStatus.SHIPMENT_CANCELLED],
 ];
 
 const INVALID_TRANSITIONS: Array<[OfferStatus, OfferStatus]> = [
@@ -24,6 +27,12 @@ const INVALID_TRANSITIONS: Array<[OfferStatus, OfferStatus]> = [
   [OfferStatus.WITHDRAWN, OfferStatus.PENDING],
   [OfferStatus.SUPERSEDED, OfferStatus.WITHDRAWN],
   [OfferStatus.EXPIRED, OfferStatus.PENDING],
+  [OfferStatus.SHIPMENT_CANCELLED, OfferStatus.PENDING],
+  [OfferStatus.SHIPMENT_CANCELLED, OfferStatus.ACCEPTED],
+  // una oferta rechazada/retirada/superada no se reetiqueta al cancelarse el envío
+  [OfferStatus.REJECTED, OfferStatus.SHIPMENT_CANCELLED],
+  [OfferStatus.WITHDRAWN, OfferStatus.SHIPMENT_CANCELLED],
+  [OfferStatus.SUPERSEDED, OfferStatus.SHIPMENT_CANCELLED],
   // no-op: quedarse en el mismo estado no es una transición
   [OfferStatus.PENDING, OfferStatus.PENDING],
 ];
@@ -65,6 +74,7 @@ describe("offer-state-machine", () => {
       OfferStatus.WITHDRAWN,
       OfferStatus.EXPIRED,
       OfferStatus.SUPERSEDED,
+      OfferStatus.SHIPMENT_CANCELLED,
     ];
     const nonTerminal = Object.values(OfferStatus).filter((status) => !terminal.includes(status));
 

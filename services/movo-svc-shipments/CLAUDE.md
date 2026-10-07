@@ -1864,7 +1864,7 @@ viaje, qué envíos matchean).
   SQL). Necesario porque acá el segmento (corredor del viaje) varía por CADA
   fila candidata, no es fijo como en el matching directo — no se portó a
   `$queryRaw` por ese motivo.
-- **`trip-repository.ts#findActiveTripsMatchingShipment`**: trae los `Trip`
+- **`trip-repository.ts#findDeclaredTripsMatchingShipment`**: trae los `Trip`
   `active` (excluyendo `carrierId` del propio sender/receiver del envío) y
   filtra en memoria con `distanceToSegmentKm` contra ambos puntos del envío.
   **Sin bounding-box/SQL de corredor** (a diferencia del matching directo) —
@@ -1905,13 +1905,13 @@ viaje, qué envíos matchean).
 
 **Fix de review (PR #172)**: `dispatchTripMatchPushes` no envolvía todo su cuerpo en
 try/catch, a diferencia del resto de disparadores best-effort del archivo — un fallo
-de `tripRepository.findActiveTripsMatchingShipment` (primera línea, error de
+de `tripRepository.findDeclaredTripsMatchingShipment` (primera línea, error de
 Prisma/DB) se propagaba como unhandled promise rejection en vez de loguear y seguir.
 Corregido envolviendo el cuerpo completo — los try/catch internos por notificación
 individual (AC4) quedan sin tocar.
 
 **Conflicto de merge contra `develop` (MOVO-221, mergeado antes) — resuelto en el
-mismo PR**: `TripRepository` recibió dos métodos en paralelo (`findActiveTripsMatchingShipment`
+mismo PR**: `TripRepository` recibió dos métodos en paralelo (`findDeclaredTripsMatchingShipment`
 de este ticket y `start()` de MOVO-221) — conflicto trivial, se conservaron ambos. Efecto
 no trivial: `Trip.create()` pasó de nacer `active` (lo que este ticket asumía) a nacer
 `declared` (MOVO-221) — los tests de matching/push necesitaron un `start()` explícito.
@@ -2661,6 +2661,14 @@ corre en cada `createShipment`, así que no trae todos los viajes del país).
 
 Pendiente fuera de alcance: badge en el detalle del envío (MOVO-254, mobile) y cotización
 congelada en el resumen del wizard (MOVO-255).
+### MOVO-184 — Filtro `withPendingOffers` en `GET /shipments/mine`
+
+Query param opcional: deja solo los envíos donde el caller es emisor y hay al menos una
+oferta con estado efectivo `pending` (no vencida por lectura). Lo usa "Requiere tu
+atención" del mobile para no depender de una ventana fija de la lista. Cambios en
+`shipments.schema.ts`, `shipments.routes.ts`, `shipments.service.ts` y
+`shipment-repository.ts#listByUser`.
+
 ### MOVO-253 — Elegir otro receptor tras un rechazo (ADR-027)
 
 `rejected_by_receiver` deja de ser terminal: sale hacia `awaiting_receiver_confirmation`
@@ -2783,7 +2791,7 @@ y el push de trip-match.
   unitarios) se omite.
 - `dispatchTripMatchPushes` ahora recibe `usersClient` y suma los bloqueados de emisor y
   receptor a `excludeCarrierIds`; como resuelve eso antes de buscar viajes, los tests
-  unitarios que miran `findActiveTripsMatchingShipment` usan `vi.waitFor`.
+  unitarios que miran `findDeclaredTripsMatchingShipment` usan `vi.waitFor`.
 
 ### MOVO-204 — Endpoint de última posición conocida para seguimiento (`movo-svc-shipments`)
 
@@ -2840,3 +2848,208 @@ asignado; uno con oferta rechazada sigue recibiendo 403. Se sacó el caso especi
 transportistas verificados). Tests nuevos en `shipments-events.integration.test.ts` y
 `photos.integration.test.ts` (carrier 200, carrier con oferta rechazada 403).
 
+
+### MOVO-260 — Estado expired separado de cancelled, cancelación lógica de viajes y listado por scope
+
+Soporte del rediseño del historial de "Mis viajes" y cancelación de viajes (`movo-mobile`): 
+Se introdujo `TripStatus.EXPIRED` para separar semánticamente la cancelación automática por inactividad (`trip-expiry-sweep.ts`) de la decisión explícita del usuario.
+- Nuevo endpoint `POST /trips/:id/cancel` permite cancelación lógica del viaje (transición de `declared` a `cancelled`), registrando la fecha en la columna `cancelled_at`.
+- Actualización de `GET /trips` agregando el parámetro `scope=upcoming|history`. `upcoming` (declared+active, ordenado por departureAt asc), `history` (completed+cancelled+expired, ordenado por departureAt desc).
+- Migración backfill que transiciona los viajes `cancelled` existentes a `expired`.
+- Se documenta la decisión formal en `ADR-029`.
+
+Fixes de review (PR #208, JcBordino4):
+- `status` sale del body de `PATCH /trips/:id` y de `UpdateTripInput`: la única vía a
+  `active` es `/start` y a `cancelled` es `/cancel`. Fastify descarta el campo en
+  silencio (`removeAdditional`, ver MOVO-129), no responde 400. El índice único parcial
+  de MOVO-221 sigue siendo la garantía en la base.
+- Dar de baja un viaje (`cancel()` y el barrido de `expired`) desasocia en la misma
+  transacción sus ofertas `pending` (`tripId: null`, `retireDeclaredTrip`): si el emisor
+  acepta una después, `acceptOffer` auto-crea un viaje nuevo (MOVO-234) en vez de colgar
+  el paquete de uno muerto.
+- `GET /trips` con `status` y `scope` juntos responde 400 `VALIDATION_FAILED`. `upcoming`
+  sigue mostrando un `declared` con salida vencida (hasta el barrido, o para siempre si
+  tiene paquetes aceptados, porque todavía hay que iniciarlo): documentado en Swagger.
+- `TripNotDeclaredError` recibe la acción, así el 409 de `/cancel` no habla de "iniciar".
+
+### MOVO-258 — Expiración y cierre automático de envíos, ofertas y viajes (ADR-032)
+
+Cierra los huecos de los barridos de `svc-shipments`: un envío con oferta aceptada que nadie
+retiraba, y el viaje trabado por él, quedaban abiertos para siempre. Mismo esqueleto de
+plugin (`setInterval` + lock Redis, lotes de 100) que `pickup-expiry-sweep.ts`; las reglas
+puras viven en `src/domain/expiration.ts`.
+
+- **D3 — el envío guarda la ventana acordada**: `offer-repository.ts#acceptOffer` copia
+  `offeredDate` y, si la oferta propuso otra, la franja (`offeredPickupTimeWindowStart/End`) a
+  `pickupDate`/`pickupTimeWindowStart/End` del envío. Los barridos leen solo el envío. La ventana que pidió
+  el emisor se guarda antes en `original_pickup_*` y `updateStatus` la restaura al volver a `published` (hold
+  fallido, MOVO-210): sin eso el envío reabierto quedaba con el día del transportista que perdió la asignación.
+  La migración `20261003120000_...` hace además el backfill de los envíos ya asignados antes del deploy (copia
+  la ventana de la oferta `accepted`); sin él el barrido los medía contra la fecha original y podía cancelarlos.
+- **D1/D2 — `pickup-missed-sweep.ts` → `expireUnpickedAssignedShipments`**: cancela
+  `assignment_pending`/`assigned_unfunded`/`assigned` con ventana cerrada hace más de
+  `PICKUP_MISSED_GRACE_HOURS` (24), sin culpables ni efecto en reputación, y avisa a emisor,
+  receptor y transportista. Desde `assigned` falta liberar el hold (MOVO-210/212): hoy nada llega
+  a `assigned`. "Quién faltó" por geolocalización (propuesta del equipo en D2) queda fuera: el GPS
+  arranca al iniciar el viaje pero `assertCanReport` solo acepta envíos `assigned`/`in_transit`, así
+  que no hay traza para `assignment_pending`; habilitarla y detectar la llegada es MOVO-270.
+- **D7 — `shipment_cancelled` en `OfferStatus`**: `shipment-repository.ts#updateStatus` lo escribe
+  en la misma transacción que pasa el envío a `cancelled` (`accepted` y `pending` vigentes; una
+  `pending` ya vencida por fecha queda `expired`). Por eso `cancelShipment` ahora lista las
+  ofertas a notificar ANTES de cancelar. `ACCEPTED_OFFER_FILTER` se conserva para filas viejas.
+- **D6 — `expireOverduePublishedShipments`**: un `published` con ventana vencida no se cancela
+  mientras tenga ofertas `pending` vigentes (cuentan con `countPendingOffersByShipmentIds`); el día
+  de retiro se avisa al emisor una vez (`claimNotificationOnce`, `SET NX` en Redis, TTL 7 días —
+  sin esa dependencia el aviso no se manda para no repetirlo en cada vuelta). Solo se avisa el día de retiro
+  (el texto dice "hoy"), y si la push falla se libera la clave (`releaseNotificationClaim`) para que el
+  próximo barrido reintente. La vigencia por ofertas solo protege de la cancelación: ese `published` deja de
+  aparecer en `GET /shipments/available` (`availableShipmentsWhereSql` filtra la ventana en SQL, huso de
+  Argentina) y `createOfferForShipment` responde 409 `SHIPMENT_NOT_AVAILABLE_FOR_OFFER`. Sin `offerRepository`
+  conserva el comportamiento anterior. Devuelve además `keptForOffersCount`.
+- **D5 — los paquetes de un viaje quedan fijos al iniciarlo**: `POST /trips/:id/start` exige al menos un
+  paquete aceptado vivo (409 `TRIP_NO_PACKAGES`) y desasocia las ofertas todavía `pending` del viaje
+  (`tripId = null`: siguen vigentes, y si el emisor las acepta `acceptOffer` les crea un viaje propio,
+  MOVO-234). Solo un viaje `declared` recibe ofertas (`createOfferForShipment`, 409 `TRIP_NOT_AVAILABLE`
+  si está `active`), aparece en `GET /trips/:id/matches` y en el matching inverso del push de paquete
+  compatible (`findDeclaredTripsMatchingShipment`, antes `findActiveTripsMatchingShipment`: el título de
+  MOVO-179 ya decía "viaje declarado"). `trip-expiry-sweep.ts` suma `completeFinishedActive` (`active`
+  con ≥1 paquete vivo y todos en `delivered`/`completed`/`cancelled`/`disputed`: `disputed` no tiene salida
+  modelada, así que retenerlo trababa al transportista para siempre por el índice de 1 viaje activo; por lo
+  mismo un reclamo posterior a la entrega no reabre el viaje) y
+  `expireActiveWithoutPackages` (un `active` al que se le cancelaron todos los paquetes).
+  **`countAvailableCarriersNear` (pricing, ADR-025) NO se tocó** y sigue contando `declared` y `active`:
+  cambiarlo mueve el recargo por alta demanda -- decisión pendiente en MOVO-270.
+- **D4 — `transit-anomaly-sweep.ts` → `flagAnomalousInTransitShipments`**: umbral = entrega estimada +
+  50% de (retiro → entrega estimada); sin estimada (es opcional en la oferta), retiro +
+  `IN_TRANSIT_ANOMALY_FALLBACK_HOURS` (48). Marca `transit_anomaly_flagged_at` (compare-and-swap, una
+  sola vez) y le pregunta al transportista si tuvo un inconveniente. No cancela, no corta el GPS.
+- **Env vars nuevas** (3 lugares): `PICKUP_MISSED_SWEEP_INTERVAL_MINUTES`/`_ENABLED`,
+  `PICKUP_MISSED_GRACE_HOURS`, `TRANSIT_ANOMALY_SWEEP_INTERVAL_MINUTES`/`_ENABLED`,
+  `IN_TRANSIT_ANOMALY_FALLBACK_HOURS`. Migración `20261002120000_...` (valor de enum + columna) y
+  `20261002120100_...` (backfill: pasa a `shipment_cancelled` las `accepted` y las `pending` vigentes
+  de envíos ya cancelados; va aparte porque Postgres no deja usar un valor de enum en la misma
+  transacción que lo agrega, y no es reversible).
+- **Fuera de alcance**: tracking antes del retiro y atribución del no-retiro, y revisar el conteo de
+  oferta de ADR-025 (MOVO-270); disputa automática y alerta en el panel de admin para el `in_transit` anómalo
+  (MOVO-30/MOVO-33, la marca es el punto de enganche) y detectar si el transportista "no se está
+  moviendo" (hoy solo se le pregunta por push); separar `expired` de `cancelled` (MOVO-260: los
+  barridos de retiro no realizado cancelan con motivo propio, los de viajes ya usan `expired`).
+  **Estados que quedan esperando por diseño, sin vencimiento propio (AC1)**: `delivered` hasta
+  la captura de Mercado Pago (`completed`, MOVO-212) y `disputed` hasta una resolución de admin
+  (sin transición de salida modelada, MOVO-30/ADR-023). El botón de iniciar viaje sin paquetes
+  solo está cerrado en el backend (409 `TRIP_NO_PACKAGES`): ocultarlo en la app lo decide el
+  rediseño de "Mis viajes" (MOVO-259, `acceptedPackagesCount` ya viaja en el listado). Los
+  barridos que podían quedar tapados por 100 candidatos que nunca vencen no se quedan con el primer
+  lote: `published` pagina con cursor (`findPotentiallyExpiredPublished(limit, afterId)`, hasta 20
+  páginas) e `in_transit` prefiltra en SQL con una cota inferior conservadora del umbral
+  (`findInTransitUnflagged(limit, { now, fallbackHours })`).
+- **Esqueleto de barridos**: `src/plugins/register-sweep.ts#registerSweep` (`setInterval` + lock Redis
+  `PX`/`NX` + `onClose`) lo comparten los 7 plugins de barrido; cada uno solo declara su regla. El lock no
+  se libera al terminar a propósito (también limita la frecuencia entre réplicas). `trip-expiry-sweep.ts`
+  corre cada uno de sus tres pasos con su propio try/catch: una fila mala en uno no frena los otros.
+- **`acceptOffer` condiciona su UPDATE también por `tripId`**: un `start()` concurrente desasocia las
+  `pending`; sin esto la oferta quedaba `accepted` sin viaje. Perder esa carrera da 409
+  `OFFER_CONCURRENT_MODIFICATION` y el reintento auto-crea un viaje (MOVO-234).
+- Mobile: `OfferStatus.SHIPMENT_CANCELLED` mapeado en `offer-format.ts`/`my-offer-card.tsx`/
+  `carrier/offers/index.tsx` (cuenta como oferta cerrada) y `TRIP_NO_PACKAGES` en `error-messages.ts`.
+
+### Juego de precios de la feria — módulo `demo` (sin ticket de Linear)
+
+Backend del juego de `movo-institucional` (/juegos/precios): el visitante elige origen,
+destino y paquete, ve el precio real, dice si lo pagaría (y si no, a cuánto) y si lo
+llevaría como transportista. `src/modules/demo/` (prefijo `/demo`, autenticado con API key
+en el gateway, ADR-030) + tabla `shipments.pricing_game_sessions` (migración
+`20261003120000_add_pricing_game_sessions`, sin FKs: los visitantes no tienen cuenta).
+
+- `POST /demo/pricing-game/quote`: reusa `quoteShipment()` (misma cotización y demanda real
+  que el wizard) con `includeBreakdown`. Peso y medidas salen de presets del backend
+  (`pricing-game.presets.ts`), no del cliente. La ganancia del transportista es
+  `computeNetFromGross` (comisión real del 15%). Guarda la cotización en Redis 1 h
+  (`pricing_game_quote:{id}`). Sin precio: 503 `PRICING_UNAVAILABLE`, nunca inventa uno.
+- `PUT /demo/pricing-game/sessions/:id`: upsert por UUID del cliente (la cola offline del
+  kiosco reenvía sin duplicar). Precio/desglose/ganancia salen de Redis por `quoteId`
+  (`quoteVerified`); si venció, se usan los del body con `quoteVerified: false`. El email
+  solo se guarda con `emailConsent: true`.
+- `GET /demo/pricing-game/stats?eventTag=`: aceptación y mediana/cuartiles de
+  `disposición a pagar / precio` y `pedido / ganancia`, total, por paquete y por tramo de
+  distancia. En memoria sobre las últimas 20.000 partidas (`domain/pricing-game-stats.ts`),
+  sin datos personales. Queries de referencia en `docs/pricing/pricing-game-metrics.md`.
+- Las rutas exigen `x-client-id` `demo-*` (lo inyecta el gateway): defensa si alguien
+  proxea `/demo` sin pasar por el chequeo de key.
+
+### Juego del optimizador de la feria — submódulo `route-game` del módulo `demo` (ADR-031)
+
+Backend de `/juegos/optimizador` (`movo-institucional`): el visitante ordena 4 a 7 paradas
+y compite contra OR-Tools. Ciudades en `route-game.scenarios.ts` (las 5 del prototipo, con
+`version` para invalidar la cache), lógica pura en `domain/route-game.ts`, tabla
+`shipments.route_game_sessions` (migración `20261004120000_add_route_game_sessions`).
+
+- `POST /demo/route-game/games`: elige ciudad (sin repetir `lastScenarioId`) y puntos,
+  recorta la matriz de la ciudad y llama a `/optimize/route` con `objective: distance` y
+  `matrix`. La matriz sale de `route-game-matrix-store.ts` (Redis 30 días, un pedido en
+  vuelo por ciudad; la del mock no se cachea). La partida (óptimo + submatriz) queda 1 h en
+  Redis y el óptimo no viaja hasta registrarla. Devuelve `matrix: { cache, provider,
+  elementsBilled }` para el indicador de costo del juego; cada miss se loguea
+  (`route_game_matrix_miss`). Cliente de pricing-logistics con 6 s de timeout (OR-Tools
+  corre ~1 s y el primer juego de una ciudad también pide la matriz).
+- `PUT /demo/route-game/games/:id`: upsert idempotente. Mide la ruta del jugador con la
+  misma submatriz (`computedBy: server`); si la partida venció, acepta los números de
+  `offline` (`computedBy: client`), y sin ellos 404 `ROUTE_GAME_NOT_FOUND` (código nuevo).
+  Con `name` entra al ranking; el mail solo con `emailConsent`.
+- `GET /demo/route-game/ranking` y `POST /demo/route-game/ranking/reset`: top 7 del día en
+  hora argentina por `eventTag` (eficiencia desc, tiempo asc), compartido entre iPads; el
+  reset apaga `in_ranking` sin borrar filas (siguen para métricas y sorteo).
+- `pricing-logistics-client.ts` concentra el POST con manejo de errores en un helper y suma
+  `routeMatrix`. El servicio del juego se arma en la primera request para que los tests del
+  juego de precios sigan registrando el plugin sin config.
+
+Fixes de review (PR #212, PedroYorlano):
+- **El primer `PUT` fija el resultado**: el primero ya devuelve `optimalOrder`, así que un
+  reenvío solo puede sumar nombre/mail (nunca borrarlos) y la respuesta sale de la fila
+  guardada. Antes repuntuaba con el `userOrder`/`timeUsedSec` del body (reenviar el óptimo
+  daba 100%).
+- **El reset marca `ranking_hidden_at`** (migración `20261005120000`) en todas las partidas
+  del día, con o sin nombre: un reenvío o un "anotarme" en vuelo ya no las devuelve al
+  ranking. Una partida offline (`computedBy: client`, km del iPad) nunca entra al ranking.
+- **Matriz con 0 fuera de la diagonal** (par que Google no pudo rutear): 503, no se cachea
+  ni se juega; una así ya cacheada se vuelve a pedir.
+- **Juego de precios**: la cotización guarda origen/destino y solo verifica una partida con
+  los mismos puntos y paquete; un reenvío sin verificar no pisa los campos de una fila ya
+  verificada; `stats` no usa el precio de filas sin verificar para los ratios (las cuenta
+  igual en respuestas y finalización).
+- Alta con `create` + reintento ante `P2002` en vez de `findUnique` + `upsert`: `created`
+  queda bien bajo concurrencia.
+
+### MOVO-274 — Push de calificación pendiente al entregar
+
+`handshake.service.ts#confirmHandshake`, rama de entrega, junto a los push de custodia de MOVO-245:
+emisor, receptor y transportista reciben un aviso para calificar (triggers `ratingPendingSender`/
+`ratingPendingReceiver`/`ratingPendingCarrier`, categoría `ratings`, `data.type: "rating_pending"`).
+Mismo pareo de "interacción física" que `pending-rating.ts` (MOVO-222): emisor y receptor califican al
+transportista, el transportista califica a emisor y receptor. Los otros tres avisos de MOVO-274 (KYC,
+cuenta y seguridad) viven en `svc-users`, ver su `CLAUDE.md`.
+
+- **Solo al entregar, sin recordatorio diferido**: el ticket dejaba abierto si sumar uno (con su barrido)
+  y se decidió no hacerlo por ahora.
+- **Emisor y receptor son la misma persona → un solo aviso** (el del emisor), en vez de dos idénticos.
+- **No se descuenta "quien ya calificó"**: calificar exige `delivered`, así que al entregar nadie calificó.
+  Si más adelante se agrega el recordatorio diferido, ahí sí hay que consultar `ratings` (MOVO-222
+  ya expone la lógica en `computePendingRatingFor`).
+- **Sin transportista asignado no se manda ninguno** (en la práctica un envío `in_transit` siempre tiene).
+- El test existente de la entrega de custodia ya no cuenta "2 push" a secas: cuenta solo los de
+  categoría `custody`. Tests nuevos en `handshake-service.test.ts` (los tres destinatarios, emisor ==
+  receptor, y que el retiro no mande este aviso).
+
+Pendiente / fuera de alcance: el recordatorio diferido para quien no califica.
+
+
+### MOVO-237 — `RoutesProvider.mode`: `per_trip` y `live` (ADR-033)
+
+`RouteInput` (`src/adapters/routes-provider.ts`) gana `mode?: "per_trip" | "live"`. `per_trip`
+es el default y el único implementado: los callers existentes (wizard de envío, handshake,
+viajes) no lo pasan y no cambian. `live` es un placeholder intencional para una navegación
+100% in-app futura: `assertSupportedRouteMode` (llamado al principio de `getRoute` en la
+implementación de Google y en el mock) responde `501 ROUTE_MODE_NOT_IMPLEMENTED` antes de
+cualquier llamada facturable. La navegación real se delega por deep-link desde el mobile
+(ver `docs/navigation/README.md`). `getRouteDurations` (Compute Route Matrix) no lleva `mode`.
+El ticket numeraba esta decisión ADR-022, que ya era el canal WebSocket: quedó como ADR-033.

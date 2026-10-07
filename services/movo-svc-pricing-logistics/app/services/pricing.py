@@ -13,7 +13,14 @@ from typing import Literal
 
 from app.config import settings
 from app.models.optimize import Coordinates
-from app.models.quote import DemandContext, PackageType, PriceCalculationMethod, QuoteRequest, QuoteResponse
+from app.models.quote import (
+    DemandContext,
+    PackageType,
+    PriceCalculationMethod,
+    QuoteBreakdown,
+    QuoteRequest,
+    QuoteResponse,
+)
 from app.services.distance import haversine_distance_km
 from app.services.fuel_price import FuelPriceProvider, get_fuel_price_provider
 from app.services.routes_provider import MockRoutesProvider, RoutesProvider, get_routes_provider
@@ -93,6 +100,16 @@ async def road_distance_km(
     return km, "routes_api"
 
 
+def effective_distance_km(distance_km: float) -> float:
+    """Km facturables con tarifa decreciente por tramos (ver `config.py`)."""
+    t1 = settings.distance_tier1_km
+    t2 = max(settings.distance_tier2_km, t1)
+    tier1 = min(distance_km, t1)
+    tier2 = max(min(distance_km, t2) - t1, 0.0)
+    tier3 = max(distance_km - t2, 0.0)
+    return tier1 + tier2 * settings.distance_tier2_rate + tier3 * settings.distance_tier3_rate
+
+
 def _package_factor(package_type: PackageType) -> float:
     return {
         PackageType.LETTER_DOCUMENT: settings.factor_letter_document,
@@ -125,7 +142,7 @@ async def compute_quote(
     p = fuel.ars_per_liter
     base = settings.base_fare_l * p
     per_km_ars = (settings.fuel_l_per_km * settings.fuel_cost_share + settings.non_fuel_l_per_km) * p
-    distance_component = distance_km * per_km_ars
+    distance_component = effective_distance_km(distance_km) * per_km_ars
     weight_component = req.weight_kg * settings.per_kg_l * p
     package_factor = _package_factor(req.package_type)
     subtotal = (base + distance_component + weight_component) * package_factor
@@ -159,8 +176,27 @@ async def compute_quote(
         ),
     )
 
+    breakdown = (
+        QuoteBreakdown(
+            distance_km=round(distance_km, 2),
+            distance_source=distance_source,
+            fuel_ars_per_liter=p,
+            fuel_source=fuel.source,
+            per_km_ars=round(per_km_ars, 2),
+            base=round(base, 2),
+            distance=round(distance_component, 2),
+            weight=round(weight_component, 2),
+            package_factor=package_factor,
+            demand_ratio=round(demand.ratio, 2),
+            demand_multiplier=demand.multiplier,
+        )
+        if req.include_breakdown
+        else None
+    )
+
     return QuoteResponse(
         suggested_price_ars=suggested_price_ars,
         high_demand=demand.high_demand,
         calculation_method=PriceCalculationMethod.DEMAND_FUEL_ROUTES_V1,
+        breakdown=breakdown,
     )

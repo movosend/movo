@@ -330,7 +330,8 @@ export default function LiveTrackingScreen() {
             El paquete fue entregado y el seguimiento en vivo ha concluido.
           </Text>
           <Pressable
-            onPress={() => router.replace(`/(app)/shipments/${shipmentId}`)}
+            // `dismissTo` (MOVO-271): se llega desde el detalle; `replace` lo duplicaba.
+            onPress={() => router.dismissTo(`/(app)/shipments/${shipmentId}`)}
             className="px-5 py-2.5 rounded-lg bg-fg active:opacity-90"
           >
             <Text className="font-sans-semibold text-small text-bg">Ver detalle del envío</Text>

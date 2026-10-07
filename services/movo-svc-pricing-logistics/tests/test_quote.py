@@ -44,6 +44,13 @@ client = TestClient(app)
 T = TypeVar("T")
 
 
+@pytest.fixture(autouse=True)
+def _linear_distance(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Los casos de la fórmula asumen tarifa lineal por km; los tramos se prueban aparte."""
+    monkeypatch.setattr(settings, "distance_tier1_km", 1e9)
+    monkeypatch.setattr(settings, "distance_tier2_km", 1e9)
+
+
 class FixedFuel(FuelPriceProvider):
     async def get_price(self) -> FuelPrice:
         return FuelPrice(ars_per_liter=2000.0, source="mock")
@@ -380,3 +387,62 @@ def test_endpoint_rejects_negative_demand_context() -> None:
 def test_endpoint_missing_field_returns_422() -> None:
     body = {k: v for k, v in BODY.items() if k != "weightKg"}
     assert client.post("/quote", json=body).status_code == 422
+
+
+# --- Desglose opt-in (juego de precios) --------------------------------------------------
+
+
+def test_breakdown_is_omitted_by_default() -> None:
+    res = asyncio.run(compute_quote(_request(), fuel_provider=FixedFuel(), routes=FixedRoute(100.0)))
+    assert res.breakdown is None
+
+
+def test_breakdown_matches_the_formula_when_requested() -> None:
+    req = _request(PackageType.FRAGILE_ITEM).model_copy(update={"include_breakdown": True})
+    res = asyncio.run(compute_quote(req, fuel_provider=FixedFuel(), routes=FixedRoute(100.0)))
+
+    assert res.suggested_price_ars == 21180.0  # 17.650 × 1,2
+    assert res.breakdown is not None
+    b = res.breakdown
+    assert (b.base, b.distance, b.weight) == (1350.0, 13600.0, 2700.0)
+    assert (b.distance_km, b.distance_source) == (100.0, "routes_api")
+    assert (b.fuel_ars_per_liter, b.fuel_source) == (2000.0, "mock")
+    assert (b.per_km_ars, b.package_factor, b.demand_multiplier) == (136.0, 1.2, 1.0)
+
+
+def test_endpoint_never_sends_breakdown_without_the_flag() -> None:
+    assert "breakdown" not in client.post("/quote", json=BODY).json()
+
+
+def test_endpoint_sends_breakdown_with_the_flag() -> None:
+    response = client.post("/quote", json={**BODY, "includeBreakdown": True})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["suggestedPriceArs"] == 26350.0  # el flag no cambia el precio
+    assert body["breakdown"]["distanceSource"] == "haversine_mock"
+    assert body["breakdown"]["fuelSource"] == "mock"
+    assert set(body["breakdown"]) == {
+        "distanceKm", "distanceSource", "fuelArsPerLiter", "fuelSource", "perKmArs",
+        "base", "distance", "weight", "packageFactor", "demandRatio", "demandMultiplier",
+    }
+
+
+# --- Tramos decrecientes de distancia (hotfix larga distancia) -------------------------
+
+
+@pytest.mark.parametrize(
+    ("km", "expected"),
+    [(0, 0.0), (20, 20.0), (30, 30.0), (150, 30 + 120 * 0.2), (300, 30 + 270 * 0.2), (2300, 84 + 2000 * 0.015)],
+)
+def test_effective_distance_tiers(monkeypatch: pytest.MonkeyPatch, km: float, expected: float) -> None:
+    monkeypatch.setattr(settings, "distance_tier1_km", 30.0)
+    monkeypatch.setattr(settings, "distance_tier2_km", 300.0)
+    assert pricing.effective_distance_km(km) == pytest.approx(expected)
+
+
+def test_long_distance_document_stays_under_30k(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "distance_tier1_km", 30.0)
+    monkeypatch.setattr(settings, "distance_tier2_km", 300.0)
+    price, _ = _quote(_request(), km=2300.0)  # Chubut → Tucumán
+    assert price < 30000

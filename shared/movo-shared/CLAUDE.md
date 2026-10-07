@@ -341,3 +341,37 @@ sin precio todo `null`. Códigos nuevos `QUOTE_EXPIRED`/`QUOTE_MISMATCH` (ADR-02
 
 `src/errors/api-error.ts` — código nuevo en `ApiErrorCode` para el endpoint `POST /trips/:id/start` (MOVO-221), retornado cuando el transportista intenta iniciar un viaje antes de la fecha programada. Consumido por el cliente móvil (`movo-mobile`, MOVO-252) para mapear el error a un mensaje legible con la fecha de salida.
 
+
+### Juego de precios de la feria — `QuoteBreakdown` y códigos nuevos
+
+`types/pricing.ts`: `QuoteRequest.includeBreakdown?` y `QuoteResponse.breakdown?`
+(`QuoteBreakdown`, espejo del modelo Python). `ApiErrorCode` suma `AUTH_API_KEY_INVALID`
+(gateway, prefijo `/demo`) y `PRICING_UNAVAILABLE` (503 del juego cuando pricing no cotiza).
+
+### MOVO-237 — código `ROUTE_MODE_NOT_IMPLEMENTED`
+
+`ApiErrorCode` suma `ROUTE_MODE_NOT_IMPLEMENTED` (501), que responde `RoutesProvider` de
+`svc-shipments` si se pide el modo `live`, reservado y sin implementar (ADR-033).
+
+### MOVO-258 — `OfferStatus.SHIPMENT_CANCELLED`, `TRIP_NO_PACKAGES` y triggers de notificación (ADR-032)
+
+`types/offer.ts`: 7° valor de `OfferStatus` (oferta cerrada porque su envío se canceló).
+`errors/api-error.ts`: código `TRIP_NO_PACKAGES` (iniciar un viaje sin paquetes). `config/notification-templates.ts`: triggers
+`shipmentCancelledPickupMissed{Sender,Receiver,Carrier}`, `offersNeedReview` y `transitAnomalyCheck`.
+
+### MOVO-274 — Triggers de KYC, cuenta y seguridad y calificación pendiente
+
+`config/notification-templates.ts` suma 12 triggers: `kyc{Identity,License}{Approved,Rejected,ManualReview}`
+(6), `accountPasswordChanged`/`accountEmailChanged`/`accountPhoneChanged` (categoría `account_security`) y
+`ratingPending{Sender,Receiver,Carrier}` (categoría `ratings`, que ya estaba implementada).
+`config/notification-categories.ts`: `kyc` y `account_security` pasan a `implemented: true` (la pantalla de
+MOVO-246 las muestra con toggle real, sin cambios en mobile); `account_security` es la primera categoría
+con `quietHoursExempt: true` en uso.
+
+- **Seis triggers de KYC y no uno parametrizado**: el copy tiene que dejar claro de cuál de las dos
+  verificaciones se trata, y `displayCopy` de la pantalla de Configuración muestra cada aviso tal cual.
+- **Ningún copy lleva datos sensibles** (motivo del rechazo, email o número nuevos): un push se ve en la
+  pantalla bloqueada.
+- Sin test propio en `shared` que los referencie: se cubren desde los tests de `svc-users` y
+  `svc-shipments`. Recordatorio habitual: tras tocar este paquete, `npm run build` antes de tipar desde
+  otro workspace (los servicios leen `dist/`).

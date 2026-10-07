@@ -174,6 +174,15 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
     expect(response.json().error.code).toBe("SHIPMENT_NOT_AVAILABLE_FOR_OFFER");
   });
 
+  it("MOVO-258 (D6): 409 SHIPMENT_NOT_AVAILABLE_FOR_OFFER si la ventana de retiro original ya cerró", async () => {
+    // Un published vencido puede seguir vivo por ofertas previas, pero no recibe ofertas nuevas
+    // aunque `offeredDate` caiga dentro de pickupDate + 3 días.
+    const shipment = await createPublishedShipment({ pickupDate: new Date("2026-08-20T00:00:00.000Z") });
+    const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { offeredDate: "2026-08-21" });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe("SHIPMENT_NOT_AVAILABLE_FOR_OFFER");
+  });
+
   it("AC3: 403 AUTH_FORBIDDEN si el emisor intenta ofertar sobre su propio envío", async () => {
     const shipment = await createPublishedShipment();
     const response = await requestCreateOffer(shipment.id, senderId);
@@ -402,15 +411,15 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
       expect(persisted?.tripId).toBe(trip.id);
     });
 
-    it("crea la oferta con el tripId de un viaje propio ya active (MOVO-221)", async () => {
+    it("409 TRIP_NOT_AVAILABLE si el viaje propio ya está active: los paquetes quedan fijos al iniciar (MOVO-258)", async () => {
       const shipment = await createPublishedShipment();
       const trip = await tripRepo.create(baseTripInput());
-      await tripRepo.start(trip.id);
+      await app.db.trip.update({ where: { id: trip.id }, data: { status: "active" } });
 
       const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { tripId: trip.id });
 
-      expect(response.statusCode).toBe(201);
-      expect(response.json().tripId).toBe(trip.id);
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error.code).toBe("TRIP_NOT_AVAILABLE");
     });
 
     it("sin tripId, la oferta queda con tripId null (caso general, sin regresión)", async () => {
@@ -441,7 +450,7 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
     it("409 TRIP_NOT_AVAILABLE si el viaje ya está cancelado (MOVO-221: código nuevo, reemplaza a TRIP_NOT_ACTIVE)", async () => {
       const shipment = await createPublishedShipment();
       const trip = await tripRepo.create(baseTripInput());
-      await tripRepo.update(trip.id, { status: TripStatus.CANCELLED });
+      await app.db.trip.update({ where: { id: trip.id }, data: { status: TripStatus.CANCELLED } });
 
       const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { tripId: trip.id });
 
@@ -452,7 +461,7 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
     it("409 TRIP_NOT_AVAILABLE si el viaje ya está completed (MOVO-221)", async () => {
       const shipment = await createPublishedShipment();
       const trip = await tripRepo.create(baseTripInput());
-      await tripRepo.update(trip.id, { status: TripStatus.COMPLETED });
+      await app.db.trip.update({ where: { id: trip.id }, data: { status: TripStatus.COMPLETED } });
 
       const response = await requestCreateOffer(shipment.id, verifiedCarrierId, { tripId: trip.id });
 

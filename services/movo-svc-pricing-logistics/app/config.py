@@ -47,6 +47,33 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("PRICING_PER_KG_L", "per_kg_l"),
     )
 
+    # Tramos decrecientes de distancia (hotfix de precios de larga distancia): la tarifa
+    # lineal cotizaba ~350k para 2.300 km. En P2P el transportista ya hace el viaje, así
+    # que el costo marginal por km cae con la distancia. Km efectivos = primeros
+    # `tier1_km` al 100%, hasta `tier2_km` al `tier2_rate`, el resto al `tier3_rate`.
+    distance_tier1_km: float = Field(
+        default=30.0,
+        ge=0,
+        validation_alias=AliasChoices("PRICING_DISTANCE_TIER1_KM", "distance_tier1_km"),
+    )
+    distance_tier2_km: float = Field(
+        default=300.0,
+        ge=0,
+        validation_alias=AliasChoices("PRICING_DISTANCE_TIER2_KM", "distance_tier2_km"),
+    )
+    distance_tier2_rate: float = Field(
+        default=0.2,
+        ge=0,
+        le=1,
+        validation_alias=AliasChoices("PRICING_DISTANCE_TIER2_RATE", "distance_tier2_rate"),
+    )
+    distance_tier3_rate: float = Field(
+        default=0.015,
+        ge=0,
+        le=1,
+        validation_alias=AliasChoices("PRICING_DISTANCE_TIER3_RATE", "distance_tier3_rate"),
+    )
+
     # Recargo por alta demanda (MOVO-138, ADR-025). Umbral calibrado con Monte Carlo en
     # el spike MOVO-216 (§4.3): recalibrar acá con datos reales, sin tocar código.
     demand_ratio_threshold: float = Field(

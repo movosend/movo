@@ -14,6 +14,7 @@ import {
   getCommissionConfig,
   renderNotificationTrigger,
   notificationTriggerCategory,
+  toArgentinaCalendarDateString,
 } from "@movo/shared";
 import { FastifyBaseLogger } from "fastify";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
@@ -35,6 +36,7 @@ import {
   pickupWindowInstant,
 } from "../../domain/pickup-window";
 import { haversineKm } from "../../domain/geo";
+import { isPickupMissed, isTransitAnomalous } from "../../domain/expiration";
 import { quoteShipment } from "./shipment-quote";
 import { QuoteStore, quoteFingerprint } from "./quote-store";
 import {
@@ -289,6 +291,9 @@ const UNKNOWN_COUNTERPARTY_NAME = "Usuario de Movo";
 // pensado para descartar casos legítimos como "de mi depto a la portería del mismo
 // edificio".
 const MIN_PICKUP_DELIVERY_DISTANCE_KM = 0.1;
+
+/** Tope de páginas por corrida de un barrido que pagina candidatos (volumen del PF: 20 x 100). */
+const MAX_SWEEP_PAGES = 20;
 
 function assertPickupDeliveryApart(
   input: Pick<ShipmentQuoteRequest, "pickupLat" | "pickupLng" | "deliveryLat" | "deliveryLng">
@@ -628,7 +633,7 @@ function shortAddress(address: string): string {
 
 /**
  * MOVO-179 (comentario de Linear, decisión de equipo): el prefiltro geométrico de
- * `findActiveTripsMatchingShipment` puede dar falsos positivos (un envío que "en línea
+ * `findDeclaredTripsMatchingShipment` puede dar falsos positivos (un envío que "en línea
  * recta" cae en el corredor pero que la ruta real -- calles, sentido -- no lo hace
  * viable) -- exactamente lo que `GET /trips/:id/matches` sí resuelve desde MOVO-219
  * consultando `pricing-logistics`. Se reusa esa misma evaluación acá, pero SOLO sobre
@@ -684,7 +689,7 @@ async function evaluateTripMatchFeasibility(
  * MOVO-179 (AC1-AC5): quinto disparador de `notifications-client.ts` -- al publicarse
  * un envío (`acceptShipment`), avisa a los transportistas con un viaje `active`
  * declarado cuyo corredor contiene tanto el retiro como la entrega del envío (matching
- * inverso de MOVO-161/50, `tripRepository.findActiveTripsMatchingShipment`), y cuya
+ * inverso de MOVO-161/50, `tripRepository.findDeclaredTripsMatchingShipment`), y cuya
  * ruta real confirma que el desvío es viable (`evaluateTripMatchFeasibility`, sobre
  * `pricing-logistics`). AC4: de-duplica por `carrierId`, no por `tripId` -- si el mismo
  * transportista matchea con más de un viaje viable, se notifica una sola vez,
@@ -713,7 +718,7 @@ async function dispatchTripMatchPushes(
       safeBlockRelatedUserIds(usersClient, shipment.senderId, logger),
       safeBlockRelatedUserIds(usersClient, shipment.receiverId, logger),
     ]);
-    const geometricCandidates = await tripRepository.findActiveTripsMatchingShipment({
+    const geometricCandidates = await tripRepository.findDeclaredTripsMatchingShipment({
       pickupLat: shipment.pickupLat,
       pickupLng: shipment.pickupLng,
       deliveryLat: shipment.deliveryLat,
@@ -804,6 +809,120 @@ async function dispatchPickupExpiredPush(
   }
 }
 
+type SweepLogger =
+  | FastifyBaseLogger
+  | { info?: (obj: unknown, msg?: string) => void; warn: (obj: unknown, msg?: string) => void; error: (obj: unknown, msg?: string) => void }
+  | undefined;
+
+/** MOVO-258 (D1): retiro no realizado -- avisa a emisor, receptor y transportista, cada uno
+ * con su propio copy. Un fallo de una push nunca frena a las otras. */
+async function dispatchPickupMissedPushes(
+  notificationsClient: NotificationsClient,
+  logger: SweepLogger,
+  shipment: Shipment
+): Promise<void> {
+  const targets: Array<{
+    userId: string | null;
+    trigger:
+      | "shipmentCancelledPickupMissedSender"
+      | "shipmentCancelledPickupMissedReceiver"
+      | "shipmentCancelledPickupMissedCarrier";
+  }> = [
+    { userId: shipment.senderId, trigger: "shipmentCancelledPickupMissedSender" },
+    { userId: shipment.receiverId, trigger: "shipmentCancelledPickupMissedReceiver" },
+    { userId: shipment.carrierId, trigger: "shipmentCancelledPickupMissedCarrier" },
+  ];
+  await Promise.all(
+    targets.map(async ({ userId, trigger }) => {
+      if (!userId) return;
+      try {
+        const { title, body } = renderNotificationTrigger(trigger, undefined);
+        await notificationsClient.sendPush({
+          userId,
+          title,
+          body,
+          category: notificationTriggerCategory(trigger),
+          data: { shipmentId: shipment.id, type: "shipment_cancelled" },
+        });
+      } catch (err) {
+        logger?.warn(
+          { err, event: "notification_dispatch_failed", shipmentId: shipment.id, userId },
+          "No se pudo enviar la push de retiro no realizado"
+        );
+      }
+    })
+  );
+}
+
+/** MOVO-258 (D6): día de retiro sin oferta aceptada pero con ofertas vigentes -- avisa al
+ * emisor UNA vez por envío (la clave de dedupe vive más que cualquier ventana de retiro). Si la
+ * push falla se libera la clave: sin eso, un `notifications` caído dejaba al emisor sin aviso
+ * durante los 7 días del TTL. */
+async function dispatchOffersNeedReviewPush(
+  notificationsClient: NotificationsClient,
+  logger: SweepLogger,
+  shipment: Shipment,
+  pendingCount: number,
+  claimOnce: ShipmentsServiceOptions["claimNotificationOnce"],
+  releaseClaim: ShipmentsServiceOptions["releaseNotificationClaim"]
+): Promise<void> {
+  const claimKey = `offers-need-review:${shipment.id}`;
+  let claimed = false;
+  try {
+    if (!claimOnce || !(await claimOnce(claimKey, 7 * 24 * 60 * 60))) {
+      return;
+    }
+    claimed = true;
+    const { title, body } = renderNotificationTrigger("offersNeedReview", { pendingCount });
+    await notificationsClient.sendPush({
+      userId: shipment.senderId,
+      title,
+      body,
+      category: notificationTriggerCategory("offersNeedReview"),
+      data: { shipmentId: shipment.id, type: "shipment" },
+    });
+  } catch (err) {
+    logger?.warn(
+      { err, event: "notification_dispatch_failed", shipmentId: shipment.id },
+      "No se pudo avisar al emisor que tiene ofertas para revisar"
+    );
+    if (claimed && releaseClaim) {
+      try {
+        await releaseClaim(claimKey);
+      } catch (releaseErr) {
+        logger?.warn(
+          { err: releaseErr, event: "notification_claim_release_failed", shipmentId: shipment.id },
+          "No se pudo liberar la clave de dedupe del aviso de ofertas para revisar"
+        );
+      }
+    }
+  }
+}
+
+/** MOVO-258 (D4): le pregunta al transportista si tuvo un inconveniente con la entrega. */
+async function dispatchTransitAnomalyPush(
+  notificationsClient: NotificationsClient,
+  logger: SweepLogger,
+  shipment: Shipment
+): Promise<void> {
+  if (!shipment.carrierId) return;
+  try {
+    const { title, body } = renderNotificationTrigger("transitAnomalyCheck", undefined);
+    await notificationsClient.sendPush({
+      userId: shipment.carrierId,
+      title,
+      body,
+      category: notificationTriggerCategory("transitAnomalyCheck"),
+      data: { shipmentId: shipment.id, type: "shipment" },
+    });
+  } catch (err) {
+    logger?.warn(
+      { err, event: "notification_dispatch_failed", shipmentId: shipment.id },
+      "No se pudo enviar la push de chequeo de entrega al transportista"
+    );
+  }
+}
+
 export interface ShipmentsServiceOptions {
   receiverConfirmationTimeoutHours?: number;
   /** MOVO-253: horas que tiene el emisor para elegir otro receptor tras un rechazo
@@ -854,6 +973,20 @@ export interface ShipmentsServiceOptions {
   /** Requerido para `quoteShipmentPrice` y para `createShipment` con `quoteId`
    * (MOVO-255) -- cotizaciones congeladas en Redis. */
   quoteStore?: QuoteStore;
+  /** MOVO-258 (D1): horas de gracia tras cerrar la ventana de retiro antes de cancelar
+   * un envío con transportista (`PICKUP_MISSED_GRACE_HOURS`, default 24). */
+  pickupMissedGraceHours?: number;
+  /** MOVO-258 (D4): plazo fijo (horas desde el retiro) para un `in_transit` cuya oferta
+   * no declaró entrega estimada (`IN_TRANSIT_ANOMALY_FALLBACK_HOURS`, default 48). */
+  transitAnomalyFallbackHours?: number;
+  /** MOVO-258 (D6): dedupe de avisos de los barridos -- devuelve `true` solo la primera
+   * vez que se reclama `key` dentro de `ttlSeconds` (Redis `SET NX` en el plugin). Sin
+   * esta dependencia el aviso de "ofertas para revisar" no se manda: un barrido corre
+   * cada pocos minutos y repetiría la push en cada vuelta. */
+  claimNotificationOnce?: (key: string, ttlSeconds: number) => Promise<boolean>;
+  /** Deshace un `claimNotificationOnce` cuando el envío de la push falló, para que el
+   * próximo barrido lo reintente en vez de dar el aviso por mandado durante todo el TTL. */
+  releaseNotificationClaim?: (key: string) => Promise<void>;
 }
 
 export type ShipmentsService = ReturnType<typeof createShipmentsService>;
@@ -867,6 +1000,8 @@ export function createShipmentsService(
 ) {
   const timeoutHours = opts.receiverConfirmationTimeoutHours ?? 48;
   const redesignationTimeoutHours = opts.receiverRedesignationTimeoutHours ?? 48;
+  const pickupMissedGraceHours = opts.pickupMissedGraceHours ?? 24;
+  const transitAnomalyFallbackHours = opts.transitAnomalyFallbackHours ?? 48;
   const offerRepository = opts.offerRepository;
   const pricingClient = opts.pricingClient;
   const pricingLogisticsClient = opts.pricingLogisticsClient;
@@ -1209,6 +1344,16 @@ export function createShipmentsService(
           "El envío no está disponible para recibir ofertas."
         );
       }
+      // MOVO-258 (D6): un `published` con la ventana original vencida puede seguir vivo solo
+      // porque tiene ofertas vigentes -- eso lo protege de la cancelación, pero no admite
+      // ofertas NUEVAS (`isWithinOfferDateRange` dejaría ofertar hasta pickupDate + 3 días).
+      if (isPickupWindowExpired(shipment.pickupDate, shipment.pickupTimeWindowEnd)) {
+        throw new ApiError(
+          409,
+          "SHIPMENT_NOT_AVAILABLE_FOR_OFFER",
+          "La ventana de retiro de este envío ya cerró: no recibe ofertas nuevas."
+        );
+      }
 
       assertIsNotShipmentParty(shipment, input.carrierId);
       // MOVO-175 (ADR-026): falla cerrado -- sin confirmar que no hay bloqueo, no se oferta.
@@ -1331,7 +1476,9 @@ export function createShipmentsService(
           allowAdmin: false,
           forbiddenMessage: "No podés ofertar en nombre de un viaje que no es tuyo.",
         });
-        if (trip.status !== TripStatus.DECLARED && trip.status !== TripStatus.ACTIVE) {
+        // MOVO-258 (D5): solo un viaje `declared` toma paquetes -- al iniciarlo (`active`)
+        // los paquetes quedan fijos.
+        if (trip.status !== TripStatus.DECLARED) {
           throw new ApiError(
             409,
             "TRIP_NOT_AVAILABLE",
@@ -1612,9 +1759,10 @@ export function createShipmentsService(
       userId: string,
       page: number,
       limit: number,
-      statuses?: readonly ShipmentStatus[]
+      statuses?: readonly ShipmentStatus[],
+      filters?: { withPendingOffers?: boolean }
     ): Promise<ListMineResult> {
-      const { items, total } = await repository.listByUser(userId, page, limit, statuses);
+      const { items, total } = await repository.listByUser(userId, page, limit, statuses, filters);
       // MOVO-257: conteo de ofertas vigentes en batch sobre la página (una sola query),
       // solo para los envíos publicados donde el caller es el emisor.
       const countableIds = items
@@ -1719,23 +1867,28 @@ export function createShipmentsService(
       }
 
       const previousStatus = shipment.status;
+      // AC7 de MOVO-108: solo estos dos estados de origen pueden tener ofertas
+      // `pending` colgando (desde `awaiting_receiver_confirmation` el envío ni
+      // publicado está, no puede tener ofertas). Se listan ANTES de cancelar:
+      // desde MOVO-258 `updateStatus` pasa esas ofertas a `shipment_cancelled` en la
+      // misma transacción, y después de eso ya no se las distinguiría.
+      const mayHavePendingOffers =
+        previousStatus === ShipmentStatus.PUBLISHED || previousStatus === ShipmentStatus.ASSIGNMENT_PENDING;
+      if (mayHavePendingOffers && !offerRepository) {
+        throw new Error("cancelShipment requiere offerRepository (ShipmentsServiceOptions) para notificar ofertas pendientes.");
+      }
+      const pendingOffers =
+        mayHavePendingOffers && offerRepository
+          ? (await offerRepository.listByShipment(shipmentId)).filter((offer) => offer.status === OfferStatus.PENDING)
+          : [];
+
       // Cualquier otro estado sin salida hacia `cancelled` (delivered, in_transit,
       // disputed, cancelled) llega hasta acá y
       // shipment-state-machine.ts lo rechaza con InvalidShipmentTransitionError
       // (409 SHIPMENT_INVALID_TRANSITION, ver plugins/error-handler.ts).
       const cancelled = await repository.updateStatus(shipmentId, ShipmentStatus.CANCELLED, callerId, reason);
 
-      // AC7 de MOVO-108: solo estos dos estados de origen pueden tener ofertas
-      // `pending` colgando (desde `awaiting_receiver_confirmation` el envío ni
-      // publicado está, no puede tener ofertas).
-      if (previousStatus === ShipmentStatus.PUBLISHED || previousStatus === ShipmentStatus.ASSIGNMENT_PENDING) {
-        if (!offerRepository) {
-          throw new Error("cancelShipment requiere offerRepository (ShipmentsServiceOptions) para notificar ofertas pendientes.");
-        }
-
-        const offers = await offerRepository.listByShipment(shipmentId);
-        const pendingOffers = offers.filter((offer) => offer.status === OfferStatus.PENDING);
-
+      if (pendingOffers.length > 0) {
         await Promise.all(
           pendingOffers.map(async (offer) => {
             if (!notificationsClient) {
@@ -1865,12 +2018,61 @@ export function createShipmentsService(
      * `batchSize` ordenados por fecha de retiro) simplemente se ignora, sin contar
      * como error.
      */
-    async expireOverduePublishedShipments(batchSize = 100): Promise<{ expiredCount: number; errorsCount: number }> {
+    async expireOverduePublishedShipments(
+      batchSize = 100
+    ): Promise<{ expiredCount: number; errorsCount: number; keptForOffersCount: number }> {
       const now = new Date();
-      const candidates = await repository.findPotentiallyExpiredPublished(batchSize);
-      const overdueShipments = candidates.filter((shipment) =>
-        isPickupWindowExpired(shipment.pickupDate, shipment.pickupTimeWindowEnd, now)
-      );
+      // Los `published` que se conservan por ofertas vigentes (D6) quedan siempre al frente
+      // del orden: se pagina con cursor para no dejar sin evaluar a los que vienen después.
+      const candidates: Shipment[] = [];
+      for (let page = 0; page < MAX_SWEEP_PAGES; page++) {
+        const lastId = candidates[candidates.length - 1]?.id;
+        const batch = await (lastId
+          ? repository.findPotentiallyExpiredPublished(batchSize, lastId)
+          : repository.findPotentiallyExpiredPublished(batchSize));
+        candidates.push(...batch);
+        if (batch.length < batchSize) break;
+      }
+
+      // MOVO-258 (D6): el envío sigue vivo mientras tenga ofertas vigentes (cada oferta
+      // vence por SU propia ventana, MOVO-177), y el día de retiro se avisa al emisor
+      // para que las revise. Solo se mira a los que ya llegaron a su día de retiro.
+      // Sin `offerRepository` inyectado se conserva el comportamiento anterior.
+      const todayAr = toArgentinaCalendarDateString(now);
+      const dueToday = candidates.filter((shipment) => shipment.pickupDate.toISOString().slice(0, 10) <= todayAr);
+      const isPickupDay = (shipment: Shipment) => shipment.pickupDate.toISOString().slice(0, 10) === todayAr;
+      const pendingByShipment =
+        offerRepository && dueToday.length > 0
+          ? await offerRepository.countPendingOffersByShipmentIds(
+              dueToday.map((shipment) => shipment.id),
+              now
+            )
+          : new Map<string, number>();
+
+      const overdueShipments: Shipment[] = [];
+      let keptForOffersCount = 0;
+      for (const shipment of candidates) {
+        const pendingCount = pendingByShipment.get(shipment.id) ?? 0;
+        if (pendingCount > 0) {
+          keptForOffersCount++;
+          // El texto dice "hoy es el día de retiro": solo se manda ese día. Si el barrido no
+          // corrió ese día (deploy, Redis caído), el aviso se saltea en vez de salir tarde.
+          if (notificationsClient && isPickupDay(shipment)) {
+            void dispatchOffersNeedReviewPush(
+              notificationsClient,
+              logger,
+              shipment,
+              pendingCount,
+              opts.claimNotificationOnce,
+              opts.releaseNotificationClaim
+            );
+          }
+          continue;
+        }
+        if (isPickupWindowExpired(shipment.pickupDate, shipment.pickupTimeWindowEnd, now)) {
+          overdueShipments.push(shipment);
+        }
+      }
       let expiredCount = 0;
       let errorsCount = 0;
 
@@ -1896,19 +2098,132 @@ export function createShipmentsService(
         }
       }
 
-      if (overdueShipments.length > 0) {
+      if (overdueShipments.length > 0 || keptForOffersCount > 0) {
         logger?.info(
           {
             event: "pickup_expiry_sweep",
             totalFound: overdueShipments.length,
             expiredCount,
             errorsCount,
+            keptForOffersCount,
           },
-          `Barrido de retiro vencido finalizado: ${expiredCount} expirados, ${errorsCount} fallos`
+          `Barrido de retiro vencido finalizado: ${expiredCount} expirados, ${errorsCount} fallos, ${keptForOffersCount} conservados por ofertas vigentes`
+        );
+      }
+
+      return { expiredCount, errorsCount, keptForOffersCount };
+    },
+
+    /**
+     * MOVO-258 (D1/D2): cancela los envíos con transportista asignado (`assignment_pending`/
+     * `assigned_unfunded`/`assigned`) cuya ventana de retiro efectiva (la acordada, ya
+     * copiada al envío por `acceptOffer`, D3) cerró hace más del margen de gracia. Sin
+     * culpables: el sistema no sabe si faltó el transportista o el emisor no entregó, así
+     * que no toca reputación ni penaliza (D2 -- quién faltó por geolocalización queda para
+     * un ticket aparte). Avisa a las tres partes. Al cancelar, `updateStatus` cierra las
+     * ofertas (D7) y el viaje se destraba solo (`ACCEPTED_OFFER_FILTER`).
+     *
+     * Desde `assigned` habría que liberar el hold de fondos (MOVO-210/212): hoy ningún
+     * flujo llega a `assigned`, así que no hay hold que liberar -- cuando exista, este
+     * punto tiene que llamarlo.
+     */
+    async expireUnpickedAssignedShipments(batchSize = 100): Promise<{ expiredCount: number; errorsCount: number }> {
+      const now = new Date();
+      const candidates = await repository.findPotentiallyPickupMissed(batchSize);
+      const overdueShipments = candidates.filter((shipment) =>
+        isPickupMissed(shipment.pickupDate, shipment.pickupTimeWindowEnd, pickupMissedGraceHours, now)
+      );
+      let expiredCount = 0;
+      let errorsCount = 0;
+
+      for (const shipment of overdueShipments) {
+        try {
+          await repository.updateStatus(
+            shipment.id,
+            ShipmentStatus.CANCELLED,
+            null,
+            "El retiro no se realizó dentro del plazo (ventana de retiro más margen de gracia)"
+          );
+          expiredCount++;
+
+          if (notificationsClient) {
+            void dispatchPickupMissedPushes(notificationsClient, logger, shipment);
+          }
+        } catch (err) {
+          errorsCount++;
+          logger?.error(
+            { err, shipmentId: shipment.id, event: "pickup_missed_sweep_error" },
+            "Error al cancelar envío asignado con retiro no realizado en barrido"
+          );
+        }
+      }
+
+      if (overdueShipments.length > 0) {
+        logger?.info(
+          { event: "pickup_missed_sweep", totalFound: overdueShipments.length, expiredCount, errorsCount },
+          `Barrido de retiro no realizado finalizado: ${expiredCount} cancelados, ${errorsCount} fallos`
         );
       }
 
       return { expiredCount, errorsCount };
+    },
+
+    /**
+     * MOVO-258 (D4): marca para revisión (NO cancela: el paquete está en manos de alguien)
+     * los envíos `in_transit` que pasaron su entrega estimada más el 50% de la duración
+     * estimada, y le pregunta al transportista si tuvo un inconveniente. Se marca una sola
+     * vez (`transitAnomalyFlaggedAt`, compare-and-swap) así que la push no se repite.
+     * Pendiente (fuera de alcance): disputa automática y alerta en el panel de admin
+     * (MOVO-30/MOVO-33) -- la marca es el punto de enganche para ambos.
+     */
+    async flagAnomalousInTransitShipments(batchSize = 100): Promise<{ flaggedCount: number; errorsCount: number }> {
+      const now = new Date();
+      const candidates = await repository.findInTransitUnflagged(batchSize, {
+        now,
+        fallbackHours: transitAnomalyFallbackHours,
+      });
+      let flaggedCount = 0;
+      let errorsCount = 0;
+
+      for (const shipment of candidates) {
+        const anomalous = isTransitAnomalous(
+          {
+            inTransitSince: shipment.lastStatusChangedAt ?? shipment.updatedAt,
+            estimatedDeliveryDate: shipment.estimatedDeliveryDate,
+            estimatedDeliveryTimeWindowStart: shipment.estimatedDeliveryTimeWindowStart,
+            estimatedDeliveryTimeWindowEnd: shipment.estimatedDeliveryTimeWindowEnd,
+            fallbackHours: transitAnomalyFallbackHours,
+          },
+          now
+        );
+        if (!anomalous) {
+          continue;
+        }
+
+        try {
+          const flagged = await repository.flagTransitAnomaly(shipment.id, now);
+          if (!flagged) {
+            continue;
+          }
+          flaggedCount++;
+          logger?.warn(
+            { event: "transit_anomaly_flagged", shipmentId: shipment.id, carrierId: shipment.carrierId },
+            "Envío en tránsito marcado para revisión: pasó su entrega estimada"
+          );
+
+          if (notificationsClient && shipment.carrierId) {
+            void dispatchTransitAnomalyPush(notificationsClient, logger, shipment);
+          }
+        } catch (err) {
+          errorsCount++;
+          logger?.error(
+            { err, shipmentId: shipment.id, event: "transit_anomaly_sweep_error" },
+            "Error al marcar envío en tránsito anómalo en barrido"
+          );
+        }
+      }
+
+      return { flaggedCount, errorsCount };
     },
 
     /**

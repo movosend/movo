@@ -14,16 +14,40 @@ interface LatLng {
 export const DEFAULT_TRANSPORT_RADIUS_KM = 50;
 export const TRANSPORT_RADIUS_OPTIONS_KM = [10, 25, 50, 100] as const;
 
+const ACTIVE_FEED_STATUSES = Object.values(ShipmentStatus).filter(
+  (status) =>
+    status !== ShipmentStatus.DELIVERED &&
+    status !== ShipmentStatus.COMPLETED &&
+    status !== ShipmentStatus.CANCELLED,
+);
+
 /**
- * Últimos envíos propios para la sección "Actividad reciente" de Inicio (MOVO-83).
- * `limit: 3` — la home solo necesita una vista previa, no el listado completo (ese
- * queda para una pantalla de listado futura, fuera de este ticket).
+ * Envíos propios para la sección "Actividad reciente" de Inicio (MOVO-83, MOVO-184).
+ * Una sola ventana de los 20 más nuevos dejaba afuera un envío en curso más viejo, o
+ * vaciaba el widget si los 20 eran cancelados vencidos. Por eso se piden tres grupos
+ * por estado (en curso, entregados que sirven de respaldo, cancelados) y la selección
+ * final de 3 la hace `selectRecentShipments`.
  */
 export function useRecentShipments() {
-  return useQuery({
-    queryKey: ["shipments", "mine", "recent"],
-    queryFn: () => shipmentsClient.listMine({ page: 1, limit: 3 }),
-  });
+  const feeds = [
+    { key: "active", status: ACTIVE_FEED_STATUSES },
+    { key: "done", status: [ShipmentStatus.DELIVERED, ShipmentStatus.COMPLETED] },
+    { key: "cancelled", status: [ShipmentStatus.CANCELLED] },
+  ] as const;
+  const queries = feeds.map(({ key, status }) =>
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- cantidad fija de grupos, el orden de hooks no cambia
+    useQuery({
+      queryKey: ["shipments", "mine", "recent", key],
+      queryFn: () => shipmentsClient.listMine({ page: 1, limit: 20, status }),
+    }),
+  );
+  const loaded = queries.some((q) => q.data);
+  return {
+    data: loaded ? { items: queries.flatMap((q) => q.data?.items ?? []) } : undefined,
+    isLoading: queries.some((q) => q.isLoading),
+    isError: !loaded && queries.some((q) => q.isError),
+    refetch: () => Promise.all(queries.map((q) => q.refetch())),
+  };
 }
 
 /**
@@ -39,11 +63,27 @@ const ATTENTION_SOURCE_STATUSES = [
   ShipmentStatus.REJECTED_BY_RECEIVER,
 ] as const;
 
+/**
+ * Las ofertas recibidas (MOVO-184 AC5) salen de una consulta aparte: mezclar `PUBLISHED`
+ * en la de tareas llenaba la página con publicados que no generan tarea y sacaba de ella
+ * una confirmación/redesignación más vieja (revertía MOVO-253 AC8). El backend filtra
+ * con `withPendingOffers`, así que la página trae solo envíos que tienen ofertas.
+ */
 export function useAttentionSourceShipments() {
-  return useQuery({
+  const tasks = useQuery({
     queryKey: ["shipments", "mine", "attention"],
     queryFn: () => shipmentsClient.listMine({ page: 1, limit: 20, status: ATTENTION_SOURCE_STATUSES }),
   });
+  const offers = useQuery({
+    queryKey: ["shipments", "mine", "attention-offers"],
+    queryFn: () =>
+      shipmentsClient.listMine({ page: 1, limit: 20, status: [ShipmentStatus.PUBLISHED], withPendingOffers: true }),
+  });
+  const items = [...(tasks.data?.items ?? []), ...(offers.data?.items ?? [])];
+  return {
+    data: tasks.data || offers.data ? { items } : undefined,
+    isLoading: tasks.isLoading || offers.isLoading,
+  };
 }
 
 /** Crea un envío (wizard de MOVO-83). Invalida el preview de "Envíos recientes" de
@@ -122,11 +162,19 @@ export function useShipmentRoute(origin: LatLng | null, destination: LatLng | nu
 
 /** Detalle de un envío propio — pantalla a la que lleva "Ver envío" al terminar el
  * wizard de creación (MOVO-83). `enabled` solo con un id real (nunca `undefined`). */
-export function useShipment(id: string | undefined) {
+export function useShipment(
+  id: string | undefined,
+  options?: {
+    /** Polling según el envío ya cargado (MOVO-271 AC5); `false` lo apaga. */
+    refetchInterval?: (shipment: ShipmentSummary | undefined) => number | false;
+  },
+) {
+  const refetchInterval = options?.refetchInterval;
   return useQuery({
     queryKey: ["shipments", "detail", id],
     queryFn: () => shipmentsClient.getById(id!),
     enabled: !!id,
+    refetchInterval: refetchInterval ? (query) => refetchInterval(query.state.data) : undefined,
   });
 }
 

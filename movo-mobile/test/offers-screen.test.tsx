@@ -23,6 +23,7 @@ jest.mock("expo-router", () => ({
     canGoBack: jest.fn(() => true),
     push: jest.fn(),
     replace: jest.fn(),
+    dismissTo: jest.fn(),
   },
   useLocalSearchParams: jest.fn(),
 }));
@@ -283,7 +284,7 @@ describe("ShipmentOffersScreen", () => {
     await act(async () => {
       fireEvent.press(getByTestId("choose-offer-success-modal-dismiss-btn"));
     });
-    expect(router.replace).toHaveBeenCalledWith("/shipments/ship-1");
+    expect(router.dismissTo).toHaveBeenCalledWith("/shipments/ship-1");
   });
 
   // MOVO-244 review (PR #184): antes, el efecto de redirect (guardado solo por
@@ -291,7 +292,7 @@ describe("ShipmentOffersScreen", () => {
   // `router.replace` al mismo destino apenas `shipment.carrierId` llegaba por el
   // refetch — dos instancias apiladas del detalle. Acá el refetch de `useShipment` ya
   // resolvió con `carrierId` seteado ANTES del dismiss (el caso real que lo disparaba).
-  it("no duplica el router.replace si el refetch del envío ya trae carrierId antes de cerrar el modal de éxito", async () => {
+  it("no duplica la navegación al detalle si el refetch del envío ya trae carrierId antes de cerrar el modal de éxito", async () => {
     mockUseShipmentOffers.mockReturnValue({
       data: [sampleOffer1],
       isLoading: false,
@@ -331,8 +332,9 @@ describe("ShipmentOffersScreen", () => {
       fireEvent.press(getByTestId("choose-offer-success-modal-dismiss-btn"));
     });
 
-    expect(router.replace).toHaveBeenCalledTimes(1);
-    expect(router.replace).toHaveBeenCalledWith("/shipments/ship-1");
+    expect(router.dismissTo).toHaveBeenCalledTimes(1);
+    expect(router.replace).not.toHaveBeenCalled();
+    expect(router.dismissTo).toHaveBeenCalledWith("/shipments/ship-1");
   });
 
   it("redirige al detalle del envío si el envío ya tiene transportista asignado", async () => {
@@ -350,7 +352,7 @@ describe("ShipmentOffersScreen", () => {
 
     await render(<ShipmentOffersScreen />);
 
-    expect(router.replace).toHaveBeenCalledWith("/shipments/ship-1");
+    expect(router.dismissTo).toHaveBeenCalledWith("/shipments/ship-1");
   });
 
   it("maneja error 409 por asignación concurrente mostrando mensaje y refetcheando", async () => {

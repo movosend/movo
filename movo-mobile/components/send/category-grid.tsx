@@ -32,6 +32,13 @@ export function packageTypeLabel(packageType: PackageType | null): string {
   return packageType ? FULL_LABELS[packageType] : "—";
 }
 
+/** Ícono del tipo de paquete, el mismo que muestra `CATEGORIES` en el wizard
+ * (MOVO-271 AC6): el detalle del envío lo toma de acá para no tener otra fuente de
+ * verdad. Sin tipo, la caja genérica. */
+export function packageTypeIcon(packageType: PackageType | null): LucideIcon {
+  return CATEGORIES.find((cat) => cat.id === packageType)?.icon ?? Package;
+}
+
 interface CategoryGridProps {
   value: PackageType | null;
   onChange: (value: PackageType) => void;

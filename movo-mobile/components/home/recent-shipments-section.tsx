@@ -5,6 +5,7 @@ import type { ShipmentSummary } from "../../src/api/shipments-client";
 import type { TripWithAcceptedPackages } from "../../src/api/trips-client";
 import { useRecentShipments } from "../../src/hooks/use-shipments";
 import { useMyTrips } from "../../src/hooks/use-trips";
+import { selectRecentShipments } from "../../src/lib/recent-shipments-selection";
 import { shipmentLifecycleStage } from "../../src/lib/shipment-format";
 import { splitCarrierHomeTrips } from "../../src/lib/trip-format";
 import { useAuthStore } from "../../src/store/auth-store";
@@ -33,11 +34,11 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
   const { otherTrips } = splitCarrierHomeTrips(myTripsData?.items ?? []);
   const currentUserId = useAuthStore((state) => state.user?.userId);
 
-  const activeCount = data
-    ? data.items.filter(
-        (s) => shipmentLifecycleStage(s.status, { isReceiver: s.receiverId === currentUserId }) === "ongoing",
-      ).length
-    : 0;
+  const visibleShipments = data && currentUserId ? selectRecentShipments(data.items, currentUserId) : [];
+
+  const activeCount = visibleShipments.filter(
+    (s) => shipmentLifecycleStage(s.status, { isReceiver: s.receiverId === currentUserId }) === "ongoing",
+  ).length;
 
   return (
     <View testID={testID}>
@@ -73,7 +74,7 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
             Reintentar
           </Text>
         </View>
-      ) : (data?.items.length ?? 0) + otherTrips.length === 0 ? (
+      ) : visibleShipments.length + otherTrips.length === 0 ? (
         <View className="items-center gap-2 py-6">
           <PackageX size={20} strokeWidth={1.8} color={colors.fg3} />
           <Text className="text-center font-sans text-small text-fg-2">
@@ -82,7 +83,7 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
         </View>
       ) : (
         <View>
-          {mergeByRecentActivity(data?.items ?? [], otherTrips).map((item, index) =>
+          {mergeByRecentActivity(visibleShipments, otherTrips).map((item, index) =>
             item.kind === "trip" ? (
               <CarrierTripRow
                 key={`trip-${item.trip.id}`}

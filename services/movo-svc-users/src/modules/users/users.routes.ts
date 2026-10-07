@@ -14,6 +14,8 @@ import { createStorageProvider, StorageProvider } from "../../adapters/storage-p
 import { createShipmentsClient, ShipmentsClient } from "../../adapters/shipments-client";
 import { createSmsProvider, SmsProvider } from "../../adapters/sms-provider";
 import { createEmailProvider, EmailProvider } from "../../adapters/email-provider";
+import { createPushNotificationProvider, PushNotificationProvider } from "../../adapters/push-notification-provider";
+import { createNotificationsService } from "../notifications/notifications.service";
 import { createOtpRepository } from "../../repositories/otp-repository";
 import { createOtpService } from "../../services/otp-service";
 
@@ -30,6 +32,10 @@ export interface UsersRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — mismo criterio que `smsProvider`
    * (MOVO-139: el OTP de email y el aviso al email anterior salen por este proveedor). */
   emailProvider?: EmailProvider;
+  /** Override solo para tests de integración (MOVO-274) — captura el push de
+   * "contraseña cambiada" sin depender de la red de Expo, mismo criterio que
+   * `NotificationsRoutesOptions.pushProvider`. */
+  pushProvider?: PushNotificationProvider;
 }
 
 export default async function usersRoutes(app: FastifyInstance, opts: UsersRoutesOptions) {
@@ -39,6 +45,8 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
   const emailProvider = opts.emailProvider ?? createEmailProvider(app.config);
   const otpRepository = createOtpRepository(app.redis);
   const otpService = createOtpService(otpRepository, { sms: smsProvider, email: emailProvider });
+  const pushProvider = opts.pushProvider ?? createPushNotificationProvider(app.config);
+  const notifications = createNotificationsService(app.db, pushProvider, app.log);
   const service = createUsersService(
     app.db,
     storageProvider,
@@ -47,6 +55,7 @@ export default async function usersRoutes(app: FastifyInstance, opts: UsersRoute
     shipmentsClient,
     otpService,
     emailProvider,
+    notifications,
     app.config.REPUTATION_CACHE_TTL_SECONDS
   );
 

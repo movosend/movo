@@ -1,5 +1,6 @@
 import fp from "fastify-plugin";
 import { FastifyInstance } from "fastify";
+import { registerSweep } from "./register-sweep";
 import { createShipmentRepository, ShipmentRepository } from "../repositories/shipment-repository";
 import { createStorageProvider, StorageProvider } from "../adapters/storage-provider";
 import {
@@ -28,30 +29,16 @@ export interface OrphanPhotoSweepPluginOptions {
  * `shipments/*`). Decisión documentada en el comentario de MOVO-124 en Linear.
  */
 export default fp(async (app: FastifyInstance, opts: OrphanPhotoSweepPluginOptions = {}) => {
-  const isEnabled = opts.enabled ?? app.config.ORPHAN_PHOTO_SWEEP_ENABLED ?? true;
-  const intervalMinutes = app.config.ORPHAN_PHOTO_SWEEP_INTERVAL_MINUTES;
-
-  if (!isEnabled || intervalMinutes <= 0) {
-    app.log.info("Orphan photo sweep plugin está desactivado.");
-    return;
-  }
-
   const repository: ShipmentRepository = createShipmentRepository(app.db);
   const storageProvider = opts.storageProvider ?? createStorageProvider(app.config);
 
-  const intervalMs = intervalMinutes * 60 * 1000;
-  // TTL del lock: menor al intervalo (80% del intervalo o mín 10s) para evitar ejecuciones concurrentes en réplicas
-  const lockTtlMs = Math.max(10_000, Math.floor(intervalMs * 0.8));
-  const lockKey = "locks:orphan-photo-sweep:shipments";
-
-  const runSweep = async () => {
-    try {
-      const acquired = await app.redis.set(lockKey, "locked", "PX", lockTtlMs, "NX");
-      if (acquired !== "OK") {
-        app.log.debug({ lockKey }, "Sweep omitido: otra instancia tiene el lock de Redis.");
-        return;
-      }
-
+  registerSweep(app, {
+    name: "Orphan photo sweep plugin",
+    lockKey: "locks:orphan-photo-sweep:shipments",
+    enabled: opts.enabled ?? app.config.ORPHAN_PHOTO_SWEEP_ENABLED ?? true,
+    intervalMinutes: app.config.ORPHAN_PHOTO_SWEEP_INTERVAL_MINUTES,
+    errorMessage: "Error inesperado durante el sweep de fotos huérfanas de S3",
+    run: async () => {
       const cutoff = Date.now() - app.config.ORPHAN_PHOTO_RETENTION_HOURS * 60 * 60 * 1000;
       const candidates = await app.redis.zrangebyscore(
         PENDING_PHOTOS_REDIS_KEY,
@@ -99,14 +86,6 @@ export default fp(async (app: FastifyInstance, opts: OrphanPhotoSweepPluginOptio
           app.log.warn({ err, s3Key }, "No se pudo procesar un candidato del sweep de fotos huérfanas");
         }
       }
-    } catch (err) {
-      app.log.error({ err }, "Error inesperado durante el sweep de fotos huérfanas de S3");
-    }
-  };
-
-  const timer = setInterval(runSweep, intervalMs);
-
-  app.addHook("onClose", async () => {
-    clearInterval(timer);
+    },
   });
 });

@@ -87,6 +87,7 @@ enum OfferStatus {
   withdrawn
   expired
   superseded
+  shipment_cancelled
 
   @@map("offer_status_enum")
   @@schema("shipments")
@@ -109,6 +110,7 @@ enum TripStatus {
   declared
   active
   cancelled
+  expired
   completed
 
   @@map("trip_status_enum")
@@ -146,6 +148,12 @@ model Shipment {
   pickupDate            DateTime @map("pickup_date") @db.Date
   pickupTimeWindowStart DateTime @map("pickup_time_window_start") @db.Time
   pickupTimeWindowEnd   DateTime @map("pickup_time_window_end") @db.Time
+  // MOVO-258 (D3): ventana que pidió el emisor, guardada por `acceptOffer` antes de pisar
+  // `pickupDate`/`pickupTimeWindow*` con la acordada. NULL mientras no haya una oferta
+  // aceptada; al volver a `published` (hold fallido, MOVO-210) se restaura y se limpia.
+  originalPickupDate            DateTime? @map("original_pickup_date") @db.Date
+  originalPickupTimeWindowStart DateTime? @map("original_pickup_time_window_start") @db.Time
+  originalPickupTimeWindowEnd   DateTime? @map("original_pickup_time_window_end") @db.Time
 
   // MOVO-82: nullable = "precio a estimar" (AC6), cuando movo-svc-pricing-logistics no
   // respondió o faltaban datos al crear el envío. Nunca se recalcula (AC8).
@@ -180,6 +188,9 @@ model Shipment {
   // pasar a rejected_by_receiver. NULL en rechazos anteriores a este cambio: el barrido
   // los trata como vencidos y los cancela en su primera corrida.
   receiverRedesignationDeadline DateTime?     @map("receiver_redesignation_deadline") @db.Timestamptz
+  // MOVO-258 (D4): instante en que el barrido de `in_transit` anómalo marcó el envío
+  // para revisión (no lo cancela). NULL = nunca marcado; solo se escribe una vez.
+  transitAnomalyFlaggedAt DateTime? @map("transit_anomaly_flagged_at") @db.Timestamptz
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   // Mantenida por trigger de Postgres (shipments.update_updated_at_column()),
@@ -472,6 +483,8 @@ model Trip {
   // agregado a mano en la migración de backfill.
   status             TripStatus @default(declared)
 
+  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -482,5 +495,123 @@ model Trip {
   @@index([status], map: "trips_status_idx")
   @@index([departureAt], map: "trips_departure_at_idx")
   @@map("trips")
+  @@schema("shipments")
+}
+
+// Juego de precios de la feria (movo-institucional, /juegos/precios): una fila por
+// partida. Mide la disposición a pagar (emisor) y a aceptar (transportista) frente al
+// precio real de `demand_fuel_routes_v1`, para recalibrar `PRICING_*` y para la
+// exposición del proyecto. Sin FK a usuarios: los visitantes no tienen cuenta.
+// `id` lo genera el cliente (UUID) para que el reenvío de la cola offline sea idempotente.
+model PricingGameSession {
+  id         String  @id @db.Uuid
+  eventTag   String  @map("event_tag") @db.VarChar(64)
+  deviceId   String? @map("device_id") @db.VarChar(64)
+
+  startedAt   DateTime @map("started_at") @db.Timestamptz
+  endedAt     DateTime @map("ended_at") @db.Timestamptz
+  durationSec Int      @map("duration_sec")
+  completed   Boolean
+  lastScreen  String   @map("last_screen") @db.VarChar(32)
+
+  originName        String?  @map("origin_name") @db.VarChar(120)
+  originProvince    String?  @map("origin_province") @db.VarChar(120)
+  originLat         Decimal? @map("origin_lat") @db.Decimal(9, 6)
+  originLng         Decimal? @map("origin_lng") @db.Decimal(9, 6)
+  destinationName     String?  @map("destination_name") @db.VarChar(120)
+  destinationProvince String?  @map("destination_province") @db.VarChar(120)
+  destinationLat      Decimal? @map("destination_lat") @db.Decimal(9, 6)
+  destinationLng      Decimal? @map("destination_lng") @db.Decimal(9, 6)
+
+  packagePreset String?      @map("package_preset") @db.VarChar(16)
+  packageType   PackageType? @map("package_type")
+  weightKg      Decimal?     @map("weight_kg") @db.Decimal(6, 2)
+
+  // Cotización. `quoteVerified` = el precio salió de la cotización guardada en Redis
+  // por el propio servidor (no del body); `false` si el `quoteId` venció o no vino.
+  quoteId           String?  @map("quote_id") @db.Uuid
+  quoteVerified     Boolean  @default(false) @map("quote_verified")
+  calculationMethod String?  @map("calculation_method") @db.VarChar(32)
+  suggestedPriceArs Decimal? @map("suggested_price_ars") @db.Decimal(12, 2)
+  highDemand        Boolean? @map("high_demand")
+  distanceKm        Decimal? @map("distance_km") @db.Decimal(8, 2)
+  distanceSource    String?  @map("distance_source") @db.VarChar(32)
+  fuelArsPerLiter   Decimal? @map("fuel_ars_per_liter") @db.Decimal(10, 2)
+  // Desglose completo de pricing (`QuoteBreakdown`), tal cual lo devolvió el servicio.
+  breakdown         Json?
+
+  // Emisor: yes | maybe | no. `senderAltChoice`: -10 | -20 | -30 | custom | none.
+  senderAnswer    String?  @map("sender_answer") @db.VarChar(8)
+  senderAltChoice String?  @map("sender_alt_choice") @db.VarChar(8)
+  senderWtpArs    Decimal? @map("sender_wtp_ars") @db.Decimal(12, 2)
+
+  // Transportista: misma escala; `courierAltChoice`: +10 | +20 | +30 | custom | none.
+  commissionRate   Decimal? @map("commission_rate") @db.Decimal(5, 4)
+  courierEarnArs   Decimal? @map("courier_earn_ars") @db.Decimal(12, 2)
+  courierAnswer    String?  @map("courier_answer") @db.VarChar(8)
+  courierAltChoice String?  @map("courier_alt_choice") @db.VarChar(8)
+  courierWtaArs    Decimal? @map("courier_wta_ars") @db.Decimal(12, 2)
+
+  uberEstimateArs Decimal? @map("uber_estimate_ars") @db.Decimal(12, 2)
+  // Solo con consentimiento explícito (sorteo); nunca se expone en `stats`.
+  email     String? @db.VarChar(254)
+  userAgent String? @map("user_agent") @db.VarChar(512)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([eventTag, createdAt], map: "pricing_game_sessions_event_tag_created_at_idx")
+  @@map("pricing_game_sessions")
+  @@schema("shipments")
+}
+
+// Juego del optimizador de la feria (movo-institucional /juegos/optimizador): una fila
+// por partida. Los km salen de la misma matriz (cacheada por ciudad) con la que
+// OR-Tools resolvió el óptimo; `computedBy: client` = partida jugada sin red, con los
+// números que calculó el iPad.
+model RouteGameSession {
+  id         String  @id @db.Uuid
+  eventTag   String  @map("event_tag") @db.VarChar(64)
+  deviceId   String? @map("device_id") @db.VarChar(64)
+  startedAt  DateTime @map("started_at") @db.Timestamptz
+  endedAt    DateTime @map("ended_at") @db.Timestamptz
+
+  scenarioId String @map("scenario_id") @db.VarChar(16)
+  city       String @db.VarChar(64)
+  // `{ start, stops[], end }` con nombre, barrio y coordenadas.
+  points       Json
+  stopCount    Int  @map("stop_count")
+  userOrder    Json @map("user_order")
+  optimalOrder Json @map("optimal_order")
+
+  userKm        Decimal @map("user_km") @db.Decimal(8, 2)
+  optimalKm     Decimal @map("optimal_km") @db.Decimal(8, 2)
+  extraKm       Decimal @map("extra_km") @db.Decimal(8, 2)
+  userMin       Decimal @map("user_min") @db.Decimal(8, 1)
+  optimalMin    Decimal @map("optimal_min") @db.Decimal(8, 1)
+  extraMin      Decimal @map("extra_min") @db.Decimal(8, 1)
+  efficiencyPct Decimal @map("efficiency_pct") @db.Decimal(5, 1)
+  tie           Boolean
+
+  timeUsedSec    Int     @map("time_used_sec")
+  timeLimitSec   Int?    @map("time_limit_sec")
+  timedOut       Boolean @map("timed_out")
+  distanceMethod String? @map("distance_method") @db.VarChar(32)
+  computedBy     String  @map("computed_by") @db.VarChar(8)
+
+  // Ranking del día: el nombre se muestra en el stand; `inRanking` lo apaga el reset.
+  name      String? @db.VarChar(18)
+  inRanking Boolean @default(false) @map("in_ranking")
+  // Cuándo la sacó el reset: un reenvío posterior no la vuelve a meter al ranking.
+  rankingHiddenAt DateTime? @map("ranking_hidden_at") @db.Timestamptz
+  // Solo con consentimiento explícito (sorteo + newsletter).
+  email     String? @db.VarChar(254)
+  userAgent String? @map("user_agent") @db.VarChar(512)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([eventTag, endedAt], map: "route_game_sessions_event_tag_ended_at_idx")
+  @@map("route_game_sessions")
   @@schema("shipments")
 }

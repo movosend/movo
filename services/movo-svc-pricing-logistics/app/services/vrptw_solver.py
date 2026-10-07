@@ -8,6 +8,7 @@ from ortools.constraint_solver import pywrapcp, routing_enums_pb2
 from app.config import settings
 from app.models.optimize import (
     Coordinates,
+    OptimizationObjective,
     OptimizationStatus,
     OptimizeRouteRequest,
     OptimizeRouteResponse,
@@ -154,7 +155,22 @@ class VRPTWSolver:
             canonical_waypoints.append(request.final_location)
 
         # Consultar la matriz de distancias y tiempos vía RoutesProvider
-        matrix_result: DistanceMatrixResult = self.provider.compute_matrix(canonical_waypoints)
+        if request.matrix is not None:
+            n = len(canonical_waypoints)
+            m = request.matrix
+            if len(m.dist_km) != n or len(m.time_min) != n or any(
+                len(r) != n for r in m.dist_km + m.time_min
+            ):
+                raise RoutingInfeasibleError(
+                    f"La matriz precalculada debe ser de {n}x{n} (salida, paradas y llegada)."
+                )
+            matrix_result = DistanceMatrixResult(
+                dist_matrix_km=m.dist_km,
+                time_matrix_min=m.time_min,
+                provider_name="precomputed",
+            )
+        else:
+            matrix_result = self.provider.compute_matrix(canonical_waypoints)
         dist_matrix = [row[:] for row in matrix_result.dist_matrix_km]
         time_matrix = [row[:] for row in matrix_result.time_matrix_min]
 
@@ -285,7 +301,18 @@ class VRPTWSolver:
             return time_matrix[from_node][to_node] + internal_nodes[from_node].service_time_min
 
         transit_callback_index = routing.RegisterTransitCallback(transit_callback)
-        routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
+        if request.objective == OptimizationObjective.DISTANCE:
+            # Costo en metros enteros; la dimensión de tiempo sigue usando la matriz de tiempo.
+            def distance_callback(from_index: int, to_index: int) -> int:
+                from_node = manager.IndexToNode(from_index)
+                to_node = manager.IndexToNode(to_index)
+                return int(round(dist_matrix[from_node][to_node] * 1000))
+
+            routing.SetArcCostEvaluatorOfAllVehicles(
+                routing.RegisterTransitCallback(distance_callback)
+            )
+        else:
+            routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
 
         # Dimensión de Tiempo con Slack (holgura) de 120 min (2 horas)
         slack_min = settings.routing_time_slack_minutes
@@ -438,17 +465,18 @@ class VRPTWSolver:
             else OptimizationStatus.FEASIBLE
         )
 
-        calc_method = (
-            "haversine_vrptw_v1"
-            if matrix_result.provider_name == "haversine_mock"
-            else "google_routes_vrptw_v1"
-        )
-        disclaimer = (
-            "Distancias calculadas con Haversine y tiempos estimados con velocidad promedio configurable "
-            f"({settings.routing_avg_speed_kmh} km/h). Estimación geométrica sin tráfico real (ADR-013)."
-            if matrix_result.provider_name == "haversine_mock"
-            else "Ruta optimizada con distancias y tiempos de Google Routes API (tier Basic, ADR-015)."
-        )
+        if matrix_result.provider_name == "precomputed":
+            calc_method = "precomputed_matrix_vrptw_v1"
+            disclaimer = "Ruta optimizada sobre la matriz de distancias y tiempos provista en el request."
+        elif matrix_result.provider_name == "haversine_mock":
+            calc_method = "haversine_vrptw_v1"
+            disclaimer = (
+                "Distancias calculadas con Haversine y tiempos estimados con velocidad promedio configurable "
+                f"({settings.routing_avg_speed_kmh} km/h). Estimación geométrica sin tráfico real (ADR-013)."
+            )
+        else:
+            calc_method = "google_routes_vrptw_v1"
+            disclaimer = "Ruta optimizada con distancias y tiempos de Google Routes API (tier Basic, ADR-015)."
 
         return OptimizeRouteResponse(
             stops=ordered_stops,

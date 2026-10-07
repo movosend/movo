@@ -107,7 +107,7 @@ describe("trip-repository (Postgres) — cancelOverdueDeclared (MOVO-238)", () =
 
     expect(cancelled).toEqual([trip.id]);
     const after = await tripRepo.findById(trip.id);
-    expect(after?.status).toBe(TripStatus.CANCELLED);
+    expect(after?.status).toBe(TripStatus.EXPIRED);
     expect(after!.updatedAt.getTime()).toBeGreaterThanOrEqual(trip.updatedAt.getTime());
   });
 
@@ -119,8 +119,10 @@ describe("trip-repository (Postgres) — cancelOverdueDeclared (MOVO-238)", () =
   });
 
   it("nunca toca un viaje active vencido (AC4)", async () => {
+    // MOVO-258: `start()` exige paquetes; acá solo importa que el barrido no toque un
+    // `active` vencido, así que el estado se fuerza directo en la base.
     const declared = await tripRepo.create(baseTripInput());
-    const active = await tripRepo.start(declared.id);
+    const active = await app.db.trip.update({ where: { id: declared.id }, data: { status: "active" } });
 
     expect(await tripRepo.cancelOverdueDeclared(new Date(), 100)).toEqual([]);
     expect((await tripRepo.findById(active.id))?.status).toBe(TripStatus.ACTIVE);

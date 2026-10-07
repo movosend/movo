@@ -1,6 +1,8 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import {
   canCancelShipment,
+  liveTrackingAvailability,
+  liveTrackingPendingPollInterval,
   computeOnTripDetour,
   formatEventTimestamp,
   formatPickupWindowLabel,
@@ -671,5 +673,47 @@ describe("shipmentDetailCta (MOVO-194)", () => {
       path: "/(app)/shipments/s1/delivery",
       icon: "package",
     });
+  });
+});
+
+describe("liveTrackingAvailability (MOVO-271 AC5)", () => {
+  it("solo se habilita en tránsito, que es cuando el backend acepta posiciones hoy", () => {
+    expect(liveTrackingAvailability(ShipmentStatus.IN_TRANSIT)).toBe("available");
+  });
+
+  it("con transportista asignado y antes del retiro, muestra el placeholder", () => {
+    expect(liveTrackingAvailability(ShipmentStatus.ASSIGNMENT_PENDING)).toBe("pending");
+    expect(liveTrackingAvailability(ShipmentStatus.ASSIGNED_UNFUNDED)).toBe("pending");
+    expect(liveTrackingAvailability(ShipmentStatus.ASSIGNED)).toBe("pending");
+  });
+
+  it("sin transportista o con el envío cerrado, no hay card", () => {
+    for (const status of [
+      ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+      ShipmentStatus.PUBLISHED,
+      ShipmentStatus.REJECTED_BY_RECEIVER,
+      ShipmentStatus.DELIVERED,
+      ShipmentStatus.COMPLETED,
+      ShipmentStatus.CANCELLED,
+      ShipmentStatus.DISPUTED,
+    ]) {
+      expect(liveTrackingAvailability(status)).toBeNull();
+    }
+  });
+});
+
+describe("liveTrackingPendingPollInterval (MOVO-271 AC5)", () => {
+  const pending = { status: ShipmentStatus.ASSIGNMENT_PENDING, carrierId: "carrier-1" };
+
+  it("emisor y receptor refrescan cada 30s mientras esperan el retiro", () => {
+    expect(liveTrackingPendingPollInterval(pending, "sender-1")).toBe(30_000);
+    expect(liveTrackingPendingPollInterval(pending, "receiver-1")).toBe(30_000);
+  });
+
+  it("no refresca si ya está en tránsito, sin transportista, sin datos o si mira el transportista", () => {
+    expect(liveTrackingPendingPollInterval({ ...pending, status: ShipmentStatus.IN_TRANSIT }, "sender-1")).toBe(false);
+    expect(liveTrackingPendingPollInterval({ status: ShipmentStatus.PUBLISHED, carrierId: null }, "sender-1")).toBe(false);
+    expect(liveTrackingPendingPollInterval(undefined, "sender-1")).toBe(false);
+    expect(liveTrackingPendingPollInterval(pending, "carrier-1")).toBe(false);
   });
 });

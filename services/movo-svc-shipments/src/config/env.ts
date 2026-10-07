@@ -28,6 +28,12 @@ export interface EnvConfig {
   CARRIER_POSITION_PURGE_SWEEP_ENABLED?: boolean;
   TRIP_EXPIRY_SWEEP_INTERVAL_MINUTES: number;
   TRIP_EXPIRY_SWEEP_ENABLED?: boolean;
+  PICKUP_MISSED_SWEEP_INTERVAL_MINUTES: number;
+  PICKUP_MISSED_SWEEP_ENABLED?: boolean;
+  PICKUP_MISSED_GRACE_HOURS: number;
+  TRANSIT_ANOMALY_SWEEP_INTERVAL_MINUTES: number;
+  TRANSIT_ANOMALY_SWEEP_ENABLED?: boolean;
+  IN_TRANSIT_ANOMALY_FALLBACK_HOURS: number;
 }
 
 export const envSchema = {
@@ -121,6 +127,16 @@ export const envSchema = {
     // paquetes aceptados -- mismo criterio que PICKUP_EXPIRY_SWEEP_*.
     TRIP_EXPIRY_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
     TRIP_EXPIRY_SWEEP_ENABLED: { type: "boolean", default: true },
+    // MOVO-258 (D1): barrido que cancela envíos con transportista cuyo retiro no se hizo,
+    // pasado el margen de gracia sobre el cierre de la ventana de retiro efectiva.
+    PICKUP_MISSED_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
+    PICKUP_MISSED_SWEEP_ENABLED: { type: "boolean", default: true },
+    PICKUP_MISSED_GRACE_HOURS: { type: "number", default: 24 },
+    // MOVO-258 (D4): barrido que marca para revisión los `in_transit` que no se entregaron.
+    // El fallback aplica solo si la oferta aceptada no declaró entrega estimada.
+    TRANSIT_ANOMALY_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
+    TRANSIT_ANOMALY_SWEEP_ENABLED: { type: "boolean", default: true },
+    IN_TRANSIT_ANOMALY_FALLBACK_HOURS: { type: "number", default: 48 },
   },
 };
 
