@@ -463,6 +463,20 @@ profile `development` lo necesita. El primer development build de Android se cor
 encoló los builds y el aviso de Telegram llegó. Pendiente de verificar: la versión que
 espera al build (matriz por plataforma), y un tag `v*` sobre `develop` (guard + TestFlight).
 
+### Pagos / Mercado Pago (MOVO-49, spike)
+
+- Referencia para todas las US de pagos (MOVO-267, 209, 111, 212, 213, 268, 100, 101,
+  110, 112, 215, 225): `docs/payments/flujo-de-pagos.md` (flujo y orden de
+  implementación) y `docs/payments/mercadopago-spike/SOLUCION-FINAL.md` (hold +
+  split verificado en sandbox, script reproducible `mp-spike-cli.js`).
+- Decisiones no obvias: en sandbox las tres partes (app, vendedor, pagador) tienen que
+  ser cuentas de prueba (si no, error 2034); se tokeniza con la `public_key` del
+  transportista y se cobra con su `access_token` OAuth; SDK oficial `mercadopago` v3
+  en `svc-payments`; el hold se crea siempre con el emisor presente (card-on-file no
+  validado en marketplace).
+- Credenciales de sandbox (app, cuentas de prueba): no se versionan, se comparten por
+  fuera del repo — ver `docs/payments/mercadopago-spike/README.md`.
+
 ### Pendientes transversales
 
 - **Credenciales reales sin cargar** en AWS Secrets Manager (dev y prod) — el código
