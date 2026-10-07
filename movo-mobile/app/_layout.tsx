@@ -31,7 +31,15 @@ import { RegistrationProvider } from '../src/hooks/use-registration';
 import { loadApiOverride } from '../src/lib/api-override';
 import { useAuthStore } from '../src/store/auth-store';
 import { useBootStore } from '../src/store/boot-store';
-import { useCarrierTrackingCoordinator } from '../src/hooks/use-carrier-tracking';
+import { useCarrierTracking, useCarrierTrackingCoordinator } from '../src/hooks/use-carrier-tracking';
+import { CarrierLocationGate } from '../components/location/carrier-location-gate';
+import { useCarrierLocationReadiness } from '../src/hooks/use-carrier-location-readiness';
+import {
+  firstMissingRequirement,
+  getCarrierLocationReadiness,
+} from '../src/lib/carrier-location-readiness';
+import { locationService } from '../src/location/location-service';
+import { useCarrierLocationGateStore } from '../src/store/carrier-location-gate-store';
 import '../src/location/tracking-task';
 
 SplashScreen.preventAutoHideAsync();
@@ -88,6 +96,73 @@ function RequiredPermissionsGateMount() {
         void gate.request(kind);
       }}
       onOpenSettings={gate.openSettings}
+    />
+  );
+}
+
+/**
+ * Pantalla de acceso a la ubicación en segundo plano del transportista
+ * (`carrier-location-readiness.ts`). Se abre por dos caminos:
+ *
+ * - **Pedida por una acción** (ofertar, declarar/iniciar un viaje, retirar), vía
+ *   `requireCarrierLocation()`: se puede cerrar con "Ahora no" (la acción no se
+ *   ejecuta) y, al cumplirse los requisitos, ejecuta sola la acción pendiente.
+ * - **Viaje en curso** (`locationService` trackeando): sin salida. Es el caso de
+ *   quien quitó el permiso desde Ajustes a mitad del viaje.
+ *
+ * Nunca se muestra si falta la ubicación de primer plano: esa la pide
+ * `RequiredPermissionsGateMount`, y dos `Modal` nativos a la vez no conviven en iOS.
+ */
+function CarrierLocationGateMount() {
+  const readiness = useCarrierLocationReadiness();
+  const { isTracking } = useCarrierTracking();
+  const isAuthenticated = useAuthStore((s) => s.status === 'authenticated');
+  const requested = useCarrierLocationGateStore((s) => s.requested);
+  const blocking = isAuthenticated && isTracking;
+  const foregroundGranted = readiness.readiness?.foregroundGranted ?? false;
+  const visible =
+    readiness.checked && !readiness.ready && foregroundGranted && (requested || blocking);
+
+  const runPendingAction = useCallback(() => {
+    const action = useCarrierLocationGateStore.getState().take();
+    if (action) void action();
+  }, []);
+
+  // Al pedirse, se relee en el momento: el estado del hook puede ser de antes de que
+  // el usuario cambiara algo en Ajustes, y no puede dejar pasar una acción con un
+  // "listo" viejo.
+  useEffect(() => {
+    if (!requested) return;
+    let cancelled = false;
+    void (async () => {
+      const fresh = await getCarrierLocationReadiness();
+      if (cancelled) return;
+      if (firstMissingRequirement(fresh) === null) runPendingAction();
+      else void readiness.recheck();
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requested]);
+
+  useEffect(() => {
+    if (!readiness.ready) return;
+    void locationService.refreshPermissions();
+    if (useCarrierLocationGateStore.getState().requested) runPendingAction();
+  }, [readiness.ready, runPendingAction]);
+
+  return (
+    <CarrierLocationGate
+      visible={visible}
+      readiness={readiness.readiness}
+      missing={readiness.missing}
+      needsSettings={readiness.needsSettings}
+      pending={readiness.pending}
+      onResolve={() => {
+        void readiness.resolve();
+      }}
+      onDismiss={blocking ? undefined : () => useCarrierLocationGateStore.getState().cancel()}
     />
   );
 }
@@ -187,6 +262,7 @@ export default function RootLayout() {
            * del splash a mitad de su animación en vez de detrás. */}
           {!showAnimatedSplash ? <LegalAcceptanceEntryMount /> : null}
           <RequiredPermissionsGateMount />
+          {!showAnimatedSplash ? <CarrierLocationGateMount /> : null}
           <View onLayout={onLayout} className="flex-1 bg-bg">
             <Stack screenOptions={{ headerShown: false }} />
             <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />

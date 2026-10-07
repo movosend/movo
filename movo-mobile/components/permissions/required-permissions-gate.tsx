@@ -129,9 +129,9 @@ export function RequiredPermissionsGate({
           </View>
 
           <Text className="font-sans text-[13px] leading-[18px] text-ink-500">
-            Movo usa tu ubicación solo mientras la app está abierta, y nunca accede a
-            tu cámara por su cuenta. Podés revisar el detalle en la Política de
-            Privacidad.
+            Movo usa tu ubicación al usar la app y, si transportás, también en segundo
+            plano mientras tengas un viaje en curso. Nunca accede a tu cámara por su
+            cuenta. Podés revisar el detalle en la Política de Privacidad.
           </Text>
         </ScrollView>
       </SafeAreaView>

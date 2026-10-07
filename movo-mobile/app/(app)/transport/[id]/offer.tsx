@@ -43,6 +43,7 @@ import {
 } from "../../../../src/lib/commission-config";
 import { useShipment } from "../../../../src/hooks/use-shipments";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
+import { requireCarrierLocation } from "../../../../src/store/carrier-location-gate-store";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
 import {
   formatPickupWindowLabel,
@@ -622,7 +623,15 @@ export default function CreateOfferScreen() {
     router.push("/kyc");
   };
 
-  const handleSubmit = async () => {
+  // Ofertar es comprometerse a transportar: si después aceptan la oferta, el viaje
+  // necesita ubicación en segundo plano, así que se resuelve antes de publicarla.
+  // Cerrar el gate sin resolverlo remonta el slider (`slideKey`), que si no queda
+  // visualmente "confirmado" sin haber enviado nada.
+  const [slideKey, setSlideKey] = useState(0);
+  const handleSubmit = () =>
+    requireCarrierLocation(submitOffer, { onCancel: () => setSlideKey((k) => k + 1) });
+
+  const submitOffer = async () => {
     if (!canSubmit || !effectivePickupDate) return;
     setError(null);
     setPhase("sending");
@@ -1221,6 +1230,7 @@ export default function CreateOfferScreen() {
                   Te queda {formatPriceArs(netArs)}
                 </Text>
                 <SlideToConfirm
+                  key={slideKey}
                   testID="create-offer-submit"
                   label="Deslizá para confirmar"
                   onConfirm={handleSubmit}

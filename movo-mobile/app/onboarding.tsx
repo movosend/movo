@@ -81,11 +81,11 @@ export default function OnboardingScreen() {
             eyebrow="Ubicación"
             eyebrowIcon={MapPin}
             title="Seguí tu envío en tiempo real"
-            subtitle="Mirá en el mapa dónde está tu paquete, minuto a minuto. Sin llamar, sin preguntar."
+            subtitle="Mirá en el mapa dónde está tu paquete, minuto a minuto. Y validamos por GPS cada entrega."
             illustration={<LocationIllustration />}
             infoIcon={ShieldCheck}
-            infoTitle="Solo al usar la app."
-            infoSubtitle="Compartí tu ubicación solo al usar la app, no la usamos fuera de Movo."
+            infoTitle="Solo cuando hace falta"
+            infoSubtitle="La usamos al usar la app. Si transportás, también en segundo plano mientras tengas un viaje en curso."
             primaryLabel="Activar ubicación"
             isPending={flow.pendingPermission === "location"}
             onPrimary={flow.requestLocation}

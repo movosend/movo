@@ -1,11 +1,12 @@
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { AlertCircle, Wallet } from "lucide-react-native";
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { ConfirmHandshakeResult } from "../../../../../src/api/shipments-client";
 import { usePickupWizard } from "../../../../../src/hooks/use-pickup-wizard";
 import { useThemeColors } from "../../../../../src/hooks/use-theme-colors";
+import { requireCarrierLocation } from "../../../../../src/store/carrier-location-gate-store";
 
 /**
  * Único lugar donde `scan.tsx` deja el resultado del handshake para que
@@ -85,6 +86,15 @@ export default function PickupWizardLayout() {
   const gate = reachedReady || liveGate === "ready" ? "ready" : liveGate;
 
   const goToDetail = () => router.replace(`/shipments/${id}`);
+
+  // Retirar es tomar la custodia: desde acá el paquete viaja con el transportista y
+  // el emisor tiene que poder seguirlo. Sin ubicación en segundo plano no se entra al
+  // wizard; cerrar el gate vuelve a la pantalla anterior.
+  useEffect(() => {
+    void requireCarrierLocation(() => {}, {
+      onCancel: () => (router.canGoBack() ? router.back() : router.replace("/home")),
+    });
+  }, []);
 
   if (gate === "loading") {
     return (

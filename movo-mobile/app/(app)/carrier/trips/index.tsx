@@ -13,6 +13,7 @@ import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
 import { formatTripStartErrorMessage } from "../../../../src/lib/trip-format";
 import { diffAndMarkSeenTrips } from "../../../../src/lib/seen-trips";
 import { TripStatus, type TripWithAcceptedPackages } from "../../../../src/api/trips-client";
+import { requireCarrierLocation } from "../../../../src/store/carrier-location-gate-store";
 
 const DELETE_ERROR_FALLBACK = "No pudimos cancelar el viaje. Probá de nuevo.";
 
@@ -43,7 +44,12 @@ export default function MyTripsScreen() {
   const [showCreatedSuccess, setShowCreatedSuccess] = useState(created === "1");
   const [autoCreatedMessage, setAutoCreatedMessage] = useState<string | null>(null);
 
-  const handleStartTrip = async (trip: TripWithAcceptedPackages) => {
+  // Iniciar el viaje arranca el tracking: sin ubicación en segundo plano se cortaría
+  // apenas se apague la pantalla, así que primero pasa por el gate.
+  const handleStartTrip = (trip: TripWithAcceptedPackages) =>
+    requireCarrierLocation(() => startTripNow(trip));
+
+  const startTripNow = async (trip: TripWithAcceptedPackages) => {
     try {
       setStartingTripId(trip.id);
       await startTrip.mutateAsync(trip.id);

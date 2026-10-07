@@ -44,6 +44,7 @@ import {
   ROUTE_SHEET_DIM_OPACITY,
   ROUTE_SHEET_DURATION_MS,
 } from "../../../src/lib/route-sheet-motion";
+import { requireCarrierLocation } from "../../../src/store/carrier-location-gate-store";
 
 // Punto de partida declarado del transportista (Claude Design originPin en calle Blas Pascal / Las Mulitas, Córdoba)
 const DEMO_ORIGIN = { lat: -31.3533, lng: -64.2562 };
@@ -167,7 +168,10 @@ export default function OptimizedRouteScreen() {
   const [isStartingTrip, setIsStartingTrip] = useState(false);
   const [startTripError, setStartTripError] = useState<string | null>(null);
 
-  const handleStartTrip = async () => {
+  // Iniciar el viaje arranca el tracking: primero pasa por el gate de ubicación.
+  const handleStartTrip = () => requireCarrierLocation(startTripNow);
+
+  const startTripNow = async () => {
     if (!tripId) return;
     try {
       setIsStartingTrip(true);

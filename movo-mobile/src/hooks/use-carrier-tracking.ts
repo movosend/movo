@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { AppState, type AppStateStatus } from "react-native";
 import { shipmentsClient, type ActiveShipmentSummary } from "../api/shipments-client";
 import { tripsClient, TripStatus } from "../api/trips-client";
 import { locationService, type TrackingStatus } from "../location/location-service";
@@ -90,12 +91,15 @@ export function useCarrierTrackingCoordinator(
     (s) => s.status === "in_transit"
   );
 
-  // Chequeo inicial de permisos al autenticarse
+  // Chequeo de permisos al autenticarse y en cada vuelta a foreground: el permiso de
+  // segundo plano se puede quitar desde Ajustes con el viaje en curso.
   useEffect(() => {
-    if (isAuthenticated && isEnabled) {
-      void locationService.checkForegroundPermission();
-      void locationService.checkBackgroundPermission();
-    }
+    if (!isAuthenticated || !isEnabled) return;
+    void locationService.refreshPermissions();
+    const subscription = AppState.addEventListener("change", (state: AppStateStatus) => {
+      if (state === "active") void locationService.refreshPermissions();
+    });
+    return () => subscription.remove();
   }, [isAuthenticated, isEnabled]);
 
   // Sincronización con el ciclo de vida de los envíos trackeables y el viaje activo (AC7, AC11)

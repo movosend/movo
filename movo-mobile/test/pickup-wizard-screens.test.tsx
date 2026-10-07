@@ -134,6 +134,12 @@ import PickupEvidenceScreen from "../app/(app)/shipments/[id]/pickup/evidence";
 import PickupScanScreen from "../app/(app)/shipments/[id]/pickup/scan";
 import PickupSuccessScreen from "../app/(app)/shipments/[id]/pickup/success";
 
+// El gate de ubicación del transportista tiene su propio test
+// (carrier-location-gate.test.tsx): acá se asume que ya cumple los requisitos.
+jest.mock("../src/store/carrier-location-gate-store", () => ({
+  requireCarrierLocation: (action: () => unknown) => action(),
+}));
+
 function shipment(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     id: "shipment-1",

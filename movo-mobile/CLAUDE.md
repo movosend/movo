@@ -4214,3 +4214,43 @@ Cambios chicos de soporte al backend (detalle en `services/movo-svc-shipments/CL
 - **Tocar la card de un viaje `active` en "Mis viajes" abre el mapa (`/route`)** en vez del feed filtrado:
   un viaje iniciado tiene sus paquetes fijos y `GET /trips/:id/matches` le responde 409
   `TRIP_NOT_AVAILABLE`. Un viaje `declared` sigue abriendo el feed (`test/my-trips-screen.test.tsx`).
+
+### Gate de ubicación en segundo plano para operar como transportista (sin ticket todavía)
+
+No se puede operar como transportista sin el tracking del viaje funcionando. Antes, la
+ubicación en segundo plano (MOVO-242) era opcional: solo se pedía desde
+`TrackingActiveIndicator`, con el viaje ya en curso, y se podía ignorar.
+
+- **`src/lib/carrier-location-readiness.ts`**: cuatro requisitos en orden (GPS del
+  teléfono → ubicación de Movo → ubicación exacta → segundo plano). La precisa se lee
+  de `ios.accuracy`/`android.accuracy`: con la aproximada la proximidad del handshake
+  (100m) falla sin motivo claro. iOS solo muestra "Cambiar a Permitir siempre" una vez,
+  así que un requisito ya pedido en la sesión que sigue faltando manda a Ajustes.
+- **`CarrierLocationGate`** (pantalla, mismo lenguaje que `RequiredPermissionsGate`) se
+  monta una sola vez en `app/_layout.tsx` (`CarrierLocationGateMount`) y se abre por
+  dos caminos: `requireCarrierLocation(action)` (store
+  `carrier-location-gate-store.ts`) desde ofertar, declarar viaje, iniciar viaje (los
+  tres puntos) y entrar al wizard de retiro — con "Ahora no", y la acción se ejecuta
+  sola al cumplirse —; o con un viaje en curso (`locationService.isTracking`), sin
+  salida. Nunca se muestra si falta la ubicación de primer plano: esa la pide el gate
+  global, y dos `Modal` nativos a la vez no conviven en iOS.
+- **`LocationService.refreshPermissions()`** + listener de `AppState` en el
+  coordinador: antes un `backgroundGranted = true` quedaba cacheado y, si el usuario
+  quitaba "Siempre" en Ajustes, el indicador seguía diciendo "en vivo".
+- Textos corregidos (onboarding, `RequiredPermissionsGate`, `TrackingPermissionModal`):
+  decían que la ubicación se usaba "solo con la app abierta". Política de Privacidad
+  0.2 (`2026-10-07`, regenerada con `npm run sync:legal`): permiso en segundo plano
+  del transportista y retención de la traza alineada a ADR-023 — la fecha nueva
+  dispara la re-aceptación (MOVO-229).
+- Limitación aceptada: el permiso solo se puede verificar en el teléfono; el backend no
+  tiene forma de saber si una app modificada lo saltea.
+- **Fix del merge MOVO-247 × MOVO-249 en `app/index.tsx`**: la Bienvenida marcaba el
+  arranque como resuelto antes de saber si correspondía el carrusel (el splash se abría
+  sobre la Bienvenida y saltaba a `/onboarding`), y mandaba al carrusel con la sesión
+  todavía restaurándose. Además, `onboarding-screen.test.tsx` colgaba toda la suite de
+  Jest (timers falsos activados antes del render, que chocan con las animaciones de las
+  ilustraciones): ahora espera con `waitFor`.
+
+Pendiente: no probado en device (diálogos reales de iOS/Android, ida y vuelta a
+Ajustes); Android 13+ sin permiso de notificaciones oculta el aviso del servicio en
+primer plano, sin cortar el tracking.

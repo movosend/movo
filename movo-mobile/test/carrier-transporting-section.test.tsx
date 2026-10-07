@@ -4,6 +4,12 @@ import { CarrierTransportingSection } from "../components/home/carrier-transport
 import { TripStatus } from "../src/api/trips-client";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 
+// El gate de ubicación del transportista tiene su propio test
+// (carrier-location-gate.test.tsx): acá se asume que ya cumple los requisitos.
+jest.mock("../src/store/carrier-location-gate-store", () => ({
+  requireCarrierLocation: (action: () => unknown) => action(),
+}));
+
 jest.mock("expo-router", () => ({
   router: { push: jest.fn() },
 }));
