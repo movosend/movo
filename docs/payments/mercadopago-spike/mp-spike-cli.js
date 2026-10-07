@@ -19,7 +19,7 @@
  *   - Guardado de tarjeta reusable (Customers & Cards)       (hallazgo MOVO-100)
  *
  * No es código de producción. No se importa desde ningún servicio. Vive acá
- * (`docs/scripts/`) porque es un artefacto de investigación: el objetivo es
+ * (`docs/payments/`) porque es un artefacto de investigación: el objetivo es
  * dejar un registro reproducible de qué se probó y qué devolvió MP, para
  * pegar el resultado como comentario en Linear (MOVO-49 / MOVO-100).
  *
@@ -80,7 +80,7 @@ function loadSdk() {
     mercadopago = require('mercadopago');
     return mercadopago;
   } catch {
-    console.log('[error] Falta el SDK. Corré "npm install" en esta carpeta (docs/scripts/mercadopago-spike/) y reintentá.');
+    console.log('[error] Falta el SDK. Corré "npm install" en esta carpeta (docs/payments/mercadopago-spike/) y reintentá.');
     return null;
   }
 }

@@ -5,7 +5,7 @@ Mercado Pago hasta que cobra. Refleja el diseño vigente al **29/09/2026**, desp
 spike MOVO-49 y del rediseño de los tickets de pago en Linear (etiqueta **Pago**).
 
 - Evidencia técnica del spike (requests reales, cuentas de sandbox, SDK vs API):
-  `docs/scripts/mercadopago-spike/SOLUCION-FINAL.md`.
+  `docs/payments/mercadopago-spike/SOLUCION-FINAL.md`.
 - Estados del envío: `docs/shipments/state-diagram.md` (el código manda:
   `services/movo-svc-shipments/src/domain/shipment-state-machine.ts`).
 

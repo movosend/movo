@@ -329,7 +329,7 @@ Dos salvedades:
    Anotar `client_id` y `client_secret`.
 3. Cargar la Redirect URI en esa app. En local: `cloudflared tunnel --url
    http://localhost:8787` y usar `https://<túnel>/callback`.
-4. En `docs/scripts/mercadopago-spike/.env`: `MP_APP_CLIENT_ID`,
+4. En `docs/payments/mercadopago-spike/.env`: `MP_APP_CLIENT_ID`,
    `MP_APP_CLIENT_SECRET`, `MP_REDIRECT_URI` y **`MP_TEST_PAYER_EMAIL` = email real de la
    cuenta Comprador** (sacado de su perfil de MP, no inventado).
 5. `node mp-spike-cli.js` → opción `2` (autorizar en incógnito logueado como
