@@ -4232,3 +4232,26 @@ muestra en ambos tabs.
 - Historial: "Completado" muestra el chip "N paquetes entregados"; "Venció" solo "Sin paquetes aceptados"; "Cancelado" "Lo cancelaste el {fecha}".
 - Sin datos de recurrencia en el backend: el chip "Todos los viernes" del mockup no se renderiza.
 - `useDeleteTrip` queda sin uso hasta que MOVO-263 sume `useCancelTrip`.
+
+### MOVO-263 — Pantalla de detalle de viaje: paquetes aceptados, búsqueda y cancelación
+
+`app/(app)/carrier/trips/[id]/index.tsx`, sobre el mockup de Claude Design (variante Scroll): mapa estático con
+la ruta y los marcadores numerados de retiro/entrega de cada paquete (`trip-detail-map.tsx`), pill de estado
+(`TripStatusPill`, extraída y compartida con la card y el historial), recorrido, salida/vehículo y los
+paquetes (`trip-package-row.tsx`, tocar uno abre `/shipments/:id`). Para los marcadores se extendió el
+backend: `packages[]` ahora trae `pickupLat/Lng` y `deliveryLat/Lng` (ver `svc-shipments/CLAUDE.md`).
+- Acciones por estado: `declared` sin paquetes → vacío con "Buscar paquetes compatibles", "Editar viaje" y
+  "Cancelar viaje" (sheet `trip-cancel-sheet.tsx`); con paquetes → sin editar/cancelar, nota de bloqueo y
+  footer "Iniciar viaje"; `active` → "Ver ruta en vivo"; terminales → solo lectura.
+- **"Buscar más paquetes" solo en `declared`** (el AC4 decía declared/active): el feed de un viaje `active`
+  responde 409 `TRIP_NOT_AVAILABLE` (MOVO-258), ofrecerlo ahí llevaría a un error.
+- **"Total acordado", no "Ganás"**: `agreedPriceArs` es el bruto (incluye la comisión de Movo), no lo que
+  cobra el transportista.
+- Cancelar usa `POST /trips/:id/cancel` (`useCancelTrip`, invalida ambos tabs, detalle, matches y viaje
+  activo) y vuelve con `router.dismissTo` a "Mis viajes" con el banner "Cancelaste el viaje a {destino}"
+  (param `cancelledTo`). Un 409 se muestra dentro del sheet y refresca el detalle. `useDeleteTrip` se
+  eliminó (el `DELETE` está deprecado por ADR-029).
+- El footer usa botones planos del mockup con la lógica de `useStartTrip`, no `CarrierTripCta` (que es una
+  card completa); ese componente sigue en el home y en "Mi ruta".
+- Pendiente: no probado en device; el estado "bloqueado hasta 2 h antes" del mockup no se implementó
+  (el backend no lo valida).
