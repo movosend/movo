@@ -30,6 +30,11 @@ jest.mock("../src/hooks/use-profile", () => ({
   usePublicProfile: () => mockUsePublicProfile(),
 }));
 
+// MOVO-112: la fila "Pagos y cobros" de Configuración consulta el estado de Mercado Pago.
+jest.mock("../src/hooks/use-mp-connect", () => ({
+  useMpConnectStatus: () => ({ data: undefined }),
+}));
+
 function baseProfile(overrides: Partial<PrivateProfile> = {}): PrivateProfile {
   return {
     id: "user-1",
