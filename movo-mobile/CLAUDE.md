@@ -4230,3 +4230,19 @@ Cambios chicos de soporte al backend (detalle en `services/movo-svc-shipments/CL
 - **Tocar la card de un viaje `active` en "Mis viajes" abre el mapa (`/route`)** en vez del feed filtrado:
   un viaje iniciado tiene sus paquetes fijos y `GET /trips/:id/matches` le responde 409
   `TRIP_NOT_AVAILABLE`. Un viaje `declared` sigue abriendo el feed (`test/my-trips-screen.test.tsx`).
+
+### MOVO-277 — "Iniciar viaje" según fecha de salida y paquetes ejecutables
+
+`tripStartBlocker(trip, now)` (`src/lib/trip-format.ts`) devuelve `"too_early"`, `"packages_not_ready"`
+o `null` con la misma regla que el backend: la fecha sale de `canStartTripOn` (`@movo/shared`) y los
+paquetes de `executablePackagesCount` (campo nuevo de `GET /trips`), así la app no interpreta estados
+de envío. `CarrierTripCta` (Inicio y `/route?tripId=`) y `TripCard` ("Mis viajes") muestran el motivo en
+lugar del botón: "Podés iniciarlo el jueves 15 de octubre." o "Tus paquetes todavía esperan la
+confirmación del pago.". El resumen de la card dice "3 paquetes · 1 listo" cuando no todos son
+ejecutables, para no prometer paradas que la ruta no muestra. `formatTripStartErrorMessage` traduce de
+nuevo `TRIP_START_TOO_EARLY` (con la fecha) y `TRIP_PACKAGES_NOT_READY`, para cuando el dato de la
+pantalla quedó viejo. `isTripDepartureToday` pasa a usar el día argentino en vez del del dispositivo.
+Esto revierte la decisión de MOVO-252 de permitir iniciar sin importar la fecha.
+
+Pendiente: el detalle de viaje (MOVO-263) tiene que usar `tripStartBlocker` cuando exista; no probado
+en device.
