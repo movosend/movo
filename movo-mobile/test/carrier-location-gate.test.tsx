@@ -101,6 +101,7 @@ describe("requireCarrierLocation", () => {
   const mockedReadiness = getCarrierLocationReadiness as jest.Mock;
 
   beforeEach(() => {
+    mockedReadiness.mockClear();
     useCarrierLocationGateStore.setState({ requested: false, pendingAction: null, onCancel: null });
   });
 
@@ -123,6 +124,27 @@ describe("requireCarrierLocation", () => {
     const pending = useCarrierLocationGateStore.getState().take();
     expect(pending).toBe(action);
     expect(useCarrierLocationGateStore.getState().requested).toBe(false);
+  });
+
+  it("un doble tap mientras se leen los permisos ejecuta la acción una sola vez", async () => {
+    let resolveReadiness: (value: CarrierLocationReadiness) => void = () => {};
+    mockedReadiness.mockImplementationOnce(
+      () => new Promise<CarrierLocationReadiness>((resolve) => (resolveReadiness = resolve)),
+    );
+    const action = jest.fn();
+
+    const first = requireCarrierLocation(action);
+    const second = requireCarrierLocation(action);
+    resolveReadiness(READY);
+    await Promise.all([first, second]);
+
+    expect(action).toHaveBeenCalledTimes(1);
+    expect(mockedReadiness).toHaveBeenCalledTimes(1);
+
+    // Terminado el primero, un toque nuevo vuelve a funcionar.
+    mockedReadiness.mockResolvedValue(READY);
+    await requireCarrierLocation(action);
+    expect(action).toHaveBeenCalledTimes(2);
   });
 
   it("cancelar descarta la acción y avisa al caller", async () => {
