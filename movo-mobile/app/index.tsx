@@ -270,21 +270,6 @@ export default function WelcomeScreen() {
           </Pressable>
         </Link>
 
-        {__DEV__ ? (
-          // MOVO-249: mientras se trabaja este ticket, el gate de arriba solo
-          // muestra el carrusel una vez por dispositivo (`hasSeenOnboarding`) — este
-          // link deja verlo de nuevo las veces que hagan falta sin tener que borrar
-          // el flag a mano. Queda para siempre detrás de `__DEV__`, mismo criterio
-          // que los accesos de `profile.tsx` (MOVO-159/183).
-          <Pressable
-            onPress={() => router.push("/onboarding")}
-            className="mt-1 items-center justify-center py-2"
-          >
-            <Text className="font-sans-medium text-[11px] text-lime-600 underline dark:text-lime-400">
-              ⚡ Ver onboarding (Dev)
-            </Text>
-          </Pressable>
-        ) : null}
       </View>
     </SafeAreaView>
   );

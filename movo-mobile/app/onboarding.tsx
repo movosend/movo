@@ -81,7 +81,6 @@ export default function OnboardingScreen() {
             eyebrow="Ubicación"
             eyebrowIcon={MapPin}
             title="Seguí tu envío en tiempo real"
-            subtitle="Mirá en el mapa dónde está tu paquete, minuto a minuto. Y validamos por GPS cada entrega."
             illustration={<LocationIllustration />}
             infoIcon={ShieldCheck}
             infoTitle="Solo cuando hace falta"
@@ -102,7 +101,6 @@ export default function OnboardingScreen() {
             eyebrow="Notificaciones"
             eyebrowIcon={Bell}
             title="Enterate de cada paso del envío"
-            subtitle="Te avisamos cuando aceptan tu paquete, cuando lo retiran y cuando llega."
             illustration={<NotificationsIllustration />}
             infoIcon={Bell}
             infoTitle="Solo lo importante"
@@ -119,7 +117,6 @@ export default function OnboardingScreen() {
             eyebrow="Cámara"
             eyebrowIcon={CameraIcon}
             title="Tu cámara, cuando la necesites"
-            subtitle="Para sacar una foto rápida cuando la app te la pida."
             illustration={<CameraIllustration />}
             infoIcon={ShieldCheck}
             infoTitle="Tus fotos quedan en el envío"
@@ -186,7 +183,6 @@ function PermissionStep({
   eyebrow,
   eyebrowIcon: EyebrowIcon,
   title,
-  subtitle,
   illustration,
   infoIcon,
   infoTitle,
@@ -204,7 +200,6 @@ function PermissionStep({
   eyebrow: string;
   eyebrowIcon: LucideIcon;
   title: string;
-  subtitle: string;
   illustration: React.ReactNode;
   infoIcon: LucideIcon;
   infoTitle: string;
@@ -226,7 +221,9 @@ function PermissionStep({
   return (
     <>
       <View className="gap-6">
-        <View className="gap-2.5 px-6">
+        {/* Sin subtítulo: el título y la fila de info de abajo ya explican el
+            permiso. `pt-6` separa el bloque de texto del header (barra de progreso). */}
+        <View className="gap-2.5 px-6 pt-6">
           <View className="flex-row items-center gap-2">
             <EyebrowIcon size={14} color="#C6F24A" strokeWidth={2} />
             <Text className="font-sans-medium text-caption uppercase tracking-[1.3px] text-lime-500">
@@ -236,7 +233,6 @@ function PermissionStep({
           <Text className="font-sans-semibold text-[32px] leading-[35px] tracking-[-0.5px] text-paper">
             {title}
           </Text>
-          <Text className="font-sans text-[15px] leading-[21px] text-ink-400">{subtitle}</Text>
         </View>
         {illustration}
       </View>
