@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import {
   tripsClient,
   type Trip,
+  type TripListScope,
   type TripWithAcceptedPackages,
   type CreateTripInput,
   type UpdateTripInput,
@@ -23,10 +24,12 @@ const TRIPS_LIST_QUERY_KEY = ["trips", "mine", "list"];
  * de TanStack Query dispara la misma request 3 veces por sesión para la mayoría de
  * los usuarios, para una feature que nunca les aplica.
  */
-export function useMyTrips(enabled = true) {
+export function useMyTrips(scope: TripListScope = "upcoming", enabled = true) {
   return useQuery({
-    queryKey: TRIPS_LIST_QUERY_KEY,
-    queryFn: () => tripsClient.list({ page: 1, limit: 50 }),
+    // MOVO-262: una query key por tab; las invalidaciones por prefijo (`TRIPS_LIST_QUERY_KEY`)
+    // alcanzan a las dos.
+    queryKey: [...TRIPS_LIST_QUERY_KEY, scope],
+    queryFn: () => tripsClient.list({ page: 1, limit: 50, scope }),
     enabled,
     retry: false,
   });

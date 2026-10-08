@@ -92,7 +92,7 @@ export function useActiveTripMatchAlert() {
   // sin identidad verificada, campo que no vive en el JWT/`auth-store`) — para ese
   // caso queda `retry: false` en `useMyTrips` como mitigación.
   const isCarrier = useAuthStore((s) => s.user?.roles.includes(UserRole.CARRIER) ?? false);
-  const { data: tripsData } = useMyTrips(isCarrier);
+  const { data: tripsData } = useMyTrips("upcoming", isCarrier);
   // MOVO-221 (fix de review, PR #168): declared o active, ver el comentario del
   // archivo -- antes exigía ACTIVE a secas y nunca encontraba nada.
   const watchedTrip =

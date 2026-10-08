@@ -29,6 +29,7 @@ describe("tripsClient", () => {
     status: TripStatus.ACTIVE,
     createdAt: "2026-09-03T12:00:00.000Z",
     updatedAt: "2026-09-03T12:00:00.000Z",
+    cancelledAt: null,
   };
 
   const mockTripWithPackages: TripWithAcceptedPackages = {
