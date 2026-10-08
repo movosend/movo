@@ -4230,3 +4230,23 @@ Cambios chicos de soporte al backend (detalle en `services/movo-svc-shipments/CL
 - **Tocar la card de un viaje `active` en "Mis viajes" abre el mapa (`/route`)** en vez del feed filtrado:
   un viaje iniciado tiene sus paquetes fijos y `GET /trips/:id/matches` le responde 409
   `TRIP_NOT_AVAILABLE`. Un viaje `declared` sigue abriendo el feed (`test/my-trips-screen.test.tsx`).
+
+### MOVO-249 — Carrusel de onboarding de primer uso
+
+`app/onboarding.tsx` + `use-onboarding-flow.ts`: una vez por dispositivo
+(`hasSeenOnboarding` en secure-store), antes de la Bienvenida, con los pasos de permisos
+obligatorios (ubicación y cámara, `required-permissions.ts`) y notificaciones opcional.
+`app/index.tsx` no lo muestra con sesión o registro en curso, y en esos casos marca el
+flag, así no aparece al cerrar sesión. `/` y `/onboarding` quedan fuera del gate de
+permisos obligatorios.
+
+### MOVO-279 — Ubicación en segundo plano obligatoria para operar como transportista
+
+`carrier-location-readiness.ts` (GPS → ubicación → precisa → segundo plano) y un único
+`CarrierLocationGate` que abren `requireCarrierLocation()` (ofertar, declarar/iniciar
+viaje, wizard de retiro; descarta el doble tap) o un viaje en curso, sin salida.
+`BlockingGatesMount` (`app/_layout.tsx`) muestra un solo modal bloqueante por vez
+(permisos obligatorios → ubicación del transportista → legal): dos `Modal` nativos a la
+vez no conviven en iOS. Política de Privacidad 0.2 (`2026-10-07`): dispara la
+re-aceptación (MOVO-229). Limitación aceptada: el permiso solo se verifica en el
+teléfono. Pendiente: no probado en device.

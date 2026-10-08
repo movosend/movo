@@ -37,9 +37,12 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   CANNOT_MODERATE_SELF: "No podés reportarte ni bloquearte a vos mismo.",
   REPORT_ALREADY_PENDING: "Ya tenés un reporte en revisión sobre esta persona. Podés sumarle información.",
   REPORT_NOT_FOUND: "Tu reporte ya no está en revisión.",
-  // MOVO-228: la app manda una versión de Términos/Privacidad vieja — pasa solo si
-  // el usuario tiene una versión desactualizada de la app instalada.
-  LEGAL_DOCUMENT_VERSION_MISMATCH: "Actualizá la app para ver la versión más reciente de los Términos y la Política de Privacidad.",
+  // MOVO-228: la versión de Términos/Privacidad que manda la app no es la que el
+  // backend tiene vigente. El código no dice de qué lado está el desfase: puede ser
+  // una app vieja, o una app nueva contra un backend que todavía no se desplegó. El
+  // copy cubre los dos casos (esperar sirve para el segundo, actualizar para el primero).
+  LEGAL_DOCUMENT_VERSION_MISMATCH:
+    "No pudimos registrar tu aceptación porque los Términos o la Política de Privacidad cambiaron hace poco. Probá de nuevo en unos minutos y, si sigue pasando, actualizá Movo.",
   SHIPMENT_RECEIVER_IS_SENDER: "No podés elegirte a vos mismo como receptor.",
   SHIPMENT_RECEIVER_KYC_NOT_APPROVED: "El receptor todavía no tiene su identidad verificada.",
   // Elegir otro receptor tras un rechazo (MOVO-253).

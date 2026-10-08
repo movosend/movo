@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { AppState, type AppStateStatus } from "react-native";
 import { shipmentsClient, type ActiveShipmentSummary } from "../api/shipments-client";
 import { tripsClient, TripStatus } from "../api/trips-client";
 import { locationService, type TrackingStatus } from "../location/location-service";
@@ -42,13 +43,7 @@ export function useCarrierTrackingCoordinator(
 ): UseCarrierTrackingCoordinatorResult {
   const isEnabled = options?.enabled ?? true;
   const isAuthenticated = useAuthStore((s) => s.status === "authenticated");
-  const [isTracking, setIsTracking] = useState(() => locationService.getStatus().isTracking);
-
-  useEffect(() => {
-    return locationService.subscribe((status) => {
-      setIsTracking(status.isTracking);
-    });
-  }, []);
+  const isTracking = useIsCarrierTracking();
 
   // Consultar envíos activos donde el usuario autenticado es el transportista
   const calculatedInterval = isTracking ? 15_000 : 30_000;
@@ -90,12 +85,15 @@ export function useCarrierTrackingCoordinator(
     (s) => s.status === "in_transit"
   );
 
-  // Chequeo inicial de permisos al autenticarse
+  // Chequeo de permisos al autenticarse y en cada vuelta a foreground: el permiso de
+  // segundo plano se puede quitar desde Ajustes con el viaje en curso.
   useEffect(() => {
-    if (isAuthenticated && isEnabled) {
-      void locationService.checkForegroundPermission();
-      void locationService.checkBackgroundPermission();
-    }
+    if (!isAuthenticated || !isEnabled) return;
+    void locationService.refreshPermissions();
+    const subscription = AppState.addEventListener("change", (state: AppStateStatus) => {
+      if (state === "active") void locationService.refreshPermissions();
+    });
+    return () => subscription.remove();
   }, [isAuthenticated, isEnabled]);
 
   // Sincronización con el ciclo de vida de los envíos trackeables y el viaje activo (AC7, AC11)
@@ -140,6 +138,23 @@ export function useCarrierTrackingCoordinator(
  * Lee directamente del singleton `locationService`, compartiendo estado
  * de tracking y permisos en toda la app sin duplicar peticiones de red ni listeners.
  */
+/**
+ * Solo `isTracking`, para quien no necesita el resto de `TrackingStatus`: como el
+ * `setState` recibe un booleano, React descarta las emisiones que no lo cambian, así que
+ * un tick de GPS o un cambio de la cola offline no vuelve a renderizar al consumidor.
+ */
+export function useIsCarrierTracking(): boolean {
+  const [isTracking, setIsTracking] = useState(() => locationService.getStatus().isTracking);
+
+  useEffect(() => {
+    return locationService.subscribe((status) => {
+      setIsTracking(status.isTracking);
+    });
+  }, []);
+
+  return isTracking;
+}
+
 export function useCarrierTracking(): UseCarrierTrackingResult {
   const [status, setStatus] = useState<TrackingStatus>(() => locationService.getStatus());
 
