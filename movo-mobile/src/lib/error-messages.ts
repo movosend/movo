@@ -100,6 +100,13 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
     "La otra persona todavía no puede confirmar la transferencia desde su dispositivo. Pedile que actualice la app.",
   HANDSHAKE_INVALID_SHIPMENT_STATE: "Este envío ya no está en un estado que permita confirmar esto.",
   SHIPMENT_NOT_TRACKABLE: "El envío no se encuentra en un viaje activo para realizar seguimiento.",
+  // MOVO-111/112: vinculación de Mercado Pago. Los cuatro últimos llegan en el deep link
+  // de vuelta del navegador embebido, no como respuesta HTTP.
+  MP_CONNECT_NOT_CONFIGURED: "La vinculación con Mercado Pago no está disponible por ahora. Probá más tarde.",
+  MP_CONNECT_STATE_INVALID: "La vinculación tardó demasiado y se venció. Probá de nuevo.",
+  MP_CONNECT_ACCESS_DENIED: "No autorizaste a Movo en Mercado Pago. Para cobrar tus envíos, tenés que aceptar el permiso.",
+  MP_CONNECT_EXCHANGE_FAILED: "Mercado Pago no respondió al confirmar la vinculación. Probá de nuevo.",
+  MP_ACCOUNT_ALREADY_LINKED: "Esa cuenta de Mercado Pago ya está vinculada a otro usuario de Movo.",
   VALIDATION_FAILED: "Revisá los datos ingresados, hay algo que no es válido.",
   NOT_FOUND: "No encontramos lo que buscábamos.",
   RATE_LIMIT_EXCEEDED: "Hiciste demasiados intentos. Esperá un momento y volvé a intentar.",

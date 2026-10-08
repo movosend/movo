@@ -10,7 +10,9 @@ import {
   type LucideIcon,
 } from "lucide-react-native";
 import { Alert, Pressable, Text, View } from "react-native";
+import { useMpConnectStatus } from "../../src/hooks/use-mp-connect";
 import { useMyProfile } from "../../src/hooks/use-profile";
+import { MpStatusPill } from "../payments/mp-status-pill";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { hasPendingLegalAcceptance } from "../../src/lib/legal-acceptance";
 
@@ -27,18 +29,21 @@ interface SettingsItem {
  * el mismo `Alert.alert("Próximamente", ...)` de siempre (sin traer una librería de
  * toast nueva solo para este caso). "Direcciones guardadas" fue el primero en tener
  * pantalla real (MOVO-121), "Cuenta y seguridad" el segundo (MOVO-136), "Legal"
- * el tercero (MOVO-224) y "Notificaciones" el cuarto (MOVO-246) — a diferencia del
- * resto, no llevan `opacity-60`.
+ * el tercero (MOVO-224), "Notificaciones" el cuarto (MOVO-246) y "Pagos y cobros" el
+ * quinto (MOVO-112, con el estado de Mercado Pago en la fila) — a diferencia del resto,
+ * no llevan `opacity-60`.
  */
 export function ProfileSettingsSection({ testID }: { testID?: string }) {
   const colors = useThemeColors();
   const { data: profile } = useMyProfile();
   const legalPending = hasPendingLegalAcceptance(profile);
+  // MOVO-112: estado de Mercado Pago en la fila. Sin pill mientras carga o si falla.
+  const mpStatus = useMpConnectStatus().data?.status;
 
   const settingsItems: SettingsItem[] = [
     { label: "Cuenta y seguridad", Icon: Shield, onPress: () => router.push("/profile/security" as any) },
     { label: "Notificaciones", Icon: Bell, onPress: () => router.push("/profile/notifications" as any) },
-    { label: "Pagos y cobros", Icon: Wallet },
+    { label: "Pagos y cobros", Icon: Wallet, onPress: () => router.push("/profile/payments" as any) },
     { label: "Direcciones guardadas", Icon: MapPin, onPress: () => router.push("/addresses") },
     { label: "Ayuda y soporte", Icon: HelpCircle },
     { label: "Legal", Icon: FileText, onPress: () => router.push("/profile/legal" as any) },
@@ -69,6 +74,9 @@ export function ProfileSettingsSection({ testID }: { testID?: string }) {
                 <View testID="profile-settings-legal-pending-dot" className="h-[7px] w-[7px] rounded-full bg-warning-500" />
               ) : null}
             </View>
+            {label === "Pagos y cobros" && mpStatus ? (
+              <MpStatusPill status={mpStatus} variant="row" testID="profile-settings-mp-pill" />
+            ) : null}
             <ChevronRight size={18} strokeWidth={1.8} color={colors.fg3} />
           </Pressable>
         ))}
