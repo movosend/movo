@@ -1,0 +1,109 @@
+Asunto: RE: Error 2034 "Invalid users involved" — repetimos la prueba con los dos
+puntos que pidieron confirmar, sigue fallando (app 7550835762771398)
+
+Hola, gracias por señalar los dos puntos a revisar. Los confirmamos y corregimos los
+dos, y el 2034 se sigue reproduciendo — con un dato nuevo importante al final que
+creemos aísla la causa real.
+
+===============================================================================
+PUNTO 1 — Owner de la aplicación
+===============================================================================
+
+Confirmado: pasamos a usar la aplicación client_id 7550835762771398, creada y
+gestionada desde una sesión logueada como nuestra cuenta de prueba tipo Integrador/
+Marketplace (user_id 3609549431). Esta cuenta ya formaba parte del escenario (Vendedor
+conectado por OAuth, Comprador para el payer.email) antes de esta prueba.
+
+Aclaración sobre un dato del mensaje anterior: el User ID 3612155467 que mencionaron
+como posible cuenta Marketplace no es esa cuenta — es el Vendedor de nuestra prueba de
+Orders API (una integración separada, con sus propias credenciales). La cuenta
+Integrador/Marketplace real es la 3609549431 de arriba.
+
+===============================================================================
+PUNTO 2 — Dominio del payer.email
+===============================================================================
+
+Confirmado: el payer.email de la prueba ya no usa @testuser.com. Se usó
+"comprador.prueba@gmail.com" (no necesita existir de verdad, es solo el campo del
+payload).
+
+===============================================================================
+PRUEBA 1 — capture:false + application_fee (igual que siempre) — SIGUE FALLANDO
+===============================================================================
+
+Request — POST /v1/payments — Authorization: Bearer del vendedor conectado por OAuth
+(user_id 2991764998, access_token con test_token:true, prefijo TEST-):
+
+{
+  "transaction_amount": 1000,
+  "capture": false,
+  "installments": 1,
+  "token": "<card_token, tokenizado con la Public Key de la app 7550835762771398>",
+  "payment_method_id": "visa",
+  "payer": { "email": "comprador.prueba@gmail.com" },
+  "application_fee": 150
+}
+
+Response, HTTP 400:
+{
+  "message": "Invalid users involved",
+  "error": "bad_request",
+  "status": 400,
+  "cause": [{
+    "code": 2034,
+    "description": "Invalid users involved",
+    "data": "04-09-2026T19:00:19UTC;502e1425-adde-4897-9c72-689792fd1b11"
+  }]
+}
+
+===============================================================================
+PRUEBA 2 — application_fee SOLO, sin capture:false (capture:true, cobro inmediato)
+===============================================================================
+
+Para aislar si el problema es la combinación con el hold o el application_fee en sí,
+repetimos el mismo pago pero sin "capture:false" (o sea, captura inmediata, sin hold).
+Mismo vendedor, mismo payer.email, card_token nuevo:
+
+{
+  "transaction_amount": 1000,
+  "installments": 1,
+  "token": "<card_token nuevo>",
+  "payment_method_id": "visa",
+  "payer": { "email": "comprador.prueba@gmail.com" },
+  "application_fee": 150
+}
+
+Response, HTTP 400 — MISMO ERROR:
+{
+  "message": "Invalid users involved",
+  "error": "bad_request",
+  "status": 400,
+  "cause": [{
+    "code": 2034,
+    "description": "Invalid users involved",
+    "data": "04-09-2026T19:02:12UTC;abd12a9c-8262-442f-80fe-639a3b24894e"
+  }]
+}
+
+===============================================================================
+CONCLUSIÓN DE NUESTRO LADO
+===============================================================================
+
+La Prueba 2 muestra que el 2034 no depende de combinar application_fee con
+capture:false — pasa igual con captura inmediata, sin hold. Esto, sumado a que ya
+corregimos owner de la app y dominio del email (los dos puntos que pidieron), nos deja
+sin ninguna causa de configuración de cuenta que probar de nuestro lado.
+
+Esto también es consistente con lo que su compañera Sofía nos había confirmado el
+01/09: que el 2034 lo estaban viendo en varias integraciones marketplace en sandbox
+con vendedor conectado por OAuth, habiendo descartado ya application_fee, capture,
+endpoint y cuenta/app puntual como causa. Los dos puntos de este mensaje (owner de app
+y dominio de email) parecen ser una línea de troubleshooting distinta a esa, y en
+nuestro caso ya los descartamos.
+
+Dado esto, ¿podrían confirmar si el equipo de producto de Marketplace/OAuth llegó a
+alguna conclusión sobre si application_fee (con o sin hold) tiene alguna combinación
+soportada en el sandbox actual?
+
+Correlation ids de esta sesión: 502e1425-adde-4897-9c72-689792fd1b11 (Prueba 1),
+abd12a9c-8262-442f-80fe-639a3b24894e (Prueba 2). Quedamos atentos.

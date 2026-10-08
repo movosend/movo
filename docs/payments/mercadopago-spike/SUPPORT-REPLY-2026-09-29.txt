@@ -1,0 +1,68 @@
+Asunto: RE: Error 2034 "Invalid users involved" — resuelto con comprador de prueba real
+(app 7550835762771398)
+
+Hola, muchas gracias por el análisis con los logs: era exactamente eso. En los intentos
+del 04/09 usamos un payer.email inventado, y por eso el comprador quedó como invitado.
+Repetimos la prueba como recomendaron y funcionó.
+
+===============================================================================
+CONFIGURACIÓN USADA (las tres partes son cuentas de prueba)
+===============================================================================
+
+- Aplicación: 7550835762771398 (movosend), creada desde la cuenta de prueba
+  Marketplace 3609549431.
+- Vendedor: 2991764998, conectado por OAuth con test_token:true (access_token TEST-).
+- Comprador: cuenta de prueba tipo Comprador 2991765000. payer.email =
+  test_user_4715592661702347785@testuser.com, el email que figura en el perfil de esa
+  cuenta.
+- card_token generado con la public_key del vendedor.
+
+===============================================================================
+RESULTADOS (2026-09-29)
+===============================================================================
+
+Payments API, con llamadas HTTP directas:
+- Pago 1352823085: capture:false + application_fee 150 sobre 1000 → authorized /
+  pending_capture. Capturado → approved / accredited. fee_details =
+  mercadopago_fee 41 + application_fee 150, net_received_amount 809.
+- Pago 1352824879: capture:false + application_fee → authorized, cancelado → cancelled,
+  sin fees.
+
+Mismo flujo con el SDK oficial de Node (mercadopago v3):
+- Pago 1352825041: hold + application_fee → capturado, mismo desglose (809 neto).
+- Pago 1352825061: hold + application_fee → cancelado, sin fees.
+
+Nos quedan tres consultas:
+
+===============================================================================
+1. Pagador registrado con otro ID
+===============================================================================
+
+En los cuatro pagos, el payer quedó como payer.id 3612507366, pero la cuenta de prueba
+Comprador que muestra el panel (email test_user_4715592661702347785@testuser.com) es la
+2991765000. ¿Es esperable que MP resuelva el payer.email a un ID distinto? ¿O esa
+cuenta tiene más de un ID asociado? Queremos confirmar que el pagador cuenta como la
+cuenta de prueba correcta.
+
+===============================================================================
+2. Movimientos que no se ven en las cuentas de prueba
+===============================================================================
+
+Al iniciar sesión en mercadopago.com.ar con las cuentas de prueba (vendedor, comprador y
+Marketplace), no vemos estos pagos en la actividad ni el application_fee en la cuenta
+Marketplace. Todos se hicieron con access_token TEST- (live_mode:false). ¿Los pagos
+hechos con credenciales TEST- se reflejan en la actividad o el saldo de las cuentas de
+prueba? ¿O la única forma de verificarlos es la API (fee_details /
+net_received_amount)?
+
+===============================================================================
+3. Homologación del modelo Marketplace en producción (su pregunta 3)
+===============================================================================
+
+Ahora que tenemos un intento con las tres partes de prueba, ¿pueden confirmar si hay
+algún requisito adicional pendiente sobre la aplicación 7550835762771398? Más en
+general: para producción vamos a crear la aplicación en una cuenta real. ¿Hace falta
+homologar o habilitar algo en esa cuenta para usar capture:false + application_fee con
+vendedores conectados por OAuth?
+
+Muchas gracias de nuevo por el seguimiento. Quedamos atentos.

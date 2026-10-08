@@ -1357,9 +1357,14 @@ estados, en el mismo PR, conforme obliga el AC6 de `MOVO-79`. Sin disparo real t
 `MOVO-212` (captura y split) dispara `delivered → completed` — ambos bloqueados por
 Mercado Pago. Ver ADR-021 (`CLAUDE.md` raíz) para el razonamiento completo.
 
-- **`assigned_unfunded`** (decisión de arquitectura del hold de `MOVO-12` "opción B"):
-  transportista asignado y método de pago validado, pero sin hold creado — el retiro es
-  a más de N días y el hold recién se programa a T-24h. Se inserta en
+- **`assigned_unfunded`** (hold anclado cerca del retiro, `MOVO-12`): transportista
+  asignado, sin hold creado — el retiro es a más de N días. Cuando entra en N días se
+  abre una ventana para que el emisor confirme el pago con la app abierta (crea el hold,
+  pasa a `assigned`); sin pago a T-24h vuelve a `published`. Reemplaza el diseño
+  original de "opción B" (método de pago validado al aceptar + hold programado
+  automático a T-24h), descartado por el spike MOVO-49 porque tarjeta guardada + cobro
+  sin el emisor no se pudo validar en marketplace (`docs/payments/flujo-de-pagos.md`
+  §5.3). Se inserta en
   `shipment-state-machine.ts#VALID_TRANSITIONS` como rama ALTERNATIVA a
   `assignment_pending` desde `published` (no un paso adicional de esa misma ruta):
   `published → assigned_unfunded → {assigned, published, cancelled}`. **Nunca sale

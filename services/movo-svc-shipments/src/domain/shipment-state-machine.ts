@@ -60,12 +60,15 @@ export class InsufficientCreationPhotosError extends Error {
  * terminal por definición (MOVO-208: entrega confirmada Y pago liberado, no
  * hay nada después).
  *
- * `assigned_unfunded` (MOVO-208, decisión de arquitectura del hold de
- * MOVO-12 "opción B"): ruta ALTERNATIVA a `assignment_pending` cuando el
- * retiro es a más de N días — el emisor acepta una oferta y se valida el
- * método de pago, pero el hold recién se programa a T-24h del retiro. Nunca
- * sale hacia `in_transit` directo (AC2 de MOVO-208): un envío sin hold
- * confirmado no puede retirarse, tiene que pasar por `assigned` primero.
+ * `assigned_unfunded` (MOVO-208, hold anclado cerca del retiro según
+ * MOVO-12): ruta ALTERNATIVA a `assignment_pending` cuando el retiro es a
+ * más de N días — el emisor acepta una oferta sin crear el hold; cuando el
+ * retiro entra en N días se abre una ventana para que confirme el pago (el
+ * hold se crea con el emisor presente, ver
+ * `docs/payments/flujo-de-pagos.md` §5.3) y, si no pagó a T-24h, el envío
+ * vuelve a `published`. Nunca sale hacia `in_transit` directo (AC2 de
+ * MOVO-208): un envío sin hold confirmado no puede retirarse, tiene que pasar
+ * por `assigned` primero.
  */
 const VALID_TRANSITIONS: Readonly<Record<ShipmentStatus, ReadonlySet<ShipmentStatus>>> = {
   [ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION]: new Set([
@@ -84,8 +87,8 @@ const VALID_TRANSITIONS: Readonly<Record<ShipmentStatus, ReadonlySet<ShipmentSta
     ShipmentStatus.CANCELLED, // emisor cancela (MOVO-29)
   ]),
   [ShipmentStatus.ASSIGNED_UNFUNDED]: new Set([
-    ShipmentStatus.ASSIGNED, // hold programado a T-24h exitoso (MOVO-210)
-    ShipmentStatus.PUBLISHED, // hold programado fallido: vuelve a la saga (MOVO-210)
+    ShipmentStatus.ASSIGNED, // emisor confirma el pago dentro de la ventana: hold creado (MOVO-210)
+    ShipmentStatus.PUBLISHED, // sin pago a T-24h del retiro: vuelve a la saga (MOVO-210)
     ShipmentStatus.CANCELLED, // emisor cancela -- sin hold que liberar todavía
   ]),
   [ShipmentStatus.ASSIGNED]: new Set([

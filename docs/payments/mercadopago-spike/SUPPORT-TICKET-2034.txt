@@ -1,0 +1,73 @@
+Asunto: Error 2034 "Invalid users involved" en POST /v1/payments con capture:false + application_fee, reproducible con múltiples apps y cuentas de prueba distintas
+
+Hola equipo de soporte,
+
+Estamos integrando el modelo Marketplace de Mercado Pago para MOVO (plataforma de logística P2P) y llevamos varias sesiones de investigación tratando de crear un pago que combine capture:false (hold/autorización) con application_fee (comisión de marketplace), sin éxito. El error es consistente y lo reprodujimos de forma controlada con varias configuraciones distintas, descartando en el camino que sea un problema de nuestro código.
+
+EL ERROR
+
+POST /v1/payments, con el access_token de una cuenta de prueba tipo Vendedor conectada por OAuth (Mercado Pago Connect) a nuestra aplicación (modelo Marketplace).
+
+Request (idempotency key omitida):
+{
+  "transaction_amount": 1000,
+  "capture": false,
+  "installments": 1,
+  "token": "<card_token generado con la public_key del vendedor conectado>",
+  "payment_method_id": "visa",
+  "description": "hold + split de prueba",
+  "payer": { "email": "<email de cuenta de prueba Comprador>" },
+  "application_fee": 150
+}
+
+Response, HTTP 400:
+{
+  "message": "Invalid users involved",
+  "error": "bad_request",
+  "status": 400,
+  "cause": [
+    { "code": 2034, "description": "Invalid users involved" }
+  ]
+}
+
+QUÉ YA DESCARTAMOS (con evidencia reproducible en cada caso)
+
+1. App Marketplace en una cuenta de developer, Vendedor conectado por OAuth, capture:false + application_fee -> error 2034.
+
+2. Misma app, sin application_fee en el body (para aislar si el split es la causa) -> error 2034. Descarta el split como causa aislada.
+
+3. Mismo body, con payer.email de una cuenta que no existe en Mercado Pago -> error 2034. Descarta que sea específico del comprador.
+
+4. capture:true en vez de capture:false (cobro inmediato, sin hold) -> error 2034. Descarta que sea específico del hold.
+
+5. Vendedor conectado como cuenta tipo Integrador en vez de tipo Vendedor -> error 2034, mismo resultado.
+
+6. Toda la app recreada desde cero en la cuenta de un colega distinto (otro developer, otras credenciales, otros usuarios de prueba Vendedor/Comprador) -> error 2034, idéntico. Descarta que sea un problema de nuestra cuenta específica.
+
+7. Mismo caso anterior, pero usando el SDK oficial de Node (paquete "mercadopago" de npm) en vez de armar el request nosotros a mano -> error 2034, idéntico. Descarta que sea un problema de cómo armamos el request.
+
+8. Mismo caso, probando la Orders API (POST /v1/orders, capture_mode:"manual") en vez de Payments API -> el hold y la captura funcionan sin error, pero confirmamos contra la documentación oficial que type:"online" no tiene ningún campo de comisión en su schema (marketplace_fee no es válido ahí, solo existe para type:"qr"). Nunca llegamos a ejercitar un split real en este caso, así que no es una comparación equivalente.
+
+9. App creada desde el panel propio de la cuenta de prueba tipo Integrador, para que el application_fee le llegue a esa cuenta específicamente -> bloqueado por un error distinto: 401 "Unauthorized use of live credentials" (código 7). La respuesta de OAuth trae "live_mode": true, y las tarjetas de test universales están bloqueadas en modo live.
+
+En resumen: en toda combinación donde efectivamente probamos application_fee + capture:false con una cuenta Vendedor conectada por OAuth a una app Marketplace real (vía credenciales TEST-), obtuvimos el error 2034, sin importar si cambiamos de cuenta, de app, de developer, o de biblioteca cliente (fetch directo vs SDK oficial).
+
+LO QUE NECESITAMOS SABER
+
+1. ¿Qué combinación válida de tipos de cuenta de prueba (Vendedor, Comprador, Integrador) espera la API para que capture:false + application_fee funcione en sandbox? La documentación pública no muestra un ejemplo que combine ambos campos.
+
+2. ¿Es específico del sandbox, o hay algo de configuración de la aplicación (modelo Marketplace, permisos de OAuth, algo del lado de la cuenta) que nos esté faltando?
+
+3. Si tienen forma de revisar los x-request-id de estos intentos (algunos incluidos abajo), agradecemos cualquier detalle adicional que puedan ver del lado de ustedes sobre por qué se dispara "Invalid users involved" en este caso puntual.
+
+DATOS DE LA CUENTA/APP DEL CASO PRINCIPAL
+
+Client ID de la app: 8234694293391791 (modelo Marketplace)
+User ID de la cuenta Vendedor conectada por OAuth: 3612155467
+
+Algunos identificadores de las respuestas 2034 para correlacionar (formato fecha;uuid que Mercado Pago devuelve en cause[0].data):
+13-08-2026T20:05:06UTC;dd1e2286-943b-47e1-963b-417e169c9ace
+13-08-2026T20:08:39UTC;f2f8cc60-a013-401c-954b-e92c652dace1
+13-08-2026T20:21:16UTC;6b81eec4-a39b-457f-9846-0bde21f2ec7d
+
+Quedamos atentos, gracias de antemano.

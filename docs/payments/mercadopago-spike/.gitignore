@@ -1,0 +1,4 @@
+# Salida de ejecuciones del script (ids de pagos/cuentas de prueba), no es documentación
+session-log.json
+control_input.txt
+node_modules/
