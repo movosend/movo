@@ -4230,3 +4230,26 @@ Cambios chicos de soporte al backend (detalle en `services/movo-svc-shipments/CL
 - **Tocar la card de un viaje `active` en "Mis viajes" abre el mapa (`/route`)** en vez del feed filtrado:
   un viaje iniciado tiene sus paquetes fijos y `GET /trips/:id/matches` le responde 409
   `TRIP_NOT_AVAILABLE`. Un viaje `declared` sigue abriendo el feed (`test/my-trips-screen.test.tsx`).
+
+### MOVO-112 — "Pagos y cobros": vincular la cuenta de Mercado Pago del transportista
+
+Pantalla `app/(app)/profile/payments.tsx` (fila de Perfil → Configuración, con pill de estado),
+fiel al mockup de Claude Design "MOVO-112 Vincular Mercado Pago". Hecha contra el contrato
+publicado en MOVO-111 (`@movo/shared`, `types/mp-connect.ts`); el backend todavía no existe.
+
+- **`expo-web-browser` nuevo (módulo nativo, requiere rebuild del dev client)**:
+  `openAuthSessionAsync(url, "movo://mp-connect", { preferEphemeralSession: true })`, nunca
+  `Linking.openURL`. Ephemeral para que no quede logueada otra cuenta de MP (clave en sandbox).
+- **El resultado sale de `GET /status`, no del deep link** (`src/lib/mp-connect-flow.ts`): al
+  cerrar el navegador siempre se vuelve a consultar. `result=success` sin status `linked` es un
+  error, y un `dismiss` con status `linked` es éxito (Android a veces lo devuelve igual). El
+  `code` del deep link solo elige el texto. `runMpConnectLink` es puro para testearlo sin React.
+- **Dos desvíos del mockup**: un error al vincular es un banner sobre el estado real (el mockup
+  volvía siempre a "Sin vincular", falso si estaba "inválida"), y un fallo de `GET /status`
+  muestra error + "Reintentar" (el mockup no tenía ese estado).
+- `app/mp-connect.tsx` atrapa el deep link si llega al router (Android) y redirige a la pantalla.
+  Logo de MP como componente de `react-native-svg` (`components/payments/mercadopago-logo.tsx`,
+  no hay transformer de SVG), con variante clara para dark mode.
+
+Pendiente: DoD contra el sandbox real (vincular, cancelar en MP, desvincular) y prueba en
+dispositivo, hasta que MOVO-111 esté en dev.

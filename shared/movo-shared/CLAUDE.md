@@ -375,3 +375,12 @@ con `quietHoursExempt: true` en uso.
 - Sin test propio en `shared` que los referencie: se cubren desde los tests de `svc-users` y
   `svc-shipments`. Recordatorio habitual: tras tocar este paquete, `npm run build` antes de tipar desde
   otro workspace (los servicios leen `dist/`).
+
+### MOVO-112 — Contrato de la vinculación de Mercado Pago (`types/mp-connect.ts`)
+
+Wire contract de `/payments/mp-connect/*` (MOVO-111, `svc-payments`), propuesto desde mobile y
+publicado como comentario en MOVO-111 antes de que exista el backend. `MpConnectStatusResponse`
+distingue `unlinked` de `invalid` (revocada o vencida) y devuelve `account` (email de MP vía
+`/users/me`) también en `invalid`. `MP_CONNECT_RETURN_URL` (`movo://mp-connect`) es el deep link al
+que redirige el callback público. Cinco `ApiErrorCode` nuevos (`MP_CONNECT_*`,
+`MP_ACCOUNT_ALREADY_LINKED`): cuatro de ellos viajan en ese deep link, no como respuesta HTTP.
