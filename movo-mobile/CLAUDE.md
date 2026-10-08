@@ -4240,8 +4240,9 @@ la ruta y los marcadores numerados de retiro/entrega de cada paquete (`trip-deta
 (`TripStatusPill`, extraída y compartida con la card y el historial), recorrido, salida/vehículo y los
 paquetes (`trip-package-row.tsx`, tocar uno abre `/shipments/:id`). Para los marcadores se extendió el
 backend: `packages[]` ahora trae `pickupLat/Lng` y `deliveryLat/Lng` (ver `svc-shipments/CLAUDE.md`).
-- Acciones por estado: `declared` sin paquetes → vacío con "Buscar paquetes compatibles", "Editar viaje" y
-  "Cancelar viaje" (sheet `trip-cancel-sheet.tsx`); con paquetes → sin editar/cancelar, nota de bloqueo y
+- Acciones por estado: `declared` sin paquetes → vacío con "Buscar paquetes compatibles" y, en el header, un menú nativo de tres
+  puntos (`MenuView`, mismo patrón que `sender-actions-bar`) con "Editar viaje" y "Cancelar viaje" en rojo
+  (que abre el sheet `trip-cancel-sheet.tsx`); con paquetes → sin editar/cancelar, nota de bloqueo y
   footer "Iniciar viaje"; `active` → "Ver ruta en vivo"; terminales → solo lectura.
 - **"Buscar más paquetes" solo en `declared`** (el AC4 decía declared/active): el feed de un viaje `active`
   responde 409 `TRIP_NOT_AVAILABLE` (MOVO-258), ofrecerlo ahí llevaría a un error.

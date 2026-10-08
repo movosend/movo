@@ -1,8 +1,11 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
+import { MenuView } from "@react-native-menu/menu";
+import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
-import { ChevronLeft, Lock, Navigation, Package, Pencil, Search } from "lucide-react-native";
-import { useState } from "react";
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { ChevronLeft, Lock, MoreVertical, Navigation, Package, Search } from "lucide-react-native";
+import { useState, type ReactNode } from "react";
+import { useColorScheme } from "nativewind";
+import { ActivityIndicator, Platform, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PressableScale } from "../../../../../components/trips/pressable-scale";
 import { TripCancelSheet } from "../../../../../components/trips/trip-cancel-sheet";
@@ -18,6 +21,8 @@ import { formatPriceArs, shortAddressLabel } from "../../../../../src/lib/shipme
 import { formatTripDateLong, formatTripStartErrorMessage, tripDisplayCode } from "../../../../../src/lib/trip-format";
 import { TripStatus, type TripWithAcceptedPackages } from "../../../../../src/api/trips-client";
 
+const EDIT_ACTION_ID = "edit-trip";
+const CANCEL_ACTION_ID = "cancel-trip";
 const CANCEL_ERROR_FALLBACK = "No pudimos cancelar el viaje. Probá de nuevo.";
 
 function Eyebrow({ children }: { children: string }) {
@@ -69,6 +74,7 @@ function NoPackagesCard({ onSearch }: { onSearch: () => void }) {
  */
 export default function TripDetailScreen() {
   const colors = useThemeColors();
+  const { colorScheme } = useColorScheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: trip, isLoading, isError, error, isRefetching, refetch } = useTrip(id);
   const cancelTrip = useCancelTrip();
@@ -118,7 +124,7 @@ export default function TripDetailScreen() {
     }
   };
 
-  const header = (
+  const renderHeader = (menu?: ReactNode) => (
     <View className="flex-row items-center gap-3 px-5 pt-1">
       <Pressable
         testID="trip-detail-back"
@@ -135,13 +141,14 @@ export default function TripDetailScreen() {
           </Text>
         ) : null}
       </View>
+      {menu ? <View className="ml-auto">{menu}</View> : null}
     </View>
   );
 
   if (isLoading) {
     return (
       <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
-        {header}
+        {renderHeader()}
         <View className="mt-4">
           <DetailSkeleton />
         </View>
@@ -158,7 +165,7 @@ export default function TripDetailScreen() {
           : "No pudimos cargar este viaje.";
     return (
       <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
-        {header}
+        {renderHeader()}
         <View className="mt-4 gap-3 px-5">
           <ErrorBanner testID="trip-detail-error" message={message} />
           <Pressable
@@ -181,9 +188,52 @@ export default function TripDetailScreen() {
   const showFooter = trip.status === TripStatus.ACTIVE || (isDeclared && hasPackages);
   const total = packages.reduce((sum, p) => sum + p.agreedPriceArs, 0);
 
+  const actionsMenu = canEditOrCancel ? (
+    <View pointerEvents={cancelTrip.isPending ? "none" : "auto"} style={{ opacity: cancelTrip.isPending ? 0.5 : 1 }}>
+      <MenuView
+        testID="trip-detail-menu"
+        shouldOpenOnLongPress={false}
+        isAnchoredToRight
+        themeVariant={colorScheme === "dark" ? "dark" : "light"}
+        onOpenMenu={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+        onPressAction={({ nativeEvent }) => {
+          if (nativeEvent.event === EDIT_ACTION_ID) {
+            router.push(`/carrier/trips/${trip.id}/edit` as any);
+          } else if (nativeEvent.event === CANCEL_ACTION_ID) {
+            setCancelError(null);
+            setSheetOpen(true);
+          }
+        }}
+        actions={[
+          {
+            id: EDIT_ACTION_ID,
+            title: "Editar viaje",
+            image: Platform.select({ ios: "pencil", android: "ic_menu_edit" }),
+          },
+          {
+            id: CANCEL_ACTION_ID,
+            title: "Cancelar viaje",
+            titleColor: "#E5484D",
+            attributes: { destructive: true },
+            image: Platform.select({ ios: "trash", android: "ic_menu_delete" }),
+            imageColor: "#E5484D",
+          },
+        ]}
+      >
+        <View
+          testID="trip-detail-menu-button"
+          accessibilityLabel="Más acciones"
+          className="h-10 w-10 items-center justify-center rounded-full bg-ink-100"
+        >
+          <MoreVertical size={18} color={colors.fg1} strokeWidth={2} />
+        </View>
+      </MenuView>
+    </View>
+  ) : null;
+
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
-      {header}
+      {renderHeader(actionsMenu)}
       <ScrollView
         className="flex-1"
         contentContainerStyle={{ paddingBottom: showFooter ? 150 : 40 }}
@@ -289,23 +339,6 @@ export default function TripDetailScreen() {
           ) : isDeclared ? (
             <View className="gap-3">
               <NoPackagesCard onSearch={() => searchPackages(trip)} />
-              <View className="flex-row gap-2.5">
-                <PressableScale
-                  testID="trip-detail-edit"
-                  onPress={() => router.push(`/carrier/trips/${trip.id}/edit` as any)}
-                  className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-lg border border-ink-950/[0.18]"
-                >
-                  <Pencil size={16} color={colors.fg1} strokeWidth={1.75} />
-                  <Text className="font-sans-medium text-[15px] text-fg">Editar viaje</Text>
-                </PressableScale>
-                <PressableScale
-                  testID="trip-detail-cancel"
-                  onPress={() => setSheetOpen(true)}
-                  className="h-12 flex-1 items-center justify-center rounded-lg"
-                >
-                  <Text className="font-sans-medium text-[15px] text-danger-500">Cancelar viaje</Text>
-                </PressableScale>
-              </View>
             </View>
           ) : null}
         </View>

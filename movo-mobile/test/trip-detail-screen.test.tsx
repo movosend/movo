@@ -30,6 +30,28 @@ jest.mock("../src/hooks/use-trips", () => ({
   useStartTrip: () => ({ mutateAsync: mockStartMutateAsync, isPending: false }),
 }));
 
+// El menú nativo no tiene representación en el árbol de React: el mock lo simula como filas
+// tocables que disparan `onPressAction` con el mismo `nativeEvent.event` (ver `sender-actions-bar.test.tsx`).
+jest.mock("@react-native-menu/menu", () => {
+  const { Pressable, Text, View } = require("react-native");
+  return {
+    MenuView: ({ testID, actions, onPressAction, children }: any) => (
+      <View testID={testID}>
+        {children}
+        {actions.map((action: any) => (
+          <Pressable
+            key={action.id}
+            testID={`${testID}-action-${action.id}`}
+            onPress={() => onPressAction?.({ nativeEvent: { event: action.id } })}
+          >
+            <Text>{action.title}</Text>
+          </Pressable>
+        ))}
+      </View>
+    ),
+  };
+});
+
 // El mapa real pide la ruta (TanStack Query) y usa react-native-maps; acá solo interesa que se monte.
 jest.mock("../components/trips/trip-detail-map", () => {
   const { View } = require("react-native");
@@ -133,17 +155,18 @@ describe("TripDetailScreen (MOVO-263)", () => {
     expect(getByText(/Octubre|octubre/)).toBeTruthy();
   });
 
-  it("AC3/AC5: declared sin paquetes → estado vacío con buscar, editar y cancelar", async () => {
+  it("AC3/AC5: declared sin paquetes → estado vacío con buscar y menú de tres puntos con editar y cancelar", async () => {
     mockUseTrip.mockReturnValue(loaded(TRIP));
     const { getByTestId, getByText, queryByTestId } = await render(<TripDetailScreen />);
 
     expect(getByText("Todavía no tenés paquetes para este viaje")).toBeTruthy();
-    expect(getByTestId("trip-detail-edit")).toBeTruthy();
-    expect(getByTestId("trip-detail-cancel")).toBeTruthy();
+    expect(getByTestId("trip-detail-menu-button")).toBeTruthy();
+    expect(getByTestId("trip-detail-menu-action-edit-trip")).toBeTruthy();
+    expect(getByTestId("trip-detail-menu-action-cancel-trip")).toBeTruthy();
     expect(queryByTestId("trip-detail-start")).toBeNull();
     expect(queryByTestId("trip-detail-locked-note")).toBeNull();
 
-    await fireEvent.press(getByTestId("trip-detail-edit"));
+    await fireEvent.press(getByTestId("trip-detail-menu-action-edit-trip"));
     expect(mockPush).toHaveBeenCalledWith("/carrier/trips/trip-1/edit");
   });
 
@@ -166,8 +189,7 @@ describe("TripDetailScreen (MOVO-263)", () => {
     expect(getByTestId("trip-detail-total")).toBeTruthy();
     expect(getByTestId("trip-detail-locked-note")).toBeTruthy();
     expect(getByTestId("trip-detail-start")).toBeTruthy();
-    expect(queryByTestId("trip-detail-edit")).toBeNull();
-    expect(queryByTestId("trip-detail-cancel")).toBeNull();
+    expect(queryByTestId("trip-detail-menu")).toBeNull();
   });
 
   it("AC2: tocar un paquete abre el detalle del envío", async () => {
@@ -217,8 +239,7 @@ describe("TripDetailScreen (MOVO-263)", () => {
       const { queryByTestId } = await render(<TripDetailScreen />);
 
       for (const id of [
-        "trip-detail-edit",
-        "trip-detail-cancel",
+        "trip-detail-menu",
         "trip-detail-start",
         "trip-detail-live-route",
         "trip-detail-search-empty",
@@ -234,7 +255,7 @@ describe("TripDetailScreen (MOVO-263)", () => {
     mockUseTrip.mockReturnValue(loaded(TRIP));
     const { getByTestId, getByText } = await render(<TripDetailScreen />);
 
-    await fireEvent.press(getByTestId("trip-detail-cancel"));
+    await fireEvent.press(getByTestId("trip-detail-menu-action-cancel-trip"));
     expect(getByText("¿Cancelar el viaje a Bv. España 300?")).toBeTruthy();
     await fireEvent.press(getByTestId("trip-cancel-confirm"));
 
@@ -253,7 +274,7 @@ describe("TripDetailScreen (MOVO-263)", () => {
     mockUseTrip.mockReturnValue(loaded(TRIP, { refetch }));
     const { getByTestId } = await render(<TripDetailScreen />);
 
-    await fireEvent.press(getByTestId("trip-detail-cancel"));
+    await fireEvent.press(getByTestId("trip-detail-menu-action-cancel-trip"));
     await fireEvent.press(getByTestId("trip-cancel-confirm"));
 
     await waitFor(() => expect(getByTestId("trip-cancel-error")).toBeTruthy());
