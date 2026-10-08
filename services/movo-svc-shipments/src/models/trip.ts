@@ -54,7 +54,12 @@ export interface TripAcceptedPackage {
   packageType: string;
   weightKg: number;
   pickupAddress: string;
+  /** Coordenadas del retiro/entrega (MOVO-263): el detalle del viaje dibuja los marcadores. */
+  pickupLat: number;
+  pickupLng: number;
   deliveryAddress: string;
+  deliveryLat: number;
+  deliveryLng: number;
   pickupDate: string;
   pickupTimeWindowStart: string;
   pickupTimeWindowEnd: string;

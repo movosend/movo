@@ -3041,3 +3041,10 @@ implementación de Google y en el mock) responde `501 ROUTE_MODE_NOT_IMPLEMENTED
 cualquier llamada facturable. La navegación real se delega por deep-link desde el mobile
 (ver `docs/navigation/README.md`). `getRouteDurations` (Compute Route Matrix) no lleva `mode`.
 El ticket numeraba esta decisión ADR-022, que ya era el canal WebSocket: quedó como ADR-033.
+
+### MOVO-263 — Coordenadas en `packages[]` del detalle de viaje
+
+`GET /trips/:id` suma `pickupLat`/`pickupLng`/`deliveryLat`/`deliveryLng` a cada elemento de
+`packages[]` (`TripAcceptedPackage`, `tripAcceptedPackageResponse`, `findByIdWithPackages`) para que el
+mapa del detalle de viaje (mobile) dibuje los marcadores de retiro y entrega de cada paquete. Campos
+aditivos y requeridos en la respuesta; el listado `GET /trips` no los lleva (no trae `packages`).
