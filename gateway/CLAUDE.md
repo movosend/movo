@@ -163,3 +163,6 @@ MOVO-111/268. Detalle en `services/movo-svc-payments/CLAUDE.md`.
 abre el navegador embebido del transportista al volver de MP, sin JWT; a quién pertenece
 la vinculación sale del `state` en Redis de `svc-payments`, no de la sesión. El resto de
 `/payments/mp-connect/*` sigue protegido. Detalle en `services/movo-svc-payments/CLAUDE.md`.
+El gateway deja de arrancar con `logger: true`: `config/logger.ts` tiene un serializer de
+`req` que oculta el query de esa ruta (`?code=...&state=...`), y el error handler usa el
+mismo `redactUrl`.

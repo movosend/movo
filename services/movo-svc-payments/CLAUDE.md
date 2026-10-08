@@ -64,11 +64,21 @@ contenedor arranca con los valores reales (DoD del ticket).
   `_ACCESS_DENIED`, `_EXCHANGE_FAILED`, `MP_ACCOUNT_ALREADY_LINKED`). La app no confía en
   `success` y vuelve a pedir el status. El `state` (con el `code_verifier` de PKCE) vive 10
   min en Redis y se consume con `GETDEL`. El query del callback no se loguea (serializer
-  de `req` en `config/logger.ts`).
+  de `req` en `config/logger.ts`, y el mismo en el gateway). Ni un Redis caído ni un query
+  que no matchea el schema (`?state=a&state=b`) pueden responder JSON: todo termina en el
+  deep link (`attachValidation` en la ruta, todo `handleCallback` dentro del `try`).
 - **Canje con `fetch` propio** (SOLUCION-FINAL §4), sin `Authorization`, con
   `test_token` según `MP_TEST_MODE`. En modo test, un token sin prefijo `TEST-` se toma
   como canje fallido. Después del canje se llama a `GET /users/me` para el email y el
-  nickname que muestra la app.
+  nickname que muestra la app, best-effort: si falla, se vincula igual con `null`
+  (el code ya se gastó y son datos de display).
+- **Tokens cifrados en reposo** (`src/utils/token-cipher.ts`): `access_token` y
+  `refresh_token` con AES-256-GCM, formato `v1:<iv>:<tag>:<ciphertext>` (el prefijo deja
+  lugar a rotar la key). La key es `MP_TOKEN_ENCRYPTION_KEY` (base64 de 32 bytes, una por
+  ambiente, en Secrets Manager); sin ella, `/authorization-url` responde 503. La
+  `public_key` va en claro: es pública por diseño. Quien opere con MP (MOVO-209/212/243)
+  lee los tokens con `repository.findCredentials()`, nunca de la fila directo. Si la key
+  se pierde, los tokens no se recuperan y hay que re-vincular.
 - **`carrier_mp_accounts`**: una fila por usuario. Desvincular es soft (`unlinked_at`,
   tokens en null) y el status vuelve a `unlinked`, no a `invalid`. Re-vincular hace
   upsert y limpia `unlinked_at`/`revoked_at`. `invalid` = `revoked_at` (lo marca
@@ -91,6 +101,5 @@ probaron contra el sandbox.
 
 Pendiente: registrar
 `https://api-dev.movosend.app/api/v1/payments/mp-connect/callback` como `MP_REDIRECT_URI`
-en el secret de dev y en el panel de la app `movosend`. El gateway sigue logueando la URL
-completa del callback (logger default): el `code` no sirve sin el `code_verifier`, que
-nunca sale de Redis.
+en el secret de dev y en el panel de la app `movosend`, y cargar
+`MP_TOKEN_ENCRYPTION_KEY` en los secrets de dev y prod.
