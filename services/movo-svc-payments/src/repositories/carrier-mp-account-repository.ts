@@ -1,5 +1,6 @@
 import { PrismaClient } from "../generated/prisma/client";
 import type { CarrierMpAccount } from "../generated/prisma/client";
+import { TokenCipher } from "../utils/token-cipher";
 
 export type { CarrierMpAccount };
 
@@ -31,8 +32,22 @@ function isUniqueViolation(error: unknown): boolean {
   );
 }
 
+/** Tokens ya descifrados, para quien tenga que operar con MP (MOVO-209/212/243). */
+export interface CarrierMpCredentials {
+  mpUserId: string;
+  accessToken: string;
+  refreshToken: string;
+  publicKey: string | null;
+}
+
 export interface CarrierMpAccountRepository {
+  /** La fila tal cual: `accessToken`/`refreshToken` vienen cifrados. */
   findByUserId(userId: string): Promise<CarrierMpAccount | null>;
+  /**
+   * Tokens descifrados de una vinculación vigente (no desvinculada ni revocada), o
+   * `null`. No mira el vencimiento: eso lo decide quien llama.
+   */
+  findCredentials(userId: string): Promise<CarrierMpCredentials | null>;
   /**
    * Vincula (o re-vincula) la cuenta del usuario: pisa tokens y datos, y limpia
    * `revokedAt`/`unlinkedAt`. Tira `MpAccountAlreadyLinkedError` si esa cuenta de MP
@@ -43,9 +58,20 @@ export interface CarrierMpAccountRepository {
   unlink(userId: string, now: Date): Promise<void>;
 }
 
-export function createCarrierMpAccountRepository(db: PrismaClient): CarrierMpAccountRepository {
+/**
+ * `accessToken` y `refreshToken` se guardan cifrados con AES-256-GCM (`token-cipher.ts`,
+ * review de PR #223). La `public_key` no: es pública por diseño, la usa el mobile.
+ */
+export function createCarrierMpAccountRepository(db: PrismaClient, cipher: TokenCipher): CarrierMpAccountRepository {
   const upsert = (userId: string, data: LinkedAccountData, now: Date) => {
-    const fields = { ...data, connectedAt: now, revokedAt: null, unlinkedAt: null };
+    const fields = {
+      ...data,
+      accessToken: cipher.encrypt(data.accessToken),
+      refreshToken: cipher.encrypt(data.refreshToken),
+      connectedAt: now,
+      revokedAt: null,
+      unlinkedAt: null,
+    };
     return db.carrierMpAccount.upsert({
       where: { userId },
       create: { userId, ...fields },
@@ -56,6 +82,17 @@ export function createCarrierMpAccountRepository(db: PrismaClient): CarrierMpAcc
   return {
     findByUserId(userId) {
       return db.carrierMpAccount.findUnique({ where: { userId } });
+    },
+
+    async findCredentials(userId) {
+      const row = await db.carrierMpAccount.findFirst({ where: { userId, unlinkedAt: null, revokedAt: null } });
+      if (!row?.accessToken || !row.refreshToken) return null;
+      return {
+        mpUserId: row.mpUserId,
+        accessToken: cipher.decrypt(row.accessToken),
+        refreshToken: cipher.decrypt(row.refreshToken),
+        publicKey: row.publicKey,
+      };
     },
 
     async upsertLinked(userId, data, now) {
