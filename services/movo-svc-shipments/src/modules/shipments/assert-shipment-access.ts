@@ -2,7 +2,8 @@ import { ApiError, UserRole } from "@movo/shared";
 import { Shipment } from "../../models/shipment";
 
 /**
- * Chequea que el usuario tenga acceso al envío (emisor, receptor o admin).
+ * Chequea que el usuario tenga acceso al envío (emisor, receptor, transportista
+ * asignado o admin). Un transportista que ofertó pero no fue elegido no pasa.
  * AC8 de MOVO-80 / MOVO-81 / MOVO-128: 403 explícito, nunca 404 "filtrado" —
  * el id es un UUID no adivinable.
  */
@@ -12,11 +13,22 @@ export function assertShipmentAccess(
   callerRoles: UserRole[],
   forbiddenMessage = "No tenés permiso para ver este envío."
 ): void {
-  const isParty = callerId === shipment.senderId || callerId === shipment.receiverId;
-  const isAdmin = callerRoles.includes(UserRole.ADMIN);
-  if (!isParty && !isAdmin) {
+  if (!hasShipmentAccess(shipment, callerId, callerRoles)) {
     throw new ApiError(403, "AUTH_FORBIDDEN", forbiddenMessage);
   }
+}
+
+/**
+ * Misma regla que `assertShipmentAccess` pero como booleano, para los callers que
+ * necesitan decidir (p. ej. caer a otra rama) en vez de lanzar. Fuente única de quién
+ * cuenta como parte del envío: emisor, receptor, transportista asignado o admin.
+ */
+export function hasShipmentAccess(shipment: Shipment, callerId: string, callerRoles: UserRole[]): boolean {
+  const isParty =
+    callerId === shipment.senderId ||
+    callerId === shipment.receiverId ||
+    (shipment.carrierId !== null && callerId === shipment.carrierId);
+  return isParty || callerRoles.includes(UserRole.ADMIN);
 }
 
 /**

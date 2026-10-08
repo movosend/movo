@@ -3,19 +3,17 @@ import { router } from "expo-router";
 import { TripStatus, type TripWithAcceptedPackages } from "../../src/api/trips-client";
 import {
   formatDepartureDateOnly,
+  formatPackagesCount,
   isTripDepartureToday,
+  tripRouteLabel,
 } from "../../src/lib/trip-format";
 import { ErrorBanner } from "../ui/error-banner";
-
-import { haversineKm } from "../../src/lib/geo";
 
 interface CarrierTripCtaProps {
   trip: TripWithAcceptedPackages;
   onStart?: (trip: TripWithAcceptedPackages) => void | Promise<void>;
   isStarting?: boolean;
   errorMessage?: string | null;
-  stopsCount?: number;
-  distanceKm?: number;
   testID?: string;
 }
 
@@ -29,14 +27,19 @@ interface CarrierTripCtaProps {
  * que navega a la vista de mapa `/route?tripId=...`.
  * AC4/AC5/AC6: Muestra banner de error ante fallos de inicio (límite de 1 viaje activo, fecha futura, red).
  * AC8: Si no está en `declared` con paquetes aceptados ni en `active`, no se renderiza.
+ *
+ * Título = ruta ("Córdoba → Rosario"), no la fecha: la fecha ya va en el chip/subtítulo y
+ * repetirla en el título era redundante. El resumen usa `acceptedPackagesCount` (misma
+ * fuente que decide si el viaje se muestra) en vez de paradas derivadas de
+ * `/shipments/transporting`, que solo cubre `assigned*`/`in_transit` y daba "0 paradas"
+ * con paquetes aceptados todavía en `assignment_pending`. Sin distancia: era línea recta
+ * (Haversine), no la del recorrido.
  */
 export function CarrierTripCta({
   trip,
   onStart,
   isStarting = false,
   errorMessage,
-  stopsCount,
-  distanceKm,
   testID,
 }: CarrierTripCtaProps) {
   // AC8: Si es declared sin paquetes aceptados (o cancelado/completado), no renderiza CTA
@@ -51,67 +54,39 @@ export function CarrierTripCta({
   const isDeclared = trip.status === TripStatus.DECLARED;
   const isActive = trip.status === TripStatus.ACTIVE;
 
-  const rawDist =
-    distanceKm ??
-    (trip.originLat != null &&
-    trip.originLng != null &&
-    trip.destinationLat != null &&
-    trip.destinationLng != null &&
-    (trip.originLat !== 0 || trip.originLng !== 0 || trip.destinationLat !== 0 || trip.destinationLng !== 0)
-      ? haversineKm(
-          trip.originLat,
-          trip.originLng,
-          trip.destinationLat,
-          trip.destinationLng,
-        )
-      : null);
-
-  const formattedDistance =
-    rawDist != null && !isNaN(rawDist) && rawDist > 0
-      ? `${(Math.round(rawDist * 10) / 10).toFixed(1).replace(".", ",")} km`
-      : "— km";
-
-  const stopsText =
-    stopsCount !== undefined && stopsCount !== null
-      ? `${stopsCount} ${stopsCount === 1 ? "parada" : "paradas"}`
-      : "Calculando…";
-
   return (
     <View
       testID={testID}
       className="overflow-hidden rounded-[10px] border border-border bg-white dark:bg-bg-sub"
     >
-      <View className="gap-3 p-3.5 pb-0">
-        <View className="flex-row items-center gap-1.5 flex-wrap">
-          {isToday ? (
+      <View className="gap-2.5 p-3.5 pb-0">
+        <View className="flex-row items-center gap-1.5">
+          {isActive ? (
+            <View className="h-[22px] flex-row items-center justify-center gap-1.5 rounded-full bg-lime-200 px-[9px]">
+              <View className="h-1.5 w-1.5 rounded-full bg-ink-950" />
+              <Text className="font-sans-semibold text-[10px] uppercase tracking-wider text-ink-950">
+                En curso
+              </Text>
+            </View>
+          ) : isToday ? (
             <View className="h-[22px] items-center justify-center rounded-full bg-fg px-[9px]">
               <Text className="font-sans-semibold text-[10px] uppercase tracking-wider text-bg">
                 Hoy
               </Text>
             </View>
           ) : (
-            <View className="h-[22px] items-center justify-center rounded-full border border-border bg-bg px-[9px]">
-              <Text className="font-sans-medium text-[10px] text-fg-2">
-                {formatDepartureDateOnly(trip.departureAt)}
-              </Text>
-            </View>
+            <Text className="font-sans-medium text-caption uppercase text-fg-3">
+              {formatDepartureDateOnly(trip.departureAt)}
+            </Text>
           )}
-
-          {isActive ? (
-            <View className="h-[22px] items-center justify-center rounded-full bg-lime-200 px-[9px]">
-              <Text className="font-sans-semibold text-[10px] uppercase tracking-wider text-ink-950">
-                En curso
-              </Text>
-            </View>
-          ) : null}
         </View>
 
         <View className="gap-[3px]">
-          <Text className="font-sans-semibold text-[19px] tracking-tight text-fg">
-            Viaje del {formatDepartureDateOnly(trip.departureAt)}
+          <Text numberOfLines={1} className="font-sans-semibold text-[19px] tracking-tight text-fg">
+            {tripRouteLabel(trip)}
           </Text>
           <Text className="font-sans text-[13px] text-fg-3">
-            {stopsText} · {formattedDistance}
+            {formatPackagesCount(trip.acceptedPackagesCount)}
           </Text>
         </View>
       </View>

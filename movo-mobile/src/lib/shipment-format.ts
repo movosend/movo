@@ -136,6 +136,45 @@ export function canCancelShipment(status: ShipmentStatus): boolean {
   );
 }
 
+/** Copy compartido entre el detalle del envío y el home operativo (MOVO-193/194), para
+ * que la misma combinación rol + estado diga lo mismo en las dos pantallas. */
+export const SENDER_PICKUP_CTA_LABEL = "Generar retiro";
+export const RECEIVER_DELIVERY_CTA_LABEL = "Confirmar recepción";
+export const FUNDS_PENDING_INFO_TEXT = "Los fondos se reservan antes del retiro.";
+
+export type ShipmentDetailRole = "sender" | "receiver" | "carrier";
+
+export type ShipmentDetailCta =
+  | { kind: "action"; label: string; path: string; icon: "qr" | "package" }
+  | { kind: "info"; text: string };
+
+/** Acción contextual del pie del detalle del envío (MOVO-194 AC2): una sola por
+ * combinación rol + estado. `assigned_unfunded` no tiene CTA porque la máquina de
+ * estados rechaza `assigned_unfunded -> in_transit` (MOVO-208). */
+export function shipmentDetailCta(
+  role: ShipmentDetailRole | null,
+  status: ShipmentStatus,
+  shipmentId: string,
+): ShipmentDetailCta | null {
+  const base = `/(app)/shipments/${shipmentId}`;
+  if (status === ShipmentStatus.ASSIGNED_UNFUNDED && (role === "sender" || role === "carrier")) {
+    return { kind: "info", text: FUNDS_PENDING_INFO_TEXT };
+  }
+  if (role === "sender" && status === ShipmentStatus.ASSIGNED) {
+    return { kind: "action", label: SENDER_PICKUP_CTA_LABEL, path: `${base}/handshake`, icon: "qr" };
+  }
+  if (role === "carrier" && status === ShipmentStatus.ASSIGNED) {
+    return { kind: "action", label: "Retirar paquete", path: `${base}/pickup`, icon: "package" };
+  }
+  if (role === "carrier" && status === ShipmentStatus.IN_TRANSIT) {
+    return { kind: "action", label: "Entregar paquete", path: `${base}/delivery`, icon: "package" };
+  }
+  if (role === "receiver" && status === ShipmentStatus.IN_TRANSIT) {
+    return { kind: "action", label: RECEIVER_DELIVERY_CTA_LABEL, path: `${base}/handshake-scan`, icon: "qr" };
+  }
+  return null;
+}
+
 /** Estado de la card "Seguimiento en vivo" del detalle para emisor/receptor
  * (MOVO-271 AC5). Decisión de producto: la ubicación del transportista se ve desde que
  * inicia el viaje hasta la entrega, y antes de "Iniciar viaje" no se captura ni se
@@ -659,6 +698,30 @@ export function zoneLabelFromAddress(address: string): string {
   if (segments.length < 2) return address;
   const candidate = segments[segments.length - 2];
   return candidate.replace(/^[A-Za-z]\d{3,4}[A-Za-z]{0,3}\s+/, "").trim() || address;
+}
+
+const STREET_PREFIX = /^(av\.?|avda\.?|avenida|calle|bv\.?|bvd\.?|boulevard|ruta|rn|rp|pasaje|pje\.?|diagonal|camino)\s/i;
+
+/** Localidad del retiro para el receptor (MOVO-194 AC4): lo que sigue a la calle, sin
+ * país, código postal ni ningún segmento que parezca calle o altura — "San Martín 450,
+ * X5152 Villa Carlos Paz, Córdoba, Argentina" → "Villa Carlos Paz, Córdoba". Google a
+ * veces antepone un lugar ("Nuevo Centro Shopping, Av. Duarte Quirós 1400, X5000
+ * Córdoba"), así que no alcanza con saltear el primer segmento: se descarta todo
+ * segmento con dígitos (altura) o con prefijo de vía ("Av. Colón"). A diferencia de
+ * `zoneLabelFromAddress`, nunca devuelve el primer segmento: si no queda nada, devuelve
+ * `null` y el que llama decide el texto genérico. */
+export function pickupLocalityLabel(address: string): string | null {
+  const segments = address
+    .split(",")
+    .map((s) => s.trim())
+    .slice(1)
+    .map((s) => s.replace(/^[A-Za-z]?\d{4}[A-Za-z]{0,3}(\s+|$)/, "").trim())
+    .filter(
+      (s) =>
+        s !== "" && s.toLowerCase() !== "argentina" && !/\d/.test(s) && !STREET_PREFIX.test(s),
+    );
+  const unique = segments.filter((s, i) => i === 0 || s.toLowerCase() !== segments[i - 1].toLowerCase());
+  return unique.length > 0 ? unique.join(", ") : null;
 }
 
 /** Recorta una dirección completa a su primer segmento, antes de la primera coma —

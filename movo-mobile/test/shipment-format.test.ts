@@ -21,10 +21,12 @@ import {
   shouldShowEventReason,
   shipmentStatusLabel,
   shipmentStatusTone,
+  pickupLocalityLabel,
   shortAddressLabel,
   formatShipmentRowTime,
   formatDurationMin,
   redesignationDeadlineLabel,
+  shipmentDetailCta,
 } from "../src/lib/shipment-format";
 
 describe("shipmentStatusLabel", () => {
@@ -148,6 +150,36 @@ describe("shipmentLifecycleStage", () => {
     expect(shipmentLifecycleStage(ShipmentStatus.IN_TRANSIT)).toBe("ongoing");
     expect(shipmentLifecycleStage(ShipmentStatus.DISPUTED)).toBe("ongoing");
     expect(shipmentLifecycleStage(ShipmentStatus.ASSIGNED_UNFUNDED)).toBe("ongoing");
+  });
+});
+
+describe("pickupLocalityLabel", () => {
+  it("devuelve la localidad sin calle, código postal ni país (formato Google)", () => {
+    expect(pickupLocalityLabel("San Martín 450, X5152 Villa Carlos Paz, Córdoba, Argentina")).toBe(
+      "Villa Carlos Paz, Córdoba",
+    );
+    expect(pickupLocalityLabel("Av. Colón 1234, X5000JJN Córdoba, Argentina")).toBe("Córdoba");
+  });
+
+  it("no repite la localidad cuando coincide con la provincia", () => {
+    expect(pickupLocalityLabel("Av. Colón 1234, Córdoba, Córdoba, Argentina")).toBe("Córdoba");
+  });
+
+  it("descarta un código postal suelto", () => {
+    expect(pickupLocalityLabel("Av. Colón 1234, 5000, Córdoba")).toBe("Córdoba");
+  });
+
+  it("no deja pasar la calle ni la altura de segmentos posteriores al primero", () => {
+    expect(pickupLocalityLabel("Nuevo Centro Shopping, Av. Duarte Quirós 1400, X5000 Córdoba, Argentina")).toBe(
+      "Córdoba",
+    );
+    expect(pickupLocalityLabel("Av. Colón, 450, Córdoba")).toBe("Córdoba");
+    expect(pickupLocalityLabel("Shopping, Av. Colón, Córdoba, Córdoba, Argentina")).toBe("Córdoba");
+  });
+
+  it("nunca devuelve la calle: null si la dirección no tiene más que eso", () => {
+    expect(pickupLocalityLabel("Av. Colón 1234")).toBeNull();
+    expect(pickupLocalityLabel("Av. Colón 1234, Argentina")).toBeNull();
   });
 });
 
@@ -630,6 +662,25 @@ describe("aceptación de una oferta en la línea de tiempo", () => {
     expect(shouldShowEventReason(ShipmentStatus.REJECTED_BY_RECEIVER)).toBe(true);
     expect(shouldShowEventReason(ShipmentStatus.ASSIGNMENT_PENDING)).toBe(false);
     expect(shouldShowEventReason(ShipmentStatus.IN_TRANSIT)).toBe(false);
+  });
+});
+
+describe("shipmentDetailCta (MOVO-194)", () => {
+  it("un usuario sin rol en el envío no tiene CTA", () => {
+    expect(shipmentDetailCta(null, ShipmentStatus.ASSIGNED, "s1")).toBeNull();
+  });
+
+  it("el receptor en assigned_unfunded no ve el texto de fondos", () => {
+    expect(shipmentDetailCta("receiver", ShipmentStatus.ASSIGNED_UNFUNDED, "s1")).toBeNull();
+  });
+
+  it("el transportista en in_transit va al wizard de entrega, no al QR suelto", () => {
+    expect(shipmentDetailCta("carrier", ShipmentStatus.IN_TRANSIT, "s1")).toEqual({
+      kind: "action",
+      label: "Entregar paquete",
+      path: "/(app)/shipments/s1/delivery",
+      icon: "package",
+    });
   });
 });
 

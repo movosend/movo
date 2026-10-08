@@ -74,6 +74,7 @@ export function useEvidencePhotos(shipmentId: string, stage: "pickup" | "deliver
         await provider.confirmUpload(shipmentId, s3Key, stage);
         updatePhoto(id, { status: "uploaded", progress: 100 });
         await queryClient.invalidateQueries({ queryKey: ["shipments", "detail", shipmentId, "evidence-status"] });
+        await queryClient.invalidateQueries({ queryKey: ["shipments", "photos", shipmentId] });
       } catch (err) {
         updatePhoto(id, {
           status: "error",

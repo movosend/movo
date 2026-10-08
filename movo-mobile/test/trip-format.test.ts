@@ -1,10 +1,14 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
-import { TripStatus } from "../src/api/trips-client";
+import { TripStatus, type TripWithAcceptedPackages } from "../src/api/trips-client";
 import {
   formatDepartureDateOnly,
   formatDepartureLabel,
   formatTripStartErrorMessage,
+  formatPackagesCount,
   isTripDepartureToday,
+  tripPlaceLabel,
+  splitCarrierHomeTrips,
+  tripRouteLabel,
   tripStatusLabel,
   tripStatusTone,
 } from "../src/lib/trip-format";
@@ -59,6 +63,65 @@ describe("trip-format (MOVO-252)", () => {
       const unknownErr = new Error("Desconocido");
       const msgUnknown = formatTripStartErrorMessage(unknownErr);
       expect(msgUnknown).toBe("No pudimos iniciar el viaje. Intentá de nuevo.");
+    });
+  });
+});
+
+describe("trip-format — Inicio (jerarquía de viajes)", () => {
+  it("tripPlaceLabel se queda con la localidad, sin código postal ni provincia", () => {
+    expect(tripPlaceLabel("San Martín 450, X5152 Villa Carlos Paz, Córdoba, Argentina")).toBe(
+      "Villa Carlos Paz",
+    );
+    expect(tripPlaceLabel("Av. Colón 100, Córdoba")).toBe("Córdoba");
+    expect(tripPlaceLabel("Av. Colón 100")).toBe("Av. Colón 100");
+  });
+
+  it("tripRouteLabel arma origen → destino", () => {
+    expect(
+      tripRouteLabel({ originAddress: "Av. Colón 100, Córdoba", destinationAddress: "Bv. Oroño 50, Rosario" }),
+    ).toBe("Córdoba → Rosario");
+  });
+
+  it("formatPackagesCount usa singular y plural", () => {
+    expect(formatPackagesCount(1)).toBe("1 paquete");
+    expect(formatPackagesCount(3)).toBe("3 paquetes");
+  });
+
+  describe("splitCarrierHomeTrips", () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const trip = (id: string, offsetDays: number, overrides: Partial<TripWithAcceptedPackages> = {}) =>
+      ({
+        id,
+        departureAt: new Date(Date.now() + offsetDays * DAY_MS).toISOString(),
+        status: TripStatus.DECLARED,
+        hasAcceptedPackages: true,
+        ...overrides,
+      }) as TripWithAcceptedPackages;
+
+    it("el viaje en curso gana la card; los declared con paquetes van al resto", () => {
+      const { primaryTrip, otherTrips } = splitCarrierHomeTrips([
+        trip("today", 0),
+        trip("active", -1, { status: TripStatus.ACTIVE }),
+        trip("past", -7),
+      ]);
+      expect(primaryTrip?.id).toBe("active");
+      expect(otherTrips.map((t) => t.id)).toEqual(["past", "today"]);
+    });
+
+    it("sin viaje en curso, la card es el de hoy; un declared pasado no se trata distinto", () => {
+      const { primaryTrip, otherTrips } = splitCarrierHomeTrips([trip("future", 3), trip("past", -7), trip("today", 0)]);
+      expect(primaryTrip?.id).toBe("today");
+      expect(otherTrips.map((t) => t.id)).toEqual(["past", "future"]);
+    });
+
+    it("sin viaje de hoy no hay card; deja afuera declared sin paquetes y cancelados", () => {
+      const { primaryTrip, otherTrips } = splitCarrierHomeTrips([
+        trip("future", 3),
+        trip("empty", 1, { hasAcceptedPackages: false }),
+        trip("cancelled", 2, { status: TripStatus.CANCELLED }),
+      ]);
+      expect(primaryTrip).toBeNull();
+      expect(otherTrips.map((t) => t.id)).toEqual(["future"]);
     });
   });
 });

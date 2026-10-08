@@ -15,7 +15,7 @@ import {
   activeShipmentSubtitle,
   type ActiveShipmentRole,
 } from "../../src/lib/active-shipment-format";
-import { formatPickupWindowLabel, shortAddressLabel } from "../../src/lib/shipment-format";
+import { formatPickupWindowLabel, pickupLocalityLabel, shortAddressLabel } from "../../src/lib/shipment-format";
 import { GradientBorderCard } from "../ui/gradient-border-card";
 
 const STEP_ICONS = [MapPin, Route, Package, Flag];
@@ -252,7 +252,9 @@ export function ActiveShipmentCard({
         <View className="min-w-0 flex-1 gap-0.5">
           <Text className="font-sans-semibold text-caption uppercase text-fg-3">Retiro</Text>
           <Text numberOfLines={1} className="font-sans-semibold text-small text-fg">
-            {shortAddressLabel(shipment.pickupAddress)}
+            {role === "receiving"
+              ? (pickupLocalityLabel(shipment.pickupAddress) ?? "la zona del emisor")
+              : shortAddressLabel(shipment.pickupAddress)}
           </Text>
           <Text className="font-mono text-caption text-fg-3">
             {formatPickupWindowLabel(shipment.pickupTimeWindowStart, shipment.pickupTimeWindowEnd)}

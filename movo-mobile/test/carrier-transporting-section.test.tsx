@@ -10,7 +10,6 @@ jest.mock("expo-router", () => ({
 
 const mockUseMyTrips = jest.fn();
 const mockStartTripMutateAsync = jest.fn();
-const mockUseTransportingShipments = jest.fn();
 
 jest.mock("../src/hooks/use-trips", () => ({
   useMyTrips: () => mockUseMyTrips(),
@@ -20,14 +19,9 @@ jest.mock("../src/hooks/use-trips", () => ({
   }),
 }));
 
-jest.mock("../src/hooks/use-active-shipments", () => ({
-  useTransportingShipments: () => mockUseTransportingShipments(),
-}));
-
 describe("CarrierTransportingSection", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockUseTransportingShipments.mockReturnValue({ data: [] });
   });
 
   it("retorna null si no hay viajes o ninguno tiene paquetes aceptados", async () => {
@@ -62,6 +56,7 @@ describe("CarrierTransportingSection", () => {
             departureAt: today,
             status: TripStatus.DECLARED,
             hasAcceptedPackages: true,
+            acceptedPackagesCount: 1,
           },
         ],
         total: 1,
@@ -72,7 +67,6 @@ describe("CarrierTransportingSection", () => {
 
     expect(getByTestId("app-home-transporting")).toBeTruthy();
     expect(getByText(/estoy transportando/i)).toBeTruthy();
-    expect(getByText("1")).toBeTruthy();
     expect(getByText("Hoy")).toBeTruthy();
     expect(getByText("Iniciar viaje")).toBeTruthy();
 
@@ -92,6 +86,7 @@ describe("CarrierTransportingSection", () => {
             departureAt: new Date().toISOString(),
             status: TripStatus.ACTIVE,
             hasAcceptedPackages: true,
+            acceptedPackagesCount: 1,
           },
         ],
         total: 1,
@@ -124,6 +119,7 @@ describe("CarrierTransportingSection", () => {
             departureAt: today,
             status: TripStatus.DECLARED,
             hasAcceptedPackages: true,
+            acceptedPackagesCount: 1,
           },
         ],
         total: 1,
@@ -143,5 +139,54 @@ describe("CarrierTransportingSection", () => {
       "Ya tenés otro viaje en curso. Solo podés tener 1 viaje activo a la vez.",
     );
     expect(errorMsg).toBeTruthy();
+  });
+
+  describe("muestra un solo viaje: el de la card con CTA", () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const trip = (id: string, offsetDays: number) => ({
+      id,
+      carrierId: "c1",
+      originAddress: "Av. Colón 100, Córdoba",
+      destinationAddress: "Bv. San Juan 50, Rosario",
+      departureAt: new Date(Date.now() + offsetDays * DAY_MS).toISOString(),
+      status: TripStatus.DECLARED,
+      hasAcceptedPackages: true,
+      acceptedPackagesCount: 2,
+    });
+
+    it("sin viaje en curso ni de hoy no se renderiza (el resto va a Actividad reciente)", async () => {
+      mockUseMyTrips.mockReturnValue({
+        data: { items: [trip("t-past", -7), trip("t-future", 3)], total: 2 },
+      });
+
+      const { queryByTestId } = await render(<CarrierTransportingSection />);
+      expect(queryByTestId("app-home-transporting")).toBeNull();
+    });
+
+    it("con viaje de hoy muestra solo esa card, sin los otros viajes", async () => {
+      mockUseMyTrips.mockReturnValue({
+        data: { items: [trip("t-past", -7), trip("t-today", 0)], total: 2 },
+      });
+
+      const { getAllByText, getByTestId, queryByTestId } = await render(<CarrierTransportingSection />);
+
+      expect(getAllByText("Iniciar viaje")).toHaveLength(1);
+      expect(getByTestId("app-home-transporting-card-t-today")).toBeTruthy();
+      expect(queryByTestId("app-home-transporting-card-t-past")).toBeNull();
+    });
+
+    it("con un viaje en curso muestra esa card y no ofrece iniciar otro", async () => {
+      mockUseMyTrips.mockReturnValue({
+        data: {
+          items: [{ ...trip("t-active", 0), status: TripStatus.ACTIVE }, trip("t-today", 0)],
+          total: 2,
+        },
+      });
+
+      const { getByText, queryByText } = await render(<CarrierTransportingSection />);
+
+      expect(getByText("Viaje en curso · ver mapa")).toBeTruthy();
+      expect(queryByText("Iniciar viaje")).toBeNull();
+    });
   });
 });
