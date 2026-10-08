@@ -8,6 +8,7 @@ import {
 } from "@movo/shared";
 import { EnvConfig, requireMercadoPagoSecret } from "../../config/env";
 import {
+  MercadoPagoAccountInfo,
   MercadoPagoOAuthClient,
   MercadoPagoOAuthError,
   OAuthAppCredentials,
@@ -18,6 +19,7 @@ import {
   MpAccountAlreadyLinkedError,
 } from "../../repositories/carrier-mp-account-repository";
 import { MpConnectStateStore } from "./mp-connect-state-store";
+import { parseEncryptionKey } from "../../utils/token-cipher";
 
 export const MP_AUTHORIZATION_URL = "https://auth.mercadopago.com/authorization";
 
@@ -73,9 +75,10 @@ export function createMpConnectService(deps: MpConnectServiceDeps) {
   const { config, repository, stateStore, oauthClient, log } = deps;
   const now = deps.now ?? (() => new Date());
 
-  /** 503 si faltan las credenciales de la app en el ambiente. */
+  /** 503 si faltan las credenciales de la app, o la key para cifrar los tokens. */
   function appCredentials(): OAuthAppCredentials {
     try {
+      parseEncryptionKey(requireMercadoPagoSecret(config, "MP_TOKEN_ENCRYPTION_KEY"));
       return {
         clientId: requireMercadoPagoSecret(config, "MP_CLIENT_ID"),
         clientSecret: requireMercadoPagoSecret(config, "MP_CLIENT_SECRET"),
@@ -83,6 +86,7 @@ export function createMpConnectService(deps: MpConnectServiceDeps) {
         testToken: config.MP_TEST_MODE,
       };
     } catch (error) {
+      // El mensaje nombra la variable que falta, nunca su valor.
       log.error({ reason: (error as Error).message }, "mp-connect sin configurar");
       throw new ApiError(
         503,
@@ -100,7 +104,18 @@ export function createMpConnectService(deps: MpConnectServiceDeps) {
     if (credentials.testToken && !tokens.accessToken.startsWith("TEST-")) {
       throw new MercadoPagoOAuthError("exchange_code", 200, "MP_TEST_MODE activo y el token no es TEST-");
     }
-    const info = await oauthClient.getAccountInfo(tokens.accessToken);
+    // Best-effort (review de PR #223): email y nickname son solo para mostrar, y a esta
+    // altura el code ya se gastó. Si `/users/me` falla, se vincula igual con `null` en vez
+    // de obligar al transportista a repetir todo el flujo en MP.
+    let info: MercadoPagoAccountInfo = { email: null, nickname: null };
+    try {
+      info = await oauthClient.getAccountInfo(tokens.accessToken);
+    } catch (error) {
+      log.warn(
+        { userId, mpUserId: tokens.mpUserId, reason: error instanceof Error ? error.message : "unknown" },
+        "no se pudo leer /users/me de MP, se vincula sin email ni nickname"
+      );
+    }
     const linkedAt = now();
     await repository.upsertLinked(
       userId,
@@ -145,34 +160,38 @@ export function createMpConnectService(deps: MpConnectServiceDeps) {
      * Siempre devuelve el deep link de vuelta a la app, nunca tira: el navegador embebido
      * solo se cierra si el 302 llega a `movo://mp-connect`. La app no confía en
      * `result=success` y vuelve a consultar el status; el `code` solo elige el texto.
+     * Todo va dentro del `try`, incluido el `GETDEL` del state (review de PR #223): un
+     * Redis caído también tiene que terminar en el deep link y no en un 500 JSON.
      */
     async handleCallback(query: CallbackQuery): Promise<string> {
-      // El state se consume siempre primero, aunque MP vuelva con `error`: así no
-      // queda reutilizable.
-      const pending = query.state ? await stateStore.consume(query.state) : null;
-      if (query.error) {
-        log.info({ mpError: query.error, knownState: pending !== null }, "vinculación de MP rechazada");
-        return errorReturnUrl("MP_CONNECT_ACCESS_DENIED");
-      }
-      if (!pending || !query.code) {
-        log.warn({ hasState: Boolean(query.state), hasCode: Boolean(query.code) }, "callback de MP con state inválido");
-        return errorReturnUrl("MP_CONNECT_STATE_INVALID");
-      }
+      let userId: string | null = null;
       try {
+        // El state se consume siempre primero, aunque MP vuelva con `error`: así no
+        // queda reutilizable.
+        const pending = query.state ? await stateStore.consume(query.state) : null;
+        if (query.error) {
+          log.info({ mpError: query.error, knownState: pending !== null }, "vinculación de MP rechazada");
+          return errorReturnUrl("MP_CONNECT_ACCESS_DENIED");
+        }
+        if (!pending || !query.code) {
+          log.warn({ hasState: Boolean(query.state), hasCode: Boolean(query.code) }, "callback de MP con state inválido");
+          return errorReturnUrl("MP_CONNECT_STATE_INVALID");
+        }
+        userId = pending.userId;
         await exchangeAndPersist(pending.userId, query.code, pending.codeVerifier);
         return successReturnUrl();
       } catch (error) {
         if (error instanceof MpAccountAlreadyLinkedError) {
-          log.warn({ userId: pending.userId }, "cuenta de MP ya vinculada a otro usuario");
+          log.warn({ userId }, "cuenta de MP ya vinculada a otro usuario");
           return errorReturnUrl("MP_ACCOUNT_ALREADY_LINKED");
         }
         if (error instanceof MercadoPagoOAuthError) {
           log.error(
-            { userId: pending.userId, operation: error.operation, status: error.status, reason: error.message },
+            { userId, operation: error.operation, status: error.status, reason: error.message },
             "falló el canje de OAuth con MP"
           );
         } else {
-          log.error({ userId: pending.userId, err: error }, "error inesperado al vincular la cuenta de MP");
+          log.error({ userId, err: error }, "error inesperado al vincular la cuenta de MP");
         }
         return errorReturnUrl("MP_CONNECT_EXCHANGE_FAILED");
       }

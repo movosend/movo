@@ -9,6 +9,8 @@ import {
   OAuthTokens,
 } from "../src/adapters/mercadopago-oauth-client";
 import { MP_CONNECT_STATE_TTL_SECONDS, pkceChallenge } from "../src/modules/mp-connect/mp-connect-state-store";
+import { createCarrierMpAccountRepository } from "../src/repositories/carrier-mp-account-repository";
+import { createTokenCipher } from "../src/utils/token-cipher";
 
 // Integración contra Postgres y Redis reales (convención del repo); solo se reemplaza
 // el adapter de OAuth para no pegarle a Mercado Pago. El flujo contra el sandbox real
@@ -17,6 +19,7 @@ import { MP_CONNECT_STATE_TTL_SECONDS, pkceChallenge } from "../src/modules/mp-c
 const USER_A = "11111111-1111-4111-8111-111111111111";
 const USER_B = "22222222-2222-4222-8222-222222222222";
 const REDIRECT_URI = "https://api-dev.movosend.app/api/v1/payments/mp-connect/callback";
+const ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
 
 function tokens(overrides: Partial<OAuthTokens> = {}): OAuthTokens {
   return {
@@ -49,13 +52,14 @@ describe("/payments/mp-connect (MOVO-111)", () => {
     process.env.MP_CLIENT_SECRET = "client-secret";
     process.env.MP_REDIRECT_URI = REDIRECT_URI;
     process.env.MP_TEST_MODE = "true";
+    process.env.MP_TOKEN_ENCRYPTION_KEY = ENCRYPTION_KEY;
     app = buildApp({ mercadoPagoOAuthClient: oauth });
     await app.ready();
   });
 
   afterAll(async () => {
     await app.close();
-    for (const key of ["MP_CLIENT_ID", "MP_CLIENT_SECRET", "MP_REDIRECT_URI", "MP_TEST_MODE"]) {
+    for (const key of ["MP_CLIENT_ID", "MP_CLIENT_SECRET", "MP_REDIRECT_URI", "MP_TEST_MODE", "MP_TOKEN_ENCRYPTION_KEY"]) {
       delete process.env[key];
     }
   });
@@ -71,6 +75,8 @@ describe("/payments/mp-connect (MOVO-111)", () => {
   });
 
   const as = (userId: string) => ({ "x-user-id": userId });
+  const credentials = (userId: string) =>
+    createCarrierMpAccountRepository(app.db, createTokenCipher(ENCRYPTION_KEY)).findCredentials(userId);
 
   async function getStatus(userId: string): Promise<MpConnectStatusResponse> {
     const response = await app.inject({ method: "GET", url: "/payments/mp-connect/status", headers: as(userId) });
@@ -175,21 +181,24 @@ describe("/payments/mp-connect (MOVO-111)", () => {
       expect(new Date(body.expiresAt).getTime()).toBeGreaterThan(Date.now());
     });
 
-    it("503 MP_CONNECT_NOT_CONFIGURED si faltan las credenciales de la app", async () => {
-      const original = app.config.MP_CLIENT_ID;
-      app.config.MP_CLIENT_ID = "";
-      try {
-        const response = await app.inject({
-          method: "GET",
-          url: "/payments/mp-connect/authorization-url",
-          headers: as(USER_A),
-        });
-        expect(response.statusCode).toBe(503);
-        expect(response.json().error.code).toBe("MP_CONNECT_NOT_CONFIGURED");
-      } finally {
-        app.config.MP_CLIENT_ID = original;
+    it.each([["MP_CLIENT_ID"], ["MP_TOKEN_ENCRYPTION_KEY"]] as const)(
+      "503 MP_CONNECT_NOT_CONFIGURED si falta %s",
+      async (name) => {
+        const original = app.config[name];
+        app.config[name] = "";
+        try {
+          const response = await app.inject({
+            method: "GET",
+            url: "/payments/mp-connect/authorization-url",
+            headers: as(USER_A),
+          });
+          expect(response.statusCode).toBe(503);
+          expect(response.json().error.code).toBe("MP_CONNECT_NOT_CONFIGURED");
+        } finally {
+          app.config[name] = original;
+        }
       }
-    });
+    );
   });
 
   describe("GET /callback", () => {
@@ -208,10 +217,19 @@ describe("/payments/mp-connect (MOVO-111)", () => {
       expect(oauth.getAccountInfo).toHaveBeenCalledWith("TEST-access-secret");
 
       const row = await app.db.carrierMpAccount.findUniqueOrThrow({ where: { userId: USER_A } });
-      expect(row).toMatchObject({
+      // Cifrados en la base (review de PR #223); descifrados solo por findCredentials.
+      expect(row.accessToken).toMatch(/^v1:/);
+      expect(row.refreshToken).toMatch(/^v1:/);
+      expect(JSON.stringify(row)).not.toContain("access-secret");
+      expect(JSON.stringify(row)).not.toContain("refresh-secret");
+      expect(await credentials(USER_A)).toEqual({
         mpUserId: "2991764998",
         accessToken: "TEST-access-secret",
         refreshToken: "TG-refresh-secret",
+        publicKey: "TEST-public-key",
+      });
+      expect(row).toMatchObject({
+        mpUserId: "2991764998",
         publicKey: "TEST-public-key",
         scope: "offline_access read write",
         revokedAt: null,
@@ -262,13 +280,38 @@ describe("/payments/mp-connect (MOVO-111)", () => {
       expect(await getStatus(USER_A)).toMatchObject({ status: "unlinked" });
     });
 
-    it("falla /users/me → MP_CONNECT_EXCHANGE_FAILED", async () => {
+    it("falla /users/me → vincula igual, sin email ni nickname (best-effort)", async () => {
       oauth.getAccountInfo.mockRejectedValueOnce(new MercadoPagoOAuthError("get_account_info", 500, "MP respondió 500"));
       const state = await startAuthorization(USER_A);
 
       const response = await callback(`code=TG-code&state=${state}`);
 
-      expect(response.headers.location).toBe("movo://mp-connect?result=error&code=MP_CONNECT_EXCHANGE_FAILED");
+      expect(response.headers.location).toBe("movo://mp-connect?result=success");
+      expect(await getStatus(USER_A)).toMatchObject({
+        status: "linked",
+        account: { mpUserId: "2991764998", email: null, nickname: null },
+      });
+    });
+
+    it("Redis caído al consumir el state → 302 con MP_CONNECT_EXCHANGE_FAILED, no un 500", async () => {
+      const state = await startAuthorization(USER_A);
+      const spy = vi.spyOn(app.redis, "getdel").mockRejectedValueOnce(new Error("Connection is closed."));
+      try {
+        const response = await callback(`code=TG-code&state=${state}`);
+
+        expect(response.statusCode).toBe(302);
+        expect(response.headers.location).toBe("movo://mp-connect?result=error&code=MP_CONNECT_EXCHANGE_FAILED");
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("un query que no matchea el schema (state repetido) → 302 con MP_CONNECT_STATE_INVALID, no un 400", async () => {
+      const response = await callback("code=TG-code&state=a&state=b");
+
+      expect(response.statusCode).toBe(302);
+      expect(response.headers.location).toBe("movo://mp-connect?result=error&code=MP_CONNECT_STATE_INVALID");
+      expect(oauth.exchangeCode).not.toHaveBeenCalled();
     });
 
     it("con MP_TEST_MODE, un token sin prefijo TEST- se rechaza", async () => {
@@ -309,8 +352,7 @@ describe("/payments/mp-connect (MOVO-111)", () => {
       await link(USER_A);
 
       expect(await getStatus(USER_A)).toMatchObject({ status: "linked" });
-      const row = await app.db.carrierMpAccount.findUniqueOrThrow({ where: { userId: USER_A } });
-      expect(row).toMatchObject({ accessToken: "TEST-nuevo", refreshToken: "TG-nuevo", revokedAt: null });
+      expect(await credentials(USER_A)).toMatchObject({ accessToken: "TEST-nuevo", refreshToken: "TG-nuevo" });
       expect(await app.db.carrierMpAccount.count()).toBe(1);
     });
   });
@@ -327,6 +369,7 @@ describe("/payments/mp-connect (MOVO-111)", () => {
       expect(row.accessToken).toBeNull();
       expect(row.refreshToken).toBeNull();
       expect(row.unlinkedAt).not.toBeNull();
+      expect(await credentials(USER_A)).toBeNull();
     });
 
     it("es idempotente: 204 sin nada vinculado", async () => {

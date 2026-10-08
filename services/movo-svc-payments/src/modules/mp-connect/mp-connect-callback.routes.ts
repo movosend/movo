@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { CallbackQuery } from "./mp-connect.service";
+import { CallbackQuery, errorReturnUrl } from "./mp-connect.service";
 import { mpConnectCallbackSchema } from "./mp-connect.schema";
 
 /**
@@ -13,8 +13,19 @@ import { mpConnectCallbackSchema } from "./mp-connect.schema";
  * estar en el medio igual, y es lo que se verificó en el spike (MOVO-49).
  */
 export default async function mpConnectCallbackRoutes(app: FastifyInstance) {
-  app.get<{ Querystring: CallbackQuery }>("/callback", { schema: mpConnectCallbackSchema }, async (request, reply) => {
-    const location = await app.mpConnect.handleCallback(request.query);
-    return reply.redirect(location, 302);
-  });
+  app.get<{ Querystring: CallbackQuery }>(
+    "/callback",
+    // `attachValidation` (review de PR #223): un query que no matchea el schema (ej.
+    // `?state=a&state=b`, que Fastify parsea como array) no puede responder el 400 JSON
+    // del error handler: el navegador embebido solo se cierra con el deep link.
+    { schema: mpConnectCallbackSchema, attachValidation: true },
+    async (request, reply) => {
+      if (request.validationError) {
+        request.log.warn({ reason: request.validationError.message }, "callback de MP con query inválido");
+        return reply.redirect(errorReturnUrl("MP_CONNECT_STATE_INVALID"), 302);
+      }
+      const location = await app.mpConnect.handleCallback(request.query);
+      return reply.redirect(location, 302);
+    }
+  );
 }
