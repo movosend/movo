@@ -115,14 +115,15 @@ export function getServiceRoutes(env: {
       upstream: env.SHIPMENTS_SERVICE_URL,
     },
 
-    // payments service (fuera de alcance este sprint, ver MOVO-68: solo
-    // svc-users y svc-shipments están vivos. Descomentar cuando el servicio
-    // esté listo para proxear)
-    // {
-    //   prefix: "/payments",
-    //   upstream: env.PAYMENTS_SERVICE_URL,
-    //   allowedRoles: [UserRole.SENDER, UserRole.CARRIER],
-    // },
+    // payments service (MOVO-267). Emisor (paga) y transportista (vincula su
+    // cuenta de MP y cobra). Las dos rutas que llama Mercado Pago sin JWT, el
+    // callback de OAuth (MOVO-111) y el webhook (MOVO-268), se suman a
+    // getPublicRoutes() en esos tickets.
+    {
+      prefix: "/payments",
+      upstream: env.PAYMENTS_SERVICE_URL,
+      allowedRoles: [UserRole.SENDER, UserRole.CARRIER],
+    },
 
     // admin service (fuera de alcance este sprint, ver MOVO-68)
     // {

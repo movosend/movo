@@ -41,6 +41,7 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
 
     process.env.USERS_SERVICE_URL = `http://localhost:${stubPort}`;
     process.env.SHIPMENTS_SERVICE_URL = `http://localhost:${stubPort}`;
+    process.env.PAYMENTS_SERVICE_URL = `http://localhost:${stubPort}`;
 
     app = buildApp();
     await app.ready();
@@ -100,6 +101,48 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
     });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  describe("Rutas de /payments (MOVO-267)", () => {
+    function issueToken(roles: UserRole[]): string {
+      return signAccessToken({
+        sub: "22222222-2222-2222-2222-222222222222",
+        roles,
+        kycStatus: KycStatus.APPROVED,
+      });
+    }
+
+    it("exige token (401 sin Authorization)", async () => {
+      const response = await app.inject({ method: "GET", url: "/api/v1/payments" });
+
+      expect(response.statusCode).toBe(401);
+    });
+
+    it.each([[UserRole.SENDER], [UserRole.CARRIER]])(
+      "con rol %s llega al upstream con el prefijo /payments preservado",
+      async (role) => {
+        const response = await app.inject({
+          method: "GET",
+          url: "/api/v1/payments",
+          headers: { authorization: `Bearer ${issueToken([role])}` },
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(capturedUrl).toBe("/payments");
+        expect(capturedHeaders["x-user-id"]).toBe("22222222-2222-2222-2222-222222222222");
+      },
+    );
+
+    it("un admin sin rol de emisor ni transportista recibe 403", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/payments",
+        headers: { authorization: `Bearer ${issueToken([UserRole.ADMIN])}` },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(JSON.parse(response.body).error.code).toBe("AUTH_FORBIDDEN");
+    });
   });
 
   describe("Rutas de /kyc (MOVO-72, protegidas desde la revisión de PR #51)", () => {

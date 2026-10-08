@@ -3,6 +3,11 @@ export interface EnvConfig {
   DATABASE_URL: string;
   REDIS_URL: string;
   JWT_SECRET: string;
+  MP_CLIENT_ID?: string;
+  MP_CLIENT_SECRET?: string;
+  MP_REDIRECT_URI?: string;
+  MP_WEBHOOK_SECRET?: string;
+  MP_TEST_MODE: boolean;
 }
 
 export const envSchema = {
@@ -13,5 +18,45 @@ export const envSchema = {
     DATABASE_URL: { type: "string" },
     REDIS_URL: { type: "string" },
     JWT_SECRET: { type: "string" },
+    // MOVO-267: credenciales de la app de Mercado Pago (Marketplace) por ambiente.
+    // Opcionales en el schema (mismo criterio que DIDIT_* en movo-svc-users): el
+    // servicio levanta sin ellas en dev/test/CI, y el código que las use (canje
+    // OAuth en MOVO-111, firma del webhook en MOVO-268) falla explícito si faltan.
+    // No hay access token de la app: el canje del code no lo necesita
+    // (docs/payments/mercadopago-spike/SOLUCION-FINAL.md §4), y los pagos se
+    // crean con el access_token OAuth de cada transportista.
+    MP_CLIENT_ID: { type: "string" },
+    MP_CLIENT_SECRET: { type: "string" },
+    MP_REDIRECT_URI: { type: "string" },
+    MP_WEBHOOK_SECRET: { type: "string" },
+    // Solo sandbox: agrega `test_token: true` al canje de OAuth para que MP
+    // devuelva un access_token TEST- del vendedor de prueba.
+    MP_TEST_MODE: { type: "boolean", default: false },
   },
 };
+
+declare module "fastify" {
+  interface FastifyInstance {
+    config: EnvConfig;
+  }
+}
+
+export type MercadoPagoSecretName =
+  | "MP_CLIENT_ID"
+  | "MP_CLIENT_SECRET"
+  | "MP_REDIRECT_URI"
+  | "MP_WEBHOOK_SECRET";
+
+/**
+ * Las credenciales de MP son opcionales en el schema y Compose las inyecta como string
+ * vacío cuando no están cargadas, así que "vacío" equivale a "no configurado". Todo
+ * código que las use (canje OAuth en MOVO-111, firma del webhook en MOVO-268) tiene que
+ * leerlas por acá: un secreto vacío jamás puede llegar a una comparación de firma.
+ */
+export function requireMercadoPagoSecret(config: EnvConfig, name: MercadoPagoSecretName): string {
+  const value = config[name];
+  if (!value) {
+    throw new Error(`${name} no está configurada: cargala en el secret del ambiente.`);
+  }
+  return value;
+}

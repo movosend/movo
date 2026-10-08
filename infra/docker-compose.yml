@@ -218,7 +218,14 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}
-      - MERCADOPAGO_ACCESS_TOKEN=${MERCADOPAGO_ACCESS_TOKEN}
+      # MOVO-267: credenciales de la app Marketplace de MP por ambiente (secret de
+      # AWS Secrets Manager). Sin access token de la app: los pagos van con el
+      # token OAuth de cada transportista. MP_TEST_MODE solo en sandbox (dev).
+      - MP_CLIENT_ID=${MP_CLIENT_ID:-}
+      - MP_CLIENT_SECRET=${MP_CLIENT_SECRET:-}
+      - MP_REDIRECT_URI=${MP_REDIRECT_URI:-}
+      - MP_WEBHOOK_SECRET=${MP_WEBHOOK_SECRET:-}
+      - MP_TEST_MODE=${MP_TEST_MODE:-false}
     depends_on:
       - postgres
       - redis
