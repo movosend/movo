@@ -81,9 +81,15 @@ contenedor arranca con los valores reales (DoD del ticket).
 - Sin chequeo de rol `carrier`: el gateway exige sender o carrier, y toda cuenta nace con
   los dos roles.
 
-Pendiente: la DoD contra el sandbox real (vincular con la cuenta Vendedor, rechazar,
-desvincular) y confirmar que MP acepta `scope=offline_access` en la URL y devuelve el
-`refresh_token` (el spike no mandaba `scope`). Registrar
+Verificado contra el sandbox (08/10, túnel local, cuenta Vendedor `2991764998`): la
+vinculación llega a `linked` con token `TEST-`, `refresh_token`, `public_key` y email
+de `/users/me`. MP acepta `scope=offline_access` en la URL (vuelve en el `scope`).
+Refresh manual (`grant_type=refresh_token` + `test_token`) sobre el token recién emitido:
+200, `refresh_token` nuevo (rota) pero el **mismo `access_token`**, con otros 180 días.
+MOVO-243 tiene que guardar los dos igual. Rechazar en MP y desvincular también se
+probaron contra el sandbox.
+
+Pendiente: registrar
 `https://api-dev.movosend.app/api/v1/payments/mp-connect/callback` como `MP_REDIRECT_URI`
 en el secret de dev y en el panel de la app `movosend`. El gateway sigue logueando la URL
 completa del callback (logger default): el `code` no sirve sin el `code_verifier`, que
