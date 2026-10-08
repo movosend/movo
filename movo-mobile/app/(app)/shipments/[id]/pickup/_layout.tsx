@@ -89,12 +89,15 @@ export default function PickupWizardLayout() {
 
   // Retirar es tomar la custodia: desde acá el paquete viaja con el transportista y
   // el emisor tiene que poder seguirlo. Sin ubicación en segundo plano no se entra al
-  // wizard; cerrar el gate vuelve a la pantalla anterior.
+  // wizard; cerrar el gate vuelve a la pantalla anterior. Se pide recién con el gate
+  // del wizard en `ready`: a quien igual va a ser rechazado (no es el transportista,
+  // todavía no le toca) no se le pide "Siempre" antes de explicarle el motivo.
   useEffect(() => {
+    if (gate !== "ready") return;
     void requireCarrierLocation(() => {}, {
       onCancel: () => (router.canGoBack() ? router.back() : router.replace("/home")),
     });
-  }, []);
+  }, [gate]);
 
   if (gate === "loading") {
     return (
