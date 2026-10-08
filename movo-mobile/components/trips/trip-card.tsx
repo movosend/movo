@@ -3,7 +3,13 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { shortAddressLabel } from "../../src/lib/shipment-format";
-import { formatDepartureLabel, tripStatusLabel, tripStatusTone } from "../../src/lib/trip-format";
+import {
+  formatDepartureLabel,
+  tripStartBlocker,
+  tripStartBlockerMessage,
+  tripStatusLabel,
+  tripStatusTone,
+} from "../../src/lib/trip-format";
 import { TripStatus, type TripWithAcceptedPackages } from "../../src/api/trips-client";
 
 const TONE_BADGE_CLASS: Record<"success" | "warning" | "danger" | "lime" | "neutral", string> = {
@@ -60,6 +66,8 @@ export function TripCard({
   const colors = useThemeColors();
   const tone = tripStatusTone(trip.status);
   const [badgeBg, badgeText] = TONE_BADGE_CLASS[tone].split(" ");
+  const canShowStart = trip.hasAcceptedPackages && trip.status === TripStatus.DECLARED;
+  const startBlocker = canShowStart ? tripStartBlocker(trip) : null;
 
   return (
     <Pressable
@@ -105,7 +113,18 @@ export function TripCard({
         </View>
       ) : null}
 
-      {trip.hasAcceptedPackages && trip.status === TripStatus.DECLARED ? (
+      {/* MOVO-277: misma regla que `CarrierTripCta` y el backend -- si todavía no se puede
+          iniciar, en lugar del botón va el motivo. */}
+      {startBlocker ? (
+        <View
+          testID={testID ? `${testID}-start-blocked` : undefined}
+          className="min-h-[48px] w-full items-center justify-center rounded-[8px] bg-bg-mute px-4 py-3"
+        >
+          <Text className="text-center font-sans-medium text-[13px] text-fg-2">
+            {tripStartBlockerMessage(trip, startBlocker)}
+          </Text>
+        </View>
+      ) : canShowStart ? (
         <Pressable
           testID={testID ? `${testID}-start-btn` : undefined}
           onPress={(e) => {

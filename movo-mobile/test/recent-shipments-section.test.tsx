@@ -177,6 +177,7 @@ describe("RecentShipmentsSection", () => {
       updatedAt,
       hasAcceptedPackages: true,
       acceptedPackagesCount: 2,
+      executablePackagesCount: 2,
     });
 
     it("lista los declared que no van en la card de Estoy transportando, con su estado real, mezclados por actividad", async () => {

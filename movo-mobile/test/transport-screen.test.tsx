@@ -231,6 +231,7 @@ const TRIP_A: TripWithAcceptedPackages = {
   updatedAt: "2026-09-03T12:00:00.000Z",
   hasAcceptedPackages: false,
   acceptedPackagesCount: 0,
+  executablePackagesCount: 0,
 };
 
 describe("TransportScreen", () => {

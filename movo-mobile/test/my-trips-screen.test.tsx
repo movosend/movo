@@ -53,10 +53,17 @@ const TRIP_A: TripWithAcceptedPackages = {
   updatedAt: "2026-09-03T12:00:00.000Z",
   hasAcceptedPackages: false,
   acceptedPackagesCount: 0,
+  executablePackagesCount: 0,
 };
 
 const TRIP_ACTIVE: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-active", status: TripStatus.ACTIVE };
-const TRIP_BLOCKED: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-2", hasAcceptedPackages: true, acceptedPackagesCount: 1 };
+const TRIP_BLOCKED: TripWithAcceptedPackages = {
+  ...TRIP_A,
+  id: "trip-2",
+  hasAcceptedPackages: true,
+  acceptedPackagesCount: 1,
+  executablePackagesCount: 1,
+};
 const TRIP_CANCELLED: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-3", status: TripStatus.CANCELLED };
 
 describe("MyTripsScreen", () => {
@@ -256,6 +263,37 @@ describe("MyTripsScreen", () => {
 
     expect(getByTestId(`my-trips-card-${TRIP_BLOCKED.id}-start-btn`)).toBeTruthy();
     expect(getByText("Iniciar viaje")).toBeTruthy();
+  });
+
+  it("MOVO-277: un viaje declared con paquetes que todavía esperan el pago no ofrece 'Iniciar viaje'", async () => {
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [{ ...TRIP_BLOCKED, executablePackagesCount: 0 }], page: 1, limit: 50, total: 1 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId, queryByTestId } = await render(<MyTripsScreen />);
+
+    expect(queryByTestId(`my-trips-card-${TRIP_BLOCKED.id}-start-btn`)).toBeNull();
+    expect(getByTestId(`my-trips-card-${TRIP_BLOCKED.id}-start-blocked`)).toHaveTextContent(
+      "Tus paquetes todavía esperan la confirmación del pago.",
+    );
+  });
+
+  it("MOVO-277: un viaje declared con salida en un día futuro dice desde cuándo se puede iniciar", async () => {
+    const future = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    mockUseMyTrips.mockReturnValue({
+      data: { items: [{ ...TRIP_BLOCKED, departureAt: future }], page: 1, limit: 50, total: 1 },
+      isLoading: false,
+      isError: false,
+      refetch: jest.fn(),
+    });
+
+    const { getByTestId, queryByTestId } = await render(<MyTripsScreen />);
+
+    expect(queryByTestId(`my-trips-card-${TRIP_BLOCKED.id}-start-btn`)).toBeNull();
+    expect(getByTestId(`my-trips-card-${TRIP_BLOCKED.id}-start-blocked`)).toHaveTextContent(/^Podés iniciarlo el /);
   });
 
   it("MOVO-252 AC2: presionar 'Iniciar viaje' invoca useStartTrip con el id del viaje", async () => {

@@ -6,6 +6,8 @@ import {
   formatPackagesCount,
   isTripDepartureToday,
   tripRouteLabel,
+  tripStartBlocker,
+  tripStartBlockerMessage,
 } from "../../src/lib/trip-format";
 import { ErrorBanner } from "../ui/error-banner";
 
@@ -34,6 +36,11 @@ interface CarrierTripCtaProps {
  * `/shipments/transporting`, que solo cubre `assigned*`/`in_transit` y daba "0 paradas"
  * con paquetes aceptados todavía en `assignment_pending`. Sin distancia: era línea recta
  * (Haversine), no la del recorrido.
+ *
+ * MOVO-277: "Iniciar viaje" solo aparece si `tripStartBlocker` lo permite (misma regla que
+ * el backend). Si no, en su lugar va el motivo: "Podés iniciarlo el {fecha}" o que los
+ * paquetes esperan el pago. Si no todos los paquetes son ejecutables, el resumen lo dice
+ * ("3 paquetes · 1 listo"), así no promete paradas que la ruta no va a mostrar.
  */
 export function CarrierTripCta({
   trip,
@@ -53,6 +60,14 @@ export function CarrierTripCta({
   const isToday = isTripDepartureToday(trip.departureAt);
   const isDeclared = trip.status === TripStatus.DECLARED;
   const isActive = trip.status === TripStatus.ACTIVE;
+  const startBlocker = isDeclared ? tripStartBlocker(trip) : null;
+  const notReadyCount = trip.acceptedPackagesCount - trip.executablePackagesCount;
+  const packagesSummary =
+    notReadyCount > 0
+      ? `${formatPackagesCount(trip.acceptedPackagesCount)} · ${trip.executablePackagesCount} ${
+          trip.executablePackagesCount === 1 ? "listo" : "listos"
+        }`
+      : formatPackagesCount(trip.acceptedPackagesCount);
 
   return (
     <View
@@ -85,8 +100,8 @@ export function CarrierTripCta({
           <Text numberOfLines={1} className="font-sans-semibold text-[19px] tracking-tight text-fg">
             {tripRouteLabel(trip)}
           </Text>
-          <Text className="font-sans text-[13px] text-fg-3">
-            {formatPackagesCount(trip.acceptedPackagesCount)}
+          <Text testID={testID ? `${testID}-packages` : undefined} className="font-sans text-[13px] text-fg-3">
+            {packagesSummary}
           </Text>
         </View>
       </View>
@@ -101,7 +116,16 @@ export function CarrierTripCta({
       ) : null}
 
       <View className="p-3.5">
-        {isDeclared ? (
+        {startBlocker ? (
+          <View
+            testID={testID ? `${testID}-start-blocked` : undefined}
+            className="min-h-[52px] w-full items-center justify-center rounded-[8px] bg-bg-mute px-4 py-3"
+          >
+            <Text className="text-center font-sans-medium text-[14px] text-fg-2">
+              {tripStartBlockerMessage(trip, startBlocker)}
+            </Text>
+          </View>
+        ) : isDeclared ? (
           <Pressable
             testID={testID ? `${testID}-start-button` : undefined}
             onPress={() => onStart?.(trip)}
