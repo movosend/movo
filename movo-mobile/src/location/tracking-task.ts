@@ -204,7 +204,11 @@ class BackgroundTrackingManager {
   /**
    * Inicia el tracking de ubicación en segundo plano con expo-location y expo-task-manager.
    */
-  async startBackgroundTracking(tripId: string, shipmentIds: string[]): Promise<boolean> {
+  async startBackgroundTracking(
+    tripId: string,
+    shipmentIds: string[],
+    options?: { restart?: boolean }
+  ): Promise<boolean> {
     this.setTrackingContext(tripId, shipmentIds);
 
     const hasForeground = await Location.getForegroundPermissionsAsync();
@@ -217,12 +221,14 @@ class BackgroundTrackingManager {
       return false;
     }
 
-    // `hasStartedLocationUpdatesAsync` y no `isTaskRegisteredAsync`: la task puede seguir
-    // registrada sin que el SO entregue updates (ej. se quitó "Siempre" desde Ajustes y
-    // se volvió a dar), y en ese caso hay que volver a arrancarlas — si no, el estado
-    // diría "en vivo" sin que lleguen posiciones.
+    // `hasStartedLocationUpdatesAsync` solo dice si la task está registrada con el
+    // consumer de location (en iOS y Android), no si el SO está entregando updates: tras
+    // quitar "Siempre" desde Ajustes y volver a darlo, la task puede seguir registrada sin
+    // posiciones. Por eso `restart` llama a `startLocationUpdatesAsync` igual, que con la
+    // task ya registrada la vuelve a registrar y reinicia las updates. No se usa siempre
+    // porque este método corre en cada poll del coordinador.
     const hasStarted = await Location.hasStartedLocationUpdatesAsync(MOVO_CARRIER_BACKGROUND_TRACKING_TASK);
-    if (!hasStarted) {
+    if (!hasStarted || options?.restart) {
       await Location.startLocationUpdatesAsync(MOVO_CARRIER_BACKGROUND_TRACKING_TASK, {
         accuracy: Location.Accuracy.Balanced,
         timeInterval: BACKGROUND_TRACKING_INTERVAL_MS,

@@ -105,7 +105,9 @@ describe("LocationService (MOVO-203 / MOVO-242)", () => {
     expect(mockGetForegroundPermissions).toHaveBeenCalled();
     expect(mockGetPosition).toHaveBeenCalled();
     expect(backgroundTrackingManager.setTrackingContext).toHaveBeenCalledWith("trip-1", ["shipment-1"]);
-    expect(backgroundTrackingManager.startBackgroundTracking).toHaveBeenCalledWith("trip-1", ["shipment-1"]);
+    expect(backgroundTrackingManager.startBackgroundTracking).toHaveBeenCalledWith("trip-1", ["shipment-1"], {
+      restart: true,
+    });
 
     await service.stopTracking();
   });
@@ -197,8 +199,27 @@ describe("LocationService (MOVO-203 / MOVO-242)", () => {
     mockGetBackgroundPermissions.mockResolvedValue({ granted: true, status: "granted" });
     await service.refreshPermissions();
 
-    expect(backgroundTrackingManager.startBackgroundTracking).toHaveBeenCalledWith("trip-1", ["shipment-1"]);
+    // Fuerza el rearranque: la task pudo quedar registrada sin updates mientras faltaba el permiso.
+    expect(backgroundTrackingManager.startBackgroundTracking).toHaveBeenCalledWith("trip-1", ["shipment-1"], {
+      restart: true,
+    });
     expect(service.getStatus().isBackgroundActive).toBe(true);
+
+    await service.stopTracking();
+  });
+
+  it("con el background ya activo, refrescar no rearranca las updates", async () => {
+    const service = createService();
+    await service.startTracking({ tripId: "trip-1", shipmentIds: ["shipment-1"] });
+    await Promise.resolve();
+    expect(service.getStatus().isBackgroundActive).toBe(true);
+    (backgroundTrackingManager.startBackgroundTracking as jest.Mock).mockClear();
+
+    await service.refreshPermissions();
+
+    expect(backgroundTrackingManager.startBackgroundTracking).toHaveBeenCalledWith("trip-1", ["shipment-1"], {
+      restart: false,
+    });
 
     await service.stopTracking();
   });

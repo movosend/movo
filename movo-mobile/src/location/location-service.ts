@@ -153,6 +153,10 @@ export class LocationService {
    * Relee el permiso siempre, no solo cuando estaba en `false`: el usuario puede
    * quitar "Siempre" desde Ajustes con el viaje en curso, y un `true` cacheado dejaba
    * el estado diciendo "en vivo" mientras el SO ya no entregaba posiciones.
+   *
+   * Si el background no estaba activo (primer arranque, o el permiso se había perdido y
+   * se volvió a dar), se fuerza el rearranque de las updates: una task que sobrevivió
+   * registrada a la pérdida del permiso no vuelve a recibir posiciones sola.
    */
   private async ensureBackgroundTracking(): Promise<void> {
     await this.checkBackgroundPermission();
@@ -160,7 +164,8 @@ export class LocationService {
       try {
         const started = await backgroundTrackingManager.startBackgroundTracking(
           this.activeTripId ?? "trip-default",
-          Array.from(this.activeShipmentIds)
+          Array.from(this.activeShipmentIds),
+          { restart: !this.isBackgroundActiveState }
         );
         this.isBackgroundActiveState = started;
       } catch {

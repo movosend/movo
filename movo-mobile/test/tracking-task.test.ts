@@ -179,14 +179,13 @@ describe("BackgroundTrackingManager (MOVO-242 / AC1, AC5, AC8)", () => {
     );
   });
 
-  it("startBackgroundTracking vuelve a arrancar las updates si la task quedó registrada pero frenada", async () => {
+  it("startBackgroundTracking con restart vuelve a arrancar las updates aunque la task figure iniciada", async () => {
     (Location.getForegroundPermissionsAsync as jest.Mock).mockResolvedValue({ granted: true });
     (Location.getBackgroundPermissionsAsync as jest.Mock).mockResolvedValue({ granted: true });
-    (TaskManager.isTaskRegisteredAsync as jest.Mock).mockResolvedValue(true);
-    (Location.hasStartedLocationUpdatesAsync as jest.Mock).mockResolvedValue(false);
+    (Location.hasStartedLocationUpdatesAsync as jest.Mock).mockResolvedValue(true);
     (Location.startLocationUpdatesAsync as jest.Mock).mockClear();
 
-    await backgroundTrackingManager.startBackgroundTracking("trip-1", ["shipment-1"]);
+    await backgroundTrackingManager.startBackgroundTracking("trip-1", ["shipment-1"], { restart: true });
 
     expect(Location.startLocationUpdatesAsync).toHaveBeenCalledTimes(1);
   });
