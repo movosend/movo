@@ -1,0 +1,18 @@
+// MOVO-267: movo-svc-payments adopta Prisma (ADR-011) antes de tener dominio
+// propio, para que MOVO-111 (OAuth), MOVO-209 (hold) y MOVO-212 (captura) sumen
+// sus modelos sobre una base ya desplegada en vez de resolver el setup a medias.
+//
+// moduleFormat = "cjs": el resto del servicio es CommonJS, mismo motivo que
+// movo-svc-users/prisma/schema.prisma.
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Las tablas viven en el schema `payments` de Postgres (ADR-003: una sola
+  // instancia compartida, un schema por servicio), no en `public`.
+  schemas  = ["payments"]
+}
