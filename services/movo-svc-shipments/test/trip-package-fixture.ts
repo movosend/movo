@@ -12,10 +12,16 @@ const PICKUP_DATE = new Date("2026-08-20T00:00:00.000Z");
  * le agrega a un viaje un envío con oferta `accepted` (taggeada con su `tripId`, mismo
  * cableado que `createOfferForShipment`), para los tests que necesitan un viaje iniciable.
  * Devuelve el envío y la oferta para poder moverlos de estado después.
+ *
+ * MOVO-277: `start()` además exige que el paquete sea ejecutable (`assigned`/`in_transit`).
+ * `acceptOffer` hoy deja el envío en `assignment_pending` (hold de fondos bloqueado,
+ * MOVO-210), así que el fixture lo lleva a `status` (default `assigned`) escribiendo la
+ * columna directo, igual que haría la saga de pago cuando exista.
  */
 export async function attachAcceptedPackage(
   db: PrismaClient,
   trip: { id: string; carrierId: string },
+  status: ShipmentStatus = ShipmentStatus.ASSIGNED,
 ): Promise<{ shipmentId: string; offerId: string }> {
   const shipmentRepo = createShipmentRepository(db);
   const offerRepo = createOfferRepository(db);
@@ -51,5 +57,6 @@ export async function attachAcceptedPackage(
   });
   await offerRepo.acceptOffer(offer.id, trip.carrierId);
   await db.offer.update({ where: { id: offer.id }, data: { tripId: trip.id } });
+  await db.shipment.update({ where: { id: created.id }, data: { status } });
   return { shipmentId: created.id, offerId: offer.id };
 }

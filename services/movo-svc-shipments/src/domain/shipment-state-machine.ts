@@ -159,14 +159,36 @@ export const ACTIVE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
 ];
 
 /**
- * MOVO-251: estados en los que un envío es elegible para tracking en vivo (GPS en tránsito o
- * transportista en camino hacia el retiro). A diferencia de `ACTIVE_SHIPMENT_STATUSES`, excluye
- * `ASSIGNED_UNFUNDED`, ya que un envío sin hold de fondos confirmado todavía no es trackeable.
+ * MOVO-277: fuente única de "paquete vivo" de un viaje -- los estados en los que un
+ * envío aceptado se puede ejecutar (retirar o entregar). Antes cada consumidor tenía su
+ * propia definición y no coincidían: `start()` y el conteo de la card aceptaban
+ * `assignment_pending`/`assigned_unfunded`, pero la ruta (`aggregateCarrierStops`), el
+ * tracking y el retiro solo aceptaban `assigned`/`in_transit`, así que un viaje podía
+ * iniciarse con "N paquetes" y mostrar "Sin paradas asignadas".
+ *
+ * `assignment_pending`/`assigned_unfunded` quedan afuera a propósito: el hold de fondos
+ * todavía no existe (MOVO-210) y el retiro los rechaza. Consumidores: `start()` y el
+ * conteo `executablePackagesCount` (`trip-repository.ts`), la ruta del viaje
+ * (`listActiveShipments(..., tripId)` + `aggregateCarrierStops`) y el tracking
+ * (`TRACKABLE_SHIPMENT_STATUSES`).
  */
-export const TRACKABLE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
+export const TRIP_EXECUTABLE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
   ShipmentStatus.ASSIGNED,
   ShipmentStatus.IN_TRANSIT,
 ];
+
+export function isExecutableTripPackage(status: ShipmentStatus): boolean {
+  return TRIP_EXECUTABLE_SHIPMENT_STATUSES.includes(status);
+}
+
+/**
+ * MOVO-251: estados en los que un envío es elegible para tracking en vivo (GPS en tránsito o
+ * transportista en camino hacia el retiro). A diferencia de `ACTIVE_SHIPMENT_STATUSES`, excluye
+ * `ASSIGNED_UNFUNDED`, ya que un envío sin hold de fondos confirmado todavía no es trackeable.
+ * MOVO-277: es el mismo set que `TRIP_EXECUTABLE_SHIPMENT_STATUSES` -- un paquete que el
+ * viaje puede ejecutar es exactamente uno que se puede trackear.
+ */
+export const TRACKABLE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = TRIP_EXECUTABLE_SHIPMENT_STATUSES;
 
 /**
  * MOVO-202/AC6: estados elegibles para la purga periódica de `carrier_positions` --

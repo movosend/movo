@@ -20,6 +20,8 @@ import {
   TripHasAcceptedPackagesError,
   TripNotDeclaredError,
   TripAlreadyHasActiveTripError,
+  TripHasNoPackagesError,
+  TripPackagesNotReadyError,
 } from "../repositories/trip-repository";
 
 declare module "fastify" {
@@ -215,6 +217,24 @@ export default fp(async (app: FastifyInstance) => {
 
     if (error instanceof TripAlreadyHasActiveTripError) {
       const apiError = new ApiError(409, "TRIP_ALREADY_HAS_ACTIVE_TRIP", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    if (error instanceof TripHasNoPackagesError) {
+      const apiError = new ApiError(409, "TRIP_NO_PACKAGES", error.message);
+      reply.code(apiError.statusCode).send({
+        ...apiError.toJSON(),
+        requestId,
+      });
+      return;
+    }
+
+    if (error instanceof TripPackagesNotReadyError) {
+      const apiError = new ApiError(409, "TRIP_PACKAGES_NOT_READY", error.message);
       reply.code(apiError.statusCode).send({
         ...apiError.toJSON(),
         requestId,

@@ -65,6 +65,12 @@ export interface TripAcceptedPackage {
 export interface TripWithAcceptedPackages extends Trip {
   hasAcceptedPackages: boolean;
   acceptedPackagesCount: number;
+  /**
+   * MOVO-277: cuántos de los paquetes aceptados el viaje puede ejecutar ya
+   * (`TRIP_EXECUTABLE_SHIPMENT_STATUSES`). `start()` exige al menos uno; el mobile lo usa
+   * para no ofrecer "Iniciar viaje" mientras todos esperan el pago.
+   */
+  executablePackagesCount: number;
   packages?: TripAcceptedPackage[];
 }
 
