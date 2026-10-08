@@ -41,7 +41,17 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   app.decorate("mercadoPago", opts.mercadoPagoClient ?? new SdkMercadoPagoClient());
 
-  app.get("/health", async () => ({ status: "ok" }));
+  // Mismo criterio que movo-svc-users: el healthcheck de Docker tiene que reflejar
+  // si el servicio puede hablar con Postgres. El detalle del error se loguea y no
+  // viaja en la respuesta (puede incluir host/usuario de la conexión).
+  app.get("/health", async (_request, reply) => {
+    const postgres = await app.checkDbHealth();
+    if (postgres.status === "error") {
+      app.log.error({ postgresError: postgres.error }, "Healthcheck con Postgres caído");
+      return reply.code(503).send({ status: "error", checks: { postgres: { status: "error" } } });
+    }
+    return { status: "ok", checks: { postgres: { status: "ok" } } };
+  });
 
   app.register(paymentsRoutes, { prefix: "/payments" });
 

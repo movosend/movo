@@ -35,7 +35,20 @@ describe("GET /health", () => {
   it("responde status ok", async () => {
     const response = await app.inject({ method: "GET", url: "/health" });
     expect(response.statusCode).toBe(200);
-    expect(JSON.parse(response.body)).toEqual({ status: "ok" });
+    expect(JSON.parse(response.body)).toEqual({ status: "ok", checks: { postgres: { status: "ok" } } });
+  });
+
+  it("responde 503 sin detalle del error cuando Postgres no responde", async () => {
+    const original = app.checkDbHealth;
+    app.checkDbHealth = async () => ({ status: "error", error: "connect ECONNREFUSED db.internal:5432" });
+    try {
+      const response = await app.inject({ method: "GET", url: "/health" });
+      expect(response.statusCode).toBe(503);
+      expect(JSON.parse(response.body)).toEqual({ status: "error", checks: { postgres: { status: "error" } } });
+      expect(response.body).not.toContain("db.internal");
+    } finally {
+      app.checkDbHealth = original;
+    }
   });
 
   it("arranca sin credenciales de Mercado Pago, con MP_TEST_MODE en false", () => {

@@ -40,3 +40,23 @@ declare module "fastify" {
     config: EnvConfig;
   }
 }
+
+export type MercadoPagoSecretName =
+  | "MP_CLIENT_ID"
+  | "MP_CLIENT_SECRET"
+  | "MP_REDIRECT_URI"
+  | "MP_WEBHOOK_SECRET";
+
+/**
+ * Las credenciales de MP son opcionales en el schema y Compose las inyecta como string
+ * vacío cuando no están cargadas, así que "vacío" equivale a "no configurado". Todo
+ * código que las use (canje OAuth en MOVO-111, firma del webhook en MOVO-268) tiene que
+ * leerlas por acá: un secreto vacío jamás puede llegar a una comparación de firma.
+ */
+export function requireMercadoPagoSecret(config: EnvConfig, name: MercadoPagoSecretName): string {
+  const value = config[name];
+  if (!value) {
+    throw new Error(`${name} no está configurada: cargala en el secret del ambiente.`);
+  }
+  return value;
+}

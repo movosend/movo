@@ -411,8 +411,11 @@ jobs:
           # camino (visto en el run que rompió dev tras el merge de MOVO-102).
           # 30m desde MOVO-267: con movo-svc-payments son tres migraciones en
           # serie, y el timeout de 600s por comando (abajo) necesita entrar
-          # tres veces para que el que se cuelga se identifique solo.
-          command_timeout: 30m
+          # tres veces para que el que se cuelga se identifique solo. 45m y no 30m:
+          # 3 x 10m ya es el techo, y el pull, el prune y las migraciones SQL de
+          # svc-admin necesitan margen encima para que el timeout por comando
+          # (y no este global) sea el que corte.
+          command_timeout: 45m
           script: |
             echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             cd ~/movo

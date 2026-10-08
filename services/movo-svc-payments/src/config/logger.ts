@@ -32,7 +32,7 @@ export const REDACTED_KEYS = [
 ] as const;
 
 /** Hasta qué profundidad del objeto logueado se buscan las claves de arriba. */
-const MAX_DEPTH = 3;
+const MAX_DEPTH = 6;
 
 function pathsForKey(key: string): string[] {
   return Array.from({ length: MAX_DEPTH + 1 }, (_, depth) => [...Array(depth).fill("*"), key].join("."));

@@ -45,7 +45,10 @@ export interface MercadoPagoClient {
 /**
  * El default real del SDK es 60s (`AppConfig.DEFAULT_TIMEOUT`), demasiado para un
  * request que el emisor está esperando con la app abierta. El SDK además reintenta
- * hasta 3 veces ante 429/5xx con la misma idempotency key.
+ * una vez (`AppConfig.DEFAULT_RETRIES = 2` intentos en total, 2s de espera) ante errores
+ * 5xx o timeout, con la misma idempotency key: el peor caso de una llamada es
+ * ~22s (10s + 2s + 10s), no 10s. `retries` no es configurable desde `MercadoPagoConfig`
+ * (el tipo `Options` no lo expone), así que se acepta ese techo.
  */
 export const MERCADOPAGO_TIMEOUT_MS = 10_000;
 

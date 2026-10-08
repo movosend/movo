@@ -85,4 +85,10 @@ describe("redacción de secretos en logs (MOVO-267 AC6)", () => {
       expect.arrayContaining(["accessToken", "refreshToken", "clientSecret", "codeVerifier"])
     );
   });
+
+  it("redacta secretos anidados hasta 6 niveles (p. ej. el cause de un error del SDK)", () => {
+    const { logger, output } = captureLogger();
+    logger.info({ err: { cause: [{ body: { data: { access_token: "deep-secret" } } }] } }, "mp error");
+    expect(output()).not.toContain("deep-secret");
+  });
 });
