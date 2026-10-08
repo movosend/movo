@@ -4214,3 +4214,21 @@ Cambios chicos de soporte al backend (detalle en `services/movo-svc-shipments/CL
 - **Tocar la card de un viaje `active` en "Mis viajes" abre el mapa (`/route`)** en vez del feed filtrado:
   un viaje iniciado tiene sus paquetes fijos y `GET /trips/:id/matches` le responde 409
   `TRIP_NOT_AVAILABLE`. Un viaje `declared` sigue abriendo el feed (`test/my-trips-screen.test.tsx`).
+
+### MOVO-262 — "Mis viajes": tabs Próximos/Historial y pills de estado
+
+Implementado siguiendo el mockup de Claude Design (variante de card **Horario**, la default del mockup):
+`app/(app)/carrier/trips/index.tsx` + `components/trips/` (`trips-segmented`, `trip-card`,
+`trip-history-card`, `pressable-scale`, `pulse-dot`). Cada tab consume `GET /trips?scope=upcoming|history`
+(`useMyTrips(scope)`, query key por scope) con su propio estado vacío. Animaciones del mockup: indicador del
+segmented que se desliza (280ms) con etiquetas que cambian de color (200ms), escala .98 al presionar
+cards/CTA, y punto lima con halo (`mvPulse`) en el estado "En curso". La barra inferior "Declarar viaje" se
+muestra en ambos tabs.
+- La card ya no tiene editar/eliminar ni "Iniciar viaje"/"Ver mapa" (el mockup los lleva al detalle,
+  MOVO-263): tocar la card navega a `/carrier/trips/[id]`, que todavía no existe en esta rama. Hasta que
+  MOVO-263 lo mergee, iniciar un viaje solo se puede desde "Estoy transportando" (`carrier-trip-cta`). Esto
+  reemplaza lo de MOVO-258 (viaje `active` → `/route` al tocar la card).
+- Buscar paquetes (feed filtrado por `tripId`) y el vehículo ya no están en la card: van en el detalle (MOVO-263, AC4).
+- Historial: "Completado" muestra el chip "N paquetes entregados"; "Venció" solo "Sin paquetes aceptados"; "Cancelado" "Lo cancelaste el {fecha}".
+- Sin datos de recurrencia en el backend: el chip "Todos los viernes" del mockup no se renderiza.
+- `useDeleteTrip` queda sin uso hasta que MOVO-263 sume `useCancelTrip`.
