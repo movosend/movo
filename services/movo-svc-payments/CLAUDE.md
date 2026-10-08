@@ -48,3 +48,58 @@ MOVO-268 (webhook), sin endpoints de dominio.
 Pendiente: cargar las 5 `MP_*` en Secrets Manager de dev (app sandbox `movosend`) y
 prod, borrar `MERCADOPAGO_ACCESS_TOKEN` de esos secrets, y verificar en la EC2 que el
 contenedor arranca con los valores reales (DoD del ticket).
+
+### MOVO-111 — OAuth Connect: vincular, consultar y desvincular la cuenta de MP
+
+`GET /payments/mp-connect/status`, `GET /payments/mp-connect/authorization-url`,
+`DELETE /payments/mp-connect` (protegidas, heredan el hook `x-user-id`) y
+`GET /payments/mp-connect/callback` (pública, plugin aparte en `app.ts`). Contrato en
+`@movo/shared` (`types/mp-connect.ts`), acordado con mobile (MOVO-112). Código en
+`src/modules/mp-connect/`, `src/adapters/mercadopago-oauth-client.ts` y
+`src/repositories/carrier-mp-account-repository.ts`.
+
+- **Callback `https` + 302 a `movo://mp-connect` (AC3)**, en vez de un `redirect_uri` con
+  esquema custom: el canje necesita el `client_secret`. El callback nunca tira: siempre
+  redirige, con `result=success` o con `result=error&code=` (`MP_CONNECT_STATE_INVALID`,
+  `_ACCESS_DENIED`, `_EXCHANGE_FAILED`, `MP_ACCOUNT_ALREADY_LINKED`). La app no confía en
+  `success` y vuelve a pedir el status. El `state` (con el `code_verifier` de PKCE) vive 10
+  min en Redis y se consume con `GETDEL`. El query del callback no se loguea (serializer
+  de `req` en `config/logger.ts`, y el mismo en el gateway). Ni un Redis caído ni un query
+  que no matchea el schema (`?state=a&state=b`) pueden responder JSON: todo termina en el
+  deep link (`attachValidation` en la ruta, todo `handleCallback` dentro del `try`).
+- **Canje con `fetch` propio** (SOLUCION-FINAL §4), sin `Authorization`, con
+  `test_token` según `MP_TEST_MODE`. En modo test, un token sin prefijo `TEST-` se toma
+  como canje fallido. Después del canje se llama a `GET /users/me` para el email y el
+  nickname que muestra la app, best-effort: si falla, se vincula igual con `null`
+  (el code ya se gastó y son datos de display).
+- **Tokens cifrados en reposo** (`src/utils/token-cipher.ts`): `access_token` y
+  `refresh_token` con AES-256-GCM, formato `v1:<iv>:<tag>:<ciphertext>` (el prefijo deja
+  lugar a rotar la key). La key es `MP_TOKEN_ENCRYPTION_KEY` (base64 de 32 bytes, una por
+  ambiente, en Secrets Manager); sin ella, `/authorization-url` responde 503. La
+  `public_key` va en claro: es pública por diseño. Quien opere con MP (MOVO-209/212/243)
+  lee los tokens con `repository.findCredentials()`, nunca de la fila directo. Si la key
+  se pierde, los tokens no se recuperan y hay que re-vincular.
+- **`carrier_mp_accounts`**: una fila por usuario. Desvincular es soft (`unlinked_at`,
+  tokens en null) y el status vuelve a `unlinked`, no a `invalid`. Re-vincular hace
+  upsert y limpia `unlinked_at`/`revoked_at`. `invalid` = `revoked_at` (lo marca
+  MOVO-243) o `token_expires_at` pasado.
+- **Una cuenta de MP por usuario de Movo**: índice único parcial sobre `mp_user_id`
+  (`WHERE revoked_at IS NULL AND unlinked_at IS NULL`), a mano en la migración. Ante un
+  P2002 se mira la base para distinguirlo de una carrera sobre `user_id`, porque la forma
+  del error cambia con el driver adapter. Caso aceptado: una fila vencida y no revocada
+  sigue bloqueando hasta que MOVO-243 la marque.
+- Sin chequeo de rol `carrier`: el gateway exige sender o carrier, y toda cuenta nace con
+  los dos roles.
+
+Verificado contra el sandbox (08/10, túnel local, cuenta Vendedor `2991764998`): la
+vinculación llega a `linked` con token `TEST-`, `refresh_token`, `public_key` y email
+de `/users/me`. MP acepta `scope=offline_access` en la URL (vuelve en el `scope`).
+Refresh manual (`grant_type=refresh_token` + `test_token`) sobre el token recién emitido:
+200, `refresh_token` nuevo (rota) pero el **mismo `access_token`**, con otros 180 días.
+MOVO-243 tiene que guardar los dos igual. Rechazar en MP y desvincular también se
+probaron contra el sandbox.
+
+Pendiente: registrar
+`https://api-dev.movosend.app/api/v1/payments/mp-connect/callback` como `MP_REDIRECT_URI`
+en el secret de dev y en el panel de la app `movosend`, y cargar
+`MP_TOKEN_ENCRYPTION_KEY` en los secrets de dev y prod.

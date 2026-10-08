@@ -7,6 +7,7 @@ export interface EnvConfig {
   MP_CLIENT_SECRET?: string;
   MP_REDIRECT_URI?: string;
   MP_WEBHOOK_SECRET?: string;
+  MP_TOKEN_ENCRYPTION_KEY?: string;
   MP_TEST_MODE: boolean;
 }
 
@@ -29,6 +30,11 @@ export const envSchema = {
     MP_CLIENT_SECRET: { type: "string" },
     MP_REDIRECT_URI: { type: "string" },
     MP_WEBHOOK_SECRET: { type: "string" },
+    // Review de PR #223 (MOVO-111): key de AES-256-GCM para cifrar los tokens OAuth
+    // de los transportistas en la base (`utils/token-cipher.ts`). Base64 de 32 bytes
+    // (`openssl rand -base64 32`), una distinta por ambiente. Opcional como el resto:
+    // sin ella, vincular responde 503 MP_CONNECT_NOT_CONFIGURED.
+    MP_TOKEN_ENCRYPTION_KEY: { type: "string" },
     // Solo sandbox: agrega `test_token: true` al canje de OAuth para que MP
     // devuelva un access_token TEST- del vendedor de prueba.
     MP_TEST_MODE: { type: "boolean", default: false },
@@ -45,7 +51,8 @@ export type MercadoPagoSecretName =
   | "MP_CLIENT_ID"
   | "MP_CLIENT_SECRET"
   | "MP_REDIRECT_URI"
-  | "MP_WEBHOOK_SECRET";
+  | "MP_WEBHOOK_SECRET"
+  | "MP_TOKEN_ENCRYPTION_KEY";
 
 /**
  * Las credenciales de MP son opcionales en el schema y Compose las inyecta como string

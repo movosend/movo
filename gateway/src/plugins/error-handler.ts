@@ -2,6 +2,7 @@ import fp from "fastify-plugin";
 import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ApiError } from "@movo/shared";
 import { randomUUID } from "node:crypto";
+import { redactUrl } from "../config/logger";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -48,7 +49,7 @@ export default fp(async (app: FastifyInstance) => {
       {
         err: error,
         requestId,
-        url: request.url,
+        url: redactUrl(request.url),
         method: request.method,
       },
       "Unhandled error"

@@ -16,3 +16,40 @@ datasource db {
   // instancia compartida, un schema por servicio), no en `public`.
   schemas  = ["payments"]
 }
+
+// MOVO-111: cuenta de Mercado Pago vinculada por OAuth de cada transportista. Una
+// fila por usuario (`userId` único): re-vincular es un upsert sobre la misma fila.
+//
+// - `unlinkedAt`: el transportista desvinculó a mano (DELETE /mp-connect). Se borran
+//   los tokens y el status vuelve a `unlinked`. Es distinto de `revokedAt`, que marca
+//   MOVO-243 cuando el refresh falla porque el acceso se revocó desde MP (status
+//   `invalid`).
+// - Tokens nullable solo porque se borran al desvincular. Nunca se loguean (ver
+//   `src/config/logger.ts`).
+//
+// Una cuenta de MP vinculada a un solo usuario de Movo a la vez: índice único
+// parcial `ON (mp_user_id) WHERE revoked_at IS NULL AND unlinked_at IS NULL`,
+// agregado a mano en la migración SQL porque Prisma no representa índices
+// parciales en su DSL (mismo gap que `Offer` en movo-svc-shipments).
+model CarrierMpAccount {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Referencia lógica a users.users, sin FK real (ADR-003).
+  userId         String    @unique(map: "carrier_mp_accounts_user_id_key") @map("user_id") @db.Uuid
+  mpUserId       String    @map("mp_user_id")
+  email          String?
+  nickname       String?
+  accessToken    String?   @map("access_token")
+  refreshToken   String?   @map("refresh_token")
+  // Del vendedor: la usa el mobile para tokenizar la tarjeta del emisor (MOVO-209).
+  publicKey      String?   @map("public_key")
+  scope          String?
+  tokenExpiresAt DateTime? @map("token_expires_at") @db.Timestamptz
+  connectedAt    DateTime  @map("connected_at") @db.Timestamptz
+  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz
+  unlinkedAt     DateTime? @map("unlinked_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("carrier_mp_accounts")
+  @@schema("payments")
+}
