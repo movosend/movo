@@ -1,10 +1,10 @@
 import { Package } from "lucide-react-native";
 import { Text, View } from "react-native";
 import { shortAddressLabel } from "../../src/lib/shipment-format";
-import { tripStatusLabel, tripStubParts } from "../../src/lib/trip-format";
+import { tripStubParts } from "../../src/lib/trip-format";
 import { TripStatus, type TripWithAcceptedPackages } from "../../src/api/trips-client";
 import { PressableScale } from "./pressable-scale";
-import { PulseDot } from "./pulse-dot";
+import { TripStatusPill } from "./trip-status-pill";
 
 interface TripCardProps {
   trip: TripWithAcceptedPackages;
@@ -63,14 +63,7 @@ export function TripCard({ trip, onPress, testID }: TripCardProps) {
 
       <View className="min-w-0 flex-1 gap-3 py-3.5 pl-4 pr-3.5">
         <View className="flex-row items-center justify-between">
-          <View
-            className={`h-6 flex-row items-center gap-1.5 rounded-full px-2.5 ${live ? "bg-ink-950" : "bg-lime-200"}`}
-          >
-            {live ? <PulseDot testID="trip-status-dot" /> : null}
-            <Text className={`font-sans-semibold text-[12px] ${live ? "text-lime-500" : "text-ink-700"}`}>
-              {tripStatusLabel(trip.status)}
-            </Text>
-          </View>
+          <TripStatusPill status={trip.status} />
         </View>
 
         <View className="gap-0">

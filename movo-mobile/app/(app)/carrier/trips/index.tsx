@@ -34,11 +34,18 @@ function TripsListSkeleton() {
  */
 export default function MyTripsScreen() {
   const colors = useThemeColors();
-  const { created } = useLocalSearchParams<{ created?: string }>();
+  const { created, cancelledTo } = useLocalSearchParams<{ created?: string; cancelledTo?: string }>();
   // MOVO-262 AC1: una query (y una query key) por tab; el default es "Próximos".
   const [scope, setScope] = useState<TripListScope>("upcoming");
   const { data, isLoading, isError, isRefetching, refetch } = useMyTrips(scope);
   const [showCreatedSuccess, setShowCreatedSuccess] = useState(created === "1");
+  // MOVO-263: el detalle de un viaje vuelve acá con el destino cancelado para avisarlo.
+  const [cancelledMessage, setCancelledMessage] = useState<string | null>(
+    cancelledTo ? `Cancelaste el viaje a ${cancelledTo}` : null,
+  );
+  useEffect(() => {
+    if (cancelledTo) setCancelledMessage(`Cancelaste el viaje a ${cancelledTo}`);
+  }, [cancelledTo]);
   const [autoCreatedMessage, setAutoCreatedMessage] = useState<string | null>(null);
 
   /**
@@ -104,6 +111,11 @@ export default function MyTripsScreen() {
           Declarás el camino que ya vas a hacer y te aparecen paquetes que van para el mismo lado.
         </Text>
 
+        <SuccessBanner
+          testID="my-trips-cancelled-success"
+          message={cancelledMessage}
+          onDismiss={() => setCancelledMessage(null)}
+        />
         <SuccessBanner
           testID={showCreatedSuccess ? "my-trips-created-success" : "my-trips-auto-created-success"}
           message={showCreatedSuccess ? "¡Viaje declarado!" : autoCreatedMessage}

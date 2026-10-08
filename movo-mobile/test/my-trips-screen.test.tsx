@@ -6,7 +6,7 @@ const mockRouterBack = jest.fn();
 const mockRouterReplace = jest.fn();
 const mockRouterPush = jest.fn();
 const mockCanGoBack = jest.fn();
-const mockUseLocalSearchParams = jest.fn(() => ({}) as { created?: string });
+const mockUseLocalSearchParams = jest.fn(() => ({}) as { created?: string; cancelledTo?: string });
 
 jest.mock("expo-router", () => ({
   router: {
@@ -214,6 +214,16 @@ describe("MyTripsScreen", () => {
     const { getByTestId } = await render(<MyTripsScreen />);
 
     expect(getByTestId(`my-trips-card-${TRIP_A.id}`)).toBeTruthy();
+  });
+
+  it("MOVO-263 AC6: al volver de cancelar un viaje muestra el banner con el destino", async () => {
+    mockUseLocalSearchParams.mockReturnValue({ cancelledTo: "Villa María" });
+    mockUseMyTrips.mockReturnValue(listOf(TRIP_A));
+
+    const { getByTestId, getByText } = await render(<MyTripsScreen />);
+
+    expect(getByTestId("my-trips-cancelled-success")).toBeTruthy();
+    expect(getByText("Cancelaste el viaje a Villa María")).toBeTruthy();
   });
 
   it("MOVO-262 AC1: abre en 'Próximos' y cambiar a 'Historial' consulta con el scope correcto", async () => {
