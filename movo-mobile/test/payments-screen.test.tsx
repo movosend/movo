@@ -113,6 +113,7 @@ describe("PaymentsSettingsScreen (MOVO-112)", () => {
     const { getByTestId, getByText, queryByTestId } = await render(<PaymentsSettingsScreen />);
 
     expect(getByTestId("mp-connect-card-linked")).toBeTruthy();
+    expect(getByTestId("mp-connect-linked-logo")).toBeTruthy();
     expect(getByText("Vinculada")).toBeTruthy();
     expect(getByTestId("mp-connect-account-email").props.children).toBe("julieta.ramos@gmail.com");
     expect(getByText("JR")).toBeTruthy();

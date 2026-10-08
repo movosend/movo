@@ -55,12 +55,18 @@ function CtaButton({
   );
 }
 
+/**
+ * Mismos tokens que `ProfileAvatar` (`bg-fg`/`text-bg`), así acompaña al tema. La variante
+ * `muted` va sobre la tarjeta roja de `invalid`, que es clara en los dos temas: ahí el gris
+ * fijo con texto blanco se lee bien.
+ */
 function AccountAvatar({ initials, muted }: { initials: string; muted?: boolean }) {
   return (
     <View
-      className={`h-9 w-9 items-center justify-center rounded-full ${muted ? "bg-ink-500" : "bg-ink-950"}`}
+      testID={muted ? "mp-connect-avatar-muted" : "mp-connect-avatar"}
+      className={`h-9 w-9 items-center justify-center rounded-full ${muted ? "bg-ink-500" : "bg-fg"}`}
     >
-      <Text className="font-sans-semibold text-[13px] text-white">{initials}</Text>
+      <Text className={`font-sans-semibold text-[13px] ${muted ? "text-white" : "text-bg"}`}>{initials}</Text>
     </View>
   );
 }
@@ -115,14 +121,16 @@ function UnlinkedCard({ isDark, linking, hadLinkError, onLink }: CardProps) {
   );
 }
 
-function LinkedCard({ data, initials, onUnlink, linking }: CardProps) {
+function LinkedCard({ data, initials, isDark, onUnlink, linking }: CardProps) {
   const account = data.account;
   const connectedAt = account ? formatMpConnectedAt(account.connectedAt) : "";
   return (
     <>
       <View testID="mp-connect-card-linked" className="gap-3.5 rounded-2xl border border-border bg-bg-sub p-4">
         <View className="flex-row items-center justify-between">
-          <Text className="font-sans-semibold text-[17px] text-fg">Mercado Pago</Text>
+          <View className="-my-1.5 -ml-2">
+            <MercadoPagoLogo height={40} inverted={isDark} testID="mp-connect-linked-logo" />
+          </View>
           <MpStatusPill status="linked" variant="card" testID="mp-connect-linked-pill" />
         </View>
         <View className="flex-row items-center gap-3 rounded-xl border border-border bg-bg px-3.5 py-3">
