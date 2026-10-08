@@ -96,6 +96,14 @@ export type ApiErrorCode =
   // MOVO-258 (D5): `POST /trips/:id/start` sobre un viaje sin ningún paquete aceptado --
   // los paquetes quedan fijos al iniciar, así que no se puede arrancar uno vacío.
   | "TRIP_NO_PACKAGES"
+  // MOVO-277: `POST /trips/:id/start` antes del día de salida (calendario argentino,
+  // `canStartTripOn`, config/trip-start.ts). MOVO-252 lo había declarado sin emitirlo
+  // nunca y lo sacó; vuelve con el mismo nombre.
+  | "TRIP_START_TOO_EARLY"
+  // MOVO-277: el viaje tiene paquetes aceptados pero ninguno ejecutable todavía
+  // (`assigned`/`in_transit`) -- p. ej. todos esperan el hold de fondos
+  // (`assignment_pending`/`assigned_unfunded`). Distinto de `TRIP_NO_PACKAGES`.
+  | "TRIP_PACKAGES_NOT_READY"
   // MOVO-228: la app mandó una versión de Términos/Privacidad distinta a la vigente
   // (`LEGAL_DOCUMENT_VERSIONS`, config/legal.ts) -- app desactualizada, el usuario
   // tiene que revisar y aceptar el contenido actual antes de poder registrarse.
