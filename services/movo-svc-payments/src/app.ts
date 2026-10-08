@@ -7,13 +7,19 @@ import { loggerOptions } from "./config/logger";
 import dbPlugin from "./plugins/db";
 import redisPlugin from "./plugins/redis";
 import authPlugin from "./plugins/auth";
+import errorHandlerPlugin from "./plugins/error-handler";
+import mpConnectPlugin from "./plugins/mp-connect";
 import paymentsRoutes from "./modules/payments/payments.routes";
+import mpConnectCallbackRoutes from "./modules/mp-connect/mp-connect-callback.routes";
 import { MercadoPagoClient, SdkMercadoPagoClient } from "./adapters/mercadopago-client";
+import { FetchMercadoPagoOAuthClient, MercadoPagoOAuthClient } from "./adapters/mercadopago-oauth-client";
 
 export interface BuildAppOptions {
   /** Override solo para tests -- evita pegarle al sandbox real de Mercado Pago,
    * mismo criterio que `diditClient` en movo-svc-users. */
   mercadoPagoClient?: MercadoPagoClient;
+  /** Ídem para el canje de OAuth (MOVO-111). */
+  mercadoPagoOAuthClient?: MercadoPagoOAuthClient;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -38,6 +44,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(dbPlugin);
   app.register(redisPlugin);
   app.register(authPlugin);
+  app.register(errorHandlerPlugin);
+  app.register(mpConnectPlugin, {
+    oauthClient: opts.mercadoPagoOAuthClient ?? new FetchMercadoPagoOAuthClient(),
+  });
 
   app.decorate("mercadoPago", opts.mercadoPagoClient ?? new SdkMercadoPagoClient());
 
@@ -54,6 +64,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
 
   app.register(paymentsRoutes, { prefix: "/payments" });
+  // Fuera de `paymentsRoutes` a propósito: lo llama el navegador al volver de MP, sin
+  // `x-user-id` (ruta pública en el gateway, MOVO-111).
+  app.register(mpConnectCallbackRoutes, { prefix: "/payments/mp-connect" });
 
   return app;
 }
