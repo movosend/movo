@@ -131,16 +131,19 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 const ask = (q) => new Promise((resolve) => rl.question(q, resolve));
 
 const CONFIG = {
-  // Access token de NUESTRA aplicación de test en MP (empieza con TEST- o
-  // APP_USR-). Se usa para todo lo que hacemos "como Movo": tokenizar
-  // tarjetas de prueba, crear customers, consultar payment_methods.
+  // Access token de NUESTRA aplicación en MP (empieza con TEST- o APP_USR-).
+  // No interviene en el hold ni en el split (se cobran con el access_token
+  // del transportista): se usa para consultar payment_methods (1/s1), las
+  // pruebas de tarjeta guardada en la cuenta de Movo (4 y c3) y como fallback de
+  // consulta. El SDK lo manda en el canje de OAuth (s2) aunque MP no lo
+  // necesita ahí (SOLUCION-FINAL.md §4).
   appAccessToken: env.MP_APP_ACCESS_TOKEN || '',
-  // Public Key de prueba de NUESTRA aplicación (misma sección del panel que
-  // el Access Token). Usada SOLO para tokenizar la tarjeta (AC1/AC3): un
-  // card_token creado con el Access Token privado queda ligado a esa cuenta
-  // y MP lo rechaza ("Card Token not found") si el pago se termina creando
-  // con el access_token de un vendedor conectado (split/marketplace) — hace
-  // falta la Public Key para que el token sea válido en ese escenario.
+  // Public Key de NUESTRA aplicación. NO sirve para tokenizar la tarjeta del
+  // pago con split: el card_token tiene que crearse con la public_key del
+  // TRANSPORTISTA (`state.sellerPublicKey`, viene del canje de OAuth) o MP
+  // rechaza el pago con 2006 "Card Token not found" (SOLUCION-FINAL.md §3).
+  // Solo queda como fallback si todavía no hay transportista conectado y
+  // para la prueba c3 (tarjeta guardada en la cuenta de Movo).
   appPublicKey: env.MP_APP_PUBLIC_KEY || '',
   // client_id / client_secret de la aplicación (panel de MP > Tus
   // integraciones > tu app > Credenciales). Se usan solo para el flujo OAuth.
@@ -175,8 +178,8 @@ const CONFIG = {
   holdAmount: Number(env.MP_HOLD_AMOUNT || 1000),
   // Comisión de Movo dentro de ese monto (application_fee = split).
   applicationFee: Number(env.MP_APPLICATION_FEE || 150),
-  // Credenciales separadas para las opciones "o1".."o6" (Orders API) — ver
-  // comentario en .env.example/.env. A diferencia de MP_APP_ACCESS_TOKEN,
+  // Credenciales separadas para las opciones "o0".."o6" (Orders API) — ver
+  // MP_ORDERS_APP_* en .env.example. A diferencia de MP_APP_ACCESS_TOKEN,
   // este access_token ya representa directamente al Vendedor conectado, sin
   // pasar por OAuth Connect.
   ordersAppAccessToken: env.MP_ORDERS_APP_ACCESS_TOKEN || '',
