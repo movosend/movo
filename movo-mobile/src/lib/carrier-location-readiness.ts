@@ -99,21 +99,23 @@ export function firstMissingRequirement(
 
 /**
  * Si resolver el requisito pasa sí o sí por Ajustes del SO (en vez de un diálogo
- * nativo dentro de la app). `alreadyAttempted` cubre el caso que el SO no informa
- * bien: iOS muestra el "Cambiar a Permitir siempre" una sola vez en la vida de la
- * app y después `requestBackgroundPermissionsAsync` resuelve sin mostrar nada — si ya
- * lo pedimos en esta sesión y sigue faltando, reintentar sería un botón que no hace
- * nada.
+ * nativo dentro de la app). Se decide por `canAskAgain` y plataforma, que el SO informa
+ * bien en todos los casos menos uno: iOS muestra el "Cambiar a Permitir siempre" una
+ * sola vez en la vida de la app y después `requestBackgroundPermissionsAsync` resuelve
+ * sin mostrar nada, con `canAskAgain` todavía en `true`. Solo para ese caso cuenta
+ * `alreadyAttempted` (ya lo pedimos en esta sesión y sigue faltando): reintentar sería
+ * un botón que no hace nada.
  */
 export function requirementNeedsSettings(
   readiness: CarrierLocationReadiness,
   requirement: CarrierLocationRequirement,
   alreadyAttempted: boolean,
 ): boolean {
-  if (alreadyAttempted) return true;
   switch (requirement) {
-    // En iOS no hay forma pública de abrir directo "Servicios de localización"; en
-    // Android sí hay diálogo propio (`enableNetworkProviderAsync`).
+    // En iOS no hay forma pública de abrir directo "Servicios de localización". En
+    // Android el diálogo propio (`enableNetworkProviderAsync`) se puede volver a mostrar
+    // siempre, y es el único camino útil: Ajustes de la app no tiene el interruptor del
+    // GPS del sistema.
     case "services":
       return Platform.OS === "ios";
     case "foreground":
@@ -125,7 +127,7 @@ export function requirementNeedsSettings(
     case "precise":
       return Platform.OS === "ios" || !readiness.foregroundCanAskAgain;
     case "background":
-      return !readiness.backgroundCanAskAgain;
+      return !readiness.backgroundCanAskAgain || (Platform.OS === "ios" && alreadyAttempted);
   }
 }
 

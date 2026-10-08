@@ -114,8 +114,17 @@ describe("requirementNeedsSettings", () => {
     ).toBe(true);
   });
 
-  it("un requisito ya pedido en esta sesión que sigue faltando va a Ajustes", () => {
+  it("en iOS, segundo plano ya pedido en esta sesión que sigue faltando va a Ajustes", () => {
+    setPlatform("ios");
     expect(requirementNeedsSettings({ ...READY, backgroundGranted: false }, "background", true)).toBe(true);
+  });
+
+  it("fuera de ese caso, un intento previo no manda a Ajustes si el SO puede volver a preguntar", () => {
+    setPlatform("android");
+    expect(requirementNeedsSettings({ ...READY, backgroundGranted: false }, "background", true)).toBe(false);
+    expect(requirementNeedsSettings({ ...READY, servicesEnabled: false }, "services", true)).toBe(false);
+    expect(requirementNeedsSettings({ ...READY, foregroundGranted: false }, "foreground", true)).toBe(false);
+    expect(requirementNeedsSettings({ ...READY, precise: false }, "precise", true)).toBe(false);
   });
 
   it("precisión y GPS en iOS solo se resuelven desde Ajustes", () => {

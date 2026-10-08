@@ -31,8 +31,9 @@ export interface CarrierLocationReadinessState {
 export function useCarrierLocationReadiness(): CarrierLocationReadinessState {
   const [readiness, setReadiness] = useState<CarrierLocationReadiness | null>(null);
   const [pending, setPending] = useState(false);
-  // Requisitos ya pedidos por diálogo en esta sesión: si siguen faltando, el próximo
-  // toque manda a Ajustes en vez de repetir un request que el SO ya no muestra.
+  // Requisitos ya pedidos por diálogo en esta sesión. Solo lo usa el caso de segundo
+  // plano en iOS, donde el SO deja de mostrar el aviso sin avisarlo por `canAskAgain`
+  // (ver `requirementNeedsSettings`).
   const [attempted, setAttempted] = useState<Set<CarrierLocationRequirement>>(() => new Set());
   const mountedRef = useRef(true);
   // Un diálogo nativo manda la app a `inactive` y la devuelve a `active` al cerrarse:
