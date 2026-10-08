@@ -9,7 +9,7 @@ import { DotPattern } from "../components/ui/dot-pattern";
 import { usersClient } from "../src/api/users-client";
 import { useRegistration } from "../src/hooks/use-registration";
 import { useThemeColors } from "../src/hooks/use-theme-colors";
-import { hasSeenOnboarding } from "../src/lib/onboarding-storage";
+import { hasSeenOnboarding, markOnboardingSeen } from "../src/lib/onboarding-storage";
 import { useAuthStore } from "../src/store/auth-store";
 import { useBootStore } from "../src/store/boot-store";
 
@@ -114,6 +114,14 @@ export default function WelcomeScreen() {
       .then((seen) => {
         if (!cancelled) setNeedsOnboarding(!seen);
       })
+      .catch((err: unknown) => {
+        // Keychain/Keystore no disponible (iOS antes del primer desbloqueo, keystore
+        // corrupto en Android): se saltea el carrusel. Repetírselo en cada apertura a
+        // alguien que ya lo vio es peor que no mostrárselo a un usuario nuevo, y los
+        // permisos obligatorios igual los pide el gate global fuera de `/onboarding`.
+        console.warn("[onboarding] no se pudo leer el flag de onboarding visto", err);
+        if (!cancelled) setNeedsOnboarding(false);
+      })
       .finally(() => {
         if (!cancelled) setOnboardingChecked(true);
       });
@@ -121,6 +129,18 @@ export default function WelcomeScreen() {
       cancelled = true;
     };
   }, []);
+
+  // Quien ya tiene sesión o un registro en curso se saltea el carrusel, pero el flag
+  // también se marca: si no, al cerrar sesión (o vencer el refresh) caería en `/` sin
+  // sesión y lo mandaría a `/onboarding`, cuando el carrusel es una vez por dispositivo.
+  useEffect(() => {
+    if (!onboardingChecked || !needsOnboarding) return;
+    if (!isAuthenticatedSession && !hasPendingRegistration) return;
+    setNeedsOnboarding(false);
+    void markOnboardingSeen().catch((err: unknown) => {
+      console.warn("[onboarding] no se pudo marcar el onboarding como visto", err);
+    });
+  }, [onboardingChecked, needsOnboarding, isAuthenticatedSession, hasPendingRegistration]);
 
   // `authStatus !== "checking"`: quien actualiza la app con una sesión guardada nunca
   // vio el carrusel, pero no tiene que verlo — sin esto saltaría a `/onboarding` antes

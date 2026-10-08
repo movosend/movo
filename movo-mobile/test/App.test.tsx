@@ -18,6 +18,7 @@ jest.mock("expo-secure-store", () => ({
 // tiene su propia suite, ver más abajo "gate de onboarding (MOVO-249)").
 jest.mock("../src/lib/onboarding-storage", () => ({
   hasSeenOnboarding: jest.fn().mockResolvedValue(true),
+  markOnboardingSeen: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock("../src/api/auth-client", () => ({
