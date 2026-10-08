@@ -31,7 +31,7 @@ import { RegistrationProvider } from '../src/hooks/use-registration';
 import { loadApiOverride } from '../src/lib/api-override';
 import { useAuthStore } from '../src/store/auth-store';
 import { useBootStore } from '../src/store/boot-store';
-import { useCarrierTracking, useCarrierTrackingCoordinator } from '../src/hooks/use-carrier-tracking';
+import { useCarrierTrackingCoordinator, useIsCarrierTracking } from '../src/hooks/use-carrier-tracking';
 import { CarrierLocationGate } from '../components/location/carrier-location-gate';
 import { useCarrierLocationReadiness } from '../src/hooks/use-carrier-location-readiness';
 import {
@@ -55,73 +55,54 @@ function CarrierTrackingCoordinatorMount() {
 }
 
 /**
- * MOVO-229 depende de `useMyProfile()` (React Query) — tiene que vivir DENTRO del
- * árbol de `QueryClientProvider`, no en el propio `RootLayout` (que es quien lo
- * define: su cuerpo de función no es descendiente de su propio JSX de salida).
- */
-function LegalAcceptanceEntryMount() {
-  const entry = useLegalAcceptanceEntry();
-  return (
-    <LegalEntrySheet
-      visible={entry.visible}
-      copy={entry.copy}
-      onReview={entry.onReview}
-      onDismiss={entry.onDismiss}
-    />
-  );
-}
-
-/**
- * Gate de permisos obligatorios (ubicación y cámara, ver `required-permissions.ts`),
- * revalidado en cada apertura y en cada vuelta a foreground. Se monta acá arriba, por
- * fuera del `<Stack>`, porque bloquea la app entera y no una pantalla: da igual dónde
- * esté el usuario, autenticado o no.
+ * Pantallas bloqueantes de arranque, montadas acá arriba (por fuera del `<Stack>`)
+ * porque tapan la app entera y no una pantalla. Las tres se presentan con un `Modal`
+ * nativo, y dos `Modal` a la vez no conviven en iOS (el segundo no se presenta o se
+ * apila mal, y no se puede operar ninguno) — por eso este mount decide cuál se ve, una
+ * sola por vez, en este orden de prioridad:
  *
- * Única excepción: `/onboarding` (MOVO-249), que es exactamente la pantalla donde se
- * piden por primera vez — tapar el carrusel con este gate sería mostrar dos veces la
- * misma conversación, una encima de la otra.
+ * 1. **Permisos obligatorios** (ubicación de primer plano y cámara,
+ *    `required-permissions.ts`): sin ellos la app no sirve para nada.
+ * 2. **Ubicación del transportista** (`carrier-location-readiness.ts`): pedida por una
+ *    acción (ofertar, declarar/iniciar un viaje, retirar) vía `requireCarrierLocation()`
+ *    — se cierra con "Ahora no" — o sin salida con un viaje en curso, el caso de quien
+ *    quitó "Siempre" desde Ajustes a mitad del viaje.
+ * 3. **Aceptación de documentos legales** (MOVO-229): se puede posponer, así que cede
+ *    ante cualquiera de las otras dos.
+ *
+ * Vive DENTRO de `QueryClientProvider` porque MOVO-229 usa `useMyProfile()`, y se monta
+ * recién cuando terminó el splash animado (MOVO-247) para que ningún `Modal` aparezca por
+ * encima del splash a mitad de su animación.
+ *
+ * Los permisos obligatorios no se muestran en `/onboarding` (MOVO-249), que es la
+ * pantalla donde se piden por primera vez, ni en `/`, que en un dispositivo nuevo es solo
+ * el spinner que decide si redirigir al carrusel: sin esa excepción todo usuario nuevo
+ * veía el bloqueo antes del carrusel que justamente presenta esos permisos.
  */
-function RequiredPermissionsGateMount() {
+function BlockingGatesMount() {
   const pathname = usePathname();
-  const gate = useRequiredPermissionsGate();
-  const isOnboarding = pathname === '/onboarding';
-
-  return (
-    <RequiredPermissionsGate
-      visible={gate.blocked && !isOnboarding}
-      missing={gate.missing}
-      statuses={gate.statuses}
-      pendingKind={gate.pendingKind}
-      onRequest={(kind) => {
-        void gate.request(kind);
-      }}
-      onOpenSettings={gate.openSettings}
-    />
-  );
-}
-
-/**
- * Pantalla de acceso a la ubicación en segundo plano del transportista
- * (`carrier-location-readiness.ts`). Se abre por dos caminos:
- *
- * - **Pedida por una acción** (ofertar, declarar/iniciar un viaje, retirar), vía
- *   `requireCarrierLocation()`: se puede cerrar con "Ahora no" (la acción no se
- *   ejecuta) y, al cumplirse los requisitos, ejecuta sola la acción pendiente.
- * - **Viaje en curso** (`locationService` trackeando): sin salida. Es el caso de
- *   quien quitó el permiso desde Ajustes a mitad del viaje.
- *
- * Nunca se muestra si falta la ubicación de primer plano: esa la pide
- * `RequiredPermissionsGateMount`, y dos `Modal` nativos a la vez no conviven en iOS.
- */
-function CarrierLocationGateMount() {
+  const permissions = useRequiredPermissionsGate();
+  const legal = useLegalAcceptanceEntry();
   const readiness = useCarrierLocationReadiness();
-  const { isTracking } = useCarrierTracking();
+  const isTracking = useIsCarrierTracking();
   const isAuthenticated = useAuthStore((s) => s.status === 'authenticated');
   const requested = useCarrierLocationGateStore((s) => s.requested);
-  const blocking = isAuthenticated && isTracking;
+
+  const permissionsVisible =
+    permissions.blocked && pathname !== '/onboarding' && pathname !== '/';
+
+  // La ubicación de primer plano la pide el gate de permisos obligatorios: esta
+  // pantalla arranca recién desde el escalón siguiente.
+  const carrierBlocking = isAuthenticated && isTracking;
   const foregroundGranted = readiness.readiness?.foregroundGranted ?? false;
-  const visible =
-    readiness.checked && !readiness.ready && foregroundGranted && (requested || blocking);
+  const carrierVisible =
+    !permissionsVisible &&
+    readiness.checked &&
+    !readiness.ready &&
+    foregroundGranted &&
+    (requested || carrierBlocking);
+
+  const legalVisible = legal.visible && !permissionsVisible && !carrierVisible;
 
   const runPendingAction = useCallback(() => {
     const action = useCarrierLocationGateStore.getState().take();
@@ -153,17 +134,37 @@ function CarrierLocationGateMount() {
   }, [readiness.ready, runPendingAction]);
 
   return (
-    <CarrierLocationGate
-      visible={visible}
-      readiness={readiness.readiness}
-      missing={readiness.missing}
-      needsSettings={readiness.needsSettings}
-      pending={readiness.pending}
-      onResolve={() => {
-        void readiness.resolve();
-      }}
-      onDismiss={blocking ? undefined : () => useCarrierLocationGateStore.getState().cancel()}
-    />
+    <>
+      <RequiredPermissionsGate
+        visible={permissionsVisible}
+        missing={permissions.missing}
+        statuses={permissions.statuses}
+        pendingKind={permissions.pendingKind}
+        onRequest={(kind) => {
+          void permissions.request(kind);
+        }}
+        onOpenSettings={permissions.openSettings}
+      />
+      <CarrierLocationGate
+        visible={carrierVisible}
+        readiness={readiness.readiness}
+        missing={readiness.missing}
+        needsSettings={readiness.needsSettings}
+        pending={readiness.pending}
+        onResolve={() => {
+          void readiness.resolve();
+        }}
+        onDismiss={
+          carrierBlocking ? undefined : () => useCarrierLocationGateStore.getState().cancel()
+        }
+      />
+      <LegalEntrySheet
+        visible={legalVisible}
+        copy={legal.copy}
+        onReview={legal.onReview}
+        onDismiss={legal.onDismiss}
+      />
+    </>
   );
 }
 
@@ -256,13 +257,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <RegistrationProvider>
           <CarrierTrackingCoordinatorMount />
-          {/* MOVO-247: recién cuando el splash animado ya terminó -- `LegalEntrySheet`
-           * se presenta con el `Modal` nativo de RN (capa por fuera del árbol de
-           * views normal), así que si se montara antes podría aparecer POR ENCIMA
-           * del splash a mitad de su animación en vez de detrás. */}
-          {!showAnimatedSplash ? <LegalAcceptanceEntryMount /> : null}
-          <RequiredPermissionsGateMount />
-          {!showAnimatedSplash ? <CarrierLocationGateMount /> : null}
+          {!showAnimatedSplash ? <BlockingGatesMount /> : null}
           <View onLayout={onLayout} className="flex-1 bg-bg">
             <Stack screenOptions={{ headerShown: false }} />
             <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
