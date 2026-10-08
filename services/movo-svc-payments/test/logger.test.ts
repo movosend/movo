@@ -86,6 +86,28 @@ describe("redacción de secretos en logs (MOVO-267 AC6)", () => {
     );
   });
 
+  it("no loguea el query string del callback de OAuth (MOVO-111)", async () => {
+    const lines: string[] = [];
+    const stream = new Writable({
+      write(chunk, _encoding, callback) {
+        lines.push(chunk.toString());
+        callback();
+      },
+    });
+    const app = Fastify({ logger: { ...loggerOptions, stream } });
+    app.get("/payments/mp-connect/callback", async () => ({ ok: true }));
+    app.get("/payments/otra", async () => ({ ok: true }));
+
+    await app.inject({ method: "GET", url: "/payments/mp-connect/callback?code=TG-secret-code&state=s" });
+    await app.inject({ method: "GET", url: "/payments/otra?visible=1" });
+    await app.close();
+
+    const logged = lines.join("");
+    expect(logged).not.toContain("TG-secret-code");
+    expect(logged).toContain("/payments/mp-connect/callback?[REDACTED]");
+    expect(logged).toContain("/payments/otra?visible=1");
+  });
+
   it("redacta secretos anidados hasta 6 niveles (p. ej. el cause de un error del SDK)", () => {
     const { logger, output } = captureLogger();
     logger.info({ err: { cause: [{ body: { data: { access_token: "deep-secret" } } }] } }, "mp error");

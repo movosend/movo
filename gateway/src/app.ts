@@ -4,6 +4,7 @@ import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { loadEnv } from "./config/env";
 import { API_PREFIX } from "./config/routes-map";
+import { loggerOptions } from "./config/logger";
 import errorHandlerPlugin from "./plugins/error-handler";
 import rateLimitPlugin from "./plugins/rate-limit";
 import authPlugin from "./plugins/auth";
@@ -16,7 +17,7 @@ export function buildApp(): FastifyInstance {
   // trustProxy: el gateway solo recibe tráfico del contenedor nginx
   // (ver infra/docker-compose.yml), así que confiamos en su X-Forwarded-For
   // para que el rate limit y los logs vean la IP real del cliente.
-  const app = Fastify({ logger: true, trustProxy: true });
+  const app = Fastify({ logger: loggerOptions, trustProxy: true });
 
   app.register(errorHandlerPlugin);
 

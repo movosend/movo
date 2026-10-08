@@ -1,4 +1,5 @@
 import { FastifyInstance } from "fastify";
+import mpConnectRoutes from "../mp-connect/mp-connect.routes";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -19,4 +20,6 @@ export default async function paymentsRoutes(app: FastifyInstance) {
   app.get("/", async () => {
     return { module: "payments" };
   });
+
+  app.register(mpConnectRoutes, { prefix: "/mp-connect" });
 }
