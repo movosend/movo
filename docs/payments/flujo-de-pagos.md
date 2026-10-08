@@ -104,8 +104,14 @@ Reglas que el diagrama no muestra explícitamente:
   estados rechaza `assigned_unfunded → in_transit`.
 - **La entrega no se revierte.** Si la captura falla, el envío se queda en `delivered`:
   el handshake es un evento inmutable.
-- Si el emisor cancela en `assignment_pending` con un hold creado, el hold se **libera**.
-  Cancelar desde `assigned` sigue bloqueado hasta definir la penalidad (MOVO-226).
+- **Un hold en `assignment_pending` solo existe por una falla a mitad de camino.** En el
+  camino normal, crear el hold pasa el envío a `assigned` en el mismo paso (secuencia
+  5.2). Si MP autoriza pero la transición en `svc-shipments` falla (caída, timeout o
+  conflicto de concurrencia), queda un hold creado con el envío todavía en
+  `assignment_pending`. Ese es el caso de compensación que tienen que cubrir MOVO-209/210
+  (cómo se resuelve, reintentar la transición o liberar el hold, se define ahí). Si en
+  ese estado el emisor cancela, el hold se **libera**.
+- Cancelar desde `assigned` sigue bloqueado hasta definir la penalidad (MOVO-226).
 
 ---
 
@@ -120,7 +126,7 @@ stateDiagram-v2
 
     assignment_pending --> assigned: hold creado
     assignment_pending --> published: vence el plazo para pagar
-    assignment_pending --> cancelled: emisor cancela (se libera el hold)
+    assignment_pending --> cancelled: emisor cancela (si quedó un hold por compensar, se libera)
 
     assigned_unfunded --> assigned: emisor confirma el pago (hold creado)
     assigned_unfunded --> published: sin pago a T-24h del retiro
@@ -338,7 +344,7 @@ flowchart LR
 
 | Decisión | Motivo | Dónde |
 | --- | --- | --- |
-| Marketplace de MP: Payments API + OAuth del transportista + `application_fee` | Movo nunca toca el dinero del transportista: MP lo acredita directo en su cuenta y retiene la comisión de Movo en la misma operación. | MOVO-209, ADR-030 (a escribir) |
+| Marketplace de MP: Payments API + OAuth del transportista + `application_fee` | Movo nunca toca el dinero del transportista: MP lo acredita directo en su cuenta y retiene la comisión de Movo en la misma operación. | MOVO-209, ADR-034 (a escribir) |
 | La tarjeta se tokeniza con la `public_key` **del transportista** | Requisito de MP: el card_token tiene que pertenecer a la cuenta que cobra. Con otra key, error 2006. | Spike MOVO-49 |
 | El hold se crea **siempre con el emisor presente** | Tarjeta guardada + cobro off-session no se pudo validar en marketplace (error 128 al guardarla; la variante con la cuenta de Movo no se puede probar en sandbox). | MOVO-12, SOLUCION-FINAL §7 |
 | El hold se ancla **cerca del retiro**, no en la aceptación | MP cancela el hold a los pocos días. Si falla cerca del retiro, falla antes de la custodia, cuando todavía se puede republicar el envío. | MOVO-12 |
