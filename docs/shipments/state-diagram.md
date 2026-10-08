@@ -18,12 +18,16 @@ es responsabilidad de un admin (MOVO-30, panel en MOVO-32) y todavía no hay tic
 defina a qué estado vuelve el envío — no se modela una transición inventada para no
 adelantar una decisión que no está tomada.
 
-`assigned_unfunded` (MOVO-208, decisión de arquitectura del hold de MOVO-12 "opción B"):
-ruta alternativa a `assignment_pending` cuando el retiro es a más de N días — el hold de
-Mercado Pago recién se programa a T-24h de la ventana de retiro, en vez de crearse al
-aceptar la oferta. Ninguna de las dos transiciones nuevas se dispara todavía: `MOVO-210`
-(saga de asignación) y `MOVO-212` (captura y split) las disparan, ambos bloqueados por
-Mercado Pago.
+`assigned_unfunded` (MOVO-208, hold anclado cerca del retiro según MOVO-12): ruta
+alternativa a `assignment_pending` cuando el retiro es a más de N días. Al aceptar la
+oferta no se crea el hold: cuando el retiro entra en N días se abre una ventana y el
+emisor confirma el pago con la app abierta, lo que crea el hold y pasa a `assigned`.
+Si no pagó a T-24h del retiro, el envío vuelve a `published`. No hay hold programado
+automático: tarjeta guardada + cobro sin el emisor presente no se pudo validar en
+marketplace (`docs/payments/mercadopago-spike/SOLUCION-FINAL.md` §7). Flujo completo
+en `docs/payments/flujo-de-pagos.md` §5.3. Ninguna de las dos transiciones nuevas se
+dispara todavía: `MOVO-210` (saga de asignación) y `MOVO-212` (captura y split) las
+disparan.
 
 ```mermaid
 stateDiagram-v2
@@ -41,8 +45,8 @@ stateDiagram-v2
     assignment_pending --> assigned: fondos reservados
     assignment_pending --> cancelled: emisor cancela (MOVO-29)
 
-    assigned_unfunded --> assigned: hold programado a T-24h exitoso (MOVO-210)
-    assigned_unfunded --> published: hold programado fallido (MOVO-210)
+    assigned_unfunded --> assigned: emisor confirma el pago\n(hold creado, MOVO-210)
+    assigned_unfunded --> published: sin pago a T-24h del retiro (MOVO-210)
     assigned_unfunded --> cancelled: emisor cancela\n(sin hold que liberar)
 
     assigned --> in_transit: retiro confirmado\n(handshake, MOVO-6)
