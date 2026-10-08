@@ -70,7 +70,7 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
     "Necesitás tener tu identidad verificada como transportista para declarar viajes.",
   TRIP_NOT_FOUND: "No encontramos ese viaje.",
   TRIP_HAS_ACCEPTED_PACKAGES:
-    "Este viaje ya tiene paquetes aceptados y no se puede modificar ni cancelar directamente.",
+    "Este viaje ya tiene paquetes aceptados, así que no se puede modificar ni cancelar. Si necesitás cancelar, hacelo desde cada envío.",
   TRIP_ORIGIN_DESTINATION_TOO_CLOSE:
     "El origen y el destino tienen que estar separados por al menos 100 metros.",
   TRIP_DEPARTURE_IN_PAST: "La fecha y hora de salida tiene que ser futura.",

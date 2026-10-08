@@ -181,3 +181,19 @@ export function groupTripsByMonth<T extends { departureAt: string }>(
   }
   return groups;
 }
+
+const WEEKDAY_LONG_FORMATTER = new Intl.DateTimeFormat("es-AR", { weekday: "long" });
+
+/** "Viernes 2 de octubre, 08:00" — fecha de salida completa del detalle de viaje (MOVO-263). */
+export function formatTripDateLong(departureAt: string): string {
+  const d = new Date(departureAt);
+  const weekday = WEEKDAY_LONG_FORMATTER.format(d);
+  const month = MONTH_LONG_FORMATTER.format(d);
+  return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)} ${DAY_FORMATTER.format(d)} de ${month}, ${TIME_FORMATTER.format(d)}`;
+}
+
+/** `#VJ-20418` derivado de los dígitos del `id` — solo para mostrar, nunca identifica al viaje. */
+export function tripDisplayCode(id: string): string {
+  const digits = id.replace(/\D/g, "").slice(-5).padStart(5, "0");
+  return `#VJ-${digits}`;
+}

@@ -36,7 +36,11 @@ export interface TripAcceptedPackage {
   packageType: string;
   weightKg: number;
   pickupAddress: string;
+  pickupLat: number;
+  pickupLng: number;
   deliveryAddress: string;
+  deliveryLat: number;
+  deliveryLng: number;
   pickupDate: string;
   pickupTimeWindowStart: string;
   pickupTimeWindowEnd: string;
@@ -129,6 +133,13 @@ export const tripsClient = {
    * paquetes aceptados. */
   update(id: string, body: UpdateTripInput): Promise<Trip> {
     return httpClient.patch<Trip>(`/trips/${id}`, body);
+  },
+
+  /** `POST /trips/:id/cancel` (MOVO-260) — cancelación lógica de un viaje `declared`: pasa a
+   * `cancelled` y queda en el historial. 409 `TRIP_HAS_ACCEPTED_PACKAGES` si ya tiene
+   * paquetes aceptados. */
+  cancel(id: string): Promise<Trip> {
+    return httpClient.post<Trip>(`/trips/${id}/cancel`);
   },
 
   /** `DELETE /trips/:id` — 204 sin body; 409 `TRIP_HAS_ACCEPTED_PACKAGES` si el viaje
