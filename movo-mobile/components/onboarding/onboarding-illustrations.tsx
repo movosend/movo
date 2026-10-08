@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Image, Text, View } from "react-native";
+import { Text, View } from "react-native";
 import Svg, { Circle, Defs, LinearGradient, Mask, Path, Pattern, RadialGradient, Rect, Stop } from "react-native-svg";
 import Animated, {
   Easing,
@@ -15,12 +15,13 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 import { Package, Route, Shield } from "lucide-react-native";
+import { MovoIsotype } from "../ui/movo-isotype";
 
 /**
  * Ilustraciones del carrusel de onboarding (MOVO-249) — reconstrucción 1:1 del
  * prototipo de Claude Design (`Onboarding.dc.html`), no una interpretación libre:
- * mismas coordenadas, paths SVG, colores, fotos (randomuser.me, igual que el
- * prototipo) y curvas de animación, traducidas a `react-native-svg` +
+ * mismas coordenadas, paths SVG, colores y curvas de animación (las fotos de
+ * randomuser.me del prototipo se cambiaron por emojis, ver `PEOPLE`), traducidas a `react-native-svg` +
  * `react-native-reanimated` porque RN no tiene `<canvas>` ni CSS `@keyframes`.
  *
  * Todo se diseña a un ancho nominal de 390 (el frame del prototipo) y se ancla
@@ -35,8 +36,43 @@ const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const EASE_OUT = Easing.out(Easing.ease);
 const EASE_IN_OUT = Easing.inOut(Easing.ease);
 
-function avatarUri(path: string): string {
-  return `https://randomuser.me/api/portraits/${path}.jpg`;
+/**
+ * Las personas del carrusel son emojis del sistema, no fotos: en iOS se ven con el
+ * set de Apple y en Android con Noto. Los glifos de Apple no se pueden empaquetar
+ * como asset (licencia), así que se dibujan como texto y cada plataforma pone los
+ * suyos. Una misma persona usa el mismo emoji en todos los pasos (Julia aparece en
+ * la red, en el globo, en las notificaciones y en el paso final).
+ */
+const PEOPLE = {
+  julia: "👩🏻",
+  marcos: "👨🏽",
+  rosa: "👵🏼",
+  diego: "🧔🏻‍♂️",
+  camila: "👩🏽‍🦱",
+  nico: "👨🏼‍🦰",
+  sofi: "👱🏼‍♀️",
+  joel: "👨🏾",
+  tomas: "👨🏻‍🦱",
+} as const;
+
+/** Fondo del círculo de cada emoji: gris claro sobre fondos blancos, más oscuro
+ * sobre los pasos negros para que el círculo no se vea como un agujero blanco. */
+const FACE_BG_LIGHT = "#F1F1F3";
+const FACE_BG_DARK = "#2C2C31";
+
+/** Emoji centrado en una caja cuadrada. `lineHeight` igual al lado y sin el padding
+ * de fuente de Android: si no, el glifo queda corrido hacia abajo. */
+function EmojiFace({ emoji, size }: { emoji: string; size: number }) {
+  return (
+    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+      <Text
+        allowFontScaling={false}
+        style={{ fontSize: Math.round(size * 0.62), lineHeight: size, textAlign: "center", includeFontPadding: false }}
+      >
+        {emoji}
+      </Text>
+    </View>
+  );
 }
 
 /** `mvFloat`: translateY oscilando ±7px, loop infinito. */
@@ -111,7 +147,17 @@ function useDashOffset(distance: number, durationMs: number, reverse = false) {
   }));
 }
 
-function Avatar({ uri, size, ringColor = "#fff" }: { uri: string; size: number; ringColor?: string }) {
+function Avatar({
+  emoji,
+  size,
+  ringColor = "#fff",
+  bg = FACE_BG_LIGHT,
+}: {
+  emoji: string;
+  size: number;
+  ringColor?: string;
+  bg?: string;
+}) {
   return (
     <View
       style={{
@@ -120,7 +166,9 @@ function Avatar({ uri, size, ringColor = "#fff" }: { uri: string; size: number; 
         borderRadius: size / 2,
         borderWidth: 3,
         borderColor: ringColor,
-        backgroundColor: "#E6E6EA",
+        backgroundColor: bg,
+        alignItems: "center",
+        justifyContent: "center",
         overflow: "hidden",
         shadowColor: "#0A0A0B",
         shadowOpacity: 0.14,
@@ -128,41 +176,61 @@ function Avatar({ uri, size, ringColor = "#fff" }: { uri: string; size: number; 
         shadowOffset: { width: 0, height: 4 },
       }}
     >
-      <Image source={{ uri }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+      <EmojiFace emoji={emoji} size={size - 6} />
     </View>
   );
 }
 
 /* ───────────────────────── Paso 0 — "La red" ───────────────────────── */
 
-const NETWORK_AVATARS: Array<{ x: number; y: number; s: number; u: string; delay: number }> = [
-  { x: 118, y: 112, s: 70, u: "women/44", delay: 100 },
-  { x: 226, y: 86, s: 50, u: "men/32", delay: 170 },
-  { x: 302, y: 150, s: 62, u: "women/65", delay: 240 },
-  { x: 186, y: 188, s: 86, u: "men/46", delay: 310 },
-  { x: 82, y: 220, s: 54, u: "men/75", delay: 380 },
-  { x: 292, y: 258, s: 56, u: "women/12", delay: 450 },
-  { x: 146, y: 298, s: 68, u: "women/90", delay: 520 },
-  { x: 236, y: 322, s: 44, u: "men/22", delay: 590 },
+const NETWORK_AVATARS: Array<{ x: number; y: number; s: number; e: string; delay: number }> = [
+  { x: 118, y: 112, s: 70, e: PEOPLE.julia, delay: 100 },
+  { x: 226, y: 86, s: 50, e: PEOPLE.marcos, delay: 170 },
+  { x: 302, y: 150, s: 62, e: PEOPLE.rosa, delay: 240 },
+  { x: 186, y: 188, s: 86, e: PEOPLE.diego, delay: 310 },
+  { x: 82, y: 220, s: 54, e: PEOPLE.camila, delay: 380 },
+  { x: 292, y: 258, s: 56, e: PEOPLE.nico, delay: 450 },
+  { x: 146, y: 298, s: 68, e: PEOPLE.sofi, delay: 520 },
+  { x: 236, y: 322, s: 44, e: PEOPLE.joel, delay: 590 },
 ];
 
-const NETWORK_DASH_PATHS = [
-  { d: "M 118 112 C 150 36, 250 206, 302 150", width: 2, dash: "2 7", duration: 5000 },
-  { d: "M 82 220 C 140 304, 220 186, 292 258", width: 2, dash: "2 7", duration: 6000 },
-  { d: "M 186 188 C 256 226, 184 284, 236 322", width: 2, dash: "2 7", duration: 5500 },
-  { d: "M 118 112 C 36 128, 136 196, 82 220", width: 1.5, dash: "2 7", duration: 5000 },
-  { d: "M 146 298 C 168 366, 224 276, 236 322", width: 1.5, dash: "1 6", duration: 5000 },
-  { d: "M 302 150 C 364 192, 246 218, 292 258", width: 1.5, dash: "2 7", duration: 5000 },
+/** Líneas de la red: unen personas vecinas entre sí, con una curva apenas marcada
+ * (`bow`, en px, alterna de lado para que no parezcan todas iguales). Reemplazan a
+ * las del prototipo, que unían personas lejanas y se cruzaban. Ninguna de estas se
+ * cruza con otra. Van por debajo de los avatares, así que pueden arrancar y
+ * terminar en el centro de cada uno. */
+const NETWORK_LINKS: Array<[keyof typeof PEOPLE, keyof typeof PEOPLE, number]> = [
+  ["julia", "marcos", 10],
+  ["marcos", "rosa", -10],
+  ["rosa", "nico", 10],
+  ["nico", "joel", -10],
+  ["sofi", "camila", 10],
+  ["camila", "julia", -10],
+  ["diego", "marcos", 8],
+  ["diego", "sofi", -8],
 ];
 
-function NetworkDashPath({ d, width, dash, duration }: { d: string; width: number; dash: string; duration: number }) {
-  const animatedProps = useDashOffset(36, duration);
+function networkLinkPath(from: keyof typeof PEOPLE, to: keyof typeof PEOPLE, bow: number): string {
+  const a = NETWORK_AVATARS.find((p) => p.e === PEOPLE[from])!;
+  const b = NETWORK_AVATARS.find((p) => p.e === PEOPLE[to])!;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  const cx = (a.x + b.x) / 2 - (dy / len) * bow;
+  const cy = (a.y + b.y) / 2 + (dx / len) * bow;
+  return `M ${a.x} ${a.y} Q ${cx} ${cy}, ${b.x} ${b.y}`;
+}
+
+const NETWORK_LINES = NETWORK_LINKS.map(([from, to, bow]) => networkLinkPath(from, to, bow));
+
+function NetworkLine({ d }: { d: string }) {
+  const animatedProps = useDashOffset(18, 3000);
   return (
     <AnimatedPath
       d={d}
-      stroke="#8A8A93"
-      strokeWidth={width}
-      strokeDasharray={dash}
+      stroke="#B4B4BC"
+      strokeWidth={1.5}
+      strokeDasharray="2 7"
       strokeLinecap="round"
       fill="none"
       animatedProps={animatedProps}
@@ -199,7 +267,7 @@ function NetworkAvatar({ a, index }: { a: (typeof NETWORK_AVATARS)[number]; inde
   return (
     <Animated.View style={[{ position: "absolute", left: a.x - a.s / 2, top: a.y - a.s / 2, width: a.s, height: a.s, zIndex: 3 }, pop]}>
       <Animated.View style={float}>
-        <Avatar uri={avatarUri(a.u)} size={a.s} />
+        <Avatar emoji={a.e} size={a.s} />
       </Animated.View>
     </Animated.View>
   );
@@ -243,14 +311,14 @@ export function NetworkIllustration() {
       {[0, 1, 2].map((i) => (
         <NetworkRadarRing key={i} index={i} />
       ))}
-      <Svg width={390} height={400} style={{ position: "absolute" }}>
-        {NETWORK_DASH_PATHS.map((p, i) => (
-          <NetworkDashPath key={i} {...p} />
+      <Svg width={NETWORK_W} height={NETWORK_H} style={{ position: "absolute" }} pointerEvents="none">
+        {NETWORK_LINES.map((d) => (
+          <NetworkLine key={d} d={d} />
         ))}
       </Svg>
 
       {NETWORK_AVATARS.map((a, i) => (
-        <NetworkAvatar key={a.u} a={a} index={i} />
+        <NetworkAvatar key={a.e} a={a} index={i} />
       ))}
 
       <FloatChip x={80 - 16} y={76 - 16} delay={0}>
@@ -293,7 +361,7 @@ function PulsingDot() {
 /* ───────────────────────── Paso 1 — "Confianza" ───────────────────────── */
 
 const TRUST_ROUTE_D = "M 30 100 C 90 100, 90 40, 160 50 S 250 92, 282 32";
-const TRUST_CARRIER_AVATAR = "men/32";
+const TRUST_CARRIER_AVATAR = PEOPLE.tomas;
 const TRUST_W = 390;
 const TRUST_H = 400;
 const TRUST_MAP_W = 310;
@@ -477,11 +545,11 @@ export function TrustIllustration() {
           ]}
         >
           {/* Anillo de 2px y sin sombra — distinto del `Avatar` compartido (3px + sombra). */}
-          <Image
-            source={{ uri: avatarUri(TRUST_CARRIER_AVATAR) }}
-            style={{ width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: "#C6F24A", backgroundColor: "#E6E6EA" }}
-            resizeMode="cover"
-          />
+          <View
+            style={{ width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: "#C6F24A", backgroundColor: FACE_BG_LIGHT, alignItems: "center", justifyContent: "center", overflow: "hidden" }}
+          >
+            <EmojiFace emoji={TRUST_CARRIER_AVATAR} size={44} />
+          </View>
           <View style={{ gap: 4 }}>
             <Text style={{ fontSize: 15, fontWeight: "600", color: "#0A0A0B" }}>Tomás Olmos</Text>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
@@ -562,11 +630,11 @@ const ORBIT_RY = 34;
 const ORBIT_CY = GLOBE_CY + 16;
 const LIME = "#C6F24A";
 
-const GLOBE_PINS: Array<{ lat: number; lon: number; u: string }> = [
-  { lat: 0.45, lon: -0.2, u: "women/44" },
-  { lat: -0.15, lon: 0.9, u: "men/46" },
-  { lat: 0.3, lon: 2.2, u: "women/65" },
-  { lat: -0.4, lon: 3.6, u: "men/32" },
+const GLOBE_PINS: Array<{ lat: number; lon: number; e: string }> = [
+  { lat: 0.45, lon: -0.2, e: PEOPLE.julia },
+  { lat: -0.15, lon: 0.9, e: PEOPLE.diego },
+  { lat: 0.3, lon: 2.2, e: PEOPLE.rosa },
+  { lat: -0.4, lon: 3.6, e: PEOPLE.marcos },
 ];
 
 function pinVector(lat: number, lon: number): [number, number, number] {
@@ -699,8 +767,8 @@ function GlobePinAnchor({
   );
 }
 
-/** Avatar del pin, encima del SVG (no se puede dibujar una `<Image>` remota dentro
- * del `<Svg>` con el mismo recorte/borde que el resto de la app). */
+/** Avatar del pin, encima del SVG (un emoji dentro del `<Svg>` no se recorta ni se
+ * borde igual que el resto de los avatares). */
 function GlobePin({ index, rotation }: { index: number; rotation: SharedValue<number> }) {
   const pin = GLOBE_PINS[index];
   const vec = GLOBE_PIN_VECTORS[index];
@@ -723,7 +791,7 @@ function GlobePin({ index, rotation }: { index: number; rotation: SharedValue<nu
       pointerEvents="none"
     >
       {isPrimary ? <PrimaryPinHalo /> : null}
-      <Avatar uri={avatarUri(pin.u)} size={38} ringColor={isPrimary ? LIME : "rgba(255,255,255,0.9)"} />
+      <Avatar emoji={pin.e} size={38} ringColor={isPrimary ? LIME : "rgba(255,255,255,0.9)"} bg={FACE_BG_DARK} />
     </Animated.View>
   );
 }
@@ -919,12 +987,12 @@ export function LocationIllustration() {
         <OrbitCourier angle={orbitAngle} half="front" />
 
         {GLOBE_PINS.map((pin, i) => (
-          <GlobePinAnchor key={pin.u} index={i} rotation={rotation} />
+          <GlobePinAnchor key={pin.e} index={i} rotation={rotation} />
         ))}
       </Svg>
 
       {GLOBE_PINS.map((pin, i) => (
-        <GlobePin key={pin.u} index={i} rotation={rotation} />
+        <GlobePin key={pin.e} index={i} rotation={rotation} />
       ))}
     </View>
   );
@@ -951,42 +1019,31 @@ const PHONE_RADIUS = 42;
 
 type NotifItem = { title: string; sub: string; avatar?: string };
 const NOTIF_ITEMS: NotifItem[] = [
-  { title: "Julia aceptó llevar tu paquete", sub: "Lo retira hoy a las 14:30 en Palermo.", avatar: "women/44" },
-  { title: "Tu paquete está en camino", sub: "Llega en 25 min. Seguilo en vivo.", avatar: "women/44" },
-  { title: "Entregado en Caballito", sub: "Julia dejó tu paquete. Confirmá la entrega.", avatar: "women/44" },
+  { title: "Julia aceptó llevar tu paquete", sub: "Lo retira hoy a las 14:30 en Palermo.", avatar: PEOPLE.julia },
+  { title: "Tu paquete está en camino", sub: "Llega en 25 min. Seguilo en vivo.", avatar: PEOPLE.julia },
+  { title: "Entregado en Caballito", sub: "Julia dejó tu paquete. Confirmá la entrega.", avatar: PEOPLE.julia },
   { title: "Hay un envío en tu camino", sub: "Palermo a Belgrano · $4.500" },
 ];
 const NOTIF_CYCLE_MS = 2600;
 
-/** Ícono de la app tal como lo dibuja el prototipo (cuadrado redondeado oscuro,
- * círculo blanco, punto oscuro) — a 40px es el avatar de la notificación sin
- * persona, a 18px la insignia sobre el avatar. */
+/** Ícono real de la app (el isotipo de `MovoIsotype`, mismos anillos que
+ * `assets/ios-icon.icon`) — a 40px es el avatar de la notificación sin persona, a
+ * 18px la insignia sobre el avatar. El borde claro lo separa del fondo negro del
+ * paso, igual que antes. */
 function NotifAppIcon({ size }: { size: number }) {
+  const radius = size * 0.24;
   return (
     <View
       style={{
         width: size,
         height: size,
-        borderRadius: size * 0.24,
-        backgroundColor: "#0A0A0B",
+        borderRadius: radius,
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.18)",
-        alignItems: "center",
-        justifyContent: "center",
+        overflow: "hidden",
       }}
     >
-      <View
-        style={{
-          width: size * 0.56,
-          height: size * 0.56,
-          borderRadius: size * 0.28,
-          backgroundColor: "#fff",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <View style={{ width: size * 0.26, height: size * 0.26, borderRadius: size * 0.13, backgroundColor: "#0A0A0B" }} />
-      </View>
+      <MovoIsotype size={size - 2} borderRadius={radius} testID="onboarding-notif-app-icon" />
     </View>
   );
 }
@@ -1033,11 +1090,9 @@ function NotifCard({ item, depth }: { item: NotifItem; depth: number }) {
         <View style={{ width: 40, height: 40 }}>
           {item.avatar ? (
             <>
-              <Image
-                source={{ uri: avatarUri(item.avatar) }}
-                style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: "#27272B" }}
-                resizeMode="cover"
-              />
+              <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: FACE_BG_DARK, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                <EmojiFace emoji={item.avatar} size={40} />
+              </View>
               <View style={{ position: "absolute", right: -3, bottom: -3 }}>
                 <NotifAppIcon size={18} />
               </View>
@@ -1230,7 +1285,7 @@ export function CameraIllustration() {
 const READY_RING_RADII = [182, 170.6, 157, 140.9, 124].map((r) => r / 182);
 const READY_GREY = ["#DADADA", "#B6B6B6", "#717172", "#222223"];
 const READY_LIME = ["#E3FA98", "#D6F771", "#C6F24A", "#9FC72E"];
-const READY_FACES = ["women/44", "men/46", "women/12", "men/75", "women/65", "men/32"];
+const READY_FACES = [PEOPLE.julia, PEOPLE.diego, PEOPLE.nico, PEOPLE.camila, PEOPLE.rosa, PEOPLE.marcos];
 const READY_R = 80;
 const READY_ORBIT_R = 150;
 
@@ -1301,7 +1356,7 @@ export function ReadyIllustration() {
                 counterStyle,
               ]}
             >
-              <Avatar uri={avatarUri(u)} size={s} />
+              <Avatar emoji={u} size={s} />
             </Animated.View>
           );
         })}

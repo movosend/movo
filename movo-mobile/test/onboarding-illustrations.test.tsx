@@ -10,7 +10,7 @@ import {
 
 /**
  * Smoke test (MOVO-249): cada ilustración es una reconstrucción fiel del prototipo
- * (SVG + Reanimated + fotos reales) — acá solo se verifica que monta sin explotar
+ * (SVG + Reanimated + emojis) — acá solo se verifica que monta sin explotar
  * (paths SVG válidos, hooks de Reanimated bien encadenados, sin dividir por cero en
  * la geometría del globo/discos). La fidelidad visual en sí no es verificable en este
  * entorno (se prueba en device).
