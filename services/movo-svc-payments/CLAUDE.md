@@ -48,3 +48,43 @@ MOVO-268 (webhook), sin endpoints de dominio.
 Pendiente: cargar las 5 `MP_*` en Secrets Manager de dev (app sandbox `movosend`) y
 prod, borrar `MERCADOPAGO_ACCESS_TOKEN` de esos secrets, y verificar en la EC2 que el
 contenedor arranca con los valores reales (DoD del ticket).
+
+### MOVO-111 — OAuth Connect: vincular, consultar y desvincular la cuenta de MP
+
+`GET /payments/mp-connect/status`, `GET /payments/mp-connect/authorization-url`,
+`DELETE /payments/mp-connect` (protegidas, heredan el hook `x-user-id`) y
+`GET /payments/mp-connect/callback` (pública, plugin aparte en `app.ts`). Contrato en
+`@movo/shared` (`types/mp-connect.ts`), acordado con mobile (MOVO-112). Código en
+`src/modules/mp-connect/`, `src/adapters/mercadopago-oauth-client.ts` y
+`src/repositories/carrier-mp-account-repository.ts`.
+
+- **Callback `https` + 302 a `movo://mp-connect` (AC3)**, en vez de un `redirect_uri` con
+  esquema custom: el canje necesita el `client_secret`. El callback nunca tira: siempre
+  redirige, con `result=success` o con `result=error&code=` (`MP_CONNECT_STATE_INVALID`,
+  `_ACCESS_DENIED`, `_EXCHANGE_FAILED`, `MP_ACCOUNT_ALREADY_LINKED`). La app no confía en
+  `success` y vuelve a pedir el status. El `state` (con el `code_verifier` de PKCE) vive 10
+  min en Redis y se consume con `GETDEL`. El query del callback no se loguea (serializer
+  de `req` en `config/logger.ts`).
+- **Canje con `fetch` propio** (SOLUCION-FINAL §4), sin `Authorization`, con
+  `test_token` según `MP_TEST_MODE`. En modo test, un token sin prefijo `TEST-` se toma
+  como canje fallido. Después del canje se llama a `GET /users/me` para el email y el
+  nickname que muestra la app.
+- **`carrier_mp_accounts`**: una fila por usuario. Desvincular es soft (`unlinked_at`,
+  tokens en null) y el status vuelve a `unlinked`, no a `invalid`. Re-vincular hace
+  upsert y limpia `unlinked_at`/`revoked_at`. `invalid` = `revoked_at` (lo marca
+  MOVO-243) o `token_expires_at` pasado.
+- **Una cuenta de MP por usuario de Movo**: índice único parcial sobre `mp_user_id`
+  (`WHERE revoked_at IS NULL AND unlinked_at IS NULL`), a mano en la migración. Ante un
+  P2002 se mira la base para distinguirlo de una carrera sobre `user_id`, porque la forma
+  del error cambia con el driver adapter. Caso aceptado: una fila vencida y no revocada
+  sigue bloqueando hasta que MOVO-243 la marque.
+- Sin chequeo de rol `carrier`: el gateway exige sender o carrier, y toda cuenta nace con
+  los dos roles.
+
+Pendiente: la DoD contra el sandbox real (vincular con la cuenta Vendedor, rechazar,
+desvincular) y confirmar que MP acepta `scope=offline_access` en la URL y devuelve el
+`refresh_token` (el spike no mandaba `scope`). Registrar
+`https://api-dev.movosend.app/api/v1/payments/mp-connect/callback` como `MP_REDIRECT_URI`
+en el secret de dev y en el panel de la app `movosend`. El gateway sigue logueando la URL
+completa del callback (logger default): el `code` no sirve sin el `code_verifier`, que
+nunca sale de Redis.
