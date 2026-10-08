@@ -60,7 +60,7 @@ Todas de país Argentina (MLA).
 | `client_id` | `7550835762771398` |
 | Creada por | Movo S.A (`3609549431`), en una ventana de incógnito logueada con esa cuenta de prueba en developers.mercadopago.com |
 | Redirect URI | La URL pública del callback de OAuth. En el spike es un túnel `cloudflared` → `http://localhost:8787/callback`. Tiene que estar cargada en el panel de la app **y** coincidir exacta con `redirect_uri` en la URL de autorización y en el canje del code. |
-| Credenciales usadas | `client_id` + `client_secret` (para el OAuth). La Public Key / Access Token de la app **no** intervienen en el pago. |
+| Credenciales usadas | `client_id` + `client_secret` (para el OAuth). La Public Key / Access Token de la app **no** intervienen en el pago. El canje del code tampoco necesita el Access Token de la app: el flujo REST lo hace sin header `Authorization` (ver §4 sobre el SDK). |
 
 ### Tarjeta de prueba
 
@@ -253,6 +253,8 @@ mobile con Bricks. En producción esto no cambia nada: el backend nunca tokeniza
 import crypto from 'node:crypto';
 import { MercadoPagoConfig, OAuth, Payment } from 'mercadopago';
 
+// El SDK exige un access token para OAuth aunque /oauth/token no lo necesite
+// (ver "¿SDK o API REST?" más abajo: en svc-payments el canje va con fetch propio).
 const appConfig = new MercadoPagoConfig({ accessToken: APP_ACCESS_TOKEN });
 
 // Paso 1a: URL de autorización (PKCE: los params extra viajan igual aunque el tipo no los declare)
@@ -313,10 +315,18 @@ Da el mismo resultado que la API REST, y a cambio trae los tipos, la idempotenci
 lo que MP mantiene y documenta.
 
 Dos salvedades:
-- **Canje del OAuth:** `code_verifier` y `test_token` no están en los tipos de
-  `OAuth.create()`. Viajan igual (el SDK hace un `Object.assign` del body), pero en
-  TypeScript estricto hay que castearlos. Conviene aislar ese canje, y el refresh, en una
-  función chica: con el SDK + cast, o con un `fetch` propio a `POST /oauth/token`.
+- **Canje del OAuth: con un `fetch` propio, no con el SDK.** `code_verifier` y
+  `test_token` no están en los tipos de `OAuth.create()` (viajan igual porque el SDK hace
+  un `Object.assign` del body, pero en TypeScript estricto hay que castearlos). Además,
+  `OAuth.create()` siempre manda `Authorization: Bearer ${config.accessToken}`
+  (`dist/clients/oAuth/create/index.js`), así que obliga a configurar un access token
+  aunque el canje no lo use. En `s2` se mandó el Access Token de la app movosend (de la
+  cuenta Movo S.A, `3609549431`) y el canje funcionó, pero el flujo REST de la sección 3
+  canjea **sin** header `Authorization` y también funciona: MP autentica el canje solo
+  con `client_id` + `client_secret`. Por eso el canje y el refresh van en una función
+  chica con `fetch` a `POST /oauth/token`, y `svc-payments` no necesita una env var con
+  el Access Token de la app (en el ejemplo de arriba, `appConfig` solo existe porque el
+  SDK lo pide).
 - **Tokenización:** no se hace en el backend (ver arriba). La hace el mobile con la
   `public_key` del transportista, que el backend le tiene que exponer para el envío.
 
