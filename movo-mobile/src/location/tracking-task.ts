@@ -217,8 +217,12 @@ class BackgroundTrackingManager {
       return false;
     }
 
-    const isRegistered = await TaskManager.isTaskRegisteredAsync(MOVO_CARRIER_BACKGROUND_TRACKING_TASK);
-    if (!isRegistered) {
+    // `hasStartedLocationUpdatesAsync` y no `isTaskRegisteredAsync`: la task puede seguir
+    // registrada sin que el SO entregue updates (ej. se quitó "Siempre" desde Ajustes y
+    // se volvió a dar), y en ese caso hay que volver a arrancarlas — si no, el estado
+    // diría "en vivo" sin que lleguen posiciones.
+    const hasStarted = await Location.hasStartedLocationUpdatesAsync(MOVO_CARRIER_BACKGROUND_TRACKING_TASK);
+    if (!hasStarted) {
       await Location.startLocationUpdatesAsync(MOVO_CARRIER_BACKGROUND_TRACKING_TASK, {
         accuracy: Location.Accuracy.Balanced,
         timeInterval: BACKGROUND_TRACKING_INTERVAL_MS,
@@ -258,7 +262,7 @@ class BackgroundTrackingManager {
   }
 
   async isBackgroundTrackingActive(): Promise<boolean> {
-    return TaskManager.isTaskRegisteredAsync(MOVO_CARRIER_BACKGROUND_TRACKING_TASK);
+    return Location.hasStartedLocationUpdatesAsync(MOVO_CARRIER_BACKGROUND_TRACKING_TASK);
   }
 }
 

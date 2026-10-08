@@ -20,6 +20,7 @@ jest.mock("expo-location", () => ({
   getBackgroundPermissionsAsync: jest.fn(),
   startLocationUpdatesAsync: jest.fn(),
   stopLocationUpdatesAsync: jest.fn(),
+  hasStartedLocationUpdatesAsync: jest.fn(),
 }));
 
 jest.mock("../src/location/offline-queue-storage", () => ({
@@ -163,7 +164,7 @@ describe("BackgroundTrackingManager (MOVO-242 / AC1, AC5, AC8)", () => {
   it("startBackgroundTracking inicia location updates si los permisos están concedidos", async () => {
     (Location.getForegroundPermissionsAsync as jest.Mock).mockResolvedValue({ granted: true });
     (Location.getBackgroundPermissionsAsync as jest.Mock).mockResolvedValue({ granted: true });
-    (TaskManager.isTaskRegisteredAsync as jest.Mock).mockResolvedValue(false);
+    (Location.hasStartedLocationUpdatesAsync as jest.Mock).mockResolvedValue(false);
 
     const started = await backgroundTrackingManager.startBackgroundTracking("trip-1", ["shipment-1"]);
 
@@ -176,6 +177,29 @@ describe("BackgroundTrackingManager (MOVO-242 / AC1, AC5, AC8)", () => {
         distanceInterval: 30,
       })
     );
+  });
+
+  it("startBackgroundTracking vuelve a arrancar las updates si la task quedó registrada pero frenada", async () => {
+    (Location.getForegroundPermissionsAsync as jest.Mock).mockResolvedValue({ granted: true });
+    (Location.getBackgroundPermissionsAsync as jest.Mock).mockResolvedValue({ granted: true });
+    (TaskManager.isTaskRegisteredAsync as jest.Mock).mockResolvedValue(true);
+    (Location.hasStartedLocationUpdatesAsync as jest.Mock).mockResolvedValue(false);
+    (Location.startLocationUpdatesAsync as jest.Mock).mockClear();
+
+    await backgroundTrackingManager.startBackgroundTracking("trip-1", ["shipment-1"]);
+
+    expect(Location.startLocationUpdatesAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("startBackgroundTracking no las vuelve a arrancar si ya están corriendo", async () => {
+    (Location.getForegroundPermissionsAsync as jest.Mock).mockResolvedValue({ granted: true });
+    (Location.getBackgroundPermissionsAsync as jest.Mock).mockResolvedValue({ granted: true });
+    (Location.hasStartedLocationUpdatesAsync as jest.Mock).mockResolvedValue(true);
+    (Location.startLocationUpdatesAsync as jest.Mock).mockClear();
+
+    await backgroundTrackingManager.startBackgroundTracking("trip-1", ["shipment-1"]);
+
+    expect(Location.startLocationUpdatesAsync).not.toHaveBeenCalled();
   });
 
   it("startBackgroundTracking devuelve false si falta permiso de background", async () => {
