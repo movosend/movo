@@ -4249,7 +4249,9 @@ publicado en MOVO-111 (`@movo/shared`, `types/mp-connect.ts`); el backend todav�
   muestra error + "Reintentar" (el mockup no tenía ese estado).
 - `app/mp-connect.tsx` atrapa el deep link si llega al router (Android) y redirige a la pantalla.
   Logo de MP como componente de `react-native-svg` (`components/payments/mercadopago-logo.tsx`,
-  no hay transformer de SVG), con variante clara para dark mode.
+  no hay transformer de SVG). En dark mode solo el wordmark pasa a blanco: el contorno marino
+  del emblema dibuja las manos blancas y en blanco desaparecen. El avatar de la cuenta usa
+  `bg-fg`/`text-bg` como `ProfileAvatar`, así acompaña al tema.
 
-Pendiente: DoD contra el sandbox real (vincular, cancelar en MP, desvincular) y prueba en
-dispositivo, hasta que MOVO-111 esté en dev.
+Probado de punta a punta en local contra MOVO-111 (ya en `develop`). Pendiente: probarlo en dev
+cuando estén cargados `MP_REDIRECT_URI` y `MP_TOKEN_ENCRYPTION_KEY` en sus secrets.
