@@ -4,6 +4,12 @@ import { act, fireEvent, render } from "@testing-library/react-native";
 import type { ShipmentSummary } from "../src/api/shipments-client";
 import CreateOfferScreen from "../app/(app)/transport/[id]/offer";
 
+// El gate de ubicación del transportista tiene su propio test
+// (carrier-location-gate.test.tsx): acá se asume que ya cumple los requisitos.
+jest.mock("../src/store/carrier-location-gate-store", () => ({
+  requireCarrierLocation: (action: () => unknown) => action(),
+}));
+
 const mockRouterBack = jest.fn();
 const mockRouterReplace = jest.fn();
 const mockRouterDismissTo = jest.fn();

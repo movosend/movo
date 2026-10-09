@@ -34,7 +34,7 @@ const mockCancelMutation = { mutateAsync: jest.fn(), isPending: false };
 
 jest.mock("../src/hooks/use-shipments", () => ({
   useShipment: (...args: unknown[]) => mockUseShipment(...args),
-  useShipmentPhotos: () => ({ data: [], isLoading: false }),
+  useShipmentPhotos: () => ({ data: [], isLoading: false, isStale: false, refetch: jest.fn() }),
   useShipmentRoute: () => ({ data: undefined }),
   useShipmentEvents: () => ({ data: [], isLoading: false, isError: false, refetch: jest.fn() }),
   useAcceptShipment: () => mockAcceptMutation,
@@ -64,9 +64,15 @@ jest.mock("../src/store/auth-store", () => ({
 // animado — sin mock nativo en este entorno de test (mismo gap que el resto del
 // repo, ningún test unitario ejercita ese componente hoy). Se stubea acá: este
 // archivo verifica composición/estados de la pantalla, no el render interno del mapa.
+const mockRouteMapCard = jest.fn();
 jest.mock("../components/send/route-map-card", () => {
   const { View } = require("react-native");
-  return { RouteMapCard: (props: { testID?: string }) => <View testID={props.testID} /> };
+  return {
+    RouteMapCard: (props: { testID?: string }) => {
+      mockRouteMapCard(props);
+      return <View testID={props.testID} />;
+    },
+  };
 });
 
 jest.mock("../src/hooks/use-profile", () => ({
@@ -726,61 +732,169 @@ describe("ShipmentDetailScreen", () => {
     expect(mockRouterBack).not.toHaveBeenCalled();
   });
 
-  describe("Acceso contextual a Handshake QR (MOVO-159)", () => {
-    it("muestra 'Confirmar retiro' para el emisor cuando el envío está asignado", async () => {
-      mockCurrentUser.mockReturnValue({ userId: "user-1" });
+  describe("CTA contextual por rol y estado (MOVO-194 AC2)", () => {
+    const SENDER = "user-1";
+    const CARRIER = "user-2";
+    const RECEIVER = "receiver-1";
+
+    it.each([
+      [SENDER, ShipmentStatus.ASSIGNED, "Generar retiro", "/(app)/shipments/shipment-1/handshake"],
+      [CARRIER, ShipmentStatus.ASSIGNED, "Retirar paquete", "/(app)/shipments/shipment-1/pickup"],
+      [CARRIER, ShipmentStatus.IN_TRANSIT, "Entregar paquete", "/(app)/shipments/shipment-1/delivery"],
+      [RECEIVER, ShipmentStatus.IN_TRANSIT, "Confirmar recepción", "/(app)/shipments/shipment-1/handshake-scan"],
+    ])("usuario %s en %s ve '%s' y navega a %s", async (userId, status, label, path) => {
+      mockCurrentUser.mockReturnValue({ userId });
       mockUseShipment.mockReturnValue({
         isLoading: false,
         isError: false,
-        data: shipment({ senderId: "user-1", carrierId: "user-2", status: ShipmentStatus.ASSIGNED }),
+        data: shipment({ carrierId: CARRIER, status }),
         error: null,
         refetch: jest.fn(),
       });
 
       const { getByTestId, getByText } = await render(<ShipmentDetailScreen />);
 
-      const handshakeBtn = getByTestId("shipment-detail-handshake-button");
-      expect(handshakeBtn).toBeTruthy();
-      expect(getByText("Confirmar retiro")).toBeTruthy();
-
-      await fireEvent.press(handshakeBtn);
-      expect(mockRouterPush).toHaveBeenCalledWith("/(app)/shipments/shipment-1/handshake");
+      expect(getByText(label)).toBeTruthy();
+      await fireEvent.press(getByTestId("shipment-detail-cta"));
+      expect(mockRouterPush).toHaveBeenCalledWith(path);
     });
 
-    it("muestra 'Confirmar entrega' para el transportista cuando el envío está en tránsito", async () => {
-      mockCurrentUser.mockReturnValue({ userId: "user-2" });
+    it.each([SENDER, CARRIER])(
+      "en assigned_unfunded el usuario %s ve un texto informativo sin botón",
+      async (userId) => {
+        mockCurrentUser.mockReturnValue({ userId });
+        mockUseShipment.mockReturnValue({
+          isLoading: false,
+          isError: false,
+          data: shipment({ carrierId: CARRIER, status: ShipmentStatus.ASSIGNED_UNFUNDED }),
+          error: null,
+          refetch: jest.fn(),
+        });
+
+        const { getByText, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+        expect(queryByTestId("shipment-detail-cta")).toBeNull();
+        expect(getByText("Los fondos se reservan antes del retiro.")).toBeTruthy();
+      },
+    );
+
+    it.each([
+      [SENDER, ShipmentStatus.PUBLISHED],
+      [SENDER, ShipmentStatus.IN_TRANSIT],
+      [RECEIVER, ShipmentStatus.ASSIGNED],
+      [CARRIER, ShipmentStatus.DELIVERED],
+      [SENDER, ShipmentStatus.CANCELLED],
+      [RECEIVER, ShipmentStatus.COMPLETED],
+    ])("usuario %s en %s no ve CTA", async (userId, status) => {
+      mockCurrentUser.mockReturnValue({ userId });
       mockUseShipment.mockReturnValue({
         isLoading: false,
         isError: false,
-        data: shipment({ senderId: "user-1", carrierId: "user-2", status: ShipmentStatus.IN_TRANSIT }),
-        error: null,
-        refetch: jest.fn(),
-      });
-
-      const { getByTestId, getByText } = await render(<ShipmentDetailScreen />);
-
-      const handshakeBtn = getByTestId("shipment-detail-handshake-button");
-      expect(handshakeBtn).toBeTruthy();
-      expect(getByText("Confirmar entrega")).toBeTruthy();
-
-      await fireEvent.press(handshakeBtn);
-      expect(mockRouterPush).toHaveBeenCalledWith("/(app)/shipments/shipment-1/handshake");
-    });
-
-    it("no muestra el botón cuando no corresponde confirmar custodia", async () => {
-      mockCurrentUser.mockReturnValue({ userId: "user-1" });
-      mockUseShipment.mockReturnValue({
-        isLoading: false,
-        isError: false,
-        data: shipment({ senderId: "user-1", status: ShipmentStatus.PUBLISHED }),
+        data: shipment({ carrierId: CARRIER, status }),
         error: null,
         refetch: jest.fn(),
       });
 
       const { queryByTestId } = await render(<ShipmentDetailScreen />);
-      expect(queryByTestId("shipment-detail-handshake-button")).toBeNull();
+
+      expect(queryByTestId("shipment-detail-cta")).toBeNull();
+      expect(queryByTestId("shipment-detail-cta-info")).toBeNull();
+    });
+  });
+
+  describe("vista del transportista y del receptor (MOVO-194)", () => {
+    it.each([
+      ["user-2", "Te queda", "$5.000"],
+      ["user-1", "Precio pactado", "$5.750"],
+    ])("sobre el mismo agreedPriceArs, el usuario %s ve '%s' %s", async (userId, label, amount) => {
+      mockCurrentUser.mockReturnValue({ userId });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "user-2", agreedPriceArs: 5750, status: ShipmentStatus.ASSIGNED }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByText, getByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByText(label)).toBeTruthy();
+      expect(getByTestId("shipment-detail-price")).toHaveTextContent(amount);
     });
 
+    it("el receptor no recibe la dirección ni las coordenadas de retiro en el mapa", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "user-2", status: ShipmentStatus.IN_TRANSIT }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      await render(<ShipmentDetailScreen />);
+
+      const props = mockRouteMapCard.mock.calls.at(-1)[0];
+      expect(props.pickup).toBeNull();
+      expect(props.pickupLabel).toBe("Córdoba");
+      expect(JSON.stringify(props)).not.toContain("Colón");
+      expect(JSON.stringify(props)).not.toContain("-64.18");
+      expect(props.delivery).toEqual({ address: "Bv. San Juan 500, Córdoba", lat: -31.41, lng: -64.19 });
+    });
+
+    it("si la dirección de retiro no trae localidad, el receptor ve un texto genérico y no la calle", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "user-2", status: ShipmentStatus.IN_TRANSIT, pickupAddress: "Av. Colón 1234" }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      await render(<ShipmentDetailScreen />);
+
+      const props = mockRouteMapCard.mock.calls.at(-1)[0];
+      expect(props.pickupLabel).toBe("la zona del emisor");
+      expect(JSON.stringify(props)).not.toContain("Colón");
+    });
+
+    it("el emisor sigue viendo el retiro completo en el mapa", async () => {
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment(),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      await render(<ShipmentDetailScreen />);
+
+      const props = mockRouteMapCard.mock.calls.at(-1)[0];
+      expect(props.pickup).toEqual({ address: "Av. Colón 1234, Córdoba", lat: -31.4, lng: -64.18 });
+      expect(props.pickupLabel).toBeUndefined();
+    });
+
+    it("el transportista ve las cards de emisor y receptor, y no la suya", async () => {
+      mockCurrentUser.mockReturnValue({ userId: "user-2" });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: "user-2", status: ShipmentStatus.ASSIGNED }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId, queryByTestId, getByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-sender")).toBeTruthy();
+      expect(getByTestId("shipment-detail-receiver")).toBeTruthy();
+      expect(queryByTestId("shipment-detail-carrier")).toBeNull();
+      expect(getByText(/Transportás/)).toBeTruthy();
+    });
+  });
+
+  describe("pull-to-refresh", () => {
     it("renderiza refresh control para pull-to-refresh en la vista de detalle", async () => {
       mockCurrentUser.mockReturnValue({ userId: "user-1" });
       mockUseShipment.mockReturnValue({

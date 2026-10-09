@@ -115,14 +115,15 @@ export function getServiceRoutes(env: {
       upstream: env.SHIPMENTS_SERVICE_URL,
     },
 
-    // payments service (fuera de alcance este sprint, ver MOVO-68: solo
-    // svc-users y svc-shipments están vivos. Descomentar cuando el servicio
-    // esté listo para proxear)
-    // {
-    //   prefix: "/payments",
-    //   upstream: env.PAYMENTS_SERVICE_URL,
-    //   allowedRoles: [UserRole.SENDER, UserRole.CARRIER],
-    // },
+    // payments service (MOVO-267). Emisor (paga) y transportista (vincula su
+    // cuenta de MP y cobra). Las rutas que se llaman sin JWT van en
+    // getPublicRoutes(): el callback de OAuth (MOVO-111, ya está) y el webhook
+    // (MOVO-268).
+    {
+      prefix: "/payments",
+      upstream: env.PAYMENTS_SERVICE_URL,
+      allowedRoles: [UserRole.SENDER, UserRole.CARRIER],
+    },
 
     // admin service (fuera de alcance este sprint, ver MOVO-68)
     // {
@@ -257,6 +258,17 @@ export function getPublicRoutes(): PublicRoute[] {
       method: "POST",
       path: "/auth/reset-password",
       rateLimit: { max: 5, timeWindow: "15 minutes" },
+    },
+
+    // Callback de OAuth de Mercado Pago (MOVO-111 AC3): lo abre el navegador
+    // embebido del transportista al volver de MP, sin JWT. A quién pertenece la
+    // vinculación sale del `state` (de un solo uso, en Redis), no de la sesión.
+    // Siempre responde un 302 al deep link de la app. El rate limit propio evita
+    // que sirva para martillar /oauth/token de MP con codes inventados.
+    {
+      method: "GET",
+      path: "/payments/mp-connect/callback",
+      rateLimit: { max: 20, timeWindow: "15 minutes" },
     },
   ];
 }

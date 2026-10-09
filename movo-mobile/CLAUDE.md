@@ -2784,10 +2784,6 @@ lado solo relee lo escaneado y agrega sus propias coordenadas GPS.
   Todo) — un campo de texto para pegar el JSON a mano dispara el mismo camino que un
   escaneo real, mismo criterio que el propio prototipo de Claude Design ("Simular
   escaneo del receptor").
-- **Pantalla de éxito propia, sin navegar a `/shipments/:id`**: esa pantalla
-  (`MOVO-127`) solo sabe mostrar la perspectiva del emisor — le fallaría con 403 a un
-  transportista/receptor hasta que `MOVO-194` (extensión de roles del detalle,
-  todavía sin construir) exista. La ruta vuelve a Home en su lugar.
 
 **Grooming de Linear hecho en el camino** (pedido explícito del usuario, al revisar
 el árbol completo de dependencias de "fase 2 del home"): `MOVO-194` y `MOVO-199`
@@ -2915,10 +2911,11 @@ satisfecha.
   ticket). "Eliminar antes de avanzar" aplica solo a fotos que **todavía no se
   confirmaron** (en cola, subiendo, en error) — una foto ya confirmada contra S3/DB
   queda fija, sin botón de borrado. No se abrió ticket de backend nuevo para esto.
-- **Gap de diseño documentado, no un bug**: `GET /shipments/:id/photos` (MOVO-81) no
-  incluye al transportista en su autorización (emisor/receptor/admin), así que el
-  step no puede traer preview de fotos confirmadas en una sesión anterior al
-  remontarse — solo trackea localmente lo capturado en el montaje actual.
+- **Gap de diseño documentado, no un bug**: cuando se escribió este step,
+  `GET /shipments/:id/photos` (MOVO-81) no incluía al transportista en su
+  autorización, así que el step no trae preview de fotos confirmadas en una sesión
+  anterior al remontarse — solo trackea localmente lo capturado en el montaje actual.
+  Desde MOVO-194 el backend ya deja pasar al transportista; el step sigue sin usarlo.
   `evidence-status.photoCount` sigue siendo la fuente autoritativa del conteo total;
   la diferencia contra lo capturado en sesión se renderiza como celda "Confirmada"
   sin imagen, para que el grid cuadre con el máximo real sin mentir sobre qué hay.
@@ -4149,6 +4146,25 @@ Tests agregados/actualizados:
 - `test/route-screen.test.tsx`: test de visualización de CTA y transición de inicio desde la pantalla de ruta.
 - Cobertura: 182/182 suites pasando (1564 tests en `movo-mobile`). `tsc --noEmit` con 0 errores.
 
+### MOVO-194 — Detalle del envío: vista del transportista y del receptor
+
+`app/(app)/shipments/[id].tsx` completo para los tres roles, con CTA contextual por rol y
+estado (`shipmentDetailCta`, `shipment-format.ts`; `assigned_unfunded` muestra texto, no botón).
+El transportista ve "Te queda" con la tasa de comisión del cliente. El receptor no ve el retiro
+exacto: `RouteMapCard` con `pickup={null}` + `pickupLabel` desde `pickupLocalityLabel`
+(localidad sin calle, altura, código postal ni país; "la zona del emisor" si no hay), el mismo
+helper que usa "Mis envíos". La card "Voy a recibir" del Home usa el mismo helper. **Limitación aceptada**: es una
+protección solo de UI, el backend sigue mandando `pickupAddress`/`pickupLat`/`pickupLng` exactos al
+receptor en `GET /shipments/:id` y `/shipments/receiving` (se ve en el tráfico de red). Redactarlos
+en el servidor cambia el contrato de `@movo/shared` y queda para si AC4 pasa a exigir que el dato no
+llegue al dispositivo. `EvidencePhotosSection` (fotos por stage, también en `transport/[id].tsx` solo para el
+transportista asignado) reemplaza la tira de `PackageCard`. Fuera del ticket, en el mismo PR:
+el Home lista los viajes `declared` con paquetes que no se llevan la card "Estoy transportando"
+(`splitCarrierHomeTrips`, `CarrierTripRow`), intercalados por fecha en "Actividad reciente" sin
+pasar por delante de los envíos que piden acción y con el mismo tope de 3.
+
+Pendiente: no probado en device con las tres cuentas; `transport/[id].tsx` sigue mostrando la
+entrega como "deshabilitada" aunque MOVO-199 ya existe.
 
 ### MOVO-271 — Paquete de fixes #2: ofertas, seguimiento en vivo y detalle de envío
 
@@ -4225,13 +4241,12 @@ segmented que se desliza (280ms) con etiquetas que cambian de color (200ms), esc
 cards/CTA, y punto lima con halo (`mvPulse`) en el estado "En curso". La barra inferior "Declarar viaje" se
 muestra en ambos tabs.
 - La card ya no tiene editar/eliminar ni "Iniciar viaje"/"Ver mapa" (el mockup los lleva al detalle,
-  MOVO-263): tocar la card navega a `/carrier/trips/[id]`, que todavía no existe en esta rama. Hasta que
-  MOVO-263 lo mergee, iniciar un viaje solo se puede desde "Estoy transportando" (`carrier-trip-cta`). Esto
+  MOVO-263): tocar la card navega a `/carrier/trips/[id]` (el detalle, ver MOVO-263 abajo). Esto
   reemplaza lo de MOVO-258 (viaje `active` → `/route` al tocar la card).
 - Buscar paquetes (feed filtrado por `tripId`) y el vehículo ya no están en la card: van en el detalle (MOVO-263, AC4).
 - Historial: "Completado" muestra el chip "N paquetes entregados"; "Venció" solo "Sin paquetes aceptados"; "Cancelado" "Lo cancelaste el {fecha}".
 - Sin datos de recurrencia en el backend: el chip "Todos los viernes" del mockup no se renderiza.
-- `useDeleteTrip` queda sin uso hasta que MOVO-263 sume `useCancelTrip`.
+- `useDeleteTrip` se eliminó en MOVO-263 (lo reemplaza `useCancelTrip`).
 
 ### MOVO-263 — Pantalla de detalle de viaje: paquetes aceptados, búsqueda y cancelación
 
@@ -4256,3 +4271,23 @@ backend: `packages[]` ahora trae `pickupLat/Lng` y `deliveryLat/Lng` (ver `svc-s
   card completa); ese componente sigue en el home y en "Mi ruta".
 - Pendiente: no probado en device; el estado "bloqueado hasta 2 h antes" del mockup no se implementó
   (el backend no lo valida).
+
+### MOVO-249 — Carrusel de onboarding de primer uso
+
+`app/onboarding.tsx` + `use-onboarding-flow.ts`: una vez por dispositivo
+(`hasSeenOnboarding` en secure-store), antes de la Bienvenida, con los pasos de permisos
+obligatorios (ubicación y cámara, `required-permissions.ts`) y notificaciones opcional.
+`app/index.tsx` no lo muestra con sesión o registro en curso, y en esos casos marca el
+flag, así no aparece al cerrar sesión. `/` y `/onboarding` quedan fuera del gate de
+permisos obligatorios.
+
+### MOVO-279 — Ubicación en segundo plano obligatoria para operar como transportista
+
+`carrier-location-readiness.ts` (GPS → ubicación → precisa → segundo plano) y un único
+`CarrierLocationGate` que abren `requireCarrierLocation()` (ofertar, declarar/iniciar
+viaje, wizard de retiro; descarta el doble tap) o un viaje en curso, sin salida.
+`BlockingGatesMount` (`app/_layout.tsx`) muestra un solo modal bloqueante por vez
+(permisos obligatorios → ubicación del transportista → legal): dos `Modal` nativos a la
+vez no conviven en iOS. Política de Privacidad 0.2 (`2026-10-07`): dispara la
+re-aceptación (MOVO-229). Limitación aceptada: el permiso solo se verifica en el
+teléfono. Pendiente: no probado en device.

@@ -43,9 +43,7 @@ export async function authorizeRealtimeConnection(
     throw new ApiError(404, "NOT_FOUND", "Envío no encontrado.");
   }
 
-  if (callerId !== shipment.carrierId) {
-    assertShipmentAccess(shipment, callerId, callerRoles, "No tenés permiso para ver el tracking de este envío.");
-  }
+  assertShipmentAccess(shipment, callerId, callerRoles, "No tenés permiso para ver el tracking de este envío.");
 
   return { shipment, callerId, tokenExpiresAtMs: exp * 1000 };
 }

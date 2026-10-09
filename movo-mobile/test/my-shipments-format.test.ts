@@ -74,8 +74,14 @@ describe("presentMyShipment", () => {
     expect(present(shipment({ agreedPriceArs: 5900 })).priceCaption).toBe("pactado");
   });
 
-  it("receptor: el título es el origen", () => {
-    expect(present(shipment({ senderId: "martin", receiverId: "me" })).title).toBe("Av. Don Bosco 4807");
+  it("receptor: el título es la localidad de origen, sin la calle de retiro", () => {
+    expect(present(shipment({ senderId: "martin", receiverId: "me" })).title).toBe("Córdoba");
+  });
+
+  it("receptor: sin localidad en la dirección, el título nombra a quien envía y nunca la calle", () => {
+    const s = shipment({ senderId: "martin", receiverId: "me", pickupAddress: "Av. Don Bosco 4807" });
+    expect(present(s, "Martín Pérez").title).toBe("Envío de Martín");
+    expect(present(s).title).toBe("Envío para vos");
   });
 
   it("receptor que tiene que aceptar: pill ACEPTÁ y franja con el nombre de quien envía", () => {

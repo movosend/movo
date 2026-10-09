@@ -149,3 +149,20 @@ general por IP antes del 401 (antes ningún limiter corría antes de `authentica
 El estricto por cliente demo todavía no corrió, así que sigue habiendo un solo limiter por
 request. Queda pendiente un tope global por `clientId`: `x-movo-client-ip` lo controla quien
 tiene la key.
+
+### MOVO-267 — Proxy de `/payments` (`svc-payments`)
+
+Se descomentó la entrada `/payments` de `config/routes-map.ts#getServiceRoutes()`, con
+`allowedRoles: [sender, carrier]` (un admin sin esos roles recibe 403). Es el tercer
+servicio proxeado, después de `svc-users` y `svc-shipments`. El callback de OAuth y el webhook de Mercado Pago entran a `getPublicRoutes()` en
+MOVO-111/268. Detalle en `services/movo-svc-payments/CLAUDE.md`.
+
+### MOVO-111 — Callback público de OAuth de Mercado Pago
+
+`getPublicRoutes()` suma `GET /payments/mp-connect/callback` (20 cada 15 min por IP). Lo
+abre el navegador embebido del transportista al volver de MP, sin JWT; a quién pertenece
+la vinculación sale del `state` en Redis de `svc-payments`, no de la sesión. El resto de
+`/payments/mp-connect/*` sigue protegido. Detalle en `services/movo-svc-payments/CLAUDE.md`.
+El gateway deja de arrancar con `logger: true`: `config/logger.ts` tiene un serializer de
+`req` que oculta el query de esa ruta (`?code=...&state=...`), y el error handler usa el
+mismo `redactUrl`.

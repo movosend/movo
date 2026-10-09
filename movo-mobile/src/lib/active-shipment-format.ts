@@ -1,5 +1,10 @@
 import type { ActiveShipmentSummary } from "../api/shipments-client";
-import { formatTimeHHMM } from "./shipment-format";
+import {
+  FUNDS_PENDING_INFO_TEXT,
+  RECEIVER_DELIVERY_CTA_LABEL,
+  SENDER_PICKUP_CTA_LABEL,
+  formatTimeHHMM,
+} from "./shipment-format";
 
 /** Rol efectivo con el que se consultó el envío activo — "sending"/"receiving" son
  * los dos únicos implementados en esta fase (ver `use-active-shipments.ts`);
@@ -81,7 +86,7 @@ export function activeShipmentCta(
 ): ActiveShipmentCta | null {
   if (shipment.status === "assigned_unfunded") return null;
   if (role === "sending" && shipment.status === "assigned") {
-    return { label: "Generar retiro", destination: "MOVO-159 · QR de retiro" };
+    return { label: SENDER_PICKUP_CTA_LABEL, destination: "MOVO-159 · QR de retiro" };
   }
   if (role === "sending" && shipment.status === "in_transit") {
     return {
@@ -92,7 +97,7 @@ export function activeShipmentCta(
     };
   }
   if (role === "receiving" && shipment.status === "in_transit") {
-    return { label: "Confirmar recepción", destination: "MOVO-160 · Escaneo de entrega" };
+    return { label: RECEIVER_DELIVERY_CTA_LABEL, destination: "MOVO-160 · Escaneo de entrega" };
   }
   return null;
 }
@@ -107,7 +112,7 @@ export function activeShipmentInfoText(
 ): string {
   if (shipment.status === "assigned_unfunded") {
     return role === "sending"
-      ? "Los fondos se reservan antes del retiro."
+      ? FUNDS_PENDING_INFO_TEXT
       : "Pendiente de que se reserven los fondos.";
   }
   if (role === "sending" && shipment.status === "in_transit") return "En camino a destino.";

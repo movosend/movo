@@ -199,9 +199,9 @@ nuevo que referencia y deprecate al anterior. Resumen de los vigentes:
 - Puerto 22 SSH abierto a `0.0.0.0/0` en las EC2 es una limitación aceptada y documentada
   (restricción de AWS Security Groups para filtrar solo IPs de GitHub Actions), no un
   descuido.
-- Migraciones en deploy: `run-migrations.sh` (SQL a mano, `svc-payments`/`svc-admin`)
+- Migraciones en deploy: `run-migrations.sh` (SQL a mano, solo `svc-admin`)
   lleva ledger propio (`public.schema_migrations`) para tolerar reruns sin repetir
-  migraciones no-idempotentes. `svc-users`/`svc-shipments` (Prisma) usan
+  migraciones no-idempotentes. `svc-users`/`svc-shipments`/`svc-payments` (Prisma) usan
   `docker compose pull <servicio> && docker compose run --rm -T <servicio> npx prisma
   migrate deploy` — el `pull` explícito es necesario porque `run` no repullea una imagen
   ya presente localmente. `DATABASE_URL` para Prisma necesita user/password
@@ -263,6 +263,7 @@ sección solo lista lo transversal (infra, credenciales, decisiones cross-servic
 - `services/movo-svc-users/CLAUDE.md`
 - `services/movo-svc-shipments/CLAUDE.md`
 - `services/movo-svc-pricing-logistics/CLAUDE.md`
+- `services/movo-svc-payments/CLAUDE.md`
 - `shared/movo-shared/CLAUDE.md`
 - `movo-mobile/CLAUDE.md`
 
@@ -463,6 +464,20 @@ profile `development` lo necesita. El primer development build de Android se cor
 encoló los builds y el aviso de Telegram llegó. Pendiente de verificar: la versión que
 espera al build (matriz por plataforma), y un tag `v*` sobre `develop` (guard + TestFlight).
 
+### Pagos / Mercado Pago (MOVO-49, spike)
+
+- Referencia para todas las US de pagos (MOVO-267, 209, 111, 212, 213, 268, 100, 101,
+  110, 112, 215, 225): `docs/payments/flujo-de-pagos.md` (flujo y orden de
+  implementación) y `docs/payments/mercadopago-spike/SOLUCION-FINAL.md` (hold +
+  split verificado en sandbox, script reproducible `mp-spike-cli.js`).
+- Decisiones no obvias: en sandbox las tres partes (app, vendedor, pagador) tienen que
+  ser cuentas de prueba (si no, error 2034); se tokeniza con la `public_key` del
+  transportista y se cobra con su `access_token` OAuth; SDK oficial `mercadopago` v3
+  en `svc-payments`; el hold se crea siempre con el emisor presente (card-on-file no
+  validado en marketplace).
+- Credenciales de sandbox (app, cuentas de prueba): no se versionan, se comparten por
+  fuera del repo — ver `docs/payments/mercadopago-spike/README.md`.
+
 ### Pendientes transversales
 
 - **Credenciales reales sin cargar** en AWS Secrets Manager (dev y prod) — el código
@@ -507,6 +522,10 @@ espera al build (matriz por plataforma), y un tag `v*` sobre `develop` (guard + 
   `Sec-WebSocket-Protocol`, no query param) pero sin implementar, porque `movo-admin`/
   MOVO-33 (el único consumidor que lo necesitaría) no está bloqueado por MOVO-201 y
   todavía no lo pide. Implementar cuando ese ticket lo necesite, no antes.
+- **Credenciales de Mercado Pago sin cargar** (MOVO-267): `MP_CLIENT_ID`,
+  `MP_CLIENT_SECRET`, `MP_REDIRECT_URI`, `MP_WEBHOOK_SECRET` y `MP_TEST_MODE=true` en el
+  secret de dev (app sandbox `movosend`), las cuatro primeras en prod (app de la cuenta
+  real de Movo). `MERCADOPAGO_ACCESS_TOKEN` ya no se usa: borrarlo de ambos secrets.
 - **`MP_TRANSACTION_FEE_RATE` sin confirmar** (MOVO-143,
   `shared/movo-shared/src/config/commission.ts`): placeholder (0.0499) hasta tener el
   valor real del contrato/homologación con MercadoPago. `MOVO_COMMISSION_RATE` (15%,

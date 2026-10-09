@@ -19,6 +19,7 @@ import { useThemeColors } from "../../../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../../../src/lib/error-messages";
 import { formatPriceArs, shortAddressLabel } from "../../../../../src/lib/shipment-format";
 import { formatTripDateLong, formatTripStartErrorMessage, tripDisplayCode } from "../../../../../src/lib/trip-format";
+import { requireCarrierLocation } from "../../../../../src/store/carrier-location-gate-store";
 import { TripStatus, type TripWithAcceptedPackages } from "../../../../../src/api/trips-client";
 
 const EDIT_ACTION_ID = "edit-trip";
@@ -115,7 +116,11 @@ export default function TripDetailScreen() {
     });
   };
 
-  const handleStart = async (t: TripWithAcceptedPackages) => {
+  // Iniciar el viaje arranca el tracking: sin ubicación en segundo plano se cortaría apenas se
+  // apague la pantalla, así que primero pasa por el gate (MOVO-279).
+  const handleStart = (t: TripWithAcceptedPackages) => requireCarrierLocation(() => startTripNow(t));
+
+  const startTripNow = async (t: TripWithAcceptedPackages) => {
     setStartError(null);
     try {
       await startTrip.mutateAsync(t.id);

@@ -1357,9 +1357,14 @@ estados, en el mismo PR, conforme obliga el AC6 de `MOVO-79`. Sin disparo real t
 `MOVO-212` (captura y split) dispara `delivered → completed` — ambos bloqueados por
 Mercado Pago. Ver ADR-021 (`CLAUDE.md` raíz) para el razonamiento completo.
 
-- **`assigned_unfunded`** (decisión de arquitectura del hold de `MOVO-12` "opción B"):
-  transportista asignado y método de pago validado, pero sin hold creado — el retiro es
-  a más de N días y el hold recién se programa a T-24h. Se inserta en
+- **`assigned_unfunded`** (hold anclado cerca del retiro, `MOVO-12`): transportista
+  asignado, sin hold creado — el retiro es a más de N días. Cuando entra en N días se
+  abre una ventana para que el emisor confirme el pago con la app abierta (crea el hold,
+  pasa a `assigned`); sin pago a T-24h vuelve a `published`. Reemplaza el diseño
+  original de "opción B" (método de pago validado al aceptar + hold programado
+  automático a T-24h), descartado por el spike MOVO-49 porque tarjeta guardada + cobro
+  sin el emisor no se pudo validar en marketplace (`docs/payments/flujo-de-pagos.md`
+  §5.3). Se inserta en
   `shipment-state-machine.ts#VALID_TRANSITIONS` como rama ALTERNATIVA a
   `assignment_pending` desde `published` (no un paso adicional de esa misma ruta):
   `published → assigned_unfunded → {assigned, published, cancelled}`. **Nunca sale
@@ -2836,6 +2841,19 @@ la regla "bloquea, no cascadea" de MOVO-238.
 ### MOVO-261 — Paquetes aceptados en el detalle del viaje (`GET /trips/:id`)
 
 Soporte del rediseño del detalle del viaje (`movo-mobile`): se agrega `packages: TripAcceptedPackage[]` y `acceptedPackagesCount` a la respuesta del viaje extendido (y `acceptedPackagesCount` también al listado). Resuelto optimizando `tripRepository.findByIdWithPackages` con un `include` sobre `offers.shipment` (filtrado por `ACCEPTED_OFFER_FILTER`) en una sola query. No impacta en la DB ni rompe endpoints existentes. DTOs de mobile (`trips-client.ts`) sincronizados, tests de mocks actualizados.
+
+### MOVO-194 — Acceso del transportista asignado a eventos y fotos
+
+`assertShipmentAccess` suma `carrierId` a las partes (con guard de `null`), así
+`GET /shipments/:id/events` y `GET /shipments/:id/photos` responden 200 al transportista
+asignado; uno con oferta rechazada sigue recibiendo 403. Se sacó el caso especial
+`if (callerId !== shipment.carrierId)` de sus dos callers que lo tenían
+(`realtime-authorizer.ts` y `GET /:id/positions/latest`). La regla vive en un solo lugar,
+`hasShipmentAccess` (booleano, mismo archivo): `assertShipmentAccess` lo usa para lanzar el 403,
+`getEvidenceStatus` lo usa vía `assertShipmentAccess` con su mensaje propio y `getShipmentDetail`
+lo llama directo porque además abre `published` a transportistas verificados. Tests nuevos en `shipments-events.integration.test.ts` y
+`photos.integration.test.ts` (carrier 200, carrier con oferta rechazada 403).
+
 
 ### MOVO-260 — Estado expired separado de cancelled, cancelación lógica de viajes y listado por scope
 

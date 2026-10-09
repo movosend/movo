@@ -30,6 +30,11 @@ jest.mock("../src/hooks/use-trips", () => ({
   useStartTrip: () => ({ mutateAsync: mockStartMutateAsync, isPending: false }),
 }));
 
+// El gate de ubicación (MOVO-279) corre la acción directo; se prueba en su propio archivo.
+jest.mock("../src/store/carrier-location-gate-store", () => ({
+  requireCarrierLocation: (action: () => void | Promise<void>) => action(),
+}));
+
 // El menú nativo no tiene representación en el árbol de React: el mock lo simula como filas
 // tocables que disparan `onPressAction` con el mismo `nativeEvent.event` (ver `sender-actions-bar.test.tsx`).
 jest.mock("@react-native-menu/menu", () => {
