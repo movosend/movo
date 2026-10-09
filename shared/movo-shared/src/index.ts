@@ -83,6 +83,16 @@ export type {
   RouteMatrixRequest,
   RouteMatrixResponse,
 } from "./types/routing";
+export { MP_CONNECT_RETURN_URL } from "./types/mp-connect";
+export type {
+  MpConnectStatus,
+  MpConnectInvalidReason,
+  MpConnectAccount,
+  MpConnectStatusResponse,
+  MpConnectAuthorizationUrlResponse,
+  MpConnectReturnResult,
+  MpConnectReturnErrorCode,
+} from "./types/mp-connect";
 
 // commission
 export {

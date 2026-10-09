@@ -143,6 +143,24 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
       expect(response.statusCode).toBe(403);
       expect(JSON.parse(response.body).error.code).toBe("AUTH_FORBIDDEN");
     });
+
+    it("GET /payments/mp-connect/callback es público (MOVO-111): llega sin token, con el query y sin x-user-* falsificados", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/payments/mp-connect/callback?code=TG-abc&state=xyz",
+        headers: { "x-user-id": "33333333-3333-3333-3333-333333333333" },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedUrl).toBe("/payments/mp-connect/callback?code=TG-abc&state=xyz");
+      expect(capturedHeaders["x-user-id"]).toBeUndefined();
+    });
+
+    it("el resto de /payments/mp-connect sigue protegido", async () => {
+      const response = await app.inject({ method: "GET", url: "/api/v1/payments/mp-connect/status" });
+
+      expect(response.statusCode).toBe(401);
+    });
   });
 
   describe("Rutas de /kyc (MOVO-72, protegidas desde la revisión de PR #51)", () => {

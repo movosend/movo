@@ -2,13 +2,14 @@ import { KycStatus } from "@movo/shared/dist/types/user";
 import { Link, router } from "expo-router";
 import { ArrowRight } from "lucide-react-native";
 import { useColorScheme } from "nativewind";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Image, Pressable, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { DotPattern } from "../components/ui/dot-pattern";
 import { usersClient } from "../src/api/users-client";
 import { useRegistration } from "../src/hooks/use-registration";
 import { useThemeColors } from "../src/hooks/use-theme-colors";
+import { hasSeenOnboarding, markOnboardingSeen } from "../src/lib/onboarding-storage";
 import { useAuthStore } from "../src/store/auth-store";
 import { useBootStore } from "../src/store/boot-store";
 
@@ -99,6 +100,59 @@ export default function WelcomeScreen() {
     }
   }, [resumeChecked, shouldAutoRedirect, markInitialRouteResolved]);
 
+  // MOVO-249: carrusel de onboarding, una sola vez por dispositivo, antes de esta
+  // misma pantalla de bienvenida. Se ignora si ya hay una cuenta creada
+  // (`hasPendingRegistration`, aunque el flag de "visto" nunca se haya seteado —
+  // alguien mid-registro ya pasó por acá una vez, mostrarle ahora "qué es Movo" sería
+  // ir para atrás) o con sesión autenticada (ya resuelto arriba). `onboardingChecked`
+  // gatea el spinner igual que `resumeChecked`, mismo criterio.
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    hasSeenOnboarding()
+      .then((seen) => {
+        if (!cancelled) setNeedsOnboarding(!seen);
+      })
+      .catch((err: unknown) => {
+        // Keychain/Keystore no disponible (iOS antes del primer desbloqueo, keystore
+        // corrupto en Android): se saltea el carrusel. Repetírselo en cada apertura a
+        // alguien que ya lo vio es peor que no mostrárselo a un usuario nuevo, y los
+        // permisos obligatorios igual los pide el gate global fuera de `/onboarding`.
+        console.warn("[onboarding] no se pudo leer el flag de onboarding visto", err);
+        if (!cancelled) setNeedsOnboarding(false);
+      })
+      .finally(() => {
+        if (!cancelled) setOnboardingChecked(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Quien ya tiene sesión o un registro en curso se saltea el carrusel, pero el flag
+  // también se marca: si no, al cerrar sesión (o vencer el refresh) caería en `/` sin
+  // sesión y lo mandaría a `/onboarding`, cuando el carrusel es una vez por dispositivo.
+  useEffect(() => {
+    if (!onboardingChecked || !needsOnboarding) return;
+    if (!isAuthenticatedSession && !hasPendingRegistration) return;
+    setNeedsOnboarding(false);
+    void markOnboardingSeen().catch((err: unknown) => {
+      console.warn("[onboarding] no se pudo marcar el onboarding como visto", err);
+    });
+  }, [onboardingChecked, needsOnboarding, isAuthenticatedSession, hasPendingRegistration]);
+
+  // `authStatus !== "checking"`: quien actualiza la app con una sesión guardada nunca
+  // vio el carrusel, pero no tiene que verlo — sin esto saltaría a `/onboarding` antes
+  // de que la sesión termine de restaurarse.
+  const shouldShowOnboarding =
+    onboardingChecked &&
+    needsOnboarding &&
+    resumeChecked &&
+    authStatus !== "checking" &&
+    !isAuthenticatedSession &&
+    !hasPendingRegistration;
+
   // Camino "no hay nada que redirigir" -- esta misma pantalla de Bienvenida es el
   // destino final. `authStatus !== "checking"` importa acá: sin este chequeo,
   // `isAuthenticatedSession` todavía lee `false` mientras la sesión sigue
@@ -107,13 +161,45 @@ export default function WelcomeScreen() {
   // antes de que el efecto de arriba redirija a Home/Kyc -- el splash se
   // revelaría sobre la Bienvenida para de inmediato saltar, el "push" que este
   // ticket vino a sacar.
+  //
+  // Mismo criterio con el carrusel (MOVO-249): hasta saber si hay que mostrarlo no se
+  // marca nada, o en un dispositivo nuevo el splash se revelaría sobre la Bienvenida
+  // para saltar enseguida a `/onboarding`.
   useEffect(() => {
-    if (resumeChecked && authStatus !== "checking" && !shouldAutoRedirect && !isAuthenticatedSession) {
+    if (
+      resumeChecked &&
+      onboardingChecked &&
+      authStatus !== "checking" &&
+      !shouldAutoRedirect &&
+      !isAuthenticatedSession &&
+      !shouldShowOnboarding
+    ) {
       markInitialRouteResolved();
     }
-  }, [resumeChecked, authStatus, shouldAutoRedirect, isAuthenticatedSession, markInitialRouteResolved]);
+  }, [
+    resumeChecked,
+    onboardingChecked,
+    authStatus,
+    shouldAutoRedirect,
+    isAuthenticatedSession,
+    shouldShowOnboarding,
+    markInitialRouteResolved,
+  ]);
 
-  if (!resumeChecked || shouldAutoRedirect || isAuthenticatedSession) {
+  useEffect(() => {
+    if (shouldShowOnboarding) {
+      router.replace("/onboarding");
+      markInitialRouteResolved();
+    }
+  }, [shouldShowOnboarding, markInitialRouteResolved]);
+
+  if (
+    !resumeChecked ||
+    !onboardingChecked ||
+    shouldAutoRedirect ||
+    isAuthenticatedSession ||
+    shouldShowOnboarding
+  ) {
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-bg">
         <ActivityIndicator size="large" color={colors.fg1} />
@@ -203,6 +289,7 @@ export default function WelcomeScreen() {
             </Text>
           </Pressable>
         </Link>
+
       </View>
     </SafeAreaView>
   );

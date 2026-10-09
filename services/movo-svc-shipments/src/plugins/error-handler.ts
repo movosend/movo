@@ -224,6 +224,9 @@ export default fp(async (app: FastifyInstance) => {
       return;
     }
 
+    // Defensa en profundidad: `startTrip` (`trips.service.ts`) ya captura estos dos errores y
+    // los traduce, pero `TripRepository.start()` es público y cualquier otro caller que lo use
+    // sin ese catch recibiría un 500 en vez del 409.
     if (error instanceof TripHasNoPackagesError) {
       const apiError = new ApiError(409, "TRIP_NO_PACKAGES", error.message);
       reply.code(apiError.statusCode).send({

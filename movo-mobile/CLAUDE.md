@@ -4236,13 +4236,60 @@ Cambios chicos de soporte al backend (detalle en `services/movo-svc-shipments/CL
 `tripStartBlocker(trip, now)` (`src/lib/trip-format.ts`) devuelve `"too_early"`, `"packages_not_ready"`
 o `null` con la misma regla que el backend: la fecha sale de `canStartTripOn` (`@movo/shared`) y los
 paquetes de `executablePackagesCount` (campo nuevo de `GET /trips`), así la app no interpreta estados
-de envío. `CarrierTripCta` (Inicio y `/route?tripId=`) y `TripCard` ("Mis viajes") muestran el motivo en
+de envío. `CarrierTripCta` (Inicio y `/route?tripId=`) muestra el motivo en
 lugar del botón: "Podés iniciarlo el jueves 15 de octubre." o "Tus paquetes todavía esperan la
-confirmación del pago.". El resumen de la card dice "3 paquetes · 1 listo" cuando no todos son
-ejecutables, para no prometer paradas que la ruta no muestra. `formatTripStartErrorMessage` traduce de
+confirmación del pago.". La `TripCard` de "Mis viajes" ya no inicia viajes desde MOVO-262 (el botón
+vive en el detalle, MOVO-263), así que no usa `tripStartBlocker`. Para no prometer paradas que la ruta
+no muestra, `CarrierTripCta` dice "3 paquetes · 1 listo" cuando no todos son ejecutables. `formatTripStartErrorMessage` traduce de
 nuevo `TRIP_START_TOO_EARLY` (con la fecha) y `TRIP_PACKAGES_NOT_READY`, para cuando el dato de la
 pantalla quedó viejo. `isTripDepartureToday` pasa a usar el día argentino en vez del del dispositivo.
 Esto revierte la decisión de MOVO-252 de permitir iniciar sin importar la fecha.
 
 Pendiente: el detalle de viaje (MOVO-263) tiene que usar `tripStartBlocker` cuando exista; no probado
 en device.
+
+### MOVO-262 — "Mis viajes": tabs Próximos/Historial y pills de estado
+
+Implementado siguiendo el mockup de Claude Design (variante de card **Horario**, la default del mockup):
+`app/(app)/carrier/trips/index.tsx` + `components/trips/` (`trips-segmented`, `trip-card`,
+`trip-history-card`, `pressable-scale`, `pulse-dot`). Cada tab consume `GET /trips?scope=upcoming|history`
+(`useMyTrips(scope)`, query key por scope) con su propio estado vacío. Animaciones del mockup: indicador del
+segmented que se desliza (280ms) con etiquetas que cambian de color (200ms), escala .98 al presionar
+cards/CTA, y punto lima con halo (`mvPulse`) en el estado "En curso". La barra inferior "Declarar viaje" se
+muestra en ambos tabs.
+- La card ya no tiene editar/eliminar ni "Iniciar viaje"/"Ver mapa" (el mockup los lleva al detalle,
+  MOVO-263): tocar la card navega a `/carrier/trips/[id]`, que todavía no existe en esta rama. Hasta que
+  MOVO-263 lo mergee, iniciar un viaje solo se puede desde "Estoy transportando" (`carrier-trip-cta`). Esto
+  reemplaza lo de MOVO-258 (viaje `active` → `/route` al tocar la card).
+- Buscar paquetes (feed filtrado por `tripId`) y el vehículo ya no están en la card: van en el detalle (MOVO-263, AC4).
+- Historial: "Completado" muestra el chip "N paquetes entregados"; "Venció" solo "Sin paquetes aceptados"; "Cancelado" "Lo cancelaste el {fecha}".
+- Fixes del review (PR #219): colores con tokens semánticos (`text-fg`, `bg-bg-sub`, `border-border`) en vez de
+  la escala fija `ink-*` sobre `bg-bg`, que en modo oscuro dejaba direcciones y talón invisibles; el chip dice
+  "N aceptados" (no "a bordo") y "Llevaste N paquetes" (no "entregados"), porque `acceptedPackagesCount` también
+  cuenta los entregados, los por retirar y los en disputa; las cards del historial abren el detalle; la lista
+  pagina (`useMyTripsPaged`, "Cargar más" según el `total` del backend); la barra inferior y el scroll usan
+  `insets.bottom`, y la barra se oculta con "Próximos" vacío (ya hay un "Declarar viaje" en el estado vacío).
+  `TripStatusPill` es el único lugar donde se definen los colores de estado; se borraron `tripStatusTone`,
+  `formatDepartureLabel` y `useDeleteTrip` (sin uso).
+- Sin datos de recurrencia en el backend: el chip "Todos los viernes" del mockup no se renderiza.
+- `useDeleteTrip` queda sin uso hasta que MOVO-263 sume `useCancelTrip`.
+
+### MOVO-249 — Carrusel de onboarding de primer uso
+
+`app/onboarding.tsx` + `use-onboarding-flow.ts`: una vez por dispositivo
+(`hasSeenOnboarding` en secure-store), antes de la Bienvenida, con los pasos de permisos
+obligatorios (ubicación y cámara, `required-permissions.ts`) y notificaciones opcional.
+`app/index.tsx` no lo muestra con sesión o registro en curso, y en esos casos marca el
+flag, así no aparece al cerrar sesión. `/` y `/onboarding` quedan fuera del gate de
+permisos obligatorios.
+
+### MOVO-279 — Ubicación en segundo plano obligatoria para operar como transportista
+
+`carrier-location-readiness.ts` (GPS → ubicación → precisa → segundo plano) y un único
+`CarrierLocationGate` que abren `requireCarrierLocation()` (ofertar, declarar/iniciar
+viaje, wizard de retiro; descarta el doble tap) o un viaje en curso, sin salida.
+`BlockingGatesMount` (`app/_layout.tsx`) muestra un solo modal bloqueante por vez
+(permisos obligatorios → ubicación del transportista → legal): dos `Modal` nativos a la
+vez no conviven en iOS. Política de Privacidad 0.2 (`2026-10-07`): dispara la
+re-aceptación (MOVO-229). Limitación aceptada: el permiso solo se verifica en el
+teléfono. Pendiente: no probado en device.

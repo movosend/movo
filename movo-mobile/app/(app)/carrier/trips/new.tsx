@@ -6,6 +6,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { TripForm } from "../../../../components/trips/trip-form";
 import { useCreateTrip } from "../../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
+import { requireCarrierLocation } from "../../../../src/store/carrier-location-gate-store";
 import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
 import type { CreateTripInput } from "../../../../src/api/trips-client";
 
@@ -26,7 +27,12 @@ export default function NewTripScreen() {
     }
   };
 
-  const handleSubmit = (input: CreateTripInput) => {
+  // Declarar un viaje es ofrecerse a transportar: se resuelve la ubicación en segundo
+  // plano antes de crearlo, no recién al iniciarlo con paquetes ya aceptados.
+  const handleSubmit = (input: CreateTripInput) =>
+    requireCarrierLocation(() => createTripNow(input));
+
+  const createTripNow = (input: CreateTripInput) => {
     setError(null);
     createTrip.mutate(input, {
       // Reemplaza (no `back()`) para garantizar que el flag de éxito llegue a "Mis

@@ -4,6 +4,7 @@ import type { TripWithAcceptedPackages } from "../../src/api/trips-client";
 import { useMyTrips, useStartTrip } from "../../src/hooks/use-trips";
 import { formatTripStartErrorMessage, splitCarrierHomeTrips } from "../../src/lib/trip-format";
 import { CarrierTripCta } from "../trips/carrier-trip-cta";
+import { requireCarrierLocation } from "../../src/store/carrier-location-gate-store";
 
 interface CarrierTransportingSectionProps {
   testID?: string;
@@ -35,7 +36,11 @@ export function CarrierTransportingSection({
     return null;
   }
 
-  const handleStartTrip = async (targetTrip: TripWithAcceptedPackages) => {
+  // Iniciar el viaje arranca el tracking: primero pasa por el gate de ubicación.
+  const handleStartTrip = (targetTrip: TripWithAcceptedPackages) =>
+    requireCarrierLocation(() => startTripNow(targetTrip));
+
+  const startTripNow = async (targetTrip: TripWithAcceptedPackages) => {
     try {
       setStartingTripId(targetTrip.id);
       setStartTripError(null);

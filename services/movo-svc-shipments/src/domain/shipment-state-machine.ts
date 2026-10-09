@@ -187,6 +187,9 @@ export function isExecutableTripPackage(status: ShipmentStatus): boolean {
  * `ASSIGNED_UNFUNDED`, ya que un envío sin hold de fondos confirmado todavía no es trackeable.
  * MOVO-277: es el mismo set que `TRIP_EXECUTABLE_SHIPMENT_STATUSES` -- un paquete que el
  * viaje puede ejecutar es exactamente uno que se puede trackear.
+ * TODO(MOVO-270): si el tracking se habilita antes del retiro (`assignment_pending`), separar
+ * este set de `TRIP_EXECUTABLE_SHIPMENT_STATUSES` en vez de ampliar el compartido: ampliarlo
+ * arrastraría también a `start()`, la ruta del viaje y `executablePackagesCount`.
  */
 export const TRACKABLE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = TRIP_EXECUTABLE_SHIPMENT_STATUSES;
 

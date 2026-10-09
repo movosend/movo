@@ -11,6 +11,10 @@ export default defineConfig({
         // MOVO-267: el cliente de MP y la config del logger (redacción) son código
         // real con tests propios, no stubs.
         "src/adapters/**/*.ts",
+        // MOVO-111: vinculación de la cuenta de MP.
+        "src/modules/mp-connect/*.ts",
+        "src/repositories/**/*.ts",
+        "src/utils/**/*.ts",
         "src/config/logger.ts",
       ],
       exclude: ["src/modules/**/*.schema.ts", "src/modules/**/*.routes.ts"],

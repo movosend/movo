@@ -177,12 +177,19 @@ sequenceDiagram
     P->>MP: POST /oauth/token (code, code_verifier, client_secret, test_token solo en sandbox)
     MP-->>P: access_token, refresh_token, public_key, user_id, expires_in (180 días)
     P->>P: guarda la cuenta vinculada (tokens sin loguear)
-    P-->>M: redirect al deep link de la app
+    P-->>M: 302 a movo://mp-connect?result=success|error&code=...
     M->>G: GET /payments/mp-connect/status
     G->>P: reenvía
     P-->>M: vinculado
     Note over P,MP: Un cron renueva los tokens antes de vencer (MOVO-243).<br/>Si el transportista revoca desde MP, se marca revoked_at.
 ```
+
+El `redirect_uri` es un callback `https` del backend (`GET /payments/mp-connect/callback`,
+público en el gateway) que responde siempre un 302 al deep link, en vez de un `movo://`
+directo: el canje necesita el `client_secret`, así que el backend tiene que estar en el
+medio igual (MOVO-111 AC3). La app no confía en `result=success` y vuelve a consultar el
+status. Desvincular (`DELETE /payments/mp-connect`) marca `unlinked_at` y borra los tokens,
+y una cuenta de MP solo puede estar vinculada a un usuario de Movo a la vez.
 
 ### 5.2 Aceptación de oferta con retiro cercano (MOVO-12)
 
@@ -468,7 +475,6 @@ Notas sobre el orden:
 | Pregunta | Dónde se resuelve |
 | --- | --- |
 | Plazo real del hold en Argentina y valor de N | MOVO-215 |
-| ¿MP acepta un `redirect_uri` con esquema custom (`movo://`) o hace falta un callback `https://` en el backend? | MOVO-111 AC3 |
 | ¿Cómo se embebe el formulario de tarjeta de MP en React Native, y acepta las cuentas de prueba? | MOVO-269 |
 | ¿Producción exige homologar el modelo Marketplace en la cuenta real de Movo? | Hilo de soporte de MP (pregunta 3) |
 | ¿Por qué el pagador figura con `payer.id 3612507366` y no con el ID del panel? | Hilo de soporte de MP |

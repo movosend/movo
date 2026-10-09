@@ -175,6 +175,7 @@ describe("RecentShipmentsSection", () => {
       status: TripStatus.DECLARED,
       createdAt: updatedAt,
       updatedAt,
+      cancelledAt: null,
       hasAcceptedPackages: true,
       acceptedPackagesCount: 2,
       executablePackagesCount: 2,

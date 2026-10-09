@@ -5,6 +5,12 @@ import { useOptimizedRoute } from "../src/hooks/use-optimized-route";
 import { router } from "expo-router";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
 
+// El gate de ubicación del transportista tiene su propio test
+// (carrier-location-gate.test.tsx): acá se asume que ya cumple los requisitos.
+jest.mock("../src/store/carrier-location-gate-store", () => ({
+  requireCarrierLocation: (action: () => unknown) => action(),
+}));
+
 jest.mock("../src/hooks/use-optimized-route");
 jest.mock("../src/hooks/use-stop-counterpart", () => ({ useStopCounterpartName: () => null }));
 

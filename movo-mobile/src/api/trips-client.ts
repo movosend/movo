@@ -24,6 +24,8 @@ export interface Trip {
   departureAt: string;
   vehicleType: string;
   status: TripStatus;
+  /** Seteado al cancelar (`POST /trips/:id/cancel`, MOVO-260); `null` en cualquier otro estado. */
+  cancelledAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -101,10 +103,14 @@ export interface TripMatchesResponse {
   radiusKm: number;
 }
 
+export type TripListScope = "upcoming" | "history";
+
 export interface ListTripsParams extends Record<string, string | number | boolean | undefined> {
   page?: number;
   limit?: number;
   status?: TripStatus | string;
+  /** MOVO-260: `upcoming` (declared/active) o `history` (completed/cancelled/expired). No combinable con `status`. */
+  scope?: TripListScope;
 }
 
 export const tripsClient = {

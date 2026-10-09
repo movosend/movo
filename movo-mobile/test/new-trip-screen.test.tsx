@@ -2,6 +2,12 @@ import { act, fireEvent, render } from "@testing-library/react-native";
 import NewTripScreen from "../app/(app)/carrier/trips/new";
 import type { CreateTripInput } from "../src/api/trips-client";
 
+// El gate de ubicación del transportista tiene su propio test
+// (carrier-location-gate.test.tsx): acá se asume que ya cumple los requisitos.
+jest.mock("../src/store/carrier-location-gate-store", () => ({
+  requireCarrierLocation: (action: () => unknown) => action(),
+}));
+
 const mockRouterBack = jest.fn();
 const mockRouterReplace = jest.fn();
 const mockCanGoBack = jest.fn();

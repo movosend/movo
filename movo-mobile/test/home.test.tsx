@@ -4,6 +4,12 @@ import { router } from "expo-router";
 import { RefreshControl } from "react-native";
 import AuthenticatedHomeScreen from "../app/(app)/(tabs)/home";
 
+// El gate de ubicación del transportista tiene su propio test
+// (carrier-location-gate.test.tsx): acá se asume que ya cumple los requisitos.
+jest.mock("../src/store/carrier-location-gate-store", () => ({
+  requireCarrierLocation: (action: () => unknown) => action(),
+}));
+
 jest.mock("expo-router", () => ({
   router: { push: jest.fn() },
 }));

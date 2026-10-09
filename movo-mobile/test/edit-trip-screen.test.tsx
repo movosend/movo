@@ -46,6 +46,7 @@ const TRIP: TripWithAcceptedPackages = {
   status: TripStatus.DECLARED,
   createdAt: "2026-09-03T12:00:00.000Z",
   updatedAt: "2026-09-03T12:00:00.000Z",
+  cancelledAt: null,
   hasAcceptedPackages: false,
   acceptedPackagesCount: 0,
   executablePackagesCount: 0,

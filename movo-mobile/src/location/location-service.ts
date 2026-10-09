@@ -149,16 +149,23 @@ export class LocationService {
 
   /**
    * Inicia background tracking si se cuenta con el permiso requerido.
+   *
+   * Relee el permiso siempre, no solo cuando estaba en `false`: el usuario puede
+   * quitar "Siempre" desde Ajustes con el viaje en curso, y un `true` cacheado dejaba
+   * el estado diciendo "en vivo" mientras el SO ya no entregaba posiciones.
+   *
+   * Si el background no estaba activo (primer arranque, o el permiso se había perdido y
+   * se volvió a dar), se fuerza el rearranque de las updates: una task que sobrevivió
+   * registrada a la pérdida del permiso no vuelve a recibir posiciones sola.
    */
   private async ensureBackgroundTracking(): Promise<void> {
-    if (!this.backgroundGranted) {
-      await this.checkBackgroundPermission();
-    }
+    await this.checkBackgroundPermission();
     if (this.backgroundGranted && (this.activeShipmentIds.size > 0 || this.activeTripId) && !this.isSimulating) {
       try {
         const started = await backgroundTrackingManager.startBackgroundTracking(
           this.activeTripId ?? "trip-default",
-          Array.from(this.activeShipmentIds)
+          Array.from(this.activeShipmentIds),
+          { restart: !this.isBackgroundActiveState }
         );
         this.isBackgroundActiveState = started;
       } catch {
@@ -468,6 +475,22 @@ export class LocationService {
       this.emitStatus();
       return false;
     }
+  }
+
+  /**
+   * Relee ambos permisos y, si hay un viaje trackeándose, vuelve a arrancar (o marca
+   * caída) la tarea de segundo plano según el permiso real. Lo llama el coordinador
+   * en cada vuelta a foreground y el gate de ubicación del transportista al
+   * concederse el permiso.
+   */
+  async refreshPermissions(): Promise<void> {
+    await this.checkForegroundPermission();
+    if (this.isTrackingState) {
+      await this.ensureBackgroundTracking();
+    } else {
+      await this.checkBackgroundPermission();
+    }
+    this.emitStatus();
   }
 
   /**

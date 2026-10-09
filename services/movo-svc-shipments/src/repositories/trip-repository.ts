@@ -577,6 +577,11 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       }
       // MOVO-277: además, al menos uno tiene que poder ejecutarse (retirarse o
       // entregarse) -- si no, el viaje arranca sin ninguna parada en la ruta.
+      // TOCTOU aceptado: este conteo corre fuera de la transacción de abajo, así que si el
+      // último ejecutable se cancela entre medio el viaje arranca `active` sin ninguno.
+      // Lo cierra `expireActiveWithoutPackages` (`trip-expiry-sweep.ts`) en la próxima
+      // corrida; meter el conteo en la transacción no lo evitaría igual (READ COMMITTED)
+      // y no justifica un lock sobre las ofertas del viaje.
       const executablePackages = await db.offer.count({ where: { tripId: id, ...EXECUTABLE_OFFER_FILTER } });
       if (executablePackages === 0) {
         throw new TripPackagesNotReadyError(id);

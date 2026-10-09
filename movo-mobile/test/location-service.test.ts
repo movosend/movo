@@ -105,7 +105,9 @@ describe("LocationService (MOVO-203 / MOVO-242)", () => {
     expect(mockGetForegroundPermissions).toHaveBeenCalled();
     expect(mockGetPosition).toHaveBeenCalled();
     expect(backgroundTrackingManager.setTrackingContext).toHaveBeenCalledWith("trip-1", ["shipment-1"]);
-    expect(backgroundTrackingManager.startBackgroundTracking).toHaveBeenCalledWith("trip-1", ["shipment-1"]);
+    expect(backgroundTrackingManager.startBackgroundTracking).toHaveBeenCalledWith("trip-1", ["shipment-1"], {
+      restart: true,
+    });
 
     await service.stopTracking();
   });
@@ -164,6 +166,60 @@ describe("LocationService (MOVO-203 / MOVO-242)", () => {
     expect(status.isTracking).toBe(true);
     expect(status.isForegroundOnly).toBe(true);
     expect(status.isBackgroundActive).toBe(false);
+
+    await service.stopTracking();
+  });
+
+  it("refreshPermissions detecta que se quitó el permiso de background con el viaje en curso", async () => {
+    const service = createService();
+    await service.startTracking({ tripId: "trip-1", shipmentIds: ["shipment-1"] });
+    await Promise.resolve();
+    expect(service.getStatus().backgroundPermissionGranted).toBe(true);
+    expect(service.getStatus().isBackgroundActive).toBe(true);
+
+    // El usuario quita "Siempre" desde Ajustes y vuelve a la app.
+    mockGetBackgroundPermissions.mockResolvedValue({ granted: false, status: "denied" });
+    await service.refreshPermissions();
+
+    expect(service.getStatus().backgroundPermissionGranted).toBe(false);
+    expect(service.getStatus().isBackgroundActive).toBe(false);
+    expect(service.getStatus().isForegroundOnly).toBe(true);
+
+    await service.stopTracking();
+  });
+
+  it("refreshPermissions arranca el background si el permiso se concede con el viaje en curso", async () => {
+    mockGetBackgroundPermissions.mockResolvedValue({ granted: false, status: "denied" });
+    const service = createService();
+    await service.startTracking({ tripId: "trip-1", shipmentIds: ["shipment-1"] });
+    await Promise.resolve();
+    expect(service.getStatus().isBackgroundActive).toBe(false);
+    (backgroundTrackingManager.startBackgroundTracking as jest.Mock).mockClear();
+
+    mockGetBackgroundPermissions.mockResolvedValue({ granted: true, status: "granted" });
+    await service.refreshPermissions();
+
+    // Fuerza el rearranque: la task pudo quedar registrada sin updates mientras faltaba el permiso.
+    expect(backgroundTrackingManager.startBackgroundTracking).toHaveBeenCalledWith("trip-1", ["shipment-1"], {
+      restart: true,
+    });
+    expect(service.getStatus().isBackgroundActive).toBe(true);
+
+    await service.stopTracking();
+  });
+
+  it("con el background ya activo, refrescar no rearranca las updates", async () => {
+    const service = createService();
+    await service.startTracking({ tripId: "trip-1", shipmentIds: ["shipment-1"] });
+    await Promise.resolve();
+    expect(service.getStatus().isBackgroundActive).toBe(true);
+    (backgroundTrackingManager.startBackgroundTracking as jest.Mock).mockClear();
+
+    await service.refreshPermissions();
+
+    expect(backgroundTrackingManager.startBackgroundTracking).toHaveBeenCalledWith("trip-1", ["shipment-1"], {
+      restart: false,
+    });
 
     await service.stopTracking();
   });

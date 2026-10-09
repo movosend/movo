@@ -145,7 +145,20 @@ export type ApiErrorCode =
   | "AUTH_API_KEY_INVALID"
   | "PRICING_UNAVAILABLE"
   // Juego del optimizador: partida vencida en Redis y sin los números offline del iPad.
-  | "ROUTE_GAME_NOT_FOUND";
+  | "ROUTE_GAME_NOT_FOUND"
+  // MOVO-111/112: vinculación de la cuenta de Mercado Pago del transportista.
+  // Faltan las credenciales `MP_*` de la app en el ambiente (503 en authorization-url).
+  | "MP_CONNECT_NOT_CONFIGURED"
+  // Los cuatro siguientes viajan en el deep link de vuelta del callback de OAuth
+  // (`MpConnectReturnErrorCode`, types/mp-connect.ts), no como respuesta HTTP.
+  // `state` vencido, ya usado o inexistente.
+  | "MP_CONNECT_STATE_INVALID"
+  // El transportista rechazó la autorización en Mercado Pago.
+  | "MP_CONNECT_ACCESS_DENIED"
+  // Falló el canje del code (`/oauth/token`) o la consulta de la cuenta (`/users/me`).
+  | "MP_CONNECT_EXCHANGE_FAILED"
+  // Esa cuenta de MP ya está vinculada a otro usuario de Movo.
+  | "MP_ACCOUNT_ALREADY_LINKED";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {
