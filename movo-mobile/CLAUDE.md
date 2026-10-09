@@ -4244,7 +4244,7 @@ muestra en ambos tabs.
   MOVO-263): tocar la card navega a `/carrier/trips/[id]` (el detalle, ver MOVO-263 abajo). Esto
   reemplaza lo de MOVO-258 (viaje `active` → `/route` al tocar la card).
 - Buscar paquetes (feed filtrado por `tripId`) y el vehículo ya no están en la card: van en el detalle (MOVO-263, AC4).
-- Historial: "Completado" muestra el chip "N paquetes entregados"; "Venció" solo "Sin paquetes aceptados"; "Cancelado" "Lo cancelaste el {fecha}".
+- Historial: "Completado" muestra el chip "Llevaste N paquetes"; "Venció" solo "Sin paquetes aceptados"; "Cancelado" "Lo cancelaste el {fecha}".
 - Fixes del review (PR #219): colores con tokens semánticos (`text-fg`, `bg-bg-sub`, `border-border`) en vez de
   la escala fija `ink-*` sobre `bg-bg`, que en modo oscuro dejaba direcciones y talón invisibles; el chip dice
   "N aceptados" (no "a bordo") y "Llevaste N paquetes" (no "entregados"), porque `acceptedPackagesCount` también
