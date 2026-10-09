@@ -157,6 +157,7 @@ describe("TripDetailScreen (MOVO-263)", () => {
     expect(getByText("Av. Colón 1250, Córdoba Centro")).toBeTruthy();
     expect(getByText("Bv. España 300, Villa María")).toBeTruthy();
     expect(getByText("Fiat Fiorino")).toBeTruthy();
+    expect(getByTestId("trip-detail-vehicle-brand")).toBeTruthy();
     expect(getByText(/Octubre|octubre/)).toBeTruthy();
   });
 

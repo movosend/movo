@@ -4277,6 +4277,8 @@ backend: `packages[]` ahora trae `pickupLat/Lng` y `deliveryLat/Lng` (ver `svc-s
   eliminó (el `DELETE` está deprecado por ADR-029).
 - El footer usa botones planos del mockup con la lógica de `useStartTrip`, no `CarrierTripCta` (que es una
   card completa); ese componente sigue en el home y en "Mi ruta".
+- El vehículo muestra el logo de la marca (`BrandAvatar`, o iniciales si no hay logo); la marca sale de
+  `vehicleType` ("marca modelo") con `brandFromVehicleLabel` (`src/data/vehicle-catalog.ts`).
 - Pendiente: no probado en device; el estado "bloqueado hasta 2 h antes" del mockup no se implementó
   (el backend no lo valida).
 

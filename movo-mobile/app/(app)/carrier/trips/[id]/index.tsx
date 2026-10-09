@@ -8,6 +8,8 @@ import { useColorScheme } from "nativewind";
 import { ActivityIndicator, Platform, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { PressableScale } from "../../../../../components/trips/pressable-scale";
+import { BrandAvatar } from "../../../../../components/vehicle/brand-avatar";
+import { brandFromVehicleLabel } from "../../../../../src/data/vehicle-catalog";
 import { TripCancelSheet } from "../../../../../components/trips/trip-cancel-sheet";
 import { TripDetailMap } from "../../../../../components/trips/trip-detail-map";
 import { TripPackageRow } from "../../../../../components/trips/trip-package-row";
@@ -294,9 +296,20 @@ export default function TripDetailScreen() {
               </View>
               <View className="flex-1 gap-1 px-3.5 py-3">
                 <Eyebrow>Vehículo</Eyebrow>
-                <Text testID="trip-detail-vehicle" className="font-sans-medium text-[14px] leading-[19px] text-fg">
-                  {trip.vehicleType}
-                </Text>
+                <View className="flex-row items-center gap-2.5">
+                  <BrandAvatar
+                    testID="trip-detail-vehicle-brand"
+                    brand={brandFromVehicleLabel(trip.vehicleType)}
+                    size={32}
+                    bgClassName="bg-bg-mute"
+                  />
+                  <Text
+                    testID="trip-detail-vehicle"
+                    className="flex-1 font-sans-medium text-[14px] leading-[19px] text-fg"
+                  >
+                    {trip.vehicleType}
+                  </Text>
+                </View>
               </View>
             </View>
           </View>
