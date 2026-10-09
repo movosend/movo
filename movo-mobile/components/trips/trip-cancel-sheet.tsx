@@ -39,14 +39,14 @@ export function TripCancelSheet({
           style={sheetStyle}
           className="items-center rounded-t-[14px] bg-bg px-5 pb-[38px] pt-2.5"
         >
-          <View className="h-1 w-9 rounded-full bg-ink-200" />
+          <View className="h-1 w-9 rounded-full bg-border-strong" />
           <View className="mt-6 h-[60px] w-[60px] items-center justify-center rounded-full bg-danger-100">
             <AlertTriangle size={28} color="#E5484D" strokeWidth={1.75} />
           </View>
           <Text className="mt-4 text-center font-sans-semibold text-[20px] tracking-[-0.4px] text-fg">
             ¿Cancelar el viaje a {destination}?
           </Text>
-          <Text className="mt-2 max-w-[320px] text-center font-sans text-[14px] leading-[21px] text-ink-500">
+          <Text className="mt-2 max-w-[320px] text-center font-sans text-[14px] leading-[21px] text-fg-3">
             Va a pasar a tu historial como cancelado y dejarás de recibir avisos de paquetes compatibles.
           </Text>
           {errorMessage ? (

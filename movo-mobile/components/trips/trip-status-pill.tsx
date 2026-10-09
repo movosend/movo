@@ -5,6 +5,7 @@ import { TripStatus } from "../../src/api/trips-client";
 import { PulseDot } from "./pulse-dot";
 
 // [fondo, texto, ícono] de los estados de historial, tal cual el mockup de "Mis viajes".
+// Colores con alfa/pastel propios: se ven bien sobre fondo claro y oscuro.
 const HISTORY_PILL: Partial<Record<TripStatus, { bg: string; fg: string; Icon: typeof Check }>> = {
   [TripStatus.COMPLETED]: { bg: "rgba(43,182,115,0.14)", fg: "#1B7A4C", Icon: Check },
   [TripStatus.EXPIRED]: { bg: "#E6E6EA", fg: "#5A5A62", Icon: Timer },
@@ -12,9 +13,9 @@ const HISTORY_PILL: Partial<Record<TripStatus, { bg: string; fg: string; Icon: t
 };
 
 /**
- * Pill de estado de un viaje (MOVO-262/263), única para el listado, el historial y el
- * detalle: Declarado (lima), En curso (negro con punto que late) y, para los estados de
- * historial, fondo tintado con ícono. `compact` baja el alto a 22px (cards de historial).
+ * Pill de estado de un viaje (MOVO-262/263) y ÚNICO lugar donde se definen sus colores:
+ * Declarado (lima), En curso (negro con punto que late) y, para los estados de historial,
+ * fondo tintado con ícono. `compact` baja el alto a 22px (cards de historial).
  */
 export function TripStatusPill({
   status,
@@ -47,7 +48,10 @@ export function TripStatusPill({
   return (
     <View
       testID={testID}
-      className={`${sizeClass} flex-row items-center gap-1.5 rounded-full px-2.5 ${live ? "bg-ink-950" : "bg-lime-200"}`}
+      // En modo oscuro el fondo negro de "En curso" igualaría al de la card: se le suma un borde.
+      className={`${sizeClass} flex-row items-center gap-1.5 rounded-full px-2.5 ${
+        live ? "border border-transparent bg-ink-950 dark:border-border-strong" : "bg-lime-200"
+      }`}
     >
       {live ? <PulseDot testID="trip-status-dot" /> : null}
       <Text className={`font-sans-semibold text-[12px] ${live ? "text-lime-500" : "text-ink-700"}`}>

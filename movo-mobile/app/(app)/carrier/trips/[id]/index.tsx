@@ -6,7 +6,7 @@ import { ChevronLeft, Lock, MoreVertical, Navigation, Package, Search } from "lu
 import { useState, type ReactNode } from "react";
 import { useColorScheme } from "nativewind";
 import { ActivityIndicator, Platform, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { PressableScale } from "../../../../../components/trips/pressable-scale";
 import { TripCancelSheet } from "../../../../../components/trips/trip-cancel-sheet";
 import { TripDetailMap } from "../../../../../components/trips/trip-detail-map";
@@ -28,7 +28,7 @@ const CANCEL_ERROR_FALLBACK = "No pudimos cancelar el viaje. Probá de nuevo.";
 
 function Eyebrow({ children }: { children: string }) {
   return (
-    <Text className="font-sans-semibold text-[11px] uppercase tracking-[0.88px] text-ink-400">{children}</Text>
+    <Text className="font-sans-semibold text-[11px] uppercase tracking-[0.88px] text-fg-3">{children}</Text>
   );
 }
 
@@ -44,15 +44,16 @@ function DetailSkeleton() {
 }
 
 function NoPackagesCard({ onSearch }: { onSearch: () => void }) {
+  const colors = useThemeColors();
   return (
-    <View className="items-center gap-2.5 rounded-[10px] border-[1.5px] border-dashed border-ink-950/[0.18] px-5 pb-5 pt-7">
-      <View className="h-[52px] w-[52px] items-center justify-center rounded-full border border-ink-950/[0.08] bg-white">
-        <Package size={24} color="#0A0A0B" strokeWidth={1.75} />
+    <View className="items-center gap-2.5 rounded-[10px] border-[1.5px] border-dashed border-border-strong px-5 pb-5 pt-7">
+      <View className="h-[52px] w-[52px] items-center justify-center rounded-full border border-border bg-bg">
+        <Package size={24} color={colors.fg1} strokeWidth={1.75} />
       </View>
       <Text className="max-w-[240px] text-center font-sans-semibold text-[16px] text-fg">
         Todavía no tenés paquetes para este viaje
       </Text>
-      <Text className="max-w-[260px] text-center font-sans text-[13px] leading-[19px] text-ink-500">
+      <Text className="max-w-[260px] text-center font-sans text-[13px] leading-[19px] text-fg-3">
         Cuando alguien publique un envío en tu ruta, te llega un aviso.
       </Text>
       <PressableScale
@@ -75,6 +76,7 @@ function NoPackagesCard({ onSearch }: { onSearch: () => void }) {
  */
 export default function TripDetailScreen() {
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const { colorScheme } = useColorScheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: trip, isLoading, isError, error, isRefetching, refetch } = useTrip(id);
@@ -134,14 +136,14 @@ export default function TripDetailScreen() {
       <Pressable
         testID="trip-detail-back"
         onPress={handleBack}
-        className="h-10 w-10 items-center justify-center rounded-full bg-ink-100"
+        className="h-10 w-10 items-center justify-center rounded-full bg-bg-mute"
       >
         <ChevronLeft size={20} color={colors.fg1} strokeWidth={1.75} />
       </Pressable>
       <View className="gap-0.5">
         <Text className="font-sans-semibold text-[20px] tracking-[-0.4px] text-fg">Detalle de viaje</Text>
         {trip ? (
-          <Text className="font-sans text-[11px] text-ink-400" style={{ fontVariant: ["tabular-nums"] }}>
+          <Text className="font-sans text-[11px] text-fg-3" style={{ fontVariant: ["tabular-nums"] }}>
             {tripDisplayCode(trip.id)}
           </Text>
         ) : null}
@@ -191,6 +193,8 @@ export default function TripDetailScreen() {
   const canSearch = isDeclared;
   const canEditOrCancel = isDeclared && !hasPackages;
   const showFooter = trip.status === TripStatus.ACTIVE || (isDeclared && hasPackages);
+  // Alto del footer = 12 (padding superior) + 52 (botón) + inset inferior real del dispositivo.
+  const footerBottomPadding = Math.max(insets.bottom, 12);
   const total = packages.reduce((sum, p) => sum + p.agreedPriceArs, 0);
 
   const actionsMenu = canEditOrCancel ? (
@@ -230,7 +234,7 @@ export default function TripDetailScreen() {
         <View
           testID="trip-detail-menu-button"
           accessibilityLabel="Más acciones"
-          className="h-10 w-10 items-center justify-center rounded-full bg-ink-100"
+          className="h-10 w-10 items-center justify-center rounded-full bg-bg-mute"
         >
           <MoreVertical size={18} color={colors.fg1} strokeWidth={2} />
         </View>
@@ -243,7 +247,7 @@ export default function TripDetailScreen() {
       {renderHeader(actionsMenu)}
       <ScrollView
         className="flex-1"
-        contentContainerStyle={{ paddingBottom: showFooter ? 150 : 40 }}
+        contentContainerStyle={{ paddingBottom: showFooter ? 12 + 52 + footerBottomPadding + 24 : insets.bottom + 40 }}
         refreshControl={
           <RefreshControl testID="trip-detail-refresh" refreshing={isRefetching} onRefresh={() => refetch()} />
         }
@@ -258,8 +262,8 @@ export default function TripDetailScreen() {
 
             <View className="flex-row gap-3.5">
               <View className="items-center pt-[5px]">
-                <View className="h-3 w-3 rounded-full border-[2.5px] border-ink-950" />
-                <View className="my-1 min-h-[24px] w-0.5 flex-1 bg-ink-200" />
+                <View className="h-3 w-3 rounded-full border-[2.5px] border-fg" />
+                <View className="my-1 min-h-[24px] w-0.5 flex-1 bg-border-strong" />
                 <View
                   className="h-3 w-3 rounded-full"
                   style={{ backgroundColor: "#2B6BFF", shadowColor: "#CBDAFF", shadowOpacity: 1, shadowRadius: 0 }}
@@ -270,19 +274,19 @@ export default function TripDetailScreen() {
                   <Text className="font-sans-semibold text-[17px] tracking-[-0.17px] text-fg" numberOfLines={1}>
                     {shortAddressLabel(trip.originAddress)}
                   </Text>
-                  <Text className="mt-0.5 font-sans text-[13px] text-ink-500">{trip.originAddress}</Text>
+                  <Text className="mt-0.5 font-sans text-[13px] text-fg-3">{trip.originAddress}</Text>
                 </View>
                 <View>
                   <Text className="font-sans-semibold text-[17px] tracking-[-0.17px] text-fg" numberOfLines={1}>
                     {shortAddressLabel(trip.destinationAddress)}
                   </Text>
-                  <Text className="mt-0.5 font-sans text-[13px] text-ink-500">{trip.destinationAddress}</Text>
+                  <Text className="mt-0.5 font-sans text-[13px] text-fg-3">{trip.destinationAddress}</Text>
                 </View>
               </View>
             </View>
 
-            <View className="flex-row rounded-[10px] border border-ink-950/[0.08]">
-              <View className="flex-1 gap-1 border-r border-ink-950/[0.08] px-3.5 py-3">
+            <View className="flex-row rounded-[10px] border border-border">
+              <View className="flex-1 gap-1 border-r border-border px-3.5 py-3">
                 <Eyebrow>Salida</Eyebrow>
                 <Text testID="trip-detail-departure" className="font-sans-medium text-[14px] leading-[19px] text-fg">
                   {formatTripDateLong(trip.departureAt)}
@@ -304,9 +308,9 @@ export default function TripDetailScreen() {
                   Paquetes aceptados ({trip.acceptedPackagesCount})
                 </Text>
                 {packages.length > 0 ? (
-                  <Text testID="trip-detail-total" className="font-sans text-[13px] text-ink-500">
+                  <Text testID="trip-detail-total" className="font-sans text-[13px] text-fg-3">
                     Total acordado{" "}
-                    <Text className="font-sans-semibold text-ink-950">{formatPriceArs(total)}</Text>
+                    <Text className="font-sans-semibold text-fg">{formatPriceArs(total)}</Text>
                   </Text>
                 ) : null}
               </View>
@@ -324,7 +328,7 @@ export default function TripDetailScreen() {
                 <PressableScale
                   testID="trip-detail-search-more"
                   onPress={() => searchPackages(trip)}
-                  className="h-12 flex-row items-center justify-center gap-2 rounded-lg border border-ink-950/[0.18]"
+                  className="h-12 flex-row items-center justify-center gap-2 rounded-lg border border-border-strong"
                 >
                   <Search size={18} color={colors.fg1} strokeWidth={1.75} />
                   <Text className="font-sans-medium text-[15px] text-fg">Buscar más paquetes para este viaje</Text>
@@ -333,10 +337,10 @@ export default function TripDetailScreen() {
               {isDeclared ? (
                 <View
                   testID="trip-detail-locked-note"
-                  className="flex-row gap-2.5 rounded-lg bg-ink-50 px-3.5 py-3"
+                  className="flex-row gap-2.5 rounded-lg bg-bg-sub px-3.5 py-3"
                 >
-                  <Lock size={14} color="#8A8A93" strokeWidth={1.75} />
-                  <Text className="flex-1 font-sans text-[12px] leading-[18px] text-ink-500">
+                  <Lock size={14} color={colors.fg3} strokeWidth={1.75} />
+                  <Text className="flex-1 font-sans text-[12px] leading-[18px] text-fg-3">
                     Con paquetes aceptados no podés editar ni cancelar el viaje. Si necesitás cancelar, hacelo desde
                     cada envío.
                   </Text>
@@ -352,17 +356,17 @@ export default function TripDetailScreen() {
       </ScrollView>
 
       {showFooter ? (
-        <View className="absolute inset-x-0 bottom-0 gap-2 border-t border-ink-950/[0.06] bg-bg px-5 pb-[34px] pt-3">
+        <View className="absolute inset-x-0 bottom-0 gap-2 border-t border-border bg-bg px-5 pt-3" style={{ paddingBottom: footerBottomPadding }}>
           {startError ? <ErrorBanner testID="trip-detail-start-error" message={startError} /> : null}
           {trip.status === TripStatus.ACTIVE ? (
             <PressableScale
               testID="trip-detail-live-route"
               onPress={() => router.push({ pathname: "/route", params: { tripId: trip.id } } as any)}
               accessibilityRole="button"
-              className="h-[52px] flex-row items-center justify-center gap-2.5 rounded-lg bg-ink-950"
+              className="h-[52px] flex-row items-center justify-center gap-2.5 rounded-lg bg-fg"
             >
-              <Navigation size={18} color="#FFFFFF" strokeWidth={1.75} />
-              <Text className="font-sans-semibold text-[16px] text-white">Ver ruta en vivo</Text>
+              <Navigation size={18} color={colors.bg} strokeWidth={1.75} />
+              <Text className="font-sans-semibold text-[16px] text-bg">Ver ruta en vivo</Text>
             </PressableScale>
           ) : (
             <PressableScale

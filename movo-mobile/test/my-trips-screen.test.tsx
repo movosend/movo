@@ -27,7 +27,7 @@ jest.mock("expo-router", () => ({
 const mockUseMyTrips = jest.fn();
 
 jest.mock("../src/hooks/use-trips", () => ({
-  useMyTrips: (...args: unknown[]) => mockUseMyTrips(...args),
+  useMyTripsPaged: (...args: unknown[]) => mockUseMyTrips(...args),
 }));
 
 const mockDiffAndMarkSeenTrips = jest.fn().mockResolvedValue({ newTripIds: [] });
@@ -75,7 +75,7 @@ const TRIP_COMPLETED: TripWithAcceptedPackages = {
 };
 
 const listOf = (...items: TripWithAcceptedPackages[]) => ({
-  data: { items, page: 1, limit: 50, total: items.length },
+  data: { pages: [{ items, page: 1, limit: 50, total: items.length }] },
   isLoading: false,
   isError: false,
   refetch: jest.fn(),
@@ -102,7 +102,7 @@ describe("MyTripsScreen", () => {
   it("muestra la confirmación de éxito al volver de declarar un viaje (?created=1)", async () => {
     mockUseLocalSearchParams.mockReturnValue({ created: "1" });
     mockUseMyTrips.mockReturnValue({
-      data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
+      data: { pages: [{ items: [TRIP_A], page: 1, limit: 50, total: 1 }] },
       isLoading: false,
       isError: false,
       refetch: jest.fn(),
@@ -116,7 +116,7 @@ describe("MyTripsScreen", () => {
 
   it("no muestra la confirmación de éxito sin el param created", async () => {
     mockUseMyTrips.mockReturnValue({
-      data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
+      data: { pages: [{ items: [TRIP_A], page: 1, limit: 50, total: 1 }] },
       isLoading: false,
       isError: false,
       refetch: jest.fn(),
@@ -130,7 +130,7 @@ describe("MyTripsScreen", () => {
   it("MOVO-236 AC2: muestra un banner in-app cuando el diff detecta un viaje nuevo (fallback sin push)", async () => {
     mockDiffAndMarkSeenTrips.mockResolvedValueOnce({ newTripIds: ["trip-1"] });
     mockUseMyTrips.mockReturnValue({
-      data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
+      data: { pages: [{ items: [TRIP_A], page: 1, limit: 50, total: 1 }] },
       isLoading: false,
       isError: false,
       refetch: jest.fn(),
@@ -146,7 +146,7 @@ describe("MyTripsScreen", () => {
   it("MOVO-236 AC2: usa copy en plural cuando el diff detecta más de un viaje nuevo", async () => {
     mockDiffAndMarkSeenTrips.mockResolvedValueOnce({ newTripIds: ["trip-1", "trip-active"] });
     mockUseMyTrips.mockReturnValue({
-      data: { items: [TRIP_A, TRIP_ACTIVE], page: 1, limit: 50, total: 2 },
+      data: { pages: [{ items: [TRIP_A, TRIP_ACTIVE], page: 1, limit: 50, total: 2 }] },
       isLoading: false,
       isError: false,
       refetch: jest.fn(),
@@ -160,7 +160,7 @@ describe("MyTripsScreen", () => {
   it("MOVO-236 AC2: sin viajes nuevos en el diff, no muestra ningún banner", async () => {
     mockDiffAndMarkSeenTrips.mockResolvedValueOnce({ newTripIds: [] });
     mockUseMyTrips.mockReturnValue({
-      data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
+      data: { pages: [{ items: [TRIP_A], page: 1, limit: 50, total: 1 }] },
       isLoading: false,
       isError: false,
       refetch: jest.fn(),
@@ -177,7 +177,7 @@ describe("MyTripsScreen", () => {
     mockUseLocalSearchParams.mockReturnValue({ created: "1" });
     mockDiffAndMarkSeenTrips.mockResolvedValueOnce({ newTripIds: ["trip-1"] });
     mockUseMyTrips.mockReturnValue({
-      data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
+      data: { pages: [{ items: [TRIP_A], page: 1, limit: 50, total: 1 }] },
       isLoading: false,
       isError: false,
       refetch: jest.fn(),
@@ -201,7 +201,7 @@ describe("MyTripsScreen", () => {
   });
 
   it("muestra el estado vacío con CTA cuando no hay viajes", async () => {
-    mockUseMyTrips.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 }, isLoading: false, isError: false, refetch: jest.fn() });
+    mockUseMyTrips.mockReturnValue({ data: { pages: [{ items: [], page: 1, limit: 50, total: 0 }] }, isLoading: false, isError: false, refetch: jest.fn() });
 
     const { getByText, getByTestId } = await render(<MyTripsScreen />);
 
@@ -211,7 +211,7 @@ describe("MyTripsScreen", () => {
 
   it("lista los viajes declarados", async () => {
     mockUseMyTrips.mockReturnValue({
-      data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
+      data: { pages: [{ items: [TRIP_A], page: 1, limit: 50, total: 1 }] },
       isLoading: false,
       isError: false,
       refetch: jest.fn(),
@@ -230,6 +230,52 @@ describe("MyTripsScreen", () => {
 
     expect(getByTestId("my-trips-cancelled-success")).toBeTruthy();
     expect(getByText("Cancelaste el viaje a Villa María")).toBeTruthy();
+  });
+
+  it("review PR #219: tocar una card del historial abre el detalle del viaje", async () => {
+    mockUseMyTrips.mockReturnValue(listOf(TRIP_COMPLETED));
+
+    const { getByTestId } = await render(<MyTripsScreen />);
+    await fireEvent.press(getByTestId("my-trips-tab-history"));
+    await fireEvent.press(getByTestId(`my-trips-card-${TRIP_COMPLETED.id}`));
+
+    expect(mockRouterPush).toHaveBeenCalledWith(`/carrier/trips/${TRIP_COMPLETED.id}`);
+  });
+
+  it("review PR #219: con más páginas ofrece 'Cargar más' y pide la siguiente", async () => {
+    const fetchNextPage = jest.fn();
+    mockUseMyTrips.mockReturnValue({ ...listOf(TRIP_A), hasNextPage: true, fetchNextPage, isFetchingNextPage: false });
+
+    const { getByTestId } = await render(<MyTripsScreen />);
+    await fireEvent.press(getByTestId("my-trips-load-more"));
+
+    expect(fetchNextPage).toHaveBeenCalled();
+  });
+
+  it("review PR #219: sin 'Cargar más' cuando no hay otra página", async () => {
+    mockUseMyTrips.mockReturnValue({ ...listOf(TRIP_A), hasNextPage: false });
+
+    const { queryByTestId } = await render(<MyTripsScreen />);
+
+    expect(queryByTestId("my-trips-load-more")).toBeNull();
+  });
+
+  it("review PR #219: con 'Próximos' vacío no se duplica 'Declarar viaje' (barra oculta)", async () => {
+    mockUseMyTrips.mockReturnValue(listOf());
+
+    const { getByTestId, queryByTestId } = await render(<MyTripsScreen />);
+
+    expect(getByTestId("my-trips-empty-add")).toBeTruthy();
+    expect(queryByTestId("my-trips-add")).toBeNull();
+  });
+
+  it("review PR #219: el chip de aceptados nunca dice 'a bordo' (el conteo incluye entregados y por retirar)", async () => {
+    mockUseMyTrips.mockReturnValue(listOf({ ...TRIP_ACTIVE, hasAcceptedPackages: true, acceptedPackagesCount: 3 }));
+
+    const { getByText, queryByText } = await render(<MyTripsScreen />);
+
+    expect(getByText("3 aceptados")).toBeTruthy();
+    expect(queryByText(/a bordo/)).toBeNull();
   });
 
   it("MOVO-262 AC1: abre en 'Próximos' y cambiar a 'Historial' consulta con el scope correcto", async () => {
@@ -276,7 +322,7 @@ describe("MyTripsScreen", () => {
     expect(getByText("Completado")).toBeTruthy();
     expect(getByText("Cancelado")).toBeTruthy();
     expect(getByText("Venció")).toBeTruthy();
-    expect(getByText("2 paquetes entregados")).toBeTruthy();
+    expect(getByText("Llevaste 2 paquetes")).toBeTruthy();
     expect(getByText("Sin paquetes aceptados")).toBeTruthy();
     expect(getByText(/^Lo cancelaste el /)).toBeTruthy();
   });
@@ -317,7 +363,7 @@ describe("MyTripsScreen", () => {
 
   it("navega a declarar viaje desde el botón al pie", async () => {
     mockUseMyTrips.mockReturnValue({
-      data: { items: [TRIP_A], page: 1, limit: 50, total: 1 },
+      data: { pages: [{ items: [TRIP_A], page: 1, limit: 50, total: 1 }] },
       isLoading: false,
       isError: false,
       refetch: jest.fn(),
@@ -331,7 +377,7 @@ describe("MyTripsScreen", () => {
 
   it("vuelve atrás al tocar el botón de back cuando hay historial", async () => {
     mockCanGoBack.mockReturnValue(true);
-    mockUseMyTrips.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 }, isLoading: false, isError: false, refetch: jest.fn() });
+    mockUseMyTrips.mockReturnValue({ data: { pages: [{ items: [], page: 1, limit: 50, total: 0 }] }, isLoading: false, isError: false, refetch: jest.fn() });
 
     const { getByTestId } = await render(<MyTripsScreen />);
     await fireEvent.press(getByTestId("my-trips-back"));
@@ -341,7 +387,7 @@ describe("MyTripsScreen", () => {
 
   it("reemplaza a la tab de transportar si no hay historial", async () => {
     mockCanGoBack.mockReturnValue(false);
-    mockUseMyTrips.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 }, isLoading: false, isError: false, refetch: jest.fn() });
+    mockUseMyTrips.mockReturnValue({ data: { pages: [{ items: [], page: 1, limit: 50, total: 0 }] }, isLoading: false, isError: false, refetch: jest.fn() });
 
     const { getByTestId } = await render(<MyTripsScreen />);
     await fireEvent.press(getByTestId("my-trips-back"));
