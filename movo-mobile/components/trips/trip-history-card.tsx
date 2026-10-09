@@ -1,63 +1,66 @@
-import { ArrowRight, Check, Package, Timer, X } from "lucide-react-native";
+import { ArrowRight, Package } from "lucide-react-native";
 import { Text, View } from "react-native";
+import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { shortAddressLabel } from "../../src/lib/shipment-format";
-import { tripDeliveredChipLabel, tripHistoryDate, tripHistorySubtext, tripStatusLabel } from "../../src/lib/trip-format";
+import { tripCarriedChipLabel, tripHistoryDate, tripHistorySubtext } from "../../src/lib/trip-format";
 import { TripStatus, type TripWithAcceptedPackages } from "../../src/api/trips-client";
+import { PressableScale } from "./pressable-scale";
+import { TripStatusPill } from "./trip-status-pill";
 
-// [fondo, texto, ícono] por estado, tal cual el mockup.
-const PILL: Partial<Record<TripStatus, { bg: string; fg: string; Icon: typeof Check }>> = {
-  [TripStatus.COMPLETED]: { bg: "rgba(43,182,115,0.14)", fg: "#1B7A4C", Icon: Check },
-  [TripStatus.EXPIRED]: { bg: "#E6E6EA", fg: "#5A5A62", Icon: Timer },
-  [TripStatus.CANCELLED]: { bg: "rgba(229,72,77,0.1)", fg: "#B42A2F", Icon: X },
-};
-
-/** Fila del tab "Historial" (rediseño MOVO-262): `ink-50`, sin sombra, pill con ícono + fecha. */
-export function TripHistoryCard({ trip, testID }: { trip: TripWithAcceptedPackages; testID?: string }) {
-  const pill = PILL[trip.status] ?? PILL[TripStatus.EXPIRED]!;
+/**
+ * Fila del tab "Historial" (rediseño MOVO-262): `bg-sub`, sin sombra, pill con ícono + fecha.
+ * Tocarla abre el detalle del viaje (AC5), igual que las cards de "Próximos".
+ */
+export function TripHistoryCard({
+  trip,
+  onPress,
+  testID,
+}: {
+  trip: TripWithAcceptedPackages;
+  onPress?: () => void;
+  testID?: string;
+}) {
+  const colors = useThemeColors();
   const subtext = tripHistorySubtext(trip);
 
   return (
-    <View
+    <PressableScale
       testID={testID}
-      className="gap-2 rounded-[10px] border border-ink-950/[0.06] bg-ink-50 px-4 py-3.5"
+      onPress={onPress}
+      disabled={!onPress}
+      className="gap-2 rounded-[10px] border border-border bg-bg-sub px-4 py-3.5"
     >
       <View className="flex-row items-center justify-between gap-2">
-        <View
-          className="h-[22px] flex-row items-center gap-[5px] rounded-full pl-[7px] pr-[9px]"
-          style={{ backgroundColor: pill.bg }}
-        >
-          <pill.Icon size={12} color={pill.fg} strokeWidth={2} />
-          <Text className="font-sans-semibold text-[12px]" style={{ color: pill.fg }}>
-            {tripStatusLabel(trip.status)}
-          </Text>
-        </View>
-        <Text className="font-sans text-[12px] text-ink-400">{tripHistoryDate(trip.departureAt)}</Text>
+        <TripStatusPill status={trip.status} compact />
+        <Text className="font-sans text-[12px] text-fg-3">{tripHistoryDate(trip.departureAt)}</Text>
       </View>
       <View className="flex-row items-center gap-2">
-        <Text className="shrink font-sans-medium text-[15px] text-ink-600" numberOfLines={1}>
+        <Text className="shrink font-sans-medium text-[15px] text-fg-2" numberOfLines={1}>
           {shortAddressLabel(trip.originAddress)}
         </Text>
-        <ArrowRight size={16} color="#B4B4BC" strokeWidth={1.75} />
-        <Text className="shrink font-sans-medium text-[15px] text-ink-600" numberOfLines={1}>
+        <ArrowRight size={16} color={colors.fg3} strokeWidth={1.75} />
+        <Text className="shrink font-sans-medium text-[15px] text-fg-2" numberOfLines={1}>
           {shortAddressLabel(trip.destinationAddress)}
         </Text>
       </View>
+      {/* "Llevaste N paquetes", no "entregados": `acceptedPackagesCount` incluye los que
+          quedaron en disputa, que el cierre del viaje cuenta como terminados. */}
       {trip.status === TripStatus.COMPLETED ? (
         <View
           testID={testID ? `${testID}-delivered-chip` : undefined}
-          className="h-6 flex-row items-center gap-1.5 self-start rounded-full bg-ink-100 px-[9px]"
+          className="h-6 flex-row items-center gap-1.5 self-start rounded-full bg-bg-mute px-[9px]"
         >
           <Package size={14} color="#1B7A4C" strokeWidth={2} />
-          <Text className="font-sans-medium text-[12px] text-ink-800">
-            {tripDeliveredChipLabel(trip.acceptedPackagesCount)}
+          <Text className="font-sans-medium text-[12px] text-fg-2">
+            {tripCarriedChipLabel(trip.acceptedPackagesCount)}
           </Text>
         </View>
       ) : null}
       {subtext ? (
-        <Text testID={testID ? `${testID}-subtext` : undefined} className="font-sans text-[13px] leading-[18px] text-ink-500">
+        <Text testID={testID ? `${testID}-subtext` : undefined} className="font-sans text-[13px] leading-[18px] text-fg-3">
           {subtext}
         </Text>
       ) : null}
-    </View>
+    </PressableScale>
   );
 }

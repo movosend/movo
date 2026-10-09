@@ -2,15 +2,13 @@ import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { TripStatus } from "../src/api/trips-client";
 import {
   formatDepartureDateOnly,
-  formatDepartureLabel,
   formatTripStartErrorMessage,
   isTripDepartureToday,
   tripStatusLabel,
-  tripStatusTone,
   tripStubParts,
   tripHistoryDate,
   tripHistorySubtext,
-  tripDeliveredChipLabel,
+  tripCarriedChipLabel,
   tripMonthLabel,
 } from "../src/lib/trip-format";
 
@@ -21,14 +19,6 @@ describe("trip-format (MOVO-252)", () => {
     expect(tripStatusLabel(TripStatus.EXPIRED)).toBe("Venció");
     expect(tripStatusLabel(TripStatus.COMPLETED)).toBe("Completado");
     expect(tripStatusLabel(TripStatus.CANCELLED)).toBe("Cancelado");
-  });
-
-  it("tripStatusTone (MOVO-262 AC2): lima a declarado, oscuro a en curso, neutral a vencido", () => {
-    expect(tripStatusTone(TripStatus.ACTIVE)).toBe("dark");
-    expect(tripStatusTone(TripStatus.DECLARED)).toBe("lime");
-    expect(tripStatusTone(TripStatus.EXPIRED)).toBe("neutral");
-    expect(tripStatusTone(TripStatus.COMPLETED)).toBe("success");
-    expect(tripStatusTone(TripStatus.CANCELLED)).toBe("danger");
   });
 
   it("formatDepartureDateOnly formatea día y mes en español", () => {
@@ -52,8 +42,8 @@ describe("trip-format (MOVO-252)", () => {
     expect(tripHistoryDate("2026-09-26T15:00:00.000Z")).toBe("sáb 26 sep");
     expect(tripMonthLabel("2026-09-26T15:00:00.000Z")).toBe("Septiembre 2026");
     expect(tripHistorySubtext({ status: TripStatus.COMPLETED, acceptedPackagesCount: 1, cancelledAt: null })).toBeNull();
-    expect(tripDeliveredChipLabel(1)).toBe("1 paquete entregado");
-    expect(tripDeliveredChipLabel(3)).toBe("3 paquetes entregados");
+    expect(tripCarriedChipLabel(1)).toBe("Llevaste 1 paquete");
+    expect(tripCarriedChipLabel(3)).toBe("Llevaste 3 paquetes");
     expect(tripHistorySubtext({ status: TripStatus.EXPIRED, acceptedPackagesCount: 0, cancelledAt: null })).toBe("Sin paquetes aceptados");
     expect(tripHistorySubtext({ status: TripStatus.CANCELLED, acceptedPackagesCount: 0, cancelledAt: "2026-09-12T15:00:00.000Z" })).toBe("Lo cancelaste el 12 sep");
     expect(tripHistorySubtext({ status: TripStatus.ACTIVE, acceptedPackagesCount: 0, cancelledAt: null })).toBeNull();

@@ -15,43 +15,6 @@ export function tripStatusLabel(status: TripStatus): string {
   return TRIP_STATUS_LABELS[status];
 }
 
-/**
- * `lime` = declarado (lime-200 + ink-950); `dark` = en curso (ink-950 + texto lima-400 +
- * punto lima animado, ver `TripCard`). El resto son los tonos semánticos de siempre.
- */
-export type TripStatusTone = "lime" | "dark" | "success" | "danger" | "neutral";
-
-export function tripStatusTone(status: TripStatus): TripStatusTone {
-  switch (status) {
-    case TripStatus.DECLARED:
-      return "lime";
-    case TripStatus.ACTIVE:
-      return "dark";
-    case TripStatus.COMPLETED:
-      return "success";
-    case TripStatus.CANCELLED:
-      return "danger";
-    case TripStatus.EXPIRED:
-    default:
-      return "neutral";
-  }
-}
-
-const DEPARTURE_FORMATTER = new Intl.DateTimeFormat("es-AR", {
-  weekday: "short",
-  day: "numeric",
-  month: "short",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-/** `departureAt` viaja como ISO datetime completo (`Trip` en `trips-client.ts`) — sin
- * el gotcha de timezone de `pickupDate` (ver CLAUDE.md de `svc-shipments`/MOVO-80), se
- * lee en hora local del dispositivo directo con `new Date`. */
-export function formatDepartureLabel(departureAt: string): string {
-  return DEPARTURE_FORMATTER.format(new Date(departureAt));
-}
-
 const DEPARTURE_DATE_FORMATTER = new Intl.DateTimeFormat("es-AR", {
   day: "numeric",
   month: "long",
@@ -142,7 +105,7 @@ export function tripHistorySubtext(trip: {
 }): string | null {
   switch (trip.status) {
     case TripStatus.COMPLETED:
-      // Se muestra como chip (`tripDeliveredChipLabel`), no como línea de texto.
+      // Se muestra como chip (`tripCarriedChipLabel`), no como línea de texto.
       return null;
     case TripStatus.EXPIRED:
       return "Sin paquetes aceptados";
@@ -156,9 +119,12 @@ export function tripHistorySubtext(trip: {
   }
 }
 
-/** Chip del historial para un viaje completado: "3 paquetes entregados". */
-export function tripDeliveredChipLabel(count: number): string {
-  return `${count} ${count === 1 ? "paquete entregado" : "paquetes entregados"}`;
+/**
+ * Chip del historial para un viaje completado: "Llevaste 3 paquetes". No dice "entregados":
+ * el conteo de paquetes aceptados incluye los que quedaron en disputa.
+ */
+export function tripCarriedChipLabel(count: number): string {
+  return `Llevaste ${count} ${count === 1 ? "paquete" : "paquetes"}`;
 }
 
 /** Encabezado de mes para agrupar el historial ("Septiembre 2026"), por `departureAt`. */

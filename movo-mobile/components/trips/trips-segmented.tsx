@@ -10,6 +10,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useEffect } from "react";
 import type { TripListScope } from "../../src/api/trips-client";
+import { useThemeColors } from "../../src/hooks/use-theme-colors";
 
 const TABS: { scope: TripListScope; label: string }[] = [
   { scope: "upcoming", label: "Próximos" },
@@ -18,9 +19,21 @@ const TABS: { scope: TripListScope; label: string }[] = [
 const EASE_OUT = Easing.bezier(0.22, 1, 0.36, 1);
 const PADDING = 3;
 
-function TabLabel({ label, index, position }: { label: string; index: number; position: { value: number } }) {
+function TabLabel({
+  label,
+  index,
+  position,
+  selectedColor,
+  idleColor,
+}: {
+  label: string;
+  index: number;
+  position: { value: number };
+  selectedColor: string;
+  idleColor: string;
+}) {
   const style = useAnimatedStyle(() => ({
-    color: interpolateColor(Math.abs(position.value - index), [0, 1], ["#FFFFFF", "#0A0A0B"]),
+    color: interpolateColor(Math.abs(position.value - index), [0, 1], [selectedColor, idleColor]),
   }));
   return (
     <Animated.Text style={style} className="font-sans-medium text-[15px]">
@@ -34,6 +47,7 @@ function TabLabel({ label, index, position }: { label: string; index: number; po
  * que se desliza (280ms ease-out) y etiquetas que cambian de color (200ms).
  */
 export function TripsSegmented({ value, onChange }: { value: TripListScope; onChange: (s: TripListScope) => void }) {
+  const colors = useThemeColors();
   const [width, setWidth] = useState(0);
   const index = TABS.findIndex((t) => t.scope === value);
   const slide = useSharedValue(index);
@@ -55,11 +69,11 @@ export function TripsSegmented({ value, onChange }: { value: TripListScope; onCh
     <View
       testID="my-trips-tabs"
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-      className="mt-[18px] flex-row rounded-full bg-ink-100 p-[3px]"
+      className="mt-[18px] flex-row rounded-full bg-bg-mute p-[3px]"
     >
       <Animated.View
         style={[{ position: "absolute", top: PADDING, bottom: PADDING, left: PADDING }, indicatorStyle]}
-        className="rounded-full bg-ink-950"
+        className="rounded-full bg-fg"
       />
       {TABS.map((tab, i) => (
         <Pressable
@@ -70,7 +84,13 @@ export function TripsSegmented({ value, onChange }: { value: TripListScope; onCh
           accessibilityState={{ selected: tab.scope === value }}
           className="h-10 flex-1 items-center justify-center"
         >
-          <TabLabel label={tab.label} index={i} position={position} />
+          <TabLabel
+            label={tab.label}
+            index={i}
+            position={position}
+            selectedColor={colors.bg}
+            idleColor={colors.fg1}
+          />
         </Pressable>
       ))}
     </View>

@@ -4230,5 +4230,13 @@ muestra en ambos tabs.
   reemplaza lo de MOVO-258 (viaje `active` → `/route` al tocar la card).
 - Buscar paquetes (feed filtrado por `tripId`) y el vehículo ya no están en la card: van en el detalle (MOVO-263, AC4).
 - Historial: "Completado" muestra el chip "N paquetes entregados"; "Venció" solo "Sin paquetes aceptados"; "Cancelado" "Lo cancelaste el {fecha}".
+- Fixes del review (PR #219): colores con tokens semánticos (`text-fg`, `bg-bg-sub`, `border-border`) en vez de
+  la escala fija `ink-*` sobre `bg-bg`, que en modo oscuro dejaba direcciones y talón invisibles; el chip dice
+  "N aceptados" (no "a bordo") y "Llevaste N paquetes" (no "entregados"), porque `acceptedPackagesCount` también
+  cuenta los entregados, los por retirar y los en disputa; las cards del historial abren el detalle; la lista
+  pagina (`useMyTripsPaged`, "Cargar más" según el `total` del backend); la barra inferior y el scroll usan
+  `insets.bottom`, y la barra se oculta con "Próximos" vacío (ya hay un "Declarar viaje" en el estado vacío).
+  `TripStatusPill` es el único lugar donde se definen los colores de estado; se borraron `tripStatusTone`,
+  `formatDepartureLabel` y `useDeleteTrip` (sin uso).
 - Sin datos de recurrencia en el backend: el chip "Todos los viernes" del mockup no se renderiza.
 - `useDeleteTrip` queda sin uso hasta que MOVO-263 sume `useCancelTrip`.

@@ -35,6 +35,24 @@ export function useMyTrips(scope: TripListScope = "upcoming", enabled = true) {
   });
 }
 
+const TRIPS_PAGE_SIZE = 50;
+
+/**
+ * "Mis viajes" paginado (review de PR #219): una página de `TRIPS_PAGE_SIZE` por vez y
+ * `hasNextPage` según el `total` del backend, para que con más de 50 viajes los más viejos
+ * del historial no desaparezcan sin aviso. La key empieza con `TRIPS_LIST_QUERY_KEY`, así que
+ * las invalidaciones por prefijo (crear/cancelar/iniciar un viaje) la alcanzan.
+ */
+export function useMyTripsPaged(scope: TripListScope) {
+  return useInfiniteQuery({
+    queryKey: [...TRIPS_LIST_QUERY_KEY, scope, "paged"],
+    queryFn: ({ pageParam }) => tripsClient.list({ page: pageParam, limit: TRIPS_PAGE_SIZE, scope }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => (lastPage.page * lastPage.limit < lastPage.total ? lastPage.page + 1 : undefined),
+    retry: false,
+  });
+}
+
 /** Detalle de un viaje propio — usado por la pantalla de editar para precargar el
  * formulario y reconfirmar `hasAcceptedPackages` justo antes de mostrarlo (defensa
  * contra un listado desactualizado por una carrera real). */
@@ -87,16 +105,6 @@ export function useTripMatches(tripId: string | undefined, radiusKm?: number, li
     getNextPageParam: (lastPage) =>
       lastPage.page * lastPage.limit < lastPage.total ? lastPage.page + 1 : undefined,
     enabled: !!tripId,
-  });
-}
-
-export function useDeleteTrip() {
-  const queryClient = useQueryClient();
-  return useMutation<void, unknown, string>({
-    mutationFn: (id) => tripsClient.remove(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: TRIPS_LIST_QUERY_KEY });
-    },
   });
 }
 
