@@ -53,6 +53,7 @@ function trip(overrides: Partial<TripWithAcceptedPackages> = {}): TripWithAccept
     status: TripStatus.DECLARED,
     createdAt: "2026-09-03T12:00:00.000Z",
     updatedAt: "2026-09-03T12:00:00.000Z",
+    cancelledAt: null,
     hasAcceptedPackages: false,
     acceptedPackagesCount: 0,
     ...overrides,
@@ -290,7 +291,7 @@ describe("useActiveTripMatchAlert", () => {
 
     await renderHook(() => useActiveTripMatchAlert());
 
-    expect(mockUseMyTrips).toHaveBeenCalledWith(false);
+    expect(mockUseMyTrips).toHaveBeenCalledWith("upcoming", false);
   });
 
   it("con rol de transportista, useMyTrips se llama habilitado", async () => {
@@ -299,7 +300,7 @@ describe("useActiveTripMatchAlert", () => {
 
     await renderHook(() => useActiveTripMatchAlert());
 
-    expect(mockUseMyTrips).toHaveBeenCalledWith(true);
+    expect(mockUseMyTrips).toHaveBeenCalledWith("upcoming", true);
   });
 
   it("al reabrir la app (hook remontado de cero), un match pendiente ya existente alerta de entrada tras su propio delay de arranque", async () => {

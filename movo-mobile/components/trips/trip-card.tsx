@@ -1,181 +1,114 @@
-import { ArrowRight, Clock, Pencil, Trash2, Truck } from "lucide-react-native";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import { router } from "expo-router";
+import { Package } from "lucide-react-native";
+import { Text, View } from "react-native";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { shortAddressLabel } from "../../src/lib/shipment-format";
-import { formatDepartureLabel, tripStatusLabel, tripStatusTone } from "../../src/lib/trip-format";
+import { tripStubParts } from "../../src/lib/trip-format";
 import { TripStatus, type TripWithAcceptedPackages } from "../../src/api/trips-client";
-
-const TONE_BADGE_CLASS: Record<"success" | "warning" | "danger" | "lime" | "neutral", string> = {
-  success: "bg-success-100 text-success-700",
-  warning: "bg-warning-100 text-warning-700",
-  danger: "bg-danger-100 text-danger-700",
-  // Acento de marca — feedback de UI: el estado "Activo" usa el lima característico
-  // de Movo en vez del azul semántico genérico ("info").
-  lime: "bg-lime-200 text-ink-950",
-  neutral: "bg-bg-mute text-fg-2",
-};
+import { PressableScale } from "./pressable-scale";
+import { TripStatusPill } from "./trip-status-pill";
 
 interface TripCardProps {
   trip: TripWithAcceptedPackages;
-  onEdit: () => void;
-  onDelete: () => void;
   onPress?: () => void;
-  onStart?: () => void;
-  isStarting?: boolean;
   testID?: string;
 }
 
+const CARD_SHADOW = {
+  shadowColor: "#0A0A0B",
+  shadowOpacity: 0.04,
+  shadowRadius: 2,
+  shadowOffset: { width: 0, height: 1 },
+  elevation: 1,
+};
+
 /**
- * Fila del listado "Mis viajes" (MOVO-162, AC2). Distinción visual de AC2/AC4: si
- * `hasAcceptedPackages`, no se exponen los íconos de editar/eliminar — se reemplazan
- * por un badge + texto explicativo, mismo criterio de "no ofrecer una acción que el
- * backend va a rechazar con 409" que ya usa `SenderActionsBar`/`ReceiverActionsBar`
- * (MOVO-29/MOVO-131) para sus propios gates de estado. Mismo criterio para un viaje
- * `cancelled`/`completed` sin paquetes aceptados (hallazgo de review, PR #120): tampoco
- * tiene sentido ofrecer editar/eliminar un viaje en un estado terminal — el backend
- * lo rechazaría igual (`update`/`delete` no filtran por status, pero no hay ninguna
- * transición de vuelta a `declared`/`active` que la edición pudiera tener sentido de
- * completar). MOVO-221 (fix de review, PR #168): la condición original exigía
- * `status === ACTIVE` a secas, heredada de cuando ese era el único estado no terminal
- * — con `declared` como estado inicial real, esa condición ocultaba editar/eliminar
- * para TODO viaje recién declarado. Se invierte a "no es un estado terminal" en vez
- * de listar los no-terminales, para no tener que volver a tocar esto si se agrega un
- * estado no terminal nuevo más adelante.
+ * Card "Horario" de "Mis viajes" (rediseño MOVO-262, mockup de Claude Design): talón con
+ * día/mes/hora a la izquierda, pill de estado, timeline origen → destino y, abajo, el chip de
+ * paquetes aceptados (o "Sin paquetes todavía"). Tocar la card abre el detalle (MOVO-263);
+ * editar/cancelar/iniciar, el vehículo y buscar paquetes viven ahí.
  *
- * `onPress` (MOVO-163) abre el feed de paquetes compatibles con este viaje — toda la
- * card es pressable, con editar/eliminar como `Pressable`s anidados (RN resuelve el
- * touch al más específico, sin bubbling tipo DOM) para que tocar esos íconos no
- * dispare también la navegación, mismo patrón que `ContactRow` (MOVO-139).
+ * Colores con tokens semánticos (`bg-bg`, `text-fg`, `border-border`…), que se invierten en
+ * modo oscuro: la escala fija `ink-*` sobre `bg-bg` dejaba el texto invisible (review de PR
+ * #219). El talón del viaje declarado es el bloque "invertido" (`bg-fg`/`text-bg`).
  */
-export function TripCard({
-  trip,
-  onEdit,
-  onDelete,
-  onPress,
-  onStart,
-  isStarting,
-  testID,
-}: TripCardProps) {
+export function TripCard({ trip, onPress, testID }: TripCardProps) {
   const colors = useThemeColors();
-  const tone = tripStatusTone(trip.status);
-  const [badgeBg, badgeText] = TONE_BADGE_CLASS[tone].split(" ");
+  const live = trip.status === TripStatus.ACTIVE;
+  const stub = tripStubParts(trip.departureAt);
+  const n = trip.acceptedPackagesCount;
+  const stubText = live ? "text-fg" : "text-bg";
 
   return (
-    <Pressable
+    <PressableScale
       testID={testID}
       onPress={onPress}
       disabled={!onPress}
-      className="gap-3 rounded-[14px] border border-border-strong bg-bg p-4"
+      style={CARD_SHADOW}
+      className="flex-row overflow-hidden rounded-[10px] border border-border bg-bg"
     >
-      <View className="flex-row items-center justify-between">
-        <View className={`rounded-full px-3 py-1 ${badgeBg}`}>
-          <Text className={`font-sans-medium text-[11px] ${badgeText}`}>
-            {tripStatusLabel(trip.status)}
-          </Text>
-        </View>
-        <View className="flex-row items-center gap-1.5">
-          <Truck size={14} color={colors.fg3} strokeWidth={1.8} />
-          <Text className="font-sans text-[12px] text-fg-3">{trip.vehicleType}</Text>
-        </View>
-      </View>
-
-      <View className="flex-row items-center gap-2">
-        <Text className="flex-1 font-sans-medium text-[14px] text-fg" numberOfLines={1}>
-          {shortAddressLabel(trip.originAddress)}
+      <View
+        className={`w-[78px] items-center justify-center gap-0.5 border-r-[1.5px] border-dashed border-border-strong py-3.5 ${
+          live ? "bg-bg-sub" : "bg-fg"
+        }`}
+      >
+        <Text className={`font-sans-semibold text-[11px] tracking-[0.88px] opacity-70 ${stubText}`}>{stub.dow}</Text>
+        <Text className={`font-sans-semibold text-[30px] leading-[30px] tracking-[-1.2px] ${stubText}`}>
+          {stub.day}
         </Text>
-        <ArrowRight size={14} color={colors.fg3} strokeWidth={1.8} />
-        <Text className="flex-1 text-right font-sans-medium text-[14px] text-fg" numberOfLines={1}>
-          {shortAddressLabel(trip.destinationAddress)}
+        <Text className={`font-sans-semibold text-[11px] tracking-[0.88px] opacity-70 ${stubText}`}>{stub.mon}</Text>
+        <Text
+          className={`mt-2 font-sans-medium text-[12px] ${live ? "text-fg-3" : "text-lime-500 dark:text-fg-3"}`}
+          style={{ fontVariant: ["tabular-nums"] }}
+        >
+          {stub.time}
         </Text>
       </View>
 
-      {trip.hasAcceptedPackages ? (
-        <View className="gap-1.5 rounded-[10px] bg-bg-mute px-3.5 py-3">
-          <Text
-            testID={testID ? `${testID}-accepted-badge` : undefined}
-            className="font-sans-medium text-[12px] text-fg"
-          >
-            Paquetes aceptados
-          </Text>
-          <Text className="font-sans text-[11px] text-fg-3">
-            Este viaje tiene paquetes aceptados y no se puede modificar ni cancelar
-            directamente.
-          </Text>
+      <View className="min-w-0 flex-1 gap-3 py-3.5 pl-4 pr-3.5">
+        <View className="flex-row items-center justify-between">
+          <TripStatusPill status={trip.status} />
         </View>
-      ) : null}
 
-      {trip.hasAcceptedPackages && trip.status === TripStatus.DECLARED ? (
-        <Pressable
-          testID={testID ? `${testID}-start-btn` : undefined}
-          onPress={(e) => {
-            e.stopPropagation?.();
-            onStart?.();
-          }}
-          disabled={isStarting}
-          accessibilityRole="button"
-          accessibilityLabel="Iniciar viaje"
-          className="h-[48px] w-full items-center justify-center rounded-[8px] bg-lime-500 active:opacity-90"
-        >
-          {isStarting ? (
-            <ActivityIndicator size="small" color="#0A0A0B" />
-          ) : (
-            <Text className="font-sans-semibold text-[14px] text-ink-950">
-              Iniciar viaje
-            </Text>
-          )}
-        </Pressable>
-      ) : null}
-
-      {trip.status === TripStatus.ACTIVE ? (
-        <Pressable
-          testID={testID ? `${testID}-view-map-btn` : undefined}
-          onPress={(e) => {
-            e.stopPropagation?.();
-            router.push({ pathname: "/route", params: { tripId: trip.id } } as any);
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="Viaje en curso, ver mapa"
-          className="h-[48px] w-full items-center justify-center rounded-[8px] bg-fg active:opacity-90"
-        >
-          <Text className="font-sans-semibold text-[14px] text-bg">
-            Viaje en curso · ver mapa
-          </Text>
-        </Pressable>
-      ) : null}
-
-      <View className="flex-row items-center justify-between border-t border-border pt-3">
-        <View className="flex-row items-center gap-1.5">
-          <Clock size={14} color={colors.fg1} strokeWidth={1.8} />
-          <Text className="font-sans-medium text-[13px] text-fg">
-            Salida: {formatDepartureLabel(trip.departureAt)}
-          </Text>
-        </View>
-        {!trip.hasAcceptedPackages &&
-        trip.status !== TripStatus.CANCELLED &&
-        trip.status !== TripStatus.COMPLETED ? (
+        <View className="gap-0">
           <View className="flex-row items-center gap-2.5">
-            <Pressable
-              testID={testID ? `${testID}-edit` : undefined}
-              onPress={onEdit}
-              hitSlop={8}
-              accessibilityLabel="Editar viaje"
-              className="rounded-full border border-border-strong bg-bg p-2"
-            >
-              <Pencil size={14} color={colors.fg1} strokeWidth={1.8} />
-            </Pressable>
-            <Pressable
-              testID={testID ? `${testID}-delete` : undefined}
-              onPress={onDelete}
-              hitSlop={8}
-              accessibilityLabel="Eliminar viaje"
-              className="rounded-full bg-fg p-2"
-            >
-              <Trash2 size={14} color={colors.bg} strokeWidth={1.8} />
-            </Pressable>
+            <View className="w-3 items-center">
+              <View className="h-2 w-2 rounded-full border-2 border-fg" />
+            </View>
+            <Text className="flex-1 font-sans-semibold text-[15px] text-fg" numberOfLines={1}>
+              {shortAddressLabel(trip.originAddress)}
+            </Text>
           </View>
-        ) : null}
+          <View className="w-3 items-center py-[1px]">
+            <View className="h-3 w-0.5 bg-border-strong" />
+          </View>
+          <View className="flex-row items-center gap-2.5">
+            <View className="w-3 items-center">
+              <View className="h-2 w-2 rounded-full bg-fg" />
+            </View>
+            <Text className="flex-1 font-sans-semibold text-[15px] text-fg" numberOfLines={1}>
+              {shortAddressLabel(trip.destinationAddress)}
+            </Text>
+          </View>
+        </View>
+
+        {/* "N aceptados" y no "N a bordo": `acceptedPackagesCount` cuenta también los
+            entregados y los que todavía no se retiraron, no solo los que van a bordo. */}
+        {n > 0 ? (
+          <View
+            testID={testID ? `${testID}-accepted-badge` : undefined}
+            className="h-6 flex-row items-center gap-1.5 self-start rounded-full bg-bg-mute px-[9px]"
+          >
+            <Package size={14} color={colors.fg2} strokeWidth={2} />
+            <Text className="font-sans-medium text-[12px] text-fg-2">
+              {n} {n === 1 ? "aceptado" : "aceptados"}
+            </Text>
+          </View>
+        ) : (
+          <Text testID={testID ? `${testID}-no-packages` : undefined} className="font-sans text-[12px] text-fg-3">
+            Sin paquetes todavía
+          </Text>
+        )}
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }

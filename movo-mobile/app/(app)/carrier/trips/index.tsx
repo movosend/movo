@@ -1,65 +1,48 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { ChevronLeft, MapPinOff, WifiOff } from "lucide-react-native";
-import { useEffect, useState } from "react";
-import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ChevronLeft, History, MapPinOff, Plus, WifiOff } from "lucide-react-native";
+import { useEffect, useMemo, useState } from "react";
+import { RefreshControl, ScrollView, Text, View, Pressable } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { PressableScale } from "../../../../components/trips/pressable-scale";
 import { TripCard } from "../../../../components/trips/trip-card";
-import { PrimaryButton } from "../../../../components/auth/primary-button";
+import { TripHistoryCard } from "../../../../components/trips/trip-history-card";
+import { TripsSegmented } from "../../../../components/trips/trips-segmented";
 import { SkeletonBlock } from "../../../../components/ui/skeleton-block";
 import { SuccessBanner } from "../../../../components/ui/success-banner";
-import { useDeleteTrip, useMyTrips, useStartTrip } from "../../../../src/hooks/use-trips";
+import { useMyTripsPaged } from "../../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../../src/hooks/use-theme-colors";
-import { friendlyErrorMessage } from "../../../../src/lib/error-messages";
-import { formatTripStartErrorMessage } from "../../../../src/lib/trip-format";
+import { groupTripsByMonth } from "../../../../src/lib/trip-format";
 import { diffAndMarkSeenTrips } from "../../../../src/lib/seen-trips";
-import { TripStatus, type TripWithAcceptedPackages } from "../../../../src/api/trips-client";
-import { requireCarrierLocation } from "../../../../src/store/carrier-location-gate-store";
-
-const DELETE_ERROR_FALLBACK = "No pudimos cancelar el viaje. Probá de nuevo.";
+import { type TripListScope, type TripWithAcceptedPackages } from "../../../../src/api/trips-client";
 
 function TripsListSkeleton() {
   return (
-    <View className="gap-3 px-5 pt-2">
+    <View className="gap-3 px-5 pt-4">
       {[0, 1, 2].map((i) => (
-        <SkeletonBlock key={i} className="h-[150px] rounded-[14px]" />
+        <SkeletonBlock key={i} className="h-[150px] rounded-[10px]" />
       ))}
     </View>
   );
 }
 
 /**
- * "Mis viajes" (MOVO-162, AC2) — listado CRUD acotado de los viajes declarados por el
- * transportista, modelado sobre `app/(app)/addresses.tsx` (sin scroll infinito, a
- * diferencia de `shipments/index.tsx` — el volumen esperado no lo justifica, ver
- * CLAUDE.md). Sibling de `addresses.tsx`/`send.tsx` dentro de `app/(app)/`, hereda el
- * guard de sesión de `app/(app)/_layout.tsx`.
+ * "Mis viajes" (MOVO-162, rediseño MOVO-262 según el mockup de Claude Design): header con
+ * back, segmented Próximos/Historial (cada tab consume `GET /trips?scope=…`), cards "Horario"
+ * para los viajes vigentes, historial agrupado por mes y barra inferior "Declarar viaje".
+ * Sin scroll infinito (el volumen esperado no lo justifica, ver CLAUDE.md). Hereda el guard
+ * de sesión de `app/(app)/_layout.tsx`.
  */
 export default function MyTripsScreen() {
   const colors = useThemeColors();
   const { created } = useLocalSearchParams<{ created?: string }>();
-  const { data, isLoading, isError, isRefetching, refetch } = useMyTrips();
-  const deleteTrip = useDeleteTrip();
-  const startTrip = useStartTrip();
-  const [startingTripId, setStartingTripId] = useState<string | null>(null);
+  // MOVO-262 AC1: una query (y una query key) por tab; el default es "Próximos".
+  const [scope, setScope] = useState<TripListScope>("upcoming");
+  const insets = useSafeAreaInsets();
+  const { data, isLoading, isError, isRefetching, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } =
+    useMyTripsPaged(scope);
+  const trips = useMemo(() => data?.pages.flatMap((page) => page.items) ?? [], [data]);
   const [showCreatedSuccess, setShowCreatedSuccess] = useState(created === "1");
   const [autoCreatedMessage, setAutoCreatedMessage] = useState<string | null>(null);
-
-  // Iniciar el viaje arranca el tracking: sin ubicación en segundo plano se cortaría
-  // apenas se apague la pantalla, así que primero pasa por el gate.
-  const handleStartTrip = (trip: TripWithAcceptedPackages) =>
-    requireCarrierLocation(() => startTripNow(trip));
-
-  const startTripNow = async (trip: TripWithAcceptedPackages) => {
-    try {
-      setStartingTripId(trip.id);
-      await startTrip.mutateAsync(trip.id);
-    } catch (err) {
-      const msg = formatTripStartErrorMessage(err, trip.departureAt);
-      Alert.alert("No pudimos iniciar el viaje", msg);
-    } finally {
-      setStartingTripId(null);
-    }
-  };
 
   /**
    * MOVO-236, AC2: fallback in-app del aviso de viaje auto-creado (MOVO-234) cuando no
@@ -70,9 +53,9 @@ export default function MyTripsScreen() {
    * corre para dejar el set de vistos al día, pero no pisa el mensaje.
    */
   useEffect(() => {
-    if (!data) return;
+    if (!data || scope !== "upcoming") return;
     let cancelled = false;
-    diffAndMarkSeenTrips(data.items.map((trip) => trip.id)).then(({ newTripIds }) => {
+    diffAndMarkSeenTrips(trips.map((trip) => trip.id)).then(({ newTripIds }) => {
       if (cancelled || newTripIds.length === 0 || created === "1") return;
       setAutoCreatedMessage(
         newTripIds.length === 1
@@ -83,7 +66,7 @@ export default function MyTripsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [data, created]);
+  }, [data, created, scope]);
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -93,132 +76,149 @@ export default function MyTripsScreen() {
     }
   };
 
-  const handleDelete = (trip: TripWithAcceptedPackages) => {
-    Alert.alert(
-      "¿Cancelar este viaje?",
-      "No vas a poder deshacer esta acción.",
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Cancelar viaje",
-          style: "destructive",
-          onPress: () =>
-            deleteTrip.mutate(trip.id, {
-              onError: (err) =>
-                Alert.alert("Error", friendlyErrorMessage(err, DELETE_ERROR_FALLBACK)),
-            }),
-        },
-      ],
-    );
-  };
-
-  const trips = data?.items ?? [];
   const hasTrips = trips.length > 0;
+  const isHistory = scope === "history";
+  // Con "Próximos" vacío ya hay un "Declarar viaje" en el estado vacío: la barra de abajo se
+  // oculta para no mostrar dos botones iguales (review de PR #219).
+  const showAddBar = isLoading || isError || hasTrips || isHistory;
+  // Alto de la barra = 12 (padding superior) + 52 (botón) + inset inferior real del dispositivo.
+  const barBottomPadding = Math.max(insets.bottom, 12);
+  const scrollBottomPadding = showAddBar ? 12 + 52 + barBottomPadding + 24 : insets.bottom + 24;
+
+  // MOVO-262 AC5: tocar la card abre el detalle (MOVO-263). `as any`: ruta nueva, todavía no
+  // figura en los tipos de rutas de expo-router.
+  const openDetail = (trip: TripWithAcceptedPackages) => router.push(`/carrier/trips/${trip.id}` as any);
 
   return (
-    <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
-      <View className="flex-row items-center gap-3 px-5 pb-3.5 pt-1.5">
-        <Pressable
-          testID="my-trips-back"
-          onPress={handleBack}
-          className="h-8 w-8 items-center justify-center rounded-full bg-bg-mute"
-        >
-          <ChevronLeft size={18} color={colors.fg1} strokeWidth={2} />
-        </Pressable>
-        <Text className="font-sans-semibold text-h3 text-fg">Mis viajes</Text>
-      </View>
-      <Text className="px-5 pb-4 font-sans text-[13px] text-fg-3">
-        Declará los viajes que tenés planeados para encontrar paquetes compatibles
-        con tu ruta.
-      </Text>
+    <SafeAreaView className="flex-1 bg-bg" edges={["top"]}>
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: scrollBottomPadding, flexGrow: 1 }}
+        refreshControl={
+          <RefreshControl testID="my-trips-refresh" refreshing={isRefetching} onRefresh={() => refetch()} />
+        }
+      >
+        <View className="flex-row items-center gap-3 pt-1">
+          <Pressable
+            testID="my-trips-back"
+            onPress={handleBack}
+            className="h-10 w-10 items-center justify-center rounded-full bg-bg-mute"
+          >
+            <ChevronLeft size={20} color={colors.fg1} strokeWidth={1.75} />
+          </Pressable>
+          <Text className="font-sans-semibold text-[22px] tracking-[-0.44px] text-fg">Mis viajes</Text>
+        </View>
+        <Text className="mt-2.5 font-sans text-[14px] leading-[20px] text-fg-3">
+          Declarás el camino que ya vas a hacer y te aparecen paquetes que van para el mismo lado.
+        </Text>
 
-      <View className="px-5">
         <SuccessBanner
           testID={showCreatedSuccess ? "my-trips-created-success" : "my-trips-auto-created-success"}
           message={showCreatedSuccess ? "¡Viaje declarado!" : autoCreatedMessage}
-          onDismiss={() =>
-            showCreatedSuccess ? setShowCreatedSuccess(false) : setAutoCreatedMessage(null)
-          }
+          onDismiss={() => (showCreatedSuccess ? setShowCreatedSuccess(false) : setAutoCreatedMessage(null))}
         />
-      </View>
 
-      {isLoading ? (
-        <TripsListSkeleton />
-      ) : isError ? (
-        <View className="flex-1 items-center justify-center gap-2 px-8">
-          <WifiOff size={22} strokeWidth={1.8} color={colors.fg3} />
-          <Text className="text-center font-sans text-body text-fg-2">
-            No pudimos cargar tus viajes.
-          </Text>
-          <Text
-            testID="my-trips-retry"
-            onPress={() => refetch()}
-            className="font-sans-medium text-small text-fg"
-          >
-            Reintentar
-          </Text>
-        </View>
-      ) : !hasTrips ? (
-        <View className="flex-1 items-center justify-center gap-3 px-8">
-          <MapPinOff size={26} strokeWidth={1.8} color={colors.fg3} />
-          <Text className="text-center font-sans text-body text-fg-2">
-            Todavía no declaraste ningún viaje.
-          </Text>
+        <TripsSegmented value={scope} onChange={setScope} />
+
+        {isLoading ? (
+          <TripsListSkeleton />
+        ) : isError ? (
+          <View className="items-center justify-center gap-2 px-8 pt-24">
+            <WifiOff size={22} strokeWidth={1.8} color={colors.fg3} />
+            <Text className="text-center font-sans text-body text-fg-2">No pudimos cargar tus viajes.</Text>
+            <Text testID="my-trips-retry" onPress={() => refetch()} className="font-sans-medium text-small text-fg">
+              Reintentar
+            </Text>
+          </View>
+        ) : !hasTrips ? (
+          isHistory ? (
+            <View className="items-center gap-2.5 px-6 pt-24">
+              <View className="mb-2 h-[72px] w-[72px] items-center justify-center rounded-full bg-bg-mute">
+                <History size={30} color={colors.fg3} strokeWidth={1.75} />
+              </View>
+              <Text className="text-center font-sans-semibold text-[18px] tracking-[-0.18px] text-fg">
+                Todavía no tenés viajes terminados
+              </Text>
+              <Text className="max-w-[260px] text-center font-sans text-[14px] leading-[20px] text-fg-3">
+                Cuando completes o canceles un viaje, lo vas a encontrar acá.
+              </Text>
+            </View>
+          ) : (
+            <View className="items-center gap-3 px-8 pt-24">
+              <MapPinOff size={26} strokeWidth={1.8} color={colors.fg3} />
+              <Text className="text-center font-sans text-body text-fg-2">Todavía no declaraste ningún viaje.</Text>
+              <Pressable
+                testID="my-trips-empty-add"
+                // `as any`: ruta nueva de MOVO-162, ver el comentario de `transport.tsx`.
+                onPress={() => router.push("/carrier/trips/new" as any)}
+                className="rounded-full bg-fg px-4 py-2.5"
+              >
+                <Text className="font-sans-medium text-[13px] text-bg">Declarar viaje</Text>
+              </Pressable>
+            </View>
+          )
+        ) : isHistory ? (
+          <View className="mt-2">
+            {groupTripsByMonth(trips).map((group) => (
+              <View key={group.label}>
+                <Text className="px-0.5 pb-2.5 pt-5 font-sans-semibold text-[11px] uppercase tracking-[0.88px] text-fg-3">
+                  {group.label}
+                </Text>
+                <View className="gap-2">
+                  {group.trips.map((trip) => (
+                    <TripHistoryCard
+                      key={trip.id}
+                      testID={`my-trips-card-${trip.id}`}
+                      trip={trip}
+                      onPress={() => openDetail(trip)}
+                    />
+                  ))}
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View className="mt-4 gap-3">
+            {trips.map((trip) => (
+              <TripCard
+                key={trip.id}
+                testID={`my-trips-card-${trip.id}`}
+                trip={trip}
+                onPress={() => openDetail(trip)}
+              />
+            ))}
+          </View>
+        )}
+
+        {hasNextPage ? (
           <Pressable
-            testID="my-trips-empty-add"
-            // `as any`: ruta nueva de MOVO-162, ver el comentario de `transport.tsx`.
-            onPress={() => router.push("/carrier/trips/new" as any)}
-            className="rounded-full bg-bg-mute px-4 py-2.5"
+            testID="my-trips-load-more"
+            onPress={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="mt-4 h-11 items-center justify-center rounded-lg border border-border-strong"
           >
-            <Text className="font-sans-medium text-[13px] text-fg">Declarar viaje</Text>
+            <Text className="font-sans-medium text-[14px] text-fg">
+              {isFetchingNextPage ? "Cargando…" : "Cargar más"}
+            </Text>
           </Pressable>
-        </View>
-      ) : (
-        <ScrollView
-          className="flex-1 px-5"
-          contentContainerStyle={{ gap: 12, paddingBottom: 24 }}
-          refreshControl={
-            <RefreshControl
-              testID="my-trips-refresh"
-              refreshing={isRefetching}
-              onRefresh={() => refetch()}
-            />
-          }
-        >
-          {trips.map((trip) => (
-            <TripCard
-              key={trip.id}
-              testID={`my-trips-card-${trip.id}`}
-              trip={trip}
-              // `as any`: ruta nueva de MOVO-162, ver el comentario de `transport.tsx`.
-              onEdit={() => router.push(`/carrier/trips/${trip.id}/edit` as any)}
-              onDelete={() => handleDelete(trip)}
-              onStart={() => handleStartTrip(trip)}
-              isStarting={startingTripId === trip.id}
-              // MOVO-163: tocar la card abre el feed filtrado por este viaje. Objeto
-              // `{ pathname, params }` (no un string armado a mano) — mismo patrón ya
-              // usado por `transport/[id].tsx` para navegar a esta ruta con params.
-              // MOVO-258: un viaje iniciado tiene sus paquetes fijos y el backend ya no le
-              // devuelve matches (409 `TRIP_NOT_AVAILABLE`), así que ahí la card abre el mapa.
-              // `as any`: "/route" no figura en los tipos de rutas de expo-router (mismo caso que
-              // `trip-card.tsx`).
-              onPress={() =>
-                trip.status === TripStatus.ACTIVE
-                  ? router.push({ pathname: "/route", params: { tripId: trip.id } } as any)
-                  : router.push({ pathname: "/(app)/(tabs)/transport", params: { tripId: trip.id } })
-              }
-            />
-          ))}
-        </ScrollView>
-      )}
+        ) : null}
+      </ScrollView>
 
-      {hasTrips ? (
-        <PrimaryButton
+      {showAddBar ? (
+      <View
+        className="absolute inset-x-0 bottom-0 border-t border-border bg-bg px-5 pt-3"
+        style={{ paddingBottom: barBottomPadding }}
+      >
+        <PressableScale
           testID="my-trips-add"
-          label="Declarar viaje"
           // `as any`: ruta nueva de MOVO-162, ver el comentario de `transport.tsx`.
           onPress={() => router.push("/carrier/trips/new" as any)}
-        />
+          className="h-[52px] flex-row items-center justify-center gap-2 rounded-lg bg-lime-500"
+        >
+          <Plus size={18} color="#0A0A0B" strokeWidth={2} />
+          <Text className="font-sans-semibold text-[16px] text-ink-950">Declarar viaje</Text>
+        </PressableScale>
+      </View>
       ) : null}
     </SafeAreaView>
   );
