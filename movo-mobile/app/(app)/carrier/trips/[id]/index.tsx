@@ -209,6 +209,8 @@ export default function TripDetailScreen() {
             id: EDIT_ACTION_ID,
             title: "Editar viaje",
             image: Platform.select({ ios: "pencil", android: "ic_menu_edit" }),
+            // Sin `imageColor` el ícono no se tiñe y queda invisible sobre el menú.
+            imageColor: colors.fg1,
           },
           {
             id: CANCEL_ACTION_ID,
