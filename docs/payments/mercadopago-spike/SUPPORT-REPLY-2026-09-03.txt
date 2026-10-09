@@ -1,0 +1,100 @@
+Asunto: RE: Error 2034 "Invalid users involved" — request completo + habilitación de Marketplace en la cuenta real (app 2511208387832416)
+
+Hola, gracias por la respuesta. Los tres puntos que piden confirmar ya los validamos y
+ustedes mismos los confirmaron correctos el 21/08 ("confirmamos que el flujo que
+armaste es correcto en todos los pasos"):
+
+- Usuario de prueba Comprador (test_user_4715592661702347785@testuser.com) distinto
+  del Vendedor conectado por OAuth (user_id 2991764998).
+- Authorization: Bearer con el access_token del vendedor (obtenido por OAuth), no el
+  de la aplicación.
+- Canje de OAuth con test_token: true -> access_token con prefijo TEST-, respuesta sin
+  live_mode.
+
+Va de nuevo el request completo por si les sirve tenerlo todo en este mensaje sin
+tener que ir a buscarlo al hilo anterior:
+
+===============================================================================
+CUENTAS Y APLICACIÓN
+===============================================================================
+
+Aplicación: client_id 2511208387832416 (modelo "Pagos online", creada desde cuenta
+real de developer). certification_status: "not_certified".
+Vendedor conectado por OAuth: cuenta de prueba tipo Vendedor, user_id 2991764998.
+Pagador: cuenta de prueba tipo Comprador, test_user_4715592661702347785@testuser.com.
+Tarjeta: Visa de prueba universal de la documentación (4509 95XX XXXX 3704, titular
+"APRO").
+
+===============================================================================
+PASO 1 — POST /oauth/token — 2026-08-14 12:17:55 UTC
+===============================================================================
+
+Request:
+{
+  "client_id": "2511208387832416",
+  "client_secret": "**REDACTADO**",
+  "code": "TG-...-2991764998",
+  "grant_type": "authorization_code",
+  "redirect_uri": "https://camel-picks-twins-usually.trycloudflare.com/callback",
+  "code_verifier": "WZ2A1J37JcosMk_bZ8EXtnmutm7BCfNVVHpyzDTOCn0ONvoTiA-U1QXW1l6PmwYn",
+  "test_token": true
+}
+
+Response, HTTP 200: access_token "TEST-2511208387832416-081408-**REDACTADO**-2991764998",
+user_id 2991764998, sin "live_mode" en la respuesta.
+
+===============================================================================
+PASO 2 — POST /v1/card_tokens?public_key=TEST-f31dd0c1-841c-4450-a643-58ce1b580db0 — 12:18:24 UTC
+===============================================================================
+
+Sin header Authorization. Response, HTTP 201: id "fe466749fe4c0dbc9a8bf230be9d9ac1",
+live_mode: false.
+
+===============================================================================
+PASO 3 — POST /v1/payments — 12:18:35 UTC — EL QUE FALLA
+===============================================================================
+
+Request (11s después de tokenizar, card_token sin usar y sin vencer):
+Authorization: Bearer TEST-2511208387832416-081408-**REDACTADO**-2991764998
+{
+  "transaction_amount": 1000,
+  "capture": false,
+  "installments": 1,
+  "token": "fe466749fe4c0dbc9a8bf230be9d9ac1",
+  "payment_method_id": "visa",
+  "description": "[SPIKE MOVO-49] hold + split de prueba",
+  "payer": { "email": "test_user_4715592661702347785@testuser.com" },
+  "application_fee": 150
+}
+
+Response, HTTP 400:
+{
+  "message": "Invalid users involved",
+  "error": "bad_request",
+  "status": 400,
+  "cause": [{
+    "code": 2034,
+    "description": "Invalid users involved",
+    "data": "14-08-2026T12:18:35UTC;552c1e69-b6d4-40ef-9dec-6a6906d987ef"
+  }]
+}
+
+Este es el mismo correlation id que ya tienen desde el 21/08, y coincide con lo que el
+mensaje del 01/09 (15:14) confirmó haber descartado (application_fee, capture,
+endpoint, cuenta/app puntual) por su lado en varias integraciones.
+
+===============================================================================
+PREGUNTA NUEVA — HABILITACIÓN DE MARKETPLACE EN LA CUENTA REAL
+===============================================================================
+
+Una pregunta que no habíamos hecho todavía y nos parece que puede ser la pieza que
+falta: ¿cómo confirmamos que la cuenta real dueña de la aplicación (la que recibe el
+application_fee) está habilitada para el modelo Marketplace? La app tiene
+certification_status: "not_certified" — ¿existe algún paso de habilitación/
+homologación que la cuenta real deba completar (o que ustedes deban activar de su
+lado) para que Payments API acepte la combinación cuenta real + vendedor/comprador de
+prueba, más allá de lo que ya probamos por nuestra cuenta?
+
+Si el equipo de producto ya tiene una respuesta sobre esto o sobre las dos preguntas
+abiertas del 21/08 (combinación de cuentas soportada en sandbox, y la distinción
+pagador/comprador), la esperamos. Gracias.

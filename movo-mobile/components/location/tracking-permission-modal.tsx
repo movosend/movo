@@ -72,7 +72,7 @@ export function TrackingPermissionModal({
               <Text className="flex-1 font-sans text-[12px] text-fg-1">
                 {isBackground
                   ? "Permite apagar la pantalla o alternar apps de navegación sin pausar el viaje."
-                  : "Visible solo mientras el envío esté En camino."}
+                  : "Visible solo mientras tengas un viaje en curso."}
               </Text>
             </View>
 

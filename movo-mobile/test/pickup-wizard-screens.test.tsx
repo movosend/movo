@@ -134,6 +134,13 @@ import PickupEvidenceScreen from "../app/(app)/shipments/[id]/pickup/evidence";
 import PickupScanScreen from "../app/(app)/shipments/[id]/pickup/scan";
 import PickupSuccessScreen from "../app/(app)/shipments/[id]/pickup/success";
 
+// El gate de ubicación del transportista tiene su propio test
+// (carrier-location-gate.test.tsx): acá se asume que ya cumple los requisitos.
+const mockRequireCarrierLocation = jest.fn((action: () => unknown) => action());
+jest.mock("../src/store/carrier-location-gate-store", () => ({
+  requireCarrierLocation: (action: () => unknown) => mockRequireCarrierLocation(action),
+}));
+
 function shipment(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     id: "shipment-1",
@@ -224,12 +231,24 @@ describe("_layout (gate del wizard de retiro, AC1)", () => {
     expect(getByTestId("pickup-wizard-blocked")).toBeTruthy();
   });
 
-  it("ready: renderiza el Stack de los pasos", async () => {
+  it.each(["loading", "unfunded", "already_done", "not_carrier"])(
+    "%s: no pide la ubicación en segundo plano antes de saber si le toca retirar",
+    async (gate) => {
+      mockUsePickupWizard.mockReturnValue({ gate });
+
+      await render(<PickupWizardLayout />);
+
+      expect(mockRequireCarrierLocation).not.toHaveBeenCalled();
+    },
+  );
+
+  it("ready: renderiza el Stack de los pasos y recién ahí pide la ubicación", async () => {
     mockUsePickupWizard.mockReturnValue({ gate: "ready" });
 
     const { getByTestId } = await render(<PickupWizardLayout />);
 
     expect(getByTestId("pickup-layout-stack")).toBeTruthy();
+    expect(mockRequireCarrierLocation).toHaveBeenCalledTimes(1);
   });
 });
 

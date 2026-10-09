@@ -24,6 +24,17 @@ jest.mock("../src/hooks/use-registration", () => {
   };
 });
 
+// MOVO-249: por default el carrusel ya se vio; cada test que lo necesite lo cambia.
+let mockHasSeenOnboarding: boolean | Error = true;
+const mockMarkOnboardingSeen = jest.fn(() => Promise.resolve());
+jest.mock("../src/lib/onboarding-storage", () => ({
+  hasSeenOnboarding: () =>
+    mockHasSeenOnboarding instanceof Error
+      ? Promise.reject(mockHasSeenOnboarding)
+      : Promise.resolve(mockHasSeenOnboarding),
+  markOnboardingSeen: () => mockMarkOnboardingSeen(),
+}));
+
 jest.mock("../src/api/users-client", () => ({
   usersClient: { getMyProfile: jest.fn() },
 }));
@@ -56,6 +67,76 @@ describe("WelcomeScreen -- boot resuelto (MOVO-247)", () => {
     };
     useAuthStore.setState({ status: "unauthenticated", accessToken: null, refreshToken: null, user: null });
     useBootStore.setState({ initialRouteResolved: false });
+    mockHasSeenOnboarding = true;
+  });
+
+  it("dispositivo nuevo sin sesión: va al carrusel y recién ahí marca resuelto (MOVO-249)", async () => {
+    mockHasSeenOnboarding = false;
+    await render(<WelcomeScreen />);
+    await flush();
+
+    expect(mockReplace).toHaveBeenCalledWith("/onboarding");
+    expect(useBootStore.getState().initialRouteResolved).toBe(true);
+  });
+
+  it("carrusel sin ver pero sesión restaurándose: no salta al carrusel (MOVO-249)", async () => {
+    mockHasSeenOnboarding = false;
+    useAuthStore.setState({ status: "checking", accessToken: null, refreshToken: null, user: null });
+    await render(<WelcomeScreen />);
+    await flush();
+
+    expect(mockReplace).not.toHaveBeenCalledWith("/onboarding");
+    expect(useBootStore.getState().initialRouteResolved).toBe(false);
+  });
+
+  it("no se pudo leer el flag: saltea el carrusel de forma explícita y marca resuelto", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    mockHasSeenOnboarding = new Error("keychain no disponible");
+    await render(<WelcomeScreen />);
+    await flush();
+
+    expect(mockReplace).not.toHaveBeenCalledWith("/onboarding");
+    expect(useBootStore.getState().initialRouteResolved).toBe(true);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("sesión restaurada sin el flag (usuario que actualizó la app): lo marca, así no ve el carrusel al cerrar sesión", async () => {
+    mockHasSeenOnboarding = false;
+    useAuthStore.setState({
+      status: "authenticated",
+      accessToken: "t",
+      refreshToken: "r",
+      user: { userId: "u1", fullName: "Ana", roles: [UserRole.SENDER], kycStatus: KycStatus.APPROVED },
+    });
+    await render(<WelcomeScreen />);
+    await flush();
+
+    expect(mockMarkOnboardingSeen).toHaveBeenCalledTimes(1);
+    expect(mockReplace).not.toHaveBeenCalledWith("/onboarding");
+  });
+
+  it("registro pendiente sin el flag: también lo marca", async () => {
+    mockHasSeenOnboarding = false;
+    mockRegistration = {
+      resumeChecked: true,
+      hasPendingRegistration: true,
+      kycStatus: KycStatus.PENDING,
+      hydrateFromLogin: jest.fn(),
+    };
+    await render(<WelcomeScreen />);
+    await flush();
+
+    expect(mockMarkOnboardingSeen).toHaveBeenCalledTimes(1);
+    expect(mockReplace).not.toHaveBeenCalledWith("/onboarding");
+  });
+
+  it("dispositivo nuevo sin sesión: no marca el flag (lo marca el carrusel al terminar)", async () => {
+    mockHasSeenOnboarding = false;
+    await render(<WelcomeScreen />);
+    await flush();
+
+    expect(mockMarkOnboardingSeen).not.toHaveBeenCalled();
   });
 
   it("sin sesión y sin registro pendiente: se queda en Bienvenida y marca resuelto", async () => {

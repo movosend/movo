@@ -115,6 +115,45 @@ describe("GET /shipments/:id/events (Postgres)", () => {
     expect(response.json()).toHaveLength(1);
   });
 
+  it("el transportista asignado puede ver el historial de eventos", async () => {
+    const shipment = await repo.create(baseInput);
+    const carrierId = randomUUID();
+    await app.db.shipment.update({ where: { id: shipment.id }, data: { carrierId } });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/shipments/${shipment.id}/events`,
+      headers: { "x-user-id": carrierId },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toHaveLength(1);
+  });
+
+  it("un transportista cuya oferta fue rechazada recibe 403", async () => {
+    const shipment = await repo.create(baseInput);
+    const rejectedCarrierId = randomUUID();
+    await app.db.shipment.update({ where: { id: shipment.id }, data: { carrierId: randomUUID() } });
+    await app.db.offer.create({
+      data: {
+        shipmentId: shipment.id,
+        carrierId: rejectedCarrierId,
+        priceOffered: 4500,
+        offeredDate: baseInput.pickupDate,
+        status: "rejected",
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/shipments/${shipment.id}/events`,
+      headers: { "x-user-id": rejectedCarrierId },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.code).toBe("AUTH_FORBIDDEN");
+  });
+
   it("un tercero recibe 403, no 404", async () => {
     const shipment = await repo.create(baseInput);
     const strangerId = randomUUID();

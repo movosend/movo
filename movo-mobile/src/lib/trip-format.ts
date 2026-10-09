@@ -1,6 +1,7 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
-import { TripStatus } from "../api/trips-client";
+import { TripStatus, type TripWithAcceptedPackages } from "../api/trips-client";
 import { friendlyErrorMessage } from "./error-messages";
+import { pickupLocalityLabel, shortAddressLabel } from "./shipment-format";
 
 // MOVO-262 AC2: labels legibles del estado del viaje.
 const TRIP_STATUS_LABELS: Record<TripStatus, string> = {
@@ -40,6 +41,46 @@ export function isTripDepartureToday(departureAt: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Reparte los viajes del transportista entre las dos secciones de Inicio, para que nunca
+ * se contradigan: `primaryTrip` va a la card con CTA de "Estoy transportando" (el viaje en
+ * curso, o si no hay, el primer `declared` con paquetes que sale hoy) y `otherTrips` (el
+ * resto de los `declared` con paquetes) se listan en "Actividad reciente".
+ *
+ * La fecha solo decide cuál se lleva la card, nunca el estado: un `declared` con salida
+ * pasada sigue siendo `declared` (cerrar esos viajes es del backend, no de la app).
+ */
+export function splitCarrierHomeTrips(trips: TripWithAcceptedPackages[]): {
+  primaryTrip: TripWithAcceptedPackages | null;
+  otherTrips: TripWithAcceptedPackages[];
+} {
+  const activeTrip = trips.find((t) => t.status === TripStatus.ACTIVE);
+  const readyDeclared = trips
+    .filter((t) => t.status === TripStatus.DECLARED && t.hasAcceptedPackages)
+    .sort((a, b) => a.departureAt.localeCompare(b.departureAt));
+  const primaryTrip =
+    activeTrip ?? readyDeclared.find((t) => isTripDepartureToday(t.departureAt)) ?? null;
+  return { primaryTrip, otherTrips: readyDeclared.filter((t) => t.id !== primaryTrip?.id) };
+}
+
+/** Localidad corta para un extremo del viaje: "San Martín 450, X5152 Villa Carlos Paz,
+ * Córdoba, Argentina" → "Villa Carlos Paz". Si la dirección es solo la calle, cae a la
+ * calle (`shortAddressLabel`). */
+export function tripPlaceLabel(address: string): string {
+  const locality = pickupLocalityLabel(address);
+  return locality ? locality.split(",")[0].trim() : shortAddressLabel(address);
+}
+
+/** "Córdoba → Rosario" — identificador principal de un viaje en Inicio, en vez de la
+ * fecha (que ya va en el subtítulo). */
+export function tripRouteLabel(trip: { originAddress: string; destinationAddress: string }): string {
+  return `${tripPlaceLabel(trip.originAddress)} → ${tripPlaceLabel(trip.destinationAddress)}`;
+}
+
+export function formatPackagesCount(count: number): string {
+  return `${count} ${count === 1 ? "paquete" : "paquetes"}`;
 }
 
 /**

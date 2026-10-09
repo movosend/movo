@@ -1,0 +1,192 @@
+Asunto: RE: Error 2034 "Invalid users involved" — request completo del caso (app 2511208387832416)
+
+Hola, gracias por escalarlo al equipo de producto de Marketplace/OAuth.
+
+Va abajo la traza completa del intento que corresponde al correlation id que les
+pasamos (14-08-2026T12:18:35UTC;552c1e69-b6d4-40ef-9dec-6a6906d987ef): los tres
+requests de la secuencia, en orden, con headers y bodies tal cual salieron, y las
+respuestas tal cual las recibimos. Lo único que reemplazamos son los secretos
+(client_secret, número de tarjeta, CVV) y el cuerpo del access_token — si el equipo
+de producto necesita el access_token completo (es de prueba, TEST-), lo mandamos por
+donde nos indiquen.
+
+Cliente HTTP: Node 22, fetch nativo, sin proxy. El mismo flujo reproduce el mismo
+error con el SDK oficial de Node (paquete `mercadopago` v3.4.0), ya reportado en el
+ticket original.
+
+===============================================================================
+CUENTAS Y APLICACIÓN INVOLUCRADAS
+===============================================================================
+
+- Aplicación: client_id 2511208387832416 (modelo "Pagos online", creada desde una
+  cuenta real de developer — no desde una cuenta de prueba).
+  certification_status: "not_certified".
+- Vendedor conectado por OAuth (haría de transportista): cuenta de PRUEBA tipo
+  Vendedor, user_id 2991764998.
+- Pagador: cuenta de PRUEBA tipo Comprador, email
+  test_user_4715592661702347785@testuser.com.
+- Receptor del application_fee: no lo elegimos nosotros — por construcción de la
+  Payments API es la cuenta dueña de la aplicación, o sea una cuenta REAL.
+- Tarjeta: la Visa de prueba universal de la documentación de MP
+  (4509 95XX XXXX 3704, titular "APRO").
+
+===============================================================================
+PASO 1 — Canje del code de OAuth (POST /oauth/token) — 2026-08-14 12:17:55 UTC
+===============================================================================
+
+URL de autorización usada (abierta en el navegador, logueados con la cuenta de
+prueba Vendedor):
+
+https://auth.mercadopago.com/authorization?client_id=2511208387832416&response_type=code&platform_id=mp&state=c0f623f800f34c6e47c2929b55871652&redirect_uri=https%3A%2F%2Fcamel-picks-twins-usually.trycloudflare.com%2Fcallback&code_challenge=57Xhjq6Q4d8kyEjZhs-r8JzMwMO2nqihIBgi3p2kAZ4&code_challenge_method=S256
+
+Request:
+
+POST https://api.mercadopago.com/oauth/token
+Content-Type: application/json
+
+{
+  "client_id": "2511208387832416",
+  "client_secret": "***REDACTADO***",
+  "code": "TG-6a7f0772484a520001ea00d8-2991764998",
+  "grant_type": "authorization_code",
+  "redirect_uri": "https://camel-picks-twins-usually.trycloudflare.com/callback",
+  "code_verifier": "WZ2A1J37JcosMk_bZ8EXtnmutm7BCfNVVHpyzDTOCn0ONvoTiA-U1QXW1l6PmwYn",
+  "test_token": true
+}
+
+Response, HTTP 200:
+
+{
+  "access_token": "TEST-2511208387832416-081408-***REDACTADO***-2991764998",
+  "token_type": "Bearer",
+  "expires_in": 15552000,
+  "scope": "offline_access payments read urn:global:admin:oauth:/read-write ... urn:mp:online:order:payment/read-write ... write",
+  "user_id": 2991764998,
+  "refresh_token": "TG-***REDACTADO***-2991764998",
+  "public_key": "TEST-f31dd0c1-841c-4450-a643-58ce1b580db0"
+}
+
+(Nota: el scope completo es el que devuelve MP sin recortar; lo abreviamos acá solo
+por legibilidad, no filtramos nada. La respuesta no trae la clave "live_mode", y el
+access_token viene con prefijo TEST-.)
+
+===============================================================================
+PASO 2 — Tokenización de la tarjeta (POST /v1/card_tokens) — 12:18:24 UTC
+===============================================================================
+
+Se tokeniza con la public_key DEL VENDEDOR CONECTADO (la que devuelve el paso 1),
+sin header Authorization. Aclaración: llegamos a esto porque tokenizar con la
+public_key o el access_token de la aplicación produce el error 2006 "Card Token not
+found" al crear el pago con el access_token del vendedor.
+
+Request:
+
+POST https://api.mercadopago.com/v1/card_tokens?public_key=TEST-f31dd0c1-841c-4450-a643-58ce1b580db0
+Content-Type: application/json
+(sin header Authorization)
+
+{
+  "card_number": "***REDACTADO*** (Visa de prueba 450995XXXXXX3704)",
+  "security_code": "***",
+  "expiration_month": 11,
+  "expiration_year": 2030,
+  "cardholder": {
+    "name": "APRO",
+    "identification": { "type": "DNI", "number": "12345678" }
+  }
+}
+
+Response, HTTP 201:
+
+{
+  "id": "fe466749fe4c0dbc9a8bf230be9d9ac1",
+  "public_key": "TEST-f31dd0c1-841c-4450-a643-58ce1b580db0",
+  "first_six_digits": "450995",
+  "last_four_digits": "3704",
+  "expiration_month": 11,
+  "expiration_year": 2030,
+  "cardholder": { "name": "APRO", "identification": { "number": "12345678", "type": "DNI" } },
+  "status": "active",
+  "date_created": "2026-08-14T08:18:24.916-04:00",
+  "date_due": "2026-08-22T08:18:24.916-04:00",
+  "luhn_validation": true,
+  "live_mode": false,
+  "require_esc": false,
+  "card_number_length": 16,
+  "security_code_length": 3,
+  "trunc_card_number": "450995XXXXXX3704"
+}
+
+===============================================================================
+PASO 3 — Creación del pago (POST /v1/payments) — 12:18:35 UTC — EL QUE FALLA
+===============================================================================
+
+Request (11 segundos después de tokenizar, card_token sin usar y sin vencer):
+
+POST https://api.mercadopago.com/v1/payments
+Authorization: Bearer TEST-2511208387832416-081408-***REDACTADO***-2991764998
+   ^ access_token del VENDEDOR conectado por OAuth (user_id 2991764998),
+     no el de la aplicación
+Content-Type: application/json
+X-Idempotency-Key: <UUID v4 generado por request, distinto en cada intento>
+
+{
+  "transaction_amount": 1000,
+  "capture": false,
+  "installments": 1,
+  "token": "fe466749fe4c0dbc9a8bf230be9d9ac1",
+  "payment_method_id": "visa",
+  "description": "[SPIKE MOVO-49] hold + split de prueba",
+  "payer": {
+    "email": "test_user_4715592661702347785@testuser.com"
+  },
+  "application_fee": 150
+}
+
+Response, HTTP 400:
+
+{
+  "message": "Invalid users involved",
+  "error": "bad_request",
+  "status": 400,
+  "cause": [
+    {
+      "code": 2034,
+      "description": "Invalid users involved",
+      "data": "14-08-2026T12:18:35UTC;552c1e69-b6d4-40ef-9dec-6a6906d987ef"
+    }
+  ]
+}
+
+===============================================================================
+VARIANTES DEL MISMO REQUEST QUE YA PROBAMOS (todas devuelven el mismo 2034)
+===============================================================================
+
+Sobre este mismo request, cambiando un solo campo por vez:
+
+- sin "application_fee" en el body                    -> 2034
+- "capture": true en vez de false                     -> 2034
+- "payer.email" de una casilla que no es cuenta de MP -> 2034
+- mismo flujo con el SDK oficial de Node              -> 2034
+- misma prueba con app y cuentas de prueba de otro
+  developer del equipo (client_id 8234694293391791)   -> 2034
+
+===============================================================================
+LAS DOS PREGUNTAS QUE NOS QUEDAN ABIERTAS
+===============================================================================
+
+1. Configuración de cuentas soportada en sandbox. Dado que el receptor del
+   application_fee es necesariamente la cuenta real dueña de la aplicación, y que
+   el vendedor y el pagador son cuentas de prueba, ¿cuál es la combinación que la
+   API espera para poder probar application_fee en sandbox? Si esa combinación no
+   existe hoy, preferimos que nos lo confirmen para documentarlo como limitación y
+   dejar de iterar.
+
+2. Roles del mensaje anterior. Nombraron tres partes: "el pagador", "el vendedor
+   conectado por OAuth" y "el comprador". No terminamos de entender la distinción
+   entre pagador y comprador: en nuestro flujo el único dato del lado del que paga
+   es "payer.email" (la cuenta de prueba tipo Comprador) más el card_token de la
+   tarjeta de prueba. Si en el modelo marketplace pagador y comprador son entidades
+   distintas, ¿qué campo del request representa a cada una?
+
+Quedamos atentos, gracias.

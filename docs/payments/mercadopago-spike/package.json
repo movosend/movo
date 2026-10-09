@@ -1,0 +1,9 @@
+{
+  "name": "mercadopago-spike",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Spike de consola MOVO-49/MOVO-100 — investigación de la API de Mercado Pago. No forma parte de los workspaces del monorepo.",
+  "dependencies": {
+    "mercadopago": "^3.4.0"
+  }
+}

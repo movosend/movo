@@ -1,6 +1,7 @@
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { fireEvent, render } from "@testing-library/react-native";
 import type { ShipmentSummary } from "../src/api/shipments-client";
+import { TripStatus, type TripWithAcceptedPackages } from "../src/api/trips-client";
 import { RecentShipmentsSection } from "../components/home/recent-shipments-section";
 
 const mockRouterPush = jest.fn();
@@ -13,6 +14,11 @@ const mockUseRecentShipments = jest.fn();
 
 jest.mock("../src/hooks/use-shipments", () => ({
   useRecentShipments: () => mockUseRecentShipments(),
+}));
+
+const mockUseMyTrips = jest.fn(() => ({ data: { items: [] as unknown[], total: 0 } }));
+jest.mock("../src/hooks/use-trips", () => ({
+  useMyTrips: () => mockUseMyTrips(),
 }));
 
 jest.mock("../src/hooks/use-profile", () => ({
@@ -151,5 +157,79 @@ describe("RecentShipmentsSection", () => {
     await fireEvent.press(getByTestId("shipment-row-s1"));
 
     expect(mockRouterPush).toHaveBeenCalledWith("/shipments/s1");
+  });
+
+  describe("viajes del transportista", () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const trip = (id: string, offsetDays: number, updatedAt: string): TripWithAcceptedPackages => ({
+      id,
+      carrierId: "user-1",
+      originAddress: "Av. Colón 100, Córdoba",
+      originLat: -31.4,
+      originLng: -64.18,
+      destinationAddress: "Bv. Oroño 50, Rosario",
+      destinationLat: -32.95,
+      destinationLng: -60.65,
+      departureAt: new Date(Date.now() + offsetDays * DAY_MS).toISOString(),
+      vehicleType: "Auto",
+      status: TripStatus.DECLARED,
+      createdAt: updatedAt,
+      updatedAt,
+      cancelledAt: null,
+      hasAcceptedPackages: true,
+      acceptedPackagesCount: 2,
+    });
+
+    it("lista los declared que no van en la card de Estoy transportando, con su estado real, mezclados por actividad", async () => {
+      mockUseRecentShipments.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: { items: [shipment({ id: "s1", createdAt: "2026-09-20T10:00:00.000Z" })], page: 1, limit: 3, total: 1 },
+        refetch: jest.fn(),
+      });
+      mockUseMyTrips.mockReturnValue({
+        data: {
+          items: [
+            trip("t-today", 0, "2026-09-25T10:00:00.000Z"),
+            trip("t-past", -7, "2026-09-22T10:00:00.000Z"),
+          ],
+          total: 2,
+        },
+      });
+
+      const { getByTestId, queryByTestId, getByText, getAllByTestId } = await render(
+        <RecentShipmentsSection testID="section" />,
+      );
+
+      // El de hoy va a la card de "Estoy transportando", no se repite acá.
+      expect(queryByTestId("trip-row-t-today")).toBeNull();
+      expect(getByTestId("trip-row-t-past")).toBeTruthy();
+      expect(getByText("Córdoba → Rosario")).toBeTruthy();
+      expect(getByText("Declarado")).toBeTruthy();
+      expect(getAllByTestId(/^(trip|shipment)-row-/).map((n) => n.props.testID)).toEqual([
+        "trip-row-t-past",
+        "shipment-row-s1",
+      ]);
+
+      fireEvent.press(getByTestId("trip-row-t-past"));
+      expect(mockRouterPush).toHaveBeenCalledWith({ pathname: "/route", params: { tripId: "t-past" } });
+    });
+
+    it("con viajes pero sin envíos no muestra el estado vacío", async () => {
+      mockUseRecentShipments.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: { items: [], page: 1, limit: 3, total: 0 },
+        refetch: jest.fn(),
+      });
+      mockUseMyTrips.mockReturnValue({
+        data: { items: [trip("t-future", 3, "2026-09-25T10:00:00.000Z")], total: 1 },
+      });
+
+      const { getByTestId, queryByText } = await render(<RecentShipmentsSection testID="section" />);
+
+      expect(getByTestId("trip-row-t-future")).toBeTruthy();
+      expect(queryByText("Todavía no hiciste ningún envío.")).toBeNull();
+    });
   });
 });

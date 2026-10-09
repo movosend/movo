@@ -58,4 +58,24 @@ describe("RouteMapCard", () => {
     expect(coords[0]).toEqual({ latitude: PICKUP.lat, longitude: PICKUP.lng });
     expect(coords[coords.length - 1]).toEqual({ latitude: DELIVERY.lat, longitude: DELIVERY.lng });
   });
+
+  it("con pickup null y pickupLabel muestra solo la entrega y el origen como texto (MOVO-194 AC4)", async () => {
+    mockUseShipmentRoute.mockReturnValue({ data: undefined, isError: false });
+    const { getByTestId, queryByTestId, queryByText } = await render(
+      <RouteMapCard testID="map" pickup={null} pickupLabel="Av. Colón 1000" delivery={DELIVERY} />,
+    );
+
+    expect(getByTestId("map-map")).toBeTruthy();
+    expect(getByTestId("map-pickup-label")).toHaveTextContent("Retiro en Av. Colón 1000");
+    expect(queryByTestId("map-route-base")).toBeNull();
+    expect(queryByTestId("map-route-loading")).toBeNull();
+    expect(queryByText("Bv. San Juan 500")).toBeTruthy();
+  });
+
+  it("sin pickup ni pickupLabel sigue mostrando el estado vacío", async () => {
+    mockUseShipmentRoute.mockReturnValue({ data: undefined, isError: false });
+    const { getByText } = await render(<RouteMapCard testID="map" pickup={null} delivery={DELIVERY} />);
+
+    expect(getByText("Definí el origen y destino para ver la ruta")).toBeTruthy();
+  });
 });

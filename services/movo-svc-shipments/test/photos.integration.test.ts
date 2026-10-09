@@ -267,6 +267,45 @@ describe("Fotos del paquete (MOVO-81, Postgres)", () => {
       }
     });
 
+    it("el transportista asignado puede listar las fotos", async () => {
+      const shipment = await repo.create(baseInput);
+      await confirmOnePhoto(shipment.id);
+      await app.db.shipment.update({ where: { id: shipment.id }, data: { carrierId } });
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipment.id}/photos`,
+        headers: { "x-user-id": carrierId },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toHaveLength(1);
+    });
+
+    it("un transportista cuya oferta fue rechazada recibe 403", async () => {
+      const shipment = await repo.create(baseInput);
+      await confirmOnePhoto(shipment.id);
+      const rejectedCarrierId = randomUUID();
+      await app.db.shipment.update({ where: { id: shipment.id }, data: { carrierId } });
+      await app.db.offer.create({
+        data: {
+          shipmentId: shipment.id,
+          carrierId: rejectedCarrierId,
+          priceOffered: 4500,
+          offeredDate: baseInput.pickupDate,
+          status: "rejected",
+        },
+      });
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/shipments/${shipment.id}/photos`,
+        headers: { "x-user-id": rejectedCarrierId },
+      });
+
+      expect(response.statusCode).toBe(403);
+    });
+
     it("un tercero recibe 403", async () => {
       const shipment = await repo.create(baseInput);
       await confirmOnePhoto(shipment.id);

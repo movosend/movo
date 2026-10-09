@@ -191,7 +191,8 @@ describe("MyShipmentsScreen", () => {
     expect(offers.getByText("Tenés 3 ofertas. Elegí quién lo lleva.")).toBeTruthy();
 
     const accept = within(getByTestId("my-shipments-row-to-accept"));
-    expect(accept.getByText("Av. Don Bosco 4807")).toBeTruthy();
+    expect(accept.getByText("Córdoba")).toBeTruthy();
+    expect(accept.queryByText(/Don Bosco/)).toBeNull();
     expect(accept.getByText("Martín te manda un paquete. Aceptalo.")).toBeTruthy();
 
     const transit = within(getByTestId("my-shipments-row-in-transit"));
