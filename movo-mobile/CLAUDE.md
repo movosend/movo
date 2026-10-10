@@ -4324,3 +4324,40 @@ viaje, wizard de retiro; descarta el doble tap) o un viaje en curso, sin salida.
 vez no conviven en iOS. Política de Privacidad 0.2 (`2026-10-07`): dispara la
 re-aceptación (MOVO-229). Limitación aceptada: el permiso solo se verifica en el
 teléfono. Pendiente: no probado en device.
+
+### MOVO-112 — "Pagos y cobros": vincular la cuenta de Mercado Pago del transportista
+
+Pantalla `app/(app)/profile/payments.tsx` (fila de Perfil → Configuración, con pill de estado),
+fiel al mockup de Claude Design "MOVO-112 Vincular Mercado Pago". Hecha contra el contrato
+publicado en MOVO-111 (`@movo/shared`, `types/mp-connect.ts`); el backend todavía no existe.
+
+- **`expo-web-browser` nuevo (módulo nativo, requiere rebuild del dev client)**:
+  `openAuthSessionAsync(url, "movo://mp-connect", { preferEphemeralSession: true })`, nunca
+  `Linking.openURL`. Ephemeral para que no quede logueada otra cuenta de MP (clave en sandbox).
+- **El resultado sale de `GET /status`, no del deep link** (`src/lib/mp-connect-flow.ts`): al
+  cerrar el navegador siempre se vuelve a consultar. `result=success` sin status `linked` es un
+  error, y un `dismiss` con status `linked` es éxito (Android a veces lo devuelve igual). El
+  `code` del deep link solo elige el texto. `runMpConnectLink` es puro para testearlo sin React.
+- **Dos desvíos del mockup**: un error al vincular es un banner sobre el estado real (el mockup
+  volvía siempre a "Sin vincular", falso si estaba "inválida"), y un fallo de `GET /status`
+  muestra error + "Reintentar" (el mockup no tenía ese estado).
+- `app/mp-connect.tsx` atrapa el deep link si llega al router (Android) y redirige a la pantalla.
+  Logo de MP como componente de `react-native-svg` (`components/payments/mercadopago-logo.tsx`,
+  no hay transformer de SVG). En dark mode solo el wordmark pasa a blanco: el contorno marino
+  del emblema dibuja las manos blancas y en blanco desaparecen. El avatar de la cuenta usa
+  `bg-fg`/`text-bg` como `ProfileAvatar`, así acompaña al tema.
+
+**Fixes de review (PR #224):** `messageForCode` (`error-messages.ts`) traduce un código sin
+fabricar un `ApiError`; un solo listener de AppState para todas las instancias de
+`useMpConnectStatus`, que no refetchea mientras se vincula, y el foco de la pantalla no depende
+de la fase (sin refetch de más al terminar de vincular); un 503 `MP_CONNECT_NOT_CONFIGURED` se
+muestra sin "Reintentar" (no sirve hasta que se carguen los secrets); `BottomSheetModal`
+(`components/ui/`) extrae el boilerplate de `Modal` + `SafeAreaProvider` + overlay y lo usan
+`UnlinkMpSheet` y `RejectOfferModal` (quedan otros sheets por migrar); `accessibilityRole`/
+`accessibilityLabel` en los botones de la pantalla; íconos y fondos de estado salen de
+`STATE_COLORS`/`bg-paper` en vez de hex sueltos. El deep link `movo://mp-connect` sin sesión lo
+cubre el guard de `(app)/_layout.tsx` (redirige a `/login`; después del login no vuelve a la
+pantalla de pagos).
+
+Probado de punta a punta en local contra MOVO-111 (ya en `develop`). Pendiente: probarlo en dev
+cuando estén cargados `MP_REDIRECT_URI` y `MP_TOKEN_ENCRYPTION_KEY` en sus secrets.

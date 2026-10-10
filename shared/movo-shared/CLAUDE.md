@@ -384,3 +384,12 @@ La usan `svc-shipments` (`POST /trips/:id/start`) y `movo-mobile` (si muestra "I
 se desalinean. Mobile la importa por subpath (`dist/config/trip-start`). `ApiErrorCode` vuelve a tener
 `TRIP_START_TOO_EARLY` (MOVO-252 lo había agregado y sacado sin que el backend lo emitiera nunca) y suma
 `TRIP_PACKAGES_NOT_READY` (paquetes aceptados, ninguno ejecutable todavía).
+
+### MOVO-112 — Contrato de la vinculación de Mercado Pago (`types/mp-connect.ts`)
+
+Wire contract de `/payments/mp-connect/*` (MOVO-111, `svc-payments`), propuesto desde mobile y
+publicado como comentario en MOVO-111 antes de que exista el backend. `MpConnectStatusResponse`
+distingue `unlinked` de `invalid` (revocada o vencida) y devuelve `account` (email de MP vía
+`/users/me`) también en `invalid`. `MP_CONNECT_RETURN_URL` (`movo://mp-connect`) es el deep link al
+que redirige el callback público. Cinco `ApiErrorCode` nuevos (`MP_CONNECT_*`,
+`MP_ACCOUNT_ALREADY_LINKED`): cuatro de ellos viajan en ese deep link, no como respuesta HTTP.

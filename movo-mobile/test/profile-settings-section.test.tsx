@@ -17,10 +17,16 @@ jest.mock("../src/hooks/use-profile", () => ({
 // (MOVO-224) y "Notificaciones" (MOVO-246) son los ítems de esta sección con
 // pantalla real — cubre que navegan en vez de mostrar el `Alert.alert` placeholder,
 // y que el resto sigue mostrándolo.
+let mockMpStatus: unknown = undefined;
+jest.mock("../src/hooks/use-mp-connect", () => ({
+  useMpConnectStatus: () => ({ data: mockMpStatus }),
+}));
+
 describe("ProfileSettingsSection", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUseMyProfile.mockReturnValue({ data: undefined });
+    mockMpStatus = undefined;
   });
 
   it("navega a /addresses al tocar 'Direcciones guardadas'", async () => {
@@ -76,11 +82,37 @@ describe("ProfileSettingsSection", () => {
     expect(queryByTestId("profile-settings-legal-pending-dot")).toBeNull();
   });
 
+  it("navega a /profile/payments al tocar 'Pagos y cobros' (MOVO-112)", async () => {
+    const { getByText } = await render(<ProfileSettingsSection testID="settings" />);
+
+    fireEvent.press(getByText("Pagos y cobros"));
+
+    expect(router.push).toHaveBeenCalledWith("/profile/payments");
+  });
+
+  it.each([
+    ["linked", "Vinculado"],
+    ["unlinked", "Pendiente"],
+    ["invalid", "Revisar"],
+  ])("MOVO-112: muestra la pill de Mercado Pago para el status %s", async (status, label) => {
+    mockMpStatus = { status, account: null, invalidReason: null };
+    const { getByTestId, getByText } = await render(<ProfileSettingsSection testID="settings" />);
+
+    expect(getByTestId("profile-settings-mp-pill")).toBeTruthy();
+    expect(getByText(label)).toBeTruthy();
+  });
+
+  it("MOVO-112: sin pill mientras el status no cargó", async () => {
+    const { queryByTestId } = await render(<ProfileSettingsSection testID="settings" />);
+
+    expect(queryByTestId("profile-settings-mp-pill")).toBeNull();
+  });
+
   it("sigue mostrando el placeholder 'Próximamente' para el resto de los ítems", async () => {
     const alertSpy = jest.spyOn(Alert, "alert").mockImplementation(() => {});
     const { getByText } = await render(<ProfileSettingsSection testID="settings" />);
 
-    fireEvent.press(getByText("Pagos y cobros"));
+    fireEvent.press(getByText("Ayuda y soporte"));
 
     expect(alertSpy).toHaveBeenCalledWith(
       "Próximamente",
