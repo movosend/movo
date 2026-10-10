@@ -182,7 +182,10 @@ del Vendedor (el token del OAuth del spike no se persiste, ver el encabezado del
 `MP_TEST_*` del `.env` del spike.
 
 Pendiente: cargar `MP_HOLD_VALIDITY_DAYS` en el secret si MOVO-215 define otro valor;
-`svc-shipments` (MOVO-210) todavía no llama a estos endpoints.
+`svc-shipments` ya los llama desde la saga de asignación (MOVO-210, ver
+`services/movo-svc-shipments/CLAUDE.md`). Falta que payments avise a
+`POST /internal/shipments/:id/hold-events` de shipments cuando MP cancela o vence un hold
+(MOVO-268): el endpoint receptor ya existe, nadie lo llama todavía.
 
 ### MOVO-116 — `GET /internal/payments/mp-connect/:userId/status`
 

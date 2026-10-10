@@ -25,9 +25,35 @@ emisor confirma el pago con la app abierta, lo que crea el hold y pasa a `assign
 Si no pagó a T-24h del retiro, el envío vuelve a `published`. No hay hold programado
 automático: tarjeta guardada + cobro sin el emisor presente no se pudo validar en
 marketplace (`docs/payments/mercadopago-spike/SOLUCION-FINAL.md` §7). Flujo completo
-en `docs/payments/flujo-de-pagos.md` §5.3. Ninguna de las dos transiciones nuevas se
-dispara todavía: `MOVO-210` (saga de asignación) y `MOVO-212` (captura y split) las
-disparan.
+en `docs/payments/flujo-de-pagos.md` §5.3. `MOVO-210` (saga de asignación) dispara las
+transiciones de `assignment_pending`/`assigned_unfunded`; `MOVO-212` (captura y split)
+dispara `delivered → completed`.
+
+### Las dos rutas de la saga de asignación (MOVO-210)
+
+Al aceptar una oferta, `acceptOffer` elige la ruta según la anticipación del retiro
+acordado (inicio de la ventana de retiro efectiva, `domain/funding.ts#selectFundingRoute`).
+`N` y los plazos salen de configuración (`FUNDING_*`, provisorios hasta MOVO-215):
+
+| Ruta | Condición | Al aceptar | Pago | Plazo | Si no paga |
+| --- | --- | --- | --- | --- | --- |
+| Cercana | retiro a **N días o menos** (inclusive) | `published → assignment_pending` | el emisor paga en el mismo flujo | `FUNDING_PAYMENT_TIMEOUT_MINUTES` desde que acepta (tope: cierre de la ventana de retiro) | barrido: `→ published`, hold liberado, aviso a ambos |
+| Lejana | retiro a **más de N días** | `published → assigned_unfunded` (sin tarjeta) | **ventana de confirmación**: abre cuando el retiro entra en N días | hasta **T-24h** del inicio del retiro (`FUNDING_RELEASE_HOURS_BEFORE_PICKUP`) | barrido: `→ published`, aviso obligatorio a ambos |
+
+En ambas rutas, pagar (`POST /shipments/:id/funding`) con el hold autorizado lleva a
+`assigned`. Un rechazo de tarjeta no cambia el estado: el emisor reintenta mientras no
+venza el plazo. Volver a `published` desasigna al transportista (`carrierId` y precio
+acordado en `null`), restaura la ventana de retiro original (MOVO-258 D3) y deja la
+oferta aceptada como `rejected`. Las demás ofertas ya quedaron `superseded` al aceptar y
+no se reabren: el emisor recibe ofertas nuevas.
+
+**Reconfirmación (`assigned → assigned_unfunded`, MOVO-210)**: si MP cancela o vence el hold
+de un envío ya `assigned`, el envío NO se libera: vuelve a `assigned_unfunded` y el emisor
+recibe el aviso "La reserva de tu pago expiró — Confirmá el pago de nuevo para asegurar tu
+envío". Reconfirma con los mismos `GET`/`POST /shipments/:id/funding`; si no paga a T-24h
+(o, con el retiro a menos de 24h, dentro de `FUNDING_PAYMENT_TIMEOUT_MINUTES` desde que
+volvió a ese estado) el barrido lo devuelve a `published`. Es la única salida de
+`assigned` además de `in_transit` y `cancelled`: nunca va directo a `published`.
 
 ```mermaid
 stateDiagram-v2
@@ -41,14 +67,15 @@ stateDiagram-v2
     published --> assigned_unfunded: emisor acepta oferta, retiro lejano (MOVO-208/210)
     published --> cancelled: emisor cancela (MOVO-29)
 
-    assignment_pending --> published: hold de fondos falla/timeout
-    assignment_pending --> assigned: fondos reservados
+    assignment_pending --> published: sin pago dentro del plazo (ruta cercana)\no hold perdido (MOVO-210)
+    assignment_pending --> assigned: fondos reservados\n(el emisor paga al aceptar, MOVO-210)
     assignment_pending --> cancelled: emisor cancela (MOVO-29)
 
-    assigned_unfunded --> assigned: emisor confirma el pago\n(hold creado, MOVO-210)
-    assigned_unfunded --> published: sin pago a T-24h del retiro (MOVO-210)
+    assigned_unfunded --> assigned: emisor confirma el pago\ndentro de la ventana de confirmación (MOVO-210)
+    assigned_unfunded --> published: sin pago a T-24h del retiro\n(ventana de confirmación vencida, MOVO-210)
     assigned_unfunded --> cancelled: emisor cancela\n(sin hold que liberar)
 
+    assigned --> assigned_unfunded: MP perdió el hold\n(el emisor reconfirma el pago, MOVO-210)
     assigned --> in_transit: retiro confirmado\n(handshake, MOVO-6)
     assigned --> cancelled: emisor cancela\n(con penalización)
 
