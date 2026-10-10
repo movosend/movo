@@ -4361,3 +4361,12 @@ pantalla de pagos).
 
 Probado de punta a punta en local contra MOVO-111 (ya en `develop`). Pendiente: probarlo en dev
 cuando estén cargados `MP_REDIRECT_URI` y `MP_TOKEN_ENCRYPTION_KEY` en sus secrets.
+
+### MOVO-116 (lado mobile mínimo) — mensaje del emisor al aceptar una oferta
+
+Solo `OFFER_CARRIER_NOT_ELIGIBLE` en `error-messages.ts`, que ve el emisor si el transportista
+ya no cumple los requisitos para operar (ADR-036). Los códigos del lado del transportista
+(`CARRIER_LICENSE_NOT_APPROVED`/`CARRIER_MP_ACCOUNT_NOT_LINKED`, 403 con
+`details.missingRequirements`) y leer `details` en `http-client.ts#parseErrorBody` quedan para
+MOVO-117, que además tiene que cubrir "Iniciar viaje" y editar oferta, no solo declarar viaje y
+ofertar.

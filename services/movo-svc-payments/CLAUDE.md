@@ -183,3 +183,13 @@ del Vendedor (el token del OAuth del spike no se persiste, ver el encabezado del
 
 Pendiente: cargar `MP_HOLD_VALIDITY_DAYS` en el secret si MOVO-215 define otro valor;
 `svc-shipments` (MOVO-210) todavía no llama a estos endpoints.
+
+### MOVO-116 — `GET /internal/payments/mp-connect/:userId/status`
+
+Endpoint interno (`src/modules/mp-connect/mp-connect-internal.routes.ts`, sin ruta en el gateway
+ni hook de `x-user-id`) que devuelve `{ linked }` para el bloqueo del transportista de
+`svc-shipments` (ADR-036). `linked` usa el mismo criterio que el hold
+(`hasActiveCredentials`, nuevo en el repositorio, comparte `activeAccountWhere` con
+`findActiveCredentials` y no descifra tokens): es más estricto que el `linked` de
+`GET /payments/mp-connect/status` porque también exige `public_key`, así nadie pasa el bloqueo
+y después cae en el 409 del hold. Tests en `test/mp-connect.integration.test.ts`.
