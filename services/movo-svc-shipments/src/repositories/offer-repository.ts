@@ -258,7 +258,6 @@ export interface AcceptOfferFundingOptions {
 export interface AcceptOfferResult {
   offer: Offer;
   shipmentId: string;
-  superseded: Array<{ id: string; carrierId: string }>;
   autoCreatedTrip: Trip | null;
   /** Ruta elegida y estado al que pasó el envío (MOVO-210, AC3/AC6). */
   fundingRoute: FundingRoute;
@@ -322,9 +321,9 @@ export interface OfferRepository {
   reject(id: string): Promise<Offer>;
   /**
    * AC8/AC9: única vía para aceptar una oferta. En una sola transacción
-   * atómica — todo o nada —: la oferta pasa a `accepted`, las demás `pending`
-   * del mismo envío pasan a `superseded`, y el envío pasa a
-   * `assignment_pending` con bloqueo optimista (el `UPDATE` del envío
+   * atómica — todo o nada —: la oferta pasa a `accepted` (las demás `pending` del envío
+   * quedan vivas hasta que se confirme el hold, MOVO-210), y el envío pasa a
+   * `assignment_pending`/`assigned_unfunded` con bloqueo optimista (el `UPDATE` del envío
    * condiciona por `status = 'published'`; si no afecta ninguna fila, lanza
    * `ShipmentNotAvailableForAssignmentError` en vez de aplicar una segunda
    * asignación). El `UPDATE` de la oferta en sí también es compare-and-swap
@@ -772,33 +771,16 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           ...(autoCreatedTrip ? { tripId: autoCreatedTrip.id } : {}),
         };
 
-        // AC8, en lote: las demás ofertas pending del mismo envío pasan a
-        // superseded. Excluye las que ya vencieron lógicamente (expiresAt
-        // pasado) para que sigan reportando 'expired' en lectura, no
-        // 'superseded' — una condición más en el WHERE, sin costo real.
-        const supersededWhere = {
-          shipmentId: current.shipmentId,
-          status: OfferStatus.PENDING,
-          id: { not: id },
-          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-        };
-        // `carrierId` se lee ANTES del `updateMany` (que no devuelve filas) --
-        // hallazgo de review (PR #105): evita que el caller (offers.service.ts,
-        // AC9) tenga que hacer un `listByShipment` completo aparte solo para
-        // saber a quién notificar.
-        const superseded = await tx.offer.findMany({
-          where: supersededWhere,
-          select: { id: true, carrierId: true },
-        });
-        await tx.offer.updateMany({
-          where: supersededWhere,
-          data: { status: OfferStatus.SUPERSEDED, respondedAt: now },
-        });
-
+        // MOVO-210 (AC4): las demás ofertas `pending` del envío NO se cierran acá. Mientras la
+        // asignación espera el pago puede caerse (timeout, hold perdido, T-24h) y el envío vuelve a
+        // `published`; cerrarlas al aceptar dejaba al emisor sin ninguna oferta y a esos
+        // transportistas sin enterarse. Se cierran (`superseded`, con aviso) recién cuando el hold
+        // se confirma, en la misma transacción que `-> assigned`
+        // (`shipment-repository.ts#updateStatus`). Mientras tanto no se pueden aceptar: el UPDATE
+        // condicional del envío (`status = published`) deja pasar una sola asignación.
         return {
           offer: mapOffer(accepted),
           shipmentId: current.shipmentId,
-          superseded,
           autoCreatedTrip,
           fundingRoute,
           shipmentStatus: targetStatus,
