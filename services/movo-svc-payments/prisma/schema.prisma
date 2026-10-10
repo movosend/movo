@@ -109,9 +109,54 @@ model Hold {
   expiresAt          DateTime?          @map("expires_at") @db.Timestamptz
   createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+  settlement         Settlement?
 
   @@unique([shipmentId, attempt], map: "holds_shipment_id_attempt_key")
   @@index([mpPaymentId], map: "holds_mp_payment_id_idx")
   @@map("holds")
+  @@schema("payments")
+}
+
+enum SettlementStatus {
+  processing
+  credited
+  failed
+  escalated
+
+  @@map("settlement_status")
+  @@schema("payments")
+}
+
+// MOVO-212: liquidación de un envío (captura del hold + split). UNA fila por envío
+// (`shipment_id` único): es la base de la idempotencia del cobro, un segundo pedido de
+// captura encuentra la fila y no vuelve a cobrar. `processing` se escribe ANTES de llamar
+// a MP, así una caída entre la captura y el desglose deja rastro y se puede completar.
+//
+// - `gross_amount_ars` = monto del hold (nunca otro, AC3); `commission_ars` = el
+//   `application_fee` del hold. `mp_fee_ars` y `net_amount_ars` salen de `fee_details` /
+//   `net_received_amount` de MP y son null hasta que MP confirma la captura.
+// - Montos `numeric(12,2)`, nunca float. `shipmentId`/`carrierId` son referencias
+//   lógicas, sin FK (ADR-003); `holdId` sí es FK interna del mismo schema.
+model Settlement {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId     String           @unique(map: "settlements_shipment_id_key") @map("shipment_id") @db.Uuid
+  holdId         String           @unique(map: "settlements_hold_id_key") @map("hold_id") @db.Uuid
+  carrierId      String           @map("carrier_id") @db.Uuid
+  mpPaymentId    String           @map("mp_payment_id")
+  grossAmountArs Decimal          @map("gross_amount_ars") @db.Decimal(12, 2)
+  mpFeeArs       Decimal?         @map("mp_fee_ars") @db.Decimal(12, 2)
+  commissionArs  Decimal          @map("commission_ars") @db.Decimal(12, 2)
+  netAmountArs   Decimal?         @map("net_amount_ars") @db.Decimal(12, 2)
+  status         SettlementStatus
+  // Motivo si quedó `failed` (ver `SettlementFailureReason` en @movo/shared).
+  failureReason  String?          @map("failure_reason")
+  // `status_detail` crudo de MP al capturar (`accredited`, ...).
+  statusDetail   String?          @map("status_detail")
+  capturedAt     DateTime?        @map("captured_at") @db.Timestamptz
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+  hold           Hold             @relation(fields: [holdId], references: [id])
+
+  @@map("settlements")
   @@schema("payments")
 }

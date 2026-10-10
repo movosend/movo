@@ -393,3 +393,10 @@ distingue `unlinked` de `invalid` (revocada o vencida) y devuelve `account` (ema
 `/users/me`) también en `invalid`. `MP_CONNECT_RETURN_URL` (`movo://mp-connect`) es el deep link al
 que redirige el callback público. Cinco `ApiErrorCode` nuevos (`MP_CONNECT_*`,
 `MP_ACCOUNT_ALREADY_LINKED`): cuatro de ellos viajan en ese deep link, no como respuesta HTTP.
+
+### MOVO-212 — Contrato de la liquidación (`types/settlement.ts`)
+
+`SettlementStatus`/`SettlementFailureReason`/`SettlementResponse`/`CaptureHoldResponse` para los endpoints
+internos de captura de `svc-payments`, y los códigos `HOLD_NOT_CAPTURABLE`/`SETTLEMENT_NOT_FOUND`.
+`mpFeeArs` y `netAmountArs` son `null` hasta que MP confirma la captura. `escalated` está reservado para
+MOVO-213 (212 nunca lo escribe). Recordatorio: `npm run build` acá antes de tipar desde otro workspace.

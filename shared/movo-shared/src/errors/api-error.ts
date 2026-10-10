@@ -171,7 +171,12 @@ export type ApiErrorCode =
   | "HOLD_CONFLICT"
   // Mercado Pago no respondió o devolvió un error que no es un rechazo de la tarjeta
   // (5xx, timeout, red). El hold queda reintentable con la misma idempotency key.
-  | "PAYMENT_PROVIDER_ERROR";
+  | "PAYMENT_PROVIDER_ERROR"
+  // MOVO-212: capturar un hold que no está en `authorized` (rechazado, cancelado, todavía
+  // en revisión...) o que MP ya no sostiene (vencido).
+  | "HOLD_NOT_CAPTURABLE"
+  // El envío todavía no tiene liquidación (no se pidió la captura).
+  | "SETTLEMENT_NOT_FOUND";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

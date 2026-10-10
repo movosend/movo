@@ -183,3 +183,36 @@ del Vendedor (el token del OAuth del spike no se persiste, ver el encabezado del
 
 Pendiente: cargar `MP_HOLD_VALIDITY_DAYS` en el secret si MOVO-215 define otro valor;
 `svc-shipments` (MOVO-210) todavía no llama a estos endpoints.
+
+### MOVO-212 — Captura del hold y liquidación (lado `svc-payments`)
+
+Endpoints **internos** (sin gateway, como los holds): `POST /internal/payments/holds/by-shipment/:shipmentId/capture`
+y `GET /internal/payments/holds/by-shipment/:shipmentId/settlement` (bajo el mismo prefijo que los
+holds, para que el `PaymentsClient` de MOVO-210 los alcance con su misma base). Código en `src/modules/settlements/`,
+`src/repositories/settlement-repository.ts` y `src/plugins/captures.ts`; contrato en `@movo/shared`
+(`types/settlement.ts`). Tabla `payments.settlements` (migración `20261011120000`).
+
+- **Idempotencia en tres capas (AC7)**: una liquidación `credited` se devuelve sin tocar a MP; hay UNA
+  fila por envío (`shipment_id` único) que se crea en `processing` ANTES de llamar a MP; la captura va con
+  la key `movo-hold-capture-<holdId>`. Si MP falla pero el pago ya está `approved` (respuesta perdida cuya
+  key venció) se adopta en vez de capturar de nuevo.
+- **Sin `amount` en la captura (AC3)**: MP cobra exactamente lo autorizado. El bruto de la liquidación es
+  el monto del hold.
+- **El desglose sale de MP, no de una tasa**: tras capturar se hace `getPayment` y se lee `fee_details`
+  (`application_fee` = comisión de Movo, el resto = fee de MP) y `net_received_amount`. Antes de capturar
+  ese desglose no existe (SOLUCION-FINAL §3). Aritmética en `Decimal`; si bruto ≠ fee MP + comisión + neto
+  se loguea el error pero se registra lo que dice MP. `MP_TRANSACTION_FEE_RATE` (placeholder) no interviene.
+- **Fallos (AC8)**: este servicio no conoce el estado del envío, así que no puede revertir la entrega. Un
+  fallo deja la liquidación `failed` (con `failureReason`) o `processing` (cobrado pero sin desglose todavía)
+  y el hold como estaba; llamar de nuevo reintenta desde donde quedó. El backoff y el escalado son MOVO-213.
+- **Decisión no obvia**: no se rechaza de entrada por `expiresAt` vencido. `MP_HOLD_VALIDITY_DAYS` es una
+  estimación provisoria (MOVO-215), así que se intenta igual y se clasifica el fallo como `hold_expired` solo
+  si MP rechaza y el hold ya pasó su fecha o MP lo tiene `cancelled`. Un hold cancelado por MP NO se sincroniza
+  acá (lo hace `?sync=true`/MOVO-268).
+- **Visibilidad por rol (AC10)**: payments devuelve la liquidación completa; el filtro (transportista ve todo,
+  emisor total y fecha, receptor nada) lo aplica `svc-shipments`, que es quien sabe quién es quién.
+
+Pendiente: lado `svc-shipments` (notifier real, transición a `completed`, push, barrido, endpoint por rol),
+que depende de `PaymentsClient` de MOVO-210 (sin mergear a `develop`); test de integración
+(`captures.integration.test.ts`) escrito pero sin correr localmente por falta de Postgres/Redis; test
+contra el sandbox real sin escribir.
