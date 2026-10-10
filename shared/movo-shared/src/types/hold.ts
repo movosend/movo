@@ -11,10 +11,29 @@
  * - `cancelled`: liberado sin cobrar (por Movo o por MP).
  * - `rejected`: MP no autorizó; `failureReason` dice por qué.
  */
-export type HoldStatus = "creating" | "in_process" | "authorized" | "captured" | "cancelled" | "rejected";
+export const HOLD_STATUSES = [
+  "creating",
+  "in_process",
+  "authorized",
+  "captured",
+  "cancelled",
+  "rejected",
+] as const;
 
-/** Estados en los que el hold existe (o puede existir) del lado de MP. */
+export type HoldStatus = (typeof HOLD_STATUSES)[number];
+
+/**
+ * Estados en los que el hold existe (o puede existir) del lado de MP. FUENTE ÚNICA de
+ * la partición vivo/cerrado: `svc-payments` deriva de acá sus estados cerrados, y un test
+ * de integración verifica que el predicado del índice único parcial de la base
+ * (`holds_shipment_id_live_key`) liste exactamente estos valores.
+ */
 export const LIVE_HOLD_STATUSES: readonly HoldStatus[] = ["creating", "in_process", "authorized", "captured"];
+
+/** Estados sin fondos retenidos: lo que no es vivo. */
+export const CLOSED_HOLD_STATUSES: readonly HoldStatus[] = HOLD_STATUSES.filter(
+  (status) => !LIVE_HOLD_STATUSES.includes(status),
+);
 
 /**
  * Motivo diferenciado de un rechazo (AC5 de MOVO-209). Los tres primeros los resuelve

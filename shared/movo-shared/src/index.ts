@@ -95,7 +95,7 @@ export type {
 } from "./types/mp-connect";
 
 // hold (MOVO-209)
-export { LIVE_HOLD_STATUSES } from "./types/hold";
+export { CLOSED_HOLD_STATUSES, HOLD_STATUSES, LIVE_HOLD_STATUSES } from "./types/hold";
 export type {
   CreateHoldRequest,
   HoldCheckoutDataRequest,
