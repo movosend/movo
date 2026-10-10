@@ -1,14 +1,13 @@
-import { ApiError } from "@movo/shared/dist/errors/api-error";
 import {
   MP_CONNECT_RETURN_URL,
   type MpConnectStatusResponse,
 } from "@movo/shared/dist/types/mp-connect";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as WebBrowser from "expo-web-browser";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { paymentsClient } from "../api/payments-client";
-import { friendlyErrorMessage } from "../lib/error-messages";
+import { friendlyErrorMessage, messageForCode } from "../lib/error-messages";
 import { runMpConnectLink } from "../lib/mp-connect-flow";
 
 export const MP_CONNECT_STATUS_QUERY_KEY = ["payments", "mp-connect", "status"] as const;
@@ -20,25 +19,48 @@ const UNLINKED_STATUS: MpConnectStatusResponse = {
 };
 
 /**
+ * Un solo listener de AppState para todas las instancias de `useMpConnectStatus` (fila de
+ * Perfil + pantalla "Pagos y cobros"): uno por instancia hacía un refetch por cada una al
+ * volver a primer plano. Mientras se vincula no refetchea: al cerrarse el navegador el
+ * AppState pasa a `active` y el flujo ya consulta el status por su cuenta.
+ */
+let foregroundSubscribers = 0;
+let foregroundSubscription: { remove: () => void } | null = null;
+let linkInFlight = false;
+
+function subscribeToForegroundRefetch(queryClient: QueryClient): () => void {
+  foregroundSubscribers += 1;
+  if (foregroundSubscribers === 1) {
+    foregroundSubscription = AppState.addEventListener("change", (state) => {
+      if (state === "active" && !linkInFlight) {
+        void queryClient.refetchQueries({ queryKey: MP_CONNECT_STATUS_QUERY_KEY });
+      }
+    });
+  }
+  return () => {
+    foregroundSubscribers -= 1;
+    if (foregroundSubscribers === 0) {
+      foregroundSubscription?.remove();
+      foregroundSubscription = null;
+    }
+  };
+}
+
+/**
  * Estado de la vinculación con Mercado Pago (MOVO-112). Lo comparten la fila de
  * Perfil → Configuración y la pantalla "Pagos y cobros" con la misma query key. Se
  * vuelve a consultar al volver la app a primer plano: el transportista puede haber
  * revocado el acceso desde la app de Mercado Pago.
  */
 export function useMpConnectStatus() {
+  const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: MP_CONNECT_STATUS_QUERY_KEY,
     queryFn: paymentsClient.getMpConnectStatus,
     staleTime: 30_000,
   });
 
-  const { refetch } = query;
-  useEffect(() => {
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void refetch();
-    });
-    return () => subscription.remove();
-  }, [refetch]);
+  useEffect(() => subscribeToForegroundRefetch(queryClient), [queryClient]);
 
   return query;
 }
@@ -81,6 +103,7 @@ export function useLinkMpAccount() {
   const start = useCallback(async () => {
     if (inFlight.current) return;
     inFlight.current = true;
+    linkInFlight = true;
     setError(null);
     setPhase("opening");
     let browserClosed = false;
@@ -115,7 +138,7 @@ export function useLinkMpAccount() {
       if (outcome.kind === "error") {
         setError(
           outcome.code
-            ? friendlyErrorMessage(new ApiError(400, outcome.code, ""), outcome.fallbackMessage)
+            ? messageForCode(outcome.code, outcome.fallbackMessage)
             : outcome.fallbackMessage,
         );
       }
@@ -130,6 +153,7 @@ export function useLinkMpAccount() {
       );
     } finally {
       inFlight.current = false;
+      linkInFlight = false;
       setPhase("idle");
     }
   }, [queryClient]);

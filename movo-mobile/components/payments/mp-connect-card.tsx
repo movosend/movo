@@ -1,6 +1,7 @@
 import type { MpConnectStatusResponse } from "@movo/shared/dist/types/mp-connect";
 import { AlertTriangle } from "lucide-react-native";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { STATE_COLORS } from "../../src/constants/state-colors";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { formatMpConnectedAt } from "../../src/lib/mp-connect-format";
 import { SkeletonBlock } from "../ui/skeleton-block";
@@ -46,6 +47,9 @@ function CtaButton({
   return (
     <Pressable
       testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
       onPress={onPress}
       disabled={disabled}
       className={`items-center rounded-full py-3 ${disabled ? "bg-bg-mute" : "bg-fg active:opacity-80"}`}
@@ -106,7 +110,7 @@ function UnlinkedCard({ isDark, linking, hadLinkError, onLink }: CardProps) {
         testID="mp-connect-unlinked-warning"
         className="flex-row items-start gap-2 rounded-[10px] border border-warning-300 bg-warning-100 px-3 py-2.5"
       >
-        <AlertTriangle size={15} strokeWidth={2.2} color="#A97714" style={{ marginTop: 1 }} />
+        <AlertTriangle size={15} strokeWidth={2.2} color={STATE_COLORS.warning700} style={{ marginTop: 1 }} />
         <Text className="flex-1 font-sans text-[12.5px] leading-[17px] text-ink-950">
           No vas a poder cobrar hasta vincular tu cuenta.
         </Text>
@@ -150,6 +154,9 @@ function LinkedCard({ data, initials, isDark, onUnlink, linking }: CardProps) {
       </View>
       <Pressable
         testID="mp-connect-unlink-button"
+        accessibilityRole="button"
+        accessibilityLabel="Desvincular cuenta de Mercado Pago"
+        accessibilityState={{ disabled: linking }}
         onPress={onUnlink}
         disabled={linking}
         className="items-center rounded-lg border border-border-strong bg-bg py-[13px] active:opacity-80"
@@ -175,7 +182,7 @@ function InvalidCard({ data, initials, linking, onLink }: CardProps) {
         </Text>
       </View>
       {account ? (
-        <View className="flex-row items-center gap-3 rounded-xl bg-white/60 px-3.5 py-3 opacity-70">
+        <View className="flex-row items-center gap-3 rounded-xl bg-paper/60 px-3.5 py-3 opacity-70">
           <AccountAvatar initials={initials} muted />
           <Text
             testID="mp-connect-invalid-email"

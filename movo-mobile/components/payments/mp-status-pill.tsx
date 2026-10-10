@@ -1,6 +1,7 @@
 import type { MpConnectStatus } from "@movo/shared/dist/types/mp-connect";
 import { Check } from "lucide-react-native";
 import { Text, View } from "react-native";
+import { STATE_COLORS } from "../../src/constants/state-colors";
 
 /**
  * - `row`: la fila "Pagos y cobros" de Perfil → Configuración (Vinculado / Pendiente /
@@ -26,7 +27,7 @@ const TONE_CLASSES: Record<PillVariant, Record<MpConnectStatus, { bg: string; te
     linked: { bg: "bg-success-100", text: "text-success-700" },
     unlinked: { bg: "bg-warning-100", text: "text-warning-700" },
     // Va sobre la tarjeta roja: pill blanca para que se separe del fondo.
-    invalid: { bg: "bg-white", text: "text-danger-700" },
+    invalid: { bg: "bg-paper", text: "text-danger-700" },
   },
 };
 
@@ -45,7 +46,7 @@ export function MpStatusPill({
   return (
     <View testID={testID} className={`flex-row items-center gap-1 rounded-full ${padding} ${tone.bg}`}>
       {variant === "card" && status === "linked" ? (
-        <Check size={11} strokeWidth={2.6} color="#16754A" />
+        <Check size={11} strokeWidth={2.6} color={STATE_COLORS.success700} />
       ) : null}
       <Text className={`font-sans-medium text-[11px] ${tone.text}`}>{LABELS[variant][status]}</Text>
     </View>

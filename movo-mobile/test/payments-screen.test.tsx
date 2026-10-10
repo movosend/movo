@@ -1,4 +1,5 @@
 import { act, fireEvent, render } from "@testing-library/react-native";
+import { ApiError } from "@movo/shared/dist/errors/api-error";
 import PaymentsSettingsScreen from "../app/(app)/profile/payments";
 
 type StatusState = {
@@ -160,6 +161,32 @@ describe("PaymentsSettingsScreen (MOVO-112)", () => {
     mockRefetch.mockClear();
     fireEvent.press(getByTestId("mp-connect-status-retry"));
     expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("si la vinculación no está configurada (503), muestra el aviso sin Reintentar", async () => {
+    mockStatus = {
+      data: undefined,
+      isError: true,
+      error: new ApiError(503, "MP_CONNECT_NOT_CONFIGURED", "not configured"),
+    };
+    const { getByTestId, queryByTestId, getByText } = await render(<PaymentsSettingsScreen />);
+
+    expect(getByTestId("mp-connect-status-error")).toBeTruthy();
+    expect(getByText(/no está disponible por ahora/)).toBeTruthy();
+    expect(queryByTestId("mp-connect-status-retry")).toBeNull();
+  });
+
+  it("no vuelve a consultar el status cuando cambia la fase de vinculación", async () => {
+    mockStatus = { data: { status: "unlinked", account: null, invalidReason: null }, isError: false };
+    const { rerender } = await render(<PaymentsSettingsScreen />);
+    mockRefetch.mockClear();
+
+    mockLink = { phase: "finishing", error: null };
+    await rerender(<PaymentsSettingsScreen />);
+    mockLink = { phase: "idle", error: null };
+    await rerender(<PaymentsSettingsScreen />);
+
+    expect(mockRefetch).not.toHaveBeenCalled();
   });
 
   describe("desvincular (AC5)", () => {

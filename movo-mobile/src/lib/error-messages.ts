@@ -114,6 +114,14 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
 };
 
 /**
+ * Mensaje en español para un código de error estable, o `fallback` si no tiene traducción.
+ * Para los códigos que no llegan como `ApiError` (ej. los que vuelven por deep link).
+ */
+export function messageForCode(code: ApiErrorCode, fallback: string): string {
+  return CODE_MESSAGES[code] ?? fallback;
+}
+
+/**
  * Mensaje user-friendly a partir de un error de API, con fallback específico
  * de la acción que falló. Las fallas de red (`statusCode === 0`) ya traen un
  * mensaje armado por `http-client.ts` ("No se pudo conectar…") — se muestra
@@ -134,5 +142,5 @@ export function friendlyErrorMessage(
 ): string {
   if (!(err instanceof ApiError)) return fallback;
   if (err.statusCode === 0) return err.message;
-  return overrides?.[err.code] ?? CODE_MESSAGES[err.code] ?? fallback;
+  return overrides?.[err.code] ?? messageForCode(err.code, fallback);
 }

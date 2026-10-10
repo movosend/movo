@@ -1,7 +1,8 @@
+import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { router, useFocusEffect } from "expo-router";
 import { useColorScheme } from "nativewind";
 import { ChevronLeft } from "lucide-react-native";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MpConnectCard, MpConnectSkeletonCard } from "../../../components/payments/mp-connect-card";
@@ -22,7 +23,9 @@ import { useAuthStore } from "../../../src/store/auth-store";
  *   estado REAL, que se vuelve a consultar. El mockup siempre volvía a "Sin vincular",
  *   que es falso si la vinculación estaba "inválida" antes de reintentar.
  * - Si falla consultar el status, se muestra el error con "Reintentar" en vez de la
- *   tarjeta (el mockup no tenía este estado).
+ *   tarjeta (el mockup no tenía este estado). Si el backend responde que la vinculación
+ *   no está configurada (503 `MP_CONNECT_NOT_CONFIGURED`), reintentar no sirve: se muestra
+ *   solo el aviso, sin botón.
  */
 export default function PaymentsSettingsScreen() {
   const colors = useThemeColors();
@@ -42,13 +45,16 @@ export default function PaymentsSettingsScreen() {
   });
 
   // Al volver a la pantalla (ej. desde la app de Mercado Pago) el status puede haber
-  // cambiado. Durante un intento de vincular no: ese flujo ya consulta al final.
+  // cambiado. Durante un intento de vincular no: ese flujo ya consulta al final. La fase
+  // va por ref y no como dependencia: si no, al volver a `idle` tras vincular el efecto se
+  // re-dispararía y haría un refetch de más justo después del que ya hizo el flujo.
   const { refetch } = statusQuery;
-  const linkPhase = link.phase;
+  const linkPhaseRef = useRef(link.phase);
+  linkPhaseRef.current = link.phase;
   useFocusEffect(
     useCallback(() => {
-      if (linkPhase === "idle") void refetch();
-    }, [refetch, linkPhase]),
+      if (linkPhaseRef.current === "idle") void refetch();
+    }, [refetch]),
   );
 
   const handleLink = () => {
@@ -79,18 +85,24 @@ export default function PaymentsSettingsScreen() {
       />
     );
   } else if (statusQuery.isError) {
+    const notConfigured =
+      statusQuery.error instanceof ApiError && statusQuery.error.code === "MP_CONNECT_NOT_CONFIGURED";
     content = (
       <View testID="mp-connect-status-error">
         <ErrorBanner
           message={friendlyErrorMessage(statusQuery.error, "No pudimos consultar tu cuenta de Mercado Pago.")}
         />
-        <Pressable
-          testID="mp-connect-status-retry"
-          onPress={() => void refetch()}
-          className="items-center rounded-lg border border-border-strong bg-bg py-3 active:opacity-80"
-        >
-          <Text className="font-sans-semibold text-[14px] text-fg">Reintentar</Text>
-        </Pressable>
+        {notConfigured ? null : (
+          <Pressable
+            testID="mp-connect-status-retry"
+            accessibilityRole="button"
+            accessibilityLabel="Reintentar"
+            onPress={() => void refetch()}
+            className="items-center rounded-lg border border-border-strong bg-bg py-3 active:opacity-80"
+          >
+            <Text className="font-sans-semibold text-[14px] text-fg">Reintentar</Text>
+          </Pressable>
+        )}
       </View>
     );
   } else {
@@ -102,6 +114,8 @@ export default function PaymentsSettingsScreen() {
       <View className="flex-row items-center gap-3 px-5 pb-3.5 pt-1.5">
         <Pressable
           testID="payments-back"
+          accessibilityRole="button"
+          accessibilityLabel="Volver"
           onPress={() => router.back()}
           className="h-8 w-8 items-center justify-center rounded-full bg-bg-mute"
         >

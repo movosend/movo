@@ -4253,5 +4253,17 @@ publicado en MOVO-111 (`@movo/shared`, `types/mp-connect.ts`); el backend todav�
   del emblema dibuja las manos blancas y en blanco desaparecen. El avatar de la cuenta usa
   `bg-fg`/`text-bg` como `ProfileAvatar`, así acompaña al tema.
 
+**Fixes de review (PR #224):** `messageForCode` (`error-messages.ts`) traduce un código sin
+fabricar un `ApiError`; un solo listener de AppState para todas las instancias de
+`useMpConnectStatus`, que no refetchea mientras se vincula, y el foco de la pantalla no depende
+de la fase (sin refetch de más al terminar de vincular); un 503 `MP_CONNECT_NOT_CONFIGURED` se
+muestra sin "Reintentar" (no sirve hasta que se carguen los secrets); `BottomSheetModal`
+(`components/ui/`) extrae el boilerplate de `Modal` + `SafeAreaProvider` + overlay y lo usan
+`UnlinkMpSheet` y `RejectOfferModal` (quedan otros sheets por migrar); `accessibilityRole`/
+`accessibilityLabel` en los botones de la pantalla; íconos y fondos de estado salen de
+`STATE_COLORS`/`bg-paper` en vez de hex sueltos. El deep link `movo://mp-connect` sin sesión lo
+cubre el guard de `(app)/_layout.tsx` (redirige a `/login`; después del login no vuelve a la
+pantalla de pagos).
+
 Probado de punta a punta en local contra MOVO-111 (ya en `develop`). Pendiente: probarlo en dev
 cuando estén cargados `MP_REDIRECT_URI` y `MP_TOKEN_ENCRYPTION_KEY` en sus secrets.
