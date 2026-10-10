@@ -115,17 +115,29 @@ Contrato en `@movo/shared` (`types/hold.ts`). Código en `src/modules/holds/`,
 ADR-034.
 
 - **`payments.holds`: una fila por intento** (`shipment_id` + `attempt`). La key de MP es
-  `movo-hold-<shipmentId>-<attempt>`: un reintento del mismo intento (timeout, respuesta
-  perdida) reusa fila y key y MP devuelve el pago ya creado; solo un rechazo o una
-  liberación abren el intento siguiente. Un hold vivo se devuelve tal cual (200, sin
-  llamar a MP). Índice único **parcial** `ON (shipment_id) WHERE status IN
-  ('creating','in_process','authorized','captured')`, a mano en la migración: un solo
-  hold vivo por envío aunque el código falle (el riesgo más caro del ticket).
+  `movo-hold-<shipmentId>-<attempt>`. Un hold vivo se devuelve tal cual (200, sin llamar a
+  MP **ni exigir la cuenta vinculada**: el transportista pudo desvincularse después). Un
+  intento en `creating` (MP no respondió) se reintenta con la MISMA key solo si el cuerpo
+  coincide (`request_fingerprint`, un hash: nunca el token); si cambió la tarjeta, el
+  pagador, el monto o el transportista, primero se busca el pago en MP por
+  `external_reference` (el id del envío): si existe se lo adopta, si no se cierra el
+  intento viejo (`superseded`) y se abre otro con otra key. Índice único **parcial** `ON
+  (shipment_id) WHERE status IN ('creating','in_process','authorized','captured')`, a mano
+  en la migración: un solo hold vivo por envío aunque el código falle. La partición
+  vivo/cerrado vive en `@movo/shared` (`LIVE_HOLD_STATUSES`/`CLOSED_HOLD_STATUSES`) y un
+  test de integración verifica que el predicado del índice liste exactamente esos estados.
 - **Un rechazo de la tarjeta no es un error HTTP**: `POST /` responde 201 con
   `status: rejected` + `failureReason` (`insufficient_funds`, `card_rejected`,
-  `invalid_data`, `platform_error`, AC5) y el emisor reintenta con otra tarjeta. Solo un
-  timeout/5xx de MP es 502 `PAYMENT_PROVIDER_ERROR`, y deja el intento en `creating`.
-  Un 4xx de MP (token usado, 2034) cierra el intento como `rejected`.
+  `invalid_data`, `platform_error`, AC5) y el emisor reintenta con otra tarjeta. **Solo un
+  400/422 con una causa que reconocemos** (token inválido 2006/3001/3003, cuentas
+  2034/2059) cierra el intento como `rejected`: prueba que MP no creó el pago. Un 401/403
+  es del token del transportista (409 `CARRIER_MP_ACCOUNT_NOT_LINKED`, el intento sigue en
+  `creating`); 408/409/429/5xx/red/4xx desconocido son 502 `PAYMENT_PROVIDER_ERROR` y
+  también dejan `creating`, porque MP pudo haber creado el pago.
+- **Un estado de pago de MP que no conocemos** (`refunded`, `charged_back`, `in_mediation`)
+  se loguea y deja el hold sin cambios: convertirlo en `rejected` lo sacaría del índice de
+  vivos y habilitaría una segunda reserva sobre fondos que siguen retenidos. Liberar solo
+  responde 200 si MP confirma `cancelled`.
 - **`application_fee`** = `decomposeOfferGrossPrice(monto).commissionAmountArs`: el monto
   es el bruto del emisor y Movo cobra su % sobre el neto del transportista (no el 15% del
   bruto). `expires_at` = creación + `MP_HOLD_VALIDITY_DAYS` (config, default 5
@@ -135,9 +147,17 @@ ADR-034.
   agrega es la `public_key`, la comisión y el 409 `CARRIER_MP_ACCOUNT_NOT_LINKED` si la
   cuenta no está `linked` (desvinculada, revocada o token vencido).
 - **Liberar es idempotente**: ya cancelado o `rejected` devuelve el hold; `captured` →
-  409 `HOLD_NOT_RELEASABLE` (eso es un reembolso); `creating` también 409, porque sin
-  `mp_payment_id` no hay qué cancelar y cerrarlo local dejaría un pago huérfano. Si la
+  409 `HOLD_NOT_RELEASABLE` (eso es un reembolso). Un `creating` se reconcilia primero
+  contra MP: si el pago existe se adopta y se cancela; si no existe y el intento tiene más
+  de 10 minutos se da por abandonado (`rejected`/`abandoned`); si es reciente, 409. Si la
   cancelación falla pero MP ya lo tenía cancelado, se da por liberado.
+- **Limitación conocida de la liberación:** MP solo deja cancelar al cobrador, así que
+  hace falta el access_token del transportista. Si desvinculó (se borran los tokens, MOVO-111)
+  o MP los revocó, `release` responde 409 `CARRIER_MP_ACCOUNT_NOT_LINKED`, lo deja
+  logueado con el `holdId` y el hold vence solo en MP (~5-7 días), con los fondos del
+  emisor retenidos y sin poder abrir otro hold para el envío en el medio. Decisión
+  pendiente (no implementada): impedir la desvinculación mientras haya holds vivos del
+  transportista, o ampliar MOVO-243/268.
 - **`?sync=true`** consulta el pago a MP y actualiza la fila: hasta MOVO-268 (webhook) es
   la única forma de ver un hold que MP cambió por su cuenta.
 - **Logs (AC9)**: se loguean ids, estado y montos; nunca el `card_token`, el email del
@@ -151,10 +171,11 @@ ADR-034.
 `payerEmail` su email real (con uno inventado MP crea un invitado y responde 2034); el
 vendedor y el dueño de la app también de prueba. Documentado en `.env.example`.
 
-Verificado contra el sandbox real (10/10, cuenta Vendedor `2991764998`, comprador
-`test_user_4715592661702347785@testuser.com`): `test/holds.sandbox.test.ts` crea un hold
-de $1150 con `application_fee` 150 (`authorized` / `pending_capture`), un reintento
-devuelve el mismo pago sin crear otro, `?sync=true` lo confirma y la liberación lo deja
+Verificado contra el sandbox real (10/10, cuenta Vendedor y comprador de prueba del
+equipo; los ids no se versionan, ver el archivo de credenciales fuera del repo):
+`test/holds.sandbox.test.ts` crea un hold de $1150 con `application_fee` 150 (`authorized`
+/ `pending_capture`), un reintento devuelve el mismo pago sin crear otro, la búsqueda por
+`external_reference` lo encuentra, `?sync=true` lo confirma y la liberación lo deja
 `cancelled` (confirmado con un `GET` directo a MP). Se saltea solo sin credenciales (no
 corre en CI): necesita `MP_SANDBOX_CARRIER_ACCESS_TOKEN` y `MP_SANDBOX_CARRIER_PUBLIC_KEY`
 del Vendedor (el token del OAuth del spike no se persiste, ver el encabezado del test) y las

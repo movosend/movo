@@ -58,11 +58,17 @@ API de Mercado Pago lo permiten (`docs/payments/mercadopago-spike/SOLUCION-FINAL
   se difiere hasta que el emisor confirma el pago cerca de la fecha (ADR-021, MOVO-210).
 - **El plazo del hold lo decide Mercado Pago** y su documentación se contradice (5 o 7
   días). Se parametriza (`MP_HOLD_VALIDITY_DAYS`, hoy 5 provisorio) hasta que MOVO-215 lo mida.
-- **Dos requests casi simultáneos o una respuesta perdida** se resuelven por idempotencia,
-  no con locks distribuidos. Caso residual aceptado: si el envío se reasigna a otro
-  transportista o monto mientras un intento sigue sin respuesta de MP, ese intento se
-  cierra localmente y, si MP llegó a crearlo, queda un hold huérfano que vence solo
-  (MOVO-268 lo reconcilia por `external_reference`).
+- **Dos requests casi simultáneos o una respuesta perdida** se resuelven por idempotencia
+  y por un índice único parcial, no con locks distribuidos. Un intento sin respuesta de MP
+  (`creating`) se reintenta con la misma key si el cuerpo coincide; si cambió, se busca el
+  pago en MP por `external_reference` antes de abrir otro intento. Caso residual aceptado:
+  si no hay credenciales del transportista para preguntarle a MP, el intento viejo se cierra
+  igual y, si MP llegó a crearlo, queda un hold huérfano que vence solo (MOVO-268 lo
+  reconcilia).
+- **Liberar un hold exige el access_token del transportista** (MP solo deja cancelar al
+  cobrador). Si desvinculó o MP revocó el acceso, el hold no se puede liberar desde Movo y
+  vence solo en MP, con los fondos del emisor retenidos hasta entonces. Pendiente de decisión:
+  impedir la desvinculación con holds vivos.
 - **El sandbox exige que las tres partes sean cuentas de prueba** y que el pagador use el
   email real de una cuenta Comprador; con uno inventado MP crea un invitado y responde
   2034. Producción puede requerir homologar el modelo Marketplace en la cuenta real de
