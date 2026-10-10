@@ -351,7 +351,7 @@ flowchart LR
 
 | Decisión | Motivo | Dónde |
 | --- | --- | --- |
-| Marketplace de MP: Payments API + OAuth del transportista + `application_fee` | Movo nunca toca el dinero del transportista: MP lo acredita directo en su cuenta y retiene la comisión de Movo en la misma operación. | MOVO-209, ADR-034 (`docs/payments/adr-034-arquitectura-de-cobro.md`) |
+| Marketplace de MP: Payments API + OAuth del transportista + `application_fee` | Movo nunca toca el dinero del transportista: MP lo acredita directo en su cuenta y retiene la comisión de Movo en la misma operación. | MOVO-209, ADR-035 (`docs/payments/adr-035-arquitectura-de-cobro.md`) |
 | La tarjeta se tokeniza con la `public_key` **del transportista** | Requisito de MP: el card_token tiene que pertenecer a la cuenta que cobra. Con otra key, error 2006. | Spike MOVO-49 |
 | El hold se crea **siempre con el emisor presente** | Tarjeta guardada + cobro off-session no se pudo validar en marketplace (error 128 al guardarla; la variante con la cuenta de Movo no se puede probar en sandbox). | MOVO-12, SOLUCION-FINAL §7 |
 | El hold se ancla **cerca del retiro**, no en la aceptación | MP cancela el hold a los pocos días. Si falla cerca del retiro, falla antes de la custodia, cuando todavía se puede republicar el envío. | MOVO-12 |

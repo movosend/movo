@@ -1,10 +1,11 @@
-# ADR-034 — Arquitectura de cobro: Payments API + OAuth Connect + `application_fee`
+# ADR-035 — Arquitectura de cobro: Payments API + OAuth Connect + `application_fee`
 
 **Estado:** aceptado (MOVO-209). Borrador para pegar en la sección de ADRs de
 `[Movo] 004 - Sprint 0.md` en Drive.
 
 > Numeración: el ticket MOVO-209 lo llamaba ADR-030, pero ese número ya lo ocupa el
-> juego de precios del sitio institucional. El siguiente libre al escribirlo es el 034.
+> juego de precios del sitio institucional, y el 034 lo tomó MOVO-277 (inicio de viaje,
+> PR #222) antes de que este se mergeara. Es el ADR-035.
 
 ## Contexto
 

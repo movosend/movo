@@ -112,7 +112,7 @@ caller es un servicio, ADR-010). `POST /checkout-data` (AC1), `POST /` (crear),
 `GET /by-shipment/:shipmentId[?sync=true]` y `POST /by-shipment/:shipmentId/release`.
 Contrato en `@movo/shared` (`types/hold.ts`). Código en `src/modules/holds/`,
 `src/repositories/hold-repository.ts` y `src/plugins/holds.ts`. Arquitectura de cobro:
-ADR-034.
+ADR-035.
 
 - **`payments.holds`: una fila por intento** (`shipment_id` + `attempt`). La key de MP es
   `movo-hold-<shipmentId>-<attempt>`. Un hold vivo se devuelve tal cual (200, sin llamar a
