@@ -16,6 +16,8 @@ import carrierPositionPurgeSweepPlugin from "./plugins/carrier-position-purge-sw
 import tripExpirySweepPlugin from "./plugins/trip-expiry-sweep";
 import pickupMissedSweepPlugin from "./plugins/pickup-missed-sweep";
 import transitAnomalySweepPlugin from "./plugins/transit-anomaly-sweep";
+import fundingSweepPlugin from "./plugins/funding-sweep";
+import fundingRoutes, { internalFundingRoutes, FundingRoutesOptions } from "./modules/funding/funding.routes";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import offersRoutes, { OffersRoutesOptions } from "./modules/offers/offers.routes";
 import ratingsRoutes, { internalRatingsRoutes, RatingsRoutesOptions } from "./modules/ratings/ratings.routes";
@@ -42,7 +44,7 @@ export interface BuildAppOptions {
    * `storageProvider` en movo-svc-users. */
   usersClient?: UsersClient;
   /** Override solo para tests de integración — evita depender de un `movo-svc-payments`
-   * real levantado (MOVO-116, bloqueo del transportista), mismo criterio que `usersClient`. */
+   * real levantado (MOVO-116 bloqueo del transportista, MOVO-210 saga de pago), mismo criterio que `usersClient`. */
   paymentsClient?: PaymentsClient;
   /** Override solo para tests de integración — evita depender de un bucket real/
    * credenciales de AWS (MOVO-81). */
@@ -73,6 +75,8 @@ export interface BuildAppOptions {
   pickupMissedSweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de `in_transit` anómalo (MOVO-258). */
   transitAnomalySweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el sweep de la saga de asignación (MOVO-210). */
+  fundingSweepEnabled?: boolean;
   /** Override solo para tests de integración -- evita depender de una integración
    * real de liberación de fondos (MOVO-158, fuera de alcance de este ticket). */
   fundsReleaseNotifier?: FundsReleaseNotifier;
@@ -155,12 +159,20 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(pickupMissedSweepPlugin, {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    // MOVO-210: el barrido cancela envíos `assigned`/`assignment_pending` con hold vivo.
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
     ...(opts.pickupMissedSweepEnabled !== undefined ? { enabled: opts.pickupMissedSweepEnabled } : {}),
   });
   app.register(transitAnomalySweepPlugin, {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.transitAnomalySweepEnabled !== undefined ? { enabled: opts.transitAnomalySweepEnabled } : {}),
+  });
+  app.register(fundingSweepPlugin, {
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
+    ...(opts.fundingSweepEnabled !== undefined ? { enabled: opts.fundingSweepEnabled } : {}),
   });
 
   app.get("/health", async () => ({ status: "ok" }));
@@ -176,6 +188,17 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
   };
   app.register(shipmentsRoutes, shipmentsRouteOpts);
+
+  // MOVO-210: pago del emisor (`GET`/`POST /shipments/:id/funding`) y aviso interno de
+  // `svc-payments` cuando MP pierde un hold (`POST /internal/shipments/:id/hold-events`).
+  const fundingRouteOpts: FundingRoutesOptions = {
+    prefix: "/shipments",
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
+  };
+  app.register(fundingRoutes, fundingRouteOpts);
+  app.register(internalFundingRoutes, { ...fundingRouteOpts, prefix: "/internal" });
 
   // MOVO-144/145: prefijo propio, no anidado bajo /shipments, mismo criterio que
   // /addresses en el gateway.

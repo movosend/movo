@@ -15,6 +15,8 @@ const VALID_TRANSITIONS: Array<[OfferStatus, OfferStatus]> = [
   // MOVO-258 (D7): el envío se cancela con la oferta vigente o ya aceptada
   [OfferStatus.PENDING, OfferStatus.SHIPMENT_CANCELLED],
   [OfferStatus.ACCEPTED, OfferStatus.SHIPMENT_CANCELLED],
+  // MOVO-210: aceptada pero la asignación no prosperó (pago no completado o hold perdido)
+  [OfferStatus.ACCEPTED, OfferStatus.ASSIGNMENT_LAPSED],
 ];
 
 const INVALID_TRANSITIONS: Array<[OfferStatus, OfferStatus]> = [
@@ -29,6 +31,11 @@ const INVALID_TRANSITIONS: Array<[OfferStatus, OfferStatus]> = [
   [OfferStatus.EXPIRED, OfferStatus.PENDING],
   [OfferStatus.SHIPMENT_CANCELLED, OfferStatus.PENDING],
   [OfferStatus.SHIPMENT_CANCELLED, OfferStatus.ACCEPTED],
+  // `assignment_lapsed` es terminal; y una oferta que nunca se aceptó no puede "caerse"
+  [OfferStatus.ASSIGNMENT_LAPSED, OfferStatus.ACCEPTED],
+  [OfferStatus.PENDING, OfferStatus.ASSIGNMENT_LAPSED],
+  // aceptada ya no se reetiqueta como rechazada: el emisor no la rechazó
+  [OfferStatus.ACCEPTED, OfferStatus.REJECTED],
   // una oferta rechazada/retirada/superada no se reetiqueta al cancelarse el envío
   [OfferStatus.REJECTED, OfferStatus.SHIPMENT_CANCELLED],
   [OfferStatus.WITHDRAWN, OfferStatus.SHIPMENT_CANCELLED],
@@ -75,6 +82,7 @@ describe("offer-state-machine", () => {
       OfferStatus.EXPIRED,
       OfferStatus.SUPERSEDED,
       OfferStatus.SHIPMENT_CANCELLED,
+      OfferStatus.ASSIGNMENT_LAPSED,
     ];
     const nonTerminal = Object.values(OfferStatus).filter((status) => !terminal.includes(status));
 

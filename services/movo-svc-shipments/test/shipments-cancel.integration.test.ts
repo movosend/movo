@@ -8,6 +8,7 @@ import { createOfferRepository, OfferRepository } from "../src/repositories/offe
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
 import { CreateOfferInput } from "../src/models/offer";
 import { createFakeUsersClient } from "./fake-users-client";
+import { createFakePaymentsClient } from "./fake-payments-client";
 
 const PICKUP_DATE = new Date("2030-01-01T00:00:00.000Z");
 
@@ -83,6 +84,8 @@ describe("POST /shipments/:id/cancel (Postgres) — MOVO-29/MOVO-108", () => {
     app = buildApp({
       usersClient: createFakeUsersClient({}),
       notificationsClient: { sendPush },
+      // MOVO-210: cancelar desde assignment_pending libera el hold en payments.
+      paymentsClient: createFakePaymentsClient(),
     });
     await app.ready();
     shipmentRepo = createShipmentRepository(app.db);

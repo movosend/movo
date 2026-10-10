@@ -20,9 +20,14 @@ export function createFakeUsersClient(
   profiles: Record<string, PublicProfile>,
   deviceKeys: Record<string, DeviceKey> = {},
   blocks: Array<[string, string]> = [],
-  kycStatuses: Record<string, Partial<CarrierKycStatusResponse>> = {}
+  kycStatuses: Record<string, Partial<CarrierKycStatusResponse>> = {},
+  /** MOVO-210: email de cuenta por userId; ausente = `<userId>@movo.test`. */
+  emails: Record<string, string> = {}
 ): UsersClient {
   return {
+    async findAccountEmail(userId: string): Promise<string | null> {
+      return emails[userId] ?? `${userId}@movo.test`;
+    },
     async findKycStatus(userId: string): Promise<CarrierKycStatusResponse | null> {
       const profile = profiles[userId];
       const override = kycStatuses[userId];

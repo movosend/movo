@@ -1,4 +1,5 @@
-import { OfferStatus, ShipmentStatus } from "@movo/shared";
+import { FundingRoute, OfferStatus, ShipmentStatus } from "@movo/shared";
+import { selectFundingRoute } from "../domain/funding";
 import { Prisma, PrismaClient, Offer as OfferRow, Shipment as ShipmentRow } from "../generated/prisma/client";
 import { INITIAL_OFFER_STATUS, transition } from "../domain/offer-state-machine";
 import { transition as transitionShipmentStatus } from "../domain/shipment-state-machine";
@@ -242,6 +243,27 @@ export interface AutoTripDefaults {
   vehicleType: string;
 }
 
+/**
+ * MOVO-210: parámetros de la saga que `acceptOffer` necesita para elegir la ruta (y con
+ * ella el estado destino del envío) dentro de su transacción.
+ */
+export interface AcceptOfferFundingOptions {
+  /** "N" de la saga (`FUNDING_NEAR_PICKUP_DAYS`). Sin valor, toda aceptación toma la ruta
+   * cercana (`assignment_pending`), el comportamiento previo a MOVO-210. */
+  nearPickupDays?: number;
+  /** Reloj inyectable para tests de borde (retiro exactamente a N días). */
+  now?: Date;
+}
+
+export interface AcceptOfferResult {
+  offer: Offer;
+  shipmentId: string;
+  autoCreatedTrip: Trip | null;
+  /** Ruta elegida y estado al que pasó el envío (MOVO-210, AC3/AC6). */
+  fundingRoute: FundingRoute;
+  shipmentStatus: ShipmentStatus.ASSIGNMENT_PENDING | ShipmentStatus.ASSIGNED_UNFUNDED;
+}
+
 function isPendingOfferConflict(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -299,9 +321,9 @@ export interface OfferRepository {
   reject(id: string): Promise<Offer>;
   /**
    * AC8/AC9: única vía para aceptar una oferta. En una sola transacción
-   * atómica — todo o nada —: la oferta pasa a `accepted`, las demás `pending`
-   * del mismo envío pasan a `superseded`, y el envío pasa a
-   * `assignment_pending` con bloqueo optimista (el `UPDATE` del envío
+   * atómica — todo o nada —: la oferta pasa a `accepted` (las demás `pending` del envío
+   * quedan vivas hasta que se confirme el hold, MOVO-210), y el envío pasa a
+   * `assignment_pending`/`assigned_unfunded` con bloqueo optimista (el `UPDATE` del envío
    * condiciona por `status = 'published'`; si no afecta ninguna fila, lanza
    * `ShipmentNotAvailableForAssignmentError` en vez de aplicar una segunda
    * asignación). El `UPDATE` de la oferta en sí también es compare-and-swap
@@ -325,12 +347,8 @@ export interface OfferRepository {
     id: string,
     actorId: string | null,
     autoTripDefaults?: AutoTripDefaults,
-  ): Promise<{
-    offer: Offer;
-    shipmentId: string;
-    superseded: Array<{ id: string; carrierId: string }>;
-    autoCreatedTrip: Trip | null;
-  }>;
+    funding?: AcceptOfferFundingOptions,
+  ): Promise<AcceptOfferResult>;
   /**
    * MOVO-145 (AC1-AC4): ofertas propias del transportista, más recientes primero, con
    * el contexto mínimo del envío resuelto en la misma query (`include`, nunca N+1).
@@ -548,12 +566,8 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
       id: string,
       actorId: string | null,
       autoTripDefaults?: AutoTripDefaults,
-    ): Promise<{
-      offer: Offer;
-      shipmentId: string;
-      superseded: Array<{ id: string; carrierId: string }>;
-      autoCreatedTrip: Trip | null;
-    }> {
+      funding: AcceptOfferFundingOptions = {},
+    ): Promise<AcceptOfferResult> {
       const result = await db.$transaction(async (tx) => {
         const current = await tx.offer.findUnique({ where: { id } });
         if (!current) {
@@ -582,8 +596,6 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         // esto lanza InvalidShipmentTransitionError en vez de seguir
         // escribiendo una transición no auditada contra el mecanismo
         // canónico.
-        transitionShipmentStatus(ShipmentStatus.PUBLISHED, ShipmentStatus.ASSIGNMENT_PENDING);
-
         // La lectura y el UPDATE de abajo no son atómicos entre sí, pero el UPDATE condiciona
         // por `status = published` y un `published` no cambia su ventana (solo `acceptOffer`
         // la pisa), así que el valor leído es el que se pisa.
@@ -594,6 +606,32 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
         if (!originalWindow) {
           throw new ShipmentNotAvailableForAssignmentError(current.shipmentId);
         }
+
+        // MOVO-210 (AC3/AC6): la ruta de la saga sale de la anticipación del retiro ACORDADO
+        // (la ventana de la oferta, que es la que `acceptOffer` copia al envío): dentro de N
+        // días el emisor paga en el mismo flujo (`assignment_pending`); a más, el pago se
+        // confirma en una ventana posterior (`assigned_unfunded`). Se valida contra el mismo
+        // grafo canónico que el resto de las escrituras de estado (AC16).
+        const acceptedAt = funding.now ?? new Date();
+        const pickupStart = acceptedOfferPickupWindowStartInstant(
+          current.offeredDate,
+          current.offeredPickupTimeWindowStart,
+          originalWindow.pickupTimeWindowStart,
+        );
+        const fundingRoute: FundingRoute =
+          funding.nearPickupDays === undefined
+            ? "near"
+            : selectFundingRoute(pickupStart, acceptedAt, funding.nearPickupDays);
+        const targetStatus: AcceptOfferResult["shipmentStatus"] =
+          fundingRoute === "near" ? ShipmentStatus.ASSIGNMENT_PENDING : ShipmentStatus.ASSIGNED_UNFUNDED;
+        transitionShipmentStatus(ShipmentStatus.PUBLISHED, targetStatus);
+        const daysToPickup = Math.round(((pickupStart.getTime() - acceptedAt.getTime()) / 86_400_000) * 10) / 10;
+        const routeReason =
+          funding.nearPickupDays === undefined
+            ? "ruta cercana (N sin configurar)"
+            : fundingRoute === "near"
+              ? `ruta cercana: retiro en ${daysToPickup} días (dentro de ${funding.nearPickupDays}); el emisor paga al aceptar`
+              : `ruta lejana: retiro en ${daysToPickup} días (a más de ${funding.nearPickupDays}); el pago se confirma al abrirse la ventana`;
 
         // AC9: bloqueo optimista real. El UPDATE condiciona por
         // status='published' y se cuenta `count`. Bajo el nivel de
@@ -615,7 +653,7 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
             originalPickupDate: originalWindow.pickupDate,
             originalPickupTimeWindowStart: originalWindow.pickupTimeWindowStart,
             originalPickupTimeWindowEnd: originalWindow.pickupTimeWindowEnd,
-            status: ShipmentStatus.ASSIGNMENT_PENDING,
+            status: targetStatus,
             // Consecuencia directa de "quién ganó" — la columna ya existe
             // nullable exactamente para esto (MOVO-104, preparación para
             // las US de asignación de EP-03). No está en el AC8 literal,
@@ -652,9 +690,9 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           data: {
             shipmentId: current.shipmentId,
             fromStatus: ShipmentStatus.PUBLISHED,
-            toStatus: ShipmentStatus.ASSIGNMENT_PENDING,
+            toStatus: targetStatus,
             actorId,
-            reason: `Oferta ${id} aceptada`,
+            reason: `Oferta ${id} aceptada · ${routeReason}`,
           },
         });
 
@@ -733,36 +771,27 @@ export function createOfferRepository(db: PrismaClient): OfferRepository {
           ...(autoCreatedTrip ? { tripId: autoCreatedTrip.id } : {}),
         };
 
-        // AC8, en lote: las demás ofertas pending del mismo envío pasan a
-        // superseded. Excluye las que ya vencieron lógicamente (expiresAt
-        // pasado) para que sigan reportando 'expired' en lectura, no
-        // 'superseded' — una condición más en el WHERE, sin costo real.
-        const supersededWhere = {
+        // MOVO-210 (AC4): las demás ofertas `pending` del envío NO se cierran acá. Mientras la
+        // asignación espera el pago puede caerse (timeout, hold perdido, T-24h) y el envío vuelve a
+        // `published`; cerrarlas al aceptar dejaba al emisor sin ninguna oferta y a esos
+        // transportistas sin enterarse. Se cierran (`superseded`, con aviso) recién cuando el hold
+        // se confirma, en la misma transacción que `-> assigned`
+        // (`shipment-repository.ts#updateStatus`). Mientras tanto no se pueden aceptar: el UPDATE
+        // condicional del envío (`status = published`) deja pasar una sola asignación.
+        return {
+          offer: mapOffer(accepted),
           shipmentId: current.shipmentId,
-          status: OfferStatus.PENDING,
-          id: { not: id },
-          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+          autoCreatedTrip,
+          fundingRoute,
+          shipmentStatus: targetStatus,
         };
-        // `carrierId` se lee ANTES del `updateMany` (que no devuelve filas) --
-        // hallazgo de review (PR #105): evita que el caller (offers.service.ts,
-        // AC9) tenga que hacer un `listByShipment` completo aparte solo para
-        // saber a quién notificar.
-        const superseded = await tx.offer.findMany({
-          where: supersededWhere,
-          select: { id: true, carrierId: true },
-        });
-        await tx.offer.updateMany({
-          where: supersededWhere,
-          data: { status: OfferStatus.SUPERSEDED, respondedAt: now },
-        });
-
-        return { offer: mapOffer(accepted), shipmentId: current.shipmentId, superseded, autoCreatedTrip };
       });
 
       // MOVO-250/AC6: recién después de que la transacción confirmó (un rollback no debe
-      // difundir nada) -- `published -> assignment_pending` es una transición más que los
-      // suscriptores del envío tienen que ver por el canal de tiempo real.
-      emitShipmentStatusChanged({ shipmentId: result.shipmentId, to: ShipmentStatus.ASSIGNMENT_PENDING });
+      // difundir nada) -- `published -> assignment_pending|assigned_unfunded` es una
+      // transición más que los suscriptores del envío tienen que ver por el canal de
+      // tiempo real.
+      emitShipmentStatusChanged({ shipmentId: result.shipmentId, to: result.shipmentStatus });
 
       return result;
     },

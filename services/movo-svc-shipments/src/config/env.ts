@@ -35,6 +35,12 @@ export interface EnvConfig {
   TRANSIT_ANOMALY_SWEEP_INTERVAL_MINUTES: number;
   TRANSIT_ANOMALY_SWEEP_ENABLED?: boolean;
   IN_TRANSIT_ANOMALY_FALLBACK_HOURS: number;
+  FUNDING_NEAR_PICKUP_DAYS: number;
+  FUNDING_PAYMENT_TIMEOUT_MINUTES: number;
+  FUNDING_RELEASE_HOURS_BEFORE_PICKUP: number;
+  FUNDING_REMINDER_INTERVAL_HOURS: number;
+  FUNDING_SWEEP_INTERVAL_MINUTES: number;
+  FUNDING_SWEEP_ENABLED?: boolean;
 }
 
 export const envSchema = {
@@ -142,6 +148,26 @@ export const envSchema = {
     TRANSIT_ANOMALY_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
     TRANSIT_ANOMALY_SWEEP_ENABLED: { type: "boolean", default: true },
     IN_TRANSIT_ANOMALY_FALLBACK_HOURS: { type: "number", default: 48 },
+    // MOVO-210 / MOVO-215: "N" de la saga. Un retiro a N días o menos toma la ruta cercana (el
+    // emisor paga al aceptar); a más de N, la ruta lejana (`assigned_unfunded` + ventana de
+    // confirmación). PROVISORIO hasta que MOVO-215 mida el plazo real del hold de MP.
+    // OJO: la restricción real NO es solo N < MP_HOLD_VALIDITY_DAYS (svc-payments): el hold se
+    // captura al ENTREGAR (MOVO-212), así que hace falta N + duración máxima del viaje <=
+    // MP_HOLD_VALIDITY_DAYS. Con los defaults (N=3, validez 5) un emisor que paga apenas se abre
+    // la ventana deja solo 2 días de tránsito antes de que venza la reserva.
+    FUNDING_NEAR_PICKUP_DAYS: { type: "number", default: 3 },
+    // MOVO-210 AC5: plazo del emisor para completar el pago de la ruta cercana, desde que
+    // acepta la oferta (con tope en el cierre de la ventana de retiro).
+    FUNDING_PAYMENT_TIMEOUT_MINUTES: { type: "number", default: 30 },
+    // MOVO-210 AC9: la ruta lejana vuelve a `published` si no hay pago a esta cantidad de
+    // horas ANTES del inicio de la ventana de retiro (T-24h).
+    FUNDING_RELEASE_HOURS_BEFORE_PICKUP: { type: "number", default: 24 },
+    // MOVO-210 AC7: cada cuántas horas se recuerda al emisor "Confirmá el pago" mientras la
+    // ventana está abierta (el primer aviso sale al abrirse).
+    FUNDING_REMINDER_INTERVAL_HOURS: { type: "number", default: 12 },
+    // MOVO-210: barrido de la saga (timeout del pago, apertura/cierre de la ventana).
+    FUNDING_SWEEP_INTERVAL_MINUTES: { type: "number", default: 5 },
+    FUNDING_SWEEP_ENABLED: { type: "boolean", default: true },
   },
 };
 

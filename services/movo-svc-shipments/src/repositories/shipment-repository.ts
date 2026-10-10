@@ -368,6 +368,18 @@ function mapAvailableShipmentRow(row: AvailableShipmentRow): AvailableShipment {
 export interface UpdateStatusOptions {
   /** MOVO-253: se persiste junto con el paso a `rejected_by_receiver`. */
   receiverRedesignationDeadline?: Date;
+  /**
+   * MOVO-210: estado sobre el que el CALLER validó antes de pedir la transición. Sin esto el
+   * compare-and-swap solo protege contra un cambio entre la lectura y el UPDATE de este método,
+   * no contra un cambio entre la decisión del caller y esta lectura (ej. cancelar un envío que
+   * un pago concurrente ya pasó a `assigned`, y `assigned -> cancelled` es una arista válida).
+   * Si el estado actual no coincide lanza `ShipmentConcurrentModificationError`.
+   */
+  expectedFrom?: ShipmentStatus;
+  /** MOVO-210: el envío tiene que seguir asignado a este transportista (condiciona el UPDATE). */
+  expectedCarrierId?: string;
+  /** MOVO-210: ...y al mismo precio acordado (condiciona el UPDATE). */
+  expectedAgreedPriceArs?: number;
 }
 
 export interface RedesignateReceiverInput {
@@ -528,6 +540,12 @@ export interface ShipmentRepository {
    * son anómalos ocupaban el frente del lote y dejaban sin evaluar a los más nuevos.
    */
   findInTransitUnflagged(limit: number, options?: { now?: Date; fallbackHours?: number }): Promise<Shipment[]>;
+  /**
+   * MOVO-210: envíos en un estado dado, en orden estable por `id`, paginados con cursor
+   * (`afterId`). Para los barridos de la saga (`assignment_pending`/`assigned_unfunded`),
+   * cuyos plazos dependen de la ventana de retiro y se evalúan en el service.
+   */
+  findByStatus(status: ShipmentStatus, limit: number, afterId?: string): Promise<Shipment[]>;
   /**
    * MOVO-258 (D4): marca un envío `in_transit` para revisión. Compare-and-swap: solo
    * escribe si sigue `in_transit` y sin marcar -- devuelve `false` si otra réplica ya lo
@@ -777,6 +795,11 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       }
 
       const from = parseShipmentStatus(current.status, "status");
+      // Antes de validar la arista: si el caller decidió sobre otro estado, es una carrera
+      // (409 de modificación concurrente), no una transición inválida.
+      if (options.expectedFrom !== undefined && options.expectedFrom !== from) {
+        throw new ShipmentConcurrentModificationError(id);
+      }
       // Lanza InvalidShipmentTransitionError si la transición no es válida —
       // ningún UPDATE se ejecuta si esto tira.
       transition(from, to);
@@ -816,6 +839,23 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             }
           : {};
 
+      // MOVO-210: la asignación no prosperó (el emisor no pagó a tiempo, o se perdió el hold)
+      // y el envío vuelve a la cola: se desasigna al transportista y se cierra la oferta
+      // aceptada en la misma transacción. Sin esto el envío quedaba `published` con un
+      // `carrierId` y un precio acordado de una asignación que ya no existe.
+      const revertsAssignment =
+        to === ShipmentStatus.PUBLISHED &&
+        (from === ShipmentStatus.ASSIGNMENT_PENDING || from === ShipmentStatus.ASSIGNED_UNFUNDED);
+      const clearedAssignment = revertsAssignment
+        ? {
+            carrierId: null,
+            agreedPriceArs: null,
+            estimatedDeliveryDate: null,
+            estimatedDeliveryTimeWindowStart: null,
+            estimatedDeliveryTimeWindowEnd: null,
+          }
+        : {};
+
       const row = await db.$transaction(async (tx) => {
         // MOVO-118: compare-and-swap, mismo patrón que
         // `offer-repository.ts#acceptOffer` (MOVO-102/AC9). El WHERE
@@ -824,13 +864,19 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         // transición concurrente ya commiteó un cambio de status distinto,
         // EvalPlanQual hace que este WHERE deje de matchear y `count` da 0.
         const updated = await tx.shipment.updateMany({
-          where: { id, status: from },
+          where: {
+            id,
+            status: from,
+            ...(options.expectedCarrierId !== undefined && { carrierId: options.expectedCarrierId }),
+            ...(options.expectedAgreedPriceArs !== undefined && { agreedPriceArs: options.expectedAgreedPriceArs }),
+          },
           data: {
             status: to,
             lastStatusChangedAt: now,
             deliveredAt,
             receiverRedesignationDeadline,
             ...restoredWindow,
+            ...clearedAssignment,
           },
         });
 
@@ -847,6 +893,36 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
             reason: reason ?? null,
           },
         });
+
+        // MOVO-210: la asignación no prosperó. La oferta ganadora no fue rechazada por el emisor,
+        // fue aceptada y no llegó a cerrarse: pasa a `assignment_lapsed`. Las demás ofertas NO
+        // se tocan acá porque nunca se cerraron (solo se cierran al confirmar el hold, abajo):
+        // siguen `pending`, así que el envío vuelve a `published` con sus ofertas vivas.
+        if (revertsAssignment) {
+          offerTransition(OfferStatus.ACCEPTED, OfferStatus.ASSIGNMENT_LAPSED);
+          await tx.offer.updateMany({
+            where: { shipmentId: id, status: OfferStatus.ACCEPTED },
+            data: { status: OfferStatus.ASSIGNMENT_LAPSED },
+          });
+        }
+
+        // MOVO-210 (AC4): recién cuando el hold se confirma (`-> assigned`) es seguro cerrar las
+        // demás ofertas, en la misma transacción que la transición. Una `pending` ya vencida por
+        // fecha se deja: sigue siendo `expired` por lectura.
+        if (
+          to === ShipmentStatus.ASSIGNED &&
+          (from === ShipmentStatus.ASSIGNMENT_PENDING || from === ShipmentStatus.ASSIGNED_UNFUNDED)
+        ) {
+          offerTransition(OfferStatus.PENDING, OfferStatus.SUPERSEDED);
+          await tx.offer.updateMany({
+            where: {
+              shipmentId: id,
+              status: OfferStatus.PENDING,
+              OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+            },
+            data: { status: OfferStatus.SUPERSEDED, respondedAt: now },
+          });
+        }
 
         // MOVO-258 (D7): cancelar un envío cierra sus ofertas en la misma transacción,
         // para que ningún camino de cancelación (emisor, barridos) las deje "vivas" en
@@ -880,6 +956,7 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
           deliveredAt,
           receiverRedesignationDeadline,
           ...restoredWindow,
+          ...clearedAssignment,
           updatedAt: now,
         };
       });
@@ -1216,6 +1293,15 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         },
         take: limit,
         orderBy: { lastStatusChangedAt: "asc" },
+      });
+      return rows.map(mapShipment);
+    },
+
+    async findByStatus(status: ShipmentStatus, limit: number, afterId?: string): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: { status, ...(afterId ? { id: { gt: afterId } } : {}) },
+        orderBy: { id: "asc" },
+        take: limit,
       });
       return rows.map(mapShipment);
     },

@@ -24,4 +24,9 @@ export enum OfferStatus {
    * todavía `pending` vigente o ya `accepted`. Se escribe en la misma transacción que
    * cancela el envío; una `pending` ya vencida por fecha queda como `expired`. */
   SHIPMENT_CANCELLED = "shipment_cancelled",
+  /** MOVO-210: la oferta SÍ fue aceptada pero la asignación no prosperó (el emisor no pagó a
+   * tiempo o MP perdió la reserva) y el envío volvió a `published`. No es un rechazo del
+   * emisor: distinto de `REJECTED`, que ensuciaría "Mis ofertas" y cualquier métrica de
+   * aceptación. Mismo precedente que `SHIPMENT_CANCELLED` (MOVO-258). */
+  ASSIGNMENT_LAPSED = "assignment_lapsed",
 }

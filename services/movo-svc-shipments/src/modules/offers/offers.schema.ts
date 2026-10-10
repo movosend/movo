@@ -3,7 +3,7 @@
 
 // Alineado 1:1 con OfferStatus de @movo/shared (MOVO-102) — agregar un valor nuevo
 // ahí obliga a actualizar esta lista también.
-const OFFER_STATUS_VALUES = ["pending", "accepted", "rejected", "withdrawn", "expired", "superseded", "shipment_cancelled"];
+const OFFER_STATUS_VALUES = ["pending", "accepted", "rejected", "withdrawn", "expired", "superseded", "shipment_cancelled", "assignment_lapsed"];
 
 // Alineado 1:1 con el enum `PackageType` de Prisma (MOVO-185) — mismo criterio
 // autocontenido que PACKAGE_TYPE_VALUES en shipments.schema.ts, sin importar de ahí.

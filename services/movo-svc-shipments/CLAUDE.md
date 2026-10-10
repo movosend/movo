@@ -3120,3 +3120,86 @@ solo si el viaje está `declared`); `acceptOffer` revalida al transportista y re
 
 Pendiente / fuera de alcance: qué pasa si el transportista pierde MP a mitad de un viaje en
 curso (sin definir); la UI de requisitos pendientes es MOVO-117.
+
+### MOVO-210 — Saga de asignación: pago del emisor, ventana de confirmación y reversión a `published`
+
+`svc-shipments` es dueño de la saga y única puerta del mobile; llama a los endpoints internos de
+holds de `svc-payments` (MOVO-209) por `src/adapters/payments-client.ts`. Lógica en
+`src/modules/funding/` (service + rutas), reglas puras en `src/domain/funding.ts` y barrido en
+`src/plugins/funding-sweep.ts`. Diagrama y tabla de las dos rutas: `docs/shipments/state-diagram.md`.
+
+- **Ruta elegida dentro de la transacción de `acceptOffer`** (`offer-repository.ts`), sobre el inicio de
+  la ventana de retiro ACORDADA: a `N` días o menos (inclusive) → `assignment_pending` (el emisor paga
+  al aceptar); a más → `assigned_unfunded`. La ruta y el porqué quedan en el `reason` del
+  `shipment_event`. Sin `N` configurado (tests que no lo pasan) toma siempre la cercana.
+- **`GET`/`POST /shipments/:id/funding`** (solo emisor). El `GET` devuelve `public_key`, monto y
+  `payUntil`; el email del emisor (`payerEmail` del hold) se pide a `svc-users` con `GET /users/me`
+  (`UsersClient.findAccountEmail`). Un rechazo de tarjeta es 200 `funded: false` + motivo, sin cambiar el
+  estado. Repetir el `POST` sobre un envío ya `assigned` responde `funded: true` sin tocar payments
+  (idempotencia); la unicidad real del hold la da el índice parcial de payments y la de la transición el
+  compare-and-swap de `updateStatus`.
+- **Las demás ofertas NO se cierran al aceptar, solo al confirmarse el hold** (AC4, decisión del equipo en
+  el review de la PR #227): `acceptOffer` deja `accepted` solo a la ganadora; las otras siguen `pending`
+  (no se pueden aceptar mientras haya una asignación en curso: el UPDATE condicional del envío deja pasar
+  una sola). Al pasar a `assigned`, `updateStatus` las cierra (`superseded`) en la misma transacción y la
+  saga avisa a cada transportista (`offerSuperseded`). Si la asignación se cae no hay nada que reabrir:
+  siguen vivas. Una `pending` puede vencer por `expiresAt` mientras espera (se lee `expired`, como siempre).
+- **Una asignación que no prospera desasigna de verdad**: `updateStatus(→ published)` desde
+  `assignment_pending`/`assigned_unfunded` pone `carrierId`/precio/entrega estimada en `null`, pasa la oferta
+  `accepted` a **`assignment_lapsed`** (valor nuevo de `OfferStatus`, migración `20261010180000_...`; no es un
+  rechazo del emisor, mismo precedente que `shipment_cancelled` de MOVO-258) y restaura la ventana original
+  (MOVO-258 D3).
+- **`updateStatus` con `expectedFrom`/`expectedCarrierId`/`expectedAgreedPriceArs`**: el compare-and-swap solo
+  cubría la ventana entre la lectura del método y su UPDATE, no entre la decisión del caller y esa lectura.
+  La saga y la cancelación pasan el estado sobre el que validaron (y el transportista/precio con los que se
+  creó el hold); si cambió → `ShipmentConcurrentModificationError` (409). Cierra dos carreras: cancelar un
+  envío que un pago concurrente ya pasó a `assigned` (`assigned → cancelled` es una arista válida) y
+  confirmar con un hold de otro transportista/precio cuando el barrido revirtió y el emisor aceptó a otro.
+- **Barrido** (`FUNDING_SWEEP_INTERVAL_MINUTES`, 5): (1) `expireUnpaidAssignmentPending` revierte los
+  `assignment_pending` con el plazo vencido; (2) `processUnfundedAssignments` avisa al abrirse la ventana
+  (una vez, `SET NX` en Redis), manda recordatorios por cubeta de `FUNDING_REMINDER_INTERVAL_HOURS` y
+  revierte a T-24h. **En cada vuelta sincroniza con payments los holds `in_process`** (`GET ?sync=true`): uno
+  que MP autorizó confirma el envío sin esperar el plazo, y mientras hay un hold vivo no se mandan
+  recordatorios. **Antes de revertir reconcilia**: un hold autorizado confirma el envío en vez de perderse,
+  uno vivo se libera, y si payments no responde NO se revierte a ciegas. Desvinculación del transportista
+  (`CARRIER_MP_ACCOUNT_NOT_LINKED` al liberar) → se revierte igual y queda un error logueado con el hold
+  huérfano (limitación de MOVO-209). El dedupe de avisos (Redis) se cablea siempre en
+  `buildFundingService`, no solo en el plugin del barrido: así comparte marcas con el aviso de MP.
+- **Cancelación (AC12): cancela primero, libera después**. `cancelShipment` cancela con `expectedFrom` y
+  recién entonces libera el hold de un `assignment_pending` o `assigned_unfunded` (en la ruta lejana el emisor
+  puede haber pagado dentro de la ventana con el pago todavía `in_process`); liberar primero dejaba una ventana en la que un
+  pago concurrente quedaba `assigned` con el hold ya cancelado. Si la liberación falla (payments caído, hold
+  `creating` reciente, transportista desvinculado) el envío igual queda cancelado, con un error logueado
+  (`funding_hold_release_after_cancel_failed`) y el hold vence solo en MP; un pago en vuelo libera su propio
+  hold al fallar la transición. El barrido de retiro no realizado (MOVO-258) libera antes desde `assigned` y
+  después desde `assignment_pending`/`assigned_unfunded`. El transportista asignado y los de las ofertas que
+  seguían `pending` (AC4) reciben aviso de la cancelación, tanto al cancelar el emisor como en ese barrido.
+- **`POST /internal/shipments/:id/hold-events`** (AC13, sin ruta en el gateway): `svc-payments` avisa que MP
+  canceló/venció/rechazó un hold. Solo actúa si el `holdId` es el vigente y está cerrado (un aviso tardío no
+  tira abajo una reserva nueva). Sobre `assignment_pending`/`assigned_unfunded` un `cancelled`/`expired` recibe
+  el mismo trato que un `rejected` (decisión del equipo): NO revierte, el emisor puede reintentar, el barrido
+  gobierna el plazo y se le avisa una vez por hold (`fundingAttemptFailedSender`). Con el envío ya `in_transit`
+  o `delivered` no hay estado al que volver: error `funding_hold_lost_in_transit` para que sea detectable
+  (qué hace la captura con un hold vencido lo definen MOVO-212/MOVO-268).
+- **Env vars** (3 lugares): `FUNDING_NEAR_PICKUP_DAYS` (3, provisorio hasta MOVO-215),
+  `FUNDING_PAYMENT_TIMEOUT_MINUTES` (30), `FUNDING_RELEASE_HOURS_BEFORE_PICKUP` (24),
+  `FUNDING_REMINDER_INTERVAL_HOURS` (12), `FUNDING_SWEEP_INTERVAL_MINUTES`/`_ENABLED`, `PAYMENTS_SERVICE_URL`.
+  La restricción real de N es `N + duración máxima del viaje <= MP_HOLD_VALIDITY_DAYS` (el hold se captura al
+  entregar), no solo `N < MP_HOLD_VALIDITY_DAYS`: pregunta explícita para MOVO-215.
+- **Notificaciones**: triggers `funding*` en `@movo/shared` (los del emisor en la categoría `payments`, que
+  pasa a `implemented: true`; los del transportista en `offers`).
+
+**Reconfirmación del pago**: si MP pierde el hold de un envío ya `assigned`, el aviso interno lo pasa a
+`assigned_unfunded` (arista `assigned → assigned_unfunded`, ADR-037; revierte el "assigned nunca vuelve atrás"
+de MOVO-208 solo hacia ese estado) y el emisor recibe "La reserva de tu pago expiró" (`fundingReconfirmSender`),
+el transportista `fundingReconfirmCarrier`. Reusa la ventana de confirmación y los mismos `/funding`. El plazo
+de `assigned_unfunded` tiene un piso (`entró al estado + FUNDING_PAYMENT_TIMEOUT_MINUTES`) para que un hold
+perdido a menos de 24h del retiro no se revierta antes de que el emisor pueda pagar; el aviso reclama las marcas
+de Redis de apertura/recordatorio/intento fallido para que el barrido no repita el push.
+
+**Pendiente / decisión del equipo**: (1) Webhook de MP → este endpoint interno depende de MOVO-268 (nadie lo
+llama todavía). (2) La cuenta de MP del transportista se exige al ofertar en MOVO-116/MOVO-117, no acá: el 409
+`CARRIER_MP_ACCOUNT_NOT_LINKED` aparece al pedir el `GET /funding`; el caso de desvincular DESPUÉS de que le
+aceptaron la oferta queda como está (409 + hold huérfano logueado). (3) Mobile (MOVO-269, ya con comentario
+sobre `assignment_lapsed` y los estados nuevos) y estado de la reserva (MOVO-211): fuera de alcance. (4)
+`delivered → completed` es MOVO-212.

@@ -313,7 +313,10 @@ export function createOffersService(
   logger?: OffersServiceLogger,
   /** MOVO-188: opcional -- sin inyectar (tests que no lo necesitan), el desempate
    * salta directo al criterio de envíos entregados/antigüedad, nunca rompe. */
-  getCarrierReputationScores?: GetCarrierReputationScores
+  getCarrierReputationScores?: GetCarrierReputationScores,
+  /** MOVO-210: "N" de la saga (`FUNDING_NEAR_PICKUP_DAYS`). Sin valor, toda aceptación
+   * toma la ruta cercana (`assignment_pending`). */
+  fundingNearPickupDays?: number
 ) {
   return {
     /**
@@ -385,7 +388,7 @@ export function createOffersService(
     /**
      * AC6/AC7 de MOVO-144: delega en `offerRepository.acceptOffer()` (MOVO-102),
      * que ya resuelve todo el dominio (transacción atómica, bloqueo optimista,
-     * demás ofertas pending -> superseded). Este método solo resuelve
+     * las demás ofertas quedan pending hasta confirmar el hold, MOVO-210). Este método solo resuelve
      * autorización (solo el emisor del envío dueño de la oferta) y dispara las
      * notificaciones de AC9.
      */
@@ -442,9 +445,10 @@ export function createOffersService(
       const {
         offer: accepted,
         shipmentId,
-        superseded,
         autoCreatedTrip,
-      } = await offerRepository.acceptOffer(offerId, callerId, autoTripDefaults);
+      } = await offerRepository.acceptOffer(offerId, callerId, autoTripDefaults, {
+        nearPickupDays: fundingNearPickupDays,
+      });
 
       // AC9: best-effort, fire-and-forget -- la transacción de acceptOffer() ya
       // commiteó, un fallo de entrega no revierte la asignación.
@@ -456,20 +460,8 @@ export function createOffersService(
         type: "offer_accepted",
       });
 
-      // `acceptOffer()` ya devuelve las ofertas superadas directo de la misma
-      // transacción (hallazgo de review, PR #105) -- evita un `listByShipment`
-      // completo aparte solo para reconstruir a quién notificar.
-      void Promise.all(
-        superseded.map((sibling) =>
-          dispatchOfferPush(notificationsClient, logger, {
-            carrierId: sibling.carrierId,
-            triggerKey: "offerSuperseded",
-            shipmentId,
-            offerId: sibling.id,
-            type: "offer_superseded",
-          })
-        )
-      );
+      // MOVO-210 (AC4): las demás ofertas siguen vivas hasta que se confirme el hold; el
+      // aviso de "ya no está disponible" lo manda la saga al confirmarlo (funding.service.ts).
 
       // MOVO-234 (AC3): aviso explícito del viaje auto-creado, nunca un efecto
       // silencioso -- ver dispatchAutoTripCreatedPush.
