@@ -192,6 +192,9 @@ describe("expiración y cierre automático (MOVO-258, Postgres)", () => {
   describe("D5: viajes active", () => {
     async function activeTripWithShipment(finalStatus: ShipmentStatus | null) {
       const { shipmentId, trip, carrierId } = await createAssignedWithTrip({ departureAt: new Date(Date.now() + HOUR_MS) });
+      // MOVO-277: `start()` exige un paquete ejecutable; `acceptOffer` lo deja en
+      // `assignment_pending` hasta que exista el hold de fondos (MOVO-210).
+      await app.db.shipment.update({ where: { id: shipmentId }, data: { status: ShipmentStatus.ASSIGNED } });
       await tripRepo.start(trip.id);
       if (finalStatus === ShipmentStatus.DELIVERED) {
         await app.db.shipment.update({ where: { id: shipmentId }, data: { status: ShipmentStatus.IN_TRANSIT } });
@@ -264,7 +267,8 @@ describe("expiración y cierre automático (MOVO-258, Postgres)", () => {
       const overdue = await tripRepo.create(tripInput());
       await expect(tripRepo.start(overdue.id)).rejects.toMatchObject({ departurePassed: true });
 
-      const { trip } = await createAssignedWithTrip();
+      const { trip, shipmentId } = await createAssignedWithTrip();
+      await app.db.shipment.update({ where: { id: shipmentId }, data: { status: ShipmentStatus.ASSIGNED } });
       await expect(tripRepo.start(trip.id)).resolves.toMatchObject({ status: TripStatus.ACTIVE });
     });
   });

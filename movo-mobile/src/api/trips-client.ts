@@ -49,6 +49,10 @@ export interface TripAcceptedPackage {
 export interface TripWithAcceptedPackages extends Trip {
   hasAcceptedPackages: boolean;
   acceptedPackagesCount: number;
+  /** MOVO-277: cuántos de los paquetes aceptados ya se pueden retirar o entregar
+   * (envío `assigned`/`in_transit`). `POST /trips/:id/start` exige al menos uno; los que
+   * esperan el hold de fondos (`assignment_pending`/`assigned_unfunded`) no cuentan. */
+  executablePackagesCount: number;
   packages?: TripAcceptedPackage[];
 }
 

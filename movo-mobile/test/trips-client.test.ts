@@ -36,6 +36,7 @@ describe("tripsClient", () => {
     ...mockTrip,
     hasAcceptedPackages: false,
     acceptedPackagesCount: 0,
+    executablePackagesCount: 0,
   };
 
   it("list calls GET /trips with params", async () => {

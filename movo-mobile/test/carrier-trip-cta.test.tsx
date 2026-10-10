@@ -26,6 +26,7 @@ const BASE_TRIP: TripWithAcceptedPackages = {
   cancelledAt: null,
   hasAcceptedPackages: true,
   acceptedPackagesCount: 1,
+  executablePackagesCount: 1,
 };
 
 describe("CarrierTripCta (MOVO-252)", () => {
@@ -52,6 +53,7 @@ describe("CarrierTripCta (MOVO-252)", () => {
       ...BASE_TRIP,
       hasAcceptedPackages: false,
       acceptedPackagesCount: 0,
+      executablePackagesCount: 0,
     };
 
     const { queryByTestId } = await render(
@@ -135,12 +137,81 @@ describe("CarrierTripCta (MOVO-252)", () => {
 
   it("titula con la ruta (no la fecha) y resume con los paquetes aceptados", async () => {
     const { getByText, queryByText } = await render(
-      <CarrierTripCta trip={{ ...BASE_TRIP, acceptedPackagesCount: 3 }} testID="carrier-cta" />,
+      <CarrierTripCta
+        trip={{ ...BASE_TRIP, acceptedPackagesCount: 3, executablePackagesCount: 3 }}
+        testID="carrier-cta"
+      />,
     );
 
     expect(getByText("Córdoba → Villa María")).toBeTruthy();
     expect(getByText("3 paquetes")).toBeTruthy();
     expect(queryByText(/paradas/)).toBeNull();
     expect(queryByText(/km/)).toBeNull();
+  });
+
+  describe("MOVO-277: cuándo se puede iniciar", () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+
+    it("con la salida en un día futuro no ofrece 'Iniciar viaje' y dice desde cuándo se puede", async () => {
+      const { queryByTestId, getByTestId } = await render(
+        <CarrierTripCta
+          trip={{ ...BASE_TRIP, departureAt: new Date(Date.now() + 3 * DAY_MS).toISOString() }}
+          testID="carrier-cta"
+        />,
+      );
+
+      expect(queryByTestId("carrier-cta-start-button")).toBeNull();
+      expect(getByTestId("carrier-cta-start-blocked")).toHaveTextContent(/^Podés iniciarlo el .+\.$/);
+    });
+
+    it("el día de salida con paquetes ejecutables ofrece 'Iniciar viaje'", async () => {
+      const { getByTestId, queryByTestId } = await render(
+        <CarrierTripCta trip={{ ...BASE_TRIP, departureAt: new Date().toISOString() }} testID="carrier-cta" />,
+      );
+
+      expect(getByTestId("carrier-cta-start-button")).toBeTruthy();
+      expect(queryByTestId("carrier-cta-start-blocked")).toBeNull();
+    });
+
+    it("el día de salida sin paquetes ejecutables explica que esperan el pago", async () => {
+      const { getByTestId, queryByTestId } = await render(
+        <CarrierTripCta
+          trip={{ ...BASE_TRIP, departureAt: new Date().toISOString(), executablePackagesCount: 0 }}
+          testID="carrier-cta"
+        />,
+      );
+
+      expect(queryByTestId("carrier-cta-start-button")).toBeNull();
+      expect(getByTestId("carrier-cta-start-blocked")).toHaveTextContent(
+        "Tus paquetes todavía esperan la confirmación del pago.",
+      );
+    });
+
+    it("si no todos los paquetes son ejecutables, el resumen dice cuántos están listos", async () => {
+      const { getByTestId } = await render(
+        <CarrierTripCta
+          trip={{ ...BASE_TRIP, acceptedPackagesCount: 3, executablePackagesCount: 1 }}
+          testID="carrier-cta"
+        />,
+      );
+
+      expect(getByTestId("carrier-cta-packages")).toHaveTextContent("3 paquetes · 1 listo");
+    });
+
+    it("un viaje active no muestra ningún bloqueo aunque la salida figure en el futuro", async () => {
+      const { getByTestId, queryByTestId } = await render(
+        <CarrierTripCta
+          trip={{
+            ...BASE_TRIP,
+            status: TripStatus.ACTIVE,
+            departureAt: new Date(Date.now() + 3 * DAY_MS).toISOString(),
+          }}
+          testID="carrier-cta"
+        />,
+      );
+
+      expect(getByTestId("carrier-cta-view-map-button")).toBeTruthy();
+      expect(queryByTestId("carrier-cta-start-blocked")).toBeNull();
+    });
   });
 });
