@@ -1,4 +1,4 @@
-import { ApiError, PublicProfile } from "@movo/shared";
+import { ApiError, CarrierKycStatusResponse, PublicProfile } from "@movo/shared";
 
 /**
  * Cliente HTTP síncrono hacia `movo-svc-users` — primera llamada interna
@@ -41,6 +41,12 @@ export interface UsersClient {
    * los 5s completos solo para terminar mostrando lo mismo sin filtrar.
    */
   listBlockRelatedUserIds(userId: string, timeoutMs?: number): Promise<string[]>;
+  /**
+   * MOVO-116 (ADR-036): estados de KYC de identidad y licencia, para el bloqueo de
+   * `utils/carrier-gate.ts`. `null` si el usuario no existe (404 de svc-users). Lanza
+   * 502 ante cualquier falla de transporte o forma inválida: el bloqueo falla cerrado.
+   */
+  findKycStatus(userId: string): Promise<CarrierKycStatusResponse | null>;
 }
 
 export interface UsersClientConfig {
@@ -130,6 +136,34 @@ export function createUsersClient(config: UsersClientConfig): UsersClient {
         throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "El servicio de usuarios devolvió una respuesta inválida.");
       }
       return body.userIds as string[];
+    },
+
+    async findKycStatus(userId: string): Promise<CarrierKycStatusResponse | null> {
+      let response: Response;
+      try {
+        // Interno (MOVO-116), mismo criterio que findDeviceKey: sin `x-user-id`.
+        response = await fetch(`${config.USERS_SERVICE_URL}/internal/users/${encodeURIComponent(userId)}/kyc-status`, {
+          method: "GET",
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+      } catch {
+        throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de usuarios.");
+      }
+
+      if (response.status === 404) {
+        return null;
+      }
+      if (!response.ok) {
+        throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "El servicio de usuarios devolvió un error.");
+      }
+
+      const body = (await response.json()) as Partial<CarrierKycStatusResponse>;
+      // Mismo criterio que listBlockRelatedUserIds: una forma inesperada nunca se lee
+      // como "aprobado" ni como "no aprobado", es un fallo del servicio.
+      if (typeof body.kycStatusIdentity !== "string" || typeof body.kycStatusLicense !== "string") {
+        throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "El servicio de usuarios devolvió una respuesta inválida.");
+      }
+      return { kycStatusIdentity: body.kycStatusIdentity, kycStatusLicense: body.kycStatusLicense };
     },
   };
 }

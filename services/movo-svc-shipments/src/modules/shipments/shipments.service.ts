@@ -23,6 +23,7 @@ import { TripRepository } from "../../repositories/trip-repository";
 import { Trip } from "../../models/trip";
 import { RatingRepository } from "../../repositories/rating-repository";
 import { UsersClient } from "../../adapters/users-client";
+import { PaymentsClient } from "../../adapters/payments-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
@@ -69,6 +70,7 @@ import {
 } from "./assert-shipment-access";
 import { assertTripAccess } from "../trips/trip-access";
 import { assertNotBlocked, safeBlockRelatedUserIds } from "../../utils/block-relations";
+import { assertCarrierCanOperate, assertVerifiedCarrier } from "../../utils/carrier-gate";
 
 type ShipmentsServiceLogger =
   | FastifyBaseLogger
@@ -369,28 +371,8 @@ export function anchorDateUtc(dateStr: string): Date {
   return new Date(`${dateStr}T00:00:00.000Z`);
 }
 
-/**
- * MOVO-142 (AC6): gate de "transportista verificado" para `GET /shipments/available` y
- * la apertura de `getShipmentDetail` (AC8). El rol sale del propio header
- * `x-user-roles` (inyectado por el gateway desde el JWT del caller, ADR-010) — no hace
- * falta ninguna llamada a `svc-users` para eso. El KYC de identidad se resuelve con
- * `PublicProfile.isVerified` (`usersClient.findPublicProfile(callerId, callerId)`,
- * mismo campo/patrón que ya usa `createShipment` para el receptor) — `isVerified` ya ES
- * `kycStatusIdentity===approved` del lado de `svc-users`. Deliberadamente NO exige
- * licencia de conducir (MOVO-15): es una insignia de confianza, no un permiso de
- * acceso -- alguien sin auto puede llevar un paquete en micro/tren/avión igual.
- * Chequeo del rol primero (sin I/O) antes de la llamada de red, mismo criterio de
- * "más barato primero" que AC4 de `createShipment`.
- */
-async function assertVerifiedCarrier(usersClient: UsersClient, callerId: string, callerRoles: UserRole[]): Promise<void> {
-  if (!callerRoles.includes(UserRole.CARRIER)) {
-    throw new ApiError(403, "CARRIER_NOT_VERIFIED", "Necesitás ser transportista para ver este contenido.");
-  }
-  const profile = await usersClient.findPublicProfile(callerId, callerId);
-  if (!profile || !profile.isVerified) {
-    throw new ApiError(403, "CARRIER_NOT_VERIFIED", "Necesitás tener tu identidad verificada para transportar.");
-  }
-}
+/** MOVO-142 (AC6): mensaje del gate de lectura cuando falta el rol, ver `utils/carrier-gate.ts`. */
+const CARRIER_READ_ROLE_MESSAGE = "Necesitás ser transportista para ver este contenido.";
 
 /**
  * AC3 de MOVO-187: resuelve el perfil público de una de las partes de una oferta
@@ -932,6 +914,10 @@ export interface ShipmentsServiceOptions {
   /** Requerido solo para `cancelShipment` (AC7 de MOVO-108, notificar ofertas
    * pendientes) — el barrido de MOVO-130 no lo necesita, nunca cancela por esa vía. */
   offerRepository?: OfferRepository;
+  /** Requerido solo para `createOfferForShipment` (MOVO-116, ADR-036): cuenta de MP del
+   * transportista para el bloqueo de ofertar. Sin él, ofertar lanza (no se saltea el
+   * chequeo: dejarlo opcional en silencio sería fallar abierto). */
+  paymentsClient?: PaymentsClient;
   /** Requerido solo para `createShipment` (MOVO-82) — mismo criterio que
    * `offerRepository`: viaja en `opts` en vez de como parámetro posicional propio,
    * para no romper la firma que ya usan `acceptShipment`/`rejectShipment`/el barrido
@@ -1004,6 +990,7 @@ export function createShipmentsService(
   const pickupMissedGraceHours = opts.pickupMissedGraceHours ?? 24;
   const transitAnomalyFallbackHours = opts.transitAnomalyFallbackHours ?? 48;
   const offerRepository = opts.offerRepository;
+  const paymentsClient = opts.paymentsClient;
   const pricingClient = opts.pricingClient;
   const pricingLogisticsClient = opts.pricingLogisticsClient;
   const getCarrierReputationScore = opts.getCarrierReputationScore;
@@ -1219,7 +1206,7 @@ export function createShipmentsService(
       }
 
       if (shipment.status === ShipmentStatus.PUBLISHED) {
-        await assertVerifiedCarrier(usersClient, callerId, callerRoles);
+        await assertVerifiedCarrier(usersClient, callerId, callerRoles, CARRIER_READ_ROLE_MESSAGE);
         // MOVO-180 (adelantado): agregado de ofertas vigentes para el transportista
         // que está evaluando ofertar -- nunca bloquea la apertura del detalle si
         // falla o si el servicio corre sin `offerRepository` (algún test aislado).
@@ -1324,7 +1311,13 @@ export function createShipmentsService(
         throw new Error("createOfferForShipment requiere offerRepository (ShipmentsServiceOptions).");
       }
 
-      await assertVerifiedCarrier(usersClient, input.carrierId, input.callerRoles);
+      if (!paymentsClient) {
+        throw new Error("createOfferForShipment requiere paymentsClient (ShipmentsServiceOptions).");
+      }
+
+      // MOVO-116 (ADR-036): identidad + licencia + MP antes de cualquier lectura o
+      // escritura del envío. Antes era `assertVerifiedCarrier` (sin licencia, MOVO-142).
+      await assertCarrierCanOperate({ usersClient, paymentsClient }, input.carrierId, input.callerRoles);
 
       const shipment = await repository.findById(input.shipmentId);
       if (!shipment) {
@@ -1803,7 +1796,7 @@ export function createShipmentsService(
           "destinationLat y destinationLng van juntos: mandá los dos o ninguno."
         );
       }
-      await assertVerifiedCarrier(usersClient, callerId, callerRoles);
+      await assertVerifiedCarrier(usersClient, callerId, callerRoles, CARRIER_READ_ROLE_MESSAGE);
       // MOVO-175 (ADR-026): falla abierto -- un svc-users caído no tira el feed.
       const blockedIds = await safeBlockRelatedUserIds(usersClient, callerId, logger);
 

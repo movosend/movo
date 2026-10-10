@@ -1,4 +1,4 @@
-import { PublicProfile } from "@movo/shared";
+import { CarrierKycStatusResponse, KycStatus, PublicProfile } from "@movo/shared";
 import { DeviceKey, UsersClient } from "../src/adapters/users-client";
 
 /**
@@ -10,13 +10,28 @@ import { DeviceKey, UsersClient } from "../src/adapters/users-client";
  * tests que no ejercitan el handshake no necesitan tocarlo.
  * `blocks` (MOVO-175) es una lista de pares `[blockerId, blockedId]`; el fake resuelve
  * la simetría igual que svc-users (unión de las dos direcciones).
+ * `kycStatuses` (MOVO-116) pisa por usuario lo que devuelve `findKycStatus`. Sin
+ * override, la identidad sale de `profile.isVerified` (mismo dato en svc-users) y la
+ * licencia es `approved`; un usuario que no está en `profiles` (muchos fixtures no
+ * registran al transportista) cuenta como transportista habilitado. Así los tests
+ * existentes siguen pasando el bloqueo de ADR-036 sin tocarlos.
  */
 export function createFakeUsersClient(
   profiles: Record<string, PublicProfile>,
   deviceKeys: Record<string, DeviceKey> = {},
-  blocks: Array<[string, string]> = []
+  blocks: Array<[string, string]> = [],
+  kycStatuses: Record<string, Partial<CarrierKycStatusResponse>> = {}
 ): UsersClient {
   return {
+    async findKycStatus(userId: string): Promise<CarrierKycStatusResponse | null> {
+      const profile = profiles[userId];
+      const override = kycStatuses[userId];
+      return {
+        kycStatusIdentity: profile?.isVerified === false ? KycStatus.NOT_STARTED : KycStatus.APPROVED,
+        kycStatusLicense: KycStatus.APPROVED,
+        ...override,
+      };
+    },
     async listBlockRelatedUserIds(userId: string): Promise<string[]> {
       const ids = new Set<string>();
       for (const [blocker, blocked] of blocks) {

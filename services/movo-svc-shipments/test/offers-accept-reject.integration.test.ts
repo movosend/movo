@@ -12,6 +12,7 @@ import { createFakeNotificationsClient } from "./fake-notifications-client";
 import { NotificationsClient } from "../src/adapters/notifications-client";
 import { UsersClient } from "../src/adapters/users-client";
 import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
+import { createFakePaymentsClient } from "./fake-payments-client";
 
 const PICKUP_DATE = new Date("2026-08-20T00:00:00.000Z");
 
@@ -75,7 +76,7 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
     notificationsClient = createFakeNotificationsClient();
     // MOVO-175: `acceptOffer` consulta bloqueos a svc-users y falla cerrado -- sin
     // fake, el cliente real (inalcanzable en tests) devolvería 502.
-    app = buildApp({ notificationsClient, usersClient: createFakeUsersClient({}), sweepEnabled: false });
+    app = buildApp({ paymentsClient: createFakePaymentsClient(), notificationsClient, usersClient: createFakeUsersClient({}), sweepEnabled: false });
     await app.ready();
     offerRepo = createOfferRepository(app.db);
     shipmentRepo = createShipmentRepository(app.db);
@@ -421,6 +422,7 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
     beforeAll(async () => {
       notificationsClientWithVehicle = createFakeNotificationsClient();
       appWithVehicle = buildApp({
+        paymentsClient: createFakePaymentsClient(),
         notificationsClient: notificationsClientWithVehicle,
         usersClient: usersClientWithVehicle,
         sweepEnabled: false,

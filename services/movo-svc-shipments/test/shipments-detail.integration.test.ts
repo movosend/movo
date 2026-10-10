@@ -6,6 +6,7 @@ import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
 import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
+import { createFakePaymentsClient } from "./fake-payments-client";
 
 describe("GET /shipments/:id (Postgres)", () => {
   let app: FastifyInstance;
@@ -47,6 +48,7 @@ describe("GET /shipments/:id (Postgres)", () => {
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 
     app = buildApp({
+      paymentsClient: createFakePaymentsClient(),
       usersClient: createFakeUsersClient({
         [verifiedCarrierId]: fakePublicProfile({ id: verifiedCarrierId, isVerified: true }),
         [unverifiedCarrierId]: fakePublicProfile({ id: unverifiedCarrierId, isVerified: false }),

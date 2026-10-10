@@ -8,6 +8,7 @@ import { CreateTripInput } from "../src/models/trip";
 import { attachAcceptedPackage } from "./trip-package-fixture";
 import { createFakePricingLogisticsClient } from "./fake-pricing-logistics-client";
 import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
+import { createFakePaymentsClient } from "./fake-payments-client";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -53,6 +54,7 @@ describe("POST /trips/:id/start (MOVO-277)", () => {
     process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://movo:movo@localhost:5432/movo";
     process.env.REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
     app = buildApp({
+      paymentsClient: createFakePaymentsClient(),
       pricingLogisticsClient: createFakePricingLogisticsClient(),
       usersClient: createFakeUsersClient(profiles),
     });

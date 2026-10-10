@@ -4,6 +4,7 @@ export interface EnvConfig {
   REDIS_URL: string;
   JWT_SECRET: string;
   USERS_SERVICE_URL: string;
+  PAYMENTS_SERVICE_URL: string;
   PRICING_SERVICE_URL: string;
   STORAGE_PROVIDER: "mock" | "s3";
   S3_BUCKET_NAME?: string;
@@ -50,6 +51,10 @@ export const envSchema = {
     // para este mismo var (gateway/src/config/env.ts), así que no hace falta setearlo
     // explícito en docker-compose.yml, el default ya coincide.
     USERS_SERVICE_URL: { type: "string", default: "http://movo-svc-users:3000" },
+    // MOVO-116: bloqueo del transportista sin MP vinculado (`/internal/payments/...`).
+    // Mismo criterio que USERS_SERVICE_URL: el default ya es el nombre del servicio en
+    // movo-net (el mismo que usa el gateway), no hace falta setearlo en compose.
+    PAYMENTS_SERVICE_URL: { type: "string", default: "http://movo-svc-payments:3000" },
     // MOVO-82: mismo criterio que USERS_SERVICE_URL -- el default ya apunta al nombre
     // del servicio en movo-net (infra/docker-compose.yml), no hace falta setearlo
     // explícito ahí. Puerto 8000 porque movo-svc-pricing-logistics es FastAPI/uvicorn

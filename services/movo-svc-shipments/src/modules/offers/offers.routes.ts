@@ -5,6 +5,8 @@ import { offersSchemas } from "./offers.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
+import { createPaymentsClient, PaymentsClient } from "../../adapters/payments-client";
+import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository } from "../../repositories/offer-repository";
 import { createRatingRepository } from "../../repositories/rating-repository";
@@ -20,6 +22,9 @@ export interface OffersRoutesOptions extends FastifyPluginOptions {
    * vehículo del transportista para el `Trip` auto-creado al aceptar una oferta
    * sin viaje asociado. Mismo criterio que `ShipmentsRoutesOptions.usersClient`. */
   usersClient?: UsersClient;
+  /** Override solo para tests de integración -- MOVO-116, revalida los requisitos del
+   * transportista al editar y al aceptar una oferta. Mismo criterio que `usersClient`. */
+  paymentsClient?: PaymentsClient;
 }
 
 /**
@@ -59,6 +64,7 @@ function toMyOfferDto(offer: OfferWithShipmentContext) {
 export default async function offersRoutes(app: FastifyInstance, opts: OffersRoutesOptions) {
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
+  const paymentsClient = opts.paymentsClient ?? createPaymentsClient(app.config);
   const offerRepository = createOfferRepository(app.db);
   const shipmentRepository = createShipmentRepository(app.db);
   // MOVO-188: batch de reputación `asCarrier` para el desempate de `competitiveRank`
@@ -74,6 +80,7 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
     offerRepository,
     shipmentRepository,
     usersClient,
+    paymentsClient,
     notificationsClient,
     app.log,
     ratingsService.getCarrierReputationScoresBatch
@@ -152,7 +159,10 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
           "superseded (todo en una transacción atómica, ver offer-repository.ts). Solo " +
           "el emisor del envío dueño de la oferta puede aceptar. 409 si el envío ya no " +
           "está disponible para asignar, si otra operación concurrente ya modificó la " +
-          "oferta, o si la oferta está vencida o ya resuelta.",
+          "oferta, o si la oferta está vencida o ya resuelta. MOVO-116 (ADR-036): 409 " +
+          "OFFER_CARRIER_NOT_ELIGIBLE si el transportista ya no cumple los requisitos " +
+          "para operar (licencia o cuenta de Mercado Pago); la oferta sigue pending. " +
+          "502 USERS_SERVICE_UNAVAILABLE/PAYMENTS_SERVICE_UNAVAILABLE si no se pudo verificar.",
         tags: ["offers"],
         params: offersSchemas.offerIdParam,
         response: {
@@ -162,6 +172,7 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
           403: offersSchemas.errorResponse,
           404: offersSchemas.errorResponse,
           409: offersSchemas.errorResponse,
+          502: offersSchemas.errorResponse,
         },
       },
     },
@@ -215,7 +226,11 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
           "está, incluida una pending en base pero expired por lectura). Mismas " +
           "validaciones que POST /shipments/:id/offers para offeredDate (422 " +
           "OFFER_DATE_OUT_OF_RANGE) y la franja horaria propuesta (both-or-neither, " +
-          "422 OFFER_PICKUP_WINDOW_INVALID).",
+          "422 OFFER_PICKUP_WINDOW_INVALID). MOVO-116 (ADR-036): mismo bloqueo que " +
+          "crearla -- 403 CARRIER_NOT_VERIFIED sin rol o identidad, 403 " +
+          "CARRIER_LICENSE_NOT_APPROVED/CARRIER_MP_ACCOUNT_NOT_LINKED con " +
+          "details.missingRequirements, 502 USERS_SERVICE_UNAVAILABLE/" +
+          "PAYMENTS_SERVICE_UNAVAILABLE si no se pudo verificar.",
         tags: ["offers"],
         params: offersSchemas.offerIdParam,
         body: offersSchemas.patchOfferBody,
@@ -227,6 +242,7 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
           404: offersSchemas.errorResponse,
           409: offersSchemas.errorResponse,
           422: offersSchemas.errorResponse,
+          502: offersSchemas.errorResponse,
         },
       },
     },
@@ -234,7 +250,7 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
       const callerId = requireUserIdFromHeader(request);
       const { id } = request.params as { id: string };
       const patch = request.body as PatchOfferInput;
-      const offer = await service.updateOffer(id, callerId, patch);
+      const offer = await service.updateOffer(id, callerId, patch, getUserRolesFromHeader(request));
       return toOfferDto(offer);
     }
   );
