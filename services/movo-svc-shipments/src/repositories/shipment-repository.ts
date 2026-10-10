@@ -394,6 +394,12 @@ export interface ShipmentRepository {
   create(input: CreateShipmentInput): Promise<Shipment>;
   findById(id: string): Promise<Shipment | null>;
   /**
+   * MOVO-212: envíos `delivered` con transportista cuya liquidación todavía no se cerró
+   * (nunca pasaron a `completed`), entregados hace más de `deliveredBefore` -- el margen
+   * evita pisar la captura en línea que dispara el handshake. Los más viejos primero.
+   */
+  listDeliveredAwaitingSettlement(deliveredBefore: Date, limit: number): Promise<Shipment[]>;
+  /**
    * Única vía de escritura de `status` (AC2 de MOVO-104): valida la
    * transición con `shipment-state-machine.ts` (MOVO-105) antes de tocar la
    * fila, y dentro de la misma transacción registra el evento en
@@ -776,6 +782,19 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
     async findById(id: string): Promise<Shipment | null> {
       const row = await db.shipment.findUnique({ where: { id }, include: LAST_REJECTION_INCLUDE });
       return row ? mapShipmentWithLastRejection(row) : null;
+    },
+
+    async listDeliveredAwaitingSettlement(deliveredBefore: Date, limit: number): Promise<Shipment[]> {
+      const rows = await db.shipment.findMany({
+        where: {
+          status: ShipmentStatus.DELIVERED,
+          carrierId: { not: null },
+          deliveredAt: { lt: deliveredBefore },
+        },
+        orderBy: { deliveredAt: "asc" },
+        take: limit,
+      });
+      return rows.map(mapShipment);
     },
 
     async updateStatus(

@@ -47,3 +47,31 @@ export interface SettlementResponse {
 export interface CaptureHoldResponse {
   settlement: SettlementResponse;
 }
+
+/**
+ * Estado de la liquidación tal como lo ve el usuario (AC10): `failed` se muestra como
+ * `processing` porque desde afuera es "todavía se está cobrando"; el reintento y el
+ * escalado manual son de MOVO-213.
+ */
+export type SettlementDisplayStatus = "processing" | "credited" | "escalated";
+
+/**
+ * `GET /shipments/:id/settlement` (`svc-shipments`), filtrado por rol (AC10 de MOVO-212):
+ * - transportista: bruto, fee de MP, comisión de Movo y neto;
+ * - emisor: solo el total pagado y la fecha (`mpFeeArs`/`commissionArs`/`netAmountArs`
+ *   no viajan);
+ * - receptor: no accede (403).
+ */
+export interface ShipmentSettlementResponse {
+  shipmentId: string;
+  role: "sender" | "carrier";
+  status: SettlementDisplayStatus;
+  /** Total que pagó el emisor. */
+  paidAmountArs: number;
+  /** Cuándo MP confirmó el cobro; `null` mientras no esté acreditada. */
+  paidAt: string | null;
+  /** Solo para el transportista, y `null` hasta que MP confirma la captura. */
+  mpFeeArs?: number | null;
+  commissionArs?: number;
+  netAmountArs?: number | null;
+}

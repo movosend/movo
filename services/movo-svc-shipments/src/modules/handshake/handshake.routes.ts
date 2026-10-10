@@ -8,6 +8,8 @@ import { createUsersClient, UsersClient } from "../../adapters/users-client";
 import { createFundsReleaseNotifier, FundsReleaseNotifier } from "../../adapters/funds-release-notifier";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-provider";
+import { PaymentsClient } from "../../adapters/payments-client";
+import { buildSettlementService } from "../settlements/settlements.routes";
 
 export interface HandshakeRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración -- evita depender de un `movo-svc-users`
@@ -21,6 +23,8 @@ export interface HandshakeRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración -- mismo criterio que `usersClient`.
    * Best-effort: solo alimenta el ETA del push al receptor en el retiro. */
   routesProvider?: RoutesProvider;
+  /** MOVO-212: solo lo usa el notifier real (`FUNDS_RELEASE_NOTIFIER=payments`). */
+  paymentsClient?: PaymentsClient;
 }
 
 function toGenerateHandshakeDto(result: GenerateHandshakeResult) {
@@ -39,8 +43,19 @@ function toConfirmHandshakeDto(result: ConfirmHandshakeResult) {
  */
 export default async function handshakeRoutes(app: FastifyInstance, opts: HandshakeRoutesOptions) {
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
-  const fundsReleaseNotifier = opts.fundsReleaseNotifier ?? createFundsReleaseNotifier(app.config);
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
+  const fundsReleaseNotifier =
+    opts.fundsReleaseNotifier ??
+    createFundsReleaseNotifier(app.config, {
+      // El service de liquidación solo se arma si hace falta: con "console" no toca payments.
+      settlementService:
+        app.config.FUNDS_RELEASE_NOTIFIER === "payments"
+          ? buildSettlementService(app, {
+              notificationsClient,
+              ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
+            })
+          : undefined,
+    });
   const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config);
   const shipmentRepository = createShipmentRepository(app.db);
   const handshakeRepository = createHandshakeRepository(app.db);

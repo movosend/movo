@@ -117,9 +117,11 @@ export type {
 export { SETTLEMENT_STATUSES } from "./types/settlement";
 export type {
   CaptureHoldResponse,
+  SettlementDisplayStatus,
   SettlementFailureReason,
   SettlementResponse,
   SettlementStatus,
+  ShipmentSettlementResponse,
 } from "./types/settlement";
 // funding (MOVO-210)
 export type {

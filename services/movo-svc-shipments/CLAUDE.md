@@ -3203,3 +3203,30 @@ llama todavía). (2) La cuenta de MP del transportista se exige al ofertar en MO
 aceptaron la oferta queda como está (409 + hold huérfano logueado). (3) Mobile (MOVO-269, ya con comentario
 sobre `assignment_lapsed` y los estados nuevos) y estado de la reserva (MOVO-211): fuera de alcance. (4)
 `delivered → completed` es MOVO-212.
+
+
+### MOVO-212 — Captura del hold al entregar, `completed` y consulta del pago (lado `svc-shipments`)
+
+Cierra el flujo económico sobre la saga de MOVO-210. Lado `svc-payments` y contrato: ver sus `CLAUDE.md`.
+Código en `src/modules/settlements/` (`settlement.service.ts`, rutas, schema), `src/adapters/
+payments-funds-release-notifier.ts`, `src/plugins/settlement-sweep.ts`; `PaymentsClient` suma `captureHold`
+(timeout propio de 50s: capturar son dos llamadas a MP en serie) y `findSettlement`.
+
+- **El `FundsReleaseNotifier` real** (`FUNDS_RELEASE_NOTIFIER=payments`) captura el hold y, con la
+  liquidación acreditada, hace `delivered → completed` con CAS (`expectedFrom: delivered`, única transición que
+  produce `completed`) y manda los dos push (transportista con el monto neto; emisor sin montos, dedupe con
+  `SET NX`). El default de código sigue siendo `console` (dev/test/CI, como MOVO-158); `infra/docker-compose.yml`
+  lo pone en `payments` para dev/prod. El handshake no cambió: sigue siendo `void notify().catch(warn)`.
+- **AC8**: si la captura falla, el servicio lanza y el envío queda en `delivered`; no hay transición hacia atrás.
+  Lo reintenta `settlement-sweep` (solo corre con el notifier `payments`): un intento por envío y por pasada,
+  sin backoff ni escalado — eso es MOVO-213. Un `delivered` sin hold (asignado antes de la saga de pagos) se
+  loguea y se salta, no es un fallo de cobro.
+- **`GET /shipments/:id/settlement`** (AC10): transportista ve bruto/fee MP/comisión/neto, emisor solo total y
+  fecha, receptor y ajenos 403. El estado visible es `processing|credited|escalated`: `failed` se muestra como
+  `processing`. El filtro por rol vive acá y no en payments porque acá se sabe quién es quién.
+- **Env nuevas** (las tres ubicaciones): `SETTLEMENT_SWEEP_INTERVAL_MINUTES`, `_GRACE_MINUTES`, `_BATCH_SIZE`,
+  `_ENABLED`.
+
+Pendiente: sin test de integración con DB real ni contra el sandbox de MP (no se pudieron correr localmente);
+la reversión por hold fallido y las notificaciones de cobro fallido son MOVO-213; el detalle del pago en la app
+es MOVO-214.
