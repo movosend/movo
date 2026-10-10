@@ -44,8 +44,10 @@ En ambas rutas, pagar (`POST /shipments/:id/funding`) con el hold autorizado lle
 `assigned`. Un rechazo de tarjeta no cambia el estado: el emisor reintenta mientras no
 venza el plazo. Volver a `published` desasigna al transportista (`carrierId` y precio
 acordado en `null`), restaura la ventana de retiro original (MOVO-258 D3) y deja la
-oferta aceptada como `rejected`. Las demás ofertas ya quedaron `superseded` al aceptar y
-no se reabren: el emisor recibe ofertas nuevas.
+oferta aceptada como `assignment_lapsed`. Las demás ofertas no se cierran al aceptar:
+siguen `pending` hasta que el hold se confirma (`→ assigned`, que las pasa a `superseded`
+en la misma transacción), así que al revertir el envío vuelve a `published` con sus
+ofertas vivas.
 
 **Reconfirmación (`assigned → assigned_unfunded`, MOVO-210)**: si MP cancela o vence el hold
 de un envío ya `assigned`, el envío NO se libera: vuelve a `assigned_unfunded` y el emisor
