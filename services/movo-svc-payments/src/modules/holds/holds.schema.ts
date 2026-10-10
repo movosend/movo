@@ -19,7 +19,10 @@ const errorResponse = {
 
 const uuid = { type: "string", format: "uuid" } as const;
 
-const amountArs = { type: "number", exclusiveMinimum: 0, maximum: 99_999_999.99 } as const;
+// Mínimo de un centavo. Los decimales de más NO se validan con `multipleOf`: Ajv compara
+// en punto flotante y rechaza montos válidos (0.07 / 0.01 no es entero en JS). Lo hace
+// `assertValidAmount` en el service, que responde 400 VALIDATION_FAILED.
+const amountArs = { type: "number", minimum: 0.01, maximum: 99_999_999.99 } as const;
 
 const shipmentIdParams = {
   type: "object",

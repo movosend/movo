@@ -6,6 +6,17 @@ export type PaymentCreateRequest = Parameters<Payment["create"]>[0]["body"];
 export type PaymentResponse = Awaited<ReturnType<Payment["get"]>>;
 
 /**
+ * Lo mínimo de un pago que necesita `svc-payments` para decidir el estado de un hold.
+ * `PaymentResponse` (get/create/cancel) lo satisface; el resultado de una búsqueda es un
+ * resumen con `id` string, por eso no se usa `PaymentResponse` a secas.
+ */
+export interface PaymentSnapshot {
+  id?: string | number;
+  status?: string;
+  status_detail?: string;
+}
+
+/**
  * MOVO-267: única puerta de `svc-payments` hacia la Payments API de Mercado Pago
  * (docs/payments/flujo-de-pagos.md §2). Cada operación recibe el access_token OAuth
  * del transportista: en el modelo Marketplace el pago se crea, captura y cancela con
@@ -34,6 +45,12 @@ export interface MercadoPagoClient {
     paymentId: string | number,
     opts: { idempotencyKey: string; amount?: number }
   ): Promise<PaymentResponse>;
+  /**
+   * Pagos del vendedor con ese `external_reference` (el id del envío), del más nuevo al
+   * más viejo. Permite recuperar un hold cuya respuesta se perdió (timeout) sin crear un
+   * segundo pago (MOVO-209, review de PR #226).
+   */
+  searchPaymentsByExternalReference(accessToken: string, externalReference: string): Promise<PaymentSnapshot[]>;
   /** Libera un hold sin cobrar (`status: cancelled`). */
   cancelPayment(
     accessToken: string,
@@ -77,6 +94,16 @@ export class SdkMercadoPagoClient implements MercadoPagoClient {
       ...(opts.amount !== undefined ? { transaction_amount: opts.amount } : {}),
       requestOptions: { idempotencyKey: opts.idempotencyKey },
     });
+  }
+
+  async searchPaymentsByExternalReference(
+    accessToken: string,
+    externalReference: string
+  ): Promise<PaymentSnapshot[]> {
+    const result = await this.payments(accessToken).search({
+      options: { external_reference: externalReference, sort: "date_created", criteria: "desc", limit: 20 },
+    });
+    return (result.results ?? []).map((p) => ({ id: p.id, status: p.status, status_detail: p.status_detail }));
   }
 
   cancelPayment(

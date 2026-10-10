@@ -10,6 +10,8 @@ export interface NewHoldAttempt {
   collectorId: string;
   amountArs: number;
   applicationFeeArs: number;
+  /** Hash del cuerpo del pedido (token, pagador, medio de pago): ver `requestFingerprint`. */
+  requestFingerprint: string;
 }
 
 export interface HoldUpdate {
@@ -64,6 +66,7 @@ export function createHoldRepository(db: PrismaClient): HoldRepository {
             collectorId: data.collectorId,
             amountArs: new Prisma.Decimal(data.amountArs),
             applicationFeeArs: new Prisma.Decimal(data.applicationFeeArs),
+            requestFingerprint: data.requestFingerprint,
             status: "creating",
           },
         });

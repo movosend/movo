@@ -49,6 +49,12 @@ export interface CarrierMpAccountRepository {
    */
   findCredentials(userId: string): Promise<CarrierMpCredentials | null>;
   /**
+   * Credenciales descifradas SOLO si la vinculación está vigente: ni desvinculada ni
+   * revocada ni con el token vencido a `now`, y con `public_key`. Una sola lectura.
+   * Es lo que usa MOVO-209 para decidir si se puede cobrar a nombre del transportista.
+   */
+  findActiveCredentials(userId: string, now: Date): Promise<(CarrierMpCredentials & { publicKey: string }) | null>;
+  /**
    * Vincula (o re-vincula) la cuenta del usuario: pisa tokens y datos, y limpia
    * `revokedAt`/`unlinkedAt`. Tira `MpAccountAlreadyLinkedError` si esa cuenta de MP
    * está activa en otro usuario.
@@ -87,6 +93,19 @@ export function createCarrierMpAccountRepository(db: PrismaClient, cipher: Token
     async findCredentials(userId) {
       const row = await db.carrierMpAccount.findFirst({ where: { userId, unlinkedAt: null, revokedAt: null } });
       if (!row?.accessToken || !row.refreshToken) return null;
+      return {
+        mpUserId: row.mpUserId,
+        accessToken: cipher.decrypt(row.accessToken),
+        refreshToken: cipher.decrypt(row.refreshToken),
+        publicKey: row.publicKey,
+      };
+    },
+
+    async findActiveCredentials(userId, now) {
+      const row = await db.carrierMpAccount.findFirst({
+        where: { userId, unlinkedAt: null, revokedAt: null, tokenExpiresAt: { gt: now } },
+      });
+      if (!row?.accessToken || !row.refreshToken || !row.publicKey) return null;
       return {
         mpUserId: row.mpUserId,
         accessToken: cipher.decrypt(row.accessToken),
