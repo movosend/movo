@@ -142,6 +142,16 @@ describe.skipIf(!CONFIGURED)("hold contra el sandbox real de Mercado Pago (MOVO-
     expect(replay.statusCode).toBe(200);
     expect(replay.json().mpPaymentId).toBe(hold.mpPaymentId);
 
+    // La recuperación de un intento en `creating` depende de poder encontrar el pago por
+    // `external_reference` (el id del envío). MP indexa con un pequeño retraso.
+    let found: Array<{ id?: string | number; status?: string }> = [];
+    for (let i = 0; i < 10 && found.length === 0; i += 1) {
+      found = await app.mercadoPago.searchPaymentsByExternalReference(ACCESS_TOKEN!, shipmentId);
+      if (found.length === 0) await new Promise((r) => setTimeout(r, 1500));
+    }
+    expect(found.map((p) => String(p.id))).toContain(hold.mpPaymentId);
+    expect(found.find((p) => String(p.id) === hold.mpPaymentId)?.status).toBe("authorized");
+
     // Consulta sincronizada contra MP.
     const synced = await app.inject({
       method: "GET",

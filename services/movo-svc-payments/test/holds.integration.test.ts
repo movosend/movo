@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app";
+import { LIVE_HOLD_STATUSES } from "@movo/shared";
 import type { MercadoPagoClient, PaymentResponse } from "../src/adapters/mercadopago-client";
 import { createCarrierMpAccountRepository } from "../src/repositories/carrier-mp-account-repository";
 import { createTokenCipher } from "../src/utils/token-cipher";
@@ -27,6 +28,7 @@ describe("/internal/payments/holds (MOVO-209)", () => {
     getPayment: vi.fn(async () => payment()),
     capturePayment: vi.fn(),
     cancelPayment: vi.fn(async () => payment({ status: "cancelled", status_detail: "by_collector" })),
+    searchPaymentsByExternalReference: vi.fn(async () => []),
   };
 
   beforeAll(async () => {
@@ -55,9 +57,9 @@ describe("/internal/payments/holds (MOVO-209)", () => {
     await createCarrierMpAccountRepository(app.db, createTokenCipher(ENCRYPTION_KEY)).upsertLinked(
       CARRIER,
       {
-        mpUserId: "2991764998",
-        email: "vendedor@testuser.com",
-        nickname: "TESTUSER71",
+        mpUserId: "1000000001",
+        email: "vendedor@example.com",
+        nickname: "VENDEDOR",
         accessToken: "TEST-access-secret",
         refreshToken: "TG-refresh-secret",
         publicKey: "TEST-public-key",
@@ -73,7 +75,7 @@ describe("/internal/payments/holds (MOVO-209)", () => {
     carrierId: CARRIER,
     cardToken: "card-token-1",
     amountArs: 1150,
-    payerEmail: "test_user_4715592661702347785@testuser.com",
+    payerEmail: "comprador@example.com",
     paymentMethodId: "visa",
     ...overrides,
   });
@@ -115,7 +117,7 @@ describe("/internal/payments/holds (MOVO-209)", () => {
     expect(hold).toMatchObject({
       shipmentId: SHIPMENT,
       carrierId: CARRIER,
-      collectorId: "2991764998",
+      collectorId: "1000000001",
       attempt: 1,
       mpPaymentId: "1000001",
       amountArs: 1150,
@@ -214,6 +216,53 @@ describe("/internal/payments/holds (MOVO-209)", () => {
 
     const none = await app.inject({ method: "POST", url: `${BASE}/by-shipment/${SHIPMENT_2}/release` });
     expect(none.statusCode).toBe(404);
+  });
+
+  it("el índice único parcial de la base lista exactamente los estados vivos de @movo/shared (review, punto 7)", async () => {
+    const [{ indexdef }] = await app.db.$queryRawUnsafe<Array<{ indexdef: string }>>(
+      "SELECT indexdef FROM pg_indexes WHERE schemaname = 'payments' AND indexname = 'holds_shipment_id_live_key'"
+    );
+    const predicate = indexdef.slice(indexdef.indexOf("WHERE"));
+    const inIndex = [...predicate.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort();
+    expect(inIndex).toEqual([...LIVE_HOLD_STATUSES].sort());
+  });
+
+  it("un reintento de un hold vigente devuelve el hold aunque el transportista se haya desvinculado (punto 3)", async () => {
+    const first = await create();
+    expect(first.statusCode).toBe(201);
+    await createCarrierMpAccountRepository(app.db, createTokenCipher(ENCRYPTION_KEY)).unlink(CARRIER, new Date());
+
+    const retry = await create();
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json().id).toBe(first.json().id);
+
+    // En cambio, un hold nuevo sí exige la cuenta vinculada.
+    const checkout = await app.inject({
+      method: "POST",
+      url: `${BASE}/checkout-data`,
+      payload: { shipmentId: SHIPMENT, carrierId: CARRIER, amountArs: 1150, payerEmail: "e@x.com" },
+    });
+    expect(checkout.statusCode).toBe(409);
+  });
+
+  it("no libera un hold si el transportista ya no tiene credenciales: 409 y el hold sigue vivo (punto 4)", async () => {
+    await create();
+    await createCarrierMpAccountRepository(app.db, createTokenCipher(ENCRYPTION_KEY)).unlink(CARRIER, new Date());
+
+    const released = await app.inject({ method: "POST", url: `${BASE}/by-shipment/${SHIPMENT}/release` });
+    expect(released.statusCode).toBe(409);
+    expect(released.json().error.code).toBe("CARRIER_MP_ACCOUNT_NOT_LINKED");
+    const stored = await app.inject({ method: "GET", url: `${BASE}/by-shipment/${SHIPMENT}` });
+    expect(stored.json().status).toBe("authorized");
+  });
+
+  it("rechaza con 400 un monto con más de dos decimales en vez de redondearlo (punto 8)", async () => {
+    const tooPrecise = await create({ amountArs: 1150.005 });
+    expect(tooPrecise.statusCode).toBe(400);
+    expect(tooPrecise.json().error.code).toBe("VALIDATION_FAILED");
+    const belowMinimum = await create({ amountArs: 0.004 });
+    expect(belowMinimum.statusCode).toBe(400);
+    expect(mp.createPayment).not.toHaveBeenCalled();
   });
 
   it("valida el body: uuid, monto positivo y email", async () => {

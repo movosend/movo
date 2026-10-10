@@ -7,6 +7,7 @@ const sdk = vi.hoisted(() => {
     get: vi.fn(),
     capture: vi.fn(),
     cancel: vi.fn(),
+    search: vi.fn(),
   };
   // Cada `new Payment(config)` recuerda con qué config se construyó, así el test
   // puede verificar que cada llamada usó el token que recibió y no otro.
@@ -23,6 +24,9 @@ const sdk = vi.hoisted(() => {
     }
     cancel(args: unknown) {
       return calls.cancel(this.config.accessToken, args);
+    }
+    search(args: unknown) {
+      return calls.search(this.config.accessToken, args);
     }
   }
   class MercadoPagoConfig {
@@ -121,5 +125,26 @@ describe("SdkMercadoPagoClient (MOVO-267)", () => {
     sdk.calls.create.mockRejectedValue(mpError);
 
     await expect(client.createPayment("TEST-seller", {}, "k")).rejects.toBe(mpError);
+  });
+
+  it("searchPaymentsByExternalReference busca con el token del vendedor y devuelve el resumen (MOVO-209)", async () => {
+    sdk.calls.search.mockResolvedValue({
+      results: [
+        { id: "777", status: "authorized", status_detail: "pending_capture", external_reference: "ship-1", other: 1 },
+      ],
+    });
+
+    const found = await client.searchPaymentsByExternalReference("TEST-seller", "ship-1");
+
+    expect(sdk.calls.search).toHaveBeenCalledWith(
+      "TEST-seller",
+      expect.objectContaining({ options: expect.objectContaining({ external_reference: "ship-1" }) })
+    );
+    expect(found).toEqual([{ id: "777", status: "authorized", status_detail: "pending_capture" }]);
+  });
+
+  it("searchPaymentsByExternalReference sin resultados devuelve una lista vacía", async () => {
+    sdk.calls.search.mockResolvedValue({});
+    expect(await client.searchPaymentsByExternalReference("TEST-seller", "ship-1")).toEqual([]);
   });
 });
