@@ -216,4 +216,4 @@ El lado de `svc-shipments` (notifier real, `completed`, push, barrido y endpoint
 `services/movo-svc-shipments/CLAUDE.md` (MOVO-212).
 
 Pendiente: el test de integración (`captures.integration.test.ts`) no se corrió localmente (sin
-Postgres/Redis); falta el test contra el sandbox real, que no corre en CI.
+Postgres/Redis); `test/captures.sandbox.test.ts` (captura real y contraste de la liquidación contra un `GET` directo a MP) está escrito pero nunca corrió: se saltea sin credenciales, mismas variables que `holds.sandbox.test.ts`.
