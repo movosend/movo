@@ -17,6 +17,7 @@ const OFFER_STATUS_LABEL: Record<OfferStatus, string> = {
   [OfferStatus.EXPIRED]: "Venció antes de que respondieran",
   [OfferStatus.SUPERSEDED]: "El emisor eligió otra oferta",
   [OfferStatus.SHIPMENT_CANCELLED]: "El envío se canceló",
+  [OfferStatus.ASSIGNMENT_LAPSED]: "No se concretó: el pago no se completó",
 };
 
 export function offerStatusLabel(status: OfferStatus): string {
@@ -79,6 +80,12 @@ export function offerStatusBannerCopy(
       return {
         title: "El envío se canceló",
         subtitle: "Este envío ya no se va a realizar, así que la oferta quedó sin efecto.",
+        tone: "neutral",
+      };
+    case OfferStatus.ASSIGNMENT_LAPSED:
+      return {
+        title: "No se concretó",
+        subtitle: `${sender} te eligió, pero el pago no se completó a tiempo. El envío volvió a publicarse.`,
         tone: "neutral",
       };
     case OfferStatus.WITHDRAWN:
