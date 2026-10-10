@@ -45,7 +45,11 @@ const tripAcceptedPackageResponse = {
     "packageType",
     "weightKg",
     "pickupAddress",
+    "pickupLat",
+    "pickupLng",
     "deliveryAddress",
+    "deliveryLat",
+    "deliveryLng",
     "pickupDate",
     "pickupTimeWindowStart",
     "pickupTimeWindowEnd",
@@ -58,7 +62,11 @@ const tripAcceptedPackageResponse = {
     packageType: { type: "string" },
     weightKg: { type: "number" },
     pickupAddress: { type: "string" },
+    pickupLat: { type: "number" },
+    pickupLng: { type: "number" },
     deliveryAddress: { type: "string" },
+    deliveryLat: { type: "number" },
+    deliveryLng: { type: "number" },
     pickupDate: { type: "string" },
     pickupTimeWindowStart: { type: "string" },
     pickupTimeWindowEnd: { type: "string" },
@@ -69,11 +77,16 @@ const tripAcceptedPackageResponse = {
 
 const tripWithAcceptedPackagesResponse = {
   type: "object",
-  required: [...tripResponse.required, "hasAcceptedPackages", "acceptedPackagesCount"],
+  required: [...tripResponse.required, "hasAcceptedPackages", "acceptedPackagesCount", "executablePackagesCount"],
   properties: {
     ...tripResponse.properties,
     hasAcceptedPackages: { type: "boolean" },
     acceptedPackagesCount: { type: "integer" },
+    executablePackagesCount: {
+      type: "integer",
+      description:
+        "Paquetes aceptados que el viaje ya puede ejecutar (envío assigned o in_transit). POST /trips/:id/start exige al menos uno.",
+    },
     packages: { type: "array", items: tripAcceptedPackageResponse },
   },
 };

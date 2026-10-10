@@ -73,6 +73,13 @@ export const SECURE_STORE_KEYS = {
    * `logout()`, así que si otro usuario loguea en el mismo teléfono reusa la misma
    * clave física y solo registra su propia pública contra `POST /users/me/device-key`. */
   handshakeDevicePrivateKey: "movo.handshake.devicePrivateKey",
+  /** MOVO-249: si ya se mostró el carrusel de onboarding (pre-cuenta) en este
+   * dispositivo — "1" cuando sí, ausente en un dispositivo nuevo. Identifica al
+   * DISPOSITIVO, no a la sesión (igual que `pushDeviceId`/`handshakeDevicePrivateKey`):
+   * no tiene sentido asociarlo a una cuenta, el carrusel se muestra antes de que exista
+   * ninguna. Sobrevive a `clearSession()`/logout a propósito — deslogueás y volvés a
+   * loguear en el mismo teléfono, no tiene que reaparecer. */
+  hasSeenOnboarding: "movo.hasSeenOnboarding",
   /** Cola persistida de posiciones GPS capturadas sin red (MOVO-203, AC6).
    * Se almacena como JSON array de `QueuedPosition` y se drena en ráfaga
    * preservando el `capturedAt` original de cada muestra. */

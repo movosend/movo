@@ -96,6 +96,14 @@ export type ApiErrorCode =
   // MOVO-258 (D5): `POST /trips/:id/start` sobre un viaje sin ningún paquete aceptado --
   // los paquetes quedan fijos al iniciar, así que no se puede arrancar uno vacío.
   | "TRIP_NO_PACKAGES"
+  // MOVO-277: `POST /trips/:id/start` antes del día de salida (calendario argentino,
+  // `canStartTripOn`, config/trip-start.ts). MOVO-252 lo había declarado sin emitirlo
+  // nunca y lo sacó; vuelve con el mismo nombre.
+  | "TRIP_START_TOO_EARLY"
+  // MOVO-277: el viaje tiene paquetes aceptados pero ninguno ejecutable todavía
+  // (`assigned`/`in_transit`) -- p. ej. todos esperan el hold de fondos
+  // (`assignment_pending`/`assigned_unfunded`). Distinto de `TRIP_NO_PACKAGES`.
+  | "TRIP_PACKAGES_NOT_READY"
   // MOVO-228: la app mandó una versión de Términos/Privacidad distinta a la vigente
   // (`LEGAL_DOCUMENT_VERSIONS`, config/legal.ts) -- app desactualizada, el usuario
   // tiene que revisar y aceptar el contenido actual antes de poder registrarse.
@@ -150,7 +158,20 @@ export type ApiErrorCode =
   // Falló el canje del code (`/oauth/token`) o la consulta de la cuenta (`/users/me`).
   | "MP_CONNECT_EXCHANGE_FAILED"
   // Esa cuenta de MP ya está vinculada a otro usuario de Movo.
-  | "MP_ACCOUNT_ALREADY_LINKED";
+  | "MP_ACCOUNT_ALREADY_LINKED"
+  // MOVO-209: endpoints internos de holds de `svc-payments`.
+  // El transportista no tiene una cuenta de MP vigente (nunca vinculó, desvinculó,
+  // revocó o el token venció): sin ella no hay `public_key` ni access_token para cobrar.
+  | "CARRIER_MP_ACCOUNT_NOT_LINKED"
+  // El envío no tiene ningún hold (ni siquiera un intento rechazado).
+  | "HOLD_NOT_FOUND"
+  // Liberar un hold que ya no se puede liberar (capturado) o que todavía no está creado.
+  | "HOLD_NOT_RELEASABLE"
+  // Ya hay un hold vigente del envío con otro transportista o monto: no se pisa en silencio.
+  | "HOLD_CONFLICT"
+  // Mercado Pago no respondió o devolvió un error que no es un rechazo de la tarjeta
+  // (5xx, timeout, red). El hold queda reintentable con la misma idempotency key.
+  | "PAYMENT_PROVIDER_ERROR";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

@@ -376,6 +376,15 @@ con `quietHoursExempt: true` en uso.
   `svc-shipments`. Recordatorio habitual: tras tocar este paquete, `npm run build` antes de tipar desde
   otro workspace (los servicios leen `dist/`).
 
+### MOVO-277 — `config/trip-start.ts` y códigos `TRIP_START_TOO_EARLY`/`TRIP_PACKAGES_NOT_READY` (ADR-034)
+
+`canStartTripOn(departureAt, now)` y `tripStartAvailableOn(departureAt)`: la regla de "¿ya se puede
+iniciar este viaje?" por fecha, comparando días calendario argentinos con `toArgentinaCalendarDateString`.
+La usan `svc-shipments` (`POST /trips/:id/start`) y `movo-mobile` (si muestra "Iniciar viaje"), así no
+se desalinean. Mobile la importa por subpath (`dist/config/trip-start`). `ApiErrorCode` vuelve a tener
+`TRIP_START_TOO_EARLY` (MOVO-252 lo había agregado y sacado sin que el backend lo emitiera nunca) y suma
+`TRIP_PACKAGES_NOT_READY` (paquetes aceptados, ninguno ejecutable todavía).
+
 ### MOVO-112 — Contrato de la vinculación de Mercado Pago (`types/mp-connect.ts`)
 
 Wire contract de `/payments/mp-connect/*` (MOVO-111, `svc-payments`), propuesto desde mobile y

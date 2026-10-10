@@ -1,7 +1,7 @@
 # Política de Privacidad de MOVO
 
-**Versión**: 0.1 (borrador de trabajo)
-**Última actualización**: 2026-09-14
+**Versión**: 0.2 (borrador de trabajo)
+**Última actualización**: 2026-10-07
 **Vigencia**: aún no publicada / no vigente
 
 > ## ⚠️ Aviso académico — leer antes de usar este documento
@@ -79,8 +79,8 @@ vive.
 | Verificación de licencia de conducir | Foto de la licencia, resultado de validación                                                                                                                                | Alta de perfil de Transportista                            |
 | Contacto                             | Teléfono, email (y verificación por código de un solo uso)                                                                                                                  | Registro y cambios posteriores                             |
 | Cuenta                               | Contraseña, foto de perfil, biografía                                                                                                                                       | Registro y edición de perfil                               |
-| Ubicación                            | Direcciones guardadas (retiro/entrega), geolocalización puntual al elegir una dirección                                                                                     | Creación de envíos, gestión de direcciones                 |
-| Ubicación en tiempo real             | Posición GPS durante el traslado activo de un envío                                                                                                                         | Mientras un envío está en tránsito                         |
+| Ubicación                            | Direcciones guardadas (retiro/entrega), geolocalización puntual al elegir una dirección y al confirmar un retiro o una entrega                                              | Creación de envíos, gestión de direcciones, handshake      |
+| Ubicación en tiempo real             | Posición GPS del Transportista, **también con la app en segundo plano o la pantalla bloqueada**                                                                             | Mientras el Transportista tiene un viaje en curso          |
 | Handshake criptográfico              | Clave pública asociada a tu dispositivo, usada para confirmar de forma segura que el paquete cambió de manos; la clave privada correspondiente nunca sale de tu dispositivo | Primer inicio de sesión tras generarse el par de claves    |
 | Vehículo                             | Marca, modelo, patente, capacidad de carga                                                                                                                                  | Alta de ficha de vehículo (Transportista)                  |
 | Contenido del envío                  | Fotos del paquete, descripción, peso/dimensiones declaradas                                                                                                                 | Creación de un envío                                       |
@@ -90,6 +90,18 @@ vive.
 | Soporte y disputas                   | Motivo de cancelación/rechazo, contenido de reclamos gestionados por un Administrador                                                                                       | Cancelación, rechazo, disputa de un envío                  |
 | Registros técnicos (logs)            | Dirección IP, marcas de tiempo, acciones realizadas                                                                                                                         | En toda interacción con la plataforma                      |
 | Navegación web                       | Cookies/almacenamiento local en los sitios web de MOVO                                                                                                                      | Al usar esos sitios en un navegador                        |
+
+**Permisos de ubicación del dispositivo.** Todas las personas usuarias tienen
+que permitir la ubicación mientras usan la app: sin ella no podemos validar por
+proximidad el retiro y la entrega de un paquete. Quien opera como Transportista
+tiene que permitir además la ubicación **en segundo plano** ("Siempre" en iOS,
+"Permitir todo el tiempo" en Android), para que el seguimiento del viaje no se
+corte al bloquear la pantalla o usar otra app de navegación. Solo la usamos
+mientras haya un viaje en curso: al terminarlo, MOVO deja de registrar la
+ubicación. Mientras se comparte, el sistema operativo lo indica (aviso
+persistente en Android, indicador de ubicación en iOS). Podés revocar el
+permiso en cualquier momento desde los ajustes del teléfono; en ese caso no
+vas a poder iniciar ni continuar un viaje como Transportista.
 
 No recopilamos, a propósito, datos de salud, religión, opinión política,
 orientación sexual ni afiliación sindical.
@@ -192,7 +204,7 @@ calcular rutas, procesar pagos y alojar la aplicación).
 | Datos de cuenta (nombre, contacto, foto, DNI)      | Mientras la cuenta esté activa                                                                                                                                              | Necesarios para operar                                                                                                                                                                                     |
 | Resultado de verificación KYC                      | Mientras la cuenta esté activa + 2 años desde la baja                                                                                                                       | Trazabilidad ante disputas/fraude                                                                                                                                                                          |
 | Historial de envíos (ruta, precio, fotos, eventos) | Mientras la cuenta esté activa + 5 años desde la baja                                                                                                                       | Antecedente para disputas, reputación y eventuales requerimientos fiscales/legales; alineado al plazo genérico de prescripción de acciones del Código Civil y Comercial (Art. 2560)                        |
-| Ubicación GPS en tiempo real                       | Solo mientras el envío está en tránsito; no se conserva un historial de trayectoria más allá de lo necesario para el handshake                                              | Minimización de datos — no hay necesidad de negocio de guardar la traza completa                                                                                                                           |
+| Ubicación GPS en tiempo real                       | Hasta 30 días desde que el envío se cierra (entregado, cancelado o rechazado); con una disputa abierta, hasta que se resuelva. Se borra al dar de baja la cuenta            | Evidencia ante disputas sobre el traslado; no se usa con fines analíticos ni de perfilado                                                                                                                  |
 | Calificaciones y comentarios                       | Indefinidamente mientras ambas cuentas existan (son parte del historial de reputación público)                                                                              | Confianza entre usuarios de la plataforma                                                                                                                                                                  |
 | Sesión activa                                      | Se renueva periódicamente y se revoca automáticamente ante actividad sospechosa                                                                                             | Seguridad de la sesión                                                                                                                                                                                     |
 | Logs de servidor                                   | Rotación automática, no se conservan indefinidamente                                                                                                                        | Operación/debugging                                                                                                                                                                                        |

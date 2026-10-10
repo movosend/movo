@@ -17,19 +17,29 @@ import { useColorScheme } from 'nativewind';
 import { useCallback, useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
-import { Stack } from 'expo-router';
+import { Stack, usePathname } from 'expo-router';
 import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AnimatedSplash } from '../components/splash/animated-splash';
 import { LegalEntrySheet } from '../components/legal/legal-entry-sheet';
+import { RequiredPermissionsGate } from '../components/permissions/required-permissions-gate';
 import { useDeviceKeyBootstrap } from '../src/hooks/use-device-key-bootstrap';
 import { useLegalAcceptanceEntry } from '../src/hooks/use-legal-acceptance-entry';
+import { useRequiredPermissionsGate } from '../src/hooks/use-required-permissions-gate';
 import { usePushNotifications } from '../src/hooks/use-push-notifications';
 import { RegistrationProvider } from '../src/hooks/use-registration';
 import { loadApiOverride } from '../src/lib/api-override';
 import { useAuthStore } from '../src/store/auth-store';
 import { useBootStore } from '../src/store/boot-store';
-import { useCarrierTrackingCoordinator } from '../src/hooks/use-carrier-tracking';
+import { useCarrierTrackingCoordinator, useIsCarrierTracking } from '../src/hooks/use-carrier-tracking';
+import { CarrierLocationGate } from '../components/location/carrier-location-gate';
+import { useCarrierLocationReadiness } from '../src/hooks/use-carrier-location-readiness';
+import {
+  firstMissingRequirement,
+  getCarrierLocationReadiness,
+} from '../src/lib/carrier-location-readiness';
+import { locationService } from '../src/location/location-service';
+import { useCarrierLocationGateStore } from '../src/store/carrier-location-gate-store';
 import '../src/location/tracking-task';
 
 SplashScreen.preventAutoHideAsync();
@@ -45,19 +55,116 @@ function CarrierTrackingCoordinatorMount() {
 }
 
 /**
- * MOVO-229 depende de `useMyProfile()` (React Query) — tiene que vivir DENTRO del
- * árbol de `QueryClientProvider`, no en el propio `RootLayout` (que es quien lo
- * define: su cuerpo de función no es descendiente de su propio JSX de salida).
+ * Pantallas bloqueantes de arranque, montadas acá arriba (por fuera del `<Stack>`)
+ * porque tapan la app entera y no una pantalla. Las tres se presentan con un `Modal`
+ * nativo, y dos `Modal` a la vez no conviven en iOS (el segundo no se presenta o se
+ * apila mal, y no se puede operar ninguno) — por eso este mount decide cuál se ve, una
+ * sola por vez, en este orden de prioridad:
+ *
+ * 1. **Permisos obligatorios** (ubicación de primer plano y cámara,
+ *    `required-permissions.ts`): sin ellos la app no sirve para nada.
+ * 2. **Ubicación del transportista** (`carrier-location-readiness.ts`): pedida por una
+ *    acción (ofertar, declarar/iniciar un viaje, retirar) vía `requireCarrierLocation()`
+ *    — se cierra con "Ahora no" — o sin salida con un viaje en curso, el caso de quien
+ *    quitó "Siempre" desde Ajustes a mitad del viaje.
+ * 3. **Aceptación de documentos legales** (MOVO-229): se puede posponer, así que cede
+ *    ante cualquiera de las otras dos.
+ *
+ * Vive DENTRO de `QueryClientProvider` porque MOVO-229 usa `useMyProfile()`, y se monta
+ * recién cuando terminó el splash animado (MOVO-247) para que ningún `Modal` aparezca por
+ * encima del splash a mitad de su animación.
+ *
+ * Los permisos obligatorios no se muestran en `/onboarding` (MOVO-249), que es la
+ * pantalla donde se piden por primera vez, ni en `/`, que en un dispositivo nuevo es solo
+ * el spinner que decide si redirigir al carrusel: sin esa excepción todo usuario nuevo
+ * veía el bloqueo antes del carrusel que justamente presenta esos permisos.
  */
-function LegalAcceptanceEntryMount() {
-  const entry = useLegalAcceptanceEntry();
+function BlockingGatesMount() {
+  const pathname = usePathname();
+  const permissions = useRequiredPermissionsGate();
+  const legal = useLegalAcceptanceEntry();
+  const readiness = useCarrierLocationReadiness();
+  const isTracking = useIsCarrierTracking();
+  const isAuthenticated = useAuthStore((s) => s.status === 'authenticated');
+  const requested = useCarrierLocationGateStore((s) => s.requested);
+
+  const permissionsVisible =
+    permissions.blocked && pathname !== '/onboarding' && pathname !== '/';
+
+  // La ubicación de primer plano la pide el gate de permisos obligatorios: esta
+  // pantalla arranca recién desde el escalón siguiente.
+  const carrierBlocking = isAuthenticated && isTracking;
+  const foregroundGranted = readiness.readiness?.foregroundGranted ?? false;
+  const carrierVisible =
+    !permissionsVisible &&
+    readiness.checked &&
+    !readiness.ready &&
+    foregroundGranted &&
+    (requested || carrierBlocking);
+
+  const legalVisible = legal.visible && !permissionsVisible && !carrierVisible;
+
+  const runPendingAction = useCallback(() => {
+    const action = useCarrierLocationGateStore.getState().take();
+    if (action) void action();
+  }, []);
+
+  // Al pedirse, se relee en el momento: el estado del hook puede ser de antes de que
+  // el usuario cambiara algo en Ajustes, y no puede dejar pasar una acción con un
+  // "listo" viejo.
+  useEffect(() => {
+    if (!requested) return;
+    let cancelled = false;
+    void (async () => {
+      const fresh = await getCarrierLocationReadiness();
+      if (cancelled) return;
+      if (firstMissingRequirement(fresh) === null) runPendingAction();
+      else void readiness.recheck();
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requested]);
+
+  useEffect(() => {
+    if (!readiness.ready) return;
+    void locationService.refreshPermissions();
+    if (useCarrierLocationGateStore.getState().requested) runPendingAction();
+  }, [readiness.ready, runPendingAction]);
+
   return (
-    <LegalEntrySheet
-      visible={entry.visible}
-      copy={entry.copy}
-      onReview={entry.onReview}
-      onDismiss={entry.onDismiss}
-    />
+    <>
+      <RequiredPermissionsGate
+        visible={permissionsVisible}
+        missing={permissions.missing}
+        statuses={permissions.statuses}
+        pendingKind={permissions.pendingKind}
+        onRequest={(kind) => {
+          void permissions.request(kind);
+        }}
+        onOpenSettings={permissions.openSettings}
+      />
+      <CarrierLocationGate
+        visible={carrierVisible}
+        readiness={readiness.readiness}
+        missing={readiness.missing}
+        needsSettings={readiness.needsSettings}
+        pending={readiness.pending}
+        onResolve={() => {
+          void readiness.resolve();
+        }}
+        onDismiss={
+          carrierBlocking ? undefined : () => useCarrierLocationGateStore.getState().cancel()
+        }
+      />
+      <LegalEntrySheet
+        visible={legalVisible}
+        copy={legal.copy}
+        onReview={legal.onReview}
+        onDismiss={legal.onDismiss}
+      />
+    </>
   );
 }
 
@@ -150,11 +257,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <RegistrationProvider>
           <CarrierTrackingCoordinatorMount />
-          {/* MOVO-247: recién cuando el splash animado ya terminó -- `LegalEntrySheet`
-           * se presenta con el `Modal` nativo de RN (capa por fuera del árbol de
-           * views normal), así que si se montara antes podría aparecer POR ENCIMA
-           * del splash a mitad de su animación en vez de detrás. */}
-          {!showAnimatedSplash ? <LegalAcceptanceEntryMount /> : null}
+          {!showAnimatedSplash ? <BlockingGatesMount /> : null}
           <View onLayout={onLayout} className="flex-1 bg-bg">
             <Stack screenOptions={{ headerShown: false }} />
             <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />

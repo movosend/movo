@@ -94,6 +94,17 @@ export type {
   MpConnectReturnErrorCode,
 } from "./types/mp-connect";
 
+// hold (MOVO-209)
+export { CLOSED_HOLD_STATUSES, HOLD_STATUSES, LIVE_HOLD_STATUSES } from "./types/hold";
+export type {
+  CreateHoldRequest,
+  HoldCheckoutDataRequest,
+  HoldCheckoutDataResponse,
+  HoldFailureReason,
+  HoldResponse,
+  HoldStatus,
+} from "./types/hold";
+
 // commission
 export {
   getCommissionConfig,
@@ -143,3 +154,6 @@ export type {
   NotificationTriggerDefinition,
 } from "./config/notification-templates";
 export { isValidTimeOfDay, isWithinQuietHours } from "./config/quiet-hours";
+
+// trip start (MOVO-277)
+export { canStartTripOn, tripStartAvailableOn } from "./config/trip-start";

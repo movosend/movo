@@ -24,6 +24,8 @@ export interface Trip {
   departureAt: string;
   vehicleType: string;
   status: TripStatus;
+  /** Seteado al cancelar (`POST /trips/:id/cancel`, MOVO-260); `null` en cualquier otro estado. */
+  cancelledAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -34,7 +36,11 @@ export interface TripAcceptedPackage {
   packageType: string;
   weightKg: number;
   pickupAddress: string;
+  pickupLat: number;
+  pickupLng: number;
   deliveryAddress: string;
+  deliveryLat: number;
+  deliveryLng: number;
   pickupDate: string;
   pickupTimeWindowStart: string;
   pickupTimeWindowEnd: string;
@@ -47,6 +53,10 @@ export interface TripAcceptedPackage {
 export interface TripWithAcceptedPackages extends Trip {
   hasAcceptedPackages: boolean;
   acceptedPackagesCount: number;
+  /** MOVO-277: cuántos de los paquetes aceptados ya se pueden retirar o entregar
+   * (envío `assigned`/`in_transit`). `POST /trips/:id/start` exige al menos uno; los que
+   * esperan el hold de fondos (`assignment_pending`/`assigned_unfunded`) no cuentan. */
+  executablePackagesCount: number;
   packages?: TripAcceptedPackage[];
 }
 
@@ -97,10 +107,14 @@ export interface TripMatchesResponse {
   radiusKm: number;
 }
 
+export type TripListScope = "upcoming" | "history";
+
 export interface ListTripsParams extends Record<string, string | number | boolean | undefined> {
   page?: number;
   limit?: number;
   status?: TripStatus | string;
+  /** MOVO-260: `upcoming` (declared/active) o `history` (completed/cancelled/expired). No combinable con `status`. */
+  scope?: TripListScope;
 }
 
 export const tripsClient = {
@@ -123,6 +137,13 @@ export const tripsClient = {
    * paquetes aceptados. */
   update(id: string, body: UpdateTripInput): Promise<Trip> {
     return httpClient.patch<Trip>(`/trips/${id}`, body);
+  },
+
+  /** `POST /trips/:id/cancel` (MOVO-260) — cancelación lógica de un viaje `declared`: pasa a
+   * `cancelled` y queda en el historial. 409 `TRIP_HAS_ACCEPTED_PACKAGES` si ya tiene
+   * paquetes aceptados. */
+  cancel(id: string): Promise<Trip> {
+    return httpClient.post<Trip>(`/trips/${id}/cancel`);
   },
 
   /** `DELETE /trips/:id` — 204 sin body; 409 `TRIP_HAS_ACCEPTED_PACKAGES` si el viaje

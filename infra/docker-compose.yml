@@ -228,6 +228,10 @@ services:
       # MOVO-111: key para cifrar los tokens OAuth en la base (AES-256-GCM).
       - MP_TOKEN_ENCRYPTION_KEY=${MP_TOKEN_ENCRYPTION_KEY:-}
       - MP_TEST_MODE=${MP_TEST_MODE:-false}
+      # MOVO-209: plazo del hold de MP (provisorio hasta MOVO-215) y comisión de Movo,
+      # esta última leída por @movo/shared; sin ella un cambio en shipments divergiría.
+      - MP_HOLD_VALIDITY_DAYS=${MP_HOLD_VALIDITY_DAYS:-5}
+      - MOVO_COMMISSION_RATE=${MOVO_COMMISSION_RATE:-0.15}
     depends_on:
       - postgres
       - redis

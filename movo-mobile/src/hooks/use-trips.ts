@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import {
   tripsClient,
   type Trip,
+  type TripListScope,
   type TripWithAcceptedPackages,
   type CreateTripInput,
   type UpdateTripInput,
@@ -23,11 +24,31 @@ const TRIPS_LIST_QUERY_KEY = ["trips", "mine", "list"];
  * de TanStack Query dispara la misma request 3 veces por sesión para la mayoría de
  * los usuarios, para una feature que nunca les aplica.
  */
-export function useMyTrips(enabled = true) {
+export function useMyTrips(scope: TripListScope = "upcoming", enabled = true) {
   return useQuery({
-    queryKey: TRIPS_LIST_QUERY_KEY,
-    queryFn: () => tripsClient.list({ page: 1, limit: 50 }),
+    // MOVO-262: una query key por tab; las invalidaciones por prefijo (`TRIPS_LIST_QUERY_KEY`)
+    // alcanzan a las dos.
+    queryKey: [...TRIPS_LIST_QUERY_KEY, scope],
+    queryFn: () => tripsClient.list({ page: 1, limit: 50, scope }),
     enabled,
+    retry: false,
+  });
+}
+
+const TRIPS_PAGE_SIZE = 50;
+
+/**
+ * "Mis viajes" paginado (review de PR #219): una página de `TRIPS_PAGE_SIZE` por vez y
+ * `hasNextPage` según el `total` del backend, para que con más de 50 viajes los más viejos
+ * del historial no desaparezcan sin aviso. La key empieza con `TRIPS_LIST_QUERY_KEY`, así que
+ * las invalidaciones por prefijo (crear/cancelar/iniciar un viaje) la alcanzan.
+ */
+export function useMyTripsPaged(scope: TripListScope) {
+  return useInfiniteQuery({
+    queryKey: [...TRIPS_LIST_QUERY_KEY, scope, "paged"],
+    queryFn: ({ pageParam }) => tripsClient.list({ page: pageParam, limit: TRIPS_PAGE_SIZE, scope }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => (lastPage.page * lastPage.limit < lastPage.total ? lastPage.page + 1 : undefined),
     retry: false,
   });
 }
@@ -87,12 +108,20 @@ export function useTripMatches(tripId: string | undefined, radiusKm?: number, li
   });
 }
 
-export function useDeleteTrip() {
+/**
+ * Cancelar un viaje declarado (`POST /trips/:id/cancel`, MOVO-260/263). Reemplaza al borrado
+ * físico (`DELETE /trips/:id`, deprecado por ADR-029): el viaje pasa a "Historial" como
+ * cancelado. Invalida las listas de ambos tabs, el detalle y los matches/viaje activo.
+ */
+export function useCancelTrip() {
   const queryClient = useQueryClient();
-  return useMutation<void, unknown, string>({
-    mutationFn: (id) => tripsClient.remove(id),
-    onSuccess: () => {
+  return useMutation<Trip, unknown, string>({
+    mutationFn: (id) => tripsClient.cancel(id),
+    onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: TRIPS_LIST_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ["trips", "detail", id] });
+      queryClient.invalidateQueries({ queryKey: ["trips", "matches"] });
+      queryClient.invalidateQueries({ queryKey: ["trips", "mine", "active"] });
     },
   });
 }
