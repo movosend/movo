@@ -49,6 +49,7 @@ const TRIP: TripWithAcceptedPackages = {
   cancelledAt: null,
   hasAcceptedPackages: false,
   acceptedPackagesCount: 0,
+  executablePackagesCount: 0,
 };
 
 // El TripForm en sí ya tiene su propia cobertura completa (trip-form.test.tsx) —

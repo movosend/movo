@@ -3066,3 +3066,31 @@ El ticket numeraba esta decisión ADR-022, que ya era el canal WebSocket: quedó
 `packages[]` (`TripAcceptedPackage`, `tripAcceptedPackageResponse`, `findByIdWithPackages`) para que el
 mapa del detalle de viaje (mobile) dibuje los marcadores de retiro y entrega de cada paquete. Campos
 aditivos y requeridos en la respuesta; el listado `GET /trips` no los lleva (no trae `packages`).
+### MOVO-277 — Iniciar viaje: fecha de salida y paquetes ejecutables (ADR-034)
+
+`POST /trips/:id/start` suma dos reglas. **Fecha**: 409 `TRIP_START_TOO_EARLY` si el día calendario
+argentino de `departureAt` es posterior a hoy (`canStartTripOn` de `@movo/shared`, la misma función
+que usa el mobile); el día de salida se inicia a cualquier hora y después también, mientras el viaje
+siga `declared`. Se valida en `trips.service.ts#startTrip` y solo para un `declared` (sobre otro
+estado manda `TRIP_NOT_DECLARED`). **Paquetes**: `start()` exige además al menos un paquete
+ejecutable; con paquetes aceptados pero ninguno ejecutable responde 409 `TRIP_PACKAGES_NOT_READY`
+(`TripPackagesNotReadyError`) y el viaje queda `declared`.
+
+- **Fuente única de "paquete vivo"**: `TRIP_EXECUTABLE_SHIPMENT_STATUSES` (`assigned`/`in_transit`)
+  + `isExecutableTripPackage()` en `shipment-state-machine.ts`. Antes `start()` y el conteo de la card
+  aceptaban `assignment_pending`/`assigned_unfunded`, pero la ruta, el tracking y el retiro no: un viaje
+  arrancaba con "N paquetes" y "Sin paradas asignadas", y bloqueaba al transportista por el índice de
+  1 viaje activo. Ahora lo consumen `start()` (`EXECUTABLE_OFFER_FILTER`), `listActiveShipments(…, tripId)`
+  (solo con `tripId`; sin él, Home sigue con `ACTIVE_SHIPMENT_STATUSES`), `aggregateCarrierStops` y
+  `TRACKABLE_SHIPMENT_STATUSES` (pasa a ser el mismo array).
+- **`ACCEPTED_OFFER_FILTER` no cambia**: un paquete que espera el pago sigue comprometido con el viaje
+  (bloquea editar/cancelar, y cuenta para cerrar o vencer un viaje `active`).
+- **`GET /trips` y `GET /trips/:id` exponen `executablePackagesCount`** (requerido en el schema). En
+  `listByCarrier` sale de una consulta aparte sobre los viajes de la página: `_count` no admite dos
+  filtros sobre la misma relación.
+- La push de "viaje iniciado" ya no avisa a envíos `assigned_unfunded` (no son parte de la ruta).
+- `test/trip-package-fixture.ts#attachAcceptedPackage` lleva el envío a `assigned` por default
+  (`acceptOffer` lo deja en `assignment_pending` mientras no exista MOVO-210).
+
+Consecuencia aceptada: hasta MOVO-210 ningún envío llega a `assigned` por la app, así que en dev no se
+puede iniciar un viaje sin forzar el estado a mano.

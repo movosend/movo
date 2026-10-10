@@ -77,11 +77,16 @@ const tripAcceptedPackageResponse = {
 
 const tripWithAcceptedPackagesResponse = {
   type: "object",
-  required: [...tripResponse.required, "hasAcceptedPackages", "acceptedPackagesCount"],
+  required: [...tripResponse.required, "hasAcceptedPackages", "acceptedPackagesCount", "executablePackagesCount"],
   properties: {
     ...tripResponse.properties,
     hasAcceptedPackages: { type: "boolean" },
     acceptedPackagesCount: { type: "integer" },
+    executablePackagesCount: {
+      type: "integer",
+      description:
+        "Paquetes aceptados que el viaje ya puede ejecutar (envío assigned o in_transit). POST /trips/:id/start exige al menos uno.",
+    },
     packages: { type: "array", items: tripAcceptedPackageResponse },
   },
 };

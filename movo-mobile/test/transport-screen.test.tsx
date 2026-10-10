@@ -232,6 +232,7 @@ const TRIP_A: TripWithAcceptedPackages = {
   cancelledAt: null,
   hasAcceptedPackages: false,
   acceptedPackagesCount: 0,
+  executablePackagesCount: 0,
 };
 
 describe("TransportScreen", () => {

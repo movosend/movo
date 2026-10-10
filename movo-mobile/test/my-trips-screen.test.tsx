@@ -55,6 +55,7 @@ const TRIP_A: TripWithAcceptedPackages = {
   cancelledAt: null,
   hasAcceptedPackages: false,
   acceptedPackagesCount: 0,
+  executablePackagesCount: 0,
 };
 
 const TRIP_ACTIVE: TripWithAcceptedPackages = { ...TRIP_A, id: "trip-active", status: TripStatus.ACTIVE };

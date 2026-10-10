@@ -7,6 +7,7 @@ import {
   InsufficientCreationPhotosError,
   MIN_CREATION_PHOTOS_TO_PUBLISH,
   TRACKABLE_SHIPMENT_STATUSES,
+  TRIP_EXECUTABLE_SHIPMENT_STATUSES,
   transition,
 } from "../domain/shipment-state-machine";
 import { emitShipmentStatusChanged } from "../realtime/shipment-status-events";
@@ -608,6 +609,10 @@ export interface ShipmentRepository {
    * `Shipment.offers` ya declarado en el schema). Sin `tripId`, comportamiento
    * idéntico al de MOVO-192/206 (AC2 de MOVO-235: no rompe ningún consumidor
    * existente que llame sin el parámetro).
+   *
+   * MOVO-277: con `tripId`, el filtro de estado pasa a `TRIP_EXECUTABLE_SHIPMENT_STATUSES`
+   * (`assigned`/`in_transit`) -- lo que el viaje puede ejecutar, misma regla que
+   * `TripRepository.start()`. Sin `tripId` no cambia.
    *
    * Se queda acá (spread condicional sobre este método genérico por rol) y no pasa a
    * un `TripRepository.listShipments()` propio (review de MOVO-235) porque la
@@ -1354,10 +1359,14 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
       // la oferta `accepted` vieja (¿transicionarla a otro estado? ¿acá filtrar también
       // por `shipment.tripId` si esa migración llega a existir?), no alcanza con este
       // comentario.
+      // MOVO-277: acotado a un viaje, solo cuentan los paquetes que ese viaje puede
+      // ejecutar (`TRIP_EXECUTABLE_SHIPMENT_STATUSES`) -- la misma regla que `start()` y
+      // `executablePackagesCount`. Sin `tripId` (Home) sigue el set "activo" completo.
+      const statuses = tripId ? TRIP_EXECUTABLE_SHIPMENT_STATUSES : ACTIVE_SHIPMENT_STATUSES;
       const rows = await db.shipment.findMany({
         where: {
           [role]: userId,
-          status: { in: [...ACTIVE_SHIPMENT_STATUSES] },
+          status: { in: [...statuses] },
           ...(tripId ? { offers: { some: { tripId, status: OfferStatus.ACCEPTED } } } : {}),
         },
         orderBy: [{ pickupDate: "asc" }, { pickupTimeWindowStart: "asc" }],

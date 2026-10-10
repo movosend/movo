@@ -5,6 +5,9 @@ import {
   transition,
   InvalidShipmentTransitionError,
   INITIAL_SHIPMENT_STATUS,
+  isExecutableTripPackage,
+  TRACKABLE_SHIPMENT_STATUSES,
+  TRIP_EXECUTABLE_SHIPMENT_STATUSES,
 } from "../src/domain/shipment-state-machine";
 
 const VALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
@@ -99,5 +102,33 @@ describe("shipment-state-machine", () => {
       const hasOutgoing = VALID_TRANSITIONS.some(([from]) => from === status);
       expect(hasOutgoing, `${status} debería tener al menos una transición de salida`).toBe(true);
     }
+  });
+});
+
+describe("isExecutableTripPackage (MOVO-277)", () => {
+  const EXPECTED: Record<ShipmentStatus, boolean> = {
+    [ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION]: false,
+    [ShipmentStatus.PUBLISHED]: false,
+    [ShipmentStatus.ASSIGNMENT_PENDING]: false,
+    [ShipmentStatus.ASSIGNED_UNFUNDED]: false,
+    [ShipmentStatus.ASSIGNED]: true,
+    [ShipmentStatus.IN_TRANSIT]: true,
+    [ShipmentStatus.DELIVERED]: false,
+    [ShipmentStatus.COMPLETED]: false,
+    [ShipmentStatus.CANCELLED]: false,
+    [ShipmentStatus.REJECTED_BY_RECEIVER]: false,
+    [ShipmentStatus.DISPUTED]: false,
+  };
+
+  it("cubre los 11 estados de ShipmentStatus", () => {
+    expect(Object.keys(EXPECTED).sort()).toEqual(Object.values(ShipmentStatus).sort());
+  });
+
+  it.each(Object.entries(EXPECTED))("%s -> %s", (status, executable) => {
+    expect(isExecutableTripPackage(status as ShipmentStatus)).toBe(executable);
+  });
+
+  it("el tracking usa el mismo set que el viaje (fuente única)", () => {
+    expect(TRACKABLE_SHIPMENT_STATUSES).toBe(TRIP_EXECUTABLE_SHIPMENT_STATUSES);
   });
 });

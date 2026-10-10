@@ -56,6 +56,7 @@ function trip(overrides: Partial<TripWithAcceptedPackages> = {}): TripWithAccept
     cancelledAt: null,
     hasAcceptedPackages: false,
     acceptedPackagesCount: 0,
+    executablePackagesCount: 0,
     ...overrides,
   };
 }

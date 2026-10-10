@@ -10,6 +10,7 @@ import {
   parseTripStatus,
 } from "../models/trip";
 import { distanceToSegmentKm } from "../domain/geo";
+import { TRIP_EXECUTABLE_SHIPMENT_STATUSES } from "../domain/shipment-state-machine";
 
 /**
  * MOVO-138: prefiltro SQL de `countAvailableCarriersNear` -- un viaje solo puede pasar a
@@ -48,6 +49,19 @@ const ACCEPTED_OFFER_FILTER = {
   status: "accepted",
   shipment: { status: { not: ShipmentStatus.CANCELLED } },
 } as const;
+
+/**
+ * MOVO-277: subconjunto de `ACCEPTED_OFFER_FILTER` cuyo envío el viaje puede ejecutar
+ * (`TRIP_EXECUTABLE_SHIPMENT_STATUSES`, fuente única en `shipment-state-machine.ts`).
+ * Es el que habilita `start()` y el que alimenta `executablePackagesCount`.
+ * `ACCEPTED_OFFER_FILTER` sigue siendo el de "el viaje tiene paquetes" (bloquea
+ * editar/cancelar, cierra o vence el viaje): un paquete que espera el pago sigue
+ * comprometido con el viaje aunque todavía no se pueda retirar.
+ */
+const EXECUTABLE_OFFER_FILTER = {
+  status: "accepted",
+  shipment: { status: { in: [...TRIP_EXECUTABLE_SHIPMENT_STATUSES] } },
+} satisfies Prisma.OfferWhereInput;
 
 /**
  * MOVO-258 (D5): estados de envío que ya no retienen al viaje `active`. `disputed` cuenta
@@ -146,6 +160,19 @@ export class TripHasNoPackagesError extends Error {
 }
 
 /**
+ * MOVO-277: `start()` sobre un viaje con paquetes aceptados pero ninguno ejecutable
+ * todavía (`TRIP_EXECUTABLE_SHIPMENT_STATUSES`) -- p. ej. todos en `assignment_pending`
+ * esperando el hold de fondos (MOVO-210). Iniciarlo dejaba un viaje `active` sin paradas
+ * en la ruta y bloqueaba al transportista por el índice de 1 viaje activo.
+ */
+export class TripPackagesNotReadyError extends Error {
+  constructor(public readonly id: string) {
+    super(`El viaje '${id}' no se puede iniciar porque ninguno de sus paquetes está listo para retirar`);
+    this.name = "TripPackagesNotReadyError";
+  }
+}
+
+/**
  * MOVO-221 (AC "solo puede haber 1 viaje active por cuenta a la vez"): el transportista
  * ya tiene otro viaje `active` en curso. Se lanza al atrapar el `P2002` del índice único
  * parcial `trips_carrier_active_unique` (`(carrier_id) WHERE status='active'`) -- la
@@ -188,6 +215,9 @@ export interface TripRepository {
    * (`updateMany` condicionado por `status: declared`) -- si pierde la carrera contra
    * otra operación concurrente, `TripNotDeclaredError` sin `status`. Si viola el límite
    * de "1 active por carrier", `TripAlreadyHasActiveTripError` (índice único parcial).
+   * Sin paquetes aceptados, `TripHasNoPackagesError`; con paquetes pero ninguno
+   * ejecutable (MOVO-277), `TripPackagesNotReadyError`. La fecha de salida la valida
+   * `trips.service.ts#startTrip` (`canStartTripOn`), no este método.
    */
   start(id: string): Promise<Trip>;
   /**
@@ -321,6 +351,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         ...mapTrip(row),
         hasAcceptedPackages: offers.length > 0,
         acceptedPackagesCount: offers.length,
+        executablePackagesCount: packages.filter((p) => TRIP_EXECUTABLE_SHIPMENT_STATUSES.includes(p.status)).length,
         packages,
       };
     },
@@ -375,10 +406,24 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         db.trip.count({ where }),
       ]);
 
+      // MOVO-277: `_count` no admite dos filtros distintos sobre la misma relación, así
+      // que el conteo ejecutable sale de una consulta aparte sobre los viajes de la página.
+      const executableByTripId = new Map<string, number>();
+      if (rows.length > 0) {
+        const executableOffers = await db.offer.findMany({
+          where: { tripId: { in: rows.map((row) => row.id) }, ...EXECUTABLE_OFFER_FILTER },
+          select: { tripId: true },
+        });
+        for (const { tripId } of executableOffers) {
+          if (tripId) executableByTripId.set(tripId, (executableByTripId.get(tripId) ?? 0) + 1);
+        }
+      }
+
       const items: TripWithAcceptedPackages[] = rows.map((row) => ({
         ...mapTrip(row),
         hasAcceptedPackages: row._count.offers > 0,
         acceptedPackagesCount: row._count.offers,
+        executablePackagesCount: executableByTripId.get(row.id) ?? 0,
       }));
 
       return { items, total };
@@ -533,6 +578,17 @@ export function createTripRepository(db: PrismaClient): TripRepository {
       const livePackages = await db.offer.count({ where: { tripId: id, ...ACCEPTED_OFFER_FILTER } });
       if (livePackages === 0) {
         throw new TripHasNoPackagesError(id, current.departureAt < new Date());
+      }
+      // MOVO-277: además, al menos uno tiene que poder ejecutarse (retirarse o
+      // entregarse) -- si no, el viaje arranca sin ninguna parada en la ruta.
+      // TOCTOU aceptado: este conteo corre fuera de la transacción de abajo, así que si el
+      // último ejecutable se cancela entre medio el viaje arranca `active` sin ninguno.
+      // Lo cierra `expireActiveWithoutPackages` (`trip-expiry-sweep.ts`) en la próxima
+      // corrida; meter el conteo en la transacción no lo evitaría igual (READ COMMITTED)
+      // y no justifica un lock sobre las ofertas del viaje.
+      const executablePackages = await db.offer.count({ where: { tripId: id, ...EXECUTABLE_OFFER_FILTER } });
+      if (executablePackages === 0) {
+        throw new TripPackagesNotReadyError(id);
       }
 
       let result;

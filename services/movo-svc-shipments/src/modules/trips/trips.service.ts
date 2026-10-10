@@ -1,5 +1,5 @@
 import { FastifyBaseLogger } from "fastify";
-import { ApiError, ShipmentStatus, UserRole } from "@movo/shared";
+import { ApiError, ShipmentStatus, UserRole, canStartTripOn, tripStartAvailableOn } from "@movo/shared";
 import {
   TripRepository,
   TripNotFoundError,
@@ -7,6 +7,7 @@ import {
   TripNotDeclaredError,
   TripAlreadyHasActiveTripError,
   TripHasNoPackagesError,
+  TripPackagesNotReadyError,
 } from "../../repositories/trip-repository";
 import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
@@ -155,7 +156,9 @@ async function triggerRouteWarmup(
  * Ajuste post-MOVO-245: avisa a emisor y receptor de cada envío de ESTE viaje
  * (`listActiveShipments(..., trip.id)`, MOVO-235 AC1 -- el vínculo real es
  * `Offer.tripId`, no una columna en `Shipment`) que todavía no fue retirado
- * (`ASSIGNED_UNFUNDED`/`ASSIGNED`) de que el transportista arrancó el viaje. Un envío
+ * (`ASSIGNED`) de que el transportista arrancó el viaje. MOVO-277: `assigned_unfunded`
+ * ya no entra -- no es un paquete ejecutable del viaje (no aparece en la ruta ni se
+ * puede retirar), avisar que el transportista "sale a buscarlo" sería falso. Un envío
  * ya `IN_TRANSIT` no entra acá -- ya recibió su propio push al confirmarse el retiro
  * (`custodyPickupConfirmed*`, `handshake.service.ts`), avisar dos veces sería ruido.
  *
@@ -182,9 +185,7 @@ async function dispatchTripStartedPushes(
   }
   try {
     const shipments = await deps.shipmentRepository.listActiveShipments("carrierId", trip.carrierId, trip.id);
-    const pending = shipments.filter(
-      (shipment) => shipment.status === ShipmentStatus.ASSIGNED_UNFUNDED || shipment.status === ShipmentStatus.ASSIGNED,
-    );
+    const pending = shipments.filter((shipment) => shipment.status === ShipmentStatus.ASSIGNED);
     if (pending.length === 0) {
       return;
     }
@@ -465,6 +466,17 @@ export function createTripsService(deps: {
         forbiddenMessage: "No tenés permiso para iniciar este viaje.",
       });
 
+      // MOVO-277: no antes del día de salida (calendario argentino, regla compartida con
+      // el mobile). Solo aplica a un `declared`: sobre otro estado manda el
+      // `TRIP_NOT_DECLARED` de `start()`, que describe mejor el problema.
+      if (trip.status === TripStatus.DECLARED && !canStartTripOn(trip.departureAt)) {
+        throw new ApiError(
+          409,
+          "TRIP_START_TOO_EARLY",
+          `El viaje '${tripId}' recién se puede iniciar el ${tripStartAvailableOn(trip.departureAt)}.`,
+        );
+      }
+
       let started: Trip;
       try {
         started = await tripRepository.start(tripId);
@@ -480,6 +492,9 @@ export function createTripsService(deps: {
         }
         if (err instanceof TripHasNoPackagesError) {
           throw new ApiError(409, "TRIP_NO_PACKAGES", err.message);
+        }
+        if (err instanceof TripPackagesNotReadyError) {
+          throw new ApiError(409, "TRIP_PACKAGES_NOT_READY", err.message);
         }
         throw err;
       }
