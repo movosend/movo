@@ -89,7 +89,7 @@ const VALID_TRANSITIONS: Readonly<Record<ShipmentStatus, ReadonlySet<ShipmentSta
   [ShipmentStatus.ASSIGNED_UNFUNDED]: new Set([
     ShipmentStatus.ASSIGNED, // emisor confirma el pago dentro de la ventana: hold creado (MOVO-210)
     ShipmentStatus.PUBLISHED, // sin pago a T-24h del retiro: vuelve a la saga (MOVO-210)
-    ShipmentStatus.CANCELLED, // emisor cancela -- sin hold que liberar todavía
+    ShipmentStatus.CANCELLED, // emisor cancela (o retiro no realizado); un hold en revisión se libera después (MOVO-210)
   ]),
   [ShipmentStatus.ASSIGNED]: new Set([
     ShipmentStatus.IN_TRANSIT, // retiro confirmado (handshake, MOVO-6)

@@ -2,6 +2,7 @@ import fp from "fastify-plugin";
 import { FastifyInstance } from "fastify";
 import { registerSweep } from "./register-sweep";
 import { createShipmentRepository } from "../repositories/shipment-repository";
+import { createOfferRepository } from "../repositories/offer-repository";
 import { createUsersClient, UsersClient } from "../adapters/users-client";
 import { createNotificationsClient, NotificationsClient } from "../adapters/notifications-client";
 import { createPaymentsClient, PaymentsClient } from "../adapters/payments-client";
@@ -29,6 +30,8 @@ export default fp(async (app: FastifyInstance, opts: PickupMissedSweepPluginOpti
   const service = createShipmentsService(repository, usersClient, notificationsClient, app.log, {
     pickupMissedGraceHours: app.config.PICKUP_MISSED_GRACE_HOURS,
     paymentsClient: opts.paymentsClient ?? createPaymentsClient(app.config),
+    // MOVO-210: avisar a los transportistas con ofertas `pending` de una asignación que esperaba el pago.
+    offerRepository: createOfferRepository(app.db),
   });
 
   registerSweep(app, {

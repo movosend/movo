@@ -601,7 +601,36 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       expect(paymentsClient.holds.get(shipmentId)?.status ?? "none").not.toBe("authorized");
     });
 
-    it("cancelar un assigned_unfunded no llama a payments (no hay hold)", async () => {
+    it("cancelar un assigned_unfunded con un hold en revisión lo libera y avisa a las ofertas pending", async () => {
+      // Ruta lejana: el emisor pagó dentro de la ventana y MP dejó el pago en revisión.
+      const { shipmentId, winner, loser } = await acceptedShipment(10);
+      paymentsClient.behavior.nextHoldStatus = "in_process";
+      await paymentsClient.createHold({
+        shipmentId,
+        carrierId: winner.carrierId,
+        cardToken: "tok",
+        amountArs: 5000,
+        payerEmail: "e@x.test",
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/cancel`,
+        headers: { "x-user-id": senderId },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.CANCELLED);
+      expect(paymentsClient.releaseHold).toHaveBeenCalledWith(shipmentId);
+      expect(paymentsClient.holds.get(shipmentId)?.status).toBe("cancelled");
+      // La oferta perdedora seguía `pending` (AC4): se cierra y su transportista se entera.
+      expect((await offerRepo.findById(loser.id))?.status).toBe(OfferStatus.SHIPMENT_CANCELLED);
+      expect(pushedTitles(loser.carrierId)).toContain("Tu oferta fue cancelada");
+      expect(pushedTitles(winner.carrierId)).toContain("Tu oferta fue cancelada");
+    });
+
+    it("cancelar un assigned_unfunded sin hold cancela igual (payments no tiene nada que liberar)", async () => {
       const { shipmentId } = await acceptedShipment(10);
 
       const response = await app.inject({
@@ -612,7 +641,7 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(paymentsClient.releaseHold).not.toHaveBeenCalled();
+      expect(paymentsClient.holds.has(shipmentId)).toBe(false);
       expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.CANCELLED);
     });
   });
@@ -642,6 +671,34 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       expect(paymentsClient.releaseHold).toHaveBeenCalledWith(shipmentId);
       expect(paymentsClient.holds.get(shipmentId)?.status).toBe("cancelled");
       expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.CANCELLED);
+    });
+
+    it("desde assignment_pending libera el hold en revisión y avisa a las ofertas pending", async () => {
+      const { shipmentId, winner, loser } = await acceptedShipment(1);
+      paymentsClient.behavior.nextHoldStatus = "in_process";
+      await paymentsClient.createHold({
+        shipmentId,
+        carrierId: winner.carrierId,
+        cardToken: "tok",
+        amountArs: 5000,
+        payerEmail: "e@x.test",
+      });
+      const service = createShipmentsService(shipmentRepo, createFakeUsersClient({}), notificationsClient, undefined, {
+        pickupMissedGraceHours: 24,
+        paymentsClient,
+        offerRepository: offerRepo,
+      });
+      vi.useFakeTimers({ toFake: ["Date"], now: new Date(Date.now() + 5 * DAY) });
+      try {
+        await service.expireUnpickedAssignedShipments();
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.CANCELLED);
+      expect(paymentsClient.holds.get(shipmentId)?.status).toBe("cancelled");
+      expect((await offerRepo.findById(loser.id))?.status).toBe(OfferStatus.SHIPMENT_CANCELLED);
+      await vi.waitFor(() => expect(pushedTitles(loser.carrierId)).toContain("Tu oferta fue cancelada"));
     });
   });
 

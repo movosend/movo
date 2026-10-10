@@ -3166,12 +3166,14 @@ holds de `svc-payments` (MOVO-209) por `src/adapters/payments-client.ts`. Lógic
   huérfano (limitación de MOVO-209). El dedupe de avisos (Redis) se cablea siempre en
   `buildFundingService`, no solo en el plugin del barrido: así comparte marcas con el aviso de MP.
 - **Cancelación (AC12): cancela primero, libera después**. `cancelShipment` cancela con `expectedFrom` y
-  recién entonces libera el hold de un `assignment_pending`; liberar primero dejaba una ventana en la que un
+  recién entonces libera el hold de un `assignment_pending` o `assigned_unfunded` (en la ruta lejana el emisor
+  puede haber pagado dentro de la ventana con el pago todavía `in_process`); liberar primero dejaba una ventana en la que un
   pago concurrente quedaba `assigned` con el hold ya cancelado. Si la liberación falla (payments caído, hold
   `creating` reciente, transportista desvinculado) el envío igual queda cancelado, con un error logueado
   (`funding_hold_release_after_cancel_failed`) y el hold vence solo en MP; un pago en vuelo libera su propio
   hold al fallar la transición. El barrido de retiro no realizado (MOVO-258) libera antes desde `assigned` y
-  después desde `assignment_pending`. El transportista asignado recibe aviso de la cancelación.
+  después desde `assignment_pending`/`assigned_unfunded`. El transportista asignado y los de las ofertas que
+  seguían `pending` (AC4) reciben aviso de la cancelación, tanto al cancelar el emisor como en ese barrido.
 - **`POST /internal/shipments/:id/hold-events`** (AC13, sin ruta en el gateway): `svc-payments` avisa que MP
   canceló/venció/rechazó un hold. Solo actúa si el `holdId` es el vigente y está cerrado (un aviso tardío no
   tira abajo una reserva nueva). Sobre `assignment_pending`/`assigned_unfunded` un `cancelled`/`expired` recibe
