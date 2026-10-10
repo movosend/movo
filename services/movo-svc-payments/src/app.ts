@@ -9,8 +9,10 @@ import redisPlugin from "./plugins/redis";
 import authPlugin from "./plugins/auth";
 import errorHandlerPlugin from "./plugins/error-handler";
 import mpConnectPlugin from "./plugins/mp-connect";
+import holdsPlugin from "./plugins/holds";
 import paymentsRoutes from "./modules/payments/payments.routes";
 import mpConnectCallbackRoutes from "./modules/mp-connect/mp-connect-callback.routes";
+import holdsRoutes from "./modules/holds/holds.routes";
 import { MercadoPagoClient, SdkMercadoPagoClient } from "./adapters/mercadopago-client";
 import { FetchMercadoPagoOAuthClient, MercadoPagoOAuthClient } from "./adapters/mercadopago-oauth-client";
 
@@ -50,6 +52,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
 
   app.decorate("mercadoPago", opts.mercadoPagoClient ?? new SdkMercadoPagoClient());
+  // Después de `mercadoPago`: el service de holds lo toma de `app` (MOVO-209).
+  app.register(holdsPlugin);
 
   // Mismo criterio que movo-svc-users: el healthcheck de Docker tiene que reflejar
   // si el servicio puede hablar con Postgres. El detalle del error se loguea y no
@@ -67,6 +71,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Fuera de `paymentsRoutes` a propósito: lo llama el navegador al volver de MP, sin
   // `x-user-id` (ruta pública en el gateway, MOVO-111).
   app.register(mpConnectCallbackRoutes, { prefix: "/payments/mp-connect" });
+
+  // MOVO-209: interno, lo llama svc-shipments. Sin ruta en el gateway (ADR-010).
+  app.register(holdsRoutes, { prefix: "/internal/payments/holds" });
 
   return app;
 }

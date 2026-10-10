@@ -158,7 +158,20 @@ export type ApiErrorCode =
   // Falló el canje del code (`/oauth/token`) o la consulta de la cuenta (`/users/me`).
   | "MP_CONNECT_EXCHANGE_FAILED"
   // Esa cuenta de MP ya está vinculada a otro usuario de Movo.
-  | "MP_ACCOUNT_ALREADY_LINKED";
+  | "MP_ACCOUNT_ALREADY_LINKED"
+  // MOVO-209: endpoints internos de holds de `svc-payments`.
+  // El transportista no tiene una cuenta de MP vigente (nunca vinculó, desvinculó,
+  // revocó o el token venció): sin ella no hay `public_key` ni access_token para cobrar.
+  | "CARRIER_MP_ACCOUNT_NOT_LINKED"
+  // El envío no tiene ningún hold (ni siquiera un intento rechazado).
+  | "HOLD_NOT_FOUND"
+  // Liberar un hold que ya no se puede liberar (capturado) o que todavía no está creado.
+  | "HOLD_NOT_RELEASABLE"
+  // Ya hay un hold vigente del envío con otro transportista o monto: no se pisa en silencio.
+  | "HOLD_CONFLICT"
+  // Mercado Pago no respondió o devolvió un error que no es un rechazo de la tarjeta
+  // (5xx, timeout, red). El hold queda reintentable con la misma idempotency key.
+  | "PAYMENT_PROVIDER_ERROR";
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {

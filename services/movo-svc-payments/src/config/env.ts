@@ -9,6 +9,7 @@ export interface EnvConfig {
   MP_WEBHOOK_SECRET?: string;
   MP_TOKEN_ENCRYPTION_KEY?: string;
   MP_TEST_MODE: boolean;
+  MP_HOLD_VALIDITY_DAYS: number;
 }
 
 export const envSchema = {
@@ -38,6 +39,11 @@ export const envSchema = {
     // Solo sandbox: agrega `test_token: true` al canje de OAuth para que MP
     // devuelva un access_token TEST- del vendedor de prueba.
     MP_TEST_MODE: { type: "boolean", default: false },
+    // MOVO-209 AC4: cuánto sostiene MP un hold sin capturar, y de ahí el `expires_at`
+    // que se persiste. Configuración y no constante en el código: el valor real sale
+    // de la medición de MOVO-215 (la documentación de MP dice 5 o 7 días según la
+    // página). 5 es el mínimo de los documentados: provisorio hasta que cierre el spike.
+    MP_HOLD_VALIDITY_DAYS: { type: "number", minimum: 1, default: 5 },
   },
 };
 
