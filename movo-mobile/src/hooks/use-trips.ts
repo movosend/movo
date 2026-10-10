@@ -109,6 +109,24 @@ export function useTripMatches(tripId: string | undefined, radiusKm?: number, li
 }
 
 /**
+ * Cancelar un viaje declarado (`POST /trips/:id/cancel`, MOVO-260/263). Reemplaza al borrado
+ * físico (`DELETE /trips/:id`, deprecado por ADR-029): el viaje pasa a "Historial" como
+ * cancelado. Invalida las listas de ambos tabs, el detalle y los matches/viaje activo.
+ */
+export function useCancelTrip() {
+  const queryClient = useQueryClient();
+  return useMutation<Trip, unknown, string>({
+    mutationFn: (id) => tripsClient.cancel(id),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: TRIPS_LIST_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: ["trips", "detail", id] });
+      queryClient.invalidateQueries({ queryKey: ["trips", "matches"] });
+      queryClient.invalidateQueries({ queryKey: ["trips", "mine", "active"] });
+    },
+  });
+}
+
+/**
  * MOVO-252: Inicia un viaje declared con paquetes aceptados (`POST /trips/:id/start`).
  * Transiciona el viaje a `active` e invalida la lista de viajes, el detalle y la ruta.
  */

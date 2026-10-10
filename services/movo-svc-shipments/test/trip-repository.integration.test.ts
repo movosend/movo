@@ -518,6 +518,11 @@ describe("trip-repository (Postgres) — findByIdWithPackages (MOVO-261)", () =>
     
     // Orden esperado: s4 (día 20, 09:00), s3 (día 20, 14:00), s2 (día 21, 10:00)
     expect(result?.packages[0].shipmentId).toBe(s4);
+    // MOVO-263: el detalle del viaje dibuja los marcadores de cada paquete.
+    expect(result?.packages[0].pickupLat).toBeCloseTo(baseShipmentInput.pickupLat, 4);
+    expect(result?.packages[0].pickupLng).toBeCloseTo(baseShipmentInput.pickupLng, 4);
+    expect(result?.packages[0].deliveryLat).toBeCloseTo(baseShipmentInput.deliveryLat, 4);
+    expect(result?.packages[0].deliveryLng).toBeCloseTo(baseShipmentInput.deliveryLng, 4);
     expect(result?.packages[0].pickupDate).toBe("2026-08-20");
     expect(result?.packages[0].pickupTimeWindowStart).toBe("09:00:00");
     

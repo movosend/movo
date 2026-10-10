@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import MyTripsScreen from "../app/(app)/carrier/trips/index";
 import { TripStatus, type TripWithAcceptedPackages } from "../src/api/trips-client";
 
@@ -12,7 +12,7 @@ const mockRouterBack = jest.fn();
 const mockRouterReplace = jest.fn();
 const mockRouterPush = jest.fn();
 const mockCanGoBack = jest.fn();
-const mockUseLocalSearchParams = jest.fn(() => ({}) as { created?: string });
+const mockUseLocalSearchParams = jest.fn(() => ({}) as { created?: string; cancelledTo?: string; cancelledAt?: string });
 
 jest.mock("expo-router", () => ({
   router: {
@@ -221,6 +221,39 @@ describe("MyTripsScreen", () => {
     const { getByTestId } = await render(<MyTripsScreen />);
 
     expect(getByTestId(`my-trips-card-${TRIP_A.id}`)).toBeTruthy();
+  });
+
+  it("MOVO-263 AC6: al volver de cancelar un viaje muestra el banner con el destino", async () => {
+    mockUseLocalSearchParams.mockReturnValue({ cancelledTo: "Villa María" });
+    mockUseMyTrips.mockReturnValue(listOf(TRIP_A));
+
+    const { getByTestId, getByText } = await render(<MyTripsScreen />);
+
+    expect(getByTestId("my-trips-cancelled-success")).toBeTruthy();
+    expect(getByText("Cancelaste el viaje a Villa María")).toBeTruthy();
+  });
+
+  it("review PR #225: dos cancelaciones seguidas al mismo destino vuelven a mostrar el banner", async () => {
+    mockUseLocalSearchParams.mockReturnValue({ cancelledTo: "Villa María", cancelledAt: "1" });
+    mockUseMyTrips.mockReturnValue(listOf(TRIP_A));
+
+    jest.useFakeTimers();
+    try {
+      const { getByTestId, queryByTestId, rerender } = await render(<MyTripsScreen />);
+      expect(getByTestId("my-trips-cancelled-success")).toBeTruthy();
+
+      // El banner se auto-oculta; el segundo aviso llega con el mismo destino.
+      await act(async () => {
+        jest.advanceTimersByTime(3500);
+      });
+      expect(queryByTestId("my-trips-cancelled-success")).toBeNull();
+
+      mockUseLocalSearchParams.mockReturnValue({ cancelledTo: "Villa María", cancelledAt: "2" });
+      await rerender(<MyTripsScreen />);
+      expect(getByTestId("my-trips-cancelled-success")).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it("review PR #219: tocar una card del historial abre el detalle del viaje", async () => {
