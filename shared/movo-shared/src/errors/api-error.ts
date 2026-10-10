@@ -162,6 +162,8 @@ export type ApiErrorCode =
   // MOVO-209: endpoints internos de holds de `svc-payments`.
   // El transportista no tiene una cuenta de MP vigente (nunca vinculó, desvinculó,
   // revocó o el token venció): sin ella no hay `public_key` ni access_token para cobrar.
+  // MOVO-116 (ADR-036): también lo devuelve `svc-shipments` (403) al bloquear declarar
+  // viaje, ofertar, editar oferta o iniciar viaje, con `details.missingRequirements`.
   | "CARRIER_MP_ACCOUNT_NOT_LINKED"
   // El envío no tiene ningún hold (ni siquiera un intento rechazado).
   | "HOLD_NOT_FOUND"
@@ -171,7 +173,22 @@ export type ApiErrorCode =
   | "HOLD_CONFLICT"
   // Mercado Pago no respondió o devolvió un error que no es un rechazo de la tarjeta
   // (5xx, timeout, red). El hold queda reintentable con la misma idempotency key.
-  | "PAYMENT_PROVIDER_ERROR";
+  | "PAYMENT_PROVIDER_ERROR"
+  // MOVO-116 (ADR-036): el transportista no tiene la licencia de conducir aprobada
+  // (`kyc_status_license`). Viaja con `details.missingRequirements`.
+  | "CARRIER_LICENSE_NOT_APPROVED"
+  // MOVO-116: `svc-payments` no respondió al consultar la cuenta de MP del transportista.
+  | "PAYMENTS_SERVICE_UNAVAILABLE"
+  // MOVO-116: el emisor quiso aceptar la oferta de un transportista que ya no cumple los
+  // requisitos para operar (licencia o MP). Sin `details`: el emisor no puede resolverlo.
+  | "OFFER_CARRIER_NOT_ELIGIBLE";
+
+/**
+ * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el
+ * mensaje (MOVO-116: `missingRequirements` del bloqueo del transportista). Solo viaja
+ * cuando el error lo trae.
+ */
+export type ApiErrorDetails = Record<string, unknown>;
 
 /** Forma resultante de `ApiError.toJSON()` — el formato único de error que la API expone. */
 export interface SerializedApiError {
@@ -179,6 +196,7 @@ export interface SerializedApiError {
     code: ApiErrorCode;
     message: string;
     statusCode: number;
+    details?: ApiErrorDetails;
   };
 }
 
@@ -188,6 +206,7 @@ export class ApiError extends Error {
     public readonly statusCode: number,
     public readonly code: ApiErrorCode,
     message: string,
+    public readonly details?: ApiErrorDetails,
   ) {
     super(message);
     this.name = "ApiError";
@@ -200,6 +219,7 @@ export class ApiError extends Error {
         code: this.code,
         message: this.message,
         statusCode: this.statusCode,
+        ...(this.details !== undefined ? { details: this.details } : {}),
       },
     };
   }
