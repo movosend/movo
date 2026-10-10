@@ -12,6 +12,7 @@ import { createFakeNotificationsClient } from "./fake-notifications-client";
 import { NotificationsClient } from "../src/adapters/notifications-client";
 import { UsersClient } from "../src/adapters/users-client";
 import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
+import { createFakePaymentsClient } from "./fake-payments-client";
 
 const PICKUP_DATE = new Date("2026-08-20T00:00:00.000Z");
 
@@ -75,7 +76,7 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
     notificationsClient = createFakeNotificationsClient();
     // MOVO-175: `acceptOffer` consulta bloqueos a svc-users y falla cerrado -- sin
     // fake, el cliente real (inalcanzable en tests) devolvería 502.
-    app = buildApp({ notificationsClient, usersClient: createFakeUsersClient({}), sweepEnabled: false });
+    app = buildApp({ paymentsClient: createFakePaymentsClient(), notificationsClient, usersClient: createFakeUsersClient({}), sweepEnabled: false });
     await app.ready();
     offerRepo = createOfferRepository(app.db);
     shipmentRepo = createShipmentRepository(app.db);
@@ -115,8 +116,9 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
       expect(updatedShipment?.carrierId).toBe(winner.carrierId);
       expect(updatedShipment?.agreedPriceArs).toBe(winner.priceOffered);
 
+      // MOVO-210 (AC4): las demás ofertas siguen vivas hasta que se confirme el hold.
       const updatedLoser = await offerRepo.findById(loser.id);
-      expect(updatedLoser?.status).toBe(OfferStatus.SUPERSEDED);
+      expect(updatedLoser?.status).toBe(OfferStatus.PENDING);
 
       await vi.waitFor(() => {
         expect(notificationsClient.sendPush).toHaveBeenCalledWith({
@@ -126,14 +128,11 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
           category: "offers",
           data: { type: "offer_accepted", shipmentId, offerId: winner.id },
         });
-        expect(notificationsClient.sendPush).toHaveBeenCalledWith({
-          userId: loser.carrierId,
-          title: "Tu oferta ya no está disponible",
-          body: "El emisor eligió otra oferta para este envío.",
-          category: "offers",
-          data: { type: "offer_superseded", shipmentId, offerId: loser.id },
-        });
       });
+      // MOVO-210 (AC4): a las demás ofertas no se las desplaza al aceptar, solo al confirmarse el hold.
+      expect(notificationsClient.sendPush).not.toHaveBeenCalledWith(
+        expect.objectContaining({ userId: loser.carrierId }),
+      );
     });
 
     it("MOVO-180: propaga la entrega estimada de la oferta ganadora al envío, sin tocarla en las perdedoras", async () => {
@@ -421,6 +420,7 @@ describe("POST /offers/:id/accept y POST /offers/:id/reject (Postgres)", () => {
     beforeAll(async () => {
       notificationsClientWithVehicle = createFakeNotificationsClient();
       appWithVehicle = buildApp({
+        paymentsClient: createFakePaymentsClient(),
         notificationsClient: notificationsClientWithVehicle,
         usersClient: usersClientWithVehicle,
         sweepEnabled: false,

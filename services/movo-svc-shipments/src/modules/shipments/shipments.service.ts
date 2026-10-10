@@ -23,9 +23,11 @@ import { TripRepository } from "../../repositories/trip-repository";
 import { Trip } from "../../models/trip";
 import { RatingRepository } from "../../repositories/rating-repository";
 import { UsersClient } from "../../adapters/users-client";
+import { PaymentsClient } from "../../adapters/payments-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { PricingClient } from "../../adapters/pricing-client";
 import { PricingLogisticsClient } from "../../adapters/pricing-logistics-client";
+import { releaseHoldBeforeCancel } from "../funding/funding.service";
 import { AvailableShipment, PackageType, Shipment, ShipmentEvent } from "../../models/shipment";
 import { RatingRole } from "../../models/rating";
 import {
@@ -69,6 +71,7 @@ import {
 } from "./assert-shipment-access";
 import { assertTripAccess } from "../trips/trip-access";
 import { assertNotBlocked, safeBlockRelatedUserIds } from "../../utils/block-relations";
+import { assertCarrierCanOperate, assertVerifiedCarrier } from "../../utils/carrier-gate";
 
 type ShipmentsServiceLogger =
   | FastifyBaseLogger
@@ -369,28 +372,8 @@ export function anchorDateUtc(dateStr: string): Date {
   return new Date(`${dateStr}T00:00:00.000Z`);
 }
 
-/**
- * MOVO-142 (AC6): gate de "transportista verificado" para `GET /shipments/available` y
- * la apertura de `getShipmentDetail` (AC8). El rol sale del propio header
- * `x-user-roles` (inyectado por el gateway desde el JWT del caller, ADR-010) — no hace
- * falta ninguna llamada a `svc-users` para eso. El KYC de identidad se resuelve con
- * `PublicProfile.isVerified` (`usersClient.findPublicProfile(callerId, callerId)`,
- * mismo campo/patrón que ya usa `createShipment` para el receptor) — `isVerified` ya ES
- * `kycStatusIdentity===approved` del lado de `svc-users`. Deliberadamente NO exige
- * licencia de conducir (MOVO-15): es una insignia de confianza, no un permiso de
- * acceso -- alguien sin auto puede llevar un paquete en micro/tren/avión igual.
- * Chequeo del rol primero (sin I/O) antes de la llamada de red, mismo criterio de
- * "más barato primero" que AC4 de `createShipment`.
- */
-async function assertVerifiedCarrier(usersClient: UsersClient, callerId: string, callerRoles: UserRole[]): Promise<void> {
-  if (!callerRoles.includes(UserRole.CARRIER)) {
-    throw new ApiError(403, "CARRIER_NOT_VERIFIED", "Necesitás ser transportista para ver este contenido.");
-  }
-  const profile = await usersClient.findPublicProfile(callerId, callerId);
-  if (!profile || !profile.isVerified) {
-    throw new ApiError(403, "CARRIER_NOT_VERIFIED", "Necesitás tener tu identidad verificada para transportar.");
-  }
-}
+/** MOVO-142 (AC6): mensaje del gate de lectura cuando falta el rol, ver `utils/carrier-gate.ts`. */
+const CARRIER_READ_ROLE_MESSAGE = "Necesitás ser transportista para ver este contenido.";
 
 /**
  * AC3 de MOVO-187: resuelve el perfil público de una de las partes de una oferta
@@ -855,6 +838,44 @@ async function dispatchPickupMissedPushes(
   );
 }
 
+/** MOVO-108 (AC7) / MOVO-210: el envío se canceló -- avisa a cada transportista cuya oferta
+ * quedó sin efecto (las `pending` vigentes y, antes de confirmarse el hold, el asignado). Un
+ * fallo de una push nunca frena a las otras. */
+async function dispatchOfferVoidedPushes(
+  notificationsClient: NotificationsClient,
+  logger: SweepLogger,
+  shipmentId: string,
+  carrierIds: string[]
+): Promise<void> {
+  await Promise.all(
+    carrierIds.map(async (carrierId) => {
+      try {
+        const { title, body } = renderNotificationTrigger("offerVoidedByShipmentCancellation", undefined);
+        await notificationsClient.sendPush({
+          userId: carrierId,
+          title,
+          body,
+          category: notificationTriggerCategory("offerVoidedByShipmentCancellation"),
+          data: { type: "shipment", shipmentId },
+        });
+      } catch (err) {
+        logger?.warn(
+          { err, event: "notification_dispatch_failed", shipmentId, carrierId },
+          "No se pudo notificar al transportista sobre la cancelación del envío"
+        );
+      }
+    })
+  );
+}
+
+/** MOVO-210: estados en los que la asignación todavía espera el pago. Pueden tener un hold vivo
+ * (el emisor pagó y MP no resolvió) y, como las demás ofertas recién se cierran al confirmarse
+ * el hold, también ofertas `pending` vigentes. */
+const AWAITING_FUNDING_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.ASSIGNMENT_PENDING,
+  ShipmentStatus.ASSIGNED_UNFUNDED,
+];
+
 /** MOVO-258 (D6): día de retiro sin oferta aceptada pero con ofertas vigentes -- avisa al
  * emisor UNA vez por envío (la clave de dedupe vive más que cualquier ventana de retiro). Si la
  * push falla se libera la clave: sin eso, un `notifications` caído dejaba al emisor sin aviso
@@ -932,6 +953,11 @@ export interface ShipmentsServiceOptions {
   /** Requerido solo para `cancelShipment` (AC7 de MOVO-108, notificar ofertas
    * pendientes) — el barrido de MOVO-130 no lo necesita, nunca cancela por esa vía. */
   offerRepository?: OfferRepository;
+  /** MOVO-116 (ADR-036): cuenta de MP del transportista para el bloqueo de ofertar (sin él,
+   * ofertar lanza: no se saltea el chequeo). MOVO-210 (AC12): también libera el hold al cancelar
+   * un envío con la reserva creada (`cancelShipment` desde `assignment_pending` y el barrido de
+   * retiro no realizado); sin cliente inyectado no se llama a payments por ese camino. */
+  paymentsClient?: PaymentsClient;
   /** Requerido solo para `createShipment` (MOVO-82) — mismo criterio que
    * `offerRepository`: viaja en `opts` en vez de como parámetro posicional propio,
    * para no romper la firma que ya usan `acceptShipment`/`rejectShipment`/el barrido
@@ -1004,6 +1030,7 @@ export function createShipmentsService(
   const pickupMissedGraceHours = opts.pickupMissedGraceHours ?? 24;
   const transitAnomalyFallbackHours = opts.transitAnomalyFallbackHours ?? 48;
   const offerRepository = opts.offerRepository;
+  const paymentsClient = opts.paymentsClient;
   const pricingClient = opts.pricingClient;
   const pricingLogisticsClient = opts.pricingLogisticsClient;
   const getCarrierReputationScore = opts.getCarrierReputationScore;
@@ -1012,6 +1039,21 @@ export function createShipmentsService(
   const ratingRepository = opts.ratingRepository;
   const tripMatchDetourRadiusKm = opts.tripMatchDetourRadiusKm;
   const quoteStore = opts.quoteStore;
+
+  /**
+   * MOVO-210 (AC12): libera el hold de un envío que YA se canceló. Nunca lanza: el envío no se
+   * puede "descancelar", así que una liberación fallida queda logueada y el hold vence solo en MP.
+   */
+  async function releaseHoldAfterCancel(client: PaymentsClient, shipmentId: string): Promise<void> {
+    try {
+      await releaseHoldBeforeCancel(client, shipmentId, logger);
+    } catch (err) {
+      logger?.error(
+        { err, event: "funding_hold_release_after_cancel_failed", shipmentId },
+        "El envío se canceló pero no se pudo liberar el hold: vence solo en MP",
+      );
+    }
+  }
 
   function requireQuoteStore(): QuoteStore {
     if (!quoteStore) {
@@ -1219,7 +1261,7 @@ export function createShipmentsService(
       }
 
       if (shipment.status === ShipmentStatus.PUBLISHED) {
-        await assertVerifiedCarrier(usersClient, callerId, callerRoles);
+        await assertVerifiedCarrier(usersClient, callerId, callerRoles, CARRIER_READ_ROLE_MESSAGE);
         // MOVO-180 (adelantado): agregado de ofertas vigentes para el transportista
         // que está evaluando ofertar -- nunca bloquea la apertura del detalle si
         // falla o si el servicio corre sin `offerRepository` (algún test aislado).
@@ -1324,7 +1366,13 @@ export function createShipmentsService(
         throw new Error("createOfferForShipment requiere offerRepository (ShipmentsServiceOptions).");
       }
 
-      await assertVerifiedCarrier(usersClient, input.carrierId, input.callerRoles);
+      if (!paymentsClient) {
+        throw new Error("createOfferForShipment requiere paymentsClient (ShipmentsServiceOptions).");
+      }
+
+      // MOVO-116 (ADR-036): identidad + licencia + MP antes de cualquier lectura o
+      // escritura del envío. Antes era `assertVerifiedCarrier` (sin licencia, MOVO-142).
+      await assertCarrierCanOperate({ usersClient, paymentsClient }, input.carrierId, input.callerRoles);
 
       const shipment = await repository.findById(input.shipmentId);
       if (!shipment) {
@@ -1803,7 +1851,7 @@ export function createShipmentsService(
           "destinationLat y destinationLng van juntos: mandá los dos o ninguno."
         );
       }
-      await assertVerifiedCarrier(usersClient, callerId, callerRoles);
+      await assertVerifiedCarrier(usersClient, callerId, callerRoles, CARRIER_READ_ROLE_MESSAGE);
       // MOVO-175 (ADR-026): falla abierto -- un svc-users caído no tira el feed.
       const blockedIds = await safeBlockRelatedUserIds(usersClient, callerId, logger);
 
@@ -1862,13 +1910,14 @@ export function createShipmentsService(
       }
 
       const previousStatus = shipment.status;
-      // AC7 de MOVO-108: solo estos dos estados de origen pueden tener ofertas
-      // `pending` colgando (desde `awaiting_receiver_confirmation` el envío ni
-      // publicado está, no puede tener ofertas). Se listan ANTES de cancelar:
-      // desde MOVO-258 `updateStatus` pasa esas ofertas a `shipment_cancelled` en la
-      // misma transacción, y después de eso ya no se las distinguiría.
-      const mayHavePendingOffers =
-        previousStatus === ShipmentStatus.PUBLISHED || previousStatus === ShipmentStatus.ASSIGNMENT_PENDING;
+      // AC7 de MOVO-108: solo un `published` o una asignación que espera el pago pueden tener
+      // ofertas `pending` colgando (desde `awaiting_receiver_confirmation` el envío ni
+      // publicado está, no puede tener ofertas; desde MOVO-210 las demás ofertas recién se
+      // cierran al confirmarse el hold, así que `assigned_unfunded` también las tiene). Se
+      // listan ANTES de cancelar: desde MOVO-258 `updateStatus` pasa esas ofertas a
+      // `shipment_cancelled` en la misma transacción, y después de eso ya no se las distinguiría.
+      const awaitingFunding = AWAITING_FUNDING_STATUSES.includes(previousStatus);
+      const mayHavePendingOffers = previousStatus === ShipmentStatus.PUBLISHED || awaitingFunding;
       if (mayHavePendingOffers && !offerRepository) {
         throw new Error("cancelShipment requiere offerRepository (ShipmentsServiceOptions) para notificar ofertas pendientes.");
       }
@@ -1881,31 +1930,38 @@ export function createShipmentsService(
       // disputed, cancelled) llega hasta acá y
       // shipment-state-machine.ts lo rechaza con InvalidShipmentTransitionError
       // (409 SHIPMENT_INVALID_TRANSITION, ver plugins/error-handler.ts).
-      const cancelled = await repository.updateStatus(shipmentId, ShipmentStatus.CANCELLED, callerId, reason);
+      //
+      // MOVO-210: `expectedFrom` ata la cancelación al estado que se validó arriba. Sin él, un
+      // pago concurrente que pasó el envío a `assigned` entre la lectura y este UPDATE quedaba
+      // `cancelled` con el hold autorizado sin liberar (`assigned -> cancelled` es una arista
+      // válida): ahora falla con 409 de modificación concurrente y el emisor ve que ya se pagó.
+      const cancelled = await repository.updateStatus(shipmentId, ShipmentStatus.CANCELLED, callerId, reason, {
+        expectedFrom: previousStatus,
+      });
 
-      if (pendingOffers.length > 0) {
-        await Promise.all(
-          pendingOffers.map(async (offer) => {
-            if (!notificationsClient) {
-              return;
-            }
-            try {
-              const { title, body } = renderNotificationTrigger("offerVoidedByShipmentCancellation", undefined);
-              await notificationsClient.sendPush({
-                userId: offer.carrierId,
-                title,
-                body,
-                category: notificationTriggerCategory("offerVoidedByShipmentCancellation"),
-                data: { type: "shipment", shipmentId },
-              });
-            } catch (err) {
-              logger?.warn(
-                { err, event: "notification_dispatch_failed", shipmentId, carrierId: offer.carrierId },
-                "No se pudo notificar al transportista sobre la cancelación del envío"
-              );
-            }
-          })
-        );
+      // MOVO-210 (AC12): mientras la asignación espera el pago puede haber un hold ya creado (el
+      // emisor pagó pero MP todavía no resolvió, `in_process`), tanto en la ruta cercana
+      // (`assignment_pending`) como en la ventana de la lejana (`assigned_unfunded`). Se libera
+      // DESPUÉS de cancelar, no antes: liberar primero dejaba una ventana en la que un pago
+      // concurrente autorizaba, el envío pasaba a `assigned` con el hold ya cancelado y la
+      // cancelación fallaba -- un envío asignado sin fondos. Cancelar primero hace que ese pago
+      // concurrente falle al transicionar y libere su propio hold
+      // (`funding.service.ts#submitFunding`). Sin hold, payments no tiene nada que liberar. Si la
+      // liberación no se puede confirmar (payments caído, un hold `creating` reciente,
+      // transportista desvinculado) el envío ya está cancelado: queda logueado con evento propio
+      // y el hold vence solo en MP.
+      if (awaitingFunding && opts.paymentsClient) {
+        await releaseHoldAfterCancel(opts.paymentsClient, shipmentId);
+      }
+
+      if (notificationsClient) {
+        // MOVO-210 (AC17): el transportista ya asignado (su oferta estaba `accepted`, no
+        // `pending`, así que no entra en `pendingOffers`) también se entera.
+        const assignedCarrier = awaitingFunding && shipment.carrierId ? [shipment.carrierId] : [];
+        await dispatchOfferVoidedPushes(notificationsClient, logger, shipmentId, [
+          ...assignedCarrier,
+          ...pendingOffers.map((offer) => offer.carrierId),
+        ]);
       }
 
       return cancelled;
@@ -2118,9 +2174,12 @@ export function createShipmentsService(
      * un ticket aparte). Avisa a las tres partes. Al cancelar, `updateStatus` cierra las
      * ofertas (D7) y el viaje se destraba solo (`ACCEPTED_OFFER_FILTER`).
      *
-     * Desde `assigned` habría que liberar el hold de fondos (MOVO-210/212): hoy ningún
-     * flujo llega a `assigned`, así que no hay hold que liberar -- cuando exista, este
-     * punto tiene que llamarlo.
+     * Libera el hold de fondos (MOVO-210, `paymentsClient`): desde `assigned` ANTES de cancelar
+     * (si no se puede confirmar la liberación el envío no se cancela en esa vuelta y se
+     * reintenta en la siguiente, en vez de dejar fondos del emisor retenidos sin envío); desde
+     * `assignment_pending`/`assigned_unfunded` DESPUÉS, misma razón que `cancelShipment`. En
+     * esos dos estados las demás ofertas siguen `pending` (se cierran recién al confirmarse el
+     * hold), así que también se avisa a esos transportistas (con `offerRepository` inyectado).
      */
     async expireUnpickedAssignedShipments(batchSize = 100): Promise<{ expiredCount: number; errorsCount: number }> {
       const now = new Date();
@@ -2133,16 +2192,44 @@ export function createShipmentsService(
 
       for (const shipment of overdueShipments) {
         try {
+          const awaitingFunding = AWAITING_FUNDING_STATUSES.includes(shipment.status);
+          // Antes de cancelar: `updateStatus` las pasa a `shipment_cancelled` en la misma
+          // transacción y después ya no se distinguen (mismo criterio que `cancelShipment`).
+          const pendingOfferCarrierIds =
+            awaitingFunding && offerRepository
+              ? (await offerRepository.listByShipment(shipment.id))
+                  .filter((offer) => offer.status === OfferStatus.PENDING)
+                  .map((offer) => offer.carrierId)
+              : [];
+          // MOVO-210: cancelar un retiro no realizado tiene que liberar la reserva del emisor.
+          // Desde `assigned` nadie más puede mover el envío, así que se libera antes y, si no se
+          // puede confirmar la liberación, no se cancela (se reintenta en el próximo barrido en
+          // vez de dejar fondos retenidos sin envío).
+          if (opts.paymentsClient && shipment.status === ShipmentStatus.ASSIGNED) {
+            await releaseHoldBeforeCancel(opts.paymentsClient, shipment.id, logger);
+          }
+          // `expectedFrom`: el estado que se evaluó. Un `assignment_pending` que un pago
+          // concurrente acaba de pasar a `assigned` no se cancela (409 de modificación concurrente).
           await repository.updateStatus(
             shipment.id,
             ShipmentStatus.CANCELLED,
             null,
-            "El retiro no se realizó dentro del plazo (ventana de retiro más margen de gracia)"
+            "El retiro no se realizó dentro del plazo (ventana de retiro más margen de gracia)",
+            { expectedFrom: shipment.status }
           );
           expiredCount++;
 
+          // Mientras la asignación espera el pago puede haber un hold vivo (pago en revisión o en
+          // vuelo): se libera DESPUÉS de cancelar (misma razón que `cancelShipment`).
+          if (opts.paymentsClient && awaitingFunding) {
+            await releaseHoldAfterCancel(opts.paymentsClient, shipment.id);
+          }
+
           if (notificationsClient) {
             void dispatchPickupMissedPushes(notificationsClient, logger, shipment);
+            if (pendingOfferCarrierIds.length > 0) {
+              void dispatchOfferVoidedPushes(notificationsClient, logger, shipment.id, pendingOfferCarrierIds);
+            }
           }
         } catch (err) {
           errorsCount++;

@@ -1208,3 +1208,11 @@ tocar mobile. Todo sale por `notifications/send-trigger-push.ts#sendTriggerPush`
 Pendiente / fuera de alcance: login desde un dispositivo nuevo (el login no tiene hoy registro de
 dispositivos conocidos); verificar en CI la suite de integración completa, que no se pudo correr en la
 máquina donde se desarrolló (la contraseña del Postgres local estaba desfasada del `.env`, ver MOVO-228).
+
+### MOVO-116 — `GET /internal/users/:id/kyc-status`
+
+Endpoint interno (`src/modules/kyc/kyc-internal.routes.ts`, `schema.hide: true`, sin ruta en el
+gateway) que devuelve `{ kycStatusIdentity, kycStatusLicense }` crudos para el bloqueo del
+transportista de `svc-shipments` (ADR-036). Más liviano que `GET /users/:id`, que además pide
+la reputación a `svc-shipments`. 404 `USER_NOT_FOUND` si no existe o está `deleted` (mismo
+criterio que MOVO-77). Test: `test/kyc.internal-status.integration.test.ts`.

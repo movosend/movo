@@ -8,6 +8,7 @@ import { createOfferRepository, OfferRepository } from "../src/repositories/offe
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
 import { UsersClient } from "../src/adapters/users-client";
 import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
+import { createFakePaymentsClient } from "./fake-payments-client";
 import { createFakeNotificationsClient } from "./fake-notifications-client";
 import { createFakePricingClient } from "./fake-pricing-client";
 
@@ -109,6 +110,7 @@ describe("Bloqueo de usuarios en svc-shipments (Postgres, MOVO-175)", () => {
     process.env.MOVO_COMMISSION_RATE = "0.15";
 
     app = buildApp({
+      paymentsClient: createFakePaymentsClient(),
       usersClient: createFakeUsersClient(profiles, {}, blocks),
       notificationsClient: createFakeNotificationsClient(),
       pricingClient: createFakePricingClient(),
@@ -281,6 +283,7 @@ describe("Bloqueo de usuarios en svc-shipments (Postgres, MOVO-175)", () => {
           .mockRejectedValue(new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "caído")),
       };
       failingApp = buildApp({
+        paymentsClient: createFakePaymentsClient(),
         usersClient,
         notificationsClient: createFakeNotificationsClient(),
         pricingClient: createFakePricingClient(),

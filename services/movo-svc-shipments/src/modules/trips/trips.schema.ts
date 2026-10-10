@@ -265,6 +265,9 @@ export const tripsSchemas = {
           code: { type: "string" },
           message: { type: "string" },
           statusCode: { type: "integer" },
+          // MOVO-116: datos extra opcionales del error (ej. `missingRequirements` del bloqueo
+          // del transportista). Sin declararlo, fast-json-stringify lo descarta en silencio.
+          details: { type: "object", additionalProperties: true },
         },
       },
       requestId: { type: "string" },

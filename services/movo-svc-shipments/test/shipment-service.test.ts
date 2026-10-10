@@ -13,6 +13,7 @@ import { createFakePricingClient } from "./fake-pricing-client";
 import { PricingClient } from "../src/adapters/pricing-client";
 import { createFakeTripRepository, fakeTrip } from "./fake-trip-repository";
 import { createFakePricingLogisticsClient } from "./fake-pricing-logistics-client";
+import { createFakePaymentsClient } from "./fake-payments-client";
 
 /**
  * Wrapper de `createShipmentsService` para este archivo: los tests que no ejercitan
@@ -1726,7 +1727,8 @@ describe("shipments.service — cancelShipment (MOVO-29/MOVO-108)", () => {
       shipment.id,
       ShipmentStatus.CANCELLED,
       "sender-id",
-      "me equivoqué"
+      "me equivoqué",
+      { expectedFrom: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION }
     );
     expect(offerRepository.listByShipment).not.toHaveBeenCalled();
   });
@@ -1819,6 +1821,7 @@ describe("shipments.service — createOfferForShipment (MOVO-187/PR #150)", () =
     });
     const service = createShipmentsService(repository, usersClient, undefined, undefined, {
       offerRepository,
+      paymentsClient: createFakePaymentsClient(),
       getCarrierReputationScore: vi.fn().mockRejectedValue(new Error("DB caída")),
       getSenderReputationScore: vi.fn().mockRejectedValue(new Error("DB caída")),
     });

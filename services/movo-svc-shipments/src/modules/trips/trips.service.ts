@@ -13,6 +13,8 @@ import { ShipmentRepository } from "../../repositories/shipment-repository";
 import { OfferRepository } from "../../repositories/offer-repository";
 import { UsersClient } from "../../adapters/users-client";
 import { safeBlockRelatedUserIds } from "../../utils/block-relations";
+import { PaymentsClient } from "../../adapters/payments-client";
+import { assertCarrierCanOperate, assertCarrierEligible, assertVerifiedCarrier } from "../../utils/carrier-gate";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { RoutesProvider } from "../../adapters/routes-provider";
 import { sendCustodyPush } from "../../utils/dispatch-push";
@@ -91,16 +93,6 @@ export interface TripsService {
     tripId: string;
     radiusKm: number;
   }>;
-}
-
-async function assertVerifiedCarrier(usersClient: UsersClient, callerId: string, callerRoles: UserRole[]): Promise<void> {
-  if (!callerRoles.includes(UserRole.CARRIER)) {
-    throw new ApiError(403, "CARRIER_NOT_VERIFIED", "Necesitás ser transportista para realizar esta acción.");
-  }
-  const profile = await usersClient.findPublicProfile(callerId, callerId);
-  if (!profile || !profile.isVerified) {
-    throw new ApiError(403, "CARRIER_NOT_VERIFIED", "Necesitás tener tu identidad verificada para transportar.");
-  }
 }
 
 function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -269,6 +261,9 @@ export function createTripsService(deps: {
   shipmentRepository: ShipmentRepository;
   offerRepository: OfferRepository;
   usersClient: UsersClient;
+  /** MOVO-116 (ADR-036): cuenta de MP del transportista para el bloqueo de declarar e
+   * iniciar viaje. Requerido, no opcional: sin él no hay forma de fallar cerrado. */
+  paymentsClient: PaymentsClient;
   defaultMaxDetourKm: number;
   pricingLogisticsClient: PricingLogisticsClient;
   logger?: FastifyBaseLogger;
@@ -284,16 +279,19 @@ export function createTripsService(deps: {
     shipmentRepository,
     offerRepository,
     usersClient,
+    paymentsClient,
     defaultMaxDetourKm,
     pricingLogisticsClient,
     logger,
     notificationsClient,
     routesProvider,
   } = deps;
+  const carrierGate = { usersClient, paymentsClient };
 
   return {
     async createTrip({ callerId, callerRoles, input }) {
-      await assertVerifiedCarrier(usersClient, callerId, callerRoles);
+      // MOVO-116 (ADR-036): identidad + licencia + MP, antes de cualquier escritura.
+      await assertCarrierCanOperate(carrierGate, callerId, callerRoles);
 
       if (input.departureAt.getTime() <= Date.now()) {
         throw new ApiError(400, "TRIP_DEPARTURE_IN_PAST", "La fecha y hora de salida debe ser futura.");
@@ -475,6 +473,13 @@ export function createTripsService(deps: {
           "TRIP_START_TOO_EARLY",
           `El viaje '${tripId}' recién se puede iniciar el ${tripStartAvailableOn(trip.departureAt)}.`,
         );
+      }
+
+      // MOVO-116 (ADR-036): el transportista dueño del viaje (no quien llama, que puede
+      // ser un admin) tiene que seguir cumpliendo los requisitos al arrancar. Mismo
+      // recorte que la fecha: sobre otro estado manda el `TRIP_NOT_DECLARED` de `start()`.
+      if (trip.status === TripStatus.DECLARED) {
+        await assertCarrierEligible(carrierGate, trip.carrierId);
       }
 
       let started: Trip;

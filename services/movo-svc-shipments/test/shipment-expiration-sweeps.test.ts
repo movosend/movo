@@ -84,7 +84,8 @@ describe("expireUnpickedAssignedShipments (MOVO-258, D1)", () => {
       "s-1",
       ShipmentStatus.CANCELLED,
       null,
-      "El retiro no se realizó dentro del plazo (ventana de retiro más margen de gracia)"
+      "El retiro no se realizó dentro del plazo (ventana de retiro más margen de gracia)",
+      { expectedFrom: overdue.status }
     );
     await vi.waitFor(() => expect(notifications.sendPush).toHaveBeenCalledTimes(3));
     const recipients = (notifications.sendPush as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0].userId);

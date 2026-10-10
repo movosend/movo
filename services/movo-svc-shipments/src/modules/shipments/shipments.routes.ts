@@ -11,6 +11,7 @@ import { shipmentsSchemas } from "./shipments.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
+import { createPaymentsClient, PaymentsClient } from "../../adapters/payments-client";
 import { createStorageProvider, StorageProvider } from "../../adapters/storage-provider";
 import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-provider";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
@@ -41,6 +42,8 @@ export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
    * real levantado, mismo criterio que `storageProvider`/`diditClient` en
    * movo-svc-users. */
   usersClient?: UsersClient;
+  /** Override solo para tests de integración -- MOVO-116, mismo criterio que `usersClient`. */
+  paymentsClient?: PaymentsClient;
   /** Override solo para tests de integración — evita depender de un bucket real/
    * credenciales de AWS (MOVO-81), mismo criterio que `storageProvider` en
    * movo-svc-users. */
@@ -149,6 +152,7 @@ function toShipmentEventDto(event: ShipmentEvent) {
 
 export default async function shipmentsRoutes(app: FastifyInstance, opts: ShipmentsRoutesOptions) {
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
+  const paymentsClient = opts.paymentsClient ?? createPaymentsClient(app.config);
   const storageProvider = opts.storageProvider ?? createStorageProvider(app.config);
   const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config);
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
@@ -177,6 +181,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       receiverConfirmationTimeoutHours: app.config.RECEIVER_CONFIRMATION_TIMEOUT_HOURS,
       receiverRedesignationTimeoutHours: app.config.RECEIVER_REDESIGNATION_TIMEOUT_HOURS,
       offerRepository,
+      paymentsClient,
       pricingClient,
       pricingLogisticsClient,
       tripRepository,
@@ -392,8 +397,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "maxDistanceKm (opcional, sin default) tapea la distancia PROPIA " +
           "retiro→entrega del envío, sin relación con el trayecto del caller. " +
           "Excluye los envíos propios del caller (sender o receiver). Requiere rol " +
-          "carrier + KYC de identidad aprobado (403 CARRIER_NOT_VERIFIED -- nunca " +
-          "licencia de conducir, que es insignia de confianza, no permiso de acceso). " +
+          "carrier + KYC de identidad aprobado (403 CARRIER_NOT_VERIFIED). Es una " +
+          "lectura: no exige licencia ni cuenta de Mercado Pago, que sí se exigen para " +
+          "ofertar (MOVO-116, ADR-036). " +
           "hasMyOffer marca los envíos donde el caller ya tiene una oferta pending.",
         tags: ["shipments"],
         querystring: shipmentsSchemas.listAvailableQuery,
@@ -779,9 +785,13 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         summary: "Ofertar sobre un envío",
         description:
           "AC1-AC7/AC9 de MOVO-143: el transportista oferta un precio sobre un envío " +
-          "published. Requiere rol carrier + KYC de identidad aprobado (403 " +
-          "CARRIER_NOT_VERIFIED), sin exigir licencia de conducir (AC2, insignia de " +
-          "confianza, no permiso de acceso). Ni el emisor ni el receptor pueden ofertar " +
+          "published. MOVO-116 (ADR-036, reemplaza AC2 de MOVO-143): requiere rol " +
+          "carrier + KYC de identidad aprobado (403 CARRIER_NOT_VERIFIED), licencia de " +
+          "conducir aprobada y cuenta de Mercado Pago vinculada (403 " +
+          "CARRIER_LICENSE_NOT_APPROVED o CARRIER_MP_ACCOUNT_NOT_LINKED, el primero que " +
+          "falte, con details.missingRequirements listando todos), antes de persistir " +
+          "nada; 502 USERS_SERVICE_UNAVAILABLE/PAYMENTS_SERVICE_UNAVAILABLE si no se " +
+          "pudo verificar. Ni el emisor ni el receptor pueden ofertar " +
           "sobre su propio envío (403 AUTH_FORBIDDEN, AC3). `priceOfferedArs` es el " +
           "NETO que quiere cobrar el transportista -- el servidor calcula el bruto con " +
           "la comisión de Movo (AC6, @movo/shared#computeOfferGrossPrice) y devuelve el " +
@@ -799,6 +809,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           404: shipmentsSchemas.errorResponse,
           409: shipmentsSchemas.errorResponse,
           422: shipmentsSchemas.errorResponse,
+          502: shipmentsSchemas.errorResponse,
         },
       },
     },

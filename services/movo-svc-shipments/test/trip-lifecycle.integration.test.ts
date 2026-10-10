@@ -255,7 +255,7 @@ describe("trip-repository (Postgres) — ciclo de vida declared/active", () => {
    * que solo puede existir una oferta `accepted` por envío en simultáneo. Test
    * explícito pedido por el ticket, de punta a punta contra Postgres real.
    */
-  it("un envío nunca queda asociado a más de un viaje: aceptar una oferta supersede a las demás, aunque apunten a viajes distintos", async () => {
+  it("un envío nunca queda asociado a más de un viaje: solo una oferta queda accepted, y al confirmarse el hold se cierran las demás aunque apunten a viajes distintos", async () => {
     const carrierA = randomUUID();
     const carrierB = randomUUID();
     const tripA = await tripRepo.create(baseTripInput({ carrierId: carrierA }));
@@ -278,11 +278,14 @@ describe("trip-repository (Postgres) — ciclo de vida declared/active", () => {
       tripId: tripB.id,
     });
 
-    const { offer: accepted, superseded } = await offerRepo.acceptOffer(offerA.id, baseShipmentInput.senderId);
+    const { offer: accepted } = await offerRepo.acceptOffer(offerA.id, baseShipmentInput.senderId);
 
     expect(accepted.status).toBe("accepted");
     expect(accepted.tripId).toBe(tripA.id);
-    expect(superseded.map((s) => s.id)).toEqual([offerB.id]);
+
+    // MOVO-210 (AC4): al aceptar, la otra oferta sigue pending; se cierra al confirmarse el hold.
+    expect((await offerRepo.findById(offerB.id))?.status).toBe("pending");
+    await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.ASSIGNED, baseShipmentInput.senderId);
 
     const offerBReloaded = await offerRepo.findById(offerB.id);
     expect(offerBReloaded?.status).toBe("superseded");

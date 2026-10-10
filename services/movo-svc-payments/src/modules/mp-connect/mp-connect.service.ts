@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from "fastify";
 import {
   ApiError,
+  CarrierMpAccountStatusResponse,
   MP_CONNECT_RETURN_URL,
   MpConnectAuthorizationUrlResponse,
   MpConnectReturnErrorCode,
@@ -137,6 +138,15 @@ export function createMpConnectService(deps: MpConnectServiceDeps) {
   return {
     async getStatus(userId: string): Promise<MpConnectStatusResponse> {
       return toStatusResponse(await repository.findByUserId(userId), now());
+    },
+
+    /**
+     * MOVO-116: ¿el transportista tiene una cuenta con la que hoy se puede cobrar? Mismo
+     * criterio que el hold (`findActiveCredentials`), más estricto que `linked` de
+     * `getStatus` porque también exige `public_key`.
+     */
+    async getCarrierAccountStatus(userId: string): Promise<CarrierMpAccountStatusResponse> {
+      return { linked: await repository.hasActiveCredentials(userId, now()) };
     },
 
     async buildAuthorizationUrl(userId: string): Promise<MpConnectAuthorizationUrlResponse> {

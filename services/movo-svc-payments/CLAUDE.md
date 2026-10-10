@@ -216,3 +216,17 @@ Pendiente: lado `svc-shipments` (notifier real, transición a `completed`, push,
 que depende de `PaymentsClient` de MOVO-210 (sin mergear a `develop`); test de integración
 (`captures.integration.test.ts`) escrito pero sin correr localmente por falta de Postgres/Redis; test
 contra el sandbox real sin escribir.
+`svc-shipments` ya los llama desde la saga de asignación (MOVO-210, ver
+`services/movo-svc-shipments/CLAUDE.md`). Falta que payments avise a
+`POST /internal/shipments/:id/hold-events` de shipments cuando MP cancela o vence un hold
+(MOVO-268): el endpoint receptor ya existe, nadie lo llama todavía.
+
+### MOVO-116 — `GET /internal/payments/mp-connect/:userId/status`
+
+Endpoint interno (`src/modules/mp-connect/mp-connect-internal.routes.ts`, sin ruta en el gateway
+ni hook de `x-user-id`) que devuelve `{ linked }` para el bloqueo del transportista de
+`svc-shipments` (ADR-036). `linked` usa el mismo criterio que el hold
+(`hasActiveCredentials`, nuevo en el repositorio, comparte `activeAccountWhere` con
+`findActiveCredentials` y no descifra tokens): es más estricto que el `linked` de
+`GET /payments/mp-connect/status` porque también exige `public_key`, así nadie pasa el bloqueo
+y después cae en el 409 del hold. Tests en `test/mp-connect.integration.test.ts`.

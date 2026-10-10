@@ -400,3 +400,22 @@ que redirige el callback público. Cinco `ApiErrorCode` nuevos (`MP_CONNECT_*`,
 internos de captura de `svc-payments`, y los códigos `HOLD_NOT_CAPTURABLE`/`SETTLEMENT_NOT_FOUND`.
 `mpFeeArs` y `netAmountArs` son `null` hasta que MP confirma la captura. `escalated` está reservado para
 MOVO-213 (212 nunca lo escribe). Recordatorio: `npm run build` acá antes de tipar desde otro workspace.
+### MOVO-116 — `ApiError.details`, requisitos del transportista y códigos nuevos (ADR-036)
+
+`ApiError` gana un 4.º parámetro opcional `details` (`ApiErrorDetails`), que `toJSON()` incluye
+solo si viene: primer error con datos extra para el cliente, compatible hacia atrás.
+`types/carrier-eligibility.ts`: `CarrierRequirement` (`"license" | "mp_account"`),
+`CarrierRequirementsErrorDetails` y las respuestas de los dos endpoints internos nuevos.
+Códigos nuevos: `CARRIER_LICENSE_NOT_APPROVED`, `PAYMENTS_SERVICE_UNAVAILABLE`,
+`OFFER_CARRIER_NOT_ELIGIBLE`; `CARRIER_MP_ACCOUNT_NOT_LINKED` (MOVO-209) se reusa, ahora también
+como 403 de `svc-shipments`. Mobile todavía no lee `details` (`parseErrorBody` lo descarta): es
+parte de MOVO-117.
+
+### MOVO-210 — Contrato de la saga de asignación y `OfferStatus.ASSIGNMENT_LAPSED`
+
+`types/funding.ts` (`FundingRoute`, `ShipmentFundingResponse`/`Request`/`Result`, `HoldProviderEventRequest`:
+`GET`/`POST /shipments/:id/funding` y el aviso interno de holds). `OfferStatus.ASSIGNMENT_LAPSED`: la oferta fue
+aceptada pero la asignación no prosperó (no es un rechazo). `ApiErrorCode` suma `SHIPMENT_FUNDING_NOT_AVAILABLE`
+(`PAYMENTS_SERVICE_UNAVAILABLE` ya lo había agregado MOVO-116). `config/notification-templates.ts` suma los triggers `funding*` (emisor en
+`payments`, que pasa a `implemented: true`; transportista en `offers`), incluido el copy de reconfirmación
+("La reserva de tu pago expiró"). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

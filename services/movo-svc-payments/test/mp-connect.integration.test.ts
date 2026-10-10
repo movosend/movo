@@ -149,6 +149,62 @@ describe("/payments/mp-connect (MOVO-111)", () => {
     });
   });
 
+  describe("GET /internal/payments/mp-connect/:userId/status (MOVO-116)", () => {
+    async function getInternalStatus(userId: string): Promise<{ linked: boolean }> {
+      const response = await app.inject({ method: "GET", url: `/internal/payments/mp-connect/${userId}/status` });
+      expect(response.statusCode).toBe(200);
+      return response.json();
+    }
+
+    it("linked: false sin cuenta", async () => {
+      expect(await getInternalStatus(USER_A)).toEqual({ linked: false });
+    });
+
+    it("linked: true con una cuenta vigente, sin depender de x-user-id", async () => {
+      await link(USER_A);
+
+      expect(await getInternalStatus(USER_A)).toEqual({ linked: true });
+      expect(await getInternalStatus(USER_B)).toEqual({ linked: false });
+    });
+
+    it("linked: false después de desvincular", async () => {
+      await link(USER_A);
+      await app.inject({ method: "DELETE", url: "/payments/mp-connect", headers: as(USER_A) });
+
+      expect(await getInternalStatus(USER_A)).toEqual({ linked: false });
+    });
+
+    it("linked: false con la cuenta revocada", async () => {
+      await link(USER_A);
+      await app.db.carrierMpAccount.update({ where: { userId: USER_A }, data: { revokedAt: new Date() } });
+
+      expect(await getInternalStatus(USER_A)).toEqual({ linked: false });
+    });
+
+    it("linked: false con el token vencido", async () => {
+      await link(USER_A);
+      await app.db.carrierMpAccount.update({
+        where: { userId: USER_A },
+        data: { tokenExpiresAt: new Date(Date.now() - 1000) },
+      });
+
+      expect(await getInternalStatus(USER_A)).toEqual({ linked: false });
+    });
+
+    it("linked: false sin public_key, mismo criterio que el hold (el status público dice linked)", async () => {
+      await link(USER_A);
+      await app.db.carrierMpAccount.update({ where: { userId: USER_A }, data: { publicKey: null } });
+
+      expect((await getStatus(USER_A)).status).toBe("linked");
+      expect(await getInternalStatus(USER_A)).toEqual({ linked: false });
+    });
+
+    it("400 si el userId no es un uuid", async () => {
+      const response = await app.inject({ method: "GET", url: "/internal/payments/mp-connect/no-es-uuid/status" });
+      expect(response.statusCode).toBe(400);
+    });
+  });
+
   describe("GET /authorization-url", () => {
     it("arma la URL de MP con PKCE S256 y offline_access, y guarda el state en Redis", async () => {
       const response = await app.inject({

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ApiError, ShipmentStatus, UserRole } from "@movo/shared";
+import { ApiError, KycStatus, ShipmentStatus, UserRole } from "@movo/shared";
 import { createTripsService } from "../src/modules/trips/trips.service";
 import {
   TripRepository,
@@ -13,9 +13,11 @@ import {
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
 import { OfferRepository } from "../src/repositories/offer-repository";
 import { UsersClient } from "../src/adapters/users-client";
+import { PaymentsClient } from "../src/adapters/payments-client";
 import { PricingLogisticsClient } from "../src/adapters/pricing-logistics-client";
 import { Trip, TripStatus } from "../src/models/trip";
 import { createFakeOfferRepository } from "./fake-offer-repository";
+import { createFakePaymentsClient } from "./fake-payments-client";
 import { toArgentinaCalendarDate } from "../src/domain/pickup-window";
 
 const CARRIER_ID = "carrier-123";
@@ -47,6 +49,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
   let shipmentRepo: ShipmentRepository;
   let offerRepo: OfferRepository;
   let usersClient: UsersClient;
+  let paymentsClient: PaymentsClient;
   let pricingLogisticsClient: PricingLogisticsClient;
 
   function buildService(overrides: Partial<Parameters<typeof createTripsService>[0]> = {}) {
@@ -55,6 +58,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
       shipmentRepository: shipmentRepo,
       offerRepository: offerRepo,
       usersClient,
+      paymentsClient,
       pricingLogisticsClient,
       defaultMaxDetourKm: 15,
       ...overrides,
@@ -103,7 +107,13 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
         isVerified: true,
         createdAt: "2026-01-01T00:00:00Z",
       }),
-    };
+      // MOVO-116: el bloqueo de escritura (declarar/iniciar viaje) lee identidad y
+      // licencia de acá; por default el transportista cumple todo.
+      findKycStatus: vi
+        .fn()
+        .mockResolvedValue({ kycStatusIdentity: KycStatus.APPROVED, kycStatusLicense: KycStatus.APPROVED }),
+    } as unknown as UsersClient;
+    paymentsClient = createFakePaymentsClient();
 
     pricingLogisticsClient = {
       evaluateCandidates: vi.fn().mockImplementation(async (input) => ({
@@ -154,12 +164,9 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
     });
 
     it("falla con 403 CARRIER_NOT_VERIFIED si el usuario no tiene KYC aprobado", async () => {
-      (usersClient.findPublicProfile as any).mockResolvedValue({
-        id: CARRIER_ID,
-        fullName: "Test Carrier",
-        profilePhotoUrl: null,
-        isVerified: false,
-        createdAt: "2026-01-01T00:00:00Z",
+      (usersClient.findKycStatus as any).mockResolvedValue({
+        kycStatusIdentity: KycStatus.PENDING,
+        kycStatusLicense: KycStatus.APPROVED,
       });
 
       const service = buildService();
@@ -264,6 +271,83 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
         vehicleType: "auto",
       });
       expect(trip.id).toBe(TRIP_ID);
+    });
+  });
+
+  describe("createTrip — requisitos habilitantes (MOVO-116, ADR-036)", () => {
+    const validInput = () => ({
+      originAddress: "Córdoba",
+      originLat: -31.42,
+      originLng: -64.18,
+      destinationAddress: "Villa María",
+      destinationLat: -32.4,
+      destinationLng: -63.24,
+      departureAt: new Date(Date.now() + 100000),
+      vehicleType: "auto",
+    });
+    const create = (service: ReturnType<typeof buildService>) =>
+      service.createTrip({ callerId: CARRIER_ID, callerRoles: [UserRole.CARRIER], input: validInput() });
+
+    it("403 CARRIER_LICENSE_NOT_APPROVED sin licencia aprobada, sin persistir", async () => {
+      (usersClient.findKycStatus as any).mockResolvedValue({
+        kycStatusIdentity: KycStatus.APPROVED,
+        kycStatusLicense: KycStatus.PENDING,
+      });
+
+      await expect(create(buildService())).rejects.toMatchObject({
+        statusCode: 403,
+        code: "CARRIER_LICENSE_NOT_APPROVED",
+        details: { missingRequirements: ["license"] },
+      });
+      expect(tripRepo.create).not.toHaveBeenCalled();
+    });
+
+    it("403 CARRIER_MP_ACCOUNT_NOT_LINKED sin cuenta de MP, sin persistir", async () => {
+      paymentsClient = createFakePaymentsClient([CARRIER_ID]);
+
+      await expect(create(buildService())).rejects.toMatchObject({
+        statusCode: 403,
+        code: "CARRIER_MP_ACCOUNT_NOT_LINKED",
+        details: { missingRequirements: ["mp_account"] },
+      });
+      expect(tripRepo.create).not.toHaveBeenCalled();
+    });
+
+    it("sin ninguno de los dos: code de la licencia y los dos en details", async () => {
+      (usersClient.findKycStatus as any).mockResolvedValue({
+        kycStatusIdentity: KycStatus.APPROVED,
+        kycStatusLicense: KycStatus.REJECTED,
+      });
+      paymentsClient = createFakePaymentsClient([CARRIER_ID]);
+
+      await expect(create(buildService())).rejects.toMatchObject({
+        statusCode: 403,
+        code: "CARRIER_LICENSE_NOT_APPROVED",
+        details: { missingRequirements: ["license", "mp_account"] },
+      });
+      expect(tripRepo.create).not.toHaveBeenCalled();
+    });
+
+    it("svc-payments caído: falla cerrado con su 502, sin persistir", async () => {
+      paymentsClient = createFakePaymentsClient([], {
+        getCarrierMpAccountStatus: vi
+          .fn()
+          .mockRejectedValue(new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "caído")),
+      });
+
+      await expect(create(buildService())).rejects.toMatchObject({
+        statusCode: 502,
+        code: "PAYMENTS_SERVICE_UNAVAILABLE",
+      });
+      expect(tripRepo.create).not.toHaveBeenCalled();
+    });
+
+    it("sin rol carrier no consulta a ningún servicio", async () => {
+      await expect(
+        buildService().createTrip({ callerId: CARRIER_ID, callerRoles: [UserRole.SENDER], input: validInput() }),
+      ).rejects.toMatchObject({ statusCode: 403, code: "CARRIER_NOT_VERIFIED" });
+      expect(usersClient.findKycStatus).not.toHaveBeenCalled();
+      expect(paymentsClient.getCarrierMpAccountStatus).not.toHaveBeenCalled();
     });
   });
 
@@ -480,6 +564,46 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
           callerRoles: [UserRole.CARRIER],
         }),
       ).rejects.toMatchObject({ statusCode: 409, code: "TRIP_ALREADY_HAS_ACTIVE_TRIP" });
+    });
+
+    describe("requisitos habilitantes (MOVO-116, ADR-036)", () => {
+      it("403 si el dueño del viaje perdió la cuenta de MP, sin tocar el repo", async () => {
+        trip = fakeTrip({ status: TripStatus.DECLARED, departureAt: new Date() });
+        paymentsClient = createFakePaymentsClient([CARRIER_ID]);
+
+        await expect(
+          buildService().startTrip({ tripId: TRIP_ID, callerId: CARRIER_ID, callerRoles: [UserRole.CARRIER] }),
+        ).rejects.toMatchObject({
+          statusCode: 403,
+          code: "CARRIER_MP_ACCOUNT_NOT_LINKED",
+          details: { missingRequirements: ["mp_account"] },
+        });
+        expect(tripRepo.start).not.toHaveBeenCalled();
+      });
+
+      it("valida al transportista dueño del viaje, no al admin que llama", async () => {
+        trip = fakeTrip({ status: TripStatus.DECLARED, departureAt: new Date() });
+        (usersClient.findKycStatus as any).mockResolvedValue({
+          kycStatusIdentity: KycStatus.APPROVED,
+          kycStatusLicense: KycStatus.EXPIRED,
+        });
+
+        await expect(
+          buildService().startTrip({ tripId: TRIP_ID, callerId: OTHER_USER_ID, callerRoles: [UserRole.ADMIN] }),
+        ).rejects.toMatchObject({ statusCode: 403, code: "CARRIER_LICENSE_NOT_APPROVED" });
+        expect(usersClient.findKycStatus).toHaveBeenCalledWith(CARRIER_ID);
+        expect(tripRepo.start).not.toHaveBeenCalled();
+      });
+
+      it("sobre un viaje que no está declared no consulta los requisitos (manda TRIP_NOT_DECLARED)", async () => {
+        trip = fakeTrip({ status: TripStatus.ACTIVE });
+        (tripRepo.start as any).mockRejectedValue(new TripNotDeclaredError(TRIP_ID, TripStatus.ACTIVE));
+
+        await expect(
+          buildService().startTrip({ tripId: TRIP_ID, callerId: CARRIER_ID, callerRoles: [UserRole.CARRIER] }),
+        ).rejects.toMatchObject({ statusCode: 409, code: "TRIP_NOT_DECLARED" });
+        expect(paymentsClient.getCarrierMpAccountStatus).not.toHaveBeenCalled();
+      });
     });
 
     describe("fecha de salida (MOVO-277)", () => {

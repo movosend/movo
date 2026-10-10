@@ -55,6 +55,12 @@ export interface CarrierMpAccountRepository {
    */
   findActiveCredentials(userId: string, now: Date): Promise<(CarrierMpCredentials & { publicKey: string }) | null>;
   /**
+   * MOVO-116: mismo criterio exacto que `findActiveCredentials` pero sin descifrar
+   * tokens: ¿podría hoy cobrarse a nombre de este transportista? Lo usa el bloqueo de
+   * `svc-shipments` para no dejar operar a quien después caería en el 409 del hold.
+   */
+  hasActiveCredentials(userId: string, now: Date): Promise<boolean>;
+  /**
    * Vincula (o re-vincula) la cuenta del usuario: pisa tokens y datos, y limpia
    * `revokedAt`/`unlinkedAt`. Tira `MpAccountAlreadyLinkedError` si esa cuenta de MP
    * está activa en otro usuario.
@@ -62,6 +68,15 @@ export interface CarrierMpAccountRepository {
   upsertLinked(userId: string, data: LinkedAccountData, now: Date): Promise<CarrierMpAccount>;
   /** Idempotente: sin fila, o ya desvinculada, no hace nada. */
   unlink(userId: string, now: Date): Promise<void>;
+}
+
+/**
+ * Vinculación vigente: ni desvinculada ni revocada ni con el token vencido a `now`.
+ * Compartido por `findActiveCredentials` (hold) y `hasActiveCredentials` (bloqueo de
+ * MOVO-116), así el criterio de "puede cobrar" no se desalinea entre los dos.
+ */
+function activeAccountWhere(now: Date) {
+  return { unlinkedAt: null, revokedAt: null, tokenExpiresAt: { gt: now } };
 }
 
 /**
@@ -101,9 +116,17 @@ export function createCarrierMpAccountRepository(db: PrismaClient, cipher: Token
       };
     },
 
+    async hasActiveCredentials(userId, now) {
+      const row = await db.carrierMpAccount.findFirst({
+        where: { userId, ...activeAccountWhere(now) },
+        select: { accessToken: true, refreshToken: true, publicKey: true },
+      });
+      return Boolean(row?.accessToken && row.refreshToken && row.publicKey);
+    },
+
     async findActiveCredentials(userId, now) {
       const row = await db.carrierMpAccount.findFirst({
-        where: { userId, unlinkedAt: null, revokedAt: null, tokenExpiresAt: { gt: now } },
+        where: { userId, ...activeAccountWhere(now) },
       });
       if (!row?.accessToken || !row.refreshToken || !row.publicKey) return null;
       return {

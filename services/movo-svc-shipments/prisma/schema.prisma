@@ -88,6 +88,7 @@ enum OfferStatus {
   expired
   superseded
   shipment_cancelled
+  assignment_lapsed
 
   @@map("offer_status_enum")
   @@schema("shipments")

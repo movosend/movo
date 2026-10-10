@@ -28,8 +28,10 @@ stateDiagram-v2
     pending --> superseded: emisor aceptó otra oferta del mismo envío (batch, AC8)
     pending --> shipment_cancelled: el envío se canceló con la oferta vigente (MOVO-258)
     accepted --> shipment_cancelled: el envío se canceló después de aceptarla (MOVO-258)
+    accepted --> assignment_lapsed: la asignación no prosperó (pago no completado o hold perdido, MOVO-210)
 
     shipment_cancelled --> [*]
+    assignment_lapsed --> [*]
     rejected --> [*]
     withdrawn --> [*]
     superseded --> [*]
@@ -49,6 +51,18 @@ Séptimo estado: se escribe en lote, en la misma transacción que pasa el envío
 (`shipment-repository.ts#updateStatus`), para las ofertas `accepted` y las `pending` todavía
 vigentes. Una `pending` vencida por fecha sigue siendo `expired`, y las ya `rejected`/`withdrawn`/
 `superseded` no se reetiquetan. Terminal.
+
+## `assignment_lapsed` (MOVO-210)
+
+Octavo estado: la oferta **sí fue aceptada** pero la asignación no prosperó (el emisor no
+pagó dentro del plazo, MP perdió la reserva o no se reconfirmó a T-24h) y el envío volvió a
+`published`. No es `rejected` (el emisor no la rechazó), que ensuciaría "Mis ofertas" y
+cualquier métrica de aceptación. Terminal.
+
+Cambio asociado (MOVO-210, AC4): `superseded` ya no se aplica al aceptar. Las demás ofertas
+`pending` del envío siguen vivas mientras la asignación espera el pago y recién se cierran
+(`superseded`, con aviso) cuando el hold se confirma (`shipment-repository.ts#updateStatus`,
+`→ assigned`), en la misma transacción.
 
 ## Transiciones inválidas (rechazadas explícitamente, ejemplos)
 

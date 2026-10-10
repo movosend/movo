@@ -448,7 +448,7 @@ describe("offer-repository (Postgres)", () => {
   });
 
   describe("acceptOffer (AC8/AC9)", () => {
-    it("acepta la oferta, marca las demás pending como superseded y el envío como assignment_pending — todo en una transacción", async () => {
+    it("acepta la oferta y el envío pasa a assignment_pending; las demás siguen pending hasta que se confirme el hold (MOVO-210, AC4)", async () => {
       const shipmentId = await createPublishedShipment();
       const offerA = await repo.create(baseOfferInput({ shipmentId }));
       const offerB = await repo.create(baseOfferInput({ shipmentId }));
@@ -461,18 +461,10 @@ describe("offer-repository (Postgres)", () => {
       expect(result.offer.respondedAt).not.toBeNull();
       expect(result.shipmentId).toBe(shipmentId);
 
+      // Siguen pending: si la asignación se cae, el emisor no se queda sin ofertas.
       const [reloadedB, reloadedC] = await Promise.all([repo.findById(offerB.id), repo.findById(offerC.id)]);
-      expect(reloadedB?.status).toBe(OfferStatus.SUPERSEDED);
-      expect(reloadedC?.status).toBe(OfferStatus.SUPERSEDED);
-
-      // Hallazgo de review (PR #105): `acceptOffer()` devuelve las ofertas
-      // superadas directo de la misma transacción, sin que el caller necesite
-      // un `listByShipment` aparte.
-      expect(result.superseded).toHaveLength(2);
-      expect(result.superseded.map((s) => s.id).sort()).toEqual([offerB.id, offerC.id].sort());
-      expect(result.superseded.map((s) => s.carrierId).sort()).toEqual(
-        [offerB.carrierId, offerC.carrierId].sort()
-      );
+      expect(reloadedB?.status).toBe(OfferStatus.PENDING);
+      expect(reloadedC?.status).toBe(OfferStatus.PENDING);
 
       const shipment = await shipmentRepo.findById(shipmentId);
       expect(shipment?.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
@@ -482,6 +474,12 @@ describe("offer-repository (Postgres)", () => {
       const events = await shipmentRepo.listEvents(shipmentId);
       const acceptEvent = events.find((e) => e.toStatus === ShipmentStatus.ASSIGNMENT_PENDING);
       expect(acceptEvent?.actorId).toBe(actorId);
+
+      // Recién al confirmarse el hold (`-> assigned`) se cierran, en la misma transacción.
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.ASSIGNED, actorId);
+      const [closedB, closedC] = await Promise.all([repo.findById(offerB.id), repo.findById(offerC.id)]);
+      expect(closedB?.status).toBe(OfferStatus.SUPERSEDED);
+      expect(closedC?.status).toBe(OfferStatus.SUPERSEDED);
     });
 
     it("MOVO-258 (D3): copia al envío la fecha y franja de retiro efectivas de la oferta aceptada", async () => {
@@ -590,12 +588,12 @@ describe("offer-repository (Postgres)", () => {
       const finalShipment = await shipmentRepo.findById(shipmentId);
       expect(finalShipment?.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
 
-      // La oferta ganadora quedó accepted; la perdedora quedó superseded (por el batch
-      // de la transacción ganadora, AC8) — su propio intento de acceptOffer nunca llegó
-      // a escribir la fila de offers, tiró antes en el UPDATE condicional del envío.
+      // La oferta ganadora quedó accepted; la perdedora sigue pending (MOVO-210: se cierra
+      // al confirmarse el hold) — su propio intento de acceptOffer nunca llegó a escribir
+      // la fila de offers, tiró antes en el UPDATE condicional del envío.
       const [reloadedA, reloadedB] = await Promise.all([repo.findById(offerA.id), repo.findById(offerB.id)]);
       const statuses = [reloadedA?.status, reloadedB?.status].sort();
-      expect(statuses).toEqual([OfferStatus.ACCEPTED, OfferStatus.SUPERSEDED].sort());
+      expect(statuses).toEqual([OfferStatus.ACCEPTED, OfferStatus.PENDING].sort());
     });
 
     it("compare-and-swap en el UPDATE de la propia oferta: un reject concurrente sobre la misma oferta que se está aceptando no queda pisado, y si gana el reject, el envío no se toca (rollback completo)", async () => {
@@ -702,6 +700,8 @@ describe("offer-repository (Postgres)", () => {
       const superseded = await repo.create(baseOfferInput({ shipmentId: shipmentSuperseded, carrierId }));
       const winningOffer = await repo.create(baseOfferInput({ shipmentId: shipmentSuperseded }));
       await repo.acceptOffer(winningOffer.id, null);
+      // MOVO-210: las demás ofertas se cierran al confirmarse el hold, no al aceptar.
+      await shipmentRepo.updateStatus(shipmentSuperseded, ShipmentStatus.ASSIGNED, null);
 
       const shipmentPending = await createPublishedShipment();
       const pending = await repo.create(baseOfferInput({ shipmentId: shipmentPending, carrierId }));
