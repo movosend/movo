@@ -113,6 +113,16 @@ export type {
   HoldStatus,
 } from "./types/hold";
 
+// funding (MOVO-210)
+export type {
+  FundingRoute,
+  HoldProviderEventKind,
+  HoldProviderEventRequest,
+  ShipmentFundingRequest,
+  ShipmentFundingResponse,
+  ShipmentFundingResult,
+} from "./types/funding";
+
 // commission
 export {
   getCommissionConfig,

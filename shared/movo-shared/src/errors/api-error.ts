@@ -181,7 +181,10 @@ export type ApiErrorCode =
   | "PAYMENTS_SERVICE_UNAVAILABLE"
   // MOVO-116: el emisor quiso aceptar la oferta de un transportista que ya no cumple los
   // requisitos para operar (licencia o MP). Sin `details`: el emisor no puede resolverlo.
-  | "OFFER_CARRIER_NOT_ELIGIBLE";
+  | "OFFER_CARRIER_NOT_ELIGIBLE"
+  // MOVO-210: el envío no está en un estado/ventana en que el emisor pueda pagar la
+  // reserva (no es `assignment_pending`, o es `assigned_unfunded` con la ventana cerrada).
+  | "SHIPMENT_FUNDING_NOT_AVAILABLE";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

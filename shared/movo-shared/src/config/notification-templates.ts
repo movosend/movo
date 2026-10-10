@@ -52,7 +52,20 @@ export type NotificationTriggerKey =
   | "accountPhoneChanged"
   | "ratingPendingSender"
   | "ratingPendingReceiver"
-  | "ratingPendingCarrier";
+  | "ratingPendingCarrier"
+  | "fundingWindowOpenedSender"
+  | "fundingReminderSender"
+  | "fundingPendingCarrier"
+  | "fundingConfirmedSender"
+  | "fundingConfirmedCarrier"
+  | "fundingTimedOutSender"
+  | "fundingTimedOutCarrier"
+  | "fundingWindowExpiredSender"
+  | "fundingWindowExpiredCarrier"
+  | "fundingHoldLostSender"
+  | "fundingHoldLostCarrier"
+  | "fundingReconfirmSender"
+  | "fundingReconfirmCarrier";
 
 export interface NotificationCopy {
   title: string;
@@ -438,6 +451,104 @@ export const NOTIFICATION_TRIGGERS = {
     "ratings",
     { title: "Calificá tu entrega", body: "Completaste la entrega. Calificá al emisor y al receptor." },
     () => ({ title: "Calificá tu entrega", body: "Completaste la entrega. Calificá al emisor y al receptor." })
+  ),
+  // MOVO-210: saga de asignación. Los del emisor van en "payments" (es SU plata y SU
+  // acción pendiente); los del transportista en "offers" (es el destino de SU oferta
+  // aceptada). Copy sin montos ni datos de tarjeta: el push se ve en la pantalla bloqueada.
+  fundingWindowOpenedSender: definition<void>(
+    "payments",
+    { title: "Confirmá el pago de tu envío", body: "Se acerca el retiro. Confirmá el pago para asegurar a tu transportista." },
+    () => ({
+      title: "Confirmá el pago de tu envío",
+      body: "Se acerca el retiro. Confirmá el pago para asegurar a tu transportista.",
+    })
+  ),
+  fundingReminderSender: definition<{ hoursLeft: number }>(
+    "payments",
+    { title: "Todavía falta confirmar el pago", body: "Si no confirmás a tiempo, tu envío vuelve a publicarse." },
+    ({ hoursLeft }) => ({
+      title: "Todavía falta confirmar el pago",
+      body: `Te quedan unas ${Math.max(1, Math.round(hoursLeft))} h para confirmar el pago. Si no, tu envío vuelve a publicarse.`,
+    })
+  ),
+  fundingPendingCarrier: definition<void>(
+    "offers",
+    { title: "Pago del emisor pendiente", body: "El emisor todavía tiene que confirmar el pago de este envío." },
+    () => ({ title: "Pago del emisor pendiente", body: "El emisor todavía tiene que confirmar el pago de este envío." })
+  ),
+  fundingConfirmedSender: definition<void>(
+    "payments",
+    { title: "Pago confirmado", body: "Reservamos los fondos. Tu transportista ya está asegurado." },
+    () => ({ title: "Pago confirmado", body: "Reservamos los fondos. Tu transportista ya está asegurado." })
+  ),
+  fundingConfirmedCarrier: definition<void>(
+    "offers",
+    { title: "Envío confirmado", body: "El emisor confirmó el pago. El envío está asegurado para tu viaje." },
+    () => ({ title: "Envío confirmado", body: "El emisor confirmó el pago. El envío está asegurado para tu viaje." })
+  ),
+  fundingTimedOutSender: definition<void>(
+    "payments",
+    { title: "No se completó el pago", body: "Tu envío volvió a publicarse porque el pago no se completó a tiempo." },
+    () => ({
+      title: "No se completó el pago",
+      body: "Tu envío volvió a publicarse porque el pago no se completó a tiempo.",
+    })
+  ),
+  fundingTimedOutCarrier: definition<void>(
+    "offers",
+    { title: "El envío no se confirmó", body: "El emisor no completó el pago a tiempo. El envío volvió a publicarse." },
+    () => ({
+      title: "El envío no se confirmó",
+      body: "El emisor no completó el pago a tiempo. El envío volvió a publicarse.",
+    })
+  ),
+  fundingWindowExpiredSender: definition<void>(
+    "payments",
+    { title: "Tu envío volvió a publicarse", body: "No confirmaste el pago antes del plazo, así que liberamos al transportista." },
+    () => ({
+      title: "Tu envío volvió a publicarse",
+      body: "No confirmaste el pago antes del plazo, así que liberamos al transportista.",
+    })
+  ),
+  fundingWindowExpiredCarrier: definition<void>(
+    "offers",
+    { title: "Envío liberado", body: "El emisor no confirmó el pago a tiempo. Liberamos este envío de tu viaje." },
+    () => ({
+      title: "Envío liberado",
+      body: "El emisor no confirmó el pago a tiempo. Liberamos este envío de tu viaje.",
+    })
+  ),
+  fundingHoldLostSender: definition<void>(
+    "payments",
+    { title: "Se perdió la reserva del pago", body: "Mercado Pago anuló la reserva de fondos. Tu envío volvió a publicarse." },
+    () => ({
+      title: "Se perdió la reserva del pago",
+      body: "Mercado Pago anuló la reserva de fondos. Tu envío volvió a publicarse.",
+    })
+  ),
+  fundingHoldLostCarrier: definition<void>(
+    "offers",
+    { title: "El envío volvió a publicarse", body: "La reserva del pago se anuló. Liberamos este envío de tu viaje." },
+    () => ({
+      title: "El envío volvió a publicarse",
+      body: "La reserva del pago se anuló. Liberamos este envío de tu viaje.",
+    })
+  ),
+  // La reserva se perdió con el envío ya `assigned`: el envío NO se libera, vuelve a
+  // `assigned_unfunded` y el emisor tiene que reconfirmar el pago (distinto de
+  // `fundingHoldLost*`, que avisan que el envío volvió a publicarse).
+  fundingReconfirmSender: definition<void>(
+    "payments",
+    { title: "La reserva de tu pago expiró", body: "Confirmá el pago de nuevo para asegurar tu envío." },
+    () => ({ title: "La reserva de tu pago expiró", body: "Confirmá el pago de nuevo para asegurar tu envío." })
+  ),
+  fundingReconfirmCarrier: definition<void>(
+    "offers",
+    { title: "Pago del emisor por reconfirmar", body: "La reserva del pago expiró. El envío sigue asignado a vos mientras el emisor la reconfirma." },
+    () => ({
+      title: "Pago del emisor por reconfirmar",
+      body: "La reserva del pago expiró. El envío sigue asignado a vos mientras el emisor la reconfirma.",
+    })
   ),
 };
 

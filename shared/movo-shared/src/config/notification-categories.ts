@@ -77,7 +77,7 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategoryDefinition[] 
     section: "sending",
     title: "Pagos y cobros",
     sub: "Retención de fondos y fallos de cobro",
-    implemented: false,
+    implemented: true,
     quietHoursExempt: false,
   },
   {
