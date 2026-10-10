@@ -53,3 +53,60 @@ model CarrierMpAccount {
   @@map("carrier_mp_accounts")
   @@schema("payments")
 }
+
+enum HoldStatus {
+  creating
+  in_process
+  authorized
+  captured
+  cancelled
+  rejected
+
+  @@map("hold_status")
+  @@schema("payments")
+}
+
+enum HoldFailureReason {
+  insufficient_funds
+  card_rejected
+  invalid_data
+  platform_error
+
+  @@map("hold_failure_reason")
+  @@schema("payments")
+}
+
+// MOVO-209: reserva de fondos (Auth & Capture, `capture: false`) de un envío. Una fila
+// por INTENTO de reserva (`shipmentId` + `attempt`): un rechazo cierra el intento y el
+// siguiente crea otra fila con otra idempotency key; un reintento del mismo intento
+// (timeout, respuesta perdida) reusa la fila y la key, así MP no crea un segundo hold.
+//
+// - La garantía de "un solo hold vivo por envío" la da un índice único PARCIAL sobre
+//   `shipment_id` (`WHERE status IN ('creating','in_process','authorized','captured')`),
+//   a mano en la migración porque Prisma no representa índices parciales.
+// - `carrierId` es el usuario de Movo; `collectorId` el user id de MP del transportista
+//   al momento del cobro (los tokens de MOVO-111 viven en `carrier_mp_accounts`).
+// - Montos `numeric(12,2)`, nunca float. `shipmentId`/`carrierId` son referencias
+//   lógicas, sin FK (ADR-003).
+model Hold {
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId        String             @map("shipment_id") @db.Uuid
+  attempt           Int
+  carrierId         String             @map("carrier_id") @db.Uuid
+  collectorId       String             @map("collector_id")
+  mpPaymentId       String?            @map("mp_payment_id")
+  amountArs         Decimal            @map("amount_ars") @db.Decimal(12, 2)
+  applicationFeeArs Decimal            @map("application_fee_ars") @db.Decimal(12, 2)
+  status            HoldStatus
+  // `status_detail` crudo de MP (`pending_capture`, `cc_rejected_*`, ...).
+  statusDetail      String?            @map("status_detail")
+  failureReason     HoldFailureReason? @map("failure_reason")
+  expiresAt         DateTime?          @map("expires_at") @db.Timestamptz
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([shipmentId, attempt], map: "holds_shipment_id_attempt_key")
+  @@index([mpPaymentId], map: "holds_mp_payment_id_idx")
+  @@map("holds")
+  @@schema("payments")
+}
