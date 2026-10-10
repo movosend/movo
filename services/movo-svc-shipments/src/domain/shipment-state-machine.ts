@@ -93,6 +93,7 @@ const VALID_TRANSITIONS: Readonly<Record<ShipmentStatus, ReadonlySet<ShipmentSta
   ]),
   [ShipmentStatus.ASSIGNED]: new Set([
     ShipmentStatus.IN_TRANSIT, // retiro confirmado (handshake, MOVO-6)
+    ShipmentStatus.ASSIGNED_UNFUNDED, // MP canceló/venció el hold ya confirmado: el emisor reconfirma el pago (MOVO-210)
     ShipmentStatus.CANCELLED, // emisor cancela, con penalización
   ]),
   [ShipmentStatus.IN_TRANSIT]: new Set([

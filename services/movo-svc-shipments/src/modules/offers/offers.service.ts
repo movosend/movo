@@ -313,7 +313,10 @@ export function createOffersService(
   logger?: OffersServiceLogger,
   /** MOVO-188: opcional -- sin inyectar (tests que no lo necesitan), el desempate
    * salta directo al criterio de envíos entregados/antigüedad, nunca rompe. */
-  getCarrierReputationScores?: GetCarrierReputationScores
+  getCarrierReputationScores?: GetCarrierReputationScores,
+  /** MOVO-210: "N" de la saga (`FUNDING_NEAR_PICKUP_DAYS`). Sin valor, toda aceptación
+   * toma la ruta cercana (`assignment_pending`). */
+  fundingNearPickupDays?: number
 ) {
   return {
     /**
@@ -444,7 +447,9 @@ export function createOffersService(
         shipmentId,
         superseded,
         autoCreatedTrip,
-      } = await offerRepository.acceptOffer(offerId, callerId, autoTripDefaults);
+      } = await offerRepository.acceptOffer(offerId, callerId, autoTripDefaults, {
+        nearPickupDays: fundingNearPickupDays,
+      });
 
       // AC9: best-effort, fire-and-forget -- la transacción de acceptOffer() ya
       // commiteó, un fallo de entrega no revierte la asignación.

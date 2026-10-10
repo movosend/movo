@@ -27,6 +27,8 @@ const VALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
   [ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.PUBLISHED],
   [ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.CANCELLED],
   [ShipmentStatus.ASSIGNED, ShipmentStatus.IN_TRANSIT],
+  // MOVO-210: MP pierde el hold de un envío ya asignado -> el emisor reconfirma el pago
+  [ShipmentStatus.ASSIGNED, ShipmentStatus.ASSIGNED_UNFUNDED],
   [ShipmentStatus.ASSIGNED, ShipmentStatus.CANCELLED],
   [ShipmentStatus.IN_TRANSIT, ShipmentStatus.DELIVERED],
   [ShipmentStatus.IN_TRANSIT, ShipmentStatus.DISPUTED],
@@ -53,8 +55,9 @@ const INVALID_TRANSITIONS: Array<[ShipmentStatus, ShipmentStatus]> = [
   // AC2 de MOVO-208: un envío sin hold confirmado no puede retirarse -- tiene
   // que pasar por `assigned` primero, nunca directo a `in_transit`.
   [ShipmentStatus.ASSIGNED_UNFUNDED, ShipmentStatus.IN_TRANSIT],
-  // reversa de assigned -> assigned_unfunded (no existe, assigned nunca vuelve atrás)
-  [ShipmentStatus.ASSIGNED, ShipmentStatus.ASSIGNED_UNFUNDED],
+  // `assigned` solo vuelve a `assigned_unfunded` (MOVO-210); nunca directo a `published`
+  [ShipmentStatus.ASSIGNED, ShipmentStatus.PUBLISHED],
+  [ShipmentStatus.ASSIGNED, ShipmentStatus.ASSIGNMENT_PENDING],
   // `completed` es terminal (MOVO-208): ni reversa ni ninguna salida
   [ShipmentStatus.COMPLETED, ShipmentStatus.DELIVERED],
   [ShipmentStatus.COMPLETED, ShipmentStatus.DISPUTED],
