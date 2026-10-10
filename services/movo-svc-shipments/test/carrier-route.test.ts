@@ -8,6 +8,7 @@ import {
   mapOptimizedRoute,
 } from "../src/domain/carrier-route";
 import { Shipment } from "../src/models/shipment";
+import { TRIP_EXECUTABLE_SHIPMENT_STATUSES } from "../src/domain/shipment-state-machine";
 
 function createMockShipment(overrides: Partial<Shipment> = {}): Shipment {
   return {
@@ -99,6 +100,20 @@ describe("Domain: Carrier Route (MOVO-206)", () => {
       const s = createMockShipment({ id: "ship-unfunded", status: ShipmentStatus.ASSIGNED_UNFUNDED });
       const stops = aggregateCarrierStops([s]);
       expect(stops).toHaveLength(0);
+    });
+
+    it("un envío en 'assignment_pending' NO aporta paradas (MOVO-277)", () => {
+      const s = createMockShipment({ id: "ship-pending", status: ShipmentStatus.ASSIGNMENT_PENDING });
+      expect(aggregateCarrierStops([s])).toHaveLength(0);
+    });
+
+    it("invariante MOVO-277: todo paquete ejecutable aporta al menos una parada", () => {
+      for (const status of TRIP_EXECUTABLE_SHIPMENT_STATUSES) {
+        const s = createMockShipment({ id: `ship-${status}`, status });
+        const stops = aggregateCarrierStops([s]);
+        expect(stops.length, status).toBeGreaterThan(0);
+        expect(stops.every((stop) => stop.shipmentId === s.id)).toBe(true);
+      }
     });
 
     it("un envío en 'delivered' o 'completed' NO aporta paradas", () => {

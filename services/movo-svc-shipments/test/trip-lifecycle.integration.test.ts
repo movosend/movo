@@ -10,6 +10,7 @@ import {
   TripNotDeclaredError,
   TripAlreadyHasActiveTripError,
   TripHasNoPackagesError,
+  TripPackagesNotReadyError,
 } from "../src/repositories/trip-repository";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { createOfferRepository, OfferRepository } from "../src/repositories/offer-repository";
@@ -118,6 +119,33 @@ describe("trip-repository (Postgres) — ciclo de vida declared/active", () => {
 
     await expect(tripRepo.start(trip.id)).rejects.toThrow(TripHasNoPackagesError);
     expect((await tripRepo.findById(trip.id))?.status).toBe(TripStatus.DECLARED);
+  });
+
+  it.each([ShipmentStatus.ASSIGNMENT_PENDING, ShipmentStatus.ASSIGNED_UNFUNDED])(
+    "start() lanza TripPackagesNotReadyError si el único paquete está %s (MOVO-277)",
+    async (status) => {
+      const trip = await tripRepo.create(baseTripInput());
+      await attachAcceptedPackage(app.db, trip, status);
+
+      await expect(tripRepo.start(trip.id)).rejects.toThrow(TripPackagesNotReadyError);
+      expect((await tripRepo.findById(trip.id))?.status).toBe(TripStatus.DECLARED);
+    },
+  );
+
+  it("start() inicia un viaje mixto (assigned + assignment_pending) y el conteo ejecutable solo cuenta el assigned (MOVO-277)", async () => {
+    const trip = await tripRepo.create(baseTripInput());
+    await attachAcceptedPackage(app.db, trip, ShipmentStatus.ASSIGNED);
+    await attachAcceptedPackage(app.db, trip, ShipmentStatus.ASSIGNMENT_PENDING);
+
+    const before = await tripRepo.findByIdWithPackages(trip.id);
+    expect(before?.acceptedPackagesCount).toBe(2);
+    expect(before?.executablePackagesCount).toBe(1);
+    const listed = await tripRepo.listByCarrier(trip.carrierId, 1, 10);
+    expect(listed.items[0]?.acceptedPackagesCount).toBe(2);
+    expect(listed.items[0]?.executablePackagesCount).toBe(1);
+
+    const started = await tripRepo.start(trip.id);
+    expect(started.status).toBe(TripStatus.ACTIVE);
   });
 
   it("start() desasocia las ofertas pending del viaje: los paquetes quedan fijos al iniciar (MOVO-258)", async () => {

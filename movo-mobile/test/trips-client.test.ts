@@ -36,6 +36,7 @@ describe("tripsClient", () => {
     ...mockTrip,
     hasAcceptedPackages: false,
     acceptedPackagesCount: 0,
+    executablePackagesCount: 0,
   };
 
   it("list calls GET /trips with params", async () => {
@@ -88,6 +89,15 @@ describe("tripsClient", () => {
 
     expect(httpClient.patch).toHaveBeenCalledWith("/trips/trip-1", { vehicleType: "Camioneta" });
     expect(result.vehicleType).toBe("Camioneta");
+  });
+
+  it("cancel calls POST /trips/:id/cancel (MOVO-263)", async () => {
+    (httpClient.post as jest.Mock).mockResolvedValueOnce({ ...mockTrip, status: TripStatus.CANCELLED });
+
+    const result = await tripsClient.cancel("trip-1");
+
+    expect(httpClient.post).toHaveBeenCalledWith("/trips/trip-1/cancel");
+    expect(result.status).toBe(TripStatus.CANCELLED);
   });
 
   it("remove calls DELETE /trips/:id", async () => {

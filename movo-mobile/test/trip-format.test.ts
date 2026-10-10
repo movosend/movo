@@ -2,9 +2,12 @@ import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { TripStatus, type TripWithAcceptedPackages } from "../src/api/trips-client";
 import {
   formatDepartureDateOnly,
+  formatTripStartDate,
   formatTripStartErrorMessage,
   formatPackagesCount,
   isTripDepartureToday,
+  tripStartBlocker,
+  tripStartBlockerMessage,
   tripPlaceLabel,
   splitCarrierHomeTrips,
   tripRouteLabel,
@@ -38,6 +41,45 @@ describe("trip-format (MOVO-252)", () => {
     expect(isTripDepartureToday(pastIso)).toBe(false);
   });
 
+  it("isTripDepartureToday usa el día calendario argentino, no el UTC (MOVO-277)", () => {
+    // Salida 2026-10-08 23:30 AR = 2026-10-09T02:30Z; ahora 2026-10-08 20:00 AR.
+    expect(isTripDepartureToday("2026-10-09T02:30:00.000Z", new Date("2026-10-08T23:00:00.000Z"))).toBe(true);
+  });
+
+  describe("tripStartBlocker (MOVO-277)", () => {
+    const NOW = new Date("2026-10-08T15:00:00.000Z"); // 12:00 AR
+
+    it("antes del día de salida bloquea por fecha, aunque haya paquetes ejecutables", () => {
+      expect(tripStartBlocker({ departureAt: "2026-10-10T13:00:00.000Z", executablePackagesCount: 2 }, NOW)).toBe(
+        "too_early",
+      );
+    });
+
+    it("el día de salida, a cualquier hora, sin paquetes ejecutables bloquea por el pago", () => {
+      expect(tripStartBlocker({ departureAt: "2026-10-08T23:00:00.000Z", executablePackagesCount: 0 }, NOW)).toBe(
+        "packages_not_ready",
+      );
+    });
+
+    it("el día de salida o después, con paquetes ejecutables, no bloquea", () => {
+      expect(tripStartBlocker({ departureAt: "2026-10-08T23:00:00.000Z", executablePackagesCount: 1 }, NOW)).toBeNull();
+      expect(tripStartBlocker({ departureAt: "2026-10-01T13:00:00.000Z", executablePackagesCount: 1 }, NOW)).toBeNull();
+    });
+
+    it("el mensaje de fecha nombra el día de salida en calendario argentino", () => {
+      // 2026-10-10T02:00Z es el viernes 9 de octubre a las 23:00 en Argentina.
+      // Se fija el texto completo para detectar diferencias de ICU entre plataformas (Hermes vs
+      // Node); solo se tolera la coma tras el día de la semana, que varía según la versión.
+      expect(formatTripStartDate("2026-10-10T02:00:00.000Z").replace(",", "")).toBe("viernes 9 de octubre");
+      expect(
+        tripStartBlockerMessage({ departureAt: "2026-10-10T02:00:00.000Z" }, "too_early").replace(",", ""),
+      ).toBe("Podés iniciarlo el viernes 9 de octubre.");
+      expect(tripStartBlockerMessage({ departureAt: "2026-10-10T02:00:00.000Z" }, "packages_not_ready")).toBe(
+        "Tus paquetes todavía esperan la confirmación del pago.",
+      );
+    });
+  });
+
   it("MOVO-262: talón, fecha y subtextos del historial siguen el mockup", () => {
     const stub = tripStubParts("2026-10-02T11:00:00.000Z");
     expect(stub.day).toBe("2");
@@ -65,6 +107,23 @@ describe("trip-format (MOVO-252)", () => {
       const err = new ApiError(409, "TRIP_NOT_DECLARED", "No declarado");
       const msg = formatTripStartErrorMessage(err);
       expect(msg).toBe("El viaje ya fue iniciado o finalizado.");
+    });
+
+    it("MOVO-277: TRIP_START_TOO_EARLY dice desde qué día se puede iniciar", () => {
+      const err = new ApiError(409, "TRIP_START_TOO_EARLY", "Muy temprano");
+      expect(formatTripStartErrorMessage(err, "2026-10-10T02:00:00.000Z")).toMatch(
+        /^Podés iniciar este viaje el viernes,? 9 de octubre\.$/,
+      );
+      expect(formatTripStartErrorMessage(err)).toBe(
+        "Todavía no podés iniciar este viaje: se habilita el día de salida.",
+      );
+    });
+
+    it("MOVO-277: TRIP_PACKAGES_NOT_READY explica que los paquetes esperan el pago", () => {
+      const err = new ApiError(409, "TRIP_PACKAGES_NOT_READY", "No listos");
+      expect(formatTripStartErrorMessage(err)).toBe(
+        "Tus paquetes todavía esperan la confirmación del pago. Vas a poder iniciar el viaje cuando estén listos para retirar.",
+      );
     });
 
     it("AC4: error genérico de red o backend devuelve mensaje amigable", () => {

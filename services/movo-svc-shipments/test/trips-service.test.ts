@@ -7,6 +7,8 @@ import {
   TripNotDeclaredError,
   TripAlreadyHasActiveTripError,
   TripHasAcceptedPackagesError,
+  TripHasNoPackagesError,
+  TripPackagesNotReadyError,
 } from "../src/repositories/trip-repository";
 import { ShipmentRepository } from "../src/repositories/shipment-repository";
 import { OfferRepository } from "../src/repositories/offer-repository";
@@ -66,7 +68,7 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
     tripRepo = {
       create: vi.fn().mockImplementation(async (input) => fakeTrip(input)),
       findById: vi.fn().mockImplementation(async (id) => (id === TRIP_ID ? trip : null)),
-      findByIdWithPackages: vi.fn().mockImplementation(async (id) => (id === TRIP_ID ? { ...trip, hasAcceptedPackages: false, acceptedPackagesCount: 0, packages: [] } : null)),
+      findByIdWithPackages: vi.fn().mockImplementation(async (id) => (id === TRIP_ID ? { ...trip, hasAcceptedPackages: false, acceptedPackagesCount: 0, executablePackagesCount: 0, packages: [] } : null)),
       countAcceptedOffers: vi.fn().mockResolvedValue(0),
       listByCarrier: vi.fn().mockResolvedValue({ items: [fakeTrip()], total: 1 }),
       update: vi.fn().mockImplementation(async (id, input) => fakeTrip({ id, ...input })),
@@ -480,6 +482,64 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
       ).rejects.toMatchObject({ statusCode: 409, code: "TRIP_ALREADY_HAS_ACTIVE_TRIP" });
     });
 
+    describe("fecha de salida (MOVO-277)", () => {
+      const DAY_MS = 24 * 60 * 60 * 1000;
+
+      it("falla con 409 TRIP_START_TOO_EARLY si la salida es un día futuro y no toca el repo", async () => {
+        trip = fakeTrip({ status: TripStatus.DECLARED, departureAt: new Date(Date.now() + 2 * DAY_MS) });
+        const service = buildService();
+
+        await expect(
+          service.startTrip({ tripId: TRIP_ID, callerId: CARRIER_ID, callerRoles: [UserRole.CARRIER] }),
+        ).rejects.toMatchObject({ statusCode: 409, code: "TRIP_START_TOO_EARLY" });
+        expect(tripRepo.start).not.toHaveBeenCalled();
+      });
+
+      it("permite iniciar el día de salida", async () => {
+        trip = fakeTrip({ status: TripStatus.DECLARED, departureAt: new Date() });
+        const service = buildService();
+
+        const result = await service.startTrip({ tripId: TRIP_ID, callerId: CARRIER_ID, callerRoles: [UserRole.CARRIER] });
+        expect(result.status).toBe(TripStatus.ACTIVE);
+      });
+
+      it("permite iniciar con la salida ya pasada mientras siga declared", async () => {
+        trip = fakeTrip({ status: TripStatus.DECLARED, departureAt: new Date(Date.now() - 2 * DAY_MS) });
+        const service = buildService();
+
+        const result = await service.startTrip({ tripId: TRIP_ID, callerId: CARRIER_ID, callerRoles: [UserRole.CARRIER] });
+        expect(result.status).toBe(TripStatus.ACTIVE);
+      });
+
+      it("sobre un viaje que no está declared deja que el repo responda TRIP_NOT_DECLARED aunque la salida sea futura", async () => {
+        trip = fakeTrip({ status: TripStatus.ACTIVE, departureAt: new Date(Date.now() + 2 * DAY_MS) });
+        (tripRepo.start as any).mockRejectedValue(new TripNotDeclaredError(TRIP_ID, TripStatus.ACTIVE));
+        const service = buildService();
+
+        await expect(
+          service.startTrip({ tripId: TRIP_ID, callerId: CARRIER_ID, callerRoles: [UserRole.CARRIER] }),
+        ).rejects.toMatchObject({ statusCode: 409, code: "TRIP_NOT_DECLARED" });
+      });
+    });
+
+    it("falla con 409 TRIP_NO_PACKAGES si el viaje no tiene paquetes aceptados", async () => {
+      (tripRepo.start as any).mockRejectedValue(new TripHasNoPackagesError(TRIP_ID, false));
+      const service = buildService();
+
+      await expect(
+        service.startTrip({ tripId: TRIP_ID, callerId: CARRIER_ID, callerRoles: [UserRole.CARRIER] }),
+      ).rejects.toMatchObject({ statusCode: 409, code: "TRIP_NO_PACKAGES" });
+    });
+
+    it("falla con 409 TRIP_PACKAGES_NOT_READY si ningún paquete es ejecutable todavía (MOVO-277)", async () => {
+      (tripRepo.start as any).mockRejectedValue(new TripPackagesNotReadyError(TRIP_ID));
+      const service = buildService();
+
+      await expect(
+        service.startTrip({ tripId: TRIP_ID, callerId: CARRIER_ID, callerRoles: [UserRole.CARRIER] }),
+      ).rejects.toMatchObject({ statusCode: 409, code: "TRIP_PACKAGES_NOT_READY" });
+    });
+
     it("propaga TripNotFoundError del repo como 404 (carrera: el viaje se borró entre el findById y el start)", async () => {
       (tripRepo.start as any).mockRejectedValue(new TripNotFoundError(TRIP_ID));
       const service = buildService();
@@ -566,6 +626,18 @@ describe("TripsService (MOVO-161 / MOVO-219)", () => {
       it("un envío de este viaje ya IN_TRANSIT no recibe este push (ya avisó el handshake de retiro)", async () => {
         (shipmentRepo.listActiveShipments as any).mockResolvedValue([
           fakeAssignedShipment({ id: "shipment-2", status: ShipmentStatus.IN_TRANSIT }),
+        ]);
+        const notificationsClient = { sendPush: vi.fn().mockResolvedValue(undefined) };
+        const service = buildService({ notificationsClient });
+
+        await service.startTrip({ tripId: TRIP_ID, callerId: CARRIER_ID, callerRoles: [UserRole.CARRIER] });
+
+        expect(notificationsClient.sendPush).not.toHaveBeenCalled();
+      });
+
+      it("un envío de este viaje ASSIGNED_UNFUNDED no recibe este push: no es un paquete ejecutable (MOVO-277)", async () => {
+        (shipmentRepo.listActiveShipments as any).mockResolvedValue([
+          fakeAssignedShipment({ id: "shipment-3", status: ShipmentStatus.ASSIGNED_UNFUNDED }),
         ]);
         const notificationsClient = { sendPush: vi.fn().mockResolvedValue(undefined) };
         const service = buildService({ notificationsClient });

@@ -73,7 +73,7 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
     "Necesitás tener tu identidad verificada como transportista para declarar viajes.",
   TRIP_NOT_FOUND: "No encontramos ese viaje.",
   TRIP_HAS_ACCEPTED_PACKAGES:
-    "Este viaje ya tiene paquetes aceptados y no se puede modificar ni cancelar directamente.",
+    "Este viaje ya tiene paquetes aceptados, así que no se puede modificar ni cancelar. Si necesitás cancelar, hacelo desde cada envío.",
   TRIP_ORIGIN_DESTINATION_TOO_CLOSE:
     "El origen y el destino tienen que estar separados por al menos 100 metros.",
   TRIP_DEPARTURE_IN_PAST: "La fecha y hora de salida tiene que ser futura.",
@@ -84,6 +84,10 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
     "Ya tenés otro viaje en curso. Solo podés tener 1 viaje activo a la vez.",
   TRIP_NOT_AVAILABLE: "Este viaje ya no está disponible.",
   TRIP_NO_PACKAGES: "Este viaje no tiene paquetes asignados, así que no se puede iniciar.",
+  // MOVO-277: el caso con fecha lo arma `formatTripStartErrorMessage` (trip-format.ts).
+  TRIP_START_TOO_EARLY: "Todavía no podés iniciar este viaje: se habilita el día de salida.",
+  TRIP_PACKAGES_NOT_READY:
+    "Tus paquetes todavía esperan la confirmación del pago. Vas a poder iniciar el viaje cuando estén listos para retirar.",
   // Calificaciones post-entrega (MOVO-153 / backend MOVO-146).
   SHIPMENT_NOT_DELIVERED: "El envío todavía no fue entregado.",
   SHIPMENT_RATING_DISPUTE_ACTIVE:

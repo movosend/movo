@@ -154,3 +154,6 @@ export type {
   NotificationTriggerDefinition,
 } from "./config/notification-templates";
 export { isValidTimeOfDay, isWithinQuietHours } from "./config/quiet-hours";
+
+// trip start (MOVO-277)
+export { canStartTripOn, tripStartAvailableOn } from "./config/trip-start";

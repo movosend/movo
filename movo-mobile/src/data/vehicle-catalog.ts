@@ -228,6 +228,22 @@ export function brandInitials(brand: string): string {
   return brand.slice(0, 2).toUpperCase();
 }
 
+/**
+ * Marca de un `vehicleType` de viaje ("Mercedes-Benz C20" → "Mercedes-Benz"). Los viajes guardan
+ * `"${brand} ${model}"` (MOVO-223), así que se busca la marca del catálogo que abre el texto
+ * (la más larga primero, por si una es prefijo de otra) y, si no hay ninguna, la primera palabra.
+ */
+export function brandFromVehicleLabel(label: string): string {
+  const normalized = normalizeSearchText(label);
+  const match = [...VEHICLE_BRANDS]
+    .sort((a, b) => b.length - a.length)
+    .find((brand) => {
+      const b = normalizeSearchText(brand);
+      return normalized === b || normalized.startsWith(`${b} `);
+    });
+  return match ?? label.trim().split(/\s+/)[0] ?? label;
+}
+
 export const FITS_BY_TIER: Record<string, string[]> = {
   S: ["Sobres y documentos", "Una mochila o cartera", "Hasta 2 paquetes chicos por viaje"],
   M: ["Una caja mediana (60 × 40 × 30 cm)", "Un bolso de viaje", "Hasta 3 paquetes chicos por viaje"],

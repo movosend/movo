@@ -1,5 +1,6 @@
 import { CarrierRoute, CarrierRouteStop, OptimizeRouteResponse, RouteStopInput, ShipmentStatus } from "@movo/shared";
 import { Shipment } from "../models/shipment";
+import { isExecutableTripPackage } from "./shipment-state-machine";
 
 const ARGENTINA_UTC_OFFSET_HOURS = 3;
 
@@ -36,11 +37,14 @@ export function formatDeliveryInstant(deliveryDate: Date | null, timeStr: string
  * - Para cada envío en `in_transit`: incluye solo parada de entrega (ya fue retirado).
  * - Envíos en `assigned_unfunded`: se ignoran (retiro a más de N días, no ejecutable hoy).
  * - Envíos en `delivered`, `completed` u otros: se ignoran.
+ * MOVO-277: el filtro es `isExecutableTripPackage` -- todo paquete ejecutable genera al
+ * menos una parada (invariante: lo que la card cuenta, la ruta lo muestra).
  */
 export function aggregateCarrierStops(shipments: Shipment[]): RouteStopInput[] {
   const stops: RouteStopInput[] = [];
 
   for (const s of shipments) {
+    if (!isExecutableTripPackage(s.status)) continue;
     if (s.status === ShipmentStatus.ASSIGNED) {
       // Parada de retiro
       const pickupStart = s.pickupDate && s.pickupTimeWindowStart

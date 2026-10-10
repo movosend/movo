@@ -49,6 +49,7 @@ const TRIP: TripWithAcceptedPackages = {
   cancelledAt: null,
   hasAcceptedPackages: false,
   acceptedPackagesCount: 0,
+  executablePackagesCount: 0,
 };
 
 // El TripForm en sí ya tiene su propia cobertura completa (trip-form.test.tsx) —
@@ -173,7 +174,7 @@ describe("EditTripScreen", () => {
     });
 
     expect(getByTestId("tf-stub-error").props.children).toBe(
-      "Este viaje ya tiene paquetes aceptados y no se puede modificar ni cancelar directamente.",
+      "Este viaje ya tiene paquetes aceptados, así que no se puede modificar ni cancelar. Si necesitás cancelar, hacelo desde cada envío.",
     );
   });
 });

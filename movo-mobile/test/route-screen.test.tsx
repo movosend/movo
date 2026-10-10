@@ -337,6 +337,8 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
         vehicleType: "Auto",
         status: "declared",
         hasAcceptedPackages: true,
+        acceptedPackagesCount: 1,
+        executablePackagesCount: 1,
       } as any,
       isLoading: false,
     });
@@ -349,5 +351,57 @@ describe("OptimizedRouteScreen (MOVO-207)", () => {
 
     await fireEvent.press(getByTestId("route-trip-cta-start-button"));
     expect(mockStartTripMutateAsync).toHaveBeenCalledWith("trip-declared-1");
+  });
+
+  describe("MOVO-277: viaje declared que todavía no se puede iniciar", () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+
+    function renderDeclaredTrip(overrides: Record<string, unknown>) {
+      mockSearchParams = { tripId: "trip-declared-1" };
+      (useOptimizedRoute as jest.Mock).mockReturnValue({
+        route: null,
+        carrierLocation: null,
+        isLoading: false,
+        isRefreshing: false,
+        gpsPermissionDenied: false,
+        error: null,
+        refetch: mockRefetch,
+      });
+      mockUseTrip.mockReturnValue({
+        data: {
+          id: "trip-declared-1",
+          carrierId: "carrier-1",
+          originAddress: "Av. Colón 1234, Córdoba",
+          destinationAddress: "San Martín 450, Villa María",
+          departureAt: new Date().toISOString(),
+          vehicleType: "Auto",
+          status: "declared",
+          hasAcceptedPackages: true,
+          acceptedPackagesCount: 1,
+          executablePackagesCount: 1,
+          ...overrides,
+        } as any,
+        isLoading: false,
+      });
+      return render(<OptimizedRouteScreen />);
+    }
+
+    it("con la salida en un día futuro muestra desde cuándo se puede, sin botón", async () => {
+      const { getByTestId, queryByTestId } = await renderDeclaredTrip({
+        departureAt: new Date(Date.now() + 3 * DAY_MS).toISOString(),
+      });
+
+      expect(queryByTestId("route-trip-cta-start-button")).toBeNull();
+      expect(getByTestId("route-trip-cta-start-blocked")).toHaveTextContent(/^Podés iniciarlo el /);
+    });
+
+    it("hoy sin paquetes ejecutables explica que esperan el pago, sin botón", async () => {
+      const { getByTestId, queryByTestId } = await renderDeclaredTrip({ executablePackagesCount: 0 });
+
+      expect(queryByTestId("route-trip-cta-start-button")).toBeNull();
+      expect(getByTestId("route-trip-cta-start-blocked")).toHaveTextContent(
+        "Tus paquetes todavía esperan la confirmación del pago.",
+      );
+    });
   });
 });
