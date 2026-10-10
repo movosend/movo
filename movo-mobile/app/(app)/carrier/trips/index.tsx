@@ -34,7 +34,11 @@ function TripsListSkeleton() {
  */
 export default function MyTripsScreen() {
   const colors = useThemeColors();
-  const { created, cancelledTo } = useLocalSearchParams<{ created?: string; cancelledTo?: string }>();
+  const { created, cancelledTo, cancelledAt } = useLocalSearchParams<{
+    created?: string;
+    cancelledTo?: string;
+    cancelledAt?: string;
+  }>();
   // MOVO-262 AC1: una query (y una query key) por tab; el default es "Próximos".
   const [scope, setScope] = useState<TripListScope>("upcoming");
   const insets = useSafeAreaInsets();
@@ -48,7 +52,8 @@ export default function MyTripsScreen() {
   );
   useEffect(() => {
     if (cancelledTo) setCancelledMessage(`Cancelaste el viaje a ${cancelledTo}`);
-  }, [cancelledTo]);
+    // `cancelledAt` cambia en cada cancelación aunque el destino sea el mismo.
+  }, [cancelledTo, cancelledAt]);
   const [autoCreatedMessage, setAutoCreatedMessage] = useState<string | null>(null);
 
   /**

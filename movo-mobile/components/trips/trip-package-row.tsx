@@ -1,4 +1,5 @@
 import { ArrowRight, ChevronRight, Clock } from "lucide-react-native";
+import { useColorScheme } from "nativewind";
 import { Text, View } from "react-native";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -17,14 +18,18 @@ import { PressableScale } from "./pressable-scale";
 
 // Estado del envío visto desde el viaje: "Por retirar"/"A bordo" son los dos que el
 // transportista vive en el día a día (mockup MOVO-263); el resto usa la etiqueta general.
-function packageStatus(status: ShipmentStatus): { label: string; bg: string; fg: string } {
+function packageStatus(status: ShipmentStatus, dark: boolean): { label: string; bg: string; fg: string } {
   if (status === ShipmentStatus.ASSIGNED) {
-    return { label: "Por retirar", bg: "rgba(245,185,58,0.2)", fg: "#7A5200" };
+    return { label: "Por retirar", bg: "rgba(245,185,58,0.2)", fg: dark ? "#F5B93A" : "#7A5200" };
   }
   if (status === ShipmentStatus.IN_TRANSIT) {
-    return { label: "A bordo", bg: "#EEFCBF", fg: "#27272B" };
+    return dark
+      ? { label: "A bordo", bg: "rgba(210,245,80,0.18)", fg: "#E4F98F" }
+      : { label: "A bordo", bg: "#EEFCBF", fg: "#27272B" };
   }
-  return { label: shipmentStatusLabel(status), bg: "#F1F1F3", fg: "#3A3A40" };
+  return dark
+    ? { label: shipmentStatusLabel(status), bg: "rgba(255,255,255,0.1)", fg: "#D4D4D8" }
+    : { label: shipmentStatusLabel(status), bg: "#F1F1F3", fg: "#3A3A40" };
 }
 
 /**
@@ -34,16 +39,20 @@ function packageStatus(status: ShipmentStatus): { label: string; bg: string; fg:
  */
 export function TripPackageRow({
   pkg,
+  index,
   onPress,
   testID,
 }: {
   pkg: TripAcceptedPackage;
+  /** Número (desde 1) con el que el mapa marca el retiro y la entrega de este paquete. */
+  index?: number;
   onPress: () => void;
   testID?: string;
 }) {
   const colors = useThemeColors();
+  const { colorScheme } = useColorScheme();
   const Icon = packageTypeIcon(pkg.packageType as PackageType);
-  const status = packageStatus(pkg.status);
+  const status = packageStatus(pkg.status, colorScheme === "dark");
   const date = formatPickupDateLabel(pkg.pickupDate);
   const window = formatPickupWindowLabel(pkg.pickupTimeWindowStart, pkg.pickupTimeWindowEnd);
 
@@ -55,6 +64,14 @@ export function TripPackageRow({
     >
       <View className="h-10 w-10 items-center justify-center rounded-lg bg-bg-mute">
         <Icon size={20} color={colors.fg1} strokeWidth={1.75} />
+        {index !== undefined ? (
+          <View
+            testID={testID ? `${testID}-index` : undefined}
+            className="absolute -left-1.5 -top-1.5 h-[18px] w-[18px] items-center justify-center rounded-full border-2 border-bg bg-fg"
+          >
+            <Text className="font-sans-semibold text-[9px] text-bg">{index}</Text>
+          </View>
+        ) : null}
       </View>
       <View className="min-w-0 flex-1 gap-[5px]">
         <View className="flex-row items-center gap-1.5">

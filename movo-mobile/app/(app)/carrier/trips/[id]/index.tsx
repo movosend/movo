@@ -107,15 +107,22 @@ export default function TripDetailScreen() {
       onSuccess: () => {
         setSheetOpen(false);
         // `dismissTo`: el detalle se abre desde "Mis viajes", `replace` apilaría otra copia.
+        // `cancelledAt` hace único cada aviso: dos cancelaciones seguidas al mismo destino
+        // llegan con el mismo `cancelledTo` y el banner de "Mis viajes" no se volvería a armar.
         router.dismissTo({
           pathname: "/carrier/trips",
-          params: { cancelledTo: shortAddressLabel(t.destinationAddress) },
+          params: { cancelledTo: shortAddressLabel(t.destinationAddress), cancelledAt: String(Date.now()) },
         } as any);
       },
       onError: (err) => {
         setCancelError(friendlyErrorMessage(err, CANCEL_ERROR_FALLBACK));
-        // Carrera típica: se aceptó un paquete entre medio, así que se refresca el detalle.
-        if (err instanceof ApiError && err.statusCode === 409) void refetch();
+        // Carrera típica: se aceptó un paquete entre medio. El refresco trae los paquetes, con
+        // lo que `canEditOrCancel` pasa a false y el sheet se desmonta: se cierra explícito y el
+        // motivo se muestra en el detalle (banner), no en un sheet que ya no existe.
+        if (err instanceof ApiError && err.statusCode === 409) {
+          setSheetOpen(false);
+          void refetch();
+        }
       },
     });
   };
@@ -128,6 +135,8 @@ export default function TripDetailScreen() {
     setStartError(null);
     try {
       await startTrip.mutateAsync(t.id);
+      // El viaje ya está en curso: se lleva directo al mapa en vez de dejar solo un cambio de footer.
+      router.push({ pathname: "/route", params: { tripId: t.id } } as any);
     } catch (err) {
       setStartError(formatTripStartErrorMessage(err, t.departureAt));
     }
@@ -192,7 +201,6 @@ export default function TripDetailScreen() {
   const packages = trip.packages ?? [];
   const hasPackages = trip.acceptedPackagesCount > 0;
   const isDeclared = trip.status === TripStatus.DECLARED;
-  const canSearch = isDeclared;
   const canEditOrCancel = isDeclared && !hasPackages;
   const showFooter = trip.status === TripStatus.ACTIVE || (isDeclared && hasPackages);
   // Alto del footer = 12 (padding superior) + 52 (botón) + inset inferior real del dispositivo.
@@ -255,6 +263,7 @@ export default function TripDetailScreen() {
         }
       >
         <View className="gap-6 px-5 pt-[18px]">
+          {cancelError && !sheetOpen ? <ErrorBanner testID="trip-detail-cancel-error" message={cancelError} /> : null}
           <TripDetailMap testID="trip-detail-map" trip={trip} />
 
           <View className="gap-4">
@@ -328,16 +337,17 @@ export default function TripDetailScreen() {
                 ) : null}
               </View>
               <View className="gap-2">
-                {packages.map((pkg) => (
+                {packages.map((pkg, i) => (
                   <TripPackageRow
                     key={pkg.shipmentId}
+                    index={i + 1}
                     testID={`trip-detail-package-${pkg.shipmentId}`}
                     pkg={pkg}
                     onPress={() => router.push(`/shipments/${pkg.shipmentId}` as any)}
                   />
                 ))}
               </View>
-              {canSearch ? (
+              {isDeclared ? (
                 <PressableScale
                   testID="trip-detail-search-more"
                   onPress={() => searchPackages(trip)}

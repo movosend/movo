@@ -268,24 +268,56 @@ describe("TripDetailScreen (MOVO-263)", () => {
     expect(mockCancelMutate).toHaveBeenCalledWith("trip-1", expect.any(Object));
     expect(mockDismissTo).toHaveBeenCalledWith({
       pathname: "/carrier/trips",
-      params: { cancelledTo: "Bv. España 300" },
+      params: { cancelledTo: "Bv. España 300", cancelledAt: expect.any(String) },
     });
   });
 
-  it("AC6: un 409 muestra el motivo en el sheet y refresca el detalle", async () => {
+  it("AC6: un 409 cierra el sheet, muestra el motivo en el detalle y lo refresca", async () => {
     const refetch = jest.fn();
     mockCancelMutate.mockImplementation((_id: string, opts: { onError: (e: unknown) => void }) =>
       opts.onError(new ApiError(409, "TRIP_HAS_ACCEPTED_PACKAGES", "x")),
     );
     mockUseTrip.mockReturnValue(loaded(TRIP, { refetch }));
-    const { getByTestId } = await render(<TripDetailScreen />);
+    const { getByTestId, queryByTestId } = await render(<TripDetailScreen />);
+
+    await fireEvent.press(getByTestId("trip-detail-menu-action-cancel-trip"));
+    await fireEvent.press(getByTestId("trip-cancel-confirm"));
+
+    await waitFor(() => expect(getByTestId("trip-detail-cancel-error")).toBeTruthy());
+    expect(queryByTestId("trip-cancel-error")).toBeNull();
+    expect(refetch).toHaveBeenCalled();
+    expect(mockDismissTo).not.toHaveBeenCalled();
+  });
+
+  it("un error que no es 409 sigue mostrándose dentro del sheet", async () => {
+    mockCancelMutate.mockImplementation((_id: string, opts: { onError: (e: unknown) => void }) =>
+      opts.onError(new ApiError(500, "INTERNAL_ERROR", "x")),
+    );
+    mockUseTrip.mockReturnValue(loaded(TRIP));
+    const { getByTestId, queryByTestId } = await render(<TripDetailScreen />);
 
     await fireEvent.press(getByTestId("trip-detail-menu-action-cancel-trip"));
     await fireEvent.press(getByTestId("trip-cancel-confirm"));
 
     await waitFor(() => expect(getByTestId("trip-cancel-error")).toBeTruthy());
-    expect(refetch).toHaveBeenCalled();
-    expect(mockDismissTo).not.toHaveBeenCalled();
+    expect(queryByTestId("trip-detail-cancel-error")).toBeNull();
+  });
+
+  it("cada paquete lleva el número con el que el mapa marca su retiro y entrega", async () => {
+    mockUseTrip.mockReturnValue(loaded(WITH_PACKAGES));
+    const { getByTestId } = await render(<TripDetailScreen />);
+
+    expect(getByTestId("trip-detail-package-ship-1-index")).toHaveTextContent("1");
+  });
+
+  it("iniciar el viaje con éxito lleva al mapa en vivo", async () => {
+    mockStartMutateAsync.mockResolvedValueOnce({});
+    mockUseTrip.mockReturnValue(loaded(WITH_PACKAGES));
+    const { getByTestId } = await render(<TripDetailScreen />);
+
+    await fireEvent.press(getByTestId("trip-detail-start"));
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith({ pathname: "/route", params: { tripId: "trip-1" } }));
   });
 
   it("volver: back si hay historial, replace a Mis viajes si no", async () => {

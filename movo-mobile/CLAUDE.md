@@ -4273,12 +4273,18 @@ backend: `packages[]` ahora trae `pickupLat/Lng` y `deliveryLat/Lng` (ver `svc-s
   cobra el transportista.
 - Cancelar usa `POST /trips/:id/cancel` (`useCancelTrip`, invalida ambos tabs, detalle, matches y viaje
   activo) y vuelve con `router.dismissTo` a "Mis viajes" con el banner "Cancelaste el viaje a {destino}"
-  (param `cancelledTo`). Un 409 se muestra dentro del sheet y refresca el detalle. `useDeleteTrip` se
+  (param `cancelledTo`). Un 409 cierra el sheet y muestra el motivo como banner del detalle (el refresco trae los paquetes y desmonta el sheet); otros errores siguen dentro del sheet. `cancelledAt` (timestamp) viaja junto a `cancelledTo` para que dos cancelaciones al mismo destino vuelvan a mostrar el banner. `useDeleteTrip` se
   eliminó (el `DELETE` está deprecado por ADR-029).
 - El footer usa botones planos del mockup con la lógica de `useStartTrip`, no `CarrierTripCta` (que es una
   card completa); ese componente sigue en el home y en "Mi ruta".
 - El vehículo muestra el logo de la marca (`BrandAvatar`, o iniciales si no hay logo); la marca sale de
   `vehicleType` ("marca modelo") con `brandFromVehicleLabel` (`src/data/vehicle-catalog.ts`).
+- Fixes del review (PR #225): todos los marcadores del mapa usan `StaticMarker` (`tracksViewChanges` apagado a los
+  600 ms); el mapa se re-encuadra cuando cambian los puntos (clave de coordenadas, no identidad del array); cada
+  fila lleva un badge con el número del marcador del mapa; iniciar el viaje con éxito navega a `/route`. Los
+  overlays del mapa y los colores del estado de la fila siguen el tema. Los marcadores (negro/blanco) y el azul
+  de la ruta quedan fijos a propósito: tienen que contrastar con el mapa, no con el fondo de la app.
+  `tripDisplayCode` sigue siendo decorativo (no identifica al viaje).
 - Pendiente: no probado en device; el estado "bloqueado hasta 2 h antes" del mockup no se implementó
   (el backend no lo valida).
 
