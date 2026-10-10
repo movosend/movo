@@ -1,4 +1,5 @@
 import type { HoldFailureReason } from "./hold";
+import type { ShipmentStatus } from "./shipment";
 
 /**
  * MOVO-210: contrato de la saga de asignación entre `movo-mobile` y `movo-svc-shipments`
@@ -40,7 +41,7 @@ export interface ShipmentFundingResult {
   shipmentId: string;
   funded: boolean;
   /** Estado del envío después del intento (`assigned` si se reservó). */
-  shipmentStatus: string;
+  shipmentStatus: ShipmentStatus;
   failureReason: HoldFailureReason | null;
   payUntil: string | null;
 }

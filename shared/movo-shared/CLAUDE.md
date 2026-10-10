@@ -404,3 +404,12 @@ Códigos nuevos: `CARRIER_LICENSE_NOT_APPROVED`, `PAYMENTS_SERVICE_UNAVAILABLE`,
 `OFFER_CARRIER_NOT_ELIGIBLE`; `CARRIER_MP_ACCOUNT_NOT_LINKED` (MOVO-209) se reusa, ahora también
 como 403 de `svc-shipments`. Mobile todavía no lee `details` (`parseErrorBody` lo descarta): es
 parte de MOVO-117.
+
+### MOVO-210 — Contrato de la saga de asignación y `OfferStatus.ASSIGNMENT_LAPSED`
+
+`types/funding.ts` (`FundingRoute`, `ShipmentFundingResponse`/`Request`/`Result`, `HoldProviderEventRequest`:
+`GET`/`POST /shipments/:id/funding` y el aviso interno de holds). `OfferStatus.ASSIGNMENT_LAPSED`: la oferta fue
+aceptada pero la asignación no prosperó (no es un rechazo). `ApiErrorCode` suma `SHIPMENT_FUNDING_NOT_AVAILABLE`
+(`PAYMENTS_SERVICE_UNAVAILABLE` ya lo había agregado MOVO-116). `config/notification-templates.ts` suma los triggers `funding*` (emisor en
+`payments`, que pasa a `implemented: true`; transportista en `offers`), incluido el copy de reconfirmación
+("La reserva de tu pago expiró"). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.

@@ -62,8 +62,7 @@ export type NotificationTriggerKey =
   | "fundingTimedOutCarrier"
   | "fundingWindowExpiredSender"
   | "fundingWindowExpiredCarrier"
-  | "fundingHoldLostSender"
-  | "fundingHoldLostCarrier"
+  | "fundingAttemptFailedSender"
   | "fundingReconfirmSender"
   | "fundingReconfirmCarrier";
 
@@ -518,20 +517,14 @@ export const NOTIFICATION_TRIGGERS = {
       body: "El emisor no confirmó el pago a tiempo. Liberamos este envío de tu viaje.",
     })
   ),
-  fundingHoldLostSender: definition<void>(
+  // MP canceló o venció el intento de pago mientras el envío todavía espera el pago: el envío NO
+  // se libera, el emisor puede reintentar con otra tarjeta hasta que venza el plazo.
+  fundingAttemptFailedSender: definition<void>(
     "payments",
-    { title: "Se perdió la reserva del pago", body: "Mercado Pago anuló la reserva de fondos. Tu envío volvió a publicarse." },
+    { title: "No se pudo completar tu pago", body: "Tu intento de pago no prosperó. Podés reintentar con otra tarjeta." },
     () => ({
-      title: "Se perdió la reserva del pago",
-      body: "Mercado Pago anuló la reserva de fondos. Tu envío volvió a publicarse.",
-    })
-  ),
-  fundingHoldLostCarrier: definition<void>(
-    "offers",
-    { title: "El envío volvió a publicarse", body: "La reserva del pago se anuló. Liberamos este envío de tu viaje." },
-    () => ({
-      title: "El envío volvió a publicarse",
-      body: "La reserva del pago se anuló. Liberamos este envío de tu viaje.",
+      title: "No se pudo completar tu pago",
+      body: "Tu intento de pago no prosperó. Podés reintentar con otra tarjeta.",
     })
   ),
   // La reserva se perdió con el envío ya `assigned`: el envío NO se libera, vuelve a
