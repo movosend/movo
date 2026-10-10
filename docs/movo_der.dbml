@@ -659,6 +659,48 @@ Table shipments.user_ref {
 // SCHEMA: payments
 // =====================================================================
 
+// MOVO-209: reserva de fondos (Auth & Capture, capture:false) de un envio. Una fila por
+// INTENTO (shipment_id + attempt): un rechazo cierra el intento y el siguiente crea otra
+// fila. Indice unico parcial a mano: un solo hold vivo por envio
+// (WHERE status IN ('creating','in_process','authorized','captured')).
+Table payments.holds {
+  id uuid [pk]
+  shipment_id uuid [note: 'referencia logica a shipments.shipments, sin FK (ADR-003)']
+  attempt int [note: 'intento de reserva del envio; define la X-Idempotency-Key']
+  carrier_id uuid [note: 'usuario de Movo del transportista, sin FK']
+  collector_id varchar [note: 'user id de Mercado Pago del transportista al cobrar']
+  mp_payment_id varchar [null]
+  amount_ars numeric [note: 'numeric(12,2), bruto que paga el emisor']
+  application_fee_ars numeric [note: 'numeric(12,2), comision de Movo']
+  status hold_status_enum
+  status_detail varchar [null, note: 'status_detail crudo de MP']
+  failure_reason hold_failure_reason_enum [null]
+  expires_at timestamptz [null, note: 'created + MP_HOLD_VALIDITY_DAYS (config, MOVO-215)']
+  created_at timestamptz
+  updated_at timestamptz
+
+  indexes {
+    (shipment_id, attempt) [unique]
+    mp_payment_id
+  }
+}
+
+Enum hold_status_enum {
+  creating
+  in_process
+  authorized
+  captured
+  cancelled
+  rejected
+}
+
+Enum hold_failure_reason_enum {
+  insufficient_funds
+  card_rejected
+  invalid_data
+  platform_error
+}
+
 Table payments.payment_transaction {
   id uuid [pk]
   shipment_id uuid [ref: > payments.shipment_ref.id]
