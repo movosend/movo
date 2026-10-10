@@ -4,11 +4,14 @@ import { registerSweep } from "./register-sweep";
 import { createShipmentRepository } from "../repositories/shipment-repository";
 import { createUsersClient, UsersClient } from "../adapters/users-client";
 import { createNotificationsClient, NotificationsClient } from "../adapters/notifications-client";
+import { createPaymentsClient, PaymentsClient } from "../adapters/payments-client";
 import { createShipmentsService } from "../modules/shipments/shipments.service";
 
 export interface PickupMissedSweepPluginOptions {
   usersClient?: UsersClient;
   notificationsClient?: NotificationsClient;
+  /** MOVO-210: libera el hold de un envío asignado que se cancela por retiro no realizado. */
+  paymentsClient?: PaymentsClient;
   enabled?: boolean;
 }
 
@@ -25,6 +28,7 @@ export default fp(async (app: FastifyInstance, opts: PickupMissedSweepPluginOpti
   const notificationsClient = opts.notificationsClient ?? createNotificationsClient(app.config);
   const service = createShipmentsService(repository, usersClient, notificationsClient, app.log, {
     pickupMissedGraceHours: app.config.PICKUP_MISSED_GRACE_HOURS,
+    paymentsClient: opts.paymentsClient ?? createPaymentsClient(app.config),
   });
 
   registerSweep(app, {

@@ -35,7 +35,6 @@ export interface EnvConfig {
   TRANSIT_ANOMALY_SWEEP_INTERVAL_MINUTES: number;
   TRANSIT_ANOMALY_SWEEP_ENABLED?: boolean;
   IN_TRANSIT_ANOMALY_FALLBACK_HOURS: number;
-  PAYMENTS_SERVICE_URL: string;
   FUNDING_NEAR_PICKUP_DAYS: number;
   FUNDING_PAYMENT_TIMEOUT_MINUTES: number;
   FUNDING_RELEASE_HOURS_BEFORE_PICKUP: number;
@@ -149,9 +148,6 @@ export const envSchema = {
     TRANSIT_ANOMALY_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
     TRANSIT_ANOMALY_SWEEP_ENABLED: { type: "boolean", default: true },
     IN_TRANSIT_ANOMALY_FALLBACK_HOURS: { type: "number", default: 48 },
-    // MOVO-210: llamadas internas a movo-svc-payments (holds). El default ya coincide con
-    // el nombre del servicio en movo-net, igual que USERS_SERVICE_URL.
-    PAYMENTS_SERVICE_URL: { type: "string", default: "http://movo-svc-payments:3000" },
     // MOVO-210 / MOVO-215: "N" de la saga. Un retiro a N días o menos toma la ruta
     // cercana (el emisor paga al aceptar); a más de N, la ruta lejana (`assigned_unfunded`
     // + ventana de confirmación). PROVISORIO hasta que MOVO-215 mida el plazo real del hold

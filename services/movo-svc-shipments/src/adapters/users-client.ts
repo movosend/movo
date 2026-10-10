@@ -47,6 +47,12 @@ export interface UsersClient {
    * 502 ante cualquier falla de transporte o forma inválida: el bloqueo falla cerrado.
    */
   findKycStatus(userId: string): Promise<CarrierKycStatusResponse | null>;
+  /**
+   * MOVO-210: email de la cuenta de `userId` (`GET /users/me` con su propio `x-user-id`,
+   * ADR-010), que `svc-payments` necesita como `payerEmail` del hold. `null` si la cuenta
+   * no existe; lanza 502 ante cualquier otra falla.
+   */
+  findAccountEmail(userId: string): Promise<string | null>;
 }
 
 export interface UsersClientConfig {
@@ -164,6 +170,29 @@ export function createUsersClient(config: UsersClientConfig): UsersClient {
         throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "El servicio de usuarios devolvió una respuesta inválida.");
       }
       return { kycStatusIdentity: body.kycStatusIdentity, kycStatusLicense: body.kycStatusLicense };
+    },
+
+    async findAccountEmail(userId: string): Promise<string | null> {
+      let response: Response;
+      try {
+        response = await fetch(`${config.USERS_SERVICE_URL}/users/me`, {
+          method: "GET",
+          headers: { "x-user-id": userId },
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+      } catch {
+        throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "No se pudo conectar con el servicio de usuarios.");
+      }
+
+      if (response.status === 404) {
+        return null;
+      }
+      if (!response.ok) {
+        throw new ApiError(502, "USERS_SERVICE_UNAVAILABLE", "El servicio de usuarios devolvió un error.");
+      }
+
+      const body = (await response.json()) as { email?: unknown };
+      return typeof body.email === "string" && body.email.length > 0 ? body.email : null;
     },
   };
 }
