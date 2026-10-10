@@ -25,11 +25,6 @@ export default fp(async (app: FastifyInstance, opts: FundingSweepPluginOptions =
   const service = buildFundingService(app, {
     ...opts,
     paymentsClient: opts.paymentsClient ?? createPaymentsClient(app.config),
-    claimNotificationOnce: async (key, ttlSeconds) =>
-      (await app.redis.set(`notified:${key}`, "1", "EX", ttlSeconds, "NX")) === "OK",
-    releaseNotificationClaim: async (key) => {
-      await app.redis.del(`notified:${key}`);
-    },
   });
 
   registerSweep(app, {

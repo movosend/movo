@@ -11,6 +11,8 @@ import { createFakeNotificationsClient } from "./fake-notifications-client";
 import { createFakeUsersClient } from "./fake-users-client";
 import { createFakePaymentsClient, FakePaymentsClient } from "./fake-payments-client";
 import { createFundingService, FundingConfig } from "../src/modules/funding/funding.service";
+import { buildFundingService } from "../src/modules/funding/funding.routes";
+import { ApiError } from "@movo/shared";
 import { anchorTimeOfDayToInstant } from "../src/domain/pickup-window";
 import { NotificationsClient } from "../src/adapters/notifications-client";
 import { createShipmentsService } from "../src/modules/shipments/shipments.service";
@@ -88,10 +90,11 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
     return { shipmentId, winner, loser, pickupDate };
   }
 
-  function buildService(overrides: { claim?: (key: string) => Promise<boolean> } = {}) {
+  function buildService(overrides: { claim?: (key: string) => Promise<boolean>; withOffers?: boolean } = {}) {
     const claimed = new Set<string>();
     return createFundingService({
       repository: shipmentRepo,
+      ...(overrides.withOffers ? { offerRepository: offerRepo } : {}),
       usersClient: createFakeUsersClient({}, {}, [], {}, { [senderId]: "emisor@movo.test" }),
       paymentsClient,
       notificationsClient,
@@ -152,21 +155,22 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       expect(shipment?.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
       expect(shipment?.carrierId).toBe(winner.carrierId);
       expect((await offerRepo.findById(winner.id))?.status).toBe(OfferStatus.ACCEPTED);
-      expect((await offerRepo.findById(loser.id))?.status).toBe(OfferStatus.SUPERSEDED);
+      // MOVO-210 (AC4): las demás ofertas siguen vivas hasta que se confirme el hold.
+      expect((await offerRepo.findById(loser.id))?.status).toBe(OfferStatus.PENDING);
 
       const events = await shipmentRepo.listEvents(shipmentId);
       const accepted = events.find((e) => e.toStatus === ShipmentStatus.ASSIGNMENT_PENDING);
       expect(accepted?.reason).toContain("ruta cercana");
     });
 
-    it("retiro lejano: assigned_unfunded con carrierId y precio, demás ofertas rechazadas, sin hold", async () => {
+    it("retiro lejano: assigned_unfunded con carrierId y precio, demás ofertas vivas, sin hold", async () => {
       const { shipmentId, winner, loser } = await acceptedShipment(10);
 
       const shipment = await shipmentRepo.findById(shipmentId);
       expect(shipment?.status).toBe(ShipmentStatus.ASSIGNED_UNFUNDED);
       expect(shipment?.carrierId).toBe(winner.carrierId);
       expect(shipment?.agreedPriceArs).toBe(winner.priceOffered);
-      expect((await offerRepo.findById(loser.id))?.status).toBe(OfferStatus.SUPERSEDED);
+      expect((await offerRepo.findById(loser.id))?.status).toBe(OfferStatus.PENDING);
       expect(paymentsClient.createHold).not.toHaveBeenCalled();
 
       const events = await shipmentRepo.listEvents(shipmentId);
@@ -547,13 +551,9 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       expect(pushedTitles(winner.carrierId)).toContain("Tu oferta fue cancelada");
     });
 
-    it("si no se puede confirmar la liberación, el envío NO se cancela", async () => {
+    it("cancela primero y libera después: si la liberación falla el envío igual queda cancelado", async () => {
       const { shipmentId } = await acceptedShipment(1);
-      paymentsClient.behavior.releaseError = new (await import("@movo/shared")).ApiError(
-        502,
-        "PAYMENTS_SERVICE_UNAVAILABLE",
-        "caído",
-      );
+      paymentsClient.behavior.releaseError = new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "caído");
 
       const response = await app.inject({
         method: "POST",
@@ -562,8 +562,43 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
         payload: {},
       });
 
-      expect(response.statusCode).toBe(502);
-      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
+      expect(response.statusCode).toBe(200);
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.CANCELLED);
+    });
+
+    it("carrera cancelar vs pagar: si el pago ya pasó el envío a assigned, la cancelación falla (409) y el envío sigue pagado", async () => {
+      const { shipmentId } = await acceptedShipment(1);
+      const stale = (await shipmentRepo.findById(shipmentId))!;
+      // El pago concurrente gana: assignment_pending -> assigned.
+      await buildService().submitFunding(shipmentId, senderId, { cardToken: "tok" });
+      expect(stale.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
+
+      // La cancelación decidió sobre el estado viejo: sin expectedFrom pasaba assigned -> cancelled.
+      await expect(
+        shipmentRepo.updateStatus(shipmentId, ShipmentStatus.CANCELLED, senderId, undefined, {
+          expectedFrom: stale.status,
+        }),
+      ).rejects.toMatchObject({ name: "ShipmentConcurrentModificationError" });
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.ASSIGNED);
+      expect(paymentsClient.releaseHold).not.toHaveBeenCalled();
+    });
+
+    it("carrera pagar vs cancelar: el pago que llega con el envío ya cancelado libera su hold y responde 409", async () => {
+      const { shipmentId } = await acceptedShipment(1);
+      const service = buildService();
+      // Cancelación primero.
+      await app.inject({
+        method: "POST",
+        url: `/shipments/${shipmentId}/cancel`,
+        headers: { "x-user-id": senderId },
+        payload: {},
+      });
+
+      await expect(service.submitFunding(shipmentId, senderId, { cardToken: "tok" })).rejects.toMatchObject({
+        code: "SHIPMENT_FUNDING_NOT_AVAILABLE",
+      });
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.CANCELLED);
+      expect(paymentsClient.holds.get(shipmentId)?.status ?? "none").not.toBe("authorized");
     });
 
     it("cancelar un assigned_unfunded no llama a payments (no hay hold)", async () => {
@@ -624,8 +659,8 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       return { ...data, hold };
     }
 
-    it("un hold cancelado/vencido por MP revierte un assignment_pending y avisa a ambos", async () => {
-      const { shipmentId, winner, hold } = await pendingWithRejectedHold();
+    it("un cancelled/expired de MP sobre assignment_pending NO revierte: el emisor puede reintentar y se le avisa una vez", async () => {
+      const { shipmentId, hold } = await pendingWithRejectedHold();
 
       const response = await app.inject({
         method: "POST",
@@ -634,13 +669,12 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({ handled: true, outcome: "reverted_to_published" });
-      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.PUBLISHED);
-      expect(pushedTitles(senderId)).toContain("Se perdió la reserva del pago");
-      expect(pushedTitles(winner.carrierId)).toContain("El envío volvió a publicarse");
+      expect(response.json()).toEqual({ handled: false, outcome: "awaiting_payment" });
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
+      expect(pushedTitles(senderId)).toContain("No se pudo completar tu pago");
     });
 
-    it("un aviso repetido es idempotente", async () => {
+    it("un aviso repetido no revierte ni vuelve a notificar", async () => {
       const { shipmentId, hold } = await pendingWithRejectedHold();
       const call = () =>
         app.inject({
@@ -650,11 +684,45 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
         });
 
       await call();
+      const calls = vi.mocked(notificationsClient.sendPush).mock.calls.length;
       const second = await call();
 
       expect(second.statusCode).toBe(200);
       expect(second.json().handled).toBe(false);
-      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.PUBLISHED);
+      expect(vi.mocked(notificationsClient.sendPush).mock.calls.length).toBe(calls);
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.ASSIGNMENT_PENDING);
+    });
+
+    it("un hold perdido con el envío ya in_transit queda como error detectable (funding_hold_lost_in_transit)", async () => {
+      const { shipmentId, winner } = await acceptedShipment(1);
+      const hold = await paymentsClient.createHold({
+        shipmentId,
+        carrierId: winner.carrierId,
+        cardToken: "tok",
+        amountArs: 5000,
+        payerEmail: "e@x.test",
+      });
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.ASSIGNED, senderId);
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.IN_TRANSIT, winner.carrierId);
+      paymentsClient.holds.set(shipmentId, { ...hold, status: "cancelled" });
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const service = createFundingService({
+        repository: shipmentRepo,
+        usersClient: createFakeUsersClient({}),
+        paymentsClient,
+        notificationsClient,
+        config: CONFIG,
+        logger,
+      });
+
+      const result = await service.handleHoldProviderEvent(shipmentId, { holdId: hold.id, event: "expired" });
+
+      expect(result).toEqual({ handled: false, outcome: "hold_lost_after_pickup" });
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ event: "funding_hold_lost_in_transit", shipmentId }),
+        expect.any(String),
+      );
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.IN_TRANSIT);
     });
 
     it("un aviso de un hold anterior (no el vigente) se ignora", async () => {
@@ -713,6 +781,8 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       const response = await sendEvent(shipmentId, hold.id);
 
       expect(response.json()).toEqual({ handled: true, outcome: "reconfirmation_requested" });
+      // El aviso de reconfirmación reemplaza al de intento fallido: no llegan los dos.
+      expect(pushedTitles(senderId)).not.toContain("No se pudo completar tu pago");
       const shipment = await shipmentRepo.findById(shipmentId);
       expect(shipment?.status).toBe(ShipmentStatus.ASSIGNED_UNFUNDED);
       expect(shipment?.carrierId).toBe(winner.carrierId);
@@ -798,6 +868,117 @@ describe("Saga de asignación: pago del emisor (MOVO-210, Postgres)", () => {
       expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.PUBLISHED);
       expect(pushedTitles(senderId)).toContain("Tu envío volvió a publicarse");
       expect(pushedTitles(winner.carrierId)).toContain("Envío liberado");
+    });
+  });
+
+  describe("correcciones del review (PR #227)", () => {
+    it("AC4: al revertir la asignación las demás ofertas siguen pending y la ganadora queda assignment_lapsed", async () => {
+      const { shipmentId, winner, loser } = await acceptedShipment(1);
+      const service = buildService();
+
+      await service.expireUnpaidAssignmentPending(new Date(Date.now() + 31 * 60 * 1000));
+
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.PUBLISHED);
+      expect((await offerRepo.findById(winner.id))?.status).toBe(OfferStatus.ASSIGNMENT_LAPSED);
+      expect((await offerRepo.findById(loser.id))?.status).toBe(OfferStatus.PENDING);
+    });
+
+    it("AC4: al confirmarse el hold se cierran las demás ofertas y se avisa a cada transportista", async () => {
+      const { shipmentId, loser } = await acceptedShipment(1);
+      const other = await offerRepo.create(offerInput(shipmentId, dateInDays(1), { priceOffered: 6000 }));
+
+      await buildService({ withOffers: true }).submitFunding(shipmentId, senderId, { cardToken: "tok" });
+
+      expect((await offerRepo.findById(loser.id))?.status).toBe(OfferStatus.SUPERSEDED);
+      expect((await offerRepo.findById(other.id))?.status).toBe(OfferStatus.SUPERSEDED);
+      await vi.waitFor(() => {
+        expect(pushedTitles(loser.carrierId)).toContain("Tu oferta ya no está disponible");
+        expect(pushedTitles(other.carrierId)).toContain("Tu oferta ya no está disponible");
+      });
+    });
+
+    it("el pago no confirma un envío que ya es otra asignación (otro transportista)", async () => {
+      const { shipmentId, winner, pickupDate } = await acceptedShipment(1);
+      const stale = (await shipmentRepo.findById(shipmentId))!;
+      // El barrido revierte y el emisor acepta a otro transportista en el medio de la llamada a MP.
+      await shipmentRepo.updateStatus(shipmentId, ShipmentStatus.PUBLISHED, null);
+      const otherCarrierOffer = await offerRepo.create(offerInput(shipmentId, pickupDate, { priceOffered: 7000 }));
+      expect((await accept(otherCarrierOffer.id)).statusCode).toBe(200);
+
+      // El hold se creó con winner.carrierId y el precio viejo.
+      await expect(
+        shipmentRepo.updateStatus(shipmentId, ShipmentStatus.ASSIGNED, senderId, undefined, {
+          expectedFrom: ShipmentStatus.ASSIGNMENT_PENDING,
+          expectedCarrierId: stale.carrierId as string,
+          expectedAgreedPriceArs: stale.agreedPriceArs as number,
+        }),
+      ).rejects.toMatchObject({ name: "ShipmentConcurrentModificationError" });
+      expect((await shipmentRepo.findById(shipmentId))?.carrierId).toBe(otherCarrierOffer.carrierId);
+      expect(stale.carrierId).toBe(winner.carrierId);
+    });
+
+    it("un hold in_process que MP autoriza se confirma en la siguiente vuelta, sin esperar el plazo (ruta lejana)", async () => {
+      const { shipmentId, winner, pickupDate } = await acceptedShipment(10);
+      const pickupStart = anchorTimeOfDayToInstant(pickupDate, new Date("1970-01-01T09:00:00.000Z"));
+      paymentsClient.behavior.nextHoldStatus = "in_process";
+      const service = buildService();
+      const first = await service.submitFunding(
+        shipmentId,
+        senderId,
+        { cardToken: "tok" },
+        new Date(pickupStart.getTime() - 2 * DAY),
+      );
+      expect(first.funded).toBe(false);
+      // MP lo autoriza por su cuenta: la próxima vuelta lo detecta (GET ?sync=true) y asigna.
+      paymentsClient.holds.set(shipmentId, { ...paymentsClient.holds.get(shipmentId)!, status: "authorized" });
+
+      const result = await service.processUnfundedAssignments(new Date(pickupStart.getTime() - 2 * DAY));
+
+      expect(result.fundedCount).toBe(1);
+      expect((await shipmentRepo.findById(shipmentId))?.status).toBe(ShipmentStatus.ASSIGNED);
+      expect(pushedTitles(senderId)).toContain("Pago confirmado");
+      expect(pushedTitles(winner.carrierId)).toContain("Envío confirmado");
+    });
+
+    it("con un hold in_process vivo no se mandan recordatorios de pago (ruta lejana)", async () => {
+      const { shipmentId, pickupDate } = await acceptedShipment(10);
+      const pickupStart = anchorTimeOfDayToInstant(pickupDate, new Date("1970-01-01T09:00:00.000Z"));
+      paymentsClient.behavior.nextHoldStatus = "in_process";
+      const service = buildService();
+      await service.submitFunding(shipmentId, senderId, { cardToken: "tok" }, new Date(pickupStart.getTime() - 2 * DAY));
+      vi.mocked(notificationsClient.sendPush).mockClear();
+
+      const result = await service.processUnfundedAssignments(new Date(pickupStart.getTime() - 2 * DAY));
+
+      expect(result.openedCount + result.remindedCount).toBe(0);
+      expect(notificationsClient.sendPush).not.toHaveBeenCalled();
+    });
+
+    it("el aviso de reconfirmación y el barrido comparten el dedupe con el wiring real (Redis): no hay un segundo push", async () => {
+      const { shipmentId, hold } = await (async () => {
+        const data = await acceptedShipment(1);
+        await app.inject({
+          method: "POST",
+          url: `/shipments/${data.shipmentId}/funding`,
+          headers: { "x-user-id": senderId },
+          payload: { cardToken: "tok" },
+        });
+        const h = paymentsClient.holds.get(data.shipmentId)!;
+        paymentsClient.holds.set(data.shipmentId, { ...h, status: "cancelled" });
+        return { ...data, hold: h };
+      })();
+      await app.inject({
+        method: "POST",
+        url: `/internal/shipments/${shipmentId}/hold-events`,
+        payload: { holdId: hold.id, event: "expired" },
+      });
+      const calls = vi.mocked(notificationsClient.sendPush).mock.calls.length;
+
+      // El barrido real (mismo wiring que producción: sin claim inyectado a mano).
+      const sweepService = buildFundingService(app, { notificationsClient, paymentsClient });
+      await sweepService.processUnfundedAssignments(new Date());
+
+      expect(vi.mocked(notificationsClient.sendPush).mock.calls.length).toBe(calls);
     });
   });
 });

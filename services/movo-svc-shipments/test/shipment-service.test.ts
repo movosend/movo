@@ -1727,7 +1727,8 @@ describe("shipments.service — cancelShipment (MOVO-29/MOVO-108)", () => {
       shipment.id,
       ShipmentStatus.CANCELLED,
       "sender-id",
-      "me equivoqué"
+      "me equivoqué",
+      { expectedFrom: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION }
     );
     expect(offerRepository.listByShipment).not.toHaveBeenCalled();
   });

@@ -5,6 +5,7 @@ import {
   HoldResponse,
   LIVE_HOLD_STATUSES,
   NotificationTriggerKey,
+  OfferStatus,
   ShipmentFundingRequest,
   ShipmentFundingResponse,
   ShipmentFundingResult,
@@ -23,6 +24,7 @@ import {
 import { anchorTimeOfDayToInstant, pickupWindowEndInstant } from "../../domain/pickup-window";
 import { InvalidShipmentTransitionError } from "../../domain/shipment-state-machine";
 import { Shipment } from "../../models/shipment";
+import { OfferRepository } from "../../repositories/offer-repository";
 import { ShipmentConcurrentModificationError, ShipmentRepository } from "../../repositories/shipment-repository";
 import { sendCustodyPush } from "../../utils/dispatch-push";
 import { assertIsSender } from "../shipments/assert-shipment-access";
@@ -54,6 +56,8 @@ export interface FundingServiceDeps {
   usersClient: UsersClient;
   paymentsClient: PaymentsClient;
   config: FundingConfig;
+  /** Para avisar a los transportistas cuya oferta se cierra al confirmarse el hold (AC4). */
+  offerRepository?: OfferRepository;
   notificationsClient?: NotificationsClient;
   logger?: FundingLogger;
   /** Dedupe de avisos de los barridos (Redis `SET NX`), mismo contrato que MOVO-258 D6. */
@@ -100,7 +104,7 @@ export async function releaseHoldBeforeCancel(
 }
 
 export function createFundingService(deps: FundingServiceDeps) {
-  const { repository, usersClient, paymentsClient, config, notificationsClient, logger } = deps;
+  const { repository, usersClient, paymentsClient, config, notificationsClient, logger, offerRepository } = deps;
 
   const pickupStartOf = (shipment: Shipment): Date =>
     anchorTimeOfDayToInstant(shipment.pickupDate, shipment.pickupTimeWindowStart);
@@ -203,31 +207,101 @@ export function createFundingService(deps: FundingServiceDeps) {
     });
   }
 
-  /**
-   * Pasa el envío a `assigned` (hold confirmado) por la máquina de estados. Idempotente
-   * ante el doble tap / una reconciliación concurrente (AC14): si otra llamada ya lo dejó
-   * `assigned`, devuelve `false` sin error. Cualquier otro estado final es un conflicto real.
-   */
-  async function markAssigned(shipment: Shipment, actorId: string | null, reason: string): Promise<boolean> {
-    try {
-      await repository.updateStatus(shipment.id, ShipmentStatus.ASSIGNED, actorId, reason);
-      return true;
-    } catch (err) {
-      if (err instanceof ShipmentConcurrentModificationError || err instanceof InvalidShipmentTransitionError) {
-        const fresh = await repository.findById(shipment.id);
-        if (fresh?.status === ShipmentStatus.ASSIGNED) {
-          return false;
-        }
-      }
-      throw err;
-    }
-  }
-
   async function notifyFunded(shipment: Shipment): Promise<void> {
     await Promise.all([
       notify(shipment.senderId, "fundingConfirmedSender", undefined, shipment.id),
       notify(shipment.carrierId, "fundingConfirmedCarrier", undefined, shipment.id),
     ]);
+  }
+
+  /** Aviso al transportista cuya oferta se cerró porque el emisor confirmó el pago a otro. */
+  async function notifyOfferClosed(offerId: string, carrierId: string, shipmentId: string): Promise<void> {
+    if (!notificationsClient) {
+      return;
+    }
+    await sendCustodyPush({
+      notificationsClient,
+      userId: carrierId,
+      triggerKey: "offerSuperseded",
+      params: undefined,
+      data: { type: "offer_superseded", shipmentId, offerId },
+      logger,
+      onErrorContext: {
+        event: "notification_dispatch_failed",
+        message: "No se pudo avisar al transportista que su oferta se cerró",
+        extra: { shipmentId, offerId },
+      },
+    });
+  }
+
+  /**
+   * Pasa el envío a `assigned` (hold confirmado) por la máquina de estados, cierra las demás
+   * ofertas en la misma transacción (AC4) y avisa a las dos partes y a los transportistas
+   * desplazados. El UPDATE condiciona por el estado, el transportista y el precio con los que se
+   * creó el hold: si el envío ya es otra asignación, no se confirma. Idempotente ante el doble
+   * tap / una reconciliación concurrente (AC14): si otra llamada ya lo dejó `assigned`, devuelve
+   * `false` sin error. Cualquier otro estado final es un conflicto real.
+   */
+  async function markAssigned(shipment: Shipment, actorId: string | null, reason: string): Promise<boolean> {
+    const closingOffers = offerRepository
+      ? (await offerRepository.listByShipment(shipment.id)).filter((offer) => offer.status === OfferStatus.PENDING)
+      : [];
+    try {
+      await repository.updateStatus(shipment.id, ShipmentStatus.ASSIGNED, actorId, reason, {
+        expectedFrom: shipment.status,
+        ...(shipment.carrierId !== null && { expectedCarrierId: shipment.carrierId }),
+        ...(shipment.agreedPriceArs !== null && { expectedAgreedPriceArs: shipment.agreedPriceArs }),
+      });
+    } catch (err) {
+      if (err instanceof ShipmentConcurrentModificationError || err instanceof InvalidShipmentTransitionError) {
+        const fresh = await repository.findById(shipment.id);
+        if (fresh?.status === ShipmentStatus.ASSIGNED && fresh.carrierId === shipment.carrierId) {
+          return false;
+        }
+      }
+      throw err;
+    }
+    void notifyFunded(shipment);
+    for (const offer of closingOffers) {
+      void notifyOfferClosed(offer.id, offer.carrierId, shipment.id);
+    }
+    return true;
+  }
+
+  type SenderTrigger = "fundingTimedOutSender" | "fundingWindowExpiredSender";
+  type CarrierTrigger = "fundingTimedOutCarrier" | "fundingWindowExpiredCarrier";
+
+  /**
+   * Estado del hold de un envío que espera el pago, sin esperar a que venza el plazo:
+   * `funded` (autorizado: hay que confirmar la asignación), `live` (MP lo tiene en revisión),
+   * `none` (sin hold vivo) o `error` (no se pudo consultar a payments: no se decide nada).
+   * Un hold `in_process` se sincroniza con MP en cada vuelta: en la ruta lejana el emisor que
+   * ya pagó no tiene que recibir recordatorios de "falta pagar" durante días.
+   */
+  async function reconcileLiveHold(shipment: Shipment): Promise<"funded" | "live" | "none" | "error"> {
+    try {
+      let hold = await paymentsClient.findHoldByShipment(shipment.id);
+      if (!hold) {
+        return "none";
+      }
+      if (isFundedHold(hold)) {
+        return "funded";
+      }
+      if (hold.status !== "in_process" && hold.status !== "creating") {
+        return "none";
+      }
+      hold = (await paymentsClient.findHoldByShipment(shipment.id, { sync: true })) ?? hold;
+      if (isFundedHold(hold)) {
+        return "funded";
+      }
+      return LIVE_HOLD_STATUSES.includes(hold.status) ? "live" : "none";
+    } catch (err) {
+      logger?.warn(
+        { err, event: "funding_hold_lookup_failed", shipmentId: shipment.id },
+        "No se pudo consultar el hold del envío: se reintenta en el próximo barrido",
+      );
+      return "error";
+    }
   }
 
   /**
@@ -271,13 +345,18 @@ export function createFundingService(deps: FundingServiceDeps) {
   async function revertToPublished(
     shipment: Shipment,
     reason: string,
-    triggers: { sender: NotificationTriggerKey; carrier: NotificationTriggerKey },
+    triggers: { sender: SenderTrigger; carrier: CarrierTrigger },
   ): Promise<void> {
     const carrierId = shipment.carrierId;
-    await repository.updateStatus(shipment.id, ShipmentStatus.PUBLISHED, null, reason);
+    // El UPDATE condiciona por el estado que se evaluó: si el envío cambió en el medio (se
+    // pagó, se canceló, lo tomó otra asignación) no se revierte a ciegas.
+    await repository.updateStatus(shipment.id, ShipmentStatus.PUBLISHED, null, reason, {
+      expectedFrom: shipment.status,
+      ...(shipment.carrierId !== null && { expectedCarrierId: shipment.carrierId }),
+    });
     await Promise.all([
-      notify(shipment.senderId, triggers.sender as "fundingTimedOutSender", undefined, shipment.id),
-      notify(carrierId, triggers.carrier as "fundingTimedOutCarrier", undefined, shipment.id),
+      notify(shipment.senderId, triggers.sender, undefined, shipment.id),
+      notify(carrierId, triggers.carrier, undefined, shipment.id),
     ]);
   }
 
@@ -368,9 +447,8 @@ export function createFundingService(deps: FundingServiceDeps) {
         };
       }
 
-      let transitioned: boolean;
       try {
-        transitioned = await markAssigned(shipment, callerId, "Reserva de fondos confirmada");
+        await markAssigned(shipment, callerId, "Reserva de fondos confirmada");
       } catch (err) {
         // El hold quedó autorizado pero el envío ya no puede pasar a `assigned` (se canceló o
         // el barrido lo revirtió en el medio): se libera para no dejar fondos retenidos.
@@ -390,10 +468,6 @@ export function createFundingService(deps: FundingServiceDeps) {
           );
         }
         throw err;
-      }
-
-      if (transitioned) {
-        void notifyFunded(shipment);
       }
 
       return {
@@ -418,10 +492,19 @@ export function createFundingService(deps: FundingServiceDeps) {
       let errorsCount = 0;
 
       await forEachByStatus(ShipmentStatus.ASSIGNMENT_PENDING, async (shipment) => {
-        if (payUntilOf(shipment) > now) {
-          return;
-        }
         try {
+          // Un hold que MP dejó `in_process` y después autorizó se confirma en esta vuelta, sin
+          // esperar al vencimiento del plazo.
+          const live = await reconcileLiveHold(shipment);
+          if (live === "funded") {
+            if (await markAssigned(shipment, null, "Reserva de fondos confirmada (reconciliación)")) {
+              fundedCount++;
+            }
+            return;
+          }
+          if (payUntilOf(shipment) > now) {
+            return;
+          }
           const outcome = await settleHoldBeforeRevert(shipment);
           if (outcome === "retry") {
             return;
@@ -429,7 +512,6 @@ export function createFundingService(deps: FundingServiceDeps) {
           if (outcome === "funded") {
             if (await markAssigned(shipment, null, "Reserva de fondos confirmada (reconciliación)")) {
               fundedCount++;
-              void notifyFunded(shipment);
             }
             return;
           }
@@ -484,6 +566,14 @@ export function createFundingService(deps: FundingServiceDeps) {
           const pickupStart = pickupStartOf(shipment);
           const deadline = payUntilOf(shipment);
 
+          const live = await reconcileLiveHold(shipment);
+          if (live === "funded") {
+            if (await markAssigned(shipment, null, "Reserva de fondos confirmada (reconciliación)")) {
+              fundedCount++;
+            }
+            return;
+          }
+
           if (deadline <= now) {
             const outcome = await settleHoldBeforeRevert(shipment);
             if (outcome === "retry") {
@@ -492,7 +582,6 @@ export function createFundingService(deps: FundingServiceDeps) {
             if (outcome === "funded") {
               if (await markAssigned(shipment, null, "Reserva de fondos confirmada (reconciliación)")) {
                 fundedCount++;
-                void notifyFunded(shipment);
               }
               return;
             }
@@ -508,6 +597,12 @@ export function createFundingService(deps: FundingServiceDeps) {
               { sender: "fundingWindowExpiredSender", carrier: "fundingWindowExpiredCarrier" },
             );
             revertedCount++;
+            return;
+          }
+
+          // Con un hold vivo el emisor ya pagó y MP lo está revisando: ni "Confirmá el pago" ni
+          // recordatorios (el transportista tampoco necesita el aviso de pago pendiente).
+          if (live === "live") {
             return;
           }
 
@@ -596,13 +691,7 @@ export function createFundingService(deps: FundingServiceDeps) {
         return { handled: false, outcome: "rejected_retry_allowed" };
       }
 
-      if (shipment.status === ShipmentStatus.ASSIGNMENT_PENDING) {
-        await revertToPublished(shipment, `La reserva de fondos se perdió (${reasonDetail})`, {
-          sender: "fundingHoldLostSender",
-          carrier: "fundingHoldLostCarrier",
-        });
-        return { handled: true, outcome: "reverted_to_published" };
-      }
+      const attemptFailedKey = `funding-attempt-failed:${event.holdId}`;
 
       if (shipment.status === ShipmentStatus.ASSIGNED) {
         // El pago ya estaba confirmado y MP perdió la reserva: el envío NO se libera, vuelve a
@@ -614,6 +703,7 @@ export function createFundingService(deps: FundingServiceDeps) {
             ShipmentStatus.ASSIGNED_UNFUNDED,
             null,
             `La reserva de fondos se perdió (${reasonDetail}): se pide reconfirmar el pago`,
+            { expectedFrom: ShipmentStatus.ASSIGNED },
           );
         } catch (err) {
           if (err instanceof ShipmentConcurrentModificationError || err instanceof InvalidShipmentTransitionError) {
@@ -621,14 +711,16 @@ export function createFundingService(deps: FundingServiceDeps) {
           }
           throw err;
         }
-        // Este aviso reemplaza al de "se abrió la ventana" y al primer recordatorio: se
-        // reclaman sus marcas para que el barrido no mande un segundo push a los minutos.
+        // Este aviso reemplaza al de "se abrió la ventana", al primer recordatorio y al de
+        // "intento fallido": se reclaman sus marcas para que no llegue un segundo push a los
+        // minutos.
         if (deps.claimNotificationOnce) {
           await deps.claimNotificationOnce(`funding-window-opened:${shipment.id}`, 30 * DAY_SECONDS);
           await deps.claimNotificationOnce(
             `funding-reminder:${shipment.id}:${reminderBucket(new Date(), config.reminderIntervalHours)}`,
             Math.max(1, config.reminderIntervalHours) * 3600 * 2,
           );
+          await deps.claimNotificationOnce(attemptFailedKey, 7 * DAY_SECONDS);
         }
         await Promise.all([
           notify(shipment.senderId, "fundingReconfirmSender", undefined, shipment.id),
@@ -637,10 +729,38 @@ export function createFundingService(deps: FundingServiceDeps) {
         return { handled: true, outcome: "reconfirmation_requested" };
       }
 
-      // `assigned_unfunded`: el hold cerrado fue un intento fallido o un aviso repetido de la
-      // reconfirmación. No hay nada que revertir acá: el plazo lo gobierna el barrido.
-      if (shipment.status === ShipmentStatus.ASSIGNED_UNFUNDED) {
+      // Mismo trato que un rechazo: un `cancelled`/`expired` mientras el envío espera el pago NO lo
+      // revierte. El emisor todavía puede reintentar y el barrido gobierna el plazo (y reconcilia
+      // el hold antes de revertir, así que no se pierde nada). Se le avisa UNA vez por hold que su
+      // intento no prosperó para que vuelva a pagar.
+      if (
+        shipment.status === ShipmentStatus.ASSIGNMENT_PENDING ||
+        shipment.status === ShipmentStatus.ASSIGNED_UNFUNDED
+      ) {
+        const firstTime = deps.claimNotificationOnce
+          ? await deps.claimNotificationOnce(attemptFailedKey, 7 * DAY_SECONDS)
+          : false;
+        if (firstTime) {
+          await notify(shipment.senderId, "fundingAttemptFailedSender", undefined, shipment.id);
+        }
         return { handled: false, outcome: "awaiting_payment" };
+      }
+
+      // Con el paquete ya retirado o entregado no hay estado al que volver: el transportista
+      // no va a poder cobrar si el hold no se puede capturar (MOVO-212). Queda como error
+      // detectable, con evento propio, hasta que MOVO-212/MOVO-268 definan qué hace la captura.
+      if (shipment.status === ShipmentStatus.IN_TRANSIT || shipment.status === ShipmentStatus.DELIVERED) {
+        logger?.error(
+          {
+            event: "funding_hold_lost_in_transit",
+            shipmentId,
+            holdId: event.holdId,
+            kind: event.event,
+            shipmentStatus: shipment.status,
+          },
+          "MP canceló/venció el hold de un envío ya retirado: el cobro al entregar puede fallar",
+        );
+        return { handled: false, outcome: "hold_lost_after_pickup" };
       }
 
       return { handled: false, outcome: "status_not_applicable" };

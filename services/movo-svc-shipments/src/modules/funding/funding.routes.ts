@@ -3,6 +3,7 @@ import { HoldProviderEventRequest, ShipmentFundingRequest } from "@movo/shared";
 import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 import { createPaymentsClient, PaymentsClient } from "../../adapters/payments-client";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
+import { createOfferRepository } from "../../repositories/offer-repository";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { fundingSchemas } from "./funding.schema";
@@ -15,7 +16,12 @@ export interface FundingRoutesOptions extends FastifyPluginOptions {
   paymentsClient?: PaymentsClient;
 }
 
-/** Arma el service de la saga con la config de env; lo comparten las rutas y el barrido. */
+/**
+ * Arma el service de la saga con la config de env; lo comparten las rutas, el aviso interno de MP
+ * y el barrido. El dedupe de avisos (Redis `SET NX`) se cablea SIEMPRE acá: el aviso de
+ * reconfirmación y el barrido tienen que compartir las mismas marcas, y antes solo las pasaba el
+ * plugin del barrido, así que en el camino HTTP el dedupe no corría y llegaban dos pushes.
+ */
 export function buildFundingService(
   app: FastifyInstance,
   opts: FundingRoutesOptions & {
@@ -28,9 +34,16 @@ export function buildFundingService(
     usersClient: opts.usersClient ?? createUsersClient(app.config),
     paymentsClient: opts.paymentsClient ?? createPaymentsClient(app.config),
     notificationsClient: opts.notificationsClient ?? createNotificationsClient(app.config),
+    offerRepository: createOfferRepository(app.db),
     logger: app.log,
-    claimNotificationOnce: opts.claimNotificationOnce,
-    releaseNotificationClaim: opts.releaseNotificationClaim,
+    claimNotificationOnce:
+      opts.claimNotificationOnce ??
+      (async (key, ttlSeconds) => (await app.redis.set(`notified:${key}`, "1", "EX", ttlSeconds, "NX")) === "OK"),
+    releaseNotificationClaim:
+      opts.releaseNotificationClaim ??
+      (async (key) => {
+        await app.redis.del(`notified:${key}`);
+      }),
     config: {
       nearPickupDays: app.config.FUNDING_NEAR_PICKUP_DAYS,
       paymentTimeoutMinutes: app.config.FUNDING_PAYMENT_TIMEOUT_MINUTES,
