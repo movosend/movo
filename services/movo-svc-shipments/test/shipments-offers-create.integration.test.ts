@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { FastifyInstance } from "fastify";
-import { ShipmentStatus, TripStatus } from "@movo/shared";
+import { KycStatus, ShipmentStatus, TripStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { createOfferRepository, OfferRepository } from "../src/repositories/offer-repository";
@@ -9,6 +9,7 @@ import { createTripRepository, TripRepository } from "../src/repositories/trip-r
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
 import { CreateTripInput } from "../src/models/trip";
 import { createFakeUsersClient, fakePublicProfile } from "./fake-users-client";
+import { createFakePaymentsClient } from "./fake-payments-client";
 import { createFakeNotificationsClient } from "./fake-notifications-client";
 import { NotificationsClient } from "../src/adapters/notifications-client";
 
@@ -87,6 +88,7 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
 
     notificationsClient = createFakeNotificationsClient();
     app = buildApp({
+      paymentsClient: createFakePaymentsClient(),
       usersClient: createFakeUsersClient({
         [verifiedCarrierId]: fakePublicProfile({ id: verifiedCarrierId, fullName: "Juan Transportista", isVerified: true }),
         [unverifiedCarrierId]: fakePublicProfile({ id: unverifiedCarrierId, isVerified: false }),
@@ -332,21 +334,21 @@ describe("POST /shipments/:id/offers (Postgres, MOVO-143)", () => {
 
   it("MOVO-187 AC3: un usersClient que falla no bloquea la creación -- los 4 campos de snapshot (transportista y emisor) quedan null", async () => {
     const carrierId = randomUUID();
-    // La primera llamada (assertVerifiedCarrier, el gate de KYC del transportista)
-    // tiene que resolver OK para poder llegar al snapshot -- de ahí en adelante
-    // (snapshot del transportista y del emisor, en ese orden) todo falla, incluido el
-    // hallazgo de este ticket: antes de este fix, el snapshot del transportista NO
-    // toleraba esto.
-    const findPublicProfile = vi
-      .fn()
-      .mockResolvedValueOnce(fakePublicProfile({ id: carrierId, isVerified: true }))
-      .mockRejectedValue(new Error("usersClient caído"));
+    // El gate del transportista (MOVO-116, `findKycStatus`) tiene que resolver OK para
+    // poder llegar al snapshot -- el snapshot (transportista y emisor, vía
+    // `findPublicProfile`) falla siempre, incluido el hallazgo de este ticket: antes de
+    // este fix, el snapshot del transportista NO toleraba esto.
+    const findPublicProfile = vi.fn().mockRejectedValue(new Error("usersClient caído"));
 
     const failingApp = buildApp({
+      paymentsClient: createFakePaymentsClient(),
       usersClient: {
         findPublicProfile,
         findDeviceKey: vi.fn().mockResolvedValue(null),
         listBlockRelatedUserIds: vi.fn().mockResolvedValue([]),
+        findKycStatus: vi
+          .fn()
+          .mockResolvedValue({ kycStatusIdentity: KycStatus.APPROVED, kycStatusLicense: KycStatus.APPROVED }),
       },
       sweepEnabled: false,
     });

@@ -5,6 +5,7 @@ import { tripsSchemas } from "./trips.schema";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
+import { createPaymentsClient, PaymentsClient } from "../../adapters/payments-client";
 import { createTripRepository, TripRepository } from "../../repositories/trip-repository";
 import { createShipmentRepository, ShipmentRepository } from "../../repositories/shipment-repository";
 import { createOfferRepository, OfferRepository } from "../../repositories/offer-repository";
@@ -19,6 +20,8 @@ import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-prov
 
 export interface TripsRoutesOptions extends FastifyPluginOptions {
   usersClient?: UsersClient;
+  /** Override solo para tests de integración -- MOVO-116, mismo criterio que `usersClient`. */
+  paymentsClient?: PaymentsClient;
   tripRepository?: TripRepository;
   shipmentRepository?: ShipmentRepository;
   offerRepository?: OfferRepository;
@@ -72,6 +75,7 @@ function toAvailableShipmentDto(item: MatchedShipment) {
 
 export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoutesOptions) {
   const usersClient = opts.usersClient ?? createUsersClient(app.config);
+  const paymentsClient = opts.paymentsClient ?? createPaymentsClient(app.config);
   const tripRepository = opts.tripRepository ?? createTripRepository(app.db);
   const shipmentRepository = opts.shipmentRepository ?? createShipmentRepository(app.db);
   const offerRepository = opts.offerRepository ?? createOfferRepository(app.db);
@@ -91,6 +95,7 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
       shipmentRepository,
       offerRepository,
       usersClient,
+      paymentsClient,
       pricingLogisticsClient,
       defaultMaxDetourKm,
       logger: app.log,
@@ -104,11 +109,19 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
     {
       schema: {
         summary: "Declarar viaje (transportista)",
+        description:
+          "MOVO-161/MOVO-116 (ADR-036): requiere rol carrier + KYC de identidad " +
+          "aprobado (403 CARRIER_NOT_VERIFIED), licencia de conducir aprobada y cuenta " +
+          "de Mercado Pago vinculada (403 CARRIER_LICENSE_NOT_APPROVED o " +
+          "CARRIER_MP_ACCOUNT_NOT_LINKED, el primero que falte, con " +
+          "details.missingRequirements listando todos), antes de persistir nada. 502 " +
+          "USERS_SERVICE_UNAVAILABLE/PAYMENTS_SERVICE_UNAVAILABLE si no se pudo verificar.",
         body: tripsSchemas.createTripBody,
         response: {
           201: tripsSchemas.tripResponse,
           400: tripsSchemas.errorResponse,
           403: tripsSchemas.errorResponse,
+          502: tripsSchemas.errorResponse,
         },
       },
     },
@@ -299,12 +312,18 @@ export default async function tripsRoutes(app: FastifyInstance, opts: TripsRoute
     {
       schema: {
         summary: "Iniciar viaje declarado (transportista)",
+        description:
+          "MOVO-221/277. MOVO-116 (ADR-036): el transportista dueño del viaje tiene " +
+          "que seguir cumpliendo los requisitos para operar -- 403 CARRIER_NOT_VERIFIED, " +
+          "CARRIER_LICENSE_NOT_APPROVED o CARRIER_MP_ACCOUNT_NOT_LINKED (con " +
+          "details.missingRequirements); 502 si no se pudo verificar.",
         params: tripsSchemas.tripIdParam,
         response: {
           200: tripsSchemas.tripResponse,
           403: tripsSchemas.errorResponse,
           404: tripsSchemas.errorResponse,
           409: tripsSchemas.errorResponse,
+          502: tripsSchemas.errorResponse,
         },
       },
     },

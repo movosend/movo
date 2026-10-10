@@ -21,5 +21,22 @@ describe("ApiError", () => {
         statusCode: 404,
       },
     });
+    expect(error.toJSON().error).not.toHaveProperty("details");
+  });
+
+  it("incluye details solo cuando el error los trae (MOVO-116)", () => {
+    const error = new ApiError(403, "CARRIER_LICENSE_NOT_APPROVED", "Falta la licencia", {
+      missingRequirements: ["license", "mp_account"],
+    });
+
+    expect(error.details).toEqual({ missingRequirements: ["license", "mp_account"] });
+    expect(error.toJSON()).toEqual({
+      error: {
+        code: "CARRIER_LICENSE_NOT_APPROVED",
+        message: "Falta la licencia",
+        statusCode: 403,
+        details: { missingRequirements: ["license", "mp_account"] },
+      },
+    });
   });
 });

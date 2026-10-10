@@ -28,6 +28,7 @@ import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/pos
 import demoRoutes, { DemoRoutesOptions } from "./modules/demo/demo.routes";
 import { ShipmentRepository } from "./repositories/shipment-repository";
 import { UsersClient } from "./adapters/users-client";
+import { PaymentsClient } from "./adapters/payments-client";
 import { StorageProvider } from "./adapters/storage-provider";
 import { RoutesProvider } from "./adapters/routes-provider";
 import { NotificationsClient } from "./adapters/notifications-client";
@@ -40,6 +41,9 @@ export interface BuildAppOptions {
    * real levantado, mismo criterio que `smsProvider`/`diditClient`/`geocodingProvider`/
    * `storageProvider` en movo-svc-users. */
   usersClient?: UsersClient;
+  /** Override solo para tests de integración — evita depender de un `movo-svc-payments`
+   * real levantado (MOVO-116, bloqueo del transportista), mismo criterio que `usersClient`. */
+  paymentsClient?: PaymentsClient;
   /** Override solo para tests de integración — evita depender de un bucket real/
    * credenciales de AWS (MOVO-81). */
   storageProvider?: StorageProvider;
@@ -169,6 +173,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.pricingClient ? { pricingClient: opts.pricingClient } : {}),
     ...(opts.pricingLogisticsClient ? { pricingLogisticsClient: opts.pricingLogisticsClient } : {}),
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
   };
   app.register(shipmentsRoutes, shipmentsRouteOpts);
 
@@ -180,6 +185,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     // MOVO-234: resuelve la ficha de vehículo del transportista para el Trip
     // auto-creado al aceptar una oferta sin viaje asociado.
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
   };
   app.register(offersRoutes, offersRouteOpts);
 
@@ -198,6 +204,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     prefix: "/trips",
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.pricingLogisticsClient ? { pricingLogisticsClient: opts.pricingLogisticsClient } : {}),
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
   };
   app.register(tripsRoutes, tripsRouteOpts);
 

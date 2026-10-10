@@ -18,7 +18,7 @@ export type { AccessTokenClaims } from "./auth/claims";
 
 // errors
 export { ApiError } from "./errors/api-error";
-export type { ApiErrorCode, SerializedApiError } from "./errors/api-error";
+export type { ApiErrorCode, ApiErrorDetails, SerializedApiError } from "./errors/api-error";
 
 // types
 export {
@@ -93,6 +93,14 @@ export type {
   MpConnectReturnResult,
   MpConnectReturnErrorCode,
 } from "./types/mp-connect";
+
+// carrier eligibility (MOVO-116)
+export type {
+  CarrierKycStatusResponse,
+  CarrierMpAccountStatusResponse,
+  CarrierRequirement,
+  CarrierRequirementsErrorDetails,
+} from "./types/carrier-eligibility";
 
 // hold (MOVO-209)
 export { CLOSED_HOLD_STATUSES, HOLD_STATUSES, LIVE_HOLD_STATUSES } from "./types/hold";

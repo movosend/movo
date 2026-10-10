@@ -189,6 +189,8 @@ services:
       # MOVO-82: el default de código (http://movo-svc-pricing-logistics:8000) ya
       # coincide con el nombre del servicio en movo-net, mismo criterio que
       # USERS_SERVICE_URL -- no hace falta setearlo acá.
+      # MOVO-116: PAYMENTS_SERVICE_URL, mismo criterio -- el default de código
+      # (http://movo-svc-payments:3000) ya coincide con el servicio en movo-net.
       # MOVO-202/ADR-023: retención de la traza GPS (días) y barrido de purga.
       - CARRIER_POSITION_RETENTION_DAYS=${CARRIER_POSITION_RETENTION_DAYS:-30}
       - CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES=${CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES:-60}

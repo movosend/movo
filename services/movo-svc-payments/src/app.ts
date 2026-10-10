@@ -13,6 +13,7 @@ import holdsPlugin from "./plugins/holds";
 import paymentsRoutes from "./modules/payments/payments.routes";
 import mpConnectCallbackRoutes from "./modules/mp-connect/mp-connect-callback.routes";
 import holdsRoutes from "./modules/holds/holds.routes";
+import mpConnectInternalRoutes from "./modules/mp-connect/mp-connect-internal.routes";
 import { MercadoPagoClient, SdkMercadoPagoClient } from "./adapters/mercadopago-client";
 import { FetchMercadoPagoOAuthClient, MercadoPagoOAuthClient } from "./adapters/mercadopago-oauth-client";
 
@@ -74,6 +75,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   // MOVO-209: interno, lo llama svc-shipments. Sin ruta en el gateway (ADR-010).
   app.register(holdsRoutes, { prefix: "/internal/payments/holds" });
+
+  // MOVO-116: interno, lo llama svc-shipments para el bloqueo del transportista.
+  app.register(mpConnectInternalRoutes, { prefix: "/internal/payments/mp-connect" });
 
   return app;
 }

@@ -11,6 +11,7 @@ import healthRoutes from "./modules/health/health.routes";
 import usersRoutes, { UsersRoutesOptions } from "./modules/users/users.routes";
 import authRoutes, { AuthRoutesOptions } from "./modules/auth/auth.routes";
 import kycRoutes, { KycRoutesOptions } from "./modules/kyc/kyc.routes";
+import kycInternalRoutes from "./modules/kyc/kyc-internal.routes";
 import geocodeRoutes, {
   GeocodeRoutesOptions,
 } from "./modules/geocode/geocode.routes";
@@ -158,6 +159,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // MOVO-157 AC3/AC4: interno, mismo criterio que /internal/notifications de arriba --
   // no se declara en gateway/src/config/routes-map.ts, así que el gateway no lo proxea.
   app.register(deviceKeysRoutes, { prefix: "/internal" });
+
+  // MOVO-116: estado de KYC (identidad + licencia) para el bloqueo de transportista de
+  // svc-shipments. Interno, mismo criterio que device-key.
+  app.register(kycInternalRoutes, { prefix: "/internal" });
 
   // MOVO-245: /users/me/notification-preferences -- protegida, ya cubierta por el
   // prefijo /users existente en gateway/src/config/routes-map.ts (sin cambios ahí).

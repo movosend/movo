@@ -99,6 +99,10 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   SHIPMENT_NOT_AVAILABLE_FOR_OFFER: "Este envío ya no está disponible para ofertar.",
   OFFER_DUPLICATE_ACTIVE: "Ya tenés una oferta activa sobre este envío.",
   OFFER_DATE_OUT_OF_RANGE: "La fecha del viaje tiene que coincidir con la fecha de retiro del envío.",
+  // MOVO-116 (ADR-036): lo ve el emisor al aceptar la oferta de un transportista que ya no
+  // cumple los requisitos para operar. Los dos códigos del lado del transportista
+  // (CARRIER_LICENSE_NOT_APPROVED/CARRIER_MP_ACCOUNT_NOT_LINKED) los resuelve MOVO-117.
+  OFFER_CARRIER_NOT_ELIGIBLE: "Este transportista ya no puede tomar envíos. Elegí otra oferta.",
   // Handshake criptográfico: escaneo del receptor de custodia (MOVO-160 / backend MOVO-158, Done).
   HANDSHAKE_QR_EXPIRED: "Este código venció. Pedile a la otra persona que genere uno nuevo.",
   HANDSHAKE_DISTANCE_EXCEEDED: "Estás a más de 100 m del punto. Acercate e intentá de nuevo.",

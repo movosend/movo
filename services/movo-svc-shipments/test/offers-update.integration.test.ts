@@ -4,6 +4,7 @@ import { FastifyInstance } from "fastify";
 import { ShipmentStatus } from "@movo/shared";
 import { buildApp } from "../src/app";
 import { createFakeUsersClient } from "./fake-users-client";
+import { createFakePaymentsClient } from "./fake-payments-client";
 import { createOfferRepository, OfferRepository } from "../src/repositories/offer-repository";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { CreateOfferInput } from "../src/models/offer";
@@ -62,7 +63,9 @@ describe("PATCH /offers/:id (Postgres, MOVO-181)", () => {
     return app.inject({
       method: "PATCH",
       url: `/offers/${offerId}`,
-      headers: { "x-user-id": userId },
+      // MOVO-116: el PATCH ahora pasa por el bloqueo del transportista, que mira el rol
+      // que inyecta el gateway.
+      headers: { "x-user-id": userId, "x-user-roles": "carrier" },
       payload: body,
     });
   }
@@ -74,7 +77,7 @@ describe("PATCH /offers/:id (Postgres, MOVO-181)", () => {
 
     // Editar una oferta consulta bloqueos en svc-users (MOVO-175): sin el fake, el
     // cliente real no llega a ningún host y el PATCH responde 502.
-    app = buildApp({ usersClient: createFakeUsersClient({}), sweepEnabled: false });
+    app = buildApp({ paymentsClient: createFakePaymentsClient(), usersClient: createFakeUsersClient({}), sweepEnabled: false });
     await app.ready();
     offerRepo = createOfferRepository(app.db);
     shipmentRepo = createShipmentRepository(app.db);

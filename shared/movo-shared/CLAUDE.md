@@ -393,3 +393,14 @@ distingue `unlinked` de `invalid` (revocada o vencida) y devuelve `account` (ema
 `/users/me`) también en `invalid`. `MP_CONNECT_RETURN_URL` (`movo://mp-connect`) es el deep link al
 que redirige el callback público. Cinco `ApiErrorCode` nuevos (`MP_CONNECT_*`,
 `MP_ACCOUNT_ALREADY_LINKED`): cuatro de ellos viajan en ese deep link, no como respuesta HTTP.
+
+### MOVO-116 — `ApiError.details`, requisitos del transportista y códigos nuevos (ADR-036)
+
+`ApiError` gana un 4.º parámetro opcional `details` (`ApiErrorDetails`), que `toJSON()` incluye
+solo si viene: primer error con datos extra para el cliente, compatible hacia atrás.
+`types/carrier-eligibility.ts`: `CarrierRequirement` (`"license" | "mp_account"`),
+`CarrierRequirementsErrorDetails` y las respuestas de los dos endpoints internos nuevos.
+Códigos nuevos: `CARRIER_LICENSE_NOT_APPROVED`, `PAYMENTS_SERVICE_UNAVAILABLE`,
+`OFFER_CARRIER_NOT_ELIGIBLE`; `CARRIER_MP_ACCOUNT_NOT_LINKED` (MOVO-209) se reusa, ahora también
+como 403 de `svc-shipments`. Mobile todavía no lee `details` (`parseErrorBody` lo descarta): es
+parte de MOVO-117.

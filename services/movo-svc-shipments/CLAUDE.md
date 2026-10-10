@@ -3094,3 +3094,29 @@ ejecutable; con paquetes aceptados pero ninguno ejecutable responde 409 `TRIP_PA
 
 Consecuencia aceptada: hasta MOVO-210 ningún envío llega a `assigned` por la app, así que en dev no se
 puede iniciar un viaje sin forzar el estado a mano.
+
+### MOVO-116 — Bloqueo de operar como transportista sin licencia ni MP vinculado (ADR-036)
+
+`src/utils/carrier-gate.ts` (nuevo): `assertVerifiedCarrier` (movido acá, antes duplicado en
+`trips.service.ts` y `shipments.service.ts`, sigue siendo el gate de LECTURAS) y
+`assertCarrierCanOperate`/`assertCarrierEligible`/`resolveCarrierEligibility`, que consultan en
+paralelo `usersClient.findKycStatus` (`GET /internal/users/:id/kyc-status`) y el cliente nuevo
+`src/adapters/payments-client.ts` (`GET /internal/payments/mp-connect/:userId/status`,
+`PAYMENTS_SERVICE_URL`, primera llamada de este servicio a `svc-payments`). Lo usan
+`createTrip`, `createOfferForShipment`, `updateOffer` y `startTrip` (sobre `trip.carrierId`,
+solo si el viaje está `declared`); `acceptOffer` revalida al transportista y responde 409
+`OFFER_CARRIER_NOT_ELIGIBLE` al emisor. **Revierte la decisión de MOVO-142** de no exigir licencia
+(ver su entrada arriba, ya superada en ese punto).
+
+- 403 con `details.missingRequirements`: los `errorResponse` de `trips`/`shipments`/`offers`
+  declaran `details`, si no fast-json-stringify lo descarta.
+- Sin cache (criterio 4) y falla cerrado (502 de cualquiera de los dos servicios).
+- `paymentsClient` es requerido en `createTripsService`/`createOffersService`; en
+  `ShipmentsServiceOptions` es opcional pero ofertar sin él lanza (no se saltea el chequeo).
+- Tests: `test/fake-payments-client.ts` (todos vinculados por defecto) y `findKycStatus` en
+  `fake-users-client.ts` (identidad desde `isVerified`, licencia aprobada por defecto, un
+  usuario fuera del mapa cuenta como habilitado) para no tocar los fixtures existentes. Los
+  tests que pasan por estos endpoints necesitan `paymentsClient` en `buildApp`.
+
+Pendiente / fuera de alcance: qué pasa si el transportista pierde MP a mitad de un viaje en
+curso (sin definir); la UI de requisitos pendientes es MOVO-117.
