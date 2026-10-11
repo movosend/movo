@@ -4388,3 +4388,11 @@ Sobre el mockup de Claude Design ("Transferencia de receptor v2"). Pantallas nue
   `receiver_transfer_invite` abre la invitación, `receiver_transfer` el detalle.
 
 Pendiente: no probado en device.
+
+**Rendimiento de `RouteMapCard`** (sin ticket): el barrido animado trabaja sobre un trazo
+simplificado (`simplifyPolyline`, la línea de base conserva todos los puntos) que avanza por
+distancia (`cumulativeFractions`), solo escribe los shared values que cambian y se pausa con la
+pantalla sin foco (prop `paused`) o la app en segundo plano. Los pines usan `StaticMarker`
+(`components/map/static-marker.tsx`, compartido con `trip-detail-map`) y el mapa apaga capas y
+controles que no usa. Pendiente: pausar el barrido cuando la card sale de pantalla dentro del
+mismo scroll; si el scroll del detalle sigue trabado, desactivar gestos del mapa o mostrarlo como imagen.

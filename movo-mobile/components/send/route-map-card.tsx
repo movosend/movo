@@ -1,7 +1,7 @@
 import { Pencil } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, Text, View } from "react-native";
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
+import { AppState, Pressable, Text, View } from "react-native";
+import MapView, { Polyline, PROVIDER_GOOGLE, type LatLng } from "react-native-maps";
 import Animated, { processColor, useAnimatedProps, useFrameCallback, useSharedValue } from "react-native-reanimated";
 import { useColorScheme } from "nativewind";
 import {
@@ -14,7 +14,8 @@ import {
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { useShipmentRoute } from "../../src/hooks/use-shipments";
 import { hexToRgba } from "../../src/lib/color";
-import { decodePolyline } from "../../src/lib/polyline";
+import { cumulativeFractions, decodePolyline, simplifyPolyline } from "../../src/lib/polyline";
+import { StaticMarker } from "../map/static-marker";
 import { SkeletonBlock } from "../ui/skeleton-block";
 
 const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
@@ -44,6 +45,12 @@ const SWEEP_DRAW_MS = 1800;
 const SWEEP_HOLD_MS = 400;
 const SWEEP_FADE_MS = 1400;
 const SWEEP_TOTAL_MS = SWEEP_DRAW_MS + SWEEP_HOLD_MS + SWEEP_FADE_MS;
+
+// Tolerancia de la simplificación del trazo del barrido, como fracción del tamaño de la
+// ruta: con el mapa encuadrando la ruta entera, 0,05% del recorrido es una fracción de
+// píxel. La línea gris de base conserva todos los puntos, así que lo que se ve no cambia;
+// lo que baja es lo que se copia y se reenvía al mapa nativo en cada frame de la animación.
+const SWEEP_SIMPLIFY_TOLERANCE = 0.0005;
 
 // `worklet`: además de usarse al armar la ruta fallback (JS thread), la reusa el
 // worklet de `useAnimatedProps` de abajo (UI thread) para no duplicar la fórmula.
@@ -98,6 +105,10 @@ interface RouteMapCardProps {
    * retiro queda como una línea de texto debajo, sin pin ni coordenadas: la vista del
    * receptor no expone el retiro exacto (MOVO-194 AC4). */
   pickupLabel?: string;
+  /** Pausa el barrido animado (ej. la pantalla perdió el foco): no hay nada que ver y
+   * cada frame cuesta un viaje al mapa nativo. También se pausa solo con la app en
+   * segundo plano. */
+  paused?: boolean;
   testID?: string;
 }
 
@@ -113,7 +124,7 @@ interface RouteMapCardProps {
  * el origen, un cuadrado para el destino, mismo color `fg-1` a propósito (se
  * distinguen por forma, no por color).
  */
-export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, testID }: RouteMapCardProps) {
+export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, paused = false, testID }: RouteMapCardProps) {
   const { colorScheme } = useColorScheme();
   const colors = useThemeColors();
   const mapRef = useRef<MapView>(null);
@@ -139,15 +150,18 @@ export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, testID }: 
   const frameCallback = useFrameCallback((frameInfo) => {
     if (startedAt.value === null) startedAt.value = frameInfo.timestamp;
     const elapsed = (frameInfo.timestamp - startedAt.value) % SWEEP_TOTAL_MS;
+    // Solo se escribe lo que cambia: asignar un shared value dispara el recálculo de las
+    // props animadas (y un viaje al mapa nativo) aunque el valor sea el mismo, y durante
+    // el tramo sostenido no cambia nada.
     if (elapsed < SWEEP_DRAW_MS) {
       sweepLength.value = elapsed / SWEEP_DRAW_MS;
-      sweepOpacity.value = 1;
+      if (sweepOpacity.value !== 1) sweepOpacity.value = 1;
     } else if (elapsed < SWEEP_DRAW_MS + SWEEP_HOLD_MS) {
-      sweepLength.value = 1;
-      sweepOpacity.value = 1;
+      if (sweepLength.value !== 1) sweepLength.value = 1;
+      if (sweepOpacity.value !== 1) sweepOpacity.value = 1;
     } else {
       const fadeT = (elapsed - SWEEP_DRAW_MS - SWEEP_HOLD_MS) / SWEEP_FADE_MS;
-      sweepLength.value = 1;
+      if (sweepLength.value !== 1) sweepLength.value = 1;
       sweepOpacity.value = 1 - fadeT;
     }
   }, false);
@@ -163,12 +177,42 @@ export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, testID }: 
   }, [pickup, delivery, route, routeFailed]);
   const isRouteLoading = Boolean(pickup && delivery) && routePoints.length === 0;
 
+  // Trazo del barrido: simplificado y con el largo acumulado de cada punto, así avanza a
+  // velocidad constante por distancia (no por cantidad de puntos) y cada frame trabaja
+  // sobre unas pocas decenas de puntos en vez de los miles de la ruta real.
+  const sweepPath = useMemo(() => {
+    if (routePoints.length < 2) return { points: routePoints, fractions: cumulativeFractions(routePoints) };
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    let minLng = Infinity;
+    let maxLng = -Infinity;
+    for (const point of routePoints) {
+      if (point.latitude < minLat) minLat = point.latitude;
+      if (point.latitude > maxLat) maxLat = point.latitude;
+      if (point.longitude < minLng) minLng = point.longitude;
+      if (point.longitude > maxLng) maxLng = point.longitude;
+    }
+    const span = Math.max(maxLat - minLat, maxLng - minLng);
+    const points = simplifyPolyline(routePoints, span * SWEEP_SIMPLIFY_TOLERANCE);
+    return { points, fractions: cumulativeFractions(points) };
+  }, [routePoints]);
+
   // Cada vez que aparece un trazo nuevo, el barrido arranca de cero desde el origen.
   useEffect(() => {
     startedAt.value = null;
     sweepLength.value = 0;
-    frameCallback.setActive(routePoints.length > 0);
-  }, [routePoints, frameCallback, startedAt, sweepLength]);
+  }, [routePoints, startedAt, sweepLength]);
+
+  // El barrido corre solo con trazo, pantalla en foco y app en primer plano.
+  const [appActive, setAppActive] = useState(AppState.currentState !== "background");
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => setAppActive(state === "active"));
+    return () => subscription.remove();
+  }, []);
+  const shouldSweep = routePoints.length > 0 && !paused && appActive;
+  useEffect(() => {
+    frameCallback.setActive(shouldSweep);
+  }, [frameCallback, shouldSweep]);
 
   // La punta del barrido interpola entre los dos puntos de ruta más cercanos en vez de
   // saltar de punto en punto — con pocos puntos (ruta fallback, o un polyline real con
@@ -182,6 +226,8 @@ export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, testID }: 
   // acá a mano el string `rgba(...)` cruza tal cual al lado nativo. En iOS, el view
   // manager de `Polyline` no logra parsearlo y el `GMSPolyline` cae a su azul por
   // defecto — se ve como un bug de color pero es un string sin procesar.
+  const sweepPoints = sweepPath.points;
+  const sweepFractions = sweepPath.fractions;
   const animatedSweepProps = useAnimatedProps<{ coordinates: LatLng[]; strokeColor: string }>(() => {
     "worklet";
     // `processColor` devuelve el int nativo que espera el view manager, no un string —
@@ -190,25 +236,32 @@ export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, testID }: 
     const nativeStrokeColor = processColor(
       hexToRgba(colors.fg1, sweepOpacity.value),
     ) as unknown as string;
-    const routeSteps = routePoints.length - 1;
-    if (routeSteps < 0) return { coordinates: [], strokeColor: nativeStrokeColor };
-    const rawIdx = sweepLength.value * routeSteps;
-    const sweepFloorIdx = Math.min(routeSteps, Math.floor(rawIdx));
-    const sweepFrac = rawIdx - sweepFloorIdx;
-    const sweepPoints = routePoints.slice(0, sweepFloorIdx + 1);
-    if (sweepFloorIdx < routeSteps) {
-      const from = routePoints[sweepFloorIdx];
-      const to = routePoints[sweepFloorIdx + 1];
-      sweepPoints.push({
-        latitude: interpolate(from.latitude, to.latitude, sweepFrac),
-        longitude: interpolate(from.longitude, to.longitude, sweepFrac),
+    const count = sweepPoints.length;
+    if (count < 2) return { coordinates: [], strokeColor: nativeStrokeColor };
+    // Último punto del trazo que la punta del barrido ya pasó (búsqueda binaria sobre el
+    // largo acumulado).
+    const progress = sweepLength.value;
+    let low = 0;
+    let high = count - 1;
+    while (low < high) {
+      const mid = (low + high + 1) >> 1;
+      if (sweepFractions[mid] <= progress) low = mid;
+      else high = mid - 1;
+    }
+    const coordinates = sweepPoints.slice(0, low + 1);
+    if (low < count - 1) {
+      // La punta interpola entre los dos puntos vecinos en vez de saltar de punto en punto.
+      const segment = sweepFractions[low + 1] - sweepFractions[low];
+      const frac = segment > 0 ? (progress - sweepFractions[low]) / segment : 0;
+      const from = sweepPoints[low];
+      const to = sweepPoints[low + 1];
+      coordinates.push({
+        latitude: interpolate(from.latitude, to.latitude, frac),
+        longitude: interpolate(from.longitude, to.longitude, frac),
       });
     }
-    return {
-      coordinates: sweepPoints,
-      strokeColor: nativeStrokeColor,
-    };
-  }, [routePoints, colors.fg1]);
+    return { coordinates, strokeColor: nativeStrokeColor };
+  }, [sweepPoints, sweepFractions, colors.fg1]);
 
   const deliveryOnly = !pickup && !!delivery && pickupLabel !== undefined;
 
@@ -278,6 +331,15 @@ export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, testID }: 
           zoomEnabled
           pitchEnabled={false}
           rotateEnabled={false}
+          // Sin capas ni controles que este mapa no usa: cada una es trabajo de dibujo
+          // nativo por frame (edificios 3D, tráfico, indoor) o views extra (brújula, barra
+          // de herramientas de Android).
+          showsBuildings={false}
+          showsTraffic={false}
+          showsIndoors={false}
+          showsCompass={false}
+          toolbarEnabled={false}
+          moveOnMarkerPress={false}
         >
           {pickup ? (
             <>
@@ -294,24 +356,32 @@ export function RouteMapCard({ pickup, delivery, onEdit, pickupLabel, testID }: 
                 animatedProps={animatedSweepProps}
               />
 
-              <Marker coordinate={{ latitude: pickup.lat, longitude: pickup.lng }} anchor={{ x: 0.5, y: 1 }}>
+              <StaticMarker
+                key={`pickup-${pickup.address}`}
+                coordinate={{ latitude: pickup.lat, longitude: pickup.lng }}
+                anchor={{ x: 0.5, y: 1 }}
+              >
                 <View className="items-center">
                   <View className="mb-1.5">
                     <RouteBadge label={pickup.address} />
                   </View>
                   <View className="h-3.5 w-3.5 rounded-full border-2 border-white bg-ink-950 dark:border-ink-950 dark:bg-white" />
                 </View>
-              </Marker>
+              </StaticMarker>
             </>
           ) : null}
-          <Marker coordinate={{ latitude: delivery.lat, longitude: delivery.lng }} anchor={{ x: 0.5, y: 1 }}>
+          <StaticMarker
+            key={`delivery-${delivery.address}`}
+            coordinate={{ latitude: delivery.lat, longitude: delivery.lng }}
+            anchor={{ x: 0.5, y: 1 }}
+          >
             <View className="items-center">
               <View className="mb-1.5">
                 <RouteBadge label={delivery.address} />
               </View>
               <View className="h-3.5 w-3.5 rounded-[3px] border-2 border-white bg-ink-950 dark:border-ink-950 dark:bg-white" />
             </View>
-          </Marker>
+          </StaticMarker>
         </MapView>
 
         {isRouteLoading ? (

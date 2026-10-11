@@ -395,6 +395,7 @@ export default function ShipmentDetailScreen() {
                     lat: shipment.deliveryLat,
                     lng: shipment.deliveryLng,
                   }}
+                  paused={!isFocused}
                   testID="shipment-detail-route-map"
                 />
               </View>
