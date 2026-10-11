@@ -10,6 +10,12 @@ const mockRouterBack = jest.fn();
 const mockRouterPush = jest.fn();
 const mockCanGoBack = jest.fn();
 
+jest.mock("../src/hooks/use-receiver-transfers", () => ({
+  useShipmentReceiverTransfers: jest.fn(() => ({ data: [] })),
+  useReceiverTransferInvitations: jest.fn(() => ({ data: [] })),
+  useCancelReceiverTransfer: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false })),
+}));
+
 jest.mock("expo-router", () => ({
   router: {
     replace: (...args: unknown[]) => mockRouterReplace(...args),
@@ -983,6 +989,141 @@ describe("ShipmentDetailScreen", () => {
     });
   });
 });
+
+describe("ShipmentDetailScreen — transferencia de receptor (MOVO-275)", () => {
+  const transferBase = {
+    id: "tr-1",
+    shipmentId: "shipment-1",
+    requestedBy: "lucia",
+    requesterName: "Lucía Gómez",
+    newReceiverId: "receiver-1",
+    newReceiverName: "Martín López",
+    reason: "Esa semana estoy de viaje",
+    responseReason: null,
+    cancelReason: null,
+    newReceiverDeadline: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+    createdAt: "2026-08-16T12:00:00.000Z",
+    resolvedBy: null,
+  };
+
+  function mockDetail(data: ShipmentSummary) {
+    mockUseShipment.mockReturnValue({ isLoading: false, isError: false, error: null, refetch: jest.fn(), data });
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // Un `mockReturnValueOnce` sin consumir de un test anterior del archivo se colaría
+    // en el primer render de estos: `mockClear` no vacía esa cola.
+    mockUseShipment.mockReset();
+    mockCurrentUser.mockReset();
+  });
+
+  it("el receptor ve la acción 'Que lo reciba otra persona' y navega a elegir a la persona", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.IN_TRANSIT,
+        carrierId: "carrier-1",
+        receiverTransfer: { viewerIsFormerReceiver: false, pending: null, completed: null },
+      }),
+    );
+
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+    await fireEvent.press(getByTestId("shipment-detail-receiver-transfer-action"));
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-1/receiver-transfer");
+  });
+
+  it("con una solicitud pendiente propia, muestra el plazo y la opción de cancelarla", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.PUBLISHED,
+        receiverTransfer: {
+          viewerIsFormerReceiver: false,
+          pending: {
+            ...transferBase,
+            requestedBy: "receiver-1",
+            newReceiverId: "martin",
+            status: "pending_new_receiver",
+            resolvedAt: null,
+          },
+          completed: null,
+        },
+      }),
+    );
+
+    const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-receiver-transfer-pending")).toBeTruthy();
+    expect(getByTestId("shipment-detail-receiver-transfer-deadline")).toHaveTextContent(/^Tiene hasta/);
+    expect(getByTestId("shipment-detail-receiver-transfer-cancel")).toBeTruthy();
+    expect(queryByTestId("shipment-detail-receiver-transfer-action")).toBeNull();
+  });
+
+  it("el receptor nuevo ve que ya no se puede volver a transferir", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.IN_TRANSIT,
+        carrierId: "carrier-1",
+        receiverTransfer: {
+          viewerIsFormerReceiver: false,
+          pending: null,
+          completed: { ...transferBase, status: "completed", resolvedAt: "2026-08-16T12:20:00.000Z" },
+        },
+      }),
+    );
+
+    const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-receiver-transfer-used")).toBeTruthy();
+    expect(queryByTestId("shipment-detail-receiver-transfer-action")).toBeNull();
+  });
+
+  it("el receptor original ve el detalle en solo lectura con el banner, sin retiro exacto ni precio", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "lucia" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.IN_TRANSIT,
+        carrierId: "carrier-1",
+        agreedPriceArs: 8400,
+        receiverTransfer: {
+          viewerIsFormerReceiver: true,
+          pending: null,
+          completed: { ...transferBase, status: "completed", resolvedAt: "2026-08-16T12:20:00.000Z" },
+        },
+      }),
+    );
+
+    const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-transferred-banner")).toBeTruthy();
+    expect(getByTestId("shipment-detail-transferred-banner-reason")).toHaveTextContent("“Esa semana estoy de viaje”");
+    expect(getByTestId("shipment-detail-role")).toHaveTextContent(/Transferiste/);
+    expect(queryByTestId("shipment-detail-price")).toBeNull();
+    expect(queryByTestId("shipment-detail-receiver-transfer")).toBeNull();
+    expect(queryByTestId("shipment-detail-cta")).toBeNull();
+    const mapProps = mockRouteMapCard.mock.calls.at(-1)?.[0] as { pickup: unknown };
+    expect(mapProps.pickup).toBeNull();
+  });
+
+  it("el emisor no tiene acción sobre la recepción", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.IN_TRANSIT,
+        carrierId: "carrier-1",
+        receiverTransfer: { viewerIsFormerReceiver: false, pending: null, completed: null },
+      }),
+    );
+
+    const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-receiver-transfer")).toBeNull();
+  });
+});
+
 
 describe("ShipmentDetailScreen — seguimiento en vivo (MOVO-271 AC3/AC5)", () => {
   beforeEach(() => {

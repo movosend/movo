@@ -5,6 +5,13 @@ import { useAttentionTasks } from "../src/hooks/use-attention-tasks";
 const mockUseAttentionSourceShipments = jest.fn();
 const mockPush = jest.fn();
 const mockUsePublicProfiles = jest.fn();
+const mockUseInvitations = jest.fn((): { data: unknown[] } => ({ data: [] }));
+
+jest.mock("../src/hooks/use-receiver-transfers", () => ({
+  useShipmentReceiverTransfers: jest.fn(() => ({ data: [] })),
+  useReceiverTransferInvitations: () => mockUseInvitations(),
+  useCancelReceiverTransfer: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false })),
+}));
 
 jest.mock("expo-router", () => ({
   router: { push: (...args: unknown[]) => mockPush(...args) },
@@ -238,5 +245,46 @@ describe("useAttentionTasks (MOVO-193)", () => {
     const { result } = await renderHook(() => useAttentionTasks());
 
     expect(result.current.tasks).toEqual([]);
+  });
+
+  it("MOVO-275 AC8: arma la invitación para recibir con el plazo; una vencida no se lista", async () => {
+    mockUseAttentionSourceShipments.mockReturnValue({ data: { items: [] }, isLoading: false });
+    const invitation = (id: string, deadline: string) => ({
+      id,
+      shipmentId: `s-${id}`,
+      requestedBy: "lucia",
+      requesterName: "Lucía Gómez",
+      newReceiverId: "me",
+      newReceiverName: "Yo",
+      reason: null,
+      responseReason: null,
+      status: "pending_new_receiver",
+      cancelReason: null,
+      newReceiverDeadline: deadline,
+      createdAt: "2026-10-10T12:00:00.000Z",
+      resolvedAt: null,
+      resolvedBy: null,
+      shipment: { id: `s-${id}`, deliveryAddress: "Av. Colón 1234, Córdoba" },
+    });
+    mockUseInvitations.mockReturnValue({
+      data: [
+        invitation("tr-1", new Date(Date.now() + 3 * 3600_000).toISOString()),
+        invitation("tr-old", new Date(Date.now() - 60_000).toISOString()),
+      ],
+    });
+
+    const { result } = await renderHook(() => useAttentionTasks());
+
+    expect(result.current.tasks).toHaveLength(1);
+    const task = result.current.tasks[0];
+    expect(task).toMatchObject({
+      kind: "transfer_invite",
+      transferId: "tr-1",
+      title: "Lucía te pidió que recibas un paquete",
+      meta: "Recibís en Av. Colón 1234",
+    });
+    task.onPress();
+    expect(mockPush).toHaveBeenCalledWith("/receiver-transfers/tr-1");
+    mockUseInvitations.mockReturnValue({ data: [] });
   });
 });

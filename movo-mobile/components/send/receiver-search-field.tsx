@@ -60,6 +60,9 @@ interface ReceiverSearchFieldProps {
   /** MOVO-253: ids que no se pueden elegir (quienes ya rechazaron el envío) — se
    * sacan de los resultados en vez de mostrarse deshabilitados. */
   excludeIds?: readonly string[];
+  /** MOVO-275: ids que aparecen pero no se pueden elegir, con el motivo a la vista
+   * (emisor y transportista en la transferencia de receptor). */
+  disabledReasons?: Readonly<Record<string, string>>;
   testID?: string;
 }
 
@@ -72,6 +75,7 @@ export function ReceiverSearchField({
   onClear,
   onFocusInput,
   excludeIds,
+  disabledReasons,
   testID,
 }: ReceiverSearchFieldProps) {
   const colors = useThemeColors();
@@ -217,6 +221,7 @@ export function ReceiverSearchField({
               <ReceiverResultRow
                 testID={testID ? `${testID}-result-${profile.id}` : undefined}
                 profile={profile}
+                disabledReason={disabledReasons?.[profile.id]}
                 onSelect={(p) => {
                   onSelect(p);
                   setQuery("");

@@ -4370,3 +4370,26 @@ ya no cumple los requisitos para operar (ADR-036). Los códigos del lado del tra
 `details.missingRequirements`) y leer `details` en `http-client.ts#parseErrorBody` quedan para
 MOVO-117, que además tiene que cubrir "Iniciar viaje" y editar oferta, no solo declarar viaje y
 ofertar.
+
+### MOVO-275 — Transferencia de receptor (ADR-037)
+
+Sobre el mockup de Claude Design ("Transferencia de receptor v2"). Pantallas nuevas:
+`shipments/[id]/receiver-transfer.tsx` (elegir a la persona: `ReceiverSearchField` gana
+`disabledReasons`, emisor y transportista aparecen deshabilitados con el motivo) y
+`receiver-transfers/[id].tsx` (invitación: aceptar, rechazar con motivo en un
+`BottomSheetModal`, estado "ya no vigente"). Cliente/hooks en `receiver-transfers-client.ts`/
+`use-receiver-transfers.ts`; textos en `src/lib/receiver-transfer-format.ts`.
+
+- **Detalle**: sección "Recepción" (`receiver-transfer-section.tsx`) para el receptor vigente
+  (acción, solicitud pendiente con "Cancelar solicitud", o "ya cambió de receptor una vez").
+  El receptor original ve `TransferredByYouBanner` y el detalle en solo lectura: sin precio ni
+  retiro exacto (como el receptor), sin acciones ni calificaciones, con tracking.
+- **Línea de tiempo**: un item por solicitud (`GET /shipments/:id/receiver-transfers`)
+  intercalado por fecha, con pill de estado y detalle desplegable; el texto cambia según
+  quién mira. Los eventos que hizo el receptor anterior (aceptar el envío) llevan su nombre
+  (`parties.formerReceiverId/Name`), no el del vigente.
+- "Requiere tu atención" suma la invitación (`transfer_invite`, fixture en la galería);
+  "Actividad reciente" y "Mis envíos" muestran "Transferido" (historial). Push:
+  `receiver_transfer_invite` abre la invitación, `receiver_transfer` el detalle.
+
+Pendiente: no probado en device.

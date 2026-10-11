@@ -6,7 +6,9 @@ import {
   shortAddressLabel,
 } from "../lib/shipment-format";
 import { useAuthStore } from "../store/auth-store";
+import { getFirstName } from "../lib/profile-format";
 import { usePublicProfiles } from "./use-profile";
+import { useReceiverTransferInvitations } from "./use-receiver-transfers";
 import { useAttentionSourceShipments } from "./use-shipments";
 
 /** Tarea informativa de un solo botón (ej. "Recibiste 2 ofertas"). */
@@ -50,7 +52,23 @@ export interface AttentionRejectedTask {
   onChooseReceiver: () => void;
 }
 
-export type AttentionTask = AttentionInfoTask | AttentionConfirmTask | AttentionRejectedTask;
+/** MOVO-275 AC8: el receptor de un envío le pidió al usuario que lo reciba en su lugar.
+ * Se renderiza con `AttentionTransferInviteCard`; el emisor no tiene card (solo push). */
+export interface AttentionTransferInviteTask {
+  kind: "transfer_invite";
+  id: string;
+  transferId: string;
+  title: string;
+  meta: string;
+  deadlineLabel: string;
+  onPress: () => void;
+}
+
+export type AttentionTask =
+  | AttentionInfoTask
+  | AttentionConfirmTask
+  | AttentionRejectedTask
+  | AttentionTransferInviteTask;
 
 /**
  * "Requiere tu atención" (MOVO-193, alcance ampliado a pedido del usuario: reusar
@@ -85,6 +103,7 @@ export type AttentionTask = AttentionInfoTask | AttentionConfirmTask | Attention
  */
 export function useAttentionTasks() {
   const { data, isLoading } = useAttentionSourceShipments();
+  const { data: invitations } = useReceiverTransferInvitations();
   const currentUserId = useAuthStore((s) => s.user?.userId);
 
   const confirmSenderIds = Array.from(
@@ -121,6 +140,22 @@ export function useAttentionTasks() {
   );
 
   const tasks: AttentionTask[] = [];
+  // MOVO-275 AC8: invitaciones para recibir en lugar de otra persona, con el plazo que
+  // queda. Una vencida (el barrido todavía no la cerró) no se lista.
+  for (const invitation of invitations ?? []) {
+    const deadlineLabel = redesignationDeadlineLabel(invitation.newReceiverDeadline);
+    if (!deadlineLabel) continue;
+    const requester = getFirstName(invitation.requesterName) || "Alguien";
+    tasks.push({
+      kind: "transfer_invite",
+      id: `transfer-${invitation.id}`,
+      transferId: invitation.id,
+      title: `${requester} te pidió que recibas un paquete`,
+      meta: `Recibís en ${shortAddressLabel(invitation.shipment.deliveryAddress)}`,
+      deadlineLabel,
+      onPress: () => router.push(`/receiver-transfers/${invitation.id}`),
+    });
+  }
   if (data && currentUserId) {
     for (const shipment of data.items) {
       if (

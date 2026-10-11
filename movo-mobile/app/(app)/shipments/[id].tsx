@@ -4,6 +4,7 @@ import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useFocusEffect, useIsFocused, useLocalSearchParams, type Href } from "expo-router";
 import {
   ArrowDownLeft,
+  ArrowLeftRight,
   ArrowUpRight,
   ChevronLeft,
   Clock,
@@ -25,6 +26,8 @@ import { PackageCard } from "../../../components/shipments/package-card";
 import { RatingSheet, type RatingTarget } from "../../../components/shipments/rating-sheet";
 import { ReceiverActionsBar } from "../../../components/shipments/receiver-actions-bar";
 import { RejectedReceiverBanner } from "../../../components/shipments/rejected-receiver-banner";
+import { ReceiverTransferSection } from "../../../components/shipments/receiver-transfer-section";
+import { TransferredByYouBanner } from "../../../components/shipments/transferred-by-you-banner";
 import { SenderActionsBar } from "../../../components/shipments/sender-actions-bar";
 import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
 import { ShipmentRatingsCard } from "../../../components/shipments/shipment-ratings-card";
@@ -162,6 +165,12 @@ export default function ShipmentDetailScreen() {
   const activeUserId = currentUser?.userId ?? "";
 
   const isReceiver = shipment !== undefined && currentUser?.userId === shipment.receiverId;
+  // MOVO-275 (ADR-037): le pasó la recepción a otra persona y ve el envío en solo
+  // lectura. No es ninguno de los tres roles, así que no tiene acciones ni CTA; como el
+  // receptor, no ve el punto exacto de retiro ni el precio.
+  const isFormerReceiver = shipment?.receiverTransfer?.viewerIsFormerReceiver === true;
+  const completedTransfer = shipment?.receiverTransfer?.completed ?? null;
+  const seesReceiverView = isReceiver || isFormerReceiver;
 
   // Mismo query key que `CounterpartCard` (`usePublicProfile`, MOVO-154) — TanStack
   // Query dedupea, así que esto no dispara un segundo request cuando esa card ya trajo
@@ -282,6 +291,12 @@ export default function ShipmentDetailScreen() {
           <Text className="font-sans-semibold text-h3 text-fg">Detalle del envío</Text>
           {shipment ? (
             <View className="mt-0.5 flex-row items-center gap-1">
+              {isFormerReceiver ? (
+                <View testID="shipment-detail-role" className="flex-row items-center gap-0.5">
+                  <ArrowLeftRight size={11} strokeWidth={2} color={colors.fg3} />
+                  <Text className="font-sans text-[10px] uppercase tracking-wide text-fg-3">Transferiste ·</Text>
+                </View>
+              ) : null}
               {role ? (
                 <View testID="shipment-detail-role" className="flex-row items-center gap-0.5">
                   {role === "sender" ? (
@@ -364,13 +379,17 @@ export default function ShipmentDetailScreen() {
                 />
               }
             >
+              {isFormerReceiver && completedTransfer ? (
+                <TransferredByYouBanner transfer={completedTransfer} testID="shipment-detail-transferred-banner" />
+              ) : null}
+
               <View>
                 <Eyebrow>Ruta</Eyebrow>
                 {/* El receptor no ve el punto exacto de retiro: solo el pin de entrega y
                     la localidad del origen, sin calle ni altura (AC4). */}
                 <RouteMapCard
                   pickup={
-                    isReceiver
+                    seesReceiverView
                       ? null
                       : {
                           address: shipment.pickupAddress,
@@ -379,7 +398,7 @@ export default function ShipmentDetailScreen() {
                         }
                   }
                   pickupLabel={
-                    isReceiver
+                    seesReceiverView
                       ? (pickupLocalityLabel(shipment.pickupAddress) ?? "la zona del emisor")
                       : undefined
                   }
@@ -429,7 +448,7 @@ export default function ShipmentDetailScreen() {
                 </View>
                 {/* El precio es un acuerdo entre emisor y transportista: el receptor no
                     paga nada, así que no se le muestra y el retiro ocupa todo el ancho. */}
-                {isReceiver ? null : (
+                {seesReceiverView ? null : (
                   <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
                     <GridPattern />
                     <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
@@ -467,7 +486,7 @@ export default function ShipmentDetailScreen() {
                 <OffersBanner shipmentId={shipment.id} testID="shipment-detail-offers" />
               ) : null}
 
-              {isCarrier ? (
+              {isCarrier || isFormerReceiver ? (
                 <View>
                   <Eyebrow>Emisor</Eyebrow>
                   <CounterpartCard
@@ -505,8 +524,17 @@ export default function ShipmentDetailScreen() {
                 </View>
               ) : null}
 
-              {/* Sección de calificaciones post-entrega (MOVO-153) */}
-              {FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? (
+              {isReceiver && activeUserId ? (
+                <ReceiverTransferSection
+                  shipment={shipment}
+                  currentUserId={activeUserId}
+                  testID="shipment-detail-receiver-transfer"
+                />
+              ) : null}
+
+              {/* Sección de calificaciones post-entrega (MOVO-153). El receptor que
+                  transfirió no califica (MOVO-275): no participó de la entrega. */}
+              {FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) && !isFormerReceiver ? (
                 <View>
                   <Eyebrow>Calificaciones</Eyebrow>
                   <ShipmentRatingsCard
@@ -528,6 +556,8 @@ export default function ShipmentDetailScreen() {
                   senderId: shipment.senderId,
                   receiverId: shipment.receiverId,
                   carrierId: shipment.carrierId,
+                  formerReceiverId: completedTransfer?.requestedBy ?? null,
+                  formerReceiverName: completedTransfer?.requesterName ?? null,
                 }}
                 testID="shipment-detail-timeline"
               />

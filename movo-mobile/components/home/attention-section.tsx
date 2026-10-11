@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { Clock, Inbox, UserRoundPlus, XCircle } from "lucide-react-native";
+import { ArrowLeftRight, Clock, Inbox, UserRoundPlus, XCircle } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { AcceptSuccessModal } from "../shipments/accept-success-modal";
@@ -7,6 +7,7 @@ import type {
   AttentionInfoTask,
   AttentionRejectedTask,
   AttentionTask,
+  AttentionTransferInviteTask,
 } from "../../src/hooks/use-attention-tasks";
 import { useAttentionTasks } from "../../src/hooks/use-attention-tasks";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
@@ -98,6 +99,46 @@ function AttentionRejectedCard({ task, testID }: { task: AttentionRejectedTask; 
   );
 }
 
+/** MOVO-275 AC8: invitación a recibir un paquete en lugar del receptor original, con el
+ * plazo restante (patrón de `AttentionRejectedCard`, MOVO-253). */
+function AttentionTransferInviteCard({ task, testID }: { task: AttentionTransferInviteTask; testID?: string }) {
+  const colors = useThemeColors();
+  return (
+    <Pressable
+      testID={testID}
+      onPress={task.onPress}
+      className="gap-3 rounded-[16px] border border-border bg-bg p-4"
+    >
+      <View className="flex-row items-center gap-3">
+        <View className="h-11 w-11 items-center justify-center rounded-full bg-lime-200">
+          <ArrowLeftRight size={20} color="#0A0A0B" strokeWidth={1.8} />
+        </View>
+        <View className="flex-1 gap-0.5">
+          <Text numberOfLines={2} className="font-sans-semibold text-small text-fg">
+            {task.title}
+          </Text>
+          <Text numberOfLines={1} className="font-sans text-caption text-fg-2">
+            {task.meta}
+          </Text>
+        </View>
+      </View>
+      <View className="flex-row items-center gap-1.5">
+        <Clock size={13} color={colors.fg3} strokeWidth={2} />
+        <Text testID={testID ? `${testID}-deadline` : undefined} className="font-sans text-caption text-fg-3">
+          {task.deadlineLabel} para aceptar
+        </Text>
+      </View>
+      <Pressable
+        testID={testID ? `${testID}-primary` : undefined}
+        onPress={task.onPress}
+        className="h-10 items-center justify-center rounded-full bg-fg"
+      >
+        <Text className="font-sans-semibold text-caption text-bg">Ver invitación</Text>
+      </Pressable>
+    </Pressable>
+  );
+}
+
 /**
  * Parte presentacional de "Requiere tu atención" (MOVO-193) — separada de
  * `AttentionSection` para poder reusarla desde `app/dev-home-operativo.tsx` (galería
@@ -166,6 +207,9 @@ export function AttentionTaskList({ tasks, testID }: { tasks: AttentionTask[]; t
         }
         if (task.kind === "rejected") {
           return <AttentionRejectedCard key={task.id} task={task} testID={taskTestID} />;
+        }
+        if (task.kind === "transfer_invite") {
+          return <AttentionTransferInviteCard key={task.id} task={task} testID={taskTestID} />;
         }
         return <AttentionInfoCard key={task.id} task={task} testID={taskTestID} />;
       })}

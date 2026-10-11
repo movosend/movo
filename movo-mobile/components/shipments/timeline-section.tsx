@@ -1,7 +1,11 @@
 import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import type { ReceiverTransferRequest } from "@movo/shared/dist/types/receiver-transfer";
 import {
   AlertTriangle,
+  ArrowLeftRight,
   BadgeCheck,
+  ChevronDown,
+  ChevronUp,
   CircleSlash,
   Clock,
   Megaphone,
@@ -13,12 +17,22 @@ import {
   XCircle,
   type LucideIcon,
 } from "lucide-react-native";
-import { ScrollView, Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { ShipmentStatus as Status } from "@movo/shared/dist/types/shipment";
 import type { ShipmentEvent } from "../../src/api/shipments-client";
 import { usePublicProfile } from "../../src/hooks/use-profile";
 import { useShipmentRatings } from "../../src/hooks/use-ratings";
 import { useShipmentEvents } from "../../src/hooks/use-shipments";
+import { useShipmentReceiverTransfers } from "../../src/hooks/use-receiver-transfers";
+import {
+  receiverTransferDetail,
+  receiverTransferStatusPill,
+  receiverTransferSteps,
+  receiverTransferTitle,
+  receiverTransferViewer,
+  type ReceiverTransferTone,
+} from "../../src/lib/receiver-transfer-format";
 import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import type { Rating } from "../../src/api/ratings-client";
 import { StarRatingInput } from "../ui/star-rating-input";
@@ -74,8 +88,17 @@ const TONE_STYLE: Record<
 export interface TimelineSectionProps {
   shipmentId: string;
   /** Partes del envío, para resolver `actorId` a un rol sin pedir `GET /users/:id`
-   * (ver `shipmentActorLabel`) — el detalle ya tiene los tres ids cargados. */
-  parties: { senderId: string; receiverId: string; carrierId: string | null };
+   * (ver `shipmentActorLabel`) — el detalle ya tiene los tres ids cargados.
+   * `formerReceiverId`/`formerReceiverName` (MOVO-275): quien le pasó la recepción a otra
+   * persona, para que sus eventos (aceptar el envío) lleven su nombre y no el del
+   * receptor vigente. */
+  parties: {
+    senderId: string;
+    receiverId: string;
+    carrierId: string | null;
+    formerReceiverId?: string | null;
+    formerReceiverName?: string | null;
+  };
   testID?: string;
 }
 
@@ -169,11 +192,18 @@ function EventRow({
     event.toStatus === Status.REJECTED_BY_RECEIVER &&
     event.actorId !== null &&
     event.actorId !== parties.receiverId;
+  // MOVO-275: el receptor que transfirió la recepción ya no es `parties.receiverId`; sus
+  // eventos (aceptar el envío) llevan su nombre, no el del receptor vigente.
+  const isTransferredReceiverEvent =
+    !!parties.formerReceiverId && event.actorId === parties.formerReceiverId;
+  const formerReceiverFirstName = getFirstName(parties.formerReceiverName) || null;
   const actor = isFormerReceiverRejection
     ? "Receptor anterior"
-    : shipmentActorLabel(event.actorId, parties, currentUserId, {
-        receiverName: receiverFirstName,
-      });
+    : isTransferredReceiverEvent && event.actorId !== currentUserId
+      ? formerReceiverFirstName ?? "Receptor anterior"
+      : shipmentActorLabel(event.actorId, parties, currentUserId, {
+          receiverName: receiverFirstName,
+        });
   const detail = shipmentEventDetail(event.toStatus, event.fromStatus);
 
   return (
@@ -186,8 +216,15 @@ function EventRow({
       title={
         <Text className={`font-sans-semibold text-body ${isCurrent ? "text-fg" : "text-fg-2"}`}>
           {shipmentEventTitle(event.toStatus, event.fromStatus, {
-            receiverName: isFormerReceiverRejection ? "El receptor anterior" : receiverFirstName,
-            isReceiver: isReceiver && event.actorId === currentUserId,
+            receiverName: isFormerReceiverRejection
+              ? "El receptor anterior"
+              : isTransferredReceiverEvent
+                ? formerReceiverFirstName
+                : receiverFirstName,
+            isReceiver:
+              (isReceiver || isTransferredReceiverEvent) &&
+              event.actorId !== null &&
+              event.actorId === currentUserId,
             isSender: currentUserId !== null && currentUserId === parties.senderId,
             isCarrier: currentUserId !== null && currentUserId === parties.carrierId,
             carrierName: carrierFirstName,
@@ -241,6 +278,97 @@ function PendingStepRow({
         </Text>
       }
     />
+  );
+}
+
+const TRANSFER_TONE: Record<ReceiverTransferTone, { circle: string; icon: string | null; pill: string; pillText: string }> = {
+  warning: { circle: "bg-warning-100", icon: "#A97714", pill: "bg-warning-100", pillText: "text-warning-800" },
+  success: { circle: "bg-lime-200", icon: "#0A0A0B", pill: "bg-success-100", pillText: "text-success-700" },
+  danger: { circle: "bg-danger-100", icon: "#972327", pill: "bg-danger-100", pillText: "text-danger-700" },
+  neutral: { circle: "bg-bg-mute", icon: null, pill: "bg-bg-mute", pillText: "text-fg-2" },
+};
+
+/**
+ * MOVO-275 AC7: un solo item por solicitud de transferencia de receptor, que muestra su
+ * estado actual (pendiente, completada, rechazada, vencida, cancelada) con el texto
+ * según quién mira. El detalle (cuándo se pidió y cuándo se resolvió) se despliega.
+ */
+function ReceiverTransferRow({
+  transfer,
+  senderId,
+  currentUserId,
+  isLast,
+  testID,
+}: {
+  transfer: ReceiverTransferRequest;
+  senderId: string;
+  currentUserId: string | null;
+  isLast: boolean;
+  testID?: string;
+}) {
+  const colors = useThemeColors();
+  const [expanded, setExpanded] = useState(false);
+  const viewer = receiverTransferViewer(transfer, currentUserId, senderId);
+  const pill = receiverTransferStatusPill(transfer);
+  const tone = TRANSFER_TONE[pill.tone];
+  const detail = receiverTransferDetail(transfer, viewer);
+  const steps = receiverTransferSteps(transfer, viewer);
+  const Chevron = expanded ? ChevronUp : ChevronDown;
+
+  return (
+    <TimelineRow
+      Icon={ArrowLeftRight}
+      iconColor={tone.icon ?? colors.fg3}
+      circleClass={tone.circle}
+      railClass="bg-border"
+      isLast={isLast}
+      title={
+        <Text numberOfLines={2} className="font-sans-semibold text-body text-fg-2">
+          {receiverTransferTitle(transfer, viewer)}
+        </Text>
+      }
+    >
+      <View testID={testID} className="gap-1.5">
+        <View className="flex-row items-center gap-2">
+          <View className={`rounded-full px-2 py-0.5 ${tone.pill}`}>
+            <Text testID={testID ? `${testID}-status` : undefined} className={`font-sans-semibold text-[11px] ${tone.pillText}`}>
+              {pill.label}
+            </Text>
+          </View>
+          <Text className="font-sans text-small text-fg-3">{formatEventTimestamp(transfer.createdAt)}</Text>
+        </View>
+        {detail ? (
+          <Text testID={testID ? `${testID}-detail` : undefined} className="font-sans text-small text-fg-2">
+            {detail}
+          </Text>
+        ) : null}
+        {transfer.reason ? (
+          <Text className="font-sans text-small italic text-fg-2">“{transfer.reason}”</Text>
+        ) : null}
+        {transfer.responseReason ? (
+          <Text className="font-sans text-small italic text-fg-2">“{transfer.responseReason}”</Text>
+        ) : null}
+        <Pressable
+          testID={testID ? `${testID}-toggle` : undefined}
+          onPress={() => setExpanded((value) => !value)}
+          hitSlop={8}
+          className="flex-row items-center gap-1 self-start"
+        >
+          <Text className="font-sans-medium text-small text-fg">{expanded ? "Ocultar detalle" : "Ver detalle"}</Text>
+          <Chevron size={14} color={colors.fg1} strokeWidth={2} />
+        </Pressable>
+        {expanded ? (
+          <View testID={testID ? `${testID}-steps` : undefined} className="mt-1 gap-2 rounded-xl bg-bg-sub px-3 py-2.5">
+            {steps.map((step) => (
+              <View key={step.key} className="flex-row gap-2.5">
+                <Text className="w-[86px] font-sans text-[12px] text-fg-3">{step.time ?? ""}</Text>
+                <Text className="flex-1 font-sans text-[13px] text-fg-2">{step.text}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </View>
+    </TimelineRow>
   );
 }
 
@@ -314,6 +442,8 @@ function TimelineRatingCard({
  */
 export function TimelineSection({ shipmentId, parties, testID }: TimelineSectionProps) {
   const { data: events, isLoading, isError, refetch } = useShipmentEvents(shipmentId);
+  // MOVO-275: si falla, la línea de tiempo se muestra igual, sin las transferencias.
+  const { data: transfers } = useShipmentReceiverTransfers(shipmentId);
   const { data: ratings } = useShipmentRatings(shipmentId);
   const { data: receiverProfile } = usePublicProfile(parties.receiverId);
   const { data: carrierProfile } = usePublicProfile(parties.carrierId ?? undefined);
@@ -359,21 +489,45 @@ export function TimelineSection({ shipmentId, parties, testID }: TimelineSection
   // las dos queries quedó desactualizada respecto de la otra.
   const pendingSteps = remainingLifecycleSteps(events[events.length - 1].toStatus);
 
+  // MOVO-275 AC7: las solicitudes de transferencia se intercalan por fecha con los
+  // eventos de estado (vienen de su propia entidad, no de `shipment_events`).
+  const lastEventId = events[events.length - 1].id;
+  const items: Array<{ kind: "event"; at: string; event: ShipmentEvent } | { kind: "transfer"; at: string; transfer: ReceiverTransferRequest }> = [
+    ...events.map((event) => ({ kind: "event" as const, at: event.createdAt, event })),
+    ...(transfers ?? []).map((transfer) => ({ kind: "transfer" as const, at: transfer.createdAt, transfer })),
+  ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+  const nothingAfterItems = pendingSteps.length === 0 && (!ratings || ratings.length === 0);
+
   return (
     <ScrollView testID={testID} className="flex-1" contentContainerClassName="pb-6 pt-2">
-      {events.map((event, index) => (
-        <EventRow
-          key={event.id}
-          event={event}
-          isCurrent={index === events.length - 1}
-          isLast={index === events.length - 1 && pendingSteps.length === 0 && (!ratings || ratings.length === 0)}
-          parties={parties}
-          currentUserId={currentUserId}
-          receiverFirstName={receiverFirstName}
-          carrierFirstName={carrierFirstName}
-          isReceiver={isReceiver}
-        />
-      ))}
+      {items.map((item, index) => {
+        const isLast = index === items.length - 1 && nothingAfterItems;
+        if (item.kind === "transfer") {
+          return (
+            <ReceiverTransferRow
+              key={`transfer-${item.transfer.id}`}
+              transfer={item.transfer}
+              senderId={parties.senderId}
+              currentUserId={currentUserId}
+              isLast={isLast}
+              testID={testID ? `${testID}-transfer-${item.transfer.id}` : undefined}
+            />
+          );
+        }
+        return (
+          <EventRow
+            key={item.event.id}
+            event={item.event}
+            isCurrent={item.event.id === lastEventId}
+            isLast={isLast}
+            parties={parties}
+            currentUserId={currentUserId}
+            receiverFirstName={receiverFirstName}
+            carrierFirstName={carrierFirstName}
+            isReceiver={isReceiver}
+          />
+        );
+      })}
       {pendingSteps.map((status, index) => (
         <PendingStepRow
           key={status}

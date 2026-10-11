@@ -4,6 +4,13 @@ import type { ShipmentEvent } from "../src/api/shipments-client";
 import { TimelineSection } from "../components/shipments/timeline-section";
 
 const mockUseShipmentEvents = jest.fn();
+const mockUseShipmentReceiverTransfers = jest.fn((): { data: unknown[] } => ({ data: [] }));
+jest.mock("../src/hooks/use-receiver-transfers", () => ({
+  useShipmentReceiverTransfers: () => mockUseShipmentReceiverTransfers(),
+  useReceiverTransferInvitations: jest.fn(() => ({ data: [] })),
+  useCancelReceiverTransfer: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false })),
+}));
+
 jest.mock("../src/hooks/use-shipments", () => ({
   useShipmentEvents: (...args: unknown[]) => mockUseShipmentEvents(...args),
 }));
@@ -297,6 +304,116 @@ describe("TimelineSection", () => {
     expect(getByText("Receptor anterior")).toBeTruthy();
     expect(queryByText("Lucas rechazó el envío")).toBeNull();
     expect(getByText("Elegiste otro receptor")).toBeTruthy();
+  });
+
+  describe("MOVO-275: transferencia de receptor", () => {
+    const transferredEvents = [
+      event({ id: "e1" }),
+      event({
+        id: "e2",
+        fromStatus: ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION,
+        toStatus: ShipmentStatus.PUBLISHED,
+        actorId: "lucia",
+        createdAt: "2026-08-15T14:00:00.000Z",
+      }),
+      event({
+        id: "e3",
+        fromStatus: ShipmentStatus.ASSIGNED,
+        toStatus: ShipmentStatus.IN_TRANSIT,
+        actorId: "carrier-1",
+        createdAt: "2026-08-16T10:00:00.000Z",
+      }),
+    ];
+    const transfers = [
+      {
+        id: "tr-rejected",
+        shipmentId: "shipment-1",
+        requestedBy: "lucia",
+        requesterName: "Lucía Gómez",
+        newReceiverId: "carla",
+        newReceiverName: "Carla Ruiz",
+        reason: null,
+        responseReason: "Ese día trabajo",
+        status: "rejected_by_new_receiver",
+        cancelReason: null,
+        newReceiverDeadline: "2026-08-16T17:00:00.000Z",
+        createdAt: "2026-08-16T11:00:00.000Z",
+        resolvedAt: "2026-08-16T11:30:00.000Z",
+        resolvedBy: "carla",
+      },
+      {
+        id: "tr-done",
+        shipmentId: "shipment-1",
+        requestedBy: "lucia",
+        requesterName: "Lucía Gómez",
+        newReceiverId: "receiver-1",
+        newReceiverName: "Martín López",
+        reason: "De viaje",
+        responseReason: null,
+        status: "completed",
+        cancelReason: null,
+        newReceiverDeadline: "2026-08-16T18:00:00.000Z",
+        createdAt: "2026-08-16T12:00:00.000Z",
+        resolvedAt: "2026-08-16T12:20:00.000Z",
+        resolvedBy: "receiver-1",
+      },
+    ];
+    const partiesAfterTransfer = { ...PARTIES, formerReceiverId: "lucia", formerReceiverName: "Lucía Gómez" };
+
+    beforeEach(() => {
+      mockUseShipmentEvents.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        refetch: jest.fn(),
+        data: transferredEvents,
+      });
+      mockUseShipmentReceiverTransfers.mockReturnValue({ data: transfers });
+      mockUsePublicProfile.mockReturnValue({ data: { id: "receiver-1", fullName: "Martín López" } });
+    });
+
+    afterEach(() => {
+      mockUseShipmentReceiverTransfers.mockReturnValue({ data: [] });
+    });
+
+    it("muestra un item por solicitud, intercalado por fecha, con el texto para quien la pidió", async () => {
+      mockUser.mockReturnValue({ userId: "lucia" });
+
+      const { getByText, getByTestId } = await render(
+        <TimelineSection shipmentId="shipment-1" parties={partiesAfterTransfer} testID="timeline" />,
+      );
+
+      expect(getByText("Le pediste a Carla que lo reciba")).toBeTruthy();
+      expect(getByTestId("timeline-transfer-tr-rejected-status")).toHaveTextContent("No aceptó");
+      expect(getByText("Le pasaste la recepción a Martín")).toBeTruthy();
+      expect(getByTestId("timeline-transfer-tr-done-status")).toHaveTextContent("Completada");
+      // El evento de aceptar el envío lo hizo Lucía cuando era la receptora.
+      expect(getByText("Aceptaste el envío")).toBeTruthy();
+    });
+
+    it("el detalle de la solicitud se despliega con sus pasos", async () => {
+      mockUser.mockReturnValue({ userId: "receiver-1" });
+
+      const { getByTestId, queryByTestId, getByText } = await render(
+        <TimelineSection shipmentId="shipment-1" parties={partiesAfterTransfer} testID="timeline" />,
+      );
+
+      expect(queryByTestId("timeline-transfer-tr-done-steps")).toBeNull();
+      await fireEvent.press(getByTestId("timeline-transfer-tr-done-toggle"));
+      expect(getByTestId("timeline-transfer-tr-done-steps")).toBeTruthy();
+      expect(getByText("Ahora el receptor sos vos")).toBeTruthy();
+    });
+
+    it("para el receptor nuevo, aceptar el envío lo hizo la receptora anterior, no él", async () => {
+      mockUser.mockReturnValue({ userId: "receiver-1" });
+
+      const { getByText, queryByText } = await render(
+        <TimelineSection shipmentId="shipment-1" parties={partiesAfterTransfer} testID="timeline" />,
+      );
+
+      expect(getByText("Lucía aceptó el envío")).toBeTruthy();
+      expect(queryByText("Aceptaste el envío")).toBeNull();
+      expect(getByText("Lucía te pasó la recepción")).toBeTruthy();
+    });
   });
 
   describe("oferta aceptada (assignment_pending)", () => {

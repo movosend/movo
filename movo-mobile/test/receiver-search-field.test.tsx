@@ -66,6 +66,34 @@ describe("ReceiverSearchField", () => {
     expect(queryByText("Ana López")).toBeNull();
   });
 
+  it("MOVO-275: disabledReasons muestra al emisor deshabilitado con el motivo y no deja elegirlo", async () => {
+    mockSearch.mockResolvedValue([
+      { id: "sender", fullName: "Juan Pérez", isVerified: true, photoUrl: null, reputationScore: null },
+      { id: "u2", fullName: "Juana Pérez", isVerified: true, photoUrl: null, reputationScore: null },
+    ]);
+    const onSelect = jest.fn();
+
+    const { getByTestId, findByTestId } = await render(
+      <ReceiverSearchField
+        testID="receiver"
+        selected={null}
+        onSelect={onSelect}
+        onClear={jest.fn()}
+        onFocusInput={jest.fn()}
+        disabledReasons={{ sender: "Es el emisor de este envío" }}
+      />,
+    );
+
+    fireEvent.changeText(getByTestId("receiver"), "Juan");
+
+    const reason = await findByTestId("receiver-result-sender-disabled-reason", {}, { timeout: 1000 });
+    expect(reason).toHaveTextContent("Es el emisor de este envío");
+    await fireEvent.press(getByTestId("receiver-result-sender"));
+    expect(onSelect).not.toHaveBeenCalled();
+    await fireEvent.press(getByTestId("receiver-result-u2"));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "u2" }));
+  });
+
   it("ofrece invitar por WhatsApp cuando no encuentra a nadie", async () => {
     mockSearch.mockResolvedValue([]);
 

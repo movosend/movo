@@ -27,7 +27,8 @@ export function ShipmentRow({
 }) {
   const colors = useThemeColors();
   const currentUserId = useAuthStore((s) => s.user?.userId);
-  const isReceiver = currentUserId === shipment.receiverId;
+  // MOVO-275: quien transfirió la recepción sigue viéndolo como envío recibido.
+  const isReceiver = currentUserId === shipment.receiverId || !!shipment.transferredByMe;
   const counterpartId = isReceiver ? shipment.senderId : shipment.receiverId;
   const { data: counterpartProfile } = usePublicProfile(counterpartId);
   const counterpartName = getFirstName(counterpartProfile?.fullName);
@@ -40,7 +41,10 @@ export function ShipmentRow({
       ? `Envío a ${counterpartName}`
       : "Envío realizado";
 
-  const relativeTime = formatShipmentRowTime(shipment);
+  // MOVO-275: le pasó la recepción a otra persona; la fila lo dice en vez del estado.
+  const transferred = shipment.transferredByMe ?? null;
+  const transferredTo = getFirstName(transferred?.newReceiverName) || "otra persona";
+  const relativeTime = transferred ? `Ahora lo recibe ${transferredTo}` : formatShipmentRowTime(shipment);
 
   // Emisor → fondo oscuro, ícono caja blanco nítido, flecha lima con contorno oscuro.
   // Receptor → fondo claro con borde sutil, ícono caja negro/fg1, flecha negra/fg1 con contorno claro.
@@ -98,10 +102,16 @@ export function ShipmentRow({
         ) : null}
       </View>
 
-      {/* Estado como texto plano, sin pill */}
-      <Text className="ml-2 font-sans text-small text-fg-2">
-        {shipmentStatusLabel(shipment.status, { isReceiver })}
-      </Text>
+      {/* Estado como texto plano, sin pill; "Transferido" lleva su propia pill neutra. */}
+      {transferred ? (
+        <View testID={testID ? `${testID}-transferred` : undefined} className="ml-2 rounded-full bg-bg-mute px-2.5 py-1">
+          <Text className="font-sans-semibold text-[12px] text-fg-2">Transferido</Text>
+        </View>
+      ) : (
+        <Text className="ml-2 font-sans text-small text-fg-2">
+          {shipmentStatusLabel(shipment.status, { isReceiver })}
+        </Text>
+      )}
     </Pressable>
   );
 }

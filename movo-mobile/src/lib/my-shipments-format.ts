@@ -21,7 +21,7 @@ import {
 
 export type MyShipmentRole = "sending" | "receiving";
 export type MyShipmentsStage = "ongoing" | "history";
-export type MyShipmentPillTone = "ink" | "live" | "warning" | "success" | "danger";
+export type MyShipmentPillTone = "ink" | "live" | "warning" | "success" | "danger" | "neutral";
 
 /** Destino de la franja de acción: cada caso abre la pantalla donde se resuelve. */
 export type MyShipmentStripTarget = "detail" | "offers" | "change_receiver";
@@ -75,6 +75,8 @@ export function myShipmentCounterpartId(
 }
 
 export function myShipmentStage(shipment: ShipmentSummary, userId: string): MyShipmentsStage {
+  // MOVO-275: le pasó la recepción a otra persona, no tiene nada pendiente con este envío.
+  if (shipment.transferredByMe) return "history";
   const isReceiver = shipment.receiverId === userId;
   return shipmentLifecycleStage(shipment.status, { isReceiver }) === "past" ? "history" : "ongoing";
 }
@@ -111,7 +113,11 @@ function shortDayFromInstant(iso: string): string {
 }
 
 /** Cuándo cerró el envío (entregado/cancelado/rechazado), para el historial. */
-export function myShipmentClosedAt(shipment: Pick<ShipmentSummary, "lastStatusChangedAt" | "updatedAt">): string {
+export function myShipmentClosedAt(
+  shipment: Pick<ShipmentSummary, "lastStatusChangedAt" | "updatedAt" | "transferredByMe">,
+): string {
+  // MOVO-275: para quien transfirió, el envío "cerró" cuando se lo pasó a otra persona.
+  if (shipment.transferredByMe) return shipment.transferredByMe.at;
   return shipment.lastStatusChangedAt ?? shipment.updatedAt;
 }
 
@@ -162,6 +168,11 @@ export function presentMyShipment(
     pill: { label: string; tone: MyShipmentPillTone },
     strip: MyShipmentStrip | null = null,
   ): MyShipmentPresentation => ({ ...base, pill, quietStatus: null, strip, statusKey, statusLabel });
+
+  // MOVO-275: le pasó la recepción a otra persona (ve el envío en solo lectura).
+  if (shipment.transferredByMe) {
+    return withPill("transferred", "Transferido", { label: "TRANSFERIDO", tone: "neutral" });
+  }
 
   switch (shipment.status) {
     case ShipmentStatus.AWAITING_RECEIVER_CONFIRMATION:
