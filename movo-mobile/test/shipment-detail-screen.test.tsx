@@ -1,9 +1,10 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { fireEvent, render } from "@testing-library/react-native";
+import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import { RefreshControl } from "react-native";
 import type { ShipmentSummary } from "../src/api/shipments-client";
 import ShipmentDetailScreen from "../app/(app)/shipments/[id]";
+import { useCancelReceiverTransfer } from "../src/hooks/use-receiver-transfers";
 
 const mockRouterReplace = jest.fn();
 const mockRouterBack = jest.fn();
@@ -1040,6 +1041,38 @@ describe("ShipmentDetailScreen — transferencia de receptor (MOVO-275)", () => 
     expect(getByTestId("shipment-detail-receiver-transfer-deadline")).toHaveTextContent(/^Tiene hasta/);
     expect(getByTestId("shipment-detail-receiver-transfer-cancel")).toBeTruthy();
     expect(queryByTestId("shipment-detail-receiver-transfer-action")).toBeNull();
+  });
+
+  it("cancelar la solicitud pide confirmación en una sheet y recién ahí cancela", async () => {
+    const mutateAsync = jest.fn().mockResolvedValue(undefined);
+    (useCancelReceiverTransfer as jest.Mock).mockReturnValue({ mutateAsync, isPending: false });
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.PUBLISHED,
+        receiverTransfer: {
+          viewerIsFormerReceiver: false,
+          pending: {
+            ...transferBase,
+            requestedBy: "receiver-1",
+            newReceiverId: "martin",
+            status: "pending_new_receiver",
+            resolvedAt: null,
+          },
+          completed: null,
+        },
+      }),
+    );
+
+    const { getByTestId, queryByTestId, getByText } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-receiver-transfer-cancel-sheet-confirm")).toBeNull();
+    await fireEvent.press(getByTestId("shipment-detail-receiver-transfer-cancel"));
+    expect(getByText("¿Cancelar la solicitud?")).toBeTruthy();
+    expect(mutateAsync).not.toHaveBeenCalled();
+
+    await fireEvent.press(getByTestId("shipment-detail-receiver-transfer-cancel-sheet-confirm"));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({ transferId: transferBase.id }));
   });
 
   it("el receptor nuevo ve que ya no se puede volver a transferir", async () => {

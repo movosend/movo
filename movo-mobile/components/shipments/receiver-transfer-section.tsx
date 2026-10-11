@@ -2,7 +2,7 @@ import { RECEIVER_TRANSFER_ALLOWED_SHIPMENT_STATUSES } from "@movo/shared/dist/t
 import { router } from "expo-router";
 import { ArrowLeftRight, ChevronRight, Clock, Lock } from "lucide-react-native";
 import { useState } from "react";
-import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import type { ShipmentSummary } from "../../src/api/shipments-client";
 import { useDeadlineExpired } from "../../src/hooks/use-deadline-expired";
 import { useCancelReceiverTransfer } from "../../src/hooks/use-receiver-transfers";
@@ -10,6 +10,7 @@ import { useThemeColors } from "../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../src/lib/error-messages";
 import { getFirstName } from "../../src/lib/profile-format";
 import { redesignationDeadlineLabel } from "../../src/lib/shipment-format";
+import { ConfirmActionSheet } from "../ui/confirm-action-sheet";
 import { ErrorBanner } from "../ui/error-banner";
 
 interface ReceiverTransferSectionProps {
@@ -28,6 +29,7 @@ export function ReceiverTransferSection({ shipment, currentUserId, testID }: Rec
   const colors = useThemeColors();
   const cancel = useCancelReceiverTransfer();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [cancelSheetVisible, setCancelSheetVisible] = useState(false);
   const pending = shipment.receiverTransfer?.pending ?? null;
   const completed = shipment.receiverTransfer?.completed ?? null;
   useDeadlineExpired(pending?.newReceiverDeadline);
@@ -39,22 +41,15 @@ export function ReceiverTransferSection({ shipment, currentUserId, testID }: Rec
   if (pending && pending.requestedBy === currentUserId) {
     const invited = getFirstName(pending.newReceiverName) || "la persona que elegiste";
     const deadline = redesignationDeadlineLabel(pending.newReceiverDeadline);
-    const handleCancel = () => {
-      Alert.alert("¿Cancelar la solicitud?", `${invited} ya no va a poder aceptar. El paquete lo seguís recibiendo vos.`, [
-        { text: "Volver", style: "cancel" },
-        {
-          text: "Cancelar solicitud",
-          style: "destructive",
-          onPress: async () => {
-            setErrorMessage(null);
-            try {
-              await cancel.mutateAsync({ transferId: pending.id });
-            } catch (err) {
-              setErrorMessage(friendlyErrorMessage(err, "No pudimos cancelar la solicitud. Intentá de nuevo."));
-            }
-          },
-        },
-      ]);
+    const handleConfirmCancel = async () => {
+      setErrorMessage(null);
+      try {
+        await cancel.mutateAsync({ transferId: pending.id });
+      } catch (err) {
+        setErrorMessage(friendlyErrorMessage(err, "No pudimos cancelar la solicitud. Intentá de nuevo."));
+      } finally {
+        setCancelSheetVisible(false);
+      }
     };
     return (
       <View testID={testID}>
@@ -79,7 +74,7 @@ export function ReceiverTransferSection({ shipment, currentUserId, testID }: Rec
           {deadline ? (
             <Pressable
               testID={testID ? `${testID}-cancel` : undefined}
-              onPress={handleCancel}
+              onPress={() => setCancelSheetVisible(true)}
               disabled={cancel.isPending}
               accessibilityRole="button"
               className="h-10 flex-row items-center justify-center gap-2 rounded-full border border-ink-950"
@@ -89,6 +84,18 @@ export function ReceiverTransferSection({ shipment, currentUserId, testID }: Rec
             </Pressable>
           ) : null}
         </View>
+        <ConfirmActionSheet
+          visible={cancelSheetVisible}
+          title="¿Cancelar la solicitud?"
+          description={`${invited} ya no va a poder aceptar. El paquete lo seguís recibiendo vos.`}
+          confirmLabel="Cancelar solicitud"
+          cancelLabel="Volver"
+          tone="danger"
+          isPending={cancel.isPending}
+          onConfirm={() => void handleConfirmCancel()}
+          onClose={() => setCancelSheetVisible(false)}
+          testID={testID ? `${testID}-cancel-sheet` : "receiver-transfer-cancel-sheet"}
+        />
       </View>
     );
   }

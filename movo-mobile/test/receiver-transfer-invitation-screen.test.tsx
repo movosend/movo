@@ -101,7 +101,7 @@ describe("ReceiverTransferInvitationScreen (MOVO-275)", () => {
     const { getByTestId } = await render(<InvitationScreen />);
     await fireEvent.press(getByTestId("transfer-invitation-reject"));
     await fireEvent.changeText(getByTestId("transfer-invitation-reject-reason"), "Ese día trabajo");
-    await fireEvent.press(getByTestId("transfer-invitation-reject-confirm"));
+    await fireEvent.press(getByTestId("transfer-invitation-reject-sheet-confirm"));
 
     await waitFor(() => expect(mockReject).toHaveBeenCalledWith({ transferId: "tr-1", reason: "Ese día trabajo" }));
     expect(refetch).toHaveBeenCalled();

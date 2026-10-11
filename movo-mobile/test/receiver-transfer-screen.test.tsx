@@ -104,7 +104,7 @@ describe("ReceiverTransferScreen (MOVO-275)", () => {
     await fireEvent.press(getByTestId("receiver-transfer-submit"));
     expect(mockMutateAsync).not.toHaveBeenCalled();
     expect(await findByText("¿Pasarle la recepción a Martín?")).toBeTruthy();
-    await fireEvent.press(getByTestId("receiver-transfer-confirm"));
+    await fireEvent.press(getByTestId("receiver-transfer-confirm-sheet-confirm"));
 
     await waitFor(() => expect(mockRouterDismissTo).toHaveBeenCalledWith("/shipments/shipment-1"));
     expect(mockMutateAsync).toHaveBeenCalledWith({ shipmentId: "shipment-1", newReceiverId: "martin", reason: "De viaje" });
@@ -117,7 +117,7 @@ describe("ReceiverTransferScreen (MOVO-275)", () => {
     const { getByTestId, findByText } = await render(<ReceiverTransferScreen />);
     await fireEvent.press(getByTestId("stub-pick"));
     await fireEvent.press(getByTestId("receiver-transfer-submit"));
-    await fireEvent.press(getByTestId("receiver-transfer-confirm"));
+    await fireEvent.press(getByTestId("receiver-transfer-confirm-sheet-confirm"));
 
     expect(await findByText(/Ya le pediste a alguien que reciba este envío/)).toBeTruthy();
     expect(mockRouterDismissTo).not.toHaveBeenCalled();

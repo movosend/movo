@@ -15,7 +15,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../../../../components/auth/primary-button";
 import { ReceiverSearchField } from "../../../../components/send/receiver-search-field";
-import { BottomSheetModal } from "../../../../components/ui/bottom-sheet-modal";
+import { ConfirmActionSheet } from "../../../../components/ui/confirm-action-sheet";
 import { ErrorBanner } from "../../../../components/ui/error-banner";
 import { TextField } from "../../../../components/ui/text-field";
 import { useKeyboardScroll } from "../../../../src/hooks/use-keyboard-scroll";
@@ -224,33 +224,16 @@ export default function ReceiverTransferScreen() {
         </KeyboardAvoidingView>
       )}
 
-      <BottomSheetModal
+      <ConfirmActionSheet
         visible={confirmVisible}
-        onRequestClose={() => !requestTransfer.isPending && setConfirmVisible(false)}
+        title={`¿Pasarle la recepción a ${confirmFirstName}?`}
+        description={`Le llega una invitación y tiene ${INVITE_DEADLINE_HOURS} h para aceptar. Cuando acepte, el paquete pasa a su nombre y vos seguís viendo el envío en modo lectura. Solo se puede hacer una vez.`}
+        confirmLabel="Enviar invitación"
+        isPending={requestTransfer.isPending}
+        onConfirm={() => void submit()}
+        onClose={() => setConfirmVisible(false)}
         testID="receiver-transfer-confirm-sheet"
-        backdropTestID="receiver-transfer-confirm-backdrop"
-        contentClassName="gap-4 pb-4"
-      >
-        <Text className="font-sans-semibold text-h3 text-fg">¿Pasarle la recepción a {confirmFirstName}?</Text>
-        <Text className="font-sans text-body text-fg-2">
-          Le llega una invitación y tiene {INVITE_DEADLINE_HOURS} h para aceptar. Cuando acepte, el paquete pasa a su
-          nombre y vos seguís viendo el envío en modo lectura. Solo se puede hacer una vez.
-        </Text>
-        <PrimaryButton
-          testID="receiver-transfer-confirm"
-          label="Enviar invitación"
-          onPress={() => void submit()}
-          loading={requestTransfer.isPending}
-        />
-        <Pressable
-          testID="receiver-transfer-confirm-cancel"
-          onPress={() => setConfirmVisible(false)}
-          disabled={requestTransfer.isPending}
-          className="items-center py-2"
-        >
-          <Text className="font-sans-medium text-small text-fg-2">Volver</Text>
-        </Pressable>
-      </BottomSheetModal>
+      />
     </SafeAreaView>
   );
 }

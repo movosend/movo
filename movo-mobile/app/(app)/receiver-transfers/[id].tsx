@@ -6,7 +6,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../../../components/auth/primary-button";
 import { packageTypeLabel } from "../../../components/send/category-grid";
 import { CounterpartCard } from "../../../components/shipments/counterpart-card";
-import { BottomSheetModal } from "../../../components/ui/bottom-sheet-modal";
+import { ConfirmActionSheet } from "../../../components/ui/confirm-action-sheet";
 import { ErrorBanner } from "../../../components/ui/error-banner";
 import { TextField } from "../../../components/ui/text-field";
 import {
@@ -234,17 +234,17 @@ export default function ReceiverTransferInvitationScreen() {
             </View>
           ) : null}
 
-          <BottomSheetModal
+          <ConfirmActionSheet
             visible={rejectSheetVisible}
-            onRequestClose={() => !reject.isPending && setRejectSheetVisible(false)}
+            title="¿Rechazar la invitación?"
+            description={`El paquete lo sigue recibiendo ${requesterFirstName}. Le avisamos a esa persona y al emisor.`}
+            confirmLabel="Rechazar invitación"
+            tone="danger"
+            isPending={reject.isPending}
+            onConfirm={() => void handleReject()}
+            onClose={() => setRejectSheetVisible(false)}
             testID="transfer-invitation-reject-sheet"
-            backdropTestID="transfer-invitation-reject-backdrop"
-            contentClassName="gap-4 pb-4"
           >
-            <Text className="font-sans-semibold text-h3 text-fg">¿Rechazar la invitación?</Text>
-            <Text className="font-sans text-body text-fg-2">
-              El paquete lo sigue recibiendo {requesterFirstName}. Le avisamos a esa persona y al emisor.
-            </Text>
             <TextField
               testID="transfer-invitation-reject-reason"
               label="Motivo (opcional)"
@@ -253,21 +253,7 @@ export default function ReceiverTransferInvitationScreen() {
               maxLength={500}
               multiline
             />
-            <PrimaryButton
-              testID="transfer-invitation-reject-confirm"
-              label="Rechazar invitación"
-              onPress={() => void handleReject()}
-              loading={reject.isPending}
-            />
-            <Pressable
-              testID="transfer-invitation-reject-cancel"
-              onPress={() => setRejectSheetVisible(false)}
-              disabled={reject.isPending}
-              className="items-center py-2"
-            >
-              <Text className="font-sans-medium text-small text-fg-2">Volver</Text>
-            </Pressable>
-          </BottomSheetModal>
+          </ConfirmActionSheet>
         </>
       )}
     </SafeAreaView>
