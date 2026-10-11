@@ -195,8 +195,8 @@ describe("ShipmentDetailScreen", () => {
 
     expect(getByTestId("shipment-detail-route-map")).toBeTruthy();
     expect(getByTestId("shipment-detail-package")).toBeTruthy();
-    expect(getByText("Receptor")).toBeTruthy();
-    expect(getByTestId("shipment-detail-receiver")).toBeTruthy();
+    expect(getByText("Participantes")).toBeTruthy();
+    expect(getByTestId("shipment-detail-receiver-subtitle")).toHaveTextContent(/^Receptor/);
     expect(getByText("Tomás Olmos")).toBeTruthy();
     expect(getByText("$4.500")).toBeTruthy();
     expect(queryByTestId("shipment-detail-carrier")).toBeNull();
@@ -292,8 +292,7 @@ describe("ShipmentDetailScreen", () => {
 
     const { getByTestId, getByText, queryByTestId, queryByText } = await render(<ShipmentDetailScreen />);
 
-    expect(getByText("Emisor")).toBeTruthy();
-    expect(getByTestId("shipment-detail-sender")).toBeTruthy();
+    expect(getByTestId("shipment-detail-sender-subtitle")).toHaveTextContent(/^Emisor/);
     expect(getByText("Pedro Emisor")).toBeTruthy();
     expect(queryByTestId("shipment-detail-receiver")).toBeNull();
     expect(queryByText("Pendiente")).toBeNull();
@@ -1111,7 +1110,7 @@ describe("ShipmentDetailScreen — transferencia de receptor (MOVO-275)", () => 
       }),
     );
 
-    const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+    const { getByTestId, queryByTestId, queryByText } = await render(<ShipmentDetailScreen />);
 
     expect(getByTestId("shipment-detail-transferred-banner")).toBeTruthy();
     expect(getByTestId("shipment-detail-transferred-banner-reason")).toHaveTextContent("“Esa semana estoy de viaje”");
@@ -1121,6 +1120,13 @@ describe("ShipmentDetailScreen — transferencia de receptor (MOVO-275)", () => 
     expect(queryByTestId("shipment-detail-cta")).toBeNull();
     const mapProps = mockRouteMapCard.mock.calls.at(-1)?.[0] as { pickup: unknown };
     expect(mapProps.pickup).not.toBeNull();
+    // Participantes: emisor, transportista y el receptor nuevo con desde cuándo recibe.
+    expect(getByTestId("shipment-detail-sender")).toBeTruthy();
+    expect(getByTestId("shipment-detail-carrier")).toBeTruthy();
+    expect(getByTestId("shipment-detail-receiver-subtitle")).toHaveTextContent(
+      /^Receptor desde el \d{1,2} ago · antes, vos$/,
+    );
+    expect(queryByText("Aceptó")).toBeNull();
   });
 
   it("el emisor no tiene acción sobre la recepción", async () => {

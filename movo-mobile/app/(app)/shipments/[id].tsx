@@ -17,7 +17,6 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
-import { CounterpartCard } from "../../../components/shipments/counterpart-card";
 import { HighDemandBadge } from "../../../components/shipments/high-demand-badge";
 import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
 import { LiveTrackingCard } from "../../../components/shipments/live-tracking-card";
@@ -31,6 +30,7 @@ import { ReceiverTransferSection } from "../../../components/shipments/receiver-
 import { TransferredByYouBanner } from "../../../components/shipments/transferred-by-you-banner";
 import { SenderActionsBar } from "../../../components/shipments/sender-actions-bar";
 import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
+import { ShipmentPartiesCard } from "../../../components/shipments/shipment-parties-card";
 import { ShipmentRatingsCard } from "../../../components/shipments/shipment-ratings-card";
 import { ShipmentStatusBadge } from "../../../components/shipments/status-badge";
 import { TimelineSection } from "../../../components/shipments/timeline-section";
@@ -61,6 +61,16 @@ import {
 } from "../../../src/lib/shipment-format";
 
 type DetailTab = "detalle" | "timeline";
+
+const SHORT_DAY_FORMATTER = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short" });
+
+/** "Receptor desde el 10 oct · antes, vos" (MOVO-275): la fila del receptor nuevo vista por
+ * quien le pasó la recepción. */
+function formerReceiverNote(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Receptor · antes, vos";
+  return `Receptor desde el ${SHORT_DAY_FORMATTER.format(date).replace(".", "")} · antes, vos`;
+}
 
 function Eyebrow({ children }: { children: ReactNode }) {
   return <Text className="mb-1.5 font-sans-medium text-caption uppercase text-fg-3">{children}</Text>;
@@ -174,7 +184,7 @@ export default function ShipmentDetailScreen() {
   const pendingOwnTransfer = pendingTransfer && pendingTransfer.requestedBy === activeUserId ? pendingTransfer : null;
   const seesReceiverView = isReceiver || isFormerReceiver;
 
-  // Mismo query key que `CounterpartCard` (`usePublicProfile`, MOVO-154) — TanStack
+  // Mismo query key que `ShipmentPartiesCard` (`usePublicProfile`, MOVO-154) — TanStack
   // Query dedupea, así que esto no dispara un segundo request cuando esa card ya trajo
   // el perfil del emisor. Solo se usa para nombrar al emisor en el sheet de rechazo
   // de `ReceiverActionsBar` (variante 2a del diseño de "Confirmación de envío").
@@ -485,43 +495,55 @@ export default function ShipmentDetailScreen() {
                 <OffersBanner shipmentId={shipment.id} testID="shipment-detail-offers" />
               ) : null}
 
-              {isCarrier || isFormerReceiver ? (
-                <View>
-                  <Eyebrow>Emisor</Eyebrow>
-                  <CounterpartCard
-                    userId={shipment.senderId}
-                    onPress={() => openProfile(shipment.senderId)}
-                    testID="shipment-detail-sender"
-                  />
-                </View>
-              ) : null}
-
               <View>
-                <Eyebrow>{isReceiver ? "Emisor" : "Receptor"}</Eyebrow>
-                <CounterpartCard
-                  userId={isReceiver ? shipment.senderId : shipment.receiverId}
-                  receiverConfirmation={
-                    isReceiver ? undefined : receiverConfirmationStatus(shipment.status)
-                  }
-                  onPress={() =>
-                    openProfile(isReceiver ? shipment.senderId : shipment.receiverId)
-                  }
-                  testID={isReceiver ? "shipment-detail-sender" : "shipment-detail-receiver"}
+                <Eyebrow>Participantes</Eyebrow>
+                <ShipmentPartiesCard
+                  testID="shipment-detail-parties"
+                  rows={[
+                    ...(isSender
+                      ? []
+                      : [
+                          {
+                            userId: shipment.senderId,
+                            roleLabel: "Emisor",
+                            onPress: () => openProfile(shipment.senderId),
+                            testID: "shipment-detail-sender",
+                          },
+                        ]),
+                    // Con el envío entregado, el transportista sigue en "Calificaciones".
+                    ...(!isCarrier && shipment.carrierId && !FULFILLED_SHIPMENT_STATUSES.includes(shipment.status)
+                      ? [
+                          {
+                            userId: shipment.carrierId,
+                            roleLabel: "Transportista",
+                            onPress: () => shipment.carrierId && openProfile(shipment.carrierId),
+                            testID: "shipment-detail-carrier",
+                          },
+                        ]
+                      : []),
+                    ...(isReceiver
+                      ? []
+                      : [
+                          {
+                            userId: shipment.receiverId,
+                            roleLabel: "Receptor",
+                            // Quien le pasó la recepción ve desde cuándo recibe la otra persona
+                            // (MOVO-275), no si aceptó el envío.
+                            receiverConfirmation: isFormerReceiver
+                              ? undefined
+                              : receiverConfirmationStatus(shipment.status),
+                            note:
+                              isFormerReceiver && completedTransfer
+                                ? formerReceiverNote(completedTransfer.resolvedAt ?? completedTransfer.createdAt)
+                                : undefined,
+                            highlight: isFormerReceiver,
+                            onPress: () => openProfile(shipment.receiverId),
+                            testID: "shipment-detail-receiver",
+                          },
+                        ]),
+                  ]}
                 />
               </View>
-
-              {!isCarrier &&
-              shipment.carrierId &&
-              !FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? (
-                <View>
-                  <Eyebrow>Transportista</Eyebrow>
-                  <CounterpartCard
-                    userId={shipment.carrierId}
-                    onPress={() => shipment.carrierId && openProfile(shipment.carrierId)}
-                    testID="shipment-detail-carrier"
-                  />
-                </View>
-              ) : null}
 
               {isReceiver && activeUserId ? (
                 <ReceiverTransferSection
