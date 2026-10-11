@@ -422,3 +422,10 @@ mobile), `ReceiverTransferRequest`, `ReceiverTransferInvitation` y
 `ShipmentReceiverTransferSummary`. Siete códigos nuevos (`SHIPMENT_RECEIVER_TRANSFER_*`,
 `RECEIVER_TRANSFER_NOT_FOUND`/`_NOT_PENDING`) y diez triggers `receiverTransfer*` en la
 categoría `shipments`, con copy propio por destinatario.
+
+### MOVO-268 — Códigos del webhook de Mercado Pago
+
+`ApiErrorCode` suma `PAYMENT_WEBHOOK_INVALID_SIGNATURE` (401, `x-signature` ausente o
+inválida) y `PAYMENT_WEBHOOK_NOT_CONFIGURED` (503, falta `MP_WEBHOOK_SECRET`). Los consume
+solo MP, no la app. `HoldProviderEventRequest` (MOVO-210) no cambia: "vencido" sigue siendo
+`event: expired`.

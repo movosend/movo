@@ -199,7 +199,12 @@ export type ApiErrorCode =
   | "SHIPMENT_RECEIVER_TRANSFER_INVALID_TARGET"
   | "RECEIVER_TRANSFER_NOT_FOUND"
   // La solicitud ya no está pendiente (aceptada, rechazada, vencida o cancelada).
-  | "RECEIVER_TRANSFER_NOT_PENDING";
+  | "RECEIVER_TRANSFER_NOT_PENDING"
+  // MOVO-268: webhook de Mercado Pago (`svc-payments`). `x-signature` ausente o que no
+  // coincide con la clave secreta de webhooks de la app.
+  | "PAYMENT_WEBHOOK_INVALID_SIGNATURE"
+  // Falta `MP_WEBHOOK_SECRET` en el ambiente: no hay contra qué validar, se rechaza todo.
+  | "PAYMENT_WEBHOOK_NOT_CONFIGURED";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el
