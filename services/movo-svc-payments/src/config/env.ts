@@ -10,6 +10,9 @@ export interface EnvConfig {
   MP_TOKEN_ENCRYPTION_KEY?: string;
   MP_TEST_MODE: boolean;
   MP_HOLD_VALIDITY_DAYS: number;
+  MP_TOKEN_REFRESH_SWEEP_ENABLED: boolean;
+  MP_TOKEN_REFRESH_SWEEP_INTERVAL_MINUTES: number;
+  MP_TOKEN_REFRESH_WINDOW_DAYS: number;
 }
 
 export const envSchema = {
@@ -44,6 +47,13 @@ export const envSchema = {
     // de la medición de MOVO-215 (la documentación de MP dice 5 o 7 días según la
     // página). 5 es el mínimo de los documentados: provisorio hasta que cierre el spike.
     MP_HOLD_VALIDITY_DAYS: { type: "number", minimum: 1, default: 5 },
+    // MOVO-243: renovación de los tokens OAuth de los transportistas (el access_token de
+    // MP dura 180 días). El barrido corre cada hora y renueva lo que vence dentro de la
+    // ventana: 30 días dan margen para que un MP caído o un fallo transitorio se
+    // reintente muchas veces antes de que un token venza de verdad.
+    MP_TOKEN_REFRESH_SWEEP_ENABLED: { type: "boolean", default: true },
+    MP_TOKEN_REFRESH_SWEEP_INTERVAL_MINUTES: { type: "number", minimum: 1, default: 60 },
+    MP_TOKEN_REFRESH_WINDOW_DAYS: { type: "number", minimum: 1, default: 30 },
   },
 };
 

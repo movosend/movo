@@ -7,6 +7,7 @@ import {
   MercadoPagoOAuthClient,
   MercadoPagoOAuthError,
   OAuthTokens,
+  RefreshedTokens,
 } from "../src/adapters/mercadopago-oauth-client";
 import { MP_CONNECT_STATE_TTL_SECONDS, pkceChallenge } from "../src/modules/mp-connect/mp-connect-state-store";
 import { createCarrierMpAccountRepository } from "../src/repositories/carrier-mp-account-repository";
@@ -37,6 +38,14 @@ class FakeOAuthClient implements MercadoPagoOAuthClient {
   exchangeCode = vi.fn(async (): Promise<OAuthTokens> => tokens());
   getAccountInfo = vi.fn(
     async (): Promise<MercadoPagoAccountInfo> => ({ email: "vendedor@testuser.com", nickname: "TESTUSER71" })
+  );
+  refreshTokens = vi.fn(
+    async (): Promise<RefreshedTokens> => ({
+      accessToken: "TEST-access-refreshed",
+      refreshToken: "TG-refresh-rotated",
+      scope: "offline_access read write",
+      expiresInSeconds: 15552000,
+    })
   );
 }
 
@@ -69,6 +78,7 @@ describe("/payments/mp-connect (MOVO-111)", () => {
     const keys = await app.redis.keys("mp_connect_state:*");
     if (keys.length > 0) await app.redis.del(...keys);
     oauth.exchangeCode.mockReset().mockImplementation(async () => tokens());
+    oauth.refreshTokens.mockClear();
     oauth.getAccountInfo
       .mockReset()
       .mockImplementation(async () => ({ email: "vendedor@testuser.com", nickname: "TESTUSER71" }));
@@ -441,6 +451,165 @@ describe("/payments/mp-connect (MOVO-111)", () => {
       await link(USER_A);
 
       expect(await getStatus(USER_A)).toMatchObject({ status: "linked" });
+    });
+  });
+
+  describe("renovación de tokens (MOVO-243)", () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const repo = () => createCarrierMpAccountRepository(app.db, createTokenCipher(ENCRYPTION_KEY));
+    const setExpiry = (userId: string, daysFromNow: number) =>
+      app.db.carrierMpAccount.update({
+        where: { userId },
+        data: { tokenExpiresAt: new Date(Date.now() + daysFromNow * DAY_MS) },
+      });
+    const relinkedAccount = (accessToken: string, refreshToken: string) => ({
+      mpUserId: "2991764998",
+      email: null,
+      nickname: null,
+      accessToken,
+      refreshToken,
+      publicKey: "TEST-public-key",
+      scope: null,
+      tokenExpiresAt: new Date(Date.now() + 100 * DAY_MS),
+    });
+    const oauthError = (status: number | null, errorCode: string | null) =>
+      new MercadoPagoOAuthError("refresh_token", status, "MP respondió", errorCode);
+
+    it("renueva lo que vence dentro de la ventana y guarda los DOS tokens nuevos (AC1, AC2)", async () => {
+      await link(USER_A);
+      await setExpiry(USER_A, 5);
+
+      const summary = await app.mpConnect.refreshDueTokens();
+
+      expect(summary).toMatchObject({ checked: 1, refreshed: 1, revoked: 0, failed: 0 });
+      expect(oauth.refreshTokens).toHaveBeenCalledWith(
+        { clientId: "7550835762771398", clientSecret: "client-secret", testToken: true },
+        "TG-refresh-secret"
+      );
+      expect(await credentials(USER_A)).toMatchObject({
+        accessToken: "TEST-access-refreshed",
+        refreshToken: "TG-refresh-rotated",
+      });
+      const row = await app.db.carrierMpAccount.findUniqueOrThrow({ where: { userId: USER_A } });
+      expect(row.tokenExpiresAt!.getTime()).toBeGreaterThan(Date.now() + 179 * DAY_MS);
+      // En la base siguen cifrados.
+      expect(row.accessToken).not.toContain("refreshed");
+      expect(row.refreshToken).not.toContain("rotated");
+      expect((await getStatus(USER_A)).status).toBe("linked");
+    });
+
+    it("no toca los tokens que todavía no están por vencer", async () => {
+      await link(USER_A);
+      await setExpiry(USER_A, 100);
+
+      const summary = await app.mpConnect.refreshDueTokens();
+
+      expect(summary.checked).toBe(0);
+      expect(oauth.refreshTokens).not.toHaveBeenCalled();
+    });
+
+    it("intenta recuperar un token ya vencido, y si MP lo renueva vuelve a linked", async () => {
+      await link(USER_A);
+      await setExpiry(USER_A, -1);
+      expect((await getStatus(USER_A)).invalidReason).toBe("expired");
+
+      await app.mpConnect.refreshDueTokens();
+
+      expect((await getStatus(USER_A)).status).toBe("linked");
+    });
+
+    it("invalid_grant marca revoked_at y no se reintenta en la siguiente corrida (AC3)", async () => {
+      await link(USER_A);
+      await setExpiry(USER_A, 5);
+      oauth.refreshTokens.mockRejectedValueOnce(oauthError(400, "invalid_grant"));
+
+      expect(await app.mpConnect.refreshDueTokens()).toMatchObject({ checked: 1, revoked: 1, refreshed: 0 });
+
+      const status = await getStatus(USER_A);
+      expect(status).toMatchObject({ status: "invalid", invalidReason: "revoked" });
+      expect(await credentials(USER_A)).toBeNull();
+
+      oauth.refreshTokens.mockClear();
+      expect(await app.mpConnect.refreshDueTokens()).toMatchObject({ checked: 0 });
+      expect(oauth.refreshTokens).not.toHaveBeenCalled();
+    });
+
+    it("un fallo transitorio no marca revoked_at y se reintenta en la próxima corrida (AC4)", async () => {
+      await link(USER_A);
+      await setExpiry(USER_A, 5);
+      oauth.refreshTokens.mockRejectedValueOnce(oauthError(503, null));
+
+      expect(await app.mpConnect.refreshDueTokens()).toMatchObject({ checked: 1, failed: 1, revoked: 0 });
+      const row = await app.db.carrierMpAccount.findUniqueOrThrow({ where: { userId: USER_A } });
+      expect(row.revokedAt).toBeNull();
+      expect(await credentials(USER_A)).toMatchObject({ refreshToken: "TG-refresh-secret" });
+
+      expect(await app.mpConnect.refreshDueTokens()).toMatchObject({ checked: 1, refreshed: 1 });
+      expect(await credentials(USER_A)).toMatchObject({ refreshToken: "TG-refresh-rotated" });
+    });
+
+    it("un error de red tampoco revoca", async () => {
+      await link(USER_A);
+      await setExpiry(USER_A, 5);
+      oauth.refreshTokens.mockRejectedValueOnce(oauthError(null, null));
+
+      await app.mpConnect.refreshDueTokens();
+
+      const row = await app.db.carrierMpAccount.findUniqueOrThrow({ where: { userId: USER_A } });
+      expect(row.revokedAt).toBeNull();
+    });
+
+    it("un fallo en una cuenta no frena a las demás", async () => {
+      await link(USER_A);
+      await setExpiry(USER_A, 3);
+      oauth.exchangeCode.mockImplementation(async () => tokens({ mpUserId: "555" }));
+      await link(USER_B);
+      await setExpiry(USER_B, 4);
+      oauth.refreshTokens.mockRejectedValueOnce(oauthError(500, null));
+
+      const summary = await app.mpConnect.refreshDueTokens();
+
+      expect(summary).toMatchObject({ checked: 2, failed: 1, refreshed: 1 });
+    });
+
+    it("ignora las cuentas desvinculadas", async () => {
+      await link(USER_A);
+      await setExpiry(USER_A, 5);
+      await repo().unlink(USER_A, new Date());
+
+      expect((await app.mpConnect.refreshDueTokens()).checked).toBe(0);
+    });
+
+    it("si el transportista re-vincula mientras se espera a MP, no se pisa la vinculación nueva", async () => {
+      await link(USER_A);
+      await setExpiry(USER_A, 5);
+      oauth.refreshTokens.mockImplementationOnce(async () => {
+        await repo().upsertLinked(
+          USER_A,
+          relinkedAccount("TEST-relinked", "TG-relinked"),
+          new Date()
+        );
+        return { accessToken: "TEST-stale", refreshToken: "TG-stale", scope: null, expiresInSeconds: 15552000 };
+      });
+
+      expect(await app.mpConnect.refreshDueTokens()).toMatchObject({ refreshed: 0, skipped: 1 });
+      expect(await credentials(USER_A)).toMatchObject({ accessToken: "TEST-relinked", refreshToken: "TG-relinked" });
+    });
+
+    it("la revocación de una vinculación re-hecha en el medio tampoco la pisa", async () => {
+      await link(USER_A);
+      await setExpiry(USER_A, 5);
+      oauth.refreshTokens.mockImplementationOnce(async () => {
+        await repo().upsertLinked(
+          USER_A,
+          relinkedAccount("TEST-relinked", "TG-relinked"),
+          new Date()
+        );
+        throw oauthError(400, "invalid_grant");
+      });
+
+      expect(await app.mpConnect.refreshDueTokens()).toMatchObject({ revoked: 0, skipped: 1 });
+      expect((await getStatus(USER_A)).status).toBe("linked");
     });
   });
 });

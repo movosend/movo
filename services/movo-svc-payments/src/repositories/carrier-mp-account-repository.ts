@@ -40,6 +40,26 @@ export interface CarrierMpCredentials {
   publicKey: string | null;
 }
 
+/** MOVO-243: una vinculación a renovar, con el refresh_token ya descifrado. */
+export interface RefreshCandidate {
+  userId: string;
+  mpUserId: string;
+  refreshToken: string;
+  /**
+   * Opaco: identifica los tokens que se leyeron. `saveRefreshedTokens`/`markRevoked` solo
+   * escriben si la fila sigue con esos mismos tokens, así un re-vincular o desvincular que
+   * ocurra mientras se espera a MP no se pisa.
+   */
+  version: string;
+}
+
+export interface RefreshedTokensData {
+  accessToken: string;
+  refreshToken: string;
+  scope: string | null;
+  tokenExpiresAt: Date;
+}
+
 export interface CarrierMpAccountRepository {
   /** La fila tal cual: `accessToken`/`refreshToken` vienen cifrados. */
   findByUserId(userId: string): Promise<CarrierMpAccount | null>;
@@ -60,6 +80,23 @@ export interface CarrierMpAccountRepository {
    * `svc-shipments` para no dejar operar a quien después caería en el 409 del hold.
    */
   hasActiveCredentials(userId: string, now: Date): Promise<boolean>;
+  /**
+   * MOVO-243 AC1: vinculaciones vigentes (ni desvinculadas ni revocadas) cuyo token vence
+   * antes de `expiresBefore`, incluidas las ya vencidas (se intenta recuperarlas), las
+   * que vencen primero antes. Descifra solo el `refresh_token`.
+   */
+  findDueForRefresh(expiresBefore: Date, limit: number): Promise<RefreshCandidate[]>;
+  /**
+   * MOVO-243 AC2: reemplaza `access_token`, `refresh_token` y `token_expires_at` si la
+   * fila sigue vigente con los tokens de `version`. `false` = alguien la cambió en el
+   * medio (re-vinculó, desvinculó) y no se escribió nada.
+   */
+  saveRefreshedTokens(userId: string, version: string, data: RefreshedTokensData): Promise<boolean>;
+  /**
+   * MOVO-243 AC3: marca `revoked_at` con la misma condición que `saveRefreshedTokens`.
+   * Conserva los tokens (ya no sirven; `findCredentials` filtra por `revoked_at`).
+   */
+  markRevoked(userId: string, version: string, now: Date): Promise<boolean>;
   /**
    * Vincula (o re-vincula) la cuenta del usuario: pisa tokens y datos, y limpia
    * `revokedAt`/`unlinkedAt`. Tira `MpAccountAlreadyLinkedError` si esa cuenta de MP
@@ -135,6 +172,54 @@ export function createCarrierMpAccountRepository(db: PrismaClient, cipher: Token
         refreshToken: cipher.decrypt(row.refreshToken),
         publicKey: row.publicKey,
       };
+    },
+
+    async findDueForRefresh(expiresBefore, limit) {
+      const rows = await db.carrierMpAccount.findMany({
+        where: {
+          unlinkedAt: null,
+          revokedAt: null,
+          accessToken: { not: null },
+          refreshToken: { not: null },
+          tokenExpiresAt: { lt: expiresBefore },
+        },
+        orderBy: { tokenExpiresAt: "asc" },
+        take: limit,
+      });
+      return rows.flatMap((row) =>
+        row.refreshToken
+          ? [
+              {
+                userId: row.userId,
+                mpUserId: row.mpUserId,
+                refreshToken: cipher.decrypt(row.refreshToken),
+                version: row.refreshToken,
+              },
+            ]
+          : []
+      );
+    },
+
+    async saveRefreshedTokens(userId, version, data) {
+      const result = await db.carrierMpAccount.updateMany({
+        where: { userId, unlinkedAt: null, revokedAt: null, refreshToken: version },
+        data: {
+          accessToken: cipher.encrypt(data.accessToken),
+          refreshToken: cipher.encrypt(data.refreshToken),
+          tokenExpiresAt: data.tokenExpiresAt,
+          // Si MP no devuelve `scope` en el refresh, se conserva el de la vinculación.
+          ...(data.scope !== null ? { scope: data.scope } : {}),
+        },
+      });
+      return result.count > 0;
+    },
+
+    async markRevoked(userId, version, now) {
+      const result = await db.carrierMpAccount.updateMany({
+        where: { userId, unlinkedAt: null, revokedAt: null, refreshToken: version },
+        data: { revokedAt: now },
+      });
+      return result.count > 0;
     },
 
     async upsertLinked(userId, data, now) {
