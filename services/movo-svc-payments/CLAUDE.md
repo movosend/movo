@@ -196,3 +196,43 @@ ni hook de `x-user-id`) que devuelve `{ linked }` para el bloqueo del transporti
 `findActiveCredentials` y no descifra tokens): es más estricto que el `linked` de
 `GET /payments/mp-connect/status` porque también exige `public_key`, así nadie pasa el bloqueo
 y después cae en el 409 del hold. Tests en `test/mp-connect.integration.test.ts`.
+
+### MOVO-243 — Renovación automática de tokens OAuth y marcado de vinculación revocada
+
+Barrido periódico (`src/plugins/mp-token-refresh-sweep.ts`, esqueleto `register-sweep.ts`
+copiado de `svc-shipments`: `setInterval` + lock Redis) que llama a
+`mpConnect.refreshDueTokens()` (`mp-connect.service.ts`). Nunca refresca al cobrar (AC1).
+Cliente: `refreshTokens` en `mercadopago-oauth-client.ts`; repositorio: `findDueForRefresh`,
+`saveRefreshedTokens`, `markRevoked`.
+
+- **Barrido cada hora, ventana de 30 días** (`MP_TOKEN_REFRESH_SWEEP_INTERVAL_MINUTES`,
+  `MP_TOKEN_REFRESH_WINDOW_DAYS`), en vez de un cron diario: con `setInterval` un deploy
+  diario reiniciaría el timer antes de que dispare nunca, y la ventana larga hace que un
+  MP caído se reintente muchas veces antes de que un token venza. La consulta es barata
+  (nada que renovar casi siempre). Un token ya vencido y no revocado también se intenta.
+- **Revocación = 400 `invalid_grant` y nada más** (`MercadoPagoOAuthError.isRevocation()`;
+  el error ahora conserva el código corto `error` de OAuth, no el resto del body). Todo lo
+  demás (5xx, 429, red, `invalid_client` = nuestra app mal configurada) es transitorio: no
+  toca la fila y se reintenta en la corrida siguiente (AC4). Revocada, la fila sale de
+  `findDueForRefresh` y no se reintenta (AC3); el status pasa a `invalid/revoked` y el hold
+  y el webhook (`findCredentials`) dejan de usar el token.
+- **Guardado con compare-and-swap** sobre el `refresh_token` cifrado leído: si el
+  transportista re-vincula o desvincula mientras se espera a MP, el resultado (renovación o
+  revocación) se descarta en vez de pisar la vinculación nueva.
+- **Se guardan los dos tokens** aunque el sandbox devolvió el mismo `access_token`.
+  Si MP rotó el `refresh_token` y la escritura falla, el viejo queda inservible y la cuenta
+  se marcará revocada en la corrida siguiente (hay que re-vincular): riesgo aceptado.
+- Env vars en `.env.example`, `envSchema` y `docker-compose.yml` (con `:-` por default).
+
+Verificado contra el sandbox (11/10, cuenta Vendedor del equipo, `FetchMercadoPagoOAuthClient`
+real): el refresh sobre el `refresh_token` guardado devolvió 200 con `access_token` `TEST-`
+nuevo (esta vez distinto del anterior, así que no se puede asumir que se mantiene), un
+`refresh_token` rotado y `expires_in` de 180 días. Un segundo refresh con el
+`refresh_token` ya canjeado **también respondió 200**: el sandbox no hace el refresh de un
+solo uso, así que ahí no se observó ningún rechazo. El disparador por vencimiento próximo
+se probó con `token_expires_at` forzado en la base (tests de integración), no esperando el
+plazo real.
+
+Pendiente: observar un `invalid_grant` real. El código asume 400 `invalid_grant` (lo que
+documenta MP) y falla seguro si es otra cosa (no revoca, reintenta); falta revocar el
+acceso desde la cuenta de prueba de MP y correr una corrida del barrido.
