@@ -150,6 +150,8 @@ function toHoldResponse(hold: Hold): HoldResponse {
     status: hold.status,
     statusDetail: hold.statusDetail,
     failureReason: hold.failureReason,
+    cardBrand: hold.cardBrand,
+    cardLastFour: hold.cardLastFour,
     expiresAt: hold.expiresAt?.toISOString() ?? null,
     createdAt: hold.createdAt.toISOString(),
     updatedAt: hold.updatedAt.toISOString(),
@@ -225,6 +227,18 @@ export function createHoldService(deps: HoldServiceDeps) {
    * vivos y habilitaría una segunda reserva sobre fondos que siguen retenidos.
    */
   function mapPayment(payment: PaymentSnapshot, current: Hold | null): HoldUpdate | null {
+    const patch = mapPaymentStatus(payment, current);
+    if (!patch) return null;
+    // MOVO-211: la tarjeta del intento, para que el emisor la reconozca en el detalle. Si MP
+    // no la manda (búsqueda resumida), se conserva la que ya estaba.
+    return {
+      ...patch,
+      cardBrand: payment.payment_method_id ?? current?.cardBrand ?? null,
+      cardLastFour: payment.card?.last_four_digits ?? current?.cardLastFour ?? null,
+    };
+  }
+
+  function mapPaymentStatus(payment: PaymentSnapshot, current: Hold | null): HoldUpdate | null {
     const statusDetail = payment.status_detail ?? null;
     const mpPaymentId = payment.id !== undefined ? String(payment.id) : null;
     const expiresAt = current?.expiresAt ?? new Date(now().getTime() + deps.holdValidityDays * DAY_MS);

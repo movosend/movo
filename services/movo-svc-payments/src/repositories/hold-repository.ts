@@ -20,6 +20,8 @@ export interface HoldUpdate {
   failureReason?: HoldFailureReason | null;
   mpPaymentId?: string | null;
   expiresAt?: Date | null;
+  cardBrand?: string | null;
+  cardLastFour?: string | null;
 }
 
 function isUniqueViolation(error: unknown): boolean {

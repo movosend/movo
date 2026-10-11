@@ -106,6 +106,10 @@ model Hold {
   // original); si no coincide, se busca el pago en MP antes de abrir otro intento.
   // Nunca el token en claro.
   requestFingerprint String?            @map("request_fingerprint")
+  // MOVO-211: marca (`payment_method_id` de MP) y últimos 4 dígitos de la tarjeta del
+  // intento, para el detalle del envío. Nunca el BIN ni el token.
+  cardBrand          String?            @map("card_brand")
+  cardLastFour       String?            @map("card_last_four")
   expiresAt          DateTime?          @map("expires_at") @db.Timestamptz
   createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz

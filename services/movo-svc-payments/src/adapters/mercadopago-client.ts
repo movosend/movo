@@ -14,6 +14,10 @@ export interface PaymentSnapshot {
   id?: string | number;
   status?: string;
   status_detail?: string;
+  /** MOVO-211: marca de la tarjeta (`visa`, `master`, ...). */
+  payment_method_id?: string;
+  /** MOVO-211: solo se guardan los últimos 4 dígitos, nunca el BIN. */
+  card?: { last_four_digits?: string | null };
 }
 
 /**
@@ -103,7 +107,13 @@ export class SdkMercadoPagoClient implements MercadoPagoClient {
     const result = await this.payments(accessToken).search({
       options: { external_reference: externalReference, sort: "date_created", criteria: "desc", limit: 20 },
     });
-    return (result.results ?? []).map((p) => ({ id: p.id, status: p.status, status_detail: p.status_detail }));
+    return (result.results ?? []).map((p) => ({
+      id: p.id,
+      status: p.status,
+      status_detail: p.status_detail,
+      payment_method_id: p.payment_method_id,
+      card: p.card ? { last_four_digits: p.card.last_four_digits } : undefined,
+    }));
   }
 
   cancelPayment(

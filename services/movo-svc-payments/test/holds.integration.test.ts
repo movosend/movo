@@ -186,6 +186,22 @@ describe("/internal/payments/holds (MOVO-209)", () => {
     expect(keys).toEqual([`movo-hold-${SHIPMENT}-1`, `movo-hold-${SHIPMENT}-2`]);
   });
 
+  it("guarda la marca y los últimos 4 de la tarjeta y los conserva al sincronizar (MOVO-211)", async () => {
+    mp.createPayment.mockResolvedValueOnce(
+      payment({ id: 7, payment_method_id: "visa", card: { last_four_digits: "3704" } } as Partial<PaymentResponse>)
+    );
+    const created = await create();
+    expect(created.json()).toMatchObject({ cardBrand: "visa", cardLastFour: "3704" });
+
+    // Un pago sin datos de tarjeta (respuesta resumida) no borra los que ya estaban.
+    mp.getPayment.mockResolvedValueOnce(payment({ id: 7, status: "authorized" }));
+    const synced = await app.inject({ method: "GET", url: `${BASE}/by-shipment/${SHIPMENT}?sync=true` });
+    expect(synced.json()).toMatchObject({ status: "authorized", cardBrand: "visa", cardLastFour: "3704" });
+
+    const row = await app.db.hold.findFirstOrThrow({ where: { shipmentId: SHIPMENT } });
+    expect(row).toMatchObject({ cardBrand: "visa", cardLastFour: "3704" });
+  });
+
   it("consulta el hold por envío, 404 sin hold (AC7)", async () => {
     const missing = await app.inject({ method: "GET", url: `${BASE}/by-shipment/${SHIPMENT_2}` });
     expect(missing.statusCode).toBe(404);

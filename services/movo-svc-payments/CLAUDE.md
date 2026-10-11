@@ -196,3 +196,11 @@ ni hook de `x-user-id`) que devuelve `{ linked }` para el bloqueo del transporti
 `findActiveCredentials` y no descifra tokens): es más estricto que el `linked` de
 `GET /payments/mp-connect/status` porque también exige `public_key`, así nadie pasa el bloqueo
 y después cae en el 409 del hold. Tests en `test/mp-connect.integration.test.ts`.
+
+### MOVO-211 — Tarjeta del intento de hold
+
+`payments.holds` suma `card_brand` (`payment_method_id` de MP) y `card_last_four` (migración
+`20261011180000_holds_card_summary`, nullable), expuestos en `HoldResponse` (`cardBrand`/`cardLastFour`) para
+que el emisor reconozca la tarjeta en el detalle del envío. Se toman de la respuesta de MP en `mapPayment`
+(create, sync y adopción); una respuesta sin datos de tarjeta (búsqueda resumida) conserva los que ya estaban.
+Nunca se guarda el BIN ni el token.

@@ -84,6 +84,10 @@ export interface HoldResponse {
   status: HoldStatus;
   statusDetail: string | null;
   failureReason: HoldFailureReason | null;
+  /** MOVO-211: marca de la tarjeta según MP (`visa`, `master`, ...). Nunca el BIN ni el token. */
+  cardBrand: string | null;
+  /** MOVO-211: últimos 4 dígitos de la tarjeta, para que el emisor la reconozca. */
+  cardLastFour: string | null;
   /** Hasta cuándo se espera que MP sostenga la reserva (config `MP_HOLD_VALIDITY_DAYS`). */
   expiresAt: string | null;
   createdAt: string;
