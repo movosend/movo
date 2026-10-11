@@ -118,4 +118,24 @@ describe("ShipmentRow", () => {
 
     expect(mockRouterPush).toHaveBeenCalledWith("/shipments/s1");
   });
+
+  it("MOVO-275: un envío transferido muestra el badge y a quién se lo pasó", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-3" });
+    const { getByTestId, getByText } = await render(
+      <ShipmentRow
+        testID="row"
+        shipment={shipment({
+          status: ShipmentStatus.IN_TRANSIT,
+          senderId: "user-1",
+          receiverId: "user-2",
+          transferredByMe: { newReceiverId: "user-2", newReceiverName: "Martín López", at: "2026-09-20T12:00:00.000Z" },
+        })}
+        isFirst
+      />,
+    );
+
+    expect(getByTestId("row-transferred")).toHaveTextContent("Transferido");
+    expect(getByText("Ahora lo recibe Martín")).toBeTruthy();
+    expect(getByText("Envío de Pedro")).toBeTruthy();
+  });
 });

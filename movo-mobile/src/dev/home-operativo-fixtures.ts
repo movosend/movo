@@ -144,4 +144,14 @@ export const MOCK_ATTENTION_TASKS: AttentionTask[] = [
     onPress: () => {},
     onChooseReceiver: () => {},
   },
+  // MOVO-275: invitación para recibir en lugar del receptor original.
+  {
+    kind: "transfer_invite",
+    id: "dev-task-transfer-invite",
+    transferId: "dev-transfer-invite",
+    title: "Lucía te pidió que recibas un paquete",
+    meta: "Recibís en Av. Colón 1234",
+    deadlineLabel: "Tenés hasta hoy 15:02",
+    onPress: () => {},
+  },
 ];

@@ -1,6 +1,7 @@
 import type { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import type { CarrierRoute } from "@movo/shared/dist/types/routing";
 import type { ShipmentQuoteRequest, ShipmentQuoteResponse } from "@movo/shared/dist/types/pricing";
+import type { ShipmentReceiverTransferSummary } from "@movo/shared/dist/types/receiver-transfer";
 import type { PackageType } from "../store/shipment-wizard-store";
 import { httpClient } from "./http-client";
 
@@ -56,6 +57,13 @@ export interface ShipmentSummary {
   /** MOVO-257: solo en `GET /shipments/mine` — ofertas vigentes de un envío
    * `published` visto por su emisor; `null` en cualquier otro caso. */
   pendingOffersCount?: number | null;
+  /** MOVO-275: solo en `GET /shipments/:id` para las partes del envío. Dice si quien
+   * mira le pasó la recepción a otra persona (solo lectura), la solicitud pendiente
+   * (solo para quien la pidió y el emisor) y la transferencia completada. */
+  receiverTransfer?: ShipmentReceiverTransferSummary | null;
+  /** MOVO-275: solo en `GET /shipments/mine` — el usuario le pasó la recepción de este
+   * envío a otra persona (badge "Transferido"). `null` en cualquier otro caso. */
+  transferredByMe?: { newReceiverId: string; newReceiverName: string | null; at: string } | null;
 }
 
 export interface ListMineResponse {

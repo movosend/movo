@@ -1,7 +1,7 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { OfferStatus } from "@movo/shared/dist/types/offer";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useIsFocused, useLocalSearchParams } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { useColorScheme } from "nativewind";
 import {
@@ -207,6 +207,7 @@ export default function TransportShipmentDetailScreen() {
     pickupDistanceKm?: string;
   }>();
   const colors = useThemeColors();
+  const isFocused = useIsFocused();
   const { colorScheme } = useColorScheme();
   // lime-600 (light) / lime-400 (dark, `tailwind.config.js`) -- mismos tonos de lime
   // que ya usa el resto del repo como acento de texto/ícono sobre fondo claro
@@ -463,6 +464,7 @@ export default function TransportShipmentDetailScreen() {
             <View>
               <Eyebrow>Ruta</Eyebrow>
               <RouteMapCard
+                paused={!isFocused}
                 testID="transport-detail-route-map"
                 pickup={{
                   address: shipment.pickupAddress,

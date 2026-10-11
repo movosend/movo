@@ -4,6 +4,7 @@ import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useFocusEffect, useIsFocused, useLocalSearchParams, type Href } from "expo-router";
 import {
   ArrowDownLeft,
+  ArrowLeftRight,
   ArrowUpRight,
   ChevronLeft,
   Clock,
@@ -16,17 +17,20 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
-import { CounterpartCard } from "../../../components/shipments/counterpart-card";
 import { HighDemandBadge } from "../../../components/shipments/high-demand-badge";
 import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
 import { LiveTrackingCard } from "../../../components/shipments/live-tracking-card";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
-import { PackageCard } from "../../../components/shipments/package-card";
+import { PackageCard, PackageSummaryCard } from "../../../components/shipments/package-card";
 import { RatingSheet, type RatingTarget } from "../../../components/shipments/rating-sheet";
 import { ReceiverActionsBar } from "../../../components/shipments/receiver-actions-bar";
 import { RejectedReceiverBanner } from "../../../components/shipments/rejected-receiver-banner";
+import { ReceiverTransferPendingBanner } from "../../../components/shipments/receiver-transfer-pending-banner";
+import { ReceiverTransferSection } from "../../../components/shipments/receiver-transfer-section";
+import { TransferredByYouBanner } from "../../../components/shipments/transferred-by-you-banner";
 import { SenderActionsBar } from "../../../components/shipments/sender-actions-bar";
 import { ShipmentDetailSkeleton } from "../../../components/shipments/shipment-detail-skeleton";
+import { ShipmentPartiesCard } from "../../../components/shipments/shipment-parties-card";
 import { ShipmentRatingsCard } from "../../../components/shipments/shipment-ratings-card";
 import { ShipmentStatusBadge } from "../../../components/shipments/status-badge";
 import { TimelineSection } from "../../../components/shipments/timeline-section";
@@ -51,13 +55,22 @@ import {
   formatTimeHHMM,
   liveTrackingAvailability,
   liveTrackingPendingPollInterval,
-  pickupLocalityLabel,
   receiverConfirmationStatus,
   shipmentDetailCta,
   type ShipmentDetailRole,
 } from "../../../src/lib/shipment-format";
 
 type DetailTab = "detalle" | "timeline";
+
+const SHORT_DAY_FORMATTER = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short" });
+
+/** "Receptor desde el 10 oct · antes, vos" (MOVO-275): la fila del receptor nuevo vista por
+ * quien le pasó la recepción. */
+function formerReceiverNote(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Receptor · antes, vos";
+  return `Receptor desde el ${SHORT_DAY_FORMATTER.format(date).replace(".", "")} · antes, vos`;
+}
 
 function Eyebrow({ children }: { children: ReactNode }) {
   return <Text className="mb-1.5 font-sans-medium text-caption uppercase text-fg-3">{children}</Text>;
@@ -162,8 +175,16 @@ export default function ShipmentDetailScreen() {
   const activeUserId = currentUser?.userId ?? "";
 
   const isReceiver = shipment !== undefined && currentUser?.userId === shipment.receiverId;
+  // MOVO-275 (ADR-037): le pasó la recepción a otra persona y ve el envío en solo
+  // lectura. No es ninguno de los tres roles, así que no tiene acciones ni CTA; como el
+  // receptor, no ve el punto exacto de retiro ni el precio.
+  const isFormerReceiver = shipment?.receiverTransfer?.viewerIsFormerReceiver === true;
+  const completedTransfer = shipment?.receiverTransfer?.completed ?? null;
+  const pendingTransfer = shipment?.receiverTransfer?.pending ?? null;
+  const pendingOwnTransfer = pendingTransfer && pendingTransfer.requestedBy === activeUserId ? pendingTransfer : null;
+  const seesReceiverView = isReceiver || isFormerReceiver;
 
-  // Mismo query key que `CounterpartCard` (`usePublicProfile`, MOVO-154) — TanStack
+  // Mismo query key que `ShipmentPartiesCard` (`usePublicProfile`, MOVO-154) — TanStack
   // Query dedupea, así que esto no dispara un segundo request cuando esa card ya trajo
   // el perfil del emisor. Solo se usa para nombrar al emisor en el sheet de rechazo
   // de `ReceiverActionsBar` (variante 2a del diseño de "Confirmación de envío").
@@ -282,6 +303,12 @@ export default function ShipmentDetailScreen() {
           <Text className="font-sans-semibold text-h3 text-fg">Detalle del envío</Text>
           {shipment ? (
             <View className="mt-0.5 flex-row items-center gap-1">
+              {isFormerReceiver ? (
+                <View testID="shipment-detail-role" className="flex-row items-center gap-0.5">
+                  <ArrowLeftRight size={11} strokeWidth={2} color={colors.fg3} />
+                  <Text className="font-sans text-[10px] uppercase tracking-wide text-fg-3">Transferiste ·</Text>
+                </View>
+              ) : null}
               {role ? (
                 <View testID="shipment-detail-role" className="flex-row items-center gap-0.5">
                   {role === "sender" ? (
@@ -364,30 +391,31 @@ export default function ShipmentDetailScreen() {
                 />
               }
             >
+              {isReceiver && pendingOwnTransfer ? (
+                <ReceiverTransferPendingBanner
+                  transfer={pendingOwnTransfer}
+                  testID="shipment-detail-receiver-transfer-pending"
+                />
+              ) : null}
+
+              {isFormerReceiver && completedTransfer ? (
+                <TransferredByYouBanner transfer={completedTransfer} testID="shipment-detail-transferred-banner" />
+              ) : null}
+
               <View>
                 <Eyebrow>Ruta</Eyebrow>
-                {/* El receptor no ve el punto exacto de retiro: solo el pin de entrega y
-                    la localidad del origen, sin calle ni altura (AC4). */}
                 <RouteMapCard
-                  pickup={
-                    isReceiver
-                      ? null
-                      : {
-                          address: shipment.pickupAddress,
-                          lat: shipment.pickupLat,
-                          lng: shipment.pickupLng,
-                        }
-                  }
-                  pickupLabel={
-                    isReceiver
-                      ? (pickupLocalityLabel(shipment.pickupAddress) ?? "la zona del emisor")
-                      : undefined
-                  }
+                  pickup={{
+                    address: shipment.pickupAddress,
+                    lat: shipment.pickupLat,
+                    lng: shipment.pickupLng,
+                  }}
                   delivery={{
                     address: shipment.deliveryAddress,
                     lat: shipment.deliveryLat,
                     lng: shipment.deliveryLng,
                   }}
+                  paused={!isFocused}
                   testID="shipment-detail-route-map"
                 />
               </View>
@@ -416,50 +444,68 @@ export default function ShipmentDetailScreen() {
                 </View>
               ) : null}
 
-              <View className="flex-row gap-3">
-                <View className="flex-1 rounded-[10px] bg-bg-mute px-3.5 py-3.5">
-                  <View className="mb-1">
-                    <Eyebrow>Retiro programado</Eyebrow>
-                  </View>
-                  <Text className="font-sans-semibold text-[13px] text-fg">{pickupDateLabel}</Text>
-                  <Text className="mt-0.5 font-sans text-[12px] text-fg-2">
-                    {formatTimeHHMM(shipment.pickupTimeWindowStart)} –{" "}
-                    {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
-                  </Text>
-                </View>
-                {/* El precio es un acuerdo entre emisor y transportista: el receptor no
-                    paga nada, así que no se le muestra y el retiro ocupa todo el ancho. */}
-                {isReceiver ? null : (
-                  <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
+              {seesReceiverView ? (
+                // El receptor no ve el precio (no paga nada): retiro y paquete comparten la fila.
+                <View className="flex-row gap-3" testID="shipment-detail-pickup-package">
+                  {/* Colores fijos: la card es lima en los dos temas, como la de precio. */}
+                  <View
+                    testID="shipment-detail-pickup"
+                    className="relative flex-1 overflow-hidden rounded-[14px] bg-lime-200 px-4 py-3.5"
+                  >
                     <GridPattern />
-                    <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
-                      {carrierNetArs !== null
-                        ? "Te queda"
-                        : hasAgreedPrice
-                          ? "Precio pactado"
-                          : "Costo aproximado"}
+                    <Text className="mb-1 font-sans-medium text-caption uppercase text-ink-700">Retiro</Text>
+                    <Text className="font-sans-semibold text-[15px] text-ink-950">{pickupDateLabel}</Text>
+                    <Text className="mt-0.5 font-sans text-small text-ink-700">
+                      {formatTimeHHMM(shipment.pickupTimeWindowStart)} –{" "}
+                      {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
                     </Text>
-                    <Text testID="shipment-detail-price" className="font-sans-semibold text-[20px] text-ink-950">
-                      {carrierNetArs !== null
-                        ? formatPriceArs(carrierNetArs)
-                        : formatShipmentPrice(
-                            shipment.agreedPriceArs,
-                            shipment.suggestedPriceArs
-                          )}
-                    </Text>
-                    {showHighDemandBadge ? (
-                      <View className="mt-2">
-                        <HighDemandBadge testID="shipment-detail-high-demand" />
-                      </View>
-                    ) : null}
                   </View>
-                )}
-              </View>
+                  <PackageSummaryCard shipment={shipment} testID="shipment-detail-package" />
+                </View>
+              ) : (
+                <>
+                  <View className="flex-row gap-3">
+                    <View className="flex-1 rounded-[10px] bg-bg-mute px-3.5 py-3.5">
+                      <View className="mb-1">
+                        <Eyebrow>Retiro programado</Eyebrow>
+                      </View>
+                      <Text className="font-sans-semibold text-[13px] text-fg">{pickupDateLabel}</Text>
+                      <Text className="mt-0.5 font-sans text-[12px] text-fg-2">
+                        {formatTimeHHMM(shipment.pickupTimeWindowStart)} –{" "}
+                        {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
+                      </Text>
+                    </View>
+                    <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
+                      <GridPattern />
+                      <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
+                        {carrierNetArs !== null
+                          ? "Te queda"
+                          : hasAgreedPrice
+                            ? "Precio pactado"
+                            : "Costo aproximado"}
+                      </Text>
+                      <Text testID="shipment-detail-price" className="font-sans-semibold text-[20px] text-ink-950">
+                        {carrierNetArs !== null
+                          ? formatPriceArs(carrierNetArs)
+                          : formatShipmentPrice(
+                              shipment.agreedPriceArs,
+                              shipment.suggestedPriceArs
+                            )}
+                      </Text>
+                      {showHighDemandBadge ? (
+                        <View className="mt-2">
+                          <HighDemandBadge testID="shipment-detail-high-demand" />
+                        </View>
+                      ) : null}
+                    </View>
+                  </View>
 
-              <View>
-                <Eyebrow>Paquete</Eyebrow>
-                <PackageCard shipment={shipment} testID="shipment-detail-package" />
-              </View>
+                  <View>
+                    <Eyebrow>Paquete</Eyebrow>
+                    <PackageCard shipment={shipment} testID="shipment-detail-package" />
+                  </View>
+                </>
+              )}
 
               <EvidencePhotosSection shipmentId={shipment.id} testID="shipment-detail-evidence" />
 
@@ -467,46 +513,67 @@ export default function ShipmentDetailScreen() {
                 <OffersBanner shipmentId={shipment.id} testID="shipment-detail-offers" />
               ) : null}
 
-              {isCarrier ? (
-                <View>
-                  <Eyebrow>Emisor</Eyebrow>
-                  <CounterpartCard
-                    userId={shipment.senderId}
-                    onPress={() => openProfile(shipment.senderId)}
-                    testID="shipment-detail-sender"
-                  />
-                </View>
-              ) : null}
-
               <View>
-                <Eyebrow>{isReceiver ? "Emisor" : "Receptor"}</Eyebrow>
-                <CounterpartCard
-                  userId={isReceiver ? shipment.senderId : shipment.receiverId}
-                  receiverConfirmation={
-                    isReceiver ? undefined : receiverConfirmationStatus(shipment.status)
-                  }
-                  onPress={() =>
-                    openProfile(isReceiver ? shipment.senderId : shipment.receiverId)
-                  }
-                  testID={isReceiver ? "shipment-detail-sender" : "shipment-detail-receiver"}
+                <Eyebrow>Participantes</Eyebrow>
+                <ShipmentPartiesCard
+                  testID="shipment-detail-parties"
+                  rows={[
+                    ...(isSender
+                      ? []
+                      : [
+                          {
+                            userId: shipment.senderId,
+                            roleLabel: "Emisor",
+                            onPress: () => openProfile(shipment.senderId),
+                            testID: "shipment-detail-sender",
+                          },
+                        ]),
+                    // Con el envío entregado, el transportista sigue en "Calificaciones".
+                    ...(!isCarrier && shipment.carrierId && !FULFILLED_SHIPMENT_STATUSES.includes(shipment.status)
+                      ? [
+                          {
+                            userId: shipment.carrierId,
+                            roleLabel: "Transportista",
+                            onPress: () => shipment.carrierId && openProfile(shipment.carrierId),
+                            testID: "shipment-detail-carrier",
+                          },
+                        ]
+                      : []),
+                    ...(isReceiver
+                      ? []
+                      : [
+                          {
+                            userId: shipment.receiverId,
+                            roleLabel: "Receptor",
+                            // Quien le pasó la recepción ve desde cuándo recibe la otra persona
+                            // (MOVO-275), no si aceptó el envío.
+                            receiverConfirmation: isFormerReceiver
+                              ? undefined
+                              : receiverConfirmationStatus(shipment.status),
+                            note:
+                              isFormerReceiver && completedTransfer
+                                ? formerReceiverNote(completedTransfer.resolvedAt ?? completedTransfer.createdAt)
+                                : undefined,
+                            highlight: isFormerReceiver,
+                            onPress: () => openProfile(shipment.receiverId),
+                            testID: "shipment-detail-receiver",
+                          },
+                        ]),
+                  ]}
                 />
               </View>
 
-              {!isCarrier &&
-              shipment.carrierId &&
-              !FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? (
-                <View>
-                  <Eyebrow>Transportista</Eyebrow>
-                  <CounterpartCard
-                    userId={shipment.carrierId}
-                    onPress={() => shipment.carrierId && openProfile(shipment.carrierId)}
-                    testID="shipment-detail-carrier"
-                  />
-                </View>
+              {isReceiver && activeUserId ? (
+                <ReceiverTransferSection
+                  shipment={shipment}
+                  currentUserId={activeUserId}
+                  testID="shipment-detail-receiver-transfer"
+                />
               ) : null}
 
-              {/* Sección de calificaciones post-entrega (MOVO-153) */}
-              {FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) ? (
+              {/* Sección de calificaciones post-entrega (MOVO-153). El receptor que
+                  transfirió no califica (MOVO-275): no participó de la entrega. */}
+              {FULFILLED_SHIPMENT_STATUSES.includes(shipment.status) && !isFormerReceiver ? (
                 <View>
                   <Eyebrow>Calificaciones</Eyebrow>
                   <ShipmentRatingsCard
@@ -528,6 +595,8 @@ export default function ShipmentDetailScreen() {
                   senderId: shipment.senderId,
                   receiverId: shipment.receiverId,
                   carrierId: shipment.carrierId,
+                  formerReceiverId: completedTransfer?.requestedBy ?? null,
+                  formerReceiverName: completedTransfer?.requesterName ?? null,
                 }}
                 testID="shipment-detail-timeline"
               />

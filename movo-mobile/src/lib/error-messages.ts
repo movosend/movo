@@ -48,6 +48,14 @@ const CODE_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   // Elegir otro receptor tras un rechazo (MOVO-253).
   SHIPMENT_RECEIVER_ALREADY_REJECTED: "Esta persona ya rechazó este envío. Elegí a otra.",
   SHIPMENT_REDESIGNATION_EXPIRED: "Venció el plazo para elegir otro receptor. El envío se va a cancelar.",
+  // Transferencia de receptor (MOVO-275).
+  SHIPMENT_RECEIVER_TRANSFER_LIMIT: "Este envío ya cambió de receptor una vez.",
+  SHIPMENT_RECEIVER_TRANSFER_PENDING: "Ya le pediste a alguien que reciba este envío. Esperá su respuesta o cancelá la solicitud.",
+  SHIPMENT_RECEIVER_TRANSFER_EXPIRED: "Venció el plazo para aceptar esta invitación.",
+  SHIPMENT_RECEIVER_TRANSFER_NOT_ALLOWED: "En este momento ya no se puede cambiar quién recibe el envío.",
+  SHIPMENT_RECEIVER_TRANSFER_INVALID_TARGET: "Esa persona no puede recibir este envío. Elegí a otra.",
+  RECEIVER_TRANSFER_NOT_FOUND: "No encontramos esta solicitud.",
+  RECEIVER_TRANSFER_NOT_PENDING: "Esta solicitud ya no está vigente.",
   SHIPMENT_PICKUP_WINDOW_IN_PAST: "Elegí una fecha y horario de retiro que todavía no haya pasado.",
   SHIPMENT_PICKUP_WINDOW_INVALID: "El horario de fin del retiro tiene que ser posterior al de inicio.",
   SHIPMENT_PICKUP_DELIVERY_TOO_CLOSE: "El retiro y la entrega tienen que estar en ubicaciones distintas.",
