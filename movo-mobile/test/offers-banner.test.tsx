@@ -45,6 +45,17 @@ describe("OffersBanner", () => {
     expect(getByText("Compará las propuestas y elegí un transportista")).toBeTruthy();
   });
 
+  it("el ícono va en un círculo: lima con ofertas, apagado sin ofertas", async () => {
+    mockUseShipmentOffers.mockReturnValue({ data: [{ id: "off-1" }], isLoading: false });
+    const withOffers = await render(<OffersBanner shipmentId="shipment-1" testID="offers-banner" />);
+    expect(withOffers.getByTestId("offers-banner-icon").props.className).toMatch(/rounded-full.*bg-lime-500/);
+    await withOffers.unmount();
+
+    mockUseShipmentOffers.mockReturnValue({ data: [], isLoading: false });
+    const withoutOffers = await render(<OffersBanner shipmentId="shipment-1" testID="offers-banner" />);
+    expect(withoutOffers.getByTestId("offers-banner-icon").props.className).toMatch(/rounded-full.*bg-bg\b/);
+  });
+
   it("navega a /shipments/:id/offers al presionar el banner", async () => {
     mockUseShipmentOffers.mockReturnValue({ data: [], isLoading: false });
 

@@ -388,6 +388,12 @@ export default function ShipmentDetailScreen() {
                 testID="shipment-detail-funds"
               />
 
+              {/* Ofertas recibidas arriba del mapa: es la acción principal del emisor
+                  mientras el envío está publicado, y al pie de la pantalla no se veía. */}
+              {showOffersBanner ? (
+                <OffersBanner shipmentId={shipment.id} testID="shipment-detail-offers" />
+              ) : null}
+
               <View>
                 <Eyebrow>Ruta</Eyebrow>
                 {/* El receptor no ve el punto exacto de retiro: solo el pin de entrega y
@@ -499,10 +505,6 @@ export default function ShipmentDetailScreen() {
               {isFormerCarrier ? null : (
                 <EvidencePhotosSection shipmentId={shipment.id} testID="shipment-detail-evidence" />
               )}
-
-              {showOffersBanner ? (
-                <OffersBanner shipmentId={shipment.id} testID="shipment-detail-offers" />
-              ) : null}
 
               {isCarrier ? (
                 <View>

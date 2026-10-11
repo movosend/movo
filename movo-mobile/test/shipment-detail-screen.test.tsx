@@ -657,6 +657,25 @@ describe("ShipmentDetailScreen", () => {
     expect(getByText("Aún no tenés ofertas")).toBeTruthy();
   });
 
+  it("la bandeja de ofertas va arriba del mapa: es la acción principal del emisor con el envío publicado", async () => {
+    mockUseShipment.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: shipment({ status: ShipmentStatus.PUBLISHED, carrierId: null }),
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { container } = await render(<ShipmentDetailScreen />);
+    // Orden de render (recorrido en profundidad) de los testIDs de la pantalla.
+    const ids = container
+      .queryAll((node) => typeof node.props.testID === "string")
+      .map((node) => node.props.testID as string);
+
+    expect(ids).toContain("shipment-detail-offers");
+    expect(ids.indexOf("shipment-detail-offers")).toBeLessThan(ids.indexOf("shipment-detail-route-map"));
+  });
+
   it("no muestra el banner de ofertas si el envío ya tiene transportista asignado", async () => {
     mockUseShipment.mockReturnValue({
       isLoading: false,

@@ -43,12 +43,16 @@ export function OffersBanner({ shipmentId, offersCount, testID }: OffersBannerPr
       accessibilityRole="button"
       accessibilityLabel={`Ofertas recibidas, ${count} disponibles`}
     >
+      {/* Ícono en círculo, mismo patrón que "Requiere tu atención" y la CTA de Enviar. Con
+          ofertas pendientes va en lima (hay algo que hacer); sin ofertas, del color del fondo
+          de la pantalla: un gris translúcido sobre la card gris no se distinguía. */}
       <View
-        className={`h-[42px] w-[42px] items-center justify-center rounded-[10px] ${
-          hasOffers ? "bg-fg/15" : "bg-fg/10"
+        testID={testID ? `${testID}-icon` : "offers-banner-icon"}
+        className={`h-11 w-11 items-center justify-center rounded-full ${
+          hasOffers ? "bg-lime-500" : "bg-bg"
         }`}
       >
-        <Inbox size={18} color={hasOffers ? colors.fg1 : colors.fg3} strokeWidth={1.8} />
+        <Inbox size={18} color={hasOffers ? "#0A0A0B" : colors.fg3} strokeWidth={1.8} />
       </View>
 
       <View className="flex-1">
