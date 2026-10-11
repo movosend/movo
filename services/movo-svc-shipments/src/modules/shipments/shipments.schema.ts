@@ -36,6 +36,43 @@ const EVIDENCE_PHOTO_STAGE_VALUES = ["pickup", "delivery"];
 const PHOTO_CONTENT_TYPE_VALUES = ["image/jpeg"];
 const MAX_PHOTO_CONTENT_LENGTH_BYTES = 2 * 1024 * 1024;
 
+const shipmentFundingView = {
+  type: ["object", "null"],
+  required: ["viewer", "phase"],
+  properties: {
+    viewer: { type: "string", enum: ["sender", "carrier", "former_carrier"] },
+    phase: {
+      type: "string",
+      enum: [
+        "awaiting_window",
+        "payment_due",
+        "held",
+        "captured",
+        "released",
+        "lapsed",
+        "sender_payment_pending",
+      ],
+    },
+    route: { type: "string", enum: ["near", "far"] },
+    windowOpensAt: { type: "string", format: "date-time" },
+    payUntil: { type: "string", format: "date-time" },
+    amountArs: { type: "number" },
+    lastAttempt: { type: ["string", "null"], enum: ["none", "in_process", "rejected", null] },
+    failureReason: {
+      type: ["string", "null"],
+      enum: ["insufficient_funds", "card_rejected", "invalid_data", "platform_error", null],
+    },
+    card: {
+      type: ["object", "null"],
+      required: ["brand", "lastFour"],
+      properties: { brand: { type: "string" }, lastFour: { type: "string" } },
+    },
+    holdLost: { type: "boolean" },
+    reason: { type: "string", enum: ["payment_timeout", "window_expired"] },
+    at: { type: "string", format: "date-time" },
+  },
+} as const;
+
 const shipmentResponse = {
   type: "object",
   required: [
@@ -138,6 +175,11 @@ const shipmentResponse = {
     // `viewerIsFormerReceiver` = quien mira le pasó la recepción a otra persona (solo
     // lectura). `pending` solo lo ven quien la pidió y el emisor.
     receiverTransfer: shipmentReceiverTransferSummary,
+    // MOVO-211: estado de la reserva de fondos según quién mira (`ShipmentFundingView` de
+    // `@movo/shared`), solo en `GET /shipments/:id`. Los campos presentes dependen de
+    // `viewer`/`phase`; el transportista nunca recibe montos, tarjeta ni motivos, y el
+    // receptor recibe `null`.
+    funding: shipmentFundingView,
   },
 };
 

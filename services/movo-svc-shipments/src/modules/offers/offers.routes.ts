@@ -156,9 +156,12 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
       schema: {
         summary: "Aceptar una oferta (emisor)",
         description:
-          "AC6/AC7/AC9 de MOVO-144: el envío pasa a assignment_pending con el " +
-          "transportista elegido y las demás ofertas pending del mismo envío pasan a " +
-          "superseded (todo en una transacción atómica, ver offer-repository.ts). Solo " +
+          "AC6/AC7/AC9 de MOVO-144 + MOVO-210: el envío pasa a assignment_pending (retiro " +
+          "dentro de N días, el emisor paga al aceptar) o assigned_unfunded (retiro más lejano, " +
+          "el pago se confirma en una ventana posterior) con el transportista elegido. Las " +
+          "demás ofertas pending siguen vivas hasta que se confirma el pago (ahí pasan a " +
+          "superseded). `assignment` (MOVO-211) dice qué ruta se tomó y, en la lejana, cuándo " +
+          "abre la ventana de pago. Solo " +
           "el emisor del envío dueño de la oferta puede aceptar. 409 si el envío ya no " +
           "está disponible para asignar, si otra operación concurrente ya modificó la " +
           "oferta, o si la oferta está vencida o ya resuelta. MOVO-116 (ADR-036): 409 " +
@@ -168,7 +171,7 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
         tags: ["offers"],
         params: offersSchemas.offerIdParam,
         response: {
-          200: offersSchemas.offerResponse,
+          200: offersSchemas.acceptOfferResponse,
           400: offersSchemas.errorResponse,
           401: offersSchemas.errorResponse,
           403: offersSchemas.errorResponse,
@@ -181,9 +184,9 @@ export default async function offersRoutes(app: FastifyInstance, opts: OffersRou
     async (request: FastifyRequest, reply: FastifyReply) => {
       const callerId = requireUserIdFromHeader(request);
       const { id } = request.params as { id: string };
-      const offer = await service.acceptOffer(id, callerId);
+      const { offer, assignment } = await service.acceptOffer(id, callerId);
       reply.code(200);
-      return toOfferDto(offer);
+      return { ...toOfferDto(offer), assignment };
     }
   );
 

@@ -3231,3 +3231,31 @@ parciales de una pendiente y una completada por envío). Rutas: `POST /shipments
 
 Tests: `test/receiver-transfers.integration.test.ts` (Postgres y Redis reales: cada
 validación, concurrencia, límite, carrera con el handshake, vencimiento, acceso y filtrado).
+
+### MOVO-211 — Estado de la reserva en el detalle (`funding`) y desenlace de aceptar una oferta
+
+`GET /shipments/:id` suma `funding` (`ShipmentFundingView` de `@movo/shared`): la fase de la reserva
+calculada por el servidor según quién mira, así el mobile no reimplementa N días ni plazos. Reglas puras
+en `domain/funding.ts#computeSenderFundingView`/`toCarrierFundingView` (reusan `fundingWindowOpensAt`/
+`isFundingWindowOpen`; el plazo sale de `payUntilOf`, sin cambios). El servicio es `funding.service.ts#viewFor`,
+llamado desde la ruta del detalle (no desde `getShipmentDetail`, mismo criterio que `receiverTransfer`).
+
+- **Por rol**: el emisor ve plazos, monto, último intento (`none`/`in_process`/`rejected` + motivo) y la
+  tarjeta; el transportista asignado solo `sender_payment_pending` o `held`, sin montos ni motivos (AC2); el
+  receptor y terceros, `null` (AC3).
+- **Hold solo para el emisor**, sin `sync`, y falla abierto (`lastAttempt: null`, sin tarjeta) si payments no
+  responde: el detalle nunca cae por payments. Un hold de otro transportista o anterior a la entrada al estado
+  actual no cuenta como intento (una asignación caída no pinta "rechazado" en la siguiente).
+- **Motivo de vuelta a `published`** derivado del `fromStatus` del último evento (`assignment_pending` →
+  `payment_timeout`, `assigned_unfunded` → `window_expired`), sin columna nueva: el `reason` es texto libre.
+- **Ex-transportista (AC6)**: con oferta `assignment_lapsed` y sin otra `pending` propia, `getShipmentDetail` lo
+  deja ver el envío `published` (sin KYC ni `offersSummary`, `viewerIsFormerCarrier`) y `funding` dice por qué
+  se liberó. Si volvió a ofertar ve la vista de descubrimiento normal.
+- **`released`** = cancelado con el hold más reciente del mismo transportista en `cancelled` (llegó a MP);
+  `captured` = `completed` (queda "disponible, no disparado" hasta MOVO-212).
+- **`POST /offers/:id/accept`** suma `assignment: { shipmentStatus, fundingRoute, fundingWindowOpensAt }`
+  (AC4); `AcceptOfferResult` expone `pickupStart`. Se corrigió la descripción Swagger desactualizada (las demás
+  ofertas ya no pasan a `superseded` al aceptar, desde MOVO-210).
+
+Tests: `test/funding-view.test.ts` (fases, bordes de N días, reducción por rol) y
+`test/funding-view.integration.test.ts` (Postgres real: los tres roles, ex-transportista, payments caído, accept).

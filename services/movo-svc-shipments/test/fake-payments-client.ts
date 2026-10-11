@@ -94,6 +94,8 @@ export function createFakePaymentsClient(
         status: behavior.nextHoldStatus,
         statusDetail: null,
         failureReason: behavior.nextHoldStatus === "rejected" ? (behavior.nextFailureReason ?? "card_rejected") : null,
+        cardBrand: "visa",
+        cardLastFour: "3704",
         expiresAt: null,
         createdAt: now,
         updatedAt: now,

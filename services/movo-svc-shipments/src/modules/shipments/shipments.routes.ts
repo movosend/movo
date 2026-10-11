@@ -38,6 +38,7 @@ import { ActiveShipmentRole } from "../../domain/active-shipment";
 import { toOfferDto } from "../offers/offer.dto";
 import { hasShipmentAccess } from "./assert-shipment-access";
 import { buildReceiverTransfersService } from "../receiver-transfers/receiver-transfers.routes";
+import { buildFundingService } from "../funding/funding.routes";
 
 export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -207,6 +208,7 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
   const photosService = createPhotosService(repository, storageProvider, app.redis, app.log);
   // MOVO-275: resumen de la transferencia de receptor en el detalle y badge en `/mine`.
   const receiverTransfersService = buildReceiverTransfersService(app, { usersClient, notificationsClient });
+  const fundingService = buildFundingService(app, { usersClient, notificationsClient, paymentsClient });
 
   app.post(
     "/",
@@ -615,7 +617,11 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const receiverTransfer = hasShipmentAccess(shipment, callerId, callerRoles)
         ? await receiverTransfersService.summaryForShipment(shipment, callerId)
         : null;
-      return { ...toShipmentDto(shipment), receiverTransfer };
+      // MOVO-211: estado de la reserva según quién mira (null para el receptor y terceros).
+      const funding = await fundingService.viewFor(shipment, callerId, {
+        formerCarrier: shipment.viewerIsFormerCarrier === true,
+      });
+      return { ...toShipmentDto(shipment), receiverTransfer, funding };
     }
   );
 

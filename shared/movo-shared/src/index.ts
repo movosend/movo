@@ -115,8 +115,15 @@ export type {
 
 // funding (MOVO-210)
 export type {
+  CarrierFundingView,
+  FundingAttempt,
+  FundingCard,
+  FundingLapseReason,
   FundingRoute,
   HoldProviderEventKind,
+  OfferAcceptanceAssignment,
+  SenderFundingView,
+  ShipmentFundingView,
   HoldProviderEventRequest,
   ShipmentFundingRequest,
   ShipmentFundingResponse,

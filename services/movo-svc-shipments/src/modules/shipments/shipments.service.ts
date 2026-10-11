@@ -224,7 +224,11 @@ export interface ShipmentOffersSummary {
   minPriceNetArs: number;
 }
 
-export type ShipmentDetailResult = Shipment & { offersSummary?: ShipmentOffersSummary | null };
+export type ShipmentDetailResult = Shipment & {
+  offersSummary?: ShipmentOffersSummary | null;
+  /** MOVO-211 AC6: el caller es el transportista cuya asignación se cayó por falta de pago. */
+  viewerIsFormerCarrier?: boolean;
+};
 
 export interface ListAvailableResult {
   items: Array<AvailableShipment & { hasMyOffer: boolean }>;
@@ -1261,6 +1265,19 @@ export function createShipmentsService(
       }
 
       if (shipment.status === ShipmentStatus.PUBLISHED) {
+        // MOVO-211 AC6: el transportista cuya asignación se cayó por falta de pago entra por el
+        // push "Envío liberado" y tiene que ver por qué, aunque ya no sea parte del envío. No
+        // pasa por el chequeo de KYC ni recibe `offersSummary`: es su envío caído, no uno que
+        // está evaluando.
+        if (offerRepository) {
+          const offers = await offerRepository.listByShipment(shipment.id);
+          const own = offers.filter((o) => o.carrierId === callerId);
+          // Si volvió a ofertar, lo está evaluando de nuevo: vista de descubrimiento normal.
+          const lapsed =
+            own.some((o) => o.status === OfferStatus.ASSIGNMENT_LAPSED) &&
+            !own.some((o) => o.status === OfferStatus.PENDING);
+          if (lapsed) return { ...shipment, viewerIsFormerCarrier: true };
+        }
         await assertVerifiedCarrier(usersClient, callerId, callerRoles, CARRIER_READ_ROLE_MESSAGE);
         // MOVO-180 (adelantado): agregado de ofertas vigentes para el transportista
         // que está evaluando ofertar -- nunca bloquea la apertura del detalle si

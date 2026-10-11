@@ -1,5 +1,6 @@
 import {
   ApiError,
+  OfferAcceptanceAssignment,
   OfferStatus,
   ShipmentStatus,
   UserRole,
@@ -19,6 +20,7 @@ import { PaymentsClient } from "../../adapters/payments-client";
 import { assertCarrierCanOperate, resolveCarrierEligibility } from "../../utils/carrier-gate";
 import { Offer, OfferCompetitiveRank, OfferWithShipmentContext } from "../../models/offer";
 import { Trip } from "../../models/trip";
+import { fundingWindowOpensAt } from "../../domain/funding";
 import { assertIsSender } from "../shipments/assert-shipment-access";
 // MOVO-181: reusa las mismas conversiones de fecha/hora que `createOfferForShipment`
 // (MOVO-143/177) en vez de duplicarlas -- ver el comentario de export en
@@ -392,7 +394,10 @@ export function createOffersService(
      * autorización (solo el emisor del envío dueño de la oferta) y dispara las
      * notificaciones de AC9.
      */
-    async acceptOffer(offerId: string, callerId: string): Promise<Offer> {
+    async acceptOffer(
+      offerId: string,
+      callerId: string,
+    ): Promise<{ offer: Offer; assignment: OfferAcceptanceAssignment }> {
       const offer = await offerRepository.findById(offerId);
       if (!offer) {
         throw new ApiError(404, "OFFER_NOT_FOUND", "No existe una oferta con ese id.");
@@ -446,6 +451,9 @@ export function createOffersService(
         offer: accepted,
         shipmentId,
         autoCreatedTrip,
+        fundingRoute,
+        shipmentStatus,
+        pickupStart,
       } = await offerRepository.acceptOffer(offerId, callerId, autoTripDefaults, {
         nearPickupDays: fundingNearPickupDays,
       });
@@ -469,7 +477,16 @@ export function createOffersService(
         void dispatchAutoTripCreatedPush(notificationsClient, logger, autoCreatedTrip);
       }
 
-      return accepted;
+      // MOVO-211 AC4: el mobile elige el mensaje de éxito (pagar ya o más cerca del retiro).
+      const assignment: OfferAcceptanceAssignment = {
+        shipmentStatus,
+        fundingRoute,
+        fundingWindowOpensAt:
+          fundingRoute === "far" && fundingNearPickupDays !== undefined
+            ? fundingWindowOpensAt(pickupStart, fundingNearPickupDays).toISOString()
+            : null,
+      };
+      return { offer: accepted, assignment };
     },
 
     /**
