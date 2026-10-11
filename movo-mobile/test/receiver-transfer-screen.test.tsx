@@ -1,7 +1,6 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { fireEvent, render, waitFor } from "@testing-library/react-native";
-import { Alert } from "react-native";
 import ReceiverTransferScreen from "../app/(app)/shipments/[id]/receiver-transfer";
 
 const mockRouterDismissTo = jest.fn();
@@ -20,6 +19,11 @@ jest.mock("../src/hooks/use-shipments", () => ({
   useShipment: () => mockUseShipment(),
 }));
 
+jest.mock("../src/hooks/use-profile", () => ({
+  usePublicProfile: (id?: string) => ({
+    data: id === "juan" ? { fullName: "Juan Pérez" } : id === "diego" ? { fullName: "Diego Gómez" } : undefined,
+  }),
+}));
 const mockMutateAsync = jest.fn();
 jest.mock("../src/hooks/use-receiver-transfers", () => ({
   useRequestReceiverTransfer: () => ({ mutateAsync: mockMutateAsync, isPending: false }),
@@ -67,15 +71,6 @@ function transitShipment(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** Confirma el `Alert` nativo tocando "Enviar invitación". */
-function confirmAlert() {
-  const alertSpy = jest.spyOn(Alert, "alert").mockImplementation((_title, _msg, buttons) => {
-    const send = buttons?.find((b) => b.text === "Enviar invitación");
-    void send?.onPress?.();
-  });
-  return alertSpy;
-}
-
 describe("ReceiverTransferScreen (MOVO-275)", () => {
   beforeEach(() => jest.clearAllMocks());
 
@@ -86,33 +81,43 @@ describe("ReceiverTransferScreen (MOVO-275)", () => {
 
     expect(mockSearchProps).toHaveBeenLastCalledWith({
       excludeIds: ["lucia"],
-      disabledReasons: { juan: "Es el emisor de este envío", diego: "Es el transportista de este envío" },
+      disabledReasons: { juan: "Juan es el emisor de este envío", diego: "Diego es el transportista de este envío" },
     });
+  });
+
+  it("'Qué pasa después' nombra al emisor y al transportista y aclara que si no acepta lo sigue recibiendo", async () => {
+    mockUseShipment.mockReturnValue({ data: transitShipment(), isLoading: false, refetch: jest.fn() });
+
+    const { findByText } = await render(<ReceiverTransferScreen />);
+
+    expect(await findByText("Si no acepta a tiempo, lo seguís recibiendo vos.")).toBeTruthy();
+    expect(await findByText(/Juan \(emisor\) y Diego \(transportista\) se enteran/)).toBeTruthy();
   });
 
   it("confirma, manda la invitación con el motivo y vuelve al detalle", async () => {
     mockUseShipment.mockReturnValue({ data: transitShipment(), isLoading: false, refetch: jest.fn() });
     mockMutateAsync.mockResolvedValue({ id: "tr-1" });
-    const alertSpy = confirmAlert();
 
-    const { getByTestId } = await render(<ReceiverTransferScreen />);
+    const { getByTestId, findByText } = await render(<ReceiverTransferScreen />);
     await fireEvent.press(getByTestId("stub-pick"));
     await fireEvent.changeText(getByTestId("receiver-transfer-reason"), "  De viaje  ");
     await fireEvent.press(getByTestId("receiver-transfer-submit"));
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+    expect(await findByText("¿Pasarle la recepción a Martín?")).toBeTruthy();
+    await fireEvent.press(getByTestId("receiver-transfer-confirm"));
 
     await waitFor(() => expect(mockRouterDismissTo).toHaveBeenCalledWith("/shipments/shipment-1"));
     expect(mockMutateAsync).toHaveBeenCalledWith({ shipmentId: "shipment-1", newReceiverId: "martin", reason: "De viaje" });
-    expect(alertSpy.mock.calls[0][0]).toBe("¿Pasarle la recepción a Martín?");
   });
 
   it("un error del backend se muestra sin salir de la pantalla", async () => {
     mockUseShipment.mockReturnValue({ data: transitShipment(), isLoading: false, refetch: jest.fn() });
     mockMutateAsync.mockRejectedValue(new ApiError(409, "SHIPMENT_RECEIVER_TRANSFER_PENDING", "x"));
-    confirmAlert();
 
     const { getByTestId, findByText } = await render(<ReceiverTransferScreen />);
     await fireEvent.press(getByTestId("stub-pick"));
     await fireEvent.press(getByTestId("receiver-transfer-submit"));
+    await fireEvent.press(getByTestId("receiver-transfer-confirm"));
 
     expect(await findByText(/Ya le pediste a alguien que reciba este envío/)).toBeTruthy();
     expect(mockRouterDismissTo).not.toHaveBeenCalled();
