@@ -167,6 +167,13 @@ El gateway deja de arrancar con `logger: true`: `config/logger.ts` tiene un seri
 `req` que oculta el query de esa ruta (`?code=...&state=...`), y el error handler usa el
 mismo `redactUrl`.
 
+### MOVO-268 — Webhook público de Mercado Pago
+
+`getPublicRoutes()` suma `POST /payments/webhooks/mercadopago` con un límite propio y holgado
+(300/min por IP): MP llega desde pocas IPs y un 429 lo haría reintentar. Lo protege la firma
+`x-signature` que valida `svc-payments`; el gateway conserva el `x-request-id` entrante,
+que es parte de lo firmado (test en `routes-prefix.test.ts`).
+
 ### MOVO-275 — Proxy de `/receiver-transfers`
 
 Entrada nueva en `getServiceRoutes()` hacia `svc-shipments` (protegida por defecto) para
