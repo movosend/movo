@@ -670,8 +670,10 @@ describe("shipmentDetailCta (MOVO-194)", () => {
     expect(shipmentDetailCta(null, ShipmentStatus.ASSIGNED, "s1")).toBeNull();
   });
 
-  it("el receptor en assigned_unfunded no ve el texto de fondos", () => {
-    expect(shipmentDetailCta("receiver", ShipmentStatus.ASSIGNED_UNFUNDED, "s1")).toBeNull();
+  it("en assigned_unfunded nadie tiene CTA ni texto al pie: lo explica la card de la reserva (MOVO-211)", () => {
+    for (const role of ["sender", "carrier", "receiver"] as const) {
+      expect(shipmentDetailCta(role, ShipmentStatus.ASSIGNED_UNFUNDED, "s1")).toBeNull();
+    }
   });
 
   it("el transportista en in_transit va al wizard de entrega, no al QR suelto", () => {

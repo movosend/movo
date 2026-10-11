@@ -150,16 +150,15 @@ export type ShipmentDetailCta =
 
 /** Acción contextual del pie del detalle del envío (MOVO-194 AC2): una sola por
  * combinación rol + estado. `assigned_unfunded` no tiene CTA porque la máquina de
- * estados rechaza `assigned_unfunded -> in_transit` (MOVO-208). */
+ * estados rechaza `assigned_unfunded -> in_transit` (MOVO-208); tampoco texto
+ * informativo desde MOVO-211: la card de la reserva (`FundsStatus`) ya explica el
+ * estado del pago arriba del detalle, con plazos reales. */
 export function shipmentDetailCta(
   role: ShipmentDetailRole | null,
   status: ShipmentStatus,
   shipmentId: string,
 ): ShipmentDetailCta | null {
   const base = `/(app)/shipments/${shipmentId}`;
-  if (status === ShipmentStatus.ASSIGNED_UNFUNDED && (role === "sender" || role === "carrier")) {
-    return { kind: "info", text: FUNDS_PENDING_INFO_TEXT };
-  }
   if (role === "sender" && status === ShipmentStatus.ASSIGNED) {
     return { kind: "action", label: SENDER_PICKUP_CTA_LABEL, path: `${base}/handshake`, icon: "qr" };
   }

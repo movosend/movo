@@ -1,3 +1,4 @@
+import type { OfferAcceptanceAssignment } from "@movo/shared/dist/types/funding";
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
 import { router, useLocalSearchParams } from "expo-router";
@@ -66,6 +67,13 @@ export default function ShipmentOffersScreen() {
   const [offerToReject, setOfferToReject] = useState<OfferSummary | null>(null);
   const [isSuccessModalVisible, setIsSuccessModalVisible] = useState(false);
   const [acceptedOfferCarrierName, setAcceptedOfferCarrierName] = useState<string | null>(null);
+  // MOVO-211 AC4: desenlace de la aceptación (pagar ya o más cerca del retiro) y lo que se
+  // va a reservar, para el modal de éxito.
+  const [acceptedOutcome, setAcceptedOutcome] = useState<{
+    assignment: OfferAcceptanceAssignment | null;
+    amountArs: number;
+    pickupDate: string;
+  } | null>(null);
   const [acceptErrorMessage, setAcceptErrorMessage] = useState<string | null>(null);
   const [rejectErrorMessage, setRejectErrorMessage] = useState<string | null>(null);
 
@@ -133,9 +141,14 @@ export default function ShipmentOffersScreen() {
   const handleConfirmAccept = async () => {
     if (!offerToAccept) return;
     try {
-      await acceptMutation.mutateAsync(offerToAccept.id);
+      const accepted = await acceptMutation.mutateAsync(offerToAccept.id);
       hasAcceptedRef.current = true;
       setAcceptedOfferCarrierName(offerToAccept.carrierNameAtOffer);
+      setAcceptedOutcome({
+        assignment: accepted.assignment ?? null,
+        amountArs: offerToAccept.priceOffered,
+        pickupDate: offerToAccept.offeredDate,
+      });
       // El modal de éxito se abre recién en `onClosed` del sheet de confirmación:
       // abrirlo en este mismo render hacía que iOS lo descartara (MOVO-271 AC2).
       showSuccessOnCloseRef.current = true;
@@ -183,6 +196,13 @@ export default function ShipmentOffersScreen() {
   const handleSuccessDismiss = () => {
     setIsSuccessModalVisible(false);
     goToShipmentDetail();
+  };
+
+  // Ruta cercana: la aceptación lleva directo al pago. Reemplaza esta pantalla, así
+  // "volver" desde el pago cae en el detalle del envío y no de nuevo en las ofertas.
+  const handleSuccessPay = () => {
+    setIsSuccessModalVisible(false);
+    router.replace(`/shipments/${id}/payment` as never);
   };
 
   const offerCount = offers ? offers.length : 0;
@@ -345,6 +365,10 @@ export default function ShipmentOffersScreen() {
         visible={isSuccessModalVisible}
         carrierName={acceptedOfferCarrierName}
         onDismiss={handleSuccessDismiss}
+        assignment={acceptedOutcome?.assignment}
+        amountArs={acceptedOutcome?.amountArs}
+        pickupDate={acceptedOutcome?.pickupDate}
+        onPay={handleSuccessPay}
         testID="choose-offer-success-modal"
       />
 

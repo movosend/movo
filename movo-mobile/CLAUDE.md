@@ -4370,3 +4370,26 @@ ya no cumple los requisitos para operar (ADR-036). Los códigos del lado del tra
 `details.missingRequirements`) y leer `details` en `http-client.ts#parseErrorBody` quedan para
 MOVO-117, que además tiene que cubrir "Iniciar viaje" y editar oferta, no solo declarar viaje y
 ofertar.
+
+### MOVO-211 — Estado de la reserva de fondos en el detalle y desenlaces de aceptar una oferta
+
+Sobre el prototipo de Claude Design "MOVO-211 Estado de la reserva". `components/shipments/funds-status.tsx`
+va arriba de todo en la pestaña Detalle y renderiza `shipment.funding` (lo calcula `svc-shipments`, ver su
+CLAUDE.md): el componente no calcula plazos ni fases. Variantes y copy en `src/lib/funds-status-format.ts`
+(puro): pendiente con la ventana cerrada (con línea de tiempo), confirmá tu pago, procesando, sin terminar,
+rechazado con motivo (AC5), reservada/en camino/entregada, cobrada, liberada y vuelta a publicar (AC6); para
+el transportista, pendiente, reservado y "Este envío se liberó". AC7: ningún texto afirma un débito antes de
+`captured` (hay un test que lo verifica).
+
+- **CTAs de pago a `shipments/[id]/payment.tsx`, placeholder** que MOVO-269 reemplaza sin tocar los callers.
+- **Ex-transportista** (`funding.viewer === "former_carrier"`, llega por el push "Envío liberado"): vista
+  reducida, sin precio, partes, evidencia ni CTA.
+- **`assigned_unfunded` ya no muestra `FUNDS_PENDING_INFO_TEXT` al pie** (`shipmentDetailCta`): la card lo
+  explica con fechas reales. El texto sigue en el home (MOVO-193).
+- **Polling de 5 s** mientras MP revisa el pago (`fundingProcessingPollInterval`), con foco.
+- **AC4**: `ChooseOfferSuccessModal` lee `assignment` de la respuesta de accept. Retiro cercano: "Elegiste a
+  X", monto a reservar y "Reservar el pago" (sin auto-cierre, reemplaza la pantalla de ofertas por la de
+  pago). Retiro lejano: "X lleva tu paquete" con la línea de tiempo y auto-cierre al detalle. Sin `assignment`
+  (backend viejo), el mensaje genérico de antes.
+
+Pendiente: no probado en device; copy del AC7 a revisar con el equipo (DoD); la pantalla de pago real (MOVO-269).

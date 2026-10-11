@@ -760,7 +760,7 @@ describe("ShipmentDetailScreen", () => {
     });
 
     it.each([SENDER, CARRIER])(
-      "en assigned_unfunded el usuario %s ve un texto informativo sin botón",
+      "en assigned_unfunded el usuario %s no tiene CTA ni texto al pie: la card de la reserva lo explica (MOVO-211)",
       async (userId) => {
         mockCurrentUser.mockReturnValue({ userId });
         mockUseShipment.mockReturnValue({
@@ -771,10 +771,11 @@ describe("ShipmentDetailScreen", () => {
           refetch: jest.fn(),
         });
 
-        const { getByText, queryByTestId } = await render(<ShipmentDetailScreen />);
+        const { queryByTestId, queryByText } = await render(<ShipmentDetailScreen />);
 
         expect(queryByTestId("shipment-detail-cta")).toBeNull();
-        expect(getByText("Los fondos se reservan antes del retiro.")).toBeTruthy();
+        expect(queryByTestId("shipment-detail-cta-info")).toBeNull();
+        expect(queryByText("Los fondos se reservan antes del retiro.")).toBeNull();
       },
     );
 
@@ -982,6 +983,97 @@ describe("ShipmentDetailScreen", () => {
       expect(queryByTestId("shipment-detail-rejected-banner")).toBeNull();
     });
   });
+  describe("estado de la reserva de fondos (MOVO-211)", () => {
+    const SENDER = "user-1";
+    const CARRIER = "user-2";
+    const RECEIVER = "receiver-1";
+    const PAY_UNTIL = "2026-10-08T13:00:00.000Z";
+
+    it("el emisor ve la card de la reserva arriba del detalle", async () => {
+      mockCurrentUser.mockReturnValue({ userId: SENDER });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: CARRIER,
+          status: ShipmentStatus.ASSIGNED,
+          agreedPriceArs: 18400,
+          funding: { viewer: "sender", phase: "held", amountArs: 18400, card: null },
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-funds-held")).toBeTruthy();
+    });
+
+    it("el transportista ve solo si el pago está pendiente, sin montos", async () => {
+      mockCurrentUser.mockReturnValue({ userId: CARRIER });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: CARRIER,
+          status: ShipmentStatus.ASSIGNMENT_PENDING,
+          agreedPriceArs: 18400,
+          funding: { viewer: "carrier", phase: "sender_payment_pending", payUntil: PAY_UNTIL },
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId, queryByText } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-funds-carrier-pending")).toBeTruthy();
+      expect(queryByText(/18\.400/)).toBeNull();
+    });
+
+    it("el receptor no ve ninguna card de la reserva", async () => {
+      mockCurrentUser.mockReturnValue({ userId: RECEIVER });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({ carrierId: CARRIER, status: ShipmentStatus.ASSIGNED, funding: null }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(queryByTestId(/^shipment-detail-funds/)).toBeNull();
+    });
+
+    it("el ex-transportista ve por qué se liberó, sin precio ni datos de las partes", async () => {
+      const formerCarrier = "former-carrier";
+      mockCurrentUser.mockReturnValue({ userId: formerCarrier });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: null,
+          status: ShipmentStatus.PUBLISHED,
+          funding: {
+            viewer: "former_carrier",
+            phase: "lapsed",
+            reason: "window_expired",
+            at: "2026-10-08T13:00:00.000Z",
+          },
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-funds-carrier-lapsed")).toBeTruthy();
+      expect(queryByTestId("shipment-detail-price")).toBeNull();
+      expect(queryByTestId("shipment-detail-receiver")).toBeNull();
+      expect(queryByTestId("shipment-detail-cta")).toBeNull();
+    });
+  });
+
 });
 
 describe("ShipmentDetailScreen — seguimiento en vivo (MOVO-271 AC3/AC5)", () => {

@@ -19,6 +19,7 @@ import { AcceptSuccessModal } from "../../../components/shipments/accept-success
 import { CounterpartCard } from "../../../components/shipments/counterpart-card";
 import { HighDemandBadge } from "../../../components/shipments/high-demand-badge";
 import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
+import { FundsStatus } from "../../../components/shipments/funds-status";
 import { LiveTrackingCard } from "../../../components/shipments/live-tracking-card";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
 import { PackageCard } from "../../../components/shipments/package-card";
@@ -56,6 +57,7 @@ import {
   shipmentDetailCta,
   type ShipmentDetailRole,
 } from "../../../src/lib/shipment-format";
+import { fundingProcessingPollInterval } from "../../../src/lib/funds-status-format";
 
 type DetailTab = "detalle" | "timeline";
 
@@ -109,7 +111,9 @@ export default function ShipmentDetailScreen() {
   const isFocused = useIsFocused();
   const { data: shipment, isLoading, isError, error, refetch } = useShipment(id, {
     refetchInterval: (data) =>
-      isFocused ? liveTrackingPendingPollInterval(data, currentUser?.userId) : false,
+      isFocused
+        ? fundingProcessingPollInterval(data) || liveTrackingPendingPollInterval(data, currentUser?.userId)
+        : false,
   });
   const [tab, setTab] = useState<DetailTab>("detalle");
   const [isAcceptSuccessVisible, setIsAcceptSuccessVisible] = useState(false);
@@ -195,6 +199,18 @@ export default function ShipmentDetailScreen() {
 
   // MOVO-253 AC6: el receptor rechazó y el emisor puede elegir a otra persona.
   const showRejectedBanner = isSender && shipment?.status === ShipmentStatus.REJECTED_BY_RECEIVER;
+
+  // MOVO-211 AC6: el transportista cuya asignación se cayó por falta de pago llega por el
+  // push "Envío liberado". Ya no es parte del envío: ve solo por qué se liberó, la ruta y
+  // el paquete, sin acciones ni datos de las partes.
+  const isFormerCarrier = shipment?.funding?.viewer === "former_carrier";
+
+  // Nombre de pila del transportista para el copy de la reserva (mismo query key que su
+  // `CounterpartCard`, TanStack Query dedupea).
+  const { data: carrierProfile } = usePublicProfile(
+    isSender && shipment?.funding ? (shipment.carrierId ?? undefined) : undefined,
+  );
+  const carrierFirstName = carrierProfile?.fullName?.split(" ")[0];
 
   const role: ShipmentDetailRole | null = isSender
     ? "sender"
@@ -364,6 +380,13 @@ export default function ShipmentDetailScreen() {
                 />
               }
             >
+              {/* MOVO-211: estado de la reserva de fondos, arriba de todo. */}
+              <FundsStatus
+                shipment={shipment}
+                carrierFirstName={carrierFirstName}
+                testID="shipment-detail-funds"
+              />
+
               <View>
                 <Eyebrow>Ruta</Eyebrow>
                 {/* El receptor no ve el punto exacto de retiro: solo el pin de entrega y
@@ -416,6 +439,7 @@ export default function ShipmentDetailScreen() {
                 </View>
               ) : null}
 
+              {isFormerCarrier ? null : (
               <View className="flex-row gap-3">
                 <View className="flex-1 rounded-[10px] bg-bg-mute px-3.5 py-3.5">
                   <View className="mb-1">
@@ -455,13 +479,16 @@ export default function ShipmentDetailScreen() {
                   </View>
                 )}
               </View>
+              )}
 
               <View>
                 <Eyebrow>Paquete</Eyebrow>
                 <PackageCard shipment={shipment} testID="shipment-detail-package" />
               </View>
 
-              <EvidencePhotosSection shipmentId={shipment.id} testID="shipment-detail-evidence" />
+              {isFormerCarrier ? null : (
+                <EvidencePhotosSection shipmentId={shipment.id} testID="shipment-detail-evidence" />
+              )}
 
               {showOffersBanner ? (
                 <OffersBanner shipmentId={shipment.id} testID="shipment-detail-offers" />
@@ -478,6 +505,7 @@ export default function ShipmentDetailScreen() {
                 </View>
               ) : null}
 
+              {isFormerCarrier ? null : (
               <View>
                 <Eyebrow>{isReceiver ? "Emisor" : "Receptor"}</Eyebrow>
                 <CounterpartCard
@@ -491,6 +519,7 @@ export default function ShipmentDetailScreen() {
                   testID={isReceiver ? "shipment-detail-sender" : "shipment-detail-receiver"}
                 />
               </View>
+              )}
 
               {!isCarrier &&
               shipment.carrierId &&

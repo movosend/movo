@@ -8,7 +8,11 @@ import Animated, {
 } from "react-native-reanimated";
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from "react-native-safe-area-context";
 import { useSheetAnimation } from "../../src/hooks/use-sheet-animation";
+import type { OfferAcceptanceAssignment } from "@movo/shared/dist/types/funding";
+import { formatFundingDay } from "../../src/lib/funds-status-format";
+import { formatPickupDayLabel, formatPriceArs } from "../../src/lib/shipment-format";
 import { SuccessMoment } from "../ui/success-moment";
+import { FundingTimeline } from "./funds-status";
 
 const FALLBACK_METRICS = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -22,6 +26,15 @@ export interface ChooseOfferSuccessModalProps {
   visible: boolean;
   carrierName: string | null;
   onDismiss: () => void;
+  /** MOVO-211 AC4: ruta de la saga que tomó la aceptación. Sin ella (backend anterior) se
+   * muestra el mensaje genérico. */
+  assignment?: OfferAcceptanceAssignment | null;
+  /** Monto bruto que se va a reservar (lo que paga el emisor). */
+  amountArs?: number | null;
+  /** Fecha de retiro acordada (`YYYY-MM-DD`), para la línea de tiempo de la ruta lejana. */
+  pickupDate?: string | null;
+  /** Ruta cercana: ir a la pantalla de pago (MOVO-269). */
+  onPay?: () => void;
   testID?: string;
 }
 
@@ -34,12 +47,23 @@ export function ChooseOfferSuccessModal({
   visible,
   carrierName,
   onDismiss,
+  assignment,
+  amountArs,
+  pickupDate,
+  onPay,
   testID,
 }: ChooseOfferSuccessModalProps) {
   const { isMounted, backdropStyle, sheetStyle } = useSheetAnimation(visible);
   const progress = useSharedValue(0);
 
   const displayName = carrierName || "el transportista";
+  const firstName = carrierName?.split(" ")[0] ?? null;
+  // MOVO-211 AC4: con retiro cercano la aceptación lleva directo al pago, así que no se
+  // redirige solo (el emisor tiene que elegir pagar). Los dos desenlaces se leen como éxito.
+  const isNear = assignment?.fundingRoute === "near" && !!onPay;
+  const isFar = assignment?.fundingRoute === "far";
+  const autoDismiss = !isNear;
+  const id = testID ?? "choose-offer-success-modal";
 
   // `onDismiss` no está memoizado en todos los callers (`offers.tsx` le pasa una
   // función inline) — cualquier re-render del padre mientras el modal está visible
@@ -55,6 +79,10 @@ export function ChooseOfferSuccessModal({
   }, [onDismiss]);
 
   useEffect(() => {
+    if (visible && !autoDismiss) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      return;
+    }
     if (visible) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       progress.value = 0;
@@ -72,7 +100,7 @@ export function ChooseOfferSuccessModal({
     // (que sí cambia de identidad en cada render, a diferencia del real) reiniciaba
     // este efecto en cualquier re-render del padre.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible]);
+  }, [visible, autoDismiss]);
 
   const progressBarStyle = useAnimatedStyle(() => ({
     width: `${progress.value * 100}%`,
@@ -107,35 +135,92 @@ export function ChooseOfferSuccessModal({
                 {/* MOVO-271 AC2: mismo momento de éxito animado que al calificar
                     (`SuccessMoment`). Se monta con el modal, así que la animación
                     arranca en cada apertura y termina (~600ms) antes del auto-dismiss. */}
-                <SuccessMoment
-                  title="¡Oferta aceptada!"
-                  subtitle={`Seleccionaste la propuesta de ${displayName}. Tu envío quedó en espera de la confirmación del pago para iniciar el viaje.`}
-                  testID={testID ? `${testID}-moment` : "choose-offer-success-moment"}
-                />
+                {isNear ? (
+                  <SuccessMoment
+                    title={`Elegiste a ${firstName ?? "tu transportista"}`}
+                    subtitle="Como el retiro es pronto, el último paso es reservar el pago. Se retiene en tu tarjeta y se cobra recién cuando el paquete se entrega."
+                    testID={testID ? `${testID}-moment` : "choose-offer-success-moment"}
+                  />
+                ) : isFar ? (
+                  <SuccessMoment
+                    title={`${firstName ?? "Tu transportista"} lleva tu paquete`}
+                    subtitle={`Ya está confirmado. Como el retiro es ${pickupDate ? `el ${formatPickupDayLabel(pickupDate)}` : "más adelante"}, el pago lo confirmás más cerca de la fecha y te avisamos. Hoy no se retiene ni se cobra nada.`}
+                    testID={testID ? `${testID}-moment` : "choose-offer-success-moment"}
+                  />
+                ) : (
+                  <SuccessMoment
+                    title="¡Oferta aceptada!"
+                    subtitle={`Seleccionaste la propuesta de ${displayName}. Tu envío quedó en espera de la confirmación del pago para iniciar el viaje.`}
+                    testID={testID ? `${testID}-moment` : "choose-offer-success-moment"}
+                  />
+                )}
 
-                {/* Animated progress redirect bar */}
-                <View className="w-full gap-2 px-2 items-center">
-                  <View className="h-1.5 w-full overflow-hidden rounded-full bg-border">
-                    <Animated.View
-                      style={progressBarStyle}
-                      className="h-full rounded-full bg-lime-500"
+                {isNear && amountArs != null ? (
+                  <View
+                    testID={`${id}-near-amount`}
+                    className="w-full flex-row items-center justify-between rounded-md border border-border bg-bg-mute px-3.5 py-3"
+                  >
+                    <View>
+                      <Text className="font-sans-medium text-caption uppercase tracking-wider text-fg-3">
+                        A reservar
+                      </Text>
+                      <Text className="mt-0.5 font-sans-semibold text-[20px] text-fg">{formatPriceArs(amountArs)}</Text>
+                    </View>
+                    <Text className="text-right font-sans text-[12px] leading-[17px] text-fg-2">
+                      Se cobra al entregar.{"\n"}No hoy.
+                    </Text>
+                  </View>
+                ) : null}
+
+                {isFar && assignment?.fundingWindowOpensAt ? (
+                  <View className="w-full">
+                    <FundingTimeline
+                      testID={`${id}-far-timeline`}
+                      steps={[
+                        { when: "Hoy", what: firstName ? `${firstName} confirmado` : "Transportista confirmado", done: true },
+                        { when: formatFundingDay(assignment.fundingWindowOpensAt), what: "Confirmás el pago" },
+                        { when: pickupDate ? formatPickupDayLabel(pickupDate) : "Retiro", what: "Retiro" },
+                      ]}
                     />
                   </View>
-                  <Text className="font-sans text-[12px] text-fg-3">
-                    Redirigiendo al detalle del envío...
-                  </Text>
-                </View>
+                ) : null}
+
+                {autoDismiss ? (
+                  <View className="w-full gap-2 px-2 items-center">
+                    <View className="h-1.5 w-full overflow-hidden rounded-full bg-border">
+                      <Animated.View
+                        style={progressBarStyle}
+                        className="h-full rounded-full bg-lime-500"
+                      />
+                    </View>
+                    <Text className="font-sans text-[12px] text-fg-3">
+                      Redirigiendo al detalle del envío...
+                    </Text>
+                  </View>
+                ) : null}
 
                 <View className="w-full pt-1">
-                  <Pressable
-                    testID={testID ? `${testID}-dismiss-btn` : "choose-offer-success-dismiss-button"}
-                    onPress={onDismiss}
-                    className="h-12 w-full items-center justify-center rounded-[12px] bg-lime-500 active:bg-lime-400"
-                  >
-                    <Text className="font-sans-semibold text-small text-ink-950">
-                      Ver detalle del envío
-                    </Text>
-                  </Pressable>
+                  {isNear ? (
+                    <Pressable
+                      testID={`${id}-pay-btn`}
+                      onPress={onPay}
+                      accessibilityRole="button"
+                      className="h-12 w-full flex-row items-center justify-center gap-2.5 rounded-[12px] bg-fg active:opacity-85"
+                    >
+                      <View className="h-1.5 w-1.5 rounded-full bg-lime-500" />
+                      <Text className="font-sans-semibold text-small text-bg">Reservar el pago</Text>
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      testID={testID ? `${testID}-dismiss-btn` : "choose-offer-success-dismiss-button"}
+                      onPress={onDismiss}
+                      className="h-12 w-full items-center justify-center rounded-[12px] bg-lime-500 active:bg-lime-400"
+                    >
+                      <Text className="font-sans-semibold text-small text-ink-950">
+                        Ver detalle del envío
+                      </Text>
+                    </Pressable>
+                  )}
                 </View>
               </SafeAreaView>
             </Animated.View>

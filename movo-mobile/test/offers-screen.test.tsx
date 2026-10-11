@@ -244,6 +244,61 @@ describe("ShipmentOffersScreen", () => {
     expect(router.push).toHaveBeenCalledWith(`/profile/${sampleOffer1.carrierId}`);
   });
 
+  // MOVO-211 AC4: los dos desenlaces de la aceptación se leen como éxito.
+  async function acceptWithAssignment(assignment: unknown) {
+    mockUseShipmentOffers.mockReturnValue({
+      data: [sampleOffer1],
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetchOffers,
+      isRefetching: false,
+    });
+    mockMutateAccept.mockResolvedValueOnce({ ...sampleOffer1, status: OfferStatus.ACCEPTED, assignment });
+    const screen = await render(<ShipmentOffersScreen />);
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("offer-card-off-1-accept-btn"));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("choose-offer-modal-confirm-btn"));
+    });
+    return screen;
+  }
+
+  it("retiro cercano: el éxito lleva directo a reservar el pago con el monto (MOVO-211)", async () => {
+    const { getByText, getByTestId, queryByTestId } = await acceptWithAssignment({
+      shipmentStatus: "assignment_pending",
+      fundingRoute: "near",
+      fundingWindowOpensAt: null,
+    });
+
+    expect(getByText("Elegiste a Lucas")).toBeTruthy();
+    expect(getByTestId("choose-offer-success-modal-near-amount")).toHaveTextContent(/\$12\.000/);
+    expect(queryByTestId("choose-offer-success-modal-dismiss-btn")).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(getByTestId("choose-offer-success-modal-pay-btn"));
+    });
+    expect(router.replace).toHaveBeenCalledWith("/shipments/ship-1/payment");
+  });
+
+  it("retiro lejano: confirma la asignación y explica que el pago se confirma más adelante (MOVO-211)", async () => {
+    const { getByText, getByTestId, queryByTestId } = await acceptWithAssignment({
+      shipmentStatus: "assigned_unfunded",
+      fundingRoute: "far",
+      fundingWindowOpensAt: "2026-10-06T12:00:00.000Z",
+    });
+
+    expect(getByText("Lucas lleva tu paquete")).toBeTruthy();
+    expect(getByText(/Hoy no se retiene ni se cobra nada/)).toBeTruthy();
+    expect(getByTestId("choose-offer-success-modal-far-timeline")).toBeTruthy();
+    expect(queryByTestId("choose-offer-success-modal-pay-btn")).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(getByTestId("choose-offer-success-modal-dismiss-btn"));
+    });
+    expect(router.dismissTo).toHaveBeenCalledWith("/shipments/ship-1");
+  });
+
   it("flujo completo de elección de oferta con confirmación y éxito", async () => {
     mockUseShipmentOffers.mockReturnValue({
       data: [sampleOffer1],
