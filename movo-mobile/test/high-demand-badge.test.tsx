@@ -9,6 +9,17 @@ describe("HighDemandBadge", () => {
     expect(queryByTestId("badge-help")).toBeNull();
   });
 
+  it("en modo compacto (card angosta del detalle) acorta el texto y mantiene la ayuda completa", async () => {
+    const { getByText, queryByText, getByTestId } = await render(<HighDemandBadge compact testID="badge" />);
+
+    expect(getByText("Alta demanda")).toBeTruthy();
+    expect(queryByText("Alta demanda en tu zona")).toBeNull();
+    await act(async () => {
+      fireEvent.press(getByTestId("badge-toggle"));
+    });
+    expect(getByTestId("badge-help").props.children).toBe(HIGH_DEMAND_HELP_TEXT);
+  });
+
   it("despliega y vuelve a ocultar la ayuda al tocarlo", async () => {
     const { getByTestId, queryByTestId } = await render(<HighDemandBadge testID="badge" />);
 

@@ -17,7 +17,7 @@ import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AcceptSuccessModal } from "../../../components/shipments/accept-success-modal";
 import { CounterpartCard } from "../../../components/shipments/counterpart-card";
-import { HighDemandBadge } from "../../../components/shipments/high-demand-badge";
+import { HighDemandBadge, HighDemandHelp } from "../../../components/shipments/high-demand-badge";
 import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
 import { FundsStatus } from "../../../components/shipments/funds-status";
 import { LiveTrackingCard } from "../../../components/shipments/live-tracking-card";
@@ -242,6 +242,7 @@ export default function ShipmentDetailScreen() {
 
   // MOVO-254: el badge es información para el emisor. `null` no equivale a `false`.
   const showHighDemandBadge = isSender && shipment?.highDemand === true && !hasAgreedPrice;
+  const [isHighDemandHelpOpen, setIsHighDemandHelpOpen] = useState(false);
 
   const pickupDateLabel = shipment
     ? formatPickupDateLabel(shipment.pickupDate) ?? shipment.pickupDate
@@ -473,13 +474,22 @@ export default function ShipmentDetailScreen() {
                     </Text>
                     {showHighDemandBadge ? (
                       <View className="mt-2">
-                        <HighDemandBadge testID="shipment-detail-high-demand" />
+                        <HighDemandBadge
+                          compact
+                          expanded={isHighDemandHelpOpen}
+                          onToggle={() => setIsHighDemandHelpOpen((open) => !open)}
+                          testID="shipment-detail-high-demand"
+                        />
                       </View>
                     ) : null}
                   </View>
                 )}
               </View>
               )}
+
+              {showHighDemandBadge && isHighDemandHelpOpen ? (
+                <HighDemandHelp testID="shipment-detail-high-demand-explainer" />
+              ) : null}
 
               <View>
                 <Eyebrow>Paquete</Eyebrow>

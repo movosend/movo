@@ -1,6 +1,6 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { fireEvent, render } from "@testing-library/react-native";
+import { act, fireEvent, render } from "@testing-library/react-native";
 import { RefreshControl } from "react-native";
 import type { ShipmentSummary } from "../src/api/shipments-client";
 import ShipmentDetailScreen from "../app/(app)/shipments/[id]";
@@ -557,6 +557,23 @@ describe("ShipmentDetailScreen", () => {
       });
       return render(<ShipmentDetailScreen />);
     }
+
+    it("al tocarlo, la explicación aparece debajo de la fila de cards y no dentro de la de precio", async () => {
+      const { getByTestId, queryByTestId } = await renderWith({ highDemand: true });
+
+      expect(queryByTestId("shipment-detail-high-demand-explainer")).toBeNull();
+      await act(async () => {
+        fireEvent.press(getByTestId("shipment-detail-high-demand-toggle"));
+      });
+      expect(getByTestId("shipment-detail-high-demand-explainer")).toBeTruthy();
+      // La ayuda interna del badge no se renderiza: la card de precio no cambia de alto.
+      expect(queryByTestId("shipment-detail-high-demand-help")).toBeNull();
+
+      await act(async () => {
+        fireEvent.press(getByTestId("shipment-detail-high-demand-toggle"));
+      });
+      expect(queryByTestId("shipment-detail-high-demand-explainer")).toBeNull();
+    });
 
     it("lo muestra al emisor junto al precio sugerido si highDemand es true", async () => {
       const { getByTestId, getByText } = await renderWith({ highDemand: true });
