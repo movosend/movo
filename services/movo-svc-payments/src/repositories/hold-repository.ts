@@ -42,6 +42,9 @@ export class HoldAttemptConflictError extends Error {
 export interface HoldRepository {
   /** El intento más reciente del envío (mayor `attempt`), cualquiera sea su estado. */
   findLatestByShipment(shipmentId: string): Promise<Hold | null>;
+  findById(id: string): Promise<Hold | null>;
+  /** MOVO-268: el intento al que MP le asignó ese pago, si existe. */
+  findByMpPaymentId(mpPaymentId: string): Promise<Hold | null>;
   /**
    * Inserta un intento en `creating`. Tira `HoldAttemptConflictError` si otro request ya
    * lo creó (`shipment_id`+`attempt`) o si el envío ya tiene un hold vivo (índice parcial).
@@ -54,6 +57,14 @@ export function createHoldRepository(db: PrismaClient): HoldRepository {
   return {
     findLatestByShipment(shipmentId) {
       return db.hold.findFirst({ where: { shipmentId }, orderBy: { attempt: "desc" } });
+    },
+
+    findById(id) {
+      return db.hold.findUnique({ where: { id } });
+    },
+
+    findByMpPaymentId(mpPaymentId) {
+      return db.hold.findFirst({ where: { mpPaymentId }, orderBy: { attempt: "desc" } });
     },
 
     async createAttempt(data) {
