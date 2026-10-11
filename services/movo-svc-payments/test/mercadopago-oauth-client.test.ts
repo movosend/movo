@@ -127,3 +127,97 @@ describe("FetchMercadoPagoOAuthClient (MOVO-111)", () => {
     expect(await new FetchMercadoPagoOAuthClient().getAccountInfo("t")).toEqual({ email: null, nickname: null });
   });
 });
+
+describe("FetchMercadoPagoOAuthClient.refreshTokens (MOVO-243)", () => {
+  const appCredentials = { clientId: credentials.clientId, clientSecret: credentials.clientSecret, testToken: false };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("pide grant_type=refresh_token sin Authorization y devuelve los tokens nuevos", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ...tokenResponse, refresh_token: "TG-rotated" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tokens = await new FetchMercadoPagoOAuthClient().refreshTokens(appCredentials, "TG-old");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.mercadopago.com/oauth/token");
+    expect(init.headers).not.toHaveProperty("Authorization");
+    expect(JSON.parse(init.body as string)).toEqual({
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: "TG-old",
+    });
+    expect(tokens).toEqual({
+      accessToken: "TEST-access",
+      refreshToken: "TG-rotated",
+      scope: "offline_access read write",
+      expiresInSeconds: 15552000,
+    });
+  });
+
+  it("suma test_token: true en sandbox", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(tokenResponse));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new FetchMercadoPagoOAuthClient().refreshTokens({ ...appCredentials, testToken: true }, "TG-old");
+
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string).test_token).toBe(true);
+  });
+
+  it("400 invalid_grant es revocación; el resto del body no viaja en el error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ error: "invalid_grant", message: "refresh TG-old inválido" }, 400))
+    );
+
+    const error = (await new FetchMercadoPagoOAuthClient()
+      .refreshTokens(appCredentials, "TG-old")
+      .catch((e: unknown) => e)) as MercadoPagoOAuthError;
+
+    expect(error).toBeInstanceOf(MercadoPagoOAuthError);
+    expect(error.isRevocation()).toBe(true);
+    expect(error.message).not.toContain("TG-old");
+  });
+
+  it.each([
+    ["500", 500, { error: "internal_error" }],
+    ["429", 429, { error: "too_many_requests" }],
+    ["400 invalid_client (la app, no el transportista)", 400, { error: "invalid_client" }],
+    ["400 sin body JSON", 400, null],
+  ])("%s no es revocación", async (_name, status, body) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(body === null ? new Response("nope", { status }) : jsonResponse(body, status))
+    );
+
+    const error = (await new FetchMercadoPagoOAuthClient()
+      .refreshTokens(appCredentials, "TG-old")
+      .catch((e: unknown) => e)) as MercadoPagoOAuthError;
+
+    expect(error).toBeInstanceOf(MercadoPagoOAuthError);
+    expect(error.isRevocation()).toBe(false);
+  });
+
+  it("un error de red no es revocación", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("timeout", "TimeoutError")));
+
+    const error = (await new FetchMercadoPagoOAuthClient()
+      .refreshTokens(appCredentials, "TG-old")
+      .catch((e: unknown) => e)) as MercadoPagoOAuthError;
+
+    expect(error.isRevocation()).toBe(false);
+    expect(error.status).toBeNull();
+  });
+
+  it("una respuesta sin refresh_token es un fallo, no un guardado a medias", async () => {
+    const { refresh_token: _omit, ...incomplete } = tokenResponse;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(incomplete)));
+
+    await expect(new FetchMercadoPagoOAuthClient().refreshTokens(appCredentials, "TG-old")).rejects.toBeInstanceOf(
+      MercadoPagoOAuthError
+    );
+  });
+});
