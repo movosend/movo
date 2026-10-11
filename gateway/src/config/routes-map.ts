@@ -114,6 +114,12 @@ export function getServiceRoutes(env: {
       prefix: "/trips",
       upstream: env.SHIPMENTS_SERVICE_URL,
     },
+    // MOVO-275: transferencia de receptor (aceptar/rechazar/cancelar e invitaciones).
+    // Pedirla cuelga de /shipments; esto es la solicitud en sí. Protegido por defecto.
+    {
+      prefix: "/receiver-transfers",
+      upstream: env.SHIPMENTS_SERVICE_URL,
+    },
 
     // payments service (MOVO-267). Emisor (paga) y transportista (vincula su
     // cuenta de MP y cobra). Las rutas que se llaman sin JWT van en

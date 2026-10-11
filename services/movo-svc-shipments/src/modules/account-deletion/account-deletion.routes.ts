@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest } from "fastify";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
 import { createPositionRepository } from "../../repositories/position-repository";
+import { createReceiverTransferRepository } from "../../repositories/receiver-transfer-repository";
 import { accountDeletionSchemas } from "./account-deletion.schema";
 
 /**
@@ -19,6 +20,7 @@ import { accountDeletionSchemas } from "./account-deletion.schema";
 export default async function accountDeletionRoutes(app: FastifyInstance, _opts: FastifyPluginOptions) {
   const repository = createShipmentRepository(app.db);
   const positionRepository = createPositionRepository(app.db);
+  const transferRepository = createReceiverTransferRepository(app.db);
 
   app.get(
     "/users/:userId/active-shipments",
@@ -34,7 +36,14 @@ export default async function accountDeletionRoutes(app: FastifyInstance, _opts:
     },
     async (request: FastifyRequest) => {
       const { userId } = request.params as { userId: string };
-      return repository.hasActiveShipmentsForUser(userId);
+      const result = await repository.hasActiveShipmentsForUser(userId);
+      // MOVO-275: una invitación pendiente para recibir un paquete cuenta como actividad
+      // (si aceptara, quedaría como receptor de un envío en curso). El receptor que ya
+      // transfirió no cuenta: dejó de ser `receiverId`.
+      if (!result.hasActiveShipments && (await transferRepository.hasPendingForNewReceiver(userId))) {
+        return { ...result, hasActiveShipments: true };
+      }
+      return result;
     },
   );
 

@@ -5,6 +5,7 @@ import { createShipmentRepository } from "../repositories/shipment-repository";
 import { createUsersClient, UsersClient } from "../adapters/users-client";
 import { createNotificationsClient, NotificationsClient } from "../adapters/notifications-client";
 import { createShipmentsService } from "../modules/shipments/shipments.service";
+import { buildReceiverTransfersService } from "../modules/receiver-transfers/receiver-transfers.routes";
 
 export interface ReceiverConfirmationSweepPluginOptions {
   usersClient?: UsersClient;
@@ -19,6 +20,7 @@ export default fp(async (app: FastifyInstance, opts: ReceiverConfirmationSweepPl
   const service = createShipmentsService(repository, usersClient, notificationsClient, app.log, {
     receiverConfirmationTimeoutHours: app.config.RECEIVER_CONFIRMATION_TIMEOUT_HOURS,
   });
+  const transfersService = buildReceiverTransfersService(app, { usersClient, notificationsClient });
 
   registerSweep(app, {
     name: "Receiver confirmation sweep plugin",
@@ -31,6 +33,8 @@ export default fp(async (app: FastifyInstance, opts: ReceiverConfirmationSweepPl
       // MOVO-253: mismo ciclo de vida (la decisión pendiente sobre el receptor), mismo
       // lock e intervalo -- no amerita un plugin ni variables de entorno propias.
       await service.expireRejectedShipments();
+      // MOVO-275: misma familia (una decisión pendiente sobre quién recibe), mismo lock.
+      await transfersService.expireOverdueTransfers();
     },
   });
 });

@@ -36,14 +36,27 @@ const LAST_REJECTION_INCLUDE = {
     take: 1,
     select: { reason: true },
   },
+  // MOVO-275 (ADR-038): quien transfirió la recepción conserva acceso de solo lectura.
+  // A lo sumo una transferencia completada por envío (índice único parcial).
+  receiverTransfers: {
+    where: { status: "completed" },
+    take: 1,
+    select: { requestedBy: true },
+  },
 } satisfies Prisma.ShipmentInclude;
 
-type ShipmentRowWithLastRejection = ShipmentRow & { events: Array<{ reason: string | null }> };
+type ShipmentRowWithLastRejection = ShipmentRow & {
+  events: Array<{ reason: string | null }>;
+  receiverTransfers: Array<{ requestedBy: string }>;
+};
 
 function mapShipmentWithLastRejection(row: ShipmentRowWithLastRejection): Shipment {
   const rejectionReason =
     row.status === ShipmentStatus.REJECTED_BY_RECEIVER ? (row.events[0]?.reason ?? null) : null;
-  return mapShipmentRow(row, rejectionReason);
+  return {
+    ...mapShipmentRow(row, rejectionReason),
+    formerReceiverId: row.receiverTransfers[0]?.requestedBy ?? null,
+  };
 }
 
 function mapShipment(row: ShipmentRow): Shipment {
@@ -560,6 +573,9 @@ export interface ShipmentRepository {
    * error del lado de `svc-users` es distinto (una disputa no la resuelve el usuario
    * cancelando, necesita a un admin).
    */
+  /** MOVO-275 (ADR-038): marca durable de que la entrega empezó (primer QR de entrega). */
+  markDeliveryHandshakeStarted(id: string): Promise<void>;
+  hasDeliveryHandshakeStarted(id: string): Promise<boolean>;
   hasActiveShipmentsForUser(userId: string): Promise<{ hasActiveDispute: boolean; hasActiveShipments: boolean }>;
   /**
    * MOVO-147 AC3/AC6: envíos completados (`delivered`) de un usuario como emisor y
@@ -1071,7 +1087,15 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
                 },
               },
             }
-          : { OR: [{ senderId: userId }, { receiverId: userId }] }),
+          : {
+              OR: [
+                { senderId: userId },
+                { receiverId: userId },
+                // MOVO-275: el envío sigue en la lista de quien le pasó la recepción a
+                // otra persona (badge "Transferido", detalle en solo lectura).
+                { receiverTransfers: { some: { requestedBy: userId, status: "completed" } } },
+              ],
+            }),
         ...(statuses && statuses.length > 0 ? { status: { in: [...statuses] } } : {}),
       };
       const [rows, total] = await Promise.all([
@@ -1312,6 +1336,19 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         data: { transitAnomalyFlaggedAt: now },
       });
       return result.count > 0;
+    },
+
+    /** MOVO-275: marca (una sola vez) que la entrega empezó. Idempotente. */
+    async markDeliveryHandshakeStarted(id: string): Promise<void> {
+      await db.shipment.updateMany({
+        where: { id, deliveryHandshakeStartedAt: null },
+        data: { deliveryHandshakeStartedAt: new Date() },
+      });
+    },
+
+    async hasDeliveryHandshakeStarted(id: string): Promise<boolean> {
+      const row = await db.shipment.findUnique({ where: { id }, select: { deliveryHandshakeStartedAt: true } });
+      return row?.deliveryHandshakeStartedAt != null;
     },
 
     async hasActiveShipmentsForUser(userId: string): Promise<{ hasActiveDispute: boolean; hasActiveShipments: boolean }> {

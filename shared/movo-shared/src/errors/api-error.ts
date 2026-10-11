@@ -184,7 +184,22 @@ export type ApiErrorCode =
   | "OFFER_CARRIER_NOT_ELIGIBLE"
   // MOVO-210: el envío no está en un estado/ventana en que el emisor pueda pagar la
   // reserva (no es `assignment_pending`, o es `assigned_unfunded` con la ventana cerrada).
-  | "SHIPMENT_FUNDING_NOT_AVAILABLE";
+  | "SHIPMENT_FUNDING_NOT_AVAILABLE"
+  // MOVO-275 (ADR-038): transferencia de receptor.
+  // El envío ya tuvo una transferencia completada (una sola por envío).
+  | "SHIPMENT_RECEIVER_TRANSFER_LIMIT"
+  // Ya hay una solicitud de transferencia esperando respuesta.
+  | "SHIPMENT_RECEIVER_TRANSFER_PENDING"
+  // Venció el plazo de la persona invitada (aunque el barrido no haya corrido).
+  | "SHIPMENT_RECEIVER_TRANSFER_EXPIRED"
+  // El envío no está en un estado que permita transferir (o ya empezó la entrega).
+  | "SHIPMENT_RECEIVER_TRANSFER_NOT_ALLOWED"
+  // La persona elegida es el receptor actual, el emisor o el transportista
+  // (`details.reason` = `self` | `sender` | `carrier`).
+  | "SHIPMENT_RECEIVER_TRANSFER_INVALID_TARGET"
+  | "RECEIVER_TRANSFER_NOT_FOUND"
+  // La solicitud ya no está pendiente (aceptada, rechazada, vencida o cancelada).
+  | "RECEIVER_TRANSFER_NOT_PENDING";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

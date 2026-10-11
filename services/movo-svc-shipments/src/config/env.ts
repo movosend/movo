@@ -13,6 +13,7 @@ export interface EnvConfig {
   GOOGLE_MAPS_API_KEY?: string;
   RECEIVER_CONFIRMATION_TIMEOUT_HOURS: number;
   RECEIVER_REDESIGNATION_TIMEOUT_HOURS: number;
+  RECEIVER_TRANSFER_TIMEOUT_HOURS: number;
   RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES: number;
   RECEIVER_CONFIRMATION_SWEEP_ENABLED?: boolean;
   ORPHAN_PHOTO_RETENTION_HOURS: number;
@@ -86,6 +87,9 @@ export const envSchema = {
     // MOVO-253: plazo en horas para que el emisor elija otro receptor tras un rechazo
     // (con tope en la ventana de retiro). Lo cierra el mismo barrido de MOVO-130.
     RECEIVER_REDESIGNATION_TIMEOUT_HOURS: { type: "number", default: 48 },
+    // MOVO-275: plazo en horas de la persona invitada para aceptar una transferencia de
+    // receptor. La vence el mismo barrido de MOVO-130.
+    RECEIVER_TRANSFER_TIMEOUT_HOURS: { type: "number", default: 6 },
     // MOVO-130: intervalo en minutos del barrido periódico de expiración.
     RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
     // MOVO-130: flag para habilitar/deshabilitar el barrido periódico (útil en test/CI).
