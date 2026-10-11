@@ -5,12 +5,13 @@ export interface CommissionConfig {
    */
   movoCommissionRate: number;
   /**
-   * Comisión que cobra MercadoPago por operar la transacción (Auth & Capture /
-   * Marketplace Split Payments). No se descuenta en la creación de la oferta —
-   * `movo-svc-payments` todavía no implementa el split real (ver su CLAUDE.md) — se
-   * centraliza acá para que ese servicio y las estadísticas de `movo-svc-admin` no
-   * dupliquen el valor cuando lo necesiten. Valor real pendiente de confirmar con el
-   * contrato/homologación de MP.
+   * ESTIMADO de la comisión que cobra MercadoPago por la transacción, solo para
+   * mostrarle al transportista una referencia antes de ofertar. No es un valor a
+   * confirmar con MP (MOVO-225): MP la cobra sobre la cuenta del transportista
+   * (`fee_payer: collector`) y su porcentaje depende de las tarifas vigentes y del
+   * plazo de liberación del dinero que cada transportista configura en su cuenta. El
+   * monto real de cada pago sale de `fee_details` (`mercadopago_fee`) de MP, nunca de
+   * esta tasa.
    */
   mpTransactionFeeRate: number;
 }
@@ -18,7 +19,8 @@ export interface CommissionConfig {
 let cached: CommissionConfig | undefined;
 
 const DEFAULT_MOVO_COMMISSION_RATE = 0.15;
-// TODO: placeholder hasta confirmar la tasa real contratada con MercadoPago.
+// Estimado conservador: por encima del 4,1% observado en sandbox (MOVO-49). Ver
+// `mpTransactionFeeRate` arriba.
 const DEFAULT_MP_TRANSACTION_FEE_RATE = 0.0499;
 
 /**

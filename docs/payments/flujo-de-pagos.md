@@ -341,8 +341,15 @@ flowchart LR
   Antes de la captura el pago no muestra el split.
 - Los dos fees los paga el **cobrador** (el transportista, `fee_payer: collector`):
   el emisor paga exactamente el precio acordado.
-- El 4,1% de MP es del sandbox; el valor real depende del contrato (MOVO-225). La app
-  hoy estima con `MP_TRANSACTION_FEE_RATE` de `@movo/shared`.
+- Los $150 de `application_fee` se pusieron a mano en el script del spike (15% del
+  total). La fórmula real (MOVO-143/209) es 15% sobre el neto del transportista:
+  `application_fee = bruto - bruto / 1,15`, que para $1000 da $130,43 (~13,04% del
+  bruto). Es lo que calcula `decomposeOfferGrossPrice` de `@movo/shared`.
+- El 4,1% de MP es del sandbox. En producción no hay un valor único que confirmar
+  (MOVO-225): depende de las tarifas de MP y del plazo de liberación del dinero que
+  cada transportista configura en su cuenta. La app muestra un estimado
+  (`MP_TRANSACTION_FEE_RATE` de `@movo/shared`); el monto real de cada pago es el
+  `mercadopago_fee` de `fee_details`.
 - Si se cancela un hold, no se cobra nada a nadie.
 
 ---

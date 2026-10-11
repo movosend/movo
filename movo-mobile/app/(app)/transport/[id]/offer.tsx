@@ -294,8 +294,8 @@ function OfferSuccessOverlay({
  * ambiente. La fórmula bruto→neto de "gross" mode es la inversa, resuelta acá porque
  * `@movo/shared` solo expone el sentido neto→bruto.
  *
- * La línea de "Procesamiento del pago" es un ESTIMADO (`MP_TRANSACTION_FEE_RATE`
- * todavía sin confirmar, `movo-svc-payments` no tiene split real) -- se muestra como
+ * La línea de "Procesamiento del pago" es un ESTIMADO (`MP_TRANSACTION_FEE_RATE`: MP
+ * cobra según la cuenta de cada transportista, no hay un valor único, MOVO-225) -- se muestra como
  * contexto, nunca restada de "Te queda": ese número sigue siendo exactamente el neto
  * calculado, porque hoy nada se lo descuenta de verdad.
  *
