@@ -54,7 +54,6 @@ import {
   formatTimeHHMM,
   liveTrackingAvailability,
   liveTrackingPendingPollInterval,
-  pickupLocalityLabel,
   receiverConfirmationStatus,
   shipmentDetailCta,
   type ShipmentDetailRole,
@@ -385,23 +384,12 @@ export default function ShipmentDetailScreen() {
 
               <View>
                 <Eyebrow>Ruta</Eyebrow>
-                {/* El receptor no ve el punto exacto de retiro: solo el pin de entrega y
-                    la localidad del origen, sin calle ni altura (AC4). */}
                 <RouteMapCard
-                  pickup={
-                    seesReceiverView
-                      ? null
-                      : {
-                          address: shipment.pickupAddress,
-                          lat: shipment.pickupLat,
-                          lng: shipment.pickupLng,
-                        }
-                  }
-                  pickupLabel={
-                    seesReceiverView
-                      ? (pickupLocalityLabel(shipment.pickupAddress) ?? "la zona del emisor")
-                      : undefined
-                  }
+                  pickup={{
+                    address: shipment.pickupAddress,
+                    lat: shipment.pickupLat,
+                    lng: shipment.pickupLng,
+                  }}
                   delivery={{
                     address: shipment.deliveryAddress,
                     lat: shipment.deliveryLat,

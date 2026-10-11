@@ -828,7 +828,7 @@ describe("ShipmentDetailScreen", () => {
       expect(getByTestId("shipment-detail-price")).toHaveTextContent(amount);
     });
 
-    it("el receptor no recibe la dirección ni las coordenadas de retiro en el mapa", async () => {
+    it("el receptor ve el retiro y la entrega en el mapa, igual que el resto de las partes", async () => {
       mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
       mockUseShipment.mockReturnValue({
         isLoading: false,
@@ -841,28 +841,9 @@ describe("ShipmentDetailScreen", () => {
       await render(<ShipmentDetailScreen />);
 
       const props = mockRouteMapCard.mock.calls.at(-1)[0];
-      expect(props.pickup).toBeNull();
-      expect(props.pickupLabel).toBe("Córdoba");
-      expect(JSON.stringify(props)).not.toContain("Colón");
-      expect(JSON.stringify(props)).not.toContain("-64.18");
+      expect(props.pickup).toEqual({ address: "Av. Colón 1234, Córdoba", lat: -31.4, lng: -64.18 });
+      expect(props.pickupLabel).toBeUndefined();
       expect(props.delivery).toEqual({ address: "Bv. San Juan 500, Córdoba", lat: -31.41, lng: -64.19 });
-    });
-
-    it("si la dirección de retiro no trae localidad, el receptor ve un texto genérico y no la calle", async () => {
-      mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
-      mockUseShipment.mockReturnValue({
-        isLoading: false,
-        isError: false,
-        data: shipment({ carrierId: "user-2", status: ShipmentStatus.IN_TRANSIT, pickupAddress: "Av. Colón 1234" }),
-        error: null,
-        refetch: jest.fn(),
-      });
-
-      await render(<ShipmentDetailScreen />);
-
-      const props = mockRouteMapCard.mock.calls.at(-1)[0];
-      expect(props.pickupLabel).toBe("la zona del emisor");
-      expect(JSON.stringify(props)).not.toContain("Colón");
     });
 
     it("el emisor sigue viendo el retiro completo en el mapa", async () => {
@@ -1081,7 +1062,7 @@ describe("ShipmentDetailScreen — transferencia de receptor (MOVO-275)", () => 
     expect(queryByTestId("shipment-detail-receiver-transfer-action")).toBeNull();
   });
 
-  it("el receptor original ve el detalle en solo lectura con el banner, sin retiro exacto ni precio", async () => {
+  it("el receptor original ve el detalle en solo lectura con el banner, sin precio", async () => {
     mockCurrentUser.mockReturnValue({ userId: "lucia" });
     mockDetail(
       shipment({
@@ -1105,7 +1086,7 @@ describe("ShipmentDetailScreen — transferencia de receptor (MOVO-275)", () => 
     expect(queryByTestId("shipment-detail-receiver-transfer")).toBeNull();
     expect(queryByTestId("shipment-detail-cta")).toBeNull();
     const mapProps = mockRouteMapCard.mock.calls.at(-1)?.[0] as { pickup: unknown };
-    expect(mapProps.pickup).toBeNull();
+    expect(mapProps.pickup).not.toBeNull();
   });
 
   it("el emisor no tiene acción sobre la recepción", async () => {

@@ -4150,14 +4150,9 @@ Tests agregados/actualizados:
 
 `app/(app)/shipments/[id].tsx` completo para los tres roles, con CTA contextual por rol y
 estado (`shipmentDetailCta`, `shipment-format.ts`; `assigned_unfunded` muestra texto, no botón).
-El transportista ve "Te queda" con la tasa de comisión del cliente. El receptor no ve el retiro
-exacto: `RouteMapCard` con `pickup={null}` + `pickupLabel` desde `pickupLocalityLabel`
-(localidad sin calle, altura, código postal ni país; "la zona del emisor" si no hay), el mismo
-helper que usa "Mis envíos". La card "Voy a recibir" del Home usa el mismo helper. **Limitación aceptada**: es una
-protección solo de UI, el backend sigue mandando `pickupAddress`/`pickupLat`/`pickupLng` exactos al
-receptor en `GET /shipments/:id` y `/shipments/receiving` (se ve en el tráfico de red). Redactarlos
-en el servidor cambia el contrato de `@movo/shared` y queda para si AC4 pasa a exigir que el dato no
-llegue al dispositivo. `EvidencePhotosSection` (fotos por stage, también en `transport/[id].tsx` solo para el
+El transportista ve "Te queda" con la tasa de comisión del cliente. El receptor ve el mapa completo con
+retiro y entrega, igual que el resto de las partes (revierte el AC4 original, que ocultaba el retiro exacto
+con `pickup={null}` + `pickupLabel`; la card "Voy a recibir" del Home sigue mostrando solo la localidad). `EvidencePhotosSection` (fotos por stage, también en `transport/[id].tsx` solo para el
 transportista asignado) reemplaza la tira de `PackageCard`. Fuera del ticket, en el mismo PR:
 el Home lista los viajes `declared` con paquetes que no se llevan la card "Estoy transportando"
 (`splitCarrierHomeTrips`, `CarrierTripRow`), intercalados por fecha en "Actividad reciente" sin
@@ -4382,8 +4377,8 @@ Sobre el mockup de Claude Design ("Transferencia de receptor v2"). Pantallas nue
 
 - **Detalle**: sección "Recepción" (`receiver-transfer-section.tsx`) para el receptor vigente
   (acción, solicitud pendiente con "Cancelar solicitud", o "ya cambió de receptor una vez").
-  El receptor original ve `TransferredByYouBanner` y el detalle en solo lectura: sin precio ni
-  retiro exacto (como el receptor), sin acciones ni calificaciones, con tracking.
+  El receptor original ve `TransferredByYouBanner` y el detalle en solo lectura: sin precio
+  (como el receptor), sin acciones ni calificaciones, con tracking.
 - **Línea de tiempo**: un item por solicitud (`GET /shipments/:id/receiver-transfers`)
   intercalado por fecha, con pill de estado y detalle desplegable; el texto cambia según
   quién mira. Los eventos que hizo el receptor anterior (aceptar el envío) llevan su nombre
