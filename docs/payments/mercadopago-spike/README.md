@@ -131,5 +131,8 @@ panel, alcanza con cambiar `MP_TEST_CARD_HOLDER_NAME` en el `.env`:
   `api.mercadopago.com` con credenciales de **test**.
 - No reemplaza el trabajo real de `MOVO-100`/`MOVO-101` — es solo para
   destrabar las dudas de diseño antes de escribir ese código.
-- No guarda tokens ni números de tarjeta en disco. Solo movimientos no
-  sensibles (ids, estados, montos) van a `session-log.json`.
+- No guarda números de tarjeta en disco. Solo movimientos no sensibles (ids,
+  estados, montos) van a `session-log.json`. La única excepción es la opción
+  `w` (MOVO-215), que guarda el access_token `TEST-` del vendedor en
+  `hold-watch.json` (gitignored) para que `hold-expiry-watch.js` pueda
+  consultar el hold sin el menú. Procedimiento en `HOLD-EXPIRY-MEASUREMENT.md`.
