@@ -1,7 +1,7 @@
 # Términos y Condiciones de Uso de MOVO
 
-**Versión**: 0.1 (borrador de trabajo)
-**Última actualización**: 2026-09-14
+**Versión**: 0.2 (borrador de trabajo)
+**Última actualización**: 2026-10-11
 **Vigencia**: aún no publicada / no vigente
 
 > ## ⚠️ Aviso académico — leer antes de usar este documento
@@ -197,13 +197,21 @@ suspender la cuenta del Emisor infractor (sección 14).
   sobre un precio sugerido calculado por el motor de precios de MOVO (hoy una
   implementación provisoria basada en distancia y peso, sujeta a evolución —
   ver nota de transparencia abajo).
-- MOVO cobra una **comisión del 15%** sobre el precio acordado, deducida al
-  momento de liquidar al Transportista.
+- MOVO cobra una **comisión del 15%** sobre el monto que el Transportista
+  indica que quiere cobrar. Esa comisión se suma a ese monto para formar el
+  precio que paga el Emisor (equivale a aproximadamente el 13% de ese
+  precio), y Mercado Pago la acredita a MOVO al liberar el pago.
 - El procesamiento de pagos se realiza a través de **Mercado Pago**, que
-  también puede aplicar una comisión propia por transacción
-  (`[A COMPLETAR — porcentaje pendiente de confirmación contractual con
-  Mercado Pago]`). Este costo se muestra como estimado al Transportista antes
-  de confirmar su oferta.
+  cobra su propia comisión por cada transacción. Esa comisión **está a cargo
+  del Transportista**: Mercado Pago la descuenta del monto que le acredita en
+  su cuenta, y el Emisor paga exactamente el precio acordado. MOVO no fija ni
+  percibe esa comisión. Su porcentaje depende de las tarifas vigentes de
+  Mercado Pago y de cómo esté configurada la cuenta del Transportista (por
+  ejemplo, el plazo en que elige tener disponible el dinero) y del medio con
+  el que pague el Emisor; puede consultarse en Mercado Pago. Antes de
+  confirmar su oferta, la app le muestra al Transportista un estimado de este
+  costo; el monto que efectivamente se descuenta es el que informa Mercado
+  Pago en cada operación.
 - **Nota de transparencia sobre el motor de precios**: el precio sugerido que
   ve el Emisor al crear un envío usa hoy un modelo provisorio (distancia
   euclidiana + peso + tipo de paquete), no un cálculo de mercado en tiempo
