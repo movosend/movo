@@ -390,17 +390,31 @@ describe("TimelineSection", () => {
       expect(getByText("Aceptaste el envío")).toBeTruthy();
     });
 
-    it("el detalle de la solicitud se despliega con sus pasos", async () => {
-      mockUser.mockReturnValue({ userId: "receiver-1" });
+    it("la completada muestra sus pasos sin desplegar, y la rechazada el motivo", async () => {
+      mockUser.mockReturnValue({ userId: "lucia" });
 
-      const { getByTestId, queryByTestId, getByText } = await render(
+      const { getByTestId, getByText } = await render(
         <TimelineSection shipmentId="shipment-1" parties={partiesAfterTransfer} testID="timeline" />,
       );
 
-      expect(queryByTestId("timeline-transfer-tr-done-steps")).toBeNull();
-      await fireEvent.press(getByTestId("timeline-transfer-tr-done-toggle"));
       expect(getByTestId("timeline-transfer-tr-done-steps")).toBeTruthy();
-      expect(getByText("Ahora el receptor sos vos")).toBeTruthy();
+      expect(getByText("Ahora el receptor es Martín. Seguís viendo el envío en modo lectura.")).toBeTruthy();
+      expect(getByTestId("timeline-transfer-tr-done-quote")).toHaveTextContent("“De viaje”");
+      expect(getByTestId("timeline-transfer-tr-rejected-quote")).toHaveTextContent("“Ese día trabajo”");
+      expect(getByTestId("timeline-transfer-tr-rejected-detail")).toHaveTextContent(
+        "Carla no aceptó. Lo seguís recibiendo vos.",
+      );
+    });
+
+    it("para el receptor nuevo, la completada dice que ahora recibe él", async () => {
+      mockUser.mockReturnValue({ userId: "receiver-1" });
+
+      const { getByText } = await render(
+        <TimelineSection shipmentId="shipment-1" parties={partiesAfterTransfer} testID="timeline" />,
+      );
+
+      expect(getByText("Lucía te pasó la recepción")).toBeTruthy();
+      expect(getByText("Ahora el receptor sos vos. Firmás la entrega con el transportista.")).toBeTruthy();
     });
 
     it("para el receptor nuevo, aceptar el envío lo hizo la receptora anterior, no él", async () => {

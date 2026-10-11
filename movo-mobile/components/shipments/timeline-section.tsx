@@ -4,8 +4,6 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   BadgeCheck,
-  ChevronDown,
-  ChevronUp,
   CircleSlash,
   Clock,
   Megaphone,
@@ -17,8 +15,7 @@ import {
   XCircle,
   type LucideIcon,
 } from "lucide-react-native";
-import { useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 import { ShipmentStatus as Status } from "@movo/shared/dist/types/shipment";
 import type { ShipmentEvent } from "../../src/api/shipments-client";
 import { usePublicProfile } from "../../src/hooks/use-profile";
@@ -27,6 +24,8 @@ import { useShipmentEvents } from "../../src/hooks/use-shipments";
 import { useShipmentReceiverTransfers } from "../../src/hooks/use-receiver-transfers";
 import {
   receiverTransferDetail,
+  receiverTransferMeta,
+  receiverTransferQuote,
   receiverTransferStatusPill,
   receiverTransferSteps,
   receiverTransferTitle,
@@ -135,7 +134,9 @@ function TimelineRow({
   circleClass: string;
   railClass: string;
   isLast: boolean;
-  title: React.ReactNode;
+  /** Sin `title`, el contenido arranca a la altura del círculo (el item de transferencia
+   * es una card con su propio título adentro). */
+  title?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   return (
@@ -157,7 +158,7 @@ function TimelineRow({
             ella: así queda alineado con el icono por construcción, sin depender de un
             padding calculado a mano contra el line-height — que se rompía apenas la
             fila tenía una segunda línea (fecha/actor) debajo. */}
-        <View className="h-9 justify-center">{title}</View>
+        {title !== undefined ? <View className="h-9 justify-center">{title}</View> : null}
         {children}
       </View>
     </View>
@@ -281,17 +282,21 @@ function PendingStepRow({
   );
 }
 
+/** Colores del item de transferencia, fieles al prototipo de MOVO-275: el círculo se pinta
+ * solo mientras espera respuesta (ámbar) o cuando se completó (lima); el resto queda gris y
+ * el estado lo cuenta la pill. */
 const TRANSFER_TONE: Record<ReceiverTransferTone, { circle: string; icon: string | null; pill: string; pillText: string }> = {
-  warning: { circle: "bg-warning-100", icon: "#A97714", pill: "bg-warning-100", pillText: "text-warning-800" },
-  success: { circle: "bg-lime-200", icon: "#0A0A0B", pill: "bg-success-100", pillText: "text-success-700" },
-  danger: { circle: "bg-danger-100", icon: "#972327", pill: "bg-danger-100", pillText: "text-danger-700" },
+  warning: { circle: "bg-warning-500", icon: "#0A0A0B", pill: "bg-warning-200", pillText: "text-warning-700" },
+  success: { circle: "bg-lime-500", icon: "#0A0A0B", pill: "bg-success-100", pillText: "text-success-700" },
+  danger: { circle: "bg-bg-mute", icon: null, pill: "bg-danger-100", pillText: "text-danger-700" },
   neutral: { circle: "bg-bg-mute", icon: null, pill: "bg-bg-mute", pillText: "text-fg-2" },
 };
 
 /**
- * MOVO-275 AC7: un solo item por solicitud de transferencia de receptor, que muestra su
- * estado actual (pendiente, completada, rechazada, vencida, cancelada) con el texto
- * según quién mira. El detalle (cuándo se pidió y cuándo se resolvió) se despliega.
+ * MOVO-275 AC7: un solo item por solicitud de transferencia de receptor, como card dentro
+ * del riel: título y pill de estado arriba, fecha, resultado y motivo. La completada se
+ * destaca con borde oscuro y muestra sus pasos (pedido, aceptación, cambio de receptor).
+ * El texto depende de quién mira (`receiverTransferViewer`).
  */
 function ReceiverTransferRow({
   transfer,
@@ -307,13 +312,14 @@ function ReceiverTransferRow({
   testID?: string;
 }) {
   const colors = useThemeColors();
-  const [expanded, setExpanded] = useState(false);
   const viewer = receiverTransferViewer(transfer, currentUserId, senderId);
   const pill = receiverTransferStatusPill(transfer);
   const tone = TRANSFER_TONE[pill.tone];
-  const detail = receiverTransferDetail(transfer, viewer);
-  const steps = receiverTransferSteps(transfer, viewer);
-  const Chevron = expanded ? ChevronUp : ChevronDown;
+  const isCompleted = transfer.status === "completed";
+  const meta = isCompleted ? null : receiverTransferMeta(transfer);
+  const detail = isCompleted ? null : receiverTransferDetail(transfer, viewer);
+  const quote = receiverTransferQuote(transfer);
+  const steps = isCompleted ? receiverTransferSteps(transfer, viewer) : [];
 
   return (
     <TimelineRow
@@ -322,47 +328,38 @@ function ReceiverTransferRow({
       circleClass={tone.circle}
       railClass="bg-border"
       isLast={isLast}
-      title={
-        <Text numberOfLines={2} className="font-sans-semibold text-body text-fg-2">
-          {receiverTransferTitle(transfer, viewer)}
-        </Text>
-      }
     >
-      <View testID={testID} className="gap-1.5">
-        <View className="flex-row items-center gap-2">
-          <View className={`rounded-full px-2 py-0.5 ${tone.pill}`}>
+      <View
+        testID={testID}
+        className={`gap-1.5 rounded-[14px] bg-bg px-3.5 py-3 ${isCompleted ? "border-[1.5px] border-fg" : "border border-border"}`}
+      >
+        <View className="flex-row items-start gap-2">
+          <Text className="flex-1 font-sans-semibold text-[14px] leading-5 text-fg">
+            {receiverTransferTitle(transfer, viewer)}
+          </Text>
+          <View className={`mt-px rounded-full px-2 py-0.5 ${tone.pill}`}>
             <Text testID={testID ? `${testID}-status` : undefined} className={`font-sans-semibold text-[11px] ${tone.pillText}`}>
               {pill.label}
             </Text>
           </View>
-          <Text className="font-sans text-small text-fg-3">{formatEventTimestamp(transfer.createdAt)}</Text>
         </View>
+        {meta ? <Text className="font-sans text-[12px] text-fg-3">{meta}</Text> : null}
         {detail ? (
-          <Text testID={testID ? `${testID}-detail` : undefined} className="font-sans text-small text-fg-2">
+          <Text testID={testID ? `${testID}-detail` : undefined} className="font-sans text-[13px] leading-[18px] text-fg-2">
             {detail}
           </Text>
         ) : null}
-        {transfer.reason ? (
-          <Text className="font-sans text-small italic text-fg-2">“{transfer.reason}”</Text>
+        {quote ? (
+          <Text testID={testID ? `${testID}-quote` : undefined} className="font-sans text-[13px] leading-[18px] text-fg-2">
+            “{quote}”
+          </Text>
         ) : null}
-        {transfer.responseReason ? (
-          <Text className="font-sans text-small italic text-fg-2">“{transfer.responseReason}”</Text>
-        ) : null}
-        <Pressable
-          testID={testID ? `${testID}-toggle` : undefined}
-          onPress={() => setExpanded((value) => !value)}
-          hitSlop={8}
-          className="flex-row items-center gap-1 self-start"
-        >
-          <Text className="font-sans-medium text-small text-fg">{expanded ? "Ocultar detalle" : "Ver detalle"}</Text>
-          <Chevron size={14} color={colors.fg1} strokeWidth={2} />
-        </Pressable>
-        {expanded ? (
-          <View testID={testID ? `${testID}-steps` : undefined} className="mt-1 gap-2 rounded-xl bg-bg-sub px-3 py-2.5">
+        {steps.length > 0 ? (
+          <View testID={testID ? `${testID}-steps` : undefined} className="mt-1 gap-2 border-t border-border pt-2.5">
             {steps.map((step) => (
               <View key={step.key} className="flex-row gap-2.5">
-                <Text className="w-[86px] font-sans text-[12px] text-fg-3">{step.time ?? ""}</Text>
-                <Text className="flex-1 font-sans text-[13px] text-fg-2">{step.text}</Text>
+                <Text className="min-w-[40px] font-mono-medium text-[12px] leading-[18px] text-fg-3">{step.time ?? ""}</Text>
+                <Text className="flex-1 font-sans text-[13px] leading-[18px] text-fg">{step.text}</Text>
               </View>
             ))}
           </View>
