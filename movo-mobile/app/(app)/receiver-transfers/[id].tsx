@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { CircleCheck, ChevronLeft, Clock, MapPin, Package } from "lucide-react-native";
 import { useState } from "react";
+import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PrimaryButton } from "../../../components/auth/primary-button";
@@ -29,6 +30,7 @@ function closedInvitationText(status: string, cancelReason: string | null, reque
     case "rejected_by_new_receiver":
       return `Rechazaste esta invitación. El paquete lo sigue recibiendo ${requesterFirstName}.`;
     case "expired":
+    case "pending_new_receiver":
       return `Venció el plazo para aceptar. El paquete lo sigue recibiendo ${requesterFirstName}.`;
     default:
       return cancelReason === "delivery_started"
@@ -85,6 +87,7 @@ export default function ReceiverTransferInvitationScreen() {
     }
   };
 
+  useDeadlineExpired(invitation?.newReceiverDeadline);
   const requesterFirstName = getFirstName(invitation?.requesterName) || "El receptor";
   const deadlineLabel = redesignationDeadlineLabel(invitation?.newReceiverDeadline);
   const isPending = invitation?.status === "pending_new_receiver" && deadlineLabel !== null;

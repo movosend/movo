@@ -17,14 +17,6 @@ interface ReceiverTransferPendingBannerProps {
   testID?: string;
 }
 
-/** Horas que se le dieron a la persona invitada para aceptar (plazo menos creación). */
-function inviteWindowHours(transfer: ReceiverTransferRequest): number | null {
-  const hours = Math.round(
-    (new Date(transfer.newReceiverDeadline).getTime() - new Date(transfer.createdAt).getTime()) / 3_600_000,
-  );
-  return Number.isFinite(hours) && hours > 0 ? hours : null;
-}
-
 /**
  * MOVO-275 AC8: aviso arriba del detalle, sobre el mapa, mientras el receptor vigente espera
  * que la persona que invitó acepte. Es un aviso de estado, no una sección de acciones: lleva el
@@ -40,7 +32,6 @@ export function ReceiverTransferPendingBanner({ transfer, testID }: ReceiverTran
   const invitedName = transfer.newReceiverName ?? "";
   const invited = getFirstName(invitedName) || "la persona que elegiste";
   const deadline = redesignationDeadlineLabel(transfer.newReceiverDeadline);
-  const hours = inviteWindowHours(transfer);
 
   const handleConfirmCancel = async () => {
     setErrorMessage(null);
@@ -71,7 +62,7 @@ export function ReceiverTransferPendingBanner({ transfer, testID }: ReceiverTran
         </Text>
         <Text className="font-sans text-small leading-5 text-ink-950">
           {deadline
-            ? `${hours ? `Tiene ${hours} h para aceptar.` : "Todavía puede aceptar."} Si no acepta, el paquete lo seguís recibiendo vos.`
+            ? "Si no acepta a tiempo, el paquete lo seguís recibiendo vos."
             : "Venció el plazo para aceptar. Lo seguís recibiendo vos."}
         </Text>
       </View>
