@@ -81,26 +81,6 @@ function pendingChallengeKey(shipmentId: string): string {
   return `handshake:pending:${shipmentId}`;
 }
 
-/**
- * MOVO-275 (ADR-038): true si hay un desafío de handshake de ENTREGA vigente para el
- * envío -- la entrega ya empezó y no se puede cambiar de receptor. Lectura pura de
- * Redis, sin depender del servicio de handshake completo.
- */
-export async function isDeliveryHandshakePending(
-  redis: Pick<HandshakeRedisClient, "get">,
-  shipmentId: string
-): Promise<boolean> {
-  const raw = await redis.get(pendingChallengeKey(shipmentId));
-  if (!raw) {
-    return false;
-  }
-  try {
-    return (JSON.parse(raw) as { stage?: unknown }).stage === "delivery";
-  } catch {
-    return false;
-  }
-}
-
 function sha256Hex(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }

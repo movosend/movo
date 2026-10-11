@@ -1,4 +1,9 @@
-import { ReceiverTransferCancelReason, ReceiverTransferStatus, ShipmentStatus } from "@movo/shared";
+import {
+  RECEIVER_TRANSFER_ALLOWED_SHIPMENT_STATUSES,
+  ReceiverTransferCancelReason,
+  ReceiverTransferStatus,
+  ShipmentStatus,
+} from "@movo/shared";
 import {
   PrismaClient,
   ReceiverTransferRequest as ReceiverTransferRow,
@@ -16,6 +21,14 @@ import { emitShipmentStatusChanged } from "../realtime/shipment-status-events";
 import { parseShipmentStatus } from "../models/shipment";
 
 const PENDING: ReceiverTransferStatus = "pending_new_receiver";
+
+/** Envío en el que una invitación sigue teniendo sentido: en un estado que admite el
+ * cambio y sin la entrega empezada. Una invitación de un envío cancelado o entregado no
+ * se lista ni bloquea la baja de cuenta (la cierra el barrido más tarde). */
+const OPEN_FOR_TRANSFER = {
+  status: { in: [...RECEIVER_TRANSFER_ALLOWED_SHIPMENT_STATUSES] },
+  deliveryHandshakeStartedAt: null,
+};
 
 function isUniqueConflict(error: unknown): boolean {
   return (
@@ -167,16 +180,21 @@ export function createReceiverTransferRepository(db: PrismaClient) {
     /** Invitaciones vigentes de la persona invitada (no vencidas por plazo). */
     async listPendingForNewReceiver(userId: string, now: Date): Promise<ReceiverTransferWithShipment[]> {
       const rows = await db.receiverTransferRequest.findMany({
-        where: { newReceiverId: userId, status: PENDING, newReceiverDeadline: { gt: now } },
+        where: {
+          newReceiverId: userId,
+          status: PENDING,
+          newReceiverDeadline: { gt: now },
+          shipment: OPEN_FOR_TRANSFER,
+        },
         include: { shipment: true },
         orderBy: { newReceiverDeadline: "asc" },
       });
       return rows.map((row) => ({ ...mapTransfer(row), shipment: mapShipmentContext(row.shipment) }));
     },
 
-    async hasPendingForNewReceiver(userId: string): Promise<boolean> {
+    async hasPendingForNewReceiver(userId: string, now: Date = new Date()): Promise<boolean> {
       const row = await db.receiverTransferRequest.findFirst({
-        where: { newReceiverId: userId, status: PENDING },
+        where: { newReceiverId: userId, status: PENDING, newReceiverDeadline: { gt: now }, shipment: OPEN_FOR_TRANSFER },
         select: { id: true },
       });
       return row !== null;
@@ -215,6 +233,9 @@ export function createReceiverTransferRepository(db: PrismaClient) {
               id: input.shipmentId,
               receiverId: input.expectedReceiverId,
               status: { in: [...input.allowedShipmentStatuses] },
+              // Si el transportista generó el QR de entrega entre el chequeo y este UPDATE,
+              // la entrega ya empezó y el receptor no cambia.
+              deliveryHandshakeStartedAt: null,
             },
             data: { receiverId: input.newReceiverId },
           });

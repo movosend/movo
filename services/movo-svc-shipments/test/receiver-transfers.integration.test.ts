@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { FastifyInstance } from "fastify";
-import { ShipmentStatus } from "@movo/shared";
+import { RECEIVER_TRANSFER_ALLOWED_SHIPMENT_STATUSES, ShipmentStatus } from "@movo/shared";
+import { createReceiverTransferRepository } from "../src/repositories/receiver-transfer-repository";
 import { buildApp } from "../src/app";
 import { createShipmentRepository, ShipmentRepository } from "../src/repositories/shipment-repository";
 import { CreateShipmentInput, PackageType, PhotoStage } from "../src/models/shipment";
@@ -248,13 +249,32 @@ describe("MOVO-275: transferencia de receptor (Postgres + Redis)", () => {
       expect(await app.db.receiverTransferRequest.count({ where: { shipmentId } })).toBe(1);
     });
 
-    it("con el handshake de entrega en curso no se puede (409 NOT_ALLOWED)", async () => {
+    it("con la entrega empezada no se puede (409 NOT_ALLOWED), aunque el QR ya haya vencido", async () => {
       const shipmentId = await createShipment();
-      await app.redis.set(`handshake:pending:${shipmentId}`, JSON.stringify({ stage: "delivery" }), "PX", 15000);
+      await repo.markDeliveryHandshakeStarted(shipmentId);
+      // Sin ningún desafío vigente en Redis: la marca es durable, no depende de los 15 s del QR.
+      expect(await app.redis.get(`handshake:pending:${shipmentId}`)).toBeNull();
       const response = await requestTransfer(shipmentId, invitedId);
       expect(response.statusCode).toBe(409);
       expect(response.json().error.code).toBe("SHIPMENT_RECEIVER_TRANSFER_NOT_ALLOWED");
-      await app.redis.del(`handshake:pending:${shipmentId}`);
+    });
+
+    it("una pendiente pasada de plazo se vence al pedir otra, sin esperar al barrido", async () => {
+      const shipmentId = await createShipment();
+      const oldId = (await requestTransfer(shipmentId, invitedId)).json().id;
+      await app.db.receiverTransferRequest.update({
+        where: { id: oldId },
+        data: { newReceiverDeadline: new Date(Date.now() - 60_000) },
+      });
+      vi.clearAllMocks();
+
+      const response = await requestTransfer(shipmentId, otherInvitedId);
+
+      expect(response.statusCode).toBe(201);
+      expect((await app.db.receiverTransferRequest.findUniqueOrThrow({ where: { id: oldId } })).status).toBe("expired");
+      await settle();
+      // Quien pidió y el emisor reciben el aviso de vencimiento (ya no lo manda el barrido).
+      expect(pushesTo(senderId).some((p) => p.title === "El receptor no cambió")).toBe(true);
     });
   });
 
@@ -303,16 +323,38 @@ describe("MOVO-275: transferencia de receptor (Postgres + Redis)", () => {
       expect((await repo.findById(shipmentId))?.receiverId).toBe(receiverId);
     });
 
-    it("con el handshake de entrega en curso no se puede aceptar (409)", async () => {
+    it("con la entrega empezada no se puede aceptar (409), aunque el QR ya haya vencido", async () => {
       const shipmentId = await createShipment();
       const transferId = (await requestTransfer(shipmentId, invitedId)).json().id;
-      await app.redis.set(`handshake:pending:${shipmentId}`, JSON.stringify({ stage: "delivery" }), "PX", 15000);
+      await repo.markDeliveryHandshakeStarted(shipmentId);
 
       const response = await act(transferId, "accept", invitedId);
 
       expect(response.statusCode).toBe(409);
       expect(response.json().error.code).toBe("SHIPMENT_RECEIVER_TRANSFER_NOT_ALLOWED");
-      await app.redis.del(`handshake:pending:${shipmentId}`);
+      expect((await repo.findById(shipmentId))?.receiverId).toBe(receiverId);
+    });
+
+    it("si la entrega empieza justo antes del UPDATE, el receptor no cambia (CAS)", async () => {
+      const shipmentId = await createShipment();
+      const transferId = (await requestTransfer(shipmentId, invitedId)).json().id;
+      const transferRepo = createReceiverTransferRepository(app.db);
+      await repo.markDeliveryHandshakeStarted(shipmentId);
+
+      await expect(
+        transferRepo.complete({
+          transferId,
+          shipmentId,
+          expectedReceiverId: receiverId,
+          newReceiverId: invitedId,
+          allowedShipmentStatuses: RECEIVER_TRANSFER_ALLOWED_SHIPMENT_STATUSES,
+          now: new Date(),
+        }),
+      ).rejects.toThrow();
+      expect((await repo.findById(shipmentId))?.receiverId).toBe(receiverId);
+      expect((await app.db.receiverTransferRequest.findUniqueOrThrow({ where: { id: transferId } })).status).toBe(
+        "pending_new_receiver",
+      );
     });
 
     it("AC5: después de una transferencia completada no se puede pedir otra (409 LIMIT)", async () => {
@@ -401,6 +443,7 @@ describe("MOVO-275: transferencia de receptor (Postgres + Redis)", () => {
       expect(transfer.cancelReason).toBe("delivery_started");
       expect((await repo.findById(shipmentId))?.receiverId).toBe(receiverId);
       expect((await act(transferId, "accept", invitedId)).statusCode).toBe(409);
+      expect(await repo.hasDeliveryHandshakeStarted(shipmentId)).toBe(true);
       await app.redis.del(`handshake:pending:${shipmentId}`);
     });
   });
@@ -548,6 +591,44 @@ describe("MOVO-275: transferencia de receptor (Postgres + Redis)", () => {
         headers: { "x-user-id": strangerId },
       });
       expect(detail.statusCode).toBe(403);
+    });
+
+    it("la invitación de un envío cancelado o con la entrega empezada no se lista ni bloquea la baja", async () => {
+      const cancelledId = await createShipment(ShipmentStatus.PUBLISHED);
+      await requestTransfer(cancelledId, invitedId);
+      await repo.updateStatus(cancelledId, ShipmentStatus.CANCELLED, senderId);
+      const startedId = await createShipment();
+      await requestTransfer(startedId, invitedId);
+      await repo.markDeliveryHandshakeStarted(startedId);
+
+      const invitations = await app.inject({
+        method: "GET",
+        url: "/receiver-transfers/invitations",
+        headers: { "x-user-id": invitedId },
+      });
+      const deletion = await app.inject({
+        method: "GET",
+        url: `/internal/account-deletion/users/${invitedId}/active-shipments`,
+      });
+
+      expect(invitations.json()).toEqual([]);
+      expect(deletion.json()).toMatchObject({ hasActiveShipments: false });
+    });
+
+    it("una invitación vencida (el barrido no corrió) no bloquea la baja de cuenta", async () => {
+      const shipmentId = await createShipment();
+      const transferId = (await requestTransfer(shipmentId, invitedId)).json().id;
+      await app.db.receiverTransferRequest.update({
+        where: { id: transferId },
+        data: { newReceiverDeadline: new Date(Date.now() - 60_000) },
+      });
+
+      const deletion = await app.inject({
+        method: "GET",
+        url: `/internal/account-deletion/users/${invitedId}/active-shipments`,
+      });
+
+      expect(deletion.json()).toMatchObject({ hasActiveShipments: false });
     });
 
     it("una invitación pendiente cuenta como actividad para la baja de cuenta", async () => {

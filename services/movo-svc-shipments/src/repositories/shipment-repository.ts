@@ -573,6 +573,9 @@ export interface ShipmentRepository {
    * error del lado de `svc-users` es distinto (una disputa no la resuelve el usuario
    * cancelando, necesita a un admin).
    */
+  /** MOVO-275 (ADR-038): marca durable de que la entrega empezó (primer QR de entrega). */
+  markDeliveryHandshakeStarted(id: string): Promise<void>;
+  hasDeliveryHandshakeStarted(id: string): Promise<boolean>;
   hasActiveShipmentsForUser(userId: string): Promise<{ hasActiveDispute: boolean; hasActiveShipments: boolean }>;
   /**
    * MOVO-147 AC3/AC6: envíos completados (`delivered`) de un usuario como emisor y
@@ -1333,6 +1336,19 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         data: { transitAnomalyFlaggedAt: now },
       });
       return result.count > 0;
+    },
+
+    /** MOVO-275: marca (una sola vez) que la entrega empezó. Idempotente. */
+    async markDeliveryHandshakeStarted(id: string): Promise<void> {
+      await db.shipment.updateMany({
+        where: { id, deliveryHandshakeStartedAt: null },
+        data: { deliveryHandshakeStartedAt: new Date() },
+      });
+    },
+
+    async hasDeliveryHandshakeStarted(id: string): Promise<boolean> {
+      const row = await db.shipment.findUnique({ where: { id }, select: { deliveryHandshakeStartedAt: true } });
+      return row?.deliveryHandshakeStartedAt != null;
     },
 
     async hasActiveShipmentsForUser(userId: string): Promise<{ hasActiveDispute: boolean; hasActiveShipments: boolean }> {

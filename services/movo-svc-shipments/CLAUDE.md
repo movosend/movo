@@ -3219,9 +3219,12 @@ parciales de una pendiente y una completada por envío). Rutas: `POST /shipments
   `formerReceiverId` (include de la completada) y `hasShipmentAccess` lo acepta; los asserts
   de acción no cambian. `/mine` lo sigue listando con `transferredByMe`; el detalle suma
   `receiverTransfer` (resumen según quien mira).
-- **Carrera con la entrega**: `generateHandshake` (etapa entrega) cancela la pendiente
-  (`cancelReason: delivery_started`) antes de crear el desafío; pedir o aceptar con un QR de
-  entrega vigente (`isDeliveryHandshakePending`, Redis) da 409.
+- **Carrera con la entrega**: `generateHandshake` (etapa entrega) deja la marca durable
+  `delivery_handshake_started_at` y cancela la pendiente (`cancelReason: delivery_started`)
+  antes de crear el desafío; con la marca puesta, pedir o aceptar da 409 aunque el QR (15 s)
+  ya haya vencido, y el UPDATE de `receiverId` la exige vacía (review de PR #229).
+  Una invitación de un envío cancelado/entregado o vencida no se lista ni bloquea la baja
+  de cuenta, y pedir otra transferencia vence inline la pendiente pasada de plazo.
 - Plazo `RECEIVER_TRANSFER_TIMEOUT_HOURS` (6, en los tres lugares); lo vence
   `receiver-confirmation-sweep.ts`. Una invitación pendiente cuenta como actividad en la baja
   de cuenta. `GET /events` no cambió de forma (array) para no romper builds viejos.

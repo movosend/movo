@@ -29,7 +29,6 @@ export function buildReceiverTransfersService(
     transferRepository: createReceiverTransferRepository(app.db),
     usersClient: opts.usersClient ?? createUsersClient(app.config),
     notificationsClient: opts.notificationsClient ?? createNotificationsClient(app.config),
-    redis: app.redis,
     logger: app.log,
     timeoutHours: app.config.RECEIVER_TRANSFER_TIMEOUT_HOURS,
   });

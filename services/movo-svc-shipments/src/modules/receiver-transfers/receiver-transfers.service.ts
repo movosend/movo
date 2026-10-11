@@ -18,7 +18,6 @@ import { UsersClient } from "../../adapters/users-client";
 import { NotificationsClient } from "../../adapters/notifications-client";
 import { assertNotBlocked } from "../../utils/block-relations";
 import { assertIsReceiver, hasShipmentAccess, isFormerReceiver } from "../shipments/assert-shipment-access";
-import { HandshakeRedisClient, isDeliveryHandshakePending } from "../handshake/handshake.service";
 
 type ReceiverTransfersLogger = { warn: (obj: unknown, msg?: string) => void; info?: (obj: unknown, msg?: string) => void };
 
@@ -26,7 +25,6 @@ export interface ReceiverTransfersServiceDeps {
   shipmentRepository: ShipmentRepository;
   transferRepository: ReceiverTransferRepository;
   usersClient: UsersClient;
-  redis: Pick<HandshakeRedisClient, "get">;
   notificationsClient?: NotificationsClient;
   logger?: ReceiverTransfersLogger;
   /** Plazo de la persona invitada para aceptar (`RECEIVER_TRANSFER_TIMEOUT_HOURS`). */
@@ -63,7 +61,7 @@ function isTransferAllowedStatus(shipment: Shipment): boolean {
  * consumen el cupo.
  */
 export function createReceiverTransfersService(deps: ReceiverTransfersServiceDeps) {
-  const { shipmentRepository, transferRepository, usersClient, redis, notificationsClient, logger } = deps;
+  const { shipmentRepository, transferRepository, usersClient, notificationsClient, logger } = deps;
 
   async function resolveName(userId: string): Promise<string | null> {
     try {
@@ -108,14 +106,27 @@ export function createReceiverTransfersService(deps: ReceiverTransfersServiceDep
     };
   }
 
+  /** La entrega empieza cuando el transportista genera el QR por primera vez. La marca es
+   * durable (el QR en sí vence a los 15 s): una vez empezada, el receptor ya no cambia. */
   async function assertDeliveryNotStarted(shipmentId: string): Promise<void> {
-    if (await isDeliveryHandshakePending(redis, shipmentId)) {
+    if (await shipmentRepository.hasDeliveryHandshakeStarted(shipmentId)) {
       throw new ApiError(
         409,
         "SHIPMENT_RECEIVER_TRANSFER_NOT_ALLOWED",
         "La entrega ya empezó: no se puede cambiar quién recibe."
       );
     }
+  }
+
+  /** Vence una solicitud pendiente y avisa a quien la pidió y al emisor. Compartido por el
+   * barrido y por el pedido de una transferencia nueva. Lanza `ReceiverTransferNotPendingError`
+   * si otra vía la resolvió antes. */
+  async function expireTransfer(transfer: ReceiverTransfer, senderId: string | null, now: Date): Promise<void> {
+    const expired = await transferRepository.resolve(transfer.id, { status: "expired", resolvedBy: null, now });
+    const { requesterName, newReceiverName } = names(expired);
+    const data = { type: TRANSFER_PUSH_TYPE, shipmentId: expired.shipmentId };
+    void push(expired.requestedBy, "receiverTransferExpiredRequester", { newReceiverName }, data);
+    void push(senderId, "receiverTransferExpiredSender", { requesterName, newReceiverName }, data);
   }
 
   async function loadTransfer(transferId: string): Promise<ReceiverTransferWithShipment> {
@@ -154,7 +165,16 @@ export function createReceiverTransfersService(deps: ReceiverTransfersServiceDep
       if (await transferRepository.findCompletedByShipment(shipment.id)) {
         throw new ApiError(409, "SHIPMENT_RECEIVER_TRANSFER_LIMIT", "Este envío ya cambió de receptor una vez.");
       }
-      if (await transferRepository.findPendingByShipment(shipment.id)) {
+      const existing = await transferRepository.findPendingByShipment(shipment.id);
+      if (existing && existing.newReceiverDeadline <= new Date()) {
+        // Pasada de plazo pero el barrido todavía no la cerró: se vence acá, así no bloquea
+        // (ni el chequeo ni el índice único) hasta la próxima corrida.
+        try {
+          await expireTransfer(existing, shipment.senderId, new Date());
+        } catch (err) {
+          if (!(err instanceof ReceiverTransferNotPendingError)) throw err;
+        }
+      } else if (existing) {
         throw new ApiError(
           409,
           "SHIPMENT_RECEIVER_TRANSFER_PENDING",
@@ -375,13 +395,9 @@ export function createReceiverTransfersService(deps: ReceiverTransfersServiceDep
       let errorsCount = 0;
       for (const candidate of candidates) {
         try {
-          const expired = await transferRepository.resolve(candidate.id, { status: "expired", resolvedBy: null, now });
+          const shipment = await shipmentRepository.findById(candidate.shipmentId);
+          await expireTransfer(candidate, shipment?.senderId ?? null, now);
           expiredCount += 1;
-          const shipment = await shipmentRepository.findById(expired.shipmentId);
-          const { requesterName, newReceiverName } = names(expired);
-          const data = { type: TRANSFER_PUSH_TYPE, shipmentId: expired.shipmentId };
-          void push(expired.requestedBy, "receiverTransferExpiredRequester", { newReceiverName }, data);
-          void push(shipment?.senderId ?? null, "receiverTransferExpiredSender", { requesterName, newReceiverName }, data);
         } catch (err) {
           // Otra vía (aceptar, rechazar, cancelar) la resolvió entre la lectura y el CAS.
           if (err instanceof ReceiverTransferNotPendingError) {
@@ -402,6 +418,9 @@ export function createReceiverTransfersService(deps: ReceiverTransfersServiceDep
      * cancela y la entrega sigue con el receptor vigente.
      */
     async cancelPendingForDelivery(shipmentId: string): Promise<void> {
+      // Primero la marca durable, después se cierra la pendiente: así un pedido o una
+      // aceptación que llegue en el medio se frena por la marca, no por el QR (que vence).
+      await shipmentRepository.markDeliveryHandshakeStarted(shipmentId);
       const pending = await transferRepository.findPendingByShipment(shipmentId);
       if (!pending) {
         return;

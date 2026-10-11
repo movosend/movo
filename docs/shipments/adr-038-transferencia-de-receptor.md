@@ -40,9 +40,12 @@ aceptó, y puede pasar **en tránsito**.
 6. **Plazo y carrera con la entrega.** La persona invitada tiene
    `RECEIVER_TRANSFER_TIMEOUT_HOURS` (6 h); la vence el mismo barrido que la
    confirmación del receptor (MOVO-130), y aceptar fuera de plazo da 409 aunque el
-   barrido no haya corrido. Generar el QR de entrega cancela la solicitud pendiente, y
-   con un QR de entrega vigente no se puede pedir ni aceptar. El handshake siempre valida
-   contra el `receiverId` vigente.
+   barrido no haya corrido (pedir otra transferencia también vence inline la pendiente
+   pasada de plazo). La entrega "empieza" cuando el transportista genera el QR de entrega
+   por primera vez: eso deja una marca durable (`shipments.delivery_handshake_started_at`,
+   no el QR de Redis, que vence a los 15 s), cancela la solicitud pendiente y desde ahí no
+   se puede pedir ni aceptar un cambio; el UPDATE de `receiverId` también exige la marca
+   vacía. El handshake siempre valida contra el `receiverId` vigente.
 7. **Línea de tiempo: un item por solicitud.** `shipment_events` sigue siendo "evento =
    transición de estado". Las solicitudes se exponen aparte
    (`GET /shipments/:id/receiver-transfers`, sin cambiar la respuesta de `/events`) y el

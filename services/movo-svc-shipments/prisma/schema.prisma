@@ -192,6 +192,10 @@ model Shipment {
   // MOVO-258 (D4): instante en que el barrido de `in_transit` anómalo marcó el envío
   // para revisión (no lo cancela). NULL = nunca marcado; solo se escribe una vez.
   transitAnomalyFlaggedAt DateTime? @map("transit_anomaly_flagged_at") @db.Timestamptz
+  // MOVO-275 (ADR-038): instante en que el transportista generó por primera vez el QR de
+  // entrega. Marca durable: el QR vence a los 15 s pero la entrega ya empezó y desde
+  // entonces no se puede pedir ni aceptar un cambio de receptor.
+  deliveryHandshakeStartedAt DateTime? @map("delivery_handshake_started_at") @db.Timestamptz
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   // Mantenida por trigger de Postgres (shipments.update_updated_at_column()),
