@@ -531,6 +531,12 @@ espera al build (matriz por plataforma), y un tag `v*` sobre `develop` (guard + 
   `MP_CLIENT_SECRET`, `MP_REDIRECT_URI`, `MP_WEBHOOK_SECRET` y `MP_TEST_MODE=true` en el
   secret de dev (app sandbox `movosend`), las cuatro primeras en prod (app de la cuenta
   real de Movo). `MERCADOPAGO_ACCESS_TOKEN` ya no se usa: borrarlo de ambos secrets.
+- **Webhook de MP sin registrar** (MOVO-268): cargar
+  `https://api-dev.movosend.app/api/v1/payments/webhooks/mercadopago` (tópico `payment`) en el
+  panel de la app `movosend` y su clave secreta como `MP_WEBHOOK_SECRET`; en prod, lo mismo
+  con la app real. Las alertas al equipo de `svc-payments` necesitan `ALERT_PROVIDER=telegram`,
+  `ALERT_TELEGRAM_BOT_TOKEN`, `ALERT_TELEGRAM_CHAT_ID` y `ALERT_ENVIRONMENT_LABEL` en el
+  secret (sin ellas, solo quedan en el log).
 - **`MP_TRANSACTION_FEE_RATE` sin confirmar** (MOVO-143,
   `shared/movo-shared/src/config/commission.ts`): placeholder (0.0499) hasta tener el
   valor real del contrato/homologación con MercadoPago. `MOVO_COMMISSION_RATE` (15%,
