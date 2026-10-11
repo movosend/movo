@@ -166,3 +166,9 @@ la vinculación sale del `state` en Redis de `svc-payments`, no de la sesión. E
 El gateway deja de arrancar con `logger: true`: `config/logger.ts` tiene un serializer de
 `req` que oculta el query de esa ruta (`?code=...&state=...`), y el error handler usa el
 mismo `redactUrl`.
+
+### MOVO-275 — Proxy de `/receiver-transfers`
+
+Entrada nueva en `getServiceRoutes()` hacia `svc-shipments` (protegida por defecto) para
+aceptar/rechazar/cancelar una transferencia de receptor y listar invitaciones. Pedirla y
+listarla por envío ya pasan por `/shipments`.

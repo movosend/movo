@@ -28,6 +28,10 @@ import handshakeRoutes, { HandshakeRoutesOptions } from "./modules/handshake/han
 import trackingRoutes, { TrackingRoutesOptions } from "./modules/tracking/tracking.routes";
 import positionsRoutes, { PositionsRoutesOptions } from "./modules/positions/positions.routes";
 import demoRoutes, { DemoRoutesOptions } from "./modules/demo/demo.routes";
+import receiverTransfersRoutes, {
+  ReceiverTransfersRoutesOptions,
+  shipmentReceiverTransferRoutes,
+} from "./modules/receiver-transfers/receiver-transfers.routes";
 import { ShipmentRepository } from "./repositories/shipment-repository";
 import { UsersClient } from "./adapters/users-client";
 import { PaymentsClient } from "./adapters/payments-client";
@@ -277,6 +281,15 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.pricingLogisticsClient ? { pricingLogisticsClient: opts.pricingLogisticsClient } : {}),
   };
   app.register(demoRoutes, demoRouteOpts);
+
+  // MOVO-275 (ADR-038): transferencia de receptor. Pedirla y listarla cuelgan del envío
+  // (prefijo "/shipments"); aceptar/rechazar/cancelar e invitaciones, de su prefijo propio.
+  const receiverTransfersRouteOpts: ReceiverTransfersRoutesOptions = {
+    ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+  };
+  app.register(shipmentReceiverTransferRoutes, { prefix: "/shipments", ...receiverTransfersRouteOpts });
+  app.register(receiverTransfersRoutes, { prefix: "/receiver-transfers", ...receiverTransfersRouteOpts });
 
   return app;
 }

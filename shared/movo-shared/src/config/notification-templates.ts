@@ -64,7 +64,17 @@ export type NotificationTriggerKey =
   | "fundingWindowExpiredCarrier"
   | "fundingAttemptFailedSender"
   | "fundingReconfirmSender"
-  | "fundingReconfirmCarrier";
+  | "fundingReconfirmCarrier"
+  | "receiverTransferInvited"
+  | "receiverTransferRequested"
+  | "receiverTransferCompletedRequester"
+  | "receiverTransferCompletedSender"
+  | "receiverTransferCompletedCarrier"
+  | "receiverTransferRejectedRequester"
+  | "receiverTransferRejectedSender"
+  | "receiverTransferExpiredRequester"
+  | "receiverTransferExpiredSender"
+  | "receiverTransferCancelled";
 
 export interface NotificationCopy {
   title: string;
@@ -541,6 +551,94 @@ export const NOTIFICATION_TRIGGERS = {
     () => ({
       title: "Pago del emisor por reconfirmar",
       body: "La reserva del pago expiró. El envío sigue asignado a vos mientras el emisor la reconfirma.",
+    })
+  ),
+  // MOVO-275 (ADR-038): transferencia de receptor. Copy propio por destinatario: la
+  // persona invitada tiene que actuar; el emisor y el transportista solo se enteran.
+  receiverTransferInvited: definition<{ requesterName: string; deadlineHours: number }>(
+    "shipments",
+    {
+      title: "Te pidieron que recibas un paquete",
+      body: "El receptor de un envío te pidió que lo recibas en su lugar. Tocá para revisar la invitación.",
+    },
+    ({ requesterName, deadlineHours }) => ({
+      title: "Te pidieron que recibas un paquete",
+      body: `${requesterName} te pidió que recibas su paquete. Tenés ${deadlineHours} h para aceptar.`,
+    })
+  ),
+  receiverTransferRequested: definition<{ requesterName: string; newReceiverName: string }>(
+    "shipments",
+    {
+      title: "Cambio de receptor en curso",
+      body: "El receptor pidió que otra persona reciba tu paquete. No tenés que hacer nada.",
+    },
+    ({ requesterName, newReceiverName }) => ({
+      title: "Cambio de receptor en curso",
+      body: `${requesterName} le pidió a ${newReceiverName} que reciba tu paquete. No tenés que hacer nada.`,
+    })
+  ),
+  receiverTransferCompletedRequester: definition<{ newReceiverName: string }>(
+    "shipments",
+    { title: "Ya no recibís este paquete", body: "La persona que elegiste aceptó recibir el paquete." },
+    ({ newReceiverName }) => ({
+      title: `Ahora lo recibe ${newReceiverName}`,
+      body: `${newReceiverName} aceptó recibir el paquete. Podés seguir el envío en modo lectura.`,
+    })
+  ),
+  receiverTransferCompletedSender: definition<{ requesterName: string; newReceiverName: string }>(
+    "shipments",
+    { title: "Cambió quién recibe tu paquete", body: "Tu paquete tiene un receptor nuevo. La dirección de entrega no cambia." },
+    ({ requesterName, newReceiverName }) => ({
+      title: "Cambió quién recibe tu paquete",
+      body: `${requesterName} le pasó la recepción a ${newReceiverName}. La dirección de entrega no cambia.`,
+    })
+  ),
+  receiverTransferCompletedCarrier: definition<{ newReceiverName: string }>(
+    "shipments",
+    { title: "Cambió quién recibe", body: "El paquete tiene un receptor nuevo. La dirección de entrega no cambia." },
+    ({ newReceiverName }) => ({
+      title: "Cambió quién recibe",
+      body: `Ahora el paquete lo recibe ${newReceiverName}. La dirección de entrega no cambia.`,
+    })
+  ),
+  receiverTransferRejectedRequester: definition<{ newReceiverName: string }>(
+    "shipments",
+    { title: "No aceptaron recibir tu paquete", body: "La persona que elegiste no aceptó. El paquete lo seguís recibiendo vos." },
+    ({ newReceiverName }) => ({
+      title: `${newReceiverName} no aceptó`,
+      body: "El paquete lo seguís recibiendo vos. Si querés, podés pedírselo a otra persona.",
+    })
+  ),
+  receiverTransferRejectedSender: definition<{ requesterName: string; newReceiverName: string }>(
+    "shipments",
+    { title: "El receptor no cambió", body: "La persona invitada no aceptó. Tu paquete lo sigue recibiendo el receptor original." },
+    ({ requesterName, newReceiverName }) => ({
+      title: "El receptor no cambió",
+      body: `${newReceiverName} no aceptó. Tu paquete lo sigue recibiendo ${requesterName}.`,
+    })
+  ),
+  receiverTransferExpiredRequester: definition<{ newReceiverName: string }>(
+    "shipments",
+    { title: "La invitación venció", body: "La persona que elegiste no respondió a tiempo. El paquete lo seguís recibiendo vos." },
+    ({ newReceiverName }) => ({
+      title: `La invitación a ${newReceiverName} venció`,
+      body: "No respondió a tiempo. El paquete lo seguís recibiendo vos.",
+    })
+  ),
+  receiverTransferExpiredSender: definition<{ requesterName: string; newReceiverName: string }>(
+    "shipments",
+    { title: "El receptor no cambió", body: "La persona invitada no respondió a tiempo. Tu paquete lo sigue recibiendo el receptor original." },
+    ({ requesterName, newReceiverName }) => ({
+      title: "El receptor no cambió",
+      body: `${newReceiverName} no respondió a tiempo. Tu paquete lo sigue recibiendo ${requesterName}.`,
+    })
+  ),
+  receiverTransferCancelled: definition<{ requesterName: string }>(
+    "shipments",
+    { title: "La invitación ya no está vigente", body: "Ya no te piden que recibas el paquete." },
+    ({ requesterName }) => ({
+      title: "La invitación ya no está vigente",
+      body: `${requesterName} ya no te pide que recibas el paquete.`,
     })
   ),
 };

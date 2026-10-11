@@ -3203,3 +3203,28 @@ llama todavía). (2) La cuenta de MP del transportista se exige al ofertar en MO
 aceptaron la oferta queda como está (409 + hold huérfano logueado). (3) Mobile (MOVO-269, ya con comentario
 sobre `assignment_lapsed` y los estados nuevos) y estado de la reserva (MOVO-211): fuera de alcance. (4)
 `delivered → completed` es MOVO-212.
+
+### MOVO-275 — Transferencia de receptor (ADR-038)
+
+Módulo `src/modules/receiver-transfers/` + `repositories/receiver-transfer-repository.ts`,
+tabla `receiver_transfer_requests` (migración `20261011120000_...`, con índices únicos
+parciales de una pendiente y una completada por envío). Rutas: `POST /shipments/:id/receiver-transfer`,
+`GET /shipments/:id/receiver-transfers` (línea de tiempo, filtrada por quien mira) y
+`/receiver-transfers/{invitations,:id,:id/accept,:id/reject,:id/cancel}` (prefijo nuevo en el gateway).
+
+- **No toca `Shipment.status`**: aceptar hace en una transacción el CAS de la solicitud
+  (`pending` + plazo vigente) y el de `shipment.receiverId` (receptor que la pidió + estado
+  todavía admitido), y emite `shipment-status-changed` para refrescar el canal en vivo.
+- **Acceso de solo lectura del receptor original**: `findById`/`listByUser` cargan
+  `formerReceiverId` (include de la completada) y `hasShipmentAccess` lo acepta; los asserts
+  de acción no cambian. `/mine` lo sigue listando con `transferredByMe`; el detalle suma
+  `receiverTransfer` (resumen según quien mira).
+- **Carrera con la entrega**: `generateHandshake` (etapa entrega) cancela la pendiente
+  (`cancelReason: delivery_started`) antes de crear el desafío; pedir o aceptar con un QR de
+  entrega vigente (`isDeliveryHandshakePending`, Redis) da 409.
+- Plazo `RECEIVER_TRANSFER_TIMEOUT_HOURS` (6, en los tres lugares); lo vence
+  `receiver-confirmation-sweep.ts`. Una invitación pendiente cuenta como actividad en la baja
+  de cuenta. `GET /events` no cambió de forma (array) para no romper builds viejos.
+
+Tests: `test/receiver-transfers.integration.test.ts` (Postgres y Redis reales: cada
+validación, concurrencia, límite, carrera con el handshake, vencimiento, acceso y filtrado).

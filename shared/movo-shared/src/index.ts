@@ -175,3 +175,17 @@ export { isValidTimeOfDay, isWithinQuietHours } from "./config/quiet-hours";
 
 // trip start (MOVO-277)
 export { canStartTripOn, tripStartAvailableOn } from "./config/trip-start";
+
+// receiver transfer (MOVO-275)
+export {
+  RECEIVER_TRANSFER_STATUSES,
+  RECEIVER_TRANSFER_ALLOWED_SHIPMENT_STATUSES,
+} from "./types/receiver-transfer";
+export type {
+  ReceiverTransferStatus,
+  ReceiverTransferCancelReason,
+  ReceiverTransferRequest,
+  ReceiverTransferInvitation,
+  ReceiverTransferInvitationShipment,
+  ShipmentReceiverTransferSummary,
+} from "./types/receiver-transfer";

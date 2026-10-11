@@ -81,6 +81,26 @@ function pendingChallengeKey(shipmentId: string): string {
   return `handshake:pending:${shipmentId}`;
 }
 
+/**
+ * MOVO-275 (ADR-038): true si hay un desafío de handshake de ENTREGA vigente para el
+ * envío -- la entrega ya empezó y no se puede cambiar de receptor. Lectura pura de
+ * Redis, sin depender del servicio de handshake completo.
+ */
+export async function isDeliveryHandshakePending(
+  redis: Pick<HandshakeRedisClient, "get">,
+  shipmentId: string
+): Promise<boolean> {
+  const raw = await redis.get(pendingChallengeKey(shipmentId));
+  if (!raw) {
+    return false;
+  }
+  try {
+    return (JSON.parse(raw) as { stage?: unknown }).stage === "delivery";
+  } catch {
+    return false;
+  }
+}
+
 function sha256Hex(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -124,7 +144,11 @@ export function createHandshakeService(
   /** Ajuste post-MOVO-245: solo se usa para estimar el ETA del push al receptor en el
    * retiro (`custodyPickupConfirmedReceiver`) -- opcional y best-effort, un fallo o la
    * ausencia del provider degradan a un aviso sin ETA, nunca bloquean el push. */
-  routesProvider?: RoutesProvider
+  routesProvider?: RoutesProvider,
+  /** MOVO-275 (AC6): al empezar el handshake de entrega se cancela la transferencia de
+   * receptor pendiente; la entrega sigue con el receptor vigente. Se espera (no es
+   * best-effort): si falla, no se genera el desafío. */
+  cancelPendingReceiverTransfer?: (shipmentId: string) => Promise<void>
 ) {
   return {
     /**
@@ -144,6 +168,7 @@ export function createHandshakeService(
         assertIsSender(shipment, input.callerId, "Solo el emisor del envío puede generar el código de handshake de retiro.");
       } else {
         assertIsCarrier(shipment, input.callerId);
+        await cancelPendingReceiverTransfer?.(input.shipmentId);
       }
 
       const nonce = randomBytes(32).toString("base64url");

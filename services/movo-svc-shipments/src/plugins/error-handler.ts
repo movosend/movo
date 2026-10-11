@@ -23,6 +23,11 @@ import {
   TripHasNoPackagesError,
   TripPackagesNotReadyError,
 } from "../repositories/trip-repository";
+import {
+  ReceiverTransferLimitError,
+  ReceiverTransferNotPendingError,
+  ReceiverTransferPendingConflictError,
+} from "../models/receiver-transfer";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -242,6 +247,33 @@ export default fp(async (app: FastifyInstance) => {
         ...apiError.toJSON(),
         requestId,
       });
+      return;
+    }
+
+    // MOVO-275: los índices únicos parciales y el CAS de la transferencia de receptor.
+    if (error instanceof ReceiverTransferPendingConflictError) {
+      const apiError = new ApiError(
+        409,
+        "SHIPMENT_RECEIVER_TRANSFER_PENDING",
+        "Ya hay una solicitud para que otra persona reciba este envío."
+      );
+      reply.code(apiError.statusCode).send({ ...apiError.toJSON(), requestId });
+      return;
+    }
+
+    if (error instanceof ReceiverTransferLimitError) {
+      const apiError = new ApiError(
+        409,
+        "SHIPMENT_RECEIVER_TRANSFER_LIMIT",
+        "Este envío ya cambió de receptor una vez."
+      );
+      reply.code(apiError.statusCode).send({ ...apiError.toJSON(), requestId });
+      return;
+    }
+
+    if (error instanceof ReceiverTransferNotPendingError) {
+      const apiError = new ApiError(409, "RECEIVER_TRANSFER_NOT_PENDING", "Esta solicitud ya no está vigente.");
+      reply.code(apiError.statusCode).send({ ...apiError.toJSON(), requestId });
       return;
     }
 

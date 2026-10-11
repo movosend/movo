@@ -413,3 +413,12 @@ aceptada pero la asignación no prosperó (no es un rechazo). `ApiErrorCode` sum
 (`PAYMENTS_SERVICE_UNAVAILABLE` ya lo había agregado MOVO-116). `config/notification-templates.ts` suma los triggers `funding*` (emisor en
 `payments`, que pasa a `implemented: true`; transportista en `offers`), incluido el copy de reconfirmación
 ("La reserva de tu pago expiró"). Recordatorio habitual: `npm run build` acá antes de tipar desde otro workspace.
+
+### MOVO-275 — Transferencia de receptor (ADR-038)
+
+`types/receiver-transfer.ts`: `ReceiverTransferStatus`/`RECEIVER_TRANSFER_STATUSES`,
+`RECEIVER_TRANSFER_ALLOWED_SHIPMENT_STATUSES` (published → in_transit, la usan backend y
+mobile), `ReceiverTransferRequest`, `ReceiverTransferInvitation` y
+`ShipmentReceiverTransferSummary`. Siete códigos nuevos (`SHIPMENT_RECEIVER_TRANSFER_*`,
+`RECEIVER_TRANSFER_NOT_FOUND`/`_NOT_PENDING`) y diez triggers `receiverTransfer*` en la
+categoría `shipments`, con copy propio por destinatario.
