@@ -7,6 +7,9 @@ import { AvatarImage } from "../ui/avatar-image";
 interface ReceiverResultRowProps {
   profile: PublicProfile;
   onSelect: (profile: PublicProfile) => void;
+  /** MOVO-275: motivo por el que esta persona no se puede elegir ("Es el emisor de este
+   * envío"). Se muestra deshabilitada con el motivo en vez de ocultarla. */
+  disabledReason?: string;
   testID?: string;
 }
 
@@ -14,8 +17,8 @@ interface ReceiverResultRowProps {
  * con `isVerified === false` se muestran deshabilitados: el backend igual rechaza con
  * 422 `SHIPMENT_RECEIVER_KYC_NOT_APPROVED` al confirmar el envío — mejor prevenir el
  * callejón sin salida acá que dejar elegir y rebotar en el submit. */
-export function ReceiverResultRow({ profile, onSelect, testID }: ReceiverResultRowProps) {
-  const disabled = !profile.isVerified;
+export function ReceiverResultRow({ profile, onSelect, disabledReason, testID }: ReceiverResultRowProps) {
+  const disabled = !profile.isVerified || !!disabledReason;
 
   return (
     <Pressable
@@ -30,7 +33,9 @@ export function ReceiverResultRow({ profile, onSelect, testID }: ReceiverResultR
           {capitalizeName(profile.fullName)}
         </Text>
         {disabled ? (
-          <Text className="font-sans text-[12px] text-fg-3">Verificación pendiente</Text>
+          <Text testID={testID ? `${testID}-disabled-reason` : undefined} className="font-sans text-[12px] text-fg-3">
+            {disabledReason ?? "Verificación pendiente"}
+          </Text>
         ) : (
           <View className="flex-row items-center gap-1">
             <CircleCheck size={11} color="#2BB673" strokeWidth={2.5} />

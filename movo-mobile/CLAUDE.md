@@ -4150,14 +4150,9 @@ Tests agregados/actualizados:
 
 `app/(app)/shipments/[id].tsx` completo para los tres roles, con CTA contextual por rol y
 estado (`shipmentDetailCta`, `shipment-format.ts`; `assigned_unfunded` muestra texto, no botón).
-El transportista ve "Te queda" con la tasa de comisión del cliente. El receptor no ve el retiro
-exacto: `RouteMapCard` con `pickup={null}` + `pickupLabel` desde `pickupLocalityLabel`
-(localidad sin calle, altura, código postal ni país; "la zona del emisor" si no hay), el mismo
-helper que usa "Mis envíos". La card "Voy a recibir" del Home usa el mismo helper. **Limitación aceptada**: es una
-protección solo de UI, el backend sigue mandando `pickupAddress`/`pickupLat`/`pickupLng` exactos al
-receptor en `GET /shipments/:id` y `/shipments/receiving` (se ve en el tráfico de red). Redactarlos
-en el servidor cambia el contrato de `@movo/shared` y queda para si AC4 pasa a exigir que el dato no
-llegue al dispositivo. `EvidencePhotosSection` (fotos por stage, también en `transport/[id].tsx` solo para el
+El transportista ve "Te queda" con la tasa de comisión del cliente. El receptor ve el mapa completo con
+retiro y entrega, igual que el resto de las partes (revierte el AC4 original, que ocultaba el retiro exacto
+con `pickup={null}` + `pickupLabel`; la card "Voy a recibir" del Home sigue mostrando solo la localidad). `EvidencePhotosSection` (fotos por stage, también en `transport/[id].tsx` solo para el
 transportista asignado) reemplaza la tira de `PackageCard`. Fuera del ticket, en el mismo PR:
 el Home lista los viajes `declared` con paquetes que no se llevan la card "Estoy transportando"
 (`splitCarrierHomeTrips`, `CarrierTripRow`), intercalados por fecha en "Actividad reciente" sin
@@ -4370,3 +4365,34 @@ ya no cumple los requisitos para operar (ADR-036). Los códigos del lado del tra
 `details.missingRequirements`) y leer `details` en `http-client.ts#parseErrorBody` quedan para
 MOVO-117, que además tiene que cubrir "Iniciar viaje" y editar oferta, no solo declarar viaje y
 ofertar.
+
+### MOVO-275 — Transferencia de receptor (ADR-037)
+
+Sobre el mockup de Claude Design ("Transferencia de receptor v2"). Pantallas nuevas:
+`shipments/[id]/receiver-transfer.tsx` (elegir a la persona: `ReceiverSearchField` gana
+`disabledReasons`, emisor y transportista aparecen deshabilitados con el motivo) y
+`receiver-transfers/[id].tsx` (invitación: aceptar, rechazar con motivo en un
+`BottomSheetModal`, estado "ya no vigente"). Cliente/hooks en `receiver-transfers-client.ts`/
+`use-receiver-transfers.ts`; textos en `src/lib/receiver-transfer-format.ts`.
+
+- **Detalle**: sección "Recepción" (`receiver-transfer-section.tsx`) para el receptor vigente
+  (acción, solicitud pendiente con "Cancelar solicitud", o "ya cambió de receptor una vez").
+  El receptor original ve `TransferredByYouBanner` y el detalle en solo lectura: sin precio
+  (como el receptor), sin acciones ni calificaciones, con tracking.
+- **Línea de tiempo**: un item por solicitud (`GET /shipments/:id/receiver-transfers`)
+  intercalado por fecha, con pill de estado y detalle desplegable; el texto cambia según
+  quién mira. Los eventos que hizo el receptor anterior (aceptar el envío) llevan su nombre
+  (`parties.formerReceiverId/Name`), no el del vigente.
+- "Requiere tu atención" suma la invitación (`transfer_invite`, fixture en la galería);
+  "Actividad reciente" y "Mis envíos" muestran "Transferido" (historial). Push:
+  `receiver_transfer_invite` abre la invitación, `receiver_transfer` el detalle.
+
+Pendiente: no probado en device.
+
+**Rendimiento de `RouteMapCard`** (sin ticket): el barrido animado trabaja sobre un trazo
+simplificado (`simplifyPolyline`, la línea de base conserva todos los puntos) que avanza por
+distancia (`cumulativeFractions`), solo escribe los shared values que cambian y se pausa con la
+pantalla sin foco (prop `paused`) o la app en segundo plano. Los pines usan `StaticMarker`
+(`components/map/static-marker.tsx`, compartido con `trip-detail-map`) y el mapa apaga capas y
+controles que no usa. Pendiente: pausar el barrido cuando la card sale de pantalla dentro del
+mismo scroll; si el scroll del detalle sigue trabado, desactivar gestos del mapa o mostrarlo como imagen.

@@ -202,6 +202,34 @@ describe("usePushNotifications", () => {
     expect(mockRouterPush).not.toHaveBeenCalled();
   });
 
+  it("MOVO-275: la invitación a recibir un paquete abre la pantalla de la invitación", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (response: unknown) => void;
+    listener({
+      notification: {
+        request: { content: { data: { type: "receiver_transfer_invite", transferId: "tr-1", shipmentId: "s-1" } } },
+      },
+    });
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/receiver-transfers/tr-1");
+  });
+
+  it("MOVO-275: una novedad de la transferencia abre el detalle del envío", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (response: unknown) => void;
+    listener({
+      notification: { request: { content: { data: { type: "receiver_transfer", shipmentId: "s-1" } } } },
+    });
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/s-1");
+  });
+
   it("limpia el listener de notificaciones al desmontar", async () => {
     mockUseAuthStore.mockImplementation((selector) => selector({ status: "unauthenticated" }));
 

@@ -33,6 +33,9 @@ const SHIPMENT_NOTIFICATION_TYPES: readonly string[] = [
   "offer_superseded",
   "offer_rejected",
   "rating_received",
+  // MOVO-275: novedades de una transferencia de receptor (pedida, aceptada, rechazada,
+  // vencida). Abren el detalle del envío; la invitación tiene su propia pantalla.
+  "receiver_transfer",
 ];
 
 /**
@@ -71,6 +74,13 @@ function resolveNotificationRoute(data: unknown): NotificationRoute | null {
   if (typeof type === "string" && SHIPMENT_NOTIFICATION_TYPES.includes(type)) {
     const shipmentId = (data as { shipmentId?: unknown }).shipmentId;
     return typeof shipmentId === "string" ? `/shipments/${shipmentId}` : null;
+  }
+
+  // MOVO-275: la invitación (o su cancelación) abre la pantalla de la invitación,
+  // que también muestra si ya no está vigente.
+  if (type === "receiver_transfer_invite") {
+    const transferId = (data as { transferId?: unknown }).transferId;
+    return typeof transferId === "string" ? `/receiver-transfers/${transferId}` : null;
   }
 
   if (typeof type === "string" && TRIP_ROUTE_NOTIFICATION_TYPES.includes(type)) {

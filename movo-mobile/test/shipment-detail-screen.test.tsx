@@ -1,14 +1,21 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
-import { fireEvent, render } from "@testing-library/react-native";
+import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import { RefreshControl } from "react-native";
 import type { ShipmentSummary } from "../src/api/shipments-client";
 import ShipmentDetailScreen from "../app/(app)/shipments/[id]";
+import { useCancelReceiverTransfer } from "../src/hooks/use-receiver-transfers";
 
 const mockRouterReplace = jest.fn();
 const mockRouterBack = jest.fn();
 const mockRouterPush = jest.fn();
 const mockCanGoBack = jest.fn();
+
+jest.mock("../src/hooks/use-receiver-transfers", () => ({
+  useShipmentReceiverTransfers: jest.fn(() => ({ data: [] })),
+  useReceiverTransferInvitations: jest.fn(() => ({ data: [] })),
+  useCancelReceiverTransfer: jest.fn(() => ({ mutateAsync: jest.fn(), isPending: false })),
+}));
 
 jest.mock("expo-router", () => ({
   router: {
@@ -188,8 +195,9 @@ describe("ShipmentDetailScreen", () => {
 
     expect(getByTestId("shipment-detail-route-map")).toBeTruthy();
     expect(getByTestId("shipment-detail-package")).toBeTruthy();
-    expect(getByText("Receptor")).toBeTruthy();
-    expect(getByTestId("shipment-detail-receiver")).toBeTruthy();
+    expect(getByText("Participantes")).toBeTruthy();
+    expect(queryByTestId("shipment-detail-pickup-package")).toBeNull();
+    expect(getByTestId("shipment-detail-receiver-subtitle")).toHaveTextContent(/^Receptor/);
     expect(getByText("Tomás Olmos")).toBeTruthy();
     expect(getByText("$4.500")).toBeTruthy();
     expect(queryByTestId("shipment-detail-carrier")).toBeNull();
@@ -212,7 +220,7 @@ describe("ShipmentDetailScreen", () => {
     });
     const { getByText, queryByText } = await render(<ShipmentDetailScreen />);
 
-    expect(getByText("Retiro programado")).toBeTruthy();
+    expect(getByText("Retiro")).toBeTruthy();
     expect(queryByText("Precio pactado")).toBeNull();
     expect(queryByText("Costo aproximado")).toBeNull();
     expect(queryByText("$5.000")).toBeNull();
@@ -285,9 +293,11 @@ describe("ShipmentDetailScreen", () => {
 
     const { getByTestId, getByText, queryByTestId, queryByText } = await render(<ShipmentDetailScreen />);
 
-    expect(getByText("Emisor")).toBeTruthy();
-    expect(getByTestId("shipment-detail-sender")).toBeTruthy();
+    expect(getByTestId("shipment-detail-sender-subtitle")).toHaveTextContent(/^Emisor/);
     expect(getByText("Pedro Emisor")).toBeTruthy();
+    // Sin precio, retiro y paquete comparten la fila.
+    expect(getByTestId("shipment-detail-pickup-package")).toBeTruthy();
+    expect(getByTestId("shipment-detail-package")).toHaveTextContent(/kg · \d+ × \d+ × \d+/);
     expect(queryByTestId("shipment-detail-receiver")).toBeNull();
     expect(queryByText("Pendiente")).toBeNull();
     expect(queryByText("Aceptó")).toBeNull();
@@ -822,7 +832,7 @@ describe("ShipmentDetailScreen", () => {
       expect(getByTestId("shipment-detail-price")).toHaveTextContent(amount);
     });
 
-    it("el receptor no recibe la dirección ni las coordenadas de retiro en el mapa", async () => {
+    it("el receptor ve el retiro y la entrega en el mapa, igual que el resto de las partes", async () => {
       mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
       mockUseShipment.mockReturnValue({
         isLoading: false,
@@ -835,28 +845,9 @@ describe("ShipmentDetailScreen", () => {
       await render(<ShipmentDetailScreen />);
 
       const props = mockRouteMapCard.mock.calls.at(-1)[0];
-      expect(props.pickup).toBeNull();
-      expect(props.pickupLabel).toBe("Córdoba");
-      expect(JSON.stringify(props)).not.toContain("Colón");
-      expect(JSON.stringify(props)).not.toContain("-64.18");
+      expect(props.pickup).toEqual({ address: "Av. Colón 1234, Córdoba", lat: -31.4, lng: -64.18 });
+      expect(props.pickupLabel).toBeUndefined();
       expect(props.delivery).toEqual({ address: "Bv. San Juan 500, Córdoba", lat: -31.41, lng: -64.19 });
-    });
-
-    it("si la dirección de retiro no trae localidad, el receptor ve un texto genérico y no la calle", async () => {
-      mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
-      mockUseShipment.mockReturnValue({
-        isLoading: false,
-        isError: false,
-        data: shipment({ carrierId: "user-2", status: ShipmentStatus.IN_TRANSIT, pickupAddress: "Av. Colón 1234" }),
-        error: null,
-        refetch: jest.fn(),
-      });
-
-      await render(<ShipmentDetailScreen />);
-
-      const props = mockRouteMapCard.mock.calls.at(-1)[0];
-      expect(props.pickupLabel).toBe("la zona del emisor");
-      expect(JSON.stringify(props)).not.toContain("Colón");
     });
 
     it("el emisor sigue viendo el retiro completo en el mapa", async () => {
@@ -983,6 +974,181 @@ describe("ShipmentDetailScreen", () => {
     });
   });
 });
+
+describe("ShipmentDetailScreen — transferencia de receptor (MOVO-275)", () => {
+  const transferBase = {
+    id: "tr-1",
+    shipmentId: "shipment-1",
+    requestedBy: "lucia",
+    requesterName: "Lucía Gómez",
+    newReceiverId: "receiver-1",
+    newReceiverName: "Martín López",
+    reason: "Esa semana estoy de viaje",
+    responseReason: null,
+    cancelReason: null,
+    newReceiverDeadline: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+    createdAt: "2026-08-16T12:00:00.000Z",
+    resolvedBy: null,
+  };
+
+  function mockDetail(data: ShipmentSummary) {
+    mockUseShipment.mockReturnValue({ isLoading: false, isError: false, error: null, refetch: jest.fn(), data });
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // Un `mockReturnValueOnce` sin consumir de un test anterior del archivo se colaría
+    // en el primer render de estos: `mockClear` no vacía esa cola.
+    mockUseShipment.mockReset();
+    mockCurrentUser.mockReset();
+  });
+
+  it("el receptor ve la acción 'Que lo reciba otra persona' y navega a elegir a la persona", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.IN_TRANSIT,
+        carrierId: "carrier-1",
+        receiverTransfer: { viewerIsFormerReceiver: false, pending: null, completed: null },
+      }),
+    );
+
+    const { getByTestId } = await render(<ShipmentDetailScreen />);
+
+    await fireEvent.press(getByTestId("shipment-detail-receiver-transfer-action"));
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shipment-1/receiver-transfer");
+  });
+
+  it("con una solicitud pendiente propia, muestra el plazo y la opción de cancelarla", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.PUBLISHED,
+        receiverTransfer: {
+          viewerIsFormerReceiver: false,
+          pending: {
+            ...transferBase,
+            requestedBy: "receiver-1",
+            newReceiverId: "martin",
+            status: "pending_new_receiver",
+            resolvedAt: null,
+          },
+          completed: null,
+        },
+      }),
+    );
+
+    const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-receiver-transfer-pending")).toBeTruthy();
+    expect(getByTestId("shipment-detail-receiver-transfer-pending-title")).toHaveTextContent("Esperando que Martín acepte");
+    expect(getByTestId("shipment-detail-receiver-transfer-pending-deadline")).toHaveTextContent(/^Vence /);
+    expect(getByTestId("shipment-detail-receiver-transfer-pending-cancel")).toBeTruthy();
+    expect(queryByTestId("shipment-detail-receiver-transfer-action")).toBeNull();
+  });
+
+  it("cancelar la solicitud pide confirmación en una sheet y recién ahí cancela", async () => {
+    const mutateAsync = jest.fn().mockResolvedValue(undefined);
+    (useCancelReceiverTransfer as jest.Mock).mockReturnValue({ mutateAsync, isPending: false });
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.PUBLISHED,
+        receiverTransfer: {
+          viewerIsFormerReceiver: false,
+          pending: {
+            ...transferBase,
+            requestedBy: "receiver-1",
+            newReceiverId: "martin",
+            status: "pending_new_receiver",
+            resolvedAt: null,
+          },
+          completed: null,
+        },
+      }),
+    );
+
+    const { getByTestId, queryByTestId, getByText } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-receiver-transfer-pending-cancel-sheet-confirm")).toBeNull();
+    await fireEvent.press(getByTestId("shipment-detail-receiver-transfer-pending-cancel"));
+    expect(getByText("¿Cancelar la solicitud?")).toBeTruthy();
+    expect(mutateAsync).not.toHaveBeenCalled();
+
+    await fireEvent.press(getByTestId("shipment-detail-receiver-transfer-pending-cancel-sheet-confirm"));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({ transferId: transferBase.id }));
+  });
+
+  it("el receptor nuevo ve que ya no se puede volver a transferir", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "receiver-1" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.IN_TRANSIT,
+        carrierId: "carrier-1",
+        receiverTransfer: {
+          viewerIsFormerReceiver: false,
+          pending: null,
+          completed: { ...transferBase, status: "completed", resolvedAt: "2026-08-16T12:20:00.000Z" },
+        },
+      }),
+    );
+
+    const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-receiver-transfer-used")).toBeTruthy();
+    expect(queryByTestId("shipment-detail-receiver-transfer-action")).toBeNull();
+  });
+
+  it("el receptor original ve el detalle en solo lectura con el banner, sin precio", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "lucia" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.IN_TRANSIT,
+        carrierId: "carrier-1",
+        agreedPriceArs: 8400,
+        receiverTransfer: {
+          viewerIsFormerReceiver: true,
+          pending: null,
+          completed: { ...transferBase, status: "completed", resolvedAt: "2026-08-16T12:20:00.000Z" },
+        },
+      }),
+    );
+
+    const { getByTestId, queryByTestId, queryByText } = await render(<ShipmentDetailScreen />);
+
+    expect(getByTestId("shipment-detail-transferred-banner")).toBeTruthy();
+    expect(getByTestId("shipment-detail-transferred-banner-reason")).toHaveTextContent("“Esa semana estoy de viaje”");
+    expect(getByTestId("shipment-detail-role")).toHaveTextContent(/Transferiste/);
+    expect(queryByTestId("shipment-detail-price")).toBeNull();
+    expect(queryByTestId("shipment-detail-receiver-transfer")).toBeNull();
+    expect(queryByTestId("shipment-detail-cta")).toBeNull();
+    const mapProps = mockRouteMapCard.mock.calls.at(-1)?.[0] as { pickup: unknown };
+    expect(mapProps.pickup).not.toBeNull();
+    // Participantes: emisor, transportista y el receptor nuevo con desde cuándo recibe.
+    expect(getByTestId("shipment-detail-sender")).toBeTruthy();
+    expect(getByTestId("shipment-detail-carrier")).toBeTruthy();
+    expect(getByTestId("shipment-detail-receiver-subtitle")).toHaveTextContent(
+      /^Receptor desde el \d{1,2} ago · antes, vos$/,
+    );
+    expect(queryByText("Aceptó")).toBeNull();
+  });
+
+  it("el emisor no tiene acción sobre la recepción", async () => {
+    mockCurrentUser.mockReturnValue({ userId: "user-1" });
+    mockDetail(
+      shipment({
+        status: ShipmentStatus.IN_TRANSIT,
+        carrierId: "carrier-1",
+        receiverTransfer: { viewerIsFormerReceiver: false, pending: null, completed: null },
+      }),
+    );
+
+    const { queryByTestId } = await render(<ShipmentDetailScreen />);
+
+    expect(queryByTestId("shipment-detail-receiver-transfer")).toBeNull();
+  });
+});
+
 
 describe("ShipmentDetailScreen — seguimiento en vivo (MOVO-271 AC3/AC5)", () => {
   beforeEach(() => {

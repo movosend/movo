@@ -24,6 +24,7 @@ jest.mock("expo-router", () => ({
     canGoBack: () => mockCanGoBack(),
   },
   useLocalSearchParams: () => mockUseLocalSearchParams(),
+  useIsFocused: () => true,
 }));
 
 const mockUseShipment = jest.fn();
