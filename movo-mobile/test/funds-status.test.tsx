@@ -197,18 +197,14 @@ describe("FundsStatus (MOVO-211)", () => {
       expect(getByText(/No se cobró nada/)).toBeTruthy();
     });
 
-    it("volvió a publicarse: motivo y acceso a las ofertas nuevas (AC6)", async () => {
-      const { getByText, getByTestId } = await renderCard(
+    it("volvió a publicarse: motivo, sin botón propio a las ofertas (lo da la bandeja de abajo) (AC6)", async () => {
+      const { getByText, queryByTestId } = await renderCard(
         { viewer: "sender", phase: "lapsed", reason: "window_expired", at: PAY_UNTIL },
         ShipmentStatus.PUBLISHED,
       );
       expect(getByText("Tu envío volvió a publicarse")).toBeTruthy();
       expect(getByText(/No confirmaste el pago a tiempo/)).toBeTruthy();
-
-      await act(async () => {
-        fireEvent.press(getByTestId("funds-status-offers"));
-      });
-      expect(router.push).toHaveBeenCalledWith("/(app)/shipments/ship-1/offers");
+      expect(queryByTestId("funds-status-offers")).toBeNull();
     });
   });
 

@@ -1081,6 +1081,30 @@ describe("ShipmentDetailScreen", () => {
       expect(queryByTestId(/^shipment-detail-funds/)).toBeNull();
     });
 
+    it("vuelta a publicar: la card explica el motivo y la bandeja de abajo es el único acceso a las ofertas", async () => {
+      mockCurrentUser.mockReturnValue({ userId: SENDER });
+      mockUseShipment.mockReturnValue({
+        isLoading: false,
+        isError: false,
+        data: shipment({
+          carrierId: null,
+          status: ShipmentStatus.PUBLISHED,
+          funding: { viewer: "sender", phase: "lapsed", reason: "payment_timeout", at: PAY_UNTIL },
+        }),
+        error: null,
+        refetch: jest.fn(),
+      });
+
+      const { getByTestId, queryByTestId, container } = await render(<ShipmentDetailScreen />);
+
+      expect(getByTestId("shipment-detail-funds-lapsed")).toBeTruthy();
+      expect(queryByTestId("shipment-detail-funds-offers")).toBeNull();
+      const ids = container
+        .queryAll((node) => typeof node.props.testID === "string")
+        .map((node) => node.props.testID as string);
+      expect(ids.indexOf("shipment-detail-funds-lapsed")).toBeLessThan(ids.indexOf("shipment-detail-offers"));
+    });
+
     it("el ex-transportista ve por qué se liberó, sin precio ni datos de las partes", async () => {
       const formerCarrier = "former-carrier";
       mockCurrentUser.mockReturnValue({ userId: formerCarrier });

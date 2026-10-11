@@ -284,11 +284,8 @@ export function FundsStatus({ shipment, carrierFirstName, testID }: FundsStatusP
             <Body>{lapseReasonCopy(funding.reason, "sender")}</Body>
             <Text className="mt-2 font-sans-medium text-small text-fg">No se retuvo ni se cobró nada.</Text>
           </Row>
-          <OutlineButton
-            testID={`${id}-offers`}
-            label="Ver ofertas nuevas"
-            onPress={() => router.push(`/(app)/shipments/${shipment.id}/offers` as Href)}
-          />
+          {/* Sin botón a las ofertas: la bandeja de ofertas va justo debajo de esta card y es
+              el único acceso, así no hay dos botones que llevan al mismo lugar. */}
         </Card>
       );
   }
