@@ -531,13 +531,30 @@ espera al build (matriz por plataforma), y un tag `v*` sobre `develop` (guard + 
   `MP_CLIENT_SECRET`, `MP_REDIRECT_URI`, `MP_WEBHOOK_SECRET` y `MP_TEST_MODE=true` en el
   secret de dev (app sandbox `movosend`), las cuatro primeras en prod (app de la cuenta
   real de Movo). `MERCADOPAGO_ACCESS_TOKEN` ya no se usa: borrarlo de ambos secrets.
-- **`MP_TRANSACTION_FEE_RATE` sin confirmar** (MOVO-143,
-  `shared/movo-shared/src/config/commission.ts`): placeholder (0.0499) hasta tener el
-  valor real del contrato/homologación con MercadoPago. `MOVO_COMMISSION_RATE` (15%,
-  comisión de Movo) sí está confirmado. Candidato a ADR corto (primera config de
-  negocio compartida vía `@movo/shared` en vez de por `envSchema` de un servicio) —
-  todavía no escrito, ver `services/movo-svc-shipments/CLAUDE.md` (MOVO-143) y
-  `shared/movo-shared/CLAUDE.md` para el detalle de la decisión.
+- **Config de comisiones compartida vía `@movo/shared`** (MOVO-143,
+  `shared/movo-shared/src/config/commission.ts`): candidato a ADR corto (primera config
+  de negocio en el barrel en vez de en el `envSchema` de un servicio), todavía no
+  escrito. `MOVO_COMMISSION_RATE` (15%) está confirmado; `MP_TRANSACTION_FEE_RATE` es un
+  estimado a propósito, ver la entrada de MOVO-225 más abajo.
+
+### MOVO-225 — Comisión de Mercado Pago: estimado, no valor contractual
+
+No hay un porcentaje de MP que "confirmar": el pago se crea con el `access_token` del
+transportista y `fee_payer: collector`, así que MP cobra su comisión sobre la cuenta de
+cada transportista, según sus tarifas vigentes y el plazo de liberación del dinero que
+ese transportista configuró (además del medio de pago del emisor). Por eso los TyC
+(sección 7) ya no llevan un `[A COMPLETAR]` con un número: dicen que la comisión es a
+cargo del transportista, que Movo no la fija ni la percibe, y que la app muestra un
+estimado. `MP_TRANSACTION_FEE_RATE` (0.0499, por encima del 4,1% observado en sandbox)
+queda documentado como estimado en `commission.ts` y en los `.env.example`; el monto
+real de cada pago sale de `fee_details.mercadopago_fee`.
+
+En la misma sección se corrigió la comisión de Movo: los TyC decían "15% sobre el precio
+acordado, deducida al liquidar al transportista", pero el código (oferta, MOVO-143, y
+`application_fee` del hold, MOVO-209) cobra 15% sobre el neto del transportista, sumado
+arriba (~13,04% del precio que paga el emisor). Se corrigió el texto, no la fórmula. Por
+ser un cambio sustancial, los TyC pasan a la versión 0.2 (`2026-10-11`) y disparan la
+re-aceptación (MOVO-229).
 
 ### MOVO-252 — CTA "Iniciar viaje" para el transportista y Conteo de Paradas por viaje
 - Backend (`svc-shipments`): Se modificó `listActiveShipments` para incluir el `tripId` resolviendo la oferta aceptada desde el `offerRepository`. Esto permite propagar `tripId` en el payload de `ActiveShipmentSummary`.

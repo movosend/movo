@@ -64,8 +64,8 @@ un `boolean | undefined` obligaría a cada consumidor a decidir qué significa l
 número más adelante en vez de duplicarlo, en particular `mpTransactionFeeRate`, que
 esta US define pero todavía no descuenta en ningún lado (`movo-svc-payments` sigue
 siendo un esqueleto). `MOVO_COMMISSION_RATE` confirmado en 15%;
-`MP_TRANSACTION_FEE_RATE` es un placeholder pendiente de confirmar con el contrato
-real de MP.
+`MP_TRANSACTION_FEE_RATE` es un estimado para mostrar, no un valor contractual
+(MOVO-225: MP cobra según la cuenta de cada transportista, ver `CLAUDE.md` raíz).
 
 ### MOVO-188 (fix de review, PR #142) — `computeNetFromGross`
 
