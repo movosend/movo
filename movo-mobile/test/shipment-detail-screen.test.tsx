@@ -196,6 +196,7 @@ describe("ShipmentDetailScreen", () => {
     expect(getByTestId("shipment-detail-route-map")).toBeTruthy();
     expect(getByTestId("shipment-detail-package")).toBeTruthy();
     expect(getByText("Participantes")).toBeTruthy();
+    expect(queryByTestId("shipment-detail-pickup-package")).toBeNull();
     expect(getByTestId("shipment-detail-receiver-subtitle")).toHaveTextContent(/^Receptor/);
     expect(getByText("Tomás Olmos")).toBeTruthy();
     expect(getByText("$4.500")).toBeTruthy();
@@ -219,7 +220,7 @@ describe("ShipmentDetailScreen", () => {
     });
     const { getByText, queryByText } = await render(<ShipmentDetailScreen />);
 
-    expect(getByText("Retiro programado")).toBeTruthy();
+    expect(getByText("Retiro")).toBeTruthy();
     expect(queryByText("Precio pactado")).toBeNull();
     expect(queryByText("Costo aproximado")).toBeNull();
     expect(queryByText("$5.000")).toBeNull();
@@ -294,6 +295,9 @@ describe("ShipmentDetailScreen", () => {
 
     expect(getByTestId("shipment-detail-sender-subtitle")).toHaveTextContent(/^Emisor/);
     expect(getByText("Pedro Emisor")).toBeTruthy();
+    // Sin precio, retiro y paquete comparten la fila.
+    expect(getByTestId("shipment-detail-pickup-package")).toBeTruthy();
+    expect(getByTestId("shipment-detail-package")).toHaveTextContent(/kg · \d+ × \d+ × \d+/);
     expect(queryByTestId("shipment-detail-receiver")).toBeNull();
     expect(queryByText("Pendiente")).toBeNull();
     expect(queryByText("Aceptó")).toBeNull();

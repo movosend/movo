@@ -21,7 +21,7 @@ import { HighDemandBadge } from "../../../components/shipments/high-demand-badge
 import { EvidencePhotosSection } from "../../../components/shipments/evidence-photos-section";
 import { LiveTrackingCard } from "../../../components/shipments/live-tracking-card";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
-import { PackageCard } from "../../../components/shipments/package-card";
+import { PackageCard, PackageSummaryCard } from "../../../components/shipments/package-card";
 import { RatingSheet, type RatingTarget } from "../../../components/shipments/rating-sheet";
 import { ReceiverActionsBar } from "../../../components/shipments/receiver-actions-bar";
 import { RejectedReceiverBanner } from "../../../components/shipments/rejected-receiver-banner";
@@ -444,50 +444,68 @@ export default function ShipmentDetailScreen() {
                 </View>
               ) : null}
 
-              <View className="flex-row gap-3">
-                <View className="flex-1 rounded-[10px] bg-bg-mute px-3.5 py-3.5">
-                  <View className="mb-1">
-                    <Eyebrow>Retiro programado</Eyebrow>
-                  </View>
-                  <Text className="font-sans-semibold text-[13px] text-fg">{pickupDateLabel}</Text>
-                  <Text className="mt-0.5 font-sans text-[12px] text-fg-2">
-                    {formatTimeHHMM(shipment.pickupTimeWindowStart)} –{" "}
-                    {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
-                  </Text>
-                </View>
-                {/* El precio es un acuerdo entre emisor y transportista: el receptor no
-                    paga nada, así que no se le muestra y el retiro ocupa todo el ancho. */}
-                {seesReceiverView ? null : (
-                  <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
+              {seesReceiverView ? (
+                // El receptor no ve el precio (no paga nada): retiro y paquete comparten la fila.
+                <View className="flex-row gap-3" testID="shipment-detail-pickup-package">
+                  {/* Colores fijos: la card es lima en los dos temas, como la de precio. */}
+                  <View
+                    testID="shipment-detail-pickup"
+                    className="relative flex-1 overflow-hidden rounded-[14px] bg-lime-200 px-4 py-3.5"
+                  >
                     <GridPattern />
-                    <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
-                      {carrierNetArs !== null
-                        ? "Te queda"
-                        : hasAgreedPrice
-                          ? "Precio pactado"
-                          : "Costo aproximado"}
+                    <Text className="mb-1 font-sans-medium text-caption uppercase text-ink-700">Retiro</Text>
+                    <Text className="font-sans-semibold text-[15px] text-ink-950">{pickupDateLabel}</Text>
+                    <Text className="mt-0.5 font-sans text-small text-ink-700">
+                      {formatTimeHHMM(shipment.pickupTimeWindowStart)} –{" "}
+                      {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
                     </Text>
-                    <Text testID="shipment-detail-price" className="font-sans-semibold text-[20px] text-ink-950">
-                      {carrierNetArs !== null
-                        ? formatPriceArs(carrierNetArs)
-                        : formatShipmentPrice(
-                            shipment.agreedPriceArs,
-                            shipment.suggestedPriceArs
-                          )}
-                    </Text>
-                    {showHighDemandBadge ? (
-                      <View className="mt-2">
-                        <HighDemandBadge testID="shipment-detail-high-demand" />
-                      </View>
-                    ) : null}
                   </View>
-                )}
-              </View>
+                  <PackageSummaryCard shipment={shipment} testID="shipment-detail-package" />
+                </View>
+              ) : (
+                <>
+                  <View className="flex-row gap-3">
+                    <View className="flex-1 rounded-[10px] bg-bg-mute px-3.5 py-3.5">
+                      <View className="mb-1">
+                        <Eyebrow>Retiro programado</Eyebrow>
+                      </View>
+                      <Text className="font-sans-semibold text-[13px] text-fg">{pickupDateLabel}</Text>
+                      <Text className="mt-0.5 font-sans text-[12px] text-fg-2">
+                        {formatTimeHHMM(shipment.pickupTimeWindowStart)} –{" "}
+                        {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
+                      </Text>
+                    </View>
+                    <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
+                      <GridPattern />
+                      <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
+                        {carrierNetArs !== null
+                          ? "Te queda"
+                          : hasAgreedPrice
+                            ? "Precio pactado"
+                            : "Costo aproximado"}
+                      </Text>
+                      <Text testID="shipment-detail-price" className="font-sans-semibold text-[20px] text-ink-950">
+                        {carrierNetArs !== null
+                          ? formatPriceArs(carrierNetArs)
+                          : formatShipmentPrice(
+                              shipment.agreedPriceArs,
+                              shipment.suggestedPriceArs
+                            )}
+                      </Text>
+                      {showHighDemandBadge ? (
+                        <View className="mt-2">
+                          <HighDemandBadge testID="shipment-detail-high-demand" />
+                        </View>
+                      ) : null}
+                    </View>
+                  </View>
 
-              <View>
-                <Eyebrow>Paquete</Eyebrow>
-                <PackageCard shipment={shipment} testID="shipment-detail-package" />
-              </View>
+                  <View>
+                    <Eyebrow>Paquete</Eyebrow>
+                    <PackageCard shipment={shipment} testID="shipment-detail-package" />
+                  </View>
+                </>
+              )}
 
               <EvidencePhotosSection shipmentId={shipment.id} testID="shipment-detail-evidence" />
 

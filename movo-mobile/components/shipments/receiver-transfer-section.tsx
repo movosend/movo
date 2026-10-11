@@ -64,8 +64,8 @@ export function ReceiverTransferSection({ shipment, currentUserId, testID }: Rec
         accessibilityRole="button"
         className="flex-row items-center gap-3 rounded-[14px] border border-border bg-bg px-3.5 py-3.5 active:opacity-80"
       >
-        <View className="h-10 w-10 items-center justify-center rounded-full bg-bg-mute">
-          <ArrowLeftRight size={18} color={colors.fg2} strokeWidth={1.9} />
+        <View className="h-10 w-10 items-center justify-center rounded-full bg-lime-200">
+          <ArrowLeftRight size={18} color="#3F5410" strokeWidth={2} />
         </View>
         <View className="flex-1 gap-0.5">
           <Text className="font-sans-semibold text-small text-fg">Que lo reciba otra persona</Text>
