@@ -1038,8 +1038,9 @@ describe("ShipmentDetailScreen — transferencia de receptor (MOVO-275)", () => 
     const { getByTestId, queryByTestId } = await render(<ShipmentDetailScreen />);
 
     expect(getByTestId("shipment-detail-receiver-transfer-pending")).toBeTruthy();
-    expect(getByTestId("shipment-detail-receiver-transfer-deadline")).toHaveTextContent(/^Tiene hasta/);
-    expect(getByTestId("shipment-detail-receiver-transfer-cancel")).toBeTruthy();
+    expect(getByTestId("shipment-detail-receiver-transfer-pending-title")).toHaveTextContent("Esperando que Martín acepte");
+    expect(getByTestId("shipment-detail-receiver-transfer-pending-deadline")).toHaveTextContent(/^Vence /);
+    expect(getByTestId("shipment-detail-receiver-transfer-pending-cancel")).toBeTruthy();
     expect(queryByTestId("shipment-detail-receiver-transfer-action")).toBeNull();
   });
 
@@ -1066,12 +1067,12 @@ describe("ShipmentDetailScreen — transferencia de receptor (MOVO-275)", () => 
 
     const { getByTestId, queryByTestId, getByText } = await render(<ShipmentDetailScreen />);
 
-    expect(queryByTestId("shipment-detail-receiver-transfer-cancel-sheet-confirm")).toBeNull();
-    await fireEvent.press(getByTestId("shipment-detail-receiver-transfer-cancel"));
+    expect(queryByTestId("shipment-detail-receiver-transfer-pending-cancel-sheet-confirm")).toBeNull();
+    await fireEvent.press(getByTestId("shipment-detail-receiver-transfer-pending-cancel"));
     expect(getByText("¿Cancelar la solicitud?")).toBeTruthy();
     expect(mutateAsync).not.toHaveBeenCalled();
 
-    await fireEvent.press(getByTestId("shipment-detail-receiver-transfer-cancel-sheet-confirm"));
+    await fireEvent.press(getByTestId("shipment-detail-receiver-transfer-pending-cancel-sheet-confirm"));
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({ transferId: transferBase.id }));
   });
 

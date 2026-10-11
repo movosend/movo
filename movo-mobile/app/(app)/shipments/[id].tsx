@@ -26,6 +26,7 @@ import { PackageCard } from "../../../components/shipments/package-card";
 import { RatingSheet, type RatingTarget } from "../../../components/shipments/rating-sheet";
 import { ReceiverActionsBar } from "../../../components/shipments/receiver-actions-bar";
 import { RejectedReceiverBanner } from "../../../components/shipments/rejected-receiver-banner";
+import { ReceiverTransferPendingBanner } from "../../../components/shipments/receiver-transfer-pending-banner";
 import { ReceiverTransferSection } from "../../../components/shipments/receiver-transfer-section";
 import { TransferredByYouBanner } from "../../../components/shipments/transferred-by-you-banner";
 import { SenderActionsBar } from "../../../components/shipments/sender-actions-bar";
@@ -169,6 +170,8 @@ export default function ShipmentDetailScreen() {
   // receptor, no ve el punto exacto de retiro ni el precio.
   const isFormerReceiver = shipment?.receiverTransfer?.viewerIsFormerReceiver === true;
   const completedTransfer = shipment?.receiverTransfer?.completed ?? null;
+  const pendingTransfer = shipment?.receiverTransfer?.pending ?? null;
+  const pendingOwnTransfer = pendingTransfer && pendingTransfer.requestedBy === activeUserId ? pendingTransfer : null;
   const seesReceiverView = isReceiver || isFormerReceiver;
 
   // Mismo query key que `CounterpartCard` (`usePublicProfile`, MOVO-154) — TanStack
@@ -378,6 +381,13 @@ export default function ShipmentDetailScreen() {
                 />
               }
             >
+              {isReceiver && pendingOwnTransfer ? (
+                <ReceiverTransferPendingBanner
+                  transfer={pendingOwnTransfer}
+                  testID="shipment-detail-receiver-transfer-pending"
+                />
+              ) : null}
+
               {isFormerReceiver && completedTransfer ? (
                 <TransferredByYouBanner transfer={completedTransfer} testID="shipment-detail-transferred-banner" />
               ) : null}
