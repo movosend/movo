@@ -244,6 +244,16 @@ services:
       # esta última leída por @movo/shared; sin ella un cambio en shipments divergiría.
       - MP_HOLD_VALIDITY_DAYS=${MP_HOLD_VALIDITY_DAYS:-5}
       - MOVO_COMMISSION_RATE=${MOVO_COMMISSION_RATE:-0.15}
+      # MOVO-268: webhook de MP. Aviso a svc-shipments, reintentos del inbox y alertas
+      # al equipo (`telegram` necesita el token del bot y el chat en el secret).
+      - SHIPMENTS_SERVICE_URL=${SHIPMENTS_SERVICE_URL:-http://movo-svc-shipments:3000}
+      - MP_WEBHOOK_MAX_ATTEMPTS=${MP_WEBHOOK_MAX_ATTEMPTS:-10}
+      - MP_WEBHOOK_SWEEP_INTERVAL_MINUTES=${MP_WEBHOOK_SWEEP_INTERVAL_MINUTES:-1}
+      - MP_WEBHOOK_SWEEP_ENABLED=${MP_WEBHOOK_SWEEP_ENABLED:-true}
+      - ALERT_PROVIDER=${ALERT_PROVIDER:-console}
+      - ALERT_TELEGRAM_BOT_TOKEN=${ALERT_TELEGRAM_BOT_TOKEN:-}
+      - ALERT_TELEGRAM_CHAT_ID=${ALERT_TELEGRAM_CHAT_ID:-}
+      - ALERT_ENVIRONMENT_LABEL=${ALERT_ENVIRONMENT_LABEL:-}
     depends_on:
       - postgres
       - redis
