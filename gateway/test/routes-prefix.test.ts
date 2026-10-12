@@ -156,6 +156,32 @@ describe("Resolución de rutas bajo API_PREFIX", () => {
       expect(capturedHeaders["x-user-id"]).toBeUndefined();
     });
 
+    it("POST /payments/webhooks/mercadopago es público (MOVO-268): llega sin token, con el query y el x-request-id de MP", async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/payments/webhooks/mercadopago?data.id=123456&type=payment",
+        headers: {
+          "x-request-id": "mp-request-id-abc",
+          "x-signature": "ts=1700000000,v1=deadbeef",
+          "x-user-id": "33333333-3333-3333-3333-333333333333",
+        },
+        payload: { id: 99, type: "payment", data: { id: "123456" } },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(capturedUrl).toBe("/payments/webhooks/mercadopago?data.id=123456&type=payment");
+      // Parte de lo que firma MP: si el gateway lo pisara, toda firma sería inválida.
+      expect(capturedHeaders["x-request-id"]).toBe("mp-request-id-abc");
+      expect(capturedHeaders["x-signature"]).toBe("ts=1700000000,v1=deadbeef");
+      expect(capturedHeaders["x-user-id"]).toBeUndefined();
+    });
+
+    it("el resto de /payments/webhooks sigue protegido", async () => {
+      const response = await app.inject({ method: "GET", url: "/api/v1/payments/webhooks/mercadopago" });
+
+      expect(response.statusCode).toBe(401);
+    });
+
     it("el resto de /payments/mp-connect sigue protegido", async () => {
       const response = await app.inject({ method: "GET", url: "/api/v1/payments/mp-connect/status" });
 

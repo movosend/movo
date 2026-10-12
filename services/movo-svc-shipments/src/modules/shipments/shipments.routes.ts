@@ -36,6 +36,8 @@ import {
 } from "./shipments.service";
 import { ActiveShipmentRole } from "../../domain/active-shipment";
 import { toOfferDto } from "../offers/offer.dto";
+import { hasShipmentAccess } from "./assert-shipment-access";
+import { buildReceiverTransfersService } from "../receiver-transfers/receiver-transfers.routes";
 
 export interface ShipmentsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración — evita depender de un `movo-svc-users`
@@ -203,6 +205,8 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
     },
   });
   const photosService = createPhotosService(repository, storageProvider, app.redis, app.log);
+  // MOVO-275: resumen de la transferencia de receptor en el detalle y badge en `/mine`.
+  const receiverTransfersService = buildReceiverTransfersService(app, { usersClient, notificationsClient });
 
   app.post(
     "/",
@@ -300,7 +304,25 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         withPendingOffers?: boolean;
       };
       const result = await service.listMyShipments(userId, page, limit, status, { withPendingOffers });
-      return { ...result, items: result.items.map(toShipmentDto) };
+      // MOVO-275: envíos que el caller le pasó a otra persona (badge "Transferido").
+      const transferredIds = result.items.filter((s) => s.formerReceiverId === userId).map((s) => s.id);
+      const completed = await receiverTransfersService.completedByShipmentIds(transferredIds);
+      return {
+        ...result,
+        items: result.items.map((s) => {
+          const transfer = completed.get(s.id);
+          return {
+            ...toShipmentDto(s),
+            transferredByMe: transfer
+              ? {
+                  newReceiverId: transfer.newReceiverId,
+                  newReceiverName: transfer.newReceiverName,
+                  at: (transfer.resolvedAt ?? transfer.createdAt).toISOString(),
+                }
+              : null,
+          };
+        }),
+      };
     }
   );
 
@@ -569,7 +591,9 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
           "AC8 de MOVO-80: accesible para el emisor, el receptor, un admin, o (MOVO-142) " +
           "el carrier ya asignado (cualquier estado) o un transportista verificado " +
           "cuando el envío está published (apertura de descubrimiento). Un usuario " +
-          "ajeno recibe 403, nunca 404 con datos filtrados.",
+          "ajeno recibe 403, nunca 404 con datos filtrados. MOVO-275: el receptor que " +
+          "le pasó la recepción a otra persona lo sigue viendo en solo lectura " +
+          "(`receiverTransfer.viewerIsFormerReceiver`).",
         tags: ["shipments"],
         params: shipmentsSchemas.shipmentIdParam,
         response: {
@@ -587,7 +611,11 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
       const callerRoles = getUserRolesFromHeader(request);
       const { id } = request.params as { id: string };
       const shipment = await service.getShipmentDetail(id, callerId, callerRoles);
-      return toShipmentDto(shipment);
+      // MOVO-275: solo las partes del envío (no un transportista que lo está evaluando).
+      const receiverTransfer = hasShipmentAccess(shipment, callerId, callerRoles)
+        ? await receiverTransfersService.summaryForShipment(shipment, callerId)
+        : null;
+      return { ...toShipmentDto(shipment), receiverTransfer };
     }
   );
 
@@ -719,7 +747,8 @@ export default async function shipmentsRoutes(app: FastifyInstance, opts: Shipme
         summary: "Historial de eventos de un envío",
         description:
           "MOVO-128: devuelve el historial completo de cambios de estado del envío en " +
-          "orden cronológico ascendente. Accesible únicamente para el emisor, el receptor o un admin. " +
+          "orden cronológico ascendente. Accesible para el emisor, el receptor, el transportista " +
+          "asignado, el receptor que transfirió la recepción (MOVO-275) o un admin. " +
           "Un usuario ajeno recibe 403, nunca 404 con datos filtrados.",
         tags: ["shipments"],
         params: shipmentsSchemas.shipmentIdParam,

@@ -10,6 +10,7 @@ import { createNotificationsClient, NotificationsClient } from "../../adapters/n
 import { createRoutesProvider, RoutesProvider } from "../../adapters/routes-provider";
 import { PaymentsClient } from "../../adapters/payments-client";
 import { buildSettlementService } from "../settlements/settlements.routes";
+import { buildReceiverTransfersService } from "../receiver-transfers/receiver-transfers.routes";
 
 export interface HandshakeRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración -- evita depender de un `movo-svc-users`
@@ -59,6 +60,7 @@ export default async function handshakeRoutes(app: FastifyInstance, opts: Handsh
   const routesProvider = opts.routesProvider ?? createRoutesProvider(app.config);
   const shipmentRepository = createShipmentRepository(app.db);
   const handshakeRepository = createHandshakeRepository(app.db);
+  const receiverTransfersService = buildReceiverTransfersService(app, { usersClient, notificationsClient });
   const service = createHandshakeService(
     shipmentRepository,
     handshakeRepository,
@@ -67,7 +69,8 @@ export default async function handshakeRoutes(app: FastifyInstance, opts: Handsh
     fundsReleaseNotifier,
     app.log,
     notificationsClient,
-    routesProvider
+    routesProvider,
+    (shipmentId) => receiverTransfersService.cancelPendingForDelivery(shipmentId)
   );
 
   app.post(

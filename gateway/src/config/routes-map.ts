@@ -114,11 +114,16 @@ export function getServiceRoutes(env: {
       prefix: "/trips",
       upstream: env.SHIPMENTS_SERVICE_URL,
     },
+    // MOVO-275: transferencia de receptor (aceptar/rechazar/cancelar e invitaciones).
+    // Pedirla cuelga de /shipments; esto es la solicitud en sí. Protegido por defecto.
+    {
+      prefix: "/receiver-transfers",
+      upstream: env.SHIPMENTS_SERVICE_URL,
+    },
 
     // payments service (MOVO-267). Emisor (paga) y transportista (vincula su
     // cuenta de MP y cobra). Las rutas que se llaman sin JWT van en
-    // getPublicRoutes(): el callback de OAuth (MOVO-111, ya está) y el webhook
-    // (MOVO-268).
+    // getPublicRoutes(): el callback de OAuth (MOVO-111) y el webhook (MOVO-268).
     {
       prefix: "/payments",
       upstream: env.PAYMENTS_SERVICE_URL,
@@ -269,6 +274,17 @@ export function getPublicRoutes(): PublicRoute[] {
       method: "GET",
       path: "/payments/mp-connect/callback",
       rateLimit: { max: 20, timeWindow: "15 minutes" },
+    },
+
+    // Webhook de Mercado Pago (MOVO-268): MP no tiene JWT. Lo protege la firma
+    // `x-signature` que valida svc-payments con MP_WEBHOOK_SECRET (el gateway conserva el
+    // `x-request-id` entrante, que es parte de lo firmado). Límite propio y holgado: MP
+    // llega desde pocas IPs compartidas y una ráfaga de reenvíos no puede caer en 429
+    // (MP lo tomaría como fallo y seguiría reintentando).
+    {
+      method: "POST",
+      path: "/payments/webhooks/mercadopago",
+      rateLimit: { max: 300, timeWindow: "1 minute" },
     },
   ];
 }

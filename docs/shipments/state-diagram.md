@@ -117,6 +117,34 @@ de `disputed`, y qué pasa con el paquete físico. Registrado como el hueco más
 del camino de excepción — impacto concreto en `MOVO-199` (si el receptor no aparece, el
 envío queda en `in_transit` indefinidamente).
 
+## Transferencia de receptor: máquina paralela, no un estado del envío (MOVO-275, ADR-038)
+
+El receptor de un envío aceptado (de `published` hasta `in_transit`) puede pedir que
+otra persona lo reciba en su lugar. La solicitud vive en su propia tabla
+(`shipments.receiver_transfer_requests`) y **nunca cambia `Shipment.status`**: con el
+paquete en tránsito, volver a `awaiting_receiver_confirmation` rompería el tracking.
+Al completarse solo cambia `Shipment.receiverId`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending_new_receiver: el receptor pide la transferencia
+    pending_new_receiver --> completed: la persona invitada acepta (cambia receiverId)
+    pending_new_receiver --> rejected_by_new_receiver: la persona invitada rechaza
+    pending_new_receiver --> expired: vence el plazo (barrido)
+    pending_new_receiver --> cancelled: la cancela quien la pidió, o empieza el handshake de entrega
+    completed --> [*]
+    rejected_by_new_receiver --> [*]
+    expired --> [*]
+    cancelled --> [*]
+```
+
+- A lo sumo **una solicitud pendiente** y **una completada** por envío (índices únicos
+  parciales). Una rechazada, vencida o cancelada no consume el cupo.
+- El plazo (`RECEIVER_TRANSFER_TIMEOUT_HOURS`, 6 h) lo vence el barrido de confirmación
+  del receptor; aceptar fuera de plazo da 409 aunque el barrido no haya corrido.
+- Generar el QR de entrega cancela la solicitud pendiente (`cancelReason:
+  delivery_started`) y el handshake siempre valida contra el `receiverId` vigente.
+
 ## Transiciones inválidas (rechazadas explícitamente, ejemplos)
 
 - Saltear estados intermedios (ej. `awaiting_receiver_confirmation` → `assigned`

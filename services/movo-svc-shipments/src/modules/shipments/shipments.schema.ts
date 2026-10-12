@@ -1,6 +1,7 @@
 // Autocontenido a propósito (no importa de otros *.schema.ts) — mismo criterio que ya
 // usa movo-svc-users: cada schema no comparte definiciones entre sí.
 import { ShipmentStatus } from "@movo/shared";
+import { shipmentReceiverTransferSummary } from "../receiver-transfers/receiver-transfers.schema";
 
 const PACKAGE_TYPE_VALUES = ["letter_document", "standard_package", "fragile_item"];
 
@@ -133,6 +134,10 @@ const shipmentResponse = {
     estimatedDeliveryDate: { type: ["string", "null"], format: "date" },
     estimatedDeliveryTimeWindowStart: { type: ["string", "null"], pattern: TIME_PATTERN },
     estimatedDeliveryTimeWindowEnd: { type: ["string", "null"], pattern: TIME_PATTERN },
+    // MOVO-275 (ADR-038): solo en `GET /shipments/:id` para las partes del envío.
+    // `viewerIsFormerReceiver` = quien mira le pasó la recepción a otra persona (solo
+    // lectura). `pending` solo lo ven quien la pidió y el emisor.
+    receiverTransfer: shipmentReceiverTransferSummary,
   },
 };
 
@@ -528,6 +533,17 @@ export const shipmentsSchemas = {
             // MOVO-257: ofertas vigentes, solo para el emisor de un envío `published`;
             // `null` en cualquier otro caso (el receptor no ve ofertas).
             pendingOffersCount: { type: ["integer", "null"] },
+            // MOVO-275: el caller le pasó la recepción a otra persona (badge
+            // "Transferido"). `null` en cualquier otro caso.
+            transferredByMe: {
+              type: ["object", "null"],
+              required: ["newReceiverId", "newReceiverName", "at"],
+              properties: {
+                newReceiverId: { type: "string" },
+                newReceiverName: { type: ["string", "null"] },
+                at: { type: "string", format: "date-time" },
+              },
+            },
           },
         },
       },

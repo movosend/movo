@@ -3197,13 +3197,11 @@ de `assigned_unfunded` tiene un piso (`entró al estado + FUNDING_PAYMENT_TIMEOU
 perdido a menos de 24h del retiro no se revierta antes de que el emisor pueda pagar; el aviso reclama las marcas
 de Redis de apertura/recordatorio/intento fallido para que el barrido no repita el push.
 
-**Pendiente / decisión del equipo**: (1) Webhook de MP → este endpoint interno depende de MOVO-268 (nadie lo
-llama todavía). (2) La cuenta de MP del transportista se exige al ofertar en MOVO-116/MOVO-117, no acá: el 409
+**Pendiente / decisión del equipo**: (1) El webhook de MP (MOVO-268, `svc-payments`) es quien llama a este endpoint interno. (2) La cuenta de MP del transportista se exige al ofertar en MOVO-116/MOVO-117, no acá: el 409
 `CARRIER_MP_ACCOUNT_NOT_LINKED` aparece al pedir el `GET /funding`; el caso de desvincular DESPUÉS de que le
 aceptaron la oferta queda como está (409 + hold huérfano logueado). (3) Mobile (MOVO-269, ya con comentario
 sobre `assignment_lapsed` y los estados nuevos) y estado de la reserva (MOVO-211): fuera de alcance. (4)
 `delivered → completed` es MOVO-212.
-
 
 ### MOVO-212 — Captura del hold al entregar, `completed` y consulta del pago (lado `svc-shipments`)
 
@@ -3230,3 +3228,31 @@ payments-funds-release-notifier.ts`, `src/plugins/settlement-sweep.ts`; `Payment
 Pendiente: sin test de integración con DB real ni contra el sandbox de MP (no se pudieron correr localmente);
 la reversión por hold fallido y las notificaciones de cobro fallido son MOVO-213; el detalle del pago en la app
 es MOVO-214.
+
+### MOVO-275 — Transferencia de receptor (ADR-038)
+
+Módulo `src/modules/receiver-transfers/` + `repositories/receiver-transfer-repository.ts`,
+tabla `receiver_transfer_requests` (migración `20261011120000_...`, con índices únicos
+parciales de una pendiente y una completada por envío). Rutas: `POST /shipments/:id/receiver-transfer`,
+`GET /shipments/:id/receiver-transfers` (línea de tiempo, filtrada por quien mira) y
+`/receiver-transfers/{invitations,:id,:id/accept,:id/reject,:id/cancel}` (prefijo nuevo en el gateway).
+
+- **No toca `Shipment.status`**: aceptar hace en una transacción el CAS de la solicitud
+  (`pending` + plazo vigente) y el de `shipment.receiverId` (receptor que la pidió + estado
+  todavía admitido), y emite `shipment-status-changed` para refrescar el canal en vivo.
+- **Acceso de solo lectura del receptor original**: `findById`/`listByUser` cargan
+  `formerReceiverId` (include de la completada) y `hasShipmentAccess` lo acepta; los asserts
+  de acción no cambian. `/mine` lo sigue listando con `transferredByMe`; el detalle suma
+  `receiverTransfer` (resumen según quien mira).
+- **Carrera con la entrega**: `generateHandshake` (etapa entrega) deja la marca durable
+  `delivery_handshake_started_at` y cancela la pendiente (`cancelReason: delivery_started`)
+  antes de crear el desafío; con la marca puesta, pedir o aceptar da 409 aunque el QR (15 s)
+  ya haya vencido, y el UPDATE de `receiverId` la exige vacía (review de PR #229).
+  Una invitación de un envío cancelado/entregado o vencida no se lista ni bloquea la baja
+  de cuenta, y pedir otra transferencia vence inline la pendiente pasada de plazo.
+- Plazo `RECEIVER_TRANSFER_TIMEOUT_HOURS` (6, en los tres lugares); lo vence
+  `receiver-confirmation-sweep.ts`. Una invitación pendiente cuenta como actividad en la baja
+  de cuenta. `GET /events` no cambió de forma (array) para no romper builds viejos.
+
+Tests: `test/receiver-transfers.integration.test.ts` (Postgres y Redis reales: cada
+validación, concurrencia, límite, carrera con el handshake, vencimiento, acceso y filtrado).

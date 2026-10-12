@@ -11,6 +11,8 @@ import errorHandlerPlugin from "./plugins/error-handler";
 import mpConnectPlugin from "./plugins/mp-connect";
 import holdsPlugin from "./plugins/holds";
 import capturesPlugin from "./plugins/captures";
+import mpWebhooksPlugin from "./plugins/mp-webhooks";
+import mpWebhookRoutes from "./modules/webhooks/mp-webhook.routes";
 import paymentsRoutes from "./modules/payments/payments.routes";
 import mpConnectCallbackRoutes from "./modules/mp-connect/mp-connect-callback.routes";
 import holdsRoutes from "./modules/holds/holds.routes";
@@ -18,6 +20,8 @@ import settlementsRoutes from "./modules/settlements/settlements.routes";
 import mpConnectInternalRoutes from "./modules/mp-connect/mp-connect-internal.routes";
 import { MercadoPagoClient, SdkMercadoPagoClient } from "./adapters/mercadopago-client";
 import { FetchMercadoPagoOAuthClient, MercadoPagoOAuthClient } from "./adapters/mercadopago-oauth-client";
+import type { ShipmentsClient } from "./adapters/shipments-client";
+import type { AlertNotifier } from "./adapters/alert-notifier";
 
 export interface BuildAppOptions {
   /** Override solo para tests -- evita pegarle al sandbox real de Mercado Pago,
@@ -25,6 +29,9 @@ export interface BuildAppOptions {
   mercadoPagoClient?: MercadoPagoClient;
   /** Ídem para el canje de OAuth (MOVO-111). */
   mercadoPagoOAuthClient?: MercadoPagoOAuthClient;
+  /** Ídem para el aviso a svc-shipments y las alertas del webhook (MOVO-268). */
+  shipmentsClient?: ShipmentsClient;
+  alertNotifier?: AlertNotifier;
 }
 
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
@@ -59,6 +66,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(holdsPlugin);
   // MOVO-212: captura del hold y liquidación, también sobre `mercadoPago`.
   app.register(capturesPlugin);
+  // Después de `holds`: reconcilia intentos en `creating` con su service (MOVO-268).
+  app.register(mpWebhooksPlugin, { shipmentsClient: opts.shipmentsClient, alertNotifier: opts.alertNotifier });
 
   // Mismo criterio que movo-svc-users: el healthcheck de Docker tiene que reflejar
   // si el servicio puede hablar con Postgres. El detalle del error se loguea y no
@@ -76,6 +85,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Fuera de `paymentsRoutes` a propósito: lo llama el navegador al volver de MP, sin
   // `x-user-id` (ruta pública en el gateway, MOVO-111).
   app.register(mpConnectCallbackRoutes, { prefix: "/payments/mp-connect" });
+
+  // MOVO-268: webhook de MP. Público en el gateway, protegido por la firma `x-signature`;
+  // fuera de `paymentsRoutes` por el mismo motivo que el callback de OAuth.
+  app.register(mpWebhookRoutes, { prefix: "/payments/webhooks" });
 
   // MOVO-209: interno, lo llama svc-shipments. Sin ruta en el gateway (ADR-010).
   app.register(holdsRoutes, { prefix: "/internal/payments/holds" });

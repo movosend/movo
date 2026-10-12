@@ -59,6 +59,10 @@ export interface Shipment {
    * envío está en `rejected_by_receiver` y la lectura lo cargó (`findById`/
    * `listByUser`) -- `null` en cualquier otro caso. */
   rejectionReason: string | null;
+  /** MOVO-275 (ADR-038): quien le pasó la recepción a otra persona con una
+   * transferencia completada. Conserva acceso de solo lectura al envío. Solo lo cargan
+   * `findById`/`listByUser`; ausente o `null` en el resto de las lecturas. */
+  formerReceiverId?: string | null;
   createdAt: Date;
   updatedAt: Date;
   /** MOVO-180: entrega estimada (día + franja) de la oferta ganadora, copiada acá al

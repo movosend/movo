@@ -192,6 +192,10 @@ model Shipment {
   // MOVO-258 (D4): instante en que el barrido de `in_transit` anómalo marcó el envío
   // para revisión (no lo cancela). NULL = nunca marcado; solo se escribe una vez.
   transitAnomalyFlaggedAt DateTime? @map("transit_anomaly_flagged_at") @db.Timestamptz
+  // MOVO-275 (ADR-038): instante en que el transportista generó por primera vez el QR de
+  // entrega. Marca durable: el QR vence a los 15 s pero la entrega ya empezó y desde
+  // entonces no se puede pedir ni aceptar un cambio de receptor.
+  deliveryHandshakeStartedAt DateTime? @map("delivery_handshake_started_at") @db.Timestamptz
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   // Mantenida por trigger de Postgres (shipments.update_updated_at_column()),
@@ -205,6 +209,7 @@ model Shipment {
   ratings          Rating[]
   handshakeEvents  HandshakeEvent[]
   carrierPositions CarrierPosition[]
+  receiverTransfers ReceiverTransferRequest[]
 
   @@index([senderId], map: "shipments_sender_id_idx")
   @@index([receiverId], map: "shipments_receiver_id_idx")
@@ -614,5 +619,54 @@ model RouteGameSession {
 
   @@index([eventTag, endedAt], map: "route_game_sessions_event_tag_ended_at_idx")
   @@map("route_game_sessions")
+  @@schema("shipments")
+}
+
+// MOVO-275 (ADR-038): transferencia de receptor. Entidad paralela al ciclo de vida del
+// envío: el receptor actual invita a otra persona a recibir en su lugar, sin tocar
+// `Shipment.status`. Valores espejados de `RECEIVER_TRANSFER_STATUSES` (@movo/shared).
+enum ReceiverTransferStatus {
+  pending_new_receiver
+  completed
+  rejected_by_new_receiver
+  expired
+  cancelled
+
+  @@map("receiver_transfer_status_enum")
+  @@schema("shipments")
+}
+
+model ReceiverTransferRequest {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId String @map("shipment_id") @db.Uuid
+  // Referencias lógicas a users.users, sin FK real (ADR-003).
+  requestedBy   String @map("requested_by") @db.Uuid
+  newReceiverId String @map("new_receiver_id") @db.Uuid
+  // Snapshots de nombre al pedirla (mismo criterio que carrierNameAtOffer): la línea de
+  // tiempo y el banner del receptor original no dependen de svc-users al leer.
+  requesterName   String? @map("requester_name")
+  newReceiverName String? @map("new_receiver_name")
+  reason          String?
+  responseReason  String? @map("response_reason")
+
+  status       ReceiverTransferStatus @default(pending_new_receiver)
+  // `requester` | `delivery_started`, solo con status `cancelled`.
+  cancelReason String?                @map("cancel_reason") @db.VarChar(32)
+
+  newReceiverDeadline DateTime  @map("new_receiver_deadline") @db.Timestamptz
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  resolvedAt          DateTime? @map("resolved_at") @db.Timestamptz
+  resolvedBy          String?   @map("resolved_by") @db.Uuid
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  // Además: dos índices únicos parciales escritos a mano en la migración (no
+  // representables en el DSL de Prisma): a lo sumo una solicitud pendiente y una
+  // completada por envío (AC5).
+  @@index([shipmentId, createdAt], map: "receiver_transfer_requests_shipment_id_created_at_idx")
+  @@index([requestedBy, status], map: "receiver_transfer_requests_requested_by_status_idx")
+  @@index([newReceiverId, status], map: "receiver_transfer_requests_new_receiver_id_status_idx")
+  @@index([status, newReceiverDeadline], map: "receiver_transfer_requests_status_deadline_idx")
+  @@map("receiver_transfer_requests")
   @@schema("shipments")
 }

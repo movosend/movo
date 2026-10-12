@@ -3,7 +3,7 @@ import { Shipment } from "../../models/shipment";
 
 /**
  * Chequea que el usuario tenga acceso al envío (emisor, receptor, transportista
- * asignado o admin). Un transportista que ofertó pero no fue elegido no pasa.
+ * asignado, receptor que transfirió la recepción o admin). Un transportista que ofertó pero no fue elegido no pasa.
  * AC8 de MOVO-80 / MOVO-81 / MOVO-128: 403 explícito, nunca 404 "filtrado" —
  * el id es un UUID no adivinable.
  */
@@ -28,7 +28,17 @@ export function hasShipmentAccess(shipment: Shipment, callerId: string, callerRo
     callerId === shipment.senderId ||
     callerId === shipment.receiverId ||
     (shipment.carrierId !== null && callerId === shipment.carrierId);
-  return isParty || callerRoles.includes(UserRole.ADMIN);
+  return isParty || isFormerReceiver(shipment, callerId) || callerRoles.includes(UserRole.ADMIN);
+}
+
+/**
+ * MOVO-275 (ADR-038): quien le pasó la recepción a otra persona sigue viendo el envío
+ * (detalle, línea de tiempo, fotos y tracking) en solo lectura. Solo da acceso de
+ * lectura: los asserts de acción (`assertIsReceiver`, etc.) miran el `receiverId` vivo.
+ * Requiere que la lectura haya cargado `formerReceiverId` (`findById`/`listByUser`).
+ */
+export function isFormerReceiver(shipment: Shipment, callerId: string): boolean {
+  return shipment.formerReceiverId != null && shipment.formerReceiverId === callerId;
 }
 
 /**

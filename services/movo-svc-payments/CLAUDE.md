@@ -158,8 +158,9 @@ ADR-035.
   emisor retenidos y sin poder abrir otro hold para el envío en el medio. Decisión
   pendiente (no implementada): impedir la desvinculación mientras haya holds vivos del
   transportista, o ampliar MOVO-243/268.
-- **`?sync=true`** consulta el pago a MP y actualiza la fila: hasta MOVO-268 (webhook) es
-  la única forma de ver un hold que MP cambió por su cuenta.
+- **`?sync=true`** consulta el pago a MP y actualiza la fila. Desde MOVO-268 el webhook
+  refleja solo lo que MP cambia por su cuenta; `sync` sigue sirviendo para el barrido de
+  la saga de shipments y para resolver un `creating`.
 - **Logs (AC9)**: se loguean ids, estado y montos; nunca el `card_token`, el email del
   pagador ni los tokens OAuth (el test lo verifica además del `redact` del logger).
 - **`payment_method_id` es opcional** en el request: se reenvía a MP si el mobile lo manda
@@ -182,7 +183,9 @@ del Vendedor (el token del OAuth del spike no se persiste, ver el encabezado del
 `MP_TEST_*` del `.env` del spike.
 
 Pendiente: cargar `MP_HOLD_VALIDITY_DAYS` en el secret si MOVO-215 define otro valor;
-`svc-shipments` (MOVO-210) todavía no llama a estos endpoints.
+`svc-shipments` ya los llama desde la saga de asignación (MOVO-210, ver
+`services/movo-svc-shipments/CLAUDE.md`). El aviso a `POST /internal/shipments/:id/hold-events`
+cuando MP cancela o vence un hold lo hace el webhook (MOVO-268, abajo).
 
 ### MOVO-212 — Captura del hold y liquidación (lado `svc-payments`)
 
@@ -208,12 +211,67 @@ holds, para que el `PaymentsClient` de MOVO-210 los alcance con su misma base). 
 - **Decisión no obvia**: no se rechaza de entrada por `expiresAt` vencido. `MP_HOLD_VALIDITY_DAYS` es una
   estimación provisoria (MOVO-215), así que se intenta igual y se clasifica el fallo como `hold_expired` solo
   si MP rechaza y el hold ya pasó su fecha o MP lo tiene `cancelled`. Un hold cancelado por MP NO se sincroniza
-  acá (lo hace `?sync=true`/MOVO-268).
+  acá: lo refleja el webhook (MOVO-268) o `?sync=true`, y la captura solo lo clasifica.
 - **Visibilidad por rol (AC10)**: payments devuelve la liquidación completa; el filtro (transportista ve todo,
   emisor total y fecha, receptor nada) lo aplica `svc-shipments`, que es quien sabe quién es quién.
 
 El lado de `svc-shipments` (notifier real, `completed`, push, barrido y endpoint por rol) está en
 `services/movo-svc-shipments/CLAUDE.md` (MOVO-212).
 
-Pendiente: el test de integración (`captures.integration.test.ts`) no se corrió localmente (sin
-Postgres/Redis); `test/captures.sandbox.test.ts` (captura real y contraste de la liquidación contra un `GET` directo a MP) está escrito pero nunca corrió: se saltea sin credenciales, mismas variables que `holds.sandbox.test.ts`.
+Los tests que truncan `holds` (también los del webhook) incluyen `settlements` y usan `CASCADE`:
+`settlements.hold_id` es FK a `holds`.
+
+Pendiente: `test/captures.sandbox.test.ts` (captura real y contraste de la liquidación contra un `GET` directo a MP) está escrito pero nunca corrió: se saltea sin credenciales, mismas variables que `holds.sandbox.test.ts`.
+
+### MOVO-116 — `GET /internal/payments/mp-connect/:userId/status`
+
+Endpoint interno (`src/modules/mp-connect/mp-connect-internal.routes.ts`, sin ruta en el gateway
+ni hook de `x-user-id`) que devuelve `{ linked }` para el bloqueo del transportista de
+`svc-shipments` (ADR-036). `linked` usa el mismo criterio que el hold
+(`hasActiveCredentials`, nuevo en el repositorio, comparte `activeAccountWhere` con
+`findActiveCredentials` y no descifra tokens): es más estricto que el `linked` de
+`GET /payments/mp-connect/status` porque también exige `public_key`, así nadie pasa el bloqueo
+y después cae en el 409 del hold. Tests en `test/mp-connect.integration.test.ts`.
+
+### MOVO-268 — Webhook de MP: holds cancelados o vencidos por MP y contracargos
+
+`POST /payments/webhooks/mercadopago` (pública en el gateway, plugin aparte como el callback
+de OAuth), registrado en el panel de la app para el tópico `payment`. Código en
+`src/modules/webhooks/`, `src/repositories/mp-webhook-repository.ts`,
+`src/utils/mp-webhook-signature.ts`, `src/adapters/{shipments-client,alert-notifier}.ts` y
+`src/plugins/mp-webhooks.ts`.
+
+- **Inbox en la base (AC7)**: la ruta valida `x-signature` (HMAC del manifest
+  `id;request-id;ts`, sin ventana sobre `ts`: un reenvío viejo es inofensivo), guarda la
+  notificación en `mp_webhook_notifications` y responde 200; el procesamiento corre en
+  segundo plano. Un error propio (MP o shipments caídos) la deja `pending` con backoff
+  (1, 2, 4... min, tope 6 h) y un barrido (`setInterval`, sin lock de Redis: cada
+  notificación se toma con un UPDATE condicional) la reintenta hasta
+  `MP_WEBHOOK_MAX_ATTEMPTS`; después queda `failed` y se alerta.
+- **Nunca se actúa sobre el body (AC3)**: `Payment.get` con el token del transportista
+  dueño del hold. Un pago sin hold se busca por el `user_id` del vendedor y su
+  `external_reference`, lo que además rescata un intento que quedó en `creating`. Sin
+  credenciales (desvinculó o MP revocó) la notificación queda `unverifiable` con alerta.
+- **Idempotencia (AC6)**: único por `id` de la notificación; el cambio del hold es un
+  UPDATE condicional sobre el estado esperado, en la misma transacción que anota el aviso
+  pendiente a shipments (`pending_hold_event`). Así un reintento vuelve a avisar sin
+  volver a consultar a MP, y la liberación hecha por Movo que vuelve como webhook no avisa.
+- **Vencido = `cancelled` + `status_detail: expired`** (sin estado nuevo en el enum ni en
+  `@movo/shared`); a shipments se le manda `event: expired`. Falta confirmar en MOVO-215 que
+  MP use ese detail. Un `in_process` que MP rechaza manda `rejected`; uno que autoriza solo
+  actualiza la fila (el barrido de la saga ya hace `?sync=true`).
+- **`approved` no toca el hold**: la transición a `captured` es de la captura (MOVO-212),
+  que persiste la liquidación. El webhook solo loguea.
+- **Contracargo, reembolso externo y mediación (AC5)**: se registran en
+  `payment_provider_events` (único por pago + estado de MP, una sola alerta). El hold y la
+  liquidación de MOVO-212 no cambian; se relacionan por `mp_payment_id`
+  (`settlements.mp_payment_id`), sin FK ni columna nueva. Qué pasa con el cobro ya acreditado
+  queda para disputas (MOVO-30/34).
+- **Alertas** (`AlertNotifier`, consola o Telegram con `ALERT_PROVIDER`): contracargos,
+  notificaciones `unverifiable`/`failed` y el `hold_lost_after_pickup` que responde shipments
+  (hold perdido con el paquete en camino: la captura va a fallar). La reusa MOVO-213.
+
+Pendiente: probar contra el sandbox con una notificación real por túnel (DoD), registrar
+`https://api-dev.movosend.app/api/v1/payments/webhooks/mercadopago` en el panel de
+`movosend` y cargar en el secret de dev `ALERT_PROVIDER=telegram`,
+`ALERT_TELEGRAM_BOT_TOKEN`/`_CHAT_ID` y `ALERT_ENVIRONMENT_LABEL=dev`.
