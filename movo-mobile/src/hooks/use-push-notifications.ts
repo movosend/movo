@@ -21,75 +21,105 @@ Notifications.setNotificationHandler({
   }),
 });
 
-/**
- * MOVO-144: las pushes de decisión de oferta (`offer_accepted`/`offer_superseded`/
- * `offer_rejected`, `offers.service.ts` en `svc-shipments`) llevan `shipmentId` con
- * el mismo shape que las de `shipment` (MOVO-107/132) — tocarlas navega al mismo
- * detalle de envío hasta que exista una pantalla propia de oferta (MOVO-150).
- */
-const SHIPMENT_NOTIFICATION_TYPES: readonly string[] = [
-  "shipment",
-  "offer_accepted",
-  "offer_superseded",
-  "offer_rejected",
-  "rating_received",
-  // MOVO-275: novedades de una transferencia de receptor (pedida, aceptada, rechazada,
-  // vencida). Abren el detalle del envío; la invitación tiene su propia pantalla.
-  "receiver_transfer",
-];
-
-/**
- * MOVO-163 (extensión de alcance): payload de `svc-shipments` (MOVO-179, trigger de
- * push al publicarse un envío compatible con un viaje `active`) — el mobile se
- * programa contra este contrato aunque MOVO-179 todavía no esté mergeado. `tripId` es
- * lo que hace falta para abrir el feed filtrado (MOVO-163); `shipmentId` viaja en el
- * payload pero no se usa todavía (no hay forma de resaltar una card puntual del
- * feed) — simplificación aceptada, no alcance no pedido.
- *
- * MOVO-236: `trip_auto_created` (payload de MOVO-234, `{ type, tripId }`, sin
- * `shipmentId`) comparte el mismo destino — no hay pantalla de "detalle de viaje"
- * dedicada en el repo (MOVO-162 solo tiene lista/alta/edición), el feed filtrado por
- * `tripId` es lo más parecido a "ver este viaje" que ya existe, mismo criterio que
- * usa `TripCard.onPress` en `carrier/trips/index.tsx`.
- */
-const TRIP_ROUTE_NOTIFICATION_TYPES: readonly string[] = ["trip_match", "trip_auto_created"];
-
 /** Las dos formas de ruta que puede devolver `resolveNotificationRoute` — un `href`
  * de solo path para los tipos que no llevan query params, o la forma objeto de
  * expo-router para los que sí (evita concatenar/interpolar el query string a mano,
  * que no encodea valores especiales). */
-type NotificationRoute = string | { pathname: string; params: Record<string, string> };
+export type NotificationRoute = string | { pathname: string; params: Record<string, string> };
+
+/** `data.type` que abren el detalle del envío (`/shipments/:shipmentId`). */
+const SHIPMENT_DETAIL_TYPES: readonly string[] = [
+  "shipment",
+  "shipment_accepted",
+  "shipment_cancelled",
+  "offer_accepted",
+  "rating_received",
+  // MOVO-274: el detalle tiene la acción de calificar (MOVO-153).
+  "rating_pending",
+  // MOVO-275: novedades de una transferencia de receptor; la invitación tiene su pantalla.
+  "receiver_transfer",
+  "custody_pickup_confirmed",
+  "custody_delivery_confirmed",
+  "trip_started",
+  // MOVO-240: el transportista está por llegar; el detalle tiene el seguimiento en vivo.
+  "carrier_nearby",
+];
+
+/** MOVO-281: el resultado de una oferta se mira en su detalle. `offer_superseded` y
+ * `offer_voided` llegan con el envío ya `assigned`/`cancelled`, y ese detalle le
+ * responde 403 a un transportista que no es parte del envío. */
+const OFFER_DETAIL_TYPES: readonly string[] = ["offer_superseded", "offer_rejected", "offer_voided"];
+
+/** Abren el feed de Transportar filtrado por el viaje (MOVO-163): `trip_match` y el
+ * recordatorio del día anterior (MOVO-240), donde se buscan envíos de paso. */
+const TRIP_FEED_TYPES: readonly string[] = ["trip_match", "trip_reminder"];
+
+const ACCOUNT_SECURITY_TYPES: readonly string[] = [
+  "account_password_changed",
+  "account_email_changed",
+  "account_phone_changed",
+];
+
+function stringField(data: object, key: string): string | null {
+  const value = (data as Record<string, unknown>)[key];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/** MOVO-274: `kyc_result` trae `verificationType` y `status`. Un rechazo lleva a
+ * reintentar (mismos destinos que `transport.tsx` y el banner de `profile.tsx`); aprobado
+ * o en revisión manual va a Inicio, donde el banner de KYC muestra el estado. */
+function resolveKycRoute(data: object): NotificationRoute | null {
+  const verificationType = stringField(data, "verificationType");
+  const status = stringField(data, "status");
+  if (verificationType !== "identity" && verificationType !== "license") return null;
+  if (status === "approved" || status === "manual_review") return "/home";
+  if (status !== "rejected") return null;
+  return verificationType === "identity" ? "/kyc" : { pathname: "/license-kyc", params: { status } };
+}
 
 /**
- * Resuelve a qué ruta navegar según el tipo de notificación, o `null` si no es
- * navegable / le falta el dato necesario. Generaliza el `isShipmentNotificationData`
- * de antes (que asumía que todo tipo navegable tenía `shipmentId` y navegaba a
- * `/shipments/:id`) para sumar `trip_match`, sin tocar el comportamiento de los tipos
- * ya soportados.
+ * Resuelve a qué ruta navegar según el `data.type` de la notificación, o `null` si el
+ * tipo es desconocido o le falta el id que necesita la ruta (no navega y no rompe).
  */
-function resolveNotificationRoute(data: unknown): NotificationRoute | null {
+export function resolveNotificationRoute(data: unknown): NotificationRoute | null {
   if (typeof data !== "object" || data === null) return null;
-  const type = (data as { type?: unknown }).type;
+  const type = stringField(data, "type");
+  if (!type) return null;
 
-  if (typeof type === "string" && SHIPMENT_NOTIFICATION_TYPES.includes(type)) {
-    const shipmentId = (data as { shipmentId?: unknown }).shipmentId;
-    return typeof shipmentId === "string" ? `/shipments/${shipmentId}` : null;
+  if (SHIPMENT_DETAIL_TYPES.includes(type)) {
+    const shipmentId = stringField(data, "shipmentId");
+    return shipmentId ? `/shipments/${shipmentId}` : null;
   }
-
-  // MOVO-275: la invitación (o su cancelación) abre la pantalla de la invitación,
-  // que también muestra si ya no está vigente.
+  if (type === "shipment_rejected") {
+    // El copy le dice al emisor que puede elegir otro receptor (MOVO-253).
+    const shipmentId = stringField(data, "shipmentId");
+    return shipmentId ? `/shipments/${shipmentId}/change-receiver` : null;
+  }
+  if (type === "offer_created") {
+    const shipmentId = stringField(data, "shipmentId");
+    return shipmentId ? `/shipments/${shipmentId}/offers` : null;
+  }
+  if (OFFER_DETAIL_TYPES.includes(type)) {
+    const offerId = stringField(data, "offerId");
+    return offerId ? `/carrier/offers/${offerId}` : null;
+  }
   if (type === "receiver_transfer_invite") {
-    const transferId = (data as { transferId?: unknown }).transferId;
-    return typeof transferId === "string" ? `/receiver-transfers/${transferId}` : null;
+    // MOVO-275: la invitación (o su cancelación) abre su pantalla, que muestra si sigue vigente.
+    const transferId = stringField(data, "transferId");
+    return transferId ? `/receiver-transfers/${transferId}` : null;
   }
-
-  if (typeof type === "string" && TRIP_ROUTE_NOTIFICATION_TYPES.includes(type)) {
-    const tripId = (data as { tripId?: unknown }).tripId;
-    // Forma objeto, no `` `/(app)/(tabs)/transport?tripId=${tripId}` `` — mismo
-    // criterio que `carrier/trips/index.tsx` para esta misma ruta: un `tripId` con
-    // un carácter que necesite URL-encoding rompería el query string armado a mano.
-    return typeof tripId === "string" ? { pathname: "/(app)/(tabs)/transport", params: { tripId } } : null;
+  if (type === "trip_auto_created") {
+    const tripId = stringField(data, "tripId");
+    return tripId ? `/carrier/trips/${tripId}` : null;
   }
+  if (TRIP_FEED_TYPES.includes(type)) {
+    const tripId = stringField(data, "tripId");
+    // Forma objeto: un `tripId` con un carácter que necesite URL-encoding rompería
+    // el query string armado a mano.
+    return tripId ? { pathname: "/(app)/(tabs)/transport", params: { tripId } } : null;
+  }
+  if (ACCOUNT_SECURITY_TYPES.includes(type)) return "/profile/security";
+  if (type === "kyc_result") return resolveKycRoute(data);
 
   return null;
 }
@@ -128,10 +158,8 @@ function handleNotificationResponse(
  * `app/index.tsx`, para no repetir el pedido en cada re-render de `app/_layout.tsx`).
  * Corre en paralelo, nunca bloquea `appReady`/el splash — no es un muro (AC1).
  *
- * AC5 / AC6 de MOVO-132: al tocar la notificación (en foreground, background o cold start),
- * navega directo a `/shipments/:id` donde el receptor puede ver el detalle y las
- * acciones de confirmación (MOVO-131). MOVO-163 suma `trip_match`, que en cambio abre
- * el feed filtrado por viaje (`resolveNotificationRoute`).
+ * Al tocar la notificación (en foreground, background o cold start) navega a la ruta
+ * que resuelve `resolveNotificationRoute` según su `data.type`.
  */
 export function usePushNotifications(): void {
   const sessionStatus = useAuthStore((s) => s.status);
