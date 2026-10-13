@@ -682,6 +682,8 @@ model ChatMessage {
   body       String
   // Lo genera el cliente: reenviar el mismo mensaje (cola offline, reintento) no lo duplica.
   clientMessageId String   @map("client_message_id") @db.Uuid
+  // El filtro de lenguaje tapó alguna palabra de `body` (que se guarda ya enmascarado).
+  moderated       Boolean  @default(false)
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)

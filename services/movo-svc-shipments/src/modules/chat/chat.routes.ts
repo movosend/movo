@@ -69,7 +69,9 @@ export default async function chatRoutes(app: FastifyInstance, opts: ChatRoutesO
           "mensaje ya guardado ante un reenvío, 201 la primera vez). 409 CHAT_CLOSED fuera de la " +
           "ventana (asignación hasta 24 h después de la entrega) o con el envío cancelado; 403 " +
           "CHAT_READ_ONLY para el receptor original o un envío en disputa; 403 USER_BLOCKED si hay " +
-          "un bloqueo con otra de las partes. Se difunde por el WebSocket del chat.",
+          "un bloqueo con otra de las partes. Las palabras ofensivas se tapan con asteriscos antes de " +
+          "guardar y difundir: el mensaje sale igual con `moderated: true` y el cliente le muestra al " +
+          "autor el aviso de respeto (`CHAT_MODERATION_WARNING`). Se difunde por el WebSocket del chat.",
         tags: ["chat"],
         params: chatSchemas.shipmentIdParam,
         body: chatSchemas.sendMessageBody,

@@ -11,13 +11,14 @@ const shipmentIdParam = {
 
 const chatMessageResponse = {
   type: "object",
-  required: ["id", "shipmentId", "authorId", "body", "clientMessageId", "createdAt"],
+  required: ["id", "shipmentId", "authorId", "body", "clientMessageId", "moderated", "createdAt"],
   properties: {
     id: { type: "string" },
     shipmentId: { type: "string" },
     authorId: { type: "string" },
     body: { type: "string" },
     clientMessageId: { type: "string" },
+    moderated: { type: "boolean" },
     createdAt: { type: "string", format: "date-time" },
   },
 };

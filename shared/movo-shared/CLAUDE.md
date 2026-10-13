@@ -429,4 +429,6 @@ categoría `shipments`, con copy propio por destinatario.
 constantes `CHAT_MESSAGE_MAX_LENGTH` (1000), `CHAT_POST_DELIVERY_WINDOW_HOURS` (24) y `CHAT_PAGE_MAX_LIMIT`.
 `ApiErrorCode` suma `CHAT_CLOSED` y `CHAT_READ_ONLY`; el trigger `chatMessageReceived` va en la categoría
 `chat`, que pasa a `implemented: true` (la pantalla de configuración de MOVO-246 la muestra con toggle real).
+`ChatMessage.moderated` y `CHAT_MODERATION_WARNING` (texto del aviso de respeto que muestran los clientes cuando el
+filtro de lenguaje tapó palabras de un mensaje propio).
 

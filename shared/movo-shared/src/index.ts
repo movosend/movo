@@ -181,6 +181,7 @@ export {
   CHAT_MESSAGE_MAX_LENGTH,
   CHAT_POST_DELIVERY_WINDOW_HOURS,
   CHAT_PAGE_MAX_LIMIT,
+  CHAT_MODERATION_WARNING,
 } from "./types/chat";
 export type { ChatAccess, ChatMessage, ChatMessagesPage, ChatRealtimeEvent } from "./types/chat";
 

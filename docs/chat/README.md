@@ -29,6 +29,17 @@ El WebSocket se autentica con `Authorization: Bearer <JWT>` en el handshake (com
 Fuera de la ventana: `409 CHAT_CLOSED` (también en el historial para las partes). Sin permiso de escritura:
 `403 CHAT_READ_ONLY`. Reglas puras en `src/domain/chat-window.ts`.
 
+## Filtro de lenguaje
+
+Las palabras ofensivas se tapan con asteriscos del mismo largo **antes** de guardar y de difundir
+("sos un pelotudo" → "sos un ********"): nadie más llega a ver la palabra. El mensaje sale igual, con
+`moderated: true`, y el cliente le muestra a quien lo escribió el aviso `CHAT_MODERATION_WARNING`
+(de `@movo/shared`): hay que respetar a los demás miembros de la comunidad. Lo que se guarda es el texto ya
+tapado (el admin ve lo mismo que las partes). La lista vive en `src/domain/chat-moderation.ts`
+(`CHAT_BLOCKED_TERMS`); compara por palabra entera, ignora mayúsculas, tildes y letras repetidas, y entiende
+números y símbolos por letra ("put4", "put@"). Es acotada a propósito: insultos y agravios fuertes, no las
+palabrotas de uso cotidiano ("boludo", "mierda") ni palabras legítimas del dominio ("retrasado").
+
 ## Detalles que conviene saber
 
 - Texto de 1 a 1000 caracteres tras `trim`. Sin imágenes, sin "escribiendo…", sin leído/no leído.

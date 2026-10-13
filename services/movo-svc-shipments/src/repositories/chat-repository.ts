@@ -6,14 +6,17 @@ export interface ChatMessageRecord {
   authorId: string;
   body: string;
   clientMessageId: string;
+  moderated: boolean;
   createdAt: Date;
 }
 
 export interface NewChatMessage {
   shipmentId: string;
   authorId: string;
+  /** Ya moderado: lo que se guarda es lo que ven todos. */
   body: string;
   clientMessageId: string;
+  moderated: boolean;
 }
 
 export interface ChatRepository {

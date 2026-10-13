@@ -31,6 +31,8 @@ export interface ChatMessage {
   body: string;
   /** Id generado por el cliente: reenviarlo no duplica el mensaje. */
   clientMessageId: string;
+  /** El filtro de lenguaje tapó alguna palabra de `body` con asteriscos. */
+  moderated: boolean;
   createdAt: string;
 }
 
@@ -46,3 +48,10 @@ export interface ChatRealtimeEvent {
   type: "chat_message";
   message: ChatMessage;
 }
+
+/**
+ * Aviso que ve quien escribió un mensaje al que el filtro le tapó palabras (`moderated: true`).
+ * Vive acá para que todos los clientes muestren el mismo texto.
+ */
+export const CHAT_MODERATION_WARNING =
+  "Cuidá tu lenguaje: hay que respetar a los demás miembros de la comunidad de Movo. Taparon con asteriscos las palabras ofensivas de tu mensaje.";

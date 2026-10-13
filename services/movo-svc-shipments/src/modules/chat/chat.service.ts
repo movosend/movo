@@ -17,6 +17,7 @@ import { ChatHub } from "../../realtime/chat-hub";
 import { assertShipmentAccess } from "../shipments/assert-shipment-access";
 import { assertNotBlocked } from "../../utils/block-relations";
 import { resolveChatAccess } from "../../domain/chat-window";
+import { moderateChatText } from "../../domain/chat-moderation";
 import { Shipment } from "../../models/shipment";
 
 type ChatLogger = { warn: (obj: unknown, msg?: string) => void };
@@ -44,6 +45,7 @@ export function toChatMessageDto(record: ChatMessageRecord): ChatMessage {
     authorId: record.authorId,
     body: record.body,
     clientMessageId: record.clientMessageId,
+    moderated: record.moderated,
     createdAt: record.createdAt.toISOString(),
   };
 }
@@ -134,11 +136,14 @@ export function createChatService(deps: ChatServiceDeps) {
       // ADR-026: un bloqueo con cualquiera de las otras partes corta la escritura (falla cerrado).
       await assertNotBlocked(deps.usersClient, input.callerId, chatParticipantIds(shipment));
 
+      // Se guarda y se difunde el texto ya enmascarado: nadie más llega a ver la palabra.
+      const moderation = moderateChatText(body);
       const { message, created } = await deps.chatRepository.create({
         shipmentId: shipment.id,
         authorId: input.callerId,
-        body,
+        body: moderation.text,
         clientMessageId: input.clientMessageId,
+        moderated: moderation.masked,
       });
       const dto = toChatMessageDto(message);
       if (!created) return { message: dto, replayed: true };

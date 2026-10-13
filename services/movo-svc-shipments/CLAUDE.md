@@ -2786,6 +2786,12 @@ Un hilo por envío entre emisor, receptor y transportista, en `src/modules/chat/
 - **Push `chatMessageReceived`** (categoría `chat`, que pasa a `implemented: true`): a quien no tiene el chat
   abierto, una vez por minuto y destinatario (`SET NX` en Redis), sin el texto del mensaje. Best-effort: un
   fallo libera la marca y nunca afecta el envío.
+- **Filtro de lenguaje** (`domain/chat-moderation.ts`): tapa con asteriscos del mismo largo las palabras de una
+  lista acotada de insultos y agravios, ANTES de guardar y difundir; el mensaje sale igual con
+  `moderated: true` (columna nueva, migración `20261014130000`) y el cliente le muestra al autor
+  `CHAT_MODERATION_WARNING`. Se guarda ya enmascarado, así que el admin ve lo mismo que las partes. Compara por
+  palabra entera (sin falsos positivos tipo "computadora") y contra evasiones comunes; no toca "boludo"/"mierda"
+  ni "retrasado" (legítimo en un envío demorado). La lista la ajusta el equipo en ese archivo.
 - `createdAt` lo fija la app (ms), no el default de Postgres (µs): el cursor viaja como ISO en ms y con µs
   saltearía mensajes del mismo milisegundo. `authorizeRealtimeConnection` ahora devuelve `callerRoles` y acepta
   un mensaje de 403 propio.

@@ -221,6 +221,41 @@ describe("Chat del envío (MOVO-26)", () => {
     });
   });
 
+  describe("filtro de lenguaje", () => {
+    it("tapa la palabra ofensiva antes de guardar y de difundir, y marca el mensaje como moderado", async () => {
+      const p = await createShipment();
+      const carrier = await connectedChat(p.shipmentId, p.carrierId);
+
+      const response = await send(p.shipmentId, p.senderId, "Sos un pelotudo, llegá a horario");
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toMatchObject({ body: "Sos un ********, llegá a horario", moderated: true });
+      await vi.waitFor(() => expect(chatMessagesOf(carrier)).toHaveLength(1));
+      expect(JSON.stringify(chatMessagesOf(carrier))).not.toContain("pelotudo");
+      const stored = await app.db.chatMessage.findFirstOrThrow({ where: { shipmentId: p.shipmentId } });
+      expect(stored.body).toBe("Sos un ********, llegá a horario");
+      expect(stored.moderated).toBe(true);
+      const page = (await history(p.shipmentId, p.receiverId)).json();
+      expect(page.items[0]).toMatchObject({ body: "Sos un ********, llegá a horario", moderated: true });
+      carrier.ws.close();
+    });
+
+    it("un mensaje limpio sale igual y sin marcar", async () => {
+      const p = await createShipment();
+      const response = await send(p.shipmentId, p.senderId, "Ya estoy en la puerta");
+      expect(response.json()).toMatchObject({ body: "Ya estoy en la puerta", moderated: false });
+    });
+
+    it("un reenvío del mismo mensaje devuelve el mismo texto ya tapado", async () => {
+      const p = await createShipment();
+      const clientMessageId = randomUUID();
+      await send(p.shipmentId, p.senderId, "forro", clientMessageId);
+      const replay = await send(p.shipmentId, p.senderId, "forro", clientMessageId);
+      expect(replay.statusCode).toBe(200);
+      expect(replay.json()).toMatchObject({ body: "*****", moderated: true });
+    });
+  });
+
   describe("autorización y validación", () => {
     it("un tercero ajeno al envío recibe 403 al enviar y al leer, y 4003 al conectarse", async () => {
       const p = await createShipment();
