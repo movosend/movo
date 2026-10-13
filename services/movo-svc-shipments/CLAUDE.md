@@ -3231,3 +3231,28 @@ parciales de una pendiente y una completada por envío). Rutas: `POST /shipments
 
 Tests: `test/receiver-transfers.integration.test.ts` (Postgres y Redis reales: cada
 validación, concurrencia, límite, carrera con el handshake, vencimiento, acceso y filtrado).
+
+### MOVO-281 / MOVO-240 — `offer_voided`, recordatorio del día anterior al viaje y aviso de proximidad
+
+- **`offer_voided` (MOVO-281)**: `dispatchOfferVoidedPushes` (`shipments.service.ts`) recibe pares
+  `{ carrierId, offerId }` y manda `data: { type: "offer_voided", shipmentId, offerId }` en vez de
+  `type: "shipment"`: el detalle de un envío `cancelled` le responde 403 a un transportista que no es
+  parte de él, así que el mobile abre el detalle de la oferta. Es un `data.type` nuevo, no un renombre.
+- **Recordatorio del día anterior (MOVO-240)**: barrido `trip-departure-reminder-sweep.ts`
+  (`TRIP_DEPARTURE_REMINDER_SWEEP_INTERVAL_MINUTES`/`_ENABLED`, en los tres lugares) sobre
+  `sendTripDepartureReminders` (`modules/trips/trip-departure-reminder.ts`). Desde las 19:00 (hora
+  argentina, `domain/trip-departure-reminder.ts`) avisa a los viajes `declared` que salen mañana, con
+  la cantidad de paquetes aceptados vivos (`findDeclaredForDepartureReminder`, `_count` filtrado por
+  `ACCEPTED_OFFER_FILTER`). Un viaje declarado después de las 19:00 del día anterior no recibe aviso
+  (decisión del equipo: ya sabe que sale mañana). Un aviso por viaje (claim `notified:` en Redis); un
+  push fallido libera el claim. `data: { type: "trip_reminder", tripId }`. `shortAddress` pasó a
+  `utils/short-address.ts`.
+- **"Está por llegar" (MOVO-240)**: `position-service.ts#notifyProximity` corre cuando una posición
+  abre un tramo de 45s y además avanza la última posición conocida (deja afuera la cola offline y
+  limita la evaluación a una por tramo). Recorre todos los envíos activos del viaje: `assigned` contra
+  el retiro (aviso al emisor) e `in_transit` contra la entrega (al receptor), con un radio de 2 km en
+  línea recta (`PROXIMITY_RADIUS_KM`). Un aviso por envío y etapa (`SET NX` con el mismo cliente de
+  Redis de la ingesta); es fire-and-forget y nunca hace fallar la ingesta. Los otros envíos del viaje
+  se leen con `findById` (cacheado dentro del lote) en vez de una consulta nueva: son pocos y se
+  evalúa como mucho una vez cada 45s. Sin `notificationsClient` (lectura de tracking, purga) no se
+  evalúa nada. `data: { type: "carrier_nearby", shipmentId }`.
