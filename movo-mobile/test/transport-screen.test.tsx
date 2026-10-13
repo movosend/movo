@@ -1,5 +1,6 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { ShipmentStatus } from "@movo/shared/dist/types/shipment";
+import { KycStatus } from "@movo/shared/dist/types/user";
 import { fireEvent, render } from "@testing-library/react-native";
 import type { AvailableShipment } from "../src/api/shipments-client";
 import { TripStatus, type TripWithAcceptedPackages } from "../src/api/trips-client";
@@ -14,6 +15,16 @@ jest.mock("expo-router", () => ({
     replace: (...args: unknown[]) => mockRouterReplace(...args),
   },
   useLocalSearchParams: () => mockLocalSearchParams,
+  // Sin navegador real: el refetch del perfil al volver de /license-kyc se cubre
+  // aparte, acá alcanza con correr el callback una vez como si la pantalla ganara foco.
+  useFocusEffect: (callback: () => void) => mockUseFocusEffect(callback),
+}));
+
+const mockUseFocusEffect = jest.fn();
+
+const mockUseMyProfile = jest.fn();
+jest.mock("../src/hooks/use-profile", () => ({
+  useMyProfile: (...args: unknown[]) => mockUseMyProfile(...args),
 }));
 
 const mockUseTrip = jest.fn();
@@ -49,7 +60,7 @@ jest.mock("../src/hooks/use-shipments", () => {
 
 const mockUseTransportOrigin = jest.fn();
 jest.mock("../src/hooks/use-transport-origin", () => ({
-  useTransportOrigin: () => mockUseTransportOrigin(),
+  useTransportOrigin: (...args: unknown[]) => mockUseTransportOrigin(...args),
 }));
 
 const mockSetRadiusKm = jest.fn();
@@ -201,6 +212,19 @@ function baseAvailableResult(overrides: Record<string, unknown> = {}) {
 
 const RESOLVED_ORIGIN = { lat: -31.4, lng: -64.18, address: "Av. Colón 1234, X5000 Córdoba, Argentina", source: "gps" as const };
 
+function profileResult(overrides: { kycStatus?: KycStatus; licenseKycStatus?: KycStatus } = {}) {
+  return {
+    data: {
+      kycStatus: overrides.kycStatus ?? KycStatus.APPROVED,
+      licenseKycStatus: overrides.licenseKycStatus ?? KycStatus.APPROVED,
+    },
+    isLoading: false,
+    refetch: mockRefetchProfile,
+  };
+}
+
+const mockRefetchProfile = jest.fn();
+
 function baseOriginResult(overrides: Record<string, unknown> = {}) {
   return {
     origin: RESOLVED_ORIGIN,
@@ -246,6 +270,9 @@ describe("TransportScreen", () => {
     // contadores que mostrar en los accesos (MOVO-183).
     mockUseMyTrips.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 } });
     mockUseMyOffers.mockReturnValue({ data: { items: [], page: 1, limit: 50, total: 0 } });
+    // Identidad y licencia aprobadas por default (MOVO-167) — los tests de gating
+    // pisan esto con el estado que necesitan.
+    mockUseMyProfile.mockReturnValue(profileResult());
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -317,7 +344,7 @@ describe("TransportScreen", () => {
 
     expect(getByText("Verificá tu identidad para transportar")).toBeTruthy();
 
-    await fireEvent.press(getByTestId("transport-verify-kyc"));
+    await fireEvent.press(getByTestId("transport-identity-gate-cta"));
     expect(mockRouterPush).toHaveBeenCalledWith("/kyc");
   });
 
@@ -752,6 +779,160 @@ describe("TransportScreen", () => {
       await fireEvent.press(getByTestId("transport-my-route-cta"));
 
       expect(mockRouterPush).toHaveBeenCalledWith("/route");
+    });
+  });
+
+  describe("gating por licencia de conducir (MOVO-167)", () => {
+    // Con el bloqueo activo la pantalla no resuelve origen (no pide GPS) ni pide
+    // envíos: el hook de origen queda deshabilitado y devuelve lo mismo que en ese caso.
+    const DISABLED_ORIGIN = { origin: null, resolving: false, needsManualPick: false, setManualSelection: jest.fn() };
+
+    it("sin licencia aprobada muestra el bloqueo con CTA a /license-kyc y oculta listado y controles", async () => {
+      mockUseMyProfile.mockReturnValue(profileResult({ licenseKycStatus: KycStatus.NOT_STARTED }));
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      const { getByTestId, getByText, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-license-gate")).toBeTruthy();
+      expect(getByText("¡Verificá tu licencia para transportar paquetes!")).toBeTruthy();
+      expect(queryByTestId("transport-list")).toBeNull();
+      expect(queryByTestId("transport-zone-chip")).toBeNull();
+      expect(queryByTestId("transport-radius-50")).toBeNull();
+      expect(queryByTestId("transport-open-filters")).toBeNull();
+      expect(queryByTestId("transport-my-trips-cta")).toBeNull();
+      expect(queryByTestId("transport-my-route-cta")).toBeNull();
+
+      await fireEvent.press(getByTestId("transport-license-gate-cta"));
+      expect(mockRouterPush).toHaveBeenCalledWith({
+        pathname: "/license-kyc",
+        params: { status: KycStatus.NOT_STARTED },
+      });
+    });
+
+    it("bloqueado, no resuelve el origen ni pide envíos disponibles", async () => {
+      mockUseMyProfile.mockReturnValue(profileResult({ licenseKycStatus: KycStatus.REJECTED }));
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      await render(<TransportScreen />);
+
+      expect(mockUseTransportOrigin).toHaveBeenCalledWith(false);
+      expect(mockUseAvailableShipments).toHaveBeenLastCalledWith(null, 50);
+    });
+
+    it("con la licencia en revisión explica que se está revisando, sin pedir verificar de nuevo", async () => {
+      mockUseMyProfile.mockReturnValue(profileResult({ licenseKycStatus: KycStatus.MANUAL_REVIEW }));
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      const { getByText, queryByText } = await render(<TransportScreen />);
+
+      expect(getByText("Estamos revisando tu licencia")).toBeTruthy();
+      expect(getByText("Ver estado")).toBeTruthy();
+      expect(queryByText("Verificar licencia")).toBeNull();
+    });
+
+    it("con la licencia aprobada desbloquea el listado y sus controles", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([availableShipment()]) }));
+
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+      expect(queryByTestId("transport-license-gate")).toBeNull();
+      expect(getByTestId("transport-list")).toBeTruthy();
+      expect(getByTestId("transport-zone-chip")).toBeTruthy();
+      expect(getByTestId("transport-my-trips-cta")).toBeTruthy();
+      expect(mockUseTransportOrigin).toHaveBeenCalledWith(true);
+    });
+
+    it("prioriza la identidad: sin KYC de identidad muestra ese CTA y no el de licencia", async () => {
+      mockUseMyProfile.mockReturnValue(
+        profileResult({ kycStatus: KycStatus.REJECTED, licenseKycStatus: KycStatus.NOT_STARTED }),
+      );
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-identity-gate")).toBeTruthy();
+      expect(queryByTestId("transport-license-gate")).toBeNull();
+    });
+
+    it("el 403 de identidad del feed gana sobre una licencia aprobada en el perfil cacheado", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(
+        baseAvailableResult({
+          isError: true,
+          error: new ApiError(403, "CARRIER_NOT_VERIFIED", "Necesitás tu identidad verificada."),
+        }),
+      );
+
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-identity-gate")).toBeTruthy();
+      expect(queryByTestId("transport-zone-chip")).toBeNull();
+    });
+
+    it("mientras carga el perfil muestra el skeleton, sin bloqueo ni listado", async () => {
+      mockUseMyProfile.mockReturnValue({ data: undefined, isLoading: true, refetch: mockRefetchProfile });
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      const { queryByTestId } = await render(<TransportScreen />);
+
+      expect(queryByTestId("transport-license-gate")).toBeNull();
+      expect(queryByTestId("transport-identity-gate")).toBeNull();
+      expect(queryByTestId("transport-list")).toBeNull();
+      expect(mockUseTransportOrigin).toHaveBeenCalledWith(false);
+    });
+
+    it("si el perfil no se pudo cargar no bloquea (el backend sigue siendo la autoridad)", async () => {
+      mockUseMyProfile.mockReturnValue({ data: undefined, isLoading: false, refetch: mockRefetchProfile });
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([availableShipment()]) }));
+
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+      expect(queryByTestId("transport-license-gate")).toBeNull();
+      expect(getByTestId("transport-list")).toBeTruthy();
+    });
+
+    it("al ganar foco con el bloqueo activo vuelve a pedir el perfil (vuelta desde /license-kyc)", async () => {
+      mockUseMyProfile.mockReturnValue(profileResult({ licenseKycStatus: KycStatus.PENDING }));
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      await render(<TransportScreen />);
+      const onFocus = mockUseFocusEffect.mock.calls.at(-1)?.[0] as () => void;
+      onFocus();
+
+      expect(mockRefetchProfile).toHaveBeenCalled();
+    });
+
+    it("sin bloqueo, ganar foco no refetchea el perfil", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+
+      await render(<TransportScreen />);
+      const onFocus = mockUseFocusEffect.mock.calls.at(-1)?.[0] as () => void;
+      onFocus();
+
+      expect(mockRefetchProfile).not.toHaveBeenCalled();
+    });
+
+    it("también bloquea el modo filtrado por viaje, sin pedir el viaje ni sus matches", async () => {
+      mockLocalSearchParams = { tripId: "trip-1" };
+      mockUseMyProfile.mockReturnValue(profileResult({ licenseKycStatus: KycStatus.EXPIRED }));
+      mockUseTransportOrigin.mockReturnValue(DISABLED_ORIGIN);
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-license-gate")).toBeTruthy();
+      expect(queryByTestId("transport-trip-filter-label")).toBeNull();
+      expect(mockUseTrip).toHaveBeenLastCalledWith(undefined);
+      expect(mockUseTripMatches).toHaveBeenLastCalledWith(undefined);
     });
   });
 });
