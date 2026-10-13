@@ -840,15 +840,17 @@ async function dispatchPickupMissedPushes(
 
 /** MOVO-108 (AC7) / MOVO-210: el envío se canceló -- avisa a cada transportista cuya oferta
  * quedó sin efecto (las `pending` vigentes y, antes de confirmarse el hold, el asignado). Un
- * fallo de una push nunca frena a las otras. */
+ * fallo de una push nunca frena a las otras. MOVO-281: viaja como `offer_voided` con el
+ * `offerId` para que el mobile abra el detalle de la oferta -- el del envío ya `cancelled` le
+ * responde 403 a un transportista que no es parte de él. */
 async function dispatchOfferVoidedPushes(
   notificationsClient: NotificationsClient,
   logger: SweepLogger,
   shipmentId: string,
-  carrierIds: string[]
+  voidedOffers: Array<{ carrierId: string; offerId: string }>
 ): Promise<void> {
   await Promise.all(
-    carrierIds.map(async (carrierId) => {
+    voidedOffers.map(async ({ carrierId, offerId }) => {
       try {
         const { title, body } = renderNotificationTrigger("offerVoidedByShipmentCancellation", undefined);
         await notificationsClient.sendPush({
@@ -856,7 +858,7 @@ async function dispatchOfferVoidedPushes(
           title,
           body,
           category: notificationTriggerCategory("offerVoidedByShipmentCancellation"),
-          data: { type: "shipment", shipmentId },
+          data: { type: "offer_voided", shipmentId, offerId },
         });
       } catch (err) {
         logger?.warn(
@@ -1921,10 +1923,12 @@ export function createShipmentsService(
       if (mayHavePendingOffers && !offerRepository) {
         throw new Error("cancelShipment requiere offerRepository (ShipmentsServiceOptions) para notificar ofertas pendientes.");
       }
-      const pendingOffers =
-        mayHavePendingOffers && offerRepository
-          ? (await offerRepository.listByShipment(shipmentId)).filter((offer) => offer.status === OfferStatus.PENDING)
-          : [];
+      const shipmentOffers = mayHavePendingOffers && offerRepository ? await offerRepository.listByShipment(shipmentId) : [];
+      const pendingOffers = shipmentOffers.filter((offer) => offer.status === OfferStatus.PENDING);
+      // MOVO-281: la oferta del transportista ya asignado, para mandarle su `offerId` en el aviso.
+      const assignedOffer = awaitingFunding
+        ? shipmentOffers.find((offer) => offer.status === OfferStatus.ACCEPTED && offer.carrierId === shipment.carrierId)
+        : undefined;
 
       // Cualquier otro estado sin salida hacia `cancelled` (delivered, in_transit,
       // disputed, cancelled) llega hasta acá y
@@ -1957,11 +1961,13 @@ export function createShipmentsService(
       if (notificationsClient) {
         // MOVO-210 (AC17): el transportista ya asignado (su oferta estaba `accepted`, no
         // `pending`, así que no entra en `pendingOffers`) también se entera.
-        const assignedCarrier = awaitingFunding && shipment.carrierId ? [shipment.carrierId] : [];
-        await dispatchOfferVoidedPushes(notificationsClient, logger, shipmentId, [
-          ...assignedCarrier,
-          ...pendingOffers.map((offer) => offer.carrierId),
-        ]);
+        const voidedOffers = assignedOffer ? [assignedOffer, ...pendingOffers] : pendingOffers;
+        await dispatchOfferVoidedPushes(
+          notificationsClient,
+          logger,
+          shipmentId,
+          voidedOffers.map((offer) => ({ carrierId: offer.carrierId, offerId: offer.id }))
+        );
       }
 
       return cancelled;
@@ -2195,11 +2201,11 @@ export function createShipmentsService(
           const awaitingFunding = AWAITING_FUNDING_STATUSES.includes(shipment.status);
           // Antes de cancelar: `updateStatus` las pasa a `shipment_cancelled` en la misma
           // transacción y después ya no se distinguen (mismo criterio que `cancelShipment`).
-          const pendingOfferCarrierIds =
+          const pendingVoidedOffers =
             awaitingFunding && offerRepository
               ? (await offerRepository.listByShipment(shipment.id))
                   .filter((offer) => offer.status === OfferStatus.PENDING)
-                  .map((offer) => offer.carrierId)
+                  .map((offer) => ({ carrierId: offer.carrierId, offerId: offer.id }))
               : [];
           // MOVO-210: cancelar un retiro no realizado tiene que liberar la reserva del emisor.
           // Desde `assigned` nadie más puede mover el envío, así que se libera antes y, si no se
@@ -2227,8 +2233,8 @@ export function createShipmentsService(
 
           if (notificationsClient) {
             void dispatchPickupMissedPushes(notificationsClient, logger, shipment);
-            if (pendingOfferCarrierIds.length > 0) {
-              void dispatchOfferVoidedPushes(notificationsClient, logger, shipment.id, pendingOfferCarrierIds);
+            if (pendingVoidedOffers.length > 0) {
+              void dispatchOfferVoidedPushes(notificationsClient, logger, shipment.id, pendingVoidedOffers);
             }
           }
         } catch (err) {
