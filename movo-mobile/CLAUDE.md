@@ -4417,5 +4417,12 @@ perfil falla no bloquea: es solo UX, la autoridad sigue siendo el backend (ADR-0
   hoy" y los accesos "Mis viajes"/"Mis ofertas" también con `PressableScale` y labels de
   accesibilidad. Los íconos de los accesos eran lima puro sobre `bg-bg-sub`, ilegibles en modo
   claro: ahora van en un círculo `bg-lime-500/20` con el color de texto del tema.
+- El AC2 describía el header anterior a MOVO-183 ("Envíos cerca de…", "Cambiar", pill "Mis
+  viajes"); se pulió el header actual en vez de volver a ese diseño.
 
-Pendiente: no probado en device.
+**Fuera del ticket, en el mismo PR (commit aparte)**: "Actividad reciente" del Inicio decía
+"Todavía no hiciste ningún envío." cuando el usuario tenía historial pero todo oculto
+(cancelados de más de 48h, MOVO-184). Ahora dice "No tenés actividad reciente." y el link a
+"Mis envíos" sigue visible.
+
+Probado en device.
