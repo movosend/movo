@@ -74,7 +74,8 @@ export type NotificationTriggerKey =
   | "receiverTransferRejectedSender"
   | "receiverTransferExpiredRequester"
   | "receiverTransferExpiredSender"
-  | "receiverTransferCancelled";
+  | "receiverTransferCancelled"
+  | "chatMessageReceived";
 
 export interface NotificationCopy {
   title: string;
@@ -555,6 +556,16 @@ export const NOTIFICATION_TRIGGERS = {
   ),
   // MOVO-275 (ADR-038): transferencia de receptor. Copy propio por destinatario: la
   // persona invitada tiene que actuar; el emisor y el transportista solo se enteran.
+  // MOVO-26: mensaje nuevo en el chat de un envío. El texto del mensaje NO viaja en la push
+  // (se vería en la pantalla bloqueada): solo quién escribió.
+  chatMessageReceived: definition<{ authorName: string }>(
+    "chat",
+    { title: "Mensaje nuevo", body: "Tenés un mensaje nuevo sobre un envío. Tocá para verlo." },
+    ({ authorName }) => ({
+      title: `${authorName} te escribió`,
+      body: "Tenés un mensaje nuevo sobre un envío. Tocá para verlo.",
+    })
+  ),
   receiverTransferInvited: definition<{ requesterName: string; deadlineHours: number }>(
     "shipments",
     {

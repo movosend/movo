@@ -127,6 +127,12 @@ export type ApiErrorCode =
   // MOVO-175: interacción (oferta, aceptación, envío como receptor) entre dos usuarios
   // con un bloqueo en cualquier dirección -- explícito a propósito (ADR-026).
   | "USER_BLOCKED"
+  // MOVO-26: el chat del envío ya no está disponible (fuera de la ventana de 24 h
+  // posteriores a la entrega, o el envío se canceló).
+  | "CHAT_CLOSED"
+  // MOVO-26: el chat sigue visible pero no admite mensajes nuevos de quien escribe
+  // (receptor original, envío en disputa).
+  | "CHAT_READ_ONLY"
   // MOVO-175: reportarse o bloquearse a uno mismo.
   | "CANNOT_MODERATE_SELF"
   // MOVO-175: ya hay un reporte propio en revisión sobre ese usuario -- se suma

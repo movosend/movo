@@ -176,6 +176,14 @@ export { isValidTimeOfDay, isWithinQuietHours } from "./config/quiet-hours";
 // trip start (MOVO-277)
 export { canStartTripOn, tripStartAvailableOn } from "./config/trip-start";
 
+// chat (MOVO-26)
+export {
+  CHAT_MESSAGE_MAX_LENGTH,
+  CHAT_POST_DELIVERY_WINDOW_HOURS,
+  CHAT_PAGE_MAX_LIMIT,
+} from "./types/chat";
+export type { ChatAccess, ChatMessage, ChatMessagesPage, ChatRealtimeEvent } from "./types/chat";
+
 // receiver transfer (MOVO-275)
 export {
   RECEIVER_TRANSFER_STATUSES,

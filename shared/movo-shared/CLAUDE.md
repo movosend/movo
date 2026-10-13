@@ -422,3 +422,11 @@ mobile), `ReceiverTransferRequest`, `ReceiverTransferInvitation` y
 `ShipmentReceiverTransferSummary`. Siete códigos nuevos (`SHIPMENT_RECEIVER_TRANSFER_*`,
 `RECEIVER_TRANSFER_NOT_FOUND`/`_NOT_PENDING`) y diez triggers `receiverTransfer*` en la
 categoría `shipments`, con copy propio por destinatario.
+
+### MOVO-26 — Contrato del chat (ADR-040)
+
+`types/chat.ts`: `ChatMessage`, `ChatMessagesPage` (con `access`), `ChatRealtimeEvent`, `ChatAccess` y las
+constantes `CHAT_MESSAGE_MAX_LENGTH` (1000), `CHAT_POST_DELIVERY_WINDOW_HOURS` (24) y `CHAT_PAGE_MAX_LIMIT`.
+`ApiErrorCode` suma `CHAT_CLOSED` y `CHAT_READ_ONLY`; el trigger `chatMessageReceived` va en la categoría
+`chat`, que pasa a `implemented: true` (la pantalla de configuración de MOVO-246 la muestra con toggle real).
+
