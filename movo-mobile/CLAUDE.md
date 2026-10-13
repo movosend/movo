@@ -4396,3 +4396,26 @@ pantalla sin foco (prop `paused`) o la app en segundo plano. Los pines usan `Sta
 (`components/map/static-marker.tsx`, compartido con `trip-detail-map`) y el mapa apaga capas y
 controles que no usa. Pendiente: pausar el barrido cuando la card sale de pantalla dentro del
 mismo scroll; si el scroll del detalle sigue trabado, desactivar gestos del mapa o mostrarlo como imagen.
+
+### MOVO-167 — Tab Transportar bloqueado sin licencia verificada + pulido del header
+
+`transport.tsx` lee `kycStatus`/`licenseKycStatus` de `useMyProfile()` y, vía
+`resolveTransportGate` (`src/lib/carrier-requirements.ts`), bloquea primero por identidad
+(perfil o 403 `CARRIER_NOT_VERIFIED` del feed) y después por licencia. El bloqueo reemplaza
+listado, zona, accesos, radio y filtros (también en modo `?tripId=`); mientras dura no se
+resuelve el origen (no pide GPS) ni se piden envíos. Al ganar foco con el bloqueo activo se
+refetchea el perfil, así volver de `/license-kyc` lo destraba sin reabrir la app. Si el
+perfil falla no bloquea: es solo UX, la autoridad sigue siendo el backend (ADR-036).
+
+- **`CarrierRequirementGate`** (`components/carrier/`) es genérico (ícono, título, texto, CTA)
+  y lo usan ambos bloqueos; pensado para que MOVO-117 lo reuse con Mercado Pago en vez de
+  sumar otro banner casi igual. El copy de licencia varía por estado (`licenseGateCopy`): en
+  `manual_review` dice "Estamos revisando tu licencia" con "Ver estado", porque pedir
+  "verificá" sobre algo ya enviado se lee como error. El CTA pasa `status` a `/license-kyc`,
+  igual que el banner de Perfil.
+- **Header**: chip de zona más legible (pin en `fg`, 13px) y con `PressableScale`; "Mi ruta de
+  hoy" y los accesos "Mis viajes"/"Mis ofertas" también con `PressableScale` y labels de
+  accesibilidad. Los íconos de los accesos eran lima puro sobre `bg-bg-sub`, ilegibles en modo
+  claro: ahora van en un círculo `bg-lime-500/20` con el color de texto del tema.
+
+Pendiente: no probado en device.
