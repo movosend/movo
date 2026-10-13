@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Modal, Pressable, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { SafeAreaProvider, SafeAreaView, initialWindowMetrics } from "react-native-safe-area-context";
@@ -20,6 +20,10 @@ export interface BottomSheetModalProps {
   backdropClassName?: string;
   /** Clases del `SafeAreaView` que envuelve el contenido (ej. `gap-4`). */
   contentClassName?: string;
+  /** Se llama cuando la hoja terminó de cerrarse y su `Modal` nativo ya no está. iOS no presenta
+   * un `Modal` mientras otro se está cerrando: quien abre otro después de este tiene que esperar
+   * este aviso en vez de abrirlo en el mismo render en que lo cierra. */
+  onClosed?: () => void;
   children: ReactNode;
 }
 
@@ -36,9 +40,19 @@ export function BottomSheetModal({
   sheetClassName = "rounded-t-2xl bg-bg px-5 pt-5",
   backdropClassName = "bg-black/40",
   contentClassName,
+  onClosed,
   children,
 }: BottomSheetModalProps) {
   const { isMounted, backdropStyle, sheetStyle } = useSheetAnimation(visible);
+
+  const onClosedRef = useRef(onClosed);
+  onClosedRef.current = onClosed;
+  const wasMountedRef = useRef(isMounted);
+  useEffect(() => {
+    if (wasMountedRef.current && !isMounted) onClosedRef.current?.();
+    wasMountedRef.current = isMounted;
+  }, [isMounted]);
+
   if (!isMounted) return null;
 
   return (

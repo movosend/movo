@@ -18,6 +18,8 @@ const PILL_STYLE: Record<Exclude<MyShipmentPillTone, "ink">, { bg: string; fg: s
   warning: { bg: "#FEF7E7", fg: "#A97714" },
   success: { bg: "rgba(43,182,115,0.12)", fg: "#1E7A4C" },
   danger: { bg: "rgba(229,72,77,0.1)", fg: "#B4282D" },
+  // MOVO-275: "Transferido", sin nada pendiente ni bueno ni malo.
+  neutral: { bg: "rgba(10,10,11,0.08)", fg: "#3A3A40" },
 };
 
 export function MyShipmentStatusPill({
