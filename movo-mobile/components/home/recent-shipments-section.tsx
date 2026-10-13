@@ -84,8 +84,11 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
       ) : visibleShipments.length + otherTrips.length === 0 ? (
         <View className="items-center gap-2 py-6">
           <PackageX size={20} strokeWidth={1.8} color={colors.fg3} />
+          {/* Con historial pero todo oculto (cancelados de más de 48h, MOVO-184), decir
+              "todavía no hiciste ningún envío" era falso: el historial sigue en "Mis
+              envíos", cuyo link aparece debajo. */}
           <Text className="text-center font-sans text-small text-fg-2">
-            Todavía no hiciste ningún envío.
+            {(data?.items.length ?? 0) > 0 ? "No tenés actividad reciente." : "Todavía no hiciste ningún envío."}
           </Text>
         </View>
       ) : (
