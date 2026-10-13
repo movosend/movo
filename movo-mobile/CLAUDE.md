@@ -4412,6 +4412,11 @@ que necesita la ruta, devuelve `null` y no navega. Tests en
 `test/resolve-notification-route.test.ts`. Con MOVO-240, la categoría "Transportista en camino"
 deja de mostrarse como "Pronto" en Configuración de notificaciones.
 
+Para probarlo sin push remota (el team de Apple es individual y el build local va con
+`ENABLE_PUSH_NOTIFICATIONS=false`), `/dev-shortcuts` tiene "Navegación de notificaciones":
+programa una notificación local a 10 s con el mismo `data` que manda el backend, y muestra
+la ruta que resuelve cada tipo. Al tocarla pasa por el mismo handler que una push real.
+
 Gotcha de entorno: con un `ios/` local generado (Pods y build, ~2 GB) jest se cuelga armando el
 mapa de módulos sin mostrar nada. Correrlo con
 `--modulePathIgnorePatterns '<rootDir>/ios' '<rootDir>/android'`.
