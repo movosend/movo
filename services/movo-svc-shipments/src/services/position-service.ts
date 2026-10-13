@@ -1,5 +1,14 @@
-import { ApiError, TripStatus } from "@movo/shared";
+import {
+  ApiError,
+  ShipmentStatus,
+  TripStatus,
+  notificationTriggerCategory,
+  renderNotificationTrigger,
+} from "@movo/shared";
 import { ShipmentRepository, ShipmentTrackingContext } from "../repositories/shipment-repository";
+import { NotificationsClient } from "../adapters/notifications-client";
+import { Shipment } from "../models/shipment";
+import { haversineKm } from "../domain/geo";
 import { PositionRepository } from "../repositories/position-repository";
 import { assertIsCarrier } from "../modules/shipments/assert-shipment-access";
 import { CarrierPosition, LastKnownCarrierPosition } from "../models/carrier-position";
@@ -68,6 +77,17 @@ redis.call('EXPIRE', KEYS[1], ARGV[7])
 return 1
 `;
 
+/** MOVO-240: radio del aviso "está por llegar", en línea recta (Haversine). Se eligió radio
+ * y no ETA porque el ETA exigiría una llamada facturable a Routes por cada aviso. */
+export const PROXIMITY_RADIUS_KM = 2;
+
+/** Un aviso por envío y etapa; 7 días cubren de sobra cualquier viaje. */
+const PROXIMITY_CLAIM_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function proximityClaimKey(stage: "pickup" | "delivery", shipmentId: string): string {
+  return `notified:proximity:${stage}:${shipmentId}`;
+}
+
 export interface RealtimePublisher {
   broadcast(shipmentId: string, message: unknown): void;
 }
@@ -130,7 +150,9 @@ export function createPositionService(
   positionRepository: PositionRepository,
   redis: PositionRedisClient,
   realtime: RealtimePublisher,
-  logger?: PositionServiceLogger
+  logger?: PositionServiceLogger,
+  /** MOVO-240: sin cliente no se evalúa la proximidad (lectura de tracking, purga). */
+  notificationsClient?: NotificationsClient
 ): PositionService {
   async function resolveTrackingContext(shipmentId: string): Promise<ShipmentTrackingContext | null> {
     if (shipmentRepository.findTrackingContext) {
@@ -203,17 +225,86 @@ export function createPositionService(
   }
 
   /**
+   * MOVO-240: avisa "está por llegar" al emisor cuando el transportista entra a 2 km del
+   * retiro (envío `assigned`) y al receptor cuando entra a 2 km de la entrega
+   * (`in_transit`). Recorre todos los envíos activos del viaje: el aviso puede salir aunque
+   * no sea la próxima parada (decisión del refinamiento, el orden del VRPTW no se persiste).
+   * Una sola vez por envío y etapa (`SET NX`); si el push falla se libera para reintentar.
+   */
+  async function notifyProximity(
+    context: ShipmentTrackingContext,
+    position: ReportPositionInput,
+    shipmentCache: Map<string, Promise<Shipment | null>>
+  ): Promise<void> {
+    if (!notificationsClient) return;
+    const ids = context.activeShipmentIds?.length ? context.activeShipmentIds : [context.shipment.id];
+    for (const id of ids) {
+      let lookup = shipmentCache.get(id);
+      if (!lookup) {
+        lookup =
+          id === context.shipment.id ? Promise.resolve(context.shipment) : shipmentRepository.findById(id);
+        shipmentCache.set(id, lookup);
+      }
+      const shipment = await lookup;
+      if (!shipment) continue;
+
+      const target =
+        shipment.status === ShipmentStatus.ASSIGNED
+          ? {
+              stage: "pickup" as const,
+              userId: shipment.senderId,
+              lat: shipment.pickupLat,
+              lng: shipment.pickupLng,
+              trigger: "carrierNearPickup" as const,
+            }
+          : shipment.status === ShipmentStatus.IN_TRANSIT && shipment.receiverId
+            ? {
+                stage: "delivery" as const,
+                userId: shipment.receiverId,
+                lat: shipment.deliveryLat,
+                lng: shipment.deliveryLng,
+                trigger: "carrierNearDelivery" as const,
+              }
+            : null;
+      if (!target) continue;
+      if (haversineKm(position.lat, position.lng, target.lat, target.lng) > PROXIMITY_RADIUS_KM) continue;
+
+      const claimKey = proximityClaimKey(target.stage, shipment.id);
+      if ((await redis.set(claimKey, "1", "PX", PROXIMITY_CLAIM_TTL_MS, "NX")) !== "OK") continue;
+
+      const { title, body } = renderNotificationTrigger(target.trigger, undefined);
+      try {
+        await notificationsClient.sendPush({
+          userId: target.userId,
+          title,
+          body,
+          category: notificationTriggerCategory(target.trigger),
+          data: { type: "carrier_nearby", shipmentId: shipment.id },
+        });
+      } catch (err) {
+        await redis.del(claimKey).catch(() => undefined);
+        logger?.warn(
+          { err, event: "notification_dispatch_failed", shipmentId: shipment.id, stage: target.stage },
+          "No se pudo mandar el aviso de transportista cerca"
+        );
+      }
+    }
+  }
+
+  /**
    * AC4/AC5 de MOVO-202 con el orden de MOVO-250 y agrupamiento por viaje de MOVO-251.
    * La cadencia se decide con un claim atómico por TRAMO de `capturedAt` (`SET NX`) en Redis por `tripId`.
    * La última posición conocida se indexa por `tripId` y la difusión llega a los envíos activos del viaje.
    */
   async function ingest(
-    shipmentId: string,
-    tripId: string,
+    context: ShipmentTrackingContext & { trip: NonNullable<ShipmentTrackingContext["trip"]> },
     input: ReportPositionInput,
     now: Date,
-    activeShipmentIds?: string[]
+    shipmentCache: Map<string, Promise<Shipment | null>> = new Map()
   ): Promise<{ persisted: boolean }> {
+    const shipmentId = context.shipment.id;
+    const tripId = context.trip.id;
+    const activeShipmentIds = context.activeShipmentIds;
     const bucket = Math.floor(input.capturedAt.getTime() / CARRIER_POSITION_MIN_PERSIST_INTERVAL_MS);
     const cadenceKey = persistCadenceBucketKey(tripId, bucket);
     const claimed = await redis.set(cadenceKey, "1", "PX", CADENCE_BUCKET_TTL_MS, "NX");
@@ -263,6 +354,15 @@ export function createPositionService(
           recordedAt: now.toISOString(),
         });
       }
+
+      // MOVO-240: solo con una posición nueva (avanzó el marcador) y que abrió un tramo de
+      // 45s -- deja afuera las posiciones viejas de la cola offline y limita la evaluación a
+      // una por tramo. Fire-and-forget: la ingesta nunca espera al push ni falla por él.
+      if (shouldPersist) {
+        void notifyProximity(context, input, shipmentCache).catch((err: unknown) => {
+          logger?.warn({ err, event: "proximity_check_failed", tripId }, "Falló la evaluación de proximidad");
+        });
+      }
     }
 
     return { persisted: shouldPersist };
@@ -277,12 +377,13 @@ export function createPositionService(
       const context = await resolveTrackingContext(shipmentId);
       const now = new Date();
       const valid = assertCanReport(context, callerId, input.capturedAt, now);
-      return ingest(shipmentId, valid.trip.id, input, now, valid.activeShipmentIds);
+      return ingest(valid, input, now);
     },
 
     async reportPositions(callerId: string, items: BatchPositionInput[]): Promise<PositionBatchItemResult[]> {
       const now = new Date();
       const contexts = new Map<string, Promise<ShipmentTrackingContext | null>>();
+      const shipmentCache = new Map<string, Promise<Shipment | null>>();
       const results: PositionBatchItemResult[] = [];
 
       for (const [index, item] of items.entries()) {
@@ -302,7 +403,7 @@ export function createPositionService(
           continue;
         }
 
-        const { persisted } = await ingest(item.shipmentId, valid.trip.id, item, now, valid.activeShipmentIds);
+        const { persisted } = await ingest(valid, item, now, shipmentCache);
         results.push({ index, shipmentId: item.shipmentId, status: "accepted", persisted });
       }
 

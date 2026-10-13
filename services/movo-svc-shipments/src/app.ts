@@ -279,6 +279,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const positionsRouteOpts: PositionsRoutesOptions = {
     prefix: "/shipments",
     ...(opts.shipmentRepository ? { shipmentRepository: opts.shipmentRepository } : {}),
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
   };
   app.register(positionsRoutes, positionsRouteOpts);
 
