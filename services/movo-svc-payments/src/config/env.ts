@@ -47,9 +47,13 @@ export const envSchema = {
     // de la medición de MOVO-215 (la documentación de MP dice 5 o 7 días según la
     // página). 5 es el mínimo de los documentados: provisorio hasta que cierre el spike.
     MP_HOLD_VALIDITY_DAYS: { type: "number", minimum: 1, default: 5 },
-    // MOVO-100 (ADR-039): `public_key` de Movo S.A. con la que el mobile tokeniza la tarjeta
-    // al guardarla (en sandbox, la `TEST-`: la `APP_USR-` da 404 card not found). Opcional
-    // como el resto de las MP_*: sin ella `checkout-data` responde 503 CARDS_NOT_CONFIGURED.
+    // MOVO-100 (ADR-039): `public_key` con la que el mobile tokeniza la tarjeta al guardarla.
+    // Solo genera el token de un solo uso: la tarjeta queda siempre en un customer de Movo S.A.
+    // (token de client_credentials), sin importar de quién sea esta key. En sandbox tiene que
+    // ser una `TEST-` (la `APP_USR-` da 404 card not found): en dev se usa la de un Vendedor de
+    // prueba, porque la consola de `movosend` no muestra una `TEST-` de Movo. En producción
+    // se espera la de Movo (pendiente de confirmar, spike MOVO-283). Opcional como el resto de
+    // las MP_*: sin ella `checkout-data` responde 503 CARDS_NOT_CONFIGURED.
     MP_PUBLIC_KEY: { type: "string" },
     // MOVO-100, solo sandbox (`MP_TEST_MODE=true`): JSON `{"<userId de Movo>": "<email de una
     // cuenta de prueba Comprador>"}`. En sandbox el customer tiene que usar el email de un

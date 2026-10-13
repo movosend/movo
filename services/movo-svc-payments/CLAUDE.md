@@ -236,8 +236,10 @@ todavía). Código en `src/modules/cards/`, `src/repositories/saved-card-reposit
 - **Baja de cuenta**: best-effort; si MP falla se loguea el `mpCustomerId` huérfano y las filas locales se
   borran igual.
 - **Logger**: `cardToken`/`card_token`, `mpCardId`/`mp_card_id`, `cardId`/`card_id` redactados.
-- **Env vars** (`.env.example` + `envSchema` + compose): `MP_PUBLIC_KEY` (sin ella `checkout-data` y el
-  token de Movo responden `503 CARDS_NOT_CONFIGURED`), `MP_TEST_PAYER_EMAILS`. `USERS_SERVICE_URL` tiene
+- **Env vars** (`.env.example` + `envSchema` + compose): `MP_PUBLIC_KEY` (sin ella `checkout-data` responde
+  `503 CARDS_NOT_CONFIGURED`), `MP_TEST_PAYER_EMAILS`. **`MP_PUBLIC_KEY` solo sirve para tokenizar** en el
+  dispositivo: la tarjeta queda siempre en el customer de Movo S.A., sea de quien sea esa key. En dev está
+  cargada la `TEST-` de un Vendedor de prueba (atajo de sandbox); en prod se espera la de Movo. `USERS_SERVICE_URL` tiene
   default de código (como en `svc-shipments`), no se lista en compose.
 
 Verificado contra el sandbox real (13/10): `test/cards.sandbox.test.ts` guarda, lista, detecta el duplicado
@@ -246,6 +248,7 @@ del spike; con la Visa `4075 5957 1648 3764` da 201. La `public_key` con que se 
 de cualquier Vendedor de prueba vinculado (la consola de `movosend` solo muestra `APP_USR-`); la de Movo S.A.
 sigue sin identificarse (punto 2 de MOVO-283).
 
-Pendiente: cargar `MP_PUBLIC_KEY` (una `TEST-` de Vendedor) en el secret de dev; producción y segundo
+Pendiente: `MP_PUBLIC_KEY` ya está cargada en el secret de dev (`TEST-` de un Vendedor de prueba, atajo
+de sandbox); producción y segundo
 transportista (spike MOVO-283, ADR-039 sigue "propuesto"); MOVO-282 (hold con `payer: customer` y escritura
 de `saved_card_id`) y MOVO-39 (llamar al endpoint interno de baja).

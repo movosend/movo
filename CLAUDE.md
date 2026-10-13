@@ -511,7 +511,9 @@ prueba y alternativas en `docs/payments/adr-039-tarjetas-guardadas-con-cvv.md`.
   `payer: customer`), MOVO-101 (mobile, Pagos y cobros: gestión de tarjetas, para emisor y
   transportista), MOVO-269 (mobile: pagar con tarjeta guardada + CVV), MOVO-283 (spike).
 - **Estado**: MOVO-100 (backend `svc-payments`) implementado, ver `services/movo-svc-payments/CLAUDE.md`.
-  **Pendiente**: conseguir la `public_key` `TEST-` de Movo y cargar `MP_PUBLIC_KEY` en dev; MOVO-282,
+  **`MP_PUBLIC_KEY`** solo tokeniza en el dispositivo (la tarjeta queda siempre en el customer de Movo S.A.);
+  en dev es una `TEST-` de un Vendedor de prueba (ya cargada en el secret), en prod se espera la de Movo.
+  **Pendiente**: confirmar con MOVO-283 cuál es la key de producción; MOVO-282,
   MOVO-101 y MOVO-269; el spike MOVO-283 (segundo transportista, producción con cuenta real y bajo
   monto, `application_fee` real, débito de la comisión sin CVV para MOVO-37); pasar el ADR a
   "aceptado" y pegar su desarrollo completo en Drive.

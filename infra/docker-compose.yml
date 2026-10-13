@@ -244,9 +244,11 @@ services:
       # esta última leída por @movo/shared; sin ella un cambio en shipments divergiría.
       - MP_HOLD_VALIDITY_DAYS=${MP_HOLD_VALIDITY_DAYS:-5}
       - MOVO_COMMISSION_RATE=${MOVO_COMMISSION_RATE:-0.15}
-      # MOVO-100 (ADR-039): public_key de Movo para tokenizar la tarjeta al guardarla, y
-      # (solo sandbox) el mapa userId -> email de Comprador de prueba. USERS_SERVICE_URL
-      # no hace falta: el default de código ya es el servicio en movo-net.
+      # MOVO-100 (ADR-039): public_key con la que el mobile tokeniza la tarjeta al guardarla
+      # (no decide dónde queda: siempre un customer de Movo S.A.; en dev es la TEST- de un
+      # Vendedor de prueba, no la de Movo) y (solo sandbox) el mapa userId -> email de
+      # Comprador de prueba. USERS_SERVICE_URL no hace falta: el default de código ya es el
+      # servicio en movo-net.
       - MP_PUBLIC_KEY=${MP_PUBLIC_KEY:-}
       - MP_TEST_PAYER_EMAILS=${MP_TEST_PAYER_EMAILS:-}
     depends_on:
