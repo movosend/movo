@@ -67,6 +67,12 @@ Todas de país Argentina (MLA).
 Visa `4509 9535 6623 3704`, CVV `123`, vencimiento `11/2030`, titular `APRO` (fuerza la
 aprobación), DNI `12345678`.
 
+> **Actualización 2026-10-13 (MOVO-215):** esta Visa y la Mastercard de prueba dejaron de
+> funcionar con un vendedor conectado: `POST /v1/payments` responde `500 internal_error`,
+> sin causa. Usar la Visa `4075 5957 1648 3764` (mismo CVV, vencimiento y titular), que
+> es el default actual de `.env.example`. Los payloads de ejemplo de abajo siguen
+> mostrando la 4509 porque son el registro de lo verificado el 29/09.
+
 ---
 
 ## 3. El flujo, paso a paso (API REST, lo que se verificó)

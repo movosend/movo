@@ -162,7 +162,8 @@ const CONFIG = {
   // Datos de la tarjeta de prueba a usar (por defecto, la Visa de crédito
   // AR documentada por MP). "APRO" en el titular = pago aprobado.
   testCard: {
-    number: env.MP_TEST_CARD_NUMBER || '4509953566233704',
+    // La 4509953566233704 da 500 con un vendedor conectado desde 10/2026 (MOVO-215).
+    number: env.MP_TEST_CARD_NUMBER || '4075595716483764',
     cvv: env.MP_TEST_CARD_CVV || '123',
     expirationMonth: env.MP_TEST_CARD_EXP_MONTH || '11',
     expirationYear: env.MP_TEST_CARD_EXP_YEAR || '2030',

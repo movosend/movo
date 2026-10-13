@@ -1,9 +1,12 @@
 # Medición del plazo real de un hold de Mercado Pago (MOVO-215)
 
-**Estado: procedimiento listo, medición bloqueada.** Desde el 11/10/2026 el sandbox de MP
-responde `500 internal_error` a todo `POST /v1/payments`, con cualquier pagador, vendedor o
-app. El detalle de lo probado está en `SUPPORT-REPORT-500-2026-10-11.txt`. La tabla de
-resultados del final se completa a medida que MP cancela los holds.
+**Estado: medición en curso desde el 13/10/2026** (holds `1353638591` y `1353644127`). La
+tabla de resultados del final se completa a medida que MP cancela los holds.
+
+> **Usar la Visa `4075 5957 1648 3764`.** Con un vendedor conectado por OAuth, la Visa
+> `4509 9535 6623 3704` (la de SOLUCION-FINAL) y la Mastercard de prueba hacen que
+> `POST /v1/payments` responda `500 internal_error` sin causa, con cualquier pagador,
+> vendedor o app (11/10/2026). Con la 4075 el hold se crea normal.
 
 ## Qué se mide y por qué
 
