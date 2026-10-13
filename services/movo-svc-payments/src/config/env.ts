@@ -10,6 +10,9 @@ export interface EnvConfig {
   MP_TOKEN_ENCRYPTION_KEY?: string;
   MP_TEST_MODE: boolean;
   MP_HOLD_VALIDITY_DAYS: number;
+  MP_PUBLIC_KEY?: string;
+  MP_TEST_PAYER_EMAILS?: string;
+  USERS_SERVICE_URL: string;
 }
 
 export const envSchema = {
@@ -44,6 +47,18 @@ export const envSchema = {
     // de la medición de MOVO-215 (la documentación de MP dice 5 o 7 días según la
     // página). 5 es el mínimo de los documentados: provisorio hasta que cierre el spike.
     MP_HOLD_VALIDITY_DAYS: { type: "number", minimum: 1, default: 5 },
+    // MOVO-100 (ADR-039): `public_key` de Movo S.A. con la que el mobile tokeniza la tarjeta
+    // al guardarla (en sandbox, la `TEST-`: la `APP_USR-` da 404 card not found). Opcional
+    // como el resto de las MP_*: sin ella `checkout-data` responde 503 CARDS_NOT_CONFIGURED.
+    MP_PUBLIC_KEY: { type: "string" },
+    // MOVO-100, solo sandbox (`MP_TEST_MODE=true`): JSON `{"<userId de Movo>": "<email de una
+    // cuenta de prueba Comprador>"}`. En sandbox el customer tiene que usar el email de un
+    // Comprador de prueba (con otro, MP responde 225), y la cuenta de Movo de cada tester
+    // tiene su email real. Fuera de test mode se ignora.
+    MP_TEST_PAYER_EMAILS: { type: "string" },
+    // MOVO-100: el email del customer sale de `svc-users` (GET /users/me, ADR-010). El
+    // default ya es el nombre del servicio en movo-net, mismo criterio que en svc-shipments.
+    USERS_SERVICE_URL: { type: "string", default: "http://movo-svc-users:3000" },
   },
 };
 
