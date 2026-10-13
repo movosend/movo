@@ -199,7 +199,17 @@ export type ApiErrorCode =
   | "SHIPMENT_RECEIVER_TRANSFER_INVALID_TARGET"
   | "RECEIVER_TRANSFER_NOT_FOUND"
   // La solicitud ya no está pendiente (aceptada, rechazada, vencida o cancelada).
-  | "RECEIVER_TRANSFER_NOT_PENDING";
+  | "RECEIVER_TRANSFER_NOT_PENDING"
+  // MOVO-100 (ADR-039): tarjetas guardadas del emisor en `svc-payments`.
+  // La tarjeta tiene un hold vivo asociado: no se puede dar de baja hasta que se libere.
+  | "CARD_IN_USE"
+  // Tope de tarjetas vivas por usuario (`MAX_SAVED_CARDS_PER_USER`).
+  | "CARD_LIMIT_REACHED"
+  // Mercado Pago rechazó guardar la tarjeta (datos inválidos, vencida, cuenta de prueba que
+  // no corresponde); `details.providerCode` trae el código crudo de MP si lo hay.
+  | "CARD_SAVE_REJECTED"
+  // Falta la `public_key` o las credenciales de Movo para operar con tarjetas (503).
+  | "CARDS_NOT_CONFIGURED";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

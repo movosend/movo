@@ -113,6 +113,15 @@ export type {
   HoldStatus,
 } from "./types/hold";
 
+// saved cards (MOVO-100)
+export { MAX_SAVED_CARDS_PER_USER, SAVED_CARD_ALIAS_MAX_LENGTH } from "./types/saved-card";
+export type {
+  CardsCheckoutDataResponse,
+  CreateSavedCardRequest,
+  SavedCard,
+  UpdateSavedCardRequest,
+} from "./types/saved-card";
+
 // funding (MOVO-210)
 export type {
   FundingRoute,
