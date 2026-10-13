@@ -16,6 +16,7 @@ import carrierPositionPurgeSweepPlugin from "./plugins/carrier-position-purge-sw
 import tripExpirySweepPlugin from "./plugins/trip-expiry-sweep";
 import pickupMissedSweepPlugin from "./plugins/pickup-missed-sweep";
 import transitAnomalySweepPlugin from "./plugins/transit-anomaly-sweep";
+import tripDepartureReminderSweepPlugin from "./plugins/trip-departure-reminder-sweep";
 import fundingSweepPlugin from "./plugins/funding-sweep";
 import fundingRoutes, { internalFundingRoutes, FundingRoutesOptions } from "./modules/funding/funding.routes";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
@@ -79,6 +80,8 @@ export interface BuildAppOptions {
   pickupMissedSweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de `in_transit` anómalo (MOVO-258). */
   transitAnomalySweepEnabled?: boolean;
+  /** Override para habilitar/deshabilitar el recordatorio del día anterior al viaje (MOVO-240). */
+  tripDepartureReminderSweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de la saga de asignación (MOVO-210). */
   fundingSweepEnabled?: boolean;
   /** Override solo para tests de integración -- evita depender de una integración
@@ -171,6 +174,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
     ...(opts.transitAnomalySweepEnabled !== undefined ? { enabled: opts.transitAnomalySweepEnabled } : {}),
+  });
+  app.register(tripDepartureReminderSweepPlugin, {
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.tripDepartureReminderSweepEnabled !== undefined
+      ? { enabled: opts.tripDepartureReminderSweepEnabled }
+      : {}),
   });
   app.register(fundingSweepPlugin, {
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),

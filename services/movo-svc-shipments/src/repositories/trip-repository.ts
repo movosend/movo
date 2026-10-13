@@ -257,6 +257,27 @@ export interface TripRepository {
    * con dos viajes en la semana cuenta una vez.
    */
   countAvailableCarriersNear(params: AvailableCarriersParams): Promise<number>;
+  /**
+   * MOVO-240 (recordatorio del día anterior): viajes `declared` que salen dentro de
+   * `[departureFrom, departureTo)` y que se declararon hasta `createdBefore`, con la
+   * cantidad de paquetes aceptados vivos (`ACCEPTED_OFFER_FILTER`, no los ejecutables:
+   * antes de confirmarse el pago ninguno lo es, pero para el transportista ya son suyos).
+   */
+  findDeclaredForDepartureReminder(params: DepartureReminderParams): Promise<DepartureReminderTrip[]>;
+}
+
+export interface DepartureReminderParams {
+  departureFrom: Date;
+  departureTo: Date;
+  createdBefore: Date;
+  limit: number;
+}
+
+export interface DepartureReminderTrip {
+  id: string;
+  carrierId: string;
+  destinationAddress: string;
+  acceptedPackagesCount: number;
 }
 
 export interface AvailableCarriersParams {
@@ -708,6 +729,30 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         if (result.count > 0) expired.push(id);
       }
       return expired;
+    },
+
+    async findDeclaredForDepartureReminder(params: DepartureReminderParams): Promise<DepartureReminderTrip[]> {
+      const rows = await db.trip.findMany({
+        where: {
+          status: TripStatus.DECLARED,
+          departureAt: { gte: params.departureFrom, lt: params.departureTo },
+          createdAt: { lte: params.createdBefore },
+        },
+        select: {
+          id: true,
+          carrierId: true,
+          destinationAddress: true,
+          _count: { select: { offers: { where: ACCEPTED_OFFER_FILTER } } },
+        },
+        orderBy: { departureAt: "asc" },
+        take: params.limit,
+      });
+      return rows.map((row) => ({
+        id: row.id,
+        carrierId: row.carrierId,
+        destinationAddress: row.destinationAddress,
+        acceptedPackagesCount: row._count.offers,
+      }));
     },
 
     async cancelOverdueDeclared(now: Date, limit: number): Promise<string[]> {

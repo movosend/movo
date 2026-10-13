@@ -72,6 +72,7 @@ import {
 import { assertTripAccess } from "../trips/trip-access";
 import { assertNotBlocked, safeBlockRelatedUserIds } from "../../utils/block-relations";
 import { assertCarrierCanOperate, assertVerifiedCarrier } from "../../utils/carrier-gate";
+import { shortAddress } from "../../utils/short-address";
 
 type ShipmentsServiceLogger =
   | FastifyBaseLogger
@@ -605,14 +606,6 @@ async function dispatchReceiverTimeoutPush(
       "No se pudo enviar la push de cancelación por timeout al emisor"
     );
   }
-}
-
-/** MOVO-179: primer componente de una dirección ("Av. Colón 1234, Córdoba" ->
- * "Av. Colón 1234") -- sin helper de formato de dirección reusable en el repo
- * todavía, así que queda local a este archivo (consumido por el copy del push de
- * `dispatchTripMatchPushes` y, desde MOVO-245, `dispatchNewOfferPush`). */
-function shortAddress(address: string): string {
-  return address.split(",")[0].trim();
 }
 
 /**
