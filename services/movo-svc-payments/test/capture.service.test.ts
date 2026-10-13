@@ -55,6 +55,11 @@ class MemoryHoldRepository implements HoldRepository {
     Object.assign(this.hold as Hold, patch);
     return this.hold as Hold;
   }
+  async markCaptured(_id: string, patch: { statusDetail: string | null }) {
+    if (this.hold?.status !== "authorized") return false;
+    Object.assign(this.hold, { status: "captured", statusDetail: patch.statusDetail, expiresAt: null });
+    return true;
+  }
 }
 
 /** Misma garantía que la base real: una sola fila por envío. */
@@ -207,6 +212,18 @@ describe("createCaptureService.capture", () => {
     expect(settlement.capturedAt).toBe(NOW.toISOString());
     expect(ctx.holds.hold?.status).toBe("captured");
     expect(ctx.holds.hold?.expiresAt).toBeNull();
+  });
+
+  it("si el webhook movió el hold mientras se capturaba, no lo pisa pero acredita igual (MP ya cobró)", async () => {
+    ctx.mp.capturePayment.mockImplementationOnce(async () => {
+      Object.assign(ctx.holds.hold as Hold, { status: "cancelled" });
+      return payment();
+    });
+
+    const { settlement } = await ctx.service.capture(SHIPMENT);
+
+    expect(settlement.status).toBe("credited");
+    expect(ctx.holds.hold?.status).toBe("cancelled");
   });
 
   it("AC7: una segunda invocación no captura de nuevo ni duplica la liquidación", async () => {

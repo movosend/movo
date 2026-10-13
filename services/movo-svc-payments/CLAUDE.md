@@ -212,6 +212,8 @@ holds, para que el `PaymentsClient` de MOVO-210 los alcance con su misma base). 
   estimación provisoria (MOVO-215), así que se intenta igual y se clasifica el fallo como `hold_expired` solo
   si MP rechaza y el hold ya pasó su fecha o MP lo tiene `cancelled`. Un hold cancelado por MP NO se sincroniza
   acá: lo refleja el webhook (MOVO-268) o `?sync=true`, y la captura solo lo clasifica.
+- **`captured` es un UPDATE condicional sobre `authorized`** (`holdRepository.markCaptured`): si el webhook movió el hold
+  en el medio no se pisa, se loguea y la liquidación se acredita igual porque MP ya cobró.
 - **Visibilidad por rol (AC10)**: payments devuelve la liquidación completa; el filtro (transportista ve todo,
   emisor total y fecha, receptor nada) lo aplica `svc-shipments`, que es quien sabe quién es quién.
 
@@ -221,7 +223,11 @@ El lado de `svc-shipments` (notifier real, `completed`, push, barrido y endpoint
 Los tests que truncan `holds` (también los del webhook) incluyen `settlements` y usan `CASCADE`:
 `settlements.hold_id` es FK a `holds`.
 
-Pendiente: `test/captures.sandbox.test.ts` (captura real y contraste de la liquidación contra un `GET` directo a MP) está escrito pero nunca corrió: se saltea sin credenciales, mismas variables que `holds.sandbox.test.ts`.
+Verificado contra el sandbox real (13/10): `test/captures.sandbox.test.ts` crea un hold de $1150 con fee 150, lo captura
+(neto 952,85 = 1150 − 47,15 de MP − 150 de Movo, igual que un `GET` directo a MP) y una segunda captura devuelve la misma
+liquidación sin cobrar de nuevo. Se saltea sin credenciales (no corre en CI), mismas variables que `holds.sandbox.test.ts`.
+Entre el 11 y el 13/10 `POST /v1/payments` respondió `500 internal_error` (`cause: []`) para cualquier pago, incluso sin
+fee ni hold: era de MP y se resolvió solo.
 
 ### MOVO-116 — `GET /internal/payments/mp-connect/:userId/status`
 

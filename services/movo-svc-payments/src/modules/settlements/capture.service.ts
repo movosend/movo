@@ -168,11 +168,15 @@ export function createCaptureService(deps: CaptureServiceDeps) {
     }
 
     if (hold.status !== "captured") {
-      await holds.update(hold.id, {
-        status: "captured",
-        statusDetail: payment.status_detail ?? null,
-        expiresAt: null,
-      });
+      // Condicional sobre `authorized`: si el webhook movió el hold en el medio no se pisa. MP ya
+      // cobró, así que la liquidación se acredita igual.
+      const moved = await holds.markCaptured(hold.id, { statusDetail: payment.status_detail ?? null });
+      if (!moved) {
+        log.warn(
+          { shipmentId: settlement.shipmentId, holdId: hold.id, mpPaymentId: settlement.mpPaymentId },
+          "el hold ya no estaba authorized al capturarlo: MP cobró, se acredita la liquidación"
+        );
+      }
     }
     const credited = await settlements.update(settlement.id, {
       status: "credited",
