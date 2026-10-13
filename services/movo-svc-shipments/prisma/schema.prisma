@@ -210,6 +210,7 @@ model Shipment {
   handshakeEvents  HandshakeEvent[]
   carrierPositions CarrierPosition[]
   receiverTransfers ReceiverTransferRequest[]
+  chatMessages      ChatMessage[]
 
   @@index([senderId], map: "shipments_sender_id_idx")
   @@index([receiverId], map: "shipments_receiver_id_idx")
@@ -668,5 +669,25 @@ model ReceiverTransferRequest {
   @@index([newReceiverId, status], map: "receiver_transfer_requests_new_receiver_id_status_idx")
   @@index([status, newReceiverDeadline], map: "receiver_transfer_requests_status_deadline_idx")
   @@map("receiver_transfer_requests")
+  @@schema("shipments")
+}
+
+// MOVO-26 (ADR-040): mensajes del chat de un envío. Solo se agregan, nunca se editan ni se
+// borran: el historial es evidencia para una disputa (visible para el admin).
+model ChatMessage {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId String @map("shipment_id") @db.Uuid
+  // Referencia lógica a users.users, sin FK real (ADR-003).
+  authorId   String @map("author_id") @db.Uuid
+  body       String
+  // Lo genera el cliente: reenviar el mismo mensaje (cola offline, reintento) no lo duplica.
+  clientMessageId String   @map("client_message_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@unique([shipmentId, authorId, clientMessageId], map: "chat_messages_shipment_author_client_key")
+  @@index([shipmentId, createdAt, id], map: "chat_messages_shipment_id_created_at_idx")
+  @@map("chat_messages")
   @@schema("shipments")
 }
