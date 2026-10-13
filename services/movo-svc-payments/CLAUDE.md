@@ -196,3 +196,26 @@ ni hook de `x-user-id`) que devuelve `{ linked }` para el bloqueo del transporti
 `findActiveCredentials` y no descifra tokens): es más estricto que el `linked` de
 `GET /payments/mp-connect/status` porque también exige `public_key`, así nadie pasa el bloqueo
 y después cae en el 409 del hold. Tests en `test/mp-connect.integration.test.ts`.
+
+### Tarjetas guardadas del emisor (MOVO-65/100/282, ADR-039 propuesto): diseño acordado, sin implementar
+
+Se reescribió MOVO-100 (antes `users.payment_method` en `svc-users` con `mp_card_token`) y se
+abrió MOVO-282; nada de esto está en el código todavía. Decisiones para quien lo implemente:
+
+- **Dueño `svc-payments`**, no `svc-users`: es el único integrador de MP (ADR-035). Tablas nuevas en
+  el schema `payments`: `payer_customers` (`user_id` único, `mp_customer_id`) y `saved_cards`
+  (`mp_card_id`, marca, últimos 4, vencimiento, `is_default`, `alias` opcional, `deleted_at`), con índice único
+  parcial de una sola predeterminada viva. Nunca se persiste un `card_token`, número ni CVV.
+- **Token de Movo**: `POST /oauth/token` con `grant_type=client_credentials` y `test_token` según
+  `MP_TEST_MODE`, cacheado en Redis. Con el token `APP_USR-` de la app, customers da `401 300` en
+  sandbox. En sandbox el token de la tarjeta se genera con una `public_key` `TEST-`.
+- **El pagador del hold tiene que ser el customer** de la tarjeta (`payer: {type: "customer", id}`);
+  con `payer: {email}` y el mismo token MP responde `2002 Customer not found`. MOVO-282 suma
+  `savedCardId`/`payerUserId` a `CreateHoldRequest`, `saved_card_id` a `holds` (habilita el
+  `409 CARD_IN_USE` al borrar una tarjeta) y lo incluye en `request_fingerprint`.
+- `GET /payments/cards` expone `mpCardId` al dueño porque el mobile lo necesita para pedir el token
+  con el CVV; sin CVV no sirve para pagar. El CVV nunca pasa por el backend.
+- **Nombre de referencia (`alias`)**: opcional, lo pone el usuario en el alta o lo edita con
+  `PATCH /payments/cards/:id`; 1-40 caracteres, no único, y se rechaza con 400 si trae una secuencia
+  de 12+ dígitos (para que nadie escriba el número ahí). Es de Movo: no se manda a MP.
+- Env nueva: `MP_PUBLIC_KEY` (`.env.example` + `envSchema` + `infra/docker-compose.yml`).
