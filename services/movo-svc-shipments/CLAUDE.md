@@ -2763,6 +2763,37 @@ y excluye a los dos usuarios de la cuenta.
 Pendiente / fuera de alcance: mostrar nombres de pila (requeriría revertir la decisión de privacidad
 y un ADR corto).
 
+### MOVO-26 — Chat entre las partes de un envío (ADR-040)
+
+Un hilo por envío entre emisor, receptor y transportista, en `src/modules/chat/` (rutas, servicio, schema),
+`src/repositories/chat-repository.ts`, `src/domain/chat-window.ts` y `src/realtime/chat-hub.ts`; tabla
+`shipments.chat_messages` (migración `20261014120000`, solo se agrega). Uso y reglas: `docs/chat/README.md`.
+
+- **Se envía por HTTP y se recibe por WebSocket** (mismo molde que la ingesta de posiciones, ADR-024):
+  `POST /shipments/:id/chat/messages` es idempotente por `clientMessageId` (índice único
+  `(shipment, autor, clientMessageId)`: 201 la primera vez, 200 en un reenvío, sin difundir ni notificar de
+  nuevo), `GET .../chat/messages` pagina por cursor y `GET /shipments/:id/chat` (WS) solo empuja. El gateway
+  no cambió: `/shipments` ya proxea HTTP y el upgrade.
+- **`ChatHub` es una instancia propia de `RealtimeRegistry`**, no la de tracking: así un mensaje de chat no
+  llega a quien solo mira el mapa y el cierre `4009` de tracking por un envío entregado no corta el chat, que
+  sigue 24 h. Cuenta además sockets por usuario para no pushear a quien ya lo tiene abierto. Cierra los
+  sockets al pasar a `cancelled`/`rejected_by_receiver`; la ventana post-entrega la corta un timer por conexión.
+- **`resolveChatAccess` (puro) decide `open | read_only | closed`**: abierto con transportista asignado y hasta
+  `deliveredAt + 24 h`; `disputed` y el receptor original (ADR-038) solo leen; el admin siempre lee y nunca
+  escribe. Fuera de la ventana las partes reciben `409 CHAT_CLOSED` también al leer (el admin conserva el
+  historial como evidencia). El bloqueo (ADR-026) corta la escritura (`403 USER_BLOCKED`, falla cerrado) si hay
+  relación con CUALQUIERA de las otras partes: es un hilo único, no uno por par.
+- **Push `chatMessageReceived`** (categoría `chat`, que pasa a `implemented: true`): a quien no tiene el chat
+  abierto, una vez por minuto y destinatario (`SET NX` en Redis), sin el texto del mensaje. Best-effort: un
+  fallo libera la marca y nunca afecta el envío.
+- `createdAt` lo fija la app (ms), no el default de Postgres (µs): el cursor viaja como ISO en ms y con µs
+  saltearía mensajes del mismo milisegundo. `authorizeRealtimeConnection` ahora devuelve `callerRoles` y acepta
+  un mensaje de 403 propio.
+
+Pendiente / fuera de alcance: imágenes, escribiendo/leído/no leído, retención y purga del historial (dato
+personal, a definir junto a ADR-023), panel de admin que lo muestre en una disputa (MOVO-30/33 consumen el
+mismo GET), pantalla en `movo-mobile`, y Redis pub/sub si algún día hay más de una réplica.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
