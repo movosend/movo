@@ -4456,47 +4456,24 @@ mapa de módulos sin mostrar nada. Correrlo con
 
 ### MOVO-101 — "Pagos y cobros": tarjetas guardadas (alta, lista, predeterminada, nombre y baja)
 
-Sobre el prototipo de Claude Design "MOVO-112 Pagos y cobros v2" y el backend de MOVO-100.
-`profile/payments.tsx` pasó a `profile/payments/index.tsx`: arriba "Medios de pago" (para
-cualquier usuario) y abajo "Medios de cobro" con `MpConnectCard` sin cambios. El alta es
-`AddCardWizard` (`components/payments/add-card-wizard.tsx`), montado en
-`profile/payments/add-card.tsx`; no navega, avisa con `onSaved`/`onCancel` para que MOVO-269 lo
-reuse. Al guardar vuelve con `dismissTo` y el aviso por param (`toast`).
+"Medios de pago" en `profile/payments/index.tsx` (backend de MOVO-100). El alta es
+`AddCardWizard` (`components/payments/`), montado en `profile/payments/add-card.tsx`; no navega,
+avisa con `onSaved`/`onCancel` para que MOVO-269 lo reuse.
 
-- **Decisión de captura (para MOVO-269)**: formulario propio contra la API pública de MP
-  (`src/lib/mp-card-tokenizer.ts`): `GET /v1/payment_methods/search` con el BIN (banco, tipo,
-  `paymentMethodId` y largos) y `POST /v1/card_tokens` con la `public_key` de
-  `GET /payments/cards/checkout-data`. Bricks no soporta cuentas de prueba y un WebView no sumaba
-  nada. Al backend solo va `{ cardToken, paymentMethodId?, alias? }` (`save-card-flow.ts`, con
-  test que verifica que el número, CVV y DNI no viajan). Los datos de la tarjeta viven solo en el
-  estado local del wizard.
-- **Banco y tipo en la lista**: el backend suma `issuerName`/`paymentType` (commit propio en
-  `svc-payments`). Logos en `assets/bank-logos/`: los íconos de las apps oficiales de cada banco
-  en el App Store (512 px, bajados a 256; los favicons originales eran de 16-48 px), mapeados
-  por palabras clave del `issuer.name` (`src/lib/bank-logos.ts`). `BankLogo` deja padding
-  interno (el isotipo ocupa ~70% del recuadro); sin logo, iniciales.
-- **El `card_number.length` del BIN es un tope, no el largo exacto**: MP responde 19 para Visa
-  aunque sus tarjetas sean de 16 (verificado contra la API con el BIN 450979). El número vale
-  entre el mínimo de la marca y ese tope, y tiene que pasar Luhn (`validation: "standard"`).
-- **Teclado**: con el teclado abierto la tarjeta se achica al 60% desde arriba, se oculta el
-  subtítulo del paso, el botón baja a 44px y el pie pierde el aviso del candado y el margen inferior (la pantalla usa `SafeAreaView` solo arriba; el pie
-  suma `insets.bottom` cuando el teclado está cerrado), y el `ScrollView` recorta su contenido
-  para que el texto no quede dibujado debajo de la tarjeta. En device no se podía pegar el
-  número: se sacó `textContentType="creditCardNumber"`/`autoComplete="cc-number"` como causa
-  probable (sin confirmar todavía en device).
-- **Tarjeta 3D** (`card-preview-3d.tsx`): frente con anillos que se vuelve cromado según el
-  progreso, giro al enfocar el CVV, resaltado lima del dato enfocado y barrido de luz al pasar de
-  paso y mientras valida. Colores fijos (es el plástico). En reposo las dos caras quedan en
-  `rotateY(0deg)` exacto: con el dorso en 360° iOS lo seguía rasterizando como 3D y el texto se
-  veía borroso. Los colores animados van con `interpolateColor`, nunca con un template string
-  (un alfa chico sale en notación científica y Reanimated tira "Invalid color value").
-- **Desvíos del prototipo**: nombre de referencia de 40 caracteres (contrato), no 24; sin el tilt
-  con mouse; "Cambiar nombre" y su hoja (AC10) y el aviso de `409 CARD_IN_USE` dentro de la hoja
-  de eliminar (botón apagado, la tarjeta sigue en la lista) no estaban y reusan sus piezas;
-  sin "Autocompletar" (era un atajo del prototipo, no tiene sentido en la app real). El aviso
-  ámbar sale cuando ninguna tarjeta está vigente (el backend siempre tiene una predeterminada).
-- Las hojas se encadenan por `onClosed` (iOS no presenta un `Modal` mientras otro se cierra);
-  `BottomSheetModal` ganó `avoidKeyboard` para la hoja de renombrar.
+- **Captura propia contra la API de MP** (`src/lib/mp-card-tokenizer.ts`), no Bricks (no soporta
+  cuentas de prueba): `payment_methods/search` con el BIN y `card_tokens` con la `public_key` de
+  `GET /payments/cards/checkout-data`. Al backend solo va `{ cardToken, paymentMethodId?, alias? }`;
+  número, CVV y DNI viven solo en el estado local del wizard.
+- **`card_number.length` del BIN es un tope, no el largo exacto** (Visa responde 19 con tarjetas de
+  16): el número vale entre el mínimo de la marca y ese tope, y tiene que pasar Luhn.
+- **Banco por palabras clave** del `issuer.name` (`src/lib/bank-logos.ts`, por palabra completa, no
+  por substring), con logos de las apps oficiales en `assets/bank-logos/`; sin logo, iniciales.
+- Si el alta sale bien pero marcarla predeterminada falla, queda guardada y se avisa
+  (`saveNewCard` devuelve `defaultFailed`); mientras no se sabe si ya hay tarjetas no se fuerza.
+- Al borrar la predeterminada el backend promueve a la vigente más reciente (si no queda ninguna,
+  a la más reciente); `nextDefaultAfterDelete` lo espeja para que el copy no prometa otra.
+- "Cambiar cuenta" de Mercado Pago pide confirmación (`ChangeMpAccountSheet`): pisa los tokens
+  de la cuenta, igual que desvincular.
 
-Pendiente: probar en development build con tarjetas de test (Visa, Mastercard y el titular
-`OTHE`) y revisar los requests; no probado en device.
+Pendiente: probar en development build con tarjetas de test (Visa y Mastercard; el titular
+`OTHE` solo rechaza al pagar, MOVO-269) y revisar los requests.
