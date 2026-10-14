@@ -339,17 +339,24 @@ flowchart LR
 
 - El `application_fee` se fija **al crear el hold** y MP lo aplica **al capturar**.
   Antes de la captura el pago no muestra el split.
-- Los dos fees los paga el **cobrador** (el transportista, `fee_payer: collector`):
-  el emisor paga exactamente el precio acordado.
+- Los dos fees salen de la cuenta del **cobrador** (el transportista): el emisor paga
+  exactamente el precio acordado. Movo no envía `fee_payer`; es lo que MP informa en
+  `fee_details` (`fee_payer: collector`). `hold.service.ts` solo manda
+  `application_fee`.
+- Orden de aplicación (documentación de MP para marketplaces): primero se descuenta la
+  comisión de MP de los fondos del vendedor y la comisión del marketplace
+  (`application_fee`) sale del saldo restante.
 - Los $150 de `application_fee` se pusieron a mano en el script del spike (15% del
   total). La fórmula real (MOVO-143/209) es 15% sobre el neto del transportista:
   `application_fee = bruto - bruto / 1,15`, que para $1000 da $130,43 (~13,04% del
   bruto). Es lo que calcula `decomposeOfferGrossPrice` de `@movo/shared`.
-- El 4,1% de MP es del sandbox. En producción no hay un valor único que confirmar
-  (MOVO-225): depende de las tarifas de MP y del plazo de liberación del dinero que
-  cada transportista configura en su cuenta. La app muestra un estimado
-  (`MP_TRANSACTION_FEE_RATE` de `@movo/shared`); el monto real de cada pago es el
-  `mercadopago_fee` de `fee_details`.
+- El 4,1% de MP es del sandbox, y es la única observación real que tenemos. En
+  producción no hay un valor único que confirmar (MOVO-225): depende de las tarifas de
+  MP, del medio de pago y las cuotas del emisor, y del plazo de liberación del dinero
+  que cada transportista configura en su cuenta. La app muestra un estimado
+  (`MP_TRANSACTION_FEE_RATE` de `@movo/shared`, 4,99%, **a validar con pagos reales**)
+  calculado sobre el bruto, que es sobre lo que cobra MP; el monto real de cada pago es
+  el `mercadopago_fee` de `fee_details`.
 - Si se cancela un hold, no se cobra nada a nadie.
 
 ---
@@ -398,7 +405,6 @@ envío se republica. Se mitiga con recordatorios y aviso explícito al transport
 | MOVO-37 (+ MOVO-65, 100, 101) | Pago en efectivo: Movo le cobra la comisión a la tarjeta guardada del transportista. MOVO-65/100/101 quedaron solo para este caso. |
 | MOVO-28 | Historial de transacciones del emisor. Depende de que existan liquidaciones (MOVO-212). |
 | MOVO-226 | Penalidad por cancelar con transportista asignado. Falta la definición de negocio. |
-| MOVO-225 | Fee real de MP para los Términos y Condiciones. Depende del contrato con MP. |
 
 ---
 

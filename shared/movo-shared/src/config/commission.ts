@@ -7,11 +7,12 @@ export interface CommissionConfig {
   /**
    * ESTIMADO de la comisión que cobra MercadoPago por la transacción, solo para
    * mostrarle al transportista una referencia antes de ofertar. No es un valor a
-   * confirmar con MP (MOVO-225): MP la cobra sobre la cuenta del transportista
-   * (`fee_payer: collector`) y su porcentaje depende de las tarifas vigentes y del
-   * plazo de liberación del dinero que cada transportista configura en su cuenta. El
-   * monto real de cada pago sale de `fee_details` (`mercadopago_fee`) de MP, nunca de
-   * esta tasa.
+   * confirmar con MP (MOVO-225): MP la descuenta de la cuenta del transportista (en
+   * `fee_details` la informa como `fee_payer: collector`; Movo no envía ese campo), se
+   * aplica sobre el BRUTO del pago, y su porcentaje depende de las tarifas vigentes, del
+   * medio de pago del emisor y del plazo de liberación del dinero que cada
+   * transportista configura en su cuenta. El monto real de cada pago sale de
+   * `fee_details` (`mercadopago_fee`) de MP, nunca de esta tasa.
    */
   mpTransactionFeeRate: number;
 }
@@ -19,8 +20,8 @@ export interface CommissionConfig {
 let cached: CommissionConfig | undefined;
 
 const DEFAULT_MOVO_COMMISSION_RATE = 0.15;
-// Estimado conservador: por encima del 4,1% observado en sandbox (MOVO-49). Ver
-// `mpTransactionFeeRate` arriba.
+// Estimado conservador, a validar con pagos reales: por encima del 4,1% observado en
+// sandbox (MOVO-49), única observación que tenemos. Ver `mpTransactionFeeRate` arriba.
 const DEFAULT_MP_TRANSACTION_FEE_RATE = 0.0499;
 
 /**
