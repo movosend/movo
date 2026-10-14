@@ -78,7 +78,8 @@ export class MercadoPagoOAuthError extends Error {
   /**
    * MOVO-243 AC3: el refresh fue rechazado porque el `refresh_token` ya no sirve (el
    * transportista revocó el acceso, o MP ya lo rotó). Es el único caso que se trata como
-   * revocación: un 5xx, un timeout, un 429 o un `invalid_client` (la app mal configurada,
+   * revocación (ojo: `invalid_grant` también aparece si otra corrida ya canjeó el token; por
+   * eso el servicio exige verlo en dos corridas seguidas antes de revocar): un 5xx, un timeout, un 429 o un `invalid_client` (la app mal configurada,
    * no la cuenta del transportista) son transitorios y no tocan `revoked_at`.
    */
   isRevocation(): boolean {
