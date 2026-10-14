@@ -259,7 +259,7 @@ export interface TripRepository {
   countAvailableCarriersNear(params: AvailableCarriersParams): Promise<number>;
   /**
    * MOVO-240 (recordatorio del día anterior): viajes `declared` que salen dentro de
-   * `[departureFrom, departureTo)` y que se declararon hasta `createdBefore`, con la
+   * `[departureFrom, departureTo)` y que se declararon antes de `createdBefore`, con la
    * cantidad de paquetes aceptados vivos (`ACCEPTED_OFFER_FILTER`, no los ejecutables:
    * antes de confirmarse el pago ninguno lo es, pero para el transportista ya son suyos).
    */
@@ -271,6 +271,8 @@ export interface DepartureReminderParams {
   departureTo: Date;
   createdBefore: Date;
   limit: number;
+  /** Cursor: el último `id` de la página anterior (orden `departureAt, id`). */
+  afterId?: string;
 }
 
 export interface DepartureReminderTrip {
@@ -736,7 +738,7 @@ export function createTripRepository(db: PrismaClient): TripRepository {
         where: {
           status: TripStatus.DECLARED,
           departureAt: { gte: params.departureFrom, lt: params.departureTo },
-          createdAt: { lte: params.createdBefore },
+          createdAt: { lt: params.createdBefore },
         },
         select: {
           id: true,
@@ -744,8 +746,9 @@ export function createTripRepository(db: PrismaClient): TripRepository {
           destinationAddress: true,
           _count: { select: { offers: { where: ACCEPTED_OFFER_FILTER } } },
         },
-        orderBy: { departureAt: "asc" },
+        orderBy: [{ departureAt: "asc" }, { id: "asc" }],
         take: params.limit,
+        ...(params.afterId ? { cursor: { id: params.afterId }, skip: 1 } : {}),
       });
       return rows.map((row) => ({
         id: row.id,

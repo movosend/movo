@@ -6,12 +6,17 @@ export const TRIP_DEPARTURE_REMINDER_HOUR_AR = 19;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+function argentinaTimeOfDay(date: string, hour: number): Date {
+  return new Date(`${date}T${String(hour).padStart(2, "0")}:00:00-03:00`);
+}
+
 export interface DepartureReminderWindow {
   /** Inicio (inclusive) y fin (exclusivo) del día calendario argentino de mañana. */
   departureFrom: Date;
   departureTo: Date;
-  /** Las 19:00 de hoy: un viaje declarado más tarde ya se sabe que sale mañana y no se
-   * le avisa (decisión del refinamiento). */
+  /** Inicio del día calendario argentino de hoy: solo se recuerda un viaje declarado antes del
+   * día anterior a su salida. Quien lo declara hoy para mañana lo tiene presente (review de PR
+   * #233; con el corte en las 19:00, declarar a las 18:55 traía el aviso cinco minutos después). */
   createdBefore: Date;
 }
 
@@ -22,13 +27,14 @@ export interface DepartureReminderWindow {
  */
 export function departureReminderWindow(now: Date): DepartureReminderWindow | null {
   const today = toArgentinaCalendarDateString(now);
-  const reminderStart = new Date(`${today}T${String(TRIP_DEPARTURE_REMINDER_HOUR_AR).padStart(2, "0")}:00:00-03:00`);
+  const reminderStart = argentinaTimeOfDay(today, TRIP_DEPARTURE_REMINDER_HOUR_AR);
   if (now.getTime() < reminderStart.getTime()) return null;
 
-  const tomorrowStart = new Date(new Date(`${today}T00:00:00-03:00`).getTime() + DAY_MS);
+  const todayStart = argentinaTimeOfDay(today, 0);
+  const tomorrowStart = new Date(todayStart.getTime() + DAY_MS);
   return {
     departureFrom: tomorrowStart,
     departureTo: new Date(tomorrowStart.getTime() + DAY_MS),
-    createdBefore: reminderStart,
+    createdBefore: todayStart,
   };
 }

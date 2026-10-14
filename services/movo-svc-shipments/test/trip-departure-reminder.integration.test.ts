@@ -57,6 +57,33 @@ describe("trip-repository (Postgres) — findDeclaredForDepartureReminder (MOVO-
     await app.db.$executeRawUnsafe("TRUNCATE TABLE shipments.shipments, shipments.trips RESTART IDENTITY CASCADE");
   });
 
+  it("pagina con cursor por salida e id sin repetir ni saltear viajes", async () => {
+    const created = [];
+    for (let i = 0; i < 5; i++) {
+      created.push(await tripRepo.create(tripInput({ departureAt: new Date(`2030-03-15T1${i % 2}:00:00.000Z`) })));
+    }
+    const page = (afterId?: string) =>
+      tripRepo.findDeclaredForDepartureReminder({
+        departureFrom: DEPARTURE_FROM,
+        departureTo: DEPARTURE_TO,
+        createdBefore: new Date(Date.now() + 60_000),
+        limit: 2,
+        afterId,
+      });
+
+    const seen: string[] = [];
+    let afterId: string | undefined;
+    for (;;) {
+      const rows = await page(afterId);
+      seen.push(...rows.map((row) => row.id));
+      if (rows.length < 2) break;
+      afterId = rows[rows.length - 1].id;
+    }
+
+    expect(seen).toHaveLength(5);
+    expect(new Set(seen)).toEqual(new Set(created.map((trip) => trip.id)));
+  });
+
   it("trae los declared que salen dentro de la ventana, con sus paquetes aceptados vivos", async () => {
     const withPackages = await tripRepo.create(tripInput());
     await attachAcceptedPackage(app.db, withPackages, ShipmentStatus.ASSIGNMENT_PENDING);

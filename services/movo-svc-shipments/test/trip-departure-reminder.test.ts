@@ -13,12 +13,19 @@ describe("departureReminderWindow (MOVO-240)", () => {
     expect(departureReminderWindow(new Date("2026-10-14T21:59:59.000Z"))).toBeNull();
   });
 
-  it("desde las 19:00 cubre el día calendario de mañana y corta lo declarado después de las 19", () => {
+  it("desde las 19:00 cubre el día calendario de mañana, con lo declarado antes de hoy", () => {
     expect(departureReminderWindow(new Date("2026-10-14T22:00:00.000Z"))).toEqual({
       departureFrom: new Date("2026-10-15T03:00:00.000Z"),
       departureTo: new Date("2026-10-16T03:00:00.000Z"),
-      createdBefore: new Date("2026-10-14T22:00:00.000Z"),
+      // 00:00 del 14/10 en Argentina.
+      createdBefore: new Date("2026-10-14T03:00:00.000Z"),
     });
+  });
+
+  it("a las 23:59 el corte sigue en el inicio de hoy en Argentina (ya es 15/10 en UTC)", () => {
+    expect(departureReminderWindow(new Date("2026-10-15T02:59:00.000Z"))?.createdBefore).toEqual(
+      new Date("2026-10-14T03:00:00.000Z")
+    );
   });
 
   it("a las 23:30 (ya 02:30 UTC del día siguiente) sigue usando el día argentino", () => {
@@ -65,15 +72,34 @@ describe("sendTripDepartureReminders (MOVO-240)", () => {
     expect(deps.notificationsClient.sendPush).not.toHaveBeenCalled();
   });
 
-  it("pide los viajes de mañana declarados hasta las 19:00 de hoy", async () => {
+  it("pide los viajes de mañana declarados antes de hoy", async () => {
     const deps = setup([]);
     await sendTripDepartureReminders(deps, EVENING);
     expect(deps.tripRepository.findDeclaredForDepartureReminder).toHaveBeenCalledWith({
       departureFrom: new Date("2026-10-15T03:00:00.000Z"),
       departureTo: new Date("2026-10-16T03:00:00.000Z"),
-      createdBefore: new Date("2026-10-14T22:00:00.000Z"),
+      createdBefore: new Date("2026-10-14T03:00:00.000Z"),
       limit: 100,
     });
+  });
+
+  it("recorre todas las páginas: 100 viajes ya avisados no tapan al 101", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, i) => trip({ id: `trip-${i}` }));
+    const deps = setup([]);
+    vi.mocked(deps.tripRepository.findDeclaredForDepartureReminder)
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce([trip({ id: "trip-100" })]);
+    // La primera página ya se avisó en una vuelta anterior.
+    vi.mocked(deps.claimNotificationOnce).mockImplementation(async (key) => key === "trip-departure-reminder:trip-100");
+
+    expect(await sendTripDepartureReminders(deps, EVENING)).toBe(1);
+    expect(deps.tripRepository.findDeclaredForDepartureReminder).toHaveBeenCalledTimes(2);
+    expect(deps.tripRepository.findDeclaredForDepartureReminder).toHaveBeenLastCalledWith(
+      expect.objectContaining({ afterId: "trip-99" })
+    );
+    expect(deps.notificationsClient.sendPush).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { type: "trip_reminder", tripId: "trip-100" } })
+    );
   });
 
   it("con paquetes, avisa cuántos lleva y abre el feed del viaje", async () => {
