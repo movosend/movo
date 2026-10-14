@@ -47,6 +47,13 @@ describe("resolveNotificationRoute (MOVO-281)", () => {
     },
   );
 
+  it.each(["offer_superseded", "offer_rejected", "offer_voided"])(
+    "%s sin offerId abre Mis ofertas",
+    (type) => {
+      expect(resolveNotificationRoute({ type, shipmentId: "shp_1" })).toBe("/carrier/offers");
+    },
+  );
+
   it("receiver_transfer_invite abre la invitación", () => {
     expect(resolveNotificationRoute({ type: "receiver_transfer_invite", transferId: "tr_1" })).toBe(
       "/receiver-transfers/tr_1",
@@ -74,7 +81,7 @@ describe("resolveNotificationRoute (MOVO-281)", () => {
   describe("kyc_result", () => {
     it.each([
       ["identity", "approved", "/home"],
-      ["license", "approved", "/home"],
+      ["license", "approved", "/(app)/(tabs)/transport"],
       ["identity", "manual_review", "/home"],
       ["license", "manual_review", "/home"],
       ["identity", "rejected", "/kyc"],
@@ -102,7 +109,6 @@ describe("resolveNotificationRoute (MOVO-281)", () => {
     [{ type: "shipment_cancelled" }],
     [{ type: "shipment_rejected" }],
     [{ type: "offer_created" }],
-    [{ type: "offer_voided", shipmentId: "shp_1" }],
     [{ type: "trip_auto_created" }],
     [{ type: "trip_reminder" }],
     [{ type: "carrier_nearby", shipmentId: "" }],

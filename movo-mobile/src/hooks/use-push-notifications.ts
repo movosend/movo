@@ -47,7 +47,8 @@ const SHIPMENT_DETAIL_TYPES: readonly string[] = [
 
 /** MOVO-281: el resultado de una oferta se mira en su detalle. `offer_superseded` y
  * `offer_voided` llegan con el envío ya `assigned`/`cancelled`, y ese detalle le
- * responde 403 a un transportista que no es parte del envío. */
+ * responde 403 a un transportista que no es parte del envío. Sin `offerId` (una push vieja,
+ * anterior a que el backend lo mandara) abre "Mis ofertas", que siempre responde. */
 const OFFER_DETAIL_TYPES: readonly string[] = ["offer_superseded", "offer_rejected", "offer_voided"];
 
 /** Abren el feed de Transportar filtrado por el viaje (MOVO-163): `trip_match` y el
@@ -66,13 +67,15 @@ function stringField(data: object, key: string): string | null {
 }
 
 /** MOVO-274: `kyc_result` trae `verificationType` y `status`. Un rechazo lleva a
- * reintentar (mismos destinos que `transport.tsx` y el banner de `profile.tsx`); aprobado
- * o en revisión manual va a Inicio, donde el banner de KYC muestra el estado. */
+ * reintentar (mismos destinos que `transport.tsx` y el banner de `profile.tsx`); en revisión
+ * manual va a Inicio, donde el banner de KYC muestra el estado. Aprobado: la identidad va a
+ * Inicio, y la licencia a Transportar, que es lo que la licencia habilita (ADR-036). */
 function resolveKycRoute(data: object): NotificationRoute | null {
   const verificationType = stringField(data, "verificationType");
   const status = stringField(data, "status");
   if (verificationType !== "identity" && verificationType !== "license") return null;
-  if (status === "approved" || status === "manual_review") return "/home";
+  if (status === "approved") return verificationType === "license" ? "/(app)/(tabs)/transport" : "/home";
+  if (status === "manual_review") return "/home";
   if (status !== "rejected") return null;
   return verificationType === "identity" ? "/kyc" : { pathname: "/license-kyc", params: { status } };
 }
@@ -101,7 +104,7 @@ export function resolveNotificationRoute(data: unknown): NotificationRoute | nul
   }
   if (OFFER_DETAIL_TYPES.includes(type)) {
     const offerId = stringField(data, "offerId");
-    return offerId ? `/carrier/offers/${offerId}` : null;
+    return offerId ? `/carrier/offers/${offerId}` : "/carrier/offers";
   }
   if (type === "receiver_transfer_invite") {
     // MOVO-275: la invitación (o su cancelación) abre su pantalla, que muestra si sigue vigente.

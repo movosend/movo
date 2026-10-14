@@ -32,6 +32,7 @@ const EXAMPLES: { label: string; build: (ids: Ids) => Record<string, string> }[]
   { label: "Invitación a recibir", build: ({ transferId, shipmentId }) => ({ type: "receiver_transfer_invite", transferId, shipmentId }) },
   { label: "KYC identidad aprobada", build: () => ({ type: "kyc_result", verificationType: "identity", status: "approved" }) },
   { label: "KYC identidad rechazada", build: () => ({ type: "kyc_result", verificationType: "identity", status: "rejected" }) },
+  { label: "KYC licencia aprobada", build: () => ({ type: "kyc_result", verificationType: "license", status: "approved" }) },
   { label: "KYC licencia rechazada", build: () => ({ type: "kyc_result", verificationType: "license", status: "rejected" }) },
   { label: "KYC en revisión manual", build: () => ({ type: "kyc_result", verificationType: "license", status: "manual_review" }) },
   { label: "Cambio de contraseña", build: () => ({ type: "account_password_changed" }) },
