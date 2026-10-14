@@ -17,6 +17,9 @@ import tripExpirySweepPlugin from "./plugins/trip-expiry-sweep";
 import pickupMissedSweepPlugin from "./plugins/pickup-missed-sweep";
 import transitAnomalySweepPlugin from "./plugins/transit-anomaly-sweep";
 import fundingSweepPlugin from "./plugins/funding-sweep";
+import settlementsPlugin from "./plugins/settlements";
+import settlementSweepPlugin from "./plugins/settlement-sweep";
+import settlementRoutes, { SettlementRoutesOptions } from "./modules/settlements/settlements.routes";
 import fundingRoutes, { internalFundingRoutes, FundingRoutesOptions } from "./modules/funding/funding.routes";
 import shipmentsRoutes, { ShipmentsRoutesOptions } from "./modules/shipments/shipments.routes";
 import offersRoutes, { OffersRoutesOptions } from "./modules/offers/offers.routes";
@@ -81,6 +84,8 @@ export interface BuildAppOptions {
   transitAnomalySweepEnabled?: boolean;
   /** Override para habilitar/deshabilitar el sweep de la saga de asignación (MOVO-210). */
   fundingSweepEnabled?: boolean;
+  /** MOVO-212: barrido de liquidaciones; solo corre con FUNDS_RELEASE_NOTIFIER=payments. */
+  settlementSweepEnabled?: boolean;
   /** Override solo para tests de integración -- evita depender de una integración
    * real de liberación de fondos (MOVO-158, fuera de alcance de este ticket). */
   fundsReleaseNotifier?: FundsReleaseNotifier;
@@ -179,6 +184,17 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     ...(opts.fundingSweepEnabled !== undefined ? { enabled: opts.fundingSweepEnabled } : {}),
   });
 
+  // MOVO-212: el service de liquidación se arma una sola vez (`app.settlements`) para el notifier del
+  // handshake, el barrido y las rutas; tiene que registrarse antes que cualquiera de los tres.
+  app.register(settlementsPlugin, {
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
+  });
+  // MOVO-212: reintenta la captura de los `delivered` sin cobrar (solo con el notifier real).
+  app.register(settlementSweepPlugin, {
+    ...(opts.settlementSweepEnabled !== undefined ? { enabled: opts.settlementSweepEnabled } : {}),
+  });
+
   app.get("/health", async () => ({ status: "ok" }));
 
   const shipmentsRouteOpts: ShipmentsRoutesOptions = {
@@ -253,8 +269,15 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     prefix: "/shipments",
     ...(opts.usersClient ? { usersClient: opts.usersClient } : {}),
     ...(opts.fundsReleaseNotifier ? { fundsReleaseNotifier: opts.fundsReleaseNotifier } : {}),
+    // MOVO-212: el notifier real captura el hold y avisa por push.
+    ...(opts.notificationsClient ? { notificationsClient: opts.notificationsClient } : {}),
+    ...(opts.paymentsClient ? { paymentsClient: opts.paymentsClient } : {}),
   };
   app.register(handshakeRoutes, handshakeRouteOpts);
+
+  // MOVO-212 AC10: `GET /shipments/:id/settlement`, el pago del envío según el rol.
+  const settlementRouteOpts: SettlementRoutesOptions = { prefix: "/shipments" };
+  app.register(settlementRoutes, settlementRouteOpts);
 
   // MOVO-201/ADR-022: canal de tiempo real (@fastify/websocket) -- mismo prefix
   // "/shipments" que shipmentsRoutes/handshakeRoutes. Reemplaza la PoC de MOVO-200 --

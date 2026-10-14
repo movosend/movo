@@ -158,8 +158,9 @@ ADR-035.
   emisor retenidos y sin poder abrir otro hold para el envío en el medio. Decisión
   pendiente (no implementada): impedir la desvinculación mientras haya holds vivos del
   transportista, o ampliar MOVO-243/268.
-- **`?sync=true`** consulta el pago a MP y actualiza la fila: hasta MOVO-268 (webhook) es
-  la única forma de ver un hold que MP cambió por su cuenta.
+- **`?sync=true`** consulta el pago a MP y actualiza la fila. Desde MOVO-268 el webhook
+  refleja solo lo que MP cambia por su cuenta; `sync` sigue sirviendo para el barrido de
+  la saga de shipments y para resolver un `creating`.
 - **Logs (AC9)**: se loguean ids, estado y montos; nunca el `card_token`, el email del
   pagador ni los tokens OAuth (el test lo verifica además del `redact` del logger).
 - **`payment_method_id` es opcional** en el request: se reenvía a MP si el mobile lo manda
@@ -183,9 +184,58 @@ del Vendedor (el token del OAuth del spike no se persiste, ver el encabezado del
 
 Pendiente: cargar `MP_HOLD_VALIDITY_DAYS` en el secret si MOVO-215 define otro valor;
 `svc-shipments` ya los llama desde la saga de asignación (MOVO-210, ver
-`services/movo-svc-shipments/CLAUDE.md`). Falta que payments avise a
-`POST /internal/shipments/:id/hold-events` de shipments cuando MP cancela o vence un hold
-(MOVO-268): el endpoint receptor ya existe, nadie lo llama todavía.
+`services/movo-svc-shipments/CLAUDE.md`). El aviso a `POST /internal/shipments/:id/hold-events`
+cuando MP cancela o vence un hold lo hace el webhook (MOVO-268, abajo).
+
+### MOVO-212 — Captura del hold y liquidación (lado `svc-payments`)
+
+Endpoints **internos** (sin gateway, como los holds): `POST /internal/payments/holds/by-shipment/:shipmentId/capture`
+y `GET /internal/payments/holds/by-shipment/:shipmentId/settlement` (bajo el mismo prefijo que los
+holds, para que el `PaymentsClient` de MOVO-210 los alcance con su misma base). Código en `src/modules/settlements/`,
+`src/repositories/settlement-repository.ts` y `src/plugins/captures.ts`; contrato en `@movo/shared`
+(`types/settlement.ts`). Tabla `payments.settlements` (migración `20261011120000`).
+
+- **Idempotencia en tres capas (AC7)**: una liquidación `credited` se devuelve sin tocar a MP; hay UNA
+  fila por envío (`shipment_id` único) que se crea en `processing` ANTES de llamar a MP; la captura va con
+  la key `movo-hold-capture-<holdId>`. Si MP falla pero el pago ya está `approved` (respuesta perdida cuya
+  key venció) se adopta en vez de capturar de nuevo.
+- **Sin `amount` en la captura (AC3)**: MP cobra exactamente lo autorizado. El bruto de la liquidación es
+  el monto del hold.
+- **El desglose sale de MP, no de una tasa**: tras capturar se hace `getPayment` y se lee `fee_details`
+  (`application_fee` = comisión de Movo, el resto = fee de MP) y `net_received_amount`. Antes de capturar
+  ese desglose no existe (SOLUCION-FINAL §3). Aritmética en `Decimal`; si bruto ≠ fee MP + comisión + neto
+  se loguea el error pero se registra lo que dice MP. `MP_TRANSACTION_FEE_RATE` (placeholder) no interviene.
+- **Fallos (AC8)**: este servicio no conoce el estado del envío, así que no puede revertir la entrega. Un
+  fallo deja la liquidación `failed` (con `failureReason`) o `processing` (cobrado pero sin desglose todavía)
+  y el hold como estaba; llamar de nuevo reintenta desde donde quedó. El backoff y el escalado son MOVO-213.
+  El update a `failed` es condicional sobre `processing` (`updateIfStatus`): una captura en línea que ya
+  acreditó no la pisa un fallo tardío del reintento, y `capture()` relee y devuelve la acreditada.
+  **Fallos permanentes no se reintentan** (review de PR #235): `hold_expired` corta sin llamar a MP, y
+  `carrier_account_unavailable` solo se reintenta si la vinculación cambió después del fallo (re-vinculación
+  o un refresh de MOVO-243); un token vencido falla sin llamar a MP. **Pendiente (MOVO-243)**: refrescar el
+  `access_token` con el `refresh_token` antes de capturar; hoy no hay flujo de refresh en este servicio.
+- **Comisión de MP = solo lo que descuenta al vendedor** (`fee_payer: collector`): un cargo que paga el
+  comprador (`financing_fee` en cuotas) queda afuera, así `mpFee + comisión + neto == bruto` sigue cerrando.
+- **Decisión no obvia**: no se rechaza de entrada por `expiresAt` vencido. `MP_HOLD_VALIDITY_DAYS` es una
+  estimación provisoria (MOVO-215), así que se intenta igual y se clasifica el fallo como `hold_expired` solo
+  si MP rechaza y el hold ya pasó su fecha o MP lo tiene `cancelled`. Un hold cancelado por MP NO se sincroniza
+  acá: lo refleja el webhook (MOVO-268) o `?sync=true`, y la captura solo lo clasifica.
+- **`captured` es un UPDATE condicional sobre `authorized`** (`holdRepository.markCaptured`): si el webhook movió el hold
+  en el medio no se pisa, se loguea y la liquidación se acredita igual porque MP ya cobró.
+- **Visibilidad por rol (AC10)**: payments devuelve la liquidación completa; el filtro (transportista ve todo,
+  emisor total y fecha, receptor nada) lo aplica `svc-shipments`, que es quien sabe quién es quién.
+
+El lado de `svc-shipments` (notifier real, `completed`, push, barrido y endpoint por rol) está en
+`services/movo-svc-shipments/CLAUDE.md` (MOVO-212).
+
+Los tests que truncan `holds` (también los del webhook) incluyen `settlements` y usan `CASCADE`:
+`settlements.hold_id` es FK a `holds`.
+
+Verificado contra el sandbox real (13/10): `test/captures.sandbox.test.ts` crea un hold de $1150 con fee 150, lo captura
+(neto 952,85 = 1150 − 47,15 de MP − 150 de Movo, igual que un `GET` directo a MP) y una segunda captura devuelve la misma
+liquidación sin cobrar de nuevo. Se saltea sin credenciales (no corre en CI), mismas variables que `holds.sandbox.test.ts`.
+Entre el 11 y el 13/10 `POST /v1/payments` respondió `500 internal_error` (`cause: []`) para cualquier pago, incluso sin
+fee ni hold: era de MP y se resolvió solo.
 
 ### MOVO-116 — `GET /internal/payments/mp-connect/:userId/status`
 
@@ -196,3 +246,53 @@ ni hook de `x-user-id`) que devuelve `{ linked }` para el bloqueo del transporti
 `findActiveCredentials` y no descifra tokens): es más estricto que el `linked` de
 `GET /payments/mp-connect/status` porque también exige `public_key`, así nadie pasa el bloqueo
 y después cae en el 409 del hold. Tests en `test/mp-connect.integration.test.ts`.
+
+### MOVO-268 — Webhook de MP: holds cancelados o vencidos por MP y contracargos
+
+`POST /payments/webhooks/mercadopago` (pública en el gateway, plugin aparte como el callback
+de OAuth), registrado en el panel de la app para el tópico `payment`. Código en
+`src/modules/webhooks/`, `src/repositories/mp-webhook-repository.ts`,
+`src/utils/mp-webhook-signature.ts`, `src/adapters/{shipments-client,alert-notifier}.ts` y
+`src/plugins/mp-webhooks.ts`.
+
+- **Se deduplica por lo firmado, no por el `id` del body** (review de PR #235): la clave es
+  `data.id:x-request-id:ts` (`notificationDedupeKey`), así reenviar una notificación válida con otro `id` no crea
+  filas nuevas. El `user_id` del body no está firmado: solo orienta qué credenciales probar para un pago
+  desconocido, y si el pago no es de ese vendedor (`collector_id`) se ignora. Un `status` heredado de `Object`
+  (`constructor`) ya no se cuela como `kind` (`hasOwnProperty`). Si la reconciliación de un intento en
+  `creating` (`?sync=true`) lo lleva a cancelado/vencido/rechazado, igual se avisa a `svc-shipments` (antes se veía
+  como "ya cerrado" y no avisaba).
+- **Inbox en la base (AC7)**: la ruta valida `x-signature` (HMAC del manifest
+  `id;request-id;ts`, sin ventana sobre `ts`: un reintento legítimo de MP conserva el `ts`), guarda la
+  notificación en `mp_webhook_notifications` y responde 200; el procesamiento corre en
+  segundo plano. Un error propio (MP o shipments caídos) la deja `pending` con backoff
+  (1, 2, 4... min, tope 6 h) y un barrido (`setInterval`, sin lock de Redis: cada
+  notificación se toma con un UPDATE condicional) la reintenta hasta
+  `MP_WEBHOOK_MAX_ATTEMPTS`; después queda `failed` y se alerta.
+- **Nunca se actúa sobre el body (AC3)**: `Payment.get` con el token del transportista
+  dueño del hold. Un pago sin hold se busca por el `user_id` del vendedor y su
+  `external_reference`, lo que además rescata un intento que quedó en `creating`. Sin
+  credenciales (desvinculó o MP revocó) la notificación queda `unverifiable` con alerta.
+- **Idempotencia (AC6)**: único por `id` de la notificación; el cambio del hold es un
+  UPDATE condicional sobre el estado esperado, en la misma transacción que anota el aviso
+  pendiente a shipments (`pending_hold_event`). Así un reintento vuelve a avisar sin
+  volver a consultar a MP, y la liberación hecha por Movo que vuelve como webhook no avisa.
+- **Vencido = `cancelled` + `status_detail: expired`** (sin estado nuevo en el enum ni en
+  `@movo/shared`); a shipments se le manda `event: expired`. Falta confirmar en MOVO-215 que
+  MP use ese detail. Un `in_process` que MP rechaza manda `rejected`; uno que autoriza solo
+  actualiza la fila (el barrido de la saga ya hace `?sync=true`).
+- **`approved` no toca el hold**: la transición a `captured` es de la captura (MOVO-212),
+  que persiste la liquidación. El webhook solo loguea.
+- **Contracargo, reembolso externo y mediación (AC5)**: se registran en
+  `payment_provider_events` (único por pago + estado de MP, una sola alerta). El hold y la
+  liquidación de MOVO-212 no cambian; se relacionan por `mp_payment_id`
+  (`settlements.mp_payment_id`), sin FK ni columna nueva. Qué pasa con el cobro ya acreditado
+  queda para disputas (MOVO-30/34).
+- **Alertas** (`AlertNotifier`, consola o Telegram con `ALERT_PROVIDER`): contracargos,
+  notificaciones `unverifiable`/`failed` y el `hold_lost_after_pickup` que responde shipments
+  (hold perdido con el paquete en camino: la captura va a fallar). La reusa MOVO-213.
+
+Pendiente: probar contra el sandbox con una notificación real por túnel (DoD), registrar
+`https://api-dev.movosend.app/api/v1/payments/webhooks/mercadopago` en el panel de
+`movosend` y cargar en el secret de dev `ALERT_PROVIDER=telegram`,
+`ALERT_TELEGRAM_BOT_TOKEN`/`_CHAT_ID` y `ALERT_ENVIRONMENT_LABEL=dev`.

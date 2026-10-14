@@ -48,7 +48,7 @@ describe("/internal/payments/holds (MOVO-209)", () => {
   });
 
   beforeEach(async () => {
-    await app.db.$executeRawUnsafe("TRUNCATE TABLE payments.holds, payments.carrier_mp_accounts");
+    await app.db.$executeRawUnsafe("TRUNCATE TABLE payments.holds, payments.carrier_mp_accounts CASCADE");
     createCount = 0;
     for (const fn of [mp.createPayment, mp.getPayment, mp.cancelPayment]) fn.mockClear();
     mp.createPayment.mockImplementation(async () => payment({ id: 1_000_000 + ++createCount }));

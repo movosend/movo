@@ -187,7 +187,13 @@ services:
       # MOVO-158 (AC7): liberación de fondos real de MercadoPago descopeada de este
       # ticket -- único valor hoy "console" (no-op/log), mismo criterio de `:-console`
       # que el resto de los *_PROVIDER de arriba.
-      - FUNDS_RELEASE_NOTIFIER=${FUNDS_RELEASE_NOTIFIER:-console}
+      # MOVO-212: en dev/prod la entrega captura el hold real (el default de código sigue
+      # siendo "console" para dev local/test/CI). `:-` y no `-`: una var vacía no matchea el enum.
+      - FUNDS_RELEASE_NOTIFIER=${FUNDS_RELEASE_NOTIFIER:-payments}
+      - SETTLEMENT_SWEEP_INTERVAL_MINUTES=${SETTLEMENT_SWEEP_INTERVAL_MINUTES:-5}
+      - SETTLEMENT_SWEEP_GRACE_MINUTES=${SETTLEMENT_SWEEP_GRACE_MINUTES:-5}
+      - SETTLEMENT_SWEEP_BATCH_SIZE=${SETTLEMENT_SWEEP_BATCH_SIZE:-20}
+      - SETTLEMENT_SWEEP_ENABLED=${SETTLEMENT_SWEEP_ENABLED:-true}
       # MOVO-82: el default de código (http://movo-svc-pricing-logistics:8000) ya
       # coincide con el nombre del servicio en movo-net, mismo criterio que
       # USERS_SERVICE_URL -- no hace falta setearlo acá.
@@ -244,6 +250,16 @@ services:
       # esta última leída por @movo/shared; sin ella un cambio en shipments divergiría.
       - MP_HOLD_VALIDITY_DAYS=${MP_HOLD_VALIDITY_DAYS:-5}
       - MOVO_COMMISSION_RATE=${MOVO_COMMISSION_RATE:-0.15}
+      # MOVO-268: webhook de MP. Aviso a svc-shipments, reintentos del inbox y alertas
+      # al equipo (`telegram` necesita el token del bot y el chat en el secret).
+      - SHIPMENTS_SERVICE_URL=${SHIPMENTS_SERVICE_URL:-http://movo-svc-shipments:3000}
+      - MP_WEBHOOK_MAX_ATTEMPTS=${MP_WEBHOOK_MAX_ATTEMPTS:-10}
+      - MP_WEBHOOK_SWEEP_INTERVAL_MINUTES=${MP_WEBHOOK_SWEEP_INTERVAL_MINUTES:-1}
+      - MP_WEBHOOK_SWEEP_ENABLED=${MP_WEBHOOK_SWEEP_ENABLED:-true}
+      - ALERT_PROVIDER=${ALERT_PROVIDER:-console}
+      - ALERT_TELEGRAM_BOT_TOKEN=${ALERT_TELEGRAM_BOT_TOKEN:-}
+      - ALERT_TELEGRAM_CHAT_ID=${ALERT_TELEGRAM_CHAT_ID:-}
+      - ALERT_ENVIRONMENT_LABEL=${ALERT_ENVIRONMENT_LABEL:-}
     depends_on:
       - postgres
       - redis

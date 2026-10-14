@@ -115,6 +115,48 @@ export function classifyCreateError(info: MpErrorInfo): CreateErrorOutcome {
   return { kind: "transient" };
 }
 
+/**
+ * Traduce un pago de MP al estado del hold. Devuelve `null` ante un estado que no
+ * conocemos (`refunded`, `charged_back`, `in_mediation`, ...): el caller deja la fila
+ * como estaba. Convertirlo en `rejected` sacaría al hold del índice de holds vivos y
+ * habilitaría una segunda reserva sobre fondos que siguen retenidos.
+ *
+ * Exportada para el webhook (MOVO-268): un pago que cambió por su cuenta en MP se
+ * traduce igual que la respuesta de crear, consultar o liberar.
+ */
+export function holdUpdateFromPayment(
+  payment: PaymentSnapshot,
+  current: Hold | null,
+  now: Date,
+  holdValidityDays: number
+): HoldUpdate | null {
+  const statusDetail = payment.status_detail ?? null;
+  const mpPaymentId = payment.id !== undefined ? String(payment.id) : null;
+  const expiresAt = current?.expiresAt ?? new Date(now.getTime() + holdValidityDays * DAY_MS);
+  switch (payment.status) {
+    case "authorized":
+      return { status: "authorized", statusDetail, failureReason: null, mpPaymentId, expiresAt };
+    case "in_process":
+    case "pending":
+      return { status: "in_process", statusDetail, failureReason: null, mpPaymentId, expiresAt };
+    case "approved":
+      // Con `capture: false` no debería pasar; si pasa, la plata ya se cobró.
+      return { status: "captured", statusDetail, failureReason: null, mpPaymentId, expiresAt: null };
+    case "cancelled":
+      return { status: "cancelled", statusDetail, failureReason: null, mpPaymentId, expiresAt: null };
+    case "rejected":
+      return {
+        status: "rejected",
+        statusDetail,
+        failureReason: failureReasonFromStatusDetail(statusDetail),
+        mpPaymentId,
+        expiresAt: null,
+      };
+    default:
+      return null;
+  }
+}
+
 const roundArs = (value: number): number => Math.round(value * 100) / 100;
 
 /** Centavos exactos y positivos: no se redondea en silencio un monto con más precisión. */
@@ -219,41 +261,23 @@ export function createHoldService(deps: HoldServiceDeps) {
   }
 
   /**
-   * Traduce un pago de MP al estado del hold. Devuelve `null` ante un estado que no
-   * conocemos (`refunded`, `charged_back`, `in_mediation`, ...): el caller deja la fila
-   * como estaba y se loguea. Convertirlo en `rejected` sacaría al hold del índice de holds
-   * vivos y habilitaría una segunda reserva sobre fondos que siguen retenidos.
+   * Traduce un pago de MP al estado del hold (`holdUpdateFromPayment`). Ante un estado
+   * que no conocemos deja la fila como estaba y lo loguea.
    */
   function mapPayment(payment: PaymentSnapshot, current: Hold | null): HoldUpdate | null {
-    const statusDetail = payment.status_detail ?? null;
-    const mpPaymentId = payment.id !== undefined ? String(payment.id) : null;
-    const expiresAt = current?.expiresAt ?? new Date(now().getTime() + deps.holdValidityDays * DAY_MS);
-    switch (payment.status) {
-      case "authorized":
-        return { status: "authorized", statusDetail, failureReason: null, mpPaymentId, expiresAt };
-      case "in_process":
-      case "pending":
-        return { status: "in_process", statusDetail, failureReason: null, mpPaymentId, expiresAt };
-      case "approved":
-        // Con `capture: false` no debería pasar; si pasa, la plata ya se cobró.
-        return { status: "captured", statusDetail, failureReason: null, mpPaymentId, expiresAt: null };
-      case "cancelled":
-        return { status: "cancelled", statusDetail, failureReason: null, mpPaymentId, expiresAt: null };
-      case "rejected":
-        return {
-          status: "rejected",
-          statusDetail,
-          failureReason: failureReasonFromStatusDetail(statusDetail),
-          mpPaymentId,
-          expiresAt: null,
-        };
-      default:
-        log.error(
-          { holdId: current?.id, mpPaymentId, mpStatus: payment.status, mpStatusDetail: statusDetail },
-          "estado de pago de MP desconocido, el hold queda sin cambios"
-        );
-        return null;
+    const patch = holdUpdateFromPayment(payment, current, now(), deps.holdValidityDays);
+    if (!patch) {
+      log.error(
+        {
+          holdId: current?.id,
+          mpPaymentId: payment.id !== undefined ? String(payment.id) : null,
+          mpStatus: payment.status,
+          mpStatusDetail: payment.status_detail ?? null,
+        },
+        "estado de pago de MP desconocido, el hold queda sin cambios"
+      );
     }
+    return patch;
   }
 
   /**
