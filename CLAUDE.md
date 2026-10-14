@@ -522,7 +522,8 @@ prueba y alternativas en `docs/payments/adr-039-tarjetas-guardadas-con-cvv.md`.
   ver `services/movo-svc-payments/CLAUDE.md`; verificado contra el sandbox real el 14/10 con 7 escenarios (camino
   feliz y rechazos por titular). Sacó a la luz un bug de MOVO-209: `readMpError` no leía `causes` del SDK real.
   Para guardar una tarjeta en sandbox con un titular distinto de APRO hay que tokenizar con `identification`.
-  **Pendiente**: confirmar con MOVO-283 cuál es la key de producción; MOVO-269; el spike MOVO-283 (segundo transportista, producción con cuenta real y bajo
+  MOVO-269 (mobile, pago con tarjeta guardada + CVV) implementado, ver `movo-mobile/CLAUDE.md`; falta probarlo en un development build.
+  **Pendiente**: confirmar con MOVO-283 cuál es la key de producción; el spike MOVO-283 (segundo transportista, producción con cuenta real y bajo
   monto, `application_fee` real, débito de la comisión sin CVV para MOVO-37); pasar el ADR a
   "aceptado" y pegar su desarrollo completo en Drive.
 

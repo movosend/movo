@@ -4490,22 +4490,38 @@ después de `gate`); ganar foco sin bloqueo solo refetchea perfil + MP si pasaro
 (`GATE_STALE_MS`); la hoja del gate es `accessibilityViewIsModal` y el contenido de atrás queda con
 `no-hide-descendants`; `/license-kyc` no recibe `status=approved` si el backend dice que la licencia falta.
 
-### Tarjetas guardadas (MOVO-101, MOVO-269; ADR-039 propuesto): diseño acordado, sin implementar
+### MOVO-269 — Pago del envío con tarjeta guardada + CVV (ADR-039 propuesto)
 
-### Tarjetas guardadas: pago con CVV (MOVO-269; ADR-039 propuesto), diseño acordado, sin implementar
+`app/(app)/shipments/[id]/pay.tsx`, fiel al prototipo de Claude Design "Pago con tarjeta v3": el emisor elige una
+tarjeta guardada (la predeterminada viene elegida) y escribe solo el CVV. Es una **reserva, no un cobro**. Se genera
+el token en el dispositivo con `card_id` + CVV y la `public_key` del transportista (`carrierPublicKey` de
+`GET /shipments/:id/funding`, `createSavedCardToken` en `mp-card-tokenizer.ts`) y se manda a
+`POST /shipments/:id/funding` con `savedCardId` (`funding-client.ts`, `use-shipment-funding.ts`). La lógica vive
+en funciones puras (`pay-shipment-flow.ts`, `pay-shipment-format.ts`) para testearla sin montar `useMutation`.
 
-MOVO-101 (alta y gestión de tarjetas) ya está implementado, ver su entrada más abajo.
+- **El CVV no sale del dispositivo**: campo seguro (`secureTextEntry`, sin autocompletar), al backend van solo
+  `cardToken` y `savedCardId`; se limpia al fallar, al cambiar de tarjeta y al salir. Un rechazo de la tarjeta es
+  HTTP 200 con `funded:false` y un motivo (`insufficient_funds`/`card_rejected`/`invalid_data`/`platform_error`),
+  cada uno con su copy; `invalid_data` es "Revisá el código de seguridad". Sin red de idempotencia del lado cliente:
+  la garantiza el backend por envío; el botón queda deshabilitado mientras hay un intento en curso.
+- **Entradas**: tras aceptar una oferta con retiro cercano (`assignment_pending`) `offers.tsx` hace `replace` a
+  `pay` (deja el detalle debajo); el detalle suma el CTA "Pagar y reservar fondos" (`?resumed=1` muestra "Retomaste
+  tu pago") y, con `assigned_unfunded`, "Confirmar el pago" solo si la ventana está abierta
+  (`isFundingWindowOpen`, `FUNDING_WINDOW_DAYS = 3`, espeja `FUNDING_NEAR_PICKUP_DAYS` del backend, que es quien
+  decide). Los pushes de la saga ya abren el detalle (`type: "shipment"`).
+- **"Agregar tarjeta nueva"** reusa tal cual el `AddCardWizard` de MOVO-101 (`pay-add-card-modal.tsx`, un `Modal` a
+  pantalla completa, mismo patrón que `AddressSearchSheet`): sin una segunda implementación del alta. Al guardar, la
+  nueva queda elegida y se pide el CVV otra vez, con un aviso que lo explica (el token de alta es de la `public_key` de
+  Movo y no sirve para pagar al transportista).
+- **Plazo vencido o 409 `SHIPMENT_FUNDING_NOT_AVAILABLE`**: la pantalla explica qué pasó según el estado del envío
+  (`unavailableKind`: volvió a publicarse / ya está pago / todavía no se puede pagar).
+- Sin cuotas ni pasos de v2 (el hold no soporta cuotas).
 
-- **MOVO-269** (Juan Cruz): pago con tarjeta guardada + CVV. Genera el token en el dispositivo con
-  `card_id` + CVV y la `public_key` del transportista (`carrierPublicKey` de `GET /shipments/:id/funding`)
-  y lo manda a `POST /shipments/:id/funding` con `savedCardId`. Sin tarjetas guardadas abre el alta de
-  MOVO-101 (`AddCardWizard`) y pide el CVV de nuevo (el token de alta es de la `public_key` de Movo, no
-  sirve para pagar).
-- **Nombre de referencia**: es el título de la tarjeta en el selector de MOVO-269, que siempre muestra
-  también los últimos 4.
-- El CVV no se guarda, no se loguea ni va al store. Un solo campo no requiere Brick: un `TextInput`
-  seguro que llama directo a `v1/card_tokens` es lo que se validó (mismo criterio de formulario propio
-  que el alta de MOVO-101).
+Pendiente: probarlo en development build contra el sandbox (reserva exitosa, CVV incorrecto con titular `SECU`,
+fondos insuficientes `FUND`, rechazo genérico `OTHE`) y verificar en los requests que el backend nunca recibe número
+ni CVV; el aviso "Confirmá el pago" en "Requiere tu atención" no se agregó.
+
+Nombre de referencia de la tarjeta: es el título en el selector, que siempre muestra también los últimos 4.
 
 ### MOVO-281 — Navegación al tocar todas las notificaciones push
 
