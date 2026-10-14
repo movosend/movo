@@ -67,6 +67,15 @@ export interface CreateHoldRequest {
   cardToken: string;
   amountArs: number;
   payerEmail: string;
+  /** Usuario de Movo del emisor (MOVO-282): dueño de la tarjeta guardada, si se usa una. */
+  payerUserId: string;
+  /**
+   * MOVO-282 (ADR-039): id interno (`payments.saved_cards.id`) de la tarjeta guardada con la que se
+   * generó el token (`card_id` + CVV). El pagador del hold pasa a ser el customer de esa tarjeta
+   * (`payer: { type: "customer" }`) en vez del email. Sin él, el camino de siempre (tarjeta completa).
+   * La tarjeta tiene que ser de `payerUserId` y estar viva; si no, 404 sin revelar si existe.
+   */
+  savedCardId?: string;
   /** `visa`, `master`, etc., tal como lo devuelve el formulario de MP junto al token. */
   paymentMethodId?: string;
 }
