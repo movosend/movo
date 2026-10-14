@@ -1,4 +1,5 @@
 import { OfferStatus, ShipmentStatus, TripStatus } from "@movo/shared";
+import type { ShipmentParties } from "@movo/shared";
 import { Prisma, PrismaClient, Shipment as ShipmentRow, ShipmentEvent as ShipmentEventRow, ShipmentPhoto as ShipmentPhotoRow } from "../generated/prisma/client";
 import {
   ACTIVE_SHIPMENT_STATUSES,
@@ -650,6 +651,13 @@ export interface ShipmentRepository {
    * es una conexión mutua).
    */
   findMutualCounterpartyIds(userId: string, otherId: string): Promise<string[]>;
+  /**
+   * MOVO-288: las partes de un envío para la regla de conflicto de interés de `svc-admin`.
+   * Además del emisor, transportista y receptor actuales, devuelve los receptores anteriores:
+   * quien pidió una transferencia completada (ADR-038) y quien rechazó antes de que el emisor
+   * eligiera a otra persona (ADR-027, sale del evento `-> rejected_by_receiver`). `null` si no existe.
+   */
+  findParties(id: string): Promise<ShipmentParties | null>;
   /**
    * MOVO-192: envíos activos (`ACTIVE_SHIPMENT_STATUSES`) donde `userId` participa en
    * el rol de columna dado (`senderId`/`carrierId`/`receiverId` -- no los nombres de
@@ -1510,6 +1518,36 @@ export function createShipmentRepository(db: PrismaClient): ShipmentRepository {
         fulfilledCounterpartyIds(otherId),
       ]);
       return [...mine].filter((id) => id !== userId && id !== otherId && theirs.has(id));
+    },
+
+    async findParties(id: string): Promise<ShipmentParties | null> {
+      const row = await db.shipment.findUnique({
+        where: { id },
+        select: {
+          senderId: true,
+          carrierId: true,
+          receiverId: true,
+          receiverTransfers: { where: { status: "completed" }, select: { requestedBy: true } },
+          events: {
+            where: { toStatus: ShipmentStatus.REJECTED_BY_RECEIVER, actorId: { not: null } },
+            select: { actorId: true },
+          },
+        },
+      });
+      if (!row) return null;
+
+      const former = new Set<string>();
+      for (const transfer of row.receiverTransfers) former.add(transfer.requestedBy);
+      for (const event of row.events) if (event.actorId) former.add(event.actorId);
+      former.delete(row.receiverId);
+
+      return {
+        shipmentId: id,
+        senderId: row.senderId,
+        carrierId: row.carrierId,
+        receiverId: row.receiverId,
+        formerReceiverIds: [...former],
+      };
     },
 
     async listActiveShipments(
