@@ -408,8 +408,7 @@ solo si viene: primer error con datos extra para el cliente, compatible hacia at
 `CarrierRequirementsErrorDetails` y las respuestas de los dos endpoints internos nuevos.
 Códigos nuevos: `CARRIER_LICENSE_NOT_APPROVED`, `PAYMENTS_SERVICE_UNAVAILABLE`,
 `OFFER_CARRIER_NOT_ELIGIBLE`; `CARRIER_MP_ACCOUNT_NOT_LINKED` (MOVO-209) se reusa, ahora también
-como 403 de `svc-shipments`. Mobile todavía no lee `details` (`parseErrorBody` lo descarta): es
-parte de MOVO-117.
+como 403 de `svc-shipments`. Mobile ya lee `details` (`parseErrorBody`, MOVO-117).
 
 ### MOVO-210 — Contrato de la saga de asignación y `OfferStatus.ASSIGNMENT_LAPSED`
 

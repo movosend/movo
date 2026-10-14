@@ -4410,10 +4410,9 @@ cuando la licencia se aprueba sin salir del tab. Si el perfil falla no se deja p
 muestra el error con "Reintentar" (decisión de la review, el bloqueo es UX pero sin perfil no
 se sabe qué falta). La autoridad sigue siendo el backend (ADR-036).
 
-- **`CarrierRequirementGate`** (`components/carrier/`) es genérico (ícono, título, texto, CTA)
-  y lo usan ambos bloqueos. MOVO-117 reemplaza la rama de licencia por una checklist propia
-  (licencia + Mercado Pago, sin MP tampoco se navega el tab) y no reutiliza este componente,
-  que queda para el bloqueo de identidad. El copy de licencia varía por estado (`licenseGateCopy`): en
+- **`CarrierRequirementGate`** (`components/carrier/`) es genérico (ícono, título, texto, CTA).
+  MOVO-117 reemplazó la rama de licencia por la checklist (licencia + Mercado Pago, ver su
+  entrada abajo), así que hoy solo lo usa el bloqueo de identidad. El copy de licencia varía por estado (`licenseGateCopy`): en
   `manual_review` dice "Estamos revisando tu licencia" con "Ver estado", porque pedir
   "verificá" sobre algo ya enviado se lee como error. El CTA pasa `status` a `/license-kyc`,
   igual que el banner de Perfil.
@@ -4430,6 +4429,41 @@ se sabe qué falta). La autoridad sigue siendo el backend (ADR-036).
 "Mis envíos" sigue visible.
 
 Probado en device.
+
+### MOVO-117 — Checklist de requisitos para operar como transportista (licencia + Mercado Pago)
+
+Frontend de ADR-036 / MOVO-116. Un solo componente, `CarrierRequirementsChecklist`
+(`components/carrier/carrier-requirements-checklist.tsx`), fiel al prototipo de Claude Design
+("Requisitos para transportar": título, contador N/2 en lima, barra de 2 segmentos, una fila por
+requisito con pill Pendiente/Listo y CTA, "Después"), en dos contenedores: `CarrierRequirementsScreen`
+(entrada al tab Transportar) y `CarrierRequirementsSheet` (bottom sheet ante un 403). Los dos tienen
+la misma hoja del prototipo; la del tab no es un `Modal`: es un overlay absoluto montado como hermano
+del contenido de `transport.tsx` (oscurece también el título, se extiende bajo la tab bar y tiene
+pull-to-refresh), porque el gate no se cierra, se resuelve o se sale con "Después". El título lleva un
+salto fijo ("…esto\npara transportar") para verse igual al prototipo en teléfonos más anchos. Los CTA llevan a `/license-kyc` (con `status`) y `/profile/payments`; el sheet navega recién
+cuando termina de cerrarse (`onClosed`), porque iOS no presenta una pantalla con un `Modal` abierto.
+
+- **Gate de entrada**: `resolveTransportGate` pasa a devolver `"identity"`, la lista de
+  `CarrierRequirement` que faltan o `null`. Suma `useMpConnectStatus` (`unlinked` e `invalid` cuentan
+  como faltante). Si no se puede consultar el perfil o MP no se deja pasar: "No pudimos verificar tus
+  requisitos" + Reintentar. Al volver a ganar foco el tab refresca siempre perfil y MP (el primer foco,
+  coincidente con el montaje, se salta para no duplicar la request).
+- **Sheet ante el 403** (`useCarrierRequirementsSheet`): crear y editar oferta, declarar viaje e iniciar
+  viaje (detalle del viaje, Inicio y `/route`) pasan el error a `handleError`, que decide por `code`
+  (`carrierRequirementsFromError`, no por status: `CARRIER_MP_ACCOUNT_NOT_LINKED` sigue siendo 409 en
+  los holds de `svc-payments`) y lee `details.missingRequirements`. Un 502 `*_SERVICE_UNAVAILABLE` sigue
+  siendo un error para reintentar. El 403 invalida perfil y MP: es la señal de que el estado del cliente
+  estaba viejo; el backend es la autoridad.
+- `http-client.ts#parseErrorBody` ahora pasa `body.error.details` al `ApiError`.
+- **Fuera del prototipo, mismo lenguaje visual**: contextos "iniciar viaje"/"editar oferta"/"gate" de la
+  frase de introducción, y la pill "En revisión" + CTA "Ver estado" de la licencia en `manual_review`.
+- **`profile-license-status-banner.tsx` queda como está** (AC9): su "Perfil verificado 1/2" cuenta
+  identidad + licencia (verificaciones del perfil), mientras la checklist cuenta licencia + Mercado Pago;
+  sumar MP lo volvería un 3-pasos que el prototipo no define.
+
+Pendiente: no probado en device (sheet sobre cada pantalla, vuelta desde `/license-kyc` y
+`/profile/payments`).
+
 ### Tarjetas guardadas (MOVO-101, MOVO-269; ADR-039 propuesto): diseño acordado, sin implementar
 
 - **MOVO-101** (asignado a Tomás): `app/(app)/profile/payments.tsx` ("Pagos y cobros", hoy solo el
