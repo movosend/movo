@@ -113,6 +113,25 @@ export type {
   HoldStatus,
 } from "./types/hold";
 
+// saved cards (MOVO-100)
+export { MAX_SAVED_CARDS_PER_USER, SAVED_CARD_ALIAS_MAX_LENGTH } from "./types/saved-card";
+export type {
+  CardsCheckoutDataResponse,
+  CreateSavedCardRequest,
+  SavedCard,
+  UpdateSavedCardRequest,
+} from "./types/saved-card";
+
+// liquidación: captura del hold + split (MOVO-212)
+export { SETTLEMENT_STATUSES } from "./types/settlement";
+export type {
+  CaptureHoldResponse,
+  SettlementDisplayStatus,
+  SettlementFailureReason,
+  SettlementResponse,
+  SettlementStatus,
+  ShipmentSettlementResponse,
+} from "./types/settlement";
 // funding (MOVO-210)
 export type {
   FundingRoute,

@@ -106,12 +106,194 @@ model Hold {
   // original); si no coincide, se busca el pago en MP antes de abrir otro intento.
   // Nunca el token en claro.
   requestFingerprint String?            @map("request_fingerprint")
+  // MOVO-100: tarjeta guardada (`saved_cards.id`) con la que se creó el hold, sin FK
+  // (la fila local se borra soft). La escribe MOVO-282; acá solo habilita el
+  // `409 CARD_IN_USE` al dar de baja una tarjeta con un hold vivo.
+  savedCardId        String?            @map("saved_card_id") @db.Uuid
   expiresAt          DateTime?          @map("expires_at") @db.Timestamptz
   createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+  settlement         Settlement?
 
   @@unique([shipmentId, attempt], map: "holds_shipment_id_attempt_key")
   @@index([mpPaymentId], map: "holds_mp_payment_id_idx")
+  @@index([savedCardId], map: "holds_saved_card_id_idx")
   @@map("holds")
+  @@schema("payments")
+}
+
+// MOVO-100 (ADR-039): customer de la cuenta de Movo S.A. en Mercado Pago, uno por
+// emisor. El `payer` del hold con tarjeta guardada es este customer (con `payer: {email}`
+// MP responde 2002). `userId` es referencia lógica a users.users, sin FK (ADR-003).
+model PayerCustomer {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @unique(map: "payer_customers_user_id_key") @map("user_id") @db.Uuid
+  mpCustomerId String   @unique(map: "payer_customers_mp_customer_id_key") @map("mp_customer_id")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("payer_customers")
+  @@schema("payments")
+}
+
+// MOVO-100 (ADR-039): tarjeta guardada del emisor en su customer de Movo. Solo ids de MP
+// y metadatos de display: NUNCA el `card_token` (un solo uso), el número ni el CVV.
+// Baja soft (`deletedAt`). Dos índices únicos PARCIALES, a mano en la migración porque
+// Prisma no los representa: `(user_id, mp_card_id)` y un solo `is_default` entre las
+// vivas de cada usuario, ambos `WHERE deleted_at IS NULL`.
+// `alias` es un nombre de referencia que pone el usuario; es de Movo, no se manda a MP.
+model SavedCard {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  mpCardId  String    @map("mp_card_id")
+  brand     String
+  last4     String
+  expMonth  Int       @map("exp_month")
+  expYear   Int       @map("exp_year")
+  isDefault Boolean   @default(false) @map("is_default")
+  alias     String?
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  @@index([userId], map: "saved_cards_user_id_idx")
+  @@map("saved_cards")
+  @@schema("payments")
+}
+
+enum SettlementStatus {
+  processing
+  credited
+  failed
+  escalated
+
+  @@map("settlement_status")
+  @@schema("payments")
+}
+
+// MOVO-212: liquidación de un envío (captura del hold + split). UNA fila por envío
+// (`shipment_id` único): es la base de la idempotencia del cobro, un segundo pedido de
+// captura encuentra la fila y no vuelve a cobrar. `processing` se escribe ANTES de llamar
+// a MP, así una caída entre la captura y el desglose deja rastro y se puede completar.
+//
+// - `gross_amount_ars` = monto del hold (nunca otro, AC3); `commission_ars` = el
+//   `application_fee` del hold. `mp_fee_ars` y `net_amount_ars` salen de `fee_details` /
+//   `net_received_amount` de MP y son null hasta que MP confirma la captura.
+// - Montos `numeric(12,2)`, nunca float. `shipmentId`/`carrierId` son referencias
+//   lógicas, sin FK (ADR-003); `holdId` sí es FK interna del mismo schema.
+model Settlement {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shipmentId     String           @unique(map: "settlements_shipment_id_key") @map("shipment_id") @db.Uuid
+  holdId         String           @unique(map: "settlements_hold_id_key") @map("hold_id") @db.Uuid
+  carrierId      String           @map("carrier_id") @db.Uuid
+  mpPaymentId    String           @map("mp_payment_id")
+  grossAmountArs Decimal          @map("gross_amount_ars") @db.Decimal(12, 2)
+  mpFeeArs       Decimal?         @map("mp_fee_ars") @db.Decimal(12, 2)
+  commissionArs  Decimal          @map("commission_ars") @db.Decimal(12, 2)
+  netAmountArs   Decimal?         @map("net_amount_ars") @db.Decimal(12, 2)
+  status         SettlementStatus
+  // Motivo si quedó `failed` (ver `SettlementFailureReason` en @movo/shared).
+  failureReason  String?          @map("failure_reason")
+  // `status_detail` crudo de MP al capturar (`accredited`, ...).
+  statusDetail   String?          @map("status_detail")
+  capturedAt     DateTime?        @map("captured_at") @db.Timestamptz
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+  hold           Hold             @relation(fields: [holdId], references: [id])
+
+  @@map("settlements")
+  @@schema("payments")
+}
+
+enum MpWebhookNotificationStatus {
+  pending
+  processed
+  ignored
+  unverifiable
+  failed
+
+  @@map("mp_webhook_notification_status")
+  @@schema("payments")
+}
+
+enum HoldProviderEventKind {
+  cancelled
+  expired
+  rejected
+
+  @@map("hold_provider_event_kind")
+  @@schema("payments")
+}
+
+// MOVO-268: inbox de las notificaciones del webhook de Mercado Pago (tópico `payment`).
+// La ruta valida la firma, inserta acá y responde 200 enseguida (AC7); el procesamiento
+// corre después, y un barrido reintenta lo que quedó `pending` con backoff hasta un tope.
+//
+// - `mpNotificationId` es el `id` del body de MP, que se repite en cada reenvío: el
+//   índice único descarta el duplicado en el insert (AC6).
+// - `pendingHoldEvent`: el hold ya cambió de estado por esta notificación pero todavía no
+//   se le avisó a svc-shipments. Se escribe en la MISMA transacción que el cambio del hold,
+//   así un reintento sabe que tiene que volver a avisar aunque el hold ya no esté vivo.
+// - `holdId` es una referencia lógica, sin FK: los tests truncan `holds` por separado.
+model MpWebhookNotification {
+  id                     String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  mpNotificationId       String                      @unique(map: "mp_webhook_notifications_mp_notification_id_key") @map("mp_notification_id")
+  topic                  String
+  action                 String?
+  mpPaymentId            String                      @map("mp_payment_id")
+  // `user_id` del body: el vendedor (transportista) dueño del pago.
+  mpUserId               String?                     @map("mp_user_id")
+  liveMode               Boolean?                    @map("live_mode")
+  status                 MpWebhookNotificationStatus @default(pending)
+  attempts               Int                         @default(0)
+  nextAttemptAt          DateTime                    @default(now()) @map("next_attempt_at") @db.Timestamptz
+  // Qué hizo el procesamiento (`hold_cancelled`, `chargeback_recorded`, ...), para auditar.
+  outcome                String?
+  lastError              String?                     @map("last_error")
+  holdId                 String?                     @map("hold_id") @db.Uuid
+  pendingHoldEvent       HoldProviderEventKind?      @map("pending_hold_event")
+  pendingHoldEventDetail String?                     @map("pending_hold_event_detail")
+  processedAt            DateTime?                   @map("processed_at") @db.Timestamptz
+  receivedAt             DateTime                    @default(now()) @map("received_at") @db.Timestamptz
+  updatedAt              DateTime                    @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([status, nextAttemptAt], map: "mp_webhook_notifications_status_next_attempt_at_idx")
+  @@map("mp_webhook_notifications")
+  @@schema("payments")
+}
+
+enum PaymentProviderEventKind {
+  chargeback
+  refund
+  mediation
+
+  @@map("payment_provider_event_kind")
+  @@schema("payments")
+}
+
+// MOVO-268 AC5: lo que MP hizo sobre un pago por fuera de Movo (contracargo, reembolso,
+// mediación abierta por el pagador). Hoy no existe la liquidación (MOVO-212): esta tabla
+// es el registro, y MOVO-212 la enlaza a su liquidación por `mp_payment_id`. Qué pasa con
+// el envío queda fuera de alcance (disputas, MOVO-30/34).
+//
+// Una fila por (pago, estado de MP): la misma notificación procesada dos veces, o dos
+// notificaciones del mismo cambio, no generan dos filas ni dos alertas (AC6).
+model PaymentProviderEvent {
+  id             String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Referencias lógicas, sin FK (mismo criterio que `MpWebhookNotification.holdId`).
+  holdId         String                   @map("hold_id") @db.Uuid
+  shipmentId     String                   @map("shipment_id") @db.Uuid
+  mpPaymentId    String                   @map("mp_payment_id")
+  kind           PaymentProviderEventKind
+  mpStatus       String                   @map("mp_status")
+  mpStatusDetail String?                  @map("mp_status_detail")
+  // Lo que MP informa como devuelto (`transaction_amount_refunded`), si viene.
+  amountArs      Decimal?                 @map("amount_ars") @db.Decimal(12, 2)
+  holdStatus     HoldStatus               @map("hold_status")
+  alertedAt      DateTime?                @map("alerted_at") @db.Timestamptz
+  createdAt      DateTime                 @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([mpPaymentId, mpStatus], map: "payment_provider_events_mp_payment_id_mp_status_key")
+  @@index([shipmentId], map: "payment_provider_events_shipment_id_idx")
+  @@map("payment_provider_events")
   @@schema("payments")
 }

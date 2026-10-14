@@ -212,7 +212,10 @@ describe("POST /shipments/:id/cancel (Postgres) — MOVO-29/MOVO-108", () => {
 
     expect(response.statusCode).toBe(200);
     expect(sendPush).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: pendingOffer.carrierId, data: { type: "shipment", shipmentId } })
+      expect.objectContaining({
+        userId: pendingOffer.carrierId,
+        data: { type: "offer_voided", shipmentId, offerId: pendingOffer.id },
+      })
     );
   });
 

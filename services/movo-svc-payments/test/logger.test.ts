@@ -16,6 +16,36 @@ function captureLogger() {
   return { logger: app.log, output: () => lines.join("") };
 }
 
+describe("redacción de tarjetas guardadas en logs (MOVO-100 AC10)", () => {
+  it("no imprime el card_token, el CVV ni los ids de la tarjeta, en snake_case ni camelCase", () => {
+    const { logger, output } = captureLogger();
+
+    logger.info(
+      {
+        body: { cardToken: "card-token-camel", card_token: "card-token-snake", security_code: "987" },
+        card: { mpCardId: "mp-card-camel", mp_card_id: "mp-card-snake", card_id: "card-id-snake", cardId: "card-id-camel" },
+        nested: { deep: { cardToken: "card-token-profundo" } },
+      },
+      "alta de tarjeta"
+    );
+
+    const logged = output();
+    for (const secret of [
+      "card-token-camel",
+      "card-token-snake",
+      "987",
+      "mp-card-camel",
+      "mp-card-snake",
+      "card-id-snake",
+      "card-id-camel",
+      "card-token-profundo",
+    ]) {
+      expect(logged).not.toContain(secret);
+    }
+    expect(logged).toContain(REDACT_CENSOR);
+  });
+});
+
 describe("redacción de secretos en logs (MOVO-267 AC6)", () => {
   it("no imprime tokens OAuth, client_secret ni datos de tarjeta", () => {
     const { logger, output } = captureLogger();

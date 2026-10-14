@@ -4430,3 +4430,44 @@ se sabe qué falta). La autoridad sigue siendo el backend (ADR-036).
 "Mis envíos" sigue visible.
 
 Probado en device.
+### Tarjetas guardadas (MOVO-101, MOVO-269; ADR-039 propuesto): diseño acordado, sin implementar
+
+- **MOVO-101** (asignado a Tomás): `app/(app)/profile/payments.tsx` ("Pagos y cobros", hoy solo el
+  vínculo con MP de MOVO-112) suma la sección "Mis tarjetas" para emisor y transportista: alta
+  tokenizada en el dispositivo con la `public_key` de Movo (`GET /payments/cards/checkout-data`),
+  listado, predeterminada y baja (`409 CARD_IN_USE`). El alta es un componente reutilizable.
+- **MOVO-269** (Juan Cruz): pago con tarjeta guardada + CVV. Genera el token en el dispositivo con
+  `card_id` + CVV y la `public_key` del transportista (`carrierPublicKey` de `GET /shipments/:id/funding`)
+  y lo manda a `POST /shipments/:id/funding` con `savedCardId`. Sin tarjetas guardadas abre el alta de
+  MOVO-101 y pide el CVV de nuevo (el token de alta es de la `public_key` de Movo, no sirve para pagar).
+- **Nombre de referencia**: campo opcional en el alta (40 caracteres), renombrable desde la lista;
+  es el título de la tarjeta en la lista y en el selector de MOVO-269, que siempre muestra también
+  los últimos 4.
+- El CVV no se guarda, no se loguea ni va al store. Un solo campo no requiere Brick: un `TextInput`
+  seguro que llama directo a `v1/card_tokens` es lo que se validó. Decisión de captura del alta
+  (Bricks en WebView / Secure Fields / formulario propio) a documentar al arrancar MOVO-101.
+### MOVO-281 — Navegación al tocar todas las notificaciones push
+
+`resolveNotificationRoute` (`use-push-notifications.ts`, ahora exportada) rutea cada `data.type`
+que manda el backend, no solo 9. Envíos (`shipment_accepted`, `shipment_cancelled`, `custody_*`,
+`trip_started`, `rating_pending`, `carrier_nearby` de MOVO-240) → detalle del envío;
+`shipment_rejected` → elegir otro receptor; `offer_created` → ofertas del envío;
+`offer_superseded`/`offer_rejected`/`offer_voided` → detalle de la oferta (el del envío le daba 403
+al transportista que perdió); `trip_auto_created` → detalle del viaje (antes el feed filtrado, de
+cuando no existía); `trip_match`/`trip_reminder` → feed filtrado por viaje; `account_*` →
+`/profile/security`; `kyc_result` → Inicio si quedó en revisión o se aprobó la identidad,
+Transportar si se aprobó la licencia, y a reintentar (`/kyc` o `/license-kyc` con `status`) si
+se rechazó. Un resultado de oferta sin `offerId` (push vieja) abre "Mis ofertas". Un tipo desconocido, o un `data` sin el id
+que necesita la ruta, devuelve `null` y no navega. Tests en
+`test/resolve-notification-route.test.ts`. Con MOVO-240, la categoría "Transportista en camino"
+deja de mostrarse como "Pronto" en Configuración de notificaciones.
+
+Para probarlo sin push remota (el team de Apple es individual y el build local va con
+`ENABLE_PUSH_NOTIFICATIONS=false`), `/dev-shortcuts` tiene "Navegación de notificaciones":
+programa una notificación local a 10 s con el mismo `data` que manda el backend, y muestra
+la ruta que resuelve cada tipo. Al tocarla pasa por el mismo handler que una push real.
+
+Gotcha de entorno: con un `ios/` local generado (Pods y build, ~2 GB) jest se cuelga armando el
+mapa de módulos sin mostrar nada. Correrlo con
+`--modulePathIgnorePatterns '<rootDir>/ios' '<rootDir>/android'`.
+

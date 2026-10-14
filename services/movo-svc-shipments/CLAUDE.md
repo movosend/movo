@@ -3197,12 +3197,44 @@ de `assigned_unfunded` tiene un piso (`entró al estado + FUNDING_PAYMENT_TIMEOU
 perdido a menos de 24h del retiro no se revierta antes de que el emisor pueda pagar; el aviso reclama las marcas
 de Redis de apertura/recordatorio/intento fallido para que el barrido no repita el push.
 
-**Pendiente / decisión del equipo**: (1) Webhook de MP → este endpoint interno depende de MOVO-268 (nadie lo
-llama todavía). (2) La cuenta de MP del transportista se exige al ofertar en MOVO-116/MOVO-117, no acá: el 409
+**Pendiente / decisión del equipo**: (1) El webhook de MP (MOVO-268, `svc-payments`) es quien llama a este endpoint interno. (2) La cuenta de MP del transportista se exige al ofertar en MOVO-116/MOVO-117, no acá: el 409
 `CARRIER_MP_ACCOUNT_NOT_LINKED` aparece al pedir el `GET /funding`; el caso de desvincular DESPUÉS de que le
 aceptaron la oferta queda como está (409 + hold huérfano logueado). (3) Mobile (MOVO-269, ya con comentario
 sobre `assignment_lapsed` y los estados nuevos) y estado de la reserva (MOVO-211): fuera de alcance. (4)
 `delivered → completed` es MOVO-212.
+
+### MOVO-212 — Captura del hold al entregar, `completed` y consulta del pago (lado `svc-shipments`)
+
+Cierra el flujo económico sobre la saga de MOVO-210. Lado `svc-payments` y contrato: ver sus `CLAUDE.md`.
+Código en `src/modules/settlements/` (`settlement.service.ts`, rutas, schema), `src/adapters/
+payments-funds-release-notifier.ts`, `src/plugins/settlement-sweep.ts`; `PaymentsClient` suma `captureHold`
+(timeout propio de 50s: capturar son dos llamadas a MP en serie) y `findSettlement`.
+
+- **El `FundsReleaseNotifier` real** (`FUNDS_RELEASE_NOTIFIER=payments`) captura el hold y, con la
+  liquidación acreditada, hace `delivered → completed` con CAS (`expectedFrom: delivered`, única transición que
+  produce `completed`) y manda los dos push (transportista con el monto neto; emisor sin montos, dedupe con
+  `SET NX`). El default de código sigue siendo `console` (dev/test/CI, como MOVO-158); `infra/docker-compose.yml`
+  lo pone en `payments` para dev/prod. El handshake no cambió: sigue siendo `void notify().catch(warn)`.
+- **AC8**: si la captura falla, el servicio lanza y el envío queda en `delivered`; no hay transición hacia atrás.
+  Lo reintenta `settlement-sweep` (solo corre con el notifier `payments`): un intento por envío y por pasada.
+  El barrido recorre los candidatos con un cursor keyset `(deliveredAt, id)` y salta los que están
+  "enfriándose" tras un fallo (Redis `settlement-sweep:cooldown:<id>`: 10 min, 20, 40... hasta 6 h; 24 h si
+  payments dice `HOLD_NOT_FOUND`/`HOLD_NOT_CAPTURABLE`), así una pila de envíos imposibles de capturar no tapa a
+  los que sí se pueden cobrar (review de PR #235). La política completa y el escalado manual siguen siendo
+  MOVO-213. Un `delivered` sin hold (asignado antes de la saga de pagos) se loguea y se salta, no es un fallo
+  de cobro.
+- **El service de liquidación se arma una sola vez** (`plugins/settlements.ts`, `app.settlements`) y lo usan el
+  notifier del handshake, el barrido y las rutas: antes cada uno armaba el suyo y un override de test podía
+  llegar a uno solo.
+- **`GET /shipments/:id/settlement`** (AC10): transportista ve bruto/fee MP/comisión/neto, emisor solo total y
+  fecha, receptor y ajenos 403. El estado visible es `processing|credited|escalated`: `failed` se muestra como
+  `processing`. El filtro por rol vive acá y no en payments porque acá se sabe quién es quién.
+- **Env nuevas** (las tres ubicaciones): `SETTLEMENT_SWEEP_INTERVAL_MINUTES`, `_GRACE_MINUTES`, `_BATCH_SIZE`,
+  `_ENABLED`.
+
+Pendiente: sin test de integración con DB real ni contra el sandbox de MP (no se pudieron correr localmente);
+la reversión por hold fallido y las notificaciones de cobro fallido son MOVO-213; el detalle del pago en la app
+es MOVO-214.
 
 ### MOVO-275 — Transferencia de receptor (ADR-038)
 
@@ -3231,3 +3263,43 @@ parciales de una pendiente y una completada por envío). Rutas: `POST /shipments
 
 Tests: `test/receiver-transfers.integration.test.ts` (Postgres y Redis reales: cada
 validación, concurrencia, límite, carrera con el handshake, vencimiento, acceso y filtrado).
+
+### Tarjetas guardadas del emisor (MOVO-282, ADR-039 propuesto): diseño acordado, sin implementar
+
+`POST /shipments/:id/funding` (MOVO-210) suma `savedCardId?` opcional a `ShipmentFundingRequest` y
+lo reenvía al hold junto con el `senderId`; el `cardToken` sigue siendo obligatorio (ahora se genera
+en el mobile con `card_id` + CVV). Sin `savedCardId` el comportamiento es el de hoy. Ver el
+`CLAUDE.md` raíz y `services/movo-svc-payments/CLAUDE.md`.
+### MOVO-281 / MOVO-240 — `offer_voided`, recordatorio del día anterior al viaje y aviso de proximidad
+
+- **`offer_voided` (MOVO-281)**: `dispatchOfferVoidedPushes` (`shipments.service.ts`) recibe pares
+  `{ carrierId, offerId }` y manda `data: { type: "offer_voided", shipmentId, offerId }` en vez de
+  `type: "shipment"`: el detalle de un envío `cancelled` le responde 403 a un transportista que no es
+  parte de él, así que el mobile abre el detalle de la oferta. Es un `data.type` nuevo, no un renombre.
+- **Recordatorio del día anterior (MOVO-240)**: barrido `trip-departure-reminder-sweep.ts`
+  (`TRIP_DEPARTURE_REMINDER_SWEEP_INTERVAL_MINUTES`/`_ENABLED`, en los tres lugares) sobre
+  `sendTripDepartureReminders` (`modules/trips/trip-departure-reminder.ts`). Desde las 19:00 (hora
+  argentina, `domain/trip-departure-reminder.ts`) avisa a los viajes `declared` que salen mañana, con
+  la cantidad de paquetes aceptados vivos (`findDeclaredForDepartureReminder`, `_count` filtrado por
+  `ACCEPTED_OFFER_FILTER`). Un viaje declarado el mismo día anterior a su salida, a cualquier hora, no
+  recibe aviso: quien lo declara hoy para mañana lo tiene presente (review de PR #233; el
+  refinamiento cortaba en las 19:00, y declarar a las 18:55 traía el aviso cinco minutos después). Un aviso por viaje (claim `notified:` en Redis); un
+  push fallido libera el claim; si el proceso muere entre el claim y el push, ese viaje se
+  queda sin aviso (at-most-once, aceptado). Recorre todas las páginas con cursor
+  (`departureAt, id`): con solo la primera, 100 viajes ya avisados tapaban al resto.
+  `data: { type: "trip_reminder", tripId }`. `shortAddress` pasó a `utils/short-address.ts`.
+  El claim `notified:` lo arma `utils/notification-claim.ts`, compartido con el barrido de
+  retiro vencido y la saga de pagos.
+- **"Está por llegar" (MOVO-240)**: `position-service.ts#notifyProximity` corre cuando una posición
+  abre un tramo de 45s y además avanza la última posición conocida (deja afuera la cola offline y
+  limita la evaluación a una por tramo). Recorre todos los envíos activos del viaje: `assigned` contra
+  el retiro (aviso al emisor) e `in_transit` contra la entrega (al receptor), con un radio de 2 km en
+  línea recta (`PROXIMITY_RADIUS_KM`). Un aviso por envío y etapa (`SET NX` con el mismo cliente de
+  Redis de la ingesta); es fire-and-forget y nunca hace fallar la ingesta. Cada envío se relee
+  con `findById` justo antes de decidir (sin caché: uno entregado o cancelado mientras tanto no
+  recibe el aviso) y un fallo en uno no corta a los demás. Un lote evalúa una sola vez por viaje,
+  con su posición más reciente, y las evaluaciones corren en serie. La entrega se avisa recién
+  cuando el transportista salió del radio del retiro: con las dos direcciones a menos de 2 km, el
+  receptor recibía "ya llega" apenas se retiraba el paquete (puede quedarse sin este aviso; ya
+  tuvo el push de custodia del retiro). Sin `notificationsClient` no se evalúa nada.
+  `data: { type: "carrier_nearby", shipmentId }`.

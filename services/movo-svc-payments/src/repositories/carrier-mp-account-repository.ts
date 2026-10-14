@@ -38,6 +38,10 @@ export interface CarrierMpCredentials {
   accessToken: string;
   refreshToken: string;
   publicKey: string | null;
+  /** Vencimiento del access_token (`null` si MP no lo informó). Lo mira quien captura (MOVO-212). */
+  tokenExpiresAt: Date | null;
+  /** Última vez que cambió la vinculación (re-vinculación, refresh de tokens, MOVO-243). */
+  updatedAt: Date;
 }
 
 export interface CarrierMpAccountRepository {
@@ -48,6 +52,11 @@ export interface CarrierMpAccountRepository {
    * `null`. No mira el vencimiento: eso lo decide quien llama.
    */
   findCredentials(userId: string): Promise<CarrierMpCredentials | null>;
+  /**
+   * MOVO-268: lo mismo que `findCredentials`, buscando por el user id de MP (el `user_id`
+   * de una notificación del webhook) en vez de por el usuario de Movo.
+   */
+  findCredentialsByMpUserId(mpUserId: string): Promise<(CarrierMpCredentials & { userId: string }) | null>;
   /**
    * Credenciales descifradas SOLO si la vinculación está vigente: ni desvinculada ni
    * revocada ni con el token vencido a `now`, y con `public_key`. Una sola lectura.
@@ -113,6 +122,22 @@ export function createCarrierMpAccountRepository(db: PrismaClient, cipher: Token
         accessToken: cipher.decrypt(row.accessToken),
         refreshToken: cipher.decrypt(row.refreshToken),
         publicKey: row.publicKey,
+        tokenExpiresAt: row.tokenExpiresAt,
+        updatedAt: row.updatedAt,
+      };
+    },
+
+    async findCredentialsByMpUserId(mpUserId) {
+      const row = await db.carrierMpAccount.findFirst({ where: { mpUserId, unlinkedAt: null, revokedAt: null } });
+      if (!row?.accessToken || !row.refreshToken) return null;
+      return {
+        userId: row.userId,
+        mpUserId: row.mpUserId,
+        accessToken: cipher.decrypt(row.accessToken),
+        refreshToken: cipher.decrypt(row.refreshToken),
+        publicKey: row.publicKey,
+        tokenExpiresAt: row.tokenExpiresAt,
+        updatedAt: row.updatedAt,
       };
     },
 
@@ -134,6 +159,8 @@ export function createCarrierMpAccountRepository(db: PrismaClient, cipher: Token
         accessToken: cipher.decrypt(row.accessToken),
         refreshToken: cipher.decrypt(row.refreshToken),
         publicKey: row.publicKey,
+        tokenExpiresAt: row.tokenExpiresAt,
+        updatedAt: row.updatedAt,
       };
     },
 

@@ -5,6 +5,7 @@ import { createPaymentsClient, PaymentsClient } from "../../adapters/payments-cl
 import { createUsersClient, UsersClient } from "../../adapters/users-client";
 import { createOfferRepository } from "../../repositories/offer-repository";
 import { createShipmentRepository } from "../../repositories/shipment-repository";
+import { createNotificationClaims } from "../../utils/notification-claim";
 import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { fundingSchemas } from "./funding.schema";
 import { createFundingService, FundingService } from "./funding.service";
@@ -29,6 +30,7 @@ export function buildFundingService(
     releaseNotificationClaim?: (key: string) => Promise<void>;
   } = {},
 ): FundingService {
+  const claims = createNotificationClaims(app.redis);
   return createFundingService({
     repository: createShipmentRepository(app.db),
     usersClient: opts.usersClient ?? createUsersClient(app.config),
@@ -36,14 +38,8 @@ export function buildFundingService(
     notificationsClient: opts.notificationsClient ?? createNotificationsClient(app.config),
     offerRepository: createOfferRepository(app.db),
     logger: app.log,
-    claimNotificationOnce:
-      opts.claimNotificationOnce ??
-      (async (key, ttlSeconds) => (await app.redis.set(`notified:${key}`, "1", "EX", ttlSeconds, "NX")) === "OK"),
-    releaseNotificationClaim:
-      opts.releaseNotificationClaim ??
-      (async (key) => {
-        await app.redis.del(`notified:${key}`);
-      }),
+    claimNotificationOnce: opts.claimNotificationOnce ?? claims.claimNotificationOnce,
+    releaseNotificationClaim: opts.releaseNotificationClaim ?? claims.releaseNotificationClaim,
     config: {
       nearPickupDays: app.config.FUNDING_NEAR_PICKUP_DAYS,
       paymentTimeoutMinutes: app.config.FUNDING_PAYMENT_TIMEOUT_MINUTES,
