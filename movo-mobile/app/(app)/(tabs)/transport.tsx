@@ -240,6 +240,9 @@ function applyTransportFilters<T>(
  * de paso en un viaje declarado — `computeOnTripDetour`, aproximación client-side sin
  * endpoint que cruce el feed general contra los viajes activos).
  */
+// Pasado este tiempo sin refrescar, ganar foco vuelve a pedir perfil + MP aunque no haya bloqueo.
+const GATE_STALE_MS = 30_000;
+
 export default function TransportScreen() {
   const tabBarScroll = useTabBarScrollHandler();
   const colors = useThemeColors();
@@ -260,6 +263,7 @@ export default function TransportScreen() {
     isLoading: isProfileLoading,
     isError: isProfileError,
     error: profileError,
+    dataUpdatedAt: profileUpdatedAt,
     refetch: refetchProfile,
   } = useMyProfile();
   const {
@@ -267,6 +271,7 @@ export default function TransportScreen() {
     isLoading: isMpLoading,
     isError: isMpError,
     error: mpError,
+    dataUpdatedAt: mpUpdatedAt,
     refetch: refetchMp,
   } = useMpConnectStatus();
   const profileGate = resolveTransportGate({
@@ -277,10 +282,9 @@ export default function TransportScreen() {
   // Sin identidad aprobada la checklist no se muestra, así que MP no hace falta para decidir.
   const profileUnavailable = !profile && isProfileError;
   const mpUnavailable = !mpConnect && isMpError && profileGate !== "identity";
-  const requirementsUnavailable = profileUnavailable || mpUnavailable;
   const requirementsError = profileUnavailable ? profileError : mpError;
   const isRequirementsLoading = isProfileLoading || (isMpLoading && profileGate !== "identity");
-  const canBrowse = !isRequirementsLoading && !requirementsUnavailable && profileGate === null;
+  const canBrowse = !isRequirementsLoading && !(profileUnavailable || mpUnavailable) && profileGate === null;
 
   const { origin, resolving, needsManualPick, setManualSelection } = useTransportOrigin(!isTripMode && canBrowse);
   const { radiusKm, setRadiusKm } = useTransportRadius();
@@ -323,11 +327,15 @@ export default function TransportScreen() {
   // El perfil puede estar cacheado viejo; el 403 `CARRIER_NOT_VERIFIED` del feed no.
   const identityRejectedByFeed = isError && error instanceof ApiError && error.code === "CARRIER_NOT_VERIFIED";
   const gate = identityRejectedByFeed ? "identity" : profileGate;
+  // Si el feed ya rechazó por identidad, el error de MP no corresponde: manda el gate de
+  // identidad (que no necesita MP). `mpUnavailable` de arriba solo decide qué se consulta.
+  const requirementsUnavailable = profileUnavailable || (mpUnavailable && gate !== "identity");
 
   // Al volver de `/kyc`, `/license-kyc` o `/profile/payments` el tab sigue montado: sin este
-  // refetch el bloqueo quedaría con el estado viejo hasta reabrir la app. Corre SIEMPRE al
-  // ganar foco (no solo con un bloqueo activo): el estado puede haber cambiado desde otra
-  // pantalla (ej. se desvinculó MP) sin que el tab lo sepa. Si el bloqueo vino del feed
+  // refetch el bloqueo quedaría con el estado viejo hasta reabrir la app. Con un bloqueo (o
+  // un error de requisitos) activo corre siempre al ganar foco; sin bloqueo solo si los datos
+  // tienen más de `GATE_STALE_MS` (el estado puede haber cambiado desde otra pantalla, ej. se
+  // desvinculó MP, pero no hace falta pedirlo en cada foco). Si el bloqueo vino del feed
   // también hay que volver a pedirlo, el perfil solo no lo destraba. Lee el estado de un ref
   // para que el callback no cambie con cada render y `useFocusEffect` no lo vuelva a
   // correr sin que la pantalla haya ganado foco.
@@ -336,8 +344,10 @@ export default function TransportScreen() {
     if (identityRejectedByFeed) tasks.push(refetch());
     await Promise.all(tasks);
   }, [refetchProfile, refetchMp, refetch, identityRejectedByFeed]);
-  const focusRefreshRef = useRef({ refreshGate });
-  focusRefreshRef.current = { refreshGate };
+  const isGateStale = Date.now() - Math.min(profileUpdatedAt, mpUpdatedAt) > GATE_STALE_MS;
+  const shouldRefreshOnFocus = gate !== null || requirementsUnavailable || isGateStale;
+  const focusRefreshRef = useRef({ refreshGate, shouldRefreshOnFocus });
+  focusRefreshRef.current = { refreshGate, shouldRefreshOnFocus };
   const hasFocusedOnce = useRef(false);
   useFocusEffect(
     useCallback(() => {
@@ -346,7 +356,7 @@ export default function TransportScreen() {
         hasFocusedOnce.current = true;
         return;
       }
-      void focusRefreshRef.current.refreshGate();
+      if (focusRefreshRef.current.shouldRefreshOnFocus) void focusRefreshRef.current.refreshGate();
     }, []),
   );
   // Pull-to-refresh del estado bloqueante: si un requisito se resuelve con el usuario
@@ -463,10 +473,17 @@ export default function TransportScreen() {
   // no sirven sin poder ver envíos.
   const showBrowseChrome = canBrowse && gate === null;
   const showRequirementsGate = !isInitialLoading && !requirementsUnavailable && Array.isArray(gate);
+  const isGateOverlayVisible = showRequirementsGate && !!profile;
   const zoneLabel = origin ? origin.city ?? zoneLabelFromAddress(origin.address) : null;
 
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
+      {/* Con la checklist visible el contenido de atrás queda fuera del árbol de accesibilidad. */}
+      <View
+        className="flex-1"
+        accessibilityElementsHidden={isGateOverlayVisible}
+        importantForAccessibility={isGateOverlayVisible ? "no-hide-descendants" : "auto"}
+      >
       <View className="px-5 pb-4 pt-3">
         <View className="min-h-[40px] flex-row items-center justify-between gap-3">
           <Text className="font-sans-semibold text-title text-fg" accessibilityRole="header">
@@ -733,6 +750,8 @@ export default function TransportScreen() {
           setPickerOpen(false);
         }}
       />
+
+      </View>
 
       {showRequirementsGate && profile && Array.isArray(gate) ? (
         <CarrierRequirementsScreen

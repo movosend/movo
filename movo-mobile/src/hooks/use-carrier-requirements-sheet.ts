@@ -1,4 +1,5 @@
 import type { CarrierRequirement } from "@movo/shared/dist/types/carrier-eligibility";
+import { KycStatus } from "@movo/shared/dist/types/user";
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useCallback, useState } from "react";
@@ -48,6 +49,10 @@ export function useCarrierRequirementsSheet(context: CarrierRequirementsContext)
   );
 
   const licenseStatus = profile?.licenseKycStatus ?? null;
+  // El perfil cacheado puede decir `approved` cuando el backend acaba de reportar la licencia
+  // como faltante: no se pasa ese estado a `/license-kyc` para que no arranque en "aprobada".
+  const licenseStatusParam =
+    licenseStatus === KycStatus.APPROVED && missing?.includes("license") ? null : licenseStatus;
 
   const sheetProps: CarrierRequirementsSheetProps = {
     visible,
@@ -56,7 +61,7 @@ export function useCarrierRequirementsSheet(context: CarrierRequirementsContext)
     licenseStatus,
     mpStatus: mp?.status ?? null,
     context,
-    onPressLicense: () => router.push({ pathname: "/license-kyc", params: { status: licenseStatus ?? undefined } }),
+    onPressLicense: () => router.push({ pathname: "/license-kyc", params: { status: licenseStatusParam ?? undefined } }),
     onPressMp: () => router.push("/profile/payments"),
   };
 

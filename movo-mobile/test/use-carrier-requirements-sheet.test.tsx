@@ -142,4 +142,20 @@ describe("useCarrierRequirementsSheet (MOVO-117, AC5)", () => {
 
     expect(mockRouterPush).toHaveBeenCalledWith("/profile/payments");
   });
+
+  it("no pasa 'approved' a /license-kyc si el backend dice que la licencia falta (perfil cacheado viejo)", async () => {
+    currentError = new ApiError(403, "CARRIER_LICENSE_NOT_APPROVED", "x", {
+      missingRequirements: ["license"],
+    });
+    mockProfile = { licenseKycStatus: KycStatus.APPROVED };
+    const { getByTestId } = await renderHarness();
+    await fireEvent.press(getByTestId("trigger"));
+    await fireEvent.press(getByTestId("carrier-requirements-sheet-checklist-license-cta"));
+    await act(async () => {});
+
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      pathname: "/license-kyc",
+      params: { status: undefined },
+    });
+  });
 });

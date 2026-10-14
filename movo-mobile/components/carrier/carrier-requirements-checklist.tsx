@@ -209,6 +209,7 @@ export function CarrierRequirementsScreen({
       <View pointerEvents="none" style={StyleSheet.absoluteFill} className="bg-black/40" />
       <ScrollView
         testID={testID}
+        accessibilityViewIsModal
         contentContainerClassName="grow justify-end"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FFFFFF" />}
       >

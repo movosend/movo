@@ -227,6 +227,7 @@ function profileResult(overrides: { kycStatus?: KycStatus; licenseKycStatus?: Ky
       licenseKycStatus: overrides.licenseKycStatus ?? KycStatus.APPROVED,
     },
     isLoading: false,
+    dataUpdatedAt: Date.now(),
     refetch: mockRefetchProfile,
   };
 }
@@ -239,6 +240,7 @@ function mpResult(status: "linked" | "unlinked" | "invalid" = "linked") {
     data: { status, account: null, invalidReason: null },
     isLoading: false,
     isError: false,
+    dataUpdatedAt: Date.now(),
     refetch: mockRefetchMp,
   };
 }
@@ -1024,7 +1026,7 @@ describe("TransportScreen", () => {
       expect(queryByTestId("transport-profile-error")).toBeNull();
     });
 
-    it("al volver a ganar foco refetchea perfil y Mercado Pago, aun sin bloqueo", async () => {
+    it("sin bloqueo, ganar foco solo refetchea perfil y Mercado Pago si los datos tienen más de 30 s", async () => {
       mockUseTransportOrigin.mockReturnValue(baseOriginResult());
       mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([]) }));
 
@@ -1032,12 +1034,62 @@ describe("TransportScreen", () => {
       const onFocus = mockUseFocusEffect.mock.calls.at(-1)?.[0] as () => void;
       // El primer foco coincide con el montaje (las queries ya arrancan solas)...
       onFocus();
+      // ...y desde el segundo, con datos recientes, no hace falta volver a pedirlos.
+      onFocus();
       expect(mockRefetchProfile).not.toHaveBeenCalled();
-      // ...y desde el segundo es una vuelta desde otra pantalla (ej. /profile/payments).
+      expect(mockRefetchMp).not.toHaveBeenCalled();
+    });
+
+    it("sin bloqueo pero con datos viejos, ganar foco refetchea perfil y Mercado Pago", async () => {
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult({ data: pages([]) }));
+      mockUseMyProfile.mockReturnValue({ ...profileResult(), dataUpdatedAt: Date.now() - 60_000 });
+      mockUseMpConnectStatus.mockReturnValue({ ...mpResult(), dataUpdatedAt: Date.now() - 60_000 });
+
+      await render(<TransportScreen />);
+      const onFocus = mockUseFocusEffect.mock.calls.at(-1)?.[0] as () => void;
+      onFocus();
       onFocus();
 
       expect(mockRefetchProfile).toHaveBeenCalledTimes(1);
       expect(mockRefetchMp).toHaveBeenCalledTimes(1);
+    });
+
+    it("con un bloqueo activo, ganar foco refetchea aunque los datos sean recientes", async () => {
+      mockUseMyProfile.mockReturnValue(profileResult({ licenseKycStatus: KycStatus.NOT_STARTED }));
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(baseAvailableResult());
+
+      await render(<TransportScreen />);
+      const onFocus = mockUseFocusEffect.mock.calls.at(-1)?.[0] as () => void;
+      onFocus();
+      onFocus();
+
+      expect(mockRefetchProfile).toHaveBeenCalledTimes(1);
+      expect(mockRefetchMp).toHaveBeenCalledTimes(1);
+    });
+
+    it("si el feed rechaza por identidad y la query de MP falló, manda el gate de identidad", async () => {
+      mockUseMpConnectStatus.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: new Error("network down"),
+        dataUpdatedAt: 0,
+        refetch: mockRefetchMp,
+      });
+      mockUseTransportOrigin.mockReturnValue(baseOriginResult());
+      mockUseAvailableShipments.mockReturnValue(
+        baseAvailableResult({
+          isError: true,
+          error: new ApiError(403, "CARRIER_NOT_VERIFIED", "x"),
+        }),
+      );
+
+      const { getByTestId, queryByTestId } = await render(<TransportScreen />);
+
+      expect(getByTestId("transport-identity-gate")).toBeTruthy();
+      expect(queryByTestId("transport-profile-error")).toBeNull();
     });
 
     it("con el bloqueo que vino del 403 del feed, ganar foco refetchea el perfil y el feed", async () => {

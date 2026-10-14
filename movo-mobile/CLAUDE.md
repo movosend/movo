@@ -4483,6 +4483,13 @@ cuando termina de cerrarse (`onClosed`), porque iOS no presenta una pantalla con
 Pendiente: no probado en device (sheet sobre cada pantalla, vuelta desde `/license-kyc` y
 `/profile/payments`).
 
+**Fixes de review (PR #241):** editar el precio desde el detalle de la oferta (`carrier/offers/[id].tsx`) también
+abre la checklist ante el 403 (cierra antes el sheet de precio, iOS no presenta un `Modal` sobre otro); el error
+de MP no tapa el gate de identidad cuando el feed rechazó por identidad (`requirementsUnavailable` se calcula
+después de `gate`); ganar foco sin bloqueo solo refetchea perfil + MP si pasaron más de 30 s
+(`GATE_STALE_MS`); la hoja del gate es `accessibilityViewIsModal` y el contenido de atrás queda con
+`no-hide-descendants`; `/license-kyc` no recibe `status=approved` si el backend dice que la licencia falta.
+
 ### Tarjetas guardadas (MOVO-101, MOVO-269; ADR-039 propuesto): diseño acordado, sin implementar
 
 ### Tarjetas guardadas: pago con CVV (MOVO-269; ADR-039 propuesto), diseño acordado, sin implementar
