@@ -83,9 +83,21 @@ export interface CarrierMpAccountRepository {
   /**
    * MOVO-243 AC1: vinculaciones vigentes (ni desvinculadas ni revocadas) cuyo token vence
    * antes de `expiresBefore`, incluidas las ya vencidas (se intenta recuperarlas), las
-   * que vencen primero antes. Descifra solo el `refresh_token`.
+   * que se intentaron hace más tiempo primero. Descifra solo el `refresh_token`; una fila
+   * que no se puede descifrar (otra key, corrupta) se omite y se avisa por `onUnreadable`
+   * en vez de frenar a las demás.
    */
-  findDueForRefresh(expiresBefore: Date, limit: number): Promise<RefreshCandidate[]>;
+  findDueForRefresh(
+    expiresBefore: Date,
+    limit: number,
+    onUnreadable?: (userId: string) => void
+  ): Promise<RefreshCandidate[]>;
+  /**
+   * MOVO-243: anota que se intentó renovar esta vinculación (toca `updated_at`, mismo CAS
+   * que `saveRefreshedTokens`). `findDueForRefresh` ordena por el intento más viejo, así
+   * una fila que falla siempre rota al final del lote y no acapara los 100 lugares.
+   */
+  touchRefreshAttempt(userId: string, version: string, now: Date): Promise<void>;
   /**
    * MOVO-243 AC2: reemplaza `access_token`, `refresh_token` y `token_expires_at` si la
    * fila sigue vigente con los tokens de `version`. `false` = alguien la cambió en el
@@ -174,7 +186,7 @@ export function createCarrierMpAccountRepository(db: PrismaClient, cipher: Token
       };
     },
 
-    async findDueForRefresh(expiresBefore, limit) {
+    async findDueForRefresh(expiresBefore, limit, onUnreadable) {
       const rows = await db.carrierMpAccount.findMany({
         where: {
           unlinkedAt: null,
@@ -183,21 +195,38 @@ export function createCarrierMpAccountRepository(db: PrismaClient, cipher: Token
           refreshToken: { not: null },
           tokenExpiresAt: { lt: expiresBefore },
         },
-        orderBy: { tokenExpiresAt: "asc" },
+        // `updated_at` solo cambia al guardar o al anotar un intento (`touchRefreshAttempt`):
+        // la que se intentó hace más tiempo va primera y las que fallan rotan.
+        orderBy: [{ updatedAt: "asc" }, { tokenExpiresAt: "asc" }],
         take: limit,
       });
-      return rows.flatMap((row) =>
-        row.refreshToken
-          ? [
-              {
-                userId: row.userId,
-                mpUserId: row.mpUserId,
-                refreshToken: cipher.decrypt(row.refreshToken),
-                version: row.refreshToken,
-              },
-            ]
-          : []
-      );
+      const candidates: RefreshCandidate[] = [];
+      for (const row of rows) {
+        if (!row.refreshToken) continue;
+        try {
+          candidates.push({
+            userId: row.userId,
+            mpUserId: row.mpUserId,
+            refreshToken: cipher.decrypt(row.refreshToken),
+            version: row.refreshToken,
+          });
+        } catch {
+          onUnreadable?.(row.userId);
+          // Se anota el intento para que rote y no quede siempre primera en el lote.
+          await db.carrierMpAccount.updateMany({
+            where: { userId: row.userId, refreshToken: row.refreshToken },
+            data: { updatedAt: new Date() },
+          });
+        }
+      }
+      return candidates;
+    },
+
+    async touchRefreshAttempt(userId, version, now) {
+      await db.carrierMpAccount.updateMany({
+        where: { userId, unlinkedAt: null, revokedAt: null, refreshToken: version },
+        data: { updatedAt: now },
+      });
     },
 
     async saveRefreshedTokens(userId, version, data) {
