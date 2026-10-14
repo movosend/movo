@@ -7,6 +7,8 @@ import dbPlugin from "./plugins/db";
 import redisPlugin from "./plugins/redis";
 import errorHandlerPlugin from "./plugins/error-handler";
 import internalClientsPlugin, { InternalClientsOptions } from "./plugins/internal-clients";
+import auditPlugin from "./plugins/audit";
+import auditRoutes from "./modules/audit/audit.routes";
 
 export type BuildAppOptions = InternalClientsOptions;
 
@@ -35,6 +37,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(errorHandlerPlugin);
   // Después de @fastify/env: los clientes toman las URLs de `app.config`.
   app.register(internalClientsPlugin, opts);
+  app.register(auditPlugin);
 
   // Mismo criterio que el resto de los servicios Prisma: el healthcheck de Docker refleja
   // si el servicio puede hablar con Postgres, sin exponer el detalle del error.
@@ -46,6 +49,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     }
     return { status: "ok", checks: { postgres: { status: "ok" } } };
   });
+
+  // Todo lo que expone el panel vive bajo /admin (el gateway exige el rol admin, MOVO-288).
+  app.register(auditRoutes, { prefix: "/admin" });
 
   return app;
 }
