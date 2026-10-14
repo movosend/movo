@@ -4438,3 +4438,38 @@ Gotcha de entorno: con un `ios/` local generado (Pods y build, ~2 GB) jest se cu
 mapa de módulos sin mostrar nada. Correrlo con
 `--modulePathIgnorePatterns '<rootDir>/ios' '<rootDir>/android'`.
 
+
+
+### MOVO-101 — "Pagos y cobros": tarjetas guardadas (alta, lista, predeterminada, nombre y baja)
+
+Sobre el prototipo de Claude Design "MOVO-112 Pagos y cobros v2" y el backend de MOVO-100.
+`profile/payments.tsx` pasó a `profile/payments/index.tsx`: arriba "Medios de pago" (para
+cualquier usuario) y abajo "Medios de cobro" con `MpConnectCard` sin cambios. El alta es
+`AddCardWizard` (`components/payments/add-card-wizard.tsx`), montado en
+`profile/payments/add-card.tsx`; no navega, avisa con `onSaved`/`onCancel` para que MOVO-269 lo
+reuse. Al guardar vuelve con `dismissTo` y el aviso por param (`toast`).
+
+- **Decisión de captura (para MOVO-269)**: formulario propio contra la API pública de MP
+  (`src/lib/mp-card-tokenizer.ts`): `GET /v1/payment_methods/search` con el BIN (banco, tipo,
+  `paymentMethodId` y largos) y `POST /v1/card_tokens` con la `public_key` de
+  `GET /payments/cards/checkout-data`. Bricks no soporta cuentas de prueba y un WebView no sumaba
+  nada. Al backend solo va `{ cardToken, paymentMethodId?, alias? }` (`save-card-flow.ts`, con
+  test que verifica que el número, CVV y DNI no viajan). Los datos de la tarjeta viven solo en el
+  estado local del wizard.
+- **Banco y tipo en la lista**: el backend suma `issuerName`/`paymentType` (commit propio en
+  `svc-payments`). Logos de bancos en `assets/bank-logos/` mapeados por palabras clave del
+  `issuer.name` (`src/lib/bank-logos.ts`, mismo patrón que `vehicle-brand-icons.ts`); sin logo,
+  iniciales. Varios logos son favicons de 16-48 px y se ven pixelados: conviene reemplazarlos.
+- **Tarjeta 3D** (`card-preview-3d.tsx`): frente con anillos que se vuelve cromado según el
+  progreso, giro al enfocar el CVV, resaltado lima del dato enfocado y barrido de luz al pasar de
+  paso y mientras valida. Colores fijos (es el plástico).
+- **Desvíos del prototipo**: nombre de referencia de 40 caracteres (contrato), no 24; sin el tilt
+  con mouse; "Cambiar nombre" y su hoja (AC10) y el aviso de `409 CARD_IN_USE` dentro de la hoja
+  de eliminar (botón apagado, la tarjeta sigue en la lista) no estaban y reusan sus piezas;
+  "Autocompletar" solo en `__DEV__` (con la Visa de sandbox `4075 5957 1648 3764`). El aviso
+  ámbar sale cuando ninguna tarjeta está vigente (el backend siempre tiene una predeterminada).
+- Las hojas se encadenan por `onClosed` (iOS no presenta un `Modal` mientras otro se cierra);
+  `BottomSheetModal` ganó `avoidKeyboard` para la hoja de renombrar.
+
+Pendiente: probar en development build con tarjetas de test (Visa, Mastercard y el titular
+`OTHE`) y revisar los requests; no probado en device.

@@ -26,8 +26,37 @@ jest.mock("../src/hooks/use-mp-connect", () => ({
   },
 }));
 
+type MutationOptions = { onSuccess?: (card: never) => void; onError?: (err: unknown) => void };
+type CardsState = { data?: unknown; isError: boolean; error?: unknown };
+const mockCardsRefetch = jest.fn();
+let mockCards: CardsState = { data: [], isError: false };
+const mockSetDefault = jest.fn();
+const mockRename = jest.fn();
+const mockDelete = jest.fn();
+let mockSetDefaultOptions: MutationOptions = {};
+let mockRenameOptions: MutationOptions = {};
+let mockDeleteOptions: MutationOptions = {};
+let mockParams: { toast?: string } = {};
+
+jest.mock("../src/hooks/use-saved-cards", () => ({
+  useSavedCards: () => ({ ...mockCards, refetch: mockCardsRefetch }),
+  useSetDefaultCard: (opts: MutationOptions) => {
+    mockSetDefaultOptions = opts;
+    return { mutate: mockSetDefault, isPending: false };
+  },
+  useRenameCard: (opts: MutationOptions) => {
+    mockRenameOptions = opts;
+    return { mutate: mockRename, isPending: false };
+  },
+  useDeleteCard: (opts: MutationOptions) => {
+    mockDeleteOptions = opts;
+    return { mutate: mockDelete, isPending: false };
+  },
+}));
+
 jest.mock("expo-router", () => ({
-  router: { back: jest.fn(), push: jest.fn() },
+  router: { back: jest.fn(), push: jest.fn(), setParams: jest.fn() },
+  useLocalSearchParams: () => mockParams,
   // Corre el efecto una vez, como el foco inicial de la pantalla.
   useFocusEffect: (cb: () => void) => {
     const { useEffect } = jest.requireActual("react");
@@ -58,6 +87,8 @@ describe("PaymentsSettingsScreen (MOVO-112)", () => {
     mockStatus = { data: undefined, isError: false };
     mockLink = { phase: "idle", error: null };
     mockUnlinkPending = false;
+    mockCards = { data: [], isError: false };
+    mockParams = {};
   });
 
   it("muestra el skeleton mientras consulta el status", async () => {
@@ -237,5 +268,178 @@ describe("PaymentsSettingsScreen (MOVO-112)", () => {
       });
       expect(getByTestId("mp-connect-unlink-error")).toBeTruthy();
     });
+  });
+});
+
+const VISA = {
+  id: "card-visa",
+  mpCardId: "mp-1",
+  alias: "Personal",
+  brand: "visa",
+  last4: "3704",
+  expMonth: 11,
+  expYear: 2099,
+  issuerName: "Banco Galicia",
+  paymentType: "credit_card",
+  isDefault: true,
+  createdAt: "2026-10-01T10:00:00.000Z",
+};
+const MASTER = {
+  ...VISA,
+  id: "card-master",
+  mpCardId: "mp-2",
+  alias: null,
+  brand: "master",
+  last4: "8812",
+  expMonth: 4,
+  expYear: 2098,
+  issuerName: "Santander",
+  paymentType: "debit_card",
+  isDefault: false,
+  createdAt: "2026-10-05T10:00:00.000Z",
+};
+const EXPIRED_AMEX = {
+  ...VISA,
+  id: "card-amex",
+  mpCardId: "mp-3",
+  alias: null,
+  brand: "amex",
+  last4: "1005",
+  expMonth: 8,
+  expYear: 2020,
+  issuerName: "American Express",
+  isDefault: false,
+};
+
+describe("PaymentsSettingsScreen — Mis tarjetas (MOVO-101)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockStatus = { data: UNLINKED, isError: false };
+    mockLink = { phase: "idle", error: null };
+    mockCards = { data: [VISA, MASTER], isError: false };
+    mockParams = {};
+  });
+
+  it("sin tarjetas muestra el estado vacío con el beneficio y el botón de agregar (AC2)", async () => {
+    mockCards = { data: [], isError: false };
+    const { getByTestId, getByText } = await render(<PaymentsSettingsScreen />);
+    expect(getByTestId("saved-cards-empty")).toBeTruthy();
+    expect(getByText("Todavía no guardaste tarjetas")).toBeTruthy();
+    await act(async () => fireEvent.press(getByTestId("saved-cards-empty-add")));
+    const { router } = jest.requireMock("expo-router");
+    expect(router.push).toHaveBeenCalledWith("/profile/payments/add-card");
+  });
+
+  it("lista las tarjetas con nombre, número, banco, tipo, vencimiento y la predeterminada (AC2)", async () => {
+    const { getByTestId, getByText, queryByTestId } = await render(<PaymentsSettingsScreen />);
+    expect(getByText("Personal")).toBeTruthy();
+    expect(getByText("Visa •••• 3704")).toBeTruthy();
+    expect(getByTestId("saved-card-meta-card-visa").props.children).toBe("Galicia · Crédito · Vence 11/99");
+    expect(getByText("Mastercard •••• 8812")).toBeTruthy();
+    expect(getByTestId("saved-card-default-card-visa")).toBeTruthy();
+    expect(queryByTestId("saved-card-default-card-master")).toBeNull();
+    // El bloque de Mercado Pago sigue en la misma pantalla (AC1).
+    expect(getByTestId("mp-connect-card-unlinked")).toBeTruthy();
+  });
+
+  it("muestra skeleton mientras carga las tarjetas (AC8)", async () => {
+    mockCards = { data: undefined, isError: false };
+    const { getByTestId } = await render(<PaymentsSettingsScreen />);
+    expect(getByTestId("saved-cards-loading")).toBeTruthy();
+  });
+
+  it("muestra el error de red con Reintentar (AC8)", async () => {
+    mockCards = { data: undefined, isError: true, error: new ApiError(0, "INTERNAL_ERROR", "No se pudo conectar") };
+    const { getByTestId } = await render(<PaymentsSettingsScreen />);
+    mockCardsRefetch.mockClear();
+    await act(async () => fireEvent.press(getByTestId("saved-cards-retry")));
+    expect(mockCardsRefetch).toHaveBeenCalled();
+  });
+
+  it("avisa cuando ninguna tarjeta está vigente", async () => {
+    mockCards = { data: [EXPIRED_AMEX], isError: false };
+    const { getByTestId } = await render(<PaymentsSettingsScreen />);
+    expect(getByTestId("saved-cards-no-usable")).toBeTruthy();
+    expect(getByTestId("saved-card-meta-card-amex").props.children).toBe("Crédito · Venció 08/20");
+  });
+
+  it("marca una tarjeta como predeterminada desde sus opciones (AC5)", async () => {
+    const { getByTestId, findByTestId } = await render(<PaymentsSettingsScreen />);
+    await act(async () => fireEvent.press(getByTestId("saved-card-row-card-master")));
+    await act(async () => fireEvent.press(await findByTestId("card-options-make-default")));
+    expect(mockSetDefault).toHaveBeenCalledWith("card-master");
+
+    await act(async () => mockSetDefaultOptions.onSuccess?.({ ...MASTER, isDefault: true } as never));
+    expect((await findByTestId("payments-toast"))).toBeTruthy();
+  });
+
+  it("la predeterminada no ofrece hacerse predeterminada", async () => {
+    const { getByTestId, findByTestId, queryByTestId } = await render(<PaymentsSettingsScreen />);
+    await act(async () => fireEvent.press(getByTestId("saved-card-row-card-visa")));
+    expect(await findByTestId("card-options-default-note")).toBeTruthy();
+    expect(queryByTestId("card-options-make-default")).toBeNull();
+  });
+
+  it("elimina con confirmación y explica qué tarjeta pasa a ser la predeterminada (AC5)", async () => {
+    const { getByTestId, findByTestId } = await render(<PaymentsSettingsScreen />);
+    await act(async () => fireEvent.press(getByTestId("saved-card-row-card-visa")));
+    await act(async () => fireEvent.press(await findByTestId("card-options-delete")));
+
+    const body = await findByTestId("delete-card-body");
+    expect(body.props.children.join("")).toContain("Vamos a usar Mastercard •••• 8812 en su lugar.");
+    await act(async () => fireEvent.press(getByTestId("delete-card-confirm")));
+    expect(mockDelete).toHaveBeenCalledWith(VISA);
+  });
+
+  it("con 409 CARD_IN_USE explica el motivo y no deja reintentar ni saca la tarjeta (AC5)", async () => {
+    const { getByTestId, findByTestId } = await render(<PaymentsSettingsScreen />);
+    await act(async () => fireEvent.press(getByTestId("saved-card-row-card-master")));
+    await act(async () => fireEvent.press(await findByTestId("card-options-delete")));
+    await findByTestId("delete-card-confirm");
+
+    await act(async () =>
+      mockDeleteOptions.onError?.(new ApiError(409, "CARD_IN_USE", "La tarjeta tiene una reserva")),
+    );
+    expect((await findByTestId("delete-card-error")).props).toBeTruthy();
+    expect(getByTestId("delete-card-confirm").props.accessibilityState.disabled).toBe(true);
+    expect(getByTestId("saved-card-row-card-master")).toBeTruthy();
+  });
+
+  it("renombra y quita el nombre de una tarjeta (AC10)", async () => {
+    const { getByTestId, findByTestId } = await render(<PaymentsSettingsScreen />);
+    await act(async () => fireEvent.press(getByTestId("saved-card-row-card-visa")));
+    await act(async () => fireEvent.press(await findByTestId("card-options-rename")));
+
+    const input = await findByTestId("rename-card-input");
+    await act(async () => fireEvent.changeText(input, "  Tarjeta del trabajo "));
+    await act(async () => fireEvent.press(getByTestId("rename-card-save")));
+    expect(mockRename).toHaveBeenCalledWith({ id: "card-visa", alias: "Tarjeta del trabajo" }, expect.any(Object));
+
+    await act(async () => fireEvent.press(getByTestId("rename-card-remove")));
+    expect(mockRename).toHaveBeenLastCalledWith({ id: "card-visa", alias: null }, expect.any(Object));
+  });
+
+  it("muestra en el campo el motivo de un nombre rechazado por el backend (AC10)", async () => {
+    const { getByTestId, findByTestId } = await render(<PaymentsSettingsScreen />);
+    await act(async () => fireEvent.press(getByTestId("saved-card-row-card-visa")));
+    await act(async () => fireEvent.press(await findByTestId("card-options-rename")));
+    await act(async () => fireEvent.changeText(await findByTestId("rename-card-input"), "4111 1111 1111 1111"));
+    await act(async () => fireEvent.press(getByTestId("rename-card-save")));
+
+    const err = new ApiError(400, "VALIDATION_FAILED", "El nombre de la tarjeta no puede contener el número de la tarjeta.");
+    const call = mockRename.mock.calls[0];
+    await act(async () => {
+      mockRenameOptions.onError?.(err);
+      call[1].onError(err);
+    });
+    expect((await findByTestId("rename-card-input-error")).props.children).toBe(
+      "El nombre de la tarjeta no puede contener el número de la tarjeta.",
+    );
+  });
+
+  it("muestra el aviso de tarjeta guardada que llega desde el alta", async () => {
+    mockParams = { toast: 'Guardamos "Personal". Es tu predeterminada.' };
+    const { findByText } = await render(<PaymentsSettingsScreen />);
+    expect(await findByText('Guardamos "Personal". Es tu predeterminada.')).toBeTruthy();
   });
 });
