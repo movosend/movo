@@ -4404,12 +4404,16 @@ mismo scroll; si el scroll del detalle sigue trabado, desactivar gestos del mapa
 (perfil o 403 `CARRIER_NOT_VERIFIED` del feed) y después por licencia. El bloqueo reemplaza
 listado, zona, accesos, radio y filtros (también en modo `?tripId=`); mientras dura no se
 resuelve el origen (no pide GPS) ni se piden envíos. Al ganar foco con el bloqueo activo se
-refetchea el perfil, así volver de `/license-kyc` lo destraba sin reabrir la app. Si el
-perfil falla no bloquea: es solo UX, la autoridad sigue siendo el backend (ADR-036).
+refetchea el perfil (y el feed, si el bloqueo vino de su 403), así volver de `/kyc` o
+`/license-kyc` lo destraba sin reabrir la app; el bloqueo también tiene pull-to-refresh, para
+cuando la licencia se aprueba sin salir del tab. Si el perfil falla no se deja pasar: se
+muestra el error con "Reintentar" (decisión de la review, el bloqueo es UX pero sin perfil no
+se sabe qué falta). La autoridad sigue siendo el backend (ADR-036).
 
 - **`CarrierRequirementGate`** (`components/carrier/`) es genérico (ícono, título, texto, CTA)
-  y lo usan ambos bloqueos; pensado para que MOVO-117 lo reuse con Mercado Pago en vez de
-  sumar otro banner casi igual. El copy de licencia varía por estado (`licenseGateCopy`): en
+  y lo usan ambos bloqueos. MOVO-117 reemplaza la rama de licencia por una checklist propia
+  (licencia + Mercado Pago, sin MP tampoco se navega el tab) y no reutiliza este componente,
+  que queda para el bloqueo de identidad. El copy de licencia varía por estado (`licenseGateCopy`): en
   `manual_review` dice "Estamos revisando tu licencia" con "Ver estado", porque pedir
   "verificá" sobre algo ya enviado se lee como error. El CTA pasa `status` a `/license-kyc`,
   igual que el banner de Perfil.
