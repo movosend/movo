@@ -3329,12 +3329,16 @@ parciales de una pendiente y una completada por envío). Rutas: `POST /shipments
 Tests: `test/receiver-transfers.integration.test.ts` (Postgres y Redis reales: cada
 validación, concurrencia, límite, carrera con el handshake, vencimiento, acceso y filtrado).
 
-### Tarjetas guardadas del emisor (MOVO-282, ADR-039 propuesto): diseño acordado, sin implementar
+### Tarjetas guardadas del emisor (MOVO-282, ADR-039 propuesto)
 
-`POST /shipments/:id/funding` (MOVO-210) suma `savedCardId?` opcional a `ShipmentFundingRequest` y
-lo reenvía al hold junto con el `senderId`; el `cardToken` sigue siendo obligatorio (ahora se genera
-en el mobile con `card_id` + CVV). Sin `savedCardId` el comportamiento es el de hoy. Ver el
-`CLAUDE.md` raíz y `services/movo-svc-payments/CLAUDE.md`.
+`POST /shipments/:id/funding` (MOVO-210) acepta `savedCardId?` (uuid) además del `cardToken`, que sigue
+siendo obligatorio (el mobile lo genera con `card_id` + CVV). `submitFunding` le pasa al hold siempre
+`payerUserId: shipment.senderId` y, si viene, `savedCardId`; es `svc-payments` quien valida que la tarjeta sea
+del emisor y esté viva y quien resuelve el customer (un `404` suyo llega tal cual al emisor, sin tocar el
+estado del envío). Sin `savedCardId` el pedido al hold es el de siempre, sin ese campo (hay un test que lo
+fija). Un rechazo por CVV incorrecto o tarjeta vencida sigue siendo `200` con `funded: false` y
+`failureReason` (`invalid_data` o `card_rejected`), como cualquier otro rechazo. Ver
+`services/movo-svc-payments/CLAUDE.md` (MOVO-282). Tests en `test/funding.integration.test.ts`.
 ### MOVO-281 / MOVO-240 — `offer_voided`, recordatorio del día anterior al viaje y aviso de proximidad
 
 - **`offer_voided` (MOVO-281)**: `dispatchOfferVoidedPushes` (`shipments.service.ts`) recibe pares

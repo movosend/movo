@@ -431,6 +431,9 @@ export function createFundingService(deps: FundingServiceDeps) {
         cardToken: input.cardToken,
         amountArs: shipment.agreedPriceArs as number,
         payerEmail: await resolvePayerEmail(shipment.senderId),
+        // MOVO-282: payments valida que la tarjeta guardada sea de este usuario y esté viva.
+        payerUserId: shipment.senderId,
+        ...(input.savedCardId ? { savedCardId: input.savedCardId } : {}),
         ...(input.paymentMethodId ? { paymentMethodId: input.paymentMethodId } : {}),
       });
 

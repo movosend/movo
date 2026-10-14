@@ -400,8 +400,8 @@ todavía). Código en `src/modules/cards/`, `src/repositories/saved-card-reposit
 - **Predeterminada**: la primera viva queda marcada; al borrar la predeterminada se promueve la más
   reciente. Tope de 10 vivas (`409 CARD_LIMIT_REACHED`). `DELETE`: `409 CARD_IN_USE` si hay un hold vivo
   con `saved_card_id`; borra en MP primero (un 404 cuenta como borrada) y recién después la fila.
-- **`holds.saved_card_id`** nace acá, nullable y sin FK; no lo escribe nadie todavía (lo hace MOVO-282).
-  El `409 CARD_IN_USE` está probado con holds insertados a mano.
+- **`holds.saved_card_id`** nace acá, nullable y sin FK; lo escribe MOVO-282 (ver su entrada abajo).
+  El `409 CARD_IN_USE` se probó con holds insertados a mano y, desde MOVO-282, también con un hold real.
 - **Alias** (AC11): trim, 1-40, sin caracteres de control, y `400` si trae 12+ dígitos (se ignoran
   espacios y guiones al contar, así "4111 1111 1111 1111" también se rechaza). Es de Movo, no va a MP.
 - **Baja de cuenta**: best-effort; si MP falla se loguea el `mpCustomerId` huérfano y las filas locales se
@@ -426,5 +426,68 @@ sigue sin identificarse (punto 2 de MOVO-283).
 
 Pendiente: `MP_PUBLIC_KEY` ya está cargada en el secret de dev (`TEST-` de un Vendedor de prueba, atajo
 de sandbox); producción y segundo
-transportista (spike MOVO-283, ADR-039 sigue "propuesto"); MOVO-282 (hold con `payer: customer` y escritura
-de `saved_card_id`) y MOVO-39 (llamar al endpoint interno de baja).
+transportista (spike MOVO-283, ADR-039 sigue "propuesto"); MOVO-282 ya está (ver abajo) y falta MOVO-39
+(llamar al endpoint interno de baja).
+
+### MOVO-282 — Hold con tarjeta guardada: el pagador pasa a ser el customer de la tarjeta (ADR-039 propuesto)
+
+`POST /internal/payments/holds` (MOVO-209) suma `payerUserId` (requerido, el emisor; `svc-shipments` siempre
+lo manda) y `savedCardId?` (id interno de `payments.saved_cards`). Compatible hacia atrás: sin `savedCardId` el
+camino es el de siempre (`payer: { email }`, tarjeta completa). Código en `src/modules/holds/hold.service.ts`
+(`resolvePayer`), `holds.schema.ts`, `hold-repository.ts` y `plugins/holds.ts`; contrato en `@movo/shared`
+(`types/hold.ts`). **Sin migración**: `holds.saved_card_id` ya existía (MOVO-100).
+
+- **Solo cambia el pagador.** Con `savedCardId` el pago se crea con `payer: { type: "customer", id }` (el
+  `mp_customer_id` del emisor en la cuenta de Movo S.A.); con `payer: { email }` y el mismo token MP responde
+  `2002 "Customer not found"`. El token (`card_id` + CVV, generado por el mobile con la `public_key` del
+  transportista) entra por el mismo campo `cardToken`. El `saved_card_id` se guarda en el hold: es lo que
+  habilita el `409 CARD_IN_USE` de MOVO-100 (se compara contra `LIVE_HOLD_STATUSES`).
+- **Pertenencia validada ANTES de abrir el intento** (`resolvePayer`): la tarjeta tiene que ser de
+  `payerUserId` (`findLive`) y el emisor tener customer; si no, `404 NOT_FOUND "Tarjeta no encontrada."`, el
+  mismo código y mensaje de `cards.service.ts`, sin revelar si la tarjeta existe ni de quién es. Una tarjeta
+  ajena no crea fila ni llama a MP. Un replay de un hold vivo también la valida (son dos lecturas baratas).
+- **`customer_id` y `card_id` de MP no salen**: ni en `HoldResponse` (tampoco se agregó `savedCardId`) ni en
+  los logs (la validación y el armado del pago no los loguean; el logger ya redacta `cardToken`/`cardId`).
+- **`request_fingerprint` incluye `savedCardId` solo cuando viene**: un reintento con otra tarjeta guardada
+  sobre un intento sin respuesta no reusa la key (cierra el viejo como `superseded` y abre el intento 2), y la
+  huella de un intento sin tarjeta guardada es idéntica a la de antes, así que un `creating` en vuelo durante el
+  deploy no se reinterpreta como "cuerpo cambiado". Sigue siendo un hash: nunca el token, el CVV ni el id.
+- **Mapeo de rechazos reusado, con un matiz** (`failureReasonFromStatusDetail(detail, { savedCard })`): un CVV
+  incorrecto (`cc_rejected_bad_filled_security_code`) ya era `invalid_data`, y fondos insuficientes
+  `insufficient_funds`; **con tarjeta guardada, `cc_rejected_bad_filled_date` pasa a `card_rejected`** (el emisor
+  no tipeó el vencimiento, así que "revisá el dato" no tiene sentido: la tarjeta guardada venció y tiene que
+  probar con otra). Sin tarjeta guardada sigue `invalid_data`. `holdUpdateFromPayment` lo deriva de
+  `current.savedCardId`, así que el webhook (MOVO-268) clasifica igual. Un token vencido o ya usado
+  (2006/3001/3003) sigue cerrando el intento como `rejected`/`invalid_data` sin pasar por el 502, y se suman
+  **3031 (CVV ausente o vacío) y 3032 (CVV de largo inválido)**: MP los responde con 400 al crear el pago, antes
+  de crearlo, y repetirlos falla igual. Sin esto quedaban como transitorios (502 y el intento colgado en `creating`).
+- **Bug de MOVO-209 corregido acá**: `readMpError` leía `error.cause`, pero el SDK `mercadopago` 3.x tira una
+  instancia de `Error` con las causas de la API en **`causes`** (plural, copia del `cause` del body). Con el SDK
+  real **ninguna** causa se reconocía (ni 2006/3001/3003 ni 2034/2059): todo 400 terminaba como transitorio. Ahora
+  lee `causes` y también `cause` (cuerpo crudo). Los tests de MOVO-209 usaban objetos con `cause` y no lo veían;
+  hay un test con la forma real del SDK.
+- **Liberar es igual que antes**: cancela con el token del transportista y no toca la tarjeta guardada.
+
+Tests: `test/hold.service.test.ts` (payer customer vs. email, 404 sin fila ni llamada a MP, indistinguible
+ajena/inexistente, fingerprint y reuso de key, mapeo de rechazos, logs y respuesta sin ids de MP, liberación) y
+`test/holds.integration.test.ts` (Postgres/Redis reales con MP mockeado: `saved_card_id` persistido, 404, `409
+CARD_IN_USE` con un hold real, otra tarjeta no reusa la key). `test/holds.sandbox.test.ts` suma el flujo
+completo contra el sandbox real (tarjeta guardada → token con `card_id` + CVV y la `public_key` del Vendedor →
+hold con `payer: customer` → `authorized` → `409 CARD_IN_USE` con el hold vivo → liberar → la tarjeta sigue
+guardada y se puede dar de baja); se saltea sin credenciales.
+
+**Verificado contra el sandbox real (14/10/2026)** con el Transportista de prueba y la Visa 4075 5957 1648 3764.
+`test/holds.sandbox.test.ts` pasa con 7 escenarios sobre una tarjeta guardada: camino feliz (`authorized`,
+`CARD_IN_USE` con el hold vivo, liberar), titular `SECU` (`cc_rejected_bad_filled_security_code` → `invalid_data`),
+`FUND` (`insufficient_funds`), `EXPI` (`cc_rejected_bad_filled_date` → `card_rejected`, la decisión de arriba
+confirmada con el código real de MP), CVV ausente (400 `3031`) y de largo inválido (400 `3032`) → `rejected`/
+`invalid_data`, y `CONT` (`in_process`/`pending_contingency`, un hold vivo). Matriz completa de titulares:
+`CALL` → `bad_filled_card_number`, `OTHE` → `bad_filled_other`, `FORM` → autoriza.
+
+**Gotchas del sandbox** (descubiertos en esta prueba): (1) **guardar la tarjeta con cualquier titular distinto de
+APRO da `500` si el token no lleva `cardholder.identification`** (DNI): con la identificación guardan todos y el
+titular decide el resultado del pago. Es lo que hay que mandar al tokenizar para guardar (el formulario de MP del
+mobile, MOVO-101, tiene que incluirla). (2) **El valor del CVV no se valida**: un `999` se autoriza igual; solo
+falla uno ausente, vacío o de largo inválido. Un CVV equivocado de verdad solo se verá en producción (spike
+MOVO-283). (3) Al borrar un customer, MP tarda ~1-2 minutos en dejar de devolverlo en la búsqueda por email (da
+`404 customer not found` por id): una segunda corrida inmediata del test de sandbox puede fallar por eso.

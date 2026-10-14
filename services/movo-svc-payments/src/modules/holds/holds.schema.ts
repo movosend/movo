@@ -107,10 +107,11 @@ export const createHoldSchema = {
   description:
     "201 si el intento se procesó contra MP (autorizado o rechazado: un rechazo de la tarjeta NO es un " +
     "error HTTP, vuelve con `status: rejected` y `failureReason`). 200 si el envío ya tenía un hold " +
-    "vigente y no se llamó a MP.",
+    "vigente y no se llamó a MP. Con `savedCardId` el pagador es el customer de esa tarjeta guardada " +
+    "(tiene que ser de `payerUserId` y estar viva; si no, 404).",
   body: {
     type: "object",
-    required: ["shipmentId", "carrierId", "cardToken", "amountArs", "payerEmail"],
+    required: ["shipmentId", "carrierId", "cardToken", "amountArs", "payerEmail", "payerUserId"],
     additionalProperties: false,
     properties: {
       shipmentId: uuid,
@@ -118,10 +119,13 @@ export const createHoldSchema = {
       cardToken: { type: "string", minLength: 1, maxLength: 256 },
       amountArs,
       payerEmail: { type: "string", format: "email", maxLength: 254 },
+      // MOVO-282: el emisor y, opcional, la tarjeta guardada con la que se generó el token.
+      payerUserId: uuid,
+      savedCardId: uuid,
       paymentMethodId: { type: "string", minLength: 1, maxLength: 64 },
     },
   },
-  response: { 200: hold, 201: hold, 409: errorResponse, 502: errorResponse },
+  response: { 200: hold, 201: hold, 404: errorResponse, 409: errorResponse, 502: errorResponse },
 } as const;
 
 export const getHoldSchema = {

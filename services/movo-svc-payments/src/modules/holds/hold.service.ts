@@ -12,6 +12,7 @@ import {
 } from "@movo/shared";
 import { MercadoPagoClient, PaymentSnapshot } from "../../adapters/mercadopago-client";
 import { CarrierMpAccountRepository } from "../../repositories/carrier-mp-account-repository";
+import { SavedCardRepository } from "../../repositories/saved-card-repository";
 import { Hold, HoldAttemptConflictError, HoldRepository, HoldUpdate } from "../../repositories/hold-repository";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -45,8 +46,14 @@ const INVALID_DATA_DETAILS = new Set([
  */
 const PLATFORM_DETAILS = new Set(["rejected_by_regulations", "rejected_insufficient_data"]);
 
-/** Códigos de error de la API de MP (no de rechazo) que apuntan al `card_token` enviado. */
-const INVALID_TOKEN_CAUSE_CODES = new Set(["2006", "3001", "3003"]);
+/**
+ * Códigos de error de la API de MP (no de rechazo) que apuntan al `card_token` enviado o a su código
+ * de seguridad: token inexistente, vencido o ya usado (2006/3001/3003) y, con tarjeta guardada, el CVV
+ * ausente o vacío (3031 "security_code_id can't be null") o de largo inválido (3032). Verificados en el
+ * sandbox el 14/10/2026. MP los responde ANTES de crear el pago y repetirlos falla igual, así que cierran
+ * el intento; el emisor lo resuelve volviendo a escribir el código.
+ */
+const INVALID_TOKEN_CAUSE_CODES = new Set(["2006", "3001", "3003", "3031", "3032"]);
 
 /**
  * Errores de configuración de cuentas que MP responde con 400 antes de crear nada (por
@@ -55,8 +62,19 @@ const INVALID_TOKEN_CAUSE_CODES = new Set(["2006", "3001", "3003"]);
  */
 const PLATFORM_CAUSE_CODES = new Set(["2034", "2059"]);
 
-export function failureReasonFromStatusDetail(statusDetail: string | null | undefined): HoldFailureReason {
+/**
+ * `status_detail` que, con una tarjeta guardada, no lo causó un dato mal tipeado: el emisor no
+ * escribió el vencimiento, así que `bad_filled_date` significa que la tarjeta guardada venció
+ * (o MP la tiene con otra fecha) y hay que probar con otra, no "revisar el dato" (MOVO-282, AC6).
+ */
+const SAVED_CARD_REJECTED_DETAILS = new Set(["cc_rejected_bad_filled_date"]);
+
+export function failureReasonFromStatusDetail(
+  statusDetail: string | null | undefined,
+  opts: { savedCard?: boolean } = {}
+): HoldFailureReason {
   if (statusDetail === "cc_rejected_insufficient_amount") return "insufficient_funds";
+  if (opts.savedCard && statusDetail && SAVED_CARD_REJECTED_DETAILS.has(statusDetail)) return "card_rejected";
   if (statusDetail && INVALID_DATA_DETAILS.has(statusDetail)) return "invalid_data";
   if (statusDetail && PLATFORM_DETAILS.has(statusDetail)) return "platform_error";
   if (statusDetail?.startsWith("cc_rejected_")) return "card_rejected";
@@ -70,16 +88,20 @@ interface MpErrorInfo {
 }
 
 /**
- * El SDK tira el cuerpo JSON de error de MP tal cual (`{ message, error, status, cause:
- * [{ code, description }] }`, no una instancia de `Error`), y un `Error` común ante un
- * timeout o un corte de red. Se lee de forma defensiva: nunca se asume la forma.
+ * Errores de la API de MP vistos desde el SDK `mercadopago` 3.x: una instancia de `Error`
+ * (`MPBadRequestError`, ...) con `status`, `error` y las causas de la API en **`causes`** (el SDK
+ * copia ahí el `cause` del body); ante un timeout o un corte de red, un `Error` común. También se
+ * acepta el cuerpo JSON crudo de la API (`cause`). Verificado contra el sandbox el 14/10/2026: con
+ * el SDK real `cause` no existe, y leer solo ese campo dejaba sin reconocer ninguna causa (el
+ * intento quedaba en `creating` aun con un 400 que prueba que MP no creó el pago). Se lee de forma
+ * defensiva: nunca se asume la forma.
  */
 export function readMpError(error: unknown): MpErrorInfo {
   if (typeof error !== "object" || error === null) {
     return { status: undefined, causeCodes: [], message: String(error) };
   }
-  const raw = error as { status?: unknown; message?: unknown; cause?: unknown };
-  const causes: unknown[] = Array.isArray(raw.cause) ? raw.cause : [];
+  const raw = error as { status?: unknown; message?: unknown; cause?: unknown; causes?: unknown };
+  const causes: unknown[] = Array.isArray(raw.causes) ? raw.causes : Array.isArray(raw.cause) ? raw.cause : [];
   return {
     status: typeof raw.status === "number" ? raw.status : undefined,
     causeCodes: causes
@@ -148,7 +170,7 @@ export function holdUpdateFromPayment(
       return {
         status: "rejected",
         statusDetail,
-        failureReason: failureReasonFromStatusDetail(statusDetail),
+        failureReason: failureReasonFromStatusDetail(statusDetail, { savedCard: current?.savedCardId != null }),
         mpPaymentId,
         expiresAt: null,
       };
@@ -169,13 +191,21 @@ function assertValidAmount(amountArs: number): void {
 
 /**
  * Huella del cuerpo del pedido de un intento. Un reintento con la misma idempotency key
- * solo es seguro si el cuerpo coincide: con otro token o pagador MP reproduce el pago
- * original (cobrado a la primera tarjeta) o responde un 4xx de mismatch. Se guarda el
- * hash, nunca el token.
+ * solo es seguro si el cuerpo coincide: con otro token, pagador o tarjeta guardada MP
+ * reproduce el pago original (cobrado a la primera tarjeta) o responde un 4xx de mismatch.
+ * Se guarda el hash, nunca el token ni el CVV. `savedCardId` (MOVO-282) solo entra cuando
+ * viene, así la huella de un intento con tarjeta completa no cambia respecto de antes.
  */
 function requestFingerprint(input: CreateHoldRequest): string {
   return createHash("sha256")
-    .update(JSON.stringify([input.cardToken, input.payerEmail.toLowerCase(), input.paymentMethodId ?? ""]))
+    .update(
+      JSON.stringify([
+        input.cardToken,
+        input.payerEmail.toLowerCase(),
+        input.paymentMethodId ?? "",
+        ...(input.savedCardId ? [input.savedCardId] : []),
+      ])
+    )
     .digest("hex");
 }
 
@@ -204,6 +234,8 @@ export interface HoldServiceDeps {
   holds: HoldRepository;
   accounts: CarrierMpAccountRepository;
   mercadoPago: MercadoPagoClient;
+  /** MOVO-282: resuelve la tarjeta guardada y el customer del emisor para pagar con `payer: customer`. */
+  savedCards: Pick<SavedCardRepository, "findLive" | "findCustomer">;
   log: FastifyBaseLogger;
   now?: () => Date;
 }
@@ -238,7 +270,7 @@ interface LinkedCarrier {
  * requests lleguen a la vez.
  */
 export function createHoldService(deps: HoldServiceDeps) {
-  const { holds, accounts, mercadoPago, log } = deps;
+  const { holds, accounts, mercadoPago, savedCards, log } = deps;
   const now = deps.now ?? (() => new Date());
 
   const idempotencyKey = (shipmentId: string, attempt: number) => `movo-hold-${shipmentId}-${attempt}`;
@@ -254,6 +286,23 @@ export function createHoldService(deps: HoldServiceDeps) {
       );
     }
     return credentials;
+  }
+
+  /**
+   * Quién figura como pagador del pago (MOVO-282, ADR-039). Con `savedCardId` el pagador es el
+   * customer de la tarjeta guardada en la cuenta de Movo (con `payer: { email }` MP responde 2002
+   * "Customer not found"); sin él, el email del emisor de siempre. La tarjeta tiene que ser de
+   * `payerUserId` y estar viva: ante cualquier otra cosa se responde el mismo 404, sin revelar si
+   * la tarjeta existe. El `customer_id` ni el `card_id` salen de acá: ni a la respuesta ni al log.
+   */
+  async function resolvePayer(input: CreateHoldRequest): Promise<{ type?: string; id?: string; email?: string }> {
+    if (!input.savedCardId) return { email: input.payerEmail };
+    const [card, customer] = await Promise.all([
+      savedCards.findLive(input.payerUserId, input.savedCardId),
+      savedCards.findCustomer(input.payerUserId),
+    ]);
+    if (!card || !customer) throw new ApiError(404, "SAVED_CARD_NOT_FOUND", "Tarjeta no encontrada.");
+    return { type: "customer", id: customer.mpCustomerId };
   }
 
   function sameTerms(hold: Hold, carrierId: string, amountArs: number): boolean {
@@ -333,6 +382,7 @@ export function createHoldService(deps: HoldServiceDeps) {
     fingerprint: string,
     loadCarrier: () => Promise<LinkedCarrier>
   ): Promise<{ kind: "replay" | "process"; hold: Hold }> {
+    const savedCardId = input.savedCardId ?? null;
     for (let tries = 0; tries < 3; tries += 1) {
       let latest = await holds.findLatestByShipment(input.shipmentId);
 
@@ -378,6 +428,7 @@ export function createHoldService(deps: HoldServiceDeps) {
           amountArs,
           applicationFeeArs,
           requestFingerprint: fingerprint,
+          savedCardId,
         });
         return { kind: "process", hold: created };
       } catch (error) {
@@ -439,6 +490,9 @@ export function createHoldService(deps: HoldServiceDeps) {
       // (`Offer.priceOffered`) y Movo cobra su % sobre el neto del transportista.
       const applicationFeeArs = decomposeOfferGrossPrice(amountArs).commissionAmountArs;
 
+      // Antes de abrir un intento: una tarjeta ajena o dada de baja no crea ninguna fila.
+      const payer = await resolvePayer(input);
+
       let carrierPromise: Promise<LinkedCarrier> | undefined;
       const loadCarrier = () => (carrierPromise ??= requireLinkedCarrier(input.carrierId));
 
@@ -459,7 +513,7 @@ export function createHoldService(deps: HoldServiceDeps) {
 
       const carrier = await loadCarrier();
       const key = idempotencyKey(hold.shipmentId, hold.attempt);
-      // AC9: ni el card_token ni el email del pagador se loguean.
+      // AC9: ni el card_token ni el email del pagador (ni el customer/card id de MP) se loguean.
       log.info(
         { shipmentId: hold.shipmentId, holdId: hold.id, attempt: hold.attempt, amountArs, applicationFeeArs },
         "creando hold en MP"
@@ -479,7 +533,7 @@ export function createHoldService(deps: HoldServiceDeps) {
             // Para que MOVO-268 y la recuperación de un `creating` puedan reconciliar un
             // pago contra el envío.
             external_reference: hold.shipmentId,
-            payer: { email: input.payerEmail },
+            payer,
             application_fee: applicationFeeArs,
           },
           key
