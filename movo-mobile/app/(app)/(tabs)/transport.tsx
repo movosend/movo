@@ -5,7 +5,6 @@ import {
   ArrowRight,
   ChevronDown,
   ChevronsUpDown,
-  IdCard,
   MapPin,
   PackageX,
   Radar,
@@ -18,6 +17,7 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } 
 import { FlatList } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CarrierRequirementGate } from "../../../components/carrier/carrier-requirement-gate";
+import { CarrierRequirementsScreen } from "../../../components/carrier/carrier-requirements-checklist";
 import { AddressSearchSheet } from "../../../components/send/address-search-sheet";
 import { AvailableShipmentCard } from "../../../components/transport/available-shipment-card";
 import { AvailableShipmentRow } from "../../../components/transport/available-shipment-row";
@@ -37,6 +37,7 @@ import type { MyOfferSummary } from "../../../src/api/offers-client";
 import type { AvailableShipment } from "../../../src/api/shipments-client";
 import { useAddresses } from "../../../src/hooks/use-addresses";
 import { useMyOffers } from "../../../src/hooks/use-offers";
+import { useMpConnectStatus } from "../../../src/hooks/use-mp-connect";
 import { useMyProfile } from "../../../src/hooks/use-profile";
 import { useTabBarScrollHandler } from "../../../src/store/tab-bar-store";
 import { TRANSPORT_RADIUS_OPTIONS_KM, useAvailableShipments } from "../../../src/hooks/use-shipments";
@@ -47,7 +48,6 @@ import { TripStatus } from "../../../src/api/trips-client";
 import { useMyTrips, useTrip, useTripMatches } from "../../../src/hooks/use-trips";
 import {
   IDENTITY_GATE_COPY,
-  licenseGateCopy,
   resolveTransportGate,
 } from "../../../src/lib/carrier-requirements";
 import { friendlyErrorMessage } from "../../../src/lib/error-messages";
@@ -249,12 +249,12 @@ export default function TransportScreen() {
   // vez de re-chequear `tripId`/`!tripId` cada uno por su cuenta.
   const isTripMode = Boolean(tripId);
 
-  // MOVO-167: gating de entrada por identidad y licencia, sobre el perfil propio. Es
-  // solo UX — el backend sigue siendo la autoridad (ADR-036). Mientras el perfil carga,
-  // falló o el usuario está bloqueado no se resuelve el origen (evita pedir permiso de
-  // GPS a quien igual no va a poder ver el listado) ni se piden envíos. Si el perfil
-  // falla no se deja pasar: sin él no se sabe si falta la licencia, así que se muestra
-  // el error con "Reintentar".
+  // MOVO-167 / MOVO-117: gating de entrada por identidad, licencia y Mercado Pago, sobre el
+  // perfil propio y el estado de MP. Es solo UX -- el backend sigue siendo la autoridad
+  // (ADR-036). Mientras alguna de las dos consultas carga, falló o el usuario está bloqueado
+  // no se resuelve el origen (evita pedir permiso de GPS a quien igual no va a poder ver el
+  // listado) ni se piden envíos. Si no se puede consultar el perfil o MP no se deja pasar:
+  // sin ellos no se sabe qué falta, así que se muestra el error con "Reintentar".
   const {
     data: profile,
     isLoading: isProfileLoading,
@@ -262,12 +262,25 @@ export default function TransportScreen() {
     error: profileError,
     refetch: refetchProfile,
   } = useMyProfile();
-  const profileUnavailable = !profile && isProfileError;
+  const {
+    data: mpConnect,
+    isLoading: isMpLoading,
+    isError: isMpError,
+    error: mpError,
+    refetch: refetchMp,
+  } = useMpConnectStatus();
   const profileGate = resolveTransportGate({
     kycStatus: profile?.kycStatus ?? null,
     licenseKycStatus: profile?.licenseKycStatus ?? null,
+    mpStatus: mpConnect?.status ?? null,
   });
-  const canBrowse = !isProfileLoading && !profileUnavailable && profileGate === null;
+  // Sin identidad aprobada la checklist no se muestra, así que MP no hace falta para decidir.
+  const profileUnavailable = !profile && isProfileError;
+  const mpUnavailable = !mpConnect && isMpError && profileGate !== "identity";
+  const requirementsUnavailable = profileUnavailable || mpUnavailable;
+  const requirementsError = profileUnavailable ? profileError : mpError;
+  const isRequirementsLoading = isProfileLoading || (isMpLoading && profileGate !== "identity");
+  const canBrowse = !isRequirementsLoading && !requirementsUnavailable && profileGate === null;
 
   const { origin, resolving, needsManualPick, setManualSelection } = useTransportOrigin(!isTripMode && canBrowse);
   const { radiusKm, setRadiusKm } = useTransportRadius();
@@ -311,25 +324,32 @@ export default function TransportScreen() {
   const identityRejectedByFeed = isError && error instanceof ApiError && error.code === "CARRIER_NOT_VERIFIED";
   const gate = identityRejectedByFeed ? "identity" : profileGate;
 
-  // Al volver de `/kyc` o `/license-kyc` el tab sigue montado: sin este refetch el
-  // bloqueo quedaría con el estado viejo hasta reabrir la app. Si el bloqueo vino del
-  // feed también hay que volver a pedirlo, el perfil solo no lo destraba. Lee el
-  // estado de un ref para que el callback no cambie con cada render: si dependiera de
-  // `gate`, `useFocusEffect` lo volvería a correr apenas el bloqueo aparece, sin que
-  // la pantalla haya ganado foco.
+  // Al volver de `/kyc`, `/license-kyc` o `/profile/payments` el tab sigue montado: sin este
+  // refetch el bloqueo quedaría con el estado viejo hasta reabrir la app. Corre SIEMPRE al
+  // ganar foco (no solo con un bloqueo activo): el estado puede haber cambiado desde otra
+  // pantalla (ej. se desvinculó MP) sin que el tab lo sepa. Si el bloqueo vino del feed
+  // también hay que volver a pedirlo, el perfil solo no lo destraba. Lee el estado de un ref
+  // para que el callback no cambie con cada render y `useFocusEffect` no lo vuelva a
+  // correr sin que la pantalla haya ganado foco.
   const refreshGate = useCallback(async () => {
-    const tasks: Promise<unknown>[] = [refetchProfile()];
+    const tasks: Promise<unknown>[] = [refetchProfile(), refetchMp()];
     if (identityRejectedByFeed) tasks.push(refetch());
     await Promise.all(tasks);
-  }, [refetchProfile, refetch, identityRejectedByFeed]);
-  const focusRefreshRef = useRef({ blocked: false, refreshGate });
-  focusRefreshRef.current = { blocked: gate !== null || profileUnavailable, refreshGate };
+  }, [refetchProfile, refetchMp, refetch, identityRejectedByFeed]);
+  const focusRefreshRef = useRef({ refreshGate });
+  focusRefreshRef.current = { refreshGate };
+  const hasFocusedOnce = useRef(false);
   useFocusEffect(
     useCallback(() => {
-      if (focusRefreshRef.current.blocked) void focusRefreshRef.current.refreshGate();
+      // El primer foco coincide con el montaje: las queries ya arrancan solas.
+      if (!hasFocusedOnce.current) {
+        hasFocusedOnce.current = true;
+        return;
+      }
+      void focusRefreshRef.current.refreshGate();
     }, []),
   );
-  // Pull-to-refresh del estado bloqueante: si la licencia se aprueba con el usuario
+  // Pull-to-refresh del estado bloqueante: si un requisito se resuelve con el usuario
   // parado en el tab no hay evento de foco que lo destrabe.
   const [isRefreshingGate, setIsRefreshingGate] = useState(false);
   const onRefreshGate = useCallback(async () => {
@@ -426,7 +446,7 @@ export default function TransportScreen() {
 
   const showOriginSkeleton = canBrowse && !isTripMode && (resolving || (origin === null && !needsManualPick));
   const isInitialLoading =
-    isProfileLoading ||
+    isRequirementsLoading ||
     (isTripMode ? isTripLoading || (isReady && isLoading) : showOriginSkeleton || (isReady && isLoading));
 
   // MOVO-221: con el límite de 1 viaje `active` por cuenta, mostrar "N activos ·
@@ -442,6 +462,7 @@ export default function TransportScreen() {
   // indicador de tracking, que no depende del bloqueo): zona, accesos, radio y filtros
   // no sirven sin poder ver envíos.
   const showBrowseChrome = canBrowse && gate === null;
+  const showRequirementsGate = !isInitialLoading && !requirementsUnavailable && Array.isArray(gate);
   const zoneLabel = origin ? origin.city ?? zoneLabelFromAddress(origin.address) : null;
 
   return (
@@ -530,17 +551,17 @@ export default function TransportScreen() {
 
       {isInitialLoading ? (
         isTripMode ? <TransportCardSkeleton /> : <TransportRowSkeleton />
-      ) : profileUnavailable ? (
+      ) : requirementsUnavailable ? (
         <View className="px-5 pt-2">
           <ErrorBanner
             testID="transport-profile-error"
-            message={friendlyErrorMessage(profileError, "No pudimos verificar tus requisitos para transportar.")}
+            message={friendlyErrorMessage(requirementsError, "No pudimos verificar tus requisitos para transportar.")}
           />
-          <Text onPress={() => refetchProfile()} className="font-sans-medium text-small text-fg">
+          <Text onPress={() => void refreshGate()} className="font-sans-medium text-small text-fg">
             Reintentar
           </Text>
         </View>
-      ) : gate !== null ? (
+      ) : gate === "identity" || (gate !== null && !profile) ? (
         <ScrollView
           testID="transport-gate-scroll"
           contentContainerStyle={{ flexGrow: 1 }}
@@ -552,24 +573,16 @@ export default function TransportScreen() {
             />
           }
         >
-          {gate === "identity" || !profile ? (
-            <CarrierRequirementGate
-              testID="transport-identity-gate"
-              icon={ShieldAlert}
-              {...IDENTITY_GATE_COPY}
-              onPressCta={() => router.push("/kyc")}
-            />
-          ) : (
-            <CarrierRequirementGate
-              testID="transport-license-gate"
-              icon={IdCard}
-              {...licenseGateCopy(profile.licenseKycStatus)}
-              onPressCta={() =>
-                router.push({ pathname: "/license-kyc", params: { status: profile.licenseKycStatus } })
-              }
-            />
-          )}
+          <CarrierRequirementGate
+            testID="transport-identity-gate"
+            icon={ShieldAlert}
+            {...IDENTITY_GATE_COPY}
+            onPressCta={() => router.push("/kyc")}
+          />
         </ScrollView>
+      ) : gate !== null && profile ? (
+        // La checklist se monta abajo, sobre todo el tab (incluido el título).
+        null
       ) : isTripMode && isTripError ? (
         <View className="px-5 pt-2">
           <ErrorBanner
@@ -720,6 +733,23 @@ export default function TransportScreen() {
           setPickerOpen(false);
         }}
       />
+
+      {showRequirementsGate && profile && Array.isArray(gate) ? (
+        <CarrierRequirementsScreen
+          testID="transport-requirements-gate"
+          missing={gate}
+          licenseStatus={profile.licenseKycStatus}
+          mpStatus={mpConnect?.status ?? null}
+          context="gate"
+          refreshing={isRefreshingGate}
+          onRefresh={onRefreshGate}
+          onPressLicense={() =>
+            router.push({ pathname: "/license-kyc", params: { status: profile.licenseKycStatus } })
+          }
+          onPressMp={() => router.push("/profile/payments")}
+          onLater={() => router.navigate("/home")}
+        />
+      ) : null}
 
       <TransportFiltersSheet
         visible={filtersOpen}
