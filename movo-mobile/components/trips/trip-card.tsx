@@ -66,11 +66,12 @@ export function TripCard({ trip, onPress, testID }: TripCardProps) {
       </View>
 
       <View className="min-w-0 flex-1 gap-3 py-3.5 pl-4 pr-3.5">
-        <View className="flex-row flex-wrap items-center gap-2">
+        <View className="flex-row items-center justify-between gap-2">
           <TripStatusPill status={trip.status} />
           {trip.recurrenceWeekdays ? (
             <TripRecurrenceBadge
               testID={testID ? `${testID}-recurrence` : undefined}
+              variant="inline"
               weekdays={trip.recurrenceWeekdays}
             />
           ) : null}
