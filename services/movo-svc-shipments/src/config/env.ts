@@ -24,7 +24,11 @@ export interface EnvConfig {
   TRIP_DEFAULT_MAX_DETOUR_KM: number;
   PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES: number;
   PICKUP_EXPIRY_SWEEP_ENABLED?: boolean;
-  FUNDS_RELEASE_NOTIFIER: "console";
+  FUNDS_RELEASE_NOTIFIER: "console" | "payments";
+  SETTLEMENT_SWEEP_INTERVAL_MINUTES: number;
+  SETTLEMENT_SWEEP_GRACE_MINUTES: number;
+  SETTLEMENT_SWEEP_BATCH_SIZE: number;
+  SETTLEMENT_SWEEP_ENABLED?: boolean;
   CARRIER_POSITION_RETENTION_DAYS: number;
   CARRIER_POSITION_PURGE_SWEEP_INTERVAL_MINUTES: number;
   CARRIER_POSITION_PURGE_SWEEP_ENABLED?: boolean;
@@ -123,11 +127,19 @@ export const envSchema = {
     // mismo criterio que RECEIVER_CONFIRMATION_SWEEP_INTERVAL_MINUTES/_ENABLED (MOVO-130).
     PICKUP_EXPIRY_SWEEP_INTERVAL_MINUTES: { type: "number", default: 15 },
     PICKUP_EXPIRY_SWEEP_ENABLED: { type: "boolean", default: true },
-    // MOVO-158 (AC7, ADR-012/017 mold): liberación de fondos real (captura/split de
-    // MercadoPago) queda deliberadamente fuera de este ticket -- único valor hoy es
-    // "console" (default, no-op/log). El switch existe para no rediseñar el punto de
-    // extensión cuando la integración real de pagos se destrabe.
-    FUNDS_RELEASE_NOTIFIER: { type: "string", enum: ["console"], default: "console" },
+    // MOVO-158 (AC7, ADR-012/017 mold) + MOVO-212: liberación de fondos al entregar.
+    // "console" (default, no-op/log) para dev/test/CI; "payments" captura el hold real del
+    // envío en movo-svc-payments y lo lleva a `completed`. Es el mismo switch que dejó
+    // MOVO-158 para no rediseñar el punto de extensión.
+    FUNDS_RELEASE_NOTIFIER: { type: "string", enum: ["console", "payments"], default: "console" },
+    // MOVO-212: barrido que reintenta la captura de los envíos `delivered` que no llegaron a
+    // `completed` (la captura en línea del handshake es best-effort). Solo corre con
+    // FUNDS_RELEASE_NOTIFIER=payments. Sin backoff ni escalado: eso es MOVO-213.
+    SETTLEMENT_SWEEP_INTERVAL_MINUTES: { type: "number", default: 5 },
+    // Margen desde la entrega antes de que el barrido la tome, para no pisar la captura en línea.
+    SETTLEMENT_SWEEP_GRACE_MINUTES: { type: "number", default: 5 },
+    SETTLEMENT_SWEEP_BATCH_SIZE: { type: "number", default: 20 },
+    SETTLEMENT_SWEEP_ENABLED: { type: "boolean", default: true },
     // MOVO-202/ADR-023: retención de la traza GPS del transportista -- días desde que
     // el envío cierra (`Shipment.lastStatusChangedAt` en un estado de
     // `POSITION_PURGE_ELIGIBLE_STATUSES`) hasta que la purga periódica la borra.

@@ -68,6 +68,8 @@ export type NotificationTriggerKey =
   | "fundingAttemptFailedSender"
   | "fundingReconfirmSender"
   | "fundingReconfirmCarrier"
+  | "settlementCreditedCarrier"
+  | "settlementProcessedSender"
   | "receiverTransferInvited"
   | "receiverTransferRequested"
   | "receiverTransferCompletedRequester"
@@ -584,6 +586,21 @@ export const NOTIFICATION_TRIGGERS = {
       title: "Pago del emisor por reconfirmar",
       body: "La reserva del pago expiró. El envío sigue asignado a vos mientras el emisor la reconfirma.",
     })
+  ),
+  // MOVO-212: cierre económico (captura del hold). El monto acreditado al transportista
+  // va en el copy porque así lo pide el AC6 del ticket; el del emisor no lleva montos.
+  settlementCreditedCarrier: definition<{ netAmountArs: number }>(
+    "payments",
+    { title: "Cobraste tu envío", body: "Te acreditamos el pago de la entrega en tu cuenta de Mercado Pago." },
+    ({ netAmountArs }) => ({
+      title: "Cobraste tu envío",
+      body: `Te acreditamos $${netAmountArs.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} en tu cuenta de Mercado Pago.`,
+    })
+  ),
+  settlementProcessedSender: definition<void>(
+    "payments",
+    { title: "Pago procesado", body: "Tu envío fue entregado y el pago se procesó correctamente." },
+    () => ({ title: "Pago procesado", body: "Tu envío fue entregado y el pago se procesó correctamente." })
   ),
   // MOVO-275 (ADR-038): transferencia de receptor. Copy propio por destinatario: la
   // persona invitada tiene que actuar; el emisor y el transportista solo se enteran.

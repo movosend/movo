@@ -3197,12 +3197,44 @@ de `assigned_unfunded` tiene un piso (`entró al estado + FUNDING_PAYMENT_TIMEOU
 perdido a menos de 24h del retiro no se revierta antes de que el emisor pueda pagar; el aviso reclama las marcas
 de Redis de apertura/recordatorio/intento fallido para que el barrido no repita el push.
 
-**Pendiente / decisión del equipo**: (1) Webhook de MP → este endpoint interno depende de MOVO-268 (nadie lo
-llama todavía). (2) La cuenta de MP del transportista se exige al ofertar en MOVO-116/MOVO-117, no acá: el 409
+**Pendiente / decisión del equipo**: (1) El webhook de MP (MOVO-268, `svc-payments`) es quien llama a este endpoint interno. (2) La cuenta de MP del transportista se exige al ofertar en MOVO-116/MOVO-117, no acá: el 409
 `CARRIER_MP_ACCOUNT_NOT_LINKED` aparece al pedir el `GET /funding`; el caso de desvincular DESPUÉS de que le
 aceptaron la oferta queda como está (409 + hold huérfano logueado). (3) Mobile (MOVO-269, ya con comentario
 sobre `assignment_lapsed` y los estados nuevos) y estado de la reserva (MOVO-211): fuera de alcance. (4)
 `delivered → completed` es MOVO-212.
+
+### MOVO-212 — Captura del hold al entregar, `completed` y consulta del pago (lado `svc-shipments`)
+
+Cierra el flujo económico sobre la saga de MOVO-210. Lado `svc-payments` y contrato: ver sus `CLAUDE.md`.
+Código en `src/modules/settlements/` (`settlement.service.ts`, rutas, schema), `src/adapters/
+payments-funds-release-notifier.ts`, `src/plugins/settlement-sweep.ts`; `PaymentsClient` suma `captureHold`
+(timeout propio de 50s: capturar son dos llamadas a MP en serie) y `findSettlement`.
+
+- **El `FundsReleaseNotifier` real** (`FUNDS_RELEASE_NOTIFIER=payments`) captura el hold y, con la
+  liquidación acreditada, hace `delivered → completed` con CAS (`expectedFrom: delivered`, única transición que
+  produce `completed`) y manda los dos push (transportista con el monto neto; emisor sin montos, dedupe con
+  `SET NX`). El default de código sigue siendo `console` (dev/test/CI, como MOVO-158); `infra/docker-compose.yml`
+  lo pone en `payments` para dev/prod. El handshake no cambió: sigue siendo `void notify().catch(warn)`.
+- **AC8**: si la captura falla, el servicio lanza y el envío queda en `delivered`; no hay transición hacia atrás.
+  Lo reintenta `settlement-sweep` (solo corre con el notifier `payments`): un intento por envío y por pasada.
+  El barrido recorre los candidatos con un cursor keyset `(deliveredAt, id)` y salta los que están
+  "enfriándose" tras un fallo (Redis `settlement-sweep:cooldown:<id>`: 10 min, 20, 40... hasta 6 h; 24 h si
+  payments dice `HOLD_NOT_FOUND`/`HOLD_NOT_CAPTURABLE`), así una pila de envíos imposibles de capturar no tapa a
+  los que sí se pueden cobrar (review de PR #235). La política completa y el escalado manual siguen siendo
+  MOVO-213. Un `delivered` sin hold (asignado antes de la saga de pagos) se loguea y se salta, no es un fallo
+  de cobro.
+- **El service de liquidación se arma una sola vez** (`plugins/settlements.ts`, `app.settlements`) y lo usan el
+  notifier del handshake, el barrido y las rutas: antes cada uno armaba el suyo y un override de test podía
+  llegar a uno solo.
+- **`GET /shipments/:id/settlement`** (AC10): transportista ve bruto/fee MP/comisión/neto, emisor solo total y
+  fecha, receptor y ajenos 403. El estado visible es `processing|credited|escalated`: `failed` se muestra como
+  `processing`. El filtro por rol vive acá y no en payments porque acá se sabe quién es quién.
+- **Env nuevas** (las tres ubicaciones): `SETTLEMENT_SWEEP_INTERVAL_MINUTES`, `_GRACE_MINUTES`, `_BATCH_SIZE`,
+  `_ENABLED`.
+
+Pendiente: sin test de integración con DB real ni contra el sandbox de MP (no se pudieron correr localmente);
+la reversión por hold fallido y las notificaciones de cobro fallido son MOVO-213; el detalle del pago en la app
+es MOVO-214.
 
 ### MOVO-275 — Transferencia de receptor (ADR-038)
 
