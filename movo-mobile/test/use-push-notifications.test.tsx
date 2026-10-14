@@ -148,6 +148,30 @@ describe("usePushNotifications", () => {
     expect(mockRouterPush).toHaveBeenCalledWith({ pathname: "/(app)/(tabs)/transport", params: { tripId: "trip_1" } });
   });
 
+  it("MOVO-284: tocar una push de chat abre la conversación del envío", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (response: unknown) => void;
+    listener({
+      notification: { request: { content: { data: { type: "chat_message", shipmentId: "shp_1" } } } },
+    });
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shp_1/chat");
+  });
+
+  it("MOVO-284: una push de chat sin shipmentId no navega", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (response: unknown) => void;
+    listener({ notification: { request: { content: { data: { type: "chat_message" } } } } });
+
+    expect(mockRouterPush).not.toHaveBeenCalled();
+  });
+
   it("MOVO-163: un trip_match sin tripId en el payload no navega", async () => {
     mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
 

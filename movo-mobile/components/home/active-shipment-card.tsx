@@ -1,4 +1,4 @@
-import { Flag, MapPin, Package, Route } from "lucide-react-native";
+import { Flag, MapPin, MessageCircle, Package, Route } from "lucide-react-native";
 import { Fragment, useEffect } from "react";
 import { Alert, Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
@@ -82,10 +82,13 @@ function PulsingStepRing({ color }: { color: string }) {
 export function ActiveShipmentCard({
   shipment,
   role,
+  chat,
   testID,
 }: {
   shipment: ActiveShipmentSummary;
   role: ActiveShipmentRole;
+  /** MOVO-284: presente solo si el envío ya tiene chat. */
+  chat?: { unreadCount: number };
   testID?: string;
 }) {
   const colors = useThemeColors();
@@ -276,6 +279,25 @@ export function ActiveShipmentCard({
         <Text className="flex-1 font-sans-medium text-small text-fg-2">
           {activeShipmentFooterText(role, shipment)}
         </Text>
+        {chat ? (
+          <Pressable
+            testID={testID ? `${testID}-chat` : undefined}
+            accessibilityRole="button"
+            accessibilityLabel={chat.unreadCount > 0 ? `Abrir chat, ${chat.unreadCount} sin leer` : "Abrir chat"}
+            onPress={() => router.push(`/(app)/shipments/${shipment.id}/chat` as any)}
+            className="h-[38px] w-[38px] flex-none items-center justify-center rounded-full border border-border-strong"
+          >
+            <MessageCircle size={17} color={colors.fg1} strokeWidth={2} />
+            {chat.unreadCount > 0 ? (
+              <View
+                testID={testID ? `${testID}-chat-badge` : undefined}
+                className="absolute -right-1 -top-1 h-[17px] min-w-[17px] items-center justify-center rounded-full bg-lime-500 px-1"
+              >
+                <Text className="font-sans-semibold text-[10px] text-ink-950">{chat.unreadCount > 99 ? "99+" : chat.unreadCount}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+        ) : null}
         {cta ? (
           <Pressable
             testID={testID ? `${testID}-cta` : undefined}

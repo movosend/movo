@@ -11,11 +11,14 @@ export function RoleSection({
   title,
   role,
   shipments,
+  chatByShipment,
   testID,
 }: {
   title: string;
   role: ActiveShipmentRole;
   shipments: ActiveShipmentSummary[];
+  /** MOVO-284: envíos que ya tienen chat, con su contador de no leídos. */
+  chatByShipment?: Record<string, { unreadCount: number }>;
   testID?: string;
 }) {
   if (shipments.length === 0) return null;
@@ -28,6 +31,7 @@ export function RoleSection({
           key={shipment.id}
           shipment={shipment}
           role={role}
+          chat={chatByShipment?.[shipment.id]}
           testID={`${testID}-card-${shipment.id}`}
         />
       ))}
