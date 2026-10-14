@@ -4653,3 +4653,32 @@ pero la suma no: sin esto, un 150 × 100 × 60 pasaba "Siguiente" y recién fall
 en el resumen. `SIDES_SUM_CM_MAX` replica `PACKAGE_MAX_SIDES_SUM_CM` del backend solo para
 ese aviso; `PACKAGE_LIMITS_EXCEEDED` tiene copy propio en `error-messages.ts` para el caso de
 que el backend recalibre los límites. Test en `test/package-limits.test.tsx`.
+
+### MOVO-266 — Viajes recurrentes: "Se repite" al declarar/editar, badge de serie y avisos (ADR-042)
+
+UI del modelo de MOVO-264/265, sobre el artefacto de Claude Design (lo que contradice los AC
+se ignoró: anticipación de 2 semanas, calendario, "Iniciar 2 h antes", sheet de una opción).
+PR apilada sobre la de MOVO-265 (#246), que trae los tipos y helpers de `@movo/shared`.
+
+- **`TripRecurrenceCard`** (`components/trips/trip-recurrence-card.tsx`): switch "Se repite",
+  chips L→D, "Hora de salida"/"Desde" (el mismo `departureAt`, `DepartureDateTimePicker` ganó
+  `fields`/`minimumDate`/`disabled`), radio de "Hasta" y preview lima. **El chip del día de
+  "Desde" es de la fecha, no del usuario**: queda fijo y, si cambia "Desde", se saca el viejo
+  y se suma el nuevo (`withFixedDay`). Cada chip mapea a `RECURRENCE_WEEKDAY` (0 = domingo).
+  El preview usa `nextRecurrenceOccurrence` (la misma cuenta que el barrido) y avisa si la
+  fecha de fin no deja declarar otro viaje.
+- **`TripForm`** pasa a `variant: "create" | "edit"`. En la edición los campos de recurrencia
+  viajan solo si cambiaron, así un PATCH de ruta/hora no choca con `TRIP_NOT_SERIES_HEAD`;
+  apagar manda `recurrenceWeekdays: null`. Con paquetes aceptados, el vigente de una serie
+  abre en modo `recurrence-only` (aviso + solo días/"Hasta"); un viaje común con paquetes
+  sigue bloqueado como en MOVO-263. Sin `isSeriesHead`, la recurrencia es de solo lectura.
+  `RECURRING_SERIES_LIMIT` se muestra inline en la card.
+- **Detalle**: badge (`TripRecurrenceBadge`, también en la card de Próximos), "Dejar de
+  repetir" en el menú con confirmación (`Alert.alert`, PATCH `recurrenceWeekdays: null`,
+  disponible con paquetes) y `TripCancelSheet` con "Solo este viaje"/"Este y dejar de
+  repetir" (`onConfirm(stopRecurrence)`). Las acciones de recurrencia solo con `isSeriesHead`.
+- **Avisos**: el banner de MOVO-236 distingue las ocurrencias generadas
+  (`newTripsBannerMessage`, `src/lib/trip-recurrence.ts`) y las pushes
+  `trip_recurrence_generated`/`trip_recurrence_stopped` abren el detalle del viaje.
+
+Pendiente: no probado en device; revisar contra el backend real cuando #246 esté en dev.

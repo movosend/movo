@@ -5,6 +5,7 @@ import { shortAddressLabel } from "../../src/lib/shipment-format";
 import { tripStubParts } from "../../src/lib/trip-format";
 import { TripStatus, type TripWithAcceptedPackages } from "../../src/api/trips-client";
 import { PressableScale } from "./pressable-scale";
+import { TripRecurrenceBadge } from "./trip-recurrence-badge";
 import { TripStatusPill } from "./trip-status-pill";
 
 interface TripCardProps {
@@ -65,8 +66,14 @@ export function TripCard({ trip, onPress, testID }: TripCardProps) {
       </View>
 
       <View className="min-w-0 flex-1 gap-3 py-3.5 pl-4 pr-3.5">
-        <View className="flex-row items-center justify-between">
+        <View className="flex-row flex-wrap items-center gap-2">
           <TripStatusPill status={trip.status} />
+          {trip.recurrenceWeekdays ? (
+            <TripRecurrenceBadge
+              testID={testID ? `${testID}-recurrence` : undefined}
+              weekdays={trip.recurrenceWeekdays}
+            />
+          ) : null}
         </View>
 
         <View className="gap-0">

@@ -30,6 +30,13 @@ type OpenField = "date" | "time" | null;
 interface DepartureDateTimePickerProps {
   value: Date;
   onChange: (value: Date) => void;
+  /** MOVO-266: el bloque "Se repite" muestra hora y fecha por separado, cada una con su
+   * label ("Hora de salida"/"Desde"), y "Hasta" solo la fecha. Default: las dos juntas. */
+  fields?: "both" | "date" | "time";
+  /** Fecha mínima elegible (default: ahora). "Hasta" la fija al día siguiente de "Desde". */
+  minimumDate?: Date;
+  /** Edición con paquetes aceptados: la hora queda fija (MOVO-266, AC2). */
+  disabled?: boolean;
   testID?: string;
 }
 
@@ -64,10 +71,13 @@ interface DepartureDateTimePickerProps {
 export function DepartureDateTimePicker({
   value,
   onChange,
+  fields = "both",
+  minimumDate: minimumDateProp,
+  disabled = false,
   testID,
 }: DepartureDateTimePickerProps) {
   const colors = useThemeColors();
-  const minimumDate = new Date();
+  const minimumDate = minimumDateProp ?? new Date();
   const [openField, setOpenField] = useState<OpenField>(null);
   const [draftValue, setDraftValue] = useState(value);
   const { isMounted, backdropStyle, sheetStyle } = useSheetAnimation(openField !== null);
@@ -109,32 +119,38 @@ export function DepartureDateTimePicker({
   };
 
   return (
-    <View testID={testID} className="flex-row gap-2.5">
-      <View className="flex-1">
-        <Pressable
-          testID={testID ? `${testID}-date` : undefined}
-          onPress={Platform.OS === "android" ? openAndroidDate : () => openIosSheet("date")}
-          className="flex-row items-center gap-2.5 rounded-lg border border-border-strong px-3.5 py-3"
-        >
-          <Calendar size={16} color={colors.fg3} strokeWidth={2} />
-          <Text className="flex-1 font-sans text-body text-fg" numberOfLines={1}>
-            {DATE_FORMATTER.format(value)}
-          </Text>
-        </Pressable>
-      </View>
+    <View testID={testID} className="flex-row gap-2.5" style={disabled ? { opacity: 0.5 } : undefined}>
+      {fields !== "time" ? (
+        <View className="flex-1">
+          <Pressable
+            testID={testID ? `${testID}-date` : undefined}
+            disabled={disabled}
+            onPress={Platform.OS === "android" ? openAndroidDate : () => openIosSheet("date")}
+            className="flex-row items-center gap-2.5 rounded-lg border border-border-strong px-3.5 py-3"
+          >
+            <Calendar size={16} color={colors.fg3} strokeWidth={2} />
+            <Text className="flex-1 font-sans text-body text-fg" numberOfLines={1}>
+              {DATE_FORMATTER.format(value)}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
 
-      <View className="flex-1">
-        <Pressable
-          testID={testID ? `${testID}-time` : undefined}
-          onPress={Platform.OS === "android" ? openAndroidTime : () => openIosSheet("time")}
-          className="flex-row items-center gap-2.5 rounded-lg border border-border-strong px-3.5 py-3"
-        >
-          <Clock size={16} color={colors.fg3} strokeWidth={2} />
-          <Text className="flex-1 font-sans text-body text-fg" numberOfLines={1}>
-            {TIME_FORMATTER.format(value)}
-          </Text>
-        </Pressable>
-      </View>
+      {fields !== "date" ? (
+        <View className="flex-1">
+          <Pressable
+            testID={testID ? `${testID}-time` : undefined}
+            disabled={disabled}
+            onPress={Platform.OS === "android" ? openAndroidTime : () => openIosSheet("time")}
+            className="flex-row items-center gap-2.5 rounded-lg border border-border-strong px-3.5 py-3"
+          >
+            <Clock size={16} color={colors.fg3} strokeWidth={2} />
+            <Text className="flex-1 font-sans text-body text-fg" numberOfLines={1}>
+              {TIME_FORMATTER.format(value)}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {Platform.OS === "ios" ? (
         <Modal

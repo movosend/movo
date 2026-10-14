@@ -1,3 +1,4 @@
+import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { router, useLocalSearchParams } from "expo-router";
 import { ChevronLeft, WifiOff } from "lucide-react-native";
 import { useState } from "react";
@@ -7,17 +8,27 @@ import { TripForm } from "../../../../../components/trips/trip-form";
 import { useTrip, useUpdateTrip } from "../../../../../src/hooks/use-trips";
 import { useThemeColors } from "../../../../../src/hooks/use-theme-colors";
 import { friendlyErrorMessage } from "../../../../../src/lib/error-messages";
-import { TripStatus, type CreateTripInput } from "../../../../../src/api/trips-client";
+import { TripStatus, type UpdateTripInput } from "../../../../../src/api/trips-client";
 
 const UPDATE_ERROR_FALLBACK = "No pudimos guardar los cambios. Probá de nuevo.";
+const NOT_SERIES_HEAD_REASON =
+  "Este viaje ya tiene el siguiente declarado: los días en que se repite se cambian desde ese.";
 
-/** Editar viaje (MOVO-162, AC3) — sibling de `new.tsx`, mismo `TripForm`. */
+/**
+ * Editar viaje (MOVO-162, AC3) — sibling de `new.tsx`, mismo `TripForm`.
+ *
+ * MOVO-266: con paquetes aceptados, el vigente de una serie recurrente (`isSeriesHead`) abre
+ * el form en modo `recurrence-only` (solo los días; el backend acepta ese PATCH). Un viaje
+ * común con paquetes sigue bloqueado. Un viaje que ya tiene el
+ * siguiente declarado muestra la recurrencia de solo lectura.
+ */
 export default function EditTripScreen() {
   const colors = useThemeColors();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: trip, isLoading, isError, refetch } = useTrip(id);
   const updateTrip = useUpdateTrip();
   const [error, setError] = useState<string | null>(null);
+  const [recurrenceError, setRecurrenceError] = useState<string | null>(null);
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -28,14 +39,21 @@ export default function EditTripScreen() {
     }
   };
 
-  const handleSubmit = (input: CreateTripInput) => {
+  const handleSubmit = (input: UpdateTripInput) => {
     if (!id) return;
     setError(null);
+    setRecurrenceError(null);
     updateTrip.mutate(
       { id, body: input },
       {
         onSuccess: () => handleBack(),
-        onError: (err) => setError(friendlyErrorMessage(err, UPDATE_ERROR_FALLBACK)),
+        onError: (err) => {
+          if (err instanceof ApiError && err.code === "RECURRING_SERIES_LIMIT") {
+            setRecurrenceError(friendlyErrorMessage(err, UPDATE_ERROR_FALLBACK));
+            return;
+          }
+          setError(friendlyErrorMessage(err, UPDATE_ERROR_FALLBACK));
+        },
       },
     );
   };
@@ -71,7 +89,7 @@ export default function EditTripScreen() {
             Reintentar
           </Text>
         </View>
-      ) : trip.hasAcceptedPackages ? (
+      ) : trip.hasAcceptedPackages && !(trip.recurrenceWeekdays !== null && trip.isSeriesHead) ? (
         // Carrera real: el viaje se aceptó paquetes después de que el usuario tocó
         // "Editar" desde una lista ya desactualizada. Mismo mensaje que la card
         // bloqueada del listado (MOVO-162 AC4) — no tiene sentido mostrar un
@@ -87,7 +105,9 @@ export default function EditTripScreen() {
             No se puede modificar ni cancelar directamente.
           </Text>
         </View>
-      ) : trip.status === TripStatus.CANCELLED || trip.status === TripStatus.COMPLETED ? (
+      ) : trip.status === TripStatus.CANCELLED ||
+        trip.status === TripStatus.COMPLETED ||
+        trip.status === TripStatus.EXPIRED ? (
         // Hallazgo de review (PR #120): un viaje `cancelled`/`completed` no debería
         // mostrar el formulario editable — mismo criterio que el bloqueo de arriba,
         // solo que acá la razón es el estado del viaje, no paquetes aceptados.
@@ -110,9 +130,13 @@ export default function EditTripScreen() {
       ) : (
         <TripForm
           testID="edit-trip-form"
+          variant="edit"
+          mode={trip.hasAcceptedPackages ? "recurrence-only" : "full"}
+          recurrenceReadOnlyReason={trip.isSeriesHead ? null : NOT_SERIES_HEAD_REASON}
           submitLabel="Guardar cambios"
           submitting={updateTrip.isPending}
           error={error}
+          recurrenceError={recurrenceError}
           initialValues={{
             origin: { address: trip.originAddress, lat: trip.originLat, lng: trip.originLng, source: "map-pin" },
             destination: {
@@ -122,6 +146,7 @@ export default function EditTripScreen() {
               source: "map-pin",
             },
             departureAt: new Date(trip.departureAt),
+            recurrence: { weekdays: trip.recurrenceWeekdays, until: trip.recurrenceUntil },
           }}
           onSubmit={handleSubmit}
         />

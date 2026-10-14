@@ -47,6 +47,11 @@ const TRIP: TripWithAcceptedPackages = {
   createdAt: "2026-09-03T12:00:00.000Z",
   updatedAt: "2026-09-03T12:00:00.000Z",
   cancelledAt: null,
+  recurrenceWeekdays: null,
+  recurrenceUntil: null,
+  seriesId: null,
+  generatedFromTripId: null,
+  isSeriesHead: true,
   hasAcceptedPackages: false,
   acceptedPackagesCount: 0,
   executablePackagesCount: 0,
@@ -58,10 +63,27 @@ const TRIP: TripWithAcceptedPackages = {
 jest.mock("../components/trips/trip-form", () => {
   const { Pressable, Text } = require("react-native");
   return {
-    TripForm: ({ onSubmit, error }: { onSubmit: (i: CreateTripInput) => void; error: string | null }) => (
+    TripForm: (props: {
+      onSubmit: (i: CreateTripInput) => void;
+      error: string | null;
+      recurrenceError?: string | null;
+      recurringSubmitLabel?: string;
+      mode?: string;
+      recurrenceReadOnlyReason?: string | null;
+      initialValues?: { recurrence?: unknown };
+    }) => (
       <>
-        <Pressable testID="tf-stub-submit" onPress={() => onSubmit(FAKE_INPUT)} />
-        <Text testID="tf-stub-error">{error}</Text>
+        <Pressable testID="tf-stub-submit" onPress={() => props.onSubmit(FAKE_INPUT)} />
+        <Text testID="tf-stub-error">{props.error}</Text>
+        <Text testID="tf-stub-recurrence-error">{props.recurrenceError}</Text>
+        <Text testID="tf-stub-props">
+          {JSON.stringify({
+            recurringSubmitLabel: props.recurringSubmitLabel ?? null,
+            mode: props.mode ?? null,
+            recurrenceReadOnlyReason: props.recurrenceReadOnlyReason ?? null,
+            recurrence: props.initialValues?.recurrence ?? null,
+          })}
+        </Text>
       </>
     ),
   };
@@ -176,5 +198,75 @@ describe("EditTripScreen", () => {
     expect(getByTestId("tf-stub-error").props.children).toBe(
       "Este viaje ya tiene paquetes aceptados, así que no se puede modificar ni cancelar. Si necesitás cancelar, hacelo desde cada envío.",
     );
+  });
+
+  describe("MOVO-266: viajes recurrentes", () => {
+    const loaded = (data: object) => ({ data, isLoading: false, isError: false, refetch: jest.fn() });
+    const props = (getByTestId: (id: string) => any) => JSON.parse(getByTestId("tf-stub-props").props.children);
+
+    it("precarga la recurrencia y edita todo el viaje si no tiene paquetes", async () => {
+      mockUseTrip.mockReturnValue(loaded({ ...TRIP, recurrenceWeekdays: [5], recurrenceUntil: "2026-12-18" }));
+
+      const { getByTestId } = await render(<EditTripScreen />);
+
+      expect(props(getByTestId)).toEqual(
+        expect.objectContaining({ mode: "full", recurrence: { weekdays: [5], until: "2026-12-18" } }),
+      );
+    });
+
+    it("con paquetes aceptados, el vigente de una serie abre el form en modo recurrence-only", async () => {
+      mockUseTrip.mockReturnValue(
+        loaded({ ...TRIP, recurrenceWeekdays: [5], hasAcceptedPackages: true, acceptedPackagesCount: 1 }),
+      );
+
+      const { getByTestId, queryByTestId } = await render(<EditTripScreen />);
+
+      expect(queryByTestId("edit-trip-blocked")).toBeNull();
+      expect(props(getByTestId).mode).toBe("recurrence-only");
+    });
+
+    it("con paquetes y un viaje que ya tiene el siguiente declarado, sigue bloqueado", async () => {
+      mockUseTrip.mockReturnValue(
+        loaded({ ...TRIP, recurrenceWeekdays: [5], isSeriesHead: false, hasAcceptedPackages: true }),
+      );
+
+      const { getByTestId } = await render(<EditTripScreen />);
+
+      expect(getByTestId("edit-trip-blocked")).toBeTruthy();
+    });
+
+    it("sin paquetes y sin ser el vigente de la serie, la recurrencia es de solo lectura", async () => {
+      mockUseTrip.mockReturnValue(loaded({ ...TRIP, recurrenceWeekdays: [5], isSeriesHead: false }));
+
+      const { getByTestId } = await render(<EditTripScreen />);
+
+      expect(props(getByTestId).recurrenceReadOnlyReason).toMatch(/ya tiene el siguiente declarado/);
+    });
+
+    it("un viaje vencido no muestra el form", async () => {
+      mockUseTrip.mockReturnValue(loaded({ ...TRIP, status: "expired" }));
+
+      const { getByTestId } = await render(<EditTripScreen />);
+
+      expect(getByTestId("edit-trip-not-active")).toBeTruthy();
+    });
+
+    it("el tope de series se muestra inline en la card", async () => {
+      const { ApiError } = require("@movo/shared/dist/errors/api-error");
+      mockUseTrip.mockReturnValue(loaded(TRIP));
+      mockUpdateTripMutate.mockImplementation((_args, { onError }: any) =>
+        onError(new ApiError(409, "RECURRING_SERIES_LIMIT", "limit")),
+      );
+
+      const { getByTestId } = await render(<EditTripScreen />);
+      await act(async () => {
+        fireEvent.press(getByTestId("tf-stub-submit"));
+        await Promise.resolve();
+      });
+
+      expect(getByTestId("tf-stub-recurrence-error").props.children).toBe(
+        "Ya tenés 3 viajes que se repiten. Dejá de repetir alguno para sumar otro.",
+      );
+    });
   });
 });

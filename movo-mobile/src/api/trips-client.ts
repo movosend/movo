@@ -26,6 +26,15 @@ export interface Trip {
   status: TripStatus;
   /** Seteado al cancelar (`POST /trips/:id/cancel`, MOVO-260); `null` en cualquier otro estado. */
   cancelledAt: string | null;
+  /** MOVO-265 (ADR-042): días en que se repite (`RECURRENCE_WEEKDAY`, 0 = domingo), `null` si no se repite. */
+  recurrenceWeekdays: number[] | null;
+  /** Último día (inclusive) de la serie, `"YYYY-MM-DD"` calendario argentino; `null` = sin fin. */
+  recurrenceUntil: string | null;
+  seriesId: string | null;
+  /** No nulo si el barrido declaró este viaje como continuación de otro de la serie. */
+  generatedFromTripId: string | null;
+  /** `true` si todavía no se declaró el siguiente de la serie: solo acá se edita la recurrencia. */
+  isSeriesHead: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -72,11 +81,17 @@ export interface CreateTripInput {
   destinationLng: number;
   departureAt: string;
   vehicleType: string;
+  /** MOVO-266: solo con "Se repite" prendido. */
+  recurrenceWeekdays?: number[];
+  recurrenceUntil?: string | null;
 }
 
 /** Body de `PATCH /trips/:id` — todos los campos opcionales, se manda solo lo que
- * cambió. */
-export type UpdateTripInput = Partial<CreateTripInput>;
+ * cambió. `recurrenceWeekdays: null` apaga la recurrencia ("Dejar de repetir"). Un PATCH
+ * que solo toca la recurrencia se acepta aunque el viaje tenga paquetes (MOVO-265). */
+export type UpdateTripInput = Partial<Omit<CreateTripInput, "recurrenceWeekdays">> & {
+  recurrenceWeekdays?: number[] | null;
+};
 
 export interface ListTripsResponse {
   items: TripWithAcceptedPackages[];
@@ -141,9 +156,11 @@ export const tripsClient = {
 
   /** `POST /trips/:id/cancel` (MOVO-260) — cancelación lógica de un viaje `declared`: pasa a
    * `cancelled` y queda en el historial. 409 `TRIP_HAS_ACCEPTED_PACKAGES` si ya tiene
-   * paquetes aceptados. */
-  cancel(id: string): Promise<Trip> {
-    return httpClient.post<Trip>(`/trips/${id}/cancel`);
+   * paquetes aceptados. MOVO-266: `stopRecurrence` además apaga la serie en la misma operación. */
+  cancel(id: string, options?: { stopRecurrence?: boolean }): Promise<Trip> {
+    return options?.stopRecurrence
+      ? httpClient.post<Trip>(`/trips/${id}/cancel`, { stopRecurrence: true })
+      : httpClient.post<Trip>(`/trips/${id}/cancel`);
   },
 
   /** `DELETE /trips/:id` — 204 sin body; 409 `TRIP_HAS_ACCEPTED_PACKAGES` si el viaje
