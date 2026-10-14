@@ -329,7 +329,9 @@ export function createChatService(deps: ChatServiceDeps) {
       const isAdminOnly = input.callerRoles.includes(UserRole.ADMIN) && !chatParties(shipment).includes(input.callerId);
       let page;
       try {
-        page = await deps.chatRepository.listPage(shipment.id, input.limit, input.cursor);
+        // Cada asignación arranca una conversación limpia: quien entra al chat no lee lo hablado con un transportista
+        // anterior. El admin sí lo ve todo (el historial es evidencia de disputa).
+        page = await deps.chatRepository.listPage(shipment.id, input.limit, input.cursor, isAdminOnly ? null : shipment.chatStartedAt);
       } catch (err) {
         if (err instanceof InvalidChatCursorError) {
           throw new ApiError(400, "VALIDATION_FAILED", "El cursor de paginación es inválido.");

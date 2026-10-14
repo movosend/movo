@@ -23,5 +23,5 @@ y el push ya existen.
 
 **Trade-offs aceptados.** Sin ack en tiempo real por el socket (el ack es la respuesta HTTP), sin presencia,
 indicador de escritura ni leído/no leído; el registro de sockets está en memoria y es de una sola réplica
-(ADR-006/022); el bloqueo (ADR-026) oculta el contenido de quien tiene un bloqueo con el autor (mensaje vacío, sin push ni tildes) en vez de impedir escribir, porque es un hilo único por envío y no uno por par; entregado el envío el hilo queda en solo lectura y a las 24 h se archiva (sigue legible). Retención y
+(ADR-006/022); el bloqueo (ADR-026) oculta el contenido de quien tiene un bloqueo con el autor (mensaje vacío, sin push ni tildes) en vez de impedir escribir, porque es un hilo único por envío y no uno por par; entregado el envío el hilo queda en solo lectura y a las 24 h se archiva (sigue legible). cada asignación arranca una conversación limpia (`shipments.chat_started_at`, fijado por `acceptOffer`): tras un pago vencido y una reasignación el transportista nuevo no lee lo hablado con el anterior, aunque los mensajes viejos se conservan y el admin los ve. Retención y
 purga del historial: pendiente de definir con el equipo.
