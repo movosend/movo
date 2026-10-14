@@ -1,6 +1,5 @@
 import {
   formatCardNumberInput,
-  formatDniInput,
   formatExpiryInput,
   isExpiryValid,
   isStepValid,
@@ -56,7 +55,6 @@ describe("card-form (MOVO-101)", () => {
     expect(formatCardNumberInput("4517650612349921")).toBe("4517 6506 1234 9921");
     expect(formatExpiryInput("0331")).toBe("03/31");
     expect(formatExpiryInput("03")).toBe("03");
-    expect(formatDniInput("36789012")).toBe("36.789.012");
     expect(sanitizeHolderName("Julieta R4mos!")).toBe("Julieta Rmos");
   });
 });

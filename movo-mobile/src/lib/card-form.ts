@@ -1,5 +1,6 @@
 import { cardBrandFromNumber } from "./card-brand";
 import type { CardBinInfo } from "./mp-card-tokenizer";
+import { isDniValid } from "./dni";
 
 /**
  * Reglas del formulario de alta de tarjeta (MOVO-101), las del prototipo con dos ajustes
@@ -86,7 +87,7 @@ export function validateCardForm(
     exp: isExpiryValid(values.exp, now),
     cvv: values.cvv.length === expectedCvvLength(values.num, bin),
     name: values.name.trim().length >= 3,
-    dni: values.dni.length >= 7,
+    dni: isDniValid(values.dni),
   };
 }
 
@@ -113,9 +114,4 @@ export function formatCardNumberInput(num: string): string {
 /** "03/31". */
 export function formatExpiryInput(exp: string): string {
   return exp.length > 2 ? `${exp.slice(0, 2)}/${exp.slice(2)}` : exp;
-}
-
-/** "36.789.012". */
-export function formatDniInput(dni: string): string {
-  return dni.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
