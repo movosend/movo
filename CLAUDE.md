@@ -272,6 +272,7 @@ sección solo lista lo transversal (infra, credenciales, decisiones cross-servic
 - `services/movo-svc-shipments/CLAUDE.md`
 - `services/movo-svc-pricing-logistics/CLAUDE.md`
 - `services/movo-svc-payments/CLAUDE.md`
+- `services/movo-svc-admin/CLAUDE.md`
 - `shared/movo-shared/CLAUDE.md`
 - `movo-mobile/CLAUDE.md`
 
