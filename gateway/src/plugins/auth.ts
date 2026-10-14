@@ -3,8 +3,8 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   verifyAccessToken,
   ApiError,
+  UserRole,
   type AccessTokenClaims,
-  type UserRole,
 } from "@movo/shared";
 
 declare module "fastify" {
@@ -64,6 +64,21 @@ export default fp(async (app: FastifyInstance) => {
         "AUTH_TOKEN_INVALID",
         "Token revoked, please log in again."
       );
+    }
+
+    // MOVO-287: corte inmediato de las sesiones del panel sin tocar las de la app
+    // (`session-repository.ts#revokePanelSessionsForUser` de `movo-svc-users`, misma
+    // unidad que `user-revoked-at`). Solo hace falta para tokens con `admin`: la app
+    // nunca recibe ese rol, así que esos son exactamente los del panel.
+    if (result.claims.roles.includes(UserRole.ADMIN)) {
+      const panelRevokedAt = await app.redis.get(`panel-revoked-at:${result.claims.sub}`);
+      if (panelRevokedAt && result.claims.iat < Number(panelRevokedAt)) {
+        throw new ApiError(
+          401,
+          "AUTH_TOKEN_INVALID",
+          "Token revoked, please log in again."
+        );
+      }
     }
 
     request.user = result.claims;

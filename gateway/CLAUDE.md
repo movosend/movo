@@ -179,3 +179,12 @@ que es parte de lo firmado (test en `routes-prefix.test.ts`).
 Entrada nueva en `getServiceRoutes()` hacia `svc-shipments` (protegida por defecto) para
 aceptar/rechazar/cancelar una transferencia de receptor y listar invitaciones. Pedirla y
 listarla por envío ya pasan por `/shipments`.
+
+### MOVO-287 — Rutas del login del panel y corte de sesiones de panel
+
+`getPublicRoutes()` suma `POST /auth/admin/login` y `/auth/admin/verify` (5/15 min por IP,
+como `/auth/login`) y `/auth/admin/refresh` (límite general, como `/auth/refresh`);
+`/auth/admin/logout` es protegida. El límite por email vive en `svc-users`, porque acá el
+body no se parsea. `authenticate` también rechaza un token con `admin` cuyo `iat` sea
+anterior a `panel-revoked-at:{userId}`: así se cortan las sesiones de panel sin tocar las
+de la app, porque la app nunca recibe `admin`. Detalle en `services/movo-svc-users/CLAUDE.md`.

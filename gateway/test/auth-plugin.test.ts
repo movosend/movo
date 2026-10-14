@@ -193,4 +193,53 @@ describe("auth plugin - revocación de access tokens (MOVO-134)", () => {
 
     expect(response.statusCode).toBe(200);
   });
+
+  describe("corte de sesiones de panel (MOVO-287)", () => {
+    function iatOf(token: string): number {
+      return JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString()).iat;
+    }
+
+    it("rechaza un token con admin cuyo iat es anterior a panel-revoked-at:{userId}", async () => {
+      const userId = "user-panel-revoked";
+      const token = signAccessToken({ sub: userId, roles: [UserRole.ADMIN], kycStatus: KycStatus.APPROVED });
+      await redis.set(`panel-revoked-at:${userId}`, iatOf(token) + 60, "EX", 900);
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/protected",
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body).error.code).toBe("AUTH_TOKEN_INVALID");
+    });
+
+    it("un token sin admin (sesión de la app) ignora panel-revoked-at", async () => {
+      const userId = "user-panel-revoked-app";
+      const token = signAccessToken({ sub: userId, roles: [UserRole.SENDER], kycStatus: KycStatus.APPROVED });
+      await redis.set(`panel-revoked-at:${userId}`, iatOf(token) + 60, "EX", 900);
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/protected",
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+    });
+
+    it("deja pasar un token de panel emitido después del corte", async () => {
+      const userId = "user-panel-relogin";
+      await redis.set(`panel-revoked-at:${userId}`, Math.floor(Date.now() / 1000) - 60, "EX", 900);
+      const token = signAccessToken({ sub: userId, roles: [UserRole.ADMIN], kycStatus: KycStatus.APPROVED });
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/protected",
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+    });
+  });
 });
