@@ -23,6 +23,7 @@ import { ChatAccessCard } from "../../../components/shipments/chat-access-card";
 import { LiveTrackingCard } from "../../../components/shipments/live-tracking-card";
 import { OffersBanner } from "../../../components/shipments/offers-banner";
 import { PackageCard, PackageSummaryCard } from "../../../components/shipments/package-card";
+import { PaymentBreakdown } from "../../../components/shipments/payment-breakdown";
 import { RatingSheet, type RatingTarget } from "../../../components/shipments/rating-sheet";
 import { ReceiverActionsBar } from "../../../components/shipments/receiver-actions-bar";
 import { RejectedReceiverBanner } from "../../../components/shipments/rejected-receiver-banner";
@@ -45,6 +46,7 @@ import { useDeadlineExpired } from "../../../src/hooks/use-deadline-expired";
 import { usePublicProfile } from "../../../src/hooks/use-profile";
 import { useShipmentRatings } from "../../../src/hooks/use-ratings";
 import { useShipment, useShipmentPhotos } from "../../../src/hooks/use-shipments";
+import { useShipmentSettlement } from "../../../src/hooks/use-shipment-settlement";
 import { activeShipmentDisplayCode } from "../../../src/lib/active-shipment-format";
 import {
   estimateReceivedArs,
@@ -142,13 +144,32 @@ export default function ShipmentDetailScreen() {
   const photosQueryRef = useRef(photosQuery);
   photosQueryRef.current = photosQuery;
 
+  // MOVO-214: el detalle del pago es de emisor y transportista, y recién existe con el envío
+  // entregado (AC1-AC3). El receptor que transfirió tampoco lo ve (no es parte del cobro).
+  const paymentRole =
+    shipment === undefined || shipment.receiverTransfer?.viewerIsFormerReceiver === true
+      ? null
+      : currentUser?.userId === shipment.carrierId
+        ? ("carrier" as const)
+        : currentUser?.userId === shipment.senderId
+          ? ("sender" as const)
+          : null;
+  const showPayment =
+    paymentRole !== null && shipment !== undefined && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status);
+  const settlementQuery = useShipmentSettlement(id, {
+    enabled: showPayment,
+    pollWhileProcessingMs: isFocused ? 15_000 : false,
+  });
+  const refetchSettlement = settlementQuery.refetch;
+
   useFocusEffect(
     useCallback(() => {
       void refetch();
       if (shipment && FULFILLED_SHIPMENT_STATUSES.includes(shipment.status)) {
         void refetchRatings();
       }
-    }, [refetch, refetchRatings, shipment?.status])
+      if (showPayment) void refetchSettlement();
+    }, [refetch, refetchRatings, refetchSettlement, showPayment, shipment?.status])
   );
 
   // Las URLs de las fotos son presigned y vencen: al volver a la pantalla pasado el
@@ -171,6 +192,7 @@ export default function ShipmentDetailScreen() {
       refetch(),
       refetchRatings(),
       photosQueryRef.current.refetch(),
+      ...(showPayment ? [refetchSettlement()] : []),
     ]);
     setRefreshing(false);
   };
@@ -416,6 +438,16 @@ export default function ShipmentDetailScreen() {
                 <TransferredByYouBanner transfer={completedTransfer} testID="shipment-detail-transferred-banner" />
               ) : null}
 
+              {/* Primero, para que la push de cobro (MOVO-212 AC6) aterrice sobre lo que avisa. */}
+              {showPayment && paymentRole ? (
+                <PaymentBreakdown
+                  role={paymentRole}
+                  shipment={shipment}
+                  settlement={settlementQuery}
+                  testID="shipment-detail-payment"
+                />
+              ) : null}
+
               <View>
                 <Eyebrow>Ruta</Eyebrow>
                 <RouteMapCard
@@ -499,29 +531,32 @@ export default function ShipmentDetailScreen() {
                         {formatTimeHHMM(shipment.pickupTimeWindowEnd)}
                       </Text>
                     </View>
-                    <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
-                      <GridPattern />
-                      <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
-                        {carrierReceivedArs !== null
-                          ? "Recibís aprox."
-                          : hasAgreedPrice
-                            ? "Precio pactado"
-                            : "Costo aproximado"}
-                      </Text>
-                      <Text testID="shipment-detail-price" className="font-sans-semibold text-[20px] text-ink-950">
-                        {carrierReceivedArs !== null
-                          ? formatPriceArs(carrierReceivedArs)
-                          : formatShipmentPrice(
-                              shipment.agreedPriceArs,
-                              shipment.suggestedPriceArs
-                            )}
-                      </Text>
-                      {showHighDemandBadge ? (
-                        <View className="mt-2">
-                          <HighDemandBadge testID="shipment-detail-high-demand" />
-                        </View>
-                      ) : null}
-                    </View>
+                    {/* Con el pago a la vista, el precio estimado de acá competiría con el monto real. */}
+                    {showPayment ? null : (
+                      <View className="relative flex-1 overflow-hidden rounded-[10px] bg-lime-200 px-3.5 py-3.5">
+                        <GridPattern />
+                        <Text className="font-sans-medium text-[11px] uppercase tracking-wider text-ink-700">
+                          {carrierReceivedArs !== null
+                            ? "Recibís aprox."
+                            : hasAgreedPrice
+                              ? "Precio pactado"
+                              : "Costo aproximado"}
+                        </Text>
+                        <Text testID="shipment-detail-price" className="font-sans-semibold text-[20px] text-ink-950">
+                          {carrierReceivedArs !== null
+                            ? formatPriceArs(carrierReceivedArs)
+                            : formatShipmentPrice(
+                                shipment.agreedPriceArs,
+                                shipment.suggestedPriceArs
+                              )}
+                        </Text>
+                        {showHighDemandBadge ? (
+                          <View className="mt-2">
+                            <HighDemandBadge testID="shipment-detail-high-demand" />
+                          </View>
+                        ) : null}
+                      </View>
+                    )}
                   </View>
 
                   <View>

@@ -37,6 +37,10 @@ const mockAcceptMutation = { mutateAsync: jest.fn(), isPending: false };
 const mockRejectMutation = { mutateAsync: jest.fn(), isPending: false };
 const mockCancelMutation = { mutateAsync: jest.fn(), isPending: false };
 
+jest.mock("../src/hooks/use-shipment-settlement", () => ({
+  useShipmentSettlement: () => ({ data: undefined, isLoading: false, isError: false, refetch: jest.fn() }),
+}));
+
 jest.mock("../src/hooks/use-shipments", () => ({
   useShipment: (...args: unknown[]) => mockUseShipment(...args),
   useShipmentPhotos: () => ({ data: [], isLoading: false, isStale: false, refetch: jest.fn() }),

@@ -31,10 +31,12 @@ import {
   SafeAreaView,
   initialWindowMetrics,
 } from "react-native-safe-area-context";
+import { PriceBreakdownCard } from "../../../../components/payments/price-breakdown-card";
 import { CarrierRequirementsSheet } from "../../../../components/carrier/carrier-requirements-checklist";
 import { ErrorBanner } from "../../../../components/ui/error-banner";
 import { GridPattern } from "../../../../components/ui/grid-pattern";
 import { NumericKeypad } from "../../../../components/ui/numeric-keypad";
+import { SectionLabel } from "../../../../components/ui/section-label";
 import { SuccessBanner } from "../../../../components/ui/success-banner";
 import { useCarrierRequirementsSheet } from "../../../../src/hooks/use-carrier-requirements-sheet";
 import { useOfferDetail, useUpdateOffer, useWithdrawOffer } from "../../../../src/hooks/use-offers";
@@ -92,14 +94,6 @@ const BANNER_TONE_STYLES: Record<
     titleColor: "text-fg",
   },
 };
-
-function SectionLabel({ children }: { children: string }) {
-  return (
-    <Text className="mb-2.5 font-sans-medium text-[11px] uppercase tracking-wide text-fg-3">
-      {children}
-    </Text>
-  );
-}
 
 /**
  * Pantalla de detalle de una oferta propia del transportista (MOVO-182), fiel al
@@ -560,46 +554,22 @@ export default function OfferDetailScreen() {
                 : "congelado al ofertar"}
             </Text>
           </View>
-          <View className="overflow-hidden rounded-md border border-border">
-            <View className="flex-row items-center justify-between bg-bg-mute px-3.5 py-3.5">
-              <Text className="font-sans text-small text-fg-2">El emisor paga</Text>
-              <Text className="font-sans-semibold text-body text-fg">
-                {formatPriceArs(offer.priceOffered)}
-              </Text>
-            </View>
-            <View className="gap-2.5 px-3.5 py-3.5">
-              <View className="flex-row items-center justify-between">
-                <Text className="font-sans text-small text-fg-3">
-                  Comisión Movo ({commissionPctLabel})
-                </Text>
-                <Text className="font-sans text-small text-fg-3">
-                  − {formatPriceArs(offer.commissionAmountArs)}
-                </Text>
-              </View>
-              <View className="flex-row items-center justify-between">
-                <Text className="font-sans text-small text-fg-3">
-                  Procesamiento del pago (estimado)
-                </Text>
-                <Text className="font-sans text-small text-fg-3">
-                  − {formatPriceArs(mpFeeEstimate)}
-                </Text>
-              </View>
-            </View>
-            <View
-              className={`flex-row items-center justify-between px-3.5 py-3.5 ${
-                status === OfferStatus.PENDING || status === OfferStatus.ACCEPTED
-                  ? "bg-lime-500"
-                  : "bg-bg-mute"
-              }`}
-            >
-              <Text className="font-sans-medium text-[11px] uppercase tracking-wide text-fg-2">
-                {receivedLabel}
-              </Text>
-              <Text className="font-sans-semibold text-[26px] text-fg">
-                {formatPriceArs(receivedEstimateArs)}
-              </Text>
-            </View>
-          </View>
+          <PriceBreakdownCard
+            header={{ label: "El emisor paga", value: formatPriceArs(offer.priceOffered) }}
+            lines={[
+              {
+                label: `Comisión Movo (${commissionPctLabel})`,
+                value: `− ${formatPriceArs(offer.commissionAmountArs)}`,
+              },
+              { label: "Procesamiento del pago (estimado)", value: `− ${formatPriceArs(mpFeeEstimate)}` },
+            ]}
+            total={{
+              label: receivedLabel,
+              value: formatPriceArs(receivedEstimateArs),
+              variant:
+                status === OfferStatus.PENDING || status === OfferStatus.ACCEPTED ? "highlight" : "muted",
+            }}
+          />
         </View>
 
         {/* Cuándo retirás y entregás -- sin direcciones (ya están en el header y en

@@ -7,6 +7,7 @@ import type {
   CreateSavedCardRequest,
   SavedCard,
 } from "@movo/shared/dist/types/saved-card";
+import type { ShipmentSettlementResponse } from "@movo/shared/dist/types/settlement";
 import { httpClient } from "./http-client";
 
 /**
@@ -25,6 +26,14 @@ export const paymentsClient = {
   /** `DELETE /payments/mp-connect`: idempotente, después el status es `unlinked`. */
   unlinkMpAccount(): Promise<void> {
     return httpClient.delete<void>("/payments/mp-connect");
+  },
+  /**
+   * `GET /shipments/:id/settlement` (MOVO-212 AC10, vive en `svc-shipments`): el pago de un
+   * envío entregado, ya filtrado por rol. 404 `SETTLEMENT_NOT_FOUND` mientras la captura no
+   * arrancó; 403 para el receptor.
+   */
+  getShipmentSettlement(shipmentId: string): Promise<ShipmentSettlementResponse> {
+    return httpClient.get<ShipmentSettlementResponse>(`/shipments/${shipmentId}/settlement`);
   },
   /** `GET /payments/cards/checkout-data`: la `public_key` con la que se tokeniza en el dispositivo (MOVO-101). */
   getCardsCheckoutData(): Promise<CardsCheckoutDataResponse> {

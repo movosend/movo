@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Dimensions, Pressable, Text, View } from "react-native";
 import Animated, {
   Easing,
@@ -39,6 +39,9 @@ interface HandshakeConfirmationResultProps {
    * uno primario). */
   secondaryCtaLabel?: string;
   onSecondaryCtaPress?: () => void;
+  /** Solo en la entrega: estado del cobro del transportista (MOVO-214 AC5). Lo pasa el wizard
+   * de entrega; el receptor que escanea no lo recibe y no ve nada del pago (AC3). */
+  paymentSlot?: ReactNode;
   testID?: string;
 }
 
@@ -82,6 +85,7 @@ export function HandshakeConfirmationResult({
   ctaLabel,
   secondaryCtaLabel,
   onSecondaryCtaPress,
+  paymentSlot,
   testID,
 }: HandshakeConfirmationResultProps) {
   const { data: shipment } = useShipment(result.shipmentId);
@@ -205,7 +209,7 @@ export function HandshakeConfirmationResult({
             </View>
           </View>
         ) : (
-          <Text className="font-sans text-[13px] text-ink-500">El pago se está procesando.</Text>
+          paymentSlot ?? null
         )}
 
         {onCtaPress ? (
