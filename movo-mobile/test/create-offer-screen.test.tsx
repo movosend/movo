@@ -341,7 +341,7 @@ describe("CreateOfferScreen (MOVO-177)", () => {
     // El círculo lima "explota" a pantalla completa con la confirmación (feedback de
     // diseño) y vuelve solo al detalle del envío -- sin botones de por medio.
     expect(getByTestId("create-offer-success-overlay")).toBeTruthy();
-    expect(getByTestId("create-offer-success-net")).toHaveTextContent("Te queda $4.500");
+    expect(getByTestId("create-offer-success-net")).toHaveTextContent("Recibís aprox. $4.241,77");
     expect(mockRouterReplace).not.toHaveBeenCalled();
 
     const autoReturnCall = (

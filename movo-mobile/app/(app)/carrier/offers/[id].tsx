@@ -1,4 +1,5 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
+import { computeNetFromGross } from "@movo/shared/dist/config/commission";
 import { OfferStatus } from "@movo/shared/dist/types/offer";
 import { MenuView } from "@react-native-menu/menu";
 import { router, useLocalSearchParams } from "expo-router";
@@ -58,6 +59,7 @@ import {
   offerStatusBannerCopy,
   offerStatusLabel,
   ordinalLabel,
+  receivedAmountLabel,
 } from "../../../../src/lib/offer-format";
 
 const FALLBACK_METRICS = {
@@ -159,8 +161,8 @@ export default function OfferDetailScreen() {
   const commissionRate = getClientCommissionRate();
 
   const draftAmount = parseInt(draftRaw || "0", 10) || 0;
-  const draftNetArs =
-    Math.round((draftAmount / (1 + commissionRate)) * 100) / 100;
+  const draftNetArs = computeNetFromGross(draftAmount, commissionRate);
+  const draftReceivedArs = estimateReceivedArs(draftNetArs, draftAmount);
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -290,8 +292,7 @@ export default function OfferDetailScreen() {
     offer.priceNetArs,
     offer.priceOffered,
   );
-  const receivedLabel =
-    status === OfferStatus.ACCEPTED ? "Vas a recibir aprox." : "Recibís aprox.";
+  const receivedLabel = receivedAmountLabel(status);
 
   const rank = offer.competitiveRank;
 
@@ -800,7 +801,7 @@ export default function OfferDetailScreen() {
                         </Text>
                       </View>
                       <Text className="mt-2 font-sans text-[12px] text-fg-3">
-                        te queda {formatPriceArs(draftNetArs)}
+                        recibís aprox. {formatPriceArs(draftReceivedArs)}
                       </Text>
                     </View>
 

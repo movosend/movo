@@ -31,6 +31,17 @@ export interface OfferStatusBannerCopy {
 }
 
 /**
+ * MOVO-225 (review de Pedro, PR #231): etiqueta del monto que el transportista recibe
+ * aprox. (`estimateReceivedArs`). Una oferta que ya no se va a concretar (rechazada,
+ * retirada, vencida, etc.) no puede prometer un cobro en presente.
+ */
+export function receivedAmountLabel(status: OfferStatus): string {
+  if (status === OfferStatus.ACCEPTED) return "Vas a recibir aprox.";
+  if (status === OfferStatus.PENDING) return "Recibís aprox.";
+  return "Habrías recibido aprox.";
+}
+
+/**
  * Banner de estado de la pantalla de detalle (AC1) -- título + explicación, sin
  * exponer el enum. `senderFirstName`/`viewedLabel` alimentan el copy de `pending`
  * ("Esperando a Pedro. Todavía no la vio.").
