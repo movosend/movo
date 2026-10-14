@@ -27,6 +27,8 @@ function mpCard(overrides: Partial<MpSavedCard> = {}): MpSavedCard {
     last4: String(1000 + nextCard),
     expMonth: 11,
     expYear: 2030,
+    issuerName: "Banco Galicia",
+    paymentType: "credit_card",
     ...overrides,
   };
 }
@@ -119,6 +121,8 @@ describe("/payments/cards (MOVO-100)", () => {
         last4: "1001",
         expMonth: 11,
         expYear: 2030,
+        issuerName: "Banco Galicia",
+        paymentType: "credit_card",
         isDefault: true,
       });
       expect(mp.createCustomer).toHaveBeenCalledWith("emisor@example.com");
@@ -149,7 +153,7 @@ describe("/payments/cards (MOVO-100)", () => {
 
     it("si MP devuelve el mismo id de tarjeta, no la borra", async () => {
       await add();
-      mp.saveCard.mockResolvedValueOnce({ id: "mp-card-1", brand: "visa", last4: "1001", expMonth: 11, expYear: 2030 });
+      mp.saveCard.mockResolvedValueOnce({ id: "mp-card-1", brand: "visa", last4: "1001", expMonth: 11, expYear: 2030, issuerName: null, paymentType: null });
       const dup = await add();
       expect(dup.statusCode).toBe(200);
       expect(mp.deleteCard).not.toHaveBeenCalled();
@@ -224,7 +228,7 @@ describe("/payments/cards (MOVO-100)", () => {
 
     it("si falla la base tras guardar en MP, no borra una tarjeta que el usuario ya tenía", async () => {
       await add();
-      mp.saveCard.mockResolvedValueOnce({ id: "mp-card-1", brand: "visa", last4: "1001", expMonth: 11, expYear: 2030 });
+      mp.saveCard.mockResolvedValueOnce({ id: "mp-card-1", brand: "visa", last4: "1001", expMonth: 11, expYear: 2030, issuerName: null, paymentType: null });
       const spy = vi.spyOn(app.db, "$transaction").mockRejectedValueOnce(new Error("db caída"));
       const res = await add();
       spy.mockRestore();
@@ -314,7 +318,7 @@ describe("/payments/cards (MOVO-100)", () => {
       expect(body).toHaveLength(2);
       expect(body[0].id).toBe(second.id);
       expect(Object.keys(body[0]).sort()).toEqual(
-        ["alias", "brand", "createdAt", "expMonth", "expYear", "id", "isDefault", "last4", "mpCardId"]
+        ["alias", "brand", "createdAt", "expMonth", "expYear", "id", "isDefault", "issuerName", "last4", "mpCardId", "paymentType"]
       );
       expect(res.body).not.toContain("tok-1");
     });
@@ -385,7 +389,7 @@ describe("/payments/cards (MOVO-100)", () => {
     it("se puede volver a guardar una tarjeta dada de baja", async () => {
       const first = (await add()).json();
       await app.inject({ method: "DELETE", url: `/payments/cards/${first.id}`, headers: as(USER) });
-      mp.saveCard.mockResolvedValueOnce({ id: "mp-card-1", brand: "visa", last4: "1001", expMonth: 11, expYear: 2030 });
+      mp.saveCard.mockResolvedValueOnce({ id: "mp-card-1", brand: "visa", last4: "1001", expMonth: 11, expYear: 2030, issuerName: null, paymentType: null });
       const again = await add();
       expect(again.statusCode).toBe(201);
       expect(again.json().isDefault).toBe(true);

@@ -21,7 +21,7 @@ const uuid = { type: "string", format: "uuid" } as const;
 
 const savedCard = {
   type: "object",
-  required: ["id", "mpCardId", "alias", "brand", "last4", "expMonth", "expYear", "isDefault", "createdAt"],
+  required: ["id", "mpCardId", "alias", "brand", "last4", "expMonth", "expYear", "issuerName", "paymentType", "isDefault", "createdAt"],
   properties: {
     id: uuid,
     mpCardId: { type: "string" },
@@ -30,6 +30,8 @@ const savedCard = {
     last4: { type: "string" },
     expMonth: { type: "integer" },
     expYear: { type: "integer" },
+    issuerName: { type: ["string", "null"] },
+    paymentType: { type: ["string", "null"] },
     isDefault: { type: "boolean" },
     createdAt: { type: "string", format: "date-time" },
   },

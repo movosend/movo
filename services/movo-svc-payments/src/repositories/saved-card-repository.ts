@@ -10,6 +10,8 @@ export interface NewSavedCard {
   last4: string;
   expMonth: number;
   expYear: number;
+  issuerName: string | null;
+  paymentType: string | null;
   alias: string | null;
 }
 

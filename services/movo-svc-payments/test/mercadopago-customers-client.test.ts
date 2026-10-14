@@ -111,11 +111,42 @@ describe("FetchMercadoPagoCustomersClient (MOVO-100)", () => {
 
     const card = await client().saveCard("cust 1", "card-token");
 
-    expect(card).toEqual({ id: "8765432100", brand: "visa", last4: "6351", expMonth: 11, expYear: 2030 });
+    expect(card).toEqual({
+      id: "8765432100",
+      brand: "visa",
+      last4: "6351",
+      expMonth: 11,
+      expYear: 2030,
+      issuerName: null,
+      paymentType: null,
+    });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://api.mercadopago.com/v1/customers/cust%201/cards");
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer TEST-movo-token");
     expect(JSON.parse(init.body as string)).toEqual({ token: "card-token" });
+  });
+
+  it("toma el banco y el tipo de tarjeta cuando MP los manda", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          {
+            id: "card-1",
+            last_four_digits: "3764",
+            expiration_month: 11,
+            expiration_year: 2030,
+            payment_method: { id: "visa", payment_type_id: "credit_card" },
+            issuer: { id: 1, name: "Banco Galicia" },
+          },
+          201
+        )
+      )
+    );
+
+    const card = await client().saveCard("cust", "tok");
+
+    expect(card).toMatchObject({ issuerName: "Banco Galicia", paymentType: "credit_card" });
   });
 
   it("crea el customer y reconoce el 101 (ya existe) por el código de MP, sin guardar el body", async () => {
