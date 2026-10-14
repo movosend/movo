@@ -10,6 +10,11 @@ const mockReplace = jest.fn();
 const mockDismissTo = jest.fn();
 const mockCanGoBack = jest.fn(() => true);
 
+// MOVO-117: la checklist de requisitos ante un 403 se testea aparte; acá se usa el doble del hook.
+jest.mock("../src/hooks/use-carrier-requirements-sheet", () =>
+  require("./mocks/carrier-requirements-sheet-hook"),
+);
+
 jest.mock("expo-router", () => ({
   router: {
     push: (...a: unknown[]) => mockPush(...a),
@@ -226,6 +231,32 @@ describe("TripDetailScreen (MOVO-263)", () => {
 
     await waitFor(() => expect(mockStartMutateAsync).toHaveBeenCalledWith("trip-1"));
     await waitFor(() => expect(getByTestId("trip-detail-start-error")).toBeTruthy());
+  });
+
+  it("MOVO-117: iniciar con un 403 por requisitos abre la checklist en vez del error genérico", async () => {
+    mockStartMutateAsync.mockRejectedValueOnce(
+      new ApiError(403, "CARRIER_LICENSE_NOT_APPROVED", "x", { missingRequirements: ["license", "mp_account"] }),
+    );
+    mockUseTrip.mockReturnValue(loaded(WITH_PACKAGES));
+    const { getByTestId, getByText, queryByTestId } = await render(<TripDetailScreen />);
+
+    await fireEvent.press(getByTestId("trip-detail-start"));
+
+    await waitFor(() => expect(getByText("Para iniciar tu viaje necesitás completar estos dos pasos.")).toBeTruthy());
+    expect(getByTestId("carrier-requirements-sheet-checklist-license-cta")).toBeTruthy();
+    expect(getByTestId("carrier-requirements-sheet-checklist-mp-cta")).toBeTruthy();
+    expect(queryByTestId("trip-detail-start-error")).toBeNull();
+  });
+
+  it("MOVO-117: iniciar con un 502 de verificación muestra el error para reintentar, sin checklist", async () => {
+    mockStartMutateAsync.mockRejectedValueOnce(new ApiError(502, "PAYMENTS_SERVICE_UNAVAILABLE", "x"));
+    mockUseTrip.mockReturnValue(loaded(WITH_PACKAGES));
+    const { getByTestId, queryByTestId } = await render(<TripDetailScreen />);
+
+    await fireEvent.press(getByTestId("trip-detail-start"));
+
+    await waitFor(() => expect(getByTestId("trip-detail-start-error")).toBeTruthy());
+    expect(queryByTestId("carrier-requirements-sheet")).toBeNull();
   });
 
   it("viaje activo: solo 'Ver ruta en vivo', sin buscar/editar/cancelar", async () => {
