@@ -47,7 +47,7 @@ describe("notification-settings-format", () => {
     });
 
     it("array vacío para una categoría 'Pronto' sin trigger real", () => {
-      expect(triggersForCategory("chat")).toEqual([]);
+      expect(triggersForCategory("disputes")).toEqual([]);
     });
   });
 

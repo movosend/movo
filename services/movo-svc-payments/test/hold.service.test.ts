@@ -68,6 +68,13 @@ class MemoryHoldRepository implements HoldRepository {
     Object.assign(row, patch);
     return row;
   }
+
+  async markCaptured(id: string, patch: { statusDetail: string | null }) {
+    const row = this.rows.find((r) => r.id === id);
+    if (row?.status !== "authorized") return false;
+    Object.assign(row, { status: "captured", statusDetail: patch.statusDetail, expiresAt: null });
+    return true;
+  }
 }
 
 const credentials = () => ({

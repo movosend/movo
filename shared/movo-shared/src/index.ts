@@ -113,6 +113,25 @@ export type {
   HoldStatus,
 } from "./types/hold";
 
+// saved cards (MOVO-100)
+export { MAX_SAVED_CARDS_PER_USER, SAVED_CARD_ALIAS_MAX_LENGTH } from "./types/saved-card";
+export type {
+  CardsCheckoutDataResponse,
+  CreateSavedCardRequest,
+  SavedCard,
+  UpdateSavedCardRequest,
+} from "./types/saved-card";
+
+// liquidación: captura del hold + split (MOVO-212)
+export { SETTLEMENT_STATUSES } from "./types/settlement";
+export type {
+  CaptureHoldResponse,
+  SettlementDisplayStatus,
+  SettlementFailureReason,
+  SettlementResponse,
+  SettlementStatus,
+  ShipmentSettlementResponse,
+} from "./types/settlement";
 // funding (MOVO-210)
 export type {
   FundingRoute,
@@ -175,6 +194,26 @@ export { isValidTimeOfDay, isWithinQuietHours } from "./config/quiet-hours";
 
 // trip start (MOVO-277)
 export { canStartTripOn, tripStartAvailableOn } from "./config/trip-start";
+
+// chat (MOVO-26)
+export {
+  CHAT_MESSAGE_MAX_LENGTH,
+  CHAT_POST_DELIVERY_WINDOW_HOURS,
+  CHAT_PAGE_MAX_LIMIT,
+  CHAT_MODERATION_WARNING,
+} from "./types/chat";
+export type {
+  ChatAccess,
+  ChatDeliveryStatus,
+  ChatListItem,
+  ChatListResponse,
+  ChatMessage,
+  ChatMessagesPage,
+  ChatParticipant,
+  ChatParticipantRole,
+  ChatParticipantsResponse,
+  ChatRealtimeEvent,
+} from "./types/chat";
 
 // receiver transfer (MOVO-275)
 export {

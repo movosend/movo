@@ -7,11 +7,13 @@ import { requireUserIdFromHeader } from "../../utils/require-user-id";
 import { getUserRolesFromHeader } from "../../utils/get-user-roles";
 import { assertShipmentAccess } from "../shipments/assert-shipment-access";
 import { ApiError } from "@movo/shared";
+import { createNotificationsClient, NotificationsClient } from "../../adapters/notifications-client";
 
 export interface PositionsRoutesOptions extends FastifyPluginOptions {
   /** Override solo para tests de integración -- mismo criterio que el resto de los
    * módulos (`shipmentRepository`/`usersClient`/etc). */
   shipmentRepository?: ShipmentRepository;
+  notificationsClient?: NotificationsClient;
   service?: PositionService;
 }
 
@@ -53,7 +55,9 @@ export default async function positionsRoutes(app: FastifyInstance, opts: Positi
       positionRepository,
       app.redis,
       app.realtimeRegistry,
-      app.log
+      app.log,
+      // MOVO-240: aviso de "está por llegar" a emisor y receptor.
+      opts.notificationsClient ?? createNotificationsClient(app.config)
     );
 
   // MOVO-250/AC4: lote para la tarea de segundo plano de MOVO-242 y el vaciado de la cola

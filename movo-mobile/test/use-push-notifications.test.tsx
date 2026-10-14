@@ -148,6 +148,30 @@ describe("usePushNotifications", () => {
     expect(mockRouterPush).toHaveBeenCalledWith({ pathname: "/(app)/(tabs)/transport", params: { tripId: "trip_1" } });
   });
 
+  it("MOVO-284: tocar una push de chat abre la conversación del envío", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (response: unknown) => void;
+    listener({
+      notification: { request: { content: { data: { type: "chat_message", shipmentId: "shp_1" } } } },
+    });
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shp_1/chat");
+  });
+
+  it("MOVO-284: una push de chat sin shipmentId no navega", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (response: unknown) => void;
+    listener({ notification: { request: { content: { data: { type: "chat_message" } } } } });
+
+    expect(mockRouterPush).not.toHaveBeenCalled();
+  });
+
   it("MOVO-163: un trip_match sin tripId en el payload no navega", async () => {
     mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
 
@@ -176,7 +200,7 @@ describe("usePushNotifications", () => {
     expect(mockRouterPush).toHaveBeenCalledWith({ pathname: "/(app)/(tabs)/transport", params: { tripId: "trip_cold" } });
   });
 
-  it("MOVO-236: tocar una notificación trip_auto_created navega al feed filtrado por tripId", async () => {
+  it("MOVO-281: tocar una notificación trip_auto_created abre el detalle del viaje", async () => {
     mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
 
     await renderHook(() => usePushNotifications());
@@ -186,7 +210,24 @@ describe("usePushNotifications", () => {
       notification: { request: { content: { data: { type: "trip_auto_created", tripId: "trip_2" } } } },
     });
 
-    expect(mockRouterPush).toHaveBeenCalledWith({ pathname: "/(app)/(tabs)/transport", params: { tripId: "trip_2" } });
+    expect(mockRouterPush).toHaveBeenCalledWith("/carrier/trips/trip_2");
+  });
+
+  it("MOVO-281: una cancelación por vencimiento abre el detalle del envío en cold start", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+    mockGetLastNotificationResponseAsync.mockResolvedValue({
+      notification: {
+        request: {
+          identifier: "cancelled-1",
+          content: { data: { type: "shipment_cancelled", shipmentId: "shp_cancelled" } },
+        },
+      },
+    });
+
+    await renderHook(() => usePushNotifications());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/shp_cancelled");
   });
 
   it("MOVO-236: un trip_auto_created sin tripId en el payload no navega", async () => {
@@ -200,6 +241,34 @@ describe("usePushNotifications", () => {
     });
 
     expect(mockRouterPush).not.toHaveBeenCalled();
+  });
+
+  it("MOVO-275: la invitación a recibir un paquete abre la pantalla de la invitación", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (response: unknown) => void;
+    listener({
+      notification: {
+        request: { content: { data: { type: "receiver_transfer_invite", transferId: "tr-1", shipmentId: "s-1" } } },
+      },
+    });
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/receiver-transfers/tr-1");
+  });
+
+  it("MOVO-275: una novedad de la transferencia abre el detalle del envío", async () => {
+    mockUseAuthStore.mockImplementation((selector) => selector({ status: "authenticated" }));
+
+    await renderHook(() => usePushNotifications());
+
+    const listener = mockAddNotificationResponseReceivedListener.mock.calls[0][0] as (response: unknown) => void;
+    listener({
+      notification: { request: { content: { data: { type: "receiver_transfer", shipmentId: "s-1" } } } },
+    });
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/shipments/s-1");
   });
 
   it("limpia el listener de notificaciones al desmontar", async () => {

@@ -155,7 +155,7 @@ describe("GET/PUT /users/me/notification-preferences (MOVO-245)", () => {
         method: "PUT",
         url: "/users/me/notification-preferences",
         headers: { "x-user-id": user.id },
-        payload: { categories: { chat: false } },
+        payload: { categories: { disputes: false } },
       });
 
       expect(response.statusCode).toBe(400);

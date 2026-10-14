@@ -1,10 +1,11 @@
 import { ApiError } from "@movo/shared/dist/errors/api-error";
 import { OfferStatus } from "@movo/shared/dist/types/offer";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import {
   ArrowRight,
   ChevronDown,
   ChevronsUpDown,
+  IdCard,
   MapPin,
   PackageX,
   Radar,
@@ -12,14 +13,16 @@ import {
   ShieldAlert,
   SlidersHorizontal,
 } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, RefreshControl, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { FlatList } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { CarrierRequirementGate } from "../../../components/carrier/carrier-requirement-gate";
 import { AddressSearchSheet } from "../../../components/send/address-search-sheet";
 import { AvailableShipmentCard } from "../../../components/transport/available-shipment-card";
 import { AvailableShipmentRow } from "../../../components/transport/available-shipment-row";
 import { TrackingActiveIndicator } from "../../../components/location/tracking-active-indicator";
+import { PressableScale } from "../../../components/trips/pressable-scale";
 import { TransportAccessCards } from "../../../components/transport/transport-access-cards";
 import {
   DEFAULT_TRANSPORT_FILTERS,
@@ -34,6 +37,7 @@ import type { MyOfferSummary } from "../../../src/api/offers-client";
 import type { AvailableShipment } from "../../../src/api/shipments-client";
 import { useAddresses } from "../../../src/hooks/use-addresses";
 import { useMyOffers } from "../../../src/hooks/use-offers";
+import { useMyProfile } from "../../../src/hooks/use-profile";
 import { useTabBarScrollHandler } from "../../../src/store/tab-bar-store";
 import { TRANSPORT_RADIUS_OPTIONS_KM, useAvailableShipments } from "../../../src/hooks/use-shipments";
 import { useThemeColors } from "../../../src/hooks/use-theme-colors";
@@ -41,6 +45,11 @@ import { useTransportOrigin } from "../../../src/hooks/use-transport-origin";
 import { useTransportRadius } from "../../../src/hooks/use-transport-radius";
 import { TripStatus } from "../../../src/api/trips-client";
 import { useMyTrips, useTrip, useTripMatches } from "../../../src/hooks/use-trips";
+import {
+  IDENTITY_GATE_COPY,
+  licenseGateCopy,
+  resolveTransportGate,
+} from "../../../src/lib/carrier-requirements";
 import { friendlyErrorMessage } from "../../../src/lib/error-messages";
 import {
   computeOnTripDetour,
@@ -239,9 +248,30 @@ export default function TransportScreen() {
   // isInitialLoading, canExpandRadius, showOriginSkeleton, JSX) lo consumen a él en
   // vez de re-chequear `tripId`/`!tripId` cada uno por su cuenta.
   const isTripMode = Boolean(tripId);
-  const { origin, resolving, needsManualPick, setManualSelection } = useTransportOrigin(!isTripMode);
+
+  // MOVO-167: gating de entrada por identidad y licencia, sobre el perfil propio. Es
+  // solo UX — el backend sigue siendo la autoridad (ADR-036). Mientras el perfil carga,
+  // falló o el usuario está bloqueado no se resuelve el origen (evita pedir permiso de
+  // GPS a quien igual no va a poder ver el listado) ni se piden envíos. Si el perfil
+  // falla no se deja pasar: sin él no se sabe si falta la licencia, así que se muestra
+  // el error con "Reintentar".
+  const {
+    data: profile,
+    isLoading: isProfileLoading,
+    isError: isProfileError,
+    error: profileError,
+    refetch: refetchProfile,
+  } = useMyProfile();
+  const profileUnavailable = !profile && isProfileError;
+  const profileGate = resolveTransportGate({
+    kycStatus: profile?.kycStatus ?? null,
+    licenseKycStatus: profile?.licenseKycStatus ?? null,
+  });
+  const canBrowse = !isProfileLoading && !profileUnavailable && profileGate === null;
+
+  const { origin, resolving, needsManualPick, setManualSelection } = useTransportOrigin(!isTripMode && canBrowse);
   const { radiusKm, setRadiusKm } = useTransportRadius();
-  const { data: savedAddresses } = useAddresses(!isTripMode);
+  const { data: savedAddresses } = useAddresses(!isTripMode && canBrowse);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<TransportFilters>(DEFAULT_TRANSPORT_FILTERS);
@@ -256,9 +286,9 @@ export default function TransportScreen() {
     isError: isTripError,
     error: tripError,
     refetch: refetchTrip,
-  } = useTrip(tripId);
-  const availableQuery = useAvailableShipments(origin, radiusKm);
-  const matchesQuery = useTripMatches(tripId);
+  } = useTrip(canBrowse ? tripId : undefined);
+  const availableQuery = useAvailableShipments(canBrowse ? origin : null, radiusKm);
+  const matchesQuery = useTripMatches(canBrowse ? tripId : undefined);
   const {
     data,
     isLoading,
@@ -277,7 +307,39 @@ export default function TransportScreen() {
     if (needsManualPick) setPickerOpen(true);
   }, [needsManualPick]);
 
-  const isGatedByKyc = isError && error instanceof ApiError && error.code === "CARRIER_NOT_VERIFIED";
+  // El perfil puede estar cacheado viejo; el 403 `CARRIER_NOT_VERIFIED` del feed no.
+  const identityRejectedByFeed = isError && error instanceof ApiError && error.code === "CARRIER_NOT_VERIFIED";
+  const gate = identityRejectedByFeed ? "identity" : profileGate;
+
+  // Al volver de `/kyc` o `/license-kyc` el tab sigue montado: sin este refetch el
+  // bloqueo quedaría con el estado viejo hasta reabrir la app. Si el bloqueo vino del
+  // feed también hay que volver a pedirlo, el perfil solo no lo destraba. Lee el
+  // estado de un ref para que el callback no cambie con cada render: si dependiera de
+  // `gate`, `useFocusEffect` lo volvería a correr apenas el bloqueo aparece, sin que
+  // la pantalla haya ganado foco.
+  const refreshGate = useCallback(async () => {
+    const tasks: Promise<unknown>[] = [refetchProfile()];
+    if (identityRejectedByFeed) tasks.push(refetch());
+    await Promise.all(tasks);
+  }, [refetchProfile, refetch, identityRejectedByFeed]);
+  const focusRefreshRef = useRef({ blocked: false, refreshGate });
+  focusRefreshRef.current = { blocked: gate !== null || profileUnavailable, refreshGate };
+  useFocusEffect(
+    useCallback(() => {
+      if (focusRefreshRef.current.blocked) void focusRefreshRef.current.refreshGate();
+    }, []),
+  );
+  // Pull-to-refresh del estado bloqueante: si la licencia se aprueba con el usuario
+  // parado en el tab no hay evento de foco que lo destrabe.
+  const [isRefreshingGate, setIsRefreshingGate] = useState(false);
+  const onRefreshGate = useCallback(async () => {
+    setIsRefreshingGate(true);
+    try {
+      await refreshGate();
+    } finally {
+      setIsRefreshingGate(false);
+    }
+  }, [refreshGate]);
   // Filtro client-side de envíos con la ventana de retiro ya vencida — el backend
   // no los excluye (ver `isPickupWindowExpired`), en ninguno de los dos modos.
   const unexpiredItems = (data?.pages.flatMap((page) => page.items) ?? []).filter(
@@ -362,10 +424,10 @@ export default function TransportScreen() {
   const canExpandRadius =
     !isTripMode && currentRadiusIndex >= 0 && currentRadiusIndex < TRANSPORT_RADIUS_OPTIONS_KM.length - 1;
 
-  const showOriginSkeleton = !isTripMode && (resolving || (origin === null && !needsManualPick));
-  const isInitialLoading = isTripMode
-    ? isTripLoading || (isReady && isLoading)
-    : showOriginSkeleton || (isReady && isLoading);
+  const showOriginSkeleton = canBrowse && !isTripMode && (resolving || (origin === null && !needsManualPick));
+  const isInitialLoading =
+    isProfileLoading ||
+    (isTripMode ? isTripLoading || (isReady && isLoading) : showOriginSkeleton || (isReady && isLoading));
 
   // MOVO-221: con el límite de 1 viaje `active` por cuenta, mostrar "N activos ·
   // M declarados" ya no aporta nada (activos es siempre 0 o 1) -- el acceso "Mis
@@ -376,31 +438,38 @@ export default function TransportScreen() {
   const acceptedOffersCount = offers.filter((o) => o.status === OfferStatus.ACCEPTED).length;
   const offersMeta = `${pendingOffersCount} ${pendingOffersCount === 1 ? "pendiente" : "pendientes"} · ${acceptedOffersCount} ${acceptedOffersCount === 1 ? "aceptada" : "aceptadas"}`;
 
+  // Con un requisito pendiente solo queda el título (y, fuera del modo `?tripId=`, el
+  // indicador de tracking, que no depende del bloqueo): zona, accesos, radio y filtros
+  // no sirven sin poder ver envíos.
+  const showBrowseChrome = canBrowse && gate === null;
+  const zoneLabel = origin ? origin.city ?? zoneLabelFromAddress(origin.address) : null;
+
   return (
     <SafeAreaView className="flex-1 bg-bg" edges={["top", "bottom"]}>
       <View className="px-5 pb-4 pt-3">
-        <View className="flex-row items-center justify-between gap-3">
-          <Text className="font-sans-semibold text-title text-fg">Transportar</Text>
-          {!isTripMode && origin ? (
-            <Pressable
+        <View className="min-h-[40px] flex-row items-center justify-between gap-3">
+          <Text className="font-sans-semibold text-title text-fg" accessibilityRole="header">
+            Transportar
+          </Text>
+          {showBrowseChrome && !isTripMode && zoneLabel ? (
+            <PressableScale
               testID="transport-zone-chip"
               onPress={() => setPickerOpen(true)}
-              style={{ maxWidth: 150, flexShrink: 1 }}
-              className="flex-row items-center gap-1 self-start rounded-full border border-border bg-bg-mute px-2.5 py-1.5"
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`Envíos cerca de ${zoneLabel}. Cambiar zona`}
+              style={{ maxWidth: 180, flexShrink: 1 }}
+              className="flex-row items-center gap-1.5 rounded-full border border-border bg-bg-sub py-2 pl-2.5 pr-3"
             >
-              <MapPin size={12} strokeWidth={1.8} color={colors.fg3} />
-              <Text
-                numberOfLines={1}
-                style={{ flexShrink: 1 }}
-                className="font-sans-medium text-[12px] text-fg"
-              >
-                {origin.city ?? zoneLabelFromAddress(origin.address)}
+              <MapPin size={14} strokeWidth={2} color={colors.fg1} />
+              <Text numberOfLines={1} style={{ flexShrink: 1 }} className="font-sans-medium text-[13px] text-fg">
+                {zoneLabel}
               </Text>
-              <ChevronDown size={12} strokeWidth={1.8} color={colors.fg3} />
-            </Pressable>
+              <ChevronDown size={14} strokeWidth={1.8} color={colors.fg3} />
+            </PressableScale>
           ) : null}
         </View>
-        {isTripMode && trip ? (
+        {showBrowseChrome && isTripMode && trip ? (
           <View className="mt-1 flex-row items-center gap-1.5">
             <MapPin size={13} strokeWidth={1.8} color={colors.fg3} />
             <Text testID="transport-trip-filter-label" className="flex-1 font-sans text-small text-fg-2" numberOfLines={1}>
@@ -417,19 +486,20 @@ export default function TransportScreen() {
         ) : null}
       </View>
 
-      {!isTripMode ? (
-        <>
-          <TrackingActiveIndicator className="mx-5 mb-3" />
+      {!isTripMode ? <TrackingActiveIndicator className="mx-5 mb-3" /> : null}
 
-          <Pressable
+      {showBrowseChrome && !isTripMode ? (
+        <>
+          <PressableScale
             testID="transport-my-route-cta"
             // expo-router no infiere la ruta raíz `/route` cuando se navega desde un grupo anidado (tabs); la ruta existe en app/(app)/route/index.tsx
             onPress={() => router.push("/route" as any)}
+            accessibilityRole="button"
             className="mx-5 mb-3 flex-row items-center justify-between rounded-[10px] border border-border bg-bg-sub p-3.5"
           >
             <View className="flex-row items-center gap-3">
-              <View className="h-8 w-8 items-center justify-center rounded-full bg-lime-500/15">
-                <Route size={17} strokeWidth={2} color="#2BB673" />
+              <View className="h-8 w-8 items-center justify-center rounded-full bg-lime-500/20">
+                <Route size={16} strokeWidth={2} color={colors.fg1} />
               </View>
               <View>
                 <Text className="font-sans-semibold text-[14px] text-fg">Mi ruta de hoy</Text>
@@ -437,7 +507,7 @@ export default function TransportScreen() {
               </View>
             </View>
             <ArrowRight size={15} strokeWidth={1.8} color={colors.fg2} />
-          </Pressable>
+          </PressableScale>
 
           <TransportAccessCards
             tripsMeta={tripsMeta}
@@ -449,7 +519,7 @@ export default function TransportScreen() {
         </>
       ) : null}
 
-      {!isTripMode && origin ? (
+      {showBrowseChrome && !isTripMode && origin ? (
         <RadiusAndFiltersRow
           radiusKm={radiusKm}
           onChangeRadius={setRadiusKm}
@@ -460,6 +530,46 @@ export default function TransportScreen() {
 
       {isInitialLoading ? (
         isTripMode ? <TransportCardSkeleton /> : <TransportRowSkeleton />
+      ) : profileUnavailable ? (
+        <View className="px-5 pt-2">
+          <ErrorBanner
+            testID="transport-profile-error"
+            message={friendlyErrorMessage(profileError, "No pudimos verificar tus requisitos para transportar.")}
+          />
+          <Text onPress={() => refetchProfile()} className="font-sans-medium text-small text-fg">
+            Reintentar
+          </Text>
+        </View>
+      ) : gate !== null ? (
+        <ScrollView
+          testID="transport-gate-scroll"
+          contentContainerStyle={{ flexGrow: 1 }}
+          refreshControl={
+            <RefreshControl
+              testID="transport-gate-refresh"
+              refreshing={isRefreshingGate}
+              onRefresh={onRefreshGate}
+            />
+          }
+        >
+          {gate === "identity" || !profile ? (
+            <CarrierRequirementGate
+              testID="transport-identity-gate"
+              icon={ShieldAlert}
+              {...IDENTITY_GATE_COPY}
+              onPressCta={() => router.push("/kyc")}
+            />
+          ) : (
+            <CarrierRequirementGate
+              testID="transport-license-gate"
+              icon={IdCard}
+              {...licenseGateCopy(profile.licenseKycStatus)}
+              onPressCta={() =>
+                router.push({ pathname: "/license-kyc", params: { status: profile.licenseKycStatus } })
+              }
+            />
+          )}
+        </ScrollView>
       ) : isTripMode && isTripError ? (
         <View className="px-5 pt-2">
           <ErrorBanner
@@ -468,23 +578,6 @@ export default function TransportScreen() {
           />
           <Text onPress={() => refetchTrip()} className="font-sans-medium text-small text-fg">
             Reintentar
-          </Text>
-        </View>
-      ) : isGatedByKyc ? (
-        <View className="items-center gap-2 px-8 py-10">
-          <ShieldAlert size={22} strokeWidth={1.8} color={colors.fg3} />
-          <Text className="text-center font-sans-medium text-body text-fg">
-            Verificá tu identidad para transportar
-          </Text>
-          <Text className="text-center font-sans text-small text-fg-2">
-            Necesitás tu identidad verificada para ver y aceptar envíos disponibles.
-          </Text>
-          <Text
-            testID="transport-verify-kyc"
-            onPress={() => router.push("/kyc")}
-            className="mt-2 font-sans-medium text-small text-fg"
-          >
-            Verificar identidad
           </Text>
         </View>
       ) : isError ? (

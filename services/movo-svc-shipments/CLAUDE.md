@@ -2763,6 +2763,71 @@ y excluye a los dos usuarios de la cuenta.
 Pendiente / fuera de alcance: mostrar nombres de pila (requeriría revertir la decisión de privacidad
 y un ADR corto).
 
+### MOVO-26 — Chat entre las partes de un envío (ADR-040)
+
+Un hilo por envío entre emisor, receptor y transportista, en `src/modules/chat/` (rutas, servicio, schema),
+`src/repositories/chat-repository.ts`, `src/domain/{chat-window,chat-receipts,chat-moderation}.ts` y
+`src/realtime/chat-hub.ts`; tablas `shipments.chat_messages`, `chat_participant_states` y `chat_reports`
+(migraciones `20261014120000`/`130000`/`140000`). Uso y reglas: `docs/chat/README.md`. Implementa el
+prototipo "Chat del envío · v2".
+
+- **Se envía por HTTP y se recibe por WebSocket** (mismo molde que la ingesta de posiciones, ADR-024):
+  `POST .../chat/messages` es idempotente por `clientMessageId` (índice único `(envío, autor, clientMessageId)`:
+  201 la primera vez, 200 en un reenvío, sin difundir ni notificar de nuevo), el historial pagina por cursor y
+  `GET /shipments/:id/chat` (WS) solo empuja. El gateway no cambió: `/shipments` ya proxea HTTP y el upgrade.
+- **`ChatHub` indexa los sockets por envío y por usuario** y NO es el `RealtimeRegistry` de tracking: un mensaje de
+  chat no llega a quien solo mira el mapa, el `4009` de tracking no corta el chat, y cada usuario recibe SU
+  versión del mensaje (contenido oculto si bloqueó al autor; los tildes son solo del autor).
+- **`resolveChatAccess` (puro)**: `open` con transportista y sin entregar; entregado/completado/disputa →
+  `read_only` y, pasadas 24 h de la entrega, `archived: true` (sigue legible, atenuado en la lista); cancelado,
+  rechazado o sin transportista → `closed` (`409 CHAT_CLOSED`, sockets cortados con `4009`). El receptor original
+  (ADR-038) y el admin nunca escriben; el admin lee siempre.
+- **El bloqueo (ADR-026) no impide escribir**: oculta. A quien tiene un bloqueo con el autor le llega
+  `hidden: true` y body vacío (historial, tiempo real y último mensaje de la lista), sin push, sin sumar a los no
+  leídos y sin contar para los tildes. Falla abierto ante `svc-users` caído (como los listados). Reemplaza el
+  `403 USER_BLOCKED` del primer diseño.
+- **Tildes**: `chat_participant_states` guarda hasta dónde recibió/leyó cada integrante (`GREATEST` en el
+  upsert: solo avanzan). Recibir = tener el WS abierto al llegar el mensaje, abrir la primera página del historial
+  o conectarse; leer = `POST /:id/chat/read`. `computeDeliveryStatus` (puro) da `sent`/`delivered`/`read` contra
+  los demás integrantes sin bloqueo; el WS empuja `chat_receipt` para actualizar los tildes en vivo. Solo las
+  partes cuentan (ni el admin ni el receptor original).
+- **Lista de chats** (`GET /shipments/chats`): envíos con transportista en estados abiertos/entregado/disputa,
+  último mensaje (`DISTINCT ON`) y no leídos en dos consultas por lote, nunca una por envío; ruta con la primera
+  parte de cada dirección; el código `#MOVO-xxxxx` lo arma el cliente (`activeShipmentDisplayCode`). El nombre del
+  autor se guarda en cada mensaje (`author_name`) para no consultar `svc-users` al listar.
+- **Filtro de lenguaje** (`domain/chat-moderation.ts`): tapa con asteriscos del mismo largo las palabras de una
+  lista acotada, ANTES de guardar y difundir; el mensaje sale con `moderated: true` y el cliente le muestra al autor
+  `CHAT_MODERATION_WARNING`. Compara por palabra entera y contra evasiones comunes; no toca "boludo"/"mierda" ni
+  "retrasado". La lista la ajusta el equipo en ese archivo.
+- **Push `chatMessageReceived`** (categoría `chat`): a quien no tiene el chat abierto y no tiene bloqueo con el
+  autor, una vez por minuto y destinatario (`SET NX`), sin el texto. Best-effort.
+- **Quien solo mira** (el admin y el receptor original, ADR-038) recibe los mensajes nuevos en vivo y puede
+  marcar leído para bajar su contador, pero no cuenta como "entregado" ni mueve los tildes de los demás. Un
+  reintento de un mensaje ya guardado devuelve 200 aunque el chat haya pasado a solo lectura o cerrado (el
+  chequeo de acceso va después del replay). Un socket que se corta mientras se autoriza no se registra en el hub.
+  `GET /chats` se ordena por actividad en SQL (último mensaje o cambio de estado) antes de limitar a 50, y un cursor
+  que no trae un uuid da 400. El filtro de lenguaje compara el término exacto y solo usa la forma reducida
+  ("puuuta") cuando quien escribió repitió letras, así "foro" no se confunde con "forro".
+- **Cada asignación arranca una conversación limpia** (`shipments.chat_started_at`, migración `20261014150000`):
+  `acceptOffer` lo fija y el historial, el último mensaje de la lista y los no leídos solo cuentan mensajes desde ese
+  instante. Si el pago vence (MOVO-210) y entra otro transportista, no lee la conversación del anterior; los mensajes
+  viejos no se borran y el admin los ve todos. `NULL` = sin corte. Una reasignación al MISMO transportista también
+  reinicia el hilo (simplicidad: no se distingue).
+- **Review de PR #238**: el `ChatHub` sabe qué sockets abrió un admin (`register(..., { admin })`) y `sendMessage` solo difunde
+  en vivo a admins y al receptor original, no a un transportista anterior que siga conectado; volver a `published` además corta los
+  sockets del chat. `listShipmentsForUser` aplica el mismo corte por `chat_started_at` que el último mensaje y los no leídos, y la lista
+  resuelve los integrantes en paralelo con esas dos consultas.
+- **`GET /shipments/chats` suma `participants`** (emisor, transportista y receptor con nombre y foto) para los avatares
+  de cada fila; `svc-users` se consulta una vez por persona aunque aparezca en varios envíos, y si no responde el
+  integrante sale sin datos en vez de romper la lista.
+- `POST /:id/chat/report` guarda un reporte por persona y envío (`chat_reports`) y loguea
+  `chat_conversation_reported`; falta el panel que lo muestre (MOVO-30/33). `createdAt` lo fija la app (ms): con
+  µs de Postgres el cursor saltearía mensajes del mismo milisegundo.
+
+Pendiente / fuera de alcance: imágenes y "escribiendo", la tarjeta "Llegando" (sin evento de cercanía),
+retención y purga del historial (dato personal, a definir junto a ADR-023), panel de admin para el historial y los
+reportes, la pantalla en `movo-mobile` (MOVO-284) y Redis pub/sub si algún día hay más de una réplica.
+
 ### Pendientes de este servicio
 
 - **AC6 de MOVO-81 sin confirmar por el equipo**: el gate quedó implementado sobre
@@ -3197,12 +3262,44 @@ de `assigned_unfunded` tiene un piso (`entró al estado + FUNDING_PAYMENT_TIMEOU
 perdido a menos de 24h del retiro no se revierta antes de que el emisor pueda pagar; el aviso reclama las marcas
 de Redis de apertura/recordatorio/intento fallido para que el barrido no repita el push.
 
-**Pendiente / decisión del equipo**: (1) Webhook de MP → este endpoint interno depende de MOVO-268 (nadie lo
-llama todavía). (2) La cuenta de MP del transportista se exige al ofertar en MOVO-116/MOVO-117, no acá: el 409
+**Pendiente / decisión del equipo**: (1) El webhook de MP (MOVO-268, `svc-payments`) es quien llama a este endpoint interno. (2) La cuenta de MP del transportista se exige al ofertar en MOVO-116/MOVO-117, no acá: el 409
 `CARRIER_MP_ACCOUNT_NOT_LINKED` aparece al pedir el `GET /funding`; el caso de desvincular DESPUÉS de que le
 aceptaron la oferta queda como está (409 + hold huérfano logueado). (3) Mobile (MOVO-269, ya con comentario
 sobre `assignment_lapsed` y los estados nuevos) y estado de la reserva (MOVO-211): fuera de alcance. (4)
 `delivered → completed` es MOVO-212.
+
+### MOVO-212 — Captura del hold al entregar, `completed` y consulta del pago (lado `svc-shipments`)
+
+Cierra el flujo económico sobre la saga de MOVO-210. Lado `svc-payments` y contrato: ver sus `CLAUDE.md`.
+Código en `src/modules/settlements/` (`settlement.service.ts`, rutas, schema), `src/adapters/
+payments-funds-release-notifier.ts`, `src/plugins/settlement-sweep.ts`; `PaymentsClient` suma `captureHold`
+(timeout propio de 50s: capturar son dos llamadas a MP en serie) y `findSettlement`.
+
+- **El `FundsReleaseNotifier` real** (`FUNDS_RELEASE_NOTIFIER=payments`) captura el hold y, con la
+  liquidación acreditada, hace `delivered → completed` con CAS (`expectedFrom: delivered`, única transición que
+  produce `completed`) y manda los dos push (transportista con el monto neto; emisor sin montos, dedupe con
+  `SET NX`). El default de código sigue siendo `console` (dev/test/CI, como MOVO-158); `infra/docker-compose.yml`
+  lo pone en `payments` para dev/prod. El handshake no cambió: sigue siendo `void notify().catch(warn)`.
+- **AC8**: si la captura falla, el servicio lanza y el envío queda en `delivered`; no hay transición hacia atrás.
+  Lo reintenta `settlement-sweep` (solo corre con el notifier `payments`): un intento por envío y por pasada.
+  El barrido recorre los candidatos con un cursor keyset `(deliveredAt, id)` y salta los que están
+  "enfriándose" tras un fallo (Redis `settlement-sweep:cooldown:<id>`: 10 min, 20, 40... hasta 6 h; 24 h si
+  payments dice `HOLD_NOT_FOUND`/`HOLD_NOT_CAPTURABLE`), así una pila de envíos imposibles de capturar no tapa a
+  los que sí se pueden cobrar (review de PR #235). La política completa y el escalado manual siguen siendo
+  MOVO-213. Un `delivered` sin hold (asignado antes de la saga de pagos) se loguea y se salta, no es un fallo
+  de cobro.
+- **El service de liquidación se arma una sola vez** (`plugins/settlements.ts`, `app.settlements`) y lo usan el
+  notifier del handshake, el barrido y las rutas: antes cada uno armaba el suyo y un override de test podía
+  llegar a uno solo.
+- **`GET /shipments/:id/settlement`** (AC10): transportista ve bruto/fee MP/comisión/neto, emisor solo total y
+  fecha, receptor y ajenos 403. El estado visible es `processing|credited|escalated`: `failed` se muestra como
+  `processing`. El filtro por rol vive acá y no en payments porque acá se sabe quién es quién.
+- **Env nuevas** (las tres ubicaciones): `SETTLEMENT_SWEEP_INTERVAL_MINUTES`, `_GRACE_MINUTES`, `_BATCH_SIZE`,
+  `_ENABLED`.
+
+Pendiente: sin test de integración con DB real ni contra el sandbox de MP (no se pudieron correr localmente);
+la reversión por hold fallido y las notificaciones de cobro fallido son MOVO-213; el detalle del pago en la app
+es MOVO-214.
 
 ### MOVO-275 — Transferencia de receptor (ADR-038)
 
@@ -3231,3 +3328,43 @@ parciales de una pendiente y una completada por envío). Rutas: `POST /shipments
 
 Tests: `test/receiver-transfers.integration.test.ts` (Postgres y Redis reales: cada
 validación, concurrencia, límite, carrera con el handshake, vencimiento, acceso y filtrado).
+
+### Tarjetas guardadas del emisor (MOVO-282, ADR-039 propuesto): diseño acordado, sin implementar
+
+`POST /shipments/:id/funding` (MOVO-210) suma `savedCardId?` opcional a `ShipmentFundingRequest` y
+lo reenvía al hold junto con el `senderId`; el `cardToken` sigue siendo obligatorio (ahora se genera
+en el mobile con `card_id` + CVV). Sin `savedCardId` el comportamiento es el de hoy. Ver el
+`CLAUDE.md` raíz y `services/movo-svc-payments/CLAUDE.md`.
+### MOVO-281 / MOVO-240 — `offer_voided`, recordatorio del día anterior al viaje y aviso de proximidad
+
+- **`offer_voided` (MOVO-281)**: `dispatchOfferVoidedPushes` (`shipments.service.ts`) recibe pares
+  `{ carrierId, offerId }` y manda `data: { type: "offer_voided", shipmentId, offerId }` en vez de
+  `type: "shipment"`: el detalle de un envío `cancelled` le responde 403 a un transportista que no es
+  parte de él, así que el mobile abre el detalle de la oferta. Es un `data.type` nuevo, no un renombre.
+- **Recordatorio del día anterior (MOVO-240)**: barrido `trip-departure-reminder-sweep.ts`
+  (`TRIP_DEPARTURE_REMINDER_SWEEP_INTERVAL_MINUTES`/`_ENABLED`, en los tres lugares) sobre
+  `sendTripDepartureReminders` (`modules/trips/trip-departure-reminder.ts`). Desde las 19:00 (hora
+  argentina, `domain/trip-departure-reminder.ts`) avisa a los viajes `declared` que salen mañana, con
+  la cantidad de paquetes aceptados vivos (`findDeclaredForDepartureReminder`, `_count` filtrado por
+  `ACCEPTED_OFFER_FILTER`). Un viaje declarado el mismo día anterior a su salida, a cualquier hora, no
+  recibe aviso: quien lo declara hoy para mañana lo tiene presente (review de PR #233; el
+  refinamiento cortaba en las 19:00, y declarar a las 18:55 traía el aviso cinco minutos después). Un aviso por viaje (claim `notified:` en Redis); un
+  push fallido libera el claim; si el proceso muere entre el claim y el push, ese viaje se
+  queda sin aviso (at-most-once, aceptado). Recorre todas las páginas con cursor
+  (`departureAt, id`): con solo la primera, 100 viajes ya avisados tapaban al resto.
+  `data: { type: "trip_reminder", tripId }`. `shortAddress` pasó a `utils/short-address.ts`.
+  El claim `notified:` lo arma `utils/notification-claim.ts`, compartido con el barrido de
+  retiro vencido y la saga de pagos.
+- **"Está por llegar" (MOVO-240)**: `position-service.ts#notifyProximity` corre cuando una posición
+  abre un tramo de 45s y además avanza la última posición conocida (deja afuera la cola offline y
+  limita la evaluación a una por tramo). Recorre todos los envíos activos del viaje: `assigned` contra
+  el retiro (aviso al emisor) e `in_transit` contra la entrega (al receptor), con un radio de 2 km en
+  línea recta (`PROXIMITY_RADIUS_KM`). Un aviso por envío y etapa (`SET NX` con el mismo cliente de
+  Redis de la ingesta); es fire-and-forget y nunca hace fallar la ingesta. Cada envío se relee
+  con `findById` justo antes de decidir (sin caché: uno entregado o cancelado mientras tanto no
+  recibe el aviso) y un fallo en uno no corta a los demás. Un lote evalúa una sola vez por viaje,
+  con su posición más reciente, y las evaluaciones corren en serie. La entrega se avisa recién
+  cuando el transportista salió del radio del retiro: con las dos direcciones a menos de 2 km, el
+  receptor recibía "ya llega" apenas se retiraba el paquete (puede quedarse sin este aviso; ya
+  tuvo el push de custodia del retiro). Sin `notificationsClient` no se evalúa nada.
+  `data: { type: "carrier_nearby", shipmentId }`.

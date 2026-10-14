@@ -17,9 +17,8 @@
  * `implemented: false` son las categorías del catálogo de MOVO-240 sin trigger real
  * todavía -- la pantalla las muestra grisadas ("Pronto"), sin lógica de enforcement
  * (no hay ningún `sendPush` que las use todavía). `quietHoursExempt` es la excepción
- * de "Horario de silencio" (MOVO-245, sección quiet hours): hoy solo
- * `account_security` la usa (MOVO-274; el prototipo también la reserva para
- * proximidad, todavía sin implementar).
+ * de "Horario de silencio" (MOVO-245, sección quiet hours): la usan `account_security`
+ * (MOVO-274) y `proximity` (MOVO-240).
  */
 
 /** Agrupación puramente cosmética para la pantalla mobile (secciones por contexto de
@@ -41,8 +40,8 @@ export interface NotificationCategoryDefinition {
   implemented: boolean;
   /** Si `true`, esta categoría ignora "Horario de silencio" (AC de quiet hours) --
    * pensada para notificaciones que el usuario necesita ver aunque esté en la franja
-   * de silencio (seguridad de cuenta, alguien tocando timbre). Hoy solo
-   * `account_security` la usa -- default `false`. */
+   * de silencio (seguridad de cuenta, alguien tocando timbre). Hoy la usan
+   * `account_security` y `proximity` -- default `false`. */
   quietHoursExempt: boolean;
 }
 
@@ -69,8 +68,9 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategoryDefinition[] 
     section: "sending",
     title: "Transportista en camino",
     sub: "Cuando entra en el radio del punto de retiro o entrega",
-    implemented: false,
-    quietHoursExempt: false,
+    implemented: true,
+    // MOVO-240: el aviso de "está por llegar" sirve justo cuando llega, sea la hora que sea.
+    quietHoursExempt: true,
   },
   {
     id: "payments",
@@ -126,7 +126,7 @@ export const NOTIFICATION_CATEGORIES: readonly NotificationCategoryDefinition[] 
     section: "conversations",
     title: "Mensajes",
     sub: "Mensaje nuevo de la contraparte de un envío",
-    implemented: false,
+    implemented: true,
     quietHoursExempt: false,
   },
   {

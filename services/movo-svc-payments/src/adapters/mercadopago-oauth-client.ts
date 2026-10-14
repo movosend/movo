@@ -20,6 +20,14 @@ export interface OAuthTokens {
   expiresInSeconds: number;
 }
 
+/** Respuesta de un refresh: MP rota el `refresh_token` y puede o no rotar el `access_token`. */
+export interface RefreshedTokens {
+  accessToken: string;
+  refreshToken: string;
+  scope: string | null;
+  expiresInSeconds: number;
+}
+
 export interface MercadoPagoAccountInfo {
   email: string | null;
   nickname: string | null;
@@ -37,22 +45,45 @@ export interface MercadoPagoOAuthClient {
     credentials: OAuthAppCredentials,
     input: { code: string; codeVerifier: string }
   ): Promise<OAuthTokens>;
+  /**
+   * MOVO-243: `grant_type=refresh_token`. Cada refresh devuelve un `refresh_token` nuevo
+   * (el anterior deja de servir): quien llama tiene que persistir los dos. Una
+   * revocación desde la cuenta de MP llega como `MercadoPagoOAuthError` con
+   * `isRevocation()` en true.
+   */
+  refreshTokens(
+    credentials: Pick<OAuthAppCredentials, "clientId" | "clientSecret" | "testToken">,
+    refreshToken: string
+  ): Promise<RefreshedTokens>;
   /** `GET /users/me` con el token del vendedor: `/oauth/token` no devuelve email ni nickname. */
   getAccountInfo(accessToken: string): Promise<MercadoPagoAccountInfo>;
 }
 
 /**
- * Error de una llamada de OAuth a MP. Lleva solo el status HTTP: el body de MP puede
- * repetir el code o datos de la cuenta, así que no viaja en el mensaje ni en el log.
+ * Error de una llamada de OAuth a MP. Lleva el status HTTP y el código corto `error` de
+ * OAuth (`invalid_grant`, ...), nada más: el resto del body de MP puede repetir el code
+ * o datos de la cuenta, así que no viaja en el mensaje ni en el log.
  */
 export class MercadoPagoOAuthError extends Error {
   constructor(
-    readonly operation: "exchange_code" | "get_account_info",
+    readonly operation: "exchange_code" | "refresh_token" | "get_account_info",
     readonly status: number | null,
-    message: string
+    message: string,
+    readonly errorCode: string | null = null
   ) {
     super(message);
     this.name = "MercadoPagoOAuthError";
+  }
+
+  /**
+   * MOVO-243 AC3: el refresh fue rechazado porque el `refresh_token` ya no sirve (el
+   * transportista revocó el acceso, o MP ya lo rotó). Es el único caso que se trata como
+   * revocación (ojo: `invalid_grant` también aparece si otra corrida ya canjeó el token; por
+   * eso el servicio exige verlo en dos corridas seguidas antes de revocar): un 5xx, un timeout, un 429 o un `invalid_client` (la app mal configurada,
+   * no la cuenta del transportista) son transitorios y no tocan `revoked_at`.
+   */
+  isRevocation(): boolean {
+    return this.operation === "refresh_token" && this.status === 400 && this.errorCode === "invalid_grant";
   }
 }
 
@@ -86,6 +117,19 @@ function parseTokens(body: TokenResponseBody): OAuthTokens {
   };
 }
 
+function parseRefreshed(body: TokenResponseBody): RefreshedTokens {
+  const { access_token, refresh_token, scope, expires_in } = body;
+  if (typeof access_token !== "string" || typeof refresh_token !== "string" || typeof expires_in !== "number") {
+    throw new MercadoPagoOAuthError("refresh_token", 200, "Respuesta de /oauth/token incompleta");
+  }
+  return {
+    accessToken: access_token,
+    refreshToken: refresh_token,
+    scope: typeof scope === "string" ? scope : null,
+    expiresInSeconds: expires_in,
+  };
+}
+
 export class FetchMercadoPagoOAuthClient implements MercadoPagoOAuthClient {
   constructor(
     private readonly timeoutMs: number = MERCADOPAGO_TIMEOUT_MS,
@@ -111,6 +155,25 @@ export class FetchMercadoPagoOAuthClient implements MercadoPagoOAuthClient {
       body: JSON.stringify(body),
     });
     return parseTokens((await response.json()) as TokenResponseBody);
+  }
+
+  async refreshTokens(
+    credentials: Pick<OAuthAppCredentials, "clientId" | "clientSecret" | "testToken">,
+    refreshToken: string
+  ): Promise<RefreshedTokens> {
+    const body = {
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      ...(credentials.testToken ? { test_token: true } : {}),
+    };
+    const response = await this.request("refresh_token", "/oauth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+    return parseRefreshed((await response.json()) as TokenResponseBody);
   }
 
   async getAccountInfo(accessToken: string): Promise<MercadoPagoAccountInfo> {
@@ -141,8 +204,23 @@ export class FetchMercadoPagoOAuthClient implements MercadoPagoOAuthClient {
       throw new MercadoPagoOAuthError(operation, null, `MP no respondió (${reason})`);
     }
     if (!response.ok) {
-      throw new MercadoPagoOAuthError(operation, response.status, `MP respondió ${response.status}`);
+      throw new MercadoPagoOAuthError(
+        operation,
+        response.status,
+        `MP respondió ${response.status}`,
+        await readErrorCode(response)
+      );
     }
     return response;
+  }
+}
+
+/** Solo el código corto `error` de OAuth; el resto del body no se conserva. */
+async function readErrorCode(response: Response): Promise<string | null> {
+  try {
+    const body = (await response.json()) as { error?: unknown };
+    return typeof body.error === "string" ? body.error.slice(0, 64) : null;
+  } catch {
+    return null;
   }
 }

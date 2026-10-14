@@ -163,4 +163,26 @@ describe("ActiveShipmentCard (MOVO-193)", () => {
       expect(flatStyle(node.props.style).elevation).toBeUndefined();
     }
   });
+
+  it("MOVO-284: sin chat no muestra el botón", async () => {
+    const { queryByTestId } = await render(<ActiveShipmentCard shipment={makeShipment()} role="sending" testID="card" />);
+    expect(queryByTestId("card-chat")).toBeNull();
+  });
+
+  it("MOVO-284: con chat muestra el botón con el contador y abre la conversación", async () => {
+    const { getByTestId } = await render(
+      <ActiveShipmentCard shipment={makeShipment()} role="sending" chat={{ unreadCount: 3 }} testID="card" />,
+    );
+    expect(getByTestId("card-chat-badge")).toHaveTextContent("3");
+    await fireEvent.press(getByTestId("card-chat"));
+    expect(router.push).toHaveBeenCalledWith("/(app)/shipments/s1/chat");
+  });
+
+  it("MOVO-284: con chat pero sin mensajes sin leer no muestra contador", async () => {
+    const { getByTestId, queryByTestId } = await render(
+      <ActiveShipmentCard shipment={makeShipment()} role="receiving" chat={{ unreadCount: 0 }} testID="card" />,
+    );
+    expect(getByTestId("card-chat")).toBeTruthy();
+    expect(queryByTestId("card-chat-badge")).toBeNull();
+  });
 });

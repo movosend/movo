@@ -84,8 +84,13 @@ export function RecentShipmentsSection({ testID }: { testID?: string }) {
       ) : visibleShipments.length + otherTrips.length === 0 ? (
         <View className="items-center gap-2 py-6">
           <PackageX size={20} strokeWidth={1.8} color={colors.fg3} />
+          {/* Si la consulta trajo envíos pero la selección no dejó ninguno (terminales
+              vencidos, MOVO-184, o todavía sin usuario en sesión), decir "todavía no
+              hiciste ningún envío" sería falso: el historial sigue en "Mis envíos", cuyo
+              link aparece debajo. "No tenés actividad reciente" vale sin importar por qué
+              quedaron afuera. */}
           <Text className="text-center font-sans text-small text-fg-2">
-            Todavía no hiciste ningún envío.
+            {(data?.items.length ?? 0) > 0 ? "No tenés actividad reciente." : "Todavía no hiciste ningún envío."}
           </Text>
         </View>
       ) : (
