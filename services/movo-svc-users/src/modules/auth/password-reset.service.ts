@@ -183,8 +183,10 @@ export function createPasswordResetService(
       // AC12: todas las sesiones activas, en todos los dispositivos -- refresh tokens
       // (revokeAllForUser) y access tokens ya emitidos (revokeAccessTokensIssuedBefore,
       // el gateway lo chequea en plugins/auth.ts), mismo mecanismo que
-      // users.service.ts#changePassword (MOVO-134).
+      // users.service.ts#changePassword (MOVO-134). Las del panel también (MOVO-287):
+      // `revokeAllForUser` solo toca la app.
       await sessionRepository.revokeAllForUser(userId);
+      await sessionRepository.revokePanelSessionsForUser(userId);
       await sessionRepository.revokeAccessTokensIssuedBefore(userId);
 
       // AC13: aviso por TODOS los canales verificados de la cuenta, no solo el usado

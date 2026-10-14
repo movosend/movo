@@ -398,7 +398,7 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
           "por email y devuelve un challengeId para POST /auth/admin/verify. Nunca emite " +
           "tokens. Credenciales inválidas, falta de rol, email sin verificar y cuenta no " +
           "activa responden el mismo 401, sin revelar si el email es de un admin. Límite " +
-          "de 5 intentos cada 15 minutos por email.",
+          "de 5 intentos cada 15 minutos por email y dirección IP.",
         tags: ["auth"],
         body: authSchemas.adminLoginBody,
         response: {
@@ -410,7 +410,11 @@ export default async function authRoutes(app: FastifyInstance, opts: AuthRoutesO
       },
     },
     async (request: FastifyRequest<{ Body: AdminLoginBody }>, reply: FastifyReply) => {
-      const result = await adminSessionService.startLogin(request.body.email, request.body.password);
+      // `x-client-ip` lo inyecta el gateway (pisa el del cliente); sin gateway de por medio
+      // (tests, debug local) se usa la IP de la conexión.
+      const forwardedIp = request.headers["x-client-ip"];
+      const clientIp = typeof forwardedIp === "string" && forwardedIp.length > 0 ? forwardedIp : request.ip;
+      const result = await adminSessionService.startLogin(request.body.email, request.body.password, clientIp);
       reply.code(200);
       return result;
     }

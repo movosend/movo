@@ -1,11 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import Redis from "ioredis";
-import { PANEL_ACCESS_TOKEN_TTL_SECONDS } from "@movo/shared";
+import { ACCESS_TOKEN_TTL_SECONDS, PANEL_ACCESS_TOKEN_TTL_SECONDS, PANEL_SESSION_TTL_SECONDS } from "@movo/shared";
 import {
   createSessionRepository,
   SessionRepository,
   DEFAULT_REFRESH_TOKEN_TTL_SECONDS,
-  ACCESS_TOKEN_TTL_SECONDS,
 } from "../src/repositories/session-repository";
 
 describe("Session Repository (Redis)", () => {
@@ -118,9 +117,15 @@ describe("Session Repository (Redis)", () => {
   });
 
   it("rechaza userId o tokenId que contengan dos puntos (:) para evitar colisiones de keys", async () => {
-    await expect(sessionRepo.saveRefreshToken("user:id", "tok1")).rejects.toThrow("userId and tokenId cannot contain colons");
-    await expect(sessionRepo.saveRefreshToken("user1", "tok:en")).rejects.toThrow("userId and tokenId cannot contain colons");
+    await expect(sessionRepo.saveRefreshToken("user:id", "tok1")).rejects.toThrow("cannot contain colons");
+    await expect(sessionRepo.saveRefreshToken("user1", "tok:en")).rejects.toThrow("cannot contain colons");
     await expect(sessionRepo.revokeAllForUser("user:id")).rejects.toThrow("userId cannot contain colons");
+  });
+
+  it("un refresh armado a mano con ':' en los ids se consume como inexistente, sin lanzar (review de PR #244)", async () => {
+    expect(await sessionRepo.consumeRefreshToken("a:b", "c", "h")).toBe("not-found");
+    expect(await sessionRepo.consumePanelRefreshToken("a:b", "c", "h")).toEqual({ status: "not-found" });
+    expect(await sessionRepo.revokePanelRefreshToken("a", "b:c")).toBe(false);
   });
 
   it("escapa caracteres especiales glob en userId (incluyendo backslash + metacarácter)", async () => {
@@ -188,10 +193,33 @@ describe("Session Repository (Redis)", () => {
       expect(await sessionRepo.findRefreshToken("usr-panel", "tok-p1")).toBeNull();
     });
 
-    it("rechaza guardar una sesión de panel ya vencida", async () => {
-      await expect(
-        sessionRepo.savePanelRefreshToken("usr-panel", "tok-p1", { hash: "h1", absoluteExpiresAt: nowSeconds() - 1 })
-      ).rejects.toThrow("panel session already expired");
+    it("no guarda una sesión de panel ya vencida: devuelve expired, no lanza", async () => {
+      expect(
+        await sessionRepo.savePanelRefreshToken("usr-panel", "tok-p1", { hash: "h1", absoluteExpiresAt: nowSeconds() - 1 })
+      ).toBe("expired");
+      expect(await redis.exists("panel-refresh:usr-panel:tok-p1")).toBe(0);
+    });
+
+    it("no guarda el refresh de una sesión que arrancó antes de la revocación (carrera con un refresh en paralelo)", async () => {
+      // Sesión que arrancó hace una hora.
+      const absoluteExpiresAt = nowSeconds() - 3600 + PANEL_SESSION_TTL_SECONDS;
+      await sessionRepo.revokePanelSessionsForUser("usr-panel");
+
+      expect(await sessionRepo.savePanelRefreshToken("usr-panel", "tok-late", { hash: "h1", absoluteExpiresAt })).toBe(
+        "revoked"
+      );
+      expect(await redis.exists("panel-refresh:usr-panel:tok-late")).toBe(0);
+    });
+
+    it("una sesión que arranca después de la revocación sí se guarda", async () => {
+      await redis.set("panel-revoked-at:usr-panel", nowSeconds() - 10);
+
+      expect(
+        await sessionRepo.savePanelRefreshToken("usr-panel", "tok-new", {
+          hash: "h1",
+          absoluteExpiresAt: nowSeconds() + PANEL_SESSION_TTL_SECONDS,
+        })
+      ).toBe("ok");
     });
 
     it("consume una sola vez y devuelve el vencimiento absoluto", async () => {
@@ -248,15 +276,15 @@ describe("Session Repository (Redis)", () => {
       expect(ttl).toBeLessThanOrEqual(PANEL_ACCESS_TOKEN_TTL_SECONDS);
     });
 
-    it("revokeAllForUser también borra las sesiones de panel", async () => {
+    it("revokeAllForUser corta solo las sesiones de la app, no las del panel (review de PR #244)", async () => {
       await sessionRepo.saveRefreshToken("usr-panel", "tok-app");
       await sessionRepo.savePanelRefreshToken("usr-panel", "tok-p1", {
         hash: "h1",
         absoluteExpiresAt: nowSeconds() + 3600,
       });
 
-      expect(await sessionRepo.revokeAllForUser("usr-panel")).toBe(2);
-      expect(await redis.exists("panel-refresh:usr-panel:tok-p1")).toBe(0);
+      expect(await sessionRepo.revokeAllForUser("usr-panel")).toBe(1);
+      expect(await redis.exists("panel-refresh:usr-panel:tok-p1")).toBe(1);
     });
 
     it("revokePanelRefreshToken borra solo esa sesión", async () => {

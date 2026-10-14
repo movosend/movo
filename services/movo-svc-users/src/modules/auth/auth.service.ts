@@ -10,6 +10,7 @@ import {
   signAccessToken,
   signRefreshToken,
   LEGAL_DOCUMENT_VERSIONS,
+  ACCESS_TOKEN_TTL_SECONDS,
   PANEL_ACCESS_TOKEN_TTL_SECONDS,
 } from "@movo/shared";
 import { createUserRepository } from "../../repositories/user-repository";
@@ -172,7 +173,7 @@ export async function issueSession(sessionRepository: SessionRepository, user: U
     userId: user.id,
     accessToken,
     refreshToken: buildRefreshToken(user.id, tokenId, secret),
-    expiresIn: 3600,
+    expiresIn: ACCESS_TOKEN_TTL_SECONDS,
     kycStatus: user.kycStatusIdentity,
     fullName: fullName(user),
     roles,
@@ -189,8 +190,19 @@ export interface PanelSessionResult extends LoginUserResult {
 }
 
 /**
+ * La sesión de panel no se pudo guardar: venció (8 h) o se revocó mientras se emitía
+ * (review de PR #244). Cada flujo lo responde con su 401, nunca con un 500.
+ */
+export class PanelSessionNotSavedError extends Error {
+  constructor(readonly reason: "expired" | "revoked") {
+    super(`panel session ${reason}`);
+  }
+}
+
+/**
  * MOVO-287: sesión del panel de administración. Access token de 15 min con los roles
- * completos (incluido `admin`) y refresh en el namespace `panel-refresh:*`, que vive hasta
+ * completos (incluido `admin`) y el claim `session: "panel"`, que es lo que el gateway mira
+ * para respetar `admin`. Refresh en el namespace `panel-refresh:*`, que vive hasta
  * `absoluteExpiresAt` (segundos Unix, fijado al hacer login y copiado en cada rotación).
  * El caller ya validó que el usuario es elegible (`admin-session.service.ts`).
  */
@@ -199,16 +211,22 @@ export async function issuePanelSession(
   user: User,
   absoluteExpiresAt: number
 ): Promise<PanelSessionResult> {
+  // El access token se firma ANTES de guardar el refresh: si una revocación llega después
+  // del guardado, su marca es >= este `iat` y el gateway lo rechaza; si llega antes, el
+  // guardado falla y el token nunca sale.
   const accessToken = signAccessToken(
-    { sub: user.id, roles: user.roles, kycStatus: user.kycStatusIdentity },
+    { sub: user.id, roles: user.roles, kycStatus: user.kycStatusIdentity, session: "panel" },
     { expiresInSeconds: PANEL_ACCESS_TOKEN_TTL_SECONDS }
   );
 
   const { token: secret, tokenId } = signRefreshToken();
-  await sessionRepository.savePanelRefreshToken(user.id, tokenId, {
+  const saved = await sessionRepository.savePanelRefreshToken(user.id, tokenId, {
     hash: hashRefreshSecret(secret),
     absoluteExpiresAt,
   });
+  if (saved !== "ok") {
+    throw new PanelSessionNotSavedError(saved);
+  }
 
   return {
     userId: user.id,

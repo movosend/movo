@@ -11,6 +11,7 @@ import {
   DUMMY_HASH,
   hashRefreshSecret,
   issuePanelSession,
+  PanelSessionNotSavedError,
   parseRefreshToken,
   PanelSessionResult,
 } from "./auth.service";
@@ -23,8 +24,23 @@ export const ADMIN_LOGIN_OTP_FLOW = "admin-login";
 // aplica un solo limiter por request (por IP), así que este contador vive acá. Cuenta
 // TODOS los intentos, exista o no la cuenta y salga bien o mal: si solo contara los
 // fallidos, un 429 distinto según el email revelaría algo.
+// La key es email + IP del cliente (review de PR #244): solo por email, cualquiera que
+// conociera el email de un admin lo dejaba afuera con 5 intentos cada 15 min. Así un
+// atacante solo se bloquea a sí mismo; probar desde muchas IPs sigue chocando con el
+// Argon2id, el límite por IP del gateway y el segundo factor por email.
 const ADMIN_LOGIN_RATE_LIMIT_MAX = 5;
 const ADMIN_LOGIN_RATE_LIMIT_WINDOW_SECONDS = 15 * 60;
+
+// INCR + EXPIRE en un solo paso (review de PR #244): con `SET NX` + `INCR` separados, si la
+// key vencía entre los dos el `INCR` la recreaba sin TTL y el par quedaba en 429 para
+// siempre. Se pone el TTL si la key no tiene uno, no solo cuando vale 1.
+const CONSUME_LOGIN_ATTEMPT_SCRIPT = `
+local attempts = redis.call("INCR", KEYS[1])
+if redis.call("TTL", KEYS[1]) < 0 then
+  redis.call("EXPIRE", KEYS[1], ARGV[1])
+end
+return attempts
+`;
 
 const INVALID_CREDENTIALS = () => new ApiError(401, "AUTH_INVALID_CREDENTIALS", "Credenciales inválidas.");
 const REFRESH_INVALID = () => new ApiError(401, "AUTH_REFRESH_INVALID", "Refresh token inválido.");
@@ -43,10 +59,10 @@ export function isPanelEligible(user: User): boolean {
   return user.roles.includes(UserRole.ADMIN) && user.emailVerified && user.status === AccountStatus.ACTIVE;
 }
 
-function adminLoginAttemptsKey(email: string): string {
-  // Hash del email en vez del email en claro: la key no necesita ser legible y así no
-  // queda PII en Redis.
-  return `admin-login-attempts:${createHash("sha256").update(email).digest("hex")}`;
+function adminLoginAttemptsKey(email: string, clientIp: string): string {
+  // Hash en vez del email y la IP en claro: la key no necesita ser legible y así no queda
+  // PII en Redis.
+  return `admin-login-attempts:${createHash("sha256").update(`${email}|${clientIp}`).digest("hex")}`;
 }
 
 function nowSeconds(): number {
@@ -61,14 +77,31 @@ export function createAdminSessionService(
 ) {
   const repository = createUserRepository(db);
 
-  /** `SET NX EX` + `INCR`: mismo patrón que el rate limit de `changePassword` (MOVO-134),
-   * la key nunca queda sin TTL aunque el proceso muera entre los dos comandos. */
-  async function consumeLoginAttempt(email: string): Promise<void> {
-    const key = adminLoginAttemptsKey(email);
-    const created = await redis.set(key, 1, "EX", ADMIN_LOGIN_RATE_LIMIT_WINDOW_SECONDS, "NX");
-    const attempts = created ? 1 : await redis.incr(key);
+  async function consumeLoginAttempt(email: string, clientIp: string): Promise<void> {
+    const attempts = (await redis.eval(
+      CONSUME_LOGIN_ATTEMPT_SCRIPT,
+      1,
+      adminLoginAttemptsKey(email, clientIp),
+      ADMIN_LOGIN_RATE_LIMIT_WINDOW_SECONDS
+    )) as number;
     if (attempts > ADMIN_LOGIN_RATE_LIMIT_MAX) {
       throw new ApiError(429, "RATE_LIMIT_EXCEEDED", "Demasiados intentos. Esperá unos minutos antes de reintentar.");
+    }
+  }
+
+  /** Una sesión que venció o se revocó mientras se emitía es un 401 del flujo, no un 500. */
+  async function issuePanelSessionOr(
+    onRejected: () => ApiError,
+    user: User,
+    absoluteExpiresAt: number
+  ): Promise<PanelSessionResult> {
+    try {
+      return await issuePanelSession(sessionRepository, user, absoluteExpiresAt);
+    } catch (error) {
+      if (error instanceof PanelSessionNotSavedError) {
+        throw onRejected();
+      }
+      throw error;
     }
   }
 
@@ -79,9 +112,9 @@ export function createAdminSessionService(
      * pasan exactamente por un Argon2id antes de mirar rol y estado, así el tiempo de
      * respuesta no delata cuál fue. Mismo `DUMMY_HASH` que el login de la app (MOVO-74).
      */
-    async startLogin(rawEmail: string, password: string): Promise<AdminLoginResult> {
+    async startLogin(rawEmail: string, password: string, clientIp: string): Promise<AdminLoginResult> {
       const email = rawEmail.trim().toLowerCase();
-      await consumeLoginAttempt(email);
+      await consumeLoginAttempt(email, clientIp);
 
       // Un ":" en el email no puede ser target de un OTP (`otp-repository.ts`); se trata
       // como una cuenta inexistente.
@@ -112,7 +145,7 @@ export function createAdminSessionService(
       if (!user || !isPanelEligible(user)) {
         throw INVALID_CREDENTIALS();
       }
-      return issuePanelSession(sessionRepository, user, nowSeconds() + PANEL_SESSION_TTL_SECONDS);
+      return issuePanelSessionOr(INVALID_CREDENTIALS, user, nowSeconds() + PANEL_SESSION_TTL_SECONDS);
     },
 
     /**
@@ -144,7 +177,7 @@ export function createAdminSessionService(
         throw REFRESH_INVALID();
       }
 
-      return issuePanelSession(sessionRepository, user, result.absoluteExpiresAt);
+      return issuePanelSessionOr(REFRESH_INVALID, user, result.absoluteExpiresAt);
     },
 
     /** AC8: idempotente, mismo criterio que el logout de la app (token ajeno o inválido

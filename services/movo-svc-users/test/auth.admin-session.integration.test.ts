@@ -130,8 +130,13 @@ describe("Sesión de panel (MOVO-287)", () => {
     return { ...user, emailVerified: options.emailVerified ?? true };
   }
 
-  function adminLogin(email: string, password = PASSWORD) {
-    return app.inject({ method: "POST", url: "/auth/admin/login", payload: { email, password } });
+  function adminLogin(email: string, password = PASSWORD, clientIp = "10.0.0.1") {
+    return app.inject({
+      method: "POST",
+      url: "/auth/admin/login",
+      headers: { "x-client-ip": clientIp },
+      payload: { email, password },
+    });
   }
 
   function adminVerify(challengeId: string, code: string) {
@@ -183,6 +188,8 @@ describe("Sesión de panel (MOVO-287)", () => {
 
       const claims = claimsOf(session.accessToken);
       expect(claims.roles).toContain(UserRole.ADMIN);
+      // El gateway solo respeta `admin` con este claim (review de PR #244).
+      expect(claims.session).toBe("panel");
       expect(claims.exp - claims.iat).toBe(15 * 60);
       expect(session.expiresIn).toBe(15 * 60);
       expect(session.roles).toContain(UserRole.ADMIN);
@@ -372,6 +379,13 @@ describe("Sesión de panel (MOVO-287)", () => {
       expect(await app.redis.exists(`panel-revoked-at:${user.id}`)).toBe(1);
     });
 
+    it("un refresh armado a mano con ':' en los ids responde 401, no 500 (review de PR #244)", async () => {
+      const response = await adminRefresh("a:b.c.d");
+
+      expect(response.statusCode).toBe(401);
+      expect(JSON.parse(response.body).error.code).toBe("AUTH_REFRESH_INVALID");
+    });
+
     it("después de suspender la cuenta, el refresh responde 401", async () => {
       const user = await createUser();
       const session = await openPanelSession(user);
@@ -470,7 +484,27 @@ describe("Sesión de panel (MOVO-287)", () => {
     });
   });
 
-  describe("rate limit por email (AC9)", () => {
+  describe("rate limit por email + IP (AC9, review de PR #244)", () => {
+    it("bloquear un email desde una IP no deja afuera al admin que entra desde otra", async () => {
+      const user = await createUser();
+      for (let i = 0; i < 6; i++) {
+        await adminLogin(user.email, "WrongPassword1", "203.0.113.66");
+      }
+      expect((await adminLogin(user.email, "WrongPassword1", "203.0.113.66")).statusCode).toBe(429);
+
+      expect((await adminLogin(user.email, PASSWORD, "198.51.100.7")).statusCode).toBe(200);
+    });
+
+    it("el contador siempre tiene TTL", async () => {
+      const user = await createUser();
+      await adminLogin(user.email, "WrongPassword1", "203.0.113.67");
+
+      const [key] = await app.redis.keys("admin-login-attempts:*");
+      const ttl = await app.redis.ttl(key);
+      expect(ttl).toBeGreaterThan(0);
+      expect(ttl).toBeLessThanOrEqual(15 * 60);
+    });
+
     it("el sexto intento en 15 min da 429, exista o no la cuenta", async () => {
       const user = await createUser();
 
