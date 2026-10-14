@@ -242,7 +242,9 @@ export type ApiErrorCode =
   // Revocar el rol a alguien que no lo tiene.
   | "ADMIN_NOT_FOUND"
   // Revocar el rol al único admin que queda: nunca puede quedar el sistema sin admins.
-  | "ADMIN_LAST_ADMIN";
+  | "ADMIN_LAST_ADMIN"
+  // Otorgar el rol compitió con una revocación: no es "no es admin" (404), hay que reintentar.
+  | "ADMIN_GRANT_CONFLICT";
 
 /**
  * Datos extra y opcionales de un error, para que el cliente reaccione sin parsear el

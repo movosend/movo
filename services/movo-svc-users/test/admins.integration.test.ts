@@ -236,6 +236,15 @@ describe("Alta y baja del rol admin (MOVO-290)", () => {
       expect(emailCaptor.adminNoticesFor(user.email)).toHaveLength(0);
     });
 
+    it("es idempotente también con un admin suspendido: 200, sin 422 (review de PR #247)", async () => {
+      const suspended = await createUser({ admin: true, status: "banned" });
+
+      const response = await grant(suspended.email);
+
+      expect(response.statusCode).toBe(200);
+      expect(emailCaptor.adminNoticesFor(suspended.email)).toHaveLength(0);
+    });
+
     it("rechaza una cuenta que no está activa", async () => {
       const user = await createUser({ status: "banned" });
 
