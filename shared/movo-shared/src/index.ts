@@ -12,6 +12,7 @@ export {
   signAccessToken,
   signRefreshToken,
   verifyAccessToken,
+  ACCESS_TOKEN_TTL_SECONDS,
   PANEL_ACCESS_TOKEN_TTL_SECONDS,
   PANEL_SESSION_TTL_SECONDS,
 } from "./auth/jwt";

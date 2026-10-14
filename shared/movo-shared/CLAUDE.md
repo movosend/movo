@@ -478,6 +478,9 @@ de tipar desde otro workspace.
 `signAccessToken(payload, { expiresInSeconds })` (default de 60 min sin cambios) y
 `PANEL_ACCESS_TOKEN_TTL_SECONDS` (15 min) / `PANEL_SESSION_TTL_SECONDS` (8 h), compartidas
 entre `svc-users`, que emite la sesión de panel, y el TTL de su marca de revocación.
+Review de PR #244: también se exporta `ACCESS_TOKEN_TTL_SECONDS` (60 min, la app), así el TTL no
+vive en tres lugares, y el payload/claims suman `session?: "panel"`. El gateway solo respeta el
+rol `admin` en un token con ese claim (antes lo deducía del rol).
 
 ### MOVO-276 — `package_tapered_v2` y `PACKAGE_LIMITS_EXCEEDED` (ADR-041)
 

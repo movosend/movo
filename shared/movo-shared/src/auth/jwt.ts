@@ -4,8 +4,12 @@ import { getJwtConfig } from "./config";
 import { AccessTokenClaims } from "./claims";
 import { KycStatus, UserRole } from "../types/user";
 
-/** TTL del access token de la app, per ADR-004. */
-const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
+/**
+ * TTL del access token de la app, per ADR-004. Exportado (review de PR #244) para que
+ * `svc-users` use el mismo número en el `expiresIn` de la respuesta y en el TTL de la
+ * marca de revocación `user-revoked-at`.
+ */
+export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 
 /**
  * MOVO-287: sesión del panel de administración. Access token corto (15 min) y una
@@ -20,6 +24,8 @@ export interface AccessTokenPayload {
   sub: string;
   roles: UserRole[];
   kycStatus: KycStatus;
+  /** MOVO-287: solo lo llevan los tokens de una sesión de panel. Ver `AccessTokenClaims.session`. */
+  session?: "panel";
 }
 
 export interface SignAccessTokenOptions {
