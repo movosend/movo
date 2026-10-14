@@ -458,7 +458,14 @@ camino es el de siempre (`payer: { email }`, tarjeta completa). Código en `src/
   no tipeó el vencimiento, así que "revisá el dato" no tiene sentido: la tarjeta guardada venció y tiene que
   probar con otra). Sin tarjeta guardada sigue `invalid_data`. `holdUpdateFromPayment` lo deriva de
   `current.savedCardId`, así que el webhook (MOVO-268) clasifica igual. Un token vencido o ya usado
-  (2006/3001/3003) sigue cerrando el intento como `rejected`/`invalid_data` sin pasar por el 502.
+  (2006/3001/3003) sigue cerrando el intento como `rejected`/`invalid_data` sin pasar por el 502, y se suman
+  **3031 (CVV ausente o vacío) y 3032 (CVV de largo inválido)**: MP los responde con 400 al crear el pago, antes
+  de crearlo, y repetirlos falla igual. Sin esto quedaban como transitorios (502 y el intento colgado en `creating`).
+- **Bug de MOVO-209 corregido acá**: `readMpError` leía `error.cause`, pero el SDK `mercadopago` 3.x tira una
+  instancia de `Error` con las causas de la API en **`causes`** (plural, copia del `cause` del body). Con el SDK
+  real **ninguna** causa se reconocía (ni 2006/3001/3003 ni 2034/2059): todo 400 terminaba como transitorio. Ahora
+  lee `causes` y también `cause` (cuerpo crudo). Los tests de MOVO-209 usaban objetos con `cause` y no lo veían;
+  hay un test con la forma real del SDK.
 - **Liberar es igual que antes**: cancela con el token del transportista y no toca la tarjeta guardada.
 
 Tests: `test/hold.service.test.ts` (payer customer vs. email, 404 sin fila ni llamada a MP, indistinguible
@@ -469,9 +476,18 @@ completo contra el sandbox real (tarjeta guardada → token con `card_id` + CVV 
 hold con `payer: customer` → `authorized` → `409 CARD_IN_USE` con el hold vivo → liberar → la tarjeta sigue
 guardada y se puede dar de baja); se saltea sin credenciales.
 
-**Verificado contra el sandbox real (14/10/2026)** con el Transportista de prueba y la Visa 4075 5957 1648 3764:
-el escenario completo pasa. **Límite del sandbox**: con una tarjeta guardada no se pueden simular rechazos. El
-resultado lo decide el titular y guardar con titular `SECU` o `FUND` responde `500`; un CVV equivocado (`999`) en
-el token `card_id` + CVV se autoriza igual (el sandbox no valida su valor). Por eso el CVV incorrecto
-(`invalid_data`), la tarjeta vencida (`card_rejected`) y los fondos insuficientes solo están cubiertos con MP
-mockeado (`hold.service.test.ts`, `holds.integration.test.ts`); el ticket pedía probarlos en sandbox y no es posible.
+**Verificado contra el sandbox real (14/10/2026)** con el Transportista de prueba y la Visa 4075 5957 1648 3764.
+`test/holds.sandbox.test.ts` pasa con 7 escenarios sobre una tarjeta guardada: camino feliz (`authorized`,
+`CARD_IN_USE` con el hold vivo, liberar), titular `SECU` (`cc_rejected_bad_filled_security_code` → `invalid_data`),
+`FUND` (`insufficient_funds`), `EXPI` (`cc_rejected_bad_filled_date` → `card_rejected`, la decisión de arriba
+confirmada con el código real de MP), CVV ausente (400 `3031`) y de largo inválido (400 `3032`) → `rejected`/
+`invalid_data`, y `CONT` (`in_process`/`pending_contingency`, un hold vivo). Matriz completa de titulares:
+`CALL` → `bad_filled_card_number`, `OTHE` → `bad_filled_other`, `FORM` → autoriza.
+
+**Gotchas del sandbox** (descubiertos en esta prueba): (1) **guardar la tarjeta con cualquier titular distinto de
+APRO da `500` si el token no lleva `cardholder.identification`** (DNI): con la identificación guardan todos y el
+titular decide el resultado del pago. Es lo que hay que mandar al tokenizar para guardar (el formulario de MP del
+mobile, MOVO-101, tiene que incluirla). (2) **El valor del CVV no se valida**: un `999` se autoriza igual; solo
+falla uno ausente, vacío o de largo inválido. Un CVV equivocado de verdad solo se verá en producción (spike
+MOVO-283). (3) Al borrar un customer, MP tarda ~1-2 minutos en dejar de devolverlo en la búsqueda por email (da
+`404 customer not found` por id): una segunda corrida inmediata del test de sandbox puede fallar por eso.
