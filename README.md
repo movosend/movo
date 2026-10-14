@@ -179,13 +179,15 @@ Nota: `@testing-library/react-native@14` (usado en `movo-mobile`) cambió `rende
 
 ```bash
 docker compose -f infra/docker-compose.yml -f infra/docker-compose.local.yml up -d postgres redis
-DATABASE_URL=postgresql://movo:movo@localhost:5432/movo ./scripts/run-migrations.sh services/movo-svc-users
+for svc in users shipments payments admin; do
+  (cd services/movo-svc-$svc && DATABASE_URL=postgresql://movo:movo@localhost:5432/movo npx prisma migrate deploy)
+done
 ./scripts/test-all.sh
 ```
 
 `scripts/test-all.sh` recorre todos los paquetes Node y Python del monorepo (`npm ci && npm test` / `pip install ... && pytest` en cada uno). Necesita Postgres y Redis levantados (y las migraciones ya aplicadas) para que los tests de integración de `movo-svc-users` pasen — si no, va a fallar en ese paquete y listo. Ajustá `DATABASE_URL` a las credenciales que tengas configuradas en local.
 
-Requiere el cliente `psql` instalado si vas a correr `scripts/run-migrations.sh` a mano.
+Todos los servicios Node migran con Prisma (ADR-011); `scripts/run-migrations.sh` se borró en MOVO-288.
 
 ### Qué se espera de cada dev antes de pushear
 
