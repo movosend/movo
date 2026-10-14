@@ -251,6 +251,10 @@ services:
       # MOVO-209: plazo del hold de MP (provisorio hasta MOVO-215) y comisión de Movo,
       # esta última leída por @movo/shared; sin ella un cambio en shipments divergiría.
       - MP_HOLD_VALIDITY_DAYS=${MP_HOLD_VALIDITY_DAYS:-5}
+      # MOVO-243: barrido que renueva los tokens OAuth de los transportistas.
+      - MP_TOKEN_REFRESH_SWEEP_ENABLED=${MP_TOKEN_REFRESH_SWEEP_ENABLED:-true}
+      - MP_TOKEN_REFRESH_SWEEP_INTERVAL_MINUTES=${MP_TOKEN_REFRESH_SWEEP_INTERVAL_MINUTES:-60}
+      - MP_TOKEN_REFRESH_WINDOW_DAYS=${MP_TOKEN_REFRESH_WINDOW_DAYS:-30}
       - MOVO_COMMISSION_RATE=${MOVO_COMMISSION_RATE:-0.15}
       # MOVO-100 (ADR-039): public_key con la que el mobile tokeniza la tarjeta al guardarla
       # (no decide dónde queda: siempre un customer de Movo S.A.; en dev es la TEST- de un

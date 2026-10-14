@@ -10,6 +10,7 @@ import authPlugin from "./plugins/auth";
 import errorHandlerPlugin from "./plugins/error-handler";
 import mpConnectPlugin from "./plugins/mp-connect";
 import holdsPlugin from "./plugins/holds";
+import mpTokenRefreshSweepPlugin from "./plugins/mp-token-refresh-sweep";
 import cardsPlugin from "./plugins/cards";
 import paymentsRoutes from "./modules/payments/payments.routes";
 import mpConnectCallbackRoutes from "./modules/mp-connect/mp-connect-callback.routes";
@@ -33,6 +34,9 @@ export interface BuildAppOptions {
   mercadoPagoClient?: MercadoPagoClient;
   /** Ídem para el canje de OAuth (MOVO-111). */
   mercadoPagoOAuthClient?: MercadoPagoOAuthClient;
+  /** Override para habilitar/deshabilitar el barrido de renovación de tokens (MOVO-243). */
+  mpTokenRefreshSweepEnabled?: boolean;
+
   /** Ídem para Customers & Cards con el token de Movo (MOVO-100). */
   mercadoPagoCustomersClient?: MercadoPagoCustomersClient;
   /** Ídem para el email del emisor, que sale de `svc-users` (MOVO-100). */
@@ -67,6 +71,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.register(errorHandlerPlugin);
   app.register(mpConnectPlugin, {
     oauthClient: opts.mercadoPagoOAuthClient ?? new FetchMercadoPagoOAuthClient(),
+  });
+
+  app.register(mpTokenRefreshSweepPlugin, {
+    ...(opts.mpTokenRefreshSweepEnabled !== undefined ? { enabled: opts.mpTokenRefreshSweepEnabled } : {}),
   });
 
   app.decorate("mercadoPago", opts.mercadoPagoClient ?? new SdkMercadoPagoClient());
