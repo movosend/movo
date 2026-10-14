@@ -2801,6 +2801,13 @@ prototipo "Chat del envío · v2".
   "retrasado". La lista la ajusta el equipo en ese archivo.
 - **Push `chatMessageReceived`** (categoría `chat`): a quien no tiene el chat abierto y no tiene bloqueo con el
   autor, una vez por minuto y destinatario (`SET NX`), sin el texto. Best-effort.
+- **Quien solo mira** (el admin y el receptor original, ADR-038) recibe los mensajes nuevos en vivo y puede
+  marcar leído para bajar su contador, pero no cuenta como "entregado" ni mueve los tildes de los demás. Un
+  reintento de un mensaje ya guardado devuelve 200 aunque el chat haya pasado a solo lectura o cerrado (el
+  chequeo de acceso va después del replay). Un socket que se corta mientras se autoriza no se registra en el hub.
+  `GET /chats` se ordena por actividad en SQL (último mensaje o cambio de estado) antes de limitar a 50, y un cursor
+  que no trae un uuid da 400. El filtro de lenguaje compara el término exacto y solo usa la forma reducida
+  ("puuuta") cuando quien escribió repitió letras, así "foro" no se confunde con "forro".
 - `POST /:id/chat/report` guarda un reporte por persona y envío (`chat_reports`) y loguea
   `chat_conversation_reported`; falta el panel que lo muestre (MOVO-30/33). `createdAt` lo fija la app (ms): con
   µs de Postgres el cursor saltearía mensajes del mismo milisegundo.

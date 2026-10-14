@@ -59,18 +59,44 @@ export const CHAT_BLOCKED_TERMS: readonly string[] = [
 
 const LEET: Record<string, string> = { "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a", $: "s", "!": "i" };
 
-/** Minúsculas, sin tildes, números/símbolos comunes por su letra y sin letras repetidas seguidas. */
-function normalizeToken(token: string): string {
-  const base = token
+/** Minúsculas, sin tildes y con números/símbolos comunes por su letra (sin tocar las letras repetidas). */
+function normalizeBase(token: string): string {
+  return token
     .toLowerCase()
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .replace(/[013457@$!]/g, (c) => LEET[c] ?? c);
-  return base.replace(/(.)\1+/g, "$1");
 }
 
-const BLOCKED = new Set(CHAT_BLOCKED_TERMS.map((term) => term.split(" ").map(normalizeToken).join(" ")));
+/** Sin letras repetidas seguidas: "puuuta" → "puta". */
+function collapseRepeats(token: string): string {
+  return token.replace(/(.)\1+/g, "$1");
+}
+
+// Dos formas de cada término. La exacta evita falsos positivos: "forro" (con doble r) NO debe colapsar a "foro",
+// una palabra legítima. La reducida cubre la evasión por letras repetidas ("forrrro", "puuuta") y solo se usa
+// cuando quien escribió de hecho repitió letras (ver `matchesTerm`).
+const BLOCKED_EXACT = new Set(CHAT_BLOCKED_TERMS.map((term) => term.split(" ").map(normalizeBase).join(" ")));
+const BLOCKED_REDUCED = new Set(CHAT_BLOCKED_TERMS.map((term) => term.split(" ").map((w) => collapseRepeats(normalizeBase(w))).join(" ")));
 const MAX_TERM_WORDS = Math.max(...CHAT_BLOCKED_TERMS.map((term) => term.split(" ").length));
+
+interface NormalizedToken {
+  exact: string;
+  reduced: string;
+  /** Si repite letras seguidas: solo entonces vale la comparación reducida. */
+  repeats: boolean;
+}
+
+function normalizeToken(token: string): NormalizedToken {
+  const exact = normalizeBase(token);
+  const reduced = collapseRepeats(exact);
+  return { exact, reduced, repeats: reduced !== exact };
+}
+
+function matchesTerm(window: NormalizedToken[]): boolean {
+  if (BLOCKED_EXACT.has(window.map((t) => t.exact).join(" "))) return true;
+  return window.some((t) => t.repeats) && BLOCKED_REDUCED.has(window.map((t) => t.reduced).join(" "));
+}
 
 /** Palabras: letras, números y los símbolos que se usan como letra ("put@", "p$ta", "p!ta"); un "!" al final es puntuación. */
 const TOKEN = /[\p{L}\p{N}@$]+(?:!+[\p{L}\p{N}@$]+)*/gu;
@@ -100,11 +126,7 @@ export function moderateChatText(input: string): ModerationResult {
     // La frase más larga primero: "hijo de puta" antes que "puta" suelta.
     let matchedWords = 0;
     for (let n = Math.min(MAX_TERM_WORDS, tokens.length - i); n >= 1; n--) {
-      const candidate = tokens
-        .slice(i, i + n)
-        .map((t) => t.normalized)
-        .join(" ");
-      if (BLOCKED.has(candidate)) {
+      if (matchesTerm(tokens.slice(i, i + n).map((t) => t.normalized))) {
         matchedWords = n;
         break;
       }

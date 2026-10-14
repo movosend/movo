@@ -64,9 +64,10 @@ export default async function chatRoutes(app: FastifyInstance, opts: ChatRoutesO
         summary: "Enviar un mensaje al chat del envío",
         description:
           "MOVO-26: texto de 1 a 1000 caracteres. Idempotente por `clientMessageId` (200 con el " +
-          "mensaje ya guardado ante un reenvío, 201 la primera vez). 409 CHAT_CLOSED fuera de la " +
-          "ventana (asignación hasta 24 h después de la entrega) o con el envío cancelado; 403 " +
-          "CHAT_READ_ONLY para el receptor original, un envío entregado o en disputa. Un bloqueo (ADR-026) " +
+          "mensaje ya guardado ante un reenvío, 201 la primera vez). 409 CHAT_CLOSED con el envío " +
+          "cancelado, rechazado o sin transportista; 403 CHAT_READ_ONLY para el receptor original, un envío " +
+          "entregado (se puede leer y a las 24 h se archiva, nunca se cierra) o en disputa. Un reintento de un " +
+          "mensaje ya guardado devuelve 200 con ese mensaje aunque el chat haya cambiado de estado. Un bloqueo (ADR-026) " +
           "no impide escribir: a quien tiene un bloqueo con el autor el contenido le llega vacío (`hidden`). " +
           "Las palabras ofensivas se tapan con asteriscos antes de " +
           "guardar y difundir: el mensaje sale igual con `moderated: true` y el cliente le muestra al " +
@@ -235,6 +236,10 @@ export default async function chatRoutes(app: FastifyInstance, opts: ChatRoutesO
         socket.close(closeCode, message);
         return;
       }
+
+      // Si el cliente cortó mientras se autorizaba, el `close` ya se disparó: registrar ese socket muerto lo dejaría
+      // para siempre en el hub (el usuario figuraría conectado, sin push ni tildes) y sin limpiar sus timers.
+      if (socket.readyState !== 1) return;
 
       app.chatHub.register(shipmentId, userId, socket);
       app.log.info({ shipmentId, activeConnections: app.chatHub.activeConnections(shipmentId) }, "realtime: conexión de chat aceptada");

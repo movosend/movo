@@ -16,8 +16,8 @@ import { ChatHub } from "../realtime/chat-hub";
  * este cierra una conexión que SÍ estaba autorizada. */
 export const TRACKING_STATUS_CLOSED_WS_CODE = 4009;
 
-/** MOVO-26: mismo código privado, el chat del envío ya no está disponible (cancelado, fuera de
- * la ventana de 24 h). El cliente no reconecta: el hilo terminó. */
+/** MOVO-26: mismo código privado, el chat del envío ya no está disponible (cancelado o rechazado).
+ * El cliente no reconecta: el hilo terminó. */
 export const CHAT_CLOSED_WS_CODE = 4009;
 
 /** `readyState` de un socket abierto (`WebSocket.OPEN` de `ws`) -- literal para no
@@ -138,7 +138,7 @@ export default fp(async (app: FastifyInstance) => {
   });
 
   // MOVO-26: el chat tiene su propia política de cierre (cancelado o rechazado); una entrega
-  // NO lo corta, la ventana de 24 h la controla el timer de cada conexión.
+  // NO lo corta: pasa a solo lectura y a las 24 h solo se marca como archivado (sigue legible).
   onShipmentStatusChanged((event: ShipmentStatusChangedEvent) => {
     if (!CHAT_CLOSING_STATUSES.includes(event.to)) return;
     chatHub.close(event.shipmentId, CHAT_CLOSED_WS_CODE, `El envío pasó a '${event.to}'.`);

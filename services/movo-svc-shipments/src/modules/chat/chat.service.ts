@@ -189,6 +189,16 @@ export function createChatService(deps: ChatServiceDeps) {
     }): Promise<{ message: ChatMessage; replayed: boolean }> {
       const shipment = await loadShipmentForViewer(input.shipmentId, input.callerId, input.callerRoles);
 
+      // Un reintento de un mensaje que ya se guardó devuelve ese mensaje aunque el chat haya cambiado de estado
+      // en el medio (se perdió la respuesta y el envío se entregó o canceló): si no, el cliente lo marcaría como
+      // fallido pese a que sí salió. Va antes del chequeo de acceso por eso.
+      const existing = await deps.chatRepository.findByClientMessageId(shipment.id, input.callerId, input.clientMessageId);
+      if (existing) {
+        const blocked = await blockedWith(input.callerId);
+        const deliveryStatus = computeDeliveryStatus(existing.createdAt, await receiptOthers(shipment, input.callerId, blocked));
+        return { message: toChatMessageDto(existing, { deliveryStatus }), replayed: true };
+      }
+
       const access = accessFor(shipment, input.callerId, input.callerRoles);
       if (access === "closed") {
         throw new ApiError(409, "CHAT_CLOSED", "El chat de este envío ya no está disponible.");
@@ -221,14 +231,17 @@ export function createChatService(deps: ChatServiceDeps) {
       if (created) {
         // Los destinatarios con el chat abierto lo reciben ya: quedan como "entregado".
         const delivered: string[] = [];
-        for (const userId of recipients) {
+        // También a quienes solo miran (el admin y el receptor original, ADR-038): están conectados con acceso de
+        // lectura y, si no, verían el hilo desactualizado hasta recargar. No cuentan como "entregado" para los tildes.
+        const watchers = deps.hub.connectedUserIds(shipment.id).filter((id) => id !== input.callerId && !recipients.includes(id));
+        for (const userId of [...recipients, ...watchers]) {
           const hidden = blocked.has(userId);
           if (!deps.hub.isUserConnected(shipment.id, userId)) continue;
           deps.hub.sendToUser(shipment.id, userId, {
             type: "chat_message",
             message: toChatMessageDto(message, { hidden }),
           } satisfies ChatRealtimeEvent);
-          if (!hidden) delivered.push(userId);
+          if (!hidden && recipients.includes(userId)) delivered.push(userId);
         }
         await Promise.all(delivered.map((userId) => deps.chatRepository.markDelivered(shipment.id, userId, message.createdAt)));
         for (const userId of delivered) {
@@ -311,15 +324,16 @@ export function createChatService(deps: ChatServiceDeps) {
     /** Quien mira el chat leyó todo hasta ahora: avisa a los demás (tildes azules) y baja su contador. */
     async markRead(input: { shipmentId: string; callerId: string; callerRoles: UserRole[] }): Promise<{ readAt: string }> {
       const shipment = await loadShipmentForViewer(input.shipmentId, input.callerId, input.callerRoles);
-      if (!chatParties(shipment).includes(input.callerId)) {
-        throw new ApiError(403, "AUTH_FORBIDDEN", "Solo las partes del envío marcan el chat como leído.");
-      }
       if (accessFor(shipment, input.callerId, input.callerRoles) === "closed") {
         throw new ApiError(409, "CHAT_CLOSED", "El chat de este envío ya no está disponible.");
       }
       const at = now();
+      // Quien solo mira (el receptor original o el admin) también baja su contador de no leídos: la lista le muestra
+      // el envío y, si no, su badge solo crece. Pero su lectura no avisa a los demás ni mueve sus tildes.
       await deps.chatRepository.markRead(shipment.id, input.callerId, at);
-      await emitReceipt(shipment, input.callerId, "read", at);
+      if (chatParties(shipment).includes(input.callerId)) {
+        await emitReceipt(shipment, input.callerId, "read", at);
+      }
       return { readAt: at.toISOString() };
     },
 

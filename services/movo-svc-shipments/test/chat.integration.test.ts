@@ -512,12 +512,130 @@ describe("Chat del envío (MOVO-26)", () => {
       expect((await history(p.shipmentId, p.senderId)).json().items[0].deliveryStatus).toBe("read");
     });
 
-    it("solo las partes marcan leído (un tercero 403, un envío cerrado 409)", async () => {
+    it("quien solo mira (el receptor original) también baja su contador, sin mover los tildes de los demás", async () => {
+      const p = await createShipment();
+      const formerReceiverId = randomUUID();
+      await app.db.receiverTransferRequest.create({
+        data: {
+          shipmentId: p.shipmentId,
+          requestedBy: formerReceiverId,
+          newReceiverId: p.receiverId,
+          status: "completed",
+          newReceiverDeadline: new Date(Date.now() + 3600_000),
+          resolvedAt: new Date(),
+        },
+      });
+      await send(p.shipmentId, p.senderId, "Hola");
+      const list = (userId: string) =>
+        app.inject({ method: "GET", url: "/shipments/chats", headers: { "x-user-id": userId, "x-user-roles": "sender" } });
+      expect((await list(formerReceiverId)).json().items[0].unreadCount).toBe(1);
+
+      const read = await readChat(p.shipmentId, formerReceiverId);
+      expect(read.statusCode).toBe(200);
+      expect((await list(formerReceiverId)).json().items[0].unreadCount).toBe(0);
+      // No cuenta como lectura de una parte: el emisor sigue sin ver "leído".
+      expect((await history(p.shipmentId, p.senderId)).json().items[0].deliveryStatus).not.toBe("read");
+    });
+
+    it("un tercero ajeno no marca leído (403) y un envío cerrado da 409", async () => {
       const p = await createShipment("assigned");
       expect((await readChat(p.shipmentId, randomUUID())).statusCode).toBe(403);
       await repo.updateStatus(p.shipmentId, ShipmentStatus.CANCELLED, p.senderId);
       expect((await readChat(p.shipmentId, p.senderId)).statusCode).toBe(409);
     });
+  });
+
+  describe("correcciones de review", () => {
+    it("un reintento de un mensaje ya guardado devuelve 200 aunque el chat haya pasado a solo lectura o cerrado", async () => {
+      const p = await createShipment();
+      const clientMessageId = randomUUID();
+      const first = await send(p.shipmentId, p.carrierId, "Ya llegué", clientMessageId, "carrier");
+      expect(first.statusCode).toBe(201);
+
+      await app.db.shipment.update({ where: { id: p.shipmentId }, data: { status: "delivered", deliveredAt: new Date() } });
+      const afterDelivery = await send(p.shipmentId, p.carrierId, "Ya llegué", clientMessageId, "carrier");
+      expect(afterDelivery.statusCode).toBe(200);
+      expect(afterDelivery.json().id).toBe(first.json().id);
+      // Un mensaje NUEVO sigue sin poder enviarse.
+      expect((await send(p.shipmentId, p.carrierId, "Otro", randomUUID(), "carrier")).statusCode).toBe(403);
+
+      await app.db.shipment.update({ where: { id: p.shipmentId }, data: { status: "cancelled" } });
+      const afterCancel = await send(p.shipmentId, p.carrierId, "Ya llegué", clientMessageId, "carrier");
+      expect(afterCancel.statusCode).toBe(200);
+      expect(afterCancel.json().id).toBe(first.json().id);
+    });
+
+    it("el receptor original y el admin conectados reciben los mensajes nuevos en vivo", async () => {
+      const p = await createShipment();
+      const formerReceiverId = randomUUID();
+      await app.db.receiverTransferRequest.create({
+        data: {
+          shipmentId: p.shipmentId,
+          requestedBy: formerReceiverId,
+          newReceiverId: p.receiverId,
+          status: "completed",
+          newReceiverDeadline: new Date(Date.now() + 3600_000),
+          resolvedAt: new Date(),
+        },
+      });
+      const former = await connectedChat(p.shipmentId, formerReceiverId);
+      const adminId = randomUUID();
+      const admin = connectChat(p.shipmentId, token(adminId, [UserRole.ADMIN]));
+      await vi.waitFor(() => expect(admin.messages).toContainEqual({ type: "connected", shipmentId: p.shipmentId }));
+
+      await send(p.shipmentId, p.senderId, "Mensaje en vivo");
+
+      await vi.waitFor(() => expect(chatMessagesOf(former)).toHaveLength(1));
+      await vi.waitFor(() => expect(chatMessagesOf(admin)).toHaveLength(1));
+      former.ws.close();
+      admin.ws.close();
+    });
+
+    it("un socket que se cierra mientras se autoriza no queda registrado como conectado", async () => {
+      const p = await createShipment();
+      const client = connectChat(p.shipmentId, token(p.senderId));
+      client.ws.on("error", () => undefined);
+      // Se corta apenas se abre el socket: el servidor todavía está autorizando (consulta a la base).
+      await new Promise((resolve) => client.ws.once("open", resolve));
+      client.ws.terminate();
+      await client.closed;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      expect(app.chatHub.isUserConnected(p.shipmentId, p.senderId)).toBe(false);
+      expect(app.chatHub.activeConnections(p.shipmentId)).toBe(0);
+    });
+
+    it("un cursor que no tiene un uuid válido da 400 y no 500", async () => {
+      const p = await createShipment();
+      await send(p.shipmentId, p.senderId, "Hola");
+      const cursor = Buffer.from("2026-01-01T00:00:00.000Z|abc").toString("base64");
+
+      const response = await history(p.shipmentId, p.senderId, `?cursor=${encodeURIComponent(cursor)}`);
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe("VALIDATION_FAILED");
+    });
+
+    it("la lista no deja afuera un chat activo de un envío viejo aunque haya más de 50 envíos", async () => {
+      const carrierId = randomUUID();
+      const shipments: Parties[] = [];
+      for (let i = 0; i < 52; i++) {
+        const p = await createShipment();
+        await app.db.shipment.update({ where: { id: p.shipmentId }, data: { carrierId } });
+        shipments.push({ ...p, carrierId });
+      }
+      // El primero que se creó (el más viejo por estado) recibe un mensaje: es el de actividad más reciente.
+      const oldest = shipments[0];
+      await send(oldest.shipmentId, oldest.senderId, "Seguimos hablando");
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/shipments/chats",
+        headers: { "x-user-id": carrierId, "x-user-roles": "carrier" },
+      });
+      const items = response.json().items as Array<{ shipmentId: string }>;
+      expect(items).toHaveLength(50);
+      expect(items[0].shipmentId).toBe(oldest.shipmentId);
+    }, 120_000);
   });
 
   describe("integrantes del chat", () => {

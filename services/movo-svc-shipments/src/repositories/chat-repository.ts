@@ -39,6 +39,8 @@ export interface ChatRepository {
    * en un chequeo previo).
    */
   create(input: NewChatMessage): Promise<{ message: ChatMessageRecord; created: boolean }>;
+  /** El mensaje ya guardado con ese `clientMessageId` (reintento idempotente), o `null`. */
+  findByClientMessageId(shipmentId: string, authorId: string, clientMessageId: string): Promise<ChatMessageRecord | null>;
   /** Del más reciente al más antiguo, con cursor keyset sobre `(createdAt, id)`. */
   listPage(
     shipmentId: string,
@@ -54,7 +56,7 @@ export interface ChatRepository {
   /** Idempotente: devuelve `created: false` si ya había reportado esta conversación. */
   createReport(shipmentId: string, reporterId: string): Promise<{ created: boolean }>;
   hasReport(shipmentId: string, reporterId: string): Promise<boolean>;
-  /** Envíos con chat visible para `userId`, el más reciente primero. */
+  /** Envíos con chat visible para `userId`, el de actividad más reciente primero (último mensaje o cambio de estado). */
   listShipmentsForUser(userId: string, statuses: readonly ShipmentStatus[], limit: number): Promise<ChatShipmentRow[]>;
   /** El último mensaje de cada envío (los envíos sin mensajes no aparecen). */
   lastMessages(shipmentIds: readonly string[]): Promise<Map<string, ChatMessageRecord>>;
@@ -79,10 +81,13 @@ function encodeCursor(message: ChatMessageRecord): string {
   return Buffer.from(`${message.createdAt.toISOString()}|${message.id}`, "utf8").toString("base64");
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function decodeCursor(cursor: string): { createdAt: Date; id: string } | null {
   const [createdAtRaw, id] = Buffer.from(cursor, "base64").toString("utf8").split("|");
   const createdAt = new Date(createdAtRaw ?? "");
-  if (!id || Number.isNaN(createdAt.getTime())) return null;
+  // El id va contra una columna `uuid`: uno que no lo es haría fallar la query con un 500 en vez de un 400.
+  if (!id || !UUID_RE.test(id) || Number.isNaN(createdAt.getTime())) return null;
   return { createdAt, id };
 }
 
@@ -126,6 +131,12 @@ export function createChatRepository(db: PrismaClient): ChatRepository {
         if (!existing) throw error;
         return { message: existing, created: false };
       }
+    },
+
+    async findByClientMessageId(shipmentId, authorId, clientMessageId) {
+      return db.chatMessage.findUnique({
+        where: { shipmentId_authorId_clientMessageId: { shipmentId, authorId, clientMessageId } },
+      });
     },
 
     async listPage(shipmentId, limit, cursor) {
@@ -189,18 +200,35 @@ export function createChatRepository(db: PrismaClient): ChatRepository {
     },
 
     async listShipmentsForUser(userId, statuses, limit) {
-      const rows = await db.shipment.findMany({
-        where: {
-          status: { in: [...statuses] },
-          carrierId: { not: null },
-          OR: [
-            { senderId: userId },
-            { receiverId: userId },
-            { carrierId: userId },
-            // El receptor que transfirió la recepción (ADR-038) sigue viendo el hilo, en solo lectura.
-            { receiverTransfers: { some: { requestedBy: userId, status: "completed" } } },
-          ],
-        },
+      // Los más recientes por ACTIVIDAD (último mensaje o último cambio de estado), no solo por estado: con más
+      // de `limit` envíos, un chat activo de un envío viejo no puede quedar afuera. El orden se resuelve en SQL
+      // y los envíos sin marca de tiempo cuentan como los más viejos (no como los primeros, que es lo que hace
+      // Postgres con los NULL en un DESC).
+      const ids = await db.$queryRaw<Array<{ id: string }>>`
+        SELECT s.id
+        FROM shipments.shipments s
+        LEFT JOIN LATERAL (
+          SELECT MAX(m.created_at) AS last_message_at FROM shipments.chat_messages m WHERE m.shipment_id = s.id
+        ) lm ON TRUE
+        WHERE s.status::text = ANY(${[...statuses]}::text[])
+          AND s.carrier_id IS NOT NULL
+          AND (
+            s.sender_id = ${userId}::uuid
+            OR s.receiver_id = ${userId}::uuid
+            OR s.carrier_id = ${userId}::uuid
+            OR EXISTS (
+              SELECT 1 FROM shipments.receiver_transfer_requests t
+              WHERE t.shipment_id = s.id AND t.requested_by = ${userId}::uuid AND t.status::text = 'completed'
+            )
+          )
+        ORDER BY GREATEST(
+          COALESCE(lm.last_message_at, 'epoch'::timestamptz),
+          COALESCE(s.last_status_changed_at, 'epoch'::timestamptz)
+        ) DESC, s.id DESC
+        LIMIT ${limit}`;
+      if (ids.length === 0) return [];
+      const found = await db.shipment.findMany({
+        where: { id: { in: ids.map((r) => r.id) } },
         select: {
           id: true,
           status: true,
@@ -213,9 +241,9 @@ export function createChatRepository(db: PrismaClient): ChatRepository {
           lastStatusChangedAt: true,
           receiverTransfers: { where: { status: "completed" }, select: { requestedBy: true }, take: 1 },
         },
-        orderBy: { lastStatusChangedAt: "desc" },
-        take: limit,
       });
+      const byId = new Map(found.map((r) => [r.id, r]));
+      const rows = ids.map((r) => byId.get(r.id)).filter((r): r is NonNullable<typeof r> => r !== undefined);
       return rows.map((r) => ({
         id: r.id,
         status: r.status as ShipmentStatus,

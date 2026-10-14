@@ -48,4 +48,11 @@ describe("moderateChatText (MOVO-26)", () => {
   it("tapa varias palabras ofensivas y mantiene espacios y signos", () => {
     expect(moderateChatText("¡Forro! Sos un idiota.").text).toBe("¡*****! Sos un ******.");
   });
+
+  it("no tapa 'foro' (palabra legítima) pero sí 'forro', también con letras repetidas", () => {
+    expect(moderateChatText("Pasé por el foro, hay varios foros")).toEqual({ text: "Pasé por el foro, hay varios foros", masked: false });
+    expect(moderateChatText("sos un forro")).toEqual({ text: "sos un *****", masked: true });
+    expect(moderateChatText("sos un forrrro")).toEqual({ text: "sos un *******", masked: true });
+    expect(moderateChatText("puuuta madre")).toMatchObject({ masked: true });
+  });
 });
