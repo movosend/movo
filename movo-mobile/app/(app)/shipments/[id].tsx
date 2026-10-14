@@ -8,6 +8,7 @@ import {
   ArrowUpRight,
   ChevronLeft,
   Clock,
+  CreditCard,
   Package,
   QrCode,
   Truck,
@@ -63,6 +64,7 @@ import {
   liveTrackingAvailability,
   liveTrackingPendingPollInterval,
   receiverConfirmationStatus,
+  isFundingWindowOpen,
   shipmentDetailCta,
   type ShipmentDetailRole,
 } from "../../../src/lib/shipment-format";
@@ -251,7 +253,11 @@ export default function ShipmentDetailScreen() {
       : isCarrier
         ? "carrier"
         : null;
-  const contextualCta = shipment ? shipmentDetailCta(role, shipment.status, shipment.id) : null;
+  const contextualCta = shipment
+    ? shipmentDetailCta(role, shipment.status, shipment.id, {
+        fundingWindowOpen: isFundingWindowOpen(shipment.pickupDate),
+      })
+    : null;
 
   // El precio pactado (`agreedPriceArs`) es el bruto que paga el emisor; el
   // transportista ve lo que recibe aprox. después de la comisión de Movo (AC3) y del
@@ -687,6 +693,8 @@ export default function ShipmentDetailScreen() {
               >
                 {contextualCta.icon === "qr" ? (
                   <QrCode size={18} color="#0A0A0B" />
+                ) : contextualCta.icon === "card" ? (
+                  <CreditCard size={18} color="#0A0A0B" />
                 ) : (
                   <Package size={18} color="#0A0A0B" />
                 )}

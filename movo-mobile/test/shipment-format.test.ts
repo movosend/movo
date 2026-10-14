@@ -26,6 +26,7 @@ import {
   formatShipmentRowTime,
   formatDurationMin,
   redesignationDeadlineLabel,
+  isFundingWindowOpen,
   shipmentDetailCta,
 } from "../src/lib/shipment-format";
 
@@ -674,6 +675,32 @@ describe("shipmentDetailCta (MOVO-194)", () => {
     expect(shipmentDetailCta("receiver", ShipmentStatus.ASSIGNED_UNFUNDED, "s1")).toBeNull();
   });
 
+  it("el emisor con el pago pendiente (assignment_pending) ve el CTA de pagar y reservar (MOVO-269 AC7)", () => {
+    expect(shipmentDetailCta("sender", ShipmentStatus.ASSIGNMENT_PENDING, "s1")).toEqual({
+      kind: "action",
+      label: "Pagar y reservar fondos",
+      path: "/(app)/shipments/s1/pay?resumed=1",
+      icon: "card",
+    });
+    // El transportista y el receptor no pagan.
+    expect(shipmentDetailCta("carrier", ShipmentStatus.ASSIGNMENT_PENDING, "s1")).toBeNull();
+    expect(shipmentDetailCta("receiver", ShipmentStatus.ASSIGNMENT_PENDING, "s1")).toBeNull();
+  });
+
+  it("assigned_unfunded: el emisor confirma el pago solo con la ventana abierta; si no, ve el aviso (MOVO-269)", () => {
+    expect(
+      shipmentDetailCta("sender", ShipmentStatus.ASSIGNED_UNFUNDED, "s1", { fundingWindowOpen: true }),
+    ).toEqual({ kind: "action", label: "Confirmar el pago", path: "/(app)/shipments/s1/pay", icon: "card" });
+    expect(shipmentDetailCta("sender", ShipmentStatus.ASSIGNED_UNFUNDED, "s1", { fundingWindowOpen: false })).toEqual({
+      kind: "info",
+      text: "Los fondos se reservan antes del retiro.",
+    });
+    expect(shipmentDetailCta("carrier", ShipmentStatus.ASSIGNED_UNFUNDED, "s1", { fundingWindowOpen: true })).toEqual({
+      kind: "info",
+      text: "Los fondos se reservan antes del retiro.",
+    });
+  });
+
   it("el transportista en in_transit va al wizard de entrega, no al QR suelto", () => {
     expect(shipmentDetailCta("carrier", ShipmentStatus.IN_TRANSIT, "s1")).toEqual({
       kind: "action",
@@ -723,5 +750,21 @@ describe("liveTrackingPendingPollInterval (MOVO-271 AC5)", () => {
     expect(liveTrackingPendingPollInterval({ status: ShipmentStatus.PUBLISHED, carrierId: null }, "sender-1")).toBe(false);
     expect(liveTrackingPendingPollInterval(undefined, "sender-1")).toBe(false);
     expect(liveTrackingPendingPollInterval(pending, "carrier-1")).toBe(false);
+  });
+});
+
+describe("isFundingWindowOpen (MOVO-269)", () => {
+  const now = new Date("2026-10-14T15:00:00Z");
+
+  it("se abre cuando el retiro entra en 3 días (inclusive) y sigue abierta si ya pasó", () => {
+    expect(isFundingWindowOpen("2026-10-14", now)).toBe(true);
+    expect(isFundingWindowOpen("2026-10-17", now)).toBe(true);
+    expect(isFundingWindowOpen("2026-10-18", now)).toBe(false);
+    expect(isFundingWindowOpen("2026-10-12", now)).toBe(true);
+  });
+
+  it("usa el día calendario argentino, no el UTC", () => {
+    // 01:00 UTC del 18 todavía es la noche del 17 en Argentina.
+    expect(isFundingWindowOpen("2026-10-20", new Date("2026-10-18T01:00:00Z"))).toBe(true);
   });
 });

@@ -182,6 +182,13 @@ export default function ShipmentOffersScreen() {
 
   const handleSuccessDismiss = () => {
     setIsSuccessModalVisible(false);
+    // Retiro cercano (MOVO-269): el envío queda `assignment_pending` y el emisor paga en el
+    // mismo flujo. `replace` deja el detalle debajo, así "volver" desde el pago cae ahí. Con
+    // retiro lejano (`assigned_unfunded`) el pago se confirma más adelante desde el detalle.
+    if (shipment?.status === ShipmentStatus.ASSIGNMENT_PENDING) {
+      router.replace(`/shipments/${id}/pay` as never);
+      return;
+    }
     goToShipmentDetail();
   };
 

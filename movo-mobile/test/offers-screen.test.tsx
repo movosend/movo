@@ -292,7 +292,7 @@ describe("ShipmentOffersScreen", () => {
   // `router.replace` al mismo destino apenas `shipment.carrierId` llegaba por el
   // refetch — dos instancias apiladas del detalle. Acá el refetch de `useShipment` ya
   // resolvió con `carrierId` seteado ANTES del dismiss (el caso real que lo disparaba).
-  it("no duplica la navegación al detalle si el refetch del envío ya trae carrierId antes de cerrar el modal de éxito", async () => {
+  it("no duplica la navegación si el refetch del envío ya trae carrierId antes de cerrar el modal de éxito", async () => {
     mockUseShipmentOffers.mockReturnValue({
       data: [sampleOffer1],
       isLoading: false,
@@ -332,9 +332,47 @@ describe("ShipmentOffersScreen", () => {
       fireEvent.press(getByTestId("choose-offer-success-modal-dismiss-btn"));
     });
 
+    // MOVO-269: con retiro cercano el envío queda `assignment_pending` y el emisor paga en el
+    // mismo flujo. Una sola navegación (a la pantalla de pago), nunca también al detalle.
+    expect(router.replace).toHaveBeenCalledTimes(1);
+    expect(router.replace).toHaveBeenCalledWith("/shipments/ship-1/pay");
+    expect(router.dismissTo).not.toHaveBeenCalled();
+  });
+
+  it("con retiro lejano (assigned_unfunded) vuelve al detalle: el pago se confirma más adelante (MOVO-269)", async () => {
+    mockUseShipmentOffers.mockReturnValue({
+      data: [sampleOffer1],
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetchOffers,
+      isRefetching: false,
+    });
+    mockUseShipment.mockReturnValue({
+      data: { id: "ship-1", carrierId: null, status: ShipmentStatus.PUBLISHED },
+      refetch: mockRefetchShipment,
+    });
+    mockMutateAccept.mockImplementationOnce(async () => {
+      mockUseShipment.mockReturnValue({
+        data: { id: "ship-1", carrierId: "carr-1", status: ShipmentStatus.ASSIGNED_UNFUNDED },
+        refetch: mockRefetchShipment,
+      });
+      return { ...sampleOffer1, status: OfferStatus.ACCEPTED };
+    });
+
+    const { getByTestId } = await render(<ShipmentOffersScreen />);
+    await act(async () => {
+      fireEvent.press(getByTestId("offer-card-off-1-accept-btn"));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId("choose-offer-modal-confirm"));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId("choose-offer-success-modal-dismiss-btn"));
+    });
+
     expect(router.dismissTo).toHaveBeenCalledTimes(1);
-    expect(router.replace).not.toHaveBeenCalled();
     expect(router.dismissTo).toHaveBeenCalledWith("/shipments/ship-1");
+    expect(router.replace).not.toHaveBeenCalled();
   });
 
   it("redirige al detalle del envío si el envío ya tiene transportista asignado", async () => {

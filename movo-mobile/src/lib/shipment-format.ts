@@ -145,8 +145,22 @@ export const FUNDS_PENDING_INFO_TEXT = "Los fondos se reservan antes del retiro.
 export type ShipmentDetailRole = "sender" | "receiver" | "carrier";
 
 export type ShipmentDetailCta =
-  | { kind: "action"; label: string; path: string; icon: "qr" | "package" }
+  | { kind: "action"; label: string; path: string; icon: "qr" | "package" | "card" }
   | { kind: "info"; text: string };
+
+/** "N" de la saga de pago (MOVO-12): desde que el retiro entra en estos días el emisor puede
+ * confirmar el pago de un envío `assigned_unfunded`. Espeja `FUNDING_NEAR_PICKUP_DAYS` (3 por
+ * default) de `svc-shipments`; el backend es quien decide (409 fuera de la ventana), esto solo
+ * evita ofrecer el botón antes de tiempo. */
+export const FUNDING_WINDOW_DAYS = 3;
+
+/** ¿El retiro (`YYYY-MM-DD`) entra en la ventana en que se confirma el pago? Cuenta días
+ * calendario argentinos, igual que el resto de las fechas de retiro. */
+export function isFundingWindowOpen(pickupDate: string, now: Date = new Date()): boolean {
+  const today = toArgentinaCalendarDateString(now);
+  const days = Math.round((Date.parse(`${pickupDate}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+  return !Number.isNaN(days) && days <= FUNDING_WINDOW_DAYS;
+}
 
 /** Acción contextual del pie del detalle del envío (MOVO-194 AC2): una sola por
  * combinación rol + estado. `assigned_unfunded` no tiene CTA porque la máquina de
@@ -155,8 +169,17 @@ export function shipmentDetailCta(
   role: ShipmentDetailRole | null,
   status: ShipmentStatus,
   shipmentId: string,
+  options?: { fundingWindowOpen?: boolean },
 ): ShipmentDetailCta | null {
   const base = `/(app)/shipments/${shipmentId}`;
+  // MOVO-269: el emisor reserva los fondos (con tarjeta guardada + CVV) al aceptar una oferta
+  // cercana, o desde acá si salió de la pantalla de pago (`resumed`) o el retiro es lejano.
+  if (role === "sender" && status === ShipmentStatus.ASSIGNMENT_PENDING) {
+    return { kind: "action", label: "Pagar y reservar fondos", path: `${base}/pay?resumed=1`, icon: "card" };
+  }
+  if (role === "sender" && status === ShipmentStatus.ASSIGNED_UNFUNDED && options?.fundingWindowOpen) {
+    return { kind: "action", label: "Confirmar el pago", path: `${base}/pay`, icon: "card" };
+  }
   if (status === ShipmentStatus.ASSIGNED_UNFUNDED && (role === "sender" || role === "carrier")) {
     return { kind: "info", text: FUNDS_PENDING_INFO_TEXT };
   }
