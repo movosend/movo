@@ -37,6 +37,13 @@ const PROVIDER_EVENT_KINDS = {
   in_mediation: "mediation",
 } as const;
 
+/** El aviso a svc-shipments que corresponde a un hold que quedó en `status` (o `null` si no hay que avisar). */
+function holdEventFor(status: Hold["status"] | undefined, statusDetail: string | null): HoldProviderEventKind | null {
+  if (status === "cancelled") return statusDetail === "expired" ? "expired" : "cancelled";
+  if (status === "rejected") return "rejected";
+  return null;
+}
+
 /** Un fallo que puede resolverse solo: la notificación vuelve a `pending` con backoff. */
 class TransientError extends Error {
   constructor(message: string) {
@@ -203,7 +210,8 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
     payment: PaymentResponse
   ): Promise<Resolution> {
     const status = payment.status ?? "";
-    if (status in PROVIDER_EVENT_KINDS) {
+    // `hasOwn` y no `in`: un `status` como "constructor" o "toString" no puede colarse por la cadena de prototipos.
+    if (Object.prototype.hasOwnProperty.call(PROVIDER_EVENT_KINDS, status)) {
       return recordProviderEvent(hold, payment, PROVIDER_EVENT_KINDS[status as keyof typeof PROVIDER_EVENT_KINDS]);
     }
 
@@ -233,14 +241,7 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
     const statusDetail = patch.statusDetail ?? null;
     // MP no tiene un estado "vencido": un hold que no se capturó a tiempo llega como
     // `cancelled` con `status_detail: expired` (a confirmar en MOVO-215).
-    const event: HoldProviderEventKind | null =
-      patch.status === "cancelled"
-        ? statusDetail === "expired"
-          ? "expired"
-          : "cancelled"
-        : patch.status === "rejected"
-          ? "rejected"
-          : null;
+    const event = holdEventFor(patch.status, statusDetail);
 
     const transitioned = await repo.transitionHold({
       notificationId: notification.id,
@@ -267,18 +268,28 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
    */
   async function resolveUnknownPayment(
     notification: MpWebhookNotification
-  ): Promise<{ hold: Hold; credentials: CarrierMpCredentials; payment: PaymentResponse } | Resolution> {
+  ): Promise<
+    { hold: Hold; credentials: CarrierMpCredentials; payment: PaymentResponse; reconciledFrom: Hold["status"] | null } | Resolution
+  > {
     if (!notification.mpUserId) return done("ignored", "unknown_payment");
     const credentials = await accounts.findCredentialsByMpUserId(notification.mpUserId);
     if (!credentials) return done("ignored", "unknown_payment");
 
     const fetched = await fetchPayment(credentials.accessToken, notification.mpPaymentId);
     if (fetched.kind !== "ok") return done("ignored", `unknown_payment_${fetched.kind}`);
+    // El `user_id` del body no está firmado: solo orienta qué credenciales probar. El pago tiene que
+    // ser realmente de ese vendedor, o se ignora (defensa en profundidad ante un body forjado).
+    const collectorId = (fetched.payment as { collector_id?: number | string }).collector_id;
+    if (collectorId !== undefined && String(collectorId) !== credentials.mpUserId) {
+      return done("ignored", "unknown_payment_collector_mismatch");
+    }
     const shipmentId = fetched.payment.external_reference;
     if (!shipmentId) return done("ignored", "unknown_payment");
 
     const latest = await holds.findLatestByShipment(shipmentId).catch(() => null);
+    let reconciledFrom: Hold["status"] | null = null;
     if (latest?.status === "creating" && latest.carrierId === credentials.userId) {
+      reconciledFrom = latest.status;
       try {
         await deps.holdService.getByShipment(shipmentId, { sync: true });
       } catch (error) {
@@ -287,7 +298,7 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
     }
     const hold = await holds.findByMpPaymentId(notification.mpPaymentId);
     if (!hold) return done("ignored", "unknown_payment");
-    return { hold, credentials, payment: fetched.payment };
+    return { hold, credentials, payment: fetched.payment, reconciledFrom };
   }
 
   async function handle(notification: MpWebhookNotification): Promise<Resolution> {
@@ -302,6 +313,17 @@ export function createMpWebhookService(deps: MpWebhookServiceDeps) {
     if (!known) {
       const resolved = await resolveUnknownPayment(notification);
       if ("status" in resolved) return resolved;
+      // La reconciliación (`?sync=true`) ya escribió el estado final de MP en el hold. Si lo llevó a
+      // cancelado/vencido/rechazado, `applyPayment` lo vería "ya cerrado" y no avisaría nunca: el envío no
+      // se enteraría de que la reserva se cayó. Se avisa acá, dejando anotado el aviso por si hay que reintentar.
+      if (resolved.reconciledFrom && resolved.hold.status !== resolved.reconciledFrom) {
+        const detail = resolved.hold.statusDetail ?? null;
+        const event = holdEventFor(resolved.hold.status, detail);
+        if (event) {
+          await repo.setPendingHoldEvent(notification.id, resolved.hold.id, event, detail);
+          return deliverHoldEvent(notification, resolved.hold, event, detail);
+        }
+      }
       return applyPayment(notification, resolved.hold, resolved.payment);
     }
 

@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest } from "fastify";
 import { ApiError } from "@movo/shared";
-import { verifyMpWebhookSignature } from "../../utils/mp-webhook-signature";
+import { notificationDedupeKey, parseSignatureHeader, verifyMpWebhookSignature } from "../../utils/mp-webhook-signature";
 import { mpWebhookSchema } from "./mp-webhook.schema";
 
 interface MpWebhookBody {
@@ -59,11 +59,13 @@ export default async function mpWebhookRoutes(app: FastifyInstance) {
     }
 
     const topic = body.type ?? query.type ?? "unknown";
-    const mpNotificationId = asString(body.id) ?? header(request, "x-request-id");
-    if (!mpPaymentId || !mpNotificationId) {
-      request.log.warn({ topic }, "notificación de MP sin id de pago o de notificación: se ignora");
+    // Deduplicación por lo firmado (pago + request-id + ts), no por el `id` del body.
+    const ts = parseSignatureHeader(header(request, "x-signature") ?? "")?.ts;
+    if (!mpPaymentId || !ts) {
+      request.log.warn({ topic }, "notificación de MP sin id de pago o de firma: se ignora");
       return reply.code(200).send({ received: true });
     }
+    const mpNotificationId = notificationDedupeKey(mpPaymentId, header(request, "x-request-id"), ts);
 
     const result = await app.mpWebhooks.receive({
       mpNotificationId,

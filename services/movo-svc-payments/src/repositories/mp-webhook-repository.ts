@@ -67,6 +67,12 @@ export interface MpWebhookRepository {
     pendingEvent: HoldProviderEventKind | null;
     pendingEventDetail: string | null;
   }): Promise<boolean>;
+  /**
+   * Deja anotado en la notificación el aviso pendiente a svc-shipments cuando el hold ya cambió
+   * por otro camino (la reconciliación de un intento en `creating` con `?sync=true`), para que un
+   * reintento lo vuelva a entregar si svc-shipments no responde.
+   */
+  setPendingHoldEvent(id: string, holdId: string, event: HoldProviderEventKind, detail: string | null): Promise<void>;
   /** El aviso a svc-shipments ya se entregó. */
   clearPendingHoldEvent(id: string): Promise<void>;
   /** Inserta el evento; `null` si ese (pago, estado de MP) ya estaba registrado (AC6). */
@@ -141,6 +147,13 @@ export function createMpWebhookRepository(db: PrismaClient): MpWebhookRepository
           data: { holdId, pendingHoldEvent: pendingEvent, pendingHoldEventDetail: pendingEventDetail },
         });
         return true;
+      });
+    },
+
+    async setPendingHoldEvent(id, holdId, event, detail) {
+      await db.mpWebhookNotification.update({
+        where: { id },
+        data: { holdId, pendingHoldEvent: event, pendingHoldEventDetail: detail },
       });
     },
 

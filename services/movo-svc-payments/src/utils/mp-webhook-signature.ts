@@ -39,10 +39,11 @@ export function buildSignatureManifest(dataId: string | undefined, requestId: st
 
 /**
  * MOVO-268 AC2: valida `x-signature` con la clave secreta de webhooks de la app
- * (`MP_WEBHOOK_SECRET`). Solo HMAC, sin ventana sobre `ts`: un reenvío de una
- * notificación vieja es inofensivo, porque el servicio nunca actúa sobre el body sino
- * sobre `Payment.get`, y el inbox descarta el duplicado. Así tampoco se rechaza un
- * reintento legítimo de MP que conserve el `ts` original.
+ * (`MP_WEBHOOK_SECRET`). Solo HMAC, sin ventana sobre `ts`: un reintento legítimo de MP
+ * conserva el `ts` original y rechazarlo perdería la notificación. Un reenvío malicioso de una
+ * notificación vieja es inofensivo porque el inbox deduplica por lo que SÍ está firmado
+ * (`notificationDedupeKey`: pago + `x-request-id` + `ts`), no por el `id` del body, y porque el
+ * servicio nunca actúa sobre el body sino sobre `Payment.get`.
  */
 export function verifyMpWebhookSignature(input: MpWebhookSignatureInput): boolean {
   if (!input.signatureHeader) return false;
@@ -55,4 +56,13 @@ export function verifyMpWebhookSignature(input: MpWebhookSignatureInput): boolea
   if (!/^[0-9a-f]+$/i.test(parsed.v1)) return false;
   const received = Buffer.from(parsed.v1, "hex");
   return received.length === expected.length && timingSafeEqual(received, expected);
+}
+
+/**
+ * Clave de deduplicación de una notificación, armada SOLO con lo que firma MP (`data.id`,
+ * `x-request-id` y `ts`). El `id` del body no está firmado: quien tuviera una notificación válida podía
+ * reenviarla con otro `id` y crear una fila nueva en el inbox cada vez.
+ */
+export function notificationDedupeKey(dataId: string, requestId: string | undefined, ts: string): string {
+  return `${dataId.toLowerCase()}:${requestId ?? "-"}:${ts}`;
 }

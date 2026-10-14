@@ -136,6 +136,26 @@ describe("POST /payments/webhooks/mercadopago (MOVO-268)", () => {
     return res;
   }
 
+  /** Reenvía una notificación ya firmada (mismos headers) cambiando campos del body que la firma NO cubre. */
+  async function replay(bodyOverrides: Record<string, unknown>) {
+    const res = await app.inject({
+      method: "POST",
+      url: `${URL}?data.id=${PAYMENT_ID}&type=payment`,
+      headers: { "x-request-id": "req-replay", "x-signature": signature(PAYMENT_ID, "req-replay") },
+      payload: {
+        id: 1,
+        type: "payment",
+        action: "payment.updated",
+        user_id: Number(MP_USER),
+        live_mode: false,
+        data: { id: PAYMENT_ID },
+        ...bodyOverrides,
+      },
+    });
+    await app.mpWebhooks.drain();
+    return res;
+  }
+
   const notifications = () => app.db.mpWebhookNotification.findMany({ orderBy: { receivedAt: "asc" } });
   const hold = async () => (await app.db.hold.findFirst({ where: { shipmentId: SHIPMENT } }))!;
 
@@ -383,6 +403,80 @@ describe("POST /payments/webhooks/mercadopago (MOVO-268)", () => {
       });
       await notify();
       expect((await notifications())[0]).toMatchObject({ status: "unverifiable", outcome: "carrier_token_rejected" });
+    });
+  });
+
+  describe("hardening de la review de PR #235", () => {
+    it("reenviar una notificación firmada con otro `id` en el body NO crea una fila nueva (se deduplica por lo firmado)", async () => {
+      await seedHold();
+      await replay({ id: 1 });
+      await replay({ id: 999 });
+      await replay({ id: 12345 });
+
+      expect(await notifications()).toHaveLength(1);
+    });
+
+    it("un `status` heredado de Object (constructor, toString) no rompe: queda como estado desconocido", async () => {
+      await seedHold();
+      mp.getPayment.mockImplementation(async () => payment({ status: "constructor" }));
+
+      await notify();
+
+      const [row] = await notifications();
+      expect(row).toMatchObject({ status: "processed", outcome: "unknown_mp_status:constructor" });
+      expect(await app.db.paymentProviderEvent.count()).toBe(0);
+    });
+
+    it("un `user_id` forjado que apunta a otro vendedor se ignora si el pago no es de ese vendedor", async () => {
+      // Pago desconocido (sin hold): el body trae el user_id del transportista, pero MP dice que el cobrador es otro.
+      mp.getPayment.mockImplementation(async () => ({ ...payment(), collector_id: 555 }) as PaymentResponse);
+
+      await notify();
+
+      expect((await notifications())[0]).toMatchObject({ status: "ignored", outcome: "unknown_payment_collector_mismatch" });
+    });
+
+    it("un intento en creating que la reconciliación lleva a cancelado SÍ le avisa a svc-shipments", async () => {
+      await seedHold({ status: "creating", mpPaymentId: null, statusDetail: null, expiresAt: null });
+      // MP todavía lo tiene vivo al buscarlo (se adopta), pero al sincronizar ya figura vencido.
+      mp.searchPaymentsByExternalReference.mockImplementation(async () => [
+        { id: Number(PAYMENT_ID), status: "authorized" },
+      ]);
+      mp.getPayment.mockImplementation(async () => payment({ status: "cancelled", status_detail: "expired" }));
+
+      await notify();
+
+      expect((await hold()).status).toBe("cancelled");
+      expect(shipments.notifyHoldEvent).toHaveBeenCalledWith(
+        SHIPMENT,
+        expect.objectContaining({ event: "expired", statusDetail: "expired" })
+      );
+      const [row] = await notifications();
+      expect(row.outcome).toMatch(/^hold_expired_notified/);
+      expect(row.pendingHoldEvent).toBeNull();
+    });
+
+    it("si svc-shipments no responde tras reconciliar, el aviso queda pendiente y el reintento lo entrega", async () => {
+      const seeded = await seedHold({ status: "creating", mpPaymentId: null, statusDetail: null, expiresAt: null });
+      mp.searchPaymentsByExternalReference.mockImplementation(async () => [
+        { id: Number(PAYMENT_ID), status: "authorized" },
+      ]);
+      mp.getPayment.mockImplementation(async () => payment({ status: "cancelled", status_detail: "cancelled_by_user" }));
+      shipments.notifyHoldEvent.mockImplementationOnce(async () => {
+        throw new ShipmentsUnavailableError("svc-shipments respondió 503");
+      });
+
+      await notify();
+      const [pending] = await notifications();
+      expect(pending).toMatchObject({ status: "pending", pendingHoldEvent: "cancelled", holdId: seeded.id });
+
+      await app.db.$executeRawUnsafe(
+        "UPDATE payments.mp_webhook_notifications SET next_attempt_at = now() - interval '1 second'"
+      );
+      await app.mpWebhooks.processDue();
+
+      expect(shipments.notifyHoldEvent).toHaveBeenCalledTimes(2);
+      expect((await notifications())[0]).toMatchObject({ status: "processed", pendingHoldEvent: null });
     });
   });
 
