@@ -6,13 +6,15 @@ import { Text } from "react-native";
 export function SectionLabel({
   children,
   className,
+  noMargin = false,
 }: {
   children: ReactNode;
   className?: string;
+  noMargin?: boolean;
 }) {
   return (
     <Text
-      className={`font-sans-medium text-[11px] uppercase tracking-wide text-fg-3 ${className ?? "mb-2.5"}`}
+      className={`font-sans-medium text-[11px] uppercase tracking-wide text-fg-3 ${noMargin ? "" : "mb-2.5"}${className ? ` ${className}` : ""}`}
     >
       {children}
     </Text>

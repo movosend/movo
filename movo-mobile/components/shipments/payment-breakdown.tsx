@@ -210,7 +210,7 @@ export function PaymentBreakdown({
   return (
     <View testID={testID}>
       <View className="mb-2.5 flex-row items-center justify-between gap-3">
-        <SectionLabel className="">{label}</SectionLabel>
+        <SectionLabel noMargin>{label}</SectionLabel>
         {pill}
       </View>
       {card}
