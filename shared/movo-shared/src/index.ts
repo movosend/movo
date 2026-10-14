@@ -237,3 +237,14 @@ export type {
   ReceiverTransferInvitationShipment,
   ShipmentReceiverTransferSummary,
 } from "./types/receiver-transfer";
+
+// admin: bitácora y conflicto de interés (MOVO-288)
+export type {
+  AuditOutcome,
+  AdminTargetType,
+  AuditLogEntry,
+  AuditLogPage,
+  ShipmentParties,
+  ChatReportParties,
+  UserReportParties,
+} from "./types/admin";
