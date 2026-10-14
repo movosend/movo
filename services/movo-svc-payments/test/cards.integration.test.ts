@@ -386,6 +386,25 @@ describe("/payments/cards (MOVO-100)", () => {
       expect(cards[0].isDefault).toBe(true);
     });
 
+    it("al borrar la predeterminada no promueve a una vencida habiendo otra vigente", async () => {
+      const first = (await add()).json();
+      const second = (await add()).json();
+      const third = (await add()).json();
+      await app.db.savedCard.update({ where: { id: third.id }, data: { expYear: 2020, expMonth: 1 } });
+      await app.inject({ method: "DELETE", url: `/payments/cards/${first.id}`, headers: as(USER) });
+      const rows = await app.db.savedCard.findMany({ where: { userId: USER, deletedAt: null } });
+      expect(rows.find((r) => r.isDefault)?.id).toBe(second.id);
+    });
+
+    it("si todas las que quedan están vencidas, igual promueve a la más reciente", async () => {
+      const first = (await add()).json();
+      const second = (await add()).json();
+      await app.db.savedCard.update({ where: { id: second.id }, data: { expYear: 2020, expMonth: 1 } });
+      await app.inject({ method: "DELETE", url: `/payments/cards/${first.id}`, headers: as(USER) });
+      const rows = await app.db.savedCard.findMany({ where: { userId: USER, deletedAt: null } });
+      expect(rows.find((r) => r.isDefault)?.id).toBe(second.id);
+    });
+
     it("se puede volver a guardar una tarjeta dada de baja", async () => {
       const first = (await add()).json();
       await app.inject({ method: "DELETE", url: `/payments/cards/${first.id}`, headers: as(USER) });

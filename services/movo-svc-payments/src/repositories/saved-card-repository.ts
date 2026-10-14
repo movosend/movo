@@ -192,10 +192,17 @@ export function createSavedCardRepository(db: PrismaClient): SavedCardRepository
           data: { deletedAt: new Date(), isDefault: false },
         });
         if (card.isDefault) {
-          const next = await tx.savedCard.findFirst({
-            where: { userId, deletedAt: null },
-            orderBy: { createdAt: "desc" },
-          });
+          // La vigente más reciente; si ninguna vigente, la más reciente (siempre queda una
+          // predeterminada). Una vencida no se promueve habiendo otra que sirva para pagar.
+          const now = new Date();
+          const year = now.getFullYear();
+          const month = now.getMonth() + 1;
+          const live = { userId, deletedAt: null };
+          const next =
+            (await tx.savedCard.findFirst({
+              where: { ...live, OR: [{ expYear: { gt: year } }, { expYear: year, expMonth: { gte: month } }] },
+              orderBy: { createdAt: "desc" },
+            })) ?? (await tx.savedCard.findFirst({ where: live, orderBy: { createdAt: "desc" } }));
           if (next) await tx.savedCard.update({ where: { id: next.id }, data: { isDefault: true } });
         }
         return deleted;
