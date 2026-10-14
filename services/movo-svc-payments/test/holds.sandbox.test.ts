@@ -188,9 +188,12 @@ describe.skipIf(!CONFIGURED)("hold contra el sandbox real de Mercado Pago (MOVO-
  * tokeniza para GUARDAR la tarjeta), MP_SANDBOX_BUYER_EMAIL y la Visa 4075 5957 1648 3764 en
  * MP_TEST_CARD_NUMBER (guardar con las otras da 500 en el sandbox).
  *
- * El resultado del pago lo decide el titular con el que se guardó la tarjeta (APRO aprueba, SECU
- * rechaza por código de seguridad, FUND por fondos), así que cada caso guarda su propia tarjeta
- * y la da de baja al terminar.
+ * LÍMITE DEL SANDBOX (verificado el 14/10/2026): el resultado de un pago lo decide el titular de la
+ * tarjeta, y con una tarjeta GUARDADA no se pueden simular rechazos: guardar con titular SECU o FUND
+ * responde 500, y un CVV equivocado (`999`) en el token `card_id` + CVV se autoriza igual. Por eso acá
+ * solo se prueba el camino feliz; el mapeo del CVV incorrecto (`invalid_data`), la tarjeta vencida
+ * (`card_rejected`) y los fondos insuficientes está cubierto con MP mockeado en `hold.service.test.ts`
+ * y `holds.integration.test.ts`.
  */
 const SAVED_CARD_CONFIGURED = Boolean(
   CONFIGURED &&
@@ -332,24 +335,6 @@ describe.skipIf(!SAVED_CARD_CONFIGURED)("hold con tarjeta guardada contra el san
 
     // Liberado el hold, la tarjeta sigue ahí y ahora sí se puede dar de baja.
     expect((await app.inject({ method: "GET", url: "/payments/cards", headers })).json()).toHaveLength(1);
-    expect((await removeCard(card.id)).statusCode).toBe(204);
-  }, 90_000);
-
-  it("CVV incorrecto (titular SECU): rejected / invalid_data, no un error HTTP", async () => {
-    const { card, res } = await holdWith("SECU");
-
-    expect(res.statusCode, res.body).toBe(201);
-    expect(res.json()).toMatchObject({ status: "rejected", failureReason: "invalid_data" });
-
-    expect((await removeCard(card.id)).statusCode).toBe(204);
-  }, 90_000);
-
-  it("fondos insuficientes (titular FUND): rejected / insufficient_funds", async () => {
-    const { card, res } = await holdWith("FUND");
-
-    expect(res.statusCode, res.body).toBe(201);
-    expect(res.json()).toMatchObject({ status: "rejected", failureReason: "insufficient_funds" });
-
     expect((await removeCard(card.id)).statusCode).toBe(204);
   }, 90_000);
 });
