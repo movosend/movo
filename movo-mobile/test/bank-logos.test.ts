@@ -8,6 +8,9 @@ describe("bank-logos (MOVO-101)", () => {
     ["Banco Nación", "nacion"],
     ["Banco Macro", "macro"],
     ["Banco Provincia de Buenos Aires", "provincia"],
+    ["Banco Provincia", "provincia"],
+    ["Banco de la Nación Argentina", "nacion"],
+    ["Banco de la Ciudad de Buenos Aires", "ciudad"],
     ["Banco Provincia del Neuquén", "bpn"],
     ["Banco Ciudad", "ciudad"],
     ["Banco Credicoop", "credicoop"],
@@ -29,5 +32,15 @@ describe("bank-logos (MOVO-101)", () => {
   it("sin logo para el banco o sin banco devuelve null (se muestran las iniciales)", () => {
     expect(bankSlugFromIssuer("Banco Patagonia")).toBeNull();
     expect(bankLogoFor(null)).toBeNull();
+  });
+
+  it.each([
+    "Banco Internacional",
+    "Banco Provincia de Tierra del Fuego",
+    "Banco Personal Empresas",
+    "Banco Ciudadela",
+    "Macroeconómica S.A.",
+  ])("no confunde '%s' con otro banco (se matchea por palabra completa)", (issuer) => {
+    expect(bankSlugFromIssuer(issuer)).toBeNull();
   });
 });

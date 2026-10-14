@@ -31,41 +31,43 @@ const BANK_LOGOS: Record<string, ImageSourcePropType> = {
 };
 
 /**
- * Palabras clave del `issuer.name` de MP, en orden: la primera que aparece gana. "Neuquén"
- * va antes que "provincia" porque el BPN es "Banco Provincia del Neuquén".
+ * Patrones del `issuer.name` de MP, en orden: el primero que encaja gana. Van por palabra
+ * completa (`\b`) y, donde la palabra sola es ambigua, con la frase: "nacion" a secas
+ * encajaba dentro de "Internacional" y "provincia" en "Banco Provincia de Tierra del Fuego".
+ * "Neuquén" va antes que "provincia" porque el BPN es "Banco Provincia del Neuquén".
  */
-const ISSUER_KEYWORDS: [string, string][] = [
-  ["neuquen", "bpn"],
-  ["bpn", "bpn"],
-  ["galicia", "galicia"],
-  ["santander", "santander"],
-  ["bbva", "bbva"],
-  ["frances", "bbva"],
-  ["nacion", "nacion"],
-  ["macro", "macro"],
-  ["ciudad", "ciudad"],
-  ["credicoop", "credicoop"],
-  ["hipotecario", "hipotecario"],
-  ["supervielle", "supervielle"],
-  ["comafi", "comafi"],
-  ["cordoba", "bancor"],
-  ["bancor", "bancor"],
-  ["corrientes", "corrientes"],
-  ["brubank", "brubank"],
-  ["naranja", "naranja-x"],
-  ["mercado pago", "mercado-pago"],
-  ["mercadopago", "mercado-pago"],
-  ["personal", "personal-pay"],
-  ["uala", "uala"],
-  ["provincia", "provincia"],
-  ["bapro", "provincia"],
+const ISSUER_PATTERNS: [RegExp, string][] = [
+  [/\bneuquen\b/, "bpn"],
+  [/\bbpn\b/, "bpn"],
+  [/\bgalicia\b/, "galicia"],
+  [/\bsantander\b/, "santander"],
+  [/\bbbva\b/, "bbva"],
+  [/\bfrances\b/, "bbva"],
+  [/\bbanco (de la )?nacion\b/, "nacion"],
+  [/\bmacro\b/, "macro"],
+  [/\bbanco (de la )?ciudad\b/, "ciudad"],
+  [/\bcredicoop\b/, "credicoop"],
+  [/\bhipotecario\b/, "hipotecario"],
+  [/\bsupervielle\b/, "supervielle"],
+  [/\bcomafi\b/, "comafi"],
+  [/\bcordoba\b/, "bancor"],
+  [/\bbancor\b/, "bancor"],
+  [/\bbanco de corrientes\b/, "corrientes"],
+  [/\bbrubank\b/, "brubank"],
+  [/\bnaranja\b/, "naranja-x"],
+  [/\bmercado ?pago\b/, "mercado-pago"],
+  [/\bpersonal pay\b/, "personal-pay"],
+  [/\buala\b/, "uala"],
+  [/\bprovincia de buenos aires\b/, "provincia"],
+  [/^banco provincia$/, "provincia"],
+  [/\bbapro\b/, "provincia"],
 ];
 
 /** Slug del logo para el `issuer.name` de MP, o `null` si no hay logo para ese banco. */
 export function bankSlugFromIssuer(issuerName: string | null | undefined): string | null {
   if (!issuerName) return null;
-  const normalized = normalizeSearchText(issuerName);
-  const match = ISSUER_KEYWORDS.find(([keyword]) => normalized.includes(keyword));
+  const normalized = normalizeSearchText(issuerName).trim();
+  const match = ISSUER_PATTERNS.find(([pattern]) => pattern.test(normalized));
   return match ? match[1] : null;
 }
 
